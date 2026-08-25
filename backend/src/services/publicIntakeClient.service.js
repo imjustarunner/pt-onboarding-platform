@@ -126,16 +126,72 @@ export function isPractitionerOrgType(orgType) {
   return t === 'life_coach' || t === 'consultant';
 }
 
+/** Join / public booking: which child org types to prefer per service lane. */
+export function preferredOrgTypesForJoinService(serviceType) {
+  const st = String(serviceType || '').trim().toLowerCase();
+  if (st === 'counseling') return ['clinical', 'program'];
+  if (st === 'tutoring') return ['learning'];
+  if (st === 'coaching') return ['life_coach', 'program', 'clinical'];
+  if (st === 'consulting') return ['consultant', 'program'];
+  return ['clinical', 'program', 'learning', 'school'];
+}
+
+/**
+ * Pick the best affiliated child org for a join service type.
+ * @param {Array<{ id: number, organization_type?: string }>} affiliatedRows
+ * @param {string} [serviceType]
+ * @returns {number|null}
+ */
+export function pickAffiliatedOrgForService(affiliatedRows, serviceType) {
+  const rows = (affiliatedRows || [])
+    .map((r) => ({
+      id: Number(r.id),
+      organizationType: String(r.organization_type || '').toLowerCase()
+    }))
+    .filter((r) => r.id > 0);
+
+  const preferred = preferredOrgTypesForJoinService(serviceType);
+  for (const type of preferred) {
+    const match = rows.find((r) => r.organizationType === type);
+    if (match) return match.id;
+  }
+
+  const fallbackOrder = ['clinical', 'program', 'learning', 'school'];
+  for (const type of fallbackOrder) {
+    const match = rows.find((r) => r.organizationType === type);
+    if (match) return match.id;
+  }
+  return rows[0]?.id || null;
+}
+
+async function listAffiliatedIntakeOrganizations(agencyId) {
+  const [orgRows] = await pool.execute(
+    `SELECT a.id, a.organization_type, a.name
+     FROM organization_affiliations oa
+     JOIN agencies a ON a.id = oa.organization_id
+     WHERE oa.agency_id = ?
+       AND oa.is_active = TRUE
+       AND LOWER(COALESCE(a.organization_type, '')) IN ('program', 'school', 'learning', 'clinical')
+     ORDER BY a.name ASC, a.id ASC`,
+    [agencyId]
+  );
+  return orgRows || [];
+}
+
 /**
  * Resolve organization_id for a public NEW_CLIENT booking.
- * Prefer body hint → agency when it is an intake-capable org type → affiliated children.
+ * Prefer body hint → practitioner root → service-specific affiliated child org.
  */
-export async function resolveOrganizationIdForPublicBooking({ agencyId, organizationIdHint = null }) {
+export async function resolveOrganizationIdForPublicBooking({
+  agencyId,
+  organizationIdHint = null,
+  serviceType = null
+} = {}) {
   const aid = Number(agencyId || 0) || null;
   if (!aid) return null;
 
   const hint = Number(organizationIdHint || 0) || null;
-  if (hint) {
+  if (hint && hint !== aid) {
     const org = await Agency.findById(hint);
     if (org && isPublicIntakeOrgType(org.organization_type)) return hint;
   }
@@ -145,22 +201,24 @@ export async function resolveOrganizationIdForPublicBooking({ agencyId, organiza
     [aid]
   );
   const orgType = String(agencyRows?.[0]?.organization_type || '').toLowerCase();
-  if (isPublicIntakeOrgType(orgType)) {
+  if (isPractitionerOrgType(orgType)) {
+    return aid;
+  }
+  if (orgType !== 'agency' && isPublicIntakeOrgType(orgType)) {
     return aid;
   }
 
-  const [orgRows] = await pool.execute(
-    `SELECT a.id
-     FROM organization_affiliations oa
-     JOIN agencies a ON a.id = oa.organization_id
-     WHERE oa.agency_id = ?
-       AND oa.is_active = TRUE
-       AND LOWER(COALESCE(a.organization_type, '')) IN ('program', 'school', 'learning', 'clinical')
-     ORDER BY FIELD(LOWER(COALESCE(a.organization_type, '')), 'program', 'school', 'learning', 'clinical'), a.id ASC
-     LIMIT 1`,
-    [aid]
-  );
-  return Number(orgRows?.[0]?.id || 0) || null;
+  const affiliated = await listAffiliatedIntakeOrganizations(aid);
+  const picked = pickAffiliatedOrgForService(affiliated, serviceType);
+  if (picked) return picked;
+
+  // Hint was tenant root (common for join) — already tried affiliated children above.
+  if (hint === aid) {
+    const hintOrg = await Agency.findById(hint);
+    if (hintOrg && isPublicIntakeOrgType(hintOrg.organization_type)) return hint;
+  }
+
+  return null;
 }
 
 export { isOfficeEarlyAccountProvisionLink } from '../utils/officeIntakeLink.js';

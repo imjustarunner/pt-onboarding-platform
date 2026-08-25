@@ -1480,7 +1480,8 @@ export const createBookingRequest = async (req, res, next) => {
         try {
           const organizationId = await resolveOrganizationIdForPublicBooking({
             agencyId: agency.id,
-            organizationIdHint: agency.id
+            organizationIdHint: agency.id,
+            serviceType
           });
           if (!organizationId) {
             console.warn('[createBookingRequest] no intake-capable organization for agency', {

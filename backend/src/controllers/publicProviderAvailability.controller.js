@@ -350,7 +350,8 @@ async function maybeCreateClientForPublicRequest({ agencyId, providerId, body })
 
   const organizationId = await resolveOrganizationIdForPublicBooking({
     agencyId,
-    organizationIdHint: body?.organizationId
+    organizationIdHint: body?.organizationId,
+    serviceType: body?.serviceType
   });
   if (!organizationId) return { createdClientId: null, createdGuardianUserId: null };
 
