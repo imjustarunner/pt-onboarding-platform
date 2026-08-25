@@ -1,5 +1,5 @@
 import express from 'express';
-import { authenticate, requireAgencyAdminOrOperationsLead } from '../middleware/auth.middleware.js';
+import { authenticate, requireAgencyAdminOrOperationsLead, requireSuperAdmin } from '../middleware/auth.middleware.js';
 import { actorCanManagePlatformGear } from '../services/gearCatalog.service.js';
 import {
   getGearSummary,
@@ -40,24 +40,33 @@ import {
   deleteGearPackage,
   previewGearPackageIssue,
   issueGearPackage,
+  listPlatformGearManagers,
+  searchPlatformGearGrantUsers,
+  setPlatformGearAccess,
 } from '../controllers/gearInventory.controller.js';
 
 const router = express.Router();
 
 router.use(authenticate);
 
-const requireCatalogAccess = (req, res, next) => {
-  const role = String(req.user?.role || '').toLowerCase();
-  const allowed = [
-    'super_admin',
-    'admin',
-    'support',
-    'staff',
-    'clinical_practice_assistant',
-    'provider_plus',
-  ];
-  if (allowed.includes(role)) return next();
-  return res.status(403).json({ error: { message: 'Admin access required for Gear & Materials catalog' } });
+const requireCatalogAccess = async (req, res, next) => {
+  try {
+    const role = String(req.user?.role || '').toLowerCase();
+    const allowed = [
+      'super_admin',
+      'admin',
+      'support',
+      'staff',
+      'clinical_practice_assistant',
+      'provider_plus',
+    ];
+    if (allowed.includes(role)) return next();
+    // Explicit platform gear grant (e.g. materials staff who are not admin roles)
+    if (await actorCanManagePlatformGear(req.user)) return next();
+    return res.status(403).json({ error: { message: 'Admin access required for Gear & Materials catalog' } });
+  } catch (err) {
+    return next(err);
+  }
 };
 
 /** Agency inventory routes: agency admin/ops lead, or platform gear managers. */
@@ -76,6 +85,12 @@ router.get('/catalog', requireCatalogAccess, listCatalog);
 router.get('/catalog/activity', requireCatalogAccess, listCatalogActivity);
 router.get('/catalog/agencies', requireCatalogAccess, listCatalogAgencies);
 router.get('/catalog/agencies/:agencyId/users', requireCatalogAccess, listCatalogAgencyUsers);
+
+// Superadmin: grant / revoke platform-wide Gear access on this page
+router.get('/platform-managers', requireSuperAdmin, listPlatformGearManagers);
+router.get('/platform-managers/search', requireSuperAdmin, searchPlatformGearGrantUsers);
+router.put('/platform-managers/:userId', requireSuperAdmin, setPlatformGearAccess);
+
 router.post('/catalog', requireCatalogAccess, createCatalogItem);
 router.get('/catalog/:catalogItemId', requireCatalogAccess, getCatalogItem);
 router.patch('/catalog/:catalogItemId', requireCatalogAccess, updateCatalogItem);

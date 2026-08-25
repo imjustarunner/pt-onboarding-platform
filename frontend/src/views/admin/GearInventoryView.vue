@@ -63,7 +63,92 @@
           :class="{ on: viewMode === 'packages' }"
           @click="viewMode = 'packages'; closeDetail()"
         >Packages</button>
+        <button
+          v-if="isSuperAdmin"
+          type="button"
+          class="gem-view-tab"
+          :class="{ on: viewMode === 'access' }"
+          @click="viewMode = 'access'; closeDetail(); loadPlatformManagers()"
+        >Platform Access</button>
       </div>
+
+      <section v-if="viewMode === 'access' && isSuperAdmin" class="gem-access">
+        <div class="gem-access-head">
+          <div>
+            <h2>Platform Gear &amp; Materials access</h2>
+            <p class="gem-sub">
+              Grant people cross-tenant inventory access here. Superadmins always have it.
+              Agency admins already manage their own agency inventory (and each agency they belong to).
+            </p>
+          </div>
+        </div>
+        <div v-if="accessError" class="gem-error">{{ accessError }}</div>
+        <div v-if="accessSuccess" class="gem-success">{{ accessSuccess }}</div>
+
+        <div class="gem-access-grant">
+          <input
+            v-model="grantSearchQ"
+            type="search"
+            class="gem-search"
+            placeholder="Search name or email to grant access…"
+            @input="onGrantSearchInput"
+          />
+          <div v-if="grantSearchLoading" class="gem-hint">Searching…</div>
+          <ul v-else-if="grantSearchResults.length" class="gem-access-results">
+            <li v-for="u in grantSearchResults" :key="u.id">
+              <div>
+                <div class="gem-strong">{{ u.name }}</div>
+                <div class="muted">{{ u.email }} · {{ u.role }}</div>
+              </div>
+              <button
+                v-if="u.hasPlatformGearAccess || u.alreadyHasRoleAccess"
+                type="button"
+                class="btn btn-secondary btn-sm"
+                disabled
+              >{{ u.alreadyHasRoleAccess && !u.hasPlatformGearAccess ? 'Has role access' : 'Already granted' }}</button>
+              <button
+                v-else
+                type="button"
+                class="btn btn-primary btn-sm"
+                :disabled="accessSaving"
+                @click="grantPlatformAccess(u)"
+              >Grant platform access</button>
+            </li>
+          </ul>
+        </div>
+
+        <h3 class="gem-access-list-title">People with platform grant</h3>
+        <table class="gem-table gem-table--activity">
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>Email</th>
+              <th>Role</th>
+              <th>Access</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="u in platformManagers" :key="u.id">
+              <td class="gem-strong">{{ u.name }}</td>
+              <td>{{ u.email }}</td>
+              <td>{{ u.role }}</td>
+              <td><span class="gem-status healthy">Platform</span></td>
+              <td>
+                <button
+                  type="button"
+                  class="btn btn-secondary btn-sm"
+                  :disabled="accessSaving"
+                  @click="revokePlatformAccess(u)"
+                >Remove</button>
+              </td>
+            </tr>
+            <tr v-if="!platformManagers.length">
+              <td colspan="5" class="gem-empty-row">No explicit platform grants yet (superadmins still have full access).</td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
 
       <GearPackagesPanel
         v-if="viewMode === 'packages'"
@@ -73,7 +158,7 @@
         @issued="reload"
       />
 
-      <template v-else>
+      <template v-else-if="viewMode === 'inventory'">
       <div class="gem-filters">
         <select v-model="filters.agencyId" class="gem-select" @change="onAgencyFilterChange">
           <option value="">All Agencies</option>
@@ -711,6 +796,12 @@ import { computed, onMounted, reactive, ref, watch } from 'vue';
 import api from '../../services/api';
 import GearPackagesPanel from '../../components/admin/GearPackagesPanel.vue';
 import PersonSearchSelect from '../../components/schedule/PersonSearchSelect.vue';
+import { useAuthStore } from '../../store/auth';
+
+const authStore = useAuthStore();
+const isSuperAdmin = computed(
+  () => String(authStore.user?.role || '').toLowerCase() === 'super_admin'
+);
 
 const DEFAULT_DECORATIONS = ['Embroidered', 'Screened', 'Plain'];
 
@@ -758,6 +849,14 @@ const alertFeedback = ref(null);
 const viewMode = ref('inventory');
 const detailExpanded = ref(false);
 const packagesPanelRef = ref(null);
+const platformManagers = ref([]);
+const grantSearchQ = ref('');
+const grantSearchResults = ref([]);
+const grantSearchLoading = ref(false);
+const accessSaving = ref(false);
+const accessError = ref('');
+const accessSuccess = ref('');
+let grantSearchTimer = null;
 
 async function loadPackageCatalog() {
   try {
@@ -771,6 +870,74 @@ async function loadPackageCatalog() {
 watch(viewMode, (mode) => {
   if (mode === 'packages') loadPackageCatalog();
 });
+
+async function loadPlatformManagers() {
+  if (!isSuperAdmin.value) return;
+  accessError.value = '';
+  try {
+    const res = await api.get('/gear-inventory/platform-managers');
+    platformManagers.value = Array.isArray(res.data) ? res.data : [];
+  } catch (e) {
+    accessError.value = e?.response?.data?.error?.message || 'Failed to load platform managers';
+  }
+}
+
+function onGrantSearchInput() {
+  clearTimeout(grantSearchTimer);
+  const q = grantSearchQ.value.trim();
+  if (q.length < 2) {
+    grantSearchResults.value = [];
+    return;
+  }
+  grantSearchTimer = setTimeout(async () => {
+    grantSearchLoading.value = true;
+    try {
+      const res = await api.get('/gear-inventory/platform-managers/search', { params: { q } });
+      grantSearchResults.value = Array.isArray(res.data) ? res.data : [];
+    } catch (e) {
+      accessError.value = e?.response?.data?.error?.message || 'Search failed';
+      grantSearchResults.value = [];
+    } finally {
+      grantSearchLoading.value = false;
+    }
+  }, 280);
+}
+
+async function grantPlatformAccess(user) {
+  if (!user?.id) return;
+  accessSaving.value = true;
+  accessError.value = '';
+  accessSuccess.value = '';
+  try {
+    await api.put(`/gear-inventory/platform-managers/${user.id}`, { enabled: true });
+    accessSuccess.value = `Granted platform Gear access to ${user.name}.`;
+    grantSearchQ.value = '';
+    grantSearchResults.value = [];
+    await loadPlatformManagers();
+  } catch (e) {
+    accessError.value = e?.response?.data?.error?.message || 'Grant failed';
+  } finally {
+    accessSaving.value = false;
+  }
+}
+
+async function revokePlatformAccess(user) {
+  if (!user?.id) return;
+  if (!confirm(`Remove platform Gear access for ${user.name}?`)) return;
+  accessSaving.value = true;
+  accessError.value = '';
+  accessSuccess.value = '';
+  try {
+    await api.put(`/gear-inventory/platform-managers/${user.id}`, { enabled: false });
+    accessSuccess.value = `Removed platform Gear access for ${user.name}.`;
+    await loadPlatformManagers();
+  } catch (e) {
+    accessError.value = e?.response?.data?.error?.message || 'Remove failed';
+  } finally {
+    accessSaving.value = false;
+  }
+}
+
 const summary = ref({
   totalItemTypes: 0,
   totalInventory: 0,
@@ -1707,7 +1874,36 @@ onMounted(reload);
   color: #fff;
   border-color: #0f172a;
 }
-.gem-header-actions { display: flex; gap: 8px; }
+.gem-access {
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 14px;
+  padding: 16px;
+  margin-bottom: 16px;
+}
+.gem-access-head h2 { margin: 0 0 4px; font-size: 1.15rem; }
+.gem-access-grant { margin: 14px 0 18px; }
+.gem-access-results {
+  list-style: none;
+  padding: 0;
+  margin: 8px 0 0;
+  display: grid;
+  gap: 6px;
+}
+.gem-access-results li {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 10px 12px;
+  background: #f8fafc;
+}
+.gem-access-list-title {
+  margin: 0 0 8px;
+  font-size: 0.95rem;
+}
 .gem-detail-head-btns { display: flex; gap: 4px; align-items: center; }
 .gem-icon-btn {
   border: 1px solid #e2e8f0;

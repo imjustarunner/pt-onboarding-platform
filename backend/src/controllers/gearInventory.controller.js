@@ -185,6 +185,25 @@ export const listCatalogAgencyUsers = handle(async (req) =>
   gearCatalog.listAgencyUsersForPicker(req.user, req.params.agencyId)
 );
 
+export const listPlatformGearManagers = handle(async (req) =>
+  gearCatalog.listPlatformGearManagers(req.user)
+);
+
+export const searchPlatformGearGrantUsers = handle(async (req) =>
+  gearCatalog.searchUsersForPlatformGearGrant(req.user, {
+    q: req.query.q || '',
+    limit: req.query.limit,
+  })
+);
+
+export const setPlatformGearAccess = handle(async (req) =>
+  gearCatalog.setPlatformGearAccess(
+    req.user,
+    req.params.userId || req.body?.userId,
+    req.body?.enabled !== false && req.body?.enabled !== 0 && req.body?.enabled !== '0'
+  )
+);
+
 export const listGearPackages = handle(async (req) =>
   gearPackages.listPackages(req.user, {
     agencyId: req.query.agencyId || null,

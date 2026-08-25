@@ -1183,4 +1183,107 @@ export async function listAgencyUsersForPicker(actor, agencyId) {
   }));
 }
 
+function assertSuperAdmin(actor) {
+  const role = String(actor?.role || '').toLowerCase();
+  if (role !== 'super_admin') {
+    throw Object.assign(new Error('Superadmin access required'), { status: 403 });
+  }
+}
+
+/**
+ * Users with explicit platform gear access (not counting role-based superadmins).
+ */
+export async function listPlatformGearManagers(actor) {
+  assertSuperAdmin(actor);
+  const [rows] = await pool.execute(
+    `SELECT u.id, u.first_name, u.last_name, u.email, u.role, u.has_platform_gear_access
+     FROM users u
+     WHERE u.has_platform_gear_access = 1
+       AND (u.is_active = 1 OR u.is_active IS NULL)
+       AND (u.is_archived = 0 OR u.is_archived IS NULL OR u.is_archived = FALSE)
+       AND u.terminated_at IS NULL
+     ORDER BY u.last_name ASC, u.first_name ASC
+     LIMIT 200`
+  );
+  return (rows || []).map((u) => ({
+    id: u.id,
+    firstName: u.first_name,
+    lastName: u.last_name,
+    first_name: u.first_name,
+    last_name: u.last_name,
+    name: [u.first_name, u.last_name].filter(Boolean).join(' ').trim(),
+    email: u.email,
+    role: u.role,
+    hasPlatformGearAccess: true,
+  }));
+}
+
+/**
+ * Search active users to grant platform gear access.
+ */
+export async function searchUsersForPlatformGearGrant(actor, { q = '', limit = 25 } = {}) {
+  assertSuperAdmin(actor);
+  const query = String(q || '').trim();
+  if (query.length < 2) return [];
+
+  const like = `%${query.replace(/[%_]/g, '')}%`;
+  const lim = Math.min(50, Math.max(1, Number(limit) || 25));
+  const [rows] = await pool.execute(
+    `SELECT u.id, u.first_name, u.last_name, u.email, u.role,
+            COALESCE(u.has_platform_gear_access, 0) AS has_platform_gear_access
+     FROM users u
+     WHERE (u.is_active = 1 OR u.is_active IS NULL)
+       AND (u.is_archived = 0 OR u.is_archived IS NULL OR u.is_archived = FALSE)
+       AND u.terminated_at IS NULL
+       AND (u.status IS NULL OR u.status NOT IN ('terminated', 'archived', 'inactive'))
+       AND (
+         u.email LIKE ?
+         OR u.first_name LIKE ?
+         OR u.last_name LIKE ?
+         OR CONCAT(u.first_name, ' ', u.last_name) LIKE ?
+       )
+     ORDER BY u.last_name ASC, u.first_name ASC
+     LIMIT ${lim}`,
+    [like, like, like, like]
+  );
+  return (rows || []).map((u) => ({
+    id: u.id,
+    firstName: u.first_name,
+    lastName: u.last_name,
+    first_name: u.first_name,
+    last_name: u.last_name,
+    name: [u.first_name, u.last_name].filter(Boolean).join(' ').trim(),
+    email: u.email,
+    role: u.role,
+    hasPlatformGearAccess: !!u.has_platform_gear_access,
+    alreadyHasRoleAccess: ['super_admin', 'admin'].includes(String(u.role || '').toLowerCase()),
+  }));
+}
+
+export async function setPlatformGearAccess(actor, userId, enabled) {
+  assertSuperAdmin(actor);
+  const uid = Number(userId || 0);
+  if (!uid) throw Object.assign(new Error('userId is required'), { status: 400 });
+
+  const [[user]] = await pool.execute(
+    `SELECT id, first_name, last_name, email, role, has_platform_gear_access
+     FROM users WHERE id = ? LIMIT 1`,
+    [uid]
+  );
+  if (!user) throw Object.assign(new Error('User not found'), { status: 404 });
+
+  await pool.execute(
+    `UPDATE users SET has_platform_gear_access = ? WHERE id = ?`,
+    [enabled ? 1 : 0, uid]
+  );
+
+  return {
+    id: user.id,
+    name: [user.first_name, user.last_name].filter(Boolean).join(' ').trim(),
+    email: user.email,
+    role: user.role,
+    hasPlatformGearAccess: !!enabled,
+  };
+}
+
 export { checkCountedStockAndAlert };
