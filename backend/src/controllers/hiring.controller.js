@@ -44,6 +44,13 @@ import {
   listJobApplicationsForUser,
   resolveOrCreateJobApplicantUser
 } from '../services/jobApplicantUser.service.js';
+import {
+  DEFAULT_SCHEDULE_TZ,
+  clientScheduleInstantToUtcMysql,
+  isValidTimeZone,
+  utcMysqlToIso,
+  utcMysqlToZonedWallMysql
+} from '../utils/zonedWallTime.util.js';
 
 function parseIntParam(v) {
   const n = parseInt(v, 10);
@@ -262,6 +269,142 @@ function normalizeDateOnly(value) {
   const dt = new Date(raw);
   if (!Number.isFinite(dt.getTime())) return null;
   return dt.toISOString().slice(0, 10);
+}
+
+async function resolveAgencyTimezone(agencyId) {
+  const aid = parseIntParam(agencyId);
+  if (!aid) return DEFAULT_SCHEDULE_TZ;
+  try {
+    const [rows] = await pool.execute(
+      `SELECT timezone FROM agencies WHERE id = ? LIMIT 1`,
+      [aid]
+    );
+    const raw = String(rows?.[0]?.timezone || '').trim();
+    if (isValidTimeZone(raw)) return raw;
+  } catch {
+    /* keep default */
+  }
+  return DEFAULT_SCHEDULE_TZ;
+}
+
+function utcToDatetimeLocal(value, timeZone) {
+  const wall = utcMysqlToZonedWallMysql(value, timeZone);
+  if (!wall) return null;
+  return wall.slice(0, 16).replace(' ', 'T');
+}
+
+function parseScheduleWindowFromBody(body, timeZone, { existing = null, allowUndefined = false } = {}) {
+  const tz = isValidTimeZone(timeZone) ? String(timeZone).trim() : DEFAULT_SCHEDULE_TZ;
+  const hasPublish = body?.publishAt !== undefined || body?.publish_at !== undefined;
+  const hasUnpublish = body?.unpublishAt !== undefined || body?.unpublish_at !== undefined;
+
+  let publishAt;
+  let unpublishAt;
+
+  if (hasPublish) {
+    const raw = body?.publishAt !== undefined ? body.publishAt : body.publish_at;
+    const trimmed = String(raw ?? '').trim();
+    publishAt = trimmed ? clientScheduleInstantToUtcMysql(trimmed, tz) : null;
+    if (trimmed && !publishAt) {
+      const err = new Error('publishAt must be a valid date and time');
+      err.status = 400;
+      throw err;
+    }
+  } else if (allowUndefined) {
+    publishAt = undefined;
+  } else if (existing) {
+    publishAt = existing.publish_at || null;
+  } else {
+    publishAt = null;
+  }
+
+  if (hasUnpublish) {
+    const raw = body?.unpublishAt !== undefined ? body.unpublishAt : body.unpublish_at;
+    const trimmed = String(raw ?? '').trim();
+    unpublishAt = trimmed ? clientScheduleInstantToUtcMysql(trimmed, tz) : null;
+    if (trimmed && !unpublishAt) {
+      const err = new Error('unpublishAt must be a valid date and time');
+      err.status = 400;
+      throw err;
+    }
+  } else if (allowUndefined) {
+    unpublishAt = undefined;
+  } else if (existing) {
+    unpublishAt = existing.unpublish_at || null;
+  } else {
+    unpublishAt = null;
+  }
+
+  const pubCmp = publishAt === undefined ? (existing?.publish_at || null) : publishAt;
+  const unpubCmp = unpublishAt === undefined ? (existing?.unpublish_at || null) : unpublishAt;
+  if (pubCmp && unpubCmp) {
+    const a = new Date(String(pubCmp).includes('T') ? pubCmp : `${String(pubCmp).replace(' ', 'T')}Z`);
+    const b = new Date(String(unpubCmp).includes('T') ? unpubCmp : `${String(unpubCmp).replace(' ', 'T')}Z`);
+    if (Number.isFinite(a.getTime()) && Number.isFinite(b.getTime()) && b.getTime() <= a.getTime()) {
+      const err = new Error('Take-down time must be after the go-live time');
+      err.status = 400;
+      throw err;
+    }
+  }
+
+  return { publishAt, unpublishAt, agencyTimezone: tz };
+}
+
+function deriveJobScheduleStatus({ isActive, publishAt, unpublishAt }, now = new Date()) {
+  if (!isActive) return 'inactive';
+  const pubIso = utcMysqlToIso(publishAt);
+  const unpubIso = utcMysqlToIso(unpublishAt);
+  if (pubIso) {
+    const pub = new Date(pubIso);
+    if (Number.isFinite(pub.getTime()) && now < pub) return 'scheduled';
+  }
+  if (unpubIso) {
+    const unpub = new Date(unpubIso);
+    if (Number.isFinite(unpub.getTime()) && now >= unpub) return 'ended';
+  }
+  return 'live';
+}
+
+function mapJobDescriptionRow(r, agencyTimezone = DEFAULT_SCHEDULE_TZ) {
+  const isActive = r.is_active === 1 || r.is_active === true;
+  const publishAt = r.publish_at || null;
+  const unpublishAt = r.unpublish_at || null;
+  const parseTags = (raw) => {
+    try {
+      const t = typeof raw === 'string' ? JSON.parse(raw) : (raw || []);
+      return Array.isArray(t) ? t.map((s) => String(s || '').trim()).filter(Boolean) : [];
+    } catch {
+      return [];
+    }
+  };
+  return {
+    id: r.id,
+    agencyId: r.agency_id,
+    title: r.title,
+    descriptionText: r.description_text || null,
+    descriptionSections: parseJobDescriptionSections(r.description_sections_json),
+    hasFile: !!r.storage_path,
+    originalName: r.original_name || null,
+    mimeType: r.mime_type || null,
+    postedDate: r.posted_date || null,
+    applicationDeadline: r.application_deadline || null,
+    city: r.city || null,
+    state: r.state || null,
+    educationLevel: r.education_level || null,
+    roleType: String(r.role_type || '').trim() || null,
+    isFeatured: Number(r.is_featured) === 1,
+    tags: parseTags(r.tags_json),
+    applicationPage: sanitizeApplicationPageJson(parseMetadata(r.application_page_json)) || null,
+    isActive,
+    publishAt: utcMysqlToIso(publishAt),
+    unpublishAt: utcMysqlToIso(unpublishAt),
+    publishAtLocal: utcToDatetimeLocal(publishAt, agencyTimezone),
+    unpublishAtLocal: utcToDatetimeLocal(unpublishAt, agencyTimezone),
+    agencyTimezone,
+    scheduleStatus: deriveJobScheduleStatus({ isActive, publishAt, unpublishAt }),
+    createdAt: r.created_at,
+    updatedAt: r.updated_at
+  };
 }
 
 function hiringStageLabel(stage) {
@@ -576,12 +719,27 @@ export const getDashboardStats = async (req, res, next) => {
     let openJobs = 0;
     let jobs = [];
     try {
-      const [jobCountRows] = await pool.execute(
-        `SELECT COUNT(*) AS cnt
-         FROM hiring_job_descriptions
-         WHERE agency_id = ? AND (is_active = 1 OR is_active = TRUE)`,
-        [agencyId]
-      );
+      let jobCountRows;
+      try {
+        const exec = await pool.execute(
+          `SELECT COUNT(*) AS cnt
+           FROM hiring_job_descriptions
+           WHERE agency_id = ? AND (is_active = 1 OR is_active = TRUE)
+             AND (publish_at IS NULL OR publish_at <= UTC_TIMESTAMP())
+             AND (unpublish_at IS NULL OR unpublish_at > UTC_TIMESTAMP())`,
+          [agencyId]
+        );
+        jobCountRows = exec[0];
+      } catch (e) {
+        if (e?.code !== 'ER_BAD_FIELD_ERROR') throw e;
+        const exec = await pool.execute(
+          `SELECT COUNT(*) AS cnt
+           FROM hiring_job_descriptions
+           WHERE agency_id = ? AND (is_active = 1 OR is_active = TRUE)`,
+          [agencyId]
+        );
+        jobCountRows = exec[0];
+      }
       openJobs = Number(jobCountRows?.[0]?.cnt) || 0;
 
       const [jobRows] = await pool.execute(
@@ -1143,36 +1301,8 @@ export const listJobDescriptions = async (req, res, next) => {
 
     const includeInactive = String(req.query.includeInactive || '').trim() === '1';
     const rows = await HiringJobDescription.listByAgencyId(agencyId, { includeInactive, limit: 500 });
-    const parseTags = (raw) => {
-      try {
-        const t = typeof raw === 'string' ? JSON.parse(raw) : (raw || []);
-        return Array.isArray(t) ? t.map((s) => String(s || '').trim()).filter(Boolean) : [];
-      } catch { return []; }
-    };
-    res.json(
-      (rows || []).map((r) => ({
-        id: r.id,
-        agencyId: r.agency_id,
-        title: r.title,
-        descriptionText: r.description_text || null,
-        descriptionSections: parseJobDescriptionSections(r.description_sections_json),
-        hasFile: !!r.storage_path,
-        originalName: r.original_name || null,
-        mimeType: r.mime_type || null,
-        postedDate: r.posted_date || null,
-        applicationDeadline: r.application_deadline || null,
-        city: r.city || null,
-        state: r.state || null,
-        educationLevel: r.education_level || null,
-        roleType: String(r.role_type || '').trim() || null,
-        isFeatured: Number(r.is_featured) === 1,
-        tags: parseTags(r.tags_json),
-        applicationPage: sanitizeApplicationPageJson(parseMetadata(r.application_page_json)) || null,
-        isActive: r.is_active === 1 || r.is_active === true,
-        createdAt: r.created_at,
-        updatedAt: r.updated_at
-      }))
-    );
+    const agencyTimezone = await resolveAgencyTimezone(agencyId);
+    res.json((rows || []).map((r) => mapJobDescriptionRow(r, agencyTimezone)));
   } catch (e) {
     next(e);
   }
@@ -1209,6 +1339,9 @@ export const createJobDescription = async (req, res, next) => {
       } catch { tagsJson = null; }
     }
     if (!title) return res.status(400).json({ error: { message: 'title is required' } });
+
+    const agencyTimezone = await resolveAgencyTimezone(agencyId);
+    const { publishAt, unpublishAt } = parseScheduleWindowFromBody(req.body, agencyTimezone);
 
     let applicationPageJson = getApplicationPageJsonFromBody(req.body);
     applicationPageJson = await saveJobHeroImageUpload({ req, agencyId, applicationPageJson });
@@ -1258,14 +1391,14 @@ export const createJobDescription = async (req, res, next) => {
       originalName,
       mimeType,
       createdByUserId: req.user.id,
-      isActive: true
+      isActive: true,
+      publishAt,
+      unpublishAt
     });
 
-    res.status(201).json({
-      ...created,
-      descriptionSections: parseJobDescriptionSections(created?.description_sections_json)
-    });
+    res.status(201).json(mapJobDescriptionRow(created, agencyTimezone));
   } catch (e) {
+    if (e?.status) return res.status(e.status).json({ error: { message: e.message } });
     next(e);
   }
 };
@@ -1297,6 +1430,12 @@ export const updateJobDescription = async (req, res, next) => {
 
     // Uploaded JDs should be versioned by creating a new row; pasted JDs can be edited in-place.
     if (replaceWithNewVersion && Number(existing.is_active) === 1) {
+      const agencyTimezone = await resolveAgencyTimezone(agencyId);
+      const { publishAt, unpublishAt } = parseScheduleWindowFromBody(req.body, agencyTimezone, {
+        existing,
+        allowUndefined: false
+      });
+
       let storagePath = existing.storage_path || null;
       let originalName = existing.original_name || null;
       let mimeType = existing.mime_type || null;
@@ -1378,12 +1517,13 @@ export const updateJobDescription = async (req, res, next) => {
         originalName: originalName || null,
         mimeType: mimeType || null,
         createdByUserId: req.user.id,
-        isActive: true
+        isActive: true,
+        publishAt,
+        unpublishAt
       });
       await HiringJobDescription.deactivateById(existing.id);
       return res.json({
-        ...created,
-        descriptionSections: parseJobDescriptionSections(created?.description_sections_json),
+        ...mapJobDescriptionRow(created, agencyTimezone),
         replacedJobDescriptionId: existing.id
       });
     }
@@ -1391,6 +1531,12 @@ export const updateJobDescription = async (req, res, next) => {
     // For uploaded-file jobs: metadata fields (title, city, state, education level,
     // description, dates) can always be edited in-place. Only the document itself
     // requires uploading a replacement file, which is handled above via createNewVersion.
+
+    const agencyTimezone = await resolveAgencyTimezone(agencyId);
+    const { publishAt, unpublishAt } = parseScheduleWindowFromBody(req.body, agencyTimezone, {
+      existing,
+      allowUndefined: true
+    });
 
     const descriptionText = req.body?.descriptionText !== undefined
       ? String(req.body.descriptionText || '').trim()
@@ -1446,14 +1592,14 @@ export const updateJobDescription = async (req, res, next) => {
       isFeatured,
       tagsJson,
       applicationPageJson,
-      ...(isActive !== undefined ? { isActive } : {})
+      ...(isActive !== undefined ? { isActive } : {}),
+      ...(publishAt !== undefined ? { publishAt } : {}),
+      ...(unpublishAt !== undefined ? { unpublishAt } : {})
     });
 
-    res.json({
-      ...updated,
-      descriptionSections: parseJobDescriptionSections(updated?.description_sections_json)
-    });
+    res.json(mapJobDescriptionRow(updated, agencyTimezone));
   } catch (e) {
+    if (e?.status) return res.status(e.status).json({ error: { message: e.message } });
     next(e);
   }
 };

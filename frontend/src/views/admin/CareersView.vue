@@ -347,6 +347,20 @@
           Ongoing (no deadline)
         </label>
         <input v-model="createForm.applicationDeadline" class="input" type="date" :disabled="createForm.ongoing" />
+        <div class="schedule-field" style="grid-column: 1 / -1;">
+          <label class="field-label">Schedule posting <span class="field-hint">— times use {{ agencyTimezoneLabel }}</span></label>
+          <div class="form-grid" style="margin-top: 6px;">
+            <div>
+              <label class="small muted">Go live at (optional)</label>
+              <input v-model="createForm.publishAt" class="input" type="datetime-local" />
+            </div>
+            <div>
+              <label class="small muted">Take down at (optional)</label>
+              <input v-model="createForm.unpublishAt" class="input" type="datetime-local" />
+            </div>
+          </div>
+          <p class="muted small" style="margin: 6px 0 0;">Leave blank to publish immediately (when Active) and leave up until you deactivate.</p>
+        </div>
         <label class="checkbox-inline">
           <input v-model="createForm.isFeatured" type="checkbox" />
           Pin as featured on careers page
@@ -473,8 +487,8 @@
               <div class="muted small">{{ row.descriptionText || 'No description yet.' }}</div>
             </td>
             <td>
-              <span class="pill" :class="row.isActive ? 'pill-active' : 'pill-inactive'">
-                {{ row.isActive ? 'Active' : 'Inactive' }}
+              <span class="pill" :class="schedulePillClass(row)">
+                {{ scheduleStatusLabel(row) }}
               </span>
             </td>
             <td>
@@ -568,6 +582,20 @@
               Ongoing (no deadline)
             </label>
             <input v-model="editForm.applicationDeadline" class="input" type="date" :disabled="editForm.ongoing" />
+            <div class="schedule-field" style="grid-column: 1 / -1;">
+              <label class="field-label">Schedule posting <span class="field-hint">— times use {{ agencyTimezoneLabel }}</span></label>
+              <div class="form-grid" style="margin-top: 6px;">
+                <div>
+                  <label class="small muted">Go live at (optional)</label>
+                  <input v-model="editForm.publishAt" class="input" type="datetime-local" />
+                </div>
+                <div>
+                  <label class="small muted">Take down at (optional)</label>
+                  <input v-model="editForm.unpublishAt" class="input" type="datetime-local" />
+                </div>
+              </div>
+              <p class="muted small" style="margin: 6px 0 0;">Leave blank to publish immediately (when Active) and leave up until you deactivate.</p>
+            </div>
             <label class="checkbox-inline">
               <input v-model="editForm.isFeatured" type="checkbox" />
               Pin as featured on careers page
@@ -934,6 +962,8 @@ const createForm = ref({
   postedDate: '',
   applicationDeadline: '',
   ongoing: true,
+  publishAt: '',
+  unpublishAt: '',
   city: '',
   state: '',
   educationLevel: '',
@@ -953,6 +983,8 @@ const editForm = ref({
   postedDate: '',
   applicationDeadline: '',
   ongoing: true,
+  publishAt: '',
+  unpublishAt: '',
   city: '',
   state: '',
   educationLevel: '',
@@ -1002,6 +1034,28 @@ const effectiveAgencyId = computed(() => {
 const selectedAgency = computed(() =>
   agencyChoices.value.find((a) => Number(a?.id) === Number(effectiveAgencyId.value)) || null
 );
+const agencyTimezoneLabel = computed(() => {
+  const tz = String(
+    jobs.value?.[0]?.agencyTimezone
+    || selectedAgency.value?.timezone
+    || 'America/Denver'
+  ).trim();
+  return tz || 'America/Denver';
+});
+const scheduleStatusLabel = (row) => {
+  const s = String(row?.scheduleStatus || '').toLowerCase();
+  if (s === 'scheduled') return 'Scheduled';
+  if (s === 'ended') return 'Ended';
+  if (s === 'inactive' || !row?.isActive) return 'Inactive';
+  return 'Live';
+};
+const schedulePillClass = (row) => {
+  const s = String(row?.scheduleStatus || '').toLowerCase();
+  if (s === 'scheduled') return 'pill-scheduled';
+  if (s === 'ended') return 'pill-ended';
+  if (s === 'inactive' || !row?.isActive) return 'pill-inactive';
+  return 'pill-active';
+};
 const educationLevelOptions = [
   { value: 'bachelors', label: 'Bachelors' },
   { value: 'masters_level_intern', label: 'Masters level intern' },
@@ -1251,6 +1305,8 @@ const createJob = async () => {
     } else {
       fd.append('applicationDeadline', '');
     }
+    fd.append('publishAt', String(createForm.value.publishAt || '').trim());
+    fd.append('unpublishAt', String(createForm.value.unpublishAt || '').trim());
     if (String(createForm.value.city || '').trim()) fd.append('city', String(createForm.value.city || '').trim());
     if (String(createForm.value.state || '').trim()) fd.append('state', String(createForm.value.state || '').trim());
     if (String(createForm.value.educationLevel || '').trim()) fd.append('educationLevel', String(createForm.value.educationLevel || '').trim());
@@ -1275,6 +1331,8 @@ const createJob = async () => {
       postedDate: '',
       applicationDeadline: '',
       ongoing: true,
+      publishAt: '',
+      unpublishAt: '',
       city: '',
       state: '',
       educationLevel: '',
@@ -1307,6 +1365,8 @@ const openEdit = (row) => {
     postedDate: row.postedDate || '',
     applicationDeadline: row.applicationDeadline || '',
     ongoing: !row.applicationDeadline,
+    publishAt: row.publishAtLocal || '',
+    unpublishAt: row.unpublishAtLocal || '',
     city: row.city || '',
     state: row.state || '',
     educationLevel: row.educationLevel || '',
@@ -1335,6 +1395,8 @@ const closeEdit = () => {
     postedDate: '',
     applicationDeadline: '',
     ongoing: true,
+    publishAt: '',
+    unpublishAt: '',
     city: '',
     state: '',
     educationLevel: '',
@@ -1397,6 +1459,8 @@ const saveEdit = async () => {
     fd.append('descriptionSectionsJson', JSON.stringify(normalizeSections(editForm.value.descriptionSections)));
     fd.append('postedDate', String(editForm.value.postedDate || '').trim());
     fd.append('applicationDeadline', editForm.value.ongoing ? '' : String(editForm.value.applicationDeadline || '').trim());
+    fd.append('publishAt', String(editForm.value.publishAt || '').trim());
+    fd.append('unpublishAt', String(editForm.value.unpublishAt || '').trim());
     fd.append('city', String(editForm.value.city || '').trim());
     fd.append('state', String(editForm.value.state || '').trim());
     fd.append('educationLevel', String(editForm.value.educationLevel || '').trim());
@@ -1575,6 +1639,8 @@ onMounted(async () => {
 .pill { border-radius: 999px; padding: 2px 8px; font-size: 12px; }
 .pill-active { background: #dcfce7; color: #166534; }
 .pill-inactive { background: #fee2e2; color: #991b1b; }
+.pill-scheduled { background: #dbeafe; color: #1e40af; }
+.pill-ended { background: #f3f4f6; color: #4b5563; }
 .name { font-weight: 600; }
 .small { font-size: 12px; }
 .muted { color: #6b7280; }

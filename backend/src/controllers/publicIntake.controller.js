@@ -4882,35 +4882,73 @@ export const listPublicCareers = async (req, res, next) => {
     const stateFilter = String(req.query?.state || '').trim().toLowerCase();
     const educationFilter = String(req.query?.educationLevel || '').trim().toLowerCase();
 
-    const [rows] = await pool.execute(
-      `SELECT
-        hjd.id,
-        hjd.title,
-        hjd.description_text,
-        hjd.description_sections_json,
-        hjd.posted_date,
-        hjd.application_deadline,
-        hjd.city,
-        hjd.state,
-        hjd.education_level,
-        hjd.role_type,
-        hjd.is_featured,
-        hjd.tags_json,
-        hjd.application_page_json,
-        hjd.storage_path,
-        hjd.original_name,
-        hjd.created_at,
-        il.public_key
-      FROM hiring_job_descriptions hjd
-      LEFT JOIN intake_links il
-        ON il.job_description_id = hjd.id
-       AND il.form_type = 'job_application'
-       AND il.is_active = 1
-      WHERE hjd.agency_id = ?
-        AND hjd.is_active = 1
-      ORDER BY hjd.is_featured DESC, hjd.updated_at DESC, hjd.id DESC`,
-      [agency.id]
-    );
+    let rows;
+    try {
+      const exec = await pool.execute(
+        `SELECT
+          hjd.id,
+          hjd.title,
+          hjd.description_text,
+          hjd.description_sections_json,
+          hjd.posted_date,
+          hjd.application_deadline,
+          hjd.city,
+          hjd.state,
+          hjd.education_level,
+          hjd.role_type,
+          hjd.is_featured,
+          hjd.tags_json,
+          hjd.application_page_json,
+          hjd.storage_path,
+          hjd.original_name,
+          hjd.created_at,
+          il.public_key
+        FROM hiring_job_descriptions hjd
+        LEFT JOIN intake_links il
+          ON il.job_description_id = hjd.id
+         AND il.form_type = 'job_application'
+         AND il.is_active = 1
+        WHERE hjd.agency_id = ?
+          AND hjd.is_active = 1
+          AND (hjd.publish_at IS NULL OR hjd.publish_at <= UTC_TIMESTAMP())
+          AND (hjd.unpublish_at IS NULL OR hjd.unpublish_at > UTC_TIMESTAMP())
+        ORDER BY hjd.is_featured DESC, hjd.updated_at DESC, hjd.id DESC`,
+        [agency.id]
+      );
+      rows = exec[0];
+    } catch (e) {
+      if (e?.code !== 'ER_BAD_FIELD_ERROR') throw e;
+      const exec = await pool.execute(
+        `SELECT
+          hjd.id,
+          hjd.title,
+          hjd.description_text,
+          hjd.description_sections_json,
+          hjd.posted_date,
+          hjd.application_deadline,
+          hjd.city,
+          hjd.state,
+          hjd.education_level,
+          hjd.role_type,
+          hjd.is_featured,
+          hjd.tags_json,
+          hjd.application_page_json,
+          hjd.storage_path,
+          hjd.original_name,
+          hjd.created_at,
+          il.public_key
+        FROM hiring_job_descriptions hjd
+        LEFT JOIN intake_links il
+          ON il.job_description_id = hjd.id
+         AND il.form_type = 'job_application'
+         AND il.is_active = 1
+        WHERE hjd.agency_id = ?
+          AND hjd.is_active = 1
+        ORDER BY hjd.is_featured DESC, hjd.updated_at DESC, hjd.id DESC`,
+        [agency.id]
+      );
+      rows = exec[0];
+    }
 
     const parseTags = (raw) => {
       try {

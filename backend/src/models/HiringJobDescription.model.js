@@ -24,40 +24,58 @@ class HiringJobDescription {
     originalName = null,
     mimeType = null,
     createdByUserId,
-    isActive = true
+    isActive = true,
+    publishAt = null,
+    unpublishAt = null
   }) {
-    const [result] = await pool.execute(
-      `INSERT INTO hiring_job_descriptions (
-        agency_id, title, description_text, description_sections_json,
-        posted_date, application_deadline, city, state, education_level,
-        role_type, is_featured, tags_json,
-        application_page_json, storage_path, original_name, mime_type,
-        is_active, created_by_user_id
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [
-        parseIntParam(agencyId),
-        String(title || '').trim().slice(0, 255),
-        descriptionText !== undefined && descriptionText !== null ? String(descriptionText) : null,
-        descriptionSectionsJson !== undefined && descriptionSectionsJson !== null
-          ? JSON.stringify(descriptionSectionsJson)
-          : null,
-        postedDate || null,
-        applicationDeadline || null,
-        city !== undefined && city !== null ? String(city).trim().slice(0, 120) : null,
-        state !== undefined && state !== null ? String(state).trim().slice(0, 120) : null,
-        educationLevel !== undefined && educationLevel !== null ? String(educationLevel).trim().slice(0, 80) : null,
-        roleType !== undefined && roleType !== null ? String(roleType).trim().slice(0, 80) : null,
-        isFeatured ? 1 : 0,
-        tagsJson !== undefined && tagsJson !== null ? JSON.stringify(tagsJson) : null,
-        applicationPageJson !== undefined && applicationPageJson !== null ? JSON.stringify(applicationPageJson) : null,
-        storagePath || null,
-        originalName || null,
-        mimeType || null,
-        isActive ? 1 : 0,
-        parseIntParam(createdByUserId)
-      ]
-    );
-    return this.findById(result.insertId);
+    const baseParams = [
+      parseIntParam(agencyId),
+      String(title || '').trim().slice(0, 255),
+      descriptionText !== undefined && descriptionText !== null ? String(descriptionText) : null,
+      descriptionSectionsJson !== undefined && descriptionSectionsJson !== null
+        ? JSON.stringify(descriptionSectionsJson)
+        : null,
+      postedDate || null,
+      applicationDeadline || null,
+      city !== undefined && city !== null ? String(city).trim().slice(0, 120) : null,
+      state !== undefined && state !== null ? String(state).trim().slice(0, 120) : null,
+      educationLevel !== undefined && educationLevel !== null ? String(educationLevel).trim().slice(0, 80) : null,
+      roleType !== undefined && roleType !== null ? String(roleType).trim().slice(0, 80) : null,
+      isFeatured ? 1 : 0,
+      tagsJson !== undefined && tagsJson !== null ? JSON.stringify(tagsJson) : null,
+      applicationPageJson !== undefined && applicationPageJson !== null ? JSON.stringify(applicationPageJson) : null,
+      storagePath || null,
+      originalName || null,
+      mimeType || null,
+      isActive ? 1 : 0,
+      parseIntParam(createdByUserId)
+    ];
+    try {
+      const [result] = await pool.execute(
+        `INSERT INTO hiring_job_descriptions (
+          agency_id, title, description_text, description_sections_json,
+          posted_date, application_deadline, city, state, education_level,
+          role_type, is_featured, tags_json,
+          application_page_json, storage_path, original_name, mime_type,
+          is_active, created_by_user_id, publish_at, unpublish_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [...baseParams, publishAt || null, unpublishAt || null]
+      );
+      return this.findById(result.insertId);
+    } catch (e) {
+      if (e?.code !== 'ER_BAD_FIELD_ERROR') throw e;
+      const [result] = await pool.execute(
+        `INSERT INTO hiring_job_descriptions (
+          agency_id, title, description_text, description_sections_json,
+          posted_date, application_deadline, city, state, education_level,
+          role_type, is_featured, tags_json,
+          application_page_json, storage_path, original_name, mime_type,
+          is_active, created_by_user_id
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        baseParams
+      );
+      return this.findById(result.insertId);
+    }
   }
 
   static async findById(id) {
@@ -102,7 +120,9 @@ class HiringJobDescription {
     storagePath,
     originalName,
     mimeType,
-    isActive
+    isActive,
+    publishAt,
+    unpublishAt
   } = {}) {
     const updates = [];
     const params = [];
@@ -170,6 +190,14 @@ class HiringJobDescription {
     if (isActive !== undefined) {
       updates.push('is_active = ?');
       params.push(isActive ? 1 : 0);
+    }
+    if (publishAt !== undefined) {
+      updates.push('publish_at = ?');
+      params.push(publishAt || null);
+    }
+    if (unpublishAt !== undefined) {
+      updates.push('unpublish_at = ?');
+      params.push(unpublishAt || null);
     }
 
     if (updates.length === 0) {
