@@ -11,9 +11,16 @@
     </header>
 
     <section class="pds-hero">
-      <h1>{{ pageTitle }}</h1>
-      <p v-if="districtName">{{ districtName }} — schools, providers, and on-site days</p>
-      <p v-else>Select a district to view provider schedules across all schools.</p>
+      <div class="pds-hero-row">
+        <div>
+          <h1>{{ pageTitle }}</h1>
+          <p v-if="districtName">{{ districtName }} — schools, providers, and on-site days</p>
+          <p v-else>Select a district to view provider schedules across all schools.</p>
+        </div>
+        <div v-if="districtSlug && schools.length" class="pds-toolbar pds-no-print">
+          <button type="button" class="pds-btn" @click="printPage">Print</button>
+        </div>
+      </div>
     </section>
 
     <div v-if="loadError" class="pds-banner pds-banner-error">{{ loadError }}</div>
@@ -52,9 +59,9 @@
               v-if="provider.photoUrl"
               :src="provider.photoUrl"
               alt=""
-              class="pds-provider-photo"
+              class="pds-provider-photo pds-screen-only"
             />
-            <div v-else class="pds-provider-photo pds-provider-photo--fallback">
+            <div v-else class="pds-provider-photo pds-provider-photo--fallback pds-screen-only">
               {{ initials(provider.displayName) }}
             </div>
             <div class="pds-provider-main">
@@ -65,6 +72,16 @@
                   :key="day"
                   class="pds-day-chip"
                 >{{ dayShort(day) }}</span>
+              </div>
+              <div
+                class="pds-bg-exp"
+                :class="bgExpiryClass(provider)"
+              >
+                Federal fingerprint expires:
+                <strong>{{ formatBgExpiry(provider) }}</strong>
+                <span v-if="provider.federalBackgroundStatusLabel" class="pds-bg-exp-status">
+                  ({{ provider.federalBackgroundStatusLabel }})
+                </span>
               </div>
             </div>
           </div>
@@ -152,6 +169,29 @@ function initials(name) {
 
 function dayShort(day) {
   return String(day || '').slice(0, 3);
+}
+
+function formatBgExpiry(provider) {
+  const ymd = String(provider?.federalBackgroundExpiresAt || '').trim();
+  if (!ymd) return '—';
+  const [y, m, d] = ymd.split('-').map((part) => parseInt(part, 10));
+  if (!y || !m || !d) return ymd;
+  return new Date(y, m - 1, d).toLocaleDateString(undefined, {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric'
+  });
+}
+
+function bgExpiryClass(provider) {
+  const status = String(provider?.federalBackgroundStatus || '').toLowerCase();
+  if (status === 'expired') return 'pds-bg-exp--bad';
+  if (status === 'soon') return 'pds-bg-exp--warn';
+  return '';
+}
+
+function printPage() {
+  window.print();
 }
 
 async function loadDirectory() {
@@ -245,6 +285,12 @@ watch([agencySlug, districtSlug], load);
   margin: 0 auto;
   padding: 1.5rem 1.25rem 0.75rem;
 }
+.pds-hero-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
 .pds-hero h1 {
   margin: 0 0 0.35rem;
   font-size: clamp(1.5rem, 3vw, 2rem);
@@ -252,6 +298,47 @@ watch([agencySlug, districtSlug], load);
 .pds-hero p {
   margin: 0;
   color: var(--pds-muted);
+}
+.pds-toolbar {
+  display: flex;
+  gap: 0.5rem;
+  flex-shrink: 0;
+}
+.pds-btn {
+  border: 1px solid var(--pds-border);
+  background: #fff;
+  color: var(--pds-text);
+  border-radius: 8px;
+  padding: 0.45rem 0.85rem;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.pds-btn:hover {
+  border-color: var(--pds-primary);
+}
+.pds-bg-exp {
+  margin-top: 0.35rem;
+  font-size: 0.82rem;
+  color: var(--pds-muted);
+}
+.pds-bg-exp strong {
+  color: var(--pds-text);
+}
+.pds-bg-exp-status {
+  font-weight: 600;
+}
+.pds-bg-exp--bad {
+  color: #b91c1c;
+}
+.pds-bg-exp--bad strong {
+  color: #b91c1c;
+}
+.pds-bg-exp--warn {
+  color: #b45309;
+}
+.pds-bg-exp--warn strong {
+  color: #b45309;
 }
 .pds-body {
   max-width: 1100px;
@@ -375,5 +462,61 @@ watch([agencySlug, districtSlug], load);
   background: #fef2f2;
   color: #b91c1c;
   border: 1px solid #fecaca;
+}
+
+@media print {
+  .pds-no-print,
+  .pds-screen-only {
+    display: none !important;
+  }
+  .pds-page,
+  .pds-header,
+  .pds-school-card,
+  .pds-provider-row,
+  .pds-day-chip {
+    background: #fff !important;
+    color: #000 !important;
+    box-shadow: none !important;
+  }
+  .pds-page {
+    min-height: auto;
+  }
+  .pds-header {
+    border-bottom: 1px solid #000;
+    padding: 0.5rem 0;
+  }
+  .pds-brand-logo {
+    display: none;
+  }
+  .pds-brand-kicker,
+  .pds-brand-title,
+  .pds-hero p,
+  .pds-school-meta,
+  .pds-bg-exp,
+  .pds-muted,
+  .pds-empty {
+    color: #333 !important;
+  }
+  .pds-school-card,
+  .pds-provider-row {
+    border: 1px solid #000;
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+  .pds-provider-row {
+    padding: 0.45rem 0.5rem;
+  }
+  .pds-day-chip {
+    border: 1px solid #000;
+    padding: 0.1rem 0.35rem;
+  }
+  .pds-bg-exp--bad,
+  .pds-bg-exp--warn {
+    color: #000 !important;
+    font-weight: 700;
+  }
+  .pds-body {
+    padding-top: 0;
+  }
 }
 </style>

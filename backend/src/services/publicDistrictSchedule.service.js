@@ -14,10 +14,69 @@ import {
   mergeDistrictRows,
   districtNameMatchKeys
 } from '../utils/districtSlug.shared.js';
+import {
+  FEDERAL_BG_ITEM_KEY,
+  expirationStatus
+} from './federalBackgroundCheck.service.js';
 
 const WEEKDAY_ORDER = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
 const DEMO_SCHOOL_SLUGS = new Set(['hogwarts', 'durmstrang']);
 const DEMO_SCHOOL_NAME_RE = /\bfake\b|\bdemo\b|\btest school\b|\bhogwarts\b|\bdurmstrang\b/i;
+
+function toYmd(value) {
+  if (value == null || value === '') return null;
+  if (value instanceof Date) {
+    if (Number.isNaN(value.getTime())) return null;
+    const y = value.getUTCFullYear();
+    const m = String(value.getUTCMonth() + 1).padStart(2, '0');
+    const d = String(value.getUTCDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+  }
+  const s = String(value).trim();
+  if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
+  const parsed = new Date(s);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return toYmd(parsed);
+}
+
+async function loadFederalBackgroundExpirationsByUserId(userIds = []) {
+  const ids = [...new Set((userIds || []).map((id) => Number(id)).filter((id) => id > 0))];
+  const map = new Map();
+  if (!ids.length) return map;
+
+  const [defRows] = await pool.execute(
+    `SELECT id FROM lifecycle_checklist_definitions
+     WHERE item_key = ? AND agency_id IS NULL
+     LIMIT 1`,
+    [FEDERAL_BG_ITEM_KEY]
+  );
+  const definitionId = defRows?.[0]?.id;
+  if (!definitionId) return map;
+
+  const placeholders = ids.map(() => '?').join(', ');
+  const [rows] = await pool.execute(
+    `SELECT user_id, completed_at, expires_at
+     FROM user_lifecycle_checklist_items
+     WHERE definition_id = ?
+       AND user_id IN (${placeholders})`,
+    [definitionId, ...ids]
+  );
+
+  for (const row of rows || []) {
+    const uid = Number(row.user_id);
+    if (!uid) continue;
+    const expiresAt = toYmd(row.expires_at);
+    const completedAt = toYmd(row.completed_at);
+    const status = expiresAt ? expirationStatus(expiresAt) : null;
+    map.set(uid, {
+      completedAt,
+      expiresAt,
+      status: status?.status || null,
+      statusLabel: status?.label || null
+    });
+  }
+  return map;
+}
 
 async function resolveAgencyBySlug(agencySlug) {
   const slug = String(agencySlug || '').trim().toLowerCase();
@@ -390,6 +449,23 @@ export async function getPublicDistrictSchedule(agencySlug, districtSlug, req = 
           days: WEEKDAY_ORDER.filter((d) => p.days.includes(d))
         }))
         .sort((a, b) => a.displayName.localeCompare(b.displayName));
+    }
+
+    const allProviderIds = schools.flatMap((school) =>
+      (school.providers || []).map((p) => Number(p.id)).filter(Boolean)
+    );
+    const bgByUserId = await loadFederalBackgroundExpirationsByUserId(allProviderIds);
+    for (const school of schools) {
+      school.providers = (school.providers || []).map((provider) => {
+        const bg = bgByUserId.get(Number(provider.id));
+        return {
+          ...provider,
+          federalBackgroundCompletedAt: bg?.completedAt || null,
+          federalBackgroundExpiresAt: bg?.expiresAt || null,
+          federalBackgroundStatus: bg?.status || null,
+          federalBackgroundStatusLabel: bg?.statusLabel || null
+        };
+      });
     }
   }
 
