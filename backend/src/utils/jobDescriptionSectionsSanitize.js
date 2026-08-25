@@ -3,13 +3,21 @@
  * Plain text + bullet arrays only (no HTML).
  */
 
-const compactText = (value, max = 4000) => {
+export const JOB_DESCRIPTION_ABOUT_MAX = 8000;
+export const JOB_DESCRIPTION_BULLET_MAX = 40;
+export const JOB_DESCRIPTION_BULLET_LEN_MAX = 800;
+
+const compactText = (value, max = JOB_DESCRIPTION_ABOUT_MAX) => {
   const text = String(value ?? '').replace(/\r\n/g, '\n').trim();
   if (!text) return '';
   return text.length > max ? text.slice(0, max) : text;
 };
 
-const normalizeBullets = (items, maxItems = 12, maxLen = 400) => {
+const normalizeBullets = (
+  items,
+  maxItems = JOB_DESCRIPTION_BULLET_MAX,
+  maxLen = JOB_DESCRIPTION_BULLET_LEN_MAX
+) => {
   if (!Array.isArray(items)) {
     // Allow paste as newline-separated string
     if (typeof items === 'string') {
@@ -46,10 +54,10 @@ export function sanitizeJobDescriptionSections(raw) {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
 
   const out = {
-    aboutTheRole: compactText(raw.aboutTheRole || raw.about_the_role || '', 4000),
-    responsibilities: normalizeBullets(raw.responsibilities, 12, 400),
-    qualifications: normalizeBullets(raw.qualifications, 12, 400),
-    benefits: normalizeBullets(raw.benefits, 12, 400)
+    aboutTheRole: compactText(raw.aboutTheRole || raw.about_the_role || '', JOB_DESCRIPTION_ABOUT_MAX),
+    responsibilities: normalizeBullets(raw.responsibilities),
+    qualifications: normalizeBullets(raw.qualifications),
+    benefits: normalizeBullets(raw.benefits)
   };
 
   const hasContent =
