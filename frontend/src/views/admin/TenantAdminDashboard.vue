@@ -112,7 +112,7 @@
               class="nav-item"
             >Clients</router-link>
             <router-link :to="`/${slug}/admin/tools-aids`" class="nav-item">Tools &amp; Aids</router-link>
-            <router-link :to="`/${slug}/admin/gear-inventory`" class="nav-item">Gear &amp; Inventory</router-link>
+            <router-link :to="`/${slug}/admin/gear-inventory`" class="nav-item">Gear, Equipment &amp; Materials</router-link>
             <router-link :to="{ path: `/${slug}/dashboard`, query: { tab: 'submit' } }" class="nav-item">Submit</router-link>
           </div>
           <div class="sidebar-section">
@@ -1650,8 +1650,8 @@ const quickActionsCatalog = computed(() => {
     },
     {
       id: 'gear_inventory',
-      title: 'Gear & Inventory',
-      description: 'Catalog, stock levels, unique assets, and issue history',
+      title: 'Gear, Equipment & Materials',
+      description: 'Multi-agency stock, materials, owners, and reorder alerts',
       to: `${p}/admin/gear-inventory`,
       emoji: '📦',
       iconKey: 'settings',

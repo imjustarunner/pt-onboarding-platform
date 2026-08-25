@@ -484,7 +484,7 @@ function buildAppEntries() {
     {
       id: 'admin-gear-inventory',
       routeName: 'GearInventory',
-      label: 'Gear & Inventory',
+      label: 'Gear, Equipment & Materials',
       description: 'Catalog, sized stock, unique assets, and issue history.',
       group: 'admin',
       keywords: ['gear', 'inventory', 'stock', 'assets', 'cart', 'hoodie', 'equipment'],

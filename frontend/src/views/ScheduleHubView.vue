@@ -709,7 +709,7 @@ const allSections = computed(() => [
       },
       {
         id: 'gear-inventory',
-        title: 'Gear & Inventory',
+        title: 'Gear, Equipment & Materials',
         shortDesc: 'Equipment and inventory tracking.',
         desc: 'Track gear assignments, inventory, and equipment across the agency.',
         cta: 'Open →',

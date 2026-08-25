@@ -1,4 +1,17 @@
 import * as gearInventory from '../services/gearInventory.service.js';
+import * as gearCatalog from '../services/gearCatalog.service.js';
+import multer from 'multer';
+
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 8 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    if (/^image\//.test(file.mimetype || '')) return cb(null, true);
+    cb(new Error('Only image uploads are allowed'));
+  }
+});
+
+export const catalogImageUpload = upload;
 
 const agencyFromReq = (req) =>
   Number(req.params.agencyId || req.query.agencyId || req.body?.agencyId || req.headers['x-agency-id'] || 0) || null;
@@ -27,7 +40,6 @@ export const createGearType = handle(async (req) =>
 
 export const updateGearType = handle(async (req) =>
   gearInventory.updateType(
-    // Route param is source agency; do not let body.agencyId override it when moving.
     Number(req.params.agencyId || 0) || agencyFromReq(req),
     req.params.typeId,
     req.body || {},
@@ -93,4 +105,81 @@ export const setUserGearPreferences = handle(async (req) =>
 
 export const listIssuableOptions = handle(async (req) =>
   gearInventory.listIssuableStock(agencyFromReq(req), req.params.typeId)
+);
+
+export const getCatalogSummary = handle(async (req) => gearCatalog.getCatalogSummary(req.user));
+
+export const listCatalog = handle(async (req) =>
+  gearCatalog.listCatalog(req.user, {
+    agencyId: req.query.agencyId || null,
+    category: req.query.category || null,
+    status: req.query.status || null,
+    search: req.query.search || req.query.q || null,
+    sort: req.query.sort || 'type',
+    includeInactive: req.query.includeInactive === '1'
+  })
+);
+
+export const getCatalogItem = handle(async (req) =>
+  gearCatalog.getCatalogItem(req.user, req.params.catalogItemId)
+);
+
+export const createCatalogItem = handle(async (req) =>
+  gearCatalog.createCatalogItem(req.user, req.body || {})
+);
+
+export const updateCatalogItem = handle(async (req) =>
+  gearCatalog.updateCatalogItem(req.user, req.params.catalogItemId, req.body || {})
+);
+
+export const upsertCatalogAgencies = handle(async (req) =>
+  gearCatalog.upsertCatalogAgencies(
+    req.user,
+    req.params.catalogItemId,
+    req.body?.agencies || req.body || []
+  )
+);
+
+export const uploadCatalogImage = handle(async (req) =>
+  gearCatalog.uploadCatalogImage(req.user, req.params.catalogItemId, req.file, {
+    isPrimary: req.body?.isPrimary === '1' || req.body?.isPrimary === true || req.body?.isPrimary === 'true'
+  })
+);
+
+export const deleteCatalogImage = handle(async (req) =>
+  gearCatalog.deleteCatalogImage(req.user, req.params.catalogItemId, req.params.imageId)
+);
+
+export const markCatalogLow = handle(async (req) =>
+  gearCatalog.markAgencyLow(req.user, req.params.catalogItemId, req.body?.agencyId, {
+    low: req.body?.low !== false && req.body?.low !== 0 && req.body?.low !== '0',
+    reason: req.body?.reason || null
+  })
+);
+
+export const clearCatalogLow = handle(async (req) =>
+  gearCatalog.markAgencyLow(req.user, req.params.catalogItemId, req.body?.agencyId, {
+    low: false,
+    reason: req.body?.reason || null
+  })
+);
+
+export const sendCatalogItem = handle(async (req) =>
+  gearCatalog.sendCatalogItem(req.user, req.params.catalogItemId, req.body || {})
+);
+
+export const listCatalogActivity = handle(async (req) =>
+  gearCatalog.listActivity(req.user, {
+    agencyId: req.query.agencyId || null,
+    catalogItemId: req.query.catalogItemId || null,
+    limit: req.query.limit
+  })
+);
+
+export const listCatalogAgencies = handle(async (req) =>
+  gearCatalog.listAccessibleAgencies(req.user)
+);
+
+export const listCatalogAgencyUsers = handle(async (req) =>
+  gearCatalog.listAgencyUsersForPicker(req.user, req.params.agencyId)
 );

@@ -142,7 +142,7 @@ export const NAV_SEARCH_INDEX = [
     desc: 'Facilitator availability and scheduling.'
   },
   {
-    title: 'Gear & Inventory',
+    title: 'Gear, Equipment & Materials',
     section: 'Workforce Ops › Staff & Scheduling',
     path: '/admin/gear-inventory',
     keywords: ['gear', 'inventory', 'equipment', 'supplies'],

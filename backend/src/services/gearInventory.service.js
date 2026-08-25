@@ -550,6 +550,18 @@ export async function adjustStock(agencyId, { gearItemTypeId, sizeLabel, gender 
     createdByUserId: actorUserId,
   });
 
+  try {
+    const { checkCountedStockAndAlert } = await import('./gearLowStockAlert.service.js');
+    await checkCountedStockAndAlert({
+      catalogItemId: typeRow.catalog_item_id,
+      agencyId: aid,
+      gearItemTypeId: tid,
+      actorUserId: actorUserId,
+    });
+  } catch (e) {
+    console.warn('[gearInventory] low-stock alert check failed:', e?.message || e);
+  }
+
   return { gearItemTypeId: tid, gender: genderKey, sizeLabel: size, quantityOnHand: nextQty };
 }
 

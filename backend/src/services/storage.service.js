@@ -570,6 +570,34 @@ class StorageService {
   }
 
   /**
+   * Gear / materials catalog photo — scoped by catalog item id.
+   */
+  static async saveGearCatalogImage(catalogItemId, fileBuffer, filename, contentType = 'image/jpeg') {
+    const sanitizedFilename = this.sanitizeFilename(filename);
+    const unique = `${Date.now()}-${crypto.randomBytes(6).toString('hex')}`;
+    const cid = Number(catalogItemId) || 0;
+    const key = `uploads/gear_catalog/${cid}/${unique}-${sanitizedFilename}`;
+
+    const bucket = await this.getGCSBucket();
+    const file = bucket.file(key);
+
+    await file.save(fileBuffer, {
+      contentType,
+      metadata: {
+        catalogItemId: String(cid || ''),
+        uploadedAt: new Date().toISOString()
+      }
+    });
+
+    return {
+      path: key,
+      key,
+      filename: sanitizedFilename,
+      relativePath: key
+    };
+  }
+
+  /**
    * Club feed image attachment — scoped by club + uploader (served via /uploads/*).
    */
   static async saveClubFeedAttachment(clubId, userId, fileBuffer, filename, contentType = 'image/jpeg') {
