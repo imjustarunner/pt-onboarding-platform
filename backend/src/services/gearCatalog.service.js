@@ -54,11 +54,19 @@ const mapOwner = (row) => {
   };
 };
 
-/** Tenant agencies only (exclude schools / programs / other sub-orgs). */
+/** Tenant agencies eligible for Gear / Materials management. */
+const TENANT_AGENCY_SQL = `
+  LOWER(COALESCE(organization_type, 'agency')) = 'agency'
+  AND COALESCE(is_active, 1) = 1
+  AND COALESCE(is_archived, 0) = 0
+  AND LOWER(TRIM(name)) NOT LIKE '%(archived)%'
+`;
+
+/** Tenant agencies only (exclude schools / programs / archived / inactive). */
 async function listTenantAgencyIds() {
   const [rows] = await pool.execute(
     `SELECT id FROM agencies
-     WHERE LOWER(COALESCE(organization_type, 'agency')) = 'agency'
+     WHERE ${TENANT_AGENCY_SQL}
      ORDER BY name ASC`
   );
   return (rows || []).map((r) => Number(r.id)).filter((n) => n > 0);
@@ -985,7 +993,7 @@ export async function listAccessibleAgencies(actor) {
     `SELECT id, name, slug, portal_url, organization_type
      FROM agencies
      WHERE id IN (${ph})
-       AND LOWER(COALESCE(organization_type, 'agency')) = 'agency'
+       AND ${TENANT_AGENCY_SQL}
      ORDER BY name ASC`,
     ids
   );
