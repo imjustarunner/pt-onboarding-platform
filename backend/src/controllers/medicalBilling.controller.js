@@ -5,6 +5,20 @@ import ClinicalSession from '../models/clinical/ClinicalSession.model.js';
 import ClinicalNote from '../models/clinical/ClinicalNote.model.js';
 import ClinicalClaim from '../models/clinical/ClinicalClaim.model.js';
 import ClinicalTreatmentPlan from '../models/clinical/ClinicalTreatmentPlan.model.js';
+import ClinicalTreatmentObjectiveRating, {
+  computeProgressLabel
+} from '../models/clinical/ClinicalTreatmentObjectiveRating.model.js';
+import {
+  upsertPrimaryClinicalDiagnosis,
+  getPrimaryClinicalDiagnosis,
+  attachDiagnosisToTreatmentPlan,
+  attachDiagnosisToClinicalNote
+} from '../services/clinicalDiagnosisAttach.service.js';
+import {
+  evaluateClaimReadiness,
+  resolveClaimDiagnosisCodes,
+  resolveClaimDateOfService
+} from '../services/clinicalClaimReadiness.service.js';
 import AgencyClaimMdCredentials from '../models/AgencyClaimMdCredentials.model.js';
 import ClinicalEligibilityService from '../services/clinicalEligibility.service.js';
 import { getMedicalBillingFlags } from '../services/medicalBillingFlags.service.js';
@@ -88,6 +102,45 @@ export const saveTreatmentPlanToChart = async (req, res, next) => {
     }
 
     const goals = Array.isArray(req.body.goals) ? req.body.goals : [];
+
+    let primaryDiagnosisId = parseIntValue(req.body.primaryDiagnosisId);
+    let diagnosticJustification = req.body.diagnosticJustification
+      ? String(req.body.diagnosticJustification).trim()
+      : null;
+
+    // Session/claim-attached plans require a primary diagnosis on file.
+    const sessionAttached = !!(clinicalSessionId || parseIntValue(req.body.officeEventId));
+    if (!primaryDiagnosisId) {
+      const primary = await getPrimaryClinicalDiagnosis({ agencyId, clientId });
+      if (primary) {
+        primaryDiagnosisId = primary.id;
+        if (!diagnosticJustification && primary.justification) {
+          diagnosticJustification = String(primary.justification);
+        }
+      }
+    }
+    if (sessionAttached && !primaryDiagnosisId) {
+      return res.status(400).json({
+        error: {
+          message:
+            'Primary diagnosis is required before saving a session-linked treatment plan. Finalize an intake note or add a diagnosis on the chart first.'
+        }
+      });
+    }
+
+    // Allow creating/updating primary dx inline from Note Aid
+    if (!primaryDiagnosisId && req.body.icd10Code) {
+      primaryDiagnosisId = await upsertPrimaryClinicalDiagnosis({
+        agencyId,
+        clientId,
+        icd10Code: req.body.icd10Code,
+        description: req.body.diagnosisDescription || null,
+        justification: diagnosticJustification,
+        createdByUserId: req.user.id,
+        clinicalSessionId: clinicalSessionId || null
+      });
+    }
+
     const plan = await ClinicalTreatmentPlan.create({
       agencyId,
       clientId,
@@ -97,6 +150,8 @@ export const saveTreatmentPlanToChart = async (req, res, next) => {
       dischargePlan: req.body.dischargePlan ? String(req.body.dischargePlan) : null,
       sourceToolId: req.body.sourceToolId ? String(req.body.sourceToolId) : null,
       createdByUserId: req.user.id,
+      primaryDiagnosisId,
+      diagnosticJustification,
       goals: goals.map((g, i) => ({
         goalIndex: g.goalIndex || i + 1,
         goalText: String(g.goalText || g.text || ''),
@@ -111,7 +166,15 @@ export const saveTreatmentPlanToChart = async (req, res, next) => {
       }))
     });
 
-    return res.status(201).json({ plan });
+    if (plan?.id && primaryDiagnosisId) {
+      await attachDiagnosisToTreatmentPlan({
+        planId: plan.id,
+        primaryDiagnosisId,
+        diagnosticJustification
+      });
+    }
+
+    return res.status(201).json({ plan, primaryDiagnosisId: primaryDiagnosisId || null });
   } catch (e) {
     next(e);
   }
@@ -138,14 +201,29 @@ export const listClientChart = async (req, res, next) => {
     const plans = await ClinicalTreatmentPlan.listByClient({ agencyId, clientId });
     const latestPlanId = Number(plans?.[0]?.id || 0);
     const latestPlan = latestPlanId > 0 ? await ClinicalTreatmentPlan.findById(latestPlanId) : null;
-    const [diagnoses] = await clinicalPool.execute(
-      `SELECT id, icd10_code, description, is_primary, is_active, onset_date, created_at
-       FROM clinical_diagnoses
-       WHERE agency_id = ? AND client_id = ?
-       ORDER BY is_active DESC, is_primary DESC, created_at DESC
-       LIMIT 100`,
-      [agencyId, clientId]
-    );
+    let diagnoses = [];
+    try {
+      const [dxRows] = await clinicalPool.execute(
+        `SELECT id, icd10_code, description, justification, is_primary, is_active, onset_date, created_at
+         FROM clinical_diagnoses
+         WHERE agency_id = ? AND client_id = ?
+         ORDER BY is_active DESC, is_primary DESC, created_at DESC
+         LIMIT 100`,
+        [agencyId, clientId]
+      );
+      diagnoses = dxRows || [];
+    } catch (e) {
+      if (e.code !== 'ER_BAD_FIELD_ERROR') throw e;
+      const [dxRows] = await clinicalPool.execute(
+        `SELECT id, icd10_code, description, is_primary, is_active, onset_date, created_at
+         FROM clinical_diagnoses
+         WHERE agency_id = ? AND client_id = ?
+         ORDER BY is_active DESC, is_primary DESC, created_at DESC
+         LIMIT 100`,
+        [agencyId, clientId]
+      );
+      diagnoses = dxRows || [];
+    }
     const [sessions] = await clinicalPool.execute(
       `SELECT id, office_event_id, encounter_status, place_of_service, duration_minutes, is_telehealth,
               rendering_provider_user_id, scheduled_start_at, scheduled_end_at, created_at
@@ -163,15 +241,201 @@ export const listClientChart = async (req, res, next) => {
       billingEncounters = [];
     }
 
+    let objectiveRatings = [];
+    try {
+      objectiveRatings = await ClinicalTreatmentObjectiveRating.listByClient({
+        agencyId,
+        clientId,
+        limit: 100
+      });
+    } catch {
+      objectiveRatings = [];
+    }
+
     return res.json({
       notes: notes || [],
       plans: plans || [],
       latestPlan: latestPlan || null,
       diagnoses: diagnoses || [],
       sessions: sessions || [],
-      billingEncounters
+      billingEncounters,
+      objectiveRatings
     });
   } catch (e) {
+    next(e);
+  }
+};
+
+export const createObjectiveRating = async (req, res, next) => {
+  try {
+    const objectiveId = parseIntValue(req.params.objectiveId);
+    const agencyId = parseIntValue(req.body.agencyId);
+    const clientId = parseIntValue(req.body.clientId);
+    if (!objectiveId || !agencyId || !clientId) {
+      return res.status(400).json({ error: { message: 'objectiveId, agencyId, and clientId are required' } });
+    }
+    await ClinicalEligibilityService.ensureAgencyAccess({ reqUser: req.user, agencyId });
+
+    const [objRows] = await clinicalPool.execute(
+      `SELECT o.*, g.treatment_plan_id, g.id AS goal_id, p.agency_id, p.client_id
+       FROM clinical_treatment_plan_objectives o
+       INNER JOIN clinical_treatment_plan_goals g ON g.id = o.goal_id
+       INNER JOIN clinical_treatment_plans p ON p.id = g.treatment_plan_id
+       WHERE o.id = ?
+       LIMIT 1`,
+      [objectiveId]
+    );
+    const objective = objRows?.[0];
+    if (!objective) {
+      return res.status(404).json({ error: { message: 'Objective not found' } });
+    }
+    if (Number(objective.agency_id) !== agencyId || Number(objective.client_id) !== clientId) {
+      return res.status(403).json({ error: { message: 'Objective does not belong to this client' } });
+    }
+
+    const disposition = String(req.body.disposition || 'rated').trim().toLowerCase();
+    const allowed = new Set(['rated', 'deferred', 'on_hold', 'not_addressed']);
+    if (!allowed.has(disposition)) {
+      return res.status(400).json({ error: { message: 'Invalid disposition' } });
+    }
+
+    let scaleValue = null;
+    if (disposition === 'rated') {
+      scaleValue = Number(req.body.scaleValue);
+      if (!Number.isInteger(scaleValue) || scaleValue < 1 || scaleValue > 10) {
+        return res.status(400).json({ error: { message: 'scaleValue must be an integer 1–10' } });
+      }
+    }
+
+    const target =
+      req.body.scaleTarget != null
+        ? Number(req.body.scaleTarget)
+        : objective.scale_target != null
+          ? Number(objective.scale_target)
+          : null;
+    const previousValue =
+      req.body.previousScaleValue != null
+        ? Number(req.body.previousScaleValue)
+        : objective.scale_current != null
+          ? Number(objective.scale_current)
+          : null;
+
+    const progressLabel =
+      disposition === 'rated'
+        ? computeProgressLabel({
+            previousValue,
+            newValue: scaleValue,
+            target
+          })
+        : null;
+
+    const rating = await ClinicalTreatmentObjectiveRating.create({
+      agencyId,
+      clientId,
+      objectiveId,
+      goalId: objective.goal_id,
+      treatmentPlanId: objective.treatment_plan_id,
+      ratedByUserId: req.user.id,
+      scaleValue,
+      scaleTargetAtRating: target,
+      disposition,
+      progressLabel,
+      clinicalNoteId: parseIntValue(req.body.clinicalNoteId),
+      draftId: parseIntValue(req.body.draftId),
+      dateOfService: req.body.dateOfService ? String(req.body.dateOfService).slice(0, 10) : null,
+      notes: req.body.notes ? String(req.body.notes).trim() : null
+    });
+
+    return res.status(201).json({
+      rating,
+      progressLabel,
+      suggestUpdateTreatmentPlan: progressLabel === 'improved'
+    });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const listClientObjectiveRatings = async (req, res, next) => {
+  try {
+    const agencyId = parseIntValue(req.query.agencyId);
+    const clientId = parseIntValue(req.params.clientId);
+    if (!agencyId || !clientId) {
+      return res.status(400).json({ error: { message: 'agencyId and clientId are required' } });
+    }
+    await ClinicalEligibilityService.ensureAgencyAccess({ reqUser: req.user, agencyId });
+    const ratings = await ClinicalTreatmentObjectiveRating.listByClient({
+      agencyId,
+      clientId,
+      limit: parseIntValue(req.query.limit) || 200
+    });
+    return res.json({ ratings });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const amendTreatmentPlan = async (req, res, next) => {
+  try {
+    const planId = parseIntValue(req.params.planId);
+    const agencyId = parseIntValue(req.body.agencyId);
+    const clientId = parseIntValue(req.body.clientId);
+    if (!planId || !agencyId || !clientId) {
+      return res.status(400).json({ error: { message: 'planId, agencyId, and clientId are required' } });
+    }
+    await ClinicalEligibilityService.ensureAgencyAccess({ reqUser: req.user, agencyId });
+    const goals = Array.isArray(req.body.goals) ? req.body.goals : [];
+    const plan = await ClinicalTreatmentPlan.amend({
+      planId,
+      agencyId,
+      clientId,
+      goals: goals.map((g, i) => ({
+        goalId: parseIntValue(g.goalId),
+        goalIndex: g.goalIndex || i + 1,
+        goalText: g.goalText != null ? String(g.goalText) : undefined,
+        projectedCompletion: g.projectedCompletion,
+        objectives: (g.objectives || []).map((o, j) => ({
+          objectiveId: parseIntValue(o.objectiveId),
+          objectiveIndex: o.objectiveIndex || j + 1,
+          objectiveText: o.objectiveText != null ? String(o.objectiveText) : undefined,
+          scaleCurrent: o.scaleCurrent,
+          scaleTarget: o.scaleTarget,
+          measurementMethod: o.measurementMethod
+        }))
+      }))
+    });
+
+    // Keep amended plans linked to primary diagnosis when present on chart.
+    try {
+      let primaryDiagnosisId = parseIntValue(req.body.primaryDiagnosisId);
+      let diagnosticJustification = req.body.diagnosticJustification
+        ? String(req.body.diagnosticJustification).trim()
+        : null;
+      if (!primaryDiagnosisId) {
+        const primary = await getPrimaryClinicalDiagnosis({ agencyId, clientId });
+        if (primary) {
+          primaryDiagnosisId = primary.id;
+          if (!diagnosticJustification && primary.justification) {
+            diagnosticJustification = String(primary.justification);
+          }
+        }
+      }
+      if (plan?.id && primaryDiagnosisId) {
+        await attachDiagnosisToTreatmentPlan({
+          planId: plan.id,
+          primaryDiagnosisId,
+          diagnosticJustification
+        });
+      }
+    } catch (e) {
+      console.warn('[amendTreatmentPlan] diagnosis attach skipped:', e?.message);
+    }
+
+    return res.json({ plan });
+  } catch (e) {
+    if (String(e.message || '').includes('requires at least one new objective')) {
+      return res.status(400).json({ error: { message: e.message } });
+    }
     next(e);
   }
 };
@@ -296,23 +560,62 @@ export const upsertDiagnosis = async (req, res, next) => {
       return res.status(400).json({ error: { message: 'agencyId, clientId, and icd10Code are required' } });
     }
     await ClinicalEligibilityService.ensureAgencyAccess({ reqUser: req.user, agencyId });
-    const [result] = await clinicalPool.execute(
-      `INSERT INTO clinical_diagnoses
-       (agency_id, client_id, clinical_session_id, clinical_note_id, icd10_code, description, is_primary, is_active, onset_date, created_by_user_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`,
-      [
+
+    const isPrimary = !!req.body.isPrimary;
+    const justification = req.body.justification ? String(req.body.justification).trim() : null;
+
+    if (isPrimary) {
+      const id = await upsertPrimaryClinicalDiagnosis({
         agencyId,
         clientId,
-        parseIntValue(req.body.clinicalSessionId),
-        parseIntValue(req.body.clinicalNoteId),
-        code,
-        req.body.description ? String(req.body.description).slice(0, 500) : null,
-        req.body.isPrimary ? 1 : 0,
-        req.body.onsetDate || null,
-        req.user.id
-      ]
-    );
-    return res.status(201).json({ id: result.insertId });
+        icd10Code: code,
+        description: req.body.description ? String(req.body.description).slice(0, 500) : null,
+        justification,
+        createdByUserId: req.user.id,
+        clinicalSessionId: parseIntValue(req.body.clinicalSessionId),
+        clinicalNoteId: parseIntValue(req.body.clinicalNoteId)
+      });
+      return res.status(201).json({ id });
+    }
+
+    try {
+      const [result] = await clinicalPool.execute(
+        `INSERT INTO clinical_diagnoses
+         (agency_id, client_id, clinical_session_id, clinical_note_id, icd10_code, description,
+          justification, is_primary, is_active, onset_date, created_by_user_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, 0, 1, ?, ?)`,
+        [
+          agencyId,
+          clientId,
+          parseIntValue(req.body.clinicalSessionId),
+          parseIntValue(req.body.clinicalNoteId),
+          code,
+          req.body.description ? String(req.body.description).slice(0, 500) : null,
+          justification,
+          req.body.onsetDate || null,
+          req.user.id
+        ]
+      );
+      return res.status(201).json({ id: result.insertId });
+    } catch (e) {
+      if (e.code !== 'ER_BAD_FIELD_ERROR') throw e;
+      const [result] = await clinicalPool.execute(
+        `INSERT INTO clinical_diagnoses
+         (agency_id, client_id, clinical_session_id, clinical_note_id, icd10_code, description, is_primary, is_active, onset_date, created_by_user_id)
+         VALUES (?, ?, ?, ?, ?, ?, 0, 1, ?, ?)`,
+        [
+          agencyId,
+          clientId,
+          parseIntValue(req.body.clinicalSessionId),
+          parseIntValue(req.body.clinicalNoteId),
+          code,
+          req.body.description ? String(req.body.description).slice(0, 500) : null,
+          req.body.onsetDate || null,
+          req.user.id
+        ]
+      );
+      return res.status(201).json({ id: result.insertId });
+    }
   } catch (e) {
     next(e);
   }
@@ -366,11 +669,22 @@ export const createMedicalClaim = async (req, res, next) => {
     const agencyId = parseIntValue(req.body.agencyId);
     const clientId = parseIntValue(req.body.clientId);
     const sessionId = parseIntValue(req.body.clinicalSessionId);
-    const noteId = parseIntValue(req.body.clinicalNoteId);
+    let noteId = parseIntValue(req.body.clinicalNoteId);
     if (!agencyId || !clientId || !sessionId) {
       return res.status(400).json({ error: { message: 'agencyId, clientId, and clinicalSessionId are required' } });
     }
     await ClinicalEligibilityService.ensureAgencyAccess({ reqUser: req.user, agencyId });
+
+    const agency = await loadAgencyFlags(agencyId);
+    const flags = getMedicalBillingFlags(agency);
+    const readiness = await evaluateClaimReadiness({
+      agencyId,
+      clientId,
+      clinicalSessionId: sessionId,
+      clinicalNoteId: noteId,
+      requireSignedNote: !!flags.clinicalNoteSigningEnabled
+    });
+    if (!noteId && readiness.noteId) noteId = readiness.noteId;
 
     if (noteId) {
       const [nRows] = await clinicalPool.execute(
@@ -379,8 +693,6 @@ export const createMedicalClaim = async (req, res, next) => {
       );
       const note = nRows?.[0];
       if (!note) return res.status(404).json({ error: { message: 'Clinical note not found' } });
-      const agency = await loadAgencyFlags(agencyId);
-      const flags = getMedicalBillingFlags(agency);
       if (flags.clinicalNoteSigningEnabled) {
         if (!note.provider_signed_at) {
           return res.status(400).json({ error: { message: 'Note must be provider-signed before creating a claim' } });
@@ -390,6 +702,28 @@ export const createMedicalClaim = async (req, res, next) => {
         }
       }
     }
+
+    const diagnosisCodes = await resolveClaimDiagnosisCodes({
+      agencyId,
+      clientId,
+      clinicalNoteId: noteId,
+      diagnosisCodes: req.body.diagnosisCodes || null
+    });
+    if (!diagnosisCodes.length) {
+      return res.status(400).json({
+        error: {
+          message:
+            'Primary diagnosis is required to create a claim. Finalize intake or add a diagnosis on the chart first.',
+          readiness
+        }
+      });
+    }
+
+    const dateOfService = await resolveClaimDateOfService({
+      clinicalSessionId: sessionId,
+      clinicalNoteId: noteId,
+      dateOfService: req.body.dateOfService || null
+    });
 
     const lines = Array.isArray(req.body.lines) ? req.body.lines : [];
     const amountCents = lines.reduce((s, l) => s + Number(l.chargeCents || 0), 0);
@@ -401,10 +735,20 @@ export const createMedicalClaim = async (req, res, next) => {
       claimStatus: 'PENDING',
       amountCents,
       currencyCode: 'USD',
-      claimPayload: JSON.stringify({ source: 'medical_billing', lines }),
-      metadataJson: { createdVia: 'medicalBilling.createMedicalClaim' },
+      claimPayload: JSON.stringify({ source: 'medical_billing', lines, diagnosisCodes }),
+      metadataJson: {
+        createdVia: 'medicalBilling.createMedicalClaim',
+        readiness: {
+          ready: readiness.ready,
+          blockers: readiness.blockers,
+          warnings: readiness.warnings,
+          planId: readiness.planId
+        }
+      },
       createdByUserId: req.user.id
     });
+
+    const claimLifecycle = readiness.ready && noteId ? 'ready' : 'draft';
 
     // Best-effort lifecycle columns (requires migration 002)
     try {
@@ -418,7 +762,7 @@ export const createMedicalClaim = async (req, res, next) => {
            taxonomy_code = ?,
            place_of_service = ?,
            date_of_service = ?,
-           claim_lifecycle = 'draft',
+           claim_lifecycle = ?,
            diagnosis_codes_json = ?
          WHERE id = ?`,
         [
@@ -429,8 +773,9 @@ export const createMedicalClaim = async (req, res, next) => {
           req.body.renderingNpi || null,
           req.body.taxonomyCode || null,
           req.body.placeOfService || null,
-          req.body.dateOfService || null,
-          req.body.diagnosisCodes ? JSON.stringify(req.body.diagnosisCodes) : null,
+          dateOfService,
+          claimLifecycle,
+          JSON.stringify(diagnosisCodes),
           claim.id
         ]
       );
@@ -449,7 +794,7 @@ export const createMedicalClaim = async (req, res, next) => {
             Number(l.chargeCents || 0),
             l.diagnosisPointers || '1',
             noteId,
-            l.serviceDate || req.body.dateOfService || null
+            l.serviceDate || dateOfService || null
           ]
         );
       }
@@ -457,7 +802,36 @@ export const createMedicalClaim = async (req, res, next) => {
       console.warn('[medicalBilling] claim line insert skipped (run clinical migration 002):', schemaErr?.message);
     }
 
-    return res.status(201).json({ claim });
+    return res.status(201).json({
+      claim: { ...claim, claim_lifecycle: claimLifecycle, date_of_service: dateOfService, clinical_note_id: noteId },
+      diagnosisCodes,
+      readiness
+    });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const getSessionClaimReadiness = async (req, res, next) => {
+  try {
+    const agencyId = parseIntValue(req.query.agencyId);
+    const clientId = parseIntValue(req.query.clientId);
+    const sessionId = parseIntValue(req.params.sessionId);
+    const noteId = parseIntValue(req.query.clinicalNoteId);
+    if (!agencyId || !clientId || !sessionId) {
+      return res.status(400).json({ error: { message: 'agencyId, clientId, and sessionId are required' } });
+    }
+    await ClinicalEligibilityService.ensureAgencyAccess({ reqUser: req.user, agencyId });
+    const agency = await loadAgencyFlags(agencyId);
+    const flags = getMedicalBillingFlags(agency);
+    const readiness = await evaluateClaimReadiness({
+      agencyId,
+      clientId,
+      clinicalSessionId: sessionId,
+      clinicalNoteId: noteId,
+      requireSignedNote: !!flags.clinicalNoteSigningEnabled
+    });
+    return res.json({ readiness });
   } catch (e) {
     next(e);
   }
@@ -471,7 +845,7 @@ export const listMedicalClaims = async (req, res, next) => {
     const [rows] = await clinicalPool.execute(
       `SELECT id, clinical_session_id, client_id, claim_number, claim_status, amount_cents, currency_code,
               clinical_note_id, payer_name, claim_lifecycle, claimmd_claim_id, claimmd_last_status,
-              date_of_service, created_at, updated_at
+              date_of_service, diagnosis_codes_json, created_at, updated_at
        FROM clinical_claims
        WHERE agency_id = ? AND is_deleted = 0
        ORDER BY created_at DESC

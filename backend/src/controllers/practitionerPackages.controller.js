@@ -581,7 +581,8 @@ export const postMissedSession = async (req, res, next) => {
       agencyId,
       clientId: Number(req.body?.clientId),
       entitlementId: req.body?.entitlementId || null,
-      createdByUserId: req.user?.id || null
+      createdByUserId: req.user?.id || null,
+      providerScheduleEventId: req.body?.providerScheduleEventId || null
     });
     res.json({ ok: true, ...result });
   } catch (e) {

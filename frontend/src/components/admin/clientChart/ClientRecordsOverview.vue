@@ -183,12 +183,19 @@
             <h4>Clinical Note Aid</h4>
             <span class="rco-badge rco-badge--ok">Connected</span>
           </div>
-          <p class="muted tiny">Launch approved note templates for this client’s chart.</p>
+          <p class="muted tiny">Write session notes or update treatment plans for this client.</p>
           <ul class="rco-dots">
-            <li>Launch note aid</li>
-            <li>Approved templates</li>
+            <li>Client context + primary diagnosis</li>
+            <li>Intake → plan → progress note spine</li>
           </ul>
-          <button type="button" class="cdp-btn-primary" @click="openNoteAid">Open Note Aid</button>
+          <div class="rco-note-aid-actions">
+            <button type="button" class="cdp-btn-primary" @click="openNoteAid()">Open Note Aid</button>
+            <button type="button" class="cdp-btn-soft" @click="openNoteAid({ launchIntent: 'update_treatment_plan', noteAid: 'psychotherapy_plan' })">
+              Update treatment plan
+            </button>
+            <button type="button" class="rco-link" @click="$emit('navigate', 'intake-note')">Intake note</button>
+            <button type="button" class="rco-link" @click="$emit('navigate', 'treatment-plans')">Treatment plans</button>
+          </div>
         </section>
 
         <section class="rco-card">
@@ -258,6 +265,7 @@ import { computed, onMounted, ref, watch } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import api from '../../../services/api';
 import '../../../styles/client-hub.css';
+import { buildNoteAidQuery, treatmentPlanUpdaterQuery } from '../../../utils/noteAidLaunch.js';
 
 const AUTH_KINDS = new Set([
   'smart_roi',
@@ -287,6 +295,7 @@ const loading = ref(false);
 const error = ref('');
 const notes = ref([]);
 const plans = ref([]);
+const sessions = ref([]);
 const artifacts = ref([]);
 const encounters = ref([]);
 const lastLoadedAt = ref(null);
@@ -477,10 +486,34 @@ function claimBadge(enc) {
   return 'rco-badge--muted';
 }
 
-function openNoteAid() {
+function openNoteAid(extra = {}) {
   const orgSlug = String(route.params?.organizationSlug || '').trim();
   const path = orgSlug ? `/${orgSlug}/admin/note-aid` : '/admin/note-aid';
-  router.push({ path, query: { clientId: String(props.clientId || '') } }).catch(() => {});
+  const isUpdater =
+    String(extra.launchIntent || '').includes('treatment_plan')
+    || String(extra.noteAid || '').includes('psychotherapy_plan');
+
+  let query;
+  if (isUpdater) {
+    query = treatmentPlanUpdaterQuery(props.clientId, extra);
+  } else {
+    const latestSession = (sessions.value || [])[0] || null;
+    const latestEncounter = (encounters.value || []).find((e) => Number(e?.clinical_session_id || 0) > 0)
+      || (encounters.value || [])[0]
+      || null;
+    query = buildNoteAidQuery({
+      clientId: props.clientId,
+      clinicalSessionId: latestSession?.id || latestEncounter?.clinical_session_id || undefined,
+      officeEventId: latestSession?.office_event_id || latestEncounter?.office_event_id || undefined,
+      dateOfService: latestEncounter?.service_date || latestSession?.scheduled_start_at || undefined,
+      serviceCode: latestEncounter?.service_code || latestEncounter?.cpt_code || undefined,
+      noteType: 'PROGRESS_NOTE',
+      templateVersion: 'v1',
+      launchIntent: 'progress_note',
+      ...extra
+    });
+  }
+  router.push({ path, query }).catch(() => {});
 }
 
 async function load() {
@@ -503,10 +536,12 @@ async function load() {
         }).then((r) => {
           notes.value = Array.isArray(r.data?.notes) ? r.data.notes : [];
           plans.value = Array.isArray(r.data?.plans) ? r.data.plans : [];
+          sessions.value = Array.isArray(r.data?.sessions) ? r.data.sessions : [];
           encounters.value = Array.isArray(r.data?.billingEncounters) ? r.data.billingEncounters : [];
         }).catch(() => {
           notes.value = [];
           plans.value = [];
+          sessions.value = [];
           encounters.value = [];
         })
       );
@@ -705,6 +740,13 @@ watch(() => [props.clientId, props.agencyId], load);
   font-size: 12px;
 }
 .rco-note-aid { background: color-mix(in srgb, var(--primary, #166534) 6%, var(--bg-card, #fff)); }
+.rco-note-aid-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  align-items: center;
+  margin-top: 8px;
+}
 .rco-dots { margin: 0 0 12px; padding-left: 18px; color: var(--text-secondary); font-size: 13px; }
 .rco-mini { margin: 12px 0 6px; font-size: 12px; }
 .rco-task {

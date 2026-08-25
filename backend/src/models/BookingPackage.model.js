@@ -337,6 +337,41 @@ class BookingPackage {
            VALUES (?, ?, ?, ?, 'CONSUME', 1, 'SESSION_COMPLETE', ?)`,
           [ent.agencyId, ent.id, ent.clientId, appointmentId || null, actorUserId || null]
         );
+      } else if (mode === 'forfeit') {
+        // No-show / late cancel: consume reserved unit (or remaining if consume-on-complete).
+        if (consumeOn === 'reserve' || reserved >= 1) {
+          if (reserved < 1) {
+            await conn.commit();
+            return this.findEntitlementById(ent.id, ent.agencyId);
+          }
+          const nextReserved = reserved - 1;
+          const nextStatus = Number(row.sessions_remaining || 0) <= 0 && nextReserved <= 0 ? 'EXHAUSTED' : 'ACTIVE';
+          await conn.execute(
+            `UPDATE booking_package_entitlements
+             SET sessions_reserved = ?, status = ?
+             WHERE id = ?`,
+            [nextReserved, nextStatus, ent.id]
+          );
+        } else {
+          if (remaining < 1) {
+            await conn.commit();
+            return this.findEntitlementById(ent.id, ent.agencyId);
+          }
+          const nextRemaining = remaining - 1;
+          const nextStatus = nextRemaining <= 0 ? 'EXHAUSTED' : 'ACTIVE';
+          await conn.execute(
+            `UPDATE booking_package_entitlements
+             SET sessions_remaining = ?, status = ?
+             WHERE id = ?`,
+            [nextRemaining, nextStatus, ent.id]
+          );
+        }
+        await conn.execute(
+          `INSERT INTO booking_package_ledger
+            (agency_id, entitlement_id, client_id, appointment_id, direction, quantity, reason_code, created_by_user_id)
+           VALUES (?, ?, ?, ?, 'CONSUME', 1, 'SESSION_NOSHOW_FORFEIT', ?)`,
+          [ent.agencyId, ent.id, ent.clientId, appointmentId || null, actorUserId || null]
+        );
       } else if (mode === 'release') {
         if (reserved < 1) {
           await conn.commit();

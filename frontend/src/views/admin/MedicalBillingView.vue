@@ -41,11 +41,45 @@
             · <strong>Schedule encounters:</strong> {{ chart.sessions?.length || 0 }}
             · <strong>Billing encounters:</strong> {{ chart.billingEncounters?.length || 0 }}
           </p>
+          <p v-if="chartPrimaryDx" class="muted">
+            Primary dx:
+            <code>{{ chartPrimaryDx.icd10_code }}</code>
+            {{ chartPrimaryDx.description || '' }}
+            <span v-if="chart.latestPlan">· Plan #{{ chart.latestPlan.id }} ({{ chart.latestPlan.status || 'active' }})</span>
+          </p>
           <ul class="mb-list">
             <li v-for="n in (chart.notes || []).slice(0, 8)" :key="'n'+n.id">
               Note #{{ n.id }} {{ n.title }}
               <span v-if="n.provider_signed_at"> · signed</span>
               <span v-if="n.supervisor_cosigned_at"> · cosigned</span>
+            </li>
+          </ul>
+          <ul v-if="(chart.sessions || []).length" class="mb-list">
+            <li v-for="s in (chart.sessions || []).slice(0, 8)" :key="'s'+s.id">
+              Session #{{ s.id }}
+              · {{ String(s.scheduled_start_at || s.created_at || '').slice(0, 10) }}
+              · {{ s.encounter_status || '—' }}
+              <button
+                type="button"
+                class="mb-btn mb-btn--small"
+                :disabled="readinessLoadingId === s.id"
+                @click="checkSessionReadiness(s)"
+              >
+                {{ readinessLoadingId === s.id ? 'Checking…' : 'Claim readiness' }}
+              </button>
+              <span
+                v-if="sessionReadiness[s.id]"
+                class="mb-ready"
+                :class="sessionReadiness[s.id].ready ? 'mb-ready--ok' : 'mb-ready--bad'"
+              >
+                {{ sessionReadiness[s.id].ready ? 'Ready' : 'Blocked' }}
+                <template v-if="(sessionReadiness[s.id].blockers || []).length">
+                  — {{ sessionReadiness[s.id].blockers.join('; ') }}
+                </template>
+                <template v-else-if="(sessionReadiness[s.id].warnings || []).length">
+                  — {{ sessionReadiness[s.id].warnings.join('; ') }}
+                </template>
+              </span>
             </li>
           </ul>
           <ul v-if="(chart.billingEncounters || []).length" class="mb-list">
@@ -165,8 +199,11 @@
         <ul v-if="claims.length" class="mb-list">
           <li v-for="c in claims" :key="c.id">
             #{{ c.id }}
-            {{ c.claim_lifecycle || c.claim_status }}
+            <span class="mb-ready" :class="claimLifecycleClass(c)">{{ c.claim_lifecycle || c.claim_status }}</span>
             — {{ formatCents(c.amount_cents) }}
+            <span v-if="c.date_of_service"> · DOS {{ String(c.date_of_service).slice(0, 10) }}</span>
+            <span v-if="c.clinical_note_id"> · note #{{ c.clinical_note_id }}</span>
+            <span v-if="claimDxLabel(c)"> · dx {{ claimDxLabel(c) }}</span>
             <span v-if="c.claimmd_claim_id"> · Claim.MD {{ c.claimmd_claim_id }}</span>
             <button
               v-if="claimMd.configured"
@@ -244,9 +281,36 @@ const accountKey = ref('');
 const claimMdLog = ref('');
 const chartClientId = ref(null);
 const chart = ref(null);
+const sessionReadiness = ref({});
+const readinessLoadingId = ref(null);
 const serviceCodes = ref([]);
 const serviceLocations = ref([]);
 const billingOffices = ref([]);
+
+const chartPrimaryDx = computed(() => {
+  const list = chart.value?.diagnoses || [];
+  return list.find((d) => Number(d.is_primary) === 1 && (d.is_active == null || Number(d.is_active) === 1))
+    || list.find((d) => d && (d.is_active == null || Number(d.is_active) === 1))
+    || null;
+});
+
+const claimLifecycleClass = (c) => {
+  const life = String(c?.claim_lifecycle || c?.claim_status || '').toLowerCase();
+  if (life === 'ready' || life === 'submitted' || life === 'paid') return 'mb-ready--ok';
+  if (life === 'denied' || life === 'rejected') return 'mb-ready--bad';
+  return '';
+};
+
+const claimDxLabel = (c) => {
+  let raw = c?.diagnosis_codes_json;
+  if (!raw) return '';
+  if (typeof raw === 'string') {
+    try { raw = JSON.parse(raw); } catch { return String(raw).slice(0, 40); }
+  }
+  if (Array.isArray(raw)) return raw.filter(Boolean).join(', ');
+  if (typeof raw === 'object') return Object.values(raw).filter(Boolean).join(', ');
+  return '';
+};
 const svcSaving = ref(false);
 const locSaving = ref(false);
 const previewMinutes = ref(53);
@@ -474,8 +538,35 @@ const loadChart = async () => {
       params: { agencyId: agencyId.value }
     });
     chart.value = res?.data || null;
+    sessionReadiness.value = {};
   } catch (e) {
     error.value = e.response?.data?.error?.message || 'Failed to load chart';
+  }
+};
+
+const checkSessionReadiness = async (session) => {
+  const sessionId = Number(session?.id || 0);
+  const clientId = Number(chartClientId.value || session?.client_id || 0);
+  if (!agencyId.value || !sessionId || !clientId) return;
+  readinessLoadingId.value = sessionId;
+  try {
+    const res = await api.get(`/medical-billing/sessions/${sessionId}/claim-readiness`, {
+      params: { agencyId: agencyId.value, clientId }
+    });
+    sessionReadiness.value = {
+      ...sessionReadiness.value,
+      [sessionId]: res?.data?.readiness || { ready: false, blockers: ['No response'] }
+    };
+  } catch (e) {
+    sessionReadiness.value = {
+      ...sessionReadiness.value,
+      [sessionId]: {
+        ready: false,
+        blockers: [e.response?.data?.error?.message || e.message || 'Readiness check failed']
+      }
+    };
+  } finally {
+    readinessLoadingId.value = null;
   }
 };
 
@@ -640,6 +731,18 @@ onMounted(async () => {
   border-radius: 6px; padding: 0.4rem 0.75rem; cursor: pointer;
 }
 .mb-btn--small { padding: 0.25rem 0.5rem; font-size: 0.85rem; }
+.mb-ready {
+  display: inline-block;
+  margin: 0 0.35rem;
+  padding: 0.1rem 0.45rem;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  background: #e2e8f0;
+  color: #334155;
+}
+.mb-ready--ok { background: #d1fae5; color: #065f46; }
+.mb-ready--bad { background: #fee2e2; color: #991b1b; }
 .mb-log {
   margin-top: 0.75rem; background: #f6f8fa; padding: 0.75rem; border-radius: 6px;
   max-height: 280px; overflow: auto; font-size: 0.8rem;

@@ -1,0 +1,165 @@
+import crypto from 'crypto';
+import clinicalPool from '../../config/clinicalDatabase.js';
+
+function safeInt(v) {
+  const n = Number(v);
+  return Number.isInteger(n) && n > 0 ? n : null;
+}
+
+function clampText(v, maxLen) {
+  const s = v === null || v === undefined ? '' : String(v);
+  const trimmed = s.trim();
+  if (!maxLen) return trimmed;
+  return trimmed.length > maxLen ? trimmed.slice(0, maxLen) : trimmed;
+}
+
+export function fingerprintPlanText(text) {
+  const normalized = String(text || '')
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .trim();
+  return crypto.createHash('sha256').update(normalized).digest('hex').slice(0, 64);
+}
+
+/** Distance to goal: lower is closer (works whether higher or lower scores are better). */
+export function distanceToGoal(value, target) {
+  if (value == null || target == null) return null;
+  return Math.abs(Number(value) - Number(target));
+}
+
+export function computeProgressLabel({ previousValue, newValue, target }) {
+  if (newValue == null || target == null) return null;
+  const n = Number(newValue);
+  const t = Number(target);
+  if (n === t) return 'improved';
+  if (previousValue == null || previousValue === '') return 'unchanged';
+  const prevDist = distanceToGoal(previousValue, t);
+  const nextDist = distanceToGoal(n, t);
+  if (prevDist == null || nextDist == null) return 'unchanged';
+  if (nextDist < prevDist) return 'progressing';
+  if (nextDist > prevDist) return 'regressed';
+  return 'unchanged';
+}
+
+class ClinicalTreatmentObjectiveRating {
+  static async create({
+    agencyId,
+    clientId,
+    objectiveId,
+    goalId = null,
+    treatmentPlanId = null,
+    ratedByUserId,
+    scaleValue = null,
+    scaleTargetAtRating = null,
+    disposition = 'rated',
+    progressLabel = null,
+    clinicalNoteId = null,
+    draftId = null,
+    dateOfService = null,
+    notes = null
+  }) {
+    const agency = safeInt(agencyId);
+    const client = safeInt(clientId);
+    const objective = safeInt(objectiveId);
+    const rater = safeInt(ratedByUserId);
+    if (!agency || !client || !objective || !rater) {
+      throw new Error('agencyId, clientId, objectiveId, and ratedByUserId are required');
+    }
+    const disp = clampText(disposition || 'rated', 32) || 'rated';
+    const scale =
+      disp === 'rated' && scaleValue != null && scaleValue !== ''
+        ? Math.max(1, Math.min(10, Number(scaleValue)))
+        : null;
+    const target =
+      scaleTargetAtRating == null || scaleTargetAtRating === ''
+        ? null
+        : Math.max(1, Math.min(10, Number(scaleTargetAtRating)));
+
+    const [result] = await clinicalPool.execute(
+      `INSERT INTO clinical_treatment_objective_ratings
+       (agency_id, client_id, objective_id, goal_id, treatment_plan_id, rated_by_user_id,
+        scale_value, scale_target_at_rating, disposition, progress_label,
+        clinical_note_id, draft_id, date_of_service, notes)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        agency,
+        client,
+        objective,
+        safeInt(goalId),
+        safeInt(treatmentPlanId),
+        rater,
+        scale,
+        target,
+        disp,
+        progressLabel ? clampText(progressLabel, 32) : null,
+        safeInt(clinicalNoteId),
+        safeInt(draftId),
+        dateOfService ? String(dateOfService).slice(0, 10) : null,
+        notes ? clampText(notes, 500) : null
+      ]
+    );
+
+    // Keep objective.scale_current in sync when a numeric rating is recorded.
+    if (disp === 'rated' && scale != null) {
+      await clinicalPool.execute(
+        `UPDATE clinical_treatment_plan_objectives
+         SET scale_current = ?
+         WHERE id = ? AND superseded_at IS NULL`,
+        [scale, objective]
+      );
+    }
+
+    return this.findById(result.insertId);
+  }
+
+  static async findById(id) {
+    const rid = safeInt(id);
+    if (!rid) return null;
+    const [rows] = await clinicalPool.execute(
+      `SELECT * FROM clinical_treatment_objective_ratings WHERE id = ? LIMIT 1`,
+      [rid]
+    );
+    return rows?.[0] || null;
+  }
+
+  static async listByClient({ agencyId, clientId, limit = 200 }) {
+    const agency = safeInt(agencyId);
+    const client = safeInt(clientId);
+    if (!agency || !client) return [];
+    const lim = Math.max(1, Math.min(500, Number(limit) || 200));
+    const [rows] = await clinicalPool.execute(
+      `SELECT r.*, o.objective_text, o.scale_target, g.goal_text, g.goal_index, o.objective_index
+       FROM clinical_treatment_objective_ratings r
+       LEFT JOIN clinical_treatment_plan_objectives o ON o.id = r.objective_id
+       LEFT JOIN clinical_treatment_plan_goals g ON g.id = COALESCE(r.goal_id, o.goal_id)
+       WHERE r.agency_id = ? AND r.client_id = ?
+       ORDER BY r.rated_at DESC, r.id DESC
+       LIMIT ${lim}`,
+      [agency, client]
+    );
+    return rows || [];
+  }
+
+  static async latestByObjectiveIds({ objectiveIds = [] }) {
+    const ids = (objectiveIds || []).map((id) => safeInt(id)).filter(Boolean);
+    if (!ids.length) return {};
+    const [rows] = await clinicalPool.execute(
+      `SELECT r.*
+       FROM clinical_treatment_objective_ratings r
+       INNER JOIN (
+         SELECT objective_id, MAX(id) AS max_id
+         FROM clinical_treatment_objective_ratings
+         WHERE objective_id IN (${ids.map(() => '?').join(',')})
+         GROUP BY objective_id
+       ) latest ON latest.max_id = r.id`,
+      ids
+    );
+    const map = {};
+    for (const row of rows || []) {
+      map[String(row.objective_id)] = row;
+    }
+    return map;
+  }
+}
+
+export default ClinicalTreatmentObjectiveRating;

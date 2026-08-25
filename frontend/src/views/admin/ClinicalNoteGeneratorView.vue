@@ -60,7 +60,7 @@
       <main class="na-main" :class="{ 'na-main--library': showLibraryPanel }">
         <div class="na-privacy">
           <strong>Privacy notice:</strong>
-          Drafts (including archived) are permanently deleted after 7 days. Copy into your EHR before then.
+          Drafts are auto-archived after 7 days and retained up to 7 years. Copy into your EHR when needed.
         </div>
 
         <div v-if="therapyContext" class="na-context-strip">
@@ -81,7 +81,33 @@
           :categories="libraryCategories"
           :user-id="libraryUserId"
           @select="onLibrarySelect"
-        />
+        >
+          <template #before>
+            <div class="na-library-client-bar">
+              <NoteAidClientPicker
+                v-model="selectedClientId"
+                :agency-id="currentAgencyId"
+                :selected-client="selectedClient"
+                @select="onClientPicked"
+                @clear="onClientCleared"
+              />
+              <NoteAidClientContextPanel
+                :client-id="effectiveClientId"
+                :goals="activeTreatmentGoals"
+                :loading-plan="loadingClientPlan"
+                :plan-error="clientPlanError"
+                v-model:pasted-plan-text="pastedPlanText"
+                :loading-intake="loadingIntake"
+                :intake-error="intakeError"
+                :intake-summary="intakeSummary"
+                :primary-diagnosis="primaryChartDiagnosis"
+                @open-updater="openTreatmentPlanUpdater"
+                @use-intake="useIntakeToInformPlan"
+                @open-chart-intake="openClientChartIntake"
+              />
+            </div>
+          </template>
+        </NoteAidLibraryPanel>
 
         <template v-else>
         <div class="na-aid-bar">
@@ -132,6 +158,13 @@
                   class="na-input"
                   maxlength="16"
                   placeholder="e.g., A.M."
+                />
+                <NoteAidClientPicker
+                  v-model="selectedClientId"
+                  :agency-id="currentAgencyId"
+                  :selected-client="selectedClient"
+                  @select="onClientPicked"
+                  @clear="onClientCleared"
                 />
               </div>
             </div>
@@ -199,6 +232,50 @@
             </div>
           </template>
         </section>
+
+        <NoteAidClientContextPanel
+          :client-id="effectiveClientId"
+          :goals="activeTreatmentGoals"
+          :loading-plan="loadingClientPlan"
+          :plan-error="clientPlanError"
+          v-model:pasted-plan-text="pastedPlanText"
+          :loading-intake="loadingIntake"
+          :intake-error="intakeError"
+          :intake-summary="intakeSummary"
+          :primary-diagnosis="primaryChartDiagnosis"
+          @open-updater="openTreatmentPlanUpdater"
+          @use-intake="useIntakeToInformPlan"
+          @open-chart-intake="openClientChartIntake"
+        />
+
+        <div v-if="effectiveClientId && primaryChartDiagnosis" class="na-dx-banner" role="status">
+          <strong>Primary diagnosis</strong>
+          <span class="mono">{{ primaryChartDiagnosis.icd10_code }}</span>
+          <span>{{ primaryChartDiagnosis.description || '' }}</span>
+          <p v-if="primaryChartDiagnosis.justification" class="na-dx-just">{{ primaryChartDiagnosis.justification }}</p>
+        </div>
+        <div v-else-if="effectiveClientId && !loadingClientPlan" class="na-dx-banner na-dx-banner--warn" role="status">
+          No primary diagnosis on chart yet. Finalize an intake note (or add a diagnosis) so plans and session notes can attach it.
+        </div>
+
+        <NoteAidObjectiveRatings
+          v-if="showObjectiveRatings"
+          :goals="activeTreatmentGoals"
+          :disabled="generating"
+          @update:ratings="sessionObjectiveRatings = $event"
+          @improved="onObjectiveImproved"
+        />
+
+        <div v-if="suggestUpdateTreatmentPlan" class="na-renew-banner" role="status">
+          <span>{{ renewalSuggestReason || 'Consider updating the treatment plan based on progress.' }}</span>
+          <button
+            type="button"
+            class="na-btn-outline"
+            @click="openTreatmentPlanUpdater({ renewalReason: renewalSuggestReason, progressExcerpt: lastProgressNoteExcerpt })"
+          >
+            Update treatment plan
+          </button>
+        </div>
 
         <section class="na-input-panel">
           <div class="na-input-tabs" role="tablist">
@@ -452,6 +529,9 @@ import api from '../../services/api';
 import ClinicalArtifactRetentionPanel from '../../components/clinical/ClinicalArtifactRetentionPanel.vue';
 import NoteAidLibraryPanel from '../../components/clinical/NoteAidLibraryPanel.vue';
 import ClinicalNoteLibrarySidebar from '../../components/clinical/ClinicalNoteLibrarySidebar.vue';
+import NoteAidClientPicker from '../../components/clinical/NoteAidClientPicker.vue';
+import NoteAidObjectiveRatings from '../../components/clinical/NoteAidObjectiveRatings.vue';
+import NoteAidClientContextPanel from '../../components/clinical/NoteAidClientContextPanel.vue';
 import {
   buildDisplaySections,
   extractSections,
@@ -460,12 +540,21 @@ import {
   formatFullNoteCopy,
   todayIsoDate
 } from '../../utils/noteAidUiHelpers';
+import {
+  activePlanGoals,
+  buildObjectiveRatingsContextText,
+  buildTreatmentPlanContextText,
+  buildUpdaterPrefillDocument,
+  clientDisplayInitials
+} from '../../utils/noteAidTreatmentHelpers.js';
+import { toDateOfService } from '../../utils/noteAidLaunch.js';
 import { ensureHourlySessionForNoteAid } from '../../utils/noteAidIndirectSession.js';
 import {
   HIDDEN_NOTE_AID_CODES,
   NOTE_AID_CATEGORIES,
   NOTE_TYPE_CODE_GROUPS,
   aidAllowsInteractiveComplexity,
+  aidKind,
   findNoteAidById,
   findNoteAidByToolOrCode,
   orderNoteAidCategoriesForHcbs
@@ -529,7 +618,25 @@ const canApproveToClinicalRecord = computed(
     && (bookingContext.value?.officeEventId || bookingContext.value?.clinicalSessionId)
   )
 );
-const retentionClientId = computed(() => Number(bookingContext.value?.clientId || 0) || null);
+const retentionClientId = computed(
+  () => Number(selectedClientId.value || bookingContext.value?.clientId || 0) || null
+);
+const effectiveClientId = computed(
+  () => Number(selectedClientId.value || bookingContext.value?.clientId || 0) || null
+);
+const activeTreatmentGoals = computed(() => activePlanGoals(latestTreatmentPlan.value));
+const primaryChartDiagnosis = computed(() => {
+  const list = chartDiagnoses.value || [];
+  const primary = list.find((d) => d && Number(d.is_primary) === 1 && (d.is_active == null || Number(d.is_active) === 1));
+  if (primary) return primary;
+  return list.find((d) => d && (d.is_active == null || Number(d.is_active) === 1)) || null;
+});
+const showObjectiveRatings = computed(() => {
+  if (!effectiveClientId.value || !activeTreatmentGoals.value.length) return false;
+  const kind = aidKind(selectedAid.value);
+  // Progress notes require ratings; also show before an aid is chosen so clinicians can rate first.
+  return !selectedAid.value || kind === 'progress';
+});
 const retentionOfficeEventId = computed(() => Number(bookingContext.value?.officeEventId || 0) || null);
 const launchIntent = computed(() => String(route.query?.launchIntent || route.query?.launch_intent || '').trim().toLowerCase());
 const isRecordSessionIntent = computed(() => launchIntent.value === 'record_session' || launchIntent.value === 'record');
@@ -587,6 +694,21 @@ const otherServiceCode = ref('');
 const selectedProgramId = ref('');
 const dateOfService = ref('');
 const initials = ref('');
+const selectedClientId = ref(null);
+const selectedClient = ref(null);
+const latestTreatmentPlan = ref(null);
+const chartDiagnoses = ref([]);
+const chartObjectiveRatings = ref([]);
+const lastProgressNoteExcerpt = ref('');
+const loadingClientPlan = ref(false);
+const clientPlanError = ref('');
+const pastedPlanText = ref('');
+const sessionObjectiveRatings = ref([]);
+const suggestUpdateTreatmentPlan = ref(false);
+const renewalSuggestReason = ref('');
+const loadingIntake = ref(false);
+const intakeError = ref('');
+const intakeSummary = ref('');
 const inputText = ref('');
 const includeInteractiveComplexity = ref(false);
 const inputMode = ref('type'); // type | speak
@@ -1262,6 +1384,7 @@ const displayPanels = computed(() => {
 
 const canSaveTreatmentPlanToChart = computed(() => {
   if (!isClinicalChartEnabled(medicalBillingFlags.value)) return false;
+  if (!effectiveClientId.value) return false;
   const panels = displayPanels.value || [];
   return panels.some((p) => p.isTreatmentPlan || /^Goal\s*\d+/i.test(p.id || ''));
 });
@@ -1985,6 +2108,23 @@ const stopTranscription = () => {
 const generateNote = async () => {
   if (generateDisabled.value) return;
   if (!canUseTool.value) return;
+
+  if (showObjectiveRatings.value) {
+    const needed = [];
+    for (const g of activeTreatmentGoals.value) {
+      for (const o of g.objectives || []) needed.push(String(o.id));
+    }
+    const rated = new Set(
+      (sessionObjectiveRatings.value || []).map((r) => String(r.objectiveId))
+    );
+    const missing = needed.filter((id) => !rated.has(id));
+    if (missing.length) {
+      generateError.value =
+        'Rate each treatment objective (or choose Deferred / On hold / Not addressed) before generating.';
+      return;
+    }
+  }
+
   try {
     generating.value = true;
     generateError.value = '';
@@ -2011,6 +2151,22 @@ const generateNote = async () => {
     if (dateOfService.value) fd.append('dateOfService', String(dateOfService.value));
     fd.append('dateWritten', String(effectiveCreatedDate.value));
     if (initials.value) fd.append('initials', String(initials.value));
+    if (effectiveClientId.value) fd.append('clientId', String(effectiveClientId.value));
+    const planBits = [];
+    const planCtx = buildTreatmentPlanContextText(latestTreatmentPlan.value, pastedPlanText.value);
+    if (planCtx) planBits.push(planCtx);
+    const dxLines = (chartDiagnoses.value || [])
+      .filter((d) => d && (d.is_active == null || Number(d.is_active) === 1))
+      .map((d) => `${d.icd10_code || ''}: ${d.description || ''}`.trim())
+      .filter(Boolean);
+    if (dxLines.length) {
+      planBits.push(`Diagnosis on file:\n${dxLines.map((l) => `- ${l}`).join('\n')}`);
+    }
+    if (planBits.length) {
+      fd.append('treatmentPlanContext', planBits.join('\n\n').slice(0, 8000));
+    }
+    const ratingsCtx = buildObjectiveRatingsContextText(sessionObjectiveRatings.value);
+    if (ratingsCtx) fd.append('objectiveRatingsContext', ratingsCtx);
     if (selectedAidId.value) rememberRecentAid(libraryUserId.value, selectedAidId.value);
     fd.append(
       'includeInteractiveComplexity',
@@ -2037,6 +2193,27 @@ const generateNote = async () => {
     archiveMessage.value = '';
     if (configReadyForCollapse.value) configExpanded.value = false;
 
+    // Capture a short progress-note excerpt for treatment-plan renewal suggestions.
+    if (aidKind(selectedAid.value) === 'progress' && outputObj.value) {
+      try {
+        const sections = extractSections(outputObj.value) || {};
+        const bits = ['Subjective', 'Objective', 'Assessment', 'Plan', 'Interventions']
+          .map((k) => sections[k])
+          .filter((t) => String(t || '').trim())
+          .map((t) => String(t).trim());
+        lastProgressNoteExcerpt.value = bits.join('\n\n').slice(0, 2500);
+        // Soft suggest: progress notes may inform goal additions even without "improved".
+        if (effectiveClientId.value && activeTreatmentGoals.value.length) {
+          suggestUpdateTreatmentPlan.value =
+            suggestUpdateTreatmentPlan.value ||
+            (sessionObjectiveRatings.value || []).some((r) => r.progressLabel === 'improved');
+        }
+      } catch {
+        // ignore excerpt parse failures
+      }
+    }
+
+    await persistSessionObjectiveRatings();
     await loadRecent();
   } catch (e) {
     const base = e.response?.data?.error?.message || 'Failed to generate note';
@@ -2103,11 +2280,15 @@ const approveNoteOutput = async () => {
       serviceCode: serviceCodeForMetadata,
       officeEventId: bookingContext.value.officeEventId || undefined,
       source: bookingContext.value.officeEventId ? 'note_aid_approval' : 'billing_import_note_approval',
+      primaryDiagnosisId: primaryChartDiagnosis.value?.id || null,
+      diagnosticJustification: primaryChartDiagnosis.value?.justification || null,
       metadata: {
         generatedBy: 'clinical_note_generator',
         model: outputObj.value?.meta?.model || null,
         toolId: outputObj.value?.meta?.toolId || null,
-        approvedAt: new Date().toISOString()
+        approvedAt: new Date().toISOString(),
+        primaryDiagnosisId: primaryChartDiagnosis.value?.id || null,
+        dateOfService: dateOfService.value ? String(dateOfService.value).slice(0, 10) : null
       }
     });
 
@@ -2126,9 +2307,9 @@ const approveNoteOutput = async () => {
 
 const saveTreatmentPlanToChart = async () => {
   if (!canSaveTreatmentPlanToChart.value || savingTreatmentPlan.value) return;
-  const clientId = Number(bookingContext.value?.clientId || route.query?.clientId || 0) || null;
+  const clientId = Number(effectiveClientId.value || bookingContext.value?.clientId || route.query?.clientId || 0) || null;
   if (!clientId) {
-    approvalError.value = 'Client context is required to save a treatment plan to the chart.';
+    approvalError.value = 'Select an active client to save a treatment plan to the chart.';
     return;
   }
   try {
@@ -2166,13 +2347,18 @@ const saveTreatmentPlanToChart = async () => {
       agencyId: currentAgencyId.value,
       clientId,
       officeEventId: bookingContext.value?.officeEventId || null,
-      clinicalSessionId: null,
+      clinicalSessionId: bookingContext.value?.clinicalSessionId || null,
       title: 'Treatment Plan',
       dischargePlan,
       sourceToolId: selectedToolId.value || outputObj.value?.meta?.toolId || null,
+      primaryDiagnosisId: primaryChartDiagnosis.value?.id || null,
+      diagnosticJustification: primaryChartDiagnosis.value?.justification || null,
+      icd10Code: primaryChartDiagnosis.value?.icd10_code || null,
+      diagnosisDescription: primaryChartDiagnosis.value?.description || null,
       goals
     });
-    approvalMessage.value = 'Treatment plan saved to clinical chart.';
+    approvalMessage.value = 'Treatment plan saved to clinical chart (with primary diagnosis when on file).';
+    await loadClientTreatmentPlan(clientId);
   } catch (e) {
     approvalError.value = e.response?.data?.error?.message || e.message || 'Failed to save treatment plan';
   } finally {
@@ -2195,7 +2381,7 @@ const loadRecent = async ({ retry = true } = {}) => {
     recentLoading.value = true;
     recentError.value = '';
     const res = await api.get('/clinical-notes/recent', {
-      params: { agencyId: currentAgencyId.value, days: 7, archiveStatus: 'all' },
+      params: { agencyId: currentAgencyId.value, days: 2555, archiveStatus: 'all' },
       skipGlobalLoading: true,
       timeout: 15000
     });
@@ -2270,6 +2456,35 @@ const bootstrapWorkspace = async ({ resetForm = false } = {}) => {
   if (seq !== bootstrapSeq) return;
   applyBookingContextPrefill();
   applyTherapyContextPrefill();
+  const bookingClientId = Number(bookingContext.value?.clientId || 0);
+  if (bookingClientId && !selectedClientId.value) {
+    selectedClientId.value = bookingClientId;
+    selectedClient.value = { id: bookingClientId };
+    loadClientTreatmentPlan(bookingClientId);
+    loadClientIntakeSummary(bookingClientId);
+  }
+
+  // Deep-link from client file: open updater with chart preload.
+  const launchAid = String(route.query?.noteAid || route.query?.note_aid || '').trim();
+  const launchIntentQ = String(route.query?.launchIntent || route.query?.launch_intent || '')
+    .trim()
+    .toLowerCase();
+  if (launchAid === 'psychotherapy_plan' || launchIntentQ === 'update_treatment_plan') {
+    const qClient = Number(route.query?.clientId || route.query?.client_id || 0);
+    if (qClient) {
+      selectedClientId.value = qClient;
+      selectedClient.value = { id: qClient };
+      await loadClientTreatmentPlan(qClient);
+      await loadClientIntakeSummary(qClient);
+    }
+    await openTreatmentPlanUpdater({
+      renewalReason:
+        launchIntentQ === 'update_treatment_plan'
+          ? 'Opened from client file — update treatment plan using chart diagnosis, goals, and ratings.'
+          : ''
+    });
+  }
+
   loadRecent();
 };
 
@@ -2281,6 +2496,224 @@ const setSidebarTab = async (tab) => {
 
 const focusArchivedShelf = async () => {
   await setSidebarTab('archived');
+};
+
+const resetClientClinicalContext = () => {
+  latestTreatmentPlan.value = null;
+  chartDiagnoses.value = [];
+  chartObjectiveRatings.value = [];
+  clientPlanError.value = '';
+  pastedPlanText.value = '';
+  sessionObjectiveRatings.value = [];
+  suggestUpdateTreatmentPlan.value = false;
+  renewalSuggestReason.value = '';
+  lastProgressNoteExcerpt.value = '';
+  intakeSummary.value = '';
+  intakeError.value = '';
+};
+
+const loadClientTreatmentPlan = async (clientId) => {
+  const cid = Number(clientId || 0);
+  const aid = Number(currentAgencyId.value || 0);
+  if (!cid || !aid) {
+    latestTreatmentPlan.value = null;
+    chartDiagnoses.value = [];
+    chartObjectiveRatings.value = [];
+    return;
+  }
+  loadingClientPlan.value = true;
+  clientPlanError.value = '';
+  try {
+    const res = await api.get(`/medical-billing/clients/${cid}/chart`, {
+      params: { agencyId: aid },
+      skipGlobalLoading: true
+    });
+    latestTreatmentPlan.value = res?.data?.latestPlan || null;
+    chartDiagnoses.value = Array.isArray(res?.data?.diagnoses) ? res.data.diagnoses : [];
+    chartObjectiveRatings.value = Array.isArray(res?.data?.objectiveRatings)
+      ? res.data.objectiveRatings
+      : [];
+  } catch (e) {
+    latestTreatmentPlan.value = null;
+    chartDiagnoses.value = [];
+    chartObjectiveRatings.value = [];
+    clientPlanError.value =
+      e.response?.data?.error?.message || e.message || 'Could not load treatment plan';
+  } finally {
+    loadingClientPlan.value = false;
+  }
+};
+
+const loadClientIntakeSummary = async (clientId) => {
+  const cid = Number(clientId || 0);
+  if (!cid) {
+    intakeSummary.value = '';
+    return;
+  }
+  loadingIntake.value = true;
+  intakeError.value = '';
+  try {
+    const res = await api.get(`/clients/${cid}/records-copy-blocks`, { skipGlobalLoading: true });
+    const blocks = res?.data?.blocks || res?.data || [];
+    if (Array.isArray(blocks) && blocks.length) {
+      intakeSummary.value = blocks
+        .map((b) => {
+          const title = b.title || b.label || b.name || '';
+          const text = b.text || b.content || b.body || '';
+          return [title, text].filter(Boolean).join('\n');
+        })
+        .filter(Boolean)
+        .join('\n\n')
+        .slice(0, 6000);
+    } else if (typeof res?.data?.text === 'string') {
+      intakeSummary.value = res.data.text.slice(0, 6000);
+    } else {
+      intakeSummary.value = '';
+    }
+  } catch (e) {
+    intakeSummary.value = '';
+    intakeError.value = e.response?.data?.error?.message || e.message || 'Could not load intake';
+  } finally {
+    loadingIntake.value = false;
+  }
+};
+
+const onClientPicked = async (client) => {
+  selectedClient.value = client || null;
+  selectedClientId.value = Number(client?.id || 0) || null;
+  const init = clientDisplayInitials(client);
+  if (init) initials.value = init;
+  resetClientClinicalContext();
+  await Promise.all([
+    loadClientTreatmentPlan(selectedClientId.value),
+    loadClientIntakeSummary(selectedClientId.value)
+  ]);
+};
+
+const onClientCleared = () => {
+  selectedClient.value = null;
+  selectedClientId.value = null;
+  resetClientClinicalContext();
+};
+
+const onObjectiveImproved = () => {
+  suggestUpdateTreatmentPlan.value = true;
+  renewalSuggestReason.value =
+    'One or more objectives reached the goal scale. Update the treatment plan (goals, objectives, diagnosis, and diagnostic justification).';
+};
+
+const openTreatmentPlanUpdater = async ({
+  renewalReason = '',
+  progressExcerpt = ''
+} = {}) => {
+  selectedNoteCategory.value = 'psychotherapy';
+  selectedAidId.value = 'psychotherapy_plan';
+
+  const cid = Number(effectiveClientId.value || 0);
+  if (cid && !latestTreatmentPlan.value && !loadingClientPlan.value) {
+    await loadClientTreatmentPlan(cid);
+  }
+
+  const reason =
+    renewalReason ||
+    renewalSuggestReason.value ||
+    (suggestUpdateTreatmentPlan.value
+      ? 'Objective(s) improved to goal — renew / update treatment plan.'
+      : '');
+
+  const excerpt =
+    progressExcerpt ||
+    lastProgressNoteExcerpt.value ||
+    '';
+
+  const prefill = buildUpdaterPrefillDocument({
+    latestPlan: latestTreatmentPlan.value,
+    pastedPlanText: pastedPlanText.value,
+    diagnoses: chartDiagnoses.value,
+    ratings: [
+      ...chartObjectiveRatings.value.slice(0, 40),
+      ...(sessionObjectiveRatings.value || []).map((r) => ({
+        goal_text: r.goalText,
+        objective_text: r.objectiveText,
+        disposition: r.disposition,
+        scale_value: r.scaleValue,
+        scale_target: r.scaleTarget,
+        progress_label: r.progressLabel
+      }))
+    ],
+    progressNoteExcerpt: excerpt,
+    renewalReason: reason
+  });
+
+  if (prefill) {
+    inputText.value = prefill;
+  }
+  configExpanded.value = true;
+};
+
+const useIntakeToInformPlan = async () => {
+  const text = String(intakeSummary.value || '').trim();
+  await openTreatmentPlanUpdater({
+    renewalReason: text
+      ? 'Build or update treatment plan using intake context.'
+      : 'Build treatment plan from client chart.'
+  });
+  if (text && !String(inputText.value || '').includes(text.slice(0, 40))) {
+    inputText.value = [`Intake context:\n${text}`, String(inputText.value || '').trim()]
+      .filter(Boolean)
+      .join('\n\n');
+  }
+};
+
+const openClientChartIntake = () => {
+  const cid = Number(effectiveClientId.value || 0);
+  if (!cid) return;
+  const slug = agencyStore.currentAgency?.slug || agencyStore.currentAgency?.organization_slug;
+  const query = { tab: 'intake-note' };
+  if (slug) router.push({ path: `/${slug}/admin/clients/${cid}`, query });
+  else router.push({ path: `/admin/clients/${cid}`, query });
+};
+
+const persistSessionObjectiveRatings = async () => {
+  const cid = Number(effectiveClientId.value || 0);
+  const aid = Number(currentAgencyId.value || 0);
+  const ratings = Array.isArray(sessionObjectiveRatings.value) ? sessionObjectiveRatings.value : [];
+  if (!cid || !aid || !ratings.length) return;
+  let anyImproved = false;
+  for (const r of ratings) {
+    try {
+      const res = await api.post(
+        `/medical-billing/objectives/${r.objectiveId}/ratings`,
+        {
+          agencyId: aid,
+          clientId: cid,
+          disposition: r.disposition || 'rated',
+          scaleValue: r.scaleValue,
+          scaleTarget: r.scaleTarget,
+          previousScaleValue: r.previousScaleValue,
+          draftId: draftId.value || null,
+          dateOfService: dateOfService.value || null
+        },
+        { skipGlobalLoading: true }
+      );
+      if (res?.data?.suggestUpdateTreatmentPlan || res?.data?.progressLabel === 'improved') {
+        anyImproved = true;
+      }
+    } catch {
+      // Non-blocking: chart gate or offline should not fail note generate.
+    }
+  }
+  if (anyImproved) {
+    suggestUpdateTreatmentPlan.value = true;
+    renewalSuggestReason.value =
+      'One or more objectives reached the goal scale. Update goals, objectives, diagnosis, and diagnostic justification.';
+    if (window.confirm('An objective reached its goal. Open the treatment plan updater with chart context?')) {
+      await openTreatmentPlanUpdater({
+        renewalReason: renewalSuggestReason.value,
+        progressExcerpt: lastProgressNoteExcerpt.value
+      });
+    }
+  }
 };
 
 const startNewNote = () => {
@@ -2296,6 +2729,9 @@ const startNewNote = () => {
   autoSelectCode.value = false;
   dateOfService.value = todayIsoDate();
   initials.value = '';
+  selectedClientId.value = null;
+  selectedClient.value = null;
+  resetClientClinicalContext();
   inputText.value = '';
   includeInteractiveComplexity.value = false;
   inputMode.value = 'type';
@@ -2346,6 +2782,10 @@ const startNewNoteSameDate = async () => {
   clearGeneratedWorkspace();
   dateOfService.value = keepDate;
   initials.value = '';
+  selectedClientId.value = null;
+  selectedClient.value = null;
+  resetClientClinicalContext();
+  sessionObjectiveRatings.value = [];
   newNoteMenuOpen.value = false;
   await focusConfigField('initials');
 };
@@ -2353,9 +2793,14 @@ const startNewNoteSameDate = async () => {
 /** Keep client + service; user picks a new date. */
 const startNewNoteSameClient = async () => {
   const keepInitials = String(initials.value || '').trim();
+  const keepClientId = selectedClientId.value;
+  const keepClient = selectedClient.value;
   clearGeneratedWorkspace();
   initials.value = keepInitials;
+  selectedClientId.value = keepClientId;
+  selectedClient.value = keepClient;
   dateOfService.value = '';
+  sessionObjectiveRatings.value = [];
   newNoteMenuOpen.value = false;
   await focusConfigField('date');
 };
@@ -2405,6 +2850,13 @@ const loadDraftIntoWorkspace = (d) => {
   selectedProgramId.value = d.program_id ? String(d.program_id) : '';
   dateOfService.value = d.date_of_service ? String(d.date_of_service).slice(0, 10) : todayIsoDate();
   initials.value = d.initials || '';
+  const draftClientId = Number(d.client_id || 0) || null;
+  if (draftClientId && draftClientId !== Number(selectedClientId.value || 0)) {
+    selectedClientId.value = draftClientId;
+    selectedClient.value = { id: draftClientId, initials: d.initials || '' };
+    loadClientTreatmentPlan(draftClientId);
+    loadClientIntakeSummary(draftClientId);
+  }
   inputText.value = unwrapDraftText(d.input_text);
   try {
     const raw = unwrapDraftText(d.output_json) || d.output_json;
@@ -2453,7 +2905,7 @@ const archiveCurrentDraft = async () => {
     );
     currentDraftArchivedAt.value = res?.data?.draft?.archived_at || (nextArchived ? new Date().toISOString() : null);
     archiveMessage.value = nextArchived
-      ? 'Moved to Archive. Still deletes after 7 days — copy to your EHR if needed.'
+      ? 'Moved to Archive. Drafts auto-archive after 7 days and are retained up to 7 years.'
       : 'Restored to Active.';
     if (nextArchived) sidebarTab.value = 'archived';
     else sidebarTab.value = 'active';
@@ -2546,7 +2998,9 @@ const draftSections = (draftRow) => {
 
 onMounted(async () => {
   speechSupported.value = !!(window.SpeechRecognition || window.webkitSpeechRecognition);
-  if (!dateOfService.value) dateOfService.value = todayIsoDate();
+  const queryDos = toDateOfService(route.query?.dateOfService || route.query?.date_of_service);
+  if (queryDos) dateOfService.value = queryDos;
+  else if (!dateOfService.value) dateOfService.value = todayIsoDate();
   if (String(route.query?.new || '') === '1' || String(route.query?.newNote || '') === '1') {
     startNewNote();
   }
@@ -3093,6 +3547,57 @@ onBeforeUnmount(() => {
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
   margin: 10px 0;
+}
+
+.na-library-client-bar {
+  margin-bottom: 16px;
+}
+
+.na-renew-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 0 0 14px;
+  padding: 10px 14px;
+  background: #fffbeb;
+  border: 1px solid #fcd34d;
+  border-radius: 12px;
+  color: #92400e;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.na-dx-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px 12px;
+  margin: 0 0 14px;
+  padding: 10px 14px;
+  background: #ecfdf5;
+  border: 1px solid #a7f3d0;
+  border-radius: 12px;
+  color: #065f46;
+  font-size: 0.88rem;
+}
+.na-dx-banner--warn {
+  background: #fff7ed;
+  border-color: #fed7aa;
+  color: #9a3412;
+}
+.na-dx-banner .mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-weight: 700;
+}
+.na-dx-just {
+  flex-basis: 100%;
+  margin: 4px 0 0;
+  white-space: pre-wrap;
+  font-size: 0.8rem;
+  color: #047857;
+  font-weight: 500;
 }
 
 .na-config--summary {

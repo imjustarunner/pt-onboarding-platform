@@ -6,7 +6,8 @@ import {
   updateAppointment,
   cancelAppointment,
   getAppointmentBundle,
-  linkProviderScheduleEvent
+  linkProviderScheduleEvent,
+  settleAppointment
 } from '../services/appointment.service.js';
 
 async function assertAgencyAccess(req, agencyId) {
@@ -197,6 +198,32 @@ export const cancelAppointmentHandler = async (req, res, next) => {
         evaluation: e.evaluation || null
       });
     }
+    next(e);
+  }
+};
+
+export const settleAppointmentHandler = async (req, res, next) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    const existing = await Appointment.findById(id);
+    if (!existing) return res.status(404).json({ error: { message: 'Appointment not found' } });
+    if (!(await assertAgencyAccess(req, existing.agencyId))) {
+      return res.status(403).json({ error: { message: 'Access denied' } });
+    }
+    const outcome = String(req.body?.outcome || existing.status || '').toLowerCase();
+    if (!['completed', 'no_show'].includes(outcome)) {
+      return res.status(400).json({
+        error: { message: 'outcome must be completed or no_show' }
+      });
+    }
+    const bundle = await settleAppointment(id, {
+      outcome,
+      actorUserId: req.user?.id || null,
+      force: req.body?.force === true
+    });
+    res.json({ ok: true, appointment: bundle });
+  } catch (e) {
+    if (e?.status) return res.status(e.status).json({ error: { message: e.message } });
     next(e);
   }
 };

@@ -4,12 +4,30 @@
       <h2 class="nal-nav-title">Note Aid Library</h2>
       <nav class="nal-cats" aria-label="Aid families">
         <button
+          type="button"
+          class="nal-cat tone-goals"
+          :class="{ active: clientRail === 'goals' }"
+          @click="setClientRail('goals')"
+        >
+          <span class="nal-cat-icon" aria-hidden="true">◎</span>
+          <span>Treatment Goals</span>
+        </button>
+        <button
+          type="button"
+          class="nal-cat tone-intake"
+          :class="{ active: clientRail === 'intake' }"
+          @click="setClientRail('intake')"
+        >
+          <span class="nal-cat-icon" aria-hidden="true">☰</span>
+          <span>Intake</span>
+        </button>
+        <button
           v-for="cat in categories"
           :key="cat.id"
           type="button"
           class="nal-cat"
-          :class="[`tone-${tone(cat.id)}`, { active: navCategory === cat.id }]"
-          @click="navCategory = navCategory === cat.id ? 'all' : cat.id"
+          :class="[`tone-${tone(cat.id)}`, { active: navCategory === cat.id && !clientRail }]"
+          @click="pickCategory(cat.id)"
         >
           <span class="nal-cat-icon" aria-hidden="true">{{ catIcon(cat.id) }}</span>
           <span>{{ cat.label }}</span>
@@ -71,6 +89,7 @@
     </aside>
 
     <div class="nal-main">
+      <slot name="before" />
       <header class="nal-head">
         <h1>Select a tool to get started</h1>
         <p>Same Gemini gems as before — pick a card, then stay in that aid to add transcript and generate.</p>
@@ -157,9 +176,10 @@ const props = defineProps({
   userId: { type: [Number, String], default: null }
 });
 
-const emit = defineEmits(['select']);
+const emit = defineEmits(['select', 'client-rail']);
 
 const navCategory = ref('all');
+const clientRail = ref('');
 const filterKind = ref('all');
 const filterCode = ref('');
 const filterSetting = ref('');
@@ -167,6 +187,23 @@ const favoriteIds = ref(listFavoriteAidIds(props.userId));
 const recentIds = ref(listRecentAidIds(props.userId));
 const collapsed = reactive({});
 const kindFilters = NOTE_AID_KIND_FILTERS;
+
+function setClientRail(which) {
+  clientRail.value = clientRail.value === which ? '' : which;
+  if (clientRail.value === 'goals') {
+    filterKind.value = 'plan';
+    navCategory.value = 'all';
+  } else if (clientRail.value === 'intake') {
+    filterKind.value = 'intake';
+    navCategory.value = 'all';
+  }
+  emit('client-rail', clientRail.value || null);
+}
+
+function pickCategory(id) {
+  clientRail.value = '';
+  navCategory.value = navCategory.value === id ? 'all' : id;
+}
 
 const allAids = computed(() => flattenNoteAids(props.categories));
 
@@ -309,6 +346,8 @@ function pick(aid) {
 .nal-cat.tone-teal.active { background: #f0fdfa; border-color: #99f6e4; color: #0f766e; }
 .nal-cat.tone-purple.active { background: #f5f3ff; border-color: #ddd6fe; color: #6d28d9; }
 .nal-cat.tone-orange.active { background: #fff7ed; border-color: #fed7aa; color: #c2410c; }
+.nal-cat.tone-goals.active { background: #ecfdf5; border-color: #86efac; color: #166534; }
+.nal-cat.tone-intake.active { background: #eff6ff; border-color: #93c5fd; color: #1d4ed8; }
 .nal-cat-icon { width: 1.4rem; text-align: center; }
 .nal-block h3 {
   margin: 0 0 8px;

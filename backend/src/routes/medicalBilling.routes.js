@@ -19,6 +19,9 @@ import {
   getMedicalBillingStatus,
   saveTreatmentPlanToChart,
   listClientChart,
+  createObjectiveRating,
+  listClientObjectiveRatings,
+  amendTreatmentPlan,
   updateEncounter,
   signClinicalNote,
   cosignClinicalNote,
@@ -28,6 +31,7 @@ import {
   upsertFeeScheduleItem,
   createMedicalClaim,
   listMedicalClaims,
+  getSessionClaimReadiness,
   saveClaimMdCredentials,
   submitClaimToClaimMd,
   refreshClaimMdResponses,
@@ -76,6 +80,41 @@ router.get(
     query('agencyId').isInt({ min: 1 })
   ],
   listClientChart
+);
+
+router.post(
+  '/objectives/:objectiveId/ratings',
+  requireClinicalChart,
+  [
+    param('objectiveId').isInt({ min: 1 }),
+    body('agencyId').isInt({ min: 1 }),
+    body('clientId').isInt({ min: 1 }),
+    body('disposition').optional().isString(),
+    body('scaleValue').optional().isInt({ min: 1, max: 10 })
+  ],
+  createObjectiveRating
+);
+
+router.get(
+  '/clients/:clientId/objective-ratings',
+  requireClinicalChart,
+  [
+    param('clientId').isInt({ min: 1 }),
+    query('agencyId').isInt({ min: 1 })
+  ],
+  listClientObjectiveRatings
+);
+
+router.post(
+  '/treatment-plans/:planId/amend',
+  requireClinicalChart,
+  [
+    param('planId').isInt({ min: 1 }),
+    body('agencyId').isInt({ min: 1 }),
+    body('clientId').isInt({ min: 1 }),
+    body('goals').optional().isArray()
+  ],
+  amendTreatmentPlan
 );
 
 router.patch(
@@ -139,6 +178,17 @@ router.get(
   ...claimsGate,
   [query('agencyId').isInt({ min: 1 })],
   listMedicalClaims
+);
+
+router.get(
+  '/sessions/:sessionId/claim-readiness',
+  ...claimsGate,
+  [
+    param('sessionId').isInt({ min: 1 }),
+    query('agencyId').isInt({ min: 1 }),
+    query('clientId').isInt({ min: 1 })
+  ],
+  getSessionClaimReadiness
 );
 
 router.post(

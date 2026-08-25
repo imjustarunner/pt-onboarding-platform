@@ -14,6 +14,7 @@ import {
   listCommunications
 } from './appointmentReminder.service.js';
 import { scheduleSessionNotifications } from './sessionNotification.service.js';
+import { settleAppointmentOutcome } from './appointmentSettlement.service.js';
 import {
   dateToMysqlUtcDateTime,
   wallMysqlToUtcMysql,
@@ -300,13 +301,37 @@ export async function updateAppointment(appointmentId, patch = {}, { actorUserId
 
   const startAt = patch.startAt != null ? toMysqlDateTime(patch.startAt) : existing.startAt;
   const endAt = patch.endAt != null ? toMysqlDateTime(patch.endAt) : existing.endAt;
-  await Appointment.update(appointmentId, {
+  const prevStatus = String(existing.status || '').toLowerCase();
+  const updatePatch = {
     ...patch,
     startAt,
     endAt,
     updatedByUserId: actorUserId
-  });
-  return getAppointmentBundle(appointmentId);
+  };
+  if (patch.status != null) {
+    updatePatch.status = Appointment.normalizeStatus(patch.status, existing.status);
+  } else {
+    delete updatePatch.status;
+  }
+  await Appointment.update(appointmentId, updatePatch);
+
+  let settlement = null;
+  const nextStatus = updatePatch.status != null
+    ? String(updatePatch.status).toLowerCase()
+    : prevStatus;
+  if (nextStatus !== prevStatus && (nextStatus === 'completed' || nextStatus === 'no_show')) {
+    try {
+      settlement = await settleAppointmentOutcome(appointmentId, {
+        outcome: nextStatus,
+        actorUserId
+      });
+    } catch (e) {
+      settlement = { settled: false, reason: 'SETTLE_ERROR', error: e.message };
+    }
+  }
+
+  const bundle = await getAppointmentBundle(appointmentId);
+  return settlement ? { ...bundle, settlement } : bundle;
 }
 
 export async function cancelAppointment(appointmentId, {
@@ -399,8 +424,18 @@ export async function cancelAppointment(appointmentId, {
         actorUserId
       });
     } catch { /* best-effort */ }
+  } else if (existing.packageEntitlementId && (packageAction === 'forfeit' || packageAction === 'late_forfeit')) {
+    try {
+      await BookingPackage.applyAppointmentUsage({
+        entitlementId: existing.packageEntitlementId,
+        agencyId: existing.agencyId,
+        appointmentId: existing.id,
+        mode: 'forfeit',
+        actorUserId
+      });
+    } catch { /* best-effort */ }
   }
-  // forfeit / review: leave reservation consumed (no release)
+  // review: leave reservation as-is for staff resolution
 
   return { ...bundle, cancellationEvaluation: evaluation };
 }
@@ -478,6 +513,31 @@ export async function linkProviderScheduleEvent(appointmentId, providerScheduleE
   });
 }
 
+export async function settleAppointment(appointmentId, {
+  outcome,
+  actorUserId = null,
+  force = false
+} = {}) {
+  const existing = await Appointment.findById(appointmentId);
+  if (!existing) return null;
+  const status = String(outcome || existing.status || '').toLowerCase();
+  if (status === 'completed' || status === 'no_show') {
+    if (String(existing.status || '').toLowerCase() !== status) {
+      await Appointment.update(appointmentId, {
+        status: Appointment.normalizeStatus(status),
+        updatedByUserId: actorUserId
+      });
+    }
+  }
+  const settlement = await settleAppointmentOutcome(appointmentId, {
+    outcome: status,
+    actorUserId,
+    force
+  });
+  const bundle = await getAppointmentBundle(appointmentId);
+  return { ...bundle, settlement };
+}
+
 export default {
   resolveBookingOptions,
   getAppointmentBundle,
@@ -485,5 +545,6 @@ export default {
   updateAppointment,
   cancelAppointment,
   upsertAppointmentForOfficeBook,
-  linkProviderScheduleEvent
+  linkProviderScheduleEvent,
+  settleAppointment
 };

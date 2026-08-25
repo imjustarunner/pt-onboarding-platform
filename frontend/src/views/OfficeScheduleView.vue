@@ -2267,9 +2267,11 @@ const openNoteAidForModalSlot = (launchIntent = 'note') => {
     clientId: String(slot.clientId),
     noteType,
     templateVersion,
-    launchIntent: String(launchIntent || 'note')
+    launchIntent: String(launchIntent === 'note' ? 'progress_note' : (launchIntent || 'progress_note'))
   };
   if (serviceCode) query.serviceCode = serviceCode;
+  const dos = String(slot.date || slot.startAt || '').slice(0, 10);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(dos)) query.dateOfService = dos;
   closeModal();
   router.push({ path, query });
 };

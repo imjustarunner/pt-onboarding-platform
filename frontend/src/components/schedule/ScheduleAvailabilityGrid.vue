@@ -2061,6 +2061,7 @@
 
           <div v-show="editorWorkspaceTab === 'billing'" class="appt-workspace-panel appt-workspace-panel--flush">
             <AppointmentBillingPanel
+              v-if="editorIsClinical && editorPracticeCategory === 'mental_health'"
               v-model:primary-service-code="bookingServiceCode"
               v-model:addon-service-codes="editorAddonServiceCodes"
               :service-label="editorInfoServiceLabel"
@@ -2075,6 +2076,14 @@
               :service-code-options="bookingServiceCodeOptions"
               :disabled="submitting"
               @open-claim="openEditorClinicalClaim"
+            />
+            <AppointmentPackageSettlement
+              v-if="editorShowPackageSettlement"
+              :appointment-id="editorAppointmentId"
+              :package-entitlement-id="editorPackageEntitlementId"
+              :payment-status="editorBillingPaymentStatus"
+              :disabled="submitting"
+              @settled="onEditorPackageSettled"
             />
           </div>
 
@@ -5438,6 +5447,7 @@ import { useBrandingStore } from '../../store/branding';
 import { toUploadsUrl } from '../../utils/uploadsUrl';
 import { useUserPreferencesStore } from '../../store/userPreferences';
 import { isMedicalBillingEnabled } from '../../config/medicalBillingAccess.js';
+import { buildNoteAidQuery, toDateOfService } from '../../utils/noteAidLaunch.js';
 import {
   PRACTICE_CATEGORY_LABELS,
   businessTypesForPracticeCategory,
@@ -5459,6 +5469,7 @@ import PersonSearchSelect from './PersonSearchSelect.vue';
 import AppointmentEditorShell from './AppointmentEditorShell.vue';
 import AppointmentInfoPanel from './AppointmentInfoPanel.vue';
 import AppointmentBillingPanel from './AppointmentBillingPanel.vue';
+import AppointmentPackageSettlement from './AppointmentPackageSettlement.vue';
 import AppointmentClinicalPanel from './AppointmentClinicalPanel.vue';
 import ClinicalSessionBody from './ClinicalSessionBody.vue';
 import MeetingParticipantsPicker from './MeetingParticipantsPicker.vue';
@@ -13137,11 +13148,32 @@ const editorTypeOptions = computed(() => {
 const editorShowBillingTab = computed(() => {
   if (!editorIsClinical.value) return false;
   if (String(editorPracticeCategory.value || '') === 'mental_health') return true;
+  // Coaching / tutoring / consulting: package settlement (not claims)
+  if (['coaching', 'tutoring', 'consulting'].includes(String(editorPracticeCategory.value || ''))) {
+    return true;
+  }
   const svc = (editorTenantServices.value || []).find((s) => Number(s.id) === Number(editorTenantServiceId.value || 0));
   const bt = String(svc?.businessType || svc?.business_type || '').toLowerCase();
   if (bt && bt !== 'mental_health' && bt !== 'healthcare') return false;
   return true;
 });
+
+const editorShowPackageSettlement = computed(() => {
+  if (!editorIsClinical.value) return false;
+  const cat = String(editorPracticeCategory.value || '');
+  if (['coaching', 'tutoring', 'consulting'].includes(cat)) return true;
+  return Number(editorPackageEntitlementId.value || 0) > 0 && cat !== 'mental_health';
+});
+
+const editorBillingPaymentStatus = ref('');
+
+function onEditorPackageSettled(bundle) {
+  const billing = bundle?.billing || bundle?.appointment?.billing || null;
+  if (billing?.paymentStatus) {
+    editorBillingPaymentStatus.value = String(billing.paymentStatus);
+  }
+  if (bundle?.status) editorStatus.value = String(bundle.status);
+}
 
 const editorIsGroupSession = computed(
   () => (virtualSessionSelectedClientIds.value || []).filter((n) => Number(n) > 0).length > 1
@@ -14504,17 +14536,37 @@ function openPushSessionUpdateFromEditor() {
 function openEditorClinicalNote() {
   const noteId = Number(editorClinicalNoteId.value || 0);
   const sessionId = Number(editorClinicalSessionId.value || 0);
-  if (noteId) {
-    router.push({ name: 'ClinicalNoteGenerator', query: { noteId: String(noteId) } }).catch(() => {
-      router.push(`/admin/clinical-note-generator?noteId=${noteId}`).catch(() => {});
-    });
-    return;
-  }
-  if (sessionId) {
-    router.push({ name: 'ClinicalNoteGenerator', query: { clinicalSessionId: String(sessionId) } }).catch(() => {
-      router.push(`/admin/clinical-note-generator?clinicalSessionId=${sessionId}`).catch(() => {});
-    });
-  }
+  const clientId = Number(editorInfoClientId.value || 0);
+  const officeEventId = Number(
+    editorAppointmentId.value
+      ? 0
+      : (modalContext.value?.officeEventId || scheduleEventEditForm.value?.officeEventId || 0)
+  );
+  // Prefer booked office event id when editing a schedule office booking.
+  const eventId = Number(
+    scheduleEventEditForm.value?.id
+    || modalContext.value?.officeEventId
+    || 0
+  );
+  const query = buildNoteAidQuery({
+    clientId: clientId || undefined,
+    clinicalSessionId: sessionId || undefined,
+    noteId: noteId || undefined,
+    officeEventId: officeEventId || eventId || undefined,
+    noteType: 'PROGRESS_NOTE',
+    templateVersion: 'v1',
+    launchIntent: 'progress_note',
+    dateOfService: toDateOfService(
+      scheduleEventEditForm.value?.startAt
+      || editorBookedUntil.value
+      || null
+    ),
+    serviceCode: String(editorAddonServiceCodes.value?.[0] || scheduleEventEditForm.value?.serviceCode || '').trim() || undefined
+  });
+  if (!Object.keys(query).length) return;
+  router.push({ name: 'ClinicalNoteGenerator', query }).catch(() => {
+    router.push({ path: '/admin/clinical-note-generator', query }).catch(() => {});
+  });
 }
 
 function openEditorClinicalClaim() {
@@ -14548,6 +14600,7 @@ function openAppointmentEditor({ mode = 'create', kind = '', id = 0, defaults = 
   editorClinicalSessionId.value = Number(defaults.clinicalSessionId || 0) || 0;
   editorClinicalNoteId.value = Number(defaults.clinicalNoteId || 0) || 0;
   editorClaimId.value = Number(defaults.claimId || 0) || 0;
+  editorBillingPaymentStatus.value = String(defaults.paymentStatus || defaults.billingPaymentStatus || '');
   editorQuickNote.value = String(defaults.quickNote || '');
   editorLocationAddress.value = String(defaults.locationAddress || '');
   editorRoomId.value = Number(defaults.roomId || 0) || 0;
@@ -19583,18 +19636,21 @@ const openNoteAidFromContext = (launchIntent = 'note') => {
     });
     const serviceCode = String(top?.serviceCode || '').trim().toUpperCase();
     if (serviceCode) query.set('serviceCode', serviceCode);
+    const dos = toDateOfService(top?.startAt || top?.start_at || modalDay.value);
+    if (dos) query.set('dateOfService', dos);
     window.location.href = `${toProviderSessionRecordingPath()}?${query.toString()}`;
     return;
   }
-  const query = new URLSearchParams({
-    officeEventId: String(officeEventId),
-    clientId: String(clientId),
-    launchIntent: intent,
+  const built = buildNoteAidQuery({
+    officeEventId,
+    clientId,
+    launchIntent: intent === 'note' ? 'progress_note' : intent,
     noteType: String(top?.appointmentType || 'PROGRESS_NOTE'),
-    templateVersion: 'v1'
+    templateVersion: 'v1',
+    serviceCode: String(top?.serviceCode || '').trim().toUpperCase() || undefined,
+    dateOfService: toDateOfService(top?.startAt || top?.start_at || modalDay.value)
   });
-  const serviceCode = String(top?.serviceCode || '').trim().toUpperCase();
-  if (serviceCode) query.set('serviceCode', serviceCode);
+  const query = new URLSearchParams(built);
   window.location.href = `${toProviderNoteAidPath()}?${query.toString()}`;
 };
 

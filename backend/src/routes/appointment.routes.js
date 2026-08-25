@@ -5,7 +5,8 @@ import {
   getAppointment,
   createAppointmentHandler,
   updateAppointmentHandler,
-  cancelAppointmentHandler
+  cancelAppointmentHandler,
+  settleAppointmentHandler
 } from '../controllers/appointment.controller.js';
 import {
   evaluateAppointmentCancel,
@@ -31,6 +32,7 @@ router.post('/', createAppointmentHandler);
 router.get('/:id', getAppointment);
 router.patch('/:id', updateAppointmentHandler);
 router.post('/:id/cancel', cancelAppointmentHandler);
+router.post('/:id/settle', settleAppointmentHandler);
 router.post('/:id/evaluate-cancel', evaluateAppointmentCancel);
 router.get('/:id/timeline', getAppointmentTimeline);
 router.post('/:id/reminders/reschedule', rescheduleAppointmentReminders);

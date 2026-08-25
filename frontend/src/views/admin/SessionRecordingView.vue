@@ -260,7 +260,7 @@
 
     <section v-if="phase === 'done'" class="sr-card done-card">
       <h2>Session complete</h2>
-      <p class="hint">Audio was discarded. This note is saved in Clinical Note Library (deletes after 7 days — copy into your EHR).</p>
+      <p class="hint">Audio was discarded. This note is saved in Clinical Note Library (auto-archives after 7 days; kept up to 7 years — copy into your EHR when needed).</p>
 
       <div v-if="summaryText" class="summary-box">
         <div class="summary-box-head">
@@ -307,6 +307,7 @@ import {
 } from '../../config/sessionRecordingAccess.js';
 import { buildDisplaySections, extractSections } from '../../utils/noteAidUiHelpers.js';
 import { defaultDraftTypeLabel } from '../../utils/clinicalNoteLibrary.js';
+import { buildNoteAidQuery } from '../../utils/noteAidLaunch.js';
 
 const route = useRoute();
 const router = useRouter();
@@ -837,7 +838,15 @@ async function loadLibrary() {
 
 function openLibraryNote(d) {
   if (!d?.id) return;
-  router.push({ path: orgTo('/admin/note-aid'), query: { draftId: String(d.id) } }).catch(() => {});
+  const query = buildNoteAidQuery({
+    draftId: d.id,
+    clientId: d.client_id || form.clientId || queryClientId.value || undefined,
+    officeEventId: queryOfficeEventId.value || undefined,
+    dateOfService: route.query.dateOfService || route.query.date_of_service || undefined,
+    serviceCode: route.query.serviceCode || route.query.service_code || undefined,
+    launchIntent: 'progress_note'
+  });
+  router.push({ path: orgTo('/admin/note-aid'), query }).catch(() => {});
 }
 
 async function copyPanel(panel) {

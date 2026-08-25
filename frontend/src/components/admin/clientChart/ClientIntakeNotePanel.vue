@@ -46,10 +46,17 @@
         </button>
       </div>
 
-      <section v-if="draft?.suggestedDiagnosis" class="cin-dx">
-        <h4>Suggested diagnosis</h4>
-        <p class="mono">{{ draft.suggestedDiagnosis.code || '—' }} — {{ draft.suggestedDiagnosis.description || '' }}</p>
-        <p v-if="draft.suggestedDiagnosis.justification" class="muted tiny" style="white-space: pre-wrap;">{{ draft.suggestedDiagnosis.justification }}</p>
+      <section v-if="draft?.suggestedDiagnosis || draft?.confirmedDiagnosis" class="cin-dx">
+        <h4>Diagnosis</h4>
+        <p class="mono">
+          {{ (draft.confirmedDiagnosis || draft.suggestedDiagnosis).code || '—' }} —
+          {{ (draft.confirmedDiagnosis || draft.suggestedDiagnosis).description || '' }}
+        </p>
+        <p
+          v-if="(draft.confirmedDiagnosis || draft.suggestedDiagnosis).justification"
+          class="muted tiny"
+          style="white-space: pre-wrap;"
+        >{{ (draft.confirmedDiagnosis || draft.suggestedDiagnosis).justification }}</p>
         <div v-if="draft.status !== 'final'" class="cin-dx-actions">
           <button type="button" class="cdp-btn-soft" :disabled="busy" @click="confirmDx('remain')">
             No further information — remain as is
@@ -64,7 +71,13 @@
         <div v-if="showDxEdit" class="cin-dx-edit">
           <input v-model="dxEdit.code" class="filters-input" placeholder="ICD-10 code" />
           <input v-model="dxEdit.description" class="filters-input" placeholder="Description" />
-          <textarea v-model="dxEdit.comment" class="filters-input" rows="2" placeholder="Reason for change" />
+          <textarea
+            v-model="dxEdit.justification"
+            class="filters-input"
+            rows="3"
+            placeholder="Diagnostic justification"
+          />
+          <textarea v-model="dxEdit.comment" class="filters-input" rows="2" placeholder="Reason for change (audit)" />
           <button type="button" class="cdp-btn-primary" :disabled="busy" @click="confirmDx('updated')">
             Save updated diagnosis
           </button>
@@ -106,14 +119,31 @@
           <pre class="cin-section__body">{{ formatGoal(goal) }}</pre>
         </div>
         <p v-if="!(treatmentPlan.goals || []).length" class="muted">Draft plan saved — open Treatment plans to edit.</p>
+        <div class="cin-actions" style="margin-top: 10px;">
+          <button type="button" class="cdp-btn-soft" @click="openNoteAidPlan">
+            Open in Note Aid (treatment plan)
+          </button>
+          <button type="button" class="cdp-btn-soft" @click="$emit('navigate', 'treatment-plans')">
+            View on chart
+          </button>
+        </div>
       </section>
+
+      <div v-else-if="draft?.status === 'final'" class="cin-actions" style="margin-top: 12px;">
+        <button type="button" class="cdp-btn-soft" @click="openNoteAidPlan">
+          Continue in Note Aid
+        </button>
+      </div>
     </template>
   </div>
 </template>
 
 <script setup>
 import { computed, onMounted, ref, watch } from 'vue';
+import { useRouter } from 'vue-router';
 import api from '../../../services/api';
+import { useAgencyStore } from '../../../store/agency';
+import { treatmentPlanUpdaterQuery, noteAidPath } from '../../../utils/noteAidLaunch.js';
 
 const props = defineProps({
   clientId: { type: [Number, String], required: true },
@@ -121,6 +151,10 @@ const props = defineProps({
   suggestedCode: { type: String, default: '' },
   phiBanner: { type: Boolean, default: false }
 });
+defineEmits(['navigate']);
+
+const router = useRouter();
+const agencyStore = useAgencyStore();
 
 const loading = ref(false);
 const busy = ref(false);
@@ -130,7 +164,7 @@ const draft = ref(null);
 const treatmentPlan = ref(null);
 const showDxEdit = ref(false);
 const sessionContext = ref('');
-const dxEdit = ref({ code: '', description: '', comment: '' });
+const dxEdit = ref({ code: '', description: '', justification: '', comment: '' });
 const copyFlash = ref('');
 
 const statusLabel = computed(() => {
@@ -147,8 +181,19 @@ const statusLabel = computed(() => {
 
 const canFinalize = computed(() => {
   const s = draft.value?.status;
-  return s === 'ready' || s === 'draft' && draft.value?.diagnosisAction;
+  return s === 'ready' || (s === 'draft' && draft.value?.diagnosisAction);
 });
+
+function syncDxEditFromDraft() {
+  const dx = draft.value?.confirmedDiagnosis || draft.value?.suggestedDiagnosis;
+  if (!dx) return;
+  dxEdit.value = {
+    code: dx.code || '',
+    description: dx.description || '',
+    justification: dx.justification || '',
+    comment: ''
+  };
+}
 
 async function load() {
   const id = Number(props.clientId || 0);
@@ -159,13 +204,7 @@ async function load() {
     const r = await api.get(`/clients/${id}/intake-note`, { skipGlobalLoading: true });
     draft.value = r.data?.draft || null;
     treatmentPlan.value = r.data?.treatmentPlan || null;
-    if (draft.value?.suggestedDiagnosis) {
-      dxEdit.value = {
-        code: draft.value.suggestedDiagnosis.code || '',
-        description: draft.value.suggestedDiagnosis.description || '',
-        comment: ''
-      };
-    }
+    syncDxEditFromDraft();
   } catch (e) {
     if (e.response?.status === 404) {
       draft.value = null;
@@ -187,6 +226,7 @@ async function generateDraft() {
     const r = await api.post(`/clients/${id}/intake-note/generate`, {});
     draft.value = r.data?.draft || null;
     treatmentPlan.value = r.data?.treatmentPlan || null;
+    syncDxEditFromDraft();
   } catch (e) {
     error.value = e.response?.data?.error?.message || 'Failed to generate intake note';
   } finally {
@@ -205,13 +245,15 @@ async function confirmDx(action) {
   try {
     const body = { action };
     if (action === 'updated') {
-      body.code = dxEdit.value.code;
-      body.description = dxEdit.value.description;
+      body.confirmedCode = dxEdit.value.code;
+      body.confirmedDescription = dxEdit.value.description;
+      body.confirmedJustification = dxEdit.value.justification;
       body.comment = dxEdit.value.comment;
     }
     const r = await api.post(`/clients/${id}/intake-note/${draftId}/diagnosis`, body);
     draft.value = r.data?.draft || draft.value;
     showDxEdit.value = false;
+    syncDxEditFromDraft();
   } catch (e) {
     error.value = e.response?.data?.error?.message || 'Failed to record diagnosis decision';
   } finally {
@@ -241,10 +283,16 @@ async function finalize() {
   }
 }
 
+function openNoteAidPlan() {
+  const slug = agencyStore.currentAgency?.slug || agencyStore.currentAgency?.organization_slug;
+  const query = treatmentPlanUpdaterQuery(props.clientId);
+  router.push({ path: noteAidPath({ organizationSlug: slug }), query });
+}
+
 function formatGoal(goal) {
   if (!goal) return '';
   if (typeof goal === 'string') return goal;
-  const parts = [goal.goal || goal.text || goal.title, goal.objectives, goal.interventions].filter(Boolean);
+  const parts = [goal.goal || goal.text || goal.title || goal.goal_text, goal.objectives, goal.interventions].filter(Boolean);
   return parts.map((p) => (typeof p === 'string' ? p : JSON.stringify(p))).join('\n');
 }
 

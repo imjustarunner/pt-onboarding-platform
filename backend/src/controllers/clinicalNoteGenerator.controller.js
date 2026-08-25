@@ -704,6 +704,7 @@ export const createClinicalNoteDraft = async (req, res, next) => {
 
     const serviceCode = req.body?.serviceCode ? normalizeServiceCode(req.body.serviceCode) : null;
     const programId = req.body?.programId ? safeInt(req.body.programId) : null;
+    const clientId = req.body?.clientId ? safeInt(req.body.clientId) : null;
     const dateOfService = req.body?.dateOfService ? normalizeDateOnly(req.body.dateOfService) : null;
     const initials = req.body?.initials ? String(req.body.initials).trim() : null;
     const inputText = req.body?.inputText === undefined ? null : String(req.body.inputText || '');
@@ -712,6 +713,7 @@ export const createClinicalNoteDraft = async (req, res, next) => {
     const draft = await ClinicalNoteDraft.create({
       userId: req.user.id,
       agencyId,
+      clientId,
       serviceCode,
       programId,
       dateOfService,
@@ -753,6 +755,7 @@ export const patchClinicalNoteDraft = async (req, res, next) => {
     patch.agencyId = agencyId;
     if (req.body?.serviceCode !== undefined) patch.serviceCode = req.body.serviceCode === null ? null : normalizeServiceCode(req.body.serviceCode);
     if (req.body?.programId !== undefined) patch.programId = req.body.programId === null ? null : safeInt(req.body.programId);
+    if (req.body?.clientId !== undefined) patch.clientId = req.body.clientId === null ? null : safeInt(req.body.clientId);
     if (req.body?.dateOfService !== undefined) patch.dateOfService = req.body.dateOfService === null ? null : normalizeDateOnly(req.body.dateOfService);
     if (req.body?.initials !== undefined) patch.initials = req.body.initials === null ? null : String(req.body.initials).trim();
     if (req.body?.inputText !== undefined) {
@@ -785,13 +788,13 @@ export const listRecentClinicalNoteDrafts = async (req, res, next) => {
     if (!(await requireUserHasAgencyAccess(req, res, agencyId))) return;
     if (!(await requireClinicalNoteGeneratorEnabled(req, res, agencyId))) return;
 
-    const days = req.query?.days ? Number(req.query.days) : 7;
+    const days = req.query?.days ? Number(req.query.days) : 2555;
     const archiveStatus = String(req.query?.archiveStatus || req.query?.status || 'all').toLowerCase();
     const drafts = await ClinicalNoteDraft.listRecentForUser({
       userId: req.user.id,
       agencyId,
       days,
-      limit: 50,
+      limit: 100,
       archiveStatus
     });
     const sanitized = (drafts || []).map((d) => sanitizeDraftRow(d));
@@ -920,11 +923,18 @@ export const generateClinicalNote = async (req, res, next) => {
     const programLabel = req.body?.programLabel ? String(req.body.programLabel).trim().slice(0, 120) : null;
     const dateOfService = normalizeDateOnly(req.body?.dateOfService);
     const initials = req.body?.initials ? String(req.body.initials).trim() : null;
+    const clientId = req.body?.clientId ? safeInt(req.body.clientId) : null;
     const autoSelectCode = parseBool(req.body?.autoSelectCode);
     const transcriptSource = String(req.body?.transcriptSource || '').trim().toLowerCase();
     let inputText = String(req.body?.inputText || '').trim().slice(0, 12000);
     const revisionInstruction = req.body?.revisionInstruction
       ? String(req.body.revisionInstruction).trim().slice(0, 1500)
+      : '';
+    const objectiveRatingsContext = req.body?.objectiveRatingsContext
+      ? String(req.body.objectiveRatingsContext).trim().slice(0, 4000)
+      : '';
+    const treatmentPlanContext = req.body?.treatmentPlanContext
+      ? String(req.body.treatmentPlanContext).trim().slice(0, 8000)
       : '';
     const draftId = req.body?.draftId ? safeInt(req.body.draftId) : null;
     const includeInteractiveComplexity = parseBool(req.body?.includeInteractiveComplexity);
@@ -1058,6 +1068,22 @@ export const generateClinicalNote = async (req, res, next) => {
         INTERVENTIONS_CSV_INSTRUCTION
       ].join('\n');
     }
+    if (treatmentPlanContext) {
+      prompt = [
+        prompt,
+        '',
+        'Client treatment plan context (goals/objectives; use to inform challenges and focus — do not invent scales):',
+        treatmentPlanContext
+      ].join('\n');
+    }
+    if (objectiveRatingsContext) {
+      prompt = [
+        prompt,
+        '',
+        'Session objective ratings from the clinician (include in the note where appropriate):',
+        objectiveRatingsContext
+      ].join('\n');
+    }
     if (revisionInstruction) {
       prompt = [
         prompt,
@@ -1166,6 +1192,7 @@ export const generateClinicalNote = async (req, res, next) => {
         userId: req.user.id,
         patch: {
           agencyId,
+          clientId: clientId || undefined,
           serviceCode: effectiveAutoSelect ? null : serviceCode,
           programId,
           dateOfService,
@@ -1180,6 +1207,7 @@ export const generateClinicalNote = async (req, res, next) => {
       draft = await ClinicalNoteDraft.create({
         userId: req.user.id,
         agencyId,
+        clientId,
         serviceCode: effectiveAutoSelect ? null : serviceCode,
         programId,
         dateOfService,

@@ -84,7 +84,7 @@
 
     <div class="cnl-footer">
       <span>{{ filtered.length }} note{{ filtered.length === 1 ? '' : 's' }}</span>
-      <span>Deletes after 7 days</span>
+      <span>Auto-archives after 7 days · kept up to 7 years</span>
     </div>
   </aside>
 </template>

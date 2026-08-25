@@ -11,6 +11,10 @@ import ClinicalEligibilityService from '../services/clinicalEligibility.service.
 import SupervisorAssignment from '../models/SupervisorAssignment.model.js';
 import pool from '../config/database.js';
 import { maybeEncryptNotePayload } from '../services/clinicalNoteCrypto.service.js';
+import {
+  getPrimaryClinicalDiagnosis,
+  attachDiagnosisToClinicalNote
+} from '../services/clinicalDiagnosisAttach.service.js';
 
 const BACKOFFICE_ROLES = new Set(['admin', 'super_admin', 'support']);
 const CLINICAL_DB_HINT = 'Clinical database schema missing. Run database/clinical_migrations/001_create_clinical_data_plane.sql (and 002_medical_billing_foundations.sql for billing).';
@@ -224,6 +228,40 @@ export const createSessionNote = async (req, res, next) => {
       metadataJson: metadata,
       createdByUserId: req.user.id
     });
+
+    // Attach primary diagnosis + justification snapshot when available (intake chart spine).
+    try {
+      let primaryDiagnosisId = parseIntValue(req.body?.primaryDiagnosisId);
+      let diagnosticJustification = req.body?.diagnosticJustification
+        ? String(req.body.diagnosticJustification).trim()
+        : null;
+      if (!primaryDiagnosisId) {
+        const primary = await getPrimaryClinicalDiagnosis({
+          agencyId: session.agency_id,
+          clientId: session.client_id
+        });
+        if (primary) {
+          primaryDiagnosisId = primary.id;
+          if (!diagnosticJustification && primary.justification) {
+            diagnosticJustification = String(primary.justification);
+          }
+        }
+      }
+      if (primaryDiagnosisId && note?.id) {
+        await attachDiagnosisToClinicalNote({
+          noteId: note.id,
+          primaryDiagnosisId,
+          diagnosticJustification
+        });
+      } else if (!primaryDiagnosisId) {
+        // Session-linked progress notes should carry primary dx once intake has promoted it.
+        console.warn(
+          `[clinicalData] Session note ${note?.id} saved without primary diagnosis for client ${session.client_id}`
+        );
+      }
+    } catch (e) {
+      console.warn('[clinicalData] Failed to attach diagnosis to note:', e?.message);
+    }
 
     if (session.office_event_id) {
       await ClinicalRecordRef.upsert({

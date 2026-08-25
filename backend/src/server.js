@@ -1456,14 +1456,23 @@ if (!isBootstrap) {
     setInterval(scheduleBrandingTemplates, 24 * 60 * 60 * 1000);
   }, getMsUntilMidnight());
 
-  // Clinical Note Generator drafts cleanup (hard delete >7 days)
+  // Clinical Note Generator drafts: auto-archive >7 days; hard-delete >7 years.
   // Run daily at 2:00 AM (best-effort; safe if table doesn't exist yet).
   const scheduleClinicalNoteDraftCleanup = async () => {
     try {
       const ClinicalNoteDraftCleanupService = (await import('./services/clinicalNoteDraftCleanup.service.js')).default;
-      const result = await ClinicalNoteDraftCleanupService.run({ days: 7 });
-      const n = Number(result?.deleted || 0);
-      if (n > 0) console.log(`[clinical_note_drafts] hard-deleted ${n} records older than 7 days`);
+      const result = await ClinicalNoteDraftCleanupService.run({
+        archiveAfterDays: 7,
+        hardDeleteAfterDays: 2555
+      });
+      const archived = Number(result?.archived || 0);
+      const deleted = Number(result?.deleted || 0);
+      if (archived > 0) {
+        console.log(`[clinical_note_drafts] auto-archived ${archived} records older than 7 days`);
+      }
+      if (deleted > 0) {
+        console.log(`[clinical_note_drafts] hard-deleted ${deleted} records older than 7 years`);
+      }
     } catch (error) {
       if (error.code === 'ER_NO_SUCH_TABLE') {
         console.warn('clinical_note_drafts table not found. Run migration 333_create_clinical_note_drafts.sql');

@@ -272,7 +272,8 @@ export async function applyMissedSessionPolicy({
   agencyId,
   clientId,
   entitlementId = null,
-  createdByUserId = null
+  createdByUserId = null,
+  providerScheduleEventId = null
 }) {
   let entitlement = null;
   if (entitlementId) {
@@ -292,6 +293,20 @@ export async function applyMissedSessionPolicy({
   }
   if (!entitlement) return { applied: false, action: 'NONE' };
 
+  // Idempotent when tied to a schedule event
+  if (providerScheduleEventId) {
+    const [existing] = await pool.execute(
+      `SELECT id FROM practitioner_session_credit_ledger
+       WHERE agency_id = ? AND client_id = ? AND provider_schedule_event_id = ?
+         AND reason_code IN ('MISSED_FORFEIT', 'FREE_REBOOK', 'MISSED_FEE')
+       LIMIT 1`,
+      [Number(agencyId), Number(clientId), Number(providerScheduleEventId)]
+    );
+    if (existing?.length) {
+      return { applied: false, action: 'ALREADY_APPLIED' };
+    }
+  }
+
   const pkg = entitlement.package_id
     ? await PractitionerSessionPackage.findById(entitlement.package_id)
     : null;
@@ -306,13 +321,16 @@ export async function applyMissedSessionPolicy({
     );
     await pool.execute(
       `INSERT INTO practitioner_session_credit_ledger
-        (agency_id, client_id, package_id, packet_id, direction, quantity, reason_code, metadata_json, created_by_user_id)
-       VALUES (?, ?, ?, ?, 'CREDIT', 0, 'FREE_REBOOK', ?, ?)`,
+        (agency_id, client_id, package_id, packet_id, entitlement_id, provider_schedule_event_id,
+         direction, quantity, reason_code, metadata_json, created_by_user_id)
+       VALUES (?, ?, ?, ?, ?, ?, 'CREDIT', 0, 'FREE_REBOOK', ?, ?)`,
       [
         Number(agencyId),
         Number(clientId),
         entitlement.package_id,
         entitlement.packet_id,
+        Number(entitlement.id),
+        providerScheduleEventId ? Number(providerScheduleEventId) : null,
         JSON.stringify({ note: 'Used free rebook; session credit retained' }),
         createdByUserId ? Number(createdByUserId) : null
       ]
@@ -321,24 +339,45 @@ export async function applyMissedSessionPolicy({
   }
 
   if (policy.type === 'fee') {
+    const feeCents = Number(policy.feeCents || 0);
+    await pool.execute(
+      `INSERT INTO practitioner_session_credit_ledger
+        (agency_id, client_id, package_id, packet_id, entitlement_id, provider_schedule_event_id,
+         direction, quantity, reason_code, metadata_json, created_by_user_id)
+       VALUES (?, ?, ?, ?, ?, ?, 'DEBIT', 0, 'MISSED_FEE', ?, ?)`,
+      [
+        Number(agencyId),
+        Number(clientId),
+        entitlement.package_id,
+        entitlement.packet_id,
+        Number(entitlement.id),
+        providerScheduleEventId ? Number(providerScheduleEventId) : null,
+        JSON.stringify({ feeCents, note: policy.note || 'Missed session fee due' }),
+        createdByUserId ? Number(createdByUserId) : null
+      ]
+    );
     return {
       applied: true,
       action: 'FEE',
-      feeCents: Number(policy.feeCents || 0),
-      note: policy.note || null
+      feeCents,
+      note: policy.note || null,
+      invoicePending: true
     };
   }
 
   // forfeit (default): debit one session
   await pool.execute(
     `INSERT INTO practitioner_session_credit_ledger
-      (agency_id, client_id, package_id, packet_id, direction, quantity, reason_code, created_by_user_id)
-     VALUES (?, ?, ?, ?, 'DEBIT', 1, 'MISSED_FORFEIT', ?)`,
+      (agency_id, client_id, package_id, packet_id, entitlement_id, provider_schedule_event_id,
+       direction, quantity, reason_code, created_by_user_id)
+     VALUES (?, ?, ?, ?, ?, ?, 'DEBIT', 1, 'MISSED_FORFEIT', ?)`,
     [
       Number(agencyId),
       Number(clientId),
       entitlement.package_id,
       entitlement.packet_id,
+      Number(entitlement.id),
+      providerScheduleEventId ? Number(providerScheduleEventId) : null,
       createdByUserId ? Number(createdByUserId) : null
     ]
   );
@@ -833,6 +872,7 @@ export async function getClientPackageOverview({ agencyId, clientId }) {
       sessionsRemaining: Number(e.sessions_remaining || 0),
       sessionsUsed: used,
       sessionLabel: `${used} of ${Number(e.sessions_purchased || 0)} used`,
+      freeRebooksRemaining: Number(e.free_rebooks_remaining || 0),
       paymentMode: e.payment_mode,
       paymentStatus: e.payment_status,
       status: e.status,

@@ -2158,6 +2158,7 @@
             :client-id="client.id"
             :assigned-provider="Boolean(primaryProviderLabel && primaryProviderLabel !== 'Not assigned' && primaryProviderLabel !== '—')"
             :phi-banner="['admin', 'super_admin', 'support', 'staff'].includes(roleNorm)"
+            @navigate="goChartSub"
           />
         </div>
 

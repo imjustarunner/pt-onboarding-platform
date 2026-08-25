@@ -16,6 +16,7 @@ class ClinicalNoteDraft {
   static async create({
     userId,
     agencyId = null,
+    clientId = null,
     serviceCode = null,
     programId = null,
     dateOfService = null,
@@ -27,6 +28,7 @@ class ClinicalNoteDraft {
     if (!uid) throw new Error('Invalid userId');
 
     const aid = agencyId === null || agencyId === undefined ? null : safeInt(agencyId);
+    const cid = clientId === null || clientId === undefined ? null : safeInt(clientId);
     const pid = programId === null || programId === undefined ? null : safeInt(programId);
 
     const svc = serviceCode ? clampText(serviceCode, 32).toUpperCase() : null;
@@ -37,9 +39,9 @@ class ClinicalNoteDraft {
 
     const [result] = await pool.execute(
       `INSERT INTO clinical_note_drafts
-       (user_id, agency_id, service_code, program_id, date_of_service, initials, input_text, output_json)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      [uid, aid, svc, pid, dos, init, input, out]
+       (user_id, agency_id, client_id, service_code, program_id, date_of_service, initials, input_text, output_json)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [uid, aid, cid, svc, pid, dos, init, input, out]
     );
     return this.findByIdForUser({ draftId: result.insertId, userId: uid });
   }
@@ -74,6 +76,11 @@ class ClinicalNoteDraft {
       const aid = patch.agencyId === null ? null : safeInt(patch.agencyId);
       updates.push('agency_id = ?');
       values.push(aid);
+    }
+    if (patch.clientId !== undefined) {
+      const cid = patch.clientId === null ? null : safeInt(patch.clientId);
+      updates.push('client_id = ?');
+      values.push(cid);
     }
     if (patch.serviceCode !== undefined) {
       const svc = patch.serviceCode === null ? null : clampText(patch.serviceCode, 32).toUpperCase();
@@ -137,8 +144,10 @@ class ClinicalNoteDraft {
     if (!uid) return [];
     const aid = agencyId === null || agencyId === undefined ? null : safeInt(agencyId);
     const lim = Math.max(1, Math.min(200, Number(limit) || 50));
-    const d = Math.max(1, Math.min(30, Number(days) || 7));
     const status = String(archiveStatus || 'all').toLowerCase();
+    // Active: recent window. Archived: up to 7 years (retention max).
+    const maxDays = status === 'archived' || status === 'all' ? 2555 : 30;
+    const d = Math.max(1, Math.min(maxDays, Number(days) || (status === 'archived' ? 2555 : 7)));
     const where = [
       'user_id = ?',
       ...(aid ? ['agency_id = ?'] : []),
@@ -169,8 +178,22 @@ class ClinicalNoteDraft {
     });
   }
 
-  static async hardDeleteOlderThanDays({ days = 14 }) {
-    const d = Math.max(1, Math.min(365, Number(days) || 14));
+  /** Soft-archive active drafts older than N days (does not delete). */
+  static async autoArchiveOlderThanDays({ days = 7 }) {
+    const d = Math.max(1, Math.min(365, Number(days) || 7));
+    const [result] = await pool.execute(
+      `UPDATE clinical_note_drafts
+       SET archived_at = NOW()
+       WHERE archived_at IS NULL
+         AND created_at < (NOW() - INTERVAL ? DAY)`,
+      [d]
+    );
+    return Number(result?.affectedRows || 0);
+  }
+
+  /** Hard-delete drafts older than N days (default 7 years ≈ 2555 days). */
+  static async hardDeleteOlderThanDays({ days = 2555 }) {
+    const d = Math.max(1, Math.min(4000, Number(days) || 2555));
     const [result] = await pool.execute(
       `DELETE FROM clinical_note_drafts
        WHERE created_at < (NOW() - INTERVAL ? DAY)`,

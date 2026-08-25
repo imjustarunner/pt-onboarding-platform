@@ -7,6 +7,10 @@ import AdminAuditLog from '../models/AdminAuditLog.model.js';
 import ClientIntakeNoteDraft from '../models/ClientIntakeNoteDraft.model.js';
 import ClientDiagnosisConfirmation from '../models/ClientDiagnosisConfirmation.model.js';
 import ClinicalTreatmentPlan from '../models/clinical/ClinicalTreatmentPlan.model.js';
+import {
+  upsertPrimaryClinicalDiagnosis,
+  attachDiagnosisToTreatmentPlan
+} from '../services/clinicalDiagnosisAttach.service.js';
 import StorageService from '../services/storage.service.js';
 import { deriveCredentialTierFromText } from '../utils/credentialNormalization.js';
 import { getNoteAidToolById } from '../config/noteAidTools.js';
@@ -707,10 +711,16 @@ function formatDraftResponse(row) {
   const sections = normalizeDraftSections(sectionsRaw, noteBody);
 
   let suggestedDiagnosis = null;
+  let confirmedDiagnosis = null;
   try {
     suggestedDiagnosis = row.suggested_dx_json ? JSON.parse(row.suggested_dx_json) : null;
   } catch {
     suggestedDiagnosis = null;
+  }
+  try {
+    confirmedDiagnosis = row.confirmed_dx_json ? JSON.parse(row.confirmed_dx_json) : null;
+  } catch {
+    confirmedDiagnosis = null;
   }
 
   return {
@@ -720,6 +730,7 @@ function formatDraftResponse(row) {
     toolId: row.tool_id,
     diagnosisAction: row.diagnosis_action || null,
     suggestedDiagnosis,
+    confirmedDiagnosis,
     sections,
     intakeSubmissionId: row.intake_submission_id || null,
     treatmentPlanId: row.treatment_plan_id || null,
@@ -955,17 +966,33 @@ export const confirmClientIntakeDiagnosis = async (req, res, next) => {
 
     let confirmedDx;
     if (action === 'updated') {
-      const code = String(req.body?.confirmedCode || '').trim();
+      const code = String(
+        req.body?.confirmedCode || req.body?.code || ''
+      ).trim();
       if (!code) {
         return res.status(400).json({ error: { message: 'confirmedCode is required when action is "updated"' } });
       }
       confirmedDx = {
         code,
-        description: String(req.body?.confirmedDescription || '').trim() || (suggestedDx?.description || '')
+        description: String(
+          req.body?.confirmedDescription || req.body?.description || ''
+        ).trim() || (suggestedDx?.description || ''),
+        justification: String(
+          req.body?.confirmedJustification ||
+            req.body?.justification ||
+            suggestedDx?.justification ||
+            ''
+        ).trim() || (suggestedDx?.justification || '')
       };
     } else {
-      // remain / confirmed — use the suggested dx as-is
-      confirmedDx = suggestedDx ? { code: suggestedDx.code, description: suggestedDx.description } : null;
+      // remain / confirmed — keep suggested dx including justification
+      confirmedDx = suggestedDx
+        ? {
+            code: suggestedDx.code,
+            description: suggestedDx.description,
+            justification: suggestedDx.justification || ''
+          }
+        : null;
     }
 
     const comment = req.body?.comment ? String(req.body.comment).trim() : null;
@@ -1063,7 +1090,36 @@ export const finalizeClientIntakeNote = async (req, res, next) => {
 
     // Create draft treatment plan (linked to this intake)
     let treatmentPlan = null;
+    let primaryDiagnosisId = null;
+    let diagnosticJustification = null;
     try {
+      let confirmedDx = null;
+      try {
+        confirmedDx = draft.confirmed_dx_json ? JSON.parse(draft.confirmed_dx_json) : null;
+      } catch {
+        confirmedDx = null;
+      }
+      if (!confirmedDx?.code) {
+        try {
+          const suggested = draft.suggested_dx_json ? JSON.parse(draft.suggested_dx_json) : null;
+          confirmedDx = suggested;
+        } catch {
+          confirmedDx = null;
+        }
+      }
+      diagnosticJustification = String(confirmedDx?.justification || '').trim() || null;
+
+      if (confirmedDx?.code) {
+        primaryDiagnosisId = await upsertPrimaryClinicalDiagnosis({
+          agencyId,
+          clientId,
+          icd10Code: confirmedDx.code,
+          description: confirmedDx.description || null,
+          justification: diagnosticJustification,
+          createdByUserId: req.user.id
+        });
+      }
+
       treatmentPlan = await ClinicalTreatmentPlan.create({
         agencyId,
         clientId,
@@ -1071,11 +1127,21 @@ export const finalizeClientIntakeNote = async (req, res, next) => {
         status: 'draft',
         sourceToolId: draft.tool_id,
         createdByUserId: req.user.id,
-        goals
+        goals,
+        primaryDiagnosisId,
+        diagnosticJustification
       });
+
+      if (treatmentPlan?.id && primaryDiagnosisId) {
+        await attachDiagnosisToTreatmentPlan({
+          planId: treatmentPlan.id,
+          primaryDiagnosisId,
+          diagnosticJustification
+        });
+      }
     } catch (e) {
       // Failing to create the TP should not block note finalization — log and continue.
-      console.error('[clientIntakeNote] Failed to create treatment plan:', e?.message);
+      console.error('[clientIntakeNote] Failed to create treatment plan / promote diagnosis:', e?.message);
     }
 
     const now = new Date().toISOString().slice(0, 19).replace('T', ' ');
@@ -1096,15 +1162,21 @@ export const finalizeClientIntakeNote = async (req, res, next) => {
         clientId,
         draftId,
         serviceCode: draft.service_code,
-        treatmentPlanId: treatmentPlan?.id ?? null
+        treatmentPlanId: treatmentPlan?.id ?? null,
+        primaryDiagnosisId: primaryDiagnosisId || null
       }
     });
 
     res.json({
       draft: formatDraftResponse(finalized),
       treatmentPlan: treatmentPlan
-        ? { id: treatmentPlan.id, goals: (treatmentPlan.goals || []) }
-        : null
+        ? {
+            id: treatmentPlan.id,
+            goals: treatmentPlan.goals || [],
+            primaryDiagnosisId: primaryDiagnosisId || null
+          }
+        : null,
+      primaryDiagnosisId: primaryDiagnosisId || null
     });
   } catch (e) {
     next(e);

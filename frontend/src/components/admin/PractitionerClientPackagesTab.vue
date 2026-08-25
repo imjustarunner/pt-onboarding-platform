@@ -42,6 +42,19 @@
             </p>
             <p v-if="e.activatedAt" class="meta">Activated {{ formatDate(e.activatedAt) }}</p>
             <p v-if="e.packetCompletedAt" class="meta">Packet signed/completed {{ formatDate(e.packetCompletedAt) }}</p>
+            <p v-if="e.freeRebooksRemaining != null" class="meta">
+              Free rebooks left: {{ e.freeRebooksRemaining ?? e.free_rebooks_remaining ?? 0 }}
+            </p>
+            <div v-if="e.status === 'ACTIVE'" class="cta-row" style="margin-top: 8px;">
+              <button
+                type="button"
+                class="btn btn-secondary btn-sm"
+                :disabled="busyKey === `miss-${e.id}`"
+                @click="markMissed(e)"
+              >
+                {{ busyKey === `miss-${e.id}` ? 'Applying…' : 'Apply missed policy' }}
+              </button>
+            </div>
           </article>
         </div>
       </section>
@@ -102,9 +115,28 @@
                 {{ formatMoney(s.payment.amountCents) }} · {{ labelMode(s.payment.paymentMode) }}
               </a>
             </p>
+            <div class="cta-row" style="margin-top: 8px;">
+              <button
+                type="button"
+                class="btn btn-primary btn-sm"
+                :disabled="busyKey === `debit-${s.id}`"
+                @click="debitSession(s)"
+              >
+                {{ busyKey === `debit-${s.id}` ? 'Debiting…' : 'Complete → debit' }}
+              </button>
+              <button
+                type="button"
+                class="btn btn-secondary btn-sm"
+                :disabled="busyKey === `miss-s-${s.id}`"
+                @click="markMissed(s)"
+              >
+                {{ busyKey === `miss-s-${s.id}` ? 'Applying…' : 'No-show / missed' }}
+              </button>
+            </div>
           </article>
         </div>
       </section>
+      <p v-if="actionFlash" class="flash">{{ actionFlash }}</p>
     </template>
   </div>
 </template>
@@ -124,6 +156,8 @@ defineEmits(['reup', 'send-packet', 'pay-per-session']);
 
 const loading = ref(true);
 const error = ref('');
+const busyKey = ref('');
+const actionFlash = ref('');
 const overview = ref({
   balance: {},
   entitlements: [],
@@ -151,6 +185,56 @@ function labelMode(m) {
 function scrollTo(id) {
   const el = document.getElementById(id);
   if (el) el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+async function debitSession(session) {
+  const key = `debit-${session.id}`;
+  busyKey.value = key;
+  actionFlash.value = '';
+  error.value = '';
+  try {
+    const res = await api.post('/practitioner-packages/sessions/complete-debit', {
+      agencyId: Number(props.agencyId),
+      clientId: Number(props.clientId),
+      providerScheduleEventId: session.id,
+      entitlementId: session.entitlementId || null
+    });
+    const r = res.data || {};
+    actionFlash.value = r.debited
+      ? `Debited session. Remaining: ${r.remaining ?? '—'}`
+      : `No debit (${r.reason || 'skipped'}). Remaining: ${r.remaining ?? '—'}`;
+    await load();
+  } catch (e) {
+    error.value = e.response?.data?.error?.message || e.message || 'Debit failed';
+  } finally {
+    busyKey.value = '';
+  }
+}
+
+async function markMissed(row) {
+  const isSession = !!row?.startAt || !!row?.kind;
+  const key = isSession ? `miss-s-${row.id}` : `miss-${row.id}`;
+  busyKey.value = key;
+  actionFlash.value = '';
+  error.value = '';
+  try {
+    const res = await api.post('/practitioner-packages/sessions/missed', {
+      agencyId: Number(props.agencyId),
+      clientId: Number(props.clientId),
+      entitlementId: isSession ? (row.entitlementId || null) : row.id,
+      providerScheduleEventId: isSession ? row.id : null
+    });
+    const r = res.data || {};
+    const fee = Number(r.feeCents || 0);
+    actionFlash.value = r.applied
+      ? `Missed policy: ${r.action}${fee ? ` · fee $${(fee / 100).toFixed(2)} (invoice pending)` : ''}`
+      : `Missed policy not applied (${r.action || 'NONE'})`;
+    await load();
+  } catch (e) {
+    error.value = e.response?.data?.error?.message || e.message || 'Missed policy failed';
+  } finally {
+    busyKey.value = '';
+  }
 }
 
 async function load() {
@@ -194,6 +278,7 @@ onMounted(load);
 .continuation { flex: 1 1 100%; }
 .warn { color: #b45309; font-weight: 700; margin: 0 0 0.4rem; }
 .cta-row { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+.flash { color: #065f46; font-weight: 600; font-size: 0.88rem; margin: 0; }
 .list { display: grid; gap: 0.55rem; }
 .card {
   border: 1px solid #e5e7eb; border-radius: 12px; padding: 0.75rem; background: #fff;

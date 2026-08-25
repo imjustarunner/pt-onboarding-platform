@@ -1,12 +1,14 @@
 import { ref } from 'vue';
-import { useRouter } from 'vue-router';
+import { useRouter, useRoute } from 'vue-router';
 import api from '../services/api';
+import { buildNoteAidQuery, navigateToNoteAid, toDateOfService } from '../utils/noteAidLaunch.js';
 
 /**
  * Bootstrap clinical session + navigate to Note Aid for a billing encounter row.
  */
 export function useClientEncounterNote() {
   const router = useRouter();
+  const route = useRoute();
   const openingId = ref(null);
 
   async function openClinicalNote({ agencyId, clientId, row }) {
@@ -15,17 +17,29 @@ export function useClientEncounterNote() {
     const encounterId = Number(row?.id || 0);
     if (!aid || !encounterId || !cid) return;
 
+    const organizationSlug = typeof route.params?.organizationSlug === 'string'
+      ? route.params.organizationSlug
+      : '';
+    const baseCtx = {
+      clientId: cid,
+      serviceCode: String(row?.service_code || '').trim(),
+      noteType: 'PROGRESS_NOTE',
+      templateVersion: 'v1',
+      launchIntent: 'progress_note',
+      dateOfService: toDateOfService(row?.service_date || row?.date_of_service)
+    };
+
     if (Number(row?.clinical_note_id || 0) > 0) {
       const sessionId = Number(row?.clinical_session_id || 0);
-      router.push({
-        name: 'ClinicalNoteGenerator',
-        query: {
-          clinicalSessionId: sessionId ? String(sessionId) : undefined,
-          clientId: String(cid),
-          serviceCode: String(row?.service_code || '').trim(),
-          noteType: 'PROGRESS_NOTE'
-        }
-      }).catch(() => {});
+      await navigateToNoteAid(
+        router,
+        {
+          ...baseCtx,
+          clinicalSessionId: sessionId || undefined,
+          noteId: Number(row.clinical_note_id)
+        },
+        { organizationSlug }
+      );
       return;
     }
 
@@ -42,15 +56,14 @@ export function useClientEncounterNote() {
         window.alert('Unable to open clinical session for this billing line.');
         return;
       }
-      const query = {
-        clinicalSessionId: String(sessionId),
-        clientId: String(cid),
-        serviceCode: String(row?.service_code || '').trim(),
-        noteType: 'PROGRESS_NOTE'
-      };
-      router.push({ name: 'ClinicalNoteGenerator', query }).catch(() => {
-        router.push({ path: '/admin/clinical-note-generator', query }).catch(() => {});
-      });
+      await navigateToNoteAid(
+        router,
+        {
+          ...baseCtx,
+          clinicalSessionId: sessionId
+        },
+        { organizationSlug }
+      );
     } catch (e) {
       window.alert(e.response?.data?.error?.message || e.message || 'Failed to open clinical note');
     } finally {
@@ -58,5 +71,5 @@ export function useClientEncounterNote() {
     }
   }
 
-  return { openingId, openClinicalNote };
+  return { openingId, openClinicalNote, buildNoteAidQuery };
 }
