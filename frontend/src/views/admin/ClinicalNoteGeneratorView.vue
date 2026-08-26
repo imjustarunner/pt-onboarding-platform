@@ -105,12 +105,14 @@
                 v-model="selectedClientId"
                 :agency-id="noteAidAgencyId || currentAgencyId"
                 :selected-client="selectedClient"
+                :allow-clear="canClearLinkedClient"
                 :search-all-tenants="true"
                 @select="onClientPicked"
                 @clear="onClientCleared"
                 @create-request="openCreateClientModal"
               />
               <NoteAidClientContextPanel
+                ref="clientContextPanelRef"
                 :client-id="effectiveClientId"
                 :client-name="selectedClient?.full_name || selectedClient?.name || ''"
                 :goals="activeTreatmentGoals"
@@ -216,8 +218,9 @@
             <div class="na-step">
               <div class="na-step-num">2</div>
               <div class="na-step-body">
-                <label class="na-label" for="na-initials">Client Initials</label>
+                <label v-if="!selectedClientId" class="na-label" for="na-initials">Client Initials</label>
                 <input
+                  v-if="!selectedClientId"
                   id="na-initials"
                   ref="initialsInputEl"
                   v-model="initials"
@@ -226,6 +229,7 @@
                   maxlength="16"
                   placeholder="e.g., A.M."
                 />
+                <p v-else class="na-field-hint">Client linked — initials come from the chart client, not manual entry.</p>
                 <div
                   v-if="showInitialsCreateActions && !selectedClientId"
                   class="na-initials-match"
@@ -264,6 +268,7 @@
                   v-model="selectedClientId"
                   :agency-id="noteAidAgencyId || currentAgencyId"
                   :selected-client="selectedClient"
+                  :allow-clear="canClearLinkedClient"
                   :search-all-tenants="true"
                   @select="onClientPicked"
                   @clear="onClientCleared"
@@ -340,6 +345,7 @@
         </section>
 
         <NoteAidClientContextPanel
+          ref="clientContextPanelRef"
           :client-id="effectiveClientId"
           :client-name="selectedClient?.full_name || selectedClient?.name || ''"
           :goals="activeTreatmentGoals"
@@ -748,6 +754,7 @@ import {
   buildObjectiveRatingsContextText,
   buildTreatmentPlanContextText,
   buildUpdaterPrefillDocument,
+  buildIntakeInformedPlanText,
   clientDisplayInitials,
   clientDisplayName,
   clientTenantLabel,
@@ -916,6 +923,7 @@ const dateOfService = ref('');
 const initials = ref('');
 const selectedClientId = ref(null);
 const selectedClient = ref(null);
+const clientContextPanelRef = ref(null);
 const selectedQueueAgencyId = ref(null);
 const showProgressSessionPicker = ref(true);
 const progressEntryMode = ref('appointment'); // appointment | client | unlinked
@@ -1064,6 +1072,15 @@ const needsSessionPicker = computed(() => {
   if (bookingContext.value?.clinicalSessionId || bookingContext.value?.officeEventId) return false;
   if (sessionOfficeEventId.value) return false;
   if (progressEntryMode.value === 'unlinked') return false;
+  return true;
+});
+
+/** Client can be cleared only when the note is not tied to a booked session. */
+const canClearLinkedClient = computed(() => {
+  if (sessionOfficeEventId.value) return false;
+  if (bookingContext.value?.officeEventId || bookingContext.value?.clinicalSessionId) return false;
+  const draftRow = (recentDrafts.value || []).find((d) => String(d.id) === String(draftId.value));
+  if (draftRow?.office_event_id || draftRow?.clinical_session_id) return false;
   return true;
 });
 const inputText = ref('');
@@ -3189,16 +3206,30 @@ const onClientPicked = async (client) => {
   selectedClient.value = normalized || null;
   selectedClientId.value = Number(normalized?.id || 0) || null;
   selectedQueueAgencyId.value = Number(normalized?.agency_id || normalized?.agencyId || 0) || null;
-  const init = clientDisplayInitials(normalized);
-  if (init) initials.value = init;
+  initials.value = '';
   initialsMatchSuggestions.value = [];
   initialsMatchDismissed.value = true;
   resetClientClinicalContext();
+  await hydrateSelectedClient(selectedClientId.value);
   await Promise.all([
     loadClientTreatmentPlan(selectedClientId.value),
     loadClientIntakeSummary(selectedClientId.value)
   ]);
 };
+
+async function hydrateSelectedClient(clientId) {
+  const cid = Number(clientId || 0);
+  if (!cid) return;
+  const name = clientDisplayName(selectedClient.value);
+  if (name && !/^Client #\d+$/i.test(name) && Number(selectedClient.value?.id) === cid) return;
+  try {
+    const res = await api.get(`/clients/${cid}`, { skipGlobalLoading: true });
+    const row = normalizeNoteAidClientRow(res?.data?.client || res?.data, agencyLookup.value);
+    if (row) selectedClient.value = row;
+  } catch {
+    // keep partial row
+  }
+}
 
 const onClientCleared = () => {
   selectedClient.value = null;
@@ -3605,17 +3636,21 @@ const openTreatmentPlanUpdater = async ({
 };
 
 const useIntakeToInformPlan = async () => {
-  const text = String(intakeSummary.value || '').trim();
-  await openTreatmentPlanUpdater({
-    renewalReason: text
-      ? 'Build or update treatment plan using intake context.'
-      : 'Build treatment plan from client chart.'
+  const intakeText = String(pastedIntakeText.value || intakeSummary.value || '').trim();
+  const dxSource = (chartDiagnoses.value?.length ? chartDiagnoses.value : [])
+    .concat(primaryChartDiagnosis.value ? [primaryChartDiagnosis.value] : []);
+  pastedPlanText.value = buildIntakeInformedPlanText({
+    intakeText,
+    diagnoses: dxSource,
+    diagnosticJustification: primaryChartDiagnosis.value?.justification || ''
   });
-  if (text && !String(inputText.value || '').includes(text.slice(0, 40))) {
-    inputText.value = [`Intake context:\n${text}`, String(inputText.value || '').trim()]
-      .filter(Boolean)
-      .join('\n\n');
-  }
+  clientContextPanelRef.value?.switchTab?.('goals');
+  await openTreatmentPlanUpdater({
+    renewalReason: intakeText
+      ? 'Build or update treatment plan from intake and chart diagnoses.'
+      : 'Build treatment plan from chart diagnoses.'
+  });
+  showPlanImportReview.value = true;
 };
 
 const openClientChartIntake = () => {
@@ -3810,6 +3845,7 @@ const loadDraftIntoWorkspace = (d) => {
   if (draftClientId && draftClientId !== Number(selectedClientId.value || 0)) {
     selectedClientId.value = draftClientId;
     selectedClient.value = { id: draftClientId, initials: d.initials || '' };
+    hydrateSelectedClient(draftClientId);
     loadClientTreatmentPlan(draftClientId);
     loadClientIntakeSummary(draftClientId);
   }

@@ -1,5 +1,6 @@
 <template>
-  <div v-if="open" class="na-modal-backdrop" @click.self="emit('close')">
+  <Teleport to="body">
+    <div v-if="open" class="na-modal-backdrop" @click.self="emit('close')">
     <div class="na-modal" role="dialog" aria-labelledby="na-demo-import-title">
       <header class="na-modal-head">
         <h3 id="na-demo-import-title">Import demographics</h3>
@@ -43,7 +44,8 @@
         </div>
       </template>
     </div>
-  </div>
+    </div>
+  </Teleport>
 </template>
 
 <script setup>
@@ -128,20 +130,22 @@ async function save() {
 .na-modal-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(15, 23, 42, 0.45);
+  background: rgba(15, 23, 42, 0.5);
   display: flex;
   align-items: flex-start;
   justify-content: center;
-  z-index: 90;
-  padding: 24px 16px;
+  z-index: 5000;
+  padding: 72px 16px 24px;
   overflow: auto;
 }
 .na-modal {
   background: #fff;
   border-radius: 14px;
   width: min(520px, 100%);
+  max-height: calc(100vh - 96px);
+  overflow: auto;
   padding: 18px;
-  box-shadow: 0 20px 50px rgba(15, 23, 42, 0.2);
+  box-shadow: 0 20px 50px rgba(15, 23, 42, 0.25);
 }
 .na-modal-head { display: flex; justify-content: space-between; align-items: center; }
 .na-modal-head h3 { margin: 0; }

@@ -167,6 +167,45 @@ export function buildUpdaterPrefillDocument({
   return sections.filter(Boolean).join('\n\n').slice(0, 11000);
 }
 
+/**
+ * Build treatment-plan paste text from intake narrative + chart/parsed diagnoses.
+ */
+export function buildIntakeInformedPlanText({
+  intakeText = '',
+  diagnoses = [],
+  diagnosticJustification = ''
+} = {}) {
+  const sections = [];
+  const intake = String(intakeText || '').trim();
+  if (intake) {
+    sections.push(`Intake / biopsychosocial context (use to draft or update plan):\n${intake.slice(0, 8000)}`);
+  }
+
+  const dxList = (Array.isArray(diagnoses) ? diagnoses : []).filter((d) => d && (d.icd10_code || d.code));
+  if (dxList.length) {
+    const lines = ['Diagnoses (first is primary for claims):'];
+    for (const d of dxList) {
+      const code = d.icd10_code || d.code || '—';
+      const desc = d.description || '';
+      const primary = d.is_primary || d.isPrimary ? ' [PRIMARY]' : '';
+      lines.push(`${code}\t${desc}${primary}`.trim());
+    }
+    sections.push(lines.join('\n'));
+  }
+
+  const just = String(diagnosticJustification || '').trim()
+    || String(dxList[0]?.justification || '').trim();
+  if (just) {
+    sections.push(`Diagnostic Justification\n${just.slice(0, 4000)}`);
+  }
+
+  sections.push(
+    'Instructions: Write or update treatment goals, measurable objectives (1–10 scales), and discharge criteria based on the intake context and diagnoses above.'
+  );
+
+  return sections.join('\n\n').slice(0, 11000);
+}
+
 export function clientDisplayInitials(client) {
   if (!client) return '';
   const existing = String(client.initials || client.client_initials || '').trim();

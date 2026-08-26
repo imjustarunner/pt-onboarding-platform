@@ -1,7 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { inferScaleDirection, parseTreatmentPlanText } from '../treatmentPlanImport.service.js';
-import { parseIntakeSections } from '../intakeImport.service.js';
+import { parseIntakeSections, parseIntakeDiagnoses } from '../intakeImport.service.js';
 
 describe('treatmentPlanImport.service', () => {
   it('parses dated plan with ordered diagnoses, direction, and goals', () => {
@@ -43,8 +43,39 @@ Plan: Weekly therapy
 `;
     const parsed = parseIntakeSections(text);
     assert.equal(parsed.sourceOrder[0], 'Presenting Problem');
-    const dx = parsed.sections.find((s) => s.key === 'Diagnosis');
-    assert.match(String(dx?.content || ''), /F41\.1/);
-    assert.match(String(parsed.diagnosisText || ''), /F41\.1/);
+    assert.ok(parsed.diagnoses.some((d) => d.code === 'F41.1'));
+  });
+
+  it('parses biopsychosocial sections, skips Content sub-header, and splits diagnoses', () => {
+    const text = `
+Presenting Problem
+The client withdrew from school.
+
+Objective
+Content
+The clinician conducted an intake interview with the client.
+
+Psychiatric History
+The client has received therapy before.
+
+Diagnosis
+F40.10 Social Anxiety Disorder
+F41.8 Other Specified Anxiety Disorder
+Z55.8 Other problems related to education and literacy
+
+Diagnostic Justification
+Primary social anxiety with school avoidance.
+
+Plan
+Weekly psychotherapy.
+`;
+    const parsed = parseIntakeSections(text);
+    assert.ok(parsed.sections.some((s) => s.key === 'Psychiatric History'));
+    const objective = parsed.sections.find((s) => s.key === 'Objective');
+    assert.match(String(objective?.content || ''), /conducted an intake/i);
+    assert.ok(!String(objective?.content || '').startsWith('Content'));
+    assert.equal(parsed.diagnoses.length, 3);
+    assert.equal(parsed.diagnoses[0].code, 'F40.10');
+    assert.match(String(parsed.diagnoses[0].justification || ''), /social anxiety/i);
   });
 });

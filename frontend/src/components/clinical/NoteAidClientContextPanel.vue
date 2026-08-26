@@ -188,6 +188,12 @@ defineEmits([
 
 const tab = ref('intake');
 
+defineExpose({
+  switchTab(next) {
+    if (['intake', 'demographics', 'goals'].includes(next)) tab.value = next;
+  }
+});
+
 watch(
   () => props.clientId,
   () => {

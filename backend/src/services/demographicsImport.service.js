@@ -71,6 +71,8 @@ export function decryptDemographicsPayload(envelope) {
 
 function parseDateLoose(text) {
   const s = String(text || '').trim();
+  const glued = s.match(/^(\d{1,2}[\/\-.]\d{1,2}[\/\-.]\d{2,4})Age:/i);
+  if (glued) return parseDateLoose(glued[1]);
   const mdY = s.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](20\d{2}|19\d{2})\b/);
   if (mdY) {
     const mm = String(mdY[1]).padStart(2, '0');
@@ -98,31 +100,86 @@ function parseAddressBlock(lines) {
   return out;
 }
 
-const STOP_LABELS = [
-  'Administrative Sex',
-  'Gender Identity',
-  'Sexual Orientation',
-  'Race',
-  'Ethnicity',
-  'Languages',
-  'Smoking Status',
-  'Marital Status',
-  'Employment',
-  'Religious Affiliation',
-  'HIPAA',
-  'PCP Release'
-];
-
 function looksLikePhone(line) {
   return /^\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}\b/.test(String(line || '').trim());
 }
 
 function looksLikeEmail(line) {
-  return /@/.test(String(line || ''));
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+/.test(String(line || '').trim());
+}
+
+function normalizeLabel(line) {
+  return String(line || '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .replace(/[:\s]+$/, '');
+}
+
+/** TherapyNotes-style label lines in pasted demographics exports. */
+const LABEL_ALIASES = {
+  'legal name': 'fullName',
+  'date of birth': 'dateOfBirth',
+  address: 'address',
+  'time zone': 'timezone',
+  timezone: 'timezone',
+  'mobile phone': 'mobilePhone',
+  phone: 'mobilePhone',
+  email: 'email',
+  'appt reminders': 'appointmentReminderType',
+  'appointment reminders': 'appointmentReminderType',
+  'appointment reminder type': 'appointmentReminderType',
+  'administrative sex': 'administrativeSex'
+};
+
+const STOP_AFTER = new Set([
+  'gender identity',
+  'sexual orientation',
+  'race',
+  'ethnicity',
+  'languages',
+  'smoking status',
+  'marital status',
+  'employment',
+  'religious affiliation',
+  'hipaa',
+  'pcp release'
+]);
+
+function labelKeyForLine(line) {
+  const norm = normalizeLabel(line);
+  if (LABEL_ALIASES[norm]) return LABEL_ALIASES[norm];
+  if (norm.startsWith('email appointment reminders')) return null;
+  return null;
+}
+
+function isStopLabel(line) {
+  const norm = normalizeLabel(line);
+  return STOP_AFTER.has(norm);
+}
+
+function collectBlock(lines, startIndex) {
+  const values = [];
+  let i = startIndex;
+  while (i < lines.length) {
+    const line = String(lines[i] || '').trim();
+    if (!line) {
+      if (values.length) break;
+      i += 1;
+      continue;
+    }
+    if (labelKeyForLine(line) || isStopLabel(line)) break;
+    if (/^email appointment reminders are recommended/i.test(line)) break;
+    values.push(line);
+    i += 1;
+    if (values.length >= 4) break;
+  }
+  return { values, nextIndex: i };
 }
 
 /**
  * Parse Note Aid demographics paste into structured fields.
+ * Handles labeled TherapyNotes-style exports (Legal Name / Date of Birth / Address / …).
  */
 export function parseDemographicsPaste(rawText) {
   const raw = String(rawText || '').replace(/\r\n/g, '\n').trim();
@@ -142,131 +199,119 @@ export function parseDemographicsPaste(rawText) {
   };
   if (!raw) return empty;
 
-  const lines = raw.split('\n').map((l) => l.trim());
-
-  let i = 0;
+  const lines = raw.split('\n').map((l) => String(l || '').trim());
   const result = { ...empty };
+  let i = 0;
 
-  // Legal Name header
-  if (/^legal\s+name$/i.test(lines[i] || '')) i += 1;
-  if (lines[i] && !parseDateLoose(lines[i]) && !looksLikePhone(lines[i]) && !looksLikeEmail(lines[i])) {
-    result.fullName = lines[i];
-    i += 1;
-  }
-
-  // DOB (+ optional Age glued or on next line)
   while (i < lines.length) {
     const line = lines[i];
     if (!line) {
       i += 1;
       continue;
     }
-    if (/^age\s*:/i.test(line)) {
+
+    const field = labelKeyForLine(line);
+    if (!field) {
+      // Unlabeled paste: first non-empty line may be name
+      if (!result.fullName && !looksLikePhone(line) && !looksLikeEmail(line) && !parseDateLoose(line)) {
+        result.fullName = line;
+      }
       i += 1;
       continue;
     }
-    const dobInline = line.match(/^(\d{1,2}[\/\-.]\d{1,2}[\/\-.]\d{2,4})\s*(?:Age:.*)?$/i);
-    if (dobInline) {
-      result.dateOfBirth = parseDateLoose(dobInline[1]);
-      i += 1;
-      break;
-    }
-    // "7/17/2014Age: 12y…" with no space before Age
-    const glued = line.match(/^(\d{1,2}[\/\-.]\d{1,2}[\/\-.]\d{2,4})Age:/i);
-    if (glued) {
-      result.dateOfBirth = parseDateLoose(glued[1]);
-      i += 1;
-      break;
-    }
-    const dob = parseDateLoose(line);
-    if (dob) {
-      result.dateOfBirth = dob;
-      i += 1;
-      break;
-    }
-    break;
-  }
 
-  while (i < lines.length && !lines[i]) i += 1;
-
-  // Address block until timezone / phone / email / stop labels
-  const addrLines = [];
-  while (i < lines.length) {
-    const line = lines[i];
-    if (!line) {
-      i += 1;
-      if (addrLines.length) break;
-      continue;
-    }
-    if (/UTC|Mountain Time|Pacific Time|Central Time|Eastern Time|\bMT\s*-|\bPT\s*-|\bCT\s*-|\bET\s*-/i.test(line)) break;
-    if (looksLikePhone(line) || looksLikeEmail(line)) break;
-    if (STOP_LABELS.some((l) => line.toLowerCase() === l.toLowerCase())) break;
-    addrLines.push(line);
-    i += 1;
-    if (addrLines.length >= 3) break;
-  }
-  const addr = parseAddressBlock(addrLines);
-  result.addressStreet = addr.street;
-  result.addressCity = addr.city;
-  result.addressState = addr.state;
-  result.addressZip = addr.zip;
-
-  while (i < lines.length && !lines[i]) i += 1;
-
-  // Timezone
-  if (lines[i] && /UTC|Time|\bMT\b|\bPT\b|\bCT\b|\bET\b/i.test(lines[i])) {
-    result.timezone = lines[i];
-    i += 1;
-  }
-
-  while (i < lines.length && !lines[i]) i += 1;
-
-  // Phone + optional (Text messages OK)
-  if (lines[i] && looksLikePhone(lines[i])) {
-    result.contactPhone = lines[i].match(/\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}/)?.[0] || lines[i];
-    i += 1;
-  }
-  if (lines[i] && /text messages?\s*ok/i.test(lines[i])) {
-    result.textMessagesOk = true;
-    i += 1;
-  } else if (result.contactPhone) {
-    result.textMessagesOk = false;
-  }
-
-  while (i < lines.length && !lines[i]) i += 1;
-
-  // Email
-  if (lines[i] && looksLikeEmail(lines[i])) {
-    result.email = lines[i];
-    i += 1;
-  }
-
-  while (i < lines.length && !lines[i]) i += 1;
-
-  // Reminder type — until recommendation blurb or Administrative Sex
-  if (
-    lines[i]
-    && !/^administrative\s+sex$/i.test(lines[i])
-    && !/^email appointment reminders/i.test(lines[i])
-  ) {
-    result.appointmentReminderType = lines[i];
-    i += 1;
-  }
-
-  while (i < lines.length) {
-    if (/^administrative\s+sex$/i.test(lines[i])) break;
-    i += 1;
-  }
-
-  if (/^administrative\s+sex$/i.test(lines[i] || '')) {
     i += 1;
     while (i < lines.length && !lines[i]) i += 1;
-    if (
-      lines[i]
-      && !STOP_LABELS.slice(1).some((l) => lines[i].toLowerCase() === l.toLowerCase())
-    ) {
+    if (i >= lines.length) break;
+
+    if (field === 'fullName') {
+      result.fullName = lines[i];
+      i += 1;
+      continue;
+    }
+
+    if (field === 'dateOfBirth') {
+      result.dateOfBirth = parseDateLoose(lines[i]);
+      i += 1;
+      while (i < lines.length && /^age\s*:/i.test(lines[i])) i += 1;
+      continue;
+    }
+
+    if (field === 'address') {
+      const { values, nextIndex } = collectBlock(lines, i);
+      const addr = parseAddressBlock(values);
+      result.addressStreet = addr.street;
+      result.addressCity = addr.city;
+      result.addressState = addr.state;
+      result.addressZip = addr.zip;
+      i = nextIndex;
+      continue;
+    }
+
+    if (field === 'timezone') {
+      result.timezone = lines[i];
+      i += 1;
+      continue;
+    }
+
+    if (field === 'mobilePhone') {
+      if (looksLikePhone(lines[i])) {
+        result.contactPhone = lines[i].match(/\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}/)?.[0] || lines[i];
+        i += 1;
+      }
+      while (i < lines.length && /text messages?\s*ok/i.test(lines[i])) {
+        result.textMessagesOk = true;
+        i += 1;
+      }
+      if (result.textMessagesOk == null && result.contactPhone) result.textMessagesOk = false;
+      continue;
+    }
+
+    if (field === 'email') {
+      if (looksLikeEmail(lines[i])) {
+        result.email = lines[i];
+        i += 1;
+      }
+      continue;
+    }
+
+    if (field === 'appointmentReminderType') {
+      result.appointmentReminderType = lines[i];
+      i += 1;
+      continue;
+    }
+
+    if (field === 'administrativeSex') {
       result.administrativeSex = lines[i];
       i += 1;
+      continue;
+    }
+  }
+
+  // Fallback: scan for phone/email if labels were missing
+  if (!result.contactPhone) {
+    for (const line of lines) {
+      if (looksLikePhone(line)) {
+        result.contactPhone = line.match(/\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}/)?.[0] || line;
+        break;
+      }
+    }
+  }
+  if (!result.email) {
+    for (const line of lines) {
+      if (looksLikeEmail(line)) {
+        result.email = line;
+        break;
+      }
+    }
+  }
+  if (!result.dateOfBirth) {
+    for (const line of lines) {
+      const d = parseDateLoose(line);
+      if (d) {
+        result.dateOfBirth = d;
+        break;
+      }
     }
   }
 

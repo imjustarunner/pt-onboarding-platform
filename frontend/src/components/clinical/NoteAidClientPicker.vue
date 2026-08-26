@@ -31,7 +31,8 @@
         v-if="modelValue"
         type="button"
         class="na-link-btn na-link-btn--sm"
-        :disabled="disabled"
+        :disabled="disabled || !allowClear"
+        :title="allowClear ? 'Disconnect client from this note' : 'Cannot disconnect — note is linked to a session'"
         @click="clear"
       >
         Clear
@@ -40,6 +41,9 @@
     <p v-if="selectedLabel" class="na-client-selected">
       Linked: <strong>{{ selectedLabel }}</strong>
       <span v-if="selectedTenant" class="muted"> · {{ selectedTenant }}</span>
+    </p>
+    <p v-if="modelValue && !allowClear" class="na-field-hint na-field-hint--warn">
+      Linked to a session — disconnect only after unlinking the appointment.
     </p>
     <ul v-if="open && results.length" class="na-client-results" role="listbox">
       <li v-for="c in results" :key="`${c.agencyId || 0}-${c.id}`">
@@ -89,6 +93,8 @@ const props = defineProps({
   agencyId: { type: [Number, String, null], default: null },
   selectedClient: { type: Object, default: null },
   disabled: { type: Boolean, default: false },
+  /** When false, Clear is disabled (e.g. note linked to a session). */
+  allowClear: { type: Boolean, default: true },
   /** When true, omit agency_id so API searches all memberships. */
   searchAllTenants: { type: Boolean, default: true }
 });
@@ -148,6 +154,7 @@ function displayInitials(c) {
 }
 
 function clear() {
+  if (!props.allowClear) return;
   query.value = '';
   results.value = [];
   open.value = false;
@@ -214,7 +221,10 @@ function onInput() {
 watch(
   () => props.selectedClient,
   (c) => {
-    if (c && props.modelValue) query.value = displayName(c);
+    if (c && props.modelValue) {
+      const name = displayName(c);
+      query.value = name && !/^Client #\d+$/i.test(name) ? name : '';
+    }
   },
   { immediate: true }
 );
@@ -325,6 +335,9 @@ onBeforeUnmount(() => {
   flex-wrap: wrap;
   gap: 8px;
   align-items: center;
+}
+.na-field-hint--warn {
+  color: #b45309;
 }
 .error {
   color: #b91c1c;

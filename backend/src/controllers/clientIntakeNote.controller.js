@@ -9,6 +9,7 @@ import ClientDiagnosisConfirmation from '../models/ClientDiagnosisConfirmation.m
 import ClinicalTreatmentPlan from '../models/clinical/ClinicalTreatmentPlan.model.js';
 import {
   upsertPrimaryClinicalDiagnosis,
+  upsertClinicalDiagnosis,
   attachDiagnosisToTreatmentPlan
 } from '../services/clinicalDiagnosisAttach.service.js';
 import StorageService from '../services/storage.service.js';
@@ -1094,22 +1095,51 @@ export const finalizeClientIntakeNote = async (req, res, next) => {
     let diagnosticJustification = null;
     try {
       let confirmedDx = null;
+      let allDiagnoses = [];
       try {
-        confirmedDx = draft.confirmed_dx_json ? JSON.parse(draft.confirmed_dx_json) : null;
+        const parsed = draft.confirmed_dx_json ? JSON.parse(draft.confirmed_dx_json) : null;
+        if (Array.isArray(parsed?.diagnoses)) {
+          allDiagnoses = parsed.diagnoses;
+          confirmedDx = parsed.primary || parsed.diagnoses[0] || null;
+        } else {
+          confirmedDx = parsed;
+          if (confirmedDx?.code) allDiagnoses = [confirmedDx];
+        }
       } catch {
         confirmedDx = null;
       }
       if (!confirmedDx?.code) {
         try {
           const suggested = draft.suggested_dx_json ? JSON.parse(draft.suggested_dx_json) : null;
-          confirmedDx = suggested;
+          if (Array.isArray(suggested?.diagnoses)) {
+            allDiagnoses = suggested.diagnoses;
+            confirmedDx = suggested.primary || suggested.diagnoses[0] || null;
+          } else {
+            confirmedDx = suggested;
+            if (confirmedDx?.code) allDiagnoses = [confirmedDx];
+          }
         } catch {
           confirmedDx = null;
         }
       }
       diagnosticJustification = String(confirmedDx?.justification || '').trim() || null;
 
-      if (confirmedDx?.code) {
+      for (let i = 0; i < allDiagnoses.length; i += 1) {
+        const dx = allDiagnoses[i];
+        if (!dx?.code) continue;
+        const dxId = await upsertClinicalDiagnosis({
+          agencyId,
+          clientId,
+          icd10Code: dx.code,
+          description: dx.description || null,
+          justification: i === 0 ? diagnosticJustification : dx.justification || null,
+          createdByUserId: req.user.id,
+          setPrimary: i === 0
+        });
+        if (i === 0) primaryDiagnosisId = dxId;
+      }
+
+      if (!primaryDiagnosisId && confirmedDx?.code) {
         primaryDiagnosisId = await upsertPrimaryClinicalDiagnosis({
           agencyId,
           clientId,
@@ -1314,12 +1344,16 @@ export const importClientIntakeNote = async (req, res, next) => {
     const agencyId = safeInt(access.client?.agency_id);
     if (!agencyId) return res.status(400).json({ error: { message: 'Client has no agency' } });
 
-    const { parseIntakeSections } = await import('../services/intakeImport.service.js');
+    const { parseIntakeSections, parseIntakeDiagnoses } = await import('../services/intakeImport.service.js');
     const rawText = String(req.body?.text || req.body?.intakeText || '').trim();
     let sectionsInput = Array.isArray(req.body?.sections) ? req.body.sections : null;
+    let parsedDiagnoses = [];
     if (!sectionsInput) {
       const parsed = parseIntakeSections(rawText);
       sectionsInput = parsed.sections;
+      parsedDiagnoses = parsed.diagnoses || [];
+    } else {
+      parsedDiagnoses = parseIntakeDiagnoses(rawText);
     }
 
     const normalizedSections = (sectionsInput || []).map((sec, index) => ({
@@ -1335,6 +1369,17 @@ export const importClientIntakeNote = async (req, res, next) => {
       .slice(0, 50000);
 
     let diagnosis = req.body?.diagnosis || null;
+    let diagnosesPayload = Array.isArray(req.body?.diagnoses) ? req.body.diagnoses : null;
+    if (!diagnosesPayload?.length && parsedDiagnoses?.length) {
+      diagnosesPayload = parsedDiagnoses;
+    }
+    if (!diagnosis && diagnosesPayload?.length) {
+      diagnosis = {
+        code: diagnosesPayload[0].code,
+        description: diagnosesPayload[0].description || '',
+        justification: diagnosesPayload[0].justification || ''
+      };
+    }
     if (!diagnosis) {
       diagnosis = extractSuggestedDiagnosis(rawText || noteBody);
     }
@@ -1367,7 +1412,13 @@ export const importClientIntakeNote = async (req, res, next) => {
       noteBodyEnc,
       noteSectionsJsonEnc,
       sessionContextEnc,
-      suggestedDxJson: diagnosis ? JSON.stringify(diagnosis) : null
+      suggestedDxJson: diagnosis
+        ? JSON.stringify(
+            diagnosesPayload?.length
+              ? { diagnoses: diagnosesPayload, primary: diagnosis }
+              : diagnosis
+          )
+        : null
     });
 
     if (diagnosis?.code && status === 'ready') {
@@ -1382,7 +1433,7 @@ export const importClientIntakeNote = async (req, res, next) => {
     const refreshed = await ClientIntakeNoteDraft.findById(draft.id);
     return res.status(201).json({
       draft: formatDraftResponse(refreshed),
-      parsed: { sections: normalizedSections, diagnosis }
+      parsed: { sections: normalizedSections, diagnosis, diagnoses: diagnosesPayload || (diagnosis ? [diagnosis] : []) }
     });
   } catch (e) {
     next(e);
@@ -1433,7 +1484,23 @@ export const updateClientIntakeNoteSections = async (req, res, next) => {
 
     let confirmedDxJson;
     let status;
-    if (req.body?.diagnosis) {
+    const diagnosesInput = Array.isArray(req.body?.diagnoses) ? req.body.diagnoses : null;
+    if (diagnosesInput?.length) {
+      const normalized = diagnosesInput
+        .map((d, i) => ({
+          code: String(d.code || d.icd10Code || d.icd10_code || '').trim(),
+          description: String(d.description || '').trim(),
+          justification: String(d.justification || '').trim(),
+          isPrimary: d.isPrimary != null ? !!d.isPrimary : i === 0,
+          evaluationScore: d.evaluationScore ?? null,
+          evaluationSummary: d.evaluationSummary || null
+        }))
+        .filter((d) => d.code);
+      if (normalized.length) {
+        confirmedDxJson = JSON.stringify({ diagnoses: normalized, primary: normalized[0] });
+        status = 'ready';
+      }
+    } else if (req.body?.diagnosis) {
       const d = req.body.diagnosis;
       const diagnosis = {
         code: String(d.code || d.icd10Code || d.icd10_code || '').trim(),
@@ -1455,6 +1522,33 @@ export const updateClientIntakeNoteSections = async (req, res, next) => {
     });
 
     return res.json({ draft: formatDraftResponse(updated) });
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
+ * POST /clients/:id/intake-note/evaluate-diagnosis
+ * AI score for how well justification matches diagnostic criteria.
+ * Body: { icd10Code, description?, justification }
+ */
+export const evaluateIntakeDiagnosisJustification = async (req, res, next) => {
+  try {
+    const clientId = safeInt(req.params.id);
+    if (!clientId) return res.status(400).json({ error: { message: 'Invalid client id' } });
+
+    const access = await ensureClientAccess({ userId: req.user.id, role: req.user.role, clientId });
+    if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
+
+    const { evaluateDiagnosticJustification } = await import(
+      '../services/diagnosticJustificationEvaluation.service.js'
+    );
+    const result = await evaluateDiagnosticJustification({
+      icd10Code: req.body?.icd10Code || req.body?.code,
+      description: req.body?.description,
+      justification: req.body?.justification
+    });
+    return res.json({ evaluation: result });
   } catch (e) {
     next(e);
   }

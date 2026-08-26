@@ -96,7 +96,8 @@ import {
   finalizeClientIntakeNote,
   getClientRecordsCopyBlocks,
   importClientIntakeNote,
-  updateClientIntakeNoteSections
+  updateClientIntakeNoteSections,
+  evaluateIntakeDiagnosisJustification
 } from '../controllers/clientIntakeNote.controller.js';
 import {
   getClientAgencyIntake,
@@ -274,6 +275,7 @@ router.post('/:id/onboarding/complete-staff', postCompleteStaffOnboarding);
 router.get('/:id/intake-note', getClientIntakeNote);
 router.post('/:id/intake-note/generate', generateClientIntakeNote);
 router.post('/:id/intake-note/import', importClientIntakeNote);
+router.post('/:id/intake-note/evaluate-diagnosis', evaluateIntakeDiagnosisJustification);
 router.patch('/:id/intake-note/:draftId/sections', updateClientIntakeNoteSections);
 router.post('/:id/intake-note/:draftId/diagnosis', confirmClientIntakeDiagnosis);
 router.post('/:id/intake-note/:draftId/finalize', finalizeClientIntakeNote);

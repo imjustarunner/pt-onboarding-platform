@@ -7,23 +7,30 @@ test('parseDemographicsPaste extracts Frankie fields', () => {
   const text = `Legal Name
 Frankie Eschberger
 
+Date of Birth
 7/17/2014Age: 12y, 1m, 8d
 
+Address
 5410 Escapardo Way
 Colorado Springs, CO 80917
 
+Time Zone
 MT - Mountain Time, UTC-7 with DST
 
+Mobile Phone
 (719) 229-2815
 (Text messages OK)
 
 eschfablife@gmail.com
 
+Appt Reminders
 Text (SMS) only
 
 Email appointment reminders are recommended as they also include paperwork reminders.
 
 Administrative Sex
+Female
+
 Gender Identity
 Sexual Orientation`;
   const parsed = parseDemographicsPaste(text);
@@ -38,6 +45,7 @@ Sexual Orientation`;
   assert.equal(parsed.textMessagesOk, true);
   assert.equal(parsed.email, 'eschfablife@gmail.com');
   assert.match(String(parsed.appointmentReminderType || ''), /Text \(SMS\) only/i);
+  assert.equal(parsed.administrativeSex, 'Female');
 });
 
 test('parseTreatmentPlanText reads multi-dx goals and discharge', () => {
