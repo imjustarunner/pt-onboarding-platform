@@ -239,6 +239,32 @@ export const parseTreatmentPlanImport = async (req, res, next) => {
   }
 };
 
+/** Suggest a 1–10 scale rewrite for an imported objective (clinician approves in UI). */
+export const normalizeTreatmentPlanObjective = async (req, res, next) => {
+  try {
+    const agencyId = parseIntValue(req.body.agencyId);
+    const clientId = parseIntValue(req.body.clientId);
+    if (!agencyId || !clientId) {
+      return res.status(400).json({ error: { message: 'agencyId and clientId are required' } });
+    }
+    await ClinicalEligibilityService.ensureAgencyAccess({ reqUser: req.user, agencyId });
+    const objectiveText = String(req.body.objectiveText || '').trim();
+    if (!objectiveText) {
+      return res.status(400).json({ error: { message: 'objectiveText is required' } });
+    }
+    const { suggestObjectiveScaleRewrite } = await import(
+      '../services/treatmentPlanObjectiveNormalize.service.js'
+    );
+    const suggestion = await suggestObjectiveScaleRewrite(objectiveText);
+    if (!suggestion) {
+      return res.status(502).json({ error: { message: 'Could not generate a 1–10 scale suggestion' } });
+    }
+    return res.json({ suggestion });
+  } catch (e) {
+    next(e);
+  }
+};
+
 export const listClientChart = async (req, res, next) => {
   try {
     const agencyId = parseIntValue(req.query.agencyId);

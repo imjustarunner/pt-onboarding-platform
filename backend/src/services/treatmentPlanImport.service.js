@@ -107,6 +107,82 @@ function parseIcd10(text) {
   return m ? m[1].toUpperCase() : null;
 }
 
+/** @returns {{ months: number, label: string }|null} */
+export function parseDurationMonths(text) {
+  const s = String(text || '').trim();
+  if (!s) return null;
+
+  const monthsMatch = s.match(/\b(\d{1,2})\s*[-\s]?\s*months?\b/i);
+  if (monthsMatch) {
+    const months = Number(monthsMatch[1]);
+    if (months >= 1 && months <= 36) {
+      return { months, label: `${months} month${months === 1 ? '' : 's'}` };
+    }
+  }
+
+  const weeksMatch = s.match(/\b(\d{1,2})\s*[-\s]?\s*weeks?\b/i);
+  if (weeksMatch) {
+    const weeks = Number(weeksMatch[1]);
+    const months = Math.max(1, Math.round(weeks / 4));
+    return { months, label: `${months} month${months === 1 ? '' : 's'}` };
+  }
+
+  const daysMatch = s.match(/\b(\d{2,3})\s*[-\s]?\s*days?\b/i);
+  if (daysMatch) {
+    const days = Number(daysMatch[1]);
+    const months = Math.max(1, Math.round(days / 30));
+    return { months, label: `${months} month${months === 1 ? '' : 's'}` };
+  }
+
+  return null;
+}
+
+/** @param {number} months @param {Date} [fromDate] @returns {string|null} YYYY-MM-DD */
+export function completionDateFromDurationMonths(months, fromDate = new Date()) {
+  const m = Number(months);
+  if (!Number.isFinite(m) || m < 1) return null;
+  const base = fromDate instanceof Date ? new Date(fromDate) : new Date(fromDate);
+  if (Number.isNaN(base.getTime())) return null;
+  const d = new Date(base);
+  d.setMonth(d.getMonth() + Math.round(m));
+  return d.toISOString().slice(0, 10);
+}
+
+export function isObjectiveScaleValid(scaleCurrent, scaleTarget) {
+  const cur = Number(scaleCurrent);
+  const tgt = Number(scaleTarget);
+  return (
+    Number.isInteger(cur)
+    && Number.isInteger(tgt)
+    && cur >= 1
+    && cur <= 10
+    && tgt >= 1
+    && tgt <= 10
+    && cur !== tgt
+  );
+}
+
+function applyGoalDuration(goal, text) {
+  const duration = parseDurationMonths(text);
+  if (!duration || !goal) return false;
+  goal.durationMonths = duration.months;
+  goal.durationLabel = duration.label;
+  goal.projectedCompletion = completionDateFromDurationMonths(duration.months);
+  return true;
+}
+
+function finalizeObjective(obj) {
+  const valid = isObjectiveScaleValid(obj.scaleCurrent, obj.scaleTarget);
+  obj.scaleNeedsRewrite = !valid;
+  if (valid && !obj.measurementMethod) {
+    obj.measurementMethod = '1–10 scale (client self-report)';
+  }
+  if (valid) {
+    obj.scaleDirection = inferScaleDirection(obj.scaleCurrent, obj.scaleTarget, obj.scaleDirection);
+  }
+  return obj;
+}
+
 /**
  * @returns {{
  *   effectiveDate: string|null,
@@ -265,9 +341,13 @@ export function parseTreatmentPlanText(rawText) {
       currentGoal = {
         goalText: text || trimmed,
         projectedCompletion: null,
+        durationMonths: null,
+        durationLabel: null,
+        parsedDateHint: null,
         objectives: []
       };
       goals.push(currentGoal);
+      applyGoalDuration(currentGoal, trimmed);
       continue;
     }
 
@@ -279,7 +359,14 @@ export function parseTreatmentPlanText(rawText) {
       flushPresenting();
       mode = 'goals';
       if (!currentGoal) {
-        currentGoal = { goalText: 'Goal', projectedCompletion: null, objectives: [] };
+        currentGoal = {
+          goalText: 'Goal',
+          projectedCompletion: null,
+          durationMonths: null,
+          durationLabel: null,
+          parsedDateHint: null,
+          objectives: []
+        };
         goals.push(currentGoal);
       }
       const text = trimmed
@@ -292,17 +379,16 @@ export function parseTreatmentPlanText(rawText) {
         : /increase|improve|higher/i.test(text)
           ? 'increase'
           : null;
-      const measurement =
-        (text.match(/(?:measured by|measurement|via|progress will be (?:tracked|monitored|measured))\s*[:\-]?\s*(.+)$/i) || [])[1]
-        || null;
-      currentGoal.objectives.push({
-        objectiveText: text || trimmed,
-        scaleCurrent: scales.scaleCurrent,
-        scaleTarget: scales.scaleTarget,
-        scaleDirection: inferScaleDirection(scales.scaleCurrent, scales.scaleTarget, directionHint),
-        measurementMethod: measurement ? String(measurement).trim() : null,
-        projectedCompletion: null
-      });
+      currentGoal.objectives.push(
+        finalizeObjective({
+          objectiveText: text || trimmed,
+          scaleCurrent: scales.scaleCurrent,
+          scaleTarget: scales.scaleTarget,
+          scaleDirection: inferScaleDirection(scales.scaleCurrent, scales.scaleTarget, directionHint),
+          measurementMethod: null,
+          projectedCompletion: null
+        })
+      );
       continue;
     }
 
@@ -310,12 +396,12 @@ export function parseTreatmentPlanText(rawText) {
       const rest = trimmed
         .replace(/^estimated\s+completion\s*[:\-]?\s*/i, '')
         .replace(/^(?:projected(?:\s*completion)?|timeframe|target date|completion)\s*[:\-]?\s*/i, '');
+      if (applyGoalDuration(currentGoal, rest) || applyGoalDuration(currentGoal, trimmed)) {
+        continue;
+      }
       const dateHit = parseDateLoose(rest) || parseDateLoose(trimmed);
-      const completion = dateHit || rest || trimmed;
-      if (currentGoal) {
-        currentGoal.projectedCompletion = completion;
-        const lastObj = currentGoal.objectives[currentGoal.objectives.length - 1];
-        if (lastObj && !lastObj.projectedCompletion) lastObj.projectedCompletion = completion;
+      if (currentGoal && dateHit) {
+        currentGoal.parsedDateHint = dateHit;
       }
       continue;
     }
@@ -373,8 +459,10 @@ export function parseTreatmentPlanText(rawText) {
           lastObj.scaleTarget,
           lastObj.scaleDirection
         );
+        finalizeObjective(lastObj);
       } else {
         currentGoal.goalText = `${currentGoal.goalText} ${trimmed}`.trim();
+        applyGoalDuration(currentGoal, trimmed);
       }
       continue;
     }
@@ -401,8 +489,21 @@ export function parseTreatmentPlanText(rawText) {
     goals.push({
       goalText: body.split('\n').find((l) => cleanLine(l)) || 'Imported treatment plan',
       projectedCompletion: null,
+      durationMonths: null,
+      durationLabel: null,
+      parsedDateHint: null,
       objectives: []
     });
+  }
+
+  for (const goal of goals) {
+    for (const obj of goal.objectives || []) {
+      finalizeObjective(obj);
+    }
+    if (!goal.durationMonths && goal.projectedCompletion && /^\d{4}-\d{2}-\d{2}$/.test(goal.projectedCompletion)) {
+      goal.parsedDateHint = goal.parsedDateHint || goal.projectedCompletion;
+      goal.projectedCompletion = null;
+    }
   }
 
   const primaryDiagnosisIndex = Math.max(
@@ -424,4 +525,10 @@ export function parseTreatmentPlanText(rawText) {
   };
 }
 
-export default { parseTreatmentPlanText, inferScaleDirection };
+export default {
+  parseTreatmentPlanText,
+  inferScaleDirection,
+  parseDurationMonths,
+  completionDateFromDurationMonths,
+  isObjectiveScaleValid
+};

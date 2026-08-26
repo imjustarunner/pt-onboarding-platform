@@ -19,6 +19,7 @@ import {
   getMedicalBillingStatus,
   saveTreatmentPlanToChart,
   parseTreatmentPlanImport,
+  normalizeTreatmentPlanObjective,
   listClientChart,
   createObjectiveRating,
   listClientObjectiveRatings,
@@ -84,6 +85,17 @@ router.post(
     body('planText').optional().isString()
   ],
   parseTreatmentPlanImport
+);
+
+router.post(
+  '/treatment-plans/normalize-objective',
+  requireClinicalChart,
+  [
+    body('agencyId').isInt({ min: 1 }),
+    body('clientId').isInt({ min: 1 }),
+    body('objectiveText').isString().notEmpty()
+  ],
+  normalizeTreatmentPlanObjective
 );
 
 router.get(

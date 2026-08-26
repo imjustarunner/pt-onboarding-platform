@@ -1,9 +1,30 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { inferScaleDirection, parseTreatmentPlanText } from '../treatmentPlanImport.service.js';
+import {
+  inferScaleDirection,
+  parseDurationMonths,
+  parseTreatmentPlanText,
+  completionDateFromDurationMonths,
+  isObjectiveScaleValid
+} from '../treatmentPlanImport.service.js';
 import { parseIntakeSections, parseIntakeDiagnoses } from '../intakeImport.service.js';
 
 describe('treatmentPlanImport.service', () => {
+  it('parses duration months and computes completion from today', () => {
+    const d = parseDurationMonths('Estimated completion: 3 months');
+    assert.ok(d);
+    assert.equal(d.months, 3);
+    assert.match(d.label, /3 months/);
+    const iso = completionDateFromDurationMonths(3, new Date('2026-08-26T12:00:00Z'));
+    assert.equal(iso, '2026-11-26');
+  });
+
+  it('flags objectives missing valid 1-10 scales', () => {
+    assert.equal(isObjectiveScaleValid(9, 5), true);
+    assert.equal(isObjectiveScaleValid(5, 5), false);
+    assert.equal(isObjectiveScaleValid(11, 5), false);
+  });
+
   it('parses dated plan with ordered diagnoses, direction, and goals', () => {
     const text = `
 Effective Date: 2026-03-15
@@ -12,8 +33,8 @@ Justification: Persistent worry interfering with school.
 Diagnosis: F32.1 Major Depressive Disorder, Moderate
 Discharge Plan: Step down to monthly sessions when scales improve.
 Goal 1: Reduce anxiety
+Estimated completion: 4 months
 Objective 1: Use coping skills 4x/week (4 → 8 increase)
-Measurement: Client self-report
 Goal 2: Improve mood
 Objective 1: Complete behavioral activation 3x/week 8 -> 3 decrease
 `;
@@ -24,10 +45,13 @@ Objective 1: Complete behavioral activation 3x/week 8 -> 3 decrease
     assert.equal(parsed.diagnoses[0].isPrimary, true);
     assert.match(String(parsed.dischargePlan || ''), /Step down/i);
     assert.ok(parsed.goals.length >= 2);
+    assert.equal(parsed.goals[0].durationMonths, 4);
+    assert.ok(parsed.goals[0].projectedCompletion);
     const obj = parsed.goals[0].objectives[0];
     assert.equal(obj.scaleCurrent, 4);
     assert.equal(obj.scaleTarget, 8);
     assert.equal(obj.scaleDirection, 'increase');
+    assert.equal(obj.scaleNeedsRewrite, false);
     assert.equal(inferScaleDirection(8, 3), 'decrease');
   });
 });
