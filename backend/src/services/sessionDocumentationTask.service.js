@@ -73,7 +73,7 @@ export async function runSessionDocumentationTaskTick() {
          e.appointment_type_code,
          ol.agency_id,
          ol.name AS location_name,
-         ol.address_line1 AS location_address,
+         ol.street_address AS location_address,
          c.full_name AS client_name,
          c.initials AS client_initials,
          c.date_of_birth AS client_dob
