@@ -21,6 +21,8 @@ import {
   coerceNoteAidAgencyForClient,
   listClientAgencyMembershipIds
 } from '../utils/noteAidClientAgency.js';
+import { scrubIntakeTextForNoteWriter } from '../services/phiScrubber.service.js';
+import { collectClientPhiNames } from '../services/clientPhiNames.service.js';
 
 function safeInt(v) {
   const n = Number(v);
@@ -1153,6 +1155,28 @@ export const generateClinicalNote = async (req, res, next) => {
 
     if (!inputText) return res.status(400).json({ error: { message: 'inputText is required' } });
 
+    // Scrub PHI (names, phones, DOB, etc.) before any Gemini prompt is built.
+    let scrubExtraNames = [];
+    if (clientId) {
+      try {
+        const clientRow = await Client.findById(clientId, { includeSensitive: false });
+        scrubExtraNames = await collectClientPhiNames(clientRow || { id: clientId });
+      } catch {
+        scrubExtraNames = [];
+      }
+    }
+    const scrubOpts = { extraNames: scrubExtraNames };
+    inputText = scrubIntakeTextForNoteWriter(inputText, scrubOpts);
+    const scrubbedRevision = revisionInstruction
+      ? scrubIntakeTextForNoteWriter(revisionInstruction, scrubOpts)
+      : '';
+    const scrubbedTreatmentPlanContext = treatmentPlanContext
+      ? scrubIntakeTextForNoteWriter(treatmentPlanContext, scrubOpts)
+      : '';
+    const scrubbedObjectiveRatingsContext = objectiveRatingsContext
+      ? scrubIntakeTextForNoteWriter(objectiveRatingsContext, scrubOpts)
+      : '';
+
     // Explicit toolId (Note Aid category → gem) wins over service-code routing.
     const toolId = effectiveAutoSelect
       ? 'clinical_code_decider'
@@ -1194,28 +1218,28 @@ export const generateClinicalNote = async (req, res, next) => {
         INTERVENTIONS_CSV_INSTRUCTION
       ].join('\n');
     }
-    if (treatmentPlanContext) {
+    if (scrubbedTreatmentPlanContext) {
       prompt = [
         prompt,
         '',
         'Client treatment plan context (goals/objectives; use to inform challenges and focus — do not invent scales):',
-        treatmentPlanContext
+        scrubbedTreatmentPlanContext
       ].join('\n');
     }
-    if (objectiveRatingsContext) {
+    if (scrubbedObjectiveRatingsContext) {
       prompt = [
         prompt,
         '',
         'Session objective ratings from the clinician (include in the note where appropriate):',
-        objectiveRatingsContext
+        scrubbedObjectiveRatingsContext
       ].join('\n');
     }
-    if (revisionInstruction) {
+    if (scrubbedRevision) {
       prompt = [
         prompt,
         '',
         'Revision request from clinician:',
-        revisionInstruction,
+        scrubbedRevision,
         '',
         'Apply this revision request while preserving compliance and note structure requirements.'
       ].join('\n');

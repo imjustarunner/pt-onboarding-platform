@@ -19,6 +19,7 @@ import { callGeminiText } from '../services/geminiText.service.js';
 import { maybeEncryptNotePayload, maybeDecryptNotePayload } from '../services/clinicalNoteCrypto.service.js';
 import { decryptIntakeSubmissionRows } from '../services/intakeResponsesEncryption.service.js';
 import { scrubIntakeTextForNoteWriter } from '../services/phiScrubber.service.js';
+import { collectClientPhiNames } from '../services/clientPhiNames.service.js';
 import { buildClinicalSummaryText, buildIntakeAnswersText } from './publicIntake.controller.js';
 
 // ---------------------------------------------------------------------------
@@ -222,31 +223,7 @@ async function resolveAssignedPrimaryProviderUserId(clientId, client = null) {
 }
 
 async function collectScrubExtraNames(client) {
-  const names = new Set();
-  const add = (value) => {
-    const s = String(value || '').trim();
-    if (s) names.add(s);
-  };
-
-  add(client?.full_name);
-  add(client?.first_name);
-  add(client?.last_name);
-  if (client?.full_name) {
-    for (const part of String(client.full_name).split(/\s+/)) add(part);
-  }
-
-  try {
-    const guardians = await ClientGuardian.listForClient(client?.id);
-    for (const g of guardians || []) {
-      add(`${g.first_name || ''} ${g.last_name || ''}`.trim());
-      add(g.first_name);
-      add(g.last_name);
-    }
-  } catch {
-    // guardians table may be unavailable in older deployments
-  }
-
-  return [...names];
+  return collectClientPhiNames(client);
 }
 
 function isClinicalSummaryPhiDoc(doc) {

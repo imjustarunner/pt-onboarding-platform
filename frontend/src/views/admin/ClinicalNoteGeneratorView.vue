@@ -154,6 +154,7 @@
                 :intake-error="intakeError"
                 :intake-summary="intakeSummary"
                 :primary-diagnosis="primaryChartDiagnosis"
+                :diagnoses="chartDiagnoses"
                 @open-updater="openTreatmentPlanUpdater"
                 @use-intake="useIntakeToInformPlan"
                 @open-chart-intake="openClientChartIntake"
@@ -337,6 +338,34 @@
                 <p v-if="progressEntryMode === 'unlinked'" class="na-field-hint">
                   Unlinked note — date and initials only (not attached to a chart session).
                 </p>
+                <NoteAidClientContextPanel
+                  v-if="effectiveClientId"
+                  ref="clientContextPanelRef"
+                  :client-id="effectiveClientId"
+                  :client-name="selectedClient?.full_name || selectedClient?.name || ''"
+                  :client-profile-href="clientProfileHref"
+                  :demographics-on-file="demographicsOnFile"
+                  :demographics-preview="demographicsPreviewRows"
+                  :intake-on-file="intakeOnFile"
+                  :plan-on-file="planOnFile"
+                  :goals="activeTreatmentGoals"
+                  :loading-plan="loadingClientPlan"
+                  :plan-error="clientPlanError"
+                  v-model:pasted-plan-text="pastedPlanText"
+                  v-model:pasted-intake-text="pastedIntakeText"
+                  v-model:pasted-demographics-text="pastedDemographicsText"
+                  :loading-intake="loadingIntake"
+                  :intake-error="intakeError"
+                  :intake-summary="intakeSummary"
+                  :primary-diagnosis="primaryChartDiagnosis"
+                  :diagnoses="chartDiagnoses"
+                  @open-updater="openTreatmentPlanUpdater"
+                  @use-intake="useIntakeToInformPlan"
+                  @open-chart-intake="openClientChartIntake"
+                  @import-plan="showPlanImportReview = true"
+                  @import-intake="showIntakeImportReview = true"
+                  @import-demographics="showDemographicsImport = true"
+                />
               </div>
             </div>
 
@@ -354,14 +383,6 @@
                     Collapse
                   </button>
                 </div>
-                <label v-if="showInteractiveComplexityOption" class="na-toggle-row">
-                  <span>Include Interactive Complexity</span>
-                  <span class="na-switch" :class="{ on: includeInteractiveComplexity }">
-                    <input v-model="includeInteractiveComplexity" type="checkbox" />
-                    <span class="na-switch-thumb" />
-                  </span>
-                </label>
-                <p v-else class="na-field-hint">Interactive Complexity is only available on progress notes.</p>
                 <div v-if="showBillingCodePicker" class="na-options-block">
                   <span class="na-field-hint">Billing code (optional override)</span>
                   <select
@@ -404,43 +425,6 @@
           </template>
         </section>
 
-        <NoteAidClientContextPanel
-          ref="clientContextPanelRef"
-          :client-id="effectiveClientId"
-          :client-name="selectedClient?.full_name || selectedClient?.name || ''"
-          :client-profile-href="clientProfileHref"
-          :demographics-on-file="demographicsOnFile"
-          :demographics-preview="demographicsPreviewRows"
-          :intake-on-file="intakeOnFile"
-          :plan-on-file="planOnFile"
-          :goals="activeTreatmentGoals"
-          :loading-plan="loadingClientPlan"
-          :plan-error="clientPlanError"
-          v-model:pasted-plan-text="pastedPlanText"
-          v-model:pasted-intake-text="pastedIntakeText"
-          v-model:pasted-demographics-text="pastedDemographicsText"
-          :loading-intake="loadingIntake"
-          :intake-error="intakeError"
-          :intake-summary="intakeSummary"
-          :primary-diagnosis="primaryChartDiagnosis"
-          @open-updater="openTreatmentPlanUpdater"
-          @use-intake="useIntakeToInformPlan"
-          @open-chart-intake="openClientChartIntake"
-          @import-plan="showPlanImportReview = true"
-          @import-intake="showIntakeImportReview = true"
-          @import-demographics="showDemographicsImport = true"
-        />
-
-        <div v-if="effectiveClientId && primaryChartDiagnosis" class="na-dx-banner" role="status">
-          <strong>Primary diagnosis</strong>
-          <span class="mono">{{ primaryChartDiagnosis.icd10_code }}</span>
-          <span>{{ primaryChartDiagnosis.description || '' }}</span>
-          <p v-if="primaryChartDiagnosis.justification" class="na-dx-just">{{ primaryChartDiagnosis.justification }}</p>
-        </div>
-        <div v-else-if="effectiveClientId && !loadingClientPlan" class="na-dx-banner na-dx-banner--warn" role="status">
-          No primary diagnosis on chart yet. Finalize an intake note (or add a diagnosis) so plans and session notes can attach it.
-        </div>
-
         <NoteAidObjectiveRatings
           v-if="showObjectiveRatings"
           :goals="activeTreatmentGoals"
@@ -461,6 +445,23 @@
         </div>
 
         <section class="na-input-panel">
+          <div class="na-phi-banner" role="note">
+            <strong>Privacy</strong>
+            <p>{{ phiPrivacyBanner }}</p>
+            <ul class="na-phi-roles">
+              <li v-for="hint in phiRoleHints" :key="hint.label">
+                <strong>{{ hint.label }}:</strong> {{ hint.examples.join(', ') }}
+              </li>
+            </ul>
+          </div>
+          <div v-if="phiNameHits.length" class="na-phi-warn" role="alert">
+            <strong>Possible name detected:</strong>
+            {{ phiNameHits.map((h) => h.token).join(', ') }}.
+            Replace with a role (client, MOC, FOC, guardian) before sending to AI.
+            <button type="button" class="na-link-btn na-link-btn--sm" @click="dismissPhiNameWarn = true">
+              Dismiss for this edit
+            </button>
+          </div>
           <div class="na-input-tabs" role="tablist">
             <button
               type="button"
@@ -525,6 +526,17 @@
 
           <div class="na-input-footer">
             <span class="na-char-count">{{ String(inputText || '').length }} / 12000</span>
+            <label
+              v-if="showInteractiveComplexityOption"
+              class="na-toggle-row na-toggle-row--inline"
+              title="Document interactive complexity factors when clinically supported"
+            >
+              <span>Interactive Complexity</span>
+              <span class="na-switch" :class="{ on: includeInteractiveComplexity }">
+                <input v-model="includeInteractiveComplexity" type="checkbox" />
+                <span class="na-switch-thumb" />
+              </span>
+            </label>
             <button class="na-generate" type="button" :disabled="generateDisabled" @click="generateNote">
               <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true">
                 <path d="M12 2l1.2 6.3L19 12l-5.8 3.7L12 22l-1.2-6.3L5 12l5.8-3.7L12 2z"/>
@@ -837,6 +849,12 @@ import {
 import { toDateOfService } from '../../utils/noteAidLaunch.js';
 import { ensureHourlySessionForNoteAid } from '../../utils/noteAidIndirectSession.js';
 import {
+  PHI_PRIVACY_BANNER,
+  PHI_ROLE_HINTS,
+  collectFrontendPhiNames,
+  detectKnownNamesInText
+} from '../../utils/noteAidPhiGuard.js';
+import {
   HIDDEN_NOTE_AID_CODES,
   NOTE_AID_CATEGORIES,
   NOTE_TYPE_CODE_GROUPS,
@@ -930,6 +948,18 @@ const primaryChartDiagnosis = computed(() => {
   const primary = list.find((d) => d && Number(d.is_primary) === 1 && (d.is_active == null || Number(d.is_active) === 1));
   if (primary) return primary;
   return list.find((d) => d && (d.is_active == null || Number(d.is_active) === 1)) || null;
+});
+
+const phiExtraNames = computed(() =>
+  collectFrontendPhiNames(selectedClient.value, clientGuardianNames.value)
+);
+
+const phiNameHits = computed(() => {
+  if (dismissPhiNameWarn.value) return [];
+  const text = [inputText.value, liveTranscript.value, revisionInstruction.value]
+    .map((t) => String(t || ''))
+    .join('\n');
+  return detectKnownNamesInText(text, phiExtraNames.value);
 });
 
 const clientProfileHref = computed(() => {
@@ -1078,6 +1108,10 @@ const showInitialsCreateActions = computed(() => {
 });
 const latestTreatmentPlan = ref(null);
 const chartDiagnoses = ref([]);
+const clientGuardianNames = ref([]);
+const dismissPhiNameWarn = ref(false);
+const phiPrivacyBanner = PHI_PRIVACY_BANNER;
+const phiRoleHints = PHI_ROLE_HINTS;
 const chartObjectiveRatings = ref([]);
 const lastProgressNoteExcerpt = ref('');
 const loadingClientPlan = ref(false);
@@ -2829,6 +2863,26 @@ const generateNote = async () => {
     return;
   }
 
+  const nameHits = detectKnownNamesInText(
+    [inputText.value, liveTranscript.value, revisionInstruction.value].map((t) => String(t || '')).join('\n'),
+    phiExtraNames.value
+  );
+  if (nameHits.length && !dismissPhiNameWarn.value) {
+    const listed = nameHits.map((h) => h.token).join(', ');
+    const proceed = window.confirm(
+      `Possible client or caregiver name detected in your note text: ${listed}.\n\n` +
+        'Protected health information (PHI) should not be typed or dictated. ' +
+        'Replace names with roles such as client/patient, MOC (mother of client), FOC (father of client), or guardian.\n\n' +
+        'Names are also scrubbed server-side before AI, but role language is preferred.\n\n' +
+        'Click OK to generate anyway, or Cancel to edit the text first.'
+    );
+    if (!proceed) {
+      generateError.value = `Replace detected name(s) (${listed}) with a role before generating.`;
+      return;
+    }
+    dismissPhiNameWarn.value = true;
+  }
+
   if (showObjectiveRatings.value) {
     const needed = [];
     for (const g of activeTreatmentGoals.value) {
@@ -3298,6 +3352,8 @@ const resetClientClinicalContext = () => {
   latestTreatmentPlan.value = null;
   chartDiagnoses.value = [];
   chartObjectiveRatings.value = [];
+  clientGuardianNames.value = [];
+  dismissPhiNameWarn.value = false;
   clientPlanError.value = '';
   pastedPlanText.value = '';
   pastedIntakeText.value = '';
@@ -3359,15 +3415,17 @@ const loadClientIntakeSummary = async (clientId) => {
     ]);
     const data = blocksRes?.data || {};
     // API returns { demographics, clinicalDeidentified, intakeNarrative } — not blocks[]
-    if (data.demographics || data.clinicalDeidentified || data.intakeNarrative) {
+    if (data.clinicalDeidentified || data.intakeNarrative) {
+      // Never put demographics PHI into the Note Aid intake preview / paste path.
       intakeSummary.value = [
-        data.demographics ? `Demographics\n${data.demographics}` : '',
         data.clinicalDeidentified ? `Clinical (de-identified)\n${data.clinicalDeidentified}` : '',
         data.intakeNarrative ? `Intake narrative\n${data.intakeNarrative}` : ''
       ]
         .filter(Boolean)
         .join('\n\n')
         .slice(0, 6000);
+    } else if (data.demographics && !(data.clinicalDeidentified || data.intakeNarrative)) {
+      intakeSummary.value = '';
     } else {
       const blocks = data.blocks || (Array.isArray(data) ? data : []);
       if (Array.isArray(blocks) && blocks.length) {
@@ -3407,14 +3465,28 @@ const onClientPicked = async (client) => {
   initials.value = '';
   initialsMatchSuggestions.value = [];
   initialsMatchDismissed.value = true;
+  dismissPhiNameWarn.value = false;
   resetClientClinicalContext();
   await hydrateSelectedClient(selectedClientId.value);
   await loadClientAgencyContext(selectedClientId.value);
   await Promise.all([
     loadClientTreatmentPlan(selectedClientId.value),
-    loadClientIntakeSummary(selectedClientId.value)
+    loadClientIntakeSummary(selectedClientId.value),
+    loadClientGuardianNames(selectedClientId.value)
   ]);
 };
+
+async function loadClientGuardianNames(clientId) {
+  const cid = Number(clientId || 0);
+  clientGuardianNames.value = [];
+  if (!cid) return;
+  try {
+    const r = await api.get(`/clients/${cid}/guardians`, { skipGlobalLoading: true });
+    clientGuardianNames.value = Array.isArray(r.data) ? r.data : (r.data?.guardians || []);
+  } catch {
+    clientGuardianNames.value = [];
+  }
+}
 
 async function loadClientAgencyContext(clientId) {
   const cid = Number(clientId || 0);
@@ -5355,6 +5427,49 @@ a.na-chip--link {
   font-size: 0.85rem;
 }
 
+.na-toggle-row--inline {
+  justify-content: flex-start;
+  margin: 0;
+  white-space: nowrap;
+}
+
+.na-phi-banner {
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid #99f6e4;
+  background: #f0fdfa;
+  font-size: 0.82rem;
+  color: #115e59;
+}
+.na-phi-banner strong {
+  display: block;
+  margin-bottom: 4px;
+  color: #0f766e;
+}
+.na-phi-banner p {
+  margin: 0;
+  line-height: 1.4;
+}
+.na-phi-roles {
+  margin: 8px 0 0;
+  padding-left: 18px;
+  color: #0f766e;
+}
+.na-phi-warn {
+  margin: 0 0 10px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid #fcd34d;
+  background: #fffbeb;
+  color: #92400e;
+  font-size: 0.84rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
 .na-switch {
   position: relative;
   width: 44px;
@@ -5413,10 +5528,15 @@ a.na-chip--link {
 
 .na-input-footer {
   display: flex;
-  justify-content: space-between;
+  justify-content: flex-end;
   align-items: center;
+  flex-wrap: wrap;
   gap: 12px;
   margin-top: 12px;
+}
+
+.na-input-footer .na-char-count {
+  margin-right: auto;
 }
 
 .na-char-count {

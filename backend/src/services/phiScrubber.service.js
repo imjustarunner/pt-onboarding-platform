@@ -86,6 +86,40 @@ export function scrubIntakeTextForNoteWriter(text, { extraNames = [] } = {}) {
   return s;
 }
 
+/**
+ * Detect known person-name tokens in free text (client / guardian names).
+ * Conservative: only tokens ≥ 4 letters from the provided name list.
+ * @returns {Array<{ token: string, matched: string }>}
+ */
+export function detectKnownNamesInText(text, { extraNames = [] } = {}) {
+  const hay = String(text || '');
+  if (!hay.trim() || !Array.isArray(extraNames) || !extraNames.length) return [];
+
+  const found = new Map();
+  for (const name of extraNames) {
+    const full = String(name || '').trim();
+    if (!full) continue;
+    const tokens = full.split(/\s+/).filter((t) => t.length >= 4 && looksLikeNameToken(t));
+    // Prefer matching the full multi-word name first when present
+    if (tokens.length >= 2) {
+      const escapedFull = full.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\s+/g, '\\s+');
+      if (new RegExp(`\\b${escapedFull}\\b`, 'i').test(hay)) {
+        found.set(full.toLowerCase(), { token: full, matched: full });
+        continue;
+      }
+    }
+    for (const token of tokens) {
+      const key = token.toLowerCase();
+      if (found.has(key)) continue;
+      const escaped = token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      if (new RegExp(`\\b${escaped}\\b`, 'i').test(hay)) {
+        found.set(key, { token, matched: full });
+      }
+    }
+  }
+  return [...found.values()];
+}
+
 export function scrubClientNamesToCode(text) {
   const s = String(text || '');
   // Capture label + up to 4 tokens; use first and last token as name parts.
