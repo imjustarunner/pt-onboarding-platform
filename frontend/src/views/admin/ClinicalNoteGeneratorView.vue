@@ -946,9 +946,16 @@ const approvalMessage = ref('');
 const approvalError = ref('');
 const approvingNote = ref(false);
 const savingTreatmentPlan = ref(false);
-const medicalBillingFlags = computed(() =>
-  parseAgencyFeatureFlags(agencyStore.currentAgency?.feature_flags)
-);
+const medicalBillingFlags = computed(() => {
+  const aid = Number(noteAidAgencyId.value || 0);
+  const list = [
+    ...(agencyStore.userAgencies || []),
+    ...(agencyStore.agencies || [])
+  ];
+  const match = aid ? list.find((a) => Number(a?.id) === aid) : null;
+  const agency = match || agencyStore.currentAgency;
+  return parseAgencyFeatureFlags(agency?.feature_flags || agency?.featureFlags);
+});
 const serverTranscribing = ref(false);
 const serverTranscribeError = ref('');
 const SERVER_TRANSCRIBE_MIN_SECONDS = 75;

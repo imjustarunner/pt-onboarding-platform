@@ -1,25 +1,36 @@
 <template>
-  <div v-if="open" class="na-drawer-backdrop" @click.self="emit('close')">
-    <aside class="na-drawer" role="dialog" aria-label="Client setup">
-      <header class="na-drawer-head">
+  <div v-if="open" class="na-setup-backdrop" @click.self="emit('close')">
+    <div class="na-setup-modal" role="dialog" aria-labelledby="na-setup-chart-title" aria-modal="true">
+      <header class="na-setup-head">
         <div>
-          <h3>Set up chart for {{ clientLabel }}</h3>
-          <p class="muted">Import structured plan/intake now, or skip and continue documenting.</p>
+          <p class="na-setup-eyebrow">New client</p>
+          <h3 id="na-setup-chart-title">Set up chart for {{ clientLabel }}</h3>
+          <p class="na-setup-sub">
+            Import a structured plan or intake now, or skip and keep documenting.
+          </p>
         </div>
-        <button type="button" class="na-link-btn" @click="emit('close')">Close</button>
+        <button type="button" class="na-setup-close" aria-label="Close" @click="emit('close')">
+          ×
+        </button>
       </header>
-      <div class="na-drawer-actions">
-        <button type="button" class="na-btn-primary" @click="emit('import-plan')">
-          Import treatment plan
+
+      <div class="na-setup-actions">
+        <button type="button" class="na-setup-card" @click="emit('import-plan')">
+          <span class="na-setup-card-title">Import treatment plan</span>
+          <span class="na-setup-card-desc">Paste or upload a plan to seed goals and objectives.</span>
         </button>
-        <button type="button" class="na-btn-outline" @click="emit('import-intake')">
-          Import intake
-        </button>
-        <button type="button" class="na-link-btn" @click="emit('skip')">
-          Skip for now
+        <button type="button" class="na-setup-card" @click="emit('import-intake')">
+          <span class="na-setup-card-title">Import intake</span>
+          <span class="na-setup-card-desc">Bring in assessment content and primary diagnosis.</span>
         </button>
       </div>
-    </aside>
+
+      <footer class="na-setup-foot">
+        <button type="button" class="na-setup-skip" @click="emit('skip')">
+          Skip for now
+        </button>
+      </footer>
+    </div>
   </div>
 </template>
 
@@ -40,39 +51,120 @@ const clientLabel = computed(
 </script>
 
 <style scoped>
-.na-drawer-backdrop {
+.na-setup-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(15, 23, 42, 0.35);
-  z-index: 75;
+  z-index: 80;
   display: flex;
-  justify-content: flex-end;
-}
-.na-drawer {
-  width: min(420px, 100%);
-  background: #fff;
-  height: 100%;
+  align-items: center;
+  justify-content: center;
   padding: 20px;
-  box-shadow: -12px 0 40px rgba(15, 23, 42, 0.15);
+  background: rgba(15, 23, 42, 0.48);
+  backdrop-filter: blur(2px);
 }
-.na-drawer-head {
+.na-setup-modal {
+  width: min(440px, 100%);
+  background: #fff;
+  border-radius: 16px;
+  padding: 22px 22px 18px;
+  box-shadow: 0 24px 60px rgba(15, 23, 42, 0.28);
+  border: 1px solid rgba(15, 23, 42, 0.06);
+}
+.na-setup-head {
   display: flex;
   justify-content: space-between;
+  align-items: flex-start;
   gap: 12px;
+  margin-bottom: 18px;
 }
-.na-drawer-head h3 {
+.na-setup-eyebrow {
+  margin: 0 0 4px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #64748b;
+}
+.na-setup-head h3 {
   margin: 0 0 6px;
-  font-size: 1.05rem;
+  font-size: 1.2rem;
+  font-weight: 650;
+  color: #0f172a;
+  line-height: 1.25;
 }
-.muted {
+.na-setup-sub {
   margin: 0;
   color: #64748b;
-  font-size: 0.85rem;
+  font-size: 0.9rem;
+  line-height: 1.4;
+  max-width: 34ch;
 }
-.na-drawer-actions {
-  margin-top: 24px;
+.na-setup-close {
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  border: none;
+  border-radius: 8px;
+  background: #f1f5f9;
+  color: #475569;
+  font-size: 1.35rem;
+  line-height: 1;
+  cursor: pointer;
+}
+.na-setup-close:hover {
+  background: #e2e8f0;
+  color: #0f172a;
+}
+.na-setup-actions {
   display: flex;
   flex-direction: column;
   gap: 10px;
+}
+.na-setup-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  width: 100%;
+  text-align: left;
+  padding: 14px 16px;
+  border-radius: 12px;
+  border: 1px solid #e2e8f0;
+  background: #f8fafc;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
+}
+.na-setup-card:hover {
+  border-color: #94a3b8;
+  background: #fff;
+  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.08);
+}
+.na-setup-card-title {
+  font-size: 0.98rem;
+  font-weight: 600;
+  color: #0f172a;
+}
+.na-setup-card-desc {
+  font-size: 0.82rem;
+  color: #64748b;
+  line-height: 1.35;
+}
+.na-setup-foot {
+  margin-top: 16px;
+  display: flex;
+  justify-content: center;
+}
+.na-setup-skip {
+  border: none;
+  background: transparent;
+  color: #64748b;
+  font-size: 0.9rem;
+  cursor: pointer;
+  padding: 8px 12px;
+  border-radius: 8px;
+}
+.na-setup-skip:hover {
+  color: #0f172a;
+  background: #f1f5f9;
 }
 </style>
