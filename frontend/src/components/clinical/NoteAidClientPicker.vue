@@ -39,7 +39,16 @@
       </button>
     </div>
     <p v-if="selectedLabel" class="na-client-selected">
-      Linked: <strong>{{ selectedLabel }}</strong>
+      Linked:
+      <a
+        v-if="profileHref"
+        class="na-client-profile-link"
+        :href="profileHref"
+        target="_blank"
+        rel="noopener noreferrer"
+        @click.stop
+      ><strong>{{ selectedLabel }}</strong></a>
+      <strong v-else>{{ selectedLabel }}</strong>
       <span v-if="selectedTenant" class="muted"> · {{ selectedTenant }}</span>
     </p>
     <p v-if="modelValue && !allowClear" class="na-field-hint na-field-hint--warn">
@@ -95,6 +104,8 @@ const props = defineProps({
   disabled: { type: Boolean, default: false },
   /** When false, Clear is disabled (e.g. note linked to a session). */
   allowClear: { type: Boolean, default: true },
+  /** Optional absolute/relative href to open client chart in a new tab. */
+  profileHref: { type: String, default: '' },
   /** When true, omit agency_id so API searches all memberships. */
   searchAllTenants: { type: Boolean, default: true }
 });
@@ -275,10 +286,12 @@ onBeforeUnmount(() => {
   font-size: 0.82rem;
   color: #334155;
 }
-.na-client-selected .muted {
-  color: #64748b;
-  font-weight: 500;
+.na-client-profile-link {
+  color: #0f766e;
+  text-decoration: underline;
+  text-underline-offset: 2px;
 }
+.na-client-profile-link:hover { color: #0d5f59; }
 .na-client-results {
   list-style: none;
   margin: 6px 0 0;

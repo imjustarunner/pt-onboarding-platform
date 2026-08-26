@@ -311,6 +311,46 @@ export const listClientChart = async (req, res, next) => {
       objectiveRatings = [];
     }
 
+    let noteAidDrafts = [];
+    try {
+      const ClinicalNoteDraft = (await import('../models/ClinicalNoteDraft.model.js')).default;
+      noteAidDrafts = await ClinicalNoteDraft.listForClient({ clientId, agencyId, limit: 100 });
+      noteAidDrafts = (noteAidDrafts || []).map((d) => ({
+        id: d.id,
+        service_code: d.service_code,
+        date_of_service: d.date_of_service,
+        initials: d.initials,
+        created_at: d.created_at,
+        updated_at: d.updated_at,
+        office_event_id: d.office_event_id || null,
+        clinical_session_id: d.clinical_session_id || null,
+        has_output: !!(d.output_json && String(d.output_json).length > 2),
+        author_name: [d.author_first_name, d.author_last_name].filter(Boolean).join(' ').trim() || null
+      }));
+    } catch {
+      noteAidDrafts = [];
+    }
+
+    let intakeNotes = [];
+    try {
+      const ClientIntakeNoteDraft = (await import('../models/ClientIntakeNoteDraft.model.js')).default;
+      const latest = await ClientIntakeNoteDraft.latestForClient({ clientId, agencyId });
+      if (latest) {
+        intakeNotes = [
+          {
+            id: latest.id,
+            status: latest.status,
+            service_code: latest.service_code,
+            created_at: latest.created_at,
+            updated_at: latest.updated_at,
+            finalized_at: latest.finalized_at || null
+          }
+        ];
+      }
+    } catch {
+      intakeNotes = [];
+    }
+
     return res.json({
       notes: notes || [],
       plans: plans || [],
@@ -318,7 +358,9 @@ export const listClientChart = async (req, res, next) => {
       diagnoses: diagnoses || [],
       sessions: sessions || [],
       billingEncounters,
-      objectiveRatings
+      objectiveRatings,
+      noteAidDrafts,
+      intakeNotes
     });
   } catch (e) {
     next(e);

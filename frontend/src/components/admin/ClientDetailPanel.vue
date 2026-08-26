@@ -1247,6 +1247,17 @@
           </div>
         </div>
 
+        <!-- Clinical notes running list (Records → Clinical notes) -->
+        <div v-if="showPanel('clinical') || showPanel('intake-note')" class="detail-section">
+          <ClientClinicalNotesFeed
+            :client-id="client.id"
+            :agency-id="client.agency_id || selectedAgencyId"
+            :client-type="effectiveClientType"
+            :organization-slug="organizationSlugForLinks"
+            @navigate="goChartSub"
+          />
+        </div>
+
         <!-- Clinical Tab (provider/admin only) -->
         <ClientClinicalTab
           v-if="showPanel('clinical')"
@@ -2152,8 +2163,14 @@
         </div>
 
         <div v-if="showPanel('intake-note')" class="detail-section">
-          <h3 style="margin-top: 0;">Clinical notes</h3>
-          <p class="hint">Intake note draft, session medical record, and clinical profile for this client.</p>
+          <h3 style="margin-top: 0;">{{ effectiveClientType === 'learning' ? 'Intake / enrollment note' : 'Intake note' }}</h3>
+          <p class="hint">
+            {{
+              effectiveClientType === 'learning'
+                ? 'Enrollment and intake documentation for this student.'
+                : 'Intake draft and finalization for this client. Progress notes appear in the Notes list above.'
+            }}
+          </p>
           <ClientIntakeNotePanel
             :client-id="client.id"
             :assigned-provider="Boolean(primaryProviderLabel && primaryProviderLabel !== 'Not assigned' && primaryProviderLabel !== '—')"
@@ -2310,6 +2327,7 @@ import ClientBillingImportTab from './ClientBillingImportTab.vue';
 import ClientChartShell from './clientChart/ClientChartShell.vue';
 import ClientOverviewHub from './clientChart/ClientOverviewHub.vue';
 import ClientClinicalTab from './clientChart/ClientClinicalTab.vue';
+import ClientClinicalNotesFeed from './clientChart/ClientClinicalNotesFeed.vue';
 import ClientDocumentsTab from './clientChart/ClientDocumentsTab.vue';
 import ClientMessagesTab from './clientChart/ClientMessagesTab.vue';
 import { useClientEncounters } from '../../composables/useClientEncounters.js';
@@ -2939,6 +2957,8 @@ const openFullClientRecord = () => {
     window.location.assign(`${path}${query.tab ? `?tab=${encodeURIComponent(query.tab)}` : ''}`);
   });
 };
+
+const organizationSlugForLinks = computed(() => String(route.params?.organizationSlug || '').trim());
 
 const addAgencyAffiliationId = ref('');
 const addAgencyMakePrimary = ref(false);

@@ -191,6 +191,36 @@ class ClinicalNoteDraft {
     return rows || [];
   }
 
+  /**
+   * Chart feed: drafts linked to a client (agency-scoped, any author).
+   */
+  static async listForClient({ clientId, agencyId, limit = 100 }) {
+    const cid = safeInt(clientId);
+    const aid = safeInt(agencyId);
+    if (!cid || !aid) return [];
+    const lim = Math.max(1, Math.min(200, Number(limit) || 100));
+    const [rows] = await pool.execute(
+      `SELECT
+         d.*,
+         c.full_name AS client_full_name,
+         c.client_type AS client_type,
+         a.name AS agency_name,
+         u.first_name AS author_first_name,
+         u.last_name AS author_last_name
+       FROM clinical_note_drafts d
+       LEFT JOIN clients c ON c.id = d.client_id
+       LEFT JOIN agencies a ON a.id = d.agency_id
+       LEFT JOIN users u ON u.id = d.user_id
+       WHERE d.client_id = ?
+         AND d.agency_id = ?
+         AND d.archived_at IS NULL
+       ORDER BY d.created_at DESC, d.id DESC
+       LIMIT ${lim}`,
+      [cid, aid]
+    );
+    return rows || [];
+  }
+
   static async setArchivedForUser({ draftId, userId, archived }) {
     return this.updateForUser({
       draftId,

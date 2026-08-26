@@ -9,7 +9,9 @@
           <span v-if="clinicalCapturedAt">
             Intake completed {{ formatDate(clinicalCapturedAt) }}.
           </span>
-          <span v-else-if="clinicalTemplateMode">Clinical profile template.</span>
+          <span v-else-if="clinicalTemplateMode">
+            {{ isLearningClient ? 'Student profile template.' : 'Clinical profile template.' }}
+          </span>
           <span v-if="clinicalTotalFieldCount">
             {{ clinicalTotalFieldCount }} responses across {{ clinicalSections.length }} sections.
           </span>
@@ -72,9 +74,22 @@
       <div v-else class="cc-clinical-layout">
         <aside class="cc-clinical-col cc-clinical-col--left">
           <section class="cc-card cc-clinical-card">
-            <h4 class="cc-clinical-card__title">Clinical snapshot</h4>
-            <div v-if="billingDiagnosesLoading" class="muted small">Loading diagnoses…</div>
+            <h4 class="cc-clinical-card__title">{{ isLearningClient ? 'Student snapshot' : 'Clinical snapshot' }}</h4>
+            <div v-if="billingDiagnosesLoading" class="muted small">Loading…</div>
             <div v-else-if="billingDiagnosesError" class="error small">{{ billingDiagnosesError }}</div>
+            <div v-else-if="chartDiagnoses.length" class="cc-clinical-dx-list">
+              <div v-for="dx in chartDiagnoses" :key="dx.id || dx.icd10_code || dx.code" class="cc-clinical-dx">
+                <div class="cc-clinical-dx-head">
+                  <strong class="mono">{{ dx.icd10_code || dx.code }}</strong>
+                  <span v-if="dx.is_primary || dx.isPrimary" class="cc-dx-primary">Primary</span>
+                </div>
+                <span class="small">{{ dx.description || '' }}</span>
+                <details v-if="dx.justification" class="cc-dx-just">
+                  <summary>Justification</summary>
+                  <p>{{ dx.justification }}</p>
+                </details>
+              </div>
+            </div>
             <div v-else-if="billingDiagnoses.length" class="cc-clinical-dx-list">
               <div v-for="dx in billingDiagnoses" :key="dx.code" class="cc-clinical-dx">
                 <strong class="mono">{{ dx.code }}</strong>
@@ -84,8 +99,15 @@
                 </span>
               </div>
             </div>
-            <p v-else class="muted small">No billing diagnoses on file.</p>
-            <button type="button" class="cc-clinical-link" @click="$emit('navigate', 'history')">
+            <p v-else class="muted small">
+              {{ isLearningClient ? 'No areas of concern on file yet.' : 'No diagnoses on file yet.' }}
+            </p>
+            <button
+              v-if="!isLearningClient"
+              type="button"
+              class="cc-clinical-link"
+              @click="$emit('navigate', 'history')"
+            >
               View diagnostic history →
             </button>
           </section>
@@ -119,9 +141,15 @@
 
         <div class="cc-clinical-col cc-clinical-col--main">
           <section class="cc-card cc-clinical-card cc-clinical-summary">
-            <h4 class="cc-clinical-card__title">Clinical summary</h4>
+            <h4 class="cc-clinical-card__title">{{ isLearningClient ? 'Student summary' : 'Clinical summary' }}</h4>
             <p v-if="clinicalSummaryText" class="cc-clinical-summary__text">{{ clinicalSummaryText }}</p>
-            <p v-else class="muted small">No narrative clinical summary on file yet.</p>
+            <p v-else class="muted small">
+              {{
+                isLearningClient
+                  ? 'No student summary narrative on file yet.'
+                  : 'No narrative clinical summary on file yet.'
+              }}
+            </p>
             <div class="cc-clinical-status-grid">
               <div class="cc-clinical-status" :class="riskLevelLabel === 'Elevated' ? 'is-elevated' : ''">
                 <span class="cc-clinical-status__label">Risk level</span>
@@ -264,7 +292,7 @@
 
         <aside class="cc-clinical-col cc-clinical-col--right">
           <section class="cc-card cc-clinical-card">
-            <h4 class="cc-clinical-card__title">Clinical tools</h4>
+            <h4 class="cc-clinical-card__title">{{ isLearningClient ? 'Learning tools' : 'Clinical tools' }}</h4>
             <div class="cc-clinical-tools">
               <button
                 v-if="canViewMedicalRecord"
@@ -328,15 +356,17 @@
 </template>
 
 <script setup>
-import { computed, toRef } from 'vue';
+import { computed, onMounted, ref, toRef, watch } from 'vue';
 import { useClientClinicalResponses } from '../../../composables/useClientClinicalResponses.js';
 import { useClientEncounters } from '../../../composables/useClientEncounters.js';
+import api from '../../../services/api.js';
 
 const props = defineProps({
   client: { type: Object, required: true },
   billingDiagnoses: { type: Array, default: () => [] },
   billingDiagnosesLoading: { type: Boolean, default: false },
   billingDiagnosesError: { type: String, default: '' },
+  chartDiagnoses: { type: Array, default: () => [] },
   isSuperAdmin: { type: Boolean, default: false },
   isClinicalLikeClientType: { type: Boolean, default: true },
   isBackofficeRole: { type: Boolean, default: false },
@@ -345,6 +375,36 @@ const props = defineProps({
 });
 
 defineEmits(['navigate']);
+
+const isLearningClient = computed(
+  () => String(props.client?.client_type || '').toLowerCase() === 'learning'
+);
+
+const localChartDiagnoses = ref([]);
+const chartDiagnoses = computed(() =>
+  (props.chartDiagnoses?.length ? props.chartDiagnoses : localChartDiagnoses.value) || []
+);
+
+async function loadChartDiagnoses() {
+  const cid = Number(props.client?.id || 0);
+  const aid = Number(props.client?.agency_id || 0);
+  if (!cid || !aid || isLearningClient.value) {
+    localChartDiagnoses.value = [];
+    return;
+  }
+  try {
+    const res = await api.get(`/medical-billing/clients/${cid}/chart`, {
+      params: { agencyId: aid },
+      skipGlobalLoading: true
+    });
+    localChartDiagnoses.value = Array.isArray(res?.data?.diagnoses) ? res.data.diagnoses : [];
+  } catch {
+    localChartDiagnoses.value = [];
+  }
+}
+
+onMounted(loadChartDiagnoses);
+watch(() => [props.client?.id, props.client?.agency_id], loadChartDiagnoses);
 
 const clientRef = toRef(props, 'client');
 const clientId = computed(() => Number(props.client?.id || 0) || null);

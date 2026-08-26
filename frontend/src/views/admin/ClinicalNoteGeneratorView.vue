@@ -106,6 +106,7 @@
                 :agency-id="noteAidAgencyId || currentAgencyId"
                 :selected-client="selectedClient"
                 :allow-clear="canClearLinkedClient"
+                :profile-href="clientProfileHref"
                 :search-all-tenants="true"
                 @select="onClientPicked"
                 @clear="onClientCleared"
@@ -115,6 +116,11 @@
                 ref="clientContextPanelRef"
                 :client-id="effectiveClientId"
                 :client-name="selectedClient?.full_name || selectedClient?.name || ''"
+                :client-profile-href="clientProfileHref"
+                :demographics-on-file="demographicsOnFile"
+                :demographics-preview="demographicsPreviewRows"
+                :intake-on-file="intakeOnFile"
+                :plan-on-file="planOnFile"
                 :goals="activeTreatmentGoals"
                 :loading-plan="loadingClientPlan"
                 :plan-error="clientPlanError"
@@ -182,7 +188,14 @@
           <div v-if="showConfigSummary" class="na-config-summary">
             <div class="na-config-summary-chips">
               <span class="na-chip"><em>1</em> {{ dateOfService || '—' }}</span>
-              <span class="na-chip"><em>2</em> {{ initials || '—' }}</span>
+              <a
+                v-if="effectiveClientId && clientProfileHref"
+                class="na-chip na-chip--link"
+                :href="clientProfileHref"
+                target="_blank"
+                rel="noopener noreferrer"
+              ><em>2</em> {{ clientDisplayName(selectedClient) || initials || 'Client' }}</a>
+              <span v-else class="na-chip"><em>2</em> {{ initials || '—' }}</span>
               <span class="na-chip"><em>3</em> {{ configOptionsSummary }}</span>
             </div>
             <button type="button" class="na-link-btn" @click="configExpanded = true">Edit</button>
@@ -269,6 +282,7 @@
                   :agency-id="noteAidAgencyId || currentAgencyId"
                   :selected-client="selectedClient"
                   :allow-clear="canClearLinkedClient"
+                  :profile-href="clientProfileHref"
                   :search-all-tenants="true"
                   @select="onClientPicked"
                   @clear="onClientCleared"
@@ -348,6 +362,11 @@
           ref="clientContextPanelRef"
           :client-id="effectiveClientId"
           :client-name="selectedClient?.full_name || selectedClient?.name || ''"
+          :client-profile-href="clientProfileHref"
+          :demographics-on-file="demographicsOnFile"
+          :demographics-preview="demographicsPreviewRows"
+          :intake-on-file="intakeOnFile"
+          :plan-on-file="planOnFile"
           :goals="activeTreatmentGoals"
           :loading-plan="loadingClientPlan"
           :plan-error="clientPlanError"
@@ -858,6 +877,50 @@ const primaryChartDiagnosis = computed(() => {
   if (primary) return primary;
   return list.find((d) => d && (d.is_active == null || Number(d.is_active) === 1)) || null;
 });
+
+const clientProfileHref = computed(() => {
+  const cid = Number(effectiveClientId.value || 0);
+  if (!cid) return '';
+  const slug = agencyStore.currentAgency?.slug || agencyStore.currentAgency?.organization_slug || route.params?.organizationSlug;
+  return slug ? `/${slug}/admin/clients/${cid}` : `/admin/clients/${cid}`;
+});
+
+const demographicsOnFile = computed(() => {
+  const c = selectedClient.value;
+  if (!c) return false;
+  if (c.demographics_phi_enc || c.demographicsPhiEnc) return true;
+  const hasDob = !!(c.date_of_birth || c.dateOfBirth);
+  const hasContact = !!(c.contact_phone || c.email || c.address_street || c.addressStreet);
+  return hasDob && hasContact;
+});
+
+const demographicsPreviewRows = computed(() => {
+  const c = selectedClient.value;
+  if (!c) return [];
+  const rows = [];
+  const name = clientDisplayName(c);
+  if (name) rows.push({ label: 'Name', value: name });
+  const dob = c.date_of_birth || c.dateOfBirth;
+  if (dob) rows.push({ label: 'DOB', value: String(dob).slice(0, 10) });
+  const phone = c.contact_phone || c.contactPhone;
+  if (phone) rows.push({ label: 'Phone', value: phone });
+  const email = c.email;
+  if (email) rows.push({ label: 'Email', value: email });
+  const city = [c.address_city || c.addressCity, c.address_state || c.addressState].filter(Boolean).join(', ');
+  if (city) rows.push({ label: 'City', value: city });
+  return rows;
+});
+
+const intakeOnFile = computed(() => {
+  if (intakeImportedOnce.value) return true;
+  if (primaryChartDiagnosis.value) return true;
+  const s = String(intakeSummary.value || '');
+  return /intake narrative/i.test(s) && s.length > 80;
+});
+
+const planOnFile = computed(
+  () => planImportedOnce.value || (activeTreatmentGoals.value || []).length > 0
+);
 const showObjectiveRatings = computed(() => {
   if (!effectiveClientId.value || !activeTreatmentGoals.value.length) return false;
   const kind = aidKind(selectedAid.value);
@@ -968,6 +1031,8 @@ const clientPlanError = ref('');
 const pastedPlanText = ref('');
 const pastedIntakeText = ref('');
 const pastedDemographicsText = ref('');
+const intakeImportedOnce = ref(false);
+const planImportedOnce = ref(false);
 const savingDraftManual = ref(false);
 const deletingCurrentDraft = ref(false);
 const sessionObjectiveRatings = ref([]);
@@ -3114,6 +3179,10 @@ const resetClientClinicalContext = () => {
   chartObjectiveRatings.value = [];
   clientPlanError.value = '';
   pastedPlanText.value = '';
+  pastedIntakeText.value = '';
+  pastedDemographicsText.value = '';
+  intakeImportedOnce.value = false;
+  planImportedOnce.value = false;
   sessionObjectiveRatings.value = [];
   suggestUpdateTreatmentPlan.value = false;
   renewalSuggestReason.value = '';
@@ -3220,12 +3289,22 @@ const onClientPicked = async (client) => {
 async function hydrateSelectedClient(clientId) {
   const cid = Number(clientId || 0);
   if (!cid) return;
-  const name = clientDisplayName(selectedClient.value);
-  if (name && !/^Client #\d+$/i.test(name) && Number(selectedClient.value?.id) === cid) return;
   try {
     const res = await api.get(`/clients/${cid}`, { skipGlobalLoading: true });
     const row = normalizeNoteAidClientRow(res?.data?.client || res?.data, agencyLookup.value);
-    if (row) selectedClient.value = row;
+    if (row) {
+      const enc = res?.data?.client?.demographics_phi_enc || res?.data?.demographics_phi_enc;
+      selectedClient.value = {
+        ...row,
+        demographics_phi_enc: enc || row.demographics_phi_enc || null,
+        date_of_birth: row.date_of_birth || res?.data?.client?.date_of_birth,
+        contact_phone: row.contact_phone || res?.data?.client?.contact_phone,
+        email: row.email || res?.data?.client?.email,
+        address_street: row.address_street || res?.data?.client?.address_street,
+        address_city: row.address_city || res?.data?.client?.address_city,
+        address_state: row.address_state || res?.data?.client?.address_state
+      };
+    }
   } catch {
     // keep partial row
   }
@@ -3342,6 +3421,7 @@ const onPlanImportSaved = async (plan) => {
 const onIntakeImportFinalized = async () => {
   showIntakeImportReview.value = false;
   pastedIntakeText.value = '';
+  intakeImportedOnce.value = true;
   if (effectiveClientId.value) {
     await loadClientTreatmentPlan(effectiveClientId.value);
     await loadClientIntakeSummary(effectiveClientId.value);
@@ -3351,7 +3431,22 @@ const onIntakeImportFinalized = async () => {
 const onDemographicsImported = async () => {
   showDemographicsImport.value = false;
   pastedDemographicsText.value = '';
+  await hydrateSelectedClient(effectiveClientId.value);
+  // Force refresh even if name was already known
+  try {
+    const cid = Number(effectiveClientId.value || 0);
+    if (cid) {
+      const res = await api.get(`/clients/${cid}`, { skipGlobalLoading: true });
+      const row = normalizeNoteAidClientRow(res?.data?.client || res?.data, agencyLookup.value);
+      if (row) selectedClient.value = { ...row, demographics_phi_enc: true };
+    }
+  } catch {
+    if (selectedClient.value) {
+      selectedClient.value = { ...selectedClient.value, demographics_phi_enc: true };
+    }
+  }
   approvalMessage.value = 'Demographics encrypted and saved to the client chart.';
+  clientContextPanelRef.value?.switchTab?.('demographics');
 };
 
 function persistWorkQueue() {
@@ -4718,6 +4813,13 @@ onBeforeUnmount(() => {
   font-size: 0.7rem;
   font-weight: 800;
   flex-shrink: 0;
+}
+
+a.na-chip--link {
+  color: var(--na-teal-dark);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
 }
 
 .na-step {
