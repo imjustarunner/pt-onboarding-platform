@@ -309,8 +309,12 @@ export function buildLeftLibraryRows({ drafts = [], workQueueItems = [] } = {}) 
   return rows;
 }
 
-export function filterLeftLibraryRows(rows, { tab = 'started', search = '', connection = '' } = {}) {
+export function filterLeftLibraryRows(
+  rows,
+  { tab = 'started', search = '', connection = '', tenant = '' } = {}
+) {
   const q = String(search || '').trim().toLowerCase();
+  const tenantQ = String(tenant || '').trim().toLowerCase();
   let list = Array.isArray(rows) ? rows : [];
   if (tab === 'all') {
     list = list.filter((r) => isLeftPanelStatus(r.docStatus));
@@ -328,6 +332,9 @@ export function filterLeftLibraryRows(rows, { tab = 'started', search = '', conn
   }
   if (connection && LEFT_PANEL_CONNECTION_KEYS.includes(connection)) {
     list = list.filter((r) => normalizeNoteConnection(r.connection) === connection);
+  }
+  if (tenantQ) {
+    list = list.filter((r) => String(r.agency_name || '').trim().toLowerCase() === tenantQ);
   }
   if (!q) return list;
   return list.filter((r) => {

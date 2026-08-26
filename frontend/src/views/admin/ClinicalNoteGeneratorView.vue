@@ -43,9 +43,16 @@
       </div>
     </div>
 
-    <div v-else class="na-shell">
+    <div
+      v-else
+      class="na-shell"
+      :class="{
+        'na-shell--library-collapsed': libraryCollapsed && !libraryExpanded,
+        'na-shell--library-expanded': libraryExpanded && !libraryCollapsed
+      }"
+    >
       <ClinicalNoteLibrarySidebar
-        title="Clinical Note Library"
+        title="Note Library"
         :drafts="recentDrafts"
         :work-queue-items="workQueueItems"
         :loading="recentLoading"
@@ -57,13 +64,20 @@
         v-model:group-by="libraryGroupBy"
         v-model:date-order="libraryDateOrder"
         v-model:connection-filter="libraryConnectionFilter"
+        v-model:tenant-filter="libraryTenantFilter"
+        v-model:collapsed="libraryCollapsed"
+        v-model:expanded="libraryExpanded"
         :type-label="draftNoteTypeLabel"
         @new="startNewNote"
         @select="onLibrarySidebarSelect"
         @delete="onLibrarySidebarDelete"
       />
 
-      <main class="na-main" :class="{ 'na-main--library': showLibraryPanel }">
+      <main
+        v-show="!libraryExpanded || libraryCollapsed"
+        class="na-main"
+        :class="{ 'na-main--library': showLibraryPanel }"
+      >
         <div class="na-privacy">
           <strong>Privacy notice:</strong>
           Drafts are auto-archived after 7 days and retained up to 7 years. Copy into your EHR when needed.
@@ -674,7 +688,7 @@
       </main>
 
       <NoteAidWorkQueuePanel
-        v-if="canUseTool"
+        v-if="canUseTool && !(libraryExpanded && !libraryCollapsed)"
         :items="workQueueItems"
         :active-id="activeWorkQueueItemId"
         @add-todo="showTodoImportModal = true"
@@ -832,7 +846,7 @@ import {
   findNoteAidByToolOrCode,
   orderNoteAidCategoriesForHcbs
 } from '../../config/noteAidWorkspace.js';
-import { rememberRecentAid } from '../../utils/noteAidLibraryPrefs.js';
+import { rememberRecentAid, loadNoteLibraryUiPrefs, saveNoteLibraryUiPrefs } from '../../utils/noteAidLibraryPrefs.js';
 import { isClinicalChartEnabled, parseAgencyFeatureFlags } from '../../config/medicalBillingAccess.js';
 import { useAgencyStore } from '../../store/agency';
 import { useAuthStore } from '../../store/auth';
@@ -1234,6 +1248,20 @@ const draftSearch = ref('');
 const libraryGroupBy = ref('status');
 const libraryDateOrder = ref('newest');
 const libraryConnectionFilter = ref('');
+const libraryTenantFilter = ref('');
+const libraryCollapsed = ref(true);
+const libraryExpanded = ref(false);
+
+watch([libraryCollapsed, libraryExpanded], ([collapsed, expanded]) => {
+  if (expanded && collapsed) {
+    libraryCollapsed.value = false;
+    return;
+  }
+  saveNoteLibraryUiPrefs(authStore.user?.id, {
+    collapsed: libraryCollapsed.value,
+    expanded: libraryExpanded.value
+  });
+});
 const openDateGroups = ref({});
 const collapseAllSections = ref(false);
 const collapsedPanels = reactive({});
@@ -3702,6 +3730,7 @@ function advanceWorkQueueAfterSign() {
 
 function onLibrarySidebarSelect(row) {
   if (!row) return;
+  libraryExpanded.value = false;
   if (row.source === 'work_queue' && row.raw) {
     activateWorkQueueItem(row.raw);
     sidebarTab.value = DOC_STATUS.STARTED;
@@ -4339,6 +4368,9 @@ const draftSections = (draftRow) => {
 
 onMounted(async () => {
   speechSupported.value = !!(window.SpeechRecognition || window.webkitSpeechRecognition);
+  const libraryUi = loadNoteLibraryUiPrefs(authStore.user?.id);
+  libraryCollapsed.value = libraryUi.collapsed;
+  libraryExpanded.value = libraryUi.expanded;
   const queryDos = toDateOfService(route.query?.dateOfService || route.query?.date_of_service);
   if (queryDos) dateOfService.value = queryDos;
   else if (!dateOfService.value) dateOfService.value = todayIsoDate();
@@ -4530,11 +4562,13 @@ onBeforeUnmount(() => {
   width: 100%;
   max-width: none;
   min-height: calc(100vh - 64px);
+  height: calc(100vh - 64px);
   margin: 0;
   background: linear-gradient(180deg, #eef7f5 0%, var(--na-canvas) 28%, #f8fafc 100%);
   color: var(--na-text);
   display: flex;
   flex-direction: column;
+  overflow: hidden;
 }
 
 .na-topbar {
@@ -4641,6 +4675,15 @@ onBeforeUnmount(() => {
   width: 100%;
   flex: 1;
   min-height: 0;
+  overflow: hidden;
+}
+
+.na-shell--library-collapsed {
+  grid-template-columns: 56px minmax(0, 1fr) minmax(240px, 300px);
+}
+
+.na-shell--library-expanded {
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .na-shell--empty {
@@ -4885,10 +4928,13 @@ onBeforeUnmount(() => {
 }
 
 .na-main {
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  -webkit-overflow-scrolling: touch;
   padding: 18px 28px 40px;
   width: 100%;
   max-width: none;
-  min-width: 0;
 }
 .na-main--library {
   display: flex;
@@ -5824,8 +5870,24 @@ a.na-chip--link {
   .na-tagline {
     text-align: left;
   }
-  .na-shell {
+  .na-shell,
+  .na-shell--library-collapsed {
     grid-template-columns: 1fr;
+    grid-template-rows: auto minmax(0, 1fr) auto;
+    overflow: auto;
+  }
+  .na-shell--library-expanded {
+    grid-template-columns: 1fr;
+    grid-template-rows: minmax(0, 1fr);
+  }
+  .na-shell--library-collapsed .cnl,
+  .na-shell--library-collapsed :deep(.cnl) {
+    max-height: none;
+    border-bottom: 1px solid var(--na-border);
+  }
+  .na-main {
+    min-height: 50vh;
+    padding: 14px 16px 32px;
   }
   .na-sidebar {
     border-right: none;

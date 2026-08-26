@@ -1,5 +1,6 @@
 const FAV_KEY = (userId) => `noteAid:favorites:${userId || 'anon'}`;
 const RECENT_KEY = (userId) => `noteAid:recent:${userId || 'anon'}`;
+const LIBRARY_UI_KEY = (userId) => `noteAid:libraryUi:v2:${userId || 'anon'}`;
 const MAX_RECENT = 8;
 
 function readJson(key, fallback) {
@@ -10,6 +11,33 @@ function readJson(key, fallback) {
   } catch {
     return fallback;
   }
+}
+
+function writeJson(key, value) {
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+  } catch {
+    /* ignore */
+  }
+}
+
+/** Library chrome prefs — default collapsed so the workspace has room first. */
+export function loadNoteLibraryUiPrefs(userId) {
+  const raw = readJson(LIBRARY_UI_KEY(userId), null);
+  return {
+    collapsed: raw?.collapsed !== false, // default true
+    expanded: !!raw?.expanded
+  };
+}
+
+export function saveNoteLibraryUiPrefs(userId, prefs = {}) {
+  const cur = loadNoteLibraryUiPrefs(userId);
+  const next = {
+    collapsed: prefs.collapsed != null ? !!prefs.collapsed : cur.collapsed,
+    expanded: prefs.expanded != null ? !!prefs.expanded : cur.expanded
+  };
+  writeJson(LIBRARY_UI_KEY(userId), next);
+  return next;
 }
 
 export function listFavoriteAidIds(userId) {

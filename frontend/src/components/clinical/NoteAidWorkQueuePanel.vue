@@ -143,10 +143,10 @@ function typeLabel(item) {
   border-left: 1px solid #e2e8f0;
   display: flex;
   flex-direction: column;
-  min-height: 100%;
-  height: calc(100vh - 64px);
-  position: sticky;
-  top: 0;
+  min-height: 0;
+  height: 100%;
+  max-height: 100%;
+  overflow: hidden;
   padding: 14px 12px;
   min-width: 0;
 }
