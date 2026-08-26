@@ -5297,6 +5297,13 @@ export const getUserScheduleSummary = async (req, res, next) => {
           companyEventId && Number.isFinite(companyEventId)
             ? ceEventRosterByEventId.get(companyEventId) || []
             : [];
+        const startRaw = r.starts_at;
+        const endRaw = r.ends_at;
+        const dateOnly = r.session_date ? String(r.session_date).slice(0, 10) : null;
+        // Use employee_report_time (TIME) on the session date as the calendar start when set,
+        // so the block begins at the staff report time rather than the public event start.
+        const reportTime = r.employee_report_time ? String(r.employee_report_time).slice(0, 8) : null;
+        const departureTime = r.employee_departure_time ? String(r.employee_departure_time).slice(0, 8) : null;
         const bookingExtras = {
           companyEventId,
           sessionDateId,
@@ -5312,13 +5319,6 @@ export const getUserScheduleSummary = async (req, res, next) => {
           employeeReportTime: reportTime || null,
           employeeDepartureTime: departureTime || null
         };
-        const startRaw = r.starts_at;
-        const endRaw = r.ends_at;
-        const dateOnly = r.session_date ? String(r.session_date).slice(0, 10) : null;
-        // Use employee_report_time (TIME) on the session date as the calendar start when set,
-        // so the block begins at the staff report time rather than the public event start.
-        const reportTime = r.employee_report_time ? String(r.employee_report_time).slice(0, 8) : null;
-        const departureTime = r.employee_departure_time ? String(r.employee_departure_time).slice(0, 8) : null;
         if (startRaw && endRaw) {
           let startAtOut = toIsoUtcForSchedule(startRaw) || toMysqlDateTimeWall(startRaw) || startRaw;
           let endAtOut = toIsoUtcForSchedule(endRaw) || toMysqlDateTimeWall(endRaw) || endRaw;

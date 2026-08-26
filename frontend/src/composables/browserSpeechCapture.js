@@ -6,9 +6,9 @@
 
 const FATAL_ERRORS = new Set(['not-allowed', 'service-not-allowed']);
 const RETRY_DELAY_MS = {
-  'audio-capture': 2000,
+  'audio-capture': 2800,
   network: 1500,
-  aborted: 400,
+  aborted: 600,
   'no-speech': 250
 };
 
@@ -97,10 +97,11 @@ export function createBrowserSpeechCapture({
         setCapturing(false);
         if (code === 'audio-capture') {
           audioCaptureAttempts += 1;
-          if (audioCaptureAttempts >= 8) {
-            setHint('This browser could not capture speech for the transcript. Chrome on a computer is more reliable.');
+          if (audioCaptureAttempts >= 12) {
+            setHint('Speech capture keeps failing on this device (often Vonage mic conflict). Reload once audio is stable, or use Chrome on a computer so your lines appear in the transcript.');
             return;
           }
+          setHint('Retrying speech capture for your mic…');
         }
         const delay = RETRY_DELAY_MS[code] ?? 800;
         scheduleRestart(delay);

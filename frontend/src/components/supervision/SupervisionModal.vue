@@ -90,14 +90,25 @@
                   <span class="summary-value" v-if="summary.directIndirect.avg90" :class="`pill-${summary.directIndirect.avg90.kind}`">90-day: {{ fmtPct(summary.directIndirect.avg90.ratio) }}</span>
                 </div>
                 <div class="summary-cell" v-if="summary.supervision?.enabled && summary.supervision?.isPrelicensed">
-                  <span class="summary-label">Supervision hours (prelicensed)</span>
-                  <span class="summary-value">{{ fmtNum(summary.supervision.totalHours) }} total</span>
-                  <span class="summary-meta">Individual {{ fmtNum(summary.supervision.individualHours) }}/{{ fmtNum(summary.supervision.requiredIndividualHours) }} · Group {{ fmtNum(summary.supervision.groupHours) }}/{{ fmtNum(summary.supervision.requiredGroupHours) }}</span>
+                  <span class="summary-label">Supervision hours (toward 100)</span>
+                  <span class="summary-value">{{ fmtNum(summary.supervision.totalHours) }} / {{ fmtNum((summary.supervision.requiredIndividualHours || 0) + (summary.supervision.requiredGroupHours || 0) || 100) }} total</span>
+                  <span class="summary-meta">
+                    Individual {{ fmtNum(summary.supervision.individualHours) }}/{{ fmtNum(summary.supervision.requiredIndividualHours) }}
+                    · Group {{ fmtNum(summary.supervision.groupHours) }}/{{ fmtNum(summary.supervision.requiredGroupHours) }}
+                  </span>
+                  <span
+                    v-if="supervisionSessionHours != null"
+                    class="summary-meta"
+                  >
+                    Recent attendance {{ fmtNum(supervisionSessionHours) }} hrs
+                    <template v-if="supervisionSessionCount != null"> · {{ supervisionSessionCount }} session(s)</template>
+                    — credited sessions add to Individual/Group above
+                  </span>
                 </div>
-                <div class="summary-cell" v-if="supervisionSessionHours != null">
-                  <span class="summary-label">Supervision session hours</span>
+                <div class="summary-cell" v-else-if="supervisionSessionHours != null">
+                  <span class="summary-label">Supervision attendance</span>
                   <span class="summary-value">{{ fmtNum(supervisionSessionHours) }} hrs</span>
-                  <span class="summary-meta" v-if="supervisionSessionCount != null">{{ supervisionSessionCount }} session(s)</span>
+                  <span class="summary-meta" v-if="supervisionSessionCount != null">{{ supervisionSessionCount }} session(s) attended</span>
                 </div>
                 <div class="summary-cell" v-if="compliance24Plus.length > 0">
                   <span class="summary-label">Clients with 24+ sessions</span>
@@ -557,6 +568,25 @@
                         <span v-if="s.sessionFinalizedAt"> · Finalized {{ formatSessionDate(s.sessionFinalizedAt) }}</span>
                         <span v-if="s.segmentCount"> · {{ s.segmentCount }} segment(s)</span>
                       </p>
+                      <p
+                        v-if="s.hoursAttended != null || s.hoursBefore != null || s.hoursAfter != null"
+                        class="summary-meta"
+                      >
+                        <template v-if="s.hoursBefore != null && s.hoursAfter != null && Number(s.hoursAfter) > Number(s.hoursBefore)">
+                          Hours toward 100: {{ fmtNum(s.hoursBefore) }} → +{{ fmtNum(s.hoursAttended) }} → {{ fmtNum(s.hoursAfter) }}
+                        </template>
+                        <template v-else-if="s.hoursBefore != null && s.hoursAfter != null && Number(s.hoursAttended || 0) > 0 && Number(s.hoursAfter) <= Number(s.hoursBefore)">
+                          Attended {{ fmtNum(s.hoursAttended) }} hrs but not credited toward Individual/Group
+                          (supervision start date missing or after this session).
+                        </template>
+                        <template v-else-if="Number(s.hoursAttended || 0) === 0 && Number(s.totalSeconds || 0) > 0">
+                          Attended {{ formatAttendanceDuration(s) }} but 0 hrs credited toward Individual/Group
+                          (check supervision start date on their profile).
+                        </template>
+                        <template v-else-if="s.hoursAttended != null">
+                          Credited {{ fmtNum(s.hoursAttended) }} hrs toward Individual/Group
+                        </template>
+                      </p>
                       <p v-if="s.notes" class="supervision-history-notes">{{ s.notes }}</p>
                       <div v-if="hasHistoryWorkspace(s)" class="supervision-history-workspace">
                         <div v-if="s.focusTitle" class="form-group">
@@ -885,15 +915,26 @@ const upcomingSessions = computed(() => {
     .slice(0, 10);
 });
 
-/** Format wall-clock DATETIME without UTC shift (sessions are stored without timezone). */
+/**
+ * Format session timestamps for display.
+ * Supervision start/end are stored as UTC MySQL DATETIME and often arrive as ISO with Z
+ * (or naive UTC). Parse as real instants so Mountain noon does not show as 6:00 PM.
+ */
 function formatSessionDate(iso) {
   if (!iso) return '—';
   try {
-    const raw = String(iso);
-    const m = /^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})(?::(\d{2}))?/.exec(raw);
-    const d = m
-      ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), Number(m[4]), Number(m[5]), Number(m[6] || 0))
-      : new Date(raw);
+    const raw = String(iso).trim();
+    let d;
+    if (/^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}(:\d{2})?(\.\d+)?Z$/i.test(raw)
+      || /[+-]\d{2}:?\d{2}$/.test(raw)
+      || raw.includes('T')) {
+      d = new Date(raw.includes('T') ? raw : raw.replace(' ', 'T'));
+    } else if (/^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}(:\d{2})?/.test(raw)) {
+      // Naive MySQL UTC datetime from API — treat as UTC.
+      d = new Date(raw.replace(' ', 'T') + (raw.endsWith('Z') ? '' : 'Z'));
+    } else {
+      d = new Date(raw);
+    }
     if (Number.isNaN(d.getTime())) return raw;
     return d.toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' });
   } catch {
@@ -1021,7 +1062,20 @@ async function loadSessionArtifact(sessionId, { force = false } = {}) {
 async function saveSessionArtifact(sessionId, { autoSummarize = false } = {}) {
   const sid = Number(sessionId || 0);
   if (!sid) return;
-  const draft = artifactDraftForSession(sid);
+  let draft = artifactDraftForSession(sid);
+  if (autoSummarize && !String(draft.transcriptText || '').trim()) {
+    // Draft may be empty if history was expanded before artifacts finished loading —
+    // reload once so Generate Summary can use the saved live transcript.
+    await loadSessionArtifact(sid, { force: true });
+    draft = artifactDraftForSession(sid);
+  }
+  if (autoSummarize && !String(draft.transcriptText || '').trim()) {
+    artifactErrorById.value = {
+      ...artifactErrorById.value,
+      [sid]: 'Add or capture a transcript first, then generate a summary.'
+    };
+    return;
+  }
   artifactSavingById.value = { ...artifactSavingById.value, [sid]: true };
   artifactErrorById.value = { ...artifactErrorById.value, [sid]: '' };
   try {
@@ -1042,6 +1096,12 @@ async function saveSessionArtifact(sessionId, { autoSummarize = false } = {}) {
         transcriptText: String(artifact.transcript_text || ''),
         summaryText: String(artifact.summary_text || '')
       });
+    }
+    if (autoSummarize && !String(artifact?.summary_text || '').trim()) {
+      artifactErrorById.value = {
+        ...artifactErrorById.value,
+        [sid]: 'Gemini did not return a summary. Try again or paste a longer transcript.'
+      };
     }
   } catch (err) {
     artifactErrorById.value = {

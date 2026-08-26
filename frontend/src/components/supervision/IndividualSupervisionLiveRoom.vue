@@ -253,7 +253,6 @@
         <SupervisionDiscussionSidebar
           v-if="discussionOpen"
           class="isl__sidebar"
-          roomy
           hide-agenda
           hide-transcript
           theme="dark"
@@ -294,6 +293,14 @@
         </div>
       </div>
       <p v-if="transcriptHint" class="isl__label">{{ transcriptHint }}</p>
+      <p
+        v-if="!transcriptCapturing && !transcriptPaused"
+        class="isl__label"
+      >
+        {{ isSupervisor
+          ? 'Listening on your mic. Supervisee speech only appears if their browser is also capturing.'
+          : 'Only your mic is transcribed on this device — if this stays empty while you talk, reload after joining.' }}
+      </p>
       <pre v-if="transcriptCombined" class="isl__transcript-pre">{{ transcriptCombined }}</pre>
       <p v-else class="isl__label">Transcript will appear here once speech is detected.</p>
     </aside>
@@ -381,6 +388,12 @@ const videoFullscreenActivityNotice = ref('');
 let fullscreenNoticeTimer = null;
 const discussionOpen = ref(true);
 const sessionDetailsOpen = ref(true);
+const sectionState = reactive({
+  video: 'expanded',
+  focus: 'default'
+});
+
+const focusTitle = ref('Individual Supervision');
 const viewOptionsOpen = ref(false);
 const attendanceOpen = ref(false);
 const transcriptOpen = ref(false);
@@ -390,12 +403,6 @@ const mutedParticipantNames = ref([]);
 const attendancePanelRef = ref(null);
 const sidebarNotes = ref('');
 
-const sectionState = reactive({
-  video: 'default',
-  focus: 'default'
-});
-
-const focusTitle = ref('Case Consultation & Clinical Support');
 const goals = ref([]);
 const actionItems = ref([]);
 const workspaceLoading = ref(false);
@@ -1055,12 +1062,12 @@ defineExpose({
   font-size: 0.8rem;
   font-weight: 650;
 }
-.isl__card--video { min-height: 0; }
+.isl__card--video { min-height: 0; flex: 1.35 1 auto; }
 .isl__card--video.isl__card--expanded .isl__video-body {
-  min-height: min(58vh, 560px);
+  min-height: min(52vh, 560px);
 }
 .isl__card--video:not(.isl__card--collapsed) .isl__video-body {
-  min-height: min(34vh, 320px);
+  min-height: min(46vh, 480px);
 }
 .isl__video-body {
   border-radius: 12px;
@@ -1075,11 +1082,12 @@ defineExpose({
 
 .isl__main-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(280px, 0.95fr);
+  grid-template-columns: minmax(0, 1.55fr) minmax(220px, 0.55fr);
   grid-template-areas: "focus sidebar";
   gap: 12px;
-  flex: 1;
+  flex: 0 1 auto;
   min-height: 0;
+  max-height: min(38vh, 360px);
   align-items: stretch;
 }
 .isl__main-grid--video-only {
@@ -1095,7 +1103,9 @@ defineExpose({
 .isl__card--focus { grid-area: focus; }
 .isl__sidebar {
   grid-area: sidebar;
-  min-height: 320px;
+  min-height: 220px;
+  max-height: 100%;
+  overflow: auto;
   align-self: stretch;
 }
 .isl__focus-split {

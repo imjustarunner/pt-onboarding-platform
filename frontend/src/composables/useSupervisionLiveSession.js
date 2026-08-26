@@ -265,9 +265,15 @@ export function useSupervisionLiveSession(props, emit, { enablePresentation = fa
     });
     const started = speechCapture.start();
     if (started && !transcriptFlushTimer) {
+      // Flush often so the other party sees this speaker's lines in the shared transcript.
       transcriptFlushTimer = setInterval(() => {
         void flushLiveTranscript({ final: false });
-      }, 20000);
+      }, 8000);
+    }
+    if (!started) {
+      transcriptHint.value = props.isSupervisor
+        ? 'Live transcript could not start on this browser. Chrome desktop works best.'
+        : 'Your speech is not being transcribed yet — allow mic access and stay on Chrome. Only your mic can be labeled as you.';
     }
   }
 
@@ -306,13 +312,14 @@ export function useSupervisionLiveSession(props, emit, { enablePresentation = fa
     }
     // The lobby already has a live Vonage publisher. Starting Web Speech there opens a
     // second microphone pipeline and can lock up Chrome/iPad during admission handoff.
-    // Wait for the main-room publisher to settle so Speech Recognition can share the mic.
+    // Wait longer for supervisees — their mic often loses the speech-recognition race.
     if (!props.isInLobby) {
       if (transcriptStartTimer) clearTimeout(transcriptStartTimer);
+      const settleMs = props.isSupervisor ? 1400 : 3200;
       transcriptStartTimer = setTimeout(() => {
         transcriptStartTimer = null;
         startLiveTranscriptCapture();
-      }, 1200);
+      }, settleMs);
     }
     emit('connected');
   }

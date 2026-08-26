@@ -3860,6 +3860,12 @@ export const upsertSupervisionSessionArtifacts = async (req, res, next) => {
     let summaryModel = undefined;
     let summaryGeneratedAt = undefined;
 
+    if (autoSummarize && !transcriptTextForPrompt) {
+      return res.status(400).json({
+        error: { message: 'Transcript text is required to generate a summary with Gemini.' }
+      });
+    }
+
     if (autoSummarize && transcriptTextForPrompt) {
       const prompt = buildSupervisionSummaryPrompt(transcriptTextForPrompt);
       const summaryResp = await callGeminiText({
@@ -3868,6 +3874,11 @@ export const upsertSupervisionSessionArtifacts = async (req, res, next) => {
         maxOutputTokens: 1200
       });
       summaryText = String(summaryResp?.text || '').trim();
+      if (!summaryText) {
+        return res.status(502).json({
+          error: { message: 'Gemini returned an empty summary. Try again with more transcript text.' }
+        });
+      }
       summaryModel = String(summaryResp?.modelName || '').trim() || null;
       summaryGeneratedAt = mysqlNowDateTime();
     }
