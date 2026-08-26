@@ -6,10 +6,27 @@
         <p class="muted">Create in-app banners and splashes, track engagement, and review the birthday / anniversary queue.</p>
       </div>
       <div class="ann-hub__actions">
-        <button type="button" class="btn btn-secondary" @click="startCompose('splash')">Create Splash</button>
-        <button type="button" class="btn btn-primary" @click="startCompose('announcement')">+ New Announcement</button>
+        <button type="button" class="btn btn-primary" @click="typeChooserOpen = true">+ New Announcement</button>
       </div>
     </header>
+
+    <div v-if="typeChooserOpen" class="ann-modal-overlay" @click.self="typeChooserOpen = false">
+      <div class="ann-modal" role="dialog" aria-modal="true" aria-labelledby="ann-type-chooser-title">
+        <h2 id="ann-type-chooser-title">What do you want to create?</h2>
+        <p class="muted">Choose a delivery format, then fill in the details.</p>
+        <div class="ann-modal__choices">
+          <button type="button" class="ann-modal__choice" @click="chooseComposeType('announcement')">
+            <strong>Announcement</strong>
+            <span>Scrolling in-app banner</span>
+          </button>
+          <button type="button" class="ann-modal__choice" @click="chooseComposeType('splash')">
+            <strong>Splash</strong>
+            <span>Full-screen modal on login / dashboard</span>
+          </button>
+        </div>
+        <button type="button" class="btn btn-secondary" @click="typeChooserOpen = false">Cancel</button>
+      </div>
+    </div>
 
     <div v-if="!agencyId" class="error">Select an agency to manage announcements.</div>
     <div v-else-if="loading && !items.length" class="loading">Loading announcements…</div>
@@ -35,9 +52,14 @@
             <label>
               <span>Audience</span>
               <select v-model="form.audience" class="filter-select">
-                <option value="everyone">All Staff</option>
-                <option value="providers">Providers</option>
-                <option value="admin_staff">Admin / Staff</option>
+                <option v-for="opt in audienceOptions" :key="`q-aud-${opt.value}`" :value="opt.value">{{ opt.label }}</option>
+              </select>
+            </label>
+            <label v-if="needsUserPicker">
+              <span>User</span>
+              <select v-model="form.recipientUserId" class="filter-select">
+                <option value="">Select user</option>
+                <option v-for="u in recipientUserOptions" :key="`q-user-${u.id}`" :value="String(u.id)">{{ u.label }}</option>
               </select>
             </label>
             <label>
@@ -52,8 +74,11 @@
           <div class="ann-quick__row">
             <input v-model="form.title" class="filter-input" maxlength="80" placeholder="Title" />
             <input v-model="form.message" class="filter-input" maxlength="300" placeholder="Message…" />
+            <button type="button" class="btn btn-secondary" :disabled="saving" @click="submitForm('draft')">
+              {{ saving ? 'Saving…' : 'Save Draft' }}
+            </button>
             <button type="button" class="btn btn-primary" :disabled="saving" @click="submitForm('published')">
-              {{ saving ? 'Posting…' : 'Post' }}
+              {{ saving ? 'Submitting…' : 'Submit' }}
             </button>
           </div>
         </div>
@@ -138,9 +163,7 @@
             </select>
             <select v-model="audienceFilter" class="filter-select">
               <option value="">Audience</option>
-              <option value="everyone">All Staff</option>
-              <option value="providers">Providers</option>
-              <option value="admin_staff">Admin / Staff</option>
+              <option v-for="opt in audienceOptions" :key="`f-aud-${opt.value}`" :value="opt.value">{{ opt.label }}</option>
             </select>
             <select v-model="typeFilter" class="filter-select">
               <option value="">Type</option>
@@ -198,7 +221,7 @@
               <div><span>Impressions</span><strong>{{ engagement.impressions || 0 }}</strong><em>{{ trend(engagement.trends?.impressions) }}</em></div>
               <div><span>Opens</span><strong>{{ engagement.opens || 0 }}</strong><em>{{ trend(engagement.trends?.opens) }}</em></div>
               <div><span>Dismissals</span><strong>{{ engagement.dismissals || 0 }}</strong><em>{{ trend(engagement.trends?.dismissals) }}</em></div>
-              <div><span>Acknowledgement rate</span><strong>{{ engagement.viewedRate || 0 }}%</strong><em>{{ trend(engagement.trends?.acknowledgements) }}</em></div>
+              <div><span>Viewed rate</span><strong>{{ engagement.viewedRate || 0 }}%</strong><em>{{ trend(engagement.trends?.opens) }}</em></div>
             </div>
             <svg v-if="chartPoints.length" class="ann-chart" viewBox="0 0 640 160" role="img" aria-label="Engagement over time">
               <polyline fill="none" stroke="#94a3b8" stroke-width="2" :points="linePoints('impressions')" />
@@ -230,9 +253,14 @@
             <label>
               <span>Audience</span>
               <select v-model="form.audience" class="filter-select">
-                <option value="everyone">All Staff</option>
-                <option value="providers">Providers</option>
-                <option value="admin_staff">Admin / Staff</option>
+                <option v-for="opt in audienceOptions" :key="`s-aud-${opt.value}`" :value="opt.value">{{ opt.label }}</option>
+              </select>
+            </label>
+            <label v-if="needsUserPicker">
+              <span>User</span>
+              <select v-model="form.recipientUserId" class="filter-select">
+                <option value="">Select user</option>
+                <option v-for="u in recipientUserOptions" :key="`s-user-${u.id}`" :value="String(u.id)">{{ u.label }}</option>
               </select>
             </label>
             <label>
@@ -261,8 +289,8 @@
             <p v-if="formError" class="error">{{ formError }}</p>
             <div class="ann-side__actions">
               <button type="button" class="btn btn-secondary" :disabled="saving" @click="submitForm('draft')">Save Draft</button>
-              <button type="button" class="btn btn-secondary" :disabled="saving" @click="submitForm('published')">Schedule</button>
-              <button type="button" class="btn btn-primary" :disabled="saving" @click="sendNow">Send Now</button>
+              <button type="button" class="btn btn-primary" :disabled="saving" @click="submitForm('published')">Submit</button>
+              <button type="button" class="btn btn-secondary" :disabled="saving" @click="sendNow">Send Now</button>
             </div>
             <button
               v-if="form.id"
@@ -289,13 +317,30 @@
           <div v-else class="ann-side__body">
             <h3>Analytics</h3>
             <p v-if="!selectedRow">Save this item to start collecting engagement.</p>
-            <ul v-else class="ann-analytics">
-              <li>Impressions: {{ selectedRow.engagement?.impressions || 0 }}</li>
-              <li>Opens: {{ selectedRow.engagement?.opens || 0 }}</li>
-              <li>Dismissals: {{ selectedRow.engagement?.dismissals || 0 }}</li>
-              <li>Acknowledged: {{ selectedRow.engagement?.acknowledgements || 0 }}</li>
-              <li>Viewed rate: {{ selectedRow.engagement?.viewedRate || 0 }}%</li>
-            </ul>
+            <template v-else>
+              <ul class="ann-analytics">
+                <li>Impressions: {{ selectedRow.engagement?.impressions || 0 }}</li>
+                <li>Opens: {{ selectedRow.engagement?.opens || 0 }}</li>
+                <li>Dismissals: {{ selectedRow.engagement?.dismissals || 0 }}</li>
+                <li>Acknowledged: {{ selectedRow.engagement?.acknowledgements || 0 }}</li>
+                <li>Viewed rate: {{ selectedRow.engagement?.viewedRate || 0 }}%</li>
+              </ul>
+              <h4 class="ann-viewers-title">Users Who Viewed</h4>
+              <p v-if="viewersLoading" class="muted">Loading viewers…</p>
+              <p v-else-if="!viewers.length" class="muted">No users have viewed this yet.</p>
+              <ul v-else class="ann-viewers">
+                <li v-for="v in viewers" :key="`viewer-${v.userId}`">
+                  <div>
+                    <strong>{{ v.fullName }}</strong>
+                    <span class="muted">{{ formatViewerTime(v.viewedAt) }}</span>
+                  </div>
+                  <div class="ann-viewer-flags">
+                    <em v-if="v.acknowledgedAt">Acknowledged</em>
+                    <em v-else-if="v.dismissedAt">Dismissed</em>
+                  </div>
+                </li>
+              </ul>
+            </template>
           </div>
         </aside>
       </div>
@@ -308,12 +353,18 @@ import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import api from '../../services/api';
 import { useAgencyStore } from '../../store/agency';
+import {
+  ANNOUNCEMENT_AUDIENCE_OPTIONS,
+  announcementAudienceLabel,
+  needsAnnouncementUserPicker
+} from '../../constants/announcementAudiences.js';
 
 const route = useRoute();
 const agencyStore = useAgencyStore();
 
 const agencyId = computed(() => Number(agencyStore.currentAgency?.id || 0) || null);
 const orgSlug = computed(() => String(route.params?.organizationSlug || '').trim());
+const audienceOptions = ANNOUNCEMENT_AUDIENCE_OPTIONS;
 
 const loading = ref(false);
 const saving = ref(false);
@@ -334,6 +385,10 @@ const selectedId = ref(null);
 const editorOpen = ref(false);
 const sideTab = ref('details');
 const quickOpen = ref(false);
+const typeChooserOpen = ref(false);
+const agencyUsers = ref([]);
+const viewers = ref([]);
+const viewersLoading = ref(false);
 
 const emptyForm = () => {
   const now = new Date();
@@ -344,12 +399,37 @@ const emptyForm = () => {
     message: '',
     displayType: 'announcement',
     audience: 'everyone',
+    recipientUserId: '',
     priority: 'medium',
     startsAt: toLocalInput(now),
     endsAt: toLocalInput(end)
   };
 };
 const form = ref(emptyForm());
+const needsUserPicker = computed(() => needsAnnouncementUserPicker(form.value.audience));
+
+const recipientUserOptions = computed(() => {
+  const aid = Number(agencyId.value || 0);
+  return (agencyUsers.value || [])
+    .filter((u) => {
+      if (!aid) return true;
+      const ids = Array.isArray(u.agencyIds)
+        ? u.agencyIds.map((v) => Number(v)).filter((n) => n > 0)
+        : String(u.agency_ids || '')
+          .split(',')
+          .map((v) => parseInt(String(v).trim(), 10))
+          .filter((n) => Number.isFinite(n) && n > 0);
+      return !ids.length || ids.includes(aid);
+    })
+    .map((u) => {
+      const id = Number(u.id || 0);
+      const name = `${String(u.first_name || '').trim()} ${String(u.last_name || '').trim()}`.trim();
+      const email = String(u.email || '').trim();
+      return { id, label: name ? `${name}${email ? ` (${email})` : ''}` : (email || `User ${id}`) };
+    })
+    .filter((u) => u.id > 0)
+    .sort((a, b) => a.label.localeCompare(b.label));
+});
 
 function toLocalInput(d) {
   const dt = d instanceof Date ? d : new Date(d);
@@ -364,12 +444,8 @@ function userLink(userId) {
 }
 
 function audienceLabel(row) {
-  const aud = String(row?.audience || 'everyone');
-  if (aud === 'providers') return 'Providers';
-  if (aud === 'admin_staff') return 'Admin / Staff';
-  if (aud === 'everyone') return 'All Staff';
   const n = Array.isArray(row?.recipient_user_ids) ? row.recipient_user_ids.length : 0;
-  return n ? `${n} recipients` : aud;
+  return announcementAudienceLabel(row?.audience || 'everyone', n);
 }
 
 function statusLabel(s) {
@@ -393,6 +469,18 @@ function formatQueueDate(ymd) {
   const d = new Date(`${String(ymd).slice(0, 10)}T12:00:00`);
   if (!Number.isFinite(d.getTime())) return String(ymd);
   return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+}
+
+function formatViewerTime(raw) {
+  const d = new Date(raw || 0);
+  if (!Number.isFinite(d.getTime())) return '';
+  return d.toLocaleString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit'
+  });
 }
 
 function trend(n) {
@@ -443,6 +531,36 @@ function linePoints(key) {
   }).join(' ');
 }
 
+async function loadAgencyUsers() {
+  if (!agencyId.value) {
+    agencyUsers.value = [];
+    return;
+  }
+  try {
+    const res = await api.get('/users', { skipGlobalLoading: true });
+    agencyUsers.value = Array.isArray(res.data) ? res.data : (res.data?.users || []);
+  } catch {
+    agencyUsers.value = [];
+  }
+}
+
+async function loadViewers(announcementId) {
+  const id = Number(announcementId || 0);
+  if (!agencyId.value || !id) {
+    viewers.value = [];
+    return;
+  }
+  viewersLoading.value = true;
+  try {
+    const res = await api.get(`/agencies/${agencyId.value}/announcements/${id}/viewers`, { skipGlobalLoading: true });
+    viewers.value = Array.isArray(res.data?.viewers) ? res.data.viewers : [];
+  } catch {
+    viewers.value = [];
+  } finally {
+    viewersLoading.value = false;
+  }
+}
+
 async function loadAll() {
   if (!agencyId.value) return;
   loading.value = true;
@@ -463,45 +581,59 @@ async function loadAll() {
   }
 }
 
+function chooseComposeType(type) {
+  typeChooserOpen.value = false;
+  startCompose(type);
+}
+
 function startCompose(type) {
   form.value = { ...emptyForm(), displayType: type === 'splash' ? 'splash' : 'announcement' };
   selectedId.value = null;
   editorOpen.value = true;
   sideTab.value = 'details';
   formError.value = '';
+  viewers.value = [];
+  loadAgencyUsers();
 }
 
 function selectRow(row) {
   selectedId.value = row.id;
   editorOpen.value = true;
   sideTab.value = 'details';
+  const recipients = Array.isArray(row.recipient_user_ids) ? row.recipient_user_ids : [];
   form.value = {
     id: row.id,
     title: row.title || '',
     message: row.message || '',
     displayType: row.display_type === 'splash' ? 'splash' : 'announcement',
     audience: row.audience || 'everyone',
+    recipientUserId: recipients[0] ? String(recipients[0]) : '',
     priority: row.priority || 'medium',
     startsAt: toLocalInput(row.starts_at),
     endsAt: toLocalInput(row.ends_at)
   };
+  loadAgencyUsers();
 }
 
 function closeEditor() {
   editorOpen.value = false;
   selectedId.value = null;
   form.value = emptyForm();
+  viewers.value = [];
 }
 
 function payloadFor(status) {
+  const audience = form.value.audience || 'everyone';
+  const uid = parseInt(String(form.value.recipientUserId || ''), 10);
+  const recipientUserIds = audience === 'specific_users' && Number.isFinite(uid) && uid > 0 ? [uid] : [];
   return {
     title: String(form.value.title || '').trim() || null,
     message: String(form.value.message || '').trim(),
     display_type: form.value.displayType,
-    audience: form.value.audience,
+    audience,
     priority: form.value.priority,
     publish_status: status,
-    recipient_user_ids: [],
+    recipient_user_ids: recipientUserIds,
     starts_at: new Date(form.value.startsAt),
     ends_at: new Date(form.value.endsAt)
   };
@@ -510,6 +642,17 @@ function payloadFor(status) {
 async function submitForm(status) {
   if (!agencyId.value) return;
   formError.value = '';
+  if (status !== 'draft' && !String(form.value.message || '').trim()) {
+    formError.value = 'Message is required to submit';
+    return;
+  }
+  if (form.value.audience === 'specific_users' && status !== 'draft') {
+    const uid = parseInt(String(form.value.recipientUserId || ''), 10);
+    if (!Number.isFinite(uid) || uid <= 0) {
+      formError.value = 'Select a user for Specific User audience';
+      return;
+    }
+  }
   saving.value = true;
   try {
     const body = payloadFor(status);
@@ -556,8 +699,14 @@ async function deleteCurrent() {
 }
 
 watch([search, statusFilter, audienceFilter, typeFilter], () => { page.value = 1; });
-watch(agencyId, () => { loadAll(); });
-onMounted(loadAll);
+watch(agencyId, () => { loadAll(); loadAgencyUsers(); });
+watch([sideTab, selectedId], ([tab, id]) => {
+  if (tab === 'analytics' && id) loadViewers(id);
+});
+onMounted(() => {
+  loadAll();
+  loadAgencyUsers();
+});
 </script>
 
 <style scoped>
@@ -630,8 +779,31 @@ onMounted(loadAll);
 .ann-phone__modal { background: #fff; border-radius: 16px; padding: 18px; text-align: center; }
 .ann-phone__icon { font-size: 28px; margin-bottom: 8px; }
 .ann-analytics { margin: 0; padding-left: 16px; }
+.ann-viewers-title { margin: 12px 0 6px; font-size: 14px; }
+.ann-viewers { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; max-height: 280px; overflow: auto; }
+.ann-viewers li { display: flex; justify-content: space-between; gap: 8px; font-size: 13px; padding: 8px; border: 1px solid var(--border, #edf0f4); border-radius: 8px; }
+.ann-viewers li > div:first-child { display: flex; flex-direction: column; gap: 2px; }
+.ann-viewer-flags em { font-style: normal; font-size: 11px; background: #ecfeff; color: #0f766e; border-radius: 999px; padding: 1px 7px; }
+.ann-modal-overlay {
+  position: fixed; inset: 0; background: rgba(15, 23, 42, 0.45);
+  display: flex; align-items: center; justify-content: center; z-index: 80; padding: 16px;
+}
+.ann-modal {
+  width: min(440px, 100%); background: #fff; border-radius: 14px; padding: 20px;
+  box-shadow: 0 18px 48px rgba(15, 23, 42, 0.2); display: flex; flex-direction: column; gap: 12px;
+}
+.ann-modal h2 { margin: 0; font-size: 1.2rem; }
+.ann-modal__choices { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.ann-modal__choice {
+  border: 1px solid #d7dde5; border-radius: 12px; background: #f8fafc; padding: 14px;
+  text-align: left; cursor: pointer; display: flex; flex-direction: column; gap: 4px;
+}
+.ann-modal__choice:hover { border-color: #0d9488; background: #f0fdfa; }
+.ann-modal__choice strong { font-size: 15px; }
+.ann-modal__choice span { font-size: 12px; color: #64748b; }
 @media (max-width: 1100px) {
   .ann-layout, .ann-stats, .ann-queue__grid, .ann-form-grid, .ann-eng-stats { grid-template-columns: 1fr; }
   .ann-hub__header { flex-direction: column; }
+  .ann-modal__choices { grid-template-columns: 1fr; }
 }
 </style>

@@ -14,7 +14,7 @@
             class="acct-btn acct-btn--ghost"
             @click="$emit('edit')"
           >
-            Edit
+            {{ editLabel }}
           </button>
           <template v-else>
             <button
@@ -51,7 +51,8 @@ defineProps({
   canEdit: { type: Boolean, default: false },
   editing: { type: Boolean, default: false },
   saving: { type: Boolean, default: false },
-  saveLabel: { type: String, default: 'Save' }
+  saveLabel: { type: String, default: 'Save' },
+  editLabel: { type: String, default: 'Edit' }
 });
 
 defineEmits(['edit', 'save', 'cancel']);

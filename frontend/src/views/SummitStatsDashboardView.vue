@@ -833,7 +833,8 @@
         </div>
         <div class="sstc-blocking-splash-actions">
           <button type="button" class="btn btn-secondary" @click="remindLaterClubSplash">Remind me later</button>
-          <button type="button" class="btn btn-primary" @click="dismissClubSplash">Dismiss</button>
+          <button type="button" class="btn btn-secondary" @click="dismissClubSplash">Dismiss</button>
+          <button type="button" class="btn btn-primary" @click="acknowledgeClubSplash">Got it</button>
         </div>
       </div>
     </div>
@@ -1037,6 +1038,7 @@ const {
   clubSplashBrandLabel,
   formatClubSplashEndsAt,
   dismissClubSplash,
+  acknowledgeClubSplash,
   remindLaterClubSplash
 } = useAffiliationClubAnnouncements(announcementClubId, splashBrandLabelForAnnouncements);
 

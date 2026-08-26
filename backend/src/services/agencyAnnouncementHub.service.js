@@ -23,6 +23,14 @@ export function deriveLifecycleStatus({ publishStatus, startsAt, endsAt, now = n
   return 'active';
 }
 
+/** Viewed rate = opens / impressions (unique users who opened ÷ unique users presented). */
+export function computeViewedRate(impressions, opens) {
+  const denom = Number(impressions || 0);
+  const num = Number(opens || 0);
+  if (denom <= 0) return 0;
+  return Math.min(100, Math.round((num / denom) * 100));
+}
+
 export async function recordAnnouncementEvent({
   agencyId,
   announcementId,
@@ -77,10 +85,7 @@ export async function getAnnouncementEngagementOverview(agencyId, { days = 30 } 
   const opens = Number(row.opens || 0);
   const dismissals = Number(row.dismissals || 0);
   const acknowledgements = Number(row.acknowledgements || 0);
-  const viewedDenom = impressions || opens;
-  const viewedRate = viewedDenom > 0
-    ? Math.round((Math.max(opens, acknowledgements) / viewedDenom) * 100)
-    : 0;
+  const viewedRate = computeViewedRate(impressions, opens);
 
   const [prev] = await pool.execute(
     `SELECT
@@ -198,4 +203,43 @@ export async function listScheduledAnnouncementsWithEngagement(agencyId) {
     [aid]
   );
   return rows || [];
+}
+
+/**
+ * Users who opened/viewed a specific announcement (event_type = open).
+ * Includes optional dismiss/acknowledge timestamps from the same events table.
+ */
+export async function listAnnouncementViewers(agencyId, announcementId) {
+  const aid = Number(agencyId);
+  const annId = Number(announcementId);
+  if (!aid || !annId) return [];
+  const [rows] = await pool.execute(
+    `SELECT
+       u.id AS user_id,
+       TRIM(CONCAT(COALESCE(u.first_name, ''), ' ', COALESCE(u.last_name, ''))) AS full_name,
+       u.email,
+       o.created_at AS viewed_at,
+       (SELECT e.created_at FROM agency_scheduled_announcement_events e
+         WHERE e.announcement_id = o.announcement_id AND e.user_id = o.user_id AND e.event_type = 'dismiss'
+         LIMIT 1) AS dismissed_at,
+       (SELECT e.created_at FROM agency_scheduled_announcement_events e
+         WHERE e.announcement_id = o.announcement_id AND e.user_id = o.user_id AND e.event_type = 'acknowledge'
+         LIMIT 1) AS acknowledged_at
+     FROM agency_scheduled_announcement_events o
+     INNER JOIN users u ON u.id = o.user_id
+     WHERE o.agency_id = ?
+       AND o.announcement_id = ?
+       AND o.event_type = 'open'
+     ORDER BY o.created_at DESC, u.last_name ASC, u.first_name ASC
+     LIMIT 500`,
+    [aid, annId]
+  );
+  return (rows || []).map((r) => ({
+    userId: Number(r.user_id),
+    fullName: String(r.full_name || '').trim() || r.email || `User ${r.user_id}`,
+    email: r.email || null,
+    viewedAt: r.viewed_at,
+    dismissedAt: r.dismissed_at || null,
+    acknowledgedAt: r.acknowledged_at || null
+  }));
 }

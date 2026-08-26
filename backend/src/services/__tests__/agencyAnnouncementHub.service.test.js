@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  computeViewedRate,
   deriveLifecycleStatus,
   parsePriority,
   parsePublishStatus
@@ -11,6 +12,13 @@ test('parsePublishStatus and parsePriority', () => {
   assert.equal(parsePublishStatus(''), 'published');
   assert.equal(parsePriority('HIGH'), 'high');
   assert.equal(parsePriority(''), 'medium');
+});
+
+test('computeViewedRate uses opens over impressions', () => {
+  assert.equal(computeViewedRate(0, 0), 0);
+  assert.equal(computeViewedRate(16, 16), 100);
+  assert.equal(computeViewedRate(16, 8), 50);
+  assert.equal(computeViewedRate(10, 0), 0);
 });
 
 test('deriveLifecycleStatus from window', () => {

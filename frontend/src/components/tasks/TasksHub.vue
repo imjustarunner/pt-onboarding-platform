@@ -2350,7 +2350,12 @@ watch(agencyId, () => {
 
 onMounted(async () => {
   const qTab = String(route.query.tab || route.query.view || '').toLowerCase();
-  if (['assigned', 'mine', 'shared', 'watchlist', 'action_items', 'projects'].includes(qTab)) {
+  const qUserId = String(route.query.userId || '').trim();
+  if (qUserId && canViewAll.value) {
+    teamFilters.userId = qUserId;
+    activeTab.value = 'all';
+    teamMode.value = String(route.query.teamMode || 'tasks');
+  } else if (['assigned', 'mine', 'shared', 'watchlist', 'action_items', 'projects'].includes(qTab)) {
     activeTab.value = qTab;
   } else if (qTab === 'all' && canViewAll.value) {
     // sticky Team Tasks only when explicitly requested with teamMode, else default personal

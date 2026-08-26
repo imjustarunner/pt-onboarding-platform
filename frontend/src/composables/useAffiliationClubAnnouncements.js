@@ -91,6 +91,44 @@ export function useAffiliationClubAnnouncements(announcementClubIdRef, splashBra
   const dismissClubSplash = () => {
     const item = currentClubSplash.value;
     if (!item) return;
+    recordClubAnnouncementEvent(item.id, 'dismiss');
+    persistClubSplashDismiss(item);
+  };
+
+  const acknowledgeClubSplash = () => {
+    const item = currentClubSplash.value;
+    if (!item) return;
+    recordClubAnnouncementEvent(item.id, 'acknowledge');
+    persistClubSplashDismiss(item);
+  };
+
+  const remindLaterClubSplash = () => {
+    const item = currentClubSplash.value;
+    if (!item) return;
+    recordClubAnnouncementEvent(item.id, 'dismiss');
+    const key = splashDismissKey(item);
+    if (!key) return;
+    const until = Date.now() + 24 * 60 * 60 * 1000;
+    try {
+      localStorage.setItem(key, String(until));
+    } catch {
+      /* ignore */
+    }
+    splashDismissVersion.value += 1;
+  };
+
+  const recordClubAnnouncementEvent = (announcementId, eventType) => {
+    const aid = Number(unref(announcementClubIdRef) || 0);
+    const id = Number(announcementId || 0);
+    if (!aid || !id) return;
+    api.post(
+      `/agencies/${aid}/announcements/${id}/events`,
+      { eventType },
+      { skipGlobalLoading: true }
+    ).catch(() => {});
+  };
+
+  const persistClubSplashDismiss = (item) => {
     const key = splashDismissKey(item);
     if (!key) return;
     const endTs = new Date(item?.ends_at || 0).getTime();
@@ -98,20 +136,6 @@ export function useAffiliationClubAnnouncements(announcementClubIdRef, splashBra
     const persistUntil = Number.isFinite(endTs) ? endTs : fallbackTs;
     try {
       localStorage.setItem(key, String(persistUntil));
-    } catch {
-      /* ignore */
-    }
-    splashDismissVersion.value += 1;
-  };
-
-  const remindLaterClubSplash = () => {
-    const item = currentClubSplash.value;
-    if (!item) return;
-    const key = splashDismissKey(item);
-    if (!key) return;
-    const until = Date.now() + 24 * 60 * 60 * 1000;
-    try {
-      localStorage.setItem(key, String(until));
     } catch {
       /* ignore */
     }
@@ -136,7 +160,16 @@ export function useAffiliationClubAnnouncements(announcementClubIdRef, splashBra
         clubDashboardBanner.value = null;
       }
       if (scheduledResp.status === 'fulfilled') {
-        clubScheduledBannerItems.value = Array.isArray(scheduledResp.value?.data) ? scheduledResp.value.data : [];
+        const rows = Array.isArray(scheduledResp.value?.data) ? scheduledResp.value.data : [];
+        clubScheduledBannerItems.value = rows;
+        for (const row of rows) {
+          const id = Number(row?.id || 0);
+          if (!id) continue;
+          recordClubAnnouncementEvent(id, 'impression');
+          if (String(row?.display_type || '').toLowerCase() !== 'splash') {
+            recordClubAnnouncementEvent(id, 'open');
+          }
+        }
       } else {
         clubScheduledBannerItems.value = [];
       }
@@ -150,6 +183,14 @@ export function useAffiliationClubAnnouncements(announcementClubIdRef, splashBra
     loadClubAnnouncements();
   }, { immediate: true });
 
+  watch(
+    () => Number(currentClubSplash.value?.id || 0),
+    (id, prevId) => {
+      if (!id || id === prevId) return;
+      recordClubAnnouncementEvent(id, 'open');
+    }
+  );
+
   return {
     clubDashboardBanner,
     clubScheduledBannerItems,
@@ -160,6 +201,7 @@ export function useAffiliationClubAnnouncements(announcementClubIdRef, splashBra
     formatClubSplashEndsAt,
     loadClubAnnouncements,
     dismissClubSplash,
+    acknowledgeClubSplash,
     remindLaterClubSplash
   };
 }

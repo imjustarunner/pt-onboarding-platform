@@ -1100,8 +1100,11 @@
           Visible until {{ formatSplashEndsAt(currentSplashAnnouncement.ends_at) }}
         </div>
         <div class="blocking-splash-actions">
-          <button type="button" class="btn btn-primary" @click="dismissCurrentSplash">
+          <button type="button" class="btn btn-secondary" @click="dismissCurrentSplash">
             Dismiss
+          </button>
+          <button type="button" class="btn btn-primary" @click="acknowledgeCurrentSplash">
+            Got it
           </button>
         </div>
       </div>
@@ -1961,15 +1964,44 @@ const recordAnnouncementEvent = (announcementId, eventType) => {
   ).catch(() => {});
 };
 
+/** Impression = presented to eligible user. Banner announcements also count as viewed (open). */
 const recordAnnouncementImpressions = (rows) => {
   for (const row of rows || []) {
     const id = Number(row?.id || 0);
     if (!id) continue;
     recordAnnouncementEvent(id, 'impression');
-    if (String(row?.display_type || '').toLowerCase() === 'splash') {
+    if (String(row?.display_type || '').toLowerCase() !== 'splash') {
       recordAnnouncementEvent(id, 'open');
     }
   }
+};
+
+const persistSplashLocalDismiss = (item) => {
+  const key = splashDismissKey(item);
+  if (!key) return;
+  const endTs = new Date(item?.ends_at || 0).getTime();
+  const fallbackTs = Date.now() + (24 * 60 * 60 * 1000);
+  const persistUntil = Number.isFinite(endTs) ? endTs : fallbackTs;
+  try {
+    localStorage.setItem(key, String(persistUntil));
+  } catch {
+    // ignore persistence errors; user can still continue in-memory
+  }
+  splashDismissVersion.value += 1;
+};
+
+const dismissCurrentSplash = () => {
+  const item = currentSplashAnnouncement.value;
+  if (!item) return;
+  recordAnnouncementEvent(item.id, 'dismiss');
+  persistSplashLocalDismiss(item);
+};
+
+const acknowledgeCurrentSplash = () => {
+  const item = currentSplashAnnouncement.value;
+  if (!item) return;
+  recordAnnouncementEvent(item.id, 'acknowledge');
+  persistSplashLocalDismiss(item);
 };
 
 const splashAnnouncements = computed(() => {
@@ -2026,23 +2058,14 @@ const formatSplashEndsAt = (dateLike) => {
   return dt.toLocaleString();
 };
 
-const dismissCurrentSplash = () => {
-  const item = currentSplashAnnouncement.value;
-  if (!item) return;
-  recordAnnouncementEvent(item.id, 'acknowledge');
-  recordAnnouncementEvent(item.id, 'dismiss');
-  const key = splashDismissKey(item);
-  if (!key) return;
-  const endTs = new Date(item?.ends_at || 0).getTime();
-  const fallbackTs = Date.now() + (24 * 60 * 60 * 1000);
-  const persistUntil = Number.isFinite(endTs) ? endTs : fallbackTs;
-  try {
-    localStorage.setItem(key, String(persistUntil));
-  } catch {
-    // ignore persistence errors; user can still continue in-memory
+/** Open/view fires when the splash modal is actually shown (not on list fetch). */
+watch(
+  () => Number(currentSplashAnnouncement.value?.id || 0),
+  (id, prevId) => {
+    if (!id || id === prevId) return;
+    recordAnnouncementEvent(id, 'open');
   }
-  splashDismissVersion.value += 1;
-};
+);
 
 const loadAdminUpdateSplash = async () => {
   if (props.previewMode || !authStore.isAuthenticated) {

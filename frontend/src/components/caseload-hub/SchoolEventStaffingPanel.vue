@@ -222,13 +222,14 @@
     </template>
 
     <PostSchoolEventModal
-      v-if="showEditModal && editSchoolOrgId"
-      :school-organization-id="editSchoolOrgId"
+      v-if="showEditModal && (editSchoolOrgId || isOutreachEvent)"
+      :school-organization-id="editSchoolOrgId || agencyId"
       :school-name="event?.schoolName || ''"
       :agency-id="agencyId"
       :district-name="event?.districtName || ''"
+      :district-outreach="isOutreachEvent"
       :edit-event="editEventPayload"
-      :initial-category="editEventPayload?.category || 'back_to_school'"
+      :initial-category="isOutreachEvent ? 'outreach' : (editEventPayload?.category || 'back_to_school')"
       @close="showEditModal = false"
       @saved="onEventSaved"
       @deleted="onEventDeleted"
@@ -382,10 +383,24 @@ const editSchoolOrgId = computed(() => {
   return id || null;
 });
 
-const canEditEvent = computed(() => !!editSchoolOrgId.value);
+const isOutreachEvent = computed(() => {
+  const e = props.event;
+  if (!e) return false;
+  return !!(
+    e.isDistrictOutreach ||
+    e.isGeneralOutreach ||
+    String(e.eventType || '').toLowerCase() === 'school_outreach' ||
+    String(e.category || '').toLowerCase() === 'outreach'
+  );
+});
+
+const canEditEvent = computed(() =>
+  !!editSchoolOrgId.value || (isOutreachEvent.value && !!props.agencyId)
+);
 
 function eventTypeToCategory(eventType) {
   const t = String(eventType || '').trim().toLowerCase();
+  if (t === 'school_outreach' || isOutreachEvent.value) return 'outreach';
   const map = {
     school_back_to_school: 'back_to_school',
     school_fall_check_in: 'fall_check_in',
@@ -423,7 +438,9 @@ const editEventPayload = computed(() => {
     detailsUrl: e.detailsUrl || '',
     districtBroadcastId: e.districtBroadcastId || null,
     districtName: e.districtName || '',
-    schoolName: e.schoolName || ''
+    schoolName: e.schoolName || '',
+    isDistrictOutreach: !!e.isDistrictOutreach,
+    isGeneralOutreach: !!e.isGeneralOutreach
   };
 });
 
@@ -481,7 +498,9 @@ function assignableProviders(session) {
 
 function openEdit() {
   if (!canEditEvent.value) {
-    actionError.value = 'This event is not linked to a school, so it cannot be edited here.';
+    actionError.value = isOutreachEvent.value
+      ? 'This outreach event cannot be edited here.'
+      : 'This event is not linked to a school, so it cannot be edited here.';
     return;
   }
   showEditModal.value = true;

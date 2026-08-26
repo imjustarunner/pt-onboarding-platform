@@ -5029,9 +5029,16 @@ const loadAudienceGroups = async () => {
 
 const audienceOptions = computed(() => {
   const opts = [
-    { value: 'everyone', label: 'Everyone' },
+    { value: 'specific_users', label: 'Specific User' },
+    { value: 'admin', label: 'Admin', group: 'By role' },
+    { value: 'super_admin', label: 'Super Admin', group: 'By role' },
     { value: 'providers', label: 'Providers', group: 'By role' },
-    { value: 'admin_staff', label: 'Admin / staff', group: 'By role' },
+    { value: 'provider_plus', label: 'Provider Plus', group: 'By role' },
+    { value: 'cpa', label: 'CPA', group: 'By role' },
+    { value: 'everyone', label: 'All Staff', group: 'By role' },
+    { value: 'guardians', label: 'Guardians', group: 'By role' },
+    { value: 'school_staff', label: 'School Staff', group: 'By role' },
+    { value: 'admin_staff', label: 'Admin / staff (legacy)', group: 'By role' },
     { value: 'supervisors', label: 'Supervisors', group: 'By relationship' },
     { value: 'supervisees', label: 'Supervisees', group: 'By relationship' }
   ];
@@ -5048,7 +5055,6 @@ const audienceOptions = computed(() => {
   for (const dept of (d.departments || [])) {
     opts.push({ value: `department:${dept.id}`, label: dept.name, group: 'By department' });
   }
-  opts.push({ value: 'specific_users', label: 'Specific users' });
   return opts;
 });
 
@@ -5065,7 +5071,13 @@ const audienceGroupMembers = computed(() => {
   const aud = scheduledDraft.value.audience;
   const all = agencyAnnouncementRecipientOptions.value;
   if (aud === 'everyone' || aud === 'specific_users') return all;
-  if (aud === 'providers') return all.filter((u) => u.role === 'provider' || u.role === 'provider_plus');
+  if (aud === 'providers') return all.filter((u) => u.role === 'provider');
+  if (aud === 'provider_plus') return all.filter((u) => u.role === 'provider_plus');
+  if (aud === 'admin') return all.filter((u) => u.role === 'admin' || u.role === 'assistant_admin');
+  if (aud === 'super_admin') return all.filter((u) => u.role === 'super_admin');
+  if (aud === 'cpa') return all.filter((u) => u.role === 'clinical_practice_assistant');
+  if (aud === 'guardians') return all.filter((u) => u.role === 'client_guardian');
+  if (aud === 'school_staff') return all.filter((u) => u.role === 'school_staff');
   if (aud === 'admin_staff') return all.filter((u) => ['admin', 'staff', 'support', 'super_admin', 'assistant_admin'].includes(u.role));
   if (aud === 'supervisors') {
     const ids = new Set(audienceGroupData.value.supervisors);
@@ -5317,12 +5329,18 @@ const scheduledStatusLabel = (item) => {
 };
 
 const AUDIENCE_LABELS = {
-  everyone: 'Everyone',
-  providers: 'All providers',
+  everyone: 'All Staff',
+  providers: 'Providers',
+  provider_plus: 'Provider Plus',
+  admin: 'Admin',
+  super_admin: 'Super Admin',
+  cpa: 'CPA',
+  guardians: 'Guardians',
+  school_staff: 'School Staff',
   admin_staff: 'All admin / staff',
   supervisors: 'All supervisors',
   supervisees: 'All supervisees',
-  specific_users: 'Specific users'
+  specific_users: 'Specific User'
 };
 
 const friendlyAudienceGroupName = (aud) => {

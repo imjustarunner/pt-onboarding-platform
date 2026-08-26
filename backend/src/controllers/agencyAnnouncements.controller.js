@@ -4,9 +4,11 @@ import { canUserManageClub } from '../utils/sscClubAccess.js';
 import { getOrCreateClubThread } from './chat.controller.js';
 import { getTodayCelebrationBannerItems, getAnnouncementAutomationQueue } from '../services/agencyAnnouncementAutomation.service.js';
 import {
+  computeViewedRate,
   deriveLifecycleStatus,
   getAnnouncementEngagementOverview,
   getAnnouncementHubCounts,
+  listAnnouncementViewers,
   listScheduledAnnouncementsWithEngagement,
   parsePriority,
   parsePublishStatus,
@@ -99,22 +101,52 @@ export const normalizeSplashImageUrl = (raw) => {
   return null;
 };
 
-const VALID_AUDIENCE_BASES = ['everyone', 'providers', 'admin_staff', 'supervisors', 'supervisees', 'specific_users'];
+const VALID_AUDIENCE_BASES = [
+  'everyone',
+  'all_staff',
+  'providers',
+  'provider_plus',
+  'admin',
+  'super_admin',
+  'cpa',
+  'clinical_practice_assistant',
+  'guardians',
+  'client_guardian',
+  'school_staff',
+  'admin_staff',
+  'supervisors',
+  'supervisees',
+  'specific_users'
+];
 const VALID_AUDIENCE_PREFIXES = ['title:', 'credential:', 'service_focus:', 'department:'];
+const EXCLUDED_FROM_ALL_STAFF = new Set(['client_guardian', 'school_staff', 'kiosk']);
+
 const parseAudience = (raw) => {
   const value = String(raw || 'everyone').trim();
-  if (VALID_AUDIENCE_BASES.includes(value.toLowerCase())) return value.toLowerCase();
+  const lower = value.toLowerCase();
+  if (lower === 'all_staff') return 'everyone';
+  if (lower === 'clinical_practice_assistant') return 'cpa';
+  if (lower === 'client_guardian') return 'guardians';
+  if (VALID_AUDIENCE_BASES.includes(lower)) return lower;
   if (VALID_AUDIENCE_PREFIXES.some((p) => value.startsWith(p))) return value;
   return 'everyone';
 };
 
 const audienceMatchesRole = (audience, role) => {
   const r = String(role || '').toLowerCase();
-  if (audience === 'everyone') return true;
-  if (audience === 'providers') return r === 'provider' || r === 'provider_plus';
-  if (audience === 'admin_staff') return ['admin', 'staff', 'support', 'super_admin', 'assistant_admin'].includes(r);
-  // Supervisor/supervisee and attribute-based audiences are resolved via recipient_user_ids;
-  // the role check passes everyone through and the ID filter handles narrowing.
+  const aud = String(audience || 'everyone').toLowerCase();
+  if (aud === 'everyone' || aud === 'all_staff') {
+    return !EXCLUDED_FROM_ALL_STAFF.has(r);
+  }
+  if (aud === 'providers') return r === 'provider';
+  if (aud === 'provider_plus') return r === 'provider_plus';
+  if (aud === 'admin') return r === 'admin' || r === 'assistant_admin';
+  if (aud === 'super_admin') return r === 'super_admin';
+  if (aud === 'cpa' || aud === 'clinical_practice_assistant') return r === 'clinical_practice_assistant';
+  if (aud === 'guardians' || aud === 'client_guardian') return r === 'client_guardian';
+  if (aud === 'school_staff') return r === 'school_staff';
+  if (aud === 'admin_staff') return ['admin', 'staff', 'support', 'super_admin', 'assistant_admin'].includes(r);
+  // specific_users / supervisors / attribute audiences: role check passes; recipient_user_ids narrows.
   return true;
 };
 
@@ -342,6 +374,9 @@ export const listAgencyBannerAnnouncements = async (req, res, next) => {
         const aud = r.audience || 'everyone';
         if (!audienceMatchesRole(aud, userRole)) return false;
         const ids = parseRecipientUserIds(r.recipient_user_ids);
+        if (aud === 'specific_users') {
+          return ids.length > 0 && ids.includes(userId);
+        }
         if (ids.length > 0 && !ids.includes(userId)) return false;
         return true;
       })
@@ -368,10 +403,7 @@ const mapScheduledAnnouncementRow = (r) => {
   const impressions = Number(r.impressions || 0);
   const opens = Number(r.opens || 0);
   const acknowledgements = Number(r.acknowledgements || 0);
-  const viewedDenom = impressions || opens;
-  const viewedRate = viewedDenom > 0
-    ? Math.round((Math.max(opens, acknowledgements) / viewedDenom) * 100)
-    : 0;
+  const viewedRate = computeViewedRate(impressions, opens);
   return {
     id: r.id,
     title: r.title || null,
@@ -454,8 +486,13 @@ export const createAgencyScheduledAnnouncement = async (req, res, next) => {
         return res.status(400).json({ error: { message: 'splash_image_url must be a valid http(s) URL or /uploads path (max 512 chars)' } });
       }
     }
-    if (!message) return res.status(400).json({ error: { message: 'Message is required' } });
+    if (publishStatus !== 'draft' && !message) {
+      return res.status(400).json({ error: { message: 'Message is required' } });
+    }
     if (message.length > 1200) return res.status(400).json({ error: { message: 'Message is too long (max 1200 characters)' } });
+    if (audience === 'specific_users' && recipientUserIds.length === 0 && publishStatus !== 'draft') {
+      return res.status(400).json({ error: { message: 'Select at least one user for Specific User audience' } });
+    }
 
     const startsAtRaw = req.body?.starts_at || req.body?.startsAt;
     const endsAtRaw = req.body?.ends_at || req.body?.endsAt;
@@ -484,7 +521,7 @@ export const createAgencyScheduledAnnouncement = async (req, res, next) => {
       `INSERT INTO agency_scheduled_announcements
        (agency_id, created_by_user_id, title, message, display_type, recipient_user_ids, audience, starts_at, ends_at, splash_image_url, publish_status, priority)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [agencyId, userId, title, message, displayType, JSON.stringify(recipientUserIds), audience, startsAt, endsAt, splashImageUrl, publishStatus, priority]
+      [agencyId, userId, title, message || '', displayType, JSON.stringify(recipientUserIds), audience, startsAt, endsAt, splashImageUrl, publishStatus, priority]
     );
 
     const id = result?.insertId ? Number(result.insertId) : null;
@@ -701,8 +738,13 @@ export const updateAgencyScheduledAnnouncement = async (req, res, next) => {
       }
       splashImageUrl = normalizeSplashImageUrl(exRows[0].splash_image_url);
     }
-    if (!message) return res.status(400).json({ error: { message: 'Message is required' } });
+    if (publishStatus !== 'draft' && !message) {
+      return res.status(400).json({ error: { message: 'Message is required' } });
+    }
     if (message.length > 1200) return res.status(400).json({ error: { message: 'Message is too long (max 1200 characters)' } });
+    if (audience === 'specific_users' && recipientUserIds.length === 0 && publishStatus !== 'draft') {
+      return res.status(400).json({ error: { message: 'Select at least one user for Specific User audience' } });
+    }
 
     const startsAtRaw = req.body?.starts_at || req.body?.startsAt;
     const endsAtRaw = req.body?.ends_at || req.body?.endsAt;
@@ -743,7 +785,7 @@ export const updateAgencyScheduledAnnouncement = async (req, res, next) => {
        WHERE id = ? AND agency_id = ?`,
       [
         title,
-        message,
+        message || '',
         displayType,
         JSON.stringify(recipientUserIds),
         audience,
@@ -943,6 +985,33 @@ export const recordAgencyAnnouncementEvent = async (req, res, next) => {
       return res.status(404).json({ error: { message: 'Announcement not found' } });
     }
     res.json({ ok: true, ...result });
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
+ * Users who opened/viewed a specific announcement or splash.
+ * GET /api/agencies/:id/announcements/:announcementId/viewers
+ */
+export const getAgencyAnnouncementViewers = async (req, res, next) => {
+  try {
+    const agencyId = parseAgencyId(req.params.id);
+    const announcementId = parseAgencyId(req.params.announcementId);
+    if (!agencyId) return res.status(400).json({ error: { message: 'Invalid agency id' } });
+    if (!announcementId) return res.status(400).json({ error: { message: 'Invalid announcement id' } });
+    if (!(await userHasAgencyAccess(req, agencyId))) {
+      return res.status(403).json({ error: { message: 'Not authorized for this agency' } });
+    }
+    const [owned] = await pool.execute(
+      `SELECT id FROM agency_scheduled_announcements WHERE id = ? AND agency_id = ? LIMIT 1`,
+      [announcementId, agencyId]
+    );
+    if (!owned?.length) {
+      return res.status(404).json({ error: { message: 'Announcement not found' } });
+    }
+    const viewers = await listAnnouncementViewers(agencyId, announcementId);
+    res.json({ viewers });
   } catch (e) {
     next(e);
   }

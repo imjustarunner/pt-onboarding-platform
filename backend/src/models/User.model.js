@@ -2131,10 +2131,11 @@ class User {
       updates.push('club_role = VALUES(club_role)');
     }
 
-    if (hasIsActive && options.isActive !== undefined) {
+    if (hasIsActive) {
+      const activeVal = options.isActive === false ? 0 : 1;
       columns.push('is_active');
       placeholders.push('?');
-      params.push(options.isActive ? 1 : 0);
+      params.push(activeVal);
       updates.push('is_active = VALUES(is_active)');
     }
 
@@ -2142,6 +2143,7 @@ class User {
       `INSERT INTO user_agencies (${columns.join(', ')}) VALUES (${placeholders.join(', ')}) ON DUPLICATE KEY UPDATE ${updates.join(', ')}`,
       params
     );
+    invalidateUserAgenciesCache(userId);
   }
 
   static async getAgencyMembership(userId, agencyId) {

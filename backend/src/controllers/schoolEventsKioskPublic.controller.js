@@ -27,6 +27,8 @@ const KIND = 'school_events';
 const KIOSK_STAFF_ACTIVE_USER_SQL =
   `(u.status = 'ACTIVE_EMPLOYEE' OR LOWER(COALESCE(u.status, '')) = 'active')`;
 
+/** Agency staff eligible for school-events kiosk name search / clock-in.
+ *  Outreach hub access is intentionally excluded — it only gates the Outreach Hub. */
 const KIOSK_ELIGIBLE_AGENCY_STAFF_SQL = `
   (u.is_archived = FALSE OR u.is_archived IS NULL)
   AND UPPER(COALESCE(u.status, '')) NOT IN ('ARCHIVED', 'INACTIVE_EMPLOYEE', 'PROSPECTIVE')
@@ -34,9 +36,8 @@ const KIOSK_ELIGIBLE_AGENCY_STAFF_SQL = `
     u.status IN ('ACTIVE_EMPLOYEE', 'ONBOARDING', 'PREHIRE_REVIEW', 'PREHIRE_OPEN')
     OR LOWER(COALESCE(u.status, '')) = 'active'
     OR LOWER(COALESCE(u.role, '')) IN ('provider', 'staff', 'provider_plus')
-    OR COALESCE(ua.has_outreach_access, 0) = 1
-    OR COALESCE(ua.has_provider_access, 0) = 1
-    OR COALESCE(ua.has_staff_access, 0) = 1
+    OR COALESCE(u.has_provider_access, 0) = 1
+    OR COALESCE(u.has_staff_access, 0) = 1
   )`;
 
 const KIOSK_ROSTER_USER_SQL =

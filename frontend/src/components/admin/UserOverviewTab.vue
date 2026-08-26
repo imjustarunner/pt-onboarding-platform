@@ -63,7 +63,7 @@
               Affiliations
               <span v-if="affiliations.length > 0" class="ov-nav-badge">{{ affiliations.length }}</span>
             </div>
-            <div class="ov-nav-item" @click="$emit('navigate', 'training')">
+            <div class="ov-nav-item" @click="openUserTasks">
               <svg class="ov-nav-icon" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M6 2a1 1 0 00-1 1v1H4a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2V6a2 2 0 00-2-2h-1V3a1 1 0 10-2 0v1H7V3a1 1 0 00-1-1zm0 5a1 1 0 000 2h8a1 1 0 100-2H6z" clip-rule="evenodd"/></svg>
               Tasks
             </div>
@@ -146,7 +146,7 @@
               <span class="ov-metric-link">View Messages</span>
             </div>
 
-            <div class="ov-metric-card" @click="$emit('navigate', 'training')">
+            <div class="ov-metric-card" @click="openUserTasks">
               <div class="ov-metric-header">
                 <span class="ov-metric-label">Pending Tasks</span>
                 <span class="ov-metric-icon-wrap ov-metric-icon--task">
@@ -158,7 +158,7 @@
               <span class="ov-metric-link">View Tasks</span>
             </div>
 
-            <div class="ov-metric-card" @click="$emit('navigate', 'training')">
+            <div class="ov-metric-card" @click="openUserTasks">
               <div class="ov-metric-header">
                 <span class="ov-metric-label">Upcoming &amp; Overdue</span>
                 <span class="ov-metric-icon-wrap ov-metric-icon--cal">
@@ -602,7 +602,7 @@
             <div class="ov-card">
               <div class="ov-card-hdr">
                 <span class="ov-card-title">Upcoming &amp; Overdue</span>
-                <button class="ov-btn-viewall" type="button" @click="$emit('navigate', 'training')">View All</button>
+                <button class="ov-btn-viewall" type="button" @click="openUserTasks">View All</button>
               </div>
               <div v-if="tasksLoading" class="ov-loading-sm">Loading…</div>
               <div v-else-if="upcomingOverdueTasks.length === 0" class="ov-empty-sm">No upcoming or overdue items.</div>
@@ -658,6 +658,7 @@
 
 <script setup>
 import { ref, computed, onMounted, inject, watch, nextTick } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
 import api from '../../services/api';
 import AcceptedInsuranceBadges from './AcceptedInsuranceBadges.vue';
 import UserPayHcbsClassificationPanel from './UserPayHcbsClassificationPanel.vue';
@@ -682,6 +683,20 @@ const props = defineProps({
 });
 
 const emit = defineEmits(['navigate', 'perms-saved', 'job-saved']);
+
+const route = useRoute();
+const router = useRouter();
+
+function openUserTasks() {
+  const uid = Number(props.userId || 0);
+  if (!uid) return;
+  const orgSlug = String(route.params?.organizationSlug || '').trim();
+  const path = orgSlug ? `/${orgSlug}/tasks` : '/tasks';
+  router.push({
+    path,
+    query: { tab: 'all', teamMode: 'tasks', userId: String(uid) }
+  });
+}
 
 // ─── State ───────────────────────────────────────────────────────────────────
 const loading = ref(true);

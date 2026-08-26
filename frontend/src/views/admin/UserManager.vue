@@ -94,12 +94,13 @@
             </label>
             <label class="um-qa-field um-qa-field--sm">
               <span>Audience</span>
-              <select v-model="quickAnnouncementDraft.scope" class="filter-select" :disabled="quickAnnouncementSubmitting">
-                <option value="single">One user</option>
-                <option value="everyone">{{ isSscSstcTenant ? 'Everyone in club' : 'Everyone in agency' }}</option>
+              <select v-model="quickAnnouncementDraft.audience" class="filter-select" :disabled="quickAnnouncementSubmitting">
+                <option v-for="opt in announcementAudienceOptions" :key="`qa-aud-${opt.value}`" :value="opt.value">
+                  {{ opt.label }}
+                </option>
               </select>
             </label>
-            <label v-if="quickAnnouncementDraft.scope === 'single'" class="um-qa-field um-qa-field--user">
+            <label v-if="quickAnnouncementDraft.audience === 'specific_users'" class="um-qa-field um-qa-field--user">
               <span>User</span>
               <select v-model="quickAnnouncementDraft.userId" class="filter-select" :disabled="quickAnnouncementSubmitting">
                 <option value="" disabled>Select user</option>
@@ -136,11 +137,19 @@
             />
             <button
               type="button"
+              class="btn btn-secondary btn-sm"
+              @click="postQuickAnnouncement('draft')"
+              :disabled="quickAnnouncementSubmitting || !canSaveQuickAnnouncementDraft"
+            >
+              {{ quickAnnouncementSubmitting ? 'Saving…' : 'Save Draft' }}
+            </button>
+            <button
+              type="button"
               class="btn btn-primary btn-sm"
-              @click="postQuickAnnouncement"
+              @click="postQuickAnnouncement('published')"
               :disabled="quickAnnouncementSubmitting || !canSubmitQuickAnnouncement"
             >
-              {{ quickAnnouncementSubmitting ? 'Posting…' : 'Post' }}
+              {{ quickAnnouncementSubmitting ? 'Submitting…' : 'Submit' }}
             </button>
           </div>
         </div>
@@ -1852,6 +1861,7 @@ import AskAssistantPanel from '../../components/assistant/AskAssistantPanel.vue'
 import UserSmartGrid from '../../components/admin/UserSmartGrid.vue';
 import IdentityReviewDrawer from '../../components/admin/IdentityReviewDrawer.vue';
 import { canSeeClientExchangeNav, clientExchangePath } from '../../utils/clientExchangeNav.js';
+import { ANNOUNCEMENT_AUDIENCE_OPTIONS } from '../../constants/announcementAudiences.js';
 
 const router = useRouter();
 const route = useRoute();
@@ -2163,10 +2173,11 @@ const persistQuickAnnouncementCollapsed = () => {
     // ignore storage errors
   }
 };
+const announcementAudienceOptions = ANNOUNCEMENT_AUDIENCE_OPTIONS;
 const quickAnnouncementDraft = ref({
   agencyId: '',
   displayType: 'announcement',
-  scope: 'single',
+  audience: 'specific_users',
   userId: '',
   title: '',
   message: '',
@@ -2178,8 +2189,6 @@ const quickAnnouncementUserOptions = computed(() => {
   const aid = parseInt(String(quickAnnouncementDraft.value.agencyId || ''), 10);
   const base = (users.value || [])
     .filter((u) => {
-      const role = String(u?.role || '').toLowerCase();
-      if (role === 'client_guardian') return false;
       if (isSscSstcTenant.value) return true;
       if (!aid) return true;
       return userAgencyIds(u).includes(aid);
@@ -2199,18 +2208,22 @@ const quickAnnouncementUserOptions = computed(() => {
   return base.sort((a, b) => a.label.localeCompare(b.label));
 });
 
-const canSubmitQuickAnnouncement = computed(() => {
+const canSaveQuickAnnouncementDraft = computed(() => {
   const aid = isSscSstcTenant.value
     ? Number(selectedClubId.value || 0)
     : parseInt(String(quickAnnouncementDraft.value.agencyId || ''), 10);
   if (!aid) return false;
-  if (!String(quickAnnouncementDraft.value.message || '').trim()) return false;
   if (!quickAnnouncementDraft.value.startsAt || !quickAnnouncementDraft.value.endsAt) return false;
   const starts = new Date(quickAnnouncementDraft.value.startsAt);
   const ends = new Date(quickAnnouncementDraft.value.endsAt);
   if (!Number.isFinite(starts.getTime()) || !Number.isFinite(ends.getTime())) return false;
-  if (ends.getTime() <= starts.getTime()) return false;
-  if (quickAnnouncementDraft.value.scope === 'single') {
+  return ends.getTime() > starts.getTime();
+});
+
+const canSubmitQuickAnnouncement = computed(() => {
+  if (!canSaveQuickAnnouncementDraft.value) return false;
+  if (!String(quickAnnouncementDraft.value.message || '').trim()) return false;
+  if (quickAnnouncementDraft.value.audience === 'specific_users') {
     const uid = parseInt(String(quickAnnouncementDraft.value.userId || ''), 10);
     if (!uid) return false;
   }
@@ -2223,7 +2236,7 @@ const resetQuickAnnouncementDraft = () => {
   quickAnnouncementDraft.value = {
     agencyId: isSscSstcTenant.value && selectedClubId.value ? String(selectedClubId.value) : '',
     displayType: 'announcement',
-    scope: 'single',
+    audience: 'specific_users',
     userId: '',
     title: '',
     message: '',
@@ -2232,8 +2245,13 @@ const resetQuickAnnouncementDraft = () => {
   };
 };
 
-const postQuickAnnouncement = async () => {
-  if (!canSubmitQuickAnnouncement.value || quickAnnouncementSubmitting.value) return;
+const postQuickAnnouncement = async (publishStatus = 'published') => {
+  const isDraft = String(publishStatus) === 'draft';
+  if (isDraft) {
+    if (!canSaveQuickAnnouncementDraft.value || quickAnnouncementSubmitting.value) return;
+  } else if (!canSubmitQuickAnnouncement.value || quickAnnouncementSubmitting.value) {
+    return;
+  }
   quickAnnouncementSubmitting.value = true;
   quickAnnouncementError.value = '';
   quickAnnouncementSuccess.value = '';
@@ -2242,20 +2260,25 @@ const postQuickAnnouncement = async () => {
       ? Number(selectedClubId.value || 0)
       : parseInt(String(quickAnnouncementDraft.value.agencyId || ''), 10);
     const userId = parseInt(String(quickAnnouncementDraft.value.userId || ''), 10);
+    const audience = String(quickAnnouncementDraft.value.audience || 'everyone');
     const payload = {
       title: String(quickAnnouncementDraft.value.title || '').trim() || null,
       message: String(quickAnnouncementDraft.value.message || '').trim(),
       display_type: String(quickAnnouncementDraft.value.displayType || 'announcement').toLowerCase() === 'splash' ? 'splash' : 'announcement',
-      recipient_user_ids: quickAnnouncementDraft.value.scope === 'everyone' ? [] : [userId],
+      audience,
+      publish_status: isDraft ? 'draft' : 'published',
+      recipient_user_ids: audience === 'specific_users' && userId ? [userId] : [],
       starts_at: new Date(quickAnnouncementDraft.value.startsAt),
       ends_at: new Date(quickAnnouncementDraft.value.endsAt)
     };
     await api.post(`/agencies/${agencyId}/announcements`, payload);
-    quickAnnouncementSuccess.value = 'Announcement posted successfully.';
+    quickAnnouncementSuccess.value = isDraft
+      ? 'Draft saved. Open the Announcement Hub to edit or submit it.'
+      : 'Announcement submitted successfully.';
     quickAnnouncementDraft.value.title = '';
     quickAnnouncementDraft.value.message = '';
   } catch (err) {
-    quickAnnouncementError.value = err.response?.data?.error?.message || 'Failed to post announcement';
+    quickAnnouncementError.value = err.response?.data?.error?.message || 'Failed to save announcement';
   } finally {
     quickAnnouncementSubmitting.value = false;
   }

@@ -8769,8 +8769,9 @@ export const assignUserToAgency = async (req, res, next) => {
   try {
     const { userId, agencyId, agencyIds, isDefault, defaultAgencyId } = req.body;
     
-    // Only admins/super_admins can assign users
-    if (req.user.role !== 'admin' && req.user.role !== 'super_admin') {
+    // Align with requireBackofficeAdmin route middleware (admin / super_admin / support)
+    const role = String(req.user?.role || '').toLowerCase().trim();
+    if (!['admin', 'super_admin', 'support'].includes(role)) {
       return res.status(403).json({ error: { message: 'Admin access required' } });
     }
 

@@ -510,264 +510,180 @@
               <AccountDashboardCard
                 section-id="agency-assignments"
                 title="Agency Assignments"
-                subtitle="Click Edit to change membership settings or remove a tenant. Removing a tenant also unassigns schools, days/slots, and clients that belong only to that tenant."
+                subtitle="Manage tenant membership, roles, licensing, and school assignments. Changes affect access, supervision requirements, and billing."
                 :can-edit="canEditUser"
                 :editing="editingAgencyAssignments"
+                edit-label="Edit Assignments"
                 save-label="Done"
                 @edit="editingAgencyAssignments = true"
                 @save="editingAgencyAssignments = false"
                 @cancel="editingAgencyAssignments = false"
               >
-              <div class="agency-assignments-section">
+              <div class="agency-assignments-section aa-hub">
                 <div class="agency-assignments">
                   <div v-if="affiliatedAgencies.length === 0" class="no-agencies">
                     <p>No agencies assigned</p>
                   </div>
-                  <div v-else class="agencies-list">
-                    <div v-for="agency in affiliatedAgencies" :key="agency.id" class="agency-item">
-                      <div class="agency-item-left">
-                        <div class="agency-item-row">
+                  <div v-else class="agencies-list aa-agency-cards">
+                    <div v-for="agency in affiliatedAgencies" :key="agency.id" class="agency-item aa-agency-card">
+                      <div class="aa-agency-card__head">
+                        <div class="aa-agency-card__title-row">
                           <span class="agency-name">{{ agency.name }}</span>
-
-                          <div
-                            v-if="(affiliatedOrgsByAgencyId[String(agency.id)] || []).length > 0"
-                            class="affiliations-details-wrap"
-                            :ref="(el) => { if (el && isAffiliationsPopoverOpenFor(Number(agency.id))) affiliationsPopoverAnchorRef = el }"
-                            @mouseenter="openAffiliationsPopover(Number(agency.id))"
-                            @mouseleave="closeAffiliationsPopover(Number(agency.id))"
+                          <span class="aa-badge aa-badge--active">Active</span>
+                          <span class="aa-badge aa-badge--schools">
+                            Schools ({{ (affiliatedOrgsByAgencyId[String(agency.id)] || []).length }})
+                          </span>
+                          <span
+                            v-if="Number(agency.is_default)"
+                            class="aa-badge aa-badge--default"
+                          >Default</span>
+                        </div>
+                        <div class="aa-agency-card__actions" v-if="canEditUser && editingAgencyAssignments">
+                          <button
+                            v-if="!Number(agency.is_default)"
+                            type="button"
+                            class="btn btn-secondary btn-sm"
+                            :disabled="settingDefaultAgencyId === agency.id"
+                            @click="setDefaultAgency(agency.id)"
                           >
-                            <button
-                              type="button"
-                              class="btn btn-secondary btn-sm affiliations-details-trigger"
-                              @click.prevent="toggleAffiliationsPopover(Number(agency.id))"
-                              :aria-expanded="isAffiliationsPopoverOpenFor(Number(agency.id)) ? 'true' : 'false'"
-                              :title="`Show affiliated orgs (${(affiliatedOrgsByAgencyId[String(agency.id)] || []).length})`"
-                            >
-                              Schools
-                              <span class="muted" style="font-weight: 700;">
-                                ({{ (affiliatedOrgsByAgencyId[String(agency.id)] || []).length }})
-                              </span>
-                            </button>
+                            {{ settingDefaultAgencyId === agency.id ? '…' : 'Set default' }}
+                          </button>
+                          <button
+                            type="button"
+                            class="btn btn-danger btn-sm"
+                            @click="removeAgency(agency.id)"
+                          >
+                            Remove
+                          </button>
+                        </div>
+                      </div>
 
-                            <Teleport to="body">
-                              <div
-                                v-if="isAffiliationsPopoverOpenFor(Number(agency.id))"
-                                class="affiliations-popover affiliations-popover--teleported"
-                                :style="affiliationsPopoverStyle"
-                                @mouseenter="openAffiliationsPopover(Number(agency.id))"
-                                @mouseleave="closeAffiliationsPopover(Number(agency.id))"
+                      <div class="aa-section">
+                        <h4 class="aa-section__title"><span>1</span> Access &amp; Identity</h4>
+                        <div class="aa-section__grid">
+                          <label class="aa-field">
+                            <span>Login Email</span>
+                            <input
+                              class="agency-select"
+                              :value="aliasForAgency(agency.id)"
+                              :disabled="!canEditUser || !editingAgencyAssignments || savingAgencyAliasId === agency.id"
+                              placeholder="alias@domain.com"
+                              @change="saveAliasForAgency(agency.id, $event.target.value)"
+                            />
+                          </label>
+                          <label class="aa-field">
+                            <span>Position / Title</span>
+                            <input
+                              class="agency-select"
+                              :value="agency.agency_position || ''"
+                              :disabled="!canEditUser || !editingAgencyAssignments || savingAgencyMembershipId === agency.id"
+                              placeholder="Title at this agency"
+                              @change="saveAgencyMembership(agency.id, { agencyPosition: $event.target.value })"
+                            />
+                          </label>
+                          <label class="aa-field">
+                            <span>Role</span>
+                            <select
+                              class="agency-select"
+                              :value="agencyRoleFor(agency)"
+                              :disabled="!canEditUser || !editingAgencyAssignments || savingAgencyMembershipId === agency.id"
+                              @change="saveAgencyMembership(agency.id, { agencyRole: $event.target.value })"
+                            >
+                              <option
+                                v-for="opt in AGENCY_POSITION_ROLE_OPTIONS"
+                                :key="opt.value || 'inherit'"
+                                :value="opt.value"
                               >
-                                <div class="affiliations-popover-title">
-                                  Affiliated orgs under {{ agency.name }}
-                                </div>
-                                <div
-                                  v-for="org in (affiliatedOrgsByAgencyId[String(agency.id)] || [])"
-                                  :key="org.id"
-                                  class="affiliations-popover-item"
-                                >
-                                  <div class="affiliations-popover-item-left">
-                                    <div class="affiliations-popover-item-name">
-                                      {{ org.name }}
-                                      <span v-if="org.organization_type" class="muted" style="font-size: 11px; font-weight: 800;">
-                                        ({{ org.organization_type }})
-                                      </span>
-                                    </div>
-                                    <div class="affiliations-popover-item-actions">
-                                      <button
-                                        v-if="isAffiliationOrg(org)"
-                                        class="btn btn-secondary btn-sm"
-                                        type="button"
-                                        @click="openSchoolSchedulingFromAgencyRow(org)"
-                                      >
-                                        Days &amp; slots
-                                      </button>
-                                      <button
-                                        v-if="canEditUser && editingAgencyAssignments"
-                                        class="btn btn-danger btn-sm"
-                                        type="button"
-                                        @click="removeAgency(org.id)"
-                                      >
-                                        Remove
-                                      </button>
-                                    </div>
-                                  </div>
-                                </div>
-                                <div class="muted" style="font-size: 12px; margin-top: 8px;">
-                                  Tip: hover to peek, click to pin open.
-                                </div>
-                              </div>
-                            </Teleport>
+                                {{ opt.label }}
+                              </option>
+                            </select>
+                          </label>
+                          <label class="aa-field">
+                            <span>Disclosure</span>
+                            <select
+                              class="agency-select"
+                              :value="disclosureIncludeFromMembership(agency)"
+                              :disabled="!canEditUser || savingAgencyMembershipId === agency.id"
+                              @change="saveAgencyMembership(agency.id, { includeOnDisclosure: $event.target.value })"
+                            >
+                              <option
+                                v-for="opt in DISCLOSURE_INCLUDE_OPTIONS"
+                                :key="opt.value"
+                                :value="opt.value"
+                              >
+                                {{ opt.label }}
+                              </option>
+                            </select>
+                          </label>
+                        </div>
+                      </div>
+
+                      <div v-if="canEditUser && canShowH0032Mode" class="aa-section">
+                        <h4 class="aa-section__title"><span>2</span> Clinical &amp; Billing Setup</h4>
+                        <div class="aa-section__grid">
+                          <label class="aa-field">
+                            <span>H0032 Billing Mode</span>
+                            <select
+                              :value="h0032ModeForAgency(agency)"
+                              class="agency-select"
+                              :disabled="!editingAgencyAssignments || updatingH0032AgencyId === agency.id"
+                              @change="setH0032Mode(agency.id, $event.target.value)"
+                            >
+                              <option value="cat1_hour">Cat1 Hour (manual minutes)</option>
+                              <option value="cat2_flat">Cat2 Flat (auto 30 min)</option>
+                            </select>
+                          </label>
+                          <p class="aa-hint">Billing minutes — not Pay/HCBS.</p>
+                        </div>
+                      </div>
+
+                      <div
+                        v-if="canShowPrelicensedSupervision"
+                        class="aa-section"
+                      >
+                        <h4 class="aa-section__title"><span>3</span> Classification</h4>
+                        <div
+                          v-if="prelicensedClassificationFor(agency.id)"
+                          class="aa-classification-row"
+                        >
+                          <div class="aa-class-pill">
+                            <span class="muted">License Status</span>
+                            <span
+                              class="license-status-badge"
+                              :class="{
+                                'license-status-badge--licensed': prelicensedClassificationFor(agency.id).licenseStatus === 'licensed',
+                                'license-status-badge--prelicensed': prelicensedClassificationFor(agency.id).licenseStatus === 'prelicensed',
+                                'license-status-badge--unlicensed': prelicensedClassificationFor(agency.id).licenseStatus === 'unlicensed',
+                                'license-status-badge--unknown': prelicensedClassificationFor(agency.id).licenseStatus === 'unknown',
+                              }"
+                            >
+                              {{ licenseStatusBadgeLabel(prelicensedClassificationFor(agency.id)) }}
+                            </span>
+                          </div>
+                          <div class="aa-class-pill">
+                            <span class="muted">Pay Category</span>
+                            <span class="category-axis-badge">
+                              {{
+                                prelicensedClassificationFor(agency.id).payCategory
+                                  ? `Cat ${prelicensedClassificationFor(agency.id).payCategory}`
+                                  : 'Unknown'
+                              }}
+                            </span>
+                            <span class="muted aa-class-detail">{{ prelicensedClassificationFor(agency.id).payCategoryLabel }}</span>
+                          </div>
+                          <div class="aa-class-pill">
+                            <span class="muted">HCBS Category</span>
+                            <span class="category-axis-badge category-axis-badge--hcbs">
+                              {{
+                                prelicensedClassificationFor(agency.id).hcbsCategory
+                                  ? `Cat ${prelicensedClassificationFor(agency.id).hcbsCategory}`
+                                  : 'Unknown'
+                              }}
+                            </span>
+                            <span class="muted aa-class-detail">{{ prelicensedClassificationFor(agency.id).hcbsCategoryLabel }}</span>
                           </div>
                         </div>
-
-                        <div
-                          v-if="canEditUser"
-                          class="agency-item-row"
-                          title="Optional per-organization login email alias. Leave empty to use the primary login email above."
-                        >
-                          <span class="muted" style="font-size: 12px; font-weight: 700;">Login Email</span>
-                          <input
-                            class="agency-select"
-                            style="min-width: 240px;"
-                            :value="aliasForAgency(agency.id)"
-                            :disabled="!editingAgencyAssignments || savingAgencyAliasId === agency.id"
-                            placeholder="alias@domain.com"
-                            @change="saveAliasForAgency(agency.id, $event.target.value)"
-                          />
-                        </div>
-
-                        <div
-                          v-if="canEditUser"
-                          class="agency-item-row"
-                          title="Role and title at this tenant. Disclosure statements use this instead of the global profile role, so someone can be an ITSCO admin/supervisor and a tutor at Next Level Up."
-                        >
-                          <span class="muted" style="font-size: 12px; font-weight: 700;">Role here</span>
-                          <select
-                            class="agency-select"
-                            style="min-width: 170px;"
-                            :value="agencyRoleFor(agency)"
-                            :disabled="!editingAgencyAssignments || savingAgencyMembershipId === agency.id"
-                            @change="saveAgencyMembership(agency.id, { agencyRole: $event.target.value })"
-                          >
-                            <option
-                              v-for="opt in AGENCY_POSITION_ROLE_OPTIONS"
-                              :key="opt.value || 'inherit'"
-                              :value="opt.value"
-                            >
-                              {{ opt.label }}
-                            </option>
-                          </select>
-                          <span class="muted" style="font-size: 12px; font-weight: 700;">Position</span>
-                          <input
-                            class="agency-select"
-                            style="min-width: 180px;"
-                            :value="agency.agency_position || ''"
-                            :disabled="!editingAgencyAssignments || savingAgencyMembershipId === agency.id"
-                            placeholder="Title at this agency"
-                            @change="saveAgencyMembership(agency.id, { agencyPosition: $event.target.value })"
-                          />
-                        </div>
-                        <div
-                          v-if="canEditUser"
-                          class="agency-item-row"
-                          title="Auto includes clinical roles and admins who supervise at this tenant. Override to always or never list them on paper/virtual disclosure."
-                        >
-                          <span class="muted" style="font-size: 12px; font-weight: 700;">Disclosure</span>
-                          <select
-                            class="agency-select"
-                            style="min-width: 220px;"
-                            :value="disclosureIncludeFromMembership(agency)"
-                            :disabled="savingAgencyMembershipId === agency.id"
-                            @change="saveAgencyMembership(agency.id, { includeOnDisclosure: $event.target.value })"
-                          >
-                            <option
-                              v-for="opt in DISCLOSURE_INCLUDE_OPTIONS"
-                              :key="opt.value"
-                              :value="opt.value"
-                            >
-                              {{ opt.label }}
-                            </option>
-                          </select>
-                        </div>
-
-                        <div
-                          v-if="canEditUser && canShowH0032Mode"
-                          class="agency-item-row"
-                          title="H0032 Cat1 Hour / Cat2 Flat is a billing-minutes mode only (how H0032 minutes are entered). It is not Pay Category or HCBS Category."
-                        >
-                          <span class="muted" style="font-size: 12px; font-weight: 700;">H0032</span>
-                          <select
-                            :value="h0032ModeForAgency(agency)"
-                            class="agency-select"
-                            style="min-width: 170px;"
-                            :disabled="!editingAgencyAssignments || updatingH0032AgencyId === agency.id"
-                            @change="setH0032Mode(agency.id, $event.target.value)"
-                          >
-                            <option value="cat1_hour">Cat1 Hour (manual minutes)</option>
-                            <option value="cat2_flat">Cat2 Flat (auto 30 min)</option>
-                          </select>
-                          <span class="muted" style="font-size: 11px;">billing minutes — not Pay/HCBS</span>
-                        </div>
-
-                        <!-- Auto-generated License Classification row -->
-                        <div
-                          v-if="canShowPrelicensedSupervision && prelicensedClassificationFor(agency.id)"
-                          class="agency-item-row license-classification-row"
-                          style="flex-wrap: wrap; gap: 8px;"
-                        >
-                          <span class="muted" style="font-size: 12px; font-weight: 700; min-width: 120px;">License Status</span>
-                          <span
-                            class="license-status-badge"
-                            :class="{
-                              'license-status-badge--licensed': prelicensedClassificationFor(agency.id).licenseStatus === 'licensed',
-                              'license-status-badge--prelicensed': prelicensedClassificationFor(agency.id).licenseStatus === 'prelicensed',
-                              'license-status-badge--unlicensed': prelicensedClassificationFor(agency.id).licenseStatus === 'unlicensed',
-                              'license-status-badge--unknown': prelicensedClassificationFor(agency.id).licenseStatus === 'unknown',
-                            }"
-                          >
-                            {{ licenseStatusBadgeLabel(prelicensedClassificationFor(agency.id)) }}
-                          </span>
-                          <span class="license-status-reason">
-                            {{ prelicensedClassificationFor(agency.id).licenseStatusReason }}
-                          </span>
-                        </div>
-
-                        <!-- Derived Pay / HCBS categories (not H0032 billing mode) -->
-                        <div
-                          v-if="canShowPrelicensedSupervision && prelicensedClassificationFor(agency.id)"
-                          class="agency-item-row license-classification-row category-axes-row"
-                          style="flex-wrap: wrap; gap: 8px;"
-                        >
-                          <span class="muted" style="font-size: 12px; font-weight: 700; min-width: 120px;">Pay Category</span>
-                          <span
-                            class="category-axis-badge"
-                            :title="prelicensedClassificationFor(agency.id).payCategoryReason || ''"
-                          >
-                            {{
-                              prelicensedClassificationFor(agency.id).payCategory
-                                ? `Cat ${prelicensedClassificationFor(agency.id).payCategory}`
-                                : 'Unknown'
-                            }}
-                          </span>
-                          <span class="muted" style="font-size: 11px;">
-                            {{ prelicensedClassificationFor(agency.id).payCategoryLabel || 'Could not derive from credential/role' }}
-                          </span>
-                        </div>
-                        <div
-                          v-if="canShowPrelicensedSupervision && prelicensedClassificationFor(agency.id)"
-                          class="agency-item-row license-classification-row category-axes-row"
-                          style="flex-wrap: wrap; gap: 8px;"
-                        >
-                          <span class="muted" style="font-size: 12px; font-weight: 700; min-width: 120px;">HCBS Category</span>
-                          <span
-                            class="category-axis-badge category-axis-badge--hcbs"
-                            :title="prelicensedClassificationFor(agency.id).hcbsCategoryReason || ''"
-                          >
-                            {{
-                              prelicensedClassificationFor(agency.id).hcbsCategory
-                                ? `Cat ${prelicensedClassificationFor(agency.id).hcbsCategory}`
-                                : 'Unknown'
-                            }}
-                          </span>
-                          <span class="muted" style="font-size: 11px;">
-                            {{ prelicensedClassificationFor(agency.id).hcbsCategoryLabel || 'Could not derive from credential/role' }}
-                          </span>
-                        </div>
-                        <div
-                          v-if="canShowPrelicensedSupervision && prelicensedClassificationFor(agency.id)"
-                          class="category-axes-note muted"
-                        >
-                          Current 50/100 supervision hours apply to pay-Cat-2 prelicensed only (not interns).
-                          HCBS category will feed future State Supervision Oversight Requirements (not built yet).
-                          H0032 Cat1/Cat2 above is billing-minutes mode, not Pay/HCBS.
-                        </div>
-
-                        <div
-                          v-if="canShowPrelicensedSupervision"
-                          class="agency-item-row"
-                          style="flex-wrap: wrap;"
-                          title="Prelicensed supervision tracking is per-organization. Effective start date gates which logged sessions count toward 50/100 hours (sessions before that date stay logged but do not count). After ≥50 individual and ≥100 total countable hours, supervisees are paid at the MEETING rate — not 99414/indirect. Pre-100 supervision does not accrue PTO. Applies to pay-Cat-2 prelicensed only — not interns (pay Cat 1) unless this toggle is manually On."
-                        >
+                        <div class="agency-item-row" style="flex-wrap: wrap; margin-top: 8px;">
                           <span class="muted" style="font-size: 12px; font-weight: 700;">Prelicensed</span>
                           <label class="muted" style="display:flex; align-items:center; gap: 6px;">
                             <input
@@ -787,40 +703,17 @@
                           >
                             {{ isEditingPrelicensedForAgency(agency) ? 'Done' : 'Edit' }}
                           </button>
-                          <!-- Classification conflict badge -->
                           <template v-if="prelicensedClassificationFor(agency.id)">
                             <span
                               v-if="prelicensedClassificationFor(agency.id).conflictReason"
                               class="prelicensed-conflict-badge"
                               :title="prelicensedClassificationFor(agency.id).conflictReason"
                             >
-                              ⚠ Classification conflict
-                            </span>
-                            <span
-                              v-else-if="prelicensedClassificationFor(agency.id).classifiedAs === 'unknown'"
-                              class="prelicensed-unknown-badge"
-                              :title="prelicensedClassificationFor(agency.id).conflictReason || 'Could not auto-classify'"
-                            >
-                              ? Unclassified
+                              Classification conflict
                             </span>
                           </template>
                           <div
-                            v-if="isPrelicensedForAgency(agency)"
-                            class="prelicensed-field"
-                          >
-                            <input
-                              type="date"
-                              class="agency-select"
-                              style="min-width: 155px;"
-                              :value="prelicensedStartDateForAgency(agency)"
-                              :disabled="!canEditUser || updatingPrelicensedAgencyId === agency.id || !isEditingPrelicensedForAgency(agency)"
-                              @change="savePrelicensedSettings(agency, { startDate: $event.target.value })"
-                            />
-                            <span class="prelicensed-caption">Effective start date</span>
-                          </div>
-                          <!-- Conflict detail panel -->
-                          <div
-                            v-if="prelicensedClassificationFor(agency.id)?.conflictReason || prelicensedClassificationFor(agency.id)?.classifiedAs === 'unknown'"
+                            v-if="prelicensedClassificationFor(agency.id)?.conflictReason"
                             class="prelicensed-conflict-panel"
                           >
                             <div class="prelicensed-conflict-text">
@@ -847,141 +740,169 @@
                               </button>
                             </div>
                           </div>
-                          <div v-if="isPrelicensedForAgency(agency)" class="prelicensed-hours">
-                            <div class="prelicensed-field">
-                              <input
-                                type="number"
-                                step="0.01"
-                                min="0"
-                                class="agency-select"
-                                style="min-width: 130px;"
-                                placeholder="0.00"
-                                :value="prelicensedStartIndHoursForAgency(agency)"
-                                :disabled="!canEditUser || updatingPrelicensedAgencyId === agency.id || !isEditingPrelicensedForAgency(agency)"
-                                @change="savePrelicensedSettings(agency, { startIndividualHours: $event.target.value })"
-                              />
-                              <span class="prelicensed-caption">sindividaul</span>
-                            </div>
-                            <div class="prelicensed-field">
-                              <input
-                                type="number"
-                                step="0.01"
-                                min="0"
-                                class="agency-select"
-                                style="min-width: 130px;"
-                                placeholder="0.00"
-                                :value="prelicensedStartGrpHoursForAgency(agency)"
-                                :disabled="!canEditUser || updatingPrelicensedAgencyId === agency.id || !isEditingPrelicensedForAgency(agency)"
-                                @change="savePrelicensedSettings(agency, { startGroupHours: $event.target.value })"
-                              />
-                              <span class="prelicensed-caption">group</span>
-                            </div>
-                            <div class="prelicensed-hours-caption">supervision hours</div>
-                          </div>
+                        </div>
+                        <div class="category-axes-note muted">
+                          Current 50/100 supervision hours apply to pay-Cat-2 prelicensed only (not interns).
+                          HCBS category will feed future State Supervision Oversight Requirements (not built yet).
+                          H0032 Cat1/Cat2 above is billing-minutes mode, not Pay/HCBS.
                         </div>
                       </div>
 
-                      <button
-                        v-if="canEditUser && editingAgencyAssignments && !Number(agency.is_default)"
-                        type="button"
-                        class="btn btn-secondary btn-sm"
-                        :disabled="settingDefaultAgencyId === agency.id"
-                        @click="setDefaultAgency(agency.id)"
-                      >
-                        {{ settingDefaultAgencyId === agency.id ? '…' : 'Set default' }}
-                      </button>
-                      <span
-                        v-else-if="Number(agency.is_default)"
-                        class="muted"
-                        style="font-size: 12px; font-weight: 700; color: #0f766e;"
-                      >Default</span>
-                      <button
-                        v-if="canEditUser && editingAgencyAssignments"
-                        @click="removeAgency(agency.id)"
-                        class="btn btn-danger btn-sm"
-                      >
-                        Remove
-                      </button>
+                      <div class="aa-section">
+                        <h4 class="aa-section__title"><span>4</span> School Assignments</h4>
+                        <div class="aa-dual-list">
+                          <div class="aa-dual-col">
+                            <div class="aa-dual-col__head">
+                              Available Schools
+                              <span class="muted">({{ availableSchoolsForAgency(agency.id).length }})</span>
+                            </div>
+                            <input
+                              v-model="schoolSearchByAgency[String(agency.id)]"
+                              type="search"
+                              class="agency-select aa-school-search"
+                              placeholder="Search schools…"
+                              :disabled="!editingAgencyAssignments"
+                            />
+                            <div class="aa-dual-listbox">
+                              <label
+                                v-for="org in filteredAvailableSchoolsForAgency(agency.id)"
+                                :key="`avail-${org.id}`"
+                                class="aa-dual-option"
+                              >
+                                <input
+                                  type="checkbox"
+                                  :value="org.id"
+                                  :disabled="!editingAgencyAssignments"
+                                  v-model="selectedAvailableSchoolsByAgency[String(agency.id)]"
+                                />
+                                <span>{{ org.name }}</span>
+                              </label>
+                              <p v-if="!filteredAvailableSchoolsForAgency(agency.id).length" class="muted aa-empty">
+                                No available schools
+                              </p>
+                            </div>
+                          </div>
+                          <div class="aa-dual-controls">
+                            <button
+                              type="button"
+                              class="btn btn-primary btn-sm"
+                              :disabled="!editingAgencyAssignments || !(selectedAvailableSchoolsByAgency[String(agency.id)] || []).length || assigningAgency"
+                              @click="assignSelectedSchools(agency.id)"
+                            >
+                              Assign Selected →
+                            </button>
+                          </div>
+                          <div class="aa-dual-col">
+                            <div class="aa-dual-col__head">
+                              Assigned Schools
+                              <span class="muted">({{ (affiliatedOrgsByAgencyId[String(agency.id)] || []).length }})</span>
+                            </div>
+                            <div class="aa-dual-listbox">
+                              <div
+                                v-for="org in (affiliatedOrgsByAgencyId[String(agency.id)] || [])"
+                                :key="`assigned-${org.id}`"
+                                class="aa-assigned-row"
+                              >
+                                <div>
+                                  <strong>{{ org.name }}</strong>
+                                  <span v-if="org.organization_type" class="muted"> ({{ org.organization_type }})</span>
+                                </div>
+                                <div class="aa-assigned-actions">
+                                  <button
+                                    v-if="isAffiliationOrg(org)"
+                                    class="btn btn-secondary btn-sm"
+                                    type="button"
+                                    @click="openSchoolSchedulingFromAgencyRow(org)"
+                                  >
+                                    Days &amp; slots
+                                  </button>
+                                  <button
+                                    v-if="canEditUser && editingAgencyAssignments"
+                                    class="btn btn-danger btn-sm"
+                                    type="button"
+                                    @click="removeAgency(org.id)"
+                                  >
+                                    ×
+                                  </button>
+                                </div>
+                              </div>
+                              <p v-if="!(affiliatedOrgsByAgencyId[String(agency.id)] || []).length" class="muted aa-empty">
+                                No schools assigned
+                              </p>
+                            </div>
+                            <p class="aa-assigned-footer muted">
+                              {{ (affiliatedOrgsByAgencyId[String(agency.id)] || []).length }} school{{ (affiliatedOrgsByAgencyId[String(agency.id)] || []).length === 1 ? '' : 's' }} assigned
+                            </p>
+                          </div>
+                        </div>
+                      </div>
                     </div>
                   </div>
 
                   <div
                     v-if="(unaffiliatedOrgs || []).length > 0"
                     class="unaffiliated-orgs-row"
-                    @mouseenter="openAffiliationsPopover(0)"
-                    @mouseleave="closeAffiliationsPopover(0)"
                   >
-                    <button
-                      type="button"
-                      class="btn btn-secondary btn-sm affiliations-details-trigger"
-                      @click.prevent="toggleAffiliationsPopover(0)"
-                      :aria-expanded="isAffiliationsPopoverOpenFor(0) ? 'true' : 'false'"
-                      title="Organizations not linked to an agency"
-                    >
-                      Other affiliations
-                      <span class="muted" style="font-weight: 700;">({{ (unaffiliatedOrgs || []).length }})</span>
-                    </button>
-                    <div v-if="isAffiliationsPopoverOpenFor(0)" class="affiliations-popover affiliations-popover--below">
-                      <div class="affiliations-popover-title">Other affiliations</div>
-                      <div v-for="org in (unaffiliatedOrgs || [])" :key="org.id" class="affiliations-popover-item">
-                        <div class="affiliations-popover-item-left">
-                          <div class="affiliations-popover-item-name">
-                            {{ org.name }}
-                            <span v-if="org.organization_type" class="muted" style="font-size: 11px; font-weight: 800;">
-                              ({{ org.organization_type }})
-                            </span>
-                          </div>
-                          <div class="affiliations-popover-item-actions">
-                            <button
-                              v-if="isAffiliationOrg(org)"
-                              class="btn btn-secondary btn-sm"
-                              type="button"
-                              @click="openSchoolSchedulingFromAgencyRow(org)"
-                            >
-                              Days &amp; slots
-                            </button>
-                            <button
-                              v-if="canEditUser && editingAgencyAssignments"
-                              class="btn btn-danger btn-sm"
-                              type="button"
-                              @click="removeAgency(org.id)"
-                            >
-                              Remove
-                            </button>
-                          </div>
+                    <div class="aa-section">
+                      <h4 class="aa-section__title">Other affiliations</h4>
+                      <div v-for="org in (unaffiliatedOrgs || [])" :key="org.id" class="aa-assigned-row">
+                        <div>
+                          <strong>{{ org.name }}</strong>
+                          <span v-if="org.organization_type" class="muted"> ({{ org.organization_type }})</span>
+                        </div>
+                        <div class="aa-assigned-actions">
+                          <button
+                            v-if="isAffiliationOrg(org)"
+                            class="btn btn-secondary btn-sm"
+                            type="button"
+                            @click="openSchoolSchedulingFromAgencyRow(org)"
+                          >
+                            Days &amp; slots
+                          </button>
+                          <button
+                            v-if="canEditUser && editingAgencyAssignments"
+                            class="btn btn-danger btn-sm"
+                            type="button"
+                            @click="removeAgency(org.id)"
+                          >
+                            Remove
+                          </button>
                         </div>
                       </div>
                     </div>
                   </div>
                   
-                  <div v-if="canEditUser" class="add-agency-section">
-                    <div class="agency-multi-select" style="max-height: 160px; overflow: auto; border: 1px solid var(--border, #e2e8f0); border-radius: 8px; padding: 8px; min-width: 260px;">
-                      <label
-                        v-for="agency in availableAgencies"
-                        :key="agency.id"
-                        style="display:flex; gap:8px; align-items:center; margin-bottom: 4px; font-size: 13px;"
+                  <div v-if="canEditUser" class="add-agency-section aa-add-tenant">
+                    <h4 class="aa-section__title">Add agency</h4>
+                    <div class="aa-add-tenant__row">
+                      <select v-model="selectedTenantAgencyId" class="agency-select" style="min-width: 260px;">
+                        <option value="">Select an organization…</option>
+                        <option
+                          v-for="agency in availableTenantAgenciesToAdd"
+                          :key="agency.id"
+                          :value="String(agency.id)"
+                        >
+                          {{ agency.name }}
+                        </option>
+                      </select>
+                      <select v-model="defaultAgencyIdDraft" class="agency-select" style="min-width: 200px;">
+                        <option value="">Default agency (optional)</option>
+                        <option
+                          v-for="agency in agenciesEligibleAsDefault"
+                          :key="`def-${agency.id}`"
+                          :value="String(agency.id)"
+                        >
+                          Default: {{ agency.name }}
+                        </option>
+                      </select>
+                      <button
+                        @click="addSelectedTenantAgency"
+                        class="btn btn-primary btn-sm"
+                        :disabled="!selectedTenantAgencyId || assigningAgency"
                       >
-                        <input type="checkbox" :value="agency.id" v-model="selectedAgencyIds" />
-                        <span>{{ agency.name }}<span v-if="agency.organization_type" class="muted"> ({{ agency.organization_type }})</span></span>
-                      </label>
+                        {{ assigningAgency ? 'Assigning...' : 'Assign' }}
+                      </button>
                     </div>
-                    <select v-model="defaultAgencyIdDraft" class="agency-select" style="min-width: 200px;">
-                      <option value="">Default agency (optional)</option>
-                      <option
-                        v-for="agency in agenciesEligibleAsDefault"
-                        :key="`def-${agency.id}`"
-                        :value="String(agency.id)"
-                      >
-                        Default: {{ agency.name }}
-                      </option>
-                    </select>
-                    <button
-                      @click="addAgencies"
-                      class="btn btn-primary btn-sm"
-                      :disabled="!selectedAgencyIds.length || assigningAgency"
-                    >
-                      {{ assigningAgency ? 'Assigning...' : `Assign (${selectedAgencyIds.length || 0})` }}
-                    </button>
                   </div>
                   <div v-else class="muted" style="font-size: 12px;">
                     Only admins can change agency assignments.
@@ -2849,7 +2770,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted, computed, watch, nextTick, provide } from 'vue';
+import { ref, onMounted, onUnmounted, computed, watch, nextTick, provide, reactive } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import api from '../../services/api';
 import { useAuthStore } from '../../store/auth';
@@ -4983,6 +4904,9 @@ const availableAgenciesReady = ref(false);
 let fetchAvailableAgenciesInflight = null;
 const selectedAgencyId = ref('');
 const selectedAgencyIds = ref([]);
+const selectedTenantAgencyId = ref('');
+const schoolSearchByAgency = reactive({});
+const selectedAvailableSchoolsByAgency = reactive({});
 const defaultAgencyIdDraft = ref('');
 const settingDefaultAgencyId = ref(null);
 const assigningAgency = ref(false);
@@ -5218,6 +5142,68 @@ const affiliatedOrgsByAgencyId = computed(() => {
   return out;
 });
 const unaffiliatedOrgs = computed(() => affiliatedOrgsByAgencyId.value?.['0'] || []);
+
+const availableTenantAgenciesToAdd = computed(() => {
+  const assigned = new Set((affiliatedAgencies.value || []).map((a) => Number(a.id)));
+  return (availableAgencies.value || [])
+    .filter((a) => isAgencyOrg(a) && !assigned.has(Number(a.id)))
+    .sort((a, b) => String(a?.name || '').localeCompare(String(b?.name || '')));
+});
+
+function availableSchoolsForAgency(agencyId) {
+  const aid = Number(agencyId || 0);
+  if (!aid) return [];
+  const assignedIds = new Set(
+    (affiliatedOrgsByAgencyId.value[String(aid)] || []).map((o) => Number(o.id))
+  );
+  return (availableAgencies.value || [])
+    .filter((org) => {
+      const id = Number(org?.id || 0);
+      if (!id || assignedIds.has(id)) return false;
+      const orgType = String(org?.organization_type || '').toLowerCase();
+      if (!['school', 'program', 'learning'].includes(orgType) && orgType) return false;
+      const parent = Number(org?.affiliated_agency_id || org?.__affiliatedAgencyId || 0);
+      return parent === aid;
+    })
+    .sort((a, b) => String(a?.name || '').localeCompare(String(b?.name || '')));
+}
+
+function filteredAvailableSchoolsForAgency(agencyId) {
+  const q = String(schoolSearchByAgency[String(agencyId)] || '').trim().toLowerCase();
+  const rows = availableSchoolsForAgency(agencyId);
+  if (!q) return rows;
+  return rows.filter((o) => String(o?.name || '').toLowerCase().includes(q));
+}
+
+async function assignSelectedSchools(agencyId) {
+  const key = String(agencyId);
+  const ids = (selectedAvailableSchoolsByAgency[key] || [])
+    .map((x) => parseInt(x, 10))
+    .filter((n) => n > 0);
+  if (!ids.length) return;
+  try {
+    assigningAgency.value = true;
+    await api.post('/users/assign/agency', {
+      userId: userId.value,
+      agencyIds: ids
+    });
+    selectedAvailableSchoolsByAgency[key] = [];
+    await refreshUserOrgAssignments();
+  } catch (err) {
+    error.value = err.response?.data?.error?.message || 'Failed to assign schools';
+    alert(error.value);
+  } finally {
+    assigningAgency.value = false;
+  }
+}
+
+async function addSelectedTenantAgency() {
+  const id = parseInt(String(selectedTenantAgencyId.value || ''), 10);
+  if (!id) return;
+  selectedAgencyIds.value = [id];
+  await addAgencies();
+  selectedTenantAgencyId.value = '';
+}
 const scheduleAgencyLabelById = computed(() => {
   const out = {};
   for (const a of affiliatedAgencies.value || []) {
@@ -6411,7 +6397,11 @@ const fetchAvailableAgencies = async () => {
       parents.map(async (a) => {
         try {
           const r = await api.get(`/agencies/${a.id}/affiliated-organizations`);
-          return r.data || [];
+          return (r.data || []).map((org) => ({
+            ...org,
+            affiliated_agency_id: org.affiliated_agency_id || a.id,
+            __affiliatedAgencyId: a.id
+          }));
         } catch (e) {
           return [];
         }
@@ -6541,8 +6531,30 @@ const addAgency = async () => {
   }
 };
 
+watch(editingAgencyAssignments, (v) => {
+  if (!v) return;
+  for (const a of affiliatedAgencies.value || []) {
+    const key = String(a.id);
+    if (!Array.isArray(selectedAvailableSchoolsByAgency[key])) {
+      selectedAvailableSchoolsByAgency[key] = [];
+    }
+    if (schoolSearchByAgency[key] == null) schoolSearchByAgency[key] = '';
+  }
+});
+
+watch(affiliatedAgencies, (rows) => {
+  for (const a of rows || []) {
+    const key = String(a.id);
+    if (!Array.isArray(selectedAvailableSchoolsByAgency[key])) {
+      selectedAvailableSchoolsByAgency[key] = [];
+    }
+  }
+}, { immediate: true });
+
 const agenciesEligibleAsDefault = computed(() => {
   const selected = new Set((selectedAgencyIds.value || []).map((id) => Number(id)));
+  const tenantPick = parseInt(String(selectedTenantAgencyId.value || ''), 10);
+  if (Number.isFinite(tenantPick) && tenantPick > 0) selected.add(tenantPick);
   const fromUser = (userAgencies.value || []).filter(
     (a) => String(a?.organization_type || 'agency').toLowerCase() === 'agency' || !a?.organization_type
   );
@@ -9161,6 +9173,231 @@ onUnmounted(() => {
   background: #f8f9fa;
   border-radius: 6px;
   margin-bottom: 6px;
+}
+
+.aa-agency-card {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 14px;
+  padding: 16px;
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  margin-bottom: 14px;
+}
+
+.aa-agency-card__head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+  flex-wrap: wrap;
+}
+
+.aa-agency-card__title-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.aa-agency-card__actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.aa-badge {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 2px 10px;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.aa-badge--active {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.aa-badge--schools {
+  background: #ecfeff;
+  color: #0f766e;
+}
+
+.aa-badge--default {
+  background: #e0e7ff;
+  color: #3730a3;
+}
+
+.aa-section {
+  border-top: 1px solid #edf0f4;
+  padding-top: 12px;
+}
+
+.aa-section__title {
+  margin: 0 0 10px;
+  font-size: 13px;
+  font-weight: 700;
+  color: #0f172a;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.aa-section__title span {
+  display: inline-flex;
+  width: 20px;
+  height: 20px;
+  border-radius: 999px;
+  align-items: center;
+  justify-content: center;
+  background: #166534;
+  color: #fff;
+  font-size: 11px;
+}
+
+.aa-section__grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.aa-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #475569;
+}
+
+.aa-hint {
+  margin: 0;
+  font-size: 12px;
+  color: #64748b;
+  align-self: end;
+}
+
+.aa-classification-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.aa-class-pill {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 160px;
+}
+
+.aa-class-detail {
+  font-size: 11px;
+}
+
+.aa-dual-list {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
+}
+
+.aa-dual-col {
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  padding: 10px;
+  background: #f8fafc;
+  min-width: 0;
+}
+
+.aa-dual-col__head {
+  font-size: 12px;
+  font-weight: 700;
+  margin-bottom: 8px;
+}
+
+.aa-school-search {
+  width: 100%;
+  margin-bottom: 8px;
+}
+
+.aa-dual-listbox {
+  max-height: 220px;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.aa-dual-option {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.aa-dual-controls {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 8px;
+  padding-top: 28px;
+}
+
+.aa-assigned-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  align-items: center;
+  padding: 8px;
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  font-size: 13px;
+}
+
+.aa-assigned-actions {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.aa-assigned-footer {
+  margin: 8px 0 0;
+  font-size: 12px;
+}
+
+.aa-empty {
+  margin: 8px 0;
+  font-size: 12px;
+}
+
+.aa-add-tenant {
+  margin-top: 8px;
+  padding-top: 12px;
+  border-top: 1px solid #edf0f4;
+}
+
+.aa-add-tenant__row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+@media (max-width: 900px) {
+  .aa-section__grid,
+  .aa-dual-list {
+    grid-template-columns: 1fr;
+  }
+  .aa-dual-controls {
+    padding-top: 0;
+    flex-direction: row;
+  }
 }
 
 .agency-item-left {
