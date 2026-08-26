@@ -896,22 +896,26 @@ export const generateClientIntakeNote = async (req, res, next) => {
       intakeSubmissionId: resolvedSubmissionId ?? null
     });
 
-    // Audit
-    await AdminAuditLog.logAction({
-      actionType: 'client_intake_note_generated',
-      actorUserId: req.user.id,
-      targetUserId: null,
-      agencyId,
-      metadata: {
-        clientId,
-        draftId: draft.id,
-        assignedProviderUserId,
-        serviceCode,
-        toolId,
-        model: modelName,
-        latencyMs
-      }
-    });
+    // Audit (non-blocking — missing ENUM values must not undo draft creation)
+    try {
+      await AdminAuditLog.logAction({
+        actionType: 'client_intake_note_generated',
+        actorUserId: req.user.id,
+        targetUserId: null,
+        agencyId,
+        metadata: {
+          clientId,
+          draftId: draft.id,
+          assignedProviderUserId,
+          serviceCode,
+          toolId,
+          model: modelName,
+          latencyMs
+        }
+      });
+    } catch (auditErr) {
+      console.error('[clientIntakeNote] Audit log failed after generate:', auditErr?.message || auditErr);
+    }
 
     res.status(201).json({ draft: formatDraftResponse(draft) });
   } catch (e) {
@@ -1018,19 +1022,23 @@ export const confirmClientIntakeDiagnosis = async (req, res, next) => {
       confirmedDxJson: confirmedDx ? JSON.stringify(confirmedDx) : null
     });
 
-    // Audit
+    // Audit (non-blocking — missing ENUM values must not undo diagnosis confirm)
     const actionTypeMap = {
       remain: 'client_intake_note_diagnosis_remain',
       confirmed: 'client_intake_note_diagnosis_confirmed',
       updated: 'client_intake_note_diagnosis_updated'
     };
-    await AdminAuditLog.logAction({
-      actionType: actionTypeMap[action],
-      actorUserId: req.user.id,
-      targetUserId: null,
-      agencyId,
-      metadata: { clientId, draftId, action, confirmedCode: confirmedDx?.code || null }
-    });
+    try {
+      await AdminAuditLog.logAction({
+        actionType: actionTypeMap[action],
+        actorUserId: req.user.id,
+        targetUserId: null,
+        agencyId,
+        metadata: { clientId, draftId, action, confirmedCode: confirmedDx?.code || null }
+      });
+    } catch (auditErr) {
+      console.error('[clientIntakeNote] Audit log failed after diagnosis:', auditErr?.message || auditErr);
+    }
 
     res.json({ draft: formatDraftResponse(updated) });
   } catch (e) {
@@ -1198,20 +1206,24 @@ export const finalizeClientIntakeNote = async (req, res, next) => {
       finalizedAt: now
     });
 
-    // Audit
-    await AdminAuditLog.logAction({
-      actionType: 'client_intake_note_finalized',
-      actorUserId: req.user.id,
-      targetUserId: null,
-      agencyId,
-      metadata: {
-        clientId,
-        draftId,
-        serviceCode: draftNow.service_code,
-        treatmentPlanId: treatmentPlan?.id ?? null,
-        primaryDiagnosisId: primaryDiagnosisId || null
-      }
-    });
+    // Audit (non-blocking — missing ENUM values must not undo a successful finalize)
+    try {
+      await AdminAuditLog.logAction({
+        actionType: 'client_intake_note_finalized',
+        actorUserId: req.user.id,
+        targetUserId: null,
+        agencyId,
+        metadata: {
+          clientId,
+          draftId,
+          serviceCode: draftNow.service_code,
+          treatmentPlanId: treatmentPlan?.id ?? null,
+          primaryDiagnosisId: primaryDiagnosisId || null
+        }
+      });
+    } catch (auditErr) {
+      console.error('[clientIntakeNote] Audit log failed after finalize:', auditErr?.message || auditErr);
+    }
 
     res.json({
       draft: formatDraftResponse(finalized),

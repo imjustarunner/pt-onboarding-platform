@@ -998,7 +998,9 @@ app.use((err, req, res, next) => {
       ? 'Invalid document type enum value. Run the latest DB migrations (including migrations 417 and 440 for document type expansions).'
       : enumColumn === 'document_action_type'
         ? 'Invalid document action type enum value. Run the latest DB migrations to expand supported action types.'
-        : 'Invalid enum value provided. Run the latest DB migrations to expand supported values.';
+        : enumColumn === 'action_type'
+          ? 'Invalid audit action_type enum value. Run the latest DB migrations (including 1308 for client intake note actions).'
+          : 'Invalid enum value provided. Run the latest DB migrations to expand supported values.';
     return res.status(400).json({
       error: {
         message: enumHint,
