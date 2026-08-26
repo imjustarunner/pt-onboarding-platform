@@ -225,77 +225,163 @@
           Note tenant: {{ agencyLookup[noteAidAgencyId] || selectedClient.agency_name || `Tenant #${noteAidAgencyId}` }}
         </p>
 
-        <NoteAidSessionContextStrip
-          :visible="showSessionContextStrip"
-          :clinician-label="sessionClinicianLabel"
-          :patient-label="sessionPatientLabel"
-          :patient-dob="sessionPatientDob"
-          :date-time-label="sessionDateTimeLabel"
-          v-model:duration-minutes="sessionDurationMinutes"
-          :service-code="actualServiceCode"
-          :location-label="sessionLocationLabel"
-          v-model:participants="sessionParticipants"
-          :participants-flag="sessionParticipantsFlag"
-          :code-switch-banner="sessionCodeSwitchBanner"
-        />
-
-        <NoteAidDocumentationQueue
-          v-if="needsSessionPicker && progressEntryMode === 'appointment'"
-          :agency-id="noteAidAgencyId || currentAgencyId"
-          :client-id="selectedClientId"
-          :active="needsSessionPicker"
-          @select="onDocumentationQueueSelect"
-          @continue-unlinked="continueUnlinkedProgress"
-          @client-first="pickClientFirstProgress"
-        />
-
-        <section class="na-config" :class="{ 'na-config--summary': showConfigSummary }">
-          <div v-if="showConfigSummary" class="na-config-summary">
-            <div class="na-config-summary-chips">
-              <span class="na-chip"><em>1</em> {{ dateOfService || '—' }}</span>
-              <a
-                v-if="effectiveClientId && clientProfileHref"
-                class="na-chip na-chip--link"
-                :href="clientProfileHref"
-                target="_blank"
-                rel="noopener noreferrer"
-              ><em>2</em> {{ clientDisplayName(selectedClient) || initials || 'Client' }}</a>
-              <span v-else class="na-chip"><em>2</em> {{ initials || '—' }}</span>
-              <span class="na-chip"><em>3</em> {{ configOptionsSummary }}</span>
+        <header class="na-wizard-head">
+          <div>
+            <h2 class="na-wizard-title">Create Note</h2>
+            <div class="na-wizard-tags">
+              <span class="na-wizard-tag">{{ selectedAid?.label || selectedCategoryLabel || 'Note aid' }}</span>
+              <span class="na-wizard-tag na-wizard-tag--muted">{{ draftId ? 'Draft' : 'New' }}</span>
             </div>
-            <button type="button" class="na-link-btn" @click="configExpanded = true">Edit</button>
           </div>
-          <template v-else>
-            <div class="na-step">
-              <div class="na-step-num">1</div>
-              <div class="na-step-body">
-                <label class="na-label" for="na-dos">Date of Service</label>
-                <input
-                  id="na-dos"
-                  ref="dateOfServiceInputEl"
-                  v-model="dateOfService"
-                  type="date"
-                  class="na-input"
-                />
-                <div class="na-field-meta">
-                  <span v-if="currentDraftCreatedAt" class="na-field-hint">
-                    Created {{ formatCreatedDisplay(currentDraftCreatedAt) }}
-                  </span>
-                  <button
-                    type="button"
-                    class="na-link-btn na-link-btn--sm"
-                    :disabled="savingDraftManual"
-                    @click="saveDraftNow"
-                  >
-                    {{ savingDraftManual ? 'Saving…' : (draftId ? 'Save' : 'Save draft') }}
-                  </button>
-                </div>
-              </div>
-            </div>
+          <div class="na-wizard-actions">
+            <button
+              type="button"
+              class="na-btn-outline"
+              :disabled="savingDraftManual"
+              @click="saveDraftNow"
+            >
+              {{ savingDraftManual ? 'Saving…' : 'Save Draft' }}
+            </button>
+            <button
+              v-if="noteWizardStep === 1"
+              type="button"
+              class="na-generate"
+              :disabled="!canContinueToWriteStep"
+              @click="goToWriteStep"
+            >
+              Continue
+              <span aria-hidden="true">›</span>
+            </button>
+            <button
+              v-else
+              type="button"
+              class="na-btn-outline"
+              @click="noteWizardStep = 1"
+            >
+              ← Back to Step 1
+            </button>
+          </div>
+        </header>
 
-            <div class="na-step">
-              <div class="na-step-num">2</div>
-              <div class="na-step-body">
+        <nav class="na-wizard-steps" aria-label="Note creation steps">
+          <button
+            type="button"
+            class="na-wizard-step"
+            :class="{ active: noteWizardStep === 1, done: noteWizardStep > 1 }"
+            @click="noteWizardStep = 1"
+          >
+            <span class="na-wizard-step-num">1</span>
+            Session Details
+          </button>
+          <span class="na-wizard-steps-line" aria-hidden="true" />
+          <button
+            type="button"
+            class="na-wizard-step"
+            :class="{ active: noteWizardStep === 2 }"
+            :disabled="!canContinueToWriteStep"
+            @click="goToWriteStep"
+          >
+            <span class="na-wizard-step-num">2</span>
+            Write Note
+          </button>
+        </nav>
+
+        <!-- STEP 1: Session details + client (no note writing) -->
+        <div v-if="noteWizardStep === 1" class="na-wizard-step1">
+          <NoteAidDocumentationQueue
+            v-if="needsSessionPicker && progressEntryMode === 'appointment'"
+            :agency-id="noteAidAgencyId || currentAgencyId"
+            :client-id="selectedClientId"
+            :active="needsSessionPicker"
+            @select="onDocumentationQueueSelect"
+            @continue-unlinked="continueUnlinkedProgress"
+            @client-first="pickClientFirstProgress"
+          />
+
+          <div class="na-step1-grid">
+            <div class="na-step1-main">
+              <section class="na-card">
+                <h3 class="na-card-title">Session details</h3>
+                <div class="na-card-fields">
+                  <label class="na-label" for="na-dos">Date of Service <em>*</em></label>
+                  <input
+                    id="na-dos"
+                    ref="dateOfServiceInputEl"
+                    v-model="dateOfService"
+                    type="date"
+                    class="na-input"
+                  />
+                  <div class="na-field-meta">
+                    <span v-if="currentDraftCreatedAt" class="na-field-hint">
+                      Created {{ formatCreatedDisplay(currentDraftCreatedAt) }}
+                    </span>
+                    <span v-else-if="draftAutosaveHint" class="na-field-hint">{{ draftAutosaveHint }}</span>
+                  </div>
+
+                  <template v-if="showBillingCodePicker">
+                    <span class="na-field-hint">Note / billing code</span>
+                    <select
+                      v-model="selectedServiceCode"
+                      class="na-input"
+                      :disabled="autoSelectCode || forceAutoSelect"
+                    >
+                      <option value="">Use aid default</option>
+                      <option
+                        v-for="opt in noteTypeOptions"
+                        :key="opt.value"
+                        :value="opt.value"
+                      >{{ opt.label }}</option>
+                      <option v-if="canUseOtherCode" value="__other__">Other (enter code)</option>
+                    </select>
+                    <input
+                      v-if="selectedServiceCode === '__other__'"
+                      v-model="otherServiceCode"
+                      class="na-input"
+                      placeholder="e.g., 90834"
+                    />
+                  </template>
+
+                  <!-- Times / place only when linked to a scheduled event or clinical session -->
+                  <template v-if="hasScheduledSessionContext">
+                    <NoteAidSessionContextStrip
+                      :visible="true"
+                      :clinician-label="sessionClinicianLabel"
+                      :patient-label="sessionPatientLabel"
+                      :patient-dob="sessionPatientDob"
+                      :date-time-label="sessionDateTimeLabel"
+                      v-model:duration-minutes="sessionDurationMinutes"
+                      :service-code="actualServiceCode"
+                      :location-label="sessionLocationLabel"
+                      v-model:participants="sessionParticipants"
+                      :participants-flag="sessionParticipantsFlag"
+                      :code-switch-banner="sessionCodeSwitchBanner"
+                    />
+                  </template>
+                  <p v-else class="na-field-hint">
+                    Start/end time and place of service appear when this note is linked to a scheduled appointment or billing session.
+                  </p>
+
+                  <label
+                    v-if="showAutoSelectCodeOption"
+                    class="na-check"
+                  >
+                    <input v-model="autoSelectCode" type="checkbox" :disabled="forceAutoSelect || selectedAidForcesAutoSelect" />
+                    <span>Let AI choose the best code</span>
+                  </label>
+                  <div v-if="showProgramDropdown" class="na-options-block">
+                    <span class="na-field-hint">Program (H2014 only)</span>
+                    <select v-model="selectedProgramId" class="na-input">
+                      <option value="">No program</option>
+                      <option v-for="p in programs" :key="p.id" :value="String(p.id)">{{ formatProgramLabel(p) }}</option>
+                    </select>
+                  </div>
+                </div>
+              </section>
+
+              <section class="na-card">
+                <div class="na-card-head-row">
+                  <h3 class="na-card-title">Client</h3>
+                </div>
                 <label v-if="!selectedClientId" class="na-label" for="na-initials">Client Initials</label>
                 <input
                   v-if="!selectedClientId"
@@ -384,65 +470,105 @@
                   @import-intake="showIntakeImportReview = true"
                   @import-demographics="showDemographicsImport = true"
                 />
-              </div>
+              </section>
+
+              <section class="na-phi-banner na-phi-banner--compact" role="note">
+                <strong>Privacy reminder</strong>
+                <p>
+                  Do not include PHI such as names, addresses, phone numbers, or dates of birth.
+                  Use roles: client/patient, MOC, FOC, guardian, caregiver.
+                </p>
+              </section>
             </div>
 
-            <div class="na-step">
-              <div class="na-step-num">3</div>
-              <div class="na-step-body">
-                <div class="na-step-head-row">
-                  <label class="na-label">Options</label>
-                  <button
-                    v-if="configReadyForCollapse"
-                    type="button"
-                    class="na-link-btn na-link-btn--sm"
-                    @click="configExpanded = false"
-                  >
-                    Collapse
-                  </button>
-                </div>
-                <div v-if="showBillingCodePicker" class="na-options-block">
-                  <span class="na-field-hint">Billing code (optional override)</span>
-                  <select
-                    v-model="selectedServiceCode"
-                    class="na-input"
-                    :disabled="autoSelectCode || forceAutoSelect"
-                  >
-                    <option value="">Use aid default</option>
-                    <option
-                      v-for="opt in noteTypeOptions"
-                      :key="opt.value"
-                      :value="opt.value"
-                    >{{ opt.label }}</option>
-                    <option v-if="canUseOtherCode" value="__other__">Other (enter code)</option>
-                  </select>
-                  <input
-                    v-if="selectedServiceCode === '__other__'"
-                    v-model="otherServiceCode"
-                    class="na-input"
-                    style="margin-top: 6px;"
-                    placeholder="e.g., 90834"
-                  />
-                </div>
-                <label
-                  v-if="showAutoSelectCodeOption"
-                  class="na-check na-options-block"
+            <aside class="na-step1-side">
+              <section class="na-card">
+                <h3 class="na-card-title">Before you write</h3>
+                <ul class="na-checklist">
+                  <li>
+                    <span>Session details</span>
+                    <em :class="dateOfService ? 'ok' : 'miss'">{{ dateOfService ? 'Complete' : 'Missing' }}</em>
+                  </li>
+                  <li>
+                    <span>Client linked or initials</span>
+                    <em :class="(effectiveClientId || initials) ? 'ok' : 'miss'">{{ (effectiveClientId || initials) ? 'Complete' : 'Missing' }}</em>
+                  </li>
+                  <li>
+                    <span>Diagnosis available</span>
+                    <em :class="primaryChartDiagnosis ? 'ok' : 'warn'">{{ primaryChartDiagnosis ? 'Complete' : (effectiveClientId ? 'Missing' : '—') }}</em>
+                  </li>
+                  <li>
+                    <span>Treatment plan / goals</span>
+                    <em :class="planOnFile ? 'ok' : 'warn'">{{ planOnFile ? 'Complete' : (effectiveClientId ? 'Missing' : '—') }}</em>
+                  </li>
+                </ul>
+              </section>
+
+              <section v-if="selectedClient || initials" class="na-card">
+                <h3 class="na-card-title">Selected client snapshot</h3>
+                <p class="na-snapshot-name">{{ clientDisplayName(selectedClient) || initials || '—' }}</p>
+                <dl class="na-snapshot-dl">
+                  <div>
+                    <dt>Primary diagnosis</dt>
+                    <dd>
+                      <template v-if="primaryChartDiagnosis">
+                        {{ primaryChartDiagnosis.icd10_code }} — {{ primaryChartDiagnosis.description || '' }}
+                      </template>
+                      <template v-else>—</template>
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>Program / service</dt>
+                    <dd>{{ selectedAid?.label || noteTypeDisplayLabel || '—' }}</dd>
+                  </div>
+                  <div>
+                    <dt>Date of service</dt>
+                    <dd>{{ dateOfService || '—' }}</dd>
+                  </div>
+                </dl>
+              </section>
+
+              <section class="na-card na-card--cta">
+                <h3 class="na-card-title">Next step: Write note</h3>
+                <p class="na-field-hint">
+                  Once session details and client info are confirmed, continue to the note-writing screen.
+                </p>
+                <button
+                  type="button"
+                  class="na-generate"
+                  :disabled="!canContinueToWriteStep"
+                  @click="goToWriteStep"
                 >
-                  <input v-model="autoSelectCode" type="checkbox" :disabled="forceAutoSelect || selectedAidForcesAutoSelect" />
-                  <span>Let AI choose the best code</span>
-                </label>
-                <div v-if="showProgramDropdown" class="na-options-block">
-                  <span class="na-field-hint">Program (H2014 only)</span>
-                  <select v-model="selectedProgramId" class="na-input">
-                    <option value="">No program</option>
-                    <option v-for="p in programs" :key="p.id" :value="String(p.id)">{{ formatProgramLabel(p) }}</option>
-                  </select>
-                </div>
-              </div>
-            </div>
-          </template>
-        </section>
+                  Continue to write
+                  <span aria-hidden="true">›</span>
+                </button>
+              </section>
+            </aside>
+          </div>
+        </div>
 
+        <!-- STEP 2: Write / generate -->
+        <div v-else class="na-wizard-step2">
+          <aside class="na-write-overview">
+            <div class="na-card na-card--tight">
+              <div class="na-card-head-row">
+                <h3 class="na-card-title">Session overview</h3>
+                <button type="button" class="na-link-btn na-link-btn--sm" @click="noteWizardStep = 1">Edit</button>
+              </div>
+              <dl class="na-snapshot-dl">
+                <div><dt>Client</dt><dd>{{ clientDisplayName(selectedClient) || initials || '—' }}</dd></div>
+                <div><dt>Date</dt><dd>{{ dateOfService || '—' }}</dd></div>
+                <div><dt>Service</dt><dd>{{ selectedAid?.label || noteTypeDisplayLabel || '—' }}</dd></div>
+                <div v-if="hasScheduledSessionContext && sessionDurationMinutes"><dt>Duration</dt><dd>{{ sessionDurationMinutes }} min</dd></div>
+              </dl>
+            </div>
+            <div class="na-phi-banner na-phi-banner--compact" role="note">
+              <strong>Privacy</strong>
+              <p>Use roles (client, MOC, FOC) — do not dictate names or other PHI.</p>
+            </div>
+          </aside>
+
+          <div class="na-write-main">
         <NoteAidObjectiveRatings
           v-if="showObjectiveRatings && notePathway !== 'csNoteBuild'"
           :goals="activeTreatmentGoals"
@@ -602,6 +728,11 @@
           </div>
           <small v-if="generateError" class="error">{{ generateError }}</small>
         </section>
+          </div>
+        </div>
+
+        <!-- Keep output after either step when present (visible on write step) -->
+        <template v-if="noteWizardStep === 2">
 
         <section v-if="displayPanels.length" class="na-output">
           <div class="na-output-head">
@@ -752,6 +883,7 @@
           :clientId="Number(retentionClientId || 0)"
           :officeEventId="Number(retentionOfficeEventId || 0)"
         />
+        </template>
         </template>
       </main>
 
@@ -1304,6 +1436,23 @@ const showSessionContextStrip = computed(() =>
     || activeWorkQueueItem.value?.officeEventId
   )
 );
+/** Times / place of service only when linked to a scheduled event or clinical/billing session. */
+const hasScheduledSessionContext = computed(() =>
+  !!(
+    showSessionContextStrip.value
+    || bookingContext.value?.clinicalSessionId
+    || sessionClinicalSessionId.value
+    || canApproveToClinicalRecord.value
+  )
+);
+const noteWizardStep = ref(1);
+const canContinueToWriteStep = computed(() =>
+  !!(String(dateOfService.value || '').trim() && (effectiveClientId.value || String(initials.value || '').trim()))
+);
+function goToWriteStep() {
+  if (!canContinueToWriteStep.value) return;
+  noteWizardStep.value = 2;
+}
 const skipMentalStatusExam = computed(() => {
   const code = String(actualServiceCode.value || '').toUpperCase();
   return code === 'H0004';
@@ -1492,7 +1641,7 @@ const copiedSectionId = ref('');
 let copiedSectionTimer = null;
 const revisionInstruction = ref('');
 const newNoteMenuOpen = ref(false);
-const configExpanded = ref(true);
+const configExpanded = ref(true); // kept for draft load compatibility; wizard uses noteWizardStep
 const dateOfServiceInputEl = ref(null);
 const initialsInputEl = ref(null);
 const approvalMessage = ref('');
@@ -1830,6 +1979,7 @@ const applyTherapyContextPrefill = () => {
   therapyPrefillApplied.value = true;
   if (String(dateOfService.value || '').trim() && String(initials.value || '').trim()) {
     configExpanded.value = false;
+    noteWizardStep.value = 2;
   }
 };
 
@@ -3118,7 +3268,10 @@ const generateNote = async () => {
     currentDraftArchivedAt.value = null;
     approvalMessage.value = '';
     archiveMessage.value = '';
-    if (configReadyForCollapse.value) configExpanded.value = false;
+    if (configReadyForCollapse.value) {
+      configExpanded.value = false;
+      noteWizardStep.value = 2;
+    }
 
     // Capture a short progress-note excerpt for treatment-plan renewal suggestions.
     if (aidKind(selectedAid.value) === 'progress' && outputObj.value) {
@@ -4100,6 +4253,7 @@ async function activateWorkQueueItem(item) {
   }
 
   configExpanded.value = true;
+  noteWizardStep.value = 1;
   draftId.value = null;
   outputObj.value = null;
   inputText.value = '';
@@ -4272,6 +4426,7 @@ const startNewNote = () => {
   sidebarTab.value = DOC_STATUS.STARTED;
   openDateGroups.value = { [todayIsoDate()]: true };
   configExpanded.value = true;
+  noteWizardStep.value = 1;
   newNoteMenuOpen.value = false;
   activeWorkQueueItemId.value = null;
   showProgressSessionPicker.value = true;
@@ -4299,6 +4454,7 @@ const clearGeneratedWorkspace = () => {
 
 const focusConfigField = async (which) => {
   configExpanded.value = true;
+  noteWizardStep.value = 1;
   await nextTick();
   const el = which === 'date' ? dateOfServiceInputEl.value : initialsInputEl.value;
   if (el && typeof el.focus === 'function') el.focus();
@@ -4348,6 +4504,7 @@ const startNewNoteDifferentService = () => {
   autoSelectCode.value = false;
   includeInteractiveComplexity.value = false;
   configExpanded.value = true;
+  noteWizardStep.value = 1;
   newNoteMenuOpen.value = false;
 };
 
@@ -4442,6 +4599,7 @@ const loadDraftIntoWorkspace = async (d) => {
   configExpanded.value = !(
     String(dateOfService.value || '').trim() && String(initials.value || '').trim()
   );
+  noteWizardStep.value = outputObj.value ? 2 : 1;
   newNoteMenuOpen.value = false;
   showProgressSessionPicker.value = false;
   progressEntryMode.value = 'client';
@@ -4507,15 +4665,8 @@ const loadClinicalNoteIntoWorkspace = async (noteId) => {
     Object.keys(sectionOverrides).forEach((k) => delete sectionOverrides[k]);
     Object.keys(sectionEditing).forEach((k) => delete sectionEditing[k]);
     configExpanded.value = false;
+    noteWizardStep.value = 2;
     newNoteMenuOpen.value = false;
-    approvalMessage.value = '';
-    approvalError.value = '';
-  } catch (e) {
-    viewingChartNote.value = null;
-    approvalError.value =
-      e.response?.data?.error?.message || e.message || 'Could not load clinical note.';
-  }
-};
 
 const archiveCurrentDraft = async () => {
   if (!draftId.value || archivingDraft.value) return;
@@ -5331,6 +5482,245 @@ onBeforeUnmount(() => {
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
   margin: 10px 0;
+}
+
+.na-wizard-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 8px 0 12px;
+}
+.na-wizard-title {
+  margin: 0 0 6px;
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: #0f172a;
+}
+.na-wizard-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.na-wizard-tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: #ecfdf5;
+  color: #0f766e;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+.na-wizard-tag--muted {
+  background: #f1f5f9;
+  color: #64748b;
+}
+.na-wizard-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+.na-wizard-steps {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 16px;
+  padding: 0;
+}
+.na-wizard-step {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border: 0;
+  background: transparent;
+  padding: 0;
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: #94a3b8;
+  cursor: pointer;
+}
+.na-wizard-step.active {
+  color: #0f766e;
+}
+.na-wizard-step.done {
+  color: #334155;
+}
+.na-wizard-step:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+.na-wizard-step-num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 999px;
+  border: 2px solid #cbd5e1;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: #64748b;
+}
+.na-wizard-step.active .na-wizard-step-num {
+  border-color: #0d9488;
+  background: #0d9488;
+  color: #fff;
+}
+.na-wizard-step.done .na-wizard-step-num {
+  border-color: #0d9488;
+  color: #0d9488;
+}
+.na-wizard-steps-line {
+  flex: 0 0 36px;
+  height: 2px;
+  background: #e2e8f0;
+}
+.na-step1-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(260px, 0.8fr);
+  gap: 14px;
+  align-items: start;
+}
+.na-step1-main,
+.na-step1-side {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+.na-card {
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 14px;
+  padding: 14px 16px;
+}
+.na-card--tight {
+  padding: 12px 14px;
+}
+.na-card--cta {
+  background: linear-gradient(180deg, #f0fdfa 0%, #fff 100%);
+  border-color: #99f6e4;
+}
+.na-card-title {
+  margin: 0 0 10px;
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: #0f172a;
+}
+.na-card-head-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+.na-card-head-row .na-card-title {
+  margin-bottom: 0;
+}
+.na-card-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.na-checklist {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.na-checklist li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 0.86rem;
+  color: #334155;
+}
+.na-checklist em {
+  font-style: normal;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  padding: 3px 8px;
+  border-radius: 999px;
+}
+.na-checklist em.ok {
+  background: #ccfbf1;
+  color: #0f766e;
+}
+.na-checklist em.warn {
+  background: #ffedd5;
+  color: #c2410c;
+}
+.na-checklist em.miss {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+.na-snapshot-name {
+  margin: 0 0 8px;
+  font-size: 1rem;
+  font-weight: 700;
+  color: #0f766e;
+}
+.na-snapshot-dl {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.na-snapshot-dl > div {
+  display: grid;
+  gap: 2px;
+}
+.na-snapshot-dl dt {
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: #94a3b8;
+}
+.na-snapshot-dl dd {
+  margin: 0;
+  font-size: 0.88rem;
+  color: #1e293b;
+}
+.na-phi-banner--compact {
+  margin: 0;
+}
+.na-wizard-step2 {
+  display: grid;
+  grid-template-columns: minmax(200px, 260px) minmax(0, 1fr);
+  gap: 14px;
+  align-items: start;
+}
+.na-write-overview {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  position: sticky;
+  top: 12px;
+}
+.na-write-main {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+@media (max-width: 960px) {
+  .na-step1-grid,
+  .na-wizard-step2 {
+    grid-template-columns: 1fr;
+  }
+  .na-write-overview {
+    position: static;
+  }
 }
 
 .na-library-client-bar {
