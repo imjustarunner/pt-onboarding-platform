@@ -49,8 +49,13 @@ export const PROGRESS_NOTE_TOOL_IDS = new Set([
   'clinical_h2014_group',
   'clinical_h2014_individual',
   'clinical_h0004_note',
-  'clinical_tpt_note'
+  'clinical_tpt_note',
+  'clinical_cs_note_build'
 ]);
+
+export function isCsNoteBuildToolId(toolId) {
+  return String(toolId || '') === 'clinical_cs_note_build';
+}
 
 export function isTreatmentPlanToolId(toolId) {
   return TREATMENT_PLAN_TOOL_IDS.has(String(toolId || ''));

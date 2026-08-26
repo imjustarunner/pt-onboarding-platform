@@ -17,6 +17,12 @@ export const AVAILABLE_AGENCY_FEATURE_KEYS = [
   },
   { key: 'noteAidEnabled', label: 'Note Aid' },
   {
+    key: 'csNoteBuildEnabled',
+    label: 'CSNoteBuild (Colorado step-by-step notes)',
+    /** Opt-in / testing: platform must expose; tenants or superadmin enable for Colorado pathway. */
+    defaultAvailable: false
+  },
+  {
     key: 'sessionRecordingEnabled',
     label: 'Session Recording',
     defaultAvailable: false

@@ -8,7 +8,7 @@ import { getNoteAidToolById } from '../config/noteAidTools.js';
 import { getKnowledgeBaseContext } from '../services/clinicalKnowledgeBase.service.js';
 import { listEligiblePolicyServiceCodes, resolvePolicyRuleForServiceCode } from '../services/billingPolicy.service.js';
 import { callGeminiText } from '../services/geminiText.service.js';
-import { isTreatmentPlanToolId, isProgressNoteToolId, shouldUseGeminiPro, TRANSCRIPT_FIDELITY_INSTRUCTIONS } from '../config/clinicalNotePlanOutput.js';
+import { isTreatmentPlanToolId, isProgressNoteToolId, isCsNoteBuildToolId, shouldUseGeminiPro, TRANSCRIPT_FIDELITY_INSTRUCTIONS } from '../config/clinicalNotePlanOutput.js';
 import { transcribeLongAudio } from '../services/speechTranscription.service.js';
 import { decryptChatText, encryptChatText, isChatEncryptionConfigured } from '../services/chatEncryption.service.js';
 import { validationResult } from 'express-validator';
@@ -1191,7 +1191,17 @@ export const generateClinicalNote = async (req, res, next) => {
       prompt = [prompt, '', `Program: ${programLabel}`].join('\n');
     }
     const applyInteractiveComplexity = includeInteractiveComplexity && isProgressNoteToolId(toolId);
-    if (applyInteractiveComplexity) {
+    const isCsNoteBuild = isCsNoteBuildToolId(toolId);
+    if (isCsNoteBuild) {
+      // Colorado pathway: structured section headers come from the tool prompt — do not inject SOAP.
+      prompt = [
+        prompt,
+        '',
+        TRANSCRIPT_FIDELITY_INSTRUCTIONS,
+        '',
+        'The user input is structured CSNoteBuild answers. Cover every required Colorado documentation area.'
+      ].join('\n');
+    } else if (applyInteractiveComplexity) {
       prompt = [
         prompt,
         '',

@@ -1273,6 +1273,18 @@
             </div>
             <small class="hint">Enables the Note Aid page (AI note helpers). Requires GEMINI_API_KEY in backend.</small>
 
+            <div
+              v-if="isFeatureAvailable('csNoteBuildEnabled') || userRole === 'super_admin'"
+              class="toggle-row"
+              style="margin-top: 10px;"
+            >
+              <span>Enable CSNoteBuild (Colorado step-by-step pathway)</span>
+              <ToggleSwitch v-model="agencyForm.featureFlags.csNoteBuildEnabled" compact />
+            </div>
+            <small class="hint">
+              Testing pathway: step-by-step progress notes aligned to Colorado Service Documentation Standards (ignores SOAP freeform). Superadmin can enable for testing before platform-wide rollout.
+            </small>
+
             <div v-if="isFeatureAvailable('trainingAiBuilderEnabled') || userRole === 'super_admin'" class="toggle-row" style="margin-top: 10px;">
               <span>Enable Training AI Module Builder</span>
               <ToggleSwitch v-model="agencyForm.featureFlags.trainingAiBuilderEnabled" compact />

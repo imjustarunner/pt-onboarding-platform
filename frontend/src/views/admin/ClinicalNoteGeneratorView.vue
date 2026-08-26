@@ -175,6 +175,24 @@
             <p v-if="forceAutoSelect" class="na-field-hint">
               Credential isn’t set — generation will use Code Decider until an admin records your license.
             </p>
+            <div v-if="showCsNoteBuildPathway" class="na-pathway-toggle" role="group" aria-label="Note pathway">
+              <button
+                type="button"
+                class="na-pathway-btn"
+                :class="{ on: notePathway === 'soap' }"
+                @click="notePathway = 'soap'"
+              >
+                SOAP / freeform
+              </button>
+              <button
+                type="button"
+                class="na-pathway-btn"
+                :class="{ on: notePathway === 'csNoteBuild' }"
+                @click="notePathway = 'csNoteBuild'"
+              >
+                CSNoteBuild
+              </button>
+            </div>
           </div>
           <div class="na-aid-bar-actions">
             <button type="button" class="na-change-aid" @click="openAllPendingSessionNotes">
@@ -426,11 +444,22 @@
         </section>
 
         <NoteAidObjectiveRatings
-          v-if="showObjectiveRatings"
+          v-if="showObjectiveRatings && notePathway !== 'csNoteBuild'"
           :goals="activeTreatmentGoals"
           :disabled="generating"
           @update:ratings="sessionObjectiveRatings = $event"
           @improved="onObjectiveImproved"
+        />
+
+        <NoteAidCsNoteBuildPanel
+          v-if="useCsNoteBuildPathway"
+          ref="csNoteBuildPanelRef"
+          v-model="csNoteBuildState"
+          :goals="activeTreatmentGoals"
+          :proposed-interventions="csProposedInterventions"
+          :is-telehealth="csIsTelehealth"
+          :proposing-plan="csProposingPlan"
+          @propose-plan="onCsProposePlan"
         />
 
         <div v-if="suggestUpdateTreatmentPlan" class="na-renew-banner" role="status">
@@ -444,7 +473,7 @@
           </button>
         </div>
 
-        <section class="na-input-panel">
+        <section v-if="!useCsNoteBuildPathway" class="na-input-panel">
           <div class="na-phi-banner" role="note">
             <strong>Privacy</strong>
             <p>{{ phiPrivacyBanner }}</p>
@@ -542,6 +571,33 @@
                 <path d="M12 2l1.2 6.3L19 12l-5.8 3.7L12 22l-1.2-6.3L5 12l5.8-3.7L12 2z"/>
               </svg>
               {{ generating ? 'Generating…' : 'Generate Note' }}
+            </button>
+          </div>
+          <small v-if="generateError" class="error">{{ generateError }}</small>
+        </section>
+
+        <section v-else class="na-input-panel na-input-panel--cs">
+          <div class="na-phi-banner" role="note">
+            <strong>Privacy</strong>
+            <p>{{ phiPrivacyBanner }}</p>
+          </div>
+          <div class="na-input-footer">
+            <span class="na-char-count">CSNoteBuild pathway</span>
+            <label
+              v-if="showInteractiveComplexityOption"
+              class="na-toggle-row na-toggle-row--inline"
+            >
+              <span>Interactive Complexity</span>
+              <span class="na-switch" :class="{ on: includeInteractiveComplexity }">
+                <input v-model="includeInteractiveComplexity" type="checkbox" />
+                <span class="na-switch-thumb" />
+              </span>
+            </label>
+            <button class="na-generate" type="button" :disabled="csGenerateDisabled" @click="generateNote">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true">
+                <path d="M12 2l1.2 6.3L19 12l-5.8 3.7L12 22l-1.2-6.3L5 12l5.8-3.7L12 2z"/>
+              </svg>
+              {{ generating ? 'Generating…' : 'Generate Colorado note' }}
             </button>
           </div>
           <small v-if="generateError" class="error">{{ generateError }}</small>
@@ -799,6 +855,7 @@
 import NoteAidClientPicker from '../../components/clinical/NoteAidClientPicker.vue';
 import NoteAidObjectiveRatings from '../../components/clinical/NoteAidObjectiveRatings.vue';
 import NoteAidClientContextPanel from '../../components/clinical/NoteAidClientContextPanel.vue';
+import NoteAidCsNoteBuildPanel from '../../components/clinical/NoteAidCsNoteBuildPanel.vue';
 import NoteAidCreateClientModal from '../../components/clinical/NoteAidCreateClientModal.vue';
 import NoteAidClientSetupDrawer from '../../components/clinical/NoteAidClientSetupDrawer.vue';
 import NoteAidDocumentationQueue from '../../components/clinical/NoteAidDocumentationQueue.vue';
@@ -854,6 +911,12 @@ import {
   collectFrontendPhiNames,
   detectKnownNamesInText
 } from '../../utils/noteAidPhiGuard.js';
+import {
+  createEmptyCsNoteBuildState,
+  serializeCsNoteBuildForGenerate,
+  csNoteBuildCompletionCount,
+  csContactMinutes
+} from '../../utils/csNoteBuild.js';
 import {
   HIDDEN_NOTE_AID_CODES,
   NOTE_AID_CATEGORIES,
@@ -1187,6 +1250,49 @@ const agencyLookup = computed(() => {
   return map;
 });
 const isProgressAid = computed(() => aidKind(selectedAid.value) === 'progress');
+
+const csNoteBuildAgencyEnabled = computed(() => {
+  const flags = parseFeatureFlags(agencyStore.currentAgency?.feature_flags || agencyStore.currentAgency?.featureFlags);
+  return isTruthyFlag(flags.csNoteBuildEnabled);
+});
+
+const showCsNoteBuildPathway = computed(() => {
+  if (!isProgressAid.value) return false;
+  const role = String(authStore.user?.role || '').toLowerCase();
+  return role === 'super_admin' || csNoteBuildAgencyEnabled.value;
+});
+
+const useCsNoteBuildPathway = computed(
+  () => showCsNoteBuildPathway.value && notePathway.value === 'csNoteBuild'
+);
+
+const csIsTelehealth = computed(() => {
+  const loc = String(sessionLocationLabel.value || '').toLowerCase();
+  return /tele|video|virtual/.test(loc);
+});
+
+const csProposedInterventions = computed(() => {
+  const fromGoals = [];
+  for (const g of activeTreatmentGoals.value || []) {
+    for (const o of g.objectives || []) {
+      const t = String(o.objective_text || '').trim();
+      if (t && t.length < 80) fromGoals.push(t);
+    }
+  }
+  return fromGoals.slice(0, 8);
+});
+
+const csGenerateDisabled = computed(() => {
+  if (generating.value || !canUseTool.value) return true;
+  if (noteAidAgencyNeedsChoice.value && !noteAidAgencyId.value) return true;
+  const goalIds = (activeTreatmentGoals.value || []).map((g) => g.id).filter(Boolean);
+  const { complete } = csNoteBuildCompletionCount(csNoteBuildState.value, {
+    isTelehealth: csIsTelehealth.value,
+    goalIds
+  });
+  return !complete;
+});
+
 const activeWorkQueueItemId = ref(null);
 const activeWorkQueueItem = computed(
   () => (workQueueItems.value || []).find((i) => i.id === activeWorkQueueItemId.value) || null
@@ -1276,6 +1382,10 @@ const canClearLinkedClient = computed(() => {
 });
 const inputText = ref('');
 const includeInteractiveComplexity = ref(false);
+const notePathway = ref('soap'); // 'soap' | 'csNoteBuild'
+const csNoteBuildState = ref(createEmptyCsNoteBuildState());
+const csNoteBuildPanelRef = ref(null);
+const csProposingPlan = ref(false);
 const inputMode = ref('type'); // type | speak
 const sidebarTab = ref('started'); // started | completed | signed
 const draftSearch = ref('');
@@ -2855,12 +2965,32 @@ const stopTranscription = () => {
 };
 
 const generateNote = async () => {
-  if (generateDisabled.value) return;
+  if (useCsNoteBuildPathway.value) {
+    if (csGenerateDisabled.value) return;
+  } else if (generateDisabled.value) {
+    return;
+  }
   if (!canUseTool.value) return;
 
   if (noteAidAgencyNeedsChoice.value && !noteAidAgencyId.value) {
     generateError.value = 'Choose which tenant this note belongs to before generating.';
     return;
+  }
+
+  if (useCsNoteBuildPathway.value) {
+    const serialized = serializeCsNoteBuildForGenerate(csNoteBuildState.value, {
+      dateOfService: dateOfService.value,
+      serviceCode: actualServiceCode.value,
+      locationLabel: sessionLocationLabel.value,
+      clientInitials: initials.value,
+      isTelehealth: csIsTelehealth.value
+    });
+    inputText.value = serialized;
+    const mins = csContactMinutes(csNoteBuildState.value.startTime, csNoteBuildState.value.endTime);
+    if (mins != null) sessionDurationMinutes.value = mins;
+    if (csNoteBuildState.value.participantsMode) {
+      sessionParticipants.value = csNoteBuildState.value.participantsMode;
+    }
   }
 
   const nameHits = detectKnownNamesInText(
@@ -2883,7 +3013,7 @@ const generateNote = async () => {
     dismissPhiNameWarn.value = true;
   }
 
-  if (showObjectiveRatings.value) {
+  if (showObjectiveRatings.value && !useCsNoteBuildPathway.value) {
     const needed = [];
     for (const g of activeTreatmentGoals.value) {
       for (const o of g.objectives || []) needed.push(String(o.id));
@@ -2915,7 +3045,9 @@ const generateNote = async () => {
     }
     fd.append('autoSelectCode', String(shouldAutoSelectCode));
     if (!shouldAutoSelectCode && selectedToolId.value) {
-      fd.append('toolId', selectedToolId.value);
+      fd.append('toolId', useCsNoteBuildPathway.value ? 'clinical_cs_note_build' : String(selectedToolId.value));
+    } else if (useCsNoteBuildPathway.value) {
+      fd.append('toolId', 'clinical_cs_note_build');
     }
     if (selectedProgram.value?.isCustom && selectedProgram.value?.name) {
       fd.append('programLabel', String(selectedProgram.value.name));
@@ -3020,6 +3152,49 @@ const generateNote = async () => {
     generating.value = false;
   }
 };
+
+async function onCsProposePlan(state) {
+  csProposingPlan.value = true;
+  try {
+    const focus = String(state?.sessionFocus || '').trim();
+    const interventions = [
+      ...(state?.interventionsSelected || []),
+      ...(String(state?.interventionsCustom || '').split(',').map((s) => s.trim()).filter(Boolean))
+    ];
+    const response = state?.clientResponse || '';
+    const symptoms = (state?.symptomsSelected || []).join(', ');
+    const affect = (state?.affectAreas || []).join(', ');
+    const goalBits = Object.values(state?.goalProgress || {})
+      .map((g) => `${g.goalText || 'Goal'}: ${g.rating || '—'}`)
+      .join('; ');
+    const draft = [
+      focus ? `Continue work on ${focus.replace(/\.$/, '')}.` : 'Continue therapeutic focus from today’s session.',
+      interventions.length ? `Reinforce ${interventions.slice(0, 3).join(', ')}.` : '',
+      response ? `Monitor engagement (${response.toLowerCase()}).` : '',
+      symptoms ? `Address ongoing clinical needs related to ${symptoms}.` : '',
+      affect ? `Support functioning across ${affect}.` : '',
+      goalBits ? `Treatment-plan focus: ${goalBits}.` : '',
+      'Review progress next session and adjust interventions as indicated.'
+    ].filter(Boolean).join(' ');
+    csNoteBuildState.value = {
+      ...csNoteBuildState.value,
+      ...state,
+      planProposed: draft,
+      planEdited: csNoteBuildState.value.planEdited || draft
+    };
+    csNoteBuildPanelRef.value?.setProposedPlan?.(draft);
+  } finally {
+    csProposingPlan.value = false;
+  }
+}
+
+watch(isProgressAid, (ok) => {
+  if (!ok) notePathway.value = 'soap';
+});
+
+watch(showCsNoteBuildPathway, (ok) => {
+  if (!ok) notePathway.value = 'soap';
+});
 
 const buildApprovedPayloadText = () => {
   const sections = Object.fromEntries(mergedSectionEntries.value || []);
@@ -5092,6 +5267,31 @@ onBeforeUnmount(() => {
   gap: 6px;
   align-items: stretch;
   flex-shrink: 0;
+}
+
+.na-pathway-toggle {
+  display: inline-flex;
+  gap: 4px;
+  margin-top: 10px;
+  padding: 3px;
+  background: #f1f5f9;
+  border-radius: 999px;
+  border: 1px solid #e2e8f0;
+}
+.na-pathway-btn {
+  border: none;
+  background: transparent;
+  border-radius: 999px;
+  padding: 6px 12px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: #64748b;
+  cursor: pointer;
+}
+.na-pathway-btn.on {
+  background: #fff;
+  color: #1d4ed8;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
 }
 .na-tenant-choice {
   margin: 10px 0 0;
