@@ -34,6 +34,25 @@
                 <span v-if="clientDobLabel">DOB {{ clientDobLabel }}</span>
                 <span v-if="guardianIntakeName">Guardian: {{ guardianIntakeName }}</span>
               </div>
+              <div class="cdp-tenant-line">
+                <span
+                  v-for="t in tenantMembershipPills"
+                  :key="`tenant-${t.id}`"
+                  class="cdp-pill cdp-pill--tenant"
+                  :title="t.activeChart ? 'Tenant membership (active chart context)' : 'Tenant membership'"
+                >
+                  Tenant · {{ t.name }}
+                  <template v-if="t.activeChart"> · chart</template>
+                </span>
+                <span
+                  v-for="p in programAffiliationPills"
+                  :key="`prog-${p.id}`"
+                  class="cdp-pill cdp-pill--affil"
+                  :title="'Program / organization affiliation'"
+                >
+                  {{ p.typeLabel }} · {{ p.name }}
+                </span>
+              </div>
               <div class="cdp-meta-row">
                 <span
                   class="cdp-pill"
@@ -87,7 +106,7 @@
               </div>
               <div v-if="isBackofficeRole && (switchableAgencies.length > 1 || clientAgenciesNote)" class="cdp-inline-controls cdp-inline-controls--muted">
                 <template v-if="switchableAgencies.length > 1">
-                  <span class="cdp-inline-controls__label">Agency</span>
+                  <span class="cdp-inline-controls__label">Chart tenant</span>
                   <select
                     v-model="selectedAgencyId"
                     class="inline-select cdp-inline-select"
@@ -1247,8 +1266,8 @@
           </div>
         </div>
 
-        <!-- Clinical notes running list (Records → Clinical notes) -->
-        <div v-if="showPanel('clinical') || showPanel('intake-note')" class="detail-section">
+        <!-- Notes running list (Records → Notes) -->
+        <div v-if="showPanel('clinical-notes')" class="detail-section">
           <ClientClinicalNotesFeed
             :client-id="client.id"
             :agency-id="client.agency_id || selectedAgencyId"
@@ -1258,7 +1277,7 @@
           />
         </div>
 
-        <!-- Clinical Tab (provider/admin only) -->
+        <!-- Clinical / student summary (Records → Clinical summary) -->
         <ClientClinicalTab
           v-if="showPanel('clinical')"
           :client="client"
@@ -1270,7 +1289,7 @@
           :is-backoffice-role="isBackofficeRole"
           :has-agency-access="hasAgencyAccess"
           :can-view-medical-record="canViewMedicalRecord"
-          @navigate="activeTab = $event"
+          @navigate="goChartSub"
         />
 
         <!-- Billing import tab (financial — admin / support only) -->
@@ -1282,11 +1301,12 @@
           />
         </div>
 
-        <!-- Medical Record Tab (clinical notes on imported sessions) -->
-        <div v-if="showPanel('medical-record')" class="detail-section">
+        <!-- Medical Record Tab (clinical clients only — chronological record) -->
+        <div v-if="showPanel('medical-record') && canViewMedicalRecord" class="detail-section">
           <ClientMedicalRecordsTab
-            :agency-id="Number(props.client?.agency_id || 0) || null"
+            :agency-id="Number(selectedAgencyId || props.client?.agency_id || 0) || null"
             :client-id="Number(props.client?.id || 0) || null"
+            :client="client"
             :initial-encounter-id="medicalRecordEncounterId"
             @encounter-change="onMedicalRecordEncounterChange"
           />
@@ -1731,48 +1751,50 @@
         <div v-if="showPanel('assignments')" class="detail-section">
           <div class="form-section-divider" style="margin-top: 0; margin-bottom: 10px;">
             <h3 style="margin:0;">Client assignments</h3>
-            <div class="hint">Manage multi-agency affiliations, multi-org affiliations, and scoped provider assignments.</div>
+            <div class="hint">Manage tenant memberships, program/school affiliations, and scoped provider assignments.</div>
           </div>
 
           <div v-if="assignmentsError" class="error" style="text-align:left;">{{ assignmentsError }}</div>
 
           <div class="grid" style="display:grid; grid-template-columns: 1fr; gap: 16px;">
             <div class="card" style="border: 1px solid var(--border); border-radius: 12px; padding: 14px;">
-              <h4 style="margin:0 0 10px;">Manage multi-agency affiliations</h4>
+              <h4 style="margin:0 0 10px;">Tenant memberships</h4>
               <div class="hint" style="margin-bottom: 10px;">
-                If a user has access to multiple agencies for a client, you can switch the client’s primary agency from the header dropdown.
+                Clients can belong to multiple tenants. Use “Use for chart” to choose which tenant
+                scopes chart/billing APIs in this session (memberships stay equal peers).
               </div>
               <div v-if="clientAgenciesNote" class="muted" style="margin-bottom: 10px;">{{ clientAgenciesNote }}</div>
 
-              <div v-if="(clientAgencyAffiliations || []).length === 0" class="hint">No agency affiliations found.</div>
+              <div v-if="(clientAgencyAffiliations || []).length === 0" class="hint">No tenant memberships found.</div>
               <div v-else class="table-wrap">
                 <table class="table">
                   <thead>
                     <tr>
-                      <th>Agency</th>
-                      <th>Primary</th>
+                      <th>Tenant</th>
+                      <th>Chart context</th>
                       <th class="right"></th>
                     </tr>
                   </thead>
                   <tbody>
                     <tr v-for="a in clientAgencyAffiliations" :key="a.agency_id">
                       <td>{{ a.agency_name || `Agency ${a.agency_id}` }}</td>
-                      <td>{{ a.is_primary ? 'Yes' : 'No' }}</td>
+                      <td>{{ Number(a.agency_id) === Number(selectedAgencyId || client?.agency_id) ? 'Active' : '—' }}</td>
                       <td class="right" style="white-space: nowrap;">
                         <button
-                          v-if="!a.is_primary"
+                          v-if="Number(a.agency_id) !== Number(selectedAgencyId || client?.agency_id)"
                           type="button"
                           class="btn btn-secondary btn-sm"
                           :disabled="switchingAgency"
                           @click="selectedAgencyId = String(a.agency_id); onSwitchAgency(true)"
                         >
-                          Set primary
+                          Use for chart
                         </button>
                         <button
-                          v-if="!a.is_primary"
+                          v-if="Number(a.agency_id) !== Number(selectedAgencyId || client?.agency_id) || (clientAgencyAffiliations || []).length > 1"
                           type="button"
                           class="btn btn-danger btn-sm"
-                          :disabled="switchingAgency"
+                          :disabled="switchingAgency || Number(a.agency_id) === Number(selectedAgencyId || client?.agency_id)"
+                          :title="Number(a.agency_id) === Number(selectedAgencyId || client?.agency_id) ? 'Switch chart context before removing the active tenant' : 'Remove tenant membership'"
                           @click="removeAgencyAffiliation(a.agency_id)"
                           style="margin-left: 8px;"
                         >
@@ -1786,7 +1808,7 @@
 
               <div style="display:flex; gap: 10px; align-items:end; margin-top: 12px; flex-wrap: wrap;">
                 <div style="min-width: 280px; flex: 1;">
-                  <label class="filters-label">Add agency affiliation</label>
+                  <label class="filters-label">Add tenant membership</label>
                   <select v-model="addAgencyAffiliationId" class="filters-select">
                     <option value="">Select…</option>
                     <option v-for="a in addableAgencyOptions" :key="a.id" :value="String(a.id)">{{ a.name }}</option>
@@ -1794,7 +1816,7 @@
                 </div>
                 <label class="checkbox-label" style="min-width: 200px;">
                   <input v-model="addAgencyMakePrimary" type="checkbox" />
-                  Set as primary
+                  Use for chart after add
                 </label>
                 <button
                   type="button"
@@ -1808,7 +1830,7 @@
             </div>
 
             <div class="card" style="border: 1px solid var(--border); border-radius: 12px; padding: 14px;">
-              <h4 style="margin:0 0 10px;">Multi manage multi-org affiliations (school/program)</h4>
+              <h4 style="margin:0 0 10px;">Program / school affiliations</h4>
               <div v-if="affiliationsLoading" class="loading">Loading…</div>
               <div v-else>
                 <div v-if="affiliations.length === 0" class="hint">No affiliations yet.</div>
@@ -2168,7 +2190,7 @@
             {{
               effectiveClientType === 'learning'
                 ? 'Enrollment and intake documentation for this student.'
-                : 'Intake draft and finalization for this client. Progress notes appear in the Notes list above.'
+                : 'Intake draft and finalization for this client. Progress notes are under Records → Notes.'
             }}
           </p>
           <ClientIntakeNotePanel
@@ -2177,12 +2199,18 @@
             :phi-banner="['admin', 'super_admin', 'support', 'staff'].includes(roleNorm)"
             @navigate="goChartSub"
           />
+          <div class="cdp-intake-note-actions" style="margin-top: 12px; display: flex; gap: 8px; flex-wrap: wrap;">
+            <button type="button" class="cdp-btn-soft" @click="goChartSub('notes')">
+              Back to Notes list
+            </button>
+          </div>
         </div>
 
         <div v-if="showPanel('treatment-plans')" class="detail-section">
           <ClientTreatmentPlansPanel
             :client-id="client.id"
             :agency-id="client.agency_id || selectedAgencyId"
+            :client-type="effectiveClientType"
             @navigate="goChartSub"
           />
         </div>
@@ -2457,7 +2485,11 @@ const chartSubnav = computed(() => {
         && ['provider', 'provider_plus', 'admin', 'super_admin', 'support', 'staff'].includes(roleNorm.value),
       canViewMedicalRecord: canViewMedicalRecord.value,
       canViewBilling: (canViewClientBillingImport.value || learningBillingEnabledForClient.value)
-        && !['provider', 'provider_plus'].includes(roleNorm.value)
+        && !['provider', 'provider_plus'].includes(roleNorm.value),
+      // Learning-primary labeling; clinical clients enrolled in a learning program stay clinical.
+      isLearning: effectiveClientType.value === 'learning',
+      isClinical: effectiveClientType.value === 'clinical'
+        || (isClinicalLikeClientType.value && effectiveClientType.value !== 'learning')
     });
   }
   if (hub === 'messages') {
@@ -2526,9 +2558,22 @@ function goChartSub(subOrLegacy) {
   if (LEGACY_TAB_ALIASES[key]) {
     const resolved = resolveChartTab(key);
     setChartNav(resolved.hub, resolved.sub || '');
-    // Preserve precise legacy tab when secondary surfaces share a hub sub.
-    if (RECORDS_SECONDARY_SUBS.includes(resolved.sub) || key === 'phi' || key === 'documents') {
-      activeTab.value = key === 'documents' ? 'phi' : key;
+    // Preserve precise legacy tab when secondary surfaces share a hub sub,
+    // or when the subnav id differs from the panel legacy id (notes → clinical-notes).
+    const preserveActiveTab = RECORDS_SECONDARY_SUBS.includes(resolved.sub)
+      || key === 'phi'
+      || key === 'documents'
+      || key === 'intake-note'
+      || key === 'medical-record'
+      || key === 'clinical-notes'
+      || key === 'clinical'
+      || key === 'clinical-summary'
+      || key === 'notes';
+    if (preserveActiveTab) {
+      if (key === 'documents') activeTab.value = 'phi';
+      else if (key === 'notes') activeTab.value = 'clinical-notes';
+      else if (key === 'clinical-summary') activeTab.value = 'clinical';
+      else activeTab.value = key;
       hubSub.value = resolved.sub || '';
     }
     return;
@@ -2774,6 +2819,69 @@ const switchableAgencies = computed(() => {
   return fromClient.filter((a) => mine.has(a.id));
 });
 
+const primaryAgencyDisplayName = computed(() => {
+  const activeId = Number(selectedAgencyId.value || props.client?.agency_id || 0);
+  const fromAffil = (clientAgencyAffiliations.value || []).find(
+    (a) => Number(a?.agency_id) === activeId
+  );
+  if (fromAffil?.agency_name) return String(fromAffil.agency_name).trim();
+  const fromSwitch = (switchableAgencies.value || []).find((a) => Number(a.id) === activeId);
+  if (fromSwitch?.name) return fromSwitch.name;
+  const fromMine = (myAgencies.value || []).find((a) => Number(a.id) === activeId);
+  if (fromMine?.name) return String(fromMine.name).trim();
+  return activeId ? `Agency ${activeId}` : '—';
+});
+
+const tenantMembershipPills = computed(() => {
+  const activeId = Number(selectedAgencyId.value || props.client?.agency_id || 0);
+  const fromAffil = (clientAgencyAffiliations.value || [])
+    .map((a) => ({
+      id: Number(a?.agency_id),
+      name: String(a?.agency_name || '').trim(),
+      activeChart: Number(a?.agency_id) === activeId
+    }))
+    .filter((a) => a.id && a.name);
+  if (fromAffil.length) return fromAffil;
+  const name = primaryAgencyDisplayName.value;
+  if (activeId && name && name !== '—') {
+    return [{ id: activeId, name, activeChart: true }];
+  }
+  return [];
+});
+
+const programAffiliationPills = computed(() => {
+  const seen = new Set();
+  const out = [];
+  const push = (id, name, typeRaw) => {
+    const nid = Number(id || 0);
+    const label = String(name || '').trim();
+    if (!label) return;
+    const key = nid || label.toLowerCase();
+    if (seen.has(key)) return;
+    seen.add(key);
+    const t = String(typeRaw || '').toLowerCase();
+    const typeLabel = t === 'school'
+      ? 'School'
+      : t === 'learning'
+        ? 'Learning program'
+        : t === 'program'
+          ? 'Program'
+          : t === 'clinical'
+            ? 'Clinical program'
+            : 'Program';
+    out.push({ id: nid || key, name: label, typeLabel });
+  };
+  for (const a of affiliations.value || []) {
+    push(a.organization_id, a.organization_name || a.name, a.organization_type);
+  }
+  push(
+    props.client?.organization_id,
+    props.client?.organization_name,
+    props.client?.organization_type
+  );
+  return out;
+});
+
 const hasAgencyAccess = computed(() => {
   if (isSuperAdmin.value) return true;
   if (Number(props.schoolOrganizationId || 0) > 0 && isBackofficeRole.value) return true;
@@ -2935,13 +3043,13 @@ const clientAgenciesNote = computed(() => {
   const clientAgencyIds = rows.map((r) => Number(r?.agency_id)).filter(Boolean);
   const mineCount = clientAgencyIds.filter((id) => mine.has(id)).length;
   if (mineCount > 0) {
-    if (rows.length > mineCount) return 'Note: client is also affiliated with another agency.';
+    if (rows.length > mineCount) return 'Note: client also has membership in another tenant.';
     return '';
   }
   // User has no agency overlap; show which agency owns the client.
   const names = rows.map((r) => String(r?.agency_name || '').trim()).filter(Boolean);
-  if (names.length) return `Note: client is affiliated with another agency (${names.join(', ')}).`;
-  return 'Note: client is affiliated with another agency.';
+  if (names.length) return `Note: client has tenant membership elsewhere (${names.join(', ')}).`;
+  return 'Note: client has tenant membership elsewhere.';
 });
 
 const openFullClientRecord = () => {
@@ -5606,8 +5714,13 @@ watch(
     if (desired === 'phi' || desired === 'documents') {
       activeTab.value = 'phi';
       hubSub.value = 'documents';
-    } else if (RECORDS_SECONDARY_SUBS.includes(resolved.sub)) {
-      activeTab.value = desired;
+    } else if (
+      RECORDS_SECONDARY_SUBS.includes(resolved.sub)
+      || ['intake-note', 'medical-record', 'clinical-notes', 'clinical', 'clinical-summary', 'notes'].includes(desired)
+    ) {
+      if (desired === 'notes') activeTab.value = 'clinical-notes';
+      else if (desired === 'clinical-summary') activeTab.value = 'clinical';
+      else activeTab.value = desired;
       hubSub.value = resolved.sub;
     }
   },

@@ -509,3 +509,30 @@
 .ov-card--clinical-goals { border-top: 3px solid color-mix(in srgb, var(--accent) 55%, white); }
 .ov-card--clinical-notes { border-top: 3px solid color-mix(in srgb, var(--primary) 40%, white); }
 .ov-card--clinical-other { border-top: 3px solid color-mix(in srgb, var(--accent) 30%, white); }
+
+.cc-concern-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px dashed var(--border, #e2e8f0);
+}
+.cc-concern-label {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--muted, #64748b);
+}
+.cc-concern-input {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--border, #e2e8f0);
+  border-radius: 8px;
+  font-size: 14px;
+}
+.cc-concern-check {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+}

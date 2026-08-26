@@ -4,13 +4,23 @@
       <div class="cc-enc-toolbar__meta">
         <h3>Medical Record</h3>
         <p>
-          Imported billing sessions function as clinical encounters. Select a session to review details
-          or open its clinical note in Note Aid.
+          Chronological clinical record from imported billing sessions, notes, and related entries.
+          Download a print-friendly branded summary, or open an encounter to continue in Note Aid.
         </p>
       </div>
-      <button type="button" class="btn btn-secondary btn-sm" :disabled="loading" @click="load">
-        {{ loading ? 'Loading…' : 'Refresh' }}
-      </button>
+      <div class="cc-enc-toolbar__actions">
+        <button
+          type="button"
+          class="btn btn-secondary btn-sm"
+          :disabled="!sortedEncounters.length"
+          @click="printRecord"
+        >
+          Print / download
+        </button>
+        <button type="button" class="btn btn-secondary btn-sm" :disabled="loading" @click="load">
+          {{ loading ? 'Loading…' : 'Refresh' }}
+        </button>
+      </div>
     </div>
 
     <p v-if="error" class="cc-enc-error">{{ error }}</p>
@@ -222,6 +232,7 @@ import '../../styles/client-encounters-tab.css';
 const props = defineProps({
   agencyId: { type: Number, default: null },
   clientId: { type: Number, default: null },
+  client: { type: Object, default: null },
   initialEncounterId: { type: Number, default: null }
 });
 
@@ -243,6 +254,64 @@ const listFilter = ref('all');
 const searchQuery = ref('');
 const detailTab = ref('summary');
 const selectedId = ref(null);
+
+function printRecord() {
+  const clientLabel = String(
+    props.client?.full_name || props.client?.initials || `Client #${props.clientId || ''}`
+  ).trim();
+  const agencyLabel = String(props.client?.agency_name || '').trim();
+  const rows = (sortedEncounters.value || []).slice().sort((a, b) => {
+    const da = new Date(a.service_date || a.created_at || 0).getTime();
+    const db = new Date(b.service_date || b.created_at || 0).getTime();
+    return da - db;
+  });
+  const body = rows
+    .map((row) => {
+      const date = formatEncounterDate(row.service_date);
+      const code = row.service_code || '—';
+      const provider = formatEncounterProvider(row);
+      const dx = row.diagnosis_text || '—';
+      const note = noteStatusLabel(row);
+      return `<tr>
+        <td>${date}</td>
+        <td class="mono">${code}</td>
+        <td>${provider}</td>
+        <td>${dx}</td>
+        <td>${note}</td>
+      </tr>`;
+    })
+    .join('');
+  const html = `<!DOCTYPE html><html><head><meta charset="utf-8" />
+    <title>Medical Record — ${clientLabel}</title>
+    <style>
+      body { font-family: Georgia, 'Times New Roman', serif; color: #0f172a; margin: 32px; }
+      h1 { font-size: 22px; margin: 0 0 4px; }
+      .meta { color: #475569; font-size: 13px; margin-bottom: 20px; }
+      table { width: 100%; border-collapse: collapse; font-size: 13px; }
+      th, td { border-bottom: 1px solid #cbd5e1; padding: 8px 6px; text-align: left; vertical-align: top; }
+      th { font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; color: #64748b; }
+      .mono { font-family: ui-monospace, Menlo, monospace; }
+      .brand { font-size: 12px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: #0f766e; margin-bottom: 8px; }
+      @media print { body { margin: 12mm; } }
+    </style></head><body>
+    <div class="brand">${agencyLabel || 'PlotTwistHQ'} · Medical Record</div>
+    <h1>${clientLabel}</h1>
+    <div class="meta">Chronological encounter list · Generated ${new Date().toLocaleString()}</div>
+    <table>
+      <thead><tr><th>Date</th><th>Code</th><th>Provider</th><th>Diagnosis</th><th>Note</th></tr></thead>
+      <tbody>${body || '<tr><td colspan="5">No encounters on file.</td></tr>'}</tbody>
+    </table>
+    </body></html>`;
+  const w = window.open('', '_blank', 'noopener,noreferrer,width=960,height=720');
+  if (!w) return;
+  w.document.open();
+  w.document.write(html);
+  w.document.close();
+  w.focus();
+  window.setTimeout(() => {
+    try { w.print(); } catch { /* ignore */ }
+  }, 250);
+}
 
 const filterOptions = [
   { id: 'all', label: 'All' },

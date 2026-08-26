@@ -5,6 +5,7 @@ import {
   getLearningBillingMerchantSetup,
   getClientBillingLedger,
   createSessionFromOfficeEvent,
+  createSelfPayChargeFromChart,
   getBookingEligibility,
   listLearningServices,
   listPaymentMethods,
@@ -64,6 +65,7 @@ router.post('/payment-methods/:paymentMethodId/default', setDefaultPaymentMethod
 router.post('/tokens/credit', creditClientTokens);
 router.get('/booking-eligibility', getBookingEligibility);
 router.post('/sessions/from-office-event', createSessionFromOfficeEvent);
+router.post('/clients/:clientId/self-pay-charges', createSelfPayChargeFromChart);
 router.post('/payments/intent', createPaymentIntentPlaceholder);
 router.post('/payments/:paymentId/attempts', recordPaymentAttemptPlaceholder);
 router.post('/packages/buy', buySessionPackage);

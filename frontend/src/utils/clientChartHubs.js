@@ -26,9 +26,13 @@ export const LEGACY_TAB_ALIASES = Object.freeze({
   records: { hub: 'records', sub: 'overview' },
   documents: { hub: 'records', sub: 'documents' },
   phi: { hub: 'records', sub: 'documents' },
-  clinical: { hub: 'records', sub: 'clinical-notes' },
-  'clinical-notes': { hub: 'records', sub: 'clinical-notes' },
-  'medical-record': { hub: 'records', sub: 'clinical-notes' },
+  /** Clinical / student profile summary (diagnoses, concerns, intake responses). */
+  clinical: { hub: 'records', sub: 'clinical-summary' },
+  'clinical-summary': { hub: 'records', sub: 'clinical-summary' },
+  /** Running notes list (drafts, signed notes, intake entries). */
+  'clinical-notes': { hub: 'records', sub: 'notes' },
+  notes: { hub: 'records', sub: 'notes' },
+  'medical-record': { hub: 'records', sub: 'medical-record' },
   'client-billing': { hub: 'records', sub: 'billing' },
   billing: { hub: 'records', sub: 'billing' },
   packages: { hub: 'records', sub: 'packages' },
@@ -36,7 +40,7 @@ export const LEGACY_TAB_ALIASES = Object.freeze({
   assessments: { hub: 'records', sub: 'assessments' },
   'life-balance': { hub: 'records', sub: 'assessments' },
   'school-roi': { hub: 'records', sub: 'school-roi' },
-  'intake-note': { hub: 'records', sub: 'clinical-notes' },
+  'intake-note': { hub: 'records', sub: 'intake-note' },
   'treatment-plans': { hub: 'records', sub: 'treatment-plans' },
   authorizations: { hub: 'records', sub: 'authorizations' },
   audit: { hub: 'records', sub: 'audit' },
@@ -71,33 +75,57 @@ export function lifecycleSubnav({ isSchool = false } = {}) {
   return items;
 }
 
-/** Seven-section Record Center. Extra surfaces live under Overview cards / secondary actions. */
+/**
+ * Records subnav.
+ * - clinical-summary: profile / areas of concern / intake responses
+ * - notes: running notes feed
+ * - medical-record: chronological medical record (clinical clients only)
+ */
 export function recordsSubnav({
   canViewClinical = false,
   canViewMedicalRecord = false,
-  canViewBilling = false
+  canViewBilling = false,
+  isLearning = false,
+  isClinical = false
 } = {}) {
   const items = [
-    { id: 'overview', label: 'Overview' },
-    { id: 'clinical-notes', label: 'Clinical notes' },
-    { id: 'treatment-plans', label: 'Treatment plans' },
-    { id: 'documents', label: 'Documents' }
+    { id: 'overview', label: 'Overview' }
   ];
-  if (canViewBilling) items.push({ id: 'billing', label: 'Billing & claims' });
+  if (canViewClinical || isLearning || isClinical) {
+    items.push({
+      id: 'clinical-summary',
+      // Clinical clients keep Clinical summary even when also in a learning program.
+      label: isLearning && !isClinical ? 'Student summary' : 'Clinical summary'
+    });
+    items.push({ id: 'notes', label: 'Notes' });
+  }
+  // Medical record for clinical chart access (includes clinical clients enrolled in learning programs).
+  if (canViewMedicalRecord && (isClinical || !isLearning)) {
+    items.push({ id: 'medical-record', label: 'Medical record' });
+  }
+  items.push({
+    id: 'treatment-plans',
+    label: isLearning && !isClinical ? 'Learning plans' : 'Treatment plans'
+  });
+  items.push({ id: 'documents', label: 'Documents' });
+  if (canViewBilling) {
+    items.push({
+      id: 'billing',
+      label: isLearning && !isClinical ? 'Billing / self-pay' : 'Billing & claims'
+    });
+  }
   items.push({ id: 'authorizations', label: 'Authorizations' });
   items.push({ id: 'audit', label: 'Audit trail' });
-  // Keep clinical / medical gates for callers that still check flags; Clinical Notes always listed.
-  void canViewClinical;
-  void canViewMedicalRecord;
   return items;
 }
 
-/** Secondary Records surfaces (not in the seven-section subnav). */
+/** Secondary Records surfaces (not in the primary subnav). */
 export const RECORDS_SECONDARY_SUBS = Object.freeze([
   'surveys',
   'assessments',
   'packages',
-  'school-roi'
+  'school-roi',
+  'intake-note'
 ]);
 
 /** Whether a content panel for legacyId should show given current hub/sub. */
@@ -120,10 +148,13 @@ export function panelVisible(legacyId, hub, sub) {
   if (hub === 'overview' && (subNorm === 'overview' || resolved.sub === 'overview')) {
     return !resolved.sub;
   }
-  // Clinical Notes consolidates intake note, medical record, and clinical profile.
-  if (hub === 'records' && subNorm === 'clinical-notes') {
-    return ['clinical-notes', 'clinical', 'medical-record', 'intake-note'].includes(legacy)
-      || resolved.sub === 'clinical-notes';
+  // Clinical summary shows clinical profile only (legacy id "clinical").
+  if (hub === 'records' && subNorm === 'clinical-summary') {
+    return legacy === 'clinical' || resolved.sub === 'clinical-summary';
+  }
+  // Notes feed: legacy clinical-notes / notes.
+  if (hub === 'records' && subNorm === 'notes') {
+    return legacy === 'clinical-notes' || legacy === 'notes' || resolved.sub === 'notes';
   }
   return resolved.sub === subNorm;
 }
@@ -151,7 +182,11 @@ export function chartNavTarget(hubId, subId = '') {
   }
   if (hub === 'records') {
     if (sub === 'documents') return { activeTab: 'phi', hubSub: 'documents' };
-    if (sub === 'clinical-notes') return { activeTab: 'clinical-notes', hubSub: 'clinical-notes' };
+    if (sub === 'clinical-summary') return { activeTab: 'clinical', hubSub: 'clinical-summary' };
+    if (sub === 'clinical-notes') return { activeTab: 'clinical-notes', hubSub: 'notes' };
+    if (sub === 'notes') return { activeTab: 'clinical-notes', hubSub: 'notes' };
+    if (sub === 'medical-record') return { activeTab: 'medical-record', hubSub: 'medical-record' };
+    if (sub === 'intake-note') return { activeTab: 'intake-note', hubSub: 'intake-note' };
     if (sub === 'treatment-plans') return { activeTab: 'treatment-plans', hubSub: 'treatment-plans' };
     if (sub === 'billing') return { activeTab: 'billing', hubSub: 'billing' };
     if (sub === 'authorizations') return { activeTab: 'authorizations', hubSub: 'authorizations' };

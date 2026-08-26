@@ -696,6 +696,13 @@
                   </template>
                 </div>
 
+                <GuardianPlanProgressPanel
+                  :visible="planProgressVisible"
+                  :client-id="selectedChildId"
+                  :agency-id="selectedChildAgencyId"
+                  :client-type="selectedChildClientType"
+                />
+
                 <div v-if="!selectedChild.guardian_portal_locked" class="intake-docs-block">
                   <h4 style="margin: 20px 0 8px;">Intake documents</h4>
                   <p class="hint" style="margin-bottom: 10px;">
@@ -936,6 +943,7 @@ import PlatformPreviewBanner from '../../components/admin/PlatformPreviewBanner.
 import GuardianBillingTab from '../../components/guardian/GuardianBillingTab.vue';
 import GuardianPaymentInsuranceTab from '../../components/guardian/GuardianPaymentInsuranceTab.vue';
 import GuardianDependentsTab from '../../components/guardian/GuardianDependentsTab.vue';
+import GuardianPlanProgressPanel from '../../components/guardian/GuardianPlanProgressPanel.vue';
 import GuardianSkillBuildersEventView from './GuardianSkillBuildersEventView.vue';
 import GuardianSessionBookingDrawer from '../../components/guardian/GuardianSessionBookingDrawer.vue';
 import GuardianMessagesPanel from '../../components/guardian/GuardianMessagesPanel.vue';
@@ -1059,6 +1067,31 @@ const selectedChild = computed(() => {
   const id = Number(selectedChildId.value);
   if (!id) return null;
   return (children.value || []).find((c) => Number(c?.client_id) === id) || null;
+});
+
+const selectedChildAgencyId = computed(() => {
+  const fromChild = Number(selectedChild.value?.agency_id || 0);
+  if (fromChild) return fromChild;
+  return Number(agencyStore.currentAgency?.id || 0) || null;
+});
+
+const selectedChildClientType = computed(() => {
+  const explicit = String(selectedChild.value?.client_type || '').toLowerCase();
+  if (explicit) return explicit;
+  const orgType = String(
+    selectedChild.value?.organization_type || agencyStore.currentAgency?.organization_type || ''
+  ).toLowerCase();
+  if (orgType === 'learning' || orgType === 'clinical') return orgType;
+  return '';
+});
+
+const planProgressVisible = computed(() => {
+  if (!selectedChildId.value) return false;
+  const t = selectedChildClientType.value;
+  const orgType = String(
+    selectedChild.value?.organization_type || agencyStore.currentAgency?.organization_type || ''
+  ).toLowerCase();
+  return t === 'learning' || t === 'clinical' || orgType === 'learning' || orgType === 'clinical';
 });
 
 const selectedChildFullName = computed(() => {

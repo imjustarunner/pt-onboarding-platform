@@ -19,14 +19,23 @@ export async function upsertClinicalDiagnosis({
   createdByUserId,
   clinicalSessionId = null,
   clinicalNoteId = null,
-  setPrimary = false
+  setPrimary = false,
+  concernKind = 'clinical'
 }) {
   const agency = safeInt(agencyId);
   const client = safeInt(clientId);
-  const code = String(icd10Code || '').trim().toUpperCase();
+  const kind = String(concernKind || 'clinical').trim().toLowerCase() === 'learning_concern'
+    ? 'learning_concern'
+    : 'clinical';
+  let code = String(icd10Code || '').trim().toUpperCase();
+  const desc = description ? String(description).trim().slice(0, 500) : null;
+  if (!code && kind === 'learning_concern' && desc) {
+    const slug = desc.toUpperCase().replace(/[^A-Z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 12);
+    code = `LC-${slug || Date.now().toString(36).toUpperCase()}`.slice(0, 16);
+  }
   const actor = safeInt(createdByUserId);
   if (!agency || !client || !code || !actor) {
-    throw new Error('agencyId, clientId, icd10Code, and createdByUserId are required');
+    throw new Error('agencyId, clientId, icd10Code (or learning description), and createdByUserId are required');
   }
 
   const conn = await clinicalPool.getConnection();
@@ -58,14 +67,16 @@ export async function upsertClinicalDiagnosis({
           `UPDATE clinical_diagnoses
            SET description = COALESCE(?, description),
                justification = COALESCE(?, justification),
+               concern_kind = COALESCE(?, concern_kind),
                is_primary = CASE WHEN ? = 1 THEN 1 ELSE is_primary END,
                is_active = 1,
                clinical_session_id = COALESCE(?, clinical_session_id),
                clinical_note_id = COALESCE(?, clinical_note_id)
            WHERE id = ?`,
           [
-            description ? String(description).slice(0, 500) : null,
+            desc,
             justification ? String(justification) : null,
+            kind,
             primaryFlag,
             safeInt(clinicalSessionId),
             safeInt(clinicalNoteId),
@@ -80,7 +91,7 @@ export async function upsertClinicalDiagnosis({
                  is_primary = CASE WHEN ? = 1 THEN 1 ELSE is_primary END,
                  is_active = 1
              WHERE id = ?`,
-            [description ? String(description).slice(0, 500) : null, primaryFlag, diagnosisId]
+            [desc, primaryFlag, diagnosisId]
           );
         } else {
           throw e;
@@ -91,15 +102,16 @@ export async function upsertClinicalDiagnosis({
         const [result] = await conn.execute(
           `INSERT INTO clinical_diagnoses
            (agency_id, client_id, clinical_session_id, clinical_note_id, icd10_code, description,
-            justification, is_primary, is_active, created_by_user_id)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?)`,
+            concern_kind, justification, is_primary, is_active, created_by_user_id)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)`,
           [
             agency,
             client,
             safeInt(clinicalSessionId),
             safeInt(clinicalNoteId),
             code,
-            description ? String(description).slice(0, 500) : null,
+            desc,
+            kind,
             justification ? String(justification) : null,
             primaryFlag,
             actor
@@ -119,7 +131,7 @@ export async function upsertClinicalDiagnosis({
               safeInt(clinicalSessionId),
               safeInt(clinicalNoteId),
               code,
-              description ? String(description).slice(0, 500) : null,
+              desc,
               primaryFlag,
               actor
             ]

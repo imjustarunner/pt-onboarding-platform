@@ -74,23 +74,31 @@
       <div v-else class="cc-clinical-layout">
         <aside class="cc-clinical-col cc-clinical-col--left">
           <section class="cc-card cc-clinical-card">
-            <h4 class="cc-clinical-card__title">{{ isLearningClient ? 'Student snapshot' : 'Clinical snapshot' }}</h4>
-            <div v-if="billingDiagnosesLoading" class="muted small">Loading…</div>
-            <div v-else-if="billingDiagnosesError" class="error small">{{ billingDiagnosesError }}</div>
-            <div v-else-if="chartDiagnoses.length" class="cc-clinical-dx-list">
-              <div v-for="dx in chartDiagnoses" :key="dx.id || dx.icd10_code || dx.code" class="cc-clinical-dx">
+            <h4 class="cc-clinical-card__title">
+              {{ isLearningClient ? 'Areas of concern' : 'Clinical snapshot' }}
+            </h4>
+            <div v-if="billingDiagnosesLoading && !isLearningClient" class="muted small">Loading…</div>
+            <div v-else-if="billingDiagnosesError && !isLearningClient" class="error small">{{ billingDiagnosesError }}</div>
+            <div v-else-if="displayConcerns.length" class="cc-clinical-dx-list">
+              <div v-for="dx in displayConcerns" :key="dx.id || dx.icd10_code || dx.code" class="cc-clinical-dx">
                 <div class="cc-clinical-dx-head">
-                  <strong class="mono">{{ dx.icd10_code || dx.code }}</strong>
-                  <span v-if="dx.is_primary || dx.isPrimary" class="cc-dx-primary">Primary</span>
+                  <strong v-if="!isLearningClient || showConcernCode(dx)" class="mono">
+                    {{ dx.icd10_code || dx.code }}
+                  </strong>
+                  <strong v-else>{{ dx.description || 'Area of concern' }}</strong>
+                  <span v-if="dx.is_primary || dx.isPrimary" class="cc-dx-primary">
+                    {{ isLearningClient ? 'Primary' : 'Primary' }}
+                  </span>
                 </div>
-                <span class="small">{{ dx.description || '' }}</span>
+                <span v-if="isLearningClient && showConcernCode(dx)" class="small">{{ dx.description || '' }}</span>
+                <span v-else-if="!isLearningClient" class="small">{{ dx.description || '' }}</span>
                 <details v-if="dx.justification" class="cc-dx-just">
-                  <summary>Justification</summary>
+                  <summary>{{ isLearningClient ? 'Notes' : 'Justification' }}</summary>
                   <p>{{ dx.justification }}</p>
                 </details>
               </div>
             </div>
-            <div v-else-if="billingDiagnoses.length" class="cc-clinical-dx-list">
+            <div v-else-if="!isLearningClient && billingDiagnoses.length" class="cc-clinical-dx-list">
               <div v-for="dx in billingDiagnoses" :key="dx.code" class="cc-clinical-dx">
                 <strong class="mono">{{ dx.code }}</strong>
                 <span class="muted small">
@@ -102,6 +110,32 @@
             <p v-else class="muted small">
               {{ isLearningClient ? 'No areas of concern on file yet.' : 'No diagnoses on file yet.' }}
             </p>
+
+            <form
+              v-if="isLearningClient"
+              class="cc-concern-form"
+              @submit.prevent="saveLearningConcern"
+            >
+              <label class="cc-concern-label" for="cc-concern-desc">Add area of concern</label>
+              <input
+                id="cc-concern-desc"
+                v-model="concernDraft.description"
+                type="text"
+                class="cc-concern-input"
+                placeholder="e.g. Reading fluency, executive function"
+                maxlength="500"
+                required
+              />
+              <label class="cc-concern-check">
+                <input v-model="concernDraft.isPrimary" type="checkbox" />
+                Mark as primary concern
+              </label>
+              <button type="submit" class="cc-btn-soft" :disabled="concernSaving || !concernDraft.description.trim()">
+                {{ concernSaving ? 'Saving…' : 'Add concern' }}
+              </button>
+              <p v-if="concernError" class="error small">{{ concernError }}</p>
+            </form>
+
             <button
               v-if="!isLearningClient"
               type="button"
@@ -151,16 +185,20 @@
               }}
             </p>
             <div class="cc-clinical-status-grid">
-              <div class="cc-clinical-status" :class="riskLevelLabel === 'Elevated' ? 'is-elevated' : ''">
+              <div
+                v-if="!isLearningClient || riskLevelLabel !== '—'"
+                class="cc-clinical-status"
+                :class="riskLevelLabel === 'Elevated' ? 'is-elevated' : ''"
+              >
                 <span class="cc-clinical-status__label">Risk level</span>
                 <strong>{{ riskLevelLabel }}</strong>
               </div>
-              <div class="cc-clinical-status">
+              <div v-if="!isLearningClient || psc17Summary" class="cc-clinical-status">
                 <span class="cc-clinical-status__label">PSC-17</span>
                 <strong>{{ psc17Summary ? `${psc17Summary.total} / ${psc17Summary.totalMax}` : '—' }}</strong>
               </div>
               <div class="cc-clinical-status">
-                <span class="cc-clinical-status__label">Goals on file</span>
+                <span class="cc-clinical-status__label">{{ isLearningClient ? 'Goals on file' : 'Goals on file' }}</span>
                 <strong>{{ goalsSection?.fields?.length || 0 }}</strong>
               </div>
               <div class="cc-clinical-status">
@@ -171,7 +209,7 @@
           </section>
 
           <section
-            v-if="traumaSection"
+            v-if="traumaSection && (!isLearningClient || traumaSectionHasValues)"
             class="ov-card cc-clinical-section"
             :class="clinicalSectionCardClass(traumaSection)"
           >
@@ -385,10 +423,34 @@ const chartDiagnoses = computed(() =>
   (props.chartDiagnoses?.length ? props.chartDiagnoses : localChartDiagnoses.value) || []
 );
 
+const displayConcerns = computed(() => {
+  const rows = (chartDiagnoses.value || []).filter((d) => d && (d.is_active == null || Number(d.is_active) === 1));
+  if (!isLearningClient.value) return rows;
+  return rows.filter((d) => {
+    const kind = String(d.concern_kind || d.concernKind || '').toLowerCase();
+    if (kind === 'learning_concern') return true;
+    if (kind === 'clinical') return false;
+    // Legacy rows without concern_kind: treat LC-* / free-text as concerns
+    const code = String(d.icd10_code || d.code || '').toUpperCase();
+    return code.startsWith('LC-') || !!String(d.description || '').trim();
+  });
+});
+
+const concernDraft = ref({ description: '', isPrimary: false });
+const concernSaving = ref(false);
+const concernError = ref('');
+
+function showConcernCode(dx) {
+  const code = String(dx?.icd10_code || dx?.code || '').trim().toUpperCase();
+  if (!code) return false;
+  if (code.startsWith('LC-')) return false;
+  return true;
+}
+
 async function loadChartDiagnoses() {
   const cid = Number(props.client?.id || 0);
   const aid = Number(props.client?.agency_id || 0);
-  if (!cid || !aid || isLearningClient.value) {
+  if (!cid || !aid) {
     localChartDiagnoses.value = [];
     return;
   }
@@ -403,8 +465,32 @@ async function loadChartDiagnoses() {
   }
 }
 
+async function saveLearningConcern() {
+  const cid = Number(props.client?.id || 0);
+  const aid = Number(props.client?.agency_id || 0);
+  const description = String(concernDraft.value.description || '').trim();
+  if (!cid || !aid || !description) return;
+  concernSaving.value = true;
+  concernError.value = '';
+  try {
+    await api.post('/medical-billing/diagnoses', {
+      agencyId: aid,
+      clientId: cid,
+      description,
+      concernKind: 'learning_concern',
+      isPrimary: !!concernDraft.value.isPrimary
+    }, { skipGlobalLoading: true });
+    concernDraft.value = { description: '', isPrimary: false };
+    await loadChartDiagnoses();
+  } catch (e) {
+    concernError.value = e?.response?.data?.error?.message || 'Could not save area of concern.';
+  } finally {
+    concernSaving.value = false;
+  }
+}
+
 onMounted(loadChartDiagnoses);
-watch(() => [props.client?.id, props.client?.agency_id], loadChartDiagnoses);
+watch(() => [props.client?.id, props.client?.agency_id, isLearningClient.value], loadChartDiagnoses);
 
 const clientRef = toRef(props, 'client');
 const clientId = computed(() => Number(props.client?.id || 0) || null);
@@ -452,6 +538,11 @@ const {
   insuranceSlotFromFieldKey,
   isInsuranceCardField
 } = clinical;
+
+const traumaSectionHasValues = computed(() => {
+  const fields = traumaSection.value?.fields || [];
+  return fields.some((f) => String(f?.value || '').trim() && String(f.value).trim() !== '—');
+});
 
 const { sortedEncounters, loading: encountersLoading } = useClientEncounters(agencyId, clientId, {
   medicalOnly: true,

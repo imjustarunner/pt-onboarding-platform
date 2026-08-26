@@ -21,7 +21,8 @@ import {
   listMyClientIntakeSignedDocuments,
   getMyClientIntakeSignedDocumentDownloadUrl,
   listGuardianCompanyEvents,
-  getGuardianCompanyEventDetail
+  getGuardianCompanyEventDetail,
+  getGuardianDependentPlanProgress
 } from '../controllers/guardianPortal.controller.js';
 import {
   getMyClientWaiverProfile,
@@ -85,6 +86,7 @@ router.get('/skill-builders/events/:eventId/posts', listGuardianSkillBuilderEven
 router.get('/skill-builders/events/:eventId/chat-thread', ensureGuardianSkillBuilderEventChatThread);
 
 router.get('/dependents', listGuardianDependentsForAgency);
+router.get('/dependents/:clientId/plan-progress', getGuardianDependentPlanProgress);
 router.get('/registration/catalog', listGuardianRegistrationCatalog);
 router.post('/registration/company-events/:eventId/enroll', guardianEnrollCompanyEvent);
 router.post('/registration/learning-classes/:classId/enroll', guardianEnrollLearningClass);

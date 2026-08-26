@@ -75,6 +75,15 @@
           <span v-if="therapyContext.therapyCalendarLabel"> · {{ therapyContext.therapyCalendarLabel }}</span>
         </div>
 
+        <div v-if="viewingChartNote" class="na-context-strip" :class="viewingChartNote.standalone ? 'na-context-strip--warn' : 'na-context-strip--soft'">
+          <strong>{{ viewingChartNote.standalone ? 'Standalone note' : 'Chart note' }}</strong>
+          <span v-if="viewingChartNote.standalone">
+            — copy sections for Therapy Notes. Not linked to a scheduled session or claim.
+          </span>
+          <span v-else> — opened from the clinical chart (read-only copy).</span>
+          <span v-if="viewingChartNote.title"> · {{ viewingChartNote.title }}</span>
+        </div>
+
         <div class="na-context-strip na-context-strip--soft">
           <span><strong>Credential:</strong> {{ loadingContext ? 'Loading…' : (providerCredentialText || 'Not set') }}</span>
           <span><strong>Tier:</strong> {{ derivedTier }}</span>
@@ -521,7 +530,12 @@
                   <span class="na-chevron" :class="{ open: !isPanelCollapsed(panel.id) }">▾</span>
                 </button>
                 <span class="na-soap-actions">
-                  <button type="button" class="na-mini-btn" @click="toggleSectionEdit(panel.id)">
+                  <button
+                    v-if="!chartNoteReadOnly"
+                    type="button"
+                    class="na-mini-btn"
+                    @click="toggleSectionEdit(panel.id)"
+                  >
                     {{ sectionEditing[panel.id] ? 'Done' : 'Edit' }}
                   </button>
                   <button
@@ -546,7 +560,7 @@
             </div>
           </div>
 
-          <div class="field na-revision-field">
+          <div v-if="!chartNoteReadOnly" class="field na-revision-field">
             <label class="na-revision-label" for="na-revision">
               Add additional content / make changes / update instructions
             </label>
@@ -560,7 +574,7 @@
           </div>
 
           <NoteAidStructuredChartPanel
-            v-if="showStructuredChartPanel"
+            v-if="showStructuredChartPanel && !chartNoteReadOnly"
             :diagnoses="chartDiagnoses"
             v-model:diagnostic-justification="chartDiagnosticJustification"
             v-model:mse="chartMentalStatus"
@@ -576,6 +590,7 @@
               Copy Full Note
             </button>
             <button
+              v-if="!chartNoteReadOnly"
               type="button"
               class="na-btn-outline"
               :disabled="!draftId || archivingDraft"
@@ -854,7 +869,7 @@ const therapyContext = computed(() => {
 });
 
 const canApproveToClinicalRecord = computed(
-  () => !!(
+  () => !chartNoteReadOnly.value && !!(
     (bookingContext.value?.clientId || sessionOfficeEventId.value || effectiveClientId.value)
     && (
       bookingContext.value?.officeEventId
@@ -1189,6 +1204,9 @@ const canLaunchConsentSession = computed(() =>
 
 // Draft state
 const draftId = ref(null);
+/** Chart clinical_notes row opened for read-only section copy. */
+const viewingChartNote = ref(null);
+const chartNoteReadOnly = computed(() => !!viewingChartNote.value);
 const lastSavedAt = ref('');
 let autosaveTimer = null;
 let autosaveBusy = false;
@@ -2187,7 +2205,7 @@ const autosave = async () => {
   }
 
   const payload = {
-    agencyId: currentAgencyId.value,
+    agencyId: noteAidAgencyId.value || currentAgencyId.value,
     recordingPurpose: String(recordingPurpose.value || 'dictation'),
     serviceCode: autoSelectCode.value ? null : actualServiceCode.value || null,
     programId:
@@ -2325,7 +2343,7 @@ async function deleteCurrentDraft() {
     await api.post(
       '/clinical-notes/drafts/delete',
       {
-        agencyId: currentAgencyId.value,
+        agencyId: noteAidAgencyId.value || currentAgencyId.value,
         draftIds: [Number(draftId.value)]
       },
       { skipGlobalLoading: true }
@@ -3056,7 +3074,12 @@ const loadRecent = async ({ retry = true } = {}) => {
     recentLoading.value = true;
     recentError.value = '';
     const res = await api.get('/clinical-notes/recent', {
-      params: { agencyId: currentAgencyId.value, days: 2555, archiveStatus: 'all' },
+      params: {
+        agencyId: currentAgencyId.value,
+        allAccessible: '1',
+        days: 2555,
+        archiveStatus: 'all'
+      },
       skipGlobalLoading: true,
       timeout: 15000
     });
@@ -3802,6 +3825,7 @@ const persistSessionObjectiveRatings = async () => {
 
 const startNewNote = () => {
   draftId.value = null;
+  viewingChartNote.value = null;
   currentDraftArchivedAt.value = null;
   currentDraftCreatedAt.value = null;
   lastSavedAt.value = '';
@@ -3912,7 +3936,9 @@ const startNewNoteDifferentService = () => {
 
 const loadDraftIntoWorkspace = (d) => {
   if (!d) return;
+  viewingChartNote.value = null;
   draftId.value = d.id || null;
+  selectedQueueAgencyId.value = Number(d.agency_id || d.agencyId || 0) || null;
   currentDraftArchivedAt.value = d.archived_at || null;
   currentDraftCreatedAt.value = d.created_at || null;
   const draftCode = String(d.service_code || '').trim().toUpperCase();
@@ -3983,15 +4009,86 @@ const loadDraftIntoWorkspace = (d) => {
   activeWorkQueueItemId.value = null;
 };
 
+const loadClinicalNoteIntoWorkspace = async (noteId) => {
+  const nid = Number(noteId || 0);
+  if (!nid) return;
+  const aid = Number(noteAidAgencyId.value || currentAgencyId.value || 0);
+  if (!aid) return;
+  try {
+    const res = await api.get(`/medical-billing/notes/${nid}`, {
+      params: { agencyId: aid },
+      skipGlobalLoading: true
+    });
+    const note = res?.data?.note;
+    if (!note) {
+      approvalError.value = 'Clinical note not found.';
+      return;
+    }
+    viewingChartNote.value = {
+      id: note.id,
+      title: note.title || '',
+      standalone: !!note.standalone,
+      noteType: note.noteType || null
+    };
+    draftId.value = null;
+    activeWorkQueueItemId.value = null;
+    currentDraftArchivedAt.value = null;
+    currentDraftCreatedAt.value = note.createdAt || null;
+    dateOfService.value = note.dateOfService
+      ? String(note.dateOfService).slice(0, 10)
+      : todayIsoDate();
+    const cid = Number(note.clientId || 0) || null;
+    if (cid) {
+      selectedClientId.value = cid;
+      selectedClient.value = { id: cid, initials: '' };
+      await hydrateSelectedClient(cid);
+    }
+    const code = String(note.serviceCode || '').trim().toUpperCase();
+    otherServiceCode.value = '';
+    if (!code) {
+      selectedServiceCode.value = '';
+    } else if (HIDDEN_ADDON_CODES.has(code)) {
+      selectedServiceCode.value = '__other__';
+      otherServiceCode.value = code;
+    } else {
+      const resolved = resolveNoteTypeSelection(code);
+      const known = (noteTypeOptions.value || []).some(
+        (o) => o.value === resolved || o.codes.includes(code)
+      );
+      if (known) selectedServiceCode.value = resolved;
+      else {
+        selectedServiceCode.value = '__other__';
+        otherServiceCode.value = code;
+      }
+    }
+    inputText.value = '';
+    outputObj.value = note.outputJson && typeof note.outputJson === 'object'
+      ? note.outputJson
+      : (note.outputJson ? { sections: { Narrative: String(note.outputJson) }, meta: {} } : null);
+    Object.keys(sectionOverrides).forEach((k) => delete sectionOverrides[k]);
+    Object.keys(sectionEditing).forEach((k) => delete sectionEditing[k]);
+    configExpanded.value = false;
+    newNoteMenuOpen.value = false;
+    approvalMessage.value = '';
+    approvalError.value = '';
+  } catch (e) {
+    viewingChartNote.value = null;
+    approvalError.value =
+      e.response?.data?.error?.message || e.message || 'Could not load clinical note.';
+  }
+};
+
 const archiveCurrentDraft = async () => {
-  if (!draftId.value || !currentAgencyId.value || archivingDraft.value) return;
+  if (!draftId.value || archivingDraft.value) return;
+  const aid = Number(noteAidAgencyId.value || currentAgencyId.value || 0);
+  if (!aid) return;
   const nextArchived = !isCurrentDraftArchived.value;
   try {
     archivingDraft.value = true;
     archiveMessage.value = '';
     const res = await api.post(
       `/clinical-notes/drafts/${draftId.value}/archive`,
-      { agencyId: currentAgencyId.value, archived: nextArchived },
+      { agencyId: aid, archived: nextArchived },
       { skipGlobalLoading: true }
     );
     currentDraftArchivedAt.value = res?.data?.draft?.archived_at || (nextArchived ? new Date().toISOString() : null);
@@ -4124,8 +4221,13 @@ onMounted(async () => {
       );
       if (active) activeWorkQueueItemId.value = active.id;
     }
+    const qAgency = Number(route.query?.agencyId || route.query?.agency_id || 0) || null;
+    if (qAgency) selectedQueueAgencyId.value = qAgency;
     const qDraft = String(route.query?.draftId || route.query?.draft_id || '').trim();
-    if (qDraft && recentDrafts.value.length) {
+    const qNote = String(route.query?.clinicalNoteId || route.query?.clinical_note_id || '').trim();
+    if (qNote) {
+      await loadClinicalNoteIntoWorkspace(qNote);
+    } else if (qDraft && recentDrafts.value.length) {
       const hit = recentDrafts.value.find((d) => String(d.id) === qDraft);
       if (hit) loadDraftIntoWorkspace(hit);
     }
@@ -4202,10 +4304,18 @@ watch(() => route.query, () => {
   if (!canUseTool.value) return;
   applyBookingContextPrefill();
   applyTherapyContextPrefill();
+  const qAgency = Number(route.query?.agencyId || route.query?.agency_id || 0) || null;
+  if (qAgency) selectedQueueAgencyId.value = qAgency;
+  const qNote = String(route.query?.clinicalNoteId || route.query?.clinical_note_id || '').trim();
   const qDraft = String(route.query?.draftId || route.query?.draft_id || '').trim();
-  if (qDraft) {
-    const hit = recentDrafts.value.find((d) => String(d.id) === qDraft);
-    if (hit) loadDraftIntoWorkspace(hit);
+  if (qNote) {
+    loadClinicalNoteIntoWorkspace(qNote);
+  } else {
+    if (viewingChartNote.value) viewingChartNote.value = null;
+    if (qDraft) {
+      const hit = recentDrafts.value.find((d) => String(d.id) === qDraft);
+      if (hit) loadDraftIntoWorkspace(hit);
+    }
   }
 }, { deep: true });
 
@@ -4224,7 +4334,8 @@ watch(currentAgencyId, async (next, prev) => {
   // Ignore initial assignment and null flickers during agency store refresh.
   if (!next || prev == null) return;
   if (String(next) === String(prev)) return;
-  await bootstrapWorkspace({ resetForm: true });
+  // Keep the open note; only refresh the multi-tenant library for the new workspace context.
+  await loadRecent();
 });
 
 watch(clinicalNoteGeneratorEnabled, async (enabled, wasEnabled) => {
@@ -4655,6 +4766,13 @@ onBeforeUnmount(() => {
 
 .na-context-strip--soft {
   color: var(--na-muted);
+}
+
+.na-context-strip--warn {
+  color: #92400e;
+  background: #fffbeb;
+  border: 1px solid #fcd34d;
+  border-radius: 10px;
 }
 
 .na-aid-bar {

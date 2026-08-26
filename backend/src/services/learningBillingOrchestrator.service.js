@@ -236,6 +236,128 @@ export class LearningBillingOrchestrator {
     return { covered: false, mode, reason: 'pay_per_event' };
   }
 
+  /**
+   * Chart / Note Aid self-pay: create a learning session shell + PENDING charge
+   * (Stripe path via learning_session_charges — no clinical_claims).
+   */
+  static async createSelfPayChargeFromChart({
+    agencyId,
+    clientId,
+    organizationId = null,
+    officeEventId = null,
+    clinicalNoteId = null,
+    serviceType = 'CONSULTATION',
+    learningServiceId = null,
+    amountCents = null,
+    serviceDate = null,
+    durationMinutes: mins = 60,
+    guardianUserId = null,
+    notes = null,
+    createdByUserId = null
+  }) {
+    const aid = Number(agencyId || 0);
+    const cid = Number(clientId || 0);
+    if (!aid || !cid) throw new Error('agencyId and clientId are required');
+
+    let service = null;
+    if (learningServiceId) {
+      const services = await LearningService.listByAgency({ agencyId: aid, activeOnly: false });
+      service = (services || []).find((s) => Number(s.id) === Number(learningServiceId)) || null;
+    }
+    if (!service) {
+      const type = String(serviceType || 'CONSULTATION').toUpperCase();
+      service = await LearningService.ensureByType({
+        agencyId: aid,
+        serviceType: type,
+        createdByUserId
+      });
+    }
+    const feeCents = amountCents != null
+      ? Number(amountCents)
+      : Number(service?.default_fee_cents || 0);
+
+    let session = null;
+    const eid = Number(officeEventId || 0);
+    if (eid > 0) {
+      session = await LearningProgramSession.findByOfficeEventId(eid);
+      if (session) {
+        const existing = await LearningSessionCharge.listLedgerForClient({
+          agencyId: aid,
+          clientId: cid,
+          limit: 50
+        });
+        const already = (existing || []).find(
+          (c) => Number(c.learning_program_session_id) === Number(session.id)
+            && !['VOIDED', 'REFUNDED'].includes(String(c.charge_status || '').toUpperCase())
+        );
+        if (already) {
+          return { session, charge: already, created: false, service };
+        }
+      }
+    }
+
+    if (!session) {
+      const day = String(serviceDate || new Date().toISOString().slice(0, 10)).slice(0, 10);
+      const duration = Math.max(15, Number(mins) || 60);
+      const startLocal = `${day} 12:00:00`;
+      const endHour = 12 + Math.floor(duration / 60);
+      const endMin = duration % 60;
+      const endLocal = `${day} ${String(endHour).padStart(2, '0')}:${String(endMin).padStart(2, '0')}:00`;
+
+      session = await LearningProgramSession.create({
+        agencyId: aid,
+        organizationId: organizationId || null,
+        officeEventId: eid || null,
+        clientId: cid,
+        guardianUserId,
+        learningServiceId: service?.id || null,
+        paymentMode: 'PAY_PER_EVENT',
+        sessionStatus: 'COMPLETED',
+        scheduledStartAt: startLocal,
+        scheduledEndAt: endLocal,
+        sourceTimezone: 'America/New_York',
+        notes: notes || (clinicalNoteId ? `Self-pay from clinical note #${clinicalNoteId}` : 'Self-pay from chart'),
+        metadataJson: {
+          source: 'CHART_SELF_PAY',
+          clinicalNoteId: clinicalNoteId || null,
+          serviceType: String(service?.service_type || serviceType || '').toUpperCase()
+        },
+        createdByUserId
+      });
+    }
+
+    const charge = await this.createPendingSessionCharge({
+      agencyId: aid,
+      sessionId: session.id,
+      clientId: cid,
+      guardianUserId,
+      learningServiceId: service?.id || null,
+      createdByUserId
+    });
+
+    const pool = (await import('../config/database.js')).default;
+    if (clinicalNoteId || feeCents > 0) {
+      const nextFee = feeCents > 0 ? feeCents : Number(charge?.amount_cents || 0);
+      const total = nextFee;
+      await pool.execute(
+        `UPDATE learning_session_charges
+         SET amount_cents = ?, tax_cents = 0, discount_cents = 0, total_cents = ?,
+             metadata_json = JSON_SET(
+               COALESCE(metadata_json, '{}'),
+               '$.source', 'CHART_SELF_PAY',
+               '$.clinicalNoteId', ?,
+               '$.chartAmountCents', ?
+             )
+         WHERE id = ?`,
+        [nextFee, total, clinicalNoteId || null, feeCents > 0 ? feeCents : null, charge.id]
+      );
+      const refreshed = await LearningSessionCharge.findById(charge.id);
+      return { session, charge: refreshed || charge, created: true, service };
+    }
+
+    return { session, charge, created: true, service };
+  }
+
   static async enqueueQuickbooksChargeSync({ agencyId, chargeId }) {
     const idempotencyKey = `learning_qbo_charge:${agencyId}:${chargeId}:create_invoice`;
     const jobId = await QuickbooksSyncJob.enqueue({

@@ -793,18 +793,32 @@ export const listRecentClinicalNoteDrafts = async (req, res, next) => {
       return res.status(400).json({ error: { message: 'Validation failed', errors: errors.array() } });
     }
 
-    const agencyId = req.query?.agencyId ? safeInt(req.query.agencyId) : null;
-    if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
-    if (!(await requireUserHasAgencyAccess(req, res, agencyId))) return;
-    if (!(await requireClinicalNoteGeneratorEnabled(req, res, agencyId))) return;
+    const allAccessible = String(req.query?.allAccessible || req.query?.all_agencies || '') === '1';
+    let agencyId = req.query?.agencyId ? safeInt(req.query.agencyId) : null;
+    let agencyIds = null;
+    if (allAccessible) {
+      const User = (await import('../models/User.model.js')).default;
+      const agencies = await User.getAgencies(req.user.id);
+      agencyIds = (agencies || []).map((a) => Number(a.id)).filter((n) => n > 0);
+      if (!agencyIds.length) {
+        return res.json({ drafts: [] });
+      }
+      // Soft gate: at least one agency must allow the tool (skip hard fail across tenants).
+      agencyId = agencyIds[0];
+    } else {
+      if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
+      if (!(await requireUserHasAgencyAccess(req, res, agencyId))) return;
+      if (!(await requireClinicalNoteGeneratorEnabled(req, res, agencyId))) return;
+    }
 
     const days = req.query?.days ? Number(req.query.days) : 2555;
     const archiveStatus = String(req.query?.archiveStatus || req.query?.status || 'all').toLowerCase();
     const drafts = await ClinicalNoteDraft.listRecentForUser({
       userId: req.user.id,
-      agencyId,
+      agencyId: allAccessible ? null : agencyId,
+      agencyIds: allAccessible ? agencyIds : null,
       days,
-      limit: 100,
+      limit: allAccessible ? 300 : 100,
       archiveStatus
     });
     const sanitized = (drafts || []).map((d) => sanitizeDraftRow(d));

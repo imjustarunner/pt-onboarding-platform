@@ -7,7 +7,7 @@
       </div>
       <div class="rco-head-actions">
         <button type="button" class="cdp-btn-soft" @click="$emit('navigate', 'documents')">Upload</button>
-        <button type="button" class="cdp-btn-primary" @click="$emit('navigate', 'clinical-notes')">+ New note</button>
+        <button type="button" class="cdp-btn-primary" @click="$emit('navigate', 'notes')">+ New note</button>
         <details class="rco-more">
           <summary aria-label="More">⋯</summary>
           <div class="rco-more__menu">
@@ -27,12 +27,12 @@
     </div>
 
     <div class="rco-metrics">
-      <button type="button" class="rco-metric" @click="$emit('navigate', 'clinical-notes')">
+      <button type="button" class="rco-metric" @click="$emit('navigate', 'notes')">
         <span class="rco-metric__k">Open tasks</span>
         <strong class="rco-metric__v">{{ openTaskCount }}</strong>
         <span class="rco-metric__l">View tasks →</span>
       </button>
-      <button type="button" class="rco-metric" @click="$emit('navigate', 'clinical-notes')">
+      <button type="button" class="rco-metric" @click="$emit('navigate', 'notes')">
         <span class="rco-metric__k">Progress notes</span>
         <strong class="rco-metric__v">{{ notes.length }}</strong>
         <span class="rco-metric__l">View notes →</span>
@@ -52,7 +52,7 @@
         <strong class="rco-metric__v">{{ claimsAttentionCount }}</strong>
         <span class="rco-metric__l">View claims →</span>
       </button>
-      <button type="button" class="rco-metric" @click="$emit('navigate', 'clinical-notes')">
+      <button type="button" class="rco-metric" @click="$emit('navigate', 'notes')">
         <span class="rco-metric__k">Unsigned items</span>
         <strong class="rco-metric__v">{{ unsignedCount }}</strong>
         <span class="rco-metric__l">Review items →</span>
@@ -109,7 +109,7 @@
               <span class="rco-badge" :class="statusBadge(plan.status)">{{ plan.status || 'on file' }}</span>
             </li>
           </ul>
-          <button type="button" class="rco-link" @click="$emit('navigate', 'clinical-notes')">Create new plan</button>
+          <button type="button" class="rco-link" @click="$emit('navigate', 'notes')">Create new plan</button>
         </section>
 
         <section class="rco-card">
@@ -149,7 +149,7 @@
         <section class="rco-card">
           <div class="rco-card__row">
             <h4>Recent progress notes</h4>
-            <button type="button" class="rco-link" @click="$emit('navigate', 'clinical-notes')">View notes</button>
+            <button type="button" class="rco-link" @click="$emit('navigate', 'notes')">View notes</button>
           </div>
           <div v-if="!notes.length" class="muted tiny">No progress notes on the chart yet.</div>
           <table v-else class="rco-table">
@@ -169,7 +169,7 @@
                   <span class="rco-badge" :class="noteBadge(note)">{{ noteStatus(note) }}</span>
                 </td>
                 <td>
-                  <button type="button" class="rco-link" @click="$emit('navigate', 'clinical-notes')">
+                  <button type="button" class="rco-link" @click="$emit('navigate', 'notes')">
                     {{ note.provider_signed_at ? 'View' : 'Review' }}
                   </button>
                 </td>
@@ -386,7 +386,7 @@ const activityRows = computed(() => {
       badgeClass: notes.value.length ? 'rco-badge--ok' : 'rco-badge--muted',
       count: notes.value.length,
       updated: formatWhen(latestNote),
-      nav: 'clinical-notes'
+      nav: 'notes'
     },
     {
       id: 'plans',

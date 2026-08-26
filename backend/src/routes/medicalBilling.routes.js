@@ -27,6 +27,7 @@ import {
   signClinicalNote,
   cosignClinicalNote,
   listNotesForSigning,
+  getClinicalNoteById,
   upsertDiagnosis,
   listFeeSchedule,
   upsertFeeScheduleItem,
@@ -135,6 +136,13 @@ router.patch(
   requireClinicalChart,
   [param('sessionId').isInt({ min: 1 }), body('agencyId').isInt({ min: 1 })],
   updateEncounter
+);
+
+router.get(
+  '/notes/:noteId',
+  requireClinicalChart,
+  [param('noteId').isInt({ min: 1 }), query('agencyId').isInt({ min: 1 })],
+  getClinicalNoteById
 );
 
 router.post(

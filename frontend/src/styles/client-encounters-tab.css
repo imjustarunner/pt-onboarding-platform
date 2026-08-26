@@ -14,6 +14,13 @@
   flex-wrap: wrap;
 }
 
+.cc-enc-toolbar__actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
 .cc-enc-toolbar__meta h3 {
   margin: 0 0 4px;
   font-size: 17px;

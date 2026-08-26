@@ -117,6 +117,7 @@ class ClientGuardian {
          c.submission_date,
          c.organization_id,
          c.agency_id,
+         c.client_type,
          c.guardian_portal_enabled,
          o.name AS organization_name,
          o.organization_type AS organization_type,

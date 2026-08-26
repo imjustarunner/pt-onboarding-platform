@@ -263,7 +263,7 @@ export const listClientChart = async (req, res, next) => {
     let diagnoses = [];
     try {
       const [dxRows] = await clinicalPool.execute(
-        `SELECT id, icd10_code, description, justification, is_primary, is_active, onset_date, created_at
+        `SELECT id, icd10_code, description, concern_kind, justification, is_primary, is_active, onset_date, created_at
          FROM clinical_diagnoses
          WHERE agency_id = ? AND client_id = ?
          ORDER BY is_active DESC, is_primary DESC, created_at DESC
@@ -273,15 +273,28 @@ export const listClientChart = async (req, res, next) => {
       diagnoses = dxRows || [];
     } catch (e) {
       if (e.code !== 'ER_BAD_FIELD_ERROR') throw e;
-      const [dxRows] = await clinicalPool.execute(
-        `SELECT id, icd10_code, description, is_primary, is_active, onset_date, created_at
-         FROM clinical_diagnoses
-         WHERE agency_id = ? AND client_id = ?
-         ORDER BY is_active DESC, is_primary DESC, created_at DESC
-         LIMIT 100`,
-        [agencyId, clientId]
-      );
-      diagnoses = dxRows || [];
+      try {
+        const [dxRows] = await clinicalPool.execute(
+          `SELECT id, icd10_code, description, justification, is_primary, is_active, onset_date, created_at
+           FROM clinical_diagnoses
+           WHERE agency_id = ? AND client_id = ?
+           ORDER BY is_active DESC, is_primary DESC, created_at DESC
+           LIMIT 100`,
+          [agencyId, clientId]
+        );
+        diagnoses = dxRows || [];
+      } catch (e2) {
+        if (e2.code !== 'ER_BAD_FIELD_ERROR') throw e2;
+        const [dxRows] = await clinicalPool.execute(
+          `SELECT id, icd10_code, description, is_primary, is_active, onset_date, created_at
+           FROM clinical_diagnoses
+           WHERE agency_id = ? AND client_id = ?
+           ORDER BY is_active DESC, is_primary DESC, created_at DESC
+           LIMIT 100`,
+          [agencyId, clientId]
+        );
+        diagnoses = dxRows || [];
+      }
     }
     const [sessions] = await clinicalPool.execute(
       `SELECT id, office_event_id, encounter_status, place_of_service, duration_minutes, is_telehealth,
@@ -578,6 +591,84 @@ export const updateEncounter = async (req, res, next) => {
   }
 };
 
+export const getClinicalNoteById = async (req, res, next) => {
+  try {
+    const noteId = parseIntValue(req.params.noteId);
+    const agencyId = parseIntValue(req.query.agencyId);
+    if (!noteId || !agencyId) {
+      return res.status(400).json({ error: { message: 'noteId and agencyId are required' } });
+    }
+    await ClinicalEligibilityService.ensureAgencyAccess({ reqUser: req.user, agencyId });
+
+    const note = await ClinicalNote.findById(noteId);
+    if (!note || note.is_deleted) {
+      return res.status(404).json({ error: { message: 'Note not found' } });
+    }
+    if (Number(note.agency_id) !== agencyId) {
+      return res.status(403).json({ error: { message: 'Note belongs to a different organization' } });
+    }
+
+    let plain = maybeDecryptNotePayload(note.note_payload);
+    let outputJson = null;
+    if (plain) {
+      try {
+        outputJson = typeof plain === 'string' ? JSON.parse(plain) : plain;
+      } catch {
+        outputJson = { sections: { Narrative: String(plain) }, meta: {} };
+      }
+    }
+
+    let metadata = {};
+    try {
+      metadata =
+        typeof note.metadata_json === 'string'
+          ? JSON.parse(note.metadata_json || '{}')
+          : note.metadata_json || {};
+    } catch {
+      metadata = {};
+    }
+
+    let officeEventId = metadata?.officeEventId || null;
+    let clinicalSessionId = note.clinical_session_id || null;
+    if (clinicalSessionId && !officeEventId) {
+      try {
+        const [sess] = await clinicalPool.execute(
+          `SELECT office_event_id FROM clinical_sessions WHERE id = ? LIMIT 1`,
+          [clinicalSessionId]
+        );
+        officeEventId = sess?.[0]?.office_event_id || null;
+      } catch {
+        // ignore
+      }
+    }
+
+    const standalone = !clinicalSessionId && !officeEventId;
+
+    return res.json({
+      note: {
+        id: note.id,
+        agencyId: note.agency_id,
+        clientId: note.client_id,
+        title: note.title,
+        noteType: note.note_type || metadata?.noteType || null,
+        serviceCode: metadata?.serviceCode || null,
+        clinicalSessionId,
+        officeEventId,
+        standalone,
+        providerSignedAt: note.provider_signed_at || null,
+        supervisorCosignedAt: note.supervisor_cosigned_at || null,
+        dateOfService: metadata?.dateOfService || null,
+        createdAt: note.created_at,
+        updatedAt: note.updated_at,
+        outputJson,
+        metadata
+      }
+    });
+  } catch (e) {
+    next(e);
+  }
+};
+
 export const signClinicalNote = async (req, res, next) => {
   try {
     const noteId = parseIntValue(req.params.noteId);
@@ -686,67 +777,40 @@ export const upsertDiagnosis = async (req, res, next) => {
   try {
     const agencyId = parseIntValue(req.body.agencyId);
     const clientId = parseIntValue(req.body.clientId);
-    const code = String(req.body.icd10Code || '').trim().toUpperCase();
+    const concernKind = String(req.body.concernKind || req.body.concern_kind || 'clinical')
+      .trim()
+      .toLowerCase() === 'learning_concern'
+      ? 'learning_concern'
+      : 'clinical';
+    let code = String(req.body.icd10Code || req.body.icd10_code || '').trim().toUpperCase();
+    const description = req.body.description ? String(req.body.description).trim().slice(0, 500) : null;
+    if (!code && concernKind === 'learning_concern' && description) {
+      const slug = description.toUpperCase().replace(/[^A-Z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 12);
+      code = `LC-${slug || Date.now().toString(36).toUpperCase()}`.slice(0, 16);
+    }
     if (!agencyId || !clientId || !code) {
-      return res.status(400).json({ error: { message: 'agencyId, clientId, and icd10Code are required' } });
+      return res.status(400).json({
+        error: { message: 'agencyId, clientId, and icd10Code (or learning description) are required' }
+      });
     }
     await ClinicalEligibilityService.ensureAgencyAccess({ reqUser: req.user, agencyId });
 
     const isPrimary = !!req.body.isPrimary;
     const justification = req.body.justification ? String(req.body.justification).trim() : null;
 
-    if (isPrimary) {
-      const id = await upsertPrimaryClinicalDiagnosis({
-        agencyId,
-        clientId,
-        icd10Code: code,
-        description: req.body.description ? String(req.body.description).slice(0, 500) : null,
-        justification,
-        createdByUserId: req.user.id,
-        clinicalSessionId: parseIntValue(req.body.clinicalSessionId),
-        clinicalNoteId: parseIntValue(req.body.clinicalNoteId)
-      });
-      return res.status(201).json({ id });
-    }
-
-    try {
-      const [result] = await clinicalPool.execute(
-        `INSERT INTO clinical_diagnoses
-         (agency_id, client_id, clinical_session_id, clinical_note_id, icd10_code, description,
-          justification, is_primary, is_active, onset_date, created_by_user_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?, 0, 1, ?, ?)`,
-        [
-          agencyId,
-          clientId,
-          parseIntValue(req.body.clinicalSessionId),
-          parseIntValue(req.body.clinicalNoteId),
-          code,
-          req.body.description ? String(req.body.description).slice(0, 500) : null,
-          justification,
-          req.body.onsetDate || null,
-          req.user.id
-        ]
-      );
-      return res.status(201).json({ id: result.insertId });
-    } catch (e) {
-      if (e.code !== 'ER_BAD_FIELD_ERROR') throw e;
-      const [result] = await clinicalPool.execute(
-        `INSERT INTO clinical_diagnoses
-         (agency_id, client_id, clinical_session_id, clinical_note_id, icd10_code, description, is_primary, is_active, onset_date, created_by_user_id)
-         VALUES (?, ?, ?, ?, ?, ?, 0, 1, ?, ?)`,
-        [
-          agencyId,
-          clientId,
-          parseIntValue(req.body.clinicalSessionId),
-          parseIntValue(req.body.clinicalNoteId),
-          code,
-          req.body.description ? String(req.body.description).slice(0, 500) : null,
-          req.body.onsetDate || null,
-          req.user.id
-        ]
-      );
-      return res.status(201).json({ id: result.insertId });
-    }
+    const id = await upsertClinicalDiagnosis({
+      agencyId,
+      clientId,
+      icd10Code: code,
+      description,
+      justification,
+      createdByUserId: req.user.id,
+      clinicalSessionId: parseIntValue(req.body.clinicalSessionId),
+      clinicalNoteId: parseIntValue(req.body.clinicalNoteId),
+      setPrimary: isPrimary,
+      concernKind
+    });
+    return res.status(201).json({ id, icd10Code: code, concernKind });
   } catch (e) {
     next(e);
   }

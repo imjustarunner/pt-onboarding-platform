@@ -344,6 +344,27 @@
   color: color-mix(in srgb, var(--cc-primary) 80%, black);
 }
 
+.client-chart .cdp-tenant-line {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 4px 0 6px;
+  align-items: center;
+}
+
+.client-chart .cdp-pill--tenant {
+  background: color-mix(in srgb, #0f766e 12%, white);
+  border: 1px solid color-mix(in srgb, #0f766e 35%, white);
+  color: #0f766e;
+  font-weight: 750;
+}
+
+.client-chart .cdp-pill--affil {
+  background: #f8fafc;
+  border: 1px solid #cbd5e1;
+  color: #334155;
+}
+
 .client-chart .cdp-pill--type .cdp-pill__dot {
   background: var(--cc-primary);
   box-shadow: 0 0 0 3px var(--cc-primary-tint-strong);

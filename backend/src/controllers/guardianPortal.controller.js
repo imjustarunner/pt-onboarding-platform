@@ -26,6 +26,8 @@ import { isDobAdultLocked } from '../utils/guardianWaivers.utils.js';
 import { isClientAdultLockedForGuardian } from '../services/guardianWaivers.service.js';
 import { notifyCompanyEventRegistrationSubmitted } from '../services/clientNotifications.service.js';
 import { hasTenantAccess } from '../utils/meDashboardTenantScope.js';
+import ClinicalTreatmentPlan from '../models/clinical/ClinicalTreatmentPlan.model.js';
+import ClinicalTreatmentObjectiveRating from '../models/clinical/ClinicalTreatmentObjectiveRating.model.js';
 
 const parsePositiveInt = (raw) => {
   const value = Number.parseInt(String(raw || ''), 10);
@@ -1574,6 +1576,110 @@ export const getGuardianCompanyEventDetail = async (req, res, next) => {
       sessions,
       clientAttendance: [],
       programPortal
+    });
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
+ * GET /api/guardian-portal/dependents/:clientId/plan-progress
+ * Read-only active treatment/learning plan goals, objectives, and ratings for a linked child.
+ */
+export const getGuardianDependentPlanProgress = async (req, res, next) => {
+  try {
+    const uid = req.user?.id;
+    if (!uid) return res.status(401).json({ error: { message: 'Unauthorized' } });
+    const clientId = parsePositiveInt(req.params.clientId);
+    if (!clientId) return res.status(400).json({ error: { message: 'clientId is required' } });
+
+    if (isSuperadminGuardianPreview(req)) {
+      return res.json({ plan: null, goals: [], ratings: [], hasActivePlan: false, preview: true });
+    }
+
+    const linked = await ClientGuardian.listClientsForGuardian({ guardianUserId: uid });
+    const row = (linked || []).find((c) => Number(c.client_id) === clientId);
+    if (!row) {
+      return res.status(403).json({ error: { message: 'Child is not linked to your account' } });
+    }
+    if (ClientGuardian.isNoView(row.permissions_json)) {
+      return res.status(403).json({
+        error: { message: 'These records are not available on this guardian relationship.', code: 'GUARDIAN_NO_VIEW' }
+      });
+    }
+    if (await isClientAdultLockedForGuardian(clientId)) {
+      return res.status(403).json({
+        error: { message: 'Not available for this client.', code: 'GUARDIAN_ADULT_CLIENT' }
+      });
+    }
+
+    const agencyId = parsePositiveInt(req.query.agencyId) || parsePositiveInt(row.agency_id);
+    if (!agencyId) {
+      return res.status(400).json({ error: { message: 'agencyId is required' } });
+    }
+
+    const clientType = String(row.client_type || '').toLowerCase();
+    const orgType = String(row.organization_type || '').toLowerCase();
+    const isLearningOrClinical =
+      clientType === 'learning'
+      || clientType === 'clinical'
+      || orgType === 'learning'
+      || orgType === 'clinical';
+    if (!isLearningOrClinical) {
+      return res.json({ plan: null, goals: [], ratings: [], hasActivePlan: false });
+    }
+
+    const plans = await ClinicalTreatmentPlan.listByClient({ agencyId, clientId });
+    const active =
+      (plans || []).find((p) => /active|final/i.test(String(p.status || '')))
+      || plans?.[0]
+      || null;
+    if (!active?.id) {
+      return res.json({ plan: null, goals: [], ratings: [], hasActivePlan: false });
+    }
+
+    const full = await ClinicalTreatmentPlan.findById(active.id);
+    const ratings = await ClinicalTreatmentObjectiveRating.listByClient({
+      agencyId,
+      clientId,
+      limit: 100
+    });
+
+    const goals = (full?.goals || []).map((g) => ({
+      id: g.id,
+      goalIndex: g.goal_index,
+      goalText: g.goal_text,
+      projectedCompletion: g.projected_completion || null,
+      objectives: (g.objectives || []).map((o) => ({
+        id: o.id,
+        objectiveIndex: o.objective_index,
+        objectiveText: o.objective_text,
+        scaleCurrent: o.scale_current ?? null,
+        scaleTarget: o.scale_target ?? null,
+        scaleDirection: o.scale_direction || null,
+        measurementMethod: o.measurement_method || null
+      }))
+    }));
+
+    return res.json({
+      hasActivePlan: true,
+      plan: {
+        id: full?.id || active.id,
+        title: full?.title || active.title || null,
+        status: full?.status || active.status || null,
+        effectiveDate: full?.effective_date || active.effective_date || null,
+        updatedAt: full?.updated_at || active.updated_at || null
+      },
+      goals,
+      ratings: (ratings || []).map((r) => ({
+        id: r.id,
+        objectiveId: r.objective_id,
+        scaleValue: r.scale_value,
+        progressLabel: r.progress_label,
+        disposition: r.disposition,
+        ratedAt: r.rated_at
+      })),
+      clientType: clientType || (orgType === 'learning' ? 'learning' : 'clinical')
     });
   } catch (e) {
     next(e);

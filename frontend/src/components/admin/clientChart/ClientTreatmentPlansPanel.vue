@@ -2,18 +2,24 @@
   <div class="ctp">
     <div class="ctp-head">
       <div>
-        <h3 class="ctp-title">Treatment plans</h3>
+        <h3 class="ctp-title">{{ isLearning ? 'Learning plans' : 'Treatment plans' }}</h3>
         <p class="hint">
-          Structured goals and measurable objectives on the clinical chart, with scale history over time.
-          Open Note Aid to write or update a plan for this client.
+          <template v-if="isLearning">
+            Goals and measurable objectives for this student, with progress over time.
+            Open Note Aid to write or update a learning plan.
+          </template>
+          <template v-else>
+            Structured goals and measurable objectives on the clinical chart, with scale history over time.
+            Open Note Aid to write or update a plan for this client.
+          </template>
         </p>
       </div>
       <div class="ctp-actions">
         <button type="button" class="cdp-btn-soft" @click="openNoteAidUpdater">
           Update in Note Aid
         </button>
-        <button type="button" class="cdp-btn-soft" @click="$emit('navigate', 'clinical-notes')">
-          Clinical notes
+        <button type="button" class="cdp-btn-soft" @click="$emit('navigate', 'notes')">
+          {{ isLearning ? 'Learning notes' : 'Notes' }}
         </button>
         <button type="button" class="cdp-btn-soft" :disabled="loading" @click="load">
           {{ loading ? 'Refreshing…' : 'Refresh' }}
@@ -22,9 +28,11 @@
     </div>
 
     <div v-if="error" class="error">{{ error }}</div>
-    <div v-else-if="loading && !plans.length" class="muted">Loading treatment plans…</div>
+    <div v-else-if="loading && !plans.length" class="muted">
+      Loading {{ isLearning ? 'learning' : 'treatment' }} plans…
+    </div>
     <div v-else-if="!plans.length" class="muted">
-      No treatment plans on file yet.
+      No {{ isLearning ? 'learning' : 'treatment' }} plans on file yet.
       <button type="button" class="cdp-text-link" style="margin-left: 6px;" @click="openNoteAidUpdater">
         Write a plan in Note Aid →
       </button>
@@ -57,10 +65,10 @@
       </div>
 
       <div v-if="planDiagnosesDisplay.length" class="ctp-dx">
-        <strong>Diagnosis on file</strong>
+        <strong>{{ isLearning ? 'Areas of concern' : 'Diagnosis on file' }}</strong>
         <ul>
               <li v-for="d in planDiagnosesDisplay" :key="d.id || d.icd10_code || d.diagnosis_id">
-                <code>{{ d.icd10_code }}</code>
+                <code v-if="d.icd10_code && !isLearningConcernCode(d.icd10_code)">{{ d.icd10_code }}</code>
                 {{ d.description || '' }}
                 <em v-if="d.is_primary">primary</em>
                 <p v-if="d.justification" class="ctp-dx-just">{{ d.justification }}</p>
@@ -94,6 +102,33 @@
               <span>Goal <strong class="ctp-goal-num">{{ o.scale_target ?? '—' }}</strong></span>
               <em v-if="o.scale_direction" class="ctp-dir">{{ o.scale_direction }}</em>
               <span v-if="o.measurement_method" class="muted">{{ o.measurement_method }}</span>
+            </div>
+            <div v-if="sparklinePoints(o).length" class="ctp-spark">
+              <svg
+                viewBox="0 0 100 28"
+                preserveAspectRatio="none"
+                class="ctp-spark__svg"
+                role="img"
+                :aria-label="`Progress toward goal ${o.scale_target ?? ''}`"
+              >
+                <line
+                  v-if="o.scale_target != null"
+                  class="ctp-spark__goal"
+                  x1="0"
+                  :y1="scaleY(o.scale_target)"
+                  x2="100"
+                  :y2="scaleY(o.scale_target)"
+                />
+                <polyline
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.6"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  :points="sparklinePoints(o)"
+                />
+              </svg>
+              <span class="ctp-spark__caption muted tiny">Progress (current → goal)</span>
             </div>
             <div v-if="timelineFor(o.id).length" class="ctp-timeline">
               <span class="ctp-timeline__label">Scale over time</span>
@@ -134,12 +169,15 @@ import { useAgencyStore } from '../../../store/agency';
 
 const props = defineProps({
   clientId: { type: [Number, String], required: true },
-  agencyId: { type: [Number, String], default: null }
+  agencyId: { type: [Number, String], default: null },
+  clientType: { type: String, default: '' }
 });
 defineEmits(['navigate']);
 
 const router = useRouter();
 const agencyStore = useAgencyStore();
+
+const isLearning = computed(() => String(props.clientType || '').toLowerCase() === 'learning');
 
 const loading = ref(false);
 const error = ref('');
@@ -200,8 +238,43 @@ function timelineFor(objectiveId) {
   return ratingsByObjective.value[String(objectiveId)] || [];
 }
 
+/** Fixed 1–10 y-domain for objective scale sparklines. */
+function scaleY(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return 14;
+  const clamped = Math.min(10, Math.max(1, n));
+  return 26 - ((clamped - 1) / 9) * 24;
+}
+
+function sparklinePoints(objective) {
+  const rated = timelineFor(objective?.id).filter(
+    (r) => r.disposition === 'rated' && r.scale_value != null
+  );
+  const values = rated.map((r) => Number(r.scale_value));
+  if (!values.length && objective?.scale_current != null) {
+    values.push(Number(objective.scale_current));
+  }
+  if (!values.length) return '';
+  if (values.length === 1) {
+    const y = scaleY(values[0]);
+    return `2,${y} 98,${y}`;
+  }
+  return values
+    .map((v, i) => {
+      const x = (i / (values.length - 1)) * 98 + 1;
+      return `${x.toFixed(2)},${scaleY(v).toFixed(2)}`;
+    })
+    .join(' ');
+}
+
+function isLearningConcernCode(code) {
+  const c = String(code || '').trim().toUpperCase();
+  return !c || c.startsWith('LC-') || c === 'LEARNING' || c === 'CONCERN';
+}
+
 function planTitle(plan) {
-  return String(plan?.title || plan?.plan_title || `Treatment plan #${plan?.id || ''}`).trim() || 'Treatment plan';
+  const fallback = isLearning.value ? 'Learning plan' : 'Treatment plan';
+  return String(plan?.title || plan?.plan_title || `${fallback} #${plan?.id || ''}`).trim() || fallback;
 }
 
 function statusLabel(plan) {
@@ -409,6 +482,27 @@ watch(() => [props.clientId, props.agencyId], load);
   font-weight: 700;
   color: #0f766e;
   text-transform: uppercase;
+}
+.ctp-spark {
+  margin-top: 10px;
+  max-width: 220px;
+  color: #0f766e;
+}
+.ctp-spark__svg {
+  display: block;
+  width: 100%;
+  height: 36px;
+  background: #f1f5f9;
+  border-radius: 6px;
+}
+.ctp-spark__goal {
+  stroke: #86efac;
+  stroke-width: 1;
+  stroke-dasharray: 3 2;
+}
+.ctp-spark__caption {
+  display: block;
+  margin-top: 2px;
 }
 .ctp-timeline {
   margin-top: 10px;

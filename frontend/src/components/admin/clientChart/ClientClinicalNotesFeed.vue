@@ -16,7 +16,7 @@
           <option value="all">All types</option>
           <option value="progress">Progress / session</option>
           <option value="intake">Intake</option>
-          <option value="plan">Treatment plan</option>
+          <option value="plan">{{ isLearning ? 'Learning plan' : 'Treatment plan' }}</option>
           <option value="draft">Note Aid drafts</option>
           <option v-if="!isLearning" value="contact">Contact</option>
         </select>
@@ -66,8 +66,19 @@
               Provider signed
             </span>
             <span v-if="row.isActivePlan" class="ccnf-tag ccnf-tag--active">Active plan</span>
+            <span v-if="row.hasSelfPayCharge" class="ccnf-tag ccnf-tag--claim">Self-pay charged</span>
           </div>
         </button>
+        <div v-if="isLearning && canCreateSelfPay(row)" class="ccnf-row-actions">
+          <button
+            type="button"
+            class="ccnf-action-btn"
+            :disabled="selfPayBusyKey === row.key"
+            @click.stop="createSelfPayCharge(row)"
+          >
+            {{ selfPayBusyKey === row.key ? 'Creating…' : 'Create self-pay charge' }}
+          </button>
+        </div>
       </li>
     </ul>
   </div>
@@ -91,6 +102,8 @@ const router = useRouter();
 const loading = ref(false);
 const error = ref('');
 const kindFilter = ref('all');
+const selfPayBusyKey = ref('');
+const selfPayNoteIds = ref(new Set());
 const chart = ref({
   notes: [],
   plans: [],
@@ -200,6 +213,7 @@ const rows = computed(() => {
       supervisorSigned,
       isActivePlan: false,
       clinicalNoteId: n.id,
+      hasSelfPayCharge: selfPayNoteIds.value.has(Number(n.id)),
       openMode: 'clinical-note'
     });
   }
@@ -278,10 +292,63 @@ async function load() {
       sessions: res?.data?.sessions || [],
       diagnoses: res?.data?.diagnoses || []
     };
+    if (isLearning.value) {
+      try {
+        const ledgerRes = await api.get(`/learning-billing/clients/${cid}/ledger`, {
+          params: { agencyId: aid },
+          skipGlobalLoading: true
+        });
+        const next = new Set();
+        for (const c of ledgerRes?.data?.ledger || []) {
+          let meta = c.metadata_json;
+          if (typeof meta === 'string') {
+            try { meta = JSON.parse(meta); } catch { meta = {}; }
+          }
+          const nid = Number(meta?.clinicalNoteId || 0);
+          if (nid) next.add(nid);
+        }
+        selfPayNoteIds.value = next;
+      } catch {
+        selfPayNoteIds.value = new Set();
+      }
+    } else {
+      selfPayNoteIds.value = new Set();
+    }
   } catch (e) {
     error.value = e.response?.data?.error?.message || e.message || 'Failed to load notes';
   } finally {
     loading.value = false;
+  }
+}
+
+function canCreateSelfPay(row) {
+  if (!isLearning.value || !row) return false;
+  if (row.kind !== 'progress' && row.kind !== 'draft') return false;
+  if (!row.clinicalNoteId && !row.draftId) return false;
+  if (row.hasSelfPayCharge) return false;
+  // Prefer signed/completed progress notes; allow unsigned standalone tutoring notes too.
+  return row.openMode === 'clinical-note' && !!row.clinicalNoteId;
+}
+
+async function createSelfPayCharge(row) {
+  const cid = Number(props.clientId || 0);
+  const aid = Number(props.agencyId || 0);
+  if (!cid || !aid || !row?.clinicalNoteId) return;
+  selfPayBusyKey.value = row.key;
+  error.value = '';
+  try {
+    await api.post(`/learning-billing/clients/${cid}/self-pay-charges`, {
+      agencyId: aid,
+      clientId: cid,
+      clinicalNoteId: row.clinicalNoteId,
+      serviceType: 'CONSULTATION',
+      serviceDate: String(row.sortAt || '').slice(0, 10) || undefined
+    }, { skipGlobalLoading: true });
+    await load();
+  } catch (e) {
+    error.value = e.response?.data?.error?.message || e.message || 'Could not create self-pay charge';
+  } finally {
+    selfPayBusyKey.value = '';
   }
 }
 
@@ -290,7 +357,8 @@ function openRow(row) {
   if (row.openMode === 'note-aid-draft') {
     const url = noteAidPath({
       clientId: String(props.clientId),
-      draftId: String(row.draftId)
+      draftId: String(row.draftId),
+      agencyId: String(props.agencyId || '')
     });
     window.open(url, '_blank', 'noopener');
     return;
@@ -306,7 +374,8 @@ function openRow(row) {
   if (row.openMode === 'clinical-note') {
     const url = noteAidPath({
       clientId: String(props.clientId),
-      clinicalNoteId: String(row.clinicalNoteId || '')
+      clinicalNoteId: String(row.clinicalNoteId || ''),
+      agencyId: String(props.agencyId || '')
     });
     window.open(url, '_blank', 'noopener');
   }
@@ -398,6 +467,27 @@ defineExpose({ reload: load, diagnoses: computed(() => chart.value.diagnoses) })
 }
 .ccnf-row-open:hover {
   background: #f1f5f9;
+}
+.ccnf-row-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 0 12px 10px;
+}
+.ccnf-action-btn {
+  border: 1px solid #86efac;
+  background: #ecfdf5;
+  color: #166534;
+  border-radius: 8px;
+  padding: 6px 10px;
+  font: inherit;
+  font-size: 0.8rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+.ccnf-action-btn:disabled {
+  opacity: 0.6;
+  cursor: wait;
 }
 .ccnf-row-top {
   display: flex;

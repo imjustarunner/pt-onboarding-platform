@@ -254,6 +254,73 @@ export const createSessionFromOfficeEvent = async (req, res, next) => {
   }
 };
 
+export const createSelfPayChargeFromChart = async (req, res, next) => {
+  try {
+    if (!canManageLearningBilling(req.user?.role)) {
+      return res.status(403).json({ error: { message: 'Access denied' } });
+    }
+    const agencyId = Number(req.body?.agencyId || 0);
+    const clientId = Number(req.body?.clientId || req.params?.clientId || 0);
+    const officeEventId = Number(req.body?.officeEventId || 0) || null;
+    const clinicalNoteId = Number(req.body?.clinicalNoteId || 0) || null;
+    const learningServiceId = Number(req.body?.learningServiceId || 0) || null;
+    const amountCents = req.body?.amountCents != null ? Number(req.body.amountCents) : null;
+    const serviceType = String(req.body?.serviceType || 'CONSULTATION').trim().toUpperCase() || 'CONSULTATION';
+    const serviceDate = req.body?.serviceDate ? String(req.body.serviceDate).slice(0, 10) : null;
+    if (!agencyId || !clientId) {
+      return res.status(400).json({ error: { message: 'agencyId and clientId are required' } });
+    }
+    const gate = await requireLearningBillingEnabled({ agencyId, res });
+    if (!gate) return;
+    const access = await userHasAgencyAccess(req.user.id, agencyId, req.user.role);
+    if (!access) return res.status(403).json({ error: { message: 'Access denied' } });
+
+    const client = await Client.findById(clientId);
+    if (!client || Number(client.agency_id) !== agencyId) {
+      return res.status(404).json({ error: { message: 'Client not found for agency' } });
+    }
+
+    const result = await LearningBillingOrchestrator.createSelfPayChargeFromChart({
+      agencyId,
+      clientId,
+      organizationId: Number(client.organization_id || 0) || null,
+      officeEventId,
+      clinicalNoteId,
+      serviceType,
+      learningServiceId,
+      amountCents,
+      serviceDate,
+      durationMinutes: Number(req.body?.durationMinutes || 60) || 60,
+      guardianUserId: Number(req.body?.guardianUserId || 0) || null,
+      notes: req.body?.notes ? String(req.body.notes).slice(0, 500) : null,
+      createdByUserId: req.user.id
+    });
+
+    let quickbooksJobId = null;
+    if (result.created && Number(result.charge?.total_cents || 0) > 0) {
+      try {
+        quickbooksJobId = await LearningQuickbooksQueueService.enqueueChargeInvoice({
+          agencyId,
+          chargeId: result.charge.id
+        });
+      } catch {
+        quickbooksJobId = null;
+      }
+    }
+
+    return res.status(result.created ? 201 : 200).json({
+      ok: true,
+      created: result.created,
+      session: result.session,
+      charge: result.charge,
+      service: result.service,
+      quickbooksJobId
+    });
+  } catch (e) {
+    next(e);
+  }
+};
+
 export const creditClientTokens = async (req, res, next) => {
   try {
     if (!canManageLearningBilling(req.user?.role)) {

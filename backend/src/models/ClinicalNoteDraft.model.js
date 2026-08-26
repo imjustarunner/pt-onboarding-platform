@@ -153,26 +153,41 @@ class ClinicalNoteDraft {
     return this.findByIdForUser({ draftId: id, userId: uid });
   }
 
-  static async listRecentForUser({ userId, agencyId = null, days = 7, limit = 50, archiveStatus = 'all' }) {
+  static async listRecentForUser({
+    userId,
+    agencyId = null,
+    agencyIds = null,
+    days = 7,
+    limit = 50,
+    archiveStatus = 'all'
+  }) {
     const uid = safeInt(userId);
     if (!uid) return [];
-    const aid = agencyId === null || agencyId === undefined ? null : safeInt(agencyId);
-    const lim = Math.max(1, Math.min(200, Number(limit) || 50));
+    const aids = Array.isArray(agencyIds)
+      ? agencyIds.map((x) => safeInt(x)).filter(Boolean)
+      : (agencyId === null || agencyId === undefined ? [] : [safeInt(agencyId)].filter(Boolean));
+    const lim = Math.max(1, Math.min(500, Number(limit) || 50));
     const status = String(archiveStatus || 'all').toLowerCase();
     // Active: recent window. Archived: up to 7 years (retention max).
     const maxDays = status === 'archived' || status === 'all' ? 2555 : 30;
     const d = Math.max(1, Math.min(maxDays, Number(days) || (status === 'archived' ? 2555 : 7)));
     const where = [
       'user_id = ?',
-      ...(aid ? ['agency_id = ?'] : []),
       'created_at >= (NOW() - INTERVAL ? DAY)'
     ];
+    const params = [uid, d];
+    if (aids.length === 1) {
+      where.push('agency_id = ?');
+      params.push(aids[0]);
+    } else if (aids.length > 1) {
+      where.push(`agency_id IN (${aids.map(() => '?').join(',')})`);
+      params.push(...aids);
+    }
     if (status === 'active') {
       where.push('archived_at IS NULL');
     } else if (status === 'archived') {
       where.push('archived_at IS NOT NULL');
     }
-    const params = [uid, ...(aid ? [aid] : []), d];
     const whereSql = where.map((clause) => `d.${clause}`).join(' AND ');
     const [rows] = await pool.execute(
       `SELECT
