@@ -897,9 +897,6 @@
             <UserSupervisionTab userId="me" :agency-id="currentAgencyId" />
           </div>
 
-          <div v-if="!previewMode && isOnboardingComplete && activeTab === 'tools_aids'" class="my-panel dashboard-embedded-view">
-            <ToolsAidsView :initial-tab="toolsHubTab" />
-          </div>
           <div v-if="!previewMode && isOnboardingComplete && activeTab === 'communications'" class="my-panel dashboard-embedded-view">
             <CommunicationsFeedView />
           </div>
@@ -1265,8 +1262,8 @@ import FacilitatorAvailabilityPromptCard from '../components/dashboard/Facilitat
 import ClubEmployerSharePromptCard from '../components/club/ClubEmployerSharePromptCard.vue';
 import { isNativePlatform } from '../utils/biometricAuth.js';
 import { isSummitScopedOrg } from '../utils/summitRoutingContext.js';
-import ToolsAidsView from './admin/ToolsAidsView.vue';
 import CommunicationsFeedView from './admin/CommunicationsFeedView.vue';
+import { toolsAidsHubLocation, parseToolsTab } from '../navigation/toolsCatalog.js';
 import PlatformChatsView from './admin/PlatformChatsView.vue';
 import ContactsView from './admin/ContactsView.vue';
 import NotificationsHubView from './NotificationsHubView.vue';
@@ -1409,11 +1406,15 @@ function isRailCardActive(card) {
     if (to && (path === to || path.startsWith(`${to}/`))) return true;
   }
   if (activeTab.value === PROGRAM_WORKSPACE_TAB) return selectedRailCardId.value === id;
-  // Tools nest children all embed tools_aids with a sub-tab.
-  if (id === 'tools_assessments') return activeTab.value === 'tools_aids' && toolsHubTab.value === 'assessments';
-  if (id === 'tools_games') return activeTab.value === 'tools_aids' && toolsHubTab.value === 'games';
-  if (id === 'tools_ai') return activeTab.value === 'tools_aids' && toolsHubTab.value === 'ai';
-  if (id === 'tools_aids') return activeTab.value === 'tools_aids';
+  // Tools nest children open the standalone Tools & Aids hub route.
+  if (id === 'tools_assessments' || id === 'tools_games' || id === 'tools_ai' || id === 'tools_aids') {
+    if (!String(route.path || '').includes('/tools-aids')) return false;
+    const tab = parseToolsTab(route.query?.tab);
+    if (id === 'tools_assessments') return tab === 'assessments';
+    if (id === 'tools_games') return tab === 'games';
+    if (id === 'tools_ai') return tab === 'ai';
+    return true;
+  }
   if (card?.kind === 'content') return activeTab.value === id;
   return selectedRailCardId.value === id;
 }
@@ -3503,7 +3504,12 @@ const portalsNestLabel = computed(() => {
 const portalsNestExpanded = ref(false);
 const toolsNestExpanded = ref(false);
 const momentumNestExpanded = ref(false);
-const toolsHubTab = ref('assessments');
+
+function dashboardOrgTo(path) {
+  const slug = route.params.organizationSlug;
+  if (typeof slug === 'string' && slug) return `/${slug}${path}`;
+  return path;
+}
 /** Provider Fall Update status for portals-nest link + pulse */
 const providerYearUpdateStatus = ref(null);
 const providerYearUpdateSplashDismissed = ref(false);
@@ -4254,11 +4260,8 @@ const handleCardClick = (card) => {
     const tab =
       card.toolsTab ||
       (card.id === 'tools_games' ? 'games' : card.id === 'tools_ai' ? 'ai' : 'assessments');
-    toolsHubTab.value = tab;
-    activeTab.value = 'tools_aids';
-    previousContentTab.value = 'tools_aids';
     selectedRailCardId.value = String(card.id);
-    navFn({ query: { ...route.query, tab: 'tools_aids', toolsTab: tab } });
+    router.push(toolsAidsHubLocation(tab, dashboardOrgTo)).catch(() => {});
     return;
   }
   if (card.id === 'skill_builders_provider_hub') {
@@ -4463,16 +4466,17 @@ const syncFromQuery = () => {
     const toolsChildIds = new Set(['tools_assessments', 'tools_games', 'tools_ai']);
     if (qTab === 'tools_aids' || toolsChildIds.has(qTab)) {
       toolsNestExpanded.value = true;
-      const toolsTabRaw = route.query?.toolsTab || (qTab === 'tools_games' ? 'games' : qTab === 'tools_ai' ? 'ai' : qTab === 'tools_assessments' ? 'assessments' : 'assessments');
+      const toolsTabRaw =
+        route.query?.toolsTab ||
+        (qTab === 'tools_games' ? 'games' : qTab === 'tools_ai' ? 'ai' : qTab === 'tools_assessments' ? 'assessments' : 'assessments');
       const toolsTab =
         toolsTabRaw === 'games' || toolsTabRaw === 'ai' || toolsTabRaw === 'assessments'
           ? toolsTabRaw
           : 'assessments';
-      toolsHubTab.value = toolsTab;
-      activeTab.value = 'tools_aids';
-      previousContentTab.value = 'tools_aids';
       selectedRailCardId.value =
         toolsTab === 'games' ? 'tools_games' : toolsTab === 'ai' ? 'tools_ai' : 'tools_assessments';
+      router.replace(toolsAidsHubLocation(toolsTab, dashboardOrgTo)).catch(() => {});
+      return;
     } else if (allowed.has(qTab)) {
       activeTab.value = qTab;
       previousContentTab.value = qTab;

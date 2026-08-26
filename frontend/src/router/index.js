@@ -136,6 +136,8 @@ const NOTE_AID_EMPLOYEE_ROLES = [
 /** Broad employee gate; SessionRecordingView enforces ITSCO/NLU role + feature flag. */
 const SESSION_RECORDING_ROUTE_ROLES = NOTE_AID_EMPLOYEE_ROLES;
 const TOOLS_AIDS_ROUTE_SEGMENTS = [
+  '/tools-aids',
+  '/note-aid',
   '/admin/tools-aids',
   '/admin/note-aid',
   '/admin/clinical-note-generator',
@@ -1534,10 +1536,23 @@ const routes = [
   },
   // Slug-prefixed authenticated routes (branded portal)
   {
-    path: '/:organizationSlug/admin/note-aid',
+    path: '/:organizationSlug/note-aid',
     name: 'OrganizationNoteAid',
     // Note Aid now runs the Clinical Director Agent note generator.
     component: () => import('../views/admin/ClinicalNoteGeneratorView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresRole: NOTE_AID_EMPLOYEE_ROLES,
+      organizationSlug: true
+    }
+  },
+  {
+    path: '/:organizationSlug/admin/note-aid',
+    redirect: (to) => ({
+      path: `/${to.params.organizationSlug}/note-aid`,
+      query: to.query,
+      hash: to.hash
+    }),
     meta: {
       requiresAuth: true,
       requiresRole: NOTE_AID_EMPLOYEE_ROLES,
@@ -1955,7 +1970,7 @@ const routes = [
   {
     path: '/:organizationSlug/admin/clinical-note-generator',
     name: 'OrganizationClinicalNoteGenerator',
-    redirect: (to) => `/${to.params.organizationSlug}/admin/note-aid`,
+    redirect: (to) => `/${to.params.organizationSlug}/note-aid`,
     meta: {
       requiresAuth: true,
       requiresRole: NOTE_AID_EMPLOYEE_ROLES,
@@ -2261,9 +2276,18 @@ const routes = [
     }
   },
   {
-    path: '/:organizationSlug/admin/tools-aids',
+    path: '/:organizationSlug/tools-aids',
     name: 'OrganizationToolsAids',
     component: () => import('../views/admin/ToolsAidsView.vue'),
+    meta: { requiresAuth: true, requiresRole: NOTE_AID_EMPLOYEE_ROLES, organizationSlug: true }
+  },
+  {
+    path: '/:organizationSlug/admin/tools-aids',
+    redirect: (to) => ({
+      path: `/${to.params.organizationSlug}/tools-aids`,
+      query: to.query,
+      hash: to.hash
+    }),
     meta: { requiresAuth: true, requiresRole: NOTE_AID_EMPLOYEE_ROLES, organizationSlug: true }
   },
   {
@@ -3298,10 +3322,15 @@ const routes = [
     meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'staff', 'provider', 'provider_plus', 'super_admin'] }
   },
   {
-    path: '/admin/note-aid',
+    path: '/note-aid',
     name: 'NoteAid',
     // Note Aid now runs the Clinical Director Agent note generator.
     component: () => import('../views/admin/ClinicalNoteGeneratorView.vue'),
+    meta: { requiresAuth: true, requiresRole: NOTE_AID_EMPLOYEE_ROLES }
+  },
+  {
+    path: '/admin/note-aid',
+    redirect: (to) => ({ path: '/note-aid', query: to.query, hash: to.hash }),
     meta: { requiresAuth: true, requiresRole: NOTE_AID_EMPLOYEE_ROLES }
   },
   {
@@ -3355,7 +3384,7 @@ const routes = [
   {
     path: '/admin/clinical-note-generator',
     name: 'ClinicalNoteGenerator',
-    redirect: '/admin/note-aid',
+    redirect: '/note-aid',
     meta: { requiresAuth: true, requiresRole: NOTE_AID_EMPLOYEE_ROLES }
   },
   {
@@ -3763,9 +3792,14 @@ const routes = [
     meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'super_admin', 'clinical_practice_assistant', 'schedule_manager', 'provider', 'staff'] }
   },
   {
-    path: '/admin/tools-aids',
+    path: '/tools-aids',
     name: 'ToolsAids',
     component: () => import('../views/admin/ToolsAidsView.vue'),
+    meta: { requiresAuth: true, requiresRole: NOTE_AID_EMPLOYEE_ROLES }
+  },
+  {
+    path: '/admin/tools-aids',
+    redirect: (to) => ({ path: '/tools-aids', query: to.query, hash: to.hash }),
     meta: { requiresAuth: true, requiresRole: NOTE_AID_EMPLOYEE_ROLES }
   },
   {
@@ -5108,7 +5142,7 @@ router.beforeEach(async (to, from, next) => {
   ) {
     const path = String(to.path || '');
     const isProviderMobileRoute = path.includes('/provider-mobile');
-    const isAllowedExternalRoute = path.includes('/admin/note-aid');
+    const isAllowedExternalRoute = path.includes('/note-aid') || path.includes('/admin/note-aid');
     if (!isProviderMobileRoute && !isAllowedExternalRoute) {
       const slug =
         (to.meta.organizationSlug && typeof to.params.organizationSlug === 'string' && to.params.organizationSlug) ||

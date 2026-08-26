@@ -33,8 +33,8 @@ describe('noteAidLaunch', () => {
   });
 
   it('resolves org-scoped path', () => {
-    expect(noteAidPath({ organizationSlug: 'itsco' })).toBe('/itsco/admin/note-aid');
-    expect(noteAidPath({})).toBe('/admin/note-aid');
+    expect(noteAidPath({ organizationSlug: 'itsco' })).toBe('/itsco/note-aid');
+    expect(noteAidPath({})).toBe('/note-aid');
   });
 
   it('parses DOS from Date and strings', () => {

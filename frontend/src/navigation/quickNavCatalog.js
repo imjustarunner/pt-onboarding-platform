@@ -410,8 +410,8 @@ function buildAppEntries() {
         'activities',
         'ai tools'
       ],
-      kind: 'dashboard',
-      tab: 'tools_aids',
+      kind: 'path',
+      path: '/tools-aids',
       rolesAny: [
         'admin',
         'support',
@@ -435,7 +435,7 @@ function buildAppEntries() {
       group: 'workspace',
       keywords: ['note aid', 'noteaid', 'clinical note', 'documentation'],
       kind: 'path',
-      path: '/admin/note-aid',
+      path: '/note-aid',
       rolesAny: [
         'admin',
         'support',

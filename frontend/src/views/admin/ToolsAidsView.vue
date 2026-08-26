@@ -267,7 +267,7 @@ const userId = computed(() => authStore.user?.id || authStore.user?.userId || 'a
 const isStandaloneHub = computed(() => {
   const name = String(route.name || '');
   if (name === 'ToolsAids' || name === 'OrganizationToolsAids') return true;
-  return String(route.path || '').includes('/admin/tools-aids');
+  return String(route.path || '').includes('/tools-aids');
 });
 
 const activeTab = computed(() => hubTab.value);

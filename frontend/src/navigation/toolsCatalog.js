@@ -1,3 +1,8 @@
+import {
+  WORKSPACE_NOTE_AID_PATH,
+  WORKSPACE_TOOLS_AIDS_PATH
+} from '../config/noteAidAccess.js';
+
 /**
  * Static catalog for Tools & Aids hub + top-nav Tools mega-menu.
  * Games stay dynamic from the activity registry; assessments and AI tools are listed here.
@@ -269,7 +274,7 @@ export const AI_TOOLS = [
     description: 'Generate structured clinical notes from text or audio and keep a short Active / Archived shelf.',
     clinicalKind: 'clinical',
     status: 'live',
-    routePath: '/admin/note-aid',
+    routePath: WORKSPACE_NOTE_AID_PATH,
     showInNavFlyout: true,
     tags: ['Documentation', 'AI']
   },
@@ -372,7 +377,7 @@ export function assessmentFamilyKey(catalogId) {
  * @param {(path: string) => string} [orgTo] - org path prefixer
  */
 export function toolsAidsHubPath(tab, orgTo = (p) => p) {
-  const base = orgTo('/admin/tools-aids');
+  const base = orgTo(WORKSPACE_TOOLS_AIDS_PATH);
   const t = parseToolsTab(tab);
   if (t === 'assessments') return base;
   return `${base}?tab=${encodeURIComponent(t)}`;
@@ -384,7 +389,7 @@ export function toolsAidsHubPath(tab, orgTo = (p) => p) {
  * @param {(path: string) => string} [orgTo]
  */
 export function toolsAidsHubLocation(tab, orgTo = (p) => p) {
-  const path = orgTo('/admin/tools-aids');
+  const path = orgTo(WORKSPACE_TOOLS_AIDS_PATH);
   const t = parseToolsTab(tab);
   if (t === 'assessments') return { path };
   return { path, query: { tab: t } };

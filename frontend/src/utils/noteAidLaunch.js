@@ -1,3 +1,5 @@
+import { workspaceNoteAidPath } from '../config/noteAidAccess.js';
+
 /**
  * Shared Note Aid launch contract for schedule / medical record / client chart.
  *
@@ -66,8 +68,7 @@ export function buildNoteAidQuery(ctx = {}) {
  * @param {{ organizationSlug?: string }} opts
  */
 export function noteAidPath(opts = {}) {
-  const slug = cleanStr(opts.organizationSlug);
-  return slug ? `/${slug}/admin/note-aid` : '/admin/note-aid';
+  return workspaceNoteAidPath(cleanStr(opts.organizationSlug) || '');
 }
 
 /**
@@ -81,10 +82,8 @@ export function navigateToNoteAid(router, ctx = {}, opts = {}) {
     if (opts.organizationSlug) {
       return router.push({ path, query });
     }
-    return router.push({ name: 'ClinicalNoteGenerator', query }).catch(() =>
-      router.push({ path: '/admin/note-aid', query }).catch(() =>
-        router.push({ path: '/admin/clinical-note-generator', query })
-      )
+    return router.push({ name: 'NoteAid', query }).catch(() =>
+      router.push({ path: workspaceNoteAidPath(), query })
     );
   };
   return push();

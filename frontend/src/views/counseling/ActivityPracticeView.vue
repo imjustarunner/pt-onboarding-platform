@@ -42,6 +42,7 @@ import { useAgencyStore } from '../../store/agency';
 import ActivityHost from '../../components/counseling/ActivityHost.vue';
 import * as counselingApi from '../../services/counselingApi.js';
 import { embeddedActivityManifests } from '../../activities/index.js';
+import { toolsAidsHubLocation } from '../../navigation/toolsCatalog.js';
 
 const route = useRoute();
 const router = useRouter();
@@ -78,10 +79,7 @@ function orgTo(path) {
 
 function goBack() {
   stopPoll();
-  router.push({
-    path: orgTo('/dashboard'),
-    query: { tab: 'tools_aids', toolsTab: 'games' }
-  });
+  router.push(toolsAidsHubLocation('games', orgTo));
 }
 
 function goCounseling() {

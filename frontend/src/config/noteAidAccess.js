@@ -32,3 +32,17 @@ export function isNoteAidEnabledForAgencyFlags(flags) {
   if (f.noteAidEnabled === false && f.clinicalNoteGeneratorEnabled === false) return false;
   return true;
 }
+
+/** Employee workspace paths (not admin-only — all NOTE_AID_EMPLOYEE_ROLES). */
+export const WORKSPACE_TOOLS_AIDS_PATH = '/tools-aids';
+export const WORKSPACE_NOTE_AID_PATH = '/note-aid';
+
+export function workspaceToolsAidsPath(orgSlug = '') {
+  const slug = String(orgSlug || '').trim();
+  return slug ? `/${slug}${WORKSPACE_TOOLS_AIDS_PATH}` : WORKSPACE_TOOLS_AIDS_PATH;
+}
+
+export function workspaceNoteAidPath(orgSlug = '') {
+  const slug = String(orgSlug || '').trim();
+  return slug ? `/${slug}${WORKSPACE_NOTE_AID_PATH}` : WORKSPACE_NOTE_AID_PATH;
+}
