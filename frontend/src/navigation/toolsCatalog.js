@@ -309,7 +309,7 @@ export const AI_TOOLS = [
   },
   {
     id: 'momentum',
-    title: 'Momentum',
+    title: 'My Work',
     littleName: 'Sticky capture',
     description: 'Sticky notes and lightweight workspace capture for session follow-ups.',
     clinicalKind: 'non_clinical',

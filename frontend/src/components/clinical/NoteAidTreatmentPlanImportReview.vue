@@ -44,7 +44,17 @@
         </div>
 
         <label class="na-label">
-          Discharge plan
+          Presenting problem
+          <textarea v-model="model.presentingProblem" class="na-textarea" rows="3" />
+        </label>
+
+        <label class="na-label">
+          Prescribed frequency
+          <input v-model="model.prescribedFrequency" class="na-input" placeholder="e.g. Twice a Week" />
+        </label>
+
+        <label class="na-label">
+          Discharge criteria / planning
           <textarea v-model="model.dischargePlan" class="na-textarea" rows="3" />
         </label>
 
@@ -185,6 +195,8 @@ async function parse() {
     const parsed = res?.data?.parsed || {};
     model.value = reactive({
       effectiveDate: parsed.effectiveDate || '',
+      presentingProblem: parsed.presentingProblem || '',
+      prescribedFrequency: parsed.prescribedFrequency || '',
       dischargePlan: parsed.dischargePlan || '',
       diagnoses: (parsed.diagnoses || []).map((d, i) => ({
         icd10Code: d.icd10Code || '',
@@ -219,12 +231,26 @@ async function save() {
   error.value = '';
   try {
     const primary = (model.value.diagnoses || []).find((d) => d.isPrimary) || model.value.diagnoses?.[0];
+    const dischargeParts = [];
+    if (String(model.value.presentingProblem || '').trim()) {
+      dischargeParts.push(`Presenting Problem\n${String(model.value.presentingProblem).trim()}`);
+    }
+    if (String(model.value.prescribedFrequency || '').trim()) {
+      dischargeParts.push(
+        `Prescribed Frequency of Treatment\n${String(model.value.prescribedFrequency).trim()}`
+      );
+    }
+    if (String(model.value.dischargePlan || '').trim()) {
+      dischargeParts.push(`Discharge Criteria/Planning\n${String(model.value.dischargePlan).trim()}`);
+    }
     const res = await api.post('/medical-billing/treatment-plans', {
       agencyId: Number(props.agencyId),
       clientId: Number(props.clientId),
       title: 'Imported Treatment Plan',
       effectiveDate: model.value.effectiveDate || null,
-      dischargePlan: model.value.dischargePlan || null,
+      dischargePlan: dischargeParts.length ? dischargeParts.join('\n\n') : null,
+      presentingProblem: model.value.presentingProblem || null,
+      prescribedFrequency: model.value.prescribedFrequency || null,
       sourceToolId: 'note_aid_plan_import',
       icd10Code: primary?.icd10Code || null,
       diagnosisDescription: primary?.description || null,

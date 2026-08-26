@@ -535,6 +535,11 @@ class Client {
       'address_city',
       'address_state',
       'address_zip',
+      'email',
+      'timezone',
+      'appointment_reminder_type',
+      'session_sms_opt_in',
+      'demographics_phi_enc',
       'paper_packet_staff_roi_pending',
       'needs_full_packet_renewal',
       'onboarding_docs_json',
@@ -564,6 +569,7 @@ class Client {
           field === 'paper_packet_staff_roi_pending' ||
           field === 'needs_full_packet_renewal' ||
           field === 'disclosure_required' ||
+          field === 'session_sms_opt_in' ||
           field === 'is_demo'
         ) {
           values.push(clientData[field] ? 1 : 0);

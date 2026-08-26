@@ -1377,10 +1377,10 @@
             </small>
 
             <div v-if="isFeatureAvailable('momentumListEnabled')" class="toggle-row" style="margin-top: 10px;">
-              <span>Enable Momentum List</span>
+              <span>Enable My Work</span>
               <ToggleSwitch v-model="agencyForm.featureFlags.momentumListEnabled" compact />
             </div>
-            <small class="hint">Focus digest, Momentum Stickies, and Focus Assistant on the dashboard. Can also be enabled via Billing add-on.</small>
+            <small class="hint">Focus digest, Stickies, and Focus Assistant on the dashboard. Can also be enabled via Billing add-on.</small>
 
             <div v-if="isFeatureAvailable('budgetManagementEnabled')" class="toggle-row" style="margin-top: 10px;">
               <span>Enable Budget Management</span>
@@ -2965,14 +2965,14 @@
 
             <div class="dashboard-icons-grid">
               <div class="dashboard-icon-item">
-                <label>Checklist / Momentum List Card Icon</label>
+                <label>Checklist / My Work Card Icon</label>
                 <IconSelector v-model="agencyForm.myDashboardChecklistIconId" :defaultAgencyId="editingAgency?.id || null" />
-                <small>Icon for the Checklist card (or Momentum List when addon is enabled)</small>
+                <small>Icon for the Checklist card (or My Work when addon is enabled)</small>
               </div>
               <div class="dashboard-icon-item">
-                <label>Momentum List Card Icon</label>
+                <label>My Work Card Icon</label>
                 <IconSelector v-model="agencyForm.myDashboardMomentumListIconId" :defaultAgencyId="editingAgency?.id || null" />
-                <small>Optional override when Momentum List addon is enabled; falls back to Checklist icon if not set</small>
+                <small>Optional override when My Work addon is enabled; falls back to Checklist icon if not set</small>
               </div>
               <div class="dashboard-icon-item">
                 <label>Momentum Stickies Icon</label>

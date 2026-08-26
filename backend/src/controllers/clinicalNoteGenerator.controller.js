@@ -705,6 +705,8 @@ export const createClinicalNoteDraft = async (req, res, next) => {
     const serviceCode = req.body?.serviceCode ? normalizeServiceCode(req.body.serviceCode) : null;
     const programId = req.body?.programId ? safeInt(req.body.programId) : null;
     const clientId = req.body?.clientId ? safeInt(req.body.clientId) : null;
+    const officeEventId = req.body?.officeEventId ? safeInt(req.body.officeEventId) : null;
+    const clinicalSessionId = req.body?.clinicalSessionId ? safeInt(req.body.clinicalSessionId) : null;
     const dateOfService = req.body?.dateOfService ? normalizeDateOnly(req.body.dateOfService) : null;
     const initials = req.body?.initials ? String(req.body.initials).trim() : null;
     const inputText = req.body?.inputText === undefined ? null : String(req.body.inputText || '');
@@ -714,6 +716,8 @@ export const createClinicalNoteDraft = async (req, res, next) => {
       userId: req.user.id,
       agencyId,
       clientId,
+      officeEventId,
+      clinicalSessionId,
       serviceCode,
       programId,
       dateOfService,
@@ -756,6 +760,12 @@ export const patchClinicalNoteDraft = async (req, res, next) => {
     if (req.body?.serviceCode !== undefined) patch.serviceCode = req.body.serviceCode === null ? null : normalizeServiceCode(req.body.serviceCode);
     if (req.body?.programId !== undefined) patch.programId = req.body.programId === null ? null : safeInt(req.body.programId);
     if (req.body?.clientId !== undefined) patch.clientId = req.body.clientId === null ? null : safeInt(req.body.clientId);
+    if (req.body?.officeEventId !== undefined) {
+      patch.officeEventId = req.body.officeEventId === null ? null : safeInt(req.body.officeEventId);
+    }
+    if (req.body?.clinicalSessionId !== undefined) {
+      patch.clinicalSessionId = req.body.clinicalSessionId === null ? null : safeInt(req.body.clinicalSessionId);
+    }
     if (req.body?.dateOfService !== undefined) patch.dateOfService = req.body.dateOfService === null ? null : normalizeDateOnly(req.body.dateOfService);
     if (req.body?.initials !== undefined) patch.initials = req.body.initials === null ? null : String(req.body.initials).trim();
     if (req.body?.inputText !== undefined) {
@@ -924,6 +934,8 @@ export const generateClinicalNote = async (req, res, next) => {
     const dateOfService = normalizeDateOnly(req.body?.dateOfService);
     const initials = req.body?.initials ? String(req.body.initials).trim() : null;
     const clientId = req.body?.clientId ? safeInt(req.body.clientId) : null;
+    const officeEventId = req.body?.officeEventId ? safeInt(req.body.officeEventId) : null;
+    const clinicalSessionId = req.body?.clinicalSessionId ? safeInt(req.body.clinicalSessionId) : null;
     const autoSelectCode = parseBool(req.body?.autoSelectCode);
     const transcriptSource = String(req.body?.transcriptSource || '').trim().toLowerCase();
     let inputText = String(req.body?.inputText || '').trim().slice(0, 12000);
@@ -1193,6 +1205,8 @@ export const generateClinicalNote = async (req, res, next) => {
         patch: {
           agencyId,
           clientId: clientId || undefined,
+          officeEventId: officeEventId || undefined,
+          clinicalSessionId: clinicalSessionId || undefined,
           serviceCode: effectiveAutoSelect ? null : serviceCode,
           programId,
           dateOfService,
@@ -1208,6 +1222,8 @@ export const generateClinicalNote = async (req, res, next) => {
         userId: req.user.id,
         agencyId,
         clientId,
+        officeEventId,
+        clinicalSessionId,
         serviceCode: effectiveAutoSelect ? null : serviceCode,
         programId,
         dateOfService,

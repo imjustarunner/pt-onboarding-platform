@@ -73,14 +73,14 @@
 
         <div v-if="moreCount > 0" class="todays-focus__more">
           <button type="button" class="link-btn" @click="$emit('view-momentum')">
-            {{ moreCount }} more item{{ moreCount === 1 ? '' : 's' }} in Momentum ↗
+            {{ moreCount }} more item{{ moreCount === 1 ? '' : 's' }} in My Work ↗
           </button>
         </div>
 
         <div class="todays-focus__footer">
-          <button type="button" class="link-btn" @click="$emit('add-sticky')">+ Add Momentum Sticky</button>
+          <button type="button" class="link-btn" @click="$emit('add-sticky')">+ Add Sticky</button>
           <button type="button" class="btn btn-secondary btn-sm" @click="$emit('view-momentum')">
-            View All Momentum ↗
+            View All My Work ↗
           </button>
         </div>
       </template>

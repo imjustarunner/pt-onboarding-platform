@@ -34,7 +34,7 @@ export const AVAILABLE_AGENCY_FEATURE_KEYS = [
   { key: 'shiftProgramsEnabled', label: 'Shift Programs' },
   { key: 'presenceEnabled', label: 'Presence / Team Board' },
   { key: 'kudosEnabled', label: 'Kudos' },
-  { key: 'momentumListEnabled', label: 'Momentum List' },
+  { key: 'momentumListEnabled', label: 'My Work' },
   { key: 'focusPackageEnabled', label: 'Focus Package (Music + Session)' },
   { key: 'focusMusicEnabled', label: 'Focus Music (legacy)' },
   { key: 'medcancelEnabled', label: 'Med Cancel' },

@@ -17,6 +17,8 @@ class ClinicalNoteDraft {
     userId,
     agencyId = null,
     clientId = null,
+    officeEventId = null,
+    clinicalSessionId = null,
     serviceCode = null,
     programId = null,
     dateOfService = null,
@@ -29,6 +31,8 @@ class ClinicalNoteDraft {
 
     const aid = agencyId === null || agencyId === undefined ? null : safeInt(agencyId);
     const cid = clientId === null || clientId === undefined ? null : safeInt(clientId);
+    const oeid = officeEventId === null || officeEventId === undefined ? null : safeInt(officeEventId);
+    const csid = clinicalSessionId === null || clinicalSessionId === undefined ? null : safeInt(clinicalSessionId);
     const pid = programId === null || programId === undefined ? null : safeInt(programId);
 
     const svc = serviceCode ? clampText(serviceCode, 32).toUpperCase() : null;
@@ -39,9 +43,9 @@ class ClinicalNoteDraft {
 
     const [result] = await pool.execute(
       `INSERT INTO clinical_note_drafts
-       (user_id, agency_id, client_id, service_code, program_id, date_of_service, initials, input_text, output_json)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [uid, aid, cid, svc, pid, dos, init, input, out]
+       (user_id, agency_id, client_id, office_event_id, clinical_session_id, service_code, program_id, date_of_service, initials, input_text, output_json)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [uid, aid, cid, oeid, csid, svc, pid, dos, init, input, out]
     );
     return this.findByIdForUser({ draftId: result.insertId, userId: uid });
   }
@@ -81,6 +85,16 @@ class ClinicalNoteDraft {
       const cid = patch.clientId === null ? null : safeInt(patch.clientId);
       updates.push('client_id = ?');
       values.push(cid);
+    }
+    if (patch.officeEventId !== undefined) {
+      const oeid = patch.officeEventId === null ? null : safeInt(patch.officeEventId);
+      updates.push('office_event_id = ?');
+      values.push(oeid);
+    }
+    if (patch.clinicalSessionId !== undefined) {
+      const csid = patch.clinicalSessionId === null ? null : safeInt(patch.clinicalSessionId);
+      updates.push('clinical_session_id = ?');
+      values.push(csid);
     }
     if (patch.serviceCode !== undefined) {
       const svc = patch.serviceCode === null ? null : clampText(patch.serviceCode, 32).toUpperCase();
@@ -159,11 +173,18 @@ class ClinicalNoteDraft {
       where.push('archived_at IS NOT NULL');
     }
     const params = [uid, ...(aid ? [aid] : []), d];
+    const whereSql = where.map((clause) => `d.${clause}`).join(' AND ');
     const [rows] = await pool.execute(
-      `SELECT *
-       FROM clinical_note_drafts
-       WHERE ${where.join(' AND ')}
-       ORDER BY created_at DESC, id DESC
+      `SELECT
+         d.*,
+         c.full_name AS client_full_name,
+         c.client_type AS client_type,
+         a.name AS agency_name
+       FROM clinical_note_drafts d
+       LEFT JOIN clients c ON c.id = d.client_id
+       LEFT JOIN agencies a ON a.id = d.agency_id
+       WHERE ${whereSql}
+       ORDER BY d.created_at DESC, d.id DESC
        LIMIT ${lim}`,
       params
     );

@@ -23,6 +23,10 @@
           <span class="na-setup-card-title">Import intake</span>
           <span class="na-setup-card-desc">Bring in assessment content and primary diagnosis.</span>
         </button>
+        <button type="button" class="na-setup-card" @click="emit('import-demographics')">
+          <span class="na-setup-card-title">Import demographics</span>
+          <span class="na-setup-card-desc">Paste legal name, DOB, address, phone, email, and more.</span>
+        </button>
       </div>
 
       <footer class="na-setup-foot">
@@ -43,7 +47,7 @@ const props = defineProps({
   client: { type: Object, default: null }
 });
 
-const emit = defineEmits(['close', 'import-plan', 'import-intake', 'skip']);
+const emit = defineEmits(['close', 'import-plan', 'import-intake', 'import-demographics', 'skip']);
 
 const clientLabel = computed(
   () => clientDisplayName(props.client) || props.client?.initials || 'client'

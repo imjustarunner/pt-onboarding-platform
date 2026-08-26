@@ -72,8 +72,11 @@
             class="task-row__select"
             title="Select"
             :checked="selected.has(task.id)"
-            @click.stop
-            @change="toggleSelect(task)"
+            @click.stop="toggleSelect(task, { shiftKey: $event.shiftKey })"
+            @mousedown.stop.prevent="onSelectMouseDown(task, $event)"
+            @mouseenter="onSelectMouseEnter(task)"
+            @mouseup="onSelectMouseUp"
+            @change.prevent
           />
           <button
             type="button"
@@ -164,19 +167,21 @@
     :users="assignableUsers"
     :type-defs="typeDefs"
     :busy="bulkBusy"
+    :show-open-notes="selectedAreSessionNotes"
     @complete="runBulk('bulk-complete')"
     @assign="(userId) => runBulk('bulk-assign', userId)"
     @due-date="(date) => runBulk('bulk-due-date', date)"
     @priority="(urgency) => runBulk('bulk-priority', urgency)"
     @type="(workTypeId) => runBulk('bulk-type', workTypeId)"
     @status="(status) => runBulk('bulk-status', status)"
+    @open-notes="emit('bulk-open-notes', selectedTasks); clearSelection()"
     @clear="clearSelection"
   />
   </div>
 </template>
 
 <script setup>
-import { computed, reactive, ref, onBeforeUnmount } from 'vue';
+import { computed, reactive, ref, onBeforeUnmount, onMounted } from 'vue';
 import { formatDate } from '../../utils/formatDate';
 import { resolveTaskTypeMeta, taskTypeIconSvg } from '../../utils/taskTypeIcons';
 import UserAvatar from '../common/UserAvatar.vue';
@@ -199,18 +204,58 @@ const props = defineProps({
 const emit = defineEmits([
   'open', 'toggle-complete', 'menu', 'drag-start', 'make-dependent', 'create-shared-list',
   'bulk-complete', 'bulk-assign', 'bulk-due-date', 'bulk-priority', 'bulk-type', 'bulk-status',
-  'task-updated'
+  'bulk-open-notes', 'task-updated'
 ]);
 
 // ---- Multi-select state ----
 const selected = ref(new Set());
 const bulkBusy = ref(false);
+const lastClickedIndex = ref(-1);
+const dragSelecting = ref(false);
+const dragSelectMode = ref(null); // 'add' | 'remove'
 
-function toggleSelect(task) {
+function taskSelectKey(task) {
+  return String(task?.task_type || task?.taskType || task?.work_type_id || 'other');
+}
+
+function selectionLockedType() {
+  const first = selectedTasks.value[0];
+  return first ? taskSelectKey(first) : null;
+}
+
+function canSelectTask(task) {
+  const locked = selectionLockedType();
+  if (!locked) return true;
+  return taskSelectKey(task) === locked;
+}
+
+function toggleSelect(task, { shiftKey = false } = {}) {
+  const idx = (props.tasks || []).findIndex((t) => t.id === task.id);
+  if (shiftKey && lastClickedIndex.value >= 0 && idx >= 0) {
+    const [a, b] = idx > lastClickedIndex.value
+      ? [lastClickedIndex.value, idx]
+      : [idx, lastClickedIndex.value];
+    const next = new Set(selected.value);
+    const locked = selectionLockedType();
+    for (let i = a; i <= b; i += 1) {
+      const t = props.tasks[i];
+      if (!t) continue;
+      if (locked && taskSelectKey(t) !== locked) continue;
+      if (!locked && next.size && taskSelectKey(t) !== taskSelectKey(props.tasks[a])) continue;
+      next.add(t.id);
+    }
+    selected.value = next;
+    lastClickedIndex.value = idx;
+    return;
+  }
+  if (!selected.value.has(task.id) && !canSelectTask(task)) {
+    return;
+  }
   const next = new Set(selected.value);
   if (next.has(task.id)) next.delete(task.id);
   else next.add(task.id);
   selected.value = next;
+  lastClickedIndex.value = idx;
 }
 
 const allSelected = computed(() => props.tasks.length > 0 && selected.value.size === props.tasks.length);
@@ -219,8 +264,18 @@ const someSelected = computed(() => selected.value.size > 0 && !allSelected.valu
 function toggleSelectAll() {
   if (allSelected.value) {
     selected.value = new Set();
-  } else {
-    selected.value = new Set(props.tasks.map((t) => t.id));
+    return;
+  }
+  const locked = selectionLockedType();
+  if (locked) {
+    selected.value = new Set(
+      props.tasks.filter((t) => taskSelectKey(t) === locked).map((t) => t.id)
+    );
+  } else if (props.tasks.length) {
+    const firstType = taskSelectKey(props.tasks[0]);
+    selected.value = new Set(
+      props.tasks.filter((t) => taskSelectKey(t) === firstType).map((t) => t.id)
+    );
   }
 }
 
@@ -228,8 +283,41 @@ const selectedTasks = computed(() =>
   props.tasks.filter((t) => selected.value.has(t.id))
 );
 
+const selectedAreSessionNotes = computed(() =>
+  selectedTasks.value.length > 0
+  && selectedTasks.value.every((t) => String(t.task_type || '').toLowerCase() === 'session_note')
+);
+
 function clearSelection() {
   selected.value = new Set();
+}
+
+function onSelectMouseDown(task, e) {
+  if (e.button !== 0) return;
+  dragSelecting.value = true;
+  dragSelectMode.value = selected.value.has(task.id) ? 'remove' : 'add';
+  if (dragSelectMode.value === 'add' && !canSelectTask(task)) {
+    dragSelecting.value = false;
+    return;
+  }
+  const next = new Set(selected.value);
+  if (dragSelectMode.value === 'add') next.add(task.id);
+  else next.delete(task.id);
+  selected.value = next;
+}
+
+function onSelectMouseEnter(task) {
+  if (!dragSelecting.value) return;
+  if (dragSelectMode.value === 'add' && !canSelectTask(task)) return;
+  const next = new Set(selected.value);
+  if (dragSelectMode.value === 'add') next.add(task.id);
+  else next.delete(task.id);
+  selected.value = next;
+}
+
+function onSelectMouseUp() {
+  dragSelecting.value = false;
+  dragSelectMode.value = null;
 }
 
 async function runBulk(eventName, value) {
@@ -536,7 +624,13 @@ function doCreateSharedList() {
   hoverTask.value = null;
 }
 
-onBeforeUnmount(() => clearTimeout(leaveTimer));
+onMounted(() => {
+  document.addEventListener('mouseup', onSelectMouseUp);
+});
+onBeforeUnmount(() => {
+  clearTimeout(leaveTimer);
+  document.removeEventListener('mouseup', onSelectMouseUp);
+});
 </script>
 
 <style scoped>

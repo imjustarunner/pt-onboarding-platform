@@ -3019,7 +3019,7 @@ const scheduleViewContextLine = computed(() => {
 
 const tabs = computed(() => {
   const list = [
-    { id: 'checklist', label: momentumListEnabled.value ? 'Momentum' : 'Checklist', badgeCount: checklistCount.value },
+    { id: 'checklist', label: momentumListEnabled.value ? 'My Work' : 'Checklist', badgeCount: checklistCount.value },
     { id: 'training', label: 'Training', badgeCount: trainingCount.value }
   ];
   // Documents live under My Account once onboarding is complete; keep rail access for pre-hire.
@@ -3754,7 +3754,7 @@ const dashboardCards = computed(() => {
           : 'Documents that need review or signature.'
   }));
 
-  // Promote Checklist/Momentum into a nest: Focus (panel) + Tasks (hub route).
+  // Promote Checklist/My Work into a nest: Focus (panel) + Tasks (hub route).
   const checklistIdx = cards.findIndex((c) => String(c?.id) === 'checklist');
   if (checklistIdx >= 0) {
     const base = cards[checklistIdx];
@@ -3762,7 +3762,7 @@ const dashboardCards = computed(() => {
       brandingStore.getDashboardCardIconUrl('momentum_list', iconOrg) || base.iconUrl;
     cards.splice(checklistIdx, 1, {
       id: 'momentum_nest',
-      label: momentumListEnabled.value ? 'Momentum' : 'Checklist',
+      label: momentumListEnabled.value ? 'My Work' : 'Checklist',
       kind: 'nest',
       badgeCount: base.badgeCount || 0,
       iconUrl: momentumIcon,

@@ -390,7 +390,7 @@ export function useDashboardOverview(opts = {}) {
         id: 'tasks-open',
         kind: 'tasks',
         title: `${taskCount.value} open task${taskCount.value === 1 ? '' : 's'}`,
-        subtitle: 'View Momentum List',
+        subtitle: 'View My Work',
         at: null,
         unread: false
       });
@@ -400,7 +400,7 @@ export function useDashboardOverview(opts = {}) {
         id: 'tickets-open',
         kind: 'tickets',
         title: `${ticketCount.value} support ticket${ticketCount.value === 1 ? '' : 's'}`,
-        subtitle: 'View Momentum List',
+        subtitle: 'View My Work',
         at: null,
         unread: false
       });
@@ -410,7 +410,7 @@ export function useDashboardOverview(opts = {}) {
         id: 'notes-to-sign',
         kind: 'notes_to_sign',
         title: `${notesToSignCount.value} note${notesToSignCount.value === 1 ? '' : 's'} to sign`,
-        subtitle: 'Open Momentum List',
+        subtitle: 'Open My Work',
         at: null,
         unread: true
       });

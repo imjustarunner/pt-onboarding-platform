@@ -47,14 +47,19 @@
       <ClinicalNoteLibrarySidebar
         title="Clinical Note Library"
         :drafts="recentDrafts"
+        :work-queue-items="workQueueItems"
         :loading="recentLoading"
         :error="recentError"
         :selected-id="draftId"
+        :selected-work-queue-id="activeWorkQueueItemId"
         v-model:tab="sidebarTab"
         v-model:search="draftSearch"
+        v-model:group-by="libraryGroupBy"
+        v-model:date-order="libraryDateOrder"
+        v-model:connection-filter="libraryConnectionFilter"
         :type-label="draftNoteTypeLabel"
         @new="startNewNote"
-        @select="loadDraftIntoWorkspace"
+        @select="onLibrarySidebarSelect"
       />
 
       <main class="na-main" :class="{ 'na-main--library': showLibraryPanel }">
@@ -108,6 +113,7 @@
                 @open-chart-intake="openClientChartIntake"
                 @import-plan="showPlanImportReview = true"
                 @import-intake="showIntakeImportReview = true"
+                @import-demographics="showDemographicsImport = true"
               />
             </div>
           </template>
@@ -123,8 +129,27 @@
               Credential isn’t set — generation will use Code Decider until an admin records your license.
             </p>
           </div>
-          <button type="button" class="na-change-aid" @click="changeNoteAid">Change tool</button>
+          <div class="na-aid-bar-actions">
+            <button type="button" class="na-change-aid" @click="openAllPendingSessionNotes">
+              Open all pending
+            </button>
+            <button type="button" class="na-change-aid" @click="changeNoteAid">Change tool</button>
+          </div>
         </div>
+
+        <NoteAidSessionContextStrip
+          :visible="showSessionContextStrip"
+          :clinician-label="sessionClinicianLabel"
+          :patient-label="sessionPatientLabel"
+          :patient-dob="sessionPatientDob"
+          :date-time-label="sessionDateTimeLabel"
+          v-model:duration-minutes="sessionDurationMinutes"
+          :service-code="actualServiceCode"
+          :location-label="sessionLocationLabel"
+          v-model:participants="sessionParticipants"
+          :participants-flag="sessionParticipantsFlag"
+          :code-switch-banner="sessionCodeSwitchBanner"
+        />
 
         <NoteAidDocumentationQueue
           v-if="needsSessionPicker && progressEntryMode === 'appointment'"
@@ -299,6 +324,9 @@
           @open-updater="openTreatmentPlanUpdater"
           @use-intake="useIntakeToInformPlan"
           @open-chart-intake="openClientChartIntake"
+          @import-plan="showPlanImportReview = true"
+          @import-intake="showIntakeImportReview = true"
+          @import-demographics="showDemographicsImport = true"
         />
 
         <div v-if="effectiveClientId && primaryChartDiagnosis" class="na-dx-banner" role="status">
@@ -475,6 +503,18 @@
             />
           </div>
 
+          <NoteAidStructuredChartPanel
+            v-if="showStructuredChartPanel"
+            :diagnoses="chartDiagnoses"
+            v-model:diagnostic-justification="chartDiagnosticJustification"
+            v-model:mse="chartMentalStatus"
+            v-model:risk="chartRiskAssessment"
+            v-model:medications="chartMedications"
+            :skip-mse="skipMentalStatusExam"
+            @mse-all-normal="setMseAllNormal"
+            @mse-all-not-assessed="setMseAllNotAssessed"
+          />
+
           <div class="na-output-actions">
             <button type="button" class="na-btn-primary" :disabled="!displayPanels.length" @click="copyFullNote">
               Copy Full Note
@@ -491,10 +531,12 @@
               v-if="canApproveToClinicalRecord"
               type="button"
               class="na-btn-outline"
-              :disabled="!displayPanels.length || approvingNote"
+              :disabled="!displayPanels.length || approvingNote || !canConfirmAndSign"
               @click="approveNoteOutput"
             >
-              {{ approvingNote ? 'Approving…' : 'Approve to clinical record' }}
+              {{ approvingNote
+                ? 'Signing…'
+                : (activeWorkQueueItemId ? 'Confirm accuracy & sign' : 'Approve to clinical record') }}
             </button>
             <button
               v-if="canSaveTreatmentPlanToChart"
@@ -536,6 +578,17 @@
         />
         </template>
       </main>
+
+      <NoteAidWorkQueuePanel
+        v-if="canUseTool"
+        :items="workQueueItems"
+        :active-id="activeWorkQueueItemId"
+        @add-todo="showTodoImportModal = true"
+        @generate="generateNote"
+        @next="advanceWorkQueue"
+        @clear="clearWorkQueue"
+        @select="activateWorkQueueItem"
+      />
     </div>
 
     <div
@@ -585,6 +638,7 @@
       @skip="showClientSetupDrawer = false"
       @import-plan="showClientSetupDrawer = false; showPlanImportReview = true"
       @import-intake="showClientSetupDrawer = false; showIntakeImportReview = true"
+      @import-demographics="showClientSetupDrawer = false; showDemographicsImport = true"
     />
     <NoteAidTreatmentPlanImportReview
       v-if="effectiveClientId && noteAidAgencyId"
@@ -603,6 +657,19 @@
       @close="showIntakeImportReview = false"
       @finalized="onIntakeImportFinalized"
     />
+    <NoteAidDemographicsImportReview
+      v-if="effectiveClientId"
+      :open="showDemographicsImport"
+      :client-id="effectiveClientId"
+      @close="showDemographicsImport = false"
+      @saved="onDemographicsImported"
+    />
+    <NoteAidTodoListImportModal
+      :open="showTodoImportModal"
+      :default-agency-id="noteAidAgencyId || currentAgencyId"
+      @close="showTodoImportModal = false"
+      @built="onTodoListBuilt"
+    />
 
   </div>
 </template>
@@ -616,6 +683,26 @@ import NoteAidClientSetupDrawer from '../../components/clinical/NoteAidClientSet
 import NoteAidDocumentationQueue from '../../components/clinical/NoteAidDocumentationQueue.vue';
 import NoteAidTreatmentPlanImportReview from '../../components/clinical/NoteAidTreatmentPlanImportReview.vue';
 import NoteAidIntakeImportReview from '../../components/clinical/NoteAidIntakeImportReview.vue';
+import NoteAidDemographicsImportReview from '../../components/clinical/NoteAidDemographicsImportReview.vue';
+import NoteAidWorkQueuePanel from '../../components/clinical/NoteAidWorkQueuePanel.vue';
+import NoteAidTodoListImportModal from '../../components/clinical/NoteAidTodoListImportModal.vue';
+import NoteAidSessionContextStrip from '../../components/clinical/NoteAidSessionContextStrip.vue';
+import NoteAidStructuredChartPanel from '../../components/clinical/NoteAidStructuredChartPanel.vue';
+import { loadWorkQueue, saveWorkQueue } from '../../utils/noteAidWorkQueue.js';
+import {
+  DOC_STATUS,
+  deriveWorkQueueDocStatus
+} from '../../utils/noteAidDocumentationStatus.js';
+import {
+  consumeNoteAidWorkQueueStash,
+  suggestPsychotherapyCodeForDuration,
+  participantsLikelyIncludeOthers,
+  defaultMentalStatusExam,
+  defaultRiskAssessment,
+  defaultMedicationsBlock,
+  taskToWorkQueueItem,
+  MSE_DOMAINS
+} from '../../utils/noteAidSessionQueue.js';
 import {
   buildDisplaySections,
   extractSections,
@@ -710,8 +797,13 @@ const therapyContext = computed(() => {
 
 const canApproveToClinicalRecord = computed(
   () => !!(
-    bookingContext.value?.clientId
-    && (bookingContext.value?.officeEventId || bookingContext.value?.clinicalSessionId)
+    (bookingContext.value?.clientId || sessionOfficeEventId.value || effectiveClientId.value)
+    && (
+      bookingContext.value?.officeEventId
+      || bookingContext.value?.clinicalSessionId
+      || sessionOfficeEventId.value
+      || sessionClinicalSessionId.value
+    )
   )
 );
 const retentionClientId = computed(
@@ -799,6 +891,22 @@ const showCreateClientModal = ref(false);
 const showClientSetupDrawer = ref(false);
 const showPlanImportReview = ref(false);
 const showIntakeImportReview = ref(false);
+const showDemographicsImport = ref(false);
+const showTodoImportModal = ref(false);
+const workQueueItems = ref([]);
+const sessionOfficeEventId = ref(null);
+const sessionClinicalSessionId = ref(null);
+const sessionDurationMinutes = ref(null);
+const sessionLocationLabel = ref('');
+const sessionParticipants = ref('Client Only');
+const sessionPatientDob = ref('');
+const sessionScheduledStart = ref(null);
+const sessionScheduledEnd = ref(null);
+const sessionCodeSwitchBanner = ref('');
+const chartDiagnosticJustification = ref('');
+const chartMentalStatus = ref(defaultMentalStatusExam());
+const chartRiskAssessment = ref(defaultRiskAssessment());
+const chartMedications = ref(defaultMedicationsBlock());
 const createClientDefaults = reactive({ initials: '', name: '', agencyId: null });
 const initialsMatchSuggestions = ref([]);
 const initialsMatchDismissed = ref(false);
@@ -844,18 +952,92 @@ const agencyLookup = computed(() => {
   return map;
 });
 const isProgressAid = computed(() => aidKind(selectedAid.value) === 'progress');
+const activeWorkQueueItemId = ref(null);
+const activeWorkQueueItem = computed(
+  () => (workQueueItems.value || []).find((i) => i.id === activeWorkQueueItemId.value) || null
+);
+const showSessionContextStrip = computed(() =>
+  !!(
+    sessionOfficeEventId.value
+    || bookingContext.value?.officeEventId
+    || activeWorkQueueItem.value?.officeEventId
+  )
+);
+const skipMentalStatusExam = computed(() => {
+  const code = String(actualServiceCode.value || '').toUpperCase();
+  return code === 'H0004';
+});
+const showStructuredChartPanel = computed(
+  () => !!(showSessionContextStrip.value || canApproveToClinicalRecord.value)
+);
+const sessionClinicianLabel = computed(() => {
+  const u = authStore.user || {};
+  const name = [u.first_name, u.last_name].filter(Boolean).join(' ').trim();
+  const cred = u.credentials || u.license_type || u.credential || '';
+  if (name && cred) return `${name}, ${cred}`;
+  return name || 'Clinician';
+});
+const sessionPatientLabel = computed(
+  () =>
+    selectedClient.value?.full_name
+    || activeWorkQueueItem.value?.clientName
+    || initials.value
+    || 'Patient'
+);
+const sessionDateTimeLabel = computed(() => {
+  const start = sessionScheduledStart.value || activeWorkQueueItem.value?.scheduledStart;
+  const end = sessionScheduledEnd.value || activeWorkQueueItem.value?.scheduledEnd;
+  if (!start) return dateOfService.value || '';
+  try {
+    const s = new Date(start);
+    const e = end ? new Date(end) : null;
+    const datePart = s.toLocaleDateString();
+    const timePart = e
+      ? `${s.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}–${e.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`
+      : s.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+    return `${datePart} · ${timePart}`;
+  } catch {
+    return String(start);
+  }
+});
+const sessionParticipantsFlag = computed(() => {
+  if (sessionParticipants.value !== 'Client Only') return false;
+  const blob = [
+    inputText.value,
+    revisionInstruction.value,
+    JSON.stringify(outputObj.value || {})
+  ].join('\n');
+  return participantsLikelyIncludeOthers(blob);
+});
+const canConfirmAndSign = computed(() => {
+  if (sessionParticipantsFlag.value) return false;
+  if (!skipMentalStatusExam.value) {
+    const domains = chartMentalStatus.value?.domains || {};
+    const hasAny = Object.keys(domains).length > 0;
+    if (!hasAny && !chartMentalStatus.value?.allNormal && !chartMentalStatus.value?.allNotAssessed) {
+      return false;
+    }
+  }
+  return true;
+});
 const needsSessionPicker = computed(() => {
   if (!isProgressAid.value) return false;
   if (!showProgressSessionPicker.value) return false;
+  if (draftId.value) return false;
+  if (activeWorkQueueItemId.value) return false;
   if (bookingContext.value?.clinicalSessionId || bookingContext.value?.officeEventId) return false;
+  if (sessionOfficeEventId.value) return false;
   if (progressEntryMode.value === 'unlinked') return false;
   return true;
 });
 const inputText = ref('');
 const includeInteractiveComplexity = ref(false);
 const inputMode = ref('type'); // type | speak
-const sidebarTab = ref('active'); // active | archived
+const sidebarTab = ref('started'); // started | completed | signed
 const draftSearch = ref('');
+const libraryGroupBy = ref('status');
+const libraryDateOrder = ref('newest');
+const libraryConnectionFilter = ref('');
 const openDateGroups = ref({});
 const collapseAllSections = ref(false);
 const collapsedPanels = reactive({});
@@ -1193,7 +1375,9 @@ watch(selectedAidId, (aidId) => {
   const aid = findNoteAidById(aidId)?.aid;
   if (aidKind(aid) === 'progress') {
     const hasSession = !!(bookingContext.value?.clinicalSessionId || bookingContext.value?.officeEventId);
-    showProgressSessionPicker.value = !hasSession && progressEntryMode.value === 'appointment';
+    const lockedByDraftOrQueue = !!(draftId.value || activeWorkQueueItemId.value);
+    showProgressSessionPicker.value =
+      !hasSession && progressEntryMode.value === 'appointment' && !lockedByDraftOrQueue;
   } else {
     showProgressSessionPicker.value = false;
   }
@@ -1898,7 +2082,12 @@ const autosave = async () => {
         : null,
     dateOfService: dateOfService.value ? String(dateOfService.value) : null,
     initials: initials.value ? String(initials.value) : null,
-    inputText: rawInput
+    inputText: rawInput,
+    clientId: effectiveClientId.value || null,
+    officeEventId:
+      Number(bookingContext.value?.officeEventId || sessionOfficeEventId.value || 0) || null,
+    clinicalSessionId:
+      Number(bookingContext.value?.clinicalSessionId || sessionClinicalSessionId.value || 0) || null
   };
 
   // Default Date of Service alone must NOT spawn a new draft every interval/click cycle.
@@ -2307,6 +2496,10 @@ const generateNote = async () => {
     fd.append('dateWritten', String(effectiveCreatedDate.value));
     if (initials.value) fd.append('initials', String(initials.value));
     if (effectiveClientId.value) fd.append('clientId', String(effectiveClientId.value));
+    const oeId = Number(bookingContext.value?.officeEventId || sessionOfficeEventId.value || 0);
+    const csId = Number(bookingContext.value?.clinicalSessionId || sessionClinicalSessionId.value || 0);
+    if (oeId) fd.append('officeEventId', String(oeId));
+    if (csId) fd.append('clinicalSessionId', String(csId));
     const planBits = [];
     const planCtx = buildTreatmentPlanContextText(latestTreatmentPlan.value, pastedPlanText.value);
     if (planCtx) planBits.push(planCtx);
@@ -2316,6 +2509,22 @@ const generateNote = async () => {
       .filter(Boolean);
     if (dxLines.length) {
       planBits.push(`Diagnosis on file:\n${dxLines.map((l) => `- ${l}`).join('\n')}`);
+    }
+    if (showSessionContextStrip.value) {
+      const sessionBits = [
+        'Session documentation context (clinician-confirmed):',
+        `Participants: ${sessionParticipants.value || 'Client Only'}`,
+        sessionDurationMinutes.value != null ? `Duration minutes: ${sessionDurationMinutes.value}` : null,
+        actualServiceCode.value ? `Service code: ${actualServiceCode.value}` : null,
+        sessionLocationLabel.value ? `Location: ${sessionLocationLabel.value}` : null
+      ].filter(Boolean);
+      if (!skipMentalStatusExam.value && chartMentalStatus.value) {
+        sessionBits.push('Mental status exam recorded (structured).');
+      }
+      if (chartRiskAssessment.value?.patientDeniesAll) {
+        sessionBits.push('Risk assessment: patient denies all areas of risk.');
+      }
+      planBits.push(sessionBits.join('\n'));
     }
     if (planBits.length) {
       fd.append('treatmentPlanContext', planBits.join('\n\n').slice(0, 8000));
@@ -2370,6 +2579,8 @@ const generateNote = async () => {
 
     await persistSessionObjectiveRatings();
     await loadRecent();
+    markActiveWorkQueueItemCompleted();
+    sidebarTab.value = DOC_STATUS.COMPLETED;
   } catch (e) {
     const base = e.response?.data?.error?.message || 'Failed to generate note';
     const details = e.response?.data?.error?.details;
@@ -2393,12 +2604,18 @@ const buildApprovedPayloadText = () => {
 };
 
 const ensureClinicalSessionForApproval = async () => {
-  const existingSessionId = Number(bookingContext.value?.clinicalSessionId || 0);
+  const existingSessionId = Number(
+    bookingContext.value?.clinicalSessionId || sessionClinicalSessionId.value || 0
+  );
   if (existingSessionId) return existingSessionId;
 
   const agencyId = Number(noteAidAgencyId.value || currentAgencyId.value || 0);
-  const officeEventId = Number(bookingContext.value.officeEventId || 0);
-  const clientId = Number(bookingContext.value.clientId || selectedClientId.value || 0);
+  const officeEventId = Number(
+    bookingContext.value?.officeEventId || sessionOfficeEventId.value || 0
+  );
+  const clientId = Number(
+    bookingContext.value?.clientId || selectedClientId.value || effectiveClientId.value || 0
+  );
   if (!agencyId || !officeEventId || !clientId) {
     throw new Error('Missing appointment context (agencyId, officeEventId, or clientId). Open Note Aid from a booked schedule slot or a billing medical-record session.');
   }
@@ -2410,13 +2627,24 @@ const ensureClinicalSessionForApproval = async () => {
   });
   const sessionId = Number(res?.data?.session?.id || 0) || null;
   if (!sessionId) throw new Error('Could not resolve clinical session context.');
+  sessionClinicalSessionId.value = sessionId;
   return sessionId;
 };
 
 const approveNoteOutput = async () => {
   if (!mergedSectionEntries.value.length) return;
   if (approvingNote.value) return;
-  const ok = window.confirm('Approve this note and clear transcript/audio from this form?');
+  if (!canConfirmAndSign.value) {
+    approvalError.value = sessionParticipantsFlag.value
+      ? 'Update Participants — session content suggests others were present.'
+      : 'Complete required chart sections before signing.';
+    return;
+  }
+  const ok = window.confirm(
+    activeWorkQueueItemId.value
+      ? 'Confirm this note is accurate and sign it?'
+      : 'Approve this note and clear transcript/audio from this form?'
+  );
   if (!ok) return;
   try {
     approvingNote.value = true;
@@ -2427,32 +2655,63 @@ const approveNoteOutput = async () => {
     if (!approvedPayload) throw new Error('No approved note content available to persist.');
     const serviceCodeForMetadata = actualServiceCode.value || null;
     const title = `${bookingContext.value.noteType} ${serviceCodeForMetadata ? `(${serviceCodeForMetadata}) ` : ''}${new Date().toISOString().slice(0, 10)}`.trim();
-    await api.post(`/clinical-data/sessions/${sessionId}/notes`, {
+    const structuredChart = {
+      diagnosticJustification: chartDiagnosticJustification.value || null,
+      mentalStatusExam: skipMentalStatusExam.value ? null : chartMentalStatus.value,
+      riskAssessment: chartRiskAssessment.value,
+      medications: chartMedications.value,
+      participants: sessionParticipants.value,
+      durationMinutes: sessionDurationMinutes.value,
+      skippedMseReason: skipMentalStatusExam.value ? 'H0004' : null
+    };
+    const createRes = await api.post(`/clinical-data/sessions/${sessionId}/notes`, {
       title,
       notePayload: approvedPayload,
       noteType: bookingContext.value.noteType,
       templateVersion: bookingContext.value.templateVersion,
       serviceCode: serviceCodeForMetadata,
-      officeEventId: bookingContext.value.officeEventId || undefined,
-      source: bookingContext.value.officeEventId ? 'note_aid_approval' : 'billing_import_note_approval',
+      officeEventId: bookingContext.value.officeEventId || sessionOfficeEventId.value || undefined,
+      source: (bookingContext.value.officeEventId || sessionOfficeEventId.value)
+        ? 'note_aid_approval'
+        : 'billing_import_note_approval',
       primaryDiagnosisId: primaryChartDiagnosis.value?.id || null,
-      diagnosticJustification: primaryChartDiagnosis.value?.justification || null,
+      diagnosticJustification:
+        chartDiagnosticJustification.value || primaryChartDiagnosis.value?.justification || null,
       metadata: {
         generatedBy: 'clinical_note_generator',
         model: outputObj.value?.meta?.model || null,
         toolId: outputObj.value?.meta?.toolId || null,
         approvedAt: new Date().toISOString(),
         primaryDiagnosisId: primaryChartDiagnosis.value?.id || null,
-        dateOfService: dateOfService.value ? String(dateOfService.value).slice(0, 10) : null
+        dateOfService: dateOfService.value ? String(dateOfService.value).slice(0, 10) : null,
+        officeEventId: bookingContext.value.officeEventId || sessionOfficeEventId.value || null,
+        structuredChart
       }
     });
+
+    const noteId = Number(createRes?.data?.note?.id || 0);
+    if (noteId) {
+      try {
+        await api.post(`/medical-billing/notes/${noteId}/sign`, {}, { skipGlobalLoading: true });
+      } catch (signErr) {
+        console.warn('[NoteAid] provider sign after approve failed', signErr?.message || signErr);
+      }
+    }
 
     inputText.value = '';
     transcriptSource.value = '';
     liveTranscript.value = '';
     clearAudio();
     revisionInstruction.value = '';
-    approvalMessage.value = 'Approved and persisted to clinical records. Transcript/audio cleared from this form.';
+    approvalMessage.value = activeWorkQueueItemId.value
+      ? 'Confirmed, signed, and saved to clinical records.'
+      : 'Approved and persisted to clinical records. Transcript/audio cleared from this form.';
+    if (activeWorkQueueItemId.value) {
+      advanceWorkQueueAfterSign();
+    } else {
+      markActiveWorkQueueItemSigned();
+    }
+    sidebarTab.value = DOC_STATUS.SIGNED;
   } catch (e) {
     approvalError.value = e.response?.data?.error?.message || e.message || 'Failed to persist approved note';
   } finally {
@@ -2644,7 +2903,7 @@ const bootstrapWorkspace = async ({ resetForm = false } = {}) => {
 };
 
 const setSidebarTab = async (tab) => {
-  sidebarTab.value = tab === 'archived' ? 'archived' : 'active';
+  sidebarTab.value = tab === 'archived' || tab === 'signed' ? DOC_STATUS.SIGNED : DOC_STATUS.STARTED;
   openDateGroups.value = {};
   await loadRecent();
 };
@@ -2863,17 +3122,251 @@ watch(initials, () => {
 
 const onPlanImportSaved = async (plan) => {
   showPlanImportReview.value = false;
-  if (plan) latestTreatmentPlan.value = plan;
-  await loadClientTreatmentPlan(effectiveClientId.value);
+  pastedPlanText.value = '';
+  if (effectiveClientId.value) await loadClientTreatmentPlan(effectiveClientId.value);
+  approvalMessage.value = plan?.id
+    ? 'Treatment plan saved to chart.'
+    : 'Treatment plan import completed.';
 };
 
 const onIntakeImportFinalized = async () => {
   showIntakeImportReview.value = false;
-  await Promise.all([
-    loadClientIntakeSummary(effectiveClientId.value),
-    loadClientTreatmentPlan(effectiveClientId.value)
-  ]);
+  if (effectiveClientId.value) {
+    await loadClientTreatmentPlan(effectiveClientId.value);
+    await loadClientIntakeSummary(effectiveClientId.value);
+  }
 };
+
+const onDemographicsImported = async () => {
+  showDemographicsImport.value = false;
+  approvalMessage.value = 'Demographics encrypted and saved to the client chart.';
+};
+
+function persistWorkQueue() {
+  saveWorkQueue(authStore.user?.id, workQueueItems.value);
+}
+
+function normalizeWorkQueueItemStatus(item) {
+  if (!item) return item;
+  const docStatus = deriveWorkQueueDocStatus(item);
+  return { ...item, status: docStatus, docStatus };
+}
+
+function patchActiveWorkQueueStatus(status, extra = {}) {
+  const id = activeWorkQueueItemId.value;
+  if (!id) return;
+  workQueueItems.value = (workQueueItems.value || []).map((item) =>
+    item.id === id
+      ? {
+          ...item,
+          status,
+          docStatus: status,
+          draftId: draftId.value || item.draftId || null,
+          updatedAt: new Date().toISOString(),
+          ...extra
+        }
+      : item
+  );
+  persistWorkQueue();
+}
+
+function markActiveWorkQueueItemCompleted() {
+  patchActiveWorkQueueStatus(DOC_STATUS.COMPLETED, {
+    completedAt: new Date().toISOString()
+  });
+}
+
+function markActiveWorkQueueItemSigned() {
+  patchActiveWorkQueueStatus(DOC_STATUS.SIGNED, {
+    signedAt: new Date().toISOString()
+  });
+}
+
+/** @deprecated use markActiveWorkQueueItemSigned */
+function markActiveWorkQueueItemDone() {
+  markActiveWorkQueueItemSigned();
+}
+
+function clearWorkQueue() {
+  workQueueItems.value = [];
+  activeWorkQueueItemId.value = null;
+  persistWorkQueue();
+}
+
+function onTodoListBuilt({ items }) {
+  showTodoImportModal.value = false;
+  workQueueItems.value = (Array.isArray(items) ? items : []).map((i) => ({
+    ...i,
+    status: DOC_STATUS.NOT_STARTED,
+    docStatus: DOC_STATUS.NOT_STARTED
+  }));
+  activeWorkQueueItemId.value = null;
+  persistWorkQueue();
+  const first = workQueueItems.value.find(
+    (i) => deriveWorkQueueDocStatus(i) === DOC_STATUS.NOT_STARTED
+  );
+  if (first) activateWorkQueueItem(first);
+}
+
+function advanceWorkQueue() {
+  // Skip without signing — return current to not_started if still unfinished
+  const id = activeWorkQueueItemId.value;
+  if (id) {
+    workQueueItems.value = (workQueueItems.value || []).map((item) => {
+      if (item.id !== id) return item;
+      const cur = deriveWorkQueueDocStatus(item);
+      if (cur === DOC_STATUS.STARTED) {
+        return { ...item, status: DOC_STATUS.NOT_STARTED, docStatus: DOC_STATUS.NOT_STARTED };
+      }
+      return item;
+    });
+    persistWorkQueue();
+  }
+  const next = (workQueueItems.value || []).find(
+    (i) => deriveWorkQueueDocStatus(i) === DOC_STATUS.NOT_STARTED
+  );
+  if (next) activateWorkQueueItem(next);
+  else activeWorkQueueItemId.value = null;
+}
+
+function advanceWorkQueueAfterSign() {
+  markActiveWorkQueueItemSigned();
+  activeWorkQueueItemId.value = null;
+  const next = (workQueueItems.value || []).find(
+    (i) => deriveWorkQueueDocStatus(i) === DOC_STATUS.NOT_STARTED
+  );
+  if (next) activateWorkQueueItem(next);
+}
+
+function onLibrarySidebarSelect(row) {
+  if (!row) return;
+  if (row.source === 'work_queue' && row.raw) {
+    activateWorkQueueItem(row.raw);
+    sidebarTab.value = DOC_STATUS.STARTED;
+    return;
+  }
+  const draft = row.raw || row;
+  if (draft?.id && row.source !== 'work_queue') {
+    loadDraftIntoWorkspace(draft);
+    const st = row.docStatus || DOC_STATUS.STARTED;
+    if (st === DOC_STATUS.SIGNED) sidebarTab.value = DOC_STATUS.SIGNED;
+    else if (st === DOC_STATUS.COMPLETED) sidebarTab.value = DOC_STATUS.COMPLETED;
+    else sidebarTab.value = DOC_STATUS.STARTED;
+  }
+}
+
+async function activateWorkQueueItem(item) {
+  if (!item) return;
+  workQueueItems.value = (workQueueItems.value || []).map((row) => {
+    if (row.id === item.id) {
+      return {
+        ...row,
+        status: DOC_STATUS.STARTED,
+        docStatus: DOC_STATUS.STARTED,
+        startedAt: row.startedAt || new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      };
+    }
+    // Demote other in-progress items back to not_started (still on both panels until finished)
+    if (deriveWorkQueueDocStatus(row) === DOC_STATUS.STARTED && row.id !== item.id) {
+      // Keep as started — user asked started items stay visible in both; don't demote siblings
+      return row;
+    }
+    return row;
+  });
+  activeWorkQueueItemId.value = item.id;
+  sidebarTab.value = DOC_STATUS.STARTED;
+  persistWorkQueue();
+
+  showProgressSessionPicker.value = false;
+  progressEntryMode.value = item.officeEventId ? 'appointment' : 'client';
+  dateOfService.value = item.date || todayIsoDate();
+  sessionOfficeEventId.value = item.officeEventId || null;
+  sessionClinicalSessionId.value = item.clinicalSessionId || null;
+  sessionDurationMinutes.value = item.durationMinutes || null;
+  sessionLocationLabel.value = item.locationLabel || '';
+  sessionParticipants.value = item.participantsSummary || 'Client Only';
+  sessionPatientDob.value = item.clientDob ? String(item.clientDob).slice(0, 10) : '';
+  sessionScheduledStart.value = item.scheduledStart || null;
+  sessionScheduledEnd.value = item.scheduledEnd || null;
+  sessionCodeSwitchBanner.value = '';
+  chartMentalStatus.value = defaultMentalStatusExam();
+  chartRiskAssessment.value = defaultRiskAssessment();
+  chartMedications.value = defaultMedicationsBlock();
+  const clientId = Number(item.clientId || 0) || null;
+  if (clientId) {
+    selectedClientId.value = clientId;
+    selectedClient.value = {
+      id: clientId,
+      full_name: item.clientName,
+      agency_id: item.agencyId,
+      initials: deriveInitialsFromNameSafe(item.clientName)
+    };
+    initials.value = deriveInitialsFromNameSafe(item.clientName);
+    await loadClientTreatmentPlan(clientId);
+    await loadClientIntakeSummary(clientId);
+    chartDiagnosticJustification.value = primaryChartDiagnosis.value?.justification || '';
+  } else {
+    initials.value = deriveInitialsFromNameSafe(item.clientName);
+  }
+
+  if (item.noteKind === 'intake') {
+    const hit = findNoteAidByToolOrCode({ serviceCode: item.serviceCode || '90791' });
+    if (hit) {
+      selectedNoteCategory.value = hit.category.id;
+      selectedAidId.value = hit.aid.id;
+    }
+    selectedServiceCode.value = item.serviceCode || '90791';
+  } else if (item.noteKind === 'treatment_plan') {
+    const hit = findNoteAidByToolOrCode({ toolId: 'clinical_h0032_plan_development', serviceCode: 'H0032' });
+    if (hit) {
+      selectedNoteCategory.value = hit.category.id;
+      selectedAidId.value = hit.aid.id;
+    }
+    showPlanImportReview.value = false;
+  } else if (item.noteKind === 'termination') {
+    const hit = findNoteAidById('termination')
+      || findNoteAidByToolOrCode({ toolId: 'clinical_termination' });
+    if (hit) {
+      selectedNoteCategory.value = hit.category.id;
+      selectedAidId.value = hit.aid.id;
+    }
+  } else {
+    const code = item.serviceCode || '90837';
+    const hit = findNoteAidByToolOrCode({ serviceCode: code });
+    if (hit) {
+      selectedNoteCategory.value = hit.category.id;
+      selectedAidId.value = hit.aid.id;
+    }
+    selectedServiceCode.value = code;
+  }
+
+  if (item.officeEventId || item.clientId) {
+    const nextQuery = { ...route.query, launchIntent: 'work_queue' };
+    if (item.clientId) nextQuery.clientId = String(item.clientId);
+    if (item.officeEventId) nextQuery.officeEventId = String(item.officeEventId);
+    if (item.clinicalSessionId) nextQuery.clinicalSessionId = String(item.clinicalSessionId);
+    if (item.serviceCode) nextQuery.serviceCode = String(item.serviceCode);
+    if (item.date) nextQuery.dateOfService = String(item.date).slice(0, 10);
+    router.replace({ query: nextQuery }).catch(() => {});
+  }
+
+  configExpanded.value = true;
+  draftId.value = null;
+  outputObj.value = null;
+  inputText.value = '';
+}
+
+function deriveInitialsFromNameSafe(name) {
+  const parts = String(name || '').trim().split(/\s+/).filter(Boolean);
+  if (parts.length >= 2) {
+    const a = parts[0].replace(/[^A-Za-z]/g, '');
+    const b = parts[parts.length - 1].replace(/[^A-Za-z]/g, '');
+    if (a.length >= 3 && b.length >= 3) return `${a.slice(0, 3)}${b.slice(0, 3)}`.toUpperCase();
+    return `${a.charAt(0)}${b.charAt(0)}`.toUpperCase();
+  }
+  return String(name || 'TBD').replace(/[^A-Za-z]/g, '').slice(0, 6).toUpperCase() || 'TBD';
+}
 
 const onObjectiveImproved = () => {
   suggestUpdateTreatmentPlan.value = true;
@@ -3023,10 +3516,13 @@ const startNewNote = () => {
   approvalError.value = '';
   archiveMessage.value = '';
   generateError.value = '';
-  sidebarTab.value = 'active';
+  sidebarTab.value = DOC_STATUS.STARTED;
   openDateGroups.value = { [todayIsoDate()]: true };
   configExpanded.value = true;
   newNoteMenuOpen.value = false;
+  activeWorkQueueItemId.value = null;
+  showProgressSessionPicker.value = true;
+  progressEntryMode.value = 'appointment';
 };
 
 const clearGeneratedWorkspace = () => {
@@ -3045,7 +3541,7 @@ const clearGeneratedWorkspace = () => {
   archiveMessage.value = '';
   generateError.value = '';
   inputMode.value = 'type';
-  sidebarTab.value = 'active';
+  sidebarTab.value = DOC_STATUS.STARTED;
 };
 
 const focusConfigField = async (which) => {
@@ -3169,6 +3665,9 @@ const loadDraftIntoWorkspace = (d) => {
     String(dateOfService.value || '').trim() && String(initials.value || '').trim()
   );
   newNoteMenuOpen.value = false;
+  showProgressSessionPicker.value = false;
+  progressEntryMode.value = 'client';
+  activeWorkQueueItemId.value = null;
 };
 
 const archiveCurrentDraft = async () => {
@@ -3184,10 +3683,10 @@ const archiveCurrentDraft = async () => {
     );
     currentDraftArchivedAt.value = res?.data?.draft?.archived_at || (nextArchived ? new Date().toISOString() : null);
     archiveMessage.value = nextArchived
-      ? 'Moved to Archive. Drafts auto-archive after 7 days and are retained up to 7 years.'
-      : 'Restored to Active.';
-    if (nextArchived) sidebarTab.value = 'archived';
-    else sidebarTab.value = 'active';
+      ? 'Moved to Completed. Drafts auto-archive after 7 days and are retained up to 7 years.'
+      : 'Restored to In progress.';
+    if (nextArchived) sidebarTab.value = DOC_STATUS.COMPLETED;
+    else sidebarTab.value = DOC_STATUS.STARTED;
     await loadRecent();
   } catch (e) {
     archiveMessage.value = e.response?.data?.error?.message || 'Failed to update archive status';
@@ -3296,6 +3795,22 @@ onMounted(async () => {
 
   if (canUseTool.value) {
     await bootstrapWorkspace();
+    const stashed = consumeNoteAidWorkQueueStash();
+    if (stashed?.length) {
+      workQueueItems.value = stashed.map(normalizeWorkQueueItemStatus);
+      persistWorkQueue();
+      const first = workQueueItems.value.find(
+        (i) => deriveWorkQueueDocStatus(i) === DOC_STATUS.NOT_STARTED
+          || deriveWorkQueueDocStatus(i) === DOC_STATUS.STARTED
+      ) || workQueueItems.value[0];
+      if (first) await activateWorkQueueItem(first);
+    } else {
+      workQueueItems.value = loadWorkQueue(authStore.user?.id).map(normalizeWorkQueueItemStatus);
+      const active = (workQueueItems.value || []).find(
+        (i) => deriveWorkQueueDocStatus(i) === DOC_STATUS.STARTED
+      );
+      if (active) activeWorkQueueItemId.value = active.id;
+    }
     const qDraft = String(route.query?.draftId || route.query?.draft_id || '').trim();
     if (qDraft && recentDrafts.value.length) {
       const hit = recentDrafts.value.find((d) => String(d.id) === qDraft);
@@ -3307,6 +3822,59 @@ onMounted(async () => {
     autosave();
   }, 30_000);
 });
+
+watch(sessionDurationMinutes, (mins) => {
+  if (!showSessionContextStrip.value) return;
+  const suggested = suggestPsychotherapyCodeForDuration(mins);
+  if (!suggested) return;
+  const current = String(actualServiceCode.value || '').toUpperCase();
+  if (!['90832', '90834', '90837'].includes(current) && current) return;
+  if (current === suggested) {
+    sessionCodeSwitchBanner.value = '';
+    return;
+  }
+  selectedServiceCode.value = suggested;
+  sessionCodeSwitchBanner.value =
+    `Duration ${mins} min is outside ${current || 'prior'} band — switched service code to ${suggested}.`;
+});
+
+function setMseAllNormal() {
+  const domains = {};
+  for (const d of MSE_DOMAINS) domains[d] = { status: 'normal', detail: '' };
+  chartMentalStatus.value = { allNormal: true, allNotAssessed: false, domains };
+}
+
+function setMseAllNotAssessed() {
+  const domains = {};
+  for (const d of MSE_DOMAINS) domains[d] = { status: 'not_assessed', detail: '' };
+  chartMentalStatus.value = { allNormal: false, allNotAssessed: true, domains };
+}
+
+async function openAllPendingSessionNotes() {
+  try {
+    const { data } = await api.get('/tasks', {
+      params: { view: 'assigned', taskType: 'session_note', status: 'pending', limit: 100 },
+      skipGlobalLoading: true
+    });
+    const tasks = Array.isArray(data) ? data : (Array.isArray(data?.tasks) ? data.tasks : []);
+    const pending = tasks.filter(
+      (t) =>
+        String(t.task_type || '').toLowerCase() === 'session_note'
+        && t.status !== 'completed'
+        && t.status !== 'overridden'
+    );
+    const items = pending.map((t) => taskToWorkQueueItem(t));
+    if (!items.length) {
+      approvalMessage.value = 'No pending Notes tasks.';
+      return;
+    }
+    workQueueItems.value = items;
+    persistWorkQueue();
+    await activateWorkQueueItem(items[0]);
+  } catch (e) {
+    approvalError.value = e.response?.data?.error?.message || e.message || 'Could not load pending Notes.';
+  }
+}
 
 watch([serviceCodeOptions, forceAutoSelect, canUseTool], () => {
   if (!canUseTool.value) return;
@@ -3491,7 +4059,7 @@ onBeforeUnmount(() => {
 
 .na-shell {
   display: grid;
-  grid-template-columns: minmax(260px, 320px) minmax(0, 1fr);
+  grid-template-columns: minmax(260px, 320px) minmax(0, 1fr) minmax(240px, 300px);
   gap: 0;
   width: 100%;
   flex: 1;
@@ -3805,6 +4373,13 @@ onBeforeUnmount(() => {
   font-size: 0.86rem;
   color: var(--na-muted);
   line-height: 1.4;
+}
+.na-aid-bar-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: stretch;
+  flex-shrink: 0;
 }
 .na-change-aid {
   flex-shrink: 0;

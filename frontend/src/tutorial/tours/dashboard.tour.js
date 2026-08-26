@@ -160,7 +160,7 @@ const dashboardTour = {
     {
       element: '[data-tour="dash-rail-card-momentum_nest"]',
       popover: {
-        title: 'Momentum',
+        title: 'My Work',
         description: 'Expand for Focus (digest & checklist) and Tasks (shared lists, assignments, escalations).',
         side: 'right',
         align: 'center'

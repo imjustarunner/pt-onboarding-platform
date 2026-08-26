@@ -37,6 +37,8 @@ import {
   updateClientClinicalResponses,
   getClientInsuranceCard,
   getClientDemographics,
+  parseClientDemographicsImport,
+  importClientDemographics,
   logClientProfileView,
   listClientAffiliations,
   upsertClientAffiliation,
@@ -216,6 +218,8 @@ router.get('/:id/insurance-card', getClientInsuranceCard);
 
 // Demographics from profile + latest intake (backfills legacy data)
 router.get('/:id/demographics', getClientDemographics);
+router.post('/:id/demographics/parse', parseClientDemographicsImport);
+router.post('/:id/demographics/import', importClientDemographics);
 
 // Copy-ready chart blocks (demographics + scrubbed clinical text)
 router.get('/:id/records-copy-blocks', getClientRecordsCopyBlocks);

@@ -52,11 +52,22 @@
         </label>
 
         <div class="na-client-ctx-actions">
+          <button
+            type="button"
+            class="na-btn-primary"
+            :disabled="!String(pastedPlanText || '').trim()"
+            @click="$emit('import-plan')"
+          >
+            Review &amp; save to chart
+          </button>
           <button type="button" class="na-btn-outline" @click="$emit('open-updater')">
             Open treatment plan updater
           </button>
           <button type="button" class="na-btn-outline" @click="$emit('import-plan')">
             Import treatment plan
+          </button>
+          <button type="button" class="na-btn-outline" @click="$emit('import-demographics')">
+            Import demographics
           </button>
         </div>
       </template>
@@ -110,7 +121,7 @@ const props = defineProps({
   primaryDiagnosis: { type: Object, default: null }
 });
 
-defineEmits(['update:pastedPlanText', 'open-updater', 'use-intake', 'open-chart-intake', 'import-plan', 'import-intake']);
+defineEmits(['update:pastedPlanText', 'open-updater', 'use-intake', 'open-chart-intake', 'import-plan', 'import-intake', 'import-demographics']);
 
 const tab = ref('goals');
 
@@ -202,6 +213,23 @@ watch(
 }
 .na-client-ctx-actions {
   margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.na-btn-primary {
+  border: none;
+  background: #0f766e;
+  color: #fff;
+  border-radius: 10px;
+  font-weight: 700;
+  padding: 8px 12px;
+  cursor: pointer;
+  font-size: 0.82rem;
+}
+.na-btn-primary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 .na-btn-outline {
   border: 1px solid #0f766e;

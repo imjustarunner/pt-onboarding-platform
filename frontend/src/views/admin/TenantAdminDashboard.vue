@@ -334,7 +334,7 @@
             aria-label="Your focus"
           >
           <h2 class="momentum-panel-title">
-            {{ momentumListEnabled ? 'Your Momentum List' : 'Your Checklist' }}
+            {{ momentumListEnabled ? 'Your My Work' : 'Your Checklist' }}
           </h2>
           <MomentumListTab
             v-if="momentumListEnabled"

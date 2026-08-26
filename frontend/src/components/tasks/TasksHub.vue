@@ -250,8 +250,62 @@
           </template>
 
           <template v-else>
-            <TasksStatusSummary v-model="statusChip" :counts="viewStatusCounts" />
-            <div v-if="typeDefs.length" class="type-pills">
+            <div class="notes-scope-pills" data-tour="notes-scope">
+              <button
+                type="button"
+                class="type-pill"
+                :class="{ active: notesScope === 'all' }"
+                @click="notesScope = 'all'"
+              >
+                All
+              </button>
+              <button
+                type="button"
+                class="type-pill"
+                :class="{ active: notesScope === 'notes' }"
+                @click="notesScope = 'notes'"
+              >
+                Notes
+              </button>
+              <button
+                type="button"
+                class="type-pill"
+                :class="{ active: notesScope === 'cosign' }"
+                @click="notesScope = 'cosign'"
+              >
+                Co-sign{{ cosignNotesCount ? ` (${cosignNotesCount})` : '' }}
+              </button>
+              <button
+                v-if="notesScope === 'notes' || pendingSessionNoteCount > 0"
+                type="button"
+                class="btn btn-primary btn-sm notes-scope-open-all"
+                @click="openAllPendingNotes"
+              >
+                Open all pending Notes
+              </button>
+            </div>
+
+            <div v-if="notesScope === 'cosign'" class="cosign-panel">
+              <div v-if="cosignLoading" class="hub-state">Loading notes awaiting co-sign…</div>
+              <div v-else-if="!cosignNotes.length" class="hub-state">No notes awaiting your co-sign.</div>
+              <ul v-else class="cosign-list">
+                <li v-for="n in cosignNotes" :key="n.id" class="cosign-item">
+                  <div>
+                    <strong>Note #{{ n.clinical_note_id }}</strong>
+                    <span class="muted">
+                      {{ n.provider_first_name }} {{ n.provider_last_name }}
+                      · {{ formatCosignDate(n.provider_signed_at || n.created_at) }}
+                    </span>
+                  </div>
+                  <button type="button" class="btn btn-secondary btn-sm" @click="openCosignNote(n)">
+                    Open
+                  </button>
+                </li>
+              </ul>
+            </div>
+
+            <TasksStatusSummary v-if="notesScope !== 'cosign'" v-model="statusChip" :counts="viewStatusCounts" />
+            <div v-if="notesScope !== 'cosign' && typeDefs.length" class="type-pills">
               <button
                 type="button"
                 class="type-pill"
@@ -273,7 +327,7 @@
                 {{ t.label }}
               </button>
             </div>
-            <div v-if="activeTab === 'all' && teamMode === 'tasks'" class="shared-list-pills">
+            <div v-if="notesScope !== 'cosign' && activeTab === 'all' && teamMode === 'tasks'" class="shared-list-pills">
               <span class="shared-list-pills__label">Shared lists</span>
               <button
                 type="button"
@@ -316,8 +370,9 @@
                 </option>
               </select>
             </div>
-            <TasksFiltersBar v-model="filters" :departments="departments" :team-view="activeTab === 'all' && teamMode === 'tasks'" />
+            <TasksFiltersBar v-if="notesScope !== 'cosign'" v-model="filters" :departments="departments" :team-view="activeTab === 'all' && teamMode === 'tasks'" />
 
+            <template v-if="notesScope !== 'cosign'">
             <div v-if="tasksStore.loading" class="hub-state" data-tour="tasks-loading">Loading tasks…</div>
             <div v-else-if="tasksStore.error" class="hub-state error">{{ tasksStore.error }}</div>
             <div v-else-if="displayTasks.length === 0" class="hub-state" data-tour="tasks-empty">
@@ -345,6 +400,7 @@
               @bulk-priority="onBulkPriority"
               @bulk-type="onBulkType"
               @bulk-status="onBulkStatus"
+              @bulk-open-notes="onBulkOpenNotes"
             />
 
             <div v-else class="board-view" data-tour="tasks-list">
@@ -364,6 +420,7 @@
                 </article>
               </div>
             </div>
+            </template>
           </template>
         </template>
       </div>
@@ -777,6 +834,13 @@ import TaskDetailSidePanel from './TaskDetailSidePanel.vue';
 import TaskListProjectFields from './TaskListProjectFields.vue';
 import ProjectOverviewPanel from './ProjectOverviewPanel.vue';
 import { taskSchoolTag } from '../../utils/taskSchoolTag.js';
+import { navigateToNoteAid } from '../../utils/noteAidLaunch.js';
+import {
+  stashNoteAidWorkQueue,
+  taskToWorkQueueItem,
+  isSessionNoteTask
+} from '../../utils/noteAidSessionQueue.js';
+import { saveWorkQueue } from '../../utils/noteAidWorkQueue.js';
 
 const route = useRoute();
 const router = useRouter();
@@ -790,6 +854,9 @@ const activeTab = ref('assigned');
 const layout = ref('list');
 const statusChip = ref('all');
 const searchQ = ref('');
+const notesScope = ref('all'); // all | notes | cosign
+const cosignNotes = ref([]);
+const cosignLoading = ref(false);
 const filters = ref({
   status: '',
   urgency: '',
@@ -1105,6 +1172,9 @@ const actionItemsAsTasks = computed(() =>
 
 const displayTasks = computed(() => {
   let list = [...(tasksStore.tasks || [])];
+  if (notesScope.value === 'notes') {
+    list = list.filter((t) => String(t.task_type || '').toLowerCase() === 'session_note');
+  }
   if (filters.value.workTypeId) {
     list = list.filter((t) => Number(t.work_type_id) === Number(filters.value.workTypeId));
   }
@@ -1163,6 +1233,68 @@ const displayTasks = computed(() => {
   return list;
 });
 
+const pendingSessionNoteCount = computed(() =>
+  (tasksStore.tasks || []).filter(
+    (t) =>
+      String(t.task_type || '').toLowerCase() === 'session_note'
+      && t.status !== 'completed'
+      && t.status !== 'overridden'
+  ).length
+);
+
+const cosignNotesCount = computed(() => (cosignNotes.value || []).length);
+
+async function loadCosignNotes() {
+  cosignLoading.value = true;
+  try {
+    const { data } = await api.get('/me/notes-to-sign', { skipGlobalLoading: true });
+    cosignNotes.value = data?.notes || [];
+  } catch {
+    cosignNotes.value = [];
+  } finally {
+    cosignLoading.value = false;
+  }
+}
+
+function formatCosignDate(v) {
+  if (!v) return '';
+  try {
+    return new Date(v).toLocaleString();
+  } catch {
+    return String(v);
+  }
+}
+
+function openCosignNote(n) {
+  const noteId = Number(n?.clinical_note_id || 0);
+  if (!noteId) return;
+  navigateToNoteAid(router, { noteId, launchIntent: 'cosign' });
+}
+
+function openNotesTasksInNoteAid(tasks) {
+  const items = (tasks || [])
+    .filter((t) => isSessionNoteTask(t))
+    .map((t) => taskToWorkQueueItem(t));
+  if (!items.length) return;
+  stashNoteAidWorkQueue(items);
+  saveWorkQueue(authStore.user?.id, items);
+  navigateToNoteAid(router, { launchIntent: 'work_queue' });
+}
+
+function onBulkOpenNotes(tasks) {
+  openNotesTasksInNoteAid(tasks);
+}
+
+function openAllPendingNotes() {
+  const pending = (tasksStore.tasks || []).filter(
+    (t) =>
+      String(t.task_type || '').toLowerCase() === 'session_note'
+      && t.status !== 'completed'
+      && t.status !== 'overridden'
+  );
+  openNotesTasksInNoteAid(pending);
+}
+
 const boardColumns = computed(() => {
   const cols = [
     { key: 'pending', label: 'Pending', items: [] },
@@ -1185,7 +1317,8 @@ function typeLabel(task) {
     training: 'Training',
     hiring: 'Hiring',
     escalation: 'Escalation',
-    meeting_action: 'Meeting Action'
+    meeting_action: 'Meeting Action',
+    session_note: 'Notes'
   };
   return map[task.task_type] || task.task_type || 'Task';
 }
@@ -2203,6 +2336,9 @@ async function openFocusSession(block) {
 }
 
 watch([activeTab, filters], () => refresh(), { deep: true });
+watch(notesScope, (scope) => {
+  if (scope === 'cosign') loadCosignNotes();
+});
 watch([activeTab, () => teamMode.value], ([tab, mode]) => {
   if (tab === 'all' && mode === 'tasks') loadTeamLists();
 }, { immediate: true });
@@ -2630,6 +2766,47 @@ onUnmounted(() => {
 .project-dir__info { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .project-dir__name { color: #0f172a; transition: color 0.12s; }
 .project-dir__info:hover .project-dir__name { color: #15803d; text-decoration: underline; }
+.notes-scope-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 10px;
+}
+.notes-scope-open-all {
+  margin-left: auto;
+}
+.cosign-panel {
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  background: #fff;
+  padding: 12px;
+  margin-bottom: 12px;
+}
+.cosign-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.cosign-item {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+  padding: 10px 12px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #f8fafc;
+}
+.cosign-item .muted {
+  display: block;
+  font-size: 0.82rem;
+  color: #64748b;
+  margin-top: 2px;
+}
 .type-pills {
   display: flex;
   flex-wrap: wrap;

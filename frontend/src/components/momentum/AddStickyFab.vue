@@ -2,8 +2,8 @@
   <button
     type="button"
     class="add-sticky-fab"
-    title="Add Momentum Sticky"
-    aria-label="Add Momentum Sticky"
+    title="Add Sticky"
+    aria-label="Add Sticky"
     @click="onClick"
   >
     <span class="fab-icon">+</span>

@@ -300,6 +300,19 @@ export const createSessionNote = async (req, res, next) => {
       }
     }
 
+    try {
+      const { completeSessionNoteTasksForSession } = await import(
+        '../services/sessionDocumentationTask.service.js'
+      );
+      await completeSessionNoteTasksForSession({
+        officeEventId: session.office_event_id || metadata.officeEventId || null,
+        clinicalSessionId: session.id,
+        clientId: session.client_id
+      });
+    } catch (bridgeErr) {
+      console.warn('[createSessionNote] session note task complete failed', bridgeErr?.message || bridgeErr);
+    }
+
     res.status(201).json({ ok: true, note });
   } catch (error) {
     if (handleSchemaError(error, res)) return;

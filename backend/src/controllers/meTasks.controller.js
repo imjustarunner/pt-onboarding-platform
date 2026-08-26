@@ -359,6 +359,16 @@ export const deleteCustomTask = async (req, res, next) => {
       source: 'momentum_user_request',
       metadata: { taskType: task.task_type }
     });
+
+    // Session Notes: soft-archive (audit retained) instead of hard delete.
+    if (String(task.task_type || '') === 'session_note') {
+      const { archiveSessionNoteTask } = await import(
+        '../services/sessionDocumentationTask.service.js'
+      );
+      await archiveSessionNoteTask(taskId, { userId });
+      return res.status(204).send();
+    }
+
     await Task.deleteById(taskId);
 
     res.status(204).send();

@@ -4,6 +4,16 @@
       <div class="bulk-bar__inner">
         <span class="bulk-bar__count">{{ count }} selected</span>
 
+        <button
+          v-if="showOpenNotes"
+          type="button"
+          class="bulk-bar__btn bulk-bar__btn--open"
+          :disabled="busy"
+          @click="$emit('open-notes')"
+        >
+          Open in Note Aid
+        </button>
+
         <button type="button" class="bulk-bar__btn bulk-bar__btn--complete" :disabled="busy" @click="$emit('complete')">
           <svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
           Complete
@@ -89,10 +99,11 @@ defineProps({
   count: { type: Number, default: 0 },
   users: { type: Array, default: () => [] },
   typeDefs: { type: Array, default: () => [] },
-  busy: { type: Boolean, default: false }
+  busy: { type: Boolean, default: false },
+  showOpenNotes: { type: Boolean, default: false }
 });
 
-const emit = defineEmits(['complete', 'assign', 'due-date', 'priority', 'categories', 'type', 'status', 'clear']);
+const emit = defineEmits(['complete', 'assign', 'due-date', 'priority', 'categories', 'type', 'status', 'open-notes', 'clear']);
 
 const categoryOptions = TASK_CATEGORIES;
 const categoryOpen = ref(false);
@@ -210,6 +221,12 @@ function onStatus(ev) {
 .bulk-bar__btn svg { width: 12px; height: 12px; }
 .bulk-bar__btn:hover { background: #15803d; }
 .bulk-bar__btn:disabled { opacity: 0.6; cursor: default; }
+.bulk-bar__btn--open {
+  background: #0f766e !important;
+}
+.bulk-bar__btn--open:hover:not(:disabled) {
+  background: #0d5f59 !important;
+}
 
 .bulk-bar__field select,
 .bulk-bar__field input {

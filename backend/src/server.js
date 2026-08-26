@@ -1965,6 +1965,32 @@ if (!isBootstrap) {
   scheduleJoinReminder();
   setInterval(scheduleJoinReminder, 5 * 60 * 1000);
 
+  // Session documentation Notes tasks (~5 min before booked clinical sessions)
+  const scheduleSessionDocTasks = async () => {
+    try {
+      const { runSessionDocumentationTaskTick } = await import(
+        './services/sessionDocumentationTask.service.js'
+      );
+      const result = await runSessionDocumentationTaskTick();
+      if (Number(result?.created || 0) > 0) {
+        console.info('[session-doc-tasks] created:', result.created);
+      }
+    } catch (error) {
+      const msg = String(error?.message || '');
+      const missing =
+        error?.code === 'ER_NO_SUCH_TABLE' ||
+        error?.code === 'ER_BAD_FIELD_ERROR' ||
+        msg.includes('session_note_task');
+      if (missing) {
+        console.warn('Session note task tables missing. Run migration 1303_session_note_tasks.sql');
+      } else {
+        console.error('Error in session documentation task scheduler:', error);
+      }
+    }
+  };
+  scheduleSessionDocTasks();
+  setInterval(scheduleSessionDocTasks, 60 * 1000);
+
   const scheduleSupervisionSignupAutoCancel = async () => {
     try {
       const { runSupervisionSignupAutoCancelTick } = await import('./services/supervisionSignupAutoCancel.service.js');

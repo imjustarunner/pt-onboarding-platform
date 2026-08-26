@@ -6890,6 +6890,92 @@ export const getClientDemographics = async (req, res, next) => {
 };
 
 /**
+ * Parse pasted demographics text (Note Aid) — does not persist.
+ * POST /api/clients/:id/demographics/parse
+ */
+export const parseClientDemographicsImport = async (req, res, next) => {
+  try {
+    const clientId = parseInt(req.params.id, 10);
+    if (!clientId) return res.status(400).json({ error: { message: 'Invalid client id' } });
+    const userRole = String(req.user?.role || '').toLowerCase();
+    const allowedRoles = ['super_admin', 'admin', 'support', 'staff', 'provider', 'provider_plus'];
+    if (!allowedRoles.includes(userRole)) {
+      return res.status(403).json({ error: { message: 'Access denied' } });
+    }
+    const access = await ensureAgencyAccessToClient({ userId: req.user.id, role: userRole, clientId });
+    if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
+
+    const { parseDemographicsPaste } = await import('../services/demographicsImport.service.js');
+    const parsed = parseDemographicsPaste(req.body?.text || '');
+    return res.json({ parsed });
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
+ * Import reviewed demographics — encrypt envelope + update operational fields.
+ * POST /api/clients/:id/demographics/import
+ * Never used by note-generation AI payloads.
+ */
+export const importClientDemographics = async (req, res, next) => {
+  try {
+    const clientId = parseInt(req.params.id, 10);
+    if (!clientId) return res.status(400).json({ error: { message: 'Invalid client id' } });
+    const userRole = String(req.user?.role || '').toLowerCase();
+    const allowedRoles = ['super_admin', 'admin', 'support', 'staff', 'provider', 'provider_plus'];
+    if (!allowedRoles.includes(userRole)) {
+      return res.status(403).json({ error: { message: 'Access denied' } });
+    }
+    const access = await ensureAgencyAccessToClient({ userId: req.user.id, role: userRole, clientId });
+    if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
+
+    const {
+      demographicsToClientPatch,
+      encryptDemographicsPayload,
+      isDemographicsEncryptionConfigured
+    } = await import('../services/demographicsImport.service.js');
+
+    const demo = req.body?.demographics || req.body || {};
+    const parsed = {
+      fullName: demo.fullName || demo.full_name || null,
+      dateOfBirth: demo.dateOfBirth || demo.date_of_birth || null,
+      addressStreet: demo.addressStreet || demo.address_street || null,
+      addressCity: demo.addressCity || demo.address_city || null,
+      addressState: demo.addressState || demo.address_state || null,
+      addressZip: demo.addressZip || demo.address_zip || null,
+      timezone: demo.timezone || null,
+      contactPhone: demo.contactPhone || demo.contact_phone || null,
+      textMessagesOk:
+        demo.textMessagesOk === true || demo.textMessagesOk === false
+          ? demo.textMessagesOk
+          : null,
+      email: demo.email || null,
+      appointmentReminderType:
+        demo.appointmentReminderType || demo.appointment_reminder_type || null,
+      administrativeSex: demo.administrativeSex || demo.gender || null
+    };
+
+    const patch = demographicsToClientPatch(parsed);
+    if (isDemographicsEncryptionConfigured()) {
+      patch.demographics_phi_enc = JSON.stringify(encryptDemographicsPayload(parsed));
+    } else {
+      // Still persist operational fields; envelope skipped when no key configured
+      console.warn('[importClientDemographics] encryption key not configured; storing operational fields only');
+    }
+
+    const updated = await Client.update(clientId, patch, req.user.id);
+    // Avoid returning encryption envelope to clients unnecessarily
+    if (updated && updated.demographics_phi_enc) {
+      updated.demographics_phi_enc = { encrypted: true };
+    }
+    return res.json({ client: updated, imported: Object.keys(patch) });
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
  * Get client access log (admin/support/staff)
  * GET /api/clients/:id/access-log
  */

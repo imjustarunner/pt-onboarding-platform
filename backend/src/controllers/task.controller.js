@@ -786,6 +786,15 @@ export const deleteTask = async (req, res, next) => {
       metadata: { taskType: task.task_type }
     });
 
+    // Session Notes: soft-archive (audit retained) instead of hard delete.
+    if (String(task.task_type || '') === 'session_note') {
+      const { archiveSessionNoteTask } = await import(
+        '../services/sessionDocumentationTask.service.js'
+      );
+      await archiveSessionNoteTask(taskId, { userId: req.user.id });
+      return res.json({ ok: true, archived: true });
+    }
+
     const ok = await Task.deleteById(taskId);
     if (!ok) return res.status(404).json({ error: { message: 'Task not found' } });
 

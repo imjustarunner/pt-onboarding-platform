@@ -555,6 +555,36 @@ export const signClinicalNote = async (req, res, next) => {
        WHERE id = ?`,
       [req.user.id, hash, noteId]
     );
+    try {
+      const { completeSessionNoteTasksForSession } = await import(
+        '../services/sessionDocumentationTask.service.js'
+      );
+      let officeEventId = null;
+      let clinicalSessionId = note.clinical_session_id || null;
+      try {
+        const meta =
+          typeof note.metadata_json === 'string'
+            ? JSON.parse(note.metadata_json)
+            : note.metadata_json || {};
+        officeEventId = meta?.officeEventId || null;
+      } catch {
+        // ignore
+      }
+      if (clinicalSessionId && !officeEventId) {
+        const [sess] = await clinicalPool.execute(
+          `SELECT office_event_id FROM clinical_sessions WHERE id = ? LIMIT 1`,
+          [clinicalSessionId]
+        );
+        officeEventId = sess?.[0]?.office_event_id || null;
+      }
+      await completeSessionNoteTasksForSession({
+        officeEventId,
+        clinicalSessionId,
+        clientId: note.client_id
+      });
+    } catch (bridgeErr) {
+      console.warn('[signClinicalNote] session note task complete failed', bridgeErr?.message || bridgeErr);
+    }
     return res.json({ ok: true, noteId, contentHash: hash, signedAt: new Date().toISOString() });
   } catch (e) {
     next(e);

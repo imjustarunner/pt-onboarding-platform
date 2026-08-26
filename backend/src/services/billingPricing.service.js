@@ -57,7 +57,7 @@ const DEFAULT_FEATURE_CATALOG = {
   ),
   momentumList: createFeatureCatalogEntry(
     'momentumList',
-    'Momentum List',
+    'My Work',
     'Momentum Stickies, digest, and focus assistant billed per active employee.',
     {
       pricingModel: 'usage',

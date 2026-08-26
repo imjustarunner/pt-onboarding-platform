@@ -12,6 +12,17 @@ function cleanLine(line) {
 
 function parseScalePair(text) {
   const s = String(text || '');
+  // "from a current … level of 9 to a 5"
+  const fromTo = s.match(
+    /(?:current|baseline|from)[^0-9]{0,40}?(\d{1,2})\s*(?:or below|or less)?[^0-9]{0,20}?(?:to|→|->)\s*(?:a\s+)?(\d{1,2})/i
+  );
+  if (fromTo) {
+    const current = Number(fromTo[1]);
+    const target = Number(fromTo[2]);
+    if (current >= 1 && current <= 10 && target >= 1 && target <= 10) {
+      return { scaleCurrent: current, scaleTarget: target };
+    }
+  }
   // "4 → 8", "4->8", "current 4 target 8", "4/10 to 8/10", "(4 to 8)"
   const arrow = s.match(/(\d{1,2})\s*(?:→|->|to|\/)\s*(\d{1,2})/i);
   if (arrow) {
@@ -26,6 +37,19 @@ function parseScalePair(text) {
     const current = Number(labeled[1]);
     const target = Number(labeled[2]);
     if (current >= 1 && current <= 10 && target >= 1 && target <= 10) {
+      return { scaleCurrent: current, scaleTarget: target };
+    }
+  }
+  // "currently functions at a level 3" + later "Achieving a level 10"
+  const currentOnly = s.match(/(?:currently\s+(?:functions|reports)?\s*(?:at\s+)?(?:a\s+)?level\s*(?:of\s*)?|baseline\s*(?:of\s*)?)(\d{1,2})/i);
+  const targetOnly = s.match(/(?:achieving|target|goal)\s*(?:a\s+)?level\s*(?:of\s*)?(\d{1,2})/i);
+  if (currentOnly || targetOnly) {
+    const current = currentOnly ? Number(currentOnly[1]) : null;
+    const target = targetOnly ? Number(targetOnly[1]) : null;
+    if (
+      (current == null || (current >= 1 && current <= 10))
+      && (target == null || (target >= 1 && target <= 10))
+    ) {
       return { scaleCurrent: current, scaleTarget: target };
     }
   }
@@ -88,6 +112,8 @@ function parseIcd10(text) {
  *   effectiveDate: string|null,
  *   diagnoses: Array<{icd10Code:string|null, description:string, justification:string, isPrimary:boolean}>,
  *   primaryDiagnosisIndex: number,
+ *   presentingProblem: string|null,
+ *   prescribedFrequency: string|null,
  *   dischargePlan: string|null,
  *   goals: Array<{goalText:string, projectedCompletion:string|null, objectives:Array}>
  * }}
@@ -98,6 +124,8 @@ export function parseTreatmentPlanText(rawText) {
     effectiveDate: null,
     diagnoses: [],
     primaryDiagnosisIndex: 0,
+    presentingProblem: null,
+    prescribedFrequency: null,
     dischargePlan: null,
     goals: []
   };
@@ -107,10 +135,13 @@ export function parseTreatmentPlanText(rawText) {
   let effectiveDate = null;
   const diagnoses = [];
   let dischargePlan = null;
+  let presentingProblem = null;
+  let prescribedFrequency = null;
   const goals = [];
   let currentGoal = null;
-  let mode = null; // dx | discharge | goals | null
+  let mode = null; // dx | discharge | goals | presenting | frequency | justification | null
   let justificationBuffer = [];
+  let presentingBuffer = [];
 
   const flushJustification = () => {
     if (!diagnoses.length || !justificationBuffer.length) {
@@ -118,8 +149,18 @@ export function parseTreatmentPlanText(rawText) {
       return;
     }
     const j = justificationBuffer.join(' ').trim();
-    if (j) diagnoses[diagnoses.length - 1].justification = j;
+    if (j) {
+      // Attach full justification to primary (first) diagnosis; keep on last if only one
+      const target = diagnoses.find((d) => d.isPrimary) || diagnoses[0];
+      target.justification = [target.justification, j].filter(Boolean).join(' ').trim();
+    }
     justificationBuffer = [];
+  };
+
+  const flushPresenting = () => {
+    if (!presentingBuffer.length) return;
+    presentingProblem = presentingBuffer.join(' ').trim() || presentingProblem;
+    presentingBuffer = [];
   };
 
   for (const line of lines) {
@@ -139,23 +180,68 @@ export function parseTreatmentPlanText(rawText) {
       }
     }
 
-    if (/^discharge\s*plan\b/i.test(trimmed) || /^discharge\b/i.test(trimmed)) {
+    if (/^diagnostic\s+justification\b/i.test(trimmed) || /^justification\b/i.test(trimmed)) {
+      flushPresenting();
+      mode = 'justification';
+      const rest = trimmed
+        .replace(/^diagnostic\s+justification\s*[:\-]?\s*/i, '')
+        .replace(/^justification\s*[:\-]?\s*/i, '')
+        .trim();
+      if (rest) justificationBuffer.push(rest);
+      continue;
+    }
+
+    if (/^presenting\s+problem\b/i.test(trimmed)) {
       flushJustification();
+      mode = 'presenting';
+      const rest = trimmed.replace(/^presenting\s+problem\s*[:\-]?\s*/i, '').trim();
+      if (rest) presentingBuffer.push(rest);
+      continue;
+    }
+
+    if (/^prescribed\s+frequency\b/i.test(trimmed) || /^frequency\s+of\s+treatment\b/i.test(trimmed)) {
+      flushJustification();
+      flushPresenting();
+      mode = 'frequency';
+      const rest = trimmed
+        .replace(/^prescribed\s+frequency(?:\s+of\s+treatment)?\s*[:\-]?\s*/i, '')
+        .replace(/^frequency\s+of\s+treatment\s*[:\-]?\s*/i, '')
+        .trim();
+      prescribedFrequency = rest || '';
+      continue;
+    }
+
+    if (
+      /^discharge\s*(?:criteria|plan|criteria\/planning|criteria\/plan)?\b/i.test(trimmed)
+      || /^discharge\b/i.test(trimmed)
+    ) {
+      flushJustification();
+      flushPresenting();
       mode = 'discharge';
-      const rest = trimmed.replace(/^discharge(?:\s*plan)?\s*[:\-]?\s*/i, '').trim();
+      const rest = trimmed
+        .replace(/^discharge(?:\s*(?:criteria(?:\/planning)?|plan))?\s*[:\-]?\s*/i, '')
+        .trim();
       dischargePlan = rest || '';
+      continue;
+    }
+
+    if (/^medically\s+necessary\b/i.test(trimmed) || /^i\s+declare\s+that\b/i.test(trimmed)) {
+      flushJustification();
+      flushPresenting();
+      mode = null;
       continue;
     }
 
     if (/^(?:diagnos(?:is|es)|dx|primary\s*diagnos)/i.test(trimmed)) {
       flushJustification();
+      flushPresenting();
       mode = 'dx';
       const rest = trimmed.replace(/^(?:diagnos(?:is|es)|dx|primary\s*diagnos(?:is|es)?)\s*[:\-]?\s*/i, '').trim();
       if (rest) {
         const code = parseIcd10(rest);
         diagnoses.push({
           icd10Code: code,
-          description: code ? rest.replace(code, '').replace(/^[\s\-–—:,]+/, '').trim() : rest,
+          description: code ? rest.replace(code, '').replace(/^[\s\-–—:,\t]+/, '').trim() : rest,
           justification: '',
           isPrimary: diagnoses.length === 0
         });
@@ -163,17 +249,16 @@ export function parseTreatmentPlanText(rawText) {
       continue;
     }
 
-    if (/^justification\b/i.test(trimmed)) {
-      mode = 'dx';
-      const rest = trimmed.replace(/^justification\s*[:\-]?\s*/i, '').trim();
-      if (rest) justificationBuffer.push(rest);
-      continue;
-    }
-
-    if (/^goal\s*\d*\b/i.test(trimmed) || /^g\d+\b/i.test(trimmed)) {
+    if (
+      /^treatment\s+goal\s*\d*\b/i.test(trimmed)
+      || /^goal\s*\d*\b/i.test(trimmed)
+      || /^g\d+\b/i.test(trimmed)
+    ) {
       flushJustification();
+      flushPresenting();
       mode = 'goals';
       const text = trimmed
+        .replace(/^treatment\s+goal\s*\d*\s*[:.\-)\]\s]*/i, '')
         .replace(/^goal\s*\d*\s*[:.\-)\]\s]*/i, '')
         .replace(/^g\d+\s*[:.\-)\]\s]*/i, '')
         .trim();
@@ -186,16 +271,20 @@ export function parseTreatmentPlanText(rawText) {
       continue;
     }
 
-    if (/^(?:objective|obj)\s*\d*\b/i.test(trimmed) || /^o\d+\b/i.test(trimmed)) {
+    if (
+      /^(?:objective|obj)\s*\d*(?:\.\d+)?\b/i.test(trimmed)
+      || /^o\d+(?:\.\d+)?\b/i.test(trimmed)
+    ) {
       flushJustification();
+      flushPresenting();
       mode = 'goals';
       if (!currentGoal) {
         currentGoal = { goalText: 'Goal', projectedCompletion: null, objectives: [] };
         goals.push(currentGoal);
       }
       const text = trimmed
-        .replace(/^(?:objective|obj)\s*\d*\s*[:.\-)\]\s]*/i, '')
-        .replace(/^o\d+\s*[:.\-)\]\s]*/i, '')
+        .replace(/^(?:objective|obj)\s*\d*(?:\.\d+)?\s*[:.\-)\]\s]*/i, '')
+        .replace(/^o\d+(?:\.\d+)?\s*[:.\-)\]\s]*/i, '')
         .trim();
       const scales = parseScalePair(text);
       const directionHint = /decrease|reduce|lower/i.test(text)
@@ -204,7 +293,8 @@ export function parseTreatmentPlanText(rawText) {
           ? 'increase'
           : null;
       const measurement =
-        (text.match(/(?:measured by|measurement|via)\s*[:\-]?\s*(.+)$/i) || [])[1] || null;
+        (text.match(/(?:measured by|measurement|via|progress will be (?:tracked|monitored|measured))\s*[:\-]?\s*(.+)$/i) || [])[1]
+        || null;
       currentGoal.objectives.push({
         objectiveText: text || trimmed,
         scaleCurrent: scales.scaleCurrent,
@@ -216,14 +306,37 @@ export function parseTreatmentPlanText(rawText) {
       continue;
     }
 
-    if (/projected|timeframe|target date|completion/i.test(trimmed) && currentGoal) {
-      const rest = trimmed.replace(/^(?:projected(?:\s*completion)?|timeframe|target date|completion)\s*[:\-]?\s*/i, '');
-      currentGoal.projectedCompletion = rest || trimmed;
+    if (/^estimated\s+completion\b/i.test(trimmed) || (/projected|timeframe|target date|completion/i.test(trimmed) && currentGoal)) {
+      const rest = trimmed
+        .replace(/^estimated\s+completion\s*[:\-]?\s*/i, '')
+        .replace(/^(?:projected(?:\s*completion)?|timeframe|target date|completion)\s*[:\-]?\s*/i, '');
+      const dateHit = parseDateLoose(rest) || parseDateLoose(trimmed);
+      const completion = dateHit || rest || trimmed;
+      if (currentGoal) {
+        currentGoal.projectedCompletion = completion;
+        const lastObj = currentGoal.objectives[currentGoal.objectives.length - 1];
+        if (lastObj && !lastObj.projectedCompletion) lastObj.projectedCompletion = completion;
+      }
       continue;
     }
 
     if (mode === 'discharge') {
       dischargePlan = [dischargePlan, trimmed].filter(Boolean).join('\n');
+      continue;
+    }
+
+    if (mode === 'presenting') {
+      presentingBuffer.push(trimmed);
+      continue;
+    }
+
+    if (mode === 'frequency') {
+      prescribedFrequency = [prescribedFrequency, trimmed].filter(Boolean).join(' ').trim();
+      continue;
+    }
+
+    if (mode === 'justification') {
+      justificationBuffer.push(trimmed);
       continue;
     }
 
@@ -233,22 +346,45 @@ export function parseTreatmentPlanText(rawText) {
         flushJustification();
         diagnoses.push({
           icd10Code: code,
-          description: trimmed.replace(code, '').replace(/^[\s\-–—:,]+/, '').trim(),
+          description: trimmed.replace(code, '').replace(/^[\s\-–—:,\t]+/, '').trim(),
           justification: '',
           isPrimary: diagnoses.length === 0
         });
+      } else if (/justification/i.test(trimmed)) {
+        mode = 'justification';
+        const rest = trimmed.replace(/^.*?justification\s*[:\-]?\s*/i, '').trim();
+        if (rest) justificationBuffer.push(rest);
       } else {
         justificationBuffer.push(trimmed);
       }
       continue;
     }
 
+    if (mode === 'goals' && currentGoal) {
+      // Continuation lines for long objectives / goals
+      const lastObj = currentGoal.objectives[currentGoal.objectives.length - 1];
+      if (lastObj) {
+        lastObj.objectiveText = `${lastObj.objectiveText} ${trimmed}`.trim();
+        const scales = parseScalePair(lastObj.objectiveText);
+        if (scales.scaleCurrent != null) lastObj.scaleCurrent = scales.scaleCurrent;
+        if (scales.scaleTarget != null) lastObj.scaleTarget = scales.scaleTarget;
+        lastObj.scaleDirection = inferScaleDirection(
+          lastObj.scaleCurrent,
+          lastObj.scaleTarget,
+          lastObj.scaleDirection
+        );
+      } else {
+        currentGoal.goalText = `${currentGoal.goalText} ${trimmed}`.trim();
+      }
+      continue;
+    }
+
     // Loose ICD line without header
     const looseCode = parseIcd10(trimmed);
-    if (looseCode && diagnoses.length < 8 && trimmed.length < 160) {
+    if (looseCode && diagnoses.length < 12 && trimmed.length < 160) {
       diagnoses.push({
         icd10Code: looseCode,
-        description: trimmed.replace(looseCode, '').replace(/^[\s\-–—:,]+/, '').trim(),
+        description: trimmed.replace(looseCode, '').replace(/^[\s\-–—:,\t]+/, '').trim(),
         justification: '',
         isPrimary: diagnoses.length === 0
       });
@@ -257,6 +393,7 @@ export function parseTreatmentPlanText(rawText) {
   }
 
   flushJustification();
+  flushPresenting();
 
   // If no explicit goals but free text exists, stash as a single goal
   if (!goals.length && raw.length > 40) {
@@ -280,6 +417,8 @@ export function parseTreatmentPlanText(rawText) {
       isPrimary: i === (primaryDiagnosisIndex >= 0 ? primaryDiagnosisIndex : 0)
     })),
     primaryDiagnosisIndex: primaryDiagnosisIndex >= 0 ? primaryDiagnosisIndex : 0,
+    presentingProblem: presentingProblem ? String(presentingProblem).trim() : null,
+    prescribedFrequency: prescribedFrequency ? String(prescribedFrequency).trim() : null,
     dischargePlan: dischargePlan ? String(dischargePlan).trim() : null,
     goals
   };

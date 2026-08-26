@@ -340,10 +340,10 @@ function buildAppEntries() {
     {
       id: 'learning-checklist',
       routeName: null,
-      label: 'Momentum',
+      label: 'My Work',
       description: 'Focus digest, checklist, and actionable items.',
       group: 'learning',
-      keywords: ['momentum', 'checklist', 'focus', 'to do', 'todo'],
+      keywords: ['my work', 'momentum', 'checklist', 'focus', 'to do', 'todo'],
       kind: 'dashboard',
       tab: 'checklist',
       requires: ['showLearning']
