@@ -564,14 +564,14 @@
             <slot name="status-management" />
           </div>
 
-          <!-- Job application history -->
-          <div id="application-history">
-            <slot name="application-history" />
-          </div>
-
-          <!-- Workspace & Security slot -->
-          <div id="workspace-security">
-            <slot name="workspace-security" />
+          <!-- Applications + Workspace side-by-side -->
+          <div class="acct-cards-row">
+            <div id="application-history">
+              <slot name="application-history" />
+            </div>
+            <div id="workspace-security">
+              <slot name="workspace-security" />
+            </div>
           </div>
 
           <!-- Public profile + admin tools slot -->
@@ -1308,6 +1308,26 @@ watch([compUserId, compAgencyId, isSchoolStaffProfile], ([uid, aid, schoolStaff]
 
 .acct-cards { display: flex; flex-direction: column; gap: 14px; }
 
+.acct-cards-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  align-items: stretch;
+}
+
+.acct-cards-row:has(#application-history:empty),
+.acct-cards-row:has(#workspace-security:empty) {
+  grid-template-columns: 1fr;
+}
+
+.acct-cards-row > * {
+  min-width: 0;
+}
+
+.acct-cards-row :deep(.acct-card) {
+  height: 100%;
+}
+
 .acct-field-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1449,6 +1469,6 @@ watch([compUserId, compAgencyId, isSchoolStaffProfile], ([uid, aid, schoolStaff]
   .acct-layout { grid-template-columns: 1fr; }
   .acct-sidebar { position: static; }
   .acct-summary-row { grid-template-columns: 1fr; }
-  .acct-field-grid, .acct-perm-groups { grid-template-columns: 1fr; }
+  .acct-field-grid, .acct-perm-groups, .acct-cards-row { grid-template-columns: 1fr; }
 }
 </style>

@@ -3353,8 +3353,11 @@ const loadClientIntakeSummary = async (clientId) => {
   loadingIntake.value = true;
   intakeError.value = '';
   try {
-    const res = await api.get(`/clients/${cid}/records-copy-blocks`, { skipGlobalLoading: true });
-    const data = res?.data || {};
+    const [blocksRes, draftRes] = await Promise.all([
+      api.get(`/clients/${cid}/records-copy-blocks`, { skipGlobalLoading: true }).catch(() => null),
+      api.get(`/clients/${cid}/intake-note`, { skipGlobalLoading: true }).catch(() => null)
+    ]);
+    const data = blocksRes?.data || {};
     // API returns { demographics, clinicalDeidentified, intakeNarrative } — not blocks[]
     if (data.demographics || data.clinicalDeidentified || data.intakeNarrative) {
       intakeSummary.value = [
@@ -3382,6 +3385,10 @@ const loadClientIntakeSummary = async (clientId) => {
       } else {
         intakeSummary.value = '';
       }
+    }
+    const draftStatus = String(draftRes?.data?.draft?.status || '').toLowerCase();
+    if (draftStatus === 'final' || draftRes?.data?.draft?.finalizedAt) {
+      intakeImportedOnce.value = true;
     }
   } catch (e) {
     intakeSummary.value = '';
@@ -3606,9 +3613,12 @@ const onIntakeImportFinalized = async () => {
   pastedIntakeText.value = '';
   intakeImportedOnce.value = true;
   if (effectiveClientId.value) {
-    await loadClientTreatmentPlan(effectiveClientId.value);
-    await loadClientIntakeSummary(effectiveClientId.value);
+    await Promise.all([
+      loadClientTreatmentPlan(effectiveClientId.value),
+      loadClientIntakeSummary(effectiveClientId.value)
+    ]);
   }
+  approvalMessage.value = 'Intake note saved to chart.';
 };
 
 const onDemographicsImported = async () => {

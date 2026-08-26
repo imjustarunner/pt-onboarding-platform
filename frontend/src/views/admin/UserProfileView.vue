@@ -916,33 +916,34 @@
               <AccountDashboardCard
                 v-if="isProviderLikeUser"
                 section-id="public-profile"
+                icon="globe"
                 title="Public Provider Profile"
                 subtitle="Agency Finder card details visible to the public."
                 :can-edit="canEditUser"
-                :editing="false"
+                :editing="editingProviderPublicProfile"
+                :saving="providerPublicProfileSaving"
+                edit-label="Edit"
+                save-label="Save"
+                @edit="startProviderPublicProfileEdit"
+                @save="saveProviderPublicProfileAndClose"
+                @cancel="cancelProviderPublicProfileEdit"
               >
-                <template #actions>
-                  <button
-                    class="btn btn-primary btn-sm"
-                    type="button"
-                    :disabled="!canEditUser || providerPublicProfileSaving || !selectedProviderProfileAgencyId"
-                    @click="saveProviderPublicProfile"
-                  >
-                    {{ providerPublicProfileSaving ? 'Saving…' : 'Save' }}
-                  </button>
-                </template>
                 <div v-if="providerPublicProfileLoading" class="loading">Loading provider public profile…</div>
                 <div v-else-if="providerPublicProfileError" class="error">{{ providerPublicProfileError }}</div>
-                <div v-else class="form-grid" style="margin-top: 0;">
+                <div v-else class="form-grid acct-public-profile" style="margin-top: 0;">
                   <div class="form-group form-group-full">
-                    <label>Public provider blurb (view-only for providers)</label>
-                    <textarea
-                      v-model="providerPublicBlurb"
-                      rows="4"
-                      placeholder="Shown on public Find a Provider card details."
-                      :disabled="!canEditUser || providerPublicProfileSaving"
-                      style="width: 100%;"
-                    />
+                    <label class="acct-blurb-label">Public provider blurb (view-only for providers)</label>
+                    <p class="acct-blurb-hint">Shown on public Find a Provider card details.</p>
+                    <div class="acct-blurb-wrap">
+                      <textarea
+                        v-model="providerPublicBlurb"
+                        rows="4"
+                        maxlength="500"
+                        placeholder="Shown on public Find a Provider card details."
+                        :disabled="!canEditUser || providerPublicProfileSaving || !editingProviderPublicProfile"
+                      />
+                      <span class="acct-blurb-count">{{ (providerPublicBlurb || '').length }} / 500 characters</span>
+                    </div>
                   </div>
                   <div class="form-group form-group-full">
                     <label>Insurances shown on profile</label>
@@ -958,7 +959,7 @@
                         v-model="providerPublicInsurancesCsv"
                         type="text"
                         placeholder="Medicaid, Self Pay, Tricare"
-                        :disabled="!canEditUser || providerPublicProfileSaving"
+                        :disabled="!canEditUser || providerPublicProfileSaving || !editingProviderPublicProfile"
                       />
                     </div>
                   </div>
@@ -970,7 +971,7 @@
                       min="0"
                       step="0.01"
                       placeholder="Leave blank to use agency default"
-                      :disabled="!canEditUser || providerPublicProfileSaving"
+                      :disabled="!canEditUser || providerPublicProfileSaving || !editingProviderPublicProfile"
                     />
                   </div>
                   <div class="form-group">
@@ -979,7 +980,7 @@
                       v-model="providerSelfPayRateNote"
                       type="text"
                       placeholder="Optional note shown publicly"
-                      :disabled="!canEditUser || providerPublicProfileSaving"
+                      :disabled="!canEditUser || providerPublicProfileSaving || !editingProviderPublicProfile"
                     />
                   </div>
                   <div class="form-group">
@@ -989,7 +990,7 @@
                       type="number"
                       min="0"
                       step="0.01"
-                      :disabled="!canEditUser || providerPublicProfileSaving"
+                      :disabled="!canEditUser || providerPublicProfileSaving || !editingProviderPublicProfile"
                     />
                   </div>
                   <div class="form-group form-group-full">
@@ -998,7 +999,7 @@
                       v-model="agencyFinderIntroBlurb"
                       rows="3"
                       placeholder="Intro paragraph shown above provider cards."
-                      :disabled="!canEditUser || providerPublicProfileSaving"
+                      :disabled="!canEditUser || providerPublicProfileSaving || !editingProviderPublicProfile"
                       style="width: 100%;"
                     />
                     <small class="form-help">
@@ -1033,10 +1034,21 @@
             </template>
 
             <template #workspace-security>
-              <AccountDashboardCard section-id="workspace-security" title="Workspace & Security" :can-edit="false">
-            <div class="password-status-layout">
-              <div v-if="accountInfo.ssoPolicyRequired" class="reset-password-section">
-                <h4>Workspace Sign-in Policy</h4>
+              <AccountDashboardCard
+                section-id="workspace-security"
+                icon="lock"
+                title="Workspace & Security"
+                subtitle="Manage workspace authentication and access settings."
+                :can-edit="false"
+              >
+            <div class="password-status-layout acct-ws-grid">
+              <div v-if="accountInfo.ssoPolicyRequired" class="acct-ws-panel">
+                <div class="acct-ws-panel-head">
+                  <span class="acct-ws-panel-ico" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" stroke-linecap="round" stroke-linejoin="round"/><path d="M9 12l2 2 4-4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                  </span>
+                  <h4>Workspace Sign-in Policy</h4>
+                </div>
                 <p v-if="accountInfo.ssoRequired">
                   Workspace login is enforced for this user by agency and role.
                 </p>
@@ -1045,27 +1057,37 @@
                 </p>
                 <button
                   type="button"
-                  class="btn btn-secondary btn-sm"
+                  class="btn btn-primary btn-sm"
                   :disabled="savingSsoPasswordOverride"
                   @click="toggleSsoPasswordOverride(!accountInfo.ssoPasswordOverride)"
                 >
                   {{
                     savingSsoPasswordOverride
                       ? 'Saving...'
-                      : (accountInfo.ssoPasswordOverride ? 'Re-enable Workspace-only sign-in' : 'Enable password login override')
+                      : (accountInfo.ssoPasswordOverride ? 'Re-enable Workspace-only sign-in' : 'Enable Password Login Override')
                   }}
                 </button>
               </div>
 
-              <div v-if="!canUsePasswordResetActions" class="reset-password-section">
-                <h4>Password Access</h4>
+              <div v-if="!canUsePasswordResetActions" class="acct-ws-panel">
+                <div class="acct-ws-panel-head">
+                  <span class="acct-ws-panel-ico" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="8" cy="15" r="4"/><path d="M10.5 12.5L21 2m-4 0l4 4M15 6l2 2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                  </span>
+                  <h4>Password Access</h4>
+                </div>
                 <p>This user’s organization requires Google sign-in. Password reset links and temporary passwords are disabled for this user.</p>
               </div>
 
               <template v-else>
                 <!-- Reset Password Link (expires) - only for non-pending users; pending users use Direct Login Link in Account Info -->
-                <div v-if="!isPendingForReset" class="reset-password-section">
-                  <h4>Password Reset Link</h4>
+                <div v-if="!isPendingForReset" class="acct-ws-panel reset-password-section">
+                  <div class="acct-ws-panel-head">
+                    <span class="acct-ws-panel-ico" aria-hidden="true">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="8" cy="15" r="4"/><path d="M10.5 12.5L21 2m-4 0l4 4M15 6l2 2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                    </span>
+                    <h4>Password Reset Link</h4>
+                  </div>
                   <p>Generate a reset link (expires). The user will set a new password and continue.</p>
                   <!-- Current reset link state (when we have a reset token from getAccountInfo) -->
                   <div v-if="accountInfo.passwordlessTokenPurpose === 'reset' && accountInfo.passwordlessLoginLink" class="passwordless-link-section" style="margin-top: 12px; padding: 16px; background: var(--bg-alt); border-radius: 8px; border: 1px solid var(--border);">
@@ -1129,8 +1151,13 @@
                 </div>
 
                 <!-- Temporary Password (first-login only) -->
-                <div v-if="canUseTempPassword" class="reset-password-section">
-                  <h4>Temporary Password</h4>
+                <div v-if="canUseTempPassword" class="acct-ws-panel reset-password-section">
+                  <div class="acct-ws-panel-head">
+                    <span class="acct-ws-panel-ico" aria-hidden="true">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3" stroke-linecap="round"/></svg>
+                    </span>
+                    <h4>Temporary Password</h4>
+                  </div>
                   <p>Generate an expiring temporary password. Send the username + temporary password to the user. After login, they will be prompted to set a new password.</p>
                   <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
                     <button
@@ -1166,130 +1193,137 @@
             </template>
 
             <template #status-management>
-              <AccountDashboardCard section-id="status-management" title="Status Management" :can-edit="false">
-              <div class="status-management">
-                <div class="current-status">
-                  <p><strong>Current Status:</strong> 
-                    <span :class="['status-badge', getStatusBadgeClass(user.status, user.is_active)]">
+              <AccountDashboardCard
+                section-id="status-management"
+                icon="shield"
+                title="Status Management"
+                subtitle="Status changes affect agency availability, access, and visibility across itsco.health."
+                :can-edit="false"
+              >
+              <div class="status-management acct-status-mgmt">
+                <div class="acct-status-row">
+                  <div class="acct-status-current">
+                    <span class="acct-status-label">Current Status</span>
+                    <span :class="['status-badge', 'acct-status-badge', getStatusBadgeClass(user.status, user.is_active)]">
+                      <svg v-if="isActiveStatusBadge(user.status, user.is_active)" class="acct-status-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><path d="M5 13l4 4L19 7" stroke-linecap="round" stroke-linejoin="round"/></svg>
                       {{ getStatusLabel(user.status, user.is_active) }}
                     </span>
-                  </p>
-                  <p v-if="user.completed_at"><strong>Completed:</strong> {{ formatDate(user.completed_at) }}</p>
-                  <p v-if="user.terminated_at"><strong>Terminated:</strong> {{ formatDate(user.terminated_at) }}</p>
-                  <p v-if="user.status_expires_at">
-                    <strong>Access Expires:</strong> {{ formatDate(user.status_expires_at) }}
-                    <span class="expiration-warning">(7 days after status change)</span>
-                  </p>
-                </div>
+                    <p v-if="user.completed_at" class="acct-status-meta"><strong>Completed:</strong> {{ formatDate(user.completed_at) }}</p>
+                    <p v-if="user.terminated_at" class="acct-status-meta"><strong>Terminated:</strong> {{ formatDate(user.terminated_at) }}</p>
+                    <p v-if="user.status_expires_at" class="acct-status-meta">
+                      <strong>Access Expires:</strong> {{ formatDate(user.status_expires_at) }}
+                      <span class="expiration-warning">(7 days after status change)</span>
+                    </p>
+                  </div>
 
-                <!-- Manual status change: admin/super_admin/support only -->
-                <div
-                  v-if="canChangeStatusManually"
-                  class="status-change-dropdown"
-                  style="margin: 1rem 0;"
-                >
-                  <label for="status-select">Change status:</label>
-                  <select
-                    id="status-select"
-                    :value="user.status"
-                    class="form-control form-control-sm"
-                    style="max-width: 240px; display: inline-block; margin-left: 8px;"
-                    :disabled="updatingStatus"
-                    @change="onStatusChange"
+                  <div
+                    v-if="canChangeStatusManually"
+                    class="acct-status-change"
                   >
-                    <option :value="user.status" disabled>{{ getStatusLabel(user.status, user.is_active) }} (current)</option>
-                    <option
-                      v-for="s in availableStatusesForChange"
-                      :key="s"
-                      :value="s"
+                    <label for="status-select" class="acct-status-label">Change status</label>
+                    <select
+                      id="status-select"
+                      :value="user.status"
+                      class="form-control form-control-sm acct-status-select"
+                      :disabled="updatingStatus"
+                      @change="onStatusChange"
                     >
-                      {{ getStatusLabel(s, true) }}
-                    </option>
-                  </select>
-                  <p v-if="statusChangeError" class="error" style="margin-top: 6px;">{{ statusChangeError }}</p>
-                </div>
-                
-                <div class="status-actions">
-                  <!-- For PREHIRE_REVIEW users: Show "Promote to Onboarding" button -->
-                  <button 
-                    v-if="(user.status === 'PREHIRE_REVIEW' || user.status === 'ready_for_review') && (authStore.user?.role === 'admin' || authStore.user?.role === 'super_admin' || authStore.user?.role === 'support') && authStore.user?.role !== 'clinical_practice_assistant'"
-                    @click="promoteToOnboarding" 
-                    class="btn btn-primary btn-sm"
-                    :disabled="updatingStatus"
-                  >
-                    {{ updatingStatus ? 'Processing...' : 'Promote to Onboarding' }}
-                  </button>
-                  
-                  <!-- Legacy: For ready_for_review users: Show "Mark as Reviewed and Activate" button -->
-                  <button 
-                    v-if="user.status === 'ready_for_review' && (authStore.user?.role === 'admin' || authStore.user?.role === 'super_admin' || authStore.user?.role === 'support') && authStore.user?.role !== 'clinical_practice_assistant'"
-                    @click="handleMarkAsReviewedAndActivate" 
-                    class="btn btn-primary btn-sm"
-                    :disabled="updatingStatus"
-                  >
-                    {{ updatingStatus ? 'Processing...' : 'Mark as Reviewed and Activate' }}
-                  </button>
-                  
-                  <!-- Admins can mark ONBOARDING users as ACTIVE_EMPLOYEE -->
-                  <button 
-                    v-if="(user.status === 'PENDING_SETUP' || user.status === 'ONBOARDING' || user.status === 'PREHIRE_OPEN' || user.status === 'PREHIRE_REVIEW' || user.status === 'pending' || user.status === 'active') && (authStore.user?.role === 'admin' || authStore.user?.role === 'super_admin' || authStore.user?.role === 'support') && authStore.user?.role !== 'clinical_practice_assistant'"
-                    @click="markComplete" 
-                    class="btn btn-success btn-sm"
-                    :disabled="updatingStatus"
-                  >
-                    {{ updatingStatus ? 'Processing...' : 'Mark Active' }}
-                  </button>
-                  
-                  <!-- Mark Terminated: Only for ACTIVE_EMPLOYEE users -->
-                  <button 
-                    v-if="(user.status === 'ACTIVE_EMPLOYEE' || user.status === 'active') && (authStore.user?.role === 'admin' || authStore.user?.role === 'super_admin' || authStore.user?.role === 'support' || authStore.user?.role === 'staff' || (authStore.user?.role !== 'clinical_practice_assistant' && !isSupervisor(authStore.user)))"
-                    @click="markTerminated" 
-                    class="btn btn-danger btn-sm"
-                    :disabled="updatingStatus"
-                  >
-                    {{ updatingStatus ? 'Updating...' : 'Mark Terminated' }}
-                  </button>
-                  
-                  <!-- Mark inactive: standard offboard (removes org/school links; keeps record) -->
-                  <button
-                    v-if="user.status !== 'ARCHIVED' && user.status !== 'INACTIVE_EMPLOYEE' && (authStore.user?.role === 'admin' || authStore.user?.role === 'super_admin' || authStore.user?.role === 'support') && authStore.user?.role !== 'clinical_practice_assistant'"
-                    type="button"
-                    @click="markStaffInactive"
-                    class="btn btn-warning btn-sm"
-                    :disabled="updatingStatus"
-                  >
-                    {{ updatingStatus ? 'Working...' : 'Mark inactive' }}
-                  </button>
+                      <option :value="user.status" disabled>{{ getStatusLabel(user.status, user.is_active) }} (current)</option>
+                      <option
+                        v-for="s in availableStatusesForChange"
+                        :key="s"
+                        :value="s"
+                      >
+                        {{ getStatusLabel(s, true) }}
+                      </option>
+                    </select>
+                    <p v-if="statusChangeError" class="error" style="margin-top: 6px;">{{ statusChangeError }}</p>
+                  </div>
 
-                  <!-- Archive: super admin only (hard lifecycle; managed in Archive settings) -->
-                  <button
-                    v-if="user.status !== 'ARCHIVED' && user.status !== 'INACTIVE_EMPLOYEE' && authStore.user?.role === 'super_admin'"
-                    @click="archiveUser"
-                    class="btn btn-outline-warning btn-sm"
-                    :disabled="updatingStatus"
-                  >
-                    {{ updatingStatus ? 'Archiving...' : 'Archive' }}
-                  </button>
+                  <div class="status-actions acct-status-actions">
+                    <!-- For PREHIRE_REVIEW users: Show "Promote to Onboarding" button -->
+                    <button 
+                      v-if="(user.status === 'PREHIRE_REVIEW' || user.status === 'ready_for_review') && (authStore.user?.role === 'admin' || authStore.user?.role === 'super_admin' || authStore.user?.role === 'support') && authStore.user?.role !== 'clinical_practice_assistant'"
+                      @click="promoteToOnboarding" 
+                      class="btn btn-primary btn-sm"
+                      :disabled="updatingStatus"
+                    >
+                      {{ updatingStatus ? 'Processing...' : 'Promote to Onboarding' }}
+                    </button>
+                    
+                    <!-- Legacy: For ready_for_review users: Show "Mark as Reviewed and Activate" button -->
+                    <button 
+                      v-if="user.status === 'ready_for_review' && (authStore.user?.role === 'admin' || authStore.user?.role === 'super_admin' || authStore.user?.role === 'support') && authStore.user?.role !== 'clinical_practice_assistant'"
+                      @click="handleMarkAsReviewedAndActivate" 
+                      class="btn btn-primary btn-sm"
+                      :disabled="updatingStatus"
+                    >
+                      {{ updatingStatus ? 'Processing...' : 'Mark as Reviewed and Activate' }}
+                    </button>
+                    
+                    <!-- Admins can mark ONBOARDING users as ACTIVE_EMPLOYEE -->
+                    <button 
+                      v-if="(user.status === 'PENDING_SETUP' || user.status === 'ONBOARDING' || user.status === 'PREHIRE_OPEN' || user.status === 'PREHIRE_REVIEW' || user.status === 'pending' || user.status === 'active') && (authStore.user?.role === 'admin' || authStore.user?.role === 'super_admin' || authStore.user?.role === 'support') && authStore.user?.role !== 'clinical_practice_assistant'"
+                      @click="markComplete" 
+                      class="btn btn-success btn-sm"
+                      :disabled="updatingStatus"
+                    >
+                      {{ updatingStatus ? 'Processing...' : 'Mark Active' }}
+                    </button>
+                    
+                    <!-- Mark Terminated: Only for ACTIVE_EMPLOYEE users -->
+                    <button 
+                      v-if="(user.status === 'ACTIVE_EMPLOYEE' || user.status === 'active') && (authStore.user?.role === 'admin' || authStore.user?.role === 'super_admin' || authStore.user?.role === 'support' || authStore.user?.role === 'staff' || (authStore.user?.role !== 'clinical_practice_assistant' && !isSupervisor(authStore.user)))"
+                      @click="markTerminated" 
+                      class="btn btn-outline-danger btn-sm acct-status-btn-danger"
+                      :disabled="updatingStatus"
+                    >
+                      <svg class="acct-btn-mini-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 9v4m0 4h.01M10.3 3.9L1.8 19a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                      {{ updatingStatus ? 'Updating...' : 'Mark Terminated' }}
+                    </button>
+                    
+                    <!-- Mark inactive: standard offboard (removes org/school links; keeps record) -->
+                    <button
+                      v-if="user.status !== 'ARCHIVED' && user.status !== 'INACTIVE_EMPLOYEE' && (authStore.user?.role === 'admin' || authStore.user?.role === 'super_admin' || authStore.user?.role === 'support') && authStore.user?.role !== 'clinical_practice_assistant'"
+                      type="button"
+                      @click="markStaffInactive"
+                      class="btn btn-secondary btn-sm"
+                      :disabled="updatingStatus"
+                    >
+                      {{ updatingStatus ? 'Working...' : 'Mark Inactive' }}
+                    </button>
 
-                  <!-- Reactivate from inactive -->
-                  <button
-                    v-if="user.status === 'INACTIVE_EMPLOYEE' && (authStore.user?.role === 'admin' || authStore.user?.role === 'super_admin' || authStore.user?.role === 'support' || authStore.user?.role === 'staff' || (authStore.user?.role !== 'clinical_practice_assistant' && !isSupervisor(authStore.user)))"
-                    @click="markActive"
-                    class="btn btn-secondary btn-sm"
-                    :disabled="updatingStatus"
-                  >
-                    {{ updatingStatus ? 'Updating...' : 'Reactivate' }}
-                  </button>
-                  
-                  <!-- Show "Activate" for pending users (admin can activate directly) -->
-                  <button 
-                    v-if="user.status === 'pending' && (authStore.user?.role === 'admin' || authStore.user?.role === 'super_admin' || authStore.user?.role === 'support') && authStore.user?.role !== 'clinical_practice_assistant' && authStore.user?.role !== 'supervisor'"
-                    @click="showMoveToActiveModal = true" 
-                    class="btn btn-primary btn-sm"
-                    :disabled="updatingStatus"
-                  >
-                    {{ updatingStatus ? 'Processing...' : 'Activate' }}
-                  </button>
+                    <!-- Archive: super admin only (hard lifecycle; managed in Archive settings) -->
+                    <button
+                      v-if="user.status !== 'ARCHIVED' && user.status !== 'INACTIVE_EMPLOYEE' && authStore.user?.role === 'super_admin'"
+                      @click="archiveUser"
+                      class="btn btn-secondary btn-sm"
+                      :disabled="updatingStatus"
+                    >
+                      <svg class="acct-btn-mini-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M3 7h18M5 7v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7M9 7V5a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                      {{ updatingStatus ? 'Archiving...' : 'Archive' }}
+                    </button>
+
+                    <!-- Reactivate from inactive -->
+                    <button
+                      v-if="user.status === 'INACTIVE_EMPLOYEE' && (authStore.user?.role === 'admin' || authStore.user?.role === 'super_admin' || authStore.user?.role === 'support' || authStore.user?.role === 'staff' || (authStore.user?.role !== 'clinical_practice_assistant' && !isSupervisor(authStore.user)))"
+                      @click="markActive"
+                      class="btn btn-secondary btn-sm"
+                      :disabled="updatingStatus"
+                    >
+                      {{ updatingStatus ? 'Updating...' : 'Reactivate' }}
+                    </button>
+                    
+                    <!-- Show "Activate" for pending users (admin can activate directly) -->
+                    <button 
+                      v-if="user.status === 'pending' && (authStore.user?.role === 'admin' || authStore.user?.role === 'super_admin' || authStore.user?.role === 'support') && authStore.user?.role !== 'clinical_practice_assistant' && authStore.user?.role !== 'supervisor'"
+                      @click="showMoveToActiveModal = true" 
+                      class="btn btn-primary btn-sm"
+                      :disabled="updatingStatus"
+                    >
+                      {{ updatingStatus ? 'Processing...' : 'Activate' }}
+                    </button>
+                  </div>
                 </div>
                 
                 <div v-if="user.status === 'completed' || user.status === 'terminated'" class="status-warning">
@@ -1316,14 +1350,24 @@
               <AccountDashboardCard
                 v-if="canViewApplicationHistory"
                 section-id="application-history"
+                icon="clipboard"
                 title="Applications"
                 subtitle="Job application history for this account."
                 :can-edit="false"
               >
                 <div v-if="jobApplicationsLoading" class="loading">Loading applications…</div>
                 <div v-else-if="jobApplicationsError" class="error">{{ jobApplicationsError }}</div>
-                <div v-else-if="!(jobApplications || []).length" class="empty-state">
-                  <p>No submitted job applications on file.</p>
+                <div v-else-if="!(jobApplications || []).length" class="acct-empty-panel">
+                  <div class="acct-empty-panel-ico" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
+                      <path d="M14 2H7a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" stroke-linecap="round" stroke-linejoin="round"/>
+                      <path d="M14 2v6h6M9 13h6M9 17h4" stroke-linecap="round" stroke-linejoin="round"/>
+                      <circle cx="16.5" cy="16.5" r="3.2"/>
+                      <path d="M18.8 18.8L21 21" stroke-linecap="round"/>
+                    </svg>
+                  </div>
+                  <p class="acct-empty-panel-title">No submitted job applications on file.</p>
+                  <p class="acct-empty-panel-sub">When applications are submitted, they will appear here.</p>
                 </div>
                 <ul v-else class="profile-application-history">
                   <li v-for="app in jobApplications" :key="app.submissionId" class="profile-application-item">
@@ -1351,66 +1395,111 @@
             </template>
 
             <template #building-offices>
-              <AccountDashboardCard v-if="canManageAssignments && showAdditionalAccountSections" section-id="building-offices" title="Assigned Building Offices" subtitle="Office links for scheduling and school mileage mapping." :can-edit="canEditUser">
+              <AccountDashboardCard
+                v-if="canManageAssignments && showAdditionalAccountSections"
+                section-id="building-offices"
+                icon="building"
+                title="Assigned Building Offices"
+                subtitle="Office links for scheduling and school mileage mapping."
+                :can-edit="canEditUser"
+                :editing="editingOfficeAssignments"
+                :saving="savingOfficeAssignments"
+                edit-label="Edit Assignments"
+                save-label="Save Assignments"
+                @edit="startOfficeAssignmentsEdit"
+                @save="saveOfficeAssignmentsAndClose"
+                @cancel="cancelOfficeAssignmentsEdit"
+              >
                 <div v-if="officeAssignmentsLoading" class="loading">Loading office assignments…</div>
                 <div v-else-if="officeAssignmentsError" class="error">{{ officeAssignmentsError }}</div>
                 <template v-else>
-                  <div v-if="!officeAssignmentsDraft.length" class="empty-state">
-                    <p>No building office assignments yet.</p>
+                  <div v-if="!officeAssignmentsDraft.length" class="acct-empty-panel acct-empty-panel--compact">
+                    <p class="acct-empty-panel-title">No building office assignments yet.</p>
+                    <p class="acct-empty-panel-sub">Add an office to map scheduling and school mileage.</p>
+                    <button
+                      v-if="canEditUser && !editingOfficeAssignments"
+                      class="btn btn-primary btn-sm"
+                      type="button"
+                      style="margin-top: 12px;"
+                      @click="startOfficeAssignmentsEdit(); addOfficeAssignmentRow()"
+                    >
+                      + Add Office
+                    </button>
                   </div>
-                  <div v-else class="table-wrap">
-                    <table class="table">
+                  <div v-else class="table-wrap acct-office-table-wrap">
+                    <table class="table acct-office-table">
                       <thead>
                         <tr>
                           <th>Office</th>
                           <th>Address</th>
-                          <th>Active</th>
                           <th>Primary</th>
-                          <th v-if="canEditUser">Action</th>
+                          <th>Active</th>
+                          <th v-if="canEditUser && editingOfficeAssignments">Actions</th>
                         </tr>
                       </thead>
                       <tbody>
                         <tr v-for="(row, idx) in officeAssignmentsDraft" :key="`off-assign-${idx}`">
                           <td>
-                            <select
-                              v-model.number="row.officeLocationId"
-                              :disabled="!canEditUser || savingOfficeAssignments"
-                              @change="syncOfficeRowDetails(row)"
-                            >
-                              <option :value="0" disabled>Select office…</option>
-                              <option
-                                v-for="opt in officeOptionsForRow(idx)"
-                                :key="`office-opt-${idx}-${opt.id}`"
-                                :value="Number(opt.id)"
+                            <div v-if="editingOfficeAssignments && canEditUser" class="acct-office-edit-cell">
+                              <select
+                                v-model.number="row.officeLocationId"
+                                :disabled="savingOfficeAssignments"
+                                @change="syncOfficeRowDetails(row)"
                               >
-                                {{ opt.name }}
-                              </option>
-                            </select>
+                                <option :value="0" disabled>Select office…</option>
+                                <option
+                                  v-for="opt in officeOptionsForRow(idx)"
+                                  :key="`office-opt-${idx}-${opt.id}`"
+                                  :value="Number(opt.id)"
+                                >
+                                  {{ opt.name }}
+                                </option>
+                              </select>
+                            </div>
+                            <div v-else class="acct-office-name">
+                              <span class="acct-office-name-ico" aria-hidden="true">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 21h18M5 21V7l7-4 7 4v14M9 21v-6h6v6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                              </span>
+                              <span>{{ officeNameForRow(row) || '—' }}</span>
+                            </div>
                           </td>
                           <td><span class="muted">{{ officeAddressForRow(row) || '—' }}</span></td>
                           <td>
-                            <input type="checkbox" v-model="row.isActive" :disabled="!canEditUser || savingOfficeAssignments" @change="normalizeOfficePrimary()" />
+                            <label class="acct-office-primary">
+                              <input
+                                type="radio"
+                                name="primary-office-assignment"
+                                :checked="row.isPrimary"
+                                :disabled="!canEditUser || !editingOfficeAssignments || savingOfficeAssignments || !row.isActive"
+                                @change="setPrimaryOfficeAssignment(idx)"
+                              />
+                            </label>
                           </td>
                           <td>
-                            <input
-                              type="radio"
-                              name="primary-office-assignment"
-                              :checked="row.isPrimary"
-                              :disabled="!canEditUser || savingOfficeAssignments || !row.isActive"
-                              @change="setPrimaryOfficeAssignment(idx)"
-                            />
+                            <label class="acct-toggle" :class="{ 'acct-toggle--on': row.isActive, 'acct-toggle--disabled': !canEditUser || !editingOfficeAssignments || savingOfficeAssignments }">
+                              <input
+                                type="checkbox"
+                                v-model="row.isActive"
+                                :disabled="!canEditUser || !editingOfficeAssignments || savingOfficeAssignments"
+                                @change="normalizeOfficePrimary()"
+                              />
+                              <span class="acct-toggle-track" aria-hidden="true"><span class="acct-toggle-thumb" /></span>
+                            </label>
                           </td>
-                          <td v-if="canEditUser">
-                            <button class="btn btn-danger btn-sm" type="button" :disabled="savingOfficeAssignments" @click="removeOfficeAssignmentRow(idx)">Remove</button>
+                          <td v-if="canEditUser && editingOfficeAssignments">
+                            <button class="btn btn-sm acct-office-remove" type="button" :disabled="savingOfficeAssignments" @click="removeOfficeAssignmentRow(idx)">
+                              <svg class="acct-btn-mini-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                              Remove
+                            </button>
                           </td>
                         </tr>
                       </tbody>
                     </table>
                   </div>
-                  <div v-if="canEditUser" style="margin-top: 10px; display:flex; gap: 8px; flex-wrap: wrap;">
-                    <button class="btn btn-secondary btn-sm" type="button" :disabled="savingOfficeAssignments" @click="addOfficeAssignmentRow">Add office</button>
-                    <button class="btn btn-primary btn-sm" type="button" :disabled="savingOfficeAssignments" @click="saveOfficeAssignments">
-                      {{ savingOfficeAssignments ? 'Saving…' : 'Save office assignments' }}
+                  <div v-if="canEditUser && editingOfficeAssignments" class="acct-office-footer">
+                    <button class="btn btn-primary btn-sm" type="button" :disabled="savingOfficeAssignments" @click="addOfficeAssignmentRow">+ Add Office</button>
+                    <button class="btn btn-secondary btn-sm" type="button" :disabled="savingOfficeAssignments" @click="saveOfficeAssignmentsAndClose">
+                      {{ savingOfficeAssignments ? 'Saving…' : 'Save Assignments' }}
                     </button>
                   </div>
                 </template>
@@ -4924,11 +5013,15 @@ const assigningAgency = ref(false);
 const officeAssignmentsLoading = ref(false);
 const officeAssignmentsError = ref('');
 const savingOfficeAssignments = ref(false);
+const editingOfficeAssignments = ref(false);
+const officeAssignmentsSnapshot = ref('[]');
 const officeAssignmentOptions = ref([]);
 const officeAssignmentsDraft = ref([]);
 const providerPublicProfileLoading = ref(false);
 const providerPublicProfileSaving = ref(false);
+const editingProviderPublicProfile = ref(false);
 const providerPublicProfileError = ref('');
+const providerPublicProfileSnapshot = ref(null);
 const providerPublicBlurb = ref('');
 const providerPublicInsurancesCsv = ref('');
 const providerSelfPayRateUsd = ref(null);
@@ -6073,11 +6166,45 @@ const saveProviderPublicProfile = async () => {
       defaultSelfPayRateCents: agencyDefaultSelfPayRateCents
     });
     await loadProviderPublicProfile();
+    editingProviderPublicProfile.value = false;
   } catch (e) {
     providerPublicProfileError.value = e.response?.data?.error?.message || 'Failed to save provider public profile settings';
   } finally {
     providerPublicProfileSaving.value = false;
   }
+};
+
+const captureProviderPublicProfileSnapshot = () => {
+  providerPublicProfileSnapshot.value = {
+    providerPublicBlurb: providerPublicBlurb.value,
+    providerPublicInsurancesCsv: providerPublicInsurancesCsv.value,
+    providerSelfPayRateUsd: providerSelfPayRateUsd.value,
+    providerSelfPayRateNote: providerSelfPayRateNote.value,
+    agencyDefaultSelfPayRateUsd: agencyDefaultSelfPayRateUsd.value,
+    agencyFinderIntroBlurb: agencyFinderIntroBlurb.value
+  };
+};
+
+const startProviderPublicProfileEdit = () => {
+  captureProviderPublicProfileSnapshot();
+  editingProviderPublicProfile.value = true;
+};
+
+const saveProviderPublicProfileAndClose = async () => {
+  await saveProviderPublicProfile();
+};
+
+const cancelProviderPublicProfileEdit = () => {
+  const snap = providerPublicProfileSnapshot.value;
+  if (snap) {
+    providerPublicBlurb.value = snap.providerPublicBlurb;
+    providerPublicInsurancesCsv.value = snap.providerPublicInsurancesCsv;
+    providerSelfPayRateUsd.value = snap.providerSelfPayRateUsd;
+    providerSelfPayRateNote.value = snap.providerSelfPayRateNote;
+    agencyDefaultSelfPayRateUsd.value = snap.agencyDefaultSelfPayRateUsd;
+    agencyFinderIntroBlurb.value = snap.agencyFinderIntroBlurb;
+  }
+  editingProviderPublicProfile.value = false;
 };
 
 const normalizeOfficePrimary = () => {
@@ -6125,7 +6252,10 @@ const syncOfficeRowDetails = (row) => {
   const id = Number(row?.officeLocationId || 0);
   if (!id) return;
   const match = (officeAssignmentOptions.value || []).find((o) => Number(o?.id) === id);
-  if (match) row.addressLine = match.addressLine || '';
+  if (match) {
+    row.addressLine = match.addressLine || '';
+    row.name = match.name || '';
+  }
   normalizeOfficePrimary();
 };
 
@@ -6133,6 +6263,43 @@ const officeAddressForRow = (row) => {
   const id = Number(row?.officeLocationId || 0);
   const match = (officeAssignmentOptions.value || []).find((o) => Number(o?.id) === id);
   return String(match?.addressLine || row?.addressLine || '').trim();
+};
+
+const officeNameForRow = (row) => {
+  const id = Number(row?.officeLocationId || 0);
+  const match = (officeAssignmentOptions.value || []).find((o) => Number(o?.id) === id);
+  return String(match?.name || row?.name || '').trim();
+};
+
+const cloneOfficeAssignmentsDraft = () =>
+  (officeAssignmentsDraft.value || []).map((r) => ({
+    officeLocationId: Number(r?.officeLocationId || 0),
+    isActive: Boolean(r?.isActive),
+    isPrimary: Boolean(r?.isPrimary),
+    addressLine: String(r?.addressLine || ''),
+    name: String(r?.name || '')
+  }));
+
+const startOfficeAssignmentsEdit = () => {
+  officeAssignmentsSnapshot.value = JSON.stringify(cloneOfficeAssignmentsDraft());
+  editingOfficeAssignments.value = true;
+};
+
+const cancelOfficeAssignmentsEdit = () => {
+  try {
+    officeAssignmentsDraft.value = JSON.parse(officeAssignmentsSnapshot.value || '[]');
+  } catch {
+    /* keep current draft */
+  }
+  editingOfficeAssignments.value = false;
+};
+
+const saveOfficeAssignmentsAndClose = async () => {
+  await saveOfficeAssignments();
+  if (!officeAssignmentsError.value) {
+    editingOfficeAssignments.value = false;
+    officeAssignmentsSnapshot.value = JSON.stringify(cloneOfficeAssignmentsDraft());
+  }
 };
 
 const addOfficeAssignmentRow = () => {
@@ -6143,7 +6310,8 @@ const addOfficeAssignmentRow = () => {
     officeLocationId: Number(next?.id || 0),
     isActive: true,
     isPrimary: false,
-    addressLine: next?.addressLine || ''
+    addressLine: next?.addressLine || '',
+    name: next?.name || ''
   });
   officeAssignmentsDraft.value = rows;
   normalizeOfficePrimary();
@@ -6174,8 +6342,11 @@ const loadOfficeAssignments = async () => {
       officeLocationId: Number(a?.id || 0),
       isActive: a?.isActive === undefined ? true : Boolean(a.isActive),
       isPrimary: Boolean(a?.isPrimary),
-      addressLine: String(a?.addressLine || '')
+      addressLine: String(a?.addressLine || ''),
+      name: String(a?.name || '')
     }));
+    editingOfficeAssignments.value = false;
+    officeAssignmentsSnapshot.value = JSON.stringify(cloneOfficeAssignmentsDraft());
     normalizeOfficePrimary();
   } catch (err) {
     officeAssignmentOptions.value = [];
@@ -6204,7 +6375,8 @@ const saveOfficeAssignments = async () => {
       officeLocationId: Number(a?.id || 0),
       isActive: a?.isActive === undefined ? true : Boolean(a.isActive),
       isPrimary: Boolean(a?.isPrimary),
-      addressLine: String(a?.addressLine || '')
+      addressLine: String(a?.addressLine || ''),
+      name: String(a?.name || '')
     }));
     normalizeOfficePrimary();
   } catch (err) {
@@ -7151,6 +7323,11 @@ const getStatusBadgeClass = (status, isActive = true) => {
     'terminated': 'badge-danger'
   };
   return classes[status] || 'badge-secondary';
+};
+
+const isActiveStatusBadge = (status, isActive = true) => {
+  if (!isActive) return false;
+  return status === 'ACTIVE_EMPLOYEE' || status === 'active' || status === 'completed';
 };
 
 provide(USER_ACCOUNT_CONTEXT_KEY, {
@@ -8997,6 +9174,309 @@ onUnmounted(() => {
 
 .status-management {
   padding: 0;
+}
+
+.acct-status-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 20px 28px;
+}
+
+.acct-status-current,
+.acct-status-change {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 140px;
+}
+
+.acct-status-label {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #64748b;
+}
+
+.acct-status-badge {
+  margin-left: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  width: fit-content;
+  padding: 6px 12px;
+  border-radius: 999px;
+}
+
+.acct-status-check {
+  width: 14px;
+  height: 14px;
+}
+
+.acct-status-meta {
+  margin: 0;
+  font-size: 12px;
+  color: #64748b;
+}
+
+.acct-status-select {
+  min-width: 200px;
+  max-width: 280px;
+}
+
+.acct-status-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-left: auto;
+  align-items: center;
+}
+
+.acct-status-btn-danger {
+  color: #b91c1c;
+  border-color: #fecaca;
+  background: #fff;
+}
+
+.acct-btn-mini-ico {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+}
+
+.acct-ws-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+}
+
+.acct-ws-panel {
+  background: #f3faf7;
+  border: 1px solid #d8ebe3;
+  border-radius: 12px;
+  padding: 14px 16px;
+}
+
+.acct-ws-panel-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.acct-ws-panel-head h4 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.acct-ws-panel-ico {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  background: #fff;
+  color: #2e5d50;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.acct-ws-panel-ico svg {
+  width: 16px;
+  height: 16px;
+}
+
+.acct-ws-panel p {
+  margin: 0 0 12px;
+  font-size: 13px;
+  color: #475569;
+  line-height: 1.45;
+}
+
+.acct-empty-panel {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  padding: 28px 18px;
+  background: #f3faf7;
+  border: 1px solid #d8ebe3;
+  border-radius: 12px;
+}
+
+.acct-empty-panel--compact {
+  padding: 20px 16px;
+}
+
+.acct-empty-panel-ico {
+  width: 52px;
+  height: 52px;
+  border-radius: 14px;
+  background: #fff;
+  color: #2e5d50;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 12px;
+}
+
+.acct-empty-panel-ico svg {
+  width: 28px;
+  height: 28px;
+}
+
+.acct-empty-panel-title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 700;
+  color: #2e5d50;
+}
+
+.acct-empty-panel-sub {
+  margin: 6px 0 0;
+  font-size: 13px;
+  color: #64748b;
+}
+
+.acct-office-table th {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: #64748b;
+}
+
+.acct-office-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  color: #0f172a;
+}
+
+.acct-office-name-ico {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  background: #eef6f3;
+  color: #2e5d50;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.acct-office-name-ico svg {
+  width: 14px;
+  height: 14px;
+}
+
+.acct-office-primary {
+  display: inline-flex;
+  align-items: center;
+}
+
+.acct-office-primary input {
+  accent-color: #2e5d50;
+  width: 16px;
+  height: 16px;
+}
+
+.acct-toggle {
+  position: relative;
+  display: inline-flex;
+  cursor: pointer;
+}
+
+.acct-toggle input {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.acct-toggle-track {
+  width: 40px;
+  height: 22px;
+  border-radius: 999px;
+  background: #cbd5e1;
+  position: relative;
+  transition: background 0.15s;
+}
+
+.acct-toggle-thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.2);
+  transition: transform 0.15s;
+}
+
+.acct-toggle--on .acct-toggle-track {
+  background: #2e5d50;
+}
+
+.acct-toggle--on .acct-toggle-thumb {
+  transform: translateX(18px);
+}
+
+.acct-toggle--disabled {
+  cursor: not-allowed;
+  opacity: 0.7;
+}
+
+.acct-office-remove {
+  color: #b91c1c;
+  border-color: #fecaca;
+  background: #fff;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.acct-office-footer {
+  margin-top: 12px;
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.acct-blurb-label {
+  color: #2e5d50;
+  font-weight: 600;
+}
+
+.acct-blurb-hint {
+  margin: 2px 0 8px;
+  font-size: 12px;
+  color: #64748b;
+}
+
+.acct-blurb-wrap {
+  position: relative;
+}
+
+.acct-blurb-wrap textarea {
+  width: 100%;
+  min-height: 110px;
+  border: 1px solid #d8ebe3;
+  border-radius: 10px;
+  padding: 12px 12px 28px;
+  font-size: 14px;
+  resize: vertical;
+}
+
+.acct-blurb-count {
+  position: absolute;
+  right: 12px;
+  bottom: 8px;
+  font-size: 11px;
+  color: #94a3b8;
 }
 
 .current-status {

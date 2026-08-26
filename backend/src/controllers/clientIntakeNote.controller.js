@@ -1062,12 +1062,28 @@ export const finalizeClientIntakeNote = async (req, res, next) => {
 
     const draft = await ClientIntakeNoteDraft.findForClient({ draftId, clientId, agencyId });
     if (!draft) return res.status(404).json({ error: { message: 'Draft not found' } });
+    const allowReplace = req.body?.replace === true || req.body?.forceReplace === true
+      || req.query?.replace === '1' || req.query?.forceReplace === '1';
     if (draft.status === 'final') {
-      return res.status(409).json({ error: { message: 'Intake note is already finalized' } });
+      if (!allowReplace) {
+        return res.status(409).json({
+          error: {
+            message: 'Intake note is already finalized',
+            code: 'intake_already_finalized',
+            replaceAllowed: true
+          }
+        });
+      }
+      await ClientIntakeNoteDraft.reopenForReplace(draftId);
     }
-    if (draft.status !== 'ready') {
+    // Re-read after optional reopen
+    const draftNow = allowReplace && draft.status === 'final'
+      ? await ClientIntakeNoteDraft.findForClient({ draftId, clientId, agencyId })
+      : draft;
+    if (!draftNow) return res.status(404).json({ error: { message: 'Draft not found' } });
+    if (draftNow.status !== 'ready') {
       return res.status(409).json({
-        error: { message: `Draft must be in 'ready' status before finalizing (current: ${draft.status})` }
+        error: { message: `Draft must be in 'ready' status before finalizing (current: ${draftNow.status})` }
       });
     }
 
@@ -1097,7 +1113,7 @@ export const finalizeClientIntakeNote = async (req, res, next) => {
       let confirmedDx = null;
       let allDiagnoses = [];
       try {
-        const parsed = draft.confirmed_dx_json ? JSON.parse(draft.confirmed_dx_json) : null;
+        const parsed = draftNow.confirmed_dx_json ? JSON.parse(draftNow.confirmed_dx_json) : null;
         if (Array.isArray(parsed?.diagnoses)) {
           allDiagnoses = parsed.diagnoses;
           confirmedDx = parsed.primary || parsed.diagnoses[0] || null;
@@ -1110,7 +1126,7 @@ export const finalizeClientIntakeNote = async (req, res, next) => {
       }
       if (!confirmedDx?.code) {
         try {
-          const suggested = draft.suggested_dx_json ? JSON.parse(draft.suggested_dx_json) : null;
+          const suggested = draftNow.suggested_dx_json ? JSON.parse(draftNow.suggested_dx_json) : null;
           if (Array.isArray(suggested?.diagnoses)) {
             allDiagnoses = suggested.diagnoses;
             confirmedDx = suggested.primary || suggested.diagnoses[0] || null;
@@ -1153,9 +1169,9 @@ export const finalizeClientIntakeNote = async (req, res, next) => {
       treatmentPlan = await ClinicalTreatmentPlan.create({
         agencyId,
         clientId,
-        title: `Intake Treatment Plan — ${draft.service_code}`,
+        title: `Intake Treatment Plan — ${draftNow.service_code}`,
         status: 'draft',
-        sourceToolId: draft.tool_id,
+        sourceToolId: draftNow.tool_id,
         createdByUserId: req.user.id,
         goals,
         primaryDiagnosisId,
@@ -1191,7 +1207,7 @@ export const finalizeClientIntakeNote = async (req, res, next) => {
       metadata: {
         clientId,
         draftId,
-        serviceCode: draft.service_code,
+        serviceCode: draftNow.service_code,
         treatmentPlanId: treatmentPlan?.id ?? null,
         primaryDiagnosisId: primaryDiagnosisId || null
       }
@@ -1460,8 +1476,22 @@ export const updateClientIntakeNoteSections = async (req, res, next) => {
 
     const draft = await ClientIntakeNoteDraft.findForClient({ draftId, clientId, agencyId });
     if (!draft) return res.status(404).json({ error: { message: 'Draft not found' } });
+    const allowReplace = req.body?.replace === true || req.body?.forceReplace === true
+      || req.query?.replace === '1' || req.query?.forceReplace === '1';
     if (draft.status === 'final') {
-      return res.status(409).json({ error: { message: 'Intake note is already finalized' } });
+      if (!allowReplace) {
+        return res.status(409).json({
+          error: {
+            message: 'Intake note is already finalized',
+            code: 'intake_already_finalized',
+            replaceAllowed: true
+          }
+        });
+      }
+      await ClientIntakeNoteDraft.reopenForReplace(draftId);
+    }
+    if (draft.status === 'failed') {
+      return res.status(409).json({ error: { message: 'Cannot update a failed draft' } });
     }
 
     const sectionsInput = Array.isArray(req.body?.sections) ? req.body.sections : null;

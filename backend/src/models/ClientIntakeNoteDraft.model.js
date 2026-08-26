@@ -135,6 +135,21 @@ class ClientIntakeNoteDraft {
     );
     return this.findById(iid);
   }
+
+  /** Reopen a finalized draft so one-time chart setup can be replaced/corrected. */
+  static async reopenForReplace(draftId) {
+    const iid = safeInt(draftId);
+    if (!iid) throw new Error('Invalid draftId');
+    await pool.execute(
+      `UPDATE client_intake_note_drafts
+       SET status = 'ready',
+           finalized_at = NULL,
+           error_message = NULL
+       WHERE id = ? AND status = 'final'`,
+      [iid]
+    );
+    return this.findById(iid);
+  }
   static async updateContent({
     draftId,
     noteBodyEnc = undefined,

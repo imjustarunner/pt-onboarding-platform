@@ -74,7 +74,7 @@
 
           <p v-if="error" class="error">{{ error }}</p>
           <div class="na-modal-actions">
-            <button type="button" class="na-btn-outline" :disabled="saving" @click="saveSections">
+            <button type="button" class="na-btn-outline" :disabled="saving" @click="onSaveClick">
               {{ saving ? 'Saving…' : 'Save sections' }}
             </button>
             <button type="button" class="na-btn-primary" :disabled="finalizing || !diagnoses[0]?.code" @click="finalize">
@@ -262,7 +262,15 @@ function diagnosesPayload() {
   }));
 }
 
-async function saveSections() {
+async function onSaveClick() {
+  try {
+    await saveSections({ replace: false });
+  } catch {
+    // error already set
+  }
+}
+
+async function saveSections({ replace = false } = {}) {
   if (!draftId.value) return;
   saving.value = true;
   error.value = '';
@@ -270,10 +278,26 @@ async function saveSections() {
     await api.patch(`/clients/${props.clientId}/intake-note/${draftId.value}/sections`, {
       sections: sections.value,
       diagnoses: diagnosesPayload(),
-      diagnosticJustification: String(diagnosticJustification.value || '').trim() || null
+      diagnosticJustification: String(diagnosticJustification.value || '').trim() || null,
+      replace: !!replace
     });
   } catch (e) {
-    error.value = e.response?.data?.error?.message || e.message || 'Save failed';
+    const msg = e.response?.data?.error?.message || e.message || 'Save failed';
+    const code = e.response?.data?.error?.code;
+    const canReplace = e.response?.status === 409
+      && (code === 'intake_already_finalized' || /already finalized/i.test(msg));
+    if (!replace && canReplace) {
+      // One-time chart setup: reopen finalized draft and retry once.
+      await api.patch(`/clients/${props.clientId}/intake-note/${draftId.value}/sections`, {
+        sections: sections.value,
+        diagnoses: diagnosesPayload(),
+        diagnosticJustification: String(diagnosticJustification.value || '').trim() || null,
+        replace: true
+      });
+      return;
+    }
+    error.value = msg;
+    throw e;
   } finally {
     saving.value = false;
   }
@@ -284,11 +308,29 @@ async function finalize() {
   finalizing.value = true;
   error.value = '';
   try {
-    await saveSections();
-    const res = await api.post(`/clients/${props.clientId}/intake-note/${draftId.value}/finalize`, {
-      goals: []
-    });
-    emit('finalized', res?.data || null);
+    await saveSections({ replace: false });
+    try {
+      const res = await api.post(`/clients/${props.clientId}/intake-note/${draftId.value}/finalize`, {
+        goals: [],
+        replace: false
+      });
+      emit('finalized', res?.data || null);
+    } catch (e) {
+      const msg = e.response?.data?.error?.message || e.message || 'Finalize failed';
+      const code = e.response?.data?.error?.code;
+      const canReplace = e.response?.status === 409
+        && (code === 'intake_already_finalized' || /already finalized/i.test(msg));
+      if (canReplace) {
+        await saveSections({ replace: true });
+        const res = await api.post(`/clients/${props.clientId}/intake-note/${draftId.value}/finalize`, {
+          goals: [],
+          replace: true
+        });
+        emit('finalized', res?.data || null);
+        return;
+      }
+      throw e;
+    }
   } catch (e) {
     error.value = e.response?.data?.error?.message || e.message || 'Finalize failed';
   } finally {
