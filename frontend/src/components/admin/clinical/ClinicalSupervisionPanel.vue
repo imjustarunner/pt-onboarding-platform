@@ -2,7 +2,7 @@
   <div class="clinical-supervision-panel">
     <p class="muted ci-panel-hint">
       Supervisor assignments and clinical supervision notes. Pre-licensed hour tracking for payroll remains under
-      <strong>Account → Agency Assignments</strong> when applicable.
+      <strong>Assignments → Agency Assignments</strong> when applicable.
     </p>
 
     <section class="csp-section">

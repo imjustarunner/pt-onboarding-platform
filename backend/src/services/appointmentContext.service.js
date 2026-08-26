@@ -131,21 +131,46 @@ export async function ensureAppointmentContext({
     const durationMinutes =
       startMs && endMs && endMs > startMs ? Math.round((endMs - startMs) / 60000) : null;
     const officeLocationId = parseIntId(event.office_location_id);
-    const serviceLocationId = parseIntId(event.service_location_id);
+    let serviceLocationId = parseIntId(event.service_location_id);
 
     let placeOfService = null;
     let billingOfficeLocationId = officeLocationId;
+
+    // Client chart defaults (Assignments tab) fill gaps when the booking didn't pick POS/location.
+    if (resolvedClientId && (!serviceLocationId || !placeOfService || !billingOfficeLocationId)) {
+      try {
+        const [cRows] = await pool.execute(
+          `SELECT default_office_location_id, default_place_of_service, default_service_location_id
+           FROM clients WHERE id = ? LIMIT 1`,
+          [resolvedClientId]
+        );
+        const c = cRows?.[0] || null;
+        if (c) {
+          if (!serviceLocationId) serviceLocationId = parseIntId(c.default_service_location_id);
+          if (!placeOfService) {
+            placeOfService = String(c.default_place_of_service || '').trim() || null;
+          }
+          if (!billingOfficeLocationId) {
+            billingOfficeLocationId = parseIntId(c.default_office_location_id) || null;
+          }
+        }
+      } catch {
+        // Columns may not exist until migration 1309; ignore.
+      }
+    }
+
     if (serviceLocationId) {
       const loc = await AgencyServiceLocation.findById(serviceLocationId);
       if (loc && Number(loc.agency_id) === resolvedAgencyId) {
-        placeOfService = loc.place_of_service || null;
-        billingOfficeLocationId = parseIntId(loc.billing_office_location_id) || officeLocationId;
+        placeOfService = placeOfService || loc.place_of_service || null;
+        billingOfficeLocationId = parseIntId(loc.billing_office_location_id) || billingOfficeLocationId || officeLocationId;
       }
     }
     if (!placeOfService && officeLocationId) {
       const office = await OfficeLocation.findById(officeLocationId);
       placeOfService = office?.default_place_of_service || null;
     }
+    if (!billingOfficeLocationId) billingOfficeLocationId = officeLocationId;
 
     let effectiveCode = serviceCode;
     let billedUnits = null;

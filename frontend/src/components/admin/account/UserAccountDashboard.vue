@@ -340,11 +340,11 @@
             v-if="showAccountSection('payroll-hcbs-classification') && canShowClassification"
             section-id="payroll-hcbs-classification"
             title="Payroll &amp; HCBS Classification"
-            subtitle="Auto-derived from credential, title, role, and hourly-worker settings. Edit Prelicensed under Agency Assignments."
+            subtitle="Auto-derived from credential, title, role, and hourly-worker settings. Edit Prelicensed under Assignments → Agency Assignments."
             :can-edit="false"
           >
             <template #actions>
-              <button type="button" class="acct-btn acct-btn--ghost" @click="scrollToSection('agency-assignments')">
+              <button type="button" class="acct-btn acct-btn--ghost" @click="goToAssignments('agency-assignments')">
                 Agency Assignments
               </button>
               <button type="button" class="acct-btn acct-btn--ghost" :disabled="classificationLoading" @click="fetchClassification">
@@ -516,49 +516,6 @@
             <slot name="feature-access" :editing-card="editingCard" />
           </div>
 
-          <!-- Supervisor Assignments slot -->
-          <div v-if="showAccountSection('supervisor-assignments')" id="supervisor-assignments">
-            <AccountDashboardCard section-id="supervisor-assignments" title="Supervisor Assignments" :can-edit="false">
-              <p class="muted acct-clinical-note">
-                Manage supervisor assignments in
-                <button type="button" class="acct-link-btn" @click="goToClinical('supervision')">
-                  Clinical Information → Supervision
-                </button>.
-              </p>
-              <template v-if="supervisorAssignmentRows.length">
-                <div
-                  v-for="row in supervisorAssignmentRows"
-                  :key="row.id || `${row.supervisor_id}-${row.supervisor_type}-${row.agency_id}`"
-                  class="acct-field"
-                >
-                  <span class="acct-field-label">
-                    {{ supervisorTypeLabel(row.supervisor_type) }} supervisor
-                    <template v-if="row.is_primary"> · Primary</template>
-                  </span>
-                  <span class="acct-field-value">
-                    {{ formatSupervisorAssignmentName(row) }}
-                    <small v-if="row.agency_name" class="acct-field-sub">{{ row.agency_name }}</small>
-                  </span>
-                </div>
-              </template>
-              <div v-else-if="supervisorName" class="acct-field">
-                <span class="acct-field-label">Primary supervisor</span>
-                <span class="acct-field-value">{{ supervisorName }}</span>
-              </div>
-              <p v-else class="muted">No supervisors assigned.</p>
-            </AccountDashboardCard>
-          </div>
-
-          <!-- Agency Assignments slot -->
-          <div id="agency-assignments">
-            <slot name="agency-assignments" />
-          </div>
-
-          <!-- Building offices slot -->
-          <div id="building-offices">
-            <slot name="building-offices" />
-          </div>
-
           <!-- Status Management slot -->
           <div id="status-management">
             <slot name="status-management" />
@@ -597,7 +554,6 @@ import AccountDashboardCard from './AccountDashboardCard.vue';
 import UserPayHcbsClassificationPanel from '../UserPayHcbsClassificationPanel.vue';
 import { USER_ACCOUNT_CONTEXT_KEY } from '../../../composables/userAccountContext.js';
 import { formatSnapshotValue, formatClinicalFieldValue, findFieldByKeys } from '../../../utils/clinicalFieldDisplay.js';
-import { supervisorTypeLabel } from '../../../constants/supervisorTypes.js';
 
 const PRACTICE_CATEGORY_LABELS = {
   mental_health: 'Mental health',
@@ -615,7 +571,6 @@ const SCHOOL_STAFF_HIDDEN_ACCOUNT_SECTIONS = new Set([
   'employment-dates',
   'access-permissions',
   'feature-access',
-  'supervisor-assignments',
   'public-profile'
 ]);
 
@@ -636,6 +591,10 @@ const activeNav = ref('account-info');
 
 function goToClinical(clinicalSubTab) {
   ctx.navigate?.('provider_info', '', clinicalSubTab);
+}
+
+function goToAssignments(sectionId = '') {
+  ctx.navigate?.('assignments', sectionId);
 }
 
 const form = computed(() => unwrap(ctx.accountForm) || {});
@@ -672,18 +631,6 @@ const displayName = computed(() => unwrap(ctx.headerDisplayName) || 'User');
 const photoUrl = computed(() => unwrap(ctx.headerPhotoUrl) || '');
 const managerName = computed(() => unwrap(ctx.headerManagerName) || '');
 const supervisorName = computed(() => unwrap(ctx.headerSupervisorName) || '');
-
-const supervisorAssignmentRows = computed(() => {
-  const fromOverview = overview.value?.supervisors;
-  if (Array.isArray(fromOverview) && fromOverview.length) return fromOverview;
-  const fromCtx = unwrap(ctx.supervisors);
-  return Array.isArray(fromCtx) ? fromCtx : [];
-});
-
-function formatSupervisorAssignmentName(row) {
-  const name = `${row?.supervisor_first_name || ''} ${row?.supervisor_last_name || ''}`.trim();
-  return name || row?.supervisor_email || '—';
-}
 
 const initials = computed(() => {
   const f = String(user.value?.first_name || '').trim()[0] || '';
@@ -937,8 +884,6 @@ const navItems = computed(() => {
     { id: 'payroll-hcbs-classification', label: 'Payroll & HCBS' },
     { id: 'compensation-level', label: 'Compensation Level' },
     { id: 'service-availability', label: 'Service & Availability' },
-    { id: 'supervisor-assignments', label: 'Supervisor Assignments' },
-    { id: 'agency-assignments', label: 'Agency Assignments' },
     { id: 'employment-dates', label: 'Employment & Dates' },
     { id: 'access-permissions', label: 'Access & Permissions' },
     { id: 'feature-access', label: 'Feature Access' },

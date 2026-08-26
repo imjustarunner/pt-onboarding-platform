@@ -792,7 +792,7 @@
               <header class="ov-card-header">
                 <h3>Care Team</h3>
                 <span class="muted" style="font-size: 12px;">
-                  Edit on the <strong>Assignments</strong> tab
+                  Edit on the <strong>Assignments</strong> tab (providers, office &amp; POS defaults)
                 </span>
               </header>
               <div class="ov-card-body">
@@ -1765,21 +1765,34 @@
         </div>
 
         <!-- Assignments Tab (backoffice only) -->
-        <div v-if="showPanel('assignments')" class="detail-section">
-          <div class="form-section-divider" style="margin-top: 0; margin-bottom: 10px;">
-            <h3 style="margin:0;">Client assignments</h3>
-            <div class="hint">Manage tenant memberships, program/school affiliations, and scoped provider assignments.</div>
+        <div v-if="showPanel('assignments')" class="detail-section casg">
+          <div class="casg-head">
+            <div>
+              <h3 class="casg-title">Assignments</h3>
+              <p class="casg-subtitle">
+                Tenant membership, school/program links, care team, default office &amp; place of service for scheduling and claims.
+              </p>
+            </div>
+            <div class="casg-stats">
+              <span class="casg-stat"><strong>{{ (clientAgencyAffiliations || []).length }}</strong> Tenant{{ (clientAgencyAffiliations || []).length === 1 ? '' : 's' }}</span>
+              <span class="casg-stat"><strong>{{ schoolAffiliationCount }}</strong> School{{ schoolAffiliationCount === 1 ? '' : 's' }}</span>
+              <span class="casg-stat"><strong>{{ programAffiliationCount }}</strong> Program{{ programAffiliationCount === 1 ? '' : 's' }}</span>
+              <span class="casg-stat"><strong>{{ (providerAssignments || []).length }}</strong> Provider{{ (providerAssignments || []).length === 1 ? '' : 's' }}</span>
+            </div>
           </div>
 
           <div v-if="assignmentsError" class="error" style="text-align:left;">{{ assignmentsError }}</div>
 
-          <div class="grid" style="display:grid; grid-template-columns: 1fr; gap: 16px;">
-            <div class="card" style="border: 1px solid var(--border); border-radius: 12px; padding: 14px;">
-              <h4 style="margin:0 0 10px;">Tenant memberships</h4>
-              <div class="hint" style="margin-bottom: 10px;">
-                Clients can belong to multiple tenants. Use “Use for chart” to choose which tenant
-                scopes chart/billing APIs in this session (memberships stay equal peers).
-              </div>
+          <div class="casg-grid">
+            <section class="casg-card">
+              <header class="casg-card-head">
+                <div>
+                  <h4>Tenant memberships</h4>
+                  <p class="casg-card-hint">
+                    Clients can belong to multiple tenants. “Use for chart” scopes chart/billing APIs in this session.
+                  </p>
+                </div>
+              </header>
               <div v-if="clientAgenciesNote" class="muted" style="margin-bottom: 10px;">{{ clientAgenciesNote }}</div>
 
               <div v-if="(clientAgencyAffiliations || []).length === 0" class="hint">No tenant memberships found.</div>
@@ -1795,7 +1808,14 @@
                   <tbody>
                     <tr v-for="a in clientAgencyAffiliations" :key="a.agency_id">
                       <td>{{ a.agency_name || `Agency ${a.agency_id}` }}</td>
-                      <td>{{ Number(a.agency_id) === Number(selectedAgencyId || client?.agency_id) ? 'Active' : '—' }}</td>
+                      <td>
+                        <span
+                          class="casg-badge"
+                          :class="Number(a.agency_id) === Number(selectedAgencyId || client?.agency_id) ? 'casg-badge--ok' : ''"
+                        >
+                          {{ Number(a.agency_id) === Number(selectedAgencyId || client?.agency_id) ? 'Active' : '—' }}
+                        </span>
+                      </td>
                       <td class="right" style="white-space: nowrap;">
                         <button
                           v-if="Number(a.agency_id) !== Number(selectedAgencyId || client?.agency_id)"
@@ -1823,7 +1843,7 @@
                 </table>
               </div>
 
-              <div style="display:flex; gap: 10px; align-items:end; margin-top: 12px; flex-wrap: wrap;">
+              <div class="casg-add-row">
                 <div style="min-width: 280px; flex: 1;">
                   <label class="filters-label">Add tenant membership</label>
                   <select v-model="addAgencyAffiliationId" class="filters-select">
@@ -1844,10 +1864,78 @@
                   Add
                 </button>
               </div>
-            </div>
+            </section>
 
-            <div class="card" style="border: 1px solid var(--border); border-radius: 12px; padding: 14px;">
-              <h4 style="margin:0 0 10px;">Program / school affiliations</h4>
+            <section class="casg-card">
+              <header class="casg-card-head">
+                <div>
+                  <h4>Default office &amp; place of service</h4>
+                  <p class="casg-card-hint">
+                    Prefills scheduled sessions and billing claims. Usually mirrors the primary provider’s assigned office; change anytime.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  class="btn btn-secondary btn-sm"
+                  :disabled="savingClientBookingDefaults || !canSuggestOfficeFromProvider"
+                  @click="suggestDefaultsFromPrimaryProvider"
+                >
+                  Use provider office
+                </button>
+              </header>
+              <div v-if="clientBookingDefaultsError" class="error" style="text-align:left; margin-bottom: 8px;">{{ clientBookingDefaultsError }}</div>
+              <div class="casg-fields">
+                <label class="casg-field">
+                  <span>Default office</span>
+                  <select v-model="clientDefaultOfficeId" class="filters-select" :disabled="savingClientBookingDefaults">
+                    <option value="">Not set</option>
+                    <option v-for="o in clientOfficeOptions" :key="o.id" :value="String(o.id)">
+                      {{ o.name }}{{ o.street_address ? ` — ${o.street_address}` : '' }}
+                    </option>
+                  </select>
+                </label>
+                <label class="casg-field">
+                  <span>Default place of service</span>
+                  <select v-model="clientDefaultPos" class="filters-select" :disabled="savingClientBookingDefaults">
+                    <option value="">Not set</option>
+                    <option v-for="p in PLACE_OF_SERVICE_OPTIONS" :key="p.code" :value="p.code">
+                      {{ p.code }} — {{ p.label }}
+                    </option>
+                  </select>
+                </label>
+                <label class="casg-field">
+                  <span>Service location (optional)</span>
+                  <select v-model="clientDefaultServiceLocationId" class="filters-select" :disabled="savingClientBookingDefaults">
+                    <option value="">Not set</option>
+                    <option v-for="loc in clientServiceLocationOptions" :key="loc.id" :value="String(loc.id)">
+                      {{ loc.name || loc.label || `Location ${loc.id}` }}
+                      <template v-if="loc.placeOfService || loc.place_of_service">
+                        (POS {{ loc.placeOfService || loc.place_of_service }})
+                      </template>
+                    </option>
+                  </select>
+                </label>
+              </div>
+              <div class="casg-card-actions">
+                <button
+                  type="button"
+                  class="btn btn-primary btn-sm"
+                  :disabled="savingClientBookingDefaults"
+                  @click="saveClientBookingDefaults"
+                >
+                  {{ savingClientBookingDefaults ? 'Saving…' : 'Save defaults' }}
+                </button>
+                <span v-if="clientBookingDefaultsSavedHint" class="hint">{{ clientBookingDefaultsSavedHint }}</span>
+              </div>
+            </section>
+
+            <section class="casg-card">
+              <header class="casg-card-head">
+                <div>
+                  <h4>Program / school affiliations</h4>
+                  <p class="casg-card-hint">Link this client to schools and programs for roster and care-team scoping.</p>
+                </div>
+              </header>
               <div v-if="affiliationsLoading" class="loading">Loading…</div>
               <div v-else>
                 <div v-if="affiliations.length === 0" class="hint">No affiliations yet.</div>
@@ -1864,7 +1952,7 @@
                     <tbody>
                       <tr v-for="a in affiliations" :key="a.organization_id">
                         <td>{{ a.organization_name }}</td>
-                        <td>{{ a.organization_type || '—' }}</td>
+                        <td><span class="casg-badge">{{ a.organization_type || '—' }}</span></td>
                         <td>{{ a.is_primary ? 'Yes' : 'No' }}</td>
                         <td class="right" style="white-space: nowrap;">
                           <button
@@ -1892,7 +1980,7 @@
                   </table>
                 </div>
 
-                <div style="display:flex; gap: 10px; align-items:end; margin-top: 12px; flex-wrap: wrap;">
+                <div class="casg-add-row">
                   <div style="min-width: 280px; flex: 1;">
                     <label class="filters-label">Add affiliation</label>
                     <select v-model="addAffiliationOrgId" class="filters-select">
@@ -1916,10 +2004,15 @@
                   </button>
                 </div>
               </div>
-            </div>
+            </section>
 
-            <div class="card" style="border: 1px solid var(--border); border-radius: 12px; padding: 14px;">
-              <h4 style="margin:0 0 10px;">Scoped provider assignments (per affiliation)</h4>
+            <section class="casg-card">
+              <header class="casg-card-head">
+                <div>
+                  <h4>Provider assignments</h4>
+                  <p class="casg-card-hint">Scoped to an affiliation. Primary provider informs default office suggestions.</p>
+                </div>
+              </header>
               <div style="display:flex; gap: 10px; flex-wrap: wrap; align-items:end; margin-bottom: 12px;">
                 <div style="min-width: 280px; flex: 1;">
                   <label class="filters-label">Affiliation</label>
@@ -2053,13 +2146,15 @@
                   </div>
                 </div>
               </div>
-            </div>
+            </section>
 
-            <div class="card" style="border: 1px solid var(--border); border-radius: 12px; padding: 14px;">
-              <h4 style="margin:0 0 10px;">Event assignments</h4>
-              <div class="hint" style="margin-bottom: 10px;">
-                Shows this client’s event enrollments and group assignments by timeline.
-              </div>
+            <section class="casg-card">
+              <header class="casg-card-head">
+                <div>
+                  <h4>Event assignments</h4>
+                  <p class="casg-card-hint">Event enrollments and group assignments by timeline.</p>
+                </div>
+              </header>
               <div v-if="eventAssignmentsLoading" class="loading">Loading…</div>
               <div v-else-if="eventAssignmentsError" class="error" style="text-align:left;">{{ eventAssignmentsError }}</div>
               <div v-else>
@@ -2127,7 +2222,7 @@
                   No event assignments found for this client.
                 </div>
               </div>
-            </div>
+            </section>
 
             <div v-if="switchRegistrationOpen" class="modal-overlay" style="z-index: 10001;" @click.self="closeSwitchRegistration">
               <div class="modal-card" style="max-width: 520px; padding: 18px;" @click.stop>
@@ -3500,6 +3595,24 @@ const availableAffiliations = ref([]);
 const addAffiliationOrgId = ref('');
 const addAffiliationMakePrimary = ref(false);
 const savingAffiliation = ref(false);
+
+const PLACE_OF_SERVICE_OPTIONS = Object.freeze([
+  { code: '02', label: 'Telehealth (other)' },
+  { code: '03', label: 'School' },
+  { code: '10', label: 'Telehealth provided in patient’s home' },
+  { code: '11', label: 'Office' },
+  { code: '12', label: 'Home' },
+  { code: '49', label: 'Independent Clinic' },
+  { code: '99', label: 'Other Place of Service' }
+]);
+const clientOfficeOptions = ref([]);
+const clientServiceLocationOptions = ref([]);
+const clientDefaultOfficeId = ref('');
+const clientDefaultPos = ref('');
+const clientDefaultServiceLocationId = ref('');
+const savingClientBookingDefaults = ref(false);
+const clientBookingDefaultsError = ref('');
+const clientBookingDefaultsSavedHint = ref('');
 
 const selectedAssignmentOrgId = ref('');
 const providerAssignments = ref([]);
@@ -4997,6 +5110,123 @@ const saveEditProviderAssignment = async (pa) => {
   }
 };
 
+const schoolAffiliationCount = computed(
+  () => (affiliations.value || []).filter((a) => String(a.organization_type || '').toLowerCase() === 'school').length
+);
+const programAffiliationCount = computed(
+  () => (affiliations.value || []).filter((a) => {
+    const t = String(a.organization_type || '').toLowerCase();
+    return t === 'program' || t === 'learning';
+  }).length
+);
+const canSuggestOfficeFromProvider = computed(() => {
+  const primary = (providerAssignments.value || []).find((p) => p.is_primary)
+    || (providerAssignments.value || [])[0];
+  return !!(primary?.provider_user_id || primary?.provider_id || props.client?.provider_id);
+});
+
+function syncClientBookingDefaultsFromClient() {
+  const c = props.client || {};
+  clientDefaultOfficeId.value = c.default_office_location_id ? String(c.default_office_location_id) : '';
+  clientDefaultPos.value = c.default_place_of_service ? String(c.default_place_of_service) : '';
+  clientDefaultServiceLocationId.value = c.default_service_location_id
+    ? String(c.default_service_location_id)
+    : '';
+  clientBookingDefaultsSavedHint.value = '';
+  clientBookingDefaultsError.value = '';
+}
+
+async function loadClientBookingDefaultsOptions() {
+  const agencyId = Number(selectedAgencyId.value || props.client?.agency_id || 0);
+  if (!agencyId) {
+    clientOfficeOptions.value = [];
+    clientServiceLocationOptions.value = [];
+    return;
+  }
+  try {
+    const [officesRes, locsRes] = await Promise.all([
+      api.get('/payroll/office-locations', { params: { agencyId }, skipGlobalLoading: true }),
+      api.get('/medical-billing/service-locations', { params: { agencyId }, skipGlobalLoading: true }).catch(() => null)
+    ]);
+    clientOfficeOptions.value = Array.isArray(officesRes?.data) ? officesRes.data : (officesRes?.data?.locations || []);
+    if (!Array.isArray(clientOfficeOptions.value)) clientOfficeOptions.value = [];
+    const locs = locsRes?.data?.locations || locsRes?.data?.serviceLocations || locsRes?.data || [];
+    clientServiceLocationOptions.value = Array.isArray(locs) ? locs : [];
+  } catch {
+    clientOfficeOptions.value = [];
+    clientServiceLocationOptions.value = [];
+  }
+}
+
+async function saveClientBookingDefaults() {
+  if (!props.client?.id || savingClientBookingDefaults.value) return;
+  savingClientBookingDefaults.value = true;
+  clientBookingDefaultsError.value = '';
+  clientBookingDefaultsSavedHint.value = '';
+  try {
+    await api.put(`/clients/${props.client.id}`, {
+      default_office_location_id: clientDefaultOfficeId.value ? Number(clientDefaultOfficeId.value) : null,
+      default_place_of_service: clientDefaultPos.value || null,
+      default_service_location_id: clientDefaultServiceLocationId.value
+        ? Number(clientDefaultServiceLocationId.value)
+        : null
+    });
+    clientBookingDefaultsSavedHint.value = 'Saved.';
+    emit('updated', { keepOpen: true });
+  } catch (e) {
+    clientBookingDefaultsError.value =
+      e.response?.data?.error?.message || e.message || 'Failed to save booking defaults';
+  } finally {
+    savingClientBookingDefaults.value = false;
+  }
+}
+
+async function suggestDefaultsFromPrimaryProvider() {
+  const primary = (providerAssignments.value || []).find((p) => p.is_primary)
+    || (providerAssignments.value || [])[0];
+  const providerUserId = Number(
+    primary?.provider_user_id || primary?.provider_id || props.client?.provider_id || 0
+  );
+  if (!providerUserId) {
+    clientBookingDefaultsError.value = 'Assign a primary provider first.';
+    return;
+  }
+  clientBookingDefaultsError.value = '';
+  try {
+    const res = await api.get(`/users/${providerUserId}/office-assignments`, { skipGlobalLoading: true });
+    const list = Array.isArray(res?.data?.assigned) ? res.data.assigned : [];
+    const primaryOffice = list.find((r) => r.is_primary || r.isPrimary)
+      || list.find((r) => r.is_active !== false && r.isActive !== false)
+      || list[0];
+    const officeId = Number(
+      primaryOffice?.office_location_id
+      || primaryOffice?.officeLocationId
+      || primaryOffice?.id
+      || 0
+    );
+    if (!officeId) {
+      clientBookingDefaultsError.value = 'Primary provider has no office assignment.';
+      return;
+    }
+    clientDefaultOfficeId.value = String(officeId);
+    const office = clientOfficeOptions.value.find((o) => Number(o.id) === officeId);
+    const pos = String(
+      office?.default_place_of_service || office?.defaultPlaceOfService || clientDefaultPos.value || '11'
+    ).trim();
+    if (pos) clientDefaultPos.value = pos;
+    const matchingLoc = clientServiceLocationOptions.value.find((loc) => {
+      const locPos = String(loc.placeOfService || loc.place_of_service || '');
+      const billingOffice = Number(loc.billing_office_location_id || loc.billingOfficeLocationId || 0);
+      return (billingOffice && billingOffice === officeId) || (locPos && locPos === pos);
+    });
+    if (matchingLoc?.id) clientDefaultServiceLocationId.value = String(matchingLoc.id);
+    clientBookingDefaultsSavedHint.value = 'Suggested from provider office — click Save defaults to keep.';
+  } catch (e) {
+    clientBookingDefaultsError.value =
+      e.response?.data?.error?.message || e.message || 'Could not load provider office';
+  }
+}
+
 const reloadProviderAssignments = async () => {
   if (!canEditAccount.value) return;
   const orgId = selectedAssignmentOrgId.value ? Number(selectedAssignmentOrgId.value) : null;
@@ -5299,6 +5529,8 @@ watch(() => activeTab.value, (newTab) => {
     fetchProviderOptions();
     reloadProviderAssignments();
     fetchEventAssignments();
+    loadClientBookingDefaultsOptions();
+    syncClientBookingDefaultsFromClient();
   } else if (newTab === 'phi') {
     fetchDocChecklist();
     loadPaperworkTabData();
@@ -5340,6 +5572,7 @@ watch(() => props.client, async () => {
   fetchDocChecklist();
   await fetchClientAgencyAffiliations();
   await fetchClientAffiliations();
+  syncClientBookingDefaultsFromClient();
   await fetchAccess();
   await fetchChartAgencyAffiliatedOrgs();
   await refreshOverviewProviders();
@@ -6967,6 +7200,117 @@ watch(
   .cdp-profile-row { grid-template-columns: 110px 1fr; }
   .cdp-contacts-grid { grid-template-columns: 1fr; }
   .cdp-footer { padding: 12px 16px; }
+}
+
+.casg-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0 0 14px;
+}
+.casg-title {
+  margin: 0 0 4px;
+  font-size: 1.2rem;
+  font-weight: 800;
+  color: #0f172a;
+}
+.casg-subtitle {
+  margin: 0;
+  font-size: 0.88rem;
+  color: #64748b;
+  max-width: 52rem;
+  line-height: 1.4;
+}
+.casg-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.casg-stat {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: #ecfdf5;
+  color: #0f766e;
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+.casg-stat strong { font-weight: 800; }
+.casg-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.casg-card {
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 14px;
+  padding: 14px 16px;
+}
+.casg-card-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.casg-card-head h4 {
+  margin: 0 0 4px;
+  font-size: 0.98rem;
+  font-weight: 800;
+  color: #0f172a;
+}
+.casg-card-hint {
+  margin: 0;
+  font-size: 0.82rem;
+  color: #64748b;
+  line-height: 1.4;
+}
+.casg-badge {
+  display: inline-flex;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: #f1f5f9;
+  color: #475569;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: capitalize;
+}
+.casg-badge--ok {
+  background: #ccfbf1;
+  color: #0f766e;
+}
+.casg-add-row {
+  display: flex;
+  gap: 10px;
+  align-items: end;
+  margin-top: 12px;
+  flex-wrap: wrap;
+}
+.casg-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+}
+.casg-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: #334155;
+}
+.casg-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-top: 12px;
 }
 
 .detail-section-docs {

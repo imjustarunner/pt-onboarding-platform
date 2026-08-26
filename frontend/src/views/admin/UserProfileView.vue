@@ -204,7 +204,7 @@
       <!-- Force full remount when switching tabs to avoid Vue patch edge-cases across radically different subtrees -->
       <div
         class="tab-content"
-        :class="{ 'tab-content--flush': activeTab === 'overview' || activeTab === 'account' || activeTab === 'benefits' || activeTab === 'provider_info' || activeTab === 'clients' || activeTab === 'tasks' }"
+        :class="{ 'tab-content--flush': activeTab === 'overview' || activeTab === 'account' || activeTab === 'benefits' || activeTab === 'provider_info' || activeTab === 'clients' || activeTab === 'tasks' || activeTab === 'assignments' }"
         :key="activeTab"
         data-tour="user-profile-tab-content"
       >
@@ -500,412 +500,6 @@
                         <span class="slider"></span>
                       </div>
                     </label>
-                  </div>
-                </div>
-              </div>
-              </AccountDashboardCard>
-            </template>
-
-            <template #agency-assignments>
-              <AccountDashboardCard
-                section-id="agency-assignments"
-                title="Agency Assignments"
-                subtitle="Manage tenant membership, roles, licensing, and school assignments. Changes affect access, supervision requirements, and billing."
-                :can-edit="canEditUser"
-                :editing="editingAgencyAssignments"
-                edit-label="Edit Assignments"
-                save-label="Done"
-                @edit="editingAgencyAssignments = true"
-                @save="editingAgencyAssignments = false"
-                @cancel="editingAgencyAssignments = false"
-              >
-              <div class="agency-assignments-section aa-hub">
-                <div class="agency-assignments">
-                  <div v-if="affiliatedAgencies.length === 0" class="no-agencies">
-                    <p>No agencies assigned</p>
-                  </div>
-                  <div v-else class="agencies-list aa-agency-cards">
-                    <div v-for="agency in affiliatedAgencies" :key="agency.id" class="agency-item aa-agency-card">
-                      <div class="aa-agency-card__head">
-                        <div class="aa-agency-card__title-row">
-                          <span class="agency-name">{{ agency.name }}</span>
-                          <span class="aa-badge aa-badge--active">Active</span>
-                          <span class="aa-badge aa-badge--schools">
-                            Schools ({{ (affiliatedOrgsByAgencyId[String(agency.id)] || []).length }})
-                          </span>
-                          <span
-                            v-if="Number(agency.is_default)"
-                            class="aa-badge aa-badge--default"
-                          >Default</span>
-                        </div>
-                        <div class="aa-agency-card__actions" v-if="canEditUser && editingAgencyAssignments">
-                          <button
-                            v-if="!Number(agency.is_default)"
-                            type="button"
-                            class="btn btn-secondary btn-sm"
-                            :disabled="settingDefaultAgencyId === agency.id"
-                            @click="setDefaultAgency(agency.id)"
-                          >
-                            {{ settingDefaultAgencyId === agency.id ? '…' : 'Set default' }}
-                          </button>
-                          <button
-                            type="button"
-                            class="btn btn-danger btn-sm"
-                            @click="removeAgency(agency.id)"
-                          >
-                            Remove
-                          </button>
-                        </div>
-                      </div>
-
-                      <div class="aa-section">
-                        <h4 class="aa-section__title"><span>1</span> Access &amp; Identity</h4>
-                        <div class="aa-section__grid">
-                          <label class="aa-field">
-                            <span>Login Email</span>
-                            <input
-                              class="agency-select"
-                              :value="aliasForAgency(agency.id)"
-                              :disabled="!canEditUser || !editingAgencyAssignments || savingAgencyAliasId === agency.id"
-                              placeholder="alias@domain.com"
-                              @change="saveAliasForAgency(agency.id, $event.target.value)"
-                            />
-                          </label>
-                          <label class="aa-field">
-                            <span>Position / Title</span>
-                            <input
-                              class="agency-select"
-                              :value="agency.agency_position || ''"
-                              :disabled="!canEditUser || !editingAgencyAssignments || savingAgencyMembershipId === agency.id"
-                              placeholder="Title at this agency"
-                              @change="saveAgencyMembership(agency.id, { agencyPosition: $event.target.value })"
-                            />
-                          </label>
-                          <label class="aa-field">
-                            <span>Role</span>
-                            <select
-                              class="agency-select"
-                              :value="agencyRoleFor(agency)"
-                              :disabled="!canEditUser || !editingAgencyAssignments || savingAgencyMembershipId === agency.id"
-                              @change="saveAgencyMembership(agency.id, { agencyRole: $event.target.value })"
-                            >
-                              <option
-                                v-for="opt in AGENCY_POSITION_ROLE_OPTIONS"
-                                :key="opt.value || 'inherit'"
-                                :value="opt.value"
-                              >
-                                {{ opt.label }}
-                              </option>
-                            </select>
-                          </label>
-                          <label class="aa-field">
-                            <span>Disclosure</span>
-                            <select
-                              class="agency-select"
-                              :value="disclosureIncludeFromMembership(agency)"
-                              :disabled="!canEditUser || savingAgencyMembershipId === agency.id"
-                              @change="saveAgencyMembership(agency.id, { includeOnDisclosure: $event.target.value })"
-                            >
-                              <option
-                                v-for="opt in DISCLOSURE_INCLUDE_OPTIONS"
-                                :key="opt.value"
-                                :value="opt.value"
-                              >
-                                {{ opt.label }}
-                              </option>
-                            </select>
-                          </label>
-                        </div>
-                      </div>
-
-                      <div v-if="canEditUser && canShowH0032Mode" class="aa-section">
-                        <h4 class="aa-section__title"><span>2</span> Clinical &amp; Billing Setup</h4>
-                        <div class="aa-section__grid">
-                          <label class="aa-field">
-                            <span>H0032 Billing Mode</span>
-                            <select
-                              :value="h0032ModeForAgency(agency)"
-                              class="agency-select"
-                              :disabled="!editingAgencyAssignments || updatingH0032AgencyId === agency.id"
-                              @change="setH0032Mode(agency.id, $event.target.value)"
-                            >
-                              <option value="cat1_hour">Cat1 Hour (manual minutes)</option>
-                              <option value="cat2_flat">Cat2 Flat (auto 30 min)</option>
-                            </select>
-                          </label>
-                          <p class="aa-hint">Billing minutes — not Pay/HCBS.</p>
-                        </div>
-                      </div>
-
-                      <div
-                        v-if="canShowPrelicensedSupervision"
-                        class="aa-section"
-                      >
-                        <h4 class="aa-section__title"><span>3</span> Classification</h4>
-                        <div
-                          v-if="prelicensedClassificationFor(agency.id)"
-                          class="aa-classification-row"
-                        >
-                          <div class="aa-class-pill">
-                            <span class="muted">License Status</span>
-                            <span
-                              class="license-status-badge"
-                              :class="{
-                                'license-status-badge--licensed': prelicensedClassificationFor(agency.id).licenseStatus === 'licensed',
-                                'license-status-badge--prelicensed': prelicensedClassificationFor(agency.id).licenseStatus === 'prelicensed',
-                                'license-status-badge--unlicensed': prelicensedClassificationFor(agency.id).licenseStatus === 'unlicensed',
-                                'license-status-badge--unknown': prelicensedClassificationFor(agency.id).licenseStatus === 'unknown',
-                              }"
-                            >
-                              {{ licenseStatusBadgeLabel(prelicensedClassificationFor(agency.id)) }}
-                            </span>
-                          </div>
-                          <div class="aa-class-pill">
-                            <span class="muted">Pay Category</span>
-                            <span class="category-axis-badge">
-                              {{
-                                prelicensedClassificationFor(agency.id).payCategory
-                                  ? `Cat ${prelicensedClassificationFor(agency.id).payCategory}`
-                                  : 'Unknown'
-                              }}
-                            </span>
-                            <span class="muted aa-class-detail">{{ prelicensedClassificationFor(agency.id).payCategoryLabel }}</span>
-                          </div>
-                          <div class="aa-class-pill">
-                            <span class="muted">HCBS Category</span>
-                            <span class="category-axis-badge category-axis-badge--hcbs">
-                              {{
-                                prelicensedClassificationFor(agency.id).hcbsCategory
-                                  ? `Cat ${prelicensedClassificationFor(agency.id).hcbsCategory}`
-                                  : 'Unknown'
-                              }}
-                            </span>
-                            <span class="muted aa-class-detail">{{ prelicensedClassificationFor(agency.id).hcbsCategoryLabel }}</span>
-                          </div>
-                        </div>
-                        <div class="agency-item-row" style="flex-wrap: wrap; margin-top: 8px;">
-                          <span class="muted" style="font-size: 12px; font-weight: 700;">Prelicensed</span>
-                          <label class="muted" style="display:flex; align-items:center; gap: 6px;">
-                            <input
-                              type="checkbox"
-                              :checked="isPrelicensedForAgency(agency)"
-                              :disabled="!canEditUser || updatingPrelicensedAgencyId === agency.id || !isEditingPrelicensedForAgency(agency)"
-                              @change="savePrelicensedSettings(agency, { isPrelicensed: $event.target.checked })"
-                            />
-                            <span>{{ isPrelicensedForAgency(agency) ? 'On' : 'Off' }}</span>
-                          </label>
-                          <button
-                            v-if="canEditUser"
-                            type="button"
-                            class="btn btn-secondary btn-sm"
-                            :disabled="updatingPrelicensedAgencyId === agency.id"
-                            @click="togglePrelicensedEdit(agency.id)"
-                          >
-                            {{ isEditingPrelicensedForAgency(agency) ? 'Done' : 'Edit' }}
-                          </button>
-                          <template v-if="prelicensedClassificationFor(agency.id)">
-                            <span
-                              v-if="prelicensedClassificationFor(agency.id).conflictReason"
-                              class="prelicensed-conflict-badge"
-                              :title="prelicensedClassificationFor(agency.id).conflictReason"
-                            >
-                              Classification conflict
-                            </span>
-                          </template>
-                          <div
-                            v-if="prelicensedClassificationFor(agency.id)?.conflictReason"
-                            class="prelicensed-conflict-panel"
-                          >
-                            <div class="prelicensed-conflict-text">
-                              {{ prelicensedClassificationFor(agency.id).conflictReason }}
-                            </div>
-                            <div style="display:flex; gap:8px; margin-top:6px; flex-wrap:wrap;">
-                              <button
-                                v-if="prelicensedClassificationFor(agency.id).classifiedAs === 'prelicensed' && !isPrelicensedForAgency(agency) && canEditUser"
-                                type="button"
-                                class="btn btn-warning btn-sm"
-                                :disabled="updatingPrelicensedAgencyId === agency.id"
-                                @click="applyPrelicensedSuggestion(agency, true)"
-                              >
-                                Mark as Prelicensed
-                              </button>
-                              <button
-                                v-else-if="(prelicensedClassificationFor(agency.id).classifiedAs === 'paid' || prelicensedClassificationFor(agency.id).classifiedAs === 'intern') && isPrelicensedForAgency(agency) && canEditUser"
-                                type="button"
-                                class="btn btn-warning btn-sm"
-                                :disabled="updatingPrelicensedAgencyId === agency.id"
-                                @click="applyPrelicensedSuggestion(agency, false)"
-                              >
-                                Remove Prelicensed
-                              </button>
-                            </div>
-                          </div>
-                        </div>
-                        <div class="category-axes-note muted">
-                          Current 50/100 supervision hours apply to pay-Cat-2 prelicensed only (not interns).
-                          HCBS category will feed future State Supervision Oversight Requirements (not built yet).
-                          H0032 Cat1/Cat2 above is billing-minutes mode, not Pay/HCBS.
-                        </div>
-                      </div>
-
-                      <div class="aa-section">
-                        <h4 class="aa-section__title"><span>4</span> School Assignments</h4>
-                        <div class="aa-dual-list">
-                          <div class="aa-dual-col">
-                            <div class="aa-dual-col__head">
-                              Available Schools
-                              <span class="muted">({{ availableSchoolsForAgency(agency.id).length }})</span>
-                            </div>
-                            <input
-                              v-model="schoolSearchByAgency[String(agency.id)]"
-                              type="search"
-                              class="agency-select aa-school-search"
-                              placeholder="Search schools…"
-                              :disabled="!editingAgencyAssignments"
-                            />
-                            <div class="aa-dual-listbox">
-                              <label
-                                v-for="org in filteredAvailableSchoolsForAgency(agency.id)"
-                                :key="`avail-${org.id}`"
-                                class="aa-dual-option"
-                              >
-                                <input
-                                  type="checkbox"
-                                  :value="org.id"
-                                  :disabled="!editingAgencyAssignments"
-                                  v-model="selectedAvailableSchoolsByAgency[String(agency.id)]"
-                                />
-                                <span>{{ org.name }}</span>
-                              </label>
-                              <p v-if="!filteredAvailableSchoolsForAgency(agency.id).length" class="muted aa-empty">
-                                No available schools
-                              </p>
-                            </div>
-                          </div>
-                          <div class="aa-dual-controls">
-                            <button
-                              type="button"
-                              class="btn btn-primary btn-sm"
-                              :disabled="!editingAgencyAssignments || !(selectedAvailableSchoolsByAgency[String(agency.id)] || []).length || assigningAgency"
-                              @click="assignSelectedSchools(agency.id)"
-                            >
-                              Assign Selected →
-                            </button>
-                          </div>
-                          <div class="aa-dual-col">
-                            <div class="aa-dual-col__head">
-                              Assigned Schools
-                              <span class="muted">({{ (affiliatedOrgsByAgencyId[String(agency.id)] || []).length }})</span>
-                            </div>
-                            <div class="aa-dual-listbox">
-                              <div
-                                v-for="org in (affiliatedOrgsByAgencyId[String(agency.id)] || [])"
-                                :key="`assigned-${org.id}`"
-                                class="aa-assigned-row"
-                              >
-                                <div>
-                                  <strong>{{ org.name }}</strong>
-                                  <span v-if="org.organization_type" class="muted"> ({{ org.organization_type }})</span>
-                                </div>
-                                <div class="aa-assigned-actions">
-                                  <button
-                                    v-if="isAffiliationOrg(org)"
-                                    class="btn btn-secondary btn-sm"
-                                    type="button"
-                                    @click="openSchoolSchedulingFromAgencyRow(org)"
-                                  >
-                                    Days &amp; slots
-                                  </button>
-                                  <button
-                                    v-if="canEditUser && editingAgencyAssignments"
-                                    class="btn btn-danger btn-sm"
-                                    type="button"
-                                    @click="removeAgency(org.id)"
-                                  >
-                                    ×
-                                  </button>
-                                </div>
-                              </div>
-                              <p v-if="!(affiliatedOrgsByAgencyId[String(agency.id)] || []).length" class="muted aa-empty">
-                                No schools assigned
-                              </p>
-                            </div>
-                            <p class="aa-assigned-footer muted">
-                              {{ (affiliatedOrgsByAgencyId[String(agency.id)] || []).length }} school{{ (affiliatedOrgsByAgencyId[String(agency.id)] || []).length === 1 ? '' : 's' }} assigned
-                            </p>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div
-                    v-if="(unaffiliatedOrgs || []).length > 0"
-                    class="unaffiliated-orgs-row"
-                  >
-                    <div class="aa-section">
-                      <h4 class="aa-section__title">Other affiliations</h4>
-                      <div v-for="org in (unaffiliatedOrgs || [])" :key="org.id" class="aa-assigned-row">
-                        <div>
-                          <strong>{{ org.name }}</strong>
-                          <span v-if="org.organization_type" class="muted"> ({{ org.organization_type }})</span>
-                        </div>
-                        <div class="aa-assigned-actions">
-                          <button
-                            v-if="isAffiliationOrg(org)"
-                            class="btn btn-secondary btn-sm"
-                            type="button"
-                            @click="openSchoolSchedulingFromAgencyRow(org)"
-                          >
-                            Days &amp; slots
-                          </button>
-                          <button
-                            v-if="canEditUser && editingAgencyAssignments"
-                            class="btn btn-danger btn-sm"
-                            type="button"
-                            @click="removeAgency(org.id)"
-                          >
-                            Remove
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                  
-                  <div v-if="canEditUser" class="add-agency-section aa-add-tenant">
-                    <h4 class="aa-section__title">Add agency</h4>
-                    <div class="aa-add-tenant__row">
-                      <select v-model="selectedTenantAgencyId" class="agency-select" style="min-width: 260px;">
-                        <option value="">Select an organization…</option>
-                        <option
-                          v-for="agency in availableTenantAgenciesToAdd"
-                          :key="agency.id"
-                          :value="String(agency.id)"
-                        >
-                          {{ agency.name }}
-                        </option>
-                      </select>
-                      <select v-model="defaultAgencyIdDraft" class="agency-select" style="min-width: 200px;">
-                        <option value="">Default agency (optional)</option>
-                        <option
-                          v-for="agency in agenciesEligibleAsDefault"
-                          :key="`def-${agency.id}`"
-                          :value="String(agency.id)"
-                        >
-                          Default: {{ agency.name }}
-                        </option>
-                      </select>
-                      <button
-                        @click="addSelectedTenantAgency"
-                        class="btn btn-primary btn-sm"
-                        :disabled="!selectedTenantAgencyId || assigningAgency"
-                      >
-                        {{ assigningAgency ? 'Assigning...' : 'Assign' }}
-                      </button>
-                    </div>
-                  </div>
-                  <div v-else class="muted" style="font-size: 12px;">
-                    Only admins can change agency assignments.
                   </div>
                 </div>
               </div>
@@ -1391,118 +985,6 @@
                     </div>
                   </li>
                 </ul>
-              </AccountDashboardCard>
-            </template>
-
-            <template #building-offices>
-              <AccountDashboardCard
-                v-if="canManageAssignments && showAdditionalAccountSections"
-                section-id="building-offices"
-                icon="building"
-                title="Assigned Building Offices"
-                subtitle="Office links for scheduling and school mileage mapping."
-                :can-edit="canEditUser"
-                :editing="editingOfficeAssignments"
-                :saving="savingOfficeAssignments"
-                edit-label="Edit Assignments"
-                save-label="Save Assignments"
-                @edit="startOfficeAssignmentsEdit"
-                @save="saveOfficeAssignmentsAndClose"
-                @cancel="cancelOfficeAssignmentsEdit"
-              >
-                <div v-if="officeAssignmentsLoading" class="loading">Loading office assignments…</div>
-                <div v-else-if="officeAssignmentsError" class="error">{{ officeAssignmentsError }}</div>
-                <template v-else>
-                  <div v-if="!officeAssignmentsDraft.length" class="acct-empty-panel acct-empty-panel--compact">
-                    <p class="acct-empty-panel-title">No building office assignments yet.</p>
-                    <p class="acct-empty-panel-sub">Add an office to map scheduling and school mileage.</p>
-                    <button
-                      v-if="canEditUser && !editingOfficeAssignments"
-                      class="btn btn-primary btn-sm"
-                      type="button"
-                      style="margin-top: 12px;"
-                      @click="startOfficeAssignmentsEdit(); addOfficeAssignmentRow()"
-                    >
-                      + Add Office
-                    </button>
-                  </div>
-                  <div v-else class="table-wrap acct-office-table-wrap">
-                    <table class="table acct-office-table">
-                      <thead>
-                        <tr>
-                          <th>Office</th>
-                          <th>Address</th>
-                          <th>Primary</th>
-                          <th>Active</th>
-                          <th v-if="canEditUser && editingOfficeAssignments">Actions</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        <tr v-for="(row, idx) in officeAssignmentsDraft" :key="`off-assign-${idx}`">
-                          <td>
-                            <div v-if="editingOfficeAssignments && canEditUser" class="acct-office-edit-cell">
-                              <select
-                                v-model.number="row.officeLocationId"
-                                :disabled="savingOfficeAssignments"
-                                @change="syncOfficeRowDetails(row)"
-                              >
-                                <option :value="0" disabled>Select office…</option>
-                                <option
-                                  v-for="opt in officeOptionsForRow(idx)"
-                                  :key="`office-opt-${idx}-${opt.id}`"
-                                  :value="Number(opt.id)"
-                                >
-                                  {{ opt.name }}
-                                </option>
-                              </select>
-                            </div>
-                            <div v-else class="acct-office-name">
-                              <span class="acct-office-name-ico" aria-hidden="true">
-                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 21h18M5 21V7l7-4 7 4v14M9 21v-6h6v6" stroke-linecap="round" stroke-linejoin="round"/></svg>
-                              </span>
-                              <span>{{ officeNameForRow(row) || '—' }}</span>
-                            </div>
-                          </td>
-                          <td><span class="muted">{{ officeAddressForRow(row) || '—' }}</span></td>
-                          <td>
-                            <label class="acct-office-primary">
-                              <input
-                                type="radio"
-                                name="primary-office-assignment"
-                                :checked="row.isPrimary"
-                                :disabled="!canEditUser || !editingOfficeAssignments || savingOfficeAssignments || !row.isActive"
-                                @change="setPrimaryOfficeAssignment(idx)"
-                              />
-                            </label>
-                          </td>
-                          <td>
-                            <label class="acct-toggle" :class="{ 'acct-toggle--on': row.isActive, 'acct-toggle--disabled': !canEditUser || !editingOfficeAssignments || savingOfficeAssignments }">
-                              <input
-                                type="checkbox"
-                                v-model="row.isActive"
-                                :disabled="!canEditUser || !editingOfficeAssignments || savingOfficeAssignments"
-                                @change="normalizeOfficePrimary()"
-                              />
-                              <span class="acct-toggle-track" aria-hidden="true"><span class="acct-toggle-thumb" /></span>
-                            </label>
-                          </td>
-                          <td v-if="canEditUser && editingOfficeAssignments">
-                            <button class="btn btn-sm acct-office-remove" type="button" :disabled="savingOfficeAssignments" @click="removeOfficeAssignmentRow(idx)">
-                              <svg class="acct-btn-mini-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6" stroke-linecap="round" stroke-linejoin="round"/></svg>
-                              Remove
-                            </button>
-                          </td>
-                        </tr>
-                      </tbody>
-                    </table>
-                  </div>
-                  <div v-if="canEditUser && editingOfficeAssignments" class="acct-office-footer">
-                    <button class="btn btn-primary btn-sm" type="button" :disabled="savingOfficeAssignments" @click="addOfficeAssignmentRow">+ Add Office</button>
-                    <button class="btn btn-secondary btn-sm" type="button" :disabled="savingOfficeAssignments" @click="saveOfficeAssignmentsAndClose">
-                      {{ savingOfficeAssignments ? 'Saving…' : 'Save Assignments' }}
-                    </button>
-                  </div>
-                </template>
               </AccountDashboardCard>
             </template>
 
@@ -2015,325 +1497,782 @@
           <CredentialingTab :userId="userId" />
         </div>
 
-        <div v-if="activeTab === 'affiliations'" class="tab-panel">
-          <h2>Affiliations</h2>
-          <div v-if="canEditUser && affiliatedAgencies.length" class="card affiliation-disclosure-card">
-            <h3 class="affiliation-manage-title">Disclosure listing</h3>
-            <p class="hint affiliation-manage-hint">
-              Choose whether this person appears on each tenant’s disclosure statement. “Never include” keeps them off paper and virtual disclosures.
-            </p>
-            <div
-              v-for="agency in affiliatedAgencies"
-              :key="`disclosure-${agency.id}`"
-              class="agency-item-row"
-              style="margin-top: 8px; flex-wrap: wrap; gap: 8px;"
-            >
-              <span class="agency-name" style="min-width: 140px;">{{ agency.name }}</span>
-              <select
-                class="agency-select"
-                style="min-width: 220px;"
-                :value="disclosureIncludeFromMembership(agency)"
-                :disabled="savingAgencyMembershipId === agency.id"
-                @change="saveAgencyMembership(agency.id, { includeOnDisclosure: $event.target.value })"
-              >
-                <option
-                  v-for="opt in DISCLOSURE_INCLUDE_OPTIONS"
-                  :key="opt.value"
-                  :value="opt.value"
-                >
-                  {{ opt.label }}
-                </option>
-              </select>
+        <div v-if="activeTab === 'assignments' && !isViewingGuardian && canViewSchoolAffiliation" class="tab-panel tab-panel--flush">
+          <div class="asg-head">
+            <div>
+              <h2>Assignments</h2>
+              <p class="asg-subtitle">Agencies, supervisors, offices, and school/program links for this provider.</p>
+            </div>
+            <div class="asg-stats">
+              <span class="asg-stat"><strong>{{ assignmentSummaryStats.agencyCount }}</strong> Agenc{{ assignmentSummaryStats.agencyCount === 1 ? 'y' : 'ies' }}</span>
+              <span class="asg-stat"><strong>{{ assignmentSummaryStats.supervisorCount }}</strong> Supervisor{{ assignmentSummaryStats.supervisorCount === 1 ? '' : 's' }}</span>
+              <span class="asg-stat"><strong>{{ assignmentSummaryStats.officeCount }}</strong> Office{{ assignmentSummaryStats.officeCount === 1 ? '' : 's' }}</span>
+              <span class="asg-stat"><strong>{{ assignmentSummaryStats.schoolCount }}</strong> School{{ assignmentSummaryStats.schoolCount === 1 ? '' : 's' }}</span>
+              <span class="asg-stat"><strong>{{ assignmentSummaryStats.programCount }}</strong> Program{{ assignmentSummaryStats.programCount === 1 ? '' : 's' }}</span>
             </div>
           </div>
-          <div class="affiliation-subtabs">
-            <button
-              v-for="sec in AFFILIATION_SECTION_IDS"
-              :key="sec"
-              type="button"
-              :class="['affiliation-subtab', { active: activeAffiliationSection === sec }]"
-              @click="selectAffiliationSection(sec)"
-            >
-              {{ AFFILIATION_TAB_CONFIG[sec].singleLabel }}
-            </button>
-          </div>
-          <p class="hint" style="margin-top: 8px;">
-            Configure provider availability for {{ activeAffiliationSingleLabel.toLowerCase() }} affiliations: global Open/Closed, per-affiliation override, and day/hour slots.
-          </p>
 
-          <div v-if="schoolAffiliationsLoading" class="loading">Loading affiliations…</div>
-          <div v-else-if="schoolAffiliationsError" class="error">{{ schoolAffiliationsError }}</div>
-          <div v-else class="school-affiliation-panel">
-            <div class="affiliation-manage card">
-              <div class="affiliation-manage-head">
-                <div>
-                  <h3 class="affiliation-manage-title">Assigned {{ activeAffiliationPluralLabel.toLowerCase() }}</h3>
-                  <p class="hint affiliation-manage-hint">
-                    Link or unlink {{ activeAffiliationSingleLabel.toLowerCase() }} organizations for this provider.
-                  </p>
-                </div>
-              </div>
-
-              <div v-if="affiliationsForActiveTab.length" class="affiliation-manage-list">
-                <div
-                  v-for="o in affiliationsForActiveTab"
-                  :key="o.id"
-                  class="affiliation-manage-row"
-                  :class="{ active: String(o.id) === selectedSchoolAffiliationId }"
-                >
-                  <button
-                    type="button"
-                    class="affiliation-manage-name"
-                    @click="selectAffiliationForEditing(o.id)"
-                  >
-                    {{ o.name }}
-                    <span v-if="o.organization_type" class="muted">({{ o.organization_type }})</span>
-                  </button>
-                  <div class="affiliation-manage-actions">
-                    <button
-                      type="button"
-                      class="btn btn-secondary btn-sm"
-                      @click="selectAffiliationForEditing(o.id)"
-                    >
-                      Configure
-                    </button>
-                    <button
-                      v-if="canEditUser"
-                      type="button"
-                      class="btn btn-danger btn-sm"
-                      :disabled="assigningAgency"
-                      @click="removeAffiliationFromTab(o)"
-                    >
-                      Remove
-                    </button>
-                  </div>
-                </div>
-              </div>
-              <p v-else class="hint affiliation-manage-empty">
-                No {{ activeAffiliationPluralLabel.toLowerCase() }} assigned yet.
-              </p>
-
-              <div v-if="canEditUser" class="affiliation-manage-add">
-                <select v-model="affiliationTabAddOrgId" class="agency-select" :disabled="assigningAgency">
-                  <option value="">Add {{ activeAffiliationSingleLabel.toLowerCase() }}…</option>
-                  <option
-                    v-for="org in availableAffiliationOrgsToAdd"
-                    :key="org.id"
-                    :value="String(org.id)"
-                  >
-                    {{ org.name }}
-                    <template v-if="org.organization_type"> ({{ org.organization_type }})</template>
-                  </option>
-                </select>
-                <button
-                  type="button"
-                  class="btn btn-primary btn-sm"
-                  :disabled="!affiliationTabAddOrgId || assigningAgency"
-                  @click="addAffiliationFromTab"
-                >
-                  {{ assigningAgency ? 'Adding…' : 'Add affiliation' }}
-                </button>
-              </div>
-              <p v-else class="hint affiliation-manage-empty">
-                Only admins can change affiliations.
-              </p>
-            </div>
-
-            <div v-if="affiliationsForActiveTab.length === 0" class="empty-state">
-              <p>Add a {{ activeAffiliationSingleLabel.toLowerCase() }} above to configure availability and slots.</p>
-            </div>
-            <template v-else>
-            <div class="form-grid" style="grid-template-columns: minmax(240px, 1fr) minmax(240px, 1fr); gap: 12px;">
-              <div class="form-group">
-                <label>{{ activeAffiliationSingleLabel }}</label>
-                <select v-model="selectedSchoolAffiliationId" :disabled="savingSchoolAffiliation">
-                  <option value="">Select…</option>
-                  <option v-for="o in affiliationsForActiveTab" :key="o.id" :value="String(o.id)">
-                    {{ o.name }} <span v-if="o.organization_type">({{ o.organization_type }})</span>
-                  </option>
-                </select>
-                <div style="margin-top: 8px; display:flex; gap: 8px; flex-wrap: wrap; align-items: center;">
-                  <a
-                    class="btn btn-secondary btn-sm"
-                    :class="{ disabled: !providerSchoolPortalHref }"
-                    :href="providerSchoolPortalHref || undefined"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    :aria-disabled="!providerSchoolPortalHref"
-                    :title="providerSchoolPortalHref ? 'Open this provider inside the school portal (new tab)' : 'This affiliation has no slug (cannot deep-link)'"
-                    @click="(e) => { if (!providerSchoolPortalHref) e.preventDefault(); }"
-                  >
-                    Open in School Portal
-                  </a>
-                  <span class="hint" style="margin: 0;" v-if="selectedSchoolAffiliationSlug">
-                    Jumps to the provider’s school profile for faster editing.
-                  </span>
-                </div>
-              </div>
-              <div class="form-group">
-                <label class="toggle-label">
-                  <span>Global accepting new clients</span>
-                  <div class="toggle-switch">
-                    <input
-                      type="checkbox"
-                      v-model="providerAcceptingNewClients"
-                      :disabled="!canEditUser || savingSchoolAffiliation"
-                    />
-                    <span class="slider"></span>
-                  </div>
-                </label>
-                <small class="form-help">
-                  If turned off, this provider is closed everywhere unless a school override is enabled.
-                </small>
-              </div>
-            </div>
-
-            <!-- Provider School Info blurb: one per provider, shared across all schools -->
-            <div v-if="affiliationsForActiveTab.length > 0" class="card" style="margin-top: 12px;">
-              <div class="card-header" style="display:flex; justify-content:space-between; align-items:center; cursor: pointer;" @click="providerSchoolBlurbExpanded = !providerSchoolBlurbExpanded">
-                <div style="display:flex; align-items:center; gap: 8px;">
-                  <span class="collapse-icon" :class="{ expanded: providerSchoolBlurbExpanded }">▸</span>
-                  <h3 style="margin:0;">Provider School Info blurb</h3>
-                </div>
-                <div style="display:flex; align-items:center; gap: 8px;" @click.stop>
-                  <button
-                    v-if="providerSchoolBlurbExpanded"
-                    class="btn btn-primary btn-sm"
-                    type="button"
-                    @click="saveProviderSchoolBlurb"
-                    :disabled="!canEditUser || providerSchoolBlurbSaving"
-                  >
-                    {{ providerSchoolBlurbSaving ? 'Saving…' : 'Save' }}
-                  </button>
-                </div>
-              </div>
-              <div v-show="providerSchoolBlurbExpanded" class="card-body">
-                <div v-if="providerSchoolBlurbError" class="error">{{ providerSchoolBlurbError }}</div>
-                <div class="form-group form-group-full" style="margin-top: 10px;">
-                  <label>Provider School Info blurb</label>
-                  <textarea
-                    v-model="providerSchoolBlurb"
-                    rows="4"
-                    placeholder="Short blurb shown in the school portal provider profile."
-                    :disabled="!canEditUser || providerSchoolBlurbSaving"
-                    style="width: 100%;"
-                  />
-                  <small class="form-help">
-                    Shown in the school portal under “Provider info” for all schools. Keep this non-PHI.
-                  </small>
-                </div>
-              </div>
-            </div>
-
-            <div v-if="selectedSchoolAffiliationId" style="margin-top: 14px;">
-              <div class="form-group form-group-full">
-                <label class="toggle-label">
-                  <span>Open for this {{ activeAffiliationSingleLabel.toLowerCase() }} even if globally closed</span>
-                  <div class="toggle-switch">
-                    <input
-                      type="checkbox"
-                      v-model="schoolOverrideOpen"
-                      :disabled="!canEditUser || savingSchoolAffiliation"
-                    />
-                    <span class="slider"></span>
-                  </div>
-                </label>
-                <small class="form-help">
-                  When enabled, assignments can proceed for this {{ activeAffiliationSingleLabel.toLowerCase() }} even if the provider is globally closed.
-                </small>
-              </div>
-
-              <div class="card" style="margin-top: 12px;">
-                <div class="card-header" style="display:flex; justify-content:space-between; align-items:center;">
-                  <h3 style="margin:0;">Affiliation schedule (reference)</h3>
-                </div>
-                <div v-if="schoolAssignmentsLoading" class="loading">Loading bell schedule…</div>
-                <div v-else class="form-grid" style="grid-template-columns: minmax(160px, 1fr) minmax(160px, 1fr); gap: 12px; margin-top: 10px;">
-                  <div class="form-group">
-                    <label>Start</label>
-                    <input :value="selectedSchoolBellScheduleStartDisplay" type="text" disabled />
-                  </div>
-                  <div class="form-group">
-                    <label>End</label>
-                    <input :value="selectedSchoolBellScheduleEndDisplay" type="text" disabled />
-                  </div>
-                  <div class="form-group form-group-full">
-                    <label>Notes</label>
-                    <textarea :value="selectedSchoolBellScheduleNotesDisplay" rows="3" disabled style="width: 100%;" />
-                    <small class="form-help">Configured in the organization's settings.</small>
-                  </div>
-                </div>
-              </div>
-
-
-              <div class="card" style="margin-top: 12px;">
-                <div class="card-header" style="display:flex; justify-content:space-between; align-items:center;">
-                  <h3 style="margin:0;">Days & slots</h3>
-                  <div style="display:flex; gap: 8px; align-items:center; flex-wrap: wrap;">
-                    <button
-                      v-if="canRepairProviderSlots"
-                      class="btn btn-secondary btn-sm"
-                      type="button"
-                      @click="repairProviderSlots"
-                      :disabled="repairingProviderSlots"
-                      title="Recalculate and repair stored slot availability for this school"
-                    >
-                      {{ repairingProviderSlots ? 'Repairing…' : 'Repair slots' }}
-                    </button>
-                    <button class="btn btn-primary btn-sm" @click="saveSchoolAffiliation" :disabled="!canEditUser || savingSchoolAffiliation">
-                      {{ savingSchoolAffiliation ? 'Saving…' : 'Save' }}
-                    </button>
-                  </div>
-                </div>
-
-                <div v-if="schoolAssignmentsLoading" class="loading">Loading schedule…</div>
-                <div v-else-if="schoolAssignmentsError" class="error">{{ schoolAssignmentsError }}</div>
-                <div v-else class="table-wrap">
-                  <table class="table">
-                    <thead>
-                      <tr>
-                        <th>Day</th>
-                        <th>Active</th>
-                        <th>Start</th>
-                        <th>End</th>
-                        <th>Total slots</th>
-                        <th>Available</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      <tr v-for="d in schoolDayEdits" :key="d.dayOfWeek">
-                        <td>{{ d.dayOfWeek }}</td>
-                        <td><input type="checkbox" v-model="d.isActive" :disabled="!canEditUser || savingSchoolAffiliation" /></td>
-                        <td><input type="time" v-model="d.startTime" :disabled="!canEditUser || savingSchoolAffiliation" /></td>
-                        <td><input type="time" v-model="d.endTime" :disabled="!canEditUser || savingSchoolAffiliation" /></td>
-                        <td>
-                          <input
-                            type="number"
-                            min="0"
-                            v-model.number="d.slotsTotal"
-                            :disabled="!canEditUser || savingSchoolAffiliation"
-                            @input="d.slotsAuto = false"
-                            style="max-width: 110px;"
-                          />
-                          <button
-                            type="button"
-                            class="btn btn-secondary btn-sm"
-                            style="margin-left: 6px;"
-                            :disabled="!canEditUser || savingSchoolAffiliation"
-                            @click="applyAutoSlots(d)"
-                            title="Auto (1 per hour)"
+          <div id="agency-assignments" class="asg-section-block">
+<AccountDashboardCard
+                            section-id="agency-assignments"
+                            title="Agency Assignments"
+                            subtitle="Manage tenant membership, roles, licensing, and classification. Changes affect access, supervision requirements, and billing."
+                            :can-edit="canEditUser"
+                            :editing="editingAgencyAssignments"
+                            edit-label="Edit Assignments"
+                            save-label="Done"
+                            @edit="editingAgencyAssignments = true"
+                            @save="editingAgencyAssignments = false"
+                            @cancel="editingAgencyAssignments = false"
                           >
-                            Auto
-                          </button>
-                        </td>
-                        <td>{{ d.slotsAvailableDisplay }}</td>
-                      </tr>
-                    </tbody>
-                  </table>
-                </div>
+                          <div class="agency-assignments-section aa-hub">
+                            <div class="agency-assignments">
+                              <div v-if="affiliatedAgencies.length === 0" class="no-agencies">
+                                <p>No agencies assigned</p>
+                              </div>
+                              <div v-else class="agencies-list aa-agency-cards">
+                                <div v-for="agency in affiliatedAgencies" :key="agency.id" class="agency-item aa-agency-card">
+                                  <div class="aa-agency-card__head">
+                                    <div class="aa-agency-card__title-row">
+                                      <span class="agency-name">{{ agency.name }}</span>
+                                      <span class="aa-badge aa-badge--active">Active</span>
+                                      <span class="aa-badge aa-badge--schools">
+                                        Schools ({{ (affiliatedOrgsByAgencyId[String(agency.id)] || []).length }})
+                                      </span>
+                                      <span
+                                        v-if="Number(agency.is_default)"
+                                        class="aa-badge aa-badge--default"
+                                      >Default</span>
+                                    </div>
+                                    <div class="aa-agency-card__actions" v-if="canEditUser && editingAgencyAssignments">
+                                      <button
+                                        v-if="!Number(agency.is_default)"
+                                        type="button"
+                                        class="btn btn-secondary btn-sm"
+                                        :disabled="settingDefaultAgencyId === agency.id"
+                                        @click="setDefaultAgency(agency.id)"
+                                      >
+                                        {{ settingDefaultAgencyId === agency.id ? '…' : 'Set default' }}
+                                      </button>
+                                      <button
+                                        type="button"
+                                        class="btn btn-danger btn-sm"
+                                        @click="removeAgency(agency.id)"
+                                      >
+                                        Remove
+                                      </button>
+                                    </div>
+                                  </div>
+            
+                                  <div class="aa-section">
+                                    <h4 class="aa-section__title"><span>1</span> Access &amp; Identity</h4>
+                                    <div class="aa-section__grid">
+                                      <label class="aa-field">
+                                        <span>Login Email</span>
+                                        <input
+                                          class="agency-select"
+                                          :value="aliasForAgency(agency.id)"
+                                          :disabled="!canEditUser || !editingAgencyAssignments || savingAgencyAliasId === agency.id"
+                                          placeholder="alias@domain.com"
+                                          @change="saveAliasForAgency(agency.id, $event.target.value)"
+                                        />
+                                      </label>
+                                      <label class="aa-field">
+                                        <span>Position / Title</span>
+                                        <input
+                                          class="agency-select"
+                                          :value="agency.agency_position || ''"
+                                          :disabled="!canEditUser || !editingAgencyAssignments || savingAgencyMembershipId === agency.id"
+                                          placeholder="Title at this agency"
+                                          @change="saveAgencyMembership(agency.id, { agencyPosition: $event.target.value })"
+                                        />
+                                      </label>
+                                      <label class="aa-field">
+                                        <span>Role</span>
+                                        <select
+                                          class="agency-select"
+                                          :value="agencyRoleFor(agency)"
+                                          :disabled="!canEditUser || !editingAgencyAssignments || savingAgencyMembershipId === agency.id"
+                                          @change="saveAgencyMembership(agency.id, { agencyRole: $event.target.value })"
+                                        >
+                                          <option
+                                            v-for="opt in AGENCY_POSITION_ROLE_OPTIONS"
+                                            :key="opt.value || 'inherit'"
+                                            :value="opt.value"
+                                          >
+                                            {{ opt.label }}
+                                          </option>
+                                        </select>
+                                      </label>
+                                      <label class="aa-field">
+                                        <span>Disclosure</span>
+                                        <select
+                                          class="agency-select"
+                                          :value="disclosureIncludeFromMembership(agency)"
+                                          :disabled="!canEditUser || savingAgencyMembershipId === agency.id"
+                                          @change="saveAgencyMembership(agency.id, { includeOnDisclosure: $event.target.value })"
+                                        >
+                                          <option
+                                            v-for="opt in DISCLOSURE_INCLUDE_OPTIONS"
+                                            :key="opt.value"
+                                            :value="opt.value"
+                                          >
+                                            {{ opt.label }}
+                                          </option>
+                                        </select>
+                                      </label>
+                                    </div>
+                                  </div>
+            
+                                  <div v-if="canEditUser && canShowH0032Mode" class="aa-section">
+                                    <h4 class="aa-section__title"><span>2</span> Clinical &amp; Billing Setup</h4>
+                                    <div class="aa-section__grid">
+                                      <label class="aa-field">
+                                        <span>H0032 Billing Mode</span>
+                                        <select
+                                          :value="h0032ModeForAgency(agency)"
+                                          class="agency-select"
+                                          :disabled="!editingAgencyAssignments || updatingH0032AgencyId === agency.id"
+                                          @change="setH0032Mode(agency.id, $event.target.value)"
+                                        >
+                                          <option value="cat1_hour">Cat1 Hour (manual minutes)</option>
+                                          <option value="cat2_flat">Cat2 Flat (auto 30 min)</option>
+                                        </select>
+                                      </label>
+                                      <p class="aa-hint">Billing minutes — not Pay/HCBS.</p>
+                                    </div>
+                                  </div>
+            
+                                  <div
+                                    v-if="canShowPrelicensedSupervision"
+                                    class="aa-section"
+                                  >
+                                    <h4 class="aa-section__title"><span>3</span> Classification</h4>
+                                    <div
+                                      v-if="prelicensedClassificationFor(agency.id)"
+                                      class="aa-classification-row"
+                                    >
+                                      <div class="aa-class-pill">
+                                        <span class="muted">License Status</span>
+                                        <span
+                                          class="license-status-badge"
+                                          :class="{
+                                            'license-status-badge--licensed': prelicensedClassificationFor(agency.id).licenseStatus === 'licensed',
+                                            'license-status-badge--prelicensed': prelicensedClassificationFor(agency.id).licenseStatus === 'prelicensed',
+                                            'license-status-badge--unlicensed': prelicensedClassificationFor(agency.id).licenseStatus === 'unlicensed',
+                                            'license-status-badge--unknown': prelicensedClassificationFor(agency.id).licenseStatus === 'unknown',
+                                          }"
+                                        >
+                                          {{ licenseStatusBadgeLabel(prelicensedClassificationFor(agency.id)) }}
+                                        </span>
+                                      </div>
+                                      <div class="aa-class-pill">
+                                        <span class="muted">Pay Category</span>
+                                        <span class="category-axis-badge">
+                                          {{
+                                            prelicensedClassificationFor(agency.id).payCategory
+                                              ? `Cat ${prelicensedClassificationFor(agency.id).payCategory}`
+                                              : 'Unknown'
+                                          }}
+                                        </span>
+                                        <span class="muted aa-class-detail">{{ prelicensedClassificationFor(agency.id).payCategoryLabel }}</span>
+                                      </div>
+                                      <div class="aa-class-pill">
+                                        <span class="muted">HCBS Category</span>
+                                        <span class="category-axis-badge category-axis-badge--hcbs">
+                                          {{
+                                            prelicensedClassificationFor(agency.id).hcbsCategory
+                                              ? `Cat ${prelicensedClassificationFor(agency.id).hcbsCategory}`
+                                              : 'Unknown'
+                                          }}
+                                        </span>
+                                        <span class="muted aa-class-detail">{{ prelicensedClassificationFor(agency.id).hcbsCategoryLabel }}</span>
+                                      </div>
+                                    </div>
+                                    <div class="agency-item-row" style="flex-wrap: wrap; margin-top: 8px;">
+                                      <span class="muted" style="font-size: 12px; font-weight: 700;">Prelicensed</span>
+                                      <label class="muted" style="display:flex; align-items:center; gap: 6px;">
+                                        <input
+                                          type="checkbox"
+                                          :checked="isPrelicensedForAgency(agency)"
+                                          :disabled="!canEditUser || updatingPrelicensedAgencyId === agency.id || !isEditingPrelicensedForAgency(agency)"
+                                          @change="savePrelicensedSettings(agency, { isPrelicensed: $event.target.checked })"
+                                        />
+                                        <span>{{ isPrelicensedForAgency(agency) ? 'On' : 'Off' }}</span>
+                                      </label>
+                                      <button
+                                        v-if="canEditUser"
+                                        type="button"
+                                        class="btn btn-secondary btn-sm"
+                                        :disabled="updatingPrelicensedAgencyId === agency.id"
+                                        @click="togglePrelicensedEdit(agency.id)"
+                                      >
+                                        {{ isEditingPrelicensedForAgency(agency) ? 'Done' : 'Edit' }}
+                                      </button>
+                                      <template v-if="prelicensedClassificationFor(agency.id)">
+                                        <span
+                                          v-if="prelicensedClassificationFor(agency.id).conflictReason"
+                                          class="prelicensed-conflict-badge"
+                                          :title="prelicensedClassificationFor(agency.id).conflictReason"
+                                        >
+                                          Classification conflict
+                                        </span>
+                                      </template>
+                                      <div
+                                        v-if="prelicensedClassificationFor(agency.id)?.conflictReason"
+                                        class="prelicensed-conflict-panel"
+                                      >
+                                        <div class="prelicensed-conflict-text">
+                                          {{ prelicensedClassificationFor(agency.id).conflictReason }}
+                                        </div>
+                                        <div style="display:flex; gap:8px; margin-top:6px; flex-wrap:wrap;">
+                                          <button
+                                            v-if="prelicensedClassificationFor(agency.id).classifiedAs === 'prelicensed' && !isPrelicensedForAgency(agency) && canEditUser"
+                                            type="button"
+                                            class="btn btn-warning btn-sm"
+                                            :disabled="updatingPrelicensedAgencyId === agency.id"
+                                            @click="applyPrelicensedSuggestion(agency, true)"
+                                          >
+                                            Mark as Prelicensed
+                                          </button>
+                                          <button
+                                            v-else-if="(prelicensedClassificationFor(agency.id).classifiedAs === 'paid' || prelicensedClassificationFor(agency.id).classifiedAs === 'intern') && isPrelicensedForAgency(agency) && canEditUser"
+                                            type="button"
+                                            class="btn btn-warning btn-sm"
+                                            :disabled="updatingPrelicensedAgencyId === agency.id"
+                                            @click="applyPrelicensedSuggestion(agency, false)"
+                                          >
+                                            Remove Prelicensed
+                                          </button>
+                                        </div>
+                                      </div>
+                                    </div>
+                                    <div class="category-axes-note muted">
+                                      Current 50/100 supervision hours apply to pay-Cat-2 prelicensed only (not interns).
+                                      HCBS category will feed future State Supervision Oversight Requirements (not built yet).
+                                      H0032 Cat1/Cat2 above is billing-minutes mode, not Pay/HCBS.
+                                    </div>
+                                  </div>
+            
+                                </div>
+                              </div>
+            
+                              <div
+                                v-if="(unaffiliatedOrgs || []).length > 0"
+                                class="unaffiliated-orgs-row"
+                              >
+                                <div class="aa-section">
+                                  <h4 class="aa-section__title">Other affiliations</h4>
+                                  <div v-for="org in (unaffiliatedOrgs || [])" :key="org.id" class="aa-assigned-row">
+                                    <div>
+                                      <strong>{{ org.name }}</strong>
+                                      <span v-if="org.organization_type" class="muted"> ({{ org.organization_type }})</span>
+                                    </div>
+                                    <div class="aa-assigned-actions">
+                                      <button
+                                        v-if="isAffiliationOrg(org)"
+                                        class="btn btn-secondary btn-sm"
+                                        type="button"
+                                        @click="openSchoolSchedulingFromAgencyRow(org)"
+                                      >
+                                        Days &amp; slots
+                                      </button>
+                                      <button
+                                        v-if="canEditUser && editingAgencyAssignments"
+                                        class="btn btn-danger btn-sm"
+                                        type="button"
+                                        @click="removeAgency(org.id)"
+                                      >
+                                        Remove
+                                      </button>
+                                    </div>
+                                  </div>
+                                </div>
+                              </div>
+                              
+                              <div v-if="canEditUser" class="add-agency-section aa-add-tenant">
+                                <h4 class="aa-section__title">Add agency</h4>
+                                <div class="aa-add-tenant__row">
+                                  <select v-model="selectedTenantAgencyId" class="agency-select" style="min-width: 260px;">
+                                    <option value="">Select an organization…</option>
+                                    <option
+                                      v-for="agency in availableTenantAgenciesToAdd"
+                                      :key="agency.id"
+                                      :value="String(agency.id)"
+                                    >
+                                      {{ agency.name }}
+                                    </option>
+                                  </select>
+                                  <select v-model="defaultAgencyIdDraft" class="agency-select" style="min-width: 200px;">
+                                    <option value="">Default agency (optional)</option>
+                                    <option
+                                      v-for="agency in agenciesEligibleAsDefault"
+                                      :key="`def-${agency.id}`"
+                                      :value="String(agency.id)"
+                                    >
+                                      Default: {{ agency.name }}
+                                    </option>
+                                  </select>
+                                  <button
+                                    @click="addSelectedTenantAgency"
+                                    class="btn btn-primary btn-sm"
+                                    :disabled="!selectedTenantAgencyId || assigningAgency"
+                                  >
+                                    {{ assigningAgency ? 'Assigning...' : 'Assign' }}
+                                  </button>
+                                </div>
+                              </div>
+                              <div v-else class="muted" style="font-size: 12px;">
+                                Only admins can change agency assignments.
+                              </div>
+                            </div>
+                          </div>
+                          </AccountDashboardCard>
+          </div>
+
+          <div class="asg-row">
+
+          <div id="supervisor-assignments" class="asg-row-col">
+            <AccountDashboardCard
+              section-id="supervisor-assignments"
+              title="Supervisor Assignments"
+              subtitle="Who supervises this provider (clinical, manager, billing)."
+              :can-edit="false"
+            >
+              <div v-if="canManageAssignments" class="asg-supervisor-manage">
+                <SupervisorAssignmentManager :supervisee-id="userId" @changed="onSupervisionAssignmentsChanged" />
               </div>
-            </div>
-            </template>
+              <template v-else>
+                <div v-if="supervisorsLoading" class="loading">Loading supervisor assignments…</div>
+                <template v-else-if="supervisorAssignmentRowsForDisplay.length">
+                  <div
+                    v-for="row in supervisorAssignmentRowsForDisplay"
+                    :key="row.id || `${row.supervisor_id}-${row.supervisor_type}-${row.agency_id}`"
+                    class="asg-supervisor-row"
+                  >
+                    <span class="asg-supervisor-type">
+                      {{ supervisorTypeLabel(row.supervisor_type) }}
+                      <template v-if="row.is_primary"> · Primary</template>
+                    </span>
+                    <span class="asg-supervisor-name">{{ formatSupervisorAssignmentName(row) }}</span>
+                    <small v-if="row.agency_name" class="muted">{{ row.agency_name }}</small>
+                  </div>
+                </template>
+                <p v-else class="muted">No supervisors assigned.</p>
+                <button type="button" class="btn btn-secondary btn-sm asg-manage-btn" @click="selectTab('provider_info', '', 'supervision')">
+                  Manage Supervisors
+                </button>
+              </template>
+            </AccountDashboardCard>
+          </div>
+
+
+          <div id="building-offices" class="asg-row-col">
+<AccountDashboardCard
+                            v-if="canManageAssignments && showAdditionalAccountSections"
+                            section-id="building-offices"
+                            icon="building"
+                            title="Assigned Building Offices"
+                            subtitle="Office links for scheduling and school mileage mapping."
+                            :can-edit="canEditUser"
+                            :editing="editingOfficeAssignments"
+                            :saving="savingOfficeAssignments"
+                            edit-label="Edit Assignments"
+                            save-label="Save Assignments"
+                            @edit="startOfficeAssignmentsEdit"
+                            @save="saveOfficeAssignmentsAndClose"
+                            @cancel="cancelOfficeAssignmentsEdit"
+                          >
+                            <div v-if="officeAssignmentsLoading" class="loading">Loading office assignments…</div>
+                            <div v-else-if="officeAssignmentsError" class="error">{{ officeAssignmentsError }}</div>
+                            <template v-else>
+                              <div v-if="!officeAssignmentsDraft.length" class="acct-empty-panel acct-empty-panel--compact">
+                                <p class="acct-empty-panel-title">No building office assignments yet.</p>
+                                <p class="acct-empty-panel-sub">Add an office to map scheduling and school mileage.</p>
+                                <button
+                                  v-if="canEditUser && !editingOfficeAssignments"
+                                  class="btn btn-primary btn-sm"
+                                  type="button"
+                                  style="margin-top: 12px;"
+                                  @click="startOfficeAssignmentsEdit(); addOfficeAssignmentRow()"
+                                >
+                                  + Add Office
+                                </button>
+                              </div>
+                              <div v-else class="table-wrap acct-office-table-wrap">
+                                <table class="table acct-office-table">
+                                  <thead>
+                                    <tr>
+                                      <th>Office</th>
+                                      <th>Address</th>
+                                      <th>Primary</th>
+                                      <th>Active</th>
+                                      <th v-if="canEditUser && editingOfficeAssignments">Actions</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    <tr v-for="(row, idx) in officeAssignmentsDraft" :key="`off-assign-${idx}`">
+                                      <td>
+                                        <div v-if="editingOfficeAssignments && canEditUser" class="acct-office-edit-cell">
+                                          <select
+                                            v-model.number="row.officeLocationId"
+                                            :disabled="savingOfficeAssignments"
+                                            @change="syncOfficeRowDetails(row)"
+                                          >
+                                            <option :value="0" disabled>Select office…</option>
+                                            <option
+                                              v-for="opt in officeOptionsForRow(idx)"
+                                              :key="`office-opt-${idx}-${opt.id}`"
+                                              :value="Number(opt.id)"
+                                            >
+                                              {{ opt.name }}
+                                            </option>
+                                          </select>
+                                        </div>
+                                        <div v-else class="acct-office-name">
+                                          <span class="acct-office-name-ico" aria-hidden="true">
+                                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 21h18M5 21V7l7-4 7 4v14M9 21v-6h6v6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                                          </span>
+                                          <span>{{ officeNameForRow(row) || '—' }}</span>
+                                        </div>
+                                      </td>
+                                      <td><span class="muted">{{ officeAddressForRow(row) || '—' }}</span></td>
+                                      <td>
+                                        <label class="acct-office-primary">
+                                          <input
+                                            type="radio"
+                                            name="primary-office-assignment"
+                                            :checked="row.isPrimary"
+                                            :disabled="!canEditUser || !editingOfficeAssignments || savingOfficeAssignments || !row.isActive"
+                                            @change="setPrimaryOfficeAssignment(idx)"
+                                          />
+                                        </label>
+                                      </td>
+                                      <td>
+                                        <label class="acct-toggle" :class="{ 'acct-toggle--on': row.isActive, 'acct-toggle--disabled': !canEditUser || !editingOfficeAssignments || savingOfficeAssignments }">
+                                          <input
+                                            type="checkbox"
+                                            v-model="row.isActive"
+                                            :disabled="!canEditUser || !editingOfficeAssignments || savingOfficeAssignments"
+                                            @change="normalizeOfficePrimary()"
+                                          />
+                                          <span class="acct-toggle-track" aria-hidden="true"><span class="acct-toggle-thumb" /></span>
+                                        </label>
+                                      </td>
+                                      <td v-if="canEditUser && editingOfficeAssignments">
+                                        <button class="btn btn-sm acct-office-remove" type="button" :disabled="savingOfficeAssignments" @click="removeOfficeAssignmentRow(idx)">
+                                          <svg class="acct-btn-mini-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                                          Remove
+                                        </button>
+                                      </td>
+                                    </tr>
+                                  </tbody>
+                                </table>
+                              </div>
+                              <div v-if="canEditUser && editingOfficeAssignments" class="acct-office-footer">
+                                <button class="btn btn-primary btn-sm" type="button" :disabled="savingOfficeAssignments" @click="addOfficeAssignmentRow">+ Add Office</button>
+                                <button class="btn btn-secondary btn-sm" type="button" :disabled="savingOfficeAssignments" @click="saveOfficeAssignmentsAndClose">
+                                  {{ savingOfficeAssignments ? 'Saving…' : 'Save Assignments' }}
+                                </button>
+                              </div>
+                            </template>
+                          </AccountDashboardCard>
+          </div>
+
+          </div>
+
+          <div class="asg-org-section">
+            <h3 class="asg-section-title">Organization assignments</h3>
+            <p class="hint asg-section-hint">Configure school, program, and learning organization links, availability, and schedule slots.</p>
+<div class="affiliation-subtabs">
+                        <button
+                          v-for="sec in AFFILIATION_SECTION_IDS"
+                          :key="sec"
+                          type="button"
+                          :class="['affiliation-subtab', { active: activeAffiliationSection === sec }]"
+                          @click="selectAffiliationSection(sec)"
+                        >
+                          {{ AFFILIATION_TAB_CONFIG[sec].singleLabel }}
+                        </button>
+                      </div>
+                      <p class="hint" style="margin-top: 8px;">
+                        Configure provider availability for {{ activeAffiliationSingleLabel.toLowerCase() }} assignments: global Open/Closed, per-assignment override, and day/hour slots.
+                      </p>
+            
+                      <div v-if="schoolAffiliationsLoading" class="loading">Loading assignments…</div>
+                      <div v-else-if="schoolAffiliationsError" class="error">{{ schoolAffiliationsError }}</div>
+                      <div v-else class="school-affiliation-panel">
+                        <div class="affiliation-manage card">
+                          <div class="affiliation-manage-head">
+                            <div>
+                              <h3 class="affiliation-manage-title">Assigned {{ activeAffiliationPluralLabel.toLowerCase() }}</h3>
+                              <p class="hint affiliation-manage-hint">
+                                Link or unlink {{ activeAffiliationSingleLabel.toLowerCase() }} organizations for this provider.
+                              </p>
+                            </div>
+                          </div>
+            
+                          <div v-if="affiliationsForActiveTab.length" class="affiliation-manage-list">
+                            <div
+                              v-for="o in affiliationsForActiveTab"
+                              :key="o.id"
+                              class="affiliation-manage-row"
+                              :class="{ active: String(o.id) === selectedSchoolAffiliationId }"
+                            >
+                              <button
+                                type="button"
+                                class="affiliation-manage-name"
+                                @click="selectAffiliationForEditing(o.id)"
+                              >
+                                {{ o.name }}
+                                <span v-if="o.organization_type" class="muted">({{ o.organization_type }})</span>
+                              </button>
+                              <div class="affiliation-manage-actions">
+                                <button
+                                  type="button"
+                                  class="btn btn-secondary btn-sm"
+                                  @click="selectAffiliationForEditing(o.id)"
+                                >
+                                  Configure
+                                </button>
+                                <button
+                                  v-if="canEditUser"
+                                  type="button"
+                                  class="btn btn-danger btn-sm"
+                                  :disabled="assigningAgency"
+                                  @click="removeAffiliationFromTab(o)"
+                                >
+                                  Remove
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                          <p v-else class="hint affiliation-manage-empty">
+                            No {{ activeAffiliationPluralLabel.toLowerCase() }} assigned yet.
+                          </p>
+            
+                          <div v-if="canEditUser" class="affiliation-manage-add">
+                            <select v-model="affiliationTabAddOrgId" class="agency-select" :disabled="assigningAgency">
+                              <option value="">Add {{ activeAffiliationSingleLabel.toLowerCase() }}…</option>
+                              <option
+                                v-for="org in availableAffiliationOrgsToAdd"
+                                :key="org.id"
+                                :value="String(org.id)"
+                              >
+                                {{ org.name }}
+                                <template v-if="org.organization_type"> ({{ org.organization_type }})</template>
+                              </option>
+                            </select>
+                            <button
+                              type="button"
+                              class="btn btn-primary btn-sm"
+                              :disabled="!affiliationTabAddOrgId || assigningAgency"
+                              @click="addAffiliationFromTab"
+                            >
+                              {{ assigningAgency ? 'Adding…' : 'Add assignment' }}
+                            </button>
+                          </div>
+                          <p v-else class="hint affiliation-manage-empty">
+                            Only admins can change assignments.
+                          </p>
+                        </div>
+            
+                        <div v-if="affiliationsForActiveTab.length === 0" class="empty-state">
+                          <p>Add a {{ activeAffiliationSingleLabel.toLowerCase() }} above to configure availability and slots.</p>
+                        </div>
+                        <template v-else>
+                        <div class="form-grid" style="grid-template-columns: minmax(240px, 1fr) minmax(240px, 1fr); gap: 12px;">
+                          <div class="form-group">
+                            <label>{{ activeAffiliationSingleLabel }}</label>
+                            <select v-model="selectedSchoolAffiliationId" :disabled="savingSchoolAffiliation">
+                              <option value="">Select…</option>
+                              <option v-for="o in affiliationsForActiveTab" :key="o.id" :value="String(o.id)">
+                                {{ o.name }} <span v-if="o.organization_type">({{ o.organization_type }})</span>
+                              </option>
+                            </select>
+                            <div style="margin-top: 8px; display:flex; gap: 8px; flex-wrap: wrap; align-items: center;">
+                              <a
+                                class="btn btn-secondary btn-sm"
+                                :class="{ disabled: !providerSchoolPortalHref }"
+                                :href="providerSchoolPortalHref || undefined"
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                :aria-disabled="!providerSchoolPortalHref"
+                                :title="providerSchoolPortalHref ? 'Open this provider inside the school portal (new tab)' : 'This affiliation has no slug (cannot deep-link)'"
+                                @click="(e) => { if (!providerSchoolPortalHref) e.preventDefault(); }"
+                              >
+                                Open in School Portal
+                              </a>
+                              <span class="hint" style="margin: 0;" v-if="selectedSchoolAffiliationSlug">
+                                Jumps to the provider’s school profile for faster editing.
+                              </span>
+                            </div>
+                          </div>
+                          <div class="form-group">
+                            <label class="toggle-label">
+                              <span>Global accepting new clients</span>
+                              <div class="toggle-switch">
+                                <input
+                                  type="checkbox"
+                                  v-model="providerAcceptingNewClients"
+                                  :disabled="!canEditUser || savingSchoolAffiliation"
+                                />
+                                <span class="slider"></span>
+                              </div>
+                            </label>
+                            <small class="form-help">
+                              If turned off, this provider is closed everywhere unless a school override is enabled.
+                            </small>
+                          </div>
+                        </div>
+            
+                        <!-- Provider School Info blurb: one per provider, shared across all schools -->
+                        <div v-if="affiliationsForActiveTab.length > 0" class="card" style="margin-top: 12px;">
+                          <div class="card-header" style="display:flex; justify-content:space-between; align-items:center; cursor: pointer;" @click="providerSchoolBlurbExpanded = !providerSchoolBlurbExpanded">
+                            <div style="display:flex; align-items:center; gap: 8px;">
+                              <span class="collapse-icon" :class="{ expanded: providerSchoolBlurbExpanded }">▸</span>
+                              <h3 style="margin:0;">Provider School Info blurb</h3>
+                            </div>
+                            <div style="display:flex; align-items:center; gap: 8px;" @click.stop>
+                              <button
+                                v-if="providerSchoolBlurbExpanded"
+                                class="btn btn-primary btn-sm"
+                                type="button"
+                                @click="saveProviderSchoolBlurb"
+                                :disabled="!canEditUser || providerSchoolBlurbSaving"
+                              >
+                                {{ providerSchoolBlurbSaving ? 'Saving…' : 'Save' }}
+                              </button>
+                            </div>
+                          </div>
+                          <div v-show="providerSchoolBlurbExpanded" class="card-body">
+                            <div v-if="providerSchoolBlurbError" class="error">{{ providerSchoolBlurbError }}</div>
+                            <div class="form-group form-group-full" style="margin-top: 10px;">
+                              <label>Provider School Info blurb</label>
+                              <textarea
+                                v-model="providerSchoolBlurb"
+                                rows="4"
+                                placeholder="Short blurb shown in the school portal provider profile."
+                                :disabled="!canEditUser || providerSchoolBlurbSaving"
+                                style="width: 100%;"
+                              />
+                              <small class="form-help">
+                                Shown in the school portal under “Provider info” for all schools. Keep this non-PHI.
+                              </small>
+                            </div>
+                          </div>
+                        </div>
+            
+                        <div v-if="selectedSchoolAffiliationId" style="margin-top: 14px;">
+                          <div class="form-group form-group-full">
+                            <label class="toggle-label">
+                              <span>Open for this {{ activeAffiliationSingleLabel.toLowerCase() }} even if globally closed</span>
+                              <div class="toggle-switch">
+                                <input
+                                  type="checkbox"
+                                  v-model="schoolOverrideOpen"
+                                  :disabled="!canEditUser || savingSchoolAffiliation"
+                                />
+                                <span class="slider"></span>
+                              </div>
+                            </label>
+                            <small class="form-help">
+                              When enabled, assignments can proceed for this {{ activeAffiliationSingleLabel.toLowerCase() }} even if the provider is globally closed.
+                            </small>
+                          </div>
+            
+                          <div class="card" style="margin-top: 12px;">
+                            <div class="card-header" style="display:flex; justify-content:space-between; align-items:center;">
+                              <h3 style="margin:0;">Affiliation schedule (reference)</h3>
+                            </div>
+                            <div v-if="schoolAssignmentsLoading" class="loading">Loading bell schedule…</div>
+                            <div v-else class="form-grid" style="grid-template-columns: minmax(160px, 1fr) minmax(160px, 1fr); gap: 12px; margin-top: 10px;">
+                              <div class="form-group">
+                                <label>Start</label>
+                                <input :value="selectedSchoolBellScheduleStartDisplay" type="text" disabled />
+                              </div>
+                              <div class="form-group">
+                                <label>End</label>
+                                <input :value="selectedSchoolBellScheduleEndDisplay" type="text" disabled />
+                              </div>
+                              <div class="form-group form-group-full">
+                                <label>Notes</label>
+                                <textarea :value="selectedSchoolBellScheduleNotesDisplay" rows="3" disabled style="width: 100%;" />
+                                <small class="form-help">Configured in the organization's settings.</small>
+                              </div>
+                            </div>
+                          </div>
+            
+            
+                          <div class="card" style="margin-top: 12px;">
+                            <div class="card-header" style="display:flex; justify-content:space-between; align-items:center;">
+                              <h3 style="margin:0;">Days & slots</h3>
+                              <div style="display:flex; gap: 8px; align-items:center; flex-wrap: wrap;">
+                                <button
+                                  v-if="canRepairProviderSlots"
+                                  class="btn btn-secondary btn-sm"
+                                  type="button"
+                                  @click="repairProviderSlots"
+                                  :disabled="repairingProviderSlots"
+                                  title="Recalculate and repair stored slot availability for this school"
+                                >
+                                  {{ repairingProviderSlots ? 'Repairing…' : 'Repair slots' }}
+                                </button>
+                                <button class="btn btn-primary btn-sm" @click="saveSchoolAffiliation" :disabled="!canEditUser || savingSchoolAffiliation">
+                                  {{ savingSchoolAffiliation ? 'Saving…' : 'Save' }}
+                                </button>
+                              </div>
+                            </div>
+            
+                            <div v-if="schoolAssignmentsLoading" class="loading">Loading schedule…</div>
+                            <div v-else-if="schoolAssignmentsError" class="error">{{ schoolAssignmentsError }}</div>
+                            <div v-else class="table-wrap">
+                              <table class="table">
+                                <thead>
+                                  <tr>
+                                    <th>Day</th>
+                                    <th>Active</th>
+                                    <th>Start</th>
+                                    <th>End</th>
+                                    <th>Total slots</th>
+                                    <th>Available</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  <tr v-for="d in schoolDayEdits" :key="d.dayOfWeek">
+                                    <td>{{ d.dayOfWeek }}</td>
+                                    <td><input type="checkbox" v-model="d.isActive" :disabled="!canEditUser || savingSchoolAffiliation" /></td>
+                                    <td><input type="time" v-model="d.startTime" :disabled="!canEditUser || savingSchoolAffiliation" /></td>
+                                    <td><input type="time" v-model="d.endTime" :disabled="!canEditUser || savingSchoolAffiliation" /></td>
+                                    <td>
+                                      <input
+                                        type="number"
+                                        min="0"
+                                        v-model.number="d.slotsTotal"
+                                        :disabled="!canEditUser || savingSchoolAffiliation"
+                                        @input="d.slotsAuto = false"
+                                        style="max-width: 110px;"
+                                      />
+                                      <button
+                                        type="button"
+                                        class="btn btn-secondary btn-sm"
+                                        style="margin-left: 6px;"
+                                        :disabled="!canEditUser || savingSchoolAffiliation"
+                                        @click="applyAutoSlots(d)"
+                                        title="Auto (1 per hour)"
+                                      >
+                                        Auto
+                                      </button>
+                                    </td>
+                                    <td>{{ d.slotsAvailableDisplay }}</td>
+                                  </tr>
+                                </tbody>
+                              </table>
+                            </div>
+                          </div>
+                        </div>
+                        </template>
+                      </div>
           </div>
         </div>
 
@@ -2977,8 +2916,15 @@ function resolveInitialProfileTab() {
   if (raw === 'additional') raw = 'account';
   if (LEGACY_AFFILIATION_TAB_IDS.includes(raw)) {
     return {
-      tab: 'affiliations',
+      tab: 'assignments',
       affiliationSection: raw,
+      section: sectionFromQuery,
+    };
+  }
+  if (raw === 'affiliations') {
+    return {
+      tab: 'assignments',
+      affiliationSection: 'school_affiliation',
       section: sectionFromQuery,
     };
   }
@@ -3895,9 +3841,9 @@ const canViewSchoolAffiliation = computed(() => {
 });
 
 const AFFILIATION_TAB_CONFIG = Object.freeze({
-  school_affiliation: { type: 'school', label: 'School Affiliation', singleLabel: 'School', pluralLabel: 'Schools' },
-  program_affiliation: { type: 'program', label: 'Program Affiliation', singleLabel: 'Program', pluralLabel: 'Programs' },
-  learning_affiliation: { type: 'learning', label: 'Learning Affiliation', singleLabel: 'Learning Organization', pluralLabel: 'Learning Organizations' }
+  school_affiliation: { type: 'school', label: 'School Assignments', singleLabel: 'School', pluralLabel: 'Schools' },
+  program_affiliation: { type: 'program', label: 'Program Assignments', singleLabel: 'Program', pluralLabel: 'Programs' },
+  learning_affiliation: { type: 'learning', label: 'Learning Assignments', singleLabel: 'Learning Organization', pluralLabel: 'Learning Organizations' }
 });
 
 const AFFILIATION_SECTION_IDS = Object.freeze(Object.keys(AFFILIATION_TAB_CONFIG));
@@ -3905,7 +3851,7 @@ const AFFILIATION_SECTION_IDS = Object.freeze(Object.keys(AFFILIATION_TAB_CONFIG
 const isAffiliationSectionId = (sectionId) => Object.prototype.hasOwnProperty.call(AFFILIATION_TAB_CONFIG, String(sectionId || ''));
 const isLegacyAffiliationTabId = (tabId) => isAffiliationSectionId(tabId);
 
-const isAffiliationTabActive = computed(() => activeTab.value === 'affiliations');
+const isAffiliationTabActive = computed(() => activeTab.value === 'assignments' && !isViewingGuardian.value);
 const activeAffiliationConfig = computed(() => AFFILIATION_TAB_CONFIG[String(activeAffiliationSection.value)] || null);
 const activeAffiliationOrgType = computed(() => String(activeAffiliationConfig.value?.type || ''));
 
@@ -4049,7 +3995,7 @@ const tabs = computed(() => {
     ...(canViewProviderInfo.value ? [{ id: 'provider_info', label: 'Clinical Information' }] : []),
     ...(canViewCredentialingTab.value ? [{ id: 'credentialing', label: 'Credentialing' }] : []),
     ...(canViewSchoolAffiliation.value
-      ? [{ id: 'affiliations', label: 'Affiliations' }]
+      ? [{ id: 'assignments', label: 'Assignments' }]
       : []),
     ...(isProviderLikeUser.value ? [{ id: 'clients', label: 'Clients' }] : []),
     ...(canViewProviderInfo.value ? [{ id: 'schedule_availability', label: 'Schedule & Availability' }] : []),
@@ -4087,7 +4033,11 @@ watch(
     const cur = String(activeTab.value || '');
     if (isLegacyAffiliationTabId(cur)) {
       activeAffiliationSection.value = cur;
-      activeTab.value = 'affiliations';
+      activeTab.value = 'assignments';
+      return;
+    }
+    if (cur === 'affiliations') {
+      activeTab.value = 'assignments';
       return;
     }
     if (!allowed.has(cur)) {
@@ -4926,8 +4876,7 @@ watch([activeTab, isViewingGuardian], async ([t, viewingGuardian]) => {
     await loadMemberSeasonHistory();
     return;
   }
-  if (t === 'affiliations') {
-    if (!canViewSchoolAffiliation.value) return;
+  if (t === 'assignments' && !viewingGuardian && canViewSchoolAffiliation.value) {
     await ensureAvailableAgencies();
     await loadSchoolAffiliations();
     ensureSelectedAffiliationForActiveTab();
@@ -4937,7 +4886,7 @@ watch([activeTab, isViewingGuardian], async ([t, viewingGuardian]) => {
 }, { immediate: true });
 
 watch(activeAffiliationSection, async () => {
-  if (activeTab.value !== 'affiliations') return;
+  if (activeTab.value !== 'assignments' || isViewingGuardian.value) return;
   affiliationTabAddOrgId.value = '';
   ensureSelectedAffiliationForActiveTab();
   await loadSchoolAssignments();
@@ -5231,6 +5180,30 @@ watch([userId, primaryFeatureAgencyId, canManageFeatureAccess], () => {
 
 // Schedule & Availability: allow filtering by affiliated agencies (agency-type orgs).
 const affiliatedAgencies = computed(() => (userAgencies.value || []).filter((a) => isAgencyOrg(a)));
+
+const assignmentSummaryStats = computed(() => {
+  const agencyCount = (affiliatedAgencies.value || []).length;
+  const supervisorRows = (overview.value?.supervisors?.length
+    ? overview.value.supervisors
+    : supervisors.value) || [];
+  const supervisorCount = supervisorRows.length;
+  const officeCount = (officeAssignmentsDraft.value || []).filter((r) => r?.isActive !== false).length;
+  const orgList = Array.isArray(schoolAffiliations.value) ? schoolAffiliations.value : [];
+  const schoolCount = orgList.filter((o) => String(o?.organization_type || '').toLowerCase() === 'school').length;
+  const programCount = orgList.filter((o) => String(o?.organization_type || '').toLowerCase() === 'program').length;
+  return { agencyCount, supervisorCount, officeCount, schoolCount, programCount };
+});
+
+const formatSupervisorAssignmentName = (row) => {
+  const name = `${row?.supervisor_first_name || ''} ${row?.supervisor_last_name || ''}`.trim();
+  return name || row?.supervisor_email || '—';
+};
+
+const supervisorAssignmentRowsForDisplay = computed(() => {
+  const fromOverview = overview.value?.supervisors;
+  if (Array.isArray(fromOverview) && fromOverview.length) return fromOverview;
+  return Array.isArray(supervisors.value) ? supervisors.value : [];
+});
 const affiliatedOrgsByAgencyId = computed(() => {
   const out = {};
   for (const org of userAgencies.value || []) {
@@ -6618,7 +6591,7 @@ watch(userId, () => {
 });
 
 watch(activeTab, (tab) => {
-  if (tab === 'account' || tab === 'affiliations') {
+  if (tab === 'account' || tab === 'assignments') {
     void ensureAvailableAgencies();
   }
 });
@@ -6791,7 +6764,7 @@ const openSchoolSchedulingFromAgencyRow = async (org) => {
   if (orgType === 'program') activeAffiliationSection.value = 'program_affiliation';
   else if (orgType === 'learning') activeAffiliationSection.value = 'learning_affiliation';
   else activeAffiliationSection.value = 'school_affiliation';
-  activeTab.value = 'affiliations';
+  activeTab.value = 'assignments';
   await nextTick();
   await loadSchoolAffiliations();
   selectedSchoolAffiliationId.value = String(id);
@@ -7736,7 +7709,13 @@ function jumpToProfileSection(hit) {
 }
 
 const selectTab = (tabId, sectionId = '', clinicalSubTab = '') => {
-  const id = String(tabId || '').trim();
+  let id = String(tabId || '').trim();
+  if (LEGACY_AFFILIATION_TAB_IDS.includes(id)) {
+    activeAffiliationSection.value = id;
+    id = 'assignments';
+  } else if (id === 'affiliations') {
+    id = 'assignments';
+  }
   if (!id) return;
   if (!tabIds.value.includes(id)) return;
   // IMPORTANT: do not mutate the route from inside a tab click handler.
@@ -7794,10 +7773,16 @@ const onProfileJumpEvent = (event) => {
 watch(
   () => [route.query.tab, route.query.section],
   ([tab, section], [prevTab, prevSection]) => {
-    const nextTab = String(tab || '').trim();
+    let nextTab = String(tab || '').trim();
     const nextSection = String(section || '').trim();
     if (!nextTab && !nextSection) return;
     if (String(prevTab || '') === nextTab && String(prevSection || '') === nextSection) return;
+    if (LEGACY_AFFILIATION_TAB_IDS.includes(nextTab)) {
+      activeAffiliationSection.value = nextTab;
+      nextTab = 'assignments';
+    } else if (nextTab === 'affiliations') {
+      nextTab = 'assignments';
+    }
     if (nextTab && tabIds.value.includes(nextTab)) {
       selectTab(nextTab, nextSection);
     } else if (nextSection) {
@@ -10372,5 +10357,119 @@ onUnmounted(() => {
 }
 .ssc-season-title {
   font-weight: 600;
+}
+
+.asg-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 20px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.asg-head h2 {
+  margin: 0 0 6px;
+  color: #0f172a;
+}
+
+.asg-subtitle {
+  margin: 0;
+  font-size: 13px;
+  color: #64748b;
+  max-width: 52ch;
+}
+
+.asg-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.asg-stat {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: #ecfdf5;
+  border: 1px solid #a7f3d0;
+  color: #065f46;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.asg-stat strong {
+  font-size: 14px;
+  color: #2e5d50;
+}
+
+.asg-section-block {
+  margin-bottom: 18px;
+}
+
+.asg-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  margin-bottom: 22px;
+}
+
+.asg-row-col {
+  min-width: 0;
+}
+
+.asg-org-section {
+  margin-top: 8px;
+  padding-top: 20px;
+  border-top: 1px solid #e2e8f0;
+}
+
+.asg-section-title {
+  margin: 0 0 6px;
+  font-size: 16px;
+  font-weight: 700;
+  color: #2e5d50;
+}
+
+.asg-section-hint {
+  margin: 0 0 14px;
+}
+
+.asg-supervisor-row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 12px;
+  margin-bottom: 8px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  font-size: 13px;
+}
+
+.asg-supervisor-type {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: #2e5d50;
+}
+
+.asg-supervisor-name {
+  font-weight: 600;
+  color: #0f172a;
+}
+
+.asg-manage-btn {
+  margin-top: 10px;
+}
+
+@media (max-width: 960px) {
+  .asg-row {
+    grid-template-columns: 1fr;
+  }
 }
 </style>
