@@ -3412,6 +3412,7 @@ watch(initials, () => {
 const onPlanImportSaved = async (plan) => {
   showPlanImportReview.value = false;
   pastedPlanText.value = '';
+  planImportedOnce.value = true;
   if (effectiveClientId.value) await loadClientTreatmentPlan(effectiveClientId.value);
   approvalMessage.value = plan?.id
     ? 'Treatment plan saved to chart.'
