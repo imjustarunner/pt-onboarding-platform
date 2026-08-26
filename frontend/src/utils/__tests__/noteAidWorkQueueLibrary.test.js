@@ -139,4 +139,32 @@ describe('noteAidDocumentationStatus panels', () => {
       NOTE_CONNECTION.SESSION
     ]);
   });
+
+  it('groups left library by created date vs service date', () => {
+    const rows = buildLeftLibraryRows({
+      drafts: [
+        {
+          id: 1,
+          input_text: 'a',
+          initials: 'A',
+          date_of_service: '2026-08-01',
+          created_at: '2026-08-25T17:00:00Z'
+        },
+        {
+          id: 2,
+          input_text: 'b',
+          initials: 'B',
+          date_of_service: '2026-08-01',
+          created_at: '2026-08-20T12:00:00Z'
+        }
+      ],
+      workQueueItems: []
+    });
+    const byCreated = groupLeftLibraryRows(rows, { groupBy: 'date', dateOrder: 'newest' });
+    expect(byCreated.map((g) => g.label)).toEqual(['2026-08-25', '2026-08-20']);
+    const byDos = groupLeftLibraryRows(rows, { groupBy: 'service_date', dateOrder: 'newest' });
+    expect(byDos).toHaveLength(1);
+    expect(byDos[0].label).toBe('2026-08-01');
+    expect(byDos[0].drafts).toHaveLength(2);
+  });
 });

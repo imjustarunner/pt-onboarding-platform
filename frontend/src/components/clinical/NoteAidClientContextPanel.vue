@@ -3,25 +3,109 @@
     <div class="na-client-ctx-tabs">
       <button
         type="button"
-        :class="{ active: tab === 'goals' }"
-        @click="tab = 'goals'"
-      >
-        Treatment Goals
-      </button>
-      <button
-        type="button"
         :class="{ active: tab === 'intake' }"
         @click="tab = 'intake'"
       >
         Intake
       </button>
+      <button
+        type="button"
+        :class="{ active: tab === 'demographics' }"
+        @click="tab = 'demographics'"
+      >
+        Demographics
+      </button>
+      <button
+        type="button"
+        :class="{ active: tab === 'goals' }"
+        @click="tab = 'goals'"
+      >
+        Treatment Goals
+      </button>
     </div>
 
     <div v-if="!clientId" class="na-client-ctx-empty">
-      Select an active client under Client Initials to load treatment goals and intake.
+      Select an active client under Client Initials to load intake, demographics, and treatment goals.
     </div>
 
-    <template v-else-if="tab === 'goals'">
+    <template v-else-if="tab === 'intake'">
+      <div v-if="loadingIntake" class="na-client-ctx-empty">Loading intake…</div>
+      <div v-else-if="intakeError" class="na-client-ctx-empty error">{{ intakeError }}</div>
+      <template v-else>
+        <div v-if="primaryDiagnosis" class="na-client-ctx-dx">
+          <strong>Primary dx</strong>
+          <code>{{ primaryDiagnosis.icd10_code }}</code>
+          <span>{{ primaryDiagnosis.description || '' }}</span>
+          <p v-if="primaryDiagnosis.justification">{{ primaryDiagnosis.justification }}</p>
+        </div>
+        <p v-if="intakeSummary" class="na-client-ctx-intake">{{ intakeSummary }}</p>
+        <p v-else class="na-client-ctx-empty">No intake on file yet — paste below to import.</p>
+
+        <label class="na-paste-label">
+          Paste intake note (optional)
+          <textarea
+            :value="pastedIntakeText"
+            rows="4"
+            class="na-textarea"
+            placeholder="Paste intake / assessment text to review and save to the chart…"
+            @input="$emit('update:pastedIntakeText', $event.target.value)"
+          />
+        </label>
+
+        <div class="na-client-ctx-actions">
+          <button
+            type="button"
+            class="na-btn-primary"
+            :disabled="!String(pastedIntakeText || '').trim()"
+            @click="$emit('import-intake')"
+          >
+            Review &amp; import intake
+          </button>
+          <button
+            type="button"
+            class="na-btn-outline"
+            :disabled="!intakeSummary"
+            @click="$emit('use-intake')"
+          >
+            Use intake to inform plan
+          </button>
+          <button type="button" class="na-link-btn" @click="$emit('open-chart-intake')">
+            Open chart intake
+          </button>
+        </div>
+      </template>
+    </template>
+
+    <template v-else-if="tab === 'demographics'">
+      <p v-if="clientName" class="na-client-ctx-hint">
+        Chart client: <strong>{{ clientName }}</strong>
+      </p>
+      <p class="na-client-ctx-hint">
+        Paste chart demographics here. Values are encrypted at rest and are not sent to AI note generation.
+      </p>
+      <label class="na-paste-label">
+        Paste demographics text
+        <textarea
+          :value="pastedDemographicsText"
+          rows="5"
+          class="na-textarea"
+          placeholder="Legal Name&#10;Date of Birth&#10;Address&#10;Phone&#10;Email…"
+          @input="$emit('update:pastedDemographicsText', $event.target.value)"
+        />
+      </label>
+      <div class="na-client-ctx-actions">
+        <button
+          type="button"
+          class="na-btn-primary"
+          :disabled="!String(pastedDemographicsText || '').trim()"
+          @click="$emit('import-demographics')"
+        >
+          Review &amp; encrypt to chart
+        </button>
+      </div>
+    </template>
+
+    <template v-else>
       <div v-if="loadingPlan" class="na-client-ctx-empty">Loading treatment plan…</div>
       <div v-else-if="planError" class="na-client-ctx-empty error">{{ planError }}</div>
       <template v-else>
@@ -66,40 +150,6 @@
           <button type="button" class="na-btn-outline" @click="$emit('import-plan')">
             Import treatment plan
           </button>
-          <button type="button" class="na-btn-outline" @click="$emit('import-demographics')">
-            Import demographics
-          </button>
-        </div>
-      </template>
-    </template>
-
-    <template v-else>
-      <div v-if="loadingIntake" class="na-client-ctx-empty">Loading intake…</div>
-      <div v-else-if="intakeError" class="na-client-ctx-empty error">{{ intakeError }}</div>
-      <template v-else>
-        <div v-if="primaryDiagnosis" class="na-client-ctx-dx">
-          <strong>Primary dx</strong>
-          <code>{{ primaryDiagnosis.icd10_code }}</code>
-          <span>{{ primaryDiagnosis.description || '' }}</span>
-          <p v-if="primaryDiagnosis.justification">{{ primaryDiagnosis.justification }}</p>
-        </div>
-        <p v-if="intakeSummary" class="na-client-ctx-intake">{{ intakeSummary }}</p>
-        <p v-else class="na-client-ctx-empty">No intake copy blocks available for this client.</p>
-        <div class="na-client-ctx-actions">
-          <button
-            type="button"
-            class="na-btn-outline"
-            :disabled="!intakeSummary"
-            @click="$emit('use-intake')"
-          >
-            Use intake to inform plan
-          </button>
-          <button type="button" class="na-btn-outline" @click="$emit('import-intake')">
-            Import intake
-          </button>
-          <button type="button" class="na-link-btn" @click="$emit('open-chart-intake')">
-            Open chart intake
-          </button>
         </div>
       </template>
     </template>
@@ -115,20 +165,33 @@ const props = defineProps({
   loadingPlan: { type: Boolean, default: false },
   planError: { type: String, default: '' },
   pastedPlanText: { type: String, default: '' },
+  pastedIntakeText: { type: String, default: '' },
+  pastedDemographicsText: { type: String, default: '' },
   loadingIntake: { type: Boolean, default: false },
   intakeError: { type: String, default: '' },
   intakeSummary: { type: String, default: '' },
-  primaryDiagnosis: { type: Object, default: null }
+  primaryDiagnosis: { type: Object, default: null },
+  clientName: { type: String, default: '' }
 });
 
-defineEmits(['update:pastedPlanText', 'open-updater', 'use-intake', 'open-chart-intake', 'import-plan', 'import-intake', 'import-demographics']);
+defineEmits([
+  'update:pastedPlanText',
+  'update:pastedIntakeText',
+  'update:pastedDemographicsText',
+  'open-updater',
+  'use-intake',
+  'open-chart-intake',
+  'import-plan',
+  'import-intake',
+  'import-demographics'
+]);
 
-const tab = ref('goals');
+const tab = ref('intake');
 
 watch(
   () => props.clientId,
   () => {
-    tab.value = 'goals';
+    tab.value = 'intake';
   }
 );
 </script>
@@ -143,6 +206,7 @@ watch(
 }
 .na-client-ctx-tabs {
   display: flex;
+  flex-wrap: wrap;
   gap: 6px;
   margin-bottom: 10px;
 }
@@ -161,10 +225,12 @@ watch(
   border-color: #0f766e;
   color: #0d5f59;
 }
-.na-client-ctx-empty {
+.na-client-ctx-empty,
+.na-client-ctx-hint {
   color: #64748b;
   font-size: 0.88rem;
-  margin: 0;
+  margin: 0 0 8px;
+  line-height: 1.4;
 }
 .na-client-ctx-empty.error {
   color: #b91c1c;
@@ -210,24 +276,33 @@ watch(
   font: inherit;
   min-height: 80px;
   resize: vertical;
+  box-sizing: border-box;
 }
 .na-client-ctx-actions {
   margin-top: 10px;
   display: flex;
-  flex-direction: column;
+  flex-wrap: wrap;
   gap: 8px;
+  align-items: center;
 }
-.na-btn-primary {
-  border: none;
-  background: #0f766e;
-  color: #fff;
+.na-btn-primary,
+.na-btn-outline,
+.na-link-btn {
   border-radius: 10px;
   font-weight: 700;
   padding: 8px 12px;
   cursor: pointer;
   font-size: 0.82rem;
+  width: auto;
+  flex: 0 1 auto;
 }
-.na-btn-primary:disabled {
+.na-btn-primary {
+  border: none;
+  background: #0f766e;
+  color: #fff;
+}
+.na-btn-primary:disabled,
+.na-btn-outline:disabled {
   opacity: 0.5;
   cursor: not-allowed;
 }
@@ -235,23 +310,19 @@ watch(
   border: 1px solid #0f766e;
   background: #fff;
   color: #0d5f59;
-  border-radius: 10px;
-  font-weight: 700;
-  padding: 8px 12px;
-  cursor: pointer;
-  font-size: 0.82rem;
 }
-.na-btn-outline:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
+.na-link-btn {
+  border: 1px solid #e2e8f0;
+  background: #f8fafc;
+  color: #334155;
 }
 .na-client-ctx-intake {
   white-space: pre-wrap;
   font-size: 0.85rem;
   line-height: 1.45;
-  max-height: 280px;
+  max-height: 200px;
   overflow: auto;
-  margin: 0;
+  margin: 0 0 8px;
   color: #0f172a;
 }
 .na-client-ctx-dx {

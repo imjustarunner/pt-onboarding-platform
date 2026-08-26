@@ -52,7 +52,8 @@ import api from '../../services/api';
 
 const props = defineProps({
   open: { type: Boolean, default: false },
-  clientId: { type: [Number, String], required: true }
+  clientId: { type: [Number, String], required: true },
+  initialText: { type: String, default: '' }
 });
 
 const emit = defineEmits(['close', 'saved']);
@@ -67,7 +68,7 @@ watch(
   () => props.open,
   (open) => {
     if (!open) return;
-    pasteText.value = '';
+    pasteText.value = String(props.initialText || '');
     model.value = null;
     error.value = '';
   }

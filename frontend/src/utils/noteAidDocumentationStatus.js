@@ -435,15 +435,46 @@ export function groupLeftLibraryRows(rows, { groupBy = 'status', dateOrder = 'ne
       sortKey = label.toLowerCase();
       month = 'TN';
       day = String(label).slice(0, 2).toUpperCase();
-    } else {
+    } else if (groupBy === 'service_date') {
       const dos = String(r.date_of_service || '').slice(0, 10);
-      key = /^\d{4}-\d{2}-\d{2}$/.test(dos) ? dos : 'unknown';
-      label = key === 'unknown' ? 'Unknown date' : key;
-      sortKey = key;
-      if (key !== 'unknown') {
-        const [, m, d] = key.split('-');
+      key = /^\d{4}-\d{2}-\d{2}$/.test(dos) ? `dos:${dos}` : 'dos:unknown';
+      label = key === 'dos:unknown' ? 'No service date' : dos;
+      sortKey = key === 'dos:unknown' ? '0000-00-00' : dos;
+      if (key !== 'dos:unknown') {
+        const [, m, d] = dos.split('-');
         month = m;
         day = d;
+      } else {
+        month = 'DOS';
+        day = '—';
+      }
+    } else {
+      // Created date (groupBy === 'date')
+      let createdKey = 'unknown';
+      const rawCreated = r.created_at;
+      if (rawCreated) {
+        const asStr = String(rawCreated);
+        if (/^\d{4}-\d{2}-\d{2}/.test(asStr)) {
+          createdKey = asStr.slice(0, 10);
+        } else {
+          try {
+            const d = new Date(rawCreated);
+            if (!Number.isNaN(d.getTime())) createdKey = d.toISOString().slice(0, 10);
+          } catch {
+            createdKey = 'unknown';
+          }
+        }
+      }
+      key = createdKey === 'unknown' ? 'created:unknown' : `created:${createdKey}`;
+      label = createdKey === 'unknown' ? 'Unknown created date' : createdKey;
+      sortKey = createdKey === 'unknown' ? '0000-00-00' : createdKey;
+      if (createdKey !== 'unknown') {
+        const [, m, d] = createdKey.split('-');
+        month = m;
+        day = d;
+      } else {
+        month = 'CRT';
+        day = '—';
       }
     }
     if (!map.has(key)) {

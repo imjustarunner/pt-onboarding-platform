@@ -60,6 +60,7 @@
         :type-label="draftNoteTypeLabel"
         @new="startNewNote"
         @select="onLibrarySidebarSelect"
+        @delete="onLibrarySidebarDelete"
       />
 
       <main class="na-main" :class="{ 'na-main--library': showLibraryPanel }">
@@ -77,8 +78,19 @@
         <div class="na-context-strip na-context-strip--soft">
           <span><strong>Credential:</strong> {{ loadingContext ? 'Loading…' : (providerCredentialText || 'Not set') }}</span>
           <span><strong>Tier:</strong> {{ derivedTier }}</span>
+          <span v-if="dateOfService"><strong>DOS:</strong> {{ dateOfService }}</span>
+          <span v-if="currentDraftCreatedAt"><strong>Created:</strong> {{ formatCreatedDisplay(currentDraftCreatedAt) }}</span>
           <span v-if="lastSavedAt"><strong>Saved:</strong> {{ lastSavedAt }}</span>
           <span v-else-if="draftId" class="muted">Draft #{{ draftId }}</span>
+          <button
+            v-if="canDeleteCurrentDraft"
+            type="button"
+            class="na-link-btn na-link-btn--danger"
+            :disabled="deletingCurrentDraft"
+            @click="deleteCurrentDraft"
+          >
+            {{ deletingCurrentDraft ? 'Deleting…' : 'Delete draft' }}
+          </button>
         </div>
 
         <NoteAidLibraryPanel
@@ -100,10 +112,13 @@
               />
               <NoteAidClientContextPanel
                 :client-id="effectiveClientId"
+                :client-name="selectedClient?.full_name || selectedClient?.name || ''"
                 :goals="activeTreatmentGoals"
                 :loading-plan="loadingClientPlan"
                 :plan-error="clientPlanError"
                 v-model:pasted-plan-text="pastedPlanText"
+                v-model:pasted-intake-text="pastedIntakeText"
+                v-model:pasted-demographics-text="pastedDemographicsText"
                 :loading-intake="loadingIntake"
                 :intake-error="intakeError"
                 :intake-summary="intakeSummary"
@@ -182,6 +197,19 @@
                   type="date"
                   class="na-input"
                 />
+                <div class="na-field-meta">
+                  <span v-if="currentDraftCreatedAt" class="na-field-hint">
+                    Created {{ formatCreatedDisplay(currentDraftCreatedAt) }}
+                  </span>
+                  <button
+                    type="button"
+                    class="na-link-btn na-link-btn--sm"
+                    :disabled="savingDraftManual"
+                    @click="saveDraftNow"
+                  >
+                    {{ savingDraftManual ? 'Saving…' : (draftId ? 'Save' : 'Save draft') }}
+                  </button>
+                </div>
               </div>
             </div>
 
@@ -313,10 +341,13 @@
 
         <NoteAidClientContextPanel
           :client-id="effectiveClientId"
+          :client-name="selectedClient?.full_name || selectedClient?.name || ''"
           :goals="activeTreatmentGoals"
           :loading-plan="loadingClientPlan"
           :plan-error="clientPlanError"
           v-model:pasted-plan-text="pastedPlanText"
+          v-model:pasted-intake-text="pastedIntakeText"
+          v-model:pasted-demographics-text="pastedDemographicsText"
           :loading-intake="loadingIntake"
           :intake-error="intakeError"
           :intake-summary="intakeSummary"
@@ -653,7 +684,7 @@
       v-if="effectiveClientId"
       :open="showIntakeImportReview"
       :client-id="effectiveClientId"
-      :initial-text="intakeSummary"
+      :initial-text="pastedIntakeText || intakeSummary"
       @close="showIntakeImportReview = false"
       @finalized="onIntakeImportFinalized"
     />
@@ -661,6 +692,7 @@
       v-if="effectiveClientId"
       :open="showDemographicsImport"
       :client-id="effectiveClientId"
+      :initial-text="pastedDemographicsText"
       @close="showDemographicsImport = false"
       @saved="onDemographicsImported"
     />
@@ -926,6 +958,10 @@ const lastProgressNoteExcerpt = ref('');
 const loadingClientPlan = ref(false);
 const clientPlanError = ref('');
 const pastedPlanText = ref('');
+const pastedIntakeText = ref('');
+const pastedDemographicsText = ref('');
+const savingDraftManual = ref(false);
+const deletingCurrentDraft = ref(false);
 const sessionObjectiveRatings = ref([]);
 const suggestUpdateTreatmentPlan = ref(false);
 const renewalSuggestReason = ref('');
@@ -2090,15 +2126,22 @@ const autosave = async () => {
       Number(bookingContext.value?.clinicalSessionId || sessionClinicalSessionId.value || 0) || null
   };
 
-  // Default Date of Service alone must NOT spawn a new draft every interval/click cycle.
+  // Create only after the clinician enters real content; update existing drafts freely
+  // (including DOS-only changes once a draft exists).
   const hasMeaningfulContent =
     !!String(payload.serviceCode || '').trim() ||
     !!String(payload.programId || '').trim() ||
     !!String(payload.initials || '').trim() ||
-    !!String(payload.inputText || '').trim();
+    !!String(payload.inputText || '').trim() ||
+    !!String(payload.clientId || '').trim() ||
+    !!String(payload.dateOfService || '').trim();
 
   // Create only after the clinician enters real content; update existing drafts freely.
   if (!draftId.value && !hasMeaningfulContent) return;
+  // Don't spawn empty drafts from DOS alone.
+  if (!draftId.value && !String(payload.initials || '').trim() && !String(payload.inputText || '').trim() && !payload.clientId) {
+    return;
+  }
 
   autosaveBusy = true;
   try {
@@ -2117,6 +2160,17 @@ const autosave = async () => {
       }
     } else {
       await api.patch(`/clinical-notes/drafts/${draftId.value}`, payload, { skipGlobalLoading: true });
+      recentDrafts.value = (recentDrafts.value || []).map((d) =>
+        String(d.id) === String(draftId.value)
+          ? {
+              ...d,
+              date_of_service: payload.dateOfService || d.date_of_service,
+              initials: payload.initials ?? d.initials,
+              client_id: payload.clientId ?? d.client_id,
+              service_code: payload.serviceCode ?? d.service_code
+            }
+          : d
+      );
     }
     lastSavedAt.value = new Date().toLocaleString();
   } catch {
@@ -2125,6 +2179,131 @@ const autosave = async () => {
     autosaveBusy = false;
   }
 };
+
+async function saveDraftNow() {
+  if (savingDraftManual.value) return;
+  savingDraftManual.value = true;
+  approvalError.value = '';
+  try {
+    await autosave();
+    if (draftId.value && lastSavedAt.value) {
+      approvalMessage.value = `Draft saved (${lastSavedAt.value}).`;
+    } else if (!draftId.value) {
+      approvalMessage.value =
+        'Add a client, initials, or note text, then Save — date of service alone won’t create a draft.';
+    }
+  } finally {
+    savingDraftManual.value = false;
+  }
+}
+
+function onDateOfServiceChanged() {
+  // Persist DOS immediately when the clinician changes it (existing draft or enough context).
+  saveDraftNow();
+}
+
+watch(dateOfService, (next, prev) => {
+  if (prev === undefined) return;
+  if (String(next || '') === String(prev || '')) return;
+  // Auto-persist DOS once a draft exists (Save still creates new drafts).
+  if (!draftId.value) return;
+  onDateOfServiceChanged();
+});
+
+function formatCreatedDisplay(raw) {
+  try {
+    if (!raw) return '—';
+    const d = new Date(raw);
+    if (Number.isNaN(d.getTime())) return String(raw).slice(0, 10);
+    return d.toLocaleString([], {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit'
+    });
+  } catch {
+    return String(raw || '—');
+  }
+}
+
+const canDeleteCurrentDraft = computed(() => {
+  if (!draftId.value) return false;
+  // Note Aid drafts are never provider-signed clinical notes; signed session notes live elsewhere.
+  const row = (recentDrafts.value || []).find((d) => String(d.id) === String(draftId.value));
+  if (row?.provider_signed_at || row?.signed_at) return false;
+  return true;
+});
+
+async function deleteCurrentDraft() {
+  if (!canDeleteCurrentDraft.value || deletingCurrentDraft.value) return;
+  if (!window.confirm('Delete this draft note? This cannot be undone.')) return;
+  deletingCurrentDraft.value = true;
+  try {
+    await api.post(
+      '/clinical-notes/drafts/delete',
+      {
+        agencyId: currentAgencyId.value,
+        draftIds: [Number(draftId.value)]
+      },
+      { skipGlobalLoading: true }
+    );
+    const id = draftId.value;
+    draftId.value = null;
+    currentDraftCreatedAt.value = null;
+    outputObj.value = null;
+    inputText.value = '';
+    recentDrafts.value = (recentDrafts.value || []).filter((d) => String(d.id) !== String(id));
+    approvalMessage.value = 'Draft deleted.';
+    await loadRecent();
+  } catch (e) {
+    approvalError.value = e.response?.data?.error?.message || e.message || 'Failed to delete draft';
+  } finally {
+    deletingCurrentDraft.value = false;
+  }
+}
+
+async function onLibrarySidebarDelete(row) {
+  if (!row) return;
+  if (row.source === 'work_queue') {
+    const status = String(row.docStatus || '');
+    if (status === 'signed') {
+      approvalError.value = 'Signed notes cannot be deleted from Note Aid.';
+      return;
+    }
+    if (!window.confirm('Remove this item from the work queue?')) return;
+    workQueueItems.value = (workQueueItems.value || []).filter((i) => i.id !== row.workQueueId);
+    if (activeWorkQueueItemId.value === row.workQueueId) activeWorkQueueItemId.value = null;
+    persistWorkQueue();
+    return;
+  }
+  const draftIdToDelete = row.draftId || row.raw?.id;
+  if (!draftIdToDelete) return;
+  if (row.docStatus === 'signed' || row.raw?.provider_signed_at) {
+    approvalError.value = 'Signed notes cannot be deleted.';
+    return;
+  }
+  if (!window.confirm('Delete this draft note? This cannot be undone.')) return;
+  try {
+    await api.post(
+      '/clinical-notes/drafts/delete',
+      {
+        agencyId: currentAgencyId.value,
+        draftIds: [Number(draftIdToDelete)]
+      },
+      { skipGlobalLoading: true }
+    );
+    if (String(draftId.value) === String(draftIdToDelete)) {
+      draftId.value = null;
+      currentDraftCreatedAt.value = null;
+      outputObj.value = null;
+    }
+    await loadRecent();
+    approvalMessage.value = 'Draft deleted.';
+  } catch (e) {
+    approvalError.value = e.response?.data?.error?.message || e.message || 'Failed to delete draft';
+  }
+}
 
 const toggleRecording = async () => {
   if (recordingBusy.value) return;
@@ -3131,6 +3310,7 @@ const onPlanImportSaved = async (plan) => {
 
 const onIntakeImportFinalized = async () => {
   showIntakeImportReview.value = false;
+  pastedIntakeText.value = '';
   if (effectiveClientId.value) {
     await loadClientTreatmentPlan(effectiveClientId.value);
     await loadClientIntakeSummary(effectiveClientId.value);
@@ -3139,6 +3319,7 @@ const onIntakeImportFinalized = async () => {
 
 const onDemographicsImported = async () => {
   showDemographicsImport.value = false;
+  pastedDemographicsText.value = '';
   approvalMessage.value = 'Demographics encrypted and saved to the client chart.';
 };
 
@@ -4812,6 +4993,18 @@ onBeforeUnmount(() => {
 .na-link-btn--sm {
   padding: 2px 4px;
   font-size: 0.78rem;
+}
+
+.na-link-btn--danger {
+  color: #b91c1c;
+}
+
+.na-field-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  margin-top: 6px;
 }
 
 .na-link-btn:disabled {

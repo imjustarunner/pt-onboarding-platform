@@ -34,7 +34,8 @@
         >
           <option value="status">Status</option>
           <option value="connection">Connection</option>
-          <option value="date">Date</option>
+          <option value="date">Created date</option>
+          <option value="service_date">Service date</option>
           <option value="client">Client</option>
           <option value="tenant">Tenant</option>
         </select>
@@ -125,47 +126,63 @@
           <span class="cnl-chevron" :class="{ open: isOpen(group.key) }" aria-hidden="true">›</span>
         </button>
         <div v-show="isOpen(group.key)" class="cnl-notes">
-          <button
+          <div
             v-for="d in group.drafts"
             :key="d.id"
-            type="button"
             class="cnl-row"
             :class="{
               selected: isSelected(d),
               [`cnl-row--${normalizeStatus(d.docStatus)}`]: true
             }"
             :style="rowStyle(d.docStatus)"
-            @click="$emit('select', d)"
           >
-            <span
-              class="cnl-conn-badge"
-              :style="connBadgeStyle(d.connection)"
-              :title="connMeta(d.connection).title"
-              aria-hidden="true"
-              v-html="connectionIconSvg(d.connection)"
-            />
-            <div>
-              <div class="cnl-row-top">
-                <strong>{{ rowTitle(d) }}</strong>
-                <span class="cnl-status-pill" :style="pillStyle(d.docStatus)">
-                  {{ meta(d.docStatus).shortLabel }}
-                </span>
+            <button
+              type="button"
+              class="cnl-row-main"
+              @click="$emit('select', d)"
+            >
+              <span
+                class="cnl-conn-badge"
+                :style="connBadgeStyle(d.connection)"
+                :title="connMeta(d.connection).title"
+                aria-hidden="true"
+                v-html="connectionIconSvg(d.connection)"
+              />
+              <div class="cnl-row-body">
+                <div class="cnl-row-top">
+                  <strong>{{ rowTitle(d) }}</strong>
+                  <span class="cnl-status-pill" :style="pillStyle(d.docStatus)">
+                    {{ meta(d.docStatus).shortLabel }}
+                  </span>
+                </div>
+                <div class="cnl-type">
+                  {{ rowTypeLabel(d) }}
+                  <span class="cnl-conn-label"> · {{ connMeta(d.connection).shortLabel }}</span>
+                </div>
+                <div v-if="d.agency_name || d.client_type" class="cnl-meta">
+                  <span v-if="d.agency_name">{{ d.agency_name }}</span>
+                  <span v-if="d.client_type"> · {{ d.client_type }}</span>
+                </div>
+                <div class="cnl-dos">
+                  DOS: {{ d.date_of_service ? String(d.date_of_service).slice(0, 10) : '—' }}
+                  <span v-if="d.created_at"> · Created {{ shortCreated(d.created_at) }}</span>
+                  <span v-if="d.source === 'work_queue'" class="cnl-queue-tag"> · In queue</span>
+                </div>
               </div>
-              <div class="cnl-type">
-                {{ rowTypeLabel(d) }}
-                <span class="cnl-conn-label"> · {{ connMeta(d.connection).shortLabel }}</span>
-              </div>
-              <div v-if="d.agency_name || d.client_type" class="cnl-meta">
-                <span v-if="d.agency_name">{{ d.agency_name }}</span>
-                <span v-if="d.client_type"> · {{ d.client_type }}</span>
-              </div>
-              <div class="cnl-dos">
-                DOS: {{ d.date_of_service ? String(d.date_of_service).slice(0, 10) : '—' }}
-                <span v-if="d.source === 'work_queue'" class="cnl-queue-tag"> · In queue</span>
-              </div>
+            </button>
+            <div class="cnl-row-actions">
+              <button
+                v-if="canDeleteRow(d)"
+                type="button"
+                class="cnl-delete"
+                title="Delete unsigned note"
+                @click="$emit('delete', d)"
+              >
+                Delete
+              </button>
+              <span class="cnl-chevron" aria-hidden="true">›</span>
             </div>
-            <span class="cnl-chevron" aria-hidden="true">›</span>
-          </button>
+          </div>
         </div>
       </div>
     </div>
@@ -215,6 +232,7 @@ const props = defineProps({
 defineEmits([
   'new',
   'select',
+  'delete',
   'update:tab',
   'update:search',
   'update:groupBy',
@@ -359,6 +377,24 @@ function rowTypeLabel(d) {
   return props.typeLabel(d.raw || d);
 }
 
+function canDeleteRow(d) {
+  const status = normalizeStatus(d?.docStatus);
+  if (status === DOC_STATUS.SIGNED) return false;
+  if (d?.raw?.provider_signed_at || d?.raw?.signed_at) return false;
+  return d?.source === 'draft' || d?.source === 'work_queue';
+}
+
+function shortCreated(raw) {
+  try {
+    if (!raw) return '';
+    const d = new Date(raw);
+    if (Number.isNaN(d.getTime())) return String(raw).slice(0, 10);
+    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  } catch {
+    return '';
+  }
+}
+
 function isSelected(d) {
   if (d.source === 'work_queue' && props.selectedWorkQueueId) {
     return String(d.workQueueId) === String(props.selectedWorkQueueId);
@@ -373,7 +409,9 @@ function isOpen(key) {
   if (Object.prototype.hasOwnProperty.call(openGroups, key)) return !!openGroups[key];
   if (props.groupBy === 'status') return true;
   if (props.groupBy === 'connection') return true;
-  if (props.groupBy === 'date' && key === todayIsoDate()) return true;
+  const today = todayIsoDate();
+  if (props.groupBy === 'date' && (key === today || key === `created:${today}`)) return true;
+  if (props.groupBy === 'service_date' && (key === today || key === `dos:${today}`)) return true;
   if (groups.value[0]?.key === key) return true;
   return false;
 }
@@ -605,18 +643,49 @@ function toggle(key) {
 }
 .cnl-row {
   display: grid;
-  grid-template-columns: 28px minmax(0, 1fr) 16px;
-  gap: 10px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
   align-items: center;
-  text-align: left;
   border: 1px solid transparent;
   background: #f8fafc;
   border-radius: 12px;
-  padding: 10px;
+  padding: 6px 8px 6px 6px;
+  color: inherit;
+  width: 100%;
+}
+.cnl-row-main {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+  text-align: left;
+  border: none;
+  background: transparent;
+  padding: 4px;
   cursor: pointer;
   color: inherit;
   width: 100%;
   font: inherit;
+  min-width: 0;
+}
+.cnl-row-body {
+  min-width: 0;
+}
+.cnl-row-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+  padding-right: 2px;
+}
+.cnl-delete {
+  border: none;
+  background: transparent;
+  color: #b91c1c;
+  font-size: 0.68rem;
+  font-weight: 700;
+  cursor: pointer;
+  padding: 2px 0;
 }
 .cnl-row:hover,
 .cnl-row.selected {
