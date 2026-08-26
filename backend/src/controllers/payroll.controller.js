@@ -124,6 +124,7 @@ import {
   computeSubmissionWindow,
   resolveClaimTimeZone
 } from '../utils/payrollSubmissionWindow.js';
+import { normalizeSupervisionStartDateYmd } from '../utils/supervisionHoursGate.util.js';
 import {
   getAgencyPtoPolicy,
   upsertAgencyPtoPolicy,
@@ -5304,8 +5305,8 @@ async function loadSupervisionPayGateMaps({ agencyId, periodStart }) {
         ind: Number(r.supervision_start_individual_hours || 0),
         grp: Number(r.supervision_start_group_hours || 0)
       });
-      const sd = String(r.supervision_start_date || '').slice(0, 10);
-      if (/^\d{4}-\d{2}-\d{2}$/.test(sd)) startDateByUserId.set(uid, sd);
+      const sd = normalizeSupervisionStartDateYmd(r.supervision_start_date);
+      if (sd) startDateByUserId.set(uid, sd);
     }
     if (preIds.length) {
       const placeholders = preIds.map(() => '?').join(',');

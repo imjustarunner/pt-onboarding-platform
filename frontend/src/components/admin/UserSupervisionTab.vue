@@ -353,6 +353,7 @@
 <script setup>
 import { ref, computed, onMounted, watch } from 'vue';
 import api from '../../services/api';
+import { parseUtcInstant } from '../../utils/timezones.js';
 
 const props = defineProps({
   userId: { type: [Number, String], required: true },
@@ -554,14 +555,9 @@ function sessionHoursBreakdown(session) {
 }
 
 function formatSessionDate(d) {
-  if (!d) return '';
-  const raw = String(d);
-  const m = /^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})(?::(\d{2}))?/.exec(raw);
-  const date = m
-    ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), Number(m[4]), Number(m[5]), Number(m[6] || 0))
-    : new Date(raw);
-  if (Number.isNaN(date.getTime())) return '';
-  return date.toLocaleDateString(undefined, {
+  const date = parseUtcInstant(d);
+  if (!date) return '';
+  return date.toLocaleString(undefined, {
     weekday: 'short',
     year: 'numeric',
     month: 'short',
@@ -572,7 +568,8 @@ function formatSessionDate(d) {
 }
 
 function isUpcoming(session) {
-  const end = new Date(session.endAt || session.startAt || 0);
+  const end = parseUtcInstant(session.endAt || session.startAt);
+  if (!end) return false;
   return end.getTime() > Date.now();
 }
 

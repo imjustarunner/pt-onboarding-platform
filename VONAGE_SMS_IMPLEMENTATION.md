@@ -97,5 +97,11 @@ VONAGE_VOICE_EVENT_URL=https://plottwisthq.com/api/voice-video/voice/event
 - **RTC Event**: `POST https://plottwisthq.com/api/voice-video/voice/event`
 - **Captions (Video)**: `POST https://plottwisthq.com/api/voice-video/voice/transcription`
 
+## 6. 10DLC registration
+
+Per-provider number strategy, Vonage campaign copy-paste text, and employee screenshot checklist:
+
+→ [`docs/VONAGE_10DLC_PROVIDER_NUMBER_PLAN.md`](docs/VONAGE_10DLC_PROVIDER_NUMBER_PLAN.md)
+
 ---
-*Last Updated: 2026-07-20*
+*Last Updated: 2026-08-26*

@@ -2265,10 +2265,18 @@ const routes = [
     }
   },
   {
-    // Legacy SMS hub — kept off Workspace until the Vonage inbox is product-ready.
+    // Legacy SMS hub → unified Home (SMS channel + deep link)
     path: '/:organizationSlug/admin/communications/sms',
     name: 'OrganizationCommunicationsSms',
-    component: () => import('../views/admin/CommunicationsHubView.vue'),
+    redirect: (to) => ({
+      path: `/${to.params.organizationSlug}/admin/communications`,
+      query: {
+        mode: 'home',
+        channel: 'sms',
+        ...(to.query.clientId ? { smsClientId: to.query.clientId } : {}),
+        ...(to.query.contactId ? { smsContactId: to.query.contactId } : {})
+      }
+    }),
     meta: {
       requiresAuth: true,
       requiresRole: ['admin', 'support', 'super_admin', 'clinical_practice_assistant', 'schedule_manager', 'provider', 'staff'],
@@ -2314,8 +2322,8 @@ const routes = [
   {
     path: '/:organizationSlug/admin/communications/thread/:userId/:clientId',
     redirect: (to) => ({
-      path: `/${to.params.organizationSlug}/admin/communications/sms`,
-      query: { clientId: to.params.clientId }
+      path: `/${to.params.organizationSlug}/admin/communications`,
+      query: { mode: 'home', channel: 'sms', smsClientId: to.params.clientId }
     })
   },
   {
@@ -3785,10 +3793,17 @@ const routes = [
     meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'super_admin'] }
   },
   {
-    // Legacy SMS hub — kept off Workspace until the Vonage inbox is product-ready.
     path: '/admin/communications/sms',
     name: 'CommunicationsSms',
-    component: () => import('../views/admin/CommunicationsHubView.vue'),
+    redirect: (to) => ({
+      path: '/admin/communications',
+      query: {
+        mode: 'home',
+        channel: 'sms',
+        ...(to.query.clientId ? { smsClientId: to.query.clientId } : {}),
+        ...(to.query.contactId ? { smsContactId: to.query.contactId } : {})
+      }
+    }),
     meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'super_admin', 'clinical_practice_assistant', 'schedule_manager', 'provider', 'staff'] }
   },
   {
@@ -3825,7 +3840,10 @@ const routes = [
   },
   {
     path: '/admin/communications/thread/:userId/:clientId',
-    redirect: (to) => ({ path: '/admin/communications/sms', query: { clientId: to.params.clientId } })
+    redirect: (to) => ({
+      path: '/admin/communications',
+      query: { mode: 'home', channel: 'sms', smsClientId: to.params.clientId }
+    })
   },
   {
     path: '/admin/schedule-approvals',

@@ -30,7 +30,7 @@ import {
   subtractHoursFromUtcMysql,
   DEFAULT_SCHEDULE_TZ
 } from '../utils/zonedWallTime.util.js';
-import { isSupervisionPayEligibleHours } from '../utils/supervisionHoursGate.util.js';
+import { isSupervisionPayEligibleHours, normalizeSupervisionStartDateYmd } from '../utils/supervisionHoursGate.util.js';
 
 const JOIN_PRESENCE_STALE_SECONDS = 25;
 
@@ -1584,8 +1584,7 @@ async function resolveSupervisionPayForParticipant({
        WHERE agency_id = ? AND user_id = ? LIMIT 1`,
       [aId, uid]
     );
-    const sd = String(uaRows?.[0]?.supervision_start_date || '').slice(0, 10);
-    if (/^\d{4}-\d{2}-\d{2}$/.test(sd)) effectiveStartDate = sd;
+    effectiveStartDate = normalizeSupervisionStartDateYmd(uaRows?.[0]?.supervision_start_date);
   } catch { /* ignore */ }
   if (asOf && effectiveStartDate && asOf < effectiveStartDate) {
     return {

@@ -1,5 +1,18 @@
 /** Shared gates for countable supervision hours and supervisee MEETING pay. */
 
+/** Normalize user_agencies.supervision_start_date (DATE string or mysql2 Date) to YYYY-MM-DD. */
+export function normalizeSupervisionStartDateYmd(raw) {
+  if (raw == null || raw === '') return null;
+  if (raw instanceof Date && !Number.isNaN(raw.getTime())) {
+    const y = raw.getUTCFullYear();
+    const m = String(raw.getUTCMonth() + 1).padStart(2, '0');
+    const d = String(raw.getUTCDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+  }
+  const sd = String(raw).trim().slice(0, 10);
+  return /^\d{4}-\d{2}-\d{2}$/.test(sd) ? sd : null;
+}
+
 export const MASTERS_SUPERVISION_CREDENTIAL_CODES = [
   'LPCC',
   'LMFT',

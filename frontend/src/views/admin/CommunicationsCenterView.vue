@@ -286,7 +286,7 @@ const activeMode = ref(modeFromQuery(route.query?.mode));
 
 const slug = computed(() => String(route.params?.organizationSlug || '').trim());
 const prefix = computed(() => (slug.value ? `/${slug.value}` : ''));
-const smsPath = computed(() => `${prefix.value}/admin/communications/sms`);
+const smsPath = computed(() => `${prefix.value}/admin/communications?mode=home&channel=sms`);
 const ticketsPath = computed(() => `${prefix.value}/tickets`);
 const escalationsPath = computed(() => `${prefix.value}/admin/escalations`);
 const campaignsPath = computed(() => `${prefix.value}/admin/communications/campaigns`);
@@ -403,7 +403,7 @@ const managementTools = computed(() => {
     { id: 'admin-update', label: 'Admin Update', desc: 'Monthly branded staff newsletter', to: `${prefix.value}/admin/communications?mode=admin-update`, roles: ['admin', 'support', 'super_admin', 'staff'] },
     { id: 'school', label: 'School alerts', desc: 'School portal notifications', to: `${prefix.value}/admin/communications?mode=school`, roles: null, needsFeed: true },
     { id: 'compliance', label: 'Compliance', desc: 'Proof and opt-in surfaces', to: `${feedPath.value}?tab=proof`, roles: null, needsFeed: true },
-    { id: 'sms', label: 'SMS inbox', desc: 'Clinical care threads', to: smsPath.value, roles: null, needsSms: true },
+    { id: 'sms', label: 'SMS inbox', desc: 'Clinical SMS in unified Home', to: smsPath.value, roles: null, needsSms: true },
     { id: 'tickets', label: 'Ticket desk', desc: 'Full support queue', to: ticketsPath.value, roles: null, needsSupport: true },
     { id: 'escalations', label: 'Escalations', desc: 'Leadership issue workflow', to: escalationsPath.value, roles: null, needsSupport: true },
     { id: 'feed', label: 'Feed archive', desc: 'Deep filters & history', to: feedPath.value, roles: null, needsFeed: true }

@@ -47,6 +47,7 @@ import {
   toTypedPeerScheduleSummary
 } from '../services/scheduleSummaryPrivacy.service.js';
 import { generateJoinToken, joinUrlForSupervision, joinUrlForTeamMeeting } from '../utils/joinToken.js';
+import { normalizeSupervisionStartDateYmd } from '../utils/supervisionHoursGate.util.js';
 import { buildPublicAppUrl } from '../utils/publicPortalUrl.js';
 import {
   clientScheduleInstantToUtcMysql,
@@ -8608,9 +8609,7 @@ export const setUserAgencySupervisionPrelicensed = async (req, res, next) => {
       return res.status(400).json({ error: { message: 'User is not assigned to this organization' } });
     }
 
-    const priorStart = membership?.supervision_start_date
-      ? String(membership.supervision_start_date).slice(0, 10)
-      : null;
+    const priorStart = normalizeSupervisionStartDateYmd(membership?.supervision_start_date);
     const updated = await User.setAgencySupervisionPrelicensedSettings(userId, agencyId, {
       isPrelicensed,
       isCompensable,

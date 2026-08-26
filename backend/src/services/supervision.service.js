@@ -2,6 +2,7 @@ import pool from '../config/database.js';
 import SupervisorAssignment from '../models/SupervisorAssignment.model.js';
 import UserInfoFieldDefinition from '../models/UserInfoFieldDefinition.model.js';
 import NotificationService from './notification.service.js';
+import { normalizeSupervisionStartDateYmd } from '../utils/supervisionHoursGate.util.js';
 
 const DEFAULT_SUPERVISION_POLICY = {
   enabled: false,
@@ -713,9 +714,7 @@ export async function setCurrentSupervisionBalances({
   const isCompensable = ua.supervision_is_compensable === 1
     || ua.supervision_is_compensable === true
     || String(ua.supervision_is_compensable || '') === '1';
-  const startDate = ua.supervision_start_date
-    ? String(ua.supervision_start_date).slice(0, 10)
-    : null;
+  const startDate = normalizeSupervisionStartDateYmd(ua.supervision_start_date);
 
   await pool.execute(
     `UPDATE user_agencies

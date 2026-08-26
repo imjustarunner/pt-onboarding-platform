@@ -1,5 +1,5 @@
 <script setup>
-import { computed, ref } from 'vue';
+import { computed, ref, watch } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import api from '../../services/api';
 
@@ -7,12 +7,21 @@ const props = defineProps({
   detail: { type: Object, default: null },
   agencyId: { type: [Number, String], default: null }
 });
-const emit = defineEmits(['patch']);
+const emit = defineEmits(['patch', 'refresh']);
 
 const router = useRouter();
 const route = useRoute();
-const taskBusy = ref(false);
-const taskMsg = ref('');
+const busy = ref('');
+const actionMsg = ref('');
+const attachType = ref('client');
+const attachQ = ref('');
+const attachResults = ref([]);
+const showAttach = ref(false);
+const showReferral = ref(false);
+const referralInitials = ref('');
+const referralReason = ref('');
+const showTicket = ref(false);
+const ticketQuestion = ref('');
 
 const conv = computed(() => props.detail?.conversation || null);
 const linked = computed(() => props.detail?.context?.linkedTo || {});
@@ -20,6 +29,18 @@ const recognized = computed(() => props.detail?.context?.recognized || null);
 
 const slug = computed(() => String(route.params?.organizationSlug || '').trim());
 const prefix = computed(() => (slug.value ? `/${slug.value}` : ''));
+
+watch(
+  () => props.detail?.conversation?.id,
+  () => {
+    actionMsg.value = '';
+    showAttach.value = false;
+    showReferral.value = false;
+    showTicket.value = false;
+    attachQ.value = '';
+    attachResults.value = [];
+  }
+);
 
 function openClient() {
   const id = linked.value?.client?.id;
@@ -39,22 +60,85 @@ function openTicket() {
   router.push(`${prefix.value}/tickets?ticketId=${id}`);
 }
 
-async function createTask() {
+async function runAction(key, fn) {
   if (!conv.value) return;
-  taskBusy.value = true;
-  taskMsg.value = '';
+  busy.value = key;
+  actionMsg.value = '';
   try {
-    await api.post('/me/tasks', {
-      title: `Follow up: ${conv.value.subject || 'Conversation'}`,
-      description: `From Communications Inbox conversation #${conv.value.id}\n\n${conv.value.last_message_preview || ''}`,
-      urgency: 'medium'
-    });
-    taskMsg.value = 'Task created';
+    const data = await fn();
+    actionMsg.value = data?.okMessage || 'Done';
+    emit('refresh', data);
   } catch (e) {
-    taskMsg.value = e?.response?.data?.error?.message || 'Could not create task';
+    actionMsg.value = e?.response?.data?.error?.message || e?.message || 'Action failed';
   } finally {
-    taskBusy.value = false;
+    busy.value = '';
   }
+}
+
+async function createTask() {
+  await runAction('task', async () => {
+    const { data } = await api.post(`/communications/conversations/${conv.value.id}/actions/create-task`, {});
+    return { ...data, okMessage: 'Task created' };
+  });
+}
+
+async function searchAttach() {
+  if (!props.agencyId || String(attachQ.value).trim().length < 2) {
+    attachResults.value = [];
+    return;
+  }
+  const { data } = await api.get('/communications/link-search', {
+    params: { agencyId: props.agencyId, type: attachType.value, q: attachQ.value },
+    skipGlobalLoading: true
+  });
+  attachResults.value = data?.results || [];
+}
+
+async function attachEntity(row) {
+  await runAction('attach', async () => {
+    const { data } = await api.post(`/communications/conversations/${conv.value.id}/links`, {
+      entityType: row.entity_type,
+      entityId: row.id,
+      label: row.label
+    });
+    showAttach.value = false;
+    attachQ.value = '';
+    attachResults.value = [];
+    return { ...data, okMessage: `Linked ${row.label}` };
+  });
+}
+
+async function createTicket() {
+  await runAction('ticket', async () => {
+    const { data } = await api.post(`/communications/conversations/${conv.value.id}/actions/create-ticket`, {
+      question: ticketQuestion.value || undefined,
+      schoolOrganizationId: linked.value?.school?.id
+    });
+    showTicket.value = false;
+    ticketQuestion.value = '';
+    return { ...data, okMessage: `Ticket #${data?.ticket?.id || ''} created` };
+  });
+}
+
+async function createReferral() {
+  await runAction('referral', async () => {
+    const { data } = await api.post(`/communications/conversations/${conv.value.id}/actions/create-referral`, {
+      organizationId: linked.value?.school?.id,
+      studentInitials: referralInitials.value,
+      referralReason: referralReason.value
+    });
+    showReferral.value = false;
+    referralInitials.value = '';
+    referralReason.value = '';
+    return { ...data, okMessage: 'Referral client created' };
+  });
+}
+
+async function addSchoolNote() {
+  await runAction('school-note', async () => {
+    const { data } = await api.post(`/communications/conversations/${conv.value.id}/actions/school-note`, {});
+    return { ...data, okMessage: 'Added to school record (internal note)' };
+  });
 }
 </script>
 
@@ -74,6 +158,15 @@ async function createTask() {
             <template v-if="recognized.activeReferrals != null"> · </template>
             {{ recognized.enrolledClients }} enrolled clients
           </template>
+        </p>
+      </section>
+
+      <section v-if="conv.ai_summary || conv.ai_suggested_action" class="uc-card ai">
+        <h4>AI suggested next step</h4>
+        <p v-if="conv.ai_suggested_action" class="uc-ai-action">{{ conv.ai_suggested_action }}</p>
+        <p v-else-if="conv.ai_summary" class="uc-muted">{{ conv.ai_summary }}</p>
+        <p v-if="conv.ai_summary_at" class="uc-muted tiny">
+          Updated {{ new Date(conv.ai_summary_at).toLocaleString() }}
         </p>
       </section>
 
@@ -104,6 +197,26 @@ async function createTask() {
         <div class="uc-ctx-btns">
           <button v-if="linked.client" type="button" class="uc-btn" @click="openClient">Open Client</button>
           <button v-if="linked.school" type="button" class="uc-btn" @click="openSchool">Open School</button>
+          <button type="button" class="uc-btn" @click="showAttach = !showAttach">
+            {{ showAttach ? 'Cancel attach' : 'Attach Client / School' }}
+          </button>
+        </div>
+        <div v-if="showAttach" class="uc-attach">
+          <div class="uc-attach-tabs">
+            <button type="button" :class="{ on: attachType === 'client' }" @click="attachType = 'client'; searchAttach()">Client</button>
+            <button type="button" :class="{ on: attachType === 'school' }" @click="attachType = 'school'; searchAttach()">School</button>
+          </div>
+          <input
+            v-model="attachQ"
+            type="search"
+            placeholder="Search…"
+            @input="searchAttach"
+          />
+          <ul v-if="attachResults.length">
+            <li v-for="r in attachResults" :key="`${r.entity_type}-${r.id}`">
+              <button type="button" @click="attachEntity(r)">{{ r.label }}</button>
+            </li>
+          </ul>
         </div>
       </section>
 
@@ -142,24 +255,56 @@ async function createTask() {
         <p v-if="conv.due_at" class="uc-muted">Due: {{ new Date(conv.due_at).toLocaleString() }}</p>
         <p v-if="conv.snoozed_until" class="uc-muted">Snoozed until: {{ new Date(conv.snoozed_until).toLocaleString() }}</p>
         <p v-if="conv.inbox_from_email" class="uc-muted">Inbox: {{ conv.inbox_from_email }}</p>
+        <p class="uc-muted">Channel: {{ conv.channel }}</p>
       </section>
 
       <section class="uc-card">
         <h4>Actions</h4>
-        <button type="button" class="uc-action" :disabled="taskBusy" @click="createTask">
-          {{ taskBusy ? 'Creating…' : 'Create Task' }}
+        <button type="button" class="uc-action" :disabled="!!busy" @click="createTask">
+          {{ busy === 'task' ? 'Creating…' : 'Create Task' }}
         </button>
         <button v-if="linked.ticket || conv.support_ticket_id" type="button" class="uc-action" @click="openTicket">
           Open Support Ticket
         </button>
+        <button type="button" class="uc-action" :disabled="!!busy" @click="showTicket = !showTicket">
+          Create Support Ticket
+        </button>
+        <div v-if="showTicket" class="uc-mini-form">
+          <p v-if="!linked.school" class="uc-muted">Attach a school first (required).</p>
+          <textarea v-model="ticketQuestion" rows="3" placeholder="Ticket question / summary…" />
+          <button type="button" class="uc-btn" :disabled="!linked.school || !!busy" @click="createTicket">
+            Create ticket
+          </button>
+        </div>
+        <button type="button" class="uc-action" :disabled="!!busy" @click="showReferral = !showReferral">
+          Create Referral
+        </button>
+        <div v-if="showReferral" class="uc-mini-form">
+          <p v-if="!linked.school" class="uc-muted">Attach a school first (required).</p>
+          <input v-model="referralInitials" type="text" placeholder="Student initials" maxlength="12" />
+          <textarea v-model="referralReason" rows="2" placeholder="Referral reason…" />
+          <button
+            type="button"
+            class="uc-btn"
+            :disabled="!linked.school || !referralInitials.trim() || !!busy"
+            @click="createReferral"
+          >
+            Create referral
+          </button>
+        </div>
+        <button
+          v-if="linked.school"
+          type="button"
+          class="uc-action"
+          :disabled="!!busy"
+          @click="addSchoolNote"
+        >
+          {{ busy === 'school-note' ? 'Saving…' : 'Add to School Record' }}
+        </button>
         <button v-if="linked.client" type="button" class="uc-action" @click="openClient">
-          Attach / view Client
+          View Client
         </button>
-        <button v-if="linked.school" type="button" class="uc-action" @click="openSchool">
-          Add to School Record
-        </button>
-        <p v-if="taskMsg" class="uc-muted">{{ taskMsg }}</p>
-        <p class="uc-muted tiny">Referral / medical-record attach coming in a later phase.</p>
+        <p v-if="actionMsg" class="uc-muted">{{ actionMsg }}</p>
       </section>
     </template>
   </aside>
@@ -186,6 +331,8 @@ async function createTask() {
   margin-bottom: 10px;
 }
 .uc-card.recog { border-color: #86efac; background: #f0fdf4; }
+.uc-card.ai { border-color: #86efac; background: #f7fee7; }
+.uc-ai-action { margin: 0; font-weight: 700; color: #3f6212; font-size: 0.9rem; }
 .uc-card h4 {
   margin: 0 0 8px;
   font-size: 0.72rem;
@@ -195,7 +342,6 @@ async function createTask() {
 }
 .uc-recog-title { margin: 0; font-weight: 700; color: #166534; }
 .uc-muted { color: #64748b; font-size: 0.8rem; margin: 4px 0 0; }
-.uc-muted.tiny { font-size: 0.72rem; margin-top: 10px; }
 .uc-dl { margin: 0; display: grid; grid-template-columns: 72px 1fr; gap: 6px 8px; font-size: 0.85rem; }
 .uc-dl dt { color: #94a3b8; }
 .uc-dl dd { margin: 0; color: #0f172a; font-weight: 600; }
@@ -219,6 +365,7 @@ async function createTask() {
   cursor: pointer;
 }
 .uc-btn:hover { border-color: #166534; color: #166534; }
+.uc-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 .uc-field {
   display: flex;
   flex-direction: column;
@@ -249,4 +396,39 @@ async function createTask() {
 }
 .uc-action:hover { background: #dcfce7; }
 .uc-action:disabled { opacity: 0.6; cursor: wait; }
+.uc-attach { margin-top: 10px; }
+.uc-attach-tabs { display: flex; gap: 4px; margin-bottom: 6px; }
+.uc-attach-tabs button {
+  border: 1px solid #cbd5e1;
+  background: #fff;
+  border-radius: 6px;
+  padding: 4px 8px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.uc-attach-tabs button.on { background: #166534; color: #fff; border-color: #166534; }
+.uc-attach input[type='search'],
+.uc-mini-form input,
+.uc-mini-form textarea {
+  width: 100%;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  padding: 7px 8px;
+  font-size: 0.85rem;
+  box-sizing: border-box;
+}
+.uc-attach ul { list-style: none; margin: 6px 0 0; padding: 0; max-height: 160px; overflow: auto; }
+.uc-attach li button {
+  width: 100%;
+  text-align: left;
+  border: none;
+  background: transparent;
+  padding: 6px 4px;
+  font-size: 0.82rem;
+  cursor: pointer;
+  border-radius: 6px;
+}
+.uc-attach li button:hover { background: #f1f5f9; }
+.uc-mini-form { display: flex; flex-direction: column; gap: 6px; margin: 6px 0 10px; padding: 8px; background: #f8fafc; border-radius: 8px; }
 </style>

@@ -1966,6 +1966,28 @@ if (!isBootstrap) {
   scheduleInboxDigest();
   setInterval(scheduleInboxDigest, 30 * 60 * 1000);
 
+  // Unified Inbox scheduled / undo-delayed outbound email
+  const scheduleUnifiedOutbound = async () => {
+    try {
+      const { processScheduledOutboundSends } = await import('./services/unifiedInbox.service.js');
+      await processScheduledOutboundSends({ limit: 40 });
+    } catch (error) {
+      const msg = String(error?.message || '');
+      const missing =
+        error?.code === 'ER_NO_SUCH_TABLE'
+        || error?.code === 'ER_BAD_FIELD_ERROR'
+        || msg.includes('scheduled_send_at')
+        || msg.includes('communication_messages');
+      if (missing) {
+        console.warn('Unified scheduled-send columns missing. Run migration 1312_unified_inbox_phase3.sql');
+      } else {
+        console.error('Error in unified outbound scheduler:', error);
+      }
+    }
+  };
+  scheduleUnifiedOutbound();
+  setInterval(scheduleUnifiedOutbound, 10 * 1000);
+
   // Join reminder (email/SMS 5 min before supervision + team meetings)
   const scheduleJoinReminder = async () => {
     try {

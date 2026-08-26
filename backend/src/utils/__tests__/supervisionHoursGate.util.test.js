@@ -1,9 +1,19 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  normalizeSupervisionStartDateYmd,
   sessionHoursAreCountable,
   isSupervisionPayEligibleHours
 } from '../supervisionHoursGate.util.js';
+
+test('normalizeSupervisionStartDateYmd handles mysql2 Date objects', () => {
+  assert.equal(
+    normalizeSupervisionStartDateYmd(new Date('2026-01-30T00:00:00.000Z')),
+    '2026-01-30'
+  );
+  assert.equal(normalizeSupervisionStartDateYmd('2026-01-30'), '2026-01-30');
+  assert.equal(normalizeSupervisionStartDateYmd(null), null);
+});
 
 test('sessionHoursAreCountable requires effective start date', () => {
   assert.equal(sessionHoursAreCountable({

@@ -1,6 +1,6 @@
 # Unified Communications Center — Product & Transition Plan
 
-**Status:** Planning  
+**Status:** Phase 5 shipped (SMS reply + nav consolidation); Workspace seat migration remains ops-only  
 **Target UI:** Front / Gmail / EHR hybrid (see mockups below)  
 **Related:** [`MESSAGES_AND_COMMUNICATIONS_CENTER.md`](./MESSAGES_AND_COMMUNICATIONS_CENTER.md), [`PLATFORM_EMAIL_SETUP.md`](./PLATFORM_EMAIL_SETUP.md)
 
@@ -364,22 +364,29 @@ Do **not** build a second Gmail UI in parallel — converge into one hub.
 
 ### Phase 3 — Operational actions + SMS/Calls parity
 
-1. Create Referral / Attach Client / Task / Ticket / School record from thread.  
-2. Bring SMS + calls/voicemail into the same list with channel icons.  
-3. Print/download, spam/block, scheduled send, undo send.  
+1. [x] Create Referral / Attach Client / Task / Ticket / School record from thread.  
+2. [x] Bring SMS + calls/voicemail into the same list with channel icons.  
+3. [x] Print/download, spam/block, scheduled send, undo send.  
+
+**Shipped:** migration `1312_unified_inbox_phase3.sql`; `channelInboxAdapter.service.js`; `unifiedInboxActions.service.js`; scheduled outbound tick in `server.js`; thread/context UI actions.  
 
 ### Phase 4 — AI + search polish
 
-1. Composer AI grounded in org/client state.  
-2. Thread summary + suggested next action.  
-3. Full email search (sender, subject, attachment, date, keyword).  
-4. Response-time analytics card.  
+1. [x] Composer AI grounded in org/client state.  
+2. [x] Thread summary + suggested next action.  
+3. [x] Full email search (sender, subject, attachment, date, keyword).  
+4. [x] Response-time analytics card.  
+
+**Shipped:** migration `1313_unified_inbox_phase4.sql`; `unifiedInboxAi.service.js`; `/ai/draft` + `/ai/insight`; expanded conversation search filters; Response Time (7d) KPI.  
 
 ### Phase 5 — Deprecate / migrate
 
-1. Soft-migrate staff off Workspace seats where eligible.  
-2. Redirect old Messages / SMS-only entry points into unified hub.  
-3. Update [`MESSAGES_AND_COMMUNICATIONS_CENTER.md`](./MESSAGES_AND_COMMUNICATIONS_CENTER.md) as the short product model; keep this doc as the build plan.  
+1. [x] Redirect legacy `/admin/communications/sms` → Center Home (SMS channel + `smsClientId` deep link).  
+2. [x] SMS reply from unified thread (same send path as clinical SMS hub: number, opt-in, Vonage).  
+3. [x] “Full SMS tools” opens Messages workspace SMS tab for care-thread actions.  
+4. **Deferred (ops, not code):** Workspace seat removal — IT/policy decision per user; Phase 2 app mailboxes already cover email without a Google seat.  
+
+**Shipped:** `clinicalSmsSend.service.js`; unified SMS reply; router redirects; Messages workspace link from SMS threads.  
 
 ---
 

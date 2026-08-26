@@ -37,7 +37,13 @@ Full product plan:
 
 **Phase 2:** Personal app mailboxes (1311), membership ACL, personal-email digest opt-in (24/48h), directory typeahead, external/PHI send preflight.
 
-Later: AI composer, SMS/call deep unification, Workspace seat removal.
+**Phase 3:** Thread actions (attach client/school, task/ticket/referral, school note), SMS/calls/voicemail in unified list (1312), print/download, spam/block, scheduled send + undo delay.
+
+**Phase 4:** Composer AI draft + thread summary/next action (1313), full search (sender/subject/body/attachment/date), Response Time (7d) KPI.
+
+**Phase 5:** SMS reply from unified Home; legacy SMS URLs redirect to Center; Full SMS tools → Messages workspace. Workspace seat removal is an org/IT policy step (not app code).
+
+Later: optional further chat/secure channel unification.
 
 ## Role matrix
 
@@ -61,10 +67,17 @@ Later: AI composer, SMS/call deep unification, Workspace seat removal.
 | `GET /api/communications/attention-summary` | Unified Inbox KPIs |
 | `GET/PATCH /api/communications/conversations` | Unified Inbox list / workflow |
 | `GET/POST /api/communications/conversations/:id` | Thread detail / compose |
-| `POST /api/communications/conversations/:id/reply` | Reply / internal note |
+| `POST /api/communications/conversations/:id/reply` | Reply / internal note / schedule |
+| `POST /api/communications/conversations/:id/links` | Attach client/school |
+| `POST /api/communications/conversations/:id/actions/*` | Task / ticket / referral / school note |
+| `GET /api/communications/conversations/:id/export` | Print / download |
+| `POST /api/communications/conversations/:id/spam` | Spam + block sender |
+| `POST /api/communications/conversations/:id/ai/draft` | Composer AI assist |
+| `POST /api/communications/conversations/:id/ai/insight` | Thread summary + next action |
 
 ## Related
 
 - [VONAGE_SMS_IMPLEMENTATION.md](../VONAGE_SMS_IMPLEMENTATION.md)
+- [VONAGE_10DLC_PROVIDER_NUMBER_PLAN.md](./VONAGE_10DLC_PROVIDER_NUMBER_PLAN.md) — 10DLC campaigns, per-provider numbers, screenshot evidence pack
 - [PLATFORM_EMAIL_SETUP.md](./PLATFORM_EMAIL_SETUP.md)
 - [UNIFIED_COMMUNICATIONS_CENTER_PLAN.md](./UNIFIED_COMMUNICATIONS_CENTER_PLAN.md)

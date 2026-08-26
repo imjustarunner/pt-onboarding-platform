@@ -15,7 +15,10 @@ import { computeSubmissionWindow } from '../utils/payrollSubmissionWindow.js';
 import { recomputeSupervisionAccountForUser } from './supervision.service.js';
 import { fetchMeetTranscriptForSession } from './googleMeetTranscript.service.js';
 import { triggerSupervisionSummaryFromTranscript } from './supervisionTranscriptSummary.service.js';
-import { sessionHoursAreCountable } from '../utils/supervisionHoursGate.util.js';
+import {
+  normalizeSupervisionStartDateYmd,
+  sessionHoursAreCountable
+} from '../utils/supervisionHoursGate.util.js';
 
 export const SUPERVISION_INDIRECT_TYPE_KEY = 'supervision';
 export const SUPERVISION_INDIRECT_LABEL = 'Supervision';
@@ -179,8 +182,7 @@ async function loadSupervisionEffectiveStartDate({ agencyId, userId }) {
        LIMIT 1`,
       [agencyId, userId]
     );
-    const sd = String(rows?.[0]?.supervision_start_date || '').slice(0, 10);
-    return /^\d{4}-\d{2}-\d{2}$/.test(sd) ? sd : null;
+    return normalizeSupervisionStartDateYmd(rows?.[0]?.supervision_start_date);
   } catch {
     return null;
   }

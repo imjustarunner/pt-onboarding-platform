@@ -1,5 +1,5 @@
 <script setup>
-import { computed, ref, watch } from 'vue';
+import { computed, onUnmounted, ref, watch } from 'vue';
 import api from '../../services/api';
 import DirectoryRecipientInput from './DirectoryRecipientInput.vue';
 
@@ -10,7 +10,7 @@ const props = defineProps({
   agencyId: { type: [Number, String], default: null }
 });
 
-const emit = defineEmits(['reply', 'patch', 'draft']);
+const emit = defineEmits(['reply', 'patch', 'draft', 'spam', 'insight', 'open-sms-tools']);
 
 const composerMode = ref('reply'); // reply | reply_all | forward | internal
 const showCcBcc = ref(false);
@@ -22,19 +22,50 @@ const body = ref('');
 const sending = ref(false);
 const sendError = ref('');
 const showSnooze = ref(false);
+const showSchedule = ref(false);
+const schedulePreset = ref(null);
 const confirmOpen = ref(false);
 const pendingWarnings = ref([]);
+const undoBanner = ref(null);
+const insight = ref(null);
+const insightBusy = ref(false);
+const aiBusy = ref(false);
+let undoTimer = null;
 
 const conv = computed(() => props.detail?.conversation || null);
 const messages = computed(() => props.detail?.messages || []);
+const isSms = computed(() => String(conv.value?.channel || '') === 'sms');
+const isCallLike = computed(() => ['call', 'voicemail'].includes(String(conv.value?.channel || '')));
+const isTelephony = computed(() => isSms.value || isCallLike.value);
+
+function smsDeepLinkIds() {
+  const ext = String(conv.value?.external_thread_id || '');
+  const clientMatch = ext.match(/^sms:client:(\d+)$/);
+  const contactMatch = ext.match(/^sms:contact:(\d+)$/);
+  const linkedClient = props.detail?.context?.linkedTo?.client?.id;
+  return {
+    clientId: clientMatch ? Number(clientMatch[1]) : linkedClient || null,
+    contactId: contactMatch ? Number(contactMatch[1]) : null
+  };
+}
 
 watch(
   () => props.detail?.conversation?.id,
   () => {
     sendError.value = '';
-    composerMode.value = 'reply';
+    composerMode.value = isCallLike.value ? 'internal' : 'reply';
     showCcBcc.value = false;
     confirmOpen.value = false;
+    showSchedule.value = false;
+    schedulePreset.value = null;
+    clearUndoBanner();
+    insight.value = props.detail?.conversation?.ai_summary
+      ? {
+          summary: props.detail.conversation.ai_summary,
+          suggestedAction: props.detail.conversation.ai_suggested_action,
+          cached: true
+        }
+      : null;
     body.value = props.detail?.conversation?.draft_body || '';
     subject.value = props.detail?.conversation?.subject || '';
     const primary = props.detail?.context?.participants?.find((p) => p.is_primary)
@@ -46,6 +77,15 @@ watch(
 );
 
 watch(body, (v) => emit('draft', v));
+onUnmounted(() => clearUndoBanner());
+
+function clearUndoBanner() {
+  undoBanner.value = null;
+  if (undoTimer) {
+    clearTimeout(undoTimer);
+    undoTimer = null;
+  }
+}
 
 function channelIcon(ch) {
   const m = { email: '✉', secure: '💬', sms: '📱', call: '📞', voicemail: '📞', internal: '👥', mention: '@' };
@@ -64,6 +104,7 @@ function fromLabel(msg) {
     const n = [msg.author_first_name, msg.author_last_name].filter(Boolean).join(' ');
     return n ? `${n} (internal note)` : 'Internal note';
   }
+  if (msg.send_status === 'scheduled') return 'Scheduled send';
   return msg.from?.name || msg.from?.email || (msg.direction === 'outbound' ? (props.inbox?.from_email || 'You') : 'Sender');
 }
 
@@ -72,7 +113,7 @@ async function send({ skipConfirm = false } = {}) {
   sending.value = true;
   sendError.value = '';
   try {
-    if (composerMode.value !== 'internal' && !skipConfirm) {
+    if (composerMode.value !== 'internal' && !isSms.value && !skipConfirm) {
       const { data: pre } = await api.post(
         '/communications/send-preflight',
         {
@@ -94,7 +135,7 @@ async function send({ skipConfirm = false } = {}) {
         return;
       }
     }
-    const { data } = await api.post(`/communications/conversations/${conv.value.id}/reply`, {
+    const payload = {
       mode: composerMode.value,
       isInternalNote: composerMode.value === 'internal',
       text: body.value,
@@ -103,9 +144,24 @@ async function send({ skipConfirm = false } = {}) {
       bcc: bcc.value,
       subject: subject.value,
       setStatus: composerMode.value === 'internal' ? undefined : 'waiting_on_them'
-    });
+    };
+    if (schedulePreset.value) payload.schedulePreset = schedulePreset.value;
+    const { data } = await api.post(`/communications/conversations/${conv.value.id}/reply`, payload);
     body.value = '';
     confirmOpen.value = false;
+    schedulePreset.value = null;
+    showSchedule.value = false;
+    if (data?.scheduled && data?.messageId) {
+      const expires = data.undoExpiresAt || data.scheduledSendAt;
+      undoBanner.value = {
+        messageId: data.messageId,
+        expiresAt: expires ? new Date(expires).getTime() : Date.now() + 20000
+      };
+      const ms = Math.max(1000, (undoBanner.value.expiresAt - Date.now()));
+      undoTimer = setTimeout(() => {
+        undoBanner.value = null;
+      }, ms);
+    }
     emit('reply', data);
   } catch (e) {
     sendError.value = e?.response?.data?.error?.message || e?.message || 'Send failed';
@@ -114,9 +170,119 @@ async function send({ skipConfirm = false } = {}) {
   }
 }
 
+async function undoSend() {
+  if (!conv.value || !undoBanner.value?.messageId) return;
+  try {
+    const { data } = await api.post(
+      `/communications/conversations/${conv.value.id}/messages/${undoBanner.value.messageId}/undo`,
+      {},
+      { skipGlobalLoading: true }
+    );
+    clearUndoBanner();
+    emit('reply', data);
+  } catch (e) {
+    sendError.value = e?.response?.data?.error?.message || 'Undo failed';
+    clearUndoBanner();
+  }
+}
+
 function setMode(mode) {
+  if (isCallLike.value && mode !== 'internal') return;
   composerMode.value = mode;
   if (mode === 'reply_all' || mode === 'forward') showCcBcc.value = true;
+}
+
+function openSmsTools() {
+  emit('open-sms-tools', smsDeepLinkIds());
+}
+
+async function printThread() {
+  if (!conv.value) return;
+  const { data } = await api.get(`/communications/conversations/${conv.value.id}/export`, {
+    params: { format: 'html' },
+    responseType: 'text',
+    skipGlobalLoading: true
+  });
+  const w = window.open('', '_blank');
+  if (!w) return;
+  w.document.write(data);
+  w.document.close();
+}
+
+async function downloadThread() {
+  if (!conv.value) return;
+  const { data } = await api.get(`/communications/conversations/${conv.value.id}/export`, {
+    params: { format: 'txt' },
+    responseType: 'text',
+    skipGlobalLoading: true
+  });
+  const blob = new Blob([data], { type: 'text/plain;charset=utf-8' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `conversation-${conv.value.id}.txt`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+async function markSpam() {
+  if (!conv.value) return;
+  if (!window.confirm('Mark as spam and block this sender?')) return;
+  try {
+    await api.post(`/communications/conversations/${conv.value.id}/spam`, { blockSender: true });
+    emit('spam');
+  } catch (e) {
+    sendError.value = e?.response?.data?.error?.message || 'Could not mark spam';
+  }
+}
+
+function pickSchedule(preset) {
+  schedulePreset.value = preset;
+  showSchedule.value = false;
+}
+
+async function runAiDraft() {
+  if (!conv.value || isTelephony.value) return;
+  aiBusy.value = true;
+  sendError.value = '';
+  try {
+    const { data } = await api.post(
+      `/communications/conversations/${conv.value.id}/ai/draft`,
+      { instruction: body.value.trim() || undefined },
+      { skipGlobalLoading: true }
+    );
+    if (data?.draft) {
+      body.value = data.draft;
+      if (composerMode.value === 'internal') composerMode.value = 'reply';
+    }
+  } catch (e) {
+    sendError.value = e?.response?.data?.error?.message || 'AI draft unavailable';
+  } finally {
+    aiBusy.value = false;
+  }
+}
+
+async function runInsight({ force = false } = {}) {
+  if (!conv.value) return;
+  insightBusy.value = true;
+  sendError.value = '';
+  try {
+    const { data } = await api.post(
+      `/communications/conversations/${conv.value.id}/ai/insight`,
+      { force },
+      { skipGlobalLoading: true }
+    );
+    insight.value = data;
+    emit('insight', data);
+  } catch (e) {
+    sendError.value = e?.response?.data?.error?.message || 'AI summary unavailable';
+  } finally {
+    insightBusy.value = false;
+  }
+}
+
+function applySuggestedStatus() {
+  if (!insight.value?.suggestedStatus) return;
+  emit('patch', { status: insight.value.suggestedStatus });
 }
 </script>
 
@@ -135,7 +301,10 @@ function setMode(mode) {
             <span class="uc-channel-pill">{{ channelIcon(conv.channel) }} {{ conv.channel }}</span>
           </h3>
           <p class="uc-meta">
-            Inbox: {{ conv.inbox_from_email || conv.inbox_display_name || '—' }}
+            <template v-if="conv.inbox_from_email || conv.inbox_display_name">
+              Inbox: {{ conv.inbox_from_email || conv.inbox_display_name }}
+            </template>
+            <template v-else>Agency channel</template>
             <template v-if="conv.owner_first_name">
               · Owner: {{ conv.owner_first_name }} {{ conv.owner_last_name }}
             </template>
@@ -147,6 +316,9 @@ function setMode(mode) {
           </button>
           <button type="button" class="uc-btn ghost" @click="emit('patch', { markUnread: true })">Mark unread</button>
           <button type="button" class="uc-btn ghost" @click="emit('patch', { archive: true })">Archive</button>
+          <button type="button" class="uc-btn ghost" @click="printThread">Print</button>
+          <button type="button" class="uc-btn ghost" @click="downloadThread">Download</button>
+          <button v-if="!isTelephony" type="button" class="uc-btn ghost danger" @click="markSpam">Spam</button>
           <div class="uc-snooze-wrap">
             <button type="button" class="uc-btn ghost" @click="showSnooze = !showSnooze">Snooze</button>
             <div v-if="showSnooze" class="uc-snooze-menu">
@@ -159,22 +331,58 @@ function setMode(mode) {
         </div>
       </header>
 
+      <div v-if="undoBanner" class="uc-undo">
+        Message scheduled — sending shortly.
+        <button type="button" @click="undoSend">Undo</button>
+      </div>
+
+      <div v-if="insight?.summary" class="uc-insight">
+        <div class="uc-insight-top">
+          <strong>Thread summary</strong>
+          <button type="button" class="uc-btn ghost" :disabled="insightBusy" @click="runInsight({ force: true })">
+            {{ insightBusy ? 'Refreshing…' : 'Refresh' }}
+          </button>
+        </div>
+        <p>{{ insight.summary }}</p>
+        <p v-if="insight.suggestedAction" class="uc-insight-action">
+          Next: {{ insight.suggestedAction }}
+          <button
+            v-if="insight.suggestedStatus"
+            type="button"
+            class="uc-btn ghost"
+            @click="applySuggestedStatus"
+          >
+            Set status → {{ insight.suggestedStatus.replace(/_/g, ' ') }}
+          </button>
+        </p>
+      </div>
+      <div v-else class="uc-insight empty">
+        <button type="button" class="uc-btn ghost" :disabled="insightBusy" @click="runInsight()">
+          {{ insightBusy ? 'Summarizing…' : 'Summarize thread' }}
+        </button>
+      </div>
+
       <div class="uc-messages">
         <article
           v-for="msg in messages"
           :key="msg.id"
           class="uc-msg"
-          :class="{ internal: msg.is_internal_note, outbound: msg.direction === 'outbound' }"
+          :class="{
+            internal: msg.is_internal_note,
+            outbound: msg.direction === 'outbound',
+            scheduled: msg.send_status === 'scheduled'
+          }"
         >
           <div class="uc-msg-head">
-            <span class="uc-ch">{{ channelIcon(msg.channel) }}</span>
+            <span class="uc-ch">{{ channelIcon(msg.channel || conv.channel) }}</span>
             <strong>{{ fromLabel(msg) }}</strong>
-            <time>{{ formatWhen(msg.sent_at || msg.created_at) }}</time>
+            <time>{{ formatWhen(msg.sent_at || msg.scheduled_send_at || msg.created_at) }}</time>
             <span v-if="msg.is_internal_note" class="uc-tag">Internal</span>
+            <span v-else-if="msg.send_status === 'scheduled'" class="uc-tag sched">Scheduled</span>
             <span v-else-if="msg.direction === 'inbound'" class="uc-tag ext">External</span>
           </div>
           <div v-if="msg.body_html" class="uc-msg-body" v-html="msg.body_html" />
-          <div v-else class="uc-msg-body">{{ msg.body_text }}</div>
+          <div v-else class="uc-msg-body pre">{{ msg.body_text }}</div>
           <ul v-if="msg.attachments?.length" class="uc-atts">
             <li v-for="a in msg.attachments" :key="a.id">📎 {{ a.filename }}</li>
           </ul>
@@ -182,15 +390,36 @@ function setMode(mode) {
       </div>
 
       <footer class="uc-composer">
+        <p v-if="isCallLike" class="uc-channel-hint">
+          Call/voicemail threads are read-only here. Add an internal note, or open Calls for recordings and dial-back.
+        </p>
+        <p v-else-if="isSms" class="uc-channel-hint">
+          SMS replies send through your assigned care number (same rules as the clinical SMS inbox: number, opt-in, A2P).
+        </p>
         <div class="uc-composer-tabs">
-          <button type="button" :class="{ on: composerMode === 'reply' }" @click="setMode('reply')">Reply</button>
-          <button type="button" :class="{ on: composerMode === 'reply_all' }" @click="setMode('reply_all')">Reply all</button>
-          <button type="button" :class="{ on: composerMode === 'forward' }" @click="setMode('forward')">Forward</button>
+          <template v-if="!isTelephony">
+            <button type="button" :class="{ on: composerMode === 'reply' }" @click="setMode('reply')">Reply</button>
+            <button type="button" :class="{ on: composerMode === 'reply_all' }" @click="setMode('reply_all')">Reply all</button>
+            <button type="button" :class="{ on: composerMode === 'forward' }" @click="setMode('forward')">Forward</button>
+          </template>
+          <template v-else-if="isSms">
+            <button type="button" :class="{ on: composerMode === 'reply' }" @click="setMode('reply')">SMS reply</button>
+            <button type="button" class="linkish" @click="openSmsTools">Full SMS tools</button>
+          </template>
           <button type="button" :class="{ on: composerMode === 'internal' }" @click="setMode('internal')">Internal note</button>
-          <button type="button" class="linkish" @click="showCcBcc = !showCcBcc">CC / BCC</button>
+          <button v-if="!isTelephony" type="button" class="linkish" @click="showCcBcc = !showCcBcc">CC / BCC</button>
+          <button
+            v-if="!isTelephony && !isSms"
+            type="button"
+            class="linkish ai"
+            :disabled="aiBusy"
+            @click="runAiDraft"
+          >
+            {{ aiBusy ? 'Drafting…' : 'AI assist' }}
+          </button>
         </div>
 
-        <div v-if="composerMode !== 'internal'" class="uc-addr">
+        <div v-if="composerMode !== 'internal' && !isTelephony" class="uc-addr">
           <label>To <DirectoryRecipientInput v-model="to" :agency-id="agencyId" /></label>
           <template v-if="showCcBcc || composerMode === 'reply_all' || composerMode === 'forward'">
             <label>CC <DirectoryRecipientInput v-model="cc" :agency-id="agencyId" /></label>
@@ -202,7 +431,7 @@ function setMode(mode) {
         <textarea
           v-model="body"
           class="uc-body-input"
-          :placeholder="composerMode === 'internal' ? 'Internal note (not sent externally)…' : 'Write your reply…'"
+          :placeholder="composerMode === 'internal' ? 'Internal note (not sent externally)…' : (isSms ? 'Text message…' : 'Write your reply…')"
           rows="5"
         />
 
@@ -222,15 +451,26 @@ function setMode(mode) {
 
         <div class="uc-composer-bar">
           <button type="button" class="uc-btn primary" :disabled="sending || !body.trim()" @click="send()">
-            {{ sending ? 'Sending…' : (composerMode === 'internal' ? 'Add note' : 'Send') }}
+            {{ sending ? 'Sending…' : (composerMode === 'internal' ? 'Add note' : (isSms ? 'Send SMS' : (schedulePreset ? 'Schedule send' : 'Send'))) }}
           </button>
+          <div v-if="!isTelephony && composerMode !== 'internal'" class="uc-snooze-wrap">
+            <button type="button" class="uc-btn ghost" @click="showSchedule = !showSchedule">
+              {{ schedulePreset ? `Later: ${schedulePreset}` : 'Send later' }}
+            </button>
+            <div v-if="showSchedule" class="uc-snooze-menu">
+              <button type="button" @click="pickSchedule(null)">Send with undo delay</button>
+              <button type="button" @click="pickSchedule('in_1_hour')">In 1 hour</button>
+              <button type="button" @click="pickSchedule('tomorrow_9am')">Tomorrow 9am</button>
+              <button type="button" @click="pickSchedule('monday_9am')">Next Monday 9am</button>
+            </div>
+          </div>
           <button type="button" class="uc-btn ghost" @click="emit('patch', { status: 'follow_up', snoozePreset: 'tomorrow' })">
             Follow up
           </button>
           <button type="button" class="uc-btn ghost" @click="emit('patch', { status: 'waiting_on_them' })">
             Waiting on them
           </button>
-          <span v-if="inbox?.from_email" class="uc-from-hint">Sending as {{ inbox.from_email }}</span>
+          <span v-if="inbox?.from_email && !isTelephony" class="uc-from-hint">Sending as {{ inbox.from_email }}</span>
         </div>
       </footer>
     </template>
@@ -279,6 +519,63 @@ function setMode(mode) {
 }
 .uc-meta { margin: 4px 0 0; font-size: 0.8rem; color: #64748b; }
 .uc-thread-actions { display: flex; flex-wrap: wrap; gap: 6px; align-items: flex-start; }
+.uc-btn.danger { color: #b91c1c; }
+.uc-undo {
+  background: #166534;
+  color: #fff;
+  padding: 8px 14px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+.uc-undo button {
+  border: 1px solid rgba(255,255,255,0.7);
+  background: transparent;
+  color: #fff;
+  border-radius: 6px;
+  padding: 4px 10px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.uc-insight {
+  margin: 0;
+  padding: 10px 16px;
+  background: #f0fdf4;
+  border-bottom: 1px solid #bbf7d0;
+  font-size: 0.85rem;
+  color: #14532d;
+}
+.uc-insight.empty {
+  background: #f8fafc;
+  border-bottom: 1px solid #e2e8f0;
+}
+.uc-insight-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+.uc-insight p { margin: 4px 0 0; }
+.uc-insight-action {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  font-weight: 600;
+}
+.uc-composer-tabs .linkish.ai { color: #166534; font-weight: 700; }
+.uc-channel-hint {
+  margin: 0 0 8px;
+  font-size: 0.8rem;
+  color: #64748b;
+}
+.uc-msg.scheduled { border-left: 3px solid #f59e0b; }
+.uc-tag.sched { background: #fef3c7; color: #92400e; }
+.uc-msg-body.pre { white-space: pre-wrap; }
 .uc-snooze-wrap { position: relative; }
 .uc-snooze-menu {
   position: absolute;

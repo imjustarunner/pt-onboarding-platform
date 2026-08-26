@@ -1,5 +1,6 @@
 <script setup>
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
 import api from '../../services/api';
 import { useAgencyStore } from '../../store/agency';
 import { useAuthStore } from '../../store/auth';
@@ -15,6 +16,13 @@ const props = defineProps({
 
 const agencyStore = useAgencyStore();
 const authStore = useAuthStore();
+const route = useRoute();
+const router = useRouter();
+
+const orgPrefix = computed(() => {
+  const slug = String(route.params?.organizationSlug || '').trim();
+  return slug ? `/${slug}` : '';
+});
 
 const resolvedAgencyId = computed(() => {
   const n = parseInt(props.agencyId ?? agencyStore.currentAgency?.id, 10);
@@ -40,6 +48,11 @@ const selectedInboxId = ref(null); // null = My Inbox (or personal id after ensu
 const channel = ref('all');
 const listFilter = ref('all');
 const searchQ = ref('');
+const showSearchExtras = ref(false);
+const searchFrom = ref('');
+const searchHasAttachment = ref('');
+const searchDateFrom = ref('');
+const searchDateTo = ref('');
 const showCompose = ref(false);
 const prefs = ref({ personalEmailNotify: false, digestHours: 48, lastInboxDigestAt: null });
 
@@ -117,7 +130,11 @@ async function loadConversations() {
       agencyId: resolvedAgencyId.value,
       filter: listFilter.value,
       channel: channel.value === 'all' ? undefined : channel.value,
-      q: searchQ.value || undefined
+      q: searchQ.value || undefined,
+      fromEmail: searchFrom.value || undefined,
+      hasAttachment: searchHasAttachment.value === '' ? undefined : searchHasAttachment.value,
+      dateFrom: searchDateFrom.value || undefined,
+      dateTo: searchDateTo.value || undefined
     };
     if (selectedInboxId.value === 'assigned') {
       params.inboxId = 'assigned';
@@ -192,10 +209,87 @@ async function sendReply(data) {
   await Promise.all([loadConversations(), loadAttention()]);
 }
 
+async function onContextRefresh(data) {
+  if (data?.conversation || data?.messages || data?.context) {
+    detail.value = {
+      ...(detail.value || {}),
+      ...data,
+      conversation: data.conversation || detail.value?.conversation,
+      messages: data.messages || detail.value?.messages,
+      context: data.context || detail.value?.context
+    };
+  } else if (selectedId.value) {
+    await openConversation(selectedId.value);
+  }
+  await Promise.all([loadConversations(), loadAttention()]);
+}
+
+async function onSpam() {
+  selectedId.value = null;
+  detail.value = null;
+  await Promise.all([loadConversations(), loadAttention()]);
+}
+
+function onInsight(data) {
+  if (!detail.value?.conversation || !data) return;
+  detail.value = {
+    ...detail.value,
+    conversation: {
+      ...detail.value.conversation,
+      ai_summary: data.summary || detail.value.conversation.ai_summary,
+      ai_suggested_action: data.suggestedAction || detail.value.conversation.ai_suggested_action,
+      ai_summary_at: new Date().toISOString()
+    }
+  };
+}
+
 async function onComposeSent() {
   showCompose.value = false;
   await refreshAll();
 }
+
+function openSmsTools({ clientId, contactId } = {}) {
+  router
+    .push({
+      path: `${orgPrefix.value}/messages`,
+      query: {
+        view: 'workspace',
+        tab: 'sms',
+        ...(clientId ? { clientId: String(clientId) } : {}),
+        ...(contactId ? { contactId: String(contactId) } : {})
+      }
+    })
+    .catch(() => {});
+}
+
+watch(
+  () => route.query.channel,
+  (v) => {
+    if (v && String(v) !== 'all') channel.value = String(v);
+  },
+  { immediate: true }
+);
+
+async function applyRouteDeepLink() {
+  const q = route.query || {};
+  if (q.channel && String(q.channel) !== 'all') {
+    channel.value = String(q.channel);
+  }
+  if (!conversations.value.length) return;
+  const smsClientId = q.smsClientId ? Number(q.smsClientId) : null;
+  const smsContactId = q.smsContactId ? Number(q.smsContactId) : null;
+  if (!smsClientId && !smsContactId) return;
+  const ext = smsClientId ? `sms:client:${smsClientId}` : `sms:contact:${smsContactId}`;
+  const row = conversations.value.find((c) => c.external_thread_id === ext);
+  if (row) await openConversation(row.id);
+}
+
+watch(
+  () => [route.query.smsClientId, route.query.smsContactId, route.query.channel, conversations.value.length],
+  () => {
+    applyRouteDeepLink();
+  }
+);
 
 watch(resolvedAgencyId, () => {
   selectedId.value = null;
@@ -203,7 +297,7 @@ watch(resolvedAgencyId, () => {
   refreshAll();
 });
 
-watch([selectedInboxId, channel, listFilter], () => {
+watch([selectedInboxId, channel, listFilter, searchFrom, searchHasAttachment, searchDateFrom, searchDateTo], () => {
   loadConversations();
 });
 
@@ -239,15 +333,41 @@ defineExpose({ refreshAll });
           v-model="searchQ"
           class="uc-search"
           type="search"
-          placeholder="Search conversations, people, emails…"
+          placeholder="Search keyword, from:email, subject:…, file:…"
           aria-label="Search conversations"
         />
+        <button type="button" class="uc-search-toggle" @click="showSearchExtras = !showSearchExtras">
+          {{ showSearchExtras ? 'Hide filters' : 'Filters' }}
+        </button>
       </div>
       <div class="uc-top-user">
         <span class="uc-user-name">{{ authStore.user?.first_name }} {{ authStore.user?.last_name?.charAt(0) }}.</span>
         <span class="uc-muted small">{{ selectedInbox?.display_name || 'My Inbox' }}</span>
       </div>
     </header>
+
+    <div v-if="showSearchExtras" class="uc-search-extras">
+      <label>
+        From
+        <input v-model="searchFrom" type="text" placeholder="sender@…" />
+      </label>
+      <label>
+        Attachment
+        <select v-model="searchHasAttachment">
+          <option value="">Any</option>
+          <option value="1">Has attachment</option>
+          <option value="0">No attachment</option>
+        </select>
+      </label>
+      <label>
+        From date
+        <input v-model="searchDateFrom" type="date" />
+      </label>
+      <label>
+        To date
+        <input v-model="searchDateTo" type="date" />
+      </label>
+    </div>
 
     <div class="uc-kpi-row">
       <button type="button" class="uc-kpi" :class="{ on: listFilter === 'needs_reply' }" @click="listFilter = 'needs_reply'">
@@ -270,6 +390,21 @@ defineExpose({ refreshAll });
         <strong>{{ attention.assignedToYou }}</strong>
         <span class="uc-kpi-hint">Require your action</span>
       </button>
+      <div class="uc-kpi metric" title="Average first response time (email) over the last 7 days">
+        <span class="uc-kpi-label">Response Time (7d)</span>
+        <strong>
+          <template v-if="attention.responseTime?.avgHours != null">
+            {{ attention.responseTime.avgHours }}h
+          </template>
+          <template v-else>—</template>
+        </strong>
+        <span class="uc-kpi-hint">
+          <template v-if="attention.responseTime?.sampleSize">
+            n={{ attention.responseTime.sampleSize }} · median {{ attention.responseTime.medianHours }}h
+          </template>
+          <template v-else>Avg first reply</template>
+        </span>
+      </div>
     </div>
 
     <div v-if="error" class="uc-error">{{ error }}</div>
@@ -305,12 +440,16 @@ defineExpose({ refreshAll });
         @reply="sendReply"
         @patch="patchConversation"
         @draft="onDraftInput"
+        @spam="onSpam"
+        @insight="onInsight"
+        @open-sms-tools="openSmsTools"
       />
 
       <UnifiedContextPanel
         :detail="detail"
         :agency-id="resolvedAgencyId"
         @patch="patchConversation"
+        @refresh="onContextRefresh"
       />
     </div>
 
@@ -346,15 +485,55 @@ defineExpose({ refreshAll });
 }
 .uc-muted { color: #64748b; font-size: 0.85rem; margin: 2px 0 0; }
 .uc-muted.small { font-size: 0.75rem; }
-.uc-search-wrap { display: flex; }
+.uc-search-wrap { display: flex; align-items: center; gap: 8px; justify-content: center; }
 .uc-search {
   width: 100%;
   max-width: 520px;
-  margin: 0 auto;
   border: 1px solid #d1d5db;
   border-radius: 10px;
   padding: 10px 14px;
   font-size: 0.95rem;
+  background: #fff;
+}
+.uc-search-toggle {
+  border: 1px solid #cbd5e1;
+  background: #fff;
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.uc-search-extras {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 10px 12px;
+}
+.uc-search-extras label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #64748b;
+}
+.uc-search-extras input,
+.uc-search-extras select {
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  padding: 7px 8px;
+  font-size: 0.85rem;
+  font-weight: 500;
+  text-transform: none;
+  letter-spacing: normal;
+  color: #0f172a;
   background: #fff;
 }
 .uc-top-user { text-align: right; }
@@ -362,7 +541,7 @@ defineExpose({ refreshAll });
 
 .uc-kpi-row {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 10px;
 }
 .uc-kpi {
@@ -374,10 +553,12 @@ defineExpose({ refreshAll });
   cursor: pointer;
   transition: border-color 0.15s, box-shadow 0.15s;
 }
+.uc-kpi.metric { cursor: default; }
 .uc-kpi:hover, .uc-kpi.on {
   border-color: #166534;
   box-shadow: 0 0 0 1px #16653422;
 }
+.uc-kpi.metric:hover { border-color: #e2e8f0; box-shadow: none; }
 .uc-kpi-label { display: block; font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: #64748b; }
 .uc-kpi strong { display: block; font-size: 1.6rem; color: #166534; line-height: 1.2; margin: 4px 0; }
 .uc-kpi-hint { font-size: 0.78rem; color: #94a3b8; }
