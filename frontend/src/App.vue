@@ -126,7 +126,9 @@
               class="nav-links-wrapper"
               :class="{
                 'nav-menus-open': navDropdownOpen,
-                'nav-links-scrollable': navLinksCanScroll
+                'nav-links-scrollable': navLinksCanScroll,
+                'nav-links-fade-start': navLinksFadeStart,
+                'nav-links-fade-end': navLinksFadeEnd
               }"
               :title="navLinksCanScroll ? 'Scroll sideways to see more menu items' : undefined"
             >
@@ -2879,6 +2881,8 @@ watch(effectivePreviewViewport, (next) => {
 // ---- Brand switcher + nav dropdowns (top-nav) ----
 const navLinksWrapperEl = ref(null);
 const navLinksCanScroll = ref(false);
+const navLinksFadeStart = ref(false);
+const navLinksFadeEnd = ref(false);
 let navLinksResizeObserver = null;
 let navLinksBoundEl = null;
 
@@ -2886,9 +2890,17 @@ const updateNavLinksScrollState = () => {
   const el = navLinksWrapperEl.value;
   if (!el) {
     navLinksCanScroll.value = false;
+    navLinksFadeStart.value = false;
+    navLinksFadeEnd.value = false;
     return;
   }
-  navLinksCanScroll.value = el.scrollWidth > el.clientWidth + 2;
+  const maxScroll = el.scrollWidth - el.clientWidth;
+  const canScroll = maxScroll > 2;
+  navLinksCanScroll.value = canScroll;
+  // Edge fades via overlays (not mask-image) — mask + overflow-x scroll
+  // was blanking/corrupting the row until a scroll-back forced a repaint.
+  navLinksFadeStart.value = canScroll && el.scrollLeft > 2;
+  navLinksFadeEnd.value = canScroll && el.scrollLeft < maxScroll - 2;
 };
 
 const onNavWheelScroll = (e) => {
@@ -2911,11 +2923,13 @@ const onNavWheelScroll = (e) => {
   if (Math.abs(e.deltaX) > Math.abs(e.deltaY)) return;
   e.preventDefault();
   el.scrollLeft += e.deltaY;
+  updateNavLinksScrollState();
 };
 
 function unbindNavLinksScrollHelpers() {
   if (navLinksBoundEl) {
     navLinksBoundEl.removeEventListener('wheel', onNavWheelScroll);
+    navLinksBoundEl.removeEventListener('scroll', updateNavLinksScrollState);
     navLinksBoundEl = null;
   }
   if (navLinksResizeObserver) {
@@ -2932,10 +2946,14 @@ function bindNavLinksScrollHelpers() {
   navLinksBoundEl = el;
   // Non-passive so vertical wheel can scroll the overflowed nav row.
   el.addEventListener('wheel', onNavWheelScroll, { passive: false });
+  el.addEventListener('scroll', updateNavLinksScrollState, { passive: true });
   updateNavLinksScrollState();
   if (typeof ResizeObserver !== 'undefined') {
     navLinksResizeObserver = new ResizeObserver(() => updateNavLinksScrollState());
     navLinksResizeObserver.observe(el);
+    // Also watch the inner row so newly mounted links remeasure overflow.
+    const inner = el.querySelector('.nav-links');
+    if (inner) navLinksResizeObserver.observe(inner);
   }
   window.addEventListener('resize', updateNavLinksScrollState);
 }
@@ -7747,8 +7765,12 @@ button.nav-dropdown-button-link:hover {
   width: 100%;
 }
 
-/* Wrapper for nav-links — horizontal scroll when items overflow (common under ~1600px). */
+/* Wrapper for nav-links — horizontal scroll when items overflow (common under ~1600px).
+   Do NOT use mask-image / -webkit-mask-image here: with overflow-x:auto it causes
+   intermittent blank/corrupt paint on scroll (fixed only by scrolling back). Use
+   absolute ::before/::after fades instead. */
 .nav-links-wrapper {
+  position: relative;
   flex: 1;
   min-width: 0;
   overflow-x: auto;
@@ -7758,14 +7780,33 @@ button.nav-dropdown-button-link:hover {
   touch-action: pan-x;
   scrollbar-width: thin;
   scrollbar-color: rgba(255, 255, 255, 0.45) transparent;
-  /* Soft cue that more items exist off-screen to the right */
-  mask-image: linear-gradient(90deg, #000 0%, #000 calc(100% - 28px), transparent 100%);
-  -webkit-mask-image: linear-gradient(90deg, #000 0%, #000 calc(100% - 28px), transparent 100%);
+  /* Isolate scroll layer so dropdowns / brand menu aren't dragged into bad compositing */
+  transform: translateZ(0);
 }
 
-.nav-links-wrapper:not(.nav-links-scrollable) {
-  mask-image: none;
-  -webkit-mask-image: none;
+.nav-links-wrapper::before,
+.nav-links-wrapper::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 28px;
+  pointer-events: none;
+  z-index: 3;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+.nav-links-wrapper::before {
+  left: 0;
+  background: linear-gradient(90deg, color-mix(in srgb, var(--primary) 92%, #0f172a 8%), transparent);
+}
+.nav-links-wrapper::after {
+  right: 0;
+  background: linear-gradient(270deg, color-mix(in srgb, var(--primary) 92%, #0f172a 8%), transparent);
+}
+.nav-links-wrapper.nav-links-fade-start::before,
+.nav-links-wrapper.nav-links-fade-end::after {
+  opacity: 1;
 }
 
 .nav-links-wrapper::-webkit-scrollbar {
@@ -7805,8 +7846,15 @@ button.nav-dropdown-button-link:hover {
   /* Tall enough for Management / Communications (30+ items) without inner scroll */
   padding-bottom: 1400px;
   margin-bottom: -1400px;
-  mask-image: none;
-  -webkit-mask-image: none;
+}
+.nav-links-wrapper.nav-menus-open::before,
+.nav-links-wrapper.nav-menus-open::after {
+  opacity: 0;
+}
+
+/* Brand Switch Tenant menu must not be clipped when overflow-x:clip collapses both axes */
+.navbar:has(.brand-menu) {
+  overflow: visible;
 }
 
 .nav-availability {

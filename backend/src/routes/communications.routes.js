@@ -9,6 +9,20 @@ import {
 } from '../controllers/communications.controller.js';
 import { getCommunicationsCenterSummary } from '../controllers/messagesDashboard.controller.js';
 import {
+  getUnifiedInboxes,
+  getUnifiedAttentionSummary,
+  getUnifiedConversations,
+  getUnifiedConversation,
+  patchUnifiedConversation,
+  postUnifiedReply,
+  postUnifiedCompose,
+  postEnsurePersonalInbox,
+  getUnifiedPrefs,
+  patchUnifiedPrefs,
+  getUnifiedDirectory,
+  postSendPreflight
+} from '../controllers/unifiedInbox.controller.js';
+import {
   getCallSettings,
   getTransferTargets,
   holdCall,
@@ -27,6 +41,20 @@ router.use(authenticate);
 
 router.get('/feed', getCommunicationsFeed);
 router.get('/center-summary', getCommunicationsCenterSummary);
+
+// Unified Communications Inbox (Phase 1 + 2)
+router.get('/inboxes', getUnifiedInboxes);
+router.post('/inboxes/personal/ensure', postEnsurePersonalInbox);
+router.get('/attention-summary', getUnifiedAttentionSummary);
+router.get('/prefs', getUnifiedPrefs);
+router.patch('/prefs', patchUnifiedPrefs);
+router.get('/directory', getUnifiedDirectory);
+router.post('/send-preflight', postSendPreflight);
+router.get('/conversations', getUnifiedConversations);
+router.post('/conversations', postUnifiedCompose);
+router.get('/conversations/:id', getUnifiedConversation);
+router.patch('/conversations/:id', patchUnifiedConversation);
+router.post('/conversations/:id/reply', postUnifiedReply);
 router.post('/test-email', sendSystemTestEmail);
 router.post('/test-email/preflight', getSystemTestEmailPreflight);
 router.get('/calls', getCallsFeed);

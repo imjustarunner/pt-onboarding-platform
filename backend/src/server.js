@@ -1945,6 +1945,27 @@ if (!isBootstrap) {
   scheduleDailyDigest();
   setInterval(scheduleDailyDigest, 15 * 60 * 1000);
 
+  // Unified Inbox personal-email digests (24/48h delay for stale needs_reply / follow_up)
+  const scheduleInboxDigest = async () => {
+    try {
+      const { runInboxDigestTick } = await import('./services/inboxDigest.service.js');
+      await runInboxDigestTick();
+    } catch (error) {
+      const msg = String(error?.message || '');
+      const missing =
+        error?.code === 'ER_NO_SUCH_TABLE'
+        || msg.includes('user_communication_prefs')
+        || msg.includes('communication_conversations');
+      if (missing) {
+        console.warn('Inbox digest tables missing. Run migration 1311_unified_inbox_phase2_personal_mailboxes.sql');
+      } else {
+        console.error('Error in inbox digest scheduler:', error);
+      }
+    }
+  };
+  scheduleInboxDigest();
+  setInterval(scheduleInboxDigest, 30 * 60 * 1000);
+
   // Join reminder (email/SMS 5 min before supervision + team meetings)
   const scheduleJoinReminder = async () => {
     try {

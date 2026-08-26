@@ -6,7 +6,7 @@
       <div class="cc-brand">
         <p class="cc-eyebrow">{{ agencyLabel }} · Support</p>
         <h1>Communications Center</h1>
-        <p class="cc-tag">Home, Messages, Support Hub, Automation, Admin Update, and School alerts — one Communications Center</p>
+        <p class="cc-tag">Unified Inbox, Messages, Support Hub, Automation, Admin Update, and School alerts</p>
       </div>
       <nav class="cc-switch" role="tablist" aria-label="Communications Center sections">
         <button
@@ -18,6 +18,7 @@
           @click.prevent.stop="setMode('home')"
         >
           Home
+          <span class="cc-visually-hidden"> (Unified Inbox)</span>
         </button>
         <button
           type="button"
@@ -86,221 +87,10 @@
     <div v-if="loading && !hasLoadedOnce" class="cc-loading">Loading Communications Center…</div>
 
     <template v-if="!loading || hasLoadedOnce">
-      <!-- ========== HOME (unified) ========== -->
-      <section v-show="activeMode === 'home'" class="cc-mode">
-        <div class="cc-mode-intro split">
-          <div>
-            <h2>{{ hubGreeting }}</h2>
-            <p>Everything new across your inbox, care SMS, tickets, and delivery queues — one place.</p>
-          </div>
-          <nav class="cc-personal-nav" aria-label="Personal shortcuts">
-            <router-link :to="myDashboardPath">My Dashboard</router-link>
-            <span class="cc-personal-sep" aria-hidden="true">|</span>
-            <router-link :to="myMessagesPath">My Messages</router-link>
-          </nav>
-        </div>
-
-        <div class="cc-kpi-row home">
-          <button type="button" class="cc-kpi accent" @click.prevent.stop="setMode('messages')">
-            <span class="cc-kpi-label">Your unread</span>
-            <strong class="cc-kpi-value">{{ personal.cards?.unread || 0 }}</strong>
-            <span class="cc-kpi-hint">Messages inbox →</span>
-          </button>
-          <button type="button" class="cc-kpi secondary" @click.prevent.stop="setMode('messages')">
-            <span class="cc-kpi-label">Client / SMS</span>
-            <strong class="cc-kpi-value">{{ personal.cards?.clientMessages || 0 }}</strong>
-            <span class="cc-kpi-hint">Needs response →</span>
-          </button>
-          <button type="button" class="cc-kpi pop" @click.prevent.stop="setMode('messages')">
-            <span class="cc-kpi-label">Mentions</span>
-            <strong class="cc-kpi-value">{{ personal.cards?.mentions || 0 }}</strong>
-            <span class="cc-kpi-hint">Need your input →</span>
-          </button>
-          <button
-            v-if="canUseSupportHub"
-            type="button"
-            class="cc-kpi warn"
-            @click.prevent.stop="setMode('support')"
-          >
-            <span class="cc-kpi-label">Open tickets</span>
-            <strong class="cc-kpi-value">{{ openTicketTotal }}</strong>
-            <span class="cc-kpi-hint">Support Hub →</span>
-          </button>
-          <button
-            v-if="canUseSupportHub"
-            type="button"
-            class="cc-kpi warn"
-            @click.prevent.stop="setMode('automation', { status: 'pending' })"
-          >
-            <span class="cc-kpi-label">Delivery queue</span>
-            <strong class="cc-kpi-value">{{ summary.kpis?.pendingInQueues || 0 }}</strong>
-            <span class="cc-kpi-hint">Pending + failed →</span>
-          </button>
-          <button
-            v-if="canUseSmsInbox"
-            type="button"
-            class="cc-kpi"
-            @click.prevent.stop="goSmsInbox"
-          >
-            <span class="cc-kpi-label">Unassigned SMS</span>
-            <strong class="cc-kpi-value">{{ summary.messagesMode?.unassigned || 0 }}</strong>
-            <span class="cc-kpi-hint">Org care inbox →</span>
-          </button>
-        </div>
-
-        <div class="cc-alert-row">
-          <div v-if="personalUnread > 0" class="cc-alert info">
-            <div>
-              <strong>{{ personalUnread }} unread</strong>
-              <span> in your Messages</span>
-            </div>
-            <button type="button" class="cc-alert-btn" @click.prevent.stop="setMode('messages')">Open Messages</button>
-          </div>
-          <div v-if="canUseSupportHub && openTicketTotal > 0" class="cc-alert danger">
-            <div>
-              <strong>{{ openTicketTotal }} open tickets</strong>
-              <span> — require attention</span>
-            </div>
-            <button type="button" class="cc-alert-btn" @click.prevent.stop="setMode('support')">Support Hub</button>
-          </div>
-          <div v-if="canUseSupportHub && automationPendingCount > 0" class="cc-alert warn">
-            <div>
-              <strong>{{ automationPendingCount }} automation emails</strong>
-              <span> pending approval</span>
-            </div>
-            <button type="button" class="cc-alert-btn" @click.prevent.stop="setMode('automation', { status: 'pending' })">Review &amp; approve</button>
-          </div>
-          <div v-if="canUseSupportHub && (summary.engagement?.failedCount || 0) > 0" class="cc-alert warn">
-            <div>
-              <strong>{{ summary.engagement.failedCount }} failed</strong>
-              <span> deliveries</span>
-            </div>
-            <button type="button" class="cc-alert-btn" @click.prevent.stop="setMode('automation', { status: 'failed' })">Inspect</button>
-          </div>
-          <div v-if="(summary.messagesMode?.unassigned || 0) > 0" class="cc-alert warn">
-            <div>
-              <strong>{{ summary.messagesMode.unassigned }} unassigned</strong>
-              <span> inbound SMS</span>
-            </div>
-            <router-link class="cc-alert-btn" :to="smsPath">SMS inbox</router-link>
-          </div>
-        </div>
-
-        <div class="cc-grid-main home-panels">
-          <section class="cc-panel">
-            <header class="cc-panel-h">
-              <div>
-                <h3>From your Messages</h3>
-                <p class="cc-panel-sub">Same inbox as My Dashboard → Messages</p>
-              </div>
-              <button type="button" class="cc-linkish" @click.prevent.stop="setMode('messages')">View all →</button>
-            </header>
-            <ul v-if="personal.priority?.length" class="cc-tickets">
-              <li v-for="item in personal.priority.slice(0, 6)" :key="item.id" class="cc-msg-row" @click="openPriorityItem(item)">
-                <span class="prio prio-medium">{{ kindLabel(item.kind) }}</span>
-                <div>
-                  <strong>{{ item.label }}</strong>
-                  <small>{{ item.snippet || '—' }} · {{ formatTime(item.occurredAt) }}</small>
-                </div>
-                <span v-if="item.unread" class="cc-unread">{{ item.unread }}</span>
-              </li>
-            </ul>
-            <p v-else class="cc-empty pad">No unread conversations in your Messages right now.</p>
-          </section>
-
-          <section v-if="canUseSupportHub" class="cc-panel">
-            <header class="cc-panel-h">
-              <div>
-                <h3>From Support Hub</h3>
-                <p class="cc-panel-sub">Open support tickets</p>
-              </div>
-              <button type="button" class="cc-linkish" @click.prevent.stop="setMode('support')">Open hub →</button>
-            </header>
-            <ul v-if="homeSupportRows.length" class="cc-tickets">
-              <li
-                v-for="row in homeSupportRows"
-                :key="row.id"
-                class="cc-msg-row"
-                @click="openHomeSupportRow(row)"
-              >
-                <span class="prio" :class="prioClass(row.priority || row.status)">{{ row.badge }}</span>
-                <div>
-                  <strong>{{ row.title }}</strong>
-                  <small>{{ row.meta }}</small>
-                </div>
-              </li>
-            </ul>
-            <p v-else class="cc-empty pad">No open tickets right now.</p>
-          </section>
-
-          <section v-if="canUseSupportHub" class="cc-panel">
-            <header class="cc-panel-h">
-              <div>
-                <h3>Auto-sent &amp; system messages</h3>
-                <p class="cc-panel-sub">Emails and texts sent by the app — new hire, reminders, automations</p>
-              </div>
-              <button type="button" class="cc-linkish" @click.prevent.stop="setMode('automation')">View all →</button>
-            </header>
-            <ul v-if="homeAutomationRows.length" class="cc-tickets">
-              <li
-                v-for="row in homeAutomationRows"
-                :key="row.id"
-                class="cc-msg-row"
-                @click="openEngagementRow(row)"
-              >
-                <span class="cc-eng-ch">{{ String(row.channel || 'email').toUpperCase() }}</span>
-                <div>
-                  <strong>{{ row.subject }}</strong>
-                  <small>{{ row.recipient || '—' }} · {{ row.status }} · {{ formatTime(row.occurredAt) }}</small>
-                </div>
-              </li>
-            </ul>
-            <p v-else class="cc-empty pad">
-              No auto-sent messages yet.
-              <button type="button" class="cc-linkish block" @click.prevent.stop="setMode('automation')">Open Automation tab →</button>
-            </p>
-          </section>
-        </div>
-
-        <div class="cc-grid-3">
-          <section class="cc-panel">
-            <header class="cc-panel-h"><h3>Org messaging pulse</h3></header>
-            <ul class="cc-stat-list">
-              <li><span>New inbound SMS (7d)</span><strong>{{ summary.messagesMode?.newInbound || 0 }}</strong></li>
-              <li><span>Unassigned</span><strong>{{ summary.messagesMode?.unassigned || 0 }}</strong></li>
-              <li><span>Recently sent</span><strong>{{ summary.messagesMode?.recentlySent || 0 }}</strong></li>
-              <li><span>Voicemail unheard</span><strong>{{ summary.queues?.voicemail || 0 }}</strong></li>
-            </ul>
-            <router-link class="cc-btn outline sm block" :to="smsPath">Open SMS inbox</router-link>
-          </section>
-          <section class="cc-panel">
-            <header class="cc-panel-h"><h3>Engagement queue</h3></header>
-            <ul class="cc-stat-list">
-              <li><span>Pending</span><strong>{{ summary.engagement?.pendingCount || 0 }}</strong></li>
-              <li><span>Failed</span><strong class="hot">{{ summary.engagement?.failedCount || 0 }}</strong></li>
-              <li><span>Sent (7d)</span><strong>{{ summary.kpis?.messagesSent || 0 }}</strong></li>
-              <li><span>Delivery rate</span><strong>{{ summary.kpis?.deliveryRate ?? '—' }}%</strong></li>
-            </ul>
-            <button type="button" class="cc-btn outline sm block" @click.prevent.stop="setMode('automation', { status: 'pending' })">Review in Automation</button>
-          </section>
-          <section class="cc-panel">
-            <header class="cc-panel-h"><h3>Quick jumps</h3></header>
-            <ul class="cc-quick">
-              <li><button type="button" class="cc-text-btn" @click.prevent.stop="setMode('messages')">Messages (same as My Dashboard)</button></li>
-              <li><button type="button" class="cc-text-btn" @click.prevent.stop="setMode('support')">Support Hub</button></li>
-              <li><router-link :to="ticketsPath">Full ticket desk</router-link></li>
-              <li><router-link :to="smsPath">SMS care inbox</router-link></li>
-              <li><router-link :to="campaignsPath">Broadcasts / campaigns</router-link></li>
-              <li><router-link :to="textingSettingsPath">Message routing</router-link></li>
-              <li v-if="canUseSupportHub"><button type="button" class="cc-text-btn" @click.prevent.stop="setMode('automation')">Automation &amp; system messages</button></li>
-              <li v-if="canUseSupportHub"><button type="button" class="cc-text-btn" @click.prevent.stop="setMode('admin-update')">Admin Update newsletter</button></li>
-              <li v-if="canUseSchoolAlerts"><button type="button" class="cc-text-btn" @click.prevent.stop="setMode('school')">School alerts</button></li>
-              <li v-if="canUseSupportHub"><button type="button" class="cc-text-btn" @click.prevent.stop="openAutomationFeed('pending')">Pending / failed deliveries</button></li>
-            </ul>
-          </section>
-        </div>
+      <!-- ========== HOME (unified inbox) ========== -->
+      <section v-show="activeMode === 'home'" class="cc-mode cc-mode--inbox">
+        <UnifiedInboxShell :agency-id="agencyStore.currentAgency?.id" />
       </section>
-
       <!-- ========== MESSAGES (same as My Dashboard) ========== -->
       <section v-show="activeMode === 'messages'" class="cc-mode cc-messages-host">
         <div class="cc-mode-intro split compact">
@@ -462,6 +252,7 @@ import MessagesDashboard from '../../components/messages/MessagesDashboard.vue';
 import CommunicationsCenterAutomation from '../../components/communications/CommunicationsCenterAutomation.vue';
 import CommunicationsCenterSchoolAlerts from '../../components/communications/CommunicationsCenterSchoolAlerts.vue';
 import CommunicationsCenterAdminUpdate from '../../components/communications/CommunicationsCenterAdminUpdate.vue';
+import UnifiedInboxShell from '../../components/unifiedInbox/UnifiedInboxShell.vue';
 
 const route = useRoute();
 const router = useRouter();
@@ -936,6 +727,20 @@ onMounted(() => {
   position: relative;
   z-index: 2;
   padding: 18px 32px 0;
+}
+.cc-mode--inbox {
+  padding-bottom: 24px;
+}
+.cc-visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 .cc-messages-host { padding-bottom: 24px; }
 .cc-mode-intro { margin-bottom: 16px; }
