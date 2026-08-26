@@ -169,6 +169,29 @@
           </div>
         </div>
 
+        <div v-if="noteAidAgencyNeedsChoice" class="na-tenant-choice">
+          <label>
+            This client belongs to more than one tenant you can access. Choose which tenant this note belongs to:
+            <select
+              class="na-select"
+              :value="noteAidAgencyChoiceId == null ? '' : String(noteAidAgencyChoiceId)"
+              @change="noteAidAgencyChoiceId = Number($event.target.value) || null"
+            >
+              <option value="">Select tenant…</option>
+              <option
+                v-for="aid in noteAidAgencyCandidates"
+                :key="aid"
+                :value="String(aid)"
+              >
+                {{ agencyLookup[aid] || `Tenant #${aid}` }}
+              </option>
+            </select>
+          </label>
+        </div>
+        <p v-else-if="noteAidAgencyId && selectedClient" class="na-tenant-hint muted">
+          Note tenant: {{ agencyLookup[noteAidAgencyId] || selectedClient.agency_name || `Tenant #${noteAidAgencyId}` }}
+        </p>
+
         <NoteAidSessionContextStrip
           :visible="showSessionContextStrip"
           :clinician-label="sessionClinicianLabel"
@@ -793,7 +816,9 @@ import {
   clientDisplayName,
   clientTenantLabel,
   initialsLikelyMatch,
-  normalizeNoteAidClientRow
+  normalizeNoteAidClientRow,
+  noteAidPrefersLearningSponsor,
+  resolveNoteAidAgencyId
 } from '../../utils/noteAidTreatmentHelpers.js';
 import { toDateOfService } from '../../utils/noteAidLaunch.js';
 import { ensureHourlySessionForNoteAid } from '../../utils/noteAidIndirectSession.js';
@@ -1058,14 +1083,52 @@ const intakeError = ref('');
 const intakeSummary = ref('');
 
 /** Tenant context for the selected client (may differ from workspace agency). */
+const clientAgencyMembershipIds = ref([]);
+const learningSponsorAgencyIds = ref([]);
+const noteAidAgencyChoiceId = ref(null);
+
+const selectedAidCategoryId = computed(() => {
+  const aidId = String(selectedAidId.value || '');
+  if (!aidId) return '';
+  for (const cat of NOTE_AID_CATEGORIES || []) {
+    if ((cat.aids || []).some((a) => a.id === aidId)) return cat.id;
+  }
+  return '';
+});
+
+const preferLearningSponsorForAid = computed(() =>
+  noteAidPrefersLearningSponsor(findNoteAidById(selectedAidId.value), {
+    categoryId: selectedAidCategoryId.value
+  })
+);
+
+const providerAgencyIdsForNote = computed(() =>
+  (agencyStore.userAgencies || []).map((a) => Number(a?.id || 0)).filter((n) => n > 0)
+);
+
+const noteAidAgencyResolution = computed(() =>
+  resolveNoteAidAgencyId({
+    clientAgencyId: selectedClient.value?.agency_id || selectedClient.value?.agencyId || null,
+    clientAgencyIds: clientAgencyMembershipIds.value,
+    providerAgencyIds: providerAgencyIdsForNote.value,
+    preferredAgencyId: noteAidAgencyChoiceId.value
+      || selectedQueueAgencyId.value
+      || null,
+    preferLearningSponsor: preferLearningSponsorForAid.value,
+    learningSponsorAgencyIds: learningSponsorAgencyIds.value
+  })
+);
+
+const noteAidAgencyNeedsChoice = computed(() => !!noteAidAgencyResolution.value?.needsChoice);
+const noteAidAgencyCandidates = computed(() => noteAidAgencyResolution.value?.candidates || []);
+
 const noteAidAgencyId = computed(() => {
-  const fromClient = Number(
-    selectedClient.value?.agency_id || selectedClient.value?.agencyId || 0
-  );
-  if (fromClient) return fromClient;
-  const fromQueue = Number(selectedQueueAgencyId.value || 0);
-  if (fromQueue) return fromQueue;
-  return Number(currentAgencyId.value || 0) || null;
+  const resolved = noteAidAgencyResolution.value;
+  if (resolved?.agencyId) return resolved.agencyId;
+  if (!selectedClient.value) {
+    return Number(selectedQueueAgencyId.value || currentAgencyId.value || 0) || null;
+  }
+  return null;
 });
 const agencyLookup = computed(() => {
   const map = {};
@@ -2206,6 +2269,7 @@ const autosave = async () => {
 
   const payload = {
     agencyId: noteAidAgencyId.value || currentAgencyId.value,
+    preferLearningSponsor: preferLearningSponsorForAid.value,
     recordingPurpose: String(recordingPurpose.value || 'dictation'),
     serviceCode: autoSelectCode.value ? null : actualServiceCode.value || null,
     programId:
@@ -2732,6 +2796,11 @@ const generateNote = async () => {
   if (generateDisabled.value) return;
   if (!canUseTool.value) return;
 
+  if (noteAidAgencyNeedsChoice.value && !noteAidAgencyId.value) {
+    generateError.value = 'Choose which tenant this note belongs to before generating.';
+    return;
+  }
+
   if (showObjectiveRatings.value) {
     const needed = [];
     for (const g of activeTreatmentGoals.value) {
@@ -2753,7 +2822,8 @@ const generateNote = async () => {
     generateError.value = '';
 
     const fd = new FormData();
-    fd.append('agencyId', String(currentAgencyId.value));
+    fd.append('agencyId', String(noteAidAgencyId.value || currentAgencyId.value));
+    if (preferLearningSponsorForAid.value) fd.append('preferLearningSponsor', '1');
     fd.append('recordingPurpose', String(recordingPurpose.value || 'dictation'));
     // Do NOT treat "no billing code" as auto-select — plans/termination/diagnosis use toolId only.
     const shouldAutoSelectCode =
@@ -3297,17 +3367,75 @@ const onClientPicked = async (client) => {
   const normalized = normalizeNoteAidClientRow(client, agencyLookup.value) || client;
   selectedClient.value = normalized || null;
   selectedClientId.value = Number(normalized?.id || 0) || null;
+  noteAidAgencyChoiceId.value = null;
   selectedQueueAgencyId.value = Number(normalized?.agency_id || normalized?.agencyId || 0) || null;
   initials.value = '';
   initialsMatchSuggestions.value = [];
   initialsMatchDismissed.value = true;
   resetClientClinicalContext();
   await hydrateSelectedClient(selectedClientId.value);
+  await loadClientAgencyContext(selectedClientId.value);
   await Promise.all([
     loadClientTreatmentPlan(selectedClientId.value),
     loadClientIntakeSummary(selectedClientId.value)
   ]);
 };
+
+async function loadClientAgencyContext(clientId) {
+  const cid = Number(clientId || 0);
+  clientAgencyMembershipIds.value = [];
+  learningSponsorAgencyIds.value = [];
+  if (!cid) return;
+
+  const primary = Number(selectedClient.value?.agency_id || selectedClient.value?.agencyId || 0) || null;
+  const memberships = primary ? [primary] : [];
+
+  try {
+    const r = await api.get(`/clients/${cid}/agency-affiliations`, { skipGlobalLoading: true });
+    for (const row of Array.isArray(r.data) ? r.data : []) {
+      const id = Number(row?.agency_id || 0);
+      if (id) memberships.push(id);
+    }
+  } catch {
+    // Providers may lack assignment edit access; primary agency is enough.
+  }
+  clientAgencyMembershipIds.value = [...new Set(memberships.filter(Boolean))];
+
+  // Tenants that sponsor a learning org the client is affiliated with.
+  const learningOrgIds = new Set();
+  try {
+    const aff = await api.get(`/clients/${cid}/affiliations`, { skipGlobalLoading: true });
+    for (const row of Array.isArray(aff.data) ? aff.data : []) {
+      if (String(row?.organization_type || '').toLowerCase() === 'learning') {
+        const oid = Number(row?.organization_id || 0);
+        if (oid) learningOrgIds.add(oid);
+      }
+    }
+  } catch {
+    // ignore
+  }
+  if (String(selectedClient.value?.organization_type || '').toLowerCase() === 'learning') {
+    const oid = Number(selectedClient.value?.organization_id || 0);
+    if (oid) learningOrgIds.add(oid);
+  }
+
+  const sponsors = new Set();
+  for (const agencyId of clientAgencyMembershipIds.value) {
+    try {
+      const r = await api.get(`/agencies/${agencyId}/affiliated-organizations`, { skipGlobalLoading: true });
+      const orgs = Array.isArray(r.data) ? r.data : [];
+      const hit = orgs.some((o) => {
+        const id = Number(o?.id || o?.organization_id || 0);
+        const type = String(o?.organization_type || '').toLowerCase();
+        return (id && learningOrgIds.has(id)) || (type === 'learning' && learningOrgIds.has(id));
+      });
+      if (hit || learningOrgIds.has(agencyId)) sponsors.add(agencyId);
+    } catch {
+      // ignore
+    }
+  }
+  learningSponsorAgencyIds.value = [...sponsors];
+}
 
 async function hydrateSelectedClient(clientId) {
   const cid = Number(clientId || 0);
@@ -3337,6 +3465,9 @@ const onClientCleared = () => {
   selectedClient.value = null;
   selectedClientId.value = null;
   selectedQueueAgencyId.value = null;
+  noteAidAgencyChoiceId.value = null;
+  clientAgencyMembershipIds.value = [];
+  learningSponsorAgencyIds.value = [];
   resetClientClinicalContext();
 };
 
@@ -3934,11 +4065,11 @@ const startNewNoteDifferentService = () => {
   newNoteMenuOpen.value = false;
 };
 
-const loadDraftIntoWorkspace = (d) => {
+const loadDraftIntoWorkspace = async (d) => {
   if (!d) return;
   viewingChartNote.value = null;
   draftId.value = d.id || null;
-  selectedQueueAgencyId.value = Number(d.agency_id || d.agencyId || 0) || null;
+  noteAidAgencyChoiceId.value = null;
   currentDraftArchivedAt.value = d.archived_at || null;
   currentDraftCreatedAt.value = d.created_at || null;
   const draftCode = String(d.service_code || '').trim().toUpperCase();
@@ -3966,11 +4097,33 @@ const loadDraftIntoWorkspace = (d) => {
   const draftClientId = Number(d.client_id || 0) || null;
   if (draftClientId && draftClientId !== Number(selectedClientId.value || 0)) {
     selectedClientId.value = draftClientId;
-    selectedClient.value = { id: draftClientId, initials: d.initials || '' };
-    hydrateSelectedClient(draftClientId);
+    selectedClient.value = {
+      id: draftClientId,
+      agency_id: d.client_agency_id || null,
+      agency_name: d.agency_name || null,
+      initials: d.initials || '',
+      full_name: d.client_full_name || null
+    };
+    await hydrateSelectedClient(draftClientId);
+    await loadClientAgencyContext(draftClientId);
     loadClientTreatmentPlan(draftClientId);
     loadClientIntakeSummary(draftClientId);
+  } else if (draftClientId) {
+    await loadClientAgencyContext(draftClientId);
   }
+
+  // Prefer client-owned tenant over a workspace-misattributed draft stamp.
+  const draftAgency = Number(d.agency_id || d.agencyId || 0) || null;
+  const clientPrimary = Number(selectedClient.value?.agency_id || selectedClient.value?.agencyId || 0) || null;
+  const memberships = clientAgencyMembershipIds.value || [];
+  if (draftAgency && memberships.includes(draftAgency)) {
+    selectedQueueAgencyId.value = draftAgency;
+  } else if (clientPrimary) {
+    selectedQueueAgencyId.value = clientPrimary;
+  } else {
+    selectedQueueAgencyId.value = draftAgency;
+  }
+
   inputText.value = unwrapDraftText(d.input_text);
   try {
     const raw = unwrapDraftText(d.output_json) || d.output_json;
@@ -4811,6 +4964,24 @@ onBeforeUnmount(() => {
   gap: 6px;
   align-items: stretch;
   flex-shrink: 0;
+}
+.na-tenant-choice {
+  margin: 10px 0 0;
+  padding: 12px 14px;
+  border: 1px solid #fcd34d;
+  background: #fffbeb;
+  border-radius: 12px;
+  font-size: 0.9rem;
+  color: #78350f;
+}
+.na-tenant-choice label {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.na-tenant-hint {
+  margin: 8px 0 0;
+  font-size: 0.82rem;
 }
 .na-change-aid {
   flex-shrink: 0;

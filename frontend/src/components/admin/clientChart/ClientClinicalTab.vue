@@ -409,13 +409,16 @@ const props = defineProps({
   isClinicalLikeClientType: { type: Boolean, default: true },
   isBackofficeRole: { type: Boolean, default: false },
   hasAgencyAccess: { type: Boolean, default: true },
-  canViewMedicalRecord: { type: Boolean, default: false }
+  canViewMedicalRecord: { type: Boolean, default: false },
+  /** Force student/learning summary UI even for clinical client_type (tenant learning context). */
+  forceLearningSurface: { type: Boolean, default: false }
 });
 
 defineEmits(['navigate']);
 
 const isLearningClient = computed(
-  () => String(props.client?.client_type || '').toLowerCase() === 'learning'
+  () => props.forceLearningSurface
+    || String(props.client?.client_type || '').toLowerCase() === 'learning'
 );
 
 const localChartDiagnoses = ref([]);

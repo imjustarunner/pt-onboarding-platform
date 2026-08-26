@@ -194,10 +194,23 @@ class ClinicalNoteDraft {
          d.*,
          c.full_name AS client_full_name,
          c.client_type AS client_type,
-         a.name AS agency_name
+         c.agency_id AS client_agency_id,
+         CASE
+           WHEN d.client_id IS NULL THEN a.name
+           WHEN d.agency_id = c.agency_id THEN a.name
+           WHEN EXISTS (
+             SELECT 1
+             FROM client_agency_assignments caa
+             WHERE caa.client_id = c.id
+               AND caa.agency_id = d.agency_id
+               AND caa.is_active = TRUE
+           ) THEN a.name
+           ELSE COALESCE(ca.name, a.name)
+         END AS agency_name
        FROM clinical_note_drafts d
        LEFT JOIN clients c ON c.id = d.client_id
        LEFT JOIN agencies a ON a.id = d.agency_id
+       LEFT JOIN agencies ca ON ca.id = c.agency_id
        WHERE ${whereSql}
        ORDER BY d.created_at DESC, d.id DESC
        LIMIT ${lim}`,
@@ -207,31 +220,54 @@ class ClinicalNoteDraft {
   }
 
   /**
-   * Chart feed: drafts linked to a client (agency-scoped, any author).
+   * Chart feed: drafts linked to a client.
+   * Includes drafts stamped under any of the client's tenant memberships (or the
+   * requested agency) so workspace-misattributed notes still appear on the chart.
    */
-  static async listForClient({ clientId, agencyId, limit = 100 }) {
+  static async listForClient({ clientId, agencyId, agencyIds = null, limit = 100 }) {
     const cid = safeInt(clientId);
-    const aid = safeInt(agencyId);
-    if (!cid || !aid) return [];
+    if (!cid) return [];
     const lim = Math.max(1, Math.min(200, Number(limit) || 100));
+    const aids = Array.isArray(agencyIds)
+      ? [...new Set(agencyIds.map((n) => safeInt(n)).filter(Boolean))]
+      : [];
+    const single = safeInt(agencyId);
+    if (!aids.length && single) aids.push(single);
+    if (!aids.length) return [];
+
+    const placeholders = aids.map(() => '?').join(',');
     const [rows] = await pool.execute(
       `SELECT
          d.*,
          c.full_name AS client_full_name,
          c.client_type AS client_type,
-         a.name AS agency_name,
+         CASE
+           WHEN d.agency_id = c.agency_id THEN a.name
+           WHEN EXISTS (
+             SELECT 1
+             FROM client_agency_assignments caa
+             WHERE caa.client_id = c.id
+               AND caa.agency_id = d.agency_id
+               AND caa.is_active = TRUE
+           ) THEN a.name
+           ELSE COALESCE(ca.name, a.name)
+         END AS agency_name,
          u.first_name AS author_first_name,
          u.last_name AS author_last_name
        FROM clinical_note_drafts d
        LEFT JOIN clients c ON c.id = d.client_id
        LEFT JOIN agencies a ON a.id = d.agency_id
+       LEFT JOIN agencies ca ON ca.id = c.agency_id
        LEFT JOIN users u ON u.id = d.user_id
        WHERE d.client_id = ?
-         AND d.agency_id = ?
+         AND (
+           d.agency_id IN (${placeholders})
+           OR c.agency_id IN (${placeholders})
+         )
          AND d.archived_at IS NULL
        ORDER BY d.created_at DESC, d.id DESC
        LIMIT ${lim}`,
-      [cid, aid]
+      [cid, ...aids, ...aids]
     );
     return rows || [];
   }

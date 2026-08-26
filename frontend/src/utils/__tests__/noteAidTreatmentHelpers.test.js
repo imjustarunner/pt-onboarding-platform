@@ -103,4 +103,40 @@ describe('noteAidTreatmentHelpers', () => {
     expect(clientDisplayInitials({ first_name: 'Sam', last_name: 'Baker' })).toBe('SB');
     expect(clientDisplayInitials({ initials: 'AM' })).toBe('AM');
   });
+
+  it('resolves note agency from client ownership over workspace preference', async () => {
+    const { resolveNoteAidAgencyId, noteAidPrefersLearningSponsor } = await import('../noteAidTreatmentHelpers.js');
+    expect(resolveNoteAidAgencyId({
+      clientAgencyId: 6,
+      preferredAgencyId: 2,
+      providerAgencyIds: [2, 6]
+    }).agencyId).toBe(6);
+
+    expect(resolveNoteAidAgencyId({
+      clientAgencyId: 6,
+      clientAgencyIds: [6, 2],
+      preferredAgencyId: null,
+      providerAgencyIds: [2]
+    }).agencyId).toBe(2);
+
+    const tutoring = resolveNoteAidAgencyId({
+      clientAgencyId: 6,
+      clientAgencyIds: [6, 2],
+      providerAgencyIds: [2, 6],
+      preferLearningSponsor: true,
+      learningSponsorAgencyIds: [6]
+    });
+    expect(tutoring.agencyId).toBe(6);
+
+    const ambiguous = resolveNoteAidAgencyId({
+      clientAgencyId: null,
+      clientAgencyIds: [2, 6],
+      providerAgencyIds: [2, 6],
+      preferLearningSponsor: true,
+      learningSponsorAgencyIds: [2, 6]
+    });
+    expect(ambiguous.needsChoice).toBe(true);
+
+    expect(noteAidPrefersLearningSponsor({ id: 'tpt_note', toolId: 'clinical_tpt_note' }, { categoryId: 'therapy_tutoring' })).toBe(true);
+  });
 });

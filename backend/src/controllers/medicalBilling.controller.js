@@ -327,7 +327,10 @@ export const listClientChart = async (req, res, next) => {
     let noteAidDrafts = [];
     try {
       const ClinicalNoteDraft = (await import('../models/ClinicalNoteDraft.model.js')).default;
-      noteAidDrafts = await ClinicalNoteDraft.listForClient({ clientId, agencyId, limit: 100 });
+      const { listClientAgencyMembershipIds } = await import('../utils/noteAidClientAgency.js');
+      const membershipIds = await listClientAgencyMembershipIds(clientId);
+      const agencyIds = [...new Set([agencyId, ...membershipIds].filter(Boolean))];
+      noteAidDrafts = await ClinicalNoteDraft.listForClient({ clientId, agencyId, agencyIds, limit: 100 });
       noteAidDrafts = (noteAidDrafts || []).map((d) => ({
         id: d.id,
         service_code: d.service_code,

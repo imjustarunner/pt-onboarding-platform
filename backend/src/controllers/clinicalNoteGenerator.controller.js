@@ -16,6 +16,11 @@ import TaskAssignmentService from '../services/taskAssignment.service.js';
 import TaskAuditLog from '../models/TaskAuditLog.model.js';
 import Client from '../models/Client.model.js';
 import ClientGuardian from '../models/ClientGuardian.model.js';
+import {
+  canRemapDraftAgency,
+  coerceNoteAidAgencyForClient,
+  listClientAgencyMembershipIds
+} from '../utils/noteAidClientAgency.js';
 
 function safeInt(v) {
   const n = Number(v);
@@ -689,6 +694,34 @@ export const createConsentTask = async (req, res, next) => {
   }
 };
 
+async function resolveDraftAgencyId(req, { preferredAgencyId, clientId, preferLearningSponsor = false }) {
+  const preferred = safeInt(preferredAgencyId);
+  const cid = safeInt(clientId);
+  if (!cid) return { agencyId: preferred, error: null };
+
+  let providerAgencyIds = null;
+  if (String(req.user?.role || '').toLowerCase() !== 'super_admin') {
+    const agencies = await User.getAgencies(req.user.id);
+    providerAgencyIds = (agencies || []).map((a) => Number(a.id)).filter((n) => n > 0);
+  }
+
+  const coerced = await coerceNoteAidAgencyForClient({
+    clientId: cid,
+    preferredAgencyId: preferred,
+    providerAgencyIds,
+    preferLearningSponsor
+  });
+
+  if (coerced.error) {
+    return { agencyId: null, error: coerced.error, memberships: coerced.memberships || [] };
+  }
+  return {
+    agencyId: coerced.agencyId || preferred,
+    error: null,
+    memberships: coerced.memberships || []
+  };
+}
+
 export const createClinicalNoteDraft = async (req, res, next) => {
   try {
     if (!requireNotSchoolStaff(req, res)) return;
@@ -697,14 +730,30 @@ export const createClinicalNoteDraft = async (req, res, next) => {
       return res.status(400).json({ error: { message: 'Validation failed', errors: errors.array() } });
     }
 
-    const agencyId = req.body?.agencyId ? safeInt(req.body.agencyId) : null;
+    const preferredAgencyId = req.body?.agencyId ? safeInt(req.body.agencyId) : null;
+    const clientId = req.body?.clientId ? safeInt(req.body.clientId) : null;
+    const preferLearningSponsor = ['1', 'true', true, 1].includes(req.body?.preferLearningSponsor)
+      || ['1', 'true', true, 1].includes(req.body?.prefer_learning_sponsor)
+      || String(req.body?.noteKind || req.body?.aidCategory || '').toLowerCase().includes('tutor')
+      || String(req.body?.noteKind || req.body?.aidCategory || '').toLowerCase().includes('learning');
+
+    const resolved = await resolveDraftAgencyId(req, {
+      preferredAgencyId,
+      clientId,
+      preferLearningSponsor
+    });
+    if (resolved.error) {
+      return res.status(400).json({
+        error: { message: resolved.error, code: 'NOTE_AID_TENANT_CHOICE_REQUIRED', candidates: resolved.memberships }
+      });
+    }
+    const agencyId = resolved.agencyId;
     if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
     if (!(await requireUserHasAgencyAccess(req, res, agencyId))) return;
     if (!(await requireClinicalNoteGeneratorEnabled(req, res, agencyId))) return;
 
     const serviceCode = req.body?.serviceCode ? normalizeServiceCode(req.body.serviceCode) : null;
     const programId = req.body?.programId ? safeInt(req.body.programId) : null;
-    const clientId = req.body?.clientId ? safeInt(req.body.clientId) : null;
     const officeEventId = req.body?.officeEventId ? safeInt(req.body.officeEventId) : null;
     const clinicalSessionId = req.body?.clinicalSessionId ? safeInt(req.body.clinicalSessionId) : null;
     const dateOfService = req.body?.dateOfService ? normalizeDateOnly(req.body.dateOfService) : null;
@@ -742,20 +791,49 @@ export const patchClinicalNoteDraft = async (req, res, next) => {
     const draftId = safeInt(req.params.draftId);
     if (!draftId) return res.status(400).json({ error: { message: 'Invalid draftId' } });
 
-    const agencyId = req.body?.agencyId ? safeInt(req.body.agencyId) : null;
-    if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
-    if (!(await requireUserHasAgencyAccess(req, res, agencyId))) return;
-    if (!(await requireClinicalNoteGeneratorEnabled(req, res, agencyId))) return;
+    const preferredAgencyId = req.body?.agencyId ? safeInt(req.body.agencyId) : null;
+    if (!preferredAgencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
 
     const existing = await ClinicalNoteDraft.findByIdForUser({ draftId, userId: req.user.id });
     if (!existing) return res.status(404).json({ error: { message: 'Draft not found' } });
-    const existingAgencyId = existing?.agency_id === null || existing?.agency_id === undefined ? null : safeInt(existing.agency_id);
+
+    const nextClientId = req.body?.clientId !== undefined
+      ? (req.body.clientId === null ? null : safeInt(req.body.clientId))
+      : safeInt(existing.client_id);
+
+    const preferLearningSponsor = ['1', 'true', true, 1].includes(req.body?.preferLearningSponsor)
+      || ['1', 'true', true, 1].includes(req.body?.prefer_learning_sponsor);
+
+    const resolved = await resolveDraftAgencyId(req, {
+      preferredAgencyId,
+      clientId: nextClientId,
+      preferLearningSponsor
+    });
+    if (resolved.error) {
+      return res.status(400).json({
+        error: { message: resolved.error, code: 'NOTE_AID_TENANT_CHOICE_REQUIRED', candidates: resolved.memberships }
+      });
+    }
+    const agencyId = resolved.agencyId || preferredAgencyId;
+    if (!(await requireUserHasAgencyAccess(req, res, agencyId))) return;
+    if (!(await requireClinicalNoteGeneratorEnabled(req, res, agencyId))) return;
+
+    const existingAgencyId = existing?.agency_id === null || existing?.agency_id === undefined
+      ? null
+      : safeInt(existing.agency_id);
     if (existingAgencyId && existingAgencyId !== agencyId) {
-      return res.status(403).json({ error: { message: 'Draft belongs to a different organization' } });
+      const memberships = nextClientId
+        ? (resolved.memberships?.length
+          ? resolved.memberships
+          : await listClientAgencyMembershipIds(nextClientId))
+        : [];
+      if (!canRemapDraftAgency({ existingAgencyId, nextAgencyId: agencyId, memberships })) {
+        return res.status(403).json({ error: { message: 'Draft belongs to a different organization' } });
+      }
     }
 
     const patch = {};
-    // Bind drafts to the current org (and avoid cross-org updates).
+    // Bind drafts to the resolved client-owned tenant (corrects workspace mis-stamps).
     patch.agencyId = agencyId;
     if (req.body?.serviceCode !== undefined) patch.serviceCode = req.body.serviceCode === null ? null : normalizeServiceCode(req.body.serviceCode);
     if (req.body?.programId !== undefined) patch.programId = req.body.programId === null ? null : safeInt(req.body.programId);
@@ -936,8 +1014,31 @@ export const generateClinicalNote = async (req, res, next) => {
     }
 
     // NOTE: req.body is populated by multer for multipart/form-data.
-    const agencyId = req.body?.agencyId ? safeInt(req.body.agencyId) : null;
-    if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
+    const preferredAgencyId = req.body?.agencyId ? safeInt(req.body.agencyId) : null;
+    if (!preferredAgencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
+
+    const clientId = req.body?.clientId ? safeInt(req.body.clientId) : null;
+    const preferLearningSponsor = ['1', 'true', true, 1].includes(req.body?.preferLearningSponsor)
+      || ['1', 'true', true, 1].includes(req.body?.prefer_learning_sponsor)
+      || String(req.body?.toolId || '').toLowerCase().includes('tpt')
+      || String(req.body?.toolId || '').toLowerCase().includes('tutor')
+      || String(req.body?.toolId || '').toLowerCase().includes('nlu_assessment');
+
+    const resolvedAgency = await resolveDraftAgencyId(req, {
+      preferredAgencyId,
+      clientId,
+      preferLearningSponsor
+    });
+    if (resolvedAgency.error) {
+      return res.status(400).json({
+        error: {
+          message: resolvedAgency.error,
+          code: 'NOTE_AID_TENANT_CHOICE_REQUIRED',
+          candidates: resolvedAgency.memberships
+        }
+      });
+    }
+    const agencyId = resolvedAgency.agencyId || preferredAgencyId;
     if (!(await requireUserHasAgencyAccess(req, res, agencyId))) return;
     if (!(await requireClinicalNoteGeneratorEnabled(req, res, agencyId))) return;
 
@@ -947,7 +1048,6 @@ export const generateClinicalNote = async (req, res, next) => {
     const programLabel = req.body?.programLabel ? String(req.body.programLabel).trim().slice(0, 120) : null;
     const dateOfService = normalizeDateOnly(req.body?.dateOfService);
     const initials = req.body?.initials ? String(req.body.initials).trim() : null;
-    const clientId = req.body?.clientId ? safeInt(req.body.clientId) : null;
     const officeEventId = req.body?.officeEventId ? safeInt(req.body.officeEventId) : null;
     const clinicalSessionId = req.body?.clinicalSessionId ? safeInt(req.body.clinicalSessionId) : null;
     const autoSelectCode = parseBool(req.body?.autoSelectCode);
@@ -1211,7 +1311,14 @@ export const generateClinicalNote = async (req, res, next) => {
       if (!existing) return res.status(404).json({ error: { message: 'Draft not found' } });
       const existingAgencyId = existing?.agency_id === null || existing?.agency_id === undefined ? null : safeInt(existing.agency_id);
       if (existingAgencyId && existingAgencyId !== agencyId) {
-        return res.status(403).json({ error: { message: 'Draft belongs to a different organization' } });
+        const memberships = clientId
+          ? (resolvedAgency.memberships?.length
+            ? resolvedAgency.memberships
+            : await listClientAgencyMembershipIds(clientId))
+          : [];
+        if (!canRemapDraftAgency({ existingAgencyId, nextAgencyId: agencyId, memberships })) {
+          return res.status(403).json({ error: { message: 'Draft belongs to a different organization' } });
+        }
       }
       draft = await ClinicalNoteDraft.updateForUser({
         draftId,

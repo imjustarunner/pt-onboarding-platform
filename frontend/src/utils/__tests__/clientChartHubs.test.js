@@ -18,7 +18,8 @@ describe('clientChartHubs Record Center', () => {
       canViewClinical: true,
       canViewMedicalRecord: true,
       canViewBilling: true,
-      isClinical: true
+      showClinicalSurfaces: true,
+      showLearningSurfaces: false
     });
     expect(items.map((i) => i.id)).toEqual([
       'overview',
@@ -33,39 +34,54 @@ describe('clientChartHubs Record Center', () => {
     ]);
   });
 
-  it('hides medical record only for learning-primary (not clinical) clients', () => {
-    const learningOnly = recordsSubnav({
+  it('shows student summary + learning plans for learning-only surfaces', () => {
+    const items = recordsSubnav({
       canViewClinical: true,
       canViewMedicalRecord: true,
-      isLearning: true,
-      isClinical: false
+      showLearningSurfaces: true,
+      showClinicalSurfaces: false
     });
-    expect(learningOnly.map((i) => i.id)).toContain('clinical-summary');
-    expect(learningOnly.map((i) => i.id)).toContain('notes');
-    expect(learningOnly.map((i) => i.id)).not.toContain('medical-record');
-    expect(learningOnly.find((i) => i.id === 'clinical-summary')?.label).toBe('Student summary');
+    expect(items.map((i) => i.id)).toContain('student-summary');
+    expect(items.map((i) => i.id)).toContain('learning-plans');
+    expect(items.map((i) => i.id)).not.toContain('medical-record');
+    expect(items.map((i) => i.id)).not.toContain('clinical-summary');
+  });
 
-    const clinicalInLearning = recordsSubnav({
+  it('shows both clinical and learning surfaces for dual enrollment in learning tenant', () => {
+    const items = recordsSubnav({
       canViewClinical: true,
       canViewMedicalRecord: true,
-      isLearning: true,
-      isClinical: true
+      showClinicalSurfaces: true,
+      showLearningSurfaces: true
     });
-    expect(clinicalInLearning.map((i) => i.id)).toContain('medical-record');
-    expect(clinicalInLearning.find((i) => i.id === 'clinical-summary')?.label).toBe('Clinical summary');
+    expect(items.map((i) => i.id)).toEqual([
+      'overview',
+      'clinical-summary',
+      'student-summary',
+      'notes',
+      'medical-record',
+      'treatment-plans',
+      'learning-plans',
+      'documents',
+      'authorizations',
+      'audit'
+    ]);
   });
 
   it('maps clinical tabs to separate Records subs', () => {
     expect(resolveChartTab('clinical').sub).toBe('clinical-summary');
+    expect(resolveChartTab('student-summary').sub).toBe('student-summary');
     expect(resolveChartTab('clinical-notes').sub).toBe('notes');
+    expect(resolveChartTab('learning-plans').sub).toBe('learning-plans');
     expect(resolveChartTab('intake-note').sub).toBe('intake-note');
     expect(resolveChartTab('medical-record').sub).toBe('medical-record');
     expect(panelVisible('clinical', 'records', 'clinical-summary')).toBe(true);
+    expect(panelVisible('student-summary', 'records', 'student-summary')).toBe(true);
     expect(panelVisible('clinical-notes', 'records', 'notes')).toBe(true);
+    expect(panelVisible('learning-plans', 'records', 'learning-plans')).toBe(true);
     expect(panelVisible('intake-note', 'records', 'notes')).toBe(false);
     expect(panelVisible('medical-record', 'records', 'notes')).toBe(false);
     expect(panelVisible('medical-record', 'records', 'medical-record')).toBe(true);
-    expect(panelVisible('phi', 'records', 'notes')).toBe(false);
   });
 
   it('keeps surveys as secondary Records surface', () => {

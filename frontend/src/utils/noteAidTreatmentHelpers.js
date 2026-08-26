@@ -280,6 +280,97 @@ export function initialsLikelyMatch(typed, client) {
   return a === b || b.startsWith(a) || a.startsWith(b);
 }
 
+/**
+ * Resolve which tenant a Note Aid draft should belong to.
+ * Ownership order:
+ * 1) Client tenant memberships (primary + assignments)
+ * 2) Intersect with provider-accessible tenants (when provided)
+ * 3) Explicit preferredAgencyId when still valid
+ * 4) For tutoring/learning notes, prefer tenants that sponsor the client's learning program
+ * 5) Fall back to client primary, then sole candidate
+ *
+ * Returns { agencyId, needsChoice, candidates }.
+ */
+export function resolveNoteAidAgencyId({
+  clientAgencyId = null,
+  clientAgencyIds = [],
+  providerAgencyIds = null,
+  preferredAgencyId = null,
+  preferLearningSponsor = false,
+  learningSponsorAgencyIds = []
+} = {}) {
+  const toIds = (list) => [...new Set(
+    (Array.isArray(list) ? list : [])
+      .map((n) => Number(n))
+      .filter((n) => Number.isInteger(n) && n > 0)
+  )];
+
+  const primary = Number(clientAgencyId) || 0;
+  const memberships = toIds([
+    ...(primary ? [primary] : []),
+    ...toIds(clientAgencyIds)
+  ]);
+  if (!memberships.length) {
+    const preferred = Number(preferredAgencyId) || 0;
+    return {
+      agencyId: preferred || null,
+      needsChoice: false,
+      candidates: preferred ? [preferred] : []
+    };
+  }
+
+  const providerIds = providerAgencyIds == null ? null : toIds(providerAgencyIds);
+  let candidates = memberships;
+  if (providerIds && providerIds.length) {
+    const providerSet = new Set(providerIds);
+    const overlap = memberships.filter((id) => providerSet.has(id));
+    if (overlap.length) candidates = overlap;
+  }
+
+  const preferred = Number(preferredAgencyId) || 0;
+  if (preferred && candidates.includes(preferred)) {
+    return { agencyId: preferred, needsChoice: false, candidates };
+  }
+
+  if (preferLearningSponsor) {
+    const learningSet = new Set(toIds(learningSponsorAgencyIds));
+    const learningHits = candidates.filter((id) => learningSet.has(id));
+    if (learningHits.length === 1) {
+      return { agencyId: learningHits[0], needsChoice: false, candidates: learningHits };
+    }
+    if (learningHits.length > 1) {
+      if (primary && learningHits.includes(primary)) {
+        return { agencyId: primary, needsChoice: false, candidates: learningHits };
+      }
+      return { agencyId: null, needsChoice: true, candidates: learningHits };
+    }
+  }
+
+  if (candidates.length === 1) {
+    return { agencyId: candidates[0], needsChoice: false, candidates };
+  }
+  if (primary && candidates.includes(primary)) {
+    return { agencyId: primary, needsChoice: false, candidates };
+  }
+  if (candidates.length > 1) {
+    return { agencyId: null, needsChoice: true, candidates };
+  }
+  return { agencyId: null, needsChoice: false, candidates: [] };
+}
+
+/** True when the selected aid should prefer a learning-program sponsoring tenant. */
+export function noteAidPrefersLearningSponsor(aid, { categoryId = '' } = {}) {
+  const cat = String(categoryId || aid?.categoryId || '').toLowerCase();
+  if (cat === 'therapy_tutoring' || cat === 'learning' || cat === 'tutoring') return true;
+  const blob = `${aid?.toolId || ''} ${aid?.id || ''} ${aid?.label || ''}`.toLowerCase();
+  return (
+    blob.includes('tutor')
+    || blob.includes('tpt_')
+    || blob.includes('learning')
+    || blob.includes('nlu_assessment')
+  );
+}
+
 /** Tenant rows for Note Aid filters (memberships, or full catalog for super_admin). */
 export function noteAidTenantOptions(agencyStore, { role = '' } = {}) {
   const roleNorm = String(role || '').toLowerCase();

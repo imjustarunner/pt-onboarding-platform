@@ -1277,7 +1277,7 @@
           />
         </div>
 
-        <!-- Clinical / student summary (Records → Clinical summary) -->
+        <!-- Clinical summary (Records → Clinical summary) -->
         <ClientClinicalTab
           v-if="showPanel('clinical')"
           :client="client"
@@ -1289,6 +1289,23 @@
           :is-backoffice-role="isBackofficeRole"
           :has-agency-access="hasAgencyAccess"
           :can-view-medical-record="canViewMedicalRecord"
+          :force-learning-surface="false"
+          @navigate="goChartSub"
+        />
+
+        <!-- Student summary (learning enrollment in active chart tenant context) -->
+        <ClientClinicalTab
+          v-if="showPanel('student-summary')"
+          :client="client"
+          :billing-diagnoses="billingDiagnoses"
+          :billing-diagnoses-loading="billingDiagnosesLoading"
+          :billing-diagnoses-error="billingDiagnosesError"
+          :is-super-admin="isSuperAdmin"
+          :is-clinical-like-client-type="isClinicalLikeClientType"
+          :is-backoffice-role="isBackofficeRole"
+          :has-agency-access="hasAgencyAccess"
+          :can-view-medical-record="canViewMedicalRecord"
+          :force-learning-surface="true"
           @navigate="goChartSub"
         />
 
@@ -2209,8 +2226,17 @@
         <div v-if="showPanel('treatment-plans')" class="detail-section">
           <ClientTreatmentPlansPanel
             :client-id="client.id"
-            :agency-id="client.agency_id || selectedAgencyId"
-            :client-type="effectiveClientType"
+            :agency-id="selectedAgencyId || client.agency_id"
+            :client-type="showClinicalChartSurfaces ? 'clinical' : effectiveClientType"
+            @navigate="goChartSub"
+          />
+        </div>
+
+        <div v-if="showPanel('learning-plans')" class="detail-section">
+          <ClientTreatmentPlansPanel
+            :client-id="client.id"
+            :agency-id="selectedAgencyId || client.agency_id"
+            client-type="learning"
             @navigate="goChartSub"
           />
         </div>
@@ -2486,10 +2512,9 @@ const chartSubnav = computed(() => {
       canViewMedicalRecord: canViewMedicalRecord.value,
       canViewBilling: (canViewClientBillingImport.value || learningBillingEnabledForClient.value)
         && !['provider', 'provider_plus'].includes(roleNorm.value),
-      // Learning-primary labeling; clinical clients enrolled in a learning program stay clinical.
-      isLearning: effectiveClientType.value === 'learning',
-      isClinical: effectiveClientType.value === 'clinical'
-        || (isClinicalLikeClientType.value && effectiveClientType.value !== 'learning')
+      showLearningSurfaces: showLearningChartSurfaces.value,
+      showClinicalSurfaces: showClinicalChartSurfaces.value,
+      isLearningBilling: learningBillingEnabledForClient.value && showLearningChartSurfaces.value
     });
   }
   if (hub === 'messages') {
@@ -2568,6 +2593,8 @@ function goChartSub(subOrLegacy) {
       || key === 'clinical-notes'
       || key === 'clinical'
       || key === 'clinical-summary'
+      || key === 'student-summary'
+      || key === 'learning-plans'
       || key === 'notes';
     if (preserveActiveTab) {
       if (key === 'documents') activeTab.value = 'phi';
@@ -3115,6 +3142,8 @@ const docStatusDetailsEl = ref(null);
 
 // Multi-org + multi-provider assignments (backoffice only)
 const affiliations = ref([]);
+/** Affiliated orgs for the active chart tenant (used to gate learning surfaces). */
+const chartAgencyAffiliatedOrgs = ref([]);
 
 const SCHOOL_LIKE_ORG_TYPES = new Set(['school', 'program', 'learning']);
 const isSchoolLikeOrgType = (t) => SCHOOL_LIKE_ORG_TYPES.has(String(t || '').trim().toLowerCase());
@@ -3145,6 +3174,75 @@ const effectiveClientType = computed(() => explicitClientType.value || fallbackC
 const clientTypeLabel = computed(() => CLIENT_TYPE_LABELS[effectiveClientType.value] || effectiveClientType.value || 'Unknown');
 const isSchoolClientType = computed(() => effectiveClientType.value === 'school');
 const isClinicalLikeClientType = computed(() => ['clinical', 'learning'].includes(effectiveClientType.value));
+
+const clientLearningOrgIds = computed(() => {
+  const ids = new Set();
+  for (const a of affiliations.value || []) {
+    if (String(a?.organization_type || '').toLowerCase() === 'learning') {
+      const id = Number(a?.organization_id || 0);
+      if (id) ids.add(id);
+    }
+  }
+  if (String(props.client?.organization_type || '').toLowerCase() === 'learning') {
+    const id = Number(props.client?.organization_id || 0);
+    if (id) ids.add(id);
+  }
+  return [...ids];
+});
+
+const hasLearningProgramEnrollment = computed(() =>
+  effectiveClientType.value === 'learning' || clientLearningOrgIds.value.length > 0
+);
+
+const activeChartAgencyId = computed(() =>
+  Number(selectedAgencyId.value || props.client?.agency_id || 0) || null
+);
+
+const activeTenantSponsorsClientLearning = computed(() => {
+  if (!hasLearningProgramEnrollment.value) return false;
+  // Learning-primary clients always see learning surfaces in their chart.
+  if (effectiveClientType.value === 'learning') return true;
+
+  const learningIds = new Set(clientLearningOrgIds.value);
+  const sponsoredByAffil = (chartAgencyAffiliatedOrgs.value || []).some((o) => {
+    const id = Number(o?.id || o?.organization_id || 0);
+    const type = String(o?.organization_type || '').toLowerCase();
+    if (id && learningIds.has(id)) return true;
+    return type === 'learning' && id && learningIds.has(id);
+  });
+  if (sponsoredByAffil) return true;
+
+  // Single-tenant membership: that tenant is the only chart context for this client.
+  const tenantRows = clientAgencyAffiliations.value || [];
+  const tenantCount = tenantRows.length || (props.client?.agency_id ? 1 : 0);
+  if (tenantCount <= 1 && hasLearningProgramEnrollment.value) return true;
+
+  // Active chart tenant agency itself typed as learning (from memberships / user agencies).
+  const aid = activeChartAgencyId.value;
+  const fromMine = (myAgencies.value || []).find((a) => Number(a?.id) === aid);
+  const fromSwitch = (switchableAgencies.value || []).find((a) => Number(a?.id) === aid);
+  const agencyType = String(
+    fromMine?.organization_type || fromSwitch?.organization_type || props.client?.agency_organization_type || ''
+  ).toLowerCase();
+  if (agencyType === 'learning') return true;
+
+  // Client’s learning org is the same id as the active chart agency (tenant = program).
+  if (aid && learningIds.has(aid)) return true;
+
+  return false;
+});
+
+/** Student summary / Learning plans — gated by active chart tenant sponsorship. */
+const showLearningChartSurfaces = computed(() =>
+  hasLearningProgramEnrollment.value && activeTenantSponsorsClientLearning.value
+);
+
+/** Clinical summary / Medical record / Treatment plans. */
+const showClinicalChartSurfaces = computed(() =>
+  effectiveClientType.value === 'clinical'
+  || (isClinicalLikeClientType.value && effectiveClientType.value !== 'learning')
+);
+
 const showSchoolSpecificOverviewFields = computed(() => isSchoolClientType.value);
 const displayStatusLabel = computed(() => {
   if (isClientArchived.value) return 'Archived';
@@ -4655,24 +4753,40 @@ const fetchAvailableAffiliations = async () => {
 };
 
 const fetchClientAffiliations = async () => {
-  if (!canEditAccount.value) return;
+  // Load for chart context (learning surfaces) even when the viewer cannot edit assignments.
+  if (!props.client?.id) return;
   try {
     affiliationsLoading.value = true;
-    assignmentsError.value = '';
-    const r = await api.get(`/clients/${props.client.id}/affiliations`);
+    if (canEditAccount.value) assignmentsError.value = '';
+    const r = await api.get(`/clients/${props.client.id}/affiliations`, { skipGlobalLoading: true });
     affiliations.value = r.data || [];
-    if (!selectedAssignmentOrgId.value) {
+    if (canEditAccount.value && !selectedAssignmentOrgId.value) {
       const primary = (affiliations.value || []).find((a) => a?.is_primary) || affiliations.value?.[0] || null;
       if (primary?.organization_id) selectedAssignmentOrgId.value = String(primary.organization_id);
     }
-    // Keep the Overview provider list in sync with affiliations.
-    await refreshOverviewProviders();
+    if (canEditAccount.value) await refreshOverviewProviders();
   } catch (e) {
-    assignmentsError.value = e.response?.data?.error?.message || 'Failed to load affiliations';
+    if (canEditAccount.value) {
+      assignmentsError.value = e.response?.data?.error?.message || 'Failed to load affiliations';
+    }
     affiliations.value = [];
-    overviewProviders.value = [];
+    if (canEditAccount.value) overviewProviders.value = [];
   } finally {
     affiliationsLoading.value = false;
+  }
+};
+
+const fetchChartAgencyAffiliatedOrgs = async () => {
+  const agencyId = Number(activeChartAgencyId.value || 0);
+  if (!agencyId) {
+    chartAgencyAffiliatedOrgs.value = [];
+    return;
+  }
+  try {
+    const r = await api.get(`/agencies/${agencyId}/affiliated-organizations`, { skipGlobalLoading: true });
+    chartAgencyAffiliatedOrgs.value = Array.isArray(r.data) ? r.data : [];
+  } catch {
+    chartAgencyAffiliatedOrgs.value = [];
   }
 };
 
@@ -5188,7 +5302,12 @@ watch(() => activeTab.value, (newTab) => {
   } else if (newTab === 'phi') {
     fetchDocChecklist();
     loadPaperworkTabData();
-  } else if (newTab === 'clinical' || newTab === 'clinical-notes') {
+  } else if (
+    newTab === 'clinical'
+    || newTab === 'clinical-notes'
+    || newTab === 'student-summary'
+    || newTab === 'learning-plans'
+  ) {
     fetchBillingDiagnoses();
   } else if (newTab === 'phi' || newTab === 'account' || newTab === 'demographics') {
     fetchDemographics();
@@ -5220,21 +5339,36 @@ watch(() => props.client, async () => {
   loadOverviewOptions();
   fetchDocChecklist();
   await fetchClientAgencyAffiliations();
-  if (canEditAccount.value) {
-    await fetchClientAffiliations();
-  }
+  await fetchClientAffiliations();
   await fetchAccess();
+  await fetchChartAgencyAffiliatedOrgs();
   await refreshOverviewProviders();
   await fetchAdminNote();
   loadClientDisclosureStatus().catch(() => {});
-  if (activeTab.value === 'clinical') {
+  if (activeTab.value === 'clinical' || activeTab.value === 'student-summary') {
     fetchBillingDiagnoses();
   }
 }, { deep: true, immediate: true });
 
+watch(activeChartAgencyId, () => {
+  fetchChartAgencyAffiliatedOrgs();
+});
+
+watch(showLearningChartSurfaces, (show) => {
+  if (show) return;
+  const onLearningSurface = ['student-summary', 'learning-plans'].includes(String(activeTab.value || ''))
+    || ['student-summary', 'learning-plans'].includes(String(hubSub.value || ''));
+  if (!onLearningSurface) return;
+  goChartSub(showClinicalChartSurfaces.value ? 'clinical' : 'overview');
+});
+
 watch(effectiveClientType, async (nextType, prevType) => {
   if (nextType === prevType) return;
-  if (activeTab.value === 'clinical' || ['clinical', 'learning'].includes(nextType)) {
+  if (
+    activeTab.value === 'clinical'
+    || activeTab.value === 'student-summary'
+    || ['clinical', 'learning'].includes(nextType)
+  ) {
     await fetchBillingDiagnoses();
   }
   const hub = resolveChartTab(activeTab.value).hub;
