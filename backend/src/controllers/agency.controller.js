@@ -10,6 +10,7 @@ import {
   requirePractitionerOwner
 } from '../utils/practitionerAssistantAccess.js';
 import { sanitizePublicBookingSettings } from '../utils/publicBookingSettingsSanitize.js';
+import { isPublicIntakeOrgType } from '../services/publicIntakeClient.service.js';
 
 const parseJsonField = (raw) => {
   if (raw === null || raw === undefined || raw === '') return null;
@@ -1532,7 +1533,12 @@ export const listAffiliatedOrganizations = async (req, res, next) => {
     const affiliated = await OrganizationAffiliation.listActiveOrganizationsForAgency(agencyId);
     const agency = await Agency.findById(agencyId);
     const out = [];
-    if (agency) out.push(agency);
+    if (agency) {
+      const agencyType = String(agency.organization_type || 'agency').toLowerCase();
+      if (isPublicIntakeOrgType(agencyType)) {
+        out.push(agency);
+      }
+    }
     for (const org of affiliated || []) {
       if (parseInt(org?.id, 10) === agencyId) continue;
       out.push(org);

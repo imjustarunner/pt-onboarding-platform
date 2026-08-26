@@ -1225,10 +1225,11 @@ export const createClient = async (req, res, next) => {
       });
     }
 
-    const parsedOrganizationId = parseInt(organization_id, 10);
-    if (!parsedOrganizationId) {
+    const parsedOrganizationIdRaw = parseInt(organization_id, 10);
+    if (!parsedOrganizationIdRaw) {
       return res.status(400).json({ error: { message: 'organization_id must be a valid integer' } });
     }
+    let parsedOrganizationId = parsedOrganizationIdRaw;
 
     // Resolve agency_id (must be a root tenant). Prefer explicit agency_id, but fall back to the org affiliation.
     let parsedAgencyId = agency_id ? parseInt(agency_id, 10) : null;
@@ -1280,6 +1281,26 @@ export const createClient = async (req, res, next) => {
       });
     }
 
+    // Note Aid / admin create may still send tenant root as organization_id — resolve to clinical/program child.
+    const peekOrgForResolve = await Agency.findById(parsedOrganizationId);
+    const peekTypeForResolve = String(peekOrgForResolve?.organization_type || '').toLowerCase();
+    const intakeOrgTypes = ['school', 'program', 'learning', 'clinical', 'life_coach', 'consultant'];
+    if (!peekOrgForResolve || peekTypeForResolve === 'agency' || !intakeOrgTypes.includes(peekTypeForResolve)) {
+      const { resolveOrganizationIdForPublicBooking } = await import('../services/publicIntakeClient.service.js');
+      const sourceNorm = String(source || '').trim().toUpperCase();
+      const serviceType =
+        String(req.body?.serviceType || req.body?.service_type || '').trim().toLowerCase()
+        || (sourceNorm === 'NOTE_AID_MINIMAL' ? 'counseling' : '');
+      const resolvedOrgId = await resolveOrganizationIdForPublicBooking({
+        agencyId: parsedAgencyId,
+        organizationIdHint: parsedOrganizationId,
+        serviceType: serviceType || null
+      });
+      if (resolvedOrgId) {
+        parsedOrganizationId = resolvedOrgId;
+      }
+    }
+
     // Verify organization exists (child affiliation OR practitioner root self)
     const organization = await Agency.findById(parsedOrganizationId);
     if (!organization) {
@@ -1308,6 +1329,20 @@ export const createClient = async (req, res, next) => {
           : 'basic_nonclinical'
     );
     const enabledTypes = await getAgencyEnabledClientTypes(parsedAgencyId);
+    // Creating on a specific program org always permits that chart class.
+    if (normalizedOrgType === 'clinical' || normalizedOrgType === 'program') {
+      enabledTypes.add('clinical');
+    }
+    if (normalizedOrgType === 'school') {
+      enabledTypes.add('school');
+    }
+    if (normalizedOrgType === 'learning') {
+      enabledTypes.add('learning');
+      enabledTypes.add('clinical');
+    }
+    if (normalizedOrgType === 'life_coach' || normalizedOrgType === 'consultant') {
+      enabledTypes.add('basic_nonclinical');
+    }
     if (!enabledTypes.has(resolvedClientType)) {
       return res.status(400).json({
         error: {

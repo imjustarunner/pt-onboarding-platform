@@ -207,6 +207,8 @@ async function loadProgramsForTenant(agencyId) {
       rows = [];
     }
 
+    rows = rows.filter((o) => String(o?.organization_type || '').toLowerCase() !== 'agency');
+
     // Solo practitioner: tenant root is the client organization.
     if (
       (tenantType === 'life_coach' || tenantType === 'consultant')
