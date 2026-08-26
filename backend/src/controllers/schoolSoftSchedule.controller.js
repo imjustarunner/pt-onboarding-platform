@@ -1651,6 +1651,13 @@ export const setClientAssignedDay = async (req, res, next) => {
       // Best-effort — never block the day-assignment write on the school-year/compliance rollup.
     }
 
+    try {
+      const { syncClientProviderLifecycleTasks } = await import('../services/clientOnboardingTask.service.js');
+      await syncClientProviderLifecycleTasks({ clientId, actorUserId });
+    } catch {
+      // best-effort Tasks Hub sync
+    }
+
     let soft = { persisted: false, slots: [] };
     if (assigned) {
       soft = await loadSoftSlotsOrDefaults({ schoolId, weekday: serviceDay, providerUserId });

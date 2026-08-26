@@ -14,7 +14,8 @@ import {
   setTaskCollaborators,
   getTaskLinks,
   addTaskLink,
-  deleteTaskLink
+  deleteTaskLink,
+  syncMyClientLifecycleTasks
 } from '../controllers/meTasks.controller.js';
 import {
   requireTaskAccess,
@@ -45,6 +46,7 @@ router.get('/notes-to-sign', authenticate, listNotesToSign);
 router.get('/notes-to-sign/count', authenticate, getNotesToSignCount);
 router.post('/notes-to-sign/:id/sign', authenticate, signNote);
 router.post('/tasks', authenticate, createCustomTask);
+router.post('/tasks/sync-client-lifecycle', authenticate, syncMyClientLifecycleTasks);
 router.put('/tasks/:id', authenticate, updateCustomTask);
 router.post('/tasks/:id/claim', authenticate, claimTask);
 router.delete('/tasks/:id', authenticate, deleteCustomTask);

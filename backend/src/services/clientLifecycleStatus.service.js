@@ -200,7 +200,7 @@ export async function setClientLifecycleStatus({
         schoolOrganizationId: client.organization_id,
         clientId: cid,
         clientInitials: client.initials || null,
-        clientLabel: client.identifier_code || client.full_name || client.initials || null,
+        clientLabel: client.initials || client.full_name || client.identifier_code || null,
         category: isWaitlist ? DIGEST_CATEGORY_WAITLIST : DIGEST_CATEGORY_READY,
         waitlistReason,
         clearedFromWaitlist: !isWaitlist && currentKey === 'waitlist',
@@ -211,6 +211,14 @@ export async function setClientLifecycleStatus({
     } catch (err) {
       console.error('[clientLifecycleStatus] school status digest enqueue failed', err?.message || err);
     }
+  }
+
+  // Keep provider Tasks Hub items in sync with Clients Action / Next Step
+  try {
+    const { syncClientProviderLifecycleTasks } = await import('./clientOnboardingTask.service.js');
+    await syncClientProviderLifecycleTasks({ clientId: cid, actorUserId });
+  } catch (err) {
+    console.error('[clientLifecycleStatus] provider lifecycle task sync failed', err?.message || err);
   }
 
   return { changed: true, statusKey: key, statusId };

@@ -204,7 +204,7 @@
       <!-- Force full remount when switching tabs to avoid Vue patch edge-cases across radically different subtrees -->
       <div
         class="tab-content"
-        :class="{ 'tab-content--flush': activeTab === 'overview' || activeTab === 'account' || activeTab === 'benefits' || activeTab === 'provider_info' || activeTab === 'clients' }"
+        :class="{ 'tab-content--flush': activeTab === 'overview' || activeTab === 'account' || activeTab === 'benefits' || activeTab === 'provider_info' || activeTab === 'clients' || activeTab === 'tasks' }"
         :key="activeTab"
         data-tour="user-profile-tab-content"
       >
@@ -1899,6 +1899,15 @@
           />
         </div>
 
+        <div v-if="activeTab === 'tasks'" class="tab-panel tab-panel--flush">
+          <TasksHub
+            embedded
+            hide-timeline
+            :focus-user-id="userId"
+            :focus-user-name="headerDisplayName"
+          />
+        </div>
+
         <div v-if="activeTab === 'provider_info'" class="tab-panel">
           <ClinicalInformationTab
             :user-id="userId"
@@ -2789,6 +2798,7 @@ import UserTrainingTab from '../../components/admin/UserTrainingTab.vue';
 import UserDocumentsTab from '../../components/admin/UserDocumentsTab.vue';
 import ClinicalInformationTab from '../../components/admin/clinical/ClinicalInformationTab.vue';
 import ProviderClientsTab from '../../components/dashboard/ProviderClientsTab.vue';
+import TasksHub from '../../components/tasks/TasksHub.vue';
 import UserAccountDashboard from '../../components/admin/account/UserAccountDashboard.vue';
 import AccountDashboardCard from '../../components/admin/account/AccountDashboardCard.vue';
 import { USER_ACCOUNT_CONTEXT_KEY } from '../../composables/userAccountContext.js';
@@ -3943,6 +3953,7 @@ const tabs = computed(() => {
 
   const baseTabs = [
     { id: 'overview', label: 'Overview' },
+    { id: 'tasks', label: 'Tasks' },
     { id: 'account', label: 'Account' },
     { id: 'benefits', label: 'Benefits' },
     ...(canViewLifecycleTab.value ? [{ id: 'lifecycle', label: 'Lifecycle' }] : []),

@@ -688,14 +688,7 @@ const route = useRoute();
 const router = useRouter();
 
 function openUserTasks() {
-  const uid = Number(props.userId || 0);
-  if (!uid) return;
-  const orgSlug = String(route.params?.organizationSlug || '').trim();
-  const path = orgSlug ? `/${orgSlug}/tasks` : '/tasks';
-  router.push({
-    path,
-    query: { tab: 'all', teamMode: 'tasks', userId: String(uid) }
-  });
+  emit('navigate', 'tasks');
 }
 
 // ─── State ───────────────────────────────────────────────────────────────────

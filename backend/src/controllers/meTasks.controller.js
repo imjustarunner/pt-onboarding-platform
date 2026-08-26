@@ -536,3 +536,33 @@ export const deleteTaskLink = async (req, res, next) => {
     next(err);
   }
 };
+
+/**
+ * Refresh new-client / fall / assign-day Tasks Hub items for the signed-in provider
+ * (or another user when an admin/support viewer passes userId).
+ * POST /api/me/tasks/sync-client-lifecycle
+ */
+export const syncMyClientLifecycleTasks = async (req, res, next) => {
+  try {
+    const actorId = Number(req.user?.id || 0);
+    if (!actorId) return res.status(401).json({ error: { message: 'Unauthorized' } });
+
+    let targetUserId = actorId;
+    const requested = Number(req.body?.userId || req.query?.userId || 0);
+    if (requested && requested !== actorId) {
+      const role = String(req.user?.role || '').toLowerCase();
+      if (!['super_admin', 'admin', 'support'].includes(role)) {
+        return res.status(403).json({ error: { message: 'Forbidden' } });
+      }
+      targetUserId = requested;
+    }
+
+    const { syncProviderClientLifecycleTasksForUser } = await import(
+      '../services/clientOnboardingTask.service.js'
+    );
+    const result = await syncProviderClientLifecycleTasksForUser(targetUserId, { actorUserId: actorId });
+    res.json({ ok: true, userId: targetUserId, ...result });
+  } catch (err) {
+    next(err);
+  }
+};

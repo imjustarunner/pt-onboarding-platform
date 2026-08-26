@@ -29,6 +29,15 @@
           <span v-if="schoolTag" class="chip chip--school">{{ schoolTag }}</span>
         </div>
 
+        <div v-if="clientLifecycleAction" class="client-action-banner">
+          <p>
+            This is a client action item — complete it the same way you would from Clients.
+          </p>
+          <button type="button" class="btn btn-primary btn-sm" @click="$emit('open-client-action', item)">
+            {{ clientLifecycleAction.buttonLabel }}
+          </button>
+        </div>
+
         <div class="detail-fields">
           <div class="detail-fields__pair">
             <label class="field field--inline">
@@ -344,7 +353,7 @@ const props = defineProps({
   agencyUsers: { type: Array, default: () => [] }
 });
 
-const emit = defineEmits(['close', 'complete', 'incomplete', 'changed', 'view-project', 'open-project', 'list-created']);
+const emit = defineEmits(['close', 'complete', 'incomplete', 'changed', 'view-project', 'open-project', 'list-created', 'open-client-action']);
 
 const activeTaskDock = useActiveTaskDockStore();
 const taskCategories = TASK_CATEGORIES;
@@ -393,6 +402,30 @@ const categoryMenuOpen = ref(false);
 const draftCategories = ref(['general']);
 
 const isActionItem = computed(() => !!props.item?._isActionItem);
+
+const clientLifecycleAction = computed(() => {
+  const meta = props.item?.metadata && typeof props.item.metadata === 'object' ? props.item.metadata : {};
+  const clientId = Number(meta.clientId || 0);
+  if (!clientId) return null;
+  const source = String(meta.source || '');
+  const actionKey = String(meta.actionKey || '').trim();
+  const title = String(props.item?.title || '');
+  const isLifecycle = source === 'client_assignment'
+    || source === 'client_lifecycle'
+    || !!actionKey
+    || /^New client on your caseload/i.test(title)
+    || /^Fall confirmation/i.test(title);
+  if (!isLifecycle) return null;
+  const key = actionKey || 'provider_intake';
+  const labels = {
+    provider_intake: 'Open new-client steps',
+    fall_confirmation: 'Open fall confirmation',
+    assign_day: 'Assign day',
+    confirm_services_started: 'Mark Being Seen',
+    spring_update: 'Open spring update'
+  };
+  return { actionKey: key, buttonLabel: labels[key] || 'Open client action' };
+});
 
 const showCollaborators = computed(() => !!(draft.task_list_id || draft.project_id));
 
@@ -921,6 +954,22 @@ watch(
   line-height: 1.3;
 }
 .chips { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 10px; }
+.client-action-banner {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+}
+.client-action-banner p {
+  margin: 0;
+  font-size: 13px;
+  color: #1e3a8a;
+  line-height: 1.35;
+}
 .chip {
   font-size: 10px;
   font-weight: 700;

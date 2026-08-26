@@ -1,11 +1,11 @@
 <template>
-  <div class="tasks-hub">
+  <div class="tasks-hub" :class="{ 'tasks-hub--embedded': embedded }">
     <header class="tasks-hub__header">
       <h1 data-tour="tasks-title" class="tasks-hub__title">
         <span class="tasks-hub__icon" aria-hidden="true">☑</span>
-        Tasks
+        {{ headerTitle }}
       </h1>
-      <div class="tasks-hub__search">
+      <div v-if="!embedded" class="tasks-hub__search">
         <input
           ref="searchInputRef"
           v-model="searchQ"
@@ -29,7 +29,7 @@
         </ul>
       </div>
       <div class="tasks-hub__actions">
-        <router-link class="hub-chip-btn" :to="mySchedulePath">My Schedule</router-link>
+        <router-link v-if="!embedded" class="hub-chip-btn" :to="mySchedulePath">My Schedule</router-link>
         <div class="view-toggle">
           <button type="button" class="view-btn" :class="{ active: layout === 'list' }" @click="layout = 'list'">List</button>
           <button type="button" class="view-btn" :class="{ active: layout === 'board' }" @click="layout = 'board'">Board</button>
@@ -52,8 +52,9 @@
       </button>
     </nav>
 
-    <div class="tasks-hub__body">
+    <div class="tasks-hub__body" :class="{ 'tasks-hub__body--no-timeline': hideTimelineEffective }">
       <TaskTimeline
+        v-if="!hideTimelineEffective"
         ref="timelineRef"
         :agency-id="agencyId"
         :open-tasks="openTasksForTimeline"
@@ -139,13 +140,13 @@
         </template>
 
         <template v-else>
-          <div v-if="activeTab === 'all' && canViewAll" class="team-modes">
+          <div v-if="activeTab === 'all' && canViewAll && !focusUserIdLocked" class="team-modes">
             <button type="button" :class="{ active: teamMode === 'tasks' }" @click="teamMode = 'tasks'">Tasks</button>
             <button type="button" :class="{ active: teamMode === 'lists' }" @click="setTeamMode('lists')">Shared Lists</button>
             <button type="button" :class="{ active: teamMode === 'projects' }" @click="setTeamMode('projects')">Projects</button>
           </div>
 
-          <div v-if="activeTab === 'all' && canViewAll" class="team-filters">
+          <div v-if="activeTab === 'all' && canViewAll && !focusUserIdLocked" class="team-filters">
             <select v-model="teamFilters.tenantId" class="filter-select" @change="refresh">
               <option value="">All tenants</option>
               <option v-for="a in hideableAgencies" :key="a.id" :value="String(a.id)">{{ a.name }}</option>
@@ -157,6 +158,9 @@
               </option>
             </select>
           </div>
+          <p v-else-if="activeTab === 'all' && focusUserIdLocked && focusUserLabel" class="muted" style="margin: 0 0 10px;">
+            Showing tasks for {{ focusUserLabel }}
+          </p>
 
           <template v-if="activeTab === 'all' && teamMode === 'lists'">
             <div class="team-lists-browser">
@@ -440,6 +444,41 @@
         @list-created="onInlineListCreated"
         @view-project="(id) => viewProjectById(id)"
         @open-project="openProjectWorkspace"
+        @open-client-action="openClientLifecycleAction"
+      />
+
+      <div
+        v-if="lifecycleChecklistClientId"
+        class="modal-overlay"
+        style="z-index: 10000;"
+        @click.self="closeLifecycleChecklist"
+      >
+        <ClientOnboardingChecklistPanel
+          as-modal
+          :client-id="lifecycleChecklistClientId"
+          :client-label="lifecycleChecklistLabel"
+          :can-edit-docs="false"
+          @close="closeLifecycleChecklist"
+          @updated="onLifecycleChecklistUpdated"
+        />
+      </div>
+
+      <LifecycleActionModal
+        v-if="lifecycleModalClient && lifecycleModalKey"
+        :client="lifecycleModalClient"
+        :action-key="lifecycleModalKey"
+        :action-label="lifecycleModalLabel"
+        @close="closeLifecycleModal"
+        @saved="onLifecycleActionSaved"
+      />
+
+      <AssignDayModal
+        v-if="assignDayClient && assignDayOrgId"
+        :organization-id="assignDayOrgId"
+        :client="assignDayClient"
+        client-label-mode="initials"
+        @close="closeAssignDay"
+        @updated="onLifecycleActionSaved"
       />
     </div>
 
@@ -827,12 +866,15 @@ import api from '../../services/api';
 import TasksStatusSummary from './TasksStatusSummary.vue';
 import TasksFiltersBar from './TasksFiltersBar.vue';
 import TasksListTable from './TasksListTable.vue';
-import SharedListsView from '../dashboard/SharedListsView.vue';
 import TaskTimeline from './TaskTimeline.vue';
+import SharedListsView from '../dashboard/SharedListsView.vue';
+import ProjectOverviewPanel from './ProjectOverviewPanel.vue';
 import FocusSessionModal from './FocusSessionModal.vue';
 import TaskDetailSidePanel from './TaskDetailSidePanel.vue';
 import TaskListProjectFields from './TaskListProjectFields.vue';
-import ProjectOverviewPanel from './ProjectOverviewPanel.vue';
+import ClientOnboardingChecklistPanel from '../clients/ClientOnboardingChecklistPanel.vue';
+import LifecycleActionModal from '../school/LifecycleActionModal.vue';
+import AssignDayModal from '../school/AssignDayModal.vue';
 import { taskSchoolTag } from '../../utils/taskSchoolTag.js';
 import { navigateToNoteAid } from '../../utils/noteAidLaunch.js';
 import {
@@ -841,6 +883,34 @@ import {
   isSessionNoteTask
 } from '../../utils/noteAidSessionQueue.js';
 import { saveWorkQueue } from '../../utils/noteAidWorkQueue.js';
+
+const props = defineProps({
+  /** Render inside a profile/dashboard panel instead of the full Tasks page. */
+  embedded: { type: Boolean, default: false },
+  /** When set, lock Team Tasks to this user (profile view). */
+  focusUserId: { type: [Number, String], default: null },
+  /** Optional display name for the focused user. */
+  focusUserName: { type: String, default: '' },
+  /** Hide the Task Timeline sidebar. */
+  hideTimeline: { type: Boolean, default: false },
+  /**
+   * Action Items tab visibility.
+   * null = admin / super_admin / support only; true/false force.
+   */
+  showActionItems: { type: Boolean, default: null }
+});
+
+const embedded = computed(() => !!props.embedded);
+const hideTimelineEffective = computed(() => !!props.hideTimeline || embedded.value);
+const focusUserIdLocked = computed(() => {
+  const id = Number(props.focusUserId || 0);
+  return Number.isFinite(id) && id > 0 ? id : null;
+});
+const focusUserLabel = computed(() => String(props.focusUserName || '').trim());
+const headerTitle = computed(() => {
+  if (focusUserIdLocked.value && focusUserLabel.value) return `${focusUserLabel.value}'s Tasks`;
+  return 'Tasks';
+});
 
 const route = useRoute();
 const router = useRouter();
@@ -870,6 +940,99 @@ const filters = ref({
 const departments = ref([]);
 const typeDefs = ref([]);
 const detailTask = ref(null);
+
+const lifecycleChecklistClientId = ref(null);
+const lifecycleChecklistLabel = ref('');
+const lifecycleModalClient = ref(null);
+const lifecycleModalKey = ref('');
+const lifecycleModalLabel = ref('');
+const assignDayClient = ref(null);
+const assignDayOrgId = ref(null);
+
+function clientLifecycleMeta(task) {
+  const meta = task?.metadata && typeof task.metadata === 'object' ? task.metadata : {};
+  const clientId = Number(meta.clientId || 0);
+  if (!clientId) return null;
+  const source = String(meta.source || '');
+  const actionKey = String(meta.actionKey || '').trim();
+  const isLifecycle = source === 'client_assignment'
+    || source === 'client_lifecycle'
+    || !!actionKey
+    || /^New client on your caseload/i.test(String(task?.title || ''))
+    || /^Fall confirmation/i.test(String(task?.title || ''));
+  if (!isLifecycle) return null;
+  return {
+    clientId,
+    actionKey: actionKey || 'provider_intake',
+    actionLabel: meta.actionLabel || null,
+    labelFromTitle: String(task?.title || '').split(':').slice(1).join(':').trim() || `Client #${clientId}`
+  };
+}
+
+function closeLifecycleChecklist() {
+  lifecycleChecklistClientId.value = null;
+  lifecycleChecklistLabel.value = '';
+}
+
+function closeLifecycleModal() {
+  lifecycleModalClient.value = null;
+  lifecycleModalKey.value = '';
+  lifecycleModalLabel.value = '';
+}
+
+function closeAssignDay() {
+  assignDayClient.value = null;
+  assignDayOrgId.value = null;
+}
+
+async function openClientLifecycleAction(task) {
+  const info = clientLifecycleMeta(task || detailTask.value);
+  if (!info) return;
+  const { clientId, actionKey, actionLabel, labelFromTitle } = info;
+
+  if (actionKey === 'provider_intake') {
+    lifecycleChecklistClientId.value = clientId;
+    lifecycleChecklistLabel.value = labelFromTitle;
+    return;
+  }
+
+  try {
+    const { data } = await api.get(`/clients/${clientId}`, { skipGlobalLoading: true });
+    const client = data?.client || data;
+    if (!client?.id) return;
+    if (actionKey === 'assign_day') {
+      assignDayClient.value = client;
+      assignDayOrgId.value = Number(client.organization_id || 0) || null;
+      return;
+    }
+    lifecycleModalClient.value = client;
+    lifecycleModalKey.value = actionKey;
+    lifecycleModalLabel.value = actionLabel || actionKey;
+  } catch (err) {
+    console.warn('[TasksHub] open client lifecycle action failed', err?.message || err);
+  }
+}
+
+async function onLifecycleChecklistUpdated() {
+  try {
+    await api.post('/me/tasks/sync-client-lifecycle', {}, { skipGlobalLoading: true });
+  } catch {
+    // ignore
+  }
+  await refresh();
+}
+
+async function onLifecycleActionSaved() {
+  closeLifecycleChecklist();
+  closeLifecycleModal();
+  closeAssignDay();
+  try {
+    await api.post('/me/tasks/sync-client-lifecycle', {}, { skipGlobalLoading: true });
+  } catch {
+    // ignore
+  }
+  await refresh();
+}
 const showNewPicker = ref(false);
 const showNewTask = ref(false);
 const showNewActionItem = ref(false);
@@ -974,6 +1137,12 @@ const canViewAll = computed(() =>
   ['admin', 'super_admin', 'support', 'supervisor'].includes(role.value)
   || !!authStore.user?.capabilities?.canManageHiring
 );
+/** Action Items are for backoffice only — not providers/supervisors/etc. */
+const canSeeActionItems = computed(() => {
+  if (props.showActionItems === false) return false;
+  if (props.showActionItems === true) return true;
+  return ['admin', 'super_admin', 'support'].includes(role.value);
+});
 
 const agencyId = computed(() => {
   const org = agencyStore.currentAgency?.value ?? agencyStore.currentAgency ?? null;
@@ -1113,10 +1282,21 @@ const projectsOptions = computed(() => {
 
 const tabs = computed(() => {
   const c = tasksStore.taskCounts || {};
+  // Profile embed: only this user's task list (+ action items for backoffice).
+  if (focusUserIdLocked.value) {
+    return [
+      { id: 'all', label: 'Tasks', count: c.all },
+      canSeeActionItems.value
+        ? { id: 'action_items', label: 'Action Items', count: c.action_items ?? null }
+        : null
+    ].filter(Boolean);
+  }
   const list = [
     { id: 'assigned', label: 'Assigned to Me', count: c.assigned },
     { id: 'mine', label: 'My Tasks', count: c.mine },
-    { id: 'action_items', label: 'Action Items', count: c.action_items ?? null },
+    canSeeActionItems.value
+      ? { id: 'action_items', label: 'Action Items', count: c.action_items ?? null }
+      : null,
     { id: 'shared', label: 'Shared Lists', count: c.shared_lists ?? null },
     { id: 'projects', label: 'Projects', count: c.projects ?? null },
     { id: 'watchlist', label: 'Watchlist', count: c.watchlist },
@@ -2009,6 +2189,9 @@ async function loadDepartments() {
 function openTask(task) {
   detailTask.value = task;
   loadAgencyUsers(task?.assigned_to_agency_id || task?.agency_id);
+  if (clientLifecycleMeta(task)) {
+    openClientLifecycleAction(task);
+  }
 }
 
 function openActionItem(task) {
@@ -2351,12 +2534,21 @@ watch(agencyId, () => {
 onMounted(async () => {
   const qTab = String(route.query.tab || route.query.view || '').toLowerCase();
   const qUserId = String(route.query.userId || '').trim();
-  if (qUserId && canViewAll.value) {
+  const lockedUserId = focusUserIdLocked.value;
+  if (lockedUserId && canViewAll.value) {
+    teamFilters.userId = String(lockedUserId);
+    activeTab.value = 'all';
+    teamMode.value = 'tasks';
+  } else if (qUserId && canViewAll.value && !embedded.value) {
     teamFilters.userId = qUserId;
     activeTab.value = 'all';
     teamMode.value = String(route.query.teamMode || 'tasks');
   } else if (['assigned', 'mine', 'shared', 'watchlist', 'action_items', 'projects'].includes(qTab)) {
-    activeTab.value = qTab;
+    if (qTab === 'action_items' && !canSeeActionItems.value) {
+      activeTab.value = 'assigned';
+    } else {
+      activeTab.value = qTab;
+    }
   } else if (qTab === 'all' && canViewAll.value) {
     // sticky Team Tasks only when explicitly requested with teamMode, else default personal
     activeTab.value = route.query.teamMode ? 'all' : 'assigned';
@@ -2364,7 +2556,9 @@ onMounted(async () => {
   } else {
     activeTab.value = 'assigned';
   }
-  window.addEventListener('keydown', onKeydown);
+  if (!embedded.value) {
+    window.addEventListener('keydown', onKeydown);
+  }
   await Promise.all([
     loadDepartments(),
     loadTypeDefs(),
@@ -2372,8 +2566,18 @@ onMounted(async () => {
     loadSharedListsOptions(),
     loadAgencyUsers()
   ]);
+  try {
+    const locked = focusUserIdLocked.value;
+    await api.post(
+      '/me/tasks/sync-client-lifecycle',
+      locked ? { userId: locked } : {},
+      { skipGlobalLoading: true }
+    );
+  } catch {
+    // best-effort title/action sync for new-client / fall tasks
+  }
   await refresh();
-  if (route.query.blockEventId) {
+  if (!embedded.value && route.query.blockEventId) {
     try {
       const { data } = await api.get(`/schedule-block-assignments/${route.query.blockEventId}`, {
         skipGlobalLoading: true
@@ -2394,10 +2598,23 @@ onMounted(async () => {
   }
 });
 onUnmounted(() => {
-  window.removeEventListener('keydown', onKeydown);
+  if (!embedded.value) {
+    window.removeEventListener('keydown', onKeydown);
+  }
   if (searchTimer) clearTimeout(searchTimer);
   if (teamListSearchTimer) clearTimeout(teamListSearchTimer);
 });
+
+watch(
+  () => focusUserIdLocked.value,
+  (uid) => {
+    if (!uid || !canViewAll.value) return;
+    teamFilters.userId = String(uid);
+    activeTab.value = 'all';
+    teamMode.value = 'tasks';
+    refresh();
+  }
+);
 </script>
 
 <style scoped>
@@ -2596,6 +2813,19 @@ onUnmounted(() => {
   display: flex;
   gap: 14px;
   align-items: flex-start;
+}
+.tasks-hub__body--no-timeline {
+  display: block;
+}
+.tasks-hub--embedded {
+  padding: 0;
+  max-width: none;
+}
+.tasks-hub--embedded .tasks-hub__header {
+  margin-bottom: 8px;
+}
+.tasks-hub--embedded .tasks-hub__title {
+  font-size: 1.25rem;
 }
 .tasks-hub__main { flex: 1; min-width: 0; }
 .search-results {

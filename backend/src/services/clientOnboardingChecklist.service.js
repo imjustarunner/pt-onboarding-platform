@@ -638,7 +638,7 @@ export async function completeStaffOnboarding({ clientId, actorUserId = null }) 
     await createClientOnboardingTaskForProvider({
       providerUserId,
       clientId,
-      clientLabel: client.identifier_code || client.full_name || client.initials,
+      clientLabel: client.initials || client.full_name || client.identifier_code,
       serviceDay: client.service_day || null,
       assignedByUserId: actorUserId
     });
