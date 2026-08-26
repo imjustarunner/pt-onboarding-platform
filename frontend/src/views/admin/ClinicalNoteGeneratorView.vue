@@ -1889,6 +1889,7 @@ function onLibrarySelect({ aid, categoryId }) {
 function changeNoteAid() {
   selectedAidId.value = '';
   selectedNoteCategory.value = '';
+  noteWizardStep.value = 1;
 }
 
 watch(selectedAidId, (aidId) => {
@@ -4667,6 +4668,14 @@ const loadClinicalNoteIntoWorkspace = async (noteId) => {
     configExpanded.value = false;
     noteWizardStep.value = 2;
     newNoteMenuOpen.value = false;
+    approvalMessage.value = '';
+    approvalError.value = '';
+  } catch (e) {
+    viewingChartNote.value = null;
+    approvalError.value =
+      e.response?.data?.error?.message || e.message || 'Could not load clinical note.';
+  }
+};
 
 const archiveCurrentDraft = async () => {
   if (!draftId.value || archivingDraft.value) return;
