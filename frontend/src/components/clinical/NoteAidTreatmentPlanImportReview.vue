@@ -39,8 +39,17 @@
               <button type="button" class="na-link-btn" :disabled="di >= model.diagnoses.length - 1" @click="moveDx(di, 1)">↓</button>
               <button type="button" class="na-link-btn" @click="model.diagnoses.splice(di, 1)">Remove</button>
             </div>
-            <textarea v-model="d.justification" class="na-textarea" rows="2" placeholder="Justification" />
           </div>
+          <label class="na-label" style="margin-top: 8px;">
+            Diagnostic justification
+            <span class="hint" style="font-weight: 500;">One narrative covering all diagnoses above</span>
+            <textarea
+              v-model="model.diagnosticJustification"
+              class="na-textarea"
+              rows="5"
+              placeholder="Describe how the presentation supports the diagnosis list…"
+            />
+          </label>
         </div>
 
         <label class="na-label">
@@ -159,7 +168,6 @@ function addDiagnosis() {
   model.value.diagnoses.push({
     icd10Code: '',
     description: '',
-    justification: '',
     isPrimary: model.value.diagnoses.length === 0
   });
 }
@@ -193,15 +201,19 @@ async function parse() {
       { skipGlobalLoading: true }
     );
     const parsed = res?.data?.parsed || {};
+    const dxList = parsed.diagnoses || [];
+    const sharedJust = String(parsed.diagnosticJustification || '').trim()
+      || dxList.map((d) => String(d.justification || '').trim()).find(Boolean)
+      || '';
     model.value = reactive({
       effectiveDate: parsed.effectiveDate || '',
       presentingProblem: parsed.presentingProblem || '',
       prescribedFrequency: parsed.prescribedFrequency || '',
       dischargePlan: parsed.dischargePlan || '',
-      diagnoses: (parsed.diagnoses || []).map((d, i) => ({
+      diagnosticJustification: sharedJust,
+      diagnoses: dxList.map((d, i) => ({
         icd10Code: d.icd10Code || '',
         description: d.description || '',
-        justification: d.justification || '',
         isPrimary: i === (parsed.primaryDiagnosisIndex || 0)
       })),
       goals: (parsed.goals || []).map((g) => ({
@@ -254,8 +266,13 @@ async function save() {
       sourceToolId: 'note_aid_plan_import',
       icd10Code: primary?.icd10Code || null,
       diagnosisDescription: primary?.description || null,
-      diagnosticJustification: primary?.justification || null,
-      diagnoses: model.value.diagnoses,
+      diagnosticJustification: String(model.value.diagnosticJustification || '').trim() || null,
+      diagnoses: (model.value.diagnoses || []).map((d, i) => ({
+        ...d,
+        justification: i === 0 || d.isPrimary
+          ? String(model.value.diagnosticJustification || '').trim()
+          : ''
+      })),
       goals: model.value.goals.map((g, i) => ({
         goalIndex: i + 1,
         goalText: g.goalText,

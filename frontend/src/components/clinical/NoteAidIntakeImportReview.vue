@@ -41,22 +41,34 @@
                 <input v-model="dx.description" class="na-input" placeholder="Description" />
                 <button v-if="diagnoses.length > 1" type="button" class="na-link-btn" @click="removeDiagnosis(di)">Remove</button>
               </div>
-              <textarea v-model="dx.justification" class="na-textarea" rows="2" placeholder="Justification (primary dx)" />
+            </div>
+
+            <div class="na-dx-justification">
+              <label class="na-label na-label--tight">
+                Diagnostic justification
+                <span class="hint">One narrative covering all diagnoses above</span>
+                <textarea
+                  v-model="diagnosticJustification"
+                  class="na-textarea"
+                  rows="5"
+                  placeholder="Describe how the presentation supports the diagnosis list…"
+                />
+              </label>
               <div class="na-eval-row">
                 <button
                   type="button"
                   class="na-btn-outline na-btn-outline--sm"
-                  :disabled="evaluatingIndex === di || !dx.code || !dx.justification?.trim()"
-                  @click="evaluateDiagnosis(di)"
+                  :disabled="evaluating || !diagnoses[0]?.code || !diagnosticJustification.trim()"
+                  @click="evaluateJustification"
                 >
-                  {{ evaluatingIndex === di ? 'Evaluating…' : 'AI evaluate justification' }}
+                  {{ evaluating ? 'Evaluating…' : 'AI evaluate justification' }}
                 </button>
-                <span v-if="dx.evaluationScore != null" class="na-eval-score" :class="scoreClass(dx.evaluationScore)">
-                  Score: {{ dx.evaluationScore }}/100
+                <span v-if="evaluationScore != null" class="na-eval-score" :class="scoreClass(evaluationScore)">
+                  Score: {{ evaluationScore }}/100
                 </span>
               </div>
-              <p v-if="dx.evaluationSummary" class="na-eval-summary">{{ dx.evaluationSummary }}</p>
-              <p v-if="dx.evaluationGaps" class="na-eval-gaps">{{ dx.evaluationGaps }}</p>
+              <p v-if="evaluationSummary" class="na-eval-summary">{{ evaluationSummary }}</p>
+              <p v-if="evaluationGaps" class="na-eval-gaps">{{ evaluationGaps }}</p>
             </div>
           </div>
 
@@ -91,11 +103,21 @@ const pasteText = ref('');
 const draftId = ref(null);
 const sections = ref([]);
 const diagnoses = ref([]);
+const diagnosticJustification = ref('');
+const evaluationScore = ref(null);
+const evaluationSummary = ref('');
+const evaluationGaps = ref('');
 const importing = ref(false);
 const saving = ref(false);
 const finalizing = ref(false);
 const error = ref('');
-const evaluatingIndex = ref(-1);
+const evaluating = ref(false);
+
+function resetEvaluation() {
+  evaluationScore.value = null;
+  evaluationSummary.value = '';
+  evaluationGaps.value = '';
+}
 
 watch(
   () => props.open,
@@ -104,9 +126,11 @@ watch(
     pasteText.value = props.initialText || '';
     draftId.value = null;
     sections.value = [];
-    diagnoses.value = [{ code: '', description: '', justification: '' }];
+    diagnoses.value = [{ code: '', description: '' }];
+    diagnosticJustification.value = '';
+    resetEvaluation();
     error.value = '';
-    evaluatingIndex.value = -1;
+    evaluating.value = false;
   }
 );
 
@@ -118,7 +142,7 @@ function moveSection(index, delta) {
 }
 
 function addDiagnosis() {
-  diagnoses.value.push({ code: '', description: '', justification: '' });
+  diagnoses.value.push({ code: '', description: '' });
 }
 
 function removeDiagnosis(index) {
@@ -133,26 +157,29 @@ function scoreClass(score) {
   return 'low';
 }
 
+function pickSharedJustification(list, singleDx) {
+  const fromList = (Array.isArray(list) ? list : [])
+    .map((d) => String(d?.justification || '').trim())
+    .find(Boolean);
+  if (fromList) return fromList;
+  return String(singleDx?.justification || '').trim();
+}
+
 function normalizeDiagnosesFromResponse(list, singleDx) {
   if (Array.isArray(list) && list.length) {
     return list.map((d, i) => ({
       code: d.code || d.icd10Code || '',
       description: d.description || '',
-      justification: d.justification || '',
-      evaluationScore: d.evaluationScore ?? null,
-      evaluationSummary: d.evaluationSummary || '',
-      evaluationGaps: d.evaluationGaps || '',
       isPrimary: i === 0
     }));
   }
   if (singleDx?.code) {
     return [{
       code: singleDx.code || singleDx.icd10Code || '',
-      description: singleDx.description || '',
-      justification: singleDx.justification || ''
+      description: singleDx.description || ''
     }];
   }
-  return [{ code: '', description: '', justification: '' }];
+  return [{ code: '', description: '' }];
 }
 
 async function doImport() {
@@ -170,10 +197,17 @@ async function doImport() {
       body: s.body || s.content || '',
       order: i + 1
     }));
-    diagnoses.value = normalizeDiagnosesFromResponse(
-      res?.data?.parsed?.diagnoses,
-      draft?.confirmedDiagnosis || draft?.suggestedDiagnosis || res?.data?.parsed?.diagnosis
-    );
+    const parsedDx = res?.data?.parsed?.diagnoses;
+    const singleDx = draft?.confirmedDiagnosis || draft?.suggestedDiagnosis || res?.data?.parsed?.diagnosis;
+    diagnoses.value = normalizeDiagnosesFromResponse(parsedDx, singleDx);
+    diagnosticJustification.value = pickSharedJustification(parsedDx, singleDx);
+    resetEvaluation();
+    const primaryEv = Array.isArray(parsedDx) ? parsedDx[0] : null;
+    if (primaryEv?.evaluationScore != null) {
+      evaluationScore.value = primaryEv.evaluationScore;
+      evaluationSummary.value = primaryEv.evaluationSummary || '';
+      evaluationGaps.value = primaryEv.evaluationGaps || '';
+    }
   } catch (e) {
     error.value = e.response?.data?.error?.message || e.message || 'Import failed';
   } finally {
@@ -181,30 +215,51 @@ async function doImport() {
   }
 }
 
-async function evaluateDiagnosis(index) {
-  const dx = diagnoses.value[index];
-  if (!dx?.code || !String(dx.justification || '').trim()) return;
-  evaluatingIndex.value = index;
+async function evaluateJustification() {
+  const primary = diagnoses.value[0];
+  const just = String(diagnosticJustification.value || '').trim();
+  if (!primary?.code || !just) return;
+  evaluating.value = true;
   error.value = '';
   try {
+    const coded = diagnoses.value
+      .filter((d) => String(d.code || '').trim())
+      .map((d) => ({
+        icd10Code: d.code,
+        description: d.description || ''
+      }));
     const res = await api.post(
       `/clients/${props.clientId}/intake-note/evaluate-diagnosis`,
       {
-        icd10Code: dx.code,
-        description: dx.description,
-        justification: dx.justification
+        icd10Code: primary.code,
+        description: primary.description,
+        justification: just,
+        diagnoses: coded
       },
       { skipGlobalLoading: true }
     );
     const ev = res?.data?.evaluation || {};
-    dx.evaluationScore = ev.score;
-    dx.evaluationSummary = ev.summary || '';
-    dx.evaluationGaps = ev.gaps || '';
+    evaluationScore.value = ev.score ?? null;
+    evaluationSummary.value = ev.summary || '';
+    evaluationGaps.value = ev.gaps || '';
   } catch (e) {
     error.value = e.response?.data?.error?.message || e.message || 'Evaluation failed';
   } finally {
-    evaluatingIndex.value = -1;
+    evaluating.value = false;
   }
+}
+
+function diagnosesPayload() {
+  const just = String(diagnosticJustification.value || '').trim();
+  return diagnoses.value.map((d, i) => ({
+    code: d.code,
+    description: d.description,
+    // Shared justification lives on the primary diagnosis for API / chart storage.
+    justification: i === 0 ? just : '',
+    isPrimary: i === 0,
+    evaluationScore: i === 0 ? evaluationScore.value : null,
+    evaluationSummary: i === 0 ? (evaluationSummary.value || null) : null
+  }));
 }
 
 async function saveSections() {
@@ -214,14 +269,8 @@ async function saveSections() {
   try {
     await api.patch(`/clients/${props.clientId}/intake-note/${draftId.value}/sections`, {
       sections: sections.value,
-      diagnoses: diagnoses.value.map((d, i) => ({
-        code: d.code,
-        description: d.description,
-        justification: d.justification,
-        isPrimary: i === 0,
-        evaluationScore: d.evaluationScore ?? null,
-        evaluationSummary: d.evaluationSummary || null
-      }))
+      diagnoses: diagnosesPayload(),
+      diagnosticJustification: String(diagnosticJustification.value || '').trim() || null
     });
   } catch (e) {
     error.value = e.response?.data?.error?.message || e.message || 'Save failed';
@@ -310,6 +359,14 @@ async function finalize() {
   margin-top: 8px;
   background: #fff;
 }
+.na-dx-card .na-import-row { margin-bottom: 0; }
+.na-dx-justification {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid #e2e8f0;
+}
+.na-label--tight { margin-bottom: 0; }
+.na-label--tight .hint { font-weight: 500; margin-bottom: 4px; }
 .na-dx-primary {
   font-size: 0.72rem;
   font-weight: 800;

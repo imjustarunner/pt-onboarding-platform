@@ -1484,20 +1484,31 @@ export const updateClientIntakeNoteSections = async (req, res, next) => {
 
     let confirmedDxJson;
     let status;
+    const sharedJustification = String(
+      req.body?.diagnosticJustification
+        ?? req.body?.diagnostic_justification
+        ?? ''
+    ).trim();
     const diagnosesInput = Array.isArray(req.body?.diagnoses) ? req.body.diagnoses : null;
     if (diagnosesInput?.length) {
       const normalized = diagnosesInput
         .map((d, i) => ({
           code: String(d.code || d.icd10Code || d.icd10_code || '').trim(),
           description: String(d.description || '').trim(),
-          justification: String(d.justification || '').trim(),
+          justification: i === 0
+            ? (sharedJustification || String(d.justification || '').trim())
+            : '',
           isPrimary: d.isPrimary != null ? !!d.isPrimary : i === 0,
           evaluationScore: d.evaluationScore ?? null,
           evaluationSummary: d.evaluationSummary || null
         }))
         .filter((d) => d.code);
       if (normalized.length) {
-        confirmedDxJson = JSON.stringify({ diagnoses: normalized, primary: normalized[0] });
+        confirmedDxJson = JSON.stringify({
+          diagnoses: normalized,
+          primary: normalized[0],
+          diagnosticJustification: normalized[0].justification || null
+        });
         status = 'ready';
       }
     } else if (req.body?.diagnosis) {
@@ -1505,7 +1516,7 @@ export const updateClientIntakeNoteSections = async (req, res, next) => {
       const diagnosis = {
         code: String(d.code || d.icd10Code || d.icd10_code || '').trim(),
         description: String(d.description || '').trim(),
-        justification: String(d.justification || '').trim()
+        justification: sharedJustification || String(d.justification || '').trim()
       };
       if (diagnosis.code) {
         confirmedDxJson = JSON.stringify(diagnosis);
@@ -1546,7 +1557,8 @@ export const evaluateIntakeDiagnosisJustification = async (req, res, next) => {
     const result = await evaluateDiagnosticJustification({
       icd10Code: req.body?.icd10Code || req.body?.code,
       description: req.body?.description,
-      justification: req.body?.justification
+      justification: req.body?.justification,
+      diagnoses: Array.isArray(req.body?.diagnoses) ? req.body.diagnoses : null
     });
     return res.json({ evaluation: result });
   } catch (e) {
