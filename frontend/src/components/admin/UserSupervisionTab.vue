@@ -77,6 +77,59 @@
         </p>
       </section>
 
+      <section
+        v-if="canAdjustHours && !isSelfView && scopeOrgId && showProgress"
+        class="ust-admin-adjust"
+        aria-label="Adjust supervision hour totals"
+      >
+        <h3 class="ust-admin-adjust-title">Adjust supervision totals</h3>
+        <p class="ust-admin-adjust-lead">
+          Set this employee’s current individual and group hours. Lowering the total shifts baseline
+          and session Before/After history down together so the chain stays consistent.
+        </p>
+        <form class="ust-admin-adjust-form" @submit.prevent="saveAdjustedHours">
+          <div class="ust-admin-adjust-fields">
+            <label class="ust-admin-adjust-field">
+              <span>Individual hours</span>
+              <input
+                v-model="adjustForm.individualHours"
+                type="number"
+                min="0"
+                step="0.01"
+                :disabled="adjustSaving"
+                required
+              />
+            </label>
+            <label class="ust-admin-adjust-field">
+              <span>Group hours</span>
+              <input
+                v-model="adjustForm.groupHours"
+                type="number"
+                min="0"
+                step="0.01"
+                :disabled="adjustSaving"
+                required
+              />
+            </label>
+          </div>
+          <div class="ust-admin-adjust-actions">
+            <button type="submit" class="btn btn-primary btn-sm" :disabled="adjustSaving || !adjustDirty">
+              {{ adjustSaving ? 'Saving…' : 'Save totals' }}
+            </button>
+            <button
+              type="button"
+              class="btn btn-secondary btn-sm"
+              :disabled="adjustSaving || !adjustDirty"
+              @click="resetAdjustForm"
+            >
+              Reset
+            </button>
+          </div>
+          <p v-if="adjustError" class="ust-admin-adjust-error">{{ adjustError }}</p>
+          <p v-if="adjustSuccess" class="ust-admin-adjust-success">{{ adjustSuccess }}</p>
+        </form>
+      </section>
+
       <section v-else-if="supervisionEnabled === false" class="ust-banner">
         Supervision tracking is not enabled for this organization.
       </section>
@@ -357,7 +410,8 @@ import { parseUtcInstant } from '../../utils/timezones.js';
 
 const props = defineProps({
   userId: { type: [Number, String], required: true },
-  agencyId: { type: [Number, String], default: null }
+  agencyId: { type: [Number, String], default: null },
+  canAdjustHours: { type: Boolean, default: false }
 });
 
 const loading = ref(false);
@@ -381,6 +435,33 @@ const discrepancyForm = ref({
 const discrepancySending = ref(false);
 const discrepancyError = ref('');
 const discrepancySuccess = ref('');
+
+const adjustForm = ref({ individualHours: '', groupHours: '' });
+const adjustBaseline = ref({ individualHours: '', groupHours: '' });
+const adjustSaving = ref(false);
+const adjustError = ref('');
+const adjustSuccess = ref('');
+
+const adjustDirty = computed(() => (
+  String(adjustForm.value.individualHours ?? '').trim() !== String(adjustBaseline.value.individualHours ?? '').trim()
+  || String(adjustForm.value.groupHours ?? '').trim() !== String(adjustBaseline.value.groupHours ?? '').trim()
+));
+
+function resetAdjustForm() {
+  adjustForm.value = { ...adjustBaseline.value };
+  adjustError.value = '';
+  adjustSuccess.value = '';
+}
+
+function syncAdjustFormFromSupervision() {
+  if (!props.canAdjustHours || isSelfView.value || adjustSaving.value) return;
+  const snap = {
+    individualHours: fmtHours(indHours.value),
+    groupHours: fmtHours(grpHours.value)
+  };
+  adjustForm.value = { ...snap };
+  adjustBaseline.value = { ...snap };
+}
 
 const todayIso = computed(() => new Date().toISOString().slice(0, 10));
 
@@ -470,6 +551,7 @@ async function fetchAll() {
     const sup = summaryResp?.data?.supervision || null;
     supervision.value = sup;
     supervisionEnabled.value = sup == null ? null : !!sup.enabled;
+    syncAdjustFormFromSupervision();
   } catch (e) {
     error.value = e?.response?.data?.error?.message || e?.message || 'Failed to load sessions';
     sessions.value = [];
@@ -637,6 +719,55 @@ async function submitDiscrepancyTicket() {
     discrepancyError.value = e?.response?.data?.error?.message || e?.message || 'Could not submit ticket';
   } finally {
     discrepancySending.value = false;
+  }
+}
+
+async function saveAdjustedHours() {
+  if (!props.canAdjustHours || isSelfView.value || !scopeOrgId.value || adjustSaving.value) return;
+  const uid = Number(props.userId);
+  if (!uid) return;
+
+  adjustSaving.value = true;
+  adjustError.value = '';
+  adjustSuccess.value = '';
+
+  const payload = { userId: uid };
+  const nextInd = parseFloat(String(adjustForm.value.individualHours ?? '').trim());
+  const nextGrp = parseFloat(String(adjustForm.value.groupHours ?? '').trim());
+  const baseInd = parseFloat(String(adjustBaseline.value.individualHours ?? '').trim());
+  const baseGrp = parseFloat(String(adjustBaseline.value.groupHours ?? '').trim());
+
+  if (!Number.isFinite(nextInd) || nextInd < 0 || !Number.isFinite(nextGrp) || nextGrp < 0) {
+    adjustError.value = 'Enter valid non-negative hour totals.';
+    adjustSaving.value = false;
+    return;
+  }
+
+  if (Math.abs(nextInd - baseInd) > 1e-9) payload.individualHours = Math.round(nextInd * 100) / 100;
+  if (Math.abs(nextGrp - baseGrp) > 1e-9) payload.groupHours = Math.round(nextGrp * 100) / 100;
+
+  if (payload.individualHours === undefined && payload.groupHours === undefined) {
+    adjustError.value = 'Change at least one total before saving.';
+    adjustSaving.value = false;
+    return;
+  }
+
+  try {
+    const resp = await api.put('/payroll/supervision-sheet', {
+      agencyId: scopeOrgId.value,
+      updates: [payload],
+      note: 'Balance set via user profile supervision tab'
+    });
+    const row = (resp.data?.results || []).find((r) => Number(r?.userId) === uid);
+    if (row?.ok === false) {
+      throw new Error(row.error || 'Failed to update supervision totals');
+    }
+    adjustSuccess.value = 'Supervision totals updated. Session history pills were shifted to match.';
+    await fetchAll();
+  } catch (e) {
+    adjustError.value = e?.response?.data?.error?.message || e?.message || 'Failed to update supervision totals';
+  } finally {
+    adjustSaving.value = false;
   }
 }
 
@@ -835,6 +966,65 @@ watch([() => props.userId, () => props.agencyId], fetchAll);
   font-size: 0.82rem;
   line-height: 1.4;
   color: var(--text-secondary, #6b7280);
+}
+.ust-admin-adjust {
+  border: 1px solid #dbeafe;
+  background: #f8fbff;
+  border-radius: 10px;
+  padding: 14px 16px;
+}
+.ust-admin-adjust-title {
+  margin: 0 0 6px;
+  font-size: 1rem;
+}
+.ust-admin-adjust-lead {
+  margin: 0 0 12px;
+  color: var(--text-secondary, #6b7280);
+  font-size: 0.9rem;
+  line-height: 1.45;
+}
+.ust-admin-adjust-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.ust-admin-adjust-fields {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.ust-admin-adjust-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 140px;
+}
+.ust-admin-adjust-field span {
+  font-size: 0.82rem;
+  color: #475569;
+  font-weight: 600;
+}
+.ust-admin-adjust-field input {
+  width: 120px;
+  padding: 7px 8px;
+  border: 1px solid #c9d0d8;
+  border-radius: 6px;
+  font: inherit;
+}
+.ust-admin-adjust-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.ust-admin-adjust-error {
+  margin: 0;
+  color: #b42318;
+  font-size: 0.88rem;
+}
+.ust-admin-adjust-success {
+  margin: 0;
+  color: #166534;
+  font-size: 0.88rem;
 }
 .ust-discrepancy {
   background: #f8fafc;

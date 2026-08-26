@@ -106,19 +106,78 @@ async function ensureSupervisionServiceType(agencyId) {
   return found;
 }
 
-async function readAccountTotalHours(agencyId, userId) {
+/** Payroll period entries + prelicensed baseline — excludes session-finalize credits. */
+async function readHoursBaselineWithoutSessionCredits(agencyId, userId) {
   const aid = Number(agencyId || 0);
   const uid = Number(userId || 0);
   if (!aid || !uid) return 0;
+
+  let total = 0;
   try {
-    const [rows] = await pool.execute(
-      `SELECT COALESCE(individual_hours, 0) + COALESCE(group_hours, 0) AS total_hours
-       FROM supervision_accounts
+    const [periodRows] = await pool.execute(
+      `SELECT
+         COALESCE(SUM(individual_hours), 0) + COALESCE(SUM(group_hours), 0) AS total_hours
+       FROM supervision_period_entries
+       WHERE agency_id = ? AND user_id = ?`,
+      [aid, uid]
+    );
+    total = clampHours(periodRows?.[0]?.total_hours || 0);
+  } catch {
+    total = 0;
+  }
+
+  try {
+    const [uaRows] = await pool.execute(
+      `SELECT supervision_is_prelicensed, supervision_start_individual_hours, supervision_start_group_hours
+       FROM user_agencies
        WHERE agency_id = ? AND user_id = ?
        LIMIT 1`,
       [aid, uid]
     );
-    return clampHours(rows?.[0]?.total_hours || 0);
+    const ua = uaRows?.[0] || null;
+    const isPre = ua?.supervision_is_prelicensed === 1
+      || ua?.supervision_is_prelicensed === true
+      || String(ua?.supervision_is_prelicensed || '') === '1';
+    if (isPre) {
+      total = clampHours(
+        total
+        + Number(ua?.supervision_start_individual_hours || 0)
+        + Number(ua?.supervision_start_group_hours || 0)
+      );
+    }
+  } catch {
+    /* ignore */
+  }
+
+  return total;
+}
+
+/** Sum credited hours from finalized sessions strictly before this one (chronological running total). */
+async function readCreditedHoursFromEarlierSessions({
+  agencyId,
+  userId,
+  sessionId,
+  sessionStartAt
+} = {}) {
+  const aid = Number(agencyId || 0);
+  const uid = Number(userId || 0);
+  const sid = Number(sessionId || 0);
+  if (!aid || !uid || !sid || !sessionStartAt) return 0;
+
+  try {
+    const [rows] = await pool.execute(
+      `SELECT COALESCE(SUM(c.individual_hours + c.group_hours), 0) AS credited
+       FROM supervision_session_hour_credits c
+       INNER JOIN supervision_sessions ss ON ss.id = c.session_id
+       WHERE c.agency_id = ?
+         AND c.user_id = ?
+         AND (
+           ss.start_at < ?
+           OR (ss.start_at = ? AND c.session_id < ?)
+         )`,
+      [aid, uid, sessionStartAt, sessionStartAt, sid]
+    );
+    return clampHours(rows?.[0]?.credited || 0);
   } catch {
     return 0;
   }
@@ -249,27 +308,17 @@ export async function creditSuperviseeHoursFromFinalizedSession({
     const individualHours = asGroup ? 0 : hours;
     const groupHours = asGroup ? hours : 0;
 
-    // Snapshot hours before/attended/after so supervisee UI can prove credit applied.
-    // Subtract any prior credit for this session so re-finalize snapshots stay accurate.
-    let priorSessionHours = 0;
-    try {
-      // eslint-disable-next-line no-await-in-loop
-      const [priorRows] = await pool.execute(
-        `SELECT individual_hours, group_hours
-         FROM supervision_session_hour_credits
-         WHERE session_id = ? AND user_id = ?
-         LIMIT 1`,
-        [sid, userId]
-      );
-      priorSessionHours = clampHours(
-        Number(priorRows?.[0]?.individual_hours || 0) + Number(priorRows?.[0]?.group_hours || 0)
-      );
-    } catch {
-      priorSessionHours = 0;
-    }
+    // Snapshot running total: baseline + earlier session credits → this session → after.
     // eslint-disable-next-line no-await-in-loop
-    const accountTotal = await readAccountTotalHours(agencyId, userId);
-    const hoursBefore = clampHours(accountTotal - priorSessionHours);
+    const baselineHours = await readHoursBaselineWithoutSessionCredits(agencyId, userId);
+    // eslint-disable-next-line no-await-in-loop
+    const earlierSessionCredits = await readCreditedHoursFromEarlierSessions({
+      agencyId,
+      userId,
+      sessionId: sid,
+      sessionStartAt: session?.start_at
+    });
+    const hoursBefore = clampHours(baselineHours + earlierSessionCredits);
     const hoursAfter = clampHours(hoursBefore + hours);
 
     // Always persist a row (logged). Countable hours are 0 before effective date.
@@ -343,7 +392,7 @@ export async function resyncFinalizedSessionHourCreditsForUser({
   let sessionIds = [];
   try {
     const [rows] = await pool.execute(
-      `SELECT DISTINCT ss.id
+      `SELECT DISTINCT ss.id, ss.start_at
        FROM supervision_sessions ss
        LEFT JOIN supervision_session_attendees ssa
          ON ssa.session_id = ss.id AND ssa.user_id = ?
@@ -358,7 +407,8 @@ export async function resyncFinalizedSessionHourCreditsForUser({
              SELECT 1 FROM supervision_session_hour_credits c
              WHERE c.session_id = ss.id AND c.user_id = ?
            )
-         )`,
+         )
+       ORDER BY ss.start_at ASC, ss.id ASC`,
       [uid, uid, aId, uid]
     );
     sessionIds = (rows || []).map((r) => Number(r.id)).filter((n) => n > 0);
@@ -394,6 +444,167 @@ export async function resyncFinalizedSessionHourCredits({ sessionId, actorUserId
     rollups,
     actorUserId
   });
+}
+
+export async function readSessionCreditSumsForUser({ agencyId, userId } = {}) {
+  const aid = Number(agencyId || 0);
+  const uid = Number(userId || 0);
+  if (!aid || !uid) return { individual: 0, group: 0 };
+  try {
+    const [rows] = await pool.execute(
+      `SELECT
+         COALESCE(SUM(individual_hours), 0) AS individual,
+         COALESCE(SUM(group_hours), 0) AS \`group\`
+       FROM supervision_session_hour_credits
+       WHERE agency_id = ? AND user_id = ?`,
+      [aid, uid]
+    );
+    return {
+      individual: clampHours(rows?.[0]?.individual || 0),
+      group: clampHours(rows?.[0]?.group || 0)
+    };
+  } catch {
+    return { individual: 0, group: 0 };
+  }
+}
+
+/** Trim credited session hours newest-first so a track sum matches target (admin balance down). */
+export async function trimSessionCreditTrackToSum({
+  agencyId,
+  userId,
+  track = 'individual',
+  targetSum = 0
+} = {}) {
+  const aid = Number(agencyId || 0);
+  const uid = Number(userId || 0);
+  const col = track === 'group' ? 'group_hours' : 'individual_hours';
+  const target = clampHours(targetSum);
+  if (!aid || !uid) return { ok: false, trimmed: 0 };
+
+  const [rows] = await pool.execute(
+    `SELECT
+       c.session_id,
+       c.individual_hours,
+       c.group_hours,
+       c.source_json
+     FROM supervision_session_hour_credits c
+     INNER JOIN supervision_sessions ss ON ss.id = c.session_id
+     WHERE c.agency_id = ? AND c.user_id = ?
+     ORDER BY ss.start_at DESC, c.session_id DESC`,
+    [aid, uid]
+  );
+
+  let currentSum = clampHours(
+    (rows || []).reduce((sum, row) => sum + Number(row?.[col] || 0), 0)
+  );
+  if (currentSum <= target + 1e-9) {
+    return { ok: true, trimmed: 0, previousSum: currentSum, nextSum: currentSum };
+  }
+
+  let excess = clampHours(currentSum - target);
+  let trimmed = 0;
+  for (const row of rows || []) {
+    if (excess <= 1e-9) break;
+    const cur = clampHours(row?.[col] || 0);
+    if (cur <= 0) continue;
+    const cut = clampHours(Math.min(cur, excess));
+    const nextVal = clampHours(cur - cut);
+    let src = row.source_json;
+    if (typeof src === 'string') {
+      try { src = JSON.parse(src); } catch { src = {}; }
+    }
+    if (!src || typeof src !== 'object') src = {};
+    const nextIndividual = track === 'individual' ? nextVal : clampHours(row.individual_hours || 0);
+    const nextGroup = track === 'group' ? nextVal : clampHours(row.group_hours || 0);
+    const hoursCounted = clampHours(nextIndividual + nextGroup);
+    // eslint-disable-next-line no-await-in-loop
+    await pool.execute(
+      `UPDATE supervision_session_hour_credits
+       SET individual_hours = ?, group_hours = ?, source_json = ?, updated_at = CURRENT_TIMESTAMP
+       WHERE agency_id = ? AND user_id = ? AND session_id = ?`,
+      [
+        nextIndividual,
+        nextGroup,
+        JSON.stringify({
+          ...src,
+          hoursCounted,
+          adminTrimmed: true,
+          adminTrimTrack: track,
+          adminTrimAmount: cut
+        }),
+        aid,
+        uid,
+        Number(row.session_id)
+      ]
+    );
+    excess = clampHours(excess - cut);
+    trimmed = clampHours(trimmed + cut);
+    currentSum = clampHours(currentSum - cut);
+  }
+
+  return { ok: true, trimmed, previousSum: clampHours(currentSum + trimmed), nextSum: currentSum };
+}
+
+/** Recompute Before/Attended/After snapshots on every session credit row (chronological chain). */
+export async function rebuildSessionHourCreditSnapshotsForUser({ agencyId, userId } = {}) {
+  const aid = Number(agencyId || 0);
+  const uid = Number(userId || 0);
+  if (!aid || !uid) return { ok: false, updated: 0 };
+
+  const baselineHours = await readHoursBaselineWithoutSessionCredits(aid, uid);
+  const [rows] = await pool.execute(
+    `SELECT
+       c.session_id,
+       c.individual_hours,
+       c.group_hours,
+       c.source_json,
+       ss.start_at
+     FROM supervision_session_hour_credits c
+     INNER JOIN supervision_sessions ss ON ss.id = c.session_id
+     WHERE c.agency_id = ? AND c.user_id = ?
+     ORDER BY ss.start_at ASC, c.session_id ASC`,
+    [aid, uid]
+  );
+
+  let running = baselineHours;
+  let updated = 0;
+  for (const row of rows || []) {
+    let src = row.source_json;
+    if (typeof src === 'string') {
+      try { src = JSON.parse(src); } catch { src = {}; }
+    }
+    if (!src || typeof src !== 'object') src = {};
+    const hoursCounted = clampHours(
+      Number(row.individual_hours || 0) + Number(row.group_hours || 0)
+    );
+    const hoursAttended = Number.isFinite(Number(src.hoursAttended))
+      ? clampHours(src.hoursAttended)
+      : hoursCounted;
+    const hoursBefore = running;
+    const hoursAfter = clampHours(hoursBefore + hoursCounted);
+    // eslint-disable-next-line no-await-in-loop
+    await pool.execute(
+      `UPDATE supervision_session_hour_credits
+       SET source_json = ?, updated_at = CURRENT_TIMESTAMP
+       WHERE agency_id = ? AND user_id = ? AND session_id = ?`,
+      [
+        JSON.stringify({
+          ...src,
+          hoursBefore,
+          hoursAttended,
+          hoursCounted,
+          hoursAfter
+        }),
+        aid,
+        uid,
+        Number(row.session_id)
+      ]
+    );
+    running = hoursAfter;
+    updated += 1;
+  }
+
+  return { ok: true, updated, finalTotal: running };
 }
 
 async function findExistingSupervisorClaimForSession(executor, {

@@ -3,6 +3,11 @@ import SupervisorAssignment from '../models/SupervisorAssignment.model.js';
 import UserInfoFieldDefinition from '../models/UserInfoFieldDefinition.model.js';
 import NotificationService from './notification.service.js';
 import { normalizeSupervisionStartDateYmd } from '../utils/supervisionHoursGate.util.js';
+import {
+  readSessionCreditSumsForUser,
+  rebuildSessionHourCreditSnapshotsForUser,
+  trimSessionCreditTrackToSum
+} from './supervisionFinalizePipeline.service.js';
 
 const DEFAULT_SUPERVISION_POLICY = {
   enabled: false,
@@ -709,8 +714,38 @@ export async function setCurrentSupervisionBalances({
     throw err;
   }
 
-  const newStartIndividual = clampHours(Math.max(0, nextIndividualHours - periodIndividual));
-  const newStartGroup = clampHours(Math.max(0, nextGroupHours - periodGroup));
+  let sessionCredits = await readSessionCreditSumsForUser({ agencyId, userId });
+
+  if (individualChanged) {
+    const targetSessionIndividual = clampHours(nextIndividualHours - periodIndividual);
+    if (sessionCredits.individual > targetSessionIndividual + 1e-9) {
+      await trimSessionCreditTrackToSum({
+        agencyId,
+        userId,
+        track: 'individual',
+        targetSum: targetSessionIndividual
+      });
+    }
+  }
+  if (groupChanged) {
+    const targetSessionGroup = clampHours(nextGroupHours - periodGroup);
+    if (sessionCredits.group > targetSessionGroup + 1e-9) {
+      await trimSessionCreditTrackToSum({
+        agencyId,
+        userId,
+        track: 'group',
+        targetSum: targetSessionGroup
+      });
+    }
+  }
+
+  sessionCredits = await readSessionCreditSumsForUser({ agencyId, userId });
+  const newStartIndividual = hasInd
+    ? clampHours(Math.max(0, nextIndividualHours - periodIndividual - sessionCredits.individual))
+    : clampHours(Number(ua?.supervision_start_individual_hours || 0));
+  const newStartGroup = hasGrp
+    ? clampHours(Math.max(0, nextGroupHours - periodGroup - sessionCredits.group))
+    : clampHours(Number(ua?.supervision_start_group_hours || 0));
   const isCompensable = ua.supervision_is_compensable === 1
     || ua.supervision_is_compensable === true
     || String(ua.supervision_is_compensable || '') === '1';
@@ -735,6 +770,7 @@ export async function setCurrentSupervisionBalances({
     ]
   );
 
+  await rebuildSessionHourCreditSnapshotsForUser({ agencyId, userId });
   const account = await recomputeAccount({ agencyId, userId });
   return {
     account,

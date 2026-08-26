@@ -6,7 +6,8 @@
           <div id="sup-sheet-title" class="modal-title">Supervision Sheet</div>
           <div class="hint">
             Agency employees with a work email on file (school staff excluded). Edit individual and group
-            supervision totals in one place. Changes adjust baseline hours and are logged in Audit Center.
+            supervision totals in one place. Changes adjust baseline and session Before/After history together.
+            Updates are logged in Audit Center.
           </div>
         </div>
         <button class="btn btn-secondary btn-sm" type="button" @click="requestClose" :disabled="saving">Close</button>

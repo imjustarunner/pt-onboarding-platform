@@ -2572,6 +2572,7 @@
           v-if="activeTab === 'supervision'"
           :userId="userId"
           :agency-id="agencyStore.currentAgency?.id"
+          :can-adjust-hours="canAdjustSupervisionHours"
         />
 
         <UserLifecycleTab
@@ -3890,6 +3891,11 @@ const canEditUser = computed(() => {
   if (user.role === 'admin' || user.role === 'super_admin' || user.role === 'support' || user.role === 'staff') return true;
   // CPAs and supervisor-only users have view-only access
   return !isSupervisor(user) && user.role !== 'clinical_practice_assistant';
+});
+
+const canAdjustSupervisionHours = computed(() => {
+  const role = String(authStore.user?.role || '').toLowerCase();
+  return role === 'admin' || role === 'super_admin';
 });
 
 const accountForm = ref({
