@@ -600,15 +600,6 @@
         </div>
 
         <section v-if="!useCsNoteBuildPathway" class="na-input-panel">
-          <div class="na-phi-banner" role="note">
-            <strong>Privacy</strong>
-            <p>{{ phiPrivacyBanner }}</p>
-            <ul class="na-phi-roles">
-              <li v-for="hint in phiRoleHints" :key="hint.label">
-                <strong>{{ hint.label }}:</strong> {{ hint.examples.join(', ') }}
-              </li>
-            </ul>
-          </div>
           <div v-if="phiNameHits.length" class="na-phi-warn" role="alert">
             <strong>Possible name detected:</strong>
             {{ phiNameHits.map((h) => h.token).join(', ') }}.
@@ -639,6 +630,7 @@
           </div>
 
           <textarea
+            v-if="inputMode === 'type'"
             v-model="inputText"
             class="na-textarea"
             rows="8"
@@ -646,38 +638,80 @@
             :placeholder="selectedAidGuidance || 'Paste or type your session details here…'"
           />
 
-          <div v-if="inputMode === 'speak'" class="na-speak-tools">
-            <div class="na-speak-actions">
-              <button
-                class="na-speak-btn"
-                :class="{ 'na-speak-btn--recording': recording }"
-                type="button"
-                :disabled="recordingBusy"
-                @click="toggleRecording"
-              >
-                {{ recording ? 'Stop recording' : 'Record dictation' }}
-              </button>
-              <button class="na-speak-btn" type="button" :disabled="!audioBlob || recording" @click="clearAudio">
-                Clear recording
-              </button>
-              <button class="na-speak-btn" type="button" :disabled="!canServerTranscribe" @click="transcribeAudioServer">
-                {{ serverTranscribing ? 'Transcribing…' : 'Transcribe (server)' }}
-              </button>
+          <template v-else>
+            <div
+              class="na-speak-stage"
+              :class="{
+                'na-speak-stage--live': recording,
+                'na-speak-stage--captured': !recording && !!audioBlob
+              }"
+            >
+              <canvas ref="speakVisualizerCanvasEl" class="na-speak-viz" aria-hidden="true" />
+              <div class="na-speak-stage-overlay">
+                <div v-if="recording" class="na-speak-live-head">
+                  <span class="na-speak-rec-dot" aria-hidden="true" />
+                  <span class="na-speak-timer">{{ speakRecordingTimeLabel }}</span>
+                  <span class="na-speak-live-label">Listening</span>
+                </div>
+                <div v-else-if="audioBlob" class="na-speak-captured-head">
+                  <span class="na-speak-captured-icon" aria-hidden="true">✓</span>
+                  <span>Recording ready · {{ audioDurationLabel }}</span>
+                </div>
+                <div v-else class="na-speak-idle-head">
+                  <span class="na-speak-mic-icon" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" width="28" height="28" fill="currentColor">
+                      <path d="M12 14a3 3 0 0 0 3-3V6a3 3 0 1 0-6 0v5a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21h2v-3.08A7 7 0 0 0 19 11h-2z"/>
+                    </svg>
+                  </span>
+                  <span>Tap Record to dictate session notes</span>
+                </div>
+                <p v-if="recording && liveTranscript" class="na-speak-live-transcript">{{ liveTranscript }}</p>
+                <p v-else-if="!recording && !audioBlob" class="na-speak-idle-hint">
+                  Your voice appears as a live waveform while you speak.
+                </p>
+              </div>
             </div>
-            <small class="hint">
-              Speak to draft a note after the session (dictation). To record
-              <em>during</em> a live session, use
-              <router-link :to="orgTo('/admin/session-recording')">Session Recording</router-link>.
-            </small>
-            <small v-if="recording" class="hint">
-              Recording… {{ transcribing ? 'Transcribing live.' : speechSupported ? 'Transcription starting…' : 'Transcription not supported in this browser.' }}
-            </small>
-            <small v-if="liveTranscript" class="hint">Live transcript: {{ liveTranscript }}</small>
-            <small v-if="audioBlob" class="hint">
-              Audio captured ({{ audioMimeType || 'unknown type' }}, {{ audioDurationLabel }})
-            </small>
-            <small v-if="serverTranscribeError" class="error">{{ serverTranscribeError }}</small>
-          </div>
+
+            <textarea
+              v-model="inputText"
+              class="na-textarea na-textarea--speak-transcript"
+              rows="5"
+              maxlength="12000"
+              :placeholder="recording ? 'Live transcript builds here as you speak…' : 'Transcript appears here after recording or server transcription…'"
+            />
+
+            <div class="na-speak-tools">
+              <div class="na-speak-actions">
+                <button
+                  class="na-speak-btn"
+                  :class="{ 'na-speak-btn--recording': recording }"
+                  type="button"
+                  :disabled="recordingBusy"
+                  @click="toggleRecording"
+                >
+                  {{ recording ? 'Stop recording' : 'Record dictation' }}
+                </button>
+                <button class="na-speak-btn" type="button" :disabled="!audioBlob || recording" @click="clearAudio">
+                  Clear recording
+                </button>
+                <button class="na-speak-btn" type="button" :disabled="!canServerTranscribe" @click="transcribeAudioServer">
+                  {{ serverTranscribing ? 'Transcribing…' : 'Transcribe (server)' }}
+                </button>
+              </div>
+              <small class="hint">
+                Speak to draft a note after the session (dictation). To record
+                <em>during</em> a live session, use
+                <router-link :to="orgTo('/admin/session-recording')">Session Recording</router-link>.
+              </small>
+              <small v-if="recording" class="hint">
+                {{ transcribing ? 'Transcribing live.' : speechSupported ? 'Transcription starting…' : 'Transcription not supported in this browser.' }}
+              </small>
+              <small v-if="audioBlob" class="hint">
+                Audio captured ({{ audioMimeType || 'unknown type' }}, {{ audioDurationLabel }})
+              </small>
+              <small v-if="serverTranscribeError" class="error">{{ serverTranscribeError }}</small>
+            </div>
+          </template>
 
           <div class="na-input-footer">
             <span class="na-char-count">{{ String(inputText || '').length }} / 12000</span>
@@ -703,10 +737,6 @@
         </section>
 
         <section v-else class="na-input-panel na-input-panel--cs">
-          <div class="na-phi-banner" role="note">
-            <strong>Privacy</strong>
-            <p>{{ phiPrivacyBanner }}</p>
-          </div>
           <div class="na-input-footer">
             <span class="na-char-count">CSNoteBuild pathway</span>
             <label
@@ -1632,6 +1662,153 @@ const speechSupported = ref(false);
 const transcribing = ref(false);
 const liveTranscript = ref('');
 
+const speakVisualizerCanvasEl = ref(null);
+const recordingStartedAt = ref(null);
+const speakRecordingSeconds = ref(0);
+let audioAnalyser = null;
+let audioAnalyserContext = null;
+let visualizerRafId = 0;
+let visualizerData = null;
+let visualizerTick = 0;
+
+const speakRecordingTimeLabel = computed(() => {
+  const total = Math.max(0, speakRecordingSeconds.value);
+  const mins = Math.floor(total / 60);
+  const secs = total % 60;
+  return `${mins}:${String(secs).padStart(2, '0')}`;
+});
+
+function stopVisualizerLoop() {
+  if (visualizerRafId) {
+    cancelAnimationFrame(visualizerRafId);
+    visualizerRafId = 0;
+  }
+}
+
+function stopSpeakAudioAnalyser() {
+  recordingStartedAt.value = null;
+  speakRecordingSeconds.value = 0;
+  try {
+    if (audioAnalyserContext && audioAnalyserContext.state !== 'closed') {
+      audioAnalyserContext.close();
+    }
+  } catch {
+    // ignore
+  }
+  audioAnalyserContext = null;
+  audioAnalyser = null;
+  visualizerData = null;
+}
+
+function stopSpeakVisualizer() {
+  stopVisualizerLoop();
+  stopSpeakAudioAnalyser();
+}
+
+function resizeSpeakCanvas(canvas) {
+  const host = canvas.parentElement;
+  if (!host) return;
+  const rect = host.getBoundingClientRect();
+  const dpr = window.devicePixelRatio || 1;
+  const width = Math.max(1, Math.floor(rect.width * dpr));
+  const height = Math.max(1, Math.floor(rect.height * dpr));
+  if (canvas.width !== width || canvas.height !== height) {
+    canvas.width = width;
+    canvas.height = height;
+    canvas.style.width = `${rect.width}px`;
+    canvas.style.height = `${rect.height}px`;
+  }
+}
+
+function drawSpeakVisualizer() {
+  const canvas = speakVisualizerCanvasEl.value;
+  if (!canvas) {
+    visualizerRafId = 0;
+    return;
+  }
+  if (inputMode.value !== 'speak' && !recording.value) {
+    visualizerRafId = 0;
+    return;
+  }
+
+  const ctx = canvas.getContext('2d');
+  if (!ctx) {
+    visualizerRafId = 0;
+    return;
+  }
+
+  resizeSpeakCanvas(canvas);
+  const w = canvas.width;
+  const h = canvas.height;
+  const dpr = window.devicePixelRatio || 1;
+  ctx.clearRect(0, 0, w, h);
+
+  if (recordingStartedAt.value) {
+    speakRecordingSeconds.value = Math.floor((Date.now() - recordingStartedAt.value) / 1000);
+  }
+
+  const barCount = 42;
+  const gap = 3 * dpr;
+  const barWidth = Math.max(2 * dpr, (w - gap * (barCount - 1)) / barCount);
+  visualizerTick += recording.value ? 0.12 : 0.05;
+
+  if (recording.value && audioAnalyser && visualizerData) {
+    audioAnalyser.getByteFrequencyData(visualizerData);
+  }
+
+  for (let i = 0; i < barCount; i += 1) {
+    let amplitude = 0.1;
+    if (recording.value && visualizerData) {
+      const idx = Math.min(visualizerData.length - 1, Math.floor((i / barCount) * visualizerData.length));
+      amplitude = Math.max(0.08, visualizerData[idx] / 255);
+    } else {
+      amplitude = 0.08 + 0.07 * Math.sin(visualizerTick + i * 0.32);
+    }
+
+    const barH = Math.max(6 * dpr, amplitude * h * 0.62);
+    const x = i * (barWidth + gap);
+    const y = (h - barH) / 2;
+    const gradient = ctx.createLinearGradient(0, y, 0, y + barH);
+    gradient.addColorStop(0, recording.value ? '#99f6e4' : '#a7f3d0');
+    gradient.addColorStop(1, recording.value ? '#0f766e' : '#14b8a6');
+    ctx.fillStyle = gradient;
+    ctx.beginPath();
+    if (typeof ctx.roundRect === 'function') {
+      ctx.roundRect(x, y, barWidth, barH, barWidth / 2);
+    } else {
+      ctx.rect(x, y, barWidth, barH);
+    }
+    ctx.fill();
+  }
+
+  visualizerRafId = requestAnimationFrame(drawSpeakVisualizer);
+}
+
+function startSpeakVisualizerIdle() {
+  stopVisualizerLoop();
+  if (inputMode.value !== 'speak') return;
+  visualizerRafId = requestAnimationFrame(drawSpeakVisualizer);
+}
+
+function startSpeakVisualizer(stream) {
+  stopSpeakAudioAnalyser();
+  try {
+    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+    if (AudioCtx && stream) {
+      audioAnalyserContext = new AudioCtx();
+      const source = audioAnalyserContext.createMediaStreamSource(stream);
+      audioAnalyser = audioAnalyserContext.createAnalyser();
+      audioAnalyser.fftSize = 128;
+      audioAnalyser.smoothingTimeConstant = 0.78;
+      visualizerData = new Uint8Array(audioAnalyser.frequencyBinCount);
+      source.connect(audioAnalyser);
+    }
+  } catch {
+    // Visualizer falls back to idle animation if analyser setup fails.
+  }
+  startSpeakVisualizerIdle();
+}
+
 // Output state
 const generating = ref(false);
 const generateError = ref('');
@@ -2058,6 +2235,13 @@ const audioDurationLabel = computed(() => {
 
 watch(showProgramDropdown, (on) => {
   if (!on) selectedProgramId.value = '';
+});
+watch(inputMode, async (mode) => {
+  stopSpeakVisualizer();
+  if (mode === 'speak') {
+    await nextTick();
+    startSpeakVisualizerIdle();
+  }
 });
 watch(autoSelectCode, (on) => {
   if (on) {
@@ -2890,7 +3074,12 @@ const toggleRecording = async () => {
         audioChunks = [];
         recording.value = false;
         recordingBusy.value = false;
+        stopSpeakAudioAnalyser();
         stopTranscription();
+        if (inputMode.value === 'speak') {
+          await nextTick();
+          startSpeakVisualizerIdle();
+        }
       })();
     };
     mr.onerror = () => {
@@ -2904,15 +3093,24 @@ const toggleRecording = async () => {
       audioChunks = [];
       recording.value = false;
       recordingBusy.value = false;
+      stopSpeakAudioAnalyser();
       stopTranscription();
+      void nextTick().then(() => {
+        if (inputMode.value === 'speak') startSpeakVisualizerIdle();
+      });
     };
     mr.start();
     startTranscription();
     recording.value = true;
+    recordingStartedAt.value = Date.now();
+    speakRecordingSeconds.value = 0;
     recordingBusy.value = false;
+    await nextTick();
+    startSpeakVisualizer(mediaStream);
   } catch {
     recording.value = false;
     recordingBusy.value = false;
+    stopSpeakVisualizer();
     stopTranscription();
   }
 };
@@ -4953,6 +5151,7 @@ onBeforeUnmount(() => {
     window.clearInterval(autosaveTimer);
     autosaveTimer = null;
   }
+  stopSpeakVisualizer();
   stopTranscription();
   try {
     mediaRecorder?.stop?.();
@@ -5959,7 +6158,136 @@ a.na-chip--link {
 }
 
 .na-speak-tools {
-  margin-top: 8px;
+  margin-top: 10px;
+}
+
+.na-speak-stage {
+  position: relative;
+  min-height: 168px;
+  border-radius: 14px;
+  border: 1px solid #99f6e4;
+  background: linear-gradient(165deg, #f0fdfa 0%, #ecfeff 45%, #ffffff 100%);
+  overflow: hidden;
+  margin-bottom: 10px;
+}
+
+.na-speak-stage--live {
+  border-color: #2dd4bf;
+  box-shadow: 0 0 0 1px rgba(15, 118, 110, 0.08), 0 10px 24px rgba(15, 118, 110, 0.12);
+}
+
+.na-speak-stage--captured {
+  border-color: #5eead4;
+}
+
+.na-speak-viz {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  pointer-events: none;
+  opacity: 0.9;
+}
+
+.na-speak-stage-overlay {
+  position: relative;
+  z-index: 1;
+  min-height: 168px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 18px 16px 14px;
+  text-align: center;
+}
+
+.na-speak-live-head,
+.na-speak-captured-head,
+.na-speak-idle-head {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 14px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.88);
+  border: 1px solid rgba(15, 118, 110, 0.18);
+  color: #0f766e;
+  font-size: 0.88rem;
+  font-weight: 600;
+  box-shadow: 0 4px 14px rgba(15, 118, 110, 0.08);
+}
+
+.na-speak-stage--live .na-speak-live-head {
+  border-color: rgba(185, 28, 28, 0.25);
+  color: #991b1b;
+}
+
+.na-speak-rec-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #dc2626;
+  box-shadow: 0 0 0 0 rgba(220, 38, 38, 0.45);
+  animation: na-speak-pulse 1.4s ease-out infinite;
+}
+
+@keyframes na-speak-pulse {
+  0% { box-shadow: 0 0 0 0 rgba(220, 38, 38, 0.45); }
+  70% { box-shadow: 0 0 0 10px rgba(220, 38, 38, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(220, 38, 38, 0); }
+}
+
+.na-speak-timer {
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+}
+
+.na-speak-live-label {
+  text-transform: uppercase;
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+}
+
+.na-speak-mic-icon {
+  display: inline-flex;
+  color: #0f766e;
+}
+
+.na-speak-captured-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: #ccfbf1;
+  color: #0f766e;
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.na-speak-live-transcript {
+  margin: 4px 0 0;
+  max-width: 92%;
+  font-size: 0.84rem;
+  line-height: 1.45;
+  color: #134e4a;
+  background: rgba(255, 255, 255, 0.82);
+  border: 1px solid rgba(15, 118, 110, 0.14);
+  border-radius: 10px;
+  padding: 8px 12px;
+}
+
+.na-speak-idle-hint {
+  margin: 0;
+  font-size: 0.8rem;
+  color: #64748b;
+}
+
+.na-textarea--speak-transcript {
+  min-height: 120px;
 }
 
 .na-speak-actions {
