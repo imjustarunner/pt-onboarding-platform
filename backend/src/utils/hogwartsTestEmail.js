@@ -51,16 +51,17 @@ export function isKeepRealHogwartsEmail(email) {
 
 /**
  * Playground / seed / RFC-reserved fake domains that must never receive real outbound mail.
- * Includes plain @example.com used by public intake autofill and demos.
+ * Includes plain @example.com used by public intake / job-application Dev Fill.
  */
 export function looksLikeDemoFakeAddress(email) {
   const e = String(email || '').trim().toLowerCase();
   if (!e || isKeepRealHogwartsEmail(e)) return false;
   const host = e.split('@')[1] || '';
-  if (/^(example\.(com|org|net|test|demo|invalid|de)|test\.com|localhost)$/i.test(host)) return true;
-  if (e.endsWith('@example.demo') || e.endsWith('@example.invalid') || e.endsWith('@example.de')) return true;
-  if (e.includes('@example.') && e.includes('itsco-training')) return true;
+  // Any @example… host (example.com, example.org, mail.example.com, etc.)
+  if (host === 'example' || /(^|\.)example(\.|$)/i.test(host)) return true;
+  if (/^(test\.com|localhost)$/i.test(host)) return true;
   if (e.endsWith('@demtest.com')) return true;
+  if (e.includes('@example.') && e.includes('itsco-training')) return true;
   return false;
 }
 

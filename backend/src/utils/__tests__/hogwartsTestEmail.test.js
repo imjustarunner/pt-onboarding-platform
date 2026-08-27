@@ -41,9 +41,11 @@ describe('hogwartsTestEmail', () => {
     assert.equal(looksLikeDemoFakeAddress('dp1@demtest.com'), true);
     assert.equal(looksLikeDemoFakeAddress('parent@example.com'), true);
     assert.equal(looksLikeDemoFakeAddress('kid@example.org'), true);
+    assert.equal(looksLikeDemoFakeAddress('applicant@mail.example.com'), true);
     assert.equal(looksLikeTestInboxRedirectAddress('provider.itsco-training@example.demo'), true);
     assert.equal(looksLikeTestInboxRedirectAddress('autofill@example.com'), true);
     assert.equal(looksLikeDemoFakeAddress('real.person@gmail.com'), false);
+    assert.equal(looksLikeDemoFakeAddress('notexample.com@gmail.com'), false);
   });
 
   it('prefixes the original recipient on the subject', () => {

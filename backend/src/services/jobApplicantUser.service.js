@@ -1,5 +1,6 @@
 import pool from '../config/database.js';
 import User from '../models/User.model.js';
+import { looksLikeDemoFakeAddress } from '../utils/hogwartsTestEmail.js';
 
 const EMPLOYMENT_STATUSES = new Set([
   'ACTIVE_EMPLOYEE',
@@ -20,6 +21,17 @@ function isArchivedUser(user) {
 
 function isEmploymentStatus(status) {
   return EMPLOYMENT_STATUSES.has(String(status || '').toUpperCase());
+}
+
+async function markDemoApplicantIfNeeded(userId, email) {
+  const id = Number(userId);
+  if (!Number.isFinite(id) || id <= 0) return;
+  if (!looksLikeDemoFakeAddress(email)) return;
+  try {
+    await pool.execute('UPDATE users SET is_demo = 1 WHERE id = ? AND COALESCE(is_demo, 0) = 0', [id]);
+  } catch {
+    // best-effort — column may be missing on very old DBs
+  }
 }
 
 /**
@@ -122,6 +134,8 @@ export async function resolveOrCreateJobApplicantUser({
       await User.assignToAgency(full.id, agencyId);
     }
 
+    await markDemoApplicantIfNeeded(full.id, gEmail);
+
     const user = (await User.findById(full.id)) || full;
     return {
       user,
@@ -144,6 +158,7 @@ export async function resolveOrCreateJobApplicantUser({
   if (agencyId) {
     await User.assignToAgency(user.id, agencyId);
   }
+  await markDemoApplicantIfNeeded(user.id, gEmail);
   return {
     user,
     reused: false,

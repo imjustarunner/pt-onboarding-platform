@@ -36,12 +36,24 @@ export async function sendHiringReferenceOutboundEmail({ identity, to, subject, 
       subject,
       text,
       html: htmlWithPixel,
-      source: 'auto'
+      source: 'auto',
+      templateType: 'hiring_references',
+      // agency comes from identity; @example.com / demo recipients redirect to testing@itsco.health
     });
     if (out?.skipped) {
       return { ok: false, skipped: true, reason: out.reason || 'skipped', messageId: null };
     }
-    return { ok: true, skipped: false, messageId: out?.id || null };
+    if (out?.queued || out?.pendingApproval) {
+      return {
+        ok: false,
+        skipped: false,
+        pendingApproval: true,
+        reason: out.reason || 'pending_approval',
+        messageId: null,
+        communicationId: out.communicationId || null
+      };
+    }
+    return { ok: true, skipped: false, messageId: out?.id || null, redirected: !!out?.redirected };
   } catch (e) {
     return { ok: false, skipped: false, error: String(e?.message || e), messageId: null };
   }

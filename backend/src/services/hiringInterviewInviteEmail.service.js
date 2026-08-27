@@ -14,6 +14,7 @@ import {
   buildPublicJobDescriptionUrl,
   peopleOperationsFromDisplayName
 } from './publicJobDescription.service.js';
+import EmailService from './email.service.js';
 
 function formatPersonName(row) {
   const name = [row?.first_name, row?.last_name].map((s) => String(s || '').trim()).filter(Boolean).join(' ').trim();
@@ -81,7 +82,7 @@ export async function sendHiringInterviewInviteEmail({
 
   const agency = await Agency.findById(agencyId).catch(() => null);
   const identity = await resolveJobApplicationSenderIdentity(agencyId);
-  if (!identity?.id) {
+  if (!identity?.id && !EmailService.isConfigured()) {
     console.warn('[sendHiringInterviewInviteEmail] no People Operations / job applications sender identity');
     return { skipped: true, reason: 'no_identity' };
   }
@@ -171,7 +172,7 @@ export async function sendHiringInterviewInviteEmail({
 
   const firstName = String(candidate.first_name || '').trim() || formatPersonName(candidate);
   const fromDisplay = peopleOperationsFromDisplayName(agency || {});
-  const replyTo = String(identity.reply_to || identity.from_email || '').trim() || null;
+  const replyTo = String(identity?.reply_to || identity?.from_email || '').trim() || null;
 
   const subject = String(title || 'Interview invitation').trim();
   const text = [
@@ -205,20 +206,42 @@ export async function sendHiringInterviewInviteEmail({
     ${attachments.length ? '<p style="color:#555;font-size:14px;">Your job application and application receipt are attached again for your reference.</p>' : ''}
   </div>`;
 
-  return sendEmailFromIdentity({
-    senderIdentityId: identity.id,
+  if (identity?.id) {
+    return sendEmailFromIdentity({
+      senderIdentityId: identity.id,
+      to,
+      subject,
+      text,
+      html,
+      attachments: attachments.length ? attachments : null,
+      source: 'auto',
+      userId: candidate?.id || null,
+      templateType: 'hiring_interview_invite',
+      jobDescriptionId: job?.id || jid || null,
+      intakeSubmissionId: submission?.id || null,
+      fromDisplayNameOverride: fromDisplay,
+      replyToOverride: replyTo,
+      linkUrl: publicJoinUrl
+    });
+  }
+
+  // Demo/@example candidates: still deliver via EmailService so testing@itsco.health gets the invite.
+  return EmailService.sendEmail({
     to,
     subject,
     text,
     html,
+    fromName: fromDisplay,
+    fromAddress:
+      process.env.GOOGLE_WORKSPACE_FROM_ADDRESS
+      || process.env.GOOGLE_WORKSPACE_DEFAULT_FROM
+      || null,
+    replyTo: process.env.GOOGLE_WORKSPACE_REPLY_TO || null,
     attachments: attachments.length ? attachments : null,
     source: 'auto',
+    agencyId,
     userId: candidate?.id || null,
     templateType: 'hiring_interview_invite',
-    jobDescriptionId: job?.id || jid || null,
-    intakeSubmissionId: submission?.id || null,
-    fromDisplayNameOverride: fromDisplay,
-    replyToOverride: replyTo,
     linkUrl: publicJoinUrl
   });
 }

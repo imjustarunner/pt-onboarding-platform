@@ -4787,10 +4787,9 @@ async function sendJobApplicationReceivedEmail({
   jobDescriptionId = null
 }) {
   try {
-    const identity = await resolveJobApplicationSenderIdentity(agencyId);
-    if (!identity?.id) return;
     const to = String(applicantUser?.email || applicantUser?.personal_email || '').trim();
     if (!to) return;
+    const identity = await resolveJobApplicationSenderIdentity(agencyId);
     const agency = await Agency.findById(agencyId).catch(() => null);
     const title = String(jobTitle || 'your application').trim();
     const attachments = [];
@@ -4809,7 +4808,7 @@ async function sendJobApplicationReceivedEmail({
     const name = `${String(applicantUser?.first_name || '').trim()} ${String(applicantUser?.last_name || '').trim()}`.trim() || 'Hello';
     const subject = `Application received — ${title}`;
     const fromDisplay = peopleOperationsFromDisplayName(agency || {});
-    const replyTo = String(identity.reply_to || identity.from_email || '').trim() || null;
+    const hasAttachments = attachments.length > 0;
     const text = [
       `Hi ${name},`,
       '',
@@ -4818,7 +4817,7 @@ async function sendJobApplicationReceivedEmail({
       jobDescription?.title ? `Role: ${jobDescription.title}` : '',
       jdPublicUrl ? `Job description: ${jdPublicUrl}` : '',
       '',
-      attachments.length
+      hasAttachments
         ? 'This email includes your job application receipt and job description materials as attachments.'
         : ''
     ]
@@ -4829,25 +4828,57 @@ async function sendJobApplicationReceivedEmail({
       <p>Thank you for applying. We received your application materials.</p>
       ${jobDescription?.title ? `<p><strong>Role:</strong> ${String(jobDescription.title).replace(/</g, '')}</p>` : ''}
       ${jdPublicUrl ? `<p><strong>Job description:</strong> <a href="${jdPublicUrl}">${jdPublicUrl}</a></p>` : ''}
-      <p style="color:#555;font-size:14px;">Your job application receipt is attached for your records.</p>
+      ${hasAttachments ? '<p style="color:#555;font-size:14px;">Your job application receipt is attached for your records.</p>' : ''}
     </div>`;
-    await sendEmailFromIdentity({
-      senderIdentityId: identity.id,
+
+    // @example.com / demo applicants are rewritten to testing@itsco.health by the
+    // shared outbound redirect and should appear as Sent in automation.
+    if (identity?.id) {
+      await sendEmailFromIdentity({
+        senderIdentityId: identity.id,
+        to,
+        subject,
+        text,
+        html,
+        attachments: hasAttachments ? attachments : null,
+        source: 'auto',
+        userId: applicantUser?.id || null,
+        templateType: 'job_applications',
+        intakeSubmissionId: submissionId || null,
+        jobDescriptionId: jobDescriptionId || jobDescription?.id || null,
+        fromDisplayNameOverride: fromDisplay,
+        replyToOverride: String(identity.reply_to || identity.from_email || '').trim() || null
+      });
+      return;
+    }
+
+    // No People Ops identity configured — still deliver demo/@example mail to testing.
+    if (!EmailService.isConfigured()) {
+      console.warn('[sendJobApplicationReceivedEmail] no sender identity and email not configured', {
+        agencyId,
+        to
+      });
+      return;
+    }
+    await EmailService.sendEmail({
       to,
       subject,
       text,
       html,
-      attachments: attachments.length ? attachments : null,
+      fromName: fromDisplay,
+      fromAddress:
+        process.env.GOOGLE_WORKSPACE_FROM_ADDRESS
+        || process.env.GOOGLE_WORKSPACE_DEFAULT_FROM
+        || null,
+      replyTo: process.env.GOOGLE_WORKSPACE_REPLY_TO || null,
+      attachments: hasAttachments ? attachments : null,
       source: 'auto',
+      agencyId,
       userId: applicantUser?.id || null,
-      templateType: 'job_applications',
-      intakeSubmissionId: submissionId || null,
-      jobDescriptionId: jobDescriptionId || jobDescription?.id || null,
-      fromDisplayNameOverride: fromDisplay,
-      replyToOverride: replyTo
+      templateType: 'job_applications'
     });
-  } catch {
-    // best-effort
+  } catch (e) {
+    console.warn('[sendJobApplicationReceivedEmail] failed', e?.message || e);
   }
 }
 
