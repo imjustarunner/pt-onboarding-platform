@@ -388,7 +388,15 @@ export async function requestPasswordRecoveryEmail({
 
   if (comm?.id && sendResult?.id) {
     await CommunicationLoggingService.markAsSent(comm.id, sendResult.id, {
-      fromEmail: process.env.GOOGLE_WORKSPACE_FROM_ADDRESS || null
+      fromEmail: process.env.GOOGLE_WORKSPACE_FROM_ADDRESS || null,
+      ...(isDemoRedirect
+        ? {
+            testInboxRedirect: true,
+            originalTo: to,
+            deliveredTo: 'testing@itsco.health',
+            demoOrFakeRecipient: true
+          }
+        : {})
     }).catch(() => {});
   }
 
@@ -401,18 +409,12 @@ export async function requestPasswordRecoveryEmail({
         role: user.role || null,
         firstSet,
         orgSlug: orgSlug || null,
-        communicationId: comm?.id || null
+        communicationId: comm?.id || null,
+        ...(isDemoRedirect ? { demoRedirectedToTesting: true } : {})
       }
     },
     req
   );
-
-  if (isDemoRedirect && comm?.id) {
-    await markCommFailed(
-      comm.id,
-      'Demo/fake recipient — message redirected to testing@itsco.health (check testing inbox)'
-    );
-  }
 
   return {
     ok: true,
@@ -420,6 +422,7 @@ export async function requestPasswordRecoveryEmail({
     communicationId: comm?.id || null,
     resetLink: includeDebug ? resetLink : null,
     sendResult: includeDebug ? sendResult : null,
-    deliveryStatus: isDemoRedirect ? 'failed' : 'sent'
+    deliveryStatus: 'sent',
+    redirected: !!isDemoRedirect
   };
 }

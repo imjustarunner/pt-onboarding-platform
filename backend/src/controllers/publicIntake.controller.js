@@ -2527,11 +2527,6 @@ const resolveRegistrationFromName = async ({ link, agencyId, organizationId, sco
   return 'Registration Team';
 };
 
-const isNonDeliverableDemoEmail = (email) => {
-  const host = String(email || '').split('@')[1] || '';
-  return /^(example\.(com|org|net|test)|test\.com|localhost)$/i.test(host.trim());
-};
-
 const deliverPacketCompletionEmail = async ({
   to,
   subject,
@@ -2549,11 +2544,8 @@ const deliverPacketCompletionEmail = async ({
   fromAddress = null
 }) => {
   const result = { sent: false, skipped: false, error: null, errorMessage: null };
-  if (isNonDeliverableDemoEmail(to)) {
-    result.error = 'undeliverable_address';
-    result.errorMessage = 'Email failed to send';
-    return result;
-  }
+  // @example.com and other demo fakes are redirected to testing@itsco.health
+  // by the shared outbound rewrite — do not block them here.
   // Same attachment shape both branches used: actual PDF bytes on the email
   // so the family always has the packet on hand even if the signed download
   // URL eventually expires.

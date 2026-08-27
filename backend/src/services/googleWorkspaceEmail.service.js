@@ -42,8 +42,26 @@ class GoogleWorkspaceEmailService {
     );
   }
 
-  static async sendEmail({ to, subject, text = null, html = null, fromName = null, fromAddress = null, replyTo = null, attachments = null }) {
-    const redirected = await rewriteHogwartsOutboundRecipient({ to, subject });
+  static async sendEmail({
+    to,
+    subject,
+    text = null,
+    html = null,
+    fromName = null,
+    fromAddress = null,
+    replyTo = null,
+    attachments = null,
+    agencyId = null,
+    userId = null,
+    clientId = null
+  }) {
+    const redirected = await rewriteHogwartsOutboundRecipient({
+      to,
+      subject,
+      agencyId,
+      userId,
+      clientId
+    });
     to = redirected.to;
     subject = redirected.subject;
     const impersonate = getImpersonatedUser();

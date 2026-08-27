@@ -5,8 +5,10 @@ import { buildFallbackSenderMetadata } from '../constants/automatedEmailCatalog.
 import {
   rewriteHogwartsOutboundRecipient,
   buildTestInboxRedirectMetadata,
-  shouldRedirectHogwartsOutboundEmail
+  shouldRedirectHogwartsOutboundEmail,
+  shouldRedirectForDemoAttachment
 } from '../utils/hogwartsTestEmail.js';
+import { notifyTestingInboxOfHeldEmail } from './automationEmailOpsNotify.service.js';
 
 /**
  * Look up a user_id by email address, best-effort. Used when callers don't
@@ -82,7 +84,14 @@ class EmailService {
     usedFallbackSender = null
   }) {
     const isManual = String(source || '').trim().toLowerCase() === 'manual';
-    const willRedirectToTestInbox = await shouldRedirectHogwartsOutboundEmail(to).catch(() => false);
+    const resolvedUserIdEarly = userId || null;
+    const willRedirectToTestInbox =
+      (await shouldRedirectHogwartsOutboundEmail(to).catch(() => false)) ||
+      (await shouldRedirectForDemoAttachment({
+        agencyId,
+        userId: resolvedUserIdEarly,
+        clientId
+      }).catch(() => false));
     const treatAsFallback =
       !willRedirectToTestInbox &&
       (usedFallbackSender === true || (usedFallbackSender !== false && !isManual));
@@ -123,6 +132,16 @@ class EmailService {
               WHERE id = ?`,
             [`send skipped — ${gate.reason}`, comm.id]
           ).catch(() => {});
+          notifyTestingInboxOfHeldEmail({
+            communicationId: comm.id,
+            to,
+            subject,
+            deliveryStatus: 'skipped',
+            reason: gate.reason,
+            templateType: templateType || 'transactional_email',
+            agencyId,
+            bodyPreview: html || text || null
+          }).catch(() => {});
         }
       } catch (logErr) {
         console.warn('[EmailService] failed to log skipped send', logErr?.message || logErr);
@@ -144,6 +163,7 @@ class EmailService {
     });
     if (!quality.ok) {
       const errMsg = `Blocked — ${formatQualityFlags(quality.flags)}`.slice(0, 500);
+      let blockedCommId = existingCommunicationId ? Number(existingCommunicationId) : null;
       if (existingCommunicationId) {
         try {
           const { default: pool } = await import('../config/database.js');
@@ -154,39 +174,64 @@ class EmailService {
         } catch {
           /* best effort */
         }
-        return { blocked: true, reason: 'quality_check_failed', qualityFlags: quality.flags, communicationId: existingCommunicationId };
-      }
-      try {
-        const { default: CommunicationLoggingService } = await import('./communicationLogging.service.js');
-        const resolvedUserId = userId || await resolveUserIdByEmail(to);
-        const { default: pool } = await import('../config/database.js');
-        const comm = await CommunicationLoggingService.logGeneratedCommunication({
-          userId: resolvedUserId || null,
-          clientId: clientId ? Number(clientId) : null,
-          agencyId: agencyId ? Number(agencyId) : null,
-          templateType: templateType || 'transactional_email',
-          templateId: templateId || null,
-          subject: subject || null,
-          body: html || text || '',
-          generatedByUserId: generatedByUserId || null,
-          channel: 'email',
-          recipientAddress: to
-        });
-        if (comm?.id) {
-          await pool.execute(
-            `UPDATE user_communications SET delivery_status = 'failed', error_message = ? WHERE id = ?`,
-            [errMsg, comm.id]
-          );
+      } else {
+        try {
+          const { default: CommunicationLoggingService } = await import('./communicationLogging.service.js');
+          const resolvedUserId = userId || await resolveUserIdByEmail(to);
+          const { default: pool } = await import('../config/database.js');
+          const comm = await CommunicationLoggingService.logGeneratedCommunication({
+            userId: resolvedUserId || null,
+            clientId: clientId ? Number(clientId) : null,
+            agencyId: agencyId ? Number(agencyId) : null,
+            templateType: templateType || 'transactional_email',
+            templateId: templateId || null,
+            subject: subject || null,
+            body: html || text || '',
+            generatedByUserId: generatedByUserId || null,
+            channel: 'email',
+            recipientAddress: to
+          });
+          if (comm?.id) {
+            blockedCommId = comm.id;
+            await pool.execute(
+              `UPDATE user_communications SET delivery_status = 'failed', error_message = ? WHERE id = ?`,
+              [errMsg, comm.id]
+            );
+          }
+        } catch {
+          /* best effort */
         }
-      } catch {
-        /* best effort */
       }
-      return { blocked: true, reason: 'quality_check_failed', qualityFlags: quality.flags };
+      notifyTestingInboxOfHeldEmail({
+        communicationId: blockedCommId,
+        to,
+        subject,
+        deliveryStatus: 'flagged',
+        errorMessage: errMsg,
+        reason: 'quality_check_failed',
+        templateType: templateType || 'transactional_email',
+        agencyId,
+        qualityFlags: quality.flags,
+        bodyPreview: html || text || null
+      }).catch(() => {});
+      return {
+        blocked: true,
+        reason: 'quality_check_failed',
+        qualityFlags: quality.flags,
+        ...(blockedCommId ? { communicationId: blockedCommId } : {})
+      };
     }
 
     // Pre-log as 'pending' so any failure during the actual send is still
     // visible on the Communications tab as a failed/pending row.
-    const redirectedPreview = await rewriteHogwartsOutboundRecipient({ to, subject });
+    const resolvedUserId = userId || await resolveUserIdByEmail(to);
+    const redirectedPreview = await rewriteHogwartsOutboundRecipient({
+      to,
+      subject,
+      agencyId,
+      userId: resolvedUserId,
+      clientId
+    });
     const redirectMeta = redirectedPreview.redirected
       ? buildTestInboxRedirectMetadata({
           originalTo: redirectedPreview.originalTo,
@@ -228,7 +273,6 @@ class EmailService {
     } else {
       try {
         const { default: CommunicationLoggingService } = await import('./communicationLogging.service.js');
-        const resolvedUserId = userId || await resolveUserIdByEmail(to);
         comm = await CommunicationLoggingService.logGeneratedCommunication({
           userId: resolvedUserId || null,
           clientId: clientId ? Number(clientId) : null,
@@ -264,6 +308,17 @@ class EmailService {
         usedFallbackSender: treatAsFallback
       }))
     ) {
+      notifyTestingInboxOfHeldEmail({
+        communicationId: comm.id,
+        to,
+        subject: redirectedPreview.subject || subject,
+        deliveryStatus: 'pending',
+        reason: treatAsFallback ? 'fallback_sender_requires_approval' : 'requires_approval',
+        templateType: resolvedTemplateType,
+        agencyId,
+        metadata: { ...fallbackMeta, ...redirectMeta },
+        bodyPreview: html || text || null
+      }).catch(() => {});
       return {
         queued: true,
         pendingApproval: true,
@@ -275,7 +330,17 @@ class EmailService {
     let sendResult;
     try {
       sendResult = await GoogleWorkspaceEmailService.sendEmail({
-        to, subject, text, html, fromName, fromAddress, replyTo, attachments
+        to,
+        subject,
+        text,
+        html,
+        fromName,
+        fromAddress,
+        replyTo,
+        attachments,
+        agencyId,
+        userId: resolvedUserId,
+        clientId
       });
     } catch (sendErr) {
       // Mark the comm row as failed so it shows up as such instead of stuck "pending".
@@ -293,6 +358,16 @@ class EmailService {
             `UPDATE user_communications SET delivery_status = 'failed', error_message = ? WHERE id = ?`,
             [String(sendErr?.message || 'send failed').slice(0, 500), comm.id]
           ).catch(() => {});
+          notifyTestingInboxOfHeldEmail({
+            communicationId: comm.id,
+            to,
+            subject,
+            deliveryStatus: 'failed',
+            errorMessage: String(sendErr?.message || 'send failed'),
+            templateType: resolvedTemplateType,
+            agencyId,
+            bodyPreview: html || text || null
+          }).catch(() => {});
         } catch {
           /* best effort */
         }

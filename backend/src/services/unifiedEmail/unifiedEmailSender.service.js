@@ -17,6 +17,7 @@ import {
 import { buildFallbackSenderMetadata } from '../../constants/automatedEmailCatalog.js';
 import { resolveSenderIdentityForSend } from '../emailSenderIdentityResolver.service.js';
 import { rewriteHogwartsOutboundRecipient, buildTestInboxRedirectMetadata } from '../../utils/hogwartsTestEmail.js';
+import { notifyTestingInboxOfHeldEmail } from '../automationEmailOpsNotify.service.js';
 
 async function canSendEmail({ source, agencyId } = {}) {
   const mode = await getEmailSendingMode();
@@ -149,7 +150,7 @@ export async function logSkippedOrFailedEmail({
     if (!resolvedUserId && to) {
       resolvedUserId = await resolveRecipientUserIdByEmail(to);
     }
-    await UserCommunication.create({
+    const row = await UserCommunication.create({
       userId: resolvedUserId || null,
       clientId: clientId || null,
       agencyId: agencyId || null,
@@ -164,6 +165,20 @@ export async function logSkippedOrFailedEmail({
       generatedByUserId: generatedByUserId || null,
       metadata: metadata || null
     });
+    notifyTestingInboxOfHeldEmail({
+      communicationId: row?.id || null,
+      to,
+      subject,
+      deliveryStatus,
+      errorMessage,
+      reason: metadata?.reason || null,
+      templateType: templateType || 'auto_email',
+      agencyId,
+      qualityFlags: metadata?.qualityFlags || null,
+      metadata,
+      bodyPreview: html || text || null
+    }).catch(() => {});
+    return row;
   } catch (e) {
     console.warn('[unifiedEmail] failed to log skipped/failed email attempt', e?.message || e);
     return null;
@@ -217,6 +232,19 @@ async function blockSendForQualityIssues({
     } catch {
       /* best effort */
     }
+    notifyTestingInboxOfHeldEmail({
+      communicationId: Number(existingCommunicationId),
+      to,
+      subject,
+      deliveryStatus: 'flagged',
+      errorMessage: errMsg,
+      reason: 'quality_check_failed',
+      templateType,
+      agencyId,
+      qualityFlags: flags,
+      metadata: qualityMeta,
+      bodyPreview: html || text || null
+    }).catch(() => {});
     return {
       blocked: true,
       reason: 'quality_check_failed',
@@ -473,6 +501,19 @@ export async function sendNotificationEmail({
   const trackingToken = signedContent.html ? UserCommunication.generateTrackingToken() : null;
   const htmlWithPixel = signedContent.html ? injectTrackingPixel(signedContent.html, trackingToken) : signedContent.html;
 
+  // Resolve demo/@example.com / demo-tenant redirect before approval so testing
+  // inbox mail actually sends and appears as sent in automation.
+  const redirected = await rewriteHogwartsOutboundRecipient({
+    to,
+    subject: effectiveSubject,
+    agencyId,
+    userId: resolvedUserId,
+    clientId
+  });
+  const redirectMeta = redirected.redirected
+    ? buildTestInboxRedirectMetadata({ originalTo: redirected.originalTo, deliveredTo: redirected.to })
+    : {};
+
   // Best-effort pre-send log so we capture the body even if Gmail send fails.
   let comm = null;
   try {
@@ -482,7 +523,7 @@ export async function sendNotificationEmail({
       agencyId,
       templateType: templateType || `trigger:${triggerKey}`,
       templateId: templateId || null,
-      subject: effectiveSubject,
+      subject: redirected.subject || effectiveSubject,
       body: htmlWithPixel || signedContent.text || '',
       generatedByUserId: generatedByUserId || null,
       channel: 'email',
@@ -493,7 +534,8 @@ export async function sendNotificationEmail({
         senderIdentityId: identity.id,
         fromEmail: identity.from_email,
         replyTo: identity.reply_to || null,
-        source
+        source,
+        ...redirectMeta
       }
     });
   } catch (logErr) {
@@ -501,7 +543,18 @@ export async function sendNotificationEmail({
     comm = null;
   }
 
-  if (!isManual && comm?.id && delivery.requireApproval) {
+  if (!isManual && !redirected.redirected && comm?.id && delivery.requireApproval) {
+    notifyTestingInboxOfHeldEmail({
+      communicationId: comm.id,
+      to,
+      subject: redirected.subject || effectiveSubject,
+      deliveryStatus: 'pending',
+      reason: 'trigger_requires_approval',
+      templateType: templateType || `trigger:${triggerKey}`,
+      agencyId,
+      metadata: { triggerKey, source, ...redirectMeta },
+      bodyPreview: htmlWithPixel || signedContent.text || null
+    }).catch(() => {});
     return {
       queued: true,
       pendingApproval: true,
@@ -511,7 +564,6 @@ export async function sendNotificationEmail({
   }
 
   const gmail = await getGmailClient();
-  const redirected = await rewriteHogwartsOutboundRecipient({ to, subject: effectiveSubject });
   const mime = buildMimeMessage({
     to: redirected.to,
     subject: redirected.subject,
@@ -523,10 +575,34 @@ export async function sendNotificationEmail({
   });
   const raw = base64UrlEncode(mime);
 
-  const result = await gmail.users.messages.send({
-    userId: 'me',
-    requestBody: { raw }
-  });
+  let result;
+  try {
+    result = await gmail.users.messages.send({
+      userId: 'me',
+      requestBody: { raw }
+    });
+  } catch (sendErr) {
+    if (comm?.id) {
+      await pool
+        .execute(
+          `UPDATE user_communications SET delivery_status = 'failed', error_message = ? WHERE id = ?`,
+          [String(sendErr?.message || 'send failed').slice(0, 500), comm.id]
+        )
+        .catch(() => {});
+      notifyTestingInboxOfHeldEmail({
+        communicationId: comm.id,
+        to,
+        subject: redirected.subject || effectiveSubject,
+        deliveryStatus: 'failed',
+        errorMessage: String(sendErr?.message || 'send failed'),
+        templateType: templateType || `trigger:${triggerKey}`,
+        agencyId,
+        metadata: { triggerKey, source, ...redirectMeta },
+        bodyPreview: htmlWithPixel || signedContent.text || null
+      }).catch(() => {});
+    }
+    throw sendErr;
+  }
 
   const messageId = result.data?.id || null;
   const threadId = result.data?.threadId || null;
@@ -537,7 +613,8 @@ export async function sendNotificationEmail({
       impersonatedUser: getImpersonatedUser(),
       senderIdentityId: identity.id,
       fromEmail: identity.from_email,
-      replyTo: identity.reply_to || null
+      replyTo: identity.reply_to || null,
+      ...redirectMeta
     }).catch(() => {});
   }
 
@@ -549,11 +626,18 @@ export async function sendNotificationEmail({
       recipient: to,
       body: html || text || '',
       externalRefId: messageId,
-      metadata: { subject: effectiveSubject, threadId }
+      metadata: { subject: effectiveSubject, threadId, ...redirectMeta }
     }).catch(() => {});
   }
 
-  return { id: messageId, threadId, senderIdentityId: identity.id, communicationId: comm?.id || null };
+  return {
+    id: messageId,
+    threadId,
+    senderIdentityId: identity.id,
+    communicationId: comm?.id || null,
+    redirected: !!redirected.redirected,
+    originalTo: redirected.originalTo || null
+  };
 }
 
 /**
@@ -693,7 +777,13 @@ export async function sendEmailFromIdentity({
     : {};
 
   // Resolve demo/fake redirect before approval so testing@itsco.health mail actually sends.
-  const redirected = await rewriteHogwartsOutboundRecipient({ to, subject });
+  const redirected = await rewriteHogwartsOutboundRecipient({
+    to,
+    subject,
+    agencyId: identity?.agency_id || null,
+    userId: resolvedUserId,
+    clientId
+  });
   const redirectMeta = redirected.redirected
     ? buildTestInboxRedirectMetadata({ originalTo: redirected.originalTo, deliveredTo: redirected.to })
     : {};
@@ -783,6 +873,17 @@ export async function sendEmailFromIdentity({
       usedFallbackSender
     }));
   if (needsApproval) {
+    notifyTestingInboxOfHeldEmail({
+      communicationId: comm.id,
+      to,
+      subject: redirected.subject || subject,
+      deliveryStatus: 'pending',
+      reason: usedFallbackSender ? 'fallback_sender_requires_approval' : 'requires_approval',
+      templateType: resolvedTemplateType,
+      agencyId: identity?.agency_id || null,
+      metadata: { source, ...fallbackMeta, ...redirectMeta },
+      bodyPreview: htmlWithPixel || signedContent.text || null
+    }).catch(() => {});
     return {
       queued: true,
       pendingApproval: true,
@@ -807,7 +908,32 @@ export async function sendEmailFromIdentity({
   const raw = base64UrlEncode(mime);
 
   const requestBody = threadId ? { raw, threadId } : { raw };
-  const result = await gmail.users.messages.send({ userId: 'me', requestBody });
+  let result;
+  try {
+    result = await gmail.users.messages.send({ userId: 'me', requestBody });
+  } catch (sendErr) {
+    const agencyIdForFail = identity?.agency_id || null;
+    if (comm?.id) {
+      await pool
+        .execute(
+          `UPDATE user_communications SET delivery_status = 'failed', error_message = ? WHERE id = ?`,
+          [String(sendErr?.message || 'send failed').slice(0, 500), comm.id]
+        )
+        .catch(() => {});
+      notifyTestingInboxOfHeldEmail({
+        communicationId: comm.id,
+        to,
+        subject: redirected.subject || subject,
+        deliveryStatus: 'failed',
+        errorMessage: String(sendErr?.message || 'send failed'),
+        templateType: resolvedTemplateType,
+        agencyId: agencyIdForFail,
+        metadata: { source, ...fallbackMeta, ...redirectMeta },
+        bodyPreview: htmlWithPixel || signedContent.text || null
+      }).catch(() => {});
+    }
+    throw sendErr;
+  }
 
   const messageId = result.data?.id || null;
   const finalThreadId = result.data?.threadId || threadId || null;

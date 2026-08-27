@@ -137,14 +137,8 @@ export function scanStoredCommunicationQuality(row) {
       message: 'This email would send from a fallback From address. Assign a tenant sender identity in Email Settings, then approve.'
     });
   }
-  if (meta.testInboxRedirect) {
-    flags.push({
-      code: 'test_inbox_redirect',
-      message: `Fake/demo recipient redirected to ${meta.deliveredTo || 'testing@itsco.health'}${
-        meta.originalTo ? ` (was ${meta.originalTo})` : ''
-      }.`
-    });
-  }
+  // testInboxRedirect is informational only — demo/@example.com mail is delivered
+  // to testing@itsco.health and should appear as normal "sent" in automation.
   return flags;
 }
 
@@ -157,13 +151,19 @@ export function isCommunicationQualityResolved(meta) {
   return !!(meta.qualityResolvedAt || meta.quality_resolved_at);
 }
 
+const INFORMATIONAL_QUALITY_CODES = new Set(['test_inbox_redirect']);
+
+function withoutInformationalFlags(flags = []) {
+  return (flags || []).filter((f) => !INFORMATIONAL_QUALITY_CODES.has(String(f?.code || '').toLowerCase()));
+}
+
 export function getActiveQualityFlags(row, meta = null) {
   const m = meta || parseCommunicationMetadata(row?.metadata);
   if (isCommunicationQualityResolved(m)) return [];
-  const scanned = scanStoredCommunicationQuality({ ...row, metadata: m });
+  const scanned = withoutInformationalFlags(scanStoredCommunicationQuality({ ...row, metadata: m }));
   if (scanned.length) return scanned;
   const stored = m.qualityFlags;
-  if (Array.isArray(stored) && stored.length) return stored;
+  if (Array.isArray(stored) && stored.length) return withoutInformationalFlags(stored);
   return [];
 }
 

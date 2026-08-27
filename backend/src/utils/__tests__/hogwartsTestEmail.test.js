@@ -36,10 +36,13 @@ describe('hogwartsTestEmail', () => {
     assert.equal(HOGWARTS_TEST_INBOX, 'testing@itsco.health');
   });
 
-  it('recognizes playground fake provider domains', () => {
+  it('recognizes playground fake provider domains and @example.com', () => {
     assert.equal(looksLikeDemoFakeAddress('provider.itsco-training@example.demo'), true);
     assert.equal(looksLikeDemoFakeAddress('dp1@demtest.com'), true);
+    assert.equal(looksLikeDemoFakeAddress('parent@example.com'), true);
+    assert.equal(looksLikeDemoFakeAddress('kid@example.org'), true);
     assert.equal(looksLikeTestInboxRedirectAddress('provider.itsco-training@example.demo'), true);
+    assert.equal(looksLikeTestInboxRedirectAddress('autofill@example.com'), true);
     assert.equal(looksLikeDemoFakeAddress('real.person@gmail.com'), false);
   });
 
@@ -56,6 +59,10 @@ describe('hogwartsTestEmail', () => {
       formatHogwartsTestSubject('provider.itsco-training@example.demo', 'Reset your password'),
       '[Demo test → provider.itsco-training@example.demo] Reset your password'
     );
+    assert.equal(
+      formatHogwartsTestSubject('parent@example.com', 'Packet complete'),
+      '[Demo test → parent@example.com] Packet complete'
+    );
   });
 
   it('rewrites demo fake addresses to the testing inbox', async () => {
@@ -67,5 +74,16 @@ describe('hogwartsTestEmail', () => {
     assert.equal(result.to, HOGWARTS_TEST_INBOX);
     assert.equal(result.originalTo, 'provider.itsco-training@example.demo');
     assert.match(result.subject, /Demo test → provider\.itsco-training@example\.demo/);
+  });
+
+  it('rewrites @example.com to the testing inbox', async () => {
+    const result = await rewriteHogwartsOutboundRecipient({
+      to: 'guardian@example.com',
+      subject: 'Your intake packet'
+    });
+    assert.equal(result.redirected, true);
+    assert.equal(result.to, HOGWARTS_TEST_INBOX);
+    assert.equal(result.originalTo, 'guardian@example.com');
+    assert.match(result.subject, /Demo test → guardian@example\.com/);
   });
 });

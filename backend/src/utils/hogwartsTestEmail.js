@@ -5,6 +5,11 @@
  *
  * Real Hogwarts-assigned people (Williams, Chuckie, Piper Finch, Loriana)
  * are never redirected.
+ *
+ * Also redirects:
+ * - @example.com / sibling RFC reserved domains
+ * - mail attached to a demo agency (demo, hogwarts, durmstrang, …)
+ * - mail for users/clients flagged is_demo
  */
 export const HOGWARTS_TEST_INBOX = 'testing@itsco.health';
 
@@ -17,7 +22,16 @@ const KEEP_REAL_EMAILS = new Set([
   'loriana@plottwist.com'
 ]);
 
+/** Agency slugs whose outbound mail always goes to the testing inbox. */
+export const DEMO_AGENCY_SLUGS = new Set([
+  'demo',
+  'demo-school',
+  'hogwarts',
+  'durmstrang'
+]);
+
 let hogwartsEmailCache = { at: 0, emails: new Set() };
+let demoAgencyCache = { at: 0, ids: new Set() };
 
 export function extractEmailAddresses(raw) {
   const text = String(raw || '').trim();
@@ -35,10 +49,15 @@ export function isKeepRealHogwartsEmail(email) {
   return KEEP_REAL_EMAILS.has(String(email || '').trim().toLowerCase());
 }
 
-/** Playground / seed fake domains that must never receive real outbound mail. */
+/**
+ * Playground / seed / RFC-reserved fake domains that must never receive real outbound mail.
+ * Includes plain @example.com used by public intake autofill and demos.
+ */
 export function looksLikeDemoFakeAddress(email) {
   const e = String(email || '').trim().toLowerCase();
   if (!e || isKeepRealHogwartsEmail(e)) return false;
+  const host = e.split('@')[1] || '';
+  if (/^(example\.(com|org|net|test|demo|invalid|de)|test\.com|localhost)$/i.test(host)) return true;
   if (e.endsWith('@example.demo') || e.endsWith('@example.invalid') || e.endsWith('@example.de')) return true;
   if (e.includes('@example.') && e.includes('itsco-training')) return true;
   if (e.endsWith('@demtest.com')) return true;
@@ -109,6 +128,67 @@ async function loadHogwartsAffiliatedEmails() {
   }
 }
 
+async function loadDemoAgencyIds() {
+  const now = Date.now();
+  if (now - demoAgencyCache.at < 60_000) return demoAgencyCache.ids;
+  try {
+    const { default: pool } = await import('../config/database.js');
+    const envIds = String(process.env.DEMO_MODE_FAKE_AGENCY_IDS || '')
+      .split(',')
+      .map((s) => Number(String(s).trim()))
+      .filter((n) => Number.isFinite(n) && n > 0);
+    const [rows] = await pool.execute(
+      `SELECT id
+       FROM agencies
+       WHERE is_active = 1
+         AND LOWER(COALESCE(slug, portal_url, '')) IN ('demo', 'demo-school', 'hogwarts', 'durmstrang')`
+    );
+    const ids = new Set(envIds);
+    for (const row of rows || []) {
+      const id = Number(row.id);
+      if (Number.isFinite(id) && id > 0) ids.add(id);
+    }
+    demoAgencyCache = { at: now, ids };
+    return ids;
+  } catch {
+    return demoAgencyCache.ids;
+  }
+}
+
+/**
+ * True when this send is attached to a demo tenant / demo user / demo client.
+ * Those messages are delivered to testing@itsco.health so demos never hit real inboxes.
+ */
+export async function shouldRedirectForDemoAttachment({ agencyId = null, userId = null, clientId = null } = {}) {
+  const aid = Number(agencyId || 0);
+  if (aid > 0) {
+    const demoIds = await loadDemoAgencyIds();
+    if (demoIds.has(aid)) return true;
+  }
+  try {
+    const { default: pool } = await import('../config/database.js');
+    const uid = Number(userId || 0);
+    if (uid > 0) {
+      const [rows] = await pool.execute(
+        'SELECT COALESCE(is_demo, 0) AS is_demo FROM users WHERE id = ? LIMIT 1',
+        [uid]
+      );
+      if (Number(rows?.[0]?.is_demo)) return true;
+    }
+    const cid = Number(clientId || 0);
+    if (cid > 0) {
+      const [rows] = await pool.execute(
+        'SELECT COALESCE(is_demo, 0) AS is_demo FROM clients WHERE id = ? LIMIT 1',
+        [cid]
+      );
+      if (Number(rows?.[0]?.is_demo)) return true;
+    }
+  } catch {
+    /* best effort */
+  }
+  return false;
+}
+
 export async function shouldRedirectHogwartsOutboundEmail(email) {
   const e = String(email || '').trim().toLowerCase();
   if (!e || isKeepRealHogwartsEmail(e)) return false;
@@ -124,39 +204,52 @@ export function formatHogwartsTestSubject(originalTo, subject) {
   if (/\[(hogwarts|demo)?\s*test\s*(inbox)?\s*→/i.test(sub) || sub.toLowerCase().includes('[hogwarts test')) {
     return sub;
   }
-  const label = looksLikeDemoFakeAddress(orig) ? 'Demo test' : 'Hogwarts test';
+  const first = orig.split(',')[0]?.trim() || orig;
+  const label = looksLikeHogwartsDemoAddress(first) && !looksLikeDemoFakeAddress(first)
+    ? 'Hogwarts test'
+    : 'Demo test';
   return `[${label} → ${orig}] ${sub}`.trim();
 }
 
 export function buildTestInboxRedirectMetadata({ originalTo, deliveredTo = HOGWARTS_TEST_INBOX } = {}) {
   const orig = String(originalTo || '').trim();
+  // Intentionally no qualityFlags — redirected demos should appear as normal "sent"
+  // in automation (metadata still records the redirect for debugging).
   return {
     testInboxRedirect: true,
     originalTo: orig || null,
-    deliveredTo: deliveredTo || HOGWARTS_TEST_INBOX,
-    qualityFlags: [
-      {
-        code: 'test_inbox_redirect',
-        message: `Fake/demo recipient redirected to ${deliveredTo || HOGWARTS_TEST_INBOX}${orig ? ` (was ${orig})` : ''}.`
-      }
-    ]
+    deliveredTo: deliveredTo || HOGWARTS_TEST_INBOX
   };
 }
 
 /**
- * Rewrite outbound To/subject so demo/Hogwarts mail lands in testing@itsco.health.
+ * Rewrite outbound To/subject so demo/Hogwarts/@example.com mail lands in testing@itsco.health.
  * Real Williams / Chuckie / Piper / Loriana addresses are left unchanged.
+ *
+ * Optional agencyId / userId / clientId: when the send is attached to a demo
+ * tenant or demo person, every non-keep-real recipient is redirected.
  */
-export async function rewriteHogwartsOutboundRecipient({ to, subject } = {}) {
+export async function rewriteHogwartsOutboundRecipient({
+  to,
+  subject,
+  agencyId = null,
+  userId = null,
+  clientId = null
+} = {}) {
   const emails = extractEmailAddresses(to);
   if (!emails.length) {
     return { to, subject, redirected: false, originalTo: null };
   }
 
+  const demoAttached = await shouldRedirectForDemoAttachment({ agencyId, userId, clientId });
   const redirect = [];
   const next = [];
   for (const email of emails) {
-    if (await shouldRedirectHogwartsOutboundEmail(email)) {
+    if (isKeepRealHogwartsEmail(email)) {
+      next.push(email);
+      continue;
+    }
+    if (demoAttached || (await shouldRedirectHogwartsOutboundEmail(email))) {
       redirect.push(email);
       next.push(HOGWARTS_TEST_INBOX);
     } else {
