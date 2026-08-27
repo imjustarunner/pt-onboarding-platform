@@ -2,7 +2,7 @@
   <div class="pub">
     <header class="pub-head">
       <h1>{{ agency?.name || 'Book a session' }}</h1>
-      <p class="sub">Request a time with this organization. Staff will confirm when needed.</p>
+      <p class="sub">Choose a service, then pick a package if one is offered. Staff will confirm when needed.</p>
     </header>
 
     <div v-if="loading" class="state">Loading booking options…</div>
@@ -18,6 +18,32 @@
           </option>
         </select>
       </label>
+
+      <div v-if="tenantServiceId" class="pkg-block">
+        <h3 class="pkg-heading">Packages for this service</h3>
+        <p v-if="packagesLoading" class="muted">Loading packages…</p>
+        <p v-else-if="!packages.length" class="muted">
+          No prepaid packages for this service. You can still request a single session below.
+        </p>
+        <div v-else class="pkg-grid">
+          <button
+            v-for="pkg in packages"
+            :key="pkg.id"
+            type="button"
+            class="pkg-card"
+            :class="{ selected: selectedPackageId === pkg.id }"
+            @click="selectedPackageId = pkg.id"
+          >
+            <strong>{{ pkg.name }}</strong>
+            <span class="pkg-price">{{ formatMoney(pkg.priceCents) }}</span>
+            <span class="muted">{{ pkg.sessionCount }} sessions</span>
+            <p v-if="pkg.description" class="muted">{{ pkg.description }}</p>
+          </button>
+        </div>
+        <p v-if="selectedPackage" class="pkg-note">
+          Selected: {{ selectedPackage.name }}. After you create an account / enroll, you can purchase this package from the guardian portal.
+        </p>
+      </div>
 
       <label>
         Provider (optional)
@@ -63,6 +89,7 @@ const apiBase = import.meta.env.VITE_API_URL || 'http://localhost:3000/api';
 const route = useRoute();
 
 const loading = ref(true);
+const packagesLoading = ref(false);
 const error = ref('');
 const submitError = ref('');
 const success = ref('');
@@ -71,17 +98,27 @@ const submitting = ref(false);
 const agency = ref(null);
 const services = ref([]);
 const providers = ref([]);
+const packages = ref([]);
 const tenantServiceId = ref(0);
+const selectedPackageId = ref(null);
 const providerUserId = ref(0);
 const startAt = ref('');
 const endAt = ref('');
 const notes = ref('');
 
 const slug = computed(() => String(route.params.organizationSlug || '').trim());
+const selectedPackage = computed(() =>
+  packages.value.find((p) => Number(p.id) === Number(selectedPackageId.value)) || null
+);
 
 const canSubmit = computed(() =>
   Number(tenantServiceId.value) > 0 && !!startAt.value && !!endAt.value
 );
+
+function formatMoney(cents) {
+  const n = Number(cents || 0);
+  return `$${(n / 100).toFixed(n % 100 === 0 ? 0 : 2)}`;
+}
 
 const providerLabel = (p) => {
   const name = [p.firstName, p.lastName].filter(Boolean).join(' ').trim();
@@ -89,7 +126,6 @@ const providerLabel = (p) => {
 };
 
 const toWallTime = (localValue) => {
-  // datetime-local → "YYYY-MM-DD HH:mm:00"
   const s = String(localValue || '').trim();
   if (!s) return '';
   return `${s.replace('T', ' ')}:00`.replace(/:00:00$/, ':00:00').slice(0, 19);
@@ -106,6 +142,7 @@ const loadOptions = async () => {
     agency.value = r.data?.agency || null;
     services.value = r.data?.services || [];
     providers.value = r.data?.providers || [];
+    packages.value = r.data?.packages || [];
     if (!services.value.length) {
       error.value = 'No publicly bookable services are configured for this organization yet.';
     }
@@ -116,8 +153,29 @@ const loadOptions = async () => {
   }
 };
 
-const onServiceChange = () => {
-  void loadOptions();
+const loadPackagesForService = async () => {
+  if (!tenantServiceId.value || !slug.value) {
+    packages.value = [];
+    return;
+  }
+  packagesLoading.value = true;
+  selectedPackageId.value = null;
+  try {
+    const r = await axios.get(
+      `${apiBase}/public/unified-booking/${encodeURIComponent(slug.value)}/packages`,
+      { params: { tenantServiceId: tenantServiceId.value } }
+    );
+    packages.value = r.data?.packages || [];
+  } catch {
+    packages.value = [];
+  } finally {
+    packagesLoading.value = false;
+  }
+};
+
+const onServiceChange = async () => {
+  await loadOptions();
+  await loadPackagesForService();
 };
 
 const submit = async () => {
@@ -126,6 +184,10 @@ const submit = async () => {
   submitError.value = '';
   success.value = '';
   try {
+    const noteParts = [notes.value || ''];
+    if (selectedPackage.value) {
+      noteParts.push(`[Interested package: ${selectedPackage.value.name} (#${selectedPackage.value.id})]`);
+    }
     const r = await axios.post(
       `${apiBase}/public/unified-booking/${encodeURIComponent(slug.value)}/appointments`,
       {
@@ -133,7 +195,7 @@ const submit = async () => {
         providerUserId: Number(providerUserId.value || 0) || undefined,
         startAt: toWallTime(startAt.value),
         endAt: toWallTime(endAt.value),
-        notes: notes.value || null,
+        notes: noteParts.filter(Boolean).join('\n') || null,
         requireStaffApproval: true
       }
     );
@@ -155,7 +217,7 @@ onMounted(() => {
 
 <style scoped>
 .pub {
-  max-width: 480px;
+  max-width: 520px;
   margin: 0 auto;
   padding: 28px 16px 48px;
   font-family: Georgia, 'Times New Roman', serif;
@@ -193,6 +255,24 @@ select, input, textarea {
   border: 1px solid #d6d3d1;
   border-radius: 8px;
 }
+.pkg-block { display: flex; flex-direction: column; gap: 8px; }
+.pkg-heading { margin: 0; font-size: 0.95rem; font-family: system-ui, sans-serif; }
+.pkg-grid { display: flex; flex-direction: column; gap: 8px; }
+.pkg-card {
+  text-align: left;
+  border: 1px solid #e7e5e4;
+  border-radius: 10px;
+  padding: 10px 12px;
+  background: #fafaf9;
+  cursor: pointer;
+  display: grid;
+  gap: 2px;
+  font-family: system-ui, sans-serif;
+}
+.pkg-card.selected { border-color: #0f766e; box-shadow: 0 0 0 1px #0f766e inset; background: #f0fdfa; }
+.pkg-price { font-weight: 700; color: #0f766e; }
+.pkg-note { margin: 0; font-size: 0.8rem; color: #57534e; font-family: system-ui, sans-serif; }
+.muted { color: #78716c; font-size: 0.8rem; margin: 0; font-family: system-ui, sans-serif; }
 .primary {
   margin-top: 4px;
   border: none;

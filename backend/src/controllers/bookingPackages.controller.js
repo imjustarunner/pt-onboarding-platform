@@ -47,7 +47,8 @@ export const listPackages = async (req, res, next) => {
       businessType: req.query.businessType || null,
       programId,
       publicOnly: String(req.query.publicOnly || '') === 'true',
-      includeTenantWideWithProgram: String(req.query.includeTenantWide || '') === 'true'
+      includeTenantWideWithProgram: String(req.query.includeTenantWide || '') === 'true',
+      tenantServiceId: req.query.tenantServiceId || req.query.serviceId || null
     });
     res.json({ ok: true, packages });
   } catch (e) {

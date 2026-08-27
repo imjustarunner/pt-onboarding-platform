@@ -21,6 +21,51 @@
     <div v-else-if="error" class="peh-error">{{ error }}</div>
     <template v-else>
       <section class="peh-section">
+        <h2 class="peh-section-title">Services &amp; packages</h2>
+        <p class="peh-section-sub muted">
+          Choose a service first. Packages attached to that service (including program packages) appear below.
+        </p>
+        <div v-if="servicesLoading" class="peh-muted">Loading services…</div>
+        <div v-else-if="!publicServices.length" class="peh-empty">
+          No publicly bookable services yet. Use enrollments below when available.
+        </div>
+        <div v-else class="peh-svc-row">
+          <label class="peh-svc-label">
+            Service
+            <select v-model.number="selectedServiceId" class="peh-select" @change="loadPackagesForService">
+              <option :value="0" disabled>Select a service…</option>
+              <option v-for="s in publicServices" :key="s.id" :value="s.id">{{ s.name }}</option>
+            </select>
+          </label>
+        </div>
+        <div v-if="selectedServiceId" class="peh-pkg-wrap">
+          <p v-if="packagesLoading" class="peh-muted">Loading packages…</p>
+          <ul v-else-if="servicePackages.length" class="peh-enroll-list">
+            <li v-for="pkg in servicePackages" :key="`pkg-${pkg.id}`" class="peh-enroll-card">
+              <div class="peh-enroll-main">
+                <h3 class="peh-enroll-title">{{ pkg.name }}</h3>
+                <p class="peh-enroll-desc">
+                  {{ pkg.sessionCount }} sessions · {{ formatMoney(pkg.priceCents) }}
+                  <template v-if="pkg.programName"> · {{ pkg.programName }}</template>
+                </p>
+                <p v-if="pkg.description" class="peh-enroll-desc">{{ pkg.description }}</p>
+              </div>
+              <div class="peh-enroll-actions">
+                <RouterLink
+                  v-if="bookSessionPath"
+                  class="peh-btn"
+                  :to="{ path: bookSessionPath, query: { serviceId: String(selectedServiceId), packageId: String(pkg.id) } }"
+                >
+                  View / book
+                </RouterLink>
+              </div>
+            </li>
+          </ul>
+          <p v-else class="peh-empty">No packages attached to this service yet.</p>
+        </div>
+      </section>
+
+      <section class="peh-section">
         <h2 class="peh-section-title">Program enrollments</h2>
         <p class="peh-section-sub muted">
           Individual services and client onboarding — use the link your provider shared or enroll below when open.
@@ -108,6 +153,8 @@ const programSlug = computed(() => String(route.params.programSlug || '').trim()
 const useAgencyApiPath = computed(() => Boolean(route.params.agencySlug));
 
 const loading = ref(false);
+const servicesLoading = ref(false);
+const packagesLoading = ref(false);
 const error = ref('');
 const enrollments = ref([]);
 const events = ref([]);
@@ -115,8 +162,27 @@ const agencyName = ref('');
 const nearestAgencySlug = ref('');
 const programLegalTitle = ref('');
 const programLegalLinks = ref([]);
+const publicServices = ref([]);
+const servicePackages = ref([]);
+const selectedServiceId = ref(0);
 
 const showPublicShell = computed(() => true);
+
+const bookSessionPath = computed(() => {
+  const slug = nearestAgencySlug.value || portalSlug.value;
+  if (!slug) return '';
+  return `/${slug}/book-session`;
+});
+
+const primaryProgramClassId = computed(() => {
+  const first = enrollments.value[0];
+  return first?.id ? Number(first.id) : null;
+});
+
+function formatMoney(cents) {
+  const n = Number(cents || 0);
+  return `$${(n / 100).toFixed(n % 100 === 0 ? 0 : 2)}`;
+}
 
 const pageTitle = computed(() => {
   if (agencyName.value && programSlug.value) {
@@ -178,6 +244,50 @@ function guardianJoinPath(enrollment) {
   return `/${portalSlug.value}/login?redirect=${encodeURIComponent(redirectPath)}`;
 }
 
+async function loadPackagesForService() {
+  const slug = nearestAgencySlug.value || portalSlug.value;
+  if (!slug || !selectedServiceId.value) {
+    servicePackages.value = [];
+    return;
+  }
+  packagesLoading.value = true;
+  try {
+    const params = { tenantServiceId: selectedServiceId.value };
+    if (primaryProgramClassId.value) params.programId = primaryProgramClassId.value;
+    const res = await api.get(
+      `/public/unified-booking/${encodeURIComponent(slug)}/packages`,
+      { params, skipGlobalLoading: true }
+    );
+    servicePackages.value = Array.isArray(res.data?.packages) ? res.data.packages : [];
+  } catch {
+    servicePackages.value = [];
+  } finally {
+    packagesLoading.value = false;
+  }
+}
+
+async function loadPublicServices() {
+  const slug = nearestAgencySlug.value || portalSlug.value;
+  if (!slug) {
+    publicServices.value = [];
+    return;
+  }
+  servicesLoading.value = true;
+  try {
+    const params = {};
+    if (primaryProgramClassId.value) params.programId = primaryProgramClassId.value;
+    const res = await api.get(
+      `/public/unified-booking/${encodeURIComponent(slug)}/booking-options`,
+      { params, skipGlobalLoading: true }
+    );
+    publicServices.value = Array.isArray(res.data?.services) ? res.data.services : [];
+  } catch {
+    publicServices.value = [];
+  } finally {
+    servicesLoading.value = false;
+  }
+}
+
 async function load() {
   if (!portalSlug.value || !programSlug.value) return;
   loading.value = true;
@@ -200,6 +310,7 @@ async function load() {
           }))
           .filter((row) => row.label && row.href)
       : [];
+    await loadPublicServices();
   } catch (e) {
     error.value = e.response?.data?.error?.message || e.message || 'Failed to load';
     enrollments.value = [];
@@ -208,6 +319,8 @@ async function load() {
     nearestAgencySlug.value = '';
     programLegalTitle.value = '';
     programLegalLinks.value = [];
+    publicServices.value = [];
+    servicePackages.value = [];
   } finally {
     loading.value = false;
   }
@@ -356,6 +469,23 @@ watch([portalSlug, programSlug, useAgencyApiPath], () => load(), { immediate: tr
   color: #64748b;
   font-size: 0.95rem;
 }
+.peh-svc-row { margin: 12px 0; }
+.peh-svc-label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  max-width: 360px;
+}
+.peh-select {
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  padding: 8px 10px;
+  font: inherit;
+  font-weight: 500;
+}
+.peh-pkg-wrap { margin-top: 8px; }
 .peh-section--events {
   margin-top: 36px;
 }

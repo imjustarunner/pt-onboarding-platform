@@ -62,6 +62,10 @@
         <div class="chips">
           <span>{{ pkg.learningProgramClassId ? (pkg.programName || `Program #${pkg.learningProgramClassId}`) : 'Tenant-wide' }}</span>
           <span>Consume: {{ pkg.consumeOn }}</span>
+          <span v-if="pkg.allowedTenantServiceIds?.length">
+            {{ pkg.allowedTenantServiceIds.length }} service{{ pkg.allowedTenantServiceIds.length === 1 ? '' : 's' }}
+          </span>
+          <span v-else>Any service (type)</span>
           <span v-if="pkg.isPublic">Public catalog</span>
           <span v-else>Staff only</span>
           <span v-if="!pkg.isActive">Inactive</span>
@@ -114,6 +118,24 @@
           <label># of sessions<input v-model.number="form.sessionCount" type="number" min="1" /></label>
           <label>List price ($)<input v-model.number="form.priceDollars" type="number" min="0" step="0.01" /></label>
         </div>
+
+        <fieldset class="svc-fieldset">
+          <legend>Attach to services <span v-if="form.isPublic">(required for public)</span></legend>
+          <p class="muted">Public pages show packages only after the visitor picks a service.</p>
+          <label v-for="svc in servicesForBusinessType" :key="svc.id" class="svc-check">
+            <input
+              type="checkbox"
+              :value="svc.id"
+              :checked="form.allowedTenantServiceIds.includes(svc.id)"
+              @change="toggleService(svc.id, $event.target.checked)"
+            />
+            {{ svc.name }}
+            <span v-if="svc.isPubliclyBookable" class="chip">public</span>
+          </label>
+          <p v-if="!servicesForBusinessType.length" class="muted">
+            No tenant services for {{ form.businessType }}. Create services in Tenant booking settings first.
+          </p>
+        </fieldset>
 
         <div class="row2">
           <label>Consume on
@@ -191,6 +213,7 @@ const loading = ref(true);
 const error = ref('');
 const packages = ref([]);
 const programs = ref([]);
+const tenantServices = ref([]);
 const businessTypes = ref(['tutoring', 'coaching', 'consulting']);
 const filterBusinessType = ref('');
 const filterScope = ref('all');
@@ -219,11 +242,18 @@ const blankForm = () => ({
   latePolicy: 'forfeit',
   isPublic: true,
   autoEnrollSubject: true,
-  isActive: true
+  isActive: true,
+  allowedTenantServiceIds: []
 });
 const form = ref(blankForm());
 
 const formatMoney = unifiedPackages.formatMoney;
+
+const servicesForBusinessType = computed(() =>
+  (tenantServices.value || []).filter(
+    (s) => String(s.businessType) === String(form.value.businessType) && s.isActive !== false
+  )
+);
 
 const filteredPackages = computed(() => {
   let rows = packages.value || [];
@@ -246,12 +276,13 @@ async function loadMeta() {
   const aid = agencyId();
   if (!aid) return;
   try {
-    const [btRes, progRes] = await Promise.all([
+    const [btRes, progRes, svcRes] = await Promise.all([
       api.get(`/tenant-booking/agencies/${aid}/business-types`, { skipGlobalLoading: true }).catch(() => null),
       api.get('/learning-program-classes', {
         params: { status: 'active', limit: 200 },
         skipGlobalLoading: true
-      }).catch(() => null)
+      }).catch(() => null),
+      api.get(`/tenant-booking/agencies/${aid}/tenant-services`, { skipGlobalLoading: true }).catch(() => null)
     ]);
     const enabled = (btRes?.data?.businessTypes || btRes?.data?.types || [])
       .map((r) => r.business_type || r.businessType || r)
@@ -260,6 +291,9 @@ async function loadMeta() {
     programs.value = Array.isArray(progRes?.data?.classes)
       ? progRes.data.classes
       : (Array.isArray(progRes?.data) ? progRes.data : []);
+    tenantServices.value = Array.isArray(svcRes?.data?.services)
+      ? svcRes.data.services
+      : (Array.isArray(svcRes?.data) ? svcRes.data : []);
   } catch {
     /* keep defaults */
   }
@@ -302,6 +336,14 @@ function startCreate() {
   saveError.value = '';
 }
 
+function toggleService(id, checked) {
+  const sid = Number(id);
+  const set = new Set(form.value.allowedTenantServiceIds || []);
+  if (checked) set.add(sid);
+  else set.delete(sid);
+  form.value.allowedTenantServiceIds = [...set];
+}
+
 function edit(pkg) {
   editingId.value = pkg.id;
   form.value = {
@@ -321,7 +363,10 @@ function edit(pkg) {
     latePolicy: pkg.policies?.lateCancelPolicy || 'forfeit',
     isPublic: !!pkg.isPublic,
     autoEnrollSubject: pkg.domainConfig?.autoEnrollSubject !== false,
-    isActive: !!pkg.isActive
+    isActive: !!pkg.isActive,
+    allowedTenantServiceIds: Array.isArray(pkg.allowedTenantServiceIds)
+      ? pkg.allowedTenantServiceIds.map((n) => Number(n)).filter((n) => n > 0)
+      : []
   };
   formOpen.value = true;
   saveError.value = '';
@@ -341,6 +386,7 @@ async function duplicate(pkg) {
 
 function buildPayload() {
   const f = form.value;
+  const allowed = (f.allowedTenantServiceIds || []).map((n) => Number(n)).filter((n) => n > 0);
   return {
     name: f.name,
     description: f.description || null,
@@ -354,6 +400,7 @@ function buildPayload() {
     consumeOn: f.consumeOn,
     isPublic: !!f.isPublic,
     isActive: !!f.isActive,
+    allowedTenantServiceIds: allowed.length ? allowed : null,
     billingOptions: {
       modes: [f.billingMode || 'pay_in_full'],
       installments: null,
@@ -381,6 +428,10 @@ async function save() {
   try {
     if (form.value.scope === 'program' && !form.value.learningProgramClassId) {
       saveError.value = 'Select a program for program-scoped packages';
+      return;
+    }
+    if (form.value.isPublic && !(form.value.allowedTenantServiceIds || []).length) {
+      saveError.value = 'Public packages must be attached to at least one service (so public pages can show Service → Packages).';
       return;
     }
     const aid = agencyId();
@@ -439,6 +490,12 @@ onMounted(async () => {
 .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0.65rem; }
 .toggles { display: flex; flex-direction: column; gap: 0.35rem; }
 .toggles label, .toggle { flex-direction: row !important; align-items: center; gap: 0.4rem !important; }
+.svc-fieldset {
+  border: 1px solid #e2e8f0; border-radius: 8px; padding: 0.65rem 0.75rem; display: flex; flex-direction: column; gap: 0.35rem;
+}
+.svc-fieldset legend { font-size: 0.85rem; font-weight: 600; padding: 0 0.25rem; }
+.svc-check { flex-direction: row !important; align-items: center; gap: 0.4rem !important; }
+.chip { font-size: 0.7rem; background: #ecfdf5; color: #047857; border-radius: 999px; padding: 0.05rem 0.4rem; }
 .actions { display: flex; justify-content: flex-end; gap: 0.5rem; margin-top: 0.5rem; }
 .btn { border: none; border-radius: 8px; padding: 0.45rem 0.85rem; cursor: pointer; font: inherit; }
 .btn-primary { background: #0f766e; color: #fff; }

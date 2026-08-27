@@ -12425,12 +12425,20 @@ export const listPublicIntakePackages = async (req, res, next) => {
       || (paymentOnly ? channel : 'mental_health');
 
     const { resolveCatalog } = await import('../services/unifiedPackageCatalog.service.js');
+    const tenantServiceId = Number(req.query.tenantServiceId || req.query.serviceId || 0) || null;
+    const programIdRaw = req.query.programId ?? req.query.learningProgramClassId ?? link.learning_class_id;
+    const programId = programIdRaw == null || programIdRaw === ''
+      ? null
+      : Number(programIdRaw);
+
     let packages = await resolveCatalog({
       agencyId,
       businessType,
-      programId: null,
+      programId: programId || null,
       publicOnly: true,
-      includeInactive: false
+      includeInactive: false,
+      includeTenantWideWithProgram: !!programId,
+      tenantServiceId
     });
 
     // Fallback: if clinical catalog empty, try any tenant-wide public packages.
@@ -12438,9 +12446,11 @@ export const listPublicIntakePackages = async (req, res, next) => {
       packages = await resolveCatalog({
         agencyId,
         businessType: null,
-        programId: null,
+        programId: programId || null,
         publicOnly: true,
-        includeInactive: false
+        includeInactive: false,
+        includeTenantWideWithProgram: !!programId,
+        tenantServiceId
       });
     }
 
@@ -12455,11 +12465,15 @@ export const listPublicIntakePackages = async (req, res, next) => {
         paymentMode: p.paymentMode,
         businessType: p.businessType,
         billingOptions: p.billingOptions || null,
-        domainConfig: p.domainConfig || null
+        domainConfig: p.domainConfig || null,
+        allowedTenantServiceIds: p.allowedTenantServiceIds || null,
+        learningProgramClassId: p.learningProgramClassId || null
       })),
       businessType,
       paymentOnly,
-      agencyId
+      agencyId,
+      tenantServiceId,
+      programId: programId || null
     });
   } catch (error) {
     next(error);

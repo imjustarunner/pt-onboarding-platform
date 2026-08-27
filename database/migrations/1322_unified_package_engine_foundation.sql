@@ -1,6 +1,7 @@
 -- Migration 1322: Unified Package Engine foundation
 -- Extends booking_packages for tenant-wide vs program-scoped catalogs,
 -- billing/policy/domain JSON, public visibility, Stripe refs, payments audit.
+-- Safe to re-run after partial apply: duplicate column/key/constraint errors are ignored.
 
 ALTER TABLE booking_packages
   ADD COLUMN learning_program_class_id INT NULL
@@ -40,13 +41,13 @@ ALTER TABLE booking_packages
     AFTER is_active;
 
 ALTER TABLE booking_packages
-  ADD COLUMN stripe_product_id VARCHAR(128) NULL
-    CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci
+  ADD COLUMN stripe_product_id VARCHAR(128)
+    CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NULL
     AFTER is_public;
 
 ALTER TABLE booking_packages
-  ADD COLUMN stripe_price_id VARCHAR(128) NULL
-    CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci
+  ADD COLUMN stripe_price_id VARCHAR(128)
+    CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NULL
     AFTER stripe_product_id;
 
 ALTER TABLE booking_packages
@@ -73,13 +74,13 @@ ALTER TABLE booking_package_entitlements
     AFTER created_by_user_id;
 
 ALTER TABLE booking_package_entitlements
-  ADD COLUMN stripe_checkout_session_id VARCHAR(128) NULL
-    CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci
+  ADD COLUMN stripe_checkout_session_id VARCHAR(128)
+    CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NULL
     AFTER purchaser_user_id;
 
 ALTER TABLE booking_package_entitlements
-  ADD COLUMN stripe_payment_intent_id VARCHAR(128) NULL
-    CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci
+  ADD COLUMN stripe_payment_intent_id VARCHAR(128)
+    CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NULL
     AFTER stripe_checkout_session_id;
 
 ALTER TABLE booking_package_entitlements
@@ -95,22 +96,16 @@ CREATE TABLE IF NOT EXISTS booking_package_payments (
   entitlement_id INT UNSIGNED NULL,
   package_id INT UNSIGNED NULL,
   amount_cents INT NOT NULL DEFAULT 0,
-  currency VARCHAR(8) NOT NULL DEFAULT 'usd'
-    CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
-  payment_mode VARCHAR(32) NULL
-    COMMENT 'PAY_IN_FULL, MANUAL, OFFLINE, etc.'
-    CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
+  currency VARCHAR(8) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'usd',
+  payment_mode VARCHAR(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NULL
+    COMMENT 'PAY_IN_FULL, MANUAL, OFFLINE, etc.',
   payment_status ENUM('PENDING','SUCCEEDED','FAILED','REFUNDED','CANCELLED') NOT NULL DEFAULT 'PENDING',
-  processor VARCHAR(40) NOT NULL DEFAULT 'STRIPE'
-    CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
-  processor_intent_id VARCHAR(128) NULL
-    CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
-  processor_charge_id VARCHAR(128) NULL
-    CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
+  processor VARCHAR(40) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'STRIPE',
+  processor_intent_id VARCHAR(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NULL,
+  processor_charge_id VARCHAR(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NULL,
   paid_at DATETIME NULL,
   metadata_json JSON NULL,
-  idempotency_key VARCHAR(128) NULL
-    CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
+  idempotency_key VARCHAR(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NULL,
   created_by_user_id INT NULL,
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,

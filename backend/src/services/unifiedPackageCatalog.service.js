@@ -43,9 +43,24 @@ export async function assertProgramBelongsToAgency(programId, agencyId) {
 }
 
 /**
- * Resolve catalog packages for an agency with optional program / public filters.
+ * Package is eligible for a tenant service when:
+ * - allowedTenantServiceIds is null/empty (any service of the package business type), OR
+ * - the service id is in the allow-list.
+ */
+export function packageMatchesTenantService(pkg, tenantServiceId) {
+  const sid = Number(tenantServiceId || 0);
+  if (!sid || !pkg) return false;
+  const allowed = pkg.allowedTenantServiceIds;
+  if (allowed == null) return true;
+  if (!Array.isArray(allowed) || allowed.length === 0) return true;
+  return allowed.map((n) => Number(n)).includes(sid);
+}
+
+/**
+ * Resolve catalog packages for an agency with optional program / public / service filters.
  * When includeTenantWideWithProgram is true and programId is set, returns
  * program packages UNION tenant-wide packages of the same business type.
+ * When tenantServiceId is set, only packages attached to that service (or unrestricted) are returned.
  */
 export async function resolveCatalog({
   agencyId,
@@ -53,11 +68,13 @@ export async function resolveCatalog({
   programId = undefined,
   publicOnly = false,
   includeInactive = false,
-  includeTenantWideWithProgram = false
+  includeTenantWideWithProgram = false,
+  tenantServiceId = null
 } = {}) {
   const aid = Number(agencyId || 0);
   if (!aid) return [];
 
+  let packages = [];
   if (programId != null && programId !== '' && includeTenantWideWithProgram) {
     const pid = Number(programId);
     const [programPkgs, tenantPkgs] = await Promise.all([
@@ -81,15 +98,21 @@ export async function resolveCatalog({
       seen.add(p.id);
       merged.push(p);
     }
-    return merged;
+    packages = merged;
+  } else {
+    packages = await BookingPackage.listForAgency(aid, {
+      includeInactive,
+      businessType,
+      learningProgramClassId: programId === undefined ? undefined : (programId == null || programId === '' ? null : Number(programId)),
+      publicOnly
+    });
   }
 
-  return BookingPackage.listForAgency(aid, {
-    includeInactive,
-    businessType,
-    learningProgramClassId: programId === undefined ? undefined : (programId == null || programId === '' ? null : Number(programId)),
-    publicOnly
-  });
+  const sid = Number(tenantServiceId || 0);
+  if (sid > 0) {
+    packages = packages.filter((p) => packageMatchesTenantService(p, sid));
+  }
+  return packages;
 }
 
 /**
@@ -492,5 +515,6 @@ export default {
   completeCheckoutFromPaymentIntent,
   summarizeClientPackageBalance,
   runTutoringPostPurchaseHooks,
-  getAgencyStripeConnectAccountId
+  getAgencyStripeConnectAccountId,
+  packageMatchesTenantService
 };

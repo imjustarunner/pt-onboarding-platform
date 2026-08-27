@@ -2743,6 +2743,16 @@
         </div>
       </div>
     </div>
+
+    <OfficeSkipNowSplash
+      v-if="officeSkipSplashOpen"
+      :support-text="t('officeSkipSplashSupport')"
+      :skip-label="t('officeSkipSplashSkip')"
+      :skip-hint="t('officeSkipSplashSkipHint')"
+      :continue-label="t('officeSkipSplashContinue')"
+      @skip-now="onOfficeSkipNow"
+      @continue-normal="onOfficeSkipContinueNormal"
+    />
   </DigitalFormShell>
 
 </template>
@@ -2764,6 +2774,7 @@ import PublicIntakeInsuranceStep from '../components/public-intake/PublicIntakeI
 import PublicIntakePaymentStep from '../components/public-intake/PublicIntakePaymentStep.vue';
 import PublicIntakeInsurancePaymentStep from '../components/public-intake/PublicIntakeInsurancePaymentStep.vue';
 import PublicIntakePackageSelectionStep from '../components/public-intake/PublicIntakePackageSelectionStep.vue';
+import OfficeSkipNowSplash from '../components/public-intake/OfficeSkipNowSplash.vue';
 import {
   AdaptiveConsentCard,
   AdaptiveIntakeHelpPanel,
@@ -3127,6 +3138,11 @@ const INTAKE_TRANSLATIONS = {
     close: 'Close',
     skipEmptyConfirm: 'Some questions are still empty. Are you sure you want to skip them and move to the next page?',
     skipEmptyContinue: 'Skip and continue',
+    officeSkipSplashSupport:
+      'We noticed you skipped all of the optional inputs and we support you! Your provider will ask these questions during your first session.',
+    officeSkipSplashSkip: 'Skip Now',
+    officeSkipSplashSkipHint: 'Only show me essential/mandatory info',
+    officeSkipSplashContinue: 'Continue as normal',
     personalizedCare: 'Personalized Care',
     personalizedCareBody: 'Your answers help us match format, timing, and the right clinician.',
     privateAndSecure: 'Private & Secure',
@@ -3512,6 +3528,11 @@ const INTAKE_TRANSLATIONS = {
     close: 'Cerrar',
     skipEmptyConfirm: 'Algunas preguntas siguen vacías. ¿Seguro que quiere omitirlas y pasar a la siguiente página?',
     skipEmptyContinue: 'Omitir y continuar',
+    officeSkipSplashSupport:
+      'Notamos que omitió todas las entradas opcionales ¡y le apoyamos! Su proveedor preguntará esto en su primera sesión.',
+    officeSkipSplashSkip: 'Omitir ahora',
+    officeSkipSplashSkipHint: 'Solo mostrarme la información esencial/obligatoria',
+    officeSkipSplashContinue: 'Continuar como de costumbre',
     personalizedCare: 'Cuidado personalizado',
     personalizedCareBody: 'Sus respuestas nos ayudan a elegir formato, horario y el clínico adecuado.',
     privateAndSecure: 'Privado y seguro',
@@ -4551,6 +4572,10 @@ const demographicsPlusOpen = ref(false);
 const sexPlusOpen = reactive({});
 const skipConfirmActive = ref(false);
 const skipConfirmKeys = ref([]);
+const officeSkipSplashOpen = ref(false);
+const officeEssentialOnlyMode = ref(false);
+const officeSkipSplashOffered = ref(false);
+const officeSkipSplashPendingKind = ref(''); // 'questions' | 'clinical'
 const returnLinkOpen = ref(false);
 const returnLinkCopied = ref(false);
 const smartDisclosureFlowRef = ref(null);
@@ -5517,6 +5542,14 @@ const flowSteps = computed(() => {
           );
           if (!matchesShowIf(s.showIf, bag)) return false;
         }
+        if (
+          officeEssentialOnlyMode.value
+          && isOfficeInDepthIntake.value
+          && (s?.type === 'questions' || s?.type === 'clinical_questions')
+          && !isOfficeEssentialFlowStep(s)
+        ) {
+          return false;
+        }
         return stepVisible(s);
       });
     const expanded = [];
@@ -5618,6 +5651,22 @@ const flowSteps = computed(() => {
               ...f,
               required: isOfficeHardRequiredField(f)
             }));
+            if (officeEssentialOnlyMode.value) {
+              fields = fields.filter(
+                (f) =>
+                  !f
+                  || f.type === 'info'
+                  || isOfficeHardRequiredField(f)
+                  || isContactOrDemographicField(f)
+              );
+            }
+          }
+          if (
+            officeEssentialOnlyMode.value
+            && isOfficeInDepthIntake.value
+            && !isOfficeEssentialFlowStep({ ...s, fields })
+          ) {
+            return null;
           }
           return { ...s, fields };
         }
@@ -7389,6 +7438,10 @@ const applyDraftSnapshot = (parsed) => {
       if (savedClinical && typeof savedClinical === 'object') {
         Object.keys(clinicalResponses).forEach((k) => { delete clinicalResponses[k]; });
         Object.assign(clinicalResponses, savedClinical);
+      }
+      if (intakeResponses.submission?.officeEssentialOnly) {
+        officeEssentialOnlyMode.value = true;
+        officeSkipSplashOffered.value = true;
       }
       const refs = intakeResponses.submission.references;
       if (Array.isArray(refs) && refs.length) {
@@ -9846,39 +9899,81 @@ const isQuestionFieldSoftSkip = (field) => {
   return !!key && skipConfirmKeys.value.includes(key);
 };
 
-const completeQuestionStep = async () => {
-  const missing = canBypassIntakeRequired.value
-    ? []
-    : visibleQuestionFields.value.filter((f) => isQuestionValueMissing(f) && !f.sexPlus);
-  const hard = missing.filter((f) => isContactOrDemographicField(f));
-  const soft = missing.filter((f) => !isContactOrDemographicField(f));
-  if (hard.length) {
-    skipConfirmActive.value = false;
-    skipConfirmKeys.value = [];
-    missingRequiredQuestionKeys.value = hard.map((f) => String(f.key || '').trim()).filter(Boolean);
-    stepError.value = t('completeRequiredFields');
-    await nextTick();
-    const firstKey = hard[0]?.key;
-    if (firstKey) {
-      const container = document.querySelector(`[data-question-key="${CSS.escape(firstKey)}"]`);
-      if (container?.scrollIntoView) container.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      const focusTarget = container?.querySelector('input, textarea, select, [tabindex], button');
-      if (focusTarget?.focus) focusTarget.focus();
-    }
-    return;
+function isBlankQuestionLikeValue(field, valuesBag) {
+  if (!field || field.type === 'info') return true;
+  const val = valuesBag?.[field.key];
+  if (isCheckboxGroupField(field)) return !Array.isArray(val) || val.length === 0;
+  if (field.type === 'checkbox') return val !== true && val !== 'yes';
+  return val === null || val === undefined || String(val).trim() === '';
+}
+
+function officeOptionalFieldsAllBlank(fields, valuesBag) {
+  const list = (fields || []).filter((f) => f && f.type !== 'info' && !f.sexPlus);
+  const optional = list.filter((f) => !isOfficeHardRequiredField(f) && !isContactOrDemographicField(f));
+  if (!optional.length) return false;
+  return optional.every((f) => isBlankQuestionLikeValue(f, valuesBag));
+}
+
+function isOfficeQuestionnaireStep(step) {
+  if (!step) return false;
+  const type = String(step.type || '').toLowerCase();
+  const id = String(step.id || step.sourceId || '').toLowerCase();
+  const label = String(step.label || '').toLowerCase();
+  if (type === 'clinical_questions') return true;
+  return type === 'questions' && (id.includes('questionnaire') || label.includes('questionnaire'));
+}
+
+function officeStepHasEssentialFields(step) {
+  const fields = Array.isArray(step?.fields) ? step.fields : [];
+  return fields.some(
+    (f) => f && f.type !== 'info' && (isOfficeHardRequiredField(f) || isContactOrDemographicField(f))
+  );
+}
+
+function isOfficeEssentialFlowStep(step) {
+  if (!step) return false;
+  const type = String(step.type || '').toLowerCase();
+  if (
+    [
+      'document',
+      'school_roi',
+      'smart_disclosure',
+      'disclosure',
+      'packet_informed_group_consent',
+      'packet_policy_services',
+      'packet_hipaa_notice',
+      'registration',
+      'package_selection',
+      'insurance_info',
+      'payment_collection',
+      'communications',
+      'reminder_contacts',
+      'provider_match',
+      'demographics',
+      'child_review'
+    ].includes(type)
+  ) {
+    return true;
   }
-  if (soft.length && !skipConfirmActive.value) {
-    skipConfirmActive.value = true;
-    skipConfirmKeys.value = soft.map((f) => String(f.key || '').trim()).filter(Boolean);
-    stepError.value = t('skipEmptyConfirm');
-    await nextTick();
-    const firstKey = soft[0]?.key;
-    if (firstKey) {
-      const container = document.querySelector(`[data-question-key="${CSS.escape(firstKey)}"]`);
-      if (container?.scrollIntoView) container.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    }
-    return;
+  if (type === 'questions' || type === 'clinical_questions') {
+    if (isOfficeQuestionnaireStep(step)) return false;
+    return officeStepHasEssentialFields(step);
   }
+  return false;
+}
+
+function maybeOpenOfficeSkipSplash(kind) {
+  if (!isOfficeInDepthIntake.value) return false;
+  if (officeEssentialOnlyMode.value) return false;
+  if (officeSkipSplashOffered.value) return false;
+  officeSkipSplashPendingKind.value = kind;
+  officeSkipSplashOpen.value = true;
+  officeSkipSplashOffered.value = true;
+  stepError.value = '';
+  return true;
+}
+
+async function proceedOfficeQuestionStepAfterSplash() {
   skipConfirmActive.value = false;
   skipConfirmKeys.value = [];
   missingRequiredQuestionKeys.value = [];
@@ -9921,6 +10016,110 @@ const completeQuestionStep = async () => {
   }
   intakeResponses.submission.clinicalSafetyAlert = showClinicalSafetyBanner.value;
   await nextFlowStep();
+}
+
+async function proceedOfficeClinicalStepAfterSplash() {
+  skipConfirmActive.value = false;
+  skipConfirmKeys.value = [];
+  intakeResponses.submission.clinicalResponses = { ...clinicalResponses };
+  intakeResponses.submission.clinicalSafetyAlert = showClinicalSafetyBanner.value;
+  stepError.value = '';
+  await nextTick();
+  void nextFlowStep();
+}
+
+const onOfficeSkipNow = async () => {
+  officeEssentialOnlyMode.value = true;
+  intakeResponses.submission.officeEssentialOnly = true;
+  officeSkipSplashOpen.value = false;
+  const kind = officeSkipSplashPendingKind.value;
+  officeSkipSplashPendingKind.value = '';
+  const stayId = String(currentFlowStep.value?.id || '');
+  await nextTick();
+  if (stayId) {
+    const idx = flowSteps.value.findIndex((s) => String(s?.id || '') === stayId);
+    if (idx >= 0) currentFlowIndex.value = idx;
+  }
+  if (kind === 'clinical') await proceedOfficeClinicalStepAfterSplash();
+  else await proceedOfficeQuestionStepAfterSplash();
+};
+
+const onOfficeSkipContinueNormal = async () => {
+  officeSkipSplashOpen.value = false;
+  const kind = officeSkipSplashPendingKind.value;
+  officeSkipSplashPendingKind.value = '';
+  if (kind === 'clinical') await proceedOfficeClinicalStepAfterSplash();
+  else await proceedOfficeQuestionStepAfterSplash();
+};
+
+const completeQuestionStep = async () => {
+  if (isOfficeInDepthIntake.value) {
+    const missingHard = canBypassIntakeRequired.value
+      ? []
+      : visibleQuestionFields.value.filter(
+        (f) =>
+          !f.sexPlus
+          && (isOfficeHardRequiredField(f) || isContactOrDemographicField(f))
+          && isBlankQuestionLikeValue(f, questionValues.value)
+      );
+    if (missingHard.length) {
+      skipConfirmActive.value = false;
+      skipConfirmKeys.value = [];
+      missingRequiredQuestionKeys.value = missingHard.map((f) => String(f.key || '').trim()).filter(Boolean);
+      stepError.value = t('completeRequiredFields');
+      await nextTick();
+      const firstKey = missingHard[0]?.key;
+      if (firstKey) {
+        const container = document.querySelector(`[data-question-key="${CSS.escape(firstKey)}"]`);
+        if (container?.scrollIntoView) container.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        const focusTarget = container?.querySelector('input, textarea, select, [tabindex], button');
+        if (focusTarget?.focus) focusTarget.focus();
+      }
+      return;
+    }
+    if (
+      officeOptionalFieldsAllBlank(visibleQuestionFields.value, questionValues.value)
+      && maybeOpenOfficeSkipSplash('questions')
+    ) {
+      return;
+    }
+    await proceedOfficeQuestionStepAfterSplash();
+    return;
+  }
+
+  const missing = canBypassIntakeRequired.value
+    ? []
+    : visibleQuestionFields.value.filter((f) => isQuestionValueMissing(f) && !f.sexPlus);
+  const hard = missing.filter((f) => isContactOrDemographicField(f));
+  const soft = missing.filter((f) => !isContactOrDemographicField(f));
+  if (hard.length) {
+    skipConfirmActive.value = false;
+    skipConfirmKeys.value = [];
+    missingRequiredQuestionKeys.value = hard.map((f) => String(f.key || '').trim()).filter(Boolean);
+    stepError.value = t('completeRequiredFields');
+    await nextTick();
+    const firstKey = hard[0]?.key;
+    if (firstKey) {
+      const container = document.querySelector(`[data-question-key="${CSS.escape(firstKey)}"]`);
+      if (container?.scrollIntoView) container.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      const focusTarget = container?.querySelector('input, textarea, select, [tabindex], button');
+      if (focusTarget?.focus) focusTarget.focus();
+    }
+    return;
+  }
+  if (soft.length && !skipConfirmActive.value) {
+    skipConfirmActive.value = true;
+    skipConfirmKeys.value = soft.map((f) => String(f.key || '').trim()).filter(Boolean);
+    stepError.value = t('skipEmptyConfirm');
+    await nextTick();
+    const firstKey = soft[0]?.key;
+    if (firstKey) {
+      const container = document.querySelector(`[data-question-key="${CSS.escape(firstKey)}"]`);
+      if (container?.scrollIntoView) container.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+    return;
+  }
+  await proceedOfficeQuestionStepAfterSplash();
 };
 
 const completeRegistrationStep = async () => {
@@ -10621,6 +10820,31 @@ const completeDemographicsStep = () => {
 const completeClinicalQuestionsStep = async () => {
   const step = currentFlowStep.value;
   if (!isQuestionnaireFlowStep(step)) return;
+  if (isOfficeInDepthIntake.value) {
+    const missingHard = (visibleClinicalFields.value || []).filter(
+      (f) =>
+        (isOfficeHardRequiredField(f) || isContactOrDemographicField(f))
+        && isBlankQuestionLikeValue(f, clinicalResponses)
+    );
+    if (missingHard.length && !canBypassIntakeRequired.value) {
+      skipConfirmActive.value = true;
+      skipConfirmKeys.value = missingHard.map((f) => String(f.key || '').trim()).filter(Boolean);
+      stepError.value = t('completeRequiredFields');
+      await nextTick();
+      const first = missingHard[0];
+      const el = first ? fieldRefs[first.key || first.id] : null;
+      if (el?.scrollIntoView) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      return;
+    }
+    if (
+      officeOptionalFieldsAllBlank(visibleClinicalFields.value, clinicalResponses)
+      && maybeOpenOfficeSkipSplash('clinical')
+    ) {
+      return;
+    }
+    await proceedOfficeClinicalStepAfterSplash();
+    return;
+  }
   const missing = (visibleClinicalFields.value || []).filter((f) => isClinicalFieldMissing(f));
   if (missing.length && !canBypassIntakeRequired.value && !skipConfirmActive.value) {
     skipConfirmActive.value = true;
@@ -10632,13 +10856,7 @@ const completeClinicalQuestionsStep = async () => {
     if (el?.scrollIntoView) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
     return;
   }
-  skipConfirmActive.value = false;
-  skipConfirmKeys.value = [];
-  intakeResponses.submission.clinicalResponses = { ...clinicalResponses };
-  intakeResponses.submission.clinicalSafetyAlert = showClinicalSafetyBanner.value;
-  stepError.value = '';
-  await nextTick();
-  void nextFlowStep();
+  await proceedOfficeClinicalStepAfterSplash();
 };
 
 const handleCurrentFlowContinue = () => {
