@@ -10,14 +10,15 @@ import { resolveReminderNumber } from './communicationRouting.service.js';
 import { sendNotificationEmail } from './unifiedEmail/unifiedEmailSender.service.js';
 import NotificationGatekeeperService from './notificationGatekeeper.service.js';
 import { isVideoConfigured } from './video.service.js';
+import { toMysqlUtcDateTime, parseUtcDate } from '../utils/officeEventDateTime.util.js';
 
 const WINDOW_START_MINUTES = 5;
 const WINDOW_END_MINUTES = 8;
 const FRONTEND_URL = (process.env.FRONTEND_URL || '').replace(/\/$/, '');
 
-function toSqlDatetime(d) {
-  const pad = (n) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+/** UTC MySQL DATETIME for comparing against UTC-stored start_at columns. */
+function toSqlDatetimeUtc(d) {
+  return toMysqlUtcDateTime(d);
 }
 
 async function alreadySent(sessionType, sessionId, recipientKey) {
@@ -162,11 +163,18 @@ async function sendDiscoveryClientReminder({ agencyId, email, phone, joinUrl, la
   return { email: emailSent, sms: smsSent };
 }
 
-export async function runJoinReminderTick({ now = new Date() } = {}) {
+/** UTC window used to find sessions starting in ~5–8 minutes (for tests + tick). */
+export function joinReminderWindowSql({ now = new Date() } = {}) {
   const start = new Date(now.getTime() + WINDOW_START_MINUTES * 60 * 1000);
   const end = new Date(now.getTime() + WINDOW_END_MINUTES * 60 * 1000);
-  const startSql = toSqlDatetime(start);
-  const endSql = toSqlDatetime(end);
+  return {
+    startSql: toSqlDatetimeUtc(start),
+    endSql: toSqlDatetimeUtc(end)
+  };
+}
+
+export async function runJoinReminderTick({ now = new Date() } = {}) {
+  const { startSql, endSql } = joinReminderWindowSql({ now });
 
   const useAppJoin = isVideoConfigured() && FRONTEND_URL;
 
@@ -383,12 +391,10 @@ function sessionTypeForScheduleKind(kind) {
 }
 
 function reminderFireAtFromStart(startAt) {
-  const raw = String(startAt || '').trim();
-  if (!raw) return null;
-  const d = new Date(raw.includes('T') ? raw : raw.replace(' ', 'T'));
-  if (Number.isNaN(d.getTime())) return null;
-  d.setMinutes(d.getMinutes() - WINDOW_START_MINUTES);
-  return toSqlDatetime(d);
+  const d = parseUtcDate(startAt);
+  if (!d) return null;
+  d.setUTCMinutes(d.getUTCMinutes() - WINDOW_START_MINUTES);
+  return toSqlDatetimeUtc(d);
 }
 
 /**
@@ -413,7 +419,8 @@ export async function buildScheduleEventNotificationPlan(eventRow) {
   const startAt = eventRow.start_at || null;
   const fireAt = notifyOn ? reminderFireAtFromStart(startAt) : null;
   const nowMs = Date.now();
-  const startMs = startAt ? new Date(String(startAt).replace(' ', 'T')).getTime() : NaN;
+  const startParsed = parseUtcDate(startAt);
+  const startMs = startParsed ? startParsed.getTime() : NaN;
   const meetingStarted = Number.isFinite(startMs) && startMs <= nowMs;
 
   const userIds = new Set();
