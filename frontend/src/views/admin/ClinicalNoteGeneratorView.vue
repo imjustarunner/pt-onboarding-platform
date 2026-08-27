@@ -123,6 +123,13 @@
           @select="onLibrarySelect"
         >
           <template #before>
+            <div v-if="draftId" class="na-pick-aid-banner" role="status">
+              <strong>Choose a note tool</strong>
+              <p>
+                Pick an aid below for your open draft{{ dateOfService ? ` (${dateOfService})` : '' }}.
+                Progress notes are under <em>Psychotherapy</em> or <em>Universal</em>.
+              </p>
+            </div>
             <div class="na-library-client-bar">
               <NoteAidClientPicker
                 v-model="selectedClientId"
@@ -978,9 +985,9 @@
       @import-demographics="showClientSetupDrawer = false; showDemographicsImport = true"
     />
     <NoteAidTreatmentPlanImportReview
-      v-if="effectiveClientId && noteAidAgencyId"
+      v-if="effectiveClientId && chartAgencyIdForSave"
       :open="showPlanImportReview"
-      :agency-id="noteAidAgencyId"
+      :agency-id="chartAgencyIdForSave"
       :client-id="effectiveClientId"
       :initial-text="pastedPlanText"
       @close="showPlanImportReview = false"
@@ -1402,6 +1409,35 @@ const noteAidAgencyId = computed(() => {
   }
   return null;
 });
+
+/** Tenant id for chart saves (plan import) — never null when client + workspace exist. */
+const chartAgencyIdForSave = computed(() => {
+  const resolved = Number(noteAidAgencyId.value || 0)
+    || Number(selectedClient.value?.agency_id || selectedClient.value?.agencyId || 0)
+    || Number(selectedQueueAgencyId.value || 0)
+    || Number(currentAgencyId.value || 0);
+  return resolved || null;
+});
+
+function chartAgencyCandidates() {
+  return [...new Set(
+    [
+      Number(noteAidAgencyId.value || 0),
+      Number(chartAgencyIdForSave.value || 0),
+      Number(selectedQueueAgencyId.value || 0),
+      Number(currentAgencyId.value || 0),
+      Number(selectedClient.value?.agency_id || selectedClient.value?.agencyId || 0),
+      ...(clientAgencyMembershipIds.value || [])
+    ].filter((n) => Number.isInteger(n) && n > 0)
+  )];
+}
+
+function scoreChartPlan(plan) {
+  if (!plan) return -1;
+  const goals = activePlanGoals(plan);
+  const recency = Number(plan.id || 0);
+  return goals.length ? 10_000 + recency : recency;
+}
 const agencyLookup = computed(() => {
   const map = {};
   for (const a of agencyStore.userAgencies || []) {
@@ -1623,6 +1659,16 @@ const chartNoteReadOnly = computed(() => !!viewingChartNote.value);
 const lastSavedAt = ref('');
 let autosaveTimer = null;
 let autosaveBusy = false;
+let autosaveDebounceTimer = null;
+
+function scheduleAutosave(delayMs = 1500) {
+  if (!canUseTool.value) return;
+  if (autosaveDebounceTimer) clearTimeout(autosaveDebounceTimer);
+  autosaveDebounceTimer = setTimeout(() => {
+    autosaveDebounceTimer = null;
+    autosave();
+  }, delayMs);
+}
 
 const looksEncryptedEnvelope = (raw) => {
   try {
@@ -1997,7 +2043,8 @@ const selectedCategoryLabel = computed(() => {
   const cat = noteAidCategories.find((c) => c.id === selectedNoteCategory.value);
   return cat?.label || '';
 });
-const showLibraryPanel = computed(() => !String(selectedAidId.value || '').trim() && !draftId.value);
+/** Show aid library whenever no tool is selected — including when changing tool on an open draft. */
+const showLibraryPanel = computed(() => !String(selectedAidId.value || '').trim());
 const libraryUserId = computed(() => authStore.user?.id || null);
 const showInteractiveComplexityOption = computed(() => aidAllowsInteractiveComplexity(selectedAid.value));
 const libraryCategories = computed(() => {
@@ -2022,7 +2069,9 @@ const resolveGenerateToolId = computed(() => {
   }
   const fromAid = String(selectedAid.value?.toolId || '').trim();
   if (fromAid) return fromAid;
-  const code = String(actualServiceCode.value || '').trim().toUpperCase();
+  const code = String(
+    actualServiceCode.value || outputObj.value?.meta?.serviceCode || ''
+  ).trim().toUpperCase();
   if (!code) return '';
   const hit = findNoteAidByToolOrCode({ serviceCode: code });
   return String(hit?.aid?.toolId || '').trim();
@@ -2030,8 +2079,10 @@ const resolveGenerateToolId = computed(() => {
 const showBillingCodePicker = computed(() => {
   if (forceAutoSelect.value) return false;
   if (selectedAidForcesAutoSelect.value) return false;
-  // Optional override when the selected gem carries a billing code / code group.
-  return !!(selectedAid.value?.serviceCode || selectedAid.value?.codeGroupId);
+  if (selectedAid.value?.serviceCode || selectedAid.value?.codeGroupId) return true;
+  // After Change tool (or thin draft metadata): billing code on Step 1 still resolves Generate.
+  if (!selectedAid.value && (draftId.value || effectiveClientId.value)) return true;
+  return false;
 });
 const showAutoSelectCodeOption = computed(() => {
   if (forceAutoSelect.value) return false;
@@ -2077,12 +2128,16 @@ watch(showInteractiveComplexityOption, (allowed) => {
 function onLibrarySelect({ aid, categoryId }) {
   selectedNoteCategory.value = categoryId || findNoteAidById(aid?.id)?.category?.id || '';
   selectedAidId.value = aid?.id || '';
+  if (draftId.value && (String(inputText.value || '').trim() || outputObj.value)) {
+    noteWizardStep.value = 2;
+  }
 }
 
 function changeNoteAid() {
   selectedAidId.value = '';
   selectedNoteCategory.value = '';
   noteWizardStep.value = 1;
+  approvalMessage.value = 'Choose a note tool from the library below.';
 }
 
 watch(selectedAidId, (aidId) => {
@@ -2365,7 +2420,10 @@ const generateBlockedReason = computed(() => {
   const hasAudio = !!audioBlob.value;
   if (!hasText && !hasAudio) return 'Add session notes in the box above or record dictation.';
   if (!forceAutoSelect.value && !resolveGenerateToolId.value) {
-    return 'Select a note tool from the library, or set a billing code on Step 1.';
+    if (!selectedAidId.value) {
+      return 'No note tool selected — use Change tool and pick an aid from the library, or set a billing code on Step 1.';
+    }
+    return 'Set a billing code on Step 1, or pick a note tool that matches this session.';
   }
   return '';
 });
@@ -2798,8 +2856,8 @@ const programLabel = (programId) => {
 
 const autosave = async () => {
   if (!canUseTool.value || autosaveBusy) return;
-  const shouldPersistInputText = !audioBlob.value && transcriptSource.value !== 'audio';
-  let rawInput = shouldPersistInputText ? String(inputText.value || '') : null;
+
+  let rawInput = String(inputText.value || '');
   // Never persist ciphertext envelopes back into the form field.
   if (rawInput && looksEncryptedEnvelope(rawInput)) {
     rawInput = '';
@@ -2821,13 +2879,19 @@ const autosave = async () => {
         : null,
     dateOfService: dateOfService.value ? String(dateOfService.value) : null,
     initials: initials.value ? String(initials.value) : null,
-    inputText: rawInput,
     clientId: effectiveClientId.value || null,
     officeEventId:
       Number(bookingContext.value?.officeEventId || sessionOfficeEventId.value || 0) || null,
     clinicalSessionId:
       Number(bookingContext.value?.clinicalSessionId || sessionClinicalSessionId.value || 0) || null
   };
+
+  // Always persist typed or dictated session notes. On patch, omit when empty so we never wipe saved text.
+  if (rawInput.trim()) {
+    payload.inputText = rawInput;
+  } else if (!draftId.value) {
+    payload.inputText = null;
+  }
 
   // Create only after the clinician enters real content; update existing drafts freely
   // (including DOS-only changes once a draft exists).
@@ -2870,7 +2934,8 @@ const autosave = async () => {
               date_of_service: payload.dateOfService || d.date_of_service,
               initials: payload.initials ?? d.initials,
               client_id: payload.clientId ?? d.client_id,
-              service_code: payload.serviceCode ?? d.service_code
+              service_code: payload.serviceCode ?? d.service_code,
+              input_text: payload.inputText !== undefined ? payload.inputText : d.input_text
             }
           : d
       );
@@ -3113,6 +3178,7 @@ const toggleRecording = async () => {
         recordingBusy.value = false;
         stopSpeakAudioAnalyser();
         stopTranscription();
+        scheduleAutosave(400);
         if (inputMode.value === 'speak') {
           await nextTick();
           startSpeakVisualizerIdle();
@@ -3294,6 +3360,7 @@ const appendTranscript = (text) => {
   const current = String(inputText.value || '');
   const combined = `${current}${current && !current.endsWith(' ') ? ' ' : ''}${trimmed}`.trim();
   inputText.value = combined.slice(0, 12000);
+  scheduleAutosave(800);
 };
 
 const startTranscription = () => {
@@ -3757,7 +3824,7 @@ const saveTreatmentPlanToChart = async () => {
       throw new Error('No Goal/Objective panels found to save.');
     }
     await api.post('/medical-billing/treatment-plans', {
-      agencyId: noteAidAgencyId.value || currentAgencyId.value,
+      agencyId: chartAgencyIdForSave.value || currentAgencyId.value,
       clientId,
       officeEventId: bookingContext.value?.officeEventId || null,
       clinicalSessionId: bookingContext.value?.clinicalSessionId || null,
@@ -3938,8 +4005,14 @@ const resetClientClinicalContext = () => {
 
 const loadClientTreatmentPlan = async (clientId) => {
   const cid = Number(clientId || 0);
-  const aid = Number(noteAidAgencyId.value || currentAgencyId.value || 0);
-  if (!cid || !aid) {
+  if (!cid) {
+    latestTreatmentPlan.value = null;
+    chartDiagnoses.value = [];
+    chartObjectiveRatings.value = [];
+    return;
+  }
+  const agencies = chartAgencyCandidates();
+  if (!agencies.length) {
     latestTreatmentPlan.value = null;
     chartDiagnoses.value = [];
     chartObjectiveRatings.value = [];
@@ -3948,15 +4021,40 @@ const loadClientTreatmentPlan = async (clientId) => {
   loadingClientPlan.value = true;
   clientPlanError.value = '';
   try {
-    const res = await api.get(`/medical-billing/clients/${cid}/chart`, {
-      params: { agencyId: aid },
-      skipGlobalLoading: true
-    });
-    latestTreatmentPlan.value = res?.data?.latestPlan || null;
-    chartDiagnoses.value = Array.isArray(res?.data?.diagnoses) ? res.data.diagnoses : [];
-    chartObjectiveRatings.value = Array.isArray(res?.data?.objectiveRatings)
-      ? res.data.objectiveRatings
-      : [];
+    let bestPlan = null;
+    let bestScore = -1;
+    let bestDiagnoses = [];
+    let bestRatings = [];
+    let lastError = null;
+
+    for (const aid of agencies) {
+      try {
+        const res = await api.get(`/medical-billing/clients/${cid}/chart`, {
+          params: { agencyId: aid },
+          skipGlobalLoading: true
+        });
+        const plan = res?.data?.latestPlan || null;
+        const score = scoreChartPlan(plan);
+        if (score > bestScore) {
+          bestScore = score;
+          bestPlan = plan;
+          bestDiagnoses = Array.isArray(res?.data?.diagnoses) ? res.data.diagnoses : [];
+          bestRatings = Array.isArray(res?.data?.objectiveRatings)
+            ? res.data.objectiveRatings
+            : [];
+        }
+      } catch (e) {
+        lastError = e;
+      }
+    }
+
+    latestTreatmentPlan.value = bestPlan;
+    chartDiagnoses.value = bestDiagnoses;
+    chartObjectiveRatings.value = bestRatings;
+    if (!bestPlan && lastError) {
+      clientPlanError.value =
+        lastError.response?.data?.error?.message || lastError.message || 'Could not load treatment plan';
+    }
   } catch (e) {
     latestTreatmentPlan.value = null;
     chartDiagnoses.value = [];
@@ -4789,10 +4887,16 @@ const loadDraftIntoWorkspace = async (d) => {
     };
     await hydrateSelectedClient(draftClientId);
     await loadClientAgencyContext(draftClientId);
-    loadClientTreatmentPlan(draftClientId);
-    loadClientIntakeSummary(draftClientId);
+    await Promise.all([
+      loadClientTreatmentPlan(draftClientId),
+      loadClientIntakeSummary(draftClientId)
+    ]);
   } else if (draftClientId) {
     await loadClientAgencyContext(draftClientId);
+    await Promise.all([
+      loadClientTreatmentPlan(draftClientId),
+      loadClientIntakeSummary(draftClientId)
+    ]);
   }
 
   // Prefer client-owned tenant over a workspace-misattributed draft stamp.
@@ -5186,11 +5290,26 @@ watch(clinicalNoteGeneratorEnabled, async (enabled, wasEnabled) => {
   await bootstrapWorkspace();
 });
 
+watch(inputText, () => {
+  scheduleAutosave(1500);
+});
+
+watch(
+  [effectiveClientId, noteAidAgencyId, () => clientAgencyMembershipIds.value.join(',')],
+  ([cid]) => {
+    if (cid) loadClientTreatmentPlan(cid);
+  }
+);
+
 onBeforeUnmount(() => {
   bootstrapSeq += 1;
   if (autosaveTimer) {
     window.clearInterval(autosaveTimer);
     autosaveTimer = null;
+  }
+  if (autosaveDebounceTimer) {
+    clearTimeout(autosaveDebounceTimer);
+    autosaveDebounceTimer = null;
   }
   stopSpeakVisualizer();
   stopTranscription();
@@ -5970,6 +6089,25 @@ onBeforeUnmount(() => {
   .na-write-overview {
     position: static;
   }
+}
+
+.na-pick-aid-banner {
+  margin: 0 0 12px;
+  padding: 12px 14px;
+  background: #ecfdf5;
+  border: 1px solid #6ee7b7;
+  border-radius: 12px;
+  color: #065f46;
+  font-size: 0.9rem;
+}
+.na-pick-aid-banner strong {
+  display: block;
+  margin-bottom: 4px;
+}
+.na-pick-aid-banner p {
+  margin: 0;
+  color: #047857;
+  line-height: 1.45;
 }
 
 .na-library-client-bar {
