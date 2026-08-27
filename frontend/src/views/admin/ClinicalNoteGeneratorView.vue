@@ -905,6 +905,27 @@
             <span v-if="approvalError" class="error">{{ approvalError }}</span>
             <span v-if="archiveMessage" class="hint">{{ archiveMessage }}</span>
           </div>
+          <div
+            v-if="displayPanels.length && (nextInProgressRow || nextInQueueItem)"
+            class="na-next-nav"
+          >
+            <button
+              v-if="nextInProgressRow"
+              type="button"
+              class="na-btn-outline na-next-nav-btn"
+              @click="openNextInProgress"
+            >
+              Open next in progress
+            </button>
+            <button
+              v-if="nextInQueueItem"
+              type="button"
+              class="na-btn-outline na-next-nav-btn"
+              @click="openNextInQueue"
+            >
+              Open next in queue
+            </button>
+          </div>
           <p class="na-gen-summary">{{ generationLogicSummary }}</p>
         </section>
 
@@ -1037,7 +1058,9 @@ import NoteAidStructuredChartPanel from '../../components/clinical/NoteAidStruct
 import { loadWorkQueue, saveWorkQueue } from '../../utils/noteAidWorkQueue.js';
 import {
   DOC_STATUS,
-  deriveWorkQueueDocStatus
+  buildLeftLibraryRows,
+  deriveWorkQueueDocStatus,
+  normalizeDocStatus
 } from '../../utils/noteAidDocumentationStatus.js';
 import {
   consumeNoteAidWorkQueueStash,
@@ -2566,6 +2589,34 @@ const regenerateButtonLabel = computed(() => {
   return 'Regenerate note';
 });
 
+function isCurrentLibraryRow(row) {
+  if (!row) return false;
+  if (draftId.value && row.draftId && String(row.draftId) === String(draftId.value)) return true;
+  if (activeWorkQueueItemId.value && row.workQueueId && String(row.workQueueId) === String(activeWorkQueueItemId.value)) {
+    return true;
+  }
+  if (activeWorkQueueItemId.value && row.source === 'work_queue' && row.raw?.id === activeWorkQueueItemId.value) {
+    return true;
+  }
+  return false;
+}
+
+const nextInProgressRow = computed(() => {
+  const rows = buildLeftLibraryRows({
+    drafts: recentDrafts.value,
+    workQueueItems: workQueueItems.value
+  }).filter(
+    (r) => normalizeDocStatus(r.docStatus) === DOC_STATUS.STARTED && !isCurrentLibraryRow(r)
+  );
+  return rows[0] || null;
+});
+
+const nextInQueueItem = computed(() =>
+  (workQueueItems.value || []).find(
+    (i) => deriveWorkQueueDocStatus(i) === DOC_STATUS.NOT_STARTED
+  ) || null
+);
+
 const filteredSidebarDrafts = computed(() => {
   const q = String(draftSearch.value || '').trim().toLowerCase();
   let list = Array.isArray(recentDrafts.value) ? recentDrafts.value : [];
@@ -3603,7 +3654,6 @@ const generateNote = async () => {
     await persistSessionObjectiveRatings();
     await loadRecent();
     markActiveWorkQueueItemCompleted();
-    sidebarTab.value = DOC_STATUS.COMPLETED;
   } catch (e) {
     const base = e.response?.data?.error?.message || 'Failed to generate note';
     const details = e.response?.data?.error?.details;
@@ -3777,7 +3827,6 @@ const approveNoteOutput = async () => {
     } else {
       markActiveWorkQueueItemSigned();
     }
-    sidebarTab.value = DOC_STATUS.SIGNED;
   } catch (e) {
     approvalError.value = e.response?.data?.error?.message || e.message || 'Failed to persist approved note';
   } finally {
@@ -4470,10 +4519,20 @@ function advanceWorkQueue() {
 function advanceWorkQueueAfterSign() {
   markActiveWorkQueueItemSigned();
   activeWorkQueueItemId.value = null;
-  const next = (workQueueItems.value || []).find(
-    (i) => deriveWorkQueueDocStatus(i) === DOC_STATUS.NOT_STARTED
-  );
-  if (next) activateWorkQueueItem(next);
+}
+
+function openNextInProgress() {
+  const row = nextInProgressRow.value;
+  if (!row) return;
+  onLibrarySidebarSelect(row);
+  sidebarTab.value = DOC_STATUS.STARTED;
+}
+
+function openNextInQueue() {
+  const next = nextInQueueItem.value;
+  if (!next) return;
+  activateWorkQueueItem(next);
+  sidebarTab.value = DOC_STATUS.STARTED;
 }
 
 function onLibrarySidebarSelect(row) {
@@ -4546,7 +4605,10 @@ async function activateWorkQueueItem(item) {
     await loadClientIntakeSummary(clientId);
     chartDiagnosticJustification.value = primaryChartDiagnosis.value?.justification || '';
   } else {
-    initials.value = deriveInitialsFromNameSafe(item.clientName);
+    selectedClientId.value = null;
+    selectedClient.value = null;
+    resetClientClinicalContext();
+    initials.value = String(item.initials || item.clientName || '').trim();
   }
 
   if (item.noteKind === 'intake') {
@@ -4876,27 +4938,30 @@ const loadDraftIntoWorkspace = async (d) => {
   dateOfService.value = d.date_of_service ? String(d.date_of_service).slice(0, 10) : todayIsoDate();
   initials.value = d.initials || '';
   const draftClientId = Number(d.client_id || 0) || null;
-  if (draftClientId && draftClientId !== Number(selectedClientId.value || 0)) {
-    selectedClientId.value = draftClientId;
-    selectedClient.value = {
-      id: draftClientId,
-      agency_id: d.client_agency_id || null,
-      agency_name: d.agency_name || null,
-      initials: d.initials || '',
-      full_name: d.client_full_name || null
-    };
-    await hydrateSelectedClient(draftClientId);
+  if (draftClientId) {
+    if (draftClientId !== Number(selectedClientId.value || 0)) {
+      selectedClientId.value = draftClientId;
+      selectedClient.value = {
+        id: draftClientId,
+        agency_id: d.client_agency_id || null,
+        agency_name: d.agency_name || null,
+        initials: d.initials || '',
+        full_name: d.client_full_name || null
+      };
+      await hydrateSelectedClient(draftClientId);
+    }
     await loadClientAgencyContext(draftClientId);
     await Promise.all([
       loadClientTreatmentPlan(draftClientId),
       loadClientIntakeSummary(draftClientId)
     ]);
-  } else if (draftClientId) {
-    await loadClientAgencyContext(draftClientId);
-    await Promise.all([
-      loadClientTreatmentPlan(draftClientId),
-      loadClientIntakeSummary(draftClientId)
-    ]);
+  } else {
+    // Initials-only / unlinked draft — drop any client left from a prior note in this workspace.
+    selectedClientId.value = null;
+    selectedClient.value = null;
+    clientAgencyMembershipIds.value = [];
+    learningSponsorAgencyIds.value = [];
+    resetClientClinicalContext();
   }
 
   // Prefer client-owned tenant over a workspace-misattributed draft stamp.
@@ -4983,6 +5048,10 @@ const loadClinicalNoteIntoWorkspace = async (noteId) => {
       selectedClientId.value = cid;
       selectedClient.value = { id: cid, initials: '' };
       await hydrateSelectedClient(cid);
+    } else {
+      selectedClientId.value = null;
+      selectedClient.value = null;
+      resetClientClinicalContext();
     }
     const code = String(note.serviceCode || '').trim().toUpperCase();
     otherServiceCode.value = '';
@@ -7001,6 +7070,19 @@ a.na-chip--link {
 .na-feedback {
   margin-top: 8px;
   min-height: 1.2em;
+}
+
+.na-next-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--na-border);
+}
+
+.na-next-nav-btn {
+  font-weight: 700;
 }
 
 .na-gen-summary {
