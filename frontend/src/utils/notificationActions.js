@@ -18,6 +18,9 @@ export function notificationDestination(notification, { organizationSlug = null,
   if (n.type === 'school_collaborative_year_update_completed' && entityType === 'school' && entityId) {
     return `${base}/admin/school-reinit/${entityId}${n.agency_id ? `?agencyId=${n.agency_id}` : ''}`;
   }
+  if (n.type === 'escalation_mention' || (entityType === 'escalation' && entityId)) {
+    return `${base}/admin/escalations${entityId ? `?id=${entityId}` : ''}`;
+  }
   if (n.type === 'support_ticket_created') return `${base}/tickets${entityId ? `?status=open&ticketId=${entityId}` : ''}`;
   if (n.type === 'support_ticket_forwarded_to_provider' && entityType === 'client' && entityId) {
     return { path: `${base}/dashboard`, query: { clientId: String(entityId) } };
@@ -44,6 +47,7 @@ export function notificationPrimaryLabel(notification) {
   if (!notification) return null;
   if (notification.type === 'new_packet_uploaded') return 'Open packet';
   if (notification.type === 'company_event_registration_submitted') return 'Event portal';
+  if (notification.type === 'escalation_mention') return 'Open escalation';
   if (notification.type === 'support_ticket_created') return 'Open ticket';
   if (notification.type === 'office_availability_request_pending') return 'Review request';
   if (notificationDestination(notification)) return 'Open';

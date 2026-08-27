@@ -5,6 +5,7 @@ import pool from '../config/database.js';
 import User from '../models/User.model.js';
 import Agency from '../models/Agency.model.js';
 import Notification from '../models/Notification.model.js';
+import { parseMentionedUserIds } from '../models/TaskComment.model.js';
 import {
   ESCALATION_PRIORITIES,
   ESCALATION_STATUS_LABELS,
@@ -250,6 +251,52 @@ async function notifyAssignee({ escalation, assignee, assignedBy }) {
       relatedEntityId: escalation?.id || null,
       actorUserId: actorId
     });
+  } catch {
+    /* best effort */
+  }
+}
+
+async function notifyEscalationMentions({ escalation, body, actor }) {
+  try {
+    const actorId = Number(actor?.id || 0);
+    const mentionedIds = parseMentionedUserIds(body).filter((id) => Number(id) !== actorId);
+    if (!mentionedIds.length || !escalation?.id) return;
+
+    const placeholders = mentionedIds.map(() => '?').join(',');
+    const [rows] = await pool.execute(
+      `SELECT u.id, u.first_name, u.last_name, u.role
+       FROM users u
+       INNER JOIN user_agencies ua ON ua.user_id = u.id AND ua.agency_id = ?
+       WHERE u.id IN (${placeholders})
+         AND LOWER(u.role) IN ('admin', 'support', 'super_admin')
+         AND COALESCE(u.is_archived, 0) = 0
+         AND UPPER(COALESCE(u.status, '')) <> 'ARCHIVED'`,
+      [escalation.agency_id, ...mentionedIds]
+    );
+
+    const authorName = formatUserName(actor) || 'Someone';
+    const subject = String(escalation.subject || 'Untitled').slice(0, 80);
+    const plain = String(body || '')
+      .replace(/@\[([^\]]*)\]\(\d+\)/g, '@$1')
+      .replace(/\s+/g, ' ')
+      .trim();
+    const snippet = plain.length > 120 ? `${plain.slice(0, 117)}…` : plain;
+
+    for (const user of rows || []) {
+      const uid = Number(user.id || 0);
+      if (!uid) continue;
+      await Notification.create({
+        type: 'escalation_mention',
+        severity: escalation?.immediate_action_required ? 'warning' : 'info',
+        title: 'Mentioned in an escalation',
+        message: `${authorName} mentioned you on escalation #${escalation.id} (${subject}): ${snippet}`,
+        userId: uid,
+        agencyId: escalation.agency_id || null,
+        relatedEntityType: 'escalation',
+        relatedEntityId: escalation.id,
+        actorUserId: actorId || null
+      });
+    }
   } catch {
     /* best effort */
   }
@@ -1040,8 +1087,8 @@ export const listEscalationAssignees = async (req, res, next) => {
     const agencyId = parseInt(req.query?.agencyId, 10);
     const access = await ensureAgencyAccess(req, agencyId);
     if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
-    if (!isEscalationManagerRole(req.user?.role)) {
-      return res.status(403).json({ error: { message: 'Only admin/support can list assignees' } });
+    if (!isEscalationManagerRole(req.user?.role) && !isEscalationSubmitterRole(req.user?.role)) {
+      return res.status(403).json({ error: { message: 'Access denied' } });
     }
 
     const [rows] = await pool.execute(
@@ -1201,6 +1248,12 @@ export const createEscalationMessage = async (req, res, next) => {
         [id]
       );
     }
+
+    await notifyEscalationMentions({
+      escalation: row,
+      body,
+      actor: req.user
+    });
 
     res.status(201).json({
       id: result.insertId,

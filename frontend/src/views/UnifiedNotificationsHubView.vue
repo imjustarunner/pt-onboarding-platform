@@ -468,6 +468,7 @@ const primaryLabel = (notification) => {
   if (notification.type === 'new_packet_uploaded') return 'Open packet';
   if (notification.type === 'company_event_registration_submitted') return 'Event portal';
   if (notification.type === 'support_ticket_created') return 'Open ticket';
+  if (notification.type === 'escalation_mention') return 'Open escalation';
   if (notificationDestination(notification, { organizationSlug: orgSlug.value, role: role.value })) return 'Open';
   return null;
 };

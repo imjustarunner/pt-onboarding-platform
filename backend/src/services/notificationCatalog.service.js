@@ -24,7 +24,7 @@ const TYPES_BY_CATEGORY = {
   ],
   tasks_messaging: [
     'task_overdue', 'inbound_client_message', 'support_safety_net_alert', 'client_note',
-    'chat_message', 'task_comment_mention', 'support_ticket_created',
+    'chat_message', 'task_comment_mention', 'escalation_mention', 'support_ticket_created',
     'support_ticket_forwarded_to_provider', 'referral_directory_pending_approval',
     'voicemail_received', 'custom_task_assigned', 'custom_task_unlocked',
     'task_list_activity'
@@ -119,6 +119,7 @@ const LABEL_OVERRIDES = {
   school_event_marketing_photo_missing: 'School event photo not provided',
   presence_return_overdue_nudge: 'Return status overdue',
   task_comment_mention: 'Mentioned in a task comment',
+  escalation_mention: 'Mentioned in an escalation',
   custom_task_assigned: 'Task assigned to you',
   custom_task_unlocked: 'Task is now ready — blocker completed',
   task_list_activity: 'New activity in a shared task list',
@@ -221,6 +222,7 @@ const MANAGER_RELEVANT = new Set([
   ...PROVIDER_RELEVANT,
   'status_expired', 'first_login_pending', 'first_login', 'user_activity_digest',
   'presence_user_returned', 'support_safety_net_alert', 'support_ticket_created',
+  'escalation_mention',
   'referral_directory_pending_approval', 'new_packet_uploaded', 'new_prospective_inquiry',
   'unassigned_document_submitted', 'medical_records_release_submitted',
   'office_schedule_coverage_flag', 'office_availability_request_pending',
@@ -291,6 +293,7 @@ const SCHOOL_ESSENTIAL = new Set([
 const MANAGER_ESSENTIAL = new Set([
   ...PROVIDER_ESSENTIAL,
   'status_expired', 'first_login_pending', 'support_ticket_created',
+  'escalation_mention',
   'referral_directory_pending_approval', 'new_packet_uploaded', 'new_prospective_inquiry',
   'unassigned_document_submitted', 'office_schedule_coverage_flag',
   'office_availability_request_pending', 'school_availability_request_pending',
@@ -302,7 +305,7 @@ const MANAGER_ESSENTIAL = new Set([
 
 const OPERATIONS_ESSENTIAL = new Set([
   ...WORKFORCE_ESSENTIAL,
-  'support_ticket_created', 'referral_directory_pending_approval',
+  'support_ticket_created', 'escalation_mention', 'referral_directory_pending_approval',
   'new_packet_uploaded', 'new_prospective_inquiry', 'unassigned_document_submitted',
   'medical_records_release_submitted', 'office_schedule_coverage_flag',
   'office_availability_request_pending', 'school_availability_request_pending',

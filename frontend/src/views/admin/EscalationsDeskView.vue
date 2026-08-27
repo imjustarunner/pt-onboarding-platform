@@ -280,11 +280,31 @@
                 <span v-if="m.is_internal" class="internal-tag">Internal</span>
                 <time>{{ formatTime(m.created_at) }}</time>
               </div>
-              <p>{{ m.body }}</p>
+              <p class="msg-body" v-html="renderMessageBody(m.body)" />
             </li>
           </ul>
           <form class="composer" @submit.prevent="sendMessage">
-            <textarea v-model="reply" rows="3" placeholder="Add an update…" />
+            <div class="composer-field">
+              <textarea
+                ref="replyEl"
+                v-model="reply"
+                rows="3"
+                placeholder="Add an update… use @ to mention"
+                @input="onReplyInput"
+                @keydown="onReplyKeydown"
+              />
+              <ul v-if="mentionSuggestions.length" class="mention-menu">
+                <li
+                  v-for="(u, idx) in mentionSuggestions"
+                  :key="u.id"
+                  :class="{ on: idx === mentionIndex }"
+                  @mousedown.prevent="insertMention(u)"
+                >
+                  <strong>{{ u.first_name }} {{ u.last_name }}</strong>
+                  <span>{{ roleLabel(u.role) }}</span>
+                </li>
+              </ul>
+            </div>
             <div class="composer-actions">
               <label v-if="canManage" class="check">
                 <input v-model="replyInternal" type="checkbox" /> Internal note
@@ -401,8 +421,11 @@ const statusDraft = ref('submitted');
 const assignDraft = ref('');
 const outcomeDraft = ref('');
 const reply = ref('');
+const replyEl = ref(null);
 const replyInternal = ref(false);
 const sendingMsg = ref(false);
+const mentionSuggestions = ref([]);
+const mentionIndex = ref(0);
 const creating = ref(false);
 const createError = ref('');
 const adminMeetings = ref([]);
@@ -467,6 +490,70 @@ const assignOptions = computed(() => {
   return list;
 });
 
+/** Admin/support/super_admin only — small mention pool for escalation @. */
+const mentionableUsers = computed(() => {
+  const roles = new Set(['admin', 'support', 'super_admin', 'superadmin']);
+  return (assignees.value || []).filter((u) => roles.has(String(u.role || '').toLowerCase()));
+});
+
+function roleLabel(role) {
+  const r = String(role || '').toLowerCase();
+  if (r === 'super_admin' || r === 'superadmin') return 'Super admin';
+  if (r === 'support') return 'Support';
+  if (r === 'admin') return 'Admin';
+  return r || 'User';
+}
+
+function renderMessageBody(body) {
+  const escaped = String(body || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+  return escaped.replace(/@\[([^\]]*)\]\((\d+)\)/g, '<span class="mention">@$1</span>');
+}
+
+function onReplyInput() {
+  const m = /(^|\s)@([a-zA-Z]*)$/.exec(reply.value);
+  if (!m) {
+    mentionSuggestions.value = [];
+    mentionIndex.value = 0;
+    return;
+  }
+  const q = m[2].toLowerCase();
+  // Show the full manager list (small) — filter as they type.
+  mentionSuggestions.value = mentionableUsers.value.filter((u) => {
+    const name = `${u.first_name || ''} ${u.last_name || ''}`.toLowerCase();
+    return !q || name.includes(q) || String(u.first_name || '').toLowerCase().startsWith(q);
+  });
+  mentionIndex.value = 0;
+}
+
+function onReplyKeydown(ev) {
+  if (!mentionSuggestions.value.length) return;
+  if (ev.key === 'ArrowDown') {
+    ev.preventDefault();
+    mentionIndex.value = (mentionIndex.value + 1) % mentionSuggestions.value.length;
+  } else if (ev.key === 'ArrowUp') {
+    ev.preventDefault();
+    mentionIndex.value =
+      (mentionIndex.value - 1 + mentionSuggestions.value.length) % mentionSuggestions.value.length;
+  } else if (ev.key === 'Enter' || ev.key === 'Tab') {
+    ev.preventDefault();
+    insertMention(mentionSuggestions.value[mentionIndex.value]);
+  } else if (ev.key === 'Escape') {
+    mentionSuggestions.value = [];
+  }
+}
+
+function insertMention(u) {
+  if (!u) return;
+  const name = `${u.first_name || ''} ${u.last_name || ''}`.trim();
+  reply.value = reply.value.replace(/(^|\s)@([a-zA-Z]*)$/, `$1@[${name}](${u.id}) `);
+  mentionSuggestions.value = [];
+  mentionIndex.value = 0;
+  replyEl.value?.focus?.();
+}
+
 function formatTime(iso) {
   if (!iso) return '';
   try {
@@ -503,7 +590,7 @@ async function refresh() {
     const res = await api.get('/escalations', { params, skipGlobalLoading: true });
     items.value = res.data?.escalations || [];
     counts.value = res.data?.counts || {};
-    if (canManage.value) await loadAssignees();
+    await loadAssignees();
   } catch (e) {
     error.value = e.response?.data?.error?.message || 'Failed to load escalations';
   } finally {
@@ -733,6 +820,7 @@ async function saveAssign() {
 
 async function sendMessage() {
   if (!detail.value || !reply.value.trim()) return;
+  mentionSuggestions.value = [];
   sendingMsg.value = true;
   try {
     await api.post(`/escalations/${detail.value.id}/messages`, {
@@ -808,6 +896,14 @@ watch(
   () => showRouting.value,
   (on) => {
     if (on) loadRouting();
+  }
+);
+
+watch(
+  () => route.query?.id,
+  async (id) => {
+    const qid = id ? parseInt(id, 10) : null;
+    if (qid && qid !== selectedId.value) await selectEscalation(qid);
   }
 );
 
@@ -1169,6 +1265,14 @@ onMounted(async () => {
 .msg-h time { margin-left: auto; color: #94a3b8; }
 .internal-tag { font-size: 10px; font-weight: 800; color: #b45309; }
 .msgs p { margin: 0; font-size: 13px; white-space: pre-wrap; }
+.msg-body :deep(.mention) {
+  color: #166534;
+  font-weight: 700;
+  background: #ecfdf5;
+  border-radius: 4px;
+  padding: 0 3px;
+}
+.composer-field { position: relative; }
 .composer textarea {
   width: 100%;
   border: 1px solid #e2e8f0;
@@ -1176,6 +1280,42 @@ onMounted(async () => {
   padding: 8px 10px;
   font: inherit;
   resize: vertical;
+  box-sizing: border-box;
+}
+.mention-menu {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: calc(100% + 4px);
+  list-style: none;
+  margin: 0;
+  padding: 4px;
+  max-height: 220px;
+  overflow: auto;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.12);
+  z-index: 8;
+}
+.mention-menu li {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: baseline;
+  padding: 8px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 13px;
+}
+.mention-menu li span {
+  font-size: 11px;
+  color: #64748b;
+  text-transform: capitalize;
+}
+.mention-menu li.on,
+.mention-menu li:hover {
+  background: #f0fdf4;
 }
 .composer-actions {
   display: flex;

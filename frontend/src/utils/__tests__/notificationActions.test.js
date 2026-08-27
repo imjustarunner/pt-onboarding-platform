@@ -15,6 +15,12 @@ describe('notificationActions', () => {
       .toBe('/org/admin/office-approvals?agencyId=8&tab=requests');
     expect(notificationDestination({ type: 'support_ticket_created', related_entity_id: 3 }, { organizationSlug: 'org', role: 'admin' }))
       .toBe('/org/tickets?status=open&ticketId=3');
+    expect(notificationDestination({
+      type: 'escalation_mention',
+      related_entity_type: 'escalation',
+      related_entity_id: 19
+    }, { organizationSlug: 'org', role: 'admin' }))
+      .toBe('/org/admin/escalations?id=19');
     expect(notificationDestination({ type: 'school_portal_onboarding_completed', agency_id: 12 }, { organizationSlug: 'org', role: 'admin' }))
       .toBe('/org/admin/school-onboarding?agencyId=12');
     expect(notificationDestination({ type: 'provider_year_update_completed', agency_id: 9 }, { organizationSlug: 'org', role: 'admin' }))
