@@ -137,7 +137,31 @@ export async function ensureAppointmentContext({
     let billingOfficeLocationId = officeLocationId;
 
     // Client chart defaults (Assignments tab) fill gaps when the booking didn't pick POS/location.
+    // Prefer per-tenant membership defaults for the encounter agency, then fall back to clients.*.
     if (resolvedClientId && (!serviceLocationId || !placeOfService || !billingOfficeLocationId)) {
+      try {
+        if (resolvedAgencyId) {
+          const [mRows] = await pool.execute(
+            `SELECT default_office_location_id, default_place_of_service, default_service_location_id
+             FROM client_agency_assignments
+             WHERE client_id = ? AND agency_id = ? AND is_active = TRUE
+             LIMIT 1`,
+            [resolvedClientId, resolvedAgencyId]
+          );
+          const m = mRows?.[0] || null;
+          if (m) {
+            if (!serviceLocationId) serviceLocationId = parseIntId(m.default_service_location_id);
+            if (!placeOfService) {
+              placeOfService = String(m.default_place_of_service || '').trim() || null;
+            }
+            if (!billingOfficeLocationId) {
+              billingOfficeLocationId = parseIntId(m.default_office_location_id) || null;
+            }
+          }
+        }
+      } catch {
+        // Columns may not exist until migration 1324; ignore.
+      }
       try {
         const [cRows] = await pool.execute(
           `SELECT default_office_location_id, default_place_of_service, default_service_location_id

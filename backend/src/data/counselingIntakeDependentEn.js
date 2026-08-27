@@ -1894,7 +1894,7 @@ export function buildCounselingDependentEnSteps() {
   ];
 }
 
-export function mergeCounselingOfficeEnIntoSteps(existingSteps = []) {
+export function mergeCounselingOfficeEnIntoSteps(existingSteps = [], { paymentOnly = false } = {}) {
   const self = buildCounselingSelfEnSteps();
   const dep = buildCounselingDependentEnSteps();
   const kept = (Array.isArray(existingSteps) ? existingSteps : []).filter((s) => {
@@ -1905,6 +1905,10 @@ export function mergeCounselingOfficeEnIntoSteps(existingSteps = []) {
     if (id.startsWith(COUNSELING_DEP_STEP_PREFIX)) return false;
     if (type === 'provider_match') return false;
     if (type === 'guardian_waiver' || type === 'guardian_waivers') return false;
+    if (type === 'package_selection' || type === 'insurance_info' || type === 'insurance' || type === 'payment_collection') {
+      // Re-injected in billing block below so order stays consistent.
+      return false;
+    }
     if (type === 'questions' && (!Array.isArray(s.fields) || s.fields.length === 0)) {
       return false;
     }
@@ -1952,5 +1956,61 @@ export function mergeCounselingOfficeEnIntoSteps(existingSteps = []) {
     visibility: 'always',
     fields: []
   };
-  return [...self, ...family, commsStep, ...prefs, providersStep, ...restDep, ...rest];
+
+  const billingFromMaster = (Array.isArray(existingSteps) ? existingSteps : []).filter((s) => {
+    const t = String(s?.type || '').toLowerCase();
+    return t === 'package_selection' || t === 'insurance_info' || t === 'insurance' || t === 'payment_collection';
+  });
+  const normalizeBilling = (steps) => {
+    let list = (Array.isArray(steps) ? steps : []).map((s) => {
+      const t = String(s?.type || '').toLowerCase();
+      if (t === 'insurance') {
+        return {
+          ...s,
+          type: 'insurance_info',
+          id: s?.id || 'office_insurance_payment',
+          label: s?.label && !/^insurance$/i.test(String(s.label))
+            ? s.label
+            : (paymentOnly ? 'Payment Information' : 'Insurance & Payment Information')
+        };
+      }
+      return s;
+    });
+    const hasIns = list.some((s) => String(s?.type || '').toLowerCase() === 'insurance_info');
+    if (hasIns) {
+      list = list.filter((s) => String(s?.type || '').toLowerCase() !== 'payment_collection');
+    }
+    const hasType = (type) => list.some((s) => String(s?.type || '').toLowerCase() === type);
+    if (!hasType('package_selection')) {
+      list.unshift({
+        id: 'office_package_selection',
+        type: 'package_selection',
+        label: 'Select a package',
+        visibility: 'always',
+        helperText: 'Choose a care or session package. You can confirm payment details on the next step.'
+      });
+    }
+    if (!hasType('insurance_info')) {
+      list.push({
+        id: 'office_insurance_payment',
+        type: 'insurance_info',
+        label: paymentOnly ? 'Payment Information' : 'Insurance & Payment Information',
+        visibility: 'always',
+        paymentOnly: !!paymentOnly
+      });
+    } else if (paymentOnly) {
+      list = list.map((s) => (
+        String(s?.type || '').toLowerCase() === 'insurance_info'
+          ? { ...s, paymentOnly: true }
+          : s
+      ));
+    }
+    // Stable order: package_selection then insurance_info
+    const pkg = list.filter((s) => String(s?.type || '').toLowerCase() === 'package_selection');
+    const ins = list.filter((s) => String(s?.type || '').toLowerCase() === 'insurance_info');
+    return [...pkg, ...ins];
+  };
+  const billingSteps = normalizeBilling(billingFromMaster);
+
+  return [...self, ...family, commsStep, ...prefs, providersStep, ...restDep, ...billingSteps, ...rest];
 }

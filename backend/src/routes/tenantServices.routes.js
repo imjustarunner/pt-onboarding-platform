@@ -16,8 +16,11 @@ import {
   listPackages,
   createPackage,
   updatePackage,
+  duplicatePackage,
   listClientEntitlements,
   activateEntitlement,
+  checkoutPackage,
+  confirmPackageCheckout,
   getAgencyCapabilities
 } from '../controllers/bookingPackages.controller.js';
 import {
@@ -57,6 +60,9 @@ router.get('/agencies/:agencyId/booking-options', getBookingOptions);
 router.get('/agencies/:agencyId/packages', listPackages);
 router.post('/agencies/:agencyId/packages', createPackage);
 router.patch('/agencies/:agencyId/packages/:packageId', updatePackage);
+router.post('/agencies/:agencyId/packages/:packageId/duplicate', duplicatePackage);
+router.post('/agencies/:agencyId/packages/:packageId/checkout', checkoutPackage);
+router.post('/agencies/:agencyId/packages/:packageId/confirm', confirmPackageCheckout);
 router.get('/agencies/:agencyId/clients/:clientId/entitlements', listClientEntitlements);
 router.post('/agencies/:agencyId/entitlements', activateEntitlement);
 router.get('/agencies/:agencyId/cancellation-policies', listCancellationPolicies);

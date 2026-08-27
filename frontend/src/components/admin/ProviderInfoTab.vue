@@ -337,7 +337,10 @@
               </select>
             </div>
           </div>
-          <div style="margin-top: 12px; display: flex; justify-content: flex-end;">
+          <div style="margin-top: 12px; display: flex; justify-content: flex-end; gap: 8px;">
+            <button class="btn btn-secondary" type="button" @click="showComfortModal = true">
+              Client comfort preferences
+            </button>
             <button class="btn btn-primary" :disabled="tutoringSaving" @click="saveTutoringProfile">
               {{ tutoringSaving ? 'Saving…' : 'Save Tutoring Profile' }}
             </button>
@@ -345,6 +348,15 @@
         </div>
       </div>
     </div>
+
+    <StaffClientComfortPreferencesModal
+      v-if="agencyId && userId"
+      :show="showComfortModal"
+      :agency-id="agencyId"
+      :user-id="userId"
+      @close="showComfortModal = false"
+      @saved="onComfortSaved"
+    />
   </div>
 </template>
 
@@ -352,6 +364,7 @@
 import { computed, onMounted, ref, watch } from 'vue';
 import api from '../../services/api';
 import { useAuthStore } from '../../store/auth';
+import StaffClientComfortPreferencesModal from '../tutoring/StaffClientComfortPreferencesModal.vue';
 import {
   isClinicalProfileField,
   isMappedClinicalField
@@ -1334,6 +1347,14 @@ const tutoringForm = ref({
 });
 const tutoringSaving = ref(false);
 const tutoringSaveSuccess = ref('');
+const showComfortModal = ref(false);
+const agencyId = computed(() => targetAgency.value?.id || null);
+
+function onComfortSaved() {
+  tutoringSaveSuccess.value = 'Comfort preferences saved. Public subject/grade fields synced when applicable.';
+  showComfortModal.value = false;
+  loadListings();
+}
 const tutoringSaveError = ref('');
 
 async function loadListings() {

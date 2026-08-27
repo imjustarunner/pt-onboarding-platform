@@ -301,6 +301,23 @@ async function ensureClientProviderLinkedForRequest({ requestRow, actorUserId })
 }
 
 /**
+ * Map public booking subject_area strings onto Learning OS subject keys.
+ */
+function mapSubjectAreaToKey(subjectArea) {
+  const raw = String(subjectArea || '').trim().toLowerCase();
+  if (!raw) return null;
+  if (raw.includes('read')) return 'reading';
+  if (raw.includes('writ') || raw.includes('spell')) return 'writing';
+  if (raw.includes('algebra')) return 'algebra';
+  if (raw.includes('math')) return 'mathematics';
+  if (raw.includes('science')) return 'science';
+  if (raw.includes('study') || raw.includes('executive')) return 'study_skills';
+  if (raw.includes('test') || raw.includes('sat') || raw.includes('act')) return 'test_prep';
+  if (raw.includes('homework')) return 'homework_support';
+  return 'homework_support';
+}
+
+/**
  * Find or create a "Private Tutoring" learning_program_class for the provider,
  * then create a learning_class_session for the individual booking.
  * Returns the new session ID, or null on failure.
@@ -391,6 +408,38 @@ async function createTutoringSessionForPublicRequest({ requestRow, linkedOfficeE
       );
     } catch {
       // non-fatal
+    }
+
+    // Learning OS: enroll subject track when subject_area present
+    try {
+      const { enrollStudentSubject, StudentSubject } = await import('../services/tutoringLearningOs.service.js');
+      const subjectKey = mapSubjectAreaToKey(subjectArea);
+      if (subjectKey) {
+        const existing = await StudentSubject.listByClient(clientId, { agencyId });
+        let subject = existing.find((s) => s.subject_key === subjectKey && !['completed', 'discharged'].includes(s.status));
+        if (!subject) {
+          subject = await enrollStudentSubject(
+            {
+              agencyId,
+              clientId,
+              subjectKey,
+              schoolGrade: gradeLevel,
+              reasonForTutoring: requestRow?.notes || null,
+              primaryTutorUserId: providerId,
+              status: 'baseline_needed'
+            },
+            actorUserId
+          );
+        }
+        if (subject?.id) {
+          await pool.execute(
+            `UPDATE learning_class_sessions SET student_subject_id = ? WHERE id = ?`,
+            [subject.id, sessionId]
+          ).catch(() => null);
+        }
+      }
+    } catch (enrollErr) {
+      console.warn('[createTutoringSessionForPublicRequest] subject enroll failed:', enrollErr?.message);
     }
   }
 

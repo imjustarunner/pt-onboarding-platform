@@ -47,6 +47,59 @@ const OFFICE_STRIP_STEP_TYPES = new Set(['school_roi', 'spanish_clarification'])
 /**
  * Strip legacy uploaded packet PDFs and school-only steps; ensure packet_* + smart_disclosure.
  */
+/** Normalize legacy office step types so the public runner can render them. */
+export function normalizeOfficeBillingStepTypes(steps = []) {
+  const list = (Array.isArray(steps) ? steps : []).map((s) => {
+    const t = String(s?.type || '').toLowerCase();
+    if (t === 'insurance') {
+      return {
+        ...s,
+        type: 'insurance_info',
+        id: s?.id || 'office_insurance_payment',
+        label: s?.label && !/^insurance$/i.test(String(s.label))
+          ? s.label
+          : 'Insurance & Payment Information'
+      };
+    }
+    return s;
+  });
+  // Office uses the combined insurance_info step; drop orphan payment_collection
+  // when insurance_info is already present to avoid a double payment screen.
+  const hasInsuranceInfo = list.some((s) => String(s?.type || '').toLowerCase() === 'insurance_info');
+  if (!hasInsuranceInfo) return list;
+  return list.filter((s) => String(s?.type || '').toLowerCase() !== 'payment_collection');
+}
+
+export function ensureOfficeBillingSteps(steps = [], { paymentOnly = false } = {}) {
+  let list = normalizeOfficeBillingStepTypes(steps);
+  const hasType = (type) => list.some((s) => String(s?.type || '').toLowerCase() === type);
+  if (!hasType('package_selection')) {
+    list.push({
+      id: 'office_package_selection',
+      type: 'package_selection',
+      label: 'Select a package',
+      visibility: 'always',
+      helperText: 'Choose a care or session package. You can confirm payment details on the next step.'
+    });
+  }
+  if (!hasType('insurance_info')) {
+    list.push({
+      id: 'office_insurance_payment',
+      type: 'insurance_info',
+      label: paymentOnly ? 'Payment Information' : 'Insurance & Payment Information',
+      visibility: 'always',
+      paymentOnly: !!paymentOnly
+    });
+  } else if (paymentOnly) {
+    list = list.map((s) => (
+      String(s?.type || '').toLowerCase() === 'insurance_info'
+        ? { ...s, paymentOnly: true, label: s.label || 'Payment Information' }
+        : s
+    ));
+  }
+  return list;
+}
+
 export function sanitizeOfficeMasterSteps(steps, templateNameById = null, languageCode = 'en') {
   let list = Array.isArray(steps) ? [...steps] : [];
   const hasSmartDisclosure = list.some((s) => ['smart_disclosure', 'disclosure'].includes(String(s?.type || '').toLowerCase()));
@@ -67,6 +120,8 @@ export function sanitizeOfficeMasterSteps(steps, templateNameById = null, langua
     if (kind === 'hipaa') return false;
     return true;
   });
+
+  list = ensureOfficeBillingSteps(list, { paymentOnly: false });
 
   const hasType = (type) => list.some((s) => String(s?.type || '').toLowerCase() === type);
   if (!hasType('packet_informed_group_consent')) {
@@ -430,8 +485,18 @@ class AgencyOfficeIntakeMaster {
     const defaultSteps = [
       { type: 'questions', label: 'Questionnaire', visibility: 'always', fields: [] },
       { type: 'communications', label: 'Communications', visibility: 'always' },
-      { type: 'guardian_waivers', label: 'Guardian Waivers', visibility: 'always' },
-      { type: 'insurance', label: 'Insurance', visibility: 'always' },
+      {
+        id: 'office_package_selection',
+        type: 'package_selection',
+        label: 'Select a package',
+        visibility: 'always'
+      },
+      {
+        id: 'office_insurance_payment',
+        type: 'insurance_info',
+        label: 'Insurance & Payment Information',
+        visibility: 'always'
+      },
       { type: 'packet_informed_group_consent', label: 'Informed Consent and Group Counseling Consent', visibility: 'always' },
       { type: 'packet_policy_services', label: 'Policy and Services Agreement', visibility: 'always' },
       { type: 'packet_hipaa_notice', label: 'HIPAA Privacy Policy and Notice of Privacy Practices', visibility: 'always' },

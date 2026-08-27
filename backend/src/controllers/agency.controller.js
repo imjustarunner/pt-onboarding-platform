@@ -561,6 +561,27 @@ export const createAgency = async (req, res, next) => {
       }
     }
 
+    // Mental healthcare / counseling tenants: seed in-office Counseling and Psychotherapy program.
+    if (requestedType === 'agency' && agency?.id) {
+      const businessTypesRaw = req.body?.businessTypes || req.body?.business_types || req.body?.serviceTypes || null;
+      const hasMentalHealth = Array.isArray(businessTypesRaw)
+        ? businessTypesRaw.some((t) => {
+            const code = String(t?.businessType || t?.business_type || t || '').trim().toLowerCase();
+            return code === 'mental_health' || code === 'healthcare';
+          })
+        : false;
+      if (hasMentalHealth) {
+        try {
+          const { ensureCounselingPsychotherapyProgramForAgency } = await import(
+            '../services/counselingPsychotherapyProgram.service.js'
+          );
+          await ensureCounselingPsychotherapyProgramForAgency(agency.id);
+        } catch (e) {
+          console.warn('[createAgency] counseling program ensure failed:', e?.message || e);
+        }
+      }
+    }
+
     // Life coach / consultant solo tenants: enable public booking surface + practitioner chrome flags,
     // and seed core client_statuses including prospective (pipeline foundation).
     if (isPractitionerRootType && agency?.id) {

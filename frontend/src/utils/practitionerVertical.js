@@ -98,7 +98,7 @@ export function practitionerNavForRole({ orgType, isClient, isOwner = true, perm
         },
         { id: 'calendar', label: 'Calendar', path: 'admin/provider-availability', capability: 'calendar' },
         { id: 'booking', label: 'Public Booking', path: 'admin/public-services', ownerOnly: true },
-        { id: 'packages', label: 'Packages', path: 'admin/session-packages', ownerOnly: true },
+        { id: 'packages', label: 'Packages', path: 'admin/package-catalog', ownerOnly: true },
         { id: 'settings', label: 'Settings', path: 'admin/settings', ownerOnly: true }
       ]
     : [
@@ -120,7 +120,7 @@ export function practitionerNavForRole({ orgType, isClient, isOwner = true, perm
         },
         { id: 'calendar', label: 'Calendar', path: 'admin/provider-availability', capability: 'calendar' },
         { id: 'booking', label: 'Public Booking', path: 'admin/public-services', ownerOnly: true },
-        { id: 'packages', label: 'Packages', path: 'admin/session-packages', ownerOnly: true },
+        { id: 'packages', label: 'Packages', path: 'admin/package-catalog', ownerOnly: true },
         { id: 'settings', label: 'Settings', path: 'admin/settings', ownerOnly: true }
       ];
 

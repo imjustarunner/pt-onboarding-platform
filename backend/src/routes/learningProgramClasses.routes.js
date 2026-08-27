@@ -134,6 +134,7 @@ import {
   toggleReaction,
   listReactions
 } from '../controllers/challengeKudos.controller.js';
+import { listProgramPackages } from '../controllers/bookingPackages.controller.js';
 
 const router = express.Router();
 const __filename = fileURLToPath(import.meta.url);
@@ -178,6 +179,7 @@ router.get('/discover', discoverLearningProgramClasses);
 router.get('/', listLearningProgramClasses);
 router.post('/', createLearningProgramClass);
 router.get('/:classId', getLearningProgramClass);
+router.get('/:classId/packages', listProgramPackages);
 router.put('/:classId', updateLearningProgramClass);
 router.post('/:classId/duplicate', duplicateLearningProgramClass);
 router.put('/:classId/clients', upsertClassClientMembers);

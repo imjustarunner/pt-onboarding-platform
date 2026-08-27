@@ -35,6 +35,7 @@ import {
   saveGuardianPaymentCard,
   getStripeConfig,
   createStripeSetupIntent,
+  listPublicIntakePackages,
   identifyPreferencesUser,
   savePreferencesUser,
   getPublicRegistrationReceipt,
@@ -113,6 +114,7 @@ router.get('/:publicKey/packet-section/:sectionKey/view', viewPublicPacketSectio
 router.get('/:publicKey/disclosure-context', getPublicIntakeDisclosureContext);
 router.get('/:publicKey/disclosure/view', viewPublicDisclosureHtml);
 router.get('/:publicKey/available-providers', listPublicOfficeIntakeProviders);
+router.get('/:publicKey/packages', listPublicIntakePackages);
 router.get('/:publicKey/summary-pdf/email-template', authenticate, getPublicIntakeSummaryPdfEmailTemplate);
 router.put('/:publicKey/summary-pdf/email-template', authenticate, putPublicIntakeSummaryPdfEmailTemplate);
 router.post('/:publicKey/approve', authenticate, approvePublicIntake);

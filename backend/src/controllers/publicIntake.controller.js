@@ -45,6 +45,7 @@ import AgencySchoolIntakeMaster, {
 } from '../models/AgencySchoolIntakeMaster.model.js';
 import AgencyOfficeIntakeMaster from '../models/AgencyOfficeIntakeMaster.model.js';
 import AgencyChannelIntakeMaster from '../models/AgencyChannelIntakeMaster.model.js';
+import AgencyBusinessType from '../models/AgencyBusinessType.model.js';
 import ClientSignedSchoolPacket from '../models/ClientSignedSchoolPacket.model.js';
 import SchoolPacketTemplate from '../models/SchoolPacketTemplate.model.js';
 import OrganizationAffiliation from '../models/OrganizationAffiliation.model.js';
@@ -1667,6 +1668,53 @@ const persistChildIntakeData = async ({
       } catch (profileErr) {
         console.warn('[publicIntake] GuardianInsuranceProfile upsert failed', profileErr?.message || profileErr);
       }
+    }
+
+    // Unified package selection from office enrollment — create pending entitlement
+    // (or activate free packages). Card-on-file was collected via SetupIntent separately.
+    try {
+      const selectedPackageInfo = intakeData?.responses?.submission?.selectedPackageInfo;
+      const packageId = Number(selectedPackageInfo?.selectedPackageId || selectedPackageInfo?.selectedPackage?.id || 0);
+      const pkgAgencyId = Number(
+        agencyId
+        || intakeData?.agencyId
+        || intakeData?.responses?.submission?.agencyId
+        || 0
+      );
+      const purchaserUserId = Number(
+        guardianUserId
+        || intakeData?.guardianUserId
+        || intakeData?.responses?.submission?.guardianUserId
+        || 0
+      ) || null;
+      if (packageId && pkgAgencyId && cid) {
+        const BookingPackage = (await import('../models/BookingPackage.model.js')).default;
+        const pkg = await BookingPackage.findById(packageId, pkgAgencyId);
+        if (pkg?.isActive) {
+          const amountCents = Math.max(0, Number(pkg.priceCents) || 0);
+          if (amountCents < 1 || String(pkg.paymentMode || '').toUpperCase() === 'FREE') {
+            await BookingPackage.activateEntitlement({
+              agencyId: pkgAgencyId,
+              clientId: cid,
+              packageId: pkg.id,
+              paymentStatus: 'PAID',
+              createdByUserId: null,
+              purchaserUserId
+            });
+          } else {
+            await BookingPackage.createPendingEntitlement({
+              agencyId: pkgAgencyId,
+              clientId: cid,
+              packageId: pkg.id,
+              purchaserUserId,
+              createdByUserId: null
+            });
+          }
+          result.packageEntitlementQueued = true;
+        }
+      }
+    } catch (pkgErr) {
+      console.warn('[publicIntake] package entitlement from intake failed', pkgErr?.message || pkgErr);
     }
   } catch {
     // insurance columns may not exist yet (migration pending) — non-fatal.
@@ -12363,6 +12411,67 @@ const ensureEarlyGuardianForPayment = async (submission, link, agencyId) => {
   }
 
   return { guardianUserId, guardianEmail: email || null, guardianName };
+};
+
+/**
+ * GET /:publicKey/packages
+ * Public catalog of active tenant-wide booking packages for this intake channel.
+ */
+export const listPublicIntakePackages = async (req, res, next) => {
+  try {
+    const publicKey = String(req.params.publicKey || '').trim();
+    const { link } = await resolvePublicIntakeContext(publicKey);
+    if (!link?.is_active) return res.status(404).json({ error: { message: 'Intake link not found' } });
+
+    const agencyId = await resolveAgencyIdForLink(link);
+    if (!agencyId) return res.json({ packages: [], businessType: null, paymentOnly: false });
+
+    const channel = String(link.master_channel || '').toLowerCase();
+    const paymentOnlyChannels = new Set(['tutoring', 'coaching', 'consulting', 'mentorship']);
+    const paymentOnly = paymentOnlyChannels.has(channel);
+    let businessType = AgencyBusinessType.normalizeType(req.query.businessType)
+      || (paymentOnly ? channel : 'mental_health');
+
+    const { resolveCatalog } = await import('../services/unifiedPackageCatalog.service.js');
+    let packages = await resolveCatalog({
+      agencyId,
+      businessType,
+      programId: null,
+      publicOnly: true,
+      includeInactive: false
+    });
+
+    // Fallback: if clinical catalog empty, try any tenant-wide public packages.
+    if (!packages.length && !paymentOnly) {
+      packages = await resolveCatalog({
+        agencyId,
+        businessType: null,
+        programId: null,
+        publicOnly: true,
+        includeInactive: false
+      });
+    }
+
+    res.json({
+      packages: (packages || []).map((p) => ({
+        id: p.id,
+        name: p.name,
+        description: p.description || null,
+        packageType: p.packageType,
+        sessionCount: p.sessionCount,
+        priceCents: p.priceCents,
+        paymentMode: p.paymentMode,
+        businessType: p.businessType,
+        billingOptions: p.billingOptions || null,
+        domainConfig: p.domainConfig || null
+      })),
+      businessType,
+      paymentOnly,
+      agencyId
+    });
+  } catch (error) {
+    next(error);
+  }
 };
 
 /**

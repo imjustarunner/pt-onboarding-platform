@@ -4,11 +4,18 @@
       <div>
         <h1>Session packages</h1>
         <p class="subtitle">
-          Build your catalog (e.g. 10 packages). When sending a post-discovery packet, offer only a subset to that client.
-          Each package has its own session count, missed-session policy, and payment settings.
+          Legacy practitioner packet packages. New catalog packages (tenant-wide or program-scoped with Stripe)
+          live in
+          <router-link :to="catalogLink">Package catalog</router-link>.
+          Existing packet entitlements remain here.
         </p>
       </div>
       <button type="button" class="btn btn-primary" @click="startCreate">+ New package</button>
+    </div>
+
+    <div class="card legacy-banner">
+      Prefer the unified <router-link :to="catalogLink">Package catalog</router-link> for tutoring programs and
+      coaching tenants. This page remains for historical practitioner packet flows.
     </div>
 
     <div v-if="loading" class="card">Loading…</div>
@@ -97,12 +104,18 @@
 </template>
 
 <script setup>
-import { onMounted, ref } from 'vue';
+import { computed, onMounted, ref } from 'vue';
+import { useRoute } from 'vue-router';
 import api from '../../services/api';
 import { useAgencyStore } from '../../store/agency';
 
+const route = useRoute();
 const agencyStore = useAgencyStore();
 const agencyId = () => Number(agencyStore.currentAgency?.id || agencyStore.currentAgency?.value?.id || 0);
+const catalogLink = computed(() => {
+  const slug = agencyStore.currentAgency?.slug || route.params.organizationSlug || '';
+  return slug ? `/${slug}/admin/package-catalog` : '/admin/package-catalog';
+});
 
 const loading = ref(true);
 const error = ref('');
@@ -245,6 +258,8 @@ onMounted(load);
 .page-header h1 { margin: 0 0 0.25rem; font-size: 1.45rem; }
 .subtitle { margin: 0; color: #64748b; font-size: 0.88rem; max-width: 40rem; }
 .card { background: #fff; border: 1px solid #e5e7eb; border-radius: 12px; padding: 1rem; }
+.legacy-banner { background: #fffbeb; border-color: #fcd34d; color: #92400e; font-size: 0.9rem; }
+.legacy-banner a { color: #92400e; font-weight: 600; }
 .list { display: grid; gap: 0.75rem; }
 .pkg-card.inactive { opacity: 0.6; }
 .pkg-head { display: flex; justify-content: space-between; gap: 0.75rem; align-items: flex-start; }

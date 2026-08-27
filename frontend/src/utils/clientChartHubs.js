@@ -117,7 +117,7 @@ export function recordsSubnav({
     items.push({ id: 'treatment-plans', label: 'Treatment plans' });
   }
   if (showLearningSurfaces) {
-    items.push({ id: 'learning-plans', label: 'Learning plans' });
+    items.push({ id: 'learning-plans', label: 'Learning' });
   }
   if (!showClinicalSurfaces && !showLearningSurfaces) {
     items.push({ id: 'treatment-plans', label: 'Treatment plans' });

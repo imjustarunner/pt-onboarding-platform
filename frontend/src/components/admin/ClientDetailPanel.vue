@@ -1774,9 +1774,10 @@
               </p>
             </div>
             <div class="casg-stats">
-              <span class="casg-stat"><strong>{{ (clientAgencyAffiliations || []).length }}</strong> Tenant{{ (clientAgencyAffiliations || []).length === 1 ? '' : 's' }}</span>
+              <span class="casg-stat"><strong>{{ (tenantMemberships || []).length }}</strong> Tenant{{ (tenantMemberships || []).length === 1 ? '' : 's' }}</span>
               <span class="casg-stat"><strong>{{ schoolAffiliationCount }}</strong> School{{ schoolAffiliationCount === 1 ? '' : 's' }}</span>
               <span class="casg-stat"><strong>{{ programAffiliationCount }}</strong> Program{{ programAffiliationCount === 1 ? '' : 's' }}</span>
+              <span class="casg-stat"><strong>{{ learningAffiliationCount }}</strong> Learning</span>
               <span class="casg-stat"><strong>{{ (providerAssignments || []).length }}</strong> Provider{{ (providerAssignments || []).length === 1 ? '' : 's' }}</span>
             </div>
           </div>
@@ -1784,71 +1785,380 @@
           <div v-if="assignmentsError" class="error" style="text-align:left;">{{ assignmentsError }}</div>
 
           <div class="casg-grid">
-            <section class="casg-card">
+            <section class="casg-card casg-tenant-hub">
               <header class="casg-card-head">
                 <div>
                   <h4>Tenant memberships</h4>
                   <p class="casg-card-hint">
-                    Clients can belong to multiple tenants. “Use for chart” scopes chart/billing APIs in this session.
+                    Each tenant gets its own schools, programs, learning orgs, and default office / place of service — like provider Agency Assignments.
                   </p>
                 </div>
               </header>
               <div v-if="clientAgenciesNote" class="muted" style="margin-bottom: 10px;">{{ clientAgenciesNote }}</div>
 
-              <div v-if="(clientAgencyAffiliations || []).length === 0" class="hint">No tenant memberships found.</div>
-              <div v-else class="table-wrap">
-                <table class="table">
-                  <thead>
-                    <tr>
-                      <th>Tenant</th>
-                      <th>Chart context</th>
-                      <th class="right"></th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr v-for="a in clientAgencyAffiliations" :key="a.agency_id">
-                      <td>{{ a.agency_name || `Agency ${a.agency_id}` }}</td>
-                      <td>
-                        <span
-                          class="casg-badge"
-                          :class="Number(a.agency_id) === Number(selectedAgencyId || client?.agency_id) ? 'casg-badge--ok' : ''"
+              <div v-if="(tenantMemberships || []).length === 0" class="hint">No tenant memberships found.</div>
+              <div v-else class="casg-tenant-cards">
+                <article
+                  v-for="a in tenantMemberships"
+                  :key="a.agency_id"
+                  class="casg-tenant-card"
+                  :class="{ 'casg-tenant-card--active': Number(a.agency_id) === Number(selectedAgencyId || client?.agency_id) }"
+                >
+                  <div class="casg-tenant-card__head">
+                    <div class="casg-tenant-card__title-row">
+                      <span class="casg-tenant-card__name">{{ a.agency_name || `Agency ${a.agency_id}` }}</span>
+                      <span
+                        class="casg-badge"
+                        :class="Number(a.agency_id) === Number(selectedAgencyId || client?.agency_id) ? 'casg-badge--ok' : ''"
+                      >
+                        {{ Number(a.agency_id) === Number(selectedAgencyId || client?.agency_id) ? 'Active chart' : 'Member' }}
+                      </span>
+                      <span class="casg-badge casg-badge--soft">Schools ({{ affiliationsForTenant(a.agency_id, 'school').length }})</span>
+                      <span class="casg-badge casg-badge--soft">Programs ({{ affiliationsForTenant(a.agency_id, 'program').length }})</span>
+                      <span class="casg-badge casg-badge--soft">Learning ({{ affiliationsForTenant(a.agency_id, 'learning').length }})</span>
+                    </div>
+                    <div class="casg-tenant-card__actions">
+                      <button
+                        v-if="Number(a.agency_id) !== Number(selectedAgencyId || client?.agency_id)"
+                        type="button"
+                        class="btn btn-secondary btn-sm"
+                        :disabled="switchingAgency"
+                        @click="selectedAgencyId = String(a.agency_id); onSwitchAgency(true)"
+                      >
+                        Use for chart
+                      </button>
+                      <button
+                        v-if="Number(a.agency_id) !== Number(selectedAgencyId || client?.agency_id)"
+                        type="button"
+                        class="btn btn-secondary btn-sm"
+                        :disabled="switchingAgency"
+                        :title="'Archive this tenant membership'"
+                        @click="archiveAgencyAffiliation(a.agency_id)"
+                      >
+                        Archive
+                      </button>
+                      <button
+                        v-if="isSuperAdmin && Number(a.agency_id) !== Number(selectedAgencyId || client?.agency_id)"
+                        type="button"
+                        class="btn btn-danger btn-sm"
+                        :disabled="switchingAgency"
+                        title="Permanently remove tenant membership (super admin)"
+                        @click="removeAgencyAffiliationHard(a.agency_id)"
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  </div>
+
+                  <div class="casg-tenant-section">
+                    <h5 class="casg-tenant-section__title"><span>1</span> Default office &amp; place of service</h5>
+                    <p class="casg-card-hint" style="margin-bottom: 10px;">
+                      Prefills scheduled sessions and billing claims for this tenant.
+                    </p>
+                    <div v-if="tenantBookingDraftError(a.agency_id)" class="error" style="text-align:left; margin-bottom: 8px;">
+                      {{ tenantBookingDraftError(a.agency_id) }}
+                    </div>
+                    <div class="casg-fields">
+                      <label class="casg-field">
+                        <span>Default office</span>
+                        <select
+                          class="filters-select"
+                          :value="tenantBookingDraft(a.agency_id).officeId"
+                          :disabled="savingTenantBookingAgencyId === Number(a.agency_id)"
+                          @change="setTenantBookingDraft(a.agency_id, 'officeId', $event.target.value)"
                         >
-                          {{ Number(a.agency_id) === Number(selectedAgencyId || client?.agency_id) ? 'Active' : '—' }}
-                        </span>
-                      </td>
-                      <td class="right" style="white-space: nowrap;">
+                          <option value="">Not set</option>
+                          <option
+                            v-for="o in officeOptionsForTenant(a.agency_id)"
+                            :key="`off-${a.agency_id}-${o.id}`"
+                            :value="String(o.id)"
+                          >
+                            {{ o.name }}{{ o.street_address ? ` — ${o.street_address}` : '' }}
+                          </option>
+                        </select>
+                      </label>
+                      <label class="casg-field">
+                        <span>Default place of service</span>
+                        <select
+                          class="filters-select"
+                          :value="tenantBookingDraft(a.agency_id).pos"
+                          :disabled="savingTenantBookingAgencyId === Number(a.agency_id)"
+                          @change="setTenantBookingDraft(a.agency_id, 'pos', $event.target.value)"
+                        >
+                          <option value="">Not set</option>
+                          <option v-for="p in PLACE_OF_SERVICE_OPTIONS" :key="`pos-${a.agency_id}-${p.code}`" :value="p.code">
+                            {{ p.code }} — {{ p.label }}
+                          </option>
+                        </select>
+                      </label>
+                      <label class="casg-field">
+                        <span>Service location (optional)</span>
+                        <select
+                          class="filters-select"
+                          :value="tenantBookingDraft(a.agency_id).serviceLocationId"
+                          :disabled="savingTenantBookingAgencyId === Number(a.agency_id)"
+                          @change="setTenantBookingDraft(a.agency_id, 'serviceLocationId', $event.target.value)"
+                        >
+                          <option value="">Not set</option>
+                          <option
+                            v-for="loc in serviceLocationOptionsForTenant(a.agency_id)"
+                            :key="`loc-${a.agency_id}-${loc.id}`"
+                            :value="String(loc.id)"
+                          >
+                            {{ loc.name || loc.label || `Location ${loc.id}` }}
+                            <template v-if="loc.placeOfService || loc.place_of_service">
+                              (POS {{ loc.placeOfService || loc.place_of_service }})
+                            </template>
+                          </option>
+                        </select>
+                      </label>
+                    </div>
+                    <div class="casg-card-actions">
+                      <button
+                        type="button"
+                        class="btn btn-secondary btn-sm"
+                        :disabled="savingTenantBookingAgencyId === Number(a.agency_id) || !canSuggestOfficeFromProvider"
+                        @click="suggestDefaultsFromPrimaryProviderForTenant(a.agency_id)"
+                      >
+                        Use provider office
+                      </button>
+                      <button
+                        type="button"
+                        class="btn btn-primary btn-sm"
+                        :disabled="savingTenantBookingAgencyId === Number(a.agency_id)"
+                        @click="saveTenantBookingDefaults(a.agency_id)"
+                      >
+                        {{ savingTenantBookingAgencyId === Number(a.agency_id) ? 'Saving…' : 'Save defaults' }}
+                      </button>
+                      <span v-if="tenantBookingDraftHint(a.agency_id)" class="hint">{{ tenantBookingDraftHint(a.agency_id) }}</span>
+                    </div>
+                  </div>
+
+                  <div class="casg-tenant-section">
+                    <h5 class="casg-tenant-section__title"><span>2</span> Schools</h5>
+                    <div v-if="affiliationsLoading" class="loading">Loading…</div>
+                    <div v-else>
+                      <div v-if="affiliationsForTenant(a.agency_id, 'school').length === 0" class="hint">No schools linked for this tenant.</div>
+                      <ul v-else class="casg-affil-list">
+                        <li v-for="row in affiliationsForTenant(a.agency_id, 'school')" :key="`sch-${row.organization_id}`">
+                          <div>
+                            <strong>{{ row.organization_name }}</strong>
+                            <span v-if="row.is_primary" class="casg-badge casg-badge--ok" style="margin-left: 6px;">Primary</span>
+                          </div>
+                          <div class="casg-affil-actions">
+                            <button
+                              v-if="!row.is_primary"
+                              type="button"
+                              class="btn btn-secondary btn-sm"
+                              :disabled="savingAffiliation"
+                              @click="setPrimaryAffiliation(row.organization_id)"
+                            >
+                              Set primary
+                            </button>
+                            <button
+                              v-if="!row.is_primary"
+                              type="button"
+                              class="btn btn-danger btn-sm"
+                              :disabled="savingAffiliation"
+                              @click="removeAffiliation(row.organization_id)"
+                            >
+                              Remove
+                            </button>
+                          </div>
+                        </li>
+                      </ul>
+                      <div class="casg-add-row">
+                        <div style="min-width: 240px; flex: 1;">
+                          <label class="filters-label">Add school</label>
+                          <select
+                            class="filters-select"
+                            :value="tenantAddDraft(a.agency_id, 'school')"
+                            @change="setTenantAddDraft(a.agency_id, 'school', $event.target.value)"
+                          >
+                            <option value="">Select…</option>
+                            <option
+                              v-for="o in availableOrgsForTenant(a.agency_id, 'school')"
+                              :key="`add-sch-${o.id}`"
+                              :value="String(o.id)"
+                            >
+                              {{ o.name }}
+                            </option>
+                          </select>
+                        </div>
+                        <label class="checkbox-label">
+                          <input
+                            type="checkbox"
+                            :checked="!!tenantAddMakePrimary(a.agency_id, 'school')"
+                            @change="setTenantAddMakePrimary(a.agency_id, 'school', $event.target.checked)"
+                          />
+                          Make primary
+                        </label>
                         <button
-                          v-if="Number(a.agency_id) !== Number(selectedAgencyId || client?.agency_id)"
                           type="button"
-                          class="btn btn-secondary btn-sm"
-                          :disabled="switchingAgency"
-                          @click="selectedAgencyId = String(a.agency_id); onSwitchAgency(true)"
+                          class="btn btn-primary btn-sm"
+                          :disabled="savingAffiliation || !tenantAddDraft(a.agency_id, 'school')"
+                          @click="addAffiliationForTenant(a.agency_id, 'school')"
                         >
-                          Use for chart
+                          Add school
                         </button>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div class="casg-tenant-section">
+                    <h5 class="casg-tenant-section__title"><span>3</span> Programs</h5>
+                    <p class="casg-card-hint" style="margin-bottom: 8px;">
+                      Includes Counseling and Psychotherapy and other in-office / clinical programs for this tenant.
+                    </p>
+                    <div v-if="affiliationsLoading" class="loading">Loading…</div>
+                    <div v-else>
+                      <div v-if="affiliationsForTenant(a.agency_id, 'program').length === 0" class="hint">No programs linked for this tenant.</div>
+                      <ul v-else class="casg-affil-list">
+                        <li v-for="row in affiliationsForTenant(a.agency_id, 'program')" :key="`prog-${row.organization_id}`">
+                          <div>
+                            <strong>{{ row.organization_name }}</strong>
+                            <span class="casg-badge" style="margin-left: 6px;">{{ affiliationDisplayType(row) }}</span>
+                            <span v-if="row.is_primary" class="casg-badge casg-badge--ok" style="margin-left: 6px;">Primary</span>
+                          </div>
+                          <div class="casg-affil-actions">
+                            <button
+                              v-if="!row.is_primary"
+                              type="button"
+                              class="btn btn-secondary btn-sm"
+                              :disabled="savingAffiliation"
+                              @click="setPrimaryAffiliation(row.organization_id)"
+                            >
+                              Set primary
+                            </button>
+                            <button
+                              v-if="!row.is_primary"
+                              type="button"
+                              class="btn btn-danger btn-sm"
+                              :disabled="savingAffiliation"
+                              @click="removeAffiliation(row.organization_id)"
+                            >
+                              Remove
+                            </button>
+                          </div>
+                        </li>
+                      </ul>
+                      <div class="casg-add-row">
+                        <div style="min-width: 240px; flex: 1;">
+                          <label class="filters-label">Add program</label>
+                          <select
+                            class="filters-select"
+                            :value="tenantAddDraft(a.agency_id, 'program')"
+                            @change="setTenantAddDraft(a.agency_id, 'program', $event.target.value)"
+                          >
+                            <option value="">Select…</option>
+                            <option
+                              v-for="o in availableOrgsForTenant(a.agency_id, 'program')"
+                              :key="`add-prog-${o.id}`"
+                              :value="String(o.id)"
+                            >
+                              {{ o.name }}
+                            </option>
+                          </select>
+                        </div>
+                        <label class="checkbox-label">
+                          <input
+                            type="checkbox"
+                            :checked="!!tenantAddMakePrimary(a.agency_id, 'program')"
+                            @change="setTenantAddMakePrimary(a.agency_id, 'program', $event.target.checked)"
+                          />
+                          Make primary
+                        </label>
                         <button
-                          v-if="Number(a.agency_id) !== Number(selectedAgencyId || client?.agency_id) || (clientAgencyAffiliations || []).length > 1"
                           type="button"
-                          class="btn btn-danger btn-sm"
-                          :disabled="switchingAgency || Number(a.agency_id) === Number(selectedAgencyId || client?.agency_id)"
-                          :title="Number(a.agency_id) === Number(selectedAgencyId || client?.agency_id) ? 'Switch chart context before removing the active tenant' : 'Remove tenant membership'"
-                          @click="removeAgencyAffiliation(a.agency_id)"
-                          style="margin-left: 8px;"
+                          class="btn btn-primary btn-sm"
+                          :disabled="savingAffiliation || !tenantAddDraft(a.agency_id, 'program')"
+                          @click="addAffiliationForTenant(a.agency_id, 'program')"
                         >
-                          Remove
+                          Add program
                         </button>
-                      </td>
-                    </tr>
-                  </tbody>
-                </table>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div class="casg-tenant-section">
+                    <h5 class="casg-tenant-section__title"><span>4</span> Learning</h5>
+                    <div v-if="affiliationsLoading" class="loading">Loading…</div>
+                    <div v-else>
+                      <div v-if="affiliationsForTenant(a.agency_id, 'learning').length === 0" class="hint">No learning orgs linked for this tenant.</div>
+                      <ul v-else class="casg-affil-list">
+                        <li v-for="row in affiliationsForTenant(a.agency_id, 'learning')" :key="`lrn-${row.organization_id}`">
+                          <div>
+                            <strong>{{ row.organization_name }}</strong>
+                            <span v-if="row.is_primary" class="casg-badge casg-badge--ok" style="margin-left: 6px;">Primary</span>
+                          </div>
+                          <div class="casg-affil-actions">
+                            <button
+                              v-if="!row.is_primary"
+                              type="button"
+                              class="btn btn-secondary btn-sm"
+                              :disabled="savingAffiliation"
+                              @click="setPrimaryAffiliation(row.organization_id)"
+                            >
+                              Set primary
+                            </button>
+                            <button
+                              v-if="!row.is_primary"
+                              type="button"
+                              class="btn btn-danger btn-sm"
+                              :disabled="savingAffiliation"
+                              @click="removeAffiliation(row.organization_id)"
+                            >
+                              Remove
+                            </button>
+                          </div>
+                        </li>
+                      </ul>
+                      <div class="casg-add-row">
+                        <div style="min-width: 240px; flex: 1;">
+                          <label class="filters-label">Add learning</label>
+                          <select
+                            class="filters-select"
+                            :value="tenantAddDraft(a.agency_id, 'learning')"
+                            @change="setTenantAddDraft(a.agency_id, 'learning', $event.target.value)"
+                          >
+                            <option value="">Select…</option>
+                            <option
+                              v-for="o in availableOrgsForTenant(a.agency_id, 'learning')"
+                              :key="`add-lrn-${o.id}`"
+                              :value="String(o.id)"
+                            >
+                              {{ o.name }}
+                            </option>
+                          </select>
+                        </div>
+                        <label class="checkbox-label">
+                          <input
+                            type="checkbox"
+                            :checked="!!tenantAddMakePrimary(a.agency_id, 'learning')"
+                            @change="setTenantAddMakePrimary(a.agency_id, 'learning', $event.target.checked)"
+                          />
+                          Make primary
+                        </label>
+                        <button
+                          type="button"
+                          class="btn btn-primary btn-sm"
+                          :disabled="savingAffiliation || !tenantAddDraft(a.agency_id, 'learning')"
+                          @click="addAffiliationForTenant(a.agency_id, 'learning')"
+                        >
+                          Add learning
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </article>
               </div>
 
-              <div class="casg-add-row">
+              <div class="casg-add-row" style="margin-top: 16px; border-top: 1px solid #e2e8f0; padding-top: 14px;">
                 <div style="min-width: 280px; flex: 1;">
                   <label class="filters-label">Add tenant membership</label>
                   <select v-model="addAgencyAffiliationId" class="filters-select">
-                    <option value="">Select…</option>
-                    <option v-for="a in addableAgencyOptions" :key="a.id" :value="String(a.id)">{{ a.name }}</option>
+                    <option value="">Select tenant…</option>
+                    <option v-for="opt in addableAgencyOptions" :key="opt.id" :value="String(opt.id)">{{ opt.name }}</option>
                   </select>
                 </div>
                 <label class="checkbox-label" style="min-width: 200px;">
@@ -1861,148 +2171,44 @@
                   :disabled="switchingAgency || !addAgencyAffiliationId"
                   @click="addAgencyAffiliation"
                 >
-                  Add
+                  Add tenant
                 </button>
               </div>
-            </section>
 
-            <section class="casg-card">
-              <header class="casg-card-head">
-                <div>
-                  <h4>Default office &amp; place of service</h4>
-                  <p class="casg-card-hint">
-                    Prefills scheduled sessions and billing claims. Usually mirrors the primary provider’s assigned office; change anytime.
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  class="btn btn-secondary btn-sm"
-                  :disabled="savingClientBookingDefaults || !canSuggestOfficeFromProvider"
-                  @click="suggestDefaultsFromPrimaryProvider"
-                >
-                  Use provider office
-                </button>
-              </header>
-              <div v-if="clientBookingDefaultsError" class="error" style="text-align:left; margin-bottom: 8px;">{{ clientBookingDefaultsError }}</div>
-              <div class="casg-fields">
-                <label class="casg-field">
-                  <span>Default office</span>
-                  <select v-model="clientDefaultOfficeId" class="filters-select" :disabled="savingClientBookingDefaults">
-                    <option value="">Not set</option>
-                    <option v-for="o in clientOfficeOptions" :key="o.id" :value="String(o.id)">
-                      {{ o.name }}{{ o.street_address ? ` — ${o.street_address}` : '' }}
-                    </option>
-                  </select>
-                </label>
-                <label class="casg-field">
-                  <span>Default place of service</span>
-                  <select v-model="clientDefaultPos" class="filters-select" :disabled="savingClientBookingDefaults">
-                    <option value="">Not set</option>
-                    <option v-for="p in PLACE_OF_SERVICE_OPTIONS" :key="p.code" :value="p.code">
-                      {{ p.code }} — {{ p.label }}
-                    </option>
-                  </select>
-                </label>
-                <label class="casg-field">
-                  <span>Service location (optional)</span>
-                  <select v-model="clientDefaultServiceLocationId" class="filters-select" :disabled="savingClientBookingDefaults">
-                    <option value="">Not set</option>
-                    <option v-for="loc in clientServiceLocationOptions" :key="loc.id" :value="String(loc.id)">
-                      {{ loc.name || loc.label || `Location ${loc.id}` }}
-                      <template v-if="loc.placeOfService || loc.place_of_service">
-                        (POS {{ loc.placeOfService || loc.place_of_service }})
-                      </template>
-                    </option>
-                  </select>
-                </label>
-              </div>
-              <div class="casg-card-actions">
-                <button
-                  type="button"
-                  class="btn btn-primary btn-sm"
-                  :disabled="savingClientBookingDefaults"
-                  @click="saveClientBookingDefaults"
-                >
-                  {{ savingClientBookingDefaults ? 'Saving…' : 'Save defaults' }}
-                </button>
-                <span v-if="clientBookingDefaultsSavedHint" class="hint">{{ clientBookingDefaultsSavedHint }}</span>
-              </div>
-            </section>
-
-            <section class="casg-card">
-              <header class="casg-card-head">
-                <div>
-                  <h4>Program / school affiliations</h4>
-                  <p class="casg-card-hint">Link this client to schools and programs for roster and care-team scoping.</p>
-                </div>
-              </header>
-              <div v-if="affiliationsLoading" class="loading">Loading…</div>
-              <div v-else>
-                <div v-if="affiliations.length === 0" class="hint">No affiliations yet.</div>
-                <div v-else class="table-wrap">
-                  <table class="table">
-                    <thead>
-                      <tr>
-                        <th>Organization</th>
-                        <th>Type</th>
-                        <th>Primary</th>
-                        <th class="right"></th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      <tr v-for="a in affiliations" :key="a.organization_id">
-                        <td>{{ a.organization_name }}</td>
-                        <td><span class="casg-badge">{{ a.organization_type || '—' }}</span></td>
-                        <td>{{ a.is_primary ? 'Yes' : 'No' }}</td>
-                        <td class="right" style="white-space: nowrap;">
-                          <button
-                            v-if="!a.is_primary"
-                            type="button"
-                            class="btn btn-secondary btn-sm"
-                            :disabled="savingAffiliation"
-                            @click="setPrimaryAffiliation(a.organization_id)"
-                          >
-                            Set primary
-                          </button>
-                          <button
-                            v-if="!a.is_primary"
-                            type="button"
-                            class="btn btn-danger btn-sm"
-                            :disabled="savingAffiliation"
-                            @click="removeAffiliation(a.organization_id)"
-                            style="margin-left: 8px;"
-                          >
-                            Remove
-                          </button>
-                        </td>
-                      </tr>
-                    </tbody>
-                  </table>
-                </div>
-
-                <div class="casg-add-row">
-                  <div style="min-width: 280px; flex: 1;">
-                    <label class="filters-label">Add affiliation</label>
-                    <select v-model="addAffiliationOrgId" class="filters-select">
-                      <option value="">Select…</option>
-                      <option v-for="o in availableAffiliationOptions" :key="o.id" :value="String(o.id)">
-                        {{ o.name }} <span v-if="o.organization_type">({{ o.organization_type }})</span>
-                      </option>
-                    </select>
-                  </div>
-                  <label class="checkbox-label" style="min-width: 200px;">
-                    <input v-model="addAffiliationMakePrimary" type="checkbox" />
-                    Make primary
-                  </label>
-                  <button
-                    type="button"
-                    class="btn btn-primary"
-                    :disabled="savingAffiliation || !addAffiliationOrgId"
-                    @click="addAffiliation"
-                  >
-                    {{ savingAffiliation ? 'Saving…' : 'Add' }}
-                  </button>
-                </div>
+              <div v-if="orphanAffiliations.length" class="casg-tenant-section" style="margin-top: 16px;">
+                <h5 class="casg-tenant-section__title">Other affiliations</h5>
+                <p class="casg-card-hint" style="margin-bottom: 8px;">
+                  Linked orgs that are not currently affiliated under a tenant membership above.
+                </p>
+                <ul class="casg-affil-list">
+                  <li v-for="row in orphanAffiliations" :key="`orphan-${row.organization_id}`">
+                    <div>
+                      <strong>{{ row.organization_name }}</strong>
+                      <span class="casg-badge" style="margin-left: 6px;">{{ affiliationDisplayType(row) }}</span>
+                      <span v-if="row.is_primary" class="casg-badge casg-badge--ok" style="margin-left: 6px;">Primary</span>
+                    </div>
+                    <div class="casg-affil-actions">
+                      <button
+                        v-if="!row.is_primary"
+                        type="button"
+                        class="btn btn-secondary btn-sm"
+                        :disabled="savingAffiliation"
+                        @click="setPrimaryAffiliation(row.organization_id)"
+                      >
+                        Set primary
+                      </button>
+                      <button
+                        v-if="!row.is_primary"
+                        type="button"
+                        class="btn btn-danger btn-sm"
+                        :disabled="savingAffiliation"
+                        @click="removeAffiliation(row.organization_id)"
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  </li>
+                </ul>
               </div>
             </section>
 
@@ -2328,11 +2534,9 @@
         </div>
 
         <div v-if="showPanel('learning-plans')" class="detail-section">
-          <ClientTreatmentPlansPanel
+          <ClientLearningOsPanel
             :client-id="client.id"
             :agency-id="selectedAgencyId || client.agency_id"
-            client-type="learning"
-            @navigate="goChartSub"
           />
         </div>
 
@@ -2516,6 +2720,7 @@ import ClientCareTimeline from './clientChart/ClientCareTimeline.vue';
 import ClientIntakeNotePanel from './clientChart/ClientIntakeNotePanel.vue';
 import ClientRecordsOverview from './clientChart/ClientRecordsOverview.vue';
 import ClientTreatmentPlansPanel from './clientChart/ClientTreatmentPlansPanel.vue';
+import ClientLearningOsPanel from './clientChart/ClientLearningOsPanel.vue';
 import ClientAuthorizationsPanel from './clientChart/ClientAuthorizationsPanel.vue';
 
 const props = defineProps({
@@ -2956,7 +3161,7 @@ const primaryAgencyDisplayName = computed(() => {
 
 const tenantMembershipPills = computed(() => {
   const activeId = Number(selectedAgencyId.value || props.client?.agency_id || 0);
-  const fromAffil = (clientAgencyAffiliations.value || [])
+  const fromAffil = (tenantMemberships.value || [])
     .map((a) => ({
       id: Number(a?.agency_id),
       name: String(a?.agency_name || '').trim(),
@@ -3192,10 +3397,179 @@ const organizationSlugForLinks = computed(() => String(route.params?.organizatio
 
 const addAgencyAffiliationId = ref('');
 const addAgencyMakePrimary = ref(false);
+const isAgencyOrgType = (o) => String(o?.organization_type || o?.organizationType || 'agency').toLowerCase() === 'agency';
+const tenantMemberships = computed(() =>
+  (clientAgencyAffiliations.value || []).filter((a) => {
+    const t = String(a?.agency_organization_type || a?.organization_type || 'agency').toLowerCase();
+    return t === 'agency' || !a?.agency_organization_type;
+  })
+);
 const addableAgencyOptions = computed(() => {
-  const existing = new Set((clientAgencyAffiliations.value || []).map((a) => Number(a?.agency_id)).filter(Boolean));
-  return (myAgencies.value || []).filter((a) => a && !existing.has(Number(a.id)));
+  const existing = new Set((tenantMemberships.value || []).map((a) => Number(a?.agency_id)).filter(Boolean));
+  return (myAgencies.value || []).filter(
+    (a) => a && isAgencyOrgType(a) && !existing.has(Number(a.id))
+  );
 });
+
+const affiliatedOrgsByAgencyId = ref({}); // { [agencyId]: org[] }
+const tenantBookingDrafts = ref({}); // { [agencyId]: { officeId, pos, serviceLocationId, hint, error } }
+const tenantOfficeOptionsByAgency = ref({});
+const tenantServiceLocationOptionsByAgency = ref({});
+const tenantAddDrafts = ref({}); // { [`${agencyId}:school`]: orgId }
+const tenantAddMakePrimaryMap = ref({});
+const savingTenantBookingAgencyId = ref(0);
+
+function orgTypeBucket(t) {
+  const n = String(t || '').toLowerCase();
+  if (n === 'school') return 'school';
+  if (n === 'learning') return 'learning';
+  if (n === 'program' || n === 'clinical') return 'program';
+  return n || 'other';
+}
+
+function affiliationDisplayType(row) {
+  const t = String(row?.organization_type || '').toLowerCase();
+  if (t === 'clinical') return 'program';
+  return t || '—';
+}
+
+function orgIdsForAgency(agencyId) {
+  const list = affiliatedOrgsByAgencyId.value[String(agencyId)] || [];
+  return new Set(list.map((o) => Number(o.id)).filter(Boolean));
+}
+
+function affiliationsForTenant(agencyId, bucket) {
+  const ids = orgIdsForAgency(agencyId);
+  return (affiliations.value || []).filter((row) => {
+    const oid = Number(row?.organization_id);
+    if (!oid || !ids.has(oid)) return false;
+    return orgTypeBucket(row?.organization_type) === bucket;
+  });
+}
+
+const orphanAffiliations = computed(() => {
+  const covered = new Set();
+  for (const a of tenantMemberships.value || []) {
+    for (const id of orgIdsForAgency(a.agency_id)) covered.add(id);
+  }
+  return (affiliations.value || []).filter((row) => {
+    const oid = Number(row?.organization_id);
+    return oid && !covered.has(oid);
+  });
+});
+
+function availableOrgsForTenant(agencyId, bucket) {
+  const existing = new Set((affiliations.value || []).map((a) => Number(a?.organization_id)).filter(Boolean));
+  const list = affiliatedOrgsByAgencyId.value[String(agencyId)] || [];
+  return list.filter((o) => {
+    const id = Number(o?.id);
+    if (!id || existing.has(id)) return false;
+    return orgTypeBucket(o?.organization_type) === bucket;
+  });
+}
+
+function tenantAddKey(agencyId, bucket) {
+  return `${Number(agencyId)}:${bucket}`;
+}
+function tenantAddDraft(agencyId, bucket) {
+  return tenantAddDrafts.value[tenantAddKey(agencyId, bucket)] || '';
+}
+function setTenantAddDraft(agencyId, bucket, value) {
+  tenantAddDrafts.value = { ...tenantAddDrafts.value, [tenantAddKey(agencyId, bucket)]: value };
+}
+function tenantAddMakePrimary(agencyId, bucket) {
+  return !!tenantAddMakePrimaryMap.value[tenantAddKey(agencyId, bucket)];
+}
+function setTenantAddMakePrimary(agencyId, bucket, checked) {
+  tenantAddMakePrimaryMap.value = {
+    ...tenantAddMakePrimaryMap.value,
+    [tenantAddKey(agencyId, bucket)]: !!checked
+  };
+}
+
+function ensureTenantBookingDraft(agencyId) {
+  const key = String(agencyId);
+  if (!tenantBookingDrafts.value[key]) {
+    const row = (clientAgencyAffiliations.value || []).find((a) => Number(a.agency_id) === Number(agencyId));
+    const isActiveChart = Number(agencyId) === Number(selectedAgencyId.value || props.client?.agency_id);
+    tenantBookingDrafts.value = {
+      ...tenantBookingDrafts.value,
+      [key]: {
+        officeId: row?.default_office_location_id
+          ? String(row.default_office_location_id)
+          : (isActiveChart && props.client?.default_office_location_id
+            ? String(props.client.default_office_location_id)
+            : ''),
+        pos: row?.default_place_of_service
+          ? String(row.default_place_of_service)
+          : (isActiveChart && props.client?.default_place_of_service
+            ? String(props.client.default_place_of_service)
+            : ''),
+        serviceLocationId: row?.default_service_location_id
+          ? String(row.default_service_location_id)
+          : (isActiveChart && props.client?.default_service_location_id
+            ? String(props.client.default_service_location_id)
+            : ''),
+        hint: '',
+        error: ''
+      }
+    };
+  }
+  return tenantBookingDrafts.value[key];
+}
+function tenantBookingDraft(agencyId) {
+  return ensureTenantBookingDraft(agencyId);
+}
+function setTenantBookingDraft(agencyId, field, value) {
+  const cur = { ...ensureTenantBookingDraft(agencyId), [field]: value, hint: '', error: '' };
+  tenantBookingDrafts.value = { ...tenantBookingDrafts.value, [String(agencyId)]: cur };
+}
+function tenantBookingDraftHint(agencyId) {
+  return ensureTenantBookingDraft(agencyId).hint || '';
+}
+function tenantBookingDraftError(agencyId) {
+  return ensureTenantBookingDraft(agencyId).error || '';
+}
+function officeOptionsForTenant(agencyId) {
+  return tenantOfficeOptionsByAgency.value[String(agencyId)] || [];
+}
+function serviceLocationOptionsForTenant(agencyId) {
+  return tenantServiceLocationOptionsByAgency.value[String(agencyId)] || [];
+}
+
+async function loadTenantCatalog(agencyId) {
+  const aid = Number(agencyId);
+  if (!aid) return;
+  try {
+    const [orgsRes, officesRes, locsRes] = await Promise.all([
+      api.get(`/agencies/${aid}/affiliated-organizations`, { skipGlobalLoading: true }),
+      api.get('/payroll/office-locations', { params: { agencyId: aid }, skipGlobalLoading: true }).catch(() => null),
+      api.get('/medical-billing/service-locations', { params: { agencyId: aid }, skipGlobalLoading: true }).catch(() => null)
+    ]);
+    affiliatedOrgsByAgencyId.value = {
+      ...affiliatedOrgsByAgencyId.value,
+      [String(aid)]: Array.isArray(orgsRes?.data) ? orgsRes.data : []
+    };
+    const offices = Array.isArray(officesRes?.data) ? officesRes.data : (officesRes?.data?.locations || []);
+    tenantOfficeOptionsByAgency.value = {
+      ...tenantOfficeOptionsByAgency.value,
+      [String(aid)]: Array.isArray(offices) ? offices : []
+    };
+    const locs = locsRes?.data?.locations || locsRes?.data?.serviceLocations || locsRes?.data || [];
+    tenantServiceLocationOptionsByAgency.value = {
+      ...tenantServiceLocationOptionsByAgency.value,
+      [String(aid)]: Array.isArray(locs) ? locs : []
+    };
+  } catch {
+    affiliatedOrgsByAgencyId.value = { ...affiliatedOrgsByAgencyId.value, [String(aid)]: [] };
+  }
+  ensureTenantBookingDraft(aid);
+}
+
+async function loadAllTenantCatalogs() {
+  const ids = (tenantMemberships.value || []).map((a) => Number(a.agency_id)).filter(Boolean);
+  await Promise.all(ids.map((id) => loadTenantCatalog(id)));
+}
 
 const addAgencyAffiliation = async () => {
   const agencyId = addAgencyAffiliationId.value ? Number(addAgencyAffiliationId.value) : null;
@@ -3207,8 +3581,8 @@ const addAgencyAffiliation = async () => {
     addAgencyAffiliationId.value = '';
     addAgencyMakePrimary.value = false;
     await fetchClientAgencyAffiliations();
+    await loadTenantCatalog(agencyId);
     if (makePrimary) {
-      // If we made it primary, props.client will be refreshed by parent; keep local selection consistent.
       selectedAgencyId.value = String(agencyId);
     }
   } catch (e) {
@@ -3218,20 +3592,38 @@ const addAgencyAffiliation = async () => {
   }
 };
 
-const removeAgencyAffiliation = async (agencyId) => {
+const archiveAgencyAffiliation = async (agencyId) => {
   const id = Number(agencyId);
   if (!id) return;
-  if (!window.confirm('Remove this agency affiliation?')) return;
+  if (!window.confirm('Archive this tenant membership? You can re-add it later.')) return;
   try {
     switchingAgency.value = true;
     await api.delete(`/clients/${props.client.id}/agency-affiliations/${id}`);
     await fetchClientAgencyAffiliations();
   } catch (e) {
-    alert(e.response?.data?.error?.message || e.message || 'Failed to remove agency affiliation');
+    alert(e.response?.data?.error?.message || e.message || 'Failed to archive tenant membership');
   } finally {
     switchingAgency.value = false;
   }
 };
+
+const removeAgencyAffiliationHard = async (agencyId) => {
+  const id = Number(agencyId);
+  if (!id) return;
+  if (!window.confirm('Permanently remove this tenant membership? This cannot be undone from archive.')) return;
+  try {
+    switchingAgency.value = true;
+    await api.delete(`/clients/${props.client.id}/agency-affiliations/${id}`, { params: { hard: 1 } });
+    await fetchClientAgencyAffiliations();
+  } catch (e) {
+    alert(e.response?.data?.error?.message || e.message || 'Failed to remove tenant membership');
+  } finally {
+    switchingAgency.value = false;
+  }
+};
+
+/** @deprecated use archiveAgencyAffiliation / removeAgencyAffiliationHard */
+const removeAgencyAffiliation = archiveAgencyAffiliation;
 
 const docStatusDetailsEl = ref(null);
 
@@ -4087,6 +4479,118 @@ const availableAffiliationOptions = computed(() => {
   });
 });
 
+const addAffiliationForTenant = async (agencyId, bucket) => {
+  if (!canEditAccount.value) return;
+  const orgId = tenantAddDraft(agencyId, bucket) ? Number(tenantAddDraft(agencyId, bucket)) : null;
+  if (!orgId) return;
+  try {
+    savingAffiliation.value = true;
+    assignmentsError.value = '';
+    await api.post(`/clients/${props.client.id}/affiliations`, {
+      organization_id: orgId,
+      is_primary: tenantAddMakePrimary(agencyId, bucket),
+      agency_id: Number(agencyId)
+    });
+    setTenantAddDraft(agencyId, bucket, '');
+    setTenantAddMakePrimary(agencyId, bucket, false);
+    await fetchClientAffiliations();
+  } catch (e) {
+    assignmentsError.value = e.response?.data?.error?.message || 'Failed to save affiliation';
+  } finally {
+    savingAffiliation.value = false;
+  }
+};
+
+async function saveTenantBookingDefaults(agencyId) {
+  const aid = Number(agencyId);
+  if (!props.client?.id || !aid || savingTenantBookingAgencyId.value) return;
+  savingTenantBookingAgencyId.value = aid;
+  const draft = ensureTenantBookingDraft(aid);
+  draft.error = '';
+  draft.hint = '';
+  try {
+    const payload = {
+      agency_id: aid,
+      default_office_location_id: draft.officeId ? Number(draft.officeId) : null,
+      default_place_of_service: draft.pos || null,
+      default_service_location_id: draft.serviceLocationId ? Number(draft.serviceLocationId) : null
+    };
+    await api.post(`/clients/${props.client.id}/agency-affiliations`, payload);
+    draft.hint = 'Saved.';
+    tenantBookingDrafts.value = { ...tenantBookingDrafts.value, [String(aid)]: { ...draft } };
+    await fetchClientAgencyAffiliations();
+    // Mirror onto clients.* when this is the active chart tenant so legacy readers stay in sync.
+    if (Number(selectedAgencyId.value || props.client?.agency_id) === aid) {
+      try {
+        await api.put(`/clients/${props.client.id}`, {
+          default_office_location_id: payload.default_office_location_id,
+          default_place_of_service: payload.default_place_of_service,
+          default_service_location_id: payload.default_service_location_id
+        });
+        emit('updated', { keepOpen: true });
+      } catch {
+        // membership row already saved
+      }
+    }
+  } catch (e) {
+    draft.error = e.response?.data?.error?.message || e.message || 'Failed to save booking defaults';
+    tenantBookingDrafts.value = { ...tenantBookingDrafts.value, [String(aid)]: { ...draft } };
+  } finally {
+    savingTenantBookingAgencyId.value = 0;
+  }
+}
+
+async function suggestDefaultsFromPrimaryProviderForTenant(agencyId) {
+  const aid = Number(agencyId);
+  const draft = ensureTenantBookingDraft(aid);
+  const primary = (providerAssignments.value || []).find((p) => p.is_primary)
+    || (providerAssignments.value || [])[0];
+  const providerUserId = Number(
+    primary?.provider_user_id || primary?.provider_id || props.client?.provider_id || 0
+  );
+  if (!providerUserId) {
+    draft.error = 'Assign a primary provider first.';
+    tenantBookingDrafts.value = { ...tenantBookingDrafts.value, [String(aid)]: { ...draft } };
+    return;
+  }
+  draft.error = '';
+  try {
+    const res = await api.get(`/users/${providerUserId}/office-assignments`, { skipGlobalLoading: true });
+    const list = Array.isArray(res?.data?.assigned) ? res.data.assigned : [];
+    const primaryOffice = list.find((r) => r.is_primary || r.isPrimary)
+      || list.find((r) => r.is_active !== false && r.isActive !== false)
+      || list[0];
+    const officeId = Number(
+      primaryOffice?.office_location_id
+      || primaryOffice?.officeLocationId
+      || primaryOffice?.id
+      || 0
+    );
+    if (!officeId) {
+      draft.error = 'Primary provider has no office assignment.';
+      tenantBookingDrafts.value = { ...tenantBookingDrafts.value, [String(aid)]: { ...draft } };
+      return;
+    }
+    draft.officeId = String(officeId);
+    const office = officeOptionsForTenant(aid).find((o) => Number(o.id) === officeId);
+    const pos = String(
+      office?.default_place_of_service || office?.defaultPlaceOfService || draft.pos || '11'
+    ).trim();
+    if (pos) draft.pos = pos;
+    const matchingLoc = serviceLocationOptionsForTenant(aid).find((loc) => {
+      const locPos = String(loc.placeOfService || loc.place_of_service || '');
+      const billingOffice = Number(loc.billing_office_location_id || loc.billingOfficeLocationId || 0);
+      return (billingOffice && billingOffice === officeId) || (locPos && locPos === pos);
+    });
+    if (matchingLoc?.id) draft.serviceLocationId = String(matchingLoc.id);
+    draft.hint = 'Suggested from provider office — click Save defaults to keep.';
+    tenantBookingDrafts.value = { ...tenantBookingDrafts.value, [String(aid)]: { ...draft } };
+  } catch (e) {
+    draft.error = e.response?.data?.error?.message || e.message || 'Could not load provider office';
+    tenantBookingDrafts.value = { ...tenantBookingDrafts.value, [String(aid)]: { ...draft } };
+  }
+}
+
 const canCreateInternalNotes = computed(() => {
   return hasAgencyAccess.value;
 });
@@ -4820,8 +5324,26 @@ const fetchClientAgencyAffiliations = async () => {
   try {
     const r = await api.get(`/clients/${props.client.id}/agency-affiliations`);
     clientAgencyAffiliations.value = Array.isArray(r.data) ? r.data : [];
+    tenantBookingDrafts.value = {};
+    await loadAllTenantCatalogs();
   } catch {
     clientAgencyAffiliations.value = [];
+  }
+};
+
+const fetchAvailableAffiliations = async () => {
+  if (!canEditAccount.value) return;
+  // Prefer per-tenant catalogs; keep legacy flat list for chart agency as fallback.
+  try {
+    await loadAllTenantCatalogs();
+    const agencyId = props.client?.agency_id;
+    if (!agencyId) {
+      availableAffiliations.value = [];
+      return;
+    }
+    availableAffiliations.value = affiliatedOrgsByAgencyId.value[String(agencyId)] || [];
+  } catch {
+    availableAffiliations.value = [];
   }
 };
 
@@ -4849,21 +5371,6 @@ watch([hasAgencyAccess, activeTab], async ([has, tab]) => {
   if (tab !== 'phi') return;
   await loadPaperworkTabData();
 });
-
-const fetchAvailableAffiliations = async () => {
-  if (!canEditAccount.value) return;
-  try {
-    const agencyId = props.client?.agency_id;
-    if (!agencyId) {
-      availableAffiliations.value = [];
-      return;
-    }
-    const r = await api.get(`/agencies/${agencyId}/affiliated-organizations`);
-    availableAffiliations.value = r.data || [];
-  } catch {
-    availableAffiliations.value = [];
-  }
-};
 
 const fetchClientAffiliations = async () => {
   // Load for chart context (learning surfaces) even when the viewer cannot edit assignments.
@@ -5116,8 +5623,11 @@ const schoolAffiliationCount = computed(
 const programAffiliationCount = computed(
   () => (affiliations.value || []).filter((a) => {
     const t = String(a.organization_type || '').toLowerCase();
-    return t === 'program' || t === 'learning';
+    return t === 'program' || t === 'clinical';
   }).length
+);
+const learningAffiliationCount = computed(
+  () => (affiliations.value || []).filter((a) => String(a.organization_type || '').toLowerCase() === 'learning').length
 );
 const canSuggestOfficeFromProvider = computed(() => {
   const primary = (providerAssignments.value || []).find((p) => p.is_primary)
@@ -7284,6 +7794,99 @@ watch(
 .casg-badge--ok {
   background: #ccfbf1;
   color: #0f766e;
+}
+.casg-badge--soft {
+  background: #ecfeff;
+  color: #0e7490;
+}
+.casg-tenant-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.casg-tenant-card {
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  background: #f8fafc;
+  padding: 12px 14px;
+}
+.casg-tenant-card--active {
+  border-color: #99f6e4;
+  background: #f0fdfa;
+}
+.casg-tenant-card__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+.casg-tenant-card__title-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.casg-tenant-card__name {
+  font-weight: 800;
+  font-size: 1rem;
+  color: #0f172a;
+}
+.casg-tenant-card__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.casg-tenant-section {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid #e2e8f0;
+}
+.casg-tenant-section__title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 8px;
+  font-size: 0.9rem;
+  font-weight: 800;
+  color: #0f172a;
+}
+.casg-tenant-section__title span {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  background: #0f766e;
+  color: #fff;
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+.casg-affil-list {
+  list-style: none;
+  margin: 0 0 10px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.casg-affil-list li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+}
+.casg-affil-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
 }
 .casg-add-row {
   display: flex;

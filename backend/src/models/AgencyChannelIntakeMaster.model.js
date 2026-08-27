@@ -418,7 +418,7 @@ class AgencyChannelIntakeMaster {
     if (!master) return link;
     const lang = normalizeLang(link.language_code || 'en');
     const intakeSteps = lang === 'en'
-      ? mergeCounselingOfficeEnIntoSteps(master.intake_steps || [])
+      ? mergeCounselingOfficeEnIntoSteps(master.intake_steps || [], { paymentOnly: true })
       : (master.intake_steps || []);
     const intakeFields = lang === 'en' ? flattenIntakeFields(intakeSteps) : master.intake_fields;
     return {

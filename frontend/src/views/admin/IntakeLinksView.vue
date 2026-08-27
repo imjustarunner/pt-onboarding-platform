@@ -753,9 +753,16 @@
                 <button
                   class="btn btn-secondary btn-sm btn-flow-add-guardian"
                   type="button"
+                  @click="addStep('package_selection')"
+                >
+                  + Add Package selection
+                </button>
+                <button
+                  class="btn btn-secondary btn-sm btn-flow-add-guardian"
+                  type="button"
                   @click="addStep('insurance_info')"
                 >
-                  + Add Insurance info
+                  + Add Insurance & Payment
                 </button>
                 <button
                   class="btn btn-secondary btn-sm"
@@ -822,7 +829,7 @@
                     <button class="btn btn-xs btn-secondary" type="button" @click="moveStep(idx, -1)" :disabled="idx === 0">↑</button>
                     <button class="btn btn-xs btn-secondary" type="button" @click="moveStep(idx, 1)" :disabled="idx === form.intakeSteps.length - 1">↓</button>
                     <button
-                      v-if="['guardian_waiver','insurance_info','payment_collection','communications','demographics','clinical_questions','spanish_clarification'].includes(step.type)"
+                      v-if="['guardian_waiver','package_selection','insurance_info','payment_collection','communications','demographics','clinical_questions','spanish_clarification'].includes(step.type)"
                       class="btn btn-xs btn-secondary"
                       type="button"
                       title="Preview exactly how this step looks to participants"
@@ -1914,9 +1921,16 @@
                 <button
                   class="btn btn-secondary btn-sm btn-flow-add-guardian"
                   type="button"
+                  @click="addStep('package_selection')"
+                >
+                  + Add Package selection
+                </button>
+                <button
+                  class="btn btn-secondary btn-sm btn-flow-add-guardian"
+                  type="button"
                   @click="addStep('insurance_info')"
                 >
-                  + Add Insurance info
+                  + Add Insurance & Payment
                 </button>
                 <button
                   class="btn btn-secondary btn-sm"
@@ -2867,8 +2881,9 @@ const addOnPreviewItems = computed(() => ([
   { id: 'upload', label: '+ Add Upload', description: 'Participant-facing file upload preview.' },
   { id: 'references', label: '+ Add References', description: 'Participant-facing references preview.' },
   { id: 'guardian_waiver', label: '+ Add Guardian waivers', description: 'Participant-facing guardian waiver preview.' },
-  { id: 'insurance_info', label: '+ Add Insurance info', description: 'Participant-facing insurance preview.' },
-  { id: 'payment_collection', label: '+ Add Payment collection', description: 'Participant-facing payment preview.' },
+  { id: 'insurance_info', label: '+ Add Insurance & Payment', description: 'Combined insurance, identity, authorization, and Stripe payment (office).' },
+  { id: 'package_selection', label: '+ Add Package selection', description: 'Let families pick a unified catalog package before payment.' },
+  { id: 'payment_collection', label: '+ Add Payment collection', description: 'Standalone payment step (school / event packets).' },
   { id: 'communications', label: '+ Add Communications', description: 'Participant-facing communications preview (all campaigns).' },
   { id: 'demographics', label: '+ Add Demographics', description: 'Participant-facing demographics preview.' },
   { id: 'clinical_questions', label: '+ Add Clinical Questions', description: 'Participant-facing clinical questions preview.' },
@@ -3553,7 +3568,8 @@ const getStepTypeLabel = (t) => {
     upload: 'Upload',
     references: 'Professional references',
     guardian_waiver: 'Guardian waivers & safety',
-    insurance_info: 'Insurance information',
+    insurance_info: 'Insurance & Payment',
+    package_selection: 'Package selection',
     payment_collection: 'Payment collection',
     communications: 'Communication preferences',
     demographics: 'Demographics',
@@ -5198,8 +5214,12 @@ const addStep = (type, options = {}) => {
       'allergies_snacks',
       'meal_preferences'
     ];
+  } else if (type === 'package_selection') {
+    step.label = 'Select a package';
+    step.visibility = 'always';
+    step.helperText = 'Choose a care or session package. You can confirm payment details on the next step.';
   } else if (type === 'insurance_info') {
-    step.label = 'Insurance information';
+    step.label = 'Insurance & Payment Information';
     step.visibility = 'always';
     // Text shown to non-Medicaid families explaining why payment info is collected.
     step.nonMedicaidDisclaimerText = '';

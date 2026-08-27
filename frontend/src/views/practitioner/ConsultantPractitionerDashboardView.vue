@@ -180,7 +180,7 @@
         <div v-if="catalogLoading" class="muted">Loading packages…</div>
         <div v-else-if="!catalogPackages.length" class="muted">
           No packages yet.
-          <router-link :to="`/${slug}/admin/session-packages`">Create packages →</router-link>
+          <router-link :to="`/${slug}/admin/package-catalog`">Create packages →</router-link>
         </div>
         <div v-else class="pkg-checks">
           <label v-for="pkg in catalogPackages" :key="pkg.id" class="pkg-check">

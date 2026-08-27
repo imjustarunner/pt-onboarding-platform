@@ -236,7 +236,21 @@
 
         <div class="detail guardian-detail">
           <div class="panel guardian-panel">
-            <template v-if="activePanel === 'overview'">
+            <template v-if="activePanel === 'tutoring'">
+              <div class="panel-head">
+                <div class="panel-title">Tutoring dashboard</div>
+                <div class="panel-subtitle">Progress, sessions, and practice for your student</div>
+              </div>
+              <GuardianTutoringDashboard
+                v-if="selectedChildId"
+                :client-id="selectedChildId"
+                :student-name="selectedChild ? childDisplayName(selectedChild) : 'your student'"
+                :guardian-first-name="String(authStore.user?.first_name || '').trim()"
+                :organization-slug="guardianPathSlug"
+              />
+              <p v-else class="hint">Select a child to view their tutoring dashboard.</p>
+            </template>
+            <template v-else-if="activePanel === 'overview'">
               <div class="panel-head">
                 <div class="panel-title">Family overview</div>
                 <div class="panel-subtitle">{{ currentProgramSummary }}</div>
@@ -693,6 +707,52 @@
                         No tutoring sessions yet. Once a session ends, AI summaries and branded homework will appear here.
                       </p>
                     </div>
+
+                    <div class="learning-progress-card" style="margin-top: 10px;">
+                      <div class="learning-progress-card-title">Published progress reports</div>
+                      <ul v-if="losPublishedReports.length" class="learning-progress-list">
+                        <li v-for="r in losPublishedReports" :key="`pr-${r.id}`" style="padding: 8px 0; border-bottom: 1px solid rgba(0,0,0,0.06);">
+                          <div style="display: flex; justify-content: space-between; gap: 8px;">
+                            <strong>{{ r.title }}</strong>
+                            <span class="muted small">{{ formatLearningDate(r.publishedAt) }}</span>
+                          </div>
+                          <div class="muted small">{{ r.subjectLabel }} · {{ r.reportType }}</div>
+                          <p v-if="r.previewText" class="hint" style="margin: 6px 0 0;">{{ r.previewText }}</p>
+                        </li>
+                      </ul>
+                      <p v-else class="hint" style="margin: 0;">No published tutoring progress reports yet.</p>
+                    </div>
+
+                    <div class="learning-progress-card" style="margin-top: 10px;">
+                      <div class="learning-progress-card-title">Practice / homework</div>
+                      <ul v-if="losPractice.length" class="learning-progress-list">
+                        <li v-for="a in losPractice" :key="`pa-${a.id}`" style="padding: 8px 0; border-bottom: 1px solid rgba(0,0,0,0.06);">
+                          <div style="display: flex; justify-content: space-between; gap: 8px;">
+                            <strong>{{ a.title }}</strong>
+                            <span class="muted small">{{ a.status }}</span>
+                          </div>
+                          <div class="muted small">{{ a.subjectLabel }}</div>
+                          <p v-if="a.instructions" class="hint" style="margin: 6px 0 0;">{{ a.instructions }}</p>
+                          <ol v-if="a.items?.length" style="margin: 6px 0 0; padding-left: 1.2rem;">
+                            <li v-for="(item, idx) in a.items.slice(0, 5)" :key="idx">{{ item.prompt || item }}</li>
+                          </ol>
+                        </li>
+                      </ul>
+                      <p v-else class="hint" style="margin: 0;">No practice assignments yet.</p>
+                    </div>
+
+                    <div v-if="losParentUpdates.length" class="learning-progress-card" style="margin-top: 10px;">
+                      <div class="learning-progress-card-title">After-session updates</div>
+                      <ul class="learning-progress-list">
+                        <li v-for="u in losParentUpdates" :key="`pu-${u.id}`" style="padding: 8px 0; border-bottom: 1px solid rgba(0,0,0,0.06);">
+                          <div style="display: flex; justify-content: space-between; gap: 8px;">
+                            <strong>{{ u.subjectLabel }}</strong>
+                            <span class="muted small">{{ formatLearningDate(u.at) }}</span>
+                          </div>
+                          <p class="hint" style="margin: 6px 0 0; white-space: pre-wrap;">{{ u.text }}</p>
+                        </li>
+                      </ul>
+                    </div>
                   </template>
                 </div>
 
@@ -947,6 +1007,8 @@ import GuardianPlanProgressPanel from '../../components/guardian/GuardianPlanPro
 import GuardianSkillBuildersEventView from './GuardianSkillBuildersEventView.vue';
 import GuardianSessionBookingDrawer from '../../components/guardian/GuardianSessionBookingDrawer.vue';
 import GuardianMessagesPanel from '../../components/guardian/GuardianMessagesPanel.vue';
+import GuardianTutoringDashboard from '../../components/guardian/GuardianTutoringDashboard.vue';
+import { fetchGuardianLearningFeed } from '../../services/tutoringLearningOs';
 
 const authStore = useAuthStore();
 const agencyStore = useAgencyStore();
@@ -1142,15 +1204,23 @@ const dashboardTabs = computed(() => {
   const preview = isSuperadminPreview.value;
   const pm = (normal, shell) => (preview ? shell : normal);
 
-  const tabs = [
-    { key: 'overview', label: 'Overview', meta: pm('Home base', 'Preview shell') },
+  const tabs = [];
+  if (standardsLearningVisible.value) {
+    tabs.push({
+      key: 'tutoring',
+      label: 'Dashboard',
+      meta: pm('Tutoring progress & practice', 'Tutoring dashboard')
+    });
+  }
+  tabs.push(
+    { key: 'overview', label: standardsLearningVisible.value ? 'Family' : 'Overview', meta: pm('Home base', 'Preview shell') },
     { key: 'registrations', label: 'Registrations', meta: upcomingRegistrationRailSubtitle.value },
     { key: 'documents', label: 'Documents', meta: pm('Forms and signatures', 'Where forms live') }
-  ];
+  );
   if (selectedChild.value) {
     tabs.push({
       key: 'child',
-      label: 'Child details',
+      label: standardsLearningVisible.value ? 'My Student' : 'Child details',
       meta: childDisplayName(selectedChild.value)
     });
   } else if (preview) {
@@ -1159,7 +1229,7 @@ const dashboardTabs = computed(() => {
   if (learningBillingVisible.value || preview) {
     tabs.push({
       key: 'billing',
-      label: 'Billing',
+      label: 'Invoices',
       meta: pm('Learning program charges', 'Learning charges (live data)')
     });
   }
@@ -1771,6 +1841,9 @@ const learningRecommendationRows = ref([]);
 const tutoringSessions = ref([]);
 const tutoringSummaries = ref([]);
 const upcomingTutoringSessions = ref([]);
+const losPublishedReports = ref([]);
+const losPractice = ref([]);
+const losParentUpdates = ref([]);
 
 // Book sessions drawer
 const bookingDrawerOpen = ref(false);
@@ -1819,6 +1892,9 @@ const loadSelectedChildLearningProgress = async () => {
     learningRecommendationRows.value = [];
     tutoringSessions.value = [];
     upcomingTutoringSessions.value = [];
+    losPublishedReports.value = [];
+    losPractice.value = [];
+    losParentUpdates.value = [];
     return;
   }
   learningProgressLoading.value = true;
@@ -1878,6 +1954,57 @@ const loadSelectedChildLearningProgress = async () => {
     tutoringSessions.value = [];
     upcomingTutoringSessions.value = [];
   }
+
+  try {
+    const feed = await fetchGuardianLearningFeed(clientId);
+    const subjects = Array.isArray(feed?.subjects) ? feed.subjects : [];
+    const reports = [];
+    const practice = [];
+    const updates = [];
+    for (const row of subjects) {
+      const subjectLabel = row.subject?.subject_label || row.subject?.subject_key || 'Subject';
+      for (const r of row.publishedReports || []) {
+        const content = r.content || {};
+        reports.push({
+          id: r.id,
+          title: r.title,
+          reportType: r.reportType || r.report_type,
+          publishedAt: r.publishedAt || r.published_at,
+          subjectLabel,
+          previewText:
+            content.parentFriendlySummary ||
+            content.summary ||
+            (r.contentHtml ? String(r.contentHtml).replace(/<[^>]+>/g, ' ').slice(0, 180) : '')
+        });
+      }
+      for (const a of row.practice || []) {
+        practice.push({
+          id: a.id,
+          title: a.title,
+          status: a.status,
+          instructions: a.instructions,
+          subjectLabel,
+          items: a.practiceItems || a.practice_items_json || []
+        });
+      }
+      for (const u of row.recentParentUpdates || []) {
+        updates.push({
+          id: u.id,
+          at: u.at,
+          text: u.text,
+          subjectLabel
+        });
+      }
+    }
+    losPublishedReports.value = reports.slice(0, 12);
+    losPractice.value = practice.filter((a) => a.status !== 'cancelled').slice(0, 12);
+    losParentUpdates.value = updates.slice(0, 8);
+  } catch {
+    losPublishedReports.value = [];
+    losPractice.value = [];
+    losParentUpdates.value = [];
+  }
+
   tutoringSummaries.value = tutoringSessions.value.map((s) => {
     const ai = s.ai_summary_json || {};
     return {
@@ -1962,7 +2089,19 @@ watch(
   (tabs) => {
     const allowedKeys = new Set((tabs || []).map((tab) => String(tab?.key || '')));
     if (!allowedKeys.has(activePanel.value)) {
-      activePanel.value = 'overview';
+      activePanel.value = standardsLearningVisible.value && allowedKeys.has('tutoring')
+        ? 'tutoring'
+        : 'overview';
+    }
+  },
+  { immediate: true }
+);
+
+watch(
+  standardsLearningVisible,
+  (visible) => {
+    if (visible && activePanel.value === 'overview') {
+      activePanel.value = 'tutoring';
     }
   },
   { immediate: true }

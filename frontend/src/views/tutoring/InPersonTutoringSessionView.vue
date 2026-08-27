@@ -137,7 +137,18 @@
           </div>
 
           <article class="ipts-stage-card">
-            <template v-if="activeTool === 'whiteboard'">
+            <template v-if="activeNav === 'guide' && canModerate && payload.student?.clientId">
+              <TutorSessionGuidePanel
+                :client-id="payload.student.clientId"
+                :session-id="sessionId"
+                session-type="in_person"
+                :student-name="payload.student?.name || ''"
+                :grade-label="payload.plan.gradeLabel || ''"
+                schedule-href="/admin/availability"
+                @saved="onLearningNoteSaved"
+              />
+            </template>
+            <template v-else-if="activeTool === 'whiteboard'">
               <div class="ipts-doc-topline">
                 <div>
                   <span class="ipts-tag">Session tool</span>
@@ -171,7 +182,7 @@
               />
             </template>
 
-            <template v-else-if="activeNav === 'overview' || (!selectedMaterial && activeNav !== 'notes' && activeNav !== 'progress')">
+            <template v-else-if="activeNav === 'overview' || (!selectedMaterial && activeNav !== 'notes' && activeNav !== 'progress' && activeNav !== 'guide')">
               <div class="ipts-overview-grid">
                 <section class="ipts-overview-panel">
                   <span class="ipts-tag">Focus area</span>
@@ -411,6 +422,21 @@
             </div>
           </section>
 
+          <section v-if="canModerate && payload.student?.clientId" class="ipts-card">
+            <div class="ipts-card-head">
+              <div>
+                <h2>Learning plan note</h2>
+                <p>Session brief, evidence chips, and Save note &amp; update progress.</p>
+              </div>
+            </div>
+            <TutoringSessionLearningPanel
+              :client-id="payload.student.clientId"
+              :session-id="sessionId"
+              session-type="in_person"
+              @saved="onLearningNoteSaved"
+            />
+          </section>
+
           <section v-if="canModerate" class="ipts-card">
             <div class="ipts-card-head">
               <div>
@@ -456,6 +482,8 @@ import { useRoute } from 'vue-router';
 import ClassroomFillablePdfWorkspace from '../../components/classroom/ClassroomFillablePdfWorkspace.vue';
 import TutoringCalculatorPanel from '../../components/tutoring/TutoringCalculatorPanel.vue';
 import TutoringWhiteboardPanel from '../../components/tutoring/TutoringWhiteboardPanel.vue';
+import TutoringSessionLearningPanel from '../../components/tutoring/TutoringSessionLearningPanel.vue';
+import TutorSessionGuidePanel from '../../components/tutoring/TutorSessionGuidePanel.vue';
 import { useAgencyStore } from '../../store/agency';
 import { useBrandingStore } from '../../store/branding';
 import {
@@ -519,7 +547,7 @@ const loading = ref(false);
 const errorMessage = ref('');
 const saveMessage = ref('');
 const selectedMaterialId = ref(null);
-const activeNav = ref('overview');
+const activeNav = ref('guide');
 const activeTool = ref('');
 const leftCollapsed = ref(false);
 const rightCollapsed = ref(false);
@@ -580,6 +608,7 @@ const themeVars = computed(() => {
 });
 
 const navItems = [
+  { id: 'guide', label: 'Session Guide', helper: 'Live tutor console + Learning OS' },
   { id: 'overview', label: 'Overview', helper: 'Session focus and outline' },
   { id: 'documents', label: 'Documents', helper: 'Worksheets and PDFs' },
   { id: 'activities', label: 'Activities', helper: 'Quick practice' },
@@ -595,6 +624,27 @@ const canModerate = computed(() => payload.value.canModerate !== false);
 const hasWhiteboardStrokes = computed(() => Array.isArray(payload.value.plan.whiteboardData?.strokes) && payload.value.plan.whiteboardData.strokes.length > 0);
 const whiteboardVisible = computed(() => canModerate.value || (payload.value.plan.shareWhiteboardWithGuardian && hasWhiteboardStrokes.value));
 
+function onLearningNoteSaved(result) {
+  if (result?.note?.parent_update_draft) {
+    aiPrompt.value = `Parent update draft: ${result.note.parent_update_draft}`;
+  }
+  if (result?.nextBrief && payload.value?.student?.clientId) {
+    try {
+      linkInPersonPlanLearning(result);
+    } catch {
+      // non-blocking
+    }
+  }
+}
+
+async function linkInPersonPlanLearning(result) {
+  const { linkInPersonPlan } = await import('../../services/tutoringLearningOs.js');
+  await linkInPersonPlan({
+    sessionId: Number(sessionId.value),
+    studentSubjectId: result.note?.student_subject_id,
+    goalIds: (result.evidence || []).map((e) => e.plan_goal_id).filter(Boolean)
+  });
+}
 const selectedMaterial = computed(() =>
   sortedMaterials.value.find((material) => material.id === selectedMaterialId.value) || null
 );
@@ -615,6 +665,7 @@ const builderHref = computed(() => ({
 }));
 
 const stageHeading = computed(() => {
+  if (activeNav.value === 'guide') return 'Tutor Session Guide';
   if (activeTool.value === 'whiteboard') return 'Scratch whiteboard';
   if (activeNav.value === 'notes') return 'Live tutor notes';
   if (activeNav.value === 'progress') return 'Session progress';
@@ -623,6 +674,7 @@ const stageHeading = computed(() => {
 });
 
 const stageSubcopy = computed(() => {
+  if (activeNav.value === 'guide') return 'Standards-aligned plan, live evidence, AI assist, and family practice assignment.';
   if (activeTool.value === 'whiteboard') return 'Sketch a worked example, create a quick visual support, or model a strategy in real time.';
   if (activeNav.value === 'notes') return 'Capture observations, responses, and next steps while tutoring.';
   if (activeNav.value === 'progress') return 'Use these cards to keep the session paced and grounded in evidence.';

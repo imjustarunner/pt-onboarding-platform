@@ -660,6 +660,13 @@ export const NAV_SEARCH_INDEX = [
     desc: 'Agency budget tracking and management.'
   },
   {
+    title: 'Package Catalog',
+    section: 'Management',
+    path: '/admin/package-catalog',
+    keywords: ['packages', 'package catalog', 'session packages', 'prepaid', 'tutoring packages', 'coaching packages'],
+    desc: 'Unified tenant and program package catalog with Stripe checkout.'
+  },
+  {
     title: 'Learning Billing',
     section: 'Management',
     path: '/admin/learning-billing',

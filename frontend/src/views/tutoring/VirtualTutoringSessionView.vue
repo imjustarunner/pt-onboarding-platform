@@ -37,6 +37,7 @@
         </div>
         
         <nav class="flex-1 p-3 space-y-1">
+          <SidebarNavItem icon="📋" label="Session Guide" :active="activeTab?.kind === 'guide'" @click="setActiveTab('guide')" />
           <SidebarNavItem icon="✍️" label="Whiteboard" :active="activeTab?.kind === 'whiteboard'" @click="setActiveTab('whiteboard')" />
           <SidebarNavItem icon="📄" label="Documents" :active="activeTab?.kind === 'document'" @click="openDocumentTab('Worksheet_LinEq.pdf')" />
           <SidebarNavItem icon="📝" label="Activities" :active="activeTab?.kind === 'activity'" @click="openActivityTab('Solve It')" />
@@ -93,6 +94,20 @@
               ✕
             </button>
           </button>
+        </div>
+
+        <!-- Session Guide -->
+        <div v-if="activeTab?.kind === 'guide'" class="vt-guide-wrap">
+          <TutorSessionGuidePanel
+            v-if="primaryClientId"
+            :client-id="primaryClientId"
+            :session-id="sessionId"
+            session-type="virtual"
+            :initial-subject-id="sessionSubjectId"
+          />
+          <div v-else class="p-6 text-sm text-gray-300">
+            No student client is linked to this session yet. Enroll the student in a subject track from the chart Learning hub.
+          </div>
         </div>
 
         <!-- Whiteboard Toolbar -->
@@ -366,6 +381,7 @@
               <button :class="{ 'text-white border-b-2 border-blue-400 pb-2': aiTab === 'tutor' }" @click="aiTab = 'tutor'" class="hover:text-white">Tutor</button>
               <button :class="{ 'text-white border-b-2 border-blue-400 pb-2': aiTab === 'hints' }" @click="aiTab = 'hints'" class="hover:text-white">Hints</button>
               <button :class="{ 'text-white border-b-2 border-blue-400 pb-2': aiTab === 'insights' }" @click="aiTab = 'insights'" class="hover:text-white">Insights</button>
+              <button :class="{ 'text-white border-b-2 border-blue-400 pb-2': aiTab === 'learning' }" @click="aiTab = 'learning'" class="hover:text-white">Learning</button>
             </div>
             <div class="text-xs px-3 py-1 bg-emerald-900 text-emerald-400 rounded-full">82% confidence</div>
           </div>
@@ -387,6 +403,20 @@
               </div>
               <div class="p-4 bg-[#1e2a44] rounded-2xl opacity-70">
                 Hint 2: Subtract 12 from both sides to isolate the term with x.
+              </div>
+            </div>
+
+            <div v-else-if="aiTab === 'learning'" class="vt-learning-note">
+              <TutorSessionGuidePanel
+                v-if="primaryClientId"
+                :client-id="primaryClientId"
+                :session-id="sessionId"
+                session-type="virtual"
+                :initial-subject-id="sessionSubjectId"
+                class="vt-guide-embed"
+              />
+              <div v-else class="p-4 bg-[#1e2a44] rounded-2xl text-xs leading-relaxed">
+                No student client is linked to this session yet. Enroll the student in a subject track from the chart Learning hub.
               </div>
             </div>
             
@@ -546,6 +576,7 @@ import { ref, onMounted, defineComponent, h, computed, nextTick, onBeforeUnmount
 import { useRoute, useRouter } from 'vue-router';
 import api from '../../services/api.js';
 import { useAuthStore } from '../../store/auth.js';
+import TutorSessionGuidePanel from '../../components/tutoring/TutorSessionGuidePanel.vue';
 
 const SidebarNavItem = defineComponent({
   name: 'SidebarNavItem',
@@ -580,14 +611,23 @@ const tutorVideoMount = ref(null);
 const studentVideoMount = ref(null);
 
 const tabs = ref([
+  { id: 'guide', kind: 'guide', title: 'Session Guide', icon: '📋', closable: false },
   { id: 'whiteboard', kind: 'whiteboard', title: 'Whiteboard', icon: '🧾', closable: false },
   { id: 'doc-worksheet', kind: 'document', title: 'Worksheet_LinEq.pdf', icon: '📄', closable: true }
 ]);
-const activeTabId = ref('whiteboard');
+const activeTabId = ref('guide');
 const activeTab = computed(() => tabs.value.find((t) => t.id === activeTabId.value) || tabs.value[0] || null);
 
 const setActiveTab = (id) => {
   if (!id) return;
+  if (id === 'guide' || id === 'whiteboard') {
+    const exists = tabs.value.some((t) => t.id === id);
+    if (!exists && id === 'guide') {
+      tabs.value.unshift({ id: 'guide', kind: 'guide', title: 'Session Guide', icon: '📋', closable: false });
+    }
+    activeTabId.value = id;
+    return;
+  }
   const exists = tabs.value.some((t) => t.id === id);
   if (exists) activeTabId.value = id;
 };
@@ -651,6 +691,8 @@ const showProgressModal = ref(false);
 const sessionData = ref(null);
 const standardsContext = ref([]);
 const isDemoMode = ref(false);
+const primaryClientId = ref(null);
+const sessionSubjectId = ref(null);
 
 const openSessionRecording = () => {
   const idNum = Number(sessionId.value);
@@ -980,6 +1022,8 @@ const loadSessionData = async () => {
     const res = await api.get(`/learning-class-sessions/sessions/${idNum}`);
     sessionData.value = res.data?.session || null;
     standardsContext.value = sessionData.value?.standards_context_json?.standards || [];
+    primaryClientId.value = res.data?.primaryClientId || null;
+    sessionSubjectId.value = res.data?.studentSubjectId || sessionData.value?.student_subject_id || null;
   } catch (e) {
     isDemoMode.value = true;
   }
@@ -1806,5 +1850,25 @@ defineExpose({ sessionId });
   .vt-right {
     display: none;
   }
+}
+
+.vt-learning-note {
+  background: #f8fafc;
+  color: #0f172a;
+  border-radius: 12px;
+  padding: 0.5rem;
+  max-height: 420px;
+  overflow: auto;
+}
+
+.vt-guide-wrap {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  background: #f1f5f9;
+  padding: 0.75rem;
+}
+.vt-guide-embed {
+  max-height: none;
 }
 </style>

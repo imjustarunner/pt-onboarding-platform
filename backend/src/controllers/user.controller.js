@@ -10818,6 +10818,23 @@ export const promoteToOnboarding = async (req, res, next) => {
       console.warn('[promoteToOnboarding] Package/send step failed (non-fatal):', pkgErr?.message);
     }
 
+    try {
+      const [agencyRows2] = await pool.execute(
+        'SELECT agency_id FROM user_agencies WHERE user_id = ? LIMIT 1',
+        [id]
+      );
+      const comfortAgencyId = agencyRows2[0]?.agency_id;
+      if (comfortAgencyId) {
+        const StaffClientComfortPreference = (await import('../models/StaffClientComfortPreference.model.js')).default;
+        await StaffClientComfortPreference.promoteDraftToUser(
+          { userId: Number(id), agencyId: comfortAgencyId, hiringProfileId: null },
+          req.user?.id
+        );
+      }
+    } catch (comfortErr) {
+      console.warn('[promoteToOnboarding] comfort prefs promote failed:', comfortErr?.message);
+    }
+
     res.json({
       message: 'User promoted to onboarding status',
       user: updatedUser,

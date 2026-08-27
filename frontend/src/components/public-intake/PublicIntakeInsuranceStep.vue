@@ -13,7 +13,7 @@
       to a short confirmation instead of asking for a carrier/member ID they
       don't have.
     -->
-    <div class="pi-ins-selfpay">
+    <div v-if="!hideSelfPayToggle" class="pi-ins-selfpay">
       <label class="pi-ins-selfpay-row" :class="{ 'pi-ins-selfpay-row--active': isSelfPay }">
         <input type="checkbox" :checked="isSelfPay" @change="toggleSelfPay($event.target.checked)" />
         <span>
@@ -363,6 +363,7 @@
 
     <!-- Insurance Authorization Acknowledgment -->
     <div
+      v-if="!hideAuthorization"
       class="pi-ins-auth-block"
       :class="{ 'pi-ins-auth-block--err': !!validationErrorFor('authorization') }"
       ref="authBlockRef"
@@ -497,7 +498,13 @@ const props = defineProps({
    * sees the offending control highlighted, instead of just a top banner
    * they have to scroll up to read.
    */
-  validationErrors: { type: Object, default: () => ({}) }
+  validationErrors: { type: Object, default: () => ({}) },
+  /** When true, parent combined step owns Use Insurance / Self-Pay. */
+  hideSelfPayToggle: { type: Boolean, default: false },
+  /** When true, authorization is collected by the parent combined step. */
+  hideAuthorization: { type: Boolean, default: false },
+  /** Controlled self-pay from parent when hideSelfPayToggle is true. */
+  externalSelfPay: { type: Boolean, default: null }
 });
 const emit = defineEmits(['update:modelValue', 'medicaid-change']);
 
@@ -526,10 +533,17 @@ const noPrimaryCardAvailable = ref(!!props.modelValue?.noPrimaryCardAvailable);
 // flag survives save/resume and downstream consumers (billing, reports) can
 // distinguish "declined to provide" from "explicitly self-pay".
 const isSelfPay = ref(
-  !!props.modelValue?.isSelfPay
-  || String(props.modelValue?.primary?.insurerName || '').trim().toLowerCase() === 'self-pay'
-  || String(props.modelValue?.primary?.insurerName || '').trim().toLowerCase() === 'self pay'
+  (props.externalSelfPay === true || props.externalSelfPay === false)
+    ? !!props.externalSelfPay
+    : (
+      !!props.modelValue?.isSelfPay
+      || String(props.modelValue?.primary?.insurerName || '').trim().toLowerCase() === 'self-pay'
+      || String(props.modelValue?.primary?.insurerName || '').trim().toLowerCase() === 'self pay'
+    )
 );
+
+const hideSelfPayToggle = computed(() => !!props.hideSelfPayToggle || !!props.stepConfig?.hideSelfPayToggle);
+const hideAuthorization = computed(() => !!props.hideAuthorization);
 const medicaidByClient = ref(
   Array.isArray(props.modelValue?.medicaidByClient)
     ? props.modelValue.medicaidByClient.map((row) => ({
@@ -731,6 +745,15 @@ function toggleSelfPay(checked) {
   }
   push();
 }
+
+watch(
+  () => props.externalSelfPay,
+  (v) => {
+    if (v === true || v === false) {
+      if (isSelfPay.value !== v) toggleSelfPay(v);
+    }
+  }
+);
 
 // ── Emit helpers ─────────────────────────────────────────────────────────────
 function push() {

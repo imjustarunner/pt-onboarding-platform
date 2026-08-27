@@ -158,6 +158,17 @@
           No documents selected. The candidate will receive only a setup link.
         </div>
 
+        <div class="section-label section-label-spaced">
+          Staff client comfort preferences
+          <span class="section-hint">Optional now — saves a hiring draft used for tutor matching after hire.</span>
+        </div>
+        <div class="summary-row">
+          <button type="button" class="btn btn-secondary" @click="showComfortModal = true">
+            {{ comfortDraftSaved ? 'Edit comfort preferences' : 'Set comfort preferences' }}
+          </button>
+          <span v-if="comfortDraftSaved" class="section-hint" style="margin-left:8px;">Draft saved</span>
+        </div>
+
         <div v-if="sendError" class="error-sm" style="margin-top:8px;">{{ sendError }}</div>
 
         <!-- Success -->
@@ -183,12 +194,22 @@
         </button>
       </div>
     </div>
+
+    <StaffClientComfortPreferencesModal
+      :show="showComfortModal"
+      :agency-id="agencyId"
+      :hiring-profile-id="candidate?.hiring_profile_id || candidate?.hiringProfileId || null"
+      :candidate-user-id="candidate?.id || null"
+      @close="showComfortModal = false"
+      @saved="comfortDraftSaved = true"
+    />
   </div>
 </template>
 
 <script setup>
 import { ref, computed, watch } from 'vue';
 import api from '../../services/api';
+import StaffClientComfortPreferencesModal from '../tutoring/StaffClientComfortPreferencesModal.vue';
 
 const props = defineProps({
   show: { type: Boolean, default: false },
@@ -197,6 +218,8 @@ const props = defineProps({
   appliedRole: { type: String, default: '' }
 });
 
+const showComfortModal = ref(false);
+const comfortDraftSaved = ref(false);
 const emit = defineEmits(['close', 'hired']);
 
 const candidateName = computed(() => {

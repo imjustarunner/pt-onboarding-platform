@@ -4033,6 +4033,16 @@ export const sendPreHire = async (req, res, next) => {
       }
     }
 
+    try {
+      const StaffClientComfortPreference = (await import('../models/StaffClientComfortPreference.model.js')).default;
+      await StaffClientComfortPreference.promoteDraftToUser(
+        { userId: candidateUserId, agencyId, hiringProfileId: null },
+        req.user?.id
+      );
+    } catch (comfortErr) {
+      console.warn('[sendPreHire] comfort prefs promote failed:', comfortErr?.message);
+    }
+
     res.json({
       ok: true,
       passwordlessToken: tokenResult?.token || null,

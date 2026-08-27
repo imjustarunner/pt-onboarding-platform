@@ -1491,8 +1491,50 @@
           />
         </div>
 
+        <div v-if="currentFlowStep?.type === 'package_selection'" class="package-selection-step">
+          <PublicIntakePackageSelectionStep
+            ref="packageSelectionStepRef"
+            :model-value="intakeResponses.submission.selectedPackageInfo || {}"
+            :public-key="publicKey"
+            :require-selection="officePackageCatalogEmpty === false"
+            :translations="stringTranslations"
+            @update:model-value="(v) => { intakeResponses.submission.selectedPackageInfo = v; }"
+            @packages-loaded="onOfficePackagesLoaded"
+            @empty-catalog="onOfficePackagesEmpty"
+          />
+        </div>
+
         <div v-if="currentFlowStep?.type === 'insurance_info'" class="insurance-step">
+          <PublicIntakeInsurancePaymentStep
+            v-if="isOfficeInDepthIntake || isPaymentOnlyEnrollmentChannel"
+            ref="insurancePaymentStepRef"
+            :insurance-info="intakeResponses.submission.insuranceInfo || {}"
+            :payment-info="intakeResponses.submission.paymentInfo || {}"
+            :step-config="currentFlowStep"
+            :selected-package="intakeResponses.submission.selectedPackageInfo?.selectedPackage || null"
+            :payment-only="isPaymentOnlyEnrollmentChannel || !!currentFlowStep?.paymentOnly"
+            :guardian-name="guardianDisplayNameForInsurance"
+            :guardian-relationship="guardianRelationship"
+            :guardian-phone="guardianPhone"
+            :client-names="insuranceClientNames"
+            :intake-for-self="intakeForSelf"
+            :agency-name="agencyInfo?.official_name || agencyInfo?.name || ''"
+            :legal-first-name="insuranceLegalFirstName"
+            :legal-last-name="insuranceLegalLastName"
+            :public-key="publicKey"
+            :submission-id="submissionId"
+            :saved-signature-data="lastSignatureData"
+            :insurance-validation-errors="insuranceErrors"
+            :payment-cost-display="paymentCostDisplay"
+            :translations="stringTranslations"
+            @update:insurance-info="(v) => { intakeResponses.submission.insuranceInfo = v; clearInsuranceErrorsOnEdit(v); }"
+            @update:payment-info="(v) => { intakeResponses.submission.paymentInfo = v; }"
+            @medicaid-change="(isMedicaid) => { if (intakeResponses.submission.insuranceInfo) intakeResponses.submission.insuranceInfo.primaryIsMedicaid = isMedicaid; }"
+            @card-saved="onPaymentCardSaved"
+            @skip-acknowledged="onPaymentSkipAcknowledged"
+          />
           <PublicIntakeInsuranceStep
+            v-else
             ref="insuranceStepRef"
             :model-value="intakeResponses.submission.insuranceInfo || {}"
             :step-config="currentFlowStep"
@@ -2720,6 +2762,8 @@ import PDFPreview from '../components/documents/PDFPreview.vue';
 import PublicIntakeGuardianWaiverStep from '../components/public-intake/PublicIntakeGuardianWaiverStep.vue';
 import PublicIntakeInsuranceStep from '../components/public-intake/PublicIntakeInsuranceStep.vue';
 import PublicIntakePaymentStep from '../components/public-intake/PublicIntakePaymentStep.vue';
+import PublicIntakeInsurancePaymentStep from '../components/public-intake/PublicIntakeInsurancePaymentStep.vue';
+import PublicIntakePackageSelectionStep from '../components/public-intake/PublicIntakePackageSelectionStep.vue';
 import {
   AdaptiveConsentCard,
   AdaptiveIntakeHelpPanel,
@@ -5089,8 +5133,9 @@ const FLOW_STEP_PROGRESS_LABELS = {
   packet_policy_services: 'Policy & Services',
   packet_hipaa_notice: 'HIPAA Notice',
   guardian_waiver: 'Waivers',
-  insurance_info: 'Insurance & identity',
+  insurance_info: 'Insurance & Payment',
   payment_collection: 'Payment',
+  package_selection: 'Select a package',
   communications: 'Communications',
   provider_match: 'Choose a provider',
   references: 'References',
@@ -5371,6 +5416,15 @@ const DEFAULT_GUARDIAN_WAIVER_SECTION_KEYS = [
 
 const FLOW_STEP_VISIBILITY = new Set(['always', 'new_client_only', 'existing_client_only']);
 
+/** Tutoring / coaching / consulting channels: payment only (no insurance). */
+const isPaymentOnlyEnrollmentChannel = computed(() => {
+  const channel = String(link.value?.master_channel || '').toLowerCase();
+  return ['tutoring', 'coaching', 'consulting', 'mentorship'].includes(channel);
+});
+
+/** null = unknown, true = empty catalog (skip step), false = has packages */
+const officePackageCatalogEmpty = ref(null);
+
 const shouldSkipPaymentCollectionStep = () => {
   const insInfo = intakeResponses.submission?.insuranceInfo;
   if (insInfo?.primaryIsMedicaid) return true;
@@ -5420,6 +5474,7 @@ const flowSteps = computed(() => {
           || s?.type === 'packet_hipaa_notice'
           || s?.type === 'registration'
           || s?.type === 'guardian_waiver'
+          || s?.type === 'package_selection'
           || s?.type === 'insurance_info'
           || s?.type === 'payment_collection'
           || s?.type === 'communications'
@@ -5436,6 +5491,14 @@ const flowSteps = computed(() => {
         // or all selected registrations are Medicaid-only.
         if (s?.type === 'payment_collection') {
           if (shouldSkipPaymentCollectionStep()) return false;
+          // Office combined insurance_info already includes payment — avoid double step.
+          if (isOfficeInDepthIntake.value || isPaymentOnlyEnrollmentChannel.value) {
+            const hasCombined = intakeSteps.value.some((x) => x?.type === 'insurance_info');
+            if (hasCombined) return false;
+          }
+        }
+        if (s?.type === 'package_selection') {
+          if (officePackageCatalogEmpty.value === true) return false;
         }
         // Self completers answer emergency contact on About You — skip guardian waivers.
         // Office dependent path also skips waivers/safety packet (emergency contact asked earlier).
@@ -10167,6 +10230,8 @@ const completeGuardianWaiverStep = () => {
 };
 
 const insuranceStepRef = ref(null);
+const insurancePaymentStepRef = ref(null);
+const packageSelectionStepRef = ref(null);
 // Inline error map for the insurance step. Populated by completeInsuranceStep
 // whenever Continue is blocked, then passed into PublicIntakeInsuranceStep
 // so the parent sees the offending control highlighted in-place instead of
@@ -10208,6 +10273,16 @@ const completeInsuranceStep = async () => {
   if (!intakeResponses.submission.insuranceInfo || typeof intakeResponses.submission.insuranceInfo !== 'object') {
     intakeResponses.submission.insuranceInfo = {};
   }
+  const combined = insurancePaymentStepRef.value;
+  if (combined?.validateAuthorization && !combined.validateAuthorization()) {
+    stepError.value = 'Please complete the authorization to continue.';
+    return;
+  }
+  const photoFiles = combined?.getPhotoFiles?.() || insuranceStepRef.value?.getPhotoFiles?.();
+  const insuranceEntryState = combined?.getInsuranceEntryState?.()
+    || insuranceStepRef.value?.getInsuranceEntryState?.()
+    || {};
+  const paymentOnlyMode = isPaymentOnlyEnrollmentChannel.value || !!step.paymentOnly;
   const insInfo = intakeResponses.submission.insuranceInfo;
   if (!insInfo.primary || typeof insInfo.primary !== 'object') {
     insInfo.primary = {
@@ -10219,9 +10294,25 @@ const completeInsuranceStep = async () => {
       isMedicaid: false
     };
   }
-  // If photos are present, upload them now before advancing.
-  const photoFiles = insuranceStepRef.value?.getPhotoFiles?.();
-  const insuranceEntryState = insuranceStepRef.value?.getInsuranceEntryState?.() || {};
+  if (paymentOnlyMode) {
+    insInfo.isSelfPay = true;
+    if (!String(insInfo.primary.insurerName || '').trim()) {
+      insInfo.primary.insurerName = 'Self-Pay';
+    }
+    // Persist payment choice from combined step
+    if (!intakeResponses.submission.paymentInfo) intakeResponses.submission.paymentInfo = {};
+    const choice = insuranceEntryState.paymentChoice
+      || intakeResponses.submission.paymentInfo.paymentChoice
+      || 'later';
+    intakeResponses.submission.paymentInfo.paymentChoice = choice;
+    if (choice === 'later' || choice === 'na') {
+      intakeResponses.submission.paymentInfo.skipAcknowledged = true;
+    }
+    stepError.value = '';
+    Object.keys(insuranceErrors).forEach((k) => delete insuranceErrors[k]);
+    void nextFlowStep();
+    return;
+  }
   if (photoFiles) {
     const slots = Object.entries(photoFiles).filter(([, f]) => f instanceof File);
     if (slots.length && submissionId.value && publicKey) {
@@ -10326,7 +10417,14 @@ const completeInsuranceStep = async () => {
   //      authorizationSignedAt.
   // Either is a legal e-signature; both record signedAt locally and the
   // server stamps ip + user_agent at finalize.
-  const authBundle = insuranceStepRef.value?.getAuthorizationSignatureBundle?.() || {};
+  const authBundle = combined?.validateAuthorization
+    ? {
+        authorizationSignature: insInfo.authorizationSignature,
+        authorizationSignatureData: insInfo.authorizationSignatureData,
+        authorizationSignedAt: insInfo.authorizationSignedAt,
+        authorizationSourceMethod: insInfo.authorizationSourceMethod || 'typed_full_name'
+      }
+    : (insuranceStepRef.value?.getAuthorizationSignatureBundle?.() || {});
   const typedName = String(authBundle.authorizationSignature || '').trim();
   const drawnData = String(authBundle.authorizationSignatureData || '').trim();
   const hasDrawn = drawnData.length >= 50;
@@ -10348,7 +10446,48 @@ const completeInsuranceStep = async () => {
     || (hasDrawn ? 'reused_guardian_signature' : 'typed_full_name')
   );
 
+  // Persist payment choice from combined office step when payment section was shown.
+  if (combined?.showPaymentSection && !intakeResponses.submission.paymentInfo) {
+    intakeResponses.submission.paymentInfo = {};
+  }
+  if (combined && insuranceEntryState.paymentChoice) {
+    if (!intakeResponses.submission.paymentInfo) intakeResponses.submission.paymentInfo = {};
+    intakeResponses.submission.paymentInfo.paymentChoice = insuranceEntryState.paymentChoice;
+    if (['later', 'na'].includes(insuranceEntryState.paymentChoice)) {
+      intakeResponses.submission.paymentInfo.skipAcknowledged = true;
+    }
+  }
+
   clearInsuranceErrors();
+  stepError.value = '';
+  void nextFlowStep();
+};
+
+const onOfficePackagesLoaded = ({ packages }) => {
+  officePackageCatalogEmpty.value = !(packages && packages.length);
+};
+
+const onOfficePackagesEmpty = () => {
+  officePackageCatalogEmpty.value = true;
+};
+
+const completePackageSelectionStep = () => {
+  const step = currentFlowStep.value;
+  if (!step || step.type !== 'package_selection') return;
+  if (officePackageCatalogEmpty.value === true) {
+    stepError.value = '';
+    void nextFlowStep();
+    return;
+  }
+  if (packageSelectionStepRef.value?.validate && !packageSelectionStepRef.value.validate()) {
+    stepError.value = 'Please select a package to continue.';
+    return;
+  }
+  const info = intakeResponses.submission.selectedPackageInfo;
+  if (officePackageCatalogEmpty.value === false && !info?.selectedPackageId) {
+    stepError.value = 'Please select a package to continue.';
+    return;
+  }
   stepError.value = '';
   void nextFlowStep();
 };
@@ -10517,6 +10656,7 @@ const handleCurrentFlowContinue = () => {
   if (currentFlowStep.value?.type === 'registration') return completeRegistrationStep();
   if (currentFlowStep.value?.type === 'references') return completeReferencesStep();
   if (currentFlowStep.value?.type === 'guardian_waiver') return completeGuardianWaiverStep();
+  if (currentFlowStep.value?.type === 'package_selection') return completePackageSelectionStep();
   if (currentFlowStep.value?.type === 'insurance_info') return completeInsuranceStep();
   if (currentFlowStep.value?.type === 'payment_collection') return completePaymentStep();
   if (currentFlowStep.value?.type === 'communications') return completeCommunicationsStep();
@@ -10537,6 +10677,7 @@ const currentFlowContinueLabel = computed(() => {
   if (currentFlowStep.value?.type === 'upload') return 'Continue';
   if (currentFlowStep.value?.type === 'references') return 'Save references & continue';
   if (currentFlowStep.value?.type === 'guardian_waiver') return t('continue');
+  if (currentFlowStep.value?.type === 'package_selection') return 'Continue';
   if (currentFlowStep.value?.type === 'insurance_info') return 'Save & continue';
   if (currentFlowStep.value?.type === 'payment_collection') return 'Continue';
   if (currentFlowStep.value?.type === 'communications') return 'Save preferences & continue';
@@ -11291,7 +11432,13 @@ const currentInterviewPageTitle = computed(() => {
   if (isPacketSectionStepType(type)) return tx(s?.label) || packetSectionTitleForStep(s);
   if (type === 'registration') return tx(s?.label) || t('registration');
   if (type === 'guardian_waiver') return tx(s?.label) || t('guardianWaiversSafety');
-  if (type === 'insurance_info') return tx(s?.label) || t('insuranceInformation') || 'Insurance information and identity verification';
+  if (type === 'package_selection') return tx(s?.label) || 'Select a package';
+  if (type === 'insurance_info') {
+    if (isPaymentOnlyEnrollmentChannel.value || s?.paymentOnly) {
+      return tx(s?.label) || 'Payment Information';
+    }
+    return tx(s?.label) || t('insuranceInformation') || 'Insurance & Payment Information';
+  }
   if (type === 'payment_collection') return tx(s?.label) || t('paymentInformation');
   if (type === 'communications') return tx(s?.label) || t('communicationPreferences');
   if (type === 'reminder_contacts') return tx(s?.label) || tx('Who should get appointment reminders?');
@@ -12300,6 +12447,15 @@ onMounted(async () => {
   }
 
   await loadLink();
+  // Prefetch package catalog so empty catalogs skip package_selection without a blank page.
+  if (publicKey && (isOfficeInDepthIntake.value || isPaymentOnlyEnrollmentChannel.value || looksLikeOfficeIntake.value)) {
+    try {
+      const res = await api.get(`/public-intake/${publicKey}/packages`);
+      officePackageCatalogEmpty.value = !(res.data?.packages || []).length;
+    } catch {
+      officePackageCatalogEmpty.value = true;
+    }
+  }
   const restoredDraft = await restoreServerProgress();
   if (!sessionToken.value) {
     if (isJobApplication.value || isMedicalRecordsRequest.value) {

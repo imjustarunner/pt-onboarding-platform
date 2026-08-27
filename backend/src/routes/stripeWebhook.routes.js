@@ -73,6 +73,17 @@ async function handleStripeEvent(event) {
         `[stripe webhook] PaymentIntent ${pi.id} succeeded — amount: ${pi.amount_received}` +
         (connectedAccountId ? ` (acct: ${connectedAccountId})` : '')
       );
+      if (String(pi.metadata?.source || '') === 'unified_booking_package') {
+        try {
+          const { completeCheckoutFromPaymentIntent } = await import(
+            '../services/unifiedPackageCatalog.service.js'
+          );
+          await completeCheckoutFromPaymentIntent(pi);
+          console.info(`[stripe webhook] unified booking package activated for PI ${pi.id}`);
+        } catch (err) {
+          console.error(`[stripe webhook] unified package activation failed for PI ${pi.id}:`, err?.message || err);
+        }
+      }
       break;
     }
 

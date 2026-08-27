@@ -236,7 +236,36 @@ export const getClassSession = async (req, res, next) => {
       LearningClassSession.getSessionState(sessionId),
       LearningClassSession.listHandRaises(sessionId)
     ]);
-    res.json({ session, actorRole, canModerate, roles, slides, state, handRaises });
+
+    let primaryClientId = null;
+    try {
+      const pool = (await import('../config/database.js')).default;
+      const [memRows] = await pool.execute(
+        `SELECT m.client_id
+         FROM learning_class_client_memberships m
+         JOIN learning_class_sessions s ON s.learning_class_id = m.learning_class_id
+         WHERE s.id = ? AND m.membership_status IN ('active','completed')
+         ORDER BY m.id ASC
+         LIMIT 1`,
+        [sessionId]
+      );
+      primaryClientId = memRows[0]?.client_id || null;
+    } catch {
+      primaryClientId = null;
+    }
+
+    res.json({
+      session,
+      actorRole,
+      canModerate,
+      roles,
+      slides,
+      state,
+      handRaises,
+      primaryClientId,
+      studentSubjectId: session?.student_subject_id || null,
+      learningPlanId: session?.learning_plan_id || null
+    });
   } catch (e) {
     next(e);
   }

@@ -7225,20 +7225,47 @@ export const listClientAgencyAffiliations = async (req, res, next) => {
     const access = await ensureAgencyAccessToClient({ userId, role, clientId });
     if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
 
-    // Best-effort: table may not exist yet.
+    // Best-effort: table may not exist yet; booking-default columns land in migration 1324.
     try {
-      const [rows] = await pool.execute(
-        `SELECT ca.agency_id,
-                ca.is_primary,
-                ca.is_active,
-                a.name AS agency_name
-         FROM client_agency_assignments ca
-         LEFT JOIN agencies a ON a.id = ca.agency_id
-         WHERE ca.client_id = ?
-           AND ca.is_active = TRUE
-         ORDER BY ca.is_primary DESC, a.name ASC`,
-        [clientId]
-      );
+      let rows;
+      try {
+        const [r] = await pool.execute(
+          `SELECT ca.agency_id,
+                  ca.is_primary,
+                  ca.is_active,
+                  ca.default_office_location_id,
+                  ca.default_place_of_service,
+                  ca.default_service_location_id,
+                  a.name AS agency_name,
+                  a.organization_type AS agency_organization_type
+           FROM client_agency_assignments ca
+           LEFT JOIN agencies a ON a.id = ca.agency_id
+           WHERE ca.client_id = ?
+             AND ca.is_active = TRUE
+             AND LOWER(TRIM(COALESCE(a.organization_type, 'agency'))) = 'agency'
+           ORDER BY ca.is_primary DESC, a.name ASC`,
+          [clientId]
+        );
+        rows = r;
+      } catch (colErr) {
+        const m = String(colErr?.message || '');
+        if (!m.includes('Unknown column')) throw colErr;
+        const [r] = await pool.execute(
+          `SELECT ca.agency_id,
+                  ca.is_primary,
+                  ca.is_active,
+                  a.name AS agency_name,
+                  a.organization_type AS agency_organization_type
+           FROM client_agency_assignments ca
+           LEFT JOIN agencies a ON a.id = ca.agency_id
+           WHERE ca.client_id = ?
+             AND ca.is_active = TRUE
+             AND LOWER(TRIM(COALESCE(a.organization_type, 'agency'))) = 'agency'
+           ORDER BY ca.is_primary DESC, a.name ASC`,
+          [clientId]
+        );
+        rows = r;
+      }
       return res.json(rows || []);
     } catch (e) {
       const msg = String(e?.message || '');
@@ -7257,9 +7284,9 @@ export const listClientAgencyAffiliations = async (req, res, next) => {
 };
 
 /**
- * Add/update a client agency affiliation (and optionally set primary)
+ * Add/update a client agency affiliation (and optionally set primary / booking defaults)
  * POST /api/clients/:id/agency-affiliations
- * body: { agency_id, is_primary? }
+ * body: { agency_id, is_primary?, default_office_location_id?, default_place_of_service?, default_service_location_id? }
  */
 export const upsertClientAgencyAffiliation = async (req, res, next) => {
   try {
@@ -7268,6 +7295,24 @@ export const upsertClientAgencyAffiliation = async (req, res, next) => {
     const agencyId = parseInt(req.body?.agency_id, 10);
     if (!agencyId) return res.status(400).json({ error: { message: 'agency_id is required' } });
     const makePrimary = req.body?.is_primary === true || req.body?.is_primary === 'true' || req.body?.is_primary === 1 || req.body?.is_primary === '1';
+    const hasOfficeDefault = Object.prototype.hasOwnProperty.call(req.body || {}, 'default_office_location_id');
+    const hasPosDefault = Object.prototype.hasOwnProperty.call(req.body || {}, 'default_place_of_service');
+    const hasServiceLocDefault = Object.prototype.hasOwnProperty.call(req.body || {}, 'default_service_location_id');
+    const defaultOfficeLocationId = hasOfficeDefault
+      ? (req.body.default_office_location_id == null || req.body.default_office_location_id === ''
+        ? null
+        : parseInt(req.body.default_office_location_id, 10) || null)
+      : undefined;
+    const defaultPlaceOfService = hasPosDefault
+      ? (req.body.default_place_of_service == null || req.body.default_place_of_service === ''
+        ? null
+        : String(req.body.default_place_of_service).trim() || null)
+      : undefined;
+    const defaultServiceLocationId = hasServiceLocDefault
+      ? (req.body.default_service_location_id == null || req.body.default_service_location_id === ''
+        ? null
+        : parseInt(req.body.default_service_location_id, 10) || null)
+      : undefined;
 
     const userId = req.user.id;
     const role = req.user.role;
@@ -7276,11 +7321,24 @@ export const upsertClientAgencyAffiliation = async (req, res, next) => {
     const access = await ensureAgencyAccessToClient({ userId, role, clientId });
     if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
 
-    // Ensure the user has access to the target agency unless super_admin.
+    const targetAgency = await Agency.findById(agencyId);
+    if (!targetAgency) return res.status(404).json({ error: { message: 'Tenant not found' } });
+    if (String(targetAgency.organization_type || 'agency').toLowerCase() !== 'agency') {
+      return res.status(400).json({
+        error: { message: 'Tenant memberships must be agency organizations (not schools, programs, or clinical orgs)' }
+      });
+    }
+
+    // Ensure the user has access to the target tenant unless super_admin.
+    // Admins may add a client to any other tenant they administer (e.g. ITSCO → NLU).
     if (String(role || '').toLowerCase() !== 'super_admin') {
       const orgs = await User.getAgencies(userId);
-      const has = (orgs || []).some((o) => Number(o?.id) === Number(agencyId));
-      if (!has) return res.status(403).json({ error: { message: 'You do not have access to this agency' } });
+      const has = (orgs || []).some(
+        (o) =>
+          Number(o?.id) === Number(agencyId) &&
+          String(o?.organization_type || 'agency').toLowerCase() === 'agency'
+      );
+      if (!has) return res.status(403).json({ error: { message: 'You do not have access to this tenant' } });
     }
 
     const connection = await pool.getConnection();
@@ -7313,6 +7371,35 @@ export const upsertClientAgencyAffiliation = async (req, res, next) => {
             [agencyId, clientId]
           );
         }
+
+        if (hasOfficeDefault || hasPosDefault || hasServiceLocDefault) {
+          try {
+            const sets = [];
+            const params = [];
+            if (hasOfficeDefault) {
+              sets.push('default_office_location_id = ?');
+              params.push(defaultOfficeLocationId);
+            }
+            if (hasPosDefault) {
+              sets.push('default_place_of_service = ?');
+              params.push(defaultPlaceOfService);
+            }
+            if (hasServiceLocDefault) {
+              sets.push('default_service_location_id = ?');
+              params.push(defaultServiceLocationId);
+            }
+            if (sets.length) {
+              params.push(clientId, agencyId);
+              await connection.execute(
+                `UPDATE client_agency_assignments SET ${sets.join(', ')} WHERE client_id = ? AND agency_id = ?`,
+                params
+              );
+            }
+          } catch (colErr) {
+            const m = String(colErr?.message || '');
+            if (!m.includes('Unknown column')) throw colErr;
+          }
+        }
       }
 
       if (makePrimary) {
@@ -7328,6 +7415,67 @@ export const upsertClientAgencyAffiliation = async (req, res, next) => {
            WHERE id = ?`,
           [agencyId, userId, clientId]
         );
+
+        // Keep legacy client-level booking defaults in sync with the active chart tenant.
+        if (hasOfficeDefault || hasPosDefault || hasServiceLocDefault) {
+          try {
+            const sets = [];
+            const params = [];
+            if (hasOfficeDefault) {
+              sets.push('default_office_location_id = ?');
+              params.push(defaultOfficeLocationId);
+            }
+            if (hasPosDefault) {
+              sets.push('default_place_of_service = ?');
+              params.push(defaultPlaceOfService);
+            }
+            if (hasServiceLocDefault) {
+              sets.push('default_service_location_id = ?');
+              params.push(defaultServiceLocationId);
+            }
+            if (sets.length) {
+              params.push(clientId);
+              await connection.execute(`UPDATE clients SET ${sets.join(', ')} WHERE id = ?`, params);
+            }
+          } catch (colErr) {
+            const m = String(colErr?.message || '');
+            if (!m.includes('Unknown column')) throw colErr;
+          }
+        }
+      } else if (hasOfficeDefault || hasPosDefault || hasServiceLocDefault) {
+        // If this membership is already primary, keep clients.* booking defaults aligned.
+        try {
+          const [pri] = await connection.execute(
+            `SELECT is_primary FROM client_agency_assignments
+             WHERE client_id = ? AND agency_id = ? AND is_active = TRUE LIMIT 1`,
+            [clientId, agencyId]
+          );
+          const isPri = pri?.[0]?.is_primary === 1 || pri?.[0]?.is_primary === true
+            || Number(access.client?.agency_id) === Number(agencyId);
+          if (isPri) {
+            const sets = [];
+            const params = [];
+            if (hasOfficeDefault) {
+              sets.push('default_office_location_id = ?');
+              params.push(defaultOfficeLocationId);
+            }
+            if (hasPosDefault) {
+              sets.push('default_place_of_service = ?');
+              params.push(defaultPlaceOfService);
+            }
+            if (hasServiceLocDefault) {
+              sets.push('default_service_location_id = ?');
+              params.push(defaultServiceLocationId);
+            }
+            if (sets.length) {
+              params.push(clientId);
+              await connection.execute(`UPDATE clients SET ${sets.join(', ')} WHERE id = ?`, params);
+            }
+          }
+        } catch (colErr) {
+          const m = String(colErr?.message || '');
+          if (!m.includes('Unknown column') && !m.includes("doesn't exist")) throw colErr;
+        }
       }
 
       await connection.commit();
@@ -7346,8 +7494,10 @@ export const upsertClientAgencyAffiliation = async (req, res, next) => {
 };
 
 /**
- * Remove (deactivate) a client agency affiliation
+ * Archive or permanently remove a client agency affiliation.
  * DELETE /api/clients/:id/agency-affiliations/:agencyId
+ * - Admin / support / staff: soft-archive only (is_active = false)
+ * - Super admin: soft-archive by default; pass ?hard=1 to permanently delete the membership row
  */
 export const removeClientAgencyAffiliation = async (req, res, next) => {
   try {
@@ -7356,11 +7506,23 @@ export const removeClientAgencyAffiliation = async (req, res, next) => {
     if (!clientId || !agencyId) return res.status(400).json({ error: { message: 'Invalid ids' } });
 
     const userId = req.user.id;
-    const role = req.user.role;
+    const role = String(req.user.role || '').toLowerCase();
     if (!isBackofficeRole(role)) return res.status(403).json({ error: { message: 'Admin access required' } });
 
     const access = await ensureAgencyAccessToClient({ userId, role, clientId });
     if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
+
+    const hard =
+      role === 'super_admin' &&
+      (req.query?.hard === '1' ||
+        req.query?.hard === 'true' ||
+        req.body?.hard === true ||
+        req.body?.hard === '1' ||
+        req.body?.hard === 1);
+
+    if (hard === false && role !== 'super_admin' && !['admin', 'support', 'staff'].includes(role)) {
+      return res.status(403).json({ error: { message: 'Not allowed' } });
+    }
 
     // Best-effort: table may not exist yet.
     try {
@@ -7372,16 +7534,28 @@ export const removeClientAgencyAffiliation = async (req, res, next) => {
         [clientId, agencyId]
       );
       const row = rows?.[0] || null;
-      if (!row) return res.json({ ok: true });
+      if (!row) return res.json({ ok: true, archived: false, removed: false });
       if (row.is_primary === 1 || row.is_primary === true) {
-        return res.status(400).json({ error: { message: 'Cannot remove the primary agency. Set another primary first.' } });
+        return res.status(400).json({
+          error: { message: 'Cannot archive or remove the primary tenant. Switch chart context to another tenant first.' }
+        });
       }
+
+      if (hard) {
+        await pool.execute(
+          `DELETE FROM client_agency_assignments WHERE client_id = ? AND agency_id = ?`,
+          [clientId, agencyId]
+        );
+        return res.json({ ok: true, archived: false, removed: true });
+      }
+
       await pool.execute(
         `UPDATE client_agency_assignments
          SET is_active = FALSE
          WHERE client_id = ? AND agency_id = ?`,
         [clientId, agencyId]
       );
+      return res.json({ ok: true, archived: true, removed: false });
     } catch (e) {
       const msg = String(e?.message || '');
       const missing = msg.includes("doesn't exist") || msg.includes('ER_NO_SUCH_TABLE');
@@ -7389,7 +7563,7 @@ export const removeClientAgencyAffiliation = async (req, res, next) => {
       // No-op if table missing.
     }
 
-    res.json({ ok: true });
+    res.json({ ok: true, archived: false, removed: false });
   } catch (e) {
     next(e);
   }
@@ -7398,7 +7572,8 @@ export const removeClientAgencyAffiliation = async (req, res, next) => {
 /**
  * Add/update a client affiliation
  * POST /api/clients/:id/affiliations
- * body: { organization_id, is_primary? }
+ * body: { organization_id, is_primary?, agency_id? }
+ * agency_id scopes the org link check to a specific tenant membership (multi-tenant clients).
  */
 export const upsertClientAffiliation = async (req, res, next) => {
   try {
@@ -7407,6 +7582,9 @@ export const upsertClientAffiliation = async (req, res, next) => {
     const orgId = parseInt(req.body?.organization_id, 10);
     if (!orgId) return res.status(400).json({ error: { message: 'organization_id is required' } });
     const makePrimary = req.body?.is_primary === true || req.body?.is_primary === 'true' || req.body?.is_primary === 1 || req.body?.is_primary === '1';
+    const scopedAgencyId = req.body?.agency_id != null && req.body?.agency_id !== ''
+      ? parseInt(req.body.agency_id, 10)
+      : null;
 
     const userId = req.user.id;
     const role = req.user.role;
@@ -7432,11 +7610,53 @@ export const upsertClientAffiliation = async (req, res, next) => {
         return res.status(400).json({ error: { message: 'Affiliations must be school/program/learning/clinical organizations' } });
       }
 
-      // Ensure org is linked to the client’s agency
-      const linked = await isOrgLinkedToAgency({ connection, agencyId: client.agency_id, organizationId: orgId });
+      // Resolve which tenant(s) may own this affiliation.
+      let candidateAgencyIds = [];
+      if (scopedAgencyId) {
+        candidateAgencyIds = [scopedAgencyId];
+      } else {
+        try {
+          const [mem] = await connection.execute(
+            `SELECT agency_id FROM client_agency_assignments
+             WHERE client_id = ? AND is_active = TRUE`,
+            [clientId]
+          );
+          candidateAgencyIds = (mem || []).map((r) => Number(r.agency_id)).filter(Boolean);
+        } catch {
+          candidateAgencyIds = [];
+        }
+        if (!candidateAgencyIds.length && client?.agency_id) {
+          candidateAgencyIds = [Number(client.agency_id)];
+        }
+      }
+
+      // Ensure client has membership in scoped tenant when provided.
+      if (scopedAgencyId && String(role || '').toLowerCase() !== 'super_admin') {
+        const hasMembership = candidateAgencyIds.includes(Number(scopedAgencyId))
+          || Number(client?.agency_id) === Number(scopedAgencyId);
+        if (!hasMembership) {
+          // Allow if membership row exists (candidate list) — re-check membership table
+          const [chk] = await connection.execute(
+            `SELECT 1 FROM client_agency_assignments
+             WHERE client_id = ? AND agency_id = ? AND is_active = TRUE LIMIT 1`,
+            [clientId, scopedAgencyId]
+          ).catch(() => [[]]);
+          if (!chk?.length && Number(client?.agency_id) !== Number(scopedAgencyId)) {
+            await connection.rollback();
+            return res.status(400).json({ error: { message: 'Client is not a member of the selected tenant' } });
+          }
+        }
+      }
+
+      let linked = false;
+      for (const aid of candidateAgencyIds) {
+        // eslint-disable-next-line no-await-in-loop
+        linked = await isOrgLinkedToAgency({ connection, agencyId: aid, organizationId: orgId });
+        if (linked) break;
+      }
       if (!linked && String(role || '').toLowerCase() !== 'super_admin') {
         await connection.rollback();
-        return res.status(400).json({ error: { message: 'Selected organization is not linked to this agency' } });
+        return res.status(400).json({ error: { message: 'Selected organization is not linked to this tenant' } });
       }
 
       // Upsert affiliation

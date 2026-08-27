@@ -2211,6 +2211,12 @@ const routes = [
     meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'super_admin'], organizationSlug: true }
   },
   {
+    path: '/:organizationSlug/admin/package-catalog',
+    name: 'OrganizationPackageCatalog',
+    component: () => import('../views/admin/PackageCatalogAdminView.vue'),
+    meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'super_admin'], organizationSlug: true }
+  },
+  {
     path: '/:organizationSlug/packet/:token',
     name: 'PublicPractitionerPacket',
     component: () => import('../views/public/PublicPractitionerPacketView.vue'),

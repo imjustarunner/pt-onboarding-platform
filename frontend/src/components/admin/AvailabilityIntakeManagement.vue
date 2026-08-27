@@ -175,6 +175,9 @@
         <!-- Public appointment requests -->
         <div v-else-if="tab === 'appointments'">
           <div class="card-inner" style="margin-bottom: 10px;">
+            <TutorCaseloadTodayPanel v-if="agencyId" :agency-id="agencyId" />
+          </div>
+          <div class="card-inner" style="margin-bottom: 10px;">
             <div class="title">Public Find Provider Link</div>
             <div class="muted" style="margin-top: 4px;">
               Share this external URL with clients for agency-level provider intake/current-client booking.
@@ -241,6 +244,14 @@
                 </div>
                 <div class="meta" v-if="r.notes">Notes: {{ r.notes }}</div>
                 <div class="meta">Submitted: {{ fmtDateTime(r.createdAt) }}</div>
+                <TutorMatchSuggestions
+                  v-if="(r.sessionType === 'tutoring' || r.serviceType === 'tutoring') && agencyId"
+                  class="tutor-match-embed"
+                  :agency-id="agencyId"
+                  :subject-area="r.subjectArea || r.subject_area"
+                  :grade-level="r.clientGradeLevel || r.client_grade_level"
+                  service-type="tutoring"
+                />
               </div>
               <div class="assign">
                 <div class="lbl">Decision</div>
@@ -396,6 +407,8 @@ import api from '../../services/api';
 import { formatTimeRange12h } from '../../utils/timeFormat';
 import { useAgencyStore } from '../../store/agency';
 import { parseSchoolRequestNotes, scheduleAdjustmentHasChanges } from '../../utils/schoolRequestNotes.js';
+import TutorMatchSuggestions from '../tutoring/TutorMatchSuggestions.vue';
+import TutorCaseloadTodayPanel from '../tutoring/TutorCaseloadTodayPanel.vue';
 
 const props = defineProps({
   showHeader: {
@@ -1043,6 +1056,7 @@ watch(
 .pill--counseling { background: #f0fdf4; color: #166534; border-color: #bbf7d0; }
 .pill--muted { background: #f3f4f6; color: #9ca3af; border-color: #e5e7eb; }
 .row--pending-eval { opacity: 0.8; background: #fafafa; }
+.tutor-match-embed { margin-top: 10px; padding-top: 8px; border-top: 1px dashed var(--border); }
 .pending-eval-banner {
   display: flex;
   align-items: center;

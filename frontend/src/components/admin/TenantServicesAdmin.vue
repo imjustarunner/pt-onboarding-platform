@@ -122,6 +122,10 @@
           <button type="button" class="btn btn-primary btn-sm" @click="startPackage">Add package</button>
         </div>
         <p class="hint">
+          Quick starter packages. For program-scoped catalogs, public visibility, billing options, and Stripe checkout,
+          use the full <strong>Package catalog</strong> admin page (<code>/admin/package-catalog</code>).
+        </p>
+        <p class="hint">
           Each package belongs to one business type and only spends against that type’s services.
         </p>
         <div v-if="editingPackage" class="tsa-form">
