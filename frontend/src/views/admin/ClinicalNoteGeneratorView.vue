@@ -477,6 +477,16 @@
                   @import-intake="showIntakeImportReview = true"
                   @import-demographics="showDemographicsImport = true"
                 />
+                <div v-if="canEditNoteSubject && draftId" class="na-subject-save-row">
+                  <button
+                    type="button"
+                    class="na-btn-outline"
+                    :disabled="savingDraftManual"
+                    @click="saveNoteSubject"
+                  >
+                    {{ savingDraftManual ? 'Saving…' : 'Save client / initials' }}
+                  </button>
+                </div>
               </section>
 
               <section class="na-phi-banner na-phi-banner--compact" role="note">
@@ -513,7 +523,7 @@
 
               <section v-if="selectedClient || initials" class="na-card">
                 <h3 class="na-card-title">Selected client snapshot</h3>
-                <p class="na-snapshot-name">{{ clientDisplayName(selectedClient) || initials || '—' }}</p>
+                <p class="na-snapshot-name">{{ noteSubjectLabel }}</p>
                 <dl class="na-snapshot-dl">
                   <div>
                     <dt>Primary diagnosis</dt>
@@ -560,10 +570,56 @@
             <div class="na-card na-card--tight">
               <div class="na-card-head-row">
                 <h3 class="na-card-title">Session overview</h3>
-                <button type="button" class="na-link-btn na-link-btn--sm" @click="noteWizardStep = 1">Edit</button>
+                <button
+                  v-if="!canEditNoteSubject"
+                  type="button"
+                  class="na-link-btn na-link-btn--sm"
+                  @click="noteWizardStep = 1"
+                >
+                  Edit
+                </button>
               </div>
-              <dl class="na-snapshot-dl">
-                <div><dt>Client</dt><dd>{{ clientDisplayName(selectedClient) || initials || '—' }}</dd></div>
+              <template v-if="canEditNoteSubject">
+                <div class="na-subject-edit">
+                  <NoteAidClientPicker
+                    v-model="selectedClientId"
+                    :agency-id="noteAidAgencyId || currentAgencyId"
+                    :selected-client="selectedClient"
+                    :allow-clear="canClearLinkedClient"
+                    :profile-href="clientProfileHref"
+                    :search-all-tenants="true"
+                    @select="onClientPicked"
+                    @clear="onClientCleared"
+                    @create-request="openCreateClientModal"
+                  />
+                  <label v-if="!selectedClientId" class="na-label na-label--compact" for="na-step2-initials">
+                    Client initials
+                    <input
+                      id="na-step2-initials"
+                      v-model="initials"
+                      class="na-input"
+                      maxlength="16"
+                      placeholder="e.g., SB"
+                    />
+                  </label>
+                  <p v-else class="na-field-hint">Chart client linked — initials come from the client record.</p>
+                  <button
+                    type="button"
+                    class="na-btn-outline na-subject-save"
+                    :disabled="savingDraftManual"
+                    @click="saveNoteSubject"
+                  >
+                    {{ savingDraftManual ? 'Saving…' : 'Save client / initials' }}
+                  </button>
+                </div>
+              </template>
+              <dl v-else class="na-snapshot-dl">
+                <div><dt>Client</dt><dd>{{ noteSubjectLabel }}</dd></div>
+                <div><dt>Date</dt><dd>{{ dateOfService || '—' }}</dd></div>
+                <div><dt>Service</dt><dd>{{ selectedAid?.label || noteTypeDisplayLabel || '—' }}</dd></div>
+                <div v-if="hasScheduledSessionContext && sessionDurationMinutes"><dt>Duration</dt><dd>{{ sessionDurationMinutes }} min</dd></div>
+              </dl>
+              <dl v-if="canEditNoteSubject" class="na-snapshot-dl na-snapshot-dl--compact">
                 <div><dt>Date</dt><dd>{{ dateOfService || '—' }}</dd></div>
                 <div><dt>Service</dt><dd>{{ selectedAid?.label || noteTypeDisplayLabel || '—' }}</dd></div>
                 <div v-if="hasScheduledSessionContext && sessionDurationMinutes"><dt>Duration</dt><dd>{{ sessionDurationMinutes }} min</dd></div>
@@ -1610,13 +1666,65 @@ const needsSessionPicker = computed(() => {
 });
 
 /** Client can be cleared only when the note is not tied to a booked session. */
-const canClearLinkedClient = computed(() => {
-  if (sessionOfficeEventId.value) return false;
-  if (bookingContext.value?.officeEventId || bookingContext.value?.clinicalSessionId) return false;
+const isNoteSessionLocked = computed(() => {
+  if (sessionOfficeEventId.value || sessionClinicalSessionId.value) return true;
+  if (bookingContext.value?.officeEventId || bookingContext.value?.clinicalSessionId) return true;
   const draftRow = (recentDrafts.value || []).find((d) => String(d.id) === String(draftId.value));
-  if (draftRow?.office_event_id || draftRow?.clinical_session_id) return false;
-  return true;
+  if (draftRow?.office_event_id || draftRow?.clinical_session_id) return true;
+  return false;
 });
+
+const canEditNoteSubject = computed(() => !isNoteSessionLocked.value);
+
+const canClearLinkedClient = computed(() => canEditNoteSubject.value);
+
+const noteSubjectLabel = computed(() => {
+  if (selectedClient.value) return clientDisplayName(selectedClient.value);
+  return String(initials.value || '').trim() || '—';
+});
+
+function resolveDraftClientIdForSave() {
+  if (isNoteSessionLocked.value) {
+    return Number(selectedClientId.value || bookingContext.value?.clientId || 0) || null;
+  }
+  return Number(selectedClientId.value || 0) || null;
+}
+
+/** Drop orphan client_id stamps that don't match draft initials (no session on file). */
+function resolveDraftClientIdOnLoad(d) {
+  const cid = Number(d?.client_id || 0) || null;
+  if (!cid) return null;
+  const hasSession = !!(Number(d?.office_event_id || 0) || Number(d?.clinical_session_id || 0));
+  if (hasSession) return cid;
+
+  const draftInitials = String(d?.initials || '').trim();
+  if (!draftInitials) return cid;
+
+  const clientName = String(d?.client_full_name || '').trim();
+  if (!clientName) return cid;
+
+  const stub = {
+    full_name: clientName,
+    first_name: clientName.split(/\s+/)[0] || '',
+    last_name: clientName.split(/\s+/).slice(1).join(' ') || '',
+    initials: clientDisplayInitials({ full_name: clientName })
+  };
+  if (initialsLikelyMatch(draftInitials, stub)) return cid;
+  return null;
+}
+
+function syncRouteNoteClient(clientId) {
+  const nextQuery = { ...route.query };
+  const cid = Number(clientId || 0);
+  if (cid) {
+    nextQuery.clientId = String(cid);
+    delete nextQuery.client_id;
+  } else {
+    delete nextQuery.clientId;
+    delete nextQuery.client_id;
+  }
+  router.replace({ query: nextQuery }).catch(() => {});
+}
 const inputText = ref('');
 const includeInteractiveComplexity = ref(false);
 const notePathway = ref('soap'); // 'soap' | 'csNoteBuild'
@@ -2930,7 +3038,7 @@ const autosave = async () => {
         : null,
     dateOfService: dateOfService.value ? String(dateOfService.value) : null,
     initials: initials.value ? String(initials.value) : null,
-    clientId: effectiveClientId.value || null,
+    clientId: resolveDraftClientIdForSave(),
     officeEventId:
       Number(bookingContext.value?.officeEventId || sessionOfficeEventId.value || 0) || null,
     clinicalSessionId:
@@ -2984,7 +3092,10 @@ const autosave = async () => {
               ...d,
               date_of_service: payload.dateOfService || d.date_of_service,
               initials: payload.initials ?? d.initials,
-              client_id: payload.clientId ?? d.client_id,
+              client_id: Object.prototype.hasOwnProperty.call(payload, 'clientId')
+                ? payload.clientId
+                : d.client_id,
+              client_full_name: payload.clientId ? d.client_full_name : null,
               service_code: payload.serviceCode ?? d.service_code,
               input_text: payload.inputText !== undefined ? payload.inputText : d.input_text
             }
@@ -4182,6 +4293,7 @@ const onClientPicked = async (client) => {
   initialsMatchDismissed.value = true;
   dismissPhiNameWarn.value = false;
   resetClientClinicalContext();
+  syncRouteNoteClient(selectedClientId.value);
   await hydrateSelectedClient(selectedClientId.value);
   await loadClientAgencyContext(selectedClientId.value);
   await Promise.all([
@@ -4189,6 +4301,7 @@ const onClientPicked = async (client) => {
     loadClientIntakeSummary(selectedClientId.value),
     loadClientGuardianNames(selectedClientId.value)
   ]);
+  scheduleAutosave(400);
 };
 
 async function loadClientGuardianNames(clientId) {
@@ -4291,7 +4404,16 @@ const onClientCleared = () => {
   clientAgencyMembershipIds.value = [];
   learningSponsorAgencyIds.value = [];
   resetClientClinicalContext();
+  syncRouteNoteClient(null);
+  scheduleAutosave(400);
 };
+
+async function saveNoteSubject() {
+  await saveDraftNow();
+  if (draftId.value && lastSavedAt.value) {
+    approvalMessage.value = `Client / initials saved (${lastSavedAt.value}).`;
+  }
+}
 
 const openCreateClientModal = (opts = {}) => {
   createClientDefaults.initials = String(opts.initials || initials.value || '').trim();
@@ -4383,6 +4505,11 @@ watch(initials, () => {
   initialsMatchSearched.value = false;
   if (initialsMatchTimer) clearTimeout(initialsMatchTimer);
   initialsMatchTimer = setTimeout(searchInitialsMatches, 280);
+  if (draftId.value && !selectedClientId.value) scheduleAutosave(800);
+});
+
+watch(selectedClientId, () => {
+  if (draftId.value) scheduleAutosave(800);
 });
 
 const onPlanImportSaved = async (plan) => {
@@ -4937,7 +5064,7 @@ const loadDraftIntoWorkspace = async (d) => {
   selectedProgramId.value = d.program_id ? String(d.program_id) : '';
   dateOfService.value = d.date_of_service ? String(d.date_of_service).slice(0, 10) : todayIsoDate();
   initials.value = d.initials || '';
-  const draftClientId = Number(d.client_id || 0) || null;
+  const draftClientId = resolveDraftClientIdOnLoad(d);
   if (draftClientId) {
     if (draftClientId !== Number(selectedClientId.value || 0)) {
       selectedClientId.value = draftClientId;
@@ -4950,6 +5077,7 @@ const loadDraftIntoWorkspace = async (d) => {
       };
       await hydrateSelectedClient(draftClientId);
     }
+    syncRouteNoteClient(draftClientId);
     await loadClientAgencyContext(draftClientId);
     await Promise.all([
       loadClientTreatmentPlan(draftClientId),
@@ -4962,6 +5090,7 @@ const loadDraftIntoWorkspace = async (d) => {
     clientAgencyMembershipIds.value = [];
     learningSponsorAgencyIds.value = [];
     resetClientClinicalContext();
+    syncRouteNoteClient(null);
   }
 
   // Prefer client-owned tenant over a workspace-misattributed draft stamp.
@@ -5013,6 +5142,11 @@ const loadDraftIntoWorkspace = async (d) => {
   showProgressSessionPicker.value = false;
   progressEntryMode.value = 'client';
   activeWorkQueueItemId.value = null;
+
+  // Repair orphan client_id stamps (initials-only drafts that picked up another client).
+  if (!draftClientId && Number(d.client_id || 0)) {
+    scheduleAutosave(500);
+  }
 };
 
 const loadClinicalNoteIntoWorkspace = async (noteId) => {
@@ -7083,6 +7217,33 @@ a.na-chip--link {
 
 .na-next-nav-btn {
   font-weight: 700;
+}
+
+.na-subject-edit {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.na-label--compact {
+  margin: 0;
+  font-size: 0.82rem;
+}
+
+.na-subject-save,
+.na-subject-save-row {
+  align-self: flex-start;
+}
+
+.na-subject-save-row {
+  margin-top: 10px;
+}
+
+.na-snapshot-dl--compact {
+  margin-top: 4px;
+  padding-top: 10px;
+  border-top: 1px solid var(--na-border);
 }
 
 .na-gen-summary {

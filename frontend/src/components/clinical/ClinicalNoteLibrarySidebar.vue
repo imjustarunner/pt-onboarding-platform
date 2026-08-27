@@ -311,12 +311,14 @@ import {
   LEFT_PANEL_CONNECTION_KEYS,
   NOTE_CONNECTION_META,
   buildLeftLibraryRows,
+  deriveNoteConnection,
   filterLeftLibraryRows,
   groupLeftLibraryRows,
   normalizeDocStatus,
   docStatusMeta,
   noteConnectionMeta
 } from '../../utils/noteAidDocumentationStatus.js';
+import { initialsLikelyMatch } from '../../utils/noteAidTreatmentHelpers.js';
 
 const props = defineProps({
   title: { type: String, default: 'Note Library' },
@@ -479,9 +481,18 @@ function connectionIconSvg(connection) {
   return `<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M8 13h8M8 17h5"/></svg>`;
 }
 function rowTitle(d) {
+  const initials = String(d?.initials || '').trim();
   const name = String(d?.client_full_name || '').trim();
+  const hasSession = !!(
+    Number(d?.officeEventId || d?.office_event_id || 0)
+    || Number(d?.clinicalSessionId || d?.clinical_session_id || 0)
+  );
+  if (initials && name && !hasSession && !initialsLikelyMatch(initials, { full_name: name, initials: '' })) {
+    return initials;
+  }
+  if (deriveNoteConnection(d) === 'unlinked') return initials || '—';
   if (name) return name;
-  return d?.initials || '—';
+  return initials || '—';
 }
 function rowTypeLabel(d) {
   if (d?.source === 'work_queue') {
