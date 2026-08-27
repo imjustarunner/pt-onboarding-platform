@@ -731,6 +731,7 @@
               {{ generating ? 'Generating…' : 'Generate Note' }}
             </button>
           </div>
+          <small v-if="generateBlockedReason && generateDisabled" class="hint na-generate-hint">{{ generateBlockedReason }}</small>
           <small v-if="generateError" class="error">{{ generateError }}</small>
         </section>
 
@@ -2013,6 +2014,19 @@ const selectedToolId = computed(() => {
   }
   return String(selectedAid.value?.toolId || '').trim();
 });
+
+/** Tool id used to gate + run generation — falls back to billing code when aid metadata is thin. */
+const resolveGenerateToolId = computed(() => {
+  if (forceAutoSelect.value || selectedAidForcesAutoSelect.value || autoSelectCode.value) {
+    return 'clinical_code_decider';
+  }
+  const fromAid = String(selectedAid.value?.toolId || '').trim();
+  if (fromAid) return fromAid;
+  const code = String(actualServiceCode.value || '').trim().toUpperCase();
+  if (!code) return '';
+  const hit = findNoteAidByToolOrCode({ serviceCode: code });
+  return String(hit?.aid?.toolId || '').trim();
+});
 const showBillingCodePicker = computed(() => {
   if (forceAutoSelect.value) return false;
   if (selectedAidForcesAutoSelect.value) return false;
@@ -2332,12 +2346,28 @@ const eligibleCodesLabel = computed(() => {
 const generateDisabled = computed(() => {
   if (generating.value) return true;
   if (recording.value || recordingBusy.value) return true;
+  if (noteAidAgencyNeedsChoice.value && !noteAidAgencyId.value) return true;
   const hasText = !!String(inputText.value || '').trim();
   const hasAudio = !!audioBlob.value;
   if (!hasText && !hasAudio) return true;
-  // Need a gem/aid unless credential tier forces Code Decider.
-  if (!forceAutoSelect.value && !selectedToolId.value) return true;
+  if (!forceAutoSelect.value && !resolveGenerateToolId.value) return true;
   return false;
+});
+
+const generateBlockedReason = computed(() => {
+  if (generating.value) return 'Generating…';
+  if (recording.value) return 'Stop recording before generating.';
+  if (recordingBusy.value) return 'Finishing recording…';
+  if (noteAidAgencyNeedsChoice.value && !noteAidAgencyId.value) {
+    return 'Choose which tenant this note belongs to (above).';
+  }
+  const hasText = !!String(inputText.value || '').trim();
+  const hasAudio = !!audioBlob.value;
+  if (!hasText && !hasAudio) return 'Add session notes in the box above or record dictation.';
+  if (!forceAutoSelect.value && !resolveGenerateToolId.value) {
+    return 'Select a note tool from the library, or set a billing code on Step 1.';
+  }
+  return '';
 });
 
 const getAudioBlobDurationSeconds = async (blob) => {
@@ -2986,6 +3016,11 @@ const toggleRecording = async () => {
       recordingBusy.value = true;
       mediaRecorder?.stop?.();
       stopTranscription();
+      window.setTimeout(() => {
+        if (recordingBusy.value && !recording.value) {
+          recordingBusy.value = false;
+        }
+      }, 2500);
     } catch {
       recording.value = false;
       recordingBusy.value = false;
@@ -3399,8 +3434,8 @@ const generateNote = async () => {
       fd.append('serviceCode', actualServiceCode.value);
     }
     fd.append('autoSelectCode', String(shouldAutoSelectCode));
-    if (!shouldAutoSelectCode && selectedToolId.value) {
-      fd.append('toolId', useCsNoteBuildPathway.value ? 'clinical_cs_note_build' : String(selectedToolId.value));
+    if (!shouldAutoSelectCode && resolveGenerateToolId.value) {
+      fd.append('toolId', useCsNoteBuildPathway.value ? 'clinical_cs_note_build' : String(resolveGenerateToolId.value));
     } else if (useCsNoteBuildPathway.value) {
       fd.append('toolId', 'clinical_cs_note_build');
     }
@@ -6500,6 +6535,13 @@ a.na-chip--link {
 .na-char-count {
   color: var(--na-muted);
   font-size: 0.85rem;
+}
+
+.na-generate-hint {
+  display: block;
+  margin-top: 6px;
+  color: #64748b;
+  font-size: 0.82rem;
 }
 
 .na-generate,
