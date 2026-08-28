@@ -150,6 +150,8 @@ export default class SchoolOnboardingInvite {
       passwordSetAt: 'password_set_at',
       submittedAt: 'submitted_at',
       lastViewedAt: 'last_viewed_at',
+      inviteEmailSentAt: 'invite_email_sent_at',
+      recipientStartedAt: 'recipient_started_at',
       token: 'token',
       schoolName: 'school_name',
       contactFirstName: 'contact_first_name',

@@ -438,6 +438,9 @@ export async function sendInviteEmail(invite, { agency, invitedByName } = {}) {
         agencyId: invite.agency_id
       });
     }
+    if (invite?.id) {
+      await SchoolOnboardingInvite.update(invite.id, { inviteEmailSentAt: new Date() });
+    }
     return { sent: true, link };
   } catch (e) {
     console.error('[schoolOnboarding] email send failed:', e);
@@ -766,8 +769,9 @@ export async function resendInvite(inviteId, agencyId, invitedByUserId) {
   const intakeBootstrap = await ensureSchoolDigitalIntakeForms(updated, {
     createdByUserId: invitedByUserId || null
   });
+  const fresh = await SchoolOnboardingInvite.findById(updated.id);
   return {
-    invite: serializeInvite(updated, { admin: true }),
+    invite: serializeInvite(fresh, { admin: true }),
     link: buildOnboardingLink(updated.token),
     emailSent: !!emailResult.sent,
     intakeBootstrap
@@ -789,8 +793,9 @@ export async function sendInviteEmailOnly(inviteId, agencyId, invitedByUserId) {
   const intakeBootstrap = await ensureSchoolDigitalIntakeForms(invite, {
     createdByUserId: invitedByUserId || null
   });
+  const fresh = await SchoolOnboardingInvite.findById(invite.id);
   return {
-    invite: serializeInvite(invite, { admin: true }),
+    invite: serializeInvite(fresh, { admin: true }),
     link: buildOnboardingLink(invite.token),
     emailSent: !!emailResult.sent,
     intakeBootstrap
@@ -808,6 +813,87 @@ export async function revokeInvite(inviteId, agencyId) {
 
 function completedCount(progress) {
   return STEP_KEYS.filter((k) => progress?.[k] === 'complete').length;
+}
+
+const INVITE_STEP_LABELS = {
+  school_information: 'School information',
+  school_staff: 'School staff',
+  preferred_days: 'Preferred days',
+  welcome_materials: 'Welcome materials',
+  explore_demo: 'Explore demo',
+  review_submit: 'Review & submit'
+};
+
+function recipientHasSavedProgress(progress, payload) {
+  if (completedCount(progress) > 0) return true;
+  return STEP_KEYS.some((key) => progress?.[key] === 'in_progress' && payload?.[key]);
+}
+
+function hasRecipientStartedOnboarding(invite, progress) {
+  if (invite?.recipient_started_at) return true;
+  if (invite?.password_set_at) return true;
+  if (invite?.submitted_at) return true;
+  return completedCount(progress) > 0;
+}
+
+function resolveInviteDisplayStatus(invite, progress) {
+  const raw = String(invite?.status || '').toLowerCase();
+  if (raw === 'submitted') return { key: 'submitted', label: 'Submitted' };
+  if (raw === 'revoked') return { key: 'revoked', label: 'Revoked' };
+  if (raw === 'expired') return { key: 'expired', label: 'Expired' };
+  if (hasRecipientStartedOnboarding(invite, progress)) {
+    return { key: 'in_progress', label: 'In progress' };
+  }
+  if (invite?.invite_email_sent_at) {
+    return { key: 'sent', label: 'Sent' };
+  }
+  return { key: 'created', label: 'Created' };
+}
+
+function buildInviteActivity(invite, progress, payload) {
+  const events = [];
+  const add = (at, label, detail = null) => {
+    if (!at) return;
+    const when = new Date(at);
+    if (!Number.isFinite(when.getTime())) return;
+    events.push({
+      at: when.toISOString(),
+      label,
+      detail: detail ? String(detail).trim() : null
+    });
+  };
+
+  const invitedBy =
+    `${invite?.invited_by_first_name || ''} ${invite?.invited_by_last_name || ''}`.trim() || null;
+  add(invite?.created_at, 'Invite created', invitedBy ? `By ${invitedBy}` : null);
+  add(invite?.invite_email_sent_at, 'Invite email sent', invite?.contact_email || null);
+
+  const started = hasRecipientStartedOnboarding(invite, progress);
+  if (invite?.last_viewed_at) {
+    add(
+      invite.last_viewed_at,
+      'Link opened',
+      started ? null : 'Contact opened the link but has not saved any steps yet'
+    );
+  }
+
+  for (const stepKey of STEP_KEYS) {
+    const body = payload?.[stepKey];
+    if (body?.completedAt) {
+      add(body.completedAt, `${INVITE_STEP_LABELS[stepKey] || stepKey} completed`);
+    } else if (progress?.[stepKey] === 'in_progress' && body) {
+      add(body.updatedAt || body.startedAt || null, `${INVITE_STEP_LABELS[stepKey] || stepKey} started`);
+    }
+  }
+
+  add(invite?.password_set_at, 'Login password set');
+  add(invite?.submitted_at, 'Onboarding submitted');
+  if (String(invite?.status || '').toLowerCase() === 'revoked') {
+    add(invite?.updated_at, 'Invite revoked');
+  }
+
+  events.sort((a, b) => new Date(a.at).getTime() - new Date(b.at).getTime());
+  return events;
 }
 
 function hasExplicitStepCompletion(body) {
@@ -884,9 +970,12 @@ export function serializeInvite(invite, { admin = false, publicView = false } = 
   if (!invite) return null;
   const progress = effectiveStepProgress(invite);
   const payload = invite.step_payload || {};
+  const display = resolveInviteDisplayStatus(invite, progress);
   const base = {
     id: invite.id,
     status: invite.status,
+    displayStatus: display.key,
+    displayStatusLabel: display.label,
     source: invite.source || 'invite',
     schoolName: invite.school_name,
     schoolOrganizationId: invite.school_organization_id,
@@ -902,7 +991,9 @@ export function serializeInvite(invite, { admin = false, publicView = false } = 
     submittedAt: invite.submitted_at,
     passwordSet: !!invite.password_set_at,
     createdAt: invite.created_at,
-    lastViewedAt: invite.last_viewed_at
+    lastViewedAt: invite.last_viewed_at,
+    inviteEmailSentAt: invite.invite_email_sent_at || null,
+    recipientStartedAt: invite.recipient_started_at || null
   };
 
   if (admin) {
@@ -913,6 +1004,7 @@ export function serializeInvite(invite, { admin = false, publicView = false } = 
       invitedByName: `${invite.invited_by_first_name || ''} ${invite.invited_by_last_name || ''}`.trim() || null,
       agencyId: invite.agency_id,
       materialsRequest: summarizeWelcomeMaterials(payload),
+      activity: buildInviteActivity(invite, progress, payload),
       stepPayload: {
         welcome_materials: payload?.welcome_materials || null
       }
@@ -971,11 +1063,7 @@ export async function getPublicInvite(token) {
     throw Object.assign(new Error(usable.message), { status: usable.code === 'revoked' ? 403 : 410, code: usable.code });
   }
   await SchoolOnboardingInvite.touchViewed(invite.id);
-  const onboardingJustStarted = invite.status === 'invited';
-  if (onboardingJustStarted) {
-    await SchoolOnboardingInvite.update(invite.id, { status: 'in_progress' });
-  }
-  if (onboardingJustStarted) {
+  if (!invite.last_viewed_at) {
     await ensureSchoolDigitalIntakeForms(invite);
   }
   const fresh = await reconcileStepProgress(await SchoolOnboardingInvite.findByToken(token));
@@ -1055,7 +1143,8 @@ export async function setPassword(token, password, identity = {}) {
   // Keep PENDING_SETUP / in-progress until final submit; do not jump to PREHIRE.
   await SchoolOnboardingInvite.update(invite.id, {
     passwordSetAt: new Date(),
-    status: 'in_progress'
+    status: 'in_progress',
+    ...(invite.recipient_started_at ? {} : { recipientStartedAt: new Date() })
   });
   const updatedUser = await User.findById(user.id);
   const agencies = await User.getAgencies(user.id);
@@ -1288,11 +1377,15 @@ export async function saveStep(token, stepKey, payload = {}, markComplete = true
     progress[stepKey] = 'in_progress';
   }
 
-  const updated = await SchoolOnboardingInvite.update(invite.id, {
-    stepProgress: progress,
-    stepPayload,
-    status: 'in_progress'
-  });
+  const invitePatch = { stepProgress: progress, stepPayload };
+  if (recipientHasSavedProgress(progress, stepPayload)) {
+    invitePatch.status = 'in_progress';
+    if (!invite.recipient_started_at) {
+      invitePatch.recipientStartedAt = new Date();
+    }
+  }
+
+  const updated = await SchoolOnboardingInvite.update(invite.id, invitePatch);
   const reconciled = await reconcileStepProgress(updated);
   return serializeInvite(reconciled, { publicView: true });
 }

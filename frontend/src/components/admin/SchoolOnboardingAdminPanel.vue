@@ -192,7 +192,7 @@
                   <div class="muted tiny">{{ inv.contactEmail }}</div>
                 </td>
                 <td><span class="pill">{{ inv.source || 'invite' }}</span></td>
-                <td><span class="pill" :data-status="inv.status">{{ inv.status }}</span></td>
+                <td><span class="pill" :data-status="inviteDisplayStatus(inv)">{{ inviteDisplayLabel(inv) }}</span></td>
                 <td>{{ inv.completedSteps }}/{{ inv.totalSteps }}</td>
                 <td>
                   <div class="so-materials-summary" :title="materialsRequestTitle(inv)">
@@ -279,7 +279,7 @@
                 <dl class="so-dl">
                   <div>
                     <dt>Status</dt>
-                    <dd><span class="pill" :data-status="selectedInvite.status">{{ selectedInvite.status }}</span></dd>
+                    <dd><span class="pill" :data-status="inviteDisplayStatus(selectedInvite)">{{ inviteDisplayLabel(selectedInvite) }}</span></dd>
                   </div>
                   <div><dt>Source</dt><dd>{{ selectedInvite.source || 'invite' }}</dd></div>
                   <div><dt>Invited by</dt><dd>{{ selectedInvite.invitedByName || '—' }}</dd></div>
@@ -287,7 +287,27 @@
                     <dt>Progress</dt>
                     <dd>{{ selectedInvite.completedSteps }}/{{ selectedInvite.totalSteps }} steps</dd>
                   </div>
+                  <div v-if="selectedInvite.inviteEmailSentAt">
+                    <dt>Email sent</dt>
+                    <dd>{{ formatDate(selectedInvite.inviteEmailSentAt) }}</dd>
+                  </div>
                 </dl>
+              </section>
+
+              <section class="so-detail-section so-detail-section--full">
+                <h3>Activity</h3>
+                <p v-if="!selectedInvite.activity?.length" class="muted tiny">
+                  No activity yet — the contact has not opened the link or saved any steps.
+                </p>
+                <ol v-else class="so-activity-list">
+                  <li v-for="(event, idx) in selectedInvite.activity" :key="`${event.at}-${idx}`">
+                    <div class="so-activity-row">
+                      <span class="so-activity-label">{{ event.label }}</span>
+                      <span class="so-activity-time muted tiny">{{ formatDate(event.at) }}</span>
+                    </div>
+                    <p v-if="event.detail" class="muted tiny so-activity-detail">{{ event.detail }}</p>
+                  </li>
+                </ol>
               </section>
 
               <section class="so-detail-section">
@@ -476,6 +496,14 @@ const STEP_LABELS = {
   explore_demo: 'Explore demo',
   review_submit: 'Review & submit'
 };
+
+function inviteDisplayStatus(inv) {
+  return inv?.displayStatus || inv?.status || 'created';
+}
+
+function inviteDisplayLabel(inv) {
+  return inv?.displayStatusLabel || String(inv?.status || 'created').replace(/_/g, ' ');
+}
 
 function inviteStepEntries(inv) {
   const progress = inv?.stepProgress && typeof inv.stepProgress === 'object' ? inv.stepProgress : {};
@@ -1069,9 +1097,28 @@ a.btn {
 .pill[data-status='submitted'],
 .pill[data-status='complete'] { background: #dcfce7; color: #166534; }
 .pill[data-status='in_progress'] { background: #dbeafe; color: #1d4ed8; }
+.pill[data-status='sent'] { background: #e0e7ff; color: #3730a3; }
+.pill[data-status='created'],
+.pill[data-status='invited'] { background: #f1f5f9; color: #475569; }
 .pill[data-status='revoked'],
 .pill[data-status='expired'] { background: #fee2e2; color: #991b1b; }
 .pill[data-status='not_started'] { background: #f1f5f9; color: #475569; }
+.so-activity-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+.so-activity-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 0.75rem;
+}
+.so-activity-label { font-weight: 600; color: #0f172a; }
+.so-activity-detail { margin: 0.2rem 0 0; }
 .so-row-actions {
   display: flex;
   flex-direction: column;
