@@ -221,8 +221,8 @@ export async function provisionSchoolGoogleGroup({
     }
   };
 
-  // Managers: support@ + schoolreply@ (never ai@plottwistco.com as the school mailbox member)
-  await addMember(supportEmail, 'MANAGER');
+  // Managers: support@ as OWNER (so we can strip ai@), schoolreply@ as MANAGER
+  await addMember(supportEmail, 'OWNER');
   await addMember(schoolReplyEmail, 'MANAGER');
 
   // Directory create often auto-adds the impersonated subject (sometimes ai@) as OWNER — strip it.
