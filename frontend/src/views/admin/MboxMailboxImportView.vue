@@ -109,8 +109,8 @@
 
 <script setup>
 import { computed, onMounted, ref, watch } from 'vue';
-import api from '../services/api.js';
-import { useAuthStore } from '../stores/auth.js';
+import api from '../../services/api.js';
+import { useAuthStore } from '../../store/auth.js';
 
 const authStore = useAuthStore();
 const isSuperAdmin = computed(() => authStore.user?.role === 'super_admin');
