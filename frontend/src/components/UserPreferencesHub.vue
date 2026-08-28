@@ -1,7 +1,22 @@
 <template>
   <div class="preferences-content">
+    <nav class="prefs-toc" aria-label="Settings sections">
+      <a href="#prefs-notifications" @click.prevent="scrollToSection('prefs-notifications')">Notifications</a>
+      <a href="#prefs-availability" @click.prevent="scrollToSection('prefs-availability')">Schedule</a>
+      <a href="#prefs-communication" @click.prevent="scrollToSection('prefs-communication')">Support assist</a>
+      <a href="#prefs-privacy" @click.prevent="scrollToSection('prefs-privacy')">Privacy & Quick View</a>
+      <a href="#prefs-security" @click.prevent="scrollToSection('prefs-security')">PINs & lock</a>
+      <a href="#my-settings-appearance" @click.prevent="scrollToSection('my-settings-appearance')">Appearance</a>
+      <a href="#prefs-account" @click.prevent="scrollToSection('prefs-account')">Account</a>
+      <a
+        v-if="showSummitDangerZone"
+        href="#prefs-danger"
+        @click.prevent="scrollToSection('prefs-danger')"
+      >Summit danger zone</a>
+    </nav>
+
     <!-- Section 1: Notification Preferences -->
-    <section class="preferences-section">
+    <section id="prefs-notifications" class="preferences-section">
       <div class="section-header">
         <h2>Notification Preferences</h2>
         <p class="section-description">Control how and when notifications reach you.</p>
@@ -20,7 +35,7 @@
         </div>
 
         <div v-else class="prefs-grid">
-          <div class="card notification-type-settings-card">
+          <div id="notification-delivery-matrix" class="card notification-type-settings-card">
             <NotificationTypeSettingsPanel :global-editable="!notificationDisabled" @changed="onNotificationPanelChanged" />
           </div>
 
@@ -107,7 +122,13 @@
                   {{ d }}
                 </label>
               </div>
-              <div class="field-help">Enable quiet hours in the notification matrix above first.</div>
+              <div class="field-help">
+                Turn on quiet hours in the
+                <a href="#notification-delivery-matrix" class="inline-jump" @click.prevent="scrollToSection('notification-delivery-matrix')">
+                  notification matrix above
+                </a>
+                first, then choose which days apply.
+              </div>
             </div>
 
             <div class="field checkbox">
@@ -165,7 +186,7 @@
     </section>
 
     <!-- Section 2: Availability & Work Style -->
-    <section class="preferences-section">
+    <section id="prefs-availability" class="preferences-section">
       <div class="section-header">
         <h2>Availability & Work Style</h2>
         <p class="section-description">Configure your working context and scheduling defaults.</p>
@@ -274,10 +295,12 @@
     </section>
 
     <!-- Section 3: Communication Preferences (non-notification) -->
-    <section class="preferences-section">
+    <section id="prefs-communication" class="preferences-section">
       <div class="section-header">
-        <h2>Communication Preferences</h2>
-        <p class="section-description">Tune how you present yourself and how support can assist.</p>
+        <h2>Support assist</h2>
+        <p class="section-description">
+          When unread client messages sit too long, invite support to help — aligned with the 24 business-hour detection window.
+        </p>
       </div>
       <div class="section-content">
         <div class="prefs-grid">
@@ -285,27 +308,28 @@
             <h3 class="card-title">Messaging behavior</h3>
             <label class="field checkbox">
               <input v-model="prefs.allow_staff_step_in" type="checkbox" :disabled="viewOnly" />
-              Allow support staff to step in if I don’t respond within…
+              Allow support staff to step in after 24 business hours without a response
             </label>
-
-            <div class="field" v-if="prefs.allow_staff_step_in">
-              <label>Minutes</label>
-              <input v-model.number="prefs.staff_step_in_after_minutes" type="number" min="1" max="240" :disabled="viewOnly" />
-              <div class="field-help">Safety Net stays enabled regardless; this only tunes when support is invited to help.</div>
+            <div class="field-help">
+              Safety Net stays on regardless. When this is enabled, support is invited after
+              <strong>24 business hours</strong> with no reply — not a short minute timer.
             </div>
           </div>
         </div>
       </div>
     </section>
 
-    <!-- Section 4: Privacy & Display -->
-    <section class="preferences-section">
+    <!-- Section 4: Privacy & Quick View -->
+    <section id="prefs-privacy" class="preferences-section">
       <div class="section-header">
-        <h2>Privacy & Display</h2>
-        <p class="section-description">Control how your name appears across internal surfaces.</p>
+        <h2>Privacy & Quick View</h2>
+        <p class="section-description">Name display plus your mobile Quick View link and 6-digit passcode.</p>
       </div>
       <div class="section-content">
         <div class="prefs-grid">
+          <div v-if="isOwnAccount" class="card">
+            <QuickViewPrivacyPanel />
+          </div>
           <div class="card">
             <h3 class="card-title">Name display</h3>
             <label class="field checkbox">
@@ -326,10 +350,10 @@
     </section>
 
     <!-- Section 4.5: Session Lock (HIPAA-style) - only for users with My Dashboard -->
-    <section v-if="hasMyDashboard" class="preferences-section">
+    <section v-if="hasMyDashboard" id="prefs-security" class="preferences-section">
       <div class="section-header">
-        <h2>Session Lock</h2>
-        <p class="section-description">Lock your session after inactivity instead of logging out. Requires a 4-digit PIN to unlock.</p>
+        <h2>PINs & session lock</h2>
+        <p class="section-description">Session lock and kiosk PIN (separate from Quick View’s 6-digit passcode).</p>
       </div>
       <div class="section-content">
         <div class="prefs-grid">
@@ -396,7 +420,7 @@
     </section>
 
     <!-- Section 4.6: Kiosk PIN - for staff who clock in/out at kiosks -->
-    <section v-if="hasMyDashboard" class="preferences-section">
+    <section v-if="hasMyDashboard" class="preferences-section preferences-section--nested">
       <div class="section-header">
         <h2>Kiosk PIN</h2>
         <p class="section-description">Optional 4-digit PIN to identify yourself at clock-in/out kiosks. Use your PIN instead of tapping your name.</p>
@@ -588,7 +612,7 @@
     </section>
 
     <!-- Section 6: Account & Identity -->
-    <section class="preferences-section">
+    <section id="prefs-account" class="preferences-section">
       <div class="section-header">
         <h2>Account & Identity</h2>
         <p class="section-description">Read-only overview of your identity and org membership.</p>
@@ -607,11 +631,13 @@
       </div>
     </section>
 
-    <!-- Danger Zone -->
-    <section class="preferences-section danger-zone-section">
+    <!-- Summit Stats / club challenge only -->
+    <section v-if="showSummitDangerZone" id="prefs-danger" class="preferences-section danger-zone-section">
       <div class="section-header">
         <h2 class="danger-zone-title">Danger Zone</h2>
-        <p class="section-description">These actions are permanent or have significant consequences. Proceed carefully.</p>
+        <p class="section-description">
+          Summit Stats team-challenge actions only. These do not delete your workforce account at other organizations.
+        </p>
       </div>
       <div class="section-content">
         <div v-if="deleteAccountScopedSuccess" class="success-banner" style="margin-bottom:16px;padding:12px 14px;border-radius:8px;background:#ecfdf5;color:#065f46;font-size:14px;">
@@ -804,6 +830,7 @@ import { useAgencyStore } from '../store/agency';
 import { useUserPreferencesStore } from '../store/userPreferences';
 import api from '../services/api';
 import NotificationTypeSettingsPanel from './notifications/NotificationTypeSettingsPanel.vue';
+import QuickViewPrivacyPanel from './account/QuickViewPrivacyPanel.vue';
 import { refetchSessionLockConfig } from '../utils/activityTracker';
 import { setThemePreference, getStoredThemePreference, normalizeThemePreference, resolveIsDark } from '../utils/darkMode';
 import {
@@ -829,8 +856,13 @@ const props = defineProps({
   allowAdminControlledEdits: { type: Boolean, default: false },
   // Optional identity payload to display (useful in admin profile view).
   identity: { type: Object, default: null },
-  organizations: { type: Array, default: () => [] }
+  organizations: { type: Array, default: () => [] },
+  /** Summit Stats / club challenge surface — gates Danger Zone */
+  isClubContext: { type: Boolean, default: false }
 });
+
+/** 24 business hours expressed in minutes for the existing preference column. */
+const STAFF_STEP_IN_BUSINESS_HOURS_MINUTES = 24 * 60;
 
 const authStore = useAuthStore();
 const agencyStore = useAgencyStore();
@@ -909,7 +941,7 @@ const prefs = ref({
   schedule_color_overrides: null,
   show_read_receipts: false,
   allow_staff_step_in: true,
-  staff_step_in_after_minutes: 15,
+  staff_step_in_after_minutes: STAFF_STEP_IN_BUSINESS_HOURS_MINUTES,
   show_full_name_on_schedules: true,
   show_initials_only_on_boards: true,
   allow_name_in_pdfs: true,
@@ -1052,7 +1084,7 @@ watch(
     if (!enabled) {
       prefs.value.staff_step_in_after_minutes = null;
     } else if (!prefs.value.staff_step_in_after_minutes) {
-      prefs.value.staff_step_in_after_minutes = 15;
+      prefs.value.staff_step_in_after_minutes = STAFF_STEP_IN_BUSINESS_HOURS_MINUTES;
     }
   }
 );
@@ -1401,7 +1433,9 @@ const save = async () => {
 
       // Sections 2–5
       allow_staff_step_in: !!prefs.value.allow_staff_step_in,
-      staff_step_in_after_minutes: prefs.value.allow_staff_step_in ? Number(prefs.value.staff_step_in_after_minutes || 15) : null,
+      staff_step_in_after_minutes: prefs.value.allow_staff_step_in
+        ? STAFF_STEP_IN_BUSINESS_HOURS_MINUTES
+        : null,
       show_full_name_on_schedules: !!prefs.value.show_full_name_on_schedules,
       show_initials_only_on_boards: !!prefs.value.show_initials_only_on_boards,
       allow_name_in_pdfs: !!prefs.value.allow_name_in_pdfs,
@@ -1546,6 +1580,20 @@ const myScheduleLink = computed(() => {
   const slug = typeof route.params.organizationSlug === 'string' ? route.params.organizationSlug : '';
   return slug ? `/${slug}/my-schedule` : '/my-schedule';
 });
+
+const showSummitDangerZone = computed(() => {
+  if (props.isClubContext) return true;
+  const t = String(
+    agencyStore.currentAgency?.organization_type || agencyStore.currentAgency?.organizationType || ''
+  ).toLowerCase();
+  return t === 'affiliation' || t === 'clubwebapp';
+});
+
+function scrollToSection(id) {
+  const el = typeof document !== 'undefined' ? document.getElementById(id) : null;
+  if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
 const clubSummitContext = ref(null);
 const resendVerifySubmitting = ref(false);
 const resendVerifyMessage = ref('');
@@ -1714,21 +1762,64 @@ const submitDeleteAccount = async () => {
 .preferences-content {
   display: flex;
   flex-direction: column;
-  gap: 32px;
+  gap: 16px;
+}
+
+.prefs-toc {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  padding: 10px 12px;
+  margin: -4px 0 4px;
+  background: color-mix(in srgb, var(--bg, #fff) 92%, transparent);
+  backdrop-filter: blur(8px);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.prefs-toc a {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--primary, #2563eb);
+  text-decoration: none;
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: #f1f5f9;
+}
+
+.prefs-toc a:hover {
+  background: #e2e8f0;
+}
+
+.inline-jump {
+  color: var(--primary, #2563eb);
+  font-weight: 600;
+  text-decoration: underline;
+  cursor: pointer;
 }
 
 .preferences-section {
   background: white;
-  border-radius: 12px;
-  padding: 32px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  border-radius: 10px;
+  padding: 16px 18px;
+  box-shadow: none;
   border: 1px solid var(--border);
+  scroll-margin-top: 64px;
+}
+
+.preferences-section--nested {
+  margin-top: -8px;
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
 }
 
 .color-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-  gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 10px;
 }
 
 .timezone-select {
@@ -1736,46 +1827,47 @@ const submitDeleteAccount = async () => {
 }
 
 .section-header {
-  margin-bottom: 24px;
+  margin-bottom: 12px;
 }
 
 .section-header h2 {
-  margin: 0 0 8px 0;
+  margin: 0 0 4px 0;
   color: var(--text-primary);
-  font-size: 24px;
-  font-weight: 600;
+  font-size: 1.1rem;
+  font-weight: 650;
 }
 
 .section-description {
   margin: 0;
   color: var(--text-secondary);
-  font-size: 14px;
+  font-size: 0.85rem;
+  line-height: 1.35;
 }
 
 .prefs-grid {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 12px;
 }
 
 .card {
   background: white;
   border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 16px;
+  border-radius: 8px;
+  padding: 12px 14px;
 }
 
 .card-title {
-  margin: 0 0 12px 0;
-  font-size: 18px;
+  margin: 0 0 8px 0;
+  font-size: 0.95rem;
   color: var(--text-primary);
 }
 
 .field {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  margin: 10px 0;
+  gap: 4px;
+  margin: 8px 0;
 }
 
 .field.checkbox {

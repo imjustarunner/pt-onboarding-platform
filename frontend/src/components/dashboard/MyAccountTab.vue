@@ -45,7 +45,7 @@
       <p v-else class="acct-hub__empty">Kudos are not enabled for this organization.</p>
     </div>
     <div v-show="activeSection === 'preferences'" class="acct-hub__pane">
-      <UserPreferencesHub v-if="userId" :user-id="userId" />
+      <UserPreferencesHub v-if="userId" :user-id="userId" :is-club-context="isClubContext" />
     </div>
     <div v-show="activeSection === 'support'" class="acct-hub__pane">
       <StaffOrgSupportPanel />

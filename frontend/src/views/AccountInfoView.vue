@@ -305,7 +305,7 @@
           </div>
         </div>
 
-        <div v-if="!isClubContext && !accountInfo.ssoRequired" class="card compact-card" style="margin-top: 16px;">
+        <div v-if="!isClubContext" class="card compact-card" style="margin-top: 16px;">
           <QuickViewPrivacyPanel />
         </div>
 

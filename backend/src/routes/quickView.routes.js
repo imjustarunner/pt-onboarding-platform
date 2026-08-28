@@ -4,6 +4,7 @@ import {
   getMyQuickViewStatus,
   postRegenerateToken,
   postResetPasscode,
+  postRevealToken,
   getTokenInfo,
   getDeliveryTokenInfo,
   postUnlock,
@@ -27,6 +28,7 @@ const router = express.Router();
 router.get('/me/status', authenticate, getMyQuickViewStatus);
 router.post('/me/regenerate-token', authenticate, postRegenerateToken);
 router.post('/me/reset-passcode', authenticate, postResetPasscode);
+router.post('/me/reveal-token', authenticate, postRevealToken);
 
 // Public token landing + unlock
 router.get('/t/:token', getTokenInfo);

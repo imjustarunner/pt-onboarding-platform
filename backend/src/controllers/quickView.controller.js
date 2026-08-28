@@ -3,6 +3,7 @@ import {
   getCredentialStatus,
   regenerateToken,
   resetPasscode,
+  revealToken,
   findUserByToken,
   verifyPasscodeAndStartSession,
   touchSession,
@@ -23,18 +24,35 @@ function ua(req) {
   return req.headers['user-agent'] || null;
 }
 
-async function assertPassword(userId, password) {
+/**
+ * Confirm identity for Quick View credential changes.
+ * Password accounts: require password.
+ * SSO / passwordless: require typing CONFIRM (session is already authenticated).
+ */
+async function assertIdentityConfirm(userId, body = {}) {
   const user = await User.findById(userId);
-  if (!user?.password_hash) {
-    const err = new Error('Password not set');
-    err.status = 400;
+  if (!user) {
+    const err = new Error('User not found');
+    err.status = 404;
     throw err;
   }
-  const bcrypt = (await import('bcrypt')).default;
-  const ok = await bcrypt.compare(String(password || ''), user.password_hash);
-  if (!ok) {
-    const err = new Error('Incorrect password');
-    err.status = 401;
+  const hasPassword = !!user.password_hash;
+  if (hasPassword) {
+    const bcrypt = (await import('bcrypt')).default;
+    const ok = await bcrypt.compare(String(body.password || ''), user.password_hash);
+    if (!ok) {
+      const err = new Error('Incorrect password');
+      err.status = 401;
+      throw err;
+    }
+    return user;
+  }
+  const phrase = String(body.confirmPhrase || body.password || '')
+    .trim()
+    .toUpperCase();
+  if (phrase !== 'CONFIRM') {
+    const err = new Error('Type CONFIRM to continue (Google sign-in accounts do not use a password here)');
+    err.status = 400;
     throw err;
   }
   return user;
@@ -43,7 +61,36 @@ async function assertPassword(userId, password) {
 export const getMyQuickViewStatus = async (req, res, next) => {
   try {
     const status = await getCredentialStatus(req.user.id);
-    res.json({ ok: true, ...status });
+    const user = await User.findById(req.user.id);
+    res.json({
+      ok: true,
+      ...status,
+      requiresPassword: !!user?.password_hash
+    });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const postRevealToken = async (req, res, next) => {
+  try {
+    await assertIdentityConfirm(req.user.id, req.body || {});
+    const revealed = await revealToken({ userId: req.user.id });
+    if (!revealed.ok) {
+      return res.status(404).json({
+        error: {
+          message:
+            'This Quick View link cannot be shown again. Generate a new URL (this invalidates the old one).'
+        }
+      });
+    }
+    const baseUrl = String(process.env.APP_PUBLIC_URL || process.env.FRONTEND_URL || '').replace(/\/$/, '');
+    res.json({
+      ok: true,
+      token: revealed.token,
+      tokenVersion: revealed.tokenVersion,
+      url: buildQuickViewUrl({ baseUrl, token: revealed.token })
+    });
   } catch (e) {
     next(e);
   }
@@ -51,7 +98,7 @@ export const getMyQuickViewStatus = async (req, res, next) => {
 
 export const postRegenerateToken = async (req, res, next) => {
   try {
-    await assertPassword(req.user.id, req.body?.password);
+    await assertIdentityConfirm(req.user.id, req.body || {});
     const agencyId = Number(req.headers['x-agency-id'] || req.body?.agencyId || 0) || null;
     const result = await regenerateToken({
       userId: req.user.id,
@@ -75,7 +122,7 @@ export const postRegenerateToken = async (req, res, next) => {
 
 export const postResetPasscode = async (req, res, next) => {
   try {
-    await assertPassword(req.user.id, req.body?.password);
+    await assertIdentityConfirm(req.user.id, req.body || {});
     const agencyId = Number(req.headers['x-agency-id'] || req.body?.agencyId || 0) || null;
     const result = await resetPasscode({
       userId: req.user.id,

@@ -176,7 +176,7 @@ const buildDefaultPreferences = (userRole) => {
     },
     show_read_receipts: false,
     allow_staff_step_in: true,
-    staff_step_in_after_minutes: 15,
+    staff_step_in_after_minutes: 1440,
     show_full_name_on_schedules: true,
     show_initials_only_on_boards: true,
     allow_name_in_pdfs: true,

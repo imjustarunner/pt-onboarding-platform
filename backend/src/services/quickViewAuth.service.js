@@ -44,7 +44,7 @@ async function ensureRow(userId, agencyId = null) {
 
 export async function getCredentialStatus(userId) {
   const [rows] = await pool.execute(
-    `SELECT token_version, token_issued_at, token_revoked_at,
+    `SELECT token_version, token_issued_at, token_revoked_at, token_raw,
             passcode_version, passcode_set_at, passcode_locked_until,
             failed_passcode_attempts, last_token_used_at, last_passcode_ok_at
      FROM user_quick_view_credentials WHERE user_id = ? LIMIT 1`,
@@ -54,11 +54,34 @@ export async function getCredentialStatus(userId) {
   return {
     hasToken: !!(row?.token_version && row?.token_issued_at && !row?.token_revoked_at),
     hasPasscode: !!(row?.passcode_version && row?.passcode_set_at),
+    /** True when a stored raw token can be revealed without regenerating. */
+    canRevealToken: !!(row?.token_raw && row?.token_issued_at && !row?.token_revoked_at),
     tokenVersion: Number(row?.token_version || 0),
     passcodeVersion: Number(row?.passcode_version || 0),
     lockedUntil: row?.passcode_locked_until || null,
     lastTokenUsedAt: row?.last_token_used_at || null,
     lastPasscodeOkAt: row?.last_passcode_ok_at || null
+  };
+}
+
+/**
+ * Return the persistent Quick View URL for the owner after identity confirm.
+ * Does not rotate the token. Tokens created before token_raw existed cannot be revealed.
+ */
+export async function revealToken({ userId }) {
+  const [rows] = await pool.execute(
+    `SELECT token_raw, token_version, token_revoked_at, token_issued_at
+     FROM user_quick_view_credentials WHERE user_id = ? LIMIT 1`,
+    [userId]
+  );
+  const row = rows?.[0];
+  if (!row?.token_raw || row.token_revoked_at || !row.token_issued_at) {
+    return { ok: false, error: 'not_revealable' };
+  }
+  return {
+    ok: true,
+    token: row.token_raw,
+    tokenVersion: Number(row.token_version || 0)
   };
 }
 
@@ -69,12 +92,13 @@ export async function regenerateToken({ userId, agencyId = null, actorUserId = n
   await pool.execute(
     `UPDATE user_quick_view_credentials
      SET token_hash = ?,
+         token_raw = ?,
          token_version = token_version + 1,
          token_issued_at = CURRENT_TIMESTAMP,
          token_revoked_at = NULL,
          updated_at = CURRENT_TIMESTAMP
      WHERE user_id = ?`,
-    [hash, userId]
+    [hash, raw, userId]
   );
   // Revoke active sessions for this user
   await pool.execute(
@@ -460,6 +484,7 @@ export default {
   touchSession,
   revokeSession,
   logAccessEvent,
+  revealToken,
   buildQuickViewUrl,
   issueDeliveryToken,
   findDeliveryToken,
