@@ -7,7 +7,7 @@ import UserActivityLog from '../models/UserActivityLog.model.js';
 import ActivityLogService from '../services/activityLog.service.js';
 import config from '../config/config.js';
 import { getUserCapabilities, buildAgencyAccessCaps } from '../utils/capabilities.js';
-import { calcPasswordExpiry } from '../utils/passwordPolicy.js';
+import { calcPasswordExpiry, resolveRequiresPasswordChange } from '../utils/passwordPolicy.js';
 import { checkPasswordBasics } from '../utils/passwordValidation.js';
 import Agency from '../models/Agency.model.js';
 import { createSignedState as createGoogleState, verifySignedState as verifyGoogleState, exchangeCodeForTokens, getGoogleAuthorizeUrl, getGoogleOAuthClient } from '../services/googleOAuth.service.js';
@@ -170,6 +170,23 @@ const getSsoForcedSlugFromOrgs = ({ user, userRole, orgs, requestedOrgSlug, reso
   if (requestedOrgSlug && hasMembership(requestedOrgSlug)) return String(requestedOrgSlug).trim().toLowerCase();
   if (resolvedSlug && hasMembership(resolvedSlug)) return String(resolvedSlug).trim().toLowerCase();
   return slugForGoogle ? String(slugForGoogle).trim().toLowerCase() : null;
+};
+
+const isSsoRequiredForUser = async (user) => {
+  if (!user?.id || isSsoPasswordOverrideEnabled(user)) return false;
+  try {
+    const orgs = await User.getAgencies(user.id);
+    return !!getSsoForcedSlugFromOrgs({
+      user,
+      userRole: user.role,
+      orgs,
+      requestedOrgSlug: null,
+      resolvedSlug: null,
+      pickSlug: (o) => getOrgPortalSlug(o)
+    });
+  } catch {
+    return false;
+  }
 };
 const isDomainAllowedForOrg = ({ email, featureFlags }) => {
   const normalizedEmail = String(email || '').trim().toLowerCase();
@@ -921,16 +938,17 @@ export const login = async (req, res, next) => {
       // best-effort
     }
 
-    const pw = calcPasswordExpiry(freshUser);
-
-    // Force a password change when a temporary password is active (and unexpired).
-    const tempActive = (() => {
-      if (!freshUser?.temporary_password_hash) return false;
-      if (!freshUser?.temporary_password_expires_at) return true;
-      const expiresAt = new Date(freshUser.temporary_password_expires_at);
-      if (Number.isNaN(expiresAt.getTime())) return true;
-      return expiresAt.getTime() > Date.now();
-    })();
+    const ssoForcedSlugForPw = getSsoForcedSlugFromOrgs({
+      user: freshUser,
+      userRole: freshUser?.role || user.role,
+      orgs: userOrgs,
+      requestedOrgSlug: null,
+      resolvedSlug: null,
+      pickSlug: (o) => getOrgPortalSlug(o)
+    });
+    const pw = resolveRequiresPasswordChange(freshUser, {
+      ssoRequired: !!ssoForcedSlugForPw
+    });
 
     const medcancelRateSchedule = freshUser?.medcancel_rate_schedule || null;
     const medcancelEnabled = ['low', 'high'].includes(String(medcancelRateSchedule || '').toLowerCase());
@@ -962,7 +980,7 @@ export const login = async (req, res, next) => {
         is_hourly_worker: !!(freshUser?.is_hourly_worker === true || freshUser?.is_hourly_worker === 1 || freshUser?.is_hourly_worker === '1'),
         hourlyDualRateEnabled: !!(freshUser?.hourly_dual_rate_enabled === true || freshUser?.hourly_dual_rate_enabled === 1 || freshUser?.hourly_dual_rate_enabled === '1'),
         hourly_dual_rate_enabled: !!(freshUser?.hourly_dual_rate_enabled === true || freshUser?.hourly_dual_rate_enabled === 1 || freshUser?.hourly_dual_rate_enabled === '1'),
-        requiresPasswordChange: pw.requiresPasswordChange || tempActive,
+        requiresPasswordChange: pw.requiresPasswordChange,
         passwordExpiresAt: pw.passwordExpiresAt,
         passwordExpired: pw.passwordExpired,
         passwordExpiresSoon: pw.passwordExpiresSoon,
@@ -2191,7 +2209,9 @@ export const passwordlessTokenLogin = async (req, res, next) => {
       return res.status(404).json({ error: { message: 'User not found' } });
     }
 
-    const pw = calcPasswordExpiry(fullUser);
+    const pw = resolveRequiresPasswordChange(fullUser, {
+      ssoRequired: await isSsoRequiredForUser(fullUser)
+    });
     
     // Block ARCHIVED / inactive users
     if (fullUser.status === 'ARCHIVED') {
@@ -2491,7 +2511,9 @@ export const passwordlessTokenLoginFromBody = async (req, res, next) => {
 
       console.log('[passwordlessTokenLoginFromBody] Login successful for user:', user.id, user.first_name, user.last_name);
       
-      const pw = calcPasswordExpiry(fullUser);
+      const pw = resolveRequiresPasswordChange(fullUser, {
+        ssoRequired: await isSsoRequiredForUser(fullUser)
+      });
       
       const response = {
         isFirstLogin,
@@ -3953,7 +3975,9 @@ const buildTestAccountSwitchUserPayload = async (targetUser) => {
   const agencies = (await User.getAgencies(targetUser.id)) || [];
   const payrollCaps = await buildPayrollCaps(targetUser);
   const baseCaps = getUserCapabilities(targetUser);
-  const pw = calcPasswordExpiry(targetUser);
+  const pw = resolveRequiresPasswordChange(targetUser, {
+    ssoRequired: await isSsoRequiredForUser(targetUser)
+  });
   const medcancelRateSchedule = targetUser?.medcancel_rate_schedule || null;
   const medcancelEnabled = ['low', 'high'].includes(String(medcancelRateSchedule || '').toLowerCase());
 

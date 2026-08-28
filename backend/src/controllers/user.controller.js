@@ -12,7 +12,7 @@ import fs from 'fs/promises';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { getUserCapabilities, buildAgencyAccessCaps } from '../utils/capabilities.js';
-import { calcPasswordExpiry } from '../utils/passwordPolicy.js';
+import { resolveRequiresPasswordChange } from '../utils/passwordPolicy.js';
 import { checkPasswordBasics } from '../utils/passwordValidation.js';
 import { publicUploadsUrlFromStoredPath } from '../utils/uploads.js';
 import { sanitizePsychologyTodayUrl } from '../utils/psychologyTodayUrl.js';
@@ -331,14 +331,13 @@ export const getCurrentUser = async (req, res, next) => {
     // Keep agency-scoped caps (payroll / budget / credentialing) aligned with login.
     const agencyAccessCaps = await buildAgencyAccessCaps(user, { effectiveRole });
 
-    const pw = calcPasswordExpiry(user);
-    const tempActive = (() => {
-      if (!user?.temporary_password_hash) return false;
-      if (!user?.temporary_password_expires_at) return true;
-      const expiresAt = new Date(user.temporary_password_expires_at);
-      if (Number.isNaN(expiresAt.getTime())) return true;
-      return expiresAt.getTime() > Date.now();
-    })();
+    // Pure Workspace SSO users must never be forced to change an app password.
+    const ssoStateForMe = await getSsoStateForUser(user).catch(() => ({
+      ssoRequired: false
+    }));
+    const pw = resolveRequiresPasswordChange(user, {
+      ssoRequired: !!ssoStateForMe?.ssoRequired
+    });
 
     // Return user in same format as login response + capabilities
     res.json({
@@ -353,7 +352,7 @@ export const getCurrentUser = async (req, res, next) => {
       serviceFocus: user.service_focus ?? null,
       username: user.username || user.personal_email || user.email,
       profilePhotoUrl: publicUploadsUrlFromStoredPath(user.profile_photo_path),
-      requiresPasswordChange: pw.requiresPasswordChange || tempActive,
+      requiresPasswordChange: pw.requiresPasswordChange,
       passwordExpiresAt: pw.passwordExpiresAt,
       passwordExpired: pw.passwordExpired,
       passwordExpiresSoon: pw.passwordExpiresSoon,
@@ -10254,6 +10253,7 @@ export const getAccountInfo = async (req, res, next) => {
       ssoPolicyRequired,
       ssoPasswordOverride,
       ssoRequired,
+      loginIsGroupEmail: !!(user.login_is_group_email === 1 || user.login_is_group_email === true || user.login_is_group_email === '1'),
       supervisors: supervisors,
       hasSupervisorPrivileges: (user.role === 'admin' || user.role === 'super_admin' || user.role === 'clinical_practice_assistant' || user.role === 'provider_plus') 
         ? (user.has_supervisor_privileges || false) 
@@ -10366,6 +10366,7 @@ export const setSsoPasswordOverride = async (req, res, next) => {
     const { id } = req.params;
     const userId = parseInt(id, 10);
     const override = normalizeBoolFlag(req.body?.override);
+    const loginIsGroupEmail = normalizeBoolFlag(req.body?.loginIsGroupEmail);
 
     if (!Number.isFinite(userId) || userId <= 0) {
       return res.status(400).json({ error: { message: 'Invalid user id' } });
@@ -10383,9 +10384,10 @@ export const setSsoPasswordOverride = async (req, res, next) => {
     }
 
     const [columns] = await pool.execute(
-      "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'users' AND COLUMN_NAME = 'sso_password_override'"
+      "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'users' AND COLUMN_NAME IN ('sso_password_override', 'login_is_group_email')"
     );
-    if (!Array.isArray(columns) || columns.length === 0) {
+    const colNames = new Set((columns || []).map((c) => c.COLUMN_NAME));
+    if (!colNames.has('sso_password_override')) {
       return res.status(409).json({
         error: {
           message: 'Database is missing users.sso_password_override. Run the latest migration before using this override.'
@@ -10393,7 +10395,16 @@ export const setSsoPasswordOverride = async (req, res, next) => {
       });
     }
 
-    await pool.execute('UPDATE users SET sso_password_override = ? WHERE id = ?', [override ? 1 : 0, userId]);
+    if (colNames.has('login_is_group_email')) {
+      // When enabling override, persist whether the login identity is a Google Group mailbox.
+      // When disabling override, clear the group-email flag (SSO users don't use password login).
+      await pool.execute(
+        'UPDATE users SET sso_password_override = ?, login_is_group_email = ? WHERE id = ?',
+        [override ? 1 : 0, override && loginIsGroupEmail ? 1 : 0, userId]
+      );
+    } else {
+      await pool.execute('UPDATE users SET sso_password_override = ? WHERE id = ?', [override ? 1 : 0, userId]);
+    }
 
     const refreshed = await User.findById(userId);
     const ssoState = await getSsoStateForUser(refreshed || user).catch(() => ({
@@ -10410,7 +10421,8 @@ export const setSsoPasswordOverride = async (req, res, next) => {
       ssoEnabled: ssoState.ssoEnabled,
       ssoPolicyRequired: ssoState.ssoPolicyRequired,
       ssoPasswordOverride: ssoState.ssoPasswordOverride,
-      ssoRequired: ssoState.ssoRequired
+      ssoRequired: ssoState.ssoRequired,
+      loginIsGroupEmail: !!(refreshed?.login_is_group_email === 1 || refreshed?.login_is_group_email === true || refreshed?.login_is_group_email === '1')
     });
   } catch (error) {
     next(error);

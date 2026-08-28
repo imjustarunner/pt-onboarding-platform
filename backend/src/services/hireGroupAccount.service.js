@@ -247,10 +247,21 @@ export async function provisionHireGroupAccount({
     await pool.execute('UPDATE users SET personal_email = ? WHERE id = ?', [personalEmail, user.id]);
   }
   await User.setWorkEmail(user.id, email);
-  await pool.execute(
-    `UPDATE users SET email = ?, sso_password_override = 1 WHERE id = ?`,
-    [email, user.id]
-  );
+  try {
+    await pool.execute(
+      `UPDATE users SET email = ?, sso_password_override = 1, login_is_group_email = 1 WHERE id = ?`,
+      [email, user.id]
+    );
+  } catch (e) {
+    if (e?.code === 'ER_BAD_FIELD_ERROR') {
+      await pool.execute(
+        `UPDATE users SET email = ?, sso_password_override = 1 WHERE id = ?`,
+        [email, user.id]
+      );
+    } else {
+      throw e;
+    }
+  }
 
   // App password (login)
   await User.changePassword(user.id, pwd);

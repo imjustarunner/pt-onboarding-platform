@@ -2,28 +2,47 @@
  * Password expiry policy.
  *
  * Roles subject to the 120-day credential rotation:
- *   All password-based users, including school_staff (school portal / PHI access).
+ *   Password-based users only (including school_staff and SSO-override accounts).
  *
- * SSO / passwordless-only users have no system-managed password to expire.
+ * Pure Google SSO users (agency requires Workspace sign-in and admin has NOT
+ * enabled sso_password_override) never rotate an app password — leftover
+ * password_hash rows must not trap them on /change-password.
  */
 
 const PASSWORD_POLICY_DAYS = 120;
 const EXPIRY_WARNING_DAYS = 14;
 
-export function calcPasswordExpiry(u) {
-  const role = String(u?.role || '').toLowerCase();
+const EMPTY_POLICY = {
+  requiresPasswordChange: false,
+  passwordExpiresAt: null,
+  passwordExpired: false,
+  passwordExpiresSoon: false,
+  passwordExpiresInDays: null,
+  passwordPolicyDays: null
+};
+
+export function isTemporaryPasswordActive(u) {
+  if (!u?.temporary_password_hash) return false;
+  if (!u?.temporary_password_expires_at) return true;
+  const expiresAt = new Date(u.temporary_password_expires_at);
+  if (Number.isNaN(expiresAt.getTime())) return true;
+  return expiresAt.getTime() > Date.now();
+}
+
+/**
+ * @param {object} u
+ * @param {{ ssoRequired?: boolean }} [opts]
+ *   When ssoRequired is true (Workspace SSO enforced, no password override),
+ *   never require a password change — the user authenticates via Google only.
+ */
+export function calcPasswordExpiry(u, { ssoRequired = false } = {}) {
+  if (ssoRequired) {
+    return { ...EMPTY_POLICY };
+  }
 
   // SSO / passwordless-only users have no system-managed password to expire.
-  // Forcing them to a change-password screen would leave them stuck with no action to take.
   if (!u?.password_hash) {
-    return {
-      requiresPasswordChange: false,
-      passwordExpiresAt: null,
-      passwordExpired: false,
-      passwordExpiresSoon: false,
-      passwordExpiresInDays: null,
-      passwordPolicyDays: null
-    };
+    return { ...EMPTY_POLICY };
   }
 
   const changedAt = u?.password_changed_at
@@ -60,5 +79,24 @@ export function calcPasswordExpiry(u) {
     passwordExpiresSoon: expiresSoon,
     passwordExpiresInDays: expired ? 0 : daysUntilExpiry,
     passwordPolicyDays: PASSWORD_POLICY_DAYS
+  };
+}
+
+/**
+ * Effective "must change password" for auth payloads.
+ * SSO-required users never get forced into password change (expiry or temp).
+ */
+export function resolveRequiresPasswordChange(u, { ssoRequired = false } = {}) {
+  if (ssoRequired) {
+    return {
+      ...EMPTY_POLICY,
+      requiresPasswordChange: false
+    };
+  }
+  const pw = calcPasswordExpiry(u, { ssoRequired: false });
+  const tempActive = isTemporaryPasswordActive(u);
+  return {
+    ...pw,
+    requiresPasswordChange: pw.requiresPasswordChange || tempActive
   };
 }

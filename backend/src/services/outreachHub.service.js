@@ -1433,6 +1433,15 @@ export async function sendOutreachSchoolOnboarding({
     } catch (e) {
       if (e?.code !== 'ER_BAD_FIELD_ERROR') throw e;
     }
+    try {
+      const { default: SchoolOnboardingInvite } = await import('../models/SchoolOnboardingInvite.model.js');
+      const inviteRow = await SchoolOnboardingInvite.findById(inviteId);
+      if (inviteRow) {
+        await S.syncOutreachPartnerFromOnboarding(inviteRow, { outreachSchoolId: schoolId });
+      }
+    } catch (e) {
+      console.warn('[outreachHub] partner sync after onboarding send failed:', e?.message || e);
+    }
   }
   if (school.outreach_stage === 'not_started') {
     try {

@@ -16,6 +16,8 @@ export const PREFERRED_IDENTITY_KEYS_BY_TEMPLATE_TYPE = {
   admin_initiated_password_reset: ['technology', 'login_recovery', 'notifications'],
   school_staff_account_recovery: ['technology', 'login_recovery', 'notifications'],
   school_staff_portal_access: ['technology', 'login_recovery', 'notifications'],
+  school_onboarding_staff_portal_access: ['technology', 'login_recovery', 'notifications'],
+  school_onboarding_login_recovery_nudge: ['technology', 'login_recovery', 'notifications'],
   school_roi_signing: ['school_intake', 'intake'],
   school_roi_signer_completion: ['school_intake', 'intake'],
   school_roi_release: ['school_intake', 'intake'],

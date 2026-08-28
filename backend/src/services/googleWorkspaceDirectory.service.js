@@ -158,41 +158,41 @@ class GoogleWorkspaceDirectoryService {
     email,
     name,
     description = '',
-    whoCanJoin = 'INVITED_CAN_JOIN',
+    whoCanJoin = 'CAN_REQUEST_TO_JOIN',
     whoCanViewMembership = 'ALL_IN_DOMAIN_CAN_VIEW',
-    whoCanPostMessage = 'ANYONE_CAN_POST',
+    whoCanViewGroup = 'ALL_IN_DOMAIN_CAN_VIEW',
+    whoCanPostMessage = 'ALL_IN_DOMAIN_CAN_POST',
+    whoCanModerateContent = 'OWNERS_AND_MANAGERS',
+    whoCanModerateMembers = 'OWNERS_AND_MANAGERS',
+    whoCanContactOwner = 'ANYONE_CAN_CONTACT',
+    messageModerationLevel = 'MODERATE_NONE',
+    spamModerationLevel = 'MODERATE',
     allowExternalMembers = true,
-    includeInGlobalAddressList = true
+    includeInGlobalAddressList = true,
+    isArchived = false
   } = {}) {
     const groupEmail = String(email || '').trim().toLowerCase();
     if (!groupEmail) throw new Error('email is required');
     const admin = await this.getClient();
+    const requestBody = {
+      email: groupEmail,
+      name: String(name || groupEmail.split('@')[0] || 'School Group').trim().slice(0, 73),
+      description: String(description || '').trim().slice(0, 4096),
+      whoCanJoin,
+      whoCanViewMembership,
+      whoCanViewGroup,
+      whoCanPostMessage,
+      whoCanModerateContent,
+      whoCanModerateMembers,
+      whoCanContactOwner,
+      messageModerationLevel,
+      spamModerationLevel,
+      allowExternalMembers,
+      includeInGlobalAddressList,
+      isArchived
+    };
     try {
-      const result = await admin.groups.insert({
-        requestBody: {
-          email: groupEmail,
-          name: String(name || groupEmail.split('@')[0] || 'New Hire').trim().slice(0, 73),
-          description: String(description || '').trim().slice(0, 4096)
-        }
-      });
-      // Best-effort settings (Admin SDK groups.update may ignore unknown fields on some tenants).
-      try {
-        await admin.groups.update({
-          groupKey: groupEmail,
-          requestBody: {
-            email: groupEmail,
-            name: String(name || groupEmail.split('@')[0] || 'New Hire').trim().slice(0, 73),
-            description: String(description || '').trim().slice(0, 4096),
-            whoCanJoin,
-            whoCanViewMembership,
-            whoCanPostMessage,
-            allowExternalMembers,
-            includeInGlobalAddressList
-          }
-        });
-      } catch {
-        // Group exists even if settings patch fails.
-      }
+      const result = await admin.groups.insert({ requestBody });
       return result?.data || null;
     } catch (e) {
       logGoogleUnauthorizedHint(e, { context: 'GoogleWorkspaceDirectoryService.createGroup' });
@@ -200,8 +200,57 @@ class GoogleWorkspaceDirectoryService {
     }
   }
 
+  static async updateGroupSettings({
+    groupEmail,
+    name,
+    description = '',
+    whoCanJoin = 'CAN_REQUEST_TO_JOIN',
+    whoCanViewMembership = 'ALL_IN_DOMAIN_CAN_VIEW',
+    whoCanViewGroup = 'ALL_IN_DOMAIN_CAN_VIEW',
+    whoCanPostMessage = 'ALL_IN_DOMAIN_CAN_POST',
+    whoCanModerateContent = 'OWNERS_AND_MANAGERS',
+    whoCanModerateMembers = 'OWNERS_AND_MANAGERS',
+    whoCanContactOwner = 'ANYONE_CAN_CONTACT',
+    messageModerationLevel = 'MODERATE_NONE',
+    spamModerationLevel = 'MODERATE',
+    allowExternalMembers = true,
+    includeInGlobalAddressList = true,
+    isArchived = false
+  } = {}) {
+    const email = String(groupEmail || '').trim().toLowerCase();
+    if (!email) throw new Error('groupEmail is required');
+    const admin = await this.getClient();
+    try {
+      const result = await admin.groups.update({
+        groupKey: email,
+        requestBody: {
+          email,
+          name: String(name || email.split('@')[0] || 'School Group').trim().slice(0, 73),
+          description: String(description || '').trim().slice(0, 4096),
+          whoCanJoin,
+          whoCanViewMembership,
+          whoCanViewGroup,
+          whoCanPostMessage,
+          whoCanModerateContent,
+          whoCanModerateMembers,
+          whoCanContactOwner,
+          messageModerationLevel,
+          spamModerationLevel,
+          allowExternalMembers,
+          includeInGlobalAddressList,
+          isArchived
+        }
+      });
+      return result?.data || null;
+    } catch (e) {
+      logGoogleUnauthorizedHint(e, { context: 'GoogleWorkspaceDirectoryService.updateGroupSettings' });
+      throw e;
+    }
+  }
+
   /**
    * Add a member to a Google Group. role: MEMBER | OWNER | MANAGER
+   * Nested Google Groups can only be added as type GROUP / role MEMBER via the API.
    */
   static async addGroupMember({ groupEmail, memberEmail, role = 'MEMBER' }) {
     const groupKey = String(groupEmail || '').trim().toLowerCase();
@@ -209,20 +258,36 @@ class GoogleWorkspaceDirectoryService {
     if (!groupKey) throw new Error('groupEmail is required');
     if (!email) throw new Error('memberEmail is required');
     const admin = await this.getClient();
+    const requestedRole = String(role || 'MEMBER').toUpperCase();
+
+    const nestedGroup = await this.getGroup({ groupEmail: email });
+    const effectiveRole = nestedGroup && requestedRole !== 'MEMBER' ? 'MEMBER' : requestedRole;
+
     try {
       const result = await admin.members.insert({
         groupKey,
         requestBody: {
           email,
-          role: String(role || 'MEMBER').toUpperCase()
+          role: effectiveRole,
+          ...(nestedGroup ? { type: 'GROUP' } : {})
         }
       });
-      return result?.data || null;
+      const data = result?.data || null;
+      if (nestedGroup && requestedRole !== 'MEMBER') {
+        return {
+          ...data,
+          email,
+          role: effectiveRole,
+          requestedRole,
+          nestedGroup: true,
+          roleDowngraded: true
+        };
+      }
+      return data;
     } catch (e) {
       const status = e?.code || e?.response?.status || null;
-      // Already a member
       if (status === 409) {
-        return { email, role, alreadyMember: true };
+        return { email, role: effectiveRole, alreadyMember: true, nestedGroup: !!nestedGroup };
       }
       logGoogleUnauthorizedHint(e, { context: 'GoogleWorkspaceDirectoryService.addGroupMember' });
       throw e;

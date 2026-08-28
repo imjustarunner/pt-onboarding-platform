@@ -1198,4 +1198,145 @@ export async function sendSchoolOnboardingStaffPortalAccessEmail({
   };
 }
 
+/** One-off nudge when staff never logged in after an onboarding bug — set-password link + friendly copy */
+export const ONBOARDING_LOGIN_RECOVERY_NUDGE_TYPE = 'school_onboarding_login_recovery_nudge';
+
+export async function sendSchoolOnboardingLoginRecoveryNudge({
+  agencyId,
+  schoolOrganizationId = null,
+  schoolName,
+  userId,
+  actorUserId = null,
+  tokenExpiresHours = ONBOARDING_TOKEN_EXPIRES_HOURS,
+  source = 'manual_recovery_nudge'
+} = {}) {
+  const uid = Number(userId || 0);
+  const aid = Number(agencyId || 0);
+  if (!uid || !aid) {
+    return { sent: false, reason: 'missing_user_or_agency' };
+  }
+
+  const user = await User.findById(uid);
+  if (!user) return { sent: false, reason: 'user_not_found' };
+  const to = pickRecipientEmail(user);
+  if (!to) return { sent: false, reason: 'missing_email' };
+
+  const tenantAgency = await Agency.findById(aid);
+  if (!tenantAgency) return { sent: false, reason: 'agency_not_found' };
+
+  let urlAgency = tenantAgency;
+  const schoolId = Number(schoolOrganizationId || 0);
+  if (schoolId) {
+    const school = await Agency.findById(schoolId);
+    if (school) urlAgency = school;
+  }
+
+  let template;
+  try {
+    template = await getAccessEmailTemplate(aid, ONBOARDING_LOGIN_RECOVERY_NUDGE_TYPE);
+  } catch {
+    template = {
+      subject: '{{AGENCY_NAME}} Portal Access for {{SCHOOL_NAME}}',
+      body:
+        'Hello {{FIRST_NAME}},\n\nWe noticed you have not signed in to the {{AGENCY_NAME}} school staff portal for {{SCHOOL_NAME}} yet, and you may be having trouble getting started.\n\n' +
+        'We recently fixed a bug in our onboarding process. You can use the secure link below to set your password and access the portal:\n{{RESET_TOKEN_LINK}}\n\n' +
+        'This link expires {{TOKEN_EXPIRES_AT}} (in {{TOKEN_EXPIRES_HOURS}} hours).\n\n' +
+        'After you set your password, sign in anytime here:\n{{PORTAL_LOGIN_LINK}}\n\n' +
+        'Thank you for partnering with us. If you need help at any point, reply to this email or reach out to our team — we are happy to assist.\n\n' +
+        'Important: this message often lands in Junk or Spam. Please check Junk, move it to Inbox if you find it there, and mark the sender as safe.\n\n—\n{{SENDER_NAME}}\n{{AGENCY_NAME}}\n'
+    };
+  }
+
+  const sender = await resolveSenderIdentityForSend({
+    agencyId: aid,
+    templateType: ONBOARDING_LOGIN_RECOVERY_NUDGE_TYPE,
+    preferredKeys: ['notifications', 'technology', 'login_recovery']
+  });
+  if (!sender?.identity?.id) {
+    return { sent: false, reason: 'no_sender_identity' };
+  }
+
+  const hours = Math.min(720, Math.max(1, Number(tokenExpiresHours) || ONBOARDING_TOKEN_EXPIRES_HOURS));
+  const tokenResult = await User.generatePasswordlessToken(uid, hours, 'reset');
+  const passwordlessToken = tokenResult.token;
+  const expiresAt = tokenResult.expiresAt;
+
+  const parameters = await EmailTemplateService.collectParameters(user, urlAgency, {
+    passwordlessToken,
+    senderName: sender.identity.display_name || tenantAgency?.name || 'School portal',
+    keepPortalLoginLink: true
+  });
+  parameters.AGENCY_NAME = tenantAgency.name || parameters.AGENCY_NAME || '';
+  parameters.SCHOOL_NAME = String(schoolName || urlAgency?.name || 'your school').trim();
+  parameters.TOKEN_EXPIRES_HOURS = String(hours);
+  parameters.TOKEN_EXPIRES_AT = expiresAt ? formatTokenExpiresAt(expiresAt) : `${hours} hours after send`;
+  parameters.SENDER_NAME =
+    parameters.SENDER_NAME || sender.identity.display_name || tenantAgency.name || '';
+
+  const rendered = EmailTemplateService.renderTemplate(
+    { subject: template.subject, body: template.body },
+    parameters
+  );
+  const subject = applyMissingPlaceholders(rendered.subject);
+  const body = applyMissingPlaceholders(rendered.body);
+
+  let comm = null;
+  try {
+    comm = await CommunicationLoggingService.logGeneratedCommunication({
+      userId: uid,
+      agencyId: aid,
+      templateType: ONBOARDING_LOGIN_RECOVERY_NUDGE_TYPE,
+      templateId: template.id || null,
+      subject,
+      body,
+      generatedByUserId: actorUserId,
+      channel: 'email',
+      recipientAddress: to
+    });
+  } catch {
+    comm = null;
+  }
+
+  const replyTo = await resolveTechnologyReplyTo(aid);
+  const result = await sendEmailFromIdentity({
+    senderIdentityId: sender.identity.id,
+    to,
+    subject,
+    text: body,
+    html: textToHtml(body),
+    source,
+    templateType: ONBOARDING_LOGIN_RECOVERY_NUDGE_TYPE,
+    usedFallbackSender: !!sender.usedFallback,
+    generatedByUserId: actorUserId,
+    userId: uid,
+    existingCommunicationId: comm?.id || null,
+    replyToOverride: replyTo
+  });
+
+  if (result?.blocked) {
+    return { sent: false, reason: result.reason || 'blocked', to };
+  }
+  if (result?.skipped) {
+    return { sent: false, reason: result.reason || 'skipped', to };
+  }
+  if (result?.queued) {
+    return { sent: false, reason: 'queued_for_approval', to };
+  }
+
+  if (comm?.id && result?.id) {
+    await CommunicationLoggingService.markAsSent(comm.id, result.id, {
+      senderIdentityId: sender.identity.id
+    }).catch(() => {});
+  }
+
+  return {
+    sent: true,
+    to,
+    userId: uid,
+    expiresAt: expiresAt || null,
+    tokenExpiresHours: hours,
+    communicationId: comm?.id || result?.communicationId || null
+  };
+}
+
 export { normalizeEmailType };

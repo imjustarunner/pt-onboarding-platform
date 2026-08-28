@@ -367,6 +367,98 @@ async function getSchoolProfile(schoolId) {
   return rows?.[0] || null;
 }
 
+/**
+ * Link outreach directory school → onboarding org, mark partnered, copy address when present.
+ * Does NOT mark onboarding steps complete — profile seeding only.
+ */
+export async function syncOutreachPartnerFromOnboarding(invite, { outreachSchoolId = null } = {}) {
+  if (!invite?.agency_id || !invite?.school_organization_id) return null;
+  const agencyId = Number(invite.agency_id);
+  const schoolOrgId = Number(invite.school_organization_id);
+  let oid = Number(outreachSchoolId || invite.outreach_school_id || 0) || null;
+
+  if (!oid) {
+    try {
+      const [rows] = await pool.execute(
+        `SELECT id FROM outreach_schools
+         WHERE agency_id = ?
+           AND LOWER(TRIM(name)) = LOWER(TRIM(?))
+         LIMIT 1`,
+        [agencyId, invite.school_name]
+      );
+      oid = rows?.[0]?.id || null;
+    } catch (e) {
+      if (e?.code !== 'ER_NO_SUCH_TABLE') throw e;
+      return null;
+    }
+  }
+  if (!oid) return null;
+
+  let outreach = null;
+  try {
+    const [rows] = await pool.execute(
+      `SELECT id, address, district_name, city, region
+       FROM outreach_schools WHERE id = ? AND agency_id = ? LIMIT 1`,
+      [oid, agencyId]
+    );
+    outreach = rows?.[0] || null;
+  } catch (e) {
+    if (e?.code !== 'ER_NO_SUCH_TABLE') throw e;
+    return null;
+  }
+  if (!outreach) return null;
+
+  try {
+    await pool.execute(
+      `UPDATE outreach_schools
+       SET linked_organization_id = ?,
+           outreach_stage = 'partnered'
+       WHERE id = ? AND agency_id = ?`,
+      [schoolOrgId, oid, agencyId]
+    );
+  } catch (e) {
+    if (e?.code !== 'ER_NO_SUCH_TABLE') throw e;
+  }
+
+  if (String(outreach.address || '').trim()) {
+    await upsertSchoolProfile(schoolOrgId, {
+      schoolAddress: outreach.address,
+      districtName: outreach.district_name || null
+    });
+  }
+
+  if (!invite.outreach_school_id) {
+    try {
+      await SchoolOnboardingInvite.update(invite.id, { outreachSchoolId: oid });
+    } catch (e) {
+      if (e?.code !== 'ER_BAD_FIELD_ERROR') throw e;
+    }
+  }
+
+  return { outreachSchoolId: oid, partnered: true, addressCopied: !!String(outreach.address || '').trim() };
+}
+
+async function provisionSchoolGroupForInvite(invite, { groupEmail, schoolName, staffEmails = null } = {}) {
+  const email = String(groupEmail || '').trim().toLowerCase();
+  if (!email || !email.includes('@')) return null;
+  try {
+    const { provisionSchoolGoogleGroup } = await import('./schoolGroupProvisioning.service.js');
+    return await provisionSchoolGoogleGroup({
+      agencyId: invite.agency_id,
+      schoolOrganizationId: invite.school_organization_id,
+      groupEmail: email,
+      schoolName: schoolName || invite.school_name,
+      contactFirstName: invite.contact_first_name,
+      contactLastName: invite.contact_last_name,
+      contactEmail: invite.contact_email,
+      staffEmails
+    });
+  } catch (e) {
+    console.warn('[schoolOnboarding] google group provision failed:', e?.message || e);
+    return { ok: false, reason: e?.message || 'failed' };
+  }
+}
+
 function parseName(fullName) {
   const s = String(fullName || '').trim();
   if (!s) return { firstName: 'School', lastName: 'Staff' };
@@ -685,6 +777,13 @@ export async function createInvite({
     });
     if (passwordAlreadyUsable && invite?.id) {
       invite = await SchoolOnboardingInvite.update(invite.id, { passwordSetAt: new Date() });
+    }
+
+    try {
+      await syncOutreachPartnerFromOnboarding(invite);
+      invite = (await SchoolOnboardingInvite.findById(invite.id)) || invite;
+    } catch (e) {
+      console.warn('[schoolOnboarding] outreach partner sync on create failed:', e?.message || e);
     }
 
     let invitedByName = 'Our team';
@@ -1219,6 +1318,19 @@ export async function saveStep(token, stepKey, payload = {}, markComplete = true
       : { ...(stepPayload.school_information || {}), ...filledBody };
     if (!markComplete && mergedBody.completedAt) delete mergedBody.completedAt;
     stepPayload.school_information = stampStepPayload('school_information', mergedBody, markComplete);
+
+    if (markComplete && itscoEmail) {
+      const groupResult = await provisionSchoolGroupForInvite(invite, {
+        groupEmail: itscoEmail,
+        schoolName: schoolName || invite.school_name
+      });
+      stepPayload.school_information = {
+        ...stepPayload.school_information,
+        googleGroupProvisionedAt: groupResult?.ok ? new Date().toISOString() : null,
+        googleGroupProvisionError: groupResult?.ok ? null : groupResult?.reason || groupResult?.skipped ? 'skipped' : 'failed',
+        googleGroupEmail: itscoEmail
+      };
+    }
   } else if (stepKey === 'school_staff') {
     const staff = Array.isArray(body.staff) ? body.staff : [];
     // Legacy clients may still send a shared temp password — ignore it going forward.
@@ -1319,6 +1431,23 @@ export async function saveStep(token, stepKey, payload = {}, markComplete = true
       },
       markComplete
     );
+
+    if (markComplete) {
+      const profile = await getSchoolProfile(invite.school_organization_id);
+      const groupEmail = String(profile?.itsco_email || stepPayload?.school_information?.itscoEmail || '').trim();
+      if (groupEmail) {
+        const staffEmails = created.map((r) => r.email).filter(Boolean);
+        const groupResult = await provisionSchoolGroupForInvite(invite, {
+          groupEmail,
+          staffEmails: [...staffEmails, invite.contact_email]
+        });
+        stepPayload.school_staff = {
+          ...stepPayload.school_staff,
+          googleGroupMembersSyncedAt: groupResult?.ok ? new Date().toISOString() : null,
+          googleGroupMembersSyncError: groupResult?.ok ? null : groupResult?.reason || 'failed'
+        };
+      }
+    }
   } else if (stepKey === 'preferred_days') {
     const preferredDays = Array.isArray(body.preferredDays) ? body.preferredDays : [];
     const notes = String(body.notes || '').trim();
@@ -1588,6 +1717,11 @@ export async function submitOnboarding(token) {
 
   await setSchoolDraftFlag(invite.school_organization_id, false);
   await User.updateStatus(invite.primary_user_id, 'ACTIVE_EMPLOYEE', invite.primary_user_id);
+  try {
+    await syncOutreachPartnerFromOnboarding(invite);
+  } catch (e) {
+    console.warn('[schoolOnboarding] outreach partner sync on submit failed:', e?.message || e);
+  }
   try {
     await User.update(invite.primary_user_id, { isActive: true });
   } catch {

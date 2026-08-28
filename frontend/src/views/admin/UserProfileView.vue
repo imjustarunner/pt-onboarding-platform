@@ -649,6 +649,23 @@
                 <p v-else>
                   Admin password override is enabled for this user. Password reset and temporary password actions are allowed.
                 </p>
+                <label
+                  v-if="!accountInfo.ssoPasswordOverride"
+                  class="acct-ws-group-email-check"
+                >
+                  <input
+                    v-model="ssoOverrideLoginIsGroupEmail"
+                    type="checkbox"
+                    :disabled="savingSsoPasswordOverride"
+                  />
+                  <span>
+                    Login email / username is a Google Group mailbox
+                    <small>(shared hire group address — not a personal Workspace user)</small>
+                  </span>
+                </label>
+                <p v-else-if="accountInfo.loginIsGroupEmail" class="acct-ws-group-email-note">
+                  Marked as group mailbox login: {{ accountInfo.username || accountInfo.email || 'this account' }}
+                </p>
                 <button
                   type="button"
                   class="btn btn-primary btn-sm"
@@ -5531,11 +5548,13 @@ const accountInfo = ref({
   ssoEnabled: false,
   ssoPolicyRequired: false,
   ssoPasswordOverride: false,
+  loginIsGroupEmail: false,
   ssoRequired: false
 });
 const accountInfoLoading = ref(false);
 const accountInfoError = ref('');
 const savingSsoPasswordOverride = ref(false);
+const ssoOverrideLoginIsGroupEmail = ref(false);
 const downloadingPackage = ref(false);
 const deactivatingUser = ref(false);
 const activatingUser = ref(false);
@@ -5941,15 +5960,22 @@ const confirmResetToken = async () => {
 
 const toggleSsoPasswordOverride = async (enabled) => {
   const nextState = Boolean(enabled);
+  const asGroupEmail = nextState && ssoOverrideLoginIsGroupEmail.value === true;
   const prompt = nextState
-    ? 'Enable password-login override for this user? This allows reset links and temporary passwords even when Workspace sign-in policy applies.'
+    ? asGroupEmail
+      ? 'Enable password-login override and mark this login as a Google Group mailbox?'
+      : 'Enable password-login override for this user? This allows reset links and temporary passwords even when Workspace sign-in policy applies.'
     : 'Disable password-login override and re-enforce Workspace-only sign-in for this user?';
   if (!confirm(prompt)) return;
 
   try {
     savingSsoPasswordOverride.value = true;
-    await api.post(`/users/${userId.value}/sso-password-override`, { override: nextState });
+    await api.post(`/users/${userId.value}/sso-password-override`, {
+      override: nextState,
+      loginIsGroupEmail: asGroupEmail
+    });
     await fetchAccountInfo();
+    if (!nextState) ssoOverrideLoginIsGroupEmail.value = false;
     alert(
       nextState
         ? 'Password-login override enabled for this user.'
@@ -9285,6 +9311,33 @@ onUnmounted(() => {
   font-size: 13px;
   color: #475569;
   line-height: 1.45;
+}
+
+.acct-ws-group-email-check {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 0 0 12px;
+  font-size: 13px;
+  color: #334155;
+  cursor: pointer;
+}
+
+.acct-ws-group-email-check input {
+  margin-top: 2px;
+}
+
+.acct-ws-group-email-check small {
+  display: block;
+  color: #64748b;
+  font-size: 12px;
+  margin-top: 2px;
+}
+
+.acct-ws-group-email-note {
+  margin: 0 0 12px !important;
+  font-size: 12px !important;
+  color: #475569 !important;
 }
 
 .acct-empty-panel {
