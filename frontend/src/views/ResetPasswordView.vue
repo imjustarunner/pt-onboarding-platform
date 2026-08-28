@@ -24,6 +24,22 @@
           <p class="subtitle">Choose a new password. You will be signed in automatically after you save it.</p>
 
           <form @submit.prevent="handleReset" autocomplete="on">
+            <div v-if="needsJobTitle" class="form-group">
+              <label for="jobTitle">Your job title / role at the school</label>
+              <input
+                id="jobTitle"
+                v-model="jobTitle"
+                type="text"
+                placeholder="e.g. Counselor, Assistant Principal"
+                required
+                class="form-input"
+                :disabled="saving"
+                maxlength="255"
+                autocomplete="organization-title"
+              />
+              <p v-if="accessRoleLabel" class="muted tiny">Portal access: {{ accessRoleLabel }}</p>
+            </div>
+
             <div class="form-group">
               <label for="password">New Password</label>
               <div class="input-wrap">
@@ -105,6 +121,9 @@ const error = ref('');
 const firstName = ref('');
 const password = ref('');
 const confirmPassword = ref('');
+const jobTitle = ref('');
+const needsJobTitle = ref(false);
+const accessRoleLabel = ref('');
 const saving = ref(false);
 const formError = ref('');
 const showPassword = ref(false);
@@ -151,6 +170,8 @@ const validateToken = async () => {
   try {
     const resp = await api.get(`/auth/validate-reset-token/${encodeURIComponent(token.value)}`);
     firstName.value = resp.data.firstName || '';
+    needsJobTitle.value = !!resp.data.needsJobTitle;
+    accessRoleLabel.value = resp.data.accessRoleLabel || '';
     await applyBranding(resp.data);
     loading.value = false;
   } catch (err) {
@@ -168,6 +189,10 @@ const handleReset = async () => {
     formError.value = passwordMismatch.value;
     return;
   }
+  if (needsJobTitle.value && !String(jobTitle.value || '').trim()) {
+    formError.value = 'Please enter your job title / role at the school.';
+    return;
+  }
   const basics = checkPasswordBasics(password.value);
   if (!basics.valid) {
     formError.value = basics.message;
@@ -178,9 +203,11 @@ const handleReset = async () => {
   formError.value = '';
 
   try {
-    const resp = await api.post(`/auth/reset-password/${encodeURIComponent(token.value)}`, {
-      password: password.value
-    });
+    const payload = { password: password.value };
+    if (needsJobTitle.value || String(jobTitle.value || '').trim()) {
+      payload.jobTitle = String(jobTitle.value || '').trim();
+    }
+    const resp = await api.post(`/auth/reset-password/${encodeURIComponent(token.value)}`, payload);
     await completePasswordTokenLogin(resp.data, router);
   } catch (err) {
     formError.value = err.response?.data?.error?.message || err.message || 'Failed to reset password.';
@@ -228,6 +255,13 @@ onMounted(async () => {
   margin-bottom: 24px;
   font-size: 14px;
   line-height: 1.45;
+}
+.muted.tiny {
+  display: block;
+  margin-top: 6px;
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 400;
 }
 .form-group {
   margin-bottom: 18px;

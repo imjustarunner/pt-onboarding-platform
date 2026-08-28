@@ -952,4 +952,250 @@ export async function processDueSchoolStaffAccountAccessEmails() {
   return { processed: 1, sendId: send.id };
 }
 
+/** Onboarding-complete staff welcome + set-password email */
+export const ONBOARDING_PORTAL_ACCESS_EMAIL_TYPE = 'school_onboarding_staff_portal_access';
+export const ONBOARDING_TOKEN_EXPIRES_HOURS = 168; // 7 days
+
+export function formatSchoolStaffAccessRoleLabel(accessRole) {
+  const role = String(accessRole || '').trim().toLowerCase();
+  if (role === 'school_admin') return 'School Admin';
+  if (role === 'scheduler') return 'Scheduler';
+  if (role === 'school_admin_scheduler') return 'School Admin + Scheduler';
+  if (role === 'standard') return 'Standard (ROI-eligible)';
+  if (role === 'primary' || role === 'primary_contact') return 'School Admin (Primary Contact)';
+  return 'School Staff';
+}
+
+function formatTokenExpiresAt(expiresAt) {
+  const d = expiresAt instanceof Date ? expiresAt : new Date(expiresAt);
+  if (!Number.isFinite(d.getTime())) return '';
+  return d.toLocaleString('en-US', {
+    timeZone: 'America/Denver',
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+    timeZoneName: 'short'
+  });
+}
+
+async function resolveTechnologyReplyTo(agencyId) {
+  const list = await EmailSenderIdentity.list({
+    agencyId,
+    includePlatformDefaults: true,
+    onlyActive: true
+  });
+  const tech =
+    (list || []).find((s) => String(s?.identity_key || '').trim().toLowerCase() === 'technology') ||
+    (list || []).find((s) =>
+      String(s?.from_email || '').trim().toLowerCase().startsWith('technology@')
+    );
+  return String(tech?.from_email || tech?.reply_to || '').trim() || null;
+}
+
+/**
+ * Welcome + portal access email after school onboarding completes (or manual backfill).
+ * From: Notifications@ (preferred). Reply-To: Technology@.
+ * Includes a set-password token link when includeSetPasswordLink is true.
+ */
+export async function sendSchoolOnboardingStaffPortalAccessEmail({
+  agencyId,
+  schoolOrganizationId = null,
+  schoolName,
+  userId,
+  invitedByName = 'Your school administrator',
+  accessRoleLabel = 'School Staff',
+  jobTitle = null,
+  includeSetPasswordLink = true,
+  actorUserId = null,
+  tokenExpiresHours = ONBOARDING_TOKEN_EXPIRES_HOURS,
+  source = 'auto'
+} = {}) {
+  const uid = Number(userId || 0);
+  const aid = Number(agencyId || 0);
+  if (!uid || !aid) {
+    return { sent: false, reason: 'missing_user_or_agency' };
+  }
+
+  const user = await User.findById(uid);
+  if (!user) return { sent: false, reason: 'user_not_found' };
+  const to = pickRecipientEmail(user);
+  if (!to) return { sent: false, reason: 'missing_email' };
+
+  const tenantAgency = await Agency.findById(aid);
+  if (!tenantAgency) return { sent: false, reason: 'agency_not_found' };
+
+  let urlAgency = tenantAgency;
+  const schoolId = Number(schoolOrganizationId || 0);
+  if (schoolId) {
+    const school = await Agency.findById(schoolId);
+    if (school) urlAgency = school;
+  }
+
+  let template;
+  try {
+    template = await getAccessEmailTemplate(aid, ONBOARDING_PORTAL_ACCESS_EMAIL_TYPE);
+  } catch {
+    template = await getAccessEmailTemplate(aid, ACCOUNT_ACCESS_EMAIL_TYPES.portal_access);
+    template = {
+      ...template,
+      subject: '{{AGENCY_NAME}} Portal Access for {{SCHOOL_NAME}}',
+      body:
+        'Hello {{FIRST_NAME}},\n\nWelcome to the {{AGENCY_NAME}} school staff portal for {{SCHOOL_NAME}}.\n\n' +
+        '{{INVITED_BY_NAME}} invited you to join this school account.\n\n' +
+        'Your access role: {{ACCESS_ROLE}}\n{{JOB_TITLE_LINE}}Username: {{USERNAME}}\n\n' +
+        (includeSetPasswordLink
+          ? 'Set your password using this secure link (expires {{TOKEN_EXPIRES_AT}} / in {{TOKEN_EXPIRES_HOURS}} hours):\n{{RESET_TOKEN_LINK}}\n\n'
+          : '') +
+        'Sign in anytime here:\n{{PORTAL_LOGIN_LINK}}\n\n' +
+        'Important: this message often lands in Junk or Spam. Please check Junk, move it to Inbox if you find it there, and mark the sender as safe so you do not miss future messages from us.\n\n' +
+        'If you did not expect this email, you can ignore it.\n\n—\n{{SENDER_NAME}}\n{{AGENCY_NAME}}\n'
+    };
+  }
+
+  const sender = await resolveSenderIdentityForSend({
+    agencyId: aid,
+    templateType: ONBOARDING_PORTAL_ACCESS_EMAIL_TYPE,
+    preferredKeys: ['notifications', 'technology', 'login_recovery']
+  });
+  if (!sender?.identity?.id) {
+    return { sent: false, reason: 'no_sender_identity' };
+  }
+
+  const hours = Math.min(720, Math.max(1, Number(tokenExpiresHours) || ONBOARDING_TOKEN_EXPIRES_HOURS));
+  let passwordlessToken = null;
+  let expiresAt = null;
+  if (includeSetPasswordLink) {
+    const tokenResult = await User.generatePasswordlessToken(uid, hours, 'reset');
+    passwordlessToken = tokenResult.token;
+    expiresAt = tokenResult.expiresAt;
+  }
+
+  let subjectTpl = template.subject;
+  let bodyTpl = template.body;
+  if (!includeSetPasswordLink) {
+    bodyTpl = String(bodyTpl || '')
+      .replace(
+        /Set your password using this secure link \(expires \{\{TOKEN_EXPIRES_AT\}\} \/ in \{\{TOKEN_EXPIRES_HOURS\}\} hours\):\n\{\{RESET_TOKEN_LINK\}\}\n\n/gi,
+        ''
+      )
+      .replace(/If you have not set a password yet[\s\S]*?\{\{RESET_TOKEN_LINK\}\}\n*/gi, '')
+      .replace(/\{\{RESET_TOKEN_LINK\}\}/g, '')
+      .replace(
+        /Access your portal:\n\{\{PORTAL_LOGIN_LINK\}\}/gi,
+        'Sign in with the password you created during onboarding:\n{{PORTAL_LOGIN_LINK}}'
+      );
+    if (!/PORTAL_LOGIN_LINK/.test(bodyTpl)) {
+      bodyTpl +=
+        '\n\nSign in with the password you created during onboarding:\n{{PORTAL_LOGIN_LINK}}\n';
+    }
+  }
+
+  const title = String(jobTitle || user.title || '').trim();
+  const jobTitleLine = title ? `Job title: ${title}\n` : '';
+  const parameters = await EmailTemplateService.collectParameters(user, urlAgency, {
+    passwordlessToken,
+    senderName:
+      sender.identity.display_name || tenantAgency?.name || 'School portal',
+    keepPortalLoginLink: true
+  });
+  parameters.AGENCY_NAME = tenantAgency.name || parameters.AGENCY_NAME || '';
+  parameters.SCHOOL_NAME = String(schoolName || urlAgency?.name || 'your school').trim();
+  parameters.INVITED_BY_NAME = String(invitedByName || 'Your school administrator').trim();
+  parameters.ACCESS_ROLE = String(accessRoleLabel || 'School Staff').trim();
+  parameters.JOB_TITLE = title;
+  parameters.JOB_TITLE_LINE = jobTitleLine;
+  parameters.TOKEN_EXPIRES_HOURS = String(hours);
+  parameters.TOKEN_EXPIRES_AT = expiresAt
+    ? formatTokenExpiresAt(expiresAt)
+    : `${hours} hours after send`;
+  parameters.SENDER_NAME =
+    parameters.SENDER_NAME || sender.identity.display_name || tenantAgency.name || '';
+
+  const rendered = EmailTemplateService.renderTemplate(
+    { subject: subjectTpl, body: bodyTpl },
+    parameters
+  );
+  const subject = applyMissingPlaceholders(rendered.subject);
+  const body = applyMissingPlaceholders(rendered.body);
+
+  let comm = null;
+  try {
+    comm = await CommunicationLoggingService.logGeneratedCommunication({
+      userId: uid,
+      agencyId: aid,
+      templateType: ONBOARDING_PORTAL_ACCESS_EMAIL_TYPE,
+      templateId: template.id || null,
+      subject,
+      body,
+      generatedByUserId: actorUserId,
+      channel: 'email',
+      recipientAddress: to
+    });
+  } catch {
+    comm = null;
+  }
+
+  const replyTo = await resolveTechnologyReplyTo(aid);
+  const result = await sendEmailFromIdentity({
+    senderIdentityId: sender.identity.id,
+    to,
+    subject,
+    text: body,
+    html: textToHtml(body),
+    source,
+    templateType: ONBOARDING_PORTAL_ACCESS_EMAIL_TYPE,
+    usedFallbackSender: !!sender.usedFallback,
+    generatedByUserId: actorUserId,
+    userId: uid,
+    existingCommunicationId: comm?.id || null,
+    replyToOverride: replyTo
+  });
+
+  if (result?.blocked) {
+    return { sent: false, reason: result.reason || 'blocked', to };
+  }
+  if (result?.skipped) {
+    return { sent: false, reason: result.reason || 'skipped', to };
+  }
+  if (result?.queued) {
+    return { sent: false, reason: 'queued_for_approval', to };
+  }
+
+  if (comm?.id && result?.id) {
+    await CommunicationLoggingService.markAsSent(comm.id, result.id, {
+      senderIdentityId: sender.identity.id
+    }).catch(() => {});
+  }
+
+  try {
+    const ActivityLogService = (await import('./activityLog.service.js')).default;
+    ActivityLogService.logActivity({
+      actionType: 'password_reset_link_sent',
+      userId: uid,
+      metadata: {
+        emailType: ONBOARDING_PORTAL_ACCESS_EMAIL_TYPE,
+        schoolOrganizationId: schoolId || null,
+        schoolName: parameters.SCHOOL_NAME,
+        includeSetPasswordLink,
+        tokenExpiresHours: hours,
+        performedByUserId: actorUserId,
+        source: 'school_onboarding_complete'
+      }
+    });
+  } catch {
+    // best-effort
+  }
+
+  return {
+    sent: true,
+    to,
+    userId: uid,
+    expiresAt: expiresAt || null,
+    tokenExpiresHours: hours,
+    communicationId: comm?.id || result?.communicationId || null
+  };
+}
+
 export { normalizeEmailType };

@@ -2622,8 +2622,41 @@ export const validateResetToken = async (req, res, next) => {
     const { buildPasswordRecoveryBranding } = await import('../services/passwordRecoveryBranding.service.js');
     const branding = await buildPasswordRecoveryBranding(req, user);
 
+    let needsJobTitle = false;
+    let accessRoleLabel = null;
+    if (String(user.role || '').toLowerCase() === 'school_staff') {
+      const hasUserTitle = !!String(user.title || '').trim();
+      let hasContactTitle = false;
+      try {
+        const emailNorm = String(user.email || user.username || '').trim().toLowerCase();
+        const [rows] = await pool.execute(
+          `SELECT sc.role_title, sc.is_school_admin, sc.is_scheduler, sc.is_primary
+           FROM school_contacts sc
+           INNER JOIN user_agencies ua ON ua.agency_id = sc.school_organization_id
+           WHERE ua.user_id = ?
+             AND LOWER(TRIM(sc.email)) COLLATE utf8mb4_unicode_ci = CONVERT(? USING utf8mb4) COLLATE utf8mb4_unicode_ci
+           ORDER BY sc.is_primary DESC, sc.id DESC
+           LIMIT 1`,
+          [user.id, emailNorm]
+        );
+        const contact = rows?.[0];
+        hasContactTitle = !!String(contact?.role_title || '').trim();
+        if (contact?.is_primary) accessRoleLabel = 'School Admin (Primary Contact)';
+        else if (contact?.is_school_admin && contact?.is_scheduler) {
+          accessRoleLabel = 'School Admin + Scheduler';
+        } else if (contact?.is_school_admin) accessRoleLabel = 'School Admin';
+        else if (contact?.is_scheduler) accessRoleLabel = 'Scheduler';
+        else accessRoleLabel = 'Standard (ROI-eligible)';
+      } catch {
+        // ignore
+      }
+      needsJobTitle = !hasUserTitle && !hasContactTitle;
+    }
+
     res.json({
       firstName: user.first_name,
+      needsJobTitle,
+      accessRoleLabel,
       ...branding
     });
   } catch (error) {
@@ -3258,7 +3291,7 @@ export const recoverUsername = async (req, res, next) => {
 export const resetPasswordWithToken = async (req, res, next) => {
   try {
     const { token } = req.params;
-    const { password } = req.body;
+    const { password, jobTitle = null, title = null } = req.body;
 
     if (!token) {
       return res.status(400).json({ error: { message: 'Token is required' } });
@@ -3293,6 +3326,55 @@ export const resetPasswordWithToken = async (req, res, next) => {
       return res.status(400).json({
         error: { message: 'You cannot reuse one of your last 5 passwords. Please choose a different password.' }
       });
+    }
+
+    const resolvedTitle = String(jobTitle || title || '').trim().slice(0, 255) || null;
+    if (String(user.role || '').toLowerCase() === 'school_staff') {
+      const hasUserTitle = !!String(user.title || '').trim();
+      let hasContactTitle = false;
+      let contactId = null;
+      try {
+        const emailNorm = String(user.email || user.username || '').trim().toLowerCase();
+        const [rows] = await pool.execute(
+          `SELECT sc.id, sc.role_title, sc.school_organization_id
+           FROM school_contacts sc
+           INNER JOIN user_agencies ua ON ua.agency_id = sc.school_organization_id
+           WHERE ua.user_id = ?
+             AND LOWER(TRIM(sc.email)) COLLATE utf8mb4_unicode_ci = CONVERT(? USING utf8mb4) COLLATE utf8mb4_unicode_ci
+           ORDER BY sc.is_primary DESC, sc.id DESC
+           LIMIT 1`,
+          [user.id, emailNorm]
+        );
+        const contact = rows?.[0];
+        contactId = contact?.id || null;
+        hasContactTitle = !!String(contact?.role_title || '').trim();
+      } catch {
+        // ignore lookup failures
+      }
+      if (!hasUserTitle && !hasContactTitle && !resolvedTitle) {
+        return res.status(400).json({
+          error: { message: 'Please enter your job title / role at the school before continuing.' }
+        });
+      }
+      if (resolvedTitle) {
+        try {
+          await User.update(user.id, { title: resolvedTitle });
+        } catch {
+          // ignore
+        }
+        if (contactId) {
+          await pool.execute(
+            `UPDATE school_contacts SET role_title = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+            [resolvedTitle, contactId]
+          ).catch(() => {});
+        }
+      }
+    } else if (resolvedTitle) {
+      try {
+        await User.update(user.id, { title: resolvedTitle });
+      } catch {
+        // ignore
+      }
     }
 
     // Set new password (overwrites old password hash and clears temporary password)

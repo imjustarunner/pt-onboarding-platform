@@ -10,7 +10,7 @@ import EmailTemplateService from './emailTemplate.service.js';
 import EmailService from './email.service.js';
 import { sendEmailFromIdentity } from './unifiedEmail/unifiedEmailSender.service.js';
 import { resolvePreferredSenderIdentityForAgency } from './emailSenderIdentityResolver.service.js';
-import { validatePasswordStrength, checkPasswordBasics, MIN_PASSWORD_LENGTH } from '../utils/passwordValidation.js';
+import { validatePasswordStrength, checkPasswordBasics } from '../utils/passwordValidation.js';
 import { ensureDigitalIntakeFormsForSchool } from './schoolOnboardingIntakeBootstrap.service.js';
 
 async function notifySchoolPortalOnboardingCompleted(invite) {
@@ -128,9 +128,21 @@ function parseAccessRole(accessRole) {
   return { isSchoolAdmin: false, isScheduler: false };
 }
 
-async function upsertSchoolContactRoleFlags({ orgId, email, fullName = null, isSchoolAdmin, isScheduler, isPrimary = false }) {
+async function upsertSchoolContactRoleFlags({
+  orgId,
+  email,
+  fullName = null,
+  roleTitle = null,
+  isSchoolAdmin,
+  isScheduler,
+  isPrimary = false
+}) {
   const normalized = String(email || '').trim().toLowerCase();
   if (!normalized || !normalized.includes('@')) return;
+  const title =
+    roleTitle != null && String(roleTitle).trim() !== ''
+      ? String(roleTitle).trim().slice(0, 255)
+      : null;
   try {
     const [existingRows] = await pool.execute(
       `SELECT id FROM school_contacts
@@ -142,6 +154,7 @@ async function upsertSchoolContactRoleFlags({ orgId, email, fullName = null, isS
       await pool.execute(
         `UPDATE school_contacts
          SET full_name = COALESCE(?, full_name),
+             role_title = COALESCE(?, role_title),
              is_school_admin = ?,
              is_scheduler = ?,
              is_primary = IF(?, 1, is_primary),
@@ -149,6 +162,7 @@ async function upsertSchoolContactRoleFlags({ orgId, email, fullName = null, isS
          WHERE id = ?`,
         [
           fullName || null,
+          title,
           isSchoolAdmin ? 1 : 0,
           isScheduler ? 1 : 0,
           isPrimary ? 1 : 0,
@@ -159,11 +173,12 @@ async function upsertSchoolContactRoleFlags({ orgId, email, fullName = null, isS
       await pool.execute(
         `INSERT INTO school_contacts
           (school_organization_id, full_name, email, role_title, notes, is_primary, is_school_admin, is_scheduler)
-         VALUES (?, ?, ?, NULL, NULL, ?, ?, ?)`,
+         VALUES (?, ?, ?, ?, NULL, ?, ?, ?)`,
         [
           orgId,
           fullName || null,
           normalized,
+          title,
           isPrimary ? 1 : 0,
           isSchoolAdmin ? 1 : 0,
           isScheduler ? 1 : 0
@@ -934,6 +949,7 @@ export function serializeInvite(invite, { admin = false, publicView = false } = 
         schoolGroupEmailDomain: resolveSchoolGroupEmailDomain(invite.agency_slug, invite.agency_portal_url)
       },
       staffTempPasswordExpiresHours: SCHOOL_STAFF_TEMP_PASSWORD_EXPIRY_HOURS,
+      portalAccessTokenExpiresHours: SCHOOL_STAFF_TEMP_PASSWORD_EXPIRY_HOURS,
       school: {
         id: invite.school_organization_id,
         name: invite.school_org_name || invite.school_name,
@@ -1116,27 +1132,8 @@ export async function saveStep(token, stepKey, payload = {}, markComplete = true
     stepPayload.school_information = stampStepPayload('school_information', mergedBody, markComplete);
   } else if (stepKey === 'school_staff') {
     const staff = Array.isArray(body.staff) ? body.staff : [];
-    const sharedTempPassword = String(body.sharedTempPassword || body.temporaryPassword || '').trim();
-    if (staff.length) {
-      const sharedBasics = checkPasswordBasics(sharedTempPassword);
-      if (!sharedBasics.valid) {
-        throw Object.assign(
-          new Error(
-            sharedBasics.message.replace(
-              /^Password/,
-              `A shared temporary password (${MIN_PASSWORD_LENGTH}+ characters, letter and number)`
-            )
-          ),
-          { status: 400 }
-        );
-      }
-    }
-    if (sharedTempPassword) {
-      const pwCheck = await validatePasswordStrength(sharedTempPassword, { accountId: 'school-staff' });
-      if (!pwCheck.valid) {
-        throw Object.assign(new Error(pwCheck.message || 'Temporary password is not strong enough'), { status: 400 });
-      }
-    }
+    // Legacy clients may still send a shared temp password — ignore it going forward.
+    // Added staff receive individual set-password email links when onboarding is submitted.
 
     const created = [];
     for (const row of staff) {
@@ -1145,6 +1142,7 @@ export async function saveStep(token, stepKey, payload = {}, markComplete = true
       const isPrimary = email === String(invite.contact_email).toLowerCase();
       const { firstName, lastName } = parseName(row.fullName || row.name);
       const flags = parseAccessRole(row.accessRole || row.role || 'standard');
+      const jobTitle = String(row.jobTitle || row.roleTitle || row.title || '').trim().slice(0, 255) || null;
       let user = await User.findByEmail(email);
       if (!user) {
         user = await User.create({
@@ -1162,6 +1160,13 @@ export async function saveStep(token, stepKey, payload = {}, markComplete = true
           { status: 409 }
         );
       }
+      if (jobTitle) {
+        try {
+          await User.update(user.id, { title: jobTitle });
+        } catch {
+          // ignore
+        }
+      }
       try {
         await pool.execute('UPDATE users SET email = ?, username = ? WHERE id = ?', [email, email, user.id]);
       } catch {
@@ -1174,15 +1179,21 @@ export async function saveStep(token, stepKey, payload = {}, markComplete = true
       }
       await User.assignToAgency(user.id, invite.school_organization_id);
 
-      // Shared temp password for every staff account (including re-saves)
-      if (sharedTempPassword && !isPrimary) {
-        await User.setTemporaryPassword(user.id, sharedTempPassword, SCHOOL_STAFF_TEMP_PASSWORD_EXPIRY_HOURS);
-      }
+      const accessRole =
+        row.accessRole ||
+        (flags.isSchoolAdmin && flags.isScheduler
+          ? 'school_admin_scheduler'
+          : flags.isSchoolAdmin
+            ? 'school_admin'
+            : flags.isScheduler
+              ? 'scheduler'
+              : 'standard');
 
       await upsertSchoolContactRoleFlags({
         orgId: invite.school_organization_id,
         email,
         fullName: `${user.first_name || firstName} ${user.last_name || lastName}`.trim(),
+        roleTitle: jobTitle,
         isSchoolAdmin: isPrimary ? true : flags.isSchoolAdmin,
         isScheduler: flags.isScheduler,
         isPrimary
@@ -1192,13 +1203,8 @@ export async function saveStep(token, stepKey, payload = {}, markComplete = true
         userId: user.id,
         email,
         fullName: `${user.first_name || firstName} ${user.last_name || lastName}`.trim(),
-        accessRole: row.accessRole || (flags.isSchoolAdmin && flags.isScheduler
-          ? 'school_admin_scheduler'
-          : flags.isSchoolAdmin
-            ? 'school_admin'
-            : flags.isScheduler
-              ? 'scheduler'
-              : 'standard'),
+        jobTitle,
+        accessRole,
         isSchoolAdmin: isPrimary ? true : flags.isSchoolAdmin,
         isScheduler: isPrimary ? false : flags.isScheduler,
         roiEligible: isPrimary ? true : !flags.isScheduler
@@ -1215,16 +1221,12 @@ export async function saveStep(token, stepKey, payload = {}, markComplete = true
       isPrimary: true
     });
 
-    const staffExpiresAt = sharedTempPassword
-      ? new Date(Date.now() + SCHOOL_STAFF_TEMP_PASSWORD_EXPIRY_HOURS * 60 * 60 * 1000).toISOString()
-      : null;
     stepPayload.school_staff = stampStepPayload(
       'school_staff',
       {
         staff: created,
-        sharedTempPasswordSet: !!sharedTempPassword,
-        sharedTempPasswordExpiresAt: staffExpiresAt,
-        sharedTempPasswordExpiresHours: SCHOOL_STAFF_TEMP_PASSWORD_EXPIRY_HOURS
+        portalAccessEmailsOnSubmit: true,
+        portalAccessTokenExpiresHours: SCHOOL_STAFF_TEMP_PASSWORD_EXPIRY_HOURS
       },
       markComplete
     );
@@ -1499,7 +1501,7 @@ export async function submitOnboarding(token) {
     // ignore
   }
 
-  // Activate other school staff created during onboarding (they log in with shared temp password)
+  // Activate other school staff created during onboarding
   try {
     const staffPayload = invite.step_payload?.school_staff?.staff || [];
     for (const row of staffPayload) {
@@ -1514,6 +1516,62 @@ export async function submitOnboarding(token) {
     }
   } catch {
     // ignore
+  }
+
+  // Portal-access emails: primary (login welcome) + added staff (set-password links)
+  try {
+    const {
+      sendSchoolOnboardingStaffPortalAccessEmail,
+      formatSchoolStaffAccessRoleLabel,
+      ONBOARDING_TOKEN_EXPIRES_HOURS
+    } = await import('./schoolStaffAccountAccessEmail.service.js');
+    const schoolName = String(invite.school_org_name || invite.school_name || 'your school').trim();
+    const primaryUser = await User.findById(invite.primary_user_id);
+    const invitedByName =
+      `${invite.contact_first_name || ''} ${invite.contact_last_name || ''}`.trim() ||
+      `${primaryUser?.first_name || ''} ${primaryUser?.last_name || ''}`.trim() ||
+      'Your school administrator';
+    const staffPayload = invite.step_payload?.school_staff?.staff || [];
+
+    if (primaryUser?.id) {
+      await sendSchoolOnboardingStaffPortalAccessEmail({
+        agencyId: invite.agency_id,
+        schoolOrganizationId: invite.school_organization_id,
+        schoolName,
+        userId: primaryUser.id,
+        invitedByName:
+          `${invite.invited_by_first_name || ''} ${invite.invited_by_last_name || ''}`.trim() ||
+          'Our team',
+        accessRoleLabel: formatSchoolStaffAccessRoleLabel('primary'),
+        jobTitle: primaryUser.title || null,
+        includeSetPasswordLink: false,
+        actorUserId: invite.primary_user_id,
+        tokenExpiresHours: ONBOARDING_TOKEN_EXPIRES_HOURS,
+        source: 'auto'
+      }).catch((e) => console.warn('[schoolOnboarding] primary portal email failed:', e?.message || e));
+    }
+
+    for (const row of staffPayload) {
+      const uid = Number(row?.userId || 0);
+      if (!uid || uid === invite.primary_user_id) continue;
+      await sendSchoolOnboardingStaffPortalAccessEmail({
+        agencyId: invite.agency_id,
+        schoolOrganizationId: invite.school_organization_id,
+        schoolName,
+        userId: uid,
+        invitedByName,
+        accessRoleLabel: formatSchoolStaffAccessRoleLabel(row.accessRole),
+        jobTitle: row.jobTitle || null,
+        includeSetPasswordLink: true,
+        actorUserId: invite.primary_user_id,
+        tokenExpiresHours: ONBOARDING_TOKEN_EXPIRES_HOURS,
+        source: 'auto'
+      }).catch((e) =>
+        console.warn('[schoolOnboarding] staff portal email failed:', uid, e?.message || e)
+      );
+    }
+  } catch (e) {
+    console.warn('[schoolOnboarding] portal access emails failed:', e?.message || e);
   }
 
   // Remove temporary Hogwarts demo assignment if present
