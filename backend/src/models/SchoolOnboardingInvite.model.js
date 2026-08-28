@@ -141,6 +141,43 @@ export default class SchoolOnboardingInvite {
     return (rows || []).map((r) => this.normalizeRow(r));
   }
 
+  /**
+   * Latest non-revoked invite for a school org (open or submitted).
+   * Prefer open invites; if none, return the latest submitted for status checks.
+   */
+  static async findLatestForSchoolOrganization(schoolOrganizationId) {
+    const sid = Number(schoolOrganizationId);
+    if (!Number.isFinite(sid) || sid <= 0) return null;
+    const [openRows] = await pool.execute(
+      `SELECT i.*,
+              a.name AS agency_name, a.slug AS agency_slug, a.portal_url AS agency_portal_url,
+              s.name AS school_org_name, s.slug AS school_slug, s.portal_url AS school_portal_url
+       FROM school_onboarding_invites i
+       JOIN agencies a ON a.id = i.agency_id
+       JOIN agencies s ON s.id = i.school_organization_id
+       WHERE i.school_organization_id = ?
+         AND i.status NOT IN ('revoked', 'submitted')
+       ORDER BY i.created_at DESC
+       LIMIT 1`,
+      [sid]
+    );
+    if (openRows?.[0]) return this.normalizeRow(openRows[0]);
+    const [submittedRows] = await pool.execute(
+      `SELECT i.*,
+              a.name AS agency_name, a.slug AS agency_slug, a.portal_url AS agency_portal_url,
+              s.name AS school_org_name, s.slug AS school_slug, s.portal_url AS school_portal_url
+       FROM school_onboarding_invites i
+       JOIN agencies a ON a.id = i.agency_id
+       JOIN agencies s ON s.id = i.school_organization_id
+       WHERE i.school_organization_id = ?
+         AND i.status = 'submitted'
+       ORDER BY COALESCE(i.submitted_at, i.created_at) DESC
+       LIMIT 1`,
+      [sid]
+    );
+    return this.normalizeRow(submittedRows?.[0] || null);
+  }
+
   static async update(id, patch = {}) {
     const fields = [];
     const values = [];

@@ -81,6 +81,44 @@ function buildSchoolPortalUrls(invite) {
   };
 }
 
+/**
+ * Lightweight onboarding phase for school portal splash gating.
+ * Incomplete = latest invite exists and is not submitted/revoked.
+ */
+export async function getSchoolOnboardingPhase(schoolOrganizationId) {
+  const invite = await SchoolOnboardingInvite.findLatestForSchoolOrganization(schoolOrganizationId);
+  if (!invite) {
+    return {
+      hasInvite: false,
+      inProgress: false,
+      completed: false,
+      inviteId: null,
+      inviteToken: null,
+      onboardingLink: null,
+      status: null,
+      schoolName: null,
+      completedSteps: 0,
+      totalSteps: STEP_KEYS.length
+    };
+  }
+  const progress = effectiveStepProgress(invite);
+  const status = String(invite.status || '').toLowerCase();
+  const completed = status === 'submitted';
+  const inProgress = !completed && status !== 'revoked';
+  return {
+    hasInvite: true,
+    inProgress,
+    completed,
+    inviteId: invite.id,
+    inviteToken: inProgress ? invite.token : null,
+    onboardingLink: inProgress ? buildOnboardingLink(invite.token) : null,
+    status,
+    schoolName: invite.school_name || invite.school_org_name || null,
+    completedSteps: completedCount(progress),
+    totalSteps: STEP_KEYS.length
+  };
+}
+
 async function notifySchoolPortalOnboardingCompleted(invite) {
   if (!invite?.agency_id || !invite?.id) return;
   try {
@@ -1176,10 +1214,14 @@ export function serializeInvite(invite, { admin = false, publicView = false } = 
   };
 
   if (admin) {
+    const urls = buildSchoolPortalUrls(invite);
     return {
       ...base,
       token: invite.token,
       link: buildOnboardingLink(invite.token),
+      portalUrl: urls.portalUrl,
+      loginUrl: urls.loginUrl,
+      portalDashboardUrl: urls.portalDashboardUrl,
       invitedByName: `${invite.invited_by_first_name || ''} ${invite.invited_by_last_name || ''}`.trim() || null,
       agencyId: invite.agency_id,
       agencyName: invite.agency_name || null,

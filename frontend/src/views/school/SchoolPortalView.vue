@@ -1999,6 +1999,43 @@
       </transition>
     </teleport>
 
+    <div
+      v-if="showSchoolOnboardingSplash"
+      class="blocking-splash"
+      role="dialog"
+      aria-modal="true"
+      aria-label="School onboarding in progress"
+    >
+      <div class="blocking-splash-card so-phase-splash-card">
+        <div class="blocking-splash-head">
+          <img v-if="schoolLogoUrl" :src="schoolLogoUrl" alt="" class="blocking-splash-logo-img" />
+          <div class="blocking-splash-brand">{{ schoolName || 'School Portal' }}</div>
+        </div>
+        <h3 class="blocking-splash-title">This school is currently in the onboarding phase</h3>
+        <p class="blocking-splash-message">
+          Portal setup is still in progress
+          <template v-if="schoolOnboardingPhase?.completedSteps != null">
+            ({{ schoolOnboardingPhase.completedSteps }}/{{ schoolOnboardingPhase.totalSteps || 6 }} steps).
+          </template>
+          <template v-else>.</template>
+          You can open the onboarding link to help prefill details, or dismiss this notice and continue browsing the portal.
+        </p>
+        <div class="blocking-splash-actions so-phase-splash-actions">
+          <button
+            v-if="schoolOnboardingPhase?.onboardingLink"
+            type="button"
+            class="btn btn-primary"
+            @click="openSchoolOnboardingInNewWindow"
+          >
+            Enter onboarding
+          </button>
+          <button type="button" class="btn btn-secondary" @click="dismissSchoolOnboardingSplash">
+            Dismiss
+          </button>
+        </div>
+      </div>
+    </div>
+
     <!-- Fall re-initiation collaborative workflow splash -->
     <div
       v-if="showFallReinitSplash"
@@ -2920,6 +2957,55 @@ const showUploadModal = ref(false);
 const comingSoonKey = ref(''); // 'parent_qr' | 'parent_sign' | 'packet_upload'
 const showSchoolSettings = ref(false);
 const affiliatedAgencyId = ref(null);
+const schoolOnboardingPhase = ref(null);
+const schoolOnboardingSplashDismissed = ref(false);
+const SCHOOL_ONBOARDING_SPLASH_PREFIX = 'schoolOnboardingPhaseSplash';
+
+const canSeeSchoolOnboardingSplash = computed(() =>
+  !isPublicDemo.value &&
+  !isPreviewOrDemo.value &&
+  ['admin', 'support', 'super_admin'].includes(roleNorm.value)
+);
+
+const schoolOnboardingSplashStorageKey = computed(() => {
+  const userId = Number(authStore.user?.id || 0);
+  const orgId = Number(organizationId.value || 0);
+  const inviteId = Number(schoolOnboardingPhase.value?.inviteId || 0);
+  if (!userId || !orgId || !inviteId) return null;
+  return `${SCHOOL_ONBOARDING_SPLASH_PREFIX}:${userId}:${orgId}:${inviteId}`;
+});
+
+const showSchoolOnboardingSplash = computed(() => {
+  if (!canSeeSchoolOnboardingSplash.value) return false;
+  if (schoolOnboardingSplashDismissed.value) return false;
+  if (!schoolOnboardingPhase.value?.inProgress) return false;
+  const key = schoolOnboardingSplashStorageKey.value;
+  if (key) {
+    try {
+      if (localStorage.getItem(key) === '1') return false;
+    } catch {
+      // ignore
+    }
+  }
+  return true;
+});
+
+function dismissSchoolOnboardingSplash() {
+  schoolOnboardingSplashDismissed.value = true;
+  const key = schoolOnboardingSplashStorageKey.value;
+  if (!key) return;
+  try {
+    localStorage.setItem(key, '1');
+  } catch {
+    // ignore
+  }
+}
+
+function openSchoolOnboardingInNewWindow() {
+  const link = String(schoolOnboardingPhase.value?.onboardingLink || '').trim();
+  if (!link) return;
+  window.open(link, '_blank', 'noopener,noreferrer');
+}
 
 const showFallReinitSummaryButton = computed(() => {
   const c = fallReinitStatus.value?.cycle;
@@ -4757,6 +4843,11 @@ const ensureAffiliation = async () => {
     const active = r?.data?.active_agency_id ?? null;
     affiliatedAgencyId.value = active ? Number(active) : null;
     canEditClientActions.value = !!r?.data?.can_edit_clients;
+    schoolOnboardingPhase.value = r?.data?.school_onboarding || null;
+    // Clear session dismiss if onboarding finished so a future invite can show again.
+    if (!schoolOnboardingPhase.value?.inProgress) {
+      schoolOnboardingSplashDismissed.value = false;
+    }
     void loadRosterSchoolYears();
 
     const loadCardIcons = async () => {
@@ -4787,6 +4878,7 @@ const ensureAffiliation = async () => {
     affiliatedAgencyId.value = null;
     cardIconOrg.value = null;
     canEditClientActions.value = false;
+    schoolOnboardingPhase.value = null;
     rosterAvailableSchoolYears.value = [];
     rosterSchoolYearsLoaded.value = false;
   }
@@ -7651,6 +7743,18 @@ watch(() => store.selectedWeekday, async (weekday) => {
   background: var(--card-bg, #fff);
   box-shadow: 0 12px 48px rgba(0, 0, 0, 0.35);
   padding: 40px 36px 32px;
+}
+
+.so-phase-splash-card {
+  width: min(520px, 94vw);
+  text-align: left;
+}
+
+.so-phase-splash-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+  justify-content: flex-start;
 }
 
 .fall-reinit-splash-card {

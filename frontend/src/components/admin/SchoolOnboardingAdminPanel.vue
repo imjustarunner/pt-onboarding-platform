@@ -280,6 +280,31 @@
                 </template>
               </p>
 
+              <section v-if="invitePortalUrl(selectedInvite)" class="so-receipt__block">
+                <h4>School portal</h4>
+                <div class="so-receipt-lines">
+                  <div class="so-receipt-line so-receipt-line--stack">
+                    <span class="so-receipt-line__label">Portal link</span>
+                    <span class="so-receipt-line__value so-link-wrap">
+                      <a :href="invitePortalUrl(selectedInvite)" target="_blank" rel="noopener">
+                        {{ invitePortalDisplay(selectedInvite) }}
+                      </a>
+                      <button type="button" class="linkish" @click="copyLink(invitePortalUrl(selectedInvite))">
+                        Copy
+                      </button>
+                      <a
+                        class="linkish"
+                        :href="invitePortalUrl(selectedInvite)"
+                        target="_blank"
+                        rel="noopener"
+                      >
+                        Open
+                      </a>
+                    </span>
+                  </div>
+                </div>
+              </section>
+
               <section class="so-receipt__block">
                 <h4>School information</h4>
                 <div class="so-receipt-lines">
@@ -559,6 +584,23 @@ function formatDate(v) {
   }
 }
 
+function invitePortalUrl(inv) {
+  const direct = String(inv?.portalUrl || '').trim();
+  if (direct) return direct;
+  const slug = String(inv?.schoolSlug || '').trim().toLowerCase();
+  if (!slug) return '';
+  if (typeof window !== 'undefined' && window.location?.origin) {
+    return `${window.location.origin.replace(/\/$/, '')}/${slug}`;
+  }
+  return `/${slug}`;
+}
+
+function invitePortalDisplay(inv) {
+  const url = invitePortalUrl(inv);
+  if (!url) return '—';
+  return url.replace(/^https?:\/\//i, '').replace(/\/$/, '');
+}
+
 const STEP_LABELS = {
   school_information: 'School information',
   school_staff: 'School staff',
@@ -771,6 +813,13 @@ function buildInviteReceiptHtml(inv) {
     <p class="meta">Invite #${escapeHtml(inv?.id)} · ${escapeHtml(inv?.completedSteps)}/${escapeHtml(inv?.totalSteps)} steps · Source: ${escapeHtml(inv?.source || 'invite')}${
       inv?.submittedAt ? ` · Submitted ${escapeHtml(formatDate(inv.submittedAt))}` : ''
     }</p>
+    ${
+      invitePortalUrl(inv)
+        ? `<section class="block"><h2>School portal</h2>
+      <div class="line"><span class="lbl">Portal link</span><span class="val">${escapeHtml(invitePortalDisplay(inv))}</span></div>
+    </section>`
+        : ''
+    }
     <section class="block"><h2>School information</h2>${schoolRows}</section>
     <section class="block"><h2>Primary contact</h2>
       <div class="line"><span class="lbl">Name</span><span class="val">${escapeHtml(`${inv?.contactFirstName || ''} ${inv?.contactLastName || ''}`.trim())}</span></div>

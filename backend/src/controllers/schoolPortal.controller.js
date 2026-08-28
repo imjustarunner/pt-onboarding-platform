@@ -43,6 +43,7 @@ import {
 } from '../utils/supervisorSchoolAccess.js';
 import { publicUploadsUrlFromStoredPath } from '../utils/uploads.js';
 import { buildPublicAppUrl } from '../utils/publicPortalUrl.js';
+import { getSchoolOnboardingPhase } from '../services/schoolOnboarding.service.js';
 import { resolveSchoolStaffTemporaryPassword } from '../utils/schoolStaffTempPassword.js';
 import { flaggedClientIdsFromGroups, groupClientsByFirstLastName } from '../utils/clientNameDuplicate.js';
 import {
@@ -2799,12 +2800,27 @@ export const getSchoolPortalAffiliation = async (req, res, next) => {
             roleNorm !== 'school_staff' &&
             roleNorm !== 'supervisor');
 
+    let schoolOnboarding = null;
+    try {
+      // Only surface phase details to agency operators who can assist onboarding.
+      const canSeeOnboardingPhase =
+        roleNorm === 'super_admin' ||
+        roleNorm === 'admin' ||
+        roleNorm === 'support';
+      if (canSeeOnboardingPhase) {
+        schoolOnboarding = await getSchoolOnboardingPhase(sid);
+      }
+    } catch {
+      schoolOnboarding = null;
+    }
+
     res.json({
       school_organization_id: sid,
       active_agency_id: activeAgencyId ? parseInt(activeAgencyId, 10) : null,
       user_has_school_access: !!userHasSchoolAccess,
       user_has_agency_access: !!userHasAgencyAccess,
-      can_edit_clients: !!canEditClients
+      can_edit_clients: !!canEditClients,
+      school_onboarding: schoolOnboarding
     });
   } catch (e) {
     next(e);
