@@ -27,6 +27,25 @@ import {
   postQuickTaskStatus,
   getQuickViewPwaManifest
 } from '../controllers/quickView.controller.js';
+import {
+  qvListChatThreads,
+  qvListChatChannels,
+  qvOpenChannel,
+  qvListThreadsInbox,
+  qvListMentions,
+  qvListFiles,
+  qvListChatMessages,
+  qvSendChatMessage,
+  qvMarkChatRead,
+  qvFocusMusicCatalog,
+  qvFocusMusicStream,
+  getQuickTaskDetail,
+  postQuickTaskComment,
+  getQuickTaskLists,
+  getQuickTaskProjects,
+  getQuickProjectDetail,
+  getQuickListTasks
+} from '../controllers/quickViewSurfaces.controller.js';
 
 const router = express.Router();
 
@@ -57,7 +76,13 @@ router.post('/session/logout', postLogout);
 router.get('/home', requireQuickViewSession, getQuickHome);
 router.get('/tasks', requireQuickViewSession, getQuickTasks);
 router.post('/tasks', requireQuickViewSession, postQuickTask);
+router.get('/tasks/:id', requireQuickViewSession, getQuickTaskDetail);
+router.post('/tasks/:id/comments', requireQuickViewSession, postQuickTaskComment);
 router.patch('/tasks/:id/status', requireQuickViewSession, postQuickTaskStatus);
+router.get('/task-lists', requireQuickViewSession, getQuickTaskLists);
+router.get('/task-lists/:id/tasks', requireQuickViewSession, getQuickListTasks);
+router.get('/task-projects', requireQuickViewSession, getQuickTaskProjects);
+router.get('/task-projects/:id', requireQuickViewSession, getQuickProjectDetail);
 router.get('/calendar/day', requireQuickViewSession, getQuickDayCalendar);
 router.get('/office', requireQuickViewSession, getQuickOfficeAvailability);
 router.get('/conversations/:id', requireQuickViewSession, getQuickConversation);
@@ -65,5 +90,20 @@ router.post('/conversations/:id/reply', requireQuickViewSession, postQuickReply)
 router.post('/compose', requireQuickViewSession, postQuickCompose);
 router.get('/contacts', requireQuickViewSession, getQuickContacts);
 router.post('/contacts', requireQuickViewSession, postQuickContact);
+
+// Team chat surfaces (DMs, channels, threads, mentions, files)
+router.get('/chat/threads', requireQuickViewSession, qvListChatThreads);
+router.get('/chat/channels', requireQuickViewSession, qvListChatChannels);
+router.post('/chat/channels/:threadId/open', requireQuickViewSession, qvOpenChannel);
+router.get('/chat/inbox/threads', requireQuickViewSession, qvListThreadsInbox);
+router.get('/chat/inbox/mentions', requireQuickViewSession, qvListMentions);
+router.get('/chat/inbox/files', requireQuickViewSession, qvListFiles);
+router.get('/chat/threads/:threadId/messages', requireQuickViewSession, qvListChatMessages);
+router.post('/chat/threads/:threadId/messages', requireQuickViewSession, qvSendChatMessage);
+router.post('/chat/threads/:threadId/read', requireQuickViewSession, qvMarkChatRead);
+
+// Focus music (session cookie works for <audio src>)
+router.get('/focus-music/catalog', requireQuickViewSession, qvFocusMusicCatalog);
+router.get('/focus-music/stream/:slug', requireQuickViewSession, qvFocusMusicStream);
 
 export default router;

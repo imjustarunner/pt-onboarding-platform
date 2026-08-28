@@ -70,30 +70,92 @@
       </nav>
 
       <div v-if="tab === 'home'" class="qv-pane">
-        <div class="qv-toolbar">
-          <div class="qv-sorters">
-            <button type="button" :class="{ on: sort === 'all' }" @click="sort = 'all'">All</button>
-            <button type="button" :class="{ on: sort === 'unread' }" @click="sort = 'unread'">Unread</button>
-            <button type="button" :class="{ on: sort === 'needs' }" @click="sort = 'needs'">Needs reply</button>
-          </div>
-          <button type="button" class="qv-btn primary sm" @click="showCompose = true">New message</button>
+        <div class="qv-suite">
+          <button type="button" :class="{ on: msgSuite === 'email' }" @click="switchMsgSuite('email')">Email</button>
+          <button type="button" :class="{ on: msgSuite === 'direct' }" @click="switchMsgSuite('direct')">Direct</button>
+          <button type="button" :class="{ on: msgSuite === 'channels' }" @click="switchMsgSuite('channels')">Channels</button>
+          <button type="button" :class="{ on: msgSuite === 'threads' }" @click="switchMsgSuite('threads')">Threads</button>
+          <button type="button" :class="{ on: msgSuite === 'mentions' }" @click="switchMsgSuite('mentions')">Mentions</button>
+          <button type="button" :class="{ on: msgSuite === 'files' }" @click="switchMsgSuite('files')">Files</button>
+          <button type="button" :class="{ on: msgSuite === 'sms' }" @click="switchMsgSuite('sms')">SMS</button>
         </div>
-        <button
-          v-for="c in filteredConversations"
-          :key="c.id"
-          type="button"
-          class="qv-row"
-          :class="{ unread: c.is_unread }"
-          @click="openConversation(c)"
-        >
-          <span class="ch">{{ channelIcon(c.channel) }}</span>
-          <div class="meta">
-            <strong>{{ c.subject || '(no subject)' }}</strong>
-            <small>{{ c.last_message_preview || '' }}</small>
+
+        <template v-if="msgSuite === 'email'">
+          <div class="qv-toolbar">
+            <div class="qv-sorters">
+              <button type="button" :class="{ on: sort === 'all' }" @click="sort = 'all'">All</button>
+              <button type="button" :class="{ on: sort === 'unread' }" @click="sort = 'unread'">Unread</button>
+              <button type="button" :class="{ on: sort === 'needs' }" @click="sort = 'needs'">Needs reply</button>
+              <button type="button" :class="{ on: sort === 'secure' }" @click="sort = 'secure'">Secure</button>
+            </div>
+            <button type="button" class="qv-btn primary sm" @click="showCompose = true">New</button>
           </div>
-          <span v-if="c.has_auto_reply" class="badge">Auto</span>
-        </button>
-        <div v-if="!filteredConversations.length" class="qv-pad muted">No messages in your personal inbox.</div>
+          <button
+            v-for="c in filteredConversations"
+            :key="c.id"
+            type="button"
+            class="qv-row"
+            :class="{ unread: c.is_unread }"
+            @click="openConversation(c)"
+          >
+            <span class="ch">{{ channelIcon(c.channel) }}</span>
+            <div class="meta">
+              <strong>{{ c.subject || '(no subject)' }}</strong>
+              <small>{{ c.last_message_preview || '' }}</small>
+            </div>
+            <span v-if="c.has_auto_reply" class="badge">Auto</span>
+          </button>
+          <div v-if="!filteredConversations.length" class="qv-pad muted">
+            No email yet. Integrate a mailbox in Settings to see mail here.
+          </div>
+        </template>
+
+        <template v-else-if="msgSuite === 'sms'">
+          <div class="qv-pad muted">SMS will appear here once messaging is connected. Ready for that channel.</div>
+        </template>
+
+        <template v-else-if="msgSuite === 'direct' || msgSuite === 'channels'">
+          <div class="qv-toolbar">
+            <div class="qv-pad muted" style="padding:8px 0;margin:0;">
+              {{ msgSuite === 'direct' ? 'Direct messages' : 'Team channels' }}
+            </div>
+          </div>
+          <button
+            v-for="t in chatList"
+            :key="t.thread_id || t.id"
+            type="button"
+            class="qv-row"
+            :class="{ unread: Number(t.unread_count) > 0 }"
+            @click="openChatThread(t)"
+          >
+            <span class="ch">{{ msgSuite === 'channels' ? '#' : '💬' }}</span>
+            <div class="meta">
+              <strong>{{ chatTitle(t) }}</strong>
+              <small>{{ t.last_message?.body || t.last_message_body || t.lastMessage?.body || t.description || '' }}</small>
+            </div>
+            <span v-if="Number(t.unread_count) > 0" class="badge">{{ t.unread_count }}</span>
+          </button>
+          <div v-if="!chatList.length && !msgLoading" class="qv-pad muted">Nothing here yet.</div>
+          <div v-if="msgLoading" class="qv-pad muted">Loading…</div>
+        </template>
+
+        <template v-else>
+          <button
+            v-for="item in inboxItems"
+            :key="itemKey(item)"
+            type="button"
+            class="qv-row"
+            @click="openInboxItem(item)"
+          >
+            <span class="ch">{{ msgSuite === 'files' ? '📎' : msgSuite === 'mentions' ? '@' : '🧵' }}</span>
+            <div class="meta">
+              <strong>{{ inboxTitle(item) }}</strong>
+              <small>{{ inboxPreview(item) }}</small>
+            </div>
+          </button>
+          <div v-if="!inboxItems.length && !msgLoading" class="qv-pad muted">Nothing here yet.</div>
+          <div v-if="msgLoading" class="qv-pad muted">Loading…</div>
+        </template>
       </div>
 
       <div v-else-if="tab === 'thread'" class="qv-pane thread">
@@ -113,27 +175,94 @@
         </form>
       </div>
 
-      <div v-else-if="tab === 'tasks'" class="qv-pane">
-        <div class="qv-toolbar">
-          <div class="qv-sorters">
-            <button type="button" :class="{ on: taskView === 'assigned' }" @click="loadTasks('assigned')">Assigned to me</button>
-            <button type="button" :class="{ on: taskView === 'mine' }" @click="loadTasks('mine')">My tasks</button>
-          </div>
-          <button type="button" class="qv-btn primary sm" @click="showNewTask = true">Add task</button>
+      <div v-else-if="tab === 'chat'" class="qv-pane thread">
+        <button type="button" class="qv-btn ghost" @click="closeChat">← Back</button>
+        <h2>{{ activeChatTitle }}</h2>
+        <div v-for="m in chatMessages" :key="m.id" class="qv-bubble" :class="chatBubbleClass(m)">
+          <div class="when">{{ formatTime(m.created_at) }} · {{ m.sender_first_name || m.sender_name || '' }}</div>
+          <div class="body">{{ m.body || '' }}</div>
         </div>
-        <button
-          v-for="t in tasks"
-          :key="t.id"
-          type="button"
-          class="qv-row"
-          @click="toggleTask(t)"
-        >
-          <div class="meta">
-            <strong>{{ t.title }}</strong>
-            <small>{{ t.status }} · {{ t.due_at ? formatTime(t.due_at) : 'No due date' }} · tap to toggle</small>
-          </div>
-        </button>
-        <div v-if="!tasks.length" class="qv-pad muted">No open tasks.</div>
+        <form class="qv-reply" @submit.prevent="sendChatMessage">
+          <textarea v-model="chatReply" rows="3" placeholder="Message…" />
+          <button type="submit" class="qv-btn primary" :disabled="chatBusy || !chatReply.trim()">
+            {{ chatBusy ? 'Sending…' : 'Send' }}
+          </button>
+        </form>
+      </div>
+
+      <div v-else-if="tab === 'tasks'" class="qv-pane">
+        <div class="qv-suite">
+          <button type="button" :class="{ on: taskSuite === 'assigned' }" @click="loadTasks('assigned')">Assigned</button>
+          <button type="button" :class="{ on: taskSuite === 'mine' }" @click="loadTasks('mine')">My tasks</button>
+          <button type="button" :class="{ on: taskSuite === 'lists' }" @click="loadSharedLists">Shared lists</button>
+          <button type="button" :class="{ on: taskSuite === 'projects' }" @click="loadProjects">Projects</button>
+        </div>
+        <div v-if="taskSuite === 'assigned' || taskSuite === 'mine'" class="qv-toolbar">
+          <div class="qv-pad muted" style="padding:8px 0;margin:0;">Tap a task for details</div>
+          <button type="button" class="qv-btn primary sm" @click="showNewTask = true">Add</button>
+        </div>
+        <template v-if="taskSuite === 'assigned' || taskSuite === 'mine'">
+          <button
+            v-for="t in tasks"
+            :key="t.id"
+            type="button"
+            class="qv-row"
+            @click="openTaskDetail(t)"
+          >
+            <div class="meta">
+              <strong>{{ t.title }}</strong>
+              <small>{{ t.status }} · {{ t.due_at ? formatTime(t.due_at) : 'No due date' }}</small>
+            </div>
+          </button>
+          <div v-if="!tasks.length" class="qv-pad muted">No open tasks.</div>
+        </template>
+        <template v-else-if="taskSuite === 'lists'">
+          <button
+            v-for="l in taskLists"
+            :key="l.id"
+            type="button"
+            class="qv-row"
+            @click="openSharedList(l)"
+          >
+            <div class="meta">
+              <strong>{{ l.name }}</strong>
+              <small>{{ l.role || 'member' }}</small>
+            </div>
+          </button>
+          <div v-if="!taskLists.length" class="qv-pad muted">No shared lists.</div>
+        </template>
+        <template v-else-if="taskSuite === 'projects'">
+          <button
+            v-for="p in taskProjects"
+            :key="p.id"
+            type="button"
+            class="qv-row"
+            @click="openProject(p)"
+          >
+            <div class="meta">
+              <strong>{{ p.name }}</strong>
+              <small>{{ p.status || 'active' }} · {{ p.open_task_count != null ? `${p.open_task_count} open` : '' }}</small>
+            </div>
+          </button>
+          <div v-if="!taskProjects.length" class="qv-pad muted">No projects.</div>
+        </template>
+        <template v-else-if="taskSuite === 'listDetail' || taskSuite === 'projectDetail'">
+          <button type="button" class="qv-btn ghost" @click="taskSuite === 'listDetail' ? loadSharedLists() : loadProjects()">← Back</button>
+          <h2 class="qv-section-title">{{ suiteDetailTitle }}</h2>
+          <button
+            v-for="t in suiteTasks"
+            :key="t.id"
+            type="button"
+            class="qv-row"
+            @click="openTaskDetail(t)"
+          >
+            <div class="meta">
+              <strong>{{ t.title }}</strong>
+              <small>{{ t.status }} · {{ t.due_at ? formatTime(t.due_at) : 'No due' }}</small>
+            </div>
+          </button>
+          <div v-if="!suiteTasks.length" class="qv-pad muted">No tasks in this view.</div>
+        </template>
       </div>
 
       <div v-else-if="tab === 'calendar'" class="qv-pane">
@@ -146,19 +275,33 @@
           </button>
         </div>
         <template v-if="!showOffice">
-          <div v-for="item in dayItems" :key="item.id" class="qv-row">
-            <div class="meta">
-              <strong>{{ item.title || item.kind }}</strong>
-              <small>{{ formatTime(item.startAt) }} · {{ item.location || '—' }}</small>
+          <div class="qv-day-grid">
+            <div
+              v-for="hour in dayHours"
+              :key="hour"
+              class="qv-hour-row"
+            >
+              <div class="qv-hour-label">{{ formatHourLabel(hour) }}</div>
+              <div class="qv-hour-lane">
+                <div
+                  v-for="item in itemsForHour(hour)"
+                  :key="item.id"
+                  class="qv-cal-block"
+                  :style="blockStyle(item, hour)"
+                >
+                  <strong>{{ item.title || item.kind }}</strong>
+                  <small>{{ formatClock(item.startAt) }}–{{ formatClock(item.endAt) }}</small>
+                  <a
+                    v-if="item.canJoin"
+                    class="qv-btn primary sm"
+                    :href="joinHref(item)"
+                    @click="extendForMeeting(item)"
+                  >Join</a>
+                </div>
+              </div>
             </div>
-            <a
-              v-if="item.canJoin"
-              class="qv-btn primary sm"
-              :href="joinHref(item)"
-              @click="extendForMeeting(item)"
-            >Join</a>
           </div>
-          <div v-if="!dayItems.length" class="qv-pad muted">Nothing scheduled.</div>
+          <div v-if="!dayItems.length" class="qv-pad muted">Nothing scheduled this day.</div>
         </template>
         <template v-else>
           <div v-for="s in officeSlots" :key="s.id" class="qv-row">
@@ -185,6 +328,12 @@
         </div>
         <div v-if="!contacts.length" class="qv-pad muted">No contacts yet.</div>
       </div>
+
+      <QuickViewMusicDock
+        :api-base="apiBase"
+        :auth-headers="authHeaders"
+        :visible="!!session"
+      />
     </template>
 
     <div v-if="showCompose" class="qv-modal" @click.self="showCompose = false">
@@ -232,6 +381,46 @@
         </div>
       </form>
     </div>
+
+    <div v-if="taskDetail" class="qv-modal" @click.self="taskDetail = null">
+      <div class="qv-sheet qv-task-detail">
+        <button type="button" class="qv-btn ghost sm" @click="taskDetail = null">Close</button>
+        <h3>{{ taskDetail.task.title }}</h3>
+        <p class="qv-detail-meta">
+          {{ taskDetail.task.status }}
+          · {{ taskDetail.task.urgency || 'medium' }}
+          · {{ taskDetail.task.due_at ? formatTime(taskDetail.task.due_at) : 'No due date' }}
+        </p>
+        <p v-if="taskDetail.task.project_name || taskDetail.task.task_list_name" class="qv-detail-meta">
+          {{ [taskDetail.task.project_name, taskDetail.task.task_list_name].filter(Boolean).join(' · ') }}
+        </p>
+        <div class="qv-detail-body">
+          <template v-if="taskDetail.task.description_locked">Description is protected — open the full app to view.</template>
+          <template v-else>{{ taskDetail.task.description || 'No description.' }}</template>
+        </div>
+        <div v-if="taskDetail.links?.length" class="qv-links">
+          <a v-for="l in taskDetail.links" :key="l.id" :href="l.url" target="_blank" rel="noopener">{{ l.label || l.url }}</a>
+        </div>
+        <div class="qv-sheet-actions">
+          <button type="button" class="qv-btn ghost" @click="markTaskStatus(taskDetail.task)">
+            {{ isDone(taskDetail.task) ? 'Reopen' : 'Mark done' }}
+          </button>
+        </div>
+        <h4>Comments</h4>
+        <div v-for="c in taskDetail.comments" :key="c.id" class="qv-comment">
+          <strong>{{ c.author }}</strong>
+          <small>{{ formatTime(c.created_at) }}</small>
+          <p>{{ c.body }}</p>
+        </div>
+        <div v-if="!taskDetail.comments?.length" class="muted">No comments yet.</div>
+        <form class="qv-reply" @submit.prevent="postTaskComment">
+          <textarea v-model="taskComment" rows="2" placeholder="Add a comment…" />
+          <button type="submit" class="qv-btn primary" :disabled="taskCommentBusy || !taskComment.trim()">
+            {{ taskCommentBusy ? 'Posting…' : 'Comment' }}
+          </button>
+        </form>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -239,6 +428,7 @@
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import axios from 'axios';
+import QuickViewMusicDock from '../components/quickView/QuickViewMusicDock.vue';
 
 const BOOKMARK_KEY = 'plottwist.quickViewBookmark';
 const TOKEN_KEY = 'plottwist.quickViewToken';
@@ -254,6 +444,7 @@ const tokenInfo = ref(null);
 const passcode = ref('');
 const unlocking = ref(false);
 const session = ref(null);
+const sessionUserId = ref(null);
 const expiresAt = ref(null);
 const agencyName = ref('');
 const agencyLogoUrl = ref('');
@@ -262,11 +453,28 @@ const loginUrl = ref('');
 const isLocked = ref(false);
 const tab = ref('home');
 const sort = ref('all');
+const msgSuite = ref('email');
 const conversations = ref([]);
 const activeConv = ref(null);
 const threadMessages = ref([]);
+const chatList = ref([]);
+const inboxItems = ref([]);
+const msgLoading = ref(false);
+const activeChatId = ref(null);
+const activeChatTitle = ref('');
+const chatMessages = ref([]);
+const chatReply = ref('');
+const chatBusy = ref(false);
 const tasks = ref([]);
 const taskView = ref('assigned');
+const taskSuite = ref('assigned');
+const taskLists = ref([]);
+const taskProjects = ref([]);
+const suiteTasks = ref([]);
+const suiteDetailTitle = ref('');
+const taskDetail = ref(null);
+const taskComment = ref('');
+const taskCommentBusy = ref(false);
 const day = ref(new Date().toISOString().slice(0, 10));
 const dayItems = ref([]);
 const showOffice = ref(false);
@@ -292,6 +500,14 @@ const contactBusy = ref(false);
 const replyText = ref('');
 const replyBusy = ref(false);
 
+const DAY_START = 6;
+const DAY_END = 22;
+const dayHours = computed(() => {
+  const hours = [];
+  for (let h = DAY_START; h < DAY_END; h += 1) hours.push(h);
+  return hours;
+});
+
 const brandStyle = computed(() => {
   const primary = agencyPrimaryColor.value || '#166534';
   return {
@@ -304,6 +520,7 @@ const filteredConversations = computed(() => {
   let list = conversations.value || [];
   if (sort.value === 'unread') list = list.filter((c) => c.is_unread);
   if (sort.value === 'needs') list = list.filter((c) => ['new', 'needs_reply'].includes(c.status));
+  if (sort.value === 'secure') list = list.filter((c) => String(c.channel || '').toLowerCase() === 'secure');
   return list;
 });
 
@@ -339,6 +556,7 @@ async function resumeSession() {
       { headers: authHeaders(), withCredentials: true }
     );
     expiresAt.value = data.expiresAt;
+    if (data.userId) sessionUserId.value = data.userId;
     if (stored) session.value = stored;
     startHeartbeat();
     // Branding from tenant endpoint when possible
@@ -470,6 +688,7 @@ async function unlock() {
     const { data } = await axios.post(`${apiBase}${path}`, body, { withCredentials: true });
     session.value = data.sessionToken;
     expiresAt.value = data.expiresAt;
+    if (data.userId) sessionUserId.value = data.userId;
     rememberBookmark();
     startHeartbeat();
     await loadHome();
@@ -516,6 +735,7 @@ function stopHeartbeat() {
 
 async function loadHome() {
   error.value = '';
+  msgSuite.value = 'email';
   try {
     const { data } = await axios.get(`${apiBase}/home`, {
       headers: authHeaders(),
@@ -532,6 +752,166 @@ async function retryHome() {
   await loadHome();
 }
 
+async function switchMsgSuite(suite) {
+  msgSuite.value = suite;
+  tab.value = 'home';
+  chatList.value = [];
+  inboxItems.value = [];
+  if (suite === 'email') {
+    await loadHome();
+    return;
+  }
+  if (suite === 'sms') return;
+  msgLoading.value = true;
+  error.value = '';
+  try {
+    if (suite === 'direct') {
+      const { data } = await axios.get(`${apiBase}/chat/threads`, {
+        headers: authHeaders(),
+        withCredentials: true,
+        params: { agencyId: 'all' }
+      });
+      const rows = Array.isArray(data) ? data : (data.threads || []);
+      chatList.value = rows.filter((t) => String(t.thread_type || 'direct').toLowerCase() === 'direct');
+    } else if (suite === 'channels') {
+      const { data } = await axios.get(`${apiBase}/chat/channels`, {
+        headers: authHeaders(),
+        withCredentials: true
+      });
+      chatList.value = data.channels || [];
+    } else if (suite === 'threads') {
+      const { data } = await axios.get(`${apiBase}/chat/inbox/threads`, {
+        headers: authHeaders(),
+        withCredentials: true
+      });
+      inboxItems.value = data.items || [];
+    } else if (suite === 'mentions') {
+      const { data } = await axios.get(`${apiBase}/chat/inbox/mentions`, {
+        headers: authHeaders(),
+        withCredentials: true
+      });
+      inboxItems.value = data.items || [];
+    } else if (suite === 'files') {
+      const { data } = await axios.get(`${apiBase}/chat/inbox/files`, {
+        headers: authHeaders(),
+        withCredentials: true
+      });
+      inboxItems.value = data.files || data.items || [];
+    }
+  } catch (e) {
+    error.value = e?.response?.data?.error?.message || 'Could not load messages';
+  } finally {
+    msgLoading.value = false;
+  }
+}
+
+function chatTitle(t) {
+  if (t.thread_label) return t.thread_label;
+  if (t.name || t.channel_name) return t.name || t.channel_name;
+  const other = t.other_participant || t.participants?.[0];
+  if (other) {
+    const name = `${other.first_name || ''} ${other.last_name || ''}`.trim();
+    if (name) return name;
+  }
+  const fn = t.other_first_name || '';
+  const ln = t.other_last_name || '';
+  const name = `${fn} ${ln}`.trim();
+  return name || t.title || `Thread ${t.thread_id || t.id}`;
+}
+
+function itemKey(item) {
+  return item.id || item.message_id || item.file_id || `${item.thread_id}-${item.created_at}`;
+}
+function inboxTitle(item) {
+  if (msgSuite.value === 'files') return item.file_name || item.original_name || item.name || item.body?.slice?.(0, 40) || 'File';
+  if (msgSuite.value === 'mentions') return item.channel_name || item.thread_title || 'Mention';
+  return item.channel_name || item.root_body?.slice?.(0, 48) || item.thread_title || 'Open thread';
+}
+function inboxPreview(item) {
+  if (msgSuite.value === 'threads') {
+    return item.latest_reply?.body || item.root_body || `${item.reply_count || 0} replies`;
+  }
+  if (msgSuite.value === 'mentions') return item.body || item.message_body || '';
+  return item.body || item.preview || item.file_name || item.sender_name || '';
+}
+
+async function openChatThread(t) {
+  let threadId = Number(t.thread_id || t.id);
+  if (msgSuite.value === 'channels' && !t.is_member && !t.isMember) {
+    try {
+      await axios.post(
+        `${apiBase}/chat/channels/${threadId}/open`,
+        {},
+        { headers: authHeaders(), withCredentials: true }
+      );
+    } catch (e) {
+      error.value = e?.response?.data?.error?.message || 'Could not open channel';
+      return;
+    }
+  }
+  activeChatId.value = threadId;
+  activeChatTitle.value = chatTitle(t);
+  tab.value = 'chat';
+  await loadChatMessages();
+}
+
+async function openInboxItem(item) {
+  const threadId = Number(item.thread_id || item.threadId);
+  if (!threadId) return;
+  activeChatId.value = threadId;
+  activeChatTitle.value = inboxTitle(item);
+  tab.value = 'chat';
+  await loadChatMessages();
+}
+
+async function loadChatMessages() {
+  if (!activeChatId.value) return;
+  const { data } = await axios.get(`${apiBase}/chat/threads/${activeChatId.value}/messages`, {
+    headers: authHeaders(),
+    withCredentials: true
+  });
+  chatMessages.value = Array.isArray(data) ? data : (data.messages || []);
+  const lastId = chatMessages.value.length
+    ? chatMessages.value[chatMessages.value.length - 1]?.id
+    : null;
+  if (lastId) {
+    axios.post(
+      `${apiBase}/chat/threads/${activeChatId.value}/read`,
+      { lastReadMessageId: lastId },
+      { headers: authHeaders(), withCredentials: true }
+    ).catch(() => {});
+  }
+}
+
+function closeChat() {
+  tab.value = 'home';
+  activeChatId.value = null;
+  chatMessages.value = [];
+}
+
+function chatBubbleClass(m) {
+  if (sessionUserId.value && Number(m.sender_user_id) === Number(sessionUserId.value)) return 'outbound';
+  return m.direction || 'inbound';
+}
+
+async function sendChatMessage() {
+  if (!activeChatId.value || !chatReply.value.trim()) return;
+  chatBusy.value = true;
+  try {
+    await axios.post(
+      `${apiBase}/chat/threads/${activeChatId.value}/messages`,
+      { body: chatReply.value.trim() },
+      { headers: authHeaders(), withCredentials: true }
+    );
+    chatReply.value = '';
+    await loadChatMessages();
+  } catch (e) {
+    error.value = e?.response?.data?.error?.message || 'Send failed';
+  } finally {
+    chatBusy.value = false;
+  }
+}
+
 async function openConversation(c) {
   activeConv.value = c;
   const { data } = await axios.get(`${apiBase}/conversations/${c.id}`, {
@@ -545,6 +925,7 @@ async function openConversation(c) {
 
 async function loadTasks(view = 'assigned') {
   taskView.value = view;
+  taskSuite.value = view;
   tab.value = 'tasks';
   const { data } = await axios.get(`${apiBase}/tasks`, {
     headers: authHeaders(),
@@ -554,6 +935,98 @@ async function loadTasks(view = 'assigned') {
   tasks.value = data.tasks || [];
 }
 function switchTasks() { loadTasks(taskView.value); }
+
+async function loadSharedLists() {
+  tab.value = 'tasks';
+  taskSuite.value = 'lists';
+  const { data } = await axios.get(`${apiBase}/task-lists`, {
+    headers: authHeaders(),
+    withCredentials: true
+  });
+  taskLists.value = data.lists || [];
+}
+
+async function loadProjects() {
+  tab.value = 'tasks';
+  taskSuite.value = 'projects';
+  const { data } = await axios.get(`${apiBase}/task-projects`, {
+    headers: authHeaders(),
+    withCredentials: true
+  });
+  taskProjects.value = data.projects || [];
+}
+
+async function openSharedList(l) {
+  suiteDetailTitle.value = l.name;
+  taskSuite.value = 'listDetail';
+  const { data } = await axios.get(`${apiBase}/task-lists/${l.id}/tasks`, {
+    headers: authHeaders(),
+    withCredentials: true
+  });
+  suiteTasks.value = data.tasks || [];
+}
+
+async function openProject(p) {
+  suiteDetailTitle.value = p.name;
+  taskSuite.value = 'projectDetail';
+  const { data } = await axios.get(`${apiBase}/task-projects/${p.id}`, {
+    headers: authHeaders(),
+    withCredentials: true
+  });
+  suiteTasks.value = data.tasks || [];
+}
+
+async function openTaskDetail(t) {
+  try {
+    const { data } = await axios.get(`${apiBase}/tasks/${t.id}`, {
+      headers: authHeaders(),
+      withCredentials: true
+    });
+    taskDetail.value = data;
+    taskComment.value = '';
+  } catch (e) {
+    error.value = e?.response?.data?.error?.message || 'Could not open task';
+  }
+}
+
+function isDone(task) {
+  return ['completed', 'done'].includes(String(task?.status || '').toLowerCase());
+}
+
+async function markTaskStatus(task) {
+  const nextStatus = isDone(task) ? 'open' : 'completed';
+  try {
+    await axios.patch(
+      `${apiBase}/tasks/${task.id}/status`,
+      { status: nextStatus },
+      { headers: authHeaders(), withCredentials: true }
+    );
+    await openTaskDetail(task);
+    if (taskSuite.value === 'assigned' || taskSuite.value === 'mine') {
+      await loadTasks(taskView.value);
+    }
+  } catch (e) {
+    error.value = e?.response?.data?.error?.message || 'Could not update task';
+  }
+}
+
+async function postTaskComment() {
+  if (!taskDetail.value?.task?.id || !taskComment.value.trim()) return;
+  taskCommentBusy.value = true;
+  try {
+    await axios.post(
+      `${apiBase}/tasks/${taskDetail.value.task.id}/comments`,
+      { body: taskComment.value.trim() },
+      { headers: authHeaders(), withCredentials: true }
+    );
+    taskComment.value = '';
+    await openTaskDetail(taskDetail.value.task);
+  } catch (e) {
+    error.value = e?.response?.data?.error?.message || 'Could not comment';
+  } finally {
+    taskCommentBusy.value = false;
+  }
+}
 
 async function loadCalendar() {
   tab.value = 'calendar';
@@ -584,6 +1057,40 @@ async function loadOffice() {
     params: { day: day.value }
   });
   officeSlots.value = data.slots || [];
+}
+
+function hourOf(iso) {
+  try {
+    return new Date(iso).getHours() + new Date(iso).getMinutes() / 60;
+  } catch {
+    return DAY_START;
+  }
+}
+function itemsForHour(hour) {
+  return (dayItems.value || []).filter((item) => {
+    const start = hourOf(item.startAt);
+    const end = item.endAt ? hourOf(item.endAt) : start + 0.5;
+    return start < hour + 1 && end > hour && Math.floor(start) === hour;
+  });
+}
+function blockStyle(item) {
+  const start = hourOf(item.startAt);
+  const end = item.endAt ? hourOf(item.endAt) : start + 0.5;
+  const mins = Math.max(20, (end - start) * 60);
+  return { minHeight: `${Math.min(mins, 120)}px` };
+}
+function formatHourLabel(h) {
+  const ampm = h >= 12 ? 'PM' : 'AM';
+  const hr = ((h + 11) % 12) + 1;
+  return `${hr} ${ampm}`;
+}
+function formatClock(v) {
+  if (!v) return '';
+  try {
+    return new Date(v).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  } catch {
+    return '';
+  }
 }
 
 async function loadContacts() {
@@ -694,22 +1201,6 @@ async function sendQuickReply() {
     error.value = e?.response?.data?.error?.message || 'Reply failed';
   } finally {
     replyBusy.value = false;
-  }
-}
-
-async function toggleTask(task) {
-  const nextStatus = ['completed', 'done'].includes(String(task.status || '').toLowerCase())
-    ? 'open'
-    : 'completed';
-  try {
-    await axios.patch(
-      `${apiBase}/tasks/${task.id}/status`,
-      { status: nextStatus },
-      { headers: authHeaders(), withCredentials: true }
-    );
-    await loadTasks(taskView.value);
-  } catch (e) {
-    error.value = e?.response?.data?.error?.message || 'Could not update task';
   }
 }
 
@@ -890,11 +1381,64 @@ onUnmounted(() => {
 .qv-tabs { display: flex; gap: 4px; padding: 8px; border-bottom: 1px solid #1e293b; overflow-x: auto; }
 .qv-tabs button { flex: 1; min-width: 0; background: #1e293b; color: #cbd5e1; border: none; border-radius: 8px; padding: 10px 8px; font-weight: 700; }
 .qv-tabs button.on { background: var(--qv-primary, #166534); color: #fff; }
+.qv-suite {
+  display: flex;
+  gap: 6px;
+  padding: 8px 12px;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+.qv-suite button {
+  flex: 0 0 auto;
+  background: #1e293b;
+  color: #94a3b8;
+  border: none;
+  border-radius: 999px;
+  padding: 7px 12px;
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.qv-suite button.on { background: #334155; color: #fff; }
+.qv-pane { padding-bottom: 72px; }
+.qv-section-title { margin: 8px 16px; font-size: 1.1rem; }
 .qv-toolbar { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 8px 12px; flex-wrap: wrap; }
 .qv-sorters, .qv-day-nav { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
 .qv-sorters button { background: #1e293b; color: #94a3b8; border: none; border-radius: 999px; padding: 6px 10px; font-size: 12px; }
 .qv-sorters button.on { background: #334155; color: #fff; }
 .qv-day-nav { padding: 8px 12px; }
+.qv-day-grid { padding: 0 8px 16px; }
+.qv-hour-row {
+  display: grid;
+  grid-template-columns: 52px 1fr;
+  min-height: 56px;
+  border-top: 1px solid #1e293b;
+}
+.qv-hour-label {
+  font-size: 11px;
+  color: #64748b;
+  padding: 4px 4px 0 0;
+  text-align: right;
+}
+.qv-hour-lane {
+  position: relative;
+  border-left: 1px solid #1e293b;
+  padding: 2px 4px 4px 8px;
+  min-height: 56px;
+}
+.qv-cal-block {
+  background: color-mix(in srgb, var(--qv-primary, #166534) 28%, #1e293b);
+  border-left: 3px solid var(--qv-primary, #22c55e);
+  border-radius: 8px;
+  padding: 6px 8px;
+  margin-bottom: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.qv-cal-block strong { font-size: 13px; }
+.qv-cal-block small { font-size: 11px; color: #cbd5e1; }
+.qv-cal-block .qv-btn { margin-top: 4px; align-self: flex-start; }
 .qv-row { width: 100%; display: flex; gap: 10px; align-items: center; text-align: left; background: transparent; border: none; border-bottom: 1px solid #1e293b; padding: 12px 16px; color: inherit; cursor: pointer; }
 .qv-row.unread strong { color: #fff; }
 .qv-row .meta { flex: 1; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
@@ -925,7 +1469,7 @@ onUnmounted(() => {
   display: flex;
   align-items: flex-end;
   justify-content: center;
-  z-index: 40;
+  z-index: 60;
   padding: 12px;
 }
 .qv-sheet {
@@ -935,12 +1479,22 @@ onUnmounted(() => {
   border: 1px solid #334155;
   border-radius: 16px 16px 12px 12px;
   padding: 16px;
-  display: grid;
-  gap: 8px;
+  max-height: 88vh;
+  overflow: auto;
 }
+.qv-task-detail h3 { margin: 8px 0 4px; }
+.qv-task-detail h4 { margin: 16px 0 8px; font-size: 13px; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.04em; }
+.qv-detail-meta { margin: 0 0 6px; font-size: 12px; color: #94a3b8; }
+.qv-detail-body { margin: 10px 0; font-size: 14px; line-height: 1.45; white-space: pre-wrap; }
+.qv-links { display: flex; flex-direction: column; gap: 6px; margin: 8px 0; }
+.qv-links a { color: #93c5fd; font-size: 13px; word-break: break-all; }
+.qv-comment { padding: 8px 0; border-bottom: 1px solid #1e293b; }
+.qv-comment strong { display: block; font-size: 13px; }
+.qv-comment small { color: #64748b; font-size: 11px; }
+.qv-comment p { margin: 4px 0 0; font-size: 13px; line-height: 1.4; }
+.qv-sheet-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 12px; }
+.qv-sheet label { display: block; font-size: 12px; color: #94a3b8; margin: 8px 0 4px; }
 .qv-sheet h3 { margin: 0 0 4px; }
-.qv-sheet label { font-size: 12px; color: #94a3b8; }
-.qv-sheet-actions { display: flex; gap: 8px; margin-top: 8px; }
 .qv-sheet-actions .qv-btn { flex: 1; }
 .qv-btn.ghost.on { color: #fff; background: #334155; }
 </style>
