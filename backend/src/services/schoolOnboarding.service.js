@@ -12,6 +12,74 @@ import { sendEmailFromIdentity } from './unifiedEmail/unifiedEmailSender.service
 import { resolvePreferredSenderIdentityForAgency } from './emailSenderIdentityResolver.service.js';
 import { validatePasswordStrength, checkPasswordBasics } from '../utils/passwordValidation.js';
 import { ensureDigitalIntakeFormsForSchool } from './schoolOnboardingIntakeBootstrap.service.js';
+import { buildPublicAppUrl } from '../utils/publicPortalUrl.js';
+
+const AGENCY_HELPER_ROLES = new Set([
+  'admin',
+  'super_admin',
+  'support',
+  'staff',
+  'provider',
+  'provider_plus',
+  'clinical_practice_assistant'
+]);
+
+function isAgencyHelperActor(invite, actor) {
+  if (!actor?.userId) return false;
+  if (invite?.primary_user_id && Number(actor.userId) === Number(invite.primary_user_id)) return false;
+  const role = String(actor.role || '').trim().toLowerCase();
+  if (!AGENCY_HELPER_ROLES.has(role)) return false;
+  // School staff completing their own invite are not helpers
+  if (role === 'school_staff') return false;
+  const contactEmail = String(invite?.contact_email || invite?.contactEmail || '')
+    .trim()
+    .toLowerCase();
+  const actorEmail = String(actor.email || '').trim().toLowerCase();
+  if (contactEmail && actorEmail && contactEmail === actorEmail) return false;
+  return true;
+}
+
+function applyAssistanceStamp(stepBody, actor, { draft = true } = {}) {
+  if (!actor?.userId) return stepBody;
+  const stamp = {
+    userId: Number(actor.userId),
+    name: String(actor.name || '').trim() || 'Agency staff',
+    email: String(actor.email || '').trim().toLowerCase() || null,
+    role: String(actor.role || '').trim().toLowerCase() || null,
+    at: new Date().toISOString(),
+    action: draft ? 'saved_draft' : 'completed'
+  };
+  const history = Array.isArray(stepBody?.assistedByHistory) ? [...stepBody.assistedByHistory] : [];
+  history.push(stamp);
+  return {
+    ...stepBody,
+    assistedBy: stamp,
+    assistedByHistory: history.slice(-25)
+  };
+}
+
+function buildSchoolPortalUrls(invite) {
+  const schoolSlug = String(invite?.school_slug || invite?.school_portal_url || '').trim().toLowerCase();
+  const agencySlug = String(invite?.agency_slug || invite?.agency_portal_url || '').trim().toLowerCase();
+  const schoolAgency = {
+    slug: schoolSlug,
+    portal_url: schoolSlug,
+    organization_type: 'school',
+    parent_slug: agencySlug || null,
+    parent_portal_url: agencySlug || null,
+    affiliated_agency_slug: agencySlug || null
+  };
+  const portalUrl = schoolSlug ? buildPublicAppUrl(schoolAgency, '') : null;
+  const loginUrl = schoolSlug ? buildPublicAppUrl(schoolAgency, 'login') : null;
+  const portalDashboardUrl = schoolSlug ? buildPublicAppUrl(schoolAgency, 'dashboard') : null;
+  return {
+    portalUrl,
+    loginUrl,
+    portalDashboardUrl,
+    loginPath: buildSchoolLoginPath(agencySlug, schoolSlug),
+    portalDashboardPath: schoolSlug ? `/${schoolSlug}/dashboard` : '/dashboard'
+  };
+}
 
 async function notifySchoolPortalOnboardingCompleted(invite) {
   if (!invite?.agency_id || !invite?.id) return;
@@ -979,9 +1047,21 @@ function buildInviteActivity(invite, progress, payload) {
   for (const stepKey of STEP_KEYS) {
     const body = payload?.[stepKey];
     if (body?.completedAt) {
-      add(body.completedAt, `${INVITE_STEP_LABELS[stepKey] || stepKey} completed`);
+      const assist = body?.assistedBy;
+      add(
+        body.completedAt,
+        `${INVITE_STEP_LABELS[stepKey] || stepKey} completed`,
+        assist?.name ? `Last staff assist: ${assist.name}` : null
+      );
     } else if (progress?.[stepKey] === 'in_progress' && body) {
-      add(body.updatedAt || body.startedAt || null, `${INVITE_STEP_LABELS[stepKey] || stepKey} started`);
+      add(body.updatedAt || body.startedAt || body?.assistedBy?.at || null, `${INVITE_STEP_LABELS[stepKey] || stepKey} started`);
+    }
+    if (body?.assistedBy?.at && !body?.completedAt) {
+      add(
+        body.assistedBy.at,
+        `${INVITE_STEP_LABELS[stepKey] || stepKey} draft saved by staff`,
+        body.assistedBy.name || null
+      );
     }
   }
 
@@ -1102,11 +1182,11 @@ export function serializeInvite(invite, { admin = false, publicView = false } = 
       link: buildOnboardingLink(invite.token),
       invitedByName: `${invite.invited_by_first_name || ''} ${invite.invited_by_last_name || ''}`.trim() || null,
       agencyId: invite.agency_id,
+      agencyName: invite.agency_name || null,
       materialsRequest: summarizeWelcomeMaterials(payload),
       activity: buildInviteActivity(invite, progress, payload),
-      stepPayload: {
-        welcome_materials: payload?.welcome_materials || null
-      }
+      // Full submission details for admin receipt / review (not just materials)
+      stepPayload: payload && typeof payload === 'object' ? payload : {}
     };
   }
 
@@ -1170,6 +1250,10 @@ export async function getPublicInvite(token) {
   const serialized = serializeInvite(fresh, { publicView: true });
   serialized.schoolProfile = profile;
   serialized.submitted = !!usable.submitted;
+  const urls = buildSchoolPortalUrls(fresh);
+  serialized.portalUrl = urls.portalUrl;
+  serialized.loginUrl = urls.loginUrl;
+  serialized.portalDashboardUrl = urls.portalDashboardUrl;
   return serialized;
 }
 
@@ -1256,7 +1340,7 @@ export async function setPassword(token, password, identity = {}) {
   };
 }
 
-export async function saveStep(token, stepKey, payload = {}, markComplete = true) {
+export async function saveStep(token, stepKey, payload = {}, markComplete = true, actor = null) {
   if (!STEP_KEYS.includes(stepKey)) {
     throw Object.assign(new Error('Invalid step'), { status: 400 });
   }
@@ -1266,20 +1350,31 @@ export async function saveStep(token, stepKey, payload = {}, markComplete = true
     throw Object.assign(new Error(usable.message), { status: usable.code === 'not_found' ? 404 : 410 });
   }
   if (usable.submitted) {
-    throw Object.assign(new Error('Onboarding already submitted'), { status: 400 });
+    throw Object.assign(
+      new Error(
+        'This onboarding is already complete. Edits can be made in the school portal, or message support for help.'
+      ),
+      { status: 400 }
+    );
   }
+
+  const helper = isAgencyHelperActor(invite, actor);
+  // Agency staff can prefill drafts, but only the school contact may mark steps complete.
+  let effectiveMarkComplete = markComplete === true;
+  if (helper) effectiveMarkComplete = false;
 
   const progress = { ...(invite.step_progress || SchoolOnboardingInvite.defaultStepProgress()) };
   const stepPayload = { ...(invite.step_payload || {}) };
   const body = payload && typeof payload === 'object' ? payload : {};
+  const markCompleteFlag = effectiveMarkComplete;
 
   if (stepKey === 'school_information') {
-    const schoolName = String(body.schoolName || (markComplete ? invite.school_name : '')).trim();
+    const schoolName = String(body.schoolName || (markCompleteFlag ? invite.school_name : '')).trim();
     const itscoEmail = String(body.itscoEmail || '').trim().toLowerCase();
-    if (markComplete && !schoolName) {
+    if (markCompleteFlag && !schoolName) {
       throw Object.assign(new Error('School name is required before continuing'), { status: 400 });
     }
-    if (markComplete && !itscoEmail) {
+    if (markCompleteFlag && !itscoEmail) {
       throw Object.assign(new Error('Preferred school group email is required before continuing'), {
         status: 400
       });
@@ -1300,10 +1395,10 @@ export async function saveStep(token, stepKey, payload = {}, markComplete = true
       schoolAddress: body.schoolAddress || null,
       academicYear: body.academicYear || null,
       gradeLevels: body.gradeLevels || null,
-      primaryContactName: markComplete
+      primaryContactName: markCompleteFlag
         ? contactName || `${invite.contact_first_name} ${invite.contact_last_name}`
         : contactName || null,
-      primaryContactEmail: markComplete ? contactEmail || invite.contact_email : contactEmail || null,
+      primaryContactEmail: markCompleteFlag ? contactEmail || invite.contact_email : contactEmail || null,
       primaryContactRole: body.primaryContactRole || 'Primary Contact',
       secondaryContactText: body.secondaryContactText || null,
       schoolDaysTimes: body.schoolDaysTimes || null
@@ -1313,13 +1408,15 @@ export async function saveStep(token, stepKey, payload = {}, markComplete = true
         ([, value]) => String(value ?? '').trim() !== ''
       )
     );
-    const mergedBody = markComplete
+    const mergedBody = markCompleteFlag
       ? filledBody
       : { ...(stepPayload.school_information || {}), ...filledBody };
-    if (!markComplete && mergedBody.completedAt) delete mergedBody.completedAt;
-    stepPayload.school_information = stampStepPayload('school_information', mergedBody, markComplete);
+    if (!markCompleteFlag && mergedBody.completedAt) delete mergedBody.completedAt;
+    let infoPayload = stampStepPayload('school_information', mergedBody, markCompleteFlag);
+    if (helper) infoPayload = applyAssistanceStamp(infoPayload, actor, { draft: true });
+    stepPayload.school_information = infoPayload;
 
-    if (markComplete && itscoEmail) {
+    if (markCompleteFlag && itscoEmail) {
       const groupResult = await provisionSchoolGroupForInvite(invite, {
         groupEmail: itscoEmail,
         schoolName: schoolName || invite.school_name
@@ -1422,17 +1519,19 @@ export async function saveStep(token, stepKey, payload = {}, markComplete = true
       isPrimary: true
     });
 
-    stepPayload.school_staff = stampStepPayload(
+    let staffPayload = stampStepPayload(
       'school_staff',
       {
         staff: created,
         portalAccessEmailsOnSubmit: true,
         portalAccessTokenExpiresHours: SCHOOL_STAFF_TEMP_PASSWORD_EXPIRY_HOURS
       },
-      markComplete
+      markCompleteFlag
     );
+    if (helper) staffPayload = applyAssistanceStamp(staffPayload, actor, { draft: true });
+    stepPayload.school_staff = staffPayload;
 
-    if (markComplete) {
+    if (markCompleteFlag) {
       const profile = await getSchoolProfile(invite.school_organization_id);
       const groupEmail = String(profile?.itsco_email || stepPayload?.school_information?.itscoEmail || '').trim();
       if (groupEmail) {
@@ -1451,7 +1550,7 @@ export async function saveStep(token, stepKey, payload = {}, markComplete = true
   } else if (stepKey === 'preferred_days') {
     const preferredDays = Array.isArray(body.preferredDays) ? body.preferredDays : [];
     const notes = String(body.notes || '').trim();
-    if (markComplete && preferredDays.length === 0 && !notes) {
+    if (markCompleteFlag && preferredDays.length === 0 && !notes) {
       throw Object.assign(
         new Error('Select at least one preferred day or add scheduling notes before continuing'),
         { status: 400 }
@@ -1461,11 +1560,13 @@ export async function saveStep(token, stepKey, payload = {}, markComplete = true
     await upsertSchoolProfile(invite.school_organization_id, {
       schoolDaysTimes: [daysLabel, notes].filter(Boolean).join('\n') || null
     });
-    stepPayload.preferred_days = stampStepPayload(
+    let daysPayload = stampStepPayload(
       'preferred_days',
       { preferredDays, notes },
-      markComplete
+      markCompleteFlag
     );
+    if (helper) daysPayload = applyAssistanceStamp(daysPayload, actor, { draft: true });
+    stepPayload.preferred_days = daysPayload;
   } else if (stepKey === 'welcome_materials') {
     const materials = Array.isArray(body.materials)
       ? [...new Set(body.materials.map((m) => String(m || '').trim()).filter((m) => WELCOME_MATERIAL_KEYS.has(m)))]
@@ -1473,13 +1574,13 @@ export async function saveStep(token, stepKey, payload = {}, markComplete = true
     const materialsOther = String(body.materialsOther || '').trim().slice(0, 500);
     const requestPaperPackets =
       body.requestPaperPackets === true ? true : body.requestPaperPackets === false ? false : null;
-    if (markComplete && requestPaperPackets == null) {
+    if (markCompleteFlag && requestPaperPackets == null) {
       throw Object.assign(
         new Error('Please tell us whether you want paper referral packets printed'),
         { status: 400 }
       );
     }
-    stepPayload.welcome_materials = stampStepPayload(
+    let materialsPayload = stampStepPayload(
       'welcome_materials',
       {
         welcomePackageAcknowledged: true,
@@ -1487,31 +1588,38 @@ export async function saveStep(token, stepKey, payload = {}, markComplete = true
         materialsOther: materials.includes('other') ? materialsOther : '',
         requestPaperPackets
       },
-      markComplete
+      markCompleteFlag
     );
+    if (helper) materialsPayload = applyAssistanceStamp(materialsPayload, actor, { draft: true });
+    stepPayload.welcome_materials = materialsPayload;
   } else if (stepKey === 'explore_demo') {
-    stepPayload.explore_demo = stampStepPayload(
+    let demoPayload = stampStepPayload(
       'explore_demo',
       { viewedAt: new Date().toISOString(), ...(body || {}) },
-      markComplete
+      markCompleteFlag
     );
+    if (helper) demoPayload = applyAssistanceStamp(demoPayload, actor, { draft: true });
+    stepPayload.explore_demo = demoPayload;
   } else if (stepKey === 'review_submit') {
     // handled by submitOnboarding
     stepPayload.review_submit = body;
   }
 
-  if (markComplete && stepKey !== 'review_submit') {
+  if (markCompleteFlag && stepKey !== 'review_submit') {
     progress[stepKey] = 'complete';
-  } else if (!markComplete && progress[stepKey] !== 'complete') {
+  } else if (!markCompleteFlag && progress[stepKey] !== 'complete') {
     progress[stepKey] = 'in_progress';
   }
 
   const invitePatch = { stepProgress: progress, stepPayload };
-  if (recipientHasSavedProgress(progress, stepPayload)) {
+  // Agency helper drafts must not mark the invite as started by the school contact.
+  if (!helper && recipientHasSavedProgress(progress, stepPayload)) {
     invitePatch.status = 'in_progress';
     if (!invite.recipient_started_at) {
       invitePatch.recipientStartedAt = new Date();
     }
+  } else if (helper && invite.status === 'invited') {
+    // Keep status invited until the school contact saves; helpers only leave draft payload.
   }
 
   const updated = await SchoolOnboardingInvite.update(invite.id, invitePatch);
@@ -1681,16 +1789,18 @@ export async function submitOnboarding(token) {
     throw Object.assign(new Error(usable.message), { status: usable.code === 'not_found' ? 404 : 410 });
   }
   if (usable.submitted) {
-    const schoolSlug = invite.school_slug || invite.school_portal_url;
-    const agencySlug = invite.agency_slug || invite.agency_portal_url;
+    const urls = buildSchoolPortalUrls(invite);
     const serialized = serializeInvite(invite, { publicView: true });
     if (serialized) serialized.submitted = true;
     const primaryUser = await User.findById(invite.primary_user_id);
     const agencies = primaryUser?.id ? await User.getAgencies(primaryUser.id) : [];
     return {
       alreadySubmitted: true,
-      loginPath: buildSchoolLoginPath(agencySlug, schoolSlug),
-      portalDashboardPath: schoolSlug ? `/${String(schoolSlug).trim().toLowerCase()}/dashboard` : '/dashboard',
+      loginPath: urls.loginPath,
+      portalDashboardPath: urls.portalDashboardPath,
+      portalUrl: urls.portalUrl,
+      loginUrl: urls.loginUrl,
+      portalDashboardUrl: urls.portalDashboardUrl,
       username: primaryUser?.username || primaryUser?.email || invite.contact_email,
       user: primaryUser,
       agencies,
@@ -1826,18 +1936,18 @@ export async function submitOnboarding(token) {
 
   const fresh = await SchoolOnboardingInvite.findById(invite.id)
   await notifySchoolPortalOnboardingCompleted(fresh);
-  const schoolSlug = fresh.school_slug || fresh.school_portal_url;
-  const agencySlug = fresh.agency_slug || fresh.agency_portal_url;
-  const loginPath = buildSchoolLoginPath(agencySlug, schoolSlug);
-  const portalDashboardPath = schoolSlug ? `/${String(schoolSlug).trim().toLowerCase()}/dashboard` : '/dashboard';
+  const urls = buildSchoolPortalUrls(fresh);
   const primaryUser = await User.findById(invite.primary_user_id);
   const agencies = primaryUser?.id ? await User.getAgencies(primaryUser.id) : [];
   const serialized = serializeInvite(fresh, { publicView: true });
   if (serialized) serialized.submitted = true;
   return {
     alreadySubmitted: false,
-    loginPath,
-    portalDashboardPath,
+    loginPath: urls.loginPath,
+    portalDashboardPath: urls.portalDashboardPath,
+    portalUrl: urls.portalUrl,
+    loginUrl: urls.loginUrl,
+    portalDashboardUrl: urls.portalDashboardUrl,
     username: primaryUser?.username || primaryUser?.email || fresh.contact_email,
     user: primaryUser,
     agencies,

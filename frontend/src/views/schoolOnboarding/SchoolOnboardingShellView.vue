@@ -35,7 +35,18 @@
         <strong>Need help?</strong>
         <p class="muted">Questions about setup? Reach out to the team that invited you.</p>
         <a v-if="supportEmail" class="so-help-link" :href="`mailto:${supportEmail}`">Email support</a>
+        <button type="button" class="so-help-link so-help-link--btn" @click="showSupportForm = !showSupportForm">
+          {{ showSupportForm ? 'Hide message form' : 'Message support' }}
+        </button>
         <a v-if="supportPhone" class="so-help-link" :href="supportPhoneTel">{{ supportPhone }}</a>
+        <div v-if="showSupportForm" class="so-help-form">
+          <PublicAgencySupportForm
+            v-if="agencySlug"
+            :agency-slug="agencySlug"
+            :accent="shellVars['--so-primary']"
+            default-category="technical"
+          />
+        </div>
       </div>
     </aside>
 
@@ -56,7 +67,26 @@
       <div v-if="loading" class="so-panel muted">Loading your onboarding…</div>
       <div v-else-if="error" class="so-panel error-box">{{ error }}</div>
       <template v-else-if="invite">
-        <section v-if="invite.submitted" class="so-thanks" aria-live="polite">
+        <div
+          v-if="isAgencyHelper && !invite.submitted"
+          class="so-banner so-banner--helper"
+          role="status"
+        >
+          You’re helping as <strong>{{ agencyHelperLabel }}</strong>. Saves are drafts only —
+          the school contact must confirm and mark each step complete.
+        </div>
+
+        <div
+          v-if="invite.submitted && currentStep !== 'home'"
+          class="so-banner so-banner--done"
+          role="status"
+        >
+          This onboarding has been completed. You can review each step below.
+          Edits can be made via the school portal, or
+          <button type="button" class="linkish" @click="showSupportForm = true">message support</button>.
+        </div>
+
+        <section v-if="invite.submitted && currentStep === 'home'" class="so-thanks" aria-live="polite">
           <div class="so-thanks-confetti" aria-hidden="true">
             <span
               v-for="i in 24"
@@ -99,7 +129,12 @@
                 <span class="so-thanks-access-label">Quick Link</span>
                 <strong class="so-thanks-access-value so-thanks-link">{{ loginDisplayHost }}</strong>
               </div>
-              <a class="btn ghost so-thanks-btn" :href="loginHref" target="_blank" rel="noopener noreferrer">
+              <a
+                class="btn ghost so-thanks-btn"
+                :href="absolutePortalUrl || loginHref"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
                 Open Link
               </a>
             </div>
@@ -159,11 +194,29 @@
           <button type="button" class="btn primary so-thanks-got-it" @click="goToLogin">
             {{ canEnterPortal ? 'Enter school portal' : 'Got It — go to login' }}
           </button>
+          <button type="button" class="btn ghost so-thanks-review" @click="go('school_information')">
+            Review submitted details
+          </button>
         </section>
 
-        <template v-else>
+        <template v-if="!invite.submitted || currentStep !== 'home'">
+          <div
+            v-if="currentStepAssistStamp"
+            class="so-stamp"
+            role="note"
+          >
+            <span class="so-stamp__badge">Staff assist</span>
+            <span>
+              {{ currentStepAssistStamp.name }}
+              saved a draft
+              <template v-if="currentStepAssistStamp.at">
+                · {{ formatAssistAt(currentStepAssistStamp.at) }}
+              </template>
+            </span>
+          </div>
+
           <!-- Home -->
-          <section v-if="currentStep === 'home'" class="so-home">
+          <section v-if="currentStep === 'home' && !invite.submitted" class="so-home">
             <div class="so-hero-banner">
               <div class="so-hero-text">
                 <p class="so-hero-eyebrow">School portal onboarding</p>
@@ -241,6 +294,7 @@
           <!-- School information -->
           <section v-else-if="currentStep === 'school_information'" class="so-panel">
             <h2>School information</h2>
+            <fieldset class="so-fieldset" :disabled="stepsReadOnly">
             <form class="so-form" @submit.prevent="attemptSaveSchoolInfo">
               <div
                 v-if="showSchoolInfoValidation && schoolInfoBlankFields.length"
@@ -354,17 +408,19 @@
                 </label>
               </div>
               <p v-if="actionError" class="error">{{ actionError }}</p>
-              <div class="so-actions">
+              <div v-if="!stepsReadOnly" class="so-actions">
                 <button type="submit" class="btn primary" :disabled="saving">
-                  {{ saving ? 'Completing…' : 'Mark complete & continue' }}
+                  {{ saving ? stepSavingLabel : stepSaveLabel }}
                 </button>
               </div>
             </form>
+            </fieldset>
           </section>
 
           <!-- School staff -->
           <section v-else-if="currentStep === 'school_staff'" class="so-panel">
             <h2>Add school staff</h2>
+            <fieldset class="so-fieldset" :disabled="stepsReadOnly">
             <p class="muted">
               Add colleagues with their school email and choose each person’s access role.
               When you finish onboarding, each person gets an email with a private link to set their own password
@@ -442,16 +498,18 @@
             </div>
 
             <p v-if="actionError" class="error">{{ actionError }}</p>
-            <div v-if="!showStaffRoiConfirm" class="so-actions">
+            <div v-if="!showStaffRoiConfirm && !stepsReadOnly" class="so-actions">
               <button type="button" class="btn primary" :disabled="saving" @click="saveStaff">
-                {{ saving ? 'Completing…' : 'Mark complete & continue' }}
+                {{ saving ? stepSavingLabel : stepSaveLabel }}
               </button>
             </div>
+            </fieldset>
           </section>
 
           <!-- Preferred days -->
           <section v-else-if="currentStep === 'preferred_days'" class="so-panel">
             <h2>Preferred days &amp; settings</h2>
+            <fieldset class="so-fieldset" :disabled="stepsReadOnly">
             <p class="muted">Which days work best for services at your school?</p>
             <div class="so-days">
               <label v-for="day in weekDays" :key="day" class="so-day">
@@ -464,16 +522,18 @@
               <textarea v-model.trim="preferredNotes" rows="3" placeholder="Bell schedule, blackout days, etc." />
             </label>
             <p v-if="actionError" class="error">{{ actionError }}</p>
-            <div class="so-actions">
+            <div v-if="!stepsReadOnly" class="so-actions">
               <button type="button" class="btn primary" :disabled="saving" @click="savePreferredDays">
-                {{ saving ? 'Completing…' : 'Mark complete & continue' }}
+                {{ saving ? stepSavingLabel : stepSaveLabel }}
               </button>
             </div>
+            </fieldset>
           </section>
 
           <!-- Welcome materials -->
           <section v-else-if="currentStep === 'welcome_materials'" class="so-panel">
             <h2>Welcome materials</h2>
+            <fieldset class="so-fieldset" :disabled="stepsReadOnly">
             <p class="muted">
               Every new school receives a small <strong>welcome package</strong> with a few starter items.
               Let us know if you’d like anything extra, and how you’d like to handle paper referral packets
@@ -523,16 +583,18 @@
             </div>
 
             <p v-if="actionError" class="error">{{ actionError }}</p>
-            <div class="so-actions">
+            <div v-if="!stepsReadOnly" class="so-actions">
               <button type="button" class="btn primary" :disabled="saving" @click="saveWelcomeMaterials">
-                {{ saving ? 'Completing…' : 'Mark complete & continue' }}
+                {{ saving ? stepSavingLabel : stepSaveLabel }}
               </button>
             </div>
+            </fieldset>
           </section>
 
           <!-- Explore demo -->
           <section v-else-if="currentStep === 'explore_demo'" class="so-panel">
             <h2>Explore the demo</h2>
+            <fieldset class="so-fieldset" :disabled="stepsReadOnly">
             <p>
               Open the <strong>real Hogwarts school portal</strong> (no login, view-only) so you can see exactly what schools get.
               It’s a browse-only copy — no real accounts or permissions.
@@ -543,10 +605,11 @@
             </p>
             <p v-if="actionError" class="error">{{ actionError }}</p>
             <div class="so-actions">
-              <button type="button" class="btn primary" :disabled="saving" @click="openDemo">
+              <button type="button" class="btn primary" :disabled="saving || stepsReadOnly" @click="openDemo">
                 {{ saving ? 'Opening…' : 'Open Hogwarts demo' }}
               </button>
               <button
+                v-if="!stepsReadOnly && !isAgencyHelper"
                 type="button"
                 class="btn ghost"
                 :disabled="saving"
@@ -555,14 +618,24 @@
                 Skip for now →
               </button>
               <button
-                v-if="progress.explore_demo === 'complete'"
+                v-if="!stepsReadOnly && isAgencyHelper"
+                type="button"
+                class="btn ghost"
+                :disabled="saving"
+                @click="saveDemoDraft"
+              >
+                {{ saving ? stepSavingLabel : 'Save draft (school confirms)' }}
+              </button>
+              <button
+                v-if="progress.explore_demo === 'complete' || stepsReadOnly"
                 type="button"
                 class="btn ghost"
                 @click="go('review_submit')"
               >
-                Continue to review →
+                {{ stepsReadOnly ? 'View review' : 'Continue to review →' }}
               </button>
             </div>
+            </fieldset>
           </section>
 
           <!-- Review & submit -->
@@ -643,11 +716,17 @@
             </div>
 
             <p v-if="actionError" class="error">{{ actionError }}</p>
-            <div class="so-actions">
+            <div v-if="!stepsReadOnly && !isAgencyHelper" class="so-actions">
               <button type="button" class="btn primary" :disabled="saving || !canSubmit" @click="submit">
                 {{ saving ? 'Submitting…' : 'Submit & activate portal' }}
               </button>
             </div>
+            <p v-else-if="isAgencyHelper && !stepsReadOnly" class="muted so-helper-submit-note">
+              Agency staff can’t submit onboarding. Save drafts on each step — the school contact confirms and submits.
+            </p>
+            <p v-else-if="stepsReadOnly" class="muted">
+              Onboarding already submitted. Use the sidebar to review each step, or message support for changes.
+            </p>
           </section>
         </template>
       </template>
@@ -681,11 +760,30 @@ import {
 import { buildOrgLoginPath } from '../../utils/orgLoginPath.js';
 import { resolveHostImpliedPortalSlug } from '../../utils/orgScopedPath.js';
 import { checkPasswordBasics } from '../../utils/passwordPolicy.js';
+import PublicAgencySupportForm from '../../components/public/PublicAgencySupportForm.vue';
+
+const DEDICATED_APP_HOSTS = Object.freeze({
+  itsco: 'app.itsco.health',
+  nextlevelup: 'app.nextleveluplcc.com',
+  nextleveluplcc: 'app.nextleveluplcc.com',
+  nlu: 'app.nextleveluplcc.com'
+});
+
+const AGENCY_HELPER_ROLES = new Set([
+  'admin',
+  'super_admin',
+  'support',
+  'staff',
+  'provider',
+  'provider_plus',
+  'clinical_practice_assistant'
+]);
 
 const route = useRoute();
 const router = useRouter();
 const authStore = useAuthStore();
 const brandingStore = useBrandingStore();
+const showSupportForm = ref(false);
 
 const steps = [
   { key: 'school_information', label: 'School Information' },
@@ -750,6 +848,8 @@ const showThankYouPassword = ref(false);
 const copyFeedback = ref('');
 const submittedLoginPath = ref('');
 const submittedPortalPath = ref('');
+const submittedPortalUrl = ref('');
+const submittedLoginUrl = ref('');
 let copyFeedbackTimer = null;
 const schoolForm = reactive({
   schoolName: '',
@@ -836,6 +936,48 @@ const startCta = computed(() => {
 });
 const agencyName = computed(() => invite.value?.agency?.name || 'Your partner');
 const agencyLogo = computed(() => invite.value?.agency?.logoUrl || null);
+const agencySlug = computed(() =>
+  String(invite.value?.agency?.slug || invite.value?.agency?.portalUrl || '').trim().toLowerCase()
+);
+const isAgencyHelper = computed(() => {
+  if (!authStore.isAuthenticated || !authStore.user?.id || !invite.value) return false;
+  const role = String(authStore.user.role || '').toLowerCase();
+  if (!AGENCY_HELPER_ROLES.has(role)) return false;
+  // Primary contact on this invite is never treated as agency helper
+  const contactEmail = String(invite.value.contactEmail || '').trim().toLowerCase();
+  const userEmail = String(authStore.user.email || authStore.user.username || '')
+    .trim()
+    .toLowerCase();
+  if (contactEmail && userEmail && contactEmail === userEmail) return false;
+  return true;
+});
+const agencyHelperLabel = computed(() => {
+  const name = `${authStore.user?.firstName || ''} ${authStore.user?.lastName || ''}`.trim();
+  return name || authStore.user?.email || 'agency staff';
+});
+const stepsReadOnly = computed(() => !!invite.value?.submitted);
+const stepSaveLabel = computed(() => {
+  if (isAgencyHelper.value) return 'Save draft';
+  return 'Mark complete & continue';
+});
+const stepSavingLabel = computed(() => {
+  if (isAgencyHelper.value) return 'Saving draft…';
+  return 'Completing…';
+});
+const currentStepAssistStamp = computed(() => {
+  const key = currentStep.value;
+  if (!key || key === 'home' || key === 'review_submit') return null;
+  const stamp = invite.value?.stepPayload?.[key]?.assistedBy;
+  if (!stamp?.name && !stamp?.at) return null;
+  return stamp;
+});
+function formatAssistAt(at) {
+  try {
+    return new Date(at).toLocaleString();
+  } catch {
+    return String(at || '');
+  }
+}
 const agencyInitial = computed(() => (agencyName.value || 'S').charAt(0).toUpperCase());
 const supportEmail = computed(
   () =>
@@ -918,27 +1060,50 @@ const canSubmit = computed(() => {
 const loginPath = computed(() => {
   if (submittedLoginPath.value) return submittedLoginPath.value;
   const schoolSlug = invite.value?.schoolSlug || invite.value?.school?.slug;
-  const agencySlug = invite.value?.agency?.slug;
+  const agencySlugVal = invite.value?.agency?.slug;
   const hostImplied = resolveHostImpliedPortalSlug(brandingStore);
-  return buildOrgLoginPath(schoolSlug, agencySlug, hostImplied);
+  return buildOrgLoginPath(schoolSlug, agencySlugVal, hostImplied);
 });
 const portalDashboardPath = computed(() => {
   if (submittedPortalPath.value) return submittedPortalPath.value;
   const schoolSlug = invite.value?.schoolSlug || invite.value?.school?.slug;
   return schoolSlug ? `/${String(schoolSlug).trim().toLowerCase()}/dashboard` : '/dashboard';
 });
-const loginHref = computed(() => {
-  if (typeof window === 'undefined') return loginPath.value;
-  return `${window.location.origin}${loginPath.value}`;
+const absolutePortalUrl = computed(() => {
+  if (submittedPortalUrl.value) return submittedPortalUrl.value;
+  if (invite.value?.portalUrl) return invite.value.portalUrl;
+  const schoolSlug = String(invite.value?.schoolSlug || invite.value?.school?.slug || '')
+    .trim()
+    .toLowerCase();
+  const agency = String(agencySlug.value || '').trim().toLowerCase();
+  const host = DEDICATED_APP_HOSTS[agency];
+  if (host && schoolSlug) return `https://${host}/${schoolSlug}`;
+  if (typeof window !== 'undefined' && schoolSlug) {
+    return `${window.location.origin}/${schoolSlug}`;
+  }
+  return '';
 });
+const absoluteLoginUrl = computed(() => {
+  if (submittedLoginUrl.value) return submittedLoginUrl.value;
+  if (invite.value?.loginUrl) return invite.value.loginUrl;
+  const base = absolutePortalUrl.value;
+  if (!base) {
+    if (typeof window === 'undefined') return loginPath.value;
+    return `${window.location.origin}${loginPath.value}`;
+  }
+  return `${String(base).replace(/\/$/, '')}/login`;
+});
+const loginHref = computed(() => absoluteLoginUrl.value || absolutePortalUrl.value || loginPath.value);
 const loginDisplayHost = computed(() => {
   try {
-    const url = new URL(loginHref.value);
+    const url = new URL(absolutePortalUrl.value || loginHref.value);
     const host = url.host.replace(/^www\./i, '');
     const path = url.pathname.replace(/\/login\/?$/i, '').replace(/^\//, '');
     return path ? `${host}/${path}` : host;
   } catch {
-    return loginHref.value.replace(/^https?:\/\//i, '').replace(/\/login\/?$/i, '');
+    return String(absolutePortalUrl.value || loginHref.value)
+      .replace(/^https?:\/\//i, '')
+      .replace(/\/login\/?$/i, '');
   }
 });
 const displayUsername = computed(
@@ -1144,9 +1309,39 @@ async function copyText(value, label = 'Value') {
 }
 
 function goToLogin() {
-  if (canEnterPortal.value && portalDashboardPath.value) {
-    router.push(portalDashboardPath.value);
-    return;
+  if (canEnterPortal.value) {
+    const dashAbs = invite.value?.portalDashboardUrl || submittedPortalUrl.value;
+    if (dashAbs && typeof window !== 'undefined') {
+      try {
+        const target = new URL(dashAbs.includes('/dashboard') ? dashAbs : `${dashAbs.replace(/\/$/, '')}/dashboard`);
+        if (target.origin === window.location.origin) {
+          router.push(`${target.pathname}${target.search}`);
+          return;
+        }
+        window.location.href = target.href;
+        return;
+      } catch {
+        // fall through
+      }
+    }
+    if (portalDashboardPath.value) {
+      router.push(portalDashboardPath.value);
+      return;
+    }
+  }
+  try {
+    const loginAbs = absoluteLoginUrl.value;
+    if (loginAbs && typeof window !== 'undefined') {
+      const target = new URL(loginAbs, window.location.origin);
+      if (target.origin === window.location.origin) {
+        router.push(`${target.pathname}${target.search}`);
+        return;
+      }
+      window.location.href = target.href;
+      return;
+    }
+  } catch {
+    // fall through
   }
   router.push(loginPath.value);
 }
@@ -1240,6 +1435,8 @@ async function submit() {
     if (res.data?.loginPath) {
       submittedLoginPath.value = res.data.loginPath;
     }
+    if (res.data?.portalUrl) submittedPortalUrl.value = res.data.portalUrl;
+    if (res.data?.loginUrl) submittedLoginUrl.value = res.data.loginUrl;
     go('home');
   } catch (e) {
     actionError.value = e?.response?.data?.error?.message || 'Unable to submit';
@@ -1250,20 +1447,35 @@ async function submit() {
 
 async function saveStep(stepKey, payload, nextStep, markComplete = true) {
   actionError.value = '';
+  if (stepsReadOnly.value) {
+    actionError.value =
+      'This onboarding is already complete. Edits can be made in the school portal, or message support.';
+    return;
+  }
   saving.value = true;
   try {
+    // Agency helpers may only save drafts — school contact confirms completion.
+    const effectiveComplete = isAgencyHelper.value ? false : markComplete;
     const res = await api.put(`/public/school-onboarding/${token.value}/steps/${stepKey}`, {
       payload,
-      markComplete
+      markComplete: effectiveComplete
     });
     invite.value = res.data?.invite || invite.value;
     hydrateForms();
-    if (nextStep) go(nextStep);
+    if (nextStep && !isAgencyHelper.value) go(nextStep);
+    if (isAgencyHelper.value) {
+      actionError.value = '';
+      listMessageSafeDraftSaved();
+    }
   } catch (e) {
     actionError.value = e?.response?.data?.error?.message || 'Failed to save';
   } finally {
     saving.value = false;
   }
+}
+
+function listMessageSafeDraftSaved() {
+  actionError.value = 'Draft saved for the school contact to review and complete.';
 }
 
 function schoolInfoFieldValue(key) {
@@ -1371,8 +1583,18 @@ async function markDemoCompleteAndContinue() {
   return saveStep('explore_demo', { skipped: true }, 'review_submit');
 }
 
+async function saveDemoDraft() {
+  return saveStep('explore_demo', { skipped: true, draftAssist: true }, null, false);
+}
+
 function openDemo() {
   actionError.value = '';
+  if (!stepsReadOnly.value) {
+    // Persist a draft assist stamp when agency staff opens the demo
+    if (isAgencyHelper.value) {
+      saveStep('explore_demo', { openedDemo: true, draftAssist: true }, null, false);
+    }
+  }
   router.push(`/school-onboarding/${token.value}/demo`);
 }
 
@@ -1497,6 +1719,95 @@ onMounted(() => {
   font-weight: 500;
 }
 .so-help-link:hover { text-decoration: underline; }
+.so-help-link--btn {
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+  width: 100%;
+}
+.so-help-form {
+  margin-top: 0.75rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid color-mix(in srgb, var(--so-primary) 12%, #e2e8f0);
+}
+.so-banner {
+  margin: 0 0 1rem;
+  padding: 0.85rem 1rem;
+  border-radius: 12px;
+  font-size: 0.92rem;
+  line-height: 1.45;
+  color: #0f172a;
+}
+.so-banner--helper {
+  background: color-mix(in srgb, var(--so-primary) 10%, #fff);
+  border: 1px solid color-mix(in srgb, var(--so-primary) 28%, #e2e8f0);
+}
+.so-banner--done {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+}
+.so-banner .linkish {
+  display: inline;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--so-primary);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  text-decoration: underline;
+}
+.so-stamp {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.55rem 0.75rem;
+  margin: 0 0 0.85rem;
+  padding: 0.55rem 0.85rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--so-accent, var(--so-primary)) 10%, #fff);
+  border: 1px dashed color-mix(in srgb, var(--so-primary) 35%, #cbd5e1);
+  font-size: 0.86rem;
+  color: #334155;
+}
+.so-stamp__badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.15rem 0.55rem;
+  border-radius: 999px;
+  background: var(--so-primary);
+  color: #fff;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+.so-fieldset {
+  border: none;
+  margin: 0;
+  padding: 0;
+  min-width: 0;
+}
+.so-fieldset:disabled {
+  opacity: 0.92;
+}
+.so-fieldset:disabled input,
+.so-fieldset:disabled textarea,
+.so-fieldset:disabled select,
+.so-fieldset:disabled button:not(.btn.ghost) {
+  cursor: not-allowed;
+}
+.so-helper-submit-note {
+  margin-top: 1rem;
+}
+.so-thanks-review {
+  display: block;
+  width: 100%;
+  margin-top: 0.65rem;
+}
 .so-main {
   display: flex;
   flex-direction: column;

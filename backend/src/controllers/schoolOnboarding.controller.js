@@ -191,11 +191,29 @@ export async function setPassword(req, res, next) {
 export async function saveStep(req, res, next) {
   try {
     const markComplete = req.body?.markComplete !== false;
+    let actor = null;
+    if (req.user?.id) {
+      let full = null;
+      try {
+        full = await (await import('../models/User.model.js')).default.findById(req.user.id);
+      } catch {
+        full = null;
+      }
+      const first = full?.first_name || req.user.firstName || '';
+      const last = full?.last_name || req.user.lastName || '';
+      actor = {
+        userId: req.user.id,
+        name: `${first} ${last}`.trim() || full?.email || req.user.email || 'Agency staff',
+        email: full?.email || req.user.email || null,
+        role: full?.role || req.user.role || null
+      };
+    }
     const invite = await S.saveStep(
       req.params.token,
       req.params.stepKey,
       req.body?.payload ?? req.body ?? {},
-      markComplete
+      markComplete,
+      actor
     );
     res.json({ invite });
   } catch (err) {

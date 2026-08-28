@@ -247,55 +247,149 @@
           <aside class="so-detail-panel">
             <header class="so-detail-panel__head">
               <div>
-                <p class="muted tiny">Invite #{{ selectedInvite.id }}</p>
+                <p class="muted tiny">Onboarding receipt · Invite #{{ selectedInvite.id }}</p>
                 <h2 id="so-invite-detail-title">{{ selectedInvite.schoolName || 'School invite' }}</h2>
               </div>
-              <button type="button" class="btn ghost" @click="closeInviteDetails">Close</button>
+              <div class="so-detail-panel__head-actions">
+                <button type="button" class="btn ghost" @click="downloadInviteReceipt(selectedInvite)">
+                  Download
+                </button>
+                <button type="button" class="btn ghost" @click="printInviteReceipt(selectedInvite)">
+                  Print
+                </button>
+                <button type="button" class="btn ghost" @click="closeInviteDetails">Close</button>
+              </div>
             </header>
 
-            <div class="so-detail-grid">
-              <section class="so-detail-section">
-                <h3>School</h3>
-                <dl class="so-dl">
-                  <div><dt>Name</dt><dd>{{ selectedInvite.schoolName || '—' }}</dd></div>
-                  <div><dt>Slug</dt><dd>{{ selectedInvite.schoolSlug || '—' }}</dd></div>
-                  <div><dt>School org ID</dt><dd>{{ selectedInvite.schoolOrganizationId || '—' }}</dd></div>
-                  <div><dt>Outreach school ID</dt><dd>{{ selectedInvite.outreachSchoolId || '—' }}</dd></div>
-                  <div><dt>Agency ID</dt><dd>{{ selectedInvite.agencyId || '—' }}</dd></div>
-                </dl>
+            <div class="so-receipt">
+              <div class="so-receipt__brand">
+                <div>
+                  <p class="so-receipt__eyebrow">{{ receiptAgencyName }}</p>
+                  <h3 class="so-receipt__title">School Onboarding Summary</h3>
+                </div>
+                <span class="pill" :data-status="inviteDisplayStatus(selectedInvite)">
+                  {{ inviteDisplayLabel(selectedInvite) }}
+                </span>
+              </div>
+
+              <p class="so-receipt__meta">
+                {{ selectedInvite.completedSteps }}/{{ selectedInvite.totalSteps }} steps
+                · Source: {{ selectedInvite.source || 'invite' }}
+                <template v-if="selectedInvite.submittedAt">
+                  · Submitted {{ formatDate(selectedInvite.submittedAt) }}
+                </template>
+              </p>
+
+              <section class="so-receipt__block">
+                <h4>School information</h4>
+                <div class="so-receipt-lines">
+                  <div
+                    v-for="row in schoolInfoReceiptRows(selectedInvite)"
+                    :key="row.label"
+                    class="so-receipt-line"
+                  >
+                    <span class="so-receipt-line__label">{{ row.label }}</span>
+                    <span class="so-receipt-line__value">{{ row.value }}</span>
+                  </div>
+                </div>
               </section>
 
-              <section class="so-detail-section">
-                <h3>Contact</h3>
-                <dl class="so-dl">
-                  <div><dt>Name</dt><dd>{{ selectedInvite.contactFirstName }} {{ selectedInvite.contactLastName }}</dd></div>
-                  <div><dt>Email</dt><dd>{{ selectedInvite.contactEmail || '—' }}</dd></div>
-                  <div><dt>Password set</dt><dd>{{ selectedInvite.passwordSet ? 'Yes' : 'No' }}</dd></div>
-                </dl>
+              <section class="so-receipt__block">
+                <h4>Primary contact</h4>
+                <div class="so-receipt-lines">
+                  <div class="so-receipt-line">
+                    <span class="so-receipt-line__label">Name</span>
+                    <span class="so-receipt-line__value">
+                      {{ selectedInvite.contactFirstName }} {{ selectedInvite.contactLastName }}
+                    </span>
+                  </div>
+                  <div class="so-receipt-line">
+                    <span class="so-receipt-line__label">Email</span>
+                    <span class="so-receipt-line__value">{{ selectedInvite.contactEmail || '—' }}</span>
+                  </div>
+                  <div class="so-receipt-line">
+                    <span class="so-receipt-line__label">Password set</span>
+                    <span class="so-receipt-line__value">{{ selectedInvite.passwordSet ? 'Yes' : 'No' }}</span>
+                  </div>
+                  <div class="so-receipt-line">
+                    <span class="so-receipt-line__label">Invited by</span>
+                    <span class="so-receipt-line__value">{{ selectedInvite.invitedByName || '—' }}</span>
+                  </div>
+                </div>
               </section>
 
-              <section class="so-detail-section">
-                <h3>Status &amp; source</h3>
-                <dl class="so-dl">
-                  <div>
-                    <dt>Status</dt>
-                    <dd><span class="pill" :data-status="inviteDisplayStatus(selectedInvite)">{{ inviteDisplayLabel(selectedInvite) }}</span></dd>
+              <section class="so-receipt__block">
+                <h4>School staff</h4>
+                <p v-if="!staffReceiptRows(selectedInvite).length" class="muted tiny">No staff listed yet.</p>
+                <div v-else class="so-receipt-staff">
+                  <div
+                    v-for="(member, idx) in staffReceiptRows(selectedInvite)"
+                    :key="`${member.email}-${idx}`"
+                    class="so-receipt-staff__card"
+                  >
+                    <div class="so-receipt-staff__name">{{ member.name }}</div>
+                    <div class="so-receipt-line">
+                      <span class="so-receipt-line__label">Email</span>
+                      <span class="so-receipt-line__value">{{ member.email }}</span>
+                    </div>
+                    <div class="so-receipt-line">
+                      <span class="so-receipt-line__label">Role</span>
+                      <span class="so-receipt-line__value">{{ member.role }}</span>
+                    </div>
+                    <div v-if="member.jobTitle" class="so-receipt-line">
+                      <span class="so-receipt-line__label">Job title</span>
+                      <span class="so-receipt-line__value">{{ member.jobTitle }}</span>
+                    </div>
                   </div>
-                  <div><dt>Source</dt><dd>{{ selectedInvite.source || 'invite' }}</dd></div>
-                  <div><dt>Invited by</dt><dd>{{ selectedInvite.invitedByName || '—' }}</dd></div>
-                  <div>
-                    <dt>Progress</dt>
-                    <dd>{{ selectedInvite.completedSteps }}/{{ selectedInvite.totalSteps }} steps</dd>
-                  </div>
-                  <div v-if="selectedInvite.inviteEmailSentAt">
-                    <dt>Email sent</dt>
-                    <dd>{{ formatDate(selectedInvite.inviteEmailSentAt) }}</dd>
-                  </div>
-                </dl>
+                </div>
               </section>
 
-              <section class="so-detail-section so-detail-section--full">
-                <h3>Activity</h3>
+              <section class="so-receipt__block">
+                <h4>Preferred days</h4>
+                <div class="so-receipt-lines">
+                  <div class="so-receipt-line">
+                    <span class="so-receipt-line__label">Days</span>
+                    <span class="so-receipt-line__value">{{ preferredDaysReceipt(selectedInvite) }}</span>
+                  </div>
+                  <div v-if="preferredNotesReceipt(selectedInvite)" class="so-receipt-line">
+                    <span class="so-receipt-line__label">Notes</span>
+                    <span class="so-receipt-line__value">{{ preferredNotesReceipt(selectedInvite) }}</span>
+                  </div>
+                </div>
+              </section>
+
+              <section class="so-receipt__block">
+                <h4>Welcome materials</h4>
+                <div class="so-receipt-lines">
+                  <div class="so-receipt-line">
+                    <span class="so-receipt-line__label">Request</span>
+                    <span class="so-receipt-line__value">{{ materialsRequestSummary(selectedInvite) }}</span>
+                  </div>
+                  <div class="so-receipt-line">
+                    <span class="so-receipt-line__label">Welcome package</span>
+                    <span class="so-receipt-line__value">
+                      {{
+                        selectedInvite.stepPayload?.welcome_materials?.welcomePackageAcknowledged
+                          ? 'Acknowledged'
+                          : '—'
+                      }}
+                    </span>
+                  </div>
+                </div>
+              </section>
+
+              <section class="so-receipt__block">
+                <h4>Step checklist</h4>
+                <ul class="so-step-list">
+                  <li v-for="step in inviteStepEntries(selectedInvite)" :key="step.key">
+                    <span class="so-step-key">{{ step.label }}</span>
+                    <span class="pill" :data-status="step.statusKey">{{ step.status }}</span>
+                  </li>
+                </ul>
+              </section>
+
+              <section class="so-receipt__block">
+                <h4>Activity timeline</h4>
                 <p v-if="!selectedInvite.activity?.length" class="muted tiny">
                   No activity yet — the contact has not opened the link or saved any steps.
                 </p>
@@ -310,60 +404,37 @@
                 </ol>
               </section>
 
-              <section class="so-detail-section">
-                <h3>Step progress</h3>
-                <ul class="so-step-list">
-                  <li v-for="step in inviteStepEntries(selectedInvite)" :key="step.key">
-                    <span class="so-step-key">{{ step.label }}</span>
-                    <span class="pill" :data-status="step.statusKey">{{ step.status }}</span>
-                  </li>
-                </ul>
-              </section>
-
-              <section class="so-detail-section">
-                <h3>Materials</h3>
-                <p>{{ materialsRequestSummary(selectedInvite) }}</p>
-                <pre
-                  v-if="selectedInvite.stepPayload?.welcome_materials"
-                  class="so-pre"
-                >{{ formatJson(selectedInvite.stepPayload.welcome_materials) }}</pre>
-              </section>
-
-              <section class="so-detail-section">
-                <h3>Link &amp; access</h3>
-                <dl class="so-dl">
-                  <div>
-                    <dt>Onboarding link</dt>
-                    <dd class="so-link-wrap">
-                      <a v-if="selectedInvite.link" :href="selectedInvite.link" target="_blank" rel="noopener">{{ selectedInvite.link }}</a>
-                      <span v-else>—</span>
-                      <button
-                        v-if="selectedInvite.link"
-                        type="button"
-                        class="linkish"
-                        @click="copyLink(selectedInvite.link)"
-                      >
-                        Copy
-                      </button>
-                    </dd>
+              <section class="so-receipt__block">
+                <h4>Record details</h4>
+                <div class="so-receipt-lines">
+                  <div class="so-receipt-line">
+                    <span class="so-receipt-line__label">Created</span>
+                    <span class="so-receipt-line__value">{{ formatDate(selectedInvite.createdAt) }}</span>
                   </div>
-                  <div><dt>Token</dt><dd class="mono">{{ selectedInvite.token || '—' }}</dd></div>
-                </dl>
-              </section>
-
-              <section class="so-detail-section">
-                <h3>Timestamps</h3>
-                <dl class="so-dl">
-                  <div><dt>Created</dt><dd>{{ formatDate(selectedInvite.createdAt) }}</dd></div>
-                  <div><dt>Last viewed</dt><dd>{{ formatDate(selectedInvite.lastViewedAt) }}</dd></div>
-                  <div><dt>Expires</dt><dd>{{ formatDate(selectedInvite.expiresAt) }}</dd></div>
-                  <div><dt>Submitted</dt><dd>{{ formatDate(selectedInvite.submittedAt) }}</dd></div>
-                </dl>
-              </section>
-
-              <section class="so-detail-section so-detail-section--full">
-                <h3>All invite fields</h3>
-                <pre class="so-pre">{{ formatJson(selectedInvite) }}</pre>
+                  <div class="so-receipt-line">
+                    <span class="so-receipt-line__label">Last viewed</span>
+                    <span class="so-receipt-line__value">{{ formatDate(selectedInvite.lastViewedAt) }}</span>
+                  </div>
+                  <div class="so-receipt-line">
+                    <span class="so-receipt-line__label">Expires</span>
+                    <span class="so-receipt-line__value">{{ formatDate(selectedInvite.expiresAt) }}</span>
+                  </div>
+                  <div class="so-receipt-line">
+                    <span class="so-receipt-line__label">School org ID</span>
+                    <span class="so-receipt-line__value">{{ selectedInvite.schoolOrganizationId || '—' }}</span>
+                  </div>
+                  <div class="so-receipt-line">
+                    <span class="so-receipt-line__label">Slug</span>
+                    <span class="so-receipt-line__value">{{ selectedInvite.schoolSlug || '—' }}</span>
+                  </div>
+                  <div v-if="selectedInvite.link" class="so-receipt-line so-receipt-line--stack">
+                    <span class="so-receipt-line__label">Onboarding link</span>
+                    <span class="so-receipt-line__value so-link-wrap">
+                      <a :href="selectedInvite.link" target="_blank" rel="noopener">{{ selectedInvite.link }}</a>
+                      <button type="button" class="linkish" @click="copyLink(selectedInvite.link)">Copy</button>
+                    </span>
+                  </div>
+                </div>
               </section>
             </div>
 
@@ -520,12 +591,78 @@ function inviteStepEntries(inv) {
   });
 }
 
-function formatJson(value) {
-  try {
-    return JSON.stringify(value, null, 2);
-  } catch {
-    return String(value);
+const receiptAgencyName = computed(
+  () =>
+    selectedInvite.value?.agencyName ||
+    agencyStore.currentAgency?.name ||
+    'School portal'
+);
+
+const SCHOOL_INFO_RECEIPT_FIELDS = [
+  { key: 'schoolName', label: 'School name' },
+  { key: 'itscoEmail', label: 'School group email' },
+  { key: 'districtName', label: 'District' },
+  { key: 'schoolNumber', label: 'School number' },
+  { key: 'schoolAddress', label: 'Address' },
+  { key: 'academicYear', label: 'Academic year' },
+  { key: 'gradeLevels', label: 'Grade levels' },
+  { key: 'primaryContactName', label: 'Listed primary contact' },
+  { key: 'primaryContactEmail', label: 'Listed primary email' },
+  { key: 'primaryContactRole', label: 'Contact role' },
+  { key: 'secondaryContactText', label: 'Secondary contact' },
+  { key: 'schoolDaysTimes', label: 'School days / times' }
+];
+
+const ACCESS_ROLE_LABELS = {
+  school_admin: 'School Admin',
+  scheduler: 'Scheduler',
+  school_admin_scheduler: 'School Admin + Scheduler',
+  standard: 'Standard (ROI-eligible)',
+  primary: 'School Admin (Primary Contact)',
+  primary_contact: 'School Admin (Primary Contact)'
+};
+
+function displayOrDash(value) {
+  const s = String(value ?? '').trim();
+  return s || '—';
+}
+
+function schoolInfoReceiptRows(inv) {
+  const info = inv?.stepPayload?.school_information || {};
+  const rows = SCHOOL_INFO_RECEIPT_FIELDS.map((field) => ({
+    label: field.label,
+    value: displayOrDash(info[field.key] || (field.key === 'schoolName' ? inv?.schoolName : ''))
+  }));
+  // Always show school name even if step payload empty
+  if (!info.schoolName && inv?.schoolName) {
+    const nameRow = rows.find((r) => r.label === 'School name');
+    if (nameRow) nameRow.value = inv.schoolName;
   }
+  return rows.filter((r) => r.value !== '—' || ['School name', 'School group email'].includes(r.label));
+}
+
+function staffReceiptRows(inv) {
+  const staff = inv?.stepPayload?.school_staff?.staff;
+  if (!Array.isArray(staff) || !staff.length) return [];
+  return staff.map((row) => {
+    const roleKey = String(row.accessRole || row.role || '').trim().toLowerCase();
+    return {
+      name: displayOrDash(row.fullName || row.name),
+      email: displayOrDash(row.email),
+      jobTitle: String(row.jobTitle || row.roleTitle || row.title || '').trim(),
+      role: ACCESS_ROLE_LABELS[roleKey] || (roleKey ? roleKey.replace(/_/g, ' ') : '—')
+    };
+  });
+}
+
+function preferredDaysReceipt(inv) {
+  const days = inv?.stepPayload?.preferred_days?.preferredDays;
+  if (!Array.isArray(days) || !days.length) return '—';
+  return days.join(', ');
+}
+
+function preferredNotesReceipt(inv) {
+  return String(inv?.stepPayload?.preferred_days?.notes || '').trim();
 }
 
 function openInviteDetails(inv) {
@@ -534,6 +671,177 @@ function openInviteDetails(inv) {
 
 function closeInviteDetails() {
   selectedInvite.value = null;
+}
+
+function escapeHtml(value) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+function buildInviteReceiptHtml(inv) {
+  const agency = escapeHtml(inv?.agencyName || agencyStore.currentAgency?.name || 'School portal');
+  const school = escapeHtml(inv?.schoolName || 'School');
+  const status = escapeHtml(inviteDisplayLabel(inv));
+  const schoolRows = schoolInfoReceiptRows(inv)
+    .map(
+      (r) =>
+        `<div class="line"><span class="lbl">${escapeHtml(r.label)}</span><span class="val">${escapeHtml(r.value)}</span></div>`
+    )
+    .join('');
+  const staff = staffReceiptRows(inv);
+  const staffHtml = staff.length
+    ? staff
+        .map(
+          (m) =>
+            `<div class="staff"><div class="staff-name">${escapeHtml(m.name)}</div>` +
+            `<div class="line"><span class="lbl">Email</span><span class="val">${escapeHtml(m.email)}</span></div>` +
+            `<div class="line"><span class="lbl">Role</span><span class="val">${escapeHtml(m.role)}</span></div>` +
+            (m.jobTitle
+              ? `<div class="line"><span class="lbl">Job title</span><span class="val">${escapeHtml(m.jobTitle)}</span></div>`
+              : '') +
+            `</div>`
+        )
+        .join('')
+    : '<p class="muted">No staff listed.</p>';
+  const activity = Array.isArray(inv?.activity) ? inv.activity : [];
+  const activityHtml = activity.length
+    ? `<ol class="activity">${activity
+        .map(
+          (e) =>
+            `<li><div class="act-row"><strong>${escapeHtml(e.label)}</strong><span>${escapeHtml(formatDate(e.at))}</span></div>` +
+            (e.detail ? `<div class="muted">${escapeHtml(e.detail)}</div>` : '') +
+            `</li>`
+        )
+        .join('')}</ol>`
+    : '<p class="muted">No activity yet.</p>';
+  const stepsHtml = inviteStepEntries(inv)
+    .map(
+      (s) =>
+        `<div class="line"><span class="lbl">${escapeHtml(s.label)}</span><span class="val">${escapeHtml(s.status)}</span></div>`
+    )
+    .join('');
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>${agency} — ${school} onboarding</title>
+  <style>
+    :root { color-scheme: light; }
+    body { font-family: "Segoe UI", system-ui, sans-serif; color: #0f172a; margin: 0; background: #f8fafc; }
+    .sheet { max-width: 720px; margin: 24px auto; background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 28px 32px; }
+    .brand { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; border-bottom: 2px solid #0f172a; padding-bottom: 14px; margin-bottom: 18px; }
+    .eyebrow { margin: 0; text-transform: uppercase; letter-spacing: 0.08em; font-size: 11px; color: #64748b; font-weight: 700; }
+    h1 { margin: 4px 0 0; font-size: 22px; }
+    .status { display: inline-block; padding: 4px 10px; border-radius: 999px; background: #dcfce7; color: #166534; font-size: 12px; font-weight: 700; text-transform: capitalize; }
+    .meta { color: #64748b; font-size: 13px; margin: 0 0 22px; }
+    h2 { margin: 0 0 10px; font-size: 13px; text-transform: uppercase; letter-spacing: 0.06em; color: #64748b; }
+    .block { margin: 0 0 22px; padding-bottom: 16px; border-bottom: 1px dashed #cbd5e1; }
+    .block:last-child { border-bottom: none; }
+    .line { display: flex; justify-content: space-between; gap: 16px; padding: 6px 0; border-bottom: 1px dotted #e2e8f0; font-size: 14px; }
+    .line:last-child { border-bottom: none; }
+    .lbl { color: #64748b; flex: 0 0 42%; }
+    .val { text-align: right; font-weight: 600; word-break: break-word; }
+    .staff { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 10px 12px; margin-bottom: 8px; }
+    .staff-name { font-weight: 700; margin-bottom: 4px; }
+    .activity { margin: 0; padding: 0; list-style: none; }
+    .activity li { margin: 0 0 10px; }
+    .act-row { display: flex; justify-content: space-between; gap: 12px; font-size: 14px; }
+    .muted { color: #64748b; font-size: 13px; }
+    .foot { margin-top: 24px; font-size: 11px; color: #94a3b8; text-align: center; }
+    @media print {
+      body { background: #fff; }
+      .sheet { margin: 0; border: none; border-radius: 0; max-width: none; }
+    }
+  </style>
+</head>
+<body>
+  <div class="sheet">
+    <div class="brand">
+      <div>
+        <p class="eyebrow">${agency}</p>
+        <h1>School Onboarding Summary</h1>
+        <div style="margin-top:6px;font-size:16px;font-weight:600;">${school}</div>
+      </div>
+      <span class="status">${status}</span>
+    </div>
+    <p class="meta">Invite #${escapeHtml(inv?.id)} · ${escapeHtml(inv?.completedSteps)}/${escapeHtml(inv?.totalSteps)} steps · Source: ${escapeHtml(inv?.source || 'invite')}${
+      inv?.submittedAt ? ` · Submitted ${escapeHtml(formatDate(inv.submittedAt))}` : ''
+    }</p>
+    <section class="block"><h2>School information</h2>${schoolRows}</section>
+    <section class="block"><h2>Primary contact</h2>
+      <div class="line"><span class="lbl">Name</span><span class="val">${escapeHtml(`${inv?.contactFirstName || ''} ${inv?.contactLastName || ''}`.trim())}</span></div>
+      <div class="line"><span class="lbl">Email</span><span class="val">${escapeHtml(inv?.contactEmail || '—')}</span></div>
+      <div class="line"><span class="lbl">Password set</span><span class="val">${inv?.passwordSet ? 'Yes' : 'No'}</span></div>
+      <div class="line"><span class="lbl">Invited by</span><span class="val">${escapeHtml(inv?.invitedByName || '—')}</span></div>
+    </section>
+    <section class="block"><h2>School staff</h2>${staffHtml}</section>
+    <section class="block"><h2>Preferred days</h2>
+      <div class="line"><span class="lbl">Days</span><span class="val">${escapeHtml(preferredDaysReceipt(inv))}</span></div>
+      ${
+        preferredNotesReceipt(inv)
+          ? `<div class="line"><span class="lbl">Notes</span><span class="val">${escapeHtml(preferredNotesReceipt(inv))}</span></div>`
+          : ''
+      }
+    </section>
+    <section class="block"><h2>Welcome materials</h2>
+      <div class="line"><span class="lbl">Request</span><span class="val">${escapeHtml(materialsRequestSummary(inv))}</span></div>
+    </section>
+    <section class="block"><h2>Step checklist</h2>${stepsHtml}</section>
+    <section class="block"><h2>Activity timeline</h2>${activityHtml}</section>
+    <p class="foot">${agency} · Generated ${escapeHtml(new Date().toLocaleString())}</p>
+  </div>
+</body>
+</html>`;
+}
+
+function openReceiptWindow(inv, { print = false } = {}) {
+  if (!inv) return;
+  const html = buildInviteReceiptHtml(inv);
+  const win = window.open('', '_blank', 'noopener,noreferrer,width=820,height=960');
+  if (!win) {
+    listMessage.value = 'Allow pop-ups to download or print the onboarding receipt.';
+    return;
+  }
+  win.document.open();
+  win.document.write(html);
+  win.document.close();
+  if (print) {
+    win.focus();
+    setTimeout(() => {
+      try {
+        win.print();
+      } catch {
+        // ignore
+      }
+    }, 250);
+  }
+}
+
+function downloadInviteReceipt(inv) {
+  if (!inv) return;
+  const html = buildInviteReceiptHtml(inv);
+  const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  const slug = String(inv.schoolSlug || inv.schoolName || 'school')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '');
+  a.href = url;
+  a.download = `school-onboarding-${slug || 'invite'}-${inv.id}.html`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+  listMessage.value = 'Onboarding receipt downloaded.';
+}
+
+function printInviteReceipt(inv) {
+  openReceiptWindow(inv, { print: true });
 }
 
 const MATERIAL_LABELS = {
@@ -1146,9 +1454,9 @@ a.btn {
   justify-content: flex-end;
 }
 .so-detail-panel {
-  width: min(520px, 100%);
+  width: min(640px, 100%);
   height: 100%;
-  background: #fff;
+  background: #f1f5f9;
   box-shadow: -12px 0 40px rgba(15, 23, 42, 0.18);
   display: flex;
   flex-direction: column;
@@ -1162,6 +1470,13 @@ a.btn {
   gap: 12px;
   padding: 1rem 1.15rem;
   border-bottom: 1px solid #e2e8f0;
+  background: #fff;
+}
+.so-detail-panel__head-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
 }
 .so-detail-panel__head h2 {
   margin: 0;
@@ -1174,23 +1489,113 @@ a.btn {
   margin-top: auto;
   flex-wrap: wrap;
 }
-.so-detail-grid {
-  padding: 1rem 1.15rem 1.5rem;
+.so-receipt {
+  margin: 1rem 1.15rem 1.5rem;
+  padding: 1.25rem 1.35rem 1.5rem;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 14px;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.06);
   overflow: auto;
-  display: grid;
-  gap: 1rem;
+  flex: 1;
 }
-.so-detail-section h3 {
-  margin: 0 0 0.5rem;
-  font-size: 0.85rem;
+.so-receipt__brand {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  padding-bottom: 0.85rem;
+  margin-bottom: 0.65rem;
+  border-bottom: 2px solid #0f172a;
+}
+.so-receipt__eyebrow {
+  margin: 0;
   text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.08em;
+  font-size: 0.7rem;
+  font-weight: 700;
   color: #64748b;
 }
-.so-dl {
-  margin: 0;
-  display: grid;
-  gap: 0.45rem;
+.so-receipt__title {
+  margin: 0.2rem 0 0;
+  font-size: 1.15rem;
+  color: #0f172a;
+}
+.so-receipt__meta {
+  margin: 0 0 1.15rem;
+  font-size: 0.82rem;
+  color: #64748b;
+}
+.so-receipt__block {
+  margin: 0 0 1.15rem;
+  padding-bottom: 0.95rem;
+  border-bottom: 1px dashed #cbd5e1;
+}
+.so-receipt__block:last-child {
+  border-bottom: none;
+  margin-bottom: 0;
+  padding-bottom: 0;
+}
+.so-receipt__block h4 {
+  margin: 0 0 0.55rem;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #64748b;
+}
+.so-receipt-lines {
+  display: flex;
+  flex-direction: column;
+}
+.so-receipt-line {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 1rem;
+  padding: 0.4rem 0;
+  border-bottom: 1px dotted #e2e8f0;
+  font-size: 0.92rem;
+}
+.so-receipt-line:last-child {
+  border-bottom: none;
+}
+.so-receipt-line--stack {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.35rem;
+}
+.so-receipt-line__label {
+  color: #64748b;
+  flex: 0 1 42%;
+}
+.so-receipt-line__value {
+  text-align: right;
+  font-weight: 600;
+  color: #0f172a;
+  word-break: break-word;
+}
+.so-receipt-line--stack .so-receipt-line__value {
+  text-align: left;
+  font-weight: 500;
+}
+.so-receipt-staff {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+}
+.so-receipt-staff__card {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 0.65rem 0.8rem;
+}
+.so-receipt-staff__name {
+  font-weight: 700;
+  margin-bottom: 0.25rem;
+  color: #0f172a;
+}
+.so-receipt-staff__card .so-receipt-line {
+  padding: 0.25rem 0;
 }
 .so-dl > div {
   display: grid;

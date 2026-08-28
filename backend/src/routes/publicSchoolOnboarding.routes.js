@@ -1,5 +1,6 @@
 import express from 'express';
 import * as ctrl from '../controllers/schoolOnboarding.controller.js';
+import { authenticateOptional } from '../middleware/auth.middleware.js';
 
 const router = express.Router();
 
@@ -18,7 +19,7 @@ router.get('/demo', ctrl.getPublicStandaloneDemo);
 
 router.get('/:token', ctrl.getPublicByToken);
 router.post('/:token/password', ctrl.setPassword);
-router.put('/:token/steps/:stepKey', ctrl.saveStep);
+router.put('/:token/steps/:stepKey', authenticateOptional, ctrl.saveStep);
 router.get('/:token/demo/snapshot', ctrl.getDemoSnapshot);
 router.get('/:token/demo/school', ctrl.getDemoSchoolMeta);
 router.use('/:token/demo/portal', (req, res, next) => {

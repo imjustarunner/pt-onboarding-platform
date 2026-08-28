@@ -127,9 +127,11 @@ export default class SchoolOnboardingInvite {
   static async listForAgency(agencyId) {
     const [rows] = await pool.execute(
       `SELECT i.*,
+              a.name AS agency_name,
               s.name AS school_org_name, s.slug AS school_slug, s.portal_url AS school_portal_url,
               u.first_name AS invited_by_first_name, u.last_name AS invited_by_last_name
        FROM school_onboarding_invites i
+       JOIN agencies a ON a.id = i.agency_id
        JOIN agencies s ON s.id = i.school_organization_id
        LEFT JOIN users u ON u.id = i.invited_by_user_id
        WHERE i.agency_id = ?
