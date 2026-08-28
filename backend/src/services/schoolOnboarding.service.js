@@ -1026,15 +1026,16 @@ export async function setPassword(token, password, identity = {}) {
   const user = await User.findById(invite.primary_user_id);
   if (!user) throw Object.assign(new Error('User not found'), { status: 404 });
   const username = user.username || user.email || invite.contact_email;
-  // Returning school staff who kept their password (or already received a reset)
-  // can skip setting a brand-new password during this onboarding.
-  if (!user.password_hash) {
-    const pwCheck = await validatePasswordStrength(password, { accountId: username });
-    if (!pwCheck.valid) {
-      throw Object.assign(new Error(pwCheck.message), { status: 400 });
-    }
-    await User.changePassword(user.id, password);
+  const hadPassword = !!user.password_hash;
+  // Always persist the password they just confirmed on the review step.
+  // Previously we skipped when a hash already existed, but findById historically
+  // omitted password_hash (so this was unreliable) and returning staff who chose
+  // a new password during onboarding would keep an unknown prior credential.
+  const pwCheck = await validatePasswordStrength(password, { accountId: username });
+  if (!pwCheck.valid) {
+    throw Object.assign(new Error(pwCheck.message), { status: 400 });
   }
+  await User.changePassword(user.id, password);
   // Keep PENDING_SETUP / in-progress until final submit; do not jump to PREHIRE.
   await SchoolOnboardingInvite.update(invite.id, {
     passwordSetAt: new Date(),
@@ -1047,7 +1048,7 @@ export async function setPassword(token, password, identity = {}) {
     username,
     user: updatedUser,
     agencies,
-    passwordAlreadySet: !!user.password_hash
+    passwordAlreadySet: hadPassword
   };
 }
 
@@ -1460,9 +1461,15 @@ export async function submitOnboarding(token) {
     const agencySlug = invite.agency_slug || invite.agency_portal_url;
     const serialized = serializeInvite(invite, { publicView: true });
     if (serialized) serialized.submitted = true;
+    const primaryUser = await User.findById(invite.primary_user_id);
+    const agencies = primaryUser?.id ? await User.getAgencies(primaryUser.id) : [];
     return {
       alreadySubmitted: true,
       loginPath: buildSchoolLoginPath(agencySlug, schoolSlug),
+      portalDashboardPath: schoolSlug ? `/${String(schoolSlug).trim().toLowerCase()}/dashboard` : '/dashboard',
+      username: primaryUser?.username || primaryUser?.email || invite.contact_email,
+      user: primaryUser,
+      agencies,
       invite: serialized
     };
   }
@@ -1536,11 +1543,19 @@ export async function submitOnboarding(token) {
   await notifySchoolPortalOnboardingCompleted(fresh);
   const schoolSlug = fresh.school_slug || fresh.school_portal_url;
   const agencySlug = fresh.agency_slug || fresh.agency_portal_url;
+  const loginPath = buildSchoolLoginPath(agencySlug, schoolSlug);
+  const portalDashboardPath = schoolSlug ? `/${String(schoolSlug).trim().toLowerCase()}/dashboard` : '/dashboard';
+  const primaryUser = await User.findById(invite.primary_user_id);
+  const agencies = primaryUser?.id ? await User.getAgencies(primaryUser.id) : [];
   const serialized = serializeInvite(fresh, { publicView: true });
   if (serialized) serialized.submitted = true;
   return {
     alreadySubmitted: false,
-    loginPath: buildSchoolLoginPath(agencySlug, schoolSlug),
+    loginPath,
+    portalDashboardPath,
+    username: primaryUser?.username || primaryUser?.email || fresh.contact_email,
+    user: primaryUser,
+    agencies,
     invite: serialized
   };
 }

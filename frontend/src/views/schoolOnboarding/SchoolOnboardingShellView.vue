@@ -146,8 +146,9 @@
               </div>
             </div>
             <p class="muted tiny so-thanks-login-hint">
-              After you leave this page, go to your school portal login, sign in with your username and password,
-              and keep your password private — do not share it with others.
+              Sign in at the Quick Link above with your username
+              (<strong>{{ displayUsername }}</strong>) and the personal password you created.
+              Keep your password private — do not share it.
             </p>
             <p v-if="copyFeedback" class="ok so-thanks-copy-feedback">{{ copyFeedback }}</p>
           </div>
@@ -156,7 +157,7 @@
             Welcome to the <strong>{{ agencyName }}</strong> community. We’re excited to partner with you!
           </div>
           <button type="button" class="btn primary so-thanks-got-it" @click="goToLogin">
-            Got It
+            {{ canEnterPortal ? 'Enter school portal' : 'Got It — go to login' }}
           </button>
         </section>
 
@@ -770,6 +771,8 @@ const showSchoolInfoValidation = ref(false);
 const personalPasswordForThankYou = ref('');
 const showThankYouPassword = ref(false);
 const copyFeedback = ref('');
+const submittedLoginPath = ref('');
+const submittedPortalPath = ref('');
 let copyFeedbackTimer = null;
 const schoolForm = reactive({
   schoolName: '',
@@ -941,10 +944,16 @@ const canSubmit = computed(() => {
   return password.value.length >= 6 && password.value === passwordConfirm.value;
 });
 const loginPath = computed(() => {
+  if (submittedLoginPath.value) return submittedLoginPath.value;
   const schoolSlug = invite.value?.schoolSlug || invite.value?.school?.slug;
   const agencySlug = invite.value?.agency?.slug;
   const hostImplied = resolveHostImpliedPortalSlug(brandingStore);
   return buildOrgLoginPath(schoolSlug, agencySlug, hostImplied);
+});
+const portalDashboardPath = computed(() => {
+  if (submittedPortalPath.value) return submittedPortalPath.value;
+  const schoolSlug = invite.value?.schoolSlug || invite.value?.school?.slug;
+  return schoolSlug ? `/${String(schoolSlug).trim().toLowerCase()}/dashboard` : '/dashboard';
 });
 const loginHref = computed(() => {
   if (typeof window === 'undefined') return loginPath.value;
@@ -967,6 +976,7 @@ const requestedPaperPackets = computed(() => {
   const raw = invite.value?.stepPayload?.welcome_materials?.requestPaperPackets;
   return raw === true;
 });
+const canEnterPortal = computed(() => !!authStore.isAuthenticated && !!authStore.user?.id);
 
 const shellVars = computed(() => {
   const palette = invite.value?.agency?.colorPalette || {};
@@ -1160,6 +1170,10 @@ async function copyText(value, label = 'Value') {
 }
 
 function goToLogin() {
+  if (canEnterPortal.value && portalDashboardPath.value) {
+    router.push(portalDashboardPath.value);
+    return;
+  }
   router.push(loginPath.value);
 }
 
@@ -1222,6 +1236,36 @@ async function submit() {
       submitted: true
     };
     showThankYouPassword.value = false;
+    // Activate SPA session with ACTIVE_EMPLOYEE so "Got It" / Open Link can enter the portal.
+    if (res.data?.token && res.data?.user) {
+      authStore.setAuth(res.data.token, res.data.user, res.data.sessionId);
+      if (Array.isArray(res.data.agencies)) {
+        try {
+          localStorage.setItem('userAgencies', JSON.stringify(res.data.agencies));
+        } catch {
+          // ignore
+        }
+      }
+    } else if (invite.value?.passwordSet || personalPasswordForThankYou.value) {
+      // Refresh stale PENDING_SETUP user status if we already had a session from setPassword.
+      try {
+        if (authStore.user?.id) {
+          const existingToken = localStorage.getItem('authToken');
+          authStore.setAuth(existingToken, {
+            ...authStore.user,
+            status: 'ACTIVE_EMPLOYEE'
+          }, localStorage.getItem('sessionId'));
+        }
+      } catch {
+        // ignore
+      }
+    }
+    if (res.data?.portalDashboardPath) {
+      submittedPortalPath.value = res.data.portalDashboardPath;
+    }
+    if (res.data?.loginPath) {
+      submittedLoginPath.value = res.data.loginPath;
+    }
     go('home');
   } catch (e) {
     actionError.value = e?.response?.data?.error?.message || 'Unable to submit';

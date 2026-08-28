@@ -304,6 +304,39 @@ export async function mutatePublicStandaloneDemoPortal(req, res, next) {
 export async function submit(req, res, next) {
   try {
     const result = await S.submitOnboarding(req.params.token);
+    const user = result?.user;
+    // After activation, refresh the auth cookie to ACTIVE_EMPLOYEE so the thank-you
+    // → portal handoff is not stuck on a stale PENDING_SETUP JWT from setPassword.
+    if (user?.id && !result?.alreadySubmitted) {
+      const sessionId = crypto.randomUUID();
+      const jwtToken = jwt.sign(
+        {
+          id: user.id,
+          email: user.username || user.email,
+          role: user.role,
+          status: user.status || 'ACTIVE_EMPLOYEE',
+          sessionId,
+          schoolOnboarding: true
+        },
+        config.jwt.secret,
+        { expiresIn: config.jwt.expiresIn }
+      );
+      res.cookie('authToken', jwtToken, config.authCookie.set());
+      return res.json({
+        ...result,
+        token: jwtToken,
+        sessionId,
+        user: {
+          id: user.id,
+          email: user.username || user.email,
+          firstName: user.first_name,
+          lastName: user.last_name,
+          role: user.role,
+          status: user.status || 'ACTIVE_EMPLOYEE',
+          username: user.username || user.email
+        }
+      });
+    }
     res.json(result);
   } catch (err) {
     handleServiceError(err, res, next);

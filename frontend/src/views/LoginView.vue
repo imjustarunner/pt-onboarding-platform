@@ -2120,7 +2120,11 @@ const handleLogin = async () => {
     }
 
     if (authStore.user?.requiresPasswordChange) {
-      router.push('/change-password');
+      if (roleNorm === 'school_staff' && schoolStaffSlug) {
+        router.push(`/${schoolStaffSlug}/change-password`);
+      } else {
+        router.push('/change-password');
+      }
       loading.value = false;
       return;
     }
