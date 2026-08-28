@@ -419,7 +419,7 @@ export async function verifyPasscodeForTenantAndStartSession({
            WHERE ua.user_id = c.user_id AND ua.agency_id = ?
          )
        )
-     ORDER BY c.last_passcode_ok_at DESC, c.id DESC
+     ORDER BY c.last_passcode_ok_at DESC, c.user_id DESC
      LIMIT 200`,
     [aid, aid]
   );

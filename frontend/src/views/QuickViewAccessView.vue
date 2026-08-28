@@ -43,11 +43,13 @@
           <input
             v-model="passcode"
             class="qv-pin"
+            type="password"
             inputmode="numeric"
             maxlength="6"
             pattern="\d{6}"
             autocomplete="one-time-code"
             placeholder="••••••"
+            aria-label="6-digit Quick View passcode"
           />
           <button type="submit" class="qv-btn primary" :disabled="unlocking || passcode.length !== 6">
             {{ unlocking ? 'Opening…' : 'Open' }}
@@ -859,6 +861,8 @@ onUnmounted(() => {
   border: 1px solid #334155;
   background: #1e293b;
   color: #fff;
+  -webkit-text-security: disc;
+  text-security: disc;
 }
 .qv-btn { border: none; border-radius: 10px; padding: 12px 14px; font-weight: 700; cursor: pointer; }
 .qv-btn.primary { background: var(--qv-primary, #166534); color: #fff; width: 100%; }

@@ -16,11 +16,13 @@
         <input
           v-model="passcode"
           class="pin"
+          type="password"
           inputmode="numeric"
           maxlength="6"
           pattern="\d{6}"
           autocomplete="one-time-code"
           placeholder="••••••"
+          aria-label="6-digit Quick View passcode"
         />
         <button type="submit" class="btn" :disabled="busy || passcode.length !== 6">
           {{ busy ? 'Opening…' : 'Open' }}
@@ -197,6 +199,8 @@ onMounted(async () => {
   border: 1px solid #334155;
   background: #1e293b;
   color: #fff;
+  -webkit-text-security: disc;
+  text-security: disc;
 }
 .btn {
   border: none;
