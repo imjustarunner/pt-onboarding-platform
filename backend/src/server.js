@@ -299,7 +299,14 @@ app.use(cors({
   origin: corsOriginFn,
   credentials: true,
   // Explicitly set allowed headers for mobile browser compatibility
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-User-Authorization', 'X-Requested-With', 'X-Agency-Id'],
+  allowedHeaders: [
+    'Content-Type',
+    'Authorization',
+    'X-User-Authorization',
+    'X-Requested-With',
+    'X-Agency-Id',
+    'X-Quick-View-Session'
+  ],
   // Explicitly set exposed headers (cookies are automatically exposed)
   exposedHeaders: ['Set-Cookie'],
   // Ensure preflight requests work correctly on mobile
@@ -833,6 +840,10 @@ app.get('/api/learning-program-classes/:classId/logo', serveSeasonLogo);
 app.use('/api/supervision', supervisionSessionsRoutes);
 app.use('/api/team-meetings', teamMeetingsRoutes);
 
+// Quick View must mount before catch-all `/api` routers that call router.use(authenticate),
+// so passcode sessions are not rejected as missing JWT ("No token provided").
+app.use('/api/quick-view', quickViewRoutes);
+
 app.use('/api', userCommunicationRoutes);
 app.use('/api', userAdminDocsRoutes);
 app.use('/api/users', userPreferencesRoutes);
@@ -944,7 +955,6 @@ app.use('/api/provider-search', providerSearchRoutes);
 app.use('/api/note-aid', noteAidRoutes);
 app.use('/api/training-builder', trainingBuilderRoutes);
 app.use('/api/communications', communicationsRoutes);
-app.use('/api/quick-view', quickViewRoutes);
 app.use('/api/provider-import', providerImportRoutes);
 app.use('/api/admin/mbox-import', mboxImportRoutes);
 app.use('/api/school-settings', schoolSettingsRoutes);

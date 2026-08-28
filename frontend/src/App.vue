@@ -51,7 +51,7 @@
           </template>
         </div>
       </div>
-      <nav v-if="isAuthenticated && !hideGlobalNavForSchoolStaff" class="navbar">
+      <nav v-if="isAuthenticated && !hideGlobalNavForSchoolStaff && !isImmersiveJoinRoute" class="navbar">
         <div class="container">
           <div class="nav-content">
             <button class="mobile-menu-toggle" @click="mobileMenuOpen = !mobileMenuOpen" aria-label="Toggle menu">
@@ -1095,7 +1095,7 @@
         </div>
       </nav>
       <div
-        v-if="isAuthenticated && !hideGlobalNavForSchoolStaff && indirectTimeSessionStore.isClockedIn"
+        v-if="isAuthenticated && !hideGlobalNavForSchoolStaff && !isImmersiveJoinRoute && indirectTimeSessionStore.isClockedIn"
         class="itc-hang-wrap"
       >
         <IndirectTimeClockChip variant="hang" />
@@ -1106,7 +1106,7 @@
       <SummitStatsContextBar :visible="showSummitStatsClubContextBar" />
       <!-- Mobile Sidebar (available on all screen sizes) -->
       <div
-        v-if="isAuthenticated && !hideGlobalNavForSchoolStaff"
+        v-if="isAuthenticated && !hideGlobalNavForSchoolStaff && !isImmersiveJoinRoute"
         class="mobile-sidebar"
         :class="{ open: mobileMenuOpen }"
       >
@@ -1855,15 +1855,15 @@
       </div>
       <!-- Mobile Sidebar Overlay -->
       <div
-        v-if="isAuthenticated && !hideGlobalNavForSchoolStaff && mobileMenuOpen"
+        v-if="isAuthenticated && !hideGlobalNavForSchoolStaff && !isImmersiveJoinRoute && mobileMenuOpen"
         class="mobile-overlay"
         @click="mobileMenuOpen = false"
       ></div>
-      <main :class="{ 'main-no-global-chrome': hideGlobalNavForSchoolStaff }">
+      <main :class="{ 'main-no-global-chrome': hideGlobalNavForSchoolStaff || isImmersiveJoinRoute }">
         <!-- Keep legacy selector for non-super-admin users; super admins use the top-nav switcher.
              Hidden on SSTC / affiliation portals: the context bar below the navbar replaces it. -->
         <AgencySelector
-          v-if="isAuthenticated && !brandingStore.isSuperAdmin && !hideGlobalNavForSchoolStaff && !isSummitStatsChallengeChrome && !String(route.path || '').includes('/tickets') && !String(route.path || '').includes('/counseling')"
+          v-if="isAuthenticated && !brandingStore.isSuperAdmin && !hideGlobalNavForSchoolStaff && !isImmersiveJoinRoute && !isSummitStatsChallengeChrome && !String(route.path || '').includes('/tickets') && !String(route.path || '').includes('/counseling')"
         />
 
         <!-- Password expiry warning banner (shown 14 days before expiry, dismissible per session) -->
@@ -4020,10 +4020,14 @@ const hideGlobalNavForSchoolStaff = computed(() => {
   return false;
 });
 
-/** Team-meeting / supervision join rooms — hide footer & helper chrome that cut off controls. */
+/** Team-meeting / supervision join rooms + Quick View — hide app chrome that squeezes mobile layout. */
 const isImmersiveJoinRoute = computed(() => {
+  if (route.meta?.publicQuickView === true) return true;
   const path = String(route.path || '');
-  return /\/join\/(?:team-meeting|supervision)\//.test(path);
+  return (
+    path.startsWith('/quick-view/')
+    || /\/join\/(?:team-meeting|supervision)\//.test(path)
+  );
 });
 
 // Mount Momentum Stickies only after auth+addon settle and setup finishes.

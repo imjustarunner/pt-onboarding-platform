@@ -172,12 +172,11 @@ export const authenticate = async (req, res, next) => {
     if (requestPath.startsWith('/api/prehire-portal/')) {
       return next();
     }
-    // Quick View public token landing / unlock / session heartbeat (scoped session elsewhere).
+    // Quick View: token landing/unlock are public; scoped data uses X-Quick-View-Session
+    // (requireQuickViewSession). /me/* still requires normal login auth.
     if (
-      /^\/api\/quick-view\/t\//.test(requestPath)
-      || /^\/api\/quick-view\/d\//.test(requestPath)
-      || requestPath === '/api/quick-view/session/heartbeat'
-      || requestPath === '/api/quick-view/session/logout'
+      requestPath.startsWith('/api/quick-view/')
+      && !requestPath.startsWith('/api/quick-view/me')
     ) {
       return next();
     }

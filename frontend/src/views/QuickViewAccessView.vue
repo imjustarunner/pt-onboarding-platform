@@ -8,13 +8,16 @@
       <button v-if="session" type="button" class="qv-btn ghost" @click="logout">Lock</button>
     </header>
 
-    <div v-if="error" class="qv-err">{{ error }}</div>
-    <div v-else-if="loading" class="qv-pad">Loading…</div>
+    <div v-if="error" class="qv-err">
+      {{ error }}
+      <button v-if="session" type="button" class="qv-btn ghost sm" @click="retryHome">Retry</button>
+    </div>
+    <div v-if="loading && !session" class="qv-pad">Loading…</div>
 
-    <section v-else-if="!session" class="qv-gate">
+    <section v-else-if="!session && !loading" class="qv-gate">
       <h1>Quick View</h1>
       <p v-if="tokenInfo">Hi {{ tokenInfo.firstName || 'there' }} — enter your 6-digit passcode.</p>
-      <p v-else>Validating your private link…</p>
+      <p v-else-if="!error">Validating your private link…</p>
       <form v-if="tokenInfo" class="qv-form" @submit.prevent="unlock">
         <input
           v-model="passcode"
@@ -29,12 +32,14 @@
           {{ unlocking ? 'Opening…' : 'Open' }}
         </button>
       </form>
-      <p class="qv-hint">Passcodes are never emailed. Reset yours from Account Info → Privacy after entering your password.</p>
+      <p class="qv-hint">
+        Passcodes are never emailed. Reset yours from My Dashboard → Settings → Privacy &amp; Quick View.
+      </p>
     </section>
 
-    <template v-else>
+    <template v-if="session">
       <nav class="qv-tabs">
-        <button type="button" :class="{ on: tab === 'home' }" @click="tab = 'home'">Messages</button>
+        <button type="button" :class="{ on: tab === 'home' }" @click="tab = 'home'; loadHome()">Messages</button>
         <button type="button" :class="{ on: tab === 'tasks' }" @click="switchTasks">Tasks</button>
         <button type="button" :class="{ on: tab === 'calendar' }" @click="switchCalendar">Calendar</button>
         <button type="button" :class="{ on: tab === 'contacts' }" @click="loadContacts">Contacts</button>
@@ -151,11 +156,10 @@
 
 <script setup>
 import { computed, onMounted, onUnmounted, ref } from 'vue';
-import { useRoute, useRouter } from 'vue-router';
+import { useRoute } from 'vue-router';
 import axios from 'axios';
 
 const route = useRoute();
-const router = useRouter();
 const apiBase = '/api/quick-view';
 
 const loading = ref(true);
@@ -203,7 +207,8 @@ async function loadTokenInfo() {
     const token = String(route.params.token || '');
     const path = isDelivery.value ? `/d/${encodeURIComponent(token)}` : `/t/${encodeURIComponent(token)}`;
     const { data } = await axios.get(`${apiBase}${path}`, {
-      params: { join: route.query.join, id: route.query.id }
+      params: { join: route.query.join, id: route.query.id },
+      withCredentials: true
     });
     tokenInfo.value = data;
     agencyName.value = data.agencyName || '';
@@ -230,7 +235,7 @@ async function unlock() {
     const path = isDelivery.value
       ? `/d/${encodeURIComponent(token)}/unlock`
       : `/t/${encodeURIComponent(token)}/unlock`;
-    const { data } = await axios.post(`${apiBase}${path}`, body);
+    const { data } = await axios.post(`${apiBase}${path}`, body, { withCredentials: true });
     session.value = data.sessionToken;
     expiresAt.value = data.expiresAt;
     startHeartbeat();
@@ -254,7 +259,11 @@ function startHeartbeat() {
   stopHeartbeat();
   heartbeatTimer = setInterval(async () => {
     try {
-      const { data } = await axios.post(`${apiBase}/session/heartbeat`, {}, { headers: authHeaders() });
+      const { data } = await axios.post(
+        `${apiBase}/session/heartbeat`,
+        {},
+        { headers: authHeaders(), withCredentials: true }
+      );
       expiresAt.value = data.expiresAt;
     } catch {
       session.value = null;
@@ -268,14 +277,29 @@ function stopHeartbeat() {
 }
 
 async function loadHome() {
-  const { data } = await axios.get(`${apiBase}/home`, { headers: authHeaders() });
-  conversations.value = data.conversations || [];
-  tab.value = 'home';
+  error.value = '';
+  try {
+    const { data } = await axios.get(`${apiBase}/home`, {
+      headers: authHeaders(),
+      withCredentials: true
+    });
+    conversations.value = data.conversations || [];
+    tab.value = 'home';
+  } catch (e) {
+    error.value = e?.response?.data?.error?.message || 'Could not load messages';
+  }
+}
+
+async function retryHome() {
+  await loadHome();
 }
 
 async function openConversation(c) {
   activeConv.value = c;
-  const { data } = await axios.get(`${apiBase}/conversations/${c.id}`, { headers: authHeaders() });
+  const { data } = await axios.get(`${apiBase}/conversations/${c.id}`, {
+    headers: authHeaders(),
+    withCredentials: true
+  });
   threadMessages.value = data.messages || [];
   tab.value = 'thread';
   c.is_unread = 0;
@@ -284,14 +308,22 @@ async function openConversation(c) {
 async function loadTasks(view = 'mine') {
   taskView.value = view;
   tab.value = 'tasks';
-  const { data } = await axios.get(`${apiBase}/tasks`, { headers: authHeaders(), params: { view } });
+  const { data } = await axios.get(`${apiBase}/tasks`, {
+    headers: authHeaders(),
+    withCredentials: true,
+    params: { view }
+  });
   tasks.value = data.tasks || [];
 }
 function switchTasks() { loadTasks(taskView.value); }
 
 async function loadCalendar() {
   tab.value = 'calendar';
-  const { data } = await axios.get(`${apiBase}/calendar/day`, { headers: authHeaders(), params: { day: day.value } });
+  const { data } = await axios.get(`${apiBase}/calendar/day`, {
+    headers: authHeaders(),
+    withCredentials: true,
+    params: { day: day.value }
+  });
   dayItems.value = data.items || [];
 }
 function switchCalendar() { loadCalendar(); }
@@ -308,14 +340,21 @@ async function toggleOffice() {
   else await loadCalendar();
 }
 async function loadOffice() {
-  const { data } = await axios.get(`${apiBase}/office`, { headers: authHeaders(), params: { day: day.value } });
+  const { data } = await axios.get(`${apiBase}/office`, {
+    headers: authHeaders(),
+    withCredentials: true,
+    params: { day: day.value }
+  });
   officeSlots.value = data.slots || [];
 }
 
 async function loadContacts() {
   tab.value = 'contacts';
   try {
-    const { data } = await axios.get(`${apiBase}/contacts`, { headers: authHeaders() });
+    const { data } = await axios.get(`${apiBase}/contacts`, {
+      headers: authHeaders(),
+      withCredentials: true
+    });
     contacts.value = data.contacts || [];
   } catch {
     contacts.value = [];
@@ -331,7 +370,7 @@ async function sendQuickReply() {
     await axios.post(
       `${apiBase}/conversations/${activeConv.value.id}/reply`,
       { text: replyText.value.trim() },
-      { headers: authHeaders() }
+      { headers: authHeaders(), withCredentials: true }
     );
     replyText.value = '';
     await openConversation(activeConv.value);
@@ -347,7 +386,11 @@ async function toggleTask(task) {
     ? 'open'
     : 'completed';
   try {
-    await axios.patch(`${apiBase}/tasks/${task.id}/status`, { status: next }, { headers: authHeaders() });
+    await axios.patch(
+      `${apiBase}/tasks/${task.id}/status`,
+      { status: next },
+      { headers: authHeaders(), withCredentials: true }
+    );
     await loadTasks(taskView.value);
   } catch (e) {
     error.value = e?.response?.data?.error?.message || 'Could not update task';
@@ -360,14 +403,23 @@ function joinHref(item) {
   return `/join/team-meeting/${encodeURIComponent(item.joinKey)}`;
 }
 function extendForMeeting(item) {
-  axios.post(`${apiBase}/session/heartbeat`, { meetingEndsAt: item.endAt }, { headers: authHeaders() }).catch(() => {});
+  axios
+    .post(
+      `${apiBase}/session/heartbeat`,
+      { meetingEndsAt: item.endAt },
+      { headers: authHeaders(), withCredentials: true }
+    )
+    .catch(() => {});
 }
 
 async function logout() {
-  await axios.post(`${apiBase}/session/logout`, {}, { headers: authHeaders() }).catch(() => {});
+  await axios
+    .post(`${apiBase}/session/logout`, {}, { headers: authHeaders(), withCredentials: true })
+    .catch(() => {});
   session.value = null;
   stopHeartbeat();
   passcode.value = '';
+  error.value = '';
 }
 
 function channelIcon(ch) {
@@ -402,21 +454,80 @@ onUnmounted(stopHeartbeat);
 </script>
 
 <style scoped>
-.qv { min-height: 100vh; background: #0f172a; color: #f8fafc; font-family: system-ui, sans-serif; max-width: 480px; margin: 0 auto; }
-.qv-top { display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; border-bottom: 1px solid #1e293b; }
-.qv-brand { font-weight: 800; }
+.qv {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 100%;
+  max-width: 100vw;
+  min-height: 100vh;
+  min-height: 100dvh;
+  margin: 0;
+  background: #0f172a;
+  color: #f8fafc;
+  font-family: system-ui, -apple-system, sans-serif;
+  overflow-x: hidden;
+}
+.qv *,
+.qv *::before,
+.qv *::after {
+  box-sizing: border-box;
+}
+.qv-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
+  border-bottom: 1px solid #1e293b;
+}
+.qv-brand { font-weight: 800; font-size: 1.05rem; }
 .qv-sub { font-size: 11px; color: #94a3b8; }
 .qv-gate, .qv-pad { padding: 24px 16px; }
-.qv-form { display: flex; flex-direction: column; gap: 12px; margin-top: 16px; }
-.qv-pin { font-size: 28px; letter-spacing: 0.4em; text-align: center; padding: 12px; border-radius: 12px; border: 1px solid #334155; background: #1e293b; color: #fff; }
-.qv-btn { border: none; border-radius: 10px; padding: 10px 14px; font-weight: 700; cursor: pointer; }
-.qv-btn.primary { background: #166534; color: #fff; }
+.qv-gate h1 {
+  margin: 0 0 8px;
+  font-size: clamp(1.75rem, 8vw, 2.4rem);
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: #e2e8f0;
+}
+.qv-gate p { margin: 0; line-height: 1.4; }
+.qv-form { display: flex; flex-direction: column; gap: 12px; margin-top: 16px; width: 100%; }
+.qv-pin {
+  width: 100%;
+  font-size: 28px;
+  letter-spacing: 0.35em;
+  text-align: center;
+  padding: 14px 12px;
+  border-radius: 12px;
+  border: 1px solid #334155;
+  background: #1e293b;
+  color: #fff;
+}
+.qv-btn { border: none; border-radius: 10px; padding: 12px 14px; font-weight: 700; cursor: pointer; }
+.qv-btn.primary { background: #166534; color: #fff; width: 100%; }
 .qv-btn.ghost { background: transparent; color: #cbd5e1; }
-.qv-btn.sm { padding: 6px 10px; font-size: 12px; }
-.qv-hint { font-size: 12px; color: #94a3b8; margin-top: 16px; }
-.qv-err { margin: 12px 16px; padding: 10px; background: #7f1d1d; border-radius: 8px; }
+.qv-btn.sm { padding: 6px 10px; font-size: 12px; width: auto; }
+.qv-hint {
+  font-size: 12px;
+  color: #94a3b8;
+  margin-top: 16px;
+  line-height: 1.45;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+.qv-err {
+  margin: 12px 16px;
+  padding: 10px 12px;
+  background: #7f1d1d;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
 .qv-tabs { display: flex; gap: 4px; padding: 8px; border-bottom: 1px solid #1e293b; overflow-x: auto; }
-.qv-tabs button { flex: 1; background: #1e293b; color: #cbd5e1; border: none; border-radius: 8px; padding: 8px; font-weight: 700; }
+.qv-tabs button { flex: 1; min-width: 0; background: #1e293b; color: #cbd5e1; border: none; border-radius: 8px; padding: 10px 8px; font-weight: 700; }
 .qv-tabs button.on { background: #166534; color: #fff; }
 .qv-sorters, .qv-day-nav { display: flex; gap: 6px; padding: 8px 12px; flex-wrap: wrap; align-items: center; }
 .qv-sorters button { background: #1e293b; color: #94a3b8; border: none; border-radius: 999px; padding: 6px 10px; font-size: 12px; }
