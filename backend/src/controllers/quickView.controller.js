@@ -8,6 +8,7 @@ import {
   verifyPasscodeAndStartSession,
   verifyPasscodeForTenantAndStartSession,
   touchSession,
+  extendSession,
   revokeSession,
   logAccessEvent,
   buildQuickViewUrl
@@ -78,11 +79,11 @@ async function resolveQuickViewBranding(agency, req = null) {
   };
 }
 
-function sanitizeQuickViewCalendarItem(e) {
+function sanitizeQuickViewCalendarItem(e, { clientInitials = null, attendees = [] } = {}) {
   const kind = String(e.kind || 'SCHEDULE').toUpperCase();
   const hasClient = !!(e.client_id || e.clientId);
   const rawTitle = String(e.title || '').trim();
-  // Never expose client identity in Quick View
+  // Never expose client identity in Quick View list titles
   let title;
   if (hasClient) {
     if (kind.includes('SUPERVISION')) title = 'Supervision';
@@ -95,14 +96,37 @@ function sanitizeQuickViewCalendarItem(e) {
   }
   return {
     id: `pse-${e.id}`,
+    eventId: e.id,
     title,
     kind: e.kind || 'SCHEDULE',
     startAt: e.start_at || e.startAt,
     endAt: e.end_at || e.endAt,
-    location: e.location || null,
+    location: e.location || e.office_name || null,
     joinKey: e.participant_join_token || e.join_token || e.id,
-    canJoin: !!(e.platform_video_link == null || Number(e.platform_video_link) === 1 || e.google_meet_link)
+    canJoin: !!(e.platform_video_link == null || Number(e.platform_video_link) === 1 || e.google_meet_link),
+    hasClient,
+    clientInitials: hasClient ? (clientInitials || null) : null,
+    attendees: attendees || [],
+    notes: null,
+    editable: !hasClient
   };
+}
+
+function clientInitialsFromRow(c) {
+  if (!c) return null;
+  const f = String(c.first_name || '').trim();
+  const l = String(c.last_name || '').trim();
+  if (f && l) return `${f[0].toUpperCase()}.${l[0].toUpperCase()}.`;
+  if (f) return `${f[0].toUpperCase()}.`;
+  if (l) return `${l[0].toUpperCase()}.`;
+  return null;
+}
+
+function userInitials(u) {
+  const f = String(u?.first_name || '').trim();
+  const l = String(u?.last_name || '').trim();
+  if (f && l) return `${f[0].toUpperCase()}.${l[0].toUpperCase()}.`;
+  return `${f || l || '?'}`.slice(0, 2).toUpperCase();
 }
 
 /**
@@ -432,6 +456,18 @@ export const getTenantQuickViewInfo = async (req, res, next) => {
     if (!agency && host) {
       agency = await Agency.findByCustomDomain(host);
     }
+    // Dedicated app hosts (qv.app.nextleveluplcc.com → app.nextleveluplcc.com → slug)
+    if (!agency && host) {
+      try {
+        const { DEDICATED_APP_HOSTS } = await import('../utils/publicPortalUrl.js');
+        const entry = Object.entries(DEDICATED_APP_HOSTS || {}).find(
+          ([, dedicated]) => String(dedicated).toLowerCase() === host
+        );
+        if (entry?.[0]) {
+          agency = (await Agency.findByPortalUrl(entry[0])) || (await Agency.findBySlug(entry[0]));
+        }
+      } catch { /* ignore */ }
+    }
     if (!agency) {
       return res.status(404).json({ error: { message: 'Unknown Quick View tenant' } });
     }
@@ -516,6 +552,18 @@ export const postHeartbeat = async (req, res, next) => {
     const session = await touchSession(raw, { meetingEndsAt: req.body?.meetingEndsAt || null });
     if (!session) return res.status(401).json({ error: { message: 'Session expired' } });
     res.json({ ok: true, ...session });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const postExtendSession = async (req, res, next) => {
+  try {
+    const raw = req.cookies?.qv_session || req.headers['x-quick-view-session'] || req.body?.sessionToken;
+    const minutes = Number(req.body?.minutes || 10);
+    const session = await extendSession(raw, { minutes });
+    if (!session) return res.status(401).json({ error: { message: 'Session expired' } });
+    res.json({ ok: true, ...session, message: 'Still here — session extended' });
   } catch (e) {
     next(e);
   }
@@ -663,6 +711,46 @@ export const getQuickDayCalendar = async (req, res, next) => {
       windowEnd
     }).catch(() => []);
 
+    const clientIds = [...new Set(
+      (events || []).map((e) => Number(e.client_id || e.clientId || 0)).filter(Boolean)
+    )];
+    const initialsByClient = new Map();
+    if (clientIds.length) {
+      const ph = clientIds.map(() => '?').join(',');
+      const [crows] = await pool.execute(
+        `SELECT id, first_name, last_name FROM clients WHERE id IN (${ph})`,
+        clientIds
+      ).catch(() => [[]]);
+      for (const c of crows || []) {
+        initialsByClient.set(Number(c.id), clientInitialsFromRow(c));
+      }
+    }
+
+    const eventIds = (events || []).map((e) => Number(e.id)).filter(Boolean);
+    const attendeesByEvent = new Map();
+    if (eventIds.length) {
+      try {
+        const ph = eventIds.map(() => '?').join(',');
+        const [arows] = await pool.execute(
+          `SELECT a.event_id, u.id AS user_id, u.first_name, u.last_name
+           FROM provider_schedule_event_attendees a
+           JOIN users u ON u.id = a.user_id
+           WHERE a.event_id IN (${ph})
+           LIMIT 500`,
+          eventIds
+        );
+        for (const a of arows || []) {
+          const eid = Number(a.event_id);
+          if (!attendeesByEvent.has(eid)) attendeesByEvent.set(eid, []);
+          attendeesByEvent.get(eid).push({
+            userId: Number(a.user_id),
+            initials: userInitials(a),
+            name: `${a.first_name || ''} ${a.last_name || ''}`.trim()
+          });
+        }
+      } catch { /* table may differ */ }
+    }
+
     const [officeRows] = await pool.execute(
       `SELECT e.id, e.start_at, e.end_at, e.status,
               ol.name AS office_name
@@ -677,16 +765,24 @@ export const getQuickDayCalendar = async (req, res, next) => {
     ).catch(() => [[]]);
 
     const items = [
-      ...(events || []).map((e) => sanitizeQuickViewCalendarItem(e)),
+      ...(events || []).map((e) => sanitizeQuickViewCalendarItem(e, {
+        clientInitials: initialsByClient.get(Number(e.client_id || e.clientId || 0)) || null,
+        attendees: attendeesByEvent.get(Number(e.id)) || []
+      })),
       ...(officeRows || []).map((o) => ({
         id: `office-${o.id}`,
+        eventId: o.id,
         title: 'Office',
         kind: 'OFFICE',
         startAt: o.start_at,
         endAt: o.end_at,
         location: o.office_name || null,
         joinKey: null,
-        canJoin: false
+        canJoin: false,
+        hasClient: false,
+        clientInitials: null,
+        attendees: [],
+        editable: false
       }))
     ].sort((a, b) => new Date(a.startAt) - new Date(b.startAt));
 

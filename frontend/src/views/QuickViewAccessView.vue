@@ -1,5 +1,8 @@
 <template>
   <div class="qv" :style="brandStyle">
+    <a v-if="loginUrl" class="qv-fullapp" :href="loginUrl">
+      Click here to login to the full app
+    </a>
     <header class="qv-top">
       <div class="qv-brand-row">
         <img v-if="agencyLogoUrl" :src="agencyLogoUrl" alt="" class="qv-logo" />
@@ -8,7 +11,12 @@
           <div class="qv-sub" v-if="session">Expires {{ formatExpiry(expiresAt) }}</div>
         </div>
       </div>
-      <button v-if="session" type="button" class="qv-btn ghost" @click="logout">Lock</button>
+      <div v-if="session" class="qv-top-actions">
+        <button type="button" class="qv-btn primary sm" :disabled="extendBusy" @click="extendSession">
+          {{ extendBusy ? '…' : '+10 min' }}
+        </button>
+        <button type="button" class="qv-btn ghost sm" @click="logout">Lock</button>
+      </div>
     </header>
 
     <div v-if="homeScreenTip && !session" class="qv-homescreen">
@@ -66,6 +74,7 @@
         <button type="button" :class="{ on: tab === 'home' }" @click="tab = 'home'; loadHome()">Messages</button>
         <button type="button" :class="{ on: tab === 'tasks' }" @click="switchTasks">Tasks</button>
         <button type="button" :class="{ on: tab === 'calendar' }" @click="switchCalendar">Calendar</button>
+        <button type="button" :class="{ on: tab === 'noteaid' }" @click="switchNoteAid">Note Aid</button>
         <button type="button" :class="{ on: tab === 'contacts' }" @click="loadContacts">Contacts</button>
       </nav>
 
@@ -249,6 +258,32 @@
         <template v-else-if="taskSuite === 'listDetail' || taskSuite === 'projectDetail'">
           <button type="button" class="qv-btn ghost" @click="taskSuite === 'listDetail' ? loadSharedLists() : loadProjects()">← Back</button>
           <h2 class="qv-section-title">{{ suiteDetailTitle }}</h2>
+          <div v-if="suiteStats" class="qv-pad muted" style="padding-top:0;">
+            {{ suiteStats.open }} open · {{ suiteStats.completed }} done
+            <span v-if="suiteStats.progress != null"> · {{ suiteStats.progress }}%</span>
+          </div>
+          <div v-if="suiteMembers.length" class="qv-office-section">
+            <h3 class="qv-section-title" style="font-size:0.95rem;">Members</h3>
+            <div v-for="m in suiteMembers" :key="m.user_id" class="qv-row">
+              <div class="meta">
+                <strong>{{ m.name }}</strong>
+                <small>{{ m.role || 'member' }}{{ m.title ? ` · ${m.title}` : '' }}</small>
+              </div>
+            </div>
+          </div>
+          <div v-if="suiteLists.length" class="qv-office-section">
+            <h3 class="qv-section-title" style="font-size:0.95rem;">Lists in project</h3>
+            <button
+              v-for="l in suiteLists"
+              :key="l.id || l.task_list_id"
+              type="button"
+              class="qv-row"
+              @click="openSharedList({ id: l.task_list_id || l.id, name: l.name })"
+            >
+              <div class="meta"><strong>{{ l.name }}</strong></div>
+            </button>
+          </div>
+          <h3 class="qv-section-title" style="font-size:0.95rem;">Tasks</h3>
           <button
             v-for="t in suiteTasks"
             :key="t.id"
@@ -258,11 +293,40 @@
           >
             <div class="meta">
               <strong>{{ t.title }}</strong>
-              <small>{{ t.status }} · {{ t.due_at ? formatTime(t.due_at) : 'No due' }}</small>
+              <small>{{ t.status }} · {{ t.assignee || '' }} · {{ t.due_at ? formatTime(t.due_at) : 'No due' }}</small>
             </div>
           </button>
           <div v-if="!suiteTasks.length" class="qv-pad muted">No tasks in this view.</div>
         </template>
+      </div>
+
+      <div v-else-if="tab === 'noteaid'" class="qv-pane">
+        <div class="qv-pad" style="padding-bottom:8px;">
+          <p class="muted" style="margin:0 0 8px;">
+            Use client initials only (e.g. J.S.). Attaching clients is saved for the main app — open the full app to link a client to a note.
+          </p>
+          <label class="muted">Tool</label>
+          <select v-model="noteAidToolId" class="qv-date" style="width:100%;margin:6px 0 10px;">
+            <option disabled value="">Select a Note Aid tool</option>
+            <option v-for="t in noteAidTools" :key="t.id" :value="t.id">{{ t.name || t.label || t.id }}</option>
+          </select>
+          <textarea
+            v-model="noteAidInput"
+            rows="5"
+            placeholder="Type notes using initials…"
+            style="width:100%;border-radius:10px;border:1px solid var(--qv-border);background:var(--qv-surface);color:var(--qv-text);padding:10px;"
+          />
+          <button
+            type="button"
+            class="qv-btn primary"
+            style="margin-top:8px;"
+            :disabled="noteAidBusy || !noteAidToolId || !noteAidInput.trim()"
+            @click="runNoteAid"
+          >
+            {{ noteAidBusy ? 'Running…' : 'Generate' }}
+          </button>
+          <pre v-if="noteAidOutput" class="qv-note-out">{{ noteAidOutput }}</pre>
+        </div>
       </div>
 
       <div v-else-if="tab === 'calendar'" class="qv-pane">
@@ -288,6 +352,10 @@
                   :key="item.id"
                   class="qv-cal-block"
                   :style="blockStyle(item, hour)"
+                  role="button"
+                  tabindex="0"
+                  @click="openCalEvent(item)"
+                  @keydown.enter="openCalEvent(item)"
                 >
                   <strong>{{ item.title || item.kind }}</strong>
                   <small>{{ formatClock(item.startAt) }}–{{ formatClock(item.endAt) }}</small>
@@ -295,7 +363,7 @@
                     v-if="item.canJoin"
                     class="qv-btn primary sm"
                     :href="joinHref(item)"
-                    @click="extendForMeeting(item)"
+                    @click.stop="extendForMeeting(item)"
                   >Join</a>
                 </div>
               </div>
@@ -457,17 +525,45 @@
         <p v-if="taskDetail.task.project_name || taskDetail.task.task_list_name" class="qv-detail-meta">
           {{ [taskDetail.task.project_name, taskDetail.task.task_list_name].filter(Boolean).join(' · ') }}
         </p>
+        <p v-if="taskDetail.task.assignee" class="qv-detail-meta">
+          Assigned: {{ taskDetail.task.assignee.name }}
+        </p>
         <div class="qv-detail-body">
           <template v-if="taskDetail.task.description_locked">Description is protected — open the full app to view.</template>
           <template v-else>{{ taskDetail.task.description || 'No description.' }}</template>
         </div>
+        <h4>Assign</h4>
+        <select v-model="taskAssignId" class="qv-date" style="width:100%;margin-bottom:8px;" @change="saveTaskAssign">
+          <option :value="null">Unassigned</option>
+          <option v-for="p in directoryProviders" :key="p.id" :value="p.id">{{ p.displayName }}</option>
+        </select>
+        <h4>Shared list</h4>
+        <select v-model="taskListPickId" class="qv-date" style="width:100%;margin-bottom:8px;" @change="saveTaskList">
+          <option :value="null">No shared list</option>
+          <option v-for="l in (taskDetail.availableLists || [])" :key="l.id" :value="l.id">{{ l.name }}</option>
+        </select>
+        <div v-if="taskDetail.attachments?.length" class="qv-links">
+          <h4>Attachments</h4>
+          <a v-for="a in taskDetail.attachments" :key="a.id" :href="a.url" target="_blank" rel="noopener">{{ a.filename }}</a>
+        </div>
+        <div v-if="taskDetail.collaborators?.length" class="qv-office-section">
+          <h4>Collaborators</h4>
+          <div v-for="c in taskDetail.collaborators" :key="c.user_id" class="qv-detail-meta">{{ c.name }}</div>
+        </div>
         <div v-if="taskDetail.links?.length" class="qv-links">
+          <h4>Links</h4>
           <a v-for="l in taskDetail.links" :key="l.id" :href="l.url" target="_blank" rel="noopener">{{ l.label || l.url }}</a>
         </div>
         <div class="qv-sheet-actions">
           <button type="button" class="qv-btn ghost" @click="markTaskStatus(taskDetail.task)">
             {{ isDone(taskDetail.task) ? 'Reopen' : 'Mark done' }}
           </button>
+          <button
+            v-if="taskDetail.task.project_id"
+            type="button"
+            class="qv-btn primary"
+            @click="openProjectFromTask"
+          >Open project</button>
         </div>
         <h4>Comments</h4>
         <div v-for="c in taskDetail.comments" :key="c.id" class="qv-comment">
@@ -482,6 +578,36 @@
             {{ taskCommentBusy ? 'Posting…' : 'Comment' }}
           </button>
         </form>
+      </div>
+    </div>
+
+    <div v-if="calEvent" class="qv-modal" @click.self="calEvent = null">
+      <div class="qv-sheet">
+        <button type="button" class="qv-btn ghost sm" @click="calEvent = null">Close</button>
+        <h3>{{ calEvent.title }}</h3>
+        <p class="qv-detail-meta">{{ calEvent.kind }} · {{ formatClock(calEvent.startAt) }} – {{ formatClock(calEvent.endAt) }}</p>
+        <p v-if="calEvent.location" class="qv-detail-meta">{{ calEvent.location }}</p>
+        <p v-if="calEvent.hasClient" class="qv-detail-meta">
+          Client: {{ calEvent.clientInitials || 'initials unavailable' }}
+          <span class="muted"> (full name only in the main app)</span>
+        </p>
+        <div v-if="calEvent.attendees?.length">
+          <h4 style="margin:12px 0 6px;font-size:13px;color:var(--qv-muted);">Who’s coming</h4>
+          <div v-for="a in calEvent.attendees" :key="a.userId" class="qv-detail-meta">
+            {{ a.name || a.initials }}
+          </div>
+        </div>
+        <div class="qv-sheet-actions" style="margin-top:12px;">
+          <a
+            v-if="calEvent.canJoin"
+            class="qv-btn primary"
+            :href="joinHref(calEvent)"
+            @click="extendForMeeting(calEvent)"
+          >Join</a>
+          <p v-else class="muted" style="margin:0;font-size:13px;">
+            {{ calEvent.hasClient ? 'Client session details stay limited in Quick View.' : 'Open the full app to edit this event.' }}
+          </p>
+        </div>
       </div>
     </div>
   </div>
@@ -536,9 +662,21 @@ const taskLists = ref([]);
 const taskProjects = ref([]);
 const suiteTasks = ref([]);
 const suiteDetailTitle = ref('');
+const suiteMembers = ref([]);
+const suiteLists = ref([]);
+const suiteStats = ref(null);
 const taskDetail = ref(null);
 const taskComment = ref('');
 const taskCommentBusy = ref(false);
+const taskAssignId = ref(null);
+const taskListPickId = ref(null);
+const calEvent = ref(null);
+const extendBusy = ref(false);
+const noteAidTools = ref([]);
+const noteAidToolId = ref('');
+const noteAidInput = ref('');
+const noteAidOutput = ref('');
+const noteAidBusy = ref(false);
 const day = ref(new Date().toISOString().slice(0, 10));
 const dayItems = ref([]);
 const showOffice = ref(false);
@@ -585,11 +723,12 @@ const brandStyle = computed(() => {
   const primary = p.primary || agencyPrimaryColor.value || '#166534';
   const secondary = p.secondary || primary;
   const accent = p.accent || secondary;
+  // Strong tenant tint (avoid default slate blue shell)
   const bg = p.backgroundColor
-    || `color-mix(in srgb, ${primary} 20%, #06100c)`;
+    || `linear-gradient(180deg, color-mix(in srgb, ${primary} 42%, #041008) 0%, color-mix(in srgb, ${accent} 28%, #020806) 100%)`;
   const surface = p.secondaryBackground
-    || `color-mix(in srgb, ${primary} 28%, #0a1610)`;
-  const border = `color-mix(in srgb, ${secondary} 35%, #1a2e24)`;
+    || `color-mix(in srgb, ${primary} 32%, #0a1610)`;
+  const border = `color-mix(in srgb, ${secondary} 45%, #12261c)`;
   const text = p.textPrimary || '#f4faf6';
   const muted = p.textMuted || p.textSecondary || '#a7c4b4';
   return {
@@ -1070,33 +1209,144 @@ async function loadProjects() {
 async function openSharedList(l) {
   suiteDetailTitle.value = l.name;
   taskSuite.value = 'listDetail';
+  suiteMembers.value = [];
+  suiteLists.value = [];
+  suiteStats.value = null;
   const { data } = await axios.get(`${apiBase}/task-lists/${l.id}/tasks`, {
     headers: authHeaders(),
     withCredentials: true
   });
   suiteTasks.value = data.tasks || [];
+  suiteMembers.value = data.members || [];
 }
 
 async function openProject(p) {
   suiteDetailTitle.value = p.name;
   taskSuite.value = 'projectDetail';
+  suiteMembers.value = [];
+  suiteLists.value = [];
+  suiteStats.value = null;
   const { data } = await axios.get(`${apiBase}/task-projects/${p.id}`, {
     headers: authHeaders(),
     withCredentials: true
   });
   suiteTasks.value = data.tasks || [];
+  suiteMembers.value = data.members || [];
+  suiteLists.value = data.lists || [];
+  suiteStats.value = data.stats || null;
 }
 
 async function openTaskDetail(t) {
   try {
+    if (!directoryProviders.value.length) {
+      await loadDirectory('providers').catch(() => {});
+    }
     const { data } = await axios.get(`${apiBase}/tasks/${t.id}`, {
       headers: authHeaders(),
       withCredentials: true
     });
     taskDetail.value = data;
     taskComment.value = '';
+    taskAssignId.value = data.task?.assigned_to_user_id || null;
+    taskListPickId.value = data.task?.task_list_id || null;
   } catch (e) {
     error.value = e?.response?.data?.error?.message || 'Could not open task';
+  }
+}
+
+async function saveTaskAssign() {
+  if (!taskDetail.value?.task?.id) return;
+  try {
+    await axios.patch(
+      `${apiBase}/tasks/${taskDetail.value.task.id}`,
+      { assignedToUserId: taskAssignId.value },
+      { headers: authHeaders(), withCredentials: true }
+    );
+    await openTaskDetail(taskDetail.value.task);
+  } catch (e) {
+    error.value = e?.response?.data?.error?.message || 'Could not assign';
+  }
+}
+
+async function saveTaskList() {
+  if (!taskDetail.value?.task?.id) return;
+  try {
+    await axios.patch(
+      `${apiBase}/tasks/${taskDetail.value.task.id}`,
+      { taskListId: taskListPickId.value },
+      { headers: authHeaders(), withCredentials: true }
+    );
+    await openTaskDetail(taskDetail.value.task);
+  } catch (e) {
+    error.value = e?.response?.data?.error?.message || 'Could not update list';
+  }
+}
+
+function openProjectFromTask() {
+  const pid = taskDetail.value?.task?.project_id;
+  const pname = taskDetail.value?.task?.project_name || 'Project';
+  taskDetail.value = null;
+  if (pid) openProject({ id: pid, name: pname });
+}
+
+function openCalEvent(item) {
+  calEvent.value = item;
+}
+
+async function extendSession() {
+  extendBusy.value = true;
+  try {
+    const { data } = await axios.post(
+      `${apiBase}/session/extend`,
+      { minutes: 10 },
+      { headers: authHeaders(), withCredentials: true }
+    );
+    expiresAt.value = data.expiresAt;
+  } catch (e) {
+    error.value = e?.response?.data?.error?.message || 'Could not extend session';
+  } finally {
+    extendBusy.value = false;
+  }
+}
+
+async function switchNoteAid() {
+  tab.value = 'noteaid';
+  noteAidOutput.value = '';
+  try {
+    const { data } = await axios.get(`${apiBase}/note-aid/tools`, {
+      headers: authHeaders(),
+      withCredentials: true,
+      params: { agencyId: sessionAgencyId.value || undefined }
+    });
+    noteAidTools.value = data.tools || [];
+    if (!noteAidToolId.value && noteAidTools.value[0]) {
+      noteAidToolId.value = noteAidTools.value[0].id;
+    }
+  } catch (e) {
+    error.value = e?.response?.data?.error?.message || 'Note Aid unavailable';
+    noteAidTools.value = [];
+  }
+}
+
+async function runNoteAid() {
+  if (!noteAidToolId.value || !noteAidInput.value.trim()) return;
+  noteAidBusy.value = true;
+  noteAidOutput.value = '';
+  try {
+    const { data } = await axios.post(
+      `${apiBase}/note-aid/execute`,
+      {
+        agencyId: sessionAgencyId.value,
+        toolId: noteAidToolId.value,
+        inputText: noteAidInput.value.trim()
+      },
+      { headers: authHeaders(), withCredentials: true }
+    );
+    noteAidOutput.value = data.outputText || data.text || data.output || JSON.stringify(data, null, 2);
+  } catch (e) {
+    error.value = e?.response?.data?.error?.message || 'Note Aid failed';
+  } finally {
+    noteAidBusy.value = false;
   }
 }
 
@@ -1461,10 +1711,36 @@ onUnmounted(() => {
   min-height: 100dvh;
   margin: 0;
   background: var(--qv-bg, #0f172a);
+  background-color: color-mix(in srgb, var(--qv-primary, #166534) 28%, #041008);
   color: var(--qv-text, #f8fafc);
   font-family: system-ui, -apple-system, sans-serif;
   overflow-x: hidden;
+  padding-bottom: calc(72px + env(safe-area-inset-bottom, 0px));
 }
+.qv-fullapp {
+  display: block;
+  text-align: center;
+  padding: 10px 12px;
+  background: var(--qv-primary, #166534);
+  color: #fff;
+  font-weight: 800;
+  font-size: 13px;
+  text-decoration: none;
+}
+.qv-top-actions { display: flex; gap: 6px; align-items: center; flex-shrink: 0; }
+.qv-note-out {
+  margin-top: 12px;
+  padding: 12px;
+  border-radius: 10px;
+  background: var(--qv-surface, #1e293b);
+  border: 1px solid var(--qv-border, #334155);
+  white-space: pre-wrap;
+  font-size: 13px;
+  line-height: 1.45;
+  max-height: 40vh;
+  overflow: auto;
+}
+.qv-cal-block { cursor: pointer; }
 .qv *,
 .qv *::before,
 .qv *::after {

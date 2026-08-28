@@ -607,6 +607,50 @@ export async function touchSession(rawSessionToken, { meetingEndsAt = null } = {
   };
 }
 
+/** Explicit “still here” bump — add minutes from now (default 10). */
+export async function extendSession(rawSessionToken, { minutes = 10 } = {}) {
+  const hash = sha256(rawSessionToken);
+  const [rows] = await pool.execute(
+    `SELECT * FROM quick_view_sessions
+     WHERE session_token_hash = ? AND revoked_at IS NULL
+     LIMIT 1`,
+    [hash]
+  );
+  const session = rows?.[0];
+  if (!session) return null;
+  const now = new Date();
+  if (new Date(session.expires_at) <= now) {
+    await logAccessEvent({
+      userId: session.user_id,
+      agencyId: session.agency_id,
+      eventType: 'session_expire'
+    });
+    return null;
+  }
+  const addMs = Math.max(1, Math.min(60, Number(minutes) || 10)) * 60 * 1000;
+  const fromNow = new Date(now.getTime() + addMs);
+  const current = new Date(session.expires_at);
+  const nextExpiry = fromNow > current ? fromNow : new Date(current.getTime() + addMs);
+  await pool.execute(
+    `UPDATE quick_view_sessions
+     SET last_activity_at = ?, expires_at = ?
+     WHERE id = ?`,
+    [now, nextExpiry, session.id]
+  );
+  await logAccessEvent({
+    userId: session.user_id,
+    agencyId: session.agency_id,
+    eventType: 'session_extend',
+    meta: { minutes: Math.round(addMs / 60000) }
+  }).catch(() => {});
+  return {
+    userId: session.user_id,
+    agencyId: session.agency_id,
+    sessionId: session.id,
+    expiresAt: nextExpiry
+  };
+}
+
 export async function revokeSession(rawSessionToken) {
   const hash = sha256(rawSessionToken);
   await pool.execute(

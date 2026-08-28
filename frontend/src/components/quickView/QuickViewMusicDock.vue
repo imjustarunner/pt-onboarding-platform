@@ -126,11 +126,13 @@ defineExpose({ loadCatalog });
 
 <style scoped>
 .qv-music {
-  position: sticky;
+  position: fixed;
+  left: 0;
+  right: 0;
   bottom: 0;
   z-index: 40;
-  border-top: 1px solid #1e293b;
-  background: #0b1220;
+  border-top: 1px solid color-mix(in srgb, var(--qv-primary, #166534) 35%, #1e293b);
+  background: color-mix(in srgb, var(--qv-primary, #166534) 18%, #0b1220);
   padding: 0 0 env(safe-area-inset-bottom, 0);
 }
 .qv-music-toggle {

@@ -12,6 +12,7 @@ import {
   getTenantQuickViewInfo,
   postTenantUnlock,
   postHeartbeat,
+  postExtendSession,
   postLogout,
   requireQuickViewSession,
   getQuickHome,
@@ -41,12 +42,15 @@ import {
   qvFocusMusicCatalog,
   qvFocusMusicStream,
   getQuickTaskDetail,
+  patchQuickTask,
   postQuickTaskComment,
   getQuickTaskLists,
   getQuickTaskProjects,
   getQuickProjectDetail,
   getQuickListTasks,
-  getQuickDirectory
+  getQuickDirectory,
+  qvListNoteAidTools,
+  qvExecuteNoteAid
 } from '../controllers/quickViewSurfaces.controller.js';
 
 const router = express.Router();
@@ -72,6 +76,7 @@ router.post('/d/:token/unlock', postDeliveryUnlock);
 
 // Session
 router.post('/session/heartbeat', postHeartbeat);
+router.post('/session/extend', postExtendSession);
 router.post('/session/logout', postLogout);
 
 // Scoped Quick View data
@@ -79,6 +84,7 @@ router.get('/home', requireQuickViewSession, getQuickHome);
 router.get('/tasks', requireQuickViewSession, getQuickTasks);
 router.post('/tasks', requireQuickViewSession, postQuickTask);
 router.get('/tasks/:id', requireQuickViewSession, getQuickTaskDetail);
+router.patch('/tasks/:id', requireQuickViewSession, patchQuickTask);
 router.post('/tasks/:id/comments', requireQuickViewSession, postQuickTaskComment);
 router.patch('/tasks/:id/status', requireQuickViewSession, postQuickTaskStatus);
 router.get('/task-lists', requireQuickViewSession, getQuickTaskLists);
@@ -109,5 +115,9 @@ router.post('/chat/threads/:threadId/read', requireQuickViewSession, qvMarkChatR
 // Focus music (session cookie works for <audio src>)
 router.get('/focus-music/catalog', requireQuickViewSession, qvFocusMusicCatalog);
 router.get('/focus-music/stream/:slug', requireQuickViewSession, qvFocusMusicStream);
+
+// Note Aid (initials / free text only — no client attach)
+router.get('/note-aid/tools', requireQuickViewSession, qvListNoteAidTools);
+router.post('/note-aid/execute', requireQuickViewSession, qvExecuteNoteAid);
 
 export default router;

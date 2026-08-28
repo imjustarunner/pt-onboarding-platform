@@ -71,9 +71,9 @@ const brandStyle = computed(() => {
     '--qv-primary': primary,
     '--qv-secondary': secondary,
     '--qv-accent': accent,
-    '--qv-bg': p.backgroundColor || `color-mix(in srgb, ${primary} 20%, #06100c)`,
-    '--qv-surface': p.secondaryBackground || `color-mix(in srgb, ${primary} 28%, #0a1610)`,
-    '--qv-border': `color-mix(in srgb, ${secondary} 35%, #1a2e24)`,
+    '--qv-bg': p.backgroundColor || `linear-gradient(180deg, color-mix(in srgb, ${primary} 42%, #041008), color-mix(in srgb, ${accent} 28%, #020806))`,
+    '--qv-surface': p.secondaryBackground || `color-mix(in srgb, ${primary} 32%, #0a1610)`,
+    '--qv-border': `color-mix(in srgb, ${secondary} 45%, #12261c)`,
     '--qv-text': p.textPrimary || '#f4faf6',
     '--qv-muted': p.textMuted || p.textSecondary || '#a7c4b4'
   };
@@ -193,6 +193,7 @@ onMounted(async () => {
   gap: 12px;
   padding: 24px;
   background: var(--qv-bg, #0f172a);
+  background-color: color-mix(in srgb, var(--qv-primary, #166534) 28%, #041008);
   color: var(--qv-text, #e2e8f0);
   text-align: center;
   font-family: system-ui, -apple-system, sans-serif;

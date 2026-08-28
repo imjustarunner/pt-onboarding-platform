@@ -685,8 +685,7 @@ class Agency {
         agency = await tryLookupTable(`www.${normalized}`);
         if (agency) return agency;
       }
-
-      return null;
+      // Fall through to agencies.custom_domain — some tenants only have the column seeded.
     }
 
     // Fallback: legacy column on agencies (may exist in some DBs).
