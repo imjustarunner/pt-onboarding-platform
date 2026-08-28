@@ -19,6 +19,9 @@ import {
   getQuickConversation,
   getQuickContacts,
   postQuickReply,
+  postQuickCompose,
+  postQuickContact,
+  postQuickTask,
   postQuickTaskStatus
 } from '../controllers/quickView.controller.js';
 
@@ -43,11 +46,14 @@ router.post('/session/logout', postLogout);
 // Scoped Quick View data
 router.get('/home', requireQuickViewSession, getQuickHome);
 router.get('/tasks', requireQuickViewSession, getQuickTasks);
+router.post('/tasks', requireQuickViewSession, postQuickTask);
 router.patch('/tasks/:id/status', requireQuickViewSession, postQuickTaskStatus);
 router.get('/calendar/day', requireQuickViewSession, getQuickDayCalendar);
 router.get('/office', requireQuickViewSession, getQuickOfficeAvailability);
 router.get('/conversations/:id', requireQuickViewSession, getQuickConversation);
 router.post('/conversations/:id/reply', requireQuickViewSession, postQuickReply);
+router.post('/compose', requireQuickViewSession, postQuickCompose);
 router.get('/contacts', requireQuickViewSession, getQuickContacts);
+router.post('/contacts', requireQuickViewSession, postQuickContact);
 
 export default router;

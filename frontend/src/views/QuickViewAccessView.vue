@@ -1,12 +1,24 @@
 <template>
-  <div class="qv">
+  <div class="qv" :style="brandStyle">
     <header class="qv-top">
-      <div>
-        <div class="qv-brand">{{ agencyName || 'Quick View' }}</div>
-        <div class="qv-sub" v-if="session">Expires {{ formatExpiry(expiresAt) }}</div>
+      <div class="qv-brand-row">
+        <img v-if="agencyLogoUrl" :src="agencyLogoUrl" alt="" class="qv-logo" />
+        <div>
+          <div class="qv-brand">{{ agencyName || 'Quick View' }}</div>
+          <div class="qv-sub" v-if="session">Expires {{ formatExpiry(expiresAt) }}</div>
+        </div>
       </div>
       <button v-if="session" type="button" class="qv-btn ghost" @click="logout">Lock</button>
     </header>
+
+    <div v-if="homeScreenTip && !session" class="qv-homescreen">
+      <strong>Add to Home Screen</strong>
+      <p>
+        Stay on this private link, then use Share → Add to Home Screen.
+        Do not add the main login page — that icon opens the wrong place.
+      </p>
+      <button type="button" class="qv-btn ghost sm" @click="dismissHomeTip">Got it</button>
+    </div>
 
     <div v-if="error" class="qv-err">
       {{ error }}
@@ -15,7 +27,8 @@
     <div v-if="loading && !session" class="qv-pad">Loading…</div>
 
     <section v-else-if="!session && !loading" class="qv-gate">
-      <h1>Quick View</h1>
+      <img v-if="agencyLogoUrl" :src="agencyLogoUrl" alt="" class="qv-gate-logo" />
+      <h1>{{ agencyName || 'Quick View' }}</h1>
       <p v-if="tokenInfo">Hi {{ tokenInfo.firstName || 'there' }} — enter your 6-digit passcode.</p>
       <p v-else-if="!error">Validating your private link…</p>
       <form v-if="tokenInfo" class="qv-form" @submit.prevent="unlock">
@@ -46,10 +59,13 @@
       </nav>
 
       <div v-if="tab === 'home'" class="qv-pane">
-        <div class="qv-sorters">
-          <button type="button" :class="{ on: sort === 'all' }" @click="sort = 'all'">All</button>
-          <button type="button" :class="{ on: sort === 'unread' }" @click="sort = 'unread'">Unread</button>
-          <button type="button" :class="{ on: sort === 'needs' }" @click="sort = 'needs'">Needs reply</button>
+        <div class="qv-toolbar">
+          <div class="qv-sorters">
+            <button type="button" :class="{ on: sort === 'all' }" @click="sort = 'all'">All</button>
+            <button type="button" :class="{ on: sort === 'unread' }" @click="sort = 'unread'">Unread</button>
+            <button type="button" :class="{ on: sort === 'needs' }" @click="sort = 'needs'">Needs reply</button>
+          </div>
+          <button type="button" class="qv-btn primary sm" @click="showCompose = true">New message</button>
         </div>
         <button
           v-for="c in filteredConversations"
@@ -66,7 +82,7 @@
           </div>
           <span v-if="c.has_auto_reply" class="badge">Auto</span>
         </button>
-        <div v-if="!filteredConversations.length" class="qv-pad muted">No messages.</div>
+        <div v-if="!filteredConversations.length" class="qv-pad muted">No messages in your personal inbox.</div>
       </div>
 
       <div v-else-if="tab === 'thread'" class="qv-pane thread">
@@ -87,9 +103,12 @@
       </div>
 
       <div v-else-if="tab === 'tasks'" class="qv-pane">
-        <div class="qv-sorters">
-          <button type="button" :class="{ on: taskView === 'mine' }" @click="loadTasks('mine')">My tasks</button>
-          <button type="button" :class="{ on: taskView === 'assigned' }" @click="loadTasks('assigned')">Assigned to me</button>
+        <div class="qv-toolbar">
+          <div class="qv-sorters">
+            <button type="button" :class="{ on: taskView === 'assigned' }" @click="loadTasks('assigned')">Assigned to me</button>
+            <button type="button" :class="{ on: taskView === 'mine' }" @click="loadTasks('mine')">My tasks</button>
+          </div>
+          <button type="button" class="qv-btn primary sm" @click="showNewTask = true">Add task</button>
         </div>
         <button
           v-for="t in tasks"
@@ -142,22 +161,76 @@
       </div>
 
       <div v-else-if="tab === 'contacts'" class="qv-pane">
+        <div class="qv-toolbar">
+          <div class="qv-pad muted" style="padding: 8px 0; margin: 0;">Saved contacts</div>
+          <button type="button" class="qv-btn primary sm" @click="showNewContact = true">Add contact</button>
+        </div>
         <div v-for="c in contacts" :key="c.id" class="qv-row">
           <div class="meta">
             <strong>{{ c.display_name || c.email }}</strong>
             <small>{{ c.email }} · {{ c.trust_status }}</small>
           </div>
+          <button type="button" class="qv-btn ghost sm" @click="composeTo(c)">Message</button>
         </div>
         <div v-if="!contacts.length" class="qv-pad muted">No contacts yet.</div>
       </div>
     </template>
+
+    <div v-if="showCompose" class="qv-modal" @click.self="showCompose = false">
+      <form class="qv-sheet" @submit.prevent="sendCompose">
+        <h3>New message</h3>
+        <label>To</label>
+        <input v-model="composeToEmail" type="email" required placeholder="email@example.com" />
+        <label>Subject</label>
+        <input v-model="composeSubject" type="text" placeholder="Subject" />
+        <label>Message</label>
+        <textarea v-model="composeText" rows="4" required placeholder="Write your message…" />
+        <div class="qv-sheet-actions">
+          <button type="button" class="qv-btn ghost" @click="showCompose = false">Cancel</button>
+          <button type="submit" class="qv-btn primary" :disabled="composeBusy">{{ composeBusy ? 'Sending…' : 'Send' }}</button>
+        </div>
+      </form>
+    </div>
+
+    <div v-if="showNewTask" class="qv-modal" @click.self="showNewTask = false">
+      <form class="qv-sheet" @submit.prevent="createTask">
+        <h3>Add task</h3>
+        <label>Title</label>
+        <input v-model="newTaskTitle" type="text" required placeholder="What needs doing?" />
+        <label>Due (optional)</label>
+        <input v-model="newTaskDue" type="date" />
+        <div class="qv-sheet-actions">
+          <button type="button" class="qv-btn ghost" @click="showNewTask = false">Cancel</button>
+          <button type="submit" class="qv-btn primary" :disabled="taskBusy">{{ taskBusy ? 'Saving…' : 'Save' }}</button>
+        </div>
+      </form>
+    </div>
+
+    <div v-if="showNewContact" class="qv-modal" @click.self="showNewContact = false">
+      <form class="qv-sheet" @submit.prevent="createContact">
+        <h3>Add contact</h3>
+        <label>Name</label>
+        <input v-model="newContactName" type="text" placeholder="Display name" />
+        <label>Email</label>
+        <input v-model="newContactEmail" type="email" required placeholder="email@example.com" />
+        <label>Phone (optional)</label>
+        <input v-model="newContactPhone" type="tel" placeholder="Phone" />
+        <div class="qv-sheet-actions">
+          <button type="button" class="qv-btn ghost" @click="showNewContact = false">Cancel</button>
+          <button type="submit" class="qv-btn primary" :disabled="contactBusy">{{ contactBusy ? 'Saving…' : 'Save' }}</button>
+        </div>
+      </form>
+    </div>
   </div>
 </template>
 
 <script setup>
-import { computed, onMounted, onUnmounted, ref } from 'vue';
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import axios from 'axios';
+
+const BOOKMARK_KEY = 'plottwist.quickViewBookmark';
+const HOME_TIP_KEY = 'plottwist.quickViewHomeTipDismissed';
 
 const route = useRoute();
 const apiBase = '/api/quick-view';
@@ -170,19 +243,48 @@ const unlocking = ref(false);
 const session = ref(null);
 const expiresAt = ref(null);
 const agencyName = ref('');
+const agencyLogoUrl = ref('');
+const agencyPrimaryColor = ref('');
 const tab = ref('home');
 const sort = ref('all');
 const conversations = ref([]);
 const activeConv = ref(null);
 const threadMessages = ref([]);
 const tasks = ref([]);
-const taskView = ref('mine');
+const taskView = ref('assigned');
 const day = ref(new Date().toISOString().slice(0, 10));
 const dayItems = ref([]);
 const showOffice = ref(false);
 const officeSlots = ref([]);
 const contacts = ref([]);
+const homeScreenTip = ref(false);
 let heartbeatTimer = null;
+let manifestObjectUrl = null;
+
+const showCompose = ref(false);
+const composeToEmail = ref('');
+const composeSubject = ref('');
+const composeText = ref('');
+const composeBusy = ref(false);
+const showNewTask = ref(false);
+const newTaskTitle = ref('');
+const newTaskDue = ref('');
+const taskBusy = ref(false);
+const showNewContact = ref(false);
+const newContactName = ref('');
+const newContactEmail = ref('');
+const newContactPhone = ref('');
+const contactBusy = ref(false);
+const replyText = ref('');
+const replyBusy = ref(false);
+
+const brandStyle = computed(() => {
+  const primary = agencyPrimaryColor.value || '#166534';
+  return {
+    '--qv-primary': primary,
+    '--qv-primary-soft': primary
+  };
+});
 
 const filteredConversations = computed(() => {
   let list = conversations.value || [];
@@ -200,9 +302,66 @@ function authHeaders() {
 
 const isDelivery = computed(() => route.name === 'QuickViewDeliveryAccess' || route.meta?.quickViewDelivery === true);
 
+function rememberBookmark() {
+  const token = String(route.params.token || '').trim();
+  if (!token) return;
+  const path = isDelivery.value ? `/quick-view/d/${token}` : `/quick-view/${token}`;
+  try {
+    localStorage.setItem(BOOKMARK_KEY, path);
+  } catch { /* ignore */ }
+}
+
+function installQuickViewManifest() {
+  const token = String(route.params.token || '').trim();
+  if (!token || typeof document === 'undefined') return;
+  const startPath = isDelivery.value ? `/quick-view/d/${token}` : `/quick-view/${token}`;
+  const startUrl = `${window.location.origin}${startPath}`;
+  const name = agencyName.value ? `${agencyName.value} Quick View` : 'Quick View';
+  const iconSrc = agencyLogoUrl.value || '/branding/plottwisthq-platform-bg.png';
+  const theme = agencyPrimaryColor.value || '#0f172a';
+  const manifest = {
+    name,
+    short_name: agencyName.value || 'Quick View',
+    start_url: startUrl,
+    scope: `${window.location.origin}/quick-view/`,
+    display: 'standalone',
+    background_color: '#0f172a',
+    theme_color: theme,
+    icons: [
+      { src: iconSrc, sizes: '192x192', type: iconSrc.endsWith('.svg') ? 'image/svg+xml' : 'image/png', purpose: 'any' },
+      { src: iconSrc, sizes: '512x512', type: iconSrc.endsWith('.svg') ? 'image/svg+xml' : 'image/png', purpose: 'any' }
+    ]
+  };
+  try {
+    if (manifestObjectUrl) URL.revokeObjectURL(manifestObjectUrl);
+    const blob = new Blob([JSON.stringify(manifest)], { type: 'application/manifest+json' });
+    manifestObjectUrl = URL.createObjectURL(blob);
+    let link = document.querySelector('link[rel="manifest"]');
+    if (!link) {
+      link = document.createElement('link');
+      link.rel = 'manifest';
+      document.head.appendChild(link);
+    }
+    link.setAttribute('href', manifestObjectUrl);
+    const apple = document.getElementById('app-apple-touch-icon');
+    if (apple && agencyLogoUrl.value) apple.setAttribute('href', agencyLogoUrl.value);
+    document.title = name;
+    const themeMeta = document.querySelector('meta[name="theme-color"]');
+    if (themeMeta) themeMeta.setAttribute('content', theme);
+  } catch { /* ignore */ }
+}
+
+function dismissHomeTip() {
+  homeScreenTip.value = false;
+  try {
+    localStorage.setItem(HOME_TIP_KEY, '1');
+  } catch { /* ignore */ }
+}
+
 async function loadTokenInfo() {
   loading.value = true;
   error.value = '';
+  rememberBookmark();
   try {
     const token = String(route.params.token || '');
     const path = isDelivery.value ? `/d/${encodeURIComponent(token)}` : `/t/${encodeURIComponent(token)}`;
@@ -212,6 +371,9 @@ async function loadTokenInfo() {
     });
     tokenInfo.value = data;
     agencyName.value = data.agencyName || '';
+    agencyLogoUrl.value = data.agencyLogoUrl || '';
+    agencyPrimaryColor.value = data.agencyPrimaryColor || '';
+    installQuickViewManifest();
   } catch (e) {
     error.value = e?.response?.data?.error?.message || 'Invalid Quick View link';
   } finally {
@@ -238,6 +400,7 @@ async function unlock() {
     const { data } = await axios.post(`${apiBase}${path}`, body, { withCredentials: true });
     session.value = data.sessionToken;
     expiresAt.value = data.expiresAt;
+    rememberBookmark();
     startHeartbeat();
     await loadHome();
     if (route.query.join && route.query.id) {
@@ -305,7 +468,7 @@ async function openConversation(c) {
   c.is_unread = 0;
 }
 
-async function loadTasks(view = 'mine') {
+async function loadTasks(view = 'assigned') {
   taskView.value = view;
   tab.value = 'tasks';
   const { data } = await axios.get(`${apiBase}/tasks`, {
@@ -361,8 +524,86 @@ async function loadContacts() {
   }
 }
 
-const replyText = ref('');
-const replyBusy = ref(false);
+function composeTo(c) {
+  composeToEmail.value = c.email || '';
+  composeSubject.value = '';
+  composeText.value = '';
+  showCompose.value = true;
+}
+
+async function sendCompose() {
+  if (!composeToEmail.value.trim() || !composeText.value.trim()) return;
+  composeBusy.value = true;
+  error.value = '';
+  try {
+    await axios.post(
+      `${apiBase}/compose`,
+      {
+        to: composeToEmail.value.trim(),
+        subject: composeSubject.value.trim(),
+        text: composeText.value.trim()
+      },
+      { headers: authHeaders(), withCredentials: true }
+    );
+    showCompose.value = false;
+    composeToEmail.value = '';
+    composeSubject.value = '';
+    composeText.value = '';
+    await loadHome();
+  } catch (e) {
+    error.value = e?.response?.data?.error?.message || 'Could not send message';
+  } finally {
+    composeBusy.value = false;
+  }
+}
+
+async function createTask() {
+  if (!newTaskTitle.value.trim()) return;
+  taskBusy.value = true;
+  error.value = '';
+  try {
+    await axios.post(
+      `${apiBase}/tasks`,
+      { title: newTaskTitle.value.trim(), dueDate: newTaskDue.value || null },
+      { headers: authHeaders(), withCredentials: true }
+    );
+    showNewTask.value = false;
+    newTaskTitle.value = '';
+    newTaskDue.value = '';
+    await loadTasks(taskView.value);
+  } catch (e) {
+    error.value = e?.response?.data?.error?.message || 'Could not create task';
+  } finally {
+    taskBusy.value = false;
+  }
+}
+
+async function createContact() {
+  if (!newContactEmail.value.trim()) return;
+  contactBusy.value = true;
+  error.value = '';
+  try {
+    await axios.post(
+      `${apiBase}/contacts`,
+      {
+        email: newContactEmail.value.trim(),
+        displayName: newContactName.value.trim() || null,
+        phone: newContactPhone.value.trim() || null
+      },
+      { headers: authHeaders(), withCredentials: true }
+    );
+    showNewContact.value = false;
+    newContactName.value = '';
+    newContactEmail.value = '';
+    newContactPhone.value = '';
+    await loadContacts();
+  } catch (e) {
+    error.value = e?.response?.data?.error?.message || 'Could not save contact';
+  } finally {
+    contactBusy.value = false;
+  }
+}
+
 async function sendQuickReply() {
   if (!activeConv.value?.id || !replyText.value.trim()) return;
   replyBusy.value = true;
@@ -382,13 +623,13 @@ async function sendQuickReply() {
 }
 
 async function toggleTask(task) {
-  const next = ['completed', 'done'].includes(String(task.status || '').toLowerCase())
+  const nextStatus = ['completed', 'done'].includes(String(task.status || '').toLowerCase())
     ? 'open'
     : 'completed';
   try {
     await axios.patch(
       `${apiBase}/tasks/${task.id}/status`,
-      { status: next },
+      { status: nextStatus },
       { headers: authHeaders(), withCredentials: true }
     );
     await loadTasks(taskView.value);
@@ -449,8 +690,25 @@ function formatExpiry(v) {
   }
 }
 
-onMounted(loadTokenInfo);
-onUnmounted(stopHeartbeat);
+watch([agencyName, agencyLogoUrl, agencyPrimaryColor], () => {
+  if (route.params.token) installQuickViewManifest();
+});
+
+onMounted(() => {
+  try {
+    homeScreenTip.value = localStorage.getItem(HOME_TIP_KEY) !== '1';
+  } catch {
+    homeScreenTip.value = true;
+  }
+  loadTokenInfo();
+});
+onUnmounted(() => {
+  stopHeartbeat();
+  if (manifestObjectUrl) {
+    URL.revokeObjectURL(manifestObjectUrl);
+    manifestObjectUrl = null;
+  }
+});
 </script>
 
 <style scoped>
@@ -480,8 +738,34 @@ onUnmounted(stopHeartbeat);
   padding: 14px 16px;
   border-bottom: 1px solid #1e293b;
 }
+.qv-brand-row { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.qv-logo {
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  object-fit: contain;
+  background: #fff;
+  flex-shrink: 0;
+}
+.qv-gate-logo {
+  width: 64px;
+  height: 64px;
+  border-radius: 14px;
+  object-fit: contain;
+  background: #fff;
+  margin-bottom: 12px;
+}
 .qv-brand { font-weight: 800; font-size: 1.05rem; }
 .qv-sub { font-size: 11px; color: #94a3b8; }
+.qv-homescreen {
+  margin: 12px 16px;
+  padding: 12px;
+  border-radius: 12px;
+  background: #1e293b;
+  border: 1px solid #334155;
+}
+.qv-homescreen strong { display: block; margin-bottom: 4px; }
+.qv-homescreen p { margin: 0 0 8px; font-size: 13px; color: #cbd5e1; line-height: 1.4; }
 .qv-gate, .qv-pad { padding: 24px 16px; }
 .qv-gate h1 {
   margin: 0 0 8px;
@@ -504,7 +788,7 @@ onUnmounted(stopHeartbeat);
   color: #fff;
 }
 .qv-btn { border: none; border-radius: 10px; padding: 12px 14px; font-weight: 700; cursor: pointer; }
-.qv-btn.primary { background: #166534; color: #fff; width: 100%; }
+.qv-btn.primary { background: var(--qv-primary, #166534); color: #fff; width: 100%; }
 .qv-btn.ghost { background: transparent; color: #cbd5e1; }
 .qv-btn.sm { padding: 6px 10px; font-size: 12px; width: auto; }
 .qv-hint {
@@ -528,10 +812,12 @@ onUnmounted(stopHeartbeat);
 }
 .qv-tabs { display: flex; gap: 4px; padding: 8px; border-bottom: 1px solid #1e293b; overflow-x: auto; }
 .qv-tabs button { flex: 1; min-width: 0; background: #1e293b; color: #cbd5e1; border: none; border-radius: 8px; padding: 10px 8px; font-weight: 700; }
-.qv-tabs button.on { background: #166534; color: #fff; }
-.qv-sorters, .qv-day-nav { display: flex; gap: 6px; padding: 8px 12px; flex-wrap: wrap; align-items: center; }
+.qv-tabs button.on { background: var(--qv-primary, #166534); color: #fff; }
+.qv-toolbar { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 8px 12px; flex-wrap: wrap; }
+.qv-sorters, .qv-day-nav { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
 .qv-sorters button { background: #1e293b; color: #94a3b8; border: none; border-radius: 999px; padding: 6px 10px; font-size: 12px; }
 .qv-sorters button.on { background: #334155; color: #fff; }
+.qv-day-nav { padding: 8px 12px; }
 .qv-row { width: 100%; display: flex; gap: 10px; align-items: center; text-align: left; background: transparent; border: none; border-bottom: 1px solid #1e293b; padding: 12px 16px; color: inherit; cursor: pointer; }
 .qv-row.unread strong { color: #fff; }
 .qv-row .meta { flex: 1; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
@@ -542,7 +828,9 @@ onUnmounted(stopHeartbeat);
 .qv-bubble.outbound { background: #14532d; }
 .qv-bubble .when { font-size: 11px; color: #94a3b8; margin-bottom: 4px; }
 .qv-reply { display: grid; gap: 8px; margin: 12px 16px 20px; }
-.qv-reply textarea {
+.qv-reply textarea,
+.qv-sheet input,
+.qv-sheet textarea {
   width: 100%;
   border-radius: 10px;
   border: 1px solid #334155;
@@ -553,4 +841,29 @@ onUnmounted(stopHeartbeat);
 }
 .qv-date { background: #1e293b; color: #fff; border: 1px solid #334155; border-radius: 8px; padding: 6px; }
 .muted { color: #94a3b8; }
+.qv-modal {
+  position: fixed;
+  inset: 0;
+  background: rgba(2, 6, 23, 0.72);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  z-index: 40;
+  padding: 12px;
+}
+.qv-sheet {
+  width: 100%;
+  max-width: 480px;
+  background: #111827;
+  border: 1px solid #334155;
+  border-radius: 16px 16px 12px 12px;
+  padding: 16px;
+  display: grid;
+  gap: 8px;
+}
+.qv-sheet h3 { margin: 0 0 4px; }
+.qv-sheet label { font-size: 12px; color: #94a3b8; }
+.qv-sheet-actions { display: flex; gap: 8px; margin-top: 8px; }
+.qv-sheet-actions .qv-btn { flex: 1; }
+.qv-btn.ghost.on { color: #fff; background: #334155; }
 </style>

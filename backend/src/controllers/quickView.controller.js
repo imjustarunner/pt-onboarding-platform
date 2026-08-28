@@ -166,19 +166,39 @@ export const getTokenInfo = async (req, res, next) => {
     }
     if (!cred) return res.status(404).json({ error: { message: 'Invalid or revoked Quick View link' } });
     const user = await User.findById(cred.user_id);
-    let agencyName = null;
-    let quickViewEnabled = true;
-    if (cred.agency_id) {
+    let agencyId = cred.agency_id || null;
+    if (!agencyId) {
       try {
-        const settings = await getAgencyEmailSettings(cred.agency_id);
+        const [ua] = await pool.execute(
+          `SELECT agency_id FROM user_agencies WHERE user_id = ? ORDER BY is_primary DESC, id ASC LIMIT 1`,
+          [cred.user_id]
+        );
+        agencyId = ua?.[0]?.agency_id || null;
+      } catch { /* ignore */ }
+    }
+    let agencyName = null;
+    let agencyLogoUrl = null;
+    let agencyPrimaryColor = null;
+    let quickViewEnabled = true;
+    if (agencyId) {
+      try {
+        const settings = await getAgencyEmailSettings(agencyId);
         quickViewEnabled = settings.quickViewEnabled !== false;
-        const [a] = await pool.execute(`SELECT name FROM agencies WHERE id = ? LIMIT 1`, [cred.agency_id]);
-        agencyName = a?.[0]?.name || null;
+        const Agency = (await import('../models/Agency.model.js')).default;
+        const agency = await Agency.findById(agencyId);
+        agencyName = agency?.name || null;
+        const baseUrl = String(process.env.APP_PUBLIC_URL || process.env.FRONTEND_URL || '').replace(/\/$/, '');
+        const { resolveOrgLogoUrl } = await import('../services/publicFormBranding.service.js');
+        agencyLogoUrl = resolveOrgLogoUrl(agency, { baseUrl });
+        const palette = typeof agency?.color_palette === 'string'
+          ? (() => { try { return JSON.parse(agency.color_palette); } catch { return null; } })()
+          : agency?.color_palette;
+        agencyPrimaryColor = palette?.primary || palette?.brand || agency?.primary_color || null;
       } catch { /* ignore */ }
     }
     await logAccessEvent({
       userId: cred.user_id,
-      agencyId: cred.agency_id,
+      agencyId,
       eventType: 'token_click',
       meta: deliveryMode ? { delivery: true } : null,
       ipHash: ipHash(req),
@@ -188,8 +208,10 @@ export const getTokenInfo = async (req, res, next) => {
       ok: true,
       userId: cred.user_id,
       firstName: user?.first_name || null,
-      agencyId: cred.agency_id,
+      agencyId,
       agencyName,
+      agencyLogoUrl,
+      agencyPrimaryColor,
       hasPasscode: !!cred.passcode_hash,
       quickViewEnabled,
       deliveryMode: !!deliveryMode,
@@ -281,6 +303,15 @@ export async function requireQuickViewSession(req, res, next) {
     const raw = req.cookies?.qv_session || req.headers['x-quick-view-session'];
     const session = await touchSession(raw);
     if (!session) return res.status(401).json({ error: { message: 'Quick View session required' } });
+    if (!session.agencyId) {
+      try {
+        const [ua] = await pool.execute(
+          `SELECT agency_id FROM user_agencies WHERE user_id = ? ORDER BY is_primary DESC, id ASC LIMIT 1`,
+          [session.userId]
+        );
+        session.agencyId = ua?.[0]?.agency_id || null;
+      } catch { /* ignore */ }
+    }
     req.quickView = session;
     next();
   } catch (e) {
@@ -288,10 +319,34 @@ export async function requireQuickViewSession(req, res, next) {
   }
 }
 
+async function resolvePersonalInbox(userId, agencyId) {
+  const { findPersonalInbox, ensurePersonalMailbox } = await import('../services/personalMailbox.service.js');
+  let inbox = await findPersonalInbox({ agencyId, userId });
+  if (!inbox && agencyId) {
+    try {
+      inbox = await ensurePersonalMailbox({ agencyId, userId });
+    } catch (e) {
+      console.warn('[quickView] ensurePersonalMailbox:', e?.message || e);
+    }
+  }
+  return inbox;
+}
+
+async function assertQuickViewConversationAccess(userId, agencyId, conv) {
+  if (!conv) return false;
+  if (Number(conv.owner_user_id) === Number(userId)) return true;
+  const inbox = await resolvePersonalInbox(userId, agencyId);
+  if (inbox?.id && Number(conv.inbox_id) === Number(inbox.id)) return true;
+  return false;
+}
+
 export const getQuickHome = async (req, res, next) => {
   try {
     const userId = req.quickView.userId;
     const agencyId = req.quickView.agencyId;
+    const inbox = await resolvePersonalInbox(userId, agencyId);
+    const inboxId = inbox?.id || null;
+    // Personal mailbox only — never whole-agency ticket queues
     const [convs] = await pool.execute(
       `SELECT c.id, c.channel, c.subject, c.status, c.last_message_at, c.last_message_preview,
               c.sender_trust, COALESCE(c.is_unknown_sender,0) AS is_unknown_sender,
@@ -308,12 +363,22 @@ export const getQuickHome = async (req, res, next) => {
          AND COALESCE(c.is_spam,0) = 0
          AND COALESCE(c.is_unknown_sender,0) = 0
          AND (c.visible_after IS NULL OR c.visible_after <= NOW())
-         AND (c.owner_user_id = ? OR c.agency_id = ?)
+         AND (
+           c.owner_user_id = ?
+           OR (? IS NOT NULL AND c.inbox_id = ?)
+         )
+         AND (c.agency_id = ? OR c.agency_id IS NULL OR ? IS NULL)
        ORDER BY COALESCE(c.last_message_at, c.created_at) DESC
-       LIMIT 40`,
-      [userId, userId, agencyId]
+       LIMIT 50`,
+      [userId, userId, inboxId, inboxId, agencyId, agencyId]
     );
-    res.json({ ok: true, conversations: convs || [], expiresAt: req.quickView.expiresAt });
+    res.json({
+      ok: true,
+      conversations: convs || [],
+      inboxId,
+      mailboxEmail: inbox?.from_email || null,
+      expiresAt: req.quickView.expiresAt
+    });
   } catch (e) {
     next(e);
   }
@@ -322,25 +387,25 @@ export const getQuickHome = async (req, res, next) => {
 export const getQuickTasks = async (req, res, next) => {
   try {
     const userId = req.quickView.userId;
-    const view = String(req.query.view || 'mine').toLowerCase();
-    // Prefer me/tasks shape; fall back to lightweight query
-    const [rows] = await pool.execute(
-      `SELECT t.id, t.title, t.status, t.due_at, t.urgency, t.task_type
-       FROM tasks t
-       LEFT JOIN task_assignees ta ON ta.task_id = t.id
-       WHERE t.deleted_at IS NULL
-         AND (
-           (? = 'mine' AND t.created_by_user_id = ?)
-           OR (? = 'assigned' AND ta.user_id = ?)
-           OR (t.assigned_to_user_id = ?)
-         )
-         AND COALESCE(t.status,'open') NOT IN ('completed','cancelled','done')
-       GROUP BY t.id
-       ORDER BY t.due_at IS NULL, t.due_at ASC, t.id DESC
-       LIMIT 50`,
-      [view, userId, view, userId, userId]
-    ).catch(() => [[]]);
-    res.json({ ok: true, tasks: rows || [], view });
+    const view = String(req.query.view || 'assigned').toLowerCase() === 'mine' ? 'mine' : 'assigned';
+    const Task = (await import('../models/Task.model.js')).default;
+    const rows = await Task.findForHub(userId, { view, limit: 50 });
+    const open = (rows || []).filter((t) => {
+      const s = String(t.status || 'open').toLowerCase();
+      return !['completed', 'done', 'cancelled', 'overridden'].includes(s);
+    });
+    res.json({
+      ok: true,
+      tasks: open.map((t) => ({
+        id: t.id,
+        title: t.title,
+        status: t.status,
+        due_at: t.due_date || t.due_at || null,
+        urgency: t.urgency,
+        task_type: t.task_type
+      })),
+      view
+    });
   } catch (e) {
     next(e);
   }
@@ -349,30 +414,57 @@ export const getQuickTasks = async (req, res, next) => {
 export const getQuickDayCalendar = async (req, res, next) => {
   try {
     const userId = req.quickView.userId;
-    const day = String(req.query.day || new Date().toISOString().slice(0, 10));
-    const start = `${day} 00:00:00`;
-    const end = `${day} 23:59:59`;
-    const [events] = await pool.execute(
-      `SELECT id, title, kind, start_at, end_at, location, join_token, participant_join_token,
-              platform_video_link, google_meet_link
-       FROM provider_schedule_events
-       WHERE provider_id = ?
-         AND (status IS NULL OR status = 'ACTIVE')
-         AND start_at >= ? AND start_at <= ?
-       ORDER BY start_at ASC
+    const agencyId = req.quickView.agencyId;
+    const day = String(req.query.day || new Date().toISOString().slice(0, 10)).slice(0, 10);
+    const windowStart = `${day} 00:00:00`;
+    const dayEnd = new Date(`${day}T12:00:00`);
+    dayEnd.setDate(dayEnd.getDate() + 1);
+    const windowEnd = `${dayEnd.toISOString().slice(0, 10)} 00:00:00`;
+
+    const ProviderScheduleEvent = (await import('../models/ProviderScheduleEvent.model.js')).default;
+    const events = await ProviderScheduleEvent.listForUserInWindow({
+      agencyId,
+      providerId: userId,
+      windowStart,
+      windowEnd
+    }).catch(() => []);
+
+    const [officeRows] = await pool.execute(
+      `SELECT e.id, e.start_at, e.end_at, e.status,
+              ol.name AS office_name
+       FROM office_events e
+       LEFT JOIN office_locations ol ON ol.id = e.office_location_id
+       WHERE (e.assigned_provider_id = ? OR e.booked_provider_id = ?)
+         AND (e.status IS NULL OR UPPER(e.status) <> 'CANCELLED')
+         AND e.start_at < ? AND e.end_at > ?
+       ORDER BY e.start_at ASC
        LIMIT 80`,
-      [userId, start, end]
+      [userId, userId, windowEnd, windowStart]
     ).catch(() => [[]]);
-    const items = (events || []).map((e) => ({
-      id: e.id,
-      title: e.title,
-      kind: e.kind,
-      startAt: e.start_at,
-      endAt: e.end_at,
-      location: e.location || null,
-      joinKey: e.participant_join_token || e.join_token || e.id,
-      canJoin: !!(e.platform_video_link == null || Number(e.platform_video_link) === 1)
-    }));
+
+    const items = [
+      ...(events || []).map((e) => ({
+        id: `pse-${e.id}`,
+        title: e.title || e.kind || 'Event',
+        kind: e.kind || 'SCHEDULE',
+        startAt: e.start_at || e.startAt,
+        endAt: e.end_at || e.endAt,
+        location: e.location || null,
+        joinKey: e.participant_join_token || e.join_token || e.id,
+        canJoin: !!(e.platform_video_link == null || Number(e.platform_video_link) === 1 || e.google_meet_link)
+      })),
+      ...(officeRows || []).map((o) => ({
+        id: `office-${o.id}`,
+        title: o.office_name || 'Office',
+        kind: 'OFFICE',
+        startAt: o.start_at,
+        endAt: o.end_at,
+        location: o.office_name || null,
+        joinKey: null,
+        canJoin: false
+      }))
+    ].sort((a, b) => new Date(a.startAt) - new Date(b.startAt));
+
     res.json({ ok: true, day, items });
   } catch (e) {
     next(e);
@@ -382,17 +474,24 @@ export const getQuickDayCalendar = async (req, res, next) => {
 export const getQuickOfficeAvailability = async (req, res, next) => {
   try {
     const userId = req.quickView.userId;
-    const day = String(req.query.day || new Date().toISOString().slice(0, 10));
-    // Minimal office slot list from schedule-summary adjacent tables
+    const day = String(req.query.day || new Date().toISOString().slice(0, 10)).slice(0, 10);
+    const windowStart = `${day} 00:00:00`;
+    const dayEnd = new Date(`${day}T12:00:00`);
+    dayEnd.setDate(dayEnd.getDate() + 1);
+    const windowEnd = `${dayEnd.toISOString().slice(0, 10)} 00:00:00`;
+
     const [rows] = await pool.execute(
-      `SELECT ose.id, ose.start_at, ose.end_at, ose.status, o.name AS office_name, o.id AS office_id
-       FROM office_schedule_events ose
-       LEFT JOIN offices o ON o.id = ose.office_id
-       WHERE ose.provider_user_id = ?
-         AND DATE(ose.start_at) = ?
-       ORDER BY ose.start_at ASC
+      `SELECT e.id, e.start_at, e.end_at, e.status,
+              ol.name AS office_name,
+              e.office_location_id AS office_id
+       FROM office_events e
+       LEFT JOIN office_locations ol ON ol.id = e.office_location_id
+       WHERE (e.assigned_provider_id = ? OR e.booked_provider_id = ?)
+         AND (e.status IS NULL OR UPPER(e.status) <> 'CANCELLED')
+         AND e.start_at < ? AND e.end_at > ?
+       ORDER BY e.start_at ASC
        LIMIT 100`,
-      [userId, day]
+      [userId, userId, windowEnd, windowStart]
     ).catch(() => [[]]);
     res.json({ ok: true, day, slots: rows || [] });
   } catch (e) {
@@ -410,7 +509,8 @@ export const getQuickConversation = async (req, res, next) => {
     );
     const conv = convs?.[0];
     if (!conv) return res.status(404).json({ error: { message: 'Not found' } });
-    if (conv.owner_user_id && Number(conv.owner_user_id) !== Number(userId) && Number(conv.agency_id) !== Number(req.quickView.agencyId)) {
+    const allowed = await assertQuickViewConversationAccess(userId, req.quickView.agencyId, conv);
+    if (!allowed) {
       return res.status(403).json({ error: { message: 'Access denied' } });
     }
     const [messages] = await pool.execute(
@@ -470,6 +570,18 @@ export const postQuickReply = async (req, res, next) => {
     const conversationId = Number(req.params.id);
     const text = String(req.body?.text || req.body?.body || '').trim();
     if (!text) return res.status(400).json({ error: { message: 'Reply text required' } });
+    const [convs] = await pool.execute(
+      `SELECT * FROM communication_conversations WHERE id = ? LIMIT 1`,
+      [conversationId]
+    );
+    const conv = convs?.[0];
+    if (!conv) return res.status(404).json({ error: { message: 'Not found' } });
+    const allowed = await assertQuickViewConversationAccess(
+      req.quickView.userId,
+      req.quickView.agencyId,
+      conv
+    );
+    if (!allowed) return res.status(403).json({ error: { message: 'Access denied' } });
     const { replyToConversation } = await import('../services/unifiedInbox.service.js');
     const result = await replyToConversation(conversationId, {
       text,
@@ -489,6 +601,91 @@ export const postQuickReply = async (req, res, next) => {
   }
 };
 
+export const postQuickCompose = async (req, res, next) => {
+  try {
+    const userId = req.quickView.userId;
+    const agencyId = req.quickView.agencyId;
+    const to = String(req.body?.to || '').trim();
+    const subject = String(req.body?.subject || '').trim() || '(no subject)';
+    const text = String(req.body?.text || req.body?.body || '').trim();
+    if (!to || !text) {
+      return res.status(400).json({ error: { message: 'Recipient and message text are required' } });
+    }
+    const inbox = await resolvePersonalInbox(userId, agencyId);
+    if (!inbox?.id) {
+      return res.status(400).json({ error: { message: 'Personal mailbox is not set up yet' } });
+    }
+    const { composeNewEmail } = await import('../services/unifiedInbox.service.js');
+    const conversation = await composeNewEmail({
+      agencyId,
+      inboxId: inbox.id,
+      userId,
+      payload: { to, subject, text, skipUndo: true }
+    });
+    await logAccessEvent({
+      userId,
+      agencyId,
+      eventType: 'message_compose',
+      resourceType: 'conversation',
+      resourceId: conversation?.id || null
+    });
+    res.json({ ok: true, conversation });
+  } catch (e) {
+    const msg = e?.message || 'Could not send message';
+    if (/required|blocked|inbox|recipient/i.test(msg)) {
+      return res.status(400).json({ error: { message: msg } });
+    }
+    next(e);
+  }
+};
+
+export const postQuickContact = async (req, res, next) => {
+  try {
+    const email = String(req.body?.email || '').trim();
+    const displayName = String(req.body?.displayName || req.body?.name || '').trim() || null;
+    const phone = String(req.body?.phone || '').trim() || null;
+    if (!email) return res.status(400).json({ error: { message: 'Email is required' } });
+    const UserCommunicationContact = (await import('../models/UserCommunicationContact.model.js')).default;
+    const contact = await UserCommunicationContact.upsertSafe({
+      agencyId: req.quickView.agencyId,
+      ownerUserId: req.quickView.userId,
+      email,
+      displayName,
+      phone,
+      source: 'quick_view'
+    });
+    res.json({ ok: true, contact });
+  } catch (e) {
+    const msg = e?.message || 'Could not save contact';
+    if (/required|email/i.test(msg)) {
+      return res.status(400).json({ error: { message: msg } });
+    }
+    next(e);
+  }
+};
+
+export const postQuickTask = async (req, res, next) => {
+  try {
+    const title = String(req.body?.title || '').trim();
+    if (!title) return res.status(400).json({ error: { message: 'Title is required' } });
+    const userId = req.quickView.userId;
+    const Task = (await import('../models/Task.model.js')).default;
+    const task = await Task.create({
+      taskType: 'custom',
+      title,
+      description: String(req.body?.description || '').trim() || null,
+      assignedByUserId: userId,
+      assignedToUserId: userId,
+      dueDate: req.body?.dueDate || req.body?.due_at || null,
+      urgency: String(req.body?.urgency || 'medium').toLowerCase(),
+      isPrivate: true
+    });
+    res.json({ ok: true, task });
+  } catch (e) {
+    next(e);
+  }
+};
+
 export const postQuickTaskStatus = async (req, res, next) => {
   try {
     const taskId = Number(req.params.id);
@@ -497,8 +694,16 @@ export const postQuickTaskStatus = async (req, res, next) => {
     if (!allowed.has(status)) {
       return res.status(400).json({ error: { message: 'Invalid status' } });
     }
+    const userId = req.quickView.userId;
+    const Task = (await import('../models/Task.model.js')).default;
+    const rows = await Task.findForHub(userId, { view: 'assigned', limit: 200 });
+    const mine = await Task.findForHub(userId, { view: 'mine', limit: 200 });
+    const visible = new Set([...(rows || []), ...(mine || [])].map((t) => Number(t.id)));
+    if (!visible.has(taskId)) {
+      return res.status(403).json({ error: { message: 'Access denied' } });
+    }
     await pool.execute(
-      `UPDATE tasks SET status = ?, updated_at = NOW() WHERE id = ? AND deleted_at IS NULL`,
+      `UPDATE tasks SET status = ? WHERE id = ?`,
       [status === 'done' ? 'completed' : status, taskId]
     );
     res.json({ ok: true, id: taskId, status });

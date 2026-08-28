@@ -109,7 +109,8 @@ onMounted(loadStatus);
     </div>
     <p class="hint" style="margin-top: 6px;">
       Private mobile link + separate <strong>6-digit passcode</strong> (not your kiosk or session PIN).
-      Bookmark the URL on your phone; unlock with the passcode.
+      Open the link on your phone, then use <strong>Share → Add to Home Screen</strong> from that page
+      so the icon opens your token URL (not the main login).
     </p>
 
     <div v-if="loading" class="hint">Loading…</div>
@@ -178,6 +179,9 @@ onMounted(loadStatus);
       <button type="button" class="btn btn-secondary btn-sm" @click="copyUrl">
         {{ copied ? 'Copied' : 'Copy link' }}
       </button>
+      <p class="hint" style="margin: 8px 0 0;">
+        On iPhone: open this URL → Share → Add to Home Screen. Adding the site root will open login instead.
+      </p>
     </div>
     <div v-if="shownPasscode" class="qv-once">
       <strong>Save this passcode now — it is only shown here once:</strong>
