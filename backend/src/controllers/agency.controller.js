@@ -1499,8 +1499,12 @@ export const resolvePortalByHost = async (req, res, next) => {
       hostNoPort === '::1';
     if (isLoopback) return res.json({ host: hostNoPort, portalUrl: null });
 
-    const agency = await Agency.findByCustomDomain(host);
-    if (!agency) return res.json({ host, portalUrl: null });
+    // Quick View hosts: qv.app.itsco.health → app.itsco.health; qv.itsco.app.x.com handled by slug parse client-side
+    let lookupHost = hostNoPort;
+    if (lookupHost.startsWith('qv.')) lookupHost = lookupHost.slice(3);
+
+    const agency = await Agency.findByCustomDomain(lookupHost);
+    if (!agency) return res.json({ host, portalUrl: null, quickViewHost: hostNoPort.startsWith('qv.') });
 
     // Use portal_url when present; fall back to slug (many flows accept slug as portal identifier).
     const portalUrl = agency.portal_url || agency.slug || null;
@@ -1509,7 +1513,8 @@ export const resolvePortalByHost = async (req, res, next) => {
       portalUrl,
       slug: agency.slug || null,
       organizationType: agency.organization_type || 'agency',
-      id: agency.id || null
+      id: agency.id || null,
+      quickViewHost: hostNoPort.startsWith('qv.')
     });
   } catch (error) {
     next(error);

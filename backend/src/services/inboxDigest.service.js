@@ -198,14 +198,16 @@ export async function runInboxDigestTick({ now = new Date() } = {}) {
       expiresInHours: Math.max(businessHours * 2, 72)
     });
 
-    const baseUrl = String(process.env.APP_PUBLIC_URL || process.env.FRONTEND_URL || 'https://plottwisthq.com').replace(/\/$/, '');
-    const quickUrl = buildDeliveryQuickViewUrl({ baseUrl, deliveryToken: delivery.token });
-
+    const Agency = (await import('../models/Agency.model.js')).default;
+    const { buildQuickViewHomeUrl } = await import('../utils/publicPortalUrl.js');
+    let baseUrl = String(process.env.APP_PUBLIC_URL || process.env.FRONTEND_URL || 'https://plottwisthq.com').replace(/\/$/, '');
     let tenantName = 'PlotTwistHQ';
     if (agencyId) {
-      const [aRows] = await pool.execute(`SELECT name FROM agencies WHERE id = ? LIMIT 1`, [agencyId]);
-      if (aRows?.[0]?.name) tenantName = aRows[0].name;
+      const agency = await Agency.findById(agencyId);
+      if (agency?.name) tenantName = agency.name;
+      if (agency) baseUrl = buildQuickViewHomeUrl(agency);
     }
+    const quickUrl = buildDeliveryQuickViewUrl({ baseUrl, deliveryToken: delivery.token });
 
     const count = eligible.length;
     const lines = eligible.slice(0, 12).map((c) => {

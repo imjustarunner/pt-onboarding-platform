@@ -3,6 +3,7 @@ import { ref, computed, reactive } from 'vue';
 import { useAgencyStore } from './agency';
 import { useAuthStore } from './auth';
 import { getPortalUrl } from '../utils/subdomain';
+import { resolveHostForAgencyLookup } from '../utils/subdomain';
 import api from '../services/api';
 import { loadFont } from '../utils/fontLoader';
 import { getBackendBaseUrl, toUploadsUrl } from '../utils/uploadsUrl';
@@ -725,7 +726,7 @@ export const useBrandingStore = defineStore('branding', () => {
         // Call backend to resolve host -> portalUrl.
         // Pass host explicitly when API is on a different domain (e.g. app.itsco.health frontend
         // calling Cloud Run API) so the backend can resolve custom domains correctly.
-        const clientHost = window.location.hostname;
+        const clientHost = resolveHostForAgencyLookup(window.location.hostname);
         const resp = await api.get('/agencies/resolve', {
           params: { host: clientHost, _t: Date.now() },
           skipGlobalLoading: true,

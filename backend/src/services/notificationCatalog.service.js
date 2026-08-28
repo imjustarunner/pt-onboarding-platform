@@ -16,7 +16,8 @@ const TYPES_BY_CATEGORY = {
   account_security: [
     'status_expired', 'temp_password_expired', 'invitation_expired', 'first_login_pending',
     'first_login', 'password_changed', 'passwordless_token_expired', 'credential_expiring',
-    'credential_expired_blocking', 'emergency_broadcast', 'school_primary_password_reset_sent'
+    'credential_expired_blocking', 'emergency_broadcast', 'school_primary_password_reset_sent',
+    'quick_view_login', 'quick_view_locked'
   ],
   user_activity: [
     'user_login', 'user_logout', 'presence_return_overdue_nudge',
@@ -115,6 +116,8 @@ const LABEL_OVERRIDES = {
   first_login: 'User first login',
   credential_expired_blocking: 'Credential expired — access blocked',
   school_primary_password_reset_sent: 'School password reset sent',
+  quick_view_login: 'Quick View login',
+  quick_view_locked: 'Quick View locked',
   school_event_marketing_photo: 'School event photo',
   school_event_marketing_photo_missing: 'School event photo not provided',
   presence_return_overdue_nudge: 'Return status overdue',
@@ -167,6 +170,7 @@ const WORKFORCE_RELEVANT = new Set([
   'passwordless_token_expired', 'credential_expiring', 'credential_expired_blocking',
   'emergency_broadcast', 'presence_return_overdue_nudge', 'task_overdue',
   'chat_message', 'task_comment_mention', 'voicemail_received',
+  'quick_view_login', 'quick_view_locked',
   'facilitator_availability_push', 'shift_calloff_need_coverage',
   'mileage_claim_approved', 'mileage_claim_rejected', 'mileage_claim_returned',
   'medcancel_claim_approved', 'medcancel_claim_rejected', 'medcancel_claim_returned',
@@ -261,7 +265,8 @@ const WORKFORCE_ESSENTIAL = new Set([
   'temp_password_expired', 'invitation_expired', 'password_changed',
   'passwordless_token_expired', 'credential_expiring', 'credential_expired_blocking',
   'emergency_broadcast', 'task_overdue', 'chat_message', 'task_comment_mention',
-  'voicemail_received', 'mileage_claim_rejected', 'mileage_claim_returned',
+  'voicemail_received', 'quick_view_login', 'quick_view_locked',
+  'mileage_claim_rejected', 'mileage_claim_returned',
   'medcancel_claim_rejected', 'medcancel_claim_returned', 'checklist_incomplete',
   'hiring_task_assigned', 'program_reminder',
   // Always land in the inbox; live toast is gated client-side on Available presence.

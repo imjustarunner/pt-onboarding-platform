@@ -4,6 +4,9 @@ import {
   buildPublicAppUrl,
   buildPublicPortalBaseUrl,
   buildPublicPortalLoginUrl,
+  buildQuickViewHomeUrl,
+  buildQuickViewTenantBaseUrl,
+  buildQuickViewTokenUrl,
   dedicatedAppHostForSlug
 } from '../publicPortalUrl.js';
 
@@ -69,5 +72,31 @@ describe('publicPortalUrl', () => {
     assert.equal(dedicatedAppHostForSlug('nextlevelup'), 'app.nextleveluplcc.com');
     assert.equal(buildPublicPortalBaseUrl(nlu, { platformBaseUrl: PLATFORM }), 'https://app.nextleveluplcc.com');
     assert.equal(buildPublicPortalLoginUrl(nlu, { platformBaseUrl: PLATFORM }), 'https://app.nextleveluplcc.com/login');
+  });
+
+  it('builds tenant Quick View hosts as qv.{tenant}', () => {
+    const itsco = { slug: 'itsco', portal_url: 'itsco', organization_type: 'agency' };
+    assert.equal(
+      buildQuickViewTenantBaseUrl(itsco, { platformBaseUrl: PLATFORM }),
+      'https://qv.app.itsco.health'
+    );
+    assert.equal(
+      buildQuickViewHomeUrl(itsco, { platformBaseUrl: PLATFORM }),
+      'https://qv.app.itsco.health'
+    );
+    assert.equal(
+      buildQuickViewTokenUrl(itsco, 'abc123', { platformBaseUrl: PLATFORM }),
+      'https://qv.app.itsco.health/t/abc123'
+    );
+
+    const sage = {
+      slug: 'burning-sage',
+      portal_url: 'burning-sage',
+      organization_type: 'agency'
+    };
+    assert.equal(
+      buildQuickViewTenantBaseUrl(sage, { platformBaseUrl: PLATFORM }),
+      'https://qv.burning-sage.app.plottwisthq.com'
+    );
   });
 });

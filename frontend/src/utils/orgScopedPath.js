@@ -50,6 +50,11 @@ export function guessPortalSlugFromHostname(hostname = null) {
   const h = norm(hostname ?? (typeof window !== 'undefined' ? window.location.hostname : '')).replace(/:\d+$/, '');
   if (!h || h === 'localhost' || h === '127.0.0.1') return '';
   const parts = h.split('.').filter(Boolean);
+  // qv.{portal}.app.{base}
+  if (parts.length >= 5 && parts[0] === 'qv' && parts[2] === 'app') {
+    return parts[1] || '';
+  }
+  // qv.app.{tenant}.{tld} → resolve via API; no slug here
   if (parts.length === 3 && parts[0] === 'app' && parts[1] && parts[1] !== 'www') {
     return parts[1];
   }

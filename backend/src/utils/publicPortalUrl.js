@@ -122,3 +122,53 @@ export function buildPublicDistrictScheduleUrl(agency, districtSlug, opts = {}) 
   if (!slug) return buildPublicAppUrl(agency, 'district-schedule', opts);
   return buildPublicAppUrl(agency, `district-schedule/${encodeURIComponent(slug)}`, opts);
 }
+
+/**
+ * Prefer a dedicated Quick View host: qv.{tenantAppHost} or qv.{slug}.app.{platform}.
+ * Falls back to {tenantPortal}/qv when we cannot form a safe host.
+ */
+export function buildQuickViewTenantBaseUrl(agency, { platformBaseUrl } = {}) {
+  const slug = orgSlug(agency);
+  const ownCustom = hostnameFromCustomDomain(agency?.custom_domain || agency?.customDomain);
+  const parentCustom = hostnameFromCustomDomain(agency?.parent_custom_domain || agency?.parentCustomDomain);
+  const parent = parentSlug(agency);
+  const dedicated = ownCustom || dedicatedAppHostForSlug(slug) || parentCustom || dedicatedAppHostForSlug(parent);
+
+  if (dedicated) {
+    // app.itsco.health → https://qv.app.itsco.health
+    return `https://qv.${dedicated}`;
+  }
+
+  const base = platformBase(platformBaseUrl);
+  let platformHost = 'plottwisthq.com';
+  try {
+    const u = new URL(base.includes('://') ? base : `https://${base}`);
+    platformHost = u.hostname.replace(/^www\./, '') || platformHost;
+  } catch {
+    /* keep default */
+  }
+
+  if (slug) {
+    // Matches "{portal}.app.{platform}" portals → "qv.{portal}.app.{platform}"
+    return `https://qv.${slug}.app.${platformHost}`;
+  }
+
+  return `${buildPublicPortalBaseUrl(agency, { platformBaseUrl })}/qv`;
+}
+
+/** Persistent token URL on the tenant Quick View origin. */
+export function buildQuickViewTokenUrl(agency, token, { platformBaseUrl, joinType = null, joinId = null } = {}) {
+  const base = buildQuickViewTenantBaseUrl(agency, { platformBaseUrl }).replace(/\/$/, '');
+  const params = new URLSearchParams();
+  if (joinType && joinId) {
+    params.set('join', joinType);
+    params.set('id', String(joinId));
+  }
+  const q = params.toString();
+  return `${base}/t/${encodeURIComponent(token)}${q ? `?${q}` : ''}`;
+}
+
+/** PIN-only home URL (no token in path) — for Add to Home Screen. */
+export function buildQuickViewHomeUrl(agency, opts = {}) {
+  return buildQuickViewTenantBaseUrl(agency, opts).replace(/\/$/, '') || '';
+}

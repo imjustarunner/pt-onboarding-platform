@@ -92,7 +92,13 @@ async function sendJoinReminderToUser({ userId, agencyId, joinUrl, label, sessio
           deepLinkPath: deepPath,
           expiresInHours: 12
         });
-        const baseUrl = (process.env.FRONTEND_URL || FRONTEND_URL || '').replace(/\/$/, '');
+        let baseUrl = (process.env.FRONTEND_URL || FRONTEND_URL || '').replace(/\/$/, '');
+        try {
+          const Agency = (await import('../models/Agency.model.js')).default;
+          const { buildQuickViewHomeUrl } = await import('../utils/publicPortalUrl.js');
+          const agency = await Agency.findById(agencyId);
+          if (agency) baseUrl = buildQuickViewHomeUrl(agency);
+        } catch { /* keep platform base */ }
         finalJoinUrl = buildDeliveryQuickViewUrl({
           baseUrl,
           deliveryToken: delivery.token,

@@ -22,7 +22,8 @@ import {
   postQuickCompose,
   postQuickContact,
   postQuickTask,
-  postQuickTaskStatus
+  postQuickTaskStatus,
+  getQuickViewPwaManifest
 } from '../controllers/quickView.controller.js';
 
 const router = express.Router();
@@ -32,6 +33,9 @@ router.get('/me/status', authenticate, getMyQuickViewStatus);
 router.post('/me/regenerate-token', authenticate, postRegenerateToken);
 router.post('/me/reset-passcode', authenticate, postResetPasscode);
 router.post('/me/reveal-token', authenticate, postRevealToken);
+
+// Public PWA manifest (absolute start_url for iOS Add to Home Screen)
+router.get('/pwa-manifest', getQuickViewPwaManifest);
 
 // Public token landing + unlock
 router.get('/t/:token', getTokenInfo);

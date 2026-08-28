@@ -14,8 +14,8 @@
     <div v-if="homeScreenTip && !session" class="qv-homescreen">
       <strong>Add to Home Screen</strong>
       <p>
-        Stay on this private link, then use Share → Add to Home Screen.
-        Do not add the main login page — that icon opens the wrong place.
+        On this tenant Quick View page, use Share → Add to Home Screen.
+        Keep <strong>Open as Web App</strong> on — it should open this tenant’s Quick View (not the main login).
       </p>
       <button type="button" class="qv-btn ghost sm" @click="dismissHomeTip">Got it</button>
     </div>
@@ -29,25 +29,34 @@
     <section v-else-if="!session && !loading" class="qv-gate">
       <img v-if="agencyLogoUrl" :src="agencyLogoUrl" alt="" class="qv-gate-logo" />
       <h1>{{ agencyName || 'Quick View' }}</h1>
-      <p v-if="tokenInfo">Hi {{ tokenInfo.firstName || 'there' }} — enter your 6-digit passcode.</p>
-      <p v-else-if="!error">Validating your private link…</p>
-      <form v-if="tokenInfo" class="qv-form" @submit.prevent="unlock">
-        <input
-          v-model="passcode"
-          class="qv-pin"
-          inputmode="numeric"
-          maxlength="6"
-          pattern="\d{6}"
-          autocomplete="one-time-code"
-          placeholder="••••••"
-        />
-        <button type="submit" class="qv-btn primary" :disabled="unlocking || passcode.length !== 6">
-          {{ unlocking ? 'Opening…' : 'Open' }}
-        </button>
-      </form>
-      <p class="qv-hint">
-        Passcodes are never emailed. Reset yours from My Dashboard → Settings → Privacy &amp; Quick View.
-      </p>
+      <template v-if="isLocked">
+        <p>Quick View is locked after 3 incorrect passcode attempts.</p>
+        <p class="qv-hint">
+          Sign in to the portal and reset your 6-digit passcode under My Dashboard → Settings → Privacy &amp; Quick View.
+        </p>
+        <a v-if="loginUrl" class="qv-btn primary" :href="loginUrl">Sign in to reset</a>
+      </template>
+      <template v-else>
+        <p v-if="tokenInfo">Hi {{ tokenInfo.firstName || 'there' }} — enter your 6-digit passcode.</p>
+        <p v-else-if="!error">Validating your private link…</p>
+        <form v-if="tokenInfo" class="qv-form" @submit.prevent="unlock">
+          <input
+            v-model="passcode"
+            class="qv-pin"
+            inputmode="numeric"
+            maxlength="6"
+            pattern="\d{6}"
+            autocomplete="one-time-code"
+            placeholder="••••••"
+          />
+          <button type="submit" class="qv-btn primary" :disabled="unlocking || passcode.length !== 6">
+            {{ unlocking ? 'Opening…' : 'Open' }}
+          </button>
+        </form>
+        <p class="qv-hint">
+          Passcodes are never emailed. Reset yours from My Dashboard → Settings → Privacy &amp; Quick View.
+        </p>
+      </template>
     </section>
 
     <template v-if="session">
@@ -230,7 +239,9 @@ import { useRoute } from 'vue-router';
 import axios from 'axios';
 
 const BOOKMARK_KEY = 'plottwist.quickViewBookmark';
+const TOKEN_KEY = 'plottwist.quickViewToken';
 const HOME_TIP_KEY = 'plottwist.quickViewHomeTipDismissed';
+const LOGIN_URL_KEY = 'plottwist.quickViewLoginUrl';
 
 const route = useRoute();
 const apiBase = '/api/quick-view';
@@ -245,6 +256,8 @@ const expiresAt = ref(null);
 const agencyName = ref('');
 const agencyLogoUrl = ref('');
 const agencyPrimaryColor = ref('');
+const loginUrl = ref('');
+const isLocked = ref(false);
 const tab = ref('home');
 const sort = ref('all');
 const conversations = ref([]);
@@ -259,7 +272,6 @@ const officeSlots = ref([]);
 const contacts = ref([]);
 const homeScreenTip = ref(false);
 let heartbeatTimer = null;
-let manifestObjectUrl = null;
 
 const showCompose = ref(false);
 const composeToEmail = ref('');
@@ -300,49 +312,55 @@ function authHeaders() {
   return h;
 }
 
-const isDelivery = computed(() => route.name === 'QuickViewDeliveryAccess' || route.meta?.quickViewDelivery === true);
+const isDelivery = computed(() =>
+  route.name === 'QuickViewDeliveryAccess'
+  || route.name === 'QuickViewDeliveryShort'
+  || route.meta?.quickViewDelivery === true
+);
 
 function rememberBookmark() {
   const token = String(route.params.token || '').trim();
   if (!token) return;
-  const path = isDelivery.value ? `/quick-view/d/${token}` : `/quick-view/${token}`;
+  const path = isDelivery.value
+    ? `/quick-view/d/${token}`
+    : (route.name === 'QuickViewTokenShort' || isQvHostPath() ? `/t/${token}` : `/quick-view/${token}`);
   try {
     localStorage.setItem(BOOKMARK_KEY, path);
+    localStorage.setItem(TOKEN_KEY, token);
   } catch { /* ignore */ }
 }
 
+function isQvHostPath() {
+  try {
+    return String(window.location.hostname || '').toLowerCase().startsWith('qv');
+  } catch {
+    return false;
+  }
+}
+
 function installQuickViewManifest() {
-  const token = String(route.params.token || '').trim();
-  if (!token || typeof document === 'undefined') return;
-  const startPath = isDelivery.value ? `/quick-view/d/${token}` : `/quick-view/${token}`;
-  const startUrl = `${window.location.origin}${startPath}`;
+  if (typeof document === 'undefined') return;
+  const origin = window.location.origin;
   const name = agencyName.value ? `${agencyName.value} Quick View` : 'Quick View';
   const iconSrc = agencyLogoUrl.value || '/branding/plottwisthq-platform-bg.png';
   const theme = agencyPrimaryColor.value || '#0f172a';
-  const manifest = {
-    name,
-    short_name: agencyName.value || 'Quick View',
-    start_url: startUrl,
-    scope: `${window.location.origin}/quick-view/`,
-    display: 'standalone',
-    background_color: '#0f172a',
-    theme_color: theme,
-    icons: [
-      { src: iconSrc, sizes: '192x192', type: iconSrc.endsWith('.svg') ? 'image/svg+xml' : 'image/png', purpose: 'any' },
-      { src: iconSrc, sizes: '512x512', type: iconSrc.endsWith('.svg') ? 'image/svg+xml' : 'image/png', purpose: 'any' }
-    ]
-  };
+  // Server-served manifest so iOS "Open as Web App" uses this origin's root — not plottwisthq /
+  const href =
+    `${apiBase}/pwa-manifest?` +
+    new URLSearchParams({
+      origin,
+      name,
+      theme,
+      icon: iconSrc
+    }).toString();
   try {
-    if (manifestObjectUrl) URL.revokeObjectURL(manifestObjectUrl);
-    const blob = new Blob([JSON.stringify(manifest)], { type: 'application/manifest+json' });
-    manifestObjectUrl = URL.createObjectURL(blob);
     let link = document.querySelector('link[rel="manifest"]');
     if (!link) {
       link = document.createElement('link');
       link.rel = 'manifest';
       document.head.appendChild(link);
     }
-    link.setAttribute('href', manifestObjectUrl);
+    link.setAttribute('href', href);
     const apple = document.getElementById('app-apple-touch-icon');
     if (apple && agencyLogoUrl.value) apple.setAttribute('href', agencyLogoUrl.value);
     document.title = name;
@@ -373,6 +391,11 @@ async function loadTokenInfo() {
     agencyName.value = data.agencyName || '';
     agencyLogoUrl.value = data.agencyLogoUrl || '';
     agencyPrimaryColor.value = data.agencyPrimaryColor || '';
+    loginUrl.value = data.loginUrl || '';
+    isLocked.value = !!data.isLocked || !!data.requiresReset;
+    if (loginUrl.value) {
+      try { localStorage.setItem(LOGIN_URL_KEY, loginUrl.value); } catch { /* ignore */ }
+    }
     installQuickViewManifest();
   } catch (e) {
     error.value = e?.response?.data?.error?.message || 'Invalid Quick View link';
@@ -412,7 +435,12 @@ async function unlock() {
       window.location.href = pathJoin;
     }
   } catch (e) {
-    error.value = e?.response?.data?.error?.message || 'Unlock failed';
+    const err = e?.response?.data?.error || {};
+    error.value = err.message || 'Unlock failed';
+    if (err.requiresReset || err.code === 'locked') {
+      isLocked.value = true;
+      if (err.loginUrl) loginUrl.value = err.loginUrl;
+    }
   } finally {
     unlocking.value = false;
   }
@@ -704,10 +732,6 @@ onMounted(() => {
 });
 onUnmounted(() => {
   stopHeartbeat();
-  if (manifestObjectUrl) {
-    URL.revokeObjectURL(manifestObjectUrl);
-    manifestObjectUrl = null;
-  }
 });
 </script>
 

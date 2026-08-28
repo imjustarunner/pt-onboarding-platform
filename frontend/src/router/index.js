@@ -10,6 +10,7 @@ import { useIndirectTimeSessionStore } from '../store/indirectTimeSession';
 import { getLoginUrl, getCurrentPortalSlugFromHostCache } from '../utils/loginRedirect';
 import { buildOrgLoginPath } from '../utils/orgLoginPath';
 import { guessPortalSlugFromHostname } from '../utils/orgScopedPath';
+import { isQuickViewHost } from '../utils/subdomain';
 import { isSupervisor } from '../utils/helpers';
 import { hasProviderMobileAccess } from '../utils/providerMobileAccess';
 import { isLikelyMobileViewport, isStandalonePwa } from '../utils/pwa';
@@ -357,9 +358,27 @@ const routes = [
     meta: { requiresGuest: false, publicQuickView: true, quickViewDelivery: true, hideNav: true }
   },
   {
+    path: '/d/:token',
+    name: 'QuickViewDeliveryShort',
+    component: () => import('../views/QuickViewAccessView.vue'),
+    meta: { requiresGuest: false, publicQuickView: true, quickViewDelivery: true, hideNav: true }
+  },
+  {
     path: '/quick-view',
     name: 'QuickViewLauncher',
     component: () => import('../views/QuickViewLauncherView.vue'),
+    meta: { requiresGuest: false, publicQuickView: true, hideNav: true }
+  },
+  {
+    path: '/qv',
+    name: 'QuickViewHomeAlias',
+    component: () => import('../views/QuickViewLauncherView.vue'),
+    meta: { requiresGuest: false, publicQuickView: true, hideNav: true }
+  },
+  {
+    path: '/t/:token',
+    name: 'QuickViewTokenShort',
+    component: () => import('../views/QuickViewAccessView.vue'),
     meta: { requiresGuest: false, publicQuickView: true, hideNav: true }
   },
   {
@@ -4428,6 +4447,7 @@ const routes = [
   {
     path: '/',
     redirect: () => {
+      if (isQuickViewHost()) return { name: 'QuickViewLauncher' };
       const authStore = useAuthStore();
       if (authStore.isAuthenticated) return getDashboardRoute();
       const slug = getDefaultOrganizationSlug();
@@ -4547,6 +4567,12 @@ router.beforeEach(async (to, from, next) => {
   const brandingStore = useBrandingStore();
   const agencyStore = useAgencyStore();
   const organizationStore = useOrganizationStore();
+
+  // Dedicated Quick View hosts only serve QV routes (PIN gate / token bind).
+  if (isQuickViewHost() && !to.meta?.publicQuickView) {
+    next({ name: 'QuickViewLauncher', replace: true });
+    return;
+  }
 
   // Navigation loop breaker: must run before any redirecting guard below.
   {

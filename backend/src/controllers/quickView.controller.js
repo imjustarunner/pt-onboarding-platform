@@ -14,6 +14,11 @@ import {
 import User from '../models/User.model.js';
 import pool from '../config/database.js';
 import { getAgencyEmailSettings } from '../services/emailSettings.service.js';
+import {
+  buildQuickViewHomeUrl,
+  buildQuickViewTokenUrl,
+  buildPublicPortalLoginUrl
+} from '../utils/publicPortalUrl.js';
 
 function ipHash(req) {
   const ip = req.ip || req.headers['x-forwarded-for'] || '';
@@ -22,6 +27,51 @@ function ipHash(req) {
 
 function ua(req) {
   return req.headers['user-agent'] || null;
+}
+
+async function resolveAgencyForUser(userId, preferredAgencyId = null) {
+  const Agency = (await import('../models/Agency.model.js')).default;
+  if (preferredAgencyId) {
+    const agency = await Agency.findById(preferredAgencyId);
+    if (agency) return agency;
+  }
+  if (!userId) return null;
+  try {
+    const [uaRows] = await pool.execute(
+      `SELECT agency_id FROM user_agencies WHERE user_id = ? ORDER BY is_primary DESC, id ASC LIMIT 1`,
+      [userId]
+    );
+    const aid = uaRows?.[0]?.agency_id;
+    if (aid) return Agency.findById(aid);
+  } catch { /* ignore */ }
+  return null;
+}
+
+function sanitizeQuickViewCalendarItem(e) {
+  const kind = String(e.kind || 'SCHEDULE').toUpperCase();
+  const hasClient = !!(e.client_id || e.clientId);
+  const rawTitle = String(e.title || '').trim();
+  // Never expose client identity in Quick View
+  let title;
+  if (hasClient) {
+    if (kind.includes('SUPERVISION')) title = 'Supervision';
+    else if (kind.includes('TEAM') || kind.includes('HUDDLE')) title = 'Team meeting';
+    else title = 'Client session';
+  } else if (/client|patient|student|family/i.test(rawTitle)) {
+    title = kind.includes('SUPERVISION') ? 'Supervision' : 'Scheduled session';
+  } else {
+    title = rawTitle || kind.replace(/_/g, ' ') || 'Event';
+  }
+  return {
+    id: `pse-${e.id}`,
+    title,
+    kind: e.kind || 'SCHEDULE',
+    startAt: e.start_at || e.startAt,
+    endAt: e.end_at || e.endAt,
+    location: e.location || null,
+    joinKey: e.participant_join_token || e.join_token || e.id,
+    canJoin: !!(e.platform_video_link == null || Number(e.platform_video_link) === 1 || e.google_meet_link)
+  };
 }
 
 /**
@@ -62,10 +112,20 @@ export const getMyQuickViewStatus = async (req, res, next) => {
   try {
     const status = await getCredentialStatus(req.user.id);
     const user = await User.findById(req.user.id);
+    const agencyId = Number(req.headers['x-agency-id'] || status.agencyId || 0) || null;
+    const agency = await resolveAgencyForUser(req.user.id, agencyId);
+    const homeUrl = agency ? buildQuickViewHomeUrl(agency) : null;
+    const loginUrl = agency ? buildPublicPortalLoginUrl(agency) : null;
     res.json({
       ok: true,
       ...status,
-      requiresPassword: !!user?.password_hash
+      requiresPassword: !!user?.password_hash,
+      agencyId: agency?.id || agencyId,
+      agencyName: agency?.name || null,
+      homeUrl,
+      loginUrl,
+      /** Add-to-home-screen URL (no token). Bind once via token link, then PIN only. */
+      addToHomeUrl: homeUrl
     });
   } catch (e) {
     next(e);
@@ -84,12 +144,21 @@ export const postRevealToken = async (req, res, next) => {
         }
       });
     }
-    const baseUrl = String(process.env.APP_PUBLIC_URL || process.env.FRONTEND_URL || '').replace(/\/$/, '');
+    const agencyId = Number(req.headers['x-agency-id'] || req.body?.agencyId || 0) || null;
+    const agency = await resolveAgencyForUser(req.user.id, agencyId);
+    const url = agency
+      ? buildQuickViewTokenUrl(agency, revealed.token)
+      : buildQuickViewUrl({
+          baseUrl: process.env.APP_PUBLIC_URL || process.env.FRONTEND_URL,
+          token: revealed.token
+        });
+    const homeUrl = agency ? buildQuickViewHomeUrl(agency) : null;
     res.json({
       ok: true,
       token: revealed.token,
       tokenVersion: revealed.tokenVersion,
-      url: buildQuickViewUrl({ baseUrl, token: revealed.token })
+      url,
+      homeUrl
     });
   } catch (e) {
     next(e);
@@ -107,12 +176,20 @@ export const postRegenerateToken = async (req, res, next) => {
       ipHash: ipHash(req),
       userAgent: ua(req)
     });
-    const baseUrl = String(process.env.APP_PUBLIC_URL || process.env.FRONTEND_URL || '').replace(/\/$/, '');
+    const agency = await resolveAgencyForUser(req.user.id, agencyId);
+    const url = agency
+      ? buildQuickViewTokenUrl(agency, result.token)
+      : buildQuickViewUrl({
+          baseUrl: process.env.APP_PUBLIC_URL || process.env.FRONTEND_URL,
+          token: result.token
+        });
+    const homeUrl = agency ? buildQuickViewHomeUrl(agency) : null;
     res.json({
       ok: true,
       token: result.token,
       tokenVersion: result.tokenVersion,
-      url: buildQuickViewUrl({ baseUrl, token: result.token }),
+      url,
+      homeUrl,
       shownOnce: true
     });
   } catch (e) {
@@ -180,13 +257,18 @@ export const getTokenInfo = async (req, res, next) => {
     let agencyLogoUrl = null;
     let agencyPrimaryColor = null;
     let quickViewEnabled = true;
+    let loginUrl = null;
+    let homeUrl = null;
+    let agency = null;
     if (agencyId) {
       try {
         const settings = await getAgencyEmailSettings(agencyId);
         quickViewEnabled = settings.quickViewEnabled !== false;
         const Agency = (await import('../models/Agency.model.js')).default;
-        const agency = await Agency.findById(agencyId);
+        agency = await Agency.findById(agencyId);
         agencyName = agency?.name || null;
+        loginUrl = agency ? buildPublicPortalLoginUrl(agency) : null;
+        homeUrl = agency ? buildQuickViewHomeUrl(agency) : null;
         const baseUrl = String(process.env.APP_PUBLIC_URL || process.env.FRONTEND_URL || '').replace(/\/$/, '');
         const { resolveOrgLogoUrl } = await import('../services/publicFormBranding.service.js');
         agencyLogoUrl = resolveOrgLogoUrl(agency, { baseUrl });
@@ -196,6 +278,7 @@ export const getTokenInfo = async (req, res, next) => {
         agencyPrimaryColor = palette?.primary || palette?.brand || agency?.primary_color || null;
       } catch { /* ignore */ }
     }
+    const status = await getCredentialStatus(cred.user_id);
     await logAccessEvent({
       userId: cred.user_id,
       agencyId,
@@ -216,6 +299,10 @@ export const getTokenInfo = async (req, res, next) => {
       quickViewEnabled,
       deliveryMode: !!deliveryMode,
       deepLinkPath,
+      loginUrl,
+      homeUrl,
+      isLocked: !!status.isLocked,
+      requiresReset: !!status.isLocked,
       join: {
         type: req.query.join || null,
         id: req.query.id || null
@@ -249,7 +336,32 @@ export const postUnlock = async (req, res, next) => {
     });
     if (!result.ok) {
       const status = result.error === 'locked' ? 429 : 401;
-      return res.status(status).json({ error: { message: result.error, ...result } });
+      let message = 'Incorrect passcode';
+      if (result.error === 'locked' || result.requiresReset) {
+        message =
+          'Quick View is locked after 3 incorrect attempts. Sign in to the portal and reset your 6-digit passcode under Settings → Privacy & Quick View.';
+      } else if (result.error === 'invalid_passcode' && result.remainingAttempts != null) {
+        message = `Incorrect passcode. ${result.remainingAttempts} attempt${result.remainingAttempts === 1 ? '' : 's'} left before lockout.`;
+      } else if (result.error === 'passcode_not_set') {
+        message = 'Passcode not set. Sign in and create one under Settings → Privacy & Quick View.';
+      } else if (result.error === 'invalid_token') {
+        message = 'Invalid or revoked Quick View link';
+      }
+      let loginUrl = null;
+      try {
+        const agency = await resolveAgencyForUser(result.userId || null, result.agencyId || req.body?.agencyId);
+        if (agency) loginUrl = buildPublicPortalLoginUrl(agency);
+      } catch { /* ignore */ }
+      return res.status(status).json({
+        error: {
+          message,
+          code: result.error,
+          requiresReset: !!result.requiresReset,
+          remainingAttempts: result.remainingAttempts,
+          lockedUntil: result.lockedUntil || null,
+          loginUrl
+        }
+      });
     }
     res.cookie('qv_session', result.sessionToken, {
       httpOnly: true,
@@ -346,7 +458,7 @@ export const getQuickHome = async (req, res, next) => {
     const agencyId = req.quickView.agencyId;
     const inbox = await resolvePersonalInbox(userId, agencyId);
     const inboxId = inbox?.id || null;
-    // Personal mailbox only — never whole-agency ticket queues
+    // Personal mailbox / owned threads across all tenants (user-scoped, not agency ticket queues)
     const [convs] = await pool.execute(
       `SELECT c.id, c.channel, c.subject, c.status, c.last_message_at, c.last_message_preview,
               c.sender_trust, COALESCE(c.is_unknown_sender,0) AS is_unknown_sender,
@@ -367,10 +479,9 @@ export const getQuickHome = async (req, res, next) => {
            c.owner_user_id = ?
            OR (? IS NOT NULL AND c.inbox_id = ?)
          )
-         AND (c.agency_id = ? OR c.agency_id IS NULL OR ? IS NULL)
        ORDER BY COALESCE(c.last_message_at, c.created_at) DESC
        LIMIT 50`,
-      [userId, userId, inboxId, inboxId, agencyId, agencyId]
+      [userId, userId, inboxId, inboxId]
     );
     res.json({
       ok: true,
@@ -414,7 +525,6 @@ export const getQuickTasks = async (req, res, next) => {
 export const getQuickDayCalendar = async (req, res, next) => {
   try {
     const userId = req.quickView.userId;
-    const agencyId = req.quickView.agencyId;
     const day = String(req.query.day || new Date().toISOString().slice(0, 10)).slice(0, 10);
     const windowStart = `${day} 00:00:00`;
     const dayEnd = new Date(`${day}T12:00:00`);
@@ -422,8 +532,9 @@ export const getQuickDayCalendar = async (req, res, next) => {
     const windowEnd = `${dayEnd.toISOString().slice(0, 10)} 00:00:00`;
 
     const ProviderScheduleEvent = (await import('../models/ProviderScheduleEvent.model.js')).default;
+    // All tenants: meetings/sessions tied to this user
     const events = await ProviderScheduleEvent.listForUserInWindow({
-      agencyId,
+      allAgencies: true,
       providerId: userId,
       windowStart,
       windowEnd
@@ -443,19 +554,10 @@ export const getQuickDayCalendar = async (req, res, next) => {
     ).catch(() => [[]]);
 
     const items = [
-      ...(events || []).map((e) => ({
-        id: `pse-${e.id}`,
-        title: e.title || e.kind || 'Event',
-        kind: e.kind || 'SCHEDULE',
-        startAt: e.start_at || e.startAt,
-        endAt: e.end_at || e.endAt,
-        location: e.location || null,
-        joinKey: e.participant_join_token || e.join_token || e.id,
-        canJoin: !!(e.platform_video_link == null || Number(e.platform_video_link) === 1 || e.google_meet_link)
-      })),
+      ...(events || []).map((e) => sanitizeQuickViewCalendarItem(e)),
       ...(officeRows || []).map((o) => ({
         id: `office-${o.id}`,
-        title: o.office_name || 'Office',
+        title: 'Office',
         kind: 'OFFICE',
         startAt: o.start_at,
         endAt: o.end_at,
@@ -555,11 +657,47 @@ export const getQuickConversation = async (req, res, next) => {
 
 export const getQuickContacts = async (req, res, next) => {
   try {
+    // User-scoped across tenants (no agency filter)
     const UserCommunicationContact = (await import('../models/UserCommunicationContact.model.js')).default;
-    const rows = await UserCommunicationContact.listForOwner(req.quickView.userId, {
-      agencyId: req.quickView.agencyId
+    const rows = await UserCommunicationContact.listForOwner(req.quickView.userId, {});
+    res.json({
+      ok: true,
+      contacts: (rows || []).map((c) => ({
+        id: c.id,
+        email: c.email,
+        display_name: c.display_name,
+        phone: c.phone,
+        trust_status: c.trust_status
+      }))
     });
-    res.json({ ok: true, contacts: rows || [] });
+  } catch (e) {
+    next(e);
+  }
+};
+
+/** Public PWA manifest for tenant Quick View hosts (iOS uses start_url from this). */
+export const getQuickViewPwaManifest = async (req, res, next) => {
+  try {
+    const origin = String(req.query.origin || '').replace(/\/$/, '');
+    const name = String(req.query.name || 'Quick View').slice(0, 60);
+    const theme = String(req.query.theme || '#0f172a');
+    const icon = String(req.query.icon || '/branding/plottwisthq-platform-bg.png');
+    const start = origin ? `${origin}/` : '/';
+    res.setHeader('Content-Type', 'application/manifest+json');
+    res.setHeader('Cache-Control', 'no-store');
+    res.json({
+      name,
+      short_name: name.slice(0, 12),
+      start_url: start,
+      scope: origin ? `${origin}/` : '/',
+      display: 'standalone',
+      background_color: '#0f172a',
+      theme_color: theme,
+      icons: [
+        { src: icon, sizes: '192x192', type: icon.endsWith('.svg') ? 'image/svg+xml' : 'image/png', purpose: 'any' },
+        { src: icon, sizes: '512x512', type: icon.endsWith('.svg') ? 'image/svg+xml' : 'image/png', purpose: 'any' }
+      ]
+    });
   } catch (e) {
     next(e);
   }

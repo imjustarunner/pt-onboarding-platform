@@ -3,6 +3,7 @@
  * - Persistent URL token: SHA-256 hash only; raw shown once on create/regen
  * - 6-digit passcode: bcrypt; never reveal existing; reset shows new value once
  * - Session: 10 min inactivity; meeting extend to end+10min
+ * - Passcode lockout: 3 failed guesses → locked until passcode reset (login required)
  */
 import crypto from 'crypto';
 import bcrypt from 'bcrypt';
@@ -12,8 +13,9 @@ const TOKEN_BYTES = 32;
 const SESSION_BYTES = 32;
 const SESSION_TTL_MS = 10 * 60 * 1000;
 const MEETING_GRACE_MS = 10 * 60 * 1000;
-const MAX_PASSCODE_ATTEMPTS = 5;
-const LOCKOUT_MS = 15 * 60 * 1000;
+const MAX_PASSCODE_ATTEMPTS = 3;
+/** Far-future lock: cleared only by resetPasscode (not auto-expiry). */
+const LOCK_UNTIL_RESET = '2099-12-31 23:59:59';
 const BCRYPT_ROUNDS = 10;
 
 function sha256(value) {
@@ -26,6 +28,39 @@ function randomToken() {
 
 function randomSession() {
   return crypto.randomBytes(SESSION_BYTES).toString('hex');
+}
+
+function isPasscodeLocked(cred) {
+  if (!cred) return false;
+  if (Number(cred.failed_passcode_attempts || 0) >= MAX_PASSCODE_ATTEMPTS) return true;
+  if (cred.passcode_locked_until && new Date(cred.passcode_locked_until) > new Date()) return true;
+  return false;
+}
+
+async function notifyQuickViewEvent({
+  userId,
+  agencyId,
+  type,
+  title,
+  message,
+  severity = 'info'
+}) {
+  try {
+    const Notification = (await import('../models/Notification.model.js')).default;
+    await Notification.create({
+      type,
+      severity,
+      title,
+      message,
+      userId,
+      agencyId: agencyId || null,
+      relatedEntityType: 'user',
+      relatedEntityId: userId,
+      actorSource: 'System'
+    });
+  } catch (e) {
+    console.warn('[quickViewAuth] notification failed:', e?.message || e);
+  }
 }
 
 async function ensureRow(userId, agencyId = null) {
@@ -46,7 +81,8 @@ export async function getCredentialStatus(userId) {
   const [rows] = await pool.execute(
     `SELECT token_version, token_issued_at, token_revoked_at, token_raw,
             passcode_version, passcode_set_at, passcode_locked_until,
-            failed_passcode_attempts, last_token_used_at, last_passcode_ok_at
+            failed_passcode_attempts, last_token_used_at, last_passcode_ok_at,
+            agency_id
      FROM user_quick_view_credentials WHERE user_id = ? LIMIT 1`,
     [userId]
   );
@@ -59,8 +95,12 @@ export async function getCredentialStatus(userId) {
     tokenVersion: Number(row?.token_version || 0),
     passcodeVersion: Number(row?.passcode_version || 0),
     lockedUntil: row?.passcode_locked_until || null,
+    isLocked: isPasscodeLocked(row),
+    failedAttempts: Number(row?.failed_passcode_attempts || 0),
+    maxAttempts: MAX_PASSCODE_ATTEMPTS,
     lastTokenUsedAt: row?.last_token_used_at || null,
-    lastPasscodeOkAt: row?.last_passcode_ok_at || null
+    lastPasscodeOkAt: row?.last_passcode_ok_at || null,
+    agencyId: row?.agency_id || null
   };
 }
 
@@ -201,7 +241,7 @@ export async function verifyPasscodeAndStartSession({
   if (!cred) {
     return { ok: false, error: 'invalid_token' };
   }
-  if (cred.passcode_locked_until && new Date(cred.passcode_locked_until) > new Date()) {
+  if (isPasscodeLocked(cred)) {
     await logAccessEvent({
       userId: cred.user_id,
       agencyId: agencyId || cred.agency_id,
@@ -210,7 +250,12 @@ export async function verifyPasscodeAndStartSession({
       ipHash,
       userAgent
     });
-    return { ok: false, error: 'locked', lockedUntil: cred.passcode_locked_until };
+    return {
+      ok: false,
+      error: 'locked',
+      lockedUntil: cred.passcode_locked_until || LOCK_UNTIL_RESET,
+      requiresReset: true
+    };
   }
   if (!cred.passcode_hash) {
     return { ok: false, error: 'passcode_not_set' };
@@ -224,9 +269,8 @@ export async function verifyPasscodeAndStartSession({
   const match = await bcrypt.compare(pin, cred.passcode_hash);
   if (!match) {
     const attempts = Number(cred.failed_passcode_attempts || 0) + 1;
-    const lockUntil = attempts >= MAX_PASSCODE_ATTEMPTS
-      ? new Date(Date.now() + LOCKOUT_MS)
-      : null;
+    const locked = attempts >= MAX_PASSCODE_ATTEMPTS;
+    const lockUntil = locked ? LOCK_UNTIL_RESET : null;
     await pool.execute(
       `UPDATE user_quick_view_credentials
        SET failed_passcode_attempts = ?,
@@ -238,11 +282,29 @@ export async function verifyPasscodeAndStartSession({
       userId: cred.user_id,
       agencyId: agencyId || cred.agency_id,
       eventType: 'passcode_fail',
-      meta: { attempts },
+      meta: { attempts, locked },
       ipHash,
       userAgent
     });
-    return { ok: false, error: 'invalid_passcode', attempts, lockedUntil: lockUntil };
+    if (locked) {
+      await notifyQuickViewEvent({
+        userId: cred.user_id,
+        agencyId: agencyId || cred.agency_id,
+        type: 'quick_view_locked',
+        severity: 'warning',
+        title: 'Quick View locked',
+        message:
+          'Quick View was locked after 3 incorrect passcode attempts. Sign in to the portal and reset your 6-digit Quick View passcode under My Dashboard → Settings → Privacy & Quick View.'
+      });
+    }
+    return {
+      ok: false,
+      error: locked ? 'locked' : 'invalid_passcode',
+      attempts,
+      remainingAttempts: Math.max(0, MAX_PASSCODE_ATTEMPTS - attempts),
+      lockedUntil: lockUntil,
+      requiresReset: locked
+    };
   }
 
   await pool.execute(
@@ -296,6 +358,16 @@ export async function verifyPasscodeAndStartSession({
     eventType: 'passcode_ok',
     ipHash,
     userAgent
+  });
+
+  const uaHint = userAgent ? String(userAgent).slice(0, 80) : 'unknown device';
+  await notifyQuickViewEvent({
+    userId: cred.user_id,
+    agencyId: agencyId || cred.agency_id,
+    type: 'quick_view_login',
+    severity: 'info',
+    title: 'Quick View login',
+    message: `Your Quick View was unlocked (${uaHint}). If this was not you, reset your Quick View passcode in Settings.`
   });
 
   if (deliveryMode && delivery?.id) {
@@ -403,13 +475,18 @@ export async function logAccessEvent({
 
 export function buildQuickViewUrl({ baseUrl, token, joinType = null, joinId = null }) {
   const base = String(baseUrl || '').replace(/\/$/, '') || 'https://plottwisthq.com';
+  // Tenant QV hosts use /t/:token; legacy / platform hosts keep /quick-view/:token
+  const isQvHost = /^https?:\/\/qv[.-]/i.test(base);
+  const path = isQvHost
+    ? `/t/${encodeURIComponent(token)}`
+    : `/quick-view/${encodeURIComponent(token)}`;
   const params = new URLSearchParams();
   if (joinType && joinId) {
     params.set('join', joinType);
     params.set('id', String(joinId));
   }
   const q = params.toString();
-  return `${base}/quick-view/${encodeURIComponent(token)}${q ? `?${q}` : ''}`;
+  return `${base}${path}${q ? `?${q}` : ''}`;
 }
 
 /**
@@ -466,13 +543,17 @@ export async function ensurePersistentToken({ userId, agencyId = null }) {
 
 export function buildDeliveryQuickViewUrl({ baseUrl, deliveryToken, joinType = null, joinId = null }) {
   const base = String(baseUrl || '').replace(/\/$/, '') || 'https://plottwisthq.com';
+  const isQvHost = /^https?:\/\/qv[.-]/i.test(base);
+  const path = isQvHost
+    ? `/d/${encodeURIComponent(deliveryToken)}`
+    : `/quick-view/d/${encodeURIComponent(deliveryToken)}`;
   const params = new URLSearchParams();
   if (joinType && joinId) {
     params.set('join', joinType);
     params.set('id', String(joinId));
   }
   const q = params.toString();
-  return `${base}/quick-view/d/${encodeURIComponent(deliveryToken)}${q ? `?${q}` : ''}`;
+  return `${base}${path}${q ? `?${q}` : ''}`;
 }
 
 export default {
