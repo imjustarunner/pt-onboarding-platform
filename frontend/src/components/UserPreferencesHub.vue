@@ -123,10 +123,10 @@
             <div class="field checkbox">
               <label>
                 <input v-model="prefs.allow_notifications_outside_work_schedule" type="checkbox" :disabled="notificationDisabled" />
-                Allow notifications outside work hours
+                Allow notifications outside Availability Hours
               </label>
               <div class="field-help">
-                When off, email/SMS follow your Work hours on My Schedule (if set). Quiet hours still take precedence when enabled. Edit work hours on
+                When off, email/SMS follow your Availability Hours on My Schedule (default Mon–Fri 6 AM–7 PM, or your overrides). Quiet hours still take precedence when enabled. Edit Availability Hours on
                 <router-link :to="myScheduleLink">My Schedule</router-link>.
               </div>
             </div>

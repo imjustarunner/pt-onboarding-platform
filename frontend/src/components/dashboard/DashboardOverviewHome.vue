@@ -56,6 +56,11 @@
       @add-sticky="navigate('checklist')"
     />
 
+    <OverviewAvailabilityCard
+      v-if="showSchedule"
+      @open-schedule="navigate('my_schedule')"
+    />
+
     <div v-if="error" class="ov-error">{{ error }}</div>
 
     <OverviewMetricCards
@@ -165,6 +170,7 @@ import OverviewRecentActivity from './OverviewRecentActivity.vue';
 import OverviewQuickActions from './OverviewQuickActions.vue';
 import OverviewQuickNav from './OverviewQuickNav.vue';
 import OverviewTodaysFocus from './OverviewTodaysFocus.vue';
+import OverviewAvailabilityCard from './OverviewAvailabilityCard.vue';
 
 const props = defineProps({
   agencyId: { type: [Number, String], default: null },

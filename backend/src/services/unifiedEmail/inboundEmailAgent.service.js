@@ -670,6 +670,16 @@ async function createEmailDraftSupportTicket({
     );
   }
 
+  // Sync into unified inbox + classify / OOO / intent as soon as the ticket exists
+  if (ticketId && agencyId) {
+    try {
+      const { syncEmailTicketsToInbox } = await import('../ticketEmailInboxAdapter.service.js');
+      await syncEmailTicketsToInbox({ agencyId: Number(agencyId), limit: 5, forceRefresh: false });
+    } catch (e) {
+      console.warn('[EmailAgent] unified inbox sync after ingest failed:', e?.message || e);
+    }
+  }
+
   if (ticketId) {
     if (payload && gmailMessageId) {
       await persistGmailAttachmentsForTicket({

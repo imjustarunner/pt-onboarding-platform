@@ -19,6 +19,8 @@ function mapMessage(row) {
     cc: parseJson(row.cc_json, []),
     bcc: parseJson(row.bcc_json, []),
     is_internal_note: !!row.is_internal_note,
+    is_auto_reply: !!row.is_auto_reply,
+    auto_reply_kind: row.auto_reply_kind || null,
     send_status: row.send_status || 'sent',
     scheduled_send_at: row.scheduled_send_at || null,
     undo_expires_at: row.undo_expires_at || null
@@ -138,13 +140,29 @@ class CommunicationConversation {
     dateTo = null,
     limit = 50,
     offset = 0,
-    userId = null
+    userId = null,
+    includeHeld = false,
+    unknownOnly = false,
+    isAdminViewer = false
   } = {}) {
     const where = ['c.archived_at IS NULL', 'COALESCE(c.is_spam, 0) = 0'];
     const params = [];
     if (agencyId != null) {
       where.push('(c.agency_id = ? OR c.agency_id IS NULL)');
       params.push(agencyId);
+    }
+    // Hold school/staff mail until visible_after for non-admin employee views
+    if (!includeHeld && !isAdminViewer) {
+      where.push('(c.visible_after IS NULL OR c.visible_after <= NOW())');
+    }
+    if (unknownOnly) {
+      where.push('COALESCE(c.is_unknown_sender, 0) = 1');
+    } else if (!isAdminViewer && filter !== 'unknown') {
+      // Default feed hides unknown senders (they live in Unknown Sender box)
+      where.push('COALESCE(c.is_unknown_sender, 0) = 0');
+    }
+    if (filter === 'unknown') {
+      where.push('COALESCE(c.is_unknown_sender, 0) = 1');
     }
     if (inboxId) {
       // Email is inbox-scoped; SMS/calls are agency-wide (no mailbox) and still appear in All.
@@ -370,6 +388,12 @@ class CommunicationConversation {
     const assignedToYou = userId
       ? await count(`owner_user_id = ? AND status <> 'resolved'`, [userId])
       : 0;
+    const unknownSenders = userId
+      ? await count(
+          `COALESCE(is_unknown_sender, 0) = 1 AND (owner_user_id = ? OR owner_user_id IS NULL)`,
+          [userId]
+        )
+      : await count(`COALESCE(is_unknown_sender, 0) = 1`);
 
     const [channelRows] = await pool.execute(
       `SELECT channel, COUNT(*) AS n
@@ -386,6 +410,7 @@ class CommunicationConversation {
       waitingOnOthers,
       followUpsDue,
       assignedToYou,
+      unknownSenders,
       channels: {
         email: channels.email || 0,
         secure: channels.secure || 0,
@@ -501,8 +526,9 @@ class CommunicationConversation {
       `INSERT INTO communication_messages
        (conversation_id, channel, direction, author_user_id, from_json, to_json, cc_json, bcc_json,
         subject, body_text, body_html, internet_message_id, in_reply_to, references_header,
-        is_internal_note, send_status, scheduled_send_at, undo_expires_at, support_ticket_message_id, sent_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        is_internal_note, send_status, scheduled_send_at, undo_expires_at, support_ticket_message_id, sent_at,
+        is_auto_reply, auto_reply_kind)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         data.conversationId,
         data.channel || 'email',
@@ -523,7 +549,9 @@ class CommunicationConversation {
         data.scheduledSendAt ?? null,
         data.undoExpiresAt ?? null,
         data.supportTicketMessageId ?? null,
-        data.sentAt ?? (sendStatus === 'scheduled' ? null : new Date())
+        data.sentAt ?? (sendStatus === 'scheduled' ? null : new Date()),
+        data.isAutoReply ? 1 : 0,
+        data.autoReplyKind || null
       ]
     );
     const preview = String(data.bodyText || data.bodyHtml || '')

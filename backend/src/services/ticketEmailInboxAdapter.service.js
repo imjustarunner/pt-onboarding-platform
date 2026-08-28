@@ -53,12 +53,13 @@ export async function syncEmailTicketsToInbox({ agencyId, limit = 100, forceRefr
     inboxes[0] ||
     null;
 
-  let synced = 0;
+    let synced = 0;
   for (const ticket of tickets || []) {
     let conv = await CommunicationConversation.findBySupportTicketId(ticket.id);
     const subject = ticket.source_email_subject || ticket.subject || 'Email conversation';
     const lastAt = ticket.source_email_received_at || ticket.updated_at || ticket.created_at;
     const preview = previewFrom(ticket.question);
+    const isNew = !conv;
 
     if (!conv) {
       conv = await CommunicationConversation.create({
@@ -100,7 +101,7 @@ export async function syncEmailTicketsToInbox({ agencyId, limit = 100, forceRefr
       await CommunicationConversation.upsertLink(conv.id, 'ticket', ticket.id, `Ticket #${ticket.id}`);
 
       // Seed first message from ticket question / email body
-      await CommunicationConversation.addMessage({
+      const seedMsgId = await CommunicationConversation.addMessage({
         conversationId: conv.id,
         channel: 'email',
         direction: 'inbound',
@@ -138,6 +139,21 @@ export async function syncEmailTicketsToInbox({ agencyId, limit = 100, forceRefr
           sentAt: m.created_at
         });
       }
+
+      // Classify + OOO / SUPPORT / intent (school tickets: owner may be null → agency defaults)
+      try {
+        const { processInboundCommunicationEvent } = await import('./inboundCommunication.service.js');
+        await processInboundCommunicationEvent({
+          agencyId: ticket.agency_id || agencyId,
+          conversationId: conv.id,
+          messageId: seedMsgId,
+          fromEmail: ticket.source_email_from,
+          subject,
+          bodyText: ticket.question || ''
+        });
+      } catch (e) {
+        console.warn('[ticketEmailInboxAdapter] inbound post-process failed:', e?.message || e);
+      }
     } else if (forceRefresh) {
       // Refresh preview/status lightly (only when explicitly requested)
       await CommunicationConversation.update(conv.id, {
@@ -146,6 +162,22 @@ export async function syncEmailTicketsToInbox({ agencyId, limit = 100, forceRefr
         lastMessageAt: lastAt,
         lastMessagePreview: preview || conv.last_message_preview
       });
+    }
+
+    // Re-classify existing threads that never got sender_trust (idempotent soft pass)
+    if (!isNew && conv && !conv.sender_trust && ticket.source_email_from) {
+      try {
+        const { processInboundCommunicationEvent } = await import('./inboundCommunication.service.js');
+        await processInboundCommunicationEvent({
+          agencyId: ticket.agency_id || agencyId,
+          conversationId: conv.id,
+          fromEmail: ticket.source_email_from,
+          subject,
+          bodyText: ticket.question || ''
+        });
+      } catch {
+        /* ignore */
+      }
     }
   }
 

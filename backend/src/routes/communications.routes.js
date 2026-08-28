@@ -33,7 +33,13 @@ import {
   postBlockAddress,
   getConversationExport,
   postAiDraft,
-  postAiInsight
+  postAiInsight,
+  getMyCommunicationContacts,
+  postMyCommunicationContact,
+  postBlockCommunicationContact,
+  deleteMyCommunicationContact,
+  postMarkSenderKnown,
+  postSecureNotify
 } from '../controllers/unifiedInbox.controller.js';
 import {
   getCallSettings,
@@ -64,12 +70,18 @@ router.patch('/prefs', patchUnifiedPrefs);
 router.get('/directory', getUnifiedDirectory);
 router.get('/link-search', getLinkSearch);
 router.post('/send-preflight', postSendPreflight);
+router.post('/secure-notify', postSecureNotify);
 router.post('/block', postBlockAddress);
+router.get('/contacts', getMyCommunicationContacts);
+router.post('/contacts', postMyCommunicationContact);
+router.post('/contacts/block', postBlockCommunicationContact);
+router.delete('/contacts/:id', deleteMyCommunicationContact);
 router.get('/conversations', getUnifiedConversations);
 router.post('/conversations', postUnifiedCompose);
 router.get('/conversations/:id', getUnifiedConversation);
 router.patch('/conversations/:id', patchUnifiedConversation);
 router.post('/conversations/:id/reply', postUnifiedReply);
+router.post('/conversations/:id/mark-known', postMarkSenderKnown);
 router.get('/conversations/:id/export', getConversationExport);
 router.post('/conversations/:id/ai/draft', postAiDraft);
 router.post('/conversations/:id/ai/insight', postAiInsight);

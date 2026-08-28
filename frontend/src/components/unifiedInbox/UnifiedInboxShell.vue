@@ -443,6 +443,7 @@ defineExpose({ refreshAll });
         @spam="onSpam"
         @insight="onInsight"
         @open-sms-tools="openSmsTools"
+        @refresh="onContextRefresh"
       />
 
       <UnifiedContextPanel

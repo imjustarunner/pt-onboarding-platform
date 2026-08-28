@@ -190,18 +190,77 @@ export default class UserPresenceStatus {
   }
 
   /**
+   * Same-day temporary statuses (Out for the Day / Available · Logged out).
+   * These are not planned outs — they must not stick past local midnight.
+   */
+  static isSameDayTemporaryReason(reason) {
+    const r = String(reason || '').trim();
+    return r === 'out_day' || r === 'available_offline';
+  }
+
+  /**
+   * Next local midnight after `from` in `timeZone` (best-effort).
+   */
+  static nextLocalMidnight(timeZone = 'America/New_York', from = new Date()) {
+    const tz = String(timeZone || 'America/New_York').trim() || 'America/New_York';
+    try {
+      const dtf = new Intl.DateTimeFormat('en-US', {
+        timeZone: tz,
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hourCycle: 'h23'
+      });
+      const partsOf = (date) =>
+        Object.fromEntries(dtf.formatToParts(date).map((p) => [p.type, p.value]));
+      const nowParts = partsOf(from);
+      const y = Number(nowParts.year);
+      const m = Number(nowParts.month);
+      const d = Number(nowParts.day);
+      // Iterate UTC hours around the next calendar day until local clock hits 00:00
+      const base = Date.UTC(y, m - 1, d, 12, 0, 0); // noon UTC-ish anchor on local calendar day
+      for (let ms = base; ms < base + 48 * 3600 * 1000; ms += 15 * 60 * 1000) {
+        const cand = new Date(ms);
+        const p = partsOf(cand);
+        const dayNum = Number(p.day);
+        const monthNum = Number(p.month);
+        const yearNum = Number(p.year);
+        const crossed =
+          yearNum > y
+          || (yearNum === y && monthNum > m)
+          || (yearNum === y && monthNum === m && dayNum > d);
+        if (crossed && Number(p.hour) === 0 && Number(p.minute) === 0) {
+          return cand;
+        }
+      }
+    } catch {
+      /* fall through */
+    }
+    return new Date(Date.UTC(
+      from.getUTCFullYear(),
+      from.getUTCMonth(),
+      from.getUTCDate() + 1,
+      0, 0, 0
+    ));
+  }
+
+  /**
    * Timed Away whose return/end time has passed.
-   * Day-level outs (`out_full_day` / reason `out_day`) with no timer expire at the end of
-   * the UTC calendar day they started — otherwise they stick as Unavailable forever.
+   * Day-level outs (`out_full_day` / reason `out_day`) and `available_offline`
+   * expire at ends_at / expected_return_at, else end of the UTC calendar day they started.
    */
   static isTimedAwayExpired(row, now = Date.now()) {
     if (!row) return false;
     const status = String(row.presence_status || row.rich_status || row.status || '').trim();
     const reason = String(row.presence_reason || row.reason || '').trim();
-    if (!this.isAwayStatus(status) && reason !== 'out_day') return false;
+    const sameDayTemp = this.isSameDayTemporaryReason(reason);
+    if (!this.isAwayStatus(status) && !sameDayTemp && reason !== 'out_day') return false;
     const expiryMs = this.getTimedAwayExpiryMs(row);
     if (expiryMs != null) return expiryMs <= now;
-    if (status === 'out_full_day' || reason === 'out_day') {
+    if (status === 'out_full_day' || sameDayTemp) {
       const startedRaw = row.presence_started_at || row.started_at;
       if (!startedRaw) return false;
       const started = new Date(startedRaw);
@@ -227,7 +286,8 @@ export default class UserPresenceStatus {
 
   /**
    * Bulk-clear timed Away rows whose return/end/extend time is in the past.
-   * Also clears day-level outs that started on a previous UTC calendar day.
+   * Also clears day-level outs and available_offline that started on a previous UTC day
+   * (or whose ends_at / expected_return_at already passed).
    */
   static async clearExpiredTimedAwayStatuses() {
     try {
@@ -241,7 +301,10 @@ export default class UserPresenceStatus {
              display_label = 'Active',
              session_extend_until = NULL,
              started_at = NOW()
-         WHERE status IN ('out_quick', 'out_am', 'out_pm', 'out_full_day', 'traveling_offsite')
+         WHERE (
+             status IN ('out_quick', 'out_am', 'out_pm', 'out_full_day', 'traveling_offsite')
+             OR reason IN ('out_day', 'available_offline')
+           )
            AND (
              (expected_return_at IS NOT NULL AND expected_return_at < NOW())
              OR (ends_at IS NOT NULL AND ends_at < NOW())
@@ -260,7 +323,7 @@ export default class UserPresenceStatus {
                AND DATE(started_at) < UTC_DATE()
              )
              OR (
-               reason = 'out_day'
+               reason IN ('out_day', 'available_offline')
                AND expected_return_at IS NULL
                AND ends_at IS NULL
                AND started_at IS NOT NULL

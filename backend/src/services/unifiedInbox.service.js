@@ -213,9 +213,9 @@ export async function replyToConversation(conversationId, payload, { userId } = 
 
   if (!to.length) throw new Error('Recipient (To) is required');
 
-  // Blocked sender/recipient guard
+  // Blocked sender/recipient guard (agency + personal contact blocks)
   for (const addr of [...to, ...cc, ...bcc]) {
-    const blocked = await isAddressBlocked(conv.agency_id, addr.email);
+    const blocked = await isAddressBlocked(conv.agency_id, addr.email, { ownerUserId: userId });
     if (blocked) throw new Error(`Blocked address: ${addr.email}`);
   }
 
@@ -457,15 +457,30 @@ export async function blockAddress({ agencyId, address, addressKind = 'email', r
   return { ok: true, address: addr };
 }
 
-export async function isAddressBlocked(agencyId, address) {
+export async function isAddressBlocked(agencyId, address, { ownerUserId = null } = {}) {
   if (!agencyId || !address) return false;
+  const email = String(address).trim().toLowerCase();
   const [rows] = await pool.execute(
     `SELECT id FROM communication_blocked_addresses
      WHERE agency_id = ? AND address_kind = 'email' AND address = ?
      LIMIT 1`,
-    [agencyId, String(address).trim().toLowerCase()]
+    [agencyId, email]
   ).catch(() => [[]]);
-  return !!(rows && rows[0]);
+  if (rows && rows[0]) return true;
+  if (ownerUserId) {
+    try {
+      const UserCommunicationContact = (await import('../models/UserCommunicationContact.model.js')).default;
+      const blocked = await UserCommunicationContact.isBlocked({
+        ownerUserId,
+        agencyId,
+        email
+      });
+      if (blocked) return true;
+    } catch {
+      /* ignore */
+    }
+  }
+  return false;
 }
 
 export async function exportConversation(conversationId, { format = 'html' } = {}) {
@@ -532,8 +547,24 @@ export async function composeNewEmail({ agencyId, inboxId, userId, payload }) {
   const subject = payload.subject || '(no subject)';
 
   for (const addr of [...to, ...cc, ...bcc]) {
-    const blocked = await isAddressBlocked(agencyId, addr.email);
+    const blocked = await isAddressBlocked(agencyId, addr.email, { ownerUserId: userId });
     if (blocked) throw new Error(`Blocked address: ${addr.email}`);
+  }
+
+  // Auto-save outbound recipients as safe contacts for this user
+  try {
+    const UserCommunicationContact = (await import('../models/UserCommunicationContact.model.js')).default;
+    for (const addr of to) {
+      await UserCommunicationContact.upsertSafe({
+        agencyId,
+        ownerUserId: userId,
+        email: addr.email,
+        displayName: addr.name || null,
+        source: 'outbound'
+      });
+    }
+  } catch (e) {
+    console.warn('[unifiedInbox] contact upsert failed:', e?.message || e);
   }
 
   const conv = await CommunicationConversation.create({

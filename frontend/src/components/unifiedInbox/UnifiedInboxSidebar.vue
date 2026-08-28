@@ -6,7 +6,7 @@ defineProps({
   channel: { type: String, default: 'all' },
   prefs: {
     type: Object,
-    default: () => ({ personalEmailNotify: false, digestHours: 48 })
+    default: () => ({ personalEmailNotify: false, digestHours: 24, digestBusinessHours: 24 })
   }
 });
 
@@ -47,7 +47,8 @@ function onNotifyToggle(e) {
 }
 
 function onDigestHours(e) {
-  emit('update:prefs', { digestHours: Number(e.target.value) });
+  const n = Number(e.target.value);
+  emit('update:prefs', { digestHours: n, digestBusinessHours: n });
 }
 </script>
 
@@ -80,12 +81,16 @@ function onDigestHours(e) {
       </label>
       <label class="uc-pref-row digest">
         <span>Digest after</span>
-        <select :value="prefs.digestHours || 48" :disabled="!prefs.personalEmailNotify" @change="onDigestHours">
-          <option :value="24">24 hours</option>
-          <option :value="48">48 hours</option>
+        <select
+          :value="prefs.digestBusinessHours || prefs.digestHours || 24"
+          :disabled="!prefs.personalEmailNotify"
+          @change="onDigestHours"
+        >
+          <option :value="24">24 Availability Hours</option>
+          <option :value="48">48 Availability Hours</option>
         </select>
       </label>
-      <p class="uc-pref-hint">No per-message mail — only a delayed digest for items still needing a reply. Replies stay in the app.</p>
+      <p class="uc-pref-hint">Counts only time inside your Availability Hours. CTA opens Quick View (no message bodies emailed).</p>
     </div>
 
     <div class="uc-smart">
@@ -97,6 +102,9 @@ function onDigestHours(e) {
       </button>
       <button type="button" @click="emit('smartFilter', 'follow_up')">
         Follow Ups Due <em>{{ attention.followUpsDue || 0 }}</em>
+      </button>
+      <button type="button" @click="emit('smartFilter', 'unknown')">
+        Unknown Senders <em>{{ attention.unknownSenders || 0 }}</em>
       </button>
     </div>
 

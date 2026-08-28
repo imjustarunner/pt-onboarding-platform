@@ -128,7 +128,10 @@ export async function getUnifiedConversations(req, res, next) {
       limit: req.query.limit,
       offset: req.query.offset,
       userId: req.user.id,
-      syncTickets: req.query.sync !== '0'
+      syncTickets: req.query.sync !== '0',
+      isAdminViewer: isBackofficeRole(req.user),
+      unknownOnly: filter === 'unknown' || req.query.unknown === '1',
+      includeHeld: req.query.includeHeld === '1' && isBackofficeRole(req.user)
     });
     res.json({ conversations });
   } catch (e) {
@@ -593,6 +596,198 @@ export async function postAiInsight(req, res, next) {
     if (e?.status === 503 || /Gemini|Vertex|access token/i.test(msg)) {
       return res.status(503).json({ error: { message: msg } });
     }
+    next(e);
+  }
+}
+
+/**
+ * GET /api/communications/contacts?agencyId=
+ */
+export async function getMyCommunicationContacts(req, res, next) {
+  try {
+    if (!isAllowedRole(req.user)) return deny(res);
+    const agencyId = resolveAgencyId(req);
+    if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
+    const UserCommunicationContact = (await import('../models/UserCommunicationContact.model.js')).default;
+    const contacts = await UserCommunicationContact.listForOwner(req.user.id, {
+      agencyId,
+      trustStatus: req.query.trustStatus || null
+    });
+    res.json({ contacts });
+  } catch (e) {
+    next(e);
+  }
+}
+
+/**
+ * POST /api/communications/contacts — add/mark known
+ */
+export async function postMyCommunicationContact(req, res, next) {
+  try {
+    if (!isAllowedRole(req.user)) return deny(res);
+    const agencyId = resolveAgencyId(req);
+    if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
+    const UserCommunicationContact = (await import('../models/UserCommunicationContact.model.js')).default;
+    const contact = await UserCommunicationContact.upsertSafe({
+      agencyId,
+      ownerUserId: req.user.id,
+      email: req.body?.email,
+      displayName: req.body?.displayName || null,
+      phone: req.body?.phone || null,
+      linkedUserId: req.body?.linkedUserId || null,
+      linkedClientId: req.body?.linkedClientId || null,
+      source: req.body?.source || 'manual'
+    });
+    // If marking known from a conversation, clear unknown flag
+    const conversationId = Number(req.body?.conversationId || 0);
+    if (conversationId) {
+      await poolOrUpdateUnknown(conversationId);
+    }
+    res.json({ contact });
+  } catch (e) {
+    next(e);
+  }
+}
+
+async function poolOrUpdateUnknown(conversationId) {
+  const pool = (await import('../config/database.js')).default;
+  await pool.execute(
+    `UPDATE communication_conversations
+     SET is_unknown_sender = 0, sender_trust = COALESCE(NULLIF(sender_trust,''), 'contact')
+     WHERE id = ?`,
+    [conversationId]
+  );
+}
+
+/**
+ * POST /api/communications/contacts/block
+ */
+export async function postBlockCommunicationContact(req, res, next) {
+  try {
+    if (!isAllowedRole(req.user)) return deny(res);
+    const agencyId = resolveAgencyId(req);
+    if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
+    const reason = String(req.body?.reason || '').trim();
+    if (!reason) return res.status(400).json({ error: { message: 'Block reason is required' } });
+    const UserCommunicationContact = (await import('../models/UserCommunicationContact.model.js')).default;
+    const contact = await UserCommunicationContact.block({
+      agencyId,
+      ownerUserId: req.user.id,
+      email: req.body?.email,
+      reason,
+      blockedByUserId: req.user.id,
+      linkedUserId: req.body?.linkedUserId || null,
+      displayName: req.body?.displayName || null
+    });
+
+    // If blocked identity is an in-app user, open a support ticket naming the blocker
+    if (contact?.linked_user_id) {
+      try {
+        const pool = (await import('../config/database.js')).default;
+        await pool.execute(
+          `INSERT INTO support_tickets (agency_id, subject, status, priority, source_channel, created_by_user_id, metadata_json)
+           VALUES (?, ?, 'open', 'normal', 'app', ?, ?)`,
+          [
+            agencyId,
+            `Blocked user contact reroute — blocked by user #${req.user.id}`,
+            req.user.id,
+            JSON.stringify({
+              blockedUserId: contact.linked_user_id,
+              blockedEmail: contact.email,
+              blockerUserId: req.user.id,
+              reason
+            })
+          ]
+        );
+      } catch (e) {
+        console.warn('[unifiedInbox] block ticket failed:', e?.message || e);
+      }
+    }
+    res.json({ contact });
+  } catch (e) {
+    next(e);
+  }
+}
+
+/**
+ * DELETE /api/communications/contacts/:id
+ */
+export async function deleteMyCommunicationContact(req, res, next) {
+  try {
+    if (!isAllowedRole(req.user)) return deny(res);
+    const agencyId = resolveAgencyId(req);
+    if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
+    const UserCommunicationContact = (await import('../models/UserCommunicationContact.model.js')).default;
+    await UserCommunicationContact.remove({
+      ownerUserId: req.user.id,
+      agencyId,
+      id: parseInt(req.params.id, 10)
+    });
+    res.json({ ok: true });
+  } catch (e) {
+    next(e);
+  }
+}
+
+/**
+ * POST /api/communications/conversations/:id/mark-known
+ */
+export async function postMarkSenderKnown(req, res, next) {
+  try {
+    if (!isAllowedRole(req.user)) return deny(res);
+    const agencyId = resolveAgencyId(req);
+    const id = parseInt(req.params.id, 10);
+    if (!agencyId || !id) return res.status(400).json({ error: { message: 'agencyId and id required' } });
+    const detail = await getConversationDetail(id, { userId: req.user.id, markRead: false });
+    if (!detail?.conversation) return res.status(404).json({ error: { message: 'Not found' } });
+    const participants = await (await import('../models/CommunicationConversation.model.js')).default
+      .listParticipants(id);
+    const primary = participants.find((p) => p.is_primary) || participants[0];
+    if (!primary?.email) return res.status(400).json({ error: { message: 'No sender email' } });
+    const UserCommunicationContact = (await import('../models/UserCommunicationContact.model.js')).default;
+    const contact = await UserCommunicationContact.upsertSafe({
+      agencyId,
+      ownerUserId: req.user.id,
+      email: primary.email,
+      displayName: primary.display_name || null,
+      source: 'mark_known'
+    });
+    await poolOrUpdateUnknown(id);
+    res.json({ contact, conversationId: id });
+  } catch (e) {
+    next(e);
+  }
+}
+
+/**
+ * POST /api/communications/secure-notify
+ * Staff-initiated secure message notification email (no PHI).
+ */
+export async function postSecureNotify(req, res, next) {
+  try {
+    if (!isAllowedRole(req.user)) return deny(res);
+    const agencyId = resolveAgencyId(req);
+    const recipientEmail = String(req.body?.recipientEmail || req.body?.to || '').trim();
+    if (!agencyId || !recipientEmail) {
+      return res.status(400).json({ error: { message: 'agencyId and recipientEmail required' } });
+    }
+    const { sendSecureMessageNotification } = await import('../services/secureMessageNotify.service.js');
+    const result = await sendSecureMessageNotification({
+      agencyId,
+      senderUserId: req.user.id,
+      recipientUserId: req.body?.recipientUserId || null,
+      recipientEmail,
+      clientId: req.body?.clientId || null,
+      chatThreadId: req.body?.chatThreadId || null,
+      conversationId: req.body?.conversationId || null,
+      messageId: req.body?.messageId || null,
+      messageSource: req.body?.messageSource || 'compose'
+    });
+    if (!result.sent) {
+      return res.status(400).json({ error: { message: result.reason || 'Not sent' }, result });
+    }
+    res.json({ ok: true, ...result });
+  } catch (e) {
     next(e);
   }
 }

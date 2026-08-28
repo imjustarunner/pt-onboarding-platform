@@ -126,6 +126,69 @@
             </label>
           </section>
 
+          <section class="cc-settings-block highlight">
+            <h4>Communications policy (Quick View)</h4>
+            <p class="hint">Controls personal-email escalation, Availability Hours holds, Unknown Sender box, client OOO, and Quick View.</p>
+            <label class="cc-toggle-row">
+              <input v-model="form.personalEmailDigestEnabled" type="checkbox" />
+              <span>Personal-email digest after unread Availability Hours</span>
+            </label>
+            <div class="cc-settings-row">
+              <span>Digest after (Availability Hours)</span>
+              <input v-model.number="form.personalEmailDigestBusinessHours" type="number" min="1" max="168" class="cc-select" style="max-width:100px" />
+            </div>
+            <label class="cc-toggle-row">
+              <input v-model="form.holdStaffSchoolOutsideAvailability" type="checkbox" />
+              <span>Hold school/staff mail until employee is available (still stored immediately)</span>
+            </label>
+            <label class="cc-toggle-row">
+              <input v-model="form.unknownSenderBoxEnabled" type="checkbox" />
+              <span>Route unknown senders to Unknown Sender box</span>
+            </label>
+            <label class="cc-toggle-row">
+              <input v-model="form.clientOooAutoReplyEnabled" type="checkbox" />
+              <span>Client OOO auto-reply outside Availability Hours</span>
+            </label>
+            <div class="cc-settings-row">
+              <span>Support keyword</span>
+              <input v-model="form.clientOooSupportKeyword" type="text" class="cc-select" maxlength="40" />
+            </div>
+            <label class="cc-field" style="display:block;margin-top:8px">
+              <span>OOO template</span>
+              <textarea v-model="form.clientOooTemplate" rows="4" class="cc-input" placeholder="Leave blank for default (provider, agency, return time, 988, SUPPORT keyword)" />
+            </label>
+            <label class="cc-toggle-row">
+              <input v-model="form.intentReviewEnabled" type="checkbox" />
+              <span>Cancellation/termination intent → support ticket for review</span>
+            </label>
+            <label class="cc-toggle-row">
+              <input v-model="form.quickViewEnabled" type="checkbox" />
+              <span>Enable Quick View for this tenant</span>
+            </label>
+            <label class="cc-toggle-row">
+              <input v-model="form.secureClientMessageEmailEnabled" type="checkbox" />
+              <span>Secure client message notification emails</span>
+            </label>
+            <div class="cc-settings-row">
+              <span>Secure message From identity</span>
+              <select v-model="form.secureMessageSenderIdentityId" class="cc-select">
+                <option value="">Not set</option>
+                <option v-for="s in senderIdentities" :key="`sm-${s.id}`" :value="String(s.id)">
+                  {{ formatSenderLabel(s) }} — {{ s.from_email }}
+                </option>
+              </select>
+            </div>
+            <div class="cc-settings-row">
+              <span>No-reply identity</span>
+              <select v-model="form.noreplySenderIdentityId" class="cc-select">
+                <option value="">Not set</option>
+                <option v-for="s in senderIdentities" :key="`nr-${s.id}`" :value="String(s.id)">
+                  {{ formatSenderLabel(s) }} — {{ s.from_email }}
+                </option>
+              </select>
+            </div>
+          </section>
+
           <section v-if="triggers.length" class="cc-settings-block">
             <h4>Notification triggers</h4>
             <p class="hint">
@@ -332,7 +395,19 @@ const form = ref({
   aiDraftPolicyMode: 'human_only',
   allowSchoolOverrides: true,
   defaultSenderIdentityId: '',
-  templateSenderIdentityIds: {}
+  templateSenderIdentityIds: {},
+  personalEmailDigestEnabled: true,
+  personalEmailDigestBusinessHours: 24,
+  holdStaffSchoolOutsideAvailability: true,
+  unknownSenderBoxEnabled: true,
+  clientOooAutoReplyEnabled: true,
+  clientOooTemplate: '',
+  clientOooSupportKeyword: 'SUPPORT',
+  intentReviewEnabled: true,
+  quickViewEnabled: true,
+  secureClientMessageEmailEnabled: true,
+  secureMessageSenderIdentityId: '',
+  noreplySenderIdentityId: ''
 });
 
 const agencyId = computed(() => agencyStore.currentAgency?.id);
@@ -504,7 +579,23 @@ async function load() {
       aiDraftPolicyMode: agencyRow.aiDraftPolicyMode || 'human_only',
       allowSchoolOverrides: agencyRow.allowSchoolOverrides !== false,
       defaultSenderIdentityId: agencyRow.defaultSenderIdentityId ? String(agencyRow.defaultSenderIdentityId) : '',
-      templateSenderIdentityIds: { ...(agencyRow.templateSenderIdentityIds || {}) }
+      templateSenderIdentityIds: { ...(agencyRow.templateSenderIdentityIds || {}) },
+      personalEmailDigestEnabled: agencyRow.personalEmailDigestEnabled !== false,
+      personalEmailDigestBusinessHours: Number(agencyRow.personalEmailDigestBusinessHours) || 24,
+      holdStaffSchoolOutsideAvailability: agencyRow.holdStaffSchoolOutsideAvailability !== false,
+      unknownSenderBoxEnabled: agencyRow.unknownSenderBoxEnabled !== false,
+      clientOooAutoReplyEnabled: agencyRow.clientOooAutoReplyEnabled !== false,
+      clientOooTemplate: agencyRow.clientOooTemplate || '',
+      clientOooSupportKeyword: agencyRow.clientOooSupportKeyword || 'SUPPORT',
+      intentReviewEnabled: agencyRow.intentReviewEnabled !== false,
+      quickViewEnabled: !!agencyRow.quickViewEnabled,
+      secureClientMessageEmailEnabled: !!agencyRow.secureClientMessageEmailEnabled,
+      secureMessageSenderIdentityId: agencyRow.secureMessageSenderIdentityId
+        ? String(agencyRow.secureMessageSenderIdentityId)
+        : '',
+      noreplySenderIdentityId: agencyRow.noreplySenderIdentityId
+        ? String(agencyRow.noreplySenderIdentityId)
+        : ''
     };
     for (const row of emailTypeRows) {
       if (row.key === 'default') continue;
@@ -587,7 +678,19 @@ async function save() {
         aiDraftPolicyMode: form.value.aiDraftPolicyMode,
         allowSchoolOverrides: form.value.allowSchoolOverrides,
         defaultSenderIdentityId: form.value.defaultSenderIdentityId ? Number(form.value.defaultSenderIdentityId) : null,
-        templateSenderIdentityIds
+        templateSenderIdentityIds,
+        personalEmailDigestEnabled: !!form.value.personalEmailDigestEnabled,
+        personalEmailDigestBusinessHours: Number(form.value.personalEmailDigestBusinessHours) || 24,
+        holdStaffSchoolOutsideAvailability: !!form.value.holdStaffSchoolOutsideAvailability,
+        unknownSenderBoxEnabled: !!form.value.unknownSenderBoxEnabled,
+        clientOooAutoReplyEnabled: !!form.value.clientOooAutoReplyEnabled,
+        clientOooTemplate: form.value.clientOooTemplate || null,
+        clientOooSupportKeyword: form.value.clientOooSupportKeyword || 'SUPPORT',
+        intentReviewEnabled: !!form.value.intentReviewEnabled,
+        quickViewEnabled: !!form.value.quickViewEnabled,
+        secureClientMessageEmailEnabled: !!form.value.secureClientMessageEmailEnabled,
+        secureMessageSenderIdentityId: form.value.secureMessageSenderIdentityId ? Number(form.value.secureMessageSenderIdentityId) : null,
+        noreplySenderIdentityId: form.value.noreplySenderIdentityId ? Number(form.value.noreplySenderIdentityId) : null
       }]
     };
     if (canEditPlatform.value) {

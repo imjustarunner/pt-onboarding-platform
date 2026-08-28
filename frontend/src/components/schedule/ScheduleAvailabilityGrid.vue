@@ -144,6 +144,15 @@
                 <span class="sched-office-cta-sub">{{ viewMode === 'office_layout' ? 'Back to your week grid' : 'Send a time for staff approval' }}</span>
               </span>
             </button>
+            <button
+              type="button"
+              class="sched-pill sched-pill--emphasis"
+              data-tour="my-schedule-availability-btn"
+              title="Edit Availability Hours, split days, and vacation / planned out"
+              @click="showAvailabilityEditor = !showAvailabilityEditor"
+            >
+              Availability
+            </button>
             <div class="sched-view-switch" role="tablist" aria-label="Schedule view" data-tour="my-schedule-view-switch">
               <button
                 v-for="opt in viewModeOptions"
@@ -701,6 +710,18 @@
           </div>
         </div>
       </details>
+    </div>
+
+    <div v-if="showAvailabilityEditor && Number(props.userId || 0)" class="sched-availability-panel" data-tour="my-schedule-availability-panel">
+      <div class="sched-availability-panel__head">
+        <strong>Availability Hours &amp; vacation</strong>
+        <button type="button" class="btn btn-secondary btn-sm" @click="showAvailabilityEditor = false">Close</button>
+      </div>
+      <WorkHoursEditor
+        :user-id="Number(props.userId)"
+        :open-by-default="true"
+        :force-open="true"
+      />
     </div>
 
     <div v-if="selectedActionCount > 0" class="selection-toolbar">
@@ -5465,6 +5486,7 @@ import OfficeRoomPhotoGalleryModal from './OfficeRoomPhotoGalleryModal.vue';
 import MeetingAgendaPanel from '../meetings/MeetingAgendaPanel.vue';
 import SupervisionLiveRoom from '../supervision/SupervisionLiveRoom.vue';
 import UnifiedBookingPanel from './UnifiedBookingPanel.vue';
+import WorkHoursEditor from './WorkHoursEditor.vue';
 import PersonSearchSelect from './PersonSearchSelect.vue';
 import AppointmentEditorShell from './AppointmentEditorShell.vue';
 import AppointmentInfoPanel from './AppointmentInfoPanel.vue';
@@ -5813,6 +5835,7 @@ const showOfficeOverlay = ref(true);
 const showQuarterDetail = ref(false);
 /** Peer busy overlay on My Schedule (anonymous intervals unless privileged Show details). */
 const showPeerBusyOverlay = ref(false);
+const showAvailabilityEditor = ref(false);
 const peerBusySearch = ref('');
 const peerBusyTenantFilterId = ref(0); // 0 = all tenants
 const peerBusyCandidates = ref([]);
@@ -25991,6 +26014,20 @@ defineExpose({ resetToOpenFinder, openQuickBook });
   align-items: center;
   gap: 10px 12px;
   min-width: 0;
+}
+.sched-availability-panel {
+  margin: 8px 12px 12px;
+  padding: 12px;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  background: #f8fafc;
+}
+.sched-availability-panel__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
 }
 
 .sched-office-cta {

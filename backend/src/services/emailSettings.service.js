@@ -19,7 +19,12 @@ export function normalizeEmailAiPolicyMode(value) {
 
 export function normalizeEmailAiIntentClasses(value) {
   const raw = Array.isArray(value) ? value : [value];
-  const valid = new Set(['school_status_request', 'school_reinit_update']);
+  const valid = new Set([
+    'school_status_request',
+    'school_reinit_update',
+    'cancellation',
+    'termination'
+  ]);
   const out = raw
     .map((v) => String(v || '').trim().toLowerCase())
     .filter((v) => valid.has(v));
@@ -151,44 +156,51 @@ export async function setPlatformEmailSettings({ sendingMode, notificationsEnabl
   };
 }
 
-export async function getAgencyEmailSettings(agencyId) {
-  const row = await AgencyEmailSettings.getByAgencyId(agencyId);
+function mapAgencyEmailSettingsRow(agencyId, row) {
   return {
-    agencyId,
-    notificationsEnabled: row?.notifications_enabled !== 0,
+    agencyId: Number(agencyId),
+    notificationsEnabled: row ? row.notifications_enabled !== 0 : true,
     aiDraftPolicyMode: normalizeEmailAiPolicyMode(row?.ai_draft_policy_mode || 'human_only'),
-    allowSchoolOverrides: row?.allow_school_overrides !== 0,
+    allowSchoolOverrides: row ? row.allow_school_overrides !== 0 : true,
     aiAllowedIntentClasses: normalizeEmailAiIntentClasses(row?.ai_allowed_intents_json || ['school_status_request']),
     aiMatchConfidenceThreshold: normalizeEmailAiConfidenceThreshold(row?.ai_match_confidence_threshold ?? 0.75),
     aiAllowedSenderIdentityKeys: normalizeSenderIdentityKeys(row?.ai_allowed_sender_identity_keys_json || []),
-    schoolRoiEmailsRequireApproval: row?.school_roi_emails_require_approval === undefined
-      ? true
-      : row.school_roi_emails_require_approval !== 0,
+    schoolRoiEmailsRequireApproval: row
+      ? (row.school_roi_emails_require_approval === undefined ? true : row.school_roi_emails_require_approval !== 0)
+      : true,
     defaultSenderIdentityId: row?.default_sender_identity_id ? Number(row.default_sender_identity_id) : null,
-    templateSenderIdentityIds: parseTemplateSenderIdentityJson(row)
+    templateSenderIdentityIds: parseTemplateSenderIdentityJson(row),
+    personalEmailDigestEnabled: row ? row.personal_email_digest_enabled !== 0 : true,
+    personalEmailDigestBusinessHours: Number(row?.personal_email_digest_business_hours || 24),
+    holdStaffSchoolOutsideAvailability: row ? row.hold_staff_school_outside_availability !== 0 : true,
+    clientOooAutoReplyEnabled: row ? row.client_ooo_auto_reply_enabled !== 0 : true,
+    clientOooTemplate: row?.client_ooo_template || null,
+    clientOooSupportKeyword: String(row?.client_ooo_support_keyword || 'SUPPORT').toUpperCase(),
+    unknownSenderBoxEnabled: row ? row.unknown_sender_box_enabled !== 0 : true,
+    secureMessageSenderIdentityId: row?.secure_message_sender_identity_id
+      ? Number(row.secure_message_sender_identity_id)
+      : null,
+    noreplySenderIdentityId: row?.noreply_sender_identity_id
+      ? Number(row.noreply_sender_identity_id)
+      : null,
+    intentReviewEnabled: row ? row.intent_review_enabled !== 0 : true,
+    intentConfidenceThreshold: normalizeEmailAiConfidenceThreshold(row?.intent_confidence_threshold ?? 0.75),
+    quickViewEnabled: row ? row.quick_view_enabled === 1 || row.quick_view_enabled === true : true,
+    secureClientMessageEmailEnabled: row
+      ? row.secure_client_message_email_enabled === 1 || row.secure_client_message_email_enabled === true
+      : true
   };
+}
+
+export async function getAgencyEmailSettings(agencyId) {
+  const row = await AgencyEmailSettings.getByAgencyId(agencyId);
+  return mapAgencyEmailSettingsRow(agencyId, row);
 }
 
 export async function listAgencyEmailSettings(agencyIds) {
   const rows = await AgencyEmailSettings.listByAgencyIds(agencyIds);
   const byId = new Map((rows || []).map((r) => [Number(r.agency_id), r]));
-  return (agencyIds || []).map((id) => {
-    const row = byId.get(Number(id)) || null;
-    return {
-      agencyId: Number(id),
-      notificationsEnabled: row ? row.notifications_enabled !== 0 : true,
-      aiDraftPolicyMode: normalizeEmailAiPolicyMode(row?.ai_draft_policy_mode || 'human_only'),
-      allowSchoolOverrides: row ? row.allow_school_overrides !== 0 : true,
-      aiAllowedIntentClasses: normalizeEmailAiIntentClasses(row?.ai_allowed_intents_json || ['school_status_request']),
-      aiMatchConfidenceThreshold: normalizeEmailAiConfidenceThreshold(row?.ai_match_confidence_threshold ?? 0.75),
-      aiAllowedSenderIdentityKeys: normalizeSenderIdentityKeys(row?.ai_allowed_sender_identity_keys_json || []),
-      schoolRoiEmailsRequireApproval: row
-        ? (row.school_roi_emails_require_approval === undefined ? true : row.school_roi_emails_require_approval !== 0)
-        : true,
-      defaultSenderIdentityId: row?.default_sender_identity_id ? Number(row.default_sender_identity_id) : null,
-      templateSenderIdentityIds: parseTemplateSenderIdentityJson(row)
-    };
-  });
+  return (agencyIds || []).map((id) => mapAgencyEmailSettingsRow(id, byId.get(Number(id)) || null));
 }
 
 export async function listSchoolEmailAiPolicyOverrides(agencyId) {

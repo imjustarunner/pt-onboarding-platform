@@ -43,6 +43,8 @@ Full product plan:
 
 **Phase 5:** SMS reply from unified Home; legacy SMS URLs redirect to Center; Full SMS tools → Messages workspace. Workspace seat removal is an org/IT policy step (not app code).
 
+**Expansion (Availability Hours + Quick View):** Tenant email policy, sender trust / Unknown Sender box, client OOO + SUPPORT → ticket, cancellation intent review tickets, 24 Availability-Hour personal digests with Quick View CTA, Account Info → Privacy credentials, mobile `/quick-view/:token` (and delivery `/quick-view/d/:token`), secure client notification emails, meeting reminders via Quick View. See expansion section in [`UNIFIED_COMMUNICATIONS_CENTER_PLAN.md`](./UNIFIED_COMMUNICATIONS_CENTER_PLAN.md).
+
 Later: optional further chat/secure channel unification.
 
 ## Role matrix
@@ -52,6 +54,8 @@ Later: optional further chat/secure channel unification.
 | Messages | Messaging-capable staff (incl. admin/support as employees) |
 | Communications Center / Unified Inbox | admin, support, super_admin (+ eligible staff for personal mailbox APIs) |
 | Standalone `/tickets` | CPA, staff, school_staff (+ admins via Support Hub) |
+| Quick View (scoped session) | Non-SSO employees with tenant `quick_view_enabled` + passcode set |
+| Quick View credential reset | Account Info → Privacy (password confirm; values shown once) |
 
 ## APIs
 
@@ -61,10 +65,13 @@ Later: optional further chat/secure channel unification.
 | `GET /api/communications/center-summary` | Support Hub (org) |
 | `GET /api/communications/inboxes` | Unified Inbox selector |
 | `POST /api/communications/inboxes/personal/ensure` | Provision personal My Inbox |
-| `GET/PATCH /api/communications/prefs` | Personal email digest prefs |
+| `GET/PATCH /api/communications/prefs` | Personal email digest / Availability prefs |
 | `GET /api/communications/directory` | Compose recipient typeahead |
 | `POST /api/communications/send-preflight` | External / PHI warnings |
-| `GET /api/communications/attention-summary` | Unified Inbox KPIs |
+| `POST /api/communications/secure-notify` | Secure client notification email |
+| `GET/POST /api/communications/contacts*` | Trusted / blocked contacts |
+| `POST /api/communications/conversations/:id/mark-known` | Unknown Sender → known |
+| `GET /api/communications/attention-summary` | Unified Inbox KPIs (incl. Unknown Senders) |
 | `GET/PATCH /api/communications/conversations` | Unified Inbox list / workflow |
 | `GET/POST /api/communications/conversations/:id` | Thread detail / compose |
 | `POST /api/communications/conversations/:id/reply` | Reply / internal note / schedule |
@@ -74,6 +81,9 @@ Later: optional further chat/secure channel unification.
 | `POST /api/communications/conversations/:id/spam` | Spam + block sender |
 | `POST /api/communications/conversations/:id/ai/draft` | Composer AI assist |
 | `POST /api/communications/conversations/:id/ai/insight` | Thread summary + next action |
+| `GET/POST /api/quick-view/me/*` | Credential status / regen / passcode reset |
+| `GET/POST /api/quick-view/t|d/:token*` | Public unlock (persistent or delivery) |
+| `GET /api/quick-view/home|tasks|calendar|office|contacts|conversations/*` | Scoped Quick View data |
 
 ## Related
 

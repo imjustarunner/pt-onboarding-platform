@@ -172,6 +172,15 @@ export const authenticate = async (req, res, next) => {
     if (requestPath.startsWith('/api/prehire-portal/')) {
       return next();
     }
+    // Quick View public token landing / unlock / session heartbeat (scoped session elsewhere).
+    if (
+      /^\/api\/quick-view\/t\//.test(requestPath)
+      || /^\/api\/quick-view\/d\//.test(requestPath)
+      || requestPath === '/api/quick-view/session/heartbeat'
+      || requestPath === '/api/quick-view/session/logout'
+    ) {
+      return next();
+    }
     // Public join-link resolvers (mounted after catch-all /api routers that call authenticate).
     if (req.method === 'GET' && /^\/api\/supervision\/join-info\/[^/]+\/?$/.test(requestPath)) {
       return next();

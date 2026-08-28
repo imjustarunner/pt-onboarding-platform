@@ -56,7 +56,7 @@ function serializeWorkSchedule(data, extras = {}) {
     timezoneSource: hasSavedSchedule
       ? 'work_schedule'
       : (extras.timezoneSource || 'default'),
-    note: 'Work hours control reachability / notifications. Virtual working hours remain booking-only.'
+    note: 'Availability Hours control reachability / notifications (default Mon–Fri 6am–7pm). Virtual working hours remain booking-only.'
   };
 }
 

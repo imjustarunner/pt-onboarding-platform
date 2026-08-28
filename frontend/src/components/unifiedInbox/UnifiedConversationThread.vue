@@ -10,7 +10,7 @@ const props = defineProps({
   agencyId: { type: [Number, String], default: null }
 });
 
-const emit = defineEmits(['reply', 'patch', 'draft', 'spam', 'insight', 'open-sms-tools']);
+const emit = defineEmits(['reply', 'patch', 'draft', 'spam', 'insight', 'open-sms-tools', 'refresh']);
 
 const composerMode = ref('reply'); // reply | reply_all | forward | internal
 const showCcBcc = ref(false);
@@ -30,6 +30,7 @@ const undoBanner = ref(null);
 const insight = ref(null);
 const insightBusy = ref(false);
 const aiBusy = ref(false);
+const trustBusy = ref(false);
 let undoTimer = null;
 
 const conv = computed(() => props.detail?.conversation || null);
@@ -37,6 +38,66 @@ const messages = computed(() => props.detail?.messages || []);
 const isSms = computed(() => String(conv.value?.channel || '') === 'sms');
 const isCallLike = computed(() => ['call', 'voicemail'].includes(String(conv.value?.channel || '')));
 const isTelephony = computed(() => isSms.value || isCallLike.value);
+const primaryEmail = computed(() => {
+  const primary = props.detail?.context?.participants?.find((p) => p.is_primary)
+    || props.detail?.context?.participants?.[0];
+  return String(primary?.email || '').trim().toLowerCase() || null;
+});
+
+async function markKnown() {
+  if (!conv.value?.id) return;
+  trustBusy.value = true;
+  try {
+    await api.post(`/communications/conversations/${conv.value.id}/mark-known`, {}, { skipGlobalLoading: true });
+    emit('refresh');
+  } catch (e) {
+    sendError.value = e?.response?.data?.error?.message || 'Could not mark known';
+  } finally {
+    trustBusy.value = false;
+  }
+}
+
+async function addContact() {
+  if (!primaryEmail.value || !props.agencyId) return;
+  const name = window.prompt('Display name for this contact (optional):', '') || null;
+  trustBusy.value = true;
+  try {
+    await api.post('/communications/contacts', {
+      agencyId: props.agencyId,
+      email: primaryEmail.value,
+      displayName: name,
+      trustStatus: 'safe'
+    }, { skipGlobalLoading: true });
+    if (conv.value?.id) {
+      await api.post(`/communications/conversations/${conv.value.id}/mark-known`, {}, { skipGlobalLoading: true });
+    }
+    emit('refresh');
+  } catch (e) {
+    sendError.value = e?.response?.data?.error?.message || 'Could not add contact';
+  } finally {
+    trustBusy.value = false;
+  }
+}
+
+async function blockSender() {
+  if (!primaryEmail.value || !props.agencyId) return;
+  const reason = window.prompt('Block reason (required):', '');
+  if (!reason || !String(reason).trim()) return;
+  trustBusy.value = true;
+  try {
+    await api.post('/communications/contacts/block', {
+      agencyId: props.agencyId,
+      email: primaryEmail.value,
+      reason: String(reason).trim(),
+      conversationId: conv.value?.id || null
+    }, { skipGlobalLoading: true });
+    emit('refresh');
+  } catch (e) {
+    sendError.value = e?.response?.data?.error?.message || 'Could not block sender';
+  } finally {
+    trustBusy.value = false;
+  }
+}
 
 function smsDeepLinkIds() {
   const ext = String(conv.value?.external_thread_id || '');
@@ -316,6 +377,19 @@ function applySuggestedStatus() {
           </button>
           <button type="button" class="uc-btn ghost" @click="emit('patch', { markUnread: true })">Mark unread</button>
           <button type="button" class="uc-btn ghost" @click="emit('patch', { archive: true })">Archive</button>
+          <template v-if="conv.is_unknown_sender || conv.sender_trust === 'unknown'">
+            <button type="button" class="uc-btn ghost" :disabled="trustBusy" @click="markKnown">Mark known</button>
+            <button type="button" class="uc-btn ghost" :disabled="trustBusy" @click="addContact">Add contact</button>
+          </template>
+          <button
+            v-if="primaryEmail"
+            type="button"
+            class="uc-btn ghost danger"
+            :disabled="trustBusy"
+            @click="blockSender"
+          >
+            Block
+          </button>
           <button type="button" class="uc-btn ghost" @click="printThread">Print</button>
           <button type="button" class="uc-btn ghost" @click="downloadThread">Download</button>
           <button v-if="!isTelephony" type="button" class="uc-btn ghost danger" @click="markSpam">Spam</button>
@@ -378,6 +452,7 @@ function applySuggestedStatus() {
             <strong>{{ fromLabel(msg) }}</strong>
             <time>{{ formatWhen(msg.sent_at || msg.scheduled_send_at || msg.created_at) }}</time>
             <span v-if="msg.is_internal_note" class="uc-tag">Internal</span>
+            <span v-else-if="msg.is_auto_reply" class="uc-tag auto">Auto-reply</span>
             <span v-else-if="msg.send_status === 'scheduled'" class="uc-tag sched">Scheduled</span>
             <span v-else-if="msg.direction === 'inbound'" class="uc-tag ext">External</span>
           </div>

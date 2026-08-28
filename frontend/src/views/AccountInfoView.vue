@@ -305,6 +305,10 @@
           </div>
         </div>
 
+        <div v-if="!isClubContext && !accountInfo.ssoRequired" class="card compact-card" style="margin-top: 16px;">
+          <QuickViewPrivacyPanel />
+        </div>
+
         <!-- ── Biometric Login (native only) ────────────────────────────── -->
         <div v-if="isNativePlatform() && biometricSupported" class="card compact-card" style="margin-top: 16px;">
           <div class="section-header">
@@ -1127,6 +1131,7 @@ import { useAuthStore } from '../store/auth';
 import { useAgencyStore } from '../store/agency';
 import { toUploadsUrl } from '../utils/uploadsUrl';
 import { useSummitStatsChallengeChrome } from '../composables/useSummitStatsChallengeChrome';
+import QuickViewPrivacyPanel from '../components/account/QuickViewPrivacyPanel.vue';
 import {
   isNativePlatform,
   checkBiometricAvailability,

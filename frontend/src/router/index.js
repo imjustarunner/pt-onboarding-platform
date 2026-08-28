@@ -351,6 +351,24 @@ const routes = [
     meta: { requiresGuest: false }
   },
   {
+    path: '/quick-view/d/:token',
+    name: 'QuickViewDeliveryAccess',
+    component: () => import('../views/QuickViewAccessView.vue'),
+    meta: { requiresGuest: false, publicQuickView: true, quickViewDelivery: true }
+  },
+  {
+    path: '/quick-view/:token',
+    name: 'QuickViewAccess',
+    component: () => import('../views/QuickViewAccessView.vue'),
+    meta: { requiresGuest: false, publicQuickView: true }
+  },
+  {
+    path: '/secure-message/:token',
+    name: 'SecureMessageClaim',
+    component: () => import('../views/SecureMessageClaimView.vue'),
+    meta: { requiresGuest: false }
+  },
+  {
     path: '/values-alignment',
     name: 'ValuesAlignmentGuest',
     component: () => import('../views/valuesAlignment/ValuesAlignmentAssessmentView.vue'),

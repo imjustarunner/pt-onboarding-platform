@@ -1,8 +1,30 @@
 # Unified Communications Center — Product & Transition Plan
 
-**Status:** Phase 5 shipped (SMS reply + nav consolidation); Workspace seat migration remains ops-only  
+**Status:** Phase 5 shipped (SMS reply + nav consolidation); **Communications & Quick View Expansion** in rollout behind tenant email-settings flags  
 **Target UI:** Front / Gmail / EHR hybrid (see mockups below)  
 **Related:** [`MESSAGES_AND_COMMUNICATIONS_CENTER.md`](./MESSAGES_AND_COMMUNICATIONS_CENTER.md), [`PLATFORM_EMAIL_SETUP.md`](./PLATFORM_EMAIL_SETUP.md)
+
+---
+
+## Communications & Quick View Expansion (post Phase 5)
+
+Security-first expansion layered on the Unified Inbox. Tenant toggles live on **Communications Center → Email settings** (`agency_email_settings`): digest, hold/release, Unknown Sender box, client OOO, intent review, Quick View, secure-message notify.
+
+| Area | Behavior |
+|------|----------|
+| **Availability Hours** | UX rename of work hours. Default Mon–Fri 6:00 AM–7:00 PM in employee TZ; override on My Schedule; disable = always available. Shared `availabilityWindow.service.js`. |
+| **Hold / release** | School/staff mail stored immediately; `visible_after` hides from employee feed/badges until next available window. Admins retain audit access. |
+| **Sender trust** | Classify blocked → staff → school → client/guardian → contact → unknown. Unknown Sender box + Mark known / Add contact / Block. Outbound auto-saves trusted contacts. |
+| **Client OOO** | Outside availability: one auto-reply with return time, 988 language, SUPPORT keyword → support ticket. |
+| **Intent review** | Cancellation/termination → support ticket for human action (not auto-cancel). Appointment-notification replies remain a separate cancel path. |
+| **Personal digest** | After N **Availability Hours** unread → `{Tenant} Forwarded Email: X messages waiting` to `personal_email` with Quick View delivery-link CTA (no PHI/bodies). |
+| **Quick View** | Persistent hashed URL token + separate 6-digit passcode (Account Info → Privacy). Ephemeral delivery tokens for digests/reminders (do not revoke bookmark). 10-minute scoped session; `/api/quick-view/*` only. |
+| **Secure client notify** | `securemessage@` notification + `noreply` Reply-To; claim deep link → setup/login → thread. Chat sends to guardians trigger notify when enabled. |
+| **Meeting reminders** | 5-minute join reminders can deep-link through Quick View; respect `meeting_reminder_bypass_availability` pref. |
+
+**Migrations:** `1326_communications_quick_view_foundation.sql`, `1327_quick_view_delivery_tokens.sql`.
+
+**Pilot order:** availability/policy → sender trust → OOO/intent → digest → Quick View → secure notify → meeting join.
 
 ---
 

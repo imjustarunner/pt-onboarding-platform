@@ -90,6 +90,7 @@ import providerYearUpdateRoutes from './routes/providerYearUpdate.routes.js';
 import providerUpdateRoutes from './routes/providerUpdate.routes.js';
 import providerActionRoutes from './routes/providerAction.routes.js';
 import publicProviderActionRoutes from './routes/publicProviderAction.routes.js';
+import publicSecureMessageRoutes from './routes/publicSecureMessage.routes.js';
 import publicProviderYearUpdateRoutes from './routes/publicProviderYearUpdate.routes.js';
 import publicClientRenewalRoutes from './routes/publicClientRenewal.routes.js';
 import publicProviderUpdateRoutes from './routes/publicProviderUpdate.routes.js';
@@ -135,6 +136,7 @@ import clientSettingsRoutes from './routes/clientSettings.routes.js';
 import providerSettingsRoutes from './routes/providerSettings.routes.js';
 import providerSearchRoutes from './routes/providerSearch.routes.js';
 import communicationsRoutes from './routes/communications.routes.js';
+import quickViewRoutes from './routes/quickView.routes.js';
 import providerImportRoutes from './routes/providerImport.routes.js';
 import noteAidRoutes from './routes/noteAid.routes.js';
 import trainingBuilderRoutes from './routes/trainingBuilder.routes.js';
@@ -710,6 +712,7 @@ app.use('/api/public/provider-year-update', publicProviderYearUpdateRoutes);
 app.use('/api/public/client-renewal', publicClientRenewalRoutes);
 app.use('/api/public/provider-update', publicProviderUpdateRoutes);
 app.use('/api/public/provider-action', publicProviderActionRoutes);
+app.use('/api/public/secure-message', publicSecureMessageRoutes);
 app.use('/api/public/admin-updates', publicAdminUpdateRoutes);
 app.use('/api/admin-updates', adminUpdateMeRoutes);
 app.use('/api/public/marketing-pages', publicMarketingPagesRoutes);
@@ -940,6 +943,7 @@ app.use('/api/provider-search', providerSearchRoutes);
 app.use('/api/note-aid', noteAidRoutes);
 app.use('/api/training-builder', trainingBuilderRoutes);
 app.use('/api/communications', communicationsRoutes);
+app.use('/api/quick-view', quickViewRoutes);
 app.use('/api/provider-import', providerImportRoutes);
 app.use('/api/school-settings', schoolSettingsRoutes);
 app.use('/api/bulk-client-upload', bulkClientUploadRoutes);
@@ -1967,6 +1971,42 @@ if (!isBootstrap) {
   };
   scheduleInboxDigest();
   setInterval(scheduleInboxDigest, 30 * 60 * 1000);
+
+  // Release held school/staff conversations + escalate intent reviews
+  const scheduleCommPolicyTicks = async () => {
+    try {
+      const { runConversationReleaseTick } = await import('./services/senderTrust.service.js');
+      await runConversationReleaseTick();
+    } catch (error) {
+      if (error?.code !== 'ER_BAD_FIELD_ERROR' && error?.code !== 'ER_NO_SUCH_TABLE') {
+        console.error('Error in conversation release tick:', error);
+      }
+    }
+    try {
+      const { runIntentReviewEscalationTick } = await import('./services/emailAutomation.service.js');
+      await runIntentReviewEscalationTick();
+    } catch (error) {
+      if (error?.code !== 'ER_NO_SUCH_TABLE') {
+        console.error('Error in intent review tick:', error);
+      }
+    }
+  };
+  scheduleCommPolicyTicks();
+  setInterval(scheduleCommPolicyTicks, 5 * 60 * 1000);
+
+  // Clear same-day temporary presence (Out for the Day / Available · Logged out) after midnight
+  const schedulePresenceExpiryTick = async () => {
+    try {
+      const UserPresenceStatus = (await import('./models/UserPresenceStatus.model.js')).default;
+      await UserPresenceStatus.clearExpiredTimedAwayStatuses();
+    } catch (error) {
+      if (error?.code !== 'ER_NO_SUCH_TABLE' && error?.code !== 'ER_BAD_FIELD_ERROR') {
+        console.error('Error in presence expiry tick:', error);
+      }
+    }
+  };
+  schedulePresenceExpiryTick();
+  setInterval(schedulePresenceExpiryTick, 5 * 60 * 1000);
 
   // Unified Inbox scheduled / undo-delayed outbound email
   const scheduleUnifiedOutbound = async () => {

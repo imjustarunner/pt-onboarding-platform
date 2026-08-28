@@ -11,6 +11,7 @@ const props = defineProps({
 const emit = defineEmits(['close', 'sent']);
 
 const inboxId = ref(props.defaultInboxId || props.inboxes[0]?.id || null);
+const channelMode = ref('email'); // email | secure | dm
 const to = ref('');
 const cc = ref('');
 const bcc = ref('');
@@ -30,6 +31,9 @@ watch(
 );
 
 const selectedInbox = computed(() => props.inboxes.find((i) => Number(i.id) === Number(inboxId.value)));
+const isEmailMode = computed(() => channelMode.value === 'email');
+const isSecureMode = computed(() => channelMode.value === 'secure');
+const isDmMode = computed(() => channelMode.value === 'dm');
 
 async function runPreflight() {
   const { data } = await api.post(
@@ -51,6 +55,35 @@ async function runPreflight() {
 
 async function send({ skipConfirm = false } = {}) {
   error.value = '';
+  if (isDmMode.value) {
+    error.value = 'Direct Message compose opens from Messages. Use Email or Secure Message here.';
+    return;
+  }
+  if (isSecureMode.value) {
+    if (!to.value.trim()) {
+      error.value = 'Recipient email is required for secure message notification';
+      return;
+    }
+    sending.value = true;
+    try {
+      await api.post('/communications/secure-notify', {
+        agencyId: props.agencyId,
+        recipientEmail: to.value.trim(),
+        note: body.value || null
+      }, { skipGlobalLoading: true });
+      emit('sent');
+    } catch (e) {
+      // Fallback: compose email with secure channel intent when endpoint missing
+      if (e?.response?.status === 404) {
+        error.value = 'Secure notify endpoint unavailable — send via Messages secure thread, or use Email.';
+      } else {
+        error.value = e?.response?.data?.error?.message || e?.message || 'Secure send failed';
+      }
+    } finally {
+      sending.value = false;
+    }
+    return;
+  }
   if (!inboxId.value) {
     error.value = 'Select an inbox / From address';
     return;
@@ -97,7 +130,19 @@ async function send({ skipConfirm = false } = {}) {
         <button type="button" class="uc-x" aria-label="Close" @click="emit('close')">×</button>
       </header>
 
-      <label class="uc-row">
+      <div class="uc-channel-switch">
+        <button type="button" :class="{ on: channelMode === 'email' }" @click="channelMode = 'email'">Email</button>
+        <button type="button" :class="{ on: channelMode === 'secure' }" @click="channelMode = 'secure'">Secure Message</button>
+        <button type="button" :class="{ on: channelMode === 'dm' }" @click="channelMode = 'dm'">Direct Message</button>
+      </div>
+      <p v-if="isSecureMode" class="uc-hint">
+        Sends a notification email (no PHI) with a deep link. Recipient opens the secure thread after login/setup.
+      </p>
+      <p v-else-if="isDmMode" class="uc-hint">
+        Staff Direct Messages use the Messages workspace. Open Messages to chat with school/app staff.
+      </p>
+
+      <label v-if="isEmailMode" class="uc-row">
         <span>Send as</span>
         <select v-model="inboxId">
           <option v-for="box in inboxes" :key="box.id" :value="box.id">
@@ -105,29 +150,29 @@ async function send({ skipConfirm = false } = {}) {
           </option>
         </select>
       </label>
-      <p v-if="selectedInbox?.from_email" class="uc-hint">From {{ selectedInbox.from_email }}</p>
+      <p v-if="isEmailMode && selectedInbox?.from_email" class="uc-hint">From {{ selectedInbox.from_email }}</p>
 
       <label class="uc-row">
         <span>To</span>
         <DirectoryRecipientInput v-model="to" :agency-id="agencyId" />
       </label>
-      <button type="button" class="uc-link" @click="showCc = !showCc">{{ showCc ? 'Hide' : 'Show' }} CC / BCC</button>
-      <template v-if="showCc">
+      <button v-if="isEmailMode" type="button" class="uc-link" @click="showCc = !showCc">{{ showCc ? 'Hide' : 'Show' }} CC / BCC</button>
+      <template v-if="isEmailMode && showCc">
         <label class="uc-row"><span>CC</span><DirectoryRecipientInput v-model="cc" :agency-id="agencyId" /></label>
         <label class="uc-row"><span>BCC</span><DirectoryRecipientInput v-model="bcc" :agency-id="agencyId" /></label>
       </template>
-      <label class="uc-row">
+      <label v-if="isEmailMode" class="uc-row">
         <span>Subject</span>
         <input v-model="subject" type="text" />
       </label>
-      <textarea v-model="body" rows="8" placeholder="Message…" />
+      <textarea v-model="body" rows="8" :placeholder="isSecureMode ? 'Optional note for your records (not emailed)…' : 'Message…'" />
 
       <p v-if="error" class="uc-err">{{ error }}</p>
 
       <footer>
         <button type="button" class="uc-cancel" @click="emit('close')">Cancel</button>
-        <button type="button" class="uc-send" :disabled="sending" @click="send()">
-          {{ sending ? 'Sending…' : 'Send' }}
+        <button type="button" class="uc-send" :disabled="sending || isDmMode" @click="send()">
+          {{ sending ? 'Sending…' : (isSecureMode ? 'Send secure notification' : 'Send') }}
         </button>
       </footer>
     </div>
@@ -170,6 +215,25 @@ async function send({ skipConfirm = false } = {}) {
   justify-content: space-between;
   align-items: center;
   margin-bottom: 14px;
+}
+.uc-channel-switch {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 10px;
+  flex-wrap: wrap;
+}
+.uc-channel-switch button {
+  border: 1px solid #cbd5e1;
+  background: #f8fafc;
+  border-radius: 999px;
+  padding: 6px 12px;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+.uc-channel-switch button.on {
+  background: #166534;
+  border-color: #166534;
+  color: #fff;
 }
 .uc-modal h3 { margin: 0; color: #166534; }
 .uc-x {

@@ -1656,9 +1656,19 @@ export const setAwayStatus = async (req, res, next) => {
 
     const isAvailableOffline = reason === 'available_offline';
 
+    // Same-day temporary statuses expire at local midnight (not sticky into tomorrow).
+    let sameDayEndsAt = null;
     if (reason === 'out_day' || isAvailableOffline) {
+      let tz = 'America/New_York';
+      try {
+        const user = await User.findById(req.user.id);
+        tz = String(user?.timezone || '').trim() || tz;
+      } catch {
+        /* keep default */
+      }
+      sameDayEndsAt = UserPresenceStatus.nextLocalMidnight(tz, new Date());
       durationMinutes = null;
-      expectedReturnAt = null;
+      expectedReturnAt = sameDayEndsAt.toISOString();
       sessionExtendUntil = null;
     } else if (!continuingTimer) {
       if (!Number.isFinite(durationMinutes) || durationMinutes <= 0) {
@@ -1728,7 +1738,9 @@ export const setAwayStatus = async (req, res, next) => {
       reason,
       display_label: displayLabel,
       session_extend_until: sessionExtendUntil,
-      ends_at: reason === 'out_day' || isAvailableOffline ? null : expectedReturnAt
+      ends_at: reason === 'out_day' || isAvailableOffline
+        ? (sameDayEndsAt || expectedReturnAt)
+        : expectedReturnAt
     });
 
     res.json({

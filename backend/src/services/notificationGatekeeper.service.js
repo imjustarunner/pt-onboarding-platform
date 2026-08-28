@@ -1,6 +1,6 @@
 import UserPreferences from '../models/UserPreferences.model.js';
 import User from '../models/User.model.js';
-import UserWorkSchedule from '../models/UserWorkSchedule.model.js';
+import { isUserAvailable } from './availabilityWindow.service.js';
 
 const employeeLikeRoles = new Set([
   'staff',
@@ -33,7 +33,6 @@ function buildDefaultPreferences(userRole) {
 function normalizeAllowedDays(days) {
   if (!days) return null;
   if (Array.isArray(days)) return days;
-  // DB may store JSON as a string depending on driver/config
   if (typeof days === 'string') {
     try {
       const parsed = JSON.parse(days);
@@ -46,7 +45,6 @@ function normalizeAllowedDays(days) {
 }
 
 function parseTimeToMinutes(t) {
-  // Accepts "HH:MM:SS", "HH:MM", or Date objects; returns minutes-from-midnight.
   if (!t) return null;
   if (t instanceof Date) {
     return t.getHours() * 60 + t.getMinutes();
@@ -61,7 +59,6 @@ function parseTimeToMinutes(t) {
 }
 
 function isInsideWorkingWindow({ now, allowedDays, startMinutes, endMinutes }) {
-  // If not fully configured, treat as always-inside (no quiet-hours restriction).
   if (!allowedDays || allowedDays.length === 0) return true;
   if (startMinutes === null || endMinutes === null) return true;
 
@@ -70,12 +67,10 @@ function isInsideWorkingWindow({ now, allowedDays, startMinutes, endMinutes }) {
 
   const nowMinutes = now.getHours() * 60 + now.getMinutes();
 
-  // Normal window (e.g., 09:00–17:00)
   if (startMinutes <= endMinutes) {
     return nowMinutes >= startMinutes && nowMinutes < endMinutes;
   }
 
-  // Overnight window (e.g., 22:00–06:00)
   return nowMinutes >= startMinutes || nowMinutes < endMinutes;
 }
 
@@ -83,27 +78,12 @@ function isInsideWorkingWindow({ now, allowedDays, startMinutes, endMinutes }) {
  * Notification Gatekeeper (single source of truth)
  *
  * Precedence for email/SMS windowing:
- * 1) urgent / emergency_override bypass
+ * 1) urgent / emergency_override / meeting-reminder bypass
  * 2) quiet hours (if enabled)
- * 3) else work schedule (if present and active), unless allow_notifications_outside_work_schedule
- *
- * Use this for future outbound delivery (Email/SMS). Existing in-app notifications
- * can remain as-is; this service determines which channels are eligible.
+ * 3) else Availability Hours (default Mon–Fri 6am–7pm, or employee override),
+ *    unless allow_notifications_outside_work_schedule
  */
 class NotificationGatekeeperService {
-  /**
-   * Decide which channels are allowed for a user and message context.
-   *
-   * @param {Object} params
-   * @param {number} params.userId
-   * @param {Object} [params.context]
-   * @param {string} [params.context.severity] - e.g. 'info'|'warning'|'urgent'
-   * @param {boolean} [params.context.isUrgent]
-   * @param {boolean} [params.context.isEmergencyBroadcast]
-   * @param {boolean} [params.context.isBlockingCompliance]
-   * @param {Date} [params.now]
-   * @returns {Promise<{inApp: boolean, email: boolean, sms: boolean, reasonCodes: string[]}>}
-   */
   static async decideChannels({ userId, context = {}, now = new Date() }) {
     const reasonCodes = [];
 
@@ -113,7 +93,6 @@ class NotificationGatekeeperService {
     const stored = await UserPreferences.findByUserId(userId);
     const prefs = stored ? { ...buildDefaultPreferences(userRole), ...stored } : buildDefaultPreferences(userRole);
 
-    // In-app is a safety + audit requirement; cannot be disabled.
     const inApp = true;
 
     const emailToggle = prefs.email_enabled !== false;
@@ -123,8 +102,8 @@ class NotificationGatekeeperService {
     const isEmergencyBroadcast = context.isEmergencyBroadcast === true;
     const isBlockingCompliance = context.isBlockingCompliance === true;
     const isUrgent = context.isUrgent === true || context.severity === 'urgent';
+    const isMeetingReminder = context.isMeetingReminder === true;
 
-    // Emergency broadcasts and blocking compliance alerts bypass preferences entirely.
     if (isEmergencyBroadcast) {
       reasonCodes.push('bypass_emergency_broadcast');
       return { inApp: true, email: true, sms: true, reasonCodes };
@@ -134,12 +113,29 @@ class NotificationGatekeeperService {
       return { inApp: true, email: true, sms: true, reasonCodes };
     }
 
-    // Precedence: urgent/emergency-override bypass → quiet hours if enabled → else work schedule if present.
     let windowBlocksExternal = false;
-    const windowBypass = isUrgent || emergencyOverrideEnabled;
+    let meetingReminderBypass = isMeetingReminder;
+    if (isMeetingReminder) {
+      try {
+        const [prefRows] = await (await import('../config/database.js')).default.execute(
+          `SELECT meeting_reminder_bypass_availability FROM user_communication_prefs WHERE user_id = ? LIMIT 1`,
+          [userId]
+        );
+        if (prefRows?.[0] && prefRows[0].meeting_reminder_bypass_availability === 0) {
+          meetingReminderBypass = false;
+        }
+      } catch {
+        /* default: meeting reminders bypass when pref unset */
+      }
+    }
+    const windowBypass = isUrgent || emergencyOverrideEnabled || meetingReminderBypass;
 
     if (windowBypass) {
-      reasonCodes.push(isUrgent ? 'window_bypass_urgent' : 'window_bypass_emergency_override');
+      reasonCodes.push(
+        isUrgent
+          ? 'window_bypass_urgent'
+          : (meetingReminderBypass ? 'window_bypass_meeting_reminder' : 'window_bypass_emergency_override')
+      );
     } else if (prefs.quiet_hours_enabled) {
       const allowedDays = normalizeAllowedDays(prefs.quiet_hours_allowed_days);
       const startMinutes = parseTimeToMinutes(prefs.quiet_hours_start_time);
@@ -152,14 +148,16 @@ class NotificationGatekeeperService {
         || prefs.allow_notifications_outside_work_schedule === 1
         || prefs.allow_notifications_outside_work_schedule === '1';
       if (allowOutside) {
-        reasonCodes.push('work_schedule_bypass_allow_outside');
+        reasonCodes.push('availability_bypass_allow_outside');
       } else {
-        const insideWork = await UserWorkSchedule.isInsideWorkSchedule(userId, now);
-        if (insideWork === false) {
+        const { available, schedule } = await isUserAvailable(userId, now);
+        if (schedule?.source === 'disabled') {
+          reasonCodes.push('availability_disabled');
+        } else if (!available) {
           windowBlocksExternal = true;
-          reasonCodes.push('work_schedule_outside_window');
-        } else if (insideWork === true) {
-          reasonCodes.push('within_work_schedule');
+          reasonCodes.push('availability_outside_window');
+        } else {
+          reasonCodes.push(schedule?.source === 'override' ? 'within_availability_override' : 'within_availability_default');
         }
       }
     }

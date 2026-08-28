@@ -1485,6 +1485,49 @@ export const sendMessage = async (req, res, next) => {
     }
     await pool.execute('UPDATE chat_threads SET updated_at = NOW() WHERE id = ?', [threadId]);
 
+    // Secure-message email notify for client/guardian participants (no PHI in email body)
+    try {
+      const staffRoles = new Set([
+        'admin', 'super_admin', 'support', 'staff', 'provider', 'provider_plus',
+        'supervisor', 'clinical_practice_assistant', 'intern', 'intern_plus'
+      ]);
+      if (staffRoles.has(String(req.user.role || '').toLowerCase())) {
+        const [guardianParts] = await pool.execute(
+          `SELECT u.id, u.email, u.personal_email, u.role, cg.client_id
+           FROM chat_thread_participants p
+           JOIN users u ON u.id = p.user_id
+           LEFT JOIN client_guardians cg ON cg.guardian_user_id = u.id
+           WHERE p.thread_id = ?
+             AND p.user_id <> ?
+             AND LOWER(u.role) IN ('client_guardian', 'client')
+           LIMIT 5`,
+          [threadId, req.user.id]
+        );
+        if (guardianParts?.length) {
+          const { sendSecureMessageNotification } = await import('../services/secureMessageNotify.service.js');
+          const agencyId = Number(req.headers['x-agency-id'] || req.user.agency_id || 0) || null;
+          for (const g of guardianParts) {
+            const email = String(g.email || g.personal_email || '').trim();
+            if (!email || !agencyId) continue;
+            await sendSecureMessageNotification({
+              agencyId,
+              senderUserId: req.user.id,
+              recipientUserId: g.id,
+              recipientEmail: email,
+              clientId: g.client_id || null,
+              chatThreadId: threadId,
+              messageId: insertedMessageId,
+              messageSource: 'chat'
+            }).catch((err) => {
+              console.warn('[chat] secure notify failed:', err?.message || err);
+            });
+          }
+        }
+      }
+    } catch (e) {
+      console.warn('[chat] secure notify wiring failed:', e?.message || e);
+    }
+
     // Mentions: resolve against thread participants (exclude sender)
     const [partRows] = await pool.execute(
       `SELECT tp.user_id, u.username, u.first_name, u.last_name

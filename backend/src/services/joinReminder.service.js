@@ -58,17 +58,58 @@ async function sendJoinReminderToUser({ userId, agencyId, joinUrl, label, sessio
 
   const decision = await NotificationGatekeeperService.decideChannels({
     userId,
-    context: { severity: 'info' }
+    context: { severity: 'info', isMeetingReminder: true }
   });
 
   let emailSent = false;
   let smsSent = false;
 
+  // Prefer Quick View deep link for non-SSO / personal-email staff when configured
+  let finalJoinUrl = joinUrl;
+  try {
+    const { getAgencyEmailSettings } = await import('./emailSettings.service.js');
+    const {
+      getCredentialStatus,
+      ensurePersistentToken,
+      issueDeliveryToken,
+      buildDeliveryQuickViewUrl
+    } = await import('./quickViewAuth.service.js');
+    const settings = await getAgencyEmailSettings(agencyId);
+    if (settings.quickViewEnabled) {
+      const status = await getCredentialStatus(userId);
+      if (!status.hasPasscode) {
+        // Fall back to direct join until passcode is set
+      } else {
+        if (!status.hasToken) {
+          await ensurePersistentToken({ userId, agencyId });
+        }
+        const joinType = sessionType === 'supervision' ? 'supervision' : 'team-meeting';
+        const deepPath = `/quick-view-join?type=${encodeURIComponent(joinType)}&id=${encodeURIComponent(sessionId)}`;
+        const delivery = await issueDeliveryToken({
+          userId,
+          agencyId,
+          purpose: 'join_reminder',
+          deepLinkPath: deepPath,
+          expiresInHours: 12
+        });
+        const baseUrl = (process.env.FRONTEND_URL || FRONTEND_URL || '').replace(/\/$/, '');
+        finalJoinUrl = buildDeliveryQuickViewUrl({
+          baseUrl,
+          deliveryToken: delivery.token,
+          joinType,
+          joinId: sessionId
+        });
+      }
+    }
+  } catch (e) {
+    // fall back to original joinUrl
+  }
+
   if (decision?.email && toEmail) {
     try {
       const subject = `Join reminder: ${label}`;
-      const text = `${label} is starting soon.\n\nJoin here: ${joinUrl}`;
-      const html = `<p>${label} is starting soon.</p><p><a href="${joinUrl}">Join here</a></p>`;
+      const text = `${label} is starting soon.\n\nJoin here: ${finalJoinUrl}`;
+      const html = `<p>${label} is starting soon.</p><p><a href="${finalJoinUrl}">Join here</a></p><p style="font-size:12px;color:#64748b">If prompted, enter your 6-digit Quick View passcode.</p>`;
       const result = await sendNotificationEmail({
         agencyId,
         triggerKey: 'meeting_join_reminder',
@@ -97,7 +138,7 @@ async function sendJoinReminderToUser({ userId, agencyId, joinUrl, label, sessio
         ? PhoneNumber.normalizePhone(resolved.number.phone_number) || resolved.number.phone_number
         : null;
       if (from) {
-        const body = `${label} starting soon. Join: ${joinUrl}`.slice(0, 480);
+        const body = `${label} starting soon. Join: ${finalJoinUrl}`.slice(0, 480);
         await VonageService.sendSms({ to: toPhoneNorm, from, body });
         smsSent = true;
       }

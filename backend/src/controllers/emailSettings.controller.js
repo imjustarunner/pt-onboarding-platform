@@ -54,6 +54,19 @@ export const getEmailSettings = async (req, res, next) => {
         schoolRoiEmailsRequireApproval: setting.schoolRoiEmailsRequireApproval !== false,
         defaultSenderIdentityId: setting.defaultSenderIdentityId || null,
         templateSenderIdentityIds: setting.templateSenderIdentityIds || {},
+        personalEmailDigestEnabled: setting.personalEmailDigestEnabled !== false,
+        personalEmailDigestBusinessHours: setting.personalEmailDigestBusinessHours ?? 24,
+        holdStaffSchoolOutsideAvailability: setting.holdStaffSchoolOutsideAvailability !== false,
+        clientOooAutoReplyEnabled: setting.clientOooAutoReplyEnabled !== false,
+        clientOooTemplate: setting.clientOooTemplate || null,
+        clientOooSupportKeyword: setting.clientOooSupportKeyword || 'SUPPORT',
+        unknownSenderBoxEnabled: setting.unknownSenderBoxEnabled !== false,
+        secureMessageSenderIdentityId: setting.secureMessageSenderIdentityId || null,
+        noreplySenderIdentityId: setting.noreplySenderIdentityId || null,
+        intentReviewEnabled: setting.intentReviewEnabled !== false,
+        intentConfidenceThreshold: setting.intentConfidenceThreshold ?? 0.75,
+        quickViewEnabled: !!setting.quickViewEnabled,
+        secureClientMessageEmailEnabled: !!setting.secureClientMessageEmailEnabled,
         effectiveNotificationsEnabled: effectiveEnabled
       };
     });
@@ -131,6 +144,19 @@ export const updateEmailSettings = async (req, res, next) => {
           templateSenderIdentityJson: a.templateSenderIdentityIds
             ? normalizeTemplateSenderIdentityJson(a.templateSenderIdentityIds)
             : undefined,
+          personalEmailDigestEnabled: a.personalEmailDigestEnabled,
+          personalEmailDigestBusinessHours: a.personalEmailDigestBusinessHours,
+          holdStaffSchoolOutsideAvailability: a.holdStaffSchoolOutsideAvailability,
+          clientOooAutoReplyEnabled: a.clientOooAutoReplyEnabled,
+          clientOooTemplate: a.clientOooTemplate,
+          clientOooSupportKeyword: a.clientOooSupportKeyword,
+          unknownSenderBoxEnabled: a.unknownSenderBoxEnabled,
+          secureMessageSenderIdentityId: a.secureMessageSenderIdentityId,
+          noreplySenderIdentityId: a.noreplySenderIdentityId,
+          intentReviewEnabled: a.intentReviewEnabled,
+          intentConfidenceThreshold: a.intentConfidenceThreshold,
+          quickViewEnabled: a.quickViewEnabled,
+          secureClientMessageEmailEnabled: a.secureClientMessageEmailEnabled,
           actorUserId: req.user.id
         });
       }
