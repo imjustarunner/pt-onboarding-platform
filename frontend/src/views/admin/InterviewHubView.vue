@@ -113,7 +113,51 @@
                 :disabled="!selectedInterview.public_join_url"
                 @click="copyInvite"
               >Copy invite</button>
+              <button
+                v-if="canEditSelected"
+                type="button"
+                class="btn btn-secondary btn-sm"
+                @click="toggleEditInterview"
+              >{{ showEditInterview ? 'Cancel edit' : 'Edit interview' }}</button>
             </div>
+          </div>
+
+          <div v-if="showEditInterview" class="ih-edit-panel">
+            <div class="ih-edit-grid">
+              <label class="ih-label">Start</label>
+              <input v-model="editForm.startsAt" class="input" type="datetime-local" />
+              <label class="ih-label">Timezone</label>
+              <select v-model="editForm.timezone" class="input">
+                <option v-for="tz in timezoneOptions" :key="`edit-${tz}`" :value="tz">{{ tz }}</option>
+              </select>
+              <label class="ih-label ih-field-full">Interviewers</label>
+              <select v-model="editInterviewerPick" class="input ih-field-full" @change="addEditInterviewer">
+                <option value="">Add interviewer…</option>
+                <option
+                  v-for="a in assignees"
+                  :key="`edit-${a.id || a.user_id}`"
+                  :value="String(a.id || a.user_id)"
+                  :disabled="editForm.interviewerUserIds.includes(String(a.id || a.user_id))"
+                >
+                  {{ formatAssigneeOption(a) }}
+                </option>
+              </select>
+              <div v-if="editForm.interviewerUserIds.length" class="ih-chips ih-field-full">
+                <span v-for="id in editForm.interviewerUserIds" :key="`chip-${id}`" class="ih-chip">
+                  {{ interviewerNameById(id) }}
+                  <button type="button" class="ih-chip-x" aria-label="Remove interviewer" @click="removeEditInterviewer(id)">×</button>
+                </span>
+              </div>
+            </div>
+            <div class="ih-edit-actions">
+              <button
+                type="button"
+                class="btn btn-primary btn-sm"
+                :disabled="savingEdit || !editForm.startsAt"
+                @click="saveInterviewEdit"
+              >{{ savingEdit ? 'Saving…' : 'Save changes' }}</button>
+            </div>
+            <p v-if="editError" class="error-inline">{{ editError }}</p>
           </div>
 
           <div class="ih-detail-grid">
@@ -126,7 +170,7 @@
               <div>{{ jobSetTitle(selectedInterview.job_question_set_id) || '—' }}</div>
             </div>
             <div class="ih-field ih-field-wide">
-              <div class="ih-field-label">Public join URL</div>
+              <div class="ih-field-label">Join URL</div>
               <div class="ih-url-row">
                 <code class="ih-url">{{ selectedInterview.public_join_url || 'Not available' }}</code>
                 <button
@@ -136,6 +180,7 @@
                   @click="copyText(selectedInterview.public_join_url)"
                 >Copy</button>
               </div>
+              <p class="ih-hint">Candidates join as guests. Signed-in staff join as hosts on the same link.</p>
             </div>
             <div v-if="selectedInterview.provider_schedule_event_id" class="ih-field">
               <div class="ih-field-label">Schedule event</div>
@@ -433,6 +478,100 @@ const selectedInterview = computed(() =>
   interviews.value.find((i) => Number(i.id) === Number(selectedInterviewId.value)) || null
 );
 
+const canEditSelected = computed(() => {
+  const status = String(selectedInterview.value?.status || '').toLowerCase();
+  return status === 'scheduled' || status === 'in_progress';
+});
+
+const showEditInterview = ref(false);
+const savingEdit = ref(false);
+const editError = ref('');
+const editInterviewerPick = ref('');
+const editForm = ref({
+  startsAt: '',
+  timezone: 'America/Denver',
+  interviewerUserIds: []
+});
+
+function toDatetimeLocalValue(d) {
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function interviewerNameById(id) {
+  const a = assigneeById.value.get(Number(id));
+  return a ? formatAssigneeOption(a) : `#${id}`;
+}
+
+function populateEditForm(iv = selectedInterview.value) {
+  if (!iv) return;
+  editError.value = '';
+  editInterviewerPick.value = '';
+  editForm.value = {
+    startsAt: iv.interview_starts_at ? toDatetimeLocalValue(new Date(iv.interview_starts_at)) : '',
+    timezone: iv.interview_timezone || Intl.DateTimeFormat().resolvedOptions().timeZone || 'America/Denver',
+    interviewerUserIds: (Array.isArray(iv.interviewer_user_ids_json) ? iv.interviewer_user_ids_json : [])
+      .map((id) => String(id))
+      .filter(Boolean)
+  };
+  if (!timezoneOptions.includes(editForm.value.timezone)) {
+    timezoneOptions.push(editForm.value.timezone);
+  }
+}
+
+async function toggleEditInterview() {
+  if (showEditInterview.value) {
+    showEditInterview.value = false;
+    editError.value = '';
+    return;
+  }
+  try {
+    await loadAssignees();
+  } catch {
+    /* keep empty assignee list */
+  }
+  populateEditForm();
+  showEditInterview.value = true;
+}
+
+function addEditInterviewer() {
+  const id = String(editInterviewerPick.value || '').trim();
+  editInterviewerPick.value = '';
+  if (!id || editForm.value.interviewerUserIds.includes(id)) return;
+  editForm.value.interviewerUserIds = [...editForm.value.interviewerUserIds, id];
+}
+
+function removeEditInterviewer(id) {
+  editForm.value.interviewerUserIds = editForm.value.interviewerUserIds.filter((x) => String(x) !== String(id));
+}
+
+async function saveInterviewEdit() {
+  const iv = selectedInterview.value;
+  if (!iv?.id) return;
+  savingEdit.value = true;
+  editError.value = '';
+  try {
+    const startsAt = String(editForm.value.startsAt || '').trim();
+    if (!startsAt || Number.isNaN(new Date(startsAt).getTime())) {
+      editError.value = 'Pick a valid start date and time.';
+      return;
+    }
+    await api.patch(`/hiring/interview-hub/interviews/${iv.id}`, {
+      agencyId: effectiveAgencyId.value,
+      startsAt,
+      timezone: editForm.value.timezone,
+      interviewerUserIds: editForm.value.interviewerUserIds.map((id) => Number(id)).filter((n) => n > 0)
+    });
+    showEditInterview.value = false;
+    await loadInterviews();
+    flashSuccess('Interview updated');
+  } catch (e) {
+    editError.value = e?.response?.data?.message || e?.message || 'Failed to update interview';
+  } finally {
+    savingEdit.value = false;
+  }
+}
+
 function startOfDay(d) {
   const x = new Date(d);
   x.setHours(0, 0, 0, 0);
@@ -621,6 +760,8 @@ async function copyInvite() {
 
 function selectInterview(id) {
   selectedInterviewId.value = id;
+  showEditInterview.value = false;
+  editError.value = '';
 }
 
 function hydrateTemplateForm(t) {
@@ -1055,6 +1196,41 @@ onMounted(async () => {
   color: #4b5563;
 }
 .ih-detail-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.ih-edit-panel {
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  background: #f9fafb;
+  padding: 14px;
+  margin-bottom: 16px;
+}
+.ih-edit-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px 14px;
+  align-items: start;
+}
+.ih-edit-actions { margin-top: 12px; }
+.ih-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.ih-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: #ede9fe;
+  color: #5b21b6;
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 13px;
+  font-weight: 600;
+}
+.ih-chip-x {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 1;
+  padding: 0;
+}
 .ih-detail-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;

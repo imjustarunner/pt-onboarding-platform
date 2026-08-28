@@ -95,14 +95,15 @@
       <div class="cip-detail-head">
         <h4>{{ interviewCardTitle(selected) }}</h4>
         <div class="cip-detail-actions">
-          <button
-            v-if="selected.host_join_url"
-            type="button"
+          <a
+            v-if="selected.public_join_url"
             class="btn btn-primary btn-sm"
-            @click="openHostJoin(selected.host_join_url)"
+            :href="selected.public_join_url"
+            target="_blank"
+            rel="noopener"
           >
-            Join as host
-          </button>
+            Open join link
+          </a>
           <button
             v-if="canEditSelected"
             type="button"
@@ -160,18 +161,12 @@
         <div class="k">Interviewers</div>
         <div class="v">{{ selectedInterviewerLabels.join(', ') }}</div>
       </div>
-      <div class="kv" v-if="selected.host_join_url">
-        <div class="k">Host join link</div>
-        <div class="v">
-          <a :href="selected.host_join_url" target="_blank" rel="noopener">{{ selected.host_join_url }}</a>
-          <button type="button" class="btn btn-secondary btn-sm" @click="copy(selected.host_join_url)">Copy</button>
-        </div>
-      </div>
       <div class="kv" v-if="selected.public_join_url">
-        <div class="k">Candidate join link</div>
+        <div class="k">Join link</div>
         <div class="v">
           <a :href="selected.public_join_url" target="_blank" rel="noopener">{{ selected.public_join_url }}</a>
           <button type="button" class="btn btn-secondary btn-sm" @click="copy(selected.public_join_url)">Copy</button>
+          <p class="muted small" style="margin:6px 0 0;">Candidates join as guests. Signed-in staff join as hosts on the same link.</p>
         </div>
       </div>
       <div class="kv" v-if="selected.provider_schedule_event_id">
@@ -436,10 +431,6 @@ async function loadInterviews() {
       params: { agencyId: props.agencyId }
     });
     interviews.value = r.data?.data || r.data || [];
-    interviews.value = interviews.value.map((row) => ({
-      ...row,
-      host_join_url: hostJoinUrlForInterview(row)
-    }));
     if (!interviews.value.length) showSchedule.value = true;
     if (showSchedule.value) suggestRoundFromExisting();
     if (interviews.value.length && !selectedId.value) {
@@ -511,26 +502,6 @@ function addInterviewer() {
 
 function removeInterviewer(id) {
   interviewerIds.value = interviewerIds.value.filter((x) => Number(x) !== Number(id));
-}
-
-function hostJoinUrlForInterview(iv) {
-  if (!iv) return '';
-  if (iv.host_join_url) return iv.host_join_url;
-  const publicUrl = String(iv.public_join_url || '').trim();
-  const hostToken = String(iv.host_join_token || '').trim();
-  if (!hostToken || !publicUrl) return '';
-  try {
-    const origin = new URL(publicUrl).origin;
-    return `${origin}/join/team-meeting/${encodeURIComponent(hostToken)}`;
-  } catch {
-    return '';
-  }
-}
-
-function openHostJoin(url) {
-  const link = String(url || '').trim();
-  if (!link) return;
-  window.open(link, '_blank', 'noopener');
 }
 
 function populateEditForm(iv = selected.value) {

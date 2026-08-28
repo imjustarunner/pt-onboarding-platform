@@ -216,7 +216,7 @@ export const listInterviews = async (req, res, next) => {
     await ensureAgencyAccess(req, agencyId);
     const status = req.query?.status ? String(req.query.status).trim().toLowerCase() : null;
     const rows = await HiringInterview.listByAgencyId(agencyId, { status });
-    return res.json({ success: true, data: rows });
+    return res.json({ success: true, data: (rows || []).map(enrichInterviewRow) });
   } catch (err) {
     return next(err);
   }

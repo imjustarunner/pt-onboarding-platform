@@ -60,13 +60,46 @@ async function interviewGuestAccessBlock(event, { actorUserId = null, tokenRole 
   };
 }
 
+function isInterviewMeeting(row) {
+  return String(row?.meeting_subtype || row?.meetingSubtype || '').toLowerCase() === 'interview';
+}
+
 function isInterviewParticipantGuestJoin(row, ref) {
-  const subtype = String(row?.meeting_subtype || row?.meetingSubtype || '').toLowerCase();
-  if (subtype !== 'interview') return false;
+  if (!isInterviewMeeting(row)) return false;
   const tokenRole = ProviderScheduleEvent.classifyJoinTokenRole(row, ref);
   if (tokenRole !== 'participant') return false;
   if (/^\d+$/.test(String(ref || '').trim())) return false;
   return true;
+}
+
+/**
+ * Interviews only: unauthenticated participant-token joins are candidates (guests).
+ * Logged-in agency staff on that same link join as interviewers — never guests —
+ * unless they are the candidate user themselves.
+ */
+async function resolveInterviewGuestJoin(row, ref, actorUserId) {
+  if (!isInterviewParticipantGuestJoin(row, ref)) return false;
+  const actorId = Number(actorUserId || 0);
+  if (!actorId) return true;
+  try {
+    const interview = await HiringInterview.findByScheduleEventId(row.id);
+    const candidateId = Number(interview?.candidate_user_id || 0);
+    if (candidateId && candidateId === actorId) return true;
+  } catch {
+    /* treat as staff path if lookup fails */
+  }
+  return false;
+}
+
+/** Interviews only: any active member of the meeting agency may join as interviewer. */
+async function canAccessInterviewMeeting(req, event) {
+  if (await canAccessTeamMeeting(req, event)) return true;
+  if (!isInterviewMeeting(event)) return false;
+  const actorId = Number(req.user?.id || 0);
+  const agencyId = Number(event?.agency_id || 0);
+  if (!actorId || !agencyId) return false;
+  const actorAgencies = await User.getAgencies(actorId);
+  return (actorAgencies || []).some((a) => Number(a?.id) === agencyId);
 }
 
 function interviewGuestIdentityFromRow(row) {
@@ -670,9 +703,11 @@ export const getTeamMeetingVideoToken = async (req, res, next) => {
     }
 
     const actorUserId = Number(req.user?.id || 0);
-    const guestJoin = !actorUserId && isInterviewParticipantGuestJoin(row, ref);
-    if (actorUserId) {
-      const ok = await canAccessTeamMeeting(req, row);
+    const guestJoin = await resolveInterviewGuestJoin(row, ref, actorUserId);
+    if (actorUserId && !guestJoin) {
+      const ok = isInterviewMeeting(row)
+        ? await canAccessInterviewMeeting(req, row)
+        : await canAccessTeamMeeting(req, row);
       if (!ok) return res.status(403).json({ error: { message: 'Access denied' } });
     } else if (!guestJoin) {
       return res.status(401).json({ error: { message: 'Not authenticated' } });
@@ -706,9 +741,19 @@ export const getTeamMeetingVideoToken = async (req, res, next) => {
       'assistant_admin'
     ].includes(actorRole);
     const createdByUserId = Number(row.created_by_user_id || row.createdByUserId || 0);
-    // Host link: calendar owner, meeting creator, or privileged scheduler (admin schedule).
-    const isHost = actorUserId === Number(row.provider_id)
+    // Host: calendar owner, meeting creator, or privileged scheduler (admin schedule).
+    // Interviews only: any logged-in agency staff is a host; unauthenticated guest-link users are candidates.
+    let isHost = actorUserId === Number(row.provider_id)
       || (tokenRole === 'host' && (actorUserId === createdByUserId || privilegedHost));
+    if (
+      !isHost
+      && isInterviewMeeting(row)
+      && actorUserId
+      && !guestJoin
+      && await canAccessInterviewMeeting(req, row)
+    ) {
+      isHost = true;
+    }
     if (tokenRole === 'host' && !isHost) {
       return res.status(403).json({
         error: { message: 'This is the host join link. Only the meeting host can use it.' }
@@ -754,7 +799,9 @@ export const getTeamMeetingVideoToken = async (req, res, next) => {
     } else {
       const actor = await User.findById(actorUserId);
       displayName = displayNameFromUser(actor) || `User ${actorUserId}`;
-      roleLabel = isHost ? 'Host' : 'Participant';
+      roleLabel = isHost
+        ? 'Host'
+        : (isInterviewMeeting(row) ? 'Interviewer' : 'Participant');
       profilePhotoUrl = await profilePhotoUrlForUserId(actorUserId);
     }
 
@@ -1175,9 +1222,11 @@ export const getTeamMeetingAdmissionStatus = async (req, res, next) => {
     if (!row?.id) return res.status(404).json({ error: { message: 'Event not found' } });
 
     const actorUserId = Number(req.user?.id || 0);
-    const guestJoin = !actorUserId && isInterviewParticipantGuestJoin(row, ref);
-    if (actorUserId) {
-      const ok = await canAccessTeamMeeting(req, row);
+    const guestJoin = await resolveInterviewGuestJoin(row, ref, actorUserId);
+    if (actorUserId && !guestJoin) {
+      const ok = isInterviewMeeting(row)
+        ? await canAccessInterviewMeeting(req, row)
+        : await canAccessTeamMeeting(req, row);
       if (!ok) return res.status(403).json({ error: { message: 'Access denied' } });
     } else if (!guestJoin) {
       return res.status(401).json({ error: { message: 'Not authenticated' } });
@@ -1187,7 +1236,16 @@ export const getTeamMeetingAdmissionStatus = async (req, res, next) => {
       ? (interviewGuestIdentityFromRow(row) || `guest-iv-${row.id}`)
       : `user-${actorUserId}`;
     const waitingRoomOn = isWaitingRoomEnabled(row);
-    const isHost = actorUserId > 0 && actorUserId === Number(row.provider_id);
+    let isHost = actorUserId > 0 && actorUserId === Number(row.provider_id);
+    if (
+      !isHost
+      && isInterviewMeeting(row)
+      && actorUserId
+      && !guestJoin
+      && await canAccessInterviewMeeting(req, row)
+    ) {
+      isHost = true;
+    }
     const meetingCompletedAt = row.meeting_completed_at || null;
 
     if (meetingCompletedAt) {
@@ -1204,6 +1262,11 @@ export const getTeamMeetingAdmissionStatus = async (req, res, next) => {
     }
 
     if (isHost) {
+      await admitJoinIdentity({
+        eventId: row.id,
+        userId: actorUserId,
+        joinIdentity: identity
+      });
       return res.json({
         admitted: true,
         roomMode: 'main',

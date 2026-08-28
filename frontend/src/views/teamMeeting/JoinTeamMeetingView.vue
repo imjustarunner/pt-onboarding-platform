@@ -28,12 +28,27 @@
     />
     <div v-else-if="resolving || joiningPhase" class="join-placeholder">
       {{ joiningStatusText }}
+      <div v-if="showEmployeeLogin" class="join-employee-login">
+        <button type="button" class="btn btn-secondary btn-sm" @click="goToEmployeeLogin">
+          Employee login
+        </button>
+      </div>
     </div>
     <div v-else-if="error && !token && !meetingCompletedAt" class="join-error">
       <p>{{ error }}</p>
-      <button type="button" class="btn btn-secondary btn-sm" style="margin-top:12px" @click="retryJoin">
-        Retry
-      </button>
+      <div class="join-error-actions">
+        <button type="button" class="btn btn-secondary btn-sm" @click="retryJoin">
+          Retry
+        </button>
+        <button
+          v-if="showEmployeeLogin"
+          type="button"
+          class="btn btn-primary btn-sm"
+          @click="goToEmployeeLogin"
+        >
+          Employee login
+        </button>
+      </div>
     </div>
     <template v-else-if="token && (vonageSessionId || roomName)">
       <div
@@ -62,6 +77,14 @@
           </div>
         </div>
         <div class="join-header__right">
+          <button
+            v-if="showEmployeeLogin"
+            type="button"
+            class="btn btn-secondary btn-sm"
+            @click="goToEmployeeLogin"
+          >
+            Employee login
+          </button>
           <button
             v-if="showEnableAttendanceButton"
             type="button"
@@ -652,34 +675,6 @@ const joinHeaderLogoUrl = computed(() => {
   return tenantDarkLogoUrl(slug) || tenantDarkLogoUrl(window.location.hostname) || '';
 });
 
-const STAFF_JOIN_ROLES = new Set([
-  'super_admin',
-  'superadmin',
-  'admin',
-  'support',
-  'staff',
-  'schedule_manager',
-  'assistant_admin',
-  'clinical_practice_assistant',
-  'provider_plus'
-]);
-
-function staffLikelyJoining() {
-  const role = String(authStore.user?.role || '').toLowerCase();
-  return STAFF_JOIN_ROLES.has(role);
-}
-
-function hostJoinPathFromPayload(data) {
-  const url = String(data?.hostJoinUrl || data?.host_join_url || '').trim();
-  if (!url) return '';
-  try {
-    const u = new URL(url, window.location.origin);
-    return `${u.pathname}${u.search}${u.hash}`;
-  } catch {
-    return url.startsWith('/') ? url : '';
-  }
-}
-
 const meetingLang = ref('en');
 provide('meetingLang', meetingLang);
 
@@ -870,6 +865,22 @@ watch(videoFullscreen, (on) => {
 const isAdminMeeting = computed(() => String(meetingSubtype.value || '').toLowerCase() === 'admin');
 const isInterviewMeeting = computed(() => String(meetingSubtype.value || '').toLowerCase() === 'interview');
 const isEvaluationMeeting = computed(() => String(meetingSubtype.value || '').toLowerCase() === 'evaluation');
+
+const showEmployeeLogin = computed(() => {
+  if (!isInterviewMeeting.value) return false;
+  if (authStore.isAuthenticated && authStore.user?.id) return false;
+  return true;
+});
+
+function goToEmployeeLogin() {
+  const slug = organizationSlug.value || hostPortalSlug.value || '';
+  const redirect = encodeURIComponent(route.fullPath);
+  if (slug) {
+    router.push(`/${slug}/login?redirect=${redirect}`);
+  } else {
+    router.push(`/login?redirect=${redirect}`);
+  }
+}
 const isHuddle = computed(() => String(meetingKind.value || '').toUpperCase() === 'HUDDLE');
 /** 2+ invitees → group (3+ people). Solo/1:1 stay individual. */
 const isMultiParticipant = computed(() => Number(bookedParticipantCount.value || 0) >= 2);
@@ -1328,6 +1339,13 @@ async function resolveAndRedirect() {
     );
     const data = resp?.data || {};
     const slug = String(data.orgSlug || '').trim();
+    if (data.meetingSubtype || data.meeting_subtype) {
+      const subtype = String(data.meetingSubtype || data.meeting_subtype || 'general').toLowerCase();
+      meetingSubtype.value = (subtype === 'admin' || subtype === 'town_hall' || subtype === 'interview' || subtype === 'evaluation')
+        ? subtype
+        : 'general';
+      if (meetingSubtype.value === 'interview') tileFocus.value = 'remote';
+    }
     if (!slug) {
       error.value = 'Meeting not found';
       joinAttemptedForPath.value = '';
@@ -1411,22 +1429,18 @@ async function fetchTokenAndJoin({ afterLogin = false } = {}) {
     );
     applyTokenPayload(resp?.data || {});
     const payload = resp?.data || {};
+    // Interviews only: if we somehow still got a guest token while authenticated as staff,
+    // retry once after session hydrate — do not bounce to host link (403 for non-hosts).
     const joinedAsGuest = !!(payload.isGuest || String(payload.identity || '').startsWith('guest-'));
     if (
       joinedAsGuest
-      && staffLikelyJoining()
+      && isInterviewMeeting.value
+      && authStore.isAuthenticated
+      && authStore.user?.id
       && !afterLogin
     ) {
-      const hostPath = hostJoinPathFromPayload(payload);
-      const currentPath = `${route.path}${route.hash || ''}`;
-      if (hostPath && hostPath !== currentPath) {
-        joinAttemptedForPath.value = '';
-        await router.replace(hostPath);
-        return;
-      }
-      if (authStore.isAuthenticated) {
-        return fetchTokenAndJoin({ afterLogin: true });
-      }
+      const ok = await tryHydrateSession();
+      if (ok) return fetchTokenAndJoin({ afterLogin: true });
     }
     if (!token.value) {
       error.value = `Video token was empty. Check Network tab: GET /api/team-meetings/${eid}/video-token.`;
@@ -2659,9 +2673,15 @@ onUnmounted(() => {
 .join-placeholder {
   flex: 1;
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
+  gap: 14px;
   color: #cbd5e1;
+}
+.join-employee-login {
+  display: flex;
+  justify-content: center;
 }
 .join-error {
   color: #fecaca;
@@ -2669,6 +2689,12 @@ onUnmounted(() => {
   border: 1px solid rgba(248, 113, 113, 0.4);
   border-radius: 10px;
   padding: 12px 14px;
+}
+.join-error-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 12px;
 }
 .muted { color: #94a3b8; }
 .error-inline { color: #b91c1c; margin: 0; }
