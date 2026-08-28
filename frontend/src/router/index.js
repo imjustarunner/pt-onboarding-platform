@@ -3321,6 +3321,15 @@ const routes = [
     }
   },
   {
+    path: '/admin/mailbox-import',
+    name: 'MboxMailboxImport',
+    component: () => import('../views/admin/MboxMailboxImportView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresRole: ['super_admin']
+    }
+  },
+  {
     path: '/admin/announcements',
     name: 'AnnouncementsHub',
     component: () => import('../views/admin/AnnouncementsHubView.vue'),

@@ -1449,6 +1449,9 @@
       <button type="button" class="btn btn-secondary btn-sm" @click="openEmployeeInfoModal">
         Employee Info Import
       </button>
+      <router-link to="/admin/mailbox-import" class="btn btn-secondary btn-sm">
+        Mailbox Import (mbox)
+      </router-link>
     </div>
 
     <!-- Provider Upload Modal -->

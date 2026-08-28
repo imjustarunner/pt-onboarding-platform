@@ -666,6 +666,17 @@ const quickActions = computed(() => {
     capabilities: ['canAccessPlatform']
   },
   {
+    id: 'mailbox_import',
+    title: 'Staff Mailbox Import',
+    description: 'Upload Google Takeout .mbox into a staff Communications inbox',
+    to: '/admin/mailbox-import',
+    emoji: '📬',
+    iconKey: 'manage_users',
+    category: 'Communications',
+    roles: ['super_admin'],
+    capabilities: ['canAccessPlatform']
+  },
+  {
     id: 'communications',
     title: 'Messages',
     description: 'Direct messages, channels, threads, and mentions',
