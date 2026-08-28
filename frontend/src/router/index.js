@@ -354,13 +354,13 @@ const routes = [
     path: '/quick-view/d/:token',
     name: 'QuickViewDeliveryAccess',
     component: () => import('../views/QuickViewAccessView.vue'),
-    meta: { requiresGuest: false, publicQuickView: true, quickViewDelivery: true }
+    meta: { requiresGuest: false, publicQuickView: true, quickViewDelivery: true, hideNav: true }
   },
   {
     path: '/quick-view/:token',
     name: 'QuickViewAccess',
     component: () => import('../views/QuickViewAccessView.vue'),
-    meta: { requiresGuest: false, publicQuickView: true }
+    meta: { requiresGuest: false, publicQuickView: true, hideNav: true }
   },
   {
     path: '/secure-message/:token',
