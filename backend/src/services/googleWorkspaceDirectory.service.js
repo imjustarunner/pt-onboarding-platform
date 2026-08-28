@@ -295,6 +295,26 @@ class GoogleWorkspaceDirectoryService {
   }
 
   /**
+   * Remove a member from a Google Group. No-ops (returns null) when not a member.
+   */
+  static async removeGroupMember({ groupEmail, memberEmail }) {
+    const groupKey = String(groupEmail || '').trim().toLowerCase();
+    const email = String(memberEmail || '').trim().toLowerCase();
+    if (!groupKey) throw new Error('groupEmail is required');
+    if (!email) throw new Error('memberEmail is required');
+    const admin = await this.getClient();
+    try {
+      await admin.members.delete({ groupKey, memberKey: email });
+      return { email, removed: true };
+    } catch (e) {
+      const status = e?.code || e?.response?.status || null;
+      if (status === 404) return { email, removed: false, notFound: true };
+      logGoogleUnauthorizedHint(e, { context: 'GoogleWorkspaceDirectoryService.removeGroupMember' });
+      throw e;
+    }
+  }
+
+  /**
    * True when neither a Workspace user nor a Group owns this address.
    */
   static async isDirectoryEmailAvailable(email) {

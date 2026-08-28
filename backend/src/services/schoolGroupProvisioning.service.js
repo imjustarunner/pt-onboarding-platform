@@ -16,6 +16,30 @@ function resolveSupportManagerEmail(agency) {
   return `support@${slug}.health`;
 }
 
+/** School-reply mailbox that must be on every school group (not ai@plottwistco.com). */
+function resolveSchoolReplyEmail(agency) {
+  const fromEnv = String(
+    process.env.SCHOOL_GROUP_SCHOOLREPLY_EMAIL || process.env.SCHOOLREPLY_FROM_EMAIL || ''
+  )
+    .trim()
+    .toLowerCase();
+  if (fromEnv.includes('@')) return fromEnv;
+  const slug = String(agency?.slug || agency?.portal_url || 'itsco').trim().toLowerCase();
+  return `schoolreply@${slug}.health`;
+}
+
+function emailsToStripFromSchoolGroups() {
+  const list = new Set(['ai@plottwistco.com']);
+  for (const key of ['GMAIL_IMPERSONATE_USER', 'GOOGLE_WORKSPACE_IMPERSONATE_USER']) {
+    const v = String(process.env[key] || '')
+      .trim()
+      .toLowerCase();
+    // Only strip the shared AI mailbox — never remove a human Directory admin.
+    if (v === 'ai@plottwistco.com' || v.startsWith('ai@')) list.add(v);
+  }
+  return Array.from(list);
+}
+
 function buildGroupDescription({ schoolName, agencyName, contactName, contactEmail }) {
   const school = String(schoolName || 'School').trim();
   const agency = String(agencyName || 'ITSCO').trim();
@@ -118,6 +142,7 @@ export async function provisionSchoolGoogleGroup({
 
   const agency = await Agency.findById(agencyId);
   const supportEmail = resolveSupportManagerEmail(agency);
+  const schoolReplyEmail = resolveSchoolReplyEmail(agency);
   const description = buildGroupDescription({
     schoolName,
     agencyName: agency?.name,
@@ -164,6 +189,7 @@ export async function provisionSchoolGoogleGroup({
   }
 
   const membersAdded = [];
+  const membersRemoved = [];
   const memberErrors = [];
 
   const addMember = async (memberEmail, role) => {
@@ -181,8 +207,29 @@ export async function provisionSchoolGoogleGroup({
     }
   };
 
+  const removeMember = async (memberEmail) => {
+    const m = normalizeEmail(memberEmail);
+    if (!m || !m.includes('@') || m === email) return;
+    try {
+      const result = await GoogleWorkspaceDirectoryService.removeGroupMember({
+        groupEmail: email,
+        memberEmail: m
+      });
+      if (result?.removed) membersRemoved.push(m);
+    } catch (e) {
+      memberErrors.push({ email: m, role: 'REMOVE', error: e?.message || String(e) });
+    }
+  };
+
+  // Managers: support@ + schoolreply@ (never ai@plottwistco.com as the school mailbox member)
   await addMember(supportEmail, 'MANAGER');
-  // Do not add schoolreply@ or ai@ as visible members — provisioning runs via delegated admin.
+  await addMember(schoolReplyEmail, 'MANAGER');
+
+  // Directory create often auto-adds the impersonated subject (sometimes ai@) as OWNER — strip it.
+  for (const strip of emailsToStripFromSchoolGroups()) {
+    if (strip === supportEmail || strip === schoolReplyEmail) continue;
+    await removeMember(strip);
+  }
 
   const staff =
     Array.isArray(staffEmails) && staffEmails.length
@@ -191,6 +238,8 @@ export async function provisionSchoolGoogleGroup({
 
   for (const staffEmail of staff) {
     if (staffEmail === email) continue;
+    if (staffEmail === supportEmail || staffEmail === schoolReplyEmail) continue;
+    if (emailsToStripFromSchoolGroups().includes(staffEmail)) continue;
     await addMember(staffEmail, 'MEMBER');
   }
 
@@ -206,12 +255,15 @@ export async function provisionSchoolGoogleGroup({
     created,
     groupId: group?.id || null,
     supportManagerEmail: supportEmail,
+    schoolReplyEmail,
     membersAdded,
+    membersRemoved: membersRemoved.length ? membersRemoved : undefined,
     memberErrors: memberErrors.length ? memberErrors : undefined
   };
 }
 
 export default {
   provisionSchoolGoogleGroup,
-  buildGroupDescription
+  buildGroupDescription,
+  resolveSchoolReplyEmail
 };
