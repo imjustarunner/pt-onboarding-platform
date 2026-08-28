@@ -5350,7 +5350,8 @@ async function providerAssignedToClientInOrg({ providerUserId, clientId, orgId }
   const oid = parseInt(String(orgId), 10);
   if (!pid || !cid || !oid) return false;
 
-  // Prefer assignment table; fall back to legacy clients.provider_id.
+  // Prefer org-matched CPA; school assignments sometimes omit/mismatch organization_id,
+  // so also accept any active CPA when the client belongs to this org (caller verifies belonging).
   try {
     const [rows] = await pool.execute(
       `SELECT 1
@@ -5361,6 +5362,27 @@ async function providerAssignedToClientInOrg({ providerUserId, clientId, orgId }
          AND cpa.is_active = TRUE
        LIMIT 1`,
       [cid, oid, pid]
+    );
+    if (rows?.[0]) return true;
+  } catch (e) {
+    const msg = String(e?.message || '');
+    const missing =
+      msg.includes("doesn't exist") ||
+      msg.includes('ER_NO_SUCH_TABLE') ||
+      msg.includes('Unknown column') ||
+      msg.includes('ER_BAD_FIELD_ERROR');
+    if (!missing) throw e;
+  }
+
+  try {
+    const [rows] = await pool.execute(
+      `SELECT 1
+       FROM client_provider_assignments cpa
+       WHERE cpa.client_id = ?
+         AND cpa.provider_user_id = ?
+         AND cpa.is_active = TRUE
+       LIMIT 1`,
+      [cid, pid]
     );
     if (rows?.[0]) return true;
   } catch (e) {
@@ -5603,8 +5625,14 @@ export const listClientComments = async (req, res, next) => {
     if (!roiAccess.ok) return res.status(roiAccess.status).json({ error: { message: roiAccess.message } });
 
     const isSupervisorOnly = await isSupervisorOnlyActor({ userId, role: roleNorm, user: req.user });
+    const schedulerOwnOnly = await isSchedulerSchoolStaff({
+      userId,
+      role: roleNorm,
+      actorEmail: req.user?.email || req.user?.username || null,
+      orgId
+    });
     // Providers may only view comments for clients assigned to them in this org.
-    if (roleNorm === 'provider') {
+    if (roleNorm === 'provider' || roleNorm === 'provider_plus') {
       const assigned = await providerAssignedToClientInOrg({ providerUserId: userId, clientId, orgId });
       if (!assigned) return res.status(403).json({ error: { message: 'Access denied' } });
     }
@@ -5759,7 +5787,7 @@ export const createClientComment = async (req, res, next) => {
 
     const isSupervisorOnly = await isSupervisorOnlyActor({ userId, role: roleNorm, user: req.user });
     // Providers may only comment for clients assigned to them in this org.
-    if (roleNorm === 'provider') {
+    if (roleNorm === 'provider' || roleNorm === 'provider_plus') {
       const assigned = await providerAssignedToClientInOrg({ providerUserId: userId, clientId, orgId });
       if (!assigned) return res.status(403).json({ error: { message: 'Access denied' } });
     }

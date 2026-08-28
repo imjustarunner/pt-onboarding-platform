@@ -282,7 +282,8 @@ watch(
 .iw-overlay {
   position: fixed;
   inset: 0;
-  z-index: 10000;
+  /* Above App.vue .navbar (10100) so providers cannot click top nav during timeout. */
+  z-index: 2147482900;
   background: #000;
 }
 

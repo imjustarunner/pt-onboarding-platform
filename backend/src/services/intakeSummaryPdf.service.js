@@ -255,25 +255,52 @@ ${SUMMARY_EXTRA_CSS}
 }
 
 function wrapPdfText(font, text, size, maxWidth) {
-  const words = String(text || '')
+  const normalized = String(text || '')
     .normalize('NFC')
+    .replace(/\r\n/g, '\n')
+    .replace(/\r/g, '\n')
     .replace(/[\u0300-\u036f]/g, '')
     .replace(/[·•]/g, ' - ')
-    .replace(/[^\x09\x0A\x0D\x20-\x7E]/g, '')
-    .split(/\s+/)
-    .filter(Boolean);
+    .replace(/[^\x09\x0A\x0D\x20-\x7E]/g, '');
+
+  const hardLines = normalized.split('\n');
   const lines = [];
-  let current = '';
-  for (const word of words) {
-    const next = current ? `${current} ${word}` : word;
-    if (font.widthOfTextAtSize(next, size) <= maxWidth) {
-      current = next;
-    } else {
-      if (current) lines.push(current);
-      current = word;
+  for (const hard of hardLines) {
+    const words = hard.split(/\s+/).filter(Boolean);
+    if (!words.length) {
+      lines.push('');
+      continue;
     }
+    let current = '';
+    for (const word of words) {
+      // Break oversized tokens (pasted cover letters without spaces).
+      const chunks = [];
+      if (font.widthOfTextAtSize(word, size) <= maxWidth) {
+        chunks.push(word);
+      } else {
+        let buf = '';
+        for (const ch of word) {
+          const next = buf + ch;
+          if (font.widthOfTextAtSize(next, size) <= maxWidth) buf = next;
+          else {
+            if (buf) chunks.push(buf);
+            buf = ch;
+          }
+        }
+        if (buf) chunks.push(buf);
+      }
+      for (const chunk of chunks) {
+        const next = current ? `${current} ${chunk}` : chunk;
+        if (font.widthOfTextAtSize(next, size) <= maxWidth) {
+          current = next;
+        } else {
+          if (current) lines.push(current);
+          current = chunk;
+        }
+      }
+    }
+    if (current) lines.push(current);
   }
-  if (current) lines.push(current);
   return lines.length ? lines : [''];
 }
 
@@ -422,6 +449,20 @@ async function renderCompletedIntakePdf(spec = {}) {
   const drawRows = (rows) => {
     for (const row of rows || []) {
       if (!row?.label || !row?.value) continue;
+      if (row.fullWidth) {
+        const labelLines = wrapPdfText(bold, String(row.label), 9, maxWidth);
+        const valueLines = wrapPdfText(font, String(row.value), 9, maxWidth);
+        ensure(labelLines.length * 12 + valueLines.length * 12 + 10);
+        labelLines.forEach((line, idx) => {
+          page.drawText(line, { x: side, y: y - (idx * 12), size: 9, font: bold, color: black });
+        });
+        y -= labelLines.length * 12 + 2;
+        valueLines.forEach((line, idx) => {
+          page.drawText(line, { x: side, y: y - (idx * 12), size: 9, font, color: black });
+        });
+        y -= valueLines.length * 12 + 8;
+        continue;
+      }
       const labelLines = wrapPdfText(bold, `${row.label}:`, 9, 160);
       const valueLines = wrapPdfText(font, String(row.value), 9, maxWidth - 170);
       const used = Math.max(labelLines.length, valueLines.length);

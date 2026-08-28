@@ -57,4 +57,17 @@ describe('publicPortalUrl', () => {
     };
     assert.equal(buildPublicPortalBaseUrl(org, { platformBaseUrl: PLATFORM }), 'https://app.itsco.health');
   });
+
+  it('maps Next Level Up to its dedicated app host', () => {
+    const nlu = {
+      name: 'Next Level Up',
+      slug: 'nextleveluplcc',
+      portal_url: 'nextleveluplcc',
+      organization_type: 'agency'
+    };
+    assert.equal(dedicatedAppHostForSlug('nextleveluplcc'), 'app.nextleveluplcc.com');
+    assert.equal(dedicatedAppHostForSlug('nextlevelup'), 'app.nextleveluplcc.com');
+    assert.equal(buildPublicPortalBaseUrl(nlu, { platformBaseUrl: PLATFORM }), 'https://app.nextleveluplcc.com');
+    assert.equal(buildPublicPortalLoginUrl(nlu, { platformBaseUrl: PLATFORM }), 'https://app.nextleveluplcc.com/login');
+  });
 });

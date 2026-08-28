@@ -14,6 +14,32 @@
       <div v-else>
         <div v-if="error" class="error">{{ error }}</div>
 
+        <div class="work-hours__status">
+          <div class="work-hours__status-row">
+            <span
+              class="work-hours__status-badge"
+              :class="isActive ? 'work-hours__status-badge--on' : 'work-hours__status-badge--off'"
+            >
+              {{ isActive ? 'Active for this user' : 'Disabled for this user' }}
+            </span>
+            <button
+              type="button"
+              class="btn btn-sm"
+              :class="isActive ? 'btn-secondary' : 'btn-primary'"
+              :disabled="saving"
+              data-testid="work-hours-toggle-active"
+              @click="isActive = !isActive"
+            >
+              {{ isActive ? 'Disable' : 'Enable' }}
+            </button>
+          </div>
+          <p class="work-hours__help">
+            Reachability windows for email/SMS digests and holds — not client booking slots.
+            Add <strong>multiple ranges on the same day</strong> (e.g. Mon 6–10 AM and 3–8 PM).
+            Use the shortcuts below for Mon–Fri or every day. Default when empty: Mon–Fri 6:00 AM–7:00 PM.
+          </p>
+        </div>
+
         <div class="work-hours__meta">
           <label class="field field--tz">
             <span>Timezone</span>
@@ -25,17 +51,6 @@
             </select>
             <span v-if="timezoneHint" class="field-hint muted">{{ timezoneHint }}</span>
           </label>
-          <div class="work-hours__active">
-            <label class="check">
-              <input v-model="isActive" type="checkbox" />
-              Active for this user
-            </label>
-            <p class="work-hours__help">
-              Reachability windows for email/SMS digests and holds — not client booking slots.
-              Add <strong>multiple ranges on the same day</strong> (e.g. Mon 6–10 AM and 3–8 PM).
-              Use the shortcuts below for Mon–Fri or every day. Default when empty: Mon–Fri 6:00 AM–7:00 PM.
-            </p>
-          </div>
         </div>
 
         <div class="work-hours__shortcuts">
@@ -78,19 +93,24 @@
 
         <section class="work-hours__vacation">
           <div class="work-hours__vacation-head">
-            <h4>Vacation / planned out</h4>
+            <div>
+              <h4>Vacation / planned out</h4>
+              <p class="work-hours__help work-hours__help--tight">
+                Multi-day or all-day time off uses Planned Out (shows on Team Board and schedule).
+              </p>
+            </div>
             <button
               type="button"
-              class="btn btn-secondary btn-sm"
+              class="btn btn-primary btn-sm work-hours__vacation-btn"
               :disabled="!agencyId"
+              data-testid="work-hours-set-vacation"
               @click="showVacation = true"
             >
               Set vacation
             </button>
           </div>
           <p class="work-hours__help">
-            Multi-day or all-day time off uses Planned Out (shows on Team Board and schedule). Same-day “Out for the Day”
-            / “Available · Logged out” from Logout status clear automatically after midnight.
+            Same-day “Out for the Day” / “Available · Logged out” from Logout status clear automatically after midnight.
           </p>
           <ul v-if="upcomingOuts.length" class="work-hours__outs">
             <li v-for="o in upcomingOuts" :key="o.id">
@@ -124,6 +144,8 @@ const props = defineProps({
   openByDefault: { type: Boolean, default: false },
   forceOpen: { type: Boolean, default: false }
 });
+
+const emit = defineEmits(['saved']);
 
 const agencyStore = useAgencyStore();
 const agencyId = computed(() => agencyStore.currentAgency?.id || null);
@@ -282,7 +304,8 @@ const load = async () => {
     } else {
       timezoneSource.value = data.timezoneSource || 'default';
     }
-    isActive.value = data.isActive !== false;
+    // No saved preference → treat as ACTIVE (default Mon–Fri 6–7).
+    isActive.value = data.hasSavedSchedule ? data.isActive !== false : true;
     rows.value = (data.blocks || []).map((b) => ({
       dayOfWeek: Number(b.dayOfWeek),
       startTime: toInputTime(b.startTime),
@@ -293,6 +316,7 @@ const load = async () => {
     error.value = e?.response?.data?.error?.message || e?.message || 'Failed to load availability hours';
     timezone.value = detectLocalTimezone() || 'America/New_York';
     timezoneSource.value = 'browser';
+    isActive.value = true;
   } finally {
     loading.value = false;
   }
@@ -314,6 +338,7 @@ const save = async () => {
       }))
     });
     await load();
+    emit('saved');
   } catch (e) {
     error.value = e?.response?.data?.error?.message || e?.message || 'Failed to save availability hours';
   } finally {
@@ -362,6 +387,39 @@ watch(agencyId, loadOuts);
   color: var(--text, #0f172a);
 }
 .work-hours__body { margin-top: 8px; }
+.work-hours__status {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 12px;
+  padding: 10px 12px;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  background: #fff;
+}
+.work-hours__status-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+.work-hours__status-badge {
+  display: inline-flex;
+  align-items: center;
+  font-size: 13px;
+  font-weight: 700;
+  padding: 4px 10px;
+  border-radius: 999px;
+  line-height: 1.3;
+}
+.work-hours__status-badge--on {
+  color: #166534;
+  background: #dcfce7;
+}
+.work-hours__status-badge--off {
+  color: #9a3412;
+  background: #ffedd5;
+}
 .work-hours__meta {
   display: flex;
   flex-wrap: wrap;
@@ -369,11 +427,14 @@ watch(agencyId, loadOuts);
   margin-bottom: 10px;
 }
 .work-hours__help {
-  margin: 4px 0 0;
+  margin: 0;
   font-size: 12px;
   color: #64748b;
   max-width: 42rem;
   line-height: 1.35;
+}
+.work-hours__help--tight {
+  margin-top: 2px;
 }
 .work-hours__shortcuts {
   display: flex;
@@ -400,18 +461,25 @@ watch(agencyId, loadOuts);
 }
 .work-hours__vacation {
   margin-top: 14px;
-  padding-top: 12px;
-  border-top: 1px solid #e2e8f0;
+  padding: 12px;
+  border: 1px solid #bfdbfe;
+  border-radius: 10px;
+  background: #eff6ff;
 }
 .work-hours__vacation-head {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
-  gap: 8px;
+  gap: 12px;
+  flex-wrap: wrap;
 }
 .work-hours__vacation-head h4 {
   margin: 0;
   font-size: 0.95rem;
+}
+.work-hours__vacation-btn {
+  flex-shrink: 0;
+  font-weight: 700;
 }
 .work-hours__outs {
   margin: 8px 0 0;
@@ -431,7 +499,6 @@ watch(agencyId, loadOuts);
   padding: 6px 8px;
   font-size: 13px;
 }
-.check { display: flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 600; }
 .muted { color: #64748b; font-size: 12px; }
 .error { color: #b91c1c; font-size: 13px; margin-bottom: 8px; }
 </style>

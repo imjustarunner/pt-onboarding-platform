@@ -85,14 +85,17 @@ npm run sync-school-group-contacts
 
 Admin → Email Settings → **Sync Google Group members → school contacts**.
 
-Requires Google Admin SDK domain-wide delegation scopes on the service account:
+Requires Google Admin SDK domain-wide delegation scopes on the service account
+(**Google Admin → Security → Access and data control → API controls → Domain-wide delegation**,
+edit the PlotTwist service-account Client ID):
 
 - `https://www.googleapis.com/auth/admin.directory.user`
-- `https://www.googleapis.com/auth/admin.directory.group.readonly`
-- `https://www.googleapis.com/auth/admin.directory.group.member.readonly`
+- `https://www.googleapis.com/auth/admin.directory.group` _(write — create groups for hire emails; replaces `.group.readonly`)_
+- `https://www.googleapis.com/auth/admin.directory.group.member` _(write — add members; replaces `.member.readonly`)_
 
-Directory sync does **not** use the Gmail mailbox (`ai@…`). Set a human admin separately:
+Directory / Groups provisioning does **not** use the Gmail mailbox (`ai@…`). Set a human admin separately:
 
-- `GOOGLE_WORKSPACE_DIRECTORY_IMPERSONATE_USER` — Workspace super admin **or** delegated **Groups** admin (read groups/members). Used only for group sync / Directory API.
+- `GOOGLE_WORKSPACE_DIRECTORY_IMPERSONATE_USER` — Workspace **super admin** or delegated **Groups** admin. Used for group sync, hire Group creation (`groups.insert` / `members.insert`), and Directory user lookup.
 - Falls back to `GOOGLE_WORKSPACE_IMPERSONATE_USER` when unset (not recommended for `ai@` mailboxes).
+- Gmail send/read still impersonates `ai@plottwistco.com` via `GMAIL_IMPERSONATE_USER` / `GOOGLE_WORKSPACE_IMPERSONATE_USER`.
 

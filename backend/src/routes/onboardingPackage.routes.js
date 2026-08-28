@@ -12,6 +12,7 @@ import {
   removeModuleFromPackage,
   addDocumentToPackage,
   removeDocumentFromPackage,
+  reorderDocumentsInPackage,
   addChecklistItemToPackage,
   removeChecklistItemFromPackage,
   addIntakeLinkToPackage,
@@ -63,6 +64,9 @@ router.post('/:id/documents', authenticate, requireBackofficeAdmin, [
   body('dueDateDays').optional().isInt({ min: 0 })
 ], addDocumentToPackage);
 router.delete('/:id/documents/:documentTemplateId', authenticate, requireBackofficeAdmin, removeDocumentFromPackage);
+router.put('/:id/documents/reorder', authenticate, requireBackofficeAdmin, [
+  body('documentTemplateIds').isArray({ min: 1 }).withMessage('documentTemplateIds is required')
+], reorderDocumentsInPackage);
 
 // Checklist Item management
 router.post('/:id/checklist-items', authenticate, requireBackofficeAdmin, [

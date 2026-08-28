@@ -267,6 +267,20 @@ export const removeDocumentFromPackage = async (req, res, next) => {
   }
 };
 
+export const reorderDocumentsInPackage = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const ids = req.body?.documentTemplateIds || req.body?.orderedIds || [];
+    if (!Array.isArray(ids) || !ids.length) {
+      return res.status(400).json({ error: { message: 'documentTemplateIds array is required' } });
+    }
+    const documents = await OnboardingPackage.reorderDocuments(id, ids);
+    res.json(documents);
+  } catch (error) {
+    next(error);
+  }
+};
+
 export const addChecklistItemToPackage = async (req, res, next) => {
   try {
     const errors = validationResult(req);

@@ -565,6 +565,15 @@
             Tutorial {{ tutorialStore.enabled ? 'On' : 'Off' }}
           </button>
           <TestAccountSwitcher compact force-check />
+          <router-link
+            v-if="canExitSchoolPortalShell"
+            :to="portalMyDashboardPath"
+            class="sp-back-dashboard"
+            title="Return to My Dashboard"
+          >
+            <span class="sp-back-dashboard__arrow" aria-hidden="true">←</span>
+            <span class="sp-back-dashboard__label">My Dashboard</span>
+          </router-link>
           <div v-if="authStore.user?.id" class="sp-user-chip">
             <div class="sp-user-avatar" aria-hidden="true">{{ portalUserInitials }}</div>
             <div class="sp-user-meta">
@@ -3650,14 +3659,19 @@ const schoolStaffSchools = computed(() => {
   const agencies = Array.isArray(fromStore) && fromStore.length > 0 ? fromStore : [];
   const isPortalOrg = (a) => {
     const t = String(a?.organization_type || a?.organizationType || '').toLowerCase();
-    return t === 'school' || t === 'program' || t === 'learning';
+    if (t === 'school' || t === 'program' || t === 'learning') return true;
+    // Affiliated child orgs sometimes lack organization_type — still treat as portals.
+    return !!(a?.affiliated_agency_id || a?.affiliatedAgencyId);
   };
   const pickSlug = (a) => String(a?.portal_url || a?.portalUrl || a?.slug || '').trim() || null;
   const pickName = (a) => String(a?.name || a?.official_name || pickSlug(a) || 'School').trim() || 'School';
-  return agencies
-    .filter(isPortalOrg)
-    .map((a) => ({ slug: pickSlug(a), name: pickName(a) }))
-    .filter((s) => s.slug);
+  const bySlug = new Map();
+  for (const a of agencies.filter(isPortalOrg)) {
+    const slug = pickSlug(a);
+    if (!slug || bySlug.has(slug)) continue;
+    bySlug.set(slug, { slug, name: pickName(a) });
+  }
+  return Array.from(bySlug.values());
 });
 const showSchoolSelector = computed(() =>
   !isPublicDemo.value && isSchoolStaff.value && schoolStaffSchools.value.length > 1
@@ -6335,6 +6349,33 @@ watch(() => store.selectedWeekday, async (weekday) => {
   gap: 10px;
   flex: 0 1 auto;
   flex-wrap: wrap;
+}
+
+.sp-back-dashboard {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--border, #e5e7eb);
+  background: #fff;
+  color: var(--primary, #1a5c3a);
+  text-decoration: none;
+  font-size: 0.88rem;
+  font-weight: 600;
+  white-space: nowrap;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+.sp-back-dashboard:hover {
+  background: color-mix(in srgb, var(--primary, #1a5c3a) 8%, #fff);
+  border-color: color-mix(in srgb, var(--primary, #1a5c3a) 35%, #e5e7eb);
+}
+.sp-back-dashboard__arrow {
+  font-size: 1rem;
+  line-height: 1;
+}
+.sp-back-dashboard__label {
+  line-height: 1.2;
 }
 
 .sp-marketing-btn {

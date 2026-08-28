@@ -639,13 +639,18 @@ export const getClients = async (req, res, next) => {
     }
 
     // When filtering by provider_id (e.g. profile Clients tab), include CPA assignments for staff viewers.
+    // uniqueClients may already be limited by legacy clients.provider_id, so CPA-only clients must be FETCHed and merged.
     let providerScopedClients = uniqueClients;
     const filterProviderId = provider_id ? parseInt(provider_id, 10) : null;
     const roleNorm = String(userRole || '').toLowerCase();
-    if (filterProviderId && roleNorm === 'provider') {
-      const visibleClientIds = new Set((uniqueClients || [])
-        .filter((c) => parseInt(c?.provider_id, 10) === parseInt(userId, 10))
-        .map((c) => parseInt(c.id, 10)));
+
+    const mergeCpaAssignedClients = async (scopedProviderUserId) => {
+      const byId = new Map((uniqueClients || []).map((c) => [parseInt(c.id, 10), c]));
+      const visibleClientIds = new Set(
+        (uniqueClients || [])
+          .filter((c) => parseInt(c?.provider_id, 10) === parseInt(scopedProviderUserId, 10))
+          .map((c) => parseInt(c.id, 10))
+      );
 
       try {
         const placeholders = agencyIds.map(() => '?').join(',');
@@ -656,7 +661,7 @@ export const getClients = async (req, res, next) => {
            WHERE cpa.provider_user_id = ?
              AND cpa.is_active = TRUE
              AND c.agency_id IN (${placeholders})`,
-          [userId, ...agencyIds]
+          [scopedProviderUserId, ...agencyIds]
         );
         for (const row of assignmentRows || []) {
           const id = parseInt(row?.client_id, 10);
@@ -666,37 +671,54 @@ export const getClients = async (req, res, next) => {
         // Older DBs may not have client_provider_assignments; legacy provider_id filter still applies.
       }
 
-      providerScopedClients = (uniqueClients || []).filter((c) => visibleClientIds.has(parseInt(c?.id, 10)));
+      const missingIds = [...visibleClientIds].filter((id) => id && !byId.has(id));
+      if (missingIds.length) {
+        const agencyNameById = new Map(
+          (uniqueClients || [])
+            .filter((c) => c?.agency_id != null)
+            .map((c) => [Number(c.agency_id), c.agency_name || null])
+        );
+        try {
+          if (agencyIds.length && !agencyNameById.size) {
+            const ph = agencyIds.map(() => '?').join(',');
+            const [aRows] = await pool.execute(
+              `SELECT id, name FROM agencies WHERE id IN (${ph})`,
+              agencyIds
+            );
+            for (const a of aRows || []) {
+              agencyNameById.set(Number(a.id), a.name || null);
+            }
+          }
+        } catch {
+          // ignore enrichment failure
+        }
+
+        const fetched = await Promise.all(
+          missingIds.map((id) => Client.findById(id, { includeSensitive: true }).catch(() => null))
+        );
+        const agencyIdSet = new Set(agencyIds.map((id) => Number(id)));
+        for (const client of fetched) {
+          if (!client?.id) continue;
+          if (!agencyIdSet.has(Number(client.agency_id))) continue;
+          byId.set(parseInt(client.id, 10), {
+            ...client,
+            agency_name: client.agency_name || agencyNameById.get(Number(client.agency_id)) || null
+          });
+        }
+      }
+
+      return [...visibleClientIds]
+        .map((id) => byId.get(id))
+        .filter(Boolean);
+    };
+
+    if (filterProviderId && roleNorm === 'provider') {
+      providerScopedClients = await mergeCpaAssignedClients(userId);
     } else if (
       filterProviderId &&
       ['admin', 'super_admin', 'support', 'staff'].includes(roleNorm)
     ) {
-      const visibleClientIds = new Set(
-        (uniqueClients || [])
-          .filter((c) => parseInt(c?.provider_id, 10) === filterProviderId)
-          .map((c) => parseInt(c.id, 10))
-      );
-      try {
-        const placeholders = agencyIds.map(() => '?').join(',');
-        const [assignmentRows] = await pool.execute(
-          `SELECT DISTINCT cpa.client_id
-           FROM client_provider_assignments cpa
-           JOIN clients c ON c.id = cpa.client_id
-           WHERE cpa.provider_user_id = ?
-             AND cpa.is_active = TRUE
-             AND c.agency_id IN (${placeholders})`,
-          [filterProviderId, ...agencyIds]
-        );
-        for (const row of assignmentRows || []) {
-          const id = parseInt(row?.client_id, 10);
-          if (id) visibleClientIds.add(id);
-        }
-      } catch {
-        // ignore
-      }
-      providerScopedClients = (uniqueClients || []).filter((c) =>
-        visibleClientIds.has(parseInt(c?.id, 10))
-      );
+      providerScopedClients = await mergeCpaAssignedClients(filterProviderId);
     }
 
     if (

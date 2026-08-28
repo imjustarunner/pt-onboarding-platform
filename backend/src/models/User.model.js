@@ -1872,6 +1872,59 @@ class User {
   }
 
   static async _getAgenciesUncached(userId) {
+    // School staff listed on multiple schools' school_contacts should get
+    // user_agencies membership for each (powers the portal school switcher).
+    try {
+      const [roleRows] = await pool.execute('SELECT role, email, work_email FROM users WHERE id = ? LIMIT 1', [userId]);
+      if (String(roleRows?.[0]?.role || '').toLowerCase() === 'school_staff') {
+        const emails = Array.from(
+          new Set(
+            [roleRows[0].email, roleRows[0].work_email]
+              .map((e) => String(e || '').trim().toLowerCase())
+              .filter((e) => e.includes('@'))
+          )
+        );
+        try {
+          const [aliasRows] = await pool.execute(
+            `SELECT LOWER(TRIM(email)) AS email FROM user_login_emails WHERE user_id = ?`,
+            [userId]
+          );
+          for (const r of aliasRows || []) {
+            const e = String(r.email || '').trim().toLowerCase();
+            if (e.includes('@')) emails.push(e);
+          }
+        } catch {
+          // user_login_emails may not exist
+        }
+        const uniqueEmails = Array.from(new Set(emails));
+        if (uniqueEmails.length) {
+          const placeholders = uniqueEmails.map(() => '?').join(',');
+          const [contactSchools] = await pool.execute(
+            `SELECT DISTINCT school_organization_id AS org_id
+             FROM school_contacts
+             WHERE LOWER(TRIM(email)) IN (${placeholders})
+               AND school_organization_id IS NOT NULL`,
+            uniqueEmails
+          );
+          for (const row of contactSchools || []) {
+            const orgId = Number(row.org_id || 0);
+            if (!orgId) continue;
+            try {
+              await pool.execute(
+                `INSERT INTO user_agencies (user_id, agency_id) VALUES (?, ?)
+                 ON DUPLICATE KEY UPDATE user_id = user_id`,
+                [userId, orgId]
+              );
+            } catch {
+              // best-effort
+            }
+          }
+        }
+      }
+    } catch {
+      // best-effort sync only
+    }
+
     // Best-effort: include icon paths when columns exist (keeps older DBs working).
     let hasIconId = false;
     let hasChatIconId = false;

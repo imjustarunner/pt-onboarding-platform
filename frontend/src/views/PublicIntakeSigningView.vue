@@ -13369,9 +13369,13 @@ onBeforeUnmount(() => {
 }
 .checkbox-row {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 8px;
   font-size: 14px;
+}
+.checkbox-row > input[type='checkbox'] {
+  margin-top: 3px;
+  flex-shrink: 0;
 }
 .upload-step {
   margin: 16px 0;

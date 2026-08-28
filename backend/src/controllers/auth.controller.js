@@ -1333,6 +1333,43 @@ export const identifyLogin = async (req, res, next) => {
       }
     }
 
+    // Tenant staff emails (@itsco.health, workspace domain, etc.) must never land on a
+    // school/program/learning login — always prefer the matching agency tenant.
+    {
+      const emailDomain = normalizedUsername.includes('@')
+        ? String(normalizedUsername.split('@')[1] || '').trim().toLowerCase()
+        : '';
+      const isPortalOrgType = (o) => {
+        const t = pickType(o);
+        if (['school', 'program', 'learning'].includes(t)) return true;
+        return !!(o?.affiliated_agency_id);
+      };
+      const domainMatchesTenantAgency = (o) => {
+        const t = pickType(o);
+        if (['school', 'program', 'learning'].includes(t)) return false;
+        const flags = parseFeatureFlags(o?.feature_flags ?? null);
+        const allowed = Array.isArray(flags?.googleSsoAllowedDomains)
+          ? flags.googleSsoAllowedDomains.map((d) => String(d || '').trim().toLowerCase()).filter(Boolean)
+          : [];
+        const workspace = String(flags?.workspaceEmailDomain || '').trim().toLowerCase();
+        if (!emailDomain) return false;
+        if (workspace && workspace === emailDomain) return true;
+        return allowed.length > 0 && allowed.includes(emailDomain);
+      };
+      if (emailDomain) {
+        const matchingTenants = (orgs || []).filter(domainMatchesTenantAgency);
+        if (matchingTenants.length) {
+          const prefer =
+            (requested && matchingTenants.find((o) => pickSlug(o) === requested)) ||
+            matchingTenants.find((o) => pickType(o) === 'agency') ||
+            matchingTenants[0];
+          if (!resolved || isPortalOrgType(resolved)) {
+            resolved = prefer;
+          }
+        }
+      }
+    }
+
     const resolvedSlug = resolved ? pickSlug(resolved) : null;
 
     // Determine login method (Google vs password) for resolved org

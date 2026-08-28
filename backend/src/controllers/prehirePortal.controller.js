@@ -117,20 +117,22 @@ export const getPortal = async (req, res, next) => {
 
     // Agency / org info + branding
     let agency = null;
+    let agencyRaw = null;
     let supportTeam = { label: 'People Operations', members: [] };
     try {
       const [agRows] = await pool.execute(
-        `SELECT a.id, a.name, a.logo_url, a.logo_path, a.color_palette, a.theme_settings, a.phone_number, a.portal_url
+        `SELECT a.id, a.name, a.logo_url, a.logo_path, a.color_palette, a.theme_settings,
+                a.phone_number, a.portal_url, a.feature_flags
          FROM agencies a
          JOIN user_agencies ua ON ua.agency_id = a.id
          WHERE ua.user_id = ?
          LIMIT 1`,
         [userId]
       );
-      const raw = agRows[0] || null;
-      if (raw) {
-        agency = buildAgencyBranding(req, raw);
-        supportTeam = await loadSupportTeam(req, raw.id);
+      agencyRaw = agRows[0] || null;
+      if (agencyRaw) {
+        agency = buildAgencyBranding(req, agencyRaw);
+        supportTeam = await loadSupportTeam(req, agencyRaw.id);
       }
     } catch { /* ignore */ }
 
@@ -138,11 +140,49 @@ export const getPortal = async (req, res, next) => {
     let hiringProfile = null;
     try {
       const [hRows] = await pool.execute(
-        `SELECT applied_role, stage FROM hiring_profiles WHERE candidate_user_id = ? LIMIT 1`,
+        `SELECT applied_role, stage, cover_letter, languages_json, references_json, job_description_id
+         FROM hiring_profiles WHERE candidate_user_id = ? LIMIT 1`,
         [userId]
       );
       hiringProfile = hRows[0] || null;
-    } catch { /* ignore */ }
+    } catch {
+      try {
+        const [hRows] = await pool.execute(
+          `SELECT applied_role, stage FROM hiring_profiles WHERE candidate_user_id = ? LIMIT 1`,
+          [userId]
+        );
+        hiringProfile = hRows[0] || null;
+      } catch { /* ignore */ }
+    }
+
+    const featureFlags = (() => {
+      try {
+        const raw = agencyRaw?.feature_flags;
+        return typeof raw === 'string' ? JSON.parse(raw) : (raw || {});
+      } catch {
+        return {};
+      }
+    })();
+    const hireAccountMode = String(featureFlags.hireAccountMode || '').trim().toLowerCase() || null;
+    const accountSetupComplete = Boolean(
+      user.work_email
+      && (
+        hireAccountMode !== 'group_password'
+        || user.sso_password_override === 1
+        || user.sso_password_override === true
+        || user.sso_password_override === '1'
+      )
+    );
+
+    const status = String(user.status || '').toUpperCase();
+    let portalPhase = 'pre_hire';
+    if (status === 'PREHIRE_REVIEW') portalPhase = 'review';
+    else if (status === 'ONBOARDING') portalPhase = 'onboarding';
+    else if (status === 'PENDING_SETUP' || status === 'PREHIRE_OPEN') {
+      portalPhase = hireAccountMode === 'group_password' && !accountSetupComplete
+        ? 'account_setup'
+        : 'pre_hire';
+    }
 
     // Tasks assigned to the candidate (exclude countersign tasks, which are for staff)
     const [taskRows] = await pool.execute(
@@ -192,8 +232,16 @@ export const getPortal = async (req, res, next) => {
         firstName: user.first_name,
         lastName: user.last_name,
         email: user.personal_email || user.email,
+        workEmail: user.work_email || null,
+        personalEmail: user.personal_email || null,
         status: user.status,
-        appliedRole: hiringProfile?.applied_role || null
+        appliedRole: hiringProfile?.applied_role || null,
+        ssoPasswordOverride: Boolean(
+          user.sso_password_override === 1
+          || user.sso_password_override === true
+          || user.sso_password_override === '1'
+        ),
+        accountSetupComplete
       },
       agency,
       supportTeam,
@@ -202,12 +250,32 @@ export const getPortal = async (req, res, next) => {
       portalPath,
       tokenExpiresAt: user.passwordless_token_expires_at || null,
       credentialPacket,
+      portalPhase,
+      hireAccountMode,
+      hiringProfile: hiringProfile
+        ? {
+            appliedRole: hiringProfile.applied_role || null,
+            stage: hiringProfile.stage || null,
+            coverLetter: hiringProfile.cover_letter || null,
+            languages: (() => {
+              try {
+                const raw = hiringProfile.languages_json;
+                return typeof raw === 'string' ? JSON.parse(raw) : (raw || null);
+              } catch {
+                return null;
+              }
+            })()
+          }
+        : null,
       progress: {
         total: totalTasks,
         completed: completedTasks,
         requiredTotal: requiredTasks.length,
         requiredCompleted: completedRequired,
-        allDone
+        allDone,
+        percent: totalTasks
+          ? Math.round((completedTasks / totalTasks) * 100)
+          : 0
       }
     });
   } catch (e) { next(e); }
@@ -880,4 +948,213 @@ export const revealPortalCredentialTempPassword = async (req, res, next) => {
     if (e?.status) return res.status(e.status).json({ error: { message: e.message } });
     next(e);
   }
+};
+
+async function loadPortalAgency(userId) {
+  const [agRows] = await pool.execute(
+    `SELECT a.*
+     FROM agencies a
+     JOIN user_agencies ua ON ua.agency_id = a.id
+     WHERE ua.user_id = ?
+     LIMIT 1`,
+    [userId]
+  );
+  return agRows[0] || null;
+}
+
+// ─── Hire Group account setup (group_password mode) ──────────────────────────
+
+export const getPortalAccountSuggestions = async (req, res, next) => {
+  try {
+    const user = await User.findById(req.portalUser.id);
+    if (!user) return res.status(404).json({ error: { message: 'User not found.' } });
+    const agency = await loadPortalAgency(user.id);
+    if (!agency) return res.status(400).json({ error: { message: 'No organization found.' } });
+    const {
+      isGroupPasswordHireMode,
+      suggestHireWorkEmails
+    } = await import('../services/hireGroupAccount.service.js');
+    if (!isGroupPasswordHireMode(agency)) {
+      return res.json({ enabled: false, suggestions: [] });
+    }
+    const result = await suggestHireWorkEmails({ user, agency });
+    res.json({ enabled: true, ...result });
+  } catch (e) { next(e); }
+};
+
+export const checkPortalAccountEmail = async (req, res, next) => {
+  try {
+    const email = req.body?.email || req.query?.email;
+    const agency = await loadPortalAgency(req.portalUser.id);
+    if (!agency) return res.status(400).json({ error: { message: 'No organization found.' } });
+    const { checkHireWorkEmailAvailability } = await import('../services/hireGroupAccount.service.js');
+    const result = await checkHireWorkEmailAvailability({
+      email,
+      userId: req.portalUser.id,
+      agency
+    });
+    res.json(result);
+  } catch (e) { next(e); }
+};
+
+export const provisionPortalAccount = async (req, res, next) => {
+  try {
+    const workEmail = req.body?.workEmail || req.body?.email;
+    const password = req.body?.password;
+    const confirmPassword = req.body?.confirmPassword;
+    if (confirmPassword != null && String(confirmPassword) !== String(password || '')) {
+      return res.status(400).json({ error: { message: 'Passwords do not match.' } });
+    }
+    const user = await User.findById(req.portalUser.id);
+    if (!user) return res.status(404).json({ error: { message: 'User not found.' } });
+    if (user.work_email && user.sso_password_override) {
+      return res.status(400).json({
+        error: { message: 'Account already set up.', workEmail: user.work_email }
+      });
+    }
+    const agency = await loadPortalAgency(user.id);
+    if (!agency) return res.status(400).json({ error: { message: 'No organization found.' } });
+    const { provisionHireGroupAccount } = await import('../services/hireGroupAccount.service.js');
+    const result = await provisionHireGroupAccount({
+      user,
+      agency,
+      workEmail,
+      password
+    });
+    // Move PENDING_SETUP → PREHIRE_OPEN so docs/tasks become the focus
+    if (String(user.status || '').toUpperCase() === 'PENDING_SETUP') {
+      try {
+        await User.updateStatus(user.id, 'PREHIRE_OPEN', user.id);
+      } catch {
+        /* ignore */
+      }
+    }
+    res.json({ ok: true, ...result });
+  } catch (e) {
+    if (e?.code === 'EMAIL_UNAVAILABLE') {
+      return res.status(409).json({ error: { message: e.message, details: e.details } });
+    }
+    if (e?.message) {
+      return res.status(400).json({ error: { message: e.message } });
+    }
+    next(e);
+  }
+};
+
+// ─── Submissions + resources ─────────────────────────────────────────────────
+
+export const getPortalSubmissions = async (req, res, next) => {
+  try {
+    const userId = req.portalUser.id;
+    const user = await User.findById(userId);
+    let hiringProfile = null;
+    try {
+      const [hRows] = await pool.execute(
+        `SELECT * FROM hiring_profiles WHERE candidate_user_id = ? LIMIT 1`,
+        [userId]
+      );
+      hiringProfile = hRows[0] || null;
+    } catch { /* ignore */ }
+
+    let adminDocs = [];
+    try {
+      const [docs] = await pool.execute(
+        `SELECT id, title, category, file_path, created_at
+         FROM user_admin_docs
+         WHERE user_id = ?
+         ORDER BY created_at DESC
+         LIMIT 40`,
+        [userId]
+      );
+      adminDocs = (docs || []).map((d) => ({
+        id: d.id,
+        title: d.title || d.category || 'Uploaded file',
+        category: d.category || null,
+        createdAt: d.created_at
+      }));
+    } catch { /* ignore */ }
+
+    const [signedRows] = await pool.execute(
+      `SELECT id, title, status, document_action_type, completed_at, created_at
+       FROM tasks
+       WHERE assigned_to_user_id = ?
+         AND task_type = 'document'
+         AND status = 'completed'
+       ORDER BY COALESCE(completed_at, created_at) DESC
+       LIMIT 40`,
+      [userId]
+    ).catch(() => [[]]);
+
+    let applications = [];
+    try {
+      const [appRows] = await pool.execute(
+        `SELECT id, form_type, submitted_at, created_at, public_key
+         FROM intake_submissions
+         WHERE guardian_user_id = ?
+         ORDER BY COALESCE(submitted_at, created_at) DESC
+         LIMIT 10`,
+        [userId]
+      );
+      applications = appRows || [];
+    } catch { /* ignore */ }
+
+    res.json({
+      candidate: {
+        firstName: user?.first_name,
+        lastName: user?.last_name,
+        personalEmail: user?.personal_email || user?.email,
+        workEmail: user?.work_email || null
+      },
+      hiringProfile: hiringProfile
+        ? {
+            appliedRole: hiringProfile.applied_role,
+            stage: hiringProfile.stage,
+            coverLetter: hiringProfile.cover_letter || null,
+            source: hiringProfile.source || null
+          }
+        : null,
+      uploadedMaterials: adminDocs,
+      completedDocuments: (signedRows || []).map((t) => ({
+        id: t.id,
+        title: t.title,
+        actionType: t.document_action_type,
+        completedAt: t.completed_at || t.created_at
+      })),
+      applications: applications.map((a) => ({
+        id: a.id,
+        formType: a.form_type,
+        submittedAt: a.submitted_at || a.created_at
+      }))
+    });
+  } catch (e) { next(e); }
+};
+
+export const getPortalHandbook = async (req, res, next) => {
+  try {
+    const agency = await loadPortalAgency(req.portalUser.id);
+    if (!agency) return res.status(404).json({ error: { message: 'Organization not found.' } });
+    const { getPublishedHandbook, recordHandbookView } = await import('../services/workplaceHandbook.service.js');
+    const handbook = await getPublishedHandbook(agency.id);
+    if (!handbook?.version) {
+      return res.json({ available: false, handbook: null });
+    }
+    try {
+      await recordHandbookView({
+        agencyId: agency.id,
+        userId: req.portalUser.id,
+        versionId: handbook.version?.id || null
+      });
+    } catch { /* ignore */ }
+    res.json({
+      available: true,
+      handbook: {
+        title: handbook.document?.title || 'Workplace Handbook',
+        sections: (handbook.sections || []).map((s) => ({
+          id: s.id,
+          title: s.title,
+          bodyHtml: s.body_html || s.content_html || s.body || ''
+        }))
+      }
+    });
+  } catch (e) { next(e); }
 };

@@ -57,7 +57,7 @@ export function looksLikeDemoFakeAddress(email) {
   const e = String(email || '').trim().toLowerCase();
   if (!e || isKeepRealHogwartsEmail(e)) return false;
   const host = e.split('@')[1] || '';
-  // Any @example… host (example.com, example.org, mail.example.com, etc.)
+  // Any @example… host (example.com, example.org, mail.example.com, bare @example, etc.)
   if (host === 'example' || /(^|\.)example(\.|$)/i.test(host)) return true;
   if (/^(test\.com|localhost)$/i.test(host)) return true;
   if (e.endsWith('@demtest.com')) return true;

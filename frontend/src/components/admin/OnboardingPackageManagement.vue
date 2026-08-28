@@ -6,8 +6,9 @@
     </div>
 
     <p class="section-description">
-      Create reusable onboarding packages that group training focuses, modules, and documents. 
-      Assign entire packages to users with one click.
+      Build step-by-step hire packages (pre-hire and onboarding). Add, remove, and reorder documents —
+      open Edit to map PDF fields or change HTML acknowledgements in the Documents Library.
+      Assign packages from Mark Hired / Promote to Onboarding, or Assign to Users below.
     </p>
 
     <div v-if="loading" class="loading">Loading packages...</div>
@@ -205,14 +206,18 @@
             </div>
           </div>
 
-          <!-- Documents Tab -->
+          <!-- Documents Tab (step builder) -->
           <div v-if="activeDetailTab === 'documents'" class="detail-section">
             <div class="section-header-inline">
-              <h3>Documents</h3>
-              <button v-if="!readOnly" @click="showAddDocument = true" class="btn btn-primary btn-sm">Add Document</button>
+              <h3>Document steps</h3>
+              <button v-if="!readOnly" @click="showAddDocument = true" class="btn btn-primary btn-sm">Add step</button>
             </div>
+            <p class="section-description" style="margin-bottom: 12px;">
+              Ordered steps candidates complete in the hire portal. Use ↑ ↓ to reorder, Remove to delete,
+              or open the Documents Library to edit PDF field maps / HTML acknowledgements.
+            </p>
             <div v-if="packageDetails.documents?.length === 0" class="empty-state">
-              No documents added yet.
+              No documents added yet. Add steps from the Documents Library.
             </div>
             <div v-else class="items-list">
               <div v-for="(doc, index) in packageDetails.documents" :key="doc.document_template_id" class="item-row">
@@ -220,12 +225,32 @@
                 <div class="item-info">
                   <strong>{{ doc.document_name }}</strong>
                   <span class="item-meta">
-                    Action: {{ doc.action_type === 'signature' ? 'E-Sign' : 'Review' }}
+                    Action: {{ doc.action_type === 'signature' ? 'E-Sign' : 'Review / acknowledge' }}
                     <span v-if="doc.due_date_days"> | Due: {{ doc.due_date_days }} days</span>
                     <span v-if="doc.lifecycle_item_key"> | Lifecycle: {{ doc.lifecycle_item_key }}</span>
                   </span>
                 </div>
-                <button v-if="!readOnly" @click="removeDocument(doc.document_template_id)" class="btn btn-danger btn-xs">Remove</button>
+                <div v-if="!readOnly" class="item-step-actions">
+                  <button
+                    type="button"
+                    class="btn btn-secondary btn-xs"
+                    :disabled="index === 0"
+                    title="Move up"
+                    @click="moveDocumentStep(index, -1)"
+                  >↑</button>
+                  <button
+                    type="button"
+                    class="btn btn-secondary btn-xs"
+                    :disabled="index >= packageDetails.documents.length - 1"
+                    title="Move down"
+                    @click="moveDocumentStep(index, 1)"
+                  >↓</button>
+                  <router-link
+                    class="btn btn-secondary btn-xs"
+                    :to="documentEditorLink(doc.document_template_id)"
+                  >Edit</router-link>
+                  <button @click="removeDocument(doc.document_template_id)" class="btn btn-danger btn-xs">Remove</button>
+                </div>
               </div>
             </div>
           </div>
@@ -1156,6 +1181,33 @@ const removeDocument = async (documentTemplateId) => {
   }
 };
 
+const documentEditorLink = (templateId) => {
+  const slug = typeof window !== 'undefined'
+    ? (window.location.pathname.match(/^\/([^/]+)\/admin/) || [])[1]
+    : null;
+  return slug && slug !== 'admin'
+    ? `/${slug}/admin/documents/${templateId}/edit`
+    : `/admin/documents/${templateId}/edit`;
+};
+
+const moveDocumentStep = async (index, delta) => {
+  const docs = [...(packageDetails.value.documents || [])];
+  const next = index + delta;
+  if (next < 0 || next >= docs.length) return;
+  const tmp = docs[index];
+  docs[index] = docs[next];
+  docs[next] = tmp;
+  packageDetails.value.documents = docs;
+  try {
+    await api.put(`/onboarding-packages/${selectedPackage.value.id}/documents/reorder`, {
+      documentTemplateIds: docs.map((d) => d.document_template_id)
+    });
+  } catch (err) {
+    error.value = err.response?.data?.error?.message || 'Failed to reorder steps';
+    await viewPackage(selectedPackage.value.id, true);
+  }
+};
+
 const fetchIntakeLinks = async (agencyId) => {
   try {
     const params = {};
@@ -1585,6 +1637,12 @@ watch(
   margin-top: 4px;
   color: var(--text-secondary);
   font-size: 12px;
+}
+.item-step-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
 }
 </style>
 

@@ -22,7 +22,12 @@ import {
   getPortalCredentialPacket,
   confirmPortalCredentialIdentity,
   acknowledgePortalCredentialSystem,
-  revealPortalCredentialTempPassword
+  revealPortalCredentialTempPassword,
+  getPortalAccountSuggestions,
+  checkPortalAccountEmail,
+  provisionPortalAccount,
+  getPortalSubmissions,
+  getPortalHandbook
 } from '../controllers/prehirePortal.controller.js';
 
 const router = express.Router();
@@ -53,6 +58,18 @@ router.get('/:token/credential-packet', getPortalCredentialPacket);
 router.post('/:token/credential-packet/confirm-identity', confirmPortalCredentialIdentity);
 router.post('/:token/credential-packet/systems/:systemKey/acknowledge', acknowledgePortalCredentialSystem);
 router.post('/:token/credential-packet/systems/:systemKey/reveal-temp-password', revealPortalCredentialTempPassword);
+
+router.get('/:token/account/suggestions', getPortalAccountSuggestions);
+router.post('/:token/account/check-email', checkPortalAccountEmail);
+router.post(
+  '/:token/account/provision',
+  [
+    body('password').isLength({ min: 8 }).withMessage('Password must be at least 8 characters')
+  ],
+  provisionPortalAccount
+);
+router.get('/:token/submissions', getPortalSubmissions);
+router.get('/:token/resources/handbook', getPortalHandbook);
 
 // Token-scoped module / employee-info form (no login required)
 router.get('/:token/modules/:moduleId', getPortalModule);

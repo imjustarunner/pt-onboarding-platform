@@ -303,7 +303,7 @@ test('job application completed record uses application copy instead of intake/c
     clients: [{ fullName: 'Haley Inyart' }]
   });
 
-  assert.match(spec.title, /Completed job application/i);
+  assert.match(spec.title, /Job application receipt/i);
   assert.equal(spec.skipCoverPage, true);
   assert.ok(!/intake packet/i.test(spec.title));
   const labels = spec.sections.flatMap((section) => section.rows.map((row) => row.label));

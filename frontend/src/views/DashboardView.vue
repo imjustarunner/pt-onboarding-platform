@@ -127,6 +127,21 @@
     <ClubEmployerSharePromptCard v-if="showEmployerClubSharePromptsShell" />
     <!-- Book Club moved to top portals strip (BookClubPortalChip) -->
     
+    <!-- Hire portal continue (token path preferred over blank dashboard) -->
+    <div
+      v-if="hirePortalContinueLink && ['PENDING_SETUP','PREHIRE_OPEN','PREHIRE_REVIEW','ONBOARDING'].includes(userStatus)"
+      class="hire-portal-continue-banner"
+    >
+      <div class="completion-content">
+        <strong>Continue in your hire portal</strong>
+        <p>
+          Your guided pre-hire and onboarding experience lives on your personal portal link —
+          tasks, documents, submissions, and resources — not this dashboard.
+        </p>
+        <a class="btn btn-primary" :href="hirePortalContinueLink">Open hire portal</a>
+      </div>
+    </div>
+
     <!-- Pending Completion Button -->
     <div v-if="isPending && pendingCompletionStatus?.allComplete && !pendingCompletionStatus?.accessLocked && (userStatus === 'PREHIRE_OPEN' || userStatus === 'pending')" class="pending-completion-banner">
       <div class="completion-content">
@@ -140,16 +155,18 @@
     <div v-if="userStatus === 'PREHIRE_REVIEW' || userStatus === 'ready_for_review'" class="ready-for-review-banner">
       <div class="review-content">
         <strong>✓ Pre-Hire Process Complete</strong>
-        <p>You have completed all required pre-hire tasks. Your account is now ready for review by your administrator. You will be notified when your account is activated.</p>
-        <p><em>Your access to this portal has been locked. An administrator will review your information and activate your account.</em></p>
+        <p>Your packet is with People Operations for review. Prefer your personal hire portal link for submissions and resources while you wait.</p>
+        <p v-if="hirePortalContinueLink"><a :href="hirePortalContinueLink">Return to hire portal</a></p>
+        <p><em>Full employee access unlocks after you are marked active.</em></p>
       </div>
     </div>
     
     <!-- Onboarding Status Banner -->
     <div v-if="userStatus === 'ONBOARDING'" class="onboarding-banner">
       <div class="onboarding-content">
-        <strong>📚 Onboarding in Progress</strong>
-        <p>You are currently completing your onboarding training. Continue working through your assigned modules and documents.</p>
+        <strong>Onboarding in Progress</strong>
+        <p>Complete your onboarding steps in the hire portal checklist when you have a personal link, or continue assigned modules here.</p>
+        <p v-if="hirePortalContinueLink"><a class="btn btn-primary" :href="hirePortalContinueLink">Open onboarding portal</a></p>
       </div>
     </div>
     
@@ -1369,6 +1386,7 @@ const trainingCount = ref(0);
 const documentsCount = ref(0);
 const checklistCount = ref(0);
 const userStatus = ref('active');
+const hirePortalContinueLink = ref('');
 const daysRemaining = ref(null);
 const downloading = ref(false);
 const isPending = ref(false);
@@ -4926,6 +4944,17 @@ const fetchOnboardingStatus = async () => {
       onboardingCompletion.value = checklistResponse.data.completionPercentage || 100;
       userStatus.value = userResponse.data.status || 'ACTIVE_EMPLOYEE';
       isPending.value = userStatus.value === 'PREHIRE_OPEN' || userStatus.value === 'PENDING_SETUP' || userStatus.value === 'pending';
+
+      hirePortalContinueLink.value = '';
+      if (['PENDING_SETUP', 'PREHIRE_OPEN', 'PREHIRE_REVIEW', 'ONBOARDING'].includes(userStatus.value)) {
+        try {
+          const acct = await api.get(`/users/${userId}/account-info`);
+          const tok = acct.data?.passwordlessToken || acct.data?.passwordless_token || null;
+          if (tok) hirePortalContinueLink.value = `/pre-hire/${tok}`;
+        } catch {
+          /* ignore */
+        }
+      }
       
       // Fetch pending completion status if user is in pre-hire status
       if (isPending.value || userStatus.value === 'PREHIRE_REVIEW' || userStatus.value === 'ready_for_review') {
@@ -7561,6 +7590,19 @@ h1 {
   border-radius: 8px;
   padding: 20px;
   margin-bottom: 24px;
+}
+
+.hire-portal-continue-banner {
+  background: color-mix(in srgb, #2563eb 10%, var(--bg-card, #fff));
+  border-left: 4px solid #2563eb;
+  border-radius: 8px;
+  padding: 20px;
+  margin-bottom: 24px;
+}
+
+.hire-portal-continue-banner .btn {
+  display: inline-flex;
+  margin-top: 10px;
 }
 
 .completion-content strong {

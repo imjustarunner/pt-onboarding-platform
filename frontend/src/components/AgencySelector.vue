@@ -158,10 +158,8 @@ const agencies = computed(() => {
   return tenants;
 });
 
-/** Org dropdown for multi-tenant switch; hidden for school_staff with a single agency. */
-const showOrgPick = computed(
-  () => agencies.value.length > 0 && !(roleNorm.value === 'school_staff' && agencies.value.length === 1)
-);
+/** Org dropdown only when the user belongs to more than one tenant. */
+const showOrgPick = computed(() => agencies.value.length > 1);
 
 /**
  * Dashboard: full chrome (org + portals + SSTC clubs).

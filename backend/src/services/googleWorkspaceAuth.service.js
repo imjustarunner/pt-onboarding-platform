@@ -13,8 +13,10 @@ export const GOOGLE_WORKSPACE_SCOPES = [
 
 export const GOOGLE_WORKSPACE_DIRECTORY_SCOPES = [
   'https://www.googleapis.com/auth/admin.directory.user',
-  'https://www.googleapis.com/auth/admin.directory.group.readonly',
-  'https://www.googleapis.com/auth/admin.directory.group.member.readonly'
+  // Write scopes required for hire Group provisioning (groups.insert / members.insert).
+  // Replace any prior .group.readonly / .member.readonly entries in Admin Console DWD.
+  'https://www.googleapis.com/auth/admin.directory.group',
+  'https://www.googleapis.com/auth/admin.directory.group.member'
 ];
 
 export function parseGoogleWorkspaceServiceAccountFromEnv() {

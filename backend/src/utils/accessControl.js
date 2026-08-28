@@ -138,7 +138,7 @@ export function checkAccess(user, { effectiveRole } = {}) {
       break;
 
     case 'PENDING_SETUP':
-      // No access until password is set
+      // Token portal only until account/password setup
       canAccessOnDemand = false;
       canAccessDashboard = false;
       canAccessTraining = false;
@@ -147,18 +147,18 @@ export function checkAccess(user, { effectiveRole } = {}) {
       break;
 
     case 'PREHIRE_OPEN':
-      // Pre-hire tasks only
+      // Prefer hire token portal; limited dashboard only as fallback
       canAccessOnDemand = false;
-      canAccessDashboard = true; // But only pre-hire content
-      canAccessTraining = true; // Pre-hire training only
-      canAccessDocuments = true; // Pre-hire documents only
+      canAccessDashboard = true;
+      canAccessTraining = true;
+      canAccessDocuments = true;
       canAccessAdmin = false;
       break;
 
     case 'PREHIRE_REVIEW':
-      // Waiting screen only
+      // Waiting + hire portal resources; not full employee surfaces
       canAccessOnDemand = false;
-      canAccessDashboard = true; // But shows waiting screen
+      canAccessDashboard = true;
       canAccessTraining = false;
       canAccessDocuments = false;
       canAccessAdmin = false;

@@ -10792,7 +10792,7 @@ export const promoteToOnboarding = async (req, res, next) => {
               await EmailService.sendEmail({
                 to,
                 subject: 'Your onboarding portal is ready',
-                text: `Hi ${user.first_name || 'there'},\n\nYou've been promoted to onboarding! Continue with the same personal portal link (bookmark it):\n\n${tokenLink}\n\nThis link is valid until ${expiresAt ? new Date(expiresAt).toLocaleString() : 'further notice'}.\n\nOnce your Google Workspace login works, you can also sign in with your work email.`
+                text: `Hi ${user.first_name || 'there'},\n\nYou've been promoted to onboarding! Continue with the same personal portal link (bookmark it):\n\n${tokenLink}\n\nThis link is valid until ${expiresAt ? new Date(expiresAt).toLocaleString() : 'further notice'}.\n\nComplete your onboarding steps there. If your account uses a password, sign in later with your work email and that password.`
               }).catch(() => {});
             }
           } catch (te) { console.warn('[promoteToOnboarding] Token send failed:', te?.message); }

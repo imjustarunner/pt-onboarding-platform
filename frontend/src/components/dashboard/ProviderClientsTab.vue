@@ -662,6 +662,26 @@ const combinedClientsList = computed(() => {
     });
   }
 
+  // School roster clients from loadAllRosters() — merge by id so All Clients includes them
+  for (const c of filterActiveAssignedClients(allClients.value) || []) {
+    const id = Number(c?.id);
+    if (!id) continue;
+    const existing = byId.get(id);
+    if (existing) {
+      if (!existing.schoolName || existing.schoolName === '—') {
+        existing.schoolName = c.organization_name || existing.schoolName;
+      }
+      if (existing.setting === 'In Office') existing.setting = 'In School & Office';
+      continue;
+    }
+    const flags = clientPosFlags(id);
+    byId.set(id, {
+      ...c,
+      setting: flags.seenAtOffice ? 'In School & Office' : 'In School',
+      schoolName: c.organization_name || '—',
+    });
+  }
+
   for (const c of byId.values()) rows.push(c);
   return rows;
 });

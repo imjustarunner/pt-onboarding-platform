@@ -192,6 +192,24 @@ class OnboardingPackage {
     );
   }
 
+  /**
+   * Reorder package documents. documentTemplateIds = ordered list of template ids.
+   */
+  static async reorderDocuments(packageId, documentTemplateIds = []) {
+    const ids = (documentTemplateIds || [])
+      .map((id) => Number(id))
+      .filter((n) => Number.isFinite(n) && n > 0);
+    for (let i = 0; i < ids.length; i += 1) {
+      await pool.execute(
+        `UPDATE onboarding_package_documents
+         SET order_index = ?
+         WHERE package_id = ? AND document_template_id = ?`,
+        [i, packageId, ids[i]]
+      );
+    }
+    return this.getDocuments(packageId);
+  }
+
   // Checklist Item management
   static async getChecklistItems(packageId) {
     const [rows] = await pool.execute(

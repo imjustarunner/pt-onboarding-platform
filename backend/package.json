@@ -23,6 +23,7 @@
     "seed-demo-tenant": "node src/scripts/seedDemoTenant.js",
     "provision-demo-playground-masters": "node src/scripts/provisionDemoPlaygroundMasters.js",
     "seed-documents": "node src/scripts/seedDocuments.js",
+    "seed-itsco-hire-docs": "node src/scripts/seedItscoHireOnboardingDocs.js",
     "update-admin": "node src/scripts/updateAdminToSuperAdmin.js",
     "check-roles": "node src/scripts/checkUserRoles.js",
     "fix-roles": "node src/scripts/fixAdminRoles.js",

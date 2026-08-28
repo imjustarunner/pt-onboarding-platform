@@ -144,15 +144,43 @@
                 <span class="sched-office-cta-sub">{{ viewMode === 'office_layout' ? 'Back to your week grid' : 'Send a time for staff approval' }}</span>
               </span>
             </button>
-            <button
-              type="button"
-              class="sched-pill sched-pill--emphasis"
-              data-tour="my-schedule-availability-btn"
-              title="Edit Availability Hours, split days, and vacation / planned out"
-              @click="showAvailabilityEditor = !showAvailabilityEditor"
-            >
-              Availability
-            </button>
+            <div class="sched-availability-controls">
+              <button
+                type="button"
+                class="sched-pill sched-pill--emphasis"
+                data-tour="my-schedule-availability-btn"
+                title="Edit Availability Hours, split days, and vacation / planned out"
+                @click="showAvailabilityEditor = !showAvailabilityEditor"
+              >
+                Availability
+              </button>
+              <button
+                type="button"
+                class="sched-avail-help"
+                :aria-expanded="showAvailHoursLegend"
+                aria-controls="sched-avail-hours-legend"
+                title="What do white and gray hours mean?"
+                @click="showAvailHoursLegend = !showAvailHoursLegend"
+              >
+                ?
+              </button>
+              <div
+                v-if="showAvailHoursLegend"
+                id="sched-avail-hours-legend"
+                class="sched-avail-legend"
+                role="note"
+              >
+                <div class="sched-avail-legend__row">
+                  <span class="sched-avail-legend__swatch sched-avail-legend__swatch--available" aria-hidden="true"></span>
+                  <span><strong>White</strong> — within your Availability Hours (reachable)</span>
+                </div>
+                <div class="sched-avail-legend__row">
+                  <span class="sched-avail-legend__swatch sched-avail-legend__swatch--quiet" aria-hidden="true"></span>
+                  <span><strong>Light gray</strong> — quiet hours (outside Availability)</span>
+                </div>
+                <p class="sched-avail-legend__note">Default: Mon–Fri 6:00 AM–7:00 PM. Disable Availability to treat all hours as available.</p>
+              </div>
+            </div>
             <div class="sched-view-switch" role="tablist" aria-label="Schedule view" data-tour="my-schedule-view-switch">
               <button
                 v-for="opt in viewModeOptions"
@@ -721,6 +749,7 @@
         :user-id="Number(props.userId)"
         :open-by-default="true"
         :force-open="true"
+        @saved="loadAvailabilityHours"
       />
     </div>
 
@@ -1172,7 +1201,8 @@
               'sched-cell-quarter': slot.minute !== 0,
               'sched-cell-today': isTodayDay(d),
               'sched-cell-selected': isActionCellSelected(d, slot.hour) && slot.minute === 0,
-              'sched-cell-drop-target': isAppointmentDropTarget(d, slot.hour, slot.minute)
+              'sched-cell-drop-target': isAppointmentDropTarget(d, slot.hour, slot.minute),
+              'sched-cell--quiet': isQuietHourCell(d, slot.hour, slot.minute)
             }"
             data-sched-cell="1"
             :data-day="d"
@@ -5836,6 +5866,96 @@ const showQuarterDetail = ref(false);
 /** Peer busy overlay on My Schedule (anonymous intervals unless privileged Show details). */
 const showPeerBusyOverlay = ref(false);
 const showAvailabilityEditor = ref(false);
+const showAvailHoursLegend = ref(false);
+
+/** Availability Hours for quiet-hour shading (mirrors availabilityWindow defaults). */
+const availabilityHoursState = ref({
+  enabled: true,
+  blocks: [
+    { dayOfWeek: 1, startMinutes: 6 * 60, endMinutes: 19 * 60 },
+    { dayOfWeek: 2, startMinutes: 6 * 60, endMinutes: 19 * 60 },
+    { dayOfWeek: 3, startMinutes: 6 * 60, endMinutes: 19 * 60 },
+    { dayOfWeek: 4, startMinutes: 6 * 60, endMinutes: 19 * 60 },
+    { dayOfWeek: 5, startMinutes: 6 * 60, endMinutes: 19 * 60 }
+  ]
+});
+
+const DAY_NAME_TO_DOW = Object.freeze({
+  Sunday: 0,
+  Monday: 1,
+  Tuesday: 2,
+  Wednesday: 3,
+  Thursday: 4,
+  Friday: 5,
+  Saturday: 6
+});
+
+const DEFAULT_AVAILABILITY_BLOCKS = Object.freeze(
+  [1, 2, 3, 4, 5].map((dayOfWeek) => ({
+    dayOfWeek,
+    startMinutes: 6 * 60,
+    endMinutes: 19 * 60
+  }))
+);
+
+const parseHhMmToMinutes = (raw) => {
+  const s = String(raw || '').trim();
+  const m = s.match(/^(\d{1,2}):(\d{2})/);
+  if (!m) return null;
+  return parseInt(m[1], 10) * 60 + parseInt(m[2], 10);
+};
+
+const resolveAvailabilityHoursFromApi = (data) => {
+  const hasSaved = !!data?.hasSavedSchedule;
+  const enabled = hasSaved ? data.isActive !== false : true;
+  if (!enabled) {
+    return { enabled: false, blocks: [] };
+  }
+  const blocks = [];
+  for (const b of Array.isArray(data?.blocks) ? data.blocks : []) {
+    const startMinutes = parseHhMmToMinutes(b.startTime);
+    const endMinutes = parseHhMmToMinutes(b.endTime);
+    if (startMinutes == null || endMinutes == null || startMinutes >= endMinutes) continue;
+    blocks.push({
+      dayOfWeek: Number(b.dayOfWeek),
+      startMinutes,
+      endMinutes
+    });
+  }
+  return {
+    enabled: true,
+    blocks: blocks.length ? blocks : [...DEFAULT_AVAILABILITY_BLOCKS]
+  };
+};
+
+const loadAvailabilityHours = async () => {
+  const uid = Number(props.userId || 0);
+  if (!uid) return;
+  try {
+    const resp = await api.get(`/users/${uid}/work-schedule`, { skipGlobalLoading: true });
+    availabilityHoursState.value = resolveAvailabilityHoursFromApi(resp.data || {});
+  } catch {
+    availabilityHoursState.value = {
+      enabled: true,
+      blocks: [...DEFAULT_AVAILABILITY_BLOCKS]
+    };
+  }
+};
+
+/** True when the cell start falls outside Availability Hours (quiet). Disabled = never quiet. */
+const isQuietHourCell = (dayName, hour, minute = 0) => {
+  const schedule = availabilityHoursState.value;
+  if (!schedule?.enabled) return false;
+  const dow = DAY_NAME_TO_DOW[String(dayName)];
+  if (dow == null) return false;
+  const mins = Number(hour) * 60 + Number(minute || 0);
+  const blocks = Array.isArray(schedule.blocks) ? schedule.blocks : [];
+  for (const b of blocks) {
+    if (Number(b.dayOfWeek) !== dow) continue;
+    if (mins >= Number(b.startMinutes) && mins < Number(b.endMinutes)) return false;
+  }
+  return true;
+};
 const peerBusySearch = ref('');
 const peerBusyTenantFilterId = ref(0); // 0 = all tenants
 const peerBusyCandidates = ref([]);
@@ -9240,6 +9360,7 @@ const deferredLoad = () => {
   }, 150);
 };
 watch(() => props.userId, deferredLoad, { immediate: true });
+watch(() => props.userId, () => { void loadAvailabilityHours(); }, { immediate: true });
 // Admin/multi-user mode still reloads when the agency scope changes. Self mode uses one
 // includeAllAgencies payload and filters client-side (avoids N× slow schedule-summary calls).
 watch(effectiveAgencyIds, () => {
@@ -26015,6 +26136,71 @@ defineExpose({ resetToOpenFinder, openQuickBook });
   gap: 10px 12px;
   min-width: 0;
 }
+.sched-availability-controls {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.sched-avail-help {
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  border: 1px solid #cbd5e1;
+  background: #fff;
+  color: #475569;
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0;
+  flex-shrink: 0;
+}
+.sched-avail-help:hover {
+  border-color: #94a3b8;
+  background: #f8fafc;
+}
+.sched-avail-legend {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  z-index: 40;
+  width: min(320px, 78vw);
+  padding: 10px 12px;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  background: #fff;
+  box-shadow: 0 10px 28px rgba(15, 23, 42, 0.12);
+  display: grid;
+  gap: 8px;
+  font-size: 12px;
+  color: #334155;
+  line-height: 1.35;
+}
+.sched-avail-legend__row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+.sched-avail-legend__swatch {
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+  border: 1px solid #cbd5e1;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+.sched-avail-legend__swatch--available {
+  background: #fff;
+}
+.sched-avail-legend__swatch--quiet {
+  background: #e2e8f0;
+}
+.sched-avail-legend__note {
+  margin: 0;
+  color: #64748b;
+  font-size: 11px;
+}
 .sched-availability-panel {
   margin: 8px 12px 12px;
   padding: 12px;
@@ -26801,6 +26987,12 @@ defineExpose({ resetToOpenFinder, openQuickBook });
   overflow: hidden;
   z-index: 1;
 }
+.sched-cell--quiet {
+  background: #f1f5f9;
+}
+.sched-cell-today.sched-cell--quiet {
+  background: color-mix(in srgb, var(--sched-today, #f5f3ff) 55%, #e2e8f0);
+}
 .sched-cell:has(.cell-block-span) {
   overflow: visible;
   z-index: 5;
@@ -26858,6 +27050,9 @@ defineExpose({ resetToOpenFinder, openQuickBook });
 }
 .sched-cell.clickable:hover {
   background: rgba(148, 163, 184, 0.06);
+}
+.sched-cell--quiet.clickable:hover {
+  background: #e2e8f0;
 }
 .sched-cell-selected {
   box-shadow: inset 0 0 0 2px rgba(99, 102, 241, 0.55);
@@ -29661,6 +29856,32 @@ defineExpose({ resetToOpenFinder, openQuickBook });
 .sched-wrap--dark .sched-hour,
 .sched-wrap--dark .sched-cell {
   background: rgba(17, 24, 39, 0.92);
+}
+.sched-wrap--dark .sched-cell--quiet {
+  background: rgba(51, 65, 85, 0.55);
+}
+.sched-wrap--dark .sched-cell-today.sched-cell--quiet {
+  background: color-mix(in srgb, rgba(139, 92, 246, 0.24) 50%, rgba(51, 65, 85, 0.7));
+}
+.sched-wrap--dark .sched-avail-help {
+  background: rgba(30, 41, 59, 0.95);
+  border-color: rgba(148, 163, 184, 0.35);
+  color: #e2e8f0;
+}
+.sched-wrap--dark .sched-avail-legend {
+  background: rgba(15, 23, 42, 0.98);
+  border-color: rgba(148, 163, 184, 0.28);
+  color: #e2e8f0;
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.35);
+}
+.sched-wrap--dark .sched-avail-legend__swatch--available {
+  background: rgba(248, 250, 252, 0.92);
+}
+.sched-wrap--dark .sched-avail-legend__swatch--quiet {
+  background: rgba(100, 116, 139, 0.7);
+}
+.sched-wrap--dark .sched-avail-legend__note {
+  color: #94a3b8;
 }
 .sched-wrap--dark .sched-head-cell-corner--loading {
   background: rgba(15, 23, 42, 0.96);

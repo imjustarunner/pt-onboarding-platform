@@ -7,11 +7,6 @@
           <p class="my-schedule-page__subtitle">
             Your calendar — peers overlay, staff compare, and office bookings (All / one building / Off).
           </p>
-          <WorkHoursEditor
-            v-if="authStore.user?.id"
-            class="my-schedule-page__work-hours"
-            :user-id="Number(authStore.user.id)"
-          />
         </div>
         <div class="my-schedule-page__actions">
           <router-link
@@ -76,7 +71,6 @@ import { useRoute } from 'vue-router';
 import { useAuthStore } from '../store/auth';
 import { useAgencyStore } from '../store/agency';
 import ScheduleAvailabilityGrid from '../components/schedule/ScheduleAvailabilityGrid.vue';
-import WorkHoursEditor from '../components/schedule/WorkHoursEditor.vue';
 
 const route = useRoute();
 const authStore = useAuthStore();
@@ -152,9 +146,6 @@ const onWeekStartUpdate = (ymd) => {
   color: var(--text-secondary, #5c6570);
   font-size: 0.92rem;
   max-width: 52rem;
-}
-.my-schedule-page__work-hours {
-  margin-top: 6px;
 }
 .my-schedule-page__actions {
   display: flex;

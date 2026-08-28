@@ -314,16 +314,20 @@ const navResults = computed(() => {
   if (!q) return [];
   const surface = commandSurface.value;
   const items = [];
-  const hub = searchNav(q, { orgSlug: orgSlug.value, surface, limit: 8 }).map((item) => ({
-    id: `hub-${item.fullPath}`,
-    label: item.title,
-    description: item.section,
-    groupLabel: surface && item.score >= 80 ? `On ${surface.label}` : 'Page',
-    kind: 'path',
-    path: item.fullPath,
-    score: item.score
-  }));
-  items.push(...hub);
+  // Unscoped hub/searchNav ignores roles — only admins may use it.
+  // Providers and other roles rely on role-aware searchQuickNav / school portal search.
+  if (isAdminLike.value) {
+    const hub = searchNav(q, { orgSlug: orgSlug.value, surface, limit: 8 }).map((item) => ({
+      id: `hub-${item.fullPath}`,
+      label: item.title,
+      description: item.section,
+      groupLabel: surface && item.score >= 80 ? `On ${surface.label}` : 'Page',
+      kind: 'path',
+      path: item.fullPath,
+      score: item.score
+    }));
+    items.push(...hub);
+  }
   const qn = searchQuickNav(q, quickNavCtx.value, { limit: 10, surface }).flat.map((item) => ({
     id: item.id,
     label: item.label,
@@ -347,18 +351,64 @@ const navResults = computed(() => {
 
 watch(navResults, () => { activeIndex.value = 0; });
 
+const accessibleNavPathSet = computed(() => {
+  const paths = new Set();
+  const opts = {
+    currentPath: route.path,
+    orgSlug: orgSlug.value,
+    currentQuery: route.query,
+    dashboardPath: getMyDashboardPath({ preferNonDemo: true })
+  };
+  for (const entry of getAccessibleQuickNavEntries(quickNavCtx.value)) {
+    if (entry.path) {
+      const base = String(entry.path).split('?')[0];
+      if (base) paths.add(base);
+      paths.add(String(entry.path));
+    }
+    const loc = resolveQuickNavRoute(entry, opts);
+    if (!loc) continue;
+    if (typeof loc === 'string') {
+      paths.add(loc.split('?')[0]);
+      paths.add(loc);
+    } else if (loc.path) {
+      paths.add(String(loc.path).split('?')[0]);
+      paths.add(String(loc.path));
+    }
+  }
+  return paths;
+});
+
+function isAccessibleHistoryPath(path) {
+  if (!path) return false;
+  if (isAdminLike.value) return true;
+  const raw = String(path);
+  const base = raw.split('?')[0];
+  if (accessibleNavPathSet.value.has(raw) || accessibleNavPathSet.value.has(base)) return true;
+  // Allow school-portal destinations for eligible users
+  if (schoolPortalQuickNavEligible.value && /\/school-portal\//.test(base)) return true;
+  // Match accessible entries whose path is a prefix (e.g. dashboard tabs)
+  for (const allowed of accessibleNavPathSet.value) {
+    if (!allowed) continue;
+    if (raw === allowed || base === allowed) return true;
+    if (raw.startsWith(allowed) || allowed.startsWith(base)) return true;
+  }
+  return false;
+}
+
 const popularNavEntries = computed(() => {
   const surface = commandSurface.value;
   if (surface) {
-    const fromIndex = listNavForSurface(surface, { orgSlug: orgSlug.value, limit: 8 }).map((item) => ({
-      id: `surf-${item.path}`,
-      label: item.title,
-      description: item.section,
-      group: 'surface',
-      kind: 'path',
-      path: item.fullPath
-    }));
-    if (fromIndex.length) return fromIndex;
+    if (isAdminLike.value) {
+      const fromIndex = listNavForSurface(surface, { orgSlug: orgSlug.value, limit: 8 }).map((item) => ({
+        id: `surf-${item.path}`,
+        label: item.title,
+        description: item.section,
+        group: 'surface',
+        kind: 'path',
+        path: item.fullPath
+      }));
+      if (fromIndex.length) return fromIndex;
+    }
     const groups = surface.quickNavGroups || [];
     return getAccessibleQuickNavEntries(quickNavCtx.value)
       .filter((e) => groups.includes(e.group))
@@ -398,12 +448,20 @@ const exampleItems = computed(() =>
 );
 
 const recentItems = computed(() => {
-  if (mode.value === 'nav') return getNavHistory().slice(0, 6);
+  if (mode.value === 'nav') {
+    return getNavHistory()
+      .filter((item) => isAccessibleHistoryPath(item?.path))
+      .slice(0, 6);
+  }
   return getAskHistory().slice(0, 6);
 });
 
 const frequentItems = computed(() => {
-  if (mode.value === 'nav') return getFrequentNav(6);
+  if (mode.value === 'nav') {
+    return getFrequentNav(12)
+      .filter((item) => isAccessibleHistoryPath(item?.path))
+      .slice(0, 6);
+  }
   return getFrequentAsk(6);
 });
 

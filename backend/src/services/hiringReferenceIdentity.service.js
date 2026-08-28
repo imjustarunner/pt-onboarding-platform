@@ -52,12 +52,13 @@ export async function resolveJobApplicationSenderIdentity(agencyId) {
     const identity = await EmailSenderIdentity.findByAgencyAndIdentityKey(aid, key);
     if (identity) return identity;
   }
-  // Last resort: first active agency-specific identity that is NOT a school/intake identity
+  // Last resort: first active agency-specific team identity (never personal_* mailboxes)
   const list = await EmailSenderIdentity.list({ agencyId: aid, includePlatformDefaults: false, onlyActive: true });
   const agencyOnly = (list || []).filter((x) => Number(x.agency_id) === aid);
-  const nonSchool = agencyOnly.find(
-    (x) => !String(x.display_name || x.name || '').toLowerCase().includes('school') &&
-            !String(x.identity_key || '').toLowerCase().includes('school')
-  );
-  return nonSchool || agencyOnly[0] || null;
+  const isPersonal = (x) => String(x?.identity_key || '').toLowerCase().startsWith('personal_');
+  const isSchool = (x) =>
+    String(x?.display_name || x?.name || '').toLowerCase().includes('school') ||
+    String(x?.identity_key || '').toLowerCase().includes('school');
+  const nonSchool = agencyOnly.find((x) => !isPersonal(x) && !isSchool(x));
+  return nonSchool || agencyOnly.find((x) => !isPersonal(x)) || null;
 }

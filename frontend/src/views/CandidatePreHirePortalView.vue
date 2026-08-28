@@ -17,10 +17,10 @@
     <div v-else-if="errorCode === 'STATUS_ADVANCED'" class="portal-splash portal-splash-done">
       <div v-if="agency?.logoUrl" class="splash-logo"><img :src="agency.logoUrl" :alt="agency.name" /></div>
       <div class="done-icon">✓</div>
-      <h2>You're all set!</h2>
-      <p>Your portal access has moved to your organization login. Sign in with Google SSO or your workspace email when ready.</p>
+      <h2>You're an active team member</h2>
+      <p>Your hire portal is complete. Sign in with your work email and password (or Google SSO if enabled for your account).</p>
       <p class="contact-line">
-        If you still need help, contact People Operations — your hiring team can re-send a temporary portal link if SSO is not live yet.
+        If you still need help, contact People Operations — they can re-send access if needed.
       </p>
       <p v-if="agency?.phoneNumber" class="contact-line">Questions? Call us at <strong>{{ agency.phoneNumber }}</strong></p>
     </div>
@@ -38,22 +38,42 @@
           </div>
 
           <nav class="portal-nav-links">
-            <a class="portal-nav-link portal-nav-link--active" href="#" @click.prevent>
+            <a
+              class="portal-nav-link"
+              :class="{ 'portal-nav-link--active': activeSection === 'dashboard' }"
+              href="#"
+              @click.prevent="activeSection = 'dashboard'"
+            >
               <span class="portal-nav-icon">▦</span>
               Dashboard
             </a>
-            <span class="portal-nav-link portal-nav-link--disabled">
+            <a
+              class="portal-nav-link"
+              :class="{ 'portal-nav-link--active': activeSection === 'tasks' }"
+              href="#"
+              @click.prevent="activeSection = 'tasks'"
+            >
               <span class="portal-nav-icon">☑</span>
               My Tasks
-            </span>
-            <span class="portal-nav-link portal-nav-link--disabled">
+            </a>
+            <a
+              class="portal-nav-link"
+              :class="{ 'portal-nav-link--active': activeSection === 'submissions' }"
+              href="#"
+              @click.prevent="openSubmissions"
+            >
               <span class="portal-nav-icon">📄</span>
-              Documents
-            </span>
-            <span class="portal-nav-link portal-nav-link--disabled">
-              <span class="portal-nav-icon">👤</span>
-              Profile
-            </span>
+              My Submissions
+            </a>
+            <a
+              class="portal-nav-link"
+              :class="{ 'portal-nav-link--active': activeSection === 'resources' }"
+              href="#"
+              @click.prevent="openResources"
+            >
+              <span class="portal-nav-icon">📚</span>
+              Resources
+            </a>
           </nav>
 
           <div class="portal-nav-footer">
@@ -74,11 +94,90 @@
 
           <main class="portal-content">
             <div class="portal-welcome">
-              <h1>Welcome, {{ candidate.firstName }}! 👋</h1>
-              <p>We're excited to have you join {{ agency?.name || 'the team' }}.</p>
+              <h1>Welcome, {{ candidate.firstName }}!</h1>
+              <p>
+                <template v-if="portalPhase === 'account_setup'">
+                  Set up your work email and password to continue joining {{ agency?.name || 'the team' }}.
+                </template>
+                <template v-else-if="portalPhase === 'review'">
+                  Your pre-hire packet is with People Operations for review. You can still view submissions and resources.
+                </template>
+                <template v-else-if="portalPhase === 'onboarding'">
+                  You're in onboarding — complete the steps below to finish joining {{ agency?.name || 'the team' }}.
+                </template>
+                <template v-else>
+                  We're excited to have you join {{ agency?.name || 'the team' }}.
+                </template>
+              </p>
+              <div v-if="progress.percent != null" class="portal-phase-pill">
+                {{ phaseLabel }} · {{ progress.percent || progressPct }}% complete
+              </div>
             </div>
 
-            <section class="portal-link-card" aria-label="Your personal portal link">
+            <!-- Group password account setup -->
+            <section
+              v-if="activeSection === 'dashboard' && portalPhase === 'account_setup'"
+              class="portal-account-setup"
+              aria-label="Choose work email"
+            >
+              <div class="portal-tasks-head">
+                <div>
+                  <h2>Choose your work email</h2>
+                  <p>
+                    Pick an available address at @{{ accountDomain || 'your organization' }}.
+                    Mail is delivered to a Google Group; you'll sign in to this app with the password you set (SSO stays on for others).
+                  </p>
+                </div>
+              </div>
+              <div class="cred-card">
+                <label>
+                  <span>Suggested addresses</span>
+                  <select v-model="accountForm.workEmail" class="portal-select">
+                    <option disabled value="">Select an email</option>
+                    <option v-for="s in accountSuggestions" :key="s.email" :value="s.email">{{ s.email }}</option>
+                  </select>
+                </label>
+                <label>
+                  <span>Or type a local part</span>
+                  <div class="portal-email-row">
+                    <input v-model="accountForm.localPart" type="text" placeholder="firstname.lastname" @blur="checkTypedEmail" />
+                    <span class="portal-email-domain">@{{ accountDomain }}</span>
+                  </div>
+                </label>
+                <p v-if="emailCheckMessage" :class="emailAvailable ? 'cred-ok' : 'cred-warn'">{{ emailCheckMessage }}</p>
+                <label>
+                  <span>Password (min 8 characters)</span>
+                  <input v-model="accountForm.password" type="password" autocomplete="new-password" />
+                </label>
+                <label>
+                  <span>Confirm password</span>
+                  <input v-model="accountForm.confirmPassword" type="password" autocomplete="new-password" />
+                </label>
+                <button
+                  type="button"
+                  class="btn-primary"
+                  :disabled="provisioningAccount || !canProvisionAccount"
+                  @click="provisionAccount"
+                >
+                  {{ provisioningAccount ? 'Creating…' : 'Create my account' }}
+                </button>
+                <p v-if="accountError" class="cred-warn">{{ accountError }}</p>
+              </div>
+            </section>
+
+            <section v-if="activeSection === 'dashboard' && candidate.workEmail" class="portal-link-card" aria-label="Your work email">
+              <div class="portal-link-card-head">
+                <strong>Your work email</strong>
+              </div>
+              <code class="portal-link-url">{{ candidate.workEmail }}</code>
+              <p class="portal-link-help">Use this address and your password when you eventually sign in outside this portal.</p>
+            </section>
+
+            <section
+              v-if="activeSection === 'dashboard' || activeSection === 'tasks'"
+              class="portal-link-card"
+              aria-label="Your personal portal link"
+            >
               <div class="portal-link-card-head">
                 <strong>Your personal portal link</strong>
                 <button type="button" class="portal-link-copy" @click="copyPortalLink">
@@ -86,16 +185,74 @@
                 </button>
               </div>
               <p class="portal-link-help">
-                Bookmark or save this link. Use it anytime to return — no login needed — for verification,
-                viewing your documents, or adding another copy of a task.
+                Bookmark this link. Use it anytime through pre-hire and onboarding — no separate login needed.
               </p>
               <code class="portal-link-url">{{ portalLinkDisplay }}</code>
               <p v-if="tokenExpiresLabel" class="portal-link-expiry">Link valid until {{ tokenExpiresLabel }}</p>
             </section>
 
+            <!-- Submissions -->
+            <section v-if="activeSection === 'submissions'" class="portal-submissions" aria-label="My submissions">
+              <div class="portal-tasks-head">
+                <div>
+                  <h2>My submissions</h2>
+                  <p>Your application materials and completed hire documents.</p>
+                </div>
+              </div>
+              <div v-if="submissionsLoading" class="empty-tasks">Loading…</div>
+              <template v-else>
+                <div v-if="submissions?.hiringProfile" class="cred-card">
+                  <h3>Application</h3>
+                  <p v-if="submissions.hiringProfile.appliedRole"><strong>Role:</strong> {{ submissions.hiringProfile.appliedRole }}</p>
+                  <p v-if="submissions.hiringProfile.stage"><strong>Stage:</strong> {{ submissions.hiringProfile.stage }}</p>
+                  <p v-if="submissions.hiringProfile.coverLetter" class="portal-cover-letter">{{ submissions.hiringProfile.coverLetter }}</p>
+                </div>
+                <div v-if="submissions?.uploadedMaterials?.length" class="cred-card">
+                  <h3>Uploaded materials</h3>
+                  <ul class="portal-simple-list">
+                    <li v-for="d in submissions.uploadedMaterials" :key="d.id">{{ d.title }} <span class="cred-muted">{{ d.category || '' }}</span></li>
+                  </ul>
+                </div>
+                <div v-if="submissions?.completedDocuments?.length" class="cred-card">
+                  <h3>Completed documents</h3>
+                  <ul class="portal-simple-list">
+                    <li v-for="d in submissions.completedDocuments" :key="d.id">{{ d.title }}</li>
+                  </ul>
+                </div>
+                <div v-if="!submissions?.hiringProfile && !submissions?.uploadedMaterials?.length && !submissions?.completedDocuments?.length" class="empty-tasks">
+                  Nothing here yet — complete tasks and your application details will appear.
+                </div>
+              </template>
+            </section>
+
+            <!-- Resources / handbook -->
+            <section v-if="activeSection === 'resources'" class="portal-resources" aria-label="Resources">
+              <div class="portal-tasks-head">
+                <div>
+                  <h2>Resources</h2>
+                  <p>Limited agency information available during hire and onboarding.</p>
+                </div>
+              </div>
+              <div v-if="handbookLoading" class="empty-tasks">Loading handbook…</div>
+              <div v-else-if="!handbook?.available" class="empty-tasks">
+                Workplace handbook is not published yet. Check back soon.
+              </div>
+              <div v-else class="cred-card handbook-card">
+                <h3>{{ handbook.handbook?.title || 'Workplace Handbook' }}</h3>
+                <article
+                  v-for="sec in (handbook.handbook?.sections || [])"
+                  :key="sec.id"
+                  class="handbook-section"
+                >
+                  <h4>{{ sec.title }}</h4>
+                  <div class="handbook-body" v-html="sec.bodyHtml"></div>
+                </article>
+              </div>
+            </section>
+
             <!-- Onboarding credential packet (accounts & access) -->
             <section
-              v-if="showCredentialPacket"
+              v-if="(activeSection === 'dashboard' || activeSection === 'tasks') && showCredentialPacket && portalPhase !== 'account_setup'"
               class="portal-credential-packet"
               aria-label="Accounts and access"
             >
@@ -173,7 +330,10 @@
               </div>
             </section>
 
-            <section class="portal-tasks-section">
+            <section
+              v-if="(activeSection === 'dashboard' || activeSection === 'tasks') && portalPhase !== 'account_setup'"
+              class="portal-tasks-section"
+            >
               <div class="portal-tasks-head">
                 <div>
                   <h2>Your {{ phaseLabel }} Tasks</h2>
@@ -564,11 +724,114 @@ const copyPortalLink = async () => {
 const supportTeam = computed(() => portalData.value?.supportTeam || { label: 'People Operations', members: [] });
 const tasks = computed(() => portalData.value?.tasks || []);
 const progress = computed(() => portalData.value?.progress || { total: 0, completed: 0, allDone: false });
+const portalPhase = computed(() => portalData.value?.portalPhase || 'pre_hire');
+const hireAccountMode = computed(() => portalData.value?.hireAccountMode || null);
 const credentialPacket = computed(() => portalData.value?.credentialPacket || null);
 const showCredentialPacket = computed(() => {
   const status = candidate.value.status;
   return status === 'ONBOARDING' || status === 'PREHIRE_REVIEW' || !!credentialPacket.value;
 });
+const activeSection = ref('dashboard');
+const accountSuggestions = ref([]);
+const accountDomain = ref('');
+const accountForm = ref({ workEmail: '', localPart: '', password: '', confirmPassword: '' });
+const emailAvailable = ref(null);
+const emailCheckMessage = ref('');
+const provisioningAccount = ref(false);
+const accountError = ref('');
+const submissions = ref(null);
+const submissionsLoading = ref(false);
+const handbook = ref(null);
+const handbookLoading = ref(false);
+
+const canProvisionAccount = computed(() => {
+  const email = accountForm.value.workEmail || (accountForm.value.localPart && accountDomain.value
+    ? `${accountForm.value.localPart}@${accountDomain.value}`
+    : '');
+  return (
+    email
+    && accountForm.value.password?.length >= 8
+    && accountForm.value.password === accountForm.value.confirmPassword
+  );
+});
+
+const loadAccountSuggestions = async () => {
+  try {
+    const { data } = await portalApi.get(`/prehire-portal/${token.value}/account/suggestions`);
+    if (!data?.enabled) return;
+    accountSuggestions.value = data.suggestions || [];
+    accountDomain.value = data.domain || '';
+    if (accountSuggestions.value[0]?.email) {
+      accountForm.value.workEmail = accountSuggestions.value[0].email;
+    }
+  } catch {
+    /* ignore */
+  }
+};
+
+const checkTypedEmail = async () => {
+  const local = String(accountForm.value.localPart || '').trim().toLowerCase();
+  if (!local || !accountDomain.value) return;
+  const email = `${local}@${accountDomain.value}`;
+  accountForm.value.workEmail = email;
+  try {
+    const { data } = await portalApi.post(`/prehire-portal/${token.value}/account/check-email`, { email });
+    emailAvailable.value = !!data.available;
+    emailCheckMessage.value = data.available
+      ? `${email} is available`
+      : `${email} is not available (${data.reason || 'taken'})`;
+  } catch (e) {
+    emailAvailable.value = false;
+    emailCheckMessage.value = e?.response?.data?.error?.message || 'Could not check availability';
+  }
+};
+
+const provisionAccount = async () => {
+  accountError.value = '';
+  provisioningAccount.value = true;
+  try {
+    const workEmail = accountForm.value.workEmail
+      || `${accountForm.value.localPart}@${accountDomain.value}`;
+    await portalApi.post(`/prehire-portal/${token.value}/account/provision`, {
+      workEmail,
+      password: accountForm.value.password,
+      confirmPassword: accountForm.value.confirmPassword
+    });
+    await reloadPortal();
+    activeSection.value = 'tasks';
+  } catch (e) {
+    accountError.value = e?.response?.data?.error?.message || 'Could not create account';
+  } finally {
+    provisioningAccount.value = false;
+  }
+};
+
+const openSubmissions = async () => {
+  activeSection.value = 'submissions';
+  submissionsLoading.value = true;
+  try {
+    const { data } = await portalApi.get(`/prehire-portal/${token.value}/submissions`);
+    submissions.value = data;
+  } catch {
+    submissions.value = null;
+  } finally {
+    submissionsLoading.value = false;
+  }
+};
+
+const openResources = async () => {
+  activeSection.value = 'resources';
+  handbookLoading.value = true;
+  try {
+    const { data } = await portalApi.get(`/prehire-portal/${token.value}/resources/handbook`);
+    handbook.value = data;
+  } catch {
+    handbook.value = { available: false };
+  } finally {
+    handbookLoading.value = false;
+  }
+};
+
 const identityForm = ref({ firstName: '', lastName: '', phone: '' });
 const confirmingIdentity = ref(false);
 const ackingSystem = ref('');
@@ -735,7 +998,12 @@ const progressPct = computed(() => totalCount.value > 0 ? Math.round((completedC
 
 const isPrehire = computed(() => ['PENDING_SETUP', 'PREHIRE_OPEN', 'PREHIRE_REVIEW'].includes(candidate.value.status));
 const isOnboardingPortal = computed(() => candidate.value.status === 'ONBOARDING');
-const phaseLabel = computed(() => isOnboardingPortal.value ? 'Onboarding' : 'Pre-Hire');
+const phaseLabel = computed(() => {
+  if (portalPhase.value === 'account_setup') return 'Account setup';
+  if (portalPhase.value === 'review') return 'Under review';
+  if (portalPhase.value === 'onboarding' || isOnboardingPortal.value) return 'Onboarding';
+  return 'Pre-Hire';
+});
 const sectionLabel = computed(() => isOnboardingPortal.value ? 'ONBOARDING CHECKLIST' : 'PRE-HIRE ITEMS');
 const statusLabel = computed(() => {
   const map = {
@@ -1022,6 +1290,9 @@ const loadPortal = async () => {
   try {
     const res = await portalApi.get(`/prehire-portal/${token.value}`);
     portalData.value = res.data;
+    if (res.data?.portalPhase === 'account_setup' || res.data?.hireAccountMode === 'group_password') {
+      await loadAccountSuggestions();
+    }
   } catch (e) {
     errorCode.value = e.response?.data?.error?.code || 'UNKNOWN';
     portalData.value = null;
@@ -1240,9 +1511,92 @@ onMounted(async () => {
 }
 
 .portal-welcome p {
-  margin: 0 0 24px;
+  margin: 0 0 12px;
   color: #64748b;
   font-size: 15px;
+}
+
+.portal-phase-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--primary) 12%, #fff);
+  color: var(--primary);
+  font-size: 12px;
+  font-weight: 700;
+  margin-bottom: 20px;
+}
+
+.portal-select,
+.portal-account-setup input[type="text"],
+.portal-account-setup input[type="password"],
+.portal-account-setup input[type="tel"] {
+  width: 100%;
+  margin-top: 6px;
+  padding: 10px 12px;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  font: inherit;
+}
+
+.portal-email-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.portal-email-row input {
+  flex: 1;
+  margin-top: 0;
+}
+
+.portal-email-domain {
+  color: #64748b;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.cred-warn {
+  color: #b91c1c;
+  font-size: 13px;
+  margin: 8px 0 0;
+}
+
+.portal-simple-list {
+  margin: 8px 0 0;
+  padding-left: 18px;
+}
+
+.portal-cover-letter {
+  white-space: pre-wrap;
+  margin-top: 8px;
+  color: #334155;
+}
+
+.handbook-section {
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid #e2e8f0;
+}
+
+.handbook-section h4 {
+  margin: 0 0 8px;
+}
+
+.handbook-body {
+  font-size: 14px;
+  line-height: 1.55;
+  color: #334155;
+}
+
+.item-step-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
 }
 
 .portal-link-card {

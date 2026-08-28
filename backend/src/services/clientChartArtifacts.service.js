@@ -892,7 +892,13 @@ async function htmlForBrandedIntake({ client, submissionId, submissions = [] }) 
       brandLogoUrl: String(agency?.logo_url || '').trim()
     }),
     agency || {},
-    { packetKind }
+    {
+      packetKind,
+      link: link || null,
+      masterChannel: link?.master_channel,
+      title: link?.title,
+      formType: row.form_type || link?.form_type
+    }
   );
   const signals = packetSignalsFromIntakeData(enrichedRow.intake_data);
   spec.sections = [...(spec.sections || [])];

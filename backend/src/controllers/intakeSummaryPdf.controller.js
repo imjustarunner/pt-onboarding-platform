@@ -98,6 +98,7 @@ async function resolveOfficeRecord(req) {
     console.warn('[intakeSummaryPdf] school master overlay failed', inheritErr?.message || inheritErr);
   }
   const signedDocuments = await IntakeSubmissionDocument.listSignedForRecord(submission.id);
+  const packetKind = String(link?.scope_type || '').toLowerCase() === 'school' ? 'school' : 'office';
   const spec = await brandedIntakeSummarySpec(buildCompletedIntakeRecord({
     agency,
     link,
@@ -108,7 +109,13 @@ async function resolveOfficeRecord(req) {
     publicKey,
     brandLogoUrl: String(agency?.logo_url || '').trim(),
     publicOrigin: String(req.get('origin') || process.env.PUBLIC_APP_URL || process.env.FRONTEND_URL || '').replace(/\/$/, '')
-  }), agency);
+  }), agency, {
+    packetKind,
+    link,
+    masterChannel: link?.master_channel,
+    title: link?.title,
+    formType: link?.form_type || submission?.form_type
+  });
   return { agency, spec, submission };
 }
 
@@ -223,12 +230,17 @@ export async function downloadQuickIntakeSummaryPdf(req, res, next) {
     }
 
     const posted = req.body?.summary && typeof req.body.summary === 'object' ? req.body.summary : {};
+    const mergedSummary = { ...storedSummary, ...posted };
     const spec = await brandedIntakeSummarySpec(buildQuickIntakeSummarySpec({
       agencyName: agencyDisplayName(agency),
       identifierCode: identifierCode || req.body?.identifierCode || '',
       submittedAt: req.body?.submittedAt || storedSubmittedAt || new Date().toISOString(),
-      summary: { ...storedSummary, ...posted }
-    }), agency);
+      summary: mergedSummary
+    }), agency, {
+      packetKind: 'intake',
+      title: mergedSummary?.serviceType || mergedSummary?.preferredModality || '',
+      formType: mergedSummary?.serviceType || ''
+    });
     const pdf = await generateIntakeSummaryPdf(spec);
     return sendPdf(
       res,
@@ -303,7 +315,11 @@ export async function emailQuickIntakeSummaryPdf(req, res, next) {
       identifierCode: identifierCode || '',
       submittedAt: req.body?.submittedAt || new Date().toISOString(),
       summary: posted
-    }), agency);
+    }), agency, {
+      packetKind: 'intake',
+      title: posted?.serviceType || posted?.preferredModality || '',
+      formType: posted?.serviceType || ''
+    });
     const pdf = await generateIntakeSummaryPdf(spec);
     const filename = summaryPdfFilename(agency, {
       initials: req.body?.initials,

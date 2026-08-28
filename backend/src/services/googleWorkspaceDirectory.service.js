@@ -132,6 +132,115 @@ class GoogleWorkspaceDirectoryService {
       throw e;
     }
   }
+
+  /**
+   * Lookup a Google Group by email. Returns null when not found.
+   */
+  static async getGroup({ groupEmail }) {
+    const email = String(groupEmail || '').trim().toLowerCase();
+    if (!email) throw new Error('groupEmail is required');
+    const admin = await this.getClient();
+    try {
+      const result = await admin.groups.get({ groupKey: email });
+      return result?.data || null;
+    } catch (e) {
+      const status = e?.code || e?.response?.status || null;
+      if (status === 404) return null;
+      logGoogleUnauthorizedHint(e, { context: 'GoogleWorkspaceDirectoryService.getGroup' });
+      throw e;
+    }
+  }
+
+  /**
+   * Create a Google Group (used as hire work-email mailbox without a Workspace user).
+   */
+  static async createGroup({
+    email,
+    name,
+    description = '',
+    whoCanJoin = 'INVITED_CAN_JOIN',
+    whoCanViewMembership = 'ALL_IN_DOMAIN_CAN_VIEW',
+    whoCanPostMessage = 'ANYONE_CAN_POST',
+    allowExternalMembers = true,
+    includeInGlobalAddressList = true
+  } = {}) {
+    const groupEmail = String(email || '').trim().toLowerCase();
+    if (!groupEmail) throw new Error('email is required');
+    const admin = await this.getClient();
+    try {
+      const result = await admin.groups.insert({
+        requestBody: {
+          email: groupEmail,
+          name: String(name || groupEmail.split('@')[0] || 'New Hire').trim().slice(0, 73),
+          description: String(description || '').trim().slice(0, 4096)
+        }
+      });
+      // Best-effort settings (Admin SDK groups.update may ignore unknown fields on some tenants).
+      try {
+        await admin.groups.update({
+          groupKey: groupEmail,
+          requestBody: {
+            email: groupEmail,
+            name: String(name || groupEmail.split('@')[0] || 'New Hire').trim().slice(0, 73),
+            description: String(description || '').trim().slice(0, 4096),
+            whoCanJoin,
+            whoCanViewMembership,
+            whoCanPostMessage,
+            allowExternalMembers,
+            includeInGlobalAddressList
+          }
+        });
+      } catch {
+        // Group exists even if settings patch fails.
+      }
+      return result?.data || null;
+    } catch (e) {
+      logGoogleUnauthorizedHint(e, { context: 'GoogleWorkspaceDirectoryService.createGroup' });
+      throw e;
+    }
+  }
+
+  /**
+   * Add a member to a Google Group. role: MEMBER | OWNER | MANAGER
+   */
+  static async addGroupMember({ groupEmail, memberEmail, role = 'MEMBER' }) {
+    const groupKey = String(groupEmail || '').trim().toLowerCase();
+    const email = String(memberEmail || '').trim().toLowerCase();
+    if (!groupKey) throw new Error('groupEmail is required');
+    if (!email) throw new Error('memberEmail is required');
+    const admin = await this.getClient();
+    try {
+      const result = await admin.members.insert({
+        groupKey,
+        requestBody: {
+          email,
+          role: String(role || 'MEMBER').toUpperCase()
+        }
+      });
+      return result?.data || null;
+    } catch (e) {
+      const status = e?.code || e?.response?.status || null;
+      // Already a member
+      if (status === 409) {
+        return { email, role, alreadyMember: true };
+      }
+      logGoogleUnauthorizedHint(e, { context: 'GoogleWorkspaceDirectoryService.addGroupMember' });
+      throw e;
+    }
+  }
+
+  /**
+   * True when neither a Workspace user nor a Group owns this address.
+   */
+  static async isDirectoryEmailAvailable(email) {
+    const normalized = String(email || '').trim().toLowerCase();
+    if (!normalized || !normalized.includes('@')) return false;
+    const [user, group] = await Promise.all([
+      this.getUser({ primaryEmail: normalized }),
+      this.getGroup({ groupEmail: normalized })
+    ]);
+    return !user && !group;
+  }
 }
 
 export default GoogleWorkspaceDirectoryService;

@@ -1480,7 +1480,7 @@
                   rows="3"
                   placeholder="itsco.health&#10;plottwistco.com"
                 ></textarea>
-                <small class="hint">One per line (or comma-separated). Leave blank to allow any domain (not recommended).</small>
+                <small class="hint">One per line (or comma-separated). Staff emails on these domains stay on the agency login (never a school portal). Also used for Google SSO allowlisting. Leave blank to allow any domain (not recommended).</small>
               </div>
             </div>
             </template>

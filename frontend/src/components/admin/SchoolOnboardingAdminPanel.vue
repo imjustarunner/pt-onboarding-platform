@@ -175,7 +175,14 @@
               </tr>
             </thead>
             <tbody>
-              <tr v-for="inv in invites" :key="inv.id">
+              <tr
+                v-for="inv in invites"
+                :key="inv.id"
+                class="so-invite-row"
+                tabindex="0"
+                @click="openInviteDetails(inv)"
+                @keydown.enter.prevent="openInviteDetails(inv)"
+              >
                 <td>
                   <strong>{{ inv.schoolName }}</strong>
                   <div class="muted tiny">{{ inv.schoolSlug }}</div>
@@ -193,7 +200,8 @@
                   </div>
                 </td>
                 <td class="muted tiny">{{ formatDate(inv.createdAt) }}</td>
-                <td class="so-row-actions">
+                <td class="so-row-actions" @click.stop>
+                  <button type="button" class="linkish" @click="openInviteDetails(inv)">Details</button>
                   <button type="button" class="linkish" @click="copyLink(inv.link)">Copy link</button>
                   <button
                     type="button"
@@ -226,6 +234,141 @@
           </table>
         </div>
       </section>
+
+      <Teleport to="body">
+        <div
+          v-if="selectedInvite"
+          class="so-detail-overlay"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="so-invite-detail-title"
+          @click.self="closeInviteDetails"
+        >
+          <aside class="so-detail-panel">
+            <header class="so-detail-panel__head">
+              <div>
+                <p class="muted tiny">Invite #{{ selectedInvite.id }}</p>
+                <h2 id="so-invite-detail-title">{{ selectedInvite.schoolName || 'School invite' }}</h2>
+              </div>
+              <button type="button" class="btn ghost" @click="closeInviteDetails">Close</button>
+            </header>
+
+            <div class="so-detail-grid">
+              <section class="so-detail-section">
+                <h3>School</h3>
+                <dl class="so-dl">
+                  <div><dt>Name</dt><dd>{{ selectedInvite.schoolName || '—' }}</dd></div>
+                  <div><dt>Slug</dt><dd>{{ selectedInvite.schoolSlug || '—' }}</dd></div>
+                  <div><dt>School org ID</dt><dd>{{ selectedInvite.schoolOrganizationId || '—' }}</dd></div>
+                  <div><dt>Outreach school ID</dt><dd>{{ selectedInvite.outreachSchoolId || '—' }}</dd></div>
+                  <div><dt>Agency ID</dt><dd>{{ selectedInvite.agencyId || '—' }}</dd></div>
+                </dl>
+              </section>
+
+              <section class="so-detail-section">
+                <h3>Contact</h3>
+                <dl class="so-dl">
+                  <div><dt>Name</dt><dd>{{ selectedInvite.contactFirstName }} {{ selectedInvite.contactLastName }}</dd></div>
+                  <div><dt>Email</dt><dd>{{ selectedInvite.contactEmail || '—' }}</dd></div>
+                  <div><dt>Password set</dt><dd>{{ selectedInvite.passwordSet ? 'Yes' : 'No' }}</dd></div>
+                </dl>
+              </section>
+
+              <section class="so-detail-section">
+                <h3>Status &amp; source</h3>
+                <dl class="so-dl">
+                  <div>
+                    <dt>Status</dt>
+                    <dd><span class="pill" :data-status="selectedInvite.status">{{ selectedInvite.status }}</span></dd>
+                  </div>
+                  <div><dt>Source</dt><dd>{{ selectedInvite.source || 'invite' }}</dd></div>
+                  <div><dt>Invited by</dt><dd>{{ selectedInvite.invitedByName || '—' }}</dd></div>
+                  <div>
+                    <dt>Progress</dt>
+                    <dd>{{ selectedInvite.completedSteps }}/{{ selectedInvite.totalSteps }} steps</dd>
+                  </div>
+                </dl>
+              </section>
+
+              <section class="so-detail-section">
+                <h3>Step progress</h3>
+                <ul class="so-step-list">
+                  <li v-for="step in inviteStepEntries(selectedInvite)" :key="step.key">
+                    <span class="so-step-key">{{ step.label }}</span>
+                    <span class="pill" :data-status="step.statusKey">{{ step.status }}</span>
+                  </li>
+                </ul>
+              </section>
+
+              <section class="so-detail-section">
+                <h3>Materials</h3>
+                <p>{{ materialsRequestSummary(selectedInvite) }}</p>
+                <pre
+                  v-if="selectedInvite.stepPayload?.welcome_materials"
+                  class="so-pre"
+                >{{ formatJson(selectedInvite.stepPayload.welcome_materials) }}</pre>
+              </section>
+
+              <section class="so-detail-section">
+                <h3>Link &amp; access</h3>
+                <dl class="so-dl">
+                  <div>
+                    <dt>Onboarding link</dt>
+                    <dd class="so-link-wrap">
+                      <a v-if="selectedInvite.link" :href="selectedInvite.link" target="_blank" rel="noopener">{{ selectedInvite.link }}</a>
+                      <span v-else>—</span>
+                      <button
+                        v-if="selectedInvite.link"
+                        type="button"
+                        class="linkish"
+                        @click="copyLink(selectedInvite.link)"
+                      >
+                        Copy
+                      </button>
+                    </dd>
+                  </div>
+                  <div><dt>Token</dt><dd class="mono">{{ selectedInvite.token || '—' }}</dd></div>
+                </dl>
+              </section>
+
+              <section class="so-detail-section">
+                <h3>Timestamps</h3>
+                <dl class="so-dl">
+                  <div><dt>Created</dt><dd>{{ formatDate(selectedInvite.createdAt) }}</dd></div>
+                  <div><dt>Last viewed</dt><dd>{{ formatDate(selectedInvite.lastViewedAt) }}</dd></div>
+                  <div><dt>Expires</dt><dd>{{ formatDate(selectedInvite.expiresAt) }}</dd></div>
+                  <div><dt>Submitted</dt><dd>{{ formatDate(selectedInvite.submittedAt) }}</dd></div>
+                </dl>
+              </section>
+
+              <section class="so-detail-section so-detail-section--full">
+                <h3>All invite fields</h3>
+                <pre class="so-pre">{{ formatJson(selectedInvite) }}</pre>
+              </section>
+            </div>
+
+            <footer class="so-detail-panel__foot">
+              <button
+                type="button"
+                class="btn ghost"
+                :disabled="selectedInvite.status === 'revoked' || selectedInvite.status === 'submitted' || busyId === selectedInvite.id"
+                @click="emailInvite(selectedInvite)"
+              >
+                Email invite
+              </button>
+              <button
+                type="button"
+                class="btn ghost"
+                :disabled="selectedInvite.status === 'revoked' || selectedInvite.status === 'submitted' || busyId === selectedInvite.id"
+                @click="revoke(selectedInvite)"
+              >
+                Revoke
+              </button>
+              <button type="button" class="btn ghost" @click="closeInviteDetails">Close</button>
+            </footer>
+          </aside>
+        </div>
+      </Teleport>
     </template>
     <p v-else class="muted">Select an agency context to manage school onboarding.</p>
   </div>
@@ -255,6 +398,7 @@ const creating = ref(false);
 const emailingInvite = ref(false);
 const busyId = ref(null);
 const invites = ref([]);
+const selectedInvite = ref(null);
 const formError = ref('');
 const listMessage = ref('');
 const shareError = ref('');
@@ -322,6 +466,46 @@ function formatDate(v) {
   } catch {
     return String(v);
   }
+}
+
+const STEP_LABELS = {
+  school_information: 'School information',
+  school_staff: 'School staff',
+  preferred_days: 'Preferred days',
+  welcome_materials: 'Welcome materials',
+  explore_demo: 'Explore demo',
+  review_submit: 'Review & submit'
+};
+
+function inviteStepEntries(inv) {
+  const progress = inv?.stepProgress && typeof inv.stepProgress === 'object' ? inv.stepProgress : {};
+  const keys = Object.keys(STEP_LABELS);
+  const extra = Object.keys(progress).filter((k) => !keys.includes(k));
+  return [...keys, ...extra].map((key) => {
+    const status = String(progress[key] || 'not_started').replace(/_/g, ' ');
+    return {
+      key,
+      label: STEP_LABELS[key] || key.replace(/_/g, ' '),
+      status,
+      statusKey: String(progress[key] || 'not_started')
+    };
+  });
+}
+
+function formatJson(value) {
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    return String(value);
+  }
+}
+
+function openInviteDetails(inv) {
+  selectedInvite.value = inv || null;
+}
+
+function closeInviteDetails() {
+  selectedInvite.value = null;
 }
 
 const MATERIAL_LABELS = {
@@ -538,6 +722,10 @@ async function loadInvites() {
   try {
     const res = await api.get('/school-onboarding/invites', { params: { agencyId: resolvedAgencyId.value } });
     invites.value = Array.isArray(res.data?.invites) ? res.data.invites : [];
+    if (selectedInvite.value?.id) {
+      selectedInvite.value =
+        invites.value.find((inv) => Number(inv.id) === Number(selectedInvite.value.id)) || null;
+    }
   } catch (e) {
     formError.value = e?.response?.data?.error?.message || 'Failed to load invites';
   } finally {
@@ -867,6 +1055,9 @@ a.btn {
   vertical-align: top;
 }
 .so-table th { color: #64748b; font-weight: 600; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.02em; }
+.so-invite-row { cursor: pointer; }
+.so-invite-row:hover { background: #f8fafc; }
+.so-invite-row:focus-visible { outline: 2px solid var(--primary, #1d4ed8); outline-offset: -2px; }
 .pill {
   display: inline-block;
   padding: 0.15rem 0.5rem;
@@ -875,10 +1066,12 @@ a.btn {
   font-size: 0.78rem;
   text-transform: capitalize;
 }
-.pill[data-status='submitted'] { background: #dcfce7; color: #166534; }
+.pill[data-status='submitted'],
+.pill[data-status='complete'] { background: #dcfce7; color: #166534; }
 .pill[data-status='in_progress'] { background: #dbeafe; color: #1d4ed8; }
 .pill[data-status='revoked'],
 .pill[data-status='expired'] { background: #fee2e2; color: #991b1b; }
+.pill[data-status='not_started'] { background: #f1f5f9; color: #475569; }
 .so-row-actions {
   display: flex;
   flex-direction: column;
@@ -897,6 +1090,111 @@ a.btn {
 .linkish.danger { color: #b91c1c; }
 .linkish.nuke { font-weight: 600; }
 .so-actions-legend { margin: 0 0 0.75rem; line-height: 1.45; }
+.so-detail-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 12000;
+  background: rgba(15, 23, 42, 0.45);
+  display: flex;
+  justify-content: flex-end;
+}
+.so-detail-panel {
+  width: min(520px, 100%);
+  height: 100%;
+  background: #fff;
+  box-shadow: -12px 0 40px rgba(15, 23, 42, 0.18);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.so-detail-panel__head,
+.so-detail-panel__foot {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 1rem 1.15rem;
+  border-bottom: 1px solid #e2e8f0;
+}
+.so-detail-panel__head h2 {
+  margin: 0;
+  font-size: 1.2rem;
+  color: #0f172a;
+}
+.so-detail-panel__foot {
+  border-bottom: none;
+  border-top: 1px solid #e2e8f0;
+  margin-top: auto;
+  flex-wrap: wrap;
+}
+.so-detail-grid {
+  padding: 1rem 1.15rem 1.5rem;
+  overflow: auto;
+  display: grid;
+  gap: 1rem;
+}
+.so-detail-section h3 {
+  margin: 0 0 0.5rem;
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #64748b;
+}
+.so-dl {
+  margin: 0;
+  display: grid;
+  gap: 0.45rem;
+}
+.so-dl > div {
+  display: grid;
+  grid-template-columns: 140px 1fr;
+  gap: 0.5rem;
+}
+.so-dl dt {
+  color: #64748b;
+  font-size: 0.85rem;
+}
+.so-dl dd {
+  margin: 0;
+  word-break: break-word;
+}
+.so-step-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.4rem;
+}
+.so-step-list li {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  align-items: center;
+}
+.so-step-key { text-transform: capitalize; }
+.so-link-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.25rem;
+}
+.so-pre {
+  margin: 0.5rem 0 0;
+  padding: 0.75rem;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  font-size: 0.75rem;
+  overflow: auto;
+  max-height: 240px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.8rem;
+  word-break: break-all;
+}
 .so-actions-legend .nuke-label { color: #b91c1c; }
 .linkish:disabled { opacity: 0.45; cursor: not-allowed; }
 .so-qr-box {

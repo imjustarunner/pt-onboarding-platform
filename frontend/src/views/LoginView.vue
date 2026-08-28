@@ -288,7 +288,7 @@
             :disabled="!portalOrganizationIdForIntake"
             @click="intakesPanelOpen = !intakesPanelOpen"
           >
-            {{ intakesPanelOpen ? 'Hide digital referral packet' : 'Display digital referral packet' }}
+            {{ intakesPanelOpen ? 'Hide enrollment packets' : 'Display enrollment packets' }}
           </button>
           <p v-if="!portalOrganizationIdForIntake" class="staff-intake-panel__muted intakes-trigger-hint">
             Digital forms load after this page finishes loading.
@@ -300,62 +300,142 @@
           class="staff-intake-panel staff-intake-panel--standalone"
           aria-labelledby="staff-intake-heading"
         >
-          <h3 id="staff-intake-heading" class="staff-intake-panel__title">Family Digital Enrollment Packet</h3>
+          <h3 id="staff-intake-heading" class="staff-intake-panel__title">Enrollment packets</h3>
           <p class="staff-intake-panel__lead">
-            Share this Digital Enrollment Packet link or QR with families — no sign-in required here.
-            Once they open the link, they can switch from English to Spanish.
+            Share a Digital Enrollment Packet or printable PDF with families — no sign-in required here.
+            Digital forms can switch English ↔ Spanish after opening.
           </p>
-          <div v-if="staffIntakeLoading" class="staff-intake-panel__muted">Loading enrollment packet…</div>
-          <p v-else-if="staffIntakeError" class="staff-intake-panel__err">{{ staffIntakeError }}</p>
-          <div v-else class="staff-intake-grid staff-intake-grid--single">
-            <div v-if="staffIntakeMaster" class="staff-intake-card">
+          <div v-if="staffIntakeLoading || printableQrLoading" class="staff-intake-panel__muted">Loading enrollment packets…</div>
+          <div v-else class="staff-intake-grid staff-intake-grid--triple">
+            <div class="staff-intake-card">
               <img
-                v-if="staffIntakeQrDisplay"
+                v-if="staffIntakeMaster && staffIntakeQrDisplay"
                 :src="staffIntakeQrDisplay"
-                alt="QR code — family Digital Enrollment Packet"
+                alt="QR code — Digital Enrollment Packet"
                 class="staff-intake-card__qr"
               />
               <p class="staff-intake-card__title">Digital Enrollment Packet</p>
               <p class="staff-intake-card__note">
                 Open the link, then change English to Spanish at the top of the form if needed.
               </p>
+              <p v-if="staffIntakeError" class="staff-intake-panel__err">{{ staffIntakeError }}</p>
+              <template v-else-if="staffIntakeMaster">
+                <div class="staff-intake-card__actions">
+                  <button
+                    type="button"
+                    class="btn btn-secondary staff-intake-btn"
+                    :disabled="!staffIntakeUrl(staffIntakeMaster) || staffIntakeUrl(staffIntakeMaster) === '#'"
+                    @click="copyStaffIntakeUrl(staffIntakeMaster)"
+                  >
+                    {{ intakeCopyHint || 'Copy link' }}
+                  </button>
+                  <a
+                    v-if="staffIntakeUrl(staffIntakeMaster) !== '#'"
+                    :href="staffIntakeUrl(staffIntakeMaster)"
+                    class="btn btn-secondary staff-intake-btn"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >Open</a>
+                  <span
+                    v-else
+                    class="btn btn-secondary staff-intake-btn"
+                    style="opacity: 0.45; pointer-events: none; cursor: not-allowed"
+                  >Open</span>
+                  <button
+                    v-if="staffIntakeQr.fancy || staffIntakeQr.simple"
+                    type="button"
+                    class="btn btn-secondary staff-intake-btn"
+                    @click="staffIntakeQrFancyMode = !staffIntakeQrFancyMode"
+                  >
+                    {{ staffIntakeQrFancyMode ? 'Switch to black & simple' : 'Switch to branded' }}
+                  </button>
+                  <button
+                    type="button"
+                    class="btn btn-secondary staff-intake-btn"
+                    :disabled="!staffIntakeQrDisplay"
+                    @click="downloadQrDataUrl(staffIntakeQrDisplay, 'digital-enrollment-packet-qr.png')"
+                  >
+                    Download QR
+                  </button>
+                  <button
+                    type="button"
+                    class="btn btn-secondary staff-intake-btn"
+                    :disabled="!staffIntakeQrDisplay"
+                    @click="printQrDataUrl(staffIntakeQrDisplay, 'Digital Enrollment Packet', staffIntakeUrl(staffIntakeMaster))"
+                  >
+                    Print QR
+                  </button>
+                </div>
+              </template>
+              <p v-else class="staff-intake-panel__empty">
+                No active Digital Enrollment Packet is configured yet. Your administrator can publish the master packet under Digital Forms for this school.
+              </p>
+            </div>
+
+            <div
+              v-for="locale in printablePacketLocales"
+              :key="`printable-${locale}`"
+              class="staff-intake-card"
+            >
+              <img
+                v-if="printableQrDisplay(locale)"
+                :src="printableQrDisplay(locale)"
+                :alt="`QR code — Printable packet (${locale === 'es' ? 'Spanish' : 'English'})`"
+                class="staff-intake-card__qr"
+              />
+              <div v-else class="staff-intake-card__qr-placeholder">QR unavailable</div>
+              <p class="staff-intake-card__title">
+                Printable packet — {{ locale === 'es' ? 'Spanish' : 'English' }}
+              </p>
+              <p class="staff-intake-card__note">
+                Paper PDF ({{ locale === 'es' ? 'ES' : 'EN' }}) — scan or open; no login required.
+              </p>
               <div class="staff-intake-card__actions">
-                <button
-                  type="button"
-                  class="btn btn-secondary staff-intake-btn"
-                  :disabled="!staffIntakeUrl(staffIntakeMaster) || staffIntakeUrl(staffIntakeMaster) === '#'"
-                  @click="copyStaffIntakeUrl(staffIntakeMaster)"
-                >
-                  {{ intakeCopyHint || 'Copy link' }}
-                </button>
                 <a
-                  v-if="staffIntakeUrl(staffIntakeMaster) !== '#'"
-                  :href="staffIntakeUrl(staffIntakeMaster)"
+                  v-if="printablePacketUrl(locale)"
+                  :href="printablePacketUrl(locale)"
                   class="btn btn-secondary staff-intake-btn"
                   target="_blank"
                   rel="noopener noreferrer"
-                >Open</a>
-                <span
-                  v-else
-                  class="btn btn-secondary staff-intake-btn"
-                  style="opacity: 0.45; pointer-events: none; cursor: not-allowed"
-                >Open</span>
+                >Open PDF</a>
                 <button
-                  v-if="staffIntakeQr.fancy || staffIntakeQr.simple"
                   type="button"
                   class="btn btn-secondary staff-intake-btn"
-                  @click="staffIntakeQrFancyMode = !staffIntakeQrFancyMode"
+                  :disabled="!printablePacketUrl(locale) || printablePdfDownloading[locale]"
+                  @click="downloadPrintablePdf(locale)"
                 >
-                  {{ staffIntakeQrFancyMode ? 'Switch to black & simple' : 'Switch to branded' }}
+                  {{ printablePdfDownloading[locale] ? 'Downloading…' : 'Download PDF' }}
+                </button>
+                <button
+                  v-if="hasPrintableQrVariants(locale)"
+                  type="button"
+                  class="btn btn-secondary staff-intake-btn"
+                  @click="togglePrintableQrMode(locale)"
+                >
+                  {{ printableQrFancyMode[locale] ? 'Switch to black & simple' : 'Switch to branded' }}
+                </button>
+                <button
+                  type="button"
+                  class="btn btn-secondary staff-intake-btn"
+                  :disabled="!printableQrDisplay(locale)"
+                  @click="downloadQrDataUrl(printableQrDisplay(locale), `printable-enrollment-packet-qr-${locale}.png`)"
+                >
+                  Download QR
+                </button>
+                <button
+                  type="button"
+                  class="btn btn-secondary staff-intake-btn"
+                  :disabled="!printableQrDisplay(locale)"
+                  @click="printQrDataUrl(
+                    printableQrDisplay(locale),
+                    `Printable packet — ${locale === 'es' ? 'Spanish' : 'English'}`,
+                    printablePacketUrl(locale)
+                  )"
+                >
+                  Print QR
                 </button>
               </div>
             </div>
-            <p
-              v-else
-              class="staff-intake-panel__empty"
-            >
-              No active Digital Enrollment Packet is configured yet. Your administrator can publish the master packet under Digital Forms for this school.
-            </p>
           </div>
         </section>
 
@@ -490,8 +570,6 @@
           
           <div class="login-help">
             <a href="#" @click.prevent="showForgotPassword" class="help-link">Forgot Password?</a>
-            <span class="help-separator">|</span>
-            <a href="#" @click.prevent="showGuardianTempPasswordHelp" class="help-link">Access token expired?</a>
             <span class="help-separator">|</span>
             <a href="#" @click.prevent="showForgotUsername" class="help-link">Forgot Username?</a>
             <template v-if="loginSlug">
@@ -717,6 +795,7 @@ import { buildOrgLoginPath } from '../utils/orgLoginPath';
 import { resolveHostImpliedPortalSlug } from '../utils/orgScopedPath';
 import { getPlatformAppHostname } from '../utils/brandSwitchUrl';
 import { buildPublicIntakeUrl } from '../utils/publicIntakeUrl';
+import { buildPublicSchoolPrintablePacketUrl } from '../utils/publicSchoolPrintablePacketUrl';
 import { pickMasterStaffIntake } from '../utils/pickSchoolReferralIntake.js';
 import {
   getPrimarySchoolStaffPortalSlug
@@ -930,7 +1009,7 @@ const usernameFieldPlaceholder = computed(() =>
 const loginTheme = ref(null);
 const loadingTheme = ref(false);
 
-/** Master school referral packet from GET /public-intake/school/:id. */
+/** Master school enrollment packet from GET /public-intake/school/:id. */
 const staffIntakeLinks = ref([]);
 const staffIntakeLoading = ref(false);
 const staffIntakeError = ref('');
@@ -938,6 +1017,15 @@ const staffIntakeQr = ref({ simple: '', fancy: '' });
 const staffIntakeQrFancyMode = ref(true);
 const intakeCopyHint = ref('');
 const intakesPanelOpen = ref(false);
+
+const printablePacketLocales = ['en', 'es'];
+const printableQr = ref({
+  en: { simple: '', fancy: '' },
+  es: { simple: '', fancy: '' }
+});
+const printableQrFancyMode = ref({ en: true, es: true });
+const printableQrLoading = ref(false);
+const printablePdfDownloading = ref({ en: false, es: false });
 
 // Logo and title for agency login
 const displayLogoUrl = computed(() => {
@@ -1470,9 +1558,124 @@ const staffIntakeQrDisplay = computed(() =>
     : (staffIntakeQr.value.simple || staffIntakeQr.value.fancy)
 );
 
+/** Portal slug used for public printable packet URLs. */
+function enrollmentPacketSlug() {
+  return String(loginSlug.value || loginTheme.value?.agency?.portalUrl || '').trim();
+}
+
+function printablePacketUrl(locale) {
+  const slug = enrollmentPacketSlug();
+  if (!slug) return '';
+  return buildPublicSchoolPrintablePacketUrl(slug, locale, {
+    origin: typeof window !== 'undefined' ? window.location.origin : '',
+    apiBase: api.defaults?.baseURL || '/api'
+  });
+}
+
+function printableQrDisplay(locale) {
+  const q = printableQr.value[locale] || {};
+  return printableQrFancyMode.value[locale]
+    ? (q.fancy || q.simple)
+    : (q.simple || q.fancy);
+}
+
+function hasPrintableQrVariants(locale) {
+  const q = printableQr.value[locale] || {};
+  return !!(q.fancy || q.simple);
+}
+
+function togglePrintableQrMode(locale) {
+  printableQrFancyMode.value = {
+    ...printableQrFancyMode.value,
+    [locale]: !printableQrFancyMode.value[locale]
+  };
+}
+
+function downloadQrDataUrl(dataUrl, filename) {
+  if (!dataUrl) return;
+  const a = document.createElement('a');
+  a.href = dataUrl;
+  a.download = filename || 'enrollment-packet-qr.png';
+  a.click();
+}
+
+function printQrDataUrl(dataUrl, title, url) {
+  if (!dataUrl) return;
+  const w = window.open('', '_blank', 'noopener,noreferrer,width=480,height=640');
+  if (!w) return;
+  const safeTitle = String(title || 'Enrollment packet').replace(/</g, '&lt;');
+  const safeUrl = String(url && url !== '#' ? url : '').replace(/</g, '&lt;');
+  const doc = w.document;
+  doc.write(`<!doctype html><html><head><title>${safeTitle} QR</title>
+    <style>
+      body { font-family: system-ui, sans-serif; text-align: center; padding: 24px; }
+      img { width: 280px; height: 280px; }
+      .url { margin-top: 12px; font-size: 12px; word-break: break-all; color: #334155; }
+    </style></head><body>
+      <h1>${safeTitle}</h1>
+      <img src="${dataUrl}" alt="QR" />
+      ${safeUrl ? `<div class="url">${safeUrl}</div>` : ''}
+    </body></html>`);
+  doc.close();
+  w.focus();
+  w.print();
+}
+
+async function downloadPrintablePdf(locale) {
+  const url = printablePacketUrl(locale);
+  if (!url) return;
+  printablePdfDownloading.value = { ...printablePdfDownloading.value, [locale]: true };
+  try {
+    const res = await fetch(url);
+    if (!res.ok) throw new Error('Failed to download PDF');
+    const blob = await res.blob();
+    const a = document.createElement('a');
+    const objectUrl = URL.createObjectURL(blob);
+    a.href = objectUrl;
+    a.download = `enrollment-packet-${locale}.pdf`;
+    a.click();
+    URL.revokeObjectURL(objectUrl);
+  } catch {
+    window.open(url, '_blank', 'noopener,noreferrer');
+  } finally {
+    printablePdfDownloading.value = { ...printablePdfDownloading.value, [locale]: false };
+  }
+}
+
 function staffIntakeUrl(link) {
   const k = String(link?.public_key || '').trim();
   return k ? buildPublicIntakeUrl(k) : '#';
+}
+
+async function loadPrintablePacketQrs() {
+  const slug = enrollmentPacketSlug();
+  if (!slug) return;
+  printableQrLoading.value = true;
+  printableQr.value = {
+    en: { simple: '', fancy: '' },
+    es: { simple: '', fancy: '' }
+  };
+  printableQrFancyMode.value = { en: true, es: true };
+  try {
+    const logoSrc = displayLogoUrl.value || '';
+    await Promise.all(
+      printablePacketLocales.map(async (locale) => {
+        const url = printablePacketUrl(locale);
+        if (!url) return;
+        try {
+          const { simple, fancy } = await buildFancyQrDataUrl(url, { size: 240, logoSrc });
+          printableQr.value = {
+            ...printableQr.value,
+            [locale]: { simple, fancy }
+          };
+        } catch {
+          /* leave empty for this locale */
+        }
+      })
+    );
+  } finally {
+    printableQrLoading.value = false;
+  }
 }
 
 async function loadStaffIntakeLinks() {
@@ -1500,7 +1703,7 @@ async function loadStaffIntakeLinks() {
     staffIntakeQr.value = { simple: '', fancy: '' };
     const st = e?.response?.status;
     if (st !== 404) {
-      staffIntakeError.value = e?.response?.data?.error?.message || 'Could not load referral packet.';
+      staffIntakeError.value = e?.response?.data?.error?.message || 'Could not load enrollment packet.';
     }
   } finally {
     staffIntakeLoading.value = false;
@@ -1525,9 +1728,12 @@ async function copyStaffIntakeUrl(link) {
 }
 
 watch(
-  () => [intakesPanelOpen.value, portalOrganizationIdForIntake.value],
+  () => [intakesPanelOpen.value, portalOrganizationIdForIntake.value, loginSlug.value],
   ([open, id]) => {
-    if (open && id) loadStaffIntakeLinks();
+    if (open && id) {
+      loadStaffIntakeLinks();
+      loadPrintablePacketQrs();
+    }
   }
 );
 
@@ -1538,6 +1744,12 @@ watch(
     staffIntakeLinks.value = [];
     staffIntakeQr.value = { simple: '', fancy: '' };
     staffIntakeQrFancyMode.value = true;
+    printableQr.value = {
+      en: { simple: '', fancy: '' },
+      es: { simple: '', fancy: '' }
+    };
+    printableQrFancyMode.value = { en: true, es: true };
+    printablePdfDownloading.value = { en: false, es: false };
     intakeCopyHint.value = '';
     staffIntakeError.value = '';
   }
@@ -2821,12 +3033,31 @@ const handleLogoError = (event) => {
   margin: 0 auto;
 }
 
+.staff-intake-grid--triple {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  max-width: none;
+}
+
 .staff-intake-card__note {
   margin: 0 0 10px 0;
   font-size: 12px;
   line-height: 1.4;
   color: var(--text-secondary, #64748b);
   text-align: center;
+}
+
+.staff-intake-card__qr-placeholder {
+  width: 120px;
+  height: 120px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 8px;
+  font-size: 11px;
+  color: var(--text-secondary, #64748b);
+  text-align: center;
+  background: #f1f5f9;
+  border-radius: 8px;
 }
 
 .forgot-username-confirm {
@@ -2912,6 +3143,12 @@ const handleLogoError = (event) => {
   font-size: 13px;
   color: var(--error, #b91c1c);
   margin: 0;
+}
+
+@media (max-width: 900px) {
+  .staff-intake-grid--triple {
+    grid-template-columns: 1fr;
+  }
 }
 
 @media (max-width: 560px) {

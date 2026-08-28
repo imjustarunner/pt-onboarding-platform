@@ -108,7 +108,7 @@ watch(() => props.isLocked, (locked) => {
 .session-lock-overlay {
   position: fixed;
   inset: 0;
-  z-index: 10000;
+  z-index: 2147482900;
   background: rgba(0, 0, 0, 0.85);
   display: flex;
   align-items: center;

@@ -46,7 +46,16 @@ const SKIP_BAG_KEYS = new Set([
   'appointment_reminder_contacts',
   'appointment_reminder_who',
   'termsUrl',
-  'privacyUrl'
+  'privacyUrl',
+  // Job-app upload plumbing — shown as a dedicated Cover letter section instead.
+  'uploadFilesByStep',
+  'upload_files_by_step',
+  'uploadedFiles',
+  'uploaded_files',
+  'coverLetterText',
+  'cover_letter_text',
+  'coverLetter',
+  'cover_letter'
 ]);
 const INSTRUMENT_SKIP_KEYS = {
   phq9: 'skip_phq9',
@@ -757,6 +766,20 @@ export function buildCompletedIntakeRecord({
     skipKeys: new Set(['whoFor', 'this_is_for', 'formLocale', 'acknowledgments', 'termsUrl', 'privacyUrl', ...SKIP_BAG_KEYS]),
     values: interviewValues
   }, leftoverSubmission, printed);
+  const coverLetterRaw = String(
+    submissionBag.coverLetterText
+    || submissionBag.cover_letter_text
+    || submissionBag.coverLetter
+    || submissionBag.cover_letter
+    || intakeData?.coverLetterText
+    || ''
+  ).trim();
+  const coverLetterBlock = coverLetterRaw
+    ? {
+        title: 'Cover letter',
+        rows: [{ label: 'Cover letter', value: coverLetterRaw, fullWidth: true }]
+      }
+    : null;
   const commsBlock = communicationsSection(submissionBag, publicOrigin);
   const reminderBlock = reminderContactsSection(submissionBag);
   const providerSummary = String(submissionBag.preferred_office_provider_summary || '').trim();
@@ -779,6 +802,7 @@ export function buildCompletedIntakeRecord({
       ? { title: isJobApplication ? 'Applicant' : 'Who this packet is for', rows: contactRows }
       : null,
     leftoverGuardian.length ? { title: isJobApplication ? 'Applicant details' : 'Parent / guardian', rows: leftoverGuardian } : null,
+    coverLetterBlock,
     commsBlock,
     reminderBlock,
     providersBlock,

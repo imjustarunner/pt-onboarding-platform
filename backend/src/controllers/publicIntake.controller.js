@@ -2923,7 +2923,13 @@ async function tryBuildBrandedAnswersPdf({
         brandLogoUrl: String(agency?.logo_url || '').trim()
       }),
       agency,
-      { packetKind }
+      {
+        packetKind,
+        link,
+        masterChannel: link?.master_channel,
+        title: link?.title,
+        formType: link?.form_type
+      }
     );
     const pdf = await generateIntakeSummaryPdf(spec);
     if (!pdf) return null;
@@ -4788,7 +4794,10 @@ async function sendJobApplicationReceivedEmail({
 }) {
   try {
     const to = String(applicantUser?.email || applicantUser?.personal_email || '').trim();
-    if (!to) return;
+    if (!to) {
+      console.warn('[sendJobApplicationReceivedEmail] missing applicant email', { agencyId, submissionId });
+      return;
+    }
     const identity = await resolveJobApplicationSenderIdentity(agencyId);
     const agency = await Agency.findById(agencyId).catch(() => null);
     const title = String(jobTitle || 'your application').trim();
@@ -4858,6 +4867,35 @@ async function sendJobApplicationReceivedEmail({
         agencyId,
         to
       });
+      try {
+        const { default: CommunicationLoggingService } = await import('../services/communicationLogging.service.js');
+        const { default: UserCommunication } = await import('../models/UserCommunication.model.js');
+        const row = await CommunicationLoggingService.logGeneratedCommunication({
+          userId: applicantUser?.id || null,
+          agencyId: agencyId || null,
+          templateType: 'job_applications',
+          subject,
+          body: html || text || '',
+          channel: 'email',
+          recipientAddress: to,
+          metadata: {
+            reason: 'no_sender_identity_and_email_not_configured',
+            jobDescriptionId: jobDescriptionId || jobDescription?.id || null,
+            intakeSubmissionId: submissionId || null
+          }
+        });
+        if (row?.id) {
+          await UserCommunication.updateDeliveryStatus(
+            row.id,
+            'failed',
+            null,
+            null,
+            'No People Operations sender identity configured for this tenant, and outbound email is not configured.'
+          );
+        }
+      } catch (logErr) {
+        console.warn('[sendJobApplicationReceivedEmail] failed to log missing-identity row', logErr?.message || logErr);
+      }
       return;
     }
     await EmailService.sendEmail({
@@ -4875,10 +4913,44 @@ async function sendJobApplicationReceivedEmail({
       source: 'auto',
       agencyId,
       userId: applicantUser?.id || null,
-      templateType: 'job_applications'
+      templateType: 'job_applications',
+      // Prefer not treating demo redirects as "fallback approval" — EmailService
+      // already bypasses approval when rewriting to the testing inbox.
+      usedFallbackSender: false
     });
   } catch (e) {
     console.warn('[sendJobApplicationReceivedEmail] failed', e?.message || e);
+    try {
+      const to = String(applicantUser?.email || applicantUser?.personal_email || '').trim();
+      const { default: CommunicationLoggingService } = await import('../services/communicationLogging.service.js');
+      const { default: UserCommunication } = await import('../models/UserCommunication.model.js');
+      const row = await CommunicationLoggingService.logGeneratedCommunication({
+        userId: applicantUser?.id || null,
+        agencyId: agencyId || null,
+        templateType: 'job_applications',
+        subject: `Application received — ${String(jobTitle || 'your application').trim()}`,
+        body: String(e?.message || e || 'send failed'),
+        channel: 'email',
+        recipientAddress: to || null,
+        metadata: {
+          reason: 'send_exception',
+          error: String(e?.message || e),
+          jobDescriptionId: jobDescriptionId || jobDescription?.id || null,
+          intakeSubmissionId: submissionId || null
+        }
+      });
+      if (row?.id) {
+        await UserCommunication.updateDeliveryStatus(
+          row.id,
+          'failed',
+          null,
+          null,
+          String(e?.message || e).slice(0, 500)
+        );
+      }
+    } catch {
+      /* best-effort visibility in Automation */
+    }
   }
 }
 
@@ -7552,6 +7624,18 @@ export const finalizePublicIntake = async (req, res, next) => {
         fluentLanguagesJson,
         jobAcknowledged
       });
+
+      try {
+        const { importJobApplicationIntoUserAccount } = await import('../services/hiringApplicationImport.service.js');
+        await importJobApplicationIntoUserAccount({
+          userId: user.id,
+          agencyId: Number(link.organization_id || link.agency_id || agency?.id || 0) || null,
+          intakeData: req.body?.intakeData || req.body || {},
+          coverLetter: coverLetterText || null
+        });
+      } catch (importErr) {
+        console.warn('[job_application] profile import failed:', importErr?.message || importErr);
+      }
 
       // Migrate intake_submission_uploads to user_admin_docs
       let uploadRows = [];

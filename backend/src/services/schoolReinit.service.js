@@ -1118,27 +1118,119 @@ export async function loadProvidersForSchool(schoolOrganizationId) {
 }
 
 export async function loadSchoolStaff(schoolOrganizationId) {
+  const orgId = Number(schoolOrganizationId || 0);
+  if (!orgId) return [];
+
   const [rows] = await pool.execute(
-    `SELECT sc.id, sc.full_name, sc.email, sc.role_title, sc.is_primary, sc.is_school_admin, sc.is_scheduler,
-            u.id AS user_id, u.first_name, u.last_name
+    `SELECT sc.id, sc.full_name, sc.email, sc.role_title, sc.is_primary, sc.is_school_admin, sc.is_scheduler
      FROM school_contacts sc
-     LEFT JOIN users u
-       ON LOWER(TRIM(u.email)) COLLATE utf8mb4_unicode_ci = LOWER(TRIM(sc.email)) COLLATE utf8mb4_unicode_ci
-      AND u.role = 'school_staff'
      WHERE sc.school_organization_id = ?
      ORDER BY sc.is_primary DESC, sc.full_name ASC`,
-    [schoolOrganizationId]
+    [orgId]
   );
-  return (rows || []).map((r) => ({
-    id: r.id,
-    userId: r.user_id || null,
-    name: r.full_name || [r.first_name, r.last_name].filter(Boolean).join(' ') || r.email,
-    email: r.email,
-    title: r.role_title || null,
-    isPrimary: Boolean(r.is_primary),
-    isSchoolAdmin: Boolean(r.is_school_admin),
-    isScheduler: Boolean(r.is_scheduler),
-  }));
+  if (!rows?.length) return [];
+
+  const emails = Array.from(
+    new Set(
+      (rows || [])
+        .map((r) => String(r.email || '').trim().toLowerCase())
+        .filter((e) => e.includes('@'))
+    )
+  );
+
+  const emailToUser = new Map();
+  if (emails.length) {
+    const placeholders = emails.map(() => '?').join(',');
+    // Prefer a school_staff user who is already on this school's user_agencies roster.
+    try {
+      const [affiliated] = await pool.execute(
+        `SELECT u.id, u.first_name, u.last_name, LOWER(TRIM(u.email)) AS email
+         FROM users u
+         INNER JOIN user_agencies ua ON ua.user_id = u.id AND ua.agency_id = ?
+         WHERE u.role = 'school_staff'
+           AND (u.status IS NULL OR UPPER(u.status) <> 'ARCHIVED')
+           AND LOWER(TRIM(u.email)) IN (${placeholders})`,
+        [orgId, ...emails]
+      );
+      for (const u of affiliated || []) {
+        const em = String(u.email || '').trim().toLowerCase();
+        if (em && !emailToUser.has(em)) emailToUser.set(em, u);
+      }
+    } catch {
+      // best-effort
+    }
+
+    // Fall back: any school_staff user matching contact email / work_email / login alias.
+    try {
+      const [matched] = await pool.execute(
+        `SELECT DISTINCT u.id, u.first_name, u.last_name,
+                LOWER(TRIM(u.email)) AS email,
+                LOWER(TRIM(COALESCE(u.work_email, ''))) AS work_email
+         FROM users u
+         LEFT JOIN user_login_emails ule ON ule.user_id = u.id
+         WHERE u.role = 'school_staff'
+           AND (u.status IS NULL OR UPPER(u.status) <> 'ARCHIVED')
+           AND (
+             LOWER(TRIM(u.email)) IN (${placeholders})
+             OR LOWER(TRIM(COALESCE(u.work_email, ''))) IN (${placeholders})
+             OR LOWER(TRIM(COALESCE(ule.email, ''))) IN (${placeholders})
+           )`,
+        [...emails, ...emails, ...emails]
+      );
+      for (const u of matched || []) {
+        for (const key of [u.email, u.work_email]) {
+          const em = String(key || '').trim().toLowerCase();
+          if (em && emails.includes(em) && !emailToUser.has(em)) emailToUser.set(em, u);
+        }
+      }
+      // Also map login aliases from a second pass when the contact email is only on ule.
+      for (const u of matched || []) {
+        const primary = String(u.email || '').trim().toLowerCase();
+        if (!primary) continue;
+        for (const contactEmail of emails) {
+          if (!emailToUser.has(contactEmail) && (contactEmail === primary || contactEmail === String(u.work_email || '').trim().toLowerCase())) {
+            emailToUser.set(contactEmail, u);
+          }
+        }
+      }
+    } catch {
+      // best-effort
+    }
+
+    // Login-alias → contact email mapping (covers contacts that only match ule).
+    try {
+      const [aliasRows] = await pool.execute(
+        `SELECT u.id, u.first_name, u.last_name, LOWER(TRIM(ule.email)) AS alias_email
+         FROM user_login_emails ule
+         INNER JOIN users u ON u.id = ule.user_id
+         WHERE u.role = 'school_staff'
+           AND (u.status IS NULL OR UPPER(u.status) <> 'ARCHIVED')
+           AND LOWER(TRIM(ule.email)) IN (${placeholders})`,
+        emails
+      );
+      for (const u of aliasRows || []) {
+        const em = String(u.alias_email || '').trim().toLowerCase();
+        if (em && !emailToUser.has(em)) emailToUser.set(em, u);
+      }
+    } catch {
+      // user_login_emails may not exist on older DBs
+    }
+  }
+
+  return (rows || []).map((r) => {
+    const em = String(r.email || '').trim().toLowerCase();
+    const user = emailToUser.get(em) || null;
+    return {
+      id: r.id,
+      userId: user?.id || null,
+      name: r.full_name || [user?.first_name, user?.last_name].filter(Boolean).join(' ') || r.email,
+      email: r.email,
+      title: r.role_title || null,
+      isPrimary: Boolean(r.is_primary),
+      isSchoolAdmin: Boolean(r.is_school_admin),
+      isScheduler: Boolean(r.is_scheduler),
+    };
+  });
 }
 
 export async function loadSchoolEventsContext(agencyId, schoolOrganizationId, schoolYear) {

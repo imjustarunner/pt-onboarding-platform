@@ -4043,13 +4043,35 @@ export const sendPreHire = async (req, res, next) => {
       console.warn('[sendPreHire] comfort prefs promote failed:', comfortErr?.message);
     }
 
+    // Auto-generate employment contract when agency has a default contract config/template
+    let contractResult = null;
+    try {
+      const contractTemplateId = Number(prehireSettings?.default_contract_template_id || 0) || null;
+      const contractConfigId = Number(prehireSettings?.default_contract_config_id || 0) || null;
+      if (contractConfigId || contractTemplateId) {
+        const { generateAndAssignCandidateContract } = await import('../services/contractGenerator.service.js');
+        contractResult = await generateAndAssignCandidateContract({
+          agencyId,
+          candidateUserId,
+          configId: contractConfigId || null,
+          templateId: contractTemplateId || null,
+          createdByUserId: req.user.id,
+          taskMetadata: { prehire: true, autoFromSendPreHire: true }
+        });
+        if (contractResult?.task) assignedTasks.push(contractResult.task);
+      }
+    } catch (contractErr) {
+      console.warn('[sendPreHire] contract generate failed:', contractErr?.message || contractErr);
+    }
+
     res.json({
       ok: true,
       passwordlessToken: tokenResult?.token || null,
       passwordlessTokenLink: tokenLink,
       assignedTaskCount: assignedTasks.length,
       signerTaskCount: signerAssignments.length * assignedTasks.length,
-      packageId: resolvedPackageId || null
+      packageId: resolvedPackageId || null,
+      contractTaskId: contractResult?.task?.id || null
     });
   } catch (e) { next(e); }
 };

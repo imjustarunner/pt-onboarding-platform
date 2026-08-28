@@ -181,13 +181,92 @@ function nluAssetDataUrl(filename) {
   );
 }
 
-function nluBundledChrome() {
+function nluCoverDataUrl(packetKind = 'counseling') {
+  const kind = String(packetKind || 'counseling').trim().toLowerCase();
+  const byKind = {
+    counseling: ['CounselingCover.png', 'NLUIntakeCover.png'],
+    tutoring: ['TutoringCover.png', 'CounselingCover.png', 'NLUIntakeCover.png'],
+    skill_enriched_tutoring: ['SkillEnrichedTutoringCover.png', 'TutoringCover.png', 'NLUIntakeCover.png'],
+    therapy_plus_tutoring: ['SkillEnrichedTutoringCover.png', 'TutoringCover.png', 'NLUIntakeCover.png'],
+    // Generic office / intake receipts default to counseling enrollment cover.
+    office: ['CounselingCover.png', 'NLUIntakeCover.png'],
+    intake: ['CounselingCover.png', 'NLUIntakeCover.png'],
+    school: ['CounselingCover.png', 'NLUIntakeCover.png']
+  };
+  const names = byKind[kind] || byKind.counseling;
+  for (const name of names) {
+    const url = nluAssetDataUrl(name);
+    if (url) return url;
+  }
+  return nluAssetDataUrl('NLULogo.png');
+}
+
+/**
+ * Resolve which NLU cover art to use from packetKind / intake link / org context.
+ * - counseling → CounselingCover
+ * - tutoring → TutoringCover
+ * - skill_enriched_tutoring / therapy_plus_tutoring → SkillEnrichedTutoringCover
+ */
+export function resolveNluPacketCoverKind(options = {}, link = null, agency = null) {
+  const explicit = String(options?.packetKind || options?.coverKind || '').trim().toLowerCase();
+  if (
+    [
+      'counseling',
+      'tutoring',
+      'skill_enriched_tutoring',
+      'therapy_plus_tutoring'
+    ].includes(explicit)
+  ) {
+    return explicit === 'therapy_plus_tutoring' ? 'skill_enriched_tutoring' : explicit;
+  }
+
+  const channel = String(
+    options?.masterChannel || link?.master_channel || link?.masterChannel || ''
+  )
+    .trim()
+    .toLowerCase();
+  const title = String(options?.title || link?.title || link?.name || '')
+    .trim()
+    .toLowerCase();
+  const formType = String(options?.formType || link?.form_type || link?.formType || '')
+    .trim()
+    .toLowerCase();
+  const orgType = String(agency?.organization_type || agency?.organizationType || '')
+    .trim()
+    .toLowerCase();
+  const hay = `${channel} ${title} ${formType} ${orgType}`;
+
+  if (
+    /skill[_\s-]?enrich|therapy[_\s+-]?plus[_\s+-]?tutor|tutor[_\s+-]?plus[_\s+-]?therap|therapyplustutor/.test(
+      hay
+    )
+  ) {
+    return 'skill_enriched_tutoring';
+  }
+  if (channel === 'tutoring' || formType === 'assessment' || formType === 'evaluation' || /\btutor/.test(hay)) {
+    return 'tutoring';
+  }
+  if (
+    channel === 'counseling'
+    || orgType === 'clinical'
+    || /\bcounsel|\bpsychotherap|\btherapy\b/.test(hay)
+  ) {
+    return 'counseling';
+  }
+  // Default NLU intake / office packet → counseling enrollment cover (replaces NLUIntakeCover).
+  if (explicit === 'office' || explicit === 'intake' || !explicit) return 'counseling';
+  return 'counseling';
+}
+
+function nluBundledChrome(packetKind = 'counseling') {
+  const coverKind = resolveNluPacketCoverKind({ packetKind });
   return {
-    coverDataUrl: nluAssetDataUrl('NLUIntakeCover.png') || nluAssetDataUrl('NLULogo.png'),
+    coverDataUrl: nluCoverDataUrl(coverKind),
     headerLogoDataUrl: nluAssetDataUrl('NLULogo.png'),
     headerImageDataUrl: nluAssetDataUrl('NLUHeader.png'),
     footerMarkDataUrl: nluAssetDataUrl('NLUFooter.png'),
-    watermarkDataUrl: nluAssetDataUrl('NLUWatermark.png')
+    watermarkDataUrl: nluAssetDataUrl('NLUWatermark.png'),
+    coverKind
   };
 }
 
@@ -215,16 +294,18 @@ function montserratSemiBoldDataUrl() {
  */
 export async function resolvePacketBrandChrome(agency = {}, options = {}) {
   const useItsco = isItscoPacketChromeAgency(agency);
-  const packetKind = String(options?.packetKind || 'office').trim().toLowerCase() || 'office';
+  const rawKind = String(options?.packetKind || 'office').trim().toLowerCase() || 'office';
+  const packetKind = rawKind === 'intake' ? 'office' : rawKind;
   const versionLabel = String(
     agency?.packet_version_label || OFFICE_PRINTABLE_PACKET_VERSION || '1.0'
   ).trim() || '1.0';
 
   if (useItsco) {
+    const itscoKind = packetKind === 'school' ? 'school' : 'office';
     return {
       useItscoChrome: true,
       bodyFontFamily: "'Comfortaa', Arial, sans-serif",
-      coverDataUrl: itscoCoverDataUrl(packetKind),
+      coverDataUrl: itscoCoverDataUrl(itscoKind),
       headerLogoDataUrl: itscoHeaderLogoDataUrl(),
       headerImageDataUrl: null,
       footerMarkDataUrl: itscoFooterMarkDataUrl(),
@@ -242,7 +323,10 @@ export async function resolvePacketBrandChrome(agency = {}, options = {}) {
     storagePathToDataUrl(agency?.packet_header_image_path)
   ]);
 
-  const nlu = isNluPacketChromeAgency(agency) ? nluBundledChrome() : null;
+  const nluCoverKind = isNluPacketChromeAgency(agency)
+    ? resolveNluPacketCoverKind(options, options?.link || null, agency)
+    : null;
+  const nlu = nluCoverKind ? nluBundledChrome(nluCoverKind) : null;
 
   return {
     useItscoChrome: false,
@@ -254,7 +338,8 @@ export async function resolvePacketBrandChrome(agency = {}, options = {}) {
     watermarkDataUrl: nlu?.watermarkDataUrl || null,
     versionLabel,
     montserratRegularDataUrl: montserratRegularDataUrl(),
-    montserratSemiBoldDataUrl: montserratSemiBoldDataUrl()
+    montserratSemiBoldDataUrl: montserratSemiBoldDataUrl(),
+    coverKind: nlu?.coverKind || null
   };
 }
 
@@ -272,8 +357,26 @@ export function applyPacketBrandToSpec(spec = {}, brand = null) {
 
 export async function brandedIntakeSummarySpec(spec, agency, options = {}) {
   const kind = String(options.packetKind || 'intake').trim().toLowerCase();
-  const packetKind = kind === 'school' ? 'school' : (kind === 'office' || kind === 'intake' ? 'office' : kind);
-  const brand = await resolvePacketBrandChrome(agency || {}, { packetKind });
+  const link = options.link || null;
+  const resolvedKind = isNluPacketChromeAgency(agency)
+    ? resolveNluPacketCoverKind(
+      {
+        packetKind: kind,
+        masterChannel: options.masterChannel,
+        title: options.title,
+        formType: options.formType
+      },
+      link,
+      agency
+    )
+    : (kind === 'school' ? 'school' : (kind === 'office' || kind === 'intake' ? 'office' : kind));
+  const brand = await resolvePacketBrandChrome(agency || {}, {
+    packetKind: resolvedKind,
+    link,
+    masterChannel: options.masterChannel,
+    title: options.title,
+    formType: options.formType
+  });
   return applyPacketBrandToSpec(spec, brand);
 }
 

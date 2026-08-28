@@ -68,6 +68,15 @@ async function ensureUniqueWorkEmail({ user, format, domain }) {
 
 async function provisionWorkspaceAccount({ user, agency }) {
   const featureFlags = parseJsonObject(agency?.feature_flags, {});
+  // Group+password hire path: never create a Workspace user (Group was created in portal).
+  if (String(featureFlags.hireAccountMode || '').trim().toLowerCase() === 'group_password') {
+    return { skipped: true, reason: 'hire_account_mode_group_password' };
+  }
+  if (user?.sso_password_override === 1 || user?.sso_password_override === true || user?.sso_password_override === '1') {
+    if (user?.work_email) {
+      return { skipped: true, reason: 'sso_password_override_with_work_email', workEmail: user.work_email };
+    }
+  }
   const workspaceEnabled = featureFlags.workspaceProvisioningEnabled !== false;
   if (!workspaceEnabled) {
     return { skipped: true, reason: 'disabled' };
