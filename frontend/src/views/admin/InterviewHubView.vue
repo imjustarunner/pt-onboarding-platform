@@ -1,5 +1,5 @@
 <template>
-  <div class="ih-root container">
+  <div class="ih-root">
     <div class="ih-header">
       <div>
         <h2 class="ih-title">Interview Hub</h2>
@@ -85,110 +85,20 @@
         </ul>
       </aside>
 
-      <main class="ih-main">
+      <main class="ih-main ih-main--applicant">
         <div v-if="!selectedInterview" class="ih-empty-main">
-          <p>Select an interview to view details, or schedule a new one.</p>
+          <p>Select an interview to open the applicant file, or schedule a new one.</p>
         </div>
-        <div v-else class="ih-detail">
-          <div class="ih-detail-head">
-            <div>
-              <h3>{{ interviewListLabel(selectedInterview) }}</h3>
-              <div class="ih-detail-meta">
-                <span class="ih-status" :class="`st-${selectedInterview.status}`">{{ selectedInterview.status }}</span>
-                <span>{{ fmtDateTime(selectedInterview.interview_starts_at) }}</span>
-                <span v-if="selectedInterview.interview_timezone" class="ih-muted">{{ selectedInterview.interview_timezone }}</span>
-              </div>
-            </div>
-            <div class="ih-detail-actions">
-              <a
-                v-if="selectedInterview.public_join_url"
-                class="btn btn-primary btn-sm"
-                :href="selectedInterview.public_join_url"
-                target="_blank"
-                rel="noopener noreferrer"
-              >Open join link</a>
-              <button
-                type="button"
-                class="btn btn-secondary btn-sm"
-                :disabled="!selectedInterview.public_join_url"
-                @click="copyInvite"
-              >Copy invite</button>
-              <button
-                v-if="canEditSelected"
-                type="button"
-                class="btn btn-secondary btn-sm"
-                @click="toggleEditInterview"
-              >{{ showEditInterview ? 'Cancel edit' : 'Edit interview' }}</button>
-            </div>
-          </div>
-
-          <div v-if="showEditInterview" class="ih-edit-panel">
-            <div class="ih-edit-grid">
-              <label class="ih-label">Start</label>
-              <input v-model="editForm.startsAt" class="input" type="datetime-local" />
-              <label class="ih-label">Timezone</label>
-              <select v-model="editForm.timezone" class="input">
-                <option v-for="tz in timezoneOptions" :key="`edit-${tz}`" :value="tz">{{ tz }}</option>
-              </select>
-              <label class="ih-label ih-field-full">Interviewers</label>
-              <select v-model="editInterviewerPick" class="input ih-field-full" @change="addEditInterviewer">
-                <option value="">Add interviewer…</option>
-                <option
-                  v-for="a in assignees"
-                  :key="`edit-${a.id || a.user_id}`"
-                  :value="String(a.id || a.user_id)"
-                  :disabled="editForm.interviewerUserIds.includes(String(a.id || a.user_id))"
-                >
-                  {{ formatAssigneeOption(a) }}
-                </option>
-              </select>
-              <div v-if="editForm.interviewerUserIds.length" class="ih-chips ih-field-full">
-                <span v-for="id in editForm.interviewerUserIds" :key="`chip-${id}`" class="ih-chip">
-                  {{ interviewerNameById(id) }}
-                  <button type="button" class="ih-chip-x" aria-label="Remove interviewer" @click="removeEditInterviewer(id)">×</button>
-                </span>
-              </div>
-            </div>
-            <div class="ih-edit-actions">
-              <button
-                type="button"
-                class="btn btn-primary btn-sm"
-                :disabled="savingEdit || !editForm.startsAt"
-                @click="saveInterviewEdit"
-              >{{ savingEdit ? 'Saving…' : 'Save changes' }}</button>
-            </div>
-            <p v-if="editError" class="error-inline">{{ editError }}</p>
-          </div>
-
-          <div class="ih-detail-grid">
-            <div class="ih-field">
-              <div class="ih-field-label">Interviewers</div>
-              <div>{{ interviewerLabels(selectedInterview).join(', ') || '—' }}</div>
-            </div>
-            <div class="ih-field">
-              <div class="ih-field-label">Job question set</div>
-              <div>{{ jobSetTitle(selectedInterview.job_question_set_id) || '—' }}</div>
-            </div>
-            <div class="ih-field ih-field-wide">
-              <div class="ih-field-label">Join URL</div>
-              <div class="ih-url-row">
-                <code class="ih-url">{{ selectedInterview.public_join_url || 'Not available' }}</code>
-                <button
-                  type="button"
-                  class="btn btn-secondary btn-sm"
-                  :disabled="!selectedInterview.public_join_url"
-                  @click="copyText(selectedInterview.public_join_url)"
-                >Copy</button>
-              </div>
-              <p class="ih-hint">Candidates join as guests. Signed-in staff join as hosts on the same link.</p>
-            </div>
-            <div v-if="selectedInterview.provider_schedule_event_id" class="ih-field">
-              <div class="ih-field-label">Schedule event</div>
-              <router-link :to="scheduleEventLink(selectedInterview)" class="ih-link">
-                Event #{{ selectedInterview.provider_schedule_event_id }}
-              </router-link>
-            </div>
-          </div>
+        <HiringCandidatesView
+          v-else-if="selectedCandidateUserId"
+          :key="`${selectedInterviewId}-${selectedCandidateUserId}`"
+          embedded-detail-only
+          :embedded-candidate-user-id="selectedCandidateUserId"
+          :embedded-agency-id="effectiveAgencyId"
+          embedded-initial-tab="interview"
+        />
+        <div v-else class="ih-empty-main">
+          <p>This interview has no linked applicant profile.</p>
         </div>
       </main>
     </div>
@@ -362,6 +272,7 @@ import { useAgencyStore } from '../../store/agency';
 import { useAuthStore } from '../../store/auth';
 import { HIRING_INTERVIEW_ROUNDS, suggestInterviewRound } from '../../constants/hiringInterviewRounds.js';
 import { buildHiringInterviewTitle } from '../../utils/hiringInterviewTitle.js';
+import HiringCandidatesView from './HiringCandidatesView.vue';
 
 const route = useRoute();
 const agencyStore = useAgencyStore();
@@ -405,12 +316,6 @@ const effectiveAgencyId = computed(() => {
   const a = agencyStore.currentAgency?.value || agencyStore.currentAgency;
   return Number(a?.id || authStore.user?.agencyId || 0) || null;
 });
-
-const orgPath = (path) => {
-  const slug = String(route.params?.organizationSlug || '').trim();
-  if (!slug) return path;
-  return `/${slug}${path}`;
-};
 
 const filterOptions = [
   { key: 'all', label: 'All' },
@@ -478,99 +383,10 @@ const selectedInterview = computed(() =>
   interviews.value.find((i) => Number(i.id) === Number(selectedInterviewId.value)) || null
 );
 
-const canEditSelected = computed(() => {
-  const status = String(selectedInterview.value?.status || '').toLowerCase();
-  return status === 'scheduled' || status === 'in_progress';
+const selectedCandidateUserId = computed(() => {
+  const uid = Number(selectedInterview.value?.candidate_user_id || 0);
+  return uid > 0 ? uid : null;
 });
-
-const showEditInterview = ref(false);
-const savingEdit = ref(false);
-const editError = ref('');
-const editInterviewerPick = ref('');
-const editForm = ref({
-  startsAt: '',
-  timezone: 'America/Denver',
-  interviewerUserIds: []
-});
-
-function toDatetimeLocalValue(d) {
-  const pad = (n) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
-}
-
-function interviewerNameById(id) {
-  const a = assigneeById.value.get(Number(id));
-  return a ? formatAssigneeOption(a) : `#${id}`;
-}
-
-function populateEditForm(iv = selectedInterview.value) {
-  if (!iv) return;
-  editError.value = '';
-  editInterviewerPick.value = '';
-  editForm.value = {
-    startsAt: iv.interview_starts_at ? toDatetimeLocalValue(new Date(iv.interview_starts_at)) : '',
-    timezone: iv.interview_timezone || Intl.DateTimeFormat().resolvedOptions().timeZone || 'America/Denver',
-    interviewerUserIds: (Array.isArray(iv.interviewer_user_ids_json) ? iv.interviewer_user_ids_json : [])
-      .map((id) => String(id))
-      .filter(Boolean)
-  };
-  if (!timezoneOptions.includes(editForm.value.timezone)) {
-    timezoneOptions.push(editForm.value.timezone);
-  }
-}
-
-async function toggleEditInterview() {
-  if (showEditInterview.value) {
-    showEditInterview.value = false;
-    editError.value = '';
-    return;
-  }
-  try {
-    await loadAssignees();
-  } catch {
-    /* keep empty assignee list */
-  }
-  populateEditForm();
-  showEditInterview.value = true;
-}
-
-function addEditInterviewer() {
-  const id = String(editInterviewerPick.value || '').trim();
-  editInterviewerPick.value = '';
-  if (!id || editForm.value.interviewerUserIds.includes(id)) return;
-  editForm.value.interviewerUserIds = [...editForm.value.interviewerUserIds, id];
-}
-
-function removeEditInterviewer(id) {
-  editForm.value.interviewerUserIds = editForm.value.interviewerUserIds.filter((x) => String(x) !== String(id));
-}
-
-async function saveInterviewEdit() {
-  const iv = selectedInterview.value;
-  if (!iv?.id) return;
-  savingEdit.value = true;
-  editError.value = '';
-  try {
-    const startsAt = String(editForm.value.startsAt || '').trim();
-    if (!startsAt || Number.isNaN(new Date(startsAt).getTime())) {
-      editError.value = 'Pick a valid start date and time.';
-      return;
-    }
-    await api.patch(`/hiring/interview-hub/interviews/${iv.id}`, {
-      agencyId: effectiveAgencyId.value,
-      startsAt,
-      timezone: editForm.value.timezone,
-      interviewerUserIds: editForm.value.interviewerUserIds.map((id) => Number(id)).filter((n) => n > 0)
-    });
-    showEditInterview.value = false;
-    await loadInterviews();
-    flashSuccess('Interview updated');
-  } catch (e) {
-    editError.value = e?.response?.data?.message || e?.message || 'Failed to update interview';
-  } finally {
-    savingEdit.value = false;
-  }
-}
 
 function startOfDay(d) {
   const x = new Date(d);
@@ -711,14 +527,6 @@ const scheduleTitlePreview = computed(() => {
   });
 });
 
-function interviewerLabels(iv) {
-  const ids = Array.isArray(iv.interviewer_user_ids_json) ? iv.interviewer_user_ids_json : [];
-  return ids.map((id) => {
-    const a = assigneeById.value.get(Number(id));
-    return a ? formatAssigneeOption(a) : `#${id}`;
-  });
-}
-
 function jobSetTitle(id) {
   if (!id) return '';
   const s = jobSets.value.find((x) => Number(x.id) === Number(id));
@@ -730,38 +538,8 @@ function questionCount(s) {
   return Array.isArray(q) ? q.length : 0;
 }
 
-function scheduleEventLink(iv) {
-  const id = iv?.provider_schedule_event_id;
-  return orgPath(`/workforce-operations${id ? `?eventId=${id}` : ''}`);
-}
-
-async function copyText(text) {
-  if (!text) return;
-  try {
-    await navigator.clipboard.writeText(text);
-    flashSuccess('Copied to clipboard');
-  } catch {
-    error.value = 'Could not copy to clipboard';
-  }
-}
-
-async function copyInvite() {
-  const iv = selectedInterview.value;
-  if (!iv?.public_join_url) return;
-  const name = interviewListLabel(iv);
-  const when = fmtDateTime(iv.interview_starts_at);
-  const body = [
-    name,
-    when !== '—' ? `When: ${when}${iv.interview_timezone ? ` (${iv.interview_timezone})` : ''}` : null,
-    `Join: ${iv.public_join_url}`
-  ].filter(Boolean).join('\n');
-  await copyText(body);
-}
-
 function selectInterview(id) {
   selectedInterviewId.value = id;
-  showEditInterview.value = false;
-  editError.value = '';
 }
 
 function hydrateTemplateForm(t) {
@@ -1043,7 +821,11 @@ onMounted(async () => {
 </script>
 
 <style scoped>
-.ih-root { padding: 20px 0 40px; }
+.ih-root {
+  padding: 20px 24px 40px;
+  max-width: 100%;
+  box-sizing: border-box;
+}
 .ih-header {
   display: flex;
   justify-content: space-between;
@@ -1103,9 +885,9 @@ onMounted(async () => {
 }
 .ih-split {
   display: grid;
-  grid-template-columns: 280px 1fr;
+  grid-template-columns: 300px minmax(0, 1fr);
   gap: 16px;
-  min-height: 420px;
+  min-height: 520px;
 }
 .ih-sidebar {
   border: 1px solid #e5e7eb;
@@ -1169,7 +951,16 @@ onMounted(async () => {
   border-radius: 12px;
   background: #fff;
   padding: 20px;
-  min-height: 320px;
+  min-height: 520px;
+  min-width: 0;
+}
+.ih-main--applicant {
+  padding: 0;
+  overflow: hidden;
+}
+.ih-main--applicant :deep(.detail-panel--embedded) {
+  max-height: calc(100vh - 240px);
+  overflow-y: auto;
 }
 .ih-empty-main {
   display: flex;

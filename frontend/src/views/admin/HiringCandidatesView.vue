@@ -1,6 +1,6 @@
 <template>
-  <div class="container hiring-root">
-    <div class="header" data-tour="hiring-header">
+  <div :class="embeddedDetailOnly ? 'hiring-root hiring-root--embedded' : 'container hiring-root'">
+    <div v-if="!embeddedDetailOnly" class="header" data-tour="hiring-header">
       <div>
         <h2 data-tour="hiring-title">Applications</h2>
         <div class="subtle">Review applications and move candidates through hiring</div>
@@ -25,8 +25,8 @@
 
     <div v-if="error" class="error-banner">{{ error }}</div>
 
-    <div class="grid" data-tour="hiring-grid">
-      <div class="panel list-panel" data-tour="hiring-list-panel">
+    <div class="grid" :class="{ 'grid--embedded': embeddedDetailOnly }" data-tour="hiring-grid">
+      <div v-if="!embeddedDetailOnly" class="panel list-panel" data-tour="hiring-list-panel">
         <div class="stage-tabs" data-tour="hiring-stage-tabs">
           <button
             v-for="s in stageTabs"
@@ -99,10 +99,10 @@
         </div>
       </div>
 
-      <div class="panel detail-panel" data-tour="hiring-detail-panel">
+      <div class="panel detail-panel" :class="{ 'detail-panel--embedded': embeddedDetailOnly }" data-tour="hiring-detail-panel">
         <div v-if="!selectedId" class="empty detail-empty">
-          <h3>Select an application</h3>
-          <p class="muted">Choose someone from the list to open their overview, resume, interviews, and notes.</p>
+          <h3>{{ embeddedDetailOnly ? 'Loading application…' : 'Select an application' }}</h3>
+          <p v-if="!embeddedDetailOnly" class="muted">Choose someone from the list to open their overview, resume, interviews, and notes.</p>
         </div>
 
         <div v-else>
@@ -768,6 +768,13 @@ import CandidateAssessmentWorkspace from '../../components/hiring/CandidateAsses
 import CandidateInterviewPanel from '../../components/hiring/CandidateInterviewPanel.vue';
 import { buildQuickResumeBullets } from '../../utils/hiringResumeSummaryBullets.js';
 
+const props = defineProps({
+  embeddedDetailOnly: { type: Boolean, default: false },
+  embeddedCandidateUserId: { type: [Number, String], default: null },
+  embeddedAgencyId: { type: [Number, String], default: null },
+  embeddedInitialTab: { type: String, default: 'interview' }
+});
+
 const agencyStore = useAgencyStore();
 const authStore = useAuthStore();
 const route = useRoute();
@@ -972,6 +979,9 @@ const selectedAgencyId = ref('');
 const agencyStorageKey = computed(() => `hiring_selected_agency_v1_${authStore.user?.id || 'anon'}`);
 
 const effectiveAgencyId = computed(() => {
+  const embeddedAid = Number(props.embeddedAgencyId || 0);
+  if (embeddedAid > 0) return embeddedAid;
+
   // First: explicit selection on this page.
   const chosen = selectedAgencyId.value ? parseInt(String(selectedAgencyId.value), 10) : null;
   if (chosen) return chosen;
@@ -993,6 +1003,23 @@ const effectiveAgencyId = computed(() => {
 
   return null;
 });
+
+watch(
+  () => [props.embeddedDetailOnly, props.embeddedCandidateUserId, props.embeddedAgencyId],
+  async ([embedded, uid]) => {
+    if (!embedded || !uid) return;
+    const id = Number(uid);
+    if (!Number.isFinite(id) || id <= 0) return;
+    if (props.embeddedAgencyId) {
+      selectedAgencyId.value = String(props.embeddedAgencyId);
+    }
+    tab.value = props.embeddedInitialTab || 'interview';
+    if (Number(selectedId.value) !== id) {
+      await selectCandidate(id);
+    }
+  },
+  { immediate: true }
+);
 
 watch(
   () => selectedAgencyId.value,
@@ -2374,6 +2401,19 @@ onMounted(async () => {
     // ignore; best effort
   }
 
+  if (props.embeddedDetailOnly) {
+    if (props.embeddedAgencyId) {
+      selectedAgencyId.value = String(props.embeddedAgencyId);
+    }
+    await loadJobDescriptions();
+    const uid = Number(props.embeddedCandidateUserId || 0);
+    if (uid > 0) {
+      tab.value = props.embeddedInitialTab || 'interview';
+      await selectCandidate(uid);
+    }
+    return;
+  }
+
   // Restore last selected agency for this user (prevents “I came back and it’s gone” confusion).
   try {
     const raw = localStorage.getItem(agencyStorageKey.value);
@@ -2451,6 +2491,20 @@ onUnmounted(() => {
   margin: 0;
   padding-left: 16px;
   padding-right: 16px;
+}
+.hiring-root--embedded {
+  padding: 0;
+  width: 100%;
+  max-width: 100%;
+  margin: 0;
+}
+.grid--embedded {
+  grid-template-columns: minmax(0, 1fr);
+}
+.detail-panel--embedded {
+  border: none;
+  padding: 0;
+  min-height: 480px;
 }
 .job-dash {
   display: flex;
