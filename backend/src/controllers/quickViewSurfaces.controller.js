@@ -9,7 +9,8 @@ import {
   markRead,
   listThreadsInbox,
   listMentionsInbox,
-  listFilesInbox
+  listFilesInbox,
+  createOrGetDirectThread
 } from './chat.controller.js';
 import { listChannels, openChannel } from './chatChannels.controller.js';
 import Task from '../models/Task.model.js';
@@ -66,6 +67,108 @@ export const qvListFiles = wrap(listFilesInbox);
 export const qvListChatMessages = wrap(listMessages);
 export const qvSendChatMessage = wrap(sendMessage);
 export const qvMarkChatRead = wrap(markRead);
+
+export const qvCreateDirectThread = wrap(async (req, res, next) => {
+  if (!req.body) req.body = {};
+  if (!req.body.agencyId && req.quickView.agencyId) {
+    req.body.agencyId = req.quickView.agencyId;
+  }
+  return createOrGetDirectThread(req, res, next);
+});
+
+function mapDirectoryPerson(r, section) {
+  const first = r.first_name || r.firstName || '';
+  const last = r.last_name || r.lastName || '';
+  const preferred = r.preferred_name || r.preferredName || '';
+  const displayName = preferred || `${first} ${last}`.trim() || r.email || 'Teammate';
+  return {
+    id: Number(r.id),
+    displayName,
+    firstName: first,
+    lastName: last,
+    role: r.role || null,
+    email: r.work_email || r.email || null,
+    section
+  };
+}
+
+export const getQuickDirectory = async (req, res, next) => {
+  try {
+    const userId = req.quickView.userId;
+    const agencyId = req.quickView.agencyId;
+    if (!agencyId) {
+      return res.json({ ok: true, providers: [], schoolStaff: [], agencyId: null });
+    }
+
+    const [providerRows] = await pool.execute(
+      `SELECT u.id, u.first_name, u.last_name, u.preferred_name, u.email, u.work_email, u.role
+       FROM user_agencies ua
+       JOIN users u ON u.id = ua.user_id
+       WHERE ua.agency_id = ?
+         AND u.id != ?
+         AND (u.is_archived = FALSE OR u.is_archived IS NULL)
+         AND LOWER(COALESCE(u.role, '')) NOT IN (
+               'client_guardian', 'guardian', 'school_staff',
+               'super_admin', 'parent', 'client', 'kiosk'
+             )
+         AND (
+           UPPER(COALESCE(u.status, '')) IN ('ACTIVE_EMPLOYEE', 'ONBOARDING')
+           OR u.status IS NULL
+         )
+       ORDER BY u.first_name ASC, u.last_name ASC
+       LIMIT 300`,
+      [agencyId, userId]
+    ).catch(() => [[]]);
+
+    let schoolRows = [];
+    try {
+      const [rows] = await pool.execute(
+        `SELECT DISTINCT u.id, u.first_name, u.last_name, u.preferred_name, u.email, u.work_email, u.role
+         FROM users u
+         INNER JOIN user_agencies ua ON ua.user_id = u.id
+         INNER JOIN agencies school ON school.id = ua.agency_id
+           AND LOWER(COALESCE(school.organization_type, '')) = 'school'
+         INNER JOIN organization_affiliations oa ON oa.organization_id = school.id
+           AND oa.agency_id = ?
+           AND oa.is_active = 1
+         WHERE (u.is_archived = FALSE OR u.is_archived IS NULL)
+           AND LOWER(COALESCE(u.role, '')) = 'school_staff'
+           AND u.id != ?
+         ORDER BY u.first_name ASC, u.last_name ASC
+         LIMIT 300`,
+        [agencyId, userId]
+      );
+      schoolRows = rows || [];
+    } catch {
+      try {
+        const [rows] = await pool.execute(
+          `SELECT DISTINCT u.id, u.first_name, u.last_name, u.preferred_name, u.email, u.work_email, u.role
+           FROM users u
+           INNER JOIN user_agencies ua ON ua.user_id = u.id
+           INNER JOIN agency_schools ash ON ash.school_id = ua.agency_id AND ash.agency_id = ?
+           WHERE (u.is_archived = FALSE OR u.is_archived IS NULL)
+             AND LOWER(COALESCE(u.role, '')) = 'school_staff'
+             AND u.id != ?
+           ORDER BY u.first_name ASC, u.last_name ASC
+           LIMIT 300`,
+          [agencyId, userId]
+        );
+        schoolRows = rows || [];
+      } catch {
+        schoolRows = [];
+      }
+    }
+
+    res.json({
+      ok: true,
+      agencyId,
+      providers: (providerRows || []).map((r) => mapDirectoryPerson(r, 'providers')),
+      schoolStaff: (schoolRows || []).map((r) => mapDirectoryPerson(r, 'school_staff'))
+    });
+  } catch (e) {
+    next(e);
+  }
+};
 
 export const qvFocusMusicCatalog = wrap(async (req, res, next) => {
   // Rewrite stream URLs to Quick View proxy

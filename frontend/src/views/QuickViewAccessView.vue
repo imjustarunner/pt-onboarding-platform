@@ -304,29 +304,92 @@
           <div v-if="!dayItems.length" class="qv-pad muted">Nothing scheduled this day.</div>
         </template>
         <template v-else>
-          <div v-for="s in officeSlots" :key="s.id" class="qv-row">
-            <div class="meta">
-              <strong>{{ s.office_name || 'Office' }}</strong>
-              <small>{{ formatTime(s.start_at) }} – {{ formatTime(s.end_at) }} · {{ s.status || '—' }}</small>
+          <div class="qv-suite">
+            <button type="button" :class="{ on: officeFilterId === null }" @click="setOfficeFilter(null)">All offices</button>
+            <button
+              v-for="loc in officeLocations"
+              :key="loc.id"
+              type="button"
+              :class="{ on: officeFilterId === loc.id }"
+              @click="setOfficeFilter(loc.id)"
+            >{{ loc.name }}</button>
+          </div>
+          <div v-if="myOfficeSlots.length" class="qv-office-section">
+            <h3 class="qv-section-title">My office today</h3>
+            <div v-for="s in myOfficeSlots" :key="s.id" class="qv-row">
+              <div class="meta">
+                <strong>{{ s.office_name || 'Office' }}</strong>
+                <small>{{ formatClock(s.start_at) }} – {{ formatClock(s.end_at) }} · {{ s.status || '—' }}</small>
+              </div>
             </div>
           </div>
-          <div v-if="!officeSlots.length" class="qv-pad muted">No office slots for this day.</div>
+          <div class="qv-office-section">
+            <h3 class="qv-section-title">Who’s in today</h3>
+            <div v-for="office in filteredOffices" :key="office.id" class="qv-office-card">
+              <div class="qv-office-head">
+                <strong>{{ office.name }}</strong>
+                <small>{{ office.people.length }} booked · {{ office.slotCount }} slots</small>
+              </div>
+              <div v-if="!office.people.length" class="qv-pad muted">No one booked here yet.</div>
+              <div v-for="p in office.people" :key="`${office.id}-${p.providerId}`" class="qv-row">
+                <div class="meta">
+                  <strong>{{ p.name }}</strong>
+                  <small>
+                    {{ formatClock(p.firstStart) }} – {{ formatClock(p.lastEnd) }}
+                    <span v-if="p.rooms?.length"> · {{ p.rooms.join(', ') }}</span>
+                  </small>
+                </div>
+                <button
+                  v-if="p.providerId !== sessionUserId"
+                  type="button"
+                  class="qv-btn primary sm"
+                  :disabled="dmBusyId === p.providerId"
+                  @click="messageUser(p.providerId, p.name)"
+                >Message</button>
+              </div>
+            </div>
+            <div v-if="!filteredOffices.length" class="qv-pad muted">No office bookings for this day.</div>
+          </div>
         </template>
       </div>
 
       <div v-else-if="tab === 'contacts'" class="qv-pane">
-        <div class="qv-toolbar">
-          <div class="qv-pad muted" style="padding: 8px 0; margin: 0;">Saved contacts</div>
-          <button type="button" class="qv-btn primary sm" @click="showNewContact = true">Add contact</button>
+        <div class="qv-suite">
+          <button type="button" :class="{ on: contactSuite === 'providers' }" @click="loadDirectory('providers')">Providers</button>
+          <button type="button" :class="{ on: contactSuite === 'school' }" @click="loadDirectory('school')">School staff</button>
+          <button type="button" :class="{ on: contactSuite === 'saved' }" @click="loadSavedContacts">Saved</button>
         </div>
-        <div v-for="c in contacts" :key="c.id" class="qv-row">
-          <div class="meta">
-            <strong>{{ c.display_name || c.email }}</strong>
-            <small>{{ c.email }} · {{ c.trust_status }}</small>
+        <template v-if="contactSuite === 'providers' || contactSuite === 'school'">
+          <div v-for="p in directoryPeople" :key="p.id" class="qv-row">
+            <div class="meta">
+              <strong>{{ p.displayName }}</strong>
+              <small>{{ formatRole(p.role) }}</small>
+            </div>
+            <button
+              type="button"
+              class="qv-btn primary sm"
+              :disabled="dmBusyId === p.id"
+              @click="messageUser(p.id, p.displayName)"
+            >Message</button>
           </div>
-          <button type="button" class="qv-btn ghost sm" @click="composeTo(c)">Message</button>
-        </div>
-        <div v-if="!contacts.length" class="qv-pad muted">No contacts yet.</div>
+          <div v-if="!directoryPeople.length" class="qv-pad muted">
+            {{ contactSuite === 'school' ? 'No school staff found.' : 'No providers found.' }}
+          </div>
+        </template>
+        <template v-else>
+          <div class="qv-toolbar">
+            <div class="qv-pad muted" style="padding: 8px 0; margin: 0;">Saved email contacts</div>
+            <button type="button" class="qv-btn primary sm" @click="showNewContact = true">Add</button>
+          </div>
+          <div v-for="c in contacts" :key="c.id" class="qv-row">
+            <div class="meta">
+              <strong>{{ c.display_name || c.email }}</strong>
+              <small>{{ c.email }} · {{ c.trust_status }}</small>
+            </div>
+            <button type="button" class="qv-btn ghost sm" @click="composeTo(c)">Email</button>
+          </div>
+          <div v-if="!contacts.length" class="qv-pad muted">No saved contacts yet.</div>
+        </template>
       </div>
 
       <QuickViewMusicDock
@@ -449,6 +512,7 @@ const expiresAt = ref(null);
 const agencyName = ref('');
 const agencyLogoUrl = ref('');
 const agencyPrimaryColor = ref('');
+const colorPalette = ref({});
 const loginUrl = ref('');
 const isLocked = ref(false);
 const tab = ref('home');
@@ -479,7 +543,15 @@ const day = ref(new Date().toISOString().slice(0, 10));
 const dayItems = ref([]);
 const showOffice = ref(false);
 const officeSlots = ref([]);
+const officeLocations = ref([]);
+const officeRoster = ref([]);
+const officeFilterId = ref(null);
 const contacts = ref([]);
+const contactSuite = ref('providers');
+const directoryProviders = ref([]);
+const directorySchool = ref([]);
+const dmBusyId = ref(null);
+const sessionAgencyId = ref(null);
 const homeScreenTip = ref(false);
 let heartbeatTimer = null;
 
@@ -509,10 +581,27 @@ const dayHours = computed(() => {
 });
 
 const brandStyle = computed(() => {
-  const primary = agencyPrimaryColor.value || '#166534';
+  const p = colorPalette.value || {};
+  const primary = p.primary || agencyPrimaryColor.value || '#166534';
+  const secondary = p.secondary || primary;
+  const accent = p.accent || secondary;
+  const bg = p.backgroundColor
+    || `color-mix(in srgb, ${primary} 20%, #06100c)`;
+  const surface = p.secondaryBackground
+    || `color-mix(in srgb, ${primary} 28%, #0a1610)`;
+  const border = `color-mix(in srgb, ${secondary} 35%, #1a2e24)`;
+  const text = p.textPrimary || '#f4faf6';
+  const muted = p.textMuted || p.textSecondary || '#a7c4b4';
   return {
     '--qv-primary': primary,
-    '--qv-primary-soft': primary
+    '--qv-secondary': secondary,
+    '--qv-accent': accent,
+    '--qv-primary-soft': primary,
+    '--qv-bg': bg,
+    '--qv-surface': surface,
+    '--qv-border': border,
+    '--qv-text': text,
+    '--qv-muted': muted
   };
 });
 
@@ -523,6 +612,31 @@ const filteredConversations = computed(() => {
   if (sort.value === 'secure') list = list.filter((c) => String(c.channel || '').toLowerCase() === 'secure');
   return list;
 });
+
+const myOfficeSlots = computed(() => officeSlots.value || []);
+const filteredOffices = computed(() => {
+  const list = officeRoster.value || [];
+  if (!officeFilterId.value) return list;
+  return list.filter((o) => Number(o.id) === Number(officeFilterId.value));
+});
+const directoryPeople = computed(() =>
+  contactSuite.value === 'school' ? directorySchool.value : directoryProviders.value
+);
+
+function applyBranding(data = {}) {
+  if (data.agencyName) agencyName.value = data.agencyName;
+  if (data.agencyLogoUrl != null) agencyLogoUrl.value = data.agencyLogoUrl || '';
+  if (data.agencyPrimaryColor) agencyPrimaryColor.value = data.agencyPrimaryColor;
+  if (data.colorPalette) colorPalette.value = data.colorPalette;
+  else if (data.agencyPrimaryColor) {
+    colorPalette.value = {
+      ...(colorPalette.value || {}),
+      primary: data.agencyPrimaryColor
+    };
+  }
+  if (data.loginUrl) loginUrl.value = data.loginUrl;
+  if (data.agencyId) sessionAgencyId.value = data.agencyId;
+}
 
 function authHeaders() {
   const h = {};
@@ -557,6 +671,7 @@ async function resumeSession() {
     );
     expiresAt.value = data.expiresAt;
     if (data.userId) sessionUserId.value = data.userId;
+    if (data.agencyId) sessionAgencyId.value = data.agencyId;
     if (stored) session.value = stored;
     startHeartbeat();
     // Branding from tenant endpoint when possible
@@ -566,10 +681,7 @@ async function resumeSession() {
         params: { host: host.replace(/^qv\./, '') },
         withCredentials: true
       });
-      agencyName.value = tenant.data.agencyName || agencyName.value;
-      agencyLogoUrl.value = tenant.data.agencyLogoUrl || '';
-      agencyPrimaryColor.value = tenant.data.agencyPrimaryColor || '';
-      loginUrl.value = tenant.data.loginUrl || '';
+      applyBranding(tenant.data);
       installQuickViewManifest();
     } catch { /* ignore */ }
     await loadHome();
@@ -608,7 +720,7 @@ function installQuickViewManifest() {
   const origin = window.location.origin;
   const name = agencyName.value ? `${agencyName.value} Quick View` : 'Quick View';
   const iconSrc = agencyLogoUrl.value || '/branding/plottwisthq-platform-bg.png';
-  const theme = agencyPrimaryColor.value || '#0f172a';
+  const theme = agencyPrimaryColor.value || colorPalette.value?.primary || '#166534';
   // Server-served manifest so iOS "Open as Web App" uses this origin's root — not plottwisthq /
   const href =
     `${apiBase}/pwa-manifest?` +
@@ -653,10 +765,7 @@ async function loadTokenInfo() {
       withCredentials: true
     });
     tokenInfo.value = data;
-    agencyName.value = data.agencyName || '';
-    agencyLogoUrl.value = data.agencyLogoUrl || '';
-    agencyPrimaryColor.value = data.agencyPrimaryColor || '';
-    loginUrl.value = data.loginUrl || '';
+    applyBranding(data);
     isLocked.value = !!data.isLocked || !!data.requiresReset;
     if (loginUrl.value) {
       try { localStorage.setItem(LOGIN_URL_KEY, loginUrl.value); } catch { /* ignore */ }
@@ -689,6 +798,8 @@ async function unlock() {
     session.value = data.sessionToken;
     expiresAt.value = data.expiresAt;
     if (data.userId) sessionUserId.value = data.userId;
+    if (data.agencyId) sessionAgencyId.value = data.agencyId;
+    else if (tokenInfo.value?.agencyId) sessionAgencyId.value = tokenInfo.value.agencyId;
     rememberBookmark();
     startHeartbeat();
     await loadHome();
@@ -1054,9 +1165,43 @@ async function loadOffice() {
   const { data } = await axios.get(`${apiBase}/office`, {
     headers: authHeaders(),
     withCredentials: true,
-    params: { day: day.value }
+    params: {
+      day: day.value,
+      officeId: officeFilterId.value || undefined
+    }
   });
-  officeSlots.value = data.slots || [];
+  officeSlots.value = data.mySlots || data.slots || [];
+  officeLocations.value = data.locations || [];
+  officeRoster.value = data.offices || [];
+  if (data.agencyId) sessionAgencyId.value = data.agencyId;
+}
+function setOfficeFilter(id) {
+  officeFilterId.value = id;
+  loadOffice();
+}
+
+async function messageUser(userId, name) {
+  if (!userId) return;
+  dmBusyId.value = userId;
+  error.value = '';
+  try {
+    const { data } = await axios.post(
+      `${apiBase}/chat/direct`,
+      {
+        otherUserId: userId,
+        agencyId: sessionAgencyId.value || undefined
+      },
+      { headers: authHeaders(), withCredentials: true }
+    );
+    activeChatId.value = data.threadId;
+    activeChatTitle.value = name || 'Direct message';
+    tab.value = 'chat';
+    await loadChatMessages();
+  } catch (e) {
+    error.value = e?.response?.data?.error?.message || 'Could not start chat';
+  } finally {
+    dmBusyId.value = null;
+  }
 }
 
 function hourOf(iso) {
@@ -1093,7 +1238,26 @@ function formatClock(v) {
   }
 }
 
-async function loadContacts() {
+async function loadDirectory(suite = 'providers') {
+  tab.value = 'contacts';
+  contactSuite.value = suite;
+  try {
+    const { data } = await axios.get(`${apiBase}/directory`, {
+      headers: authHeaders(),
+      withCredentials: true
+    });
+    directoryProviders.value = data.providers || [];
+    directorySchool.value = data.schoolStaff || [];
+    if (data.agencyId) sessionAgencyId.value = data.agencyId;
+  } catch (e) {
+    error.value = e?.response?.data?.error?.message || 'Could not load directory';
+    directoryProviders.value = [];
+    directorySchool.value = [];
+  }
+}
+
+async function loadSavedContacts() {
+  contactSuite.value = 'saved';
   tab.value = 'contacts';
   try {
     const { data } = await axios.get(`${apiBase}/contacts`, {
@@ -1104,6 +1268,16 @@ async function loadContacts() {
   } catch {
     contacts.value = [];
   }
+}
+
+async function loadContacts() {
+  await loadDirectory('providers');
+}
+
+function formatRole(role) {
+  return String(role || '')
+    .replace(/_/g, ' ')
+    .replace(/\b\w/g, (c) => c.toUpperCase()) || 'Team';
 }
 
 function composeTo(c) {
@@ -1178,7 +1352,7 @@ async function createContact() {
     newContactName.value = '';
     newContactEmail.value = '';
     newContactPhone.value = '';
-    await loadContacts();
+    await loadSavedContacts();
   } catch (e) {
     error.value = e?.response?.data?.error?.message || 'Could not save contact';
   } finally {
@@ -1286,8 +1460,8 @@ onUnmounted(() => {
   min-height: 100vh;
   min-height: 100dvh;
   margin: 0;
-  background: #0f172a;
-  color: #f8fafc;
+  background: var(--qv-bg, #0f172a);
+  color: var(--qv-text, #f8fafc);
   font-family: system-ui, -apple-system, sans-serif;
   overflow-x: hidden;
 }
@@ -1302,7 +1476,8 @@ onUnmounted(() => {
   align-items: center;
   gap: 12px;
   padding: 14px 16px;
-  border-bottom: 1px solid #1e293b;
+  border-bottom: 1px solid var(--qv-border, #1e293b);
+  background: color-mix(in srgb, var(--qv-primary, #166534) 12%, transparent);
 }
 .qv-brand-row { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .qv-logo {
@@ -1322,23 +1497,23 @@ onUnmounted(() => {
   margin-bottom: 12px;
 }
 .qv-brand { font-weight: 800; font-size: 1.05rem; }
-.qv-sub { font-size: 11px; color: #94a3b8; }
+.qv-sub { font-size: 11px; color: var(--qv-muted, #94a3b8); }
 .qv-homescreen {
   margin: 12px 16px;
   padding: 12px;
   border-radius: 12px;
-  background: #1e293b;
-  border: 1px solid #334155;
+  background: var(--qv-surface, #1e293b);
+  border: 1px solid var(--qv-border, #334155);
 }
 .qv-homescreen strong { display: block; margin-bottom: 4px; }
-.qv-homescreen p { margin: 0 0 8px; font-size: 13px; color: #cbd5e1; line-height: 1.4; }
+.qv-homescreen p { margin: 0 0 8px; font-size: 13px; color: var(--qv-muted, #cbd5e1); line-height: 1.4; }
 .qv-gate, .qv-pad { padding: 24px 16px; }
 .qv-gate h1 {
   margin: 0 0 8px;
   font-size: clamp(1.75rem, 8vw, 2.4rem);
   font-weight: 800;
   letter-spacing: -0.02em;
-  color: #e2e8f0;
+  color: var(--qv-text, #e2e8f0);
 }
 .qv-gate p { margin: 0; line-height: 1.4; }
 .qv-form { display: flex; flex-direction: column; gap: 12px; margin-top: 16px; width: 100%; }
@@ -1349,19 +1524,19 @@ onUnmounted(() => {
   text-align: center;
   padding: 14px 12px;
   border-radius: 12px;
-  border: 1px solid #334155;
-  background: #1e293b;
-  color: #fff;
+  border: 1px solid var(--qv-border, #334155);
+  background: var(--qv-surface, #1e293b);
+  color: var(--qv-text, #fff);
   -webkit-text-security: disc;
   text-security: disc;
 }
 .qv-btn { border: none; border-radius: 10px; padding: 12px 14px; font-weight: 700; cursor: pointer; }
 .qv-btn.primary { background: var(--qv-primary, #166534); color: #fff; width: 100%; }
-.qv-btn.ghost { background: transparent; color: #cbd5e1; }
+.qv-btn.ghost { background: transparent; color: var(--qv-text, #cbd5e1); }
 .qv-btn.sm { padding: 6px 10px; font-size: 12px; width: auto; }
 .qv-hint {
   font-size: 12px;
-  color: #94a3b8;
+  color: var(--qv-muted, #94a3b8);
   margin-top: 16px;
   line-height: 1.45;
   max-width: 100%;
@@ -1378,8 +1553,8 @@ onUnmounted(() => {
   gap: 10px;
   flex-wrap: wrap;
 }
-.qv-tabs { display: flex; gap: 4px; padding: 8px; border-bottom: 1px solid #1e293b; overflow-x: auto; }
-.qv-tabs button { flex: 1; min-width: 0; background: #1e293b; color: #cbd5e1; border: none; border-radius: 8px; padding: 10px 8px; font-weight: 700; }
+.qv-tabs { display: flex; gap: 4px; padding: 8px; border-bottom: 1px solid var(--qv-border, #1e293b); overflow-x: auto; }
+.qv-tabs button { flex: 1; min-width: 0; background: var(--qv-surface, #1e293b); color: var(--qv-muted, #cbd5e1); border: none; border-radius: 8px; padding: 10px 8px; font-weight: 700; }
 .qv-tabs button.on { background: var(--qv-primary, #166534); color: #fff; }
 .qv-suite {
   display: flex;
@@ -1390,8 +1565,8 @@ onUnmounted(() => {
 }
 .qv-suite button {
   flex: 0 0 auto;
-  background: #1e293b;
-  color: #94a3b8;
+  background: var(--qv-surface, #1e293b);
+  color: var(--qv-muted, #94a3b8);
   border: none;
   border-radius: 999px;
   padding: 7px 12px;
@@ -1399,36 +1574,52 @@ onUnmounted(() => {
   font-weight: 700;
   white-space: nowrap;
 }
-.qv-suite button.on { background: #334155; color: #fff; }
+.qv-suite button.on { background: var(--qv-secondary, #334155); color: #fff; }
 .qv-pane { padding-bottom: 72px; }
 .qv-section-title { margin: 8px 16px; font-size: 1.1rem; }
+.qv-office-section { margin-bottom: 8px; }
+.qv-office-card {
+  margin: 8px 12px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: var(--qv-surface, #1e293b);
+  border: 1px solid var(--qv-border, #334155);
+}
+.qv-office-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  align-items: baseline;
+  margin-bottom: 4px;
+}
+.qv-office-head small { color: var(--qv-muted, #94a3b8); font-size: 12px; }
 .qv-toolbar { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 8px 12px; flex-wrap: wrap; }
 .qv-sorters, .qv-day-nav { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
-.qv-sorters button { background: #1e293b; color: #94a3b8; border: none; border-radius: 999px; padding: 6px 10px; font-size: 12px; }
-.qv-sorters button.on { background: #334155; color: #fff; }
+.qv-sorters button { background: var(--qv-surface, #1e293b); color: var(--qv-muted, #94a3b8); border: none; border-radius: 999px; padding: 6px 10px; font-size: 12px; }
+.qv-sorters button.on { background: var(--qv-secondary, #334155); color: #fff; }
 .qv-day-nav { padding: 8px 12px; }
 .qv-day-grid { padding: 0 8px 16px; }
 .qv-hour-row {
   display: grid;
   grid-template-columns: 52px 1fr;
   min-height: 56px;
-  border-top: 1px solid #1e293b;
+  border-top: 1px solid var(--qv-border, #1e293b);
 }
 .qv-hour-label {
   font-size: 11px;
-  color: #64748b;
+  color: var(--qv-muted, #64748b);
   padding: 4px 4px 0 0;
   text-align: right;
 }
 .qv-hour-lane {
   position: relative;
-  border-left: 1px solid #1e293b;
+  border-left: 1px solid var(--qv-border, #1e293b);
   padding: 2px 4px 4px 8px;
   min-height: 56px;
 }
 .qv-cal-block {
-  background: color-mix(in srgb, var(--qv-primary, #166534) 28%, #1e293b);
-  border-left: 3px solid var(--qv-primary, #22c55e);
+  background: color-mix(in srgb, var(--qv-primary, #166534) 28%, var(--qv-surface, #1e293b));
+  border-left: 3px solid var(--qv-accent, var(--qv-primary, #22c55e));
   border-radius: 8px;
   padding: 6px 8px;
   margin-bottom: 4px;
@@ -1437,31 +1628,31 @@ onUnmounted(() => {
   gap: 2px;
 }
 .qv-cal-block strong { font-size: 13px; }
-.qv-cal-block small { font-size: 11px; color: #cbd5e1; }
+.qv-cal-block small { font-size: 11px; color: var(--qv-muted, #cbd5e1); }
 .qv-cal-block .qv-btn { margin-top: 4px; align-self: flex-start; }
-.qv-row { width: 100%; display: flex; gap: 10px; align-items: center; text-align: left; background: transparent; border: none; border-bottom: 1px solid #1e293b; padding: 12px 16px; color: inherit; cursor: pointer; }
-.qv-row.unread strong { color: #fff; }
+.qv-row { width: 100%; display: flex; gap: 10px; align-items: center; text-align: left; background: transparent; border: none; border-bottom: 1px solid var(--qv-border, #1e293b); padding: 12px 16px; color: inherit; cursor: pointer; }
+.qv-row.unread strong { color: var(--qv-text, #fff); }
 .qv-row .meta { flex: 1; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .qv-row .meta strong { font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.qv-row .meta small { font-size: 12px; color: #94a3b8; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.badge { font-size: 10px; background: #854d0e; color: #fef9c3; border-radius: 999px; padding: 2px 6px; font-weight: 800; }
-.qv-bubble { margin: 10px 16px; padding: 10px 12px; border-radius: 12px; background: #1e293b; }
-.qv-bubble.outbound { background: #14532d; }
-.qv-bubble .when { font-size: 11px; color: #94a3b8; margin-bottom: 4px; }
+.qv-row .meta small { font-size: 12px; color: var(--qv-muted, #94a3b8); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.badge { font-size: 10px; background: color-mix(in srgb, var(--qv-accent, #854d0e) 55%, #000); color: #fef9c3; border-radius: 999px; padding: 2px 6px; font-weight: 800; }
+.qv-bubble { margin: 10px 16px; padding: 10px 12px; border-radius: 12px; background: var(--qv-surface, #1e293b); }
+.qv-bubble.outbound { background: color-mix(in srgb, var(--qv-primary, #14532d) 55%, #0a1610); }
+.qv-bubble .when { font-size: 11px; color: var(--qv-muted, #94a3b8); margin-bottom: 4px; }
 .qv-reply { display: grid; gap: 8px; margin: 12px 16px 20px; }
 .qv-reply textarea,
 .qv-sheet input,
 .qv-sheet textarea {
   width: 100%;
   border-radius: 10px;
-  border: 1px solid #334155;
-  background: #1e293b;
-  color: #f8fafc;
+  border: 1px solid var(--qv-border, #334155);
+  background: var(--qv-surface, #1e293b);
+  color: var(--qv-text, #f8fafc);
   padding: 10px;
   resize: vertical;
 }
-.qv-date { background: #1e293b; color: #fff; border: 1px solid #334155; border-radius: 8px; padding: 6px; }
-.muted { color: #94a3b8; }
+.qv-date { background: var(--qv-surface, #1e293b); color: var(--qv-text, #fff); border: 1px solid var(--qv-border, #334155); border-radius: 8px; padding: 6px; }
+.muted { color: var(--qv-muted, #94a3b8); }
 .qv-modal {
   position: fixed;
   inset: 0;
@@ -1475,26 +1666,26 @@ onUnmounted(() => {
 .qv-sheet {
   width: 100%;
   max-width: 480px;
-  background: #111827;
-  border: 1px solid #334155;
+  background: var(--qv-bg, #111827);
+  border: 1px solid var(--qv-border, #334155);
   border-radius: 16px 16px 12px 12px;
   padding: 16px;
   max-height: 88vh;
   overflow: auto;
 }
 .qv-task-detail h3 { margin: 8px 0 4px; }
-.qv-task-detail h4 { margin: 16px 0 8px; font-size: 13px; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.04em; }
-.qv-detail-meta { margin: 0 0 6px; font-size: 12px; color: #94a3b8; }
+.qv-task-detail h4 { margin: 16px 0 8px; font-size: 13px; color: var(--qv-muted, #94a3b8); text-transform: uppercase; letter-spacing: 0.04em; }
+.qv-detail-meta { margin: 0 0 6px; font-size: 12px; color: var(--qv-muted, #94a3b8); }
 .qv-detail-body { margin: 10px 0; font-size: 14px; line-height: 1.45; white-space: pre-wrap; }
 .qv-links { display: flex; flex-direction: column; gap: 6px; margin: 8px 0; }
-.qv-links a { color: #93c5fd; font-size: 13px; word-break: break-all; }
-.qv-comment { padding: 8px 0; border-bottom: 1px solid #1e293b; }
+.qv-links a { color: color-mix(in srgb, var(--qv-primary, #93c5fd) 70%, #fff); font-size: 13px; word-break: break-all; }
+.qv-comment { padding: 8px 0; border-bottom: 1px solid var(--qv-border, #1e293b); }
 .qv-comment strong { display: block; font-size: 13px; }
-.qv-comment small { color: #64748b; font-size: 11px; }
+.qv-comment small { color: var(--qv-muted, #64748b); font-size: 11px; }
 .qv-comment p { margin: 4px 0 0; font-size: 13px; line-height: 1.4; }
 .qv-sheet-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 12px; }
-.qv-sheet label { display: block; font-size: 12px; color: #94a3b8; margin: 8px 0 4px; }
+.qv-sheet label { display: block; font-size: 12px; color: var(--qv-muted, #94a3b8); margin: 8px 0 4px; }
 .qv-sheet h3 { margin: 0 0 4px; }
 .qv-sheet-actions .qv-btn { flex: 1; }
-.qv-btn.ghost.on { color: #fff; background: #334155; }
+.qv-btn.ghost.on { color: #fff; background: var(--qv-secondary, #334155); }
 </style>

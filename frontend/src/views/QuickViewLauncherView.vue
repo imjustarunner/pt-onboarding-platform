@@ -57,13 +57,27 @@ const agencyId = ref(null);
 const agencyName = ref('');
 const agencyLogoUrl = ref('');
 const agencyPrimaryColor = ref('');
+const colorPalette = ref({});
 const loginUrl = ref('');
 const isLocked = ref(false);
 const portalSlug = ref('');
 
-const brandStyle = computed(() => ({
-  '--qv-primary': agencyPrimaryColor.value || '#166534'
-}));
+const brandStyle = computed(() => {
+  const p = colorPalette.value || {};
+  const primary = p.primary || agencyPrimaryColor.value || '#166534';
+  const secondary = p.secondary || primary;
+  const accent = p.accent || secondary;
+  return {
+    '--qv-primary': primary,
+    '--qv-secondary': secondary,
+    '--qv-accent': accent,
+    '--qv-bg': p.backgroundColor || `color-mix(in srgb, ${primary} 20%, #06100c)`,
+    '--qv-surface': p.secondaryBackground || `color-mix(in srgb, ${primary} 28%, #0a1610)`,
+    '--qv-border': `color-mix(in srgb, ${secondary} 35%, #1a2e24)`,
+    '--qv-text': p.textPrimary || '#f4faf6',
+    '--qv-muted': p.textMuted || p.textSecondary || '#a7c4b4'
+  };
+});
 
 async function resolveTenant() {
   error.value = '';
@@ -86,6 +100,7 @@ async function resolveTenant() {
   agencyName.value = data.agencyName || '';
   agencyLogoUrl.value = data.agencyLogoUrl || '';
   agencyPrimaryColor.value = data.agencyPrimaryColor || '';
+  colorPalette.value = data.colorPalette || {};
   loginUrl.value = data.loginUrl || '';
   ready.value = true;
 
@@ -93,12 +108,13 @@ async function resolveTenant() {
   try {
     const origin = window.location.origin;
     const name = agencyName.value ? `${agencyName.value} Quick View` : 'Quick View';
+    const theme = agencyPrimaryColor.value || '#166534';
     const href =
       `${apiBase}/pwa-manifest?` +
       new URLSearchParams({
         origin,
         name,
-        theme: agencyPrimaryColor.value || '#0f172a',
+        theme,
         icon: agencyLogoUrl.value || '/branding/plottwisthq-platform-bg.png'
       }).toString();
     let link = document.querySelector('link[rel="manifest"]');
@@ -109,6 +125,8 @@ async function resolveTenant() {
     }
     link.setAttribute('href', href);
     document.title = name;
+    const themeMeta = document.querySelector('meta[name="theme-color"]');
+    if (themeMeta) themeMeta.setAttribute('content', theme);
   } catch { /* ignore */ }
 }
 
@@ -174,8 +192,8 @@ onMounted(async () => {
   place-content: center;
   gap: 12px;
   padding: 24px;
-  background: #0f172a;
-  color: #e2e8f0;
+  background: var(--qv-bg, #0f172a);
+  color: var(--qv-text, #e2e8f0);
   text-align: center;
   font-family: system-ui, -apple-system, sans-serif;
 }
@@ -187,7 +205,7 @@ onMounted(async () => {
   background: #fff;
 }
 .qv-launch h1 { margin: 0; font-size: 1.6rem; }
-.hint { margin: 0; color: #cbd5e1; }
+.hint { margin: 0; color: var(--qv-muted, #cbd5e1); }
 .form { display: grid; gap: 12px; width: min(100%, 320px); }
 .pin {
   width: 100%;
@@ -196,9 +214,9 @@ onMounted(async () => {
   text-align: center;
   padding: 14px 12px;
   border-radius: 12px;
-  border: 1px solid #334155;
-  background: #1e293b;
-  color: #fff;
+  border: 1px solid var(--qv-border, #334155);
+  background: var(--qv-surface, #1e293b);
+  color: var(--qv-text, #fff);
   -webkit-text-security: disc;
   text-security: disc;
 }
@@ -213,8 +231,8 @@ onMounted(async () => {
   text-decoration: none;
   display: inline-block;
 }
-.muted { color: #94a3b8; font-size: 0.9rem; margin: 0; }
-.muted a, .qv-launch a { color: #93c5fd; }
+.muted { color: var(--qv-muted, #94a3b8); font-size: 0.9rem; margin: 0; }
+.muted a, .qv-launch a { color: color-mix(in srgb, var(--qv-primary, #93c5fd) 70%, #fff); }
 .err {
   background: #7f1d1d;
   padding: 10px 12px;

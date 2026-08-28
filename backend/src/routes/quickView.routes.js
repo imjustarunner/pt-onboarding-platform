@@ -37,6 +37,7 @@ import {
   qvListChatMessages,
   qvSendChatMessage,
   qvMarkChatRead,
+  qvCreateDirectThread,
   qvFocusMusicCatalog,
   qvFocusMusicStream,
   getQuickTaskDetail,
@@ -44,7 +45,8 @@ import {
   getQuickTaskLists,
   getQuickTaskProjects,
   getQuickProjectDetail,
-  getQuickListTasks
+  getQuickListTasks,
+  getQuickDirectory
 } from '../controllers/quickViewSurfaces.controller.js';
 
 const router = express.Router();
@@ -90,11 +92,13 @@ router.post('/conversations/:id/reply', requireQuickViewSession, postQuickReply)
 router.post('/compose', requireQuickViewSession, postQuickCompose);
 router.get('/contacts', requireQuickViewSession, getQuickContacts);
 router.post('/contacts', requireQuickViewSession, postQuickContact);
+router.get('/directory', requireQuickViewSession, getQuickDirectory);
 
 // Team chat surfaces (DMs, channels, threads, mentions, files)
 router.get('/chat/threads', requireQuickViewSession, qvListChatThreads);
 router.get('/chat/channels', requireQuickViewSession, qvListChatChannels);
 router.post('/chat/channels/:threadId/open', requireQuickViewSession, qvOpenChannel);
+router.post('/chat/direct', requireQuickViewSession, qvCreateDirectThread);
 router.get('/chat/inbox/threads', requireQuickViewSession, qvListThreadsInbox);
 router.get('/chat/inbox/mentions', requireQuickViewSession, qvListMentions);
 router.get('/chat/inbox/files', requireQuickViewSession, qvListFiles);

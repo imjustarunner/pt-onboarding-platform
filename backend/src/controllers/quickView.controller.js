@@ -48,6 +48,36 @@ async function resolveAgencyForUser(userId, preferredAgencyId = null) {
   return null;
 }
 
+/** Full tenant palette for Quick View shell (primary / secondary / accent / surfaces). */
+async function resolveQuickViewBranding(agency, req = null) {
+  const { buildPublicFormBranding, requestBaseUrl } = await import('../services/publicFormBranding.service.js');
+  const baseUrl = req
+    ? requestBaseUrl(req)
+    : String(process.env.APP_PUBLIC_URL || process.env.FRONTEND_URL || '').replace(/\/$/, '');
+  const branding = await buildPublicFormBranding({
+    organization: agency,
+    agency,
+    baseUrl
+  });
+  const palette = branding.colorPalette || {};
+  return {
+    agencyName: branding.agencyName || agency?.name || null,
+    agencyLogoUrl: branding.logoUrl || null,
+    agencyPrimaryColor: palette.primary || palette.brand || agency?.primary_color || null,
+    colorPalette: {
+      primary: palette.primary || null,
+      secondary: palette.secondary || null,
+      accent: palette.accent || null,
+      primaryHover: palette.primaryHover || null,
+      backgroundColor: palette.backgroundColor || null,
+      secondaryBackground: palette.secondaryBackground || null,
+      textPrimary: palette.textPrimary || null,
+      textSecondary: palette.textSecondary || null,
+      textMuted: palette.textMuted || null
+    }
+  };
+}
+
 function sanitizeQuickViewCalendarItem(e) {
   const kind = String(e.kind || 'SCHEDULE').toUpperCase();
   const hasClient = !!(e.client_id || e.clientId);
@@ -257,6 +287,7 @@ export const getTokenInfo = async (req, res, next) => {
     let agencyName = null;
     let agencyLogoUrl = null;
     let agencyPrimaryColor = null;
+    let colorPalette = null;
     let quickViewEnabled = true;
     let loginUrl = null;
     let homeUrl = null;
@@ -270,13 +301,11 @@ export const getTokenInfo = async (req, res, next) => {
         agencyName = agency?.name || null;
         loginUrl = agency ? buildPublicPortalLoginUrl(agency) : null;
         homeUrl = agency ? buildQuickViewHomeUrl(agency) : null;
-        const baseUrl = String(process.env.APP_PUBLIC_URL || process.env.FRONTEND_URL || '').replace(/\/$/, '');
-        const { resolveOrgLogoUrl } = await import('../services/publicFormBranding.service.js');
-        agencyLogoUrl = resolveOrgLogoUrl(agency, { baseUrl });
-        const palette = typeof agency?.color_palette === 'string'
-          ? (() => { try { return JSON.parse(agency.color_palette); } catch { return null; } })()
-          : agency?.color_palette;
-        agencyPrimaryColor = palette?.primary || palette?.brand || agency?.primary_color || null;
+        const brand = await resolveQuickViewBranding(agency, req);
+        agencyName = brand.agencyName || agencyName;
+        agencyLogoUrl = brand.agencyLogoUrl;
+        agencyPrimaryColor = brand.agencyPrimaryColor;
+        colorPalette = brand.colorPalette;
       } catch { /* ignore */ }
     }
     const status = await getCredentialStatus(cred.user_id);
@@ -296,6 +325,7 @@ export const getTokenInfo = async (req, res, next) => {
       agencyName,
       agencyLogoUrl,
       agencyPrimaryColor,
+      colorPalette,
       hasPasscode: !!cred.passcode_hash,
       quickViewEnabled,
       deliveryMode: !!deliveryMode,
@@ -405,18 +435,14 @@ export const getTenantQuickViewInfo = async (req, res, next) => {
     if (!agency) {
       return res.status(404).json({ error: { message: 'Unknown Quick View tenant' } });
     }
-    const baseUrl = String(process.env.APP_PUBLIC_URL || process.env.FRONTEND_URL || '').replace(/\/$/, '');
-    const { resolveOrgLogoUrl } = await import('../services/publicFormBranding.service.js');
-    const agencyLogoUrl = resolveOrgLogoUrl(agency, { baseUrl });
-    const palette = typeof agency?.color_palette === 'string'
-      ? (() => { try { return JSON.parse(agency.color_palette); } catch { return null; } })()
-      : agency?.color_palette;
+    const brand = await resolveQuickViewBranding(agency, req);
     res.json({
       ok: true,
       agencyId: agency.id,
-      agencyName: agency.name || null,
-      agencyLogoUrl,
-      agencyPrimaryColor: palette?.primary || palette?.brand || agency?.primary_color || null,
+      agencyName: brand.agencyName,
+      agencyLogoUrl: brand.agencyLogoUrl,
+      agencyPrimaryColor: brand.agencyPrimaryColor,
+      colorPalette: brand.colorPalette,
       loginUrl: buildPublicPortalLoginUrl(agency),
       homeUrl: buildQuickViewHomeUrl(agency)
     });
@@ -673,13 +699,16 @@ export const getQuickDayCalendar = async (req, res, next) => {
 export const getQuickOfficeAvailability = async (req, res, next) => {
   try {
     const userId = req.quickView.userId;
+    const agencyId = req.quickView.agencyId;
     const day = String(req.query.day || new Date().toISOString().slice(0, 10)).slice(0, 10);
     const windowStart = `${day} 00:00:00`;
     const dayEnd = new Date(`${day}T12:00:00`);
     dayEnd.setDate(dayEnd.getDate() + 1);
     const windowEnd = `${dayEnd.toISOString().slice(0, 10)} 00:00:00`;
+    const officeFilter = Number(req.query.officeId || 0) || null;
 
-    const [rows] = await pool.execute(
+    // My slots today
+    const [myRows] = await pool.execute(
       `SELECT e.id, e.start_at, e.end_at, e.status,
               ol.name AS office_name,
               e.office_location_id AS office_id
@@ -692,7 +721,150 @@ export const getQuickOfficeAvailability = async (req, res, next) => {
        LIMIT 100`,
       [userId, userId, windowEnd, windowStart]
     ).catch(() => [[]]);
-    res.json({ ok: true, day, slots: rows || [] });
+
+    let locations = [];
+    let rosterRows = [];
+    if (agencyId) {
+      const [locs] = await pool.execute(
+        `SELECT ol.id, ol.name
+         FROM office_locations ol
+         JOIN office_location_agencies ola ON ola.office_location_id = ol.id
+         WHERE ola.agency_id = ?
+           AND (ol.is_active = TRUE OR ol.is_active IS NULL)
+         ORDER BY ol.name ASC
+         LIMIT 50`,
+        [agencyId]
+      ).catch(() => [[]]);
+      locations = locs || [];
+
+      const where = [
+        'ola.agency_id = ?',
+        '(ol.is_active = TRUE OR ol.is_active IS NULL)',
+        'e.start_at < ?',
+        'e.end_at > ?',
+        "(e.status IS NULL OR UPPER(e.status) <> 'CANCELLED')",
+        'COALESCE(e.booked_provider_id, e.assigned_provider_id, sa.provider_id) IS NOT NULL'
+      ];
+      const params = [agencyId, windowEnd, windowStart];
+      if (officeFilter) {
+        where.push('ol.id = ?');
+        params.push(officeFilter);
+      }
+      const [rows] = await pool.execute(
+        `SELECT
+           ol.id AS office_id,
+           ol.name AS office_name,
+           e.id AS event_id,
+           e.start_at,
+           e.end_at,
+           e.status,
+           r.name AS room_name,
+           r.room_number,
+           COALESCE(e.booked_provider_id, e.assigned_provider_id, sa.provider_id) AS provider_id,
+           COALESCE(
+             NULLIF(TRIM(CONCAT(COALESCE(bu.first_name, ''), ' ', COALESCE(bu.last_name, ''))), ''),
+             NULLIF(TRIM(CONCAT(COALESCE(au.first_name, ''), ' ', COALESCE(au.last_name, ''))), ''),
+             NULLIF(TRIM(CONCAT(COALESCE(su.first_name, ''), ' ', COALESCE(su.last_name, ''))), '')
+           ) AS provider_name
+         FROM office_events e
+         JOIN office_locations ol ON ol.id = e.office_location_id
+         JOIN office_location_agencies ola ON ola.office_location_id = ol.id
+         LEFT JOIN office_rooms r ON r.id = e.room_id
+         LEFT JOIN users bu ON e.booked_provider_id = bu.id
+         LEFT JOIN users au ON e.assigned_provider_id = au.id
+         LEFT JOIN office_standing_assignments sa ON e.standing_assignment_id = sa.id
+         LEFT JOIN users su ON sa.provider_id = su.id
+         WHERE ${where.join(' AND ')}
+         ORDER BY ol.name ASC, provider_name ASC, e.start_at ASC
+         LIMIT 400`,
+        params
+      ).catch(() => [[]]);
+      rosterRows = rows || [];
+    }
+
+    const byOffice = new Map();
+    const byPerson = new Map();
+    for (const row of rosterRows) {
+      const officeId = Number(row.office_id || 0);
+      const providerId = Number(row.provider_id || 0);
+      if (!officeId || !providerId) continue;
+      if (!byOffice.has(officeId)) {
+        byOffice.set(officeId, {
+          id: officeId,
+          name: row.office_name || 'Office',
+          people: [],
+          slotCount: 0
+        });
+      }
+      const office = byOffice.get(officeId);
+      office.slotCount += 1;
+
+      const personKey = `${officeId}:${providerId}`;
+      if (!byPerson.has(personKey)) {
+        const person = {
+          providerId,
+          name: String(row.provider_name || '').trim() || `Provider #${providerId}`,
+          officeId,
+          officeName: row.office_name || 'Office',
+          firstStart: row.start_at,
+          lastEnd: row.end_at,
+          rooms: [],
+          slots: []
+        };
+        byPerson.set(personKey, person);
+        office.people.push(person);
+      }
+      const person = byPerson.get(personKey);
+      if (row.start_at && (!person.firstStart || row.start_at < person.firstStart)) {
+        person.firstStart = row.start_at;
+      }
+      if (row.end_at && (!person.lastEnd || row.end_at > person.lastEnd)) {
+        person.lastEnd = row.end_at;
+      }
+      const roomLabel = String(row.room_number || row.room_name || '').trim();
+      if (roomLabel && !person.rooms.includes(roomLabel)) person.rooms.push(roomLabel);
+      person.slots.push({
+        id: row.event_id,
+        startAt: row.start_at,
+        endAt: row.end_at,
+        status: row.status || null,
+        room: roomLabel || null
+      });
+    }
+
+    const offices = Array.from(byOffice.values()).map((o) => ({
+      ...o,
+      people: o.people.sort((a, b) => String(a.name).localeCompare(String(b.name)))
+    }));
+
+    // Flat unique people (for messaging) — earliest office window wins as primary
+    const peopleMap = new Map();
+    for (const p of byPerson.values()) {
+      if (!peopleMap.has(p.providerId)) {
+        peopleMap.set(p.providerId, { ...p });
+      } else {
+        const existing = peopleMap.get(p.providerId);
+        if (p.firstStart && (!existing.firstStart || p.firstStart < existing.firstStart)) {
+          existing.firstStart = p.firstStart;
+          existing.officeId = p.officeId;
+          existing.officeName = p.officeName;
+        }
+        if (p.lastEnd && (!existing.lastEnd || p.lastEnd > existing.lastEnd)) {
+          existing.lastEnd = p.lastEnd;
+        }
+      }
+    }
+
+    res.json({
+      ok: true,
+      day,
+      agencyId: agencyId || null,
+      slots: myRows || [],
+      mySlots: myRows || [],
+      locations,
+      offices,
+      people: Array.from(peopleMap.values()).sort((a, b) => String(a.name).localeCompare(String(b.name)))
+    });
   } catch (e) {
     next(e);
   }
@@ -788,7 +960,7 @@ export const getQuickViewPwaManifest = async (req, res, next) => {
       start_url: start,
       scope: origin ? `${origin}/` : '/',
       display: 'standalone',
-      background_color: '#0f172a',
+      background_color: theme,
       theme_color: theme,
       icons: [
         { src: icon, sizes: '192x192', type: icon.endsWith('.svg') ? 'image/svg+xml' : 'image/png', purpose: 'any' },
