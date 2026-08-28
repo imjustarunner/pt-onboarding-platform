@@ -58,8 +58,10 @@ const router = express.Router();
 router.use(publicIntakeLimiter);
 
 router.get('/registration-receipt/:submissionId', getPublicRegistrationReceipt);
-router.get('/careers/:agencySlug/jobs/:jobId', getPublicJobDescription);
+// Flat dedicated-host URL must be registered before the slug param route,
+// otherwise "jobs" is captured as agencySlug and every /careers/jobs/:id 404s.
 router.get('/careers/jobs/:jobId', getPublicJobDescription);
+router.get('/careers/:agencySlug/jobs/:jobId', getPublicJobDescription);
 router.get('/careers/:agencySlug', listPublicCareers);
 router.get('/school/:organizationId', getSchoolIntakeLink);
 router.post(

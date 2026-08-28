@@ -1289,6 +1289,7 @@ import { SKILL_BUILDERS_AVAILABILITY_ENABLED } from '../config/availabilityFeatu
 import { getDashboardRailCardDescriptors } from '../tutorial/tours/dashboard.tour';
 import { toUploadsUrl } from '../utils/uploadsUrl';
 import { setRememberedGoogleLogin } from '../utils/loginRemember';
+import { resolveHostImpliedPortalSlug } from '../utils/orgScopedPath.js';
 import { setThemePreference, persistThemePreference, applyDarkMode } from '../utils/darkMode';
 import { useSummitStatsChallengeChrome } from '../composables/useSummitStatsChallengeChrome';
 import { usePlotTwistHqShell } from '../composables/usePlotTwistHqShell';
@@ -5304,13 +5305,25 @@ onMounted(async () => {
   }
   // Remember Google quick-login only after a successful OAuth callback hit dashboard.
   if (String(route.query?.sso || '') === '1') {
-    const orgSlug = String(route.params?.organizationSlug || '').trim().toLowerCase();
+    const agency = agencyStore.currentAgency?.value ?? agencyStore.currentAgency ?? null;
+    const orgSlug = String(
+      route.params?.organizationSlug
+      || route.query?.ssoOrg
+      || agency?.portal_url
+      || agency?.portalUrl
+      || agency?.slug
+      || authStore.user?.agencies?.[0]?.portal_url
+      || authStore.user?.agencies?.[0]?.slug
+      || resolveHostImpliedPortalSlug(brandingStore)
+      || ''
+    ).trim().toLowerCase();
     const username = String(authStore.user?.username || authStore.user?.email || '').trim();
     if (orgSlug && username) {
       setRememberedGoogleLogin({ username, orgSlug });
     }
     const nextQuery = { ...route.query };
     delete nextQuery.sso;
+    delete nextQuery.ssoOrg;
     router.replace({ query: nextQuery }).catch(() => {});
   }
 

@@ -558,7 +558,7 @@
             </button>
 
             <button
-              v-if="showPassword && !needsOrgChoice"
+              v-if="showChangeUsernameButton"
               type="button"
               class="btn btn-secondary"
               :disabled="loading || verifying"
@@ -787,6 +787,7 @@ import {
   setRememberedLogin,
   clearRememberedLogin,
   getRememberedGoogleLogin,
+  setRememberedGoogleLogin,
   getRememberedSchoolStaffPasswordLogin,
   setRememberedSchoolStaffPasswordLogin,
   clearRememberedSchoolStaffPasswordLogin
@@ -905,6 +906,10 @@ const loginSlug = computed(() => {
   if (route.meta?.agencySlug && route.params?.agencySlug) return route.params.agencySlug;
   return null;
 });
+/** Branded login slug from route or dedicated host (app.itsco.health → itsco). */
+const effectiveLoginSlug = computed(() =>
+  String(loginSlug.value || resolveHostImpliedPortalSlug(brandingStore) || '').trim().toLowerCase()
+);
 /** Present on /:parentOrgSlug/:organizationSlug/login (e.g. itsco + rudy). */
 const parentOrgSlug = computed(() => {
   if (route.meta?.parentOrgSlug && route.params?.parentOrgSlug) {
@@ -1445,7 +1450,12 @@ onMounted(async () => {
   // the generic platform login. That auto-jump can trap users on a stale remembered org slug.
   if (!isOrgLogin.value) {
     const remembered = getRememberedLogin();
-    if (remembered?.username && !String(username.value || '').trim()) {
+    const hostSlug = effectiveLoginSlug.value;
+    if (
+      remembered?.username
+      && !String(username.value || '').trim()
+      && (!remembered.orgSlug || !hostSlug || remembered.orgSlug === hostSlug)
+    ) {
       username.value = remembered.username;
       rememberLogin.value = true;
     }
@@ -1453,12 +1463,13 @@ onMounted(async () => {
 
   const rememberedGoogle = isIOSNative ? null : getRememberedGoogleLogin();
   const rememberedGoogleSlug = String(rememberedGoogle?.orgSlug || '').trim().toLowerCase();
-  const currentSlug = String(loginSlug.value || '').trim().toLowerCase();
+  const currentSlug = effectiveLoginSlug.value;
   if (rememberedGoogle && currentSlug && rememberedGoogleSlug === currentSlug) {
     rememberedGoogleLogin.value = rememberedGoogle;
     if (!String(username.value || '').trim()) {
       username.value = rememberedGoogle.username;
     }
+    rememberLogin.value = true;
   }
 
   await playTenantLoginBgVideos();
@@ -1534,6 +1545,10 @@ const showRememberedGoogleButton = computed(() => {
   if (showPassword.value || needsOrgChoice.value) return false;
   return !!rememberedGoogleLogin.value?.orgSlug;
 });
+
+const showChangeUsernameButton = computed(() =>
+  !needsOrgChoice.value && (showPassword.value || showRememberedGoogleButton.value)
+);
 
 const portalOrganizationIdForIntake = computed(() => {
   const id = loginTheme.value?.agency?.portalOrganizationId;
@@ -1772,9 +1787,10 @@ function withSsoNext(path) {
 
 const continueWithGoogle = () => {
   if (isIOSNative) return;
-  if (!loginSlug.value) return;
+  const slug = effectiveLoginSlug.value;
+  if (!slug) return;
   const base = getBackendBaseUrl();
-  window.location.href = `${base}/auth/google/start?orgSlug=${encodeURIComponent(String(loginSlug.value).trim().toLowerCase())}${ssoNextParam()}`;
+  window.location.href = `${base}/auth/google/start?orgSlug=${encodeURIComponent(slug)}${ssoNextParam()}`;
 };
 
 const startRememberedGoogleLogin = () => {
@@ -1793,9 +1809,12 @@ const resetToUsernameStep = () => {
   showPassword.value = false;
   needsOrgChoice.value = false;
   password.value = '';
+  username.value = '';
   lastErrorCode.value = null;
   lastVerifiedUsername.value = '';
   sstcClubBranding.value = null;
+  rememberedGoogleLogin.value = null;
+  error.value = '';
 };
 
 const verifyUsername = async ({ orgSlugOverride = null, reason = 'user' } = {}) => {
@@ -1969,6 +1988,23 @@ const verifyUsername = async ({ orgSlugOverride = null, reason = 'user' } = {}) 
         // to password mode and tell them why so they don't get stuck.
         error.value = 'Google sign-in is only available on the web. Please sign in with your password here, or open the web app to use Google.';
         showPassword.value = true;
+        return;
+      }
+      // After timeout or a remembered return visit, offer one-click SSO instead of
+      // immediately bouncing to Google before the user sees the login screen.
+      const slugForRemember = effectiveLoginSlug.value || resolvedSlug;
+      if (slugForRemember && (reason === 'remembered' || reason === 'remembered_school_staff' || reason === 'pending_route')) {
+        rememberedGoogleLogin.value = {
+          username: u,
+          orgSlug: slugForRemember,
+          parentOrgSlug: resolveParentForNestedLogin(slugForRemember)
+        };
+        setRememberedGoogleLogin({
+          username: u,
+          orgSlug: slugForRemember,
+          parentOrgSlug: resolveParentForNestedLogin(slugForRemember)
+        });
+        showPassword.value = false;
         return;
       }
       const path = withSsoNext(String(data?.login?.googleStartUrl || '').trim());

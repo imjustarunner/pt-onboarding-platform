@@ -47,10 +47,16 @@ export async function resolveHiringReferenceSenderIdentity(agencyId) {
 export async function resolveJobApplicationSenderIdentity(agencyId) {
   const aid = Number(agencyId);
   if (!aid) return null;
-  // Prefer a dedicated People Operations or job_applications identity
+  // Prefer People Operations so From/Reply-To are PO@tenant (requires Workspace
+  // "Send mail as" for that address on the impersonated mailbox).
   for (const key of ['people_operations', 'job_applications', 'hiring', 'default_notifications', 'notifications']) {
     const identity = await EmailSenderIdentity.findByAgencyAndIdentityKey(aid, key);
-    if (identity) return identity;
+    if (!identity) continue;
+    // Skip personal_* and blank from_email rows.
+    const from = String(identity.from_email || '').trim();
+    if (!from) continue;
+    if (String(identity.identity_key || '').toLowerCase().startsWith('personal_')) continue;
+    return identity;
   }
   // Last resort: first active agency-specific team identity (never personal_* mailboxes)
   const list = await EmailSenderIdentity.list({ agencyId: aid, includePlatformDefaults: false, onlyActive: true });
@@ -59,6 +65,6 @@ export async function resolveJobApplicationSenderIdentity(agencyId) {
   const isSchool = (x) =>
     String(x?.display_name || x?.name || '').toLowerCase().includes('school') ||
     String(x?.identity_key || '').toLowerCase().includes('school');
-  const nonSchool = agencyOnly.find((x) => !isPersonal(x) && !isSchool(x));
-  return nonSchool || agencyOnly.find((x) => !isPersonal(x)) || null;
+  const nonSchool = agencyOnly.find((x) => !isPersonal(x) && !isSchool(x) && String(x?.from_email || '').trim());
+  return nonSchool || agencyOnly.find((x) => !isPersonal(x) && String(x?.from_email || '').trim()) || null;
 }

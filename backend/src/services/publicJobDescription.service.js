@@ -109,11 +109,22 @@ export async function getPublicJobDescriptionPayload({ agencySlug = null, jobId 
   }
 
   const slug = String(agency.slug || '').trim().toLowerCase();
+  const portal = String(agency.portal_url || agency.portalUrl || '').trim().toLowerCase();
   const requested = String(agencySlug || '').trim().toLowerCase();
-  if (requested && slug && requested !== slug) {
-    const err = new Error('Job description not found for this agency');
-    err.status = 404;
-    throw err;
+  if (requested) {
+    const aliases = new Set(
+      [slug, portal].filter(Boolean)
+    );
+    // Dedicated hosts often resolve portal_url (e.g. nextleveluplcc) while
+    // agency.slug stays short (nlu). Accept either. Never treat "jobs" as a slug
+    // (route-order footgun if flat /careers/jobs/:id is registered after the slug route).
+    if (requested === 'jobs' || requested === 'careers') {
+      // treat as no agency filter
+    } else if (aliases.size && !aliases.has(requested)) {
+      const err = new Error('Job description not found for this agency');
+      err.status = 404;
+      throw err;
+    }
   }
 
   const sections = parseJobDescriptionSections(job.description_sections_json);
@@ -277,12 +288,30 @@ async function buildBrandedJobDescriptionPdfBuffer({ agency, job, sections }) {
 }
 
 /**
- * Prefer structured sections → branded PDF; then description_text; uploaded PDF only as last resort.
+ * Prefer an uploaded job-description PDF when present; otherwise build a branded
+ * PDF from structured sections / plain text.
  */
 export async function buildJobDescriptionAttachmentForEmail(jobDescription, { agency = null } = {}) {
   if (!jobDescription) return null;
   const title = String(jobDescription.title || 'Job description').trim() || 'Job description';
   const safeName = `${title.replace(/[^\w\-]+/g, '_').slice(0, 80) || 'job'}-description.pdf`;
+
+  const path = String(jobDescription.storage_path || '').trim();
+  if (path) {
+    try {
+      const buf = await StorageService.readObject(path);
+      const orig = String(jobDescription.original_name || 'job-description.pdf').trim() || 'job-description.pdf';
+      const mime = String(jobDescription.mime_type || 'application/pdf').trim() || 'application/pdf';
+      return {
+        filename: orig,
+        contentType: mime,
+        contentBase64: Buffer.from(buf).toString('base64')
+      };
+    } catch (e) {
+      console.warn('[buildJobDescriptionAttachmentForEmail] uploaded PDF read failed', e?.message || e);
+    }
+  }
+
   const sections = parseJobDescriptionSections(jobDescription.description_sections_json);
   const plain = String(jobDescription.description_text || '').trim();
 
@@ -304,22 +333,6 @@ export async function buildJobDescriptionAttachmentForEmail(jobDescription, { ag
       };
     } catch (e) {
       console.warn('[buildJobDescriptionAttachmentForEmail] branded PDF failed', e?.message || e);
-    }
-  }
-
-  const path = String(jobDescription.storage_path || '').trim();
-  if (path) {
-    try {
-      const buf = await StorageService.readObject(path);
-      const orig = String(jobDescription.original_name || 'job-description.pdf').trim() || 'job-description.pdf';
-      const mime = String(jobDescription.mime_type || 'application/pdf').trim() || 'application/pdf';
-      return {
-        filename: orig,
-        contentType: mime,
-        contentBase64: Buffer.from(buf).toString('base64')
-      };
-    } catch {
-      // fall through
     }
   }
 

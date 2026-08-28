@@ -129,7 +129,12 @@ async function load() {
       error.value = 'Job not found.';
       return;
     }
-    const s = slug.value;
+    // Dedicated hosts use flat /careers/jobs/:id — skip agency slug in the API
+    // path so portal_url vs slug mismatches (e.g. nextleveluplcc vs nlu) don't 404.
+    const onDedicatedHost = Boolean(
+      resolveHostImpliedPortalSlug(brandingStore) && !pathSlug(route.params?.agencySlug)
+    );
+    const s = onDedicatedHost ? '' : slug.value;
     const url = s
       ? `/public-intake/careers/${encodeURIComponent(s)}/jobs/${jid}`
       : `/public-intake/careers/jobs/${jid}`;

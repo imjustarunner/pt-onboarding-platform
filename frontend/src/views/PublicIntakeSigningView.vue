@@ -1210,7 +1210,7 @@
             {{ t('esignDisclosureBody') }}
           </p>
         </div>
-        <div class="muted" style="margin-top: 8px;">
+        <div v-if="!isJobApplication" class="muted" style="margin-top: 8px;">
           {{ t('formIdleClearHint') }}
         </div>
 
@@ -1344,15 +1344,15 @@
           </div>
         </div>
         <div v-if="currentFlowStep?.type === 'references'" class="references-step">
-          <p class="muted">{{ tx(currentFlowStep?.authorizationNotice || defaultReferencesAuthorizationNotice) }}</p>
+          <p class="muted">{{ referencesAuthorizationNotice }}</p>
           <div v-for="(refEntry, idx) in referencesEntries" :key="`ref_${idx}`" class="reference-card">
             <h4>{{ t('reference') }} {{ idx + 1 }}</h4>
-            <div class="form-grid">
-              <div class="form-group"><label>Name</label><input v-model="refEntry.name" type="text" /></div>
-              <div class="form-group"><label>Relationship / Title</label><input v-model="refEntry.relationship" type="text" /></div>
-              <div class="form-group"><label>Organization</label><input v-model="refEntry.organization" type="text" /></div>
-              <div class="form-group"><label>Phone</label><input v-model="refEntry.phone" type="tel" /></div>
-              <div class="form-group" style="grid-column: 1 / -1;">
+            <div class="form-grid references-form-grid">
+              <div class="form-group form-group--span-12"><label>Name</label><input v-model="refEntry.name" type="text" /></div>
+              <div class="form-group form-group--span-12"><label>Relationship / Title</label><input v-model="refEntry.relationship" type="text" /></div>
+              <div class="form-group form-group--span-12"><label>Organization</label><input v-model="refEntry.organization" type="text" /></div>
+              <div class="form-group form-group--span-12"><label>Phone</label><input v-model="refEntry.phone" type="tel" /></div>
+              <div class="form-group form-group--span-12">
                 <label>Email<span v-if="!referencesWaived && idx < referencesRequiredCount"> (required)</span></label>
                 <input v-model="refEntry.email" type="email" />
               </div>
@@ -2583,7 +2583,7 @@
               :href="packetSummaryViewUrl"
               target="_blank"
               rel="noopener"
-            >{{ t('viewPacketNow') }}</a>
+            >{{ jobApplicationSubmitted ? 'View Application Copy' : t('viewPacketNow') }}</a>
             <button
               class="btn btn-secondary"
               type="button"
@@ -2591,7 +2591,7 @@
               @click="downloadOfficeSummaryPdf"
             >{{ officeSummaryDownloading ? t('preparingPdf') : t('downloadSummary') }}</button>
             <a
-              v-if="downloadUrl"
+              v-if="downloadUrl && !jobApplicationSubmitted"
               class="btn btn-outline"
               :href="downloadUrl"
               target="_blank"
@@ -2600,7 +2600,7 @@
               {{
                 formTypeKey === 'smart_school_roi'
                   ? 'View Signed ROI'
-                  : (jobApplicationSubmitted ? 'View Application Copy' : t('downloadSignedForms'))
+                  : t('downloadSignedForms')
               }}
             </a>
           </div>
@@ -6082,6 +6082,19 @@ const jobAckPdfZoom = ref(125);
 const jobDescriptionAcknowledged = ref(false);
 const defaultReferencesAuthorizationNotice =
   'By submitting this information, you authorize [tenant] to contact the individuals listed and obtain information regarding your employment history, educational background, professional conduct, and qualifications for employment.';
+
+const referencesAuthorizationNotice = computed(() => {
+  const raw = String(
+    currentFlowStep.value?.authorizationNotice || defaultReferencesAuthorizationNotice
+  );
+  const tenant = String(
+    agencyInfo.value?.official_name
+    || agencyInfo.value?.name
+    || link.value?.organization_name
+    || 'this organization'
+  ).trim() || 'this organization';
+  return tx(raw.replace(/\[tenant\]/gi, tenant));
+});
 
 const referencesRequiredCount = computed(() => {
   const s = currentFlowStep.value;
@@ -12175,6 +12188,17 @@ const completeUploadStep = async () => {
   }
 };
 
+const scrollReferencesStepErrorIntoView = () => {
+  nextTick(() => {
+    const el = document.querySelector('.public-intake .error, .intake-card .error, .step .error');
+    if (el && typeof el.scrollIntoView === 'function') {
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      return;
+    }
+    window.scrollTo?.({ top: 0, behavior: 'smooth' });
+  });
+};
+
 const completeReferencesStep = () => {
   const s = currentFlowStep.value;
   if (!s || s.type !== 'references') return;
@@ -12190,15 +12214,18 @@ const completeReferencesStep = () => {
     .filter((r) => r.name || r.email || r.phone || r.organization || r.relationship);
   if (!referencesWaived.value && provided.length < minimum) {
     stepError.value = `Please provide at least ${minimum} professional references, or select the waiver option.`;
+    scrollReferencesStepErrorIntoView();
     return;
   }
   if (!referencesWaived.value) {
     if (!referencesDigitalFormConsent.value) {
       stepError.value = 'Please confirm consent for digital reference forms before continuing.';
+      scrollReferencesStepErrorIntoView();
       return;
     }
     if (!referenceContentWaiverAcknowledged.value) {
       stepError.value = 'Please acknowledge the confidentiality statement before continuing.';
+      scrollReferencesStepErrorIntoView();
       return;
     }
     const emailOk = (e) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(e || '').trim());
@@ -12206,6 +12233,7 @@ const completeReferencesStep = () => {
     for (const r of firstMin) {
       if (!emailOk(r.email)) {
         stepError.value = `A valid email is required for each of the first ${minimum} professional references.`;
+        scrollReferencesStepErrorIntoView();
         return;
       }
     }
@@ -13415,6 +13443,26 @@ onBeforeUnmount(() => {
   padding: 10px;
   margin-bottom: 10px;
   background: #fff;
+}
+.references-step .references-form-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0.65rem;
+}
+.references-step .references-form-grid .form-group {
+  grid-column: 1 / -1;
+  min-width: 0;
+  width: 100%;
+}
+.references-step .references-form-grid input {
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+@media (min-width: 720px) {
+  .references-step .references-form-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 .registration-step {
   margin: 16px 0;

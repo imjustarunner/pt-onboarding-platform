@@ -296,7 +296,10 @@ test('job application completed record uses application copy instead of intake/c
       intake_data: {
         responses: {
           guardian: { firstName: 'Haley', lastName: 'Inyart', email: 'haleyinyart@gmail.com' },
-          submission: { resume_text: 'Sample resume' }
+          submission: {
+            resume_text: 'Sample resume',
+            uploadTextByStep: { 'Step 1 Resume': 'pasted resume dump' }
+          }
         }
       }
     },
@@ -309,4 +312,8 @@ test('job application completed record uses application copy instead of intake/c
   const labels = spec.sections.flatMap((section) => section.rows.map((row) => row.label));
   assert.ok(labels.includes('Applicant'));
   assert.ok(!labels.includes('Client'));
+  assert.ok(!labels.some((l) => /resume text/i.test(l)));
+  assert.ok(!labels.some((l) => /upload text/i.test(l)));
+  const leftover = spec.sections.find((section) => /Additional answers/i.test(section.title));
+  assert.ok(!leftover || leftover.rows.every((row) => !/resume|upload text/i.test(`${row.label} ${row.value}`)));
 });

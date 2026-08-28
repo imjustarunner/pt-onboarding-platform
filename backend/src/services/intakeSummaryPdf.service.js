@@ -30,9 +30,14 @@ const SUMMARY_EXTRA_CSS = `
       }
       .intake-summary-brand img {
         display: block;
-        max-height: 56px;
-        max-width: 180px;
+        max-height: 72px;
+        max-width: min(100%, 420px);
+        width: auto;
         object-fit: contain;
+      }
+      .intake-summary-brand-name {
+        font-size: 1.15rem;
+        color: #1b3d2f;
       }
       .intake-summary-sign-card a { color: #1b3d2f; font-weight: 700; }
       .intake-summary-meta { text-align: center; margin: 0 0 18px; color: #374151; }
@@ -219,6 +224,7 @@ export function buildIntakeSummaryDocumentHtml({
     : `
         <div class="intake-summary-brand">
           ${brandLogoUrl ? `<img src="${escapeHtml(brandLogoUrl)}" alt="${escapeHtml(agencyName || 'Organization')}" />` : ''}
+          ${!brandLogoUrl && agencyName ? `<strong class="intake-summary-brand-name">${escapeHtml(agencyName)}</strong>` : ''}
         </div>
       `;
 

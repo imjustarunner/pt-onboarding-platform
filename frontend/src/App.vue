@@ -2284,7 +2284,12 @@ import {
   clearLegacyGoogleTranslateCookie
 } from './utils/publicTranslateWidget.js';
 import { toUploadsUrl } from './utils/uploadsUrl';
-import { buildSuperadminAgencyBrandUrl } from './utils/brandSwitchUrl';
+import {
+  buildSuperadminAgencyBrandUrl,
+  buildSuperadminPlatformBrandUrl,
+  getAgencyAppHostname,
+  normalizeHostname
+} from './utils/brandSwitchUrl';
 import { begin as beginLoading, end as endLoading, isLoading as globalLoading, getLoadingTextRef } from './utils/pageLoader';
 import { isSchoolPortalShellActive } from './utils/schoolPortalShell.js';
 import { useSummitStatsChallengeChrome } from './composables/useSummitStatsChallengeChrome';
@@ -3624,9 +3629,15 @@ const selectAgencyBrand = async (a) => {
     const currentSlug = typeof route.params.organizationSlug === 'string'
       ? String(route.params.organizationSlug).trim().toLowerCase()
       : '';
+    const targetHost = getAgencyAppHostname(full);
+    const hereHost = normalizeHostname(
+      typeof window !== 'undefined' ? window.location.hostname : ''
+    );
+    const hostMismatch = Boolean(targetHost && hereHost && targetHost !== hereHost);
     const alreadyThisTenant =
       Number(agencyStore.currentAgency?.id) === Number(full.id)
-      && (!currentSlug || currentSlug === slugNorm);
+      && (!currentSlug || currentSlug === slugNorm)
+      && !hostMismatch;
 
     agencyStore.setCurrentAgency(full);
 
@@ -3636,6 +3647,17 @@ const selectAgencyBrand = async (a) => {
       brandingStore.syncDocumentThemeFromSelectedAgency({ skipRouteSlugGuard: true });
     } catch {
       // ignore
+    }
+
+    // Superadmin: always leave a dedicated host (e.g. app.itsco.health → app.nextleveluplcc.com)
+    // when the target tenant has a different custom_domain — even on deep admin pages.
+    // Otherwise logo/store update while the URL and host-scoped data stay on the old tenant.
+    if (brandingStore.isSuperAdmin) {
+      const jump = buildSuperadminAgencyBrandUrl(full, route);
+      if (jump) {
+        window.location.assign(jump);
+        return;
+      }
     }
 
     // Re-selecting the active tenant while already on its surface: no navigation.
@@ -3663,14 +3685,8 @@ const selectAgencyBrand = async (a) => {
       return;
     }
 
-    // Superadmin: jump to that agency’s real app host (custom_domain) when configured, so URL/cookies/theme match.
+    // Superadmin selecting a tenant from shallow surfaces goes to that tenant's admin.
     if (brandingStore.isSuperAdmin) {
-      const jump = buildSuperadminAgencyBrandUrl(full, route);
-      if (jump) {
-        window.location.assign(jump);
-        return;
-      }
-      // Superadmin selecting a tenant from shallow surfaces goes to that tenant's admin.
       router.push(`/${slugNorm}/admin`);
       return;
     }
@@ -3699,6 +3715,16 @@ const selectPlatformBrand = async () => {
 
   // Ensure super admins still have agency options after returning to Platform.
   if (brandingStore.isSuperAdmin) {
+    // Leave dedicated tenant hosts (app.itsco.health, etc.) for the platform app host.
+    try {
+      const jump = buildSuperadminPlatformBrandUrl(route);
+      if (jump) {
+        window.location.assign(jump);
+        return;
+      }
+    } catch {
+      // ignore
+    }
     try {
       await agencyStore.fetchAgencies();
     } catch {

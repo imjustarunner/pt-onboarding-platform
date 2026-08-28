@@ -1444,12 +1444,21 @@ watch(slug, () => loadCareers(), { immediate: true });
   border: 1px solid var(--border);
   border-left: 4px solid var(--accent);
   box-shadow: 0 6px 20px -14px rgba(15, 23, 42, 0.18);
+  flex-wrap: wrap;
 }
 .cr-banner-icon-img { width: 44px; height: 44px; object-fit: contain; flex-shrink: 0; }
-.cr-banner-body { flex: 1; min-width: 0; }
+.cr-banner-body { flex: 1 1 12rem; min-width: 0; }
 .cr-banner-text { margin: 0; font-size: 0.95rem; font-weight: 700; color: var(--dark); }
 .cr-banner-bullets { margin: 3px 0 0; font-size: 0.82rem; color: var(--muted); }
-.cr-banner-link { font-size: 0.85rem; font-weight: 600; color: var(--accent); text-decoration: none; white-space: nowrap; flex-shrink: 0; }
+.cr-banner-link {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--accent);
+  text-decoration: none;
+  white-space: nowrap;
+  flex: 0 0 100%;
+  margin-top: 2px;
+}
 .cr-banner-link:hover { text-decoration: underline; }
 
 .cr-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 14px; }
