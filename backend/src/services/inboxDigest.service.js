@@ -104,7 +104,7 @@ export async function runInboxDigestTick({ now = new Date() } = {}) {
             (
               SELECT ua.agency_id FROM user_agencies ua
               WHERE ua.user_id = u.id AND (ua.is_active = 1 OR ua.is_active IS NULL)
-              ORDER BY ua.id ASC LIMIT 1
+              ORDER BY ua.agency_id ASC LIMIT 1
             ) AS agency_id
      FROM user_communication_prefs p
      JOIN users u ON u.id = p.user_id

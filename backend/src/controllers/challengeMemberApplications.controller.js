@@ -5066,7 +5066,7 @@ export const putMyAccountSnapshot = async (req, res, next) => {
              INNER JOIN user_agencies ua ON ua.agency_id = a.id
              WHERE ua.user_id = ?
                AND LOWER(COALESCE(a.organization_type,'')) = 'affiliation'
-             ORDER BY ua.id ASC LIMIT 1`,
+             ORDER BY ua.agency_id ASC LIMIT 1`,
             [userId]
           );
           // Strategy 2: club via season enrollment (club_manager enrolled in own season)
@@ -5088,7 +5088,7 @@ export const putMyAccountSnapshot = async (req, res, next) => {
               `SELECT a.id FROM agencies a
                INNER JOIN user_agencies ua ON ua.agency_id = a.id
                WHERE ua.user_id = ?
-               ORDER BY ua.id ASC LIMIT 1`,
+               ORDER BY ua.agency_id ASC LIMIT 1`,
               [userId]
             );
           }

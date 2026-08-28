@@ -248,6 +248,16 @@ export const TENANT_BACKGROUND_POOLS = {
 
 TENANT_BACKGROUND_POOLS.innerstrength = TENANT_BACKGROUND_POOLS.nlu;
 
+/** Light/teal logo variants for dark UI chrome (join header, video lobby, etc.). */
+export const TENANT_DARK_LOGOS = {
+  nlu: '/assets/branding/NextLevelUpLteal.png'
+};
+
+export function tenantDarkLogoUrl(slugOrHost = '') {
+  const key = normalizeTenantBrandKey(slugOrHost);
+  return TENANT_DARK_LOGOS[key] || '';
+}
+
 export function normalizeTenantBrandKey(slugOrHost = '') {
   const raw = String(slugOrHost || '').trim().toLowerCase();
   if (!raw) return '';

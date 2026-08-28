@@ -92,9 +92,81 @@
     </div>
 
     <div v-if="selected" class="cip-detail">
-      <h4>{{ interviewCardTitle(selected) }}</h4>
+      <div class="cip-detail-head">
+        <h4>{{ interviewCardTitle(selected) }}</h4>
+        <div class="cip-detail-actions">
+          <button
+            v-if="selected.host_join_url"
+            type="button"
+            class="btn btn-primary btn-sm"
+            @click="openHostJoin(selected.host_join_url)"
+          >
+            Join as host
+          </button>
+          <button
+            v-if="canEditSelected"
+            type="button"
+            class="btn btn-secondary btn-sm"
+            @click="toggleEditInterview"
+          >
+            {{ showEdit ? 'Cancel edit' : 'Edit interview' }}
+          </button>
+        </div>
+      </div>
+
+      <div v-if="showEdit" class="cip-schedule cip-edit">
+        <div class="cip-schedule-title">Edit scheduled interview</div>
+        <div class="cip-schedule-form">
+          <div class="cip-field">
+            <label for="cip-edit-starts">Start (local)</label>
+            <input id="cip-edit-starts" v-model="editStartsLocal" class="cip-input" type="datetime-local" />
+          </div>
+          <div class="cip-field">
+            <label for="cip-edit-tz">Timezone</label>
+            <input id="cip-edit-tz" v-model="editTimezone" class="cip-input" placeholder="America/Denver" />
+          </div>
+          <div class="cip-field cip-field--full">
+            <label for="cip-edit-interviewers">Interviewers</label>
+            <select id="cip-edit-interviewers" v-model="editInterviewerPick" class="cip-input" @change="addEditInterviewer">
+              <option value="">Add interviewer…</option>
+              <option
+                v-for="u in assignees"
+                :key="`edit-${u.id}`"
+                :value="String(u.id)"
+                :disabled="editInterviewerIds.includes(Number(u.id))"
+              >
+                {{ u.first_name }} {{ u.last_name }}
+              </option>
+            </select>
+            <div v-if="editInterviewerIds.length" class="chips">
+              <span v-for="id in editInterviewerIds" :key="`edit-chip-${id}`" class="chip">
+                {{ interviewerName(id) }}
+                <button type="button" class="chip-x" aria-label="Remove interviewer" @click="removeEditInterviewer(id)">×</button>
+              </span>
+            </div>
+          </div>
+        </div>
+        <div class="row-actions">
+          <button type="button" class="btn btn-primary btn-sm" :disabled="editSaving || !editStartsLocal" @click="saveInterviewEdit">
+            {{ editSaving ? 'Saving…' : 'Save changes' }}
+          </button>
+        </div>
+        <div v-if="editError" class="error-banner">{{ editError }}</div>
+      </div>
+
       <div class="kv"><div class="k">Status</div><div class="v">{{ selected.status }}</div></div>
       <div class="kv"><div class="k">When</div><div class="v">{{ formatWhen(selected.interview_starts_at) }} ({{ selected.interview_timezone || '—' }})</div></div>
+      <div v-if="selectedInterviewerLabels.length" class="kv">
+        <div class="k">Interviewers</div>
+        <div class="v">{{ selectedInterviewerLabels.join(', ') }}</div>
+      </div>
+      <div class="kv" v-if="selected.host_join_url">
+        <div class="k">Host join link</div>
+        <div class="v">
+          <a :href="selected.host_join_url" target="_blank" rel="noopener">{{ selected.host_join_url }}</a>
+          <button type="button" class="btn btn-secondary btn-sm" @click="copy(selected.host_join_url)">Copy</button>
+        </div>
+      </div>
       <div class="kv" v-if="selected.public_join_url">
         <div class="k">Candidate join link</div>
         <div class="v">
@@ -228,7 +300,7 @@ const artifact = ref(null);
 const artifactLoading = ref(false);
 const meetingSummaryFromNotes = ref('');
 const rawMeetingTranscript = ref('');
-const showSchedule = ref(true);
+const showSchedule = ref(false);
 const emit = defineEmits(['interviews-updated']);
 const scheduling = ref(false);
 const scheduleError = ref('');
@@ -252,6 +324,13 @@ const prediction12m = ref('');
 const capsuleOpeningId = ref(null);
 const openedCapsuleBody = ref('');
 const scheduleSectionRef = ref(null);
+const showEdit = ref(false);
+const editSaving = ref(false);
+const editError = ref('');
+const editStartsLocal = ref('');
+const editTimezone = ref('');
+const editInterviewerIds = ref([]);
+const editInterviewerPick = ref('');
 
 const route = useRoute();
 
@@ -263,6 +342,16 @@ const hubPath = computed(() => {
 const isHired = computed(() => String(props.candidateStage || '').toLowerCase() === 'hired');
 
 const selected = computed(() => interviews.value.find((i) => Number(i.id) === Number(selectedId.value)) || null);
+
+const canEditSelected = computed(() => {
+  const status = String(selected.value?.status || '').toLowerCase();
+  return status === 'scheduled' || status === 'in_progress';
+});
+
+const selectedInterviewerLabels = computed(() => {
+  const ids = selected.value?.interviewer_user_ids_json || selected.value?.interviewerUserIds || [];
+  return (Array.isArray(ids) ? ids : []).map((id) => interviewerName(id)).filter(Boolean);
+});
 
 const scheduleTitlePreview = computed(() => buildHiringInterviewTitle({
   interviewRound: interviewRound.value,
@@ -347,6 +436,10 @@ async function loadInterviews() {
       params: { agencyId: props.agencyId }
     });
     interviews.value = r.data?.data || r.data || [];
+    interviews.value = interviews.value.map((row) => ({
+      ...row,
+      host_join_url: hostJoinUrlForInterview(row)
+    }));
     if (!interviews.value.length) showSchedule.value = true;
     if (showSchedule.value) suggestRoundFromExisting();
     if (interviews.value.length && !selectedId.value) {
@@ -375,6 +468,8 @@ async function loadJobSets() {
 
 async function selectInterview(iv) {
   selectedId.value = iv.id;
+  showEdit.value = false;
+  editError.value = '';
   artifactLoading.value = true;
   artifact.value = null;
   meetingSummaryFromNotes.value = '';
@@ -416,6 +511,88 @@ function addInterviewer() {
 
 function removeInterviewer(id) {
   interviewerIds.value = interviewerIds.value.filter((x) => Number(x) !== Number(id));
+}
+
+function hostJoinUrlForInterview(iv) {
+  if (!iv) return '';
+  if (iv.host_join_url) return iv.host_join_url;
+  const publicUrl = String(iv.public_join_url || '').trim();
+  const hostToken = String(iv.host_join_token || '').trim();
+  if (!hostToken || !publicUrl) return '';
+  try {
+    const origin = new URL(publicUrl).origin;
+    return `${origin}/join/team-meeting/${encodeURIComponent(hostToken)}`;
+  } catch {
+    return '';
+  }
+}
+
+function openHostJoin(url) {
+  const link = String(url || '').trim();
+  if (!link) return;
+  window.open(link, '_blank', 'noopener');
+}
+
+function populateEditForm(iv = selected.value) {
+  if (!iv) return;
+  editTimezone.value = iv.interview_timezone || timezone.value;
+  editStartsLocal.value = iv.interview_starts_at ? toDatetimeLocalValue(new Date(iv.interview_starts_at)) : '';
+  const ids = iv.interviewer_user_ids_json || iv.interviewerUserIds || [];
+  editInterviewerIds.value = Array.isArray(ids) ? ids.map((x) => Number(x)).filter((n) => n > 0) : [];
+  const me = Number(authStore.user?.id || 0);
+  if (me && !editInterviewerIds.value.includes(me)) {
+    editInterviewerIds.value = [...editInterviewerIds.value, me];
+  }
+}
+
+function toggleEditInterview() {
+  if (showEdit.value) {
+    showEdit.value = false;
+    editError.value = '';
+    return;
+  }
+  populateEditForm();
+  showEdit.value = true;
+}
+
+function addEditInterviewer() {
+  const id = Number(editInterviewerPick.value);
+  editInterviewerPick.value = '';
+  if (!id || editInterviewerIds.value.includes(id)) return;
+  editInterviewerIds.value = [...editInterviewerIds.value, id];
+}
+
+function removeEditInterviewer(id) {
+  editInterviewerIds.value = editInterviewerIds.value.filter((x) => Number(x) !== Number(id));
+}
+
+async function saveInterviewEdit() {
+  if (!selected.value?.id) return;
+  editSaving.value = true;
+  editError.value = '';
+  try {
+    const startsAt = String(editStartsLocal.value || '').trim();
+    if (!startsAt || Number.isNaN(new Date(startsAt).getTime())) {
+      editError.value = 'Pick a valid start date and time.';
+      return;
+    }
+    await api.patch(`/hiring/interview-hub/interviews/${selected.value.id}`, {
+      agencyId: props.agencyId,
+      startsAt,
+      timezone: editTimezone.value,
+      interviewerUserIds: editInterviewerIds.value
+    });
+    showEdit.value = false;
+    await loadInterviews();
+    const refreshed = interviews.value.find((i) => Number(i.id) === Number(selectedId.value));
+    if (refreshed) selectedId.value = refreshed.id;
+  } catch (e) {
+    editError.value = e.response?.data?.error?.message
+      || e.response?.data?.message
+      || 'Failed to update interview';
+  } finally {
+    editSaving.value = false;
+  }
 }
 
 async function scheduleInterview() {
@@ -554,6 +731,17 @@ async function openCapsule(c) {
 .cip-head h3 { margin: 0 0 4px; font-size: 1.05rem; font-weight: 700; color: #0f172a; }
 .cip-head .muted { color: #64748b; font-size: 13px; line-height: 1.45; }
 .cip-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.cip-detail-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+.cip-detail-head h4 { margin: 0; font-size: 1rem; font-weight: 700; color: #0f172a; }
+.cip-detail-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.cip-edit { margin-bottom: 12px; }
 .cip-schedule, .cip-detail, .cip-card {
   border: 1px solid #e2e8f0;
   border-radius: 14px;

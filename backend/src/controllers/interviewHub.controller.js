@@ -6,6 +6,8 @@ import InterviewHubJobQuestionSet from '../models/InterviewHubJobQuestionSet.mod
 import HiringInterview from '../models/HiringInterview.model.js';
 import HiringInterviewArtifact from '../models/HiringInterviewArtifact.model.js';
 import ProviderScheduleEvent from '../models/ProviderScheduleEvent.model.js';
+import ProviderScheduleEventAttendee from '../models/ProviderScheduleEventAttendee.model.js';
+import { joinUrlForTeamMeeting } from '../utils/joinToken.js';
 import VonageVideoService from '../services/vonageVideo.service.js';
 import EmailTemplateService from '../services/emailTemplate.service.js';
 import {
@@ -366,7 +368,24 @@ export const patchInterview = async (req, res, next) => {
       inviteSentAt: body.inviteSentAt ?? body.invite_sent_at,
       publicJoinUrl: body.publicJoinUrl ?? body.public_join_url
     });
-    return res.json({ success: true, data: updated });
+
+    const interviewerIds = body.interviewerUserIds ?? body.interviewer_user_ids;
+    const eventId = Number(updated?.provider_schedule_event_id || existing.provider_schedule_event_id || 0);
+    if (eventId > 0 && interviewerIds !== undefined && Array.isArray(interviewerIds)) {
+      try {
+        const event = await ProviderScheduleEvent.findById(eventId);
+        const hostId = Number(event?.provider_id || 0);
+        const ids = interviewerIds.map((x) => Number(x)).filter((n) => Number.isFinite(n) && n > 0);
+        await ProviderScheduleEventAttendee.upsertForEvent(
+          eventId,
+          ids.filter((uid) => uid !== hostId)
+        );
+      } catch (e) {
+        console.warn('[patchInterview] attendee sync failed:', e?.message || e);
+      }
+    }
+
+    return res.json({ success: true, data: enrichInterviewRow(updated) });
   } catch (err) {
     return next(err);
   }
@@ -572,6 +591,31 @@ export const getInterviewByScheduleEvent = async (req, res, next) => {
   }
 };
 
+function hostJoinUrlForInterview(row) {
+  if (!row) return null;
+  const hostToken = String(row.host_join_token || row.hostJoinToken || '').trim();
+  if (!hostToken) return null;
+  const publicUrl = String(row.public_join_url || row.publicJoinUrl || '').trim();
+  if (publicUrl) {
+    try {
+      const origin = new URL(publicUrl).origin;
+      return `${origin}/join/team-meeting/${encodeURIComponent(hostToken)}`;
+    } catch {
+      /* fall through */
+    }
+  }
+  const frontendUrl = (process.env.FRONTEND_URL || '').replace(/\/$/, '');
+  return joinUrlForTeamMeeting(frontendUrl, hostToken);
+}
+
+function enrichInterviewRow(row) {
+  if (!row) return row;
+  return {
+    ...row,
+    host_join_url: hostJoinUrlForInterview(row)
+  };
+}
+
 export const listCandidateInterviews = async (req, res, next) => {
   try {
     const userId = parseIntParam(req.params.userId);
@@ -586,7 +630,7 @@ export const listCandidateInterviews = async (req, res, next) => {
       return res.status(400).json({ success: false, message: 'agencyId required' });
     }
     const rows = await HiringInterview.listByCandidateUserId(userId, { agencyId });
-    return res.json({ success: true, data: rows });
+    return res.json({ success: true, data: (rows || []).map(enrichInterviewRow) });
   } catch (err) {
     return next(err);
   }

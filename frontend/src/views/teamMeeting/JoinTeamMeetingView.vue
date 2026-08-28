@@ -52,7 +52,7 @@
       </div>
       <header v-if="!videoFullscreen" class="join-header">
         <div class="join-header__left">
-          <BrandingLogo size="large" class="join-header__logo" />
+          <BrandingLogo size="large" class="join-header__logo" :logo-url="joinHeaderLogoUrl || undefined" />
           <div>
             <h1>{{ displayMeetingTitle }}</h1>
             <p class="join-header__meta">
@@ -588,6 +588,7 @@ import EmployeeEvaluationWorkspace from '../../components/evaluations/EmployeeEv
 import BrandingLogo from '../../components/BrandingLogo.vue';
 import api from '../../services/api';
 import { resolveHostImpliedPortalSlug } from '../../utils/orgScopedPath';
+import { tenantDarkLogoUrl } from '../../utils/tenantBrandAssets.js';
 import { applyDarkMode, getStoredDarkMode, setDarkMode } from '../../utils/darkMode';
 import { useActiveMeeting } from '../../composables/useActiveMeeting';
 
@@ -645,6 +646,39 @@ const organizationSlug = computed(() => route.params.organizationSlug);
 const meetingJoinRef = computed(() => String(eventId.value || '').trim());
 /** Dedicated portal hosts (app.itsco.health) strip /{slug} from the path in the router. */
 const hostPortalSlug = computed(() => resolveHostImpliedPortalSlug());
+
+const joinHeaderLogoUrl = computed(() => {
+  const slug = String(organizationSlug.value || hostPortalSlug.value || '').trim();
+  return tenantDarkLogoUrl(slug) || tenantDarkLogoUrl(window.location.hostname) || '';
+});
+
+const STAFF_JOIN_ROLES = new Set([
+  'super_admin',
+  'superadmin',
+  'admin',
+  'support',
+  'staff',
+  'schedule_manager',
+  'assistant_admin',
+  'clinical_practice_assistant',
+  'provider_plus'
+]);
+
+function staffLikelyJoining() {
+  const role = String(authStore.user?.role || '').toLowerCase();
+  return STAFF_JOIN_ROLES.has(role);
+}
+
+function hostJoinPathFromPayload(data) {
+  const url = String(data?.hostJoinUrl || data?.host_join_url || '').trim();
+  if (!url) return '';
+  try {
+    const u = new URL(url, window.location.origin);
+    return `${u.pathname}${u.search}${u.hash}`;
+  } catch {
+    return url.startsWith('/') ? url : '';
+  }
+}
 
 const meetingLang = ref('en');
 provide('meetingLang', meetingLang);
@@ -1335,6 +1369,29 @@ async function resolveAndRedirect() {
   }
 }
 
+async function tryHydrateSession() {
+  if (authStore.isAuthenticated && authStore.user?.id) return true;
+  try {
+    const resp = await withTimeout(
+      api.get('/users/me', { skipAuthRedirect: true, skipGlobalLoading: true }),
+      JOIN_TIMEOUT_MS,
+      'Session check'
+    );
+    const u = resp?.data || null;
+    if (u && (u.id || u.email)) {
+      authStore.setAuth(
+        localStorage.getItem('authToken') || null,
+        u,
+        localStorage.getItem('sessionId') || null
+      );
+      return true;
+    }
+  } catch {
+    /* guest join still allowed */
+  }
+  return !!(authStore.isAuthenticated && authStore.user?.id);
+}
+
 async function fetchTokenAndJoin({ afterLogin = false } = {}) {
   const eid = meetingJoinRef.value || eventId.value;
   if (!eid) {
@@ -1353,6 +1410,24 @@ async function fetchTokenAndJoin({ afterLogin = false } = {}) {
       'Video token'
     );
     applyTokenPayload(resp?.data || {});
+    const payload = resp?.data || {};
+    const joinedAsGuest = !!(payload.isGuest || String(payload.identity || '').startsWith('guest-'));
+    if (
+      joinedAsGuest
+      && staffLikelyJoining()
+      && !afterLogin
+    ) {
+      const hostPath = hostJoinPathFromPayload(payload);
+      const currentPath = `${route.path}${route.hash || ''}`;
+      if (hostPath && hostPath !== currentPath) {
+        joinAttemptedForPath.value = '';
+        await router.replace(hostPath);
+        return;
+      }
+      if (authStore.isAuthenticated) {
+        return fetchTokenAndJoin({ afterLogin: true });
+      }
+    }
     if (!token.value) {
       error.value = `Video token was empty. Check Network tab: GET /api/team-meetings/${eid}/video-token.`;
       return;
@@ -1889,8 +1964,7 @@ async function runJoinFlowForCurrentRoute() {
     const resolved = await resolveAndRedirect();
     if (resolved !== 'continue') return;
   }
-  // Interview candidate links mint a guest video token without an account.
-  // Staff meetings still 401, then we hydrate/login as before.
+  await tryHydrateSession();
   await fetchTokenAndJoin();
 }
 
@@ -2357,12 +2431,13 @@ onUnmounted(() => {
   right: 14px;
   bottom: 14px;
   top: auto;
-  width: 46%;
-  max-height: calc(100% - 28px);
+  width: min(300px, 32vw);
+  max-width: calc(100% - 28px);
+  max-height: min(280px, 42vh);
   height: auto;
   min-height: 0;
   border-radius: 14px;
-  overflow: auto;
+  overflow: hidden;
   z-index: 5;
   box-shadow: 0 12px 30px rgba(0, 0, 0, 0.45);
   border: 2px solid rgba(255, 255, 255, 0.4);
