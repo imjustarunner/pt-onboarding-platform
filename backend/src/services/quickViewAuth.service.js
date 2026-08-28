@@ -387,6 +387,180 @@ export async function verifyPasscodeAndStartSession({
   };
 }
 
+/**
+ * Unlock with 6-digit passcode only (tenant Quick View home — no URL token bind).
+ * Resolves the credential among users in the agency.
+ */
+export async function verifyPasscodeForTenantAndStartSession({
+  passcode,
+  agencyId,
+  meetingEventType = null,
+  meetingEventId = null,
+  meetingEndsAt = null,
+  ipHash = null,
+  userAgent = null
+}) {
+  const aid = Number(agencyId || 0);
+  if (!aid) return { ok: false, error: 'agency_required' };
+
+  const pin = String(passcode || '').trim();
+  if (!/^\d{6}$/.test(pin)) {
+    return { ok: false, error: 'invalid_passcode_format' };
+  }
+
+  const [rows] = await pool.execute(
+    `SELECT c.*
+     FROM user_quick_view_credentials c
+     WHERE c.passcode_hash IS NOT NULL
+       AND (
+         c.agency_id = ?
+         OR EXISTS (
+           SELECT 1 FROM user_agencies ua
+           WHERE ua.user_id = c.user_id AND ua.agency_id = ?
+         )
+       )
+     ORDER BY c.last_passcode_ok_at DESC, c.id DESC
+     LIMIT 200`,
+    [aid, aid]
+  );
+
+  if (!rows?.length) {
+    return { ok: false, error: 'passcode_not_set' };
+  }
+
+  let matchedLocked = null;
+  for (const cred of rows) {
+    const match = await bcrypt.compare(pin, cred.passcode_hash);
+    if (!match) continue;
+    if (isPasscodeLocked(cred)) {
+      matchedLocked = cred;
+      continue;
+    }
+    // Reuse token unlock success path by calling verify with raw token if available,
+    // otherwise start session directly from this credential row.
+    return startSessionForCredential(cred, {
+      agencyId: aid,
+      meetingEventType,
+      meetingEventId,
+      meetingEndsAt,
+      ipHash,
+      userAgent
+    });
+  }
+
+  if (matchedLocked) {
+    await logAccessEvent({
+      userId: matchedLocked.user_id,
+      agencyId: aid,
+      eventType: 'passcode_fail',
+      meta: { reason: 'locked', mode: 'tenant_pin' },
+      ipHash,
+      userAgent
+    });
+    return {
+      ok: false,
+      error: 'locked',
+      lockedUntil: matchedLocked.passcode_locked_until || LOCK_UNTIL_RESET,
+      requiresReset: true,
+      userId: matchedLocked.user_id,
+      agencyId: aid
+    };
+  }
+
+  await logAccessEvent({
+    userId: rows[0].user_id,
+    agencyId: aid,
+    eventType: 'passcode_fail',
+    meta: { reason: 'no_match', mode: 'tenant_pin' },
+    ipHash,
+    userAgent
+  }).catch(() => {});
+
+  return { ok: false, error: 'invalid_passcode', agencyId: aid };
+}
+
+async function startSessionForCredential(cred, {
+  agencyId = null,
+  meetingEventType = null,
+  meetingEventId = null,
+  meetingEndsAt = null,
+  ipHash = null,
+  userAgent = null
+} = {}) {
+  await pool.execute(
+    `UPDATE user_quick_view_credentials
+     SET failed_passcode_attempts = 0,
+         passcode_locked_until = NULL,
+         last_token_used_at = CURRENT_TIMESTAMP,
+         last_passcode_ok_at = CURRENT_TIMESTAMP
+     WHERE user_id = ?`,
+    [cred.user_id]
+  );
+
+  const sessionRaw = randomSession();
+  const sessionHash = sha256(sessionRaw);
+  let expiresAt = new Date(Date.now() + SESSION_TTL_MS);
+  if (meetingEndsAt) {
+    const end = new Date(meetingEndsAt);
+    const meetingExpiry = new Date(end.getTime() + MEETING_GRACE_MS);
+    if (meetingExpiry > expiresAt) expiresAt = meetingExpiry;
+  }
+
+  await pool.execute(
+    `INSERT INTO quick_view_sessions
+      (user_id, agency_id, session_token_hash, credential_token_version,
+       meeting_event_type, meeting_event_id, meeting_ends_at, expires_at, last_activity_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`,
+    [
+      cred.user_id,
+      agencyId || cred.agency_id || null,
+      sessionHash,
+      cred.token_version || 0,
+      meetingEventType,
+      meetingEventId,
+      meetingEndsAt || null,
+      expiresAt
+    ]
+  );
+
+  await logAccessEvent({
+    userId: cred.user_id,
+    agencyId: agencyId || cred.agency_id,
+    eventType: 'session_start',
+    resourceType: meetingEventType,
+    resourceId: meetingEventId,
+    ipHash,
+    userAgent
+  });
+  await logAccessEvent({
+    userId: cred.user_id,
+    agencyId: agencyId || cred.agency_id,
+    eventType: 'passcode_ok',
+    meta: { mode: 'tenant_pin' },
+    ipHash,
+    userAgent
+  });
+
+  const uaHint = userAgent ? String(userAgent).slice(0, 80) : 'unknown device';
+  await notifyQuickViewEvent({
+    userId: cred.user_id,
+    agencyId: agencyId || cred.agency_id,
+    type: 'quick_view_login',
+    severity: 'info',
+    title: 'Quick View login',
+    message: `Your Quick View was unlocked (${uaHint}). If this was not you, reset your Quick View passcode in Settings.`
+  });
+
+  return {
+    ok: true,
+    userId: cred.user_id,
+    agencyId: agencyId || cred.agency_id || null,
+    sessionToken: sessionRaw,
+    expiresAt,
+    deepLinkPath: null
+  };
+}
+
 export async function touchSession(rawSessionToken, { meetingEndsAt = null } = {}) {
   const hash = sha256(rawSessionToken);
   const [rows] = await pool.execute(
@@ -562,6 +736,7 @@ export default {
   resetPasscode,
   findUserByToken,
   verifyPasscodeAndStartSession,
+  verifyPasscodeForTenantAndStartSession,
   touchSession,
   revokeSession,
   logAccessEvent,

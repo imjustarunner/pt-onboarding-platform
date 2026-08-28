@@ -112,10 +112,9 @@ onMounted(loadStatus);
       <h3 style="margin: 0;">Quick View</h3>
     </div>
     <p class="hint" style="margin-top: 6px;">
-      Tenant Quick View host + separate <strong>6-digit passcode</strong> (not your kiosk or session PIN).
-      Open the <strong>setup link</strong> once on your phone to bind this device, then Add to Home Screen
-      from that page so the icon opens your tenant Quick View root (6-digit only after that).
-      Three wrong guesses locks Quick View until you reset the passcode here.
+      Tenant Quick View + separate <strong>6-digit passcode</strong> (not your kiosk or session PIN).
+      Open your <strong>Home Screen URL</strong> (or Add to Home Screen from it) and unlock with the passcode —
+      no setup-link bind step required. Three wrong guesses locks Quick View until you reset the passcode here.
     </p>
 
     <div v-if="loading" class="hint">Loading…</div>

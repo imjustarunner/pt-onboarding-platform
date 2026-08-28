@@ -9,6 +9,8 @@ import {
   getDeliveryTokenInfo,
   postUnlock,
   postDeliveryUnlock,
+  getTenantQuickViewInfo,
+  postTenantUnlock,
   postHeartbeat,
   postLogout,
   requireQuickViewSession,
@@ -36,6 +38,10 @@ router.post('/me/reveal-token', authenticate, postRevealToken);
 
 // Public PWA manifest (absolute start_url for iOS Add to Home Screen)
 router.get('/pwa-manifest', getQuickViewPwaManifest);
+
+// Tenant home: PIN-only (no setup-link bind required)
+router.get('/tenant', getTenantQuickViewInfo);
+router.post('/tenant/unlock', postTenantUnlock);
 
 // Public token landing + unlock
 router.get('/t/:token', getTokenInfo);

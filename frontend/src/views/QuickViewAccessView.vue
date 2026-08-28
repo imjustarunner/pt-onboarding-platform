@@ -308,7 +308,7 @@ const filteredConversations = computed(() => {
 function authHeaders() {
   const h = {};
   const tok = session.value;
-  if (tok) h['X-Quick-View-Session'] = tok;
+  if (tok && tok !== 'cookie') h['X-Quick-View-Session'] = tok;
   return h;
 }
 
@@ -317,6 +317,51 @@ const isDelivery = computed(() =>
   || route.name === 'QuickViewDeliveryShort'
   || route.meta?.quickViewDelivery === true
 );
+
+const sessionOnly = computed(() => route.meta?.quickViewSessionOnly === true);
+
+async function resumeSession() {
+  loading.value = true;
+  error.value = '';
+  try {
+    let stored = '';
+    try {
+      stored = String(sessionStorage.getItem('plottwist.quickViewSession') || '').trim();
+    } catch { /* ignore */ }
+    if (stored) session.value = stored;
+    else session.value = 'cookie';
+
+    const { data } = await axios.post(
+      `${apiBase}/session/heartbeat`,
+      {},
+      { headers: authHeaders(), withCredentials: true }
+    );
+    expiresAt.value = data.expiresAt;
+    if (stored) session.value = stored;
+    startHeartbeat();
+    // Branding from tenant endpoint when possible
+    try {
+      const host = window.location.hostname;
+      const tenant = await axios.get(`${apiBase}/tenant`, {
+        params: { host: host.replace(/^qv\./, '') },
+        withCredentials: true
+      });
+      agencyName.value = tenant.data.agencyName || agencyName.value;
+      agencyLogoUrl.value = tenant.data.agencyLogoUrl || '';
+      agencyPrimaryColor.value = tenant.data.agencyPrimaryColor || '';
+      loginUrl.value = tenant.data.loginUrl || '';
+      installQuickViewManifest();
+    } catch { /* ignore */ }
+    await loadHome();
+  } catch {
+    session.value = null;
+    try { sessionStorage.removeItem('plottwist.quickViewSession'); } catch { /* ignore */ }
+    // Back to PIN launcher
+    window.location.replace('/qv');
+  } finally {
+    loading.value = false;
+  }
+}
 
 function rememberBookmark() {
   const token = String(route.params.token || '').trim();
@@ -728,7 +773,11 @@ onMounted(() => {
   } catch {
     homeScreenTip.value = true;
   }
-  loadTokenInfo();
+  if (sessionOnly.value || (!route.params.token && route.name === 'QuickViewApp')) {
+    resumeSession();
+  } else {
+    loadTokenInfo();
+  }
 });
 onUnmounted(() => {
   stopHeartbeat();

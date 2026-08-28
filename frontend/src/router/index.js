@@ -376,6 +376,12 @@ const routes = [
     meta: { requiresGuest: false, publicQuickView: true, hideNav: true }
   },
   {
+    path: '/quick-view/app',
+    name: 'QuickViewApp',
+    component: () => import('../views/QuickViewAccessView.vue'),
+    meta: { requiresGuest: false, publicQuickView: true, hideNav: true, quickViewSessionOnly: true }
+  },
+  {
     path: '/t/:token',
     name: 'QuickViewTokenShort',
     component: () => import('../views/QuickViewAccessView.vue'),

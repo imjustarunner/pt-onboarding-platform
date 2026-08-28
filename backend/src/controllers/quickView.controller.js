@@ -6,6 +6,7 @@ import {
   revealToken,
   findUserByToken,
   verifyPasscodeAndStartSession,
+  verifyPasscodeForTenantAndStartSession,
   touchSession,
   revokeSession,
   logAccessEvent,
@@ -385,6 +386,102 @@ export const postUnlock = async (req, res, next) => {
 export const postDeliveryUnlock = async (req, res, next) => {
   req.deliveryMode = true;
   return postUnlock(req, res, next);
+};
+
+/** Public: branding for tenant Quick View home (no token). */
+export const getTenantQuickViewInfo = async (req, res, next) => {
+  try {
+    const portalSlug = String(req.query.portal || req.query.slug || '').trim().toLowerCase();
+    const host = String(req.query.host || '').trim().toLowerCase().replace(/^qv\./, '');
+    const Agency = (await import('../models/Agency.model.js')).default;
+    let agency = null;
+    if (portalSlug) {
+      agency = await Agency.findByPortalUrl(portalSlug);
+      if (!agency) agency = await Agency.findBySlug(portalSlug);
+    }
+    if (!agency && host) {
+      agency = await Agency.findByCustomDomain(host);
+    }
+    if (!agency) {
+      return res.status(404).json({ error: { message: 'Unknown Quick View tenant' } });
+    }
+    const baseUrl = String(process.env.APP_PUBLIC_URL || process.env.FRONTEND_URL || '').replace(/\/$/, '');
+    const { resolveOrgLogoUrl } = await import('../services/publicFormBranding.service.js');
+    const agencyLogoUrl = resolveOrgLogoUrl(agency, { baseUrl });
+    const palette = typeof agency?.color_palette === 'string'
+      ? (() => { try { return JSON.parse(agency.color_palette); } catch { return null; } })()
+      : agency?.color_palette;
+    res.json({
+      ok: true,
+      agencyId: agency.id,
+      agencyName: agency.name || null,
+      agencyLogoUrl,
+      agencyPrimaryColor: palette?.primary || palette?.brand || agency?.primary_color || null,
+      loginUrl: buildPublicPortalLoginUrl(agency),
+      homeUrl: buildQuickViewHomeUrl(agency)
+    });
+  } catch (e) {
+    next(e);
+  }
+};
+
+/** Public: unlock with 6-digit passcode only (tenant home — no setup-link bind). */
+export const postTenantUnlock = async (req, res, next) => {
+  try {
+    let agencyId = Number(req.body?.agencyId || 0) || null;
+    const portalSlug = String(req.body?.portal || req.body?.slug || '').trim().toLowerCase();
+    if (!agencyId && portalSlug) {
+      const Agency = (await import('../models/Agency.model.js')).default;
+      const agency = (await Agency.findByPortalUrl(portalSlug)) || (await Agency.findBySlug(portalSlug));
+      agencyId = agency?.id || null;
+    }
+    const result = await verifyPasscodeForTenantAndStartSession({
+      passcode: req.body?.passcode,
+      agencyId,
+      ipHash: ipHash(req),
+      userAgent: ua(req)
+    });
+    if (!result.ok) {
+      const status = result.error === 'locked' ? 429 : 401;
+      let message = 'Incorrect passcode';
+      if (result.error === 'locked' || result.requiresReset) {
+        message =
+          'Quick View is locked after 3 incorrect attempts. Sign in and reset your 6-digit passcode under Settings → Privacy & Quick View.';
+      } else if (result.error === 'agency_required') {
+        message = 'Could not determine your organization for Quick View';
+      } else if (result.error === 'passcode_not_set') {
+        message = 'No Quick View passcode is set for this organization yet';
+      }
+      let loginUrl = null;
+      try {
+        const agency = await resolveAgencyForUser(result.userId || null, agencyId);
+        if (agency) loginUrl = buildPublicPortalLoginUrl(agency);
+      } catch { /* ignore */ }
+      return res.status(status).json({
+        error: {
+          message,
+          code: result.error,
+          requiresReset: !!result.requiresReset,
+          loginUrl
+        }
+      });
+    }
+    res.cookie('qv_session', result.sessionToken, {
+      httpOnly: true,
+      sameSite: 'lax',
+      secure: process.env.NODE_ENV === 'production',
+      maxAge: 24 * 60 * 60 * 1000
+    });
+    res.json({
+      ok: true,
+      userId: result.userId,
+      agencyId: result.agencyId,
+      expiresAt: result.expiresAt,
+      sessionToken: result.sessionToken
+    });
+  } catch (e) {
+    next(e);
+  }
 };
 
 export const postHeartbeat = async (req, res, next) => {
