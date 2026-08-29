@@ -762,6 +762,7 @@ export async function postMarkSenderKnown(req, res, next) {
 /**
  * POST /api/communications/secure-notify
  * Staff-initiated secure message notification email (no PHI).
+ * Clinical + school only; learning clients should use regular Email compose.
  */
 export async function postSecureNotify(req, res, next) {
   try {
@@ -771,22 +772,84 @@ export async function postSecureNotify(req, res, next) {
     if (!agencyId || !recipientEmail) {
       return res.status(400).json({ error: { message: 'agencyId and recipientEmail required' } });
     }
-    const { sendSecureMessageNotification } = await import('../services/secureMessageNotify.service.js');
+    const {
+      sendSecureMessageNotification,
+      sendLearningClientMessageEmail,
+      resolveClientContextForMessageNotify,
+      isSecureMessageEligibleClientType
+    } = await import('../services/secureMessageNotify.service.js');
+
+    let recipientUserId = req.body?.recipientUserId || null;
+    if (!recipientUserId && recipientEmail) {
+      const pool = (await import('../config/database.js')).default;
+      const [urows] = await pool.execute(
+        `SELECT id FROM users
+         WHERE LOWER(email) = ? OR LOWER(COALESCE(personal_email, '')) = ?
+         LIMIT 1`,
+        [recipientEmail.toLowerCase(), recipientEmail.toLowerCase()]
+      );
+      recipientUserId = urows?.[0]?.id || null;
+    }
+
+    const ctx = await resolveClientContextForMessageNotify({
+      agencyId,
+      recipientUserId,
+      clientId: req.body?.clientId || null
+    });
+
+    if (String(ctx.clientType || '').toLowerCase() === 'learning') {
+      const note = String(req.body?.note || req.body?.body || req.body?.text || '').trim();
+      if (!note) {
+        return res.status(400).json({
+          error: {
+            message:
+              'Learning clients receive regular emails (not secure messages). Use Email compose, or include a message body.'
+          },
+          result: { sent: false, reason: 'learning_uses_regular_email', clientType: 'learning' }
+        });
+      }
+      const result = await sendLearningClientMessageEmail({
+        agencyId,
+        senderUserId: req.user.id,
+        recipientUserId,
+        recipientEmail,
+        clientId: ctx.clientId,
+        chatThreadId: req.body?.chatThreadId || null,
+        messageBody: note
+      });
+      return res.json({ ok: true, channel: 'email', ...result });
+    }
+
+    if (ctx.clientType && !isSecureMessageEligibleClientType(ctx.clientType)) {
+      return res.status(400).json({
+        error: {
+          message: 'Secure messages are only for clinical and school clients/guardians. Use Email for other recipients.'
+        },
+        result: { sent: false, reason: 'client_type_not_eligible', clientType: ctx.clientType }
+      });
+    }
+
     const result = await sendSecureMessageNotification({
       agencyId,
       senderUserId: req.user.id,
-      recipientUserId: req.body?.recipientUserId || null,
+      recipientUserId,
       recipientEmail,
-      clientId: req.body?.clientId || null,
+      clientId: ctx.clientId || req.body?.clientId || null,
       chatThreadId: req.body?.chatThreadId || null,
       conversationId: req.body?.conversationId || null,
       messageId: req.body?.messageId || null,
       messageSource: req.body?.messageSource || 'compose'
     });
     if (!result.sent) {
-      return res.status(400).json({ error: { message: result.reason || 'Not sent' }, result });
+      const msg =
+        result.reason === 'learning_uses_regular_email'
+          ? 'Learning clients receive regular emails — use Email compose.'
+          : result.reason === 'client_type_not_eligible'
+            ? 'Secure messages are only for clinical and school clients/guardians.'
+            : result.reason || 'Not sent';
+      return res.status(400).json({ error: { message: msg }, result });
     }
-    res.json({ ok: true, ...result });
+    res.json({ ok: true, channel: 'secure', ...result });
   } catch (e) {
     next(e);
   }

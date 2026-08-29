@@ -1485,7 +1485,7 @@ export const sendMessage = async (req, res, next) => {
     }
     await pool.execute('UPDATE chat_threads SET updated_at = NOW() WHERE id = ?', [threadId]);
 
-    // Secure-message email notify for client/guardian participants (no PHI in email body)
+    // Client/guardian email notify: secure for clinical+school; regular email for learning
     try {
       const staffRoles = new Set([
         'admin', 'super_admin', 'support', 'staff', 'provider', 'provider_plus',
@@ -1504,28 +1504,53 @@ export const sendMessage = async (req, res, next) => {
           [threadId, req.user.id]
         );
         if (guardianParts?.length) {
-          const { sendSecureMessageNotification } = await import('../services/secureMessageNotify.service.js');
-          const agencyId = Number(req.headers['x-agency-id'] || req.user.agency_id || 0) || null;
+          const {
+            sendSecureMessageNotification,
+            sendLearningClientMessageEmail,
+            resolveClientContextForMessageNotify,
+            isSecureMessageEligibleClientType
+          } = await import('../services/secureMessageNotify.service.js');
+          const notifyAgencyId = Number(agencyId) || null;
+          const messagePlain = body || (incomingAttachments.length ? '[attachment]' : '');
           for (const g of guardianParts) {
             const email = String(g.email || g.personal_email || '').trim();
-            if (!email || !agencyId) continue;
-            await sendSecureMessageNotification({
-              agencyId,
-              senderUserId: req.user.id,
+            if (!email || !notifyAgencyId) continue;
+            const ctx = await resolveClientContextForMessageNotify({
+              agencyId: notifyAgencyId,
               recipientUserId: g.id,
-              recipientEmail: email,
-              clientId: g.client_id || null,
-              chatThreadId: threadId,
-              messageId: insertedMessageId,
-              messageSource: 'chat'
-            }).catch((err) => {
-              console.warn('[chat] secure notify failed:', err?.message || err);
+              clientId: g.client_id || null
             });
+            if (isSecureMessageEligibleClientType(ctx.clientType)) {
+              await sendSecureMessageNotification({
+                agencyId: notifyAgencyId,
+                senderUserId: req.user.id,
+                recipientUserId: g.id,
+                recipientEmail: email,
+                clientId: ctx.clientId || g.client_id || null,
+                chatThreadId: threadId,
+                messageId: insertedMessageId,
+                messageSource: 'chat'
+              }).catch((err) => {
+                console.warn('[chat] secure notify failed:', err?.message || err);
+              });
+            } else if (String(ctx.clientType || '').toLowerCase() === 'learning') {
+              await sendLearningClientMessageEmail({
+                agencyId: notifyAgencyId,
+                senderUserId: req.user.id,
+                recipientUserId: g.id,
+                recipientEmail: email,
+                clientId: ctx.clientId || g.client_id || null,
+                chatThreadId: threadId,
+                messageBody: messagePlain
+              }).catch((err) => {
+                console.warn('[chat] learning email notify failed:', err?.message || err);
+              });
+            }
           }
         }
       }
     } catch (e) {
-      console.warn('[chat] secure notify wiring failed:', e?.message || e);
+      console.warn('[chat] client message notify wiring failed:', e?.message || e);
     }
 
     // Mentions: resolve against thread participants (exclude sender)

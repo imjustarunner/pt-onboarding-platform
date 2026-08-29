@@ -136,7 +136,8 @@ async function send({ skipConfirm = false } = {}) {
         <button type="button" :class="{ on: channelMode === 'dm' }" @click="channelMode = 'dm'">Direct Message</button>
       </div>
       <p v-if="isSecureMode" class="uc-hint">
-        Sends a notification email (no PHI) with a deep link. Recipient opens the secure thread after login/setup.
+        Clinical and school guardians/clients only — sends a secure notification (no PHI) with a deep link.
+        Learning clients should use Email (they receive a regular message email).
       </p>
       <p v-else-if="isDmMode" class="uc-hint">
         Staff Direct Messages use the Messages workspace. Open Messages to chat with school/app staff.
