@@ -302,30 +302,84 @@
 
       <div v-else-if="tab === 'noteaid'" class="qv-pane">
         <div class="qv-pad" style="padding-bottom:8px;">
-          <p class="muted" style="margin:0 0 8px;">
-            Use client initials only (e.g. J.S.). Attaching clients is saved for the main app — open the full app to link a client to a note.
+          <p class="muted" style="margin:0 0 10px;">
+            Same Note Aid tools as the full app. Use initials only here — attaching clients is saved for the main app.
           </p>
+          <div class="qv-na-row">
+            <div>
+              <label class="muted">Date of service</label>
+              <input v-model="noteAidDos" type="date" class="qv-date" style="width:100%;margin-top:4px;" />
+            </div>
+            <div>
+              <label class="muted">Initials</label>
+              <input
+                v-model="noteAidInitials"
+                type="text"
+                maxlength="12"
+                placeholder="J.S."
+                class="qv-date"
+                style="width:100%;margin-top:4px;letter-spacing:0.06em;"
+              />
+            </div>
+          </div>
           <label class="muted">Tool</label>
           <select v-model="noteAidToolId" class="qv-date" style="width:100%;margin:6px 0 10px;">
             <option disabled value="">Select a Note Aid tool</option>
             <option v-for="t in noteAidTools" :key="t.id" :value="t.id">{{ t.name || t.label || t.id }}</option>
           </select>
+          <div class="qv-suite" style="padding:0 0 8px;">
+            <button type="button" :class="{ on: noteAidMode === 'type' }" @click="noteAidMode = 'type'; stopNoteAidSpeak()">Type</button>
+            <button
+              type="button"
+              :class="{ on: noteAidMode === 'speak' }"
+              :disabled="!speechSupported"
+              @click="toggleNoteAidSpeak"
+            >{{ noteAidSpeaking ? 'Stop' : 'Speak' }}</button>
+          </div>
           <textarea
             v-model="noteAidInput"
             rows="5"
-            placeholder="Type notes using initials…"
+            :placeholder="noteAidMode === 'speak' ? 'Speak your note…' : 'Type or paste session notes…'"
             style="width:100%;border-radius:10px;border:1px solid var(--qv-border);background:var(--qv-surface);color:var(--qv-text);padding:10px;"
           />
-          <button
-            type="button"
-            class="qv-btn primary"
-            style="margin-top:8px;"
-            :disabled="noteAidBusy || !noteAidToolId || !noteAidInput.trim()"
-            @click="runNoteAid"
-          >
-            {{ noteAidBusy ? 'Running…' : 'Generate' }}
-          </button>
-          <pre v-if="noteAidOutput" class="qv-note-out">{{ noteAidOutput }}</pre>
+          <div class="qv-sheet-actions" style="margin-top:8px;">
+            <button
+              type="button"
+              class="qv-btn primary"
+              :disabled="noteAidBusy || !noteAidToolId || !canRunNoteAid"
+              @click="runNoteAid"
+            >
+              {{ noteAidBusy ? 'Generating…' : 'Generate' }}
+            </button>
+          </div>
+          <div v-if="noteAidOutput" class="qv-note-block">
+            <div class="qv-note-toolbar">
+              <strong>Generated note</strong>
+              <button type="button" class="qv-btn ghost sm" @click="copyNoteAidOutput">
+                {{ noteAidCopied ? 'Copied' : 'Copy' }}
+              </button>
+            </div>
+            <pre class="qv-note-out">{{ noteAidOutput }}</pre>
+          </div>
+          <div class="qv-office-section" style="margin-top:16px;">
+            <h3 class="qv-section-title" style="font-size:0.95rem;">Drawer · today’s notes</h3>
+            <p class="muted" style="margin:0 12px 8px;font-size:12px;">
+              Generated notes land here so you can reopen them during the session.
+            </p>
+            <button
+              v-for="item in noteAidDrawer"
+              :key="item.id"
+              type="button"
+              class="qv-row"
+              @click="openNoteAidDrawerItem(item)"
+            >
+              <div class="meta">
+                <strong>{{ item.initials || 'Note' }} · {{ item.toolName || item.toolId }}</strong>
+                <small>{{ item.dos || 'No DOS' }} · {{ formatClock(item.at) }}</small>
+              </div>
+            </button>
+            <div v-if="!noteAidDrawer.length" class="qv-pad muted">No notes in the drawer yet.</div>
+          </div>
         </div>
       </div>
 
@@ -387,7 +441,10 @@
             <div v-for="s in myOfficeSlots" :key="s.id" class="qv-row">
               <div class="meta">
                 <strong>{{ s.office_name || 'Office' }}</strong>
-                <small>{{ formatClock(s.start_at) }} – {{ formatClock(s.end_at) }} · {{ s.status || '—' }}</small>
+                <small>
+                  {{ formatClock(s.start_at) }} – {{ formatClock(s.end_at) }}
+                  · {{ humanizeOfficeUi(s.status, s.slot_state) }}
+                </small>
               </div>
             </div>
           </div>
@@ -586,17 +643,25 @@
         <button type="button" class="qv-btn ghost sm" @click="calEvent = null">Close</button>
         <h3>{{ calEvent.title }}</h3>
         <p class="qv-detail-meta">{{ calEvent.kind }} · {{ formatClock(calEvent.startAt) }} – {{ formatClock(calEvent.endAt) }}</p>
-        <p v-if="calEvent.location" class="qv-detail-meta">{{ calEvent.location }}</p>
-        <p v-if="calEvent.hasClient" class="qv-detail-meta">
-          Client: {{ calEvent.clientInitials || 'initials unavailable' }}
-          <span class="muted"> (full name only in the main app)</span>
-        </p>
-        <div v-if="calEvent.attendees?.length">
-          <h4 style="margin:12px 0 6px;font-size:13px;color:var(--qv-muted);">Who’s coming</h4>
-          <div v-for="a in calEvent.attendees" :key="a.userId" class="qv-detail-meta">
-            {{ a.name || a.initials }}
+        <template v-if="String(calEvent.kind || '').toUpperCase() === 'OFFICE'">
+          <p class="qv-detail-meta"><strong>Office:</strong> {{ calEvent.officeName || calEvent.location || '—' }}</p>
+          <p class="qv-detail-meta"><strong>Status:</strong> {{ calEvent.availability || calEvent.status || '—' }}</p>
+          <p v-if="calEvent.room" class="qv-detail-meta"><strong>Room:</strong> {{ calEvent.room }}</p>
+          <p v-if="calEvent.slotState" class="qv-detail-meta muted">Slot: {{ formatSlotState(calEvent.slotState) }}</p>
+        </template>
+        <template v-else>
+          <p v-if="calEvent.location" class="qv-detail-meta">{{ calEvent.location }}</p>
+          <p v-if="calEvent.hasClient" class="qv-detail-meta">
+            Client: {{ calEvent.clientInitials || 'initials unavailable' }}
+            <span class="muted"> (full name only in the main app)</span>
+          </p>
+          <div v-if="calEvent.attendees?.length">
+            <h4 style="margin:12px 0 6px;font-size:13px;color:var(--qv-muted);">Who’s coming</h4>
+            <div v-for="a in calEvent.attendees" :key="a.userId" class="qv-detail-meta">
+              {{ a.name || a.initials }}
+            </div>
           </div>
-        </div>
+        </template>
         <div class="qv-sheet-actions" style="margin-top:12px;">
           <a
             v-if="calEvent.canJoin"
@@ -605,7 +670,7 @@
             @click="extendForMeeting(calEvent)"
           >Join</a>
           <p v-else class="muted" style="margin:0;font-size:13px;">
-            {{ calEvent.hasClient ? 'Client session details stay limited in Quick View.' : 'Open the full app to edit this event.' }}
+            {{ calEvent.hasClient ? 'Client session details stay limited in Quick View.' : (String(calEvent.kind||'').toUpperCase()==='OFFICE' ? 'Open the full app to change office bookings.' : 'Open the full app to edit this event.') }}
           </p>
         </div>
       </div>
@@ -677,6 +742,24 @@ const noteAidToolId = ref('');
 const noteAidInput = ref('');
 const noteAidOutput = ref('');
 const noteAidBusy = ref(false);
+const noteAidDos = ref(new Date().toISOString().slice(0, 10));
+const noteAidInitials = ref('');
+const noteAidMode = ref('type');
+const noteAidSpeaking = ref(false);
+const noteAidCopied = ref(false);
+const noteAidDrawer = ref([]);
+let noteAidRecognition = null;
+
+const speechSupported = computed(() => {
+  try {
+    return !!(window.SpeechRecognition || window.webkitSpeechRecognition);
+  } catch {
+    return false;
+  }
+});
+const canRunNoteAid = computed(() =>
+  !!(noteAidDos.value && noteAidInitials.value.trim() && noteAidInput.value.trim())
+);
 const day = ref(new Date().toISOString().slice(0, 10));
 const dayItems = ref([]);
 const showOffice = ref(false);
@@ -1311,7 +1394,8 @@ async function extendSession() {
 
 async function switchNoteAid() {
   tab.value = 'noteaid';
-  noteAidOutput.value = '';
+  noteAidCopied.value = false;
+  loadNoteAidDrawer();
   try {
     const { data } = await axios.get(`${apiBase}/note-aid/tools`, {
       headers: authHeaders(),
@@ -1328,26 +1412,152 @@ async function switchNoteAid() {
   }
 }
 
+function noteAidDrawerKey() {
+  const uid = sessionUserId.value || 'anon';
+  const dayKey = new Date().toISOString().slice(0, 10);
+  return `qvNoteAidDrawer:${uid}:${dayKey}`;
+}
+
+function loadNoteAidDrawer() {
+  try {
+    const raw = localStorage.getItem(noteAidDrawerKey());
+    noteAidDrawer.value = raw ? JSON.parse(raw) : [];
+    if (!Array.isArray(noteAidDrawer.value)) noteAidDrawer.value = [];
+  } catch {
+    noteAidDrawer.value = [];
+  }
+}
+
+function persistNoteAidDrawer() {
+  try {
+    localStorage.setItem(noteAidDrawerKey(), JSON.stringify(noteAidDrawer.value.slice(0, 40)));
+  } catch { /* ignore */ }
+}
+
+function stopNoteAidSpeak() {
+  try { noteAidRecognition?.stop?.(); } catch { /* ignore */ }
+  noteAidSpeaking.value = false;
+  noteAidMode.value = 'type';
+}
+
+function toggleNoteAidSpeak() {
+  if (!speechSupported.value) return;
+  if (noteAidSpeaking.value) {
+    stopNoteAidSpeak();
+    return;
+  }
+  noteAidMode.value = 'speak';
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  noteAidRecognition = new SR();
+  noteAidRecognition.continuous = true;
+  noteAidRecognition.interimResults = false;
+  noteAidRecognition.onresult = (event) => {
+    try {
+      const r = event?.results?.[event.results.length - 1];
+      const t = r?.[0]?.transcript || '';
+      if (t) {
+        const prev = String(noteAidInput.value || '');
+        noteAidInput.value = prev ? `${prev}\n${t}` : t;
+      }
+    } catch { /* ignore */ }
+  };
+  noteAidRecognition.onerror = () => { noteAidSpeaking.value = false; };
+  noteAidRecognition.onend = () => { noteAidSpeaking.value = false; };
+  try {
+    noteAidRecognition.start();
+    noteAidSpeaking.value = true;
+  } catch {
+    noteAidSpeaking.value = false;
+  }
+}
+
+function buildNoteAidPayloadText() {
+  const dos = noteAidDos.value || '';
+  const initials = noteAidInitials.value.trim().toUpperCase();
+  const body = noteAidInput.value.trim();
+  return [
+    `Date of service: ${dos}`,
+    `Client initials: ${initials}`,
+    '',
+    body
+  ].join('\n');
+}
+
 async function runNoteAid() {
-  if (!noteAidToolId.value || !noteAidInput.value.trim()) return;
+  if (!noteAidToolId.value || !canRunNoteAid.value) return;
+  stopNoteAidSpeak();
   noteAidBusy.value = true;
   noteAidOutput.value = '';
+  noteAidCopied.value = false;
   try {
+    const tool = noteAidTools.value.find((t) => t.id === noteAidToolId.value);
     const { data } = await axios.post(
       `${apiBase}/note-aid/execute`,
       {
         agencyId: sessionAgencyId.value,
         toolId: noteAidToolId.value,
-        inputText: noteAidInput.value.trim()
+        inputText: buildNoteAidPayloadText()
       },
       { headers: authHeaders(), withCredentials: true }
     );
-    noteAidOutput.value = data.outputText || data.text || data.output || JSON.stringify(data, null, 2);
+    const output = data.outputText || data.text || data.output || '';
+    noteAidOutput.value = output;
+    const item = {
+      id: `na_${Date.now().toString(36)}`,
+      at: new Date().toISOString(),
+      dos: noteAidDos.value,
+      initials: noteAidInitials.value.trim().toUpperCase(),
+      toolId: noteAidToolId.value,
+      toolName: tool?.name || noteAidToolId.value,
+      input: noteAidInput.value.trim(),
+      output
+    };
+    noteAidDrawer.value = [item, ...noteAidDrawer.value.filter((x) => x.id !== item.id)];
+    persistNoteAidDrawer();
   } catch (e) {
     error.value = e?.response?.data?.error?.message || 'Note Aid failed';
   } finally {
     noteAidBusy.value = false;
   }
+}
+
+async function copyNoteAidOutput() {
+  const text = String(noteAidOutput.value || '');
+  if (!text) return;
+  try {
+    await navigator.clipboard.writeText(text);
+    noteAidCopied.value = true;
+    setTimeout(() => { noteAidCopied.value = false; }, 2000);
+  } catch {
+    error.value = 'Could not copy — select the note and copy manually';
+  }
+}
+
+function openNoteAidDrawerItem(item) {
+  noteAidDos.value = item.dos || noteAidDos.value;
+  noteAidInitials.value = item.initials || '';
+  noteAidToolId.value = item.toolId || noteAidToolId.value;
+  noteAidInput.value = item.input || '';
+  noteAidOutput.value = item.output || '';
+  noteAidCopied.value = false;
+}
+
+function formatSlotState(raw) {
+  return String(raw || '')
+    .replace(/_/g, ' ')
+    .toLowerCase()
+    .replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+function humanizeOfficeUi(status, slotState) {
+  const slot = String(slotState || '').toUpperCase();
+  const st = String(status || '').toUpperCase();
+  if (slot === 'ASSIGNED_AVAILABLE') return 'Available';
+  if (slot === 'ASSIGNED_BOOKED' || st === 'BOOKED') return 'Booked';
+  if (slot === 'ASSIGNED_TEMPORARY') return 'Temporarily assigned';
+  if (slot === 'COMPANY_HOLD') return 'Company hold';
+  if (st === 'RELEASED') return 'Released';
+  return st || slot || 'Scheduled';
 }
 
 function isDone(task) {
@@ -1698,6 +1908,7 @@ onMounted(() => {
 });
 onUnmounted(() => {
   stopHeartbeat();
+  stopNoteAidSpeak();
 });
 </script>
 
@@ -1739,6 +1950,20 @@ onUnmounted(() => {
   line-height: 1.45;
   max-height: 40vh;
   overflow: auto;
+}
+.qv-na-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.qv-note-block { margin-top: 12px; }
+.qv-note-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
 }
 .qv-cal-block { cursor: pointer; }
 .qv *,

@@ -129,6 +129,20 @@ function userInitials(u) {
   return `${f || l || '?'}`.slice(0, 2).toUpperCase();
 }
 
+/** Human-readable office booking state for Quick View calendar. */
+function humanizeOfficeAvailability(status, slotState) {
+  const slot = String(slotState || '').toUpperCase();
+  const st = String(status || '').toUpperCase();
+  if (slot === 'ASSIGNED_AVAILABLE') return 'Available';
+  if (slot === 'ASSIGNED_BOOKED' || st === 'BOOKED') return 'Booked';
+  if (slot === 'ASSIGNED_TEMPORARY') return 'Temporarily assigned';
+  if (slot === 'COMPANY_HOLD') return 'Company hold';
+  if (st === 'RELEASED') return 'Released';
+  if (st === 'CANCELLED') return 'Cancelled';
+  if (st) return st.charAt(0) + st.slice(1).toLowerCase();
+  return 'Scheduled';
+}
+
 /**
  * Confirm identity for Quick View credential changes.
  * Password accounts: require password.
@@ -752,10 +766,13 @@ export const getQuickDayCalendar = async (req, res, next) => {
     }
 
     const [officeRows] = await pool.execute(
-      `SELECT e.id, e.start_at, e.end_at, e.status,
-              ol.name AS office_name
+      `SELECT e.id, e.start_at, e.end_at, e.status, e.slot_state,
+              ol.name AS office_name,
+              r.name AS room_name,
+              r.room_number
        FROM office_events e
        LEFT JOIN office_locations ol ON ol.id = e.office_location_id
+       LEFT JOIN office_rooms r ON r.id = e.room_id
        WHERE (e.assigned_provider_id = ? OR e.booked_provider_id = ?)
          AND (e.status IS NULL OR UPPER(e.status) <> 'CANCELLED')
          AND e.start_at < ? AND e.end_at > ?
@@ -769,21 +786,31 @@ export const getQuickDayCalendar = async (req, res, next) => {
         clientInitials: initialsByClient.get(Number(e.client_id || e.clientId || 0)) || null,
         attendees: attendeesByEvent.get(Number(e.id)) || []
       })),
-      ...(officeRows || []).map((o) => ({
-        id: `office-${o.id}`,
-        eventId: o.id,
-        title: 'Office',
-        kind: 'OFFICE',
-        startAt: o.start_at,
-        endAt: o.end_at,
-        location: o.office_name || null,
-        joinKey: null,
-        canJoin: false,
-        hasClient: false,
-        clientInitials: null,
-        attendees: [],
-        editable: false
-      }))
+      ...(officeRows || []).map((o) => {
+        const officeName = o.office_name || 'Office';
+        const availability = humanizeOfficeAvailability(o.status, o.slot_state);
+        const roomLabel = String(o.room_number || o.room_name || '').trim();
+        return {
+          id: `office-${o.id}`,
+          eventId: o.id,
+          title: `${officeName} · ${availability}`,
+          kind: 'OFFICE',
+          startAt: o.start_at,
+          endAt: o.end_at,
+          location: officeName,
+          officeName,
+          room: roomLabel || null,
+          status: o.status || null,
+          slotState: o.slot_state || null,
+          availability,
+          joinKey: null,
+          canJoin: false,
+          hasClient: false,
+          clientInitials: null,
+          attendees: [],
+          editable: false
+        };
+      })
     ].sort((a, b) => new Date(a.startAt) - new Date(b.startAt));
 
     res.json({ ok: true, day, items });
@@ -805,7 +832,7 @@ export const getQuickOfficeAvailability = async (req, res, next) => {
 
     // My slots today
     const [myRows] = await pool.execute(
-      `SELECT e.id, e.start_at, e.end_at, e.status,
+      `SELECT e.id, e.start_at, e.end_at, e.status, e.slot_state,
               ol.name AS office_name,
               e.office_location_id AS office_id
        FROM office_events e
