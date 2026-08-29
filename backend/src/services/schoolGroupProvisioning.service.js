@@ -105,7 +105,8 @@ async function listStaffEmailsForSchoolOrg(schoolOrganizationId, primaryEmail = 
        FROM school_contacts
        WHERE school_organization_id = ?
          AND email IS NOT NULL
-         AND TRIM(email) <> ''`,
+         AND TRIM(email) <> ''
+         AND COALESCE(email_delivery_preference, 'email') <> 'no_email'`,
       [orgId]
     );
     for (const row of contacts || []) {
