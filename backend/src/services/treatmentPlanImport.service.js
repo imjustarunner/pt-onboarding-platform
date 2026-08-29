@@ -10,7 +10,7 @@ function cleanLine(line) {
     .trim();
 }
 
-function parseScalePair(text) {
+export function parseScalePair(text) {
   const s = String(text || '');
   // "from a current … level of 9 to a 5"
   const fromTo = s.match(

@@ -1,5 +1,9 @@
 // Clinical Note Agent tools sourced from Clinical_Note_Agent.md (full gem instructions).
-import { TREATMENT_PLAN_OUTPUT_INSTRUCTIONS, PROGRESS_NOTE_OUTPUT_INSTRUCTIONS } from './clinicalNotePlanOutput.js';
+import {
+  TREATMENT_PLAN_OUTPUT_INSTRUCTIONS,
+  PROGRESS_NOTE_OUTPUT_INSTRUCTIONS,
+  applySharedNoteAidToolContracts
+} from './clinicalNotePlanOutput.js';
 // These are defined here to integrate with Note Aid without relying on SDKs.
 
 const AGENT_PROMPTS = {
@@ -61,7 +65,7 @@ const AGENT_PROMPTS = {
 
 const baseCategory = 'Clinical Note Agent';
 
-export const CLINICAL_NOTE_AGENT_TOOLS = [
+const CLINICAL_NOTE_AGENT_TOOLS_RAW = [
   {
     id: 'clinical_h0031_additional',
     name: 'H0031 Additional Assessment',
@@ -436,3 +440,6 @@ export const CLINICAL_NOTE_AGENT_TOOLS = [
     model: 'gemini-2.5-pro'
   }
 ];
+
+/** Shared SOIP + treatment-plan contracts applied once for all Note Aid consumers. */
+export const CLINICAL_NOTE_AGENT_TOOLS = applySharedNoteAidToolContracts(CLINICAL_NOTE_AGENT_TOOLS_RAW);

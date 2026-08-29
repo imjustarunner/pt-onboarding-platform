@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { aidAllowsInteractiveComplexity, aidKind, aidServiceCodeDisplay, findNoteAidById, orderNoteAidCategoriesForHcbs } from '../noteAidWorkspace.js';
+import {
+  aidAllowsInteractiveComplexity,
+  aidKind,
+  aidServiceCodeDisplay,
+  findNoteAidById,
+  orderNoteAidCategoriesForHcbs,
+  resolveTreatmentPlanAidId
+} from '../noteAidWorkspace.js';
 import {
   SESSION_RECORDING_NOTE_AIDS,
   defaultProgressNoteAidIdFromHcbsCategory,
@@ -23,6 +30,14 @@ describe('note aid kinds', () => {
   it('keeps treatment plans in Note Aid', () => {
     expect(findNoteAidById('h0004_plan')?.aid?.toolId).toBe('clinical_h0004_plan');
     expect(findNoteAidById('psychotherapy_plan')?.aid?.toolId).toBe('clinical_psychotherapy_plan');
+    expect(findNoteAidById('tpt_plan')?.aid?.toolId).toBe('clinical_tpt_plan');
+  });
+
+  it('resolves matching treatment plan aid by service line', () => {
+    expect(resolveTreatmentPlanAidId({ serviceCode: 'H0004' })).toBe('h0004_plan');
+    expect(resolveTreatmentPlanAidId({ serviceCode: '90837' })).toBe('psychotherapy_plan');
+    expect(resolveTreatmentPlanAidId({ categoryId: 'therapy_tutoring' })).toBe('tpt_plan');
+    expect(resolveTreatmentPlanAidId({ noteAidId: 'h0004_note' })).toBe('h0004_plan');
   });
 
   it('does not allow Interactive Complexity on plans or intakes', () => {

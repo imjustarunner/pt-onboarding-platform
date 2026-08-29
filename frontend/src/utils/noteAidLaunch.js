@@ -1,4 +1,5 @@
 import { workspaceNoteAidPath } from '../config/noteAidAccess.js';
+import { resolveTreatmentPlanAidId } from '../config/noteAidWorkspace.js';
 
 /**
  * Shared Note Aid launch contract for schedule / medical record / client chart.
@@ -91,13 +92,32 @@ export function navigateToNoteAid(router, ctx = {}, opts = {}) {
 
 /**
  * Prefill helpers for treatment-plan updater launches.
+ * Pass noteAid / serviceCode / categoryId to pick the matching plan writer
+ * (all share Goal/Objective/1–10 structure; directions differ by aid).
  */
 export function treatmentPlanUpdaterQuery(clientId, extra = {}) {
+  const {
+    noteAidId,
+    toolId,
+    serviceCode,
+    categoryId,
+    noteAid: explicitNoteAid,
+    ...rest
+  } = extra || {};
+  const noteAid =
+    cleanStr(explicitNoteAid)
+    || resolveTreatmentPlanAidId({
+      noteAidId,
+      toolId,
+      serviceCode,
+      categoryId
+    });
   return buildNoteAidQuery({
     clientId,
     launchIntent: 'update_treatment_plan',
-    noteAid: 'psychotherapy_plan',
-    ...extra
+    ...rest,
+    serviceCode,
+    noteAid
   });
 }
 

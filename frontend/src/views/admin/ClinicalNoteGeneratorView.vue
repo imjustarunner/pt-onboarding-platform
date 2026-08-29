@@ -1172,8 +1172,15 @@ import {
   aidKind,
   findNoteAidById,
   findNoteAidByToolOrCode,
-  orderNoteAidCategoriesForHcbs
+  orderNoteAidCategoriesForHcbs,
+  resolveTreatmentPlanAidId
 } from '../../config/noteAidWorkspace.js';
+import {
+  DEFAULT_MEASUREMENT_METHOD,
+  inferScaleDirection,
+  isObjectiveScaleValid,
+  parseScalePair
+} from '../../utils/treatmentPlanDuration.js';
 import { rememberRecentAid, loadNoteLibraryUiPrefs, saveNoteLibraryUiPrefs } from '../../utils/noteAidLibraryPrefs.js';
 import { isClinicalChartEnabled, parseAgencyFeatureFlags } from '../../config/medicalBillingAccess.js';
 import { useAgencyStore } from '../../store/agency';
@@ -3970,9 +3977,19 @@ const saveTreatmentPlanToChart = async () => {
         };
         goals.push(current);
       } else if (current && (p.kind === 'objective' || /^Objective\s*\d+/i.test(p.id || ''))) {
+        const objectiveText = p.text || '';
+        const scales = parseScalePair(objectiveText);
+        const scaleCurrent = scales.scaleCurrent;
+        const scaleTarget = scales.scaleTarget;
         current.objectives.push({
           objectiveIndex: p.index || current.objectives.length + 1,
-          objectiveText: p.text || ''
+          objectiveText,
+          scaleCurrent,
+          scaleTarget,
+          scaleDirection: inferScaleDirection(scaleCurrent, scaleTarget),
+          measurementMethod: isObjectiveScaleValid(scaleCurrent, scaleTarget)
+            ? DEFAULT_MEASUREMENT_METHOD
+            : null
         });
       } else if (current && (p.kind === 'projected_time' || /^Projected/i.test(p.id || ''))) {
         current.projectedCompletion = p.text || '';
@@ -3982,6 +3999,14 @@ const saveTreatmentPlanToChart = async () => {
     }
     if (!goals.length) {
       throw new Error('No Goal/Objective panels found to save.');
+    }
+    const missingScale = goals.some((g) =>
+      (g.objectives || []).some((o) => !isObjectiveScaleValid(o.scaleCurrent, o.scaleTarget))
+    );
+    if (missingScale) {
+      throw new Error(
+        'Each objective needs a clear 1–10 current and target scale (same as treatment plan paste import) before saving to the chart.'
+      );
     }
     await api.post('/medical-billing/treatment-plans', {
       agencyId: chartAgencyIdForSave.value || currentAgencyId.value,
@@ -4807,8 +4832,15 @@ const openTreatmentPlanUpdater = async ({
   renewalReason = '',
   progressExcerpt = ''
 } = {}) => {
-  selectedNoteCategory.value = 'psychotherapy';
-  selectedAidId.value = 'psychotherapy_plan';
+  const planAidId = resolveTreatmentPlanAidId({
+    noteAidId: selectedAidId.value,
+    toolId: selectedToolId.value || selectedAid.value?.toolId,
+    serviceCode: actualServiceCode.value,
+    categoryId: selectedNoteCategory.value
+  });
+  const planHit = findNoteAidById(planAidId);
+  selectedNoteCategory.value = planHit?.category?.id || 'psychotherapy';
+  selectedAidId.value = planAidId;
 
   const cid = Number(effectiveClientId.value || 0);
   if (cid && !latestTreatmentPlan.value && !loadingClientPlan.value) {

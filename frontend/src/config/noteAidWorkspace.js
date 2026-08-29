@@ -87,7 +87,7 @@ export const NOTE_AID_CATEGORIES = [
         toolId: 'clinical_h0004_plan',
         serviceCode: 'H0004',
         guidance:
-          'Paste in the presenting problem or chief complaint, the Hx of symptoms, the diagnosis, and the justification. Write any additional information to help it tailor a treatment plan for your specific client. OR Paste in the old treatment plan and write how it needs to be altered based on progress or regression.'
+          'Paste in the presenting problem or chief complaint, the Hx of symptoms, the diagnosis, and the justification. Write any additional information to help it tailor a treatment plan for your specific client. OR Paste in the old treatment plan and write how it needs to be altered based on progress or regression. Output uses the same Goal / Objective (1–10 scale) / Projected Time / Discharge structure as other treatment plan aids.'
       },
       {
         id: 'h0004_note',
@@ -95,7 +95,7 @@ export const NOTE_AID_CATEGORIES = [
         toolId: 'clinical_h0004_note',
         serviceCode: 'H0004',
         guidance:
-          'Used to document standard counseling sessions. Minimum 8 minutes required. Symptoms, objective content, interventions, and plan.'
+          'Used to document standard counseling sessions. Minimum 8 minutes required. Same SOIP panels as 90837 (Subjective, Objective, Interventions, Plan) with bachelor’s-level wording — copy panels work the same way.'
       },
       {
         id: 'termination',
@@ -409,6 +409,47 @@ export function aidServiceCodeDisplay(aid) {
 /** Interactive Complexity (90785) is a progress-note add-on only. */
 export function aidAllowsInteractiveComplexity(aid) {
   return aidKind(aid) === 'progress';
+}
+
+/**
+ * Resolve which treatment-plan aid to open for updater / chart flows.
+ * Same Goal/Objective/1–10 structure for all; different writing directions per aid.
+ */
+export function resolveTreatmentPlanAidId({
+  noteAidId = '',
+  toolId = '',
+  serviceCode = '',
+  categoryId = ''
+} = {}) {
+  const code = String(serviceCode || '').trim().toUpperCase();
+  const blob = `${noteAidId || ''} ${toolId || ''} ${categoryId || ''}`.toLowerCase();
+
+  if (code === 'H0004' || blob.includes('h0004')) return 'h0004_plan';
+  if (
+    code === 'H2014'
+    || code === 'H2015'
+    || code === 'H2016'
+    || blob.includes('skill_builder')
+    || blob.includes('h2014')
+    || blob.includes('individual_plan')
+  ) {
+    if (blob.includes('skill_builders_plan') || blob.includes('group')) return 'skill_builders_plan';
+    return 'individual_plan';
+  }
+  if (
+    blob.includes('tpt')
+    || blob.includes('therapy_tutoring')
+    || blob.includes('nlu')
+    || blob.includes('tutor')
+  ) {
+    return 'tpt_plan';
+  }
+  if (code === '90791' || blob.includes('90791')) return '90791_intake_plan';
+  if (blob.includes('h0004_plan')) return 'h0004_plan';
+  if (blob.includes('skill_builders_plan')) return 'skill_builders_plan';
+  if (blob.includes('individual_plan')) return 'individual_plan';
+  if (blob.includes('tpt_plan')) return 'tpt_plan';
+  return 'psychotherapy_plan';
 }
 
 /** Put the clinician’s usual progress-note family first in the gem library. */

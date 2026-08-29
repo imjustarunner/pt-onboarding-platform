@@ -30,6 +30,12 @@ describe('noteAidLaunch', () => {
       launchIntent: 'update_treatment_plan',
       noteAid: 'psychotherapy_plan'
     });
+    expect(treatmentPlanUpdaterQuery(7, { serviceCode: 'H0004' })).toEqual({
+      clientId: '7',
+      launchIntent: 'update_treatment_plan',
+      serviceCode: 'H0004',
+      noteAid: 'h0004_plan'
+    });
   });
 
   it('resolves org-scoped path', () => {

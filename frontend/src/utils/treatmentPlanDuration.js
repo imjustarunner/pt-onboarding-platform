@@ -51,3 +51,61 @@ export function isObjectiveScaleValid(scaleCurrent, scaleTarget) {
 }
 
 export const DEFAULT_MEASUREMENT_METHOD = '1–10 scale (client self-report)';
+
+/**
+ * Extract 1–10 current/target from AI or paste objective text.
+ * Mirrors backend treatmentPlanImport.service.parseScalePair.
+ */
+export function parseScalePair(text) {
+  const s = String(text || '');
+  const fromTo = s.match(
+    /(?:current|baseline|from)[^0-9]{0,40}?(\d{1,2})\s*(?:or below|or less)?[^0-9]{0,20}?(?:to|→|->)\s*(?:a\s+)?(\d{1,2})/i
+  );
+  if (fromTo) {
+    const current = Number(fromTo[1]);
+    const target = Number(fromTo[2]);
+    if (current >= 1 && current <= 10 && target >= 1 && target <= 10) {
+      return { scaleCurrent: current, scaleTarget: target };
+    }
+  }
+  const arrow = s.match(/(\d{1,2})\s*(?:→|->|to|\/)\s*(\d{1,2})/i);
+  if (arrow) {
+    const current = Number(arrow[1]);
+    const target = Number(arrow[2]);
+    if (current >= 1 && current <= 10 && target >= 1 && target <= 10) {
+      return { scaleCurrent: current, scaleTarget: target };
+    }
+  }
+  const labeled = s.match(/current[^0-9]*(\d{1,2})[^0-9]+(?:goal|target)[^0-9]*(\d{1,2})/i);
+  if (labeled) {
+    const current = Number(labeled[1]);
+    const target = Number(labeled[2]);
+    if (current >= 1 && current <= 10 && target >= 1 && target <= 10) {
+      return { scaleCurrent: current, scaleTarget: target };
+    }
+  }
+  const currentOnly = s.match(/(?:currently\s+(?:functions|reports)?\s*(?:at\s+)?(?:a\s+)?level\s*(?:of\s*)?|baseline\s*(?:of\s*)?)(\d{1,2})/i);
+  const targetOnly = s.match(/(?:achieving|target|goal)\s*(?:a\s+)?level\s*(?:of\s*)?(\d{1,2})/i);
+  if (currentOnly || targetOnly) {
+    const current = currentOnly ? Number(currentOnly[1]) : null;
+    const target = targetOnly ? Number(targetOnly[1]) : null;
+    if (
+      (current == null || (current >= 1 && current <= 10))
+      && (target == null || (target >= 1 && target <= 10))
+    ) {
+      return { scaleCurrent: current, scaleTarget: target };
+    }
+  }
+  return { scaleCurrent: null, scaleTarget: null };
+}
+
+export function inferScaleDirection(scaleCurrent, scaleTarget, explicit = null) {
+  const dir = String(explicit || '').toLowerCase();
+  if (dir === 'increase' || dir === 'decrease') return dir;
+  const cur = Number(scaleCurrent);
+  const tgt = Number(scaleTarget);
+  if (!Number.isFinite(cur) || !Number.isFinite(tgt)) return null;
+  if (tgt > cur) return 'increase';
+  if (tgt < cur) return 'decrease';
+  return null;
+}
