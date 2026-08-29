@@ -359,11 +359,13 @@ function resolveSchoolGroupEmailDomain(slug, portalUrl) {
 }
 
 function resolveSchoolOnboardingSupportEmail(slug, portalUrl, fallback = null) {
-  const base = String(slug || portalUrl || 'itsco')
+  const configured = String(fallback || '').trim();
+  if (configured) return configured;
+  const base = String(slug || portalUrl || '')
     .toLowerCase()
     .replace(/[^a-z0-9-]/g, '');
-  if (base) return `support@${base}.health`;
-  return fallback || null;
+  if (base === 'itsco') return 'support@itsco.health';
+  return null;
 }
 
 const SCHOOL_ONBOARDING_SUPPORT_PHONE = '719-657-7444 Ext 0';
@@ -1257,7 +1259,7 @@ export function serializeInvite(invite, { admin = false, publicView = false } = 
         supportEmail: resolveSchoolOnboardingSupportEmail(
           invite.agency_slug,
           invite.agency_portal_url,
-          invite.agency_onboarding_team_email
+          invite.agency_support_team_email || invite.agency_onboarding_team_email
         ),
         schoolGroupEmailDomain: resolveSchoolGroupEmailDomain(invite.agency_slug, invite.agency_portal_url)
       },
@@ -2069,7 +2071,7 @@ export async function getPublicQrLink(token) {
       supportEmail: resolveSchoolOnboardingSupportEmail(
         link.agency_slug,
         link.agency_portal_url,
-        link.agency_onboarding_team_email
+        link.agency_support_team_email || link.agency_onboarding_team_email
       )
     }
   };

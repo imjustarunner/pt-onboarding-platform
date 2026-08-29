@@ -146,6 +146,110 @@ export async function sendLearningClientMessageEmail({
   };
 }
 
+function domainFromEmail(email) {
+  const e = String(email || '').trim().toLowerCase();
+  const at = e.lastIndexOf('@');
+  if (at < 0) return null;
+  const domain = e.slice(at + 1).replace(/[^a-z0-9.-]/g, '');
+  return domain || null;
+}
+
+async function inferAgencyMailDomain(agencyId) {
+  const { default: EmailSenderIdentity } = await import('../models/EmailSenderIdentity.model.js');
+  const list = await EmailSenderIdentity.list({
+    agencyId,
+    includePlatformDefaults: false,
+    onlyActive: true
+  });
+  const preferKeys = ['support', 'notifications', 'forms', 'people_operations', 'technology'];
+  for (const key of preferKeys) {
+    const hit = (list || []).find((i) => String(i.identity_key || '').toLowerCase() === key);
+    const domain = domainFromEmail(hit?.from_email);
+    if (domain && !domain.includes('plottwisthq.com') && !domain.includes('gmail.com')) return domain;
+  }
+  for (const i of list || []) {
+    if (String(i.identity_key || '').toLowerCase().startsWith('personal_')) continue;
+    const domain = domainFromEmail(i.from_email);
+    if (domain && !domain.includes('plottwisthq.com') && !domain.includes('gmail.com')) return domain;
+  }
+  const agency = await Agency.findById(agencyId);
+  const slug = String(agency?.slug || '').toLowerCase().replace(/[^a-z0-9-]/g, '');
+  if (slug === 'itsco') return 'itsco.health';
+  return null;
+}
+
+/**
+ * Resolve From = securemessage@tenant and Reply-To = noreply@tenant.
+ * Creates identities on first use when the tenant mail domain is known.
+ */
+async function ensureSecureMessageMailboxes(agencyId) {
+  const { default: EmailSenderIdentity } = await import('../models/EmailSenderIdentity.model.js');
+  const { default: AgencyEmailSettings } = await import('../models/AgencyEmailSettings.model.js');
+  const settings = await getAgencyEmailSettings(agencyId);
+
+  let fromIdentity = settings.secureMessageSenderIdentityId
+    ? await EmailSenderIdentity.findById(settings.secureMessageSenderIdentityId)
+    : null;
+  if (!fromIdentity) {
+    fromIdentity =
+      (await EmailSenderIdentity.findByAgencyAndIdentityKey(agencyId, 'secure_message')) ||
+      (await EmailSenderIdentity.findByAgencyAndIdentityKey(agencyId, 'securemessage'));
+  }
+
+  let noreplyIdentity = settings.noreplySenderIdentityId
+    ? await EmailSenderIdentity.findById(settings.noreplySenderIdentityId)
+    : null;
+  if (!noreplyIdentity) {
+    noreplyIdentity = await EmailSenderIdentity.findByAgencyAndIdentityKey(agencyId, 'noreply');
+  }
+
+  const domain = await inferAgencyMailDomain(agencyId);
+  if (!fromIdentity && domain) {
+    fromIdentity = await EmailSenderIdentity.create({
+      agencyId,
+      identityKey: 'secure_message',
+      displayName: 'Secure Messages',
+      fromEmail: `securemessage@${domain}`,
+      replyTo: `noreply@${domain}`,
+      isActive: true
+    });
+  }
+  if (!noreplyIdentity && domain) {
+    noreplyIdentity = await EmailSenderIdentity.create({
+      agencyId,
+      identityKey: 'noreply',
+      displayName: 'No Reply',
+      fromEmail: `noreply@${domain}`,
+      replyTo: `noreply@${domain}`,
+      isActive: true
+    });
+  }
+
+  const noreplyEmail =
+    String(noreplyIdentity?.from_email || '').trim() ||
+    (domain ? `noreply@${domain}` : null);
+
+  // Persist linked identities when we auto-created / discovered them
+  const nextSecureId = fromIdentity?.id || null;
+  const nextNoreplyId = noreplyIdentity?.id || null;
+  if (
+    (nextSecureId && Number(settings.secureMessageSenderIdentityId) !== Number(nextSecureId)) ||
+    (nextNoreplyId && Number(settings.noreplySenderIdentityId) !== Number(nextNoreplyId))
+  ) {
+    try {
+      await AgencyEmailSettings.update({
+        agencyId,
+        secureMessageSenderIdentityId: nextSecureId || settings.secureMessageSenderIdentityId,
+        noreplySenderIdentityId: nextNoreplyId || settings.noreplySenderIdentityId
+      });
+    } catch (e) {
+      console.warn('[secureMessageNotify] could not persist mailbox ids:', e?.message || e);
+    }
+  }
+
+  return { fromIdentity, noreplyIdentity, noreplyEmail, domain };
+}
+
 export async function sendSecureMessageNotification({
   agencyId,
   senderUserId,
@@ -183,6 +287,11 @@ export async function sendSecureMessageNotification({
   const email = String(recipientEmail || '').trim().toLowerCase();
   if (!email) return { sent: false, reason: 'no_email' };
 
+  const mailboxes = await ensureSecureMessageMailboxes(agencyId);
+  if (!mailboxes.fromIdentity?.id) {
+    return { sent: false, reason: 'secure_message_identity_missing' };
+  }
+
   const rawToken = crypto.randomBytes(24).toString('hex');
   const tokenHash = sha256(rawToken);
   const [ins] = await pool.execute(
@@ -218,45 +327,36 @@ export async function sendSecureMessageNotification({
   // Public claim URL that routes to setup or login then redirects to message
   const claimUrl = `${baseUrl}/secure-message/${encodeURIComponent(rawToken)}`;
 
-  const subject = `You have received a secure message from your provider`;
+  const subject = `You have a secure message from your provider`;
   const html = `
-    <p>You have received a secure message from <strong>${senderName}</strong> at ${tenant}.</p>
-    <p><a href="${claimUrl}">Open your secure message</a></p>
+    <p>You have a secure message from your provider on our portal.</p>
+    <p><strong>${escapeHtml(senderName)}</strong> at ${escapeHtml(tenant)} sent you a message.</p>
+    <p><a href="${claimUrl}">Click this link to sign in and access your message</a></p>
     <p style="color:#64748b;font-size:12px">
-      This notification was sent from a secure-message address. Replies to this email go to an unmonitored inbox
-      (noreply) and will not be read. Please use the link above to view and reply securely in the app.
+      If you have not set a password yet, you will create one and then sign in to read the message.
+      Replies to this email go to an unmonitored address (noreply) and will not be read —
+      please use the link above to view and reply securely in the portal.
     </p>
   `;
+  const text =
+    `You have a secure message from your provider on our portal.\n\n` +
+    `${senderName} at ${tenant} sent you a message.\n\n` +
+    `Click this link to sign in and access your message:\n${claimUrl}\n\n` +
+    `If you have not set a password yet, you will create one and then sign in to read the message.`;
 
-  let sendResult = null;
-  if (settings.secureMessageSenderIdentityId) {
-    sendResult = await sendEmailFromIdentity({
-      senderIdentityId: settings.secureMessageSenderIdentityId,
-      to: email,
-      subject,
-      html,
-      text: `You have received a secure message from ${senderName}. Open: ${claimUrl}`,
-      replyTo: settings.noreplySenderIdentityId ? undefined : `noreply@${String(email.split('@')[1] || 'plottwisthq.com')}`,
-      source: 'auto',
-      generatedByUserId: senderUserId,
-      templateType: 'secure_message_notification',
-      userId: recipientUserId,
-      clientId: resolvedClientId
-    });
-  } else {
-    sendResult = await sendNotificationEmail({
-      to: email,
-      subject,
-      html,
-      text: `You have received a secure message from ${senderName}. Open: ${claimUrl}`,
-      agencyId,
-      userId: recipientUserId,
-      clientId: resolvedClientId,
-      templateType: 'secure_message_notification',
-      source: 'auto',
-      generatedByUserId: senderUserId
-    });
-  }
+  const sendResult = await sendEmailFromIdentity({
+    senderIdentityId: mailboxes.fromIdentity.id,
+    to: email,
+    subject,
+    html,
+    text,
+    replyToOverride: mailboxes.noreplyEmail || undefined,
+    source: 'auto',
+    generatedByUserId: senderUserId,
+    templateType: 'secure_message_notification',
+    userId: recipientUserId,
+    clientId: resolvedClientId
+  });
 
   if (sendResult?.communicationId) {
     await pool.execute(
@@ -270,6 +370,8 @@ export async function sendSecureMessageNotification({
     id: ins.insertId,
     claimUrl,
     deepPath,
+    fromEmail: mailboxes.fromIdentity.from_email,
+    replyTo: mailboxes.noreplyEmail,
     tokenShownOnce: rawToken
   };
 }

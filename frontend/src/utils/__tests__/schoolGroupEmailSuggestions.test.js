@@ -40,8 +40,27 @@ describe('schoolGroupEmailSuggestions', () => {
     expect(buildSchoolGroupEmail('riverdale', DOMAIN)).toBe('riverdale@itsco.health');
   });
 
-  it('resolves school onboarding support email from agency slug', () => {
+  it('prefers configured support email over invented @slug.health', () => {
+    expect(
+      resolveSchoolOnboardingSupportEmail({
+        slug: 'nlu',
+        support_team_email: 'support@nextleveluplcc.com'
+      })
+    ).toBe('support@nextleveluplcc.com');
+    expect(
+      resolveSchoolOnboardingSupportEmail({
+        slug: 'nlu',
+        onboarding_team_email: 'po@nextleveluplcc.com'
+      })
+    ).toBe('po@nextleveluplcc.com');
+  });
+
+  it('resolves ITSCO school onboarding support email from agency slug when unset', () => {
     expect(resolveSchoolOnboardingSupportEmail({ slug: 'itsco' })).toBe('support@itsco.health');
+  });
+
+  it('does not invent support@nlu.health when no email is configured', () => {
+    expect(resolveSchoolOnboardingSupportEmail({ slug: 'nlu' })).toBe(null);
   });
 
   it('resolves school onboarding support phone to local ITSCO line', () => {

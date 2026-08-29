@@ -742,6 +742,7 @@ class Agency {
       companyDefaultPasswordHash,
       useDefaultPassword,
       onboardingTeamEmail,
+      supportTeamEmail,
       phoneNumber,
       phoneExtension,
       portalUrl,
@@ -999,9 +1000,10 @@ class Agency {
     }
     
     if (hasPortalConfig) {
-      insertFields.push('onboarding_team_email', 'phone_number', 'phone_extension', 'portal_url', 'theme_settings');
+      insertFields.push('onboarding_team_email', 'support_team_email', 'phone_number', 'phone_extension', 'portal_url', 'theme_settings');
       insertValues.push(
         onboardingTeamEmail || null,
+        supportTeamEmail || null,
         phoneNumber || null,
         phoneExtension || null,
         portalUrl ? String(portalUrl).toLowerCase() : null,
@@ -1324,7 +1326,7 @@ class Agency {
   }
 
   static async update(id, agencyData) {
-    const { name, officialName, slug, logoUrl, logoPath, colorPalette, terminologySettings, intakeRetentionPolicy, isActive, iconId, chatIconId, trainingFocusDefaultIconId, moduleDefaultIconId, userDefaultIconId, documentDefaultIconId, companyDefaultPasswordHash, useDefaultPassword, manageAgenciesIconId, manageModulesIconId, manageDocumentsIconId, manageUsersIconId, platformSettingsIconId, viewAllProgressIconId, progressDashboardIconId, settingsIconId, externalCalendarAuditIconId, skillBuildersAvailabilityIconId, intakeLinksIconId, auditCenterIconId, marketingSocialIconId, myDashboardChecklistIconId, myDashboardMomentumListIconId, myDashboardMomentumStickiesIconId, myDashboardTrainingIconId, myDashboardDocumentsIconId, myDashboardMyAccountIconId, myDashboardMyScheduleIconId, myDashboardClientsIconId, myDashboardOnDemandTrainingIconId, myDashboardPayrollIconId, myDashboardSubmitIconId, myDashboardCommunicationsIconId, myDashboardChatsIconId, myDashboardNotificationsIconId, myDashboardSupervisionIconId, myDashboardContactsIconId, myDashboardStaffIconId, myDashboardClinicalNoteGeneratorIconId, certificateTemplateUrl, onboardingTeamEmail, phoneNumber, phoneExtension, portalUrl, customDomain, themeSettings, customParameters, featureFlags, tenantAvailableAgencyFeaturesJson, publicAvailabilityEnabled, organizationType, clubKind, bookClubPortalPublished, statusExpiredIconId, tempPasswordExpiredIconId, taskOverdueIconId, onboardingCompletedIconId, invitationExpiredIconId, firstLoginIconId, firstLoginPendingIconId, passwordChangedIconId, supportTicketCreatedIconId, ticketingNotificationOrgTypes, streetAddress, city, state, postalCode, tierSystemEnabled, tierThresholds, companyCarDefaultReason,
+    const { name, officialName, slug, logoUrl, logoPath, colorPalette, terminologySettings, intakeRetentionPolicy, isActive, iconId, chatIconId, trainingFocusDefaultIconId, moduleDefaultIconId, userDefaultIconId, documentDefaultIconId, companyDefaultPasswordHash, useDefaultPassword, manageAgenciesIconId, manageModulesIconId, manageDocumentsIconId, manageUsersIconId, platformSettingsIconId, viewAllProgressIconId, progressDashboardIconId, settingsIconId, externalCalendarAuditIconId, skillBuildersAvailabilityIconId, intakeLinksIconId, auditCenterIconId, marketingSocialIconId, myDashboardChecklistIconId, myDashboardMomentumListIconId, myDashboardMomentumStickiesIconId, myDashboardTrainingIconId, myDashboardDocumentsIconId, myDashboardMyAccountIconId, myDashboardMyScheduleIconId, myDashboardClientsIconId, myDashboardOnDemandTrainingIconId, myDashboardPayrollIconId, myDashboardSubmitIconId, myDashboardCommunicationsIconId, myDashboardChatsIconId, myDashboardNotificationsIconId, myDashboardSupervisionIconId, myDashboardContactsIconId, myDashboardStaffIconId, myDashboardClinicalNoteGeneratorIconId, certificateTemplateUrl, onboardingTeamEmail, supportTeamEmail, phoneNumber, phoneExtension, portalUrl, customDomain, themeSettings, customParameters, featureFlags, tenantAvailableAgencyFeaturesJson, publicAvailabilityEnabled, organizationType, clubKind, bookClubPortalPublished, statusExpiredIconId, tempPasswordExpiredIconId, taskOverdueIconId, onboardingCompletedIconId, invitationExpiredIconId, firstLoginIconId, firstLoginPendingIconId, passwordChangedIconId, supportTicketCreatedIconId, ticketingNotificationOrgTypes, streetAddress, city, state, postalCode, tierSystemEnabled, tierThresholds, companyCarDefaultReason,
       schoolPortalProvidersIconId, schoolPortalDaysIconId, schoolPortalRosterIconId, schoolPortalSkillsGroupsIconId, schoolPortalContactAdminIconId, schoolPortalFaqIconId, schoolPortalSchoolStaffIconId, schoolPortalParentQrIconId, schoolPortalParentSignIconId, schoolPortalUploadPacketIconId,
       schoolPortalPublicDocumentsIconId,
       schoolPortalAnnouncementsIconId,
@@ -2385,6 +2387,10 @@ class Agency {
       if (onboardingTeamEmail !== undefined) {
         updates.push('onboarding_team_email = ?');
         values.push(onboardingTeamEmail || null);
+      }
+      if (supportTeamEmail !== undefined) {
+        updates.push('support_team_email = ?');
+        values.push(supportTeamEmail || null);
       }
       if (phoneNumber !== undefined) {
         updates.push('phone_number = ?');

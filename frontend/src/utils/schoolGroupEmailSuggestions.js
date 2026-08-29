@@ -51,11 +51,20 @@ export function resolveSchoolGroupEmailDomain(agency = {}) {
 }
 
 export function resolveSchoolOnboardingSupportEmail(agency = {}) {
-  const slug = String(agency.slug || agency.portalUrl || agency.portal_url || 'itsco')
+  const configured = String(
+    agency.supportTeamEmail ||
+      agency.support_team_email ||
+      agency.supportEmail ||
+      agency.onboarding_team_email ||
+      ''
+  ).trim();
+  if (configured) return configured;
+  const slug = String(agency.slug || agency.portalUrl || agency.portal_url || '')
     .toLowerCase()
     .replace(/[^a-z0-9-]/g, '');
-  if (slug) return `support@${slug}.health`;
-  return agency.supportEmail || agency.onboarding_team_email || null;
+  // Only invent @slug.health for ITSCO-style school portals that use that domain
+  if (slug === 'itsco') return 'support@itsco.health';
+  return null;
 }
 
 export const SCHOOL_ONBOARDING_SUPPORT_PHONE = '719-657-7444 Ext 0';

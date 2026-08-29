@@ -26,6 +26,7 @@ export default class SchoolOnboardingQrLink {
               a.logo_url AS agency_logo_url, a.logo_path AS agency_logo_path,
               a.color_palette AS agency_color_palette,
               a.onboarding_team_email AS agency_onboarding_team_email,
+              a.support_team_email AS agency_support_team_email,
               a.phone_number AS agency_phone,
               a.phone_extension AS agency_phone_extension
        FROM school_onboarding_qr_links q

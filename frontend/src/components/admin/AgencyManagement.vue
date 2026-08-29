@@ -1552,6 +1552,16 @@
           </div>
 
           <div class="form-group">
+            <label>Support Team Email</label>
+            <input
+              v-model="agencyForm.supportTeamEmail"
+              type="email"
+              placeholder="support@yourcompany.com"
+            />
+            <small>Client-facing support inbox shown on join/intake pages (e.g. support@nextleveluplcc.com).</small>
+          </div>
+
+          <div class="form-group">
             <label>Default Notifications Sender</label>
             <input
               v-model="agencyForm.notificationsSenderEmail"
@@ -6642,8 +6652,9 @@ const defaultAgencyForm = () => ({
   schoolPortalEventsIconId: null,
   schoolPortalDigitalFormsIconId: null,
   schoolPortalCalendarIconId: null,
-  onboardingTeamEmail: '',
-  notificationsSenderEmail: '',
+    onboardingTeamEmail: '',
+    supportTeamEmail: '',
+    notificationsSenderEmail: '',
   intakeSenderEmail: '',
   schoolIntakeSenderEmail: '',
   phoneNumber: '',
@@ -8115,6 +8126,7 @@ const editAgency = async (agency) => {
     schoolPortalDigitalFormsIconId: agency.school_portal_digital_forms_icon_id ?? null,
     schoolPortalCalendarIconId: agency.school_portal_calendar_icon_id ?? null,
     onboardingTeamEmail: agency.onboarding_team_email || '',
+    supportTeamEmail: agency.support_team_email || '',
     notificationsSenderEmail: '',
     intakeSenderEmail: '',
     schoolIntakeSenderEmail: '',
@@ -9139,6 +9151,7 @@ const saveAgency = async () => {
       schoolPortalDigitalFormsIconId: agencyForm.value.schoolPortalDigitalFormsIconId ?? null,
       schoolPortalCalendarIconId: agencyForm.value.schoolPortalCalendarIconId ?? null,
       onboardingTeamEmail: normalizeNullableText(agencyForm.value.onboardingTeamEmail),
+      supportTeamEmail: normalizeNullableText(agencyForm.value.supportTeamEmail),
       phoneNumber: normalizePhoneNumber(agencyForm.value.phoneNumber),
       // Schools don't use extensions (per directory requirements)
       phoneExtension:

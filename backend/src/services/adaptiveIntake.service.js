@@ -136,14 +136,14 @@ async function loadAgencyRow(agencySlugOrId) {
   if (!slug) return null;
   if (/^\d+$/.test(slug)) {
     const [rows] = await pool.execute(
-      `SELECT id, name, slug, portal_url, organization_type, logo_url, color_palette, feature_flags, public_booking_settings, careers_page_json, theme_settings, phone_number, phone_extension, onboarding_team_email
+      `SELECT id, name, slug, portal_url, organization_type, logo_url, color_palette, feature_flags, public_booking_settings, careers_page_json, theme_settings, phone_number, phone_extension, onboarding_team_email, support_team_email
        FROM agencies WHERE id = ? AND is_active = 1 LIMIT 1`,
       [Number(slug)]
     );
     return rows[0] || null;
   }
   const [rows] = await pool.execute(
-    `SELECT id, name, slug, portal_url, organization_type, logo_url, color_palette, feature_flags, public_booking_settings, careers_page_json, theme_settings, phone_number, phone_extension, onboarding_team_email
+    `SELECT id, name, slug, portal_url, organization_type, logo_url, color_palette, feature_flags, public_booking_settings, careers_page_json, theme_settings, phone_number, phone_extension, onboarding_team_email, support_team_email
      FROM agencies
      WHERE (slug = ? OR portal_url = ?) AND is_active = 1
      LIMIT 1`,
@@ -372,7 +372,7 @@ export async function getAdaptiveIntakeConfig(agencySlugOrId, req, options = {})
     providerPreview: providers,
     copy: mergeJoinLandingCopy(vertical, agencyRow, activeService),
     themeImageUrl: resolveJoinThemeImage(agencyRow, activeService),
-    supportContact: resolveClientFacingSupport(agencyRow)
+    supportContact: await resolveClientFacingSupport(agencyRow)
   };
 }
 
@@ -391,12 +391,38 @@ function formatUsPhone(raw) {
   return String(raw || '').trim();
 }
 
-/** Client-facing support from the tenant about/contact file, with ITSCO toll-free → local support. */
-export function resolveClientFacingSupport(agencyRow = {}) {
+/** Client-facing support from the tenant config (never invent fake @slug.health for other tenants). */
+export async function resolveClientFacingSupport(agencyRow = {}) {
   const slug = agencySlugKey(agencyRow);
-  const email = slug
-    ? `support@${slug}.health`
-    : (agencyRow.onboarding_team_email || agencyRow.supportEmail || null);
+  let email = String(
+    agencyRow.support_team_email ||
+      agencyRow.supportTeamEmail ||
+      agencyRow.supportEmail ||
+      ''
+  ).trim();
+
+  if (!email && agencyRow.id) {
+    try {
+      const { default: EmailSenderIdentity } = await import('../models/EmailSenderIdentity.model.js');
+      const supportIdentity = await EmailSenderIdentity.findByAgencyAndIdentityKey(
+        agencyRow.id,
+        'support'
+      );
+      email = String(supportIdentity?.from_email || '').trim();
+    } catch {
+      /* ignore */
+    }
+  }
+
+  if (!email) {
+    email = String(agencyRow.onboarding_team_email || '').trim();
+  }
+
+  // ITSCO historically uses support@itsco.health when nothing else is configured
+  if (!email && slug === 'itsco') {
+    email = 'support@itsco.health';
+  }
+
   const rawPhone = agencyRow.phone_number || agencyRow.phone || '';
   const digits = String(rawPhone).replace(/\D/g, '');
   const isTollFree = digits === '8334448726' || digits === '18334448726';
@@ -412,7 +438,7 @@ export function resolveClientFacingSupport(agencyRow = {}) {
   const formatted = formatUsPhone(rawPhone);
   const ext = extRaw ? (/^ext/i.test(extRaw) ? extRaw.replace(/^ext\.?\s*/i, 'Ext ') : `Ext ${extRaw}`) : '';
   return {
-    email,
+    email: email || null,
     phone: ext ? `${formatted} ${ext}` : formatted,
     phoneExtension: extRaw || null,
     tel: `+1${digits}${extRaw ? `,${extRaw.replace(/\D/g, '')}` : ''}`
@@ -1122,7 +1148,7 @@ export async function submitQuickProspective({ agencySlugOrId, payload = {}, req
             password: temporaryAccess.password || temporaryAccess.temporaryPassword || null
           }
         : null,
-      supportContact: resolveClientFacingSupport(agencyRow)
+      supportContact: await resolveClientFacingSupport(agencyRow)
     },
     conversion: {
       available: true,
