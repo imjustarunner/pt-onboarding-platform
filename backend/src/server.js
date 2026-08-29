@@ -19,6 +19,7 @@ import quizQuestionBankRoutes from './routes/quizQuestionBank.routes.js';
 import courseTemplateRoutes from './routes/courseTemplate.routes.js';
 import trainingMediaLibraryRoutes from './routes/trainingMediaLibrary.routes.js';
 import trainingSavedRoutes from './routes/trainingSaved.routes.js';
+import libraryRoutes from './routes/library.routes.js';
 import signatureRoutes from './routes/signature.routes.js';
 import agencyRoutes from './routes/agency.routes.js';
 import trackRoutes from './routes/track.routes.js';
@@ -771,6 +772,7 @@ app.use('/api/quiz-question-banks', quizQuestionBankRoutes);
 app.use('/api/course-templates', courseTemplateRoutes);
 app.use('/api/training-media', trainingMediaLibraryRoutes);
 app.use('/api/training-saved', trainingSavedRoutes);
+app.use('/api/library', libraryRoutes);
 app.use('/api/signatures', signatureRoutes);
 // Mount agency public routes (resolve, slug, portal, login-theme) FIRST so unauthenticated
 // login-page branding requests succeed. agencySchools/agencyDepartments use router.use(authenticate)

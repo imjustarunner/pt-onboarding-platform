@@ -641,6 +641,7 @@
                       v-if="canSeeProgramOverviewNav || canSeeClientsNavGroup || canSeeReferralDirectoryNavLink || canSeeProviderBookingNav"
                     />
                     <div class="directory-bottom-links">
+                      <router-link :to="orgTo('/library')" v-if="canSeeLibraryNav" @click="closeAllNavMenus">Library</router-link>
                       <router-link :to="orgTo('/admin/schools/overview?orgType=program')" v-if="canSeeProgramOverviewNav" @click="closeAllNavMenus">Program Overview</router-link>
                       <router-link :to="orgTo('/admin/find-providers')" v-if="canSeeProviderBookingNav" @click="closeAllNavMenus">Provider Booking Interface</router-link>
                       <router-link :to="orgTo('/admin/users')" v-if="isAdmin || isSupervisor(user) || user?.role === 'clinical_practice_assistant'" @click="closeAllNavMenus">{{ isSscSstcTenant ? 'Members' : 'Users' }}</router-link>
@@ -1354,6 +1355,39 @@
               {{ isSscClubManager ? 'Manager Dashboard' : isPrivilegedPortalUser ? 'My Dashboard' : 'Dashboard' }}
             </router-link>
             <router-link
+              v-if="!canSeeLibraryNav && hasCapability('canViewLibrary') && !hideGlobalNavForSchoolStaff"
+              :to="orgTo('/library')"
+              @click="closeMobileMenu"
+              class="mobile-nav-link"
+            >Library</router-link>
+            <div
+              v-if="dashboardMobileNavItems.length"
+              class="mobile-nav-group mobile-nav-group-collapsible"
+            >
+              <button
+                type="button"
+                class="mobile-nav-group-trigger"
+                :aria-expanded="mobileDashboardSectionsExpanded ? 'true' : 'false'"
+                @click="mobileDashboardSectionsExpanded = !mobileDashboardSectionsExpanded"
+              >
+                <span>Dashboard sections</span>
+                <span class="mobile-nav-group-caret" :class="{ open: mobileDashboardSectionsExpanded }" aria-hidden="true">▸</span>
+              </button>
+              <template v-if="mobileDashboardSectionsExpanded">
+                <button
+                  v-for="item in dashboardMobileNavItems"
+                  :key="`dash-mob-${item.id}`"
+                  type="button"
+                  class="mobile-nav-link mobile-nav-sublink"
+                  :class="{ 'mobile-nav-sublink--nested': !!item.nestedUnder }"
+                  @click="onDashboardMobileNavClick(item)"
+                >
+                  {{ item.label }}
+                  <span v-if="item.badgeCount" class="nav-badge">{{ item.badgeCount }}</span>
+                </button>
+              </template>
+            </div>
+            <router-link
               v-if="isSummitStatsChallengeChrome"
               :to="orgTo('/clubs')"
               @click="closeMobileMenu"
@@ -1636,6 +1670,7 @@
               </div>
 
                   <div class="directory-bottom-links">
+                  <router-link :to="orgTo('/library')" v-if="canSeeLibraryNav" @click="closeMobileMenu" class="mobile-nav-group-trigger">Library</router-link>
                   <router-link :to="orgTo('/admin/schools/overview?orgType=program')" v-if="canSeeProgramOverviewNav" @click="closeMobileMenu" class="mobile-nav-group-trigger">Program Overview</router-link>
                   <router-link :to="orgTo('/admin/find-providers')" v-if="canSeeProviderBookingNav" @click="closeMobileMenu" class="mobile-nav-group-trigger">Provider Booking Interface</router-link>
                   <router-link :to="orgTo('/admin/users')" v-if="isAdmin || isSupervisor(user) || user?.role === 'clinical_practice_assistant'" @click="closeMobileMenu" class="mobile-nav-group-trigger">{{ isSscSstcTenant ? 'Members' : 'Users' }}</router-link>
@@ -2232,6 +2267,7 @@ import {
   getAssessmentPublicUrl,
   toolsAidsHubLocation
 } from './navigation/toolsCatalog.js';
+import { dashboardMobileNavItems } from './navigation/dashboardMobileNav.js';
 import { getToolOverrides, applyToolOverride } from './navigation/toolsCatalogOverrides.js';
 import { ensureHourlySessionForNoteAid } from './utils/noteAidIndirectSession.js';
 import ToolsAssignModal from './components/tools/ToolsAssignModal.vue';
@@ -3026,6 +3062,7 @@ const mobileDirectoryExpanded = ref(false);
 const mobileManagementExpanded = ref(false);
 const mobileCommsExpanded = ref(false);
 const mobileToolsExpanded = ref(false);
+const mobileDashboardSectionsExpanded = ref(true);
 
 const navDropdownOpen = computed(() => {
   return (
@@ -4142,6 +4179,14 @@ const canSeeFullPortalNav = computed(() => {
     role === 'provider_plus'
   );
 });
+
+/** Organization Library in Directory for roles that see Directory. */
+const canSeeLibraryNav = computed(
+  () =>
+    canSeeFullPortalNav.value &&
+    hasCapability('canViewLibrary') &&
+    !hideGlobalNavForSchoolStaff.value
+);
 
 /** Referral directory in Directory / Management menus: only under `canSeePortalNav && canSeeFullPortalNav` parents; excludes affiliation. */
 const canSeeReferralDirectoryNavLink = computed(() => canSeeFullPortalNav.value && !isAffiliationContext.value);
@@ -5816,6 +5861,32 @@ const onMyDashboardClick = (e) => {
     router.push({ path: wantPath, query: q }).catch(() => {});
   }
   window.scrollTo({ top: 0, behavior: 'smooth' });
+};
+
+/** Navigate from hamburger "Dashboard sections" (mirrors rail cards). */
+const onDashboardMobileNavClick = (item) => {
+  closeMobileMenu();
+  if (!item) return;
+  if (item.to) {
+    router.push(String(item.to)).catch(() => {});
+    return;
+  }
+  const dash = myDashboardTo.value;
+  const dashPath = typeof dash === 'string' ? dash : (dash?.path || '/dashboard');
+  if (item.id === 'my') {
+    router.push({ path: dashPath, query: { tab: 'my', my: 'account' } }).catch(() => {});
+    return;
+  }
+  if (item.id === 'tasks_hub') {
+    router.push(orgTo('/tasks')).catch(() => {});
+    return;
+  }
+  if (item.kind === 'nest') {
+    // Land on first child or dashboard overview of the nest parent
+    router.push({ path: dashPath, query: { tab: item.id } }).catch(() => {});
+    return;
+  }
+  router.push({ path: dashPath, query: { tab: item.id } }).catch(() => {});
 };
 
 const handleLogout = async () => {
@@ -9050,6 +9121,10 @@ details[open].mobile-nav-group-collapsible .mobile-nav-group-caret {
   padding-bottom: 12px !important;
   padding-left: 28px !important;
   font-size: 15px;
+}
+.mobile-nav-sublink--nested {
+  padding-left: 42px !important;
+  font-size: 14px;
 }
 .mobile-nav-team-sublink {
   padding-left: 42px !important;

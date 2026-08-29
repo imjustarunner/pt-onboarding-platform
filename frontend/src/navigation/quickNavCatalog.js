@@ -49,7 +49,7 @@ const ACCOUNT_EXTRA_KEYWORDS = {
   compensation: ['rates', 'agreements', 'pay structure', 'rate'],
   benefits: ['benefit', 'eligibility', 'tier', 'perks'],
   kudos: ['recognition', 'thanks', 'shoutout'],
-  documents: ['forms', 'files', 'sign', 'signature'],
+  documents: ['forms', 'files', 'sign', 'signature', 'my documents', 'agreements'],
   'life-balance': ['wellbeing', 'well-being', 'wheel', 'balance', 'self-assess'],
   preferences: ['settings', 'notifications', 'alerts', 'integrations']
 };
@@ -336,6 +336,25 @@ function buildAppEntries() {
       keywords: ['my learning', 'catalog', 'courses', 'certificates', 'continuing education'],
       kind: 'route',
       requires: ['showLearning']
+    },
+    {
+      id: 'workspace-library',
+      routeName: 'Library',
+      label: 'Library',
+      description: 'Guides, templates, care documents, forms, and shared Google Docs.',
+      group: 'workspace',
+      keywords: [
+        'library',
+        'resources',
+        'google docs',
+        'templates',
+        'guides',
+        'forms',
+        'shared files',
+        'handouts'
+      ],
+      kind: 'path',
+      path: '/library'
     },
     {
       id: 'learning-checklist',

@@ -130,9 +130,9 @@ export const ACCOUNT_SECTIONS = [
   },
   {
     id: 'documents',
-    title: 'My documents',
-    navLabel: 'Documents',
-    description: 'Forms and files that need review or signature.',
+    title: 'My Documents',
+    navLabel: 'My Documents',
+    description: 'Employment files, forms, and documents that need review or signature.',
     tag: 'Documents',
     tagSecondary: 'Files',
     statLabel: 'Documents',

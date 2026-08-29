@@ -1777,6 +1777,24 @@ const routes = [
     meta: { requiresAuth: true, requiresCapability: 'canViewTraining', organizationSlug: true }
   },
   {
+    path: '/:organizationSlug/library',
+    name: 'OrganizationLibrary',
+    component: () => import('../views/LibraryView.vue'),
+    meta: { requiresAuth: true, requiresCapability: 'canViewLibrary', organizationSlug: true }
+  },
+  {
+    path: '/:organizationSlug/library/resources/:resourceId',
+    name: 'OrganizationLibraryResource',
+    component: () => import('../views/LibraryView.vue'),
+    meta: { requiresAuth: true, requiresCapability: 'canViewLibrary', organizationSlug: true }
+  },
+  {
+    path: '/library',
+    name: 'Library',
+    component: () => import('../views/LibraryView.vue'),
+    meta: { requiresAuth: true, requiresCapability: 'canViewLibrary' }
+  },
+  {
     path: '/:organizationSlug/training-focuses/:id',
     name: 'OrganizationTrainingFocusLaunch',
     redirect: (to) => ({
@@ -2550,6 +2568,18 @@ const routes = [
     name: 'OrganizationDocumentsLibrary',
     component: () => import('../views/admin/DocumentsLibraryView.vue'),
     meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'super_admin'], requiresCapability: 'canSignDocuments', organizationSlug: true }
+  },
+  {
+    path: '/:organizationSlug/admin/library-settings',
+    name: 'OrganizationLibrarySettings',
+    component: () => import('../views/admin/LibrarySettingsView.vue'),
+    meta: { requiresAuth: true, requiresCapability: 'canManageLibrary', organizationSlug: true }
+  },
+  {
+    path: '/admin/library-settings',
+    name: 'LibrarySettings',
+    component: () => import('../views/admin/LibrarySettingsView.vue'),
+    meta: { requiresAuth: true, requiresCapability: 'canManageLibrary' }
   },
   {
     path: '/:organizationSlug/admin/contracts',

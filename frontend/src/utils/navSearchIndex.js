@@ -546,6 +546,29 @@ export const NAV_SEARCH_INDEX = [
     desc: 'Agency documents — view, sign, and manage.'
   },
   {
+    title: 'Library',
+    section: 'Directory',
+    path: '/library',
+    keywords: [
+      'library',
+      'resources',
+      'google docs',
+      'shared files',
+      'templates',
+      'guides',
+      'care documents',
+      'handouts'
+    ],
+    desc: 'Organization resource library — files, links, and Google Docs.'
+  },
+  {
+    title: 'Library Settings',
+    section: 'Admin',
+    path: '/admin/library-settings',
+    keywords: ['library settings', 'library categories', 'archive library'],
+    desc: 'Manage Library categories and archived resources.'
+  },
+  {
     title: 'Contract Generator',
     section: 'People Ops › Hiring',
     path: '/admin/contracts',

@@ -12,7 +12,7 @@ export const DOCUMENT_DISPLAY_CATEGORIES = [
     tag: 'All Providers',
     tagSecondary: 'New Hire',
     icon: 'folder',
-    documentTypes: ['consent', 'disclosure', 'agreement', 'acknowledgment'],
+    documentTypes: ['consent', 'disclosure', 'acknowledgment'],
     theme: {
       accent: '#16a34a',
       icon: '#15803d',
@@ -21,6 +21,74 @@ export const DOCUMENT_DISPLAY_CATEGORIES = [
       tagColor: '#166534',
       tagMutedBg: '#dbeafe',
       tagMutedColor: '#1d4ed8',
+    },
+  },
+  {
+    id: 'employment_agreements',
+    title: 'Employment Agreements',
+    tag: 'Per User',
+    tagSecondary: 'Employment',
+    icon: 'briefcase',
+    documentTypes: ['agreement'],
+    theme: {
+      accent: '#0f766e',
+      icon: '#0d9488',
+      iconBg: '#ccfbf1',
+      tagBg: '#f0fdfa',
+      tagColor: '#115e59',
+      tagMutedBg: '#e0f2fe',
+      tagMutedColor: '#0369a1',
+    },
+  },
+  {
+    id: 'contract_amendments',
+    title: 'Contract Amendments',
+    tag: 'Per User',
+    tagSecondary: 'Amendments',
+    icon: 'briefcase',
+    documentTypes: [],
+    theme: {
+      accent: '#0369a1',
+      icon: '#0284c7',
+      iconBg: '#e0f2fe',
+      tagBg: '#f0f9ff',
+      tagColor: '#075985',
+      tagMutedBg: '#e0e7ff',
+      tagMutedColor: '#4338ca',
+    },
+  },
+  {
+    id: 'offer_letters',
+    title: 'Offer Letters',
+    tag: 'Per User',
+    tagSecondary: 'Hiring',
+    icon: 'file',
+    documentTypes: [],
+    theme: {
+      accent: '#7c3aed',
+      icon: '#6d28d9',
+      iconBg: '#ede9fe',
+      tagBg: '#f5f3ff',
+      tagColor: '#5b21b6',
+      tagMutedBg: '#faf5ff',
+      tagMutedColor: '#7e22ce',
+    },
+  },
+  {
+    id: 'compensation_documents',
+    title: 'Compensation Documents',
+    tag: 'Per User',
+    tagSecondary: 'Pay',
+    icon: 'wallet',
+    documentTypes: [],
+    theme: {
+      accent: '#9333ea',
+      icon: '#7e22ce',
+      iconBg: '#f3e8ff',
+      tagBg: '#faf5ff',
+      tagColor: '#6b21a8',
+      tagMutedBg: '#ede9fe',
+      tagMutedColor: '#5b21b6',
     },
   },
   {
@@ -177,6 +245,23 @@ export const DOCUMENT_DISPLAY_CATEGORIES = [
     },
   },
   {
+    id: 'performance_employment',
+    title: 'Performance / Employment Documents',
+    tag: 'Per User',
+    tagSecondary: 'Reviews',
+    icon: 'award',
+    documentTypes: [],
+    theme: {
+      accent: '#0f766e',
+      icon: '#0d9488',
+      iconBg: '#ccfbf1',
+      tagBg: '#f0fdfa',
+      tagColor: '#115e59',
+      tagMutedBg: '#ecfdf5',
+      tagMutedColor: '#166534',
+    },
+  },
+  {
     id: 'other',
     title: 'Other Documents',
     tag: 'General',
@@ -254,6 +339,20 @@ export function resolveCategoryIdFromDocumentType(documentType, { userSpecific =
 }
 
 const KEYWORD_RULES = [
+  { id: 'offer_letters', re: /\b(offer letter|letter of offer|job offer)\b/i },
+  { id: 'contract_amendments', re: /\b(contract amendment|amendment to (the )?agreement|addendum)\b/i },
+  {
+    id: 'employment_agreements',
+    re: /\b(employment agreement|independent contractor agreement|\bica\b|contractor agreement|employment contract)\b/i
+  },
+  {
+    id: 'compensation_documents',
+    re: /\b(compensation (plan|document|agreement|letter)|pay (rate|schedule|letter)|salary (letter|agreement)|rate (change|adjustment))\b/i
+  },
+  {
+    id: 'performance_employment',
+    re: /\b(performance (review|eval|evaluation|improvement)|pip\b|write-?up|corrective action|employment (file|record))\b/i
+  },
   { id: 'payroll_tax', re: /\b(w-?9|direct deposit|i-?9|withholding|payroll|tax form|w4|w-?4)\b/i },
   { id: 'benefits', re: /\b(benefits?|401\s*k|health (plan|insurance)|dental|enrollment|cobra|fsa|hsa)\b/i },
   { id: 'policies', re: /\b(handbook|policy|code of conduct|acceptable use|employee agreement)\b/i },

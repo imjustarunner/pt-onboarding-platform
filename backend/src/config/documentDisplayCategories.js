@@ -4,6 +4,10 @@
 
 export const DOCUMENT_DISPLAY_CATEGORY_IDS = [
   'onboarding',
+  'employment_agreements',
+  'contract_amendments',
+  'offer_letters',
+  'compensation_documents',
   'payroll_tax',
   'benefits',
   'policies',
@@ -13,6 +17,7 @@ export const DOCUMENT_DISPLAY_CATEGORY_IDS = [
   'training_ce',
   'client_participant',
   'personal',
+  'performance_employment',
   'other',
 ];
 

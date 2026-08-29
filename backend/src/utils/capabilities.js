@@ -110,7 +110,9 @@ export function getUserCapabilities(user, { effectiveRole } = {}) {
     canSignDocuments: false,
     canJoinProgramEvents: false,
     canUseChat: false,
-    canManageHiring: false
+    canManageHiring: false,
+    canViewLibrary: false,
+    canManageLibrary: false
   };
 
   if (!user) return base;
@@ -212,6 +214,10 @@ export function getUserCapabilities(user, { effectiveRole } = {}) {
   // provider_plus = Team Manager / Team Lead when assigned to a team.
   const canManageChallenges = ['admin', 'super_admin', 'provider_plus', 'club_manager'].includes(roleNorm);
 
+  // Organization Library: staff with platform access can browse; admins manage resources.
+  const canViewLibrary = canAccessPlatform;
+  const canManageLibrary = ['admin', 'assistant_admin', 'super_admin', 'support', 'staff'].includes(roleNorm);
+
   return {
     ...base,
     canAccessPlatform,
@@ -222,6 +228,8 @@ export function getUserCapabilities(user, { effectiveRole } = {}) {
     canManageHiring,
     canAccessOutreach,
     canManagePlatformGear,
-    canManageChallenges
+    canManageChallenges,
+    canViewLibrary,
+    canManageLibrary
   };
 }

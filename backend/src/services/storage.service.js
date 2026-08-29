@@ -1864,6 +1864,42 @@ class StorageService {
 
     return { path: key, key, filename: sanitizedFilename, relativePath: key };
   }
+
+  /**
+   * Organization Library uploads under uploads/library/agency_{id}/
+   */
+  static async saveLibraryResource({ agencyId, uploadedByUserId, fileBuffer, filename, contentType }) {
+    const aid = agencyId != null ? parseInt(agencyId, 10) : 0;
+    const sanitizedFilename = this.sanitizeFilename(filename || `library-${Date.now()}`);
+    const unique = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+    const key = `uploads/library/agency_${aid || 'unknown'}/${unique}-${sanitizedFilename}`;
+
+    const bucket = await this.getGCSBucket();
+    const file = bucket.file(key);
+    await file.save(fileBuffer, {
+      contentType: contentType || 'application/octet-stream',
+      metadata: {
+        agencyId: String(aid || ''),
+        uploadedByUserId: String(uploadedByUserId || ''),
+        uploadedAt: new Date().toISOString()
+      }
+    });
+
+    return { path: key, key, filename: sanitizedFilename, relativePath: key };
+  }
+
+  static async deleteLibraryResource(filenameOrKey) {
+    const key = String(filenameOrKey || '').trim();
+    if (!key) return;
+    const bucket = await this.getGCSBucket();
+    const file = bucket.file(key);
+    try {
+      await file.delete();
+    } catch (gcsError) {
+      if (gcsError?.code === 404) return;
+      throw new Error(`Failed to delete library resource from GCS: ${gcsError.message}`);
+    }
+  }
 }
 
 export default StorageService;

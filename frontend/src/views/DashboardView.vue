@@ -254,6 +254,18 @@
         @mouseenter="onDashboardRailWrapEnter"
         @mouseleave="onDashboardRailWrapLeave"
       >
+        <div class="dashboard-mobile-sections-bar">
+          <button
+            type="button"
+            class="dashboard-mobile-sections-btn"
+            aria-label="Open dashboard sections"
+            @click="mobileSectionsOpen = true"
+          >
+            <span aria-hidden="true">☰</span>
+            <span>Sections</span>
+            <span v-if="activeRailLabel" class="dashboard-mobile-sections-current">{{ activeRailLabel }}</span>
+          </button>
+        </div>
         <div v-if="authStore.user?.id && !previewMode && !isSchoolStaff" class="rail-dark-mode-toggle rail-dark-mode-top" :class="{ 'rail-collapsed': railEffectiveCollapsed }">
           <label class="rail-dark-mode-label" :title="isDarkMode ? 'Turn off dark mode (My Settings can also Match device)' : 'Turn on dark mode'">
             <span class="toggle-switch toggle-switch-sm">
@@ -392,6 +404,43 @@
         >
           Collapse ▶
         </button>
+      </div>
+
+      <div
+        v-if="mobileSectionsOpen"
+        class="dashboard-mobile-drawer-backdrop"
+        @click.self="mobileSectionsOpen = false"
+      >
+        <nav class="dashboard-mobile-drawer" aria-label="Dashboard sections">
+          <header class="dashboard-mobile-drawer__head">
+            <h2>Dashboard sections</h2>
+            <button type="button" class="dashboard-mobile-drawer__close" aria-label="Close" @click="mobileSectionsOpen = false">×</button>
+          </header>
+          <ul class="dashboard-mobile-drawer__list">
+            <li v-for="card in railCardsForDisplay" :key="`mob-${card.id}`">
+              <button
+                type="button"
+                class="dashboard-mobile-drawer__item"
+                :class="{
+                  active: isRailCardActive(card),
+                  nested: !!card.nestedUnder
+                }"
+                @click="onMobileSectionPick(card)"
+              >
+                <span class="dashboard-mobile-drawer__icon">
+                  <img
+                    v-if="card.iconUrl && !failedRailIconIds.has(String(card.id))"
+                    :src="card.iconUrl"
+                    alt=""
+                  />
+                  <span v-else>{{ railIconFallback(card) }}</span>
+                </span>
+                <span class="dashboard-mobile-drawer__label">{{ card.label }}</span>
+                <span v-if="card.badgeCount" class="dashboard-mobile-drawer__badge">{{ card.badgeCount }}</span>
+              </button>
+            </li>
+          </ul>
+        </nav>
       </div>
 
       <div class="dashboard-detail">
@@ -1240,6 +1289,9 @@ import { canAccessSkillBuildersSchoolProgramSurfaces } from '../utils/skillBuild
 import { useTutorialStore } from '../store/tutorial';
 import api from '../services/api';
 import { navigateToJoinLink } from '../utils/appJoinNavigation';
+import {
+  setDashboardMobileNavItems
+} from '../navigation/dashboardMobileNav.js';
 import TrainingFocusTab from '../components/dashboard/TrainingFocusTab.vue';
 import DocumentsTab from '../components/dashboard/DocumentsTab.vue';
 import MomentumListTab from '../components/dashboard/MomentumListTab.vue';
@@ -1380,6 +1432,7 @@ const PROGRAM_WORKSPACE_TAB = '__program_workspace__';
 const activeTab = ref('checklist');
 const previousContentTab = ref('checklist');
 const selectedRailCardId = ref('checklist');
+const mobileSectionsOpen = ref(false);
 const myTab = ref('account'); // 'account' | 'credentials' | 'documents' | 'life-balance' | 'payroll' | 'compensation' | 'benefits' | 'kudos' | 'preferences' | 'support'
 
 const onboardingCompletion = ref(100);
@@ -4004,6 +4057,28 @@ const dashboardCards = computed(() => {
       iconUrl: brandingStore.getDashboardCardIconUrl('my', iconOrg),
       description: 'Account info, credentials, and personal preferences.'
     });
+
+    // Organization Library on rail only when Directory top-nav is NOT available
+    // (Directory roles get Library under Directory instead).
+    const hasDirectoryNav =
+      !isClubContext.value &&
+      ['admin', 'super_admin', 'support', 'clinical_practice_assistant', 'provider_plus'].includes(role);
+    if (caps.canViewLibrary !== false && !isSchoolStaff.value && !hasDirectoryNav) {
+      const libraryPath = orgSlug ? `/${orgSlug}/library` : '/library';
+      cards.push({
+        id: 'library',
+        label: 'Library',
+        kind: 'link',
+        to: libraryPath,
+        badgeCount: 0,
+        iconUrl:
+          brandingStore.getDashboardCardIconUrl('library', iconOrg) ||
+          brandingStore.getDashboardCardIconUrl('documents', iconOrg) ||
+          brandingStore.getDashboardCardIconUrl('training', iconOrg),
+        description: 'Guides, templates, care documents, forms, and shared links.'
+      });
+    }
+
     // Club admin: Start new season card (SSTC clubs only)
     if (
       !isBookClubContext.value &&
@@ -4117,6 +4192,7 @@ const railCards = computed(() => {
         supervision: 7,
         my_supervision: 7.5,
         training: 8,
+        library: 8.5,
         // Gated extras below core
         portals_nest: 10,
         program_shifts: 11,
@@ -4190,6 +4266,24 @@ const railCardsForDisplay = computed(() => {
   }
   return out;
 });
+
+const activeRailLabel = computed(() => {
+  const active = (railCardsForDisplay.value || []).find((c) => isRailCardActive(c));
+  return active?.label || '';
+});
+
+watch(
+  railCardsForDisplay,
+  (items) => {
+    setDashboardMobileNavItems(items || []);
+  },
+  { immediate: true, deep: true }
+);
+
+const onMobileSectionPick = (card) => {
+  mobileSectionsOpen.value = false;
+  handleCardClick(card);
+};
 
 const SOCIAL_FEEDS_COLLAPSE_KEY = 'dashboard.socialFeedsCollapsed.v1';
 const socialFeedsCollapsed = ref(false);
@@ -4335,6 +4429,14 @@ const handleCardClick = (card) => {
     activeTab.value = 'on_demand_training';
     previousContentTab.value = 'on_demand_training';
     navFn({ query: { ...route.query, tab: 'on_demand_training' } });
+    return;
+  }
+  if (card.id === 'library') {
+    closeInlineProgramHub();
+    if (!props.previewMode) {
+      const org = route.params.organizationSlug;
+      router.push(org ? `/${org}/library` : '/library');
+    }
     return;
   }
   closeInlineProgramHub();
@@ -6597,76 +6699,19 @@ h1 {
     gap: 10px;
   }
 
-  .dashboard-rail-wrap {
-    gap: 6px;
-    overflow: hidden;
+  .dashboard-mobile-sections-bar {
+    display: block;
   }
 
-  .dashboard-rail {
-    position: static;
-    top: auto;
-    width: 100%;
-    min-width: 0;
-    max-width: 100%;
-    flex-direction: row;
-    align-items: stretch;
-    gap: 8px;
-    overflow-x: auto;
-    overflow-y: hidden;
-    padding: 2px 2px 8px;
-    scrollbar-width: thin;
-    -webkit-overflow-scrolling: touch;
-  }
-
-  .dashboard-rail.rail-collapsed {
-    width: 100%;
-    min-width: 0;
-  }
-
-  .rail-card-row {
-    flex: 0 0 auto;
-    min-width: 0;
-  }
-
-  .rail-card {
-    min-width: 62px;
-    padding: 8px 7px;
-    border-left-width: 2px;
-    border-radius: 10px;
-    grid-template-columns: 1fr;
-    justify-items: center;
-  }
-
-  .rail-card-left {
-    gap: 0;
-    justify-content: center;
-  }
-
-  .rail-card-text,
-  .rail-card-cta,
-  .rail-card-help,
-  .rail-dark-mode-text,
-  .dashboard-rail.rail-collapsed .rail-card::after {
+  .dashboard-rail,
+  .rail-dark-mode-toggle,
+  .rail-expand-btn {
     display: none !important;
   }
 
-  .rail-card-meta,
-  .dashboard-rail.rail-collapsed .rail-card-meta {
-    position: absolute;
-    top: 3px;
-    right: 3px;
-  }
-
-  .rail-dark-mode-toggle {
-    width: 100%;
-    margin-bottom: 4px;
-    padding-bottom: 6px;
-  }
-
-  .rail-dark-mode-label {
-    width: fit-content;
-    padding: 7px 10px;
-    border-radius: 10px;
+  .dashboard-rail-wrap {
+    gap: 0;
+    overflow: visible;
   }
 
   .dashboard-detail {
@@ -6677,6 +6722,152 @@ h1 {
     padding: 14px;
     border-radius: 10px;
   }
+}
+
+.dashboard-mobile-sections-bar {
+  display: none;
+  margin-bottom: 8px;
+}
+
+.dashboard-mobile-sections-btn {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  width: 100%;
+  border: 1px solid #e5e7eb;
+  background: #fff;
+  border-radius: 12px;
+  padding: 0.75rem 0.9rem;
+  font: inherit;
+  font-weight: 650;
+  color: #0f172a;
+  cursor: pointer;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+}
+
+.dashboard-mobile-sections-current {
+  margin-left: auto;
+  font-weight: 550;
+  font-size: 0.85rem;
+  color: #166534;
+  background: #ecfdf5;
+  padding: 0.2rem 0.55rem;
+  border-radius: 999px;
+  max-width: 45%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dashboard-mobile-drawer-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 120;
+  background: rgba(15, 23, 42, 0.45);
+  display: flex;
+  justify-content: flex-start;
+}
+
+.dashboard-mobile-drawer {
+  width: min(340px, 92vw);
+  height: 100%;
+  background: #fff;
+  box-shadow: 8px 0 30px rgba(15, 23, 42, 0.18);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.dashboard-mobile-drawer__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1rem 1rem 0.75rem;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.dashboard-mobile-drawer__head h2 {
+  margin: 0;
+  font-size: 1.05rem;
+}
+
+.dashboard-mobile-drawer__close {
+  border: 0;
+  background: transparent;
+  font-size: 1.5rem;
+  line-height: 1;
+  cursor: pointer;
+  color: #64748b;
+}
+
+.dashboard-mobile-drawer__list {
+  list-style: none;
+  margin: 0;
+  padding: 0.5rem;
+  overflow: auto;
+  flex: 1;
+}
+
+.dashboard-mobile-drawer__item {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  width: 100%;
+  border: 0;
+  background: transparent;
+  padding: 0.7rem 0.65rem;
+  border-radius: 10px;
+  font: inherit;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: #0f172a;
+  cursor: pointer;
+  text-align: left;
+}
+
+.dashboard-mobile-drawer__item:hover,
+.dashboard-mobile-drawer__item.active {
+  background: #ecfdf5;
+  color: #166534;
+}
+
+.dashboard-mobile-drawer__item.nested {
+  padding-left: 1.75rem;
+  font-weight: 550;
+  font-size: 0.9rem;
+}
+
+.dashboard-mobile-drawer__icon {
+  width: 2rem;
+  height: 2rem;
+  border-radius: 8px;
+  background: #f1f5f9;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  flex-shrink: 0;
+  font-size: 0.85rem;
+}
+
+.dashboard-mobile-drawer__icon img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.dashboard-mobile-drawer__label {
+  flex: 1;
+  min-width: 0;
+}
+
+.dashboard-mobile-drawer__badge {
+  background: #166534;
+  color: #fff;
+  font-size: 0.7rem;
+  font-weight: 700;
+  padding: 0.15rem 0.45rem;
+  border-radius: 999px;
 }
 
 .dashboard-card-grid {
