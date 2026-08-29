@@ -9,6 +9,14 @@ import {
   shouldRedirectForDemoAttachment
 } from '../utils/hogwartsTestEmail.js';
 import { notifyTestingInboxOfHeldEmail } from './automationEmailOpsNotify.service.js';
+import {
+  appendComplianceFooter,
+  assertRecipientAllowsEmail
+} from './emailComplianceFooter.service.js';
+import {
+  createMissingAliasTaskAndBlock,
+  isForbiddenFallbackFrom
+} from './emailAliasFallbackTask.service.js';
 
 /**
  * Look up a user_id by email address, best-effort. Used when callers don't
@@ -148,14 +156,56 @@ class EmailService {
       }
       return { skipped: true, reason: gate.reason };
     }
+
+    let outboundText = text;
+    let outboundHtml = html;
+
+    // Never send through the platform ai@ mailbox when a tenant From is missing.
+    const resolvedFromPreview =
+      fromAddress ||
+      process.env.GOOGLE_WORKSPACE_FROM_ADDRESS ||
+      process.env.GOOGLE_WORKSPACE_DEFAULT_FROM ||
+      null;
+    if (!resolvedFromPreview || isForbiddenFallbackFrom({ fromEmail: resolvedFromPreview })) {
+      const block = await createMissingAliasTaskAndBlock({
+        to,
+        subject,
+        agencyId,
+        templateType: templateType || 'transactional_email',
+        fromEmail: resolvedFromPreview,
+        reason: 'missing_sender_alias_or_ai_fallback'
+      });
+      return {
+        blocked: true,
+        skipped: true,
+        reason: 'missing_sender_alias_blocked',
+        taskId: block.taskId || null
+      };
+    }
+
+    const optGate = await assertRecipientAllowsEmail({ to, agencyId });
+    if (!optGate.allowed) {
+      return { skipped: true, reason: optGate.reason };
+    }
+
     if (!this.isConfigured()) {
       throw new Error('EmailService is not configured (Google Workspace sender missing env vars)');
     }
 
+    const footered = await appendComplianceFooter({
+      text: outboundText,
+      html: outboundHtml,
+      to,
+      agencyId,
+      userId
+    });
+    outboundText = footered.text;
+    outboundHtml = footered.html;
+
     const quality = validateOutboundEmailQuality({
       subject,
-      text,
-      html,
+      text: outboundText,
+      html: outboundHtml,
       attachments,
       linkUrl,
       templateType: templateType || 'transactional_email',
@@ -186,7 +236,7 @@ class EmailService {
             templateType: templateType || 'transactional_email',
             templateId: templateId || null,
             subject: subject || null,
-            body: html || text || '',
+            body: outboundHtml || outboundText || '',
             generatedByUserId: generatedByUserId || null,
             channel: 'email',
             recipientAddress: to
@@ -212,7 +262,7 @@ class EmailService {
         templateType: templateType || 'transactional_email',
         agencyId,
         qualityFlags: quality.flags,
-        bodyPreview: html || text || null
+        bodyPreview: outboundHtml || outboundText || null
       }).catch(() => {});
       return {
         blocked: true,
@@ -280,7 +330,7 @@ class EmailService {
           templateType: templateType || 'transactional_email',
           templateId: templateId || null,
           subject: redirectedPreview.subject || subject || null,
-          body: html || text || '',
+          body: outboundHtml || outboundText || '',
           generatedByUserId: generatedByUserId || null,
           channel: 'email',
           recipientAddress: to,
@@ -317,7 +367,7 @@ class EmailService {
         templateType: resolvedTemplateType,
         agencyId,
         metadata: { ...fallbackMeta, ...redirectMeta },
-        bodyPreview: html || text || null
+        bodyPreview: outboundHtml || outboundText || null
       }).catch(() => {});
       return {
         queued: true,
@@ -332,8 +382,8 @@ class EmailService {
       sendResult = await GoogleWorkspaceEmailService.sendEmail({
         to,
         subject,
-        text,
-        html,
+        text: outboundText,
+        html: outboundHtml,
         fromName,
         fromAddress,
         replyTo,
@@ -366,7 +416,7 @@ class EmailService {
             errorMessage: String(sendErr?.message || 'send failed'),
             templateType: resolvedTemplateType,
             agencyId,
-            bodyPreview: html || text || null
+            bodyPreview: outboundHtml || outboundText || null
           }).catch(() => {});
         } catch {
           /* best effort */

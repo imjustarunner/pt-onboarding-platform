@@ -376,6 +376,113 @@ export async function sendSecureMessageNotification({
   };
 }
 
+/**
+ * Secure message notification for school staff who receive email (no SSO portal DM).
+ * Same "You have a secure message" pattern as clients — no PHI in the email.
+ */
+export async function sendSchoolStaffSecureMessageNotification({
+  agencyId,
+  senderUserId,
+  recipientUserId = null,
+  recipientEmail,
+  chatThreadId = null,
+  conversationId = null,
+  messageId = null,
+  messageSource = 'chat'
+} = {}) {
+  const settings = await getAgencyEmailSettings(agencyId);
+  if (!settings.secureClientMessageEmailEnabled) {
+    return { sent: false, reason: 'disabled' };
+  }
+
+  const email = String(recipientEmail || '').trim().toLowerCase();
+  if (!email) return { sent: false, reason: 'no_email' };
+
+  const mailboxes = await ensureSecureMessageMailboxes(agencyId);
+  if (!mailboxes.fromIdentity?.id) {
+    return { sent: false, reason: 'secure_message_identity_missing' };
+  }
+
+  const rawToken = crypto.randomBytes(24).toString('hex');
+  const tokenHash = sha256(rawToken);
+  const [ins] = await pool.execute(
+    `INSERT INTO secure_message_notifications
+      (agency_id, conversation_id, chat_thread_id, message_id, message_source,
+       sender_user_id, recipient_user_id, recipient_email, client_id, notification_token_hash, sent_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, NOW())`,
+    [
+      agencyId,
+      conversationId,
+      chatThreadId,
+      messageId,
+      messageSource,
+      senderUserId,
+      recipientUserId,
+      email,
+      tokenHash
+    ]
+  );
+
+  const agency = await Agency.findById(agencyId);
+  const sender = await User.findById(senderUserId);
+  const senderName = [sender?.first_name, sender?.last_name].filter(Boolean).join(' ') || 'Your team';
+  const tenant = agency?.name || 'your care team';
+  const slug = agency?.slug || '';
+  const baseUrl = String(process.env.APP_PUBLIC_URL || process.env.FRONTEND_URL || 'https://plottwisthq.com').replace(/\/$/, '');
+  const deepPath = safeRedirectPath(
+    chatThreadId
+      ? `/${slug}/messages?view=workspace&threadId=${chatThreadId}`
+      : `/${slug}/messages`
+  ) || '/messages';
+  const claimUrl = `${baseUrl}/secure-message/${encodeURIComponent(rawToken)}`;
+
+  const subject = `You have a secure message from ${tenant}`;
+  const html = `
+    <p>You have a secure message on our portal.</p>
+    <p><strong>${escapeHtml(senderName)}</strong> at ${escapeHtml(tenant)} sent you a message.</p>
+    <p><a href="${claimUrl}">Click this link to sign in and access your message</a></p>
+    <p style="color:#64748b;font-size:12px">
+      Replies to this email go to an unmonitored address and will not be read —
+      please use the link above to view and reply securely in the portal.
+    </p>
+  `;
+  const text =
+    `You have a secure message on our portal.\n\n` +
+    `${senderName} at ${tenant} sent you a message.\n\n` +
+    `Click this link to sign in and access your message:\n${claimUrl}\n`;
+
+  const sendResult = await sendEmailFromIdentity({
+    senderIdentityId: mailboxes.fromIdentity.id,
+    to: email,
+    subject,
+    html,
+    text,
+    replyToOverride: mailboxes.noreplyEmail || undefined,
+    source: 'auto',
+    generatedByUserId: senderUserId,
+    templateType: 'secure_message_notification_school_staff',
+    userId: recipientUserId
+  });
+
+  if (sendResult?.communicationId) {
+    await pool.execute(
+      `UPDATE secure_message_notifications SET user_communication_id = ? WHERE id = ?`,
+      [sendResult.communicationId, ins.insertId]
+    );
+  }
+
+  return {
+    sent: !sendResult?.blocked && !sendResult?.skipped,
+    id: ins.insertId,
+    claimUrl,
+    deepPath,
+    fromEmail: mailboxes.fromIdentity.from_email,
+    replyTo: mailboxes.noreplyEmail,
+    channel: 'secure_school_staff',
+    ...sendResult
+  };
+}
+
 export async function resolveSecureMessageClaim(rawToken) {
   const hash = sha256(rawToken);
   const [rows] = await pool.execute(
@@ -457,6 +564,7 @@ export default {
   resolveClientContextForMessageNotify,
   sendLearningClientMessageEmail,
   sendSecureMessageNotification,
+  sendSchoolStaffSecureMessageNotification,
   resolveSecureMessageClaim,
   markSecureMessageRead,
   buildSecureClaimRedirect

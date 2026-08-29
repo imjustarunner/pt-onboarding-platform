@@ -400,6 +400,12 @@ const routes = [
     meta: { requiresGuest: false }
   },
   {
+    path: '/email-opt-out/:token',
+    name: 'EmailOptOut',
+    component: () => import('../views/EmailOptOutView.vue'),
+    meta: { requiresGuest: false, hideNav: true }
+  },
+  {
     path: '/values-alignment',
     name: 'ValuesAlignmentGuest',
     component: () => import('../views/valuesAlignment/ValuesAlignmentAssessmentView.vue'),

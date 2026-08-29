@@ -22,6 +22,7 @@ const sending = ref(false);
 const error = ref('');
 const pendingWarnings = ref([]);
 const confirmOpen = ref(false);
+const schoolStaffSecurePrompt = ref(null);
 
 watch(
   () => props.defaultInboxId,
@@ -53,8 +54,30 @@ async function runPreflight() {
   return data;
 }
 
+async function sendSecureSchoolStaff(email) {
+  sending.value = true;
+  error.value = '';
+  try {
+    await api.post('/communications/secure-notify', {
+      agencyId: props.agencyId,
+      recipientEmail: email || to.value.trim(),
+      note: body.value || null,
+      recipientKind: 'school_staff',
+      asSchoolStaff: true
+    }, { skipGlobalLoading: true });
+    confirmOpen.value = false;
+    schoolStaffSecurePrompt.value = null;
+    emit('sent');
+  } catch (e) {
+    error.value = e?.response?.data?.error?.message || e?.message || 'Secure send failed';
+  } finally {
+    sending.value = false;
+  }
+}
+
 async function send({ skipConfirm = false } = {}) {
   error.value = '';
+  schoolStaffSecurePrompt.value = null;
   if (isDmMode.value) {
     error.value = 'Direct Message compose opens from Messages. Use Email or Secure Message here.';
     return;
@@ -96,7 +119,16 @@ async function send({ skipConfirm = false } = {}) {
   try {
     if (!skipConfirm) {
       const pre = await runPreflight();
-      if (pre?.warnings?.length) {
+      const secureHint = (pre?.warnings || []).find((w) => w.code === 'school_staff_secure_prompt');
+      const dmHint = (pre?.warnings || []).find((w) => w.code === 'school_staff_prefer_dm');
+      if (secureHint) {
+        schoolStaffSecurePrompt.value = secureHint;
+        pendingWarnings.value = pre.warnings;
+        confirmOpen.value = true;
+        sending.value = false;
+        return;
+      }
+      if (dmHint || pre?.warnings?.length) {
         pendingWarnings.value = pre.warnings;
         confirmOpen.value = true;
         sending.value = false;
@@ -179,14 +211,23 @@ async function send({ skipConfirm = false } = {}) {
     </div>
 
     <div v-if="confirmOpen" class="uc-confirm" role="alertdialog">
-      <h4>Review before sending</h4>
+      <h4>{{ schoolStaffSecurePrompt ? 'School staff recipient' : 'Review before sending' }}</h4>
       <ul>
         <li v-for="(w, i) in pendingWarnings" :key="i">{{ w.message }}</li>
       </ul>
       <div class="uc-confirm-actions">
-        <button type="button" class="uc-cancel" @click="confirmOpen = false">Go back</button>
+        <button type="button" class="uc-cancel" @click="confirmOpen = false; schoolStaffSecurePrompt = null">Go back</button>
+        <button
+          v-if="schoolStaffSecurePrompt"
+          type="button"
+          class="uc-send"
+          :disabled="sending"
+          @click="sendSecureSchoolStaff(schoolStaffSecurePrompt.email)"
+        >
+          Send as secure message
+        </button>
         <button type="button" class="uc-send" :disabled="sending" @click="send({ skipConfirm: true })">
-          Send anyway
+          {{ schoolStaffSecurePrompt ? 'Send as regular email' : 'Send anyway' }}
         </button>
       </div>
     </div>

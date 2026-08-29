@@ -18,6 +18,14 @@ import { buildFallbackSenderMetadata } from '../../constants/automatedEmailCatal
 import { resolveSenderIdentityForSend } from '../emailSenderIdentityResolver.service.js';
 import { rewriteHogwartsOutboundRecipient, buildTestInboxRedirectMetadata } from '../../utils/hogwartsTestEmail.js';
 import { notifyTestingInboxOfHeldEmail } from '../automationEmailOpsNotify.service.js';
+import {
+  appendComplianceFooter,
+  assertRecipientAllowsEmail
+} from '../emailComplianceFooter.service.js';
+import {
+  createMissingAliasTaskAndBlock,
+  isForbiddenFallbackFrom
+} from '../emailAliasFallbackTask.service.js';
 
 async function canSendEmail({ source, agencyId } = {}) {
   const mode = await getEmailSendingMode();
@@ -96,6 +104,24 @@ function applySenderSignatureBlock({ identity, text = null, html = null }) {
     }${imageBlock}</div>`;
 
   return { text: textOut, html: htmlOut };
+}
+
+async function finalizeOutboundContent({
+  identity,
+  text = null,
+  html = null,
+  to = null,
+  agencyId = null,
+  userId = null
+}) {
+  const signed = applySenderSignatureBlock({ identity, text, html });
+  return appendComplianceFooter({
+    text: signed.text,
+    html: signed.html,
+    to,
+    agencyId: agencyId || identity?.agency_id || null,
+    userId
+  });
 }
 
 /**
@@ -427,9 +453,15 @@ export async function sendNotificationEmail({
     templateType: templateType || triggerKey
   });
   let identity = delivery.identity;
-  let usedFallbackSender = false;
   if (!identity) {
-    usedFallbackSender = true;
+    const block = await createMissingAliasTaskAndBlock({
+      to,
+      subject,
+      agencyId,
+      templateType: templateType || triggerKey,
+      triggerKey,
+      reason: 'missing_sender_identity'
+    });
     await logSkippedOrFailedEmail({
       to,
       subject,
@@ -441,27 +473,95 @@ export async function sendNotificationEmail({
       templateType: templateType || `trigger:${triggerKey}`,
       templateId,
       generatedByUserId,
-      deliveryStatus: 'pending',
-      errorMessage: `Queued — no sender identity configured for trigger "${triggerKey}". Assign a From in Email Settings, then approve.`,
+      deliveryStatus: 'failed',
+      errorMessage:
+        'Blocked — no sender identity configured. Task created for Michael; email was not sent (ai@ fallback forbidden).',
       metadata: {
         triggerKey,
         source,
-        reason: 'missing_sender_identity',
-        ...buildFallbackSenderMetadata({ reason: 'missing_sender_identity' })
+        reason: 'missing_sender_alias_blocked',
+        taskId: block.taskId || null
       }
     });
     return {
-      queued: true,
-      pendingApproval: true,
-      reason: 'fallback_sender_requires_approval'
+      blocked: true,
+      skipped: true,
+      reason: 'missing_sender_alias_blocked',
+      taskId: block.taskId || null
     };
+  }
+
+  const optGate = await assertRecipientAllowsEmail({ to, agencyId });
+  if (!optGate.allowed) {
+    await logSkippedOrFailedEmail({
+      to,
+      subject,
+      text,
+      html,
+      agencyId,
+      userId,
+      clientId,
+      templateType: templateType || `trigger:${triggerKey}`,
+      templateId,
+      generatedByUserId,
+      deliveryStatus: 'skipped',
+      errorMessage: 'send skipped — recipient opted out of emails',
+      metadata: { triggerKey, source, reason: optGate.reason }
+    });
+    return { skipped: true, reason: optGate.reason };
   }
 
   const effectiveSubject = delivery.subjectOverride || subject;
 
+  if (isForbiddenFallbackFrom({ fromEmail: identity.from_email })) {
+    const block = await createMissingAliasTaskAndBlock({
+      to,
+      subject: effectiveSubject,
+      agencyId,
+      templateType: templateType || triggerKey,
+      triggerKey,
+      fromEmail: identity.from_email,
+      reason: 'platform_ai_mailbox_forbidden'
+    });
+    await logSkippedOrFailedEmail({
+      to,
+      subject: effectiveSubject,
+      text,
+      html,
+      agencyId,
+      userId,
+      clientId,
+      templateType: templateType || `trigger:${triggerKey}`,
+      templateId,
+      generatedByUserId,
+      deliveryStatus: 'failed',
+      errorMessage: 'Blocked — From resolves to ai@plottwistco.com. Configure a tenant alias; email was not sent.',
+      metadata: {
+        triggerKey,
+        source,
+        reason: 'missing_sender_alias_blocked',
+        fromEmail: identity.from_email,
+        taskId: block.taskId || null
+      }
+    });
+    return {
+      blocked: true,
+      skipped: true,
+      reason: 'missing_sender_alias_blocked',
+      taskId: block.taskId || null
+    };
+  }
+
   const from = pickFromHeader({ displayName: identity.display_name, fromEmail: identity.from_email });
   const replyTo = identity.reply_to || null;
-  const signedContent = applySenderSignatureBlock({ identity, text, html });
+  const signedContent = await finalizeOutboundContent({
+    identity,
+    text,
+    html,
+    to,
+    agencyId,
+    userId
+  });
 
   const quality = validateOutboundEmailQuality({
     subject: effectiveSubject,
@@ -706,6 +806,77 @@ export async function sendEmailFromIdentity({
     return { skipped: true, reason: gate.reason };
   }
 
+  if (
+    isForbiddenFallbackFrom({
+      fromEmail: identity.from_email,
+      usedFallbackSender,
+      reason: fallbackReason
+    })
+  ) {
+    const block = await createMissingAliasTaskAndBlock({
+      to,
+      subject,
+      agencyId: identity?.agency_id || null,
+      templateType,
+      fromEmail: identity.from_email,
+      reason: fallbackReason || 'fallback_sender_identity',
+      communicationId: existingCommunicationId || null
+    });
+    await logSkippedOrFailedEmail({
+      to,
+      subject,
+      text,
+      html,
+      agencyId: identity?.agency_id || null,
+      userId,
+      clientId,
+      templateType: templateType || 'identity_send',
+      templateId,
+      generatedByUserId,
+      deliveryStatus: 'failed',
+      errorMessage:
+        'Blocked — missing tenant sender alias / ai@ fallback forbidden. Task created for Michael; email was not sent.',
+      metadata: {
+        senderIdentityId: identity.id,
+        fromEmail: identity.from_email,
+        source,
+        reason: 'missing_sender_alias_blocked',
+        taskId: block.taskId || null
+      }
+    });
+    return {
+      blocked: true,
+      skipped: true,
+      reason: 'missing_sender_alias_blocked',
+      taskId: block.taskId || null
+    };
+  }
+
+  const optGate = await assertRecipientAllowsEmail({ to, agencyId: identity?.agency_id || null });
+  if (!optGate.allowed) {
+    await logSkippedOrFailedEmail({
+      to,
+      subject,
+      text,
+      html,
+      agencyId: identity?.agency_id || null,
+      userId,
+      clientId,
+      templateType: templateType || 'identity_send',
+      templateId,
+      generatedByUserId,
+      deliveryStatus: 'skipped',
+      errorMessage: 'send skipped — recipient opted out of emails',
+      metadata: {
+        senderIdentityId: identity.id,
+        fromEmail: identity.from_email,
+        source,
+        reason: optGate.reason
+      }
+    });
+    return { skipped: true, reason: optGate.reason };
+  }
+
   const overrideName = String(fromDisplayNameOverride || '').trim();
   const effectiveDisplayName = overrideName || identity.display_name;
   const from = pickFromHeader({ displayName: effectiveDisplayName, fromEmail: identity.from_email });
@@ -723,7 +894,14 @@ export async function sendEmailFromIdentity({
     from_email: identity.from_email,
     reply_to: replyTo || signatureSource.reply_to || identity.reply_to
   };
-  const signedContent = applySenderSignatureBlock({ identity: identityForSignature, text, html });
+  const signedContent = await finalizeOutboundContent({
+    identity: identityForSignature,
+    text,
+    html,
+    to,
+    agencyId: identity?.agency_id || null,
+    userId
+  });
 
   const quality = validateOutboundEmailQuality({
     subject,

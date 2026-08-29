@@ -70,13 +70,14 @@ export async function searchCommunicationDirectory({ agencyId, q, limit = 20 }) 
   const results = [];
 
   const [users] = await pool.execute(
-    `SELECT u.id, u.first_name, u.last_name, u.email, u.work_email, u.role
+    `SELECT u.id, u.first_name, u.last_name, u.email, u.work_email, u.role, u.sso_password_override
      FROM users u
      INNER JOIN user_agencies ua ON ua.user_id = u.id AND ua.agency_id = ?
        AND (ua.is_active = 1 OR ua.is_active IS NULL)
      WHERE LOWER(COALESCE(u.role, '')) IN (
          'admin','super_admin','support','staff','provider','provider_plus',
-         'clinical_practice_assistant','schedule_manager','supervisor','intern'
+         'clinical_practice_assistant','schedule_manager','supervisor','intern',
+         'school_staff'
        )
        AND LOWER(COALESCE(u.status, '')) NOT IN ('archived', 'inactive', 'terminated', 'deleted')
        AND LOWER(COALESCE(u.status, '')) NOT LIKE '%archiv%'
@@ -93,11 +94,13 @@ export async function searchCommunicationDirectory({ agencyId, q, limit = 20 }) 
     const email = String(u.work_email || u.email || '').trim();
     if (!email) continue;
     results.push({
-      kind: 'employee',
+      kind: u.role === 'school_staff' ? 'school_staff' : 'employee',
       id: u.id,
       name: [u.first_name, u.last_name].filter(Boolean).join(' '),
       email,
-      meta: u.role
+      meta: u.role,
+      role: u.role,
+      ssoPasswordOverride: !!(u.sso_password_override === 1 || u.sso_password_override === true)
     });
   }
 
@@ -198,11 +201,71 @@ export async function evaluateSendPreflight({ agencyId, payload = {}, fromEmail 
     });
   }
 
+  // School staff routing: email-only (no SSO) → offer secure message; SSO → prefer DM
+  const schoolStaffHints = [];
+  for (const em of emails) {
+    try {
+      const [rows] = await pool.execute(
+        `SELECT u.id, u.role, u.sso_password_override, u.email, u.work_email
+         FROM users u
+         WHERE LOWER(u.email) = ? OR LOWER(COALESCE(u.work_email,'')) = ? OR LOWER(COALESCE(u.personal_email,'')) = ?
+         LIMIT 1`,
+        [em, em, em]
+      );
+      const u = rows?.[0];
+      if (!u || String(u.role || '').toLowerCase() !== 'school_staff') {
+        // school contact without user account → treat as email-only
+        const [contacts] = await pool.execute(
+          `SELECT id FROM school_contacts WHERE LOWER(TRIM(email)) = ? LIMIT 1`,
+          [em]
+        );
+        if (contacts?.length) {
+          schoolStaffHints.push({
+            email: em,
+            kind: 'school_staff_email_only',
+            code: 'school_staff_secure_prompt',
+            message: `${em} looks like school staff without SSO. Send as a secure message (like clients), or continue as regular email.`
+          });
+        }
+        continue;
+      }
+      const hasSsoOverride = u.sso_password_override === 1 || u.sso_password_override === true;
+      const onAgencyDomain = agencyDomains.has(domainOf(u.work_email || u.email));
+      if (hasSsoOverride || onAgencyDomain) {
+        schoolStaffHints.push({
+          email: em,
+          kind: 'school_staff_sso',
+          code: 'school_staff_prefer_dm',
+          message: `${em} can use Direct Message (encrypted). Prefer Messages DM instead of email for school staff with portal/SSO access.`
+        });
+      } else {
+        schoolStaffHints.push({
+          email: em,
+          kind: 'school_staff_email_only',
+          code: 'school_staff_secure_prompt',
+          message: `${em} is school staff without SSO. Send as a secure message notification, or continue as regular email.`
+        });
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+  for (const hint of schoolStaffHints) {
+    warnings.push({
+      code: hint.code,
+      severity: 'warn',
+      message: hint.message,
+      email: hint.email,
+      kind: hint.kind
+    });
+  }
+
   return {
     ok: true,
     external: external.length > 0,
     phiRisk: phiHits.length > 0 && external.length > 0,
     warnings,
-    recipients: emails
+    recipients: emails,
+    schoolStaffHints
   };
 }

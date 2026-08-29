@@ -775,6 +775,7 @@ export async function postSecureNotify(req, res, next) {
     const {
       sendSecureMessageNotification,
       sendLearningClientMessageEmail,
+      sendSchoolStaffSecureMessageNotification,
       resolveClientContextForMessageNotify,
       isSecureMessageEligibleClientType
     } = await import('../services/secureMessageNotify.service.js');
@@ -783,12 +784,39 @@ export async function postSecureNotify(req, res, next) {
     if (!recipientUserId && recipientEmail) {
       const pool = (await import('../config/database.js')).default;
       const [urows] = await pool.execute(
-        `SELECT id FROM users
-         WHERE LOWER(email) = ? OR LOWER(COALESCE(personal_email, '')) = ?
+        `SELECT id, role FROM users
+         WHERE LOWER(email) = ? OR LOWER(COALESCE(personal_email, '')) = ? OR LOWER(COALESCE(work_email, '')) = ?
          LIMIT 1`,
-        [recipientEmail.toLowerCase(), recipientEmail.toLowerCase()]
+        [recipientEmail.toLowerCase(), recipientEmail.toLowerCase(), recipientEmail.toLowerCase()]
       );
       recipientUserId = urows?.[0]?.id || null;
+      const role = String(urows?.[0]?.role || '').toLowerCase();
+      if (role === 'school_staff' || req.body?.recipientKind === 'school_staff') {
+        const result = await sendSchoolStaffSecureMessageNotification({
+          agencyId,
+          senderUserId: req.user.id,
+          recipientUserId,
+          recipientEmail,
+          chatThreadId: req.body?.chatThreadId || null,
+          conversationId: req.body?.conversationId || null,
+          messageSource: 'secure_notify'
+        });
+        return res.json({ ok: true, channel: 'secure_school_staff', ...result });
+      }
+    }
+
+    // Explicit school-staff secure send (directory pick without users.role join yet)
+    if (req.body?.recipientKind === 'school_staff' || req.body?.asSchoolStaff === true) {
+      const result = await sendSchoolStaffSecureMessageNotification({
+        agencyId,
+        senderUserId: req.user.id,
+        recipientUserId,
+        recipientEmail,
+        chatThreadId: req.body?.chatThreadId || null,
+        conversationId: req.body?.conversationId || null,
+        messageSource: 'secure_notify'
+      });
+      return res.json({ ok: true, channel: 'secure_school_staff', ...result });
     }
 
     const ctx = await resolveClientContextForMessageNotify({

@@ -315,6 +315,36 @@ class GoogleWorkspaceDirectoryService {
   }
 
   /**
+   * Update a member's delivery settings on a Google Group without removing them.
+   * deliverySettings: ALL_MAIL | DIGEST | DAILY | NONE | DISABLED
+   */
+  static async setGroupMemberDeliverySettings({
+    groupEmail,
+    memberEmail,
+    deliverySettings = 'NONE'
+  }) {
+    const groupKey = String(groupEmail || '').trim().toLowerCase();
+    const email = String(memberEmail || '').trim().toLowerCase();
+    const settings = String(deliverySettings || 'NONE').trim().toUpperCase() || 'NONE';
+    if (!groupKey) throw new Error('groupEmail is required');
+    if (!email) throw new Error('memberEmail is required');
+    const admin = await this.getClient();
+    try {
+      const result = await admin.members.patch({
+        groupKey,
+        memberKey: email,
+        requestBody: { deliverySettings: settings }
+      });
+      return result?.data || { email, deliverySettings: settings };
+    } catch (e) {
+      logGoogleUnauthorizedHint(e, {
+        context: 'GoogleWorkspaceDirectoryService.setGroupMemberDeliverySettings'
+      });
+      throw e;
+    }
+  }
+
+  /**
    * True when neither a Workspace user nor a Group owns this address.
    */
   static async isDirectoryEmailAvailable(email) {
