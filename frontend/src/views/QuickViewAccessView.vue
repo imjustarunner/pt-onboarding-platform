@@ -346,8 +346,9 @@
           <textarea
             v-model="noteAidInput"
             rows="5"
+            class="qv-date"
             :placeholder="noteAidMode === 'speak' ? 'Speak your note…' : 'Type or paste session notes…'"
-            style="width:100%;border-radius:10px;border:1px solid var(--qv-border);background:var(--qv-surface);color:var(--qv-text);padding:10px;"
+            style="width:100%;"
           />
           <div class="qv-sheet-actions" style="margin-top:8px;">
             <button
@@ -361,19 +362,29 @@
           </div>
           <div v-if="noteAidOutput || noteAidSections.length" class="qv-note-block">
             <div class="qv-note-toolbar">
-              <strong>Generated note</strong>
+              <div>
+                <strong>AI Generated Note</strong>
+                <span class="qv-ready-badge">Ready to Copy</span>
+              </div>
               <button type="button" class="qv-btn ghost sm" @click="copyNoteAidFull">
-                {{ noteAidCopied === 'full' ? 'Copied' : 'Copy all' }}
+                {{ noteAidCopied === 'full' ? 'Copied' : 'Copy Full Note' }}
               </button>
+            </div>
+            <div class="qv-note-meta muted">
+              <span>Client {{ noteAidInitials || '—' }}</span>
+              <span>DOS {{ formatNoteAidDos(noteAidDos) }}</span>
             </div>
             <div v-for="panel in noteAidSections" :key="panel.id" class="qv-note-section">
               <div class="qv-note-section-head">
-                <span class="qv-note-section-title">{{ panel.title }}</span>
+                <span class="qv-note-section-title">
+                  <span v-if="panel.letter" class="qv-soap-letter">{{ panel.letter }}</span>
+                  {{ panel.title }}
+                </span>
                 <button type="button" class="qv-btn ghost sm" @click="copyNoteAidSection(panel)">
                   {{ noteAidCopied === panel.id ? 'Copied' : 'Copy' }}
                 </button>
               </div>
-              <div class="qv-note-section-body">{{ panel.text }}</div>
+              <pre class="qv-note-section-body">{{ panel.text }}</pre>
             </div>
             <div v-if="!noteAidSections.length && noteAidOutput" class="qv-note-section">
               <div class="qv-note-section-head">
@@ -382,7 +393,7 @@
                   {{ noteAidCopied === 'full' ? 'Copied' : 'Copy' }}
                 </button>
               </div>
-              <div class="qv-note-section-body">{{ noteAidOutput }}</div>
+              <pre class="qv-note-section-body">{{ noteAidOutput }}</pre>
             </div>
             <div class="qv-save-new">
               <p class="muted" style="margin:0 0 8px;font-size:12px;">Save to drawer, then start another note:</p>
@@ -720,7 +731,7 @@ import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import axios from 'axios';
 import QuickViewMusicDock from '../components/quickView/QuickViewMusicDock.vue';
-import { buildDisplaySections, parseSoapSectionsFromText } from '../utils/noteAidUiHelpers.js';
+import { buildDisplaySections, extractSections, formatFullNoteCopy } from '../utils/noteAidUiHelpers.js';
 
 const BOOKMARK_KEY = 'plottwist.quickViewBookmark';
 const TOKEN_KEY = 'plottwist.quickViewToken';
@@ -849,12 +860,14 @@ const brandStyle = computed(() => {
   // Strong tenant tint (avoid default slate blue shell)
   const bg = p.backgroundColor
     || `linear-gradient(180deg, color-mix(in srgb, ${primary} 42%, #041008) 0%, color-mix(in srgb, ${accent} 28%, #020806) 100%)`;
-  const surface = p.secondaryBackground
-    || `color-mix(in srgb, ${primary} 32%, #0a1610)`;
+  // Always dark chrome surfaces — never borrow light secondaryBackground (NLU white)
+  const surface = `color-mix(in srgb, ${primary} 32%, #0a1610)`;
   const border = `color-mix(in srgb, ${secondary} 45%, #12261c)`;
   // QV is always a dark shell — ignore tenant textPrimary (often dark navy for light pages)
   const text = '#f4faf6';
-  const muted = '#a7c4b4';
+  const muted = '#c5d9ce';
+  // Inactive tab labels: tenant secondary (dark blue for NLU) on white pills
+  const tabInk = secondary || '#1e3a5f';
   return {
     '--qv-primary': primary,
     '--qv-secondary': secondary,
@@ -864,7 +877,13 @@ const brandStyle = computed(() => {
     '--qv-surface': surface,
     '--qv-border': border,
     '--qv-text': text,
-    '--qv-muted': muted
+    '--qv-muted': muted,
+    '--qv-tab-ink': tabInk,
+    // Beat #app { color: var(--text-primary) } for everything inside QV
+    '--text-primary': text,
+    '--text-secondary': muted,
+    '--text-muted': muted,
+    color: text
   };
 });
 
@@ -1559,11 +1578,24 @@ function parseNoteAidSections(output) {
     noteAidSections.value = [];
     return;
   }
-  const fromText = parseSoapSectionsFromText(text);
-  const panels = buildDisplaySections(fromText);
+  // Same pipeline as ClinicalNoteGeneratorView: Output blob → extractSections → buildDisplaySections
+  const sections = extractSections({ sections: { Output: text } });
+  const panels = buildDisplaySections(sections);
   noteAidSections.value = (panels || []).filter((p) => String(p.text || '').trim());
   if (!noteAidSections.value.length) {
-    noteAidSections.value = [{ id: 'full', title: 'Note', text, isSoap: false }];
+    noteAidSections.value = [{ id: 'full', title: 'Note', text, isSoap: false, letter: '' }];
+  }
+}
+
+function formatNoteAidDos(raw) {
+  const s = String(raw || '').trim();
+  if (!s) return '—';
+  try {
+    const d = new Date(`${s}T12:00:00`);
+    if (Number.isNaN(d.getTime())) return s;
+    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  } catch {
+    return s;
   }
 }
 
@@ -1639,12 +1671,23 @@ async function copyTextSafe(text, key) {
 }
 
 async function copyNoteAidSection(panel) {
+  // Match full Note Aid: copy section body only (not the S/O/I/P title)
   await copyTextSafe(panel?.text, panel?.id || 'section');
 }
 
 async function copyNoteAidFull() {
-  const text = noteAidSections.value.length
-    ? noteAidSections.value.map((p) => String(p.text || '').trim()).filter(Boolean).join('\n\n')
+  const tool = noteAidTools.value.find((t) => t.id === noteAidToolId.value);
+  const sections = Object.fromEntries(
+    (noteAidSections.value || []).map((p) => [p.id, String(p.text || '').trim()])
+  );
+  const text = Object.keys(sections).length
+    ? formatFullNoteCopy({
+      sections,
+      initials: noteAidInitials.value.trim().toUpperCase(),
+      dateOfService: noteAidDos.value,
+      dateWritten: new Date().toISOString().slice(0, 10),
+      noteTypeLabel: tool?.name || tool?.label || 'Progress Note'
+    })
     : noteAidOutput.value;
   await copyTextSafe(text, 'full');
 }
@@ -2085,10 +2128,18 @@ onUnmounted(() => {
   margin: 0;
   background: var(--qv-bg, #0f172a);
   background-color: color-mix(in srgb, var(--qv-primary, #166534) 28%, #041008);
-  color: var(--qv-text, #f8fafc);
+  /* #app sets color: var(--text-primary) with ID specificity — must force light ink here */
+  color: #f4faf6 !important;
   font-family: system-ui, -apple-system, sans-serif;
   overflow-x: hidden;
   padding-bottom: calc(72px + env(safe-area-inset-bottom, 0px));
+}
+.qv strong,
+.qv h1,
+.qv h2,
+.qv h3 {
+  color: #f4faf6 !important;
+  -webkit-text-fill-color: #f4faf6;
 }
 .qv-fullapp {
   display: block;
@@ -2159,11 +2210,15 @@ onUnmounted(() => {
   text-transform: none;
 }
 .qv-note-section-body {
+  margin: 0;
   padding: 12px;
   font-size: 14px;
   line-height: 1.5;
-  color: #f8fafc;
+  font-family: inherit;
+  color: #f8fafc !important;
+  -webkit-text-fill-color: #f8fafc;
   white-space: pre-wrap;
+  word-break: break-word;
 }
 .qv-note-block { margin-top: 12px; }
 .qv-note-toolbar {
@@ -2214,7 +2269,7 @@ onUnmounted(() => {
   background: #fff;
   margin-bottom: 12px;
 }
-.qv-brand { font-weight: 800; font-size: 1.05rem; color: #f4faf6 !important; }
+.qv-brand { font-weight: 800; font-size: 1.05rem; color: #ffffff !important; -webkit-text-fill-color: #ffffff; }
 .qv-sub { font-size: 11px; color: var(--qv-muted, #94a3b8); }
 .qv-homescreen {
   margin: 12px 16px;
@@ -2273,8 +2328,22 @@ onUnmounted(() => {
   flex-wrap: wrap;
 }
 .qv-tabs { display: flex; gap: 4px; padding: 8px; border-bottom: 1px solid var(--qv-border, #1e293b); overflow-x: auto; }
-.qv-tabs button { flex: 1; min-width: 0; background: var(--qv-surface, #1e293b); color: var(--qv-muted, #cbd5e1); border: none; border-radius: 8px; padding: 10px 8px; font-weight: 700; }
-.qv-tabs button.on { background: var(--qv-primary, #166534); color: #fff; }
+.qv-tabs button {
+  flex: 1;
+  min-width: 0;
+  background: #ffffff !important;
+  color: var(--qv-tab-ink, #1e3a5f) !important;
+  -webkit-text-fill-color: var(--qv-tab-ink, #1e3a5f);
+  border: none;
+  border-radius: 8px;
+  padding: 10px 8px;
+  font-weight: 700;
+}
+.qv-tabs button.on {
+  background: var(--qv-primary, #166534) !important;
+  color: #ffffff !important;
+  -webkit-text-fill-color: #ffffff;
+}
 .qv-suite {
   display: flex;
   gap: 6px;
@@ -2352,7 +2421,7 @@ onUnmounted(() => {
 .qv-row { width: 100%; display: flex; gap: 10px; align-items: center; text-align: left; background: transparent; border: none; border-bottom: 1px solid var(--qv-border, #1e293b); padding: 12px 16px; color: inherit; cursor: pointer; }
 .qv-row.unread strong { color: var(--qv-text, #fff); }
 .qv-row .meta { flex: 1; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-.qv-row .meta strong { font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.qv-row .meta strong { font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: #f4faf6 !important; -webkit-text-fill-color: #f4faf6; }
 .qv-row .meta small { font-size: 12px; color: var(--qv-muted, #94a3b8); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .badge { font-size: 10px; background: color-mix(in srgb, var(--qv-accent, #854d0e) 55%, #000); color: #fef9c3; border-radius: 999px; padding: 2px 6px; font-weight: 800; }
 .qv-bubble { margin: 10px 16px; padding: 10px 12px; border-radius: 12px; background: var(--qv-surface, #1e293b); }
@@ -2370,8 +2439,53 @@ onUnmounted(() => {
   padding: 10px;
   resize: vertical;
 }
-.qv-date { background: var(--qv-surface, #1e293b); color: var(--qv-text, #fff); border: 1px solid var(--qv-border, #334155); border-radius: 8px; padding: 6px; }
-.muted { color: var(--qv-muted, #94a3b8); }
+.qv-date,
+.qv input.qv-date,
+.qv select.qv-date,
+.qv textarea {
+  background: #ffffff !important;
+  color: #0f172a !important;
+  -webkit-text-fill-color: #0f172a;
+  border: 1px solid var(--qv-border, #334155);
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 15px;
+}
+.muted { color: #d7ebe0 !important; }
+.qv-ready-badge {
+  display: inline-block;
+  margin-left: 8px;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #052e16 !important;
+  -webkit-text-fill-color: #052e16;
+  background: #86efac;
+  border-radius: 999px;
+  padding: 2px 8px;
+  vertical-align: middle;
+}
+.qv-note-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 0 0 10px;
+  font-size: 12px;
+}
+.qv-soap-letter {
+  display: inline-grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  margin-right: 6px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 900;
+  color: #fff !important;
+  -webkit-text-fill-color: #fff;
+  background: var(--qv-primary, #166534);
+}
 .qv-modal {
   position: fixed;
   inset: 0;

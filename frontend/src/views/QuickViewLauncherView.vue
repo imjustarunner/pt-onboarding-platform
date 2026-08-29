@@ -75,8 +75,13 @@ const brandStyle = computed(() => {
     '--qv-surface': p.secondaryBackground || `color-mix(in srgb, ${primary} 32%, #0a1610)`,
     '--qv-border': `color-mix(in srgb, ${secondary} 45%, #12261c)`,
     // Dark QV shell — never use tenant textPrimary (often navy for light pages)
-    '--qv-text': '#f4faf6',
-    '--qv-muted': '#a7c4b4'
+  '--qv-text': '#f4faf6',
+  '--qv-muted': '#c5d9ce',
+  '--qv-tab-ink': secondary || '#1e3a5f',
+  '--text-primary': '#f4faf6',
+  '--text-secondary': '#c5d9ce',
+  '--text-muted': '#c5d9ce',
+  color: '#f4faf6'
   };
 });
 
