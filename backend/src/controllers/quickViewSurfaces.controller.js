@@ -80,11 +80,20 @@ export const qvCreateDirectThread = wrap(async (req, res, next) => {
   return createOrGetDirectThread(req, res, next);
 });
 
+import { publicUploadsUrlFromStoredPath } from '../utils/uploads.js';
+import { classifyPayAndHcbsCategories } from '../utils/credentialNormalization.js';
+
 function mapDirectoryPerson(r, section) {
   const first = r.first_name || r.firstName || '';
   const last = r.last_name || r.lastName || '';
   const preferred = r.preferred_name || r.preferredName || '';
   const displayName = preferred || `${first} ${last}`.trim() || r.email || 'Teammate';
+  const axes = classifyPayAndHcbsCategories({
+    credential: r.credential,
+    title: r.title,
+    role: r.role,
+    isHourlyWorker: r.is_hourly_worker
+  });
   return {
     id: Number(r.id),
     displayName,
@@ -92,6 +101,11 @@ function mapDirectoryPerson(r, section) {
     lastName: last,
     role: r.role || null,
     email: r.work_email || r.email || null,
+    workEmail: r.work_email || null,
+    workPhone: r.work_phone || r.phone_number || null,
+    profilePhotoUrl: publicUploadsUrlFromStoredPath(r.profile_photo_path) || null,
+    hcbsCategory: axes.hcbsCategory,
+    hcbsCategoryLabel: axes.hcbsCategoryLabel,
     section
   };
 }
@@ -105,7 +119,9 @@ export const getQuickDirectory = async (req, res, next) => {
     }
 
     const [providerRows] = await pool.execute(
-      `SELECT u.id, u.first_name, u.last_name, u.preferred_name, u.email, u.work_email, u.role
+      `SELECT u.id, u.first_name, u.last_name, u.preferred_name, u.email, u.work_email,
+              u.work_phone, u.phone_number, u.profile_photo_path, u.role, u.credential, u.title,
+              u.is_hourly_worker
        FROM user_agencies ua
        JOIN users u ON u.id = ua.user_id
        WHERE ua.agency_id = ?
@@ -127,7 +143,9 @@ export const getQuickDirectory = async (req, res, next) => {
     let schoolRows = [];
     try {
       const [rows] = await pool.execute(
-        `SELECT DISTINCT u.id, u.first_name, u.last_name, u.preferred_name, u.email, u.work_email, u.role
+        `SELECT DISTINCT u.id, u.first_name, u.last_name, u.preferred_name, u.email, u.work_email,
+                u.work_phone, u.phone_number, u.profile_photo_path, u.role, u.credential, u.title,
+                u.is_hourly_worker
          FROM users u
          INNER JOIN user_agencies ua ON ua.user_id = u.id
          INNER JOIN agencies school ON school.id = ua.agency_id
@@ -146,7 +164,9 @@ export const getQuickDirectory = async (req, res, next) => {
     } catch {
       try {
         const [rows] = await pool.execute(
-          `SELECT DISTINCT u.id, u.first_name, u.last_name, u.preferred_name, u.email, u.work_email, u.role
+          `SELECT DISTINCT u.id, u.first_name, u.last_name, u.preferred_name, u.email, u.work_email,
+                  u.work_phone, u.phone_number, u.profile_photo_path, u.role, u.credential, u.title,
+                  u.is_hourly_worker
            FROM users u
            INNER JOIN user_agencies ua ON ua.user_id = u.id
            INNER JOIN agency_schools ash ON ash.school_id = ua.agency_id AND ash.agency_id = ?

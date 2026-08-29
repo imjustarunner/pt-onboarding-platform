@@ -74,8 +74,9 @@ const brandStyle = computed(() => {
     '--qv-bg': p.backgroundColor || `linear-gradient(180deg, color-mix(in srgb, ${primary} 42%, #041008), color-mix(in srgb, ${accent} 28%, #020806))`,
     '--qv-surface': p.secondaryBackground || `color-mix(in srgb, ${primary} 32%, #0a1610)`,
     '--qv-border': `color-mix(in srgb, ${secondary} 45%, #12261c)`,
-    '--qv-text': p.textPrimary || '#f4faf6',
-    '--qv-muted': p.textMuted || p.textSecondary || '#a7c4b4'
+    // Dark QV shell — never use tenant textPrimary (often navy for light pages)
+    '--qv-text': '#f4faf6',
+    '--qv-muted': '#a7c4b4'
   };
 });
 
@@ -194,7 +195,7 @@ onMounted(async () => {
   padding: 24px;
   background: var(--qv-bg, #0f172a);
   background-color: color-mix(in srgb, var(--qv-primary, #166534) 28%, #041008);
-  color: var(--qv-text, #e2e8f0);
+  color: var(--qv-text, #f4faf6) !important;
   text-align: center;
   font-family: system-ui, -apple-system, sans-serif;
 }
@@ -205,8 +206,19 @@ onMounted(async () => {
   object-fit: contain;
   background: #fff;
 }
-.qv-launch h1 { margin: 0; font-size: 1.6rem; }
-.hint { margin: 0; color: var(--qv-muted, #cbd5e1); }
+.qv-launch h1 {
+  margin: 0;
+  font-size: 1.6rem;
+  color: #f4faf6 !important;
+  -webkit-text-fill-color: #f4faf6;
+}
+.qv-launch,
+.qv-launch p,
+.qv-launch .hint,
+.qv-launch .muted {
+  color: var(--qv-text, #f4faf6);
+}
+.hint { margin: 0; color: var(--qv-muted, #d1e7d8) !important; }
 .form { display: grid; gap: 12px; width: min(100%, 320px); }
 .pin {
   width: 100%;
