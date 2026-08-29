@@ -9,15 +9,28 @@ export const SOAP_SECTION_DEFS = [
   { key: 'Plan', letter: 'P', label: 'Plan', aliases: ['P - Plan'] }
 ];
 
-const SOAP_INLINE_HEADER_RE =
-  /^(?:\d+[\).\s-]*)?(?:\*\*)?(Symptom Description and Subjective Report|Subjective|S\s*-\s*Subjective|Objective Content|Objective|O\s*-\s*Objective|Interventions Used|Interventions|I\s*-\s*Interventions|Plan|P\s*-\s*Plan)(?:\*\*)?\s*:?\s*(.*)$/i;
+const SOAP_HEADER_NAMES =
+  'Symptom Description and Subjective Report|Subjective|S\\s*-\\s*Subjective|Objective Content|Objective|O\\s*-\\s*Objective|Interventions Used|Interventions|I\\s*-\\s*Interventions|Plan|P\\s*-\\s*Plan';
+
+/**
+ * Match SOAP headers including common model formats:
+ *   **1. Symptom Description and Subjective Report**
+ *   1. Subjective:
+ *   **Objective Content**
+ */
+const SOAP_INLINE_HEADER_RE = new RegExp(
+  `^(?:\\*\\*)?(?:\\d+[\\.\\)\\s-]*)?(?:\\*\\*)?(${SOAP_HEADER_NAMES})(?:\\*\\*)?\\s*:?\\s*(.*)$`,
+  'i'
+);
 
 /** Goal N / Objective N / Discharge / Projected Time — EHR paste + structured plan UI. */
 const TREATMENT_PLAN_HEADER_RE =
   /^(?:\d+[\).\s-]*)?(?:\*\*)?(Goal\s*(\d+)|Objective\s*(\d+)|Projected\s*Time\s*(?:to\s*Completion)?(?:\s*\d+)?|Discharge\s*Plan|Discharge)(?:\*\*)?\s*:?\s*(.*)$/i;
 
 function normalizeSectionKey(title) {
-  const t = String(title || '').trim().toLowerCase();
+  let t = String(title || '').trim().toLowerCase();
+  t = t.replace(/^\*+\s*/, '').replace(/\s*\*+$/, '');
+  t = t.replace(/^\d+[\).\s-]+/, '').trim();
   for (const def of SOAP_SECTION_DEFS) {
     if (t === def.key.toLowerCase()) return def.key;
     if (def.aliases.some((a) => t === String(a).toLowerCase())) return def.key;

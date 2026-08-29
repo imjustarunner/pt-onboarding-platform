@@ -41,6 +41,31 @@ describe('noteAidUiHelpers', () => {
     expect(panels[2].text).toBe('Supportive Therapy, Problem Solving');
   });
 
+  it('parses markdown-bold numbered H0004 headers into SOAP panels', () => {
+    const blob = [
+      '**1. Symptom Description and Subjective Report**',
+      'Client presents with anxiety.',
+      '',
+      '**2. Objective Content**',
+      'Client was engaged.',
+      '',
+      '**3. Interventions Used**',
+      'CBT techniques.',
+      '',
+      '**4. Plan**',
+      'Continue weekly.'
+    ].join('\n');
+    const panels = buildDisplaySections({ Output: blob });
+    expect(panels.map((p) => p.id)).toEqual([
+      'Subjective',
+      'Objective',
+      'Interventions',
+      'Plan'
+    ]);
+    expect(panels[0].text).toBe('Client presents with anxiety.');
+    expect(panels[3].text).toBe('Continue weekly.');
+  });
+
   it('parses inline SOAP headers from raw text', () => {
     const parsed = parseSoapSectionsFromText(
       '1. Subjective: Anxious\n2. Objective: Calm\n3. Interventions: CBT\n4. Plan: Follow up'

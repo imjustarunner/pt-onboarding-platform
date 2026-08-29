@@ -306,26 +306,24 @@
             Same Note Aid tools as the full app. Use initials only here — attaching clients is saved for the main app.
           </p>
           <div class="qv-na-row">
-            <div>
-              <label class="muted">Date of service</label>
+            <div class="qv-na-field">
+              <label class="muted" for="qv-na-dos">Date of service</label>
               <input
                 id="qv-na-dos"
                 v-model="noteAidDos"
                 type="date"
                 class="qv-date"
-                style="width:100%;margin-top:4px;"
               />
             </div>
-            <div>
-              <label class="muted">Initials</label>
+            <div class="qv-na-field">
+              <label class="muted" for="qv-na-initials">Initials</label>
               <input
                 id="qv-na-initials"
                 v-model="noteAidInitials"
                 type="text"
                 maxlength="12"
                 placeholder="J.S."
-                class="qv-date"
-                style="width:100%;margin-top:4px;letter-spacing:0.06em;"
+                class="qv-date qv-na-initials"
               />
             </div>
           </div>
@@ -371,8 +369,9 @@
               </button>
             </div>
             <div class="qv-note-meta muted">
-              <span>Client {{ noteAidInitials || '—' }}</span>
-              <span>DOS {{ formatNoteAidDos(noteAidDos) }}</span>
+              <span>Client <strong>{{ noteAidInitials || '—' }}</strong></span>
+              <span class="qv-note-meta-sep" aria-hidden="true">·</span>
+              <span>DOS <strong>{{ formatNoteAidDos(noteAidDos) }}</strong></span>
             </div>
             <div v-for="panel in noteAidSections" :key="panel.id" class="qv-note-section">
               <div class="qv-note-section-head">
@@ -397,9 +396,15 @@
             </div>
             <div class="qv-save-new">
               <p class="muted" style="margin:0 0 8px;font-size:12px;">Save to drawer, then start another note:</p>
-              <button type="button" class="qv-btn primary sm" @click="saveAndNewSameClient">Save &amp; new · same client</button>
-              <button type="button" class="qv-btn ghost sm" @click="saveAndNewSameDos">Save &amp; new · same date</button>
-              <button type="button" class="qv-btn ghost sm" @click="saveAndNewFresh">Save &amp; new · fresh</button>
+              <button type="button" class="qv-btn qv-save-same-client sm" @click="saveAndNewSameClient">
+                Save &amp; new · same client
+              </button>
+              <button type="button" class="qv-btn qv-save-same-dos sm" @click="saveAndNewSameDos">
+                Save &amp; new · same date
+              </button>
+              <button type="button" class="qv-btn qv-save-fresh sm" @click="saveAndNewFresh">
+                Save &amp; new · fresh
+              </button>
             </div>
           </div>
           <div class="qv-office-section" style="margin-top:16px;">
@@ -2166,9 +2171,30 @@ onUnmounted(() => {
 }
 .qv-na-row {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 10px;
-  margin-bottom: 10px;
+  grid-template-columns: minmax(0, 1.35fr) minmax(0, 0.85fr);
+  gap: 12px;
+  margin-bottom: 12px;
+  align-items: end;
+}
+.qv-na-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+.qv-na-field .qv-date {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+.qv-na-initials {
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+@media (max-width: 420px) {
+  .qv-na-row {
+    grid-template-columns: 1fr;
+  }
 }
 .qv-avatar {
   width: 40px;
@@ -2236,7 +2262,40 @@ onUnmounted(() => {
   margin-top: 12px;
   padding-top: 8px;
 }
-.qv-save-new .qv-btn { width: 100%; }
+.qv-save-new .qv-btn {
+  width: 100%;
+  border: none;
+  border-radius: 10px;
+  padding: 12px 14px;
+  font-weight: 700;
+  color: #fff !important;
+  -webkit-text-fill-color: #fff;
+}
+.qv-save-same-client {
+  background: var(--qv-primary, #0d9488) !important;
+}
+.qv-save-same-dos {
+  background: var(--qv-secondary, #4338ca) !important;
+}
+.qv-save-fresh {
+  background: color-mix(in srgb, var(--qv-accent, #6366f1) 70%, #0f172a) !important;
+}
+.qv-note-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  margin: 0 0 10px;
+  font-size: 12px;
+}
+.qv-note-meta strong {
+  color: #f4faf6 !important;
+  -webkit-text-fill-color: #f4faf6;
+  font-weight: 800;
+}
+.qv-note-meta-sep {
+  opacity: 0.55;
+}
 .qv-section-title { color: var(--qv-text, #f4faf6) !important; }
 .qv *,
 .qv *::before,
@@ -2465,13 +2524,6 @@ onUnmounted(() => {
   border-radius: 999px;
   padding: 2px 8px;
   vertical-align: middle;
-}
-.qv-note-meta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-  margin: 0 0 10px;
-  font-size: 12px;
 }
 .qv-soap-letter {
   display: inline-grid;
