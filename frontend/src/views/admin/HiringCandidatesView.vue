@@ -3572,6 +3572,12 @@ onUnmounted(() => {
   padding: 10px;
   color: #111827;
 }
+.cover-letter-docs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
 .modal-actions {
   display: flex;
   justify-content: flex-end;
