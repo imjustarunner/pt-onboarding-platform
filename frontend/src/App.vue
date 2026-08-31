@@ -5906,8 +5906,38 @@ const onMyDashboardClick = (e) => {
 
 /** Navigate from hamburger "Dashboard sections" (mirrors rail cards). */
 const onDashboardMobileNavClick = (item) => {
-  closeMobileMenu();
   if (!item) return;
+
+  // Keep menu open when expanding a nest so Tools children (AI Tools, etc.) appear.
+  const isNest =
+    item.kind === 'nest' ||
+    item.id === 'tools_nest' ||
+    item.id === 'portals_nest' ||
+    item.id === 'momentum_nest';
+
+  if (
+    item.id === 'tools_assessments' ||
+    item.id === 'tools_games' ||
+    item.id === 'tools_ai' ||
+    item.id === 'tools_aids'
+  ) {
+    closeMobileMenu();
+    const tab =
+      item.toolsTab ||
+      (item.id === 'tools_games' ? 'games' : item.id === 'tools_ai' ? 'ai' : 'assessments');
+    router.push(toolsAidsHubLocation(tab, orgTo)).catch(() => {});
+    return;
+  }
+
+  if (item.id === 'tools_nest') {
+    // Expand nest on dashboard and leave the menu open so AI Tools / Assessments show up.
+    const dash = myDashboardTo.value;
+    const dashPath = typeof dash === 'string' ? dash : (dash?.path || '/dashboard');
+    router.push({ path: dashPath, query: { expandNest: 'tools_nest' } }).catch(() => {});
+    return;
+  }
+
+  closeMobileMenu();
   if (item.to) {
     router.push(String(item.to)).catch(() => {});
     return;
@@ -5922,9 +5952,8 @@ const onDashboardMobileNavClick = (item) => {
     router.push(orgTo('/tasks')).catch(() => {});
     return;
   }
-  if (item.kind === 'nest') {
-    // Land on first child or dashboard overview of the nest parent
-    router.push({ path: dashPath, query: { tab: item.id } }).catch(() => {});
+  if (isNest) {
+    router.push({ path: dashPath, query: { expandNest: item.id } }).catch(() => {});
     return;
   }
   router.push({ path: dashPath, query: { tab: item.id } }).catch(() => {});
