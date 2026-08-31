@@ -71,6 +71,19 @@ Create a new Treatment Plan since the most recent Treatment Plan is more than 90
     expect(items.length).toBe(3);
     expect(items.map((i) => i.noteKind).sort()).toEqual(['intake', 'progress', 'treatment_plan'].sort());
   });
+
+  it('parses single-line day list rows', () => {
+    const text = `4/9/26 Sheldon Baron Create a Progress Note for Therapy Session (90837) on 4/9 at 12 pm.
+4/9/26 Trevor Reynolds Create a Consultation Note for Consultation (99415) on 4/9 at 1 pm.
+4/9/26 Alex Smith Create a Progress Note for Therapy Session (90837) on 4/9 at 2 pm.`;
+    const { items, skipped } = parseNoteAidTodoList(text);
+    expect(skipped.length).toBe(1);
+    expect(items.length).toBe(2);
+    expect(items[0].clientName).toBe('Sheldon Baron');
+    expect(items[0].serviceCode).toBe('90837');
+    expect(items[0].timeLabel).toBe('12 PM');
+    expect(items[1].clientName).toBe('Alex Smith');
+  });
 });
 
 describe('noteAidDocumentationStatus panels', () => {

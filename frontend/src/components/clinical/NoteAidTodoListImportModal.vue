@@ -6,7 +6,7 @@
         <button type="button" class="na-link-btn" @click="emit('close')">Close</button>
       </header>
       <p class="hint">
-        Paste your day list. Consultation / 99415 items are skipped. Choose the tenant and program once for the whole batch.
+        Paste your day list (one line per item or date / name / action blocks). Consultation / 99415 items are skipped. New items append under your current queue. Choose the tenant and program once for the whole batch.
       </p>
 
       <label class="na-label">
@@ -38,7 +38,21 @@
         Will skip {{ preview.skipped.length }} consultation item{{ preview.skipped.length === 1 ? '' : 's' }}.
       </p>
       <p v-if="preview.items.length" class="muted">
-        Will queue {{ preview.items.length }} item{{ preview.items.length === 1 ? '' : 's' }}.
+        Will queue {{ preview.items.length }} item{{ preview.items.length === 1 ? '' : 's' }}
+        (appended under your current queue).
+      </p>
+      <p
+        v-if="pasteText.trim() && !preview.items.length && !preview.skipped.length"
+        class="error"
+      >
+        Could not parse any ToDo lines. Use either one line per item
+        (“4/9/26 Name Create a Progress Note…”) or a 3-line block (date / name / action).
+      </p>
+      <p
+        v-else-if="pasteText.trim() && !preview.items.length && preview.skipped.length"
+        class="error"
+      >
+        Every parsed line was Consultation / 99415 (skipped). Add at least one progress, intake, or treatment-plan item.
       </p>
       <p v-if="error" class="error">{{ error }}</p>
 

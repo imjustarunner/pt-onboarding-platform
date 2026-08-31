@@ -4634,17 +4634,20 @@ function clearWorkQueue() {
 
 function onTodoListBuilt({ items }) {
   showTodoImportModal.value = false;
-  workQueueItems.value = (Array.isArray(items) ? items : []).map((i) => ({
+  const incoming = (Array.isArray(items) ? items : []).map((i) => ({
     ...i,
     status: DOC_STATUS.NOT_STARTED,
     docStatus: DOC_STATUS.NOT_STARTED
   }));
-  activeWorkQueueItemId.value = null;
+  // Append to the bottom of the existing queue (do not replace).
+  workQueueItems.value = [...(workQueueItems.value || []), ...incoming];
   persistWorkQueue();
-  const first = workQueueItems.value.find(
-    (i) => deriveWorkQueueDocStatus(i) === DOC_STATUS.NOT_STARTED
-  );
-  if (first) activateWorkQueueItem(first);
+  if (!activeWorkQueueItemId.value) {
+    const first = workQueueItems.value.find(
+      (i) => deriveWorkQueueDocStatus(i) === DOC_STATUS.NOT_STARTED
+    );
+    if (first) activateWorkQueueItem(first);
+  }
 }
 
 function advanceWorkQueue() {

@@ -21,10 +21,10 @@ CREATE TABLE IF NOT EXISTS app_email_sessions (
 DROP TEMPORARY TABLE IF EXISTS tmp_app_email_seed;
 CREATE TEMPORARY TABLE tmp_app_email_seed (
   agency_id INT NOT NULL PRIMARY KEY,
-  brand_name VARCHAR(255) NOT NULL,
-  email_domain VARCHAR(255) NOT NULL,
-  brand_short VARCHAR(64) NOT NULL
-);
+  brand_name VARCHAR(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  email_domain VARCHAR(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  brand_short VARCHAR(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 INSERT INTO tmp_app_email_seed (agency_id, brand_name, email_domain, brand_short)
 SELECT agency_id, brand_name, email_domain, brand_short
@@ -33,16 +33,16 @@ FROM (
     a.id AS agency_id,
     COALESCE(NULLIF(TRIM(a.name), ''), a.slug, 'Agency') AS brand_name,
     CASE
-      WHEN LOWER(COALESCE(a.slug, a.portal_url, '')) IN ('itsco')
+      WHEN LOWER(COALESCE(a.slug, a.portal_url, '')) COLLATE utf8mb4_unicode_ci IN ('itsco')
         THEN 'itsco.health'
-      WHEN LOWER(COALESCE(a.slug, a.portal_url, '')) IN ('nlu', 'nextlevelup', 'nextleveluplcc', 'next-level-up')
+      WHEN LOWER(COALESCE(a.slug, a.portal_url, '')) COLLATE utf8mb4_unicode_ci IN ('nlu', 'nextlevelup', 'nextleveluplcc', 'next-level-up')
         THEN 'nextleveluplcc.com'
-      WHEN LOWER(COALESCE(a.slug, a.portal_url, '')) IN ('plottwistco', 'plottwist', 'plottwisthq')
+      WHEN LOWER(COALESCE(a.slug, a.portal_url, '')) COLLATE utf8mb4_unicode_ci IN ('plottwistco', 'plottwist', 'plottwisthq')
         THEN 'plottwistco.com'
-      WHEN LOWER(COALESCE(a.slug, a.portal_url, '')) IN (
+      WHEN LOWER(COALESCE(a.slug, a.portal_url, '')) COLLATE utf8mb4_unicode_ci IN (
         'tisi', 'inner-strength', 'innerstrength', 'theinnerstrengthinstitute', 'the-inner-strength-institute'
       ) THEN 'theinnerstrengthinstitute.com'
-      WHEN LOWER(COALESCE(a.slug, a.portal_url, '')) IN ('burningsage', 'burning-sage', 'burning_sage')
+      WHEN LOWER(COALESCE(a.slug, a.portal_url, '')) COLLATE utf8mb4_unicode_ci IN ('burningsage', 'burning-sage', 'burning_sage')
         THEN 'burningsagetherapy.com'
       WHEN a.onboarding_team_email LIKE '%@%'
         THEN LOWER(SUBSTRING_INDEX(a.onboarding_team_email, '@', -1))
@@ -51,29 +51,29 @@ FROM (
       ELSE NULL
     END AS email_domain,
     CASE
-      WHEN LOWER(COALESCE(a.slug, a.portal_url, '')) IN ('itsco') THEN 'ITSCO'
-      WHEN LOWER(COALESCE(a.slug, a.portal_url, '')) IN ('nlu', 'nextlevelup', 'nextleveluplcc', 'next-level-up')
+      WHEN LOWER(COALESCE(a.slug, a.portal_url, '')) COLLATE utf8mb4_unicode_ci IN ('itsco') THEN 'ITSCO'
+      WHEN LOWER(COALESCE(a.slug, a.portal_url, '')) COLLATE utf8mb4_unicode_ci IN ('nlu', 'nextlevelup', 'nextleveluplcc', 'next-level-up')
         THEN 'NLU'
-      WHEN LOWER(COALESCE(a.slug, a.portal_url, '')) IN ('plottwistco', 'plottwist', 'plottwisthq')
+      WHEN LOWER(COALESCE(a.slug, a.portal_url, '')) COLLATE utf8mb4_unicode_ci IN ('plottwistco', 'plottwist', 'plottwisthq')
         THEN 'PlotTwistCo'
-      WHEN LOWER(COALESCE(a.slug, a.portal_url, '')) IN (
+      WHEN LOWER(COALESCE(a.slug, a.portal_url, '')) COLLATE utf8mb4_unicode_ci IN (
         'tisi', 'inner-strength', 'innerstrength', 'theinnerstrengthinstitute', 'the-inner-strength-institute'
       ) THEN 'TISI'
-      WHEN LOWER(COALESCE(a.slug, a.portal_url, '')) IN ('burningsage', 'burning-sage', 'burning_sage')
+      WHEN LOWER(COALESCE(a.slug, a.portal_url, '')) COLLATE utf8mb4_unicode_ci IN ('burningsage', 'burning-sage', 'burning_sage')
         THEN 'Burning Sage'
       ELSE COALESCE(NULLIF(TRIM(a.name), ''), a.slug, 'Agency')
     END AS brand_short
   FROM agencies a
-  WHERE LOWER(COALESCE(a.organization_type, 'agency')) = 'agency'
+  WHERE LOWER(COALESCE(a.organization_type, 'agency')) COLLATE utf8mb4_unicode_ci = 'agency'
     AND (a.is_archived = 0 OR a.is_archived IS NULL)
-    AND LOWER(COALESCE(a.slug, a.portal_url, '')) NOT IN (
+    AND LOWER(COALESCE(a.slug, a.portal_url, '')) COLLATE utf8mb4_unicode_ci NOT IN (
       'sstc', 'summit', 'summit-stats', 'summitstatsteamchallenge', 'demo', 'demo-school'
     )
-    AND LOWER(COALESCE(a.slug, a.portal_url, '')) NOT LIKE '%summit%stat%'
+    AND LOWER(COALESCE(a.slug, a.portal_url, '')) COLLATE utf8mb4_unicode_ci NOT LIKE '%summit%stat%'
 ) derived
 WHERE email_domain IS NOT NULL
   AND email_domain <> ''
-  AND email_domain NOT IN ('example.com', 'example.org', 'test.com', 'localhost');
+  AND email_domain COLLATE utf8mb4_unicode_ci NOT IN ('example.com', 'example.org', 'test.com', 'localhost');
 
 -- Sender identity: app@tenant
 INSERT INTO email_sender_identities (
@@ -91,7 +91,8 @@ SELECT
 FROM tmp_app_email_seed t
 WHERE NOT EXISTS (
   SELECT 1 FROM email_sender_identities e
-  WHERE e.agency_id = t.agency_id AND LOWER(e.identity_key) = 'app'
+  WHERE e.agency_id = t.agency_id
+    AND LOWER(e.identity_key) COLLATE utf8mb4_unicode_ci = 'app'
 );
 
 UPDATE email_sender_identities e
@@ -102,17 +103,17 @@ SET
   e.reply_to = CONCAT('app@', t.email_domain),
   e.inbound_addresses_json = JSON_ARRAY(CONCAT('app@', t.email_domain)),
   e.is_active = 1
-WHERE LOWER(e.identity_key) = 'app';
+WHERE LOWER(e.identity_key) COLLATE utf8mb4_unicode_ci = 'app';
 
 -- Inbound routes so Gmail poll matches To: app@tenant
 INSERT INTO email_inbound_routes (sender_identity_id, email_address, is_active)
 SELECT e.id, CONCAT('app@', t.email_domain), TRUE
 FROM email_sender_identities e
 INNER JOIN tmp_app_email_seed t ON t.agency_id = e.agency_id
-WHERE LOWER(e.identity_key) = 'app'
+WHERE LOWER(e.identity_key) COLLATE utf8mb4_unicode_ci = 'app'
   AND NOT EXISTS (
     SELECT 1 FROM email_inbound_routes r
-    WHERE LOWER(r.email_address) = CONCAT('app@', t.email_domain)
+    WHERE LOWER(r.email_address) COLLATE utf8mb4_unicode_ci = CONCAT('app@', t.email_domain)
       AND r.sender_identity_id = e.id
       AND r.is_active = TRUE
   );
@@ -133,7 +134,9 @@ SELECT t.agency_id, 'emailAppAssistant', 'enabled', NULL, 'system', NOW(),
 FROM tmp_app_email_seed t
 WHERE NOT EXISTS (
   SELECT 1 FROM agency_feature_entitlements_current c
-  WHERE c.agency_id = t.agency_id AND c.feature_key = 'emailAppAssistant' AND c.enabled = 1
+  WHERE c.agency_id = t.agency_id
+    AND c.feature_key COLLATE utf8mb4_unicode_ci = 'emailAppAssistant'
+    AND c.enabled = 1
 );
 
 INSERT INTO agency_feature_entitlements_current (agency_id, feature_key, enabled, last_event_id)
@@ -142,7 +145,8 @@ FROM agency_feature_entitlement_events e
 INNER JOIN (
   SELECT agency_id, MAX(id) AS max_id
   FROM agency_feature_entitlement_events
-  WHERE feature_key = 'emailAppAssistant' AND event_type = 'enabled'
+  WHERE feature_key COLLATE utf8mb4_unicode_ci = 'emailAppAssistant'
+    AND event_type COLLATE utf8mb4_unicode_ci = 'enabled'
   GROUP BY agency_id
 ) latest ON latest.max_id = e.id
 INNER JOIN tmp_app_email_seed t ON t.agency_id = e.agency_id

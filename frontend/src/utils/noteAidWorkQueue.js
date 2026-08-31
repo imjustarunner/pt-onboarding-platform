@@ -31,37 +31,144 @@ export function newWorkQueueItemId() {
   return `wq_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
 }
 
+function ymdFromDateParts(mmRaw, ddRaw, yyRaw) {
+  const mm = String(mmRaw).padStart(2, '0');
+  const dd = String(ddRaw).padStart(2, '0');
+  let yyyy = String(yyRaw);
+  if (yyyy.length === 2) yyyy = `20${yyyy}`;
+  return `${yyyy}-${mm}-${dd}`;
+}
+
+function classifyTodoAction(action) {
+  const actionLower = String(action || '').toLowerCase();
+  if (
+    /consultation/i.test(action)
+    || /\b99415\b/.test(action)
+    || /supervision/i.test(action)
+  ) {
+    return { skip: true, reason: 'consultation' };
+  }
+
+  let noteKind = 'progress';
+  let serviceCode = null;
+  const codeMatch = String(action || '').match(/\((\d{5}|[A-Z]\d{4})\)/i);
+  if (codeMatch) serviceCode = codeMatch[1].toUpperCase();
+
+  if (/intake/i.test(actionLower)) {
+    noteKind = 'intake';
+    serviceCode = serviceCode || '90791';
+  } else if (/termination/i.test(actionLower)) {
+    noteKind = 'termination';
+    serviceCode = serviceCode || null;
+  } else if (/treatment\s*plan/i.test(actionLower)) {
+    noteKind = 'treatment_plan';
+    serviceCode = serviceCode || null;
+  } else {
+    noteKind = 'progress';
+    serviceCode = serviceCode || '90837';
+  }
+
+  const timeMatch = String(action || '').match(/\bat\s+(\d{1,2})(?::(\d{2}))?\s*(AM|PM)\b/i);
+  let timeLabel = null;
+  if (timeMatch) {
+    timeLabel = timeMatch[2]
+      ? `${timeMatch[1]}:${timeMatch[2]} ${timeMatch[3].toUpperCase()}`
+      : `${timeMatch[1]} ${timeMatch[3].toUpperCase()}`;
+  }
+
+  return { skip: false, noteKind, serviceCode, timeLabel };
+}
+
+function pushParsedItem(items, skipped, { date, name, action }) {
+  if (!name || !action) return;
+  const classified = classifyTodoAction(action);
+  if (classified.skip) {
+    skipped.push({ date, name, action, reason: classified.reason || 'consultation' });
+    return;
+  }
+  items.push({
+    id: newWorkQueueItemId(),
+    date,
+    clientName: name,
+    action,
+    noteKind: classified.noteKind,
+    serviceCode: classified.serviceCode,
+    timeLabel: classified.timeLabel,
+    status: 'not_started',
+    clientId: null,
+    agencyId: null,
+    organizationId: null
+  });
+}
+
+/**
+ * Single-line day list:
+ * "4/9/26 Sheldon Baron Create a Progress Note for Therapy Session (90837) on 4/9 at 12 pm."
+ */
+function parseOneLineTodo(line) {
+  const m = String(line || '').match(
+    /^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})\s+(.+)$/
+  );
+  if (!m) return null;
+  const rest = String(m[4] || '').trim();
+  // Action usually starts with "Create a/an …"
+  let split = rest.match(/^(.*?)\s+(Create\s+(?:a|an)\s+.+)$/i);
+  if (!split) {
+    // Fallback: first two tokens = name, remainder = action
+    const parts = rest.split(/\s+/);
+    if (parts.length < 3) return null;
+    split = [null, parts.slice(0, 2).join(' '), parts.slice(2).join(' ')];
+  }
+  const name = String(split[1] || '').trim();
+  const action = String(split[2] || '').trim();
+  if (!name || !action) return null;
+  return {
+    date: ymdFromDateParts(m[1], m[2], m[3]),
+    name,
+    action
+  };
+}
+
 /**
  * Parse pasted clinician ToDo list.
+ * Supports:
+ *  - 3-line blocks (date / name / action)
+ *  - single-line rows (date name action…)
  * Skips Consultation / 99415. Keeps progress, intake, termination, treatment-plan renewal.
  */
 export function parseNoteAidTodoList(rawText) {
   const raw = String(rawText || '').replace(/\r\n/g, '\n').trim();
-  if (!raw) return { items: [], skipped: [] };
+  if (!raw) return { items: [], skipped: [], unparsed: 0 };
 
   const lines = raw.split('\n').map((l) => l.trim());
   const items = [];
   const skipped = [];
+  let unparsed = 0;
 
   let i = 0;
   while (i < lines.length) {
-    const dateLine = lines[i];
-    if (!dateLine) {
+    const line = lines[i];
+    if (!line) {
       i += 1;
       continue;
     }
 
-    const dateMatch = dateLine.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})\s*$/);
+    // Prefer single-line rows when date + more text share one line.
+    const oneLine = parseOneLineTodo(line);
+    if (oneLine) {
+      pushParsedItem(items, skipped, oneLine);
+      i += 1;
+      continue;
+    }
+
+    const dateMatch = line.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})\s*$/);
     if (!dateMatch) {
+      unparsed += 1;
       i += 1;
       continue;
     }
 
-    const mm = String(dateMatch[1]).padStart(2, '0');
-    const dd = String(dateMatch[2]).padStart(2, '0');
-    let yyyy = dateMatch[3];
-    if (yyyy.length === 2) yyyy = `20${yyyy}`;
-    const date = `${yyyy}-${mm}-${dd}`;
+    const date = ymdFromDateParts(dateMatch[1], dateMatch[2], dateMatch[3]);
 
     i += 1;
     while (i < lines.length && !lines[i]) i += 1;
@@ -71,59 +178,14 @@ export function parseNoteAidTodoList(rawText) {
     const action = lines[i] || '';
     i += 1;
 
-    if (!name || !action) continue;
-
-    const actionLower = action.toLowerCase();
-    if (
-      /consultation/i.test(action)
-      || /\b99415\b/.test(action)
-      || /supervision/i.test(action)
-    ) {
-      skipped.push({ date, name, action, reason: 'consultation' });
+    if (!name || !action) {
+      unparsed += 1;
       continue;
     }
-
-    let noteKind = 'progress';
-    let serviceCode = null;
-    const codeMatch = action.match(/\((\d{5}|[A-Z]\d{4})\)/i);
-    if (codeMatch) serviceCode = codeMatch[1].toUpperCase();
-
-    if (/intake/i.test(actionLower)) {
-      noteKind = 'intake';
-      serviceCode = serviceCode || '90791';
-    } else if (/termination/i.test(actionLower)) {
-      noteKind = 'termination';
-      serviceCode = serviceCode || null;
-    } else if (/treatment\s*plan/i.test(actionLower)) {
-      noteKind = 'treatment_plan';
-      serviceCode = serviceCode || null;
-    } else {
-      noteKind = 'progress';
-      serviceCode = serviceCode || '90837';
-    }
-
-    const timeMatch = action.match(/\bat\s+(\d{1,2})\s*(AM|PM)\b/i);
-    let timeLabel = null;
-    if (timeMatch) {
-      timeLabel = `${timeMatch[1]} ${timeMatch[2].toUpperCase()}`;
-    }
-
-    items.push({
-      id: newWorkQueueItemId(),
-      date,
-      clientName: name,
-      action,
-      noteKind,
-      serviceCode,
-      timeLabel,
-      status: 'not_started',
-      clientId: null,
-      agencyId: null,
-      organizationId: null
-    });
+    pushParsedItem(items, skipped, { date, name, action });
   }
 
-  return { items, skipped };
+  return { items, skipped, unparsed };
 }
 
 export function deriveInitialsFromName(fullName) {
