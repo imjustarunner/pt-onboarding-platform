@@ -82,9 +82,11 @@ function mapSpecFieldTypeToUserInfoType(specType) {
   if (t === 'number') return 'number';
   if (t === 'boolean') return 'boolean';
 
+  // File uploads (resume/headshot/license) — stored as path text in user_info_values
+  if (t === 'file') return 'file';
+
   // v1 fallbacks (supported by runner, no schema changes):
   if (t === 'schedule_grid') return 'textarea';
-  if (t === 'file') return 'text';
 
   return 'text';
 }

@@ -85,7 +85,10 @@
                   <div v-if="!formDefinition" class="muted">Loading form…</div>
                   <template v-else>
                     <div v-for="field in fieldsForBlock(formBlock)" :key="field.id" class="form-field">
-                      <label>{{ field.field_label }}</label>
+                      <label>
+                        {{ field.field_label }}
+                        <span v-if="field.is_required" class="required-asterisk">*</span>
+                      </label>
                       <textarea
                         v-if="field.field_type === 'textarea'"
                         v-model="formValues[field.id]"
@@ -98,10 +101,63 @@
                         type="checkbox"
                         :disabled="isCompleted || readOnly"
                       />
+                      <select
+                        v-else-if="field.field_type === 'select'"
+                        v-model="formValues[field.id]"
+                        :disabled="isCompleted || readOnly"
+                      >
+                        <option value="">Select an option</option>
+                        <option
+                          v-for="option in (field.options || [])"
+                          :key="optionKey(option)"
+                          :value="optionValue(option)"
+                        >
+                          {{ optionLabel(option) }}
+                        </option>
+                      </select>
+                      <div v-else-if="field.field_type === 'multi_select'" class="multi-select">
+                        <p v-if="!(field.options || []).length" class="muted" style="margin:0;font-size:12px;">
+                          No choices configured yet.
+                        </p>
+                        <label
+                          v-for="option in (field.options || [])"
+                          :key="optionKey(option)"
+                          class="multi-select-option"
+                        >
+                          <input
+                            type="checkbox"
+                            :checked="Array.isArray(formValues[field.id]) && formValues[field.id].includes(optionValue(option))"
+                            :disabled="isCompleted || readOnly"
+                            @change="toggleMultiSelect(field.id, option)"
+                          />
+                          <span>{{ optionLabel(option) }}</span>
+                        </label>
+                      </div>
+                      <div v-else-if="isFileUploadField(field)" class="file-upload">
+                        <input
+                          type="file"
+                          :accept="fileAcceptForField(field)"
+                          :disabled="isCompleted || readOnly || fileUploadingId === field.id"
+                          @change="onFormFileSelected(field, $event)"
+                        />
+                        <p class="muted" style="margin:6px 0 0;font-size:12px;">
+                          {{ fileUploadingId === field.id ? 'Uploading…' : fileHintForField(field) }}
+                        </p>
+                        <p v-if="fileUploadErrorById[field.id]" class="error-text">{{ fileUploadErrorById[field.id] }}</p>
+                        <a
+                          v-if="fileValueUrl(formValues[field.id])"
+                          class="file-link"
+                          :href="fileValueUrl(formValues[field.id])"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                        >
+                          View uploaded file
+                        </a>
+                      </div>
                       <input
                         v-else
                         v-model="formValues[field.id]"
-                        :type="field.field_type === 'email' ? 'email' : field.field_type === 'number' ? 'number' : field.field_type === 'date' ? 'date' : 'text'"
+                        :type="plainInputType(field)"
                         :disabled="isCompleted || readOnly"
                       />
                     </div>
@@ -278,6 +334,8 @@ const formValues = ref({});
 const formSaving = ref(false);
 const formSaveMessage = ref('');
 const formPageError = ref('');
+const fileUploadingId = ref(null);
+const fileUploadErrorById = ref({});
 const kcPassed = ref({});
 
 const isPreview = computed(() => {
@@ -382,6 +440,125 @@ function fieldsForBlock(formBlock) {
   return ids.map((id) => map.get(id)).filter(Boolean);
 }
 
+function optionValue(opt) {
+  if (opt == null) return '';
+  if (typeof opt === 'object') return String(opt.value ?? opt.label ?? '').trim();
+  return String(opt).trim();
+}
+function optionLabel(opt) {
+  if (opt == null) return '';
+  if (typeof opt === 'object') return String(opt.label ?? opt.value ?? '').trim();
+  return String(opt).trim();
+}
+function optionKey(opt) {
+  return optionValue(opt) || optionLabel(opt);
+}
+
+function toggleMultiSelect(fieldId, opt) {
+  const v = optionValue(opt);
+  const cur = Array.isArray(formValues.value[fieldId]) ? [...formValues.value[fieldId]] : [];
+  const idx = cur.indexOf(v);
+  if (idx >= 0) cur.splice(idx, 1);
+  else cur.push(v);
+  formValues.value = { ...formValues.value, [fieldId]: cur };
+}
+
+function isFileUploadField(field) {
+  const type = String(field?.field_type || '').toLowerCase();
+  if (type === 'file') return true;
+  const key = String(field?.field_key || '').toLowerCase();
+  return key.includes('upload')
+    || key.includes('headshot')
+    || key.includes('resume')
+    || key.includes('cv_');
+}
+
+function plainInputType(field) {
+  const t = String(field?.field_type || '').toLowerCase();
+  if (t === 'email') return 'email';
+  if (t === 'number') return 'number';
+  if (t === 'date') return 'date';
+  if (t === 'phone') return 'tel';
+  return 'text';
+}
+
+function fileAcceptForField(field) {
+  const key = String(field?.field_key || '').toLowerCase();
+  if (key.includes('headshot') || key.includes('photo')) {
+    return 'image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp';
+  }
+  if (key.includes('resume') || key.includes('cv')) {
+    return '.pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+  }
+  return '.pdf,.doc,.docx,image/jpeg,image/png,image/webp,application/pdf';
+}
+
+function fileHintForField(field) {
+  const key = String(field?.field_key || '').toLowerCase();
+  if (key.includes('headshot') || key.includes('photo')) return 'Upload a JPG or PNG headshot.';
+  if (key.includes('resume') || key.includes('cv')) return 'Upload a PDF or Word resume.';
+  return 'Upload a PDF, Word doc, or image.';
+}
+
+function fileValueUrl(raw) {
+  const v = String(raw || '').trim();
+  if (!v) return '';
+  if (v.startsWith('http://') || v.startsWith('https://') || v.startsWith('/uploads/')) return v;
+  if (v.startsWith('uploads/')) return `/uploads/${v.substring('uploads/'.length)}`;
+  if (v.includes('/')) return `/uploads/${v.replace(/^\/+/, '')}`;
+  return '';
+}
+
+function parseMultiSelectValue(raw) {
+  if (Array.isArray(raw)) return raw.map((x) => String(x));
+  if (raw == null || raw === '') return [];
+  if (typeof raw === 'string') {
+    const s = raw.trim();
+    if (!s) return [];
+    if (s.startsWith('[')) {
+      try {
+        const parsed = JSON.parse(s);
+        return Array.isArray(parsed) ? parsed.map((x) => String(x)) : [];
+      } catch {
+        return s.split(',').map((x) => x.trim()).filter(Boolean);
+      }
+    }
+    return s.split(',').map((x) => x.trim()).filter(Boolean);
+  }
+  return [];
+}
+
+async function onFormFileSelected(field, event) {
+  const file = event?.target?.files?.[0] || null;
+  if (event?.target) event.target.value = '';
+  if (!file || isCompleted.value || readOnly.value || !field?.id) return;
+
+  fileUploadErrorById.value = { ...fileUploadErrorById.value, [field.id]: '' };
+  fileUploadingId.value = field.id;
+  try {
+    const fd = new FormData();
+    fd.append('file', file);
+    fd.append('fieldDefinitionId', String(field.id));
+    const res = isPrehireMode.value
+      ? await moduleHttp().post(modulePath('/form-upload'), fd)
+      : await api.post(`/modules/${module.value.id}/form-upload`, fd, { skipGlobalLoading: true });
+    const path = res?.data?.storageKey || res?.data?.url || '';
+    if (path) {
+      formValues.value = { ...formValues.value, [field.id]: path };
+      formSaveMessage.value = 'File uploaded';
+    } else {
+      throw new Error('Upload succeeded but no file path was returned');
+    }
+  } catch (err) {
+    fileUploadErrorById.value = {
+      ...fileUploadErrorById.value,
+      [field.id]: err?.response?.data?.error?.message || err.message || 'Upload failed'
+    };
+  } finally {
+    fileUploadingId.value = null;
+  }
+}
+
 async function load() {
   loading.value = true;
   error.value = '';
@@ -450,7 +627,13 @@ async function loadFormDefinition() {
     formDefinition.value = res.data;
     const next = {};
     (res.data?.fields || []).forEach((f) => {
-      next[f.id] = f.field_type === 'boolean' ? !!f.value : (f.value ?? (f.field_type === 'multi_select' ? [] : ''));
+      if (f.field_type === 'boolean') {
+        next[f.id] = !!f.value && String(f.value).toLowerCase() !== 'false' && f.value !== '0';
+      } else if (f.field_type === 'multi_select') {
+        next[f.id] = parseMultiSelectValue(f.value);
+      } else {
+        next[f.id] = f.value ?? '';
+      }
     });
     formValues.value = next;
   } catch {
@@ -540,12 +723,16 @@ async function saveFormValues(validate) {
   formPageError.value = '';
   formSaveMessage.value = '';
   const fields = formDefinition.value?.fields || [];
-  const values = fields.map((f) => ({
-    fieldDefinitionId: f.id,
-    value: typeof formValues.value[f.id] === 'boolean'
-      ? (formValues.value[f.id] ? 'true' : 'false')
-      : formValues.value[f.id]
-  }));
+  const values = fields.map((f) => {
+    let value = formValues.value[f.id];
+    if (typeof value === 'boolean') {
+      value = value ? 'true' : 'false';
+    } else if (Array.isArray(value)) {
+      value = JSON.stringify(value);
+    }
+    // File fields already store the uploaded path; don't wipe them on blank submit.
+    return { fieldDefinitionId: f.id, value };
+  });
   try {
     formSaving.value = true;
     const suffix = validate ? '?validate=true' : '';
@@ -820,12 +1007,33 @@ onMounted(load);
 }
 .inline-form { display: flex; flex-direction: column; gap: 10px; }
 .form-field label { display: block; font-size: 12px; font-weight: 600; margin-bottom: 4px; }
-.form-field input, .form-field textarea {
+.form-field .required-asterisk { color: var(--error, #b91c1c); margin-left: 2px; }
+.form-field input, .form-field textarea, .form-field select {
   width: 100%;
   padding: 8px 10px;
   border: 1px solid var(--border);
   border-radius: 8px;
   font: inherit;
+  box-sizing: border-box;
+}
+.multi-select { display: flex; flex-direction: column; gap: 6px; }
+.multi-select-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 500;
+  font-size: 13px;
+}
+.multi-select-option input { width: auto; }
+.file-upload input[type="file"] {
+  padding: 6px 0;
+  border: none;
+}
+.file-link {
+  display: inline-block;
+  margin-top: 6px;
+  font-size: 13px;
+  color: var(--primary, #2563eb);
 }
 .error-text { color: var(--error); font-size: 13px; }
 .muted { color: var(--text-secondary); }
