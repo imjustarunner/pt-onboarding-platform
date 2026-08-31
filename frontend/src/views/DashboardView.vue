@@ -4574,6 +4574,18 @@ const syncFromQuery = () => {
   if (props.previewMode) return;
   let qTab = route.query?.tab;
 
+  // Mobile hamburger / deep link: expand a nest without navigating to a dead tab.
+  const expandNest = typeof route.query?.expandNest === 'string' ? route.query.expandNest : '';
+  if (expandNest === 'tools_nest' || expandNest === 'portals_nest' || expandNest === 'momentum_nest') {
+    if (expandNest === 'tools_nest') toolsNestExpanded.value = true;
+    if (expandNest === 'portals_nest') portalsNestExpanded.value = true;
+    if (expandNest === 'momentum_nest') momentumNestExpanded.value = true;
+    const nextQuery = { ...route.query };
+    delete nextQuery.expandNest;
+    router.replace({ query: nextQuery }).catch(() => {});
+    return;
+  }
+
   // Legacy deep links: payroll/documents rail tabs → My Account sections
   if (qTab === 'payroll' || qTab === 'documents') {
     const section = qTab;
