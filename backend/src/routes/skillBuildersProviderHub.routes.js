@@ -42,6 +42,8 @@ import {
   listSkillBuilderEventKioskAttendance,
   postAdminManualEmployeeEventTime,
   getSkillBuilderEventReleasePhoto,
+  listSkillBuilderEventStaffPhotos,
+  resolveSkillBuilderStaffPhotoEvent,
   putSkillBuilderClientSessionAttendance,
   postSkillBuilderSessionCurriculum,
   getSkillBuilderSessionCurriculumFile,
@@ -240,6 +242,8 @@ router.get('/events/:eventId/attendance/providers/export.csv', exportSkillBuilde
 router.get('/events/:eventId/attendance/providers', listSkillBuilderEventProviderAttendance);
 router.get('/events/:eventId/attendance/clients', listSkillBuilderEventClientAttendance);
 router.get('/events/:eventId/attendance/kiosk/releases/:releaseId/photo', getSkillBuilderEventReleasePhoto);
+router.get('/events/:eventId/staff-photos', listSkillBuilderEventStaffPhotos);
+router.get('/staff-photos/:photoId/resolve', resolveSkillBuilderStaffPhotoEvent);
 router.get('/events/:eventId/attendance/kiosk', listSkillBuilderEventKioskAttendance);
 router.post('/events/:eventId/attendance/employee-manual-time', postAdminManualEmployeeEventTime);
 router.get('/events/:eventId/me/work-schedule', getMyEventPortalWorkSchedule);

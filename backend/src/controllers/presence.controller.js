@@ -14,11 +14,14 @@ import {
   attachCalendarBusyToPresenceRows,
   getCurrentCalendarBusyForUser
 } from '../services/calendarPresence.service.js';
-import PlannedOut from '../models/PlannedOut.model.js';
+import PlannedOut, { isPlannedOutActiveNow } from '../models/PlannedOut.model.js';
 import {
   attachPlannedOutsToPresenceRows,
-  plannedOutStatusLabel
+  plannedOutStatusLabel,
+  availabilityBandFromPlannedOut,
+  applyPlannedOutPresenceForUser
 } from '../services/plannedOutPresence.service.js';
+import ProviderScheduleEvent from '../models/ProviderScheduleEvent.model.js';
 
 /**
  * Chat / Messages presence (new model):
@@ -399,33 +402,154 @@ export const heartbeat = async (req, res, next) => {
       );
     }
 
-    // Signing back in clears "Available · Logged out".
+    // Signing back in clears "Available · Logged out" — unless an approved planned out
+    // is active (board must stay Unavailable / Planned out · available until they resolve it).
+    let activePlannedOut = null;
     try {
-      await pool.execute(
-        `UPDATE user_presence_status
-         SET reason = NULL,
-             display_label = 'Active',
-             status = 'in_available',
-             session_extend_until = NULL,
-             expected_return_at = NULL,
-             note = NULL
-         WHERE user_id = ? AND reason = 'available_offline'`,
-        [userId]
-      );
+      const aid =
+        agencyId ||
+        parseInt(req.headers['x-agency-id'], 10) ||
+        parseInt(req.user?.agencyId, 10) ||
+        0;
+      if (aid && (await PlannedOut.tableExists())) {
+        const list = await PlannedOut.listActiveApprovedNowForAgency(aid, { userId });
+        activePlannedOut = (list || []).find((row) => isPlannedOutActiveNow(row)) || null;
+      }
+    } catch {
+      activePlannedOut = null;
+    }
+
+    try {
+      if (!activePlannedOut) {
+        await pool.execute(
+          `UPDATE user_presence_status
+           SET reason = NULL,
+               display_label = 'Active',
+               status = 'in_available',
+               session_extend_until = NULL,
+               expected_return_at = NULL,
+               note = NULL
+           WHERE user_id = ? AND reason = 'available_offline'`,
+          [userId]
+        );
+      }
     } catch {
       /* ignore */
     }
 
-    // Timed Away whose "Back by …" time already passed → Available again.
-    try {
-      await UserPresenceStatus.clearIfTimedAwayExpired(userId);
-    } catch {
-      /* ignore */
+    // Timed Away whose "Back by …" time already passed → Available again
+    // (skip when an active planned out owns the status).
+    if (!activePlannedOut) {
+      try {
+        await UserPresenceStatus.clearIfTimedAwayExpired(userId);
+      } catch {
+        /* ignore */
+      }
+    } else {
+      // Re-assert planned-out presence so login heartbeat cannot leave them "Active".
+      await applyPlannedOutPresenceForUser(userId, activePlannedOut);
     }
 
-    res.json({ ok: true });
+    res.json({
+      ok: true,
+      planned_out_active: !!activePlannedOut,
+      planned_out: activePlannedOut
+        ? {
+            id: activePlannedOut.id,
+            agency_id: activePlannedOut.agency_id,
+            availability: String(activePlannedOut.availability || 'unavailable').toLowerCase(),
+            label: plannedOutStatusLabel(activePlannedOut)
+          }
+        : null
+    });
   } catch (e) {
     next(e);
+  }
+};
+
+/**
+ * Login / session conflict: user is on an approved planned out and must choose.
+ * POST /api/presence/planned-out/resolve
+ * body: { action: 'stay' | 'available_away' | 'end', agencyId?, plannedOutId? }
+ */
+export const resolvePlannedOutLoginConflict = async (req, res, next) => {
+  try {
+    const userId = req.user.id;
+    const action = String(req.body?.action || '').toLowerCase();
+    if (!['stay', 'available_away', 'end'].includes(action)) {
+      return res.status(400).json({
+        error: { message: 'action must be stay, available_away, or end' }
+      });
+    }
+    if (!(await PlannedOut.tableExists())) {
+      return res.status(503).json({ error: { message: 'Planned outs not available' } });
+    }
+
+    const agencyId =
+      parseInt(req.body?.agencyId ?? req.body?.agency_id ?? req.headers['x-agency-id'], 10) ||
+      parseInt(req.user?.agencyId, 10) ||
+      0;
+    if (!agencyId) {
+      return res.status(400).json({ error: { message: 'agencyId is required' } });
+    }
+
+    const requestedId = Number(req.body?.plannedOutId || req.body?.planned_out_id || 0);
+    let row = requestedId ? await PlannedOut.findById(requestedId) : null;
+    if (!row) {
+      const list = await PlannedOut.listActiveApprovedNowForAgency(agencyId, { userId });
+      row = (list || []).find((r) => isPlannedOutActiveNow(r)) || list?.[0] || null;
+    }
+    if (!row || Number(row.user_id) !== Number(userId)) {
+      return res.status(404).json({ error: { message: 'No active planned out for you' } });
+    }
+    if (Number(row.agency_id) !== Number(agencyId)) {
+      return res.status(403).json({ error: { message: 'Access denied' } });
+    }
+
+    if (action === 'stay') {
+      await PlannedOut.updateById(row.id, { availability: 'unavailable' });
+      const updated = await PlannedOut.findById(row.id);
+      await applyPlannedOutPresenceForUser(userId, updated || row);
+      return res.json({
+        ok: true,
+        action,
+        plannedOut: updated || row,
+        availability_band: 'unavailable'
+      });
+    }
+
+    if (action === 'available_away') {
+      await PlannedOut.updateById(row.id, { availability: 'available' });
+      const updated = await PlannedOut.findById(row.id);
+      await applyPlannedOutPresenceForUser(userId, updated || { ...row, availability: 'available' });
+      return res.json({
+        ok: true,
+        action,
+        plannedOut: updated || row,
+        availability_band: 'away_reachable'
+      });
+    }
+
+    // end — return and delete planned out (+ schedule hold)
+    if (row.schedule_event_id) {
+      try {
+        await ProviderScheduleEvent.cancelByIds({
+          eventIds: [row.schedule_event_id],
+          updatedByUserId: userId
+        });
+      } catch {
+        /* best-effort */
+      }
+    }
+    await PlannedOut.deleteById(row.id);
+    try {
+      await UserPresenceStatus.clearForUser(userId);
+    } catch {
+      /* ignore */
+    }
+    return res.json({ ok: true, action, plannedOut: null, availability_band: null });
+  } catch (e) {
+    return next(e);
   }
 };
 
@@ -568,27 +692,41 @@ export const getMyPresence = async (req, res, next) => {
     // Self keeps rich Away labels (e.g. Out for Meal). Peers never see those via directory APIs.
     let statusLabel = selfFacingStatusLabel(computed);
     let displayLabel = computed.presence_display_label || statusLabel;
+    let availabilityBand = computed.availability_band;
     let calendarBusy = null;
     // Calendar busy overlays Active only — Idle stays Idle (not Team Board / meal copy).
     let plannedOutActive = false;
+    let plannedOutPayload = null;
     const agencyId = parseInt(req.headers['x-agency-id'], 10) || parseInt(req.user?.agencyId, 10) || 0;
     if (agencyId && await PlannedOut.tableExists()) {
       try {
         const active = await PlannedOut.listActiveApprovedNowForAgency(agencyId, { userId });
-        const po = active?.[0];
-        if (po) {
+        const po = (active || []).find((row) => isPlannedOutActiveNow(row)) || active?.[0] || null;
+        if (po && isPlannedOutActiveNow(po)) {
           plannedOutActive = true;
           const poLabel = plannedOutStatusLabel(po);
-          if (computed.availability_band === 'unavailable' || computed.availability_band === 'away_reachable') {
-            displayLabel = poLabel;
-            statusLabel = poLabel;
-          }
+          availabilityBand = availabilityBandFromPlannedOut(po);
+          displayLabel = poLabel;
+          statusLabel = poLabel;
+          plannedOutPayload = {
+            id: po.id,
+            agency_id: po.agency_id,
+            availability: String(po.availability || 'unavailable').toLowerCase(),
+            status: po.status,
+            all_day: !!po.all_day,
+            start_date: po.start_date,
+            end_date: po.end_date,
+            start_at: po.start_at,
+            end_at: po.end_at,
+            details: po.details || null,
+            label: poLabel
+          };
         }
       } catch {
         /* ignore */
       }
     }
-    if (computed.status === 'online') {
+    if (computed.status === 'online' && !plannedOutActive) {
       try {
         const busy = await getCurrentCalendarBusyForUser(userId);
         if (busy?.label) {
@@ -604,6 +742,7 @@ export const getMyPresence = async (req, res, next) => {
     res.json({
       user_id: userId,
       availability_level: computed.availability_level,
+      availability_band: availabilityBand,
       heartbeat_status: computed.status,
       status: computed.status,
       status_label: statusLabel,
@@ -615,7 +754,8 @@ export const getMyPresence = async (req, res, next) => {
       presence_session_extend_until: sessionExtendUntil,
       session_extend_active: sessionExtendActive,
       calendar_busy: calendarBusy,
-      planned_out_active: plannedOutActive
+      planned_out_active: plannedOutActive,
+      planned_out: plannedOutPayload
     });
   } catch (e) {
     next(e);

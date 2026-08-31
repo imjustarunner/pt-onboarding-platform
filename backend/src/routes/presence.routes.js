@@ -16,7 +16,8 @@ import {
   markOffline,
   setAvailability,
   setAwayStatus,
-  clearMyPresenceStatus
+  clearMyPresenceStatus,
+  resolvePlannedOutLoginConflict
 } from '../controllers/presence.controller.js';
 
 const router = express.Router();
@@ -26,6 +27,7 @@ router.use(authenticate);
 // Chat/heartbeat presence (existing)
 router.post('/heartbeat', heartbeat);
 router.get('/me', getMyPresence);
+router.post('/planned-out/resolve', resolvePlannedOutLoginConflict);
 router.post('/availability', setAvailability);
 router.post('/offline', markOffline);
 router.get('/agency/:agencyId/team', listPresenceForAgency);

@@ -124,7 +124,16 @@
                 </div>
               </div>
               <div class="sbes-card-cta-row">
-                <span class="sbes-card-cta">{{ isSkillsBuildersEvent(e) ? 'Open portal' : 'Manage event' }}</span>
+                <span class="sbes-card-cta">Open portal</span>
+                <button
+                  v-if="!isSkillsBuildersEvent(e)"
+                  type="button"
+                  class="sbes-card-dup-btn"
+                  title="Edit event settings"
+                  @click.stop="emit('openCompanyEvent', { id: e.companyEventId, agencyId: props.agencyId })"
+                >
+                  Manage
+                </button>
                 <button
                   v-if="!isSkillsBuildersEvent(e)"
                   type="button"
@@ -193,7 +202,16 @@
                 </div>
               </div>
               <div class="sbes-card-cta-row sbes-card-cta-row--past">
-                <span class="sbes-card-cta">{{ isSkillsBuildersEvent(e) ? 'View' : 'Manage' }}</span>
+                <span class="sbes-card-cta">Open portal</span>
+                <button
+                  v-if="!isSkillsBuildersEvent(e)"
+                  type="button"
+                  class="sbes-card-dup-btn"
+                  title="Edit event settings"
+                  @click.stop="emit('openCompanyEvent', { id: e.companyEventId, agencyId: props.agencyId })"
+                >
+                  Manage
+                </button>
                 <button
                   v-if="!isSkillsBuildersEvent(e)"
                   type="button"

@@ -4,7 +4,9 @@
       <div>
         <h1>Programs &amp; events</h1>
         <p class="sbpe-sub">
-          Company events for the selected agency — current &amp; upcoming (and past below). Open a card to go to the event portal.
+          Company events for the selected agency — current &amp; upcoming (and past below).
+          Click a card to open the <strong>event portal</strong> (staff, photos, attendance, materials).
+          Use <strong>Manage</strong> on a card to edit event settings.
           Use <strong>Program enrollments</strong> below for individual-service onboarding (learning classes + intake links) and public
           <code>/enroll</code> URLs.
         </p>

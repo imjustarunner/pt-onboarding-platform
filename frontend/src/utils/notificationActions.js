@@ -29,6 +29,15 @@ export function notificationDestination(notification, { organizationSlug = null,
     return { path: `${base}/admin/clients`, query: { clientId: String(entityId), ...(n.type === 'new_packet_uploaded' ? { tab: 'documents' } : {}) } };
   }
   if (n.type === 'company_event_registration_submitted' && entityId) return `${base}/skill-builders/event/${entityId}`;
+  if (n.type === 'school_event_marketing_photo' || n.type === 'school_event_marketing_photo_missing') {
+    // Prefer company_event id (new notifications). Legacy rows used school_event_staff_photo id.
+    if (entityType === 'company_event' && entityId) {
+      return `${base}/skill-builders/event/${entityId}?section=photos`;
+    }
+    if (entityType === 'school_event_staff_photo' && entityId) {
+      return `${base}/admin/program-events?photoId=${entityId}`;
+    }
+  }
   if (n.type === 'office_availability_request_pending') return `${base}/admin/office-approvals?agencyId=${n.agency_id}&tab=requests`;
   if (n.type === 'school_availability_request_pending') return `${base}/admin/availability-intake?agencyId=${n.agency_id}&tab=school`;
   if (['school_provider_availability_confirmed', 'school_provider_availability_updated', 'school_provider_slot_verification_completed'].includes(n.type)) {
@@ -47,6 +56,8 @@ export function notificationPrimaryLabel(notification) {
   if (!notification) return null;
   if (notification.type === 'new_packet_uploaded') return 'Open packet';
   if (notification.type === 'company_event_registration_submitted') return 'Event portal';
+  if (notification.type === 'school_event_marketing_photo') return 'View photos';
+  if (notification.type === 'school_event_marketing_photo_missing') return 'Open event';
   if (notification.type === 'escalation_mention') return 'Open escalation';
   if (notification.type === 'support_ticket_created') return 'Open ticket';
   if (notification.type === 'office_availability_request_pending') return 'Review request';

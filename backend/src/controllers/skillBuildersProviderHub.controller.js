@@ -52,6 +52,7 @@ import {
   listEventKioskAttendanceForPortal,
   loadEventReleasePhotoForPortal
 } from '../services/eventKioskAttendance.service.js';
+import { listSchoolEventStaffPhotosForEvent, getCompanyEventIdForStaffPhoto } from '../services/schoolEventStaffPhoto.service.js';
 import { fetchSkillBuildersGroupProvidersForPortal } from '../services/skillBuildersEventProviders.service.js';
 import multer from 'multer';
 import StorageService from '../services/storage.service.js';
@@ -2797,6 +2798,49 @@ export const postAdminManualEmployeeEventTime = async (req, res, next) => {
 };
 
 /** GET /api/skill-builders/events/:eventId/attendance/kiosk/releases/:releaseId/photo?agencyId= */
+export const listSkillBuilderEventStaffPhotos = async (req, res, next) => {
+  try {
+    const agencyId = parsePositiveInt(req.query.agencyId);
+    const eventId = parsePositiveInt(req.params.eventId);
+    if (!eventId) return res.status(400).json({ error: { message: 'Event id required' } });
+    const access = await assertEventAccess({ req, agencyId, eventId });
+    if (access.error) return res.status(access.error.status).json({ error: { message: access.error.message } });
+
+    const photos = await listSchoolEventStaffPhotosForEvent(eventId);
+    const withPhoto = photos.filter((p) => p.photoUrl && !p.bypassed);
+    const bypassed = photos.filter((p) => p.bypassed);
+    return res.json({
+      photos,
+      summary: {
+        total: photos.length,
+        withPhoto: withPhoto.length,
+        bypassed: bypassed.length
+      }
+    });
+  } catch (e) {
+    return next(e);
+  }
+};
+
+/** Resolve a staff-photo row to its company event (legacy notification deeplinks). */
+export const resolveSkillBuilderStaffPhotoEvent = async (req, res, next) => {
+  try {
+    const photoId = parsePositiveInt(req.params.photoId);
+    if (!photoId) return res.status(400).json({ error: { message: 'photoId required' } });
+    const companyEventId = await getCompanyEventIdForStaffPhoto(photoId);
+    if (!companyEventId) return res.status(404).json({ error: { message: 'Photo not found' } });
+    const access = await assertEventAccess({
+      req,
+      agencyId: parsePositiveInt(req.query.agencyId),
+      eventId: companyEventId
+    });
+    if (access.error) return res.status(access.error.status).json({ error: { message: access.error.message } });
+    return res.json({ companyEventId, agencyId: Number(access.row.agency_id) });
+  } catch (e) {
+    return next(e);
+  }
+};
+
 export const getSkillBuilderEventReleasePhoto = async (req, res, next) => {
   try {
     const agencyId = parsePositiveInt(req.query.agencyId);

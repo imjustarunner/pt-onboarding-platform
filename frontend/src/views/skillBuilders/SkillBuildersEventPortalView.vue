@@ -1879,6 +1879,59 @@
             </SkillBuildersEventDashboardSection>
 
             <SkillBuildersEventDashboardSection
+              v-show="railActive === 'photos'"
+              rail-mode
+              section-id="photos"
+              title="Photos"
+              icon-url=""
+            >
+              <p class="muted small sbep-card-lead">
+                Marketing photos staff upload at the school-events kiosk (table setup / at-event shots).
+                If someone checks out without a photo, they appear under bypassed below.
+              </p>
+              <div class="sbep-photos-toolbar">
+                <button
+                  type="button"
+                  class="btn btn-secondary btn-sm"
+                  :disabled="staffPhotosLoading || !eventBillingAgencyId || !eventId"
+                  @click="loadStaffPhotos"
+                >
+                  {{ staffPhotosLoading ? 'Loading…' : 'Refresh' }}
+                </button>
+                <span v-if="staffPhotosSummary" class="muted small">
+                  {{ staffPhotosSummary.withPhoto }} photo{{ staffPhotosSummary.withPhoto === 1 ? '' : 's' }}
+                  <template v-if="staffPhotosSummary.bypassed">
+                    · {{ staffPhotosSummary.bypassed }} bypassed
+                  </template>
+                </span>
+              </div>
+              <p v-if="staffPhotosError" class="error-box">{{ staffPhotosError }}</p>
+              <div v-else-if="staffPhotosLoading && !staffPhotos.length" class="muted">Loading photos…</div>
+              <div v-else-if="staffPhotosWithImage.length" class="sbep-photo-grid">
+                <figure v-for="p in staffPhotosWithImage" :key="`photo-${p.id}`" class="sbep-photo-card">
+                  <a :href="p.photoUrl" target="_blank" rel="noopener" class="sbep-photo-link">
+                    <img :src="p.photoUrl" :alt="`Event photo by ${p.providerName || 'staff'}`" class="sbep-photo-img" />
+                  </a>
+                  <figcaption class="sbep-photo-cap">
+                    <strong>{{ p.providerName || 'Staff' }}</strong>
+                    <span class="muted small">{{ formatStaffPhotoWhen(p.createdAt) }}</span>
+                    <span v-if="p.uploadedVia" class="muted small">via {{ p.uploadedVia }}</span>
+                  </figcaption>
+                </figure>
+              </div>
+              <p v-else class="muted">No marketing photos uploaded for this event yet.</p>
+              <div v-if="staffPhotosBypassed.length" class="sbep-photo-bypass">
+                <h4 class="sbep-photo-bypass-title">Checked out without a photo</h4>
+                <ul class="sbep-photo-bypass-list">
+                  <li v-for="p in staffPhotosBypassed" :key="`bypass-${p.id}`">
+                    {{ p.providerName || 'Staff' }}
+                    <span class="muted small">· {{ formatStaffPhotoWhen(p.createdAt) }}</span>
+                  </li>
+                </ul>
+              </div>
+            </SkillBuildersEventDashboardSection>
+
+            <SkillBuildersEventDashboardSection
               v-show="railActive === 'clinical'"
               rail-mode
               section-id="clinical"
@@ -3008,6 +3061,11 @@ const sessions = ref([]);
 const sessionsLoading = ref(false);
 const sessionsLoadAttempted = ref(false);
 const sessionsLoadError = ref('');
+const staffPhotos = ref([]);
+const staffPhotosSummary = ref(null);
+const staffPhotosLoading = ref(false);
+const staffPhotosError = ref('');
+const staffPhotosLoadedForEvent = ref(0);
 const sessionEditDraft = reactive({});
 const sessionEditSavingId = ref(null);
 const applyDefaultsLoading = ref(false);
@@ -3348,6 +3406,7 @@ function sectionTeaser(sectionId) {
     participants: 'Participant list for non–skills-group program events.',
     clinical: 'Daily attendance, observations, and H2014 note generation.',
     materials: 'Documents, PDFs, and the shared program library.',
+    photos: 'Staff marketing photos from kiosk check-in / check-out.',
     registrations: 'Enrollment, capacity, and registration-aware actions.',
     'work-schedule': 'Assign providers to dates and roles for this event.',
     'my-work': 'Your availability and booked dates for this event.',
@@ -3428,6 +3487,7 @@ const eventRailItems = computed(() => {
   push('clinical', 'Clinical', 'Clinical', showClinicalAidCard);
 
   push('materials', 'Materials', 'Materials', true);
+  push('photos', 'Photos', 'Photos', true);
 
   if (d.event?.registrationEligible) {
     push('registrations', 'Registrations', 'Registrations', true);
@@ -6200,8 +6260,65 @@ watch(
         loadLearningCatalog();
       }
     }
+    if (section === 'photos') {
+      const eid = Number(eventId.value || 0);
+      if (eid && staffPhotosLoadedForEvent.value !== eid) {
+        loadStaffPhotos();
+      }
+    }
   }
 );
+
+const staffPhotosWithImage = computed(() =>
+  (staffPhotos.value || []).filter((p) => p?.photoUrl && !p?.bypassed)
+);
+const staffPhotosBypassed = computed(() =>
+  (staffPhotos.value || []).filter((p) => p?.bypassed)
+);
+
+function formatStaffPhotoWhen(raw) {
+  if (!raw) return '';
+  try {
+    const d = new Date(raw);
+    if (!Number.isFinite(d.getTime())) return '';
+    return d.toLocaleString(undefined, {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit'
+    });
+  } catch {
+    return '';
+  }
+}
+
+async function loadStaffPhotos() {
+  const aid = Number(eventBillingAgencyId.value || 0);
+  const eid = Number(eventId.value || 0);
+  if (!aid || !eid) {
+    staffPhotos.value = [];
+    staffPhotosSummary.value = null;
+    return;
+  }
+  staffPhotosLoading.value = true;
+  staffPhotosError.value = '';
+  try {
+    const { data } = await api.get(`/skill-builders/events/${eid}/staff-photos`, {
+      params: { agencyId: aid },
+      skipGlobalLoading: true
+    });
+    staffPhotos.value = Array.isArray(data?.photos) ? data.photos : [];
+    staffPhotosSummary.value = data?.summary || null;
+    staffPhotosLoadedForEvent.value = eid;
+  } catch (e) {
+    staffPhotosError.value = e.response?.data?.error?.message || e.message || 'Could not load photos';
+    staffPhotos.value = [];
+    staffPhotosSummary.value = null;
+  } finally {
+    staffPhotosLoading.value = false;
+  }
+}
 </script>
 
 <style scoped>
@@ -8318,5 +8435,56 @@ watch(
   font-size: 15px;
   color: #555;
   box-shadow: 0 8px 32px rgba(0,0,0,0.14);
+}
+.sbep-photos-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin: 0 0 14px;
+}
+.sbep-photo-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 14px;
+}
+.sbep-photo-card {
+  margin: 0;
+  border: 1px solid var(--border, #e2e8f0);
+  border-radius: 12px;
+  overflow: hidden;
+  background: #fff;
+}
+.sbep-photo-link {
+  display: block;
+  aspect-ratio: 1;
+  background: #f1f5f9;
+}
+.sbep-photo-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.sbep-photo-cap {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 10px 10px;
+}
+.sbep-photo-bypass {
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border, #e2e8f0);
+}
+.sbep-photo-bypass-title {
+  margin: 0 0 8px;
+  font-size: 0.95rem;
+}
+.sbep-photo-bypass-list {
+  margin: 0;
+  padding-left: 1.2rem;
+  display: grid;
+  gap: 4px;
 }
 </style>

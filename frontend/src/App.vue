@@ -1946,6 +1946,12 @@
       />
       <NoteAidClockInPromptModal v-if="isAuthenticated" />
       <StatusPromptModal />
+      <PlannedOutLoginConflictModal
+        :open="plannedOutConflictOpen"
+        :planned-out="plannedOutConflict"
+        @close="plannedOutConflictOpen = false"
+        @resolved="onPlannedOutConflictResolved"
+      />
       <AwaySessionOverlay />
       <LoginSplashModal
         v-if="loginSplashVisible && loginSplashSeasons.length && !isAdminLike"
@@ -2301,6 +2307,7 @@ import SessionLockScreen from './components/SessionLockScreen.vue';
 import InactivityWarningModal from './components/InactivityWarningModal.vue';
 import NoteAidClockInPromptModal from './components/NoteAidClockInPromptModal.vue';
 import StatusPromptModal from './components/StatusPromptModal.vue';
+import PlannedOutLoginConflictModal from './components/PlannedOutLoginConflictModal.vue';
 import AwaySessionOverlay from './components/AwaySessionOverlay.vue';
 import LogoutStatusSplit from './components/LogoutStatusSplit.vue';
 import TestAccountSwitcher from './components/TestAccountSwitcher.vue';
@@ -5972,11 +5979,14 @@ function syncAuthenticatedSideEffects(authenticated) {
   if (authenticated) {
     maybeShowLoginSplash();
     startActivityTracking({ force: true });
+    void maybePromptPlannedOutConflict();
     fetchBuildingsPendingCounts();
     if (buildingsPendingInterval) clearInterval(buildingsPendingInterval);
     buildingsPendingInterval = setInterval(fetchBuildingsPendingCounts, 2 * 60 * 1000);
   } else {
     stopActivityTracking();
+    plannedOutConflictOpen.value = false;
+    plannedOutConflict.value = null;
     buildingsPendingCount.value = 0;
     officeAvailabilityPendingCount.value = 0;
     schoolAvailabilityPendingCount.value = 0;
@@ -6122,7 +6132,55 @@ const resetLoginNotificationGate = () => {
 const handleFreshLoginSignal = () => {
   resetLoginNotificationGate();
   privilegedLoginBriefingTrigger.value = Date.now();
+  void maybePromptPlannedOutConflict({ force: true });
 };
+
+const plannedOutConflictOpen = ref(false);
+const plannedOutConflict = ref(null);
+
+function plannedOutConflictDismissKey(poId) {
+  return `plannedOutConflictDismissed:${poId || 'none'}`;
+}
+
+async function maybePromptPlannedOutConflict({ force = false } = {}) {
+  if (!isAuthenticated.value) return;
+  try {
+    const data = await presenceSessionStore.refreshFromServer();
+    const po = data?.planned_out || null;
+    const active = !!(data?.planned_out_active && po?.id);
+    if (!active) {
+      plannedOutConflictOpen.value = false;
+      plannedOutConflict.value = null;
+      return;
+    }
+    // Prompt when unavailable (must choose), or when force-login and any active out.
+    const avail = String(po.availability || 'unavailable').toLowerCase();
+    if (avail !== 'unavailable' && !force) return;
+    try {
+      const key = plannedOutConflictDismissKey(po.id);
+      if (!force && sessionStorage.getItem(key) === '1') return;
+    } catch {
+      /* ignore */
+    }
+    plannedOutConflict.value = po;
+    plannedOutConflictOpen.value = true;
+  } catch {
+    /* ignore */
+  }
+}
+
+function onPlannedOutConflictResolved({ action } = {}) {
+  const id = plannedOutConflict.value?.id;
+  if (id && action !== 'end') {
+    try {
+      sessionStorage.setItem(plannedOutConflictDismissKey(id), '1');
+    } catch {
+      /* ignore */
+    }
+  }
+  plannedOutConflictOpen.value = false;
+  plannedOutConflict.value = null;
+}
 
 const closeLoginNotificationsPrompt = ({ showNudge = false, defer = false } = {}) => {
   if (defer) deferUntilNextLogin();

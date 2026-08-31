@@ -26,6 +26,65 @@ function decodePhotoBase64(photoRaw) {
   }
 }
 
+/** List marketing / kiosk staff photos for an event (portal Photos section). */
+export async function listSchoolEventStaffPhotosForEvent(companyEventId) {
+  const eventId = parsePositiveInt(companyEventId);
+  if (!eventId) return [];
+  try {
+    const [rows] = await pool.execute(
+      `SELECT p.id, p.agency_id, p.company_event_id, p.provider_user_id,
+              p.photo_path, p.photo_url, p.uploaded_via, p.bypassed, p.bypass_acknowledged, p.created_at,
+              TRIM(CONCAT(COALESCE(u.first_name, ''), ' ', COALESCE(u.last_name, ''))) AS provider_name,
+              u.email AS provider_email
+       FROM school_event_staff_photos p
+       LEFT JOIN users u ON u.id = p.provider_user_id
+       WHERE p.company_event_id = ?
+       ORDER BY p.created_at DESC, p.id DESC
+       LIMIT 200`,
+      [eventId]
+    );
+    return (rows || []).map((r) => {
+      const bypassed = Number(r.bypassed) === 1;
+      const url = bypassed
+        ? null
+        : (r.photo_url || publicUploadsUrlFromStoredPath(r.photo_path) || null);
+      return {
+        id: Number(r.id),
+        agencyId: Number(r.agency_id),
+        companyEventId: Number(r.company_event_id),
+        providerUserId: Number(r.provider_user_id) || null,
+        providerName: String(r.provider_name || '').trim() || null,
+        providerEmail: r.provider_email || null,
+        photoUrl: url,
+        photoPath: r.photo_path || null,
+        uploadedVia: r.uploaded_via || null,
+        bypassed,
+        bypassAcknowledged: Number(r.bypass_acknowledged) === 1,
+        createdAt: r.created_at
+      };
+    });
+  } catch (err) {
+    if (err?.code === 'ER_NO_SUCH_TABLE') return [];
+    throw err;
+  }
+}
+
+/** Resolve company_event_id from a school_event_staff_photos row id (notification deeplinks). */
+export async function getCompanyEventIdForStaffPhoto(photoId) {
+  const id = parsePositiveInt(photoId);
+  if (!id) return null;
+  try {
+    const [rows] = await pool.execute(
+      `SELECT company_event_id FROM school_event_staff_photos WHERE id = ? LIMIT 1`,
+      [id]
+    );
+    return parsePositiveInt(rows?.[0]?.company_event_id);
+  } catch (err) {
+    if (err?.code === 'ER_NO_SUCH_TABLE') return null;
+    throw err;
+  }
+}
+
 export async function getSchoolEventPhotoStatus({ companyEventId, providerUserId }) {
   const eventId = parsePositiveInt(companyEventId);
   const userId = parsePositiveInt(providerUserId);
@@ -104,13 +163,15 @@ async function notifyMarketingContacts({
   title,
   message,
   actorUserId,
-  relatedEntityId
+  relatedEntityId,
+  companyEventId = null
 }) {
   const [marketingIds, managerIds] = await Promise.all([
     listMarketingContactUserIds(agencyId),
     listEventPhotoManagerUserIds(agencyId)
   ]);
   const userIds = [...new Set([...marketingIds, ...managerIds])];
+  const eventId = parsePositiveInt(companyEventId) || null;
   for (const userId of userIds) {
     try {
       await createNotificationAndDispatch({
@@ -120,8 +181,9 @@ async function notifyMarketingContacts({
         message,
         userId,
         agencyId,
-        relatedEntityType: 'school_event_staff_photo',
-        relatedEntityId: relatedEntityId || null,
+        // Deeplink to the company event portal Photos section (not the budget portal).
+        relatedEntityType: eventId ? 'company_event' : 'school_event_staff_photo',
+        relatedEntityId: eventId || relatedEntityId || null,
         actorUserId: actorUserId || null,
         actorSource: 'school_events_kiosk'
       });
@@ -190,7 +252,8 @@ export async function saveSchoolEventStaffPhoto({
     title: 'School event photo ready',
     message: `${who} uploaded a marketing photo for “${what}”. ${photoUrl || ''}`.trim(),
     actorUserId: userId,
-    relatedEntityId: insertId
+    relatedEntityId: insertId,
+    companyEventId: eventId
   });
 
   return { ok: true, photoId: insertId, photoUrl, hasPhoto: true };
@@ -234,7 +297,8 @@ export async function recordSchoolEventPhotoBypass({
     title: 'School event photo not provided',
     message: `${who} checked out of “${what}” without a marketing photo and acknowledged that the marketing team would be notified.`,
     actorUserId: userId,
-    relatedEntityId: insertId
+    relatedEntityId: insertId,
+    companyEventId: eventId
   });
 
   return { ok: true, photoId: insertId, bypassed: true };

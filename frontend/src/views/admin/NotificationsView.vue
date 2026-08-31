@@ -610,6 +610,30 @@ const getNotificationNavigationPath = async (notification) => {
   } else if (notification.type === 'company_event_registration_submitted' && notification.related_entity_type === 'company_event' && notification.related_entity_id) {
     const base = route.params.organizationSlug ? `/${route.params.organizationSlug}/skill-builders/event` : '/skill-builders/event';
     return `${base}/${notification.related_entity_id}`;
+  } else if (
+    notification.type === 'school_event_marketing_photo' ||
+    notification.type === 'school_event_marketing_photo_missing'
+  ) {
+    const slug = route.params.organizationSlug || '';
+    const base = slug ? `/${slug}/skill-builders/event` : '/skill-builders/event';
+    if (notification.related_entity_type === 'company_event' && notification.related_entity_id) {
+      return `${base}/${notification.related_entity_id}?section=photos`;
+    }
+    if (notification.related_entity_type === 'school_event_staff_photo' && notification.related_entity_id) {
+      try {
+        const { data } = await api.get(
+          `/skill-builders/staff-photos/${notification.related_entity_id}/resolve`,
+          {
+            params: notification.agency_id ? { agencyId: notification.agency_id } : undefined,
+            skipGlobalLoading: true
+          }
+        );
+        if (data?.companyEventId) return `${base}/${data.companyEventId}?section=photos`;
+      } catch {
+        /* fall through */
+      }
+    }
+    return slug ? `/${slug}/admin/program-events` : '/admin/program-events';
   } else if ((notification.type === 'unassigned_document_submitted' || notification.type === 'medical_records_release_submitted') && notification.agency_id) {
     const base = route.params.organizationSlug ? `/${route.params.organizationSlug}/admin/unassigned-documents` : '/admin/unassigned-documents';
     return `${base}?agencyId=${notification.agency_id}`;

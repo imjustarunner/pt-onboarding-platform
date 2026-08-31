@@ -10,7 +10,7 @@ import {
   DEFAULT_SCHEDULE_TZ,
   isValidTimeZone
 } from '../utils/zonedWallTime.util.js';
-import { plannedOutStatusLabel } from '../services/plannedOutPresence.service.js';
+import { applyPlannedOutPresenceForUser } from '../services/plannedOutPresence.service.js';
 import { syncScheduleEventFromPlannedOut } from '../services/plannedOutScheduleSync.service.js';
 
 function roleOf(req) {
@@ -386,27 +386,7 @@ export const reviewPlannedOut = async (req, res, next) => {
     }
 
     if (action === 'approve' && isPlannedOutActiveNow(updated)) {
-      const label = plannedOutStatusLabel(updated);
-      const richStatus =
-        updated.span_type === 'half_day' && String(updated.half_day_part || '').toLowerCase() === 'pm'
-          ? 'out_pm'
-          : updated.span_type === 'half_day'
-            ? 'out_am'
-            : updated.all_day
-              ? 'out_full_day'
-              : 'out_quick';
-      try {
-        await UserPresenceStatus.upsertForUser(row.user_id, {
-          status: richStatus,
-          reason: 'out_day',
-          display_label: label,
-          note: null,
-          expected_return_at: updated.end_at || null,
-          ends_at: updated.end_at || null
-        });
-      } catch {
-        /* presence columns may be unavailable on older DBs */
-      }
+      await applyPlannedOutPresenceForUser(row.user_id, updated);
     }
 
     if (action === 'reject') {

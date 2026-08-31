@@ -264,17 +264,49 @@ function parseStoredInstant(value) {
   return new Date(`${raw.replace(' ', 'T')}Z`).getTime();
 }
 
-/** True when an approved planned out covers the current moment. */
-export function isPlannedOutActiveNow(plannedOut, now = new Date()) {
-  if (!plannedOut || String(plannedOut.status || '').toLowerCase() !== 'approved') return false;
-  if (plannedOut.all_day) {
+/**
+ * MySQL DATE / DATETIME → YYYY-MM-DD.
+ * mysql2 returns DATE as JS Date at UTC midnight; String(date).slice(0,10) is locale garbage
+ * (e.g. "Sun Aug 30" in MDT) and breaks all-day active checks.
+ */
+export function ymdFromStoredDate(value) {
+  if (value == null || value === '') return null;
+  if (value instanceof Date && Number.isFinite(value.getTime())) {
+    return value.toISOString().slice(0, 10);
+  }
+  const raw = String(value).trim();
+  const m = raw.match(/^(\d{4}-\d{2}-\d{2})/);
+  if (m) return m[1];
+  const d = new Date(raw.includes('T') || raw.includes('Z') ? raw : raw.replace(' ', 'T'));
+  if (!Number.isFinite(d.getTime())) return null;
+  return d.toISOString().slice(0, 10);
+}
+
+function todayYmd(now = new Date(), timeZone = 'America/Denver') {
+  try {
+    // en-CA → YYYY-MM-DD
+    return new Intl.DateTimeFormat('en-CA', {
+      timeZone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit'
+    }).format(now);
+  } catch {
     const y = now.getFullYear();
     const m = String(now.getMonth() + 1).padStart(2, '0');
     const d = String(now.getDate()).padStart(2, '0');
-    const today = `${y}-${m}-${d}`;
-    const start = String(plannedOut.start_date || '').slice(0, 10);
-    const end = String(plannedOut.end_date || '').slice(0, 10);
-    if (!start || !end) return false;
+    return `${y}-${m}-${d}`;
+  }
+}
+
+/** True when an approved planned out covers the current moment. */
+export function isPlannedOutActiveNow(plannedOut, now = new Date(), timeZone = 'America/Denver') {
+  if (!plannedOut || String(plannedOut.status || '').toLowerCase() !== 'approved') return false;
+  if (plannedOut.all_day) {
+    const today = todayYmd(now, timeZone);
+    const start = ymdFromStoredDate(plannedOut.start_date);
+    const end = ymdFromStoredDate(plannedOut.end_date);
+    if (!start || !end || !today) return false;
     return start <= today && end > today;
   }
   const startMs = parseStoredInstant(plannedOut.start_at);
