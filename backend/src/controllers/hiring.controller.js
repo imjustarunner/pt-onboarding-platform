@@ -1249,6 +1249,35 @@ export const getCandidate = async (req, res, next) => {
     const myTimeCapsules = await listMySealedCapsulesForProfile(hiringProfileId, req.user.id);
     const applications = await listJobApplicationsForUser(candidateUserId, { agencyId, limit: 50 });
 
+    let coverLetterDocuments = [];
+    try {
+      const [coverRows] = await pool.execute(
+        `SELECT id, title, doc_type, original_name, mime_type, storage_path, created_at
+         FROM user_admin_docs
+         WHERE user_id = ?
+           AND (is_deleted = 0 OR is_deleted IS NULL)
+           AND storage_path IS NOT NULL
+           AND (
+             doc_type = 'cover_letter'
+             OR LOWER(COALESCE(title, '')) LIKE '%cover%'
+             OR LOWER(COALESCE(original_name, '')) LIKE '%cover%'
+           )
+         ORDER BY created_at DESC, id DESC
+         LIMIT 20`,
+        [candidateUserId]
+      );
+      coverLetterDocuments = (coverRows || []).map((d) => ({
+        id: d.id,
+        title: d.title || 'Cover letter',
+        docType: d.doc_type,
+        originalName: d.original_name || null,
+        mimeType: d.mime_type || null,
+        createdAt: d.created_at || null
+      }));
+    } catch (e) {
+      if (e?.code !== 'ER_NO_SUCH_TABLE' && e?.code !== 'ER_BAD_FIELD_ERROR') throw e;
+    }
+
     res.json({
       user,
       profile: profile
@@ -1269,7 +1298,8 @@ export const getCandidate = async (req, res, next) => {
       myTimeCapsules,
       latestResearch,
       latestPreScreen,
-      applications
+      applications,
+      coverLetterDocuments
     });
   } catch (e) {
     next(e);
@@ -2488,13 +2518,21 @@ export const viewCandidateResume = async (req, res, next) => {
 
     const [rows] = await pool.execute(
       `SELECT * FROM user_admin_docs
-       WHERE id = ? AND user_id = ? AND doc_type = 'resume'
+       WHERE id = ? AND user_id = ?
+         AND (
+           doc_type = 'resume'
+           OR doc_type = 'cover_letter'
+           OR (doc_type = 'application_material' AND (
+             LOWER(COALESCE(title, '')) LIKE '%cover%'
+             OR LOWER(COALESCE(original_name, '')) LIKE '%cover%'
+           ))
+         )
        LIMIT 1`,
       [docId, candidateUserId]
     );
     const doc = rows[0] || null;
-    if (!doc) return res.status(404).json({ error: { message: 'Resume not found' } });
-    if (!doc.storage_path) return res.status(404).json({ error: { message: 'No file for this resume entry' } });
+    if (!doc) return res.status(404).json({ error: { message: 'Document not found' } });
+    if (!doc.storage_path) return res.status(404).json({ error: { message: 'No file for this document' } });
 
     const url = await StorageService.getSignedUrl(doc.storage_path, 10);
     res.json({
@@ -2503,7 +2541,8 @@ export const viewCandidateResume = async (req, res, next) => {
       originalName: doc.original_name || null,
       mimeType: doc.mime_type || null,
       noteText: doc.note_text || null,
-      title: doc.title || null
+      title: doc.title || null,
+      docType: doc.doc_type || null
     });
   } catch (e) {
     next(e);

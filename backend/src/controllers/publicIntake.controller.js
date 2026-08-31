@@ -7682,7 +7682,10 @@ export const finalizePublicIntake = async (req, res, next) => {
         const safeExt = originalName.includes('.') ? `.${originalName.split('.').pop()}` : '';
         const filename = `application-${user.id}-${uniqueSuffix}${safeExt}`;
         const storageResult = await StorageService.saveAdminDoc(fileBuffer, filename, mimeType);
-        const docType = (row.upload_label || '').toLowerCase().includes('resume') ? 'resume' : 'application_material';
+        const labelBlob = `${row.upload_label || ''} ${originalName}`.toLowerCase();
+        let docType = 'application_material';
+        if (labelBlob.includes('resume') || /\bcv\b/.test(labelBlob)) docType = 'resume';
+        else if (labelBlob.includes('cover')) docType = 'cover_letter';
         if (docType === 'resume') hasResumeDoc = true;
         const [docInsert] = await pool.execute(
           `INSERT INTO user_admin_docs (user_id, title, doc_type, storage_path, original_name, mime_type, created_by_user_id)

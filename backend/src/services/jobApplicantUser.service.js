@@ -216,10 +216,14 @@ export async function listJobApplicationsForUser(userId, { agencyId = null, limi
         const data = typeof raw === 'string' ? JSON.parse(raw) : raw;
         if (data && typeof data === 'object') {
           const cover =
-            data.coverLetter
+            data.coverLetterText
+            || data.cover_letter_text
+            || data.coverLetter
             || data.cover_letter
+            || data?.jobApplication?.coverLetterText
             || data?.jobApplication?.coverLetter
             || data?.responses?.coverLetter
+            || data?.submission?.coverLetterText
             || null;
           if (cover) {
             const text = String(cover).replace(/\s+/g, ' ').trim();

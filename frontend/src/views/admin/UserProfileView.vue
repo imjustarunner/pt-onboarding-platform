@@ -1764,6 +1764,53 @@
                                         </div>
                                       </div>
                                     </div>
+                                    <div
+                                      v-if="isPrelicensedForAgency(agency)"
+                                      class="aa-prelicensed-start"
+                                      title="Billing reports count 99414/99416 supervision hours only on or after this date."
+                                    >
+                                      <label class="aa-prelicensed-start__label">
+                                        <span class="muted">Supervision start date</span>
+                                        <input
+                                          type="date"
+                                          class="agency-select"
+                                          :value="prelicensedStartDateForAgency(agency)"
+                                          :disabled="!canEditUser || updatingPrelicensedAgencyId === agency.id"
+                                          @change="savePrelicensedSettings(agency, { startDate: $event.target.value })"
+                                        />
+                                      </label>
+                                      <template v-if="isEditingPrelicensedForAgency(agency)">
+                                        <label class="aa-prelicensed-start__label">
+                                          <span class="muted">Ind. start hrs</span>
+                                          <input
+                                            type="number"
+                                            step="0.01"
+                                            min="0"
+                                            class="agency-select"
+                                            :value="prelicensedStartIndHoursForAgency(agency)"
+                                            :disabled="!canEditUser || updatingPrelicensedAgencyId === agency.id"
+                                            @change="savePrelicensedSettings(agency, { startIndividualHours: $event.target.value })"
+                                          />
+                                        </label>
+                                        <label class="aa-prelicensed-start__label">
+                                          <span class="muted">Group start hrs</span>
+                                          <input
+                                            type="number"
+                                            step="0.01"
+                                            min="0"
+                                            class="agency-select"
+                                            :value="prelicensedStartGrpHoursForAgency(agency)"
+                                            :disabled="!canEditUser || updatingPrelicensedAgencyId === agency.id"
+                                            @change="savePrelicensedSettings(agency, { startGroupHours: $event.target.value })"
+                                          />
+                                        </label>
+                                      </template>
+                                      <p class="muted aa-prelicensed-start__hint">
+                                        {{ prelicensedStartDateForAgency(agency)
+                                          ? 'Billing reports count supervision from this date forward.'
+                                          : 'No start date set — supervision hours will not accrue in billing until you add one.' }}
+                                      </p>
+                                    </div>
                                     <div class="category-axes-note muted">
                                       Current 50/100 supervision hours apply to pay-Cat-2 prelicensed only (not interns).
                                       HCBS category will feed future State Supervision Oversight Requirements (not built yet).
@@ -6531,7 +6578,16 @@ const togglePrelicensedEdit = (agencyId) => {
   }
   editingPrelicensedAgencyIds.value = current;
 };
-const prelicensedStartDateForAgency = (agency) => String(agency?.supervision_start_date || '').slice(0, 10);
+const prelicensedStartDateForAgency = (agency) => {
+  const raw = agency?.supervision_start_date;
+  if (!raw) return '';
+  if (typeof raw === 'string') return String(raw).slice(0, 10);
+  if (raw instanceof Date && Number.isFinite(raw.getTime())) {
+    // MySQL DATE is date-only; use UTC YMD to avoid local timezone shifting the day.
+    return raw.toISOString().slice(0, 10);
+  }
+  return String(raw).slice(0, 10);
+};
 const prelicensedStartIndHoursForAgency = (agency) => (agency?.supervision_start_individual_hours ?? 0);
 const prelicensedStartGrpHoursForAgency = (agency) => (agency?.supervision_start_group_hours ?? 0);
 
@@ -6542,7 +6598,13 @@ const savePrelicensedSettings = async (agency, patch) => {
     updatingPrelicensedAgencyId.value = agencyId;
 
     const nextIs = (patch?.isPrelicensed !== undefined) ? !!patch.isPrelicensed : isPrelicensedForAgency(agency);
-    const nextStartDate = (patch?.startDate !== undefined) ? (patch.startDate ? String(patch.startDate).slice(0, 10) : null) : prelicensedStartDateForAgency(agency) || null;
+    let nextStartDate = (patch?.startDate !== undefined)
+      ? (patch.startDate ? String(patch.startDate).slice(0, 10) : null)
+      : (prelicensedStartDateForAgency(agency) || null);
+    // Turning prelicensed on without a start date: default to today so billing can accrue (editable after).
+    if (nextIs && !nextStartDate && patch?.isPrelicensed === true) {
+      nextStartDate = new Date().toISOString().slice(0, 10);
+    }
     const nextInd = (patch?.startIndividualHours !== undefined) ? Number(patch.startIndividualHours || 0) : Number(prelicensedStartIndHoursForAgency(agency) || 0);
     const nextGrp = (patch?.startGroupHours !== undefined) ? Number(patch.startGroupHours || 0) : Number(prelicensedStartGrpHoursForAgency(agency) || 0);
 
@@ -8430,6 +8492,32 @@ onUnmounted(() => {
   margin: -2px 0 8px;
   padding: 0 0 6px;
   border-bottom: 1px solid var(--border, #e2e8f0);
+}
+.aa-prelicensed-start {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 10px 14px;
+  margin-top: 10px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: #fffbeb;
+  border: 1px solid #fde68a;
+}
+.aa-prelicensed-start__label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  font-weight: 650;
+}
+.aa-prelicensed-start__label .agency-select {
+  min-width: 155px;
+}
+.aa-prelicensed-start__hint {
+  flex: 1 1 100%;
+  margin: 0;
+  font-size: 12px;
 }
 
 .license-status-reason {

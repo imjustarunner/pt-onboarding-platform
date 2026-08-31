@@ -265,7 +265,22 @@
               <div class="kv">
                 <div class="k">Cover letter</div>
                 <div class="v">
-                  <pre class="pre light-pre">{{ detail.profile?.cover_letter_text || '—' }}</pre>
+                  <pre v-if="detail.profile?.cover_letter_text" class="pre light-pre">{{ detail.profile.cover_letter_text }}</pre>
+                  <div v-if="(detail.coverLetterDocuments || []).length" class="cover-letter-docs">
+                    <button
+                      v-for="doc in detail.coverLetterDocuments"
+                      :key="`cl-${doc.id}`"
+                      type="button"
+                      class="btn btn-secondary btn-sm"
+                      @click="openCoverLetterDoc(doc)"
+                    >
+                      Open {{ doc.originalName || doc.title || 'cover letter' }}
+                    </button>
+                  </div>
+                  <span
+                    v-if="!detail.profile?.cover_letter_text && !(detail.coverLetterDocuments || []).length"
+                    class="muted"
+                  >—</span>
                 </div>
               </div>
               <div class="kv">
@@ -1568,6 +1583,20 @@ const resolveResumeViewerUrl = async (r) => {
     url: resp.data?.url || null,
     mimeType: resp.data?.mimeType || r.mimeType || r.mime_type || null
   };
+};
+
+const openCoverLetterDoc = async (doc) => {
+  if (!selectedId.value || !effectiveAgencyId.value || !doc?.id) return;
+  try {
+    const resp = await api.get(`/hiring/candidates/${selectedId.value}/resumes/${doc.id}/view`, {
+      params: { agencyId: effectiveAgencyId.value }
+    });
+    const url = resp.data?.url;
+    if (url) window.open(url, '_blank', 'noopener,noreferrer');
+    else alert('Could not open cover letter');
+  } catch (e) {
+    alert(e.response?.data?.error?.message || 'Failed to open cover letter');
+  }
 };
 
 const onResumeWorkspaceUpload = async ({ file, title }) => {
