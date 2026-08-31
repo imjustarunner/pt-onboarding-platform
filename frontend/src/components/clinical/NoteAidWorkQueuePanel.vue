@@ -43,11 +43,20 @@
             <strong>
               <span
                 class="na-wq-conn"
-                :style="connectionStyle(item)"
-                :title="connectionLabel(item)"
+                :class="{ 'na-wq-conn--logo': !!tenantLogoUrl(item) }"
+                :style="tenantLogoUrl(item) ? undefined : connectionStyle(item)"
+                :title="tenantTitle(item)"
                 aria-hidden="true"
-                v-html="connectionIconSvg(item)"
-              />
+              >
+                <img
+                  v-if="tenantLogoUrl(item)"
+                  :src="tenantLogoUrl(item)"
+                  alt=""
+                  class="na-wq-tenant-logo"
+                  @error="onLogoError(item)"
+                />
+                <span v-else v-html="connectionIconSvg(item)" />
+              </span>
               {{ item.clientName }}
             </strong>
             <span>{{ statusLabel(item) }}</span>
@@ -65,7 +74,7 @@
 </template>
 
 <script setup>
-import { computed } from 'vue';
+import { computed, ref } from 'vue';
 import {
   DOC_STATUS,
   deriveWorkQueueDocStatus,
@@ -74,6 +83,9 @@ import {
   deriveNoteConnection,
   noteConnectionMeta
 } from '../../utils/noteAidDocumentationStatus.js';
+import { useAgencyStore } from '../../store/agency.js';
+import { toUploadsUrl } from '../../utils/uploadsUrl.js';
+import { tenantSmsImage } from '../../utils/tenantBrandAssets.js';
 
 const props = defineProps({
   items: { type: Array, default: () => [] },
@@ -81,6 +93,9 @@ const props = defineProps({
 });
 
 defineEmits(['add-todo', 'generate', 'next', 'clear', 'select']);
+
+const agencyStore = useAgencyStore();
+const failedLogoKeys = ref(new Set());
 
 const visibleItems = computed(() => filterWorkQueueForRightPanel(props.items));
 
@@ -97,6 +112,18 @@ const hasNext = computed(() =>
   )
 );
 
+const agenciesById = computed(() => {
+  const map = new Map();
+  const lists = [agencyStore.agencies, agencyStore.userAgencies, [agencyStore.currentAgency]];
+  for (const list of lists) {
+    for (const a of list || []) {
+      if (!a?.id) continue;
+      map.set(Number(a.id), a);
+    }
+  }
+  return map;
+});
+
 function docStatus(item) {
   return deriveWorkQueueDocStatus(item);
 }
@@ -111,6 +138,74 @@ function statusLabel(item) {
 
 function connectionLabel(item) {
   return noteConnectionMeta(connection(item)).shortLabel;
+}
+
+function resolveAgency(item) {
+  const id = Number(item?.agencyId || item?.agency_id || 0);
+  if (id && agenciesById.value.has(id)) return agenciesById.value.get(id);
+  return null;
+}
+
+function logoKey(item) {
+  return String(item?.id || item?.agencyId || item?.clientName || '');
+}
+
+function resolveAssetUrl(raw) {
+  const s = String(raw || '').trim();
+  if (!s) return '';
+  if (s.startsWith('http://') || s.startsWith('https://') || s.startsWith('/assets/')) return s;
+  if (s.startsWith('/uploads/') || s.startsWith('uploads/')) return toUploadsUrl(s);
+  return s;
+}
+
+function tenantLogoUrl(item) {
+  const key = logoKey(item);
+  if (failedLogoKeys.value.has(key)) return '';
+
+  const direct = resolveAssetUrl(
+    item?.agencyLogoUrl || item?.agencyLogoPath || item?.agency_logo_url || item?.agency_logo_path
+  );
+  if (direct) return direct;
+
+  const agency = resolveAgency(item);
+  if (agency) {
+    const fromAgency = resolveAssetUrl(
+      agency.logo_path || agency.logoPath || agency.logo_url || agency.logoUrl
+        || agency.icon_file_path || agency.iconFilePath
+    );
+    if (fromAgency) return fromAgency;
+  }
+
+  const slug = String(
+    item?.agencySlug
+      || item?.agency_slug
+      || agency?.slug
+      || agency?.portal_url
+      || agency?.portalUrl
+      || ''
+  ).trim();
+  if (slug) {
+    const sms = tenantSmsImage(slug, 'counseling') || tenantSmsImage(slug, 'join') || tenantSmsImage(slug, 'login');
+    if (sms) return sms;
+  }
+  return '';
+}
+
+function tenantTitle(item) {
+  const agency = resolveAgency(item);
+  const name = String(
+    item?.agencyName || item?.agency_name || agency?.name || ''
+  ).trim();
+  if (name) return name;
+  return connectionLabel(item);
+}
+
+function onLogoError(item) {
+  const key = logoKey(item);
+  if (!key) return;
+  const next = new Set(failedLogoKeys.value);
+  next.add(key);
+  failedLogoKeys.value = next;
 }
 
 function connectionIconSvg(item) {
@@ -285,6 +380,18 @@ function typeLabel(item) {
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
+  overflow: hidden;
+}
+.na-wq-conn--logo {
+  border-color: #e2e8f0;
+  background: #fff;
+  color: inherit;
+}
+.na-wq-tenant-logo {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
 }
 .na-wq-item-top span { color: #64748b; font-size: 0.72rem; font-weight: 700; }
 .na-wq-item--started .na-wq-item-top span { color: #b45309; }

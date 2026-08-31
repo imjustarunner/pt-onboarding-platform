@@ -238,6 +238,17 @@ async function submit() {
   try {
     const agencyId = Number(form.agencyId);
     const organizationId = Number(form.organizationId);
+    const fromCatalog = (agencyStore.agencies || []).find((a) => Number(a.id) === agencyId);
+    const fromMemberships = (agencyStore.userAgencies || []).find((a) => Number(a.id) === agencyId);
+    const tenant = fromCatalog
+      || fromMemberships
+      || (Number(agencyStore.currentAgency?.id) === agencyId ? agencyStore.currentAgency : null)
+      || (tenantOptions.value || []).find((t) => Number(t.id) === agencyId)
+      || null;
+    const agencySlug = String(tenant?.slug || tenant?.portal_url || tenant?.portalUrl || '').trim();
+    const agencyName = String(tenant?.name || '').trim();
+    const agencyLogoPath = String(tenant?.logo_path || tenant?.logoPath || '').trim() || null;
+    const agencyLogoUrl = String(tenant?.logo_url || tenant?.logoUrl || '').trim() || null;
     const built = [];
     for (const item of preview.value.items) {
       const linked = await findOrCreateClient(item, agencyId, organizationId);
@@ -247,6 +258,10 @@ async function submit() {
         clientName: linked.clientName,
         agencyId,
         organizationId,
+        agencySlug: agencySlug || null,
+        agencyName: agencyName || null,
+        agencyLogoPath,
+        agencyLogoUrl,
         status: 'pending'
       });
     }

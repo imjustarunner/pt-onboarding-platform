@@ -16,6 +16,8 @@ export const TENANT_BRAND_ALIASES = {
   newlife: 'nlu',
   'new-life-uplift': 'nlu',
   innerstrength: 'innerstrength',
+  'inner-strength': 'innerstrength',
+  tisi: 'innerstrength',
   theinnerstrengthinstitute: 'innerstrength',
   'the-inner-strength-institute': 'innerstrength',
   mh4kidz: 'mh4kidz',
@@ -255,7 +257,9 @@ export const TENANT_DARK_LOGOS = {
 
 /** Browser tab / apple-touch favicons (compact marks from printing assets). */
 export const TENANT_FAVICONS = {
-  nlu: '/assets/branding/NLUWatermark.png'
+  nlu: '/assets/branding/NLUWatermark.png',
+  // Compact counseling mark until a dedicated watermark is added.
+  innerstrength: '/assets/SMSAssets/InnerStrength/10_Counseling.png'
 };
 
 export function tenantDarkLogoUrl(slugOrHost = '') {

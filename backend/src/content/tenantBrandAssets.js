@@ -16,6 +16,8 @@ export const TENANT_BRAND_ALIASES = {
   newlife: 'nlu',
   'new-life-uplift': 'nlu',
   innerstrength: 'innerstrength',
+  'inner-strength': 'innerstrength',
+  tisi: 'innerstrength',
   theinnerstrengthinstitute: 'innerstrength',
   'the-inner-strength-institute': 'innerstrength',
   mh4kidz: 'mh4kidz',
