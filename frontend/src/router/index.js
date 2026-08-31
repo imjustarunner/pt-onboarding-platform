@@ -4616,6 +4616,56 @@ router.beforeEach(async (to, from, next) => {
     return;
   }
 
+  // Superadmin cross-host brand switch: consume one-time `bs` handoff before auth guards.
+  // Cookies/localStorage do not carry across custom domains; this restores the session on the destination host.
+  {
+    const handoffToken = typeof to.query?.bs === 'string' ? String(to.query.bs).trim() : '';
+    if (handoffToken) {
+      const nextQuery = { ...to.query };
+      delete nextQuery.bs;
+      try {
+        if (!authStore.isAuthenticated) {
+          const host =
+            typeof window !== 'undefined'
+              ? String(window.location.hostname || '').toLowerCase()
+              : '';
+          const { data } = await api.post(
+            '/auth/brand-switch/consume',
+            { handoffToken, ...(host ? { targetHost: host } : {}) },
+            { skipGlobalLoading: true, skipAuthRedirect: true }
+          );
+          if (data?.user) {
+            if (Array.isArray(data.agencies) && data.agencies.length) {
+              try {
+                localStorage.setItem('userAgencies', JSON.stringify(data.agencies));
+              } catch {
+                /* ignore */
+              }
+              data.user.agencyIds = data.agencies;
+            }
+            authStore.setAuth(data.token || null, data.user, data.sessionId || null);
+            try {
+              sessionStorage.setItem('justLoggedIn', 'true');
+              sessionStorage.setItem('justLoggedInAt', String(Date.now()));
+            } catch {
+              /* ignore */
+            }
+            signalFreshLogin();
+          }
+        }
+      } catch {
+        // Fall through — requiresAuth may send the user to login.
+      }
+      next({
+        path: to.path,
+        query: nextQuery,
+        hash: to.hash,
+        replace: true
+      });
+      return;
+    }
+  }
+
   // Navigation loop breaker: must run before any redirecting guard below.
   {
     const now = Date.now();

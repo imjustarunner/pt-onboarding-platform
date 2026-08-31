@@ -2331,7 +2331,9 @@ import {
   buildSuperadminAgencyBrandUrl,
   buildSuperadminPlatformBrandUrl,
   getAgencyAppHostname,
-  normalizeHostname
+  getPlatformAppHostname,
+  normalizeHostname,
+  appendBrandSwitchHandoff
 } from './utils/brandSwitchUrl';
 import { begin as beginLoading, end as endLoading, isLoading as globalLoading, getLoadingTextRef } from './utils/pageLoader';
 import { isSchoolPortalShellActive } from './utils/schoolPortalShell.js';
@@ -3696,10 +3698,27 @@ const selectAgencyBrand = async (a) => {
     // Superadmin: always leave a dedicated host (e.g. app.itsco.health → app.nextleveluplcc.com)
     // when the target tenant has a different custom_domain — even on deep admin pages.
     // Otherwise logo/store update while the URL and host-scoped data stay on the old tenant.
+    // Cookie/localStorage are host-scoped, so mint a one-time handoff (`bs`) for the destination.
     if (brandingStore.isSuperAdmin) {
       const jump = buildSuperadminAgencyBrandUrl(full, route);
       if (jump) {
-        window.location.assign(jump);
+        let dest = jump;
+        try {
+          const targetHost = getAgencyAppHostname(full);
+          if (targetHost) {
+            const { data } = await api.post(
+              '/auth/brand-switch/handoff',
+              { targetHost, agencyId: Number(full.id) || undefined },
+              { skipGlobalLoading: true }
+            );
+            if (data?.handoffToken) {
+              dest = appendBrandSwitchHandoff(jump, data.handoffToken) || jump;
+            }
+          }
+        } catch {
+          // Destination may still require login if handoff fails.
+        }
+        window.location.assign(dest);
         return;
       }
     }
@@ -3760,10 +3779,25 @@ const selectPlatformBrand = async () => {
   // Ensure super admins still have agency options after returning to Platform.
   if (brandingStore.isSuperAdmin) {
     // Leave dedicated tenant hosts (app.itsco.health, etc.) for the platform app host.
+    // Pass session via one-time handoff — cookies do not survive the host change.
     try {
       const jump = buildSuperadminPlatformBrandUrl(route);
       if (jump) {
-        window.location.assign(jump);
+        let dest = jump;
+        try {
+          const targetHost = getPlatformAppHostname();
+          const { data } = await api.post(
+            '/auth/brand-switch/handoff',
+            { targetHost },
+            { skipGlobalLoading: true }
+          );
+          if (data?.handoffToken) {
+            dest = appendBrandSwitchHandoff(jump, data.handoffToken) || jump;
+          }
+        } catch {
+          // Destination may still require login if handoff fails.
+        }
+        window.location.assign(dest);
         return;
       }
     } catch {

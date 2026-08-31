@@ -32,7 +32,9 @@ import {
   demoLaunchWindow,
   listTestAccounts,
   switchTestAccount,
-  returnTestAccount
+  returnTestAccount,
+  createBrandSwitchHandoff,
+  consumeBrandSwitchHandoff
 } from '../controllers/auth.controller.js';
 import { authenticate, requireAdmin } from '../middleware/auth.middleware.js';
 import { requireAdminOrFirstUser } from '../middleware/conditionalAdmin.middleware.js';
@@ -183,6 +185,14 @@ router.post('/test-accounts/switch', authenticate, [
   body('userId').isInt({ min: 1 }).withMessage('userId must be a positive integer')
 ], switchTestAccount);
 router.post('/test-accounts/return', authenticate, returnTestAccount);
+router.post('/brand-switch/handoff', authenticate, [
+  body('targetHost').isString().trim().notEmpty().withMessage('targetHost is required'),
+  body('agencyId').optional({ nullable: true }).isInt({ min: 1 })
+], createBrandSwitchHandoff);
+router.post('/brand-switch/consume', authLimiter, [
+  body('handoffToken').isString().trim().notEmpty().withMessage('handoffToken is required'),
+  body('targetHost').optional({ nullable: true }).isString().trim()
+], consumeBrandSwitchHandoff);
 router.get('/session-lock-config', authenticate, getSessionLockConfig);
 router.post('/platform-session/heartbeat', authenticate, platformSessionHeartbeat);
 router.post('/verify-session-pin', authenticate, [

@@ -5110,3 +5110,205 @@ export const verifyClubManagerEmail = async (req, res, next) => {
     next(error);
   }
 };
+
+function normalizeBrandSwitchHost(host) {
+  if (!host) return '';
+  let h = String(host).trim().toLowerCase();
+  h = h.replace(/^https?:\/\//, '');
+  h = h.split('/')[0].split(':')[0];
+  return h;
+}
+
+/**
+ * Superadmin cross-domain tenant switch: mint a one-time handoff token.
+ * POST /auth/brand-switch/handoff
+ * body: { targetHost, agencyId? }
+ */
+export const createBrandSwitchHandoff = async (req, res, next) => {
+  try {
+    const role = String(req.user?.role || req.user?.effectiveRole || '').toLowerCase();
+    if (role !== 'super_admin') {
+      return res.status(403).json({ error: { message: 'Super admin access required' } });
+    }
+    const userId = Number(req.user?.id || 0);
+    if (!userId) return res.status(401).json({ error: { message: 'Not authenticated' } });
+
+    const targetHost = normalizeBrandSwitchHost(req.body?.targetHost || req.body?.target_host);
+    if (!targetHost || targetHost.length < 3) {
+      return res.status(400).json({ error: { message: 'targetHost is required' } });
+    }
+    const agencyId = Number(req.body?.agencyId || req.body?.agency_id || 0) || null;
+    const jti = crypto.randomBytes(32).toString('hex');
+    const expiresAt = new Date(Date.now() + 60 * 1000); // 60s
+    const expiresMysql = expiresAt.toISOString().slice(0, 19).replace('T', ' ');
+
+    try {
+      await pool.execute(
+        `INSERT INTO auth_brand_switch_handoffs
+           (jti, user_id, target_host, agency_id, expires_at)
+         VALUES (?, ?, ?, ?, ?)`,
+        [jti, userId, targetHost, agencyId, expiresMysql]
+      );
+    } catch (err) {
+      if (err?.code === 'ER_NO_SUCH_TABLE') {
+        return res.status(503).json({
+          error: { message: 'Brand switch handoff unavailable — run migration 1348' }
+        });
+      }
+      throw err;
+    }
+
+    // Best-effort cleanup of expired rows
+    try {
+      await pool.execute(
+        `DELETE FROM auth_brand_switch_handoffs
+         WHERE (consumed_at IS NOT NULL AND consumed_at < DATE_SUB(UTC_TIMESTAMP(), INTERVAL 1 DAY))
+            OR (expires_at < DATE_SUB(UTC_TIMESTAMP(), INTERVAL 1 DAY))`
+      );
+    } catch {
+      /* ignore */
+    }
+
+    return res.json({
+      handoffToken: jti,
+      expiresInSeconds: 60,
+      targetHost,
+      agencyId
+    });
+  } catch (error) {
+    return next(error);
+  }
+};
+
+/**
+ * Consume handoff on the destination tenant host — sets HttpOnly cookie for this host.
+ * POST /auth/brand-switch/consume
+ * body: { handoffToken, targetHost? }
+ */
+export const consumeBrandSwitchHandoff = async (req, res, next) => {
+  try {
+    const handoffToken = String(req.body?.handoffToken || req.body?.token || '').trim();
+    if (!handoffToken || handoffToken.length < 16) {
+      return res.status(400).json({ error: { message: 'handoffToken is required' } });
+    }
+    const claimedHost = normalizeBrandSwitchHost(
+      req.body?.targetHost || req.body?.target_host || req.headers['x-forwarded-host'] || req.hostname || ''
+    );
+
+    let rows;
+    try {
+      [rows] = await pool.execute(
+        `SELECT id, jti, user_id, target_host, agency_id, expires_at, consumed_at
+         FROM auth_brand_switch_handoffs
+         WHERE jti = ?
+         LIMIT 1`,
+        [handoffToken]
+      );
+    } catch (err) {
+      if (err?.code === 'ER_NO_SUCH_TABLE') {
+        return res.status(503).json({
+          error: { message: 'Brand switch handoff unavailable — run migration 1348' }
+        });
+      }
+      throw err;
+    }
+
+    const row = rows?.[0];
+    if (!row) {
+      return res.status(401).json({ error: { message: 'Invalid or expired brand switch token' } });
+    }
+    if (row.consumed_at) {
+      return res.status(401).json({ error: { message: 'Brand switch token already used' } });
+    }
+    const expiresAt = row.expires_at ? new Date(row.expires_at) : null;
+    if (!expiresAt || !Number.isFinite(expiresAt.getTime()) || expiresAt.getTime() <= Date.now()) {
+      return res.status(401).json({ error: { message: 'Brand switch token expired' } });
+    }
+
+    const expectedHost = normalizeBrandSwitchHost(row.target_host);
+    if (claimedHost && expectedHost && claimedHost !== expectedHost) {
+      return res.status(403).json({
+        error: { message: 'Brand switch token is not valid for this host' }
+      });
+    }
+
+    const [consumeResult] = await pool.execute(
+      `UPDATE auth_brand_switch_handoffs
+       SET consumed_at = UTC_TIMESTAMP()
+       WHERE id = ? AND consumed_at IS NULL`,
+      [row.id]
+    );
+    if (!Number(consumeResult?.affectedRows || 0)) {
+      return res.status(401).json({ error: { message: 'Brand switch token already used' } });
+    }
+
+    const user = await User.findById(row.user_id);
+    if (!user || user.is_active === 0 || user.is_active === false || user.is_archived) {
+      return res.status(401).json({ error: { message: 'User not found or inactive' } });
+    }
+
+    const sessionId = crypto.randomUUID();
+    const token = jwt.sign(
+      { id: user.id, email: user.email, role: user.role, sessionId, brandSwitch: true },
+      config.jwt.secret,
+      { expiresIn: config.jwt.expiresIn }
+    );
+    res.cookie('authToken', token, config.authCookie.set());
+
+    let agencies = [];
+    try {
+      agencies = await User.getAgencies(user.id);
+    } catch {
+      agencies = [];
+    }
+
+    try {
+      const UserPlatformSession = (await import('../models/UserPlatformSession.model.js')).default;
+      const agencyId =
+        Number(row.agency_id) ||
+        (Array.isArray(agencies) && agencies.length ? agencies[0].id : null);
+      await UserPlatformSession.startSession({
+        sessionId,
+        userId: user.id,
+        agencyId,
+        ipAddress: req.ip || req.headers['x-forwarded-for'] || req.connection?.remoteAddress || 'unknown',
+        userAgent: req.headers['user-agent'] || 'unknown'
+      });
+    } catch (err) {
+      console.error('Failed to start platform session for brand switch:', err);
+    }
+
+    ActivityLogService.logActivity({
+      actionType: 'brand_switch_handoff',
+      userId: user.id,
+      sessionId,
+      metadata: {
+        targetHost: expectedHost,
+        agencyId: row.agency_id || null
+      }
+    }, req);
+
+    const payrollCaps = await buildPayrollCaps(user);
+    const baseCaps = getUserCapabilities(user);
+
+    return res.json({
+      token,
+      sessionId,
+      agencyId: row.agency_id || null,
+      agencies,
+      user: {
+        id: user.id,
+        email: user.email,
+        role: user.role,
+        status: user.status,
+        firstName: user.first_name,
+        lastName: user.last_name,
+        preferredName: user.preferred_name || null,
+        username: user.username || user.email,
+        capabilities: { ...baseCaps, ...payrollCaps }
+      }
+    });
+  } catch (error) {
+    return next(error);
+  }
+};

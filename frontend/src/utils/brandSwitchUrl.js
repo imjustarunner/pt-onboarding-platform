@@ -74,6 +74,21 @@ export function shouldHardRedirectBrandSwitch() {
   return true;
 }
 
+/** Append one-time brand-switch handoff token (`bs`) to a full URL. */
+export function appendBrandSwitchHandoff(url, handoffToken) {
+  const raw = String(url || '').trim();
+  const token = String(handoffToken || '').trim();
+  if (!raw || !token) return raw || null;
+  try {
+    const u = new URL(raw, typeof window !== 'undefined' ? window.location.origin : undefined);
+    u.searchParams.set('bs', token);
+    return u.toString();
+  } catch {
+    const join = raw.includes('?') ? '&' : '?';
+    return `${raw}${join}bs=${encodeURIComponent(token)}`;
+  }
+}
+
 /**
  * @returns {string|null} full URL to assign, or null to keep in-app router navigation
  */
