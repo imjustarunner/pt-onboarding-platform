@@ -48,6 +48,19 @@ Sexual Orientation`;
   assert.equal(parsed.administrativeSex, 'Female');
 });
 
+test('parseDemographicsPaste ignores label-only paste (no values under labels)', () => {
+  const text = `Legal Name
+Date of Birth
+Address
+Phone
+Email`;
+  const parsed = parseDemographicsPaste(text);
+  assert.equal(parsed.fullName, null);
+  assert.equal(parsed.dateOfBirth, null);
+  assert.equal(parsed.contactPhone, null);
+  assert.equal(parsed.email, null);
+});
+
 test('parseTreatmentPlanText reads multi-dx goals and discharge', () => {
   const text = `Diagnosis
 F40.10	Social Anxiety Disorder

@@ -578,6 +578,14 @@ class Client {
           values.push(clientData[field] ? 1 : 0);
         } else if (field === 'grade') {
           values.push(normalizeGradeForSave(clientData[field]));
+        } else if (field === 'demographics_phi_enc') {
+          values.push(
+            clientData[field] == null
+              ? null
+              : typeof clientData[field] === 'string'
+                ? clientData[field]
+                : JSON.stringify(clientData[field])
+          );
         } else {
           values.push(clientData[field]);
         }

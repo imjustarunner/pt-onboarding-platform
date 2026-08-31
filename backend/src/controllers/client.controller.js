@@ -1032,6 +1032,22 @@ const enrichClientGradeFromIntakeIfMissing = async (client) => {
   return client;
 };
 
+/** Flag + redact ciphertext so Note Aid can detect "on file" without shipping PHI envelope. */
+async function attachDemographicsOnFileFlag(client) {
+  if (!client) return client;
+  try {
+    const { clientHasDemographicsOnFile } = await import('../services/demographicsImport.service.js');
+    const onFile = clientHasDemographicsOnFile(client);
+    client.demographics_on_file = onFile;
+    if (client.demographics_phi_enc) {
+      client.demographics_phi_enc = { encrypted: true };
+    }
+  } catch {
+    client.demographics_on_file = !!(client.demographics_phi_enc || client.date_of_birth);
+  }
+  return client;
+}
+
 export const getClientById = async (req, res, next) => {
   try {
     const { id } = req.params;
@@ -1075,6 +1091,7 @@ export const getClientById = async (req, res, next) => {
       }
       logClientAccess(req, client.id, 'view_client').catch(() => {});
       await enrichClientGradeFromIntakeIfMissing(client);
+      await attachDemographicsOnFileFlag(client);
       return res.json(client);
     }
 
@@ -1186,6 +1203,7 @@ export const getClientById = async (req, res, next) => {
     }
     logClientAccess(req, client.id, 'view_client').catch(() => {});
     await enrichClientGradeFromIntakeIfMissing(client);
+    await attachDemographicsOnFileFlag(client);
     // PII gating: strip full/first/last names for school_staff even when they
     // happen to also have agency access (defense-in-depth).
     res.json(redactClientNamesForRole(client, userRole));
@@ -6955,7 +6973,9 @@ export const importClientDemographics = async (req, res, next) => {
     const {
       demographicsToClientPatch,
       encryptDemographicsPayload,
-      isDemographicsEncryptionConfigured
+      isDemographicsEncryptionConfigured,
+      demographicsImportHasContent,
+      clientHasDemographicsOnFile
     } = await import('../services/demographicsImport.service.js');
 
     const demo = req.body?.demographics || req.body || {};
@@ -6978,9 +6998,19 @@ export const importClientDemographics = async (req, res, next) => {
       administrativeSex: demo.administrativeSex || demo.gender || null
     };
 
+    if (!demographicsImportHasContent(parsed)) {
+      return res.status(400).json({
+        error: {
+          message:
+            'No demographics values to import. Paste Legal Name, Date of Birth, and contact fields (not labels only), then review before saving.'
+        }
+      });
+    }
+
     const patch = demographicsToClientPatch(parsed);
     if (isDemographicsEncryptionConfigured()) {
-      patch.demographics_phi_enc = JSON.stringify(encryptDemographicsPayload(parsed));
+      // Store as object for JSON columns (mysql2 serializes); avoid double-encoded strings.
+      patch.demographics_phi_enc = encryptDemographicsPayload(parsed);
     } else {
       // Still persist operational fields; envelope skipped when no key configured
       console.warn('[importClientDemographics] encryption key not configured; storing operational fields only');
@@ -6990,6 +7020,9 @@ export const importClientDemographics = async (req, res, next) => {
     // Avoid returning encryption envelope to clients unnecessarily
     if (updated && updated.demographics_phi_enc) {
       updated.demographics_phi_enc = { encrypted: true };
+    }
+    if (updated) {
+      updated.demographics_on_file = clientHasDemographicsOnFile(updated) || true;
     }
     return res.json({ client: updated, imported: Object.keys(patch) });
   } catch (e) {

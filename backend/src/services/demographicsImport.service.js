@@ -225,12 +225,19 @@ export function parseDemographicsPaste(rawText) {
     if (i >= lines.length) break;
 
     if (field === 'fullName') {
+      // Never treat the next label (e.g. "Date of Birth") as the legal name value.
+      if (labelKeyForLine(lines[i]) || isStopLabel(lines[i])) {
+        continue;
+      }
       result.fullName = lines[i];
       i += 1;
       continue;
     }
 
     if (field === 'dateOfBirth') {
+      if (labelKeyForLine(lines[i]) || isStopLabel(lines[i])) {
+        continue;
+      }
       result.dateOfBirth = parseDateLoose(lines[i]);
       i += 1;
       while (i < lines.length && /^age\s*:/i.test(lines[i])) i += 1;
@@ -335,4 +342,33 @@ export function demographicsToClientPatch(parsed) {
   if (p.textMessagesOk === true) patch.session_sms_opt_in = 1;
   if (p.textMessagesOk === false) patch.session_sms_opt_in = 0;
   return patch;
+}
+
+/** True when the paste/review payload has chart-worthy demographics (not labels-only). */
+export function demographicsImportHasContent(parsed) {
+  const p = parsed || {};
+  return !!(
+    p.dateOfBirth
+    || p.contactPhone
+    || p.email
+    || p.addressStreet
+    || p.addressCity
+    || p.addressZip
+    || (p.fullName && !/^(date of birth|address|phone|email|legal name)$/i.test(String(p.fullName).trim()))
+  );
+}
+
+export function clientHasDemographicsOnFile(client) {
+  if (!client) return false;
+  const enc = client.demographics_phi_enc ?? client.demographicsPhiEnc;
+  if (enc && enc !== false && enc !== 'false' && enc !== 'null') return true;
+  const hasDob = !!(client.date_of_birth || client.dateOfBirth);
+  const hasContact = !!(
+    client.contact_phone
+    || client.contactPhone
+    || client.email
+    || client.address_street
+    || client.addressStreet
+  );
+  return hasDob && hasContact;
 }

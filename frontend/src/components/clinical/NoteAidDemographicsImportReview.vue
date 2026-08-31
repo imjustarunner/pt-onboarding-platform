@@ -55,6 +55,7 @@ import api from '../../services/api';
 const props = defineProps({
   open: { type: Boolean, default: false },
   clientId: { type: [Number, String], required: true },
+  agencyId: { type: [Number, String, null], default: null },
   initialText: { type: String, default: '' }
 });
 
@@ -65,6 +66,12 @@ const model = ref(null);
 const parsing = ref(false);
 const saving = ref(false);
 const error = ref('');
+
+function agencyRequestConfig() {
+  const aid = Number(props.agencyId || 0);
+  const headers = aid > 0 ? { 'X-Agency-Id': String(aid) } : undefined;
+  return { skipGlobalLoading: true, headers };
+}
 
 watch(
   () => props.open,
@@ -83,7 +90,7 @@ async function parse() {
     const res = await api.post(
       `/clients/${props.clientId}/demographics/parse`,
       { text: pasteText.value },
-      { skipGlobalLoading: true }
+      agencyRequestConfig()
     );
     const p = res?.data?.parsed || {};
     model.value = reactive({
@@ -115,7 +122,7 @@ async function save() {
     const res = await api.post(
       `/clients/${props.clientId}/demographics/import`,
       { demographics: { ...model.value } },
-      { skipGlobalLoading: true }
+      agencyRequestConfig()
     );
     emit('saved', res?.data?.client || null);
   } catch (e) {

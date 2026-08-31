@@ -1082,6 +1082,7 @@
       v-if="effectiveClientId"
       :open="showDemographicsImport"
       :client-id="effectiveClientId"
+      :agency-id="Number(selectedClient?.agency_id || selectedClient?.agencyId || noteAidAgencyId || currentAgencyId || 0) || null"
       :initial-text="pastedDemographicsText"
       @close="showDemographicsImport = false"
       @saved="onDemographicsImported"
@@ -1289,7 +1290,9 @@ const clientProfileHref = computed(() => {
 const demographicsOnFile = computed(() => {
   const c = selectedClient.value;
   if (!c) return false;
-  if (c.demographics_phi_enc || c.demographicsPhiEnc) return true;
+  if (c.demographics_on_file === true || c.demographicsOnFile === true) return true;
+  const enc = c.demographics_phi_enc ?? c.demographicsPhiEnc;
+  if (enc && enc !== false && enc !== 'false' && enc !== 'null') return true;
   const hasDob = !!(c.date_of_birth || c.dateOfBirth);
   const hasContact = !!(c.contact_phone || c.email || c.address_street || c.addressStreet);
   return hasDob && hasContact;
@@ -4130,6 +4133,7 @@ const bootstrapWorkspace = async ({ resetForm = false } = {}) => {
   if (bookingClientId && !selectedClientId.value) {
     selectedClientId.value = bookingClientId;
     selectedClient.value = { id: bookingClientId };
+    await hydrateSelectedClient(bookingClientId);
     loadClientTreatmentPlan(bookingClientId);
     loadClientIntakeSummary(bookingClientId);
   }
@@ -4144,6 +4148,7 @@ const bootstrapWorkspace = async ({ resetForm = false } = {}) => {
     if (qClient) {
       selectedClientId.value = qClient;
       selectedClient.value = { id: qClient };
+      await hydrateSelectedClient(qClient);
       await loadClientTreatmentPlan(qClient);
       await loadClientIntakeSummary(qClient);
     }
@@ -4402,18 +4407,21 @@ async function hydrateSelectedClient(clientId) {
   if (!cid) return;
   try {
     const res = await api.get(`/clients/${cid}`, { skipGlobalLoading: true });
-    const row = normalizeNoteAidClientRow(res?.data?.client || res?.data, agencyLookup.value);
+    const raw = res?.data?.client || res?.data;
+    const row = normalizeNoteAidClientRow(raw, agencyLookup.value);
     if (row) {
-      const enc = res?.data?.client?.demographics_phi_enc || res?.data?.demographics_phi_enc;
+      const enc = raw?.demographics_phi_enc || row.demographics_phi_enc;
+      const onFile = raw?.demographics_on_file === true || raw?.demographicsOnFile === true;
       selectedClient.value = {
         ...row,
-        demographics_phi_enc: enc || row.demographics_phi_enc || null,
-        date_of_birth: row.date_of_birth || res?.data?.client?.date_of_birth,
-        contact_phone: row.contact_phone || res?.data?.client?.contact_phone,
-        email: row.email || res?.data?.client?.email,
-        address_street: row.address_street || res?.data?.client?.address_street,
-        address_city: row.address_city || res?.data?.client?.address_city,
-        address_state: row.address_state || res?.data?.client?.address_state
+        demographics_on_file: onFile || !!enc,
+        demographics_phi_enc: enc || (onFile ? { encrypted: true } : row.demographics_phi_enc || null),
+        date_of_birth: row.date_of_birth || raw?.date_of_birth,
+        contact_phone: row.contact_phone || raw?.contact_phone,
+        email: row.email || raw?.email,
+        address_street: row.address_street || raw?.address_street,
+        address_city: row.address_city || raw?.address_city,
+        address_state: row.address_state || raw?.address_state
       };
     }
   } catch {
@@ -4569,12 +4577,23 @@ const onDemographicsImported = async () => {
     const cid = Number(effectiveClientId.value || 0);
     if (cid) {
       const res = await api.get(`/clients/${cid}`, { skipGlobalLoading: true });
-      const row = normalizeNoteAidClientRow(res?.data?.client || res?.data, agencyLookup.value);
-      if (row) selectedClient.value = { ...row, demographics_phi_enc: true };
+      const raw = res?.data?.client || res?.data;
+      const row = normalizeNoteAidClientRow(raw, agencyLookup.value);
+      if (row) {
+        selectedClient.value = {
+          ...row,
+          demographics_on_file: true,
+          demographics_phi_enc: raw?.demographics_phi_enc || { encrypted: true }
+        };
+      }
     }
   } catch {
     if (selectedClient.value) {
-      selectedClient.value = { ...selectedClient.value, demographics_phi_enc: true };
+      selectedClient.value = {
+        ...selectedClient.value,
+        demographics_on_file: true,
+        demographics_phi_enc: { encrypted: true }
+      };
     }
   }
   approvalMessage.value = 'Demographics encrypted and saved to the client chart.';
@@ -4756,8 +4775,18 @@ async function activateWorkQueueItem(item) {
       initials: deriveInitialsFromNameSafe(item.clientName)
     };
     initials.value = deriveInitialsFromNameSafe(item.clientName);
-    await loadClientTreatmentPlan(clientId);
-    await loadClientIntakeSummary(clientId);
+    // Always hydrate chart fields (DOB, contact, demographics_phi_enc). Queue rows only
+    // carry display name / agencyId — without this, "Need: demographics" sticks after save.
+    await hydrateSelectedClient(clientId);
+    if (selectedClient.value && item.clientName && !selectedClient.value.full_name) {
+      selectedClient.value = { ...selectedClient.value, full_name: item.clientName };
+    }
+    await loadClientAgencyContext(clientId);
+    await Promise.all([
+      loadClientTreatmentPlan(clientId),
+      loadClientIntakeSummary(clientId),
+      loadClientGuardianNames(clientId)
+    ]);
     chartDiagnosticJustification.value = primaryChartDiagnosis.value?.justification || '';
   } else {
     selectedClientId.value = null;
