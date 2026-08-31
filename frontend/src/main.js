@@ -11,6 +11,7 @@ import { useAuthStore } from './store/auth';
 import { useBrandingStore } from './store/branding';
 import { applyStoredDarkMode } from './utils/darkMode';
 import { isStandalonePwa } from './utils/pwa';
+import { tenantFaviconUrl } from './utils/tenantBrandAssets';
 import { i18n } from './i18n';
 
 const CHUNK_RELOAD_KEY = '__pt_chunk_reload__';
@@ -264,8 +265,15 @@ async function bootstrap() {
 
   const setBrandingChrome = () => {
     setTitle();
-    // Favicon: organization master icon when set, else full logo (cache-busted in store).
-    const mark = brandingStore.displayChromeIconUrl || brandingStore.displayLogoUrl;
+    // Prefer tenant printing-asset marks for browser tabs (e.g. NLU watermark).
+    const tenantFav =
+      tenantFaviconUrl(typeof window !== 'undefined' ? window.location.hostname : '') ||
+      tenantFaviconUrl(brandingStore.portalHostPortalUrl) ||
+      tenantFaviconUrl(brandingStore.activeRouteSlug) ||
+      tenantFaviconUrl(brandingStore.portalAgency?.slug || brandingStore.portalAgency?.portal_url) ||
+      tenantFaviconUrl(agencyStore.currentAgency?.slug || agencyStore.currentAgency?.portal_url);
+    // Favicon: tenant mark, else organization master icon, else full logo.
+    const mark = tenantFav || brandingStore.displayChromeIconUrl || brandingStore.displayLogoUrl;
     if (mark) setFavicon(mark);
   };
 

@@ -306,7 +306,7 @@ async function resolveAgencyContext(userId) {
   };
 }
 
-async function applyAvailableOffline(userId, parsed) {
+export async function applyAvailableOffline(userId, parsed) {
   await pool.execute(
     `INSERT INTO user_presence (user_id, availability_level, last_heartbeat_at, updated_at)
      VALUES (?, 'everyone', NULL, NOW())
@@ -338,7 +338,7 @@ async function applyAvailableOffline(userId, parsed) {
   return `Got it — marked you Available · Logged out${parsed.reachable ? ` (${UserPresenceStatus.labelForReason(parsed.reachable)})` : ''}${parsed.customLabel ? `. Reason: ${parsed.customLabel}` : ''}.`;
 }
 
-async function applyUnavailable(userId, parsed) {
+export async function applyUnavailable(userId, parsed) {
   const now = new Date();
   const end = new Date(now);
   end.setHours(23, 59, 59, 999);
@@ -367,7 +367,7 @@ async function applyUnavailable(userId, parsed) {
   return `Got it — marked you Unavailable (Out for the Day)${parsed.details ? `. Note: ${parsed.details}` : ''}.`;
 }
 
-async function applyPlannedOut(userId, parsed, agencyCtx) {
+export async function applyPlannedOut(userId, parsed, agencyCtx) {
   if (!(await PlannedOut.tableExists())) {
     throw new Error('Planned outs are not available yet');
   }
@@ -666,5 +666,8 @@ export function isPresenceTimeIdentity(identity) {
 export default {
   parsePresenceEmailIntent,
   handlePresenceTimeInbound,
-  isPresenceTimeIdentity
+  isPresenceTimeIdentity,
+  applyAvailableOffline,
+  applyUnavailable,
+  applyPlannedOut
 };

@@ -1,0 +1,48 @@
+---
+description: Email App Assistant (app@tenant) — how to extend intents and keep it tenant-scoped
+globs: backend/src/services/appEmail/**/*,database/migrations/*email_app*
+alwaysApply: false
+---
+
+# Email App Assistant (`app@tenant`)
+
+When the user says to update **email app**, **app@ info**, **app email assistant**, or similar, change this feature.
+
+## What it is
+
+- Inbound Gmail poll routes `app@<tenant-domain>` → identity_key `app` → `handleAppEmailInbound`
+- Replies from the same `app@` identity
+- Scoped to the mailbox’s `agency_id` (ITSCO vs NLU vs …)
+- Sender must be an approved member of that agency; unknown senders are ignored silently
+- Feature flag: `emailAppAssistantEnabled` (billing catalog key `emailAppAssistant`)
+
+## Where to change things
+
+| Change | Location |
+|--------|----------|
+| New question / capability | `backend/src/services/appEmail/intents/*.js` + register in `registry.js` |
+| SQL / formatting for an intent | `backend/src/services/appEmail/queries/` |
+| Auth / membership / feature gate | `backend/src/services/appEmail/index.js` |
+| Mailbox seed / enable tenants | `database/migrations/` (follow 1349 pattern) |
+| Agent wiring | `inboundEmailAgent.service.js` (`isAppEmailIdentity` branch) |
+
+## Intent contract
+
+```js
+{
+  key: 'my_intent',
+  label: 'Short label for help',
+  roles: 'any_member' | 'privileged', // privileged = admin | super_admin | support
+  examples: ['…'],
+  match: (text, ctx) => null | true | { …captured },
+  handle: async (ctx, matchResult) => ({ text, clearSession?: true, session?: { intentKey, state } })
+}
+```
+
+Use `setSession` / reply follow-ups when clarification is needed (see tasks + schools).
+
+## Do not
+
+- Put tenant logic in the platform `time@` presence handler (keep presence separate; app@ may *delegate* to it)
+- Reply from `ai@` or a different tenant’s mailbox
+- Expose school coverage to non-privileged roles

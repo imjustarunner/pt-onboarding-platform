@@ -253,9 +253,19 @@ export const TENANT_DARK_LOGOS = {
   nlu: '/assets/branding/NextLevelUpLteal.png'
 };
 
+/** Browser tab / apple-touch favicons (compact marks from printing assets). */
+export const TENANT_FAVICONS = {
+  nlu: '/assets/branding/NLUWatermark.png'
+};
+
 export function tenantDarkLogoUrl(slugOrHost = '') {
   const key = normalizeTenantBrandKey(slugOrHost);
   return TENANT_DARK_LOGOS[key] || '';
+}
+
+export function tenantFaviconUrl(slugOrHost = '') {
+  const key = normalizeTenantBrandKey(slugOrHost);
+  return TENANT_FAVICONS[key] || '';
 }
 
 export function normalizeTenantBrandKey(slugOrHost = '') {

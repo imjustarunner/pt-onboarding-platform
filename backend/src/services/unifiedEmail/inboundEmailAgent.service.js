@@ -33,6 +33,10 @@ import {
   handlePresenceTimeInbound,
   isPresenceTimeIdentity
 } from '../presenceEmailInbound.service.js';
+import {
+  handleAppEmailInbound,
+  isAppEmailIdentity
+} from '../appEmail/index.js';
 
 function headerMap(headers = []) {
   const m = new Map();
@@ -816,6 +820,37 @@ export async function runInboundEmailAgentOnce({ maxMessages = 10 } = {}) {
         });
       } catch (presenceErr) {
         console.error('[EmailAgent] Presence Time handler failed:', presenceErr);
+        results.needsHuman += 1;
+        await gmail.users.messages.modify({
+          userId: 'me',
+          id,
+          requestBody: { removeLabelIds: ['UNREAD'], addLabelIds: [processedLabelId, needsHumanLabelId] }
+        });
+      }
+      continue;
+    }
+
+    // Email App Assistant (app@tenant) — office/school/task Q&A scoped to the tenant mailbox
+    if (isAppEmailIdentity(identity)) {
+      try {
+        const messageIdHeader = hdrs.get('message-id') || null;
+        const appResult = await handleAppEmailInbound({
+          fromEmail,
+          subject,
+          bodyText,
+          senderIdentityId,
+          agencyId,
+          messageIdHeader
+        });
+        if (appResult?.replied) results.replied += 1;
+        else results.ignored += 1;
+        await gmail.users.messages.modify({
+          userId: 'me',
+          id,
+          requestBody: { removeLabelIds: ['UNREAD'], addLabelIds: [processedLabelId] }
+        });
+      } catch (appErr) {
+        console.error('[EmailAgent] App Email Assistant failed:', appErr);
         results.needsHuman += 1;
         await gmail.users.messages.modify({
           userId: 'me',

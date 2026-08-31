@@ -172,6 +172,17 @@ const DEFAULT_FEATURE_CATALOG = {
     'Presence statuses, team board visibility, and availability signaling for staff.',
     { featureFlagKey: 'presenceEnabled' }
   ),
+  emailAppAssistant: createFeatureCatalogEntry(
+    'emailAppAssistant',
+    'Email App Assistant',
+    'Reply to app@tenant with office availability, school coverage (privileged), and task creation. SMS replies planned later.',
+    {
+      tenantMonthlyCents: 2000,
+      unitAmountCents: 2000,
+      featureFlagKey: 'emailAppAssistantEnabled',
+      defaultAvailable: true
+    }
+  ),
   kudosEnabled: createFeatureCatalogEntry(
     'kudosEnabled',
     'Kudos',

@@ -20,6 +20,21 @@
     <!-- Favicon (will be replaced dynamically based on branding) -->
     <link id="app-favicon" rel="icon" href="/branding/plottwisthq-platform-bg.png">
     <link id="app-apple-touch-icon" rel="apple-touch-icon" href="/branding/plottwisthq-platform-bg.png">
+    <script>
+      // Early NLU tab icon on dedicated host (before Vue branding boots).
+      (function () {
+        try {
+          var h = String(location.hostname || '').toLowerCase();
+          if (h === 'app.nextleveluplcc.com' || h.indexOf('nextlevelup') !== -1) {
+            var href = '/assets/branding/NLUWatermark.png';
+            var fav = document.getElementById('app-favicon');
+            var apple = document.getElementById('app-apple-touch-icon');
+            if (fav) fav.setAttribute('href', href);
+            if (apple) apple.setAttribute('href', href);
+          }
+        } catch (e) {}
+      })();
+    </script>
     <link rel="manifest" href="/manifest.webmanifest">
     <!-- Google Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">

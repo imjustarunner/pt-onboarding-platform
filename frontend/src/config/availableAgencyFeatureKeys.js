@@ -39,6 +39,10 @@ export const AVAILABLE_AGENCY_FEATURE_KEYS = [
   { key: 'aiProviderSearchEnabled', label: 'AI Provider Search' },
   { key: 'shiftProgramsEnabled', label: 'Shift Programs' },
   { key: 'presenceEnabled', label: 'Presence / Team Board' },
+  {
+    key: 'emailAppAssistantEnabled',
+    label: 'Email App Assistant (app@tenant)'
+  },
   { key: 'kudosEnabled', label: 'Kudos' },
   { key: 'momentumListEnabled', label: 'My Work' },
   { key: 'focusPackageEnabled', label: 'Focus Package (Music + Session)' },
