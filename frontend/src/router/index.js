@@ -5317,7 +5317,12 @@ router.beforeEach(async (to, from, next) => {
   ) {
     const path = String(to.path || '');
     const isProviderMobileRoute = path.includes('/provider-mobile');
-    const isAllowedExternalRoute = path.includes('/note-aid') || path.includes('/admin/note-aid');
+    // Tools & Aids hub (My Dashboard → AI Tools) must stay reachable; Note Aid was already allowlisted.
+    const isAllowedExternalRoute =
+      path.includes('/note-aid') ||
+      path.includes('/admin/note-aid') ||
+      path.includes('/tools-aids') ||
+      path.includes('/admin/tools-aids');
     if (!isProviderMobileRoute && !isAllowedExternalRoute) {
       const slug =
         (to.meta.organizationSlug && typeof to.params.organizationSlug === 'string' && to.params.organizationSlug) ||

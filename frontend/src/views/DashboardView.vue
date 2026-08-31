@@ -4281,7 +4281,16 @@ watch(
 );
 
 const onMobileSectionPick = (card) => {
-  mobileSectionsOpen.value = false;
+  // Keep the drawer open when expanding a nest so children (e.g. AI Tools) appear.
+  // Closing first made "Tools" look dead on phones where the rail is hidden.
+  const isNest =
+    card?.kind === 'nest' ||
+    card?.id === 'tools_nest' ||
+    card?.id === 'portals_nest' ||
+    card?.id === 'momentum_nest';
+  if (!isNest) {
+    mobileSectionsOpen.value = false;
+  }
   handleCardClick(card);
 };
 
