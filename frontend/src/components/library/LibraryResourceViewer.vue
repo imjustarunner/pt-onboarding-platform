@@ -6,6 +6,14 @@
         <p v-if="subtitle" class="lib-viewer__sub">{{ subtitle }}</p>
       </div>
       <div class="lib-viewer__actions">
+        <button
+          v-if="canDistribute"
+          type="button"
+          class="btn btn-secondary btn-sm"
+          @click="$emit('distribute')"
+        >
+          Distribute…
+        </button>
         <a
           v-if="openExternalUrl"
           class="btn btn-secondary btn-sm"
@@ -65,10 +73,11 @@ import {
 } from '../../utils/googleWorkspacePreview.js';
 
 const props = defineProps({
-  resource: { type: Object, required: true }
+  resource: { type: Object, required: true },
+  canDistribute: { type: Boolean, default: false }
 });
 
-defineEmits(['close']);
+defineEmits(['close', 'distribute']);
 
 const isGoogle = computed(() => {
   const r = props.resource;

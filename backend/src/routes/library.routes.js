@@ -23,7 +23,11 @@ import {
   listFavorites,
   addFavorite,
   removeFavorite,
-  getRecent
+  getRecent,
+  listResourceShares,
+  setResourceShares,
+  distributeResource,
+  listMyCopies
 } from '../controllers/library.controller.js';
 
 const router = express.Router();
@@ -32,6 +36,7 @@ router.use(authenticate, requireCapability('canViewLibrary'));
 
 router.get('/home', getHome);
 router.get('/recent', getRecent);
+router.get('/my-copies', listMyCopies);
 
 router.get('/categories', listCategories);
 router.patch('/categories/:id', requireCapability('canManageLibrary'), updateCategory);
@@ -52,6 +57,9 @@ router.delete('/favorites/:resourceId', removeFavorite);
 router.get('/resources', listResources);
 router.get('/resources/:id', getResource);
 router.get('/resources/:id/download', downloadResource);
+router.get('/resources/:id/shares', listResourceShares);
+router.put('/resources/:id/shares', setResourceShares);
+router.post('/resources/:id/distribute', distributeResource);
 router.post(
   '/resources/upload',
   (req, res, next) => {

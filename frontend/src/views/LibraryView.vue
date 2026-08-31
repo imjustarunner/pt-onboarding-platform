@@ -266,17 +266,37 @@
 
     <div v-if="viewerResource" class="library-viewer-overlay" @click.self="closeViewer">
       <div class="library-viewer-shell">
-        <LibraryResourceViewer :resource="viewerResource" @close="closeViewer" />
+        <LibraryResourceViewer
+          :resource="viewerResource"
+          :can-distribute="canDistribute(viewerResource)"
+          @close="closeViewer"
+          @distribute="openDistribute(viewerResource)"
+        />
       </div>
     </div>
 
     <div v-if="menuItem" class="library-menu" :style="menuStyle" @click.stop>
+      <button
+        v-if="canDistribute(menuItem)"
+        type="button"
+        @click="openDistribute(menuItem)"
+      >
+        Distribute…
+      </button>
       <button v-if="canManage" type="button" @click="toggleFeatured(menuItem)">
         {{ menuItem.featured ? 'Unfeature' : 'Mark featured' }}
       </button>
       <button type="button" class="is-danger" @click="archiveItem(menuItem)">Archive</button>
       <button type="button" @click="menuItem = null">Cancel</button>
     </div>
+
+    <LibraryDistributeModal
+      v-if="distributeItem"
+      :resource="distributeItem"
+      :agency-id="agencyId"
+      @close="distributeItem = null"
+      @done="onDistributed"
+    />
   </div>
 </template>
 
@@ -288,6 +308,7 @@ import LibraryResourceGrid from '../components/library/LibraryResourceGrid.vue';
 import LibraryResourceList from '../components/library/LibraryResourceList.vue';
 import LibraryAddResourceModal from '../components/library/LibraryAddResourceModal.vue';
 import LibraryResourceViewer from '../components/library/LibraryResourceViewer.vue';
+import LibraryDistributeModal from '../components/library/LibraryDistributeModal.vue';
 import {
   fetchLibraryHome,
   fetchLibraryResources,
@@ -364,9 +385,17 @@ const shareEmails = ref('');
 const shareList = ref([]);
 const shareSaving = ref(false);
 const shareError = ref('');
+const distributeItem = ref(null);
 
 const caps = computed(() => authStore.user?.capabilities || {});
 const canManage = computed(() => !!caps.value.canManageLibrary);
+const agencyId = computed(
+  () =>
+    authStore.user?.agency_id ||
+    authStore.user?.agencyId ||
+    home.value?.agencyId ||
+    null
+);
 
 const categories = computed(() => home.value?.categories || []);
 const folders = computed(() => home.value?.folders || []);
@@ -619,6 +648,22 @@ function openMenu(item, evt) {
   const x = evt?.clientX || 120;
   const y = evt?.clientY || 120;
   menuStyle.value = { left: `${x}px`, top: `${y}px` };
+}
+
+function canDistribute(item) {
+  if (!item) return false;
+  if (canManage.value) return true;
+  return Number(item.ownerUserId) === Number(authStore.user?.id);
+}
+
+function openDistribute(item) {
+  distributeItem.value = item;
+  menuItem.value = null;
+}
+
+function onDistributed() {
+  // Keep modal open so success message is visible; refresh list underneath
+  refresh();
 }
 
 async function toggleFeatured(item) {

@@ -108,3 +108,23 @@ export async function setFolderShares(folderId, payload) {
   const { data } = await api.put(`${base}/folders/${folderId}/shares`, payload);
   return data;
 }
+
+export async function fetchResourceShares(resourceId) {
+  const { data } = await api.get(`${base}/resources/${resourceId}/shares`);
+  return data;
+}
+
+export async function setResourceShares(resourceId, payload) {
+  const { data } = await api.put(`${base}/resources/${resourceId}/shares`, payload);
+  return data;
+}
+
+export async function distributeLibraryResource(resourceId, payload) {
+  const { data } = await api.post(`${base}/resources/${resourceId}/distribute`, payload);
+  return data;
+}
+
+export async function fetchMyLibraryCopies(params = {}) {
+  const { data } = await api.get(`${base}/my-copies`, { params });
+  return data;
+}

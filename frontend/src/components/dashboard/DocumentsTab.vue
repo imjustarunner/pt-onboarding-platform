@@ -33,6 +33,43 @@
     </template>
   </DocumentsHubPanel>
 
+  <section class="personal-copies" aria-labelledby="personal-copies-title">
+    <header class="personal-copies__head">
+      <div>
+        <h3 id="personal-copies-title">Personal copies</h3>
+        <p>
+          Private Library worksheets given to you. Edit and save your copy without changing the master or anyone
+          else’s.
+        </p>
+      </div>
+      <button
+        type="button"
+        class="doc-hub__btn doc-hub__btn--ghost"
+        :disabled="copiesLoading"
+        @click="fetchPersonalCopies"
+      >
+        Refresh
+      </button>
+    </header>
+    <p v-if="copiesError" class="personal-copies__error">{{ copiesError }}</p>
+    <p v-else-if="copiesLoading" class="personal-copies__empty">Loading personal copies…</p>
+    <p v-else-if="!personalCopies.length" class="personal-copies__empty">
+      No personal copies yet. When someone uses Give Personal Copy in the Library, they appear here.
+    </p>
+    <ul v-else class="personal-copies__list">
+      <li v-for="copy in personalCopies" :key="copy.id">
+        <button type="button" class="personal-copies__row" @click="openPersonalCopy(copy)">
+          <span class="personal-copies__name">{{ copy.name }}</span>
+          <span class="personal-copies__meta">
+            <span v-if="copy.sourceName" class="personal-copies__pill">From: {{ copy.sourceName }}</span>
+            <span v-if="copy.categoryName" class="personal-copies__pill">{{ copy.categoryName }}</span>
+            <span class="personal-copies__date">{{ formatCopyDate(copy.updatedAt) }}</span>
+          </span>
+        </button>
+      </li>
+    </ul>
+  </section>
+
   <div v-if="showDetailsModal" class="modal-overlay" @click="closeDetails">
     <div class="modal-content" @click.stop>
       <div class="modal-header">
@@ -73,6 +110,7 @@ import { useAgencyStore } from '../../store/agency';
 import { useDocumentsStore } from '../../store/documents';
 import DocumentsHubPanel from '../documents/DocumentsHubPanel.vue';
 import { computeDocumentStats } from '../../utils/documentUiHelpers';
+import { fetchMyLibraryCopies } from '../../services/library.js';
 
 const emit = defineEmits(['update-count']);
 
@@ -84,6 +122,46 @@ const loading = ref(true);
 const error = ref('');
 const allDocuments = ref([]);
 const sortOption = ref('unfinished');
+const personalCopies = ref([]);
+const copiesLoading = ref(false);
+const copiesError = ref('');
+
+const fetchPersonalCopies = async () => {
+  try {
+    copiesLoading.value = true;
+    copiesError.value = '';
+    personalCopies.value = await fetchMyLibraryCopies({
+      agencyId: agencyStore.currentAgency?.id
+    });
+  } catch (err) {
+    copiesError.value = err.response?.data?.error?.message || 'Failed to load personal copies';
+    personalCopies.value = [];
+  } finally {
+    copiesLoading.value = false;
+  }
+};
+
+const openPersonalCopy = (copy) => {
+  const slug =
+    agencyStore.currentAgency?.slug ||
+    agencyStore.currentAgency?.portal_url ||
+    authStore.user?.agency_slug ||
+    '';
+  if (slug) {
+    router.push(`/${slug}/library/resources/${copy.id}`);
+  } else {
+    router.push(`/library/resources/${copy.id}`);
+  }
+};
+
+const formatCopyDate = (value) => {
+  if (!value) return '';
+  try {
+    return new Date(value).toLocaleDateString();
+  } catch {
+    return '';
+  }
+};
 
 const fetchDocuments = async () => {
   try {
@@ -217,11 +295,110 @@ const closeDetails = () => {
 
 onMounted(async () => {
   if (!agencyStore.userAgencies?.length) await agencyStore.fetchUserAgencies();
-  await fetchDocuments();
+  await Promise.all([fetchDocuments(), fetchPersonalCopies()]);
 });
+
+watch(
+  () => agencyStore.currentAgency?.id,
+  () => {
+    fetchPersonalCopies();
+  }
+);
 </script>
 
 <style scoped>
+.personal-copies {
+  margin-top: 1.5rem;
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 14px;
+  padding: 1.1rem 1.2rem 1.15rem;
+}
+
+.personal-copies__head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+  margin-bottom: 0.85rem;
+}
+
+.personal-copies__head h3 {
+  margin: 0;
+  font-size: 1.05rem;
+  color: #0f172a;
+}
+
+.personal-copies__head p {
+  margin: 0.3rem 0 0;
+  font-size: 0.85rem;
+  color: #64748b;
+  line-height: 1.4;
+  max-width: 36rem;
+}
+
+.personal-copies__empty,
+.personal-copies__error {
+  margin: 0;
+  font-size: 0.9rem;
+  color: #64748b;
+}
+
+.personal-copies__error {
+  color: #b91c1c;
+}
+
+.personal-copies__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.personal-copies__row {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.35rem;
+  border: 0;
+  border-bottom: 1px solid #f1f5f9;
+  background: transparent;
+  padding: 0.75rem 0.2rem;
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+}
+
+.personal-copies__row:hover {
+  background: #fffbeb;
+}
+
+.personal-copies__name {
+  font-weight: 650;
+  color: #0f172a;
+}
+
+.personal-copies__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  align-items: center;
+}
+
+.personal-copies__pill {
+  font-size: 0.72rem;
+  font-weight: 650;
+  padding: 0.15rem 0.45rem;
+  border-radius: 999px;
+  background: #fef3c7;
+  color: #b45309;
+}
+
+.personal-copies__date {
+  font-size: 0.75rem;
+  color: #94a3b8;
+}
+
 .my-docs-sort {
   display: flex;
   align-items: center;

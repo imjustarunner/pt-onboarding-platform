@@ -648,3 +648,261 @@ export const getRecent = async (req, res, next) => {
     next(error);
   }
 };
+
+async function resolveDistributeRecipients(agencyId, { emails, userIds, audience }) {
+  const ids = new Set(
+    (Array.isArray(userIds) ? userIds : String(userIds || '').split(','))
+      .map((s) => Number(String(s).trim()))
+      .filter((n) => n > 0)
+  );
+
+  const emailsRaw = emails;
+  const emailList = Array.isArray(emailsRaw)
+    ? emailsRaw
+    : String(emailsRaw || '')
+        .split(/[,;\s]+/)
+        .map((s) => s.trim().toLowerCase())
+        .filter(Boolean);
+  if (emailList.length) {
+    const placeholders = emailList.map(() => '?').join(',');
+    const [rows] = await pool.execute(
+      `SELECT DISTINCT u.id
+       FROM users u
+       JOIN user_agencies ua ON ua.user_id = u.id
+       WHERE ua.agency_id = ?
+         AND (LOWER(u.email) IN (${placeholders}) OR LOWER(COALESCE(u.work_email, '')) IN (${placeholders})
+              OR LOWER(COALESCE(u.personal_email, '')) IN (${placeholders}))`,
+      [agencyId, ...emailList, ...emailList, ...emailList]
+    );
+    for (const r of rows || []) ids.add(Number(r.id));
+  }
+
+  const aud = String(audience || '').toLowerCase();
+  if (aud === 'providers') {
+    const [rows] = await pool.execute(
+      `SELECT DISTINCT u.id
+       FROM users u
+       JOIN user_agencies ua ON ua.user_id = u.id
+       WHERE ua.agency_id = ?
+         AND LOWER(COALESCE(u.role, '')) IN ('provider', 'provider_plus', 'clinician')`,
+      [agencyId]
+    );
+    for (const r of rows || []) ids.add(Number(r.id));
+  } else if (aud === 'staff') {
+    const [rows] = await pool.execute(
+      `SELECT DISTINCT u.id
+       FROM users u
+       JOIN user_agencies ua ON ua.user_id = u.id
+       WHERE ua.agency_id = ?
+         AND LOWER(COALESCE(u.role, '')) IN (
+           'admin', 'super_admin', 'support', 'staff', 'provider', 'provider_plus',
+           'supervisor', 'clinical_practice_assistant', 'intern', 'intern_plus', 'clinician'
+         )`,
+      [agencyId]
+    );
+    for (const r of rows || []) ids.add(Number(r.id));
+  }
+
+  return [...ids];
+}
+
+export const listResourceShares = async (req, res, next) => {
+  try {
+    const agencyId = resolveAgencyId(req);
+    const caps = await assertLibraryAccess(req, agencyId);
+    const resource = await Library.findResource(req.params.id, agencyId, { userId: req.user.id });
+    if (!resource) return res.status(404).json({ error: { message: 'Resource not found' } });
+    const isOwner = Number(resource.ownerUserId) === Number(req.user.id);
+    if (!caps.canManageLibrary && !isOwner) {
+      return res.status(403).json({ error: { message: 'Only the owner or library managers can view shares' } });
+    }
+    const shares = await Library.listResourceShares(resource.id, agencyId);
+    res.json(shares);
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const setResourceShares = async (req, res, next) => {
+  try {
+    const agencyId = resolveAgencyId(req);
+    const caps = await assertLibraryAccess(req, agencyId);
+    const resource = await Library.findResource(req.params.id, agencyId, { userId: req.user.id });
+    if (!resource) return res.status(404).json({ error: { message: 'Resource not found' } });
+    const isOwner = Number(resource.ownerUserId) === Number(req.user.id);
+    if (!caps.canManageLibrary && !isOwner) {
+      return res.status(403).json({ error: { message: 'Only the owner or library managers can manage shares' } });
+    }
+    const recipientIds = await resolveDistributeRecipients(agencyId, {
+      emails: req.body.emails,
+      userIds: req.body.userIds
+    });
+    const permission = String(req.body.permission || 'view').toLowerCase() === 'edit' ? 'edit' : 'view';
+    const shares = await Library.setResourceShares(resource.id, agencyId, recipientIds, permission);
+    res.json(shares);
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * POST /resources/:id/distribute
+ * mode: view_only | collaborate | personal_copy
+ */
+export const distributeResource = async (req, res, next) => {
+  try {
+    const agencyId = resolveAgencyId(req);
+    const caps = await assertLibraryAccess(req, agencyId);
+    const resource = await Library.findResource(req.params.id, agencyId, { userId: req.user.id });
+    if (!resource || resource.archivedAt) {
+      return res.status(404).json({ error: { message: 'Resource not found' } });
+    }
+
+    const isOwner = Number(resource.ownerUserId) === Number(req.user.id);
+    if (!caps.canManageLibrary && !isOwner) {
+      return res.status(403).json({
+        error: { message: 'Only library managers or the resource owner can distribute this item' }
+      });
+    }
+
+    const mode = String(req.body.mode || '').toLowerCase();
+    if (!['view_only', 'collaborate', 'personal_copy'].includes(mode)) {
+      return res.status(400).json({
+        error: { message: 'mode must be view_only, collaborate, or personal_copy' }
+      });
+    }
+
+    const recipientIds = await resolveDistributeRecipients(agencyId, {
+      emails: req.body.emails,
+      userIds: req.body.userIds,
+      audience: req.body.audience
+    });
+    if (!recipientIds.length) {
+      return res.status(400).json({
+        error: { message: 'No recipients found. Choose All Providers or enter coworker emails.' }
+      });
+    }
+
+    const results = [];
+
+    if (mode === 'view_only' || mode === 'collaborate') {
+      const permission = mode === 'collaborate' ? 'edit' : 'view';
+      for (const uid of recipientIds) {
+        await Library.grantResourcePermission(resource.id, agencyId, uid, permission);
+        await Library.logDistribution({
+          agencyId,
+          sourceResourceId: resource.id,
+          mode,
+          createdBy: req.user.id,
+          recipientUserId: uid,
+          createdResourceId: null
+        });
+        results.push({ userId: uid, permission, created: true });
+      }
+      return res.json({
+        ok: true,
+        mode,
+        count: results.length,
+        results,
+        shares: await Library.listResourceShares(resource.id, agencyId)
+      });
+    }
+
+    // personal_copy
+    for (const uid of recipientIds) {
+      const existing = await Library.findExistingPersonalCopy(resource.id, uid, agencyId);
+      if (existing) {
+        results.push({
+          userId: uid,
+          skipped: true,
+          reason: 'already_has_copy',
+          resourceId: existing.id
+        });
+        continue;
+      }
+
+      let filePath = null;
+      let fileSizeBytes = resource.fileSizeBytes;
+      if (resource.filePath) {
+        try {
+          const buf = await StorageService.readObjectBuffer(resource.filePath);
+          const saved = await StorageService.saveLibraryResource({
+            agencyId,
+            uploadedByUserId: uid,
+            fileBuffer: buf,
+            filename: resource.originalFilename || resource.name || 'copy',
+            contentType: resource.mimeType || 'application/octet-stream'
+          });
+          filePath = saved.path;
+          fileSizeBytes = buf.length;
+        } catch (err) {
+          console.warn('[library] personal copy file clone failed:', err?.message || err);
+          results.push({ userId: uid, error: 'file_copy_failed' });
+          continue;
+        }
+      }
+
+      const copy = await Library.createResource({
+        agencyId,
+        organizationId: resource.organizationId,
+        name: resource.name,
+        description: resource.description,
+        resourceType: resource.resourceType,
+        fileType: resource.fileType,
+        mimeType: resource.mimeType,
+        originalFilename: resource.originalFilename,
+        filePath,
+        externalUrl: resource.externalUrl,
+        fileSizeBytes,
+        categoryId: resource.categoryId,
+        folderId: null,
+        ownerUserId: uid,
+        sourceResourceId: resource.id,
+        scope: 'personal',
+        visibility: 'internal',
+        featured: false,
+        clientShareable: false,
+        createdBy: req.user.id,
+        updatedBy: req.user.id
+      });
+
+      await Library.logDistribution({
+        agencyId,
+        sourceResourceId: resource.id,
+        mode: 'personal_copy',
+        createdBy: req.user.id,
+        recipientUserId: uid,
+        createdResourceId: copy.id
+      });
+
+      results.push({
+        userId: uid,
+        created: true,
+        resourceId: copy.id
+      });
+    }
+
+    res.status(201).json({
+      ok: true,
+      mode: 'personal_copy',
+      count: results.filter((r) => r.created).length,
+      skipped: results.filter((r) => r.skipped).length,
+      results
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const listMyCopies = async (req, res, next) => {
+  try {
+    const agencyId = resolveAgencyId(req);
+    await assertLibraryAccess(req, agencyId);
+    const copies = await Library.listMyCopies(agencyId, req.user.id, {
+      limit: req.query.limit || 50
+    });
+    res.json(copies.map((r) => enrichResource(r, req.user.id)));
+  } catch (error) {
+    next(error);
+  }
+};

@@ -84,6 +84,7 @@ function mapResource(row) {
     categoryId: row.category_id,
     folderId: row.folder_id,
     ownerUserId: row.owner_user_id,
+    sourceResourceId: row.source_resource_id != null ? Number(row.source_resource_id) : null,
     scope: row.scope || 'organization',
     isMine: row.is_mine != null ? !!row.is_mine : undefined,
     visibility: row.visibility,
@@ -490,9 +491,9 @@ class Library {
       `INSERT INTO library_resources
         (agency_id, organization_id, name, description, resource_type, file_type, mime_type,
          original_filename, file_path, external_url, file_size_bytes, category_id, folder_id,
-         owner_user_id, scope, visibility, audience_json, featured, client_shareable, status,
+         owner_user_id, source_resource_id, scope, visibility, audience_json, featured, client_shareable, status,
          review_date, created_by, updated_by)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         Number(data.agencyId),
         data.organizationId != null ? Number(data.organizationId) : null,
@@ -508,6 +509,7 @@ class Library {
         data.categoryId != null ? Number(data.categoryId) : null,
         data.folderId != null ? Number(data.folderId) : null,
         data.ownerUserId != null ? Number(data.ownerUserId) : null,
+        data.sourceResourceId != null ? Number(data.sourceResourceId) : null,
         scope,
         data.visibility || 'internal',
         data.audience ? JSON.stringify(data.audience) : null,
@@ -701,10 +703,163 @@ class Library {
     return this.listFolderShares(folderId, agencyId);
   }
 
+  static async listResourceShares(resourceId, agencyId) {
+    const [rows] = await pool.execute(
+      `SELECT p.id, p.grantee_type, p.grantee_value, p.permission, p.created_at,
+        u.id AS user_id,
+        TRIM(CONCAT(COALESCE(u.first_name, ''), ' ', COALESCE(u.last_name, ''))) AS user_name,
+        u.email AS user_email
+       FROM library_permissions p
+       LEFT JOIN users u ON p.grantee_type = 'user' AND u.id = CAST(p.grantee_value AS UNSIGNED)
+       WHERE p.resource_id = ? AND p.agency_id = ?
+       ORDER BY p.created_at ASC`,
+      [Number(resourceId), Number(agencyId)]
+    );
+    return (rows || []).map((r) => ({
+      id: r.id,
+      granteeType: r.grantee_type,
+      granteeValue: r.grantee_value,
+      permission: r.permission,
+      userId: r.user_id,
+      userName: r.user_name || null,
+      userEmail: r.user_email || null,
+      createdAt: r.created_at
+    }));
+  }
+
+  static async setResourceShares(resourceId, agencyId, userIds = [], permission = 'view') {
+    await pool.execute(
+      `DELETE FROM library_permissions WHERE resource_id = ? AND agency_id = ? AND grantee_type = 'user'`,
+      [Number(resourceId), Number(agencyId)]
+    );
+    const ids = [...new Set((userIds || []).map((id) => Number(id)).filter((n) => n > 0))];
+    const perm = permission === 'manage' ? 'manage' : permission === 'edit' ? 'edit' : 'view';
+    for (const uid of ids) {
+      await pool.execute(
+        `INSERT INTO library_permissions
+          (agency_id, resource_id, grantee_type, grantee_value, permission)
+         VALUES (?, ?, 'user', ?, ?)`,
+        [Number(agencyId), Number(resourceId), String(uid), perm]
+      );
+    }
+    return this.listResourceShares(resourceId, agencyId);
+  }
+
+  /** Additive grant for distribute (does not wipe existing shares). */
+  static async grantResourcePermission(resourceId, agencyId, userId, permission = 'view') {
+    const uid = Number(userId);
+    if (!uid) return null;
+    const perm = permission === 'manage' ? 'manage' : permission === 'edit' ? 'edit' : 'view';
+    const [existing] = await pool.execute(
+      `SELECT id, permission FROM library_permissions
+       WHERE agency_id = ? AND resource_id = ? AND grantee_type = 'user' AND grantee_value = ?
+       LIMIT 1`,
+      [Number(agencyId), Number(resourceId), String(uid)]
+    );
+    if (existing?.[0]) {
+      const rank = { view: 1, edit: 2, manage: 3 };
+      const cur = existing[0].permission;
+      if ((rank[perm] || 0) > (rank[cur] || 0)) {
+        await pool.execute(`UPDATE library_permissions SET permission = ? WHERE id = ?`, [
+          perm,
+          existing[0].id
+        ]);
+      }
+      return existing[0].id;
+    }
+    const [ins] = await pool.execute(
+      `INSERT INTO library_permissions
+        (agency_id, resource_id, grantee_type, grantee_value, permission)
+       VALUES (?, ?, 'user', ?, ?)`,
+      [Number(agencyId), Number(resourceId), String(uid), perm]
+    );
+    return ins.insertId;
+  }
+
+  static async findExistingPersonalCopy(sourceResourceId, ownerUserId, agencyId) {
+    const [rows] = await pool.execute(
+      `SELECT id FROM library_resources
+       WHERE agency_id = ?
+         AND source_resource_id = ?
+         AND owner_user_id = ?
+         AND COALESCE(scope, 'organization') = 'personal'
+         AND archived_at IS NULL
+       LIMIT 1`,
+      [Number(agencyId), Number(sourceResourceId), Number(ownerUserId)]
+    );
+    if (!rows?.[0]) return null;
+    return this.findResource(rows[0].id, agencyId, { userId: ownerUserId });
+  }
+
+  static async listMyCopies(agencyId, userId, { limit = 50 } = {}) {
+    const lim = Math.min(Math.max(Number(limit) || 50, 1), 200);
+    const [rows] = await pool.execute(
+      `SELECT r.*,
+        c.name AS category_name,
+        c.slug AS category_slug,
+        src.name AS source_name,
+        1 AS is_mine
+       FROM library_resources r
+       LEFT JOIN library_categories c ON c.id = r.category_id
+       LEFT JOIN library_resources src ON src.id = r.source_resource_id
+       WHERE r.agency_id = ?
+         AND r.owner_user_id = ?
+         AND COALESCE(r.scope, 'organization') = 'personal'
+         AND r.source_resource_id IS NOT NULL
+         AND r.archived_at IS NULL
+       ORDER BY r.updated_at DESC
+       LIMIT ${lim}`,
+      [Number(agencyId), Number(userId)]
+    );
+    return (rows || []).map((row) => ({
+      ...mapResource(row),
+      sourceName: row.source_name || null
+    }));
+  }
+
+  static async logDistribution({
+    agencyId,
+    sourceResourceId,
+    mode,
+    createdBy,
+    recipientUserId,
+    createdResourceId = null
+  }) {
+    const [result] = await pool.execute(
+      `INSERT INTO library_distributions
+        (agency_id, source_resource_id, mode, created_by, recipient_user_id, created_resource_id)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      [
+        Number(agencyId),
+        Number(sourceResourceId),
+        mode,
+        createdBy != null ? Number(createdBy) : null,
+        Number(recipientUserId),
+        createdResourceId != null ? Number(createdResourceId) : null
+      ]
+    );
+    return result.insertId;
+  }
+
+  static async userHasResourcePermission(resourceId, agencyId, userId, minPermission = 'view') {
+    const [rows] = await pool.execute(
+      `SELECT permission FROM library_permissions
+       WHERE agency_id = ? AND resource_id = ? AND grantee_type = 'user' AND grantee_value = ?
+       LIMIT 1`,
+      [Number(agencyId), Number(resourceId), String(userId)]
+    );
+    if (!rows?.[0]) return false;
+    const rank = { view: 1, edit: 2, manage: 3 };
+    return (rank[rows[0].permission] || 0) >= (rank[minPermission] || 1);
+  }
+
   static async userCanEditResource(resource, userId, caps = {}) {
     if (!resource) return false;
     if (caps.canManageLibrary) return true;
     if (Number(resource.ownerUserId) === Number(userId)) return true;
+    if (resource.id && resource.agencyId) {
+      return this.userHasResourcePermission(resource.id, resource.agencyId, userId, 'edit');
+    }
     return false;
   }
 }
