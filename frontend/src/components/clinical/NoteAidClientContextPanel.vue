@@ -82,27 +82,30 @@
           </template>
 
           <template v-else>
+            <p class="na-client-ctx-hint">
+              Recommended order: Demographics → Intake → Treatment Goals. You can complete them in any order — each step stays independent.
+            </p>
             <div class="na-client-ctx-tabs">
-              <button
-                type="button"
-                :class="{ active: tab === 'intake' }"
-                @click="tab = 'intake'"
-              >
-                Intake
-              </button>
               <button
                 type="button"
                 :class="{ active: tab === 'demographics' }"
                 @click="tab = 'demographics'"
               >
-                Demographics
+                Demographics{{ demographicsLocked ? ' ✓' : '' }}
+              </button>
+              <button
+                type="button"
+                :class="{ active: tab === 'intake' }"
+                @click="tab = 'intake'"
+              >
+                Intake{{ intakeLocked ? ' ✓' : '' }}
               </button>
               <button
                 type="button"
                 :class="{ active: tab === 'goals' }"
                 @click="tab = 'goals'"
               >
-                Treatment Goals
+                Treatment Goals{{ planLocked ? ' ✓' : '' }}
               </button>
             </div>
 
@@ -351,8 +354,9 @@ const setupComplete = computed(
 
 const setupStatusLabel = computed(() => {
   const missing = [];
-  if (!intakeLocked.value) missing.push('intake');
+  // Recommended order for the status chip (steps remain independently completable).
   if (!demographicsLocked.value) missing.push('demographics');
+  if (!intakeLocked.value) missing.push('intake');
   if (!planLocked.value) missing.push('plan');
   return missing.length ? `Need: ${missing.join(', ')}` : 'In progress';
 });
@@ -387,10 +391,36 @@ defineExpose({
   }
 });
 
+function focusFirstIncompleteSetupTab() {
+  if (setupComplete.value) return;
+  if (!props.demographicsOnFile) tab.value = 'demographics';
+  else if (!props.intakeOnFile) tab.value = 'intake';
+  else if (!props.planOnFile) tab.value = 'goals';
+}
+
 watch(
   () => props.clientId,
   () => {
-    tab.value = 'intake';
+    focusFirstIncompleteSetupTab();
+  }
+);
+
+watch(
+  () => [props.demographicsOnFile, props.intakeOnFile, props.planOnFile],
+  () => {
+    // When a step completes, advance to the next missing one (don't yank away if already there).
+    if (setupComplete.value) return;
+    if (tab.value === 'demographics' && props.demographicsOnFile && !props.intakeOnFile) {
+      tab.value = 'intake';
+      return;
+    }
+    if (tab.value === 'intake' && props.intakeOnFile && !props.planOnFile) {
+      tab.value = 'goals';
+      return;
+    }
+    if (tab.value === 'goals' && props.planOnFile && !props.intakeOnFile) {
+      tab.value = 'intake';
+    }
   }
 );
 </script>

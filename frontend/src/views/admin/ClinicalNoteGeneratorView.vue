@@ -511,7 +511,15 @@
                     <em :class="(effectiveClientId || initials) ? 'ok' : 'miss'">{{ (effectiveClientId || initials) ? 'Complete' : 'Missing' }}</em>
                   </li>
                   <li>
-                    <span>Diagnosis available</span>
+                    <span>Demographics</span>
+                    <em :class="demographicsOnFile ? 'ok' : 'warn'">{{ demographicsOnFile ? 'Complete' : (effectiveClientId ? 'Missing' : '—') }}</em>
+                  </li>
+                  <li>
+                    <span>Intake on file</span>
+                    <em :class="intakeOnFile ? 'ok' : 'warn'">{{ intakeOnFile ? 'Complete' : (effectiveClientId ? 'Missing' : '—') }}</em>
+                  </li>
+                  <li>
+                    <span>Diagnosis (from intake / plan)</span>
                     <em :class="primaryChartDiagnosis ? 'ok' : 'warn'">{{ primaryChartDiagnosis ? 'Complete' : (effectiveClientId ? 'Missing' : '—') }}</em>
                   </li>
                   <li>
@@ -1316,10 +1324,13 @@ const demographicsPreviewRows = computed(() => {
 });
 
 const intakeOnFile = computed(() => {
+  // Intake is its own step — chart diagnoses from a treatment-plan import must NOT
+  // mark intake complete (that hid the intake paste UI and showed Setup complete).
   if (intakeImportedOnce.value) return true;
-  if (primaryChartDiagnosis.value) return true;
   const s = String(intakeSummary.value || '');
-  return /intake narrative/i.test(s) && s.length > 80;
+  if (/intake narrative/i.test(s) && s.length > 80) return true;
+  if (/clinical \(de-identified\)/i.test(s) && s.length > 80) return true;
+  return false;
 });
 
 const planOnFile = computed(
