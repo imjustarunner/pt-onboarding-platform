@@ -47,6 +47,7 @@ import {
   runMedicalBillingReport as executeBillingReport
 } from '../services/medicalBillingReports.service.js';
 import { listBillingEncountersForClient } from '../services/billingReportIngest.service.js';
+import SupervisorAssignment from '../models/SupervisorAssignment.model.js';
 
 function parseIntValue(v) {
   const n = Number(v);
@@ -55,6 +56,64 @@ function parseIntValue(v) {
 
 function contentHash(text) {
   return crypto.createHash('sha256').update(String(text || ''), 'utf8').digest('hex');
+}
+
+/**
+ * Pending clinical cosign for chart display.
+ * A leftover signoff row is not enough — the provider must currently have a
+ * different person as their clinical supervisor.
+ */
+async function mapPendingSupervisorCosign(notes = []) {
+  const list = Array.isArray(notes) ? notes : [];
+  const ids = [...new Set(list.map((n) => Number(n?.id)).filter((n) => Number.isInteger(n) && n > 0))];
+  const map = new Map();
+  if (!ids.length) return map;
+  let signoffRows = [];
+  try {
+    const [rows] = await pool.execute(
+      `SELECT clinical_note_id, provider_user_id, supervisor_user_id
+       FROM clinical_note_signoffs
+       WHERE status = 'awaiting_supervisor'
+         AND clinical_note_id IN (${ids.map(() => '?').join(',')})`,
+      ids
+    );
+    signoffRows = rows || [];
+  } catch {
+    return map;
+  }
+  const pendingByNote = new Set();
+  for (const r of signoffRows) {
+    const supervisorId = Number(r.supervisor_user_id || 0);
+    const providerId = Number(r.provider_user_id || 0);
+    if (supervisorId > 0 && supervisorId !== providerId) {
+      pendingByNote.add(Number(r.clinical_note_id));
+    }
+  }
+  const needsCosignByProvider = new Map();
+  for (const n of list) {
+    const noteId = Number(n.id);
+    if (!pendingByNote.has(noteId)) {
+      map.set(noteId, false);
+      continue;
+    }
+    const uid = Number(n.created_by_user_id || n.provider_signed_by_user_id || 0);
+    const agencyId = Number(n.agency_id || 0);
+    const key = `${uid}:${agencyId}`;
+    if (!needsCosignByProvider.has(key)) {
+      let needs = false;
+      if (uid && agencyId) {
+        try {
+          const assignments = await SupervisorAssignment.findBySupervisee(uid, agencyId);
+          needs = !!SupervisorAssignment.pickClinicalCosignSupervisor(assignments, uid);
+        } catch {
+          needs = false;
+        }
+      }
+      needsCosignByProvider.set(key, needs);
+    }
+    map.set(noteId, !!needsCosignByProvider.get(key));
+  }
+  return map;
 }
 
 async function loadAgencyFlags(agencyId) {
@@ -490,8 +549,14 @@ export const listClientChart = async (req, res, next) => {
       intakeNotes = [];
     }
 
+    const pendingCosign = await mapPendingSupervisorCosign(notes || []);
+    const notesOut = (notes || []).map((n) => ({
+      ...n,
+      needs_supervisor_cosign: !!pendingCosign.get(Number(n.id))
+    }));
+
     return res.json({
-      notes: notes || [],
+      notes: notesOut,
       plans: (plans || []).filter((p) => !isIntakeAutoTreatmentPlan(p)),
       latestPlan: latestPlan || null,
       diagnoses: diagnoses || [],
@@ -884,6 +949,8 @@ export const getClinicalNoteById = async (req, res, next) => {
     }
 
     const standalone = !clinicalSessionId && !officeEventId;
+    const pendingCosign = await mapPendingSupervisorCosign([note]);
+    const needsSupervisorCosign = !!pendingCosign.get(Number(note.id));
 
     return res.json({
       note: {
@@ -898,6 +965,7 @@ export const getClinicalNoteById = async (req, res, next) => {
         standalone,
         providerSignedAt: note.provider_signed_at || null,
         supervisorCosignedAt: note.supervisor_cosigned_at || null,
+        needsSupervisorCosign,
         dateOfService: metadata?.dateOfService || null,
         createdAt: note.created_at,
         updatedAt: note.updated_at,

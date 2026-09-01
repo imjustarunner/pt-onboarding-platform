@@ -409,9 +409,9 @@
                 <div class="na-card-head-row">
                   <h3 class="na-card-title">Client</h3>
                 </div>
-                <label v-if="!selectedClientId" class="na-label" for="na-initials">Client Initials</label>
+                <label v-if="!selectedClientId && progressEntryMode === 'unlinked'" class="na-label" for="na-initials">Client Initials</label>
                 <input
-                  v-if="!selectedClientId"
+                  v-if="!selectedClientId && progressEntryMode === 'unlinked'"
                   id="na-initials"
                   ref="initialsInputEl"
                   v-model="initials"
@@ -420,7 +420,7 @@
                   maxlength="16"
                   placeholder="e.g., A.M."
                 />
-                <p v-else class="na-field-hint">Client linked — initials come from the chart client, not manual entry.</p>
+                <p v-else-if="selectedClientId" class="na-field-hint">Client linked — initials come from the chart client, not manual entry.</p>
                 <div
                   v-if="showInitialsCreateActions && !selectedClientId"
                   class="na-initials-match"
@@ -1508,6 +1508,7 @@ let initialsMatchTimer = null;
 const showInitialsCreateActions = computed(() => {
   const typed = String(initials.value || '').trim();
   return !selectedClientId.value
+    && progressEntryMode.value === 'unlinked'
     && !initialsMatchDismissed.value
     && typed.length >= 2
     && initialsMatchSearched.value;
@@ -3971,12 +3972,13 @@ const generateNote = async () => {
 
     await persistSessionObjectiveRatings();
     sessionObjectiveRatings.value = [];
-    await loadRecent();
-    markActiveWorkQueueItemCompleted(completingQueueItemId);
     // Client-linked generates write to the chart so Progress notes / Medical record update.
     if (effectiveClientId.value && outputObj.value && canApproveToClinicalRecord.value) {
       await approveNoteOutput({ silent: true });
+    } else {
+      markActiveWorkQueueItemCompleted(completingQueueItemId);
     }
+    await loadRecent();
   } catch (e) {
     const base = e.response?.data?.error?.message || 'Failed to generate note';
     const details = e.response?.data?.error?.details;
@@ -4188,6 +4190,7 @@ const approveNoteOutput = async ({ silent = false } = {}) => {
     } else {
       markActiveWorkQueueItemSigned();
     }
+    await loadRecent();
   } catch (e) {
     approvalError.value = e.response?.data?.error?.message || e.message || 'Failed to persist approved note';
   } finally {
@@ -4814,14 +4817,26 @@ const pickClientFirstProgress = () => {
 
 async function searchInitialsMatches() {
   const typed = String(initials.value || '').trim();
-  if (selectedClientId.value || initialsMatchDismissed.value || typed.length < 2) {
+  if (
+    selectedClientId.value
+    || progressEntryMode.value !== 'unlinked'
+    || initialsMatchDismissed.value
+    || typed.length < 2
+  ) {
     initialsMatchSuggestions.value = [];
     initialsMatchSearched.value = false;
     return;
   }
   try {
     const res = await api.get('/clients', {
-      params: { search: typed, per_page: 12, page: 1 },
+      params: {
+        search: typed,
+        per_page: 12,
+        page: 1,
+        ...(Number(noteAidAgencyId.value || currentAgencyId.value || 0)
+          ? { agency_id: Number(noteAidAgencyId.value || currentAgencyId.value) }
+          : {})
+      },
       skipGlobalLoading: true
     });
     const rows = Array.isArray(res?.data)
@@ -5011,10 +5026,15 @@ function applySignedSessionsToQueue(signedSessions = []) {
       }))
       .filter(Boolean)
   );
-  if (keys.size) {
+  const draftIds = new Set(
+    (signedSessions || []).map((s) => Number(s.draftId || 0)).filter((n) => n > 0)
+  );
+  if (keys.size || draftIds.size) {
     workQueueItems.value = (workQueueItems.value || []).map((item) => {
       const k = queueItemSessionKey(item);
-      if (!k || !keys.has(k)) return item;
+      const byKey = k && keys.has(k);
+      const byDraft = item.draftId && draftIds.has(Number(item.draftId));
+      if (!byKey && !byDraft) return item;
       return {
         ...item,
         draftId: null,

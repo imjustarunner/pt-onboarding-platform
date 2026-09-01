@@ -1,4 +1,5 @@
 import clinicalPool from '../config/clinicalDatabase.js';
+import pool from '../config/database.js';
 
 function safeInt(v) {
   const n = Number(v);
@@ -28,6 +29,45 @@ function parseMeta(raw) {
     return JSON.parse(raw) || {};
   } catch {
     return {};
+  }
+}
+
+function initialsFromName(name) {
+  const raw = String(name || '').trim();
+  if (!raw) return null;
+  const parts = raw.replace(/,/g, ' ').split(/\s+/).filter((p) => /[A-Za-z]/.test(p) && !/^(iv|iii|ii|jr|sr)$/i.test(p));
+  if (!parts.length) return raw.slice(0, 3).toUpperCase();
+  if (parts.length === 1) return `${parts[0].slice(0, 1).toUpperCase()}.`;
+  return `${parts[0].slice(0, 1).toUpperCase()}. ${parts[parts.length - 1].slice(0, 1).toUpperCase()}.`;
+}
+
+async function attachClientLabels(sessions = []) {
+  const ids = [...new Set((sessions || []).map((s) => Number(s.clientId || 0)).filter((n) => n > 0))];
+  if (!ids.length) return sessions;
+  try {
+    const [rows] = await pool.execute(
+      `SELECT c.id, c.full_name, c.initials, a.name AS agency_name
+       FROM clients c
+       LEFT JOIN agencies a ON a.id = c.agency_id
+       WHERE c.id IN (${ids.map(() => '?').join(',')})`,
+      ids
+    );
+    const byId = new Map((rows || []).map((r) => [Number(r.id), r]));
+    return sessions.map((s) => {
+      const c = byId.get(Number(s.clientId || 0));
+      if (!c) return s;
+      const full = String(c.full_name || '').trim();
+      const initials = String(c.initials || '').trim() || initialsFromName(full);
+      return {
+        ...s,
+        clientName: full || s.clientName || null,
+        client_full_name: full || s.client_full_name || null,
+        initials: initials || s.initials || null,
+        agencyName: c.agency_name || s.agencyName || null
+      };
+    });
+  } catch {
+    return sessions;
   }
 }
 
@@ -64,9 +104,9 @@ export async function listSignedNoteSessions({ userId = null, clientIds = [], li
        LIMIT ${lim}`,
       params
     );
-    return (rows || []).map((r) => {
+    const sessions = (rows || []).map((r) => {
       const meta = parseMeta(r.metadata_json);
-      const dos = String(r.scheduled_start_at || meta.dateOfService || r.created_at || '').slice(0, 10);
+      const dos = String(meta.dateOfService || r.scheduled_start_at || r.created_at || '').slice(0, 10);
       return {
         noteId: r.id,
         clientId: r.client_id,
@@ -74,9 +114,11 @@ export async function listSignedNoteSessions({ userId = null, clientIds = [], li
         officeEventId: r.office_event_id || meta.officeEventId || null,
         dateOfService: dos,
         serviceCode: r.service_code || meta.serviceCode || null,
-        signedAt: r.provider_signed_at
+        signedAt: r.provider_signed_at,
+        draftId: safeInt(meta.draftId) || null
       };
     });
+    return attachClientLabels(sessions);
   } catch (e) {
     console.warn('[listSignedNoteSessions]', e?.message || e);
     return [];

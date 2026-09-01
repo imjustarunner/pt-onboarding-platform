@@ -355,10 +355,13 @@ export const createSessionNote = async (req, res, next) => {
       metadata: { clientId: session.client_id, officeEventId: session.office_event_id, title: note.title || null }
     });
 
-    // Auto-create signoff when provider has a supervisor (clinical org)
+    // Pending cosign only when a different person is the clinical supervisor.
     const providerUserId = session.provider_user_id || req.user.id;
     const supervisors = await SupervisorAssignment.findBySupervisee(providerUserId, session.agency_id);
-    const primarySupervisor = supervisors.find((s) => s.is_primary) || supervisors[0];
+    const primarySupervisor = SupervisorAssignment.pickClinicalCosignSupervisor(
+      supervisors,
+      providerUserId
+    );
     if (primarySupervisor) {
       try {
         await pool.execute(

@@ -326,18 +326,21 @@ export function buildLeftLibraryRows({ drafts = [], workQueueItems = [], signedS
   }
 
   for (const s of signedSessions || []) {
+    const name = s.clientName || s.client_full_name || null;
+    const hasSession = Number(s.officeEventId || s.office_event_id || 0) > 0
+      || Number(s.clinicalSessionId || s.clinical_session_id || 0) > 0;
     rows.push({
       id: `signed_${s.noteId || s.id}`,
       source: 'signed_note',
-      draftId: null,
+      draftId: s.draftId || null,
       workQueueId: null,
       docStatus: DOC_STATUS.SIGNED,
-      connection: 'client',
+      connection: hasSession ? NOTE_CONNECTION.SESSION : NOTE_CONNECTION.CLIENT,
       clientId: s.clientId || s.client_id || null,
       officeEventId: s.officeEventId || s.office_event_id || null,
       clinicalSessionId: s.clinicalSessionId || s.clinical_session_id || null,
-      client_full_name: s.clientName || s.client_full_name || null,
-      initials: s.initials || null,
+      client_full_name: name,
+      initials: s.initials || initialsFromDisplayName(name),
       agency_name: s.agencyName || s.agency_name || null,
       client_type: null,
       service_code: s.serviceCode || s.service_code || null,
@@ -402,17 +405,55 @@ export function draftMatchesWorkQueueItem(draft, item) {
 
 function libraryRowRank(row) {
   let n = 0;
-  if (row?.source === 'draft') n += 20;
-  if (row?.docStatus === DOC_STATUS.SIGNED) n += 12;
-  if (row?.docStatus === DOC_STATUS.COMPLETED) n += 8;
+  if (row?.docStatus === DOC_STATUS.SIGNED) n += 40;
+  if (row?.docStatus === DOC_STATUS.COMPLETED) n += 12;
+  if (row?.source === 'draft') n += 8;
+  else if (row?.source === 'signed_note') n += 4;
+  else if (row?.source === 'work_queue') n += 2;
   const raw = row?.raw || {};
   if (raw.output_json || raw.has_output) n += 6;
   if (String(raw.input_text || raw.inputText || '').trim()) n += 3;
+  if (row?.client_full_name || row?.initials) n += 5;
   if (row?.agency_name) n += 1;
   return n;
 }
 
-/** Keep one left-library row per session; prefer a real draft over a work-queue shell. */
+function mergeCollapsedLibraryRows(a, b) {
+  const signed = a.docStatus === DOC_STATUS.SIGNED || b.docStatus === DOC_STATUS.SIGNED;
+  const aHasName = !!(a.client_full_name || a.initials);
+  const bHasName = !!(b.client_full_name || b.initials);
+  let keep;
+  let drop;
+  if (aHasName !== bHasName) {
+    keep = aHasName ? a : b;
+    drop = aHasName ? b : a;
+  } else if ((a.source === 'draft') !== (b.source === 'draft')) {
+    keep = a.source === 'draft' ? a : b;
+    drop = keep === a ? b : a;
+  } else {
+    const takeA = libraryRowRank(a) > libraryRowRank(b)
+      || (libraryRowRank(a) === libraryRowRank(b)
+        && String(a.created_at || '') >= String(b.created_at || ''));
+    keep = takeA ? a : b;
+    drop = takeA ? b : a;
+  }
+  return {
+    ...keep,
+    docStatus: signed ? DOC_STATUS.SIGNED : keep.docStatus,
+    workQueueId: keep.workQueueId || drop.workQueueId || null,
+    draftId: keep.draftId || drop.draftId || null,
+    clientId: keep.clientId || drop.clientId || null,
+    officeEventId: keep.officeEventId || drop.officeEventId || null,
+    clinicalSessionId: keep.clinicalSessionId || drop.clinicalSessionId || null,
+    client_full_name: keep.client_full_name || drop.client_full_name || null,
+    initials: keep.initials || drop.initials || null,
+    agency_name: keep.agency_name || drop.agency_name || null,
+    service_code: keep.service_code || drop.service_code || null,
+    date_of_service: keep.date_of_service || drop.date_of_service || null
+  };
+}
+
+/** Keep one left-library row per session; signed status wins, names merge from either side. */
 export function collapseLeftLibraryRows(rows = []) {
   const passthrough = [];
   const byKey = new Map();
@@ -427,15 +468,7 @@ export function collapseLeftLibraryRows(rows = []) {
       byKey.set(key, row);
       continue;
     }
-    const takeNew = libraryRowRank(row) > libraryRowRank(prev)
-      || (libraryRowRank(row) === libraryRowRank(prev)
-        && String(row.created_at || '') > String(prev.created_at || ''));
-    const keep = takeNew ? row : prev;
-    const drop = takeNew ? prev : row;
-    byKey.set(key, {
-      ...keep,
-      workQueueId: keep.workQueueId || drop.workQueueId || null
-    });
+    byKey.set(key, mergeCollapsedLibraryRows(prev, row));
   }
   return [...passthrough, ...byKey.values()];
 }

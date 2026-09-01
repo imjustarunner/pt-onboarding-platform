@@ -282,3 +282,51 @@ describe('draftMatchesWorkQueueItem', () => {
     )).toBe(true);
   });
 });
+
+describe('collapseLeftLibraryRows signed vs leftover draft', () => {
+  it('promotes a matching generated draft into Signed and keeps the client name', () => {
+    const rows = buildLeftLibraryRows({
+      drafts: [{
+        id: 99,
+        input_text: 'notes',
+        output_json: '{"sections":{}}',
+        client_id: 2031,
+        client_full_name: 'Frank W. Meyers, IV',
+        date_of_service: '2026-06-25',
+        service_code: '90837'
+      }],
+      signedSessions: [{
+        noteId: 50,
+        clientId: 2031,
+        dateOfService: '2026-06-25',
+        serviceCode: '90837'
+      }]
+    });
+    expect(rows).toHaveLength(1);
+    expect(rows[0].docStatus).toBe(DOC_STATUS.SIGNED);
+    expect(rows[0].client_full_name).toMatch(/Frank/);
+  });
+
+  it('nameless signed shell inherits name from the matching draft', () => {
+    const rows = buildLeftLibraryRows({
+      drafts: [{
+        id: 12,
+        input_text: 'x',
+        client_id: 8,
+        initials: 'H. P.',
+        client_full_name: 'Hollyn Pinar',
+        date_of_service: '2026-06-13',
+        service_code: '90837'
+      }],
+      signedSessions: [{
+        noteId: 77,
+        clientId: 8,
+        dateOfService: '2026-06-13',
+        serviceCode: '90834'
+      }]
+    });
+    expect(rows).toHaveLength(1);
+    expect(rows[0].docStatus).toBe(DOC_STATUS.SIGNED);
+    expect(String(rows[0].client_full_name)).toMatch(/Hollyn/);
+  });
+});

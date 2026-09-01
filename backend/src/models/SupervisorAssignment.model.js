@@ -235,6 +235,22 @@ class SupervisorAssignment {
   }
 
   /**
+   * Supervisor who must cosign this provider's clinical notes.
+   * Billing/manager assignments and self-assignments do not create a pending cosign.
+   */
+  static pickClinicalCosignSupervisor(assignments = [], providerUserId = null) {
+    const pid = Number(providerUserId || 0);
+    const eligible = (assignments || []).filter((s) => {
+      const type = String(s.supervisor_type || 'clinical').toLowerCase();
+      if (type === 'billing' || type === 'manager') return false;
+      const sid = Number(s.supervisor_id || 0);
+      return sid > 0 && sid !== pid;
+    });
+    if (!eligible.length) return null;
+    return eligible.find((s) => Number(s.is_primary) === 1) || eligible[0];
+  }
+
+  /**
    * Distinct supervisor user IDs for a supervisee in an agency (for notifications, etc.).
    * Excludes archived/inactive supervisor accounts. Uses an explicit SELECT so driver quirks
    * from sa.* column overlap never drop supervisor_id.

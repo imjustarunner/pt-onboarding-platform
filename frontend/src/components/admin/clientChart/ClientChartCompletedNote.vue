@@ -15,7 +15,7 @@
         <div class="ccn-sign">
           <span v-if="note.providerSignedAt">Provider signed</span>
           <span v-if="note.supervisorCosignedAt"> · Supervisor signed</span>
-          <span v-else-if="note.providerSignedAt"> · Awaiting supervisor</span>
+          <span v-else-if="note.providerSignedAt && note.needsSupervisorCosign"> · Awaiting supervisor</span>
         </div>
       </header>
       <article v-for="panel in panels" :key="panel.id" class="ccn-section">

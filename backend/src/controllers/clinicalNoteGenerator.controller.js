@@ -928,8 +928,12 @@ export const listRecentClinicalNoteDrafts = async (req, res, next) => {
       clientIds
     });
     const signedKeys = new Set((signedSessions || []).map((s) => sessionMatchKey(s)).filter(Boolean));
+    const signedDraftIds = new Set(
+      (signedSessions || []).map((s) => Number(s.draftId || 0)).filter((n) => n > 0)
+    );
     const retireIds = (drafts || [])
       .filter((d) => {
+        if (signedDraftIds.has(Number(d.id))) return true;
         const k = sessionMatchKey(d);
         return k && signedKeys.has(k);
       })

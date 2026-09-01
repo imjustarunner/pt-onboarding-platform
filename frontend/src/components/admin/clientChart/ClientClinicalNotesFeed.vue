@@ -83,7 +83,11 @@
             <span v-if="row.isActivePlan" class="ccnf-tag ccnf-tag--active">Active plan</span>
             <span v-if="row.awaitingCosign" class="ccnf-tag ccnf-tag--cosign">Awaiting supervisor</span>
             <span v-if="row.linkedClaim" class="ccnf-tag ccnf-tag--claim">{{ isLearning ? 'Billed' : 'Claim' }}</span>
-            <span class="ccnf-badge" :class="`ccnf-badge--${row.status}`">{{ row.statusLabel }}</span>
+            <span
+              v-if="!row.awaitingCosign && !row.isActivePlan"
+              class="ccnf-badge"
+              :class="`ccnf-badge--${row.status}`"
+            >{{ row.statusLabel }}</span>
           </div>
         </button>
         <div v-if="isLearning && canCreateSelfPay(row)" class="ccnf-row-actions">
@@ -262,7 +266,7 @@ const rows = computed(() => {
   for (const n of chart.value.notes || []) {
     const providerSigned = !!n.provider_signed_at;
     const supervisorSigned = !!n.supervisor_cosigned_at;
-    const awaitingCosign = providerSigned && !supervisorSigned;
+    const awaitingCosign = providerSigned && !supervisorSigned && !!n.needs_supervisor_cosign;
     let status = 'completed';
     let statusLabel = 'Completed';
     if (!providerSigned) {
@@ -271,7 +275,7 @@ const rows = computed(() => {
     } else if (awaitingCosign) {
       status = 'awaiting_cosign';
       statusLabel = 'Awaiting supervisor';
-    } else if (supervisorSigned) {
+    } else {
       status = 'signed';
       statusLabel = 'Signed';
     }

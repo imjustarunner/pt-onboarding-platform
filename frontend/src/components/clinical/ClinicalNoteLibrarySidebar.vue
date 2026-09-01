@@ -527,9 +527,10 @@ function rowDos(d) {
 function rowTitle(d) {
   const initials = String(d?.initials || '').trim();
   const name = String(d?.client_full_name || d?.raw?.clientName || '').trim();
-  if (deriveNoteConnection(d) === 'unlinked') return initials || '—';
+  if (deriveNoteConnection(d) === 'unlinked') return initials || 'Unlinked';
   if (name) return name;
-  return initials || '—';
+  if (initials) return initials;
+  return d?.source === 'signed_note' ? 'Signed note' : 'Note';
 }
 function rowTypeLabel(d) {
   if (d?.source === 'work_queue') {
