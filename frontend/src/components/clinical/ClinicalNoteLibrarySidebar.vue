@@ -250,16 +250,24 @@
                     </button>
                   </div>
                   <div v-if="isSoapOpen(d)" class="cnl-soap-copy" @click.stop>
-                    <button
-                      v-for="def in soapDefs"
-                      :key="def.key"
-                      type="button"
-                      class="cnl-soap-btn"
-                      :disabled="!soapText(d, def.key)"
-                      @click.stop="copySoap(d, def)"
-                    >
-                      {{ copiedKey === soapCopyKey(d, def.key) ? 'Copied' : `Copy ${def.label}` }}
-                    </button>
+                    <ClinicalNoteDetailFetcher
+                      v-if="signedNoteIdForRow(d)"
+                      :note-id="signedNoteIdForRow(d)"
+                      :agency-id="rowAgencyId(d)"
+                      compact
+                    />
+                    <template v-else>
+                      <button
+                        v-for="def in soapDefs"
+                        :key="def.key"
+                        type="button"
+                        class="cnl-soap-btn"
+                        :disabled="!soapText(d, def.key)"
+                        @click.stop="copySoap(d, def)"
+                      >
+                        {{ copiedKey === soapCopyKey(d, def.key) ? 'Copied' : `Copy ${def.label}` }}
+                      </button>
+                    </template>
                   </div>
                 </div>
               </div>
@@ -329,6 +337,7 @@ import {
   noteConnectionMeta
 } from '../../utils/noteAidDocumentationStatus.js';
 import { SOAP_SECTION_DEFS, soapSectionTextFromDraft } from '../../utils/noteAidUiHelpers.js';
+import ClinicalNoteDetailFetcher from './ClinicalNoteDetailFetcher.vue';
 
 const props = defineProps({
   title: { type: String, default: 'Note Library' },
@@ -599,6 +608,15 @@ function onRowActivate(d) {
 }
 function soapSource(d) {
   return d?.raw || d;
+}
+function signedNoteIdForRow(d) {
+  if (d?.source !== 'signed_note') return null;
+  const nid = Number(d.noteId || d.raw?.noteId || 0);
+  return nid > 0 ? nid : null;
+}
+function rowAgencyId(d) {
+  const aid = Number(d.agency_id || d.raw?.agencyId || 0);
+  return aid > 0 ? aid : null;
 }
 function canSoapCopy(d) {
   const st = normalizeStatus(d?.docStatus);

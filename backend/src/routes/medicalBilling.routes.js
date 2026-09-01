@@ -269,7 +269,7 @@ router.patch(
 router.get(
   '/notes/:noteId',
   requireClinicalChart,
-  [param('noteId').isInt({ min: 1 }), query('agencyId').isInt({ min: 1 })],
+  [param('noteId').isInt({ min: 1 }), query('agencyId').optional({ nullable: true }).isInt({ min: 1 })],
   getClinicalNoteById
 );
 

@@ -668,7 +668,7 @@
 
           <div class="na-write-main">
         <NoteAidObjectiveRatings
-          v-if="showObjectiveRatings && notePathway !== 'csNoteBuild'"
+          v-if="showObjectiveRatings && notePathway !== 'csNoteBuild' && !signedNoteViewerId"
           :goals="activeTreatmentGoals"
           :previous-ratings="chartObjectiveRatings"
           :disabled="generating"
@@ -701,7 +701,7 @@
           </button>
         </div>
 
-        <section v-if="!useCsNoteBuildPathway" class="na-input-panel">
+        <section v-if="!useCsNoteBuildPathway && !signedNoteViewerId" class="na-input-panel">
           <div v-if="phiNameHits.length" class="na-phi-warn" role="alert">
             <strong>Possible name detected:</strong>
             {{ phiNameHits.map((h) => h.token).join(', ') }}.
@@ -865,7 +865,21 @@
         <!-- Keep output after either step when present (visible on write step) -->
         <template v-if="noteWizardStep === 2 || isEmbedded">
 
-        <section v-if="displayPanels.length" class="na-output">
+        <section v-if="signedNoteViewerId" class="na-output na-output--signed-view">
+          <div class="na-output-head">
+            <div>
+              <h2>Signed session note</h2>
+              <span class="na-ready-badge">Ready to Copy</span>
+            </div>
+          </div>
+          <p v-if="approvalError" class="na-delete-err">{{ approvalError }}</p>
+          <ClinicalNoteDetailFetcher
+            :note-id="signedNoteViewerId"
+            :agency-id="signedNoteViewerAgencyId || noteAidAgencyId || currentAgencyId"
+          />
+        </section>
+
+        <section v-else-if="displayPanels.length" class="na-output">
           <div class="na-output-head">
             <div>
               <h2>AI Generated Note</h2>
@@ -1240,6 +1254,7 @@ import api from '../../services/api';
 import ClinicalArtifactRetentionPanel from '../../components/clinical/ClinicalArtifactRetentionPanel.vue';
 import NoteAidLibraryPanel from '../../components/clinical/NoteAidLibraryPanel.vue';
 import ClinicalNoteLibrarySidebar from '../../components/clinical/ClinicalNoteLibrarySidebar.vue';
+import ClinicalNoteDetailFetcher from '../../components/clinical/ClinicalNoteDetailFetcher.vue';
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
 
 const agencyStore = useAgencyStore();
@@ -1889,7 +1904,27 @@ const canLaunchConsentSession = computed(() =>
 const draftId = ref(null);
 /** Chart clinical_notes row opened for read-only section copy. */
 const viewingChartNote = ref(null);
-const chartNoteReadOnly = computed(() => !!viewingChartNote.value);
+/** Chart note id for read-only signed / chart copy view (independent of draft outputObj). */
+const signedNoteViewerId = ref(null);
+const signedNoteViewerAgencyId = ref(null);
+const chartNoteReadOnly = computed(() => !!viewingChartNote.value || !!signedNoteViewerId.value);
+
+function clearSignedNoteViewer() {
+  signedNoteViewerId.value = null;
+  signedNoteViewerAgencyId.value = null;
+}
+
+async function openSignedClinicalNote(noteId, { agencyId = null, preserveWorkQueueId = null } = {}) {
+  const nid = Number(noteId || 0);
+  if (!nid) return false;
+  signedNoteViewerId.value = nid;
+  signedNoteViewerAgencyId.value = Number(agencyId || 0) || null;
+  noteWizardStep.value = 2;
+  configExpanded.value = false;
+  approvalError.value = '';
+  await loadClinicalNoteIntoWorkspace(nid, { agencyId, preserveWorkQueueId });
+  return true;
+}
 const lastSavedAt = ref('');
 let autosaveTimer = null;
 let autosaveBusy = false;
@@ -5006,6 +5041,9 @@ function resolveSignedClinicalNoteId(itemOrRow = {}) {
     || 0
   );
   if (direct) return direct;
+  const rowId = String(itemOrRow.id || '');
+  const signedRowMatch = rowId.match(/^signed_(\d+)$/);
+  if (signedRowMatch) return Number(signedRowMatch[1]);
   const draftId = Number(itemOrRow.draftId || itemOrRow.raw?.draftId || 0);
   const sessions = signedNoteSessions.value || [];
   if (draftId) {
@@ -5081,6 +5119,7 @@ function applySignedSessionsToQueue(signedSessions = []) {
         ...item,
         draftId: null,
         clinicalNoteId: match.noteId || item.clinicalNoteId || null,
+        agencyId: match.agencyId || item.agencyId || null,
         status: DOC_STATUS.SIGNED,
         docStatus: DOC_STATUS.SIGNED,
         signedAt: item.signedAt || match.signedAt || new Date().toISOString()
@@ -5264,7 +5303,7 @@ async function onLibrarySidebarSelect(row) {
     signedNoteId
     && (row.source === 'signed_note' || normalizeDocStatus(row.docStatus) === DOC_STATUS.SIGNED)
   ) {
-    await loadClinicalNoteIntoWorkspace(signedNoteId, {
+    await openSignedClinicalNote(signedNoteId, {
       agencyId: Number(row.agency_id || row.raw?.agencyId || 0) || null,
       preserveWorkQueueId: row.workQueueId || null
     });
@@ -5296,7 +5335,16 @@ async function activateWorkQueueItem(item) {
   clientHydrateSeq += 1;
   const incomingStatus = deriveWorkQueueDocStatus(item);
   const isFinished = incomingStatus === DOC_STATUS.SIGNED || incomingStatus === DOC_STATUS.COMPLETED;
-  resetClientClinicalContext();
+  const preResolvedSignedNoteId =
+    incomingStatus === DOC_STATUS.SIGNED ? resolveSignedClinicalNoteId(item) : null;
+  if (preResolvedSignedNoteId) {
+    signedNoteViewerId.value = preResolvedSignedNoteId;
+    signedNoteViewerAgencyId.value = Number(item.agencyId || item.raw?.agencyId || 0) || null;
+    noteWizardStep.value = 2;
+    configExpanded.value = false;
+  } else if (!isFinished) {
+    clearSignedNoteViewer();
+  }
   if (!isFinished) {
     workQueueItems.value = (workQueueItems.value || []).map((row) => {
       if (row.id === item.id) {
@@ -5330,11 +5378,14 @@ async function activateWorkQueueItem(item) {
   chartMentalStatus.value = defaultMentalStatusExam();
   chartRiskAssessment.value = defaultRiskAssessment();
   chartMedications.value = defaultMedicationsBlock();
-  draftId.value = null;
-  outputObj.value = null;
+  if (!preResolvedSignedNoteId) {
+    draftId.value = null;
+    outputObj.value = null;
+  }
   inputText.value = '';
   let clientId = Number(item.clientId || 0) || null;
   if (clientId) {
+    resetClientClinicalContext();
     selectedClientId.value = clientId;
     selectedClient.value = {
       id: clientId,
@@ -5451,7 +5502,7 @@ async function activateWorkQueueItem(item) {
     const freshItem = (workQueueItems.value || []).find((r) => r.id === item.id) || item;
     const clinicalNoteId = resolveSignedClinicalNoteId(freshItem);
     if (clinicalNoteId) {
-      await loadClinicalNoteIntoWorkspace(clinicalNoteId, {
+      await openSignedClinicalNote(clinicalNoteId, {
         agencyId: Number(freshItem.agencyId || item.agencyId || 0) || null,
         preserveWorkQueueId: item.id
       });
@@ -5459,6 +5510,7 @@ async function activateWorkQueueItem(item) {
       sidebarTab.value = DOC_STATUS.SIGNED;
       return;
     }
+    approvalError.value = 'Could not open this signed note. Try again after the library refreshes.';
   }
 
   configExpanded.value = true;
@@ -5754,6 +5806,7 @@ const persistSessionObjectiveRatings = async () => {
 const startNewNote = () => {
   draftId.value = null;
   viewingChartNote.value = null;
+  clearSignedNoteViewer();
   currentDraftArchivedAt.value = null;
   currentDraftCreatedAt.value = null;
   lastSavedAt.value = '';
@@ -5876,6 +5929,7 @@ const loadDraftIntoWorkspace = async (d, options = {}) => {
   beginWorkspaceHydration();
   try {
   viewingChartNote.value = null;
+  clearSignedNoteViewer();
   draftId.value = d.id || null;
   sessionObjectiveRatings.value = [];
   noteAidAgencyChoiceId.value = null;
@@ -6004,6 +6058,12 @@ const loadClinicalNoteIntoWorkspace = async (
 ) => {
   const nid = Number(noteId || 0);
   if (!nid) return;
+  signedNoteViewerId.value = nid;
+  if (preferredAgencyId) {
+    signedNoteViewerAgencyId.value = Number(preferredAgencyId) || null;
+  }
+  noteWizardStep.value = 2;
+  configExpanded.value = false;
   const agencyCandidates = [...new Set(
     [
       preferredAgencyId,
@@ -6016,7 +6076,7 @@ const loadClinicalNoteIntoWorkspace = async (
   try {
     let note = null;
     let lastErr = null;
-    const attempts = agencyCandidates.length ? agencyCandidates : [null];
+    const attempts = agencyCandidates.length ? [...agencyCandidates, null] : [null];
     for (const aid of attempts) {
       try {
         const res = await api.get(`/medical-billing/notes/${nid}`, {
@@ -6031,6 +6091,9 @@ const loadClinicalNoteIntoWorkspace = async (
     }
     if (!note) {
       throw lastErr || new Error('Clinical note not found.');
+    }
+    if (!signedNoteViewerAgencyId.value && note.agencyId) {
+      signedNoteViewerAgencyId.value = Number(note.agencyId) || null;
     }
     viewingChartNote.value = {
       id: note.id,
@@ -6086,6 +6149,7 @@ const loadClinicalNoteIntoWorkspace = async (
     approvalError.value = '';
   } catch (e) {
     viewingChartNote.value = null;
+    // Keep signedNoteViewerId so ClinicalNoteDetailFetcher can still load / retry.
     approvalError.value =
       e.response?.data?.error?.message || e.message || 'Could not load clinical note.';
   }
