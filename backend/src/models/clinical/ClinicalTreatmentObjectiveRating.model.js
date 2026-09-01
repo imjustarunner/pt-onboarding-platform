@@ -243,6 +243,85 @@ class ClinicalTreatmentObjectiveRating {
     }
   }
 
+  /** Ratings tied to a signed note (by note id, draft id, or session DOS). */
+  static async listForClinicalNote({
+    agencyId,
+    clientId,
+    clinicalNoteId = null,
+    draftId = null,
+    dateOfService = null
+  }) {
+    const agency = safeInt(agencyId);
+    const client = safeInt(clientId);
+    if (!agency || !client) return [];
+    const nid = safeInt(clinicalNoteId);
+    const did = safeInt(draftId);
+    const dos = dateOfService ? String(dateOfService).slice(0, 10) : null;
+    const orParts = [];
+    const params = [agency, client];
+    if (nid) {
+      orParts.push('r.clinical_note_id = ?');
+      params.push(nid);
+    }
+    if (did) {
+      orParts.push('r.draft_id = ?');
+      params.push(did);
+    }
+    if (dos) {
+      orParts.push('r.date_of_service = ?');
+      params.push(dos);
+    }
+    if (!orParts.length) return [];
+    const [rows] = await clinicalPool.execute(
+      `SELECT r.*, o.objective_text, o.scale_target, g.goal_text, g.goal_index, o.objective_index
+       FROM clinical_treatment_objective_ratings r
+       LEFT JOIN clinical_treatment_plan_objectives o ON o.id = r.objective_id
+       LEFT JOIN clinical_treatment_plan_goals g ON g.id = COALESCE(r.goal_id, o.goal_id)
+       WHERE r.agency_id = ? AND r.client_id = ?
+         AND (${orParts.join(' OR ')})
+       ORDER BY g.goal_index ASC, o.objective_index ASC, r.rater_kind ASC, r.id ASC`,
+      params
+    );
+    return rows || [];
+  }
+
+  /** Attach session ratings to a chart note after approve/sign. */
+  static async linkToClinicalNote({
+    agencyId,
+    clientId,
+    clinicalNoteId,
+    draftId = null,
+    dateOfService = null
+  }) {
+    const agency = safeInt(agencyId);
+    const client = safeInt(clientId);
+    const nid = safeInt(clinicalNoteId);
+    if (!agency || !client || !nid) return 0;
+    const did = safeInt(draftId);
+    const dos = dateOfService ? String(dateOfService).slice(0, 10) : null;
+    const orParts = [];
+    const params = [nid, agency, client];
+    if (did) {
+      orParts.push('draft_id = ?');
+      params.push(did);
+    }
+    if (dos) {
+      orParts.push('date_of_service = ?');
+      params.push(dos);
+    }
+    if (!orParts.length) return 0;
+    const [result] = await clinicalPool.execute(
+      `UPDATE clinical_treatment_objective_ratings
+       SET clinical_note_id = ?
+       WHERE clinical_note_id IS NULL
+         AND agency_id = ?
+         AND client_id = ?
+         AND (${orParts.join(' OR ')})`,
+      params
+    );
+    return Number(result?.affectedRows || 0);
+  }
+
   static async deleteByClient({ clientId, agencyId = null }) {
     const cid = safeInt(clientId);
     if (!cid) return 0;

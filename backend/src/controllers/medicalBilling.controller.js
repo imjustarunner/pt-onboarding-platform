@@ -947,6 +947,55 @@ export const getClinicalNoteById = async (req, res, next) => {
     const standalone = !clinicalSessionId && !officeEventId;
     const pendingCosign = await mapPendingSupervisorCosign([note]);
     const needsSupervisorCosign = !!pendingCosign.get(Number(note.id));
+    const structuredChart = metadata?.structuredChart || null;
+
+    let primaryDiagnosis = null;
+    const dxId = note.primary_diagnosis_id || metadata?.primaryDiagnosisId || null;
+    if (dxId) {
+      try {
+        const [dxRows] = await clinicalPool.execute(
+          `SELECT id, icd10_code, description, is_primary, justification
+           FROM clinical_diagnoses
+           WHERE id = ?
+           LIMIT 1`,
+          [Number(dxId)]
+        );
+        primaryDiagnosis = dxRows?.[0] || null;
+      } catch {
+        primaryDiagnosis = null;
+      }
+    }
+    if (!primaryDiagnosis && note.client_id) {
+      try {
+        primaryDiagnosis = await getPrimaryClinicalDiagnosis({
+          agencyId: note.agency_id,
+          clientId: note.client_id
+        });
+      } catch {
+        primaryDiagnosis = null;
+      }
+    }
+
+    let objectiveRatings = [];
+    if (note.client_id) {
+      try {
+        objectiveRatings = await ClinicalTreatmentObjectiveRating.listForClinicalNote({
+          agencyId: note.agency_id,
+          clientId: note.client_id,
+          clinicalNoteId: note.id,
+          draftId: metadata?.draftId || null,
+          dateOfService: metadata?.dateOfService || null
+        });
+      } catch {
+        objectiveRatings = [];
+      }
+    }
+
+    const diagnosticJustification =
+      note.diagnostic_justification
+      || structuredChart?.diagnosticJustification
+      || primaryDiagnosis?.justification
+      || null;
 
     return res.json({
       note: {
@@ -966,7 +1015,34 @@ export const getClinicalNoteById = async (req, res, next) => {
         createdAt: note.created_at,
         updatedAt: note.updated_at,
         outputJson,
-        metadata
+        metadata,
+        structuredChart,
+        primaryDiagnosis: primaryDiagnosis
+          ? {
+              id: primaryDiagnosis.id,
+              icd10Code: primaryDiagnosis.icd10_code || null,
+              description: primaryDiagnosis.description || null,
+              isPrimary: !!primaryDiagnosis.is_primary
+            }
+          : null,
+        diagnosticJustification,
+        objectiveRatings: (objectiveRatings || []).map((r) => ({
+          id: r.id,
+          objectiveId: r.objective_id,
+          goalId: r.goal_id,
+          objectiveText: r.objective_text || null,
+          goalText: r.goal_text || null,
+          goalIndex: r.goal_index,
+          objectiveIndex: r.objective_index,
+          scaleValue: r.scale_value,
+          scaleTarget: r.scale_target_at_rating ?? r.scale_target,
+          disposition: r.disposition,
+          progressLabel: r.progress_label,
+          raterKind: r.rater_kind || 'clinician',
+          raterLabel: r.rater_label || null,
+          dateOfService: r.date_of_service,
+          ratedAt: r.rated_at
+        }))
       }
     });
   } catch (e) {
@@ -1022,6 +1098,26 @@ export const signClinicalNote = async (req, res, next) => {
       });
     } catch (bridgeErr) {
       console.warn('[signClinicalNote] session note task complete failed', bridgeErr?.message || bridgeErr);
+    }
+    try {
+      let meta = {};
+      try {
+        meta =
+          typeof note.metadata_json === 'string'
+            ? JSON.parse(note.metadata_json || '{}')
+            : note.metadata_json || {};
+      } catch {
+        meta = {};
+      }
+      await ClinicalTreatmentObjectiveRating.linkToClinicalNote({
+        agencyId: note.agency_id,
+        clientId: note.client_id,
+        clinicalNoteId: noteId,
+        draftId: meta?.draftId || null,
+        dateOfService: meta?.dateOfService || null
+      });
+    } catch (linkErr) {
+      console.warn('[signClinicalNote] objective rating link failed', linkErr?.message || linkErr);
     }
     return res.json({ ok: true, noteId, contentHash: hash, signedAt: new Date().toISOString() });
   } catch (e) {

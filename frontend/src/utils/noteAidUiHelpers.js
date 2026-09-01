@@ -378,6 +378,151 @@ export function formatFullNoteCopy({
   return lines.join('\n').trim();
 }
 
+function mseStatusLabel(status) {
+  const s = String(status || 'normal').toLowerCase();
+  if (s === 'not_assessed') return 'Not assessed';
+  if (s === 'abnormal') return 'Abnormal';
+  return 'Normal';
+}
+
+/** Read-only MSE lines for chart copy / display. */
+export function formatMentalStatusExamLines(mse, { domains = [] } = {}) {
+  if (!mse) return [];
+  if (mse.allNotAssessed) return ['All domains not assessed'];
+  if (mse.allNormal) return ['All domains within normal limits'];
+  const list = domains.length ? domains : Object.keys(mse.domains || {});
+  const lines = [];
+  for (const domain of list) {
+    const val = mse.domains?.[domain] || { status: 'normal', detail: '' };
+    const label = mseStatusLabel(val.status);
+    const detail = String(val.detail || '').trim();
+    lines.push(detail && val.status === 'abnormal' ? `${domain}: ${label} — ${detail}` : `${domain}: ${label}`);
+  }
+  return lines;
+}
+
+export function formatRiskAssessmentText(risk) {
+  if (!risk) return '';
+  if (risk.patientDeniesAll) return 'Patient denies all areas of risk.';
+  const areas = Array.isArray(risk.areas) ? risk.areas : [];
+  const bits = areas
+    .filter((a) => String(a?.name || '').trim())
+    .map((a) => {
+      const level = a.level ? ` (${String(a.level).replace(/_/g, ' ')})` : '';
+      const details = String(a.details || '').trim();
+      return details ? `${a.name}${level}: ${details}` : `${a.name}${level}`;
+    });
+  return bits.length ? bits.join('\n') : 'Risk areas documented.';
+}
+
+export function formatMedicationsText(medications) {
+  if (!medications) return '';
+  if (medications.noneCurrently) {
+    const comments = String(medications.commentsHtml || medications.comments || '').trim();
+    return comments ? `None currently.\n${comments}` : 'None currently.';
+  }
+  const items = (medications.items || [])
+    .filter((m) => String(m?.name || '').trim())
+    .map((m) => {
+      const dose = String(m.dose || '').trim();
+      return dose ? `${m.name} — ${dose}` : m.name;
+    });
+  const comments = String(medications.commentsHtml || medications.comments || '').trim();
+  return [...items, comments].filter(Boolean).join('\n');
+}
+
+export function formatObjectiveRatingLine(r) {
+  const goal = r.goalIndex != null ? `G${r.goalIndex}` : '';
+  const obj = r.objectiveIndex != null ? `O${r.objectiveIndex}` : '';
+  const prefix = [goal, obj].filter(Boolean).join(' · ');
+  const text = r.objectiveText || r.goalText || 'Objective';
+  const disp = String(r.disposition || 'rated').replace(/_/g, ' ');
+  if (r.disposition && r.disposition !== 'rated') {
+    return `${prefix ? `${prefix} ` : ''}${text}: ${disp}`;
+  }
+  const val = r.scaleValue != null ? `${r.scaleValue}/10` : '—';
+  const target = r.scaleTarget != null ? ` (goal ${r.scaleTarget})` : '';
+  const progress = r.progressLabel ? ` · ${String(r.progressLabel).replace(/_/g, ' ')}` : '';
+  const rater =
+    r.raterKind && r.raterKind !== 'clinician'
+      ? ` · ${r.raterLabel || r.raterKind}`
+      : '';
+  return `${prefix ? `${prefix} ` : ''}${text}: ${val}${target}${progress}${rater}`;
+}
+
+/** Full chart note text including clinical sections + SOAP (for EHR paste). */
+export function formatChartClinicalNoteCopy({
+  note = {},
+  panels = [],
+  mseDomains = []
+} = {}) {
+  const lines = [];
+  const title = note.title || 'Clinical note';
+  lines.push(title);
+  if (note.dateOfService) lines.push(`Date of service: ${String(note.dateOfService).slice(0, 10)}`);
+  if (note.serviceCode) lines.push(`Service code: ${note.serviceCode}`);
+  if (note.noteType) lines.push(`Note type: ${String(note.noteType).replace(/_/g, ' ')}`);
+  const sc = note.structuredChart || note.metadata?.structuredChart || {};
+  if (sc.participants) lines.push(`Participants: ${sc.participants}`);
+  if (sc.durationMinutes != null && sc.durationMinutes !== '') {
+    lines.push(`Duration: ${sc.durationMinutes} min`);
+  }
+  lines.push('');
+
+  const dx = note.primaryDiagnosis;
+  if (dx?.icd10Code || dx?.description) {
+    lines.push('Diagnosis');
+    lines.push([dx.icd10Code, dx.description].filter(Boolean).join(' — '));
+    lines.push('');
+  }
+  const justification = note.diagnosticJustification || sc.diagnosticJustification;
+  if (justification) {
+    lines.push('Diagnostic justification');
+    lines.push(String(justification).trim());
+    lines.push('');
+  }
+
+  const ratings = note.objectiveRatings || [];
+  if (ratings.length) {
+    lines.push('Treatment objective ratings');
+    for (const r of ratings) lines.push(formatObjectiveRatingLine(r));
+    lines.push('');
+  }
+
+  if (sc.skippedMseReason) {
+    lines.push('Mental status exam');
+    lines.push(`Skipped (${sc.skippedMseReason})`);
+    lines.push('');
+  } else if (sc.mentalStatusExam) {
+    lines.push('Mental status exam');
+    for (const line of formatMentalStatusExamLines(sc.mentalStatusExam, { domains: mseDomains })) {
+      lines.push(line);
+    }
+    lines.push('');
+  }
+
+  const riskText = formatRiskAssessmentText(sc.riskAssessment);
+  if (riskText) {
+    lines.push('Risk assessment');
+    lines.push(riskText);
+    lines.push('');
+  }
+
+  const medText = formatMedicationsText(sc.medications);
+  if (medText) {
+    lines.push('Medications');
+    lines.push(medText);
+    lines.push('');
+  }
+
+  for (const panel of panels) {
+    lines.push(panel.title);
+    lines.push(panel.text);
+    lines.push('');
+  }
+  return lines.join('\n').trim();
+}
+
 export function formatDraftListDate(raw) {
   try {
     if (!raw) return { month: '', day: '' };

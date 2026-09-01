@@ -387,6 +387,21 @@ export const createSessionNote = async (req, res, next) => {
       console.warn('[createSessionNote] session note task complete failed', bridgeErr?.message || bridgeErr);
     }
 
+    try {
+      const ClinicalTreatmentObjectiveRating = (
+        await import('../models/clinical/ClinicalTreatmentObjectiveRating.model.js')
+      ).default;
+      await ClinicalTreatmentObjectiveRating.linkToClinicalNote({
+        agencyId: session.agency_id,
+        clientId: session.client_id,
+        clinicalNoteId: note.id,
+        draftId: metadata?.draftId || draftIdMeta || null,
+        dateOfService: metadata?.dateOfService || null
+      });
+    } catch (linkErr) {
+      console.warn('[createSessionNote] objective rating link failed', linkErr?.message || linkErr);
+    }
+
     res.status(201).json({ ok: true, note });
   } catch (error) {
     if (handleSchemaError(error, res)) return;
