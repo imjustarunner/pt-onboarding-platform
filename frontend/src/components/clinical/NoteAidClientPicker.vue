@@ -230,9 +230,13 @@ function onInput() {
 }
 
 watch(
-  () => props.selectedClient,
-  (c) => {
-    if (c && props.modelValue) {
+  () => [props.modelValue, props.selectedClient],
+  ([id, c]) => {
+    if (!id) {
+      query.value = '';
+      return;
+    }
+    if (c) {
       const name = displayName(c);
       query.value = name && !/^Client #\d+$/i.test(name) ? name : '';
     }

@@ -1143,11 +1143,12 @@ import NoteAidWorkQueuePanel from '../../components/clinical/NoteAidWorkQueuePan
 import NoteAidTodoListImportModal from '../../components/clinical/NoteAidTodoListImportModal.vue';
 import NoteAidSessionContextStrip from '../../components/clinical/NoteAidSessionContextStrip.vue';
 import NoteAidStructuredChartPanel from '../../components/clinical/NoteAidStructuredChartPanel.vue';
-import { loadWorkQueue, saveWorkQueue } from '../../utils/noteAidWorkQueue.js';
+import { loadWorkQueue, saveWorkQueue, matchTodoClientFromSearchRows, namesLikelySamePerson } from '../../utils/noteAidWorkQueue.js';
 import {
   DOC_STATUS,
   buildLeftLibraryRows,
   deriveWorkQueueDocStatus,
+  draftMatchesWorkQueueItem,
   normalizeDocStatus,
   sessionDedupeKey
 } from '../../utils/noteAidDocumentationStatus.js';
@@ -1299,7 +1300,7 @@ const retentionClientId = computed(
   () => Number(selectedClientId.value || bookingContext.value?.clientId || 0) || null
 );
 const effectiveClientId = computed(
-  () => Number(selectedClientId.value || bookingContext.value?.clientId || 0) || null
+  () => Number(selectedClientId.value || 0) || null
 );
 const activeTreatmentGoals = computed(() => activePlanGoals(latestTreatmentPlan.value));
 const primaryChartDiagnosis = computed(() => {
@@ -1881,15 +1882,27 @@ const lastSavedAt = ref('');
 let autosaveTimer = null;
 let autosaveBusy = false;
 let workQueueActivateSeq = 0;
+let clientHydrateSeq = 0;
 let autosaveDebounceTimer = null;
 
 function scheduleAutosave(delayMs = 1500) {
   if (!canUseTool.value) return;
   if (autosaveDebounceTimer) clearTimeout(autosaveDebounceTimer);
+  const seq = workQueueActivateSeq;
+  const saveDraftId = draftId.value;
   autosaveDebounceTimer = setTimeout(() => {
     autosaveDebounceTimer = null;
+    if (seq !== workQueueActivateSeq) return;
+    if (saveDraftId && String(draftId.value || '') !== String(saveDraftId)) return;
     autosave();
   }, delayMs);
+}
+
+function cancelPendingAutosave() {
+  if (autosaveDebounceTimer) {
+    clearTimeout(autosaveDebounceTimer);
+    autosaveDebounceTimer = null;
+  }
 }
 
 const looksEncryptedEnvelope = (raw) => {
@@ -3111,6 +3124,7 @@ const programLabel = (programId) => {
 
 const autosave = async () => {
   if (!canUseTool.value || autosaveBusy) return;
+  const seq = workQueueActivateSeq;
 
   let rawInput = String(inputText.value || '');
   // Never persist ciphertext envelopes back into the form field.
@@ -3152,6 +3166,7 @@ const autosave = async () => {
   // from a work-queue click must not spawn a new empty draft each time.
   const hasNoteBody = !!String(payload.inputText || '').trim();
   if (!draftId.value && !hasNoteBody) return;
+  if (seq !== workQueueActivateSeq) return;
 
   autosaveBusy = true;
   try {
@@ -3785,6 +3800,7 @@ const generateNote = async () => {
   try {
     generating.value = true;
     generateError.value = '';
+    const completingQueueItemId = activeWorkQueueItemId.value;
 
     const fd = new FormData();
     fd.append('agencyId', String(noteAidAgencyId.value || currentAgencyId.value));
@@ -3898,7 +3914,7 @@ const generateNote = async () => {
 
     await persistSessionObjectiveRatings();
     await loadRecent();
-    markActiveWorkQueueItemCompleted();
+    markActiveWorkQueueItemCompleted(completingQueueItemId);
   } catch (e) {
     const base = e.response?.data?.error?.message || 'Failed to generate note';
     const details = e.response?.data?.error?.details;
@@ -4465,6 +4481,19 @@ const onClientPicked = async (client) => {
   initialsMatchDismissed.value = true;
   dismissPhiNameWarn.value = false;
   resetClientClinicalContext();
+  if (activeWorkQueueItemId.value && selectedClientId.value) {
+    workQueueItems.value = (workQueueItems.value || []).map((row) =>
+      row.id === activeWorkQueueItemId.value
+        ? {
+            ...row,
+            clientId: selectedClientId.value,
+            clientName: clientDisplayName(normalized) || row.clientName,
+            agencyId: selectedQueueAgencyId.value || row.agencyId
+          }
+        : row
+    );
+    persistWorkQueue();
+  }
   syncRouteNoteClient(selectedClientId.value);
   await hydrateSelectedClient(selectedClientId.value);
   await loadClientAgencyContext(selectedClientId.value);
@@ -4547,8 +4576,10 @@ async function loadClientAgencyContext(clientId) {
 async function hydrateSelectedClient(clientId) {
   const cid = Number(clientId || 0);
   if (!cid) return;
+  const seq = ++clientHydrateSeq;
   try {
     const res = await api.get(`/clients/${cid}`, { skipGlobalLoading: true });
+    if (seq !== clientHydrateSeq) return;
     const raw = res?.data?.client || res?.data;
     const row = normalizeNoteAidClientRow(raw, agencyLookup.value);
     if (row) {
@@ -4855,8 +4886,8 @@ function normalizeWorkQueueItemStatus(item) {
   return { ...item, status: docStatus, docStatus };
 }
 
-function patchActiveWorkQueueStatus(status, extra = {}) {
-  const id = activeWorkQueueItemId.value;
+function patchActiveWorkQueueStatus(status, extra = {}, itemId = null) {
+  const id = itemId || activeWorkQueueItemId.value;
   if (!id) return;
   workQueueItems.value = (workQueueItems.value || []).map((item) =>
     item.id === id
@@ -4864,7 +4895,7 @@ function patchActiveWorkQueueStatus(status, extra = {}) {
           ...item,
           status,
           docStatus: status,
-          draftId: draftId.value || item.draftId || null,
+          draftId: extra.draftId !== undefined ? extra.draftId : (draftId.value || item.draftId || null),
           updatedAt: new Date().toISOString(),
           ...extra
         }
@@ -4873,10 +4904,10 @@ function patchActiveWorkQueueStatus(status, extra = {}) {
   persistWorkQueue();
 }
 
-function markActiveWorkQueueItemCompleted() {
+function markActiveWorkQueueItemCompleted(itemId = null) {
   patchActiveWorkQueueStatus(DOC_STATUS.COMPLETED, {
     completedAt: new Date().toISOString()
-  });
+  }, itemId);
 }
 
 function markActiveWorkQueueItemSigned() {
@@ -4903,8 +4934,16 @@ function onTodoListBuilt({ items }) {
     status: DOC_STATUS.NOT_STARTED,
     docStatus: DOC_STATUS.NOT_STARTED
   }));
-  // Append to the bottom of the existing queue (do not replace).
-  workQueueItems.value = [...(workQueueItems.value || []), ...incoming];
+  const existingKeys = new Set(
+    (workQueueItems.value || []).map((i) => queueItemSessionKey(i)).filter(Boolean)
+  );
+  const appended = incoming.filter((i) => {
+    const k = queueItemSessionKey(i);
+    if (k && existingKeys.has(k)) return false;
+    if (k) existingKeys.add(k);
+    return true;
+  });
+  workQueueItems.value = [...(workQueueItems.value || []), ...appended];
   persistWorkQueue();
   api.post('/clinical-notes/audit', {
     agencyId: noteAidAgencyId.value || currentAgencyId.value,
@@ -4980,7 +5019,9 @@ function onLibrarySidebarSelect(row) {
 
 async function activateWorkQueueItem(item) {
   if (!item) return;
+  cancelPendingAutosave();
   const seq = ++workQueueActivateSeq;
+  clientHydrateSeq += 1;
   const incomingStatus = deriveWorkQueueDocStatus(item);
   const isFinished = incomingStatus === DOC_STATUS.SIGNED || incomingStatus === DOC_STATUS.COMPLETED;
   resetClientClinicalContext();
@@ -5017,10 +5058,10 @@ async function activateWorkQueueItem(item) {
   chartMentalStatus.value = defaultMentalStatusExam();
   chartRiskAssessment.value = defaultRiskAssessment();
   chartMedications.value = defaultMedicationsBlock();
-  draftId.value = item.draftId || null;
+  draftId.value = null;
   outputObj.value = null;
   inputText.value = '';
-  const clientId = Number(item.clientId || 0) || null;
+  let clientId = Number(item.clientId || 0) || null;
   if (clientId) {
     selectedClientId.value = clientId;
     selectedClient.value = {
@@ -5030,10 +5071,27 @@ async function activateWorkQueueItem(item) {
       initials: deriveInitialsFromNameSafe(item.clientName)
     };
     initials.value = deriveInitialsFromNameSafe(item.clientName);
-    // Always hydrate chart fields (DOB, contact, demographics_phi_enc). Queue rows only
-    // carry display name / agencyId — without this, "Need: demographics" sticks after save.
     await hydrateSelectedClient(clientId);
     if (seq !== workQueueActivateSeq) return;
+    if (
+      item.clientName
+      && selectedClient.value?.full_name
+      && !namesLikelySamePerson(item.clientName, selectedClient.value.full_name)
+    ) {
+      const repaired = await resolveQueueClientByName(item);
+      if (seq !== workQueueActivateSeq) return;
+      if (repaired?.clientId) {
+        clientId = repaired.clientId;
+        item = { ...item, clientId, clientName: repaired.clientName || item.clientName };
+        workQueueItems.value = (workQueueItems.value || []).map((row) =>
+          row.id === item.id ? { ...row, clientId, clientName: item.clientName } : row
+        );
+        persistWorkQueue();
+        selectedClientId.value = clientId;
+        await hydrateSelectedClient(clientId);
+        if (seq !== workQueueActivateSeq) return;
+      }
+    }
     if (selectedClient.value && item.clientName && !selectedClient.value.full_name) {
       selectedClient.value = { ...selectedClient.value, full_name: item.clientName };
     }
@@ -5047,10 +5105,38 @@ async function activateWorkQueueItem(item) {
     if (seq !== workQueueActivateSeq) return;
     chartDiagnosticJustification.value = primaryChartDiagnosis.value?.justification || '';
   } else {
-    selectedClientId.value = null;
-    selectedClient.value = null;
-    resetClientClinicalContext();
-    initials.value = String(item.initials || item.clientName || '').trim();
+    const repaired = await resolveQueueClientByName(item);
+    if (seq !== workQueueActivateSeq) return;
+    if (repaired?.clientId) {
+      clientId = repaired.clientId;
+      item = { ...item, clientId, clientName: repaired.clientName || item.clientName };
+      workQueueItems.value = (workQueueItems.value || []).map((row) =>
+        row.id === item.id ? { ...row, clientId, clientName: item.clientName } : row
+      );
+      persistWorkQueue();
+      selectedClientId.value = clientId;
+      selectedClient.value = {
+        id: clientId,
+        full_name: item.clientName,
+        agency_id: item.agencyId
+      };
+      initials.value = deriveInitialsFromNameSafe(item.clientName);
+      await hydrateSelectedClient(clientId);
+      if (seq !== workQueueActivateSeq) return;
+      await loadClientAgencyContext(clientId);
+      if (seq !== workQueueActivateSeq) return;
+      await Promise.all([
+        loadClientTreatmentPlan(clientId),
+        loadClientIntakeSummary(clientId),
+        loadClientGuardianNames(clientId)
+      ]);
+      if (seq !== workQueueActivateSeq) return;
+    } else {
+      selectedClientId.value = null;
+      selectedClient.value = null;
+      resetClientClinicalContext();
+      initials.value = deriveInitialsFromNameSafe(item.clientName || item.initials);
+    }
   }
 
   if (item.noteKind === 'intake') {
@@ -5084,15 +5170,7 @@ async function activateWorkQueueItem(item) {
     selectedServiceCode.value = code;
   }
 
-  if (item.officeEventId || item.clientId) {
-    const nextQuery = { ...route.query, launchIntent: 'work_queue' };
-    if (item.clientId) nextQuery.clientId = String(item.clientId);
-    if (item.officeEventId) nextQuery.officeEventId = String(item.officeEventId);
-    if (item.clinicalSessionId) nextQuery.clinicalSessionId = String(item.clinicalSessionId);
-    if (item.serviceCode) nextQuery.serviceCode = String(item.serviceCode);
-    if (item.date) nextQuery.dateOfService = String(item.date).slice(0, 10);
-    router.replace({ query: nextQuery }).catch(() => {});
-  }
+  syncWorkQueueRouteQuery(item);
 
   configExpanded.value = true;
   noteWizardStep.value = 1;
@@ -5102,7 +5180,10 @@ async function activateWorkQueueItem(item) {
   if (seq !== workQueueActivateSeq) return;
   const reuse = findReusableLocalDraft(item);
   if (reuse) {
-    await loadDraftIntoWorkspace(reuse, { preserveWorkQueueItemId: true });
+    await loadDraftIntoWorkspace(reuse, {
+      preserveWorkQueueItemId: true,
+      expectedClientId: clientId
+    });
     if (seq !== workQueueActivateSeq) return;
     activeWorkQueueItemId.value = item.id;
     if (item.officeEventId) sessionOfficeEventId.value = item.officeEventId;
@@ -5128,9 +5209,21 @@ async function activateWorkQueueItem(item) {
 }
 
 async function ensureWorkQueueDraft(item) {
-  if (!item || item.draftId || draftId.value) return;
+  if (!item) return;
+  if (item.draftId) {
+    const linked = (recentDrafts.value || []).find((d) => String(d.id) === String(item.draftId));
+    if (linked && draftMatchesWorkQueueItem(linked, item)) {
+      draftId.value = linked.id;
+      return;
+    }
+  }
+  if (draftId.value) {
+    const current = (recentDrafts.value || []).find((d) => String(d.id) === String(draftId.value));
+    if (current && draftMatchesWorkQueueItem(current, item)) return;
+    draftId.value = null;
+  }
   const agencyId = Number(item.agencyId || noteAidAgencyId.value || currentAgencyId.value || 0);
-  const clientId = Number(item.clientId || 0) || null;
+  const clientId = Number(item.clientId || selectedClientId.value || 0) || null;
   if (!agencyId) return;
   try {
     const res = await api.post('/clinical-notes/drafts', {
@@ -5165,7 +5258,7 @@ function findReusableLocalDraft(item) {
   const list = recentDrafts.value || [];
   if (item.draftId) {
     const linked = list.find((d) => String(d.id) === String(item.draftId));
-    if (linked) return linked;
+    if (linked && draftMatchesWorkQueueItem(linked, item)) return linked;
   }
   const key = sessionDedupeKey({
     officeEventId: item.officeEventId,
@@ -5175,11 +5268,49 @@ function findReusableLocalDraft(item) {
     service_code: item.serviceCode
   });
   if (!key) return null;
-  return list.find((d) => {
-    if (sessionDedupeKey(d) !== key) return false;
-    if (item.clientId && d.client_id && Number(d.client_id) !== Number(item.clientId)) return false;
-    return true;
-  }) || null;
+  return list.find((d) => sessionDedupeKey(d) === key && draftMatchesWorkQueueItem(d, item)) || null;
+}
+
+function syncWorkQueueRouteQuery(item) {
+  const nextQuery = { ...route.query, launchIntent: 'work_queue' };
+  delete nextQuery.draftId;
+  delete nextQuery.draft_id;
+  delete nextQuery.clinicalNoteId;
+  delete nextQuery.clinical_note_id;
+  delete nextQuery.officeEventId;
+  delete nextQuery.office_event_id;
+  delete nextQuery.clinicalSessionId;
+  delete nextQuery.clinical_session_id;
+  if (item?.clientId) {
+    nextQuery.clientId = String(item.clientId);
+    delete nextQuery.client_id;
+  } else {
+    delete nextQuery.clientId;
+    delete nextQuery.client_id;
+  }
+  if (item?.officeEventId) nextQuery.officeEventId = String(item.officeEventId);
+  if (item?.clinicalSessionId) nextQuery.clinicalSessionId = String(item.clinicalSessionId);
+  if (item?.serviceCode) nextQuery.serviceCode = String(item.serviceCode);
+  if (item?.date) nextQuery.dateOfService = String(item.date).slice(0, 10);
+  router.replace({ query: nextQuery }).catch(() => {});
+}
+
+async function resolveQueueClientByName(item) {
+  const name = String(item?.clientName || '').trim();
+  const agencyId = Number(item?.agencyId || noteAidAgencyId.value || currentAgencyId.value || 0);
+  if (!name || !agencyId) return null;
+  try {
+    const searchRes = await api.get('/clients', {
+      params: { agency_id: agencyId, search: name, limit: 20 },
+      skipGlobalLoading: true
+    });
+    const rows = searchRes?.data?.clients || searchRes?.data || [];
+    const match = matchTodoClientFromSearchRows(name, rows);
+    if (!match?.id) return null;
+    return { clientId: Number(match.id), clientName: match.full_name || name };
+  } catch {
+    return null;
+  }
 }
 
 function deriveInitialsFromNameSafe(name) {
@@ -5447,6 +5578,11 @@ const startNewNoteDifferentService = () => {
 const loadDraftIntoWorkspace = async (d, options = {}) => {
   if (!d) return;
   const preserveWorkQueue = !!options.preserveWorkQueueItemId;
+  const expectedClientId = Number(options.expectedClientId || 0) || null;
+  const draftStampClientId = Number(d.client_id || d.clientId || 0) || null;
+  if (expectedClientId && draftStampClientId && expectedClientId !== draftStampClientId) {
+    return;
+  }
   viewingChartNote.value = null;
   draftId.value = d.id || null;
   noteAidAgencyChoiceId.value = null;
@@ -5474,7 +5610,8 @@ const loadDraftIntoWorkspace = async (d, options = {}) => {
   selectedProgramId.value = d.program_id ? String(d.program_id) : '';
   dateOfService.value = d.date_of_service ? String(d.date_of_service).slice(0, 10) : todayIsoDate();
   initials.value = d.initials || '';
-  const draftClientId = resolveDraftClientIdOnLoad(d);
+  let draftClientId = expectedClientId || resolveDraftClientIdOnLoad(d);
+  if (expectedClientId) draftClientId = expectedClientId;
   if (draftClientId) {
     if (draftClientId !== Number(selectedClientId.value || 0)) {
       selectedClientId.value = draftClientId;
@@ -5500,7 +5637,7 @@ const loadDraftIntoWorkspace = async (d, options = {}) => {
     clientAgencyMembershipIds.value = [];
     learningSponsorAgencyIds.value = [];
     resetClientClinicalContext();
-    syncRouteNoteClient(null);
+    if (!expectedClientId) syncRouteNoteClient(null);
   }
 
   // Prefer client-owned tenant over a workspace-misattributed draft stamp.
@@ -5882,6 +6019,11 @@ watch([serviceCodeOptions, forceAutoSelect, canUseTool], () => {
 });
 
 watch(() => route.query, () => {
+  if (String(route.query?.launchIntent || '') === 'work_queue') {
+    bookingPrefillApplied.value = false;
+    applyBookingContextPrefill();
+    return;
+  }
   bookingPrefillApplied.value = false;
   therapyPrefillApplied.value = false;
   recordSessionIntentHandled.value = false;

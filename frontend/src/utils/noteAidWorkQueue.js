@@ -188,6 +188,46 @@ export function parseNoteAidTodoList(rawText) {
   return { items, skipped, unparsed };
 }
 
+export function normalizePersonNameKey(raw) {
+  return String(raw || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+export function namesLikelySamePerson(a, b) {
+  const na = normalizePersonNameKey(a);
+  const nb = normalizePersonNameKey(b);
+  if (!na || !nb) return false;
+  if (na === nb) return true;
+  const pa = na.split(' ');
+  const pb = nb.split(' ');
+  if (pa.length < 2 || pb.length < 2) return false;
+  return pa[0] === pb[0] && pa[pa.length - 1] === pb[pb.length - 1];
+}
+
+/**
+ * Attach a ToDo name to an existing client only on a unique exact (or unique first+last) match.
+ * Do not use substring matches — "Ann" must not steal "Joanna" / a prior queue client.
+ */
+export function matchTodoClientFromSearchRows(todoName, rows = []) {
+  const nameKey = normalizePersonNameKey(todoName);
+  if (!nameKey) return null;
+  const list = Array.isArray(rows) ? rows : [];
+
+  const exact = list.filter((c) => {
+    const full = normalizePersonNameKey(c.full_name || c.fullName || '');
+    const firstLast = normalizePersonNameKey(
+      [c.first_name || c.firstName, c.last_name || c.lastName].filter(Boolean).join(' ')
+    );
+    return full === nameKey || (firstLast && firstLast === nameKey);
+  });
+  if (exact.length === 1) return exact[0];
+  if (exact.length > 1) return null;
+  return null;
+}
+
 export function deriveInitialsFromName(fullName) {
   const parts = String(fullName || '')
     .trim()

@@ -376,6 +376,30 @@ export function sessionDedupeKey(row = {}) {
   return null;
 }
 
+/** True only when a draft is the same person/session as this ToDo row. */
+export function draftMatchesWorkQueueItem(draft, item) {
+  if (!draft || !item) return false;
+  const itemClient = Number(item.clientId || item.client_id || 0);
+  const draftClient = Number(draft.client_id || draft.clientId || 0);
+  if (itemClient && draftClient && itemClient !== draftClient) return false;
+  const itemOe = Number(item.officeEventId || item.office_event_id || 0);
+  const draftOe = Number(draft.office_event_id || draft.officeEventId || 0);
+  if (itemOe && draftOe && itemOe !== draftOe) return false;
+  if (item.draftId && String(draft.id) === String(item.draftId)) {
+    return !itemClient || !draftClient || itemClient === draftClient;
+  }
+  const itemKey = sessionDedupeKey({
+    officeEventId: item.officeEventId,
+    clinicalSessionId: item.clinicalSessionId,
+    clientId: item.clientId,
+    date_of_service: item.date,
+    service_code: item.serviceCode
+  });
+  const draftKey = sessionDedupeKey(draft);
+  if (itemKey && draftKey && itemKey === draftKey) return true;
+  return false;
+}
+
 function libraryRowRank(row) {
   let n = 0;
   if (row?.source === 'draft') n += 20;

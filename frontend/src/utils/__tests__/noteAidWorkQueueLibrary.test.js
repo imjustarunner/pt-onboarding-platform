@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { filterClinicalNoteDrafts, groupClinicalNoteDrafts } from '../clinicalNoteLibrary.js';
-import { parseNoteAidTodoList } from '../noteAidWorkQueue.js';
+import { parseNoteAidTodoList, matchTodoClientFromSearchRows, namesLikelySamePerson } from '../noteAidWorkQueue.js';
 import {
   DOC_STATUS,
   NOTE_CONNECTION,
@@ -8,6 +8,7 @@ import {
   filterLeftLibraryRows,
   filterWorkQueueForRightPanel,
   groupLeftLibraryRows,
+  draftMatchesWorkQueueItem,
   deriveDraftDocStatus,
   deriveWorkQueueDocStatus,
   deriveNoteConnection
@@ -244,5 +245,40 @@ describe('noteAidDocumentationStatus panels', () => {
     expect(byDos).toHaveLength(1);
     expect(byDos[0].label).toBe('2026-08-01');
     expect(byDos[0].drafts).toHaveLength(2);
+  });
+});
+
+describe('todo client matching', () => {
+  const rows = [
+    { id: 1, full_name: 'Cole Pratt', first_name: 'Cole', last_name: 'Pratt' },
+    { id: 2, full_name: 'Colleen Pratt', first_name: 'Colleen', last_name: 'Pratt' }
+  ];
+
+  it('requires a unique exact name, not a substring', () => {
+    expect(matchTodoClientFromSearchRows('Cole Pratt', rows)?.id).toBe(1);
+    expect(matchTodoClientFromSearchRows('Colleen Pratt', rows)?.id).toBe(2);
+    expect(matchTodoClientFromSearchRows('Col', rows)).toBeNull();
+    expect(matchTodoClientFromSearchRows('Pratt', rows)).toBeNull();
+  });
+
+  it('does not treat similar first names as the same person', () => {
+    expect(namesLikelySamePerson('Cole Pratt', 'Colleen Pratt')).toBe(false);
+    expect(namesLikelySamePerson('Cole Pratt', 'Cole Pratt')).toBe(true);
+  });
+});
+
+describe('draftMatchesWorkQueueItem', () => {
+  it('rejects another client even when draftId is copied', () => {
+    expect(draftMatchesWorkQueueItem(
+      { id: 10, client_id: 1, input_text: 'first' },
+      { id: 'q2', draftId: 10, clientId: 2 }
+    )).toBe(false);
+  });
+
+  it('accepts the same client session', () => {
+    expect(draftMatchesWorkQueueItem(
+      { id: 10, client_id: 2, date_of_service: '2026-09-01', service_code: '90837' },
+      { id: 'q2', clientId: 2, date: '2026-09-01', serviceCode: '90837' }
+    )).toBe(true);
   });
 });

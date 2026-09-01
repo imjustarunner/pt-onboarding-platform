@@ -79,6 +79,7 @@ import { useAuthStore } from '../../store/auth';
 import { noteAidTenantOptions } from '../../utils/noteAidTreatmentHelpers.js';
 import {
   deriveInitialsFromName,
+  matchTodoClientFromSearchRows,
   parseNoteAidTodoList
 } from '../../utils/noteAidWorkQueue.js';
 
@@ -196,13 +197,7 @@ async function findOrCreateClient(item, agencyId, organizationId) {
       skipGlobalLoading: true
     });
     const rows = searchRes?.data?.clients || searchRes?.data || [];
-    const nameKey = name.toLowerCase();
-    const initialsKey = initials.toLowerCase();
-    const match = (rows || []).find((c) => {
-      const full = String(c.full_name || c.fullName || '').trim().toLowerCase();
-      const ini = String(c.initials || '').trim().toLowerCase();
-      return full === nameKey || ini === initialsKey || full.includes(nameKey);
-    });
+    const match = matchTodoClientFromSearchRows(name, rows);
     if (match?.id) {
       return { clientId: Number(match.id), clientName: match.full_name || name, created: false };
     }
