@@ -1212,25 +1212,9 @@ export const finalizeClientIntakeNote = async (req, res, next) => {
           });
         }
 
-        treatmentPlan = await ClinicalTreatmentPlan.create({
-          agencyId,
-          clientId,
-          title: `Intake Treatment Plan — ${draftNow.service_code}`,
-          status: 'draft',
-          sourceToolId: draftNow.tool_id,
-          createdByUserId: req.user.id,
-          goals,
-          primaryDiagnosisId,
-          diagnosticJustification
-        });
-
-        if (treatmentPlan?.id && primaryDiagnosisId) {
-          await attachDiagnosisToTreatmentPlan({
-            planId: treatmentPlan.id,
-            primaryDiagnosisId,
-            diagnosticJustification
-          });
-        }
+        // Do not auto-create a chart treatment plan from intake finalize.
+        // Intake owns the note + diagnoses; clinicians create real plans via Note Aid import.
+        treatmentPlan = null;
       }
     } catch (e) {
       // Failing to create the TP should not block note finalization — log and continue.

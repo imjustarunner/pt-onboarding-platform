@@ -19,7 +19,7 @@ export function isIntakeAutoTreatmentPlan(plan) {
  * @param {Array<object>} plans
  * @returns {object|null}
  */
-export function pickAuthoritativeTreatmentPlan(plans = []) {
+  export function pickAuthoritativeTreatmentPlan(plans = []) {
   const list = (Array.isArray(plans) ? plans : []).filter(Boolean);
   if (!list.length) return null;
   const imported = list.find((p) => isNoteAidPlanImport(p));

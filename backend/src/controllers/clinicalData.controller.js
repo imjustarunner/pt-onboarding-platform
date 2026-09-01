@@ -111,12 +111,65 @@ export const bootstrapClinicalSession = async (req, res, next) => {
     const agencyId = parseIntValue(req.body?.agencyId);
     const clientId = parseIntValue(req.body?.clientId);
     const officeEventId = parseIntValue(req.body?.officeEventId);
-    if (!agencyId || !clientId || !officeEventId) {
-      return res.status(400).json({ error: { message: 'agencyId, clientId, and officeEventId are required' } });
+    const noteOnly = ['1', 'true', true, 1].includes(req.body?.noteOnly)
+      || ['1', 'true', true, 1].includes(req.body?.note_only);
+    const serviceDate = req.body?.serviceDate || req.body?.dateOfService
+      ? String(req.body.serviceDate || req.body.dateOfService).slice(0, 10)
+      : null;
+    const serviceCode = req.body?.serviceCode ? String(req.body.serviceCode).trim().toUpperCase() : null;
+
+    if (!agencyId || !clientId) {
+      return res.status(400).json({ error: { message: 'agencyId and clientId are required' } });
+    }
+    if (!officeEventId && !noteOnly) {
+      return res.status(400).json({ error: { message: 'officeEventId is required unless noteOnly is true' } });
     }
 
     await ClinicalEligibilityService.ensureAgencyAccess({ reqUser: req.user, agencyId });
     await ClinicalEligibilityService.assertAgencyHasClinicalOrg(agencyId);
+
+    if (noteOnly && !officeEventId) {
+      const { ensureNoteOnlyClinicalRecord } = await import('../services/billingEncounterClinical.service.js');
+      const titleBits = [
+        String(req.body?.noteType || 'PROGRESS_NOTE').replace(/_/g, ' '),
+        serviceCode ? `(${serviceCode})` : null,
+        serviceDate || null
+      ].filter(Boolean);
+      const ensured = await ensureNoteOnlyClinicalRecord({
+        agencyId,
+        clientId,
+        providerUserId: req.user.id,
+        serviceDate,
+        title: titleBits.join(' ').slice(0, 200) || 'Clinical note',
+        actingUserId: req.user.id,
+        createStubNote: false
+      });
+      const sessionId = Number(ensured?.clinicalSessionId || 0);
+      if (!sessionId) {
+        return res.status(500).json({ error: { message: 'Could not create note-only clinical session' } });
+      }
+      // Tag session for Note Aid eligibility without calendar attachment.
+      try {
+        const clinicalPool = (await import('../config/clinicalDatabase.js')).default;
+        await clinicalPool.execute(
+          `UPDATE clinical_sessions
+           SET service_code = COALESCE(?, service_code),
+               metadata_json = JSON_SET(
+                 COALESCE(metadata_json, JSON_OBJECT()),
+                 '$.source', 'note_aid_note_only',
+                 '$.missingCalendarAttachment', true,
+                 '$.serviceDate', CAST(? AS JSON)
+               )
+           WHERE id = ?`,
+          [serviceCode, serviceDate ? JSON.stringify(serviceDate) : 'null', sessionId]
+        );
+      } catch {
+        // best-effort metadata stamp
+      }
+      const session = await ClinicalSession.findById(sessionId);
+      return res.json({ ok: true, session, noteOnly: true });
+    }
+
     const { event } = await ClinicalEligibilityService.assertBookedClinicalSession({ agencyId, clientId, officeEventId });
 
     const session = await ClinicalSession.upsert({
@@ -219,15 +272,33 @@ export const createSessionNote = async (req, res, next) => {
       source: req.body?.source ? String(req.body.source).trim() : null,
       payloadEncrypted: !!(notePayload && notePayload !== notePayloadRaw)
     };
-    const note = await ClinicalNote.create({
-      clinicalSessionId: session.id,
-      agencyId: session.agency_id,
-      clientId: session.client_id,
-      title,
-      notePayload,
-      metadataJson: metadata,
-      createdByUserId: req.user.id
-    });
+    const draftIdMeta = parseIntValue(metadata.draftId);
+    let note = null;
+    if (draftIdMeta) {
+      note = await ClinicalNote.findByDraftId({
+        clientId: session.client_id,
+        draftId: draftIdMeta
+      });
+      if (note) {
+        note = await ClinicalNote.updatePayload({
+          noteId: note.id,
+          title,
+          notePayload,
+          metadataJson: { ...metadata, draftId: draftIdMeta }
+        });
+      }
+    }
+    if (!note) {
+      note = await ClinicalNote.create({
+        clinicalSessionId: session.id,
+        agencyId: session.agency_id,
+        clientId: session.client_id,
+        title,
+        notePayload,
+        metadataJson: metadata,
+        createdByUserId: req.user.id
+      });
+    }
 
     // Attach primary diagnosis + justification snapshot when available (intake chart spine).
     try {

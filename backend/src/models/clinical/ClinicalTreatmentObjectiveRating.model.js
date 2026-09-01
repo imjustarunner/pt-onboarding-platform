@@ -199,6 +199,62 @@ class ClinicalTreatmentObjectiveRating {
     }
     return map;
   }
+
+  /** Latest rating for objective + rater + date of service (dedupe key). */
+  static async findLatestForDedupe({
+    objectiveId,
+    raterKind = 'clinician',
+    dateOfService = null
+  }) {
+    const oid = safeInt(objectiveId);
+    if (!oid) return null;
+    const kind = String(raterKind || 'clinician').trim().toLowerCase();
+    const dos = dateOfService ? String(dateOfService).slice(0, 10) : null;
+    const params = [oid, kind];
+    let dosSql = ' AND date_of_service IS NULL';
+    if (dos) {
+      dosSql = ' AND date_of_service = ?';
+      params.push(dos);
+    }
+    try {
+      const [rows] = await clinicalPool.execute(
+        `SELECT *
+         FROM clinical_treatment_objective_ratings
+         WHERE objective_id = ?
+           AND COALESCE(rater_kind, 'clinician') = ?
+           ${dosSql}
+         ORDER BY rated_at DESC, id DESC
+         LIMIT 1`,
+        params
+      );
+      return rows?.[0] || null;
+    } catch (e) {
+      if (e?.code !== 'ER_BAD_FIELD_ERROR') throw e;
+      const [rows] = await clinicalPool.execute(
+        `SELECT *
+         FROM clinical_treatment_objective_ratings
+         WHERE objective_id = ?
+           ${dos ? 'AND date_of_service = ?' : 'AND date_of_service IS NULL'}
+         ORDER BY rated_at DESC, id DESC
+         LIMIT 1`,
+        dos ? [oid, dos] : [oid]
+      );
+      return rows?.[0] || null;
+    }
+  }
+
+  static async deleteByClient({ clientId, agencyId = null }) {
+    const cid = safeInt(clientId);
+    if (!cid) return 0;
+    const aid = safeInt(agencyId);
+    const [result] = await clinicalPool.execute(
+      aid
+        ? 'DELETE FROM clinical_treatment_objective_ratings WHERE client_id = ? AND agency_id = ?'
+        : 'DELETE FROM clinical_treatment_objective_ratings WHERE client_id = ?',
+      aid ? [cid, aid] : [cid]
+    );
+    return Number(result?.affectedRows || 0);
+  }
 }
 
 export default ClinicalTreatmentObjectiveRating;

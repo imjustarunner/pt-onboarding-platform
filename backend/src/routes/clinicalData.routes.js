@@ -41,7 +41,13 @@ router.post(
   [
     body('agencyId').isInt({ min: 1 }),
     body('clientId').isInt({ min: 1 }),
-    body('officeEventId').isInt({ min: 1 }),
+    body('officeEventId').optional({ nullable: true }).isInt({ min: 1 }),
+    body('noteOnly').optional(),
+    body('note_only').optional(),
+    body('serviceDate').optional().isString(),
+    body('dateOfService').optional().isString(),
+    body('serviceCode').optional().isString(),
+    body('noteType').optional().isString(),
     body('sourceTimezone').optional().isString().isLength({ min: 2, max: 64 })
   ],
   bootstrapClinicalSession

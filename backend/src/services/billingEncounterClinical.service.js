@@ -204,7 +204,8 @@ export async function ensureNoteOnlyClinicalRecord({
   providerUserId = null,
   serviceDate = null,
   title = 'Clinical note',
-  actingUserId = null
+  actingUserId = null,
+  createStubNote = true
 }) {
   const aid = Number(agencyId);
   const cid = Number(clientId);
@@ -266,6 +267,7 @@ export async function ensureNoteOnlyClinicalRecord({
 
   if (!sessionId) return null;
 
+  if (createStubNote) {
   try {
     const [notes] = await clinicalPool.execute(
       `SELECT id FROM clinical_notes
@@ -289,6 +291,7 @@ export async function ensureNoteOnlyClinicalRecord({
     }
   } catch (e) {
     console.warn('[billingEncounterClinical] note stub create failed', e?.message || e);
+  }
   }
 
   return { clinicalSessionId: sessionId };

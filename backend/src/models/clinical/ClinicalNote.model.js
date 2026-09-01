@@ -40,6 +40,53 @@ class ClinicalNote {
     return rows?.[0] || null;
   }
 
+  static async findByDraftId({ clientId, draftId }) {
+    const cid = Number(clientId || 0);
+    const did = Number(draftId || 0);
+    if (!cid || !did) return null;
+    try {
+      const [rows] = await clinicalPool.execute(
+        `SELECT *
+         FROM clinical_notes
+         WHERE client_id = ?
+           AND is_deleted = 0
+           AND JSON_UNQUOTE(JSON_EXTRACT(metadata_json, '$.draftId')) = ?
+         ORDER BY id DESC
+         LIMIT 1`,
+        [cid, String(did)]
+      );
+      return rows?.[0] || null;
+    } catch {
+      return null;
+    }
+  }
+
+  static async updatePayload({ noteId, title = null, notePayload = null, metadataJson = null }) {
+    const nid = Number(noteId || 0);
+    if (!nid) return null;
+    const updates = [];
+    const values = [];
+    if (title != null) {
+      updates.push('title = ?');
+      values.push(String(title).slice(0, 255));
+    }
+    if (notePayload !== undefined) {
+      updates.push('note_payload = ?');
+      values.push(notePayload);
+    }
+    if (metadataJson !== undefined) {
+      updates.push('metadata_json = ?');
+      values.push(metadataJson ? JSON.stringify(metadataJson) : null);
+    }
+    if (!updates.length) return this.findById(nid);
+    values.push(nid);
+    await clinicalPool.execute(
+      `UPDATE clinical_notes SET ${updates.join(', ')}, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+      values
+    );
+    return this.findById(nid);
+  }
+
   static async listBySession({ clinicalSessionId, includeDeleted = false }) {
     const sid = Number(clinicalSessionId || 0);
     if (!sid) return [];

@@ -17,6 +17,14 @@ test('pickAuthoritativeTreatmentPlan prefers note_aid_plan_import over intake dr
   assert.equal(isNoteAidPlanImport(picked), true);
 });
 
+test('pickAuthoritativeTreatmentPlan returns null when only intake auto-drafts exist', () => {
+  const plans = [
+    { id: 2, title: 'Intake Treatment Plan — 90791', source_tool_id: 'clinical_90791_intake_plan' }
+  ];
+  const picked = pickAuthoritativeTreatmentPlan(plans);
+  assert.equal(picked, null);
+});
+
 test('resolvePrimaryDiagnosisForChart uses plan primary + justification', () => {
   const diagnoses = [
     { id: 10, icd10_code: 'F41.1', is_primary: 1, is_active: 1, justification: 'From intake' },

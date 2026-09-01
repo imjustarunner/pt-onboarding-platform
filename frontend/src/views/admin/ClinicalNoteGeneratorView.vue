@@ -1287,13 +1287,10 @@ const therapyContext = computed(() => {
 
 const canApproveToClinicalRecord = computed(
   () => !chartNoteReadOnly.value && !!(
-    (bookingContext.value?.clientId || sessionOfficeEventId.value || effectiveClientId.value)
-    && (
-      bookingContext.value?.officeEventId
-      || bookingContext.value?.clinicalSessionId
-      || sessionOfficeEventId.value
-      || sessionClinicalSessionId.value
-    )
+    bookingContext.value?.clientId
+    || sessionOfficeEventId.value
+    || sessionClinicalSessionId.value
+    || effectiveClientId.value
   )
 );
 const retentionClientId = computed(
@@ -1729,6 +1726,13 @@ const sessionParticipantsFlag = computed(() => {
 });
 const canConfirmAndSign = computed(() => {
   if (sessionParticipantsFlag.value) return false;
+  const hasScheduledSession = !!(
+    bookingContext.value?.officeEventId
+    || sessionOfficeEventId.value
+    || bookingContext.value?.clinicalSessionId
+  );
+  // Note-only (no calendar) generates can save without MSE; scheduled sessions still require it.
+  if (!hasScheduledSession) return true;
   if (!skipMentalStatusExam.value) {
     const domains = chartMentalStatus.value?.domains || {};
     const hasAny = Object.keys(domains).length > 0;
@@ -3945,8 +3949,13 @@ const generateNote = async () => {
     }
 
     await persistSessionObjectiveRatings();
+    sessionObjectiveRatings.value = [];
     await loadRecent();
     markActiveWorkQueueItemCompleted(completingQueueItemId);
+    // Client-linked generates write to the chart so Progress notes / Medical record update.
+    if (effectiveClientId.value && outputObj.value && canApproveToClinicalRecord.value) {
+      await approveNoteOutput({ silent: true });
+    }
   } catch (e) {
     const base = e.response?.data?.error?.message || 'Failed to generate note';
     const details = e.response?.data?.error?.details;
@@ -4025,9 +4034,26 @@ const ensureClinicalSessionForApproval = async () => {
   const clientId = Number(
     bookingContext.value?.clientId || selectedClientId.value || effectiveClientId.value || 0
   );
-  if (!agencyId || !officeEventId || !clientId) {
-    throw new Error('Missing appointment context (agencyId, officeEventId, or clientId). Open Note Aid from a booked schedule slot or a billing medical-record session.');
+  if (!agencyId || !clientId) {
+    throw new Error('Link a client before saving this note to the clinical record.');
   }
+
+  if (!officeEventId) {
+    const res = await api.post('/clinical-data/sessions/bootstrap', {
+      agencyId,
+      clientId,
+      noteOnly: true,
+      serviceDate: dateOfService.value ? String(dateOfService.value).slice(0, 10) : null,
+      serviceCode: actualServiceCode.value || null,
+      noteType: bookingContext.value?.noteType || 'PROGRESS_NOTE',
+      sourceTimezone: 'America/New_York'
+    });
+    const sessionId = Number(res?.data?.session?.id || 0) || null;
+    if (!sessionId) throw new Error('Could not create a chart session for this note.');
+    sessionClinicalSessionId.value = sessionId;
+    return sessionId;
+  }
+
   const res = await api.post('/clinical-data/sessions/bootstrap', {
     agencyId,
     clientId,
@@ -4040,30 +4066,41 @@ const ensureClinicalSessionForApproval = async () => {
   return sessionId;
 };
 
-const approveNoteOutput = async () => {
+const approveNoteOutput = async ({ silent = false } = {}) => {
   if (!mergedSectionEntries.value.length) return;
   if (approvingNote.value) return;
-  if (!canConfirmAndSign.value) {
-    approvalError.value = sessionParticipantsFlag.value
-      ? 'Update Participants — session content suggests others were present.'
-      : 'Complete required chart sections before signing.';
+  const hasScheduledSession = !!(
+    bookingContext.value?.officeEventId
+    || sessionOfficeEventId.value
+    || bookingContext.value?.clinicalSessionId
+  );
+  if (hasScheduledSession && !canConfirmAndSign.value) {
+    if (!silent) {
+      approvalError.value = sessionParticipantsFlag.value
+        ? 'Update Participants — session content suggests others were present.'
+        : 'Complete required chart sections before signing.';
+    }
     return;
   }
-  const ok = window.confirm(
-    activeWorkQueueItemId.value
-      ? 'Confirm this note is accurate and sign it?'
-      : 'Approve this note and clear transcript/audio from this form?'
-  );
-  if (!ok) return;
+  if (!silent) {
+    const ok = window.confirm(
+      activeWorkQueueItemId.value
+        ? 'Confirm this note is accurate and sign it?'
+        : 'Approve this note and save it to the client chart?'
+    );
+    if (!ok) return;
+  }
   try {
     approvingNote.value = true;
     approvalError.value = '';
-    approvalMessage.value = '';
+    if (!silent) approvalMessage.value = '';
     const sessionId = await ensureClinicalSessionForApproval();
     const approvedPayload = buildApprovedPayloadText();
     if (!approvedPayload) throw new Error('No approved note content available to persist.');
     const serviceCodeForMetadata = actualServiceCode.value || null;
-    const title = `${bookingContext.value.noteType} ${serviceCodeForMetadata ? `(${serviceCodeForMetadata}) ` : ''}${new Date().toISOString().slice(0, 10)}`.trim();
+    const noteType = bookingContext.value?.noteType || 'PROGRESS_NOTE';
+    const dos = dateOfService.value ? String(dateOfService.value).slice(0, 10) : new Date().toISOString().slice(0, 10);
+    const title = `${String(noteType).replace(/_/g, ' ')} ${serviceCodeForMetadata ? `(${serviceCodeForMetadata}) ` : ''}${dos}`.trim();
     const structuredChart = {
       diagnosticJustification: chartDiagnosticJustification.value || null,
       mentalStatusExam: skipMentalStatusExam.value ? null : chartMentalStatus.value,
@@ -4076,13 +4113,13 @@ const approveNoteOutput = async () => {
     const createRes = await api.post(`/clinical-data/sessions/${sessionId}/notes`, {
       title,
       notePayload: approvedPayload,
-      noteType: bookingContext.value.noteType,
-      templateVersion: bookingContext.value.templateVersion,
+      noteType,
+      templateVersion: bookingContext.value?.templateVersion || 'v1',
       serviceCode: serviceCodeForMetadata,
-      officeEventId: bookingContext.value.officeEventId || sessionOfficeEventId.value || undefined,
-      source: (bookingContext.value.officeEventId || sessionOfficeEventId.value)
+      officeEventId: bookingContext.value?.officeEventId || sessionOfficeEventId.value || undefined,
+      source: (bookingContext.value?.officeEventId || sessionOfficeEventId.value)
         ? 'note_aid_approval'
-        : 'billing_import_note_approval',
+        : 'note_aid_note_only',
       primaryDiagnosisId: primaryChartDiagnosis.value?.id || null,
       diagnosticJustification:
         chartDiagnosticJustification.value || primaryChartDiagnosis.value?.justification || null,
@@ -4090,10 +4127,12 @@ const approveNoteOutput = async () => {
         generatedBy: 'clinical_note_generator',
         model: outputObj.value?.meta?.model || null,
         toolId: outputObj.value?.meta?.toolId || null,
+        draftId: draftId.value || null,
         approvedAt: new Date().toISOString(),
         primaryDiagnosisId: primaryChartDiagnosis.value?.id || null,
-        dateOfService: dateOfService.value ? String(dateOfService.value).slice(0, 10) : null,
-        officeEventId: bookingContext.value.officeEventId || sessionOfficeEventId.value || null,
+        dateOfService: dos,
+        officeEventId: bookingContext.value?.officeEventId || sessionOfficeEventId.value || null,
+        missingCalendarAttachment: !(bookingContext.value?.officeEventId || sessionOfficeEventId.value),
         structuredChart
       }
     });
@@ -4107,16 +4146,24 @@ const approveNoteOutput = async () => {
       }
     }
 
-    inputText.value = '';
-    transcriptSource.value = '';
-    liveTranscript.value = '';
-    clearAudio();
-    revisionInstruction.value = '';
-    approvalMessage.value = activeWorkQueueItemId.value
-      ? 'Confirmed, signed, and saved to clinical records.'
-      : 'Approved and persisted to clinical records. Transcript/audio cleared from this form.';
-    if (activeWorkQueueItemId.value) {
-      advanceWorkQueueAfterSign();
+    if (!silent) {
+      inputText.value = '';
+      transcriptSource.value = '';
+      liveTranscript.value = '';
+      clearAudio();
+      revisionInstruction.value = '';
+    }
+    approvalMessage.value = silent
+      ? 'Generated and saved to the client chart.'
+      : (activeWorkQueueItemId.value
+        ? 'Confirmed, signed, and saved to clinical records.'
+        : 'Approved and persisted to clinical records.');
+    if (!silent) {
+      if (activeWorkQueueItemId.value) {
+        advanceWorkQueueAfterSign();
+      } else {
+        markActiveWorkQueueItemSigned();
+      }
     } else {
       markActiveWorkQueueItemSigned();
     }
@@ -5633,6 +5680,7 @@ const loadDraftIntoWorkspace = async (d, options = {}) => {
   try {
   viewingChartNote.value = null;
   draftId.value = d.id || null;
+  sessionObjectiveRatings.value = [];
   noteAidAgencyChoiceId.value = null;
   currentDraftArchivedAt.value = d.archived_at || null;
   currentDraftCreatedAt.value = d.created_at || null;

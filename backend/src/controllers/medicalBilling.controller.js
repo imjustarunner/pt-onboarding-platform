@@ -309,14 +309,15 @@ export const listClientChart = async (req, res, next) => {
     const {
       pickAuthoritativeTreatmentPlan,
       resolvePrimaryDiagnosisForChart,
-      presentingProblemFromPlan
+      presentingProblemFromPlan,
+      isIntakeAutoTreatmentPlan
     } = await import('../services/treatmentPlanPrecedence.service.js');
     const authoritativeMeta = pickAuthoritativeTreatmentPlan(plans);
     // Prefer authoritative (imported) plan over a newer empty intake auto-draft.
-    let latestPlanId = Number(authoritativeMeta?.id || plans?.[0]?.id || 0);
-    if (!authoritativeMeta && plans?.length) {
-      const withGoals = plans.find((p) => !String(p.title || '').match(/^Intake Treatment Plan/i));
-      latestPlanId = Number(withGoals?.id || plans[0].id || 0);
+    let latestPlanId = Number(authoritativeMeta?.id || 0);
+    if (!latestPlanId && plans?.length) {
+      const withGoals = plans.find((p) => !isIntakeAutoTreatmentPlan(p));
+      latestPlanId = Number(withGoals?.id || 0);
     }
     const latestPlan = latestPlanId > 0 ? await ClinicalTreatmentPlan.findById(latestPlanId) : null;
     let diagnoses = [];
@@ -453,7 +454,7 @@ export const listClientChart = async (req, res, next) => {
 
     return res.json({
       notes: notes || [],
-      plans: plans || [],
+      plans: (plans || []).filter((p) => !isIntakeAutoTreatmentPlan(p)),
       latestPlan: latestPlan || null,
       diagnoses: diagnoses || [],
       presentingProblem: presentingProblem || null,
@@ -531,6 +532,28 @@ export const createObjectiveRating = async (req, res, next) => {
           })
         : null;
 
+    const raterKind = req.body.raterKind || req.body.rater_kind || 'clinician';
+    const dateOfService = req.body.dateOfService ? String(req.body.dateOfService).slice(0, 10) : null;
+    const existing = await ClinicalTreatmentObjectiveRating.findLatestForDedupe({
+      objectiveId,
+      raterKind,
+      dateOfService
+    });
+    if (existing) {
+      const sameDisposition = String(existing.disposition || '') === disposition;
+      const sameScale =
+        disposition !== 'rated'
+          || Number(existing.scale_value) === Number(scaleValue);
+      if (sameDisposition && sameScale) {
+        return res.status(200).json({
+          rating: existing,
+          progressLabel: existing.progress_label || progressLabel,
+          suggestUpdateTreatmentPlan: false,
+          deduped: true
+        });
+      }
+    }
+
     const rating = await ClinicalTreatmentObjectiveRating.create({
       agencyId,
       clientId,
@@ -544,9 +567,9 @@ export const createObjectiveRating = async (req, res, next) => {
       progressLabel,
       clinicalNoteId: parseIntValue(req.body.clinicalNoteId),
       draftId: parseIntValue(req.body.draftId),
-      dateOfService: req.body.dateOfService ? String(req.body.dateOfService).slice(0, 10) : null,
+      dateOfService,
       notes: req.body.notes ? String(req.body.notes).trim() : null,
-      raterKind: req.body.raterKind || req.body.rater_kind || 'clinician',
+      raterKind,
       raterLabel: req.body.raterLabel || req.body.rater_label || null
     });
 

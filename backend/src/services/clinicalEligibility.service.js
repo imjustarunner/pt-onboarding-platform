@@ -84,10 +84,25 @@ class ClinicalEligibilityService {
       throw err;
     }
     const client = await Client.findById(session.client_id);
-    if (!client || Number(client.agency_id) !== Number(session.agency_id)) {
+    if (!client) {
       const err = new Error('Client not found for agency');
       err.status = 404;
       throw err;
+    }
+    if (Number(client.agency_id) !== Number(session.agency_id)) {
+      const pool = (await import('../config/database.js')).default;
+      const [rows] = await pool.execute(
+        `SELECT 1 AS ok
+         FROM client_agency_assignments
+         WHERE client_id = ? AND agency_id = ? AND is_active = TRUE
+         LIMIT 1`,
+        [session.client_id, session.agency_id]
+      );
+      if (!rows?.[0]) {
+        const err = new Error('Client not found for agency');
+        err.status = 404;
+        throw err;
+      }
     }
     if (String(client.client_type || '').toLowerCase() !== 'clinical') {
       const err = new Error('Clinical data plane only supports clinical client type');
@@ -98,6 +113,19 @@ class ClinicalEligibilityService {
       return { client, event: null, billingBacked: true };
     }
     if (!session.office_event_id) {
+      let meta = session.metadata_json;
+      if (typeof meta === 'string') {
+        try { meta = JSON.parse(meta); } catch { meta = null; }
+      }
+      const noteOnly = !!(
+        meta?.missingCalendarAttachment
+        || meta?.noteOnlyFingerprint
+        || meta?.source === 'note_aid_note_only'
+        || meta?.source === 'billing_import_note_only'
+      );
+      if (noteOnly) {
+        return { client, event: null, noteOnly: true };
+      }
       const err = new Error('Clinical session is not linked to a calendar appointment or billing encounter');
       err.status = 409;
       throw err;
