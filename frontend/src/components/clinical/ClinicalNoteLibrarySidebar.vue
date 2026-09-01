@@ -219,13 +219,8 @@
                     />
                     <div class="cnl-row-body">
                       <div class="cnl-row-line">
-                        <strong>{{ rowTitle(d) }}</strong>
-                        <span class="cnl-type-inline">{{ rowTypeLabel(d) }}</span>
-                        <span class="cnl-dos-inline">{{ d.date_of_service ? String(d.date_of_service).slice(0, 10) : '—' }}</span>
-                        <span v-if="d.source === 'work_queue'" class="cnl-queue-tag">Queue</span>
-                        <span class="cnl-status-pill" :style="pillStyle(d.docStatus)">
-                          {{ meta(d.docStatus).shortLabel }}
-                        </span>
+                        <strong>{{ rowInitials(d) }}</strong>
+                        <span class="cnl-dos-inline">{{ rowDos(d) }}</span>
                       </div>
                     </div>
                   </button>
@@ -302,6 +297,7 @@ import {
   deriveNoteConnection,
   filterLeftLibraryRows,
   groupLeftLibraryRows,
+  initialsFromDisplayName,
   normalizeDocStatus,
   docStatusMeta,
   noteConnectionMeta
@@ -487,6 +483,20 @@ function connectionIconSvg(connection) {
     return `<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>`;
   }
   return `<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M8 13h8M8 17h5"/></svg>`;
+}
+function rowInitials(d) {
+  const fromField = String(d?.initials || '').trim();
+  if (fromField) return fromField;
+  return initialsFromDisplayName(d?.client_full_name || d?.raw?.clientName || rowTitle(d));
+}
+function rowDos(d) {
+  const raw = String(d?.date_of_service || d?.raw?.date || '').slice(0, 10);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+    const [, m, day] = raw.split('-');
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    return `${months[Number(m) - 1] || m} ${Number(day)}`;
+  }
+  return raw || '—';
 }
 function rowTitle(d) {
   const initials = String(d?.initials || '').trim();
@@ -703,13 +713,14 @@ function onRailStatusClick(key) {
 }
 .cnl-row-body { min-width: 0; }
 .cnl-row-line {
-  display: flex; align-items: center; gap: 8px; min-width: 0; font-size: 0.8rem;
+  display: flex; align-items: baseline; justify-content: space-between; gap: 10px;
+  min-width: 0; font-size: 0.84rem;
 }
 .cnl-row-line strong {
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 0 1 auto;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 800; letter-spacing: 0.02em;
 }
-.cnl-type-inline, .cnl-dos-inline {
-  color: var(--cnl-muted); font-size: 0.74rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+.cnl-dos-inline {
+  color: var(--cnl-muted); font-size: 0.78rem; font-weight: 700; white-space: nowrap; flex-shrink: 0;
 }
 .cnl-row-actions { display: flex; align-items: center; }
 .cnl-delete {

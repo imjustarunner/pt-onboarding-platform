@@ -545,7 +545,9 @@ export const createObjectiveRating = async (req, res, next) => {
       clinicalNoteId: parseIntValue(req.body.clinicalNoteId),
       draftId: parseIntValue(req.body.draftId),
       dateOfService: req.body.dateOfService ? String(req.body.dateOfService).slice(0, 10) : null,
-      notes: req.body.notes ? String(req.body.notes).trim() : null
+      notes: req.body.notes ? String(req.body.notes).trim() : null,
+      raterKind: req.body.raterKind || req.body.rater_kind || 'clinician',
+      raterLabel: req.body.raterLabel || req.body.rater_label || null
     });
 
     return res.status(201).json({

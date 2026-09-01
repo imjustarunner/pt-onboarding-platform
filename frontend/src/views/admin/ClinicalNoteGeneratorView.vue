@@ -659,6 +659,7 @@
         <NoteAidObjectiveRatings
           v-if="showObjectiveRatings && notePathway !== 'csNoteBuild'"
           :goals="activeTreatmentGoals"
+          :previous-ratings="chartObjectiveRatings"
           :disabled="generating"
           @update:ratings="sessionObjectiveRatings = $event"
           @improved="onObjectiveImproved"
@@ -1025,15 +1026,17 @@
       </main>
 
       <NoteAidWorkQueuePanel
-        v-if="canUseTool && !isEmbedded && !workQueueCollapsed && !(libraryExpanded && !libraryCollapsed)"
+        v-if="canUseTool && !isEmbedded && !(libraryExpanded && !libraryCollapsed)"
         :items="workQueueItems"
         :active-id="activeWorkQueueItemId"
+        :collapsed="workQueueCollapsed"
         @add-todo="showTodoImportModal = true"
         @generate="generateNote"
         @next="advanceWorkQueue"
         @clear="clearWorkQueue"
         @select="activateWorkQueueItem"
         @delete="onWorkQueueDeleteDraft"
+        @update:collapsed="workQueueCollapsed = $event"
       />
     </div>
 
@@ -3763,7 +3766,9 @@ const generateNote = async () => {
       for (const o of g.objectives || []) needed.push(String(o.id));
     }
     const rated = new Set(
-      (sessionObjectiveRatings.value || []).map((r) => String(r.objectiveId))
+      (sessionObjectiveRatings.value || [])
+        .filter((r) => !r.raterKind || r.raterKind === 'clinician')
+        .map((r) => String(r.objectiveId))
     );
     const missing = needed.filter((id) => !rated.has(id));
     if (missing.length) {
@@ -4751,10 +4756,15 @@ function queueItemSessionKey(item) {
 
 function snapMissingDraftsOnQueue() {
   const live = new Set((recentDrafts.value || []).map((d) => String(d.id)));
+  const activeId = activeWorkQueueItemId.value;
   workQueueItems.value = (workQueueItems.value || []).map((item) => {
     const status = deriveWorkQueueDocStatus(item);
     if (status === DOC_STATUS.SIGNED || status === DOC_STATUS.COMPLETED) return item;
     if (item.draftId && live.has(String(item.draftId))) return item;
+    // Keep the ToDo you just opened — loadRecent runs before a draft exists.
+    if (activeId && String(item.id) === String(activeId) && status === DOC_STATUS.STARTED) {
+      return item;
+    }
     if (!item.draftId && status === DOC_STATUS.NOT_STARTED) return item;
     return {
       ...item,
@@ -5244,6 +5254,8 @@ const persistSessionObjectiveRatings = async () => {
           scaleValue: r.scaleValue,
           scaleTarget: r.scaleTarget,
           previousScaleValue: r.previousScaleValue,
+          raterKind: r.raterKind || 'clinician',
+          raterLabel: r.raterLabel || null,
           draftId: draftId.value || null,
           dateOfService: dateOfService.value || null
         },
@@ -6053,14 +6065,12 @@ onBeforeUnmount(() => {
   grid-template-columns: minmax(0, 1fr);
 }
 
-.na-shell--queue-collapsed,
-.na-shell--embedded {
-  grid-template-columns: minmax(260px, 320px) minmax(0, 1fr);
+.na-shell--queue-collapsed {
+  grid-template-columns: minmax(260px, 320px) minmax(0, 1fr) 56px;
 }
 
-.na-shell--library-collapsed.na-shell--queue-collapsed,
-.na-shell--library-collapsed.na-shell--embedded {
-  grid-template-columns: 56px minmax(0, 1fr);
+.na-shell--library-collapsed.na-shell--queue-collapsed {
+  grid-template-columns: 56px minmax(0, 1fr) 56px;
 }
 
 .na-shell--embedded {
@@ -6320,6 +6330,13 @@ onBeforeUnmount(() => {
 .na-main--library {
   display: flex;
   flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+.na-main--library :deep(.nal) {
+  flex: 1;
+  min-height: 0;
+  height: auto;
 }
 
 .na-privacy {
@@ -7794,12 +7811,14 @@ a.na-chip--link {
 }
 
 @media (max-width: 1180px) {
-  .na-shell:not(.na-shell--embedded):not(.na-shell--library-expanded),
-  .na-shell--library-collapsed:not(.na-shell--embedded) {
-    grid-template-columns: 56px minmax(0, 1fr);
+  .na-shell:not(.na-shell--embedded):not(.na-shell--library-expanded) {
+    grid-template-columns: 56px minmax(0, 1fr) 56px;
   }
   .na-shell:not(.na-shell--queue-collapsed):not(.na-shell--embedded):not(.na-shell--library-expanded) {
     grid-template-columns: 56px minmax(0, 1fr) minmax(200px, 240px);
+  }
+  .na-shell--queue-collapsed:not(.na-shell--embedded):not(.na-shell--library-expanded) {
+    grid-template-columns: 56px minmax(0, 1fr) 56px;
   }
 }
 

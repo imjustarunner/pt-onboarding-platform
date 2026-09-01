@@ -5,6 +5,8 @@ import {
   listKioskEvents,
   checkInToEvent,
   listKioskQuestionnaires,
+  listKioskTreatmentGoals,
+  submitKioskTreatmentGoals,
   getKioskIntakeLinkDefinition,
   getKioskQuestionnaireDefinition,
   submitKioskQuestionnaire,
@@ -76,6 +78,8 @@ router.get('/:locationId/intake-questionnaire/:intakeLinkId/definition', getKios
 router.get('/:locationId/intake-questionnaire/:intakeLinkId/definition', getKioskIntakeLinkDefinition);
 router.get('/:locationId/questionnaires/:moduleId/definition', getKioskQuestionnaireDefinition);
 router.post('/:locationId/questionnaires/submit', submitKioskQuestionnaire);
+router.get('/:locationId/treatment-goals', listKioskTreatmentGoals);
+router.post('/:locationId/treatment-goals', submitKioskTreatmentGoals);
 
 // Legacy kiosk endpoints (PIN-based PHQ9/GAD7)
 router.get('/:locationId/providers', listKioskProviders);

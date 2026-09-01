@@ -25,6 +25,17 @@ export function computeProgressLabel({ previousValue, newValue, target }) {
   return 'unchanged';
 }
 
+export function kioskPromptForObjective(obj = {}) {
+  const custom = String(obj.kiosk_prompt || obj.kioskPrompt || '').trim();
+  if (custom) return custom;
+  const text = String(obj.objective_text || obj.objectiveText || 'this treatment goal').trim().slice(0, 180);
+  const target = Number(obj.scale_target ?? obj.scaleTarget);
+  const highIsBetter = !Number.isFinite(target) || target >= 5.5;
+  const ten = highIsBetter ? 'at or closest to your goal' : 'farthest from your goal';
+  const one = highIsBetter ? 'farthest from your goal' : 'at or closest to your goal';
+  return `On a scale of 1–10, with 10 being ${ten} and 1 being ${one}, how would you rate yourself since the last session for: ${text}`;
+}
+
 export function progressLabelCopy(label) {
   switch (label) {
     case 'improved':
@@ -90,8 +101,10 @@ export function buildObjectiveRatingsContextText(entries = []) {
       const target = e.scaleTarget ?? e.scale_target_at_rating ?? e.scale_target;
       const label = e.progressLabel || e.progress_label;
       const labelBit = label ? ` (${label})` : '';
+      const rater = e.raterLabel || e.raterKind || e.rater_kind || 'clinical observation';
+      const raterBit = String(rater) === 'clinician' ? 'clinical observation' : String(rater);
       lines.push(
-        `${goalBit} | ${objBit} | rated ${scale}/10 toward goal ${target ?? '—'}${labelBit}`
+        `${goalBit} | ${objBit} | ${raterBit}: rated ${scale}/10 toward goal ${target ?? '—'}${labelBit}`
       );
     }
   }

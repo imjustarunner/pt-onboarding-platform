@@ -242,6 +242,18 @@ export function filterWorkQueueForRightPanel(items) {
   return (items || []).filter((i) => isRightPanelStatus(deriveWorkQueueDocStatus(i)));
 }
 
+export function initialsFromDisplayName(name) {
+  const raw = String(name || '').trim();
+  if (!raw) return '';
+  if (/^[A-Za-z]{1,4}(?:[.\s]+[A-Za-z]{1,4})*$/.test(raw.replace(/,/g, '')) && raw.length <= 12) {
+    return raw.replace(/\s+/g, ' ');
+  }
+  const parts = raw.replace(/,/g, ' ').split(/\s+/).filter((p) => /[A-Za-z]/.test(p) && !/^(iv|iii|ii|jr|sr)$/i.test(p));
+  if (!parts.length) return raw.slice(0, 3).toUpperCase();
+  if (parts.length === 1) return `${parts[0].slice(0, 1).toUpperCase()}.`;
+  return `${parts[0].slice(0, 1).toUpperCase()}. ${parts[parts.length - 1].slice(0, 1).toUpperCase()}.`;
+}
+
 /**
  * Build left-library rows from drafts + started/completed/signed work-queue items
  * and signed chart notes (so Done/Signed show across tenants).
@@ -265,7 +277,7 @@ export function buildLeftLibraryRows({ drafts = [], workQueueItems = [], signedS
       officeEventId: d.office_event_id || d.officeEventId || null,
       clinicalSessionId: d.clinical_session_id || d.clinicalSessionId || null,
       client_full_name: d.client_full_name || d.clientFullName || null,
-      initials: d.initials || null,
+      initials: d.initials || initialsFromDisplayName(d.client_full_name || d.clientFullName),
       agency_name: d.agency_name || d.agencyName || null,
       client_type: d.client_type || d.clientType || null,
       service_code: d.service_code || d.serviceCode || null,
@@ -301,7 +313,7 @@ export function buildLeftLibraryRows({ drafts = [], workQueueItems = [], signedS
       officeEventId: item.officeEventId || null,
       clinicalSessionId: item.clinicalSessionId || null,
       client_full_name: item.clientName || null,
-      initials: null,
+      initials: initialsFromDisplayName(item.clientName || item.initials),
       agency_name: null,
       client_type: null,
       service_code: item.serviceCode || null,

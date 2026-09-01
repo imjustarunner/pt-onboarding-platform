@@ -3,10 +3,34 @@
     <header class="na-obj-ratings-head">
       <div>
         <h3>Treatment objectives</h3>
-        <p>Rate each measurable objective (1–10). Green = goal. Outline = last rating.</p>
+        <p>
+          <span class="na-swatch na-swatch--now" /> Current (this session)
+          <span class="na-swatch na-swatch--prev" /> Previous session
+          <span class="na-swatch na-swatch--goal" /> Goal
+        </p>
+        <p class="na-obj-rater-note">
+          The main rating is <strong>clinical observation</strong> and is written that way in the note.
+          Client and other ratings are optional and graph separately.
+        </p>
       </div>
       <span v-if="suggestUpdatePlan" class="na-obj-suggest">Update treatment plan suggested</span>
     </header>
+
+    <div class="na-obj-raters" role="tablist">
+      <button type="button" class="na-obj-rater" :class="{ on: raterKind === 'clinician' }" @click="raterKind = 'clinician'">
+        Clinician
+      </button>
+      <button type="button" class="na-obj-rater" :class="{ on: raterKind === 'client' }" @click="raterKind = 'client'">
+        Client
+      </button>
+      <button type="button" class="na-obj-rater" :class="{ on: raterKind === 'other' }" @click="raterKind = 'other'">
+        Other
+      </button>
+    </div>
+    <label v-if="raterKind === 'other'" class="na-obj-other">
+      Who is rating?
+      <input v-model="otherLabel" class="na-obj-other-input" placeholder="Guardian, teacher, …" />
+    </label>
 
     <div v-for="goal in goals" :key="goal.id" class="na-obj-goal">
       <div class="na-obj-goal-title">
@@ -24,6 +48,8 @@
           <span>{{ obj.objective_text || 'Objective' }}</span>
         </div>
 
+        <p v-if="kioskQuestion(obj)" class="na-obj-kiosk-q">{{ kioskQuestion(obj) }}</p>
+
         <div class="na-scale-row" role="group" :aria-label="`Scale for objective ${obj.id}`">
           <button
             v-for="n in 10"
@@ -32,11 +58,11 @@
             class="na-scale-btn"
             :class="{
               goal: Number(obj.scale_target) === n,
-              last: lastRated(obj) === n && entry(obj.id)?.disposition === 'rated',
+              prev: previousRated(obj) === n,
               selected: entry(obj.id)?.disposition === 'rated' && Number(entry(obj.id)?.scaleValue) === n
             }"
             :disabled="disabled || isNonNumeric(obj.id)"
-            :title="Number(obj.scale_target) === n ? 'Goal' : lastRated(obj) === n ? 'Last rating' : String(n)"
+            :title="scaleTitle(obj, n)"
             @click="rate(obj, goal, n)"
           >
             {{ n }}
@@ -56,7 +82,7 @@
           {{ dispositionCopy(entry(obj.id)?.disposition) }}
         </p>
         <p v-else-if="Number(obj.scale_target)" class="na-field-hint">
-          Goal highlighted in green ({{ obj.scale_target }}). Last rating outlined when available.
+          Goal {{ obj.scale_target }} (green ring). Previous session in amber when on file.
         </p>
       </div>
     </div>
@@ -64,35 +90,63 @@
 </template>
 
 <script setup>
-import { computed, reactive, watch } from 'vue';
+import { computed, reactive, ref, watch } from 'vue';
 import {
   computeProgressLabel,
+  kioskPromptForObjective,
   progressLabelCopy
 } from '../../utils/noteAidTreatmentHelpers.js';
 
 const props = defineProps({
   goals: { type: Array, default: () => [] },
+  previousRatings: { type: Array, default: () => [] },
   disabled: { type: Boolean, default: false }
 });
 
 const emit = defineEmits(['update:ratings', 'improved']);
 
-/** @type {Record<string, { objectiveId, goalId, goalText, objectiveText, scaleValue, scaleTarget, previousScaleValue, disposition, progressLabel }>} */
+const raterKind = ref('clinician');
+const otherLabel = ref('');
+
+/** @type {Record<string, object>} keyed objectiveId:raterKind */
 const byObjective = reactive({});
 
 const suggestUpdatePlan = computed(() =>
   Object.values(byObjective).some((e) => e?.progressLabel === 'improved')
 );
 
-function entry(objectiveId) {
-  return byObjective[String(objectiveId)] || null;
+function entryKey(objectiveId, kind = raterKind.value) {
+  return `${objectiveId}:${kind}`;
 }
 
-function lastRated(obj) {
-  const e = entry(obj.id);
-  if (e?.previousScaleValue != null) return Number(e.previousScaleValue);
-  if (obj.scale_current != null) return Number(obj.scale_current);
+function entry(objectiveId) {
+  return byObjective[entryKey(objectiveId)] || null;
+}
+
+function previousRated(obj) {
+  const kind = raterKind.value;
+  const hist = (props.previousRatings || [])
+    .filter((r) => Number(r.objective_id || r.objectiveId) === Number(obj.id)
+      && String(r.rater_kind || r.raterKind || 'clinician') === kind
+      && r.scale_value != null && r.scale_value !== '')
+    .sort((a, b) => String(b.rated_at || b.date_of_service || '').localeCompare(String(a.rated_at || a.date_of_service || '')));
+  if (hist[0]?.scale_value != null) return Number(hist[0].scale_value);
+  if (kind === 'clinician' && obj.scale_current != null) return Number(obj.scale_current);
   return null;
+}
+
+function kioskQuestion(obj) {
+  return kioskPromptForObjective(obj);
+}
+
+function scaleTitle(obj, n) {
+  const bits = [String(n)];
+  if (Number(obj.scale_target) === n) bits.push('goal');
+  if (previousRated(obj) === n) bits.push('previous session');
+  if (entry(obj.id)?.disposition === 'rated' && Number(entry(obj.id)?.scaleValue) === n) {
+    bits.push('current');
+  }
+  return bits.join(' · ');
 }
 
 function isNonNumeric(objectiveId) {
@@ -120,19 +174,14 @@ function emitAll() {
 }
 
 function rate(obj, goal, n) {
-  const previous =
-    byObjective[String(obj.id)]?.previousScaleValue != null
-      ? byObjective[String(obj.id)].previousScaleValue
-      : obj.scale_current != null
-        ? Number(obj.scale_current)
-        : null;
+  const previous = previousRated(obj);
   const target = obj.scale_target != null ? Number(obj.scale_target) : null;
   const progressLabel = computeProgressLabel({
     previousValue: previous,
     newValue: n,
     target
   });
-  byObjective[String(obj.id)] = {
+  byObjective[entryKey(obj.id)] = {
     objectiveId: Number(obj.id),
     goalId: Number(goal.id),
     goalText: goal.goal_text || '',
@@ -141,15 +190,20 @@ function rate(obj, goal, n) {
     scaleTarget: target,
     previousScaleValue: previous,
     disposition: 'rated',
-    progressLabel
+    progressLabel,
+    raterKind: raterKind.value,
+    raterLabel: raterKind.value === 'clinician'
+      ? 'clinical observation'
+      : raterKind.value === 'client'
+        ? 'client'
+        : (otherLabel.value || 'other')
   };
   emitAll();
 }
 
 function setDisposition(obj, goal, disposition) {
-  const previous =
-    obj.scale_current != null ? Number(obj.scale_current) : null;
-  byObjective[String(obj.id)] = {
+  const previous = previousRated(obj);
+  byObjective[entryKey(obj.id)] = {
     objectiveId: Number(obj.id),
     goalId: Number(goal.id),
     goalText: goal.goal_text || '',
@@ -158,7 +212,9 @@ function setDisposition(obj, goal, disposition) {
     scaleTarget: obj.scale_target != null ? Number(obj.scale_target) : null,
     previousScaleValue: previous,
     disposition,
-    progressLabel: null
+    progressLabel: null,
+    raterKind: raterKind.value,
+    raterLabel: raterKind.value === 'clinician' ? 'clinical observation' : raterKind.value
   };
   emitAll();
 }
@@ -172,7 +228,8 @@ watch(
       for (const o of g.objectives || []) ids.add(String(o.id));
     }
     for (const key of Object.keys(byObjective)) {
-      if (!ids.has(key)) delete byObjective[key];
+      const oid = String(key).split(':')[0];
+      if (!ids.has(oid)) delete byObjective[key];
     }
   },
   { deep: true }
@@ -210,6 +267,47 @@ defineExpose({
   margin: 0;
   color: #64748b;
   font-size: 0.82rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  align-items: center;
+}
+.na-obj-rater-note {
+  display: block !important;
+  margin-top: 6px !important;
+  font-size: 0.75rem !important;
+}
+.na-swatch {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  margin-right: 4px;
+  vertical-align: middle;
+}
+.na-swatch--now { background: #0f766e; }
+.na-swatch--prev { background: #f59e0b; }
+.na-swatch--goal { background: transparent; box-shadow: inset 0 0 0 2px #16a34a; }
+.na-obj-raters { display: flex; gap: 6px; margin-bottom: 10px; }
+.na-obj-rater {
+  border: 1px solid #cbd5e1;
+  background: #fff;
+  border-radius: 999px;
+  padding: 4px 12px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+.na-obj-rater.on { background: #0f766e; border-color: #0f766e; color: #fff; }
+.na-obj-other { display: flex; flex-direction: column; gap: 4px; font-size: 0.75rem; font-weight: 700; color: #64748b; margin-bottom: 10px; }
+.na-obj-other-input {
+  border: 1px solid #e2e8f0; border-radius: 8px; padding: 6px 8px; font-size: 0.85rem;
+}
+.na-obj-kiosk-q {
+  margin: 0 0 8px;
+  font-size: 0.78rem;
+  color: #334155;
+  font-style: italic;
 }
 .na-obj-suggest {
   background: #fef3c7;
@@ -275,17 +373,22 @@ defineExpose({
   font-weight: 700;
   cursor: pointer;
 }
-.na-scale-btn.goal {
-  background: #16a34a;
-  border-color: #15803d;
+.na-scale-btn.goal:not(.selected):not(.prev) {
+  box-shadow: inset 0 0 0 2px #16a34a;
+  background: #fff;
+  border-color: #86efac;
+  color: #166534;
+}
+.na-scale-btn.prev:not(.selected) {
+  background: #f59e0b;
+  border-color: #d97706;
   color: #fff;
 }
-.na-scale-btn.last:not(.selected) {
-  box-shadow: inset 0 0 0 2px #0f766e;
-}
 .na-scale-btn.selected {
-  outline: 2px solid #0f766e;
-  outline-offset: 1px;
+  background: #0f766e;
+  border-color: #0f766e;
+  color: #fff;
+  outline: none;
 }
 .na-scale-btn:disabled {
   opacity: 0.4;

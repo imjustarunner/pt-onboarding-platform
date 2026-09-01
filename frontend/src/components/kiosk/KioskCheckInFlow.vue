@@ -169,7 +169,41 @@
         <div v-if="questError" class="kcif-error">{{ questError }}</div>
       </div>
 
-      <!-- Step 4: Thank you -->
+      <!-- Step 4: Treatment goal self-ratings -->
+      <div v-else-if="step === 'goals'" class="kcif-body">
+        <h2 class="kcif-body__title">How have things been?</h2>
+        <p class="kcif-body__hint">Rate each treatment goal since your last session. Skip any that don’t apply today.</p>
+        <div v-if="loadingGoals" class="kcif-loading">
+          <div class="kcif-spinner" />
+          <span>Loading goals…</span>
+        </div>
+        <div v-else class="kcif-quest-form">
+          <div v-for="g in goalItems" :key="g.id" class="kcif-quest-field">
+            <label class="kcif-quest-label">{{ g.prompt }}</label>
+            <div class="kcif-quest-options">
+              <button
+                v-for="n in 10"
+                :key="n"
+                type="button"
+                class="kcif-quest-option"
+                :class="{ 'kcif-quest-option--selected': goalAnswers[g.id] === n }"
+                @click="goalAnswers[g.id] = n"
+              >
+                {{ n }}
+              </button>
+            </div>
+          </div>
+        </div>
+        <div class="kcif-quest-actions">
+          <button class="kcif-btn kcif-btn--secondary" :disabled="submittingGoals" @click="step = 'done'">Skip</button>
+          <button class="kcif-btn kcif-btn--primary" :disabled="submittingGoals" @click="submitGoalRatings">
+            {{ submittingGoals ? 'Saving…' : 'Save & continue' }}
+          </button>
+        </div>
+        <div v-if="goalError" class="kcif-error">{{ goalError }}</div>
+      </div>
+
+      <!-- Step 5: Thank you -->
       <div v-else-if="step === 'done'" class="kcif-body kcif-body--center">
         <div class="kcif-done-icon" aria-hidden="true">
           <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="#2e7055" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
@@ -198,7 +232,7 @@ const props = defineProps({
 });
 const emit = defineEmits(['close']);
 
-const step = ref('slots'); // slots | confirm | questionnaires | done
+const step = ref('slots'); // slots | confirm | questionnaires | goals | done
 
 // Slots
 const slots = ref([]);
@@ -215,6 +249,12 @@ const loadingQuestionnaires = ref(false);
 const answers = ref({});
 const submittingQuest = ref(false);
 const questError = ref('');
+
+const goalItems = ref([]);
+const goalAnswers = ref({});
+const loadingGoals = ref(false);
+const submittingGoals = ref(false);
+const goalError = ref('');
 
 const photoUrl = computed(() => toUploadsUrl(props.provider.profilePhotoPath));
 const initials = computed(() => {
@@ -271,7 +311,11 @@ async function submitCheckIn() {
     await api.post(`/kiosk/${props.locationId}/checkin`, { eventId: selectedSlot.value.eventId });
     // After check-in, load questionnaires
     await loadQuestionnaires();
-    step.value = 'questionnaires';
+    if (questionnaires.value.length) {
+      step.value = 'questionnaires';
+    } else {
+      await goToGoalsOrDone();
+    }
   } catch (e) {
     checkInError.value = e?.response?.data?.error?.message || 'Check-in failed. Please try again or contact the support team.';
   } finally {
@@ -346,7 +390,45 @@ function advanceOrFinish() {
   if (questIdx.value < questionnaires.value.length - 1) {
     questIdx.value++;
   } else {
+    void goToGoalsOrDone();
+  }
+}
+
+async function goToGoalsOrDone() {
+  loadingGoals.value = true;
+  goalItems.value = [];
+  goalAnswers.value = {};
+  try {
+    const res = await api.get(`/kiosk/${props.locationId}/treatment-goals`, {
+      params: { eventId: selectedSlot.value?.eventId }
+    });
+    goalItems.value = Array.isArray(res.data?.objectives) ? res.data.objectives : [];
+  } catch {
+    goalItems.value = [];
+  } finally {
+    loadingGoals.value = false;
+  }
+  step.value = goalItems.value.length ? 'goals' : 'done';
+}
+
+async function submitGoalRatings() {
+  submittingGoals.value = true;
+  goalError.value = '';
+  try {
+    const ratings = goalItems.value
+      .map((g) => ({ objectiveId: g.id, scaleValue: goalAnswers.value[g.id] }))
+      .filter((r) => Number.isInteger(r.scaleValue));
+    if (ratings.length) {
+      await api.post(`/kiosk/${props.locationId}/treatment-goals`, {
+        eventId: selectedSlot.value?.eventId,
+        ratings
+      });
+    }
     step.value = 'done';
+  } catch (e) {
+    goalError.value = e?.response?.data?.error?.message || 'Could not save ratings.';
+  } finally {
+    submittingGoals.value = false;
   }
 }
 

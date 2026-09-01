@@ -2103,3 +2103,106 @@ export const kioskSkillBuilderEventClockOut = async (req, res, next) => {
     next(e);
   }
 };
+
+function kioskPromptForObjective(obj = {}) {
+  const custom = String(obj.kiosk_prompt || '').trim();
+  if (custom) return custom;
+  const text = String(obj.objective_text || 'this treatment goal').trim().slice(0, 180);
+  const target = Number(obj.scale_target);
+  const highIsBetter = !Number.isFinite(target) || target >= 5.5;
+  const ten = highIsBetter ? 'at or closest to your goal' : 'farthest from your goal';
+  const one = highIsBetter ? 'farthest from your goal' : 'at or closest to your goal';
+  return `On a scale of 1–10, with 10 being ${ten} and 1 being ${one}, how would you rate yourself since the last session for: ${text}`;
+}
+
+export const listKioskTreatmentGoals = async (req, res, next) => {
+  try {
+    const { locationId } = req.params;
+    const eventId = parseInt(req.query.eventId, 10);
+    const loc = await OfficeLocation.findById(parseInt(locationId, 10));
+    if (!loc || !loc.is_active) return res.status(404).json({ error: { message: 'Location not found' } });
+    if (!Number.isInteger(eventId) || eventId <= 0) {
+      return res.json({ objectives: [] });
+    }
+    const ev = await OfficeEvent.findById(eventId);
+    if (!ev || ev.office_location_id !== parseInt(locationId, 10) || !ev.client_id) {
+      return res.json({ objectives: [] });
+    }
+    const Client = (await import('../models/Client.model.js')).default;
+    const client = await Client.findById(ev.client_id);
+    const agencyId = Number(client?.agency_id || 0);
+    if (!agencyId) return res.json({ objectives: [] });
+
+    const ClinicalTreatmentPlan = (await import('../models/clinical/ClinicalTreatmentPlan.model.js')).default;
+    const plans = await ClinicalTreatmentPlan.listByClient({ agencyId, clientId: ev.client_id });
+    const latest = plans?.[0];
+    if (!latest?.id) return res.json({ objectives: [] });
+    const full = await ClinicalTreatmentPlan.findById(latest.id);
+    const objectives = [];
+    for (const g of full?.goals || []) {
+      for (const o of g.objectives || []) {
+        if (o.superseded_at) continue;
+        const enabled = o.kiosk_self_rate_enabled == null || Number(o.kiosk_self_rate_enabled) === 1;
+        if (!enabled) continue;
+        if (o.scale_target == null && o.scale_current == null) continue;
+        objectives.push({
+          id: o.id,
+          goalId: g.id,
+          goalText: g.goal_text,
+          objectiveText: o.objective_text,
+          scaleTarget: o.scale_target,
+          scaleCurrent: o.scale_current,
+          prompt: kioskPromptForObjective(o)
+        });
+      }
+    }
+    res.json({ objectives });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const submitKioskTreatmentGoals = async (req, res, next) => {
+  try {
+    const { locationId } = req.params;
+    const eventId = parseInt(req.body?.eventId, 10);
+    const ratings = Array.isArray(req.body?.ratings) ? req.body.ratings : [];
+    const loc = await OfficeLocation.findById(parseInt(locationId, 10));
+    if (!loc || !loc.is_active) return res.status(404).json({ error: { message: 'Location not found' } });
+    const ev = await OfficeEvent.findById(eventId);
+    if (!ev || ev.office_location_id !== parseInt(locationId, 10) || !ev.client_id) {
+      return res.status(400).json({ error: { message: 'Appointment not found' } });
+    }
+    const Client = (await import('../models/Client.model.js')).default;
+    const client = await Client.findById(ev.client_id);
+    const agencyId = Number(client?.agency_id || 0);
+    const ClinicalTreatmentObjectiveRating = (await import('../models/clinical/ClinicalTreatmentObjectiveRating.model.js')).default;
+    const ClinicalTreatmentPlan = (await import('../models/clinical/ClinicalTreatmentPlan.model.js')).default;
+    const plans = await ClinicalTreatmentPlan.listByClient({ agencyId, clientId: ev.client_id });
+    const planId = plans?.[0]?.id || null;
+    const recordedBy = ev.booked_provider_id || req.user?.id;
+    let saved = 0;
+    for (const row of ratings.slice(0, 40)) {
+      const oid = Number(row.objectiveId || row.id || 0);
+      const scale = Number(row.scaleValue);
+      if (!oid || !Number.isInteger(scale) || scale < 1 || scale > 10) continue;
+      await ClinicalTreatmentObjectiveRating.create({
+        agencyId,
+        clientId: ev.client_id,
+        objectiveId: oid,
+        treatmentPlanId: planId,
+        ratedByUserId: recordedBy,
+        scaleValue: scale,
+        disposition: 'rated',
+        raterKind: 'client',
+        raterLabel: 'client',
+        dateOfService: ev.start_at ? String(ev.start_at).slice(0, 10) : null,
+        notes: 'kiosk check-in'
+      });
+      saved += 1;
+    }
+    res.status(201).json({ ok: true, saved });
+  } catch (e) {
+    next(e);
+  }
+};

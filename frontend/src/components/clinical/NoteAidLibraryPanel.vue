@@ -298,7 +298,8 @@ function pick(aid) {
 .nal {
   display: grid;
   grid-template-columns: minmax(220px, 280px) minmax(0, 1fr);
-  min-height: 100%;
+  min-height: 0;
+  height: 100%;
   background: #f8fafc;
   border-radius: 16px;
   overflow: hidden;
@@ -311,7 +312,8 @@ function pick(aid) {
   display: flex;
   flex-direction: column;
   gap: 16px;
-  min-height: 100%;
+  min-height: 0;
+  overflow: auto;
 }
 .nal-nav-title {
   margin: 0;
@@ -398,7 +400,7 @@ function pick(aid) {
   cursor: pointer;
   padding: 0;
 }
-.nal-main { padding: 18px 20px 28px; min-width: 0; }
+.nal-main { padding: 18px 20px 48px; min-width: 0; min-height: 0; overflow: auto; }
 .nal-head h1 { margin: 0; font-size: 1.35rem; font-weight: 800; color: #0f172a; }
 .nal-head p { margin: 6px 0 14px; color: #64748b; font-size: 0.9rem; }
 .nal-pills {

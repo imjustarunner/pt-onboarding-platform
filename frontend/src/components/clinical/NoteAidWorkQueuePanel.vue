@@ -1,11 +1,44 @@
 <template>
-  <aside class="na-wq" aria-label="Note Aid work queue">
+  <aside class="na-wq" :class="{ 'na-wq--collapsed': collapsed }" aria-label="Note Aid work queue">
+    <template v-if="collapsed">
+      <button
+        type="button"
+        class="na-wq-rail-expand"
+        title="Open work queue"
+        aria-label="Open work queue"
+        @click="$emit('update:collapsed', false)"
+      >
+        ‹
+      </button>
+      <div class="na-wq-rail-tabs">
+        <button type="button" class="na-wq-rail-tab" title="Not started" @click="$emit('update:collapsed', false)">
+          <span class="na-wq-rail-dot na-wq-rail-dot--pending" />
+          <em>{{ pendingCount }}</em>
+        </button>
+        <button type="button" class="na-wq-rail-tab" title="In progress" @click="$emit('update:collapsed', false)">
+          <span class="na-wq-rail-dot na-wq-rail-dot--started" />
+          <em>{{ startedCount }}</em>
+        </button>
+      </div>
+    </template>
+    <template v-else>
     <header class="na-wq-head">
       <div>
         <strong>Work queue</strong>
         <p>{{ pendingCount }} not started · {{ startedCount }} in progress</p>
       </div>
-      <button type="button" class="na-wq-add" @click="$emit('add-todo')">Add ToDo List</button>
+      <div class="na-wq-head-actions">
+        <button type="button" class="na-wq-add" @click="$emit('add-todo')">Add ToDo List</button>
+        <button
+          type="button"
+          class="na-wq-collapse"
+          title="Collapse work queue"
+          aria-label="Collapse work queue"
+          @click="$emit('update:collapsed', true)"
+        >
+          ›
+        </button>
+      </div>
     </header>
 
     <div class="na-wq-legend" aria-hidden="true">
@@ -78,6 +111,7 @@
         </button>
       </li>
     </ul>
+    </template>
   </aside>
 </template>
 
@@ -97,10 +131,11 @@ import { tenantSmsImage } from '../../utils/tenantBrandAssets.js';
 
 const props = defineProps({
   items: { type: Array, default: () => [] },
-  activeId: { type: [String, null], default: null }
+  activeId: { type: [String, null], default: null },
+  collapsed: { type: Boolean, default: false }
 });
 
-defineEmits(['add-todo', 'generate', 'next', 'clear', 'select', 'delete']);
+defineEmits(['add-todo', 'generate', 'next', 'clear', 'select', 'delete', 'update:collapsed']);
 
 const agencyStore = useAgencyStore();
 const failedLogoKeys = ref(new Set());
@@ -258,6 +293,31 @@ function typeLabel(item) {
   padding: 14px 12px;
   min-width: 0;
 }
+.na-wq--collapsed {
+  padding: 10px 6px;
+  align-items: center;
+  gap: 10px;
+}
+.na-wq-rail-expand {
+  width: 36px; height: 36px; border: 1px solid #e2e8f0; border-radius: 10px;
+  background: #f0fdfa; color: #0d5f59; font-size: 1.1rem; cursor: pointer;
+}
+.na-wq-rail-tabs { display: flex; flex-direction: column; gap: 8px; width: 100%; }
+.na-wq-rail-tab {
+  display: flex; flex-direction: column; align-items: center; gap: 4px; border: none;
+  background: #f8fafc; border-radius: 10px; padding: 10px 4px; cursor: pointer;
+  color: #64748b; font-weight: 700; font-size: 0.68rem;
+}
+.na-wq-rail-tab em { font-style: normal; color: #0f172a; }
+.na-wq-rail-dot { width: 8px; height: 8px; border-radius: 999px; }
+.na-wq-rail-dot--pending { background: #0f766e; }
+.na-wq-rail-dot--started { background: #d97706; }
+.na-wq-head-actions { display: flex; align-items: flex-start; gap: 6px; }
+.na-wq-collapse {
+  width: 32px; height: 32px; border: 1px solid #e2e8f0; background: #f8fafc;
+  border-radius: 8px; cursor: pointer; color: #475569; font-size: 0.95rem; line-height: 1;
+}
+.na-wq-collapse:hover { border-color: #99f6e4; color: #0d5f59; }
 .na-wq-head {
   display: flex;
   justify-content: space-between;

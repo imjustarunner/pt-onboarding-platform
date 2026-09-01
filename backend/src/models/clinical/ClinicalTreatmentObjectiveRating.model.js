@@ -56,7 +56,9 @@ class ClinicalTreatmentObjectiveRating {
     clinicalNoteId = null,
     draftId = null,
     dateOfService = null,
-    notes = null
+    notes = null,
+    raterKind = 'clinician',
+    raterLabel = null
   }) {
     const agency = safeInt(agencyId);
     const client = safeInt(clientId);
@@ -65,6 +67,11 @@ class ClinicalTreatmentObjectiveRating {
     if (!agency || !client || !objective || !rater) {
       throw new Error('agencyId, clientId, objectiveId, and ratedByUserId are required');
     }
+    const kind = String(raterKind || 'clinician').trim().toLowerCase();
+    const safeKind = ['clinician', 'client', 'other'].includes(kind) ? kind : 'clinician';
+    const label = raterLabel
+      ? clampText(raterLabel, 120)
+      : (safeKind === 'clinician' ? 'clinical observation' : safeKind);
     const disp = clampText(disposition || 'rated', 32) || 'rated';
     const scale =
       disp === 'rated' && scaleValue != null && scaleValue !== ''
@@ -75,32 +82,64 @@ class ClinicalTreatmentObjectiveRating {
         ? null
         : Math.max(1, Math.min(10, Number(scaleTargetAtRating)));
 
-    const [result] = await clinicalPool.execute(
-      `INSERT INTO clinical_treatment_objective_ratings
-       (agency_id, client_id, objective_id, goal_id, treatment_plan_id, rated_by_user_id,
-        scale_value, scale_target_at_rating, disposition, progress_label,
-        clinical_note_id, draft_id, date_of_service, notes)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [
-        agency,
-        client,
-        objective,
-        safeInt(goalId),
-        safeInt(treatmentPlanId),
-        rater,
-        scale,
-        target,
-        disp,
-        progressLabel ? clampText(progressLabel, 32) : null,
-        safeInt(clinicalNoteId),
-        safeInt(draftId),
-        dateOfService ? String(dateOfService).slice(0, 10) : null,
-        notes ? clampText(notes, 500) : null
-      ]
-    );
+    let insertId = null;
+    try {
+      const [result] = await clinicalPool.execute(
+        `INSERT INTO clinical_treatment_objective_ratings
+         (agency_id, client_id, objective_id, goal_id, treatment_plan_id, rated_by_user_id,
+          scale_value, scale_target_at_rating, disposition, progress_label,
+          clinical_note_id, draft_id, date_of_service, notes, rater_kind, rater_label)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          agency,
+          client,
+          objective,
+          safeInt(goalId),
+          safeInt(treatmentPlanId),
+          rater,
+          scale,
+          target,
+          disp,
+          progressLabel ? clampText(progressLabel, 32) : null,
+          safeInt(clinicalNoteId),
+          safeInt(draftId),
+          dateOfService ? String(dateOfService).slice(0, 10) : null,
+          notes ? clampText(notes, 500) : null,
+          safeKind,
+          label
+        ]
+      );
+      insertId = result.insertId;
+    } catch (e) {
+      if (e?.code !== 'ER_BAD_FIELD_ERROR') throw e;
+      const [result] = await clinicalPool.execute(
+        `INSERT INTO clinical_treatment_objective_ratings
+         (agency_id, client_id, objective_id, goal_id, treatment_plan_id, rated_by_user_id,
+          scale_value, scale_target_at_rating, disposition, progress_label,
+          clinical_note_id, draft_id, date_of_service, notes)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          agency,
+          client,
+          objective,
+          safeInt(goalId),
+          safeInt(treatmentPlanId),
+          rater,
+          scale,
+          target,
+          disp,
+          progressLabel ? clampText(progressLabel, 32) : null,
+          safeInt(clinicalNoteId),
+          safeInt(draftId),
+          dateOfService ? String(dateOfService).slice(0, 10) : null,
+          notes ? clampText(notes, 500) : null
+        ]
+      );
+      insertId = result.insertId;
+    }
 
-    // Keep objective.scale_current in sync when a numeric rating is recorded.
-    if (disp === 'rated' && scale != null) {
+    // Keep objective.scale_current in sync for clinician ratings only.
+    if (disp === 'rated' && scale != null && safeKind === 'clinician') {
       await clinicalPool.execute(
         `UPDATE clinical_treatment_plan_objectives
          SET scale_current = ?
@@ -109,7 +148,7 @@ class ClinicalTreatmentObjectiveRating {
       );
     }
 
-    return this.findById(result.insertId);
+    return this.findById(insertId);
   }
 
   static async findById(id) {
