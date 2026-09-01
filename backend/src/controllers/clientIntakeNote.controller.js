@@ -915,6 +915,17 @@ export const generateClientIntakeNote = async (req, res, next) => {
     } catch (auditErr) {
       console.error('[clientIntakeNote] Audit log failed after generate:', auditErr?.message || auditErr);
     }
+    try {
+      const { logNoteAidChartEvent } = await import('../services/noteAidChartAudit.service.js');
+      await logNoteAidChartEvent(req, {
+        clientId,
+        agencyId,
+        action: 'note_aid_intake_draft_created',
+        metadata: { draftId: draft.id, serviceCode }
+      });
+    } catch {
+      // best-effort
+    }
 
     res.status(201).json({ draft: formatDraftResponse(draft) });
   } catch (e) {
@@ -1252,6 +1263,12 @@ export const finalizeClientIntakeNote = async (req, res, next) => {
     } catch (auditErr) {
       console.error('[clientIntakeNote] Audit log failed after finalize:', auditErr?.message || auditErr);
     }
+    try {
+      const { logClientAccess } = await import('../services/clientAccessLog.service.js');
+      await logClientAccess(req, clientId, 'intake_note_finalized');
+    } catch {
+      // best-effort
+    }
 
     res.json({
       draft: formatDraftResponse(finalized),
@@ -1510,6 +1527,17 @@ export const importClientIntakeNote = async (req, res, next) => {
     }
 
     const refreshed = await ClientIntakeNoteDraft.findById(draft.id);
+    try {
+      const { logNoteAidChartEvent } = await import('../services/noteAidChartAudit.service.js');
+      await logNoteAidChartEvent(req, {
+        clientId,
+        agencyId,
+        action: 'note_aid_intake_draft_created',
+        metadata: { draftId: draft.id, serviceCode: refreshed?.service_code }
+      });
+    } catch {
+      // best-effort
+    }
     return res.status(201).json({
       draft: formatDraftResponse(refreshed),
       parsed: { sections: normalizedSections, diagnosis, diagnoses: diagnosesPayload || (diagnosis ? [diagnosis] : []) }

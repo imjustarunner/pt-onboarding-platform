@@ -313,6 +313,7 @@ const props = defineProps({
   newLabel: { type: String, default: 'New Note' },
   drafts: { type: Array, default: () => [] },
   workQueueItems: { type: Array, default: () => [] },
+  signedSessions: { type: Array, default: () => [] },
   loading: { type: Boolean, default: false },
   error: { type: String, default: '' },
   selectedId: { type: [String, Number], default: null },
@@ -358,7 +359,11 @@ const connectionTabs = LEFT_PANEL_CONNECTION_KEYS.map((key) => ({
 }));
 
 const allRows = computed(() =>
-  buildLeftLibraryRows({ drafts: props.drafts, workQueueItems: props.workQueueItems })
+  buildLeftLibraryRows({
+    drafts: props.drafts,
+    workQueueItems: props.workQueueItems,
+    signedSessions: props.signedSessions
+  })
 );
 
 const counts = computed(() => {

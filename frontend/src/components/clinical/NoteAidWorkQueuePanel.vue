@@ -64,9 +64,17 @@
           <div class="na-wq-item-meta">
             {{ item.date }}
             <template v-if="item.timeLabel"> · {{ item.timeLabel }}</template>
-            · {{ connectionLabel(item) }}
+            · {{ typeLabel(item) }}
           </div>
-          <div class="na-wq-item-type">{{ typeLabel(item) }}</div>
+        </button>
+        <button
+          v-if="canDeleteDraft(item)"
+          type="button"
+          class="na-wq-delete"
+          title="Delete draft and return this ToDo to not started"
+          @click.stop="$emit('delete', item)"
+        >
+          ×
         </button>
       </li>
     </ul>
@@ -92,7 +100,7 @@ const props = defineProps({
   activeId: { type: [String, null], default: null }
 });
 
-defineEmits(['add-todo', 'generate', 'next', 'clear', 'select']);
+defineEmits(['add-todo', 'generate', 'next', 'clear', 'select', 'delete']);
 
 const agencyStore = useAgencyStore();
 const failedLogoKeys = ref(new Set());
@@ -224,6 +232,11 @@ function connectionStyle(item) {
   return { color: m.color, background: m.bg, borderColor: m.border };
 }
 
+function canDeleteDraft(item) {
+  const st = docStatus(item);
+  return st === DOC_STATUS.STARTED || !!item.draftId;
+}
+
 function typeLabel(item) {
   if (item.noteKind === 'intake') return `Intake${item.serviceCode ? ` (${item.serviceCode})` : ''}`;
   if (item.noteKind === 'termination') return 'Termination note';
@@ -334,18 +347,39 @@ function typeLabel(item) {
   flex: 1;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 4px;
+}
+.na-wq-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 4px;
+}
+.na-wq-delete {
+  border: none;
+  background: transparent;
+  color: #b91c1c;
+  font-size: 1.1rem;
+  font-weight: 700;
+  cursor: pointer;
+  padding: 4px 6px;
+  line-height: 1;
 }
 .na-wq-item-btn {
   width: 100%;
   text-align: left;
   border: 1px solid #e2e8f0;
   background: #f8fafc;
-  border-radius: 10px;
-  padding: 10px;
+  border-radius: 8px;
+  padding: 6px 8px;
   cursor: pointer;
   font: inherit;
   color: inherit;
+}
+.na-wq-item--completed .na-wq-item-btn,
+.na-wq-item--signed .na-wq-item-btn {
+  border-color: #99f6e4;
+  background: #ecfdf5;
 }
 .na-wq-item--not_started .na-wq-item-btn {
   border-color: #99f6e4;

@@ -1254,7 +1254,7 @@
                     <td>{{ formatDateTime(e.created_at) }}</td>
                     <td>{{ formatAccessUser(e) }}</td>
                     <td>{{ e.user_role || '—' }}</td>
-                    <td>{{ e.action }}</td>
+                    <td>{{ toPlainEnglish(e.action) || e.action }}</td>
                     <td>{{ e.ip_address || '—' }}</td>
                   </tr>
                 </tbody>
@@ -2687,6 +2687,7 @@ import { useClientEncounters } from '../../composables/useClientEncounters.js';
 import { useClientBillingDiagnoses } from '../../composables/useClientBillingDiagnoses.js';
 import { useClientPaperwork } from '../../composables/useClientPaperwork.js';
 import { isPractitionerOrgType } from '../../utils/practitionerVertical';
+import { toPlainEnglish } from '../../utils/auditActionRegistry.js';
 import ClientSkillBuildersProgramTab from '../skillBuilders/ClientSkillBuildersProgramTab.vue';
 import { isSkillsClientFlag } from '../../utils/skillsClientFlag.js';
 import {

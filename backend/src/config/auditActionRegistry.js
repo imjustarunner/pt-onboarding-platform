@@ -158,7 +158,15 @@ const AUDIT_ACTION_REGISTRY = {
   school_portal_school_admin_forfeited: { label: 'School admin role forfeited', category: 'School Portal' },
   school_portal_bulk_announcements_created: { label: 'School bulk announcements created', category: 'School Portal' },
   school_portal_bulk_announcements_updated: { label: 'School bulk announcements updated', category: 'School Portal' },
-  school_portal_bulk_announcements_deleted: { label: 'School bulk announcements deleted', category: 'School Portal' }
+  school_portal_bulk_announcements_deleted: { label: 'School bulk announcements deleted', category: 'School Portal' },
+  note_aid_todo_added: { label: 'Note Aid ToDo added', category: 'AI & Tools' },
+  note_aid_draft_created: { label: 'Note Aid draft created', category: 'AI & Tools' },
+  note_aid_drafts_deleted: { label: 'Note Aid draft deleted', category: 'AI & Tools' },
+  note_aid_note_generated: { label: 'Note Aid note generated', category: 'AI & Tools' },
+  note_aid_intake_draft_created: { label: 'Intake note draft created', category: 'AI & Tools' },
+  treatment_plan_saved: { label: 'Treatment plan saved to chart', category: 'Documents' },
+  treatment_plan_diagnoses_updated: { label: 'Treatment plan diagnoses updated', category: 'Documents' },
+  intake_note_finalized: { label: 'Intake note finalized', category: 'Documents' }
 };
 
 function toPlainEnglish(actionType) {

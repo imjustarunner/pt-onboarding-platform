@@ -22,6 +22,7 @@ import {
 } from '../services/clinicalClaimReadiness.service.js';
 import AgencyClaimMdCredentials from '../models/AgencyClaimMdCredentials.model.js';
 import ClinicalEligibilityService from '../services/clinicalEligibility.service.js';
+import { collectChartScope } from '../utils/noteAidClientAgency.js';
 import { getMedicalBillingFlags } from '../services/medicalBillingFlags.service.js';
 import { maybeEncryptNotePayload, maybeDecryptNotePayload } from '../services/clinicalNoteCrypto.service.js';
 import { encryptChatText, decryptChatText, isChatEncryptionConfigured } from '../services/chatEncryption.service.js';
@@ -218,6 +219,17 @@ export const saveTreatmentPlanToChart = async (req, res, next) => {
     }
 
     const refreshed = plan?.id ? await ClinicalTreatmentPlan.findById(plan.id) : plan;
+    try {
+      const { logNoteAidChartEvent } = await import('../services/noteAidChartAudit.service.js');
+      await logNoteAidChartEvent(req, {
+        clientId,
+        agencyId,
+        action: planDxList.length ? 'treatment_plan_diagnoses_updated' : 'treatment_plan_saved',
+        metadata: { planId: refreshed?.id || plan?.id, primaryDiagnosisId }
+      });
+    } catch {
+      // best-effort
+    }
     return res.status(201).json({ plan: refreshed, primaryDiagnosisId: primaryDiagnosisId || null });
   } catch (e) {
     next(e);
@@ -276,16 +288,22 @@ export const listClientChart = async (req, res, next) => {
     }
     await ClinicalEligibilityService.ensureAgencyAccess({ reqUser: req.user, agencyId });
 
+    const scope = await collectChartScope({ clientId, agencyId });
+    const chartAgencyIds = scope.agencyIds.length ? scope.agencyIds : [agencyId];
+    const chartClientIds = scope.clientIds.length ? scope.clientIds : [clientId];
+    const agencyIn = chartAgencyIds.map(() => '?').join(',');
+    const clientIn = chartClientIds.map(() => '?').join(',');
+
     const [notes] = await clinicalPool.execute(
       `SELECT n.id, n.clinical_session_id, n.title, n.note_type, n.version_number, n.provider_signed_at, n.supervisor_cosigned_at,
-              n.is_billable, n.created_at, n.updated_at, n.created_by_user_id,
+              n.is_billable, n.created_at, n.updated_at, n.created_by_user_id, n.agency_id,
               cs.service_code AS session_service_code
        FROM clinical_notes n
        LEFT JOIN clinical_sessions cs ON cs.id = n.clinical_session_id
-       WHERE n.agency_id = ? AND n.client_id = ? AND n.is_deleted = 0
+       WHERE n.client_id IN (${clientIn}) AND n.is_deleted = 0 AND n.agency_id IN (${agencyIn})
        ORDER BY n.created_at DESC
        LIMIT 200`,
-      [agencyId, clientId]
+      [...chartClientIds, ...chartAgencyIds]
     );
     const plans = await ClinicalTreatmentPlan.listByClient({ agencyId, clientId });
     const {
@@ -356,17 +374,23 @@ export const listClientChart = async (req, res, next) => {
     const presentingProblem = presentingProblemFromPlan(latestPlan);
     const [sessions] = await clinicalPool.execute(
       `SELECT id, office_event_id, encounter_status, place_of_service, service_code, duration_minutes, is_telehealth,
-              rendering_provider_user_id, scheduled_start_at, scheduled_end_at, created_at
+              rendering_provider_user_id, scheduled_start_at, scheduled_end_at, created_at, agency_id
        FROM clinical_sessions
-       WHERE agency_id = ? AND client_id = ?
+       WHERE client_id IN (${clientIn}) AND agency_id IN (${agencyIn})
        ORDER BY COALESCE(scheduled_start_at, created_at) DESC
        LIMIT 100`,
-      [agencyId, clientId]
+      [...chartClientIds, ...chartAgencyIds]
     );
 
     let billingEncounters = [];
     try {
-      billingEncounters = await listBillingEncountersForClient({ agencyId, clientId, limit: 200 });
+      billingEncounters = await listBillingEncountersForClient({
+        agencyId,
+        agencyIds: chartAgencyIds,
+        clientId,
+        clientIds: chartClientIds,
+        limit: 200
+      });
     } catch {
       billingEncounters = [];
     }
@@ -384,11 +408,13 @@ export const listClientChart = async (req, res, next) => {
 
     let noteAidDrafts = [];
     try {
-      const ClinicalNoteDraft = (await import('../models/ClinicalNoteDraft.model.js')).default;
-      const { listClientAgencyMembershipIds } = await import('../utils/noteAidClientAgency.js');
-      const membershipIds = await listClientAgencyMembershipIds(clientId);
-      const agencyIds = [...new Set([agencyId, ...membershipIds].filter(Boolean))];
-      noteAidDrafts = await ClinicalNoteDraft.listForClient({ clientId, agencyId, agencyIds, limit: 100 });
+      noteAidDrafts = await ClinicalNoteDraft.listForClient({
+        clientId,
+        clientIds: chartClientIds,
+        agencyId,
+        agencyIds: chartAgencyIds,
+        limit: 100
+      });
       noteAidDrafts = (noteAidDrafts || []).map((d) => ({
         id: d.id,
         service_code: d.service_code,

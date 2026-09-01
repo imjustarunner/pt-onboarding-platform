@@ -22,7 +22,8 @@ import {
   listClientAgencyMembershipIds
 } from '../utils/noteAidClientAgency.js';
 import { scrubIntakeTextForNoteWriter } from '../services/phiScrubber.service.js';
-import { collectClientPhiNames } from '../services/clientPhiNames.service.js';
+import { logNoteAidChartEvent } from '../services/noteAidChartAudit.service.js';
+import { listSignedNoteSessions, sessionMatchKey } from '../services/noteAidSignedSessions.service.js';
 
 function safeInt(v) {
   const n = Number(v);
@@ -777,6 +778,12 @@ export const createClinicalNoteDraft = async (req, res, next) => {
       outputJson: null
     });
     res.status(201).json({ draft: sanitizeDraftRow(draft) });
+    await logNoteAidChartEvent(req, {
+      clientId,
+      agencyId,
+      action: 'note_aid_draft_created',
+      metadata: { draftId: draft?.id, dateOfService, serviceCode }
+    });
   } catch (e) {
     next(e);
   }
@@ -874,17 +881,17 @@ export const listRecentClinicalNoteDrafts = async (req, res, next) => {
     }
 
     const allAccessible = String(req.query?.allAccessible || req.query?.all_agencies || '') === '1';
+    const isSuperAdmin = String(req.user?.role || '').toLowerCase() === 'super_admin';
     let agencyId = req.query?.agencyId ? safeInt(req.query.agencyId) : null;
     let agencyIds = null;
     if (allAccessible) {
       const User = (await import('../models/User.model.js')).default;
       const agencies = await User.getAgencies(req.user.id);
       agencyIds = (agencies || []).map((a) => Number(a.id)).filter((n) => n > 0);
-      if (!agencyIds.length) {
-        return res.json({ drafts: [] });
+      if (!agencyIds.length && !isSuperAdmin) {
+        return res.json({ drafts: [], signedSessions: [] });
       }
-      // Soft gate: at least one agency must allow the tool (skip hard fail across tenants).
-      agencyId = agencyIds[0];
+      agencyId = agencyIds[0] || agencyId;
     } else {
       if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
       if (!(await requireUserHasAgencyAccess(req, res, agencyId))) return;
@@ -895,14 +902,37 @@ export const listRecentClinicalNoteDrafts = async (req, res, next) => {
     const archiveStatus = String(req.query?.archiveStatus || req.query?.status || 'all').toLowerCase();
     const drafts = await ClinicalNoteDraft.listRecentForUser({
       userId: req.user.id,
-      agencyId: allAccessible ? null : agencyId,
-      agencyIds: allAccessible ? agencyIds : null,
+      agencyId: allAccessible && isSuperAdmin ? null : (allAccessible ? null : agencyId),
+      agencyIds: allAccessible && isSuperAdmin ? null : (allAccessible ? agencyIds : null),
       days,
-      limit: allAccessible ? 300 : 100,
+      limit: allAccessible ? 400 : 100,
       archiveStatus
     });
-    const sanitized = (drafts || []).map((d) => sanitizeDraftRow(d));
-    res.json({ drafts: sanitized });
+    const extraClientIds = String(req.query?.clientIds || req.query?.client_ids || '')
+      .split(/[,\s]+/)
+      .map((x) => safeInt(x))
+      .filter(Boolean);
+    const clientIds = [...new Set([
+      ...(drafts || []).map((d) => d.client_id).filter(Boolean),
+      ...extraClientIds
+    ])];
+    const signedSessions = await listSignedNoteSessions({
+      userId: req.user.id,
+      clientIds
+    });
+    const signedKeys = new Set((signedSessions || []).map((s) => sessionMatchKey(s)).filter(Boolean));
+    const retireIds = (drafts || [])
+      .filter((d) => {
+        const k = sessionMatchKey(d);
+        return k && signedKeys.has(k);
+      })
+      .map((d) => d.id);
+    if (retireIds.length) {
+      await ClinicalNoteDraft.deleteForUser({ userId: req.user.id, draftIds: retireIds });
+    }
+    const remaining = (drafts || []).filter((d) => !retireIds.includes(d.id));
+    const sanitized = remaining.map((d) => sanitizeDraftRow(d));
+    res.json({ drafts: sanitized, signedSessions, retiredDraftIds: retireIds });
   } catch (e) {
     next(e);
   }
@@ -961,10 +991,31 @@ export const deleteClinicalNoteDrafts = async (req, res, next) => {
     if (!(await requireClinicalNoteGeneratorEnabled(req, res, agencyId))) return;
 
     const draftIds = Array.isArray(req.body?.draftIds) ? req.body.draftIds : [];
+    const clientIdsLogged = new Set();
+    for (const id of draftIds.slice(0, 80)) {
+      const row = await ClinicalNoteDraft.findByIdForUser({ draftId: id, userId: req.user.id });
+      const cid = row?.client_id;
+      if (cid && !clientIdsLogged.has(cid)) {
+        clientIdsLogged.add(cid);
+        await logNoteAidChartEvent(req, {
+          clientId: cid,
+          agencyId: row.agency_id || agencyId,
+          action: 'note_aid_drafts_deleted',
+          metadata: { draftIds }
+        });
+      }
+    }
     const deletedCount = await ClinicalNoteDraft.deleteForUser({
       userId: req.user.id,
       draftIds
     });
+    if (!clientIdsLogged.size) {
+      await logNoteAidChartEvent(req, {
+        agencyId,
+        action: 'note_aid_drafts_deleted',
+        metadata: { draftIds, deletedCount }
+      });
+    }
 
     res.json({ deletedCount });
   } catch (e) {
@@ -1391,6 +1442,12 @@ export const generateClinicalNote = async (req, res, next) => {
       draftId: draft?.id || null,
       outputJson: outputObj
     });
+    await logNoteAidChartEvent(req, {
+      clientId,
+      agencyId,
+      action: 'note_aid_note_generated',
+      metadata: { draftId: draft?.id || draftId, serviceCode, dateOfService, toolId }
+    });
   } catch (e) {
     if (e?.status) {
       return res.status(e.status).json({
@@ -1405,3 +1462,38 @@ export const generateClinicalNote = async (req, res, next) => {
   }
 };
 
+
+export const recordNoteAidAudit = async (req, res, next) => {
+  try {
+    if (!requireNotSchoolStaff(req, res)) return;
+    const agencyId = req.body?.agencyId ? safeInt(req.body.agencyId) : null;
+    const clientId = req.body?.clientId ? safeInt(req.body.clientId) : null;
+    const action = String(req.body?.action || '').trim().slice(0, 64);
+    if (!action) return res.status(400).json({ error: { message: 'action is required' } });
+    const items = Array.isArray(req.body?.items) ? req.body.items : null;
+    if (items?.length) {
+      for (const it of items.slice(0, 80)) {
+        await logNoteAidChartEvent(req, {
+          clientId: it.clientId || it.client_id,
+          agencyId: it.agencyId || agencyId,
+          action,
+          metadata: {
+            date: it.date || it.dateOfService,
+            serviceCode: it.serviceCode || it.service_code,
+            clientName: it.clientName
+          }
+        });
+      }
+    } else {
+      await logNoteAidChartEvent(req, {
+        clientId,
+        agencyId,
+        action,
+        metadata: req.body?.metadata && typeof req.body.metadata === 'object' ? req.body.metadata : null
+      });
+    }
+    res.json({ ok: true });
+  } catch (e) {
+    next(e);
+  }
+};

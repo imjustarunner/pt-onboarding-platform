@@ -194,7 +194,10 @@ export function isLeftPanelStatus(status) {
 /** Does this status belong on the right smart queue? */
 export function isRightPanelStatus(status) {
   const key = normalizeDocStatus(status);
-  return key === DOC_STATUS.NOT_STARTED || key === DOC_STATUS.STARTED;
+  return key === DOC_STATUS.NOT_STARTED
+    || key === DOC_STATUS.STARTED
+    || key === DOC_STATUS.COMPLETED
+    || key === DOC_STATUS.SIGNED;
 }
 
 /**
@@ -240,10 +243,10 @@ export function filterWorkQueueForRightPanel(items) {
 }
 
 /**
- * Build left-library rows from drafts + started/completed/signed work-queue items.
- * Work-queue rows that are only not_started are excluded.
+ * Build left-library rows from drafts + started/completed/signed work-queue items
+ * and signed chart notes (so Done/Signed show across tenants).
  */
-export function buildLeftLibraryRows({ drafts = [], workQueueItems = [] } = {}) {
+export function buildLeftLibraryRows({ drafts = [], workQueueItems = [], signedSessions = [] } = {}) {
   const rows = [];
   const seenWorkIds = new Set();
 
@@ -307,6 +310,29 @@ export function buildLeftLibraryRows({ drafts = [], workQueueItems = [] } = {}) 
       archived_at: null,
       noteKind: item.noteKind || null,
       raw: item
+    });
+  }
+
+  for (const s of signedSessions || []) {
+    rows.push({
+      id: `signed_${s.noteId || s.id}`,
+      source: 'signed_note',
+      draftId: null,
+      workQueueId: null,
+      docStatus: DOC_STATUS.SIGNED,
+      connection: 'client',
+      clientId: s.clientId || s.client_id || null,
+      officeEventId: s.officeEventId || s.office_event_id || null,
+      clinicalSessionId: s.clinicalSessionId || s.clinical_session_id || null,
+      client_full_name: s.clientName || s.client_full_name || null,
+      initials: s.initials || null,
+      agency_name: s.agencyName || s.agency_name || null,
+      client_type: null,
+      service_code: s.serviceCode || s.service_code || null,
+      date_of_service: s.dateOfService || s.date_of_service || null,
+      created_at: s.signedAt || s.provider_signed_at || null,
+      archived_at: null,
+      raw: s
     });
   }
 

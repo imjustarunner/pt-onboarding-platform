@@ -206,9 +206,24 @@ const rows = computed(() => {
   const draftBySession = new Map();
   const activePlanId = Number(chart.value.plans?.[0]?.id || 0);
 
+  const signedKeys = new Set();
+  for (const n of chart.value.notes || []) {
+    if (!n.provider_signed_at) continue;
+    const session = (chart.value.sessions || []).find((s) => Number(s.id) === Number(n.clinical_session_id || 0));
+    const k = sessionDedupeKey({
+      office_event_id: session?.office_event_id,
+      clinical_session_id: n.clinical_session_id,
+      client_id: props.clientId,
+      date_of_service: session?.scheduled_start_at || n.created_at,
+      service_code: n.session_service_code || n.service_code
+    });
+    if (k) signedKeys.add(k);
+  }
+
   for (const d of chart.value.noteAidDrafts || []) {
     const hasOut = !!d.has_output;
     const key = sessionDedupeKey(d) || `draft-${d.id}`;
+    if (key && signedKeys.has(key)) continue;
     const next = {
       key: `draft-${d.id}`,
       sessionKey: key,

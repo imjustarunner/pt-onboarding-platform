@@ -265,10 +265,10 @@ class ClinicalNoteDraft {
     ];
     const params = [uid, d];
     if (aids.length === 1) {
-      where.push('agency_id = ?');
+      where.push('(agency_id = ? OR agency_id IS NULL)');
       params.push(aids[0]);
     } else if (aids.length > 1) {
-      where.push(`agency_id IN (${aids.map(() => '?').join(',')})`);
+      where.push(`(agency_id IN (${aids.map(() => '?').join(',')}) OR agency_id IS NULL)`);
       params.push(...aids);
     }
     if (status === 'active') {
@@ -312,9 +312,11 @@ class ClinicalNoteDraft {
    * Includes drafts stamped under any of the client's tenant memberships (or the
    * requested agency) so workspace-misattributed notes still appear on the chart.
    */
-  static async listForClient({ clientId, agencyId, agencyIds = null, limit = 100 }) {
-    const cid = safeInt(clientId);
-    if (!cid) return [];
+  static async listForClient({ clientId, clientIds = null, agencyId, agencyIds = null, limit = 100 }) {
+    const cids = Array.isArray(clientIds) && clientIds.length
+      ? [...new Set(clientIds.map((n) => safeInt(n)).filter(Boolean))]
+      : [safeInt(clientId)].filter(Boolean);
+    if (!cids.length) return [];
     const lim = Math.max(1, Math.min(200, Number(limit) || 100));
     const aids = Array.isArray(agencyIds)
       ? [...new Set(agencyIds.map((n) => safeInt(n)).filter(Boolean))]
@@ -324,6 +326,7 @@ class ClinicalNoteDraft {
     if (!aids.length) return [];
 
     const placeholders = aids.map(() => '?').join(',');
+    const clientIn = cids.map(() => '?').join(',');
     const [rows] = await pool.execute(
       `SELECT
          d.*,
@@ -347,7 +350,7 @@ class ClinicalNoteDraft {
        LEFT JOIN agencies a ON a.id = d.agency_id
        LEFT JOIN agencies ca ON ca.id = c.agency_id
        LEFT JOIN users u ON u.id = d.user_id
-       WHERE d.client_id = ?
+       WHERE d.client_id IN (${clientIn})
          AND (
            d.agency_id IN (${placeholders})
            OR c.agency_id IN (${placeholders})
@@ -355,7 +358,7 @@ class ClinicalNoteDraft {
          AND d.archived_at IS NULL
        ORDER BY d.created_at DESC, d.id DESC
        LIMIT ${lim}`,
-      [cid, ...aids, ...aids]
+      [...cids, ...aids, ...aids]
     );
     return rows || [];
   }
@@ -410,6 +413,11 @@ class ClinicalNoteDraft {
        WHERE ${where.join(' AND ')}`,
       params
     );
+    return Number(result?.affectedRows || 0);
+  }
+
+  static async deleteAll() {
+    const [result] = await pool.execute('DELETE FROM clinical_note_drafts');
     return Number(result?.affectedRows || 0);
   }
 }

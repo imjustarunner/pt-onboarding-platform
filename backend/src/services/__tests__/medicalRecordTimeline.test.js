@@ -47,4 +47,18 @@ describe('mergeMedicalRecordSources', () => {
     assert.equal(merged[0].clinical_session_id, 10);
     assert.equal(merged[0].office_event_id, 44);
   });
+
+  it('keeps calendar appointments that have a date even without a service code', () => {
+    const officeEvents = [
+      {
+        id: 88,
+        client_id: 5,
+        start_at: '2026-05-07 09:00:00'
+      }
+    ];
+    const rows = mergeMedicalRecordSources({ billing: [], sessions: [], officeEvents });
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0].service_code, 'SESSION');
+    assert.equal(rows[0].office_event_id, 88);
+  });
 });

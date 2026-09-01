@@ -15,7 +15,8 @@ import {
   archiveClinicalNoteDraft,
   deleteClinicalNoteDrafts,
   transcribeClinicalNoteAudio,
-  generateClinicalNote
+  generateClinicalNote,
+  recordNoteAidAudit
 } from '../controllers/clinicalNoteGenerator.controller.js';
 
 const router = express.Router();
@@ -61,7 +62,9 @@ router.get(
     query('agencyId').isInt({ min: 1 }),
     query('days').optional().isInt({ min: 1, max: 2555 }),
     query('archiveStatus').optional().isIn(['all', 'active', 'archived']),
-    query('status').optional().isIn(['all', 'active', 'archived'])
+    query('status').optional().isIn(['all', 'active', 'archived']),
+    query('clientIds').optional().isString(),
+    query('allAccessible').optional()
   ],
   listRecentClinicalNoteDrafts
 );
@@ -107,6 +110,17 @@ router.post(
     body('draftIds.*').isInt({ min: 1 })
   ],
   deleteClinicalNoteDrafts
+);
+
+router.post(
+  '/audit',
+  apiLimiter,
+  [
+    body('action').isString().isLength({ min: 1, max: 64 }),
+    body('agencyId').optional({ nullable: true }).isInt({ min: 1 }),
+    body('clientId').optional({ nullable: true }).isInt({ min: 1 })
+  ],
+  recordNoteAidAudit
 );
 
 router.post(

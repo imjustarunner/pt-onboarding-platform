@@ -67,7 +67,7 @@ export function mergeMedicalRecordSources({ billing = [], sessions = [], officeE
     const sid = Number(cs.id || 0);
     if (!sid) continue;
     const date = ymd(cs.scheduled_start_at);
-    const code = codeKey(cs.service_code || cs.effective_service_code);
+    const code = codeKey(cs.service_code || cs.effective_service_code) || 'SESSION';
     const beId = Number(cs.billing_encounter_id || 0);
     const oeId = Number(cs.office_event_id || 0);
     const existing = byKey.get(`cs:${sid}`)
@@ -82,7 +82,7 @@ export function mergeMedicalRecordSources({ billing = [], sessions = [], officeE
       if (oeId) byKey.set(`oe:${oeId}`, existing);
       continue;
     }
-    if (!date || !code) continue;
+    if (!date) continue;
     const recordKey = `cs:${sid}`;
     const row = {
       id: sid,
@@ -113,8 +113,8 @@ export function mergeMedicalRecordSources({ billing = [], sessions = [], officeE
     const eid = Number(oe.id || oe.office_event_id || 0);
     if (!eid) continue;
     const date = ymd(oe.start_at || oe.scheduled_start_at);
-    const code = codeKey(oe.service_code);
-    if (!date || !code) continue;
+    const code = codeKey(oe.service_code) || 'SESSION';
+    if (!date) continue;
     const csid = Number(oe.clinical_session_id || 0);
     const existing = byKey.get(`oe:${eid}`)
       || (csid ? byKey.get(`cs:${csid}`) : null)

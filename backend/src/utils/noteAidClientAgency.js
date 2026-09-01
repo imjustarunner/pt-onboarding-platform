@@ -43,6 +43,58 @@ export async function listClientAgencyMembershipIds(clientId) {
 }
 
 /**
+ * Other client rows that are the same person in another tenant
+ * (same full name, and same DOB when both records have one).
+ */
+export async function listSamePersonClientIds(clientId) {
+  const cid = safeInt(clientId);
+  if (!cid) return [];
+  const client = await Client.findById(cid);
+  if (!client) return [cid];
+  const ids = [cid];
+  const name = String(client.full_name || '').trim();
+  if (name.length < 3) return uniqueIds(ids);
+  const dob = client.date_of_birth ? String(client.date_of_birth).slice(0, 10) : '';
+  try {
+    const [rows] = await pool.execute(
+      `SELECT id, date_of_birth
+       FROM clients
+       WHERE full_name = ?
+         AND id <> ?
+       LIMIT 40`,
+      [name, cid]
+    );
+    for (const row of rows || []) {
+      const id = safeInt(row?.id);
+      if (!id) continue;
+      const otherDob = row.date_of_birth ? String(row.date_of_birth).slice(0, 10) : '';
+      if (dob && otherDob && dob !== otherDob) continue;
+      ids.push(id);
+    }
+  } catch {
+    // table/column differences — keep the original id
+  }
+  return uniqueIds(ids);
+}
+
+/** Client + tenant ids to use when assembling a chart / medical record. */
+export async function collectChartScope({ clientId, agencyId }) {
+  const cid = safeInt(clientId);
+  const aid = safeInt(agencyId);
+  const clientIds = cid ? await listSamePersonClientIds(cid) : [];
+  const agencyIds = [];
+  if (aid) agencyIds.push(aid);
+  for (const pid of clientIds) {
+    const memberships = await listClientAgencyMembershipIds(pid);
+    agencyIds.push(...memberships);
+  }
+  return {
+    clientIds: uniqueIds(clientIds.length ? clientIds : (cid ? [cid] : [])),
+    agencyIds: uniqueIds(agencyIds)
+  };
+}
+
+/**
  * Resolve draft agency from client ownership (+ optional provider access / preference).
  * Mirrors frontend resolveNoteAidAgencyId.
  */

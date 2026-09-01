@@ -1447,16 +1447,25 @@ export async function getRevenueAggregates({ agencyId = null, startYmd = null, e
   return { totals, agencies };
 }
 
-export async function listBillingEncountersForClient({ agencyId, clientId, limit = 200 }) {
+export async function listBillingEncountersForClient({ agencyId, agencyIds = null, clientId, clientIds = null, limit = 200 }) {
   const lim = Math.max(1, Math.min(500, Number(limit) || 200));
+  const aids = Array.isArray(agencyIds) && agencyIds.length
+    ? [...new Set(agencyIds.map((n) => Number(n)).filter((n) => n > 0))]
+    : [Number(agencyId)].filter((n) => n > 0);
+  const cids = Array.isArray(clientIds) && clientIds.length
+    ? [...new Set(clientIds.map((n) => Number(n)).filter((n) => n > 0))]
+    : [Number(clientId)].filter((n) => n > 0);
+  if (!aids.length || !cids.length) return [];
+  const inList = aids.map(() => '?').join(',');
+  const clientIn = cids.map(() => '?').join(',');
   const [rows] = await pool.execute(
     `SELECT be.*, u.first_name AS provider_first_name, u.last_name AS provider_last_name
      FROM billing_encounters be
      LEFT JOIN users u ON u.id = be.provider_user_id
-     WHERE be.agency_id = ? AND be.client_id = ?
+     WHERE be.agency_id IN (${inList}) AND be.client_id IN (${clientIn})
      ORDER BY be.service_date DESC, be.id DESC
      LIMIT ${lim}`,
-    [Number(agencyId), Number(clientId)]
+    [...aids, ...cids]
   );
   return rows || [];
 }

@@ -61,6 +61,7 @@
         title="Note Library"
         :drafts="recentDrafts"
         :work-queue-items="workQueueItems"
+        :signed-sessions="signedNoteSessions"
         :loading="recentLoading"
         :error="recentError"
         :selected-id="draftId"
@@ -1032,6 +1033,7 @@
         @next="advanceWorkQueue"
         @clear="clearWorkQueue"
         @select="activateWorkQueueItem"
+        @delete="onWorkQueueDeleteDraft"
       />
     </div>
 
@@ -2106,6 +2108,7 @@ const showRecent = ref(true);
 const recentLoading = ref(false);
 const recentError = ref('');
 const recentDrafts = ref([]);
+const signedNoteSessions = ref([]);
 const selectedDraftIds = ref([]);
 const deletingDrafts = ref(false);
 
@@ -4160,20 +4163,26 @@ const loadRecent = async ({ retry = true } = {}) => {
   try {
     recentLoading.value = true;
     recentError.value = '';
+    const queueClientIds = [...new Set(
+      (workQueueItems.value || []).map((i) => Number(i.clientId || 0)).filter((n) => n > 0)
+    )];
     const res = await api.get('/clinical-notes/recent', {
       params: {
         agencyId: currentAgencyId.value,
         allAccessible: '1',
         days: 2555,
-        archiveStatus: 'all'
+        archiveStatus: 'all',
+        clientIds: queueClientIds.join(',')
       },
       skipGlobalLoading: true,
       timeout: 15000
     });
     recentDrafts.value = Array.isArray(res?.data?.drafts) ? res.data.drafts : [];
+    signedNoteSessions.value = Array.isArray(res?.data?.signedSessions) ? res.data.signedSessions : [];
     selectedDraftIds.value = selectedDraftIds.value.filter((id) =>
       recentDrafts.value.some((d) => String(d.id) === String(id))
     );
+    applySignedSessionsToQueue(signedNoteSessions.value);
   } catch (e) {
     const msg = e.response?.data?.error?.message || e.message || 'Failed to load recent drafts';
     const isConn = /connection lost|econnreset|protocol|timeout|network/i.test(String(msg));
@@ -4188,6 +4197,7 @@ const loadRecent = async ({ retry = true } = {}) => {
       recentError.value = msg;
     }
     recentDrafts.value = [];
+    signedNoteSessions.value = [];
     selectedDraftIds.value = [];
   } finally {
     recentLoading.value = false;
@@ -4727,6 +4737,104 @@ function persistWorkQueue() {
   saveWorkQueue(authStore.user?.id, workQueueItems.value);
 }
 
+function queueItemSessionKey(item) {
+  return sessionDedupeKey({
+    officeEventId: item?.officeEventId,
+    clinicalSessionId: item?.clinicalSessionId,
+    clientId: item?.clientId,
+    date: item?.date,
+    date_of_service: item?.date,
+    serviceCode: item?.serviceCode,
+    service_code: item?.serviceCode
+  });
+}
+
+function snapMissingDraftsOnQueue() {
+  const live = new Set((recentDrafts.value || []).map((d) => String(d.id)));
+  workQueueItems.value = (workQueueItems.value || []).map((item) => {
+    const status = deriveWorkQueueDocStatus(item);
+    if (status === DOC_STATUS.SIGNED || status === DOC_STATUS.COMPLETED) return item;
+    if (item.draftId && live.has(String(item.draftId))) return item;
+    if (!item.draftId && status === DOC_STATUS.NOT_STARTED) return item;
+    return {
+      ...item,
+      draftId: null,
+      status: DOC_STATUS.NOT_STARTED,
+      docStatus: DOC_STATUS.NOT_STARTED
+    };
+  });
+}
+
+function applySignedSessionsToQueue(signedSessions = []) {
+  const keys = new Set(
+    (signedSessions || [])
+      .map((s) => sessionDedupeKey({
+        officeEventId: s.officeEventId,
+        clinicalSessionId: s.clinicalSessionId,
+        clientId: s.clientId,
+        date_of_service: s.dateOfService,
+        service_code: s.serviceCode
+      }))
+      .filter(Boolean)
+  );
+  if (keys.size) {
+    workQueueItems.value = (workQueueItems.value || []).map((item) => {
+      const k = queueItemSessionKey(item);
+      if (!k || !keys.has(k)) return item;
+      return {
+        ...item,
+        draftId: null,
+        status: DOC_STATUS.SIGNED,
+        docStatus: DOC_STATUS.SIGNED,
+        signedAt: item.signedAt || new Date().toISOString()
+      };
+    });
+  }
+  snapMissingDraftsOnQueue();
+  persistWorkQueue();
+}
+
+async function onWorkQueueDeleteDraft(item) {
+  if (!item) return;
+  const status = deriveWorkQueueDocStatus(item);
+  if (status === DOC_STATUS.SIGNED) return;
+  if (item.draftId) {
+    if (!window.confirm('Delete this draft? The ToDo stays in the queue as not started.')) return;
+    try {
+      await api.post(
+        '/clinical-notes/drafts/delete',
+        {
+          agencyId: agencyIdForDraftDelete(),
+          draftIds: [Number(item.draftId)]
+        },
+        { skipGlobalLoading: true }
+      );
+    } catch (e) {
+      approvalError.value = e.response?.data?.error?.message || 'Failed to delete draft';
+      return;
+    }
+    if (String(draftId.value) === String(item.draftId)) {
+      draftId.value = null;
+      outputObj.value = null;
+      inputText.value = '';
+      await clearDraftFromRouteQuery();
+    }
+    await loadRecent();
+  }
+  workQueueItems.value = (workQueueItems.value || []).map((row) => {
+    if (row.id !== item.id) return row;
+    return {
+      ...row,
+      draftId: null,
+      status: DOC_STATUS.NOT_STARTED,
+      docStatus: DOC_STATUS.NOT_STARTED
+    };
+  });
+  if (activeWorkQueueItemId.value === item.id) activeWorkQueueItemId.value = null;
+  persistWorkQueue();
+  approvalMessage.value = item.draftId ? 'Draft deleted. ToDo is waiting to be started.' : 'Reset to not started.';
+}
+
 function normalizeWorkQueueItemStatus(item) {
   if (!item) return item;
   const docStatus = deriveWorkQueueDocStatus(item);
@@ -4784,6 +4892,17 @@ function onTodoListBuilt({ items }) {
   // Append to the bottom of the existing queue (do not replace).
   workQueueItems.value = [...(workQueueItems.value || []), ...incoming];
   persistWorkQueue();
+  api.post('/clinical-notes/audit', {
+    agencyId: noteAidAgencyId.value || currentAgencyId.value,
+    action: 'note_aid_todo_added',
+    items: incoming.map((i) => ({
+      clientId: i.clientId,
+      agencyId: i.agencyId,
+      date: i.date,
+      serviceCode: i.serviceCode,
+      clientName: i.clientName
+    }))
+  }, { skipGlobalLoading: true }).catch(() => {});
   if (!activeWorkQueueItemId.value) {
     const first = workQueueItems.value.find(
       (i) => deriveWorkQueueDocStatus(i) === DOC_STATUS.NOT_STARTED
@@ -4852,6 +4971,8 @@ function onLibrarySidebarSelect(row) {
 
 async function activateWorkQueueItem(item) {
   if (!item) return;
+  const st = deriveWorkQueueDocStatus(item);
+  if (st === DOC_STATUS.SIGNED || st === DOC_STATUS.COMPLETED) return;
   resetClientClinicalContext();
   workQueueItems.value = (workQueueItems.value || []).map((row) => {
     if (row.id === item.id) {

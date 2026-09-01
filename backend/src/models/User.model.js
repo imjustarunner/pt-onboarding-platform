@@ -2061,7 +2061,7 @@ class User {
     try {
       const [uRows] = await pool.execute('SELECT role FROM users WHERE id = ? LIMIT 1', [userId]);
       const role = String(uRows?.[0]?.role || '').toLowerCase();
-      const canInherit = role === 'admin' || role === 'support' || role === 'staff';
+      const canInherit = role === 'admin' || role === 'support' || role === 'staff' || role === 'super_admin';
       if (!canInherit) return rows;
 
       // Parent agencies = any org that is not a school/program/learning child.
