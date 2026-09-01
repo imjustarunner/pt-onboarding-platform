@@ -37,6 +37,14 @@ describe('Note Aid multi-tenant client helpers', () => {
     expect(initialsLikelyMatch('AM', { initials: 'A.M.' })).toBe(true);
     expect(initialsLikelyMatch('AMM', { initials: 'AM' })).toBe(true);
     expect(initialsLikelyMatch('XY', { initials: 'AM' })).toBe(false);
+    // Compact ToDo codes must not be treated as a mismatch-unlink signal.
+    expect(
+      initialsLikelyMatch('COLPRA', {
+        full_name: 'Colton C Pratt',
+        first_name: 'Colton',
+        last_name: 'Pratt'
+      })
+    ).toBe(false);
   });
 
   it('builds documentation queue search haystack for service and date', () => {

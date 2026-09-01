@@ -323,7 +323,6 @@ import {
   docStatusMeta,
   noteConnectionMeta
 } from '../../utils/noteAidDocumentationStatus.js';
-import { initialsLikelyMatch } from '../../utils/noteAidTreatmentHelpers.js';
 import { SOAP_SECTION_DEFS, soapSectionTextFromDraft } from '../../utils/noteAidUiHelpers.js';
 
 const props = defineProps({
@@ -510,9 +509,11 @@ function connectionIconSvg(connection) {
   return `<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M8 13h8M8 17h5"/></svg>`;
 }
 function rowInitials(d) {
+  const name = String(d?.client_full_name || d?.raw?.clientName || '').trim();
+  if (name) return initialsFromDisplayName(name);
   const fromField = String(d?.initials || '').trim();
   if (fromField) return fromField;
-  return initialsFromDisplayName(d?.client_full_name || d?.raw?.clientName || rowTitle(d));
+  return initialsFromDisplayName(rowTitle(d));
 }
 function rowDos(d) {
   const raw = String(d?.date_of_service || d?.raw?.date || '').slice(0, 10);
@@ -525,14 +526,7 @@ function rowDos(d) {
 }
 function rowTitle(d) {
   const initials = String(d?.initials || '').trim();
-  const name = String(d?.client_full_name || '').trim();
-  const hasSession = !!(
-    Number(d?.officeEventId || d?.office_event_id || 0)
-    || Number(d?.clinicalSessionId || d?.clinical_session_id || 0)
-  );
-  if (initials && name && !hasSession && !initialsLikelyMatch(initials, { full_name: name, initials: '' })) {
-    return initials;
-  }
+  const name = String(d?.client_full_name || d?.raw?.clientName || '').trim();
   if (deriveNoteConnection(d) === 'unlinked') return initials || '—';
   if (name) return name;
   return initials || '—';

@@ -416,6 +416,17 @@ class ClinicalNoteDraft {
     return Number(result?.affectedRows || 0);
   }
 
+  /** Hard-delete every Note Aid draft for one clinician (does not touch chart notes). */
+  static async deleteAllForUser({ userId }) {
+    const uid = safeInt(userId);
+    if (!uid) throw new Error('Invalid userId');
+    const [result] = await pool.execute(
+      'DELETE FROM clinical_note_drafts WHERE user_id = ?',
+      [uid]
+    );
+    return Number(result?.affectedRows || 0);
+  }
+
   static async deleteAll() {
     const [result] = await pool.execute('DELETE FROM clinical_note_drafts');
     return Number(result?.affectedRows || 0);

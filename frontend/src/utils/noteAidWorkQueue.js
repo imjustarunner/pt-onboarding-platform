@@ -27,6 +27,22 @@ export function saveWorkQueue(userId, items) {
   }
 }
 
+/** Remove every sticky work-queue day bucket for this user (Done / In progress list). */
+export function clearAllWorkQueues(userId) {
+  const uid = Number(userId || 0) || 'anon';
+  const prefix = `noteAidWorkQueue:${uid}:`;
+  try {
+    const keys = [];
+    for (let i = 0; i < localStorage.length; i += 1) {
+      const key = localStorage.key(i);
+      if (key && key.startsWith(prefix)) keys.push(key);
+    }
+    keys.forEach((key) => localStorage.removeItem(key));
+  } catch {
+    // ignore
+  }
+}
+
 export function newWorkQueueItemId() {
   return `wq_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
 }

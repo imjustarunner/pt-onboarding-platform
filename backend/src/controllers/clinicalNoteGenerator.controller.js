@@ -806,9 +806,14 @@ export const patchClinicalNoteDraft = async (req, res, next) => {
     const existing = await ClinicalNoteDraft.findByIdForUser({ draftId, userId: req.user.id });
     if (!existing) return res.status(404).json({ error: { message: 'Draft not found' } });
 
-    const nextClientId = req.body?.clientId !== undefined
-      ? (req.body.clientId === null ? null : safeInt(req.body.clientId))
-      : safeInt(existing.client_id);
+    const unlinkClient = ['1', 'true', true, 1].includes(req.body?.unlinkClient)
+      || ['1', 'true', true, 1].includes(req.body?.unlink_client);
+    const ignoreAccidentalUnlink = req.body?.clientId === null && existing.client_id && !unlinkClient;
+    const nextClientId = ignoreAccidentalUnlink
+      ? safeInt(existing.client_id)
+      : (req.body?.clientId !== undefined
+        ? (req.body.clientId === null ? null : safeInt(req.body.clientId))
+        : safeInt(existing.client_id));
 
     const preferLearningSponsor = ['1', 'true', true, 1].includes(req.body?.preferLearningSponsor)
       || ['1', 'true', true, 1].includes(req.body?.prefer_learning_sponsor);
@@ -846,7 +851,9 @@ export const patchClinicalNoteDraft = async (req, res, next) => {
     patch.agencyId = agencyId;
     if (req.body?.serviceCode !== undefined) patch.serviceCode = req.body.serviceCode === null ? null : normalizeServiceCode(req.body.serviceCode);
     if (req.body?.programId !== undefined) patch.programId = req.body.programId === null ? null : safeInt(req.body.programId);
-    if (req.body?.clientId !== undefined) patch.clientId = req.body.clientId === null ? null : safeInt(req.body.clientId);
+    if (req.body?.clientId !== undefined && !ignoreAccidentalUnlink) {
+      patch.clientId = req.body.clientId === null ? null : safeInt(req.body.clientId);
+    }
     if (req.body?.officeEventId !== undefined) {
       patch.officeEventId = req.body.officeEventId === null ? null : safeInt(req.body.officeEventId);
     }

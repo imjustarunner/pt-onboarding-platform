@@ -1143,7 +1143,7 @@ import NoteAidWorkQueuePanel from '../../components/clinical/NoteAidWorkQueuePan
 import NoteAidTodoListImportModal from '../../components/clinical/NoteAidTodoListImportModal.vue';
 import NoteAidSessionContextStrip from '../../components/clinical/NoteAidSessionContextStrip.vue';
 import NoteAidStructuredChartPanel from '../../components/clinical/NoteAidStructuredChartPanel.vue';
-import { loadWorkQueue, saveWorkQueue, matchTodoClientFromSearchRows, namesLikelySamePerson } from '../../utils/noteAidWorkQueue.js';
+import { loadWorkQueue, saveWorkQueue, clearAllWorkQueues, matchTodoClientFromSearchRows, namesLikelySamePerson } from '../../utils/noteAidWorkQueue.js';
 import {
   DOC_STATUS,
   buildLeftLibraryRows,
@@ -1774,27 +1774,13 @@ function resolveDraftClientIdForSave() {
   return Number(selectedClientId.value || 0) || null;
 }
 
-/** Drop orphan client_id stamps that don't match draft initials (no session on file). */
+/**
+ * Trust the stored chart client. Compact codes like COLPRA do not match
+ * display initials ("C. P."); treating that as an orphan unlinked the
+ * client and autosaved the unlink onto the draft.
+ */
 function resolveDraftClientIdOnLoad(d) {
-  const cid = Number(d?.client_id || 0) || null;
-  if (!cid) return null;
-  const hasSession = !!(Number(d?.office_event_id || 0) || Number(d?.clinical_session_id || 0));
-  if (hasSession) return cid;
-
-  const draftInitials = String(d?.initials || '').trim();
-  if (!draftInitials) return cid;
-
-  const clientName = String(d?.client_full_name || '').trim();
-  if (!clientName) return cid;
-
-  const stub = {
-    full_name: clientName,
-    first_name: clientName.split(/\s+/)[0] || '',
-    last_name: clientName.split(/\s+/).slice(1).join(' ') || '',
-    initials: clientDisplayInitials({ full_name: clientName })
-  };
-  if (initialsLikelyMatch(draftInitials, stub)) return cid;
-  return null;
+  return Number(d?.client_id || d?.clientId || 0) || null;
 }
 
 function syncRouteNoteClient(clientId) {
@@ -1884,14 +1870,31 @@ let autosaveBusy = false;
 let workQueueActivateSeq = 0;
 let clientHydrateSeq = 0;
 let autosaveDebounceTimer = null;
+let workspaceHydrateDepth = 0;
+let persistClientUnlink = false;
+
+function isWorkspaceHydrating() {
+  return workspaceHydrateDepth > 0;
+}
+
+function beginWorkspaceHydration() {
+  cancelPendingAutosave();
+  workspaceHydrateDepth += 1;
+}
+
+function endWorkspaceHydration() {
+  workspaceHydrateDepth = Math.max(0, workspaceHydrateDepth - 1);
+  cancelPendingAutosave();
+}
 
 function scheduleAutosave(delayMs = 1500) {
-  if (!canUseTool.value) return;
+  if (!canUseTool.value || isWorkspaceHydrating()) return;
   if (autosaveDebounceTimer) clearTimeout(autosaveDebounceTimer);
   const seq = workQueueActivateSeq;
   const saveDraftId = draftId.value;
   autosaveDebounceTimer = setTimeout(() => {
     autosaveDebounceTimer = null;
+    if (isWorkspaceHydrating()) return;
     if (seq !== workQueueActivateSeq) return;
     if (saveDraftId && String(draftId.value || '') !== String(saveDraftId)) return;
     autosave();
@@ -1903,6 +1906,17 @@ function cancelPendingAutosave() {
     clearTimeout(autosaveDebounceTimer);
     autosaveDebounceTimer = null;
   }
+}
+
+function dropMissingDraftFromUi(goneId) {
+  const gone = String(goneId || '');
+  if (!gone) return;
+  recentDrafts.value = (recentDrafts.value || []).filter((d) => String(d.id) !== gone);
+  if (String(draftId.value || '') === gone) draftId.value = null;
+  workQueueItems.value = (workQueueItems.value || []).map((row) =>
+    String(row.draftId || '') === gone ? { ...row, draftId: null } : row
+  );
+  persistWorkQueue();
 }
 
 const looksEncryptedEnvelope = (raw) => {
@@ -3123,8 +3137,9 @@ const programLabel = (programId) => {
 };
 
 const autosave = async () => {
-  if (!canUseTool.value || autosaveBusy) return;
+  if (!canUseTool.value || autosaveBusy || isWorkspaceHydrating()) return;
   const seq = workQueueActivateSeq;
+  const targetDraftId = draftId.value;
 
   let rawInput = String(inputText.value || '');
   // Never persist ciphertext envelopes back into the form field.
@@ -3133,6 +3148,7 @@ const autosave = async () => {
     inputText.value = '';
   }
 
+  const linkedClientId = resolveDraftClientIdForSave();
   const payload = {
     agencyId: noteAidAgencyId.value || currentAgencyId.value,
     preferLearningSponsor: preferLearningSponsorForAid.value,
@@ -3148,30 +3164,38 @@ const autosave = async () => {
         : null,
     dateOfService: dateOfService.value ? String(dateOfService.value) : null,
     initials: initials.value ? String(initials.value) : null,
-    clientId: resolveDraftClientIdForSave(),
     officeEventId:
       Number(bookingContext.value?.officeEventId || sessionOfficeEventId.value || 0) || null,
     clinicalSessionId:
       Number(bookingContext.value?.clinicalSessionId || sessionClinicalSessionId.value || 0) || null
   };
+  if (linkedClientId) {
+    payload.clientId = linkedClientId;
+    persistClientUnlink = false;
+  } else if (persistClientUnlink) {
+    payload.clientId = null;
+    payload.unlinkClient = true;
+    persistClientUnlink = false;
+  }
 
   // Always persist typed or dictated session notes. On patch, omit when empty so we never wipe saved text.
   if (rawInput.trim()) {
     payload.inputText = rawInput;
-  } else if (!draftId.value) {
+  } else if (!targetDraftId) {
     payload.inputText = null;
   }
 
   // Create only after the clinician writes or dictates — client/initials/DOS
   // from a work-queue click must not spawn a new empty draft each time.
   const hasNoteBody = !!String(payload.inputText || '').trim();
-  if (!draftId.value && !hasNoteBody) return;
+  if (!targetDraftId && !hasNoteBody) return;
   if (seq !== workQueueActivateSeq) return;
 
   autosaveBusy = true;
   try {
-    if (!draftId.value) {
+    if (!targetDraftId) {
       const res = await api.post('/clinical-notes/drafts', payload, { skipGlobalLoading: true });
+      if (seq !== workQueueActivateSeq || isWorkspaceHydrating()) return;
       const created = res?.data?.draft || null;
       draftId.value = created?.id || null;
       currentDraftCreatedAt.value = created?.created_at || new Date().toISOString();
@@ -3190,9 +3214,11 @@ const autosave = async () => {
         }
       }
     } else {
-      await api.patch(`/clinical-notes/drafts/${draftId.value}`, payload, { skipGlobalLoading: true });
+      if (String(draftId.value || '') !== String(targetDraftId)) return;
+      await api.patch(`/clinical-notes/drafts/${targetDraftId}`, payload, { skipGlobalLoading: true });
+      if (seq !== workQueueActivateSeq || String(draftId.value || '') !== String(targetDraftId)) return;
       recentDrafts.value = (recentDrafts.value || []).map((d) =>
-        String(d.id) === String(draftId.value)
+        String(d.id) === String(targetDraftId)
           ? {
               ...d,
               date_of_service: payload.dateOfService || d.date_of_service,
@@ -3200,7 +3226,9 @@ const autosave = async () => {
               client_id: Object.prototype.hasOwnProperty.call(payload, 'clientId')
                 ? payload.clientId
                 : d.client_id,
-              client_full_name: payload.clientId ? d.client_full_name : null,
+              client_full_name: payload.clientId
+                ? d.client_full_name
+                : (Object.prototype.hasOwnProperty.call(payload, 'clientId') ? null : d.client_full_name),
               service_code: payload.serviceCode ?? d.service_code,
               input_text: payload.inputText !== undefined ? payload.inputText : d.input_text
             }
@@ -3208,15 +3236,18 @@ const autosave = async () => {
       );
     }
     lastSavedAt.value = new Date().toLocaleString();
-  } catch {
-    // best-effort: do not block the user
+  } catch (e) {
+    const status = Number(e?.response?.status || 0);
+    if (status === 404 && targetDraftId) {
+      dropMissingDraftFromUi(targetDraftId);
+    }
   } finally {
     autosaveBusy = false;
   }
 };
 
 async function saveDraftNow() {
-  if (savingDraftManual.value) return;
+  if (savingDraftManual.value || isWorkspaceHydrating()) return;
   savingDraftManual.value = true;
   approvalError.value = '';
   try {
@@ -3239,6 +3270,7 @@ function onDateOfServiceChanged() {
 
 watch(dateOfService, (next, prev) => {
   if (prev === undefined) return;
+  if (isWorkspaceHydrating()) return;
   if (String(next || '') === String(prev || '')) return;
   // Auto-persist DOS once a draft exists (Save still creates new drafts).
   if (!draftId.value) return;
@@ -4611,6 +4643,7 @@ const onClientCleared = () => {
   learningSponsorAgencyIds.value = [];
   resetClientClinicalContext();
   syncRouteNoteClient(null);
+  persistClientUnlink = true;
   scheduleAutosave(400);
 };
 
@@ -4707,6 +4740,7 @@ async function searchInitialsMatches() {
 }
 
 watch(initials, () => {
+  if (isWorkspaceHydrating()) return;
   initialsMatchDismissed.value = false;
   initialsMatchSearched.value = false;
   if (initialsMatchTimer) clearTimeout(initialsMatchTimer);
@@ -4715,6 +4749,7 @@ watch(initials, () => {
 });
 
 watch(selectedClientId, () => {
+  if (isWorkspaceHydrating()) return;
   if (draftId.value) scheduleAutosave(800);
 });
 
@@ -5002,14 +5037,20 @@ async function openNextInQueue() {
 function onLibrarySidebarSelect(row) {
   if (!row) return;
   libraryExpanded.value = false;
+  cancelPendingAutosave();
   if (row.source === 'work_queue' && row.raw) {
     activateWorkQueueItem(row.raw);
-    sidebarTab.value = DOC_STATUS.STARTED;
     return;
   }
+  workQueueActivateSeq += 1;
+  clientHydrateSeq += 1;
   const draft = row.raw || row;
   if (draft?.id && row.source !== 'work_queue') {
-    loadDraftIntoWorkspace(draft);
+    loadDraftIntoWorkspace(draft, {
+      expectedClientId: Number(row.clientId || draft.client_id || draft.clientId || 0) || null,
+      preserveWorkQueueItemId: !!row.workQueueId
+    });
+    if (row.workQueueId) activeWorkQueueItemId.value = row.workQueueId;
     const st = row.docStatus || DOC_STATUS.STARTED;
     if (st === DOC_STATUS.SIGNED) sidebarTab.value = DOC_STATUS.SIGNED;
     else if (st === DOC_STATUS.COMPLETED) sidebarTab.value = DOC_STATUS.COMPLETED;
@@ -5019,6 +5060,8 @@ function onLibrarySidebarSelect(row) {
 
 async function activateWorkQueueItem(item) {
   if (!item) return;
+  beginWorkspaceHydration();
+  try {
   cancelPendingAutosave();
   const seq = ++workQueueActivateSeq;
   clientHydrateSeq += 1;
@@ -5206,6 +5249,9 @@ async function activateWorkQueueItem(item) {
   await ensureWorkQueueDraft(item);
   if (seq !== workQueueActivateSeq) return;
   await loadRecent();
+  } finally {
+    endWorkspaceHydration();
+  }
 }
 
 async function ensureWorkQueueDraft(item) {
@@ -5583,6 +5629,8 @@ const loadDraftIntoWorkspace = async (d, options = {}) => {
   if (expectedClientId && draftStampClientId && expectedClientId !== draftStampClientId) {
     return;
   }
+  beginWorkspaceHydration();
+  try {
   viewingChartNote.value = null;
   draftId.value = d.id || null;
   noteAidAgencyChoiceId.value = null;
@@ -5608,22 +5656,22 @@ const loadDraftIntoWorkspace = async (d, options = {}) => {
     }
   }
   selectedProgramId.value = d.program_id ? String(d.program_id) : '';
+  inputText.value = unwrapDraftText(d.input_text);
   dateOfService.value = d.date_of_service ? String(d.date_of_service).slice(0, 10) : todayIsoDate();
   initials.value = d.initials || '';
   let draftClientId = expectedClientId || resolveDraftClientIdOnLoad(d);
   if (expectedClientId) draftClientId = expectedClientId;
   if (draftClientId) {
-    if (draftClientId !== Number(selectedClientId.value || 0)) {
-      selectedClientId.value = draftClientId;
-      selectedClient.value = {
-        id: draftClientId,
-        agency_id: d.client_agency_id || null,
-        agency_name: d.agency_name || null,
-        initials: d.initials || '',
-        full_name: d.client_full_name || null
-      };
-      await hydrateSelectedClient(draftClientId);
-    }
+    selectedClientId.value = draftClientId;
+    selectedClient.value = {
+      ...(selectedClient.value && Number(selectedClient.value.id) === draftClientId ? selectedClient.value : {}),
+      id: draftClientId,
+      agency_id: d.client_agency_id || selectedClient.value?.agency_id || null,
+      agency_name: d.agency_name || selectedClient.value?.agency_name || null,
+      initials: d.initials || selectedClient.value?.initials || '',
+      full_name: d.client_full_name || selectedClient.value?.full_name || null
+    };
+    await hydrateSelectedClient(draftClientId);
     syncRouteNoteClient(draftClientId);
     await loadClientAgencyContext(draftClientId);
     await Promise.all([
@@ -5699,10 +5747,9 @@ const loadDraftIntoWorkspace = async (d, options = {}) => {
     progressEntryMode.value = 'client';
     activeWorkQueueItemId.value = null;
   }
-
-  // Repair orphan client_id stamps (initials-only drafts that picked up another client).
-  if (!draftClientId && Number(d.client_id || 0)) {
-    scheduleAutosave(500);
+  } finally {
+    await nextTick();
+    endWorkspaceHydration();
   }
 };
 
@@ -5891,6 +5938,19 @@ onMounted(async () => {
   const libraryUi = loadNoteLibraryUiPrefs(authStore.user?.id);
   libraryCollapsed.value = libraryUi.collapsed;
   libraryExpanded.value = libraryUi.expanded;
+
+  if (String(route.query?.noteAidReset || '') === '1') {
+    clearAllWorkQueues(authStore.user?.id);
+    workQueueItems.value = [];
+    activeWorkQueueItemId.value = null;
+    draftId.value = null;
+    recentDrafts.value = [];
+    selectedDraftIds.value = [];
+    const nextQuery = { ...route.query };
+    delete nextQuery.noteAidReset;
+    router.replace({ query: nextQuery }).catch(() => {});
+  }
+
   const queryDos = toDateOfService(route.query?.dateOfService || route.query?.date_of_service);
   if (queryDos) dateOfService.value = queryDos;
   else if (!dateOfService.value) dateOfService.value = todayIsoDate();
@@ -5955,7 +6015,7 @@ onMounted(async () => {
   }
 
   autosaveTimer = window.setInterval(() => {
-    autosave();
+    if (!isWorkspaceHydrating()) autosave();
   }, 30_000);
 });
 
@@ -6072,6 +6132,7 @@ watch(clinicalNoteGeneratorEnabled, async (enabled, wasEnabled) => {
 });
 
 watch(inputText, () => {
+  if (isWorkspaceHydrating()) return;
   scheduleAutosave(1500);
 });
 
