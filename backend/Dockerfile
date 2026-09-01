@@ -32,6 +32,9 @@ COPY frontend/ ./
 ARG VITE_API_URL=/api
 ENV VITE_API_URL=$VITE_API_URL
 
+# Vite chunk rendering needs more heap than Node's default in constrained CI builders.
+ENV NODE_OPTIONS=--max-old-space-size=4096
+
 # Verify index.html exists and show directory structure before building
 RUN echo "=== Verifying frontend structure ===" && \
     node -v && npm -v && \
