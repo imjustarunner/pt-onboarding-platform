@@ -515,8 +515,15 @@
                     <em :class="demographicsOnFile ? 'ok' : 'warn'">{{ demographicsOnFile ? 'Complete' : (effectiveClientId ? 'Missing' : '—') }}</em>
                   </li>
                   <li>
-                    <span>Intake on file</span>
-                    <em :class="intakeOnFile ? 'ok' : 'warn'">{{ intakeOnFile ? 'Complete' : (effectiveClientId ? 'Missing' : '—') }}</em>
+                    <button
+                      type="button"
+                      class="na-checklist-item"
+                      :disabled="!effectiveClientId"
+                      @click="showIntakeImportReview = true"
+                    >
+                      <span>Intake on file</span>
+                      <em :class="intakeOnFile ? 'ok' : 'warn'">{{ intakeOnFile ? 'Complete' : (effectiveClientId ? 'Missing' : '—') }}</em>
+                    </button>
                   </li>
                   <li>
                     <span>Diagnosis (from intake / plan)</span>
@@ -1082,7 +1089,7 @@
       v-if="effectiveClientId"
       :open="showIntakeImportReview"
       :client-id="effectiveClientId"
-      :initial-text="pastedIntakeText || intakeSummary"
+      :initial-text="pastedIntakeText"
       @close="showIntakeImportReview = false"
       @finalized="onIntakeImportFinalized"
     />
@@ -1350,13 +1357,10 @@ const demographicsPreviewRows = computed(() => {
 });
 
 const intakeOnFile = computed(() => {
-  // Intake is its own step — chart diagnoses from a treatment-plan import must NOT
-  // mark intake complete (that hid the intake paste UI and showed Setup complete).
+  // Only a finalized intake note (or a completed import in this session) counts.
+  // Copy-blocks / plan diagnoses must not hide the intake paste step.
   if (intakeImportedOnce.value) return true;
-  const s = String(intakeSummary.value || '');
-  if (/intake narrative/i.test(s) && s.length > 80) return true;
-  if (/clinical \(de-identified\)/i.test(s) && s.length > 80) return true;
-  return false;
+  return intakeDraftFinalized.value;
 });
 
 const planOnFile = computed(
@@ -1477,6 +1481,7 @@ const pastedPlanText = ref('');
 const pastedIntakeText = ref('');
 const pastedDemographicsText = ref('');
 const intakeImportedOnce = ref(false);
+const intakeDraftFinalized = ref(false);
 const planImportedOnce = ref(false);
 const savingDraftManual = ref(false);
 const deletingCurrentDraft = ref(false);
@@ -4226,6 +4231,7 @@ const resetClientClinicalContext = () => {
   pastedIntakeText.value = '';
   pastedDemographicsText.value = '';
   intakeImportedOnce.value = false;
+  intakeDraftFinalized.value = false;
   planImportedOnce.value = false;
   sessionObjectiveRatings.value = [];
   suggestUpdateTreatmentPlan.value = false;
@@ -4352,7 +4358,8 @@ const loadClientIntakeSummary = async (clientId) => {
       }
     }
     const draftStatus = String(draftRes?.data?.draft?.status || '').toLowerCase();
-    if (draftStatus === 'final' || draftRes?.data?.draft?.finalizedAt) {
+    intakeDraftFinalized.value = draftStatus === 'final' || !!draftRes?.data?.draft?.finalizedAt;
+    if (intakeDraftFinalized.value) {
       intakeImportedOnce.value = true;
     }
   } catch (e) {
@@ -6330,6 +6337,24 @@ onBeforeUnmount(() => {
   gap: 10px;
   font-size: 0.86rem;
   color: #334155;
+}
+.na-checklist-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.na-checklist-item:disabled {
+  cursor: default;
 }
 .na-checklist em {
   font-style: normal;

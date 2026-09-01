@@ -4,8 +4,8 @@
       <div class="cc-enc-toolbar__meta">
         <h3>Medical Record</h3>
         <p>
-          Chronological clinical record from imported billing sessions, notes, and related entries.
-          Download a print-friendly branded summary, or open an encounter to continue in Note Aid.
+          Chronological clinical record from calendar sessions, notes, and imported billing.
+          Sessions with a client, date, and service code appear here before a claim is imported.
         </p>
       </div>
       <div class="cc-enc-toolbar__actions">
@@ -26,7 +26,7 @@
     <p v-if="error" class="cc-enc-error">{{ error }}</p>
     <p v-else-if="loading" class="muted">Loading sessions…</p>
     <p v-else-if="!sortedEncounters.length" class="cc-enc-empty">
-      No billing sessions on file for this client yet.
+      No sessions on file for this client yet. Linked appointments with a date and service code appear here even before a billing report is imported.
     </p>
 
     <div v-else class="cc-enc-master-detail">
@@ -53,11 +53,11 @@
         <div class="cc-enc-list">
           <button
             v-for="row in filteredEncounters"
-            :key="row.id"
+            :key="row.record_key || row.id"
             type="button"
             class="cc-enc-list-item"
-            :class="{ 'cc-enc-list-item--active': Number(row.id) === selectedId }"
-            @click="selectEncounter(row.id)"
+            :class="{ 'cc-enc-list-item--active': encounterKey(row) === selectedId }"
+            @click="selectEncounter(row)"
           >
             <div class="cc-enc-list-item__row">
               <span class="cc-enc-list-item__date">{{ formatEncounterDate(row.service_date) }}</span>
@@ -68,6 +68,9 @@
             <div class="cc-enc-list-item__meta">
               <span class="cc-enc-mono">{{ row.service_code || '—' }}</span>
               · {{ formatEncounterProvider(row) }}
+            </div>
+            <div v-if="row.billing_attached === false" class="cc-enc-list-item__meta muted tiny">
+              No claim / billing info attached
             </div>
           </button>
           <p v-if="!filteredEncounters.length" class="muted tiny" style="padding: 8px 4px;">
@@ -91,10 +94,10 @@
           <button
             type="button"
             class="btn btn-primary btn-sm"
-            :disabled="openingId === selectedRow.id"
+            :disabled="openingId === encounterKey(selectedRow)"
             @click="openNote(selectedRow)"
           >
-            {{ openingId === selectedRow.id ? 'Opening…' : noteActionLabel(selectedRow) }}
+            {{ openingId === encounterKey(selectedRow) ? 'Opening…' : noteActionLabel(selectedRow) }}
           </button>
         </div>
 
@@ -136,7 +139,12 @@
               </div>
             </div>
             <p class="muted tiny" style="margin: 0;">
-              Clinical notes are authored in Note Aid and linked to this imported billing line.
+              <template v-if="selectedRow.billing_attached === false">
+                No claim / billing info attached. Importing a billing report for this date and service code will attach to this session instead of creating a duplicate.
+              </template>
+              <template v-else>
+                Clinical notes are authored in Note Aid and linked to this session.
+              </template>
             </p>
           </template>
 
@@ -168,10 +176,10 @@
               <button
                 type="button"
                 class="btn btn-primary btn-sm"
-                :disabled="openingId === selectedRow.id"
+                :disabled="openingId === encounterKey(selectedRow)"
                 @click="openNote(selectedRow)"
               >
-                {{ openingId === selectedRow.id ? 'Opening…' : noteActionLabel(selectedRow) }}
+                {{ openingId === encounterKey(selectedRow) ? 'Opening…' : noteActionLabel(selectedRow) }}
               </button>
             </div>
           </template>
@@ -179,8 +187,8 @@
           <template v-else>
             <div class="cc-enc-field-grid">
               <div>
-                <div class="cc-enc-field__label">Encounter ID</div>
-                <div class="cc-enc-field__value cc-enc-mono">{{ selectedRow.id }}</div>
+                <div class="cc-enc-field__label">Record</div>
+                <div class="cc-enc-field__value cc-enc-mono">{{ selectedRow.record_key || selectedRow.id }}</div>
               </div>
               <div>
                 <div class="cc-enc-field__label">Service date</div>
@@ -338,14 +346,21 @@ const filteredEncounters = computed(() => {
 });
 
 const selectedRow = computed(() =>
-  sortedEncounters.value.find((row) => Number(row.id) === Number(selectedId.value)) || null
+  sortedEncounters.value.find((row) => encounterKey(row) === selectedId.value) || null
 );
 
-function selectEncounter(id) {
-  const n = Number(id || 0);
-  if (!n) return;
-  selectedId.value = n;
-  emit('encounter-change', n);
+function encounterKey(row) {
+  return String(row?.record_key || (row?.id != null ? `id:${row.id}` : ''));
+}
+
+function selectEncounter(rowOrKey) {
+  const key = typeof rowOrKey === 'object' && rowOrKey
+    ? encounterKey(rowOrKey)
+    : String(rowOrKey || '');
+  if (!key) return;
+  selectedId.value = key;
+  const n = Number(typeof rowOrKey === 'object' ? rowOrKey?.billing_encounter_id || rowOrKey?.id : rowOrKey);
+  emit('encounter-change', Number.isFinite(n) ? n : 0);
 }
 
 function openNote(row) {
@@ -358,13 +373,17 @@ function openNote(row) {
 
 function syncSelectionFromProps() {
   const initial = Number(props.initialEncounterId || 0);
-  if (initial > 0 && sortedEncounters.value.some((row) => Number(row.id) === initial)) {
-    selectedId.value = initial;
-    return;
+  if (initial > 0) {
+    const hit = sortedEncounters.value.find((row) =>
+      Number(row.billing_encounter_id || row.id) === initial
+    );
+    if (hit) {
+      selectedId.value = encounterKey(hit);
+      return;
+    }
   }
   if (!selectedId.value && sortedEncounters.value.length) {
-    selectedId.value = Number(sortedEncounters.value[0].id);
-    emit('encounter-change', selectedId.value);
+    selectEncounter(sortedEncounters.value[0]);
   }
 }
 
@@ -378,9 +397,8 @@ watch(
   filteredEncounters,
   (rows) => {
     if (!rows.length) return;
-    const current = Number(selectedId.value || 0);
-    if (!rows.some((row) => Number(row.id) === current)) {
-      selectEncounter(rows[0].id);
+    if (!rows.some((row) => encounterKey(row) === selectedId.value)) {
+      selectEncounter(rows[0]);
     }
   }
 );

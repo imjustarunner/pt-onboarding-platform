@@ -92,11 +92,15 @@
                 </div>
                 <span v-if="isLearningClient && showConcernCode(dx)" class="small">{{ dx.description || '' }}</span>
                 <span v-else-if="!isLearningClient" class="small">{{ dx.description || '' }}</span>
-                <details v-if="dx.justification" class="cc-dx-just">
-                  <summary>{{ isLearningClient ? 'Notes' : 'Justification' }}</summary>
+                <details v-if="isLearningClient && dx.justification" class="cc-dx-just">
+                  <summary>Notes</summary>
                   <p>{{ dx.justification }}</p>
                 </details>
               </div>
+              <details v-if="sharedDxJustification && !isLearningClient" class="cc-dx-just">
+                <summary>Justification</summary>
+                <p>{{ sharedDxJustification }}</p>
+              </details>
             </div>
             <div v-else-if="!isLearningClient && billingDiagnoses.length" class="cc-clinical-dx-list">
               <div v-for="dx in billingDiagnoses" :key="dx.code" class="cc-clinical-dx">
@@ -437,6 +441,14 @@ const displayConcerns = computed(() => {
     const code = String(d.icd10_code || d.code || '').toUpperCase();
     return code.startsWith('LC-') || !!String(d.description || '').trim();
   });
+});
+
+const sharedDxJustification = computed(() => {
+  const rows = displayConcerns.value || [];
+  const primary = rows.find((d) => d && (d.is_primary || d.isPrimary));
+  return String(
+    primary?.justification || rows.find((d) => d?.justification)?.justification || ''
+  ).trim();
 });
 
 const concernDraft = ref({ description: '', isPrimary: false });

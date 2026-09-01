@@ -81,6 +81,35 @@ export async function ensureClinicalSessionForBillingEncounter({
   const serviceDate = encounter.service_date ? String(encounter.service_date).slice(0, 10) : null;
   const scheduledStart = serviceDate ? `${serviceDate} 12:00:00` : null;
 
+  const matched = await ClinicalSession.findUnbilledByClientDateCode({
+    agencyId: aid,
+    clientId: Number(encounter.client_id),
+    serviceDate,
+    serviceCode: encounter.service_code
+  });
+  if (matched?.id) {
+    const session = await ClinicalSession.attachBillingEncounter({
+      sessionId: matched.id,
+      billingEncounterId: beId,
+      serviceCode: encounter.service_code || null,
+      providerUserId: Number(encounter.provider_user_id || 0) || null
+    });
+    await pool.execute(
+      `UPDATE billing_encounters
+       SET clinical_session_id = ?, updated_at = CURRENT_TIMESTAMP
+       WHERE id = ? AND agency_id = ?`,
+      [session.id, beId, aid]
+    );
+    await syncDiagnosesFromEncounter({
+      agencyId: aid,
+      clientId: Number(encounter.client_id),
+      clinicalSessionId: session.id,
+      diagnosisText: encounter.diagnosis_text,
+      actingUserId
+    });
+    return { session, encounter: { ...encounter, clinical_session_id: session.id }, created: false };
+  }
+
   const session = await ClinicalSession.upsertFromBillingEncounter({
     agencyId: aid,
     clientId: Number(encounter.client_id),

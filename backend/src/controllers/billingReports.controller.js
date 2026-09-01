@@ -1,5 +1,6 @@
 import multer from 'multer';
 import pool from '../config/database.js';
+import clinicalPool from '../config/clinicalDatabase.js';
 import { requirePayrollAccess } from './payroll.controller.js';
 import {
   ingestBillingReport,
@@ -24,6 +25,7 @@ import {
   enrichEncountersWithNoteSummary,
   stripEncounterFinancials
 } from '../services/billingEncounterClinical.service.js';
+import { listClientMedicalRecordRows } from '../services/medicalRecordList.service.js';
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -210,7 +212,7 @@ export const listClientMedicalRecord = async (req, res, next) => {
     }
     if (!(await ensureMedicalRecordAccess(req, res, { agencyId, clientId }))) return;
 
-    const raw = await listBillingEncountersForClient({
+    const raw = await listClientMedicalRecordRows({
       agencyId,
       clientId,
       limit: req.query?.limit
@@ -255,6 +257,69 @@ export const bootstrapBillingEncounterClinicalSession = async (req, res, next) =
   }
 };
 
+async function listChartDiagnosesForBillingBadge({ agencyId, clientId }) {
+  try {
+    const [rows] = await clinicalPool.execute(
+      `SELECT id, icd10_code, description, is_primary, is_active, justification
+       FROM clinical_diagnoses
+       WHERE agency_id = ? AND client_id = ?
+         AND (is_active IS NULL OR is_active = 1)
+       ORDER BY is_primary DESC, created_at DESC
+       LIMIT 50`,
+      [agencyId, clientId]
+    );
+    return (rows || []).map((d) => ({
+      code: String(d.icd10_code || '').trim(),
+      description: String(d.description || '').trim(),
+      isPrimary: Number(d.is_primary) === 1,
+      source: 'chart'
+    })).filter((d) => d.code);
+  } catch {
+    return [];
+  }
+}
+
+function mergeBillingAndChartDiagnoses(chartDx = [], billingDx = []) {
+  const byCode = new Map();
+  for (const row of chartDx || []) {
+    const key = String(row.code || '').toUpperCase();
+    if (!key) continue;
+    byCode.set(key, {
+      code: row.code,
+      description: row.description || '',
+      isPrimary: !!row.isPrimary,
+      source: 'chart',
+      sessionCount: 0,
+      firstSeen: null,
+      lastSeen: null
+    });
+  }
+  for (const row of billingDx || []) {
+    const key = String(row.code || '').toUpperCase();
+    if (!key) continue;
+    const existing = byCode.get(key) || {
+      code: row.code,
+      description: '',
+      isPrimary: false,
+      source: 'billing',
+      sessionCount: 0,
+      firstSeen: null,
+      lastSeen: null
+    };
+    existing.sessionCount = Number(row.sessionCount || 0);
+    existing.firstSeen = row.firstSeen || existing.firstSeen;
+    existing.lastSeen = row.lastSeen || existing.lastSeen;
+    if (!existing.description && row.description) existing.description = row.description;
+    byCode.set(key, existing);
+  }
+  return Array.from(byCode.values()).sort((a, b) => {
+    if (!!b.isPrimary !== !!a.isPrimary) return a.isPrimary ? -1 : 1;
+    const dateCmp = String(b.lastSeen || '').localeCompare(String(a.lastSeen || ''));
+    if (dateCmp !== 0) return dateCmp;
+    return String(a.code || '').localeCompare(String(b.code || ''));
+  });
+}
+
 export const listClientBillingDiagnoses = async (req, res, next) => {
   try {
     const agencyId = req.query?.agencyId ? parseInt(req.query.agencyId, 10) : null;
@@ -264,7 +329,9 @@ export const listClientBillingDiagnoses = async (req, res, next) => {
     }
     if (!(await ensureMedicalRecordAccess(req, res, { agencyId, clientId }))) return;
 
-    const diagnoses = await listBillingDiagnosesForClient({ agencyId, clientId });
+    const billingDx = await listBillingDiagnosesForClient({ agencyId, clientId });
+    const chartDx = await listChartDiagnosesForBillingBadge({ agencyId, clientId });
+    const diagnoses = mergeBillingAndChartDiagnoses(chartDx, billingDx);
     res.json({ diagnoses });
   } catch (e) {
     next(e);

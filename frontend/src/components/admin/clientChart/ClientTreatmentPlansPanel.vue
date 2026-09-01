@@ -71,9 +71,9 @@
                 <code v-if="d.icd10_code && !isLearningConcernCode(d.icd10_code)">{{ d.icd10_code }}</code>
                 {{ d.description || '' }}
                 <em v-if="d.is_primary">primary</em>
-                <p v-if="d.justification" class="ctp-dx-just">{{ d.justification }}</p>
               </li>
             </ul>
+        <p v-if="planSharedJustification" class="ctp-dx-just">{{ planSharedJustification }}</p>
           </div>
 
       <p v-if="detailPlan?.effective_date" class="muted tiny">
@@ -215,6 +215,16 @@ const planDiagnosesDisplay = computed(() => {
     }));
   }
   return activeDiagnoses.value;
+});
+
+const planSharedJustification = computed(() => {
+  const planJust = String(
+    detailPlan.value?.diagnostic_justification || detailPlan.value?.diagnosticJustification || ''
+  ).trim();
+  if (planJust) return planJust;
+  const rows = planDiagnosesDisplay.value || [];
+  const primary = rows.find((d) => d && (d.is_primary || d.isPrimary));
+  return String(primary?.justification || rows.find((d) => d?.justification)?.justification || '').trim();
 });
 
 const dischargePlan = computed(() =>

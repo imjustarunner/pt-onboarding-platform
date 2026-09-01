@@ -429,7 +429,6 @@ export function parseTreatmentPlanText(rawText) {
     if (mode === 'dx') {
       const code = parseIcd10(trimmed);
       if (code && !/justification/i.test(trimmed)) {
-        flushJustification();
         diagnoses.push({
           icd10Code: code,
           description: trimmed.replace(code, '').replace(/^[\s\-–—:,\t]+/, '').trim(),
@@ -441,7 +440,12 @@ export function parseTreatmentPlanText(rawText) {
         const rest = trimmed.replace(/^.*?justification\s*[:\-]?\s*/i, '').trim();
         if (rest) justificationBuffer.push(rest);
       } else {
-        justificationBuffer.push(trimmed);
+        const last = diagnoses[diagnoses.length - 1];
+        if (last && !String(last.description || '').trim()) {
+          last.description = trimmed;
+        } else {
+          justificationBuffer.push(trimmed);
+        }
       }
       continue;
     }

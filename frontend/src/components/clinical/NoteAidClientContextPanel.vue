@@ -56,12 +56,12 @@
             {{ setupComplete ? 'Initial chart info (expand if needed)' : 'Finish initial chart setup' }}
           </summary>
 
-          <template v-if="setupComplete">
+          <template v-if="setupComplete && !redoIntake">
             <div class="na-locked-banner" role="status">
               <strong>Chart setup complete</strong>
               <p>
                 Intake, demographics, and treatment plan are on file.
-                Paste import stays hidden — updates go through the chart, sessions, and treatment plan updater.
+                Use Redo intake if the imported note was wrong or incomplete.
               </p>
             </div>
             <details v-if="clinicalIntakePreview" class="na-locked-preview">
@@ -74,6 +74,9 @@
               </button>
               <button type="button" class="na-btn-outline" @click="$emit('open-updater')">
                 Open treatment plan updater
+              </button>
+              <button type="button" class="na-btn-outline" @click="startRedoIntake">
+                Redo intake
               </button>
               <button type="button" class="na-link-btn" @click="$emit('open-chart-intake')">
                 Open chart intake
@@ -112,10 +115,10 @@
             <template v-if="tab === 'intake'">
               <div v-if="loadingIntake" class="na-client-ctx-empty">Loading intake…</div>
               <div v-else-if="intakeError" class="na-client-ctx-empty error">{{ intakeError }}</div>
-              <template v-else-if="intakeLocked">
+              <template v-else-if="intakeLocked && !redoIntake">
                 <div class="na-locked-banner" role="status">
                   <strong>Intake on file</strong>
-                  <p>One-time chart import is complete. Future intake updates happen through sessions and chart notes.</p>
+                  <p>Imported intake is on the chart. Redo if that paste was incomplete or was not a real intake note.</p>
                 </div>
                 <details v-if="clinicalIntakePreview" class="na-locked-preview">
                   <summary>Preview intake on file</summary>
@@ -125,20 +128,20 @@
                   <button type="button" class="na-btn-outline" @click="$emit('use-intake')">
                     Use intake to inform plan
                   </button>
-                  <button type="button" class="na-btn-outline" @click="$emit('import-intake')">
-                    Replace intake import
+                  <button type="button" class="na-btn-outline" @click="startRedoIntake">
+                    Redo intake import
                   </button>
                   <button type="button" class="na-link-btn" @click="$emit('open-chart-intake')">
                     Open chart intake
                   </button>
                 </div>
-                <p class="na-client-ctx-hint">
-                  Use Replace only while finishing initial chart setup — it overwrites the imported intake on file.
-                </p>
               </template>
               <template v-else>
                 <p v-if="clinicalIntakePreview" class="na-client-ctx-intake">{{ clinicalIntakePreview }}</p>
-                <p v-else class="na-client-ctx-empty">No intake on file yet — paste below to import (one-time).</p>
+                <p v-else class="na-client-ctx-empty">No intake on file yet — paste below to import.</p>
+                <p v-if="redoIntake" class="na-client-ctx-hint">
+                  Replacing the intake on file. Parse, confirm diagnoses, then Confirm &amp; finalize.
+                </p>
 
                 <label class="na-paste-label">
                   Paste intake note (optional)
@@ -344,13 +347,19 @@ defineEmits([
 ]);
 
 const tab = ref('intake');
+const redoIntake = ref(false);
 
 const demographicsLocked = computed(() => !!props.demographicsOnFile);
 const intakeLocked = computed(() => !!props.intakeOnFile);
 const planLocked = computed(() => !!props.planOnFile);
 const setupComplete = computed(
-  () => demographicsLocked.value && intakeLocked.value && planLocked.value
+  () => demographicsLocked.value && intakeLocked.value && planLocked.value && !redoIntake.value
 );
+
+function startRedoIntake() {
+  redoIntake.value = true;
+  tab.value = 'intake';
+}
 
 const setupStatusLabel = computed(() => {
   const missing = [];
@@ -401,6 +410,7 @@ function focusFirstIncompleteSetupTab() {
 watch(
   () => props.clientId,
   () => {
+    redoIntake.value = false;
     focusFirstIncompleteSetupTab();
   }
 );

@@ -39,10 +39,10 @@
         <button
           type="button"
           class="cdp-btn-soft"
-          :disabled="busy || draft?.status === 'final'"
+          :disabled="busy"
           @click="showImport = true"
         >
-          Import pasted intake
+          {{ draft?.status === 'final' ? 'Replace / re-import intake' : 'Import pasted intake' }}
         </button>
         <button
           v-if="draft?.sections?.length"

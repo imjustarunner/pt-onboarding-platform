@@ -343,10 +343,11 @@ export const listClientChart = async (req, res, next) => {
       diagnoses = (diagnoses || []).map((d) => ({
         ...d,
         is_primary: Number(d.id) === primaryId ? 1 : 0,
+        // One justification for the diagnosis set — keep it on primary only.
         justification:
           Number(d.id) === primaryId
             ? (resolvedPrimary.justification || d.justification)
-            : d.justification
+            : null
       }));
     }
 

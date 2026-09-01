@@ -54,6 +54,29 @@ Objective 1: Complete behavioral activation 3x/week 8 -> 3 decrease
     assert.equal(obj.scaleNeedsRewrite, false);
     assert.equal(inferScaleDirection(8, 3), 'decrease');
   });
+
+  it('attaches stacked diagnosis names to each code, not the shared justification', () => {
+    const text = `
+Diagnosis
+F41.1
+Generalized Anxiety Disorder
+F33.1
+Major Depressive Disorder, Recurrent episode, Moderate
+
+Diagnostic Justification
+Shared narrative covering both diagnoses.
+
+Goal 1: Reduce anxiety
+Objective 1: Use coping skills 4x/week (4 → 8 increase)
+`;
+    const parsed = parseTreatmentPlanText(text);
+    assert.equal(parsed.diagnoses.length, 2);
+    assert.equal(parsed.diagnoses[0].icd10Code, 'F41.1');
+    assert.match(String(parsed.diagnoses[0].description), /Generalized Anxiety/i);
+    assert.equal(parsed.diagnoses[1].icd10Code, 'F33.1');
+    assert.match(String(parsed.diagnoses[1].description), /Major Depressive/i);
+    assert.match(String(parsed.diagnoses[0].justification || ''), /Shared narrative/i);
+  });
 });
 
 describe('intakeImport.service', () => {
@@ -101,5 +124,55 @@ Weekly psychotherapy.
     assert.equal(parsed.diagnoses.length, 3);
     assert.equal(parsed.diagnoses[0].code, 'F40.10');
     assert.match(String(parsed.diagnoses[0].justification || ''), /social anxiety/i);
+  });
+
+  it('parses stacked ICD-10 + description lines and Current Mental Status as MSE', () => {
+    const text = `
+Presenting Problem
+The client reports a recent spiral into depression.
+
+Current Mental Status
+Orientation
+X3: Oriented to Person, Place, and Time
+General Appearance
+Appropriate
+Mood
+Euthymic
+Affect
+Congruent
+
+Risk Assessment
+Patient denies all areas of risk.
+
+Objective Content
+The client consented to services.
+
+Diagnosis
+F41.1
+Generalized Anxiety Disorder
+F33.1
+Major Depressive Disorder, Recurrent episode, Moderate
+
+Diagnostic Justification
+The client meets the criteria for Generalized Anxiety Disorder due to lifelong worry. Additionally, the client exhibits symptoms consistent with Major Depressive Disorder.
+
+Plan
+Resume weekly sessions.
+`;
+    const parsed = parseIntakeSections(text);
+    const presenting = parsed.sections.find((s) => s.key === 'Presenting Problem');
+    assert.match(String(presenting?.content || ''), /spiral into depression/i);
+    assert.ok(!/Orientation/i.test(String(presenting?.content || '')));
+    const mse = parsed.sections.find((s) => s.key === 'Mental Status Examination');
+    assert.ok(mse);
+    assert.match(String(mse.content), /Orientation: X3/i);
+    assert.match(String(mse.content), /Mood: Euthymic/i);
+    assert.equal(parsed.diagnoses.length, 2);
+    assert.equal(parsed.diagnoses[0].code, 'F41.1');
+    assert.match(String(parsed.diagnoses[0].description), /Generalized Anxiety/i);
+    assert.equal(parsed.diagnoses[1].code, 'F33.1');
+    assert.match(String(parsed.diagnoses[1].description), /Major Depressive/i);
+    assert.match(String(parsed.diagnoses[0].justification), /meets the criteria/i);
+    assert.equal(String(parsed.diagnoses[1].justification || ''), '');
   });
 });

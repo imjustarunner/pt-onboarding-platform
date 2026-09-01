@@ -42,6 +42,47 @@ class ClinicalSession {
     return rows?.[0] || null;
   }
 
+  static async findUnbilledByClientDateCode({ agencyId, clientId, serviceDate, serviceCode }) {
+    const aid = Number(agencyId || 0);
+    const cid = Number(clientId || 0);
+    const date = String(serviceDate || '').slice(0, 10);
+    const code = String(serviceCode || '').trim();
+    if (!aid || !cid || !date || !code) return null;
+    const [rows] = await clinicalPool.execute(
+      `SELECT *
+       FROM clinical_sessions
+       WHERE agency_id = ?
+         AND client_id = ?
+         AND billing_encounter_id IS NULL
+         AND DATE(scheduled_start_at) = ?
+         AND (
+           service_code = ?
+           OR TRIM(COALESCE(service_code, '')) = ''
+         )
+       ORDER BY office_event_id IS NULL ASC, id ASC
+       LIMIT 1`,
+      [aid, cid, date, code]
+    );
+    return rows?.[0] || null;
+  }
+
+  static async attachBillingEncounter({ sessionId, billingEncounterId, serviceCode = null, providerUserId = null }) {
+    const sid = Number(sessionId || 0);
+    const beId = Number(billingEncounterId || 0);
+    if (!sid || !beId) return null;
+    await clinicalPool.execute(
+      `UPDATE clinical_sessions
+       SET billing_encounter_id = ?,
+           service_code = COALESCE(NULLIF(?, ''), service_code),
+           rendering_provider_user_id = COALESCE(?, rendering_provider_user_id),
+           encounter_status = 'completed',
+           updated_at = CURRENT_TIMESTAMP
+       WHERE id = ?`,
+      [beId, serviceCode || null, providerUserId || null, sid]
+    );
+    return this.findById(sid);
+  }
+
   static async upsertFromBillingEncounter({
     agencyId,
     clientId,

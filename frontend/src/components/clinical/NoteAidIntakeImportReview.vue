@@ -131,6 +131,9 @@ watch(
     resetEvaluation();
     error.value = '';
     evaluating.value = false;
+    if (String(pasteText.value || '').trim()) {
+      void doImport();
+    }
   }
 );
 

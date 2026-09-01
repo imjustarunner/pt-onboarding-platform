@@ -157,7 +157,9 @@ class ClientIntakeNoteDraft {
     sessionContextEnc = undefined,
     suggestedDxJson = undefined,
     confirmedDxJson = undefined,
-    status = undefined
+    status = undefined,
+    scrubbedInputEnc = undefined,
+    diagnosisAction = undefined
   }) {
     const iid = safeInt(draftId);
     if (!iid) throw new Error('Invalid draftId');
@@ -186,6 +188,14 @@ class ClientIntakeNoteDraft {
     if (status !== undefined && VALID_STATUSES.has(status)) {
       sets.push('status = ?');
       vals.push(status);
+    }
+    if (scrubbedInputEnc !== undefined) {
+      sets.push('scrubbed_input_enc = ?');
+      vals.push(scrubbedInputEnc ?? '');
+    }
+    if (diagnosisAction !== undefined) {
+      sets.push('diagnosis_action = ?');
+      vals.push(VALID_DIAGNOSIS_ACTIONS.has(diagnosisAction) ? diagnosisAction : null);
     }
     if (!sets.length) return this.findById(iid);
     vals.push(iid);

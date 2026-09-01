@@ -21,6 +21,7 @@ import { decryptIntakeSubmissionRows } from '../services/intakeResponsesEncrypti
 import { scrubIntakeTextForNoteWriter } from '../services/phiScrubber.service.js';
 import { collectClientPhiNames } from '../services/clientPhiNames.service.js';
 import { buildClinicalSummaryText, buildIntakeAnswersText } from './publicIntake.controller.js';
+import { parseIntakeDiagnoses } from '../services/intakeImport.service.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -648,6 +649,15 @@ async function loadTreatmentPlanResponse(treatmentPlanId) {
 function extractSuggestedDiagnosis(text) {
   const raw = String(text || '');
 
+  const parsed = parseIntakeDiagnoses(raw);
+  if (parsed[0]?.code) {
+    return {
+      code: parsed[0].code,
+      description: parsed[0].description || '',
+      justification: parsed[0].justification || ''
+    };
+  }
+
   // Pattern: "Diagnosis: F32.1" or "Diagnosis Code: F41.0" on one line
   const codeMatch = raw.match(
     /\bDiagnos(?:is|tic)(?:\s+Code)?\s*:\s*([A-Z]\d+(?:\.\d+)?)/im
@@ -699,6 +709,18 @@ function formatDraftResponse(row) {
     confirmedDiagnosis = row.confirmed_dx_json ? JSON.parse(row.confirmed_dx_json) : null;
   } catch {
     confirmedDiagnosis = null;
+  }
+  if (suggestedDiagnosis?.primary?.code && !suggestedDiagnosis.code) {
+    suggestedDiagnosis = {
+      ...suggestedDiagnosis.primary,
+      diagnoses: suggestedDiagnosis.diagnoses || []
+    };
+  }
+  if (confirmedDiagnosis?.primary?.code && !confirmedDiagnosis.code) {
+    confirmedDiagnosis = {
+      ...confirmedDiagnosis.primary,
+      diagnoses: confirmedDiagnosis.diagnoses || []
+    };
   }
 
   return {
@@ -1435,33 +1457,56 @@ export const importClientIntakeNote = async (req, res, next) => {
       ? maybeEncryptNotePayload(JSON.stringify(req.body.sessionContext))
       : null;
 
-    const draft = await ClientIntakeNoteDraft.create({
-      agencyId,
-      clientId,
-      providerUserId: req.user.id,
-      serviceCode: ['90791', 'H0031'].includes(serviceCode) ? serviceCode : '90791',
-      toolId,
-      status,
-      scrubbedInputEnc: maybeEncryptNotePayload(rawText.slice(0, 20000)),
-      noteBodyEnc,
-      noteSectionsJsonEnc,
-      sessionContextEnc,
-      suggestedDxJson: diagnosis
-        ? JSON.stringify(
-            diagnosesPayload?.length
-              ? { diagnoses: diagnosesPayload, primary: diagnosis }
-              : diagnosis
-          )
-        : null
-    });
+    const suggestedDxJson = diagnosis
+      ? JSON.stringify(
+          diagnosesPayload?.length
+            ? { diagnoses: diagnosesPayload, primary: diagnosis }
+            : diagnosis
+        )
+      : null;
+    const confirmedDxJson = diagnosis?.code && status === 'ready'
+      ? JSON.stringify(diagnosis)
+      : null;
 
-    if (diagnosis?.code && status === 'ready') {
-      await ClientIntakeNoteDraft.updateStatus({
-        draftId: draft.id,
-        status: 'ready',
-        diagnosisAction: 'confirmed',
-        confirmedDxJson: JSON.stringify(diagnosis)
+    const existing = await ClientIntakeNoteDraft.latestForClient({ clientId, agencyId });
+    let draft;
+    if (existing?.id && existing.status !== 'failed') {
+      if (existing.status === 'final') {
+        await ClientIntakeNoteDraft.reopenForReplace(existing.id);
+      }
+      draft = await ClientIntakeNoteDraft.updateContent({
+        draftId: existing.id,
+        noteBodyEnc,
+        noteSectionsJsonEnc,
+        sessionContextEnc,
+        suggestedDxJson,
+        confirmedDxJson,
+        status,
+        scrubbedInputEnc: maybeEncryptNotePayload(rawText.slice(0, 20000)),
+        diagnosisAction: diagnosis?.code && status === 'ready' ? 'confirmed' : null
       });
+    } else {
+      draft = await ClientIntakeNoteDraft.create({
+        agencyId,
+        clientId,
+        providerUserId: req.user.id,
+        serviceCode: ['90791', 'H0031'].includes(serviceCode) ? serviceCode : '90791',
+        toolId,
+        status,
+        scrubbedInputEnc: maybeEncryptNotePayload(rawText.slice(0, 20000)),
+        noteBodyEnc,
+        noteSectionsJsonEnc,
+        sessionContextEnc,
+        suggestedDxJson
+      });
+      if (diagnosis?.code && status === 'ready') {
+        await ClientIntakeNoteDraft.updateStatus({
+          draftId: draft.id,
+          status: 'ready',
+          diagnosisAction: 'confirmed',
+          confirmedDxJson
+        });
+      }
     }
 
     const refreshed = await ClientIntakeNoteDraft.findById(draft.id);
