@@ -1270,10 +1270,36 @@ const effectiveClientId = computed(
 );
 const activeTreatmentGoals = computed(() => activePlanGoals(latestTreatmentPlan.value));
 const primaryChartDiagnosis = computed(() => {
+  const plan = latestTreatmentPlan.value;
   const list = chartDiagnoses.value || [];
+  const planDxId = Number(plan?.primary_diagnosis_id || plan?.primaryDiagnosisId || 0);
+  const planJust = String(plan?.diagnostic_justification || plan?.diagnosticJustification || '').trim();
+  if (planDxId) {
+    const fromPlan = list.find((d) => Number(d?.id) === planDxId);
+    if (fromPlan) {
+      return {
+        ...fromPlan,
+        is_primary: 1,
+        justification: planJust || fromPlan.justification || null
+      };
+    }
+  }
   const primary = list.find((d) => d && Number(d.is_primary) === 1 && (d.is_active == null || Number(d.is_active) === 1));
-  if (primary) return primary;
+  if (primary) {
+    return {
+      ...primary,
+      justification: planJust || primary.justification || null
+    };
+  }
   return list.find((d) => d && (d.is_active == null || Number(d.is_active) === 1)) || null;
+});
+
+const chartPresentingProblem = computed(() => {
+  const plan = latestTreatmentPlan.value;
+  const raw = String(plan?.discharge_plan || plan?.dischargePlan || '').trim();
+  if (!raw) return '';
+  const m = raw.match(/Presenting Problem\n([\s\S]*?)(?=\n\n(?:Prescribed Frequency|Discharge Criteria)|$)/i);
+  return m ? String(m[1] || '').trim() : '';
 });
 
 const phiExtraNames = computed(() =>
@@ -1536,6 +1562,11 @@ function scoreChartPlan(plan) {
   if (!plan) return -1;
   const goals = activePlanGoals(plan);
   const recency = Number(plan.id || 0);
+  const imported = String(plan.source_tool_id || plan.sourceToolId || '') === 'note_aid_plan_import';
+  const intakeAuto = /^Intake Treatment Plan/i.test(String(plan.title || ''));
+  // Imported treatment plans always outrank intake auto-drafts for chart display.
+  if (imported) return 50_000 + recency;
+  if (intakeAuto) return recency;
   return goals.length ? 10_000 + recency : recency;
 }
 const agencyLookup = computed(() => {
@@ -4252,6 +4283,15 @@ const loadClientTreatmentPlan = async (clientId) => {
     latestTreatmentPlan.value = bestPlan;
     chartDiagnoses.value = bestDiagnoses;
     chartObjectiveRatings.value = bestRatings;
+    // Prefer plan diagnostic justification over whatever intake last wrote on the dx row.
+    const planJust = String(
+      bestPlan?.diagnostic_justification || bestPlan?.diagnosticJustification || ''
+    ).trim();
+    if (planJust) {
+      chartDiagnosticJustification.value = planJust;
+    } else if (primaryChartDiagnosis.value?.justification) {
+      chartDiagnosticJustification.value = String(primaryChartDiagnosis.value.justification);
+    }
     if (!bestPlan && lastError) {
       clientPlanError.value =
         lastError.response?.data?.error?.message || lastError.message || 'Could not load treatment plan';
@@ -4934,7 +4974,11 @@ const useIntakeToInformPlan = async () => {
   pastedPlanText.value = buildIntakeInformedPlanText({
     intakeText,
     diagnoses: dxSource,
-    diagnosticJustification: primaryChartDiagnosis.value?.justification || ''
+    diagnosticJustification:
+      chartDiagnosticJustification.value
+      || primaryChartDiagnosis.value?.justification
+      || '',
+    presentingProblem: chartPresentingProblem.value || ''
   });
   clientContextPanelRef.value?.switchTab?.('goals');
   await openTreatmentPlanUpdater({

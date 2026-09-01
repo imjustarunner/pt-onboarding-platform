@@ -1090,11 +1090,19 @@ export const finalizeClientIntakeNote = async (req, res, next) => {
         : []
     })).filter((g) => g.goalText);
 
-    // Create draft treatment plan (linked to this intake)
+    // Create draft treatment plan (linked to this intake) — unless an imported / authoritative
+    // treatment plan already owns diagnosis + presenting problem + justification.
     let treatmentPlan = null;
     let primaryDiagnosisId = null;
     let diagnosticJustification = null;
     try {
+      const { pickAuthoritativeTreatmentPlan } = await import('../services/treatmentPlanPrecedence.service.js');
+      const existingPlans = await ClinicalTreatmentPlan.listByClient({ agencyId, clientId });
+      const authoritativePlanMeta = pickAuthoritativeTreatmentPlan(existingPlans);
+      const authoritativePlan = authoritativePlanMeta?.id
+        ? await ClinicalTreatmentPlan.findById(authoritativePlanMeta.id)
+        : null;
+
       let confirmedDx = null;
       let allDiagnoses = [];
       try {
@@ -1125,50 +1133,71 @@ export const finalizeClientIntakeNote = async (req, res, next) => {
       }
       diagnosticJustification = String(confirmedDx?.justification || '').trim() || null;
 
-      for (let i = 0; i < allDiagnoses.length; i += 1) {
-        const dx = allDiagnoses[i];
-        if (!dx?.code) continue;
-        const dxId = await upsertClinicalDiagnosis({
+      if (authoritativePlan) {
+        // Treatment plan already on file: keep its primary dx / justification / presenting problem.
+        // Still add any new intake codes as non-primary chart diagnoses for reference.
+        for (let i = 0; i < allDiagnoses.length; i += 1) {
+          const dx = allDiagnoses[i];
+          if (!dx?.code) continue;
+          await upsertClinicalDiagnosis({
+            agencyId,
+            clientId,
+            icd10Code: dx.code,
+            description: dx.description || null,
+            justification: null,
+            createdByUserId: req.user.id,
+            setPrimary: false
+          });
+        }
+        treatmentPlan = authoritativePlan;
+        primaryDiagnosisId = authoritativePlan.primary_diagnosis_id || null;
+        diagnosticJustification = authoritativePlan.diagnostic_justification || diagnosticJustification;
+      } else {
+        for (let i = 0; i < allDiagnoses.length; i += 1) {
+          const dx = allDiagnoses[i];
+          if (!dx?.code) continue;
+          const dxId = await upsertClinicalDiagnosis({
+            agencyId,
+            clientId,
+            icd10Code: dx.code,
+            description: dx.description || null,
+            justification: i === 0 ? diagnosticJustification : dx.justification || null,
+            createdByUserId: req.user.id,
+            setPrimary: i === 0
+          });
+          if (i === 0) primaryDiagnosisId = dxId;
+        }
+
+        if (!primaryDiagnosisId && confirmedDx?.code) {
+          primaryDiagnosisId = await upsertPrimaryClinicalDiagnosis({
+            agencyId,
+            clientId,
+            icd10Code: confirmedDx.code,
+            description: confirmedDx.description || null,
+            justification: diagnosticJustification,
+            createdByUserId: req.user.id
+          });
+        }
+
+        treatmentPlan = await ClinicalTreatmentPlan.create({
           agencyId,
           clientId,
-          icd10Code: dx.code,
-          description: dx.description || null,
-          justification: i === 0 ? diagnosticJustification : dx.justification || null,
+          title: `Intake Treatment Plan — ${draftNow.service_code}`,
+          status: 'draft',
+          sourceToolId: draftNow.tool_id,
           createdByUserId: req.user.id,
-          setPrimary: i === 0
-        });
-        if (i === 0) primaryDiagnosisId = dxId;
-      }
-
-      if (!primaryDiagnosisId && confirmedDx?.code) {
-        primaryDiagnosisId = await upsertPrimaryClinicalDiagnosis({
-          agencyId,
-          clientId,
-          icd10Code: confirmedDx.code,
-          description: confirmedDx.description || null,
-          justification: diagnosticJustification,
-          createdByUserId: req.user.id
-        });
-      }
-
-      treatmentPlan = await ClinicalTreatmentPlan.create({
-        agencyId,
-        clientId,
-        title: `Intake Treatment Plan — ${draftNow.service_code}`,
-        status: 'draft',
-        sourceToolId: draftNow.tool_id,
-        createdByUserId: req.user.id,
-        goals,
-        primaryDiagnosisId,
-        diagnosticJustification
-      });
-
-      if (treatmentPlan?.id && primaryDiagnosisId) {
-        await attachDiagnosisToTreatmentPlan({
-          planId: treatmentPlan.id,
+          goals,
           primaryDiagnosisId,
           diagnosticJustification
         });
+
+        if (treatmentPlan?.id && primaryDiagnosisId) {
+          await attachDiagnosisToTreatmentPlan({
+            planId: treatmentPlan.id,
+            primaryDiagnosisId,
+            diagnosticJustification
+          });
+        }
       }
     } catch (e) {
       // Failing to create the TP should not block note finalization — log and continue.

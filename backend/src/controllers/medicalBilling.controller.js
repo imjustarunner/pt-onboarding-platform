@@ -138,7 +138,8 @@ export const saveTreatmentPlanToChart = async (req, res, next) => {
         description: req.body.diagnosisDescription || null,
         justification: diagnosticJustification,
         createdByUserId: req.user.id,
-        clinicalSessionId: clinicalSessionId || null
+        clinicalSessionId: clinicalSessionId || null,
+        forceOverwrite: true
       });
     }
 
@@ -180,7 +181,7 @@ export const saveTreatmentPlanToChart = async (req, res, next) => {
       });
     }
 
-    // Ordered multi-diagnosis list from import review
+    // Ordered multi-diagnosis list from import review — plan fields always win over intake.
     const planDxList = Array.isArray(req.body.diagnoses) ? req.body.diagnoses : [];
     if (plan?.id && planDxList.length) {
       const linked = [];
@@ -197,7 +198,8 @@ export const saveTreatmentPlanToChart = async (req, res, next) => {
           justification: d.justification || diagnosticJustification,
           createdByUserId: req.user.id,
           clinicalSessionId: clinicalSessionId || null,
-          setPrimary: makePrimary
+          setPrimary: makePrimary,
+          forceOverwrite: true
         });
         linked.push({
           diagnosisId,
@@ -284,7 +286,18 @@ export const listClientChart = async (req, res, next) => {
       [agencyId, clientId]
     );
     const plans = await ClinicalTreatmentPlan.listByClient({ agencyId, clientId });
-    const latestPlanId = Number(plans?.[0]?.id || 0);
+    const {
+      pickAuthoritativeTreatmentPlan,
+      resolvePrimaryDiagnosisForChart,
+      presentingProblemFromPlan
+    } = await import('../services/treatmentPlanPrecedence.service.js');
+    const authoritativeMeta = pickAuthoritativeTreatmentPlan(plans);
+    // Prefer authoritative (imported) plan over a newer empty intake auto-draft.
+    let latestPlanId = Number(authoritativeMeta?.id || plans?.[0]?.id || 0);
+    if (!authoritativeMeta && plans?.length) {
+      const withGoals = plans.find((p) => !String(p.title || '').match(/^Intake Treatment Plan/i));
+      latestPlanId = Number(withGoals?.id || plans[0].id || 0);
+    }
     const latestPlan = latestPlanId > 0 ? await ClinicalTreatmentPlan.findById(latestPlanId) : null;
     let diagnoses = [];
     try {
@@ -322,6 +335,22 @@ export const listClientChart = async (req, res, next) => {
         diagnoses = dxRows || [];
       }
     }
+
+    // Align chart diagnosis primary flag + justification with treatment plan when present.
+    const resolvedPrimary = resolvePrimaryDiagnosisForChart({ diagnoses, plan: latestPlan });
+    if (resolvedPrimary?.id) {
+      const primaryId = Number(resolvedPrimary.id);
+      diagnoses = (diagnoses || []).map((d) => ({
+        ...d,
+        is_primary: Number(d.id) === primaryId ? 1 : 0,
+        justification:
+          Number(d.id) === primaryId
+            ? (resolvedPrimary.justification || d.justification)
+            : d.justification
+      }));
+    }
+
+    const presentingProblem = presentingProblemFromPlan(latestPlan);
     const [sessions] = await clinicalPool.execute(
       `SELECT id, office_event_id, encounter_status, place_of_service, duration_minutes, is_telehealth,
               rendering_provider_user_id, scheduled_start_at, scheduled_end_at, created_at
@@ -398,6 +427,7 @@ export const listClientChart = async (req, res, next) => {
       plans: plans || [],
       latestPlan: latestPlan || null,
       diagnoses: diagnoses || [],
+      presentingProblem: presentingProblem || null,
       sessions: sessions || [],
       billingEncounters,
       objectiveRatings,

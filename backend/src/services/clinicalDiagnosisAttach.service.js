@@ -20,7 +20,9 @@ export async function upsertClinicalDiagnosis({
   clinicalSessionId = null,
   clinicalNoteId = null,
   setPrimary = false,
-  concernKind = 'clinical'
+  concernKind = 'clinical',
+  /** When true, replace description/justification even when values are empty strings. */
+  forceOverwrite = false
 }) {
   const agency = safeInt(agencyId);
   const client = safeInt(clientId);
@@ -61,12 +63,19 @@ export async function upsertClinicalDiagnosis({
 
     let diagnosisId = existing?.[0]?.id || null;
     const primaryFlag = setPrimary ? 1 : 0;
+    const nextJust = justification != null && String(justification).trim() !== ''
+      ? String(justification)
+      : null;
     if (diagnosisId) {
       try {
+        // forceOverwrite: plan import always wins justification over prior intake values.
+        const justSql = forceOverwrite
+          ? 'justification = ?'
+          : 'justification = COALESCE(?, justification)';
         await conn.execute(
           `UPDATE clinical_diagnoses
            SET description = COALESCE(?, description),
-               justification = COALESCE(?, justification),
+               ${justSql},
                concern_kind = COALESCE(?, concern_kind),
                is_primary = CASE WHEN ? = 1 THEN 1 ELSE is_primary END,
                is_active = 1,
@@ -75,7 +84,7 @@ export async function upsertClinicalDiagnosis({
            WHERE id = ?`,
           [
             desc,
-            justification ? String(justification) : null,
+            forceOverwrite ? (nextJust || String(justification || '') || null) : nextJust,
             kind,
             primaryFlag,
             safeInt(clinicalSessionId),
@@ -191,7 +200,7 @@ export async function attachDiagnosisToTreatmentPlan({
     await clinicalPool.execute(
       `UPDATE clinical_treatment_plans
        SET primary_diagnosis_id = ?,
-           diagnostic_justification = COALESCE(?, diagnostic_justification)
+           diagnostic_justification = ?
        WHERE id = ?`,
       [did, diagnosticJustification ? String(diagnosticJustification) : null, pid]
     );

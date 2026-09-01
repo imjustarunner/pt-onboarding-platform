@@ -83,7 +83,7 @@
 
           <template v-else>
             <p class="na-client-ctx-hint">
-              Recommended order: Demographics → Intake → Treatment Goals. You can complete them in any order — each step stays independent.
+              Recommended order: Demographics → Intake → Treatment Goals. You can complete them in any order — each step stays independent. When both intake and a treatment plan exist, the treatment plan’s diagnosis, presenting problem, and diagnostic justification take precedence.
             </p>
             <div class="na-client-ctx-tabs">
               <button

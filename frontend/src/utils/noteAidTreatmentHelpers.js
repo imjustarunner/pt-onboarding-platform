@@ -173,7 +173,8 @@ export function buildUpdaterPrefillDocument({
 export function buildIntakeInformedPlanText({
   intakeText = '',
   diagnoses = [],
-  diagnosticJustification = ''
+  diagnosticJustification = '',
+  presentingProblem = ''
 } = {}) {
   const sections = [];
   const intake = String(intakeText || '').trim();
@@ -181,9 +182,16 @@ export function buildIntakeInformedPlanText({
     sections.push(`Intake / biopsychosocial context (use to draft or update plan):\n${intake.slice(0, 8000)}`);
   }
 
+  const problem = String(presentingProblem || '').trim();
+  if (problem) {
+    sections.push(`Presenting Problem (from treatment plan — takes precedence):\n${problem.slice(0, 4000)}`);
+  }
+
   const dxList = (Array.isArray(diagnoses) ? diagnoses : []).filter((d) => d && (d.icd10_code || d.code));
+  // Primary first when flagged.
+  dxList.sort((a, b) => Number(b.is_primary || b.isPrimary || 0) - Number(a.is_primary || a.isPrimary || 0));
   if (dxList.length) {
-    const lines = ['Diagnoses (first is primary for claims):'];
+    const lines = ['Diagnoses (first is primary for claims; treatment plan primary wins over intake):'];
     for (const d of dxList) {
       const code = d.icd10_code || d.code || '—';
       const desc = d.description || '';
@@ -196,11 +204,11 @@ export function buildIntakeInformedPlanText({
   const just = String(diagnosticJustification || '').trim()
     || String(dxList[0]?.justification || '').trim();
   if (just) {
-    sections.push(`Diagnostic Justification\n${just.slice(0, 4000)}`);
+    sections.push(`Diagnostic Justification (from treatment plan when present)\n${just.slice(0, 4000)}`);
   }
 
   sections.push(
-    'Instructions: Write or update treatment goals, measurable objectives (1–10 scales), and discharge criteria based on the intake context and diagnoses above.'
+    'Instructions: Write or update treatment goals, measurable objectives (1–10 scales), and discharge criteria based on the intake context and diagnoses above. Prefer treatment-plan diagnosis, presenting problem, and justification when they conflict with intake.'
   );
 
   return sections.join('\n\n').slice(0, 11000);
