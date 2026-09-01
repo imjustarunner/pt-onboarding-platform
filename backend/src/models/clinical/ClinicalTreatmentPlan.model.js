@@ -154,6 +154,18 @@ class ClinicalTreatmentPlan {
           } catch {
             // lineage columns from clinical migration 005 may not exist yet
           }
+          if (o.scaleCurrent != null) {
+            try {
+              await conn.execute(
+                `UPDATE clinical_treatment_plan_objectives
+                 SET scale_start = COALESCE(scale_start, ?)
+                 WHERE id = ?`,
+                [o.scaleCurrent, oRes.insertId]
+              );
+            } catch {
+              // scale_start from clinical migration 010 may not exist yet
+            }
+          }
         }
       }
       await conn.commit();
@@ -205,6 +217,44 @@ class ClinicalTreatmentPlan {
       if (e.code !== 'ER_NO_SUCH_TABLE' && e.code !== 'ER_BAD_FIELD_ERROR') throw e;
     }
     return { ...plan, goals: outGoals, planDiagnoses };
+  }
+
+  static async setKioskShare(planId, enabled) {
+    const id = Number(planId || 0);
+    if (!id) return;
+    try {
+      await clinicalPool.execute(
+        `UPDATE clinical_treatment_plans SET kiosk_share_enabled = ? WHERE id = ?`,
+        [enabled ? 1 : 0, id]
+      );
+    } catch (e) {
+      if (e?.code !== 'ER_BAD_FIELD_ERROR') throw e;
+    }
+  }
+
+  static async updateObjectiveKioskPrompts(objectiveId, { kioskPrompt, kioskPromptOther } = {}) {
+    const id = Number(objectiveId || 0);
+    if (!id) return;
+    const sets = [];
+    const params = [];
+    if (kioskPrompt !== undefined) {
+      sets.push('kiosk_prompt = ?');
+      params.push(kioskPrompt ? String(kioskPrompt).slice(0, 500) : null);
+    }
+    if (kioskPromptOther !== undefined) {
+      sets.push('kiosk_prompt_other = ?');
+      params.push(kioskPromptOther ? String(kioskPromptOther).slice(0, 500) : null);
+    }
+    if (!sets.length) return;
+    params.push(id);
+    try {
+      await clinicalPool.execute(
+        `UPDATE clinical_treatment_plan_objectives SET ${sets.join(', ')} WHERE id = ?`,
+        params
+      );
+    } catch (e) {
+      if (e?.code !== 'ER_BAD_FIELD_ERROR') throw e;
+    }
   }
 
   static async listByClient({ agencyId, clientId }) {

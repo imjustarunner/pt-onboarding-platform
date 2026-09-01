@@ -61,6 +61,15 @@
           <h4>{{ planTitle(detailPlan) }}</h4>
           <p class="muted tiny">Status: {{ statusLabel(detailPlan) }}</p>
         </div>
+        <label class="ctp-kiosk-toggle" @click.stop>
+          <input
+            type="checkbox"
+            :checked="!!Number(detailPlan.kiosk_share_enabled || 0)"
+            :disabled="kioskBusy"
+            @change="toggleKioskShare($event.target.checked)"
+          />
+          Share via kiosk
+        </label>
         <button type="button" class="cdp-btn-soft" @click="openNoteAidUpdater">Open updater</button>
       </div>
 
@@ -97,6 +106,8 @@
               <span>{{ o.objective_text }}</span>
             </div>
             <div class="ctp-obj__scale">
+              <span>Start <strong>{{ o.scale_start ?? o.scale_current ?? '—' }}</strong></span>
+              <span aria-hidden="true">→</span>
               <span>Current <strong>{{ o.scale_current ?? '—' }}</strong></span>
               <span aria-hidden="true">→</span>
               <span>Goal <strong class="ctp-goal-num">{{ o.scale_target ?? '—' }}</strong></span>
@@ -144,6 +155,26 @@
               </ol>
             </div>
             <p v-else class="muted tiny">No ratings logged yet for this objective.</p>
+            <div class="ctp-kiosk-q" :class="{ faded: !Number(detailPlan.kiosk_share_enabled || 0) }">
+              <label>
+                Client question
+                <textarea
+                  rows="2"
+                  :value="o.kiosk_prompt || ''"
+                  :disabled="kioskBusy"
+                  @blur="saveKioskPrompt(o, 'kioskPrompt', $event.target.value)"
+                />
+              </label>
+              <label>
+                Other (third person)
+                <textarea
+                  rows="2"
+                  :value="o.kiosk_prompt_other || ''"
+                  :disabled="kioskBusy"
+                  @blur="saveKioskPrompt(o, 'kioskPromptOther', $event.target.value)"
+                />
+              </label>
+            </div>
           </div>
         </article>
       </div>
@@ -187,6 +218,7 @@ const diagnoses = ref([]);
 const objectiveRatings = ref([]);
 const selectedId = ref(null);
 const selectedFullPlan = ref(null);
+const kioskBusy = ref(false);
 
 const detailPlan = computed(() => {
   const id = Number(selectedId.value || 0);
@@ -335,6 +367,76 @@ function openNoteAidUpdater() {
   router.push({ path: noteAidPath({ organizationSlug: slug }), query });
 }
 
+function applyPlanToState(plan) {
+  if (!plan) return;
+  selectedFullPlan.value = plan;
+  if (latestPlan.value && Number(latestPlan.value.id) === Number(plan.id)) {
+    latestPlan.value = plan;
+  }
+  plans.value = (plans.value || []).map((p) => (
+    Number(p.id) === Number(plan.id) ? { ...p, kiosk_share_enabled: plan.kiosk_share_enabled } : p
+  ));
+}
+
+async function toggleKioskShare(enabled) {
+  const planId = Number(detailPlan.value?.id || 0);
+  const clientId = Number(props.clientId || 0);
+  const agencyId = Number(props.agencyId || 0);
+  if (!planId || !clientId || !agencyId) return;
+  kioskBusy.value = true;
+  try {
+    const res = await api.patch(`/medical-billing/treatment-plans/${planId}/kiosk-share`, {
+      agencyId,
+      clientId,
+      enabled: !!enabled
+    });
+    applyPlanToState(res.data?.plan || { ...detailPlan.value, kiosk_share_enabled: enabled ? 1 : 0 });
+  } catch (e) {
+    error.value = e?.response?.data?.error?.message || 'Unable to update kiosk sharing.';
+  } finally {
+    kioskBusy.value = false;
+  }
+}
+
+async function saveKioskPrompt(objective, field, value) {
+  const clientId = Number(props.clientId || 0);
+  const agencyId = Number(props.agencyId || 0);
+  const oid = Number(objective?.id || 0);
+  if (!oid || !clientId || !agencyId) return;
+  const next = String(value || '').trim();
+  const prev = field === 'kioskPromptOther'
+    ? String(objective.kiosk_prompt_other || '').trim()
+    : String(objective.kiosk_prompt || '').trim();
+  if (next === prev) return;
+  kioskBusy.value = true;
+  try {
+    await api.patch(`/medical-billing/objectives/${oid}/kiosk-prompts`, {
+      agencyId,
+      clientId,
+      [field]: next || null
+    });
+    const col = field === 'kioskPromptOther' ? 'kiosk_prompt_other' : 'kiosk_prompt';
+    const patchObj = (plan) => {
+      if (!plan?.goals) return plan;
+      return {
+        ...plan,
+        goals: plan.goals.map((g) => ({
+          ...g,
+          objectives: (g.objectives || []).map((o) => (
+            Number(o.id) === oid ? { ...o, [col]: next || null } : o
+          ))
+        }))
+      };
+    };
+    if (selectedFullPlan.value) selectedFullPlan.value = patchObj(selectedFullPlan.value);
+    if (latestPlan.value) latestPlan.value = patchObj(latestPlan.value);
+  } catch (e) {
+    error.value = e?.response?.data?.error?.message || 'Unable to save kiosk question.';
+  } finally {
+    kioskBusy.value = false;
+  }
+}
+
 async function load() {
   const clientId = Number(props.clientId || 0);
   const agencyId = Number(props.agencyId || 0);
@@ -421,7 +523,41 @@ watch(() => [props.clientId, props.agencyId], load);
   align-items: flex-start;
   margin-bottom: 12px;
 }
-.ctp-detail h4 { margin: 0 0 4px; }
+.ctp-kiosk-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: #0f766e;
+  white-space: nowrap;
+}
+.ctp-kiosk-q {
+  display: grid;
+  gap: 8px;
+  margin-top: 8px;
+}
+.ctp-kiosk-q.faded label,
+.ctp-kiosk-q.faded textarea {
+  color: #94a3b8;
+}
+.ctp-kiosk-q label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: #64748b;
+}
+.ctp-kiosk-q textarea {
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 6px 8px;
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: #334155;
+  resize: vertical;
+}
 .ctp-dx {
   margin-bottom: 14px;
   padding: 10px 12px;

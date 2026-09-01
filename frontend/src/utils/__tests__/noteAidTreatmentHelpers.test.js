@@ -4,7 +4,8 @@ import {
   buildTreatmentPlanContextText,
   clientDisplayInitials,
   computeProgressLabel,
-  distanceToGoal
+  distanceToGoal,
+  kioskPromptOtherForObjective
 } from '../noteAidTreatmentHelpers.js';
 
 describe('noteAidTreatmentHelpers', () => {
@@ -138,5 +139,14 @@ describe('noteAidTreatmentHelpers', () => {
     expect(ambiguous.needsChoice).toBe(true);
 
     expect(noteAidPrefersLearningSponsor({ id: 'tpt_note', toolId: 'clinical_tpt_note' }, { categoryId: 'therapy_tutoring' })).toBe(true);
+  });
+
+  it('writes other-rater questions in the third person', () => {
+    const q = kioskPromptOtherForObjective(
+      { objective_text: 'Use coping skills weekly', scale_target: 8 },
+      'Alex Rivera'
+    );
+    expect(q).toMatch(/Alex Rivera/);
+    expect(q.toLowerCase()).not.toMatch(/rate yourself/);
   });
 });

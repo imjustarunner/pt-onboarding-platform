@@ -24,6 +24,8 @@ import {
   createObjectiveRating,
   listClientObjectiveRatings,
   amendTreatmentPlan,
+  setTreatmentPlanKioskShare,
+  updateObjectiveKioskPrompts,
   updateEncounter,
   signClinicalNote,
   cosignClinicalNote,
@@ -129,6 +131,28 @@ router.get(
     query('agencyId').isInt({ min: 1 })
   ],
   listClientObjectiveRatings
+);
+
+router.patch(
+  '/treatment-plans/:planId/kiosk-share',
+  requireClinicalChart,
+  [
+    param('planId').isInt({ min: 1 }),
+    body('agencyId').isInt({ min: 1 }),
+    body('clientId').isInt({ min: 1 })
+  ],
+  setTreatmentPlanKioskShare
+);
+
+router.patch(
+  '/objectives/:objectiveId/kiosk-prompts',
+  requireClinicalChart,
+  [
+    param('objectiveId').isInt({ min: 1 }),
+    body('agencyId').isInt({ min: 1 }),
+    body('clientId').isInt({ min: 1 })
+  ],
+  updateObjectiveKioskPrompts
 );
 
 router.post(

@@ -579,6 +579,96 @@ export const listClientObjectiveRatings = async (req, res, next) => {
   }
 };
 
+export const setTreatmentPlanKioskShare = async (req, res, next) => {
+  try {
+    const planId = parseIntValue(req.params.planId);
+    const agencyId = parseIntValue(req.body.agencyId);
+    const clientId = parseIntValue(req.body.clientId);
+    const enabled = req.body.enabled === true || req.body.enabled === 1 || req.body.enabled === '1';
+    if (!planId || !agencyId || !clientId) {
+      return res.status(400).json({ error: { message: 'planId, agencyId, and clientId are required' } });
+    }
+    await ClinicalEligibilityService.ensureAgencyAccess({ reqUser: req.user, agencyId });
+    const plan = await ClinicalTreatmentPlan.findById(planId);
+    if (!plan || Number(plan.agency_id) !== agencyId || Number(plan.client_id) !== clientId) {
+      return res.status(404).json({ error: { message: 'Treatment plan not found' } });
+    }
+    await ClinicalTreatmentPlan.setKioskShare(planId, enabled);
+
+    const objectives = [];
+    for (const g of plan.goals || []) {
+      for (const o of g.objectives || []) {
+        if (o.superseded_at) continue;
+        objectives.push(o);
+      }
+    }
+
+    let prompts = objectives.map((o) => ({
+      id: o.id,
+      kiosk_prompt: o.kiosk_prompt || null,
+      kiosk_prompt_other: o.kiosk_prompt_other || null
+    }));
+
+    if (enabled) {
+      const Client = (await import('../models/Client.model.js')).default;
+      const client = await Client.findById(clientId);
+      const clientName = [client?.first_name, client?.last_name].filter(Boolean).join(' ').trim()
+        || client?.full_name
+        || 'the client';
+      const { fillEmptyKioskPrompts } = await import('../services/kioskObjectivePrompt.service.js');
+      prompts = await fillEmptyKioskPrompts({ clientName, objectives });
+      for (const row of prompts) {
+        const existing = objectives.find((o) => Number(o.id) === Number(row.id));
+        const clientChanged = String(existing?.kiosk_prompt || '') !== String(row.kiosk_prompt || '');
+        const otherChanged = String(existing?.kiosk_prompt_other || '') !== String(row.kiosk_prompt_other || '');
+        if (clientChanged || otherChanged) {
+          await ClinicalTreatmentPlan.updateObjectiveKioskPrompts(row.id, {
+            kioskPrompt: row.kiosk_prompt,
+            kioskPromptOther: row.kiosk_prompt_other
+          });
+        }
+      }
+    }
+
+    const updated = await ClinicalTreatmentPlan.findById(planId);
+    return res.json({ plan: updated, prompts });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const updateObjectiveKioskPrompts = async (req, res, next) => {
+  try {
+    const objectiveId = parseIntValue(req.params.objectiveId);
+    const agencyId = parseIntValue(req.body.agencyId);
+    const clientId = parseIntValue(req.body.clientId);
+    if (!objectiveId || !agencyId || !clientId) {
+      return res.status(400).json({ error: { message: 'objectiveId, agencyId, and clientId are required' } });
+    }
+    await ClinicalEligibilityService.ensureAgencyAccess({ reqUser: req.user, agencyId });
+    const [objRows] = await clinicalPool.execute(
+      `SELECT o.id, p.agency_id, p.client_id
+       FROM clinical_treatment_plan_objectives o
+       INNER JOIN clinical_treatment_plan_goals g ON g.id = o.goal_id
+       INNER JOIN clinical_treatment_plans p ON p.id = g.treatment_plan_id
+       WHERE o.id = ?
+       LIMIT 1`,
+      [objectiveId]
+    );
+    const objective = objRows?.[0];
+    if (!objective || Number(objective.agency_id) !== agencyId || Number(objective.client_id) !== clientId) {
+      return res.status(404).json({ error: { message: 'Objective not found' } });
+    }
+    await ClinicalTreatmentPlan.updateObjectiveKioskPrompts(objectiveId, {
+      kioskPrompt: req.body.kioskPrompt !== undefined ? req.body.kioskPrompt : undefined,
+      kioskPromptOther: req.body.kioskPromptOther !== undefined ? req.body.kioskPromptOther : undefined
+    });
+    return res.json({ ok: true });
+  } catch (e) {
+    next(e);
+  }
+};
+
 export const amendTreatmentPlan = async (req, res, next) => {
   try {
     const planId = parseIntValue(req.params.planId);

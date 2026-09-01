@@ -2138,13 +2138,16 @@ export const listKioskTreatmentGoals = async (req, res, next) => {
     const latest = plans?.[0];
     if (!latest?.id) return res.json({ objectives: [] });
     const full = await ClinicalTreatmentPlan.findById(latest.id);
+    if (!Number(full?.kiosk_share_enabled || 0)) {
+      return res.json({ objectives: [] });
+    }
     const objectives = [];
     for (const g of full?.goals || []) {
       for (const o of g.objectives || []) {
         if (o.superseded_at) continue;
         const enabled = o.kiosk_self_rate_enabled == null || Number(o.kiosk_self_rate_enabled) === 1;
         if (!enabled) continue;
-        if (o.scale_target == null && o.scale_current == null) continue;
+        if (o.scale_target == null && o.scale_current == null && o.scale_start == null) continue;
         objectives.push({
           id: o.id,
           goalId: g.id,

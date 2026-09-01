@@ -226,6 +226,15 @@
                   </button>
                   <div class="cnl-row-actions">
                     <button
+                      v-if="canSoapCopy(d)"
+                      type="button"
+                      class="cnl-soap-toggle"
+                      :title="isSoapOpen(d) ? 'Hide copy buttons' : 'Copy SOAP sections'"
+                      @click.stop="toggleSoap(d)"
+                    >
+                      {{ isSoapOpen(d) ? '▴' : '▾' }}
+                    </button>
+                    <button
                       v-if="canDeleteRow(d)"
                       type="button"
                       class="cnl-delete"
@@ -233,6 +242,18 @@
                       @click="$emit('delete', d)"
                     >
                       ×
+                    </button>
+                  </div>
+                  <div v-if="isSoapOpen(d)" class="cnl-soap-copy" @click.stop>
+                    <button
+                      v-for="def in soapDefs"
+                      :key="def.key"
+                      type="button"
+                      class="cnl-soap-btn"
+                      :disabled="!soapText(d, def.key)"
+                      @click.stop="copySoap(d, def)"
+                    >
+                      {{ copiedKey === soapCopyKey(d, def.key) ? 'Copied' : `Copy ${def.label}` }}
                     </button>
                   </div>
                 </div>
@@ -303,6 +324,7 @@ import {
   noteConnectionMeta
 } from '../../utils/noteAidDocumentationStatus.js';
 import { initialsLikelyMatch } from '../../utils/noteAidTreatmentHelpers.js';
+import { SOAP_SECTION_DEFS, soapSectionTextFromDraft } from '../../utils/noteAidUiHelpers.js';
 
 const props = defineProps({
   title: { type: String, default: 'Note Library' },
@@ -341,6 +363,9 @@ const emit = defineEmits([
 
 const openGroups = reactive({});
 const previewId = ref(null);
+const soapOpenIds = reactive({});
+const copiedKey = ref('');
+const soapDefs = SOAP_SECTION_DEFS;
 
 const statusTabs = LEFT_PANEL_STATUS_TABS.map((key) => ({
   key,
@@ -568,6 +593,39 @@ function onRowActivate(d) {
   }
   emit('select', d);
 }
+function soapSource(d) {
+  return d?.raw || d;
+}
+function canSoapCopy(d) {
+  const st = normalizeStatus(d?.docStatus);
+  return st === DOC_STATUS.COMPLETED || st === DOC_STATUS.SIGNED;
+}
+function soapCopyKey(d, key) {
+  return `${d.id}:${key}`;
+}
+function isSoapOpen(d) {
+  return !!soapOpenIds[String(d.id)];
+}
+function toggleSoap(d) {
+  const id = String(d.id);
+  soapOpenIds[id] = !soapOpenIds[id];
+}
+function soapText(d, key) {
+  return soapSectionTextFromDraft(soapSource(d), key);
+}
+async function copySoap(d, def) {
+  const text = soapText(d, def.key);
+  if (!text) return;
+  try {
+    await navigator.clipboard.writeText(text);
+    copiedKey.value = soapCopyKey(d, def.key);
+    setTimeout(() => {
+      if (copiedKey.value === soapCopyKey(d, def.key)) copiedKey.value = '';
+    }, 1500);
+  } catch {
+    // ignore
+  }
+}
 function openPreviewed() {
   if (previewRow.value) emit('select', previewRow.value);
 }
@@ -698,9 +756,16 @@ function onRailStatusClick(key) {
   border-left: 2px solid #e2e8f0; margin-left: 22px;
 }
 .cnl-row {
-  display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px; align-items: center;
-  border: 1px solid transparent; background: #f8fafc; border-radius: 8px;
-  padding: 2px 6px 2px 4px; color: inherit; width: 100%;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  border: 1px solid transparent;
+  background: #f8fafc;
+  border-radius: 8px;
+  padding: 2px 6px 2px 4px;
+  color: inherit;
+  width: 100%;
 }
 .cnl-row.selected {
   box-shadow: inset 0 0 0 2px #0f766e, 0 0 0 2px #99f6e4;
@@ -709,7 +774,7 @@ function onRailStatusClick(key) {
 .cnl-row-main {
   display: grid; grid-template-columns: 22px minmax(0, 1fr); gap: 8px; align-items: center;
   text-align: left; border: none; background: transparent; padding: 2px; cursor: pointer;
-  color: inherit; width: 100%; font: inherit; min-width: 0;
+  color: inherit; flex: 1 1 auto; font: inherit; min-width: 0;
 }
 .cnl-row-body { min-width: 0; }
 .cnl-row-line {
@@ -722,7 +787,29 @@ function onRailStatusClick(key) {
 .cnl-dos-inline {
   color: var(--cnl-muted); font-size: 0.78rem; font-weight: 700; white-space: nowrap; flex-shrink: 0;
 }
-.cnl-row-actions { display: flex; align-items: center; }
+.cnl-row-actions { display: flex; align-items: center; flex-shrink: 0; }
+.cnl-soap-toggle {
+  border: none; background: transparent; color: #0f766e; cursor: pointer;
+  font-size: 0.85rem; padding: 2px 6px;
+}
+.cnl-soap-copy {
+  flex: 1 0 100%;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+  padding: 4px 0 6px;
+}
+.cnl-soap-btn {
+  border: 1px solid #99f6e4;
+  background: #fff;
+  color: #0f766e;
+  border-radius: 8px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  padding: 6px 8px;
+  cursor: pointer;
+}
+.cnl-soap-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 .cnl-delete {
   border: none; background: transparent; color: #b91c1c; font-size: 0.72rem;
   font-weight: 700; cursor: pointer; padding: 2px 4px;

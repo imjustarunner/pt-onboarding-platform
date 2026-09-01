@@ -36,6 +36,23 @@ export function kioskPromptForObjective(obj = {}) {
   return `On a scale of 1–10, with 10 being ${ten} and 1 being ${one}, how would you rate yourself since the last session for: ${text}`;
 }
 
+export function kioskPromptOtherForObjective(obj = {}, clientName = 'the client') {
+  const custom = String(obj.kiosk_prompt_other || obj.kioskPromptOther || '').trim();
+  if (custom) return custom;
+  const who = String(clientName || 'the client').trim() || 'the client';
+  const text = String(obj.objective_text || obj.objectiveText || 'this treatment goal').trim().slice(0, 180);
+  const target = Number(obj.scale_target ?? obj.scaleTarget);
+  const highIsBetter = !Number.isFinite(target) || target >= 5.5;
+  const ten = highIsBetter ? 'at or closest to their goal' : 'farthest from their goal';
+  const one = highIsBetter ? 'farthest from their goal' : 'at or closest to their goal';
+  return `On a scale of 1–10, with 10 being ${ten} and 1 being ${one}, how would you rate ${who} since the last session for: ${text}`;
+}
+
+export function startScaleValue(obj = {}) {
+  const n = Number(obj.scale_start ?? obj.scaleStart);
+  return Number.isFinite(n) ? n : null;
+}
+
 export function progressLabelCopy(label) {
   switch (label) {
     case 'improved':

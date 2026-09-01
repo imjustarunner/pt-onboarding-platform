@@ -661,6 +661,9 @@
           :goals="activeTreatmentGoals"
           :previous-ratings="chartObjectiveRatings"
           :disabled="generating"
+          :date-of-service="dateOfService"
+          :kiosk-share-enabled="!!Number(latestTreatmentPlan?.kiosk_share_enabled || 0)"
+          :client-name="selectedClient?.full_name || 'the client'"
           @update:ratings="sessionObjectiveRatings = $event"
           @improved="onObjectiveImproved"
         />
@@ -1877,6 +1880,7 @@ const chartNoteReadOnly = computed(() => !!viewingChartNote.value);
 const lastSavedAt = ref('');
 let autosaveTimer = null;
 let autosaveBusy = false;
+let workQueueActivateSeq = 0;
 let autosaveDebounceTimer = null;
 
 function scheduleAutosave(delayMs = 1500) {
@@ -4921,24 +4925,19 @@ function onTodoListBuilt({ items }) {
   }
 }
 
-function advanceWorkQueue() {
-  // Skip without signing — return current to not_started if still unfinished
+async function advanceWorkQueue() {
   const id = activeWorkQueueItemId.value;
   if (id) {
-    workQueueItems.value = (workQueueItems.value || []).map((item) => {
-      if (item.id !== id) return item;
-      const cur = deriveWorkQueueDocStatus(item);
-      if (cur === DOC_STATUS.STARTED) {
-        return { ...item, status: DOC_STATUS.NOT_STARTED, docStatus: DOC_STATUS.NOT_STARTED };
-      }
-      return item;
-    });
-    persistWorkQueue();
+    const current = (workQueueItems.value || []).find((i) => i.id === id);
+    const cur = current ? deriveWorkQueueDocStatus(current) : null;
+    if (outputObj.value || cur === DOC_STATUS.COMPLETED || cur === DOC_STATUS.SIGNED) {
+      markActiveWorkQueueItemCompleted();
+    }
   }
   const next = (workQueueItems.value || []).find(
-    (i) => deriveWorkQueueDocStatus(i) === DOC_STATUS.NOT_STARTED
+    (i) => i.id !== id && deriveWorkQueueDocStatus(i) === DOC_STATUS.NOT_STARTED
   );
-  if (next) activateWorkQueueItem(next);
+  if (next) await activateWorkQueueItem(next);
   else activeWorkQueueItemId.value = null;
 }
 
@@ -4954,10 +4953,10 @@ function openNextInProgress() {
   sidebarTab.value = DOC_STATUS.STARTED;
 }
 
-function openNextInQueue() {
+async function openNextInQueue() {
   const next = nextInQueueItem.value;
   if (!next) return;
-  activateWorkQueueItem(next);
+  await activateWorkQueueItem(next);
   sidebarTab.value = DOC_STATUS.STARTED;
 }
 
@@ -4981,28 +4980,26 @@ function onLibrarySidebarSelect(row) {
 
 async function activateWorkQueueItem(item) {
   if (!item) return;
-  const st = deriveWorkQueueDocStatus(item);
-  if (st === DOC_STATUS.SIGNED || st === DOC_STATUS.COMPLETED) return;
+  const seq = ++workQueueActivateSeq;
+  const incomingStatus = deriveWorkQueueDocStatus(item);
+  const isFinished = incomingStatus === DOC_STATUS.SIGNED || incomingStatus === DOC_STATUS.COMPLETED;
   resetClientClinicalContext();
-  workQueueItems.value = (workQueueItems.value || []).map((row) => {
-    if (row.id === item.id) {
-      return {
-        ...row,
-        status: DOC_STATUS.STARTED,
-        docStatus: DOC_STATUS.STARTED,
-        startedAt: row.startedAt || new Date().toISOString(),
-        updatedAt: new Date().toISOString()
-      };
-    }
-    // Demote other in-progress items back to not_started (still on both panels until finished)
-    if (deriveWorkQueueDocStatus(row) === DOC_STATUS.STARTED && row.id !== item.id) {
-      // Keep as started — user asked started items stay visible in both; don't demote siblings
+  if (!isFinished) {
+    workQueueItems.value = (workQueueItems.value || []).map((row) => {
+      if (row.id === item.id) {
+        return {
+          ...row,
+          status: DOC_STATUS.STARTED,
+          docStatus: DOC_STATUS.STARTED,
+          startedAt: row.startedAt || new Date().toISOString(),
+          updatedAt: new Date().toISOString()
+        };
+      }
       return row;
-    }
-    return row;
-  });
+    });
+  }
   activeWorkQueueItemId.value = item.id;
-  sidebarTab.value = DOC_STATUS.STARTED;
+  sidebarTab.value = isFinished ? incomingStatus : DOC_STATUS.STARTED;
   persistWorkQueue();
 
   showProgressSessionPicker.value = false;
@@ -5020,6 +5017,9 @@ async function activateWorkQueueItem(item) {
   chartMentalStatus.value = defaultMentalStatusExam();
   chartRiskAssessment.value = defaultRiskAssessment();
   chartMedications.value = defaultMedicationsBlock();
+  draftId.value = item.draftId || null;
+  outputObj.value = null;
+  inputText.value = '';
   const clientId = Number(item.clientId || 0) || null;
   if (clientId) {
     selectedClientId.value = clientId;
@@ -5033,15 +5033,18 @@ async function activateWorkQueueItem(item) {
     // Always hydrate chart fields (DOB, contact, demographics_phi_enc). Queue rows only
     // carry display name / agencyId — without this, "Need: demographics" sticks after save.
     await hydrateSelectedClient(clientId);
+    if (seq !== workQueueActivateSeq) return;
     if (selectedClient.value && item.clientName && !selectedClient.value.full_name) {
       selectedClient.value = { ...selectedClient.value, full_name: item.clientName };
     }
     await loadClientAgencyContext(clientId);
+    if (seq !== workQueueActivateSeq) return;
     await Promise.all([
       loadClientTreatmentPlan(clientId),
       loadClientIntakeSummary(clientId),
       loadClientGuardianNames(clientId)
     ]);
+    if (seq !== workQueueActivateSeq) return;
     chartDiagnosticJustification.value = primaryChartDiagnosis.value?.justification || '';
   } else {
     selectedClientId.value = null;
@@ -5093,12 +5096,14 @@ async function activateWorkQueueItem(item) {
 
   configExpanded.value = true;
   noteWizardStep.value = 1;
-  sidebarTab.value = DOC_STATUS.STARTED;
+  if (!isFinished) sidebarTab.value = DOC_STATUS.STARTED;
 
   await loadRecent();
+  if (seq !== workQueueActivateSeq) return;
   const reuse = findReusableLocalDraft(item);
   if (reuse) {
     await loadDraftIntoWorkspace(reuse, { preserveWorkQueueItemId: true });
+    if (seq !== workQueueActivateSeq) return;
     activeWorkQueueItemId.value = item.id;
     if (item.officeEventId) sessionOfficeEventId.value = item.officeEventId;
     if (item.clinicalSessionId) sessionClinicalSessionId.value = item.clinicalSessionId;
@@ -5108,10 +5113,50 @@ async function activateWorkQueueItem(item) {
       row.id === item.id ? { ...row, draftId: reuse.id } : row
     );
     persistWorkQueue();
-  } else {
-    draftId.value = item.draftId || null;
-    outputObj.value = null;
-    inputText.value = '';
+    if (isFinished) sidebarTab.value = incomingStatus;
+    return;
+  }
+
+  if (isFinished) {
+    sidebarTab.value = incomingStatus;
+    return;
+  }
+
+  await ensureWorkQueueDraft(item);
+  if (seq !== workQueueActivateSeq) return;
+  await loadRecent();
+}
+
+async function ensureWorkQueueDraft(item) {
+  if (!item || item.draftId || draftId.value) return;
+  const agencyId = Number(item.agencyId || noteAidAgencyId.value || currentAgencyId.value || 0);
+  const clientId = Number(item.clientId || 0) || null;
+  if (!agencyId) return;
+  try {
+    const res = await api.post('/clinical-notes/drafts', {
+      agencyId,
+      clientId,
+      officeEventId: Number(item.officeEventId || 0) || null,
+      clinicalSessionId: Number(item.clinicalSessionId || 0) || null,
+      dateOfService: item.date ? String(item.date).slice(0, 10) : dateOfService.value,
+      serviceCode: item.serviceCode || null,
+      initials: initials.value || deriveInitialsFromNameSafe(item.clientName),
+      inputText: null
+    }, { skipGlobalLoading: true });
+    const created = res?.data?.draft || null;
+    if (!created?.id) return;
+    draftId.value = created.id;
+    currentDraftCreatedAt.value = created.created_at || new Date().toISOString();
+    recentDrafts.value = [
+      created,
+      ...(recentDrafts.value || []).filter((d) => String(d.id) !== String(created.id))
+    ];
+    workQueueItems.value = (workQueueItems.value || []).map((row) =>
+      row.id === item.id ? { ...row, draftId: created.id } : row
+    );
+    persistWorkQueue();
+  } catch {
+    // Left library can still fill once the clinician types.
   }
 }
 
@@ -5130,7 +5175,11 @@ function findReusableLocalDraft(item) {
     service_code: item.serviceCode
   });
   if (!key) return null;
-  return list.find((d) => sessionDedupeKey(d) === key) || null;
+  return list.find((d) => {
+    if (sessionDedupeKey(d) !== key) return false;
+    if (item.clientId && d.client_id && Number(d.client_id) !== Number(item.clientId)) return false;
+    return true;
+  }) || null;
 }
 
 function deriveInitialsFromNameSafe(name) {

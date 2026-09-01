@@ -4,13 +4,14 @@
       <div>
         <h3>Treatment objectives</h3>
         <p>
-          <span class="na-swatch na-swatch--now" /> Current (this session)
+          <span class="na-swatch na-swatch--start" /> Start (when the plan was written)
           <span class="na-swatch na-swatch--prev" /> Previous session
+          <span class="na-swatch na-swatch--now" /> Today
           <span class="na-swatch na-swatch--goal" /> Goal
         </p>
         <p class="na-obj-rater-note">
-          The main rating is <strong>clinical observation</strong> and is written that way in the note.
-          Client and other ratings are optional and graph separately.
+          Each objective has a starting number and a goal. Amber is the last session.
+          Teal is the number you tap today. Client and other ratings are optional and graph separately.
         </p>
       </div>
       <span v-if="suggestUpdatePlan" class="na-obj-suggest">Update treatment plan suggested</span>
@@ -48,7 +49,13 @@
           <span>{{ obj.objective_text || 'Objective' }}</span>
         </div>
 
-        <p v-if="kioskQuestion(obj)" class="na-obj-kiosk-q">{{ kioskQuestion(obj) }}</p>
+        <p
+          v-if="displayQuestion(obj)"
+          class="na-obj-kiosk-q"
+          :class="{ faded: !kioskShareEnabled && (raterKind === 'client' || raterKind === 'other') }"
+        >
+          {{ displayQuestion(obj) }}
+        </p>
 
         <div class="na-scale-row" role="group" :aria-label="`Scale for objective ${obj.id}`">
           <button
@@ -57,6 +64,7 @@
             type="button"
             class="na-scale-btn"
             :class="{
+              start: startValue(obj) === n,
               goal: Number(obj.scale_target) === n,
               prev: previousRated(obj) === n,
               selected: entry(obj.id)?.disposition === 'rated' && Number(entry(obj.id)?.scaleValue) === n
@@ -81,8 +89,8 @@
         <p v-else-if="isNonNumeric(obj.id)" class="na-obj-progress muted">
           {{ dispositionCopy(entry(obj.id)?.disposition) }}
         </p>
-        <p v-else-if="Number(obj.scale_target)" class="na-field-hint">
-          Goal {{ obj.scale_target }} (green ring). Previous session in amber when on file.
+        <p v-else-if="Number(obj.scale_target) || startValue(obj) != null" class="na-field-hint">
+          Start {{ startValue(obj) ?? '—' }} · previous {{ previousRated(obj) ?? '—' }} · goal {{ obj.scale_target ?? '—' }}.
         </p>
       </div>
     </div>
@@ -94,13 +102,18 @@ import { computed, reactive, ref, watch } from 'vue';
 import {
   computeProgressLabel,
   kioskPromptForObjective,
-  progressLabelCopy
+  kioskPromptOtherForObjective,
+  progressLabelCopy,
+  startScaleValue
 } from '../../utils/noteAidTreatmentHelpers.js';
 
 const props = defineProps({
   goals: { type: Array, default: () => [] },
   previousRatings: { type: Array, default: () => [] },
-  disabled: { type: Boolean, default: false }
+  disabled: { type: Boolean, default: false },
+  dateOfService: { type: String, default: '' },
+  kioskShareEnabled: { type: Boolean, default: false },
+  clientName: { type: String, default: 'the client' }
 });
 
 const emit = defineEmits(['update:ratings', 'improved']);
@@ -123,28 +136,48 @@ function entry(objectiveId) {
   return byObjective[entryKey(objectiveId)] || null;
 }
 
+function ratingDos(r) {
+  return String(r.date_of_service || r.dateOfService || '').slice(0, 10);
+}
+
 function previousRated(obj) {
   const kind = raterKind.value;
+  const today = String(props.dateOfService || '').slice(0, 10);
   const hist = (props.previousRatings || [])
     .filter((r) => Number(r.objective_id || r.objectiveId) === Number(obj.id)
       && String(r.rater_kind || r.raterKind || 'clinician') === kind
       && r.scale_value != null && r.scale_value !== '')
     .sort((a, b) => String(b.rated_at || b.date_of_service || '').localeCompare(String(a.rated_at || a.date_of_service || '')));
-  if (hist[0]?.scale_value != null) return Number(hist[0].scale_value);
+  const prior = hist.filter((r) => !today || ratingDos(r) !== today);
+  if (prior[0]?.scale_value != null) return Number(prior[0].scale_value);
+  const latestDos = hist[0] ? ratingDos(hist[0]) : '';
+  if (today && latestDos === today) return null;
+  if (entry(obj.id)?.disposition === 'rated') return null;
   if (kind === 'clinician' && obj.scale_current != null) return Number(obj.scale_current);
   return null;
 }
 
-function kioskQuestion(obj) {
-  return kioskPromptForObjective(obj);
+function startValue(obj) {
+  return startScaleValue(obj);
+}
+
+function displayQuestion(obj) {
+  if (raterKind.value === 'other') {
+    return kioskPromptOtherForObjective(obj, props.clientName);
+  }
+  if (raterKind.value === 'client') {
+    return kioskPromptForObjective(obj);
+  }
+  return '';
 }
 
 function scaleTitle(obj, n) {
   const bits = [String(n)];
+  if (startValue(obj) === n) bits.push('start');
   if (Number(obj.scale_target) === n) bits.push('goal');
   if (previousRated(obj) === n) bits.push('previous session');
   if (entry(obj.id)?.disposition === 'rated' && Number(entry(obj.id)?.scaleValue) === n) {
-    bits.push('current');
+    bits.push('today');
   }
   return bits.join(' · ');
 }
@@ -287,6 +320,7 @@ defineExpose({
 }
 .na-swatch--now { background: #0f766e; }
 .na-swatch--prev { background: #f59e0b; }
+.na-swatch--start { background: #64748b; }
 .na-swatch--goal { background: transparent; box-shadow: inset 0 0 0 2px #16a34a; }
 .na-obj-raters { display: flex; gap: 6px; margin-bottom: 10px; }
 .na-obj-rater {
@@ -308,6 +342,9 @@ defineExpose({
   font-size: 0.78rem;
   color: #334155;
   font-style: italic;
+}
+.na-obj-kiosk-q.faded {
+  color: #94a3b8;
 }
 .na-obj-suggest {
   background: #fef3c7;
@@ -373,11 +410,13 @@ defineExpose({
   font-weight: 700;
   cursor: pointer;
 }
-.na-scale-btn.goal:not(.selected):not(.prev) {
+.na-scale-btn.start:not(.selected):not(.prev) {
+  background: #64748b;
+  border-color: #475569;
+  color: #fff;
+}
+.na-scale-btn.goal {
   box-shadow: inset 0 0 0 2px #16a34a;
-  background: #fff;
-  border-color: #86efac;
-  color: #166534;
 }
 .na-scale-btn.prev:not(.selected) {
   background: #f59e0b;
@@ -389,6 +428,11 @@ defineExpose({
   border-color: #0f766e;
   color: #fff;
   outline: none;
+}
+.na-scale-btn.selected.goal,
+.na-scale-btn.prev.goal:not(.selected),
+.na-scale-btn.start.goal:not(.selected):not(.prev) {
+  box-shadow: inset 0 0 0 2px #16a34a;
 }
 .na-scale-btn:disabled {
   opacity: 0.4;

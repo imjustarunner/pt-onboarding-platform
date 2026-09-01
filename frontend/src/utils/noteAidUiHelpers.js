@@ -256,6 +256,22 @@ export function extractSections(obj) {
   return expandSoapSections(out);
 }
 
+export function parseDraftOutputObject(draft) {
+  const raw = draft?.output_json ?? draft?.outputJson ?? draft?.raw?.output_json ?? draft?.raw?.outputJson;
+  if (!raw) return null;
+  if (typeof raw === 'object') return raw;
+  try {
+    return JSON.parse(String(raw));
+  } catch {
+    return null;
+  }
+}
+
+export function soapSectionTextFromDraft(draft, key) {
+  const sections = extractSections(parseDraftOutputObject(draft) || {});
+  return String(sections[key] || '').trim();
+}
+
 /**
  * Returns ordered display panels.
  * Prefer SOAP when ≥2 SOAP sections; else treatment-plan Goal/Objective pairs; else raw sections.

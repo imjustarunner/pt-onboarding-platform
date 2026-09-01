@@ -2138,6 +2138,23 @@
             />
           </div>
 
+          <div v-show="editorWorkspaceTab === 'session'" class="appt-workspace-panel appt-workspace-panel--flush">
+            <OfficeEventSessionNotePanel
+              v-if="editorIsClinical"
+              :agency-id="Number(editorAgencyId || selectedActionAgencyId || 0)"
+              :client-id="editorInfoClientId"
+              :client-name="editorInfoClientName"
+              :office-event-id="editorOfficeEventId"
+              :clinical-session-id="editorClinicalSessionId"
+              :date-of-service="editorDateYmd"
+              :service-code="editorSessionServiceCode"
+              :latest-plan="editorChartLatestPlan"
+              :initials="editorInfoClientName"
+              v-model:input-text="editorQuickNote"
+            />
+            <p v-else class="muted">Session notes are available for booked client sessions.</p>
+          </div>
+
           <div v-show="editorWorkspaceTab === 'clinical'" class="appt-workspace-panel appt-workspace-panel--flush">
             <AppointmentClinicalPanel
               v-if="editorIsClinical"
@@ -5523,6 +5540,7 @@ import AppointmentInfoPanel from './AppointmentInfoPanel.vue';
 import AppointmentBillingPanel from './AppointmentBillingPanel.vue';
 import AppointmentPackageSettlement from './AppointmentPackageSettlement.vue';
 import AppointmentClinicalPanel from './AppointmentClinicalPanel.vue';
+import OfficeEventSessionNotePanel from './OfficeEventSessionNotePanel.vue';
 import ClinicalSessionBody from './ClinicalSessionBody.vue';
 import MeetingParticipantsPicker from './MeetingParticipantsPicker.vue';
 import TeamMeetingBody from './TeamMeetingBody.vue';
@@ -13408,6 +13426,7 @@ const editorWorkspaceTabs = computed(() => {
       tabs.push({ id: 'meeting_notes', label: 'Notes', icon: '✎' });
     }
   }
+  if (editorIsClinical.value) tabs.push({ id: 'session', label: 'Session note', icon: '✎' });
   if (editorShowBillingTab.value) tabs.push({ id: 'billing', label: 'Billing', icon: '$' });
   if (editorShowClinicalTab.value) tabs.push({ id: 'clinical', label: 'Clinical', icon: '☰' });
   tabs.push({ id: 'notifications', label: 'Notifications', icon: '🔔' });
@@ -13655,6 +13674,23 @@ const editorInfoClientId = computed(() => {
   const set = virtualSessionSelectedClientIdSet.value;
   if (set?.size === 1) return Number([...set][0] || 0);
   return 0;
+});
+const editorOfficeEventId = computed(() => Number(
+  scheduleEventEditForm.value?.officeEventId
+  || scheduleEventEditForm.value?.id
+  || modalContext.value?.officeEventId
+  || 0
+));
+const editorSessionServiceCode = computed(() => {
+  const sid = Number(editorTenantServiceId.value || 0);
+  const svc = (editorTenantServices.value || []).find((s) => Number(s.id) === sid);
+  const fromSvc = String(svc?.serviceCode || svc?.service_code || '').trim();
+  if (fromSvc) return fromSvc;
+  return String(
+    scheduleEventEditForm.value?.serviceCode
+    || editorAddonServiceCodes.value?.[0]
+    || ''
+  ).trim();
 });
 const editorInfoClientName = computed(() => {
   const id = editorInfoClientId.value;
@@ -14726,9 +14762,9 @@ function openEditorClinicalClaim() {
 }
 
 function openEditorQuickNote() {
-  editorWorkspaceTab.value = 'clinical';
+  editorWorkspaceTab.value = editorIsClinical.value ? 'session' : 'clinical';
   nextTick(() => {
-    const el = document.querySelector('[data-testid="appointment-clinical-panel"] .acp-textarea');
+    const el = document.querySelector('[data-testid="office-event-session-note"] textarea, [data-testid="appointment-clinical-panel"] .acp-textarea');
     if (el && typeof el.focus === 'function') el.focus();
   });
 }
