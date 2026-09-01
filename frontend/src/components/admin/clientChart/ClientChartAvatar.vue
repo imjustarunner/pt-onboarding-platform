@@ -7,7 +7,7 @@
 
 <script setup>
 import { computed, ref, watch } from 'vue';
-import { toUploadsUrl } from '../../utils/uploadsUrl.js';
+import { toUploadsUrl } from '../../../utils/uploadsUrl.js';
 
 const props = defineProps({
   initials: { type: String, default: '' },
