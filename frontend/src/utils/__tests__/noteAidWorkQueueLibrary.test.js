@@ -329,4 +329,81 @@ describe('collapseLeftLibraryRows signed vs leftover draft', () => {
     expect(rows[0].docStatus).toBe(DOC_STATUS.SIGNED);
     expect(String(rows[0].client_full_name)).toMatch(/Hollyn/);
   });
+
+  it('collapses client-linked draft with session-linked signed note via draft id', () => {
+    const rows = buildLeftLibraryRows({
+      drafts: [{
+        id: 42,
+        input_text: 'draft',
+        output_json: '{"sections":{}}',
+        client_id: 2031,
+        client_full_name: 'Frank W. Meyers, IV',
+        initials: 'F. M.',
+        date_of_service: '2026-06-25',
+        service_code: '90837'
+      }],
+      signedSessions: [{
+        noteId: 900,
+        draftId: 42,
+        clientId: 2031,
+        clinicalSessionId: 555,
+        dateOfService: '2026-06-25',
+        serviceCode: '90837',
+        clientName: 'Frank W. Meyers, IV',
+        initials: 'F. M.'
+      }]
+    });
+    expect(rows).toHaveLength(1);
+    expect(rows[0].docStatus).toBe(DOC_STATUS.SIGNED);
+    expect(rows[0].initials).toMatch(/F\./);
+  });
+
+  it('collapses chart-only signed note with leftover draft by client+DOS+code', () => {
+    const rows = buildLeftLibraryRows({
+      drafts: [{
+        id: 99,
+        input_text: 'notes',
+        client_id: 2031,
+        date_of_service: '2026-06-25',
+        service_code: '90837'
+      }],
+      signedSessions: [{
+        noteId: 901,
+        clientId: 2031,
+        clinicalSessionId: 777,
+        dateOfService: '2026-06-25',
+        serviceCode: '90837'
+      }]
+    });
+    expect(rows).toHaveLength(1);
+    expect(rows[0].docStatus).toBe(DOC_STATUS.SIGNED);
+    expect(rows[0].source).toBe('signed_note');
+  });
+
+  it('keeps two signed chart notes for the same client on different dates', () => {
+    const rows = buildLeftLibraryRows({
+      drafts: [],
+      signedSessions: [
+        {
+          noteId: 901,
+          clientId: 2031,
+          dateOfService: '2026-06-10',
+          serviceCode: '90837',
+          clientName: 'Frank W. Meyers, IV',
+          initials: 'F. M.'
+        },
+        {
+          noteId: 902,
+          clientId: 2031,
+          dateOfService: '2026-06-25',
+          serviceCode: '90837',
+          clientName: 'Frank W. Meyers, IV',
+          initials: 'F. M.'
+        }
+      ]
+    });
+    expect(rows).toHaveLength(2);
+    expect(rows.map((r) => r.date_of_service).sort()).toEqual(['2026-06-10', '2026-06-25']);
+    expect(rows.every((r) => r.docStatus === DOC_STATUS.SIGNED)).toBe(true);
+  });
 });

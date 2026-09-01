@@ -332,6 +332,7 @@ export function buildLeftLibraryRows({ drafts = [], workQueueItems = [], signedS
     rows.push({
       id: `signed_${s.noteId || s.id}`,
       source: 'signed_note',
+      noteId: s.noteId || s.id || null,
       draftId: s.draftId || null,
       workQueueId: null,
       docStatus: DOC_STATUS.SIGNED,
@@ -364,19 +365,34 @@ export function normalizeSessionServiceCode(code) {
 }
 
 /**
- * Identity for one clinical session note. Used to collapse leftover duplicate drafts.
+ * All keys that identify the same library row (draft + signed chart note, etc.).
+ * Each signed clinical note always keeps a unique note:{id} key so two signed
+ * progress notes for one client on different dates never collapse together.
  */
-export function sessionDedupeKey(row = {}) {
+export function sessionDedupeKeys(row = {}) {
+  const keys = [];
+  const noteId = Number(row.raw?.noteId || row.noteId || 0);
+  if (noteId > 0) keys.push(`note:${noteId}`);
+  const draftId = Number(row.draftId || row.raw?.draftId || 0);
+  if (draftId > 0) keys.push(`draft:${draftId}`);
   const oe = Number(row.officeEventId || row.office_event_id || 0);
-  if (oe > 0) return `oe:${oe}`;
-  const cs = Number(row.clinicalSessionId || row.clinical_session_id || 0);
-  if (cs > 0) return `cs:${cs}`;
+  if (oe > 0) keys.push(`oe:${oe}`);
   const cid = Number(row.clientId || row.client_id || 0);
   const dos = String(row.date_of_service || row.dateOfService || row.date || '').slice(0, 10);
   const code = normalizeSessionServiceCode(row.service_code || row.serviceCode || row.noteKind);
-  if (cid > 0 && dos && code) return `cdc:${cid}:${dos}:${code}`;
-  if (cid > 0 && dos) return `cd:${cid}:${dos}`;
-  return null;
+  if (cid > 0 && dos && code) keys.push(`cdc:${cid}:${dos}:${code}`);
+  const cs = Number(row.clinicalSessionId || row.clinical_session_id || 0);
+  if (cs > 0) keys.push(`cs:${cs}`);
+  if (cid > 0 && dos) keys.push(`cd:${cid}:${dos}`);
+  if (!keys.length && row.id) keys.push(`row:${row.id}`);
+  return keys;
+}
+
+/**
+ * Primary dedupe key (legacy callers). Prefer note id, then draft id, then session identity.
+ */
+export function sessionDedupeKey(row = {}) {
+  return sessionDedupeKeys(row)[0] || null;
 }
 
 /** True only when a draft is the same person/session as this ToDo row. */
@@ -424,12 +440,15 @@ function mergeCollapsedLibraryRows(a, b) {
   const bHasName = !!(b.client_full_name || b.initials);
   let keep;
   let drop;
-  if (aHasName !== bHasName) {
+  if (a.source === 'signed_note' && b.source !== 'signed_note') {
+    keep = a;
+    drop = b;
+  } else if (b.source === 'signed_note' && a.source !== 'signed_note') {
+    keep = b;
+    drop = a;
+  } else if (aHasName !== bHasName) {
     keep = aHasName ? a : b;
     drop = aHasName ? b : a;
-  } else if ((a.source === 'draft') !== (b.source === 'draft')) {
-    keep = a.source === 'draft' ? a : b;
-    drop = keep === a ? b : a;
   } else {
     const takeA = libraryRowRank(a) > libraryRowRank(b)
       || (libraryRowRank(a) === libraryRowRank(b)
@@ -440,8 +459,13 @@ function mergeCollapsedLibraryRows(a, b) {
   return {
     ...keep,
     docStatus: signed ? DOC_STATUS.SIGNED : keep.docStatus,
+    source: keep.source === 'signed_note' || drop.source === 'signed_note' ? 'signed_note' : keep.source,
+    connection: signed && (keep.connection === NOTE_CONNECTION.SESSION || drop.connection === NOTE_CONNECTION.SESSION)
+      ? NOTE_CONNECTION.SESSION
+      : (keep.connection || drop.connection),
     workQueueId: keep.workQueueId || drop.workQueueId || null,
     draftId: keep.draftId || drop.draftId || null,
+    noteId: keep.noteId || drop.noteId || keep.raw?.noteId || drop.raw?.noteId || null,
     clientId: keep.clientId || drop.clientId || null,
     officeEventId: keep.officeEventId || drop.officeEventId || null,
     clinicalSessionId: keep.clinicalSessionId || drop.clinicalSessionId || null,
@@ -453,24 +477,40 @@ function mergeCollapsedLibraryRows(a, b) {
   };
 }
 
-/** Keep one left-library row per session; signed status wins, names merge from either side. */
+/** Collapse duplicate rows; never merge two distinct signed chart notes (note:{id}). */
 export function collapseLeftLibraryRows(rows = []) {
-  const passthrough = [];
-  const byKey = new Map();
-  for (const row of rows || []) {
-    const key = sessionDedupeKey(row);
-    if (!key) {
-      passthrough.push(row);
-      continue;
+  const list = Array.isArray(rows) ? rows : [];
+  if (list.length <= 1) return list;
+  const parent = list.map((_, i) => i);
+  const find = (i) => {
+    let root = i;
+    while (parent[root] !== root) {
+      parent[root] = parent[parent[root]];
+      root = parent[root];
     }
-    const prev = byKey.get(key);
-    if (!prev) {
-      byKey.set(key, row);
-      continue;
+    return root;
+  };
+  const union = (i, j) => {
+    const ri = find(i);
+    const rj = find(j);
+    if (ri !== rj) parent[rj] = ri;
+  };
+  const keyToIndex = new Map();
+  for (let i = 0; i < list.length; i += 1) {
+    for (const key of sessionDedupeKeys(list[i])) {
+      if (keyToIndex.has(key)) union(i, keyToIndex.get(key));
+      else keyToIndex.set(key, i);
     }
-    byKey.set(key, mergeCollapsedLibraryRows(prev, row));
   }
-  return [...passthrough, ...byKey.values()];
+  const groups = new Map();
+  for (let i = 0; i < list.length; i += 1) {
+    const root = find(i);
+    if (!groups.has(root)) groups.set(root, []);
+    groups.get(root).push(list[i]);
+  }
+  return [...groups.values()].map((group) =>
+    group.reduce((merged, row) => (merged ? mergeCollapsedLibraryRows(merged, row) : row), null)
+  );
 }
 
 export function filterLeftLibraryRows(

@@ -4292,7 +4292,11 @@ const loadRecent = async ({ retry = true } = {}) => {
     recentLoading.value = true;
     recentError.value = '';
     const queueClientIds = [...new Set(
-      (workQueueItems.value || []).map((i) => Number(i.clientId || 0)).filter((n) => n > 0)
+      [
+        ...(workQueueItems.value || []).map((i) => Number(i.clientId || 0)),
+        Number(selectedClientId.value || 0),
+        Number(effectiveClientId.value || 0)
+      ].filter((n) => n > 0)
     )];
     const res = await api.get('/clinical-notes/recent', {
       params: {
@@ -5214,6 +5218,15 @@ function onLibrarySidebarSelect(row) {
   cancelPendingAutosave();
   if (row.source === 'work_queue' && row.raw) {
     activateWorkQueueItem(row.raw);
+    return;
+  }
+  const signedNoteId = Number(row.noteId || row.raw?.noteId || 0);
+  const linkedDraftId = Number(row.draftId || row.raw?.draftId || 0);
+  const draftStillOpen = linkedDraftId
+    && (recentDrafts.value || []).some((d) => String(d.id) === String(linkedDraftId));
+  if (signedNoteId && (row.source === 'signed_note' || row.docStatus === DOC_STATUS.SIGNED) && !draftStillOpen) {
+    loadClinicalNoteIntoWorkspace(signedNoteId);
+    sidebarTab.value = DOC_STATUS.SIGNED;
     return;
   }
   workQueueActivateSeq += 1;

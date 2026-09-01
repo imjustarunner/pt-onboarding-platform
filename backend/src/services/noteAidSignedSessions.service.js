@@ -7,10 +7,10 @@ function safeInt(v) {
 }
 
 function sessionMatchKey(row = {}) {
+  const draftId = safeInt(row.draftId || row.draft_id);
+  if (draftId) return `draft:${draftId}`;
   const oe = Number(row.officeEventId || row.office_event_id || 0);
   if (oe > 0) return `oe:${oe}`;
-  const cs = Number(row.clinicalSessionId || row.clinical_session_id || 0);
-  if (cs > 0) return `cs:${cs}`;
   const cid = Number(row.clientId || row.client_id || 0);
   const dos = String(row.dateOfService || row.date_of_service || row.date || '').slice(0, 10);
   const raw = String(row.serviceCode || row.service_code || '').toUpperCase();
@@ -18,8 +18,24 @@ function sessionMatchKey(row = {}) {
   let code = m ? m[1] : '';
   if (/^9083[24789]$/.test(code)) code = '90837';
   if (cid && dos && code) return `cdc:${cid}:${dos}:${code}`;
+  const cs = Number(row.clinicalSessionId || row.clinical_session_id || 0);
+  if (cs > 0) return `cs:${cs}`;
   if (cid && dos) return `cd:${cid}:${dos}`;
+  const noteId = safeInt(row.noteId || row.note_id);
+  if (noteId) return `note:${noteId}`;
   return null;
+}
+
+/** Map a clinical_note_drafts row to sessionMatchKey fields. */
+export function draftRowMatchKey(draft = {}) {
+  return sessionMatchKey({
+    draftId: draft.id,
+    clientId: draft.client_id,
+    dateOfService: draft.date_of_service,
+    serviceCode: draft.service_code,
+    clinicalSessionId: draft.clinical_session_id,
+    officeEventId: draft.office_event_id
+  });
 }
 
 function parseMeta(raw) {
@@ -125,5 +141,5 @@ export async function listSignedNoteSessions({ userId = null, clientIds = [], li
   }
 }
 
-export { sessionMatchKey };
-export default { listSignedNoteSessions, sessionMatchKey };
+export { sessionMatchKey, draftRowMatchKey };
+export default { listSignedNoteSessions, sessionMatchKey, draftRowMatchKey };

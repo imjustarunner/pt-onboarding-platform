@@ -222,6 +222,11 @@
                         <strong>{{ rowInitials(d) }}</strong>
                         <span class="cnl-dos-inline">{{ rowDos(d) }}</span>
                       </div>
+                      <div class="cnl-row-sub">
+                        <span class="cnl-row-kind">{{ rowTypeLabel(d) }}</span>
+                        <span class="cnl-row-conn">{{ connMeta(d.connection).shortLabel }}</span>
+                        <span v-if="d.service_code" class="cnl-row-code">{{ d.service_code }}</span>
+                      </div>
                     </div>
                   </button>
                   <div class="cnl-row-actions">
@@ -533,6 +538,10 @@ function rowTitle(d) {
   return d?.source === 'signed_note' ? 'Signed note' : 'Note';
 }
 function rowTypeLabel(d) {
+  if (d?.source === 'signed_note') {
+    const code = String(d.service_code || d.raw?.serviceCode || '').trim().toUpperCase();
+    return code ? `${code} · Signed` : 'Signed note';
+  }
   if (d?.source === 'work_queue') {
     const kind = d.noteKind || d.raw?.noteKind;
     if (kind === 'intake') return `Intake${d.service_code ? ` (${d.service_code})` : ''}`;
@@ -767,7 +776,7 @@ function onRailStatusClick(key) {
   background: #ecfdf5;
 }
 .cnl-row-main {
-  display: grid; grid-template-columns: 22px minmax(0, 1fr); gap: 8px; align-items: center;
+  display: grid; grid-template-columns: 22px minmax(0, 1fr); gap: 8px; align-items: start;
   text-align: left; border: none; background: transparent; padding: 2px; cursor: pointer;
   color: inherit; flex: 1 1 auto; font: inherit; min-width: 0;
 }
@@ -776,6 +785,15 @@ function onRailStatusClick(key) {
   display: flex; align-items: baseline; justify-content: space-between; gap: 10px;
   min-width: 0; font-size: 0.84rem;
 }
+.cnl-row-sub {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 6px;
+  margin-top: 2px; font-size: 0.68rem; color: var(--cnl-muted); font-weight: 600;
+}
+.cnl-row-kind { color: #334155; }
+.cnl-row-conn {
+  padding: 1px 6px; border-radius: 999px; background: #f1f5f9; color: #475569;
+}
+.cnl-row-code { font-family: ui-monospace, monospace; letter-spacing: 0.02em; }
 .cnl-row-line strong {
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 800; letter-spacing: 0.02em;
 }

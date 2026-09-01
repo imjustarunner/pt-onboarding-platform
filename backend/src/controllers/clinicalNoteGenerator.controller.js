@@ -23,7 +23,7 @@ import {
 } from '../utils/noteAidClientAgency.js';
 import { scrubIntakeTextForNoteWriter } from '../services/phiScrubber.service.js';
 import { logNoteAidChartEvent } from '../services/noteAidChartAudit.service.js';
-import { listSignedNoteSessions, sessionMatchKey } from '../services/noteAidSignedSessions.service.js';
+import { listSignedNoteSessions, sessionMatchKey, draftRowMatchKey } from '../services/noteAidSignedSessions.service.js';
 
 function safeInt(v) {
   const n = Number(v);
@@ -934,7 +934,7 @@ export const listRecentClinicalNoteDrafts = async (req, res, next) => {
     const retireIds = (drafts || [])
       .filter((d) => {
         if (signedDraftIds.has(Number(d.id))) return true;
-        const k = sessionMatchKey(d);
+        const k = draftRowMatchKey(d);
         return k && signedKeys.has(k);
       })
       .map((d) => d.id);
