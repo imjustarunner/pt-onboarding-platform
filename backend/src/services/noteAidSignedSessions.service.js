@@ -6,7 +6,7 @@ function safeInt(v) {
   return Number.isInteger(n) && n > 0 ? n : null;
 }
 
-function sessionMatchKey(row = {}) {
+export function sessionMatchKey(row = {}) {
   const draftId = safeInt(row.draftId || row.draft_id);
   if (draftId) return `draft:${draftId}`;
   const oe = Number(row.officeEventId || row.office_event_id || 0);
@@ -141,5 +141,4 @@ export async function listSignedNoteSessions({ userId = null, clientIds = [], li
   }
 }
 
-export { sessionMatchKey, draftRowMatchKey };
 export default { listSignedNoteSessions, sessionMatchKey, draftRowMatchKey };
