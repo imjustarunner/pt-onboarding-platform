@@ -900,19 +900,15 @@ export const updateEncounter = async (req, res, next) => {
 export const getClinicalNoteById = async (req, res, next) => {
   try {
     const noteId = parseIntValue(req.params.noteId);
-    const agencyId = parseIntValue(req.query.agencyId);
-    if (!noteId || !agencyId) {
-      return res.status(400).json({ error: { message: 'noteId and agencyId are required' } });
+    if (!noteId) {
+      return res.status(400).json({ error: { message: 'noteId is required' } });
     }
-    await ClinicalEligibilityService.ensureAgencyAccess({ reqUser: req.user, agencyId });
 
     const note = await ClinicalNote.findById(noteId);
     if (!note || note.is_deleted) {
       return res.status(404).json({ error: { message: 'Note not found' } });
     }
-    if (Number(note.agency_id) !== agencyId) {
-      return res.status(403).json({ error: { message: 'Note belongs to a different organization' } });
-    }
+    await ClinicalEligibilityService.ensureAgencyAccess({ reqUser: req.user, agencyId: note.agency_id });
 
     let plain = maybeDecryptNotePayload(note.note_payload);
     let outputJson = null;

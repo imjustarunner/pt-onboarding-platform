@@ -62,7 +62,7 @@ async function attachClientLabels(sessions = []) {
   if (!ids.length) return sessions;
   try {
     const [rows] = await pool.execute(
-      `SELECT c.id, c.full_name, c.initials, a.name AS agency_name
+      `SELECT c.id, c.full_name, c.initials, c.agency_id, a.name AS agency_name
        FROM clients c
        LEFT JOIN agencies a ON a.id = c.agency_id
        WHERE c.id IN (${ids.map(() => '?').join(',')})`,
@@ -79,6 +79,7 @@ async function attachClientLabels(sessions = []) {
         clientName: full || s.clientName || null,
         client_full_name: full || s.client_full_name || null,
         initials: initials || s.initials || null,
+        agencyId: c.agency_id || s.agencyId || null,
         agencyName: c.agency_name || s.agencyName || null
       };
     });

@@ -4997,6 +4997,42 @@ function queueItemSessionKey(item) {
   });
 }
 
+/** Resolve chart clinical_notes.id for a signed library row or work-queue item. */
+function resolveSignedClinicalNoteId(itemOrRow = {}) {
+  const direct = Number(
+    itemOrRow.clinicalNoteId
+    || itemOrRow.noteId
+    || itemOrRow.raw?.noteId
+    || 0
+  );
+  if (direct) return direct;
+  const draftId = Number(itemOrRow.draftId || itemOrRow.raw?.draftId || 0);
+  const sessions = signedNoteSessions.value || [];
+  if (draftId) {
+    const byDraft = sessions.find((s) => Number(s.draftId) === draftId);
+    if (byDraft?.noteId) return Number(byDraft.noteId);
+  }
+  const key = queueItemSessionKey(itemOrRow)
+    || sessionDedupeKey({
+      officeEventId: itemOrRow.officeEventId || itemOrRow.raw?.officeEventId,
+      clinicalSessionId: itemOrRow.clinicalSessionId || itemOrRow.raw?.clinicalSessionId,
+      clientId: itemOrRow.clientId || itemOrRow.raw?.clientId,
+      date_of_service: itemOrRow.date_of_service || itemOrRow.date || itemOrRow.raw?.dateOfService,
+      service_code: itemOrRow.serviceCode || itemOrRow.service_code || itemOrRow.raw?.serviceCode
+    });
+  if (!key) return null;
+  const hit = sessions.find((s) => sessionDedupeKey({
+    officeEventId: s.officeEventId,
+    clinicalSessionId: s.clinicalSessionId,
+    clientId: s.clientId,
+    date_of_service: s.dateOfService,
+    service_code: s.serviceCode,
+    draftId: s.draftId,
+    noteId: s.noteId
+  }) === key);
+  return hit?.noteId ? Number(hit.noteId) : null;
+}
+
 function snapMissingDraftsOnQueue() {
   const live = new Set((recentDrafts.value || []).map((d) => String(d.id)));
   const activeId = activeWorkQueueItemId.value;
@@ -5019,32 +5055,35 @@ function snapMissingDraftsOnQueue() {
 }
 
 function applySignedSessionsToQueue(signedSessions = []) {
-  const keys = new Set(
-    (signedSessions || [])
-      .map((s) => sessionDedupeKey({
-        officeEventId: s.officeEventId,
-        clinicalSessionId: s.clinicalSessionId,
-        clientId: s.clientId,
-        date_of_service: s.dateOfService,
-        service_code: s.serviceCode
-      }))
-      .filter(Boolean)
-  );
-  const draftIds = new Set(
-    (signedSessions || []).map((s) => Number(s.draftId || 0)).filter((n) => n > 0)
-  );
-  if (keys.size || draftIds.size) {
+  const sessionByKey = new Map();
+  const sessionByDraftId = new Map();
+  for (const s of signedSessions || []) {
+    if (s?.draftId) sessionByDraftId.set(Number(s.draftId), s);
+    const k = sessionDedupeKey({
+      officeEventId: s.officeEventId,
+      clinicalSessionId: s.clinicalSessionId,
+      clientId: s.clientId,
+      date_of_service: s.dateOfService,
+      service_code: s.serviceCode,
+      draftId: s.draftId,
+      noteId: s.noteId
+    });
+    if (k) sessionByKey.set(k, s);
+  }
+  if (sessionByKey.size || sessionByDraftId.size) {
     workQueueItems.value = (workQueueItems.value || []).map((item) => {
       const k = queueItemSessionKey(item);
-      const byKey = k && keys.has(k);
-      const byDraft = item.draftId && draftIds.has(Number(item.draftId));
-      if (!byKey && !byDraft) return item;
+      const byKey = k && sessionByKey.get(k);
+      const byDraft = item.draftId && sessionByDraftId.get(Number(item.draftId));
+      const match = byKey || byDraft;
+      if (!match) return item;
       return {
         ...item,
         draftId: null,
+        clinicalNoteId: match.noteId || item.clinicalNoteId || null,
         status: DOC_STATUS.SIGNED,
         docStatus: DOC_STATUS.SIGNED,
-        signedAt: item.signedAt || new Date().toISOString()
+        signedAt: item.signedAt || match.signedAt || new Date().toISOString()
       };
     });
   }
@@ -5212,20 +5251,23 @@ async function openNextInQueue() {
   sidebarTab.value = DOC_STATUS.STARTED;
 }
 
-function onLibrarySidebarSelect(row) {
+async function onLibrarySidebarSelect(row) {
   if (!row) return;
   libraryExpanded.value = false;
   cancelPendingAutosave();
   if (row.source === 'work_queue' && row.raw) {
-    activateWorkQueueItem(row.raw);
+    await activateWorkQueueItem(row.raw);
     return;
   }
-  const signedNoteId = Number(row.noteId || row.raw?.noteId || 0);
-  const linkedDraftId = Number(row.draftId || row.raw?.draftId || 0);
-  const draftStillOpen = linkedDraftId
-    && (recentDrafts.value || []).some((d) => String(d.id) === String(linkedDraftId));
-  if (signedNoteId && (row.source === 'signed_note' || row.docStatus === DOC_STATUS.SIGNED) && !draftStillOpen) {
-    loadClinicalNoteIntoWorkspace(signedNoteId);
+  const signedNoteId = resolveSignedClinicalNoteId(row);
+  if (
+    signedNoteId
+    && (row.source === 'signed_note' || normalizeDocStatus(row.docStatus) === DOC_STATUS.SIGNED)
+  ) {
+    await loadClinicalNoteIntoWorkspace(signedNoteId, {
+      agencyId: Number(row.agency_id || row.raw?.agencyId || 0) || null,
+      preserveWorkQueueId: row.workQueueId || null
+    });
     sidebarTab.value = DOC_STATUS.SIGNED;
     return;
   }
@@ -5402,12 +5444,27 @@ async function activateWorkQueueItem(item) {
 
   syncWorkQueueRouteQuery(item);
 
+  await loadRecent();
+  if (seq !== workQueueActivateSeq) return;
+
+  if (incomingStatus === DOC_STATUS.SIGNED) {
+    const freshItem = (workQueueItems.value || []).find((r) => r.id === item.id) || item;
+    const clinicalNoteId = resolveSignedClinicalNoteId(freshItem);
+    if (clinicalNoteId) {
+      await loadClinicalNoteIntoWorkspace(clinicalNoteId, {
+        agencyId: Number(freshItem.agencyId || item.agencyId || 0) || null,
+        preserveWorkQueueId: item.id
+      });
+      if (seq !== workQueueActivateSeq) return;
+      sidebarTab.value = DOC_STATUS.SIGNED;
+      return;
+    }
+  }
+
   configExpanded.value = true;
   noteWizardStep.value = 1;
   if (!isFinished) sidebarTab.value = DOC_STATUS.STARTED;
 
-  await loadRecent();
-  if (seq !== workQueueActivateSeq) return;
   const reuse = findReusableLocalDraft(item);
   if (reuse) {
     await loadDraftIntoWorkspace(reuse, {
@@ -5941,20 +5998,39 @@ const loadDraftIntoWorkspace = async (d, options = {}) => {
   }
 };
 
-const loadClinicalNoteIntoWorkspace = async (noteId) => {
+const loadClinicalNoteIntoWorkspace = async (
+  noteId,
+  { agencyId: preferredAgencyId = null, preserveWorkQueueId = null } = {}
+) => {
   const nid = Number(noteId || 0);
   if (!nid) return;
-  const aid = Number(noteAidAgencyId.value || currentAgencyId.value || 0);
-  if (!aid) return;
+  const agencyCandidates = [...new Set(
+    [
+      preferredAgencyId,
+      noteAidAgencyId.value,
+      selectedClient.value?.agency_id,
+      selectedClient.value?.agencyId,
+      currentAgencyId.value
+    ].map((x) => Number(x || 0)).filter((n) => n > 0)
+  )];
   try {
-    const res = await api.get(`/medical-billing/notes/${nid}`, {
-      params: { agencyId: aid },
-      skipGlobalLoading: true
-    });
-    const note = res?.data?.note;
+    let note = null;
+    let lastErr = null;
+    const attempts = agencyCandidates.length ? agencyCandidates : [null];
+    for (const aid of attempts) {
+      try {
+        const res = await api.get(`/medical-billing/notes/${nid}`, {
+          params: aid ? { agencyId: aid } : undefined,
+          skipGlobalLoading: true
+        });
+        note = res?.data?.note;
+        if (note) break;
+      } catch (e) {
+        lastErr = e;
+      }
+    }
     if (!note) {
-      approvalError.value = 'Clinical note not found.';
-      return;
+      throw lastErr || new Error('Clinical note not found.');
     }
     viewingChartNote.value = {
       id: note.id,
@@ -5963,7 +6039,7 @@ const loadClinicalNoteIntoWorkspace = async (noteId) => {
       noteType: note.noteType || null
     };
     draftId.value = null;
-    activeWorkQueueItemId.value = null;
+    activeWorkQueueItemId.value = preserveWorkQueueId || null;
     currentDraftArchivedAt.value = null;
     currentDraftCreatedAt.value = note.createdAt || null;
     dateOfService.value = note.dateOfService

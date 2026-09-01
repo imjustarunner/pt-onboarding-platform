@@ -342,6 +342,7 @@ export function buildLeftLibraryRows({ drafts = [], workQueueItems = [], signedS
       clinicalSessionId: s.clinicalSessionId || s.clinical_session_id || null,
       client_full_name: name,
       initials: s.initials || initialsFromDisplayName(name),
+      agency_id: s.agencyId || s.agency_id || null,
       agency_name: s.agencyName || s.agency_name || null,
       client_type: null,
       service_code: s.serviceCode || s.service_code || null,
