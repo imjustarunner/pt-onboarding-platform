@@ -9,8 +9,8 @@
             Open Note Aid to write or update a learning plan.
           </template>
           <template v-else>
-            Structured goals and measurable objectives on the clinical chart, with scale history over time.
-            Open Note Aid to write or update a plan for this client.
+            Structured goals and measurable objectives. Every treatment plan must be acknowledged
+            by the client or guardian (dashboard share, in-session witness, emailed link, or print + upload).
           </template>
         </p>
       </div>
@@ -37,171 +37,257 @@
         Write a plan in Note Aid →
       </button>
     </div>
-    <div v-else class="ctp-list">
-      <article
-        v-for="plan in plans"
-        :key="plan.id"
-        class="ctp-card"
-        :class="{ 'ctp-card--active': Number(selectedId) === Number(plan.id) }"
-        @click="selectPlan(plan.id)"
-      >
-        <div class="ctp-card__top">
-          <strong>{{ planTitle(plan) }}</strong>
-          <span class="ctp-badge" :class="statusClass(plan)">{{ statusLabel(plan) }}</span>
-        </div>
-        <div class="muted tiny">
-          Updated {{ formatWhen(plan.updated_at || plan.created_at) }}
-        </div>
-      </article>
-    </div>
 
-    <div v-if="detailPlan" class="ctp-detail">
-      <div class="ctp-detail__head">
-        <div>
-          <h4>{{ planTitle(detailPlan) }}</h4>
-          <p class="muted tiny">Status: {{ statusLabel(detailPlan) }}</p>
-        </div>
-        <label class="ctp-kiosk-toggle" @click.stop>
-          <input
-            type="checkbox"
-            :checked="!!Number(detailPlan.kiosk_share_enabled || 0)"
-            :disabled="kioskBusy"
-            @change="toggleKioskShare($event.target.checked)"
+    <div v-else class="ctp-layout">
+      <aside class="ctp-side">
+        <div class="ctp-profile">
+          <ClientChartAvatar
+            :initials="clientInitials"
+            :full-name="clientDisplayName"
+            :photo-path="clientPhotoPath"
+            size="lg"
           />
-          Share via kiosk
-        </label>
-        <button type="button" class="cdp-btn-soft" @click="openNoteAidUpdater">Open updater</button>
-      </div>
+          <div>
+            <strong class="ctp-profile__name">{{ clientDisplayName }}</strong>
+            <p class="muted tiny">{{ clientMetaLine }}</p>
+          </div>
+        </div>
+        <div v-if="detailPlan" class="ctp-overview">
+          <div><span class="muted">Status</span> <strong :class="statusClass(detailPlan)">{{ statusLabel(detailPlan) }}</strong></div>
+          <div v-if="detailPlan.effective_date"><span class="muted">Plan start</span> <strong>{{ formatDateOnly(detailPlan.effective_date) }}</strong></div>
+          <div><span class="muted">Last updated</span> <strong>{{ formatWhen(detailPlan.updated_at || detailPlan.created_at) }}</strong></div>
+          <div v-if="primaryDxLabel"><span class="muted">Primary diagnosis</span> <strong>{{ primaryDxLabel }}</strong></div>
+          <div v-if="detailPlan.client_ack_status">
+            <span class="muted">Client ack</span>
+            <strong>{{ String(detailPlan.client_ack_status).replace(/_/g, ' ') }}</strong>
+          </div>
+        </div>
+        <div v-if="detailPlan" class="ctp-glance">
+          <div><strong>{{ structuredGoals.length }}</strong><span>Goals</span></div>
+          <div><strong>{{ objectiveCount }}</strong><span>Objectives</span></div>
+          <div><strong>{{ ratingsCount }}</strong><span>Ratings</span></div>
+        </div>
+      </aside>
 
-      <div v-if="planDiagnosesDisplay.length" class="ctp-dx">
-        <strong>{{ isLearning ? 'Areas of concern' : 'Diagnosis on file' }}</strong>
-        <ul>
+      <div class="ctp-main">
+        <div class="ctp-list">
+          <article
+            v-for="plan in currentPlans"
+            :key="plan.id"
+            class="ctp-card"
+            :class="{ 'ctp-card--active': Number(selectedId) === Number(plan.id) }"
+            @click="selectPlan(plan.id)"
+          >
+            <div class="ctp-card__top">
+              <strong>{{ planTitle(plan) }}</strong>
+              <span class="ctp-badge" :class="statusClass(plan)">{{ statusLabel(plan) }}</span>
+            </div>
+            <div class="muted tiny">
+              Updated {{ formatWhen(plan.updated_at || plan.created_at) }}
+            </div>
+          </article>
+        </div>
+
+        <div v-if="detailPlan" class="ctp-detail">
+          <div class="ctp-detail__head">
+            <div>
+              <h4>{{ planTitle(detailPlan) }}</h4>
+              <p class="muted tiny">Status: {{ statusLabel(detailPlan) }}</p>
+            </div>
+            <label class="ctp-kiosk-toggle" @click.stop>
+              <input
+                type="checkbox"
+                :checked="!!Number(detailPlan.kiosk_share_enabled || 0)"
+                :disabled="kioskBusy"
+                @change="toggleKioskShare($event.target.checked)"
+              />
+              Share via kiosk
+            </label>
+            <button type="button" class="cdp-btn-soft" @click="openNoteAidUpdater">Open updater</button>
+          </div>
+
+          <div v-if="planDiagnosesDisplay.length" class="ctp-dx">
+            <div class="ctp-dx__head">
+              <strong>{{ isLearning ? 'Areas of concern' : 'Diagnosis summary' }}</strong>
+              <button type="button" class="cdp-text-link" @click="$emit('navigate', 'intake-note')">
+                View full intake note →
+              </button>
+            </div>
+            <ul>
               <li v-for="d in planDiagnosesDisplay" :key="d.id || d.icd10_code || d.diagnosis_id">
                 <code v-if="d.icd10_code && !isLearningConcernCode(d.icd10_code)">{{ d.icd10_code }}</code>
                 {{ d.description || '' }}
                 <em v-if="d.is_primary">primary</em>
               </li>
             </ul>
-        <p v-if="planSharedJustification" class="ctp-dx-just">{{ planSharedJustification }}</p>
+            <p v-if="planSharedJustification" class="ctp-dx-just">{{ planSharedJustification }}</p>
           </div>
 
-      <p v-if="detailPlan?.effective_date" class="muted tiny">
-        Plan date: {{ formatWhen(detailPlan.effective_date) }}
-      </p>
+          <p v-if="detailPlan?.effective_date" class="muted tiny">
+            Plan date: {{ formatWhen(detailPlan.effective_date) }}
+          </p>
 
-      <div v-if="structuredGoals.length" class="ctp-goals">
-        <article v-for="g in structuredGoals" :key="g.id" class="ctp-goal">
-          <header>
-            <span class="ctp-pill">G{{ g.goal_index }}</span>
-            <strong>{{ g.goal_text }}</strong>
-          </header>
-          <p v-if="g.projected_completion" class="muted tiny">Timeframe: {{ g.projected_completion }}</p>
+          <div class="ctp-goals-head">
+            <h4>Treatment Goals &amp; Objectives</h4>
+            <button type="button" class="cdp-text-link" @click="expandAllGoals = !expandAllGoals">
+              {{ expandAllGoals ? 'Collapse all' : 'Expand all' }}
+            </button>
+          </div>
+
+          <div v-if="structuredGoals.length" class="ctp-goals">
+            <article
+              v-for="g in structuredGoals"
+              :key="g.id"
+              class="ctp-goal"
+              :class="{ 'ctp-goal--collapsed': !isGoalOpen(g.id) }"
+            >
+              <header @click="toggleGoal(g.id)">
+                <span class="ctp-pill">G{{ g.goal_index }}</span>
+                <strong>{{ g.goal_text }}</strong>
+                <span class="ctp-badge ctp-badge--ok">On track</span>
+                <span class="ctp-chevron">{{ isGoalOpen(g.id) ? '▾' : '▸' }}</span>
+              </header>
+              <template v-if="isGoalOpen(g.id)">
+                <p v-if="g.projected_completion" class="muted tiny">Timeframe: {{ g.projected_completion }}</p>
+                <div
+                  v-for="o in g.objectives || []"
+                  :key="o.id"
+                  class="ctp-obj"
+                >
+                  <div class="ctp-obj__text">
+                    <span class="ctp-pill ctp-pill--obj">O{{ o.objective_index }}</span>
+                    <span>{{ o.objective_text }}</span>
+                  </div>
+                  <div class="ctp-obj__scale">
+                    <span>Start <strong>{{ o.scale_start ?? o.scale_current ?? '—' }}</strong></span>
+                    <span aria-hidden="true">→</span>
+                    <span>Current <strong>{{ o.scale_current ?? '—' }}</strong></span>
+                    <span aria-hidden="true">→</span>
+                    <span>Goal <strong class="ctp-goal-num">{{ o.scale_target ?? '—' }}</strong></span>
+                    <em v-if="o.scale_direction" class="ctp-dir">{{ o.scale_direction }}</em>
+                    <span v-if="o.measurement_method" class="muted">{{ o.measurement_method }}</span>
+                  </div>
+                  <div v-if="sparklinePoints(o).length" class="ctp-spark">
+                    <svg
+                      viewBox="0 0 100 28"
+                      preserveAspectRatio="none"
+                      class="ctp-spark__svg"
+                      role="img"
+                      :aria-label="`Progress toward goal ${o.scale_target ?? ''}`"
+                    >
+                      <line
+                        v-if="o.scale_target != null"
+                        class="ctp-spark__goal"
+                        x1="0"
+                        :y1="scaleY(o.scale_target)"
+                        x2="100"
+                        :y2="scaleY(o.scale_target)"
+                      />
+                      <polyline
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="1.6"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        :points="sparklinePoints(o)"
+                      />
+                    </svg>
+                    <span class="ctp-spark__caption muted tiny">Progress (current → goal)</span>
+                  </div>
+                  <div v-if="timelineFor(o.id).length" class="ctp-timeline">
+                    <span class="ctp-timeline__label">Scale over time</span>
+                    <ol>
+                      <li v-for="r in timelineFor(o.id)" :key="r.id">
+                        <time>{{ formatWhen(r.rated_at) }}</time>
+                        <span v-if="r.disposition === 'rated'">
+                          {{ r.scale_value }}/10
+                          <em v-if="r.progress_label">({{ r.progress_label }})</em>
+                        </span>
+                        <span v-else>{{ dispositionLabel(r.disposition) }}</span>
+                      </li>
+                    </ol>
+                  </div>
+                  <p v-else class="muted tiny">No ratings logged yet for this objective.</p>
+                  <div class="ctp-kiosk-q" :class="{ faded: !Number(detailPlan.kiosk_share_enabled || 0) }">
+                    <label>
+                      Client question
+                      <textarea
+                        rows="2"
+                        :value="o.kiosk_prompt || ''"
+                        :disabled="kioskBusy"
+                        @blur="saveKioskPrompt(o, 'kioskPrompt', $event.target.value)"
+                      />
+                    </label>
+                    <label>
+                      Other (third person)
+                      <textarea
+                        rows="2"
+                        :value="o.kiosk_prompt_other || ''"
+                        :disabled="kioskBusy"
+                        @blur="saveKioskPrompt(o, 'kioskPromptOther', $event.target.value)"
+                      />
+                    </label>
+                  </div>
+                </div>
+              </template>
+            </article>
+          </div>
+          <p v-else class="muted">
+            This plan has no structured goals on the chart yet. Use Note Aid to write or paste a plan, then save to chart.
+          </p>
+
+          <details v-if="dischargePlan" class="ctp-discharge">
+            <summary>Discharge plan</summary>
+            <pre>{{ dischargePlan }}</pre>
+          </details>
+
+          <TreatmentPlanAckPanel
+            v-if="!isLearning && detailPlan?.id"
+            class="ctp-ack"
+            :agency-id="agencyId"
+            :client-id="clientId"
+            :plan-id="detailPlan.id"
+            :client-name="clientDisplayName"
+            @updated="onAckUpdated"
+          />
+        </div>
+
+        <section v-if="previousPlans.length" class="ctp-previous">
+          <h4>Previous Treatment Plans</h4>
           <div
-            v-for="o in g.objectives || []"
-            :key="o.id"
-            class="ctp-obj"
+            v-for="plan in previousPlans"
+            :key="`prev-${plan.id}`"
+            class="ctp-previous__row"
           >
-            <div class="ctp-obj__text">
-              <span class="ctp-pill ctp-pill--obj">O{{ o.objective_index }}</span>
-              <span>{{ o.objective_text }}</span>
+            <span class="ctp-previous__chevron" aria-hidden="true">›</span>
+            <div class="ctp-previous__label">
+              {{ planTitle(plan) }}
+              <span class="muted">({{ formatDateOnly(plan.effective_date || plan.created_at) }})</span>
             </div>
-            <div class="ctp-obj__scale">
-              <span>Start <strong>{{ o.scale_start ?? o.scale_current ?? '—' }}</strong></span>
-              <span aria-hidden="true">→</span>
-              <span>Current <strong>{{ o.scale_current ?? '—' }}</strong></span>
-              <span aria-hidden="true">→</span>
-              <span>Goal <strong class="ctp-goal-num">{{ o.scale_target ?? '—' }}</strong></span>
-              <em v-if="o.scale_direction" class="ctp-dir">{{ o.scale_direction }}</em>
-              <span v-if="o.measurement_method" class="muted">{{ o.measurement_method }}</span>
-            </div>
-            <div v-if="sparklinePoints(o).length" class="ctp-spark">
-              <svg
-                viewBox="0 0 100 28"
-                preserveAspectRatio="none"
-                class="ctp-spark__svg"
-                role="img"
-                :aria-label="`Progress toward goal ${o.scale_target ?? ''}`"
-              >
-                <line
-                  v-if="o.scale_target != null"
-                  class="ctp-spark__goal"
-                  x1="0"
-                  :y1="scaleY(o.scale_target)"
-                  x2="100"
-                  :y2="scaleY(o.scale_target)"
-                />
-                <polyline
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="1.6"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  :points="sparklinePoints(o)"
-                />
-              </svg>
-              <span class="ctp-spark__caption muted tiny">Progress (current → goal)</span>
-            </div>
-            <div v-if="timelineFor(o.id).length" class="ctp-timeline">
-              <span class="ctp-timeline__label">Scale over time</span>
-              <ol>
-                <li v-for="r in timelineFor(o.id)" :key="r.id">
-                  <time>{{ formatWhen(r.rated_at) }}</time>
-                  <span v-if="r.disposition === 'rated'">
-                    {{ r.scale_value }}/10
-                    <em v-if="r.progress_label">({{ r.progress_label }})</em>
-                  </span>
-                  <span v-else>{{ dispositionLabel(r.disposition) }}</span>
-                </li>
-              </ol>
-            </div>
-            <p v-else class="muted tiny">No ratings logged yet for this objective.</p>
-            <div class="ctp-kiosk-q" :class="{ faded: !Number(detailPlan.kiosk_share_enabled || 0) }">
-              <label>
-                Client question
-                <textarea
-                  rows="2"
-                  :value="o.kiosk_prompt || ''"
-                  :disabled="kioskBusy"
-                  @blur="saveKioskPrompt(o, 'kioskPrompt', $event.target.value)"
-                />
-              </label>
-              <label>
-                Other (third person)
-                <textarea
-                  rows="2"
-                  :value="o.kiosk_prompt_other || ''"
-                  :disabled="kioskBusy"
-                  @blur="saveKioskPrompt(o, 'kioskPromptOther', $event.target.value)"
-                />
-              </label>
-            </div>
+            <span class="ctp-badge" :class="statusClass(plan)">{{ statusLabel(plan) }}</span>
+            <button type="button" class="cdp-text-link" @click="selectPlan(plan.id)">View summary →</button>
           </div>
-        </article>
+        </section>
       </div>
-      <p v-else class="muted">
-        This plan has no structured goals on the chart yet. Use Note Aid to write or paste a plan, then save to chart.
-      </p>
-
-      <details v-if="dischargePlan" class="ctp-discharge">
-        <summary>Discharge plan</summary>
-        <pre>{{ dischargePlan }}</pre>
-      </details>
     </div>
   </div>
 </template>
 
 <script setup>
-import { computed, onMounted, ref, watch } from 'vue';
+import { computed, onMounted, reactive, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import api from '../../../services/api';
 import { activePlanGoals } from '../../../utils/noteAidTreatmentHelpers.js';
 import { treatmentPlanUpdaterQuery, noteAidPath } from '../../../utils/noteAidLaunch.js';
 import { useAgencyStore } from '../../../store/agency';
+import ClientChartAvatar from './ClientChartAvatar.vue';
+import TreatmentPlanAckPanel from './TreatmentPlanAckPanel.vue';
 
 const props = defineProps({
   clientId: { type: [Number, String], required: true },
   agencyId: { type: [Number, String], default: null },
-  clientType: { type: String, default: '' }
+  clientType: { type: String, default: '' },
+  client: { type: Object, default: null }
 });
 defineEmits(['navigate']);
 
@@ -219,6 +305,32 @@ const objectiveRatings = ref([]);
 const selectedId = ref(null);
 const selectedFullPlan = ref(null);
 const kioskBusy = ref(false);
+const expandAllGoals = ref(true);
+const openGoalIds = reactive({});
+
+const clientDisplayName = computed(() => {
+  const c = props.client || {};
+  return String(c.full_name || c.name || c.initials || `Client ${props.clientId}`).trim();
+});
+const clientInitials = computed(() => String(props.client?.initials || '').trim());
+const clientPhotoPath = computed(() =>
+  props.client?.chart_photo_path || props.client?.chartPhotoPath || null
+);
+const clientMetaLine = computed(() => {
+  const c = props.client || {};
+  const parts = [];
+  if (c.age != null && c.age !== '') parts.push(`${c.age} yrs`);
+  if (c.gender) parts.push(String(c.gender));
+  if (c.date_of_birth || c.dob) {
+    try {
+      parts.push(new Date(c.date_of_birth || c.dob).toLocaleDateString());
+    } catch {
+      /* ignore */
+    }
+  }
+  if (c.identifier_code || c.id) parts.push(`ID: ${c.identifier_code || c.id}`);
+  return parts.join(' · ') || 'Chart profile';
+});
 
 const detailPlan = computed(() => {
   const id = Number(selectedId.value || 0);
@@ -228,6 +340,57 @@ const detailPlan = computed(() => {
 });
 
 const structuredGoals = computed(() => activePlanGoals(detailPlan.value));
+
+const currentPlans = computed(() => {
+  const list = plans.value || [];
+  if (list.length <= 1) return list;
+  // Show active/draft selected first in the main list; rest go to Previous
+  const active = list.filter((p) => {
+    const s = String(p.status || '').toLowerCase();
+    return s === 'active' || s === 'draft' || Number(p.id) === Number(selectedId.value);
+  });
+  return active.length ? active.slice(0, 2) : list.slice(0, 1);
+});
+
+const previousPlans = computed(() => {
+  const shown = new Set(currentPlans.value.map((p) => Number(p.id)));
+  return (plans.value || []).filter((p) => !shown.has(Number(p.id)));
+});
+
+const objectiveCount = computed(() =>
+  structuredGoals.value.reduce((n, g) => n + (g.objectives || []).length, 0)
+);
+const ratingsCount = computed(() => (objectiveRatings.value || []).length);
+
+const primaryDxLabel = computed(() => {
+  const rows = planDiagnosesDisplay.value || [];
+  const primary = rows.find((d) => d && (d.is_primary || d.isPrimary)) || rows[0];
+  if (!primary) return '';
+  return [primary.icd10_code, primary.description].filter(Boolean).join(' ');
+});
+
+function isGoalOpen(id) {
+  if (expandAllGoals.value) return true;
+  if (openGoalIds[id] == null) return true;
+  return !!openGoalIds[id];
+}
+function toggleGoal(id) {
+  expandAllGoals.value = false;
+  openGoalIds[id] = !isGoalOpen(id);
+}
+
+function formatDateOnly(v) {
+  if (!v) return '—';
+  try {
+    return new Date(v).toLocaleDateString();
+  } catch {
+    return String(v);
+  }
+}
+
+async function onAckUpdated() {
+  await load();
+}
 
 const activeDiagnoses = computed(() =>
   (diagnoses.value || []).filter((d) => d && (d.is_active == null || Number(d.is_active) === 1))
@@ -351,13 +514,21 @@ async function selectPlan(id) {
     selectedFullPlan.value = null;
     return;
   }
-  if (latestPlan.value && Number(latestPlan.value.id) === planId) {
+  if (latestPlan.value && Number(latestPlan.value.id) === planId && latestPlan.value.goals) {
     selectedFullPlan.value = latestPlan.value;
     return;
   }
-  // Chart list is summary-only; re-fetch chart when selecting non-latest to get nested goals if available.
-  if (plans.value.length && Number(plans.value[0]?.id) === planId && latestPlan.value) {
-    selectedFullPlan.value = latestPlan.value;
+  const agencyId = Number(props.agencyId || 0);
+  const clientId = Number(props.clientId || 0);
+  if (!agencyId || !clientId) return;
+  try {
+    const res = await api.get(`/medical-billing/treatment-plans/${planId}`, {
+      params: { agencyId, clientId },
+      skipGlobalLoading: true
+    });
+    selectedFullPlan.value = res?.data?.plan || null;
+  } catch {
+    selectedFullPlan.value = (plans.value || []).find((p) => Number(p.id) === planId) || null;
   }
 }
 
@@ -488,7 +659,94 @@ watch(() => [props.clientId, props.agencyId], load);
 }
 .ctp-title { margin: 0 0 4px; font-size: 16px; font-weight: 750; }
 .ctp-actions { display: flex; gap: 8px; flex-wrap: wrap; }
-.ctp-list { display: flex; flex-direction: column; gap: 8px; }
+.ctp-layout {
+  display: grid;
+  grid-template-columns: minmax(220px, 280px) 1fr;
+  gap: 16px;
+  align-items: start;
+}
+@media (max-width: 900px) {
+  .ctp-layout { grid-template-columns: 1fr; }
+}
+.ctp-side {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  position: sticky;
+  top: 12px;
+}
+.ctp-profile {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  padding: 12px;
+  border: 1px solid var(--border, #e2e8f0);
+  border-radius: 12px;
+  background: #fff;
+}
+.ctp-profile__name { display: block; font-size: 0.95rem; }
+.ctp-overview {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--border, #e2e8f0);
+  border-radius: 12px;
+  background: #f8fafc;
+  font-size: 0.82rem;
+}
+.ctp-overview > div { display: flex; flex-direction: column; gap: 2px; }
+.ctp-glance {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--border, #e2e8f0);
+  border-radius: 12px;
+  background: #fff;
+  text-align: center;
+}
+.ctp-glance strong { display: block; font-size: 1.1rem; color: #166534; }
+.ctp-glance span { font-size: 0.7rem; color: #64748b; font-weight: 650; }
+.ctp-main { min-width: 0; }
+.ctp-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; }
+.ctp-goals-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin: 12px 0 8px;
+}
+.ctp-goals-head h4 { margin: 0; font-size: 0.95rem; }
+.ctp-goal header { cursor: pointer; }
+.ctp-goal--collapsed .ctp-obj { display: none; }
+.ctp-chevron { margin-left: auto; color: #64748b; }
+.ctp-dx__head {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.ctp-ack { margin-top: 18px; }
+.ctp-previous {
+  margin-top: 20px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border, #e2e8f0);
+}
+.ctp-previous h4 {
+  margin: 0 0 10px;
+  font-size: 0.95rem;
+  color: #0f172a;
+}
+.ctp-previous__row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 4px;
+  border-bottom: 1px solid #f1f5f9;
+  flex-wrap: wrap;
+}
+.ctp-previous__chevron { color: #94a3b8; }
+.ctp-previous__label { flex: 1; min-width: 160px; font-weight: 650; }
 .ctp-card {
   border: 1px solid var(--border, #e2e8f0);
   border-radius: 12px;

@@ -90,6 +90,17 @@
           Drafts are auto-archived after 7 days and retained up to 7 years. Copy into your EHR when needed.
         </div>
 
+        <NoteAidIntakeDraftEditor
+          v-if="showIntakeDraftEditor && effectiveClientId"
+          :client-id="effectiveClientId"
+          :intake-draft-id="intakeDraftEditorId"
+          @close="closeIntakeDraftEditor"
+          @open-plan="onIntakeEditorOpenPlan"
+          @finalized="onIntakeDraftEditorFinalized"
+        />
+
+        <div v-show="!showIntakeDraftEditor">
+
         <div v-if="therapyContext" class="na-context-strip">
           <strong>Therapy Notes context</strong>
           <span v-if="therapyContext.therapySummary">{{ therapyContext.therapySummary }}</span>
@@ -174,7 +185,7 @@
                 @open-updater="openTreatmentPlanUpdater"
                 @use-intake="useIntakeToInformPlan"
                 @open-chart-intake="openClientChartIntake"
-                @import-plan="showPlanImportReview = true"
+                @import-plan="openPlanImportReview"
                 @import-intake="showIntakeImportReview = true"
                 @import-demographics="showDemographicsImport = true"
               />
@@ -482,7 +493,7 @@
                   @open-updater="openTreatmentPlanUpdater"
                   @use-intake="useIntakeToInformPlan"
                   @open-chart-intake="openClientChartIntake"
-                  @import-plan="showPlanImportReview = true"
+                  @import-plan="openPlanImportReview"
                   @import-intake="showIntakeImportReview = true"
                   @import-demographics="showDemographicsImport = true"
                 />
@@ -1026,6 +1037,7 @@
         />
         </template>
         </template>
+        </div>
       </main>
 
       <NoteAidWorkQueuePanel
@@ -1088,7 +1100,7 @@
       :client="selectedClient"
       @close="showClientSetupDrawer = false"
       @skip="showClientSetupDrawer = false"
-      @import-plan="showClientSetupDrawer = false; showPlanImportReview = true"
+      @import-plan="showClientSetupDrawer = false; openPlanImportReview()"
       @import-intake="showClientSetupDrawer = false; showIntakeImportReview = true"
       @import-demographics="showClientSetupDrawer = false; showDemographicsImport = true"
     />
@@ -1098,7 +1110,10 @@
       :agency-id="chartAgencyIdForSave"
       :client-id="effectiveClientId"
       :initial-text="pastedPlanText"
-      @close="showPlanImportReview = false"
+      :plan-id="planDraftEditorId"
+      :mode="planDraftEditorId || planDraftEditorMode === 'draft' ? 'draft' : 'import'"
+      :initial-plan="planDraftInitialPlan"
+      @close="closePlanDraftEditor"
       @saved="onPlanImportSaved"
     />
     <NoteAidIntakeImportReview
@@ -1138,6 +1153,7 @@ import NoteAidClientSetupDrawer from '../../components/clinical/NoteAidClientSet
 import NoteAidDocumentationQueue from '../../components/clinical/NoteAidDocumentationQueue.vue';
 import NoteAidTreatmentPlanImportReview from '../../components/clinical/NoteAidTreatmentPlanImportReview.vue';
 import NoteAidIntakeImportReview from '../../components/clinical/NoteAidIntakeImportReview.vue';
+import NoteAidIntakeDraftEditor from '../../components/clinical/NoteAidIntakeDraftEditor.vue';
 import NoteAidDemographicsImportReview from '../../components/clinical/NoteAidDemographicsImportReview.vue';
 import NoteAidWorkQueuePanel from '../../components/clinical/NoteAidWorkQueuePanel.vue';
 import NoteAidTodoListImportModal from '../../components/clinical/NoteAidTodoListImportModal.vue';
@@ -1463,6 +1479,11 @@ const showCreateClientModal = ref(false);
 const showClientSetupDrawer = ref(false);
 const showPlanImportReview = ref(false);
 const showIntakeImportReview = ref(false);
+const showIntakeDraftEditor = ref(false);
+const intakeDraftEditorId = ref(null);
+const planDraftEditorId = ref(null);
+const planDraftEditorMode = ref('import');
+const planDraftInitialPlan = ref(null);
 const showDemographicsImport = ref(false);
 const showTodoImportModal = ref(false);
 const workQueueItems = ref([]);
@@ -4369,8 +4390,9 @@ const bootstrapWorkspace = async ({ resetForm = false } = {}) => {
   const launchIntentQ = String(route.query?.launchIntent || route.query?.launch_intent || '')
     .trim()
     .toLowerCase();
-  if (launchAid === 'psychotherapy_plan' || launchIntentQ === 'update_treatment_plan') {
+  if (launchIntentQ === 'intake_draft') {
     const qClient = Number(route.query?.clientId || route.query?.client_id || 0);
+    const qDraft = Number(route.query?.intakeDraftId || route.query?.intake_draft_id || 0);
     if (qClient) {
       selectedClientId.value = qClient;
       selectedClient.value = { id: qClient };
@@ -4378,12 +4400,42 @@ const bootstrapWorkspace = async ({ resetForm = false } = {}) => {
       await loadClientTreatmentPlan(qClient);
       await loadClientIntakeSummary(qClient);
     }
-    await openTreatmentPlanUpdater({
-      renewalReason:
-        launchIntentQ === 'update_treatment_plan'
-          ? 'Opened from client file — update treatment plan using chart diagnosis, goals, and ratings.'
-          : ''
-    });
+    showIntakeDraftEditor.value = true;
+    intakeDraftEditorId.value = qDraft || null;
+  } else if (launchAid === 'psychotherapy_plan' || launchIntentQ === 'update_treatment_plan') {
+    const qClient = Number(route.query?.clientId || route.query?.client_id || 0);
+    const qPlanId = Number(route.query?.planId || route.query?.plan_id || 0);
+    if (qClient) {
+      selectedClientId.value = qClient;
+      selectedClient.value = { id: qClient };
+      await hydrateSelectedClient(qClient);
+      await loadClientTreatmentPlan(qClient);
+      await loadClientIntakeSummary(qClient);
+    }
+    if (qPlanId) {
+      planDraftEditorId.value = qPlanId;
+      planDraftEditorMode.value = 'draft';
+      planDraftInitialPlan.value =
+        Number(latestTreatmentPlan.value?.id) === qPlanId ? latestTreatmentPlan.value : null;
+      showPlanImportReview.value = true;
+    } else if (
+      latestTreatmentPlan.value?.id
+      && String(latestTreatmentPlan.value?.status || '').toLowerCase() === 'draft'
+      && String(latestTreatmentPlan.value?.source_tool_id || latestTreatmentPlan.value?.sourceToolId || '')
+        === 'intake_packet_bootstrap'
+    ) {
+      planDraftEditorId.value = latestTreatmentPlan.value.id;
+      planDraftEditorMode.value = 'draft';
+      planDraftInitialPlan.value = latestTreatmentPlan.value;
+      showPlanImportReview.value = true;
+    } else {
+      await openTreatmentPlanUpdater({
+        renewalReason:
+          launchIntentQ === 'update_treatment_plan'
+            ? 'Opened from client file — update treatment plan using chart diagnosis, goals, and ratings.'
+            : ''
+      });
+    }
   }
 
   loadRecent();
@@ -4802,12 +4854,67 @@ watch(selectedClientId, () => {
 
 const onPlanImportSaved = async (plan) => {
   showPlanImportReview.value = false;
+  planDraftEditorId.value = null;
+  planDraftEditorMode.value = 'import';
+  planDraftInitialPlan.value = null;
   pastedPlanText.value = '';
   planImportedOnce.value = true;
   if (effectiveClientId.value) await loadClientTreatmentPlan(effectiveClientId.value);
   approvalMessage.value = plan?.id
-    ? 'Treatment plan saved to chart.'
+    ? (String(plan.status || '').toLowerCase() === 'draft'
+      ? 'Treatment plan draft saved.'
+      : 'Treatment plan saved to chart.')
     : 'Treatment plan import completed.';
+};
+
+const closePlanDraftEditor = () => {
+  showPlanImportReview.value = false;
+  planDraftEditorId.value = null;
+  planDraftEditorMode.value = 'import';
+  planDraftInitialPlan.value = null;
+};
+
+const openPlanImportReview = () => {
+  planDraftEditorId.value = null;
+  planDraftEditorMode.value = 'import';
+  planDraftInitialPlan.value = null;
+  showPlanImportReview.value = true;
+};
+
+const closeIntakeDraftEditor = () => {
+  showIntakeDraftEditor.value = false;
+  intakeDraftEditorId.value = null;
+};
+
+const onIntakeDraftEditorFinalized = async (payload) => {
+  intakeImportedOnce.value = true;
+  intakeDraftFinalized.value = true;
+  if (payload?.treatmentPlan?.id) {
+    planDraftInitialPlan.value = payload.treatmentPlan;
+  }
+  if (effectiveClientId.value) {
+    await Promise.all([
+      loadClientTreatmentPlan(effectiveClientId.value),
+      loadClientIntakeSummary(effectiveClientId.value)
+    ]);
+  }
+  approvalMessage.value = 'Intake note finalized.';
+};
+
+const onIntakeEditorOpenPlan = async ({ planId } = {}) => {
+  showIntakeDraftEditor.value = false;
+  const pid = Number(planId || latestTreatmentPlan.value?.id || 0);
+  planDraftEditorId.value = pid || null;
+  planDraftEditorMode.value = 'draft';
+  planDraftInitialPlan.value =
+    pid && Number(latestTreatmentPlan.value?.id) === pid ? latestTreatmentPlan.value : null;
+  if (effectiveClientId.value) {
+    await loadClientTreatmentPlan(effectiveClientId.value);
+    if (pid && Number(latestTreatmentPlan.value?.id) === pid) {
+      planDraftInitialPlan.value = latestTreatmentPlan.value;
+    }
+  }
+  showPlanImportReview.value = true;
 };
 
 const onIntakeImportFinalized = async () => {
@@ -5498,7 +5605,7 @@ const useIntakeToInformPlan = async () => {
       ? 'Build or update treatment plan from intake and chart diagnoses.'
       : 'Build treatment plan from chart diagnoses.'
   });
-  showPlanImportReview.value = true;
+  openPlanImportReview();
 };
 
 const openClientChartIntake = () => {

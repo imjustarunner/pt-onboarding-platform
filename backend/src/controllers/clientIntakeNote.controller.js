@@ -433,7 +433,7 @@ async function loadLatestPhiTextDocs(clientId, submissionId = null) {
   }
 }
 
-async function resolveIntakeSummaryText({ clientId, intakeSubmissionId = null }) {
+export async function resolveIntakeSummaryText({ clientId, intakeSubmissionId = null }) {
   const cid = safeInt(clientId);
   if (!cid) return { summaryText: '', resolvedSubmissionId: null, intakeData: null, link: null };
 
@@ -759,9 +759,26 @@ export const getClientIntakeNote = async (req, res, next) => {
     const agencyId = safeInt(access.client?.agency_id);
     if (!agencyId) return res.status(400).json({ error: { message: 'Client has no agency' } });
 
-    const row = await ClientIntakeNoteDraft.latestForClient({ clientId, agencyId });
+    const wantedDraftId = safeInt(req.query?.draftId || req.query?.intakeDraftId);
+    const row = wantedDraftId
+      ? await ClientIntakeNoteDraft.findForClient({ draftId: wantedDraftId, clientId, agencyId })
+      : await ClientIntakeNoteDraft.latestForClient({ clientId, agencyId });
+    if (wantedDraftId && !row) {
+      return res.status(404).json({ error: { message: 'Intake draft not found' } });
+    }
     const treatmentPlan = await loadTreatmentPlanResponse(row?.treatment_plan_id);
-    res.json({ draft: formatDraftResponse(row), treatmentPlan });
+    const historyRows = await ClientIntakeNoteDraft.listSummariesForClient({ clientId, agencyId });
+    const history = (historyRows || []).map((h) => ({
+      id: h.id,
+      status: h.status,
+      serviceCode: h.service_code,
+      finalizedAt: h.finalized_at || null,
+      createdAt: h.created_at,
+      updatedAt: h.updated_at,
+      treatmentPlanId: h.treatment_plan_id || null,
+      isCurrent: row ? Number(h.id) === Number(row.id) : false
+    }));
+    res.json({ draft: formatDraftResponse(row), treatmentPlan, history });
   } catch (e) {
     next(e);
   }
@@ -1212,9 +1229,17 @@ export const finalizeClientIntakeNote = async (req, res, next) => {
           });
         }
 
-        // Do not auto-create a chart treatment plan from intake finalize.
-        // Intake owns the note + diagnoses; clinicians create real plans via Note Aid import.
-        treatmentPlan = null;
+        // Refresh or create linked Treatment Plan Draft from finalized intake content.
+        const {
+          refreshTreatmentPlanDraftFromIntake
+        } = await import('../services/intakePacketBootstrap.service.js');
+        treatmentPlan = await refreshTreatmentPlanDraftFromIntake({
+          intakeDraft: { ...draftNow, status: 'final' },
+          agencyId,
+          clientId,
+          actorUserId: req.user.id,
+          goalsFromRequest: goals.length ? goals : null
+        });
       }
     } catch (e) {
       // Failing to create the TP should not block note finalization — log and continue.
@@ -1225,7 +1250,7 @@ export const finalizeClientIntakeNote = async (req, res, next) => {
     const finalized = await ClientIntakeNoteDraft.updateStatus({
       draftId,
       status: 'final',
-      treatmentPlanId: treatmentPlan?.id ?? null,
+      treatmentPlanId: treatmentPlan?.id ?? draftNow.treatment_plan_id ?? null,
       finalizedAt: now
     });
 
@@ -1527,6 +1552,72 @@ export const importClientIntakeNote = async (req, res, next) => {
       parsed: { sections: normalizedSections, diagnosis, diagnoses: diagnosesPayload || (diagnosis ? [diagnosis] : []) }
     });
   } catch (e) {
+    next(e);
+  }
+};
+
+/**
+ * POST /clients/:id/intake-note/:draftId/regenerate
+ * Rebuild sections from current draft + clinician addendum (typed/spoken).
+ * Body: { addendum?, revisionInstruction? }
+ */
+export const regenerateClientIntakeNote = async (req, res, next) => {
+  try {
+    const clientId = safeInt(req.params.id);
+    const draftId = safeInt(req.params.draftId);
+    if (!clientId || !draftId) {
+      return res.status(400).json({ error: { message: 'Invalid client id or draftId' } });
+    }
+
+    const access = await ensureClientAccess({ userId: req.user.id, role: req.user.role, clientId });
+    if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
+
+    const agencyId = safeInt(access.client?.agency_id);
+    if (!agencyId) return res.status(400).json({ error: { message: 'Client has no agency' } });
+
+    const draft = await ClientIntakeNoteDraft.findForClient({ draftId, clientId, agencyId });
+    if (!draft) return res.status(404).json({ error: { message: 'Draft not found' } });
+
+    const addendum = String(
+      req.body?.addendum || req.body?.revisionInstruction || req.body?.additionalInformation || ''
+    ).trim();
+    if (!addendum) {
+      return res.status(400).json({
+        error: { message: 'Add additional information or revision instructions before regenerating.' }
+      });
+    }
+
+    const { regenerateIntakeDraftFromAddendum } = await import('../services/intakePacketBootstrap.service.js');
+    const result = await regenerateIntakeDraftFromAddendum({
+      draft,
+      addendum,
+      actorUserId: req.user.id
+    });
+
+    try {
+      await AdminAuditLog.logAction({
+        actionType: 'client_intake_note_generated',
+        actorUserId: req.user.id,
+        agencyId,
+        metadata: {
+          clientId,
+          draftId,
+          regenerated: true,
+          model: result.modelName || null
+        }
+      });
+    } catch {
+      // best-effort
+    }
+
+    return res.json({
+      draft: formatDraftResponse(result.draft),
+      goals: result.goals || []
+    });
+  } catch (e) {
+    if (e?.status) {
+      return res.status(e.status).json({ error: { message: e.message } });
+    }
     next(e);
   }
 };

@@ -3,7 +3,8 @@ import {
   buildNoteAidQuery,
   noteAidPath,
   toDateOfService,
-  treatmentPlanUpdaterQuery
+  treatmentPlanUpdaterQuery,
+  intakeDraftEditorQuery
 } from '../noteAidLaunch.js';
 
 describe('noteAidLaunch', () => {
@@ -35,6 +36,22 @@ describe('noteAidLaunch', () => {
       launchIntent: 'update_treatment_plan',
       serviceCode: 'H0004',
       noteAid: 'h0004_plan'
+    });
+    expect(treatmentPlanUpdaterQuery(7, { planId: 99 })).toEqual({
+      clientId: '7',
+      launchIntent: 'update_treatment_plan',
+      noteAid: 'psychotherapy_plan',
+      planId: '99'
+    });
+  });
+
+  it('builds intake draft editor query', () => {
+    expect(intakeDraftEditorQuery(12, { intakeDraftId: 55 })).toEqual({
+      clientId: '12',
+      launchIntent: 'intake_draft',
+      noteAid: '90791_intake_plan',
+      serviceCode: '90791',
+      intakeDraftId: '55'
     });
   });
 

@@ -25,6 +25,32 @@ test('pickAuthoritativeTreatmentPlan returns null when only intake auto-drafts e
   assert.equal(picked, null);
 });
 
+test('pickAuthoritativeTreatmentPlan skips packet bootstrap drafts', () => {
+  const plans = [
+    {
+      id: 9,
+      title: 'Treatment Plan Draft',
+      status: 'draft',
+      source_tool_id: 'intake_packet_bootstrap'
+    },
+    { id: 3, title: 'Imported Treatment Plan', source_tool_id: 'note_aid_plan_import' }
+  ];
+  const picked = pickAuthoritativeTreatmentPlan(plans);
+  assert.equal(picked.id, 3);
+});
+
+test('pickAuthoritativeTreatmentPlan returns null when only bootstrap draft exists', () => {
+  const plans = [
+    {
+      id: 9,
+      title: 'Treatment Plan Draft',
+      status: 'draft',
+      source_tool_id: 'intake_packet_bootstrap'
+    }
+  ];
+  assert.equal(pickAuthoritativeTreatmentPlan(plans), null);
+});
+
 test('resolvePrimaryDiagnosisForChart uses plan primary + justification', () => {
   const diagnoses = [
     { id: 10, icd10_code: 'F41.1', is_primary: 1, is_active: 1, justification: 'From intake' },

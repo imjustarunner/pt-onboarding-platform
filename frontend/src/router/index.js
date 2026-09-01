@@ -352,6 +352,12 @@ const routes = [
     meta: { requiresGuest: false }
   },
   {
+    path: '/sign/treatment-plan/:publicKey',
+    name: 'PublicTreatmentPlanAck',
+    component: () => import('../views/PublicTreatmentPlanAckView.vue'),
+    meta: { public: true }
+  },
+  {
     path: '/quick-view/d/:token',
     name: 'QuickViewDeliveryAccess',
     component: () => import('../views/QuickViewAccessView.vue'),

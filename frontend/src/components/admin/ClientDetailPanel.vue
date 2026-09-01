@@ -2513,6 +2513,7 @@
           </p>
           <ClientIntakeNotePanel
             :client-id="client.id"
+            :client="client"
             :assigned-provider="Boolean(primaryProviderLabel && primaryProviderLabel !== 'Not assigned' && primaryProviderLabel !== '—')"
             :phi-banner="['admin', 'super_admin', 'support', 'staff'].includes(roleNorm)"
             @navigate="goChartSub"
@@ -2529,6 +2530,7 @@
             :client-id="client.id"
             :agency-id="selectedAgencyId || client.agency_id"
             :client-type="showClinicalChartSurfaces ? 'clinical' : effectiveClientType"
+            :client="client"
             @navigate="goChartSub"
           />
         </div>

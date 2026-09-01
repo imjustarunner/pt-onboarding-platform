@@ -76,6 +76,26 @@ export const getMedicalBillingStatus = async (req, res, next) => {
   }
 };
 
+/** Load a single treatment plan (goals/objectives) for Note Aid draft editor. */
+export const getTreatmentPlanById = async (req, res, next) => {
+  try {
+    const planId = parseIntValue(req.params.planId);
+    const agencyId = parseIntValue(req.query.agencyId);
+    const clientId = parseIntValue(req.query.clientId);
+    if (!planId || !agencyId || !clientId) {
+      return res.status(400).json({ error: { message: 'planId, agencyId, and clientId are required' } });
+    }
+    await ClinicalEligibilityService.ensureAgencyAccess({ reqUser: req.user, agencyId });
+    const plan = await ClinicalTreatmentPlan.findById(planId);
+    if (!plan || Number(plan.agency_id) !== agencyId || Number(plan.client_id) !== clientId) {
+      return res.status(404).json({ error: { message: 'Treatment plan not found' } });
+    }
+    return res.json({ plan });
+  } catch (e) {
+    next(e);
+  }
+};
+
 /** Save structured treatment plan + optional note payload to chart (requires clinicalChartEnabled). */
 export const saveTreatmentPlanToChart = async (req, res, next) => {
   try {
@@ -90,6 +110,23 @@ export const saveTreatmentPlanToChart = async (req, res, next) => {
       return res.status(400).json({ error: { message: 'agencyId and clientId are required' } });
     }
     await ClinicalEligibilityService.ensureAgencyAccess({ reqUser: req.user, agencyId });
+
+    const requestedStatus = String(req.body.status || 'active').trim().toLowerCase();
+    const finalizeRequested = req.body.finalize === true || req.body.finalize === 1
+      || requestedStatus === 'active' || requestedStatus === 'final';
+    // Draft bootstrap saves skip this gate; activating any plan (including bootstrap) requires final intake.
+    if (finalizeRequested) {
+      const ClientIntakeNoteDraft = (await import('../models/ClientIntakeNoteDraft.model.js')).default;
+      const hasFinalIntake = await ClientIntakeNoteDraft.hasFinalizedForClient({ clientId, agencyId });
+      if (!hasFinalIntake) {
+        return res.status(409).json({
+          error: {
+            message: 'Finalize the intake note before finalizing the treatment plan.',
+            code: 'intake_not_finalized'
+          }
+        });
+      }
+    }
 
     let clinicalSessionId = sessionId;
     if (!clinicalSessionId && parseIntValue(req.body.officeEventId)) {
@@ -150,6 +187,7 @@ export const saveTreatmentPlanToChart = async (req, res, next) => {
       clinicalSessionId: clinicalSessionId || null,
       clinicalNoteId: parseIntValue(req.body.clinicalNoteId),
       title: String(req.body.title || 'Treatment Plan').trim(),
+      status: requestedStatus === 'draft' ? 'draft' : 'active',
       effectiveDate: req.body.effectiveDate || req.body.effective_date || null,
       dischargePlan: req.body.dischargePlan ? String(req.body.dischargePlan) : null,
       sourceToolId: req.body.sourceToolId ? String(req.body.sourceToolId) : null,

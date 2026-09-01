@@ -102,6 +102,7 @@ export function treatmentPlanUpdaterQuery(clientId, extra = {}) {
     serviceCode,
     categoryId,
     noteAid: explicitNoteAid,
+    planId,
     ...rest
   } = extra || {};
   const noteAid =
@@ -112,13 +113,29 @@ export function treatmentPlanUpdaterQuery(clientId, extra = {}) {
       serviceCode,
       categoryId
     });
-  return buildNoteAidQuery({
+  const query = buildNoteAidQuery({
     clientId,
     launchIntent: 'update_treatment_plan',
     ...rest,
     serviceCode,
     noteAid
   });
+  const pid = cleanId(planId);
+  if (pid) query.planId = String(pid);
+  return query;
+}
+
+/** Open Note Aid focused on an intake draft (sections + addendum regenerate). */
+export function intakeDraftEditorQuery(clientId, extra = {}) {
+  const draftId = cleanId(extra.intakeDraftId || extra.draftId);
+  const query = buildNoteAidQuery({
+    clientId,
+    launchIntent: 'intake_draft',
+    noteAid: extra.noteAid || '90791_intake_plan',
+    serviceCode: extra.serviceCode || '90791'
+  });
+  if (draftId) query.intakeDraftId = String(draftId);
+  return query;
 }
 
 export default {
@@ -126,5 +143,6 @@ export default {
   navigateToNoteAid,
   noteAidPath,
   toDateOfService,
-  treatmentPlanUpdaterQuery
+  treatmentPlanUpdaterQuery,
+  intakeDraftEditorQuery
 };

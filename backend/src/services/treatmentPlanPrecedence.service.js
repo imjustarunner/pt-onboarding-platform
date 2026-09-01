@@ -4,6 +4,7 @@
  */
 
 export const NOTE_AID_PLAN_IMPORT_TOOL = 'note_aid_plan_import';
+export const INTAKE_PACKET_BOOTSTRAP_TOOL = 'intake_packet_bootstrap';
 
 export function isNoteAidPlanImport(plan) {
   return String(plan?.source_tool_id || plan?.sourceToolId || '').trim() === NOTE_AID_PLAN_IMPORT_TOOL;
@@ -14,17 +15,25 @@ export function isIntakeAutoTreatmentPlan(plan) {
   return /^Intake Treatment Plan/i.test(title);
 }
 
+export function isPacketBootstrapDraftPlan(plan) {
+  const tool = String(plan?.source_tool_id || plan?.sourceToolId || '').trim();
+  const status = String(plan?.status || '').toLowerCase();
+  return tool === INTAKE_PACKET_BOOTSTRAP_TOOL && status === 'draft';
+}
+
 /**
- * Prefer Note Aid imported plans, then any non-intake auto-draft, else null.
+ * Prefer Note Aid imported plans, then any non-intake / non-bootstrap draft, else null.
  * @param {Array<object>} plans
  * @returns {object|null}
  */
-  export function pickAuthoritativeTreatmentPlan(plans = []) {
+export function pickAuthoritativeTreatmentPlan(plans = []) {
   const list = (Array.isArray(plans) ? plans : []).filter(Boolean);
   if (!list.length) return null;
   const imported = list.find((p) => isNoteAidPlanImport(p));
   if (imported) return imported;
-  const nonIntake = list.find((p) => !isIntakeAutoTreatmentPlan(p));
+  const nonIntake = list.find(
+    (p) => !isIntakeAutoTreatmentPlan(p) && !isPacketBootstrapDraftPlan(p)
+  );
   return nonIntake || null;
 }
 

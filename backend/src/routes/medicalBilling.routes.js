@@ -18,6 +18,7 @@ const reportsGate = [...masterGate, requireMedicalBillingReportAccess];
 import {
   getMedicalBillingStatus,
   saveTreatmentPlanToChart,
+  getTreatmentPlanById,
   parseTreatmentPlanImport,
   normalizeTreatmentPlanObjective,
   listClientChart,
@@ -54,6 +55,14 @@ import {
   runMedicalBillingReport,
   exportMedicalBillingReportCsv
 } from '../controllers/medicalBilling.controller.js';
+import {
+  listTreatmentPlanAcks,
+  shareTreatmentPlanToDashboard,
+  emailTreatmentPlanAckLink,
+  startTreatmentPlanAckSession,
+  completeTreatmentPlanAckSession,
+  attachPrintedTreatmentPlanAck
+} from '../controllers/treatmentPlanAck.controller.js';
 
 const router = express.Router();
 
@@ -75,6 +84,17 @@ router.post(
     body('goals').optional().isArray()
   ],
   saveTreatmentPlanToChart
+);
+
+router.get(
+  '/treatment-plans/:planId',
+  requireClinicalChart,
+  [
+    param('planId').isInt({ min: 1 }),
+    query('agencyId').isInt({ min: 1 }),
+    query('clientId').isInt({ min: 1 })
+  ],
+  getTreatmentPlanById
 );
 
 router.post(
@@ -142,6 +162,78 @@ router.patch(
     body('clientId').isInt({ min: 1 })
   ],
   setTreatmentPlanKioskShare
+);
+
+router.get(
+  '/clients/:clientId/treatment-plans/:planId/acknowledgments',
+  requireClinicalChart,
+  [
+    param('clientId').isInt({ min: 1 }),
+    param('planId').isInt({ min: 1 }),
+    query('agencyId').isInt({ min: 1 })
+  ],
+  listTreatmentPlanAcks
+);
+
+router.post(
+  '/clients/:clientId/treatment-plans/:planId/acknowledgments/dashboard-share',
+  requireClinicalChart,
+  [
+    param('clientId').isInt({ min: 1 }),
+    param('planId').isInt({ min: 1 }),
+    body('agencyId').isInt({ min: 1 })
+  ],
+  shareTreatmentPlanToDashboard
+);
+
+router.post(
+  '/clients/:clientId/treatment-plans/:planId/acknowledgments/email',
+  requireClinicalChart,
+  [
+    param('clientId').isInt({ min: 1 }),
+    param('planId').isInt({ min: 1 }),
+    body('agencyId').isInt({ min: 1 }),
+    body('email').optional().isString(),
+    body('recipientEmail').optional().isString()
+  ],
+  emailTreatmentPlanAckLink
+);
+
+router.post(
+  '/clients/:clientId/treatment-plans/:planId/acknowledgments/session',
+  requireClinicalChart,
+  [
+    param('clientId').isInt({ min: 1 }),
+    param('planId').isInt({ min: 1 }),
+    body('agencyId').isInt({ min: 1 })
+  ],
+  startTreatmentPlanAckSession
+);
+
+router.post(
+  '/clients/:clientId/treatment-plans/:planId/acknowledgments/session/complete',
+  requireClinicalChart,
+  [
+    param('clientId').isInt({ min: 1 }),
+    param('planId').isInt({ min: 1 }),
+    body('agencyId').isInt({ min: 1 }),
+    body('linkId').isInt({ min: 1 }),
+    body('signedByName').optional().isString()
+  ],
+  completeTreatmentPlanAckSession
+);
+
+router.post(
+  '/clients/:clientId/treatment-plans/:planId/acknowledgments/print-upload',
+  requireClinicalChart,
+  [
+    param('clientId').isInt({ min: 1 }),
+    param('planId').isInt({ min: 1 }),
+    body('agencyId').isInt({ min: 1 }),
+    body('phiDocumentId').optional().isInt({ min: 1 }),
+    body('documentId').optional().isInt({ min: 1 })
+  ],
+  attachPrintedTreatmentPlanAck
 );
 
 router.patch(

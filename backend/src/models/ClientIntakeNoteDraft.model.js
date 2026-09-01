@@ -13,7 +13,7 @@ class ClientIntakeNoteDraft {
   static async create({
     agencyId,
     clientId,
-    providerUserId,
+    providerUserId = null,
     serviceCode,
     toolId,
     status = 'draft',
@@ -26,8 +26,9 @@ class ClientIntakeNoteDraft {
   }) {
     const aid = safeInt(agencyId);
     const cid = safeInt(clientId);
-    const pid = safeInt(providerUserId);
-    if (!aid || !cid || !pid) throw new Error('agencyId, clientId, providerUserId are required');
+    const pid = providerUserId == null || providerUserId === '' ? null : safeInt(providerUserId);
+    if (!aid || !cid) throw new Error('agencyId and clientId are required');
+    // providerUserId may be null for packet-bootstrap drafts before assignment
 
     const svc = String(serviceCode || '').trim().toUpperCase();
     if (!VALID_SERVICE_CODES.has(svc)) throw new Error(`serviceCode must be one of: ${[...VALID_SERVICE_CODES].join(', ')}`);
@@ -54,6 +55,63 @@ class ClientIntakeNoteDraft {
       ]
     );
     return this.findById(result.insertId);
+  }
+
+  static async findOpenForSubmission({ clientId, agencyId, intakeSubmissionId }) {
+    const cid = safeInt(clientId);
+    const aid = safeInt(agencyId);
+    const sid = safeInt(intakeSubmissionId);
+    if (!cid || !aid) return null;
+    if (sid) {
+      const [rows] = await pool.execute(
+        `SELECT * FROM client_intake_note_drafts
+         WHERE client_id = ? AND agency_id = ? AND intake_submission_id = ?
+           AND status != 'failed'
+         ORDER BY created_at DESC
+         LIMIT 1`,
+        [cid, aid, sid]
+      );
+      if (rows?.[0]) return rows[0];
+    }
+    const [rows] = await pool.execute(
+      `SELECT * FROM client_intake_note_drafts
+       WHERE client_id = ? AND agency_id = ?
+         AND status IN ('draft', 'diagnosis_pending', 'ready')
+       ORDER BY created_at DESC
+       LIMIT 1`,
+      [cid, aid]
+    );
+    return rows?.[0] || null;
+  }
+
+  static async listSummariesForClient({ clientId, agencyId, limit = 50 }) {
+    const cid = safeInt(clientId);
+    const aid = safeInt(agencyId);
+    if (!cid || !aid) return [];
+    const lim = Math.min(100, Math.max(1, Number(limit) || 50));
+    const [rows] = await pool.execute(
+      `SELECT id, status, service_code, tool_id, diagnosis_action, treatment_plan_id,
+              created_at, updated_at, finalized_at, provider_user_id
+       FROM client_intake_note_drafts
+       WHERE client_id = ? AND agency_id = ? AND status != 'failed'
+       ORDER BY COALESCE(finalized_at, created_at) DESC, created_at DESC
+       LIMIT ${lim}`,
+      [cid, aid]
+    );
+    return rows || [];
+  }
+
+  static async hasFinalizedForClient({ clientId, agencyId }) {
+    const cid = safeInt(clientId);
+    const aid = safeInt(agencyId);
+    if (!cid || !aid) return false;
+    const [rows] = await pool.execute(
+      `SELECT id FROM client_intake_note_drafts
+       WHERE client_id = ? AND agency_id = ? AND status = 'final'
+       LIMIT 1`,
+      [cid, aid]
+    );
+    return !!rows?.[0];
   }
 
   static async findById(id) {

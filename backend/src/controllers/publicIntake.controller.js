@@ -159,6 +159,7 @@ import {
 } from '../services/schoolPacketSections.service.js';
 import { persistIntakeGuardianWaiversFromFinalize } from '../services/guardianWaivers.service.js';
 import { persistIntakeClinicianSummaries } from '../services/intakeClinicianSummary.service.js';
+import { scheduleIntakePacketBootstraps } from '../services/intakePacketBootstrap.service.js';
 
 async function resolveIntakeDevFillOptions(req, link, submissionId = null) {
   let agencyId = Number(link?.agency_id || 0) || null;
@@ -9557,6 +9558,13 @@ export const finalizePublicIntake = async (req, res, next) => {
           intakeCompletionNote: 'Marked received automatically after intake/ROI completion'
         });
 
+        scheduleIntakePacketBootstraps({
+          clientIds: [clientId],
+          agencyId: Number(clientRow?.agency_id || link?.agency_id || 0) || null,
+          submissionId,
+          actorUserId: null
+        });
+
         await queueSchoolIntakeReviewTask({
           clientId,
           submissionId,
@@ -10816,6 +10824,13 @@ export const submitPublicIntake = async (req, res, next) => {
           completedAt: now,
           flowLabel: 'registration',
           intakeCompletionNote: 'Marked received automatically after intake/registration completion'
+        });
+
+        scheduleIntakePacketBootstraps({
+          clientIds: [clientId],
+          agencyId: Number(clientRow?.agency_id || link?.agency_id || 0) || null,
+          submissionId,
+          actorUserId: null
         });
 
         await queueSchoolIntakeReviewTask({
