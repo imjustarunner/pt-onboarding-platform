@@ -1,6 +1,6 @@
 <template>
-  <div class="na-app">
-    <header class="na-topbar">
+  <div class="na-app" :class="{ 'na-app--embedded': isEmbedded }">
+    <header v-if="!isEmbedded" class="na-topbar">
       <div class="na-brand">
         <span class="na-brand-mark" aria-hidden="true">
           <svg viewBox="0 0 24 24" width="22" height="22" fill="none">
@@ -15,6 +15,9 @@
         </div>
       </div>
       <p class="na-tagline">Spend less time on notes. <em>More time with your clients.</em></p>
+      <button type="button" class="na-archive-btn" @click="workQueueCollapsed = !workQueueCollapsed">
+        {{ workQueueCollapsed ? 'Show queue' : 'Hide queue' }}
+      </button>
       <button type="button" class="na-archive-btn" @click="focusArchivedShelf">
         <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
           <path d="M3 7h18v13H3zM3 7l2-3h14l2 3" />
@@ -48,10 +51,13 @@
       class="na-shell"
       :class="{
         'na-shell--library-collapsed': libraryCollapsed && !libraryExpanded,
-        'na-shell--library-expanded': libraryExpanded && !libraryCollapsed
+        'na-shell--library-expanded': libraryExpanded && !libraryCollapsed,
+        'na-shell--queue-collapsed': workQueueCollapsed || isEmbedded,
+        'na-shell--embedded': isEmbedded
       }"
     >
       <ClinicalNoteLibrarySidebar
+        v-if="!isEmbedded"
         title="Note Library"
         :drafts="recentDrafts"
         :work-queue-items="workQueueItems"
@@ -114,6 +120,8 @@
           >
             {{ deletingCurrentDraft ? 'Deleting…' : 'Delete draft' }}
           </button>
+          <span v-if="approvalMessage" class="hint">{{ approvalMessage }}</span>
+          <span v-if="approvalError" class="na-delete-err">{{ approvalError }}</span>
         </div>
 
         <NoteAidLibraryPanel
@@ -270,7 +278,7 @@
           </div>
         </header>
 
-        <nav class="na-wizard-steps" aria-label="Note creation steps">
+        <nav v-if="!isEmbedded" class="na-wizard-steps" aria-label="Note creation steps">
           <button
             type="button"
             class="na-wizard-step"
@@ -294,7 +302,7 @@
         </nav>
 
         <!-- STEP 1: Session details + client (no note writing) -->
-        <div v-if="noteWizardStep === 1" class="na-wizard-step1">
+        <div v-if="noteWizardStep === 1 && !isEmbedded" class="na-wizard-step1">
           <NoteAidDocumentationQueue
             v-if="needsSessionPicker && progressEntryMode === 'appointment'"
             :agency-id="noteAidAgencyId || currentAgencyId"
@@ -839,7 +847,7 @@
         </div>
 
         <!-- Keep output after either step when present (visible on write step) -->
-        <template v-if="noteWizardStep === 2">
+        <template v-if="noteWizardStep === 2 || isEmbedded">
 
         <section v-if="displayPanels.length" class="na-output">
           <div class="na-output-head">
@@ -1016,7 +1024,7 @@
       </main>
 
       <NoteAidWorkQueuePanel
-        v-if="canUseTool && !(libraryExpanded && !libraryCollapsed)"
+        v-if="canUseTool && !isEmbedded && !workQueueCollapsed && !(libraryExpanded && !libraryCollapsed)"
         :items="workQueueItems"
         :active-id="activeWorkQueueItemId"
         @add-todo="showTodoImportModal = true"
@@ -1028,7 +1036,7 @@
     </div>
 
     <div
-      v-if="canUseTool && !showLibraryPanel"
+      v-if="canUseTool && !showLibraryPanel && !isEmbedded"
       class="na-fab-wrap"
       @keydown.escape="newNoteMenuOpen = false"
     >
@@ -1213,6 +1221,15 @@ const agencyStore = useAgencyStore();
 const authStore = useAuthStore();
 const route = useRoute();
 const router = useRouter();
+
+const props = defineProps({
+  embedded: { type: Boolean, default: false },
+  embedDraftId: { type: [Number, String], default: null },
+  embedClinicalNoteId: { type: [Number, String], default: null },
+  embedClientId: { type: [Number, String], default: null },
+  embedAgencyId: { type: [Number, String], default: null }
+});
+const isEmbedded = computed(() => !!props.embedded);
 
 const orgTo = (path) => {
   const slug = route.params.organizationSlug;
@@ -1797,7 +1814,14 @@ const libraryDateOrder = ref('newest');
 const libraryConnectionFilter = ref('');
 const libraryTenantFilter = ref('');
 const libraryCollapsed = ref(true);
+const workQueueCollapsed = ref(false);
 const libraryExpanded = ref(false);
+
+watch(libraryCollapsed, (collapsed) => {
+  if (!collapsed && typeof window !== 'undefined' && window.innerWidth < 1400) {
+    workQueueCollapsed.value = true;
+  }
+});
 
 watch([libraryCollapsed, libraryExpanded], ([collapsed, expanded]) => {
   if (expanded && collapsed) {
@@ -2233,7 +2257,11 @@ const selectedCategoryLabel = computed(() => {
   return cat?.label || '';
 });
 /** Show aid library whenever no tool is selected — including when changing tool on an open draft. */
-const showLibraryPanel = computed(() => !String(selectedAidId.value || '').trim());
+const showLibraryPanel = computed(() => {
+  if (isEmbedded.value) return false;
+  if (draftId.value) return false;
+  return !String(selectedAidId.value || '').trim();
+});
 const libraryUserId = computed(() => authStore.user?.id || null);
 const showInteractiveComplexityOption = computed(() => aidAllowsInteractiveComplexity(selectedAid.value));
 const libraryCategories = computed(() => {
@@ -3217,26 +3245,58 @@ const canDeleteCurrentDraft = computed(() => {
   return true;
 });
 
+async function clearDraftFromRouteQuery() {
+  if (isEmbedded.value) return;
+  if (route.query?.draftId == null && route.query?.draft_id == null) return;
+  const q = { ...route.query };
+  delete q.draftId;
+  delete q.draft_id;
+  await router.replace({ query: q }).catch(() => {});
+}
+
+function agencyIdForDraftDelete(row = null) {
+  return Number(
+    row?.agency_id
+    || row?.agencyId
+    || selectedClient.value?.agency_id
+    || selectedClient.value?.agencyId
+    || noteAidAgencyId.value
+    || currentAgencyId.value
+    || 0
+  ) || null;
+}
+
 async function deleteCurrentDraft() {
   if (!canDeleteCurrentDraft.value || deletingCurrentDraft.value) return;
   if (!window.confirm('Delete this draft note? This cannot be undone.')) return;
   deletingCurrentDraft.value = true;
+  approvalError.value = '';
   try {
-    await api.post(
+    const row = (recentDrafts.value || []).find((d) => String(d.id) === String(draftId.value));
+    const res = await api.post(
       '/clinical-notes/drafts/delete',
       {
-        agencyId: noteAidAgencyId.value || currentAgencyId.value,
+        agencyId: agencyIdForDraftDelete(row),
         draftIds: [Number(draftId.value)]
       },
       { skipGlobalLoading: true }
     );
+    if (!Number(res?.data?.deletedCount || 0)) {
+      approvalError.value = 'Draft was not deleted. Try again, or open it from the client chart.';
+      return;
+    }
     const id = draftId.value;
+    if (autosaveDebounceTimer) {
+      clearTimeout(autosaveDebounceTimer);
+      autosaveDebounceTimer = null;
+    }
     draftId.value = null;
     currentDraftCreatedAt.value = null;
     outputObj.value = null;
     inputText.value = '';
     recentDrafts.value = (recentDrafts.value || []).filter((d) => String(d.id) !== String(id));
     approvalMessage.value = 'Draft deleted.';
+    await clearDraftFromRouteQuery();
     await loadRecent();
   } catch (e) {
     approvalError.value = e.response?.data?.error?.message || e.message || 'Failed to delete draft';
@@ -3267,18 +3327,28 @@ async function onLibrarySidebarDelete(row) {
   }
   if (!window.confirm('Delete this draft note? This cannot be undone.')) return;
   try {
-    await api.post(
+    const res = await api.post(
       '/clinical-notes/drafts/delete',
       {
-        agencyId: currentAgencyId.value,
+        agencyId: agencyIdForDraftDelete(row.raw),
         draftIds: [Number(draftIdToDelete)]
       },
       { skipGlobalLoading: true }
     );
+    if (!Number(res?.data?.deletedCount || 0)) {
+      approvalError.value = 'Draft was not deleted.';
+      return;
+    }
     if (String(draftId.value) === String(draftIdToDelete)) {
+      if (autosaveDebounceTimer) {
+        clearTimeout(autosaveDebounceTimer);
+        autosaveDebounceTimer = null;
+      }
       draftId.value = null;
       currentDraftCreatedAt.value = null;
       outputObj.value = null;
+      inputText.value = '';
+      await clearDraftFromRouteQuery();
     }
     await loadRecent();
     approvalMessage.value = 'Draft deleted.';
@@ -5284,6 +5354,14 @@ const loadDraftIntoWorkspace = async (d, options = {}) => {
     selectedNoteCategory.value = aidHit.category.id;
     selectedAidId.value = aidHit.aid.id;
     if (aidHit.aid.autoSelect) autoSelectCode.value = true;
+  } else {
+    const fallbackCode = draftCode
+      || (String(d.note_kind || d.noteKind || '').includes('intake') ? '90791' : '90837');
+    const fallback = findNoteAidByToolOrCode({ serviceCode: fallbackCode });
+    if (fallback) {
+      selectedNoteCategory.value = fallback.category.id;
+      selectedAidId.value = fallback.aid.id;
+    }
   }
   if (outputObj.value?.meta?.includeInteractiveComplexity != null) {
     includeInteractiveComplexity.value =
@@ -5295,7 +5373,7 @@ const loadDraftIntoWorkspace = async (d, options = {}) => {
   configExpanded.value = !(
     String(dateOfService.value || '').trim() && String(initials.value || '').trim()
   );
-  noteWizardStep.value = outputObj.value ? 2 : 1;
+  noteWizardStep.value = (outputObj.value || isEmbedded.value) ? 2 : 1;
   newNoteMenuOpen.value = false;
   if (!preserveWorkQueue) {
     showProgressSessionPicker.value = false;
@@ -5503,7 +5581,7 @@ onMounted(async () => {
 
   // Direct entry (bookmark / quick nav): hourly workers not clocked in get offered a Log Time start.
   // Launchers (Tools & Aids / nav) already prompt; skipPrompt when already linked to a session.
-  if (!fromIndirectSession.value) {
+  if (!isEmbedded.value && !fromIndirectSession.value) {
     const { fromIndirectSession: linked } = await ensureHourlySessionForNoteAid();
     if (linked) {
       const nextQuery = { ...route.query, fromIndirectSession: '1', launchIntent: 'note' };
@@ -5511,33 +5589,49 @@ onMounted(async () => {
     }
   }
 
+  if (typeof window !== 'undefined' && window.innerWidth < 1180) {
+    workQueueCollapsed.value = true;
+  }
+
   if (canUseTool.value) {
     await bootstrapWorkspace();
-    const stashed = consumeNoteAidWorkQueueStash();
-    if (stashed?.length) {
-      workQueueItems.value = stashed.map(normalizeWorkQueueItemStatus);
-      persistWorkQueue();
-      const first = workQueueItems.value.find(
-        (i) => deriveWorkQueueDocStatus(i) === DOC_STATUS.NOT_STARTED
-          || deriveWorkQueueDocStatus(i) === DOC_STATUS.STARTED
-      ) || workQueueItems.value[0];
-      if (first) await activateWorkQueueItem(first);
+    if (isEmbedded.value) {
+      const qAgency = Number(props.embedAgencyId || 0) || null;
+      if (qAgency) selectedQueueAgencyId.value = qAgency;
+      if (props.embedClinicalNoteId) {
+        await loadClinicalNoteIntoWorkspace(props.embedClinicalNoteId);
+      } else if (props.embedDraftId) {
+        const hit = recentDrafts.value.find((d) => String(d.id) === String(props.embedDraftId));
+        if (hit) await loadDraftIntoWorkspace(hit);
+      }
+      noteWizardStep.value = 2;
     } else {
-      workQueueItems.value = loadWorkQueue(authStore.user?.id).map(normalizeWorkQueueItemStatus);
-      const active = (workQueueItems.value || []).find(
-        (i) => deriveWorkQueueDocStatus(i) === DOC_STATUS.STARTED
-      );
-      if (active) activeWorkQueueItemId.value = active.id;
-    }
-    const qAgency = Number(route.query?.agencyId || route.query?.agency_id || 0) || null;
-    if (qAgency) selectedQueueAgencyId.value = qAgency;
-    const qDraft = String(route.query?.draftId || route.query?.draft_id || '').trim();
-    const qNote = String(route.query?.clinicalNoteId || route.query?.clinical_note_id || '').trim();
-    if (qNote) {
-      await loadClinicalNoteIntoWorkspace(qNote);
-    } else if (qDraft && recentDrafts.value.length) {
-      const hit = recentDrafts.value.find((d) => String(d.id) === qDraft);
-      if (hit) loadDraftIntoWorkspace(hit);
+      const stashed = consumeNoteAidWorkQueueStash();
+      if (stashed?.length) {
+        workQueueItems.value = stashed.map(normalizeWorkQueueItemStatus);
+        persistWorkQueue();
+        const first = workQueueItems.value.find(
+          (i) => deriveWorkQueueDocStatus(i) === DOC_STATUS.NOT_STARTED
+            || deriveWorkQueueDocStatus(i) === DOC_STATUS.STARTED
+        ) || workQueueItems.value[0];
+        if (first) await activateWorkQueueItem(first);
+      } else {
+        workQueueItems.value = loadWorkQueue(authStore.user?.id).map(normalizeWorkQueueItemStatus);
+        const active = (workQueueItems.value || []).find(
+          (i) => deriveWorkQueueDocStatus(i) === DOC_STATUS.STARTED
+        );
+        if (active) activeWorkQueueItemId.value = active.id;
+      }
+      const qAgency = Number(route.query?.agencyId || route.query?.agency_id || 0) || null;
+      if (qAgency) selectedQueueAgencyId.value = qAgency;
+      const qDraft = String(route.query?.draftId || route.query?.draft_id || '').trim();
+      const qNote = String(route.query?.clinicalNoteId || route.query?.clinical_note_id || '').trim();
+      if (qNote) {
+        await loadClinicalNoteIntoWorkspace(qNote);
+      } else if (qDraft && recentDrafts.value.length) {
+        const hit = recentDrafts.value.find((d) => String(d.id) === qDraft);
+        if (hit) loadDraftIntoWorkspace(hit);
+      }
     }
   }
 
@@ -5710,9 +5804,22 @@ onBeforeUnmount(() => {
   overflow: hidden;
 }
 
+.na-app--embedded {
+  min-height: 520px;
+  height: min(78vh, 860px);
+  border-radius: 12px;
+  overflow: auto;
+}
+
+.na-delete-err {
+  color: #b91c1c;
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
 .na-topbar {
   display: grid;
-  grid-template-columns: minmax(180px, 1fr) minmax(0, 2fr) auto;
+  grid-template-columns: minmax(180px, 1fr) minmax(0, 2fr) auto auto;
   align-items: center;
   gap: 16px;
   padding: 14px 20px;
@@ -5822,6 +5929,20 @@ onBeforeUnmount(() => {
 }
 
 .na-shell--library-expanded {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.na-shell--queue-collapsed,
+.na-shell--embedded {
+  grid-template-columns: minmax(260px, 320px) minmax(0, 1fr);
+}
+
+.na-shell--library-collapsed.na-shell--queue-collapsed,
+.na-shell--library-collapsed.na-shell--embedded {
+  grid-template-columns: 56px minmax(0, 1fr);
+}
+
+.na-shell--embedded {
   grid-template-columns: minmax(0, 1fr);
 }
 
@@ -7551,7 +7672,17 @@ a.na-chip--link {
   }
 }
 
-@media (max-width: 960px) {
+@media (max-width: 1180px) {
+  .na-shell:not(.na-shell--embedded):not(.na-shell--library-expanded),
+  .na-shell--library-collapsed:not(.na-shell--embedded) {
+    grid-template-columns: 56px minmax(0, 1fr);
+  }
+  .na-shell:not(.na-shell--queue-collapsed):not(.na-shell--embedded):not(.na-shell--library-expanded) {
+    grid-template-columns: 56px minmax(0, 1fr) minmax(200px, 240px);
+  }
+}
+
+@media (max-width: 640px) {
   .na-topbar {
     grid-template-columns: 1fr;
     text-align: left;
@@ -7562,26 +7693,16 @@ a.na-chip--link {
   .na-shell,
   .na-shell--library-collapsed {
     grid-template-columns: 1fr;
-    grid-template-rows: auto minmax(0, 1fr) auto;
+    grid-template-rows: auto minmax(0, 1fr);
     overflow: auto;
   }
   .na-shell--library-expanded {
     grid-template-columns: 1fr;
     grid-template-rows: minmax(0, 1fr);
   }
-  .na-shell--library-collapsed .cnl,
-  .na-shell--library-collapsed :deep(.cnl) {
-    max-height: none;
-    border-bottom: 1px solid var(--na-border);
-  }
   .na-main {
     min-height: 50vh;
     padding: 14px 16px 32px;
-  }
-  .na-sidebar {
-    border-right: none;
-    border-bottom: 1px solid var(--na-border);
-    max-height: 360px;
   }
   .na-config,
   .na-date-grid {

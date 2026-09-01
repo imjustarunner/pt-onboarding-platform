@@ -218,24 +218,14 @@
                       v-html="connectionIconSvg(d.connection)"
                     />
                     <div class="cnl-row-body">
-                      <div class="cnl-row-top">
+                      <div class="cnl-row-line">
                         <strong>{{ rowTitle(d) }}</strong>
+                        <span class="cnl-type-inline">{{ rowTypeLabel(d) }}</span>
+                        <span class="cnl-dos-inline">{{ d.date_of_service ? String(d.date_of_service).slice(0, 10) : '—' }}</span>
+                        <span v-if="d.source === 'work_queue'" class="cnl-queue-tag">Queue</span>
                         <span class="cnl-status-pill" :style="pillStyle(d.docStatus)">
                           {{ meta(d.docStatus).shortLabel }}
                         </span>
-                      </div>
-                      <div class="cnl-type">
-                        {{ rowTypeLabel(d) }}
-                        <span class="cnl-conn-label"> · {{ connMeta(d.connection).shortLabel }}</span>
-                      </div>
-                      <div v-if="d.agency_name || d.client_type" class="cnl-meta">
-                        <span v-if="d.agency_name">{{ d.agency_name }}</span>
-                        <span v-if="d.client_type"> · {{ d.client_type }}</span>
-                      </div>
-                      <div class="cnl-dos">
-                        DOS: {{ d.date_of_service ? String(d.date_of_service).slice(0, 10) : '—' }}
-                        <span v-if="d.created_at"> · Created {{ shortCreated(d.created_at) }}</span>
-                        <span v-if="d.source === 'work_queue'" class="cnl-queue-tag"> · In queue</span>
                       </div>
                     </div>
                   </button>
@@ -247,10 +237,7 @@
                       title="Delete unsigned note"
                       @click="$emit('delete', d)"
                     >
-                      Delete
-                    </button>
-                    <button type="button" class="cnl-open-btn" title="Open note" @click="$emit('select', d)">
-                      Open
+                      ×
                     </button>
                   </div>
                 </div>
@@ -696,21 +683,30 @@ function onRailStatusClick(key) {
   border-left: 2px solid #e2e8f0; margin-left: 22px;
 }
 .cnl-row {
-  display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: center;
-  border: 1px solid transparent; background: #f8fafc; border-radius: 12px;
-  padding: 6px 8px 6px 6px; color: inherit; width: 100%;
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px; align-items: center;
+  border: 1px solid transparent; background: #f8fafc; border-radius: 8px;
+  padding: 2px 6px 2px 4px; color: inherit; width: 100%;
 }
 .cnl-row.selected {
   box-shadow: inset 0 0 0 2px #0f766e, 0 0 0 2px #99f6e4;
   background: #ecfdf5;
 }
 .cnl-row-main {
-  display: grid; grid-template-columns: 28px minmax(0, 1fr); gap: 10px; align-items: center;
-  text-align: left; border: none; background: transparent; padding: 4px; cursor: pointer;
+  display: grid; grid-template-columns: 22px minmax(0, 1fr); gap: 8px; align-items: center;
+  text-align: left; border: none; background: transparent; padding: 2px; cursor: pointer;
   color: inherit; width: 100%; font: inherit; min-width: 0;
 }
 .cnl-row-body { min-width: 0; }
-.cnl-row-actions { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
+.cnl-row-line {
+  display: flex; align-items: center; gap: 8px; min-width: 0; font-size: 0.8rem;
+}
+.cnl-row-line strong {
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 0 1 auto;
+}
+.cnl-type-inline, .cnl-dos-inline {
+  color: var(--cnl-muted); font-size: 0.74rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.cnl-row-actions { display: flex; align-items: center; }
 .cnl-delete {
   border: none; background: transparent; color: #b91c1c; font-size: 0.72rem;
   font-weight: 700; cursor: pointer; padding: 2px 4px;
@@ -741,33 +737,10 @@ function onRailStatusClick(key) {
   display: flex; justify-content: space-between; gap: 8px; margin-top: 10px; padding-top: 10px;
   border-top: 1px solid var(--cnl-border); font-size: 0.72rem; color: var(--cnl-muted); flex-shrink: 0;
 }
-@media (max-width: 960px) {
+@media (max-width: 640px) {
   .cnl:not(.cnl--collapsed):not(.cnl--expanded) {
     max-height: min(42vh, 360px); height: auto; border-right: none; border-bottom: 1px solid var(--cnl-border);
   }
   .cnl--expanded { max-height: none; height: 100%; min-height: 60vh; }
-  .cnl--collapsed {
-    flex-direction: row;
-    justify-content: flex-start;
-    width: 100%;
-    height: auto;
-    max-height: none;
-    padding: 8px 10px;
-    border-right: none;
-    border-bottom: 1px solid var(--cnl-border);
-  }
-  .cnl-rail-tabs {
-    flex-direction: row;
-    flex: 1;
-  }
-  .cnl-rail-tab {
-    flex: 1;
-    flex-direction: row;
-    justify-content: center;
-    gap: 6px;
-    padding: 10px 6px;
-  }
-  .cnl-body--split { grid-template-columns: 1fr; }
-  .cnl-tabs--status { position: sticky; top: 0; z-index: 2; }
 }
 </style>

@@ -963,7 +963,6 @@ export const deleteClinicalNoteDrafts = async (req, res, next) => {
     const draftIds = Array.isArray(req.body?.draftIds) ? req.body.draftIds : [];
     const deletedCount = await ClinicalNoteDraft.deleteForUser({
       userId: req.user.id,
-      agencyId,
       draftIds
     });
 

@@ -400,13 +400,10 @@ class ClinicalNoteDraft {
       : [];
     if (!ids.length) return 0;
 
-    const aid = agencyId === null || agencyId === undefined ? null : safeInt(agencyId);
     const where = ['user_id = ?', `id IN (${ids.map(() => '?').join(', ')})`];
     const params = [uid, ...ids];
-    if (aid) {
-      where.push('agency_id = ?');
-      params.push(aid);
-    }
+    // Do not filter by workspace agency_id — drafts are often stamped with the
+    // client's tenant while the request sends the current workspace.
 
     const [result] = await pool.execute(
       `DELETE FROM clinical_note_drafts

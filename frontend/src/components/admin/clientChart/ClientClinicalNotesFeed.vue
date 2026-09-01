@@ -11,7 +11,7 @@
           }}
         </p>
       </div>
-      <div class="ccnf-filters">
+      <div v-if="!workspace" class="ccnf-filters">
         <select v-model="kindFilter" class="ccnf-select" aria-label="Filter note type">
           <option value="all">All types</option>
           <option value="progress">Progress / session</option>
@@ -23,6 +23,33 @@
       </div>
     </header>
 
+    <div v-if="workspace" class="ccnf-workspace">
+      <header class="ccnf-workspace-bar">
+        <button type="button" class="ccnf-back" @click="closeWorkspace">← Notes list</button>
+        <span>{{ workspace.mode === 'view' ? 'Completed note' : 'Write this session note' }}</span>
+        <a
+          class="ccnf-full-aid"
+          :href="fullNoteAidHref"
+          target="_blank"
+          rel="noopener"
+        >Open in Note Aid</a>
+      </header>
+      <ClientChartCompletedNote
+        v-if="workspace.mode === 'view'"
+        :note-id="workspace.clinicalNoteId"
+        :agency-id="agencyId"
+      />
+      <ClinicalNoteGeneratorView
+        v-else
+        embedded
+        :embed-draft-id="workspace.draftId"
+        :embed-clinical-note-id="workspace.clinicalNoteId"
+        :embed-client-id="clientId"
+        :embed-agency-id="agencyId"
+      />
+    </div>
+
+    <template v-else>
     <div v-if="loading" class="ccnf-muted">Loading notes…</div>
     <div v-else-if="error" class="ccnf-error">{{ error }}</div>
     <div v-else-if="!filteredRows.length" class="ccnf-muted">
@@ -48,27 +75,15 @@
         ]"
       >
         <button type="button" class="ccnf-row-open" @click="openRow(row)">
-          <div class="ccnf-row-top">
-            <strong>{{ row.title }}</strong>
-            <span class="ccnf-badge" :class="`ccnf-badge--${row.status}`">{{ row.statusLabel }}</span>
-          </div>
-          <div class="ccnf-row-meta">
-            <span>{{ row.dateLabel }}</span>
-            <span v-if="row.serviceCode" class="mono"> · {{ row.serviceCode }}</span>
-            <span v-if="row.author"> · {{ row.author }}</span>
-          </div>
-          <div class="ccnf-row-tags">
-            <span v-if="row.linkedSession" class="ccnf-tag ccnf-tag--session">Scheduled session</span>
-            <span v-if="row.linkedClaim" class="ccnf-tag ccnf-tag--claim">
-              {{ isLearning ? 'Billing / self-pay' : 'Medical claim' }}
-            </span>
-            <span v-else-if="row.kind === 'progress' && !row.linkedSession" class="ccnf-tag">Standalone</span>
-            <span v-if="row.awaitingCosign" class="ccnf-tag ccnf-tag--cosign">Awaiting supervisor</span>
-            <span v-if="row.providerSigned && !row.awaitingCosign && !row.supervisorSigned" class="ccnf-tag">
-              Provider signed
-            </span>
+          <div class="ccnf-line">
+            <strong class="ccnf-line-title">{{ row.title }}</strong>
+            <span class="ccnf-line-meta">{{ row.dateLabel }}</span>
+            <span v-if="row.serviceCode" class="ccnf-line-meta mono">{{ row.serviceCode }}</span>
+            <span v-if="row.author" class="ccnf-line-meta">{{ row.author }}</span>
             <span v-if="row.isActivePlan" class="ccnf-tag ccnf-tag--active">Active plan</span>
-            <span v-if="row.hasSelfPayCharge" class="ccnf-tag ccnf-tag--claim">Self-pay charged</span>
+            <span v-if="row.awaitingCosign" class="ccnf-tag ccnf-tag--cosign">Awaiting supervisor</span>
+            <span v-if="row.linkedClaim" class="ccnf-tag ccnf-tag--claim">{{ isLearning ? 'Billed' : 'Claim' }}</span>
+            <span class="ccnf-badge" :class="`ccnf-badge--${row.status}`">{{ row.statusLabel }}</span>
           </div>
         </button>
         <div v-if="isLearning && canCreateSelfPay(row)" class="ccnf-row-actions">
@@ -83,14 +98,19 @@
         </div>
       </li>
     </ul>
+    </template>
   </div>
 </template>
 
 <script setup>
-import { computed, onMounted, ref, watch } from 'vue';
-import { useRouter } from 'vue-router';
+import { computed, defineAsyncComponent, onMounted, ref, watch } from 'vue';
 import api from '../../../services/api.js';
 import { sessionDedupeKey } from '../../../utils/noteAidDocumentationStatus.js';
+import ClientChartCompletedNote from './ClientChartCompletedNote.vue';
+
+const ClinicalNoteGeneratorView = defineAsyncComponent(() =>
+  import('../../../views/admin/ClinicalNoteGeneratorView.vue')
+);
 
 const props = defineProps({
   clientId: { type: [Number, String], required: true },
@@ -101,10 +121,10 @@ const props = defineProps({
 
 const emit = defineEmits(['navigate']);
 
-const router = useRouter();
 const loading = ref(false);
 const error = ref('');
 const kindFilter = ref('all');
+const workspace = ref(null);
 const selfPayBusyKey = ref('');
 const selfPayNoteIds = ref(new Set());
 const chart = ref({
@@ -411,15 +431,31 @@ async function createSelfPayCharge(row) {
   }
 }
 
+const fullNoteAidHref = computed(() => {
+  const ws = workspace.value;
+  if (!ws) return noteAidPath({ clientId: String(props.clientId), agencyId: String(props.agencyId || '') });
+  if (ws.mode === 'view' && ws.clinicalNoteId) {
+    return noteAidPath({
+      clientId: String(props.clientId),
+      clinicalNoteId: String(ws.clinicalNoteId),
+      agencyId: String(props.agencyId || '')
+    });
+  }
+  return noteAidPath({
+    clientId: String(props.clientId),
+    draftId: String(ws.draftId || ''),
+    agencyId: String(props.agencyId || '')
+  });
+});
+
+function closeWorkspace() {
+  workspace.value = null;
+}
+
 function openRow(row) {
   if (!row) return;
   if (row.openMode === 'note-aid-draft') {
-    const url = noteAidPath({
-      clientId: String(props.clientId),
-      draftId: String(row.draftId),
-      agencyId: String(props.agencyId || '')
-    });
-    window.open(url, '_blank', 'noopener');
+    workspace.value = { mode: 'write', draftId: row.draftId, clinicalNoteId: null };
     return;
   }
   if (row.openMode === 'intake-chart') {
@@ -431,12 +467,7 @@ function openRow(row) {
     return;
   }
   if (row.openMode === 'clinical-note') {
-    const url = noteAidPath({
-      clientId: String(props.clientId),
-      clinicalNoteId: String(row.clinicalNoteId || ''),
-      agencyId: String(props.agencyId || '')
-    });
-    window.open(url, '_blank', 'noopener');
+    workspace.value = { mode: 'view', draftId: null, clinicalNoteId: row.clinicalNoteId };
   }
 }
 
@@ -458,6 +489,32 @@ defineExpose({ reload: load, diagnoses: computed(() => chart.value.diagnoses) })
   border-color: #bbf7d0;
   background: linear-gradient(180deg, #f0fdf4 0%, #fff 40%);
 }
+.ccnf-workspace {
+  border: 1px solid #ccfbf1;
+  border-radius: 12px;
+  background: #f8fafc;
+  overflow: hidden;
+}
+.ccnf-workspace-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border-bottom: 1px solid #e2e8f0;
+  background: #fff;
+  font-size: 0.85rem;
+  font-weight: 700;
+}
+.ccnf-back, .ccnf-full-aid {
+  border: none;
+  background: transparent;
+  color: #0f766e;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+  text-decoration: none;
+}
+.ccnf-full-aid { margin-left: auto; }
 .ccnf-head {
   display: flex;
   flex-wrap: wrap;
@@ -490,11 +547,11 @@ defineExpose({ reload: load, diagnoses: computed(() => chart.value.diagnoses) })
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 4px;
 }
 .ccnf-row {
   border: 1px solid #e2e8f0;
-  border-radius: 12px;
+  border-radius: 8px;
   background: #f8fafc;
   overflow: hidden;
 }
@@ -560,13 +617,32 @@ defineExpose({ reload: load, diagnoses: computed(() => chart.value.diagnoses) })
   text-align: left;
   border: none;
   background: transparent;
-  padding: 12px 14px;
+  padding: 6px 10px;
   cursor: pointer;
   font: inherit;
   color: inherit;
 }
 .ccnf-row-open:hover {
   background: rgba(15, 23, 42, 0.05);
+}
+.ccnf-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.ccnf-line-title {
+  font-size: 0.86rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1 1 auto;
+}
+.ccnf-line-meta {
+  color: #64748b;
+  font-size: 0.78rem;
+  white-space: nowrap;
+  flex: 0 0 auto;
 }
 .ccnf-row-actions {
   display: flex;
@@ -607,6 +683,8 @@ defineExpose({ reload: load, diagnoses: computed(() => chart.value.diagnoses) })
   margin-top: 8px;
 }
 .ccnf-badge {
+  margin-left: auto;
+  flex-shrink: 0;
   font-size: 0.68rem;
   font-weight: 800;
   text-transform: uppercase;
