@@ -206,6 +206,7 @@
                     selected: isSelected(d) || isPreviewed(d),
                     [`cnl-row--${normalizeStatus(d.docStatus)}`]: true
                   }"
+                  :data-open="isSelected(d) ? '1' : null"
                   :style="rowStyle(d.docStatus)"
                 >
                   <button type="button" class="cnl-row-main" @click="onRowActivate(d)">
@@ -301,7 +302,7 @@
 </template>
 
 <script setup>
-import { computed, reactive, ref, watch } from 'vue';
+import { computed, nextTick, reactive, ref, watch } from 'vue';
 import { todayIsoDate } from '../../utils/noteAidUiHelpers.js';
 import { defaultDraftTypeLabel } from '../../utils/clinicalNoteLibrary.js';
 import {
@@ -418,6 +419,21 @@ const previewRow = computed(() => {
     || null;
 });
 
+watch(
+  () => [props.selectedId, props.selectedWorkQueueId, groups.value.length],
+  async () => {
+    const selectedGroup = groups.value.find((g) =>
+      (g.drafts || []).some((d) => isSelected(d))
+    );
+    if (selectedGroup?.key) openGroups[selectedGroup.key] = true;
+    await nextTick();
+    const el = document.querySelector('.cnl-row.selected[data-open="1"]');
+    if (el && typeof el.scrollIntoView === 'function') {
+      el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    }
+  }
+);
+
 const emptyLabel = computed(() => {
   if (props.tab === DOC_STATUS.STARTED) return 'No notes in progress. Open one from the right queue to start.';
   if (props.tab === DOC_STATUS.COMPLETED) return 'No completed (unsigned) notes yet.';
@@ -521,8 +537,9 @@ function shortCreated(raw) {
   }
 }
 function isSelected(d) {
-  if (d.source === 'work_queue' && props.selectedWorkQueueId) {
-    return String(d.workQueueId) === String(props.selectedWorkQueueId);
+  if (props.selectedWorkQueueId && d.workQueueId
+    && String(d.workQueueId) === String(props.selectedWorkQueueId)) {
+    return true;
   }
   if (d.draftId && props.selectedId) {
     return String(d.draftId) === String(props.selectedId);
@@ -683,7 +700,10 @@ function onRailStatusClick(key) {
   border: 1px solid transparent; background: #f8fafc; border-radius: 12px;
   padding: 6px 8px 6px 6px; color: inherit; width: 100%;
 }
-.cnl-row.selected { box-shadow: inset 0 0 0 1px #5eead4; }
+.cnl-row.selected {
+  box-shadow: inset 0 0 0 2px #0f766e, 0 0 0 2px #99f6e4;
+  background: #ecfdf5;
+}
 .cnl-row-main {
   display: grid; grid-template-columns: 28px minmax(0, 1fr); gap: 10px; align-items: center;
   text-align: left; border: none; background: transparent; padding: 4px; cursor: pointer;

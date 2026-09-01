@@ -101,6 +101,71 @@ describe('noteAidDocumentationStatus panels', () => {
     expect(left.map((r) => r.workQueueId).sort()).toEqual(['b', 'c', 'd']);
   });
 
+  it('collapses duplicate drafts and work-queue shells for the same session', () => {
+    const left = buildLeftLibraryRows({
+      drafts: [
+        {
+          id: 11,
+          input_text: 'note a',
+          client_id: 5,
+          date_of_service: '2026-06-11',
+          service_code: '90832 / 90834 / 90837',
+          client_full_name: 'MACDOW'
+        },
+        {
+          id: 12,
+          input_text: 'note b',
+          client_id: 5,
+          date_of_service: '2026-06-11',
+          service_code: '90837',
+          client_full_name: 'MACDOW',
+          created_at: '2026-08-31T21:00:00Z'
+        }
+      ],
+      workQueueItems: [
+        {
+          id: 'q1',
+          status: 'started',
+          clientId: 5,
+          date: '2026-06-11',
+          serviceCode: '90837',
+          clientName: 'Mac Downing'
+        }
+      ]
+    });
+    expect(left).toHaveLength(1);
+    expect(left[0].source).toBe('draft');
+    expect(left[0].workQueueId).toBe('q1');
+  });
+
+  it('stamps work-queue id onto a draft already linked by draftId', () => {
+    const left = buildLeftLibraryRows({
+      drafts: [
+        {
+          id: 44,
+          input_text: 'existing',
+          client_id: 9,
+          date_of_service: '2026-08-01',
+          service_code: '90791'
+        }
+      ],
+      workQueueItems: [
+        {
+          id: 'q-intake',
+          status: 'started',
+          draftId: 44,
+          clientId: 9,
+          date: '2026-08-01',
+          serviceCode: '90791',
+          noteKind: 'intake'
+        }
+      ]
+    });
+    expect(left).toHaveLength(1);
+    expect(left[0].draftId).toBe(44);
+    expect(left[0].workQueueId).toBe('q-intake');
+  });
+
   it('filters left tabs by status', () => {
     const rows = buildLeftLibraryRows({
       drafts: [

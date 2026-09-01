@@ -41,6 +41,27 @@ class ClinicalNoteDraft {
     const input = inputText === null || inputText === undefined ? null : String(inputText);
     const out = outputJson === null || outputJson === undefined ? null : String(outputJson);
 
+    const reusable = await this.findReusableOpen({
+      userId: uid,
+      clientId: cid,
+      officeEventId: oeid,
+      clinicalSessionId: csid,
+      dateOfService: dos,
+      serviceCode: svc
+    });
+    if (reusable?.id) {
+      const patch = {};
+      if (oeid && !reusable.office_event_id) patch.officeEventId = oeid;
+      if (csid && !reusable.clinical_session_id) patch.clinicalSessionId = csid;
+      if (cid && !reusable.client_id) patch.clientId = cid;
+      if (dos && !reusable.date_of_service) patch.dateOfService = dos;
+      if (svc && !reusable.service_code) patch.serviceCode = svc;
+      if (Object.keys(patch).length) {
+        return this.updateForUser({ draftId: reusable.id, userId: uid, patch });
+      }
+      return reusable;
+    }
+
     const [result] = await pool.execute(
       `INSERT INTO clinical_note_drafts
        (user_id, agency_id, client_id, office_event_id, clinical_session_id, service_code, program_id, date_of_service, initials, input_text, output_json)
@@ -62,6 +83,73 @@ class ClinicalNoteDraft {
       [id, uid]
     );
     return rows?.[0] || null;
+  }
+
+  /**
+   * One in-progress draft per clinician + session (office event, clinical session,
+   * or same client + date + psychotherapy family code).
+   */
+  static async findReusableOpen({
+    userId,
+    clientId = null,
+    officeEventId = null,
+    clinicalSessionId = null,
+    dateOfService = null,
+    serviceCode = null
+  }) {
+    const uid = safeInt(userId);
+    if (!uid) return null;
+    const cid = safeInt(clientId);
+    const oeid = safeInt(officeEventId);
+    const csid = safeInt(clinicalSessionId);
+    const dos = dateOfService ? String(dateOfService).slice(0, 10) : null;
+    const svc = serviceCode ? clampText(serviceCode, 32).toUpperCase() : null;
+    const psychotherapyFamily = svc && /^9083[24789]$/.test(svc);
+
+    if (oeid) {
+      const [rows] = await pool.execute(
+        `SELECT *
+         FROM clinical_note_drafts
+         WHERE user_id = ? AND archived_at IS NULL AND office_event_id = ?
+         ORDER BY updated_at DESC, id DESC
+         LIMIT 1`,
+        [uid, oeid]
+      );
+      if (rows?.[0]) return rows[0];
+    }
+    if (csid) {
+      const [rows] = await pool.execute(
+        `SELECT *
+         FROM clinical_note_drafts
+         WHERE user_id = ? AND archived_at IS NULL AND clinical_session_id = ?
+         ORDER BY updated_at DESC, id DESC
+         LIMIT 1`,
+        [uid, csid]
+      );
+      if (rows?.[0]) return rows[0];
+    }
+    if (cid && dos) {
+      const params = [uid, cid, dos];
+      let codeSql = '';
+      if (psychotherapyFamily) {
+        codeSql = ` AND (service_code IN ('90832','90834','90837','90838','90839')
+          OR service_code LIKE '%90832%' OR service_code LIKE '%90837%' OR service_code IS NULL)`;
+      } else if (svc) {
+        codeSql = ' AND (service_code = ? OR service_code IS NULL)';
+        params.push(svc);
+      }
+      const [rows] = await pool.execute(
+        `SELECT *
+         FROM clinical_note_drafts
+         WHERE user_id = ? AND archived_at IS NULL AND client_id = ? AND date_of_service = ?
+           ${codeSql}
+         ORDER BY updated_at DESC, id DESC
+         LIMIT 1`,
+        params
+      );
+      if (rows?.[0]) return rows[0];
+    }
+    return null;
   }
 
   static async updateForUser({

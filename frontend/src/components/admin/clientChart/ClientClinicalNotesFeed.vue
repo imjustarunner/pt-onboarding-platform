@@ -36,6 +36,8 @@
         class="ccnf-row"
         :class="[
           `ccnf-row--${row.kind}`,
+          `ccnf-row--tone-${row.tone}`,
+          row.codeTone ? `ccnf-row--code-${row.codeTone}` : '',
           {
             'is-active-plan': row.isActivePlan,
             'is-session': row.linkedSession,
@@ -88,6 +90,7 @@
 import { computed, onMounted, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import api from '../../../services/api.js';
+import { sessionDedupeKey } from '../../../utils/noteAidDocumentationStatus.js';
 
 const props = defineProps({
   clientId: { type: [Number, String], required: true },
@@ -115,6 +118,32 @@ const chart = ref({
 });
 
 const isLearning = computed(() => String(props.clientType || '').toLowerCase() === 'learning');
+
+function primaryServiceCode(raw) {
+  const m = String(raw || '').toUpperCase().match(/\b(90\d{3}|H\d{4}|T\d{4}|G\d{4})\b/);
+  return m ? m[1] : '';
+}
+
+function noteTone(kind, serviceCode, title = '') {
+  const k = String(kind || '').toLowerCase();
+  const code = primaryServiceCode(serviceCode);
+  const t = String(title || '').toLowerCase();
+  if (k === 'intake' || code === '90791' || code === 'H0031') return 'intake';
+  if (k === 'plan' || code === 'H0032' || t.includes('treatment plan') || t.includes('learning plan')) return 'plan';
+  if (k === 'contact') return 'contact';
+  if (k === 'progress' || /^90\d{3}$/.test(code)) return 'progress';
+  if (k === 'draft') {
+    if (code === '90791' || code === 'H0031') return 'intake';
+    if (code === 'H0032') return 'plan';
+    if (code) return 'progress';
+    return 'draft';
+  }
+  return k || 'other';
+}
+
+function progressCodeTone(serviceCode) {
+  return primaryServiceCode(serviceCode) || 'default';
+}
 
 function formatDate(raw) {
   if (!raw) return '—';
@@ -154,14 +183,19 @@ const sessionIds = computed(() => {
 
 const rows = computed(() => {
   const out = [];
+  const draftBySession = new Map();
   const activePlanId = Number(chart.value.plans?.[0]?.id || 0);
 
   for (const d of chart.value.noteAidDrafts || []) {
     const hasOut = !!d.has_output;
-    out.push({
+    const key = sessionDedupeKey(d) || `draft-${d.id}`;
+    const next = {
       key: `draft-${d.id}`,
+      sessionKey: key,
       kind: 'draft',
       title: `Note Aid draft${d.service_code ? ` (${d.service_code})` : ''}`,
+      tone: noteTone('draft', d.service_code, 'Note Aid draft'),
+      codeTone: noteTone('draft', d.service_code) === 'progress' ? progressCodeTone(d.service_code) : '',
       status: hasOut ? 'completed' : 'draft',
       statusLabel: hasOut ? 'Draft · generated' : 'Draft · in progress',
       dateLabel: formatDate(d.date_of_service || d.created_at),
@@ -176,8 +210,19 @@ const rows = computed(() => {
       isActivePlan: false,
       draftId: d.id,
       openMode: 'note-aid-draft'
-    });
+    };
+    const prev = draftBySession.get(key);
+    if (!prev) {
+      draftBySession.set(key, next);
+      continue;
+    }
+    const prevScore = (prev.status === 'completed' ? 2 : 0) + (prev.serviceCode ? 1 : 0);
+    const nextScore = (next.status === 'completed' ? 2 : 0) + (next.serviceCode ? 1 : 0);
+    if (nextScore > prevScore || String(next.sortAt || '') > String(prev.sortAt || '')) {
+      draftBySession.set(key, next);
+    }
   }
+  out.push(...draftBySession.values());
 
   for (const n of chart.value.notes || []) {
     const providerSigned = !!n.provider_signed_at;
@@ -196,15 +241,25 @@ const rows = computed(() => {
       statusLabel = 'Signed';
     }
     const sid = Number(n.clinical_session_id || 0);
+    const session = (chart.value.sessions || []).find((s) => Number(s.id) === sid);
+    const serviceCode = n.session_service_code || n.service_code || session?.service_code || '';
+    const nt = String(n.note_type || n.title || '').toLowerCase();
+    let kind = 'progress';
+    if (nt.includes('intake')) kind = 'intake';
+    else if (nt.includes('treatment plan') || nt.includes('learning plan') || nt.includes('plan development')) {
+      kind = 'plan';
+    } else if (nt.includes('contact')) kind = 'contact';
     out.push({
       key: `note-${n.id}`,
-      kind: String(n.note_type || '').toLowerCase().includes('intake') ? 'intake' : 'progress',
+      kind,
+      tone: noteTone(kind, serviceCode, n.title),
+      codeTone: kind === 'progress' ? progressCodeTone(serviceCode) : '',
       title: n.title || 'Clinical note',
       status,
       statusLabel,
       dateLabel: formatDate(n.created_at),
       sortAt: n.updated_at || n.created_at,
-      serviceCode: '',
+      serviceCode,
       author: '',
       linkedSession: sid > 0 && sessionIds.value.has(sid),
       linkedClaim: claimNoteIds.value.has(Number(n.id)),
@@ -223,6 +278,8 @@ const rows = computed(() => {
     out.push({
       key: `intake-${inn.id}`,
       kind: 'intake',
+      tone: 'intake',
+      codeTone: '',
       title: `Intake note (${inn.service_code || '90791'})`,
       status: final ? 'signed' : inn.status || 'draft',
       statusLabel: final ? 'Finalized' : String(inn.status || 'Draft'),
@@ -245,6 +302,8 @@ const rows = computed(() => {
     out.push({
       key: `plan-${id}`,
       kind: 'plan',
+      tone: 'plan',
+      codeTone: '',
       title: p.title || (isLearning.value ? 'Learning plan' : 'Treatment plan'),
       status: String(p.status || 'active'),
       statusLabel: String(p.status || 'active'),
@@ -439,21 +498,62 @@ defineExpose({ reload: load, diagnoses: computed(() => chart.value.diagnoses) })
   background: #f8fafc;
   overflow: hidden;
 }
+.ccnf-row--tone-intake {
+  border-color: #99f6e4;
+  border-left: 5px solid #0f766e;
+  background: #f0fdfa;
+}
+.ccnf-row--tone-plan {
+  border-color: #ddd6fe;
+  border-left: 5px solid #6d28d9;
+  background: #f5f3ff;
+}
+.ccnf-row--tone-contact {
+  border-color: #d6d3d1;
+  border-left: 5px solid #57534e;
+  background: #fafaf9;
+}
+.ccnf-row--tone-draft {
+  border-color: #fde68a;
+  border-left: 5px solid #d97706;
+  background: #fffbeb;
+}
+.ccnf-row--tone-progress {
+  border-color: #bfdbfe;
+  border-left: 5px solid #2563eb;
+  background: #eff6ff;
+}
+.ccnf-row--tone-progress.ccnf-row--code-90832 {
+  border-left-color: #93c5fd;
+  background: #f8fbff;
+}
+.ccnf-row--tone-progress.ccnf-row--code-90834 {
+  border-left-color: #3b82f6;
+  background: #eff6ff;
+}
+.ccnf-row--tone-progress.ccnf-row--code-90837 {
+  border-left-color: #1d4ed8;
+  background: #dbeafe;
+}
+.ccnf-row--tone-progress.ccnf-row--code-90846,
+.ccnf-row--tone-progress.ccnf-row--code-90847 {
+  border-left-color: #1e3a8a;
+  background: #e0e7ff;
+}
+.ccnf-row--tone-progress.ccnf-row--code-90853 {
+  border-left-color: #0369a1;
+  background: #e0f2fe;
+}
+.ccnf-row--tone-progress.ccnf-row--code-default {
+  border-left-color: #60a5fa;
+  background: #eff6ff;
+}
 .ccnf-row.is-active-plan {
-  border-color: #0f766e;
-  box-shadow: 0 0 0 1px #99f6e4;
-}
-.ccnf-row.is-session {
-  border-left: 4px solid #0f766e;
-}
-.ccnf-row.is-claim {
-  border-left: 4px solid #4338ca;
-}
-.ccnf-row.is-draft {
-  border-left: 4px solid #b45309;
+  border-color: #6d28d9;
+  box-shadow: 0 0 0 1px #ddd6fe;
 }
 .ccnf-row.is-awaiting-cosign {
-  border-left: 4px solid #c2410c;
+  box-shadow: inset 0 0 0 1px #fdba74;
 }
 .ccnf-row-open {
   width: 100%;
@@ -466,7 +566,7 @@ defineExpose({ reload: load, diagnoses: computed(() => chart.value.diagnoses) })
   color: inherit;
 }
 .ccnf-row-open:hover {
-  background: #f1f5f9;
+  background: rgba(15, 23, 42, 0.05);
 }
 .ccnf-row-actions {
   display: flex;

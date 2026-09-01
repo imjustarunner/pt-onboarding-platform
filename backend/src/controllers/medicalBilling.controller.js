@@ -277,11 +277,13 @@ export const listClientChart = async (req, res, next) => {
     await ClinicalEligibilityService.ensureAgencyAccess({ reqUser: req.user, agencyId });
 
     const [notes] = await clinicalPool.execute(
-      `SELECT id, clinical_session_id, title, note_type, version_number, provider_signed_at, supervisor_cosigned_at,
-              is_billable, created_at, updated_at, created_by_user_id
-       FROM clinical_notes
-       WHERE agency_id = ? AND client_id = ? AND is_deleted = 0
-       ORDER BY created_at DESC
+      `SELECT n.id, n.clinical_session_id, n.title, n.note_type, n.version_number, n.provider_signed_at, n.supervisor_cosigned_at,
+              n.is_billable, n.created_at, n.updated_at, n.created_by_user_id,
+              cs.service_code AS session_service_code
+       FROM clinical_notes n
+       LEFT JOIN clinical_sessions cs ON cs.id = n.clinical_session_id
+       WHERE n.agency_id = ? AND n.client_id = ? AND n.is_deleted = 0
+       ORDER BY n.created_at DESC
        LIMIT 200`,
       [agencyId, clientId]
     );
@@ -353,7 +355,7 @@ export const listClientChart = async (req, res, next) => {
 
     const presentingProblem = presentingProblemFromPlan(latestPlan);
     const [sessions] = await clinicalPool.execute(
-      `SELECT id, office_event_id, encounter_status, place_of_service, duration_minutes, is_telehealth,
+      `SELECT id, office_event_id, encounter_status, place_of_service, service_code, duration_minutes, is_telehealth,
               rendering_provider_user_id, scheduled_start_at, scheduled_end_at, created_at
        FROM clinical_sessions
        WHERE agency_id = ? AND client_id = ?

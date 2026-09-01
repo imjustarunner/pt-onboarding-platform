@@ -277,8 +277,12 @@ export function buildLeftLibraryRows({ drafts = [], workQueueItems = [] } = {}) 
     const status = deriveWorkQueueDocStatus(item);
     if (!isLeftPanelStatus(status)) continue;
     // Prefer draft row when queue item is already linked to a draft shown above
-    if (item.draftId && rows.some((r) => String(r.draftId) === String(item.draftId))) {
-      continue;
+    if (item.draftId) {
+      const linked = rows.find((r) => String(r.draftId) === String(item.draftId));
+      if (linked) {
+        linked.workQueueId = linked.workQueueId || item.id;
+        continue;
+      }
     }
     if (seenWorkIds.has(item.id)) continue;
     seenWorkIds.add(item.id);
@@ -306,7 +310,72 @@ export function buildLeftLibraryRows({ drafts = [], workQueueItems = [] } = {}) 
     });
   }
 
-  return rows;
+  return collapseLeftLibraryRows(rows);
+}
+
+/** Map 90832/90834/90837 (and "90832 / 90834 / 90837" labels) to one psychotherapy family. */
+export function normalizeSessionServiceCode(code) {
+  const raw = String(code || '').toUpperCase();
+  const m = raw.match(/\b(90\d{3}|H\d{4}|T\d{4}|G\d{4})\b/);
+  const c = m ? m[1] : '';
+  if (/^9083[24789]$/.test(c)) return '90837';
+  return c;
+}
+
+/**
+ * Identity for one clinical session note. Used to collapse leftover duplicate drafts.
+ */
+export function sessionDedupeKey(row = {}) {
+  const oe = Number(row.officeEventId || row.office_event_id || 0);
+  if (oe > 0) return `oe:${oe}`;
+  const cs = Number(row.clinicalSessionId || row.clinical_session_id || 0);
+  if (cs > 0) return `cs:${cs}`;
+  const cid = Number(row.clientId || row.client_id || 0);
+  const dos = String(row.date_of_service || row.dateOfService || row.date || '').slice(0, 10);
+  const code = normalizeSessionServiceCode(row.service_code || row.serviceCode || row.noteKind);
+  if (cid > 0 && dos && code) return `cdc:${cid}:${dos}:${code}`;
+  if (cid > 0 && dos) return `cd:${cid}:${dos}`;
+  return null;
+}
+
+function libraryRowRank(row) {
+  let n = 0;
+  if (row?.source === 'draft') n += 20;
+  if (row?.docStatus === DOC_STATUS.SIGNED) n += 12;
+  if (row?.docStatus === DOC_STATUS.COMPLETED) n += 8;
+  const raw = row?.raw || {};
+  if (raw.output_json || raw.has_output) n += 6;
+  if (String(raw.input_text || raw.inputText || '').trim()) n += 3;
+  if (row?.agency_name) n += 1;
+  return n;
+}
+
+/** Keep one left-library row per session; prefer a real draft over a work-queue shell. */
+export function collapseLeftLibraryRows(rows = []) {
+  const passthrough = [];
+  const byKey = new Map();
+  for (const row of rows || []) {
+    const key = sessionDedupeKey(row);
+    if (!key) {
+      passthrough.push(row);
+      continue;
+    }
+    const prev = byKey.get(key);
+    if (!prev) {
+      byKey.set(key, row);
+      continue;
+    }
+    const takeNew = libraryRowRank(row) > libraryRowRank(prev)
+      || (libraryRowRank(row) === libraryRowRank(prev)
+        && String(row.created_at || '') > String(prev.created_at || ''));
+    const keep = takeNew ? row : prev;
+    const drop = takeNew ? prev : row;
+    byKey.set(key, {
+      ...keep,
+      workQueueId: keep.workQueueId || drop.workQueueId || null
+    });
+  }
+  return [...passthrough, ...byKey.values()];
 }
 
 export function filterLeftLibraryRows(

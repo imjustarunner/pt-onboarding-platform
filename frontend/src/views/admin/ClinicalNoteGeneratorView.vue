@@ -1132,7 +1132,8 @@ import {
   DOC_STATUS,
   buildLeftLibraryRows,
   deriveWorkQueueDocStatus,
-  normalizeDocStatus
+  normalizeDocStatus,
+  sessionDedupeKey
 } from '../../utils/noteAidDocumentationStatus.js';
 import {
   consumeNoteAidWorkQueueStash,
@@ -3109,22 +3110,10 @@ const autosave = async () => {
     payload.inputText = null;
   }
 
-  // Create only after the clinician enters real content; update existing drafts freely
-  // (including DOS-only changes once a draft exists).
-  const hasMeaningfulContent =
-    !!String(payload.serviceCode || '').trim() ||
-    !!String(payload.programId || '').trim() ||
-    !!String(payload.initials || '').trim() ||
-    !!String(payload.inputText || '').trim() ||
-    !!String(payload.clientId || '').trim() ||
-    !!String(payload.dateOfService || '').trim();
-
-  // Create only after the clinician enters real content; update existing drafts freely.
-  if (!draftId.value && !hasMeaningfulContent) return;
-  // Don't spawn empty drafts from DOS alone.
-  if (!draftId.value && !String(payload.initials || '').trim() && !String(payload.inputText || '').trim() && !payload.clientId) {
-    return;
-  }
+  // Create only after the clinician writes or dictates — client/initials/DOS
+  // from a work-queue click must not spawn a new empty draft each time.
+  const hasNoteBody = !!String(payload.inputText || '').trim();
+  if (!draftId.value && !hasNoteBody) return;
 
   autosaveBusy = true;
   try {
@@ -3140,6 +3129,12 @@ const autosave = async () => {
         ];
         const dayKey = draftCreatedKey(currentDraftCreatedAt.value);
         openDateGroups.value = { ...openDateGroups.value, [dayKey]: true };
+        if (activeWorkQueueItemId.value) {
+          workQueueItems.value = (workQueueItems.value || []).map((row) =>
+            row.id === activeWorkQueueItemId.value ? { ...row, draftId: created.id } : row
+          );
+          persistWorkQueue();
+        }
       }
     } else {
       await api.patch(`/clinical-notes/drafts/${draftId.value}`, payload, { skipGlobalLoading: true });
@@ -4787,6 +4782,7 @@ function onLibrarySidebarSelect(row) {
 
 async function activateWorkQueueItem(item) {
   if (!item) return;
+  resetClientClinicalContext();
   workQueueItems.value = (workQueueItems.value || []).map((row) => {
     if (row.id === item.id) {
       return {
@@ -4896,9 +4892,44 @@ async function activateWorkQueueItem(item) {
 
   configExpanded.value = true;
   noteWizardStep.value = 1;
-  draftId.value = null;
-  outputObj.value = null;
-  inputText.value = '';
+  sidebarTab.value = DOC_STATUS.STARTED;
+
+  await loadRecent();
+  const reuse = findReusableLocalDraft(item);
+  if (reuse) {
+    await loadDraftIntoWorkspace(reuse, { preserveWorkQueueItemId: true });
+    activeWorkQueueItemId.value = item.id;
+    if (item.officeEventId) sessionOfficeEventId.value = item.officeEventId;
+    if (item.clinicalSessionId) sessionClinicalSessionId.value = item.clinicalSessionId;
+    if (item.date) dateOfService.value = String(item.date).slice(0, 10);
+    progressEntryMode.value = item.officeEventId ? 'appointment' : 'client';
+    workQueueItems.value = (workQueueItems.value || []).map((row) =>
+      row.id === item.id ? { ...row, draftId: reuse.id } : row
+    );
+    persistWorkQueue();
+  } else {
+    draftId.value = item.draftId || null;
+    outputObj.value = null;
+    inputText.value = '';
+  }
+}
+
+function findReusableLocalDraft(item) {
+  if (!item) return null;
+  const list = recentDrafts.value || [];
+  if (item.draftId) {
+    const linked = list.find((d) => String(d.id) === String(item.draftId));
+    if (linked) return linked;
+  }
+  const key = sessionDedupeKey({
+    officeEventId: item.officeEventId,
+    clinicalSessionId: item.clinicalSessionId,
+    clientId: item.clientId,
+    date_of_service: item.date,
+    service_code: item.serviceCode
+  });
+  if (!key) return null;
+  return list.find((d) => sessionDedupeKey(d) === key) || null;
 }
 
 function deriveInitialsFromNameSafe(name) {
@@ -5161,8 +5192,9 @@ const startNewNoteDifferentService = () => {
   newNoteMenuOpen.value = false;
 };
 
-const loadDraftIntoWorkspace = async (d) => {
+const loadDraftIntoWorkspace = async (d, options = {}) => {
   if (!d) return;
+  const preserveWorkQueue = !!options.preserveWorkQueueItemId;
   viewingChartNote.value = null;
   draftId.value = d.id || null;
   noteAidAgencyChoiceId.value = null;
@@ -5265,9 +5297,11 @@ const loadDraftIntoWorkspace = async (d) => {
   );
   noteWizardStep.value = outputObj.value ? 2 : 1;
   newNoteMenuOpen.value = false;
-  showProgressSessionPicker.value = false;
-  progressEntryMode.value = 'client';
-  activeWorkQueueItemId.value = null;
+  if (!preserveWorkQueue) {
+    showProgressSessionPicker.value = false;
+    progressEntryMode.value = 'client';
+    activeWorkQueueItemId.value = null;
+  }
 
   // Repair orphan client_id stamps (initials-only drafts that picked up another client).
   if (!draftClientId && Number(d.client_id || 0)) {
