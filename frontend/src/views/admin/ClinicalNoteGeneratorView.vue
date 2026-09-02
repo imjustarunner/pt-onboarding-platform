@@ -189,6 +189,8 @@
           :client-linked="!!effectiveClientId"
           v-model:date-of-service="dateOfService"
           :service-label="quickSessionServiceLabel"
+          :service-code="actualServiceCode"
+          :service-code-choices="quickSessionServiceCodeChoices"
           v-model:participants="sessionParticipants"
           v-model:participants-detail="sessionParticipantsDetail"
           v-model:duration-minutes="sessionDurationMinutes"
@@ -197,9 +199,11 @@
           :clinician-label="sessionClinicianLabel"
           :setup-complete="clientSetupComplete"
           :participants-flag="sessionParticipantsFlag"
+          :attendees-required="familyAttendeesRequired"
           :editable="!chartNoteReadOnly"
           :finalized="!!signedNoteViewerId"
           :duration-hint="sessionDurationHint"
+          @update:service-code="onQuickSessionServiceCode"
           @toggle-setup="showClientSetupDrawer = true"
         />
 
@@ -215,10 +219,10 @@
               <button
                 type="button"
                 class="na-pathway-btn"
-                :class="{ on: notePathway === 'soap' }"
-                @click="notePathway = 'soap'"
+                :class="{ on: notePathway === 'standard' }"
+                @click="notePathway = 'standard'"
               >
-                SOAP / freeform
+                {{ pathwayStandardLabel }}
               </button>
               <button
                 type="button"
@@ -229,6 +233,16 @@
                 CSNoteBuild
               </button>
             </div>
+            <label
+              v-if="canUseManualSkipAi"
+              class="na-skip-ai"
+            >
+              <input v-model="skipAiAid" type="checkbox" />
+              Skip AI aid — write sections manually
+            </label>
+            <p v-else-if="manualWriteDisabledByProfile" class="na-field-hint">
+              Manual-only writing is disabled on this profile — use Note Aid generate.
+            </p>
           </div>
           <div class="na-aid-bar-actions">
             <button
@@ -694,18 +708,6 @@
           @improved="onObjectiveImproved"
         />
 
-        <NoteAidStructuredChartPanel
-          v-if="showStructuredChartPanel && !chartNoteReadOnly && !signedNoteViewerId"
-          :diagnoses="chartDiagnoses"
-          v-model:diagnostic-justification="chartDiagnosticJustification"
-          v-model:mse="chartMentalStatus"
-          v-model:risk="chartRiskAssessment"
-          v-model:medications="chartMedications"
-          :skip-mse="skipMentalStatusExam"
-          @mse-all-normal="setMseAllNormal"
-          @mse-all-not-assessed="setMseAllNotAssessed"
-        />
-
         <NoteAidCsNoteBuildPanel
           v-if="useCsNoteBuildPathway"
           ref="csNoteBuildPanelRef"
@@ -714,6 +716,7 @@
           :proposed-interventions="csProposedInterventions"
           :is-telehealth="csIsTelehealth"
           :proposing-plan="csProposingPlan"
+          :skip-mse="skipMentalStatusExam"
           @propose-plan="onCsProposePlan"
         />
 
@@ -764,7 +767,9 @@
             class="na-textarea"
             rows="8"
             maxlength="12000"
-            :placeholder="selectedAidGuidance || 'Paste or type your session details here…'"
+            :placeholder="isTreatmentSummaryAid
+              ? 'Optional: add participation, clinical impressions, and other pertinent information. Attendance, progress notes, and scaled objectives load from the client chart automatically.'
+              : (selectedAidGuidance || 'Paste or type your session details here…')"
           />
 
           <template v-else>
@@ -845,14 +850,33 @@
             <label
               v-if="showInteractiveComplexityOption"
               class="na-toggle-row na-toggle-row--inline"
-              title="Document interactive complexity factors when clinically supported"
+              title="Document interactive complexity factors when clinically supported (90785)"
             >
-              <span>Interactive Complexity</span>
+              <span>Interactive Complexity (90785)</span>
               <span class="na-switch" :class="{ on: includeInteractiveComplexity }">
-                <input v-model="includeInteractiveComplexity" type="checkbox" />
+                <input v-model="includeInteractiveComplexity" type="checkbox" @change="applyBillingRulesForCurrentSession({ announce: true })" />
                 <span class="na-switch-thumb" />
               </span>
             </label>
+            <label
+              v-if="showAfterHours99051Option"
+              class="na-toggle-row na-toggle-row--inline"
+              title="99051 — session outside Mon–Fri 8am–5pm"
+            >
+              <span>After hours (99051)</span>
+              <span class="na-switch" :class="{ on: includeAfterHours99051 }">
+                <input v-model="includeAfterHours99051" type="checkbox" @change="applyBillingRulesForCurrentSession({ announce: true })" />
+                <span class="na-switch-thumb" />
+              </span>
+            </label>
+            <span
+              v-for="addon in billingAddons.filter((a) => a.code !== '90785' || includeInteractiveComplexity)"
+              :key="addon.code"
+              class="na-tag na-tag--accent"
+              :title="addon.code === '90840' ? 'Crisis add-on from duration' : addon.code"
+            >
+              +{{ addon.code }}{{ addon.units > 1 ? ` ×${addon.units}` : '' }}
+            </span>
             <button class="na-generate" type="button" :disabled="generateDisabled" @click="generateNote">
               <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true">
                 <path d="M12 2l1.2 6.3L19 12l-5.8 3.7L12 22l-1.2-6.3L5 12l5.8-3.7L12 2z"/>
@@ -861,6 +885,13 @@
             </button>
           </div>
           <small v-if="generateBlockedReason && generateDisabled" class="hint na-generate-hint">{{ generateBlockedReason }}</small>
+          <small v-if="serviceCodeChangedAfterGenerate && !signedNoteViewerId" class="hint na-generate-hint">
+            Service code changed after the last generate — regenerate to replace the note with the new tool format before signing.
+          </small>
+          <small v-if="amendmentParentNoteId" class="hint na-generate-hint">
+            Editing a signed note: regenerating and signing will save the new format as an addendum. If a claim was already submitted, mark it for resubmit after the addendum is signed.
+          </small>
+          <small v-if="billingRulesBanner" class="hint na-generate-hint">{{ billingRulesBanner }}</small>
           <small v-if="generateError" class="error">{{ generateError }}</small>
         </section>
 
@@ -871,9 +902,19 @@
               v-if="showInteractiveComplexityOption"
               class="na-toggle-row na-toggle-row--inline"
             >
-              <span>Interactive Complexity</span>
+              <span>Interactive Complexity (90785)</span>
               <span class="na-switch" :class="{ on: includeInteractiveComplexity }">
-                <input v-model="includeInteractiveComplexity" type="checkbox" />
+                <input v-model="includeInteractiveComplexity" type="checkbox" @change="applyBillingRulesForCurrentSession({ announce: true })" />
+                <span class="na-switch-thumb" />
+              </span>
+            </label>
+            <label
+              v-if="showAfterHours99051Option"
+              class="na-toggle-row na-toggle-row--inline"
+            >
+              <span>After hours (99051)</span>
+              <span class="na-switch" :class="{ on: includeAfterHours99051 }">
+                <input v-model="includeAfterHours99051" type="checkbox" @change="applyBillingRulesForCurrentSession({ announce: true })" />
                 <span class="na-switch-thumb" />
               </span>
             </label>
@@ -886,6 +927,20 @@
           </div>
           <small v-if="generateError" class="error">{{ generateError }}</small>
         </section>
+
+        <NoteAidStructuredChartPanel
+          v-if="showStructuredChartPanel && !chartNoteReadOnly && !signedNoteViewerId"
+          :diagnoses="structuredChartDiagnoses"
+          :diagnosis-mode="chartDiagnosisMode"
+          v-model:diagnostic-justification="chartDiagnosticJustification"
+          v-model:mse="chartMentalStatus"
+          v-model:risk="chartRiskAssessment"
+          v-model:medications="chartMedications"
+          :skip-mse="skipMentalStatusExam"
+          :mse-skip-label="mseSkipLabel"
+          @mse-all-normal="setMseAllNormal"
+          @mse-all-not-assessed="setMseAllNotAssessed"
+        />
           </div>
         </div>
 
@@ -974,6 +1029,14 @@
             </div>
           </div>
 
+          <NoteAidTreatmentSummaryPanel
+            v-if="treatmentSummaryNoteId && isTreatmentSummaryAid"
+            :note-id="treatmentSummaryNoteId"
+            :agency-id="noteAidAgencyId || currentAgencyId"
+            :provider-signed-at="treatmentSummaryProviderSignedAt"
+            :supervisor-signed-at="treatmentSummarySupervisorSignedAt"
+          />
+
           <div v-if="!chartNoteReadOnly" class="field na-revision-field">
             <label class="na-revision-label" for="na-revision">
               Add additional content / make changes / update instructions
@@ -1000,13 +1063,29 @@
 
           <div v-if="canApproveToClinicalRecord && !chartNoteReadOnly" class="na-sign-attest">
             <p class="na-sign-attest-lead">
-              Signing writes this note to the chart. Generating a draft does not sign.
+              <template v-if="isReviewOnlyAid">
+                Completing Review saves this note to the client chart (not a billable event). Content is checked for required clinical text — never demographics or PHI fields.
+              </template>
+              <template v-else-if="isTreatmentSummaryAid">
+                Saving writes the Treatment Summary to the client chart as a printable document (packet footer, no cover/version). Provider and clinical supervisor both sign.
+              </template>
+              <template v-else>
+                Signing writes this note to the chart. Generating a draft does not sign.
+              </template>
             </p>
             <label class="na-sign-check">
               <input v-model="attestAccurateAndComplete" type="checkbox" />
-              I mark this note as accurate and complete, and apply my signature.
+              I mark this note as accurate and complete{{ isReviewOnlyAid ? '' : ', and apply my signature' }}.
             </label>
-            <label class="na-sign-check">
+            <label v-if="isReviewOnlyAid" class="na-sign-check">
+              <input v-model="attestMedicallyNecessary" type="checkbox" />
+              I confirm content Review is complete (clinical content only).
+            </label>
+            <label v-else-if="isTreatmentSummaryAid" class="na-sign-check">
+              <input v-model="attestMedicallyNecessary" type="checkbox" />
+              I confirm this Treatment Summary is accurate for print, digital share, and provider/supervisor signature.
+            </label>
+            <label v-else class="na-sign-check">
               <input v-model="attestMedicallyNecessary" type="checkbox" />
               I declare that this service was medically necessary.
             </label>
@@ -1015,7 +1094,7 @@
               class="na-sign-check"
             >
               <input v-model="signAndOpenNextInQueue" type="checkbox" />
-              After signing, open next in queue
+              After {{ isReviewOnlyAid ? 'review' : 'signing' }}, open next in queue
             </label>
             <p v-if="sessionParticipantsHint && !participantsPresenceDismissed" class="na-sign-attest-warn">
               Note language may suggest others attended. Update <strong>Participants</strong> in session
@@ -1054,10 +1133,14 @@
               @click="approveNoteOutput({ afterSign: signAndOpenNextInQueue ? 'queue' : 'close' })"
             >
               {{ approvingNote
-                ? 'Signing…'
+                ? (isReviewOnlyAid || isTreatmentSummaryAid ? 'Saving…' : 'Signing…')
                 : (attestAccurateAndComplete && attestMedicallyNecessary
-                  ? 'Sign'
-                  : 'Mark accurate, medically necessary & sign') }}
+                  ? (isReviewOnlyAid ? 'Complete review' : (isTreatmentSummaryAid ? 'Save document' : 'Sign'))
+                  : (isReviewOnlyAid
+                    ? 'Mark accurate, complete review'
+                    : (isTreatmentSummaryAid
+                      ? 'Confirm & save Treatment Summary'
+                      : 'Mark accurate, medically necessary & sign'))) }}
             </button>
             <button
               v-if="canSaveTreatmentPlanToChart"
@@ -1233,6 +1316,21 @@
       @built="onTodoListBuilt"
     />
 
+    <NoteAidDiagnosisWriterModal
+      :open="showDiagnosisWriterModal"
+      :agency-id="noteAidAgencyId || currentAgencyId"
+      @close="showDiagnosisWriterModal = false"
+      @saved="onStandaloneDraftSaved"
+    />
+    <NoteAidTreatmentPlanStandaloneModal
+      :open="showTreatmentPlanWriterModal"
+      :agency-id="noteAidAgencyId || currentAgencyId"
+      :clients="standaloneModalClients"
+      @close="showTreatmentPlanWriterModal = false"
+      @saved="onStandaloneDraftSaved"
+      @applied="onStandalonePlanApplied"
+    />
+
   </div>
 </template>
 
@@ -1252,6 +1350,8 @@ import NoteAidIntakeDraftEditor from '../../components/clinical/NoteAidIntakeDra
 import NoteAidDemographicsImportReview from '../../components/clinical/NoteAidDemographicsImportReview.vue';
 import NoteAidWorkQueuePanel from '../../components/clinical/NoteAidWorkQueuePanel.vue';
 import NoteAidTodoListImportModal from '../../components/clinical/NoteAidTodoListImportModal.vue';
+import NoteAidDiagnosisWriterModal from '../../components/clinical/NoteAidDiagnosisWriterModal.vue';
+import NoteAidTreatmentPlanStandaloneModal from '../../components/clinical/NoteAidTreatmentPlanStandaloneModal.vue';
 import NoteAidSessionContextStrip from '../../components/clinical/NoteAidSessionContextStrip.vue';
 import NoteAidStructuredChartPanel from '../../components/clinical/NoteAidStructuredChartPanel.vue';
 import { loadWorkQueue, saveWorkQueue, clearAllWorkQueues, matchTodoClientFromSearchRows, namesLikelySamePerson } from '../../utils/noteAidWorkQueue.js';
@@ -1290,6 +1390,7 @@ import {
   buildTreatmentPlanContextText,
   buildUpdaterPrefillDocument,
   buildIntakeInformedPlanText,
+  buildTreatmentSummaryContextDocument,
   isTreatmentPlanOnFileForSetup,
   clientDisplayInitials,
   clientDisplayName,
@@ -1317,13 +1418,29 @@ import {
   HIDDEN_NOTE_AID_CODES,
   NOTE_AID_CATEGORIES,
   NOTE_TYPE_CODE_GROUPS,
+  RETIRED_NOTE_AID_IDS,
   aidAllowsInteractiveComplexity,
+  aidAttachesToClientChart,
+  aidAttachesQuestionnaires,
+  aidDiagnosisMode,
+  aidIsVisibleForTiers,
   aidKind,
+  aidRequiresProviderSupervisorSign,
+  aidSkipsMentalStatusExam,
+  aidUsesContentReview,
+  aidUsesFreeformCsPathway,
   findNoteAidById,
   findNoteAidByToolOrCode,
+  isSocialDeterminantCode,
+  mergeAgencyCatalogIntoCategories,
   orderNoteAidCategoriesForHcbs,
   resolveTreatmentPlanAidId
 } from '../../config/noteAidWorkspace.js';
+import {
+  CRISIS_90839_SERVICE_DESCRIPTION,
+  resolveNoteAidBillingCodes,
+  shouldSuggest99051
+} from '../../utils/noteAidBillingAddons.js';
 import {
   DEFAULT_MEASUREMENT_METHOD,
   inferScaleDirection,
@@ -1340,6 +1457,7 @@ import ClinicalArtifactRetentionPanel from '../../components/clinical/ClinicalAr
 import NoteAidLibraryPanel from '../../components/clinical/NoteAidLibraryPanel.vue';
 import ClinicalNoteLibrarySidebar from '../../components/clinical/ClinicalNoteLibrarySidebar.vue';
 import ClinicalNoteDetailFetcher from '../../components/clinical/ClinicalNoteDetailFetcher.vue';
+import NoteAidTreatmentSummaryPanel from '../../components/clinical/NoteAidTreatmentSummaryPanel.vue';
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
 
 const agencyStore = useAgencyStore();
@@ -1590,11 +1708,93 @@ const planDraftEditorMode = ref('import');
 const planDraftInitialPlan = ref(null);
 const showDemographicsImport = ref(false);
 const showTodoImportModal = ref(false);
+const showDiagnosisWriterModal = ref(false);
+const showTreatmentPlanWriterModal = ref(false);
+const standaloneModalClients = computed(() => {
+  if (selectedClient.value?.id) return [selectedClient.value];
+  return [];
+});
+
+async function onStandaloneDraftSaved() {
+  showDiagnosisWriterModal.value = false;
+  showTreatmentPlanWriterModal.value = false;
+  approvalMessage.value = 'Saved to In Progress.';
+  await loadRecent();
+  sidebarTab.value = DOC_STATUS.STARTED;
+}
+
+async function onStandalonePlanApplied() {
+  showTreatmentPlanWriterModal.value = false;
+  approvalMessage.value = 'Treatment plan applied to client.';
+  if (effectiveClientId.value) await loadClientTreatmentPlan(effectiveClientId.value);
+  await loadRecent();
+}
 const workQueueItems = ref([]);
 const workQueueSortBy = ref('date');
 const workQueueSortDir = ref('asc');
 /** Session preference: after signing, open the next not-started queue item (default on). */
 const signAndOpenNextInQueue = ref(true);
+const skipAiAid = ref(false);
+const noteAidAllowManualWrite = ref(true);
+const noteAidAutosignAfterReview = ref(false);
+
+const isReviewOnlyAid = computed(() => aidUsesContentReview(selectedAid.value));
+const isClientChartAid = computed(() => aidAttachesToClientChart(selectedAid.value));
+const isTreatmentSummaryAid = computed(() => aidRequiresProviderSupervisorSign(selectedAid.value));
+const canUseManualSkipAi = computed(() => !!noteAidAllowManualWrite.value && !chartNoteReadOnly.value);
+const manualWriteDisabledByProfile = computed(() => !noteAidAllowManualWrite.value);
+const treatmentSummaryNoteId = ref(null);
+const treatmentSummaryProviderSignedAt = ref(null);
+const treatmentSummarySupervisorSignedAt = ref(null);
+const chartSessions = ref([]);
+const chartNotesMeta = ref([]);
+
+async function loadNoteAidWriterPrefs() {
+  const uid = Number(authStore.user?.id || 0);
+  if (!uid) return;
+  try {
+    const resp = await api.get(`/users/${uid}/preferences`, { skipGlobalLoading: true });
+    const data = resp?.data?.preferences || resp?.data || {};
+    noteAidAllowManualWrite.value = data.note_aid_allow_manual_write !== 0
+      && data.note_aid_allow_manual_write !== false
+      && data.note_aid_allow_manual_write !== '0';
+    noteAidAutosignAfterReview.value = !!(
+      data.note_aid_autosign_after_review === true
+      || data.note_aid_autosign_after_review === 1
+      || data.note_aid_autosign_after_review === '1'
+    );
+    if (!noteAidAllowManualWrite.value) skipAiAid.value = false;
+  } catch {
+    // defaults
+  }
+}
+
+function seedManualEmptySections() {
+  const freeform = usesFreeformCsPathway.value || isReviewOnlyAid.value;
+  const placeholder = 'Write this section…';
+  const sections = freeform
+    ? { Output: placeholder }
+    : {
+        Subjective: placeholder,
+        Objective: placeholder,
+        Interventions: placeholder,
+        Plan: placeholder
+      };
+  outputObj.value = {
+    sections,
+    meta: {
+      ...(outputObj.value?.meta || {}),
+      toolId: selectedAid.value?.toolId || outputObj.value?.meta?.toolId || null,
+      manualSections: true,
+      model: null
+    }
+  };
+  Object.keys(sectionOverrides).forEach((k) => delete sectionOverrides[k]);
+  Object.keys(sections).forEach((title) => {
+    sectionOverrides[title] = placeholder;
+    sectionEditing[title] = true;
+  });
+}
 const sessionOfficeEventId = ref(null);
 const sessionClinicalSessionId = ref(null);
 const sessionDurationMinutes = ref(null);
@@ -1608,8 +1808,28 @@ const participantsPresenceDismissed = ref(false);
 
 watch(sessionParticipants, (val) => {
   if (val !== 'Client Only') participantsPresenceDismissed.value = false;
-  else sessionParticipantsDetail.value = '';
+  else if (!familyAttendeesRequired.value) sessionParticipantsDetail.value = '';
 });
+
+function normalizeParticipantsLabel(raw) {
+  const v = String(raw || '').trim();
+  if (!v) return 'Client Only';
+  if (/^client\s*only$/i.test(v)) return 'Client Only';
+  if (/others?\s*\(?\s*client\s+not\s+present/i.test(v) || /^collateral$/i.test(v)) {
+    return 'Others (client not present)';
+  }
+  if (/client\s*(and|\+)\s*(others?|family|other)/i.test(v)) return 'Client and Others';
+  return v;
+}
+
+function applyParticipantsDefaultForServiceCode(code) {
+  const c = String(code || '').toUpperCase();
+  if (c === '90847') {
+    sessionParticipants.value = 'Client and Others';
+  } else if (c === '90846') {
+    sessionParticipants.value = 'Others (client not present)';
+  }
+}
 const sessionPatientDob = ref('');
 const sessionScheduledStart = ref(null);
 const sessionScheduledEnd = ref(null);
@@ -1664,6 +1884,9 @@ const noteAidAgencyChoiceId = ref(null);
 const selectedAidCategoryId = computed(() => {
   const aidId = String(selectedAidId.value || '');
   if (!aidId) return '';
+  for (const cat of noteAidCategories.value || []) {
+    if ((cat.aids || []).some((a) => a.id === aidId)) return cat.id;
+  }
   for (const cat of NOTE_AID_CATEGORIES || []) {
     if ((cat.aids || []).some((a) => a.id === aidId)) return cat.id;
   }
@@ -1747,6 +1970,10 @@ const agencyLookup = computed(() => {
   return map;
 });
 const isProgressAid = computed(() => aidKind(selectedAid.value) === 'progress');
+const usesFreeformCsPathway = computed(() => aidUsesFreeformCsPathway(selectedAid.value));
+const pathwayStandardLabel = computed(() =>
+  usesFreeformCsPathway.value ? 'Freeform' : 'SOAP / freeform'
+);
 
 const csNoteBuildAgencyEnabled = computed(() => {
   const flags = parseFeatureFlags(agencyStore.currentAgency?.feature_flags || agencyStore.currentAgency?.featureFlags);
@@ -1754,9 +1981,11 @@ const csNoteBuildAgencyEnabled = computed(() => {
 });
 
 const showCsNoteBuildPathway = computed(() => {
-  if (!isProgressAid.value) return false;
   const role = String(authStore.user?.role || '').toLowerCase();
-  return role === 'super_admin' || csNoteBuildAgencyEnabled.value;
+  if (!(role === 'super_admin' || csNoteBuildAgencyEnabled.value)) return false;
+  // H0023 / H0031 additional: Freeform + CSNoteBuild (never SOAP).
+  if (usesFreeformCsPathway.value) return true;
+  return isProgressAid.value;
 });
 
 const useCsNoteBuildPathway = computed(
@@ -1785,7 +2014,8 @@ const csGenerateDisabled = computed(() => {
   const goalIds = (activeTreatmentGoals.value || []).map((g) => g.id).filter(Boolean);
   const { complete } = csNoteBuildCompletionCount(csNoteBuildState.value, {
     isTelehealth: csIsTelehealth.value,
-    goalIds
+    goalIds,
+    skipMse: skipMentalStatusExam.value
   });
   return !complete;
 });
@@ -1818,13 +2048,70 @@ function goToWriteStep() {
   if (!canContinueToWriteStep.value) return;
   noteWizardStep.value = 2;
 }
-const skipMentalStatusExam = computed(() => {
-  const code = String(actualServiceCode.value || '').toUpperCase();
-  return code === 'H0004';
-});
-const showStructuredChartPanel = computed(
-  () => !!(effectiveClientId.value || showSessionContextStrip.value || canApproveToClinicalRecord.value)
+const skipMentalStatusExam = computed(() =>
+  aidSkipsMentalStatusExam(selectedAid.value, actualServiceCode.value)
 );
+const chartDiagnosisMode = computed(() => aidDiagnosisMode(selectedAid.value));
+const mseSkipLabel = computed(() => {
+  const code = String(actualServiceCode.value || selectedAid.value?.serviceCode || '').toUpperCase();
+  if (code === 'H0004') return 'Mental status exam is not used for H0004.';
+  if (code === 'H0031') return 'Mental status exam is not used for H0031.';
+  if (code === 'H0023') return 'Mental status exam is not used for H0023 outreach.';
+  return 'Mental status exam skipped for this service.';
+});
+const structuredChartDiagnoses = computed(() => {
+  const list = Array.isArray(chartDiagnoses.value) ? chartDiagnoses.value : [];
+  const mode = chartDiagnosisMode.value;
+  if (mode === 'none') return [];
+  if (mode === 'zr_only') {
+    return list.filter((d) => isSocialDeterminantCode(d?.icd10_code || d?.code || d?.icd10Code));
+  }
+  return list;
+});
+/** Chart MSE/risk only when a client is linked — never for sessionless tools or orphan drafts. */
+const isSessionlessAid = computed(() => !!selectedAid.value?.sessionless || !!selectedAid.value?.standaloneModal);
+const showStructuredChartPanel = computed(() => {
+  if (isSessionlessAid.value) return false;
+  // H0023 outreach: no chart MSE/dx strip (Colorado freeform note only).
+  if (chartDiagnosisMode.value === 'none' && skipMentalStatusExam.value) return false;
+  return !!effectiveClientId.value;
+});
+const familyAttendeesRequired = computed(() => {
+  const code = String(actualServiceCode.value || '').toUpperCase();
+  if (code !== '90846' && code !== '90847') return false;
+  return sessionParticipants.value !== 'Client Only';
+});
+const quickSessionServiceCodeChoices = computed(() => {
+  const aid = selectedAid.value;
+  if (!aid) return [];
+  if (aid.codeGroupId) {
+    const g = NOTE_TYPE_GROUPS.find((x) => x.id === aid.codeGroupId);
+    return Array.isArray(g?.codes) ? [...g.codes] : [];
+  }
+  const code = String(aid.serviceCode || '').trim().toUpperCase();
+  return code ? [code] : [];
+});
+function onQuickSessionServiceCode(code) {
+  const next = String(code || '').trim().toUpperCase();
+  if (!next) return;
+  selectedServiceCode.value = next;
+  otherServiceCode.value = '';
+  applyParticipantsDefaultForServiceCode(next);
+  // Autoselect matching Note Aid when the clinician changes the service code.
+  let hit = findNoteAidByToolOrCode({ serviceCode: next });
+  if (hit?.aid && !aidIsEligible(hit.aid)) {
+    hit = ['90832', '90834', '90837'].includes(next) ? findNoteAidById('psychotherapy') : null;
+  }
+  if (hit?.aid && aidIsEligible(hit.aid) && hit.aid.id !== selectedAidId.value) {
+    selectedAidId.value = hit.aid.id;
+    selectedNoteCategory.value = hit.category?.id || selectedNoteCategory.value;
+    if (hit.aid.autoSelect) autoSelectCode.value = true;
+  }
+  if (lastGeneratedServiceCode.value && lastGeneratedServiceCode.value !== next) {
+    serviceCodeChangedAfterGenerate.value = true;
+  }
+  applyBillingRulesForCurrentSession({ announce: true });
+}
 const sessionClinicianLabel = computed(() => {
   const u = authStore.user || {};
   const name = [u.first_name, u.last_name].filter(Boolean).join(' ').trim();
@@ -1867,7 +2154,9 @@ const sessionParticipantsFlag = computed(
   () => sessionParticipantsHint.value && !participantsPresenceDismissed.value
 );
 const canConfirmAndSign = computed(() => {
+  if (isClientChartAid.value) return true;
   if (sessionParticipantsFlag.value) return false;
+  if (familyAttendeesRequired.value && !String(sessionParticipantsDetail.value || '').trim()) return false;
   const hasScheduledSession = !!(
     bookingContext.value?.officeEventId
     || sessionOfficeEventId.value
@@ -1950,7 +2239,7 @@ function syncRouteNoteClient(clientId) {
 }
 const inputText = ref('');
 const includeInteractiveComplexity = ref(false);
-const notePathway = ref('soap'); // 'soap' | 'csNoteBuild'
+const notePathway = ref('standard'); // 'standard' | 'csNoteBuild'
 const csNoteBuildState = ref(createEmptyCsNoteBuildState());
 const csNoteBuildPanelRef = ref(null);
 const csProposingPlan = ref(false);
@@ -2354,7 +2643,86 @@ const STATIC_COMMON_CODES = [
 
 const HIDDEN_ADDON_CODES = HIDDEN_NOTE_AID_CODES;
 const NOTE_TYPE_GROUPS = NOTE_TYPE_CODE_GROUPS;
-const noteAidCategories = NOTE_AID_CATEGORIES;
+const agencyNoteAidCatalog = ref({
+  settings: [],
+  assignments: [],
+  customAids: [],
+  peopleScopedCatalogIds: [],
+  peopleScopedCustomIds: []
+});
+const noteAidCategories = computed(() =>
+  mergeAgencyCatalogIntoCategories(NOTE_AID_CATEGORIES, agencyNoteAidCatalog.value, derivedTier.value)
+);
+
+const includeAfterHours99051 = ref(false);
+const billingAddons = ref([]);
+const billingPrimaryUnits = ref(1);
+const billingRulesBanner = ref('');
+const serviceCodeChangedAfterGenerate = ref(false);
+const lastGeneratedServiceCode = ref('');
+
+function applyBillingRulesForCurrentSession({ announce = false } = {}) {
+  const primary = String(actualServiceCode.value || selectedServiceCode.value || '').trim().toUpperCase();
+  if (!primary || primary === '__OTHER__') return;
+  const resolved = resolveNoteAidBillingCodes({
+    primaryCode: primary,
+    durationMinutes: sessionDurationMinutes.value,
+    includeInteractiveComplexity: includeInteractiveComplexity.value,
+    includeAfterHours99051: includeAfterHours99051.value,
+    sessionStartAt: sessionScheduledStart.value || null
+  });
+  billingAddons.value = resolved.addons || [];
+  billingPrimaryUnits.value = resolved.primaryUnits || 1;
+  if (resolved.switchedFrom && resolved.primaryCode !== primary) {
+    selectedServiceCode.value = resolved.primaryCode;
+    otherServiceCode.value = '';
+  }
+  if (!resolved.allow90785 && includeInteractiveComplexity.value) {
+    includeInteractiveComplexity.value = false;
+  }
+  if (shouldSuggest99051(sessionScheduledStart.value || null) && !includeAfterHours99051.value) {
+    includeAfterHours99051.value = true;
+    if (!billingAddons.value.some((a) => a.code === '99051')) {
+      billingAddons.value = [...billingAddons.value, { code: '99051', units: 1 }];
+    }
+  }
+  const warnings = (resolved.warnings || []).filter(Boolean);
+  if (announce && warnings.length) {
+    billingRulesBanner.value = warnings.join(' ');
+    sessionCodeSwitchBanner.value = warnings[0] || sessionCodeSwitchBanner.value;
+  } else if (!warnings.length) {
+    billingRulesBanner.value = '';
+  }
+}
+
+async function loadAgencyNoteAidCatalog() {
+  const agencyId = Number(noteAidAgencyId.value || currentAgencyId.value || agencyStore.currentAgencyId || 0);
+  if (!agencyId) {
+    agencyNoteAidCatalog.value = {
+      settings: [],
+      assignments: [],
+      customAids: [],
+      peopleScopedCatalogIds: [],
+      peopleScopedCustomIds: []
+    };
+    return;
+  }
+  try {
+    const { data } = await api.get('/note-aid/catalog', {
+      params: { agencyId },
+      skipGlobalLoading: true
+    });
+    agencyNoteAidCatalog.value = {
+      settings: data?.settings || [],
+      assignments: data?.assignments || [],
+      customAids: data?.customAids || [],
+      peopleScopedCatalogIds: data?.peopleScopedCatalogIds || [],
+      peopleScopedCustomIds: data?.peopleScopedCustomIds || []
+    };
+  } catch {
+    // Catalog settings are optional; fall back to built-in defaults.
+  }
+}
 
 const SERVICE_CODE_DESCRIPTIONS = {
   '90791': 'Psychiatric diagnostic intake/assessment.',
@@ -2435,6 +2803,8 @@ const noteTypeOptions = computed(() => {
 });
 
 function aidIsEligible(aid) {
+  if (!aid || RETIRED_NOTE_AID_IDS.has(aid.id)) return false;
+  if (!aidIsVisibleForTiers(aid, derivedTier.value)) return false;
   const available = new Set(rawEligibleServiceCodes.value);
   const code = String(aid.serviceCode || '').toUpperCase();
   if (!code) return true;
@@ -2450,20 +2820,27 @@ function aidIsEligible(aid) {
 }
 
 const aidsForSelectedCategory = computed(() => {
-  const cat = noteAidCategories.find((c) => c.id === selectedNoteCategory.value);
+  const cat = noteAidCategories.value.find((c) => c.id === selectedNoteCategory.value);
   if (!cat) return [];
   return (cat.aids || []).filter((aid) => aidIsEligible(aid));
 });
 
 const selectedAid = computed(() => {
-  const hit = findNoteAidById(selectedAidId.value);
-  return hit?.aid || null;
+  const id = String(selectedAidId.value || '');
+  if (!id) return null;
+  const hit = findNoteAidById(id);
+  if (hit?.aid) return hit.aid;
+  for (const cat of noteAidCategories.value || []) {
+    const aid = (cat.aids || []).find((a) => a.id === id);
+    if (aid) return aid;
+  }
+  return null;
 });
 
 const selectedAidGuidance = computed(() => String(selectedAid.value?.guidance || '').trim());
 const selectedAidForcesAutoSelect = computed(() => !!selectedAid.value?.autoSelect);
 const selectedCategoryLabel = computed(() => {
-  const cat = noteAidCategories.find((c) => c.id === selectedNoteCategory.value);
+  const cat = noteAidCategories.value.find((c) => c.id === selectedNoteCategory.value);
   return cat?.label || '';
 });
 /** Show aid library when user is picking a tool (create new or change tool). */
@@ -2632,9 +3009,26 @@ async function beginAmendmentFromSignedNote() {
   approvalMessage.value = `Amendment draft — original note #${amendmentParentNoteId.value} stays on file. Save and sign to create the updated copy.`;
   await saveDraftNow();
 }
-const showInteractiveComplexityOption = computed(() => aidAllowsInteractiveComplexity(selectedAid.value));
+const showInteractiveComplexityOption = computed(() => {
+  if (!aidAllowsInteractiveComplexity(selectedAid.value)) return false;
+  const code = String(actualServiceCode.value || '').toUpperCase();
+  const resolved = resolveNoteAidBillingCodes({
+    primaryCode: code,
+    durationMinutes: sessionDurationMinutes.value,
+    includeInteractiveComplexity: true,
+    includeAfterHours99051: includeAfterHours99051.value,
+    sessionStartAt: sessionScheduledStart.value || null
+  });
+  return !!resolved.allow90785;
+});
+const showAfterHours99051Option = computed(() => {
+  const code = String(actualServiceCode.value || selectedServiceCode.value || '').toUpperCase();
+  if (!code || HIDDEN_NOTE_AID_CODES.has(code)) return false;
+  // Offer toggle whenever a billable progress/intake session is being documented.
+  return !!selectedAid.value && aidKind(selectedAid.value) !== 'plan';
+});
 const libraryCategories = computed(() => {
-  const filtered = (noteAidCategories || []).map((cat) => ({
+  const filtered = (noteAidCategories.value || []).map((cat) => ({
     ...cat,
     aids: (cat.aids || []).filter((aid) => aidIsEligible(aid))
   })).filter((cat) => cat.aids.length);
@@ -2713,6 +3107,18 @@ watch(showInteractiveComplexityOption, (allowed) => {
 
 function onLibrarySelect({ aid, categoryId }) {
   selectedNoteCategory.value = categoryId || findNoteAidById(aid?.id)?.category?.id || '';
+  if (aid?.standaloneModal === 'diagnosis') {
+    selectedAidId.value = '';
+    showAidPicker.value = false;
+    showDiagnosisWriterModal.value = true;
+    return;
+  }
+  if (aid?.standaloneModal === 'treatment_plan') {
+    selectedAidId.value = '';
+    showAidPicker.value = false;
+    showTreatmentPlanWriterModal.value = true;
+    return;
+  }
   selectedAidId.value = aid?.id || '';
   showAidPicker.value = false;
   noteWizardStep.value = 2;
@@ -2732,8 +3138,8 @@ function changeNoteAid() {
 }
 
 watch(selectedAidId, (aidId) => {
-  const aid = findNoteAidById(aidId)?.aid;
-  if (aidKind(aid) === 'progress') {
+  const aid = selectedAid.value || findNoteAidById(aidId)?.aid;
+  if (aidKind(aid) === 'progress' || aidUsesFreeformCsPathway(aid)) {
     const hasSession = !!(bookingContext.value?.clinicalSessionId || bookingContext.value?.officeEventId);
     const lockedByDraftOrQueue = !!(draftId.value || activeWorkQueueItemId.value);
     showProgressSessionPicker.value =
@@ -2760,8 +3166,14 @@ watch(selectedAidId, (aidId) => {
     autoSelectCode.value = false;
   }
   if (aid.serviceCode || aid.codeGroupId) {
-    selectedServiceCode.value = aid.codeGroupId || aid.serviceCode;
+    if (aid.codeGroupId) {
+      const g = NOTE_TYPE_GROUPS.find((x) => x.id === aid.codeGroupId);
+      selectedServiceCode.value = g?.primary || aid.serviceCode || '';
+    } else {
+      selectedServiceCode.value = aid.serviceCode;
+    }
     otherServiceCode.value = '';
+    applyParticipantsDefaultForServiceCode(selectedServiceCode.value);
   } else {
     selectedServiceCode.value = '';
     otherServiceCode.value = '';
@@ -2990,23 +3402,38 @@ const eligibleCodesLabel = computed(() => {
 });
 
 const generateDisabled = computed(() => {
+  if (skipAiAid.value) return true;
   if (generating.value) return true;
   if (recording.value || recordingBusy.value) return true;
   if (noteAidAgencyNeedsChoice.value && !noteAidAgencyId.value) return true;
+  if (familyAttendeesRequired.value && !String(sessionParticipantsDetail.value || '').trim()) return true;
   const hasText = !!String(inputText.value || '').trim();
   const hasAudio = !!audioBlob.value;
+  // Treatment summary can generate from chart attendance/progress alone (+ optional clinician blurb).
+  if (isTreatmentSummaryAid.value && effectiveClientId.value) {
+    if (!forceAutoSelect.value && !resolveGenerateToolId.value) return true;
+    return false;
+  }
   if (!hasText && !hasAudio) return true;
   if (!forceAutoSelect.value && !resolveGenerateToolId.value) return true;
   return false;
 });
 
 const generateBlockedReason = computed(() => {
+  if (skipAiAid.value) return 'Skip AI is on — write each section manually below.';
   if (generating.value) return 'Generating…';
   if (recording.value) return 'Stop recording before generating.';
   if (recordingBusy.value) return 'Finishing recording…';
   if (noteAidAgencyNeedsChoice.value && !noteAidAgencyId.value) {
-    return 'Choose which tenant this note belongs to (above).';
+    return 'Choose which agency this note belongs to (above).';
   }
+  if (familyAttendeesRequired.value && !String(sessionParticipantsDetail.value || '').trim()) {
+    return 'Name who attended (participants detail is required for family/couples codes).';
+  }
+  if (isTreatmentSummaryAid.value && !effectiveClientId.value) {
+    return 'Link a client so attendance, progress, and scaled objectives can be loaded.';
+  }
+  if (isTreatmentSummaryAid.value && effectiveClientId.value) return '';
   const hasText = !!String(inputText.value || '').trim();
   const hasAudio = !!audioBlob.value;
   if (!hasText && !hasAudio) return 'Add session notes in the box above or record dictation.';
@@ -3163,6 +3590,8 @@ const regenerateDisabled = computed(() => !canRegenerateFromDraft.value);
 
 const regenerateButtonLabel = computed(() => {
   if (generating.value) return 'Regenerating…';
+  if (amendmentParentNoteId.value) return 'Regenerate as addendum format';
+  if (serviceCodeChangedAfterGenerate.value) return 'Regenerate with new service code format';
   if (hasRevisionAdditions.value) return 'Regenerate with new additions';
   return 'Regenerate note';
 });
@@ -4144,7 +4573,8 @@ const generateNote = async () => {
       serviceCode: actualServiceCode.value,
       locationLabel: sessionLocationLabel.value,
       clientInitials: initials.value,
-      isTelehealth: csIsTelehealth.value
+      isTelehealth: csIsTelehealth.value,
+      skipMse: skipMentalStatusExam.value
     });
     inputText.value = serialized;
     const mins = csContactMinutes(csNoteBuildState.value.startTime, csNoteBuildState.value.endTime);
@@ -4237,6 +4667,54 @@ const generateNote = async () => {
     if (dxLines.length) {
       planBits.push(`Diagnosis on file:\n${dxLines.map((l) => `- ${l}`).join('\n')}`);
     }
+
+    // Treatment Summary: auto-assemble attendance + scale history + plan; clinician text is additional info.
+    let treatmentSummaryAssembled = '';
+    if (isTreatmentSummaryAid.value && effectiveClientId.value) {
+      if (!chartSessions.value.length && !chartObjectiveRatings.value.length) {
+        await loadClientTreatmentPlan(effectiveClientId.value);
+      }
+      const progressExcerpts = [];
+      const signedProgress = (chartNotesMeta.value || [])
+        .filter((n) => n?.provider_signed_at)
+        .filter((n) => {
+          const t = String(n.note_type || n.title || '').toLowerCase();
+          return t.includes('progress') || /^90\d{3}/.test(String(n.session_service_code || n.service_code || ''));
+        })
+        .slice(0, 5);
+      for (const n of signedProgress) {
+        try {
+          const nr = await api.get(`/medical-billing/notes/${n.id}`, {
+            params: { agencyId: noteAidAgencyId.value || currentAgencyId.value },
+            skipGlobalLoading: true
+          });
+          const sections = nr?.data?.note?.outputJson?.sections || {};
+          const bits = Object.entries(sections)
+            .map(([k, v]) => `${k}: ${String(v || '').trim()}`)
+            .filter((line) => line.length > 12)
+            .slice(0, 6);
+          if (bits.length) {
+            progressExcerpts.push(
+              `Note #${n.id} (${n.session_service_code || n.service_code || n.note_type || 'progress'} · ${String(n.created_at || '').slice(0, 10)}):\n${bits.join('\n').slice(0, 1200)}`
+            );
+          }
+        } catch {
+          // best-effort excerpts
+        }
+      }
+      treatmentSummaryAssembled = buildTreatmentSummaryContextDocument({
+        sessions: chartSessions.value,
+        notes: chartNotesMeta.value,
+        latestPlan: latestTreatmentPlan.value,
+        pastedPlanText: pastedPlanText.value,
+        diagnoses: chartDiagnoses.value,
+        objectiveRatings: chartObjectiveRatings.value,
+        progressNoteExcerpts: progressExcerpts,
+        clinicianAdditionalText: inputText.value,
+        clientStatus: selectedClient.value?.status || selectedClient.value?.lifecycle_status || ''
+      });
+    }
+
     const participantsLine = sessionParticipantsDetail.value
       ? `${sessionParticipants.value || 'Client Only'} (${sessionParticipantsDetail.value})`
       : (sessionParticipants.value || 'Client Only');
@@ -4267,7 +4745,9 @@ const generateNote = async () => {
       String(!!includeInteractiveComplexity.value && showInteractiveComplexityOption.value)
     );
     let generateInput = String(inputText.value || '').trim();
-    if (!generateInput && outputObj.value) {
+    if (treatmentSummaryAssembled) {
+      generateInput = treatmentSummaryAssembled;
+    } else if (!generateInput && outputObj.value) {
       const sections = Object.fromEntries(
         (displayPanels.value || []).map((p) => [p.id, panelText(p)])
       );
@@ -4281,7 +4761,19 @@ const generateNote = async () => {
         includeInteractiveComplexity: includeInteractiveComplexity.value && showInteractiveComplexityOption.value
       });
     }
+    if (selectedAid.value?.isCustom && (selectedAid.value.systemPrompt || selectedAid.value.trainingNotes)) {
+      const customBits = [
+        'Custom Note Aid training directions for this organization:',
+        selectedAid.value.systemPrompt || '',
+        selectedAid.value.trainingNotes || ''
+      ].filter(Boolean).join('\n');
+      generateInput = `${customBits}\n\n${generateInput}`.slice(0, 12000);
+    }
+    if (String(actualServiceCode.value || '').toUpperCase() === '90839') {
+      generateInput = `${CRISIS_90839_SERVICE_DESCRIPTION}\n\n${generateInput}`.slice(0, 12000);
+    }
     fd.append('inputText', generateInput);
+    if (selectedAidId.value) fd.append('aidId', String(selectedAidId.value));
     if (String(revisionInstruction.value || '').trim()) {
       fd.append('revisionInstruction', String(revisionInstruction.value || '').trim());
     }
@@ -4293,6 +4785,12 @@ const generateNote = async () => {
 
     const res = await api.post('/clinical-notes/generate', fd, { skipGlobalLoading: true });
     outputObj.value = res?.data?.outputJson || null;
+    lastGeneratedServiceCode.value = String(actualServiceCode.value || '').toUpperCase();
+    serviceCodeChangedAfterGenerate.value = false;
+    if (amendmentParentNoteId.value) {
+      approvalMessage.value =
+        `Regenerated with the new format — signing will save this as an addendum to note #${amendmentParentNoteId.value}.`;
+    }
     if (res?.data?.draftId) {
       draftId.value = res.data.draftId;
       if (!currentDraftCreatedAt.value) currentDraftCreatedAt.value = new Date().toISOString();
@@ -4382,12 +4880,37 @@ async function onCsProposePlan(state) {
 }
 
 watch(isProgressAid, (ok) => {
-  if (!ok) notePathway.value = 'soap';
+  if (!ok && !usesFreeformCsPathway.value) notePathway.value = 'standard';
 });
 
 watch(showCsNoteBuildPathway, (ok) => {
-  if (!ok) notePathway.value = 'soap';
+  if (!ok) notePathway.value = 'standard';
 });
+
+watch(usesFreeformCsPathway, (freeformCs) => {
+  // Never leave a freeform_cs aid on a SOAP-labeled mental model — standard = Freeform.
+  if (freeformCs && notePathway.value !== 'csNoteBuild') notePathway.value = 'standard';
+});
+
+watch(skipAiAid, (on) => {
+  if (!on) return;
+  if (!noteAidAllowManualWrite.value) {
+    skipAiAid.value = false;
+    return;
+  }
+  seedManualEmptySections();
+});
+
+watch(noteAidAllowManualWrite, (ok) => {
+  if (!ok) skipAiAid.value = false;
+});
+
+watch(
+  () => selectedAidId.value,
+  () => {
+    if (notePathway.value === 'soap') notePathway.value = 'standard';
+  }
+);
 
 const buildApprovedPayloadText = () => {
   const sections = Object.fromEntries(mergedSectionEntries.value || []);
@@ -4419,14 +4942,18 @@ const ensureClinicalSessionForApproval = async () => {
     throw new Error('Link a client before saving this note to the clinical record.');
   }
 
-  if (!officeEventId) {
+  if (!officeEventId || isClientChartAid.value) {
     const res = await api.post('/clinical-data/sessions/bootstrap', {
       agencyId,
       clientId,
       noteOnly: true,
       serviceDate: dateOfService.value ? String(dateOfService.value).slice(0, 10) : null,
-      serviceCode: actualServiceCode.value || null,
-      noteType: bookingContext.value?.noteType || 'PROGRESS_NOTE',
+      serviceCode: isClientChartAid.value ? null : (actualServiceCode.value || null),
+      noteType: isReviewOnlyAid.value
+        ? 'TERMINATION'
+        : (isTreatmentSummaryAid.value
+          ? 'TREATMENT_SUMMARY'
+          : (bookingContext.value?.noteType || 'PROGRESS_NOTE')),
       sourceTimezone: 'America/New_York'
     });
     const sessionId = Number(res?.data?.session?.id || 0) || null;
@@ -4452,7 +4979,9 @@ const approveNoteOutput = async ({ silent = false, afterSign = 'queue' } = {}) =
   if (!mergedSectionEntries.value.length) return;
   if (approvingNote.value) return;
   if (!attestAccurateAndComplete.value || !attestMedicallyNecessary.value) {
-    approvalError.value = 'Check both attestations (accurate & complete, and medically necessary) before signing.';
+    approvalError.value = isReviewOnlyAid.value
+      ? 'Check both attestations (accurate & complete, and content review) before saving.'
+      : 'Check both attestations (accurate & complete, and medically necessary) before signing.';
     return;
   }
   const hasScheduledSession = !!(
@@ -4460,7 +4989,7 @@ const approveNoteOutput = async ({ silent = false, afterSign = 'queue' } = {}) =
     || sessionOfficeEventId.value
     || bookingContext.value?.clinicalSessionId
   );
-  if (hasScheduledSession && !canConfirmAndSign.value) {
+  if (hasScheduledSession && !isClientChartAid.value && !canConfirmAndSign.value) {
     approvalError.value = sessionParticipantsFlag.value
       ? 'Update Participants — session content suggests others were present.'
       : 'Complete required chart sections before signing.';
@@ -4473,10 +5002,18 @@ const approveNoteOutput = async ({ silent = false, afterSign = 'queue' } = {}) =
     const sessionId = await ensureClinicalSessionForApproval();
     const approvedPayload = buildApprovedPayloadText();
     if (!approvedPayload) throw new Error('No approved note content available to persist.');
-    const serviceCodeForMetadata = actualServiceCode.value || null;
-    const noteType = bookingContext.value?.noteType || 'PROGRESS_NOTE';
+    const serviceCodeForMetadata = isClientChartAid.value ? null : (actualServiceCode.value || null);
+    const noteType = isReviewOnlyAid.value
+      ? 'TERMINATION'
+      : (isTreatmentSummaryAid.value
+        ? 'TREATMENT_SUMMARY'
+        : (bookingContext.value?.noteType || 'PROGRESS_NOTE'));
     const dos = dateOfService.value ? String(dateOfService.value).slice(0, 10) : new Date().toISOString().slice(0, 10);
-    const title = `${String(noteType).replace(/_/g, ' ')} ${serviceCodeForMetadata ? `(${serviceCodeForMetadata}) ` : ''}${dos}`.trim();
+    const title = isReviewOnlyAid.value
+      ? `Termination note ${dos}`.trim()
+      : (isTreatmentSummaryAid.value
+        ? `Treatment Summary ${dos}`.trim()
+        : `${String(noteType).replace(/_/g, ' ')} ${serviceCodeForMetadata ? `(${serviceCodeForMetadata}) ` : ''}${dos}`.trim());
     const structuredChart = {
       diagnosticJustification: chartDiagnosticJustification.value || null,
       mentalStatusExam: skipMentalStatusExam.value ? null : chartMentalStatus.value,
@@ -4490,55 +5027,101 @@ const approveNoteOutput = async ({ silent = false, afterSign = 'queue' } = {}) =
       durationMinutes: sessionDurationMinutes.value,
       startTime: sessionStartTimeLocal.value || null,
       endTime: sessionEndTimeLocal.value || null,
-      skippedMseReason: skipMentalStatusExam.value ? 'H0004' : null
+      skippedMseReason: skipMentalStatusExam.value
+        ? (String(actualServiceCode.value || selectedAid.value?.serviceCode || 'skipped').toUpperCase())
+        : null
     };
+    const manualSections = !!skipAiAid.value || !!outputObj.value?.meta?.manualSections;
     const createRes = await api.post(`/clinical-data/sessions/${sessionId}/notes`, {
       title,
       notePayload: approvedPayload,
       noteType,
       templateVersion: bookingContext.value?.templateVersion || 'v1',
       serviceCode: serviceCodeForMetadata,
-      officeEventId: bookingContext.value?.officeEventId || sessionOfficeEventId.value || undefined,
-      source: (bookingContext.value?.officeEventId || sessionOfficeEventId.value)
+      modifiers: (billingAddons.value || []).map((a) => a.code),
+      officeEventId: isClientChartAid.value
+        ? undefined
+        : (bookingContext.value?.officeEventId || sessionOfficeEventId.value || undefined),
+      source: (bookingContext.value?.officeEventId || sessionOfficeEventId.value) && !isClientChartAid.value
         ? 'note_aid_approval'
         : 'note_aid_note_only',
-      primaryDiagnosisId: primaryChartDiagnosis.value?.id || null,
-      diagnosticJustification:
-        chartDiagnosticJustification.value || primaryChartDiagnosis.value?.justification || null,
+      primaryDiagnosisId: isClientChartAid.value ? null : (primaryChartDiagnosis.value?.id || null),
+      diagnosticJustification: isClientChartAid.value
+        ? null
+        : (chartDiagnosticJustification.value || primaryChartDiagnosis.value?.justification || null),
       metadata: {
         generatedBy: 'clinical_note_generator',
-        model: outputObj.value?.meta?.model || null,
-        toolId: outputObj.value?.meta?.toolId || null,
+        aiGenerated: !manualSections,
+        manualSections,
+        model: manualSections ? null : (outputObj.value?.meta?.model || null),
+        toolId: outputObj.value?.meta?.toolId || selectedAid.value?.toolId || null,
         draftId: draftId.value || null,
         amendmentOfNoteId: amendmentParentNoteId.value || null,
+        billingAddons: billingAddons.value || [],
+        billingPrimaryUnits: billingPrimaryUnits.value || 1,
+        includeAfterHours99051: !!includeAfterHours99051.value,
+        questionnaireInstruments: Array.isArray(outputObj.value?.meta?.questionnaireInstruments)
+          ? outputObj.value.meta.questionnaireInstruments
+          : undefined,
+        claimResubmittable: !!amendmentParentNoteId.value,
         approvedAt: new Date().toISOString(),
-        primaryDiagnosisId: primaryChartDiagnosis.value?.id || null,
+        primaryDiagnosisId: isClientChartAid.value ? null : (primaryChartDiagnosis.value?.id || null),
         dateOfService: dos,
-        officeEventId: bookingContext.value?.officeEventId || sessionOfficeEventId.value || null,
-        missingCalendarAttachment: !(bookingContext.value?.officeEventId || sessionOfficeEventId.value),
-        structuredChart,
+        officeEventId: isClientChartAid.value
+          ? null
+          : (bookingContext.value?.officeEventId || sessionOfficeEventId.value || null),
+        missingCalendarAttachment: isClientChartAid.value
+          || !(bookingContext.value?.officeEventId || sessionOfficeEventId.value),
+        documentationFlow: isReviewOnlyAid.value
+          ? 'review'
+          : (isTreatmentSummaryAid.value ? 'provider_supervisor_sign' : undefined),
+        skipSupervisorCosign: isReviewOnlyAid.value || (!isTreatmentSummaryAid.value && noteAidAutosignAfterReview.value),
+        requiresSupervisorCosign: isTreatmentSummaryAid.value
+          || !(isReviewOnlyAid.value || noteAidAutosignAfterReview.value),
+        autosignAfterReview: !isTreatmentSummaryAid.value && !!noteAidAutosignAfterReview.value,
+        printableDocument: !!isTreatmentSummaryAid.value,
+        attachMode: isClientChartAid.value ? 'client_chart' : undefined,
+        structuredChart: isClientChartAid.value ? null : structuredChart,
         attestation: {
           accurateAndComplete: true,
-          medicallyNecessary: true,
+          medicallyNecessary: !isReviewOnlyAid.value,
+          contentReviewConfirmed: !!isReviewOnlyAid.value,
           attestedAt: new Date().toISOString()
         }
       }
     });
 
     const noteId = Number(createRes?.data?.note?.id || 0);
-    if (noteId) {
+    const reviewStatus = createRes?.data?.note?.content_review_status || null;
+    let reviewPassed = String(reviewStatus || '').toLowerCase() === 'passed';
+    if (!reviewPassed && !manualSections && isReviewOnlyAid.value) reviewPassed = true;
+    // Review-only without autosign: chart shows Review (no provider signature required).
+    // Treatment summary: always provider-sign now; supervisor cosigns separately via panel / notes-to-sign.
+    // Autosign after review / normal progress notes: apply provider signature.
+    const shouldAutosign = noteId && (
+      isReviewOnlyAid.value
+        ? (noteAidAutosignAfterReview.value && reviewPassed)
+        : true
+    );
+    if (shouldAutosign) {
       try {
         await api.post(
           `/medical-billing/notes/${noteId}/sign`,
           {
             accurateAndComplete: true,
-            medicalNecessityAttested: true
+            medicalNecessityAttested: !isReviewOnlyAid.value && !isTreatmentSummaryAid.value
           },
           { skipGlobalLoading: true }
         );
       } catch (signErr) {
         console.warn('[NoteAid] provider sign after approve failed', signErr?.message || signErr);
       }
+    }
+
+    if (isTreatmentSummaryAid.value && noteId) {
+      treatmentSummaryNoteId.value = noteId;
+      treatmentSummaryProviderSignedAt.value = shouldAutosign ? new Date().toISOString() : null;
+      treatmentSummarySupervisorSignedAt.value = null;
     }
 
     inputText.value = '';
@@ -4548,7 +5131,13 @@ const approveNoteOutput = async ({ silent = false, afterSign = 'queue' } = {}) =
     revisionInstruction.value = '';
     attestAccurateAndComplete.value = false;
     attestMedicallyNecessary.value = false;
-    const signedMsg = 'Signed as medically necessary and saved to clinical records.';
+    const signedMsg = isReviewOnlyAid.value
+      ? (shouldAutosign
+        ? 'Review complete — note saved to client chart and signed.'
+        : 'Review complete — note saved to client chart.')
+      : (isTreatmentSummaryAid.value
+        ? 'Treatment Summary saved. Download/print PDF, then complete provider and clinical supervisor signatures.'
+        : 'Signed as medically necessary and saved to clinical records.');
     const nextQueue = nextInQueueItem.value;
     const nextProgress = nextInProgressRow.value;
     markActiveWorkQueueItemSigned();
@@ -4562,10 +5151,13 @@ const approveNoteOutput = async ({ silent = false, afterSign = 'queue' } = {}) =
       approvalMessage.value = signedMsg;
       await onLibrarySidebarSelect(nextProgress);
       sidebarTab.value = DOC_STATUS.STARTED;
-    } else if (mode === 'queue' && nextQueue) {
+    } else if (mode === 'queue' && nextQueue && !isTreatmentSummaryAid.value) {
       approvalMessage.value = signedMsg;
       await activateWorkQueueItem(nextQueue);
       sidebarTab.value = DOC_STATUS.STARTED;
+    } else if (isTreatmentSummaryAid.value && treatmentSummaryNoteId.value) {
+      approvalMessage.value = signedMsg;
+      // Stay on document so print / share / sign panel remains available.
     } else {
       activeWorkQueueItemId.value = null;
       await closeNoteWorkspace();
@@ -4759,7 +5351,7 @@ const bootstrapWorkspace = async ({ resetForm = false } = {}) => {
   }
 
   // Critical path in parallel; draft list is soft and must not block the form.
-  await Promise.all([loadContext(), loadPrograms()]);
+  await Promise.all([loadContext(), loadPrograms(), loadAgencyNoteAidCatalog()]);
   if (seq !== bootstrapSeq) return;
   applyBookingContextPrefill();
   applyTherapyContextPrefill();
@@ -4842,6 +5434,10 @@ const resetClientClinicalContext = () => {
   latestTreatmentPlan.value = null;
   chartDiagnoses.value = [];
   chartObjectiveRatings.value = [];
+  chartDiagnosticJustification.value = '';
+  chartMentalStatus.value = defaultMentalStatusExam();
+  chartRiskAssessment.value = defaultRiskAssessment();
+  chartMedications.value = defaultMedicationsBlock();
   clientGuardianNames.value = [];
   dismissPhiNameWarn.value = false;
   clientPlanError.value = '';
@@ -4865,6 +5461,8 @@ const loadClientTreatmentPlan = async (clientId) => {
     latestTreatmentPlan.value = null;
     chartDiagnoses.value = [];
     chartObjectiveRatings.value = [];
+    chartSessions.value = [];
+    chartNotesMeta.value = [];
     return;
   }
   const agencies = chartAgencyCandidates();
@@ -4872,6 +5470,8 @@ const loadClientTreatmentPlan = async (clientId) => {
     latestTreatmentPlan.value = null;
     chartDiagnoses.value = [];
     chartObjectiveRatings.value = [];
+    chartSessions.value = [];
+    chartNotesMeta.value = [];
     return;
   }
   loadingClientPlan.value = true;
@@ -4881,6 +5481,8 @@ const loadClientTreatmentPlan = async (clientId) => {
     let bestScore = -1;
     let bestDiagnoses = [];
     let bestRatings = [];
+    let bestSessions = [];
+    let bestNotes = [];
     let lastError = null;
 
     for (const aid of agencies) {
@@ -4898,6 +5500,8 @@ const loadClientTreatmentPlan = async (clientId) => {
           bestRatings = Array.isArray(res?.data?.objectiveRatings)
             ? res.data.objectiveRatings
             : [];
+          bestSessions = Array.isArray(res?.data?.sessions) ? res.data.sessions : [];
+          bestNotes = Array.isArray(res?.data?.notes) ? res.data.notes : [];
         }
       } catch (e) {
         lastError = e;
@@ -4907,6 +5511,8 @@ const loadClientTreatmentPlan = async (clientId) => {
     latestTreatmentPlan.value = bestPlan;
     chartDiagnoses.value = bestDiagnoses;
     chartObjectiveRatings.value = bestRatings;
+    chartSessions.value = bestSessions;
+    chartNotesMeta.value = bestNotes;
     // Prefer plan diagnostic justification over whatever intake last wrote on the dx row.
     const planJust = String(
       bestPlan?.diagnostic_justification || bestPlan?.diagnosticJustification || ''
@@ -5738,7 +6344,7 @@ async function activateWorkQueueItem(item) {
   sessionClinicalSessionId.value = item.clinicalSessionId || null;
   sessionDurationMinutes.value = item.durationMinutes || null;
   sessionLocationLabel.value = item.locationLabel || '';
-  sessionParticipants.value = item.participantsSummary || 'Client Only';
+  sessionParticipants.value = normalizeParticipantsLabel(item.participantsSummary || 'Client Only');
   sessionParticipantsDetail.value = item.participantsDetail || '';
   sessionPatientDob.value = item.clientDob ? String(item.clientDob).slice(0, 10) : '';
   sessionScheduledStart.value = item.scheduledStart || null;
@@ -6191,6 +6797,8 @@ const startNewNote = () => {
   selectedClientId.value = null;
   selectedClient.value = null;
   resetClientClinicalContext();
+  sessionParticipants.value = 'Client Only';
+  sessionParticipantsDetail.value = '';
   inputText.value = '';
   includeInteractiveComplexity.value = false;
   inputMode.value = 'type';
@@ -6638,6 +7246,7 @@ onMounted(async () => {
   const libraryUi = loadNoteLibraryUiPrefs(authStore.user?.id);
   libraryCollapsed.value = libraryUi.collapsed;
   libraryExpanded.value = libraryUi.expanded;
+  await loadNoteAidWriterPrefs();
 
   if (String(route.query?.noteAidReset || '') === '1') {
     clearAllWorkQueues(authStore.user?.id);
@@ -6712,9 +7321,14 @@ onMounted(async () => {
 
 watch(sessionDurationMinutes, (mins) => {
   if (!showSessionContextStrip.value) return;
+  const current = String(actualServiceCode.value || '').toUpperCase();
+  // Crisis / extended encounter rules take priority over standard psychotherapy bands.
+  if (current === '90839' || current === '90837' || current === '90832' || current === '90834') {
+    applyBillingRulesForCurrentSession({ announce: true });
+    return;
+  }
   const suggested = suggestPsychotherapyCodeForDuration(mins);
   if (!suggested) return;
-  const current = String(actualServiceCode.value || '').toUpperCase();
   if (!['90832', '90834', '90837'].includes(current) && current) return;
   if (current === suggested) {
     sessionCodeSwitchBanner.value = '';
@@ -6723,11 +7337,18 @@ watch(sessionDurationMinutes, (mins) => {
   selectedServiceCode.value = suggested;
   sessionCodeSwitchBanner.value =
     `Duration ${mins} min is outside ${current || 'prior'} band — switched service code to ${suggested}.`;
+  applyBillingRulesForCurrentSession({ announce: true });
 });
 
 watch(actualServiceCode, (code, prev) => {
   if (!code || code === prev) return;
   if (isWorkspaceHydrating()) return;
+  const upper = String(code).toUpperCase();
+  const prevUpper = String(prev || '').toUpperCase();
+  // Only reset participants when entering / switching family codes — not on every duration-driven 9083x change.
+  if (['90846', '90847'].includes(upper) && upper !== prevUpper) {
+    applyParticipantsDefaultForServiceCode(code);
+  }
   if (sessionScheduledStart.value && sessionScheduledEnd.value) return;
   if (sessionDurationMinutes.value == null || sessionDurationMinutes.value === '') {
     applySessionTimingDefaults({ force: true });
@@ -7494,6 +8115,19 @@ onBeforeUnmount(() => {
   background: #fff;
   color: #1d4ed8;
   box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
+}
+.na-skip-ai {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: #334155;
+  cursor: pointer;
+}
+.na-skip-ai input {
+  margin: 0;
 }
 .na-tenant-choice {
   margin: 10px 0 0;

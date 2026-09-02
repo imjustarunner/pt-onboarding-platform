@@ -228,6 +228,164 @@ export function buildUpdaterPrefillDocument({
   return sections.filter(Boolean).join('\n\n').slice(0, 11000);
 }
 
+function formatIsoDate(raw) {
+  if (!raw) return '';
+  try {
+    const d = new Date(raw);
+    if (Number.isNaN(d.getTime())) return String(raw).slice(0, 10);
+    return d.toISOString().slice(0, 10);
+  } catch {
+    return String(raw).slice(0, 10);
+  }
+}
+
+/**
+ * Assemble attendance + plan + scaled objective history + progress excerpts + clinician blurb
+ * for Treatment Summary Aid generation / printable document.
+ */
+export function buildTreatmentSummaryContextDocument({
+  sessions = [],
+  notes = [],
+  latestPlan = null,
+  pastedPlanText = '',
+  diagnoses = [],
+  objectiveRatings = [],
+  progressNoteExcerpts = [],
+  clinicianAdditionalText = '',
+  clientStatus = ''
+} = {}) {
+  const sections = [];
+
+  const sessionRows = (Array.isArray(sessions) ? sessions : []).filter(Boolean);
+  const dated = sessionRows
+    .map((s) => ({
+      ...s,
+      at: s.scheduled_start_at || s.scheduledStartAt || s.created_at || s.createdAt || null,
+      duration: s.duration_minutes ?? s.durationMinutes ?? null,
+      pos: s.place_of_service || s.placeOfService || (s.is_telehealth || s.isTelehealth ? 'telehealth' : ''),
+      status: String(s.encounter_status || s.encounterStatus || '').toLowerCase(),
+      code: s.service_code || s.serviceCode || ''
+    }))
+    .filter((s) => s.at)
+    .sort((a, b) => new Date(a.at) - new Date(b.at));
+
+  const attended = dated.filter((s) => {
+    const st = s.status;
+    if (!st) return true;
+    return !['cancelled', 'canceled', 'no_show', 'noshow'].includes(st);
+  });
+  const first = attended[0];
+  const last = attended[attended.length - 1];
+  const durations = attended.map((s) => Number(s.duration)).filter((n) => Number.isFinite(n) && n > 0);
+  const avgDuration = durations.length
+    ? Math.round(durations.reduce((a, b) => a + b, 0) / durations.length)
+    : null;
+  const places = [...new Set(attended.map((s) => String(s.pos || '').trim()).filter(Boolean))];
+  const codes = [...new Set(attended.map((s) => String(s.code || '').trim()).filter(Boolean))];
+  const statusHint = String(clientStatus || '').toLowerCase();
+  const ongoing = statusHint.includes('terminat') || statusHint.includes('discharg')
+    ? 'Services appear closed / terminated based on client status.'
+    : (attended.length && last
+      ? `Most recent session on file: ${formatIsoDate(last.at)}. Treat as ongoing unless the clinician states otherwise.`
+      : 'Ongoing status unknown — use clinician additional information.');
+
+  const attendanceLines = [
+    'ATTENDANCE AND SERVICE HISTORY (from chart — do not invent counts or dates):',
+    `- Sessions on file (non-cancelled): ${attended.length}`,
+    first ? `- Date services began (earliest session): ${formatIsoDate(first.at)}` : '- Date services began: not on file',
+    last ? `- Most recent session: ${formatIsoDate(last.at)}` : null,
+    avgDuration != null ? `- Average session duration (minutes, when recorded): ${avgDuration}` : '- Average duration: not on file',
+    places.length ? `- Places of service / modality: ${places.join(', ')}` : '- Place of service: not on file',
+    codes.length ? `- Service codes seen: ${codes.join(', ')}` : null,
+    `- Ongoing vs closed: ${ongoing}`,
+    notes?.length != null ? `- Clinical notes on chart (metadata count): ${notes.length}` : null
+  ].filter(Boolean);
+  sections.push(attendanceLines.join('\n'));
+
+  const dx = buildDiagnosisContextText(diagnoses);
+  if (dx) sections.push(dx);
+
+  const plan = buildTreatmentPlanContextText(latestPlan, pastedPlanText);
+  if (plan) {
+    sections.push(`CURRENT TREATMENT PLAN (goals / objectives / scales):\n${plan}`);
+  } else {
+    sections.push('CURRENT TREATMENT PLAN: none structured on file — use clinician text and progress history only.');
+  }
+
+  const presenting = String(
+    latestPlan?.presenting_problem
+    || latestPlan?.presentingProblem
+    || ''
+  ).trim();
+  if (presenting) {
+    sections.push(`Presenting problem / initiate of services:\n${presenting.slice(0, 3000)}`);
+  }
+  const just = String(
+    latestPlan?.diagnostic_justification
+    || latestPlan?.diagnosticJustification
+    || ''
+  ).trim();
+  if (just) {
+    sections.push(`Diagnostic justification:\n${just.slice(0, 3000)}`);
+  }
+
+  const sortedRatings = [...(objectiveRatings || [])].sort((a, b) => {
+    const da = new Date(a.date_of_service || a.rated_at || a.created_at || 0).getTime();
+    const db = new Date(b.date_of_service || b.rated_at || b.created_at || 0).getTime();
+    return da - db;
+  });
+  const ratingLines = buildObjectiveRatingsContextText(
+    sortedRatings.map((r) => ({
+      goalText: r.goal_text || r.goalText,
+      objectiveText: r.objective_text || r.objectiveText,
+      disposition: r.disposition,
+      scaleValue: r.scale_value ?? r.scaleValue,
+      scaleTarget: r.scale_target_at_rating ?? r.scale_target ?? r.scaleTarget,
+      progressLabel: r.progress_label || r.progressLabel,
+      raterKind: r.rater_kind || r.raterKind,
+      raterLabel: [
+        formatIsoDate(r.date_of_service || r.rated_at || r.created_at),
+        r.rater_label || r.raterLabel || r.rater_kind || r.raterKind || 'clinical observation'
+      ].filter(Boolean).join(' ')
+    }))
+  );
+  if (ratingLines) {
+    sections.push(
+      `OBJECTIVE SCALE RESPONSES OVER TIME (1–10; chronological — use for progress narrative):\n${ratingLines}`
+    );
+  } else {
+    sections.push('OBJECTIVE SCALE RESPONSES OVER TIME: none on file.');
+  }
+
+  const excerpts = (Array.isArray(progressNoteExcerpts) ? progressNoteExcerpts : [])
+    .map((e) => String(e || '').trim())
+    .filter(Boolean);
+  if (excerpts.length) {
+    sections.push(
+      `PROGRESS NOTE EXCERPTS (recent signed notes — summarize; do not invent):\n${excerpts.join('\n\n---\n\n').slice(0, 6000)}`
+    );
+  }
+
+  const clinician = String(clinicianAdditionalText || '').trim();
+  if (clinician) {
+    sections.push(
+      `CLINICIAN ADDITIONAL INFORMATION (participation, impressions, court-sensitive framing — prioritize tone):\n${clinician.slice(0, 6000)}`
+    );
+  }
+
+  sections.push(
+    [
+      'DOCUMENT OUTPUT REQUIREMENTS:',
+      '- Produce a full Treatment Summary document body only (no cover page, no title block beyond section headers the template uses).',
+      '- Include every Important Must from the system instructions when the data above supports it; if a must is missing, state what is missing rather than inventing.',
+      '- Refer to the individual as “client” and the writer as “clinician”; no client names.',
+      '- End ready for provider and clinical supervisor signature lines (do not invent signature names).'
+    ].join('\n')
+  );
+
+  return sections.filter(Boolean).join('\n\n').slice(0, 14000);
+}
+
 /**
  * Build treatment-plan paste text from intake narrative + chart/parsed diagnoses.
  */

@@ -114,6 +114,7 @@ class DocumentSigningService {
       const agency = agencyId ? await Agency.findById(agencyId) : (options?.agency || null);
       const brand = await resolvePacketBrandChrome(agency || {}, { packetKind: 'office' });
       const watermark = brand?.watermarkDataUrl || null;
+      const includeVersion = options?.includeVersion !== false;
       const wrapped = `<!DOCTYPE html>
 <html><head><meta charset="utf-8" />
 <style>
@@ -128,7 +129,7 @@ class DocumentSigningService {
   ${watermark ? `<img class="packet-watermark" src="${watermark}" alt="" />` : ''}
   <div class="packet-body">${htmlContent}</div>
 </body></html>`;
-      const { headerTemplate, footerTemplate } = buildPdfChromeTemplates({ brand });
+      const { headerTemplate, footerTemplate } = buildPdfChromeTemplates({ brand, includeVersion });
       return {
         html: wrapped,
         pdfOptions: {
@@ -241,6 +242,13 @@ class DocumentSigningService {
         let convertOpts = { branding: options?.branding || null };
         if (documentType === 'audio_recording_consent') {
           const branded = await this.applyPacketBrandChromeToHtml(htmlContent, options);
+          htmlForPdf = branded.html;
+          convertOpts = { ...convertOpts, ...branded.pdfOptions };
+        } else if (documentType === 'treatment_summary') {
+          const branded = await this.applyPacketBrandChromeToHtml(htmlContent, {
+            ...options,
+            includeVersion: false
+          });
           htmlForPdf = branded.html;
           convertOpts = { ...convertOpts, ...branded.pdfOptions };
         }

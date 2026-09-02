@@ -24,6 +24,9 @@ import {
 import { scrubIntakeTextForNoteWriter } from '../services/phiScrubber.service.js';
 import { logNoteAidChartEvent } from '../services/noteAidChartAudit.service.js';
 import { listSignedNoteSessions, sessionMatchKey, draftRowMatchKey } from '../services/noteAidSignedSessions.service.js';
+import { buildUnattachedQuestionnaireContext } from '../services/noteAidQuestionnaireContext.service.js';
+import { CRISIS_90839_SERVICE_DESCRIPTION } from '../utils/noteAidBillingAddons.js';
+import NoteAidAgencyCatalog from '../models/NoteAidAgencyCatalog.model.js';
 
 function safeInt(v) {
   const n = Number(v);
@@ -1247,7 +1250,41 @@ export const generateClinicalNote = async (req, res, next) => {
       return res.status(400).json({ error: { message: 'No tool configured for this note type' } });
     }
 
+    const agencyRow = await Agency.findById(agencyId);
+    const featureFlags = parseFlags(agencyRow?.feature_flags);
+
+    // Tenant custom Note Aids: instructions + reference folders (PDF/TXT learning materials).
+    let customAidRow = null;
+    const aidIdRaw = String(req.body?.aidId || '').trim();
+    const customAidMatch = aidIdRaw.match(/^custom_(\d+)$/);
+    if (customAidMatch) {
+      const customId = Number(customAidMatch[1]);
+      customAidRow = await NoteAidAgencyCatalog.findCustomAid(customId, agencyId);
+      if (!customAidRow || !customAidRow.enabled) {
+        return res.status(404).json({ error: { message: 'Custom Note Aid not found for this organization' } });
+      }
+      const allowed = await NoteAidAgencyCatalog.userCanAccessCustomAid(agencyId, req.user.id, customId);
+      if (!allowed) {
+        return res.status(403).json({ error: { message: 'You are not assigned to this custom Note Aid' } });
+      }
+    }
+
     let prompt = buildPromptForTool({ tool, inputText });
+    if (customAidRow) {
+      const customBits = [
+        customAidRow.system_prompt ? String(customAidRow.system_prompt).trim() : '',
+        customAidRow.training_notes ? String(customAidRow.training_notes).trim() : '',
+        customAidRow.guidance ? `Clinician guidance: ${String(customAidRow.guidance).trim()}` : ''
+      ].filter(Boolean);
+      if (customBits.length) {
+        prompt = [
+          'Organization custom Note Aid training / learning directions (follow these for this tool):',
+          ...customBits,
+          '',
+          prompt
+        ].join('\n');
+      }
+    }
     if (programLabel && serviceCode === 'H2014') {
       prompt = [prompt, '', `Program: ${programLabel}`].join('\n');
     }
@@ -1315,6 +1352,39 @@ export const generateClinicalNote = async (req, res, next) => {
         'Apply this revision request while preserving compliance and note structure requirements.'
       ].join('\n');
     }
+
+    const ATTACH_QUESTIONNAIRE_TOOLS = new Set([
+      'clinical_90791_intake_plan',
+      'clinical_h0031_intake',
+      'clinical_h0031_additional',
+      'clinical_treatment_summary'
+    ]);
+    let questionnaireInstruments = [];
+    if (clientId && ATTACH_QUESTIONNAIRE_TOOLS.has(toolId)) {
+      try {
+        const qCtx = await buildUnattachedQuestionnaireContext({ agencyId, clientId });
+        if (qCtx?.contextText) {
+          prompt = [prompt, '', qCtx.contextText].join('\n');
+          questionnaireInstruments = qCtx.instruments || [];
+        }
+      } catch (qErr) {
+        console.warn('[generateClinicalNote] questionnaire context failed', qErr?.message || qErr);
+      }
+    }
+
+    if (
+      String(serviceCode || '').toUpperCase() === '90839'
+      || String(toolId || '').includes('90839')
+      || String(req.body?.aidId || '') === 'crisis_90839'
+    ) {
+      prompt = [
+        prompt,
+        '',
+        'Crisis psychotherapy (90839) service description and example activities — follow when writing the note:',
+        CRISIS_90839_SERVICE_DESCRIPTION
+      ].join('\n');
+    }
+
     if (effectiveAutoSelect && Array.isArray(allowedCodes) && allowedCodes.length) {
       prompt = [
         prompt,
@@ -1329,7 +1399,7 @@ export const generateClinicalNote = async (req, res, next) => {
         'Allowed service codes for this user: All (no restriction).'
       ].join('\n');
     }
-    if (tool?.includeKnowledgeBase) {
+    if (tool?.includeKnowledgeBase || (customAidRow?.kbFolders || []).length) {
       try {
         const codeHints = Array.from(
           new Set([
@@ -1337,12 +1407,22 @@ export const generateClinicalNote = async (req, res, next) => {
             ...extractToolCodeHints(tool)
           ])
         );
+        const customFolders = NoteAidAgencyCatalog.parseKbFolders(customAidRow?.kbFolders || customAidRow?.kb_folders);
+        const folders = uniqueFolders([
+          ...getKbFoldersForTool(tool, featureFlags),
+          ...customFolders
+        ]);
         const kbContext = await getKnowledgeBaseContext({
           query: inputText,
           maxChars: 4000,
-          folders: getKbFoldersForTool(tool, featureFlags),
+          folders,
           codeHints,
-          titleHints: [tool?.name || '', tool?.description || '', programLabel || '']
+          titleHints: [
+            tool?.name || '',
+            tool?.description || '',
+            programLabel || '',
+            customAidRow?.title || ''
+          ]
         });
         if (kbContext) {
           prompt = [
@@ -1390,7 +1470,13 @@ export const generateClinicalNote = async (req, res, next) => {
         dateWritten: dateWritten || null,
         dateOfService: dateOfService || null,
         initials: initials || null,
-        serviceCode: effectiveAutoSelect ? (sections.Code || null) : serviceCode || null
+        serviceCode: effectiveAutoSelect ? (sections.Code || null) : serviceCode || null,
+        questionnaireInstruments: questionnaireInstruments.length
+          ? questionnaireInstruments.map((i) => ({
+            instrumentKey: i.instrumentKey,
+            text: String(i.text || '').slice(0, 2000)
+          }))
+          : undefined
       }
     };
 

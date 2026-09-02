@@ -409,6 +409,7 @@ import ViewportPreviewSettings from './ViewportPreviewSettings.vue';
 import PayrollScheduleSettings from './PayrollScheduleSettings.vue';
 import AgencyDepartmentsManagement from './AgencyDepartmentsManagement.vue';
 import NoteAidKnowledgeBaseSettings from './NoteAidKnowledgeBaseSettings.vue';
+import NoteAidCatalogSettings from './NoteAidCatalogSettings.vue';
 import SmsNumbersManagement from './SmsNumbersManagement.vue';
 import IntakeLinksView from '../../views/admin/IntakeLinksView.vue';
 import ChallengeManagement from './ChallengeManagement.vue';
@@ -878,6 +879,16 @@ const allCategories = [
         excludeSupervisor: true,
         requiresAgency: true,
         requiresNoteAidEnabled: true
+      },
+      {
+        id: 'note-aid-catalog',
+        label: 'Note Aid Catalog',
+        icon: '🧰',
+        component: 'NoteAidCatalogSettings',
+        roles: ['super_admin', 'admin'],
+        excludeSupervisor: true,
+        requiresAgency: true,
+        requiresNoteAidEnabled: true
       }
     ]
   },
@@ -1260,6 +1271,7 @@ const HUB_CARD_DESC = computed(() => ({
   'branding-templates': 'Email and document templates.',
   assets: 'Icons, fonts, and shared creative assets.',
   'note-aid-kb': `Note Aid knowledge base — ${contextNoun.value} with Note Aid enabled.`,
+  'note-aid-catalog': `Enable/disable Note Aids, custom aids, people scope, and session/claim attach flags.`,
   'tenant-support':
     `Contact organization support or Plot Twist HQ platform support for this ${contextNoun.value}.`,
   communications: 'Transactional email templates.',
@@ -1495,6 +1507,7 @@ const componentMap = {
   PayrollScheduleSettings,
   AgencyDepartmentsManagement,
   NoteAidKnowledgeBaseSettings,
+  NoteAidCatalogSettings,
   SmsNumbersManagement,
   TeamRolesManagement,
   BillingManagement,

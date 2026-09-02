@@ -45,7 +45,7 @@ class CommunicationLoggingService {
       metadata = null
     } = params;
 
-    return await UserCommunication.create({
+    const row = await UserCommunication.create({
       userId,
       clientId,
       agencyId,
@@ -60,6 +60,30 @@ class CommunicationLoggingService {
       trackingToken,
       metadata
     });
+
+    // Mirror client-linked emails onto the chart as Contact notes (accessible via record).
+    if (clientId && String(channel || 'email').toLowerCase() === 'email') {
+      try {
+        const { upsertClientContactNoteFromEmail } = await import('./clientEmailContactNote.service.js');
+        const meta = metadata && typeof metadata === 'object' ? metadata : {};
+        await upsertClientContactNoteFromEmail({
+          clientId,
+          agencyId,
+          authorId: generatedByUserId || userId || null,
+          to: recipientAddress || '',
+          from: meta.fromEmail || meta.from || '',
+          subject,
+          body,
+          templateType,
+          communicationId: row?.id || null,
+          direction: 'outbound'
+        });
+      } catch (e) {
+        console.warn('[CommunicationLogging] contact note mirror failed:', e?.message || e);
+      }
+    }
+
+    return row;
   }
 
   /**

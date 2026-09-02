@@ -33,6 +33,8 @@ import {
   cosignClinicalNote,
   listNotesForSigning,
   getClinicalNoteById,
+  downloadTreatmentSummaryPdf,
+  attachTreatmentSummaryPrintUpload,
   upsertDiagnosis,
   listFeeSchedule,
   upsertFeeScheduleItem,
@@ -288,6 +290,25 @@ router.get(
   requireClinicalChart,
   [param('noteId').isInt({ min: 1 }), query('agencyId').optional({ nullable: true }).isInt({ min: 1 })],
   getClinicalNoteById
+);
+
+router.get(
+  '/notes/:noteId/treatment-summary-pdf',
+  requireClinicalChart,
+  [param('noteId').isInt({ min: 1 }), query('agencyId').optional({ nullable: true }).isInt({ min: 1 })],
+  downloadTreatmentSummaryPdf
+);
+
+router.post(
+  '/notes/:noteId/treatment-summary/print-upload',
+  requireClinicalChart,
+  [
+    param('noteId').isInt({ min: 1 }),
+    body('agencyId').isInt({ min: 1 }),
+    body('phiDocumentId').isInt({ min: 1 }),
+    body('signedByName').optional({ nullable: true }).isString().isLength({ max: 255 })
+  ],
+  attachTreatmentSummaryPrintUpload
 );
 
 router.post(

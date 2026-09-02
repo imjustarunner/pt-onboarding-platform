@@ -16,7 +16,8 @@ class ClientNotes {
     'status',
     'administrative',
     'billing',
-    'clinical'
+    'clinical',
+    'contact'
   ]);
 
   static normalizeCategory(category) {
@@ -27,6 +28,7 @@ class ClientNotes {
     if (raw === 'clinical_question') return 'clinical';
     if (raw === 'billing_question') return 'billing';
     if (raw === 'general_question') return 'general';
+    if (raw === 'email' || raw === 'email_chain') return 'contact';
     if (this.ALLOWED_CATEGORIES.has(raw)) return raw;
 
     // Allow custom categories coming from school settings:

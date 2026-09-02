@@ -987,6 +987,7 @@ function buildSchoolPrintablePacketBodyDocument(packetContext = {}) {
 
 function buildPdfChromeTemplates(packetContext = {}) {
   const brand = packetContext?.brand || null;
+  const includeVersion = packetContext?.includeVersion !== false;
   const packetVersionLabel = brand?.versionLabel
     || packetContext?.packetVersionLabel
     || SCHOOL_PRINTABLE_PACKET_VERSION;
@@ -1003,14 +1004,17 @@ function buildPdfChromeTemplates(packetContext = {}) {
       ${logo ? `<img src="${logo}" style="height:46px; width:auto; max-width:3.5in; object-fit:contain; vertical-align:top;" />` : '<span style="display:inline-block;height:46px;"></span>'}
     </div>
   `;
-  // Bottom-left: footer mark. Center: Version only (Impact). Right: page (Impact).
+  // Bottom-left: footer mark. Center: Version (optional). Right: page.
+  const centerFooter = includeVersion
+    ? `Version ${escapeHtml(String(packetVersionLabel))}`
+    : '';
   const footerTemplate = `
     <div style="width:100%; box-sizing:border-box; padding:0 0.5in; color:#111; display:flex; justify-content:space-between; align-items:center; font-size:10px;">
       <div style="width:28%; text-align:left;">
         ${footerMark ? `<img src="${footerMark}" style="height:18px; width:auto; max-width:1in; object-fit:contain;" />` : ''}
       </div>
       <div style="width:44%; text-align:center; font-family: Impact, Anton, Arial Black, sans-serif; letter-spacing:0.02em;">
-        Version ${escapeHtml(String(packetVersionLabel))}
+        ${centerFooter}
       </div>
       <div style="width:28%; text-align:right; font-family: Impact, Anton, Arial Black, sans-serif;">
         PAGE <span class="pageNumber"></span>

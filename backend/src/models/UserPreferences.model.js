@@ -61,7 +61,9 @@ class UserPreferences {
           'toast_preferences',
           'documents_category_order_json',
           'schedule_display_prefs',
-          'dashboard_glance_order_json'
+          'dashboard_glance_order_json',
+          'note_aid_allow_manual_write',
+          'note_aid_autosign_after_review'
         ];
 
         for (const field of allowedFields) {
@@ -132,7 +134,9 @@ class UserPreferences {
           'toast_preferences',
           'documents_category_order_json',
           'schedule_display_prefs',
-          'dashboard_glance_order_json'
+          'dashboard_glance_order_json',
+          'note_aid_allow_manual_write',
+          'note_aid_autosign_after_review'
         ];
 
         for (const field of allowedFields) {

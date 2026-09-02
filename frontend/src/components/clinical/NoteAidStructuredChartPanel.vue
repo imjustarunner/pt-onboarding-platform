@@ -11,8 +11,11 @@
       </div>
     </header>
 
-    <div class="na-chart__block">
-      <h3>Diagnoses &amp; justification</h3>
+    <div v-if="diagnosisMode !== 'none'" class="na-chart__block">
+      <h3>{{ diagnosisMode === 'zr_only' ? 'Z / R codes (social determinants)' : 'Diagnoses &amp; justification' }}</h3>
+      <p v-if="diagnosisMode === 'zr_only'" class="muted tiny">
+        H0031 supports Z and R codes only — DSM mental-health diagnoses belong on 90791 / licensed documentation.
+      </p>
       <ul v-if="diagnoses.length" class="na-chart__dx">
         <li v-for="d in diagnoses" :key="d.id || d.code || d.icd10_code">
           <strong>{{ d.code || d.icd10_code || 'Dx' }}</strong>
@@ -20,12 +23,14 @@
           <span v-if="d.is_primary || d.primary" class="pill">Primary</span>
         </li>
       </ul>
-      <p v-else class="muted">No chart diagnoses loaded.</p>
-      <div v-if="diagnosticJustification" class="na-chart__justification">
+      <p v-else class="muted">
+        {{ diagnosisMode === 'zr_only' ? 'No Z/R codes on file.' : 'No chart diagnoses loaded.' }}
+      </p>
+      <div v-if="diagnosticJustification && diagnosisMode !== 'zr_only'" class="na-chart__justification">
         <span class="na-chart__justification-label">Diagnostic justification</span>
         <p class="na-chart__justification-body">{{ diagnosticJustification }}</p>
       </div>
-      <p v-else class="muted tiny">No diagnostic justification on file.</p>
+      <p v-else-if="diagnosisMode !== 'zr_only'" class="muted tiny">No diagnostic justification on file.</p>
     </div>
 
     <div v-if="!skipMse" class="na-chart__block na-chart__block--mse">
@@ -58,7 +63,7 @@
         </label>
       </div>
     </div>
-    <p v-else class="na-chart__skip muted">Mental status exam skipped for H0004.</p>
+    <p v-else class="na-chart__skip muted">{{ mseSkipLabel }}</p>
 
     <div class="na-chart__block na-chart__block--risk">
       <h3>Risk Assessment</h3>
@@ -206,7 +211,9 @@ const props = defineProps({
   mse: { type: Object, default: () => ({ domains: {} }) },
   risk: { type: Object, default: () => ({ patientDeniesAll: true, areas: [], notes: '' }) },
   medications: { type: Object, default: () => ({ noneCurrently: true, items: [], commentsHtml: '' }) },
-  skipMse: { type: Boolean, default: false }
+  skipMse: { type: Boolean, default: false },
+  diagnosisMode: { type: String, default: 'full' },
+  mseSkipLabel: { type: String, default: 'Mental status exam skipped for this service.' }
 });
 
 const emit = defineEmits([

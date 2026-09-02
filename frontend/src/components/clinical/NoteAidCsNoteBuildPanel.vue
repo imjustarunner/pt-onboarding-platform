@@ -176,7 +176,11 @@
     </article>
 
     <!-- 9 MSE + Risk -->
-    <article class="csnb-step" :class="{ done: !!model.mse?.mood && !!model.riskLevel }">
+    <article
+      v-if="!skipMse"
+      class="csnb-step"
+      :class="{ done: !!model.mse?.mood && !!model.riskLevel }"
+    >
       <h3><span>9</span> MSE + Risk / Safety</h3>
       <div class="csnb-mse-grid">
         <label v-for="field in mseFields" :key="field.key">
@@ -200,6 +204,7 @@
         <textarea v-model="model.riskDetails" class="csnb-textarea" rows="3" />
       </label>
     </article>
+    <p v-else class="csnb-hint">Mental status / risk step skipped for this service code.</p>
 
     <!-- 10 Treatment plan progress -->
     <article class="csnb-step" :class="{ done: goalsProgressDone }">
@@ -310,7 +315,8 @@ const props = defineProps({
   proposedInterventions: { type: Array, default: () => [] },
   symptomSuggestions: { type: Array, default: () => [] },
   isTelehealth: { type: Boolean, default: false },
-  proposingPlan: { type: Boolean, default: false }
+  proposingPlan: { type: Boolean, default: false },
+  skipMse: { type: Boolean, default: false }
 });
 
 const emit = defineEmits(['update:modelValue', 'propose-plan']);
@@ -369,7 +375,8 @@ const goalIds = computed(() => (props.goals || []).map((g) => g.id).filter(Boole
 const completion = computed(() =>
   csNoteBuildCompletionCount(model, {
     isTelehealth: props.isTelehealth,
-    goalIds: goalIds.value
+    goalIds: goalIds.value,
+    skipMse: props.skipMse
   })
 );
 

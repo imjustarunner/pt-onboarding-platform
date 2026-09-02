@@ -474,6 +474,44 @@
       </div>
     </section>
 
+    <section class="preferences-section" id="prefs-note-aid">
+      <div class="section-header">
+        <h2>Note Aid</h2>
+        <p class="section-description">
+          Manual writing and Colorado-style autosign after content Review (not supervisor cosign).
+        </p>
+      </div>
+      <div class="section-content">
+        <div class="prefs-grid">
+          <div class="card">
+            <h3 class="card-title">Writer options</h3>
+            <label class="field checkbox">
+              <input
+                v-model="prefs.note_aid_allow_manual_write"
+                type="checkbox"
+                :disabled="viewOnly || !canEditAdminControlled"
+              />
+              Allow skip AI / write sections manually
+            </label>
+            <div class="field-help">
+              When off, this provider must use Note Aid generate for SOAP or freeform sections (admin-controlled).
+            </div>
+            <label class="field checkbox" style="margin-top: 12px;">
+              <input
+                v-model="prefs.note_aid_autosign_after_review"
+                type="checkbox"
+                :disabled="viewOnly"
+              />
+              Autosign after content Review
+            </label>
+            <div class="field-help">
+              After AI content Review passes (clinical content only — never demographics/PHI), apply the provider signature automatically. Colorado does not require a supervisor signature; use this for supervisees who should autosign once Review is complete.
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
     <!-- Section 5: Accessibility & UI Preferences (My Settings) -->
     <section class="preferences-section" id="my-settings-appearance">
       <div class="section-header">
@@ -960,6 +998,8 @@ const prefs = ref({
   helper_enabled: true,
   nav_hover_menus_enabled: true,
   default_landing_page: 'dashboard',
+  note_aid_allow_manual_write: true,
+  note_aid_autosign_after_review: false,
 
   // Session Lock (HIPAA-style)
   session_lock_enabled: false,
@@ -1338,6 +1378,14 @@ const load = async () => {
     prefs.value.nav_hover_menus_enabled = storedNavHover !== null
       ? storedNavHover
       : data?.nav_hover_menus_enabled !== false;
+    prefs.value.note_aid_allow_manual_write = data?.note_aid_allow_manual_write !== 0
+      && data?.note_aid_allow_manual_write !== false
+      && data?.note_aid_allow_manual_write !== '0';
+    prefs.value.note_aid_autosign_after_review = !!(
+      data?.note_aid_autosign_after_review === true
+      || data?.note_aid_autosign_after_review === 1
+      || data?.note_aid_autosign_after_review === '1'
+    );
     const storedA11y = getStoredAccessibilityPrefs(props.userId);
     if (storedA11y) {
       if (storedA11y.highContrast !== null) prefs.value.high_contrast_mode = storedA11y.highContrast;
@@ -1451,6 +1499,7 @@ const save = async () => {
       time_format: prefs.value.time_format || '12h',
       nav_hover_menus_enabled: prefs.value.nav_hover_menus_enabled !== false,
       default_landing_page: prefs.value.default_landing_page || 'dashboard',
+      note_aid_autosign_after_review: !!prefs.value.note_aid_autosign_after_review,
 
       // Session Lock
       session_lock_enabled: !!prefs.value.session_lock_enabled,
@@ -1480,6 +1529,7 @@ const save = async () => {
     if (canEditAdminControlled.value) {
       payload.work_modality = prefs.value.work_modality || null;
       payload.scheduling_preferences = schedulingPrefs.value || null;
+      payload.note_aid_allow_manual_write = prefs.value.note_aid_allow_manual_write !== false;
     }
 
     // Handle push notifications: register or unregister before/with save

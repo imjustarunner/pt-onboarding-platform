@@ -1895,14 +1895,13 @@
         @click="mobileMenuOpen = false"
       ></div>
       <main :class="{ 'main-no-global-chrome': hideGlobalNavForSchoolStaff || isImmersiveJoinRoute }">
+        <AppVersionReloadBanner :authenticated="isAuthenticated" />
+
         <!-- Keep legacy selector for non-super-admin users; super admins use the top-nav switcher.
              Hidden on SSTC / affiliation portals: the context bar below the navbar replaces it. -->
         <AgencySelector
           v-if="isAuthenticated && !brandingStore.isSuperAdmin && !hideGlobalNavForSchoolStaff && !isImmersiveJoinRoute && !isSummitStatsChallengeChrome && !String(route.path || '').includes('/tickets') && !String(route.path || '').includes('/counseling')"
         />
-
-        <!-- Password expiry warning banner (shown 14 days before expiry, dismissible per session) -->
-        <AppVersionReloadBanner :authenticated="isAuthenticated" />
 
         <div
           v-if="showPasswordExpiryBanner"

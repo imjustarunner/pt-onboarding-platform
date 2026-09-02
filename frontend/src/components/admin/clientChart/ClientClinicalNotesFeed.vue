@@ -19,6 +19,7 @@
           <option value="plan">{{ isLearning ? 'Learning plan' : 'Treatment plan' }}</option>
           <option value="draft">Note Aid drafts</option>
           <option v-if="!isLearning" value="contact">Contact</option>
+          <option v-if="!isLearning" value="termination">Termination</option>
         </select>
       </div>
     </header>
@@ -138,7 +139,8 @@ const chart = ref({
   intakeNotes: [],
   billingEncounters: [],
   sessions: [],
-  diagnoses: []
+  diagnoses: [],
+  contactNotes: []
 });
 
 const isLearning = computed(() => String(props.clientType || '').toLowerCase() === 'learning');
@@ -266,10 +268,26 @@ const rows = computed(() => {
   for (const n of chart.value.notes || []) {
     const providerSigned = !!n.provider_signed_at;
     const supervisorSigned = !!n.supervisor_cosigned_at;
-    const awaitingCosign = providerSigned && !supervisorSigned && !!n.needs_supervisor_cosign;
+    const reviewOnly = !!n.review_only
+      || String(n.note_type || '').toUpperCase().includes('TERMINATION')
+      || String(n.note_type || '').toUpperCase().includes('CONTACT')
+      || String(n.title || '').toLowerCase().includes('termination');
+    const reviewStatus = String(n.content_review_status || '').toLowerCase();
+    const awaitingCosign = !reviewOnly && providerSigned && !supervisorSigned && !!n.needs_supervisor_cosign;
     let status = 'completed';
     let statusLabel = 'Completed';
-    if (!providerSigned) {
+    if (reviewOnly) {
+      if (providerSigned) {
+        status = 'signed';
+        statusLabel = 'Reviewed · signed';
+      } else if (reviewStatus === 'passed') {
+        status = 'review_passed';
+        statusLabel = 'Review passed';
+      } else {
+        status = 'review';
+        statusLabel = 'Review';
+      }
+    } else if (!providerSigned) {
       status = 'unsigned';
       statusLabel = 'Unsigned';
     } else if (awaitingCosign) {
@@ -284,18 +302,22 @@ const rows = computed(() => {
     const serviceCode = n.session_service_code || n.service_code || session?.service_code || '';
     const nt = String(n.note_type || n.title || '').toLowerCase();
     let kind = 'progress';
-    if (nt.includes('intake')) kind = 'intake';
+    if (nt.includes('termination')) kind = 'termination';
+    else if (nt.includes('treatment summary') || nt.includes('treatment_summary')) kind = 'summary';
+    else if (nt.includes('intake')) kind = 'intake';
     else if (nt.includes('treatment plan') || nt.includes('learning plan') || nt.includes('plan development')) {
       kind = 'plan';
     } else if (nt.includes('contact')) kind = 'contact';
     out.push({
       key: `note-${n.id}`,
-      kind,
-      tone: noteTone(kind, serviceCode, n.title),
+      kind: kind === 'summary' ? 'plan' : kind,
+      tone: noteTone(kind === 'termination' || kind === 'summary' ? 'contact' : kind, serviceCode, n.title),
       codeTone: kind === 'progress' ? progressCodeTone(serviceCode) : '',
       title: n.title || 'Clinical note',
       status,
-      statusLabel,
+      statusLabel: kind === 'summary' && !supervisorSigned && providerSigned
+        ? 'Awaiting supervisor'
+        : statusLabel,
       dateLabel: formatDate(n.created_at),
       sortAt: n.updated_at || n.created_at,
       serviceCode,
@@ -309,6 +331,31 @@ const rows = computed(() => {
       clinicalNoteId: n.id,
       hasSelfPayCharge: selfPayNoteIds.value.has(Number(n.id)),
       openMode: 'clinical-note'
+    });
+  }
+
+  for (const cn of chart.value.contactNotes || []) {
+    out.push({
+      key: `contact-${cn.id}`,
+      kind: 'contact',
+      tone: 'contact',
+      codeTone: '',
+      title: 'Contact note',
+      status: 'review_passed',
+      statusLabel: 'Review',
+      dateLabel: formatDate(cn.created_at),
+      sortAt: cn.updated_at || cn.created_at,
+      serviceCode: '',
+      author: cn.author_name || '',
+      linkedSession: false,
+      linkedClaim: false,
+      awaitingCosign: false,
+      providerSigned: false,
+      supervisorSigned: false,
+      isActivePlan: false,
+      contactNoteId: cn.id,
+      contactPreview: String(cn.message || '').slice(0, 160),
+      openMode: 'contact-note'
     });
   }
 
@@ -388,7 +435,8 @@ async function load() {
       intakeNotes: res?.data?.intakeNotes || [],
       billingEncounters: res?.data?.billingEncounters || [],
       sessions: res?.data?.sessions || [],
-      diagnoses: res?.data?.diagnoses || []
+      diagnoses: res?.data?.diagnoses || [],
+      contactNotes: res?.data?.contactNotes || []
     };
     if (isLearning.value) {
       try {
@@ -483,6 +531,11 @@ function openRow(row) {
   }
   if (row.openMode === 'treatment-plan') {
     emit('navigate', 'treatment-plans');
+    return;
+  }
+  if (row.openMode === 'contact-note') {
+    const preview = String(row.contactPreview || '').trim();
+    window.alert(preview || 'Contact note (email chain) — open Messages for the full thread.');
     return;
   }
   if (row.openMode === 'clinical-note') {

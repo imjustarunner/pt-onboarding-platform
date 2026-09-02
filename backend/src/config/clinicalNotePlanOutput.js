@@ -36,6 +36,35 @@ export const PROGRESS_NOTE_OUTPUT_INSTRUCTIONS = [
 ].join('\n');
 
 /**
+ * H0023 / H0031 additional — Colorado Service Documentation Standards narrative.
+ * Not SOAP/SOIP. One cohesive clinical paragraph (or short multi-sentence block).
+ */
+export const COLORADO_FREEFORM_PARAGRAPH_INSTRUCTIONS = [
+  'Return documentation only—no preamble, title block, or SOAP/SOIP headers.',
+  'Do NOT use Subjective / Objective / Interventions / Plan section headers.',
+  'Write one cohesive clinical narrative paragraph (or a short multi-sentence block) that follows Colorado Service Documentation Standards:',
+  'include setting/method/consent when provided, what occurred, presenting concerns in plain language,',
+  'services/engagement activities performed, client/guardian response when known, and next steps.',
+  'When supported by the clinician text, embed Z/R psychosocial codes inline with brief justification;',
+  'do not invent DSM mental-health diagnoses.',
+  'Bachelor’s-level neutral clinical language. Third person; refer to the person as "client".',
+  TRANSCRIPT_FIDELITY_INSTRUCTIONS
+].join('\n');
+
+/**
+ * H0031 initial intake — same sectioning spirit as 90791, without DSM diagnoses.
+ */
+export const H0031_INTAKE_OUTPUT_INSTRUCTIONS = [
+  'Return the H0031 intake note only—no preamble.',
+  'Use titled narrative sections similar to a 90791 intake (Presenting Problem, Objective Content, background/history sections, Plan).',
+  'Diagnoses / psychosocial coding: Z and R codes only (social determinants / symptom codes).',
+  'Do NOT assign or invent DSM-5 / F-code mental-health diagnoses — bachelor’s-level H0031 does not diagnose those.',
+  'If the clinician supplied only Z/R codes, keep them; if they supplied F-codes, omit them and note that licensed diagnosis is out of scope for this code.',
+  'Do not include a Mental Status Exam section.',
+  TRANSCRIPT_FIDELITY_INSTRUCTIONS
+].join('\n');
+
+/**
  * Appended to SOIP tool system prompts so aid-specific tone/directions stay, while
  * section headers stay machine-compatible with the shared copy UX.
  */
@@ -90,6 +119,19 @@ export const TREATMENT_PLAN_STRUCTURE_CONTRACT = [
   'Keep this aid’s tone and wording appropriate for the service line, but use the Goal / Objective / Projected Time / Discharge structure above so charts, copy panels, and paste-import stay consistent.'
 ].join('\n');
 
+/**
+ * Extra contract for H0004 plan only — same Goal/Objective machine format as psychotherapy,
+ * but bachelor’s / skills-based directions (never psychotherapy clinical framing).
+ */
+export const H0004_PLAN_TONE_CONTRACT = [
+  'H0004 / BACHELOR’S TONE CONTRACT (same headers as psychotherapy plans; different clinical voice):',
+  'Follow this aid’s H0004 parameters and directions for skills-based supportive services.',
+  'Use clear, non-clinical, strengths-based language appropriate for bachelor’s-level facilitators.',
+  'Do NOT write psychotherapy-sounding goals or objectives (no psychodynamic, CBT protocol, insight-oriented, or licensed-psychotherapy clinical framing unless the facilitator already provided that exact wording).',
+  'Prefer coping skills, communication, behavioral support, environmental stressors, and daily-functioning language from the H0004 system directions.',
+  'Still emit ONLY the shared Goal / Objective / Projected Time / Discharge headers — never Presenting Concerns or alternate outlines as section headers.'
+].join('\n');
+
 export const TREATMENT_PLAN_TOOL_IDS = new Set([
   'clinical_psychotherapy_plan',
   'clinical_skill_builders_plan',
@@ -109,8 +151,16 @@ export const SOIP_PROGRESS_NOTE_TOOL_IDS = new Set([
   'clinical_tpt_note'
 ]);
 
+/** Single-paragraph / freeform Colorado documentation (not SOIP). */
+export const COLORADO_FREEFORM_TOOL_IDS = new Set([
+  'clinical_h0023_full_packet',
+  'clinical_h0031_additional',
+  'clinical_h0032_plan_development'
+]);
+
 export const PROGRESS_NOTE_TOOL_IDS = new Set([
   ...SOIP_PROGRESS_NOTE_TOOL_IDS,
+  ...COLORADO_FREEFORM_TOOL_IDS,
   'clinical_cs_note_build'
 ]);
 
@@ -126,6 +176,10 @@ export function isSoipProgressNoteToolId(toolId) {
   return SOIP_PROGRESS_NOTE_TOOL_IDS.has(String(toolId || ''));
 }
 
+export function isColoradoFreeformToolId(toolId) {
+  return COLORADO_FREEFORM_TOOL_IDS.has(String(toolId || ''));
+}
+
 /** 90785 Interactive Complexity — progress notes (and Code Decider) only. */
 export function isProgressNoteToolId(toolId) {
   const id = String(toolId || '');
@@ -134,12 +188,14 @@ export function isProgressNoteToolId(toolId) {
 
 export function shouldUseGeminiPro(toolId) {
   const id = String(toolId || '');
-  return TREATMENT_PLAN_TOOL_IDS.has(id) || PROGRESS_NOTE_TOOL_IDS.has(id);
+  return TREATMENT_PLAN_TOOL_IDS.has(id) || PROGRESS_NOTE_TOOL_IDS.has(id) || id === 'clinical_h0031_intake';
 }
 
 export function getOutputInstructionsForTool(toolId) {
   const id = String(toolId || '');
   if (isSoipProgressNoteToolId(id)) return PROGRESS_NOTE_OUTPUT_INSTRUCTIONS;
+  if (isColoradoFreeformToolId(id)) return COLORADO_FREEFORM_PARAGRAPH_INSTRUCTIONS;
+  if (id === 'clinical_h0031_intake') return H0031_INTAKE_OUTPUT_INSTRUCTIONS;
   if (id === 'clinical_90791_intake_plan') {
     return [
       'Return intake sections first with their titled headers, then the treatment plan.',
@@ -171,6 +227,27 @@ export function applySharedNoteAidToolContracts(tools) {
       }
     }
 
+    if (isColoradoFreeformToolId(id)) {
+      next.outputInstructions = COLORADO_FREEFORM_PARAGRAPH_INSTRUCTIONS;
+      next.maxOutputTokens = Math.max(Number(tool.maxOutputTokens || 0), 2000);
+      next.sectionSchema = 'colorado_freeform';
+      const prompt = String(tool.systemPrompt || '');
+      if (!prompt.includes('COLORADO FREEFORM CONTRACT')) {
+        next.systemPrompt = `${prompt.trim()}\n\nCOLORADO FREEFORM CONTRACT:\n${COLORADO_FREEFORM_PARAGRAPH_INSTRUCTIONS}`;
+      }
+    }
+
+    if (id === 'clinical_h0031_intake') {
+      next.outputInstructions = H0031_INTAKE_OUTPUT_INSTRUCTIONS;
+      next.maxOutputTokens = Math.max(Number(tool.maxOutputTokens || 0), 3000);
+      next.model = tool.model || 'gemini-2.5-pro';
+      next.sectionSchema = 'h0031_intake';
+      const prompt = String(tool.systemPrompt || '');
+      if (!prompt.includes('H0031 INTAKE CONTRACT')) {
+        next.systemPrompt = `${prompt.trim()}\n\nH0031 INTAKE CONTRACT:\n${H0031_INTAKE_OUTPUT_INSTRUCTIONS}`;
+      }
+    }
+
     if (isTreatmentPlanToolId(id)) {
       next.outputInstructions = getOutputInstructionsForTool(id) || TREATMENT_PLAN_OUTPUT_INSTRUCTIONS;
       next.maxOutputTokens = Math.max(Number(tool.maxOutputTokens || 0), 4000);
@@ -179,6 +256,9 @@ export function applySharedNoteAidToolContracts(tools) {
       const prompt = String(tool.systemPrompt || '');
       if (!prompt.includes('MACHINE OUTPUT CONTRACT')) {
         next.systemPrompt = `${prompt.trim()}\n\n${TREATMENT_PLAN_STRUCTURE_CONTRACT}`;
+      }
+      if (id === 'clinical_h0004_plan' && !String(next.systemPrompt || '').includes('H0004 / BACHELOR')) {
+        next.systemPrompt = `${String(next.systemPrompt || '').trim()}\n\n${H0004_PLAN_TONE_CONTRACT}`;
       }
     }
 

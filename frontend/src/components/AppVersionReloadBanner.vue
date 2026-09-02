@@ -1,11 +1,28 @@
 <template>
-  <div v-if="updateAvailable" class="app-version-banner" role="alert">
+  <div
+    v-if="updateAvailable"
+    class="app-version-banner"
+    role="alert"
+    tabindex="0"
+    title="Click anywhere to reload"
+    @click="onBannerClick"
+    @keydown.enter.prevent="reload"
+    @keydown.space.prevent="reload"
+  >
     <span class="app-version-banner__text">
       <strong>{{ bannerLabel }}</strong> has a new version — please reload to get the latest fixes.
+      <em class="app-version-banner__hint">Click anywhere to reload</em>
     </span>
     <div class="app-version-banner__actions">
-      <button type="button" class="app-version-banner__reload" @click="reload">Reload now</button>
-      <button type="button" class="app-version-banner__dismiss" aria-label="Dismiss" @click="dismiss">✕</button>
+      <span class="app-version-banner__reload" aria-hidden="true">Reload now</span>
+      <button
+        type="button"
+        class="app-version-banner__dismiss"
+        aria-label="Dismiss"
+        @click.stop="dismiss"
+      >
+        ✕
+      </button>
     </div>
   </div>
 </template>
@@ -92,8 +109,13 @@ function reload() {
   window.location.reload();
 }
 
+function onBannerClick() {
+  reload();
+}
+
 function dismiss() {
   dismissed.value = true;
+  updateAvailable.value = false;
   stopPolling();
 }
 
@@ -112,16 +134,41 @@ onUnmounted(stopPolling);
   justify-content: space-between;
   gap: 12px;
   flex-wrap: wrap;
-  padding: 10px 16px;
+  width: 100%;
+  box-sizing: border-box;
+  margin: 0;
+  padding: 12px 20px;
   background: #ecfdf5;
-  border-bottom: 1px solid #99f6e4;
+  border-bottom: 2px solid #5eead4;
   color: #0f172a;
-  font-size: 0.9rem;
+  font-size: 0.95rem;
+  cursor: pointer;
+  user-select: none;
+}
+.app-version-banner:hover {
+  background: #d1fae5;
+}
+.app-version-banner:focus-visible {
+  outline: 2px solid #0f766e;
+  outline-offset: -2px;
+}
+.app-version-banner__text {
+  flex: 1;
+  min-width: 12rem;
+}
+.app-version-banner__hint {
+  display: inline-block;
+  margin-left: 0.5rem;
+  font-style: normal;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: #0f766e;
 }
 .app-version-banner__actions {
   display: inline-flex;
   align-items: center;
   gap: 8px;
+  flex-shrink: 0;
 }
 .app-version-banner__reload {
   border: none;
@@ -131,9 +178,9 @@ onUnmounted(stopPolling);
   font-size: 0.82rem;
   padding: 6px 12px;
   border-radius: 8px;
-  cursor: pointer;
+  pointer-events: none;
 }
-.app-version-banner__reload:hover {
+.app-version-banner:hover .app-version-banner__reload {
   background: #0d9488;
 }
 .app-version-banner__dismiss {
@@ -143,5 +190,10 @@ onUnmounted(stopPolling);
   font-size: 1rem;
   cursor: pointer;
   padding: 4px 6px;
+  border-radius: 6px;
+}
+.app-version-banner__dismiss:hover {
+  background: rgba(15, 23, 42, 0.06);
+  color: #0f172a;
 }
 </style>

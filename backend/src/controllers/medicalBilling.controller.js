@@ -419,17 +419,36 @@ export const listClientChart = async (req, res, next) => {
     const agencyIn = chartAgencyIds.map(() => '?').join(',');
     const clientIn = chartClientIds.map(() => '?').join(',');
 
-    const [notes] = await clinicalPool.execute(
-      `SELECT n.id, n.clinical_session_id, n.title, n.note_type, n.version_number, n.provider_signed_at, n.supervisor_cosigned_at,
-              n.is_billable, n.created_at, n.updated_at, n.created_by_user_id, n.agency_id,
-              cs.service_code AS session_service_code
-       FROM clinical_notes n
-       LEFT JOIN clinical_sessions cs ON cs.id = n.clinical_session_id
-       WHERE n.client_id IN (${clientIn}) AND n.is_deleted = 0 AND n.agency_id IN (${agencyIn})
-       ORDER BY n.created_at DESC
-       LIMIT 200`,
-      [...chartClientIds, ...chartAgencyIds]
-    );
+    let notes = [];
+    try {
+      const [noteRows] = await clinicalPool.execute(
+        `SELECT n.id, n.clinical_session_id, n.title, n.note_type, n.version_number, n.provider_signed_at, n.supervisor_cosigned_at,
+                n.is_billable, n.created_at, n.updated_at, n.created_by_user_id, n.agency_id,
+                n.content_review_status, n.content_review_source,
+                cs.service_code AS session_service_code
+         FROM clinical_notes n
+         LEFT JOIN clinical_sessions cs ON cs.id = n.clinical_session_id
+         WHERE n.client_id IN (${clientIn}) AND n.is_deleted = 0 AND n.agency_id IN (${agencyIn})
+         ORDER BY n.created_at DESC
+         LIMIT 200`,
+        [...chartClientIds, ...chartAgencyIds]
+      );
+      notes = noteRows || [];
+    } catch (e) {
+      if (!String(e?.message || '').includes('Unknown column') && e.code !== 'ER_BAD_FIELD_ERROR') throw e;
+      const [noteRows] = await clinicalPool.execute(
+        `SELECT n.id, n.clinical_session_id, n.title, n.note_type, n.version_number, n.provider_signed_at, n.supervisor_cosigned_at,
+                n.is_billable, n.created_at, n.updated_at, n.created_by_user_id, n.agency_id,
+                cs.service_code AS session_service_code
+         FROM clinical_notes n
+         LEFT JOIN clinical_sessions cs ON cs.id = n.clinical_session_id
+         WHERE n.client_id IN (${clientIn}) AND n.is_deleted = 0 AND n.agency_id IN (${agencyIn})
+         ORDER BY n.created_at DESC
+         LIMIT 200`,
+        [...chartClientIds, ...chartAgencyIds]
+      );
+      notes = noteRows || [];
+    }
     const plans = await ClinicalTreatmentPlan.listByClient({ agencyId, clientId });
     const {
       pickAuthoritativeTreatmentPlan,
@@ -578,10 +597,40 @@ export const listClientChart = async (req, res, next) => {
     }
 
     const pendingCosign = await mapPendingSupervisorCosign(notes || []);
-    const notesOut = (notes || []).map((n) => ({
-      ...n,
-      needs_supervisor_cosign: !!pendingCosign.get(Number(n.id))
-    }));
+    const notesOut = (notes || []).map((n) => {
+      const nt = String(n.note_type || n.title || '').toUpperCase();
+      const reviewOnly = nt.includes('TERMINATION') || nt.includes('CONTACT');
+      return {
+        ...n,
+        needs_supervisor_cosign: reviewOnly ? false : !!pendingCosign.get(Number(n.id)),
+        content_review_status: n.content_review_status || null,
+        content_review_source: n.content_review_source || null,
+        review_only: reviewOnly
+      };
+    });
+
+    let contactNotes = [];
+    try {
+      const ClientNotes = (await import('../models/ClientNotes.model.js')).default;
+      const allClientNotes = await ClientNotes.findByClientId(clientId, {
+        hasAgencyAccess: true,
+        canViewInternalNotes: true
+      });
+      contactNotes = (allClientNotes || [])
+        .filter((cn) => String(cn.category || '').toLowerCase() === 'contact')
+        .slice(0, 100)
+        .map((cn) => ({
+          id: cn.id,
+          category: cn.category,
+          message: cn.message,
+          author_name: cn.author_name || null,
+          created_at: cn.created_at,
+          updated_at: cn.updated_at,
+          is_internal_only: cn.is_internal_only
+        }));
+    } catch {
+      contactNotes = [];
+    }
 
     return res.json({
       notes: notesOut,
@@ -593,7 +642,8 @@ export const listClientChart = async (req, res, next) => {
       billingEncounters,
       objectiveRatings,
       noteAidDrafts,
-      intakeNotes
+      intakeNotes,
+      contactNotes
     });
   } catch (e) {
     next(e);
@@ -1072,6 +1122,124 @@ export const getClinicalNoteById = async (req, res, next) => {
           ratedAt: r.rated_at
         }))
       }
+    });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const downloadTreatmentSummaryPdf = async (req, res, next) => {
+  try {
+    const noteId = parseIntValue(req.params.noteId);
+    if (!noteId) return res.status(400).json({ error: { message: 'noteId is required' } });
+    const note = await ClinicalNote.findById(noteId);
+    if (!note || note.is_deleted) return res.status(404).json({ error: { message: 'Note not found' } });
+    await ClinicalEligibilityService.ensureAgencyAccess({ reqUser: req.user, agencyId: note.agency_id });
+
+    let meta = {};
+    try {
+      meta = typeof note.metadata_json === 'string'
+        ? JSON.parse(note.metadata_json || '{}')
+        : (note.metadata_json || {});
+    } catch {
+      meta = {};
+    }
+    const noteType = String(note.note_type || meta.noteType || '').toUpperCase();
+    const toolId = String(meta.toolId || '').toLowerCase();
+    if (!noteType.includes('SUMMARY') && !toolId.includes('treatment_summary')) {
+      return res.status(400).json({
+        error: { message: 'This note is not a treatment summary document' }
+      });
+    }
+
+    const {
+      generateTreatmentSummaryPdf,
+      extractNotePayloadText
+    } = await import('../services/treatmentSummaryPdf.service.js');
+
+    let providerName = '';
+    let supervisorName = '';
+    try {
+      const User = (await import('../models/User.model.js')).default;
+      if (note.provider_signed_by_user_id) {
+        const u = await User.findById(note.provider_signed_by_user_id);
+        providerName = [u?.first_name, u?.last_name].filter(Boolean).join(' ');
+      } else if (note.created_by_user_id) {
+        const u = await User.findById(note.created_by_user_id);
+        providerName = [u?.first_name, u?.last_name].filter(Boolean).join(' ');
+      }
+      if (note.supervisor_cosigned_by_user_id) {
+        const u = await User.findById(note.supervisor_cosigned_by_user_id);
+        supervisorName = [u?.first_name, u?.last_name].filter(Boolean).join(' ');
+      }
+    } catch {
+      // names optional
+    }
+
+    const pdf = await generateTreatmentSummaryPdf({
+      agencyId: note.agency_id,
+      bodyText: extractNotePayloadText(note),
+      title: note.title || 'Treatment Summary',
+      clientInitials: meta?.structuredChart?.clientInitials || meta?.initials || '',
+      dateOfService: meta?.dateOfService || null,
+      providerName,
+      supervisorName,
+      providerSignedAt: note.provider_signed_at || null,
+      supervisorSignedAt: note.supervisor_cosigned_at || null
+    });
+
+    const filename = `treatment-summary-${noteId}.pdf`;
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    return res.send(Buffer.from(pdf));
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const attachTreatmentSummaryPrintUpload = async (req, res, next) => {
+  try {
+    const noteId = parseIntValue(req.params.noteId);
+    const agencyId = parseIntValue(req.body?.agencyId);
+    const phiDocumentId = parseIntValue(req.body?.phiDocumentId);
+    if (!noteId || !agencyId || !phiDocumentId) {
+      return res.status(400).json({ error: { message: 'noteId, agencyId, and phiDocumentId are required' } });
+    }
+    const note = await ClinicalNote.findById(noteId);
+    if (!note || note.is_deleted) return res.status(404).json({ error: { message: 'Note not found' } });
+    await ClinicalEligibilityService.ensureAgencyAccess({ reqUser: req.user, agencyId: note.agency_id });
+    if (Number(note.agency_id) !== agencyId) {
+      return res.status(400).json({ error: { message: 'agencyId mismatch' } });
+    }
+
+    let meta = {};
+    try {
+      meta = typeof note.metadata_json === 'string'
+        ? JSON.parse(note.metadata_json || '{}')
+        : (note.metadata_json || {});
+    } catch {
+      meta = {};
+    }
+    meta.printUpload = {
+      phiDocumentId,
+      signedByName: req.body?.signedByName ? String(req.body.signedByName).slice(0, 255) : null,
+      attachedAt: new Date().toISOString(),
+      attachedByUserId: req.user.id
+    };
+    meta.digitalShare = {
+      ...(meta.digitalShare || {}),
+      printUploadPhiDocumentId: phiDocumentId
+    };
+    await ClinicalNote.updatePayload({
+      noteId: note.id,
+      metadataJson: meta
+    });
+
+    return res.json({
+      ok: true,
+      noteId: note.id,
+      phiDocumentId,
+      message: 'Signed treatment summary print upload linked to this document.'
     });
   } catch (e) {
     next(e);

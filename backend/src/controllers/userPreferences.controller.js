@@ -203,6 +203,9 @@ const buildDefaultPreferences = (userRole) => {
       new_packet: { toast_enabled: false, duration_seconds: null, sound_enabled: false }
     },
 
+    note_aid_allow_manual_write: true,
+    note_aid_autosign_after_review: false,
+
     // Dashboard preferences
     dashboard_notification_org_types: ['agency']
   };
@@ -465,12 +468,25 @@ export const updateUserPreferences = async (req, res, next) => {
     // For non-admin users editing their own preferences, enforce boundaries
     if (isOwnPreferences && !isAdmin) {
       // Users cannot edit admin-controlled fields
-      const adminControlledFields = ['work_modality', 'scheduling_preferences'];
+      const adminControlledFields = ['work_modality', 'scheduling_preferences', 'note_aid_allow_manual_write'];
       for (const field of adminControlledFields) {
         if (field in updates) {
           delete updates[field];
         }
       }
+    }
+
+    if ('note_aid_allow_manual_write' in updates) {
+      updates.note_aid_allow_manual_write =
+        updates.note_aid_allow_manual_write === true
+        || updates.note_aid_allow_manual_write === 1
+        || updates.note_aid_allow_manual_write === '1';
+    }
+    if ('note_aid_autosign_after_review' in updates) {
+      updates.note_aid_autosign_after_review =
+        updates.note_aid_autosign_after_review === true
+        || updates.note_aid_autosign_after_review === 1
+        || updates.note_aid_autosign_after_review === '1';
     }
 
     // Ensure in_app_enabled is always true (safety requirement)

@@ -61,15 +61,51 @@ test('applySharedNoteAidToolContracts upgrades H0004 note and plan', () => {
   assert.equal(h0004Plan.sectionSchema, 'treatment_plan');
   assert.match(h0004Plan.systemPrompt, /Goal 1:/);
   assert.match(h0004Plan.systemPrompt, /1–10/);
+  assert.match(h0004Plan.systemPrompt, /H0004 \/ BACHELOR/);
+  assert.match(h0004Plan.systemPrompt, /psychotherapy-sounding/);
+});
+
+test('H0023 / H0031 additional / H0032 use Colorado freeform (not SOIP)', () => {
+  assert.equal(isSoipProgressNoteToolId('clinical_h0023_full_packet'), false);
+  assert.equal(isSoipProgressNoteToolId('clinical_h0031_additional'), false);
+  assert.equal(isSoipProgressNoteToolId('clinical_h0032_plan_development'), false);
+  assert.match(getOutputInstructionsForTool('clinical_h0023_full_packet'), /Do NOT use Subjective/);
+  assert.match(getOutputInstructionsForTool('clinical_h0031_additional'), /Z\/R/);
+  assert.match(getOutputInstructionsForTool('clinical_h0032_plan_development'), /Do NOT use Subjective/);
+  assert.match(getOutputInstructionsForTool('clinical_h0031_intake'), /Z and R codes only/);
+  assert.doesNotMatch(getOutputInstructionsForTool('clinical_h0031_intake'), /Subjective:/);
+});
+
+test('applySharedNoteAidToolContracts upgrades H0023 and H0031 intake', () => {
+  const [h0023, h0031] = applySharedNoteAidToolContracts([
+    {
+      id: 'clinical_h0023_full_packet',
+      systemPrompt: 'paragraph tone',
+      outputInstructions: 'Return one paragraph only.',
+      maxOutputTokens: 800
+    },
+    {
+      id: 'clinical_h0031_intake',
+      systemPrompt: 'intake tone',
+      outputInstructions: 'Return the note only.',
+      maxOutputTokens: 1000
+    }
+  ]);
+  assert.equal(h0023.sectionSchema, 'colorado_freeform');
+  assert.match(h0023.systemPrompt, /COLORADO FREEFORM CONTRACT/);
+  assert.equal(h0031.sectionSchema, 'h0031_intake');
+  assert.match(h0031.systemPrompt, /H0031 INTAKE CONTRACT/);
 });
 
 test('exported CLINICAL_NOTE_AGENT_TOOLS already has shared contracts applied', () => {
   const note = CLINICAL_NOTE_AGENT_TOOLS.find((t) => t.id === 'clinical_h0004_note');
   const plan = CLINICAL_NOTE_AGENT_TOOLS.find((t) => t.id === 'clinical_h0004_plan');
   const psy = CLINICAL_NOTE_AGENT_TOOLS.find((t) => t.id === 'clinical_psychotherapy_note');
-  assert.ok(note && plan && psy);
+  const h0023 = CLINICAL_NOTE_AGENT_TOOLS.find((t) => t.id === 'clinical_h0023_full_packet');
+  assert.ok(note && plan && psy && h0023);
   assert.equal(note.outputInstructions, psy.outputInstructions);
   assert.equal(note.sectionSchema, 'soip');
   assert.equal(plan.sectionSchema, 'treatment_plan');
   assert.match(plan.systemPrompt, /MACHINE OUTPUT CONTRACT/);
+  assert.equal(h0023.sectionSchema, 'colorado_freeform');
 });

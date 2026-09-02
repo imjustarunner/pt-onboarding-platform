@@ -15,6 +15,12 @@ import {
   getPrimaryClinicalDiagnosis,
   attachDiagnosisToClinicalNote
 } from '../services/clinicalDiagnosisAttach.service.js';
+import {
+  evaluateNoteContentReview,
+  shouldSkipSupervisorCosign,
+  isReviewOnlyNoteType
+} from '../services/clinicalNoteContentReview.service.js';
+import { markQuestionnairesAttached } from '../services/noteAidQuestionnaireContext.service.js';
 
 const BACKOFFICE_ROLES = new Set(['admin', 'super_admin', 'support']);
 const CLINICAL_DB_HINT = 'Clinical database schema missing. Run database/clinical_migrations/001_create_clinical_data_plane.sql (and 002_medical_billing_foundations.sql for billing).';
@@ -260,9 +266,10 @@ export const createSessionNote = async (req, res, next) => {
         ? String(req.body.notePayload)
         : null;
     const notePayload = notePayloadRaw != null ? maybeEncryptNotePayload(notePayloadRaw) : null;
+    const noteTypeRaw = req.body?.noteType ? String(req.body.noteType).trim() : null;
     const metadata = {
       ...(req.body?.metadata && typeof req.body.metadata === 'object' ? req.body.metadata : {}),
-      noteType: req.body?.noteType ? String(req.body.noteType).trim() : null,
+      noteType: noteTypeRaw,
       templateVersion: req.body?.templateVersion ? String(req.body.templateVersion).trim() : null,
       serviceCode: req.body?.serviceCode ? String(req.body.serviceCode).trim().toUpperCase() : null,
       modifiers: Array.isArray(req.body?.modifiers)
@@ -272,6 +279,26 @@ export const createSessionNote = async (req, res, next) => {
       source: req.body?.source ? String(req.body.source).trim() : null,
       payloadEncrypted: !!(notePayload && notePayload !== notePayloadRaw)
     };
+
+    const aiGenerated = !!(
+      metadata.aiGenerated === true
+      || (metadata.generatedBy === 'clinical_note_generator' && metadata.manualSections !== true)
+    );
+    const reviewOnly = isReviewOnlyNoteType(noteTypeRaw) || metadata.documentationFlow === 'review';
+    const contentReview = evaluateNoteContentReview({
+      notePayload: notePayloadRaw || '',
+      noteType: noteTypeRaw || '',
+      toolId: metadata.toolId || '',
+      // AI Note Aid writers auto-pass content checklist; manual writers are checked.
+      aiGenerated
+    });
+    metadata.contentReview = contentReview;
+    if (reviewOnly) {
+      metadata.skipSupervisorCosign = true;
+      metadata.requiresSupervisorCosign = false;
+      metadata.documentationFlow = 'review';
+    }
+
     const draftIdMeta = parseIntValue(metadata.draftId);
     let note = null;
     if (draftIdMeta) {
@@ -298,6 +325,58 @@ export const createSessionNote = async (req, res, next) => {
         metadataJson: metadata,
         createdByUserId: req.user.id
       });
+    }
+
+    const qInstruments = Array.isArray(metadata.questionnaireInstruments)
+      ? metadata.questionnaireInstruments
+      : [];
+    if (qInstruments.length && note?.id && session.client_id) {
+      try {
+        await markQuestionnairesAttached({
+          agencyId: session.agency_id,
+          clientId: session.client_id,
+          clinicalNoteId: note.id,
+          instruments: qInstruments,
+          sourceRef: metadata.draftId ? `draft:${metadata.draftId}` : null,
+          actorUserId: req.user?.id || null
+        });
+      } catch (qErr) {
+        console.warn('[createSessionNote] questionnaire attach failed', qErr?.message || qErr);
+      }
+    }
+
+    // Persist review + non-billable flags (columns added in migration 1356).
+    try {
+      const clinicalPool = (await import('../config/clinicalDatabase.js')).default;
+      const skipCosign = shouldSkipSupervisorCosign({ noteType: noteTypeRaw, metadata });
+      const sets = [
+        'content_review_status = ?',
+        'content_review_source = ?',
+        'content_review_json = ?'
+      ];
+      const vals = [
+        contentReview.status,
+        contentReview.source,
+        JSON.stringify(contentReview)
+      ];
+      if (reviewOnly || skipCosign) {
+        sets.push('is_billable = 0');
+      }
+      if (noteTypeRaw) {
+        sets.push('note_type = ?');
+        vals.push(String(noteTypeRaw).slice(0, 64));
+      }
+      vals.push(note.id);
+      await clinicalPool.execute(
+        `UPDATE clinical_notes SET ${sets.join(', ')}, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+        vals
+      );
+      note = await ClinicalNote.findById(note.id);
+    } catch (reviewColErr) {
+      // Column may not exist until migration runs — metadata still holds review.
+      if (!String(reviewColErr?.message || '').includes('Unknown column')) {
+        console.warn('[createSessionNote] content review column update failed:', reviewColErr?.message || reviewColErr);
+      }
     }
 
     // Attach primary diagnosis + justification snapshot when available (intake chart spine).
@@ -355,22 +434,26 @@ export const createSessionNote = async (req, res, next) => {
       metadata: { clientId: session.client_id, officeEventId: session.office_event_id, title: note.title || null }
     });
 
-    // Pending cosign only when a different person is the clinical supervisor.
+    // Pending cosign only when a different person is the clinical supervisor,
+    // and only for notes that still require supervisor signature (not review-only / autosign).
     const providerUserId = session.provider_user_id || req.user.id;
-    const supervisors = await SupervisorAssignment.findBySupervisee(providerUserId, session.agency_id);
-    const primarySupervisor = SupervisorAssignment.pickClinicalCosignSupervisor(
-      supervisors,
-      providerUserId
-    );
-    if (primarySupervisor) {
-      try {
-        await pool.execute(
-          `INSERT INTO clinical_note_signoffs (agency_id, clinical_note_id, provider_user_id, supervisor_user_id, provider_signed_at, status)
-           VALUES (?, ?, ?, ?, NOW(), 'awaiting_supervisor')`,
-          [session.agency_id, note.id, providerUserId, primarySupervisor.supervisor_id]
-        );
-      } catch (e) {
-        if (e?.code !== 'ER_DUP_ENTRY') console.error('[clinicalData] Signoff create failed:', e?.message);
+    const skipCosign = shouldSkipSupervisorCosign({ noteType: noteTypeRaw, metadata });
+    if (!skipCosign) {
+      const supervisors = await SupervisorAssignment.findBySupervisee(providerUserId, session.agency_id);
+      const primarySupervisor = SupervisorAssignment.pickClinicalCosignSupervisor(
+        supervisors,
+        providerUserId
+      );
+      if (primarySupervisor) {
+        try {
+          await pool.execute(
+            `INSERT INTO clinical_note_signoffs (agency_id, clinical_note_id, provider_user_id, supervisor_user_id, provider_signed_at, status)
+             VALUES (?, ?, ?, ?, NOW(), 'awaiting_supervisor')`,
+            [session.agency_id, note.id, providerUserId, primarySupervisor.supervisor_id]
+          );
+        } catch (e) {
+          if (e?.code !== 'ER_DUP_ENTRY') console.error('[clinicalData] Signoff create failed:', e?.message);
+        }
       }
     }
 

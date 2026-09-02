@@ -143,7 +143,8 @@ export function serializeCsNoteBuildForGenerate(state, {
   serviceCode = '',
   locationLabel = '',
   clientInitials = '',
-  isTelehealth = false
+  isTelehealth = false,
+  skipMse = false
 } = {}) {
   const s = state || createEmptyCsNoteBuildState();
   const mins = csContactMinutes(s.startTime, s.endTime);
@@ -182,14 +183,21 @@ export function serializeCsNoteBuildForGenerate(state, {
     `Symptoms / clinical needs addressed today: ${(s.symptomsSelected || []).join(', ') || '(none selected)'}`,
     `Current functional impact areas: ${(s.affectAreas || []).join(', ') || '(none selected)'}`,
     `Medical necessity narrative:\n${s.medicalNecessityNarrative || '(not provided)'}`,
-    '',
-    'Mental Status Exam:',
-    ...Object.entries(s.mse || {}).map(([k, v]) => `- ${k}: ${v}`),
-    `Risk / safety: ${s.riskLevel || '—'}`,
-    s.riskDetails ? `Risk details:\n${s.riskDetails}` : '',
-    '',
-    'Treatment plan progress ratings:'
+    ''
   ];
+
+  if (skipMse) {
+    lines.push('Mental Status Exam: Not applicable for this service code — omit MSE.');
+    lines.push('Risk / safety: Not required for this service code unless clinician provided safety content above.');
+  } else {
+    lines.push('Mental Status Exam:');
+    lines.push(...Object.entries(s.mse || {}).map(([k, v]) => `- ${k}: ${v}`));
+    lines.push(`Risk / safety: ${s.riskLevel || '—'}`);
+    if (s.riskDetails) lines.push(`Risk details:\n${s.riskDetails}`);
+  }
+
+  lines.push('');
+  lines.push('Treatment plan progress ratings:');
 
   const gp = s.goalProgress || {};
   const goalEntries = Object.entries(gp);
@@ -225,7 +233,7 @@ export function serializeCsNoteBuildForGenerate(state, {
   return lines.filter((l) => l !== '').join('\n').slice(0, 12000);
 }
 
-export function csNoteBuildCompletionCount(state, { isTelehealth = false, goalIds = [] } = {}) {
+export function csNoteBuildCompletionCount(state, { isTelehealth = false, goalIds = [], skipMse = false } = {}) {
   const s = state || createEmptyCsNoteBuildState();
   const checks = [
     !!s.startConfirmed && !!s.startTime,
@@ -236,7 +244,7 @@ export function csNoteBuildCompletionCount(state, { isTelehealth = false, goalId
     (s.interventionUse || []).length > 0 || !!String(s.interventionUseMore || '').trim(),
     !!s.clientResponse,
     (s.symptomsSelected || []).length > 0 && !!String(s.medicalNecessityNarrative || '').trim(),
-    !!s.mse?.mood && !!s.riskLevel,
+    skipMse ? true : (!!s.mse?.mood && !!s.riskLevel),
     goalIds.length
       ? goalIds.every((id) => s.goalProgress?.[id]?.rating)
       : true,
