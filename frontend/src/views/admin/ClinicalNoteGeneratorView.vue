@@ -989,10 +989,19 @@
               <input v-model="attestMedicallyNecessary" type="checkbox" />
               I declare that this service was medically necessary.
             </label>
-            <p v-if="!canConfirmAndSign" class="error">
-              {{ sessionParticipantsFlag
-                ? 'Update Participants — session content suggests others were present.'
-                : 'Complete required chart sections (including mental status when this is a scheduled session) before signing.' }}
+            <p v-if="sessionParticipantsHint && !participantsPresenceDismissed" class="na-sign-attest-warn">
+              Note language may suggest others attended. Update <strong>Participants</strong> in session
+              details (Step 1), or confirm client-only below if family was only discussed.
+            </p>
+            <label
+              v-if="sessionParticipantsHint"
+              class="na-sign-check na-sign-check--override"
+            >
+              <input v-model="participantsPresenceDismissed" type="checkbox" />
+              Confirm client only — family or others discussed but not present in this session.
+            </label>
+            <p v-if="!canConfirmAndSign && !sessionParticipantsFlag" class="error">
+              Complete required chart sections (including mental status when this is a scheduled session) before signing.
             </p>
           </div>
 
@@ -1542,6 +1551,12 @@ const sessionClinicalSessionId = ref(null);
 const sessionDurationMinutes = ref(null);
 const sessionLocationLabel = ref('');
 const sessionParticipants = ref('Client Only');
+/** Clinician confirmed client-only despite a soft presence hint (no re-check until participants changes). */
+const participantsPresenceDismissed = ref(false);
+
+watch(sessionParticipants, (val) => {
+  if (val !== 'Client Only') participantsPresenceDismissed.value = false;
+});
 const sessionPatientDob = ref('');
 const sessionScheduledStart = ref(null);
 const sessionScheduledEnd = ref(null);
@@ -1787,15 +1802,17 @@ const sessionDateTimeLabel = computed(() => {
     return String(start);
   }
 });
-const sessionParticipantsFlag = computed(() => {
+const sessionParticipantsHint = computed(() => {
   if (sessionParticipants.value !== 'Client Only') return false;
-  const blob = [
-    inputText.value,
-    revisionInstruction.value,
-    JSON.stringify(outputObj.value || {})
-  ].join('\n');
+  const panelBlob = (displayPanels.value || []).map((p) => panelText(p)).join('\n').trim();
+  const blob = panelBlob
+    ? [panelBlob, revisionInstruction.value].filter(Boolean).join('\n')
+    : [inputText.value, revisionInstruction.value].filter(Boolean).join('\n');
   return participantsLikelyIncludeOthers(blob);
 });
+const sessionParticipantsFlag = computed(
+  () => sessionParticipantsHint.value && !participantsPresenceDismissed.value
+);
 const canConfirmAndSign = computed(() => {
   if (sessionParticipantsFlag.value) return false;
   const hasScheduledSession = !!(
@@ -4858,6 +4875,7 @@ const onClientCleared = () => {
   noteAidAgencyChoiceId.value = null;
   clientAgencyMembershipIds.value = [];
   learningSponsorAgencyIds.value = [];
+  participantsPresenceDismissed.value = false;
   resetClientClinicalContext();
   syncRouteNoteClient(null);
   persistClientUnlink = true;
@@ -5927,6 +5945,7 @@ const startNewNote = () => {
   approvalError.value = '';
   archiveMessage.value = '';
   generateError.value = '';
+  participantsPresenceDismissed.value = false;
   sidebarTab.value = DOC_STATUS.STARTED;
   openDateGroups.value = { [todayIsoDate()]: true };
   configExpanded.value = true;
@@ -7675,6 +7694,18 @@ a.na-chip--link {
 
 .na-sign-check input {
   margin-top: 3px;
+}
+
+.na-sign-attest-warn {
+  margin: 8px 0 4px;
+  font-size: 0.82rem;
+  color: #b45309;
+  line-height: 1.4;
+}
+
+.na-sign-check--override {
+  color: #0f766e;
+  font-weight: 600;
 }
 
 .na-revision-label {

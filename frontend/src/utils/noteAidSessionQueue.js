@@ -90,23 +90,30 @@ export function suggestPsychotherapyCodeForDuration(minutes) {
   return null;
 }
 
+/**
+ * True when note language suggests someone other than the client attended the session.
+ * Discussing family (mother, brother, etc.) does NOT count — only presence phrasing.
+ */
 export function participantsLikelyIncludeOthers(text) {
   const t = String(text || '').toLowerCase();
   if (!t.trim()) return false;
   const patterns = [
-    /\bmother\b/,
-    /\bfather\b/,
-    /\bparent\b/,
-    /\bguardian\b/,
-    /\bspouse\b/,
-    /\bpartner\b/,
-    /\bsibling\b/,
-    /\bbrother\b/,
-    /\bsister\b/,
-    /\bfamily\s+member\b/,
     /\bpresent\s+with\b/,
     /\baccompanied\s+by\b/,
-    /\bwith\s+(his|her|their)\s+(mom|dad|mother|father|wife|husband)\b/
+    /\bin\s+(the\s+)?(session|room|office)\b[^.]{0,80}\b(mother|father|parent|guardian|spouse|partner|sibling|brother|sister|family|collateral)\b/,
+    /\b(mother|father|parent|guardian|spouse|partner|sibling|brother|sister|collateral)\s+(was|were)\s+(also\s+)?(present|in\s+(the\s+)?(session|room|office)|in\s+attendance)\b/,
+    /\b(session|meeting)\s+included\s+(the\s+)?(mother|father|parent|guardian|spouse|partner|client'?s?\s+\w+|family|collateral|guardian)\b/,
+    /\bincluded\s+(in\s+the\s+session|as\s+(a\s+)?participant)\b/,
+    /\bothers?\s+were\s+present\b/,
+    /\bfamily\s+member\s+(was|were)\s+present\b/,
+    /\bcollateral\s+(was|were)\s+present\b/,
+    /\bwith\s+(his|her|their)\s+(mom|dad|mother|father|wife|husband)\s+(present|in\s+(the\s+)?session|in\s+attendance)\b/,
+    /\bjoined\s+(the\s+)?(session|meeting|appointment)\b/,
+    /\b(mother|father|parent|guardian|spouse|partner)\s+joined\b/,
+    /\battended\s+(the\s+)?session\b[^.]{0,40}\b(mother|father|parent|guardian|spouse|partner)\b/,
+    /\bthird\s+party\s+(was|were)\s+present\b/,
+    /\bmultiple\s+participants\b/,
+    /\bfamily\s+(therapy|session|counseling)\b/
   ];
   return patterns.some((re) => re.test(t));
 }

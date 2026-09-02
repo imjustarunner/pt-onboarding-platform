@@ -46,7 +46,7 @@
           <option value="Collateral">Collateral</option>
         </select>
         <p v-if="participantsFlag" class="flag">
-          Session content suggests others were present — set Participants before signing.
+          Note may indicate others attended — update Participants, or confirm client-only when signing.
         </p>
       </div>
     </div>
