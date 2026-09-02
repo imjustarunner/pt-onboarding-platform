@@ -10,11 +10,43 @@ function cleanLine(line) {
     .trim();
 }
 
+/** Remove leading "Objective 1.1:" style headers from objective body text. */
+function stripObjectiveHeader(text) {
+  return String(text || '')
+    .replace(/^(?:objective|obj)\s+\d+(?:\.\d+)?\s*[:.\-)\]\s—–-]*\s*/i, '')
+    .trim();
+}
+
 export function parseScalePair(text) {
   const s = String(text || '');
-  // "from a current … level of 9 to a 5"
+
+  // "from a current level of 7 out of 10 to a target level of 3 out of 10"
+  const outOfTen = s.match(
+    /(?:from\s+a\s+)?current\s+level\s+of\s+(\d{1,2})\s+out\s+of\s+10\s+\bto\b\s+(?:a\s+)?(?:target\s+level\s+of\s+)?(\d{1,2})(?:\s+out\s+of\s+10)?/i
+  );
+  if (outOfTen) {
+    const current = Number(outOfTen[1]);
+    const target = Number(outOfTen[2]);
+    if (current >= 1 && current <= 10 && target >= 1 && target <= 10) {
+      return { scaleCurrent: current, scaleTarget: target };
+    }
+  }
+
+  // "7/10 to 3/10" or "4/10 → 8/10"
+  const slashPair = s.match(
+    /(\d{1,2})\s*\/\s*10\s*(?:→|->|\bto\b)\s*(?:a\s+)?(?:target\s+level\s+of\s+)?(\d{1,2})(?:\s*\/\s*10)?/i
+  );
+  if (slashPair) {
+    const current = Number(slashPair[1]);
+    const target = Number(slashPair[2]);
+    if (current >= 1 && current <= 10 && target >= 1 && target <= 10) {
+      return { scaleCurrent: current, scaleTarget: target };
+    }
+  }
+
+  // "from a current … level of 9 to a target level of 5" (without "out of 10")
   const fromTo = s.match(
-    /(?:current|baseline|from)[^0-9]{0,40}?(\d{1,2})\s*(?:or below|or less)?[^0-9]{0,20}?(?:to|→|->)\s*(?:a\s+)?(\d{1,2})/i
+    /(?:from\s+a\s+)?(?:current|baseline)[^0-9]{0,40}?(\d{1,2})\s*(?:or below|or less)?(?:\s+out\s+of\s+10)?[^0-9]{0,30}?\bto\b\s*(?:a\s+)?(?:target\s+level\s+of\s+)?(\d{1,2})/i
   );
   if (fromTo) {
     const current = Number(fromTo[1]);
@@ -23,8 +55,9 @@ export function parseScalePair(text) {
       return { scaleCurrent: current, scaleTarget: target };
     }
   }
-  // "4 → 8", "4->8", "current 4 target 8", "4/10 to 8/10", "(4 to 8)"
-  const arrow = s.match(/(\d{1,2})\s*(?:→|->|to|\/)\s*(\d{1,2})/i);
+
+  // "4 → 8", "4->8", "(4 to 8)" — word boundary on to (avoids matching "to" inside "out")
+  const arrow = s.match(/(\d{1,2})\s*(?:→|->|\bto\b)\s*(?:a\s+)?(\d{1,2})/i);
   if (arrow) {
     const current = Number(arrow[1]);
     const target = Number(arrow[2]);
@@ -32,7 +65,10 @@ export function parseScalePair(text) {
       return { scaleCurrent: current, scaleTarget: target };
     }
   }
-  const labeled = s.match(/current[^0-9]*(\d{1,2})[^0-9]+(?:goal|target)[^0-9]*(\d{1,2})/i);
+
+  const labeled = s.match(
+    /current(?:\s+level\s+of|\s+)[^0-9]*(\d{1,2})(?:\s+out\s+of\s+10)?[^0-9]*?(?:goal|target)[^0-9]*(\d{1,2})/i
+  );
   if (labeled) {
     const current = Number(labeled[1]);
     const target = Number(labeled[2]);
@@ -40,9 +76,13 @@ export function parseScalePair(text) {
       return { scaleCurrent: current, scaleTarget: target };
     }
   }
-  // "currently functions at a level 3" + later "Achieving a level 10"
-  const currentOnly = s.match(/(?:currently\s+(?:functions|reports)?\s*(?:at\s+)?(?:a\s+)?level\s*(?:of\s*)?|baseline\s*(?:of\s*)?)(\d{1,2})/i);
-  const targetOnly = s.match(/(?:achieving|target|goal)\s*(?:a\s+)?level\s*(?:of\s*)?(\d{1,2})/i);
+
+  const currentOnly = s.match(
+    /(?:current\s+level\s+of|currently\s+(?:functions|reports)?\s*(?:at\s+)?(?:a\s+)?level\s*(?:of\s*)?|baseline\s*(?:of\s*)?)(\d{1,2})(?:\s+out\s+of\s+10)?/i
+  );
+  const targetOnly = s.match(
+    /(?:target\s+level\s+of|achieving\s+(?:a\s+)?level\s*(?:of\s*)?|(?:^|\s)target\s*(?:level\s*(?:of\s*)?)?|(?:^|\s)goal\s*(?:level\s*(?:of\s*)?)?)(\d{1,2})(?:\s+out\s+of\s+10)?/i
+  );
   if (currentOnly || targetOnly) {
     const current = currentOnly ? Number(currentOnly[1]) : null;
     const target = targetOnly ? Number(targetOnly[1]) : null;
@@ -57,13 +97,21 @@ export function parseScalePair(text) {
 }
 
 export function inferScaleDirection(scaleCurrent, scaleTarget, explicit = null) {
-  const dir = String(explicit || '').toLowerCase();
-  if (dir === 'increase' || dir === 'decrease') return dir;
   const cur = Number(scaleCurrent);
   const tgt = Number(scaleTarget);
-  if (!Number.isFinite(cur) || !Number.isFinite(tgt)) return null;
-  if (tgt > cur) return 'increase';
-  if (tgt < cur) return 'decrease';
+  if (Number.isFinite(cur) && Number.isFinite(tgt) && cur !== tgt) {
+    if (tgt > cur) return 'increase';
+    if (tgt < cur) return 'decrease';
+  }
+  const dir = String(explicit || '').toLowerCase();
+  if (dir === 'increase' || dir === 'decrease') return dir;
+  return null;
+}
+
+function keywordScaleDirection(text) {
+  const s = String(text || '');
+  if (/decrease|reduce|lower|eliminate|minimize/i.test(s)) return 'decrease';
+  if (/increase|improve|enhance|higher|elevate/i.test(s)) return 'increase';
   return null;
 }
 
@@ -172,6 +220,7 @@ function applyGoalDuration(goal, text) {
 }
 
 function finalizeObjective(obj) {
+  obj.objectiveText = stripObjectiveHeader(obj.objectiveText);
   const valid = isObjectiveScaleValid(obj.scaleCurrent, obj.scaleTarget);
   obj.scaleNeedsRewrite = !valid;
   if (valid && !obj.measurementMethod) {
@@ -369,19 +418,17 @@ export function parseTreatmentPlanText(rawText) {
         };
         goals.push(currentGoal);
       }
-      const text = trimmed
-        .replace(/^(?:objective|obj)\s*\d*(?:\.\d+)?\s*[:.\-)\]\s]*/i, '')
-        .replace(/^o\d+(?:\.\d+)?\s*[:.\-)\]\s]*/i, '')
-        .trim();
+      const text = stripObjectiveHeader(
+        trimmed
+          .replace(/^(?:objective|obj)\s+\d+(?:\.\d+)?\s*[:.\-)\]\s]*/i, '')
+          .replace(/^o\d+(?:\.\d+)?\s*[:.\-)\]\s]*/i, '')
+          .trim() || trimmed
+      );
       const scales = parseScalePair(text);
-      const directionHint = /decrease|reduce|lower/i.test(text)
-        ? 'decrease'
-        : /increase|improve|higher/i.test(text)
-          ? 'increase'
-          : null;
+      const directionHint = keywordScaleDirection(text);
       currentGoal.objectives.push(
         finalizeObjective({
-          objectiveText: text || trimmed,
+          objectiveText: text || stripObjectiveHeader(trimmed),
           scaleCurrent: scales.scaleCurrent,
           scaleTarget: scales.scaleTarget,
           scaleDirection: inferScaleDirection(scales.scaleCurrent, scales.scaleTarget, directionHint),
@@ -454,14 +501,14 @@ export function parseTreatmentPlanText(rawText) {
       // Continuation lines for long objectives / goals
       const lastObj = currentGoal.objectives[currentGoal.objectives.length - 1];
       if (lastObj) {
-        lastObj.objectiveText = `${lastObj.objectiveText} ${trimmed}`.trim();
+        lastObj.objectiveText = stripObjectiveHeader(`${lastObj.objectiveText} ${trimmed}`.trim());
         const scales = parseScalePair(lastObj.objectiveText);
         if (scales.scaleCurrent != null) lastObj.scaleCurrent = scales.scaleCurrent;
         if (scales.scaleTarget != null) lastObj.scaleTarget = scales.scaleTarget;
         lastObj.scaleDirection = inferScaleDirection(
           lastObj.scaleCurrent,
           lastObj.scaleTarget,
-          lastObj.scaleDirection
+          keywordScaleDirection(lastObj.objectiveText)
         );
         finalizeObjective(lastObj);
       } else {

@@ -700,6 +700,10 @@ const healthHandler = (_req, res) => {
 app.get('/health', healthHandler);
 app.get('/healthz', healthHandler);
 app.get('/readyz', healthHandler);
+app.get('/api/app-version', (_req, res) => {
+  res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
+  res.json({ buildId: String(process.env.APP_BUILD_ID || 'dev').trim() });
+});
 
 // Health check routes (must be before authentication middleware)
 app.use('/api/health-check', healthCheckRoutes);

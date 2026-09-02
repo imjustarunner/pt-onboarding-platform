@@ -55,6 +55,26 @@ Objective 1: Complete behavioral activation 3x/week 8 -> 3 decrease
     assert.equal(inferScaleDirection(8, 3), 'decrease');
   });
 
+  it('parses out-of-10 scale phrasing with correct direction', () => {
+    const reduceText =
+      'Within the next three months, reduce avoidance from a current level of 7 out of 10 to a target level of 3 out of 10';
+    const improveText =
+      'Within the next three months, improve attention from a current level of 4 out of 10 to a target level of 8 out of 10';
+    const parsedReduce = parseTreatmentPlanText(`Goal 1: Reduce anxiety\nObjective 1.1 ${reduceText}`);
+    const parsedImprove = parseTreatmentPlanText(`Goal 2: Improve attention\nObjective 2.1 ${improveText}`);
+    const objReduce = parsedReduce.goals[0].objectives[0];
+    const objImprove = parsedImprove.goals[0].objectives[0];
+    assert.equal(objReduce.scaleCurrent, 7);
+    assert.equal(objReduce.scaleTarget, 3);
+    assert.equal(objReduce.scaleDirection, 'decrease');
+    assert.equal(objReduce.scaleNeedsRewrite, false);
+    assert.ok(!/^Objective 1\.1/i.test(String(objReduce.objectiveText)));
+    assert.equal(objImprove.scaleCurrent, 4);
+    assert.equal(objImprove.scaleTarget, 8);
+    assert.equal(objImprove.scaleDirection, 'increase');
+    assert.equal(objImprove.scaleNeedsRewrite, false);
+  });
+
   it('attaches stacked diagnosis names to each code, not the shared justification', () => {
     const text = `
 Diagnosis

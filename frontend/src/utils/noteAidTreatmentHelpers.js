@@ -82,6 +82,25 @@ export function activePlanGoals(latestPlan) {
     .filter((g) => (g.objectives || []).length > 0 || String(g.goal_text || '').trim());
 }
 
+/**
+ * Initial chart setup: intake auto-drafts (status draft) do not count as a completed plan.
+ */
+export function isTreatmentPlanOnFileForSetup({
+  planImportedOnce = false,
+  latestPlan = null,
+  activeGoals = null
+} = {}) {
+  if (planImportedOnce) return true;
+  const plan = latestPlan;
+  if (!plan) return false;
+  const status = String(plan.status || '').toLowerCase();
+  if (status === 'draft') return false;
+  const goals = Array.isArray(activeGoals) ? activeGoals : activePlanGoals(plan);
+  return goals.some(
+    (g) => (g.objectives || []).length > 0 || String(g.goal_text || '').trim()
+  );
+}
+
 export function buildTreatmentPlanContextText(latestPlan, pastedPlanText = '') {
   const pasted = String(pastedPlanText || '').trim();
   if (pasted) return pasted.slice(0, 8000);

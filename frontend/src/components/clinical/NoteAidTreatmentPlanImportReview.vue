@@ -279,9 +279,7 @@ function onScaleEdit(o) {
   if (isObjectiveScaleValid(o.scaleCurrent, o.scaleTarget)) {
     const cur = Number(o.scaleCurrent);
     const tgt = Number(o.scaleTarget);
-    if (!o.scaleDirection) {
-      o.scaleDirection = tgt > cur ? 'increase' : 'decrease';
-    }
+    o.scaleDirection = tgt > cur ? 'increase' : 'decrease';
     o.measurementMethod = DEFAULT_MEASUREMENT_METHOD;
   }
 }

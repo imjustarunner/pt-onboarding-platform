@@ -158,6 +158,21 @@ function isStopLabel(line) {
   return STOP_AFTER.has(norm);
 }
 
+function sanitizeAdministrativeSex(value) {
+  const v = String(value || '').trim();
+  if (!v) return null;
+  const norm = normalizeLabel(v);
+  if (
+    STOP_AFTER.has(norm)
+    || norm === 'administrative sex'
+    || norm === 'sex'
+    || norm === 'gender'
+  ) {
+    return null;
+  }
+  return v;
+}
+
 function collectBlock(lines, startIndex) {
   const values = [];
   let i = startIndex;
@@ -289,7 +304,7 @@ export function parseDemographicsPaste(rawText) {
     }
 
     if (field === 'administrativeSex') {
-      result.administrativeSex = lines[i];
+      result.administrativeSex = sanitizeAdministrativeSex(lines[i]);
       i += 1;
       continue;
     }
@@ -338,7 +353,10 @@ export function demographicsToClientPatch(parsed) {
   if (p.contactPhone) patch.contact_phone = p.contactPhone;
   if (p.email) patch.email = p.email;
   if (p.appointmentReminderType) patch.appointment_reminder_type = p.appointmentReminderType;
-  if (p.administrativeSex) patch.gender = p.administrativeSex;
+  if (p.administrativeSex) {
+    const gender = sanitizeAdministrativeSex(p.administrativeSex);
+    if (gender) patch.gender = gender;
+  }
   if (p.textMessagesOk === true) patch.session_sms_opt_in = 1;
   if (p.textMessagesOk === false) patch.session_sms_opt_in = 0;
   return patch;

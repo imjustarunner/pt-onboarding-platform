@@ -1206,6 +1206,7 @@ import {
   buildTreatmentPlanContextText,
   buildUpdaterPrefillDocument,
   buildIntakeInformedPlanText,
+  isTreatmentPlanOnFileForSetup,
   clientDisplayInitials,
   clientDisplayName,
   clientTenantLabel,
@@ -1418,8 +1419,12 @@ const intakeOnFile = computed(() => {
   return intakeDraftFinalized.value;
 });
 
-const planOnFile = computed(
-  () => planImportedOnce.value || (activeTreatmentGoals.value || []).length > 0
+const planOnFile = computed(() =>
+  isTreatmentPlanOnFileForSetup({
+    planImportedOnce: planImportedOnce.value,
+    latestPlan: latestTreatmentPlan.value,
+    activeGoals: activeTreatmentGoals.value
+  })
 );
 const showObjectiveRatings = computed(() => {
   if (!effectiveClientId.value || !activeTreatmentGoals.value.length) return false;
@@ -4952,6 +4957,15 @@ const onIntakeDraftEditorFinalized = async (payload) => {
       loadClientIntakeSummary(effectiveClientId.value)
     ]);
   }
+  clientContextPanelRef.value?.switchTab?.('goals');
+  const draftId = Number(latestTreatmentPlan.value?.id || 0);
+  const isDraft = String(latestTreatmentPlan.value?.status || '').toLowerCase() === 'draft';
+  if (draftId && isDraft && !planImportedOnce.value) {
+    planDraftEditorId.value = draftId;
+    planDraftEditorMode.value = 'draft';
+    planDraftInitialPlan.value = latestTreatmentPlan.value;
+    showPlanImportReview.value = true;
+  }
   approvalMessage.value = 'Intake note finalized.';
 };
 
@@ -4980,6 +4994,15 @@ const onIntakeImportFinalized = async () => {
       loadClientTreatmentPlan(effectiveClientId.value),
       loadClientIntakeSummary(effectiveClientId.value)
     ]);
+  }
+  clientContextPanelRef.value?.switchTab?.('goals');
+  const draftId = Number(latestTreatmentPlan.value?.id || 0);
+  const isDraft = String(latestTreatmentPlan.value?.status || '').toLowerCase() === 'draft';
+  if (draftId && isDraft && !planImportedOnce.value) {
+    planDraftEditorId.value = draftId;
+    planDraftEditorMode.value = 'draft';
+    planDraftInitialPlan.value = latestTreatmentPlan.value;
+    showPlanImportReview.value = true;
   }
   approvalMessage.value = 'Intake note saved to chart.';
 };

@@ -25,7 +25,7 @@ const SOAP_INLINE_HEADER_RE = new RegExp(
 
 /** Goal N / Objective N / Discharge / Projected Time — EHR paste + structured plan UI. */
 const TREATMENT_PLAN_HEADER_RE =
-  /^(?:\d+[\).\s-]*)?(?:\*\*)?(Goal\s*(\d+)|Objective\s*(\d+)|Projected\s*Time\s*(?:to\s*Completion)?(?:\s*\d+)?|Discharge\s*Plan|Discharge)(?:\*\*)?\s*:?\s*(.*)$/i;
+  /^(?:\d+[\).\s-]*)?(?:\*\*)?(Goal\s*(\d+)|Objective\s*(\d+(?:\.\d+)?)|Projected\s*Time\s*(?:to\s*Completion)?(?:\s*\d+)?|Discharge\s*Plan|Discharge)(?:\*\*)?\s*:?\s*(.*)$/i;
 
 function normalizeSectionKey(title) {
   let t = String(title || '').trim().toLowerCase();
@@ -79,7 +79,7 @@ export function parseTreatmentPlanPanelsFromText(text) {
       flush();
       const label = String(match[1] || '').trim();
       const goalNum = match[2] ? Number(match[2]) : null;
-      const objNum = match[3] ? Number(match[3]) : null;
+      const objRef = match[3] ? String(match[3]).trim() : null;
       const inline = String(match[4] || '').trim();
       let kind = 'other';
       let index = null;
@@ -91,11 +91,11 @@ export function parseTreatmentPlanPanelsFromText(text) {
         lastGoalIndex = goalNum;
         id = `Goal ${goalNum}`;
         title = `Goal ${goalNum}`;
-      } else if (objNum != null && !Number.isNaN(objNum)) {
+      } else if (objRef) {
         kind = 'objective';
-        index = objNum;
-        id = `Objective ${objNum}`;
-        title = `Objective ${objNum}`;
+        index = Number(objRef.split('.')[0]) || 1;
+        id = `Objective ${objRef}`;
+        title = `Objective ${objRef}`;
       } else if (/^projected\s*time/i.test(label)) {
         kind = 'projected_time';
         index = lastGoalIndex;

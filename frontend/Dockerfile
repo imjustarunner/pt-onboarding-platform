@@ -38,7 +38,9 @@ RUN if [ ! -f "index.html" ]; then \
 
 # Build argument for API URL (set at build time)
 ARG VITE_API_URL
+ARG VITE_APP_BUILD_ID=dev
 ENV VITE_API_URL=${VITE_API_URL}
+ENV VITE_APP_BUILD_ID=${VITE_APP_BUILD_ID}
 
 # Debug: Show environment variables
 RUN echo "VITE_API_URL=$VITE_API_URL" && \
@@ -46,7 +48,7 @@ RUN echo "VITE_API_URL=$VITE_API_URL" && \
     ls -la && ls -la node_modules/@vitejs || true
 
 # Build the application
-RUN npm run build || ( \
+RUN npm run build && printf '{"buildId":"%s"}\n' "$VITE_APP_BUILD_ID" > dist/version.json || ( \
     echo "❌ Build failed!" && \
     echo "VITE_API_URL=$VITE_API_URL" && \
     echo "Current directory: $(pwd)" && \

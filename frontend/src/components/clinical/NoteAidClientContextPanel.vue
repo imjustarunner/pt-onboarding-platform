@@ -56,12 +56,12 @@
             {{ setupComplete ? 'Initial chart info (expand if needed)' : 'Finish initial chart setup' }}
           </summary>
 
-          <template v-if="setupComplete && !redoIntake">
+          <template v-if="setupComplete && !redoIntake && !redoPlan">
             <div class="na-locked-banner" role="status">
               <strong>Chart setup complete</strong>
               <p>
                 Intake, demographics, and treatment plan are on file.
-                Use Redo intake if the imported note was wrong or incomplete.
+                Use Redo intake or Redo treatment plan if an import was wrong or incomplete.
               </p>
             </div>
             <details v-if="clinicalIntakePreview" class="na-locked-preview">
@@ -77,6 +77,9 @@
               </button>
               <button type="button" class="na-btn-outline" @click="startRedoIntake">
                 Redo intake
+              </button>
+              <button type="button" class="na-btn-outline" @click="startRedoPlan">
+                Redo treatment plan
               </button>
               <button type="button" class="na-link-btn" @click="$emit('open-chart-intake')">
                 Open chart intake
@@ -232,9 +235,12 @@
               </template>
             </template>
 
-            <template v-else>
-              <div v-if="loadingPlan" class="na-client-ctx-empty">Loading treatment plan…</div>
-              <div v-else-if="planError" class="na-client-ctx-empty error">{{ planError }}</div>
+              <template v-else>
+                <div v-if="loadingPlan" class="na-client-ctx-empty">Loading treatment plan…</div>
+                <div v-else-if="planError" class="na-client-ctx-empty error">{{ planError }}</div>
+                <p v-if="redoPlan" class="na-client-ctx-hint">
+                  Replacing the treatment plan on file. Paste, parse, confirm scales, then save to chart.
+                </p>
               <template v-else-if="planLocked">
                 <div class="na-locked-banner" role="status">
                   <strong>Treatment plan on file</strong>
@@ -258,6 +264,9 @@
                 <div class="na-client-ctx-actions">
                   <button type="button" class="na-btn-outline" @click="$emit('open-updater')">
                     Open treatment plan updater
+                  </button>
+                  <button type="button" class="na-btn-outline" @click="startRedoPlan">
+                    Redo treatment plan import
                   </button>
                 </div>
               </template>
@@ -348,17 +357,23 @@ defineEmits([
 
 const tab = ref('intake');
 const redoIntake = ref(false);
+const redoPlan = ref(false);
 
 const demographicsLocked = computed(() => !!props.demographicsOnFile);
-const intakeLocked = computed(() => !!props.intakeOnFile);
-const planLocked = computed(() => !!props.planOnFile);
+const intakeLocked = computed(() => !!props.intakeOnFile && !redoIntake.value);
+const planLocked = computed(() => !!props.planOnFile && !redoPlan.value);
 const setupComplete = computed(
-  () => demographicsLocked.value && intakeLocked.value && planLocked.value && !redoIntake.value
+  () => demographicsLocked.value && intakeLocked.value && planLocked.value
 );
 
 function startRedoIntake() {
   redoIntake.value = true;
   tab.value = 'intake';
+}
+
+function startRedoPlan() {
+  redoPlan.value = true;
+  tab.value = 'goals';
 }
 
 const setupStatusLabel = computed(() => {
@@ -411,6 +426,7 @@ watch(
   () => props.clientId,
   () => {
     redoIntake.value = false;
+    redoPlan.value = false;
     focusFirstIncompleteSetupTab();
   }
 );

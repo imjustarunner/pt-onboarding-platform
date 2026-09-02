@@ -320,7 +320,6 @@ const clientMetaLine = computed(() => {
   const c = props.client || {};
   const parts = [];
   if (c.age != null && c.age !== '') parts.push(`${c.age} yrs`);
-  if (c.gender) parts.push(String(c.gender));
   if (c.date_of_birth || c.dob) {
     try {
       parts.push(new Date(c.date_of_birth || c.dob).toLocaleDateString());

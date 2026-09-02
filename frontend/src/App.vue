@@ -1902,6 +1902,8 @@
         />
 
         <!-- Password expiry warning banner (shown 14 days before expiry, dismissible per session) -->
+        <AppVersionReloadBanner :authenticated="isAuthenticated" />
+
         <div
           v-if="showPasswordExpiryBanner"
           class="pw-expiry-banner"
@@ -2247,6 +2249,7 @@ import { useRouter, useRoute } from 'vue-router';
 import { isSchoolOnboardingDemoRoute } from './utils/schoolOnboardingDemoContext.js';
 import { resolveHostImpliedPortalSlug } from './utils/orgScopedPath.js';
 import { resolvePreferredAgencySlug } from './utils/demoTenant.js';
+import AppVersionReloadBanner from './components/AppVersionReloadBanner.vue';
 import { startActivityTracking, stopActivityTracking, resetActivityTimer } from './utils/activityTracker';
 import { isSupervisor } from './utils/helpers.js';
 import { canSeeClientExchangeNav } from './utils/clientExchangeNav.js';
