@@ -1,5 +1,5 @@
 <template>
-  <div v-if="open" class="na-modal-backdrop" @click.self="emit('close')">
+  <div v-if="open" class="na-modal-backdrop">
     <div class="na-modal na-modal--wide" role="dialog" aria-labelledby="na-plan-import-title">
       <header class="na-modal-head">
         <h3 id="na-plan-import-title">

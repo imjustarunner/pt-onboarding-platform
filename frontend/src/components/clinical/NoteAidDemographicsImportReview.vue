@@ -1,6 +1,6 @@
 <template>
   <Teleport to="body">
-    <div v-if="open" class="na-modal-backdrop" @click.self="emit('close')">
+    <div v-if="open" class="na-modal-backdrop">
     <div class="na-modal" role="dialog" aria-labelledby="na-demo-import-title">
       <header class="na-modal-head">
         <h3 id="na-demo-import-title">Import demographics</h3>
