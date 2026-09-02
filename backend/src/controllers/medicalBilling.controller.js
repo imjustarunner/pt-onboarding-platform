@@ -350,7 +350,7 @@ export const parseTreatmentPlanImport = async (req, res, next) => {
   }
 };
 
-/** Suggest a 1–10 scale rewrite for an imported objective (clinician approves in UI). */
+/** Suggest a 1–10 scale rewrite for an imported objective (auto-applied in UI; clinician can still edit). */
 export const normalizeTreatmentPlanObjective = async (req, res, next) => {
   try {
     const agencyId = parseIntValue(req.body.agencyId);
@@ -363,12 +363,40 @@ export const normalizeTreatmentPlanObjective = async (req, res, next) => {
     if (!objectiveText) {
       return res.status(400).json({ error: { message: 'objectiveText is required' } });
     }
+    const clinicianInstructions = String(req.body.clinicianInstructions || req.body.instructions || '').trim();
     const { suggestObjectiveScaleRewrite } = await import(
       '../services/treatmentPlanObjectiveNormalize.service.js'
     );
-    const suggestion = await suggestObjectiveScaleRewrite(objectiveText);
+    const suggestion = await suggestObjectiveScaleRewrite(objectiveText, { clinicianInstructions });
     if (!suggestion) {
       return res.status(502).json({ error: { message: 'Could not generate a 1–10 scale suggestion' } });
+    }
+    return res.json({ suggestion });
+  } catch (e) {
+    next(e);
+  }
+};
+
+/** Suggest discharge criteria / planning when missing from an imported plan. */
+export const suggestTreatmentPlanDischarge = async (req, res, next) => {
+  try {
+    const agencyId = parseIntValue(req.body.agencyId);
+    const clientId = parseIntValue(req.body.clientId);
+    if (!agencyId || !clientId) {
+      return res.status(400).json({ error: { message: 'agencyId and clientId are required' } });
+    }
+    await ClinicalEligibilityService.ensureAgencyAccess({ reqUser: req.user, agencyId });
+    const { suggestDischargeCriteria } = await import(
+      '../services/treatmentPlanObjectiveNormalize.service.js'
+    );
+    const suggestion = await suggestDischargeCriteria({
+      presentingProblem: req.body.presentingProblem,
+      diagnoses: req.body.diagnoses,
+      goals: req.body.goals,
+      prescribedFrequency: req.body.prescribedFrequency
+    });
+    if (!suggestion?.dischargePlan) {
+      return res.status(502).json({ error: { message: 'Could not generate discharge criteria' } });
     }
     return res.json({ suggestion });
   } catch (e) {

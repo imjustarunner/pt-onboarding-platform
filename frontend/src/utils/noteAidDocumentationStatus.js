@@ -244,6 +244,53 @@ export function filterWorkQueueForRightPanel(items) {
   return (items || []).filter((i) => isRightPanelStatus(deriveWorkQueueDocStatus(i)));
 }
 
+/**
+ * Sort work-queue rows for display + "next in queue".
+ * @param {'date_asc'|'date_desc'|'client'|'status'|'code'|'tenant'} sortBy
+ */
+export function sortWorkQueueItems(items = [], sortBy = 'date_asc') {
+  const list = [...(items || [])];
+  const statusRank = {
+    [DOC_STATUS.NOT_STARTED]: 0,
+    [DOC_STATUS.STARTED]: 1,
+    [DOC_STATUS.COMPLETED]: 2,
+    [DOC_STATUS.SIGNED]: 3
+  };
+  const keyClient = (i) => String(i?.clientName || '').toLowerCase();
+  const keyDate = (i) => String(i?.date || i?.scheduledStart || '').slice(0, 10);
+  const keyCode = (i) => String(i?.serviceCode || '').toUpperCase();
+  const keyTenant = (i) => String(i?.agencyId || i?.agency_id || 0);
+  const keyStatus = (i) => statusRank[deriveWorkQueueDocStatus(i)] ?? 9;
+
+  list.sort((a, b) => {
+    let cmp = 0;
+    switch (sortBy) {
+      case 'date_desc':
+        cmp = keyDate(b).localeCompare(keyDate(a));
+        break;
+      case 'client':
+        cmp = keyClient(a).localeCompare(keyClient(b));
+        break;
+      case 'status':
+        cmp = keyStatus(a) - keyStatus(b);
+        break;
+      case 'code':
+        cmp = keyCode(a).localeCompare(keyCode(b));
+        break;
+      case 'tenant':
+        cmp = keyTenant(a).localeCompare(keyTenant(b));
+        break;
+      case 'date_asc':
+      default:
+        cmp = keyDate(a).localeCompare(keyDate(b));
+        break;
+    }
+    if (cmp !== 0) return cmp;
+    return keyClient(a).localeCompare(keyClient(b)) || String(a?.id || '').localeCompare(String(b?.id || ''));
+  });
+  return list;
+}
+
 export function initialsFromDisplayName(name) {
   const raw = String(name || '').trim();
   if (!raw) return '';

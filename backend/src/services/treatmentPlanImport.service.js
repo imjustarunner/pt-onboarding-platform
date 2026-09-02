@@ -17,6 +17,28 @@ function stripObjectiveHeader(text) {
     .trim();
 }
 
+/** Strip boilerplate labels that often leak into pasted plan text. */
+export function stripPlanBoilerplateLabels(text) {
+  return String(text || '')
+    .replace(/^(?:treatment\s+)?goal(?:\s+\d+)?\s*[:.\-)\]\s—–-]*\s*/i, '')
+    .replace(/^(?:objective|obj)\s+\d+(?:\.\d+)?\s*[:.\-)\]\s—–-]*\s*/i, '')
+    .replace(/\bTreatment\s+Goal(?:\s+\d+)?\b[:.\-)\]\s—–-]*/gi, '')
+    .replace(/\bTreatment\s+Strategy\s*\/\s*Intervention\b[:.\-)\]\s—–-]*/gi, '')
+    .replace(/\bTreatment\s+Strategy\b[:.\-)\]\s—–-]*/gi, '')
+    .replace(/\bIntervention\s*:\s*/gi, '')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+}
+
+function isBoilerplateOnlyLine(text) {
+  const t = String(text || '').trim();
+  if (!t) return true;
+  return /^(?:treatment\s+)?goal(?:\s+\d+)?\.?$/i.test(t)
+    || /^(?:objective|obj)\s*\d*(?:\.\d+)?\.?$/i.test(t)
+    || /^treatment\s+strategy(?:\s*\/\s*intervention)?\.?$/i.test(t)
+    || /^intervention\.?$/i.test(t);
+}
+
 export function parseScalePair(text) {
   const s = String(text || '');
 
@@ -220,7 +242,7 @@ function applyGoalDuration(goal, text) {
 }
 
 function finalizeObjective(obj) {
-  obj.objectiveText = stripObjectiveHeader(obj.objectiveText);
+  obj.objectiveText = stripPlanBoilerplateLabels(stripObjectiveHeader(obj.objectiveText));
   const valid = isObjectiveScaleValid(obj.scaleCurrent, obj.scaleTarget);
   obj.scaleNeedsRewrite = !valid;
   if (valid && !obj.measurementMethod) {
@@ -230,6 +252,13 @@ function finalizeObjective(obj) {
     obj.scaleDirection = inferScaleDirection(obj.scaleCurrent, obj.scaleTarget, obj.scaleDirection);
   }
   return obj;
+}
+
+function finalizeGoal(goal) {
+  if (!goal) return goal;
+  goal.goalText = stripPlanBoilerplateLabels(goal.goalText);
+  goal.objectives = (goal.objectives || []).map((o) => finalizeObjective(o));
+  return goal;
 }
 
 /**
@@ -382,13 +411,15 @@ export function parseTreatmentPlanText(rawText) {
       flushJustification();
       flushPresenting();
       mode = 'goals';
-      const text = trimmed
-        .replace(/^treatment\s+goal\s*\d*\s*[:.\-)\]\s]*/i, '')
-        .replace(/^goal\s*\d*\s*[:.\-)\]\s]*/i, '')
-        .replace(/^g\d+\s*[:.\-)\]\s]*/i, '')
-        .trim();
+      const text = stripPlanBoilerplateLabels(
+        trimmed
+          .replace(/^treatment\s+goal\s*\d*\s*[:.\-)\]\s]*/i, '')
+          .replace(/^goal\s*\d*\s*[:.\-)\]\s]*/i, '')
+          .replace(/^g\d+\s*[:.\-)\]\s]*/i, '')
+          .trim()
+      );
       currentGoal = {
-        goalText: text || trimmed,
+        goalText: isBoilerplateOnlyLine(text) ? '' : text,
         projectedCompletion: null,
         durationMonths: null,
         durationLabel: null,
@@ -418,17 +449,23 @@ export function parseTreatmentPlanText(rawText) {
         };
         goals.push(currentGoal);
       }
-      const text = stripObjectiveHeader(
-        trimmed
-          .replace(/^(?:objective|obj)\s+\d+(?:\.\d+)?\s*[:.\-)\]\s]*/i, '')
-          .replace(/^o\d+(?:\.\d+)?\s*[:.\-)\]\s]*/i, '')
-          .trim() || trimmed
+      const text = stripPlanBoilerplateLabels(
+        stripObjectiveHeader(
+          trimmed
+            .replace(/^(?:objective|obj)\s+\d+(?:\.\d+)?\s*[:.\-)\]\s]*/i, '')
+            .replace(/^o\d+(?:\.\d+)?\s*[:.\-)\]\s]*/i, '')
+            .trim() || trimmed
+        )
       );
+      // Header-only lines ("Objective 1.1") still open an objective; body arrives on following lines.
+      if (isBoilerplateOnlyLine(text) && !/^(?:objective|obj)\s*\d+/i.test(trimmed) && !/^o\d+/i.test(trimmed)) {
+        continue;
+      }
       const scales = parseScalePair(text);
       const directionHint = keywordScaleDirection(text);
       currentGoal.objectives.push(
         finalizeObjective({
-          objectiveText: text || stripObjectiveHeader(trimmed),
+          objectiveText: isBoilerplateOnlyLine(text) ? '' : text,
           scaleCurrent: scales.scaleCurrent,
           scaleTarget: scales.scaleTarget,
           scaleDirection: inferScaleDirection(scales.scaleCurrent, scales.scaleTarget, directionHint),
@@ -499,9 +536,14 @@ export function parseTreatmentPlanText(rawText) {
 
     if (mode === 'goals' && currentGoal) {
       // Continuation lines for long objectives / goals
+      if (isBoilerplateOnlyLine(trimmed)) continue;
+      const cleaned = stripPlanBoilerplateLabels(trimmed);
+      if (!cleaned) continue;
       const lastObj = currentGoal.objectives[currentGoal.objectives.length - 1];
       if (lastObj) {
-        lastObj.objectiveText = stripObjectiveHeader(`${lastObj.objectiveText} ${trimmed}`.trim());
+        lastObj.objectiveText = stripPlanBoilerplateLabels(
+          stripObjectiveHeader(`${lastObj.objectiveText} ${cleaned}`.trim())
+        );
         const scales = parseScalePair(lastObj.objectiveText);
         if (scales.scaleCurrent != null) lastObj.scaleCurrent = scales.scaleCurrent;
         if (scales.scaleTarget != null) lastObj.scaleTarget = scales.scaleTarget;
@@ -512,7 +554,9 @@ export function parseTreatmentPlanText(rawText) {
         );
         finalizeObjective(lastObj);
       } else {
-        currentGoal.goalText = `${currentGoal.goalText} ${trimmed}`.trim();
+        currentGoal.goalText = stripPlanBoilerplateLabels(
+          `${currentGoal.goalText} ${cleaned}`.trim()
+        );
         applyGoalDuration(currentGoal, trimmed);
       }
       continue;
@@ -548,9 +592,7 @@ export function parseTreatmentPlanText(rawText) {
   }
 
   for (const goal of goals) {
-    for (const obj of goal.objectives || []) {
-      finalizeObjective(obj);
-    }
+    finalizeGoal(goal);
     if (!goal.durationMonths && goal.projectedCompletion && /^\d{4}-\d{2}-\d{2}$/.test(goal.projectedCompletion)) {
       goal.parsedDateHint = goal.parsedDateHint || goal.projectedCompletion;
       goal.projectedCompletion = null;
@@ -562,8 +604,10 @@ export function parseTreatmentPlanText(rawText) {
     diagnoses.findIndex((d) => d.isPrimary)
   );
 
+  const todayIso = new Date().toISOString().slice(0, 10);
+
   return {
-    effectiveDate,
+    effectiveDate: effectiveDate || todayIso,
     diagnoses: diagnoses.map((d, i) => ({
       ...d,
       isPrimary: i === (primaryDiagnosisIndex >= 0 ? primaryDiagnosisIndex : 0)

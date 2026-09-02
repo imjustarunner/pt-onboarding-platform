@@ -74,8 +74,25 @@
 
         <label class="na-label">
           Discharge criteria / planning
-          <textarea v-model="model.dischargePlan" class="na-textarea" rows="4" />
+          <textarea
+            v-model="model.dischargePlan"
+            class="na-textarea"
+            rows="4"
+            :class="{ 'na-textarea--warn': !String(model.dischargePlan || '').trim() }"
+            placeholder="Required — criteria for step-down / discharge"
+          />
         </label>
+        <div v-if="!String(model.dischargePlan || '').trim()" class="na-rewrite-banner">
+          <span>Discharge criteria / planning is required and is currently blank.</span>
+          <button
+            type="button"
+            class="na-btn-outline na-btn-outline--sm"
+            :disabled="suggestingDischarge"
+            @click="suggestDischarge"
+          >
+            {{ suggestingDischarge ? 'Suggesting…' : 'Suggest discharge criteria (AI)' }}
+          </button>
+        </div>
 
         <div class="na-import-block">
           <div class="na-import-block-head">
@@ -156,23 +173,42 @@
                   :disabled="rewriteKey === `${gi}-${oi}`"
                   @click="suggestRewrite(gi, oi)"
                 >
-                  {{ rewriteKey === `${gi}-${oi}` ? 'Suggesting…' : 'Suggest 1–10 rewrite (AI)' }}
+                  {{ rewriteKey === `${gi}-${oi}` ? 'Updating…' : 'Suggest 1–10 rewrite (AI)' }}
+                </button>
+                <button
+                  type="button"
+                  class="na-btn-outline na-btn-outline--sm"
+                  :disabled="rewriteKey === `${gi}-${oi}`"
+                  @click="toggleParamEditor(gi, oi)"
+                >
+                  Update with new parameters
                 </button>
               </div>
 
-              <div v-if="o.pendingSuggestion" class="na-suggestion-card">
-                <p class="na-suggestion-label">Suggested rewrite — approve to apply</p>
-                <p class="na-suggestion-text">{{ o.pendingSuggestion.objectiveText }}</p>
-                <p class="muted tiny">
-                  {{ o.pendingSuggestion.scaleCurrent }} → {{ o.pendingSuggestion.scaleTarget }}
-                  ({{ o.pendingSuggestion.scaleDirection }})
-                  — {{ o.pendingSuggestion.explanation }}
-                </p>
+              <div v-if="o.showParamEditor" class="na-param-editor">
+                <label class="na-label">
+                  Parameters for AI rewrite
+                  <textarea
+                    v-model="o.paramInstructions"
+                    class="na-textarea"
+                    rows="3"
+                    placeholder="e.g. Make current anxiety an 8 and target a 3; emphasize CBT thought-challenging…"
+                  />
+                </label>
                 <div class="na-suggestion-actions">
-                  <button type="button" class="na-btn-primary na-btn-outline--sm" @click="approveSuggestion(gi, oi)">Approve</button>
-                  <button type="button" class="na-link-btn" @click="discardSuggestion(gi, oi)">Dismiss</button>
+                  <button
+                    type="button"
+                    class="na-btn-primary na-btn-outline--sm"
+                    :disabled="rewriteKey === `${gi}-${oi}` || !String(o.paramInstructions || '').trim()"
+                    @click="suggestRewrite(gi, oi, { withParams: true })"
+                  >
+                    {{ rewriteKey === `${gi}-${oi}` ? 'Rewriting…' : 'Rewrite with parameters' }}
+                  </button>
+                  <button type="button" class="na-link-btn" @click="o.showParamEditor = false">Cancel</button>
                 </div>
               </div>
+
+              <p v-if="o.lastRewriteNote" class="na-rewrite-applied muted tiny">{{ o.lastRewriteNote }}</p>
             </div>
             <button type="button" class="na-link-btn" @click="addObjective(gi)">Add objective</button>
           </div>
@@ -254,8 +290,13 @@ const error = ref('');
 const addendum = ref('');
 const bulkDurationMonths = ref(0);
 const rewriteKey = ref('');
+const suggestingDischarge = ref(false);
 const durationPresets = DURATION_PRESETS;
 const loadedPlanId = ref(null);
+
+function todayIsoDate() {
+  return new Date().toISOString().slice(0, 10);
+}
 
 const isDraftEditor = computed(
   () => props.mode === 'draft' || !!Number(props.planId || 0) || !!props.initialPlan
@@ -318,7 +359,10 @@ function mapGoal(g) {
         o.scaleCurrent ?? o.scale_current,
         o.scaleTarget ?? o.scale_target
       ),
-      pendingSuggestion: null
+      pendingSuggestion: null,
+      showParamEditor: false,
+      paramInstructions: '',
+      lastRewriteNote: ''
     }))
   };
 }
@@ -336,7 +380,7 @@ function applyPlanRecord(plan) {
   const freqMatch = discharge.match(/Prescribed Frequency of Treatment\n([\s\S]*?)(?=\n\nDischarge Criteria|$)/i);
   const discMatch = discharge.match(/Discharge Criteria\/Planning\n([\s\S]*)$/i);
   model.value = reactive({
-    effectiveDate: (plan.effective_date || plan.effectiveDate || '').toString().slice(0, 10),
+    effectiveDate: (plan.effective_date || plan.effectiveDate || '').toString().slice(0, 10) || todayIsoDate(),
     presentingProblem: presentMatch?.[1]?.trim() || plan.presentingProblem || '',
     prescribedFrequency: freqMatch?.[1]?.trim() || '',
     dischargePlan: discMatch?.[1]?.trim() || (!presentMatch && !freqMatch ? discharge : ''),
@@ -392,13 +436,43 @@ function addObjective(gi) {
     scaleDirection: null,
     measurementMethod: DEFAULT_MEASUREMENT_METHOD,
     scaleNeedsRewrite: true,
-    pendingSuggestion: null
+    pendingSuggestion: null,
+    showParamEditor: false,
+    paramInstructions: '',
+    lastRewriteNote: ''
   });
 }
 
-async function suggestRewrite(gi, oi) {
+function toggleParamEditor(gi, oi) {
+  const o = model.value?.goals?.[gi]?.objectives?.[oi];
+  if (!o) return;
+  o.showParamEditor = !o.showParamEditor;
+}
+
+function applySuggestionToObjective(o, suggestion) {
+  if (!o || !suggestion) return;
+  o.objectiveText = suggestion.objectiveText;
+  o.scaleCurrent = suggestion.scaleCurrent;
+  o.scaleTarget = suggestion.scaleTarget;
+  o.scaleDirection = suggestion.scaleDirection;
+  o.measurementMethod = DEFAULT_MEASUREMENT_METHOD;
+  o.scaleNeedsRewrite = !isObjectiveScaleValid(o.scaleCurrent, o.scaleTarget);
+  o.pendingSuggestion = null;
+  o.showParamEditor = false;
+  o.paramInstructions = '';
+  o.lastRewriteNote = `Updated ${suggestion.scaleCurrent} → ${suggestion.scaleTarget} (${suggestion.scaleDirection})${
+    suggestion.source === 'heuristic' ? ' · offline fallback' : ''
+  }. ${suggestion.explanation || ''}`.trim();
+}
+
+async function suggestRewrite(gi, oi, { withParams = false } = {}) {
   const o = model.value?.goals?.[gi]?.objectives?.[oi];
   if (!o || !String(o.objectiveText || '').trim()) return;
+  const instructions = withParams ? String(o.paramInstructions || '').trim() : '';
+  if (withParams && !instructions) {
+    error.value = 'Enter parameters for the AI rewrite first.';
+    return;
+  }
   rewriteKey.value = `${gi}-${oi}`;
   error.value = '';
   try {
@@ -407,14 +481,17 @@ async function suggestRewrite(gi, oi) {
       {
         agencyId: Number(props.agencyId),
         clientId: Number(props.clientId),
-        objectiveText: o.objectiveText
+        objectiveText: o.objectiveText,
+        clinicianInstructions: instructions || undefined
       },
-      { skipGlobalLoading: true }
+      { skipGlobalLoading: true, timeout: 90000 }
     );
-    o.pendingSuggestion = res?.data?.suggestion || null;
-    if (!o.pendingSuggestion) {
+    const suggestion = res?.data?.suggestion || null;
+    if (!suggestion) {
       error.value = 'Could not generate a suggestion for this objective.';
+      return;
     }
+    applySuggestionToObjective(o, suggestion);
   } catch (e) {
     error.value = e.response?.data?.error?.message || e.message || 'AI suggestion failed';
   } finally {
@@ -422,17 +499,41 @@ async function suggestRewrite(gi, oi) {
   }
 }
 
+async function suggestDischarge() {
+  if (!model.value) return;
+  suggestingDischarge.value = true;
+  error.value = '';
+  try {
+    const res = await api.post(
+      '/medical-billing/treatment-plans/suggest-discharge',
+      {
+        agencyId: Number(props.agencyId),
+        clientId: Number(props.clientId),
+        presentingProblem: model.value.presentingProblem || '',
+        prescribedFrequency: model.value.prescribedFrequency || '',
+        diagnoses: model.value.diagnoses || [],
+        goals: (model.value.goals || []).map((g) => ({ goalText: g.goalText }))
+      },
+      { skipGlobalLoading: true, timeout: 90000 }
+    );
+    const suggestion = res?.data?.suggestion;
+    if (!suggestion?.dischargePlan) {
+      error.value = 'Could not generate discharge criteria.';
+      return;
+    }
+    model.value.dischargePlan = suggestion.dischargePlan;
+  } catch (e) {
+    error.value = e.response?.data?.error?.message || e.message || 'Discharge suggestion failed';
+  } finally {
+    suggestingDischarge.value = false;
+  }
+}
+
 function approveSuggestion(gi, oi) {
   const o = model.value?.goals?.[gi]?.objectives?.[oi];
   const s = o?.pendingSuggestion;
   if (!o || !s) return;
-  o.objectiveText = s.objectiveText;
-  o.scaleCurrent = s.scaleCurrent;
-  o.scaleTarget = s.scaleTarget;
-  o.scaleDirection = s.scaleDirection;
-  o.measurementMethod = DEFAULT_MEASUREMENT_METHOD;
-  o.scaleNeedsRewrite = false;
-  o.pendingSuggestion = null;
+  applySuggestionToObjective(o, s);
 }
 
 function discardSuggestion(gi, oi) {
@@ -478,7 +579,7 @@ async function parseText(text) {
       || dxList.map((d) => String(d.justification || '').trim()).find(Boolean)
       || '';
     model.value = reactive({
-      effectiveDate: parsed.effectiveDate || model.value?.effectiveDate || '',
+      effectiveDate: parsed.effectiveDate || model.value?.effectiveDate || todayIsoDate(),
       presentingProblem: parsed.presentingProblem || model.value?.presentingProblem || '',
       prescribedFrequency: parsed.prescribedFrequency || model.value?.prescribedFrequency || '',
       dischargePlan: parsed.dischargePlan || model.value?.dischargePlan || '',
@@ -494,6 +595,12 @@ async function parseText(text) {
     });
     if (!model.value.diagnoses.length) addDiagnosis();
     if (!model.value.goals.length) addGoal();
+    if (!String(model.value.effectiveDate || '').trim()) {
+      model.value.effectiveDate = todayIsoDate();
+    }
+    if (!String(model.value.dischargePlan || '').trim()) {
+      error.value = 'Discharge criteria / planning is missing — use Suggest discharge criteria before saving.';
+    }
   } catch (e) {
     error.value = e.response?.data?.error?.message || e.message || 'Parse failed';
   } finally {
@@ -571,6 +678,12 @@ async function save({ finalize = true } = {}) {
   finalizing.value = !!finalize;
   error.value = '';
   try {
+    if (!String(model.value.effectiveDate || '').trim()) {
+      model.value.effectiveDate = todayIsoDate();
+    }
+    if (finalize && !String(model.value.dischargePlan || '').trim()) {
+      throw new Error('Discharge criteria / planning is required. Use Suggest discharge criteria (AI) or enter it manually.');
+    }
     for (const g of model.value.goals || []) {
       syncGoalCompletion(g);
       for (const o of g.objectives || []) {
@@ -799,6 +912,21 @@ async function save({ finalize = true } = {}) {
   margin-top: 14px;
 }
 .na-modal-actions--start { justify-content: flex-start; }
+.na-textarea--warn {
+  border-color: #f59e0b !important;
+  background: #fffbeb;
+}
+.na-param-editor {
+  margin-top: 8px;
+  padding: 10px;
+  border: 1px dashed #94a3b8;
+  border-radius: 10px;
+  background: #f8fafc;
+}
+.na-rewrite-applied {
+  margin: 6px 0 0;
+  color: #0f766e;
+}
 .na-btn-primary, .na-btn-outline, .na-link-btn, .na-btn-outline--sm {
   border-radius: 8px;
   padding: 8px 12px;

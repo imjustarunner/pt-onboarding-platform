@@ -1119,6 +1119,7 @@
         :items="workQueueItems"
         :active-id="activeWorkQueueItemId"
         :collapsed="workQueueCollapsed"
+        :sort-by="workQueueSortBy"
         @add-todo="showTodoImportModal = true"
         @generate="generateNote"
         @next="advanceWorkQueue"
@@ -1126,6 +1127,7 @@
         @select="activateWorkQueueItem"
         @delete="onWorkQueueDeleteDraft"
         @update:collapsed="workQueueCollapsed = $event"
+        @update:sort-by="workQueueSortBy = $event"
       />
     </div>
 
@@ -1245,8 +1247,10 @@ import {
   buildLeftLibraryRows,
   deriveWorkQueueDocStatus,
   draftMatchesWorkQueueItem,
+  filterWorkQueueForRightPanel,
   normalizeDocStatus,
-  sessionDedupeKey
+  sessionDedupeKey,
+  sortWorkQueueItems
 } from '../../utils/noteAidDocumentationStatus.js';
 import {
   consumeNoteAidWorkQueueStash,
@@ -1574,6 +1578,7 @@ const planDraftInitialPlan = ref(null);
 const showDemographicsImport = ref(false);
 const showTodoImportModal = ref(false);
 const workQueueItems = ref([]);
+const workQueueSortBy = ref('date_asc');
 const sessionOfficeEventId = ref(null);
 const sessionClinicalSessionId = ref(null);
 const sessionDurationMinutes = ref(null);
@@ -3168,8 +3173,15 @@ const nextInProgressRow = computed(() => {
   return rows[0] || null;
 });
 
+const sortedWorkQueueItems = computed(() =>
+  sortWorkQueueItems(filterWorkQueueForRightPanel(workQueueItems.value), workQueueSortBy.value)
+);
+
 const nextInQueueItem = computed(() =>
-  (workQueueItems.value || []).find(
+  sortedWorkQueueItems.value.find(
+    (i) => deriveWorkQueueDocStatus(i) === DOC_STATUS.NOT_STARTED
+      && i.id !== activeWorkQueueItemId.value
+  ) || sortedWorkQueueItems.value.find(
     (i) => deriveWorkQueueDocStatus(i) === DOC_STATUS.NOT_STARTED
   ) || null
 );
@@ -5582,7 +5594,7 @@ async function advanceWorkQueue() {
       markActiveWorkQueueItemCompleted();
     }
   }
-  const next = (workQueueItems.value || []).find(
+  const next = sortedWorkQueueItems.value.find(
     (i) => i.id !== id && deriveWorkQueueDocStatus(i) === DOC_STATUS.NOT_STARTED
   );
   if (next) await activateWorkQueueItem(next);

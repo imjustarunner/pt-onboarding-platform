@@ -46,6 +46,20 @@
       <span class="na-wq-chip na-wq-chip--started">Started</span>
     </div>
 
+    <div class="na-wq-sort">
+      <label class="na-wq-sort-label" for="na-wq-sort">
+        Sort
+        <select id="na-wq-sort" v-model="sortBy" class="na-wq-sort-select">
+          <option value="date_asc">Date (oldest first)</option>
+          <option value="date_desc">Date (newest first)</option>
+          <option value="client">Client name</option>
+          <option value="status">Status</option>
+          <option value="code">Service code</option>
+          <option value="tenant">Tenant</option>
+        </select>
+      </label>
+    </div>
+
     <div class="na-wq-actions">
       <button type="button" class="na-wq-primary" :disabled="!activeItem" @click="$emit('generate')">
         Generate
@@ -116,11 +130,12 @@
 </template>
 
 <script setup>
-import { computed, ref } from 'vue';
+import { computed, ref, watch } from 'vue';
 import {
   DOC_STATUS,
   deriveWorkQueueDocStatus,
   filterWorkQueueForRightPanel,
+  sortWorkQueueItems,
   docStatusMeta,
   deriveNoteConnection,
   noteConnectionMeta
@@ -129,18 +144,64 @@ import { useAgencyStore } from '../../store/agency.js';
 import { toUploadsUrl } from '../../utils/uploadsUrl.js';
 import { tenantSmsImage } from '../../utils/tenantBrandAssets.js';
 
+const SORT_STORAGE_KEY = 'noteAidWorkQueueSortBy';
+
 const props = defineProps({
   items: { type: Array, default: () => [] },
   activeId: { type: [String, null], default: null },
-  collapsed: { type: Boolean, default: false }
+  collapsed: { type: Boolean, default: false },
+  sortBy: { type: String, default: '' }
 });
 
-defineEmits(['add-todo', 'generate', 'next', 'clear', 'select', 'delete', 'update:collapsed']);
+const emit = defineEmits([
+  'add-todo',
+  'generate',
+  'next',
+  'clear',
+  'select',
+  'delete',
+  'update:collapsed',
+  'update:sortBy'
+]);
 
 const agencyStore = useAgencyStore();
 const failedLogoKeys = ref(new Set());
 
-const visibleItems = computed(() => filterWorkQueueForRightPanel(props.items));
+function loadStoredSort() {
+  try {
+    const raw = localStorage.getItem(SORT_STORAGE_KEY);
+    if (raw) return raw;
+  } catch {
+    // ignore
+  }
+  return 'date_asc';
+}
+
+const localSortBy = ref(props.sortBy || loadStoredSort());
+
+watch(
+  () => props.sortBy,
+  (v) => {
+    if (v && v !== localSortBy.value) localSortBy.value = v;
+  }
+);
+
+const sortBy = computed({
+  get: () => localSortBy.value,
+  set: (v) => {
+    localSortBy.value = v;
+    try {
+      localStorage.setItem(SORT_STORAGE_KEY, v);
+    } catch {
+      // ignore
+    }
+    emit('update:sortBy', v);
+  }
+});
+
+const visibleItems = computed(() =>
+  sortWorkQueueItems(filterWorkQueueForRightPanel(props.items), sortBy.value)
+);
 
 const pendingCount = computed(
   () => visibleItems.value.filter((i) => docStatus(i) === DOC_STATUS.NOT_STARTED).length
@@ -154,6 +215,8 @@ const hasNext = computed(() =>
     (i) => i.id !== props.activeId && docStatus(i) === DOC_STATUS.NOT_STARTED
   )
 );
+
+watch(sortBy, (v) => emit('update:sortBy', v), { immediate: true });
 
 const agenciesById = computed(() => {
   const map = new Map();
@@ -343,6 +406,31 @@ function typeLabel(item) {
   gap: 6px;
   margin-bottom: 10px;
   flex-wrap: wrap;
+}
+.na-wq-sort {
+  margin: 0 0 10px;
+}
+.na-wq-sort-label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #64748b;
+}
+.na-wq-sort-select {
+  width: 100%;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  padding: 6px 8px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: #0f172a;
+  background: #fff;
+  text-transform: none;
+  letter-spacing: 0;
 }
 .na-wq-chip {
   font-size: 0.68rem;

@@ -58,6 +58,10 @@ export function stripPlanHeadingPrefix(text) {
   return String(text || '')
     .replace(/^(?:treatment\s+)?goal\s+\d+\s*[:.\-)\]\s—–-]*\s*/i, '')
     .replace(/^(?:objective|obj)\s+\d+(?:\.\d+)?\s*[:.\-)\]\s—–-]*\s*/i, '')
+    .replace(/\bTreatment\s+Goal(?:\s+\d+)?\b[:.\-)\]\s—–-]*/gi, '')
+    .replace(/\bTreatment\s+Strategy\s*\/\s*Intervention\b[:.\-)\]\s—–-]*/gi, '')
+    .replace(/\bTreatment\s+Strategy\b[:.\-)\]\s—–-]*/gi, '')
+    .replace(/\s{2,}/g, ' ')
     .trim();
 }
 

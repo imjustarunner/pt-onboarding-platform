@@ -21,6 +21,7 @@ import {
   getTreatmentPlanById,
   parseTreatmentPlanImport,
   normalizeTreatmentPlanObjective,
+  suggestTreatmentPlanDischarge,
   listClientChart,
   createObjectiveRating,
   listClientObjectiveRatings,
@@ -115,9 +116,25 @@ router.post(
   [
     body('agencyId').isInt({ min: 1 }),
     body('clientId').isInt({ min: 1 }),
-    body('objectiveText').isString().notEmpty()
+    body('objectiveText').isString().notEmpty(),
+    body('clinicianInstructions').optional().isString(),
+    body('instructions').optional().isString()
   ],
   normalizeTreatmentPlanObjective
+);
+
+router.post(
+  '/treatment-plans/suggest-discharge',
+  requireClinicalChart,
+  [
+    body('agencyId').isInt({ min: 1 }),
+    body('clientId').isInt({ min: 1 }),
+    body('presentingProblem').optional().isString(),
+    body('prescribedFrequency').optional().isString(),
+    body('diagnoses').optional().isArray(),
+    body('goals').optional().isArray()
+  ],
+  suggestTreatmentPlanDischarge
 );
 
 router.get(
