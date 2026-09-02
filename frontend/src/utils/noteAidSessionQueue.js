@@ -161,7 +161,8 @@ export function defaultMentalStatusExam() {
 export function defaultRiskAssessment() {
   return {
     patientDeniesAll: true,
-    areas: []
+    areas: [],
+    notes: ''
   };
 }
 

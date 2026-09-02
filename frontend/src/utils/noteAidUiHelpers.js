@@ -412,6 +412,8 @@ export function formatRiskAssessmentText(risk) {
       const details = String(a.details || '').trim();
       return details ? `${a.name}${level}: ${details}` : `${a.name}${level}`;
     });
+  const notes = String(risk.notes || '').trim();
+  if (notes) bits.push(`Notes: ${notes}`);
   return bits.length ? bits.join('\n') : 'Risk areas documented.';
 }
 
