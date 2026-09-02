@@ -261,6 +261,96 @@ function finalizeGoal(goal) {
   return goal;
 }
 
+function emptyGoalShell(goalText = '') {
+  return {
+    goalText,
+    projectedCompletion: null,
+    durationMonths: null,
+    durationLabel: null,
+    parsedDateHint: null,
+    objectives: []
+  };
+}
+
+/** Split compound goal text into clauses. Returns [] unless natural clause count matches `want`. */
+function splitGoalClauses(goalText, want) {
+  const text = String(goalText || '').trim();
+  if (!text || want < 2) return [];
+  const parts = text
+    .split(/\s*;\s*|\s*,\s*(?:and\s+)?|\s+\band\b\s+/i)
+    .map((p) => p.replace(/^client will\s+/i, '').trim())
+    .filter((p) => p.length > 8);
+  if (parts.length !== want) return [];
+  return parts.map((p) => (/^client will/i.test(p) ? p : `Client will ${p}`));
+}
+
+function goalTextFromObjective(objectiveText) {
+  const raw = stripPlanBoilerplateLabels(String(objectiveText || ''));
+  const withoutScale = raw
+    .replace(/\s*Progress will be measured[^.]*\./i, '')
+    .replace(/\s*where\s+1\s*=[^.]*\./i, '')
+    .trim();
+  const first = withoutScale.split(/(?<=\.)\s+/)[0] || withoutScale;
+  return first.replace(/\.\s*$/, '').trim().slice(0, 400);
+}
+
+/**
+ * When a single goal carries multiple objectives (common paste shape), expand to
+ * one goal per objective so ratings and chart edits stay goal-scoped.
+ */
+export function expandGoalsOnePerObjective(goals = []) {
+  const out = [];
+  for (const g of goals || []) {
+    const objs = Array.isArray(g.objectives) ? g.objectives : [];
+    if (objs.length <= 1) {
+      out.push(g);
+      continue;
+    }
+    const clauses = splitGoalClauses(g.goalText, objs.length);
+    const useClauses = clauses.length === objs.length;
+    for (let i = 0; i < objs.length; i += 1) {
+      const goalText =
+        (useClauses && clauses[i])
+        || goalTextFromObjective(objs[i]?.objectiveText)
+        || String(g.goalText || '').trim()
+        || `Goal ${out.length + 1}`;
+      out.push({
+        ...emptyGoalShell(goalText),
+        projectedCompletion: g.projectedCompletion ?? null,
+        durationMonths: g.durationMonths ?? null,
+        durationLabel: g.durationLabel ?? null,
+        parsedDateHint: g.parsedDateHint ?? null,
+        objectives: [objs[i]]
+      });
+    }
+  }
+  return out;
+}
+
+function ensureGoalAtIndex(goals, index1Based, template = null) {
+  const idx = Math.max(1, Number(index1Based) || 1) - 1;
+  while (goals.length <= idx) {
+    goals.push(emptyGoalShell(template?.goalText ? '' : `Goal ${goals.length + 1}`));
+  }
+  if (template) {
+    const g = goals[idx];
+    if (template.durationMonths != null && g.durationMonths == null) {
+      g.durationMonths = template.durationMonths;
+      g.durationLabel = template.durationLabel ?? null;
+      g.projectedCompletion = template.projectedCompletion ?? null;
+    }
+  }
+  return goals[idx];
+}
+
+function parseObjectiveMajorMinor(trimmed) {
+  const m =
+    String(trimmed || '').match(/^(?:objective|obj)\s*(\d+)(?:\.(\d+))?/i)
+    || String(trimmed || '').match(/^o(\d+)(?:\.(\d+))?/i);
+  if (!m) return null;
+  return { major: Number(m[1]), minor: m[2] != null ? Number(m[2]) : null };
+}
+
 /**
  * @returns {{
  *   effectiveDate: string|null,
@@ -438,15 +528,11 @@ export function parseTreatmentPlanText(rawText) {
       flushJustification();
       flushPresenting();
       mode = 'goals';
-      if (!currentGoal) {
-        currentGoal = {
-          goalText: 'Goal',
-          projectedCompletion: null,
-          durationMonths: null,
-          durationLabel: null,
-          parsedDateHint: null,
-          objectives: []
-        };
+      const numbered = parseObjectiveMajorMinor(trimmed);
+      if (numbered?.major) {
+        currentGoal = ensureGoalAtIndex(goals, numbered.major, currentGoal);
+      } else if (!currentGoal) {
+        currentGoal = emptyGoalShell('Goal');
         goals.push(currentGoal);
       }
       const text = stripPlanBoilerplateLabels(
@@ -599,6 +685,10 @@ export function parseTreatmentPlanText(rawText) {
     }
   }
 
+  const expandedGoals = expandGoalsOnePerObjective(goals).filter(
+    (g) => String(g.goalText || '').trim() || (g.objectives || []).some((o) => String(o.objectiveText || '').trim())
+  );
+
   const primaryDiagnosisIndex = Math.max(
     0,
     diagnoses.findIndex((d) => d.isPrimary)
@@ -616,12 +706,13 @@ export function parseTreatmentPlanText(rawText) {
     presentingProblem: presentingProblem ? String(presentingProblem).trim() : null,
     prescribedFrequency: prescribedFrequency ? String(prescribedFrequency).trim() : null,
     dischargePlan: dischargePlan ? String(dischargePlan).trim() : null,
-    goals
+    goals: expandedGoals
   };
 }
 
 export default {
   parseTreatmentPlanText,
+  expandGoalsOnePerObjective,
   inferScaleDirection,
   parseDurationMonths,
   completionDateFromDurationMonths,

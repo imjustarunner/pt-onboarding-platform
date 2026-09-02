@@ -30,6 +30,69 @@ function clampScale(n) {
   return v;
 }
 
+/** Infer short anchors for what 1 and 10 mean on this objective. */
+export function scaleAnchorLabels(objectiveText = '', scaleDirection = 'decrease') {
+  const blob = String(objectiveText || '').toLowerCase();
+  const decrease = scaleDirection === 'decrease';
+
+  if (/anxiet/i.test(blob)) {
+    return decrease
+      ? { one: 'no / infrequent anxiety', ten: 'constant severe anxiety' }
+      : { one: 'constant severe anxiety', ten: 'no / infrequent anxiety' };
+  }
+  if (/depress|hopeless|low mood/i.test(blob)) {
+    return decrease
+      ? { one: 'minimal depressive symptoms', ten: 'severe daily depression' }
+      : { one: 'severe daily depression', ten: 'minimal depressive symptoms' };
+  }
+  if (/anger|irritab|rage/i.test(blob)) {
+    return decrease
+      ? { one: 'calm / rare anger', ten: 'frequent intense anger' }
+      : { one: 'frequent intense anger', ten: 'calm / rare anger' };
+  }
+  if (/communicat|interact|relationship|wife|partner|spouse/i.test(blob)) {
+    return decrease
+      ? { one: 'rare negative interactions', ten: 'frequent negative interactions' }
+      : { one: 'poor / infrequent effective communication', ten: 'consistently effective communication' };
+  }
+  if (/self[- ]?esteem|confiden/i.test(blob)) {
+    return decrease
+      ? { one: 'stable self-esteem', ten: 'very low self-esteem' }
+      : { one: 'very low self-esteem', ten: 'stable positive self-esteem' };
+  }
+  if (/self[- ]?care/i.test(blob)) {
+    return decrease
+      ? { one: 'consistent self-care', ten: 'neglected self-care' }
+      : { one: 'neglected self-care', ten: 'consistent self-care' };
+  }
+  if (/sleep|insomnia/i.test(blob)) {
+    return decrease
+      ? { one: 'restorative sleep', ten: 'severely disrupted sleep' }
+      : { one: 'severely disrupted sleep', ten: 'restorative sleep' };
+  }
+
+  if (decrease) {
+    return { one: 'best / least severe', ten: 'worst / most severe' };
+  }
+  return { one: 'lowest / least developed', ten: 'highest / most consistent' };
+}
+
+function withScaleAnchors(text, scaleCurrent, scaleTarget, scaleDirection) {
+  const cleaned = String(text || '').replace(/\s+/g, ' ').trim();
+  const anchors = scaleAnchorLabels(cleaned, scaleDirection);
+  const anchorClause = `where 1 = ${anchors.one} and 10 = ${anchors.ten}`;
+  if (/where\s+1\s*=/i.test(cleaned) && /10\s*=/i.test(cleaned)) {
+    return cleaned;
+  }
+  const scalePhrase = `Progress will be measured on a 1–10 scale (${anchorClause}) from a current level of ${scaleCurrent} to a target of ${scaleTarget}.`;
+  const withoutOldScale = cleaned
+    .replace(/\s*Progress will be measured on a 1[–-]10 scale[^.]*\./i, '')
+    .replace(/\s*Progress will be measured on a 1\s*-\s*10 scale[^.]*\./i, '')
+    .trim();
+  const base = withoutOldScale || cleaned || 'Client will make measurable progress on this objective.';
+  return `${base.replace(/\.\s*$/, '')}. ${scalePhrase}`;
+}
+
 function heuristicScaleRewrite(objectiveText, clinicianInstructions = '') {
   const cleaned = stripPlanBoilerplateLabels(objectiveText);
   const instruction = String(clinicianInstructions || '').trim();
@@ -56,8 +119,7 @@ function heuristicScaleRewrite(objectiveText, clinicianInstructions = '') {
     scaleTarget = 8;
     scaleDirection = 'increase';
   }
-  const base = cleaned.replace(/\s+/g, ' ').trim() || 'Client will make measurable progress on this objective.';
-  const objectiveOut = `${base} Progress will be measured on a 1–10 scale from a current level of ${scaleCurrent} to a target of ${scaleTarget}.`;
+  const objectiveOut = withScaleAnchors(cleaned, scaleCurrent, scaleTarget, scaleDirection);
   return {
     objectiveText: objectiveOut,
     scaleCurrent,
@@ -85,6 +147,7 @@ Rules:
 - The rewritten objective should be one or two clear sentences.
 - Strip boilerplate labels like "Treatment Goal", "Treatment Strategy / Intervention", or "Intervention".
 - Include the 1–10 current → target direction in plain language (e.g. "from a current level of 8 to a target of 4").
+- MUST define what the poles mean for THIS objective and direction, e.g. "where 1 = no / infrequent anxiety and 10 = constant severe anxiety" for a decrease goal, or "where 1 = poor communication and 10 = consistently effective communication" for an increase goal.
 - Do not use percentages, frequency counts, or other measurement methods — the 1–10 scale is the measurement.
 - Choose clinically reasonable numbers based on the original wording.
 ${instructions ? `- Clinician revision parameters (must honor):\n"""\n${instructions.slice(0, 2000)}\n"""` : ''}
@@ -96,10 +159,12 @@ ${text.slice(0, 4500)}
 
 Respond with JSON only (no markdown):
 {
-  "objectiveText": "<rewritten objective>",
+  "objectiveText": "<rewritten objective including where 1 = … and 10 = …>",
   "scaleCurrent": <integer 1-10>,
   "scaleTarget": <integer 1-10>,
   "scaleDirection": "increase" | "decrease",
+  "scaleOneMeans": "<short label for level 1>",
+  "scaleTenMeans": "<short label for level 10>",
   "explanation": "<one short sentence explaining the scale choice>"
 }`;
 
@@ -113,12 +178,29 @@ Respond with JSON only (no markdown):
     if (parsed) {
       const scaleCurrent = clampScale(parsed.scaleCurrent);
       const scaleTarget = clampScale(parsed.scaleTarget);
-      const objectiveOut = stripPlanBoilerplateLabels(String(parsed.objectiveText || '').trim());
+      let objectiveOut = stripPlanBoilerplateLabels(String(parsed.objectiveText || '').trim());
       if (objectiveOut && scaleCurrent != null && scaleTarget != null && scaleCurrent !== scaleTarget) {
         const scaleDirection =
           parsed.scaleDirection === 'increase' || parsed.scaleDirection === 'decrease'
             ? parsed.scaleDirection
             : inferScaleDirection(scaleCurrent, scaleTarget);
+        if (!/where\s+1\s*=/i.test(objectiveOut) || !/10\s*=/i.test(objectiveOut)) {
+          const one = String(parsed.scaleOneMeans || '').trim();
+          const ten = String(parsed.scaleTenMeans || '').trim();
+          if (one && ten) {
+            objectiveOut = withScaleAnchors(
+              objectiveOut.replace(/where\s+1\s*=[^.]*/i, '').trim(),
+              scaleCurrent,
+              scaleTarget,
+              scaleDirection
+            ).replace(
+              /where 1 = [^)]+ and 10 = [^)]+/,
+              `where 1 = ${one} and 10 = ${ten}`
+            );
+          } else {
+            objectiveOut = withScaleAnchors(objectiveOut, scaleCurrent, scaleTarget, scaleDirection);
+          }
+        }
         return {
           objectiveText: objectiveOut,
           scaleCurrent,
@@ -204,4 +286,4 @@ Respond with JSON only:
   };
 }
 
-export default { suggestObjectiveScaleRewrite, suggestDischargeCriteria };
+export default { suggestObjectiveScaleRewrite, suggestDischargeCriteria, scaleAnchorLabels };

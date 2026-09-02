@@ -49,15 +49,23 @@
     <div class="na-wq-sort">
       <label class="na-wq-sort-label" for="na-wq-sort">
         Sort
-        <select id="na-wq-sort" v-model="sortBy" class="na-wq-sort-select">
-          <option value="date_asc">Date (oldest first)</option>
-          <option value="date_desc">Date (newest first)</option>
+        <select id="na-wq-sort" v-model="sortField" class="na-wq-sort-select">
+          <option value="date">Date</option>
           <option value="client">Client name</option>
           <option value="status">Status</option>
           <option value="code">Service code</option>
-          <option value="tenant">Tenant</option>
+          <option value="agency">Agency</option>
         </select>
       </label>
+      <button
+        type="button"
+        class="na-wq-sort-dir"
+        :title="sortDir === 'asc' ? 'Ascending — click for descending' : 'Descending — click for ascending'"
+        :aria-label="sortDir === 'asc' ? 'Sort ascending' : 'Sort descending'"
+        @click="toggleSortDir"
+      >
+        {{ sortDir === 'asc' ? '↑ Asc' : '↓ Desc' }}
+      </button>
     </div>
 
     <div class="na-wq-actions">
@@ -136,6 +144,7 @@ import {
   deriveWorkQueueDocStatus,
   filterWorkQueueForRightPanel,
   sortWorkQueueItems,
+  normalizeWorkQueueSort,
   docStatusMeta,
   deriveNoteConnection,
   noteConnectionMeta
@@ -144,13 +153,15 @@ import { useAgencyStore } from '../../store/agency.js';
 import { toUploadsUrl } from '../../utils/uploadsUrl.js';
 import { tenantSmsImage } from '../../utils/tenantBrandAssets.js';
 
-const SORT_STORAGE_KEY = 'noteAidWorkQueueSortBy';
+const SORT_FIELD_KEY = 'noteAidWorkQueueSortBy';
+const SORT_DIR_KEY = 'noteAidWorkQueueSortDir';
 
 const props = defineProps({
   items: { type: Array, default: () => [] },
   activeId: { type: [String, null], default: null },
   collapsed: { type: Boolean, default: false },
-  sortBy: { type: String, default: '' }
+  sortBy: { type: String, default: '' },
+  sortDir: { type: String, default: '' }
 });
 
 const emit = defineEmits([
@@ -161,46 +172,83 @@ const emit = defineEmits([
   'select',
   'delete',
   'update:collapsed',
-  'update:sortBy'
+  'update:sortBy',
+  'update:sortDir'
 ]);
 
 const agencyStore = useAgencyStore();
 const failedLogoKeys = ref(new Set());
 
 function loadStoredSort() {
+  let field = 'date';
+  let direction = 'asc';
   try {
-    const raw = localStorage.getItem(SORT_STORAGE_KEY);
-    if (raw) return raw;
+    const rawField = localStorage.getItem(SORT_FIELD_KEY);
+    const rawDir = localStorage.getItem(SORT_DIR_KEY);
+    const normalized = normalizeWorkQueueSort(rawField || 'date', rawDir || 'asc');
+    field = normalized.field;
+    direction = normalized.direction;
   } catch {
     // ignore
   }
-  return 'date_asc';
+  return { field, direction };
 }
 
-const localSortBy = ref(props.sortBy || loadStoredSort());
+const stored = loadStoredSort();
+const localSortField = ref(
+  normalizeWorkQueueSort(props.sortBy || stored.field, props.sortDir || stored.direction).field
+);
+const localSortDir = ref(
+  normalizeWorkQueueSort(props.sortBy || stored.field, props.sortDir || stored.direction).direction
+);
+
+function persistSort() {
+  try {
+    localStorage.setItem(SORT_FIELD_KEY, localSortField.value);
+    localStorage.setItem(SORT_DIR_KEY, localSortDir.value);
+  } catch {
+    // ignore
+  }
+  emit('update:sortBy', localSortField.value);
+  emit('update:sortDir', localSortDir.value);
+}
 
 watch(
-  () => props.sortBy,
-  (v) => {
-    if (v && v !== localSortBy.value) localSortBy.value = v;
+  () => [props.sortBy, props.sortDir],
+  ([f, d]) => {
+    if (!f && !d) return;
+    const n = normalizeWorkQueueSort(f || localSortField.value, d || localSortDir.value);
+    if (n.field !== localSortField.value) localSortField.value = n.field;
+    if (n.direction !== localSortDir.value) localSortDir.value = n.direction;
   }
 );
 
-const sortBy = computed({
-  get: () => localSortBy.value,
+const sortField = computed({
+  get: () => localSortField.value,
   set: (v) => {
-    localSortBy.value = v;
-    try {
-      localStorage.setItem(SORT_STORAGE_KEY, v);
-    } catch {
-      // ignore
-    }
-    emit('update:sortBy', v);
+    localSortField.value = normalizeWorkQueueSort(v, localSortDir.value).field;
+    persistSort();
   }
 });
 
+const sortDir = computed({
+  get: () => localSortDir.value,
+  set: (v) => {
+    localSortDir.value = v === 'desc' ? 'desc' : 'asc';
+    persistSort();
+  }
+});
+
+function toggleSortDir() {
+  sortDir.value = sortDir.value === 'asc' ? 'desc' : 'asc';
+}
+
 const visibleItems = computed(() =>
-  sortWorkQueueItems(filterWorkQueueForRightPanel(props.items), sortBy.value)
+  sortWorkQueueItems(
+    filterWorkQueueForRightPanel(props.items),
+    localSortField.value,
+    localSortDir.value
+  )
 );
 
 const pendingCount = computed(
@@ -216,7 +264,14 @@ const hasNext = computed(() =>
   )
 );
 
-watch(sortBy, (v) => emit('update:sortBy', v), { immediate: true });
+watch(
+  [localSortField, localSortDir],
+  () => {
+    emit('update:sortBy', localSortField.value);
+    emit('update:sortDir', localSortDir.value);
+  },
+  { immediate: true }
+);
 
 const agenciesById = computed(() => {
   const map = new Map();
@@ -408,12 +463,17 @@ function typeLabel(item) {
   flex-wrap: wrap;
 }
 .na-wq-sort {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
   margin: 0 0 10px;
 }
 .na-wq-sort-label {
   display: flex;
   flex-direction: column;
   gap: 4px;
+  flex: 1;
+  min-width: 0;
   font-size: 0.72rem;
   font-weight: 700;
   text-transform: uppercase;
@@ -431,6 +491,23 @@ function typeLabel(item) {
   background: #fff;
   text-transform: none;
   letter-spacing: 0;
+}
+.na-wq-sort-dir {
+  flex-shrink: 0;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: #0f172a;
+  background: #f8fafc;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.na-wq-sort-dir:hover {
+  border-color: #99f6e4;
+  color: #0d5f59;
+  background: #f0fdfa;
 }
 .na-wq-chip {
   font-size: 0.68rem;

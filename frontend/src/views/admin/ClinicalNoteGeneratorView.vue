@@ -264,7 +264,7 @@
           </label>
         </div>
         <p v-else-if="noteAidAgencyId && selectedClient" class="na-tenant-hint muted">
-          Note tenant: {{ agencyLookup[noteAidAgencyId] || selectedClient.agency_name || `Tenant #${noteAidAgencyId}` }}
+          Agency: {{ agencyLookup[noteAidAgencyId] || selectedClient.agency_name || `Agency #${noteAidAgencyId}` }}
         </p>
 
         <header v-if="false" class="na-wizard-head">
@@ -1010,6 +1010,13 @@
               <input v-model="attestMedicallyNecessary" type="checkbox" />
               I declare that this service was medically necessary.
             </label>
+            <label
+              v-if="nextInQueueItem || nextInProgressRow"
+              class="na-sign-check"
+            >
+              <input v-model="signAndOpenNextInQueue" type="checkbox" />
+              After signing, open next in queue
+            </label>
             <p v-if="sessionParticipantsHint && !participantsPresenceDismissed" class="na-sign-attest-warn">
               Note language may suggest others attended. Update <strong>Participants</strong> in session
               details (Step 1), or confirm client-only below if family was only discussed.
@@ -1043,12 +1050,14 @@
               v-if="canApproveToClinicalRecord"
               type="button"
               class="na-btn-outline"
-              :disabled="!displayPanels.length || approvingNote || !canSubmitSignature"
-              @click="approveNoteOutput"
+              :disabled="!displayPanels.length || approvingNote || !canConfirmAndSign"
+              @click="approveNoteOutput({ afterSign: signAndOpenNextInQueue ? 'queue' : 'close' })"
             >
               {{ approvingNote
                 ? 'Signing…'
-                : 'Mark accurate, medically necessary & sign' }}
+                : (attestAccurateAndComplete && attestMedicallyNecessary
+                  ? 'Sign'
+                  : 'Mark accurate, medically necessary & sign') }}
             </button>
             <button
               v-if="canSaveTreatmentPlanToChart"
@@ -1075,24 +1084,26 @@
             <span v-if="archiveMessage" class="hint">{{ archiveMessage }}</span>
           </div>
           <div
-            v-if="displayPanels.length && (nextInProgressRow || nextInQueueItem)"
+            v-if="displayPanels.length && canApproveToClinicalRecord && (nextInProgressRow || nextInQueueItem)"
             class="na-next-nav"
           >
-            <button
-              v-if="nextInProgressRow"
-              type="button"
-              class="na-btn-outline na-next-nav-btn"
-              @click="openNextInProgress"
-            >
-              Open next in progress
-            </button>
             <button
               v-if="nextInQueueItem"
               type="button"
               class="na-btn-outline na-next-nav-btn"
-              @click="openNextInQueue"
+              :disabled="approvingNote || !canConfirmAndSign"
+              @click="approveNoteOutput({ afterSign: 'queue' })"
             >
-              Open next in queue
+              {{ approvingNote ? 'Signing…' : 'Sign and open next in queue' }}
+            </button>
+            <button
+              v-if="nextInProgressRow"
+              type="button"
+              class="na-btn-outline na-next-nav-btn"
+              :disabled="approvingNote || !canConfirmAndSign"
+              @click="approveNoteOutput({ afterSign: 'progress' })"
+            >
+              {{ approvingNote ? 'Signing…' : 'Sign and open next in progress' }}
             </button>
           </div>
           <p class="na-gen-summary">{{ generationLogicSummary }}</p>
@@ -1120,6 +1131,7 @@
         :active-id="activeWorkQueueItemId"
         :collapsed="workQueueCollapsed"
         :sort-by="workQueueSortBy"
+        :sort-dir="workQueueSortDir"
         @add-todo="showTodoImportModal = true"
         @generate="generateNote"
         @next="advanceWorkQueue"
@@ -1128,6 +1140,7 @@
         @delete="onWorkQueueDeleteDraft"
         @update:collapsed="workQueueCollapsed = $event"
         @update:sort-by="workQueueSortBy = $event"
+        @update:sort-dir="workQueueSortDir = $event"
       />
     </div>
 
@@ -1578,7 +1591,10 @@ const planDraftInitialPlan = ref(null);
 const showDemographicsImport = ref(false);
 const showTodoImportModal = ref(false);
 const workQueueItems = ref([]);
-const workQueueSortBy = ref('date_asc');
+const workQueueSortBy = ref('date');
+const workQueueSortDir = ref('asc');
+/** Session preference: after signing, open the next not-started queue item (default on). */
+const signAndOpenNextInQueue = ref(true);
 const sessionOfficeEventId = ref(null);
 const sessionClinicalSessionId = ref(null);
 const sessionDurationMinutes = ref(null);
@@ -3174,7 +3190,11 @@ const nextInProgressRow = computed(() => {
 });
 
 const sortedWorkQueueItems = computed(() =>
-  sortWorkQueueItems(filterWorkQueueForRightPanel(workQueueItems.value), workQueueSortBy.value)
+  sortWorkQueueItems(
+    filterWorkQueueForRightPanel(workQueueItems.value),
+    workQueueSortBy.value,
+    workQueueSortDir.value
+  )
 );
 
 const nextInQueueItem = computed(() =>
@@ -4427,7 +4447,7 @@ const ensureClinicalSessionForApproval = async () => {
   return sessionId;
 };
 
-const approveNoteOutput = async ({ silent = false } = {}) => {
+const approveNoteOutput = async ({ silent = false, afterSign = 'queue' } = {}) => {
   if (silent) return;
   if (!mergedSectionEntries.value.length) return;
   if (approvingNote.value) return;
@@ -4529,14 +4549,28 @@ const approveNoteOutput = async ({ silent = false } = {}) => {
     attestAccurateAndComplete.value = false;
     attestMedicallyNecessary.value = false;
     const signedMsg = 'Signed as medically necessary and saved to clinical records.';
-    if (activeWorkQueueItemId.value) {
-      advanceWorkQueueAfterSign();
-    } else {
-      markActiveWorkQueueItemSigned();
-    }
+    const nextQueue = nextInQueueItem.value;
+    const nextProgress = nextInProgressRow.value;
+    markActiveWorkQueueItemSigned();
     await loadRecent();
-    await closeNoteWorkspace();
-    approvalMessage.value = signedMsg;
+
+    const mode = afterSign === 'progress' || afterSign === 'queue' || afterSign === 'close'
+      ? afterSign
+      : (signAndOpenNextInQueue.value ? 'queue' : 'close');
+
+    if (mode === 'progress' && nextProgress) {
+      approvalMessage.value = signedMsg;
+      await onLibrarySidebarSelect(nextProgress);
+      sidebarTab.value = DOC_STATUS.STARTED;
+    } else if (mode === 'queue' && nextQueue) {
+      approvalMessage.value = signedMsg;
+      await activateWorkQueueItem(nextQueue);
+      sidebarTab.value = DOC_STATUS.STARTED;
+    } else {
+      activeWorkQueueItemId.value = null;
+      await closeNoteWorkspace();
+      approvalMessage.value = signedMsg;
+    }
   } catch (e) {
     approvalError.value = e.response?.data?.error?.message || e.message || 'Failed to persist approved note';
   } finally {

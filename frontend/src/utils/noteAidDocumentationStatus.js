@@ -245,11 +245,35 @@ export function filterWorkQueueForRightPanel(items) {
 }
 
 /**
- * Sort work-queue rows for display + "next in queue".
- * @param {'date_asc'|'date_desc'|'client'|'status'|'code'|'tenant'} sortBy
+ * Normalize legacy composite sort keys (date_asc / tenant) into field + direction.
+ * @returns {{ field: 'date'|'client'|'status'|'code'|'agency', direction: 'asc'|'desc' }}
  */
-export function sortWorkQueueItems(items = [], sortBy = 'date_asc') {
+export function normalizeWorkQueueSort(sortBy = 'date', sortDir = 'asc') {
+  const raw = String(sortBy || 'date').toLowerCase();
+  let field = raw;
+  let direction = String(sortDir || 'asc').toLowerCase() === 'desc' ? 'desc' : 'asc';
+  if (raw === 'date_asc') {
+    field = 'date';
+    direction = 'asc';
+  } else if (raw === 'date_desc') {
+    field = 'date';
+    direction = 'desc';
+  } else if (raw === 'tenant') {
+    field = 'agency';
+  }
+  if (!['date', 'client', 'status', 'code', 'agency'].includes(field)) field = 'date';
+  return { field, direction };
+}
+
+/**
+ * Sort work-queue rows for display + "next in queue".
+ * @param {string} sortBy field or legacy composite (date_asc, tenant, …)
+ * @param {'asc'|'desc'} [sortDir]
+ */
+export function sortWorkQueueItems(items = [], sortBy = 'date', sortDir = 'asc') {
   const list = [...(items || [])];
+  const { field, direction } = normalizeWorkQueueSort(sortBy, sortDir);
+  const dir = direction === 'desc' ? -1 : 1;
   const statusRank = {
     [DOC_STATUS.NOT_STARTED]: 0,
     [DOC_STATUS.STARTED]: 1,
@@ -259,15 +283,12 @@ export function sortWorkQueueItems(items = [], sortBy = 'date_asc') {
   const keyClient = (i) => String(i?.clientName || '').toLowerCase();
   const keyDate = (i) => String(i?.date || i?.scheduledStart || '').slice(0, 10);
   const keyCode = (i) => String(i?.serviceCode || '').toUpperCase();
-  const keyTenant = (i) => String(i?.agencyId || i?.agency_id || 0);
+  const keyAgency = (i) => String(i?.agencyId || i?.agency_id || 0);
   const keyStatus = (i) => statusRank[deriveWorkQueueDocStatus(i)] ?? 9;
 
   list.sort((a, b) => {
     let cmp = 0;
-    switch (sortBy) {
-      case 'date_desc':
-        cmp = keyDate(b).localeCompare(keyDate(a));
-        break;
+    switch (field) {
       case 'client':
         cmp = keyClient(a).localeCompare(keyClient(b));
         break;
@@ -277,15 +298,15 @@ export function sortWorkQueueItems(items = [], sortBy = 'date_asc') {
       case 'code':
         cmp = keyCode(a).localeCompare(keyCode(b));
         break;
-      case 'tenant':
-        cmp = keyTenant(a).localeCompare(keyTenant(b));
+      case 'agency':
+        cmp = keyAgency(a).localeCompare(keyAgency(b));
         break;
-      case 'date_asc':
+      case 'date':
       default:
         cmp = keyDate(a).localeCompare(keyDate(b));
         break;
     }
-    if (cmp !== 0) return cmp;
+    if (cmp !== 0) return cmp * dir;
     return keyClient(a).localeCompare(keyClient(b)) || String(a?.id || '').localeCompare(String(b?.id || ''));
   });
   return list;
