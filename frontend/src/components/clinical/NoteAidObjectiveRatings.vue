@@ -1,22 +1,25 @@
 <template>
-  <section v-if="goals.length" class="na-obj-ratings">
+  <section v-if="goals.length" class="na-obj-ratings" :class="{ 'na-obj-ratings--collapsed': sectionCollapsed }">
     <header class="na-obj-ratings-head">
       <div>
         <h3>Treatment objectives</h3>
-        <p>
-          <span class="na-swatch na-swatch--start" /> Start (when the plan was written)
-          <span class="na-swatch na-swatch--prev" /> Previous session
+        <p v-if="!sectionCollapsed">
+          <span class="na-swatch na-swatch--start" /> Start
+          <span class="na-swatch na-swatch--prev" /> Previous
           <span class="na-swatch na-swatch--now" /> Today
           <span class="na-swatch na-swatch--goal" /> Goal
         </p>
-        <p class="na-obj-rater-note">
-          Each objective has a starting number and a goal. Amber is the last session.
-          Teal is the number you tap today. Client and other ratings are optional and graph separately.
-        </p>
+        <ul v-else-if="compactLines.length" class="na-obj-compact-list">
+          <li v-for="(line, idx) in compactLines" :key="idx">{{ line }}</li>
+        </ul>
       </div>
-      <span v-if="suggestUpdatePlan" class="na-obj-suggest">Update treatment plan suggested</span>
+      <button type="button" class="na-obj-toggle" @click="sectionCollapsed = !sectionCollapsed">
+        {{ sectionCollapsed ? 'Expand' : 'Collapse' }}
+      </button>
+      <span v-if="suggestUpdatePlan && !sectionCollapsed" class="na-obj-suggest">Update treatment plan suggested</span>
     </header>
 
+    <div v-show="!sectionCollapsed">
     <div class="na-obj-raters" role="tablist">
       <button type="button" class="na-obj-rater" :class="{ on: raterKind === 'clinician' }" @click="raterKind = 'clinician'">
         Clinician
@@ -43,7 +46,13 @@
         v-for="obj in goal.objectives || []"
         :key="obj.id"
         class="na-obj-card"
+        :class="{ 'na-obj-card--collapsed': isObjectiveCollapsed(obj.id) }"
       >
+        <div v-if="isObjectiveCollapsed(obj.id)" class="na-obj-collapsed-line">
+          <span>{{ collapsedLine(obj, goal) }}</span>
+          <button type="button" class="na-obj-edit-btn" :disabled="disabled" @click="expandObjective(obj.id)">Edit</button>
+        </div>
+        <template v-else>
         <div class="na-obj-text">
           <span class="na-obj-badge na-obj-badge--obj">O{{ obj.objective_index || '' }}</span>
           <span>{{ displayObjectiveText(obj) }}</span>
@@ -92,7 +101,9 @@
         <p v-else-if="Number(obj.scale_target) || startValue(obj) != null" class="na-field-hint">
           Start {{ startValue(obj) ?? '—' }} · previous {{ previousRated(obj) ?? '—' }} · goal {{ obj.scale_target ?? '—' }}.
         </p>
+        </template>
       </div>
+    </div>
     </div>
   </section>
 </template>
@@ -107,6 +118,7 @@ import {
   startScaleValue,
   stripPlanHeadingPrefix
 } from '../../utils/noteAidTreatmentHelpers.js';
+import { formatObjectiveRatingLine } from '../../utils/noteAidUiHelpers.js';
 
 const props = defineProps({
   goals: { type: Array, default: () => [] },
@@ -121,6 +133,62 @@ const emit = defineEmits(['update:ratings', 'improved']);
 
 const raterKind = ref('clinician');
 const otherLabel = ref('');
+const sectionCollapsed = ref(false);
+const collapsedObjectives = reactive(new Set());
+
+const compactLines = computed(() => {
+  const lines = [];
+  for (const goal of props.goals || []) {
+    for (const obj of goal.objectives || []) {
+      const e = entry(obj.id);
+      if (!e) continue;
+      lines.push(collapsedLine(obj, goal));
+    }
+  }
+  return lines;
+});
+
+function isObjectiveCollapsed(objectiveId) {
+  return collapsedObjectives.has(String(objectiveId));
+}
+
+function collapseObjective(objectiveId) {
+  collapsedObjectives.add(String(objectiveId));
+  maybeCollapseSection();
+}
+
+function expandObjective(objectiveId) {
+  collapsedObjectives.delete(String(objectiveId));
+  sectionCollapsed.value = false;
+}
+
+function maybeCollapseSection() {
+  let total = 0;
+  let done = 0;
+  for (const goal of props.goals || []) {
+    for (const obj of goal.objectives || []) {
+      total += 1;
+      if (entry(obj.id)) done += 1;
+    }
+  }
+  if (total > 0 && done >= total) sectionCollapsed.value = true;
+}
+
+function collapsedLine(obj, goal) {
+  const e = entry(obj.id);
+  if (!e) return displayObjectiveText(obj);
+  return formatObjectiveRatingLine({
+    goalIndex: goal.goal_index,
+    objectiveIndex: obj.objective_index,
+    objectiveText: displayObjectiveText(obj),
+    disposition: e.disposition,
+    scaleValue: e.scaleValue,
+    scaleTarget: e.scaleTarget,
+    progressLabel: e.progressLabel,
+    raterKind: e.raterKind,
+    raterLabel: e.raterLabel
+  });
+}
 
 /** @type {Record<string, object>} keyed objectiveId:raterKind */
 const byObjective = reactive({});
@@ -241,6 +309,7 @@ function rate(obj, goal, n) {
         : (otherLabel.value || 'other')
   };
   emitAll();
+  collapseObjective(obj.id);
 }
 
 function setDisposition(obj, goal, disposition) {
@@ -259,6 +328,7 @@ function setDisposition(obj, goal, disposition) {
     raterLabel: raterKind.value === 'clinician' ? 'clinical observation' : raterKind.value
   };
   emitAll();
+  collapseObjective(obj.id);
 }
 
 watch(
@@ -293,6 +363,44 @@ defineExpose({
   border-radius: 14px;
   padding: 14px;
   margin: 12px 0 16px;
+}
+.na-obj-toggle {
+  border: 1px solid #cbd5e1;
+  background: #fff;
+  border-radius: 8px;
+  padding: 4px 10px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.na-obj-compact-list {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 4px;
+  font-size: 0.82rem;
+  color: #334155;
+}
+.na-obj-card--collapsed {
+  padding: 8px 10px;
+  background: #f8fafc;
+  border-radius: 10px;
+}
+.na-obj-collapsed-line {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 0.84rem;
+}
+.na-obj-edit-btn {
+  border: none;
+  background: transparent;
+  color: #0d9488;
+  font-weight: 600;
+  font-size: 0.78rem;
+  cursor: pointer;
 }
 .na-obj-ratings-head {
   display: flex;

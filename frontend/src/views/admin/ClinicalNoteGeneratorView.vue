@@ -11,10 +11,14 @@
         </span>
         <div>
           <div class="na-brand-title">AI Note Aid</div>
-          <div class="na-brand-sub">Clinical Note Assistant</div>
+          <div class="na-brand-sub">Note Assistant</div>
         </div>
       </div>
       <p class="na-tagline">Spend less time on notes. <em>More time with your clients.</em></p>
+      <div class="na-topbar-actions">
+      <button type="button" class="na-archive-btn" @click="libraryCollapsed = !libraryCollapsed">
+        {{ libraryCollapsed ? 'Show library' : 'Hide library' }}
+      </button>
       <button type="button" class="na-archive-btn" @click="workQueueCollapsed = !workQueueCollapsed">
         {{ workQueueCollapsed ? 'Show queue' : 'Hide queue' }}
       </button>
@@ -24,6 +28,7 @@
         </svg>
         Archive
       </button>
+      </div>
     </header>
 
     <div v-if="fromIndirectSession" class="na-indirect-banner" role="status">
@@ -53,6 +58,7 @@
         'na-shell--library-collapsed': libraryCollapsed && !libraryExpanded,
         'na-shell--library-expanded': libraryExpanded && !libraryCollapsed,
         'na-shell--queue-collapsed': workQueueCollapsed || isEmbedded,
+        'na-shell--note-focused': hasOpenNote && !isEmbedded,
         'na-shell--embedded': isEmbedded
       }"
     >
@@ -83,9 +89,9 @@
       <main
         v-show="!libraryExpanded || libraryCollapsed"
         class="na-main"
-        :class="{ 'na-main--library': showLibraryPanel }"
+        :class="{ 'na-main--start': showStartPage, 'na-main--library': showAidPicker }"
       >
-        <div class="na-privacy">
+        <div v-if="!hasOpenNote" class="na-privacy">
           <strong>Privacy notice:</strong>
           Drafts are auto-archived after 7 days and retained up to 7 years. Copy into your EHR when needed.
         </div>
@@ -101,13 +107,13 @@
 
         <div v-show="!showIntakeDraftEditor">
 
-        <div v-if="therapyContext" class="na-context-strip">
+        <div v-if="therapyContext && hasOpenNote" class="na-context-strip">
           <strong>Therapy Notes context</strong>
           <span v-if="therapyContext.therapySummary">{{ therapyContext.therapySummary }}</span>
           <span v-if="therapyContext.therapyCalendarLabel"> · {{ therapyContext.therapyCalendarLabel }}</span>
         </div>
 
-        <div v-if="viewingChartNote" class="na-context-strip" :class="viewingChartNote.standalone ? 'na-context-strip--warn' : 'na-context-strip--soft'">
+        <div v-if="viewingChartNote && hasOpenNote" class="na-context-strip" :class="viewingChartNote.standalone ? 'na-context-strip--warn' : 'na-context-strip--soft'">
           <strong>{{ viewingChartNote.standalone ? 'Standalone note' : 'Chart note' }}</strong>
           <span v-if="viewingChartNote.standalone">
             — copy sections for Therapy Notes. Not linked to a scheduled session or claim.
@@ -116,7 +122,7 @@
           <span v-if="viewingChartNote.title"> · {{ viewingChartNote.title }}</span>
         </div>
 
-        <div class="na-context-strip na-context-strip--soft">
+        <div v-if="hasOpenNote" class="na-context-strip na-context-strip--soft">
           <span><strong>Credential:</strong> {{ loadingContext ? 'Loading…' : (providerCredentialText || 'Not set') }}</span>
           <span><strong>Tier:</strong> {{ derivedTier }}</span>
           <span v-if="dateOfService"><strong>DOS:</strong> {{ dateOfService }}</span>
@@ -136,64 +142,60 @@
           <span v-if="approvalError" class="na-delete-err">{{ approvalError }}</span>
         </div>
 
+        <NoteAidStartPage
+          v-if="showStartPage"
+          :client-label="startPageClientLabel"
+          :has-next-in-progress="!!nextInProgressRow"
+          :has-next-in-queue="!!nextInQueueItem"
+          @create="beginCreateNote"
+          @next-in-progress="openNextInProgress"
+          @next-in-queue="openNextInQueue"
+        />
+
         <NoteAidLibraryPanel
-          v-if="showLibraryPanel"
+          v-else-if="showAidPicker"
           :categories="libraryCategories"
           :user-id="libraryUserId"
           @select="onLibrarySelect"
         >
           <template #before>
-            <div v-if="draftId" class="na-pick-aid-banner" role="status">
+            <div class="na-aid-picker-head">
+              <button type="button" class="na-link-btn" @click="cancelAidPicker">← Back</button>
               <strong>Choose a note tool</strong>
-              <p>
-                Pick an aid below for your open draft{{ dateOfService ? ` (${dateOfService})` : '' }}.
-                Progress notes are under <em>Psychotherapy</em> or <em>Universal</em>.
-              </p>
-            </div>
-            <div class="na-library-client-bar">
-              <NoteAidClientPicker
-                v-model="selectedClientId"
-                :agency-id="noteAidAgencyId || currentAgencyId"
-                :selected-client="selectedClient"
-                :allow-clear="canClearLinkedClient"
-                :profile-href="clientProfileHref"
-                :search-all-tenants="true"
-                @select="onClientPicked"
-                @clear="onClientCleared"
-                @create-request="openCreateClientModal"
-              />
-              <NoteAidClientContextPanel
-                ref="clientContextPanelRef"
-                :client-id="effectiveClientId"
-                :client-name="selectedClient?.full_name || selectedClient?.name || ''"
-                :client-profile-href="clientProfileHref"
-                :demographics-on-file="demographicsOnFile"
-                :demographics-preview="demographicsPreviewRows"
-                :intake-on-file="intakeOnFile"
-                :plan-on-file="planOnFile"
-                :goals="activeTreatmentGoals"
-                :loading-plan="loadingClientPlan"
-                :plan-error="clientPlanError"
-                v-model:pasted-plan-text="pastedPlanText"
-                v-model:pasted-intake-text="pastedIntakeText"
-                v-model:pasted-demographics-text="pastedDemographicsText"
-                :loading-intake="loadingIntake"
-                :intake-error="intakeError"
-                :intake-summary="intakeSummary"
-                :primary-diagnosis="primaryChartDiagnosis"
-                :diagnoses="chartDiagnoses"
-                @open-updater="openTreatmentPlanUpdater"
-                @use-intake="useIntakeToInformPlan"
-                @open-chart-intake="openClientChartIntake"
-                @import-plan="openPlanImportReview"
-                @import-intake="showIntakeImportReview = true"
-                @import-demographics="showDemographicsImport = true"
-              />
             </div>
           </template>
         </NoteAidLibraryPanel>
 
-        <template v-else>
+        <template v-else-if="hasOpenNote">
+        <header class="na-workspace-head">
+          <button type="button" class="na-workspace-close" @click="closeNoteWorkspace">← Close</button>
+          <div class="na-workspace-title">
+            <strong>{{ workspaceTitle }}</strong>
+            <span v-if="signedNoteViewerId" class="na-finalized-badge">Finalized</span>
+            <span v-else-if="draftId" class="na-draft-badge">Draft</span>
+          </div>
+          <div class="na-workspace-actions">
+            <span v-if="lastSavedAt" class="na-autosave-hint">Saved {{ lastSavedAt }}</span>
+          </div>
+        </header>
+
+        <NoteAidQuickSessionBar
+          v-if="!isEmbedded && !showAidPicker"
+          :client-label="noteSubjectLabel"
+          :client-linked="!!effectiveClientId"
+          v-model:date-of-service="dateOfService"
+          :service-label="quickSessionServiceLabel"
+          v-model:participants="sessionParticipants"
+          v-model:duration-minutes="sessionDurationMinutes"
+          :clinician-label="sessionClinicianLabel"
+          :setup-complete="clientSetupComplete"
+          :participants-flag="sessionParticipantsFlag"
+          :editable="!chartNoteReadOnly"
+          :show-duration="hasScheduledSessionContext"
+          :finalized="!!signedNoteViewerId"
+          @toggle-setup="showClientSetupDrawer = true"
+        />
+
         <div class="na-aid-bar">
           <div class="na-aid-bar-copy">
             <span class="na-aid-kicker">{{ selectedCategoryLabel || 'Selected aid' }}</span>
@@ -222,8 +224,14 @@
             </div>
           </div>
           <div class="na-aid-bar-actions">
-            <button type="button" class="na-change-aid" @click="openAllPendingSessionNotes">
-              Open all pending
+            <button
+              v-if="!chartNoteReadOnly"
+              type="button"
+              class="na-btn-outline"
+              :disabled="savingDraftManual"
+              @click="saveDraftNow"
+            >
+              {{ savingDraftManual ? 'Saving…' : 'Save Draft' }}
             </button>
             <button type="button" class="na-change-aid" @click="changeNoteAid">Change tool</button>
           </div>
@@ -252,7 +260,7 @@
           Note tenant: {{ agencyLookup[noteAidAgencyId] || selectedClient.agency_name || `Tenant #${noteAidAgencyId}` }}
         </p>
 
-        <header class="na-wizard-head">
+        <header v-if="false" class="na-wizard-head">
           <div>
             <h2 class="na-wizard-title">Create Note</h2>
             <div class="na-wizard-tags">
@@ -290,7 +298,7 @@
           </div>
         </header>
 
-        <nav v-if="!isEmbedded" class="na-wizard-steps" aria-label="Note creation steps">
+        <nav v-if="false" class="na-wizard-steps" aria-label="Note creation steps">
           <button
             type="button"
             class="na-wizard-step"
@@ -314,7 +322,7 @@
         </nav>
 
         <!-- STEP 1: Session details + client (no note writing) -->
-        <div v-if="noteWizardStep === 1 && !isEmbedded" class="na-wizard-step1">
+        <div v-if="false && noteWizardStep === 1 && !isEmbedded" class="na-wizard-step1">
           <NoteAidDocumentationQueue
             v-if="needsSessionPicker && progressEntryMode === 'appointment'"
             :agency-id="noteAidAgencyId || currentAgencyId"
@@ -600,7 +608,7 @@
         </div>
 
         <!-- STEP 2: Write / generate -->
-        <div v-else class="na-wizard-step2">
+        <div class="na-wizard-step2">
           <aside class="na-write-overview">
             <div class="na-card na-card--tight">
               <div class="na-card-head-row">
@@ -863,15 +871,21 @@
         </div>
 
         <!-- Keep output after either step when present (visible on write step) -->
-        <template v-if="noteWizardStep === 2 || isEmbedded">
+        <template v-if="true">
 
         <section v-if="signedNoteViewerId" class="na-output na-output--signed-view">
           <div class="na-output-head">
             <div>
-              <h2>Signed session note</h2>
-              <span class="na-ready-badge">Ready to Copy</span>
+              <h2>Finalized note</h2>
+              <span class="na-ready-badge na-ready-badge--signed">Signed · read only</span>
             </div>
+            <button type="button" class="na-btn-outline" @click="beginAmendmentFromSignedNote">
+              Create amendment
+            </button>
           </div>
+          <p class="na-field-hint">
+            Original stays on file. An amendment saves a new signed copy linked to this note.
+          </p>
           <p v-if="approvalError" class="na-delete-err">{{ approvalError }}</p>
           <ClinicalNoteDetailFetcher
             :note-id="signedNoteViewerId"
@@ -1109,7 +1123,7 @@
     </div>
 
     <div
-      v-if="canUseTool && !showLibraryPanel && !isEmbedded"
+      v-if="canUseTool && hasOpenNote && !isEmbedded"
       class="na-fab-wrap"
       @keydown.escape="newNoteMenuOpen = false"
     >
@@ -1197,6 +1211,8 @@
 </template>
 
 <script setup>
+import NoteAidStartPage from '../../components/clinical/NoteAidStartPage.vue';
+import NoteAidQuickSessionBar from '../../components/clinical/NoteAidQuickSessionBar.vue';
 import NoteAidClientPicker from '../../components/clinical/NoteAidClientPicker.vue';
 import NoteAidObjectiveRatings from '../../components/clinical/NoteAidObjectiveRatings.vue';
 import NoteAidClientContextPanel from '../../components/clinical/NoteAidClientContextPanel.vue';
@@ -2413,13 +2429,113 @@ const selectedCategoryLabel = computed(() => {
   const cat = noteAidCategories.find((c) => c.id === selectedNoteCategory.value);
   return cat?.label || '';
 });
-/** Show aid library whenever no tool is selected — including when changing tool on an open draft. */
-const showLibraryPanel = computed(() => {
-  if (isEmbedded.value) return false;
-  if (draftId.value) return false;
-  return !String(selectedAidId.value || '').trim();
+/** Show aid library when user is picking a tool (create new or change tool). */
+const showAidPicker = ref(false);
+const amendmentParentNoteId = ref(null);
+
+const hasOpenNote = computed(() => {
+  if (isEmbedded.value) return true;
+  return !!(
+    draftId.value
+    || String(selectedAidId.value || '').trim()
+    || activeWorkQueueItemId.value
+    || signedNoteViewerId.value
+    || viewingChartNote.value
+  );
 });
+
+const showStartPage = computed(() => !isEmbedded.value && !hasOpenNote.value && !showAidPicker.value);
+
+/** @deprecated use showAidPicker */
+const showLibraryPanel = computed(() => showAidPicker.value);
+const clientSetupComplete = computed(() => {
+  if (!effectiveClientId.value) return false;
+  return demographicsOnFile.value && intakeOnFile.value && planOnFile.value && !!primaryChartDiagnosis.value;
+});
+
+const startPageClientLabel = computed(() => {
+  if (selectedClient.value?.full_name || selectedClient.value?.name) {
+    return selectedClient.value.full_name || selectedClient.value.name;
+  }
+  return 'none selected';
+});
+
+const workspaceTitle = computed(() =>
+  selectedAid.value?.label
+  || (outputObj.value?.meta?.source === 'session_recording' ? 'Session Recording' : 'Note')
+);
+
+const quickSessionServiceLabel = computed(() => {
+  const code = actualServiceCode.value || '';
+  const label = selectedAid.value?.label || noteTypeDisplayLabel.value || '';
+  if (code && label) return `${code} — ${label}`;
+  return code || label || '—';
+});
+
+function collapseSidebarsForNote() {
+  libraryCollapsed.value = true;
+  workQueueCollapsed.value = true;
+  libraryExpanded.value = false;
+}
+
+watch(hasOpenNote, (open) => {
+  if (open && !isEmbedded.value) {
+    collapseSidebarsForNote();
+    if (!signedNoteViewerId.value) noteWizardStep.value = 2;
+  }
+});
+
+function beginCreateNote() {
+  startNewNote();
+  showAidPicker.value = true;
+}
+
+function cancelAidPicker() {
+  showAidPicker.value = false;
+}
+
+async function closeNoteWorkspace() {
+  if (draftId.value && !chartNoteReadOnly.value) {
+    try { await autosave(); } catch { /* ignore */ }
+  }
+  cancelPendingAutosave();
+  amendmentParentNoteId.value = null;
+  draftId.value = null;
+  viewingChartNote.value = null;
+  clearSignedNoteViewer();
+  selectedAidId.value = '';
+  selectedNoteCategory.value = '';
+  activeWorkQueueItemId.value = null;
+  outputObj.value = null;
+  inputText.value = '';
+  revisionInstruction.value = '';
+  approvalMessage.value = '';
+  approvalError.value = '';
+  archiveMessage.value = '';
+  generateError.value = '';
+  participantsPresenceDismissed.value = false;
+  attestAccurateAndComplete.value = false;
+  attestMedicallyNecessary.value = false;
+  showAidPicker.value = false;
+  noteWizardStep.value = 1;
+  sidebarTab.value = DOC_STATUS.STARTED;
+  await clearDraftFromRouteQuery();
+  syncRouteNoteClient(null);
+}
+
 const libraryUserId = computed(() => authStore.user?.id || null);
+
+async function beginAmendmentFromSignedNote() {
+  if (!signedNoteViewerId.value) return;
+  amendmentParentNoteId.value = signedNoteViewerId.value;
+  signedNoteViewerId.value = null;
+  signedNoteViewerAgencyId.value = null;
+  viewingChartNote.value = null;
+  noteWizardStep.value = 2;
+  collapseSidebarsForNote();
+  approvalMessage.value = `Amendment draft — original note #${amendmentParentNoteId.value} stays on file. Save and sign to create the updated copy.`;
+  await saveDraftNow();
+}
 const showInteractiveComplexityOption = computed(() => aidAllowsInteractiveComplexity(selectedAid.value));
 const libraryCategories = computed(() => {
   const filtered = (noteAidCategories || []).map((cat) => ({
@@ -2502,6 +2618,9 @@ watch(showInteractiveComplexityOption, (allowed) => {
 function onLibrarySelect({ aid, categoryId }) {
   selectedNoteCategory.value = categoryId || findNoteAidById(aid?.id)?.category?.id || '';
   selectedAidId.value = aid?.id || '';
+  showAidPicker.value = false;
+  noteWizardStep.value = 2;
+  collapseSidebarsForNote();
   if (draftId.value && (String(inputText.value || '').trim() || outputObj.value)) {
     noteWizardStep.value = 2;
   }
@@ -2510,6 +2629,7 @@ function onLibrarySelect({ aid, categoryId }) {
 function changeNoteAid() {
   selectedAidId.value = '';
   selectedNoteCategory.value = '';
+  showAidPicker.value = true;
   noteWizardStep.value = 1;
   approvalMessage.value = 'Choose a note tool from the library below.';
 }
@@ -4273,6 +4393,7 @@ const approveNoteOutput = async ({ silent = false } = {}) => {
         model: outputObj.value?.meta?.model || null,
         toolId: outputObj.value?.meta?.toolId || null,
         draftId: draftId.value || null,
+        amendmentOfNoteId: amendmentParentNoteId.value || null,
         approvedAt: new Date().toISOString(),
         primaryDiagnosisId: primaryChartDiagnosis.value?.id || null,
         dateOfService: dos,
@@ -4310,15 +4431,15 @@ const approveNoteOutput = async ({ silent = false } = {}) => {
     revisionInstruction.value = '';
     attestAccurateAndComplete.value = false;
     attestMedicallyNecessary.value = false;
-    approvalMessage.value = activeWorkQueueItemId.value
-      ? 'Confirmed, signed as medically necessary, and saved to clinical records.'
-      : 'Signed as medically necessary and saved to clinical records.';
+    const signedMsg = 'Signed as medically necessary and saved to clinical records.';
     if (activeWorkQueueItemId.value) {
       advanceWorkQueueAfterSign();
     } else {
       markActiveWorkQueueItemSigned();
     }
     await loadRecent();
+    await closeNoteWorkspace();
+    approvalMessage.value = signedMsg;
   } catch (e) {
     approvalError.value = e.response?.data?.error?.message || e.message || 'Failed to persist approved note';
   } finally {
@@ -5405,6 +5526,8 @@ async function openNextInQueue() {
 async function onLibrarySidebarSelect(row) {
   if (!row) return;
   libraryExpanded.value = false;
+  collapseSidebarsForNote();
+  showAidPicker.value = false;
   cancelPendingAutosave();
   if (row.source === 'work_queue' && row.raw) {
     await activateWorkQueueItem(row.raw);
@@ -5440,6 +5563,8 @@ async function onLibrarySidebarSelect(row) {
 
 async function activateWorkQueueItem(item) {
   if (!item) return;
+  collapseSidebarsForNote();
+  showAidPicker.value = false;
   beginWorkspaceHydration();
   try {
   cancelPendingAutosave();
@@ -6430,17 +6555,8 @@ onMounted(async () => {
       if (stashed?.length) {
         workQueueItems.value = stashed.map(normalizeWorkQueueItemStatus);
         persistWorkQueue();
-        const first = workQueueItems.value.find(
-          (i) => deriveWorkQueueDocStatus(i) === DOC_STATUS.NOT_STARTED
-            || deriveWorkQueueDocStatus(i) === DOC_STATUS.STARTED
-        ) || workQueueItems.value[0];
-        if (first) await activateWorkQueueItem(first);
       } else {
         workQueueItems.value = loadWorkQueue(authStore.user?.id).map(normalizeWorkQueueItemStatus);
-        const active = (workQueueItems.value || []).find(
-          (i) => deriveWorkQueueDocStatus(i) === DOC_STATUS.STARTED
-        );
-        if (active) activeWorkQueueItemId.value = active.id;
       }
       const qAgency = Number(route.query?.agencyId || route.query?.agency_id || 0) || null;
       if (qAgency) selectedQueueAgencyId.value = qAgency;
@@ -6645,7 +6761,7 @@ onBeforeUnmount(() => {
 
 .na-topbar {
   display: grid;
-  grid-template-columns: minmax(180px, 1fr) minmax(0, 2fr) auto auto;
+  grid-template-columns: 1fr auto 1fr;
   align-items: center;
   gap: 16px;
   padding: 14px 20px;
@@ -6654,6 +6770,31 @@ onBeforeUnmount(() => {
   backdrop-filter: blur(8px);
   position: relative;
   z-index: 2;
+}
+
+.na-topbar-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  grid-column: 3;
+}
+
+.na-brand {
+  grid-column: 1;
+  justify-self: start;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.na-tagline {
+  margin: 0;
+  text-align: center;
+  color: var(--na-muted);
+  font-size: 0.95rem;
+  grid-column: 2;
+  justify-self: center;
 }
 
 .na-indirect-banner {
@@ -6682,12 +6823,6 @@ onBeforeUnmount(() => {
 }
 .na-indirect-back:hover { background: #f0fdf4; }
 
-.na-brand {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
 .na-brand-mark {
   display: grid;
   place-items: center;
@@ -6708,13 +6843,6 @@ onBeforeUnmount(() => {
 .na-brand-sub {
   font-size: 0.78rem;
   color: var(--na-muted);
-}
-
-.na-tagline {
-  margin: 0;
-  text-align: center;
-  color: var(--na-muted);
-  font-size: 0.95rem;
 }
 
 .na-tagline em {
@@ -6764,6 +6892,84 @@ onBeforeUnmount(() => {
 
 .na-shell--library-collapsed.na-shell--queue-collapsed {
   grid-template-columns: 56px minmax(0, 1fr) 56px;
+}
+
+.na-shell--note-focused.na-shell--library-collapsed.na-shell--queue-collapsed {
+  grid-template-columns: 56px minmax(0, 1fr) 56px;
+}
+
+.na-main--start {
+  display: flex;
+  flex-direction: column;
+  overflow: auto;
+}
+
+.na-workspace-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+  flex-wrap: wrap;
+}
+
+.na-workspace-close {
+  border: none;
+  background: transparent;
+  color: var(--na-teal-dark);
+  font-weight: 700;
+  cursor: pointer;
+  padding: 6px 0;
+}
+
+.na-workspace-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+}
+
+.na-finalized-badge {
+  background: #dbeafe;
+  color: #1d4ed8;
+  font-size: 0.72rem;
+  font-weight: 700;
+  padding: 3px 8px;
+  border-radius: 999px;
+}
+
+.na-draft-badge {
+  background: #ccfbf1;
+  color: #0f766e;
+  font-size: 0.72rem;
+  font-weight: 700;
+  padding: 3px 8px;
+  border-radius: 999px;
+}
+
+.na-autosave-hint {
+  font-size: 0.8rem;
+  color: var(--na-muted);
+}
+
+.na-aid-picker-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.na-ready-badge--signed {
+  background: #dbeafe;
+  color: #1e40af;
+}
+
+.na-wizard-step2 {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.na-write-overview {
+  display: none;
 }
 
 .na-shell--embedded {
