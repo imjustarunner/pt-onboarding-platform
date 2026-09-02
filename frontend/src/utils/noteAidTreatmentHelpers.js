@@ -53,6 +53,14 @@ export function startScaleValue(obj = {}) {
   return Number.isFinite(n) ? n : null;
 }
 
+/** Strip duplicated "Objective 1.1" / "Treatment Goal 2" prefixes from body copy. */
+export function stripPlanHeadingPrefix(text) {
+  return String(text || '')
+    .replace(/^(?:treatment\s+)?goal\s+\d+\s*[:.\-)\]\s—–-]*\s*/i, '')
+    .replace(/^(?:objective|obj)\s+\d+(?:\.\d+)?\s*[:.\-)\]\s—–-]*\s*/i, '')
+    .trim();
+}
+
 export function progressLabelCopy(label) {
   switch (label) {
     case 'improved':

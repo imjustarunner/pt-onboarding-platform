@@ -36,7 +36,7 @@
     <div v-for="goal in goals" :key="goal.id" class="na-obj-goal">
       <div class="na-obj-goal-title">
         <span class="na-obj-badge">G{{ goal.goal_index || '' }}</span>
-        <strong>{{ goal.goal_text || 'Goal' }}</strong>
+        <strong>{{ displayGoalText(goal) }}</strong>
       </div>
 
       <div
@@ -46,7 +46,7 @@
       >
         <div class="na-obj-text">
           <span class="na-obj-badge na-obj-badge--obj">O{{ obj.objective_index || '' }}</span>
-          <span>{{ obj.objective_text || 'Objective' }}</span>
+          <span>{{ displayObjectiveText(obj) }}</span>
         </div>
 
         <p
@@ -104,7 +104,8 @@ import {
   kioskPromptForObjective,
   kioskPromptOtherForObjective,
   progressLabelCopy,
-  startScaleValue
+  startScaleValue,
+  stripPlanHeadingPrefix
 } from '../../utils/noteAidTreatmentHelpers.js';
 
 const props = defineProps({
@@ -127,6 +128,14 @@ const byObjective = reactive({});
 const suggestUpdatePlan = computed(() =>
   Object.values(byObjective).some((e) => e?.progressLabel === 'improved')
 );
+
+function displayGoalText(goal) {
+  return stripPlanHeadingPrefix(goal?.goal_text || goal?.goalText) || 'Goal';
+}
+
+function displayObjectiveText(obj) {
+  return stripPlanHeadingPrefix(obj?.objective_text || obj?.objectiveText) || 'Objective';
+}
 
 function entryKey(objectiveId, kind = raterKind.value) {
   return `${objectiveId}:${kind}`;

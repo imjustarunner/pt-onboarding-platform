@@ -59,7 +59,7 @@
     </div>
 
     <div v-if="!visibleItems.length" class="na-wq-empty">
-      Paste a ToDo list or open pending Notes. Finished notes move to the left library.
+      Paste a ToDo list or open pending Notes. Signed notes and copy-only Done notes live in the left library.
     </div>
     <ul v-else class="na-wq-list">
       <li

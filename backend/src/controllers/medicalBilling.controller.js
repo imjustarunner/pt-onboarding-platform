@@ -1058,16 +1058,42 @@ export const signClinicalNote = async (req, res, next) => {
     if (!note || note.is_deleted) return res.status(404).json({ error: { message: 'Note not found' } });
     await ClinicalEligibilityService.ensureAgencyAccess({ reqUser: req.user, agencyId: note.agency_id });
 
+    const accurate = req.body?.accurateAndComplete === true || req.body?.accurateAndComplete === 'true';
+    const necessary =
+      req.body?.medicalNecessityAttested === true || req.body?.medicalNecessityAttested === 'true';
+    if (!accurate || !necessary) {
+      return res.status(400).json({
+        error: { message: 'Accuracy and medical necessity attestations are required to sign.' }
+      });
+    }
+
     const plain = maybeDecryptNotePayload(note.note_payload);
     const hash = contentHash(plain);
+    let meta = {};
+    try {
+      meta =
+        typeof note.metadata_json === 'string'
+          ? JSON.parse(note.metadata_json || '{}')
+          : note.metadata_json || {};
+    } catch {
+      meta = {};
+    }
+    meta.attestation = {
+      ...(meta.attestation || {}),
+      accurateAndComplete: true,
+      medicallyNecessary: true,
+      attestedAt: new Date().toISOString(),
+      attestedByUserId: req.user.id
+    };
     await clinicalPool.execute(
       `UPDATE clinical_notes
        SET provider_signed_at = NOW(),
            provider_signed_by_user_id = ?,
            content_hash = ?,
+           metadata_json = ?,
            updated_at = CURRENT_TIMESTAMP
        WHERE id = ?`,
-      [req.user.id, hash, noteId]
+      [req.user.id, hash, JSON.stringify(meta), noteId]
     );
     try {
       const { completeSessionNoteTasksForSession } = await import(

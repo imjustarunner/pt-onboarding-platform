@@ -952,6 +952,17 @@
               rows="2"
               placeholder="Tell Note Aid what to add or revise while keeping the same transcript…"
             />
+            <div class="na-revision-actions">
+              <button
+                type="button"
+                class="na-btn-outline"
+                :disabled="regenerateDisabled"
+                @click="generateNote"
+              >
+                {{ regenerateButtonLabel }}
+              </button>
+              <small v-if="generateError" class="error">{{ generateError }}</small>
+            </div>
           </div>
 
           <NoteAidStructuredChartPanel
@@ -965,6 +976,25 @@
             @mse-all-normal="setMseAllNormal"
             @mse-all-not-assessed="setMseAllNotAssessed"
           />
+
+          <div v-if="canApproveToClinicalRecord && !chartNoteReadOnly" class="na-sign-attest">
+            <p class="na-sign-attest-lead">
+              Signing writes this note to the chart. Generating a draft does not sign.
+            </p>
+            <label class="na-sign-check">
+              <input v-model="attestAccurateAndComplete" type="checkbox" />
+              I mark this note as accurate and complete, and apply my signature.
+            </label>
+            <label class="na-sign-check">
+              <input v-model="attestMedicallyNecessary" type="checkbox" />
+              I declare that this service was medically necessary.
+            </label>
+            <p v-if="!canConfirmAndSign" class="error">
+              {{ sessionParticipantsFlag
+                ? 'Update Participants — session content suggests others were present.'
+                : 'Complete required chart sections (including mental status when this is a scheduled session) before signing.' }}
+            </p>
+          </div>
 
           <div class="na-output-actions">
             <button type="button" class="na-btn-primary" :disabled="!displayPanels.length" @click="copyFullNote">
@@ -983,12 +1013,12 @@
               v-if="canApproveToClinicalRecord"
               type="button"
               class="na-btn-outline"
-              :disabled="!displayPanels.length || approvingNote || !canConfirmAndSign"
+              :disabled="!displayPanels.length || approvingNote || !canSubmitSignature"
               @click="approveNoteOutput"
             >
               {{ approvingNote
                 ? 'Signing…'
-                : (activeWorkQueueItemId ? 'Confirm accuracy & sign' : 'Approve to clinical record') }}
+                : 'Mark accurate, medically necessary & sign' }}
             </button>
             <button
               v-if="canSaveTreatmentPlanToChart"
@@ -1002,7 +1032,7 @@
             <button
               type="button"
               class="na-btn-outline"
-              :disabled="generating || !String(inputText || '').trim()"
+              :disabled="regenerateDisabled"
               @click="generateNote"
             >
               {{ regenerateButtonLabel }}
@@ -1784,6 +1814,13 @@ const canConfirmAndSign = computed(() => {
   }
   return true;
 });
+const attestAccurateAndComplete = ref(false);
+const attestMedicallyNecessary = ref(false);
+const canSubmitSignature = computed(
+  () => canConfirmAndSign.value
+    && attestAccurateAndComplete.value
+    && attestMedicallyNecessary.value
+);
 const needsSessionPicker = computed(() => {
   if (!isProgressAid.value) return false;
   if (!showProgressSessionPicker.value) return false;
@@ -2880,6 +2917,16 @@ const configOptionsSummary = computed(() => {
 
 const hasRevisionAdditions = computed(() => !!String(revisionInstruction.value || '').trim());
 
+const canRegenerateFromDraft = computed(() => {
+  if (generating.value) return false;
+  if (hasRevisionAdditions.value) return true;
+  if (String(inputText.value || '').trim()) return true;
+  if (audioBlob.value) return true;
+  return !!outputObj.value;
+});
+
+const regenerateDisabled = computed(() => !canRegenerateFromDraft.value);
+
 const regenerateButtonLabel = computed(() => {
   if (generating.value) return 'Regenerating…';
   if (hasRevisionAdditions.value) return 'Regenerate with new additions';
@@ -3829,9 +3876,14 @@ const stopTranscription = () => {
 };
 
 const generateNote = async () => {
+  const isRevisionPass = !!outputObj.value && (
+    !!String(revisionInstruction.value || '').trim()
+    || !!String(inputText.value || '').trim()
+    || !!audioBlob.value
+  );
   if (useCsNoteBuildPathway.value) {
-    if (csGenerateDisabled.value) return;
-  } else if (generateDisabled.value) {
+    if (csGenerateDisabled.value && !isRevisionPass) return;
+  } else if (generateDisabled.value && !isRevisionPass) {
     return;
   }
   if (!canUseTool.value) return;
@@ -3877,7 +3929,7 @@ const generateNote = async () => {
     dismissPhiNameWarn.value = true;
   }
 
-  if (showObjectiveRatings.value && !useCsNoteBuildPathway.value) {
+  if (showObjectiveRatings.value && !useCsNoteBuildPathway.value && !isRevisionPass) {
     const needed = [];
     for (const g of activeTreatmentGoals.value) {
       for (const o of g.objectives || []) needed.push(String(o.id));
@@ -3966,7 +4018,22 @@ const generateNote = async () => {
       'includeInteractiveComplexity',
       String(!!includeInteractiveComplexity.value && showInteractiveComplexityOption.value)
     );
-    fd.append('inputText', String(inputText.value || ''));
+    let generateInput = String(inputText.value || '').trim();
+    if (!generateInput && outputObj.value) {
+      const sections = Object.fromEntries(
+        (displayPanels.value || []).map((p) => [p.id, panelText(p)])
+      );
+      generateInput = formatFullNoteCopy({
+        sections,
+        meta: outputObj.value?.meta || {},
+        initials: initials.value,
+        dateOfService: dateOfService.value,
+        dateWritten: effectiveCreatedDate.value,
+        noteTypeLabel: noteTypeDisplayLabel.value,
+        includeInteractiveComplexity: includeInteractiveComplexity.value && showInteractiveComplexityOption.value
+      });
+    }
+    fd.append('inputText', generateInput);
     if (String(revisionInstruction.value || '').trim()) {
       fd.append('revisionInstruction', String(revisionInstruction.value || '').trim());
     }
@@ -4011,12 +4078,15 @@ const generateNote = async () => {
     }
 
     await persistSessionObjectiveRatings();
-    sessionObjectiveRatings.value = [];
-    // Client-linked generates write to the chart so Progress notes / Medical record update.
-    if (effectiveClientId.value && outputObj.value && canApproveToClinicalRecord.value) {
-      await approveNoteOutput({ silent: true });
-    } else {
-      markActiveWorkQueueItemCompleted(completingQueueItemId);
+    const needsSignature = !!(effectiveClientId.value && canApproveToClinicalRecord.value);
+    if (completingQueueItemId) {
+      if (needsSignature) {
+        patchActiveWorkQueueStatus(DOC_STATUS.STARTED, {
+          draftId: draftId.value || null
+        }, completingQueueItemId);
+      } else {
+        markActiveWorkQueueItemCompleted(completingQueueItemId);
+      }
     }
     await loadRecent();
   } catch (e) {
@@ -4130,33 +4200,28 @@ const ensureClinicalSessionForApproval = async () => {
 };
 
 const approveNoteOutput = async ({ silent = false } = {}) => {
+  if (silent) return;
   if (!mergedSectionEntries.value.length) return;
   if (approvingNote.value) return;
+  if (!attestAccurateAndComplete.value || !attestMedicallyNecessary.value) {
+    approvalError.value = 'Check both attestations (accurate & complete, and medically necessary) before signing.';
+    return;
+  }
   const hasScheduledSession = !!(
     bookingContext.value?.officeEventId
     || sessionOfficeEventId.value
     || bookingContext.value?.clinicalSessionId
   );
   if (hasScheduledSession && !canConfirmAndSign.value) {
-    if (!silent) {
-      approvalError.value = sessionParticipantsFlag.value
-        ? 'Update Participants — session content suggests others were present.'
-        : 'Complete required chart sections before signing.';
-    }
+    approvalError.value = sessionParticipantsFlag.value
+      ? 'Update Participants — session content suggests others were present.'
+      : 'Complete required chart sections before signing.';
     return;
-  }
-  if (!silent) {
-    const ok = window.confirm(
-      activeWorkQueueItemId.value
-        ? 'Confirm this note is accurate and sign it?'
-        : 'Approve this note and save it to the client chart?'
-    );
-    if (!ok) return;
   }
   try {
     approvingNote.value = true;
     approvalError.value = '';
-    if (!silent) approvalMessage.value = '';
+    approvalMessage.value = '';
     const sessionId = await ensureClinicalSessionForApproval();
     const approvedPayload = buildApprovedPayloadText();
     if (!approvedPayload) throw new Error('No approved note content available to persist.');
@@ -4196,37 +4261,43 @@ const approveNoteOutput = async ({ silent = false } = {}) => {
         dateOfService: dos,
         officeEventId: bookingContext.value?.officeEventId || sessionOfficeEventId.value || null,
         missingCalendarAttachment: !(bookingContext.value?.officeEventId || sessionOfficeEventId.value),
-        structuredChart
+        structuredChart,
+        attestation: {
+          accurateAndComplete: true,
+          medicallyNecessary: true,
+          attestedAt: new Date().toISOString()
+        }
       }
     });
 
     const noteId = Number(createRes?.data?.note?.id || 0);
     if (noteId) {
       try {
-        await api.post(`/medical-billing/notes/${noteId}/sign`, {}, { skipGlobalLoading: true });
+        await api.post(
+          `/medical-billing/notes/${noteId}/sign`,
+          {
+            accurateAndComplete: true,
+            medicalNecessityAttested: true
+          },
+          { skipGlobalLoading: true }
+        );
       } catch (signErr) {
         console.warn('[NoteAid] provider sign after approve failed', signErr?.message || signErr);
       }
     }
 
-    if (!silent) {
-      inputText.value = '';
-      transcriptSource.value = '';
-      liveTranscript.value = '';
-      clearAudio();
-      revisionInstruction.value = '';
-    }
-    approvalMessage.value = silent
-      ? 'Generated and saved to the client chart.'
-      : (activeWorkQueueItemId.value
-        ? 'Confirmed, signed, and saved to clinical records.'
-        : 'Approved and persisted to clinical records.');
-    if (!silent) {
-      if (activeWorkQueueItemId.value) {
-        advanceWorkQueueAfterSign();
-      } else {
-        markActiveWorkQueueItemSigned();
-      }
+    inputText.value = '';
+    transcriptSource.value = '';
+    liveTranscript.value = '';
+    clearAudio();
+    revisionInstruction.value = '';
+    attestAccurateAndComplete.value = false;
+    attestMedicallyNecessary.value = false;
+    approvalMessage.value = activeWorkQueueItemId.value
+      ? 'Confirmed, signed as medically necessary, and saved to clinical records.'
+      : 'Signed as medically necessary and saved to clinical records.';
+    if (activeWorkQueueItemId.value) {
+      advanceWorkQueueAfterSign();
     } else {
       markActiveWorkQueueItemSigned();
     }
@@ -7568,6 +7639,42 @@ a.na-chip--link {
 
 .na-revision-field {
   margin: 12px 0;
+}
+
+.na-revision-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+.na-sign-attest {
+  margin: 12px 0 8px;
+  padding: 12px 14px;
+  border: 1px solid #99f6e4;
+  border-radius: 12px;
+  background: #f0fdfa;
+}
+
+.na-sign-attest-lead {
+  margin: 0 0 8px;
+  font-size: 0.82rem;
+  color: #0f766e;
+  font-weight: 600;
+}
+
+.na-sign-check {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 0.85rem;
+  color: #134e4a;
+  margin: 6px 0;
+}
+
+.na-sign-check input {
+  margin-top: 3px;
 }
 
 .na-revision-label {

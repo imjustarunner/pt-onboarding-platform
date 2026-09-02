@@ -3,8 +3,8 @@
  *
  * - not_started: right queue only
  * - started: both panels (opened / in progress, not finished)
- * - completed: left only (generated / finished writing, not signed)
- * - signed: left only (provider signed)
+ * - completed: left only — finished notes that do not require a signature (unlinked copy notes)
+ * - signed: left only — provider signed after accuracy + medical-necessity attestation
  */
 
 export const DOC_STATUS = {
@@ -89,10 +89,10 @@ export const DOC_STATUS_META = {
   },
   [DOC_STATUS.COMPLETED]: {
     key: DOC_STATUS.COMPLETED,
-    label: 'Completed',
+    label: 'Done (no signature)',
     shortLabel: 'Done',
     sortOrder: 2,
-    // Slate/blue — finished writing, not signed
+    // Slate/blue — finished writing, no signature required
     color: '#1d4ed8',
     bg: '#eff6ff',
     border: '#93c5fd'
@@ -191,37 +191,39 @@ export function isLeftPanelStatus(status) {
     || key === DOC_STATUS.SIGNED;
 }
 
-/** Does this status belong on the right smart queue? */
+/** Right work queue is only unfinished work. Done/signed live in the left library. */
 export function isRightPanelStatus(status) {
   const key = normalizeDocStatus(status);
-  return key === DOC_STATUS.NOT_STARTED
-    || key === DOC_STATUS.STARTED
-    || key === DOC_STATUS.COMPLETED
-    || key === DOC_STATUS.SIGNED;
+  return key === DOC_STATUS.NOT_STARTED || key === DOC_STATUS.STARTED;
 }
 
 /**
  * Derive status for a clinical note draft row.
- * Signed drafts are rare (drafts aren't signed); treat archived+output as completed.
+ * Chart-linked drafts stay in progress until the clinician signs.
+ * Unlinked copy-only notes (no client/session) become Done after generate.
  */
 export function deriveDraftDocStatus(draft) {
   if (!draft) return DOC_STATUS.NOT_STARTED;
-  if (draft.doc_status || draft.docStatus) {
-    return normalizeDocStatus(draft.doc_status || draft.docStatus);
-  }
   if (draft.provider_signed_at || draft.signed_at || draft.signedAt) {
     return DOC_STATUS.SIGNED;
+  }
+  if (draft.doc_status || draft.docStatus) {
+    const explicit = normalizeDocStatus(draft.doc_status || draft.docStatus);
+    if (explicit === DOC_STATUS.SIGNED) return DOC_STATUS.SIGNED;
   }
   const hasOutput = !!(
     draft.output_json
     || draft.outputJson
     || (draft.has_output != null && Number(draft.has_output) === 1)
   );
-  if (hasOutput || draft.archived_at) {
+  const clientId = Number(draft.client_id || draft.clientId || 0);
+  const sessionLinked = Number(draft.office_event_id || draft.officeEventId || 0) > 0
+    || Number(draft.clinical_session_id || draft.clinicalSessionId || 0) > 0;
+  if (hasOutput && !clientId && !sessionLinked) {
     return DOC_STATUS.COMPLETED;
   }
-  const hasInput = !!(String(draft.input_text || draft.inputText || '').trim());
-  if (hasInput || draft.client_id || draft.service_code) {
+  if (hasOutput || draft.archived_at || String(draft.input_text || draft.inputText || '').trim()
+    || clientId || draft.service_code) {
     return DOC_STATUS.STARTED;
   }
   return DOC_STATUS.STARTED;

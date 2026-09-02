@@ -88,7 +88,7 @@ Create a new Treatment Plan since the most recent Treatment Plan is more than 90
 });
 
 describe('noteAidDocumentationStatus panels', () => {
-  it('keeps not_started, started, and done items on the right', () => {
+  it('keeps not_started and started on the right; Done and Signed live on the left', () => {
     const queue = [
       { id: 'a', status: 'not_started', clientName: 'A' },
       { id: 'b', status: 'started', clientName: 'B' },
@@ -96,7 +96,7 @@ describe('noteAidDocumentationStatus panels', () => {
       { id: 'd', status: 'signed', clientName: 'D' }
     ];
     const right = filterWorkQueueForRightPanel(queue);
-    expect(right.map((i) => i.id)).toEqual(['a', 'b', 'c', 'd']);
+    expect(right.map((i) => i.id)).toEqual(['a', 'b']);
 
     const left = buildLeftLibraryRows({ drafts: [], workQueueItems: queue });
     expect(left.map((r) => r.workQueueId).sort()).toEqual(['b', 'c', 'd']);
@@ -190,6 +190,7 @@ describe('noteAidDocumentationStatus panels', () => {
     expect(deriveWorkQueueDocStatus({ status: 'active' })).toBe(DOC_STATUS.STARTED);
     expect(deriveWorkQueueDocStatus({ status: 'done' })).toBe(DOC_STATUS.COMPLETED);
     expect(deriveDraftDocStatus({ output_json: '{"a":1}' })).toBe(DOC_STATUS.COMPLETED);
+    expect(deriveDraftDocStatus({ output_json: '{"a":1}', client_id: 9 })).toBe(DOC_STATUS.STARTED);
   });
 
   it('classifies unlinked / client / session connections', () => {

@@ -143,7 +143,7 @@
             >
               <header @click="toggleGoal(g.id)">
                 <span class="ctp-pill">G{{ g.goal_index }}</span>
-                <strong>{{ g.goal_text }}</strong>
+                <strong>{{ stripPlanHeadingPrefix(g.goal_text) || g.goal_text }}</strong>
                 <span class="ctp-badge ctp-badge--ok">On track</span>
                 <span class="ctp-chevron">{{ isGoalOpen(g.id) ? '▾' : '▸' }}</span>
               </header>
@@ -156,7 +156,7 @@
                 >
                   <div class="ctp-obj__text">
                     <span class="ctp-pill ctp-pill--obj">O{{ o.objective_index }}</span>
-                    <span>{{ o.objective_text }}</span>
+                    <span>{{ stripPlanHeadingPrefix(o.objective_text) || o.objective_text }}</span>
                   </div>
                   <div class="ctp-obj__scale">
                     <span>Start <strong>{{ o.scale_start ?? o.scale_current ?? '—' }}</strong></span>
@@ -277,7 +277,7 @@
 import { computed, onMounted, reactive, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import api from '../../../services/api';
-import { activePlanGoals } from '../../../utils/noteAidTreatmentHelpers.js';
+import { activePlanGoals, stripPlanHeadingPrefix } from '../../../utils/noteAidTreatmentHelpers.js';
 import { treatmentPlanUpdaterQuery, noteAidPath } from '../../../utils/noteAidLaunch.js';
 import { useAgencyStore } from '../../../store/agency';
 import ClientChartAvatar from './ClientChartAvatar.vue';
