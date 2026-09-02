@@ -104,6 +104,27 @@ function thresholdMessage({ threshold, total, clientLabel, perCode }) {
   );
 }
 
+/** Healthcare tenants (mental_health; legacy alias healthcare) that use billing/payroll. */
+export async function agencyIsMentalHealthBillingTenant(agencyId) {
+  const aid = Number(agencyId);
+  if (!aid) return false;
+  try {
+    const [rows] = await pool.execute(
+      `SELECT 1 AS ok
+       FROM agency_business_types
+       WHERE agency_id = ?
+         AND business_type IN ('mental_health', 'healthcare')
+         AND COALESCE(is_enabled, 1) = 1
+       LIMIT 1`,
+      [aid]
+    );
+    return !!(rows && rows[0]);
+  } catch (e) {
+    if (e?.code === 'ER_NO_SUCH_TABLE' || e?.code === 'ER_BAD_FIELD_ERROR') return false;
+    throw e;
+  }
+}
+
 export async function isPayrollComplianceUnlocked(agencyId) {
   const aid = Number(agencyId);
   if (!aid) return false;
@@ -128,11 +149,14 @@ export function periodMatchesComplianceUnlock(period) {
 
 export async function maybeUnlockPayrollCompliance({ agencyId, period }) {
   const aid = Number(agencyId);
-  if (!aid || !period) return { unlocked: await isPayrollComplianceUnlocked(aid), justUnlocked: false };
+  if (!aid) return { unlocked: false, justUnlocked: false };
   if (await isPayrollComplianceUnlocked(aid)) {
     return { unlocked: true, justUnlocked: false };
   }
-  if (!periodMatchesComplianceUnlock(period)) {
+  const isMentalHealth = await agencyIsMentalHealthBillingTenant(aid);
+  const periodUnlock = period ? periodMatchesComplianceUnlock(period) : false;
+  // Live for all mental_health / healthcare billing tenants; legacy period gate still works.
+  if (!isMentalHealth && !periodUnlock) {
     return { unlocked: false, justUnlocked: false };
   }
   try {
