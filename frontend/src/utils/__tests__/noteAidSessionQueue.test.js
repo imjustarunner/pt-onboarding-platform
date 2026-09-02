@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { participantsLikelyIncludeOthers } from '../noteAidSessionQueue.js';
+import {
+  participantsLikelyIncludeOthers,
+  defaultDurationMinutesForServiceCode
+} from '../noteAidSessionQueue.js';
 
 describe('participantsLikelyIncludeOthers', () => {
   const familyDiscussion = `
@@ -20,5 +23,14 @@ describe('participantsLikelyIncludeOthers', () => {
     expect(participantsLikelyIncludeOthers('Mother was present in the session.')).toBe(true);
     expect(participantsLikelyIncludeOthers('Client accompanied by her father.')).toBe(true);
     expect(participantsLikelyIncludeOthers('Session included the client\'s mother.')).toBe(true);
+  });
+});
+
+describe('defaultDurationMinutesForServiceCode', () => {
+  it('maps psychotherapy codes to band defaults', () => {
+    expect(defaultDurationMinutesForServiceCode('90832')).toBe(30);
+    expect(defaultDurationMinutesForServiceCode('90834')).toBe(45);
+    expect(defaultDurationMinutesForServiceCode('90837')).toBe(60);
+    expect(defaultDurationMinutesForServiceCode('H2014')).toBe(60);
   });
 });

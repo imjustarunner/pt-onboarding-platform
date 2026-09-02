@@ -16,10 +16,20 @@
       </div>
       <p class="na-tagline">Spend less time on notes. <em>More time with your clients.</em></p>
       <div class="na-topbar-actions">
-      <button type="button" class="na-archive-btn" @click="libraryCollapsed = !libraryCollapsed">
+      <button
+        type="button"
+        class="na-archive-btn"
+        :class="{ 'na-archive-btn--pulse': libraryCollapsed }"
+        @click="libraryCollapsed = !libraryCollapsed"
+      >
         {{ libraryCollapsed ? 'Show library' : 'Hide library' }}
       </button>
-      <button type="button" class="na-archive-btn" @click="workQueueCollapsed = !workQueueCollapsed">
+      <button
+        type="button"
+        class="na-archive-btn"
+        :class="{ 'na-archive-btn--pulse': workQueueCollapsed }"
+        @click="workQueueCollapsed = !workQueueCollapsed"
+      >
         {{ workQueueCollapsed ? 'Show queue' : 'Hide queue' }}
       </button>
       <button type="button" class="na-archive-btn" @click="focusArchivedShelf">
@@ -91,11 +101,6 @@
         class="na-main"
         :class="{ 'na-main--start': showStartPage, 'na-main--library': showAidPicker }"
       >
-        <div v-if="!hasOpenNote" class="na-privacy">
-          <strong>Privacy notice:</strong>
-          Drafts are auto-archived after 7 days and retained up to 7 years. Copy into your EHR when needed.
-        </div>
-
         <NoteAidIntakeDraftEditor
           v-if="showIntakeDraftEditor && effectiveClientId"
           :client-id="effectiveClientId"
@@ -144,7 +149,6 @@
 
         <NoteAidStartPage
           v-if="showStartPage"
-          :client-label="startPageClientLabel"
           :has-next-in-progress="!!nextInProgressRow"
           :has-next-in-queue="!!nextInQueueItem"
           @create="beginCreateNote"
@@ -186,13 +190,16 @@
           v-model:date-of-service="dateOfService"
           :service-label="quickSessionServiceLabel"
           v-model:participants="sessionParticipants"
+          v-model:participants-detail="sessionParticipantsDetail"
           v-model:duration-minutes="sessionDurationMinutes"
+          v-model:start-time="sessionStartTimeLocal"
+          v-model:end-time="sessionEndTimeLocal"
           :clinician-label="sessionClinicianLabel"
           :setup-complete="clientSetupComplete"
           :participants-flag="sessionParticipantsFlag"
           :editable="!chartNoteReadOnly"
-          :show-duration="hasScheduledSessionContext"
           :finalized="!!signedNoteViewerId"
+          :duration-hint="sessionDurationHint"
           @toggle-setup="showClientSetupDrawer = true"
         />
 
@@ -687,6 +694,18 @@
           @improved="onObjectiveImproved"
         />
 
+        <NoteAidStructuredChartPanel
+          v-if="showStructuredChartPanel && !chartNoteReadOnly && !signedNoteViewerId"
+          :diagnoses="chartDiagnoses"
+          v-model:diagnostic-justification="chartDiagnosticJustification"
+          v-model:mse="chartMentalStatus"
+          v-model:risk="chartRiskAssessment"
+          v-model:medications="chartMedications"
+          :skip-mse="skipMentalStatusExam"
+          @mse-all-normal="setMseAllNormal"
+          @mse-all-not-assessed="setMseAllNotAssessed"
+        />
+
         <NoteAidCsNoteBuildPanel
           v-if="useCsNoteBuildPathway"
           ref="csNoteBuildPanelRef"
@@ -979,18 +998,6 @@
             </div>
           </div>
 
-          <NoteAidStructuredChartPanel
-            v-if="showStructuredChartPanel && !chartNoteReadOnly"
-            :diagnoses="chartDiagnoses"
-            v-model:diagnostic-justification="chartDiagnosticJustification"
-            v-model:mse="chartMentalStatus"
-            v-model:risk="chartRiskAssessment"
-            v-model:medications="chartMedications"
-            :skip-mse="skipMentalStatusExam"
-            @mse-all-normal="setMseAllNormal"
-            @mse-all-not-assessed="setMseAllNotAssessed"
-          />
-
           <div v-if="canApproveToClinicalRecord && !chartNoteReadOnly" class="na-sign-attest">
             <p class="na-sign-attest-lead">
               Signing writes this note to the chart. Generating a draft does not sign.
@@ -1165,6 +1172,10 @@
     <NoteAidClientSetupDrawer
       :open="showClientSetupDrawer"
       :client="selectedClient"
+      :demographics-on-file="demographicsOnFile"
+      :intake-on-file="intakeOnFile"
+      :plan-on-file="planOnFile"
+      :diagnosis-on-file="!!primaryChartDiagnosis"
       @close="showClientSetupDrawer = false"
       @skip="showClientSetupDrawer = false"
       @import-plan="showClientSetupDrawer = false; openPlanImportReview()"
@@ -1240,6 +1251,7 @@ import {
 import {
   consumeNoteAidWorkQueueStash,
   suggestPsychotherapyCodeForDuration,
+  defaultDurationMinutesForServiceCode,
   participantsLikelyIncludeOthers,
   defaultMentalStatusExam,
   defaultRiskAssessment,
@@ -1567,11 +1579,15 @@ const sessionClinicalSessionId = ref(null);
 const sessionDurationMinutes = ref(null);
 const sessionLocationLabel = ref('');
 const sessionParticipants = ref('Client Only');
+const sessionParticipantsDetail = ref('');
+const sessionStartTimeLocal = ref('');
+const sessionEndTimeLocal = ref('');
 /** Clinician confirmed client-only despite a soft presence hint (no re-check until participants changes). */
 const participantsPresenceDismissed = ref(false);
 
 watch(sessionParticipants, (val) => {
   if (val !== 'Client Only') participantsPresenceDismissed.value = false;
+  else sessionParticipantsDetail.value = '';
 });
 const sessionPatientDob = ref('');
 const sessionScheduledStart = ref(null);
@@ -1786,7 +1802,7 @@ const skipMentalStatusExam = computed(() => {
   return code === 'H0004';
 });
 const showStructuredChartPanel = computed(
-  () => !!(showSessionContextStrip.value || canApproveToClinicalRecord.value)
+  () => !!(effectiveClientId.value || showSessionContextStrip.value || canApproveToClinicalRecord.value)
 );
 const sessionClinicianLabel = computed(() => {
   const u = authStore.user || {};
@@ -2472,6 +2488,57 @@ const quickSessionServiceLabel = computed(() => {
   return code || label || '—';
 });
 
+const sessionDurationHint = computed(() => {
+  if (chartNoteReadOnly.value) return '';
+  const code = actualServiceCode.value || '';
+  const def = defaultDurationMinutesForServiceCode(code);
+  if (showSessionContextStrip.value || sessionScheduledStart.value || sessionScheduledEnd.value) {
+    return `Confirm duration — most sessions do not last exactly the ${def}-minute code default. You can change duration and/or start–end times.`;
+  }
+  return `Default ${def} min${code ? ` for ${code}` : ''}. Start and end are optional when no appointment is linked.`;
+});
+
+function isoToLocalTime(iso) {
+  if (!iso) return '';
+  try {
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return '';
+    return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+  } catch {
+    return '';
+  }
+}
+
+function applySessionTimingDefaults({ force = false } = {}) {
+  const hasCalendar =
+    !!(sessionScheduledStart.value || sessionScheduledEnd.value || showSessionContextStrip.value);
+  if (sessionScheduledStart.value) {
+    sessionStartTimeLocal.value = isoToLocalTime(sessionScheduledStart.value);
+  }
+  if (sessionScheduledEnd.value) {
+    sessionEndTimeLocal.value = isoToLocalTime(sessionScheduledEnd.value);
+  }
+  if (sessionScheduledStart.value && sessionScheduledEnd.value) {
+    try {
+      const a = new Date(sessionScheduledStart.value);
+      const b = new Date(sessionScheduledEnd.value);
+      const mins = Math.round((b.getTime() - a.getTime()) / 60000);
+      if (Number.isFinite(mins) && mins > 0) {
+        sessionDurationMinutes.value = mins;
+        return;
+      }
+    } catch {
+      // fall through to code default
+    }
+  }
+  if (force || sessionDurationMinutes.value == null || sessionDurationMinutes.value === '') {
+    sessionDurationMinutes.value = defaultDurationMinutesForServiceCode(actualServiceCode.value);
+  }
+  if (!hasCalendar && force) {
+    // Keep start/end optional for queue/todo notes without appointment times.
+  }
+}
+
 function collapseSidebarsForNote() {
   libraryCollapsed.value = true;
   workQueueCollapsed.value = true;
@@ -2482,6 +2549,7 @@ watch(hasOpenNote, (open) => {
   if (open && !isEmbedded.value) {
     collapseSidebarsForNote();
     if (!signedNoteViewerId.value) noteWizardStep.value = 2;
+    nextTick(() => applySessionTimingDefaults({ force: sessionDurationMinutes.value == null }));
   }
 });
 
@@ -2514,11 +2582,18 @@ async function closeNoteWorkspace() {
   archiveMessage.value = '';
   generateError.value = '';
   participantsPresenceDismissed.value = false;
+  sessionParticipantsDetail.value = '';
+  sessionStartTimeLocal.value = '';
+  sessionEndTimeLocal.value = '';
+  sessionDurationMinutes.value = null;
   attestAccurateAndComplete.value = false;
   attestMedicallyNecessary.value = false;
   showAidPicker.value = false;
   noteWizardStep.value = 1;
   sidebarTab.value = DOC_STATUS.STARTED;
+  selectedClientId.value = null;
+  selectedClient.value = null;
+  resetClientClinicalContext();
   await clearDraftFromRouteQuery();
   syncRouteNoteClient(null);
 }
@@ -2621,6 +2696,7 @@ function onLibrarySelect({ aid, categoryId }) {
   showAidPicker.value = false;
   noteWizardStep.value = 2;
   collapseSidebarsForNote();
+  nextTick(() => applySessionTimingDefaults({ force: sessionDurationMinutes.value == null }));
   if (draftId.value && (String(inputText.value || '').trim() || outputObj.value)) {
     noteWizardStep.value = 2;
   }
@@ -4129,22 +4205,25 @@ const generateNote = async () => {
     if (dxLines.length) {
       planBits.push(`Diagnosis on file:\n${dxLines.map((l) => `- ${l}`).join('\n')}`);
     }
-    if (showSessionContextStrip.value) {
-      const sessionBits = [
-        'Session documentation context (clinician-confirmed):',
-        `Participants: ${sessionParticipants.value || 'Client Only'}`,
-        sessionDurationMinutes.value != null ? `Duration minutes: ${sessionDurationMinutes.value}` : null,
-        actualServiceCode.value ? `Service code: ${actualServiceCode.value}` : null,
-        sessionLocationLabel.value ? `Location: ${sessionLocationLabel.value}` : null
-      ].filter(Boolean);
-      if (!skipMentalStatusExam.value && chartMentalStatus.value) {
-        sessionBits.push('Mental status exam recorded (structured).');
-      }
-      if (chartRiskAssessment.value?.patientDeniesAll) {
-        sessionBits.push('Risk assessment: patient denies all areas of risk.');
-      }
-      planBits.push(sessionBits.join('\n'));
+    const participantsLine = sessionParticipantsDetail.value
+      ? `${sessionParticipants.value || 'Client Only'} (${sessionParticipantsDetail.value})`
+      : (sessionParticipants.value || 'Client Only');
+    const sessionBits = [
+      'Session documentation context (clinician-confirmed):',
+      `Participants: ${participantsLine}`,
+      sessionDurationMinutes.value != null ? `Duration minutes: ${sessionDurationMinutes.value}` : null,
+      sessionStartTimeLocal.value ? `Start: ${sessionStartTimeLocal.value}` : null,
+      sessionEndTimeLocal.value ? `End: ${sessionEndTimeLocal.value}` : null,
+      actualServiceCode.value ? `Service code: ${actualServiceCode.value}` : null,
+      sessionLocationLabel.value ? `Location: ${sessionLocationLabel.value}` : null
+    ].filter(Boolean);
+    if (!skipMentalStatusExam.value && chartMentalStatus.value) {
+      sessionBits.push('Mental status exam recorded (structured).');
     }
+    if (chartRiskAssessment.value?.patientDeniesAll) {
+      sessionBits.push('Risk assessment: patient denies all areas of risk.');
+    }
+    planBits.push(sessionBits.join('\n'));
     if (planBits.length) {
       fd.append('treatmentPlanContext', planBits.join('\n\n').slice(0, 8000));
     }
@@ -4371,8 +4450,14 @@ const approveNoteOutput = async ({ silent = false } = {}) => {
       mentalStatusExam: skipMentalStatusExam.value ? null : chartMentalStatus.value,
       riskAssessment: chartRiskAssessment.value,
       medications: chartMedications.value,
-      participants: sessionParticipants.value,
+      participants: sessionParticipantsDetail.value
+        ? `${sessionParticipants.value} (${sessionParticipantsDetail.value})`
+        : sessionParticipants.value,
+      participantsMode: sessionParticipants.value,
+      participantsDetail: sessionParticipantsDetail.value || null,
       durationMinutes: sessionDurationMinutes.value,
+      startTime: sessionStartTimeLocal.value || null,
+      endTime: sessionEndTimeLocal.value || null,
       skippedMseReason: skipMentalStatusExam.value ? 'H0004' : null
     };
     const createRes = await api.post(`/clinical-data/sessions/${sessionId}/notes`, {
@@ -5608,10 +5693,12 @@ async function activateWorkQueueItem(item) {
   sessionDurationMinutes.value = item.durationMinutes || null;
   sessionLocationLabel.value = item.locationLabel || '';
   sessionParticipants.value = item.participantsSummary || 'Client Only';
+  sessionParticipantsDetail.value = item.participantsDetail || '';
   sessionPatientDob.value = item.clientDob ? String(item.clientDob).slice(0, 10) : '';
   sessionScheduledStart.value = item.scheduledStart || null;
   sessionScheduledEnd.value = item.scheduledEnd || null;
   sessionCodeSwitchBanner.value = '';
+  applySessionTimingDefaults({ force: sessionDurationMinutes.value == null });
   chartMentalStatus.value = defaultMentalStatusExam();
   chartRiskAssessment.value = defaultRiskAssessment();
   chartMedications.value = defaultMedicationsBlock();
@@ -6284,6 +6371,7 @@ const loadDraftIntoWorkspace = async (d, options = {}) => {
     progressEntryMode.value = 'client';
     activeWorkQueueItemId.value = null;
   }
+  applySessionTimingDefaults({ force: sessionDurationMinutes.value == null });
   } finally {
     await nextTick();
     endWorkspaceHydration();
@@ -6591,6 +6679,15 @@ watch(sessionDurationMinutes, (mins) => {
     `Duration ${mins} min is outside ${current || 'prior'} band — switched service code to ${suggested}.`;
 });
 
+watch(actualServiceCode, (code, prev) => {
+  if (!code || code === prev) return;
+  if (isWorkspaceHydrating()) return;
+  if (sessionScheduledStart.value && sessionScheduledEnd.value) return;
+  if (sessionDurationMinutes.value == null || sessionDurationMinutes.value === '') {
+    applySessionTimingDefaults({ force: true });
+  }
+});
+
 function setMseAllNormal() {
   const domains = {};
   for (const d of MSE_DOMAINS) domains[d] = { status: 'normal', detail: '' };
@@ -6854,9 +6951,9 @@ onBeforeUnmount(() => {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  border: 1px solid var(--na-border);
-  background: white;
-  color: var(--na-text);
+  border: 1px solid #99f6e4;
+  background: #f0fdfa;
+  color: #0f766e;
   border-radius: 10px;
   padding: 8px 12px;
   font-weight: 600;
@@ -6865,7 +6962,26 @@ onBeforeUnmount(() => {
 
 .na-archive-btn:hover {
   border-color: var(--na-teal);
-  color: var(--na-teal);
+  color: var(--na-teal-dark);
+  background: #ccfbf1;
+}
+
+.na-archive-btn--pulse {
+  animation: na-panel-pulse 2.2s ease-in-out infinite;
+  border-color: #2dd4bf;
+  background: linear-gradient(180deg, #ccfbf1 0%, #f0fdfa 100%);
+  box-shadow: 0 0 0 0 rgba(13, 148, 136, 0.35);
+}
+
+@keyframes na-panel-pulse {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(13, 148, 136, 0.28);
+    transform: translateY(0);
+  }
+  50% {
+    box-shadow: 0 0 0 6px rgba(13, 148, 136, 0);
+    transform: translateY(-1px);
+  }
 }
 
 .na-shell {
@@ -7602,16 +7718,12 @@ onBeforeUnmount(() => {
 }
 .na-wizard-step2 {
   display: grid;
-  grid-template-columns: minmax(200px, 260px) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr);
   gap: 14px;
   align-items: start;
 }
 .na-write-overview {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  position: sticky;
-  top: 12px;
+  display: none !important;
 }
 .na-write-main {
   min-width: 0;
@@ -7624,9 +7736,6 @@ onBeforeUnmount(() => {
   .na-step1-grid,
   .na-wizard-step2 {
     grid-template-columns: 1fr;
-  }
-  .na-write-overview {
-    position: static;
   }
 }
 

@@ -91,6 +91,19 @@ export function suggestPsychotherapyCodeForDuration(minutes) {
 }
 
 /**
+ * Default billed/documentation duration for a service code when no calendar times exist.
+ * 90832 → 30, 90834 → 45, 90837 and most others → 60.
+ */
+export function defaultDurationMinutesForServiceCode(code) {
+  const c = String(code || '').trim().toUpperCase();
+  if (c === '90832') return 30;
+  if (c === '90834') return 45;
+  if (c === '90837') return 60;
+  if (/^908\d{2}$/.test(c)) return 60;
+  return 60;
+}
+
+/**
  * True when note language suggests someone other than the client attended the session.
  * Discussing family (mother, brother, etc.) does NOT count — only presence phrasing.
  */

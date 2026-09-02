@@ -1,10 +1,5 @@
 <template>
   <div class="na-start">
-    <div class="na-start-pill">
-      <span class="na-start-pill-icon" aria-hidden="true">👤</span>
-      Client: {{ clientLabel }}
-    </div>
-
     <div class="na-start-hero">
       <div class="na-start-icon" aria-hidden="true">✨</div>
       <h1>No note selected</h1>
@@ -86,7 +81,6 @@
 
 <script setup>
 defineProps({
-  clientLabel: { type: String, default: 'none selected' },
   hasNextInProgress: { type: Boolean, default: false },
   hasNextInQueue: { type: Boolean, default: false }
 });
@@ -105,19 +99,6 @@ defineEmits(['create', 'next-in-progress', 'next-in-queue']);
   gap: 28px;
 }
 
-.na-start-pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 16px;
-  border-radius: 999px;
-  background: #f0fdfa;
-  border: 1px solid #99f6e4;
-  color: #0f766e;
-  font-size: 0.88rem;
-  font-weight: 600;
-}
-
 .na-start-hero {
   text-align: center;
   max-width: 520px;
@@ -133,6 +114,7 @@ defineEmits(['create', 'next-in-progress', 'next-in-queue']);
   font-size: 1.75rem;
   font-weight: 800;
   letter-spacing: -0.02em;
+  color: #0f766e;
 }
 
 .na-start-hero p {

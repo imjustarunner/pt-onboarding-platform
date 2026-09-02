@@ -2,7 +2,7 @@
   <section v-if="goals.length" class="na-obj-ratings" :class="{ 'na-obj-ratings--collapsed': sectionCollapsed }">
     <header class="na-obj-ratings-head">
       <div>
-        <h3>Treatment objectives</h3>
+        <h3>Treatment goals / objectives</h3>
         <p v-if="!sectionCollapsed">
           <span class="na-swatch na-swatch--start" /> Start
           <span class="na-swatch na-swatch--prev" /> Previous

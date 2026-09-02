@@ -285,6 +285,17 @@ onBeforeUnmount(() => {
   gap: 8px;
   align-items: center;
 }
+.na-client-picker-row .na-input {
+  font-size: 0.92rem;
+  font-weight: 500;
+  color: #0f172a;
+  letter-spacing: 0;
+  font-family: inherit;
+}
+.na-client-picker-row .na-input::placeholder {
+  font-weight: 400;
+  color: #94a3b8;
+}
 .na-client-selected {
   margin: 6px 0 0;
   font-size: 0.82rem;

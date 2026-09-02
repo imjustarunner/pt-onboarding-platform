@@ -21,7 +21,7 @@
         <span class="lbl">Code</span>
         <strong>{{ serviceLabel || '—' }}</strong>
       </div>
-      <div class="na-quick-session__cell">
+      <div class="na-quick-session__cell na-quick-session__cell--participants">
         <span class="lbl">Participants</span>
         <select
           v-if="editable"
@@ -35,11 +35,20 @@
           <option value="Collateral">Collateral</option>
         </select>
         <strong v-else>{{ participants || 'Client Only' }}</strong>
+        <input
+          v-if="editable && needsAttendeeDetail"
+          type="text"
+          class="na-quick-session__input na-quick-session__input--detail"
+          :value="participantsDetail"
+          placeholder="Who attended? (e.g. mother, guardian)"
+          @input="$emit('update:participantsDetail', $event.target.value)"
+        />
+        <span v-else-if="!editable && participantsDetail" class="detail">{{ participantsDetail }}</span>
       </div>
       <div class="na-quick-session__cell">
         <span class="lbl">Duration</span>
         <input
-          v-if="editable && showDuration"
+          v-if="editable"
           type="number"
           min="1"
           max="240"
@@ -48,6 +57,28 @@
           @change="$emit('update:durationMinutes', Number($event.target.value) || null)"
         />
         <strong v-else>{{ durationLabel }}</strong>
+      </div>
+      <div class="na-quick-session__cell">
+        <span class="lbl">Start</span>
+        <input
+          v-if="editable"
+          type="time"
+          class="na-quick-session__input"
+          :value="startTime"
+          @input="$emit('update:startTime', $event.target.value)"
+        />
+        <strong v-else>{{ startTime || '—' }}</strong>
+      </div>
+      <div class="na-quick-session__cell">
+        <span class="lbl">End</span>
+        <input
+          v-if="editable"
+          type="time"
+          class="na-quick-session__input"
+          :value="endTime"
+          @input="$emit('update:endTime', $event.target.value)"
+        />
+        <strong v-else>{{ endTime || '—' }}</strong>
       </div>
       <div class="na-quick-session__cell">
         <span class="lbl">Clinician</span>
@@ -67,6 +98,7 @@
         </button>
       </div>
     </div>
+    <p v-if="durationHint" class="na-quick-session__hint">{{ durationHint }}</p>
     <p v-if="participantsFlag" class="na-quick-session__flag">
       Note may indicate others attended — update Participants or confirm client-only when signing.
     </p>
@@ -82,24 +114,33 @@ const props = defineProps({
   dateOfService: { type: String, default: '' },
   serviceLabel: { type: String, default: '' },
   participants: { type: String, default: 'Client Only' },
+  participantsDetail: { type: String, default: '' },
   durationMinutes: { type: [Number, null], default: null },
+  startTime: { type: String, default: '' },
+  endTime: { type: String, default: '' },
   clinicianLabel: { type: String, default: '' },
   setupComplete: { type: Boolean, default: false },
   participantsFlag: { type: Boolean, default: false },
   editable: { type: Boolean, default: true },
-  showDuration: { type: Boolean, default: true },
-  finalized: { type: Boolean, default: false }
+  finalized: { type: Boolean, default: false },
+  durationHint: { type: String, default: '' }
 });
 
 defineEmits([
   'update:dateOfService',
   'update:participants',
+  'update:participantsDetail',
   'update:durationMinutes',
+  'update:startTime',
+  'update:endTime',
   'toggle-setup'
 ]);
 
+const needsAttendeeDetail = computed(
+  () => props.participants && props.participants !== 'Client Only'
+);
+
 const durationLabel = computed(() => {
-  if (props.finalized && props.durationMinutes != null) return `${props.durationMinutes} min`;
   if (props.durationMinutes != null && props.durationMinutes !== '') return `${props.durationMinutes} min`;
   return '—';
 });
@@ -116,8 +157,8 @@ const durationLabel = computed(() => {
 
 .na-quick-session__grid {
   display: grid;
-  grid-template-columns: minmax(140px, 1.4fr) repeat(6, minmax(0, 1fr));
-  gap: 10px 12px;
+  grid-template-columns: minmax(120px, 1.3fr) repeat(4, minmax(0, 1fr)) minmax(70px, 0.8fr) repeat(3, minmax(0, 1fr));
+  gap: 10px 10px;
   align-items: start;
 }
 
@@ -148,6 +189,13 @@ const durationLabel = computed(() => {
   font-weight: 700;
 }
 
+.detail {
+  display: block;
+  margin-top: 4px;
+  font-size: 0.78rem;
+  color: #475569;
+}
+
 .na-quick-session__input,
 .na-quick-session__select {
   width: 100%;
@@ -160,6 +208,10 @@ const durationLabel = computed(() => {
 
 .na-quick-session__input--num {
   max-width: 72px;
+}
+
+.na-quick-session__input--detail {
+  margin-top: 6px;
 }
 
 .na-quick-session__setup {
@@ -187,13 +239,19 @@ const durationLabel = computed(() => {
   opacity: 0.7;
 }
 
-.na-quick-session__flag {
+.na-quick-session__hint {
   margin: 10px 0 0;
+  font-size: 0.8rem;
+  color: #64748b;
+}
+
+.na-quick-session__flag {
+  margin: 8px 0 0;
   font-size: 0.82rem;
   color: #b45309;
 }
 
-@media (max-width: 1100px) {
+@media (max-width: 1200px) {
   .na-quick-session__grid {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
