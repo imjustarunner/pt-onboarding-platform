@@ -1,6 +1,20 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, beforeEach, afterEach } from 'vitest';
 import { filterClinicalNoteDrafts, groupClinicalNoteDrafts } from '../clinicalNoteLibrary.js';
-import { parseNoteAidTodoList, matchTodoClientFromSearchRows, namesLikelySamePerson } from '../noteAidWorkQueue.js';
+import {
+  parseNoteAidTodoList,
+  matchTodoClientFromSearchRows,
+  namesLikelySamePerson,
+  loadWorkQueue,
+  saveWorkQueue,
+  clearAllWorkQueues,
+  scrubLegacyWorkQueueStorage,
+  workQueueStorageKey
+} from '../noteAidWorkQueue.js';
+import {
+  stashNoteAidWorkQueue,
+  consumeNoteAidWorkQueueStash,
+  NOTE_AID_QUEUE_STORAGE_KEY
+} from '../noteAidSessionQueue.js';
 import {
   DOC_STATUS,
   NOTE_CONNECTION,
@@ -13,6 +27,54 @@ import {
   deriveWorkQueueDocStatus,
   deriveNoteConnection
 } from '../noteAidDocumentationStatus.js';
+
+describe('work queue PHI storage', () => {
+  const userId = 501;
+  const phiItem = { id: 'wq_1', clientName: 'Jane Doe', action: 'Create a Progress Note', status: 'not_started' };
+
+  beforeEach(() => {
+    clearAllWorkQueues(userId);
+    localStorage.clear();
+    sessionStorage.clear();
+  });
+
+  afterEach(() => {
+    clearAllWorkQueues(userId);
+    localStorage.clear();
+    sessionStorage.clear();
+  });
+
+  it('keeps the queue in memory and never writes PHI to localStorage', () => {
+    localStorage.setItem(workQueueStorageKey(userId), JSON.stringify([phiItem]));
+    saveWorkQueue(userId, [phiItem]);
+    expect(loadWorkQueue(userId)).toEqual([phiItem]);
+    expect(localStorage.getItem(workQueueStorageKey(userId))).toBeNull();
+    for (let i = 0; i < localStorage.length; i += 1) {
+      expect(String(localStorage.key(i) || '').startsWith('noteAidWorkQueue:')).toBe(false);
+    }
+  });
+
+  it('scrubs legacy localStorage keys on load', () => {
+    localStorage.setItem(workQueueStorageKey(userId), JSON.stringify([phiItem]));
+    localStorage.setItem('noteAidWorkQueue:501:2099-01-01', JSON.stringify([phiItem]));
+    expect(loadWorkQueue(userId)).toEqual([]);
+    expect(localStorage.length).toBe(0);
+  });
+
+  it('scrubs legacy sessionStorage stash and uses memory handoff only', () => {
+    sessionStorage.setItem(NOTE_AID_QUEUE_STORAGE_KEY, JSON.stringify({ items: [phiItem], at: 1 }));
+    stashNoteAidWorkQueue([phiItem]);
+    expect(sessionStorage.getItem(NOTE_AID_QUEUE_STORAGE_KEY)).toBeNull();
+    expect(consumeNoteAidWorkQueueStash()).toEqual([phiItem]);
+    expect(consumeNoteAidWorkQueueStash()).toBeNull();
+  });
+
+  it('scrubLegacyWorkQueueStorage removes leftover keys', () => {
+    localStorage.setItem('noteAidWorkQueue:501:2026-09-03', JSON.stringify([phiItem]));
+    scrubLegacyWorkQueueStorage(userId);
+    expect(localStorage.getItem('noteAidWorkQueue:501:2026-09-03')).toBeNull();
+  });
+});
 
 describe('clinicalNoteLibrary search/group', () => {
   const drafts = [

@@ -1,46 +1,61 @@
 /**
- * Note Aid sticky work-queue helpers (localStorage-backed).
+ * Note Aid work-queue helpers.
+ *
+ * PHI policy: client names / todo actions must NEVER be written to localStorage
+ * or sessionStorage (not encrypted at rest — not HIPAA-appropriate). The queue
+ * lives in memory for the current SPA session only. Legacy browser keys are
+ * scrubbed on load/save.
  */
+
+/** @type {Map<string|number, Array>} */
+const memoryWorkQueues = new Map();
+
+const LEGACY_PREFIX = 'noteAidWorkQueue:';
 
 export function workQueueStorageKey(userId) {
   const uid = Number(userId || 0) || 'anon';
   const day = new Date().toISOString().slice(0, 10);
-  return `noteAidWorkQueue:${uid}:${day}`;
+  return `${LEGACY_PREFIX}${uid}:${day}`;
 }
 
-export function loadWorkQueue(userId) {
-  try {
-    const raw = localStorage.getItem(workQueueStorageKey(userId));
-    if (!raw) return [];
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
-}
-
-export function saveWorkQueue(userId, items) {
-  try {
-    localStorage.setItem(workQueueStorageKey(userId), JSON.stringify(items || []));
-  } catch {
-    // ignore quota
-  }
-}
-
-/** Remove every sticky work-queue day bucket for this user (Done / In progress list). */
-export function clearAllWorkQueues(userId) {
-  const uid = Number(userId || 0) || 'anon';
-  const prefix = `noteAidWorkQueue:${uid}:`;
+/** Remove legacy work-queue keys that may contain PHI. */
+export function scrubLegacyWorkQueueStorage(userId = null) {
   try {
     const keys = [];
     for (let i = 0; i < localStorage.length; i += 1) {
       const key = localStorage.key(i);
-      if (key && key.startsWith(prefix)) keys.push(key);
+      if (!key || !key.startsWith(LEGACY_PREFIX)) continue;
+      if (userId != null) {
+        const uid = Number(userId || 0) || 'anon';
+        if (!key.startsWith(`${LEGACY_PREFIX}${uid}:`)) continue;
+      }
+      keys.push(key);
     }
     keys.forEach((key) => localStorage.removeItem(key));
   } catch {
     // ignore
   }
+}
+
+export function loadWorkQueue(userId) {
+  // Never rehydrate PHI from browser storage — scrub any leftover keys.
+  scrubLegacyWorkQueueStorage(userId);
+  const uid = Number(userId || 0) || 'anon';
+  const items = memoryWorkQueues.get(uid);
+  return Array.isArray(items) ? items.map((row) => ({ ...row })) : [];
+}
+
+export function saveWorkQueue(userId, items) {
+  const uid = Number(userId || 0) || 'anon';
+  memoryWorkQueues.set(uid, Array.isArray(items) ? items.map((row) => ({ ...row })) : []);
+  scrubLegacyWorkQueueStorage(userId);
+}
+
+/** Clear in-memory queue and scrub any leftover browser keys for this user. */
+export function clearAllWorkQueues(userId) {
+  const uid = Number(userId || 0) || 'anon';
+  memoryWorkQueues.delete(uid);
+  scrubLegacyWorkQueueStorage(userId);
 }
 
 export function newWorkQueueItemId() {

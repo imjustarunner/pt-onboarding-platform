@@ -26,6 +26,7 @@
       <div>
         <strong>Work queue</strong>
         <p>{{ pendingCount }} not started · {{ startedCount }} in progress</p>
+        <p class="na-wq-privacy">Kept in this browser session only (not saved to disk).</p>
       </div>
       <div class="na-wq-head-actions">
         <button type="button" class="na-wq-add" @click="$emit('add-todo')">Add ToDo List</button>
@@ -445,6 +446,7 @@ function typeLabel(item) {
 }
 .na-wq-head strong { display: block; font-size: 0.92rem; color: #0f172a; }
 .na-wq-head p { margin: 2px 0 0; font-size: 0.75rem; color: #64748b; }
+.na-wq-privacy { margin-top: 4px !important; font-size: 0.68rem !important; color: #94a3b8 !important; line-height: 1.3; }
 .na-wq-add {
   border: none;
   background: #0f766e;

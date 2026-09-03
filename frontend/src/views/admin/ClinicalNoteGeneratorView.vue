@@ -1367,6 +1367,7 @@ import {
 } from '../../utils/noteAidDocumentationStatus.js';
 import {
   consumeNoteAidWorkQueueStash,
+  scrubLegacyWorkQueueSessionStash,
   suggestPsychotherapyCodeForDuration,
   defaultDurationMinutesForServiceCode,
   participantsLikelyIncludeOthers,
@@ -7244,6 +7245,8 @@ const draftSections = (draftRow) => {
 
 onMounted(async () => {
   speechSupported.value = !!(window.SpeechRecognition || window.webkitSpeechRecognition);
+  // Scrub any pre-fix PHI left in browser storage from older Note Aid builds.
+  scrubLegacyWorkQueueSessionStash();
   const libraryUi = loadNoteLibraryUiPrefs(authStore.user?.id);
   libraryCollapsed.value = libraryUi.collapsed;
   libraryExpanded.value = libraryUi.expanded;

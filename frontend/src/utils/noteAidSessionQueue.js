@@ -4,6 +4,9 @@
 
 export const NOTE_AID_QUEUE_STORAGE_KEY = 'noteAidWorkQueueImport';
 
+/** In-memory handoff only — never put PHI in sessionStorage. */
+let memoryWorkQueueStash = null;
+
 export function isSessionNoteTask(task) {
   const type = String(task?.task_type || task?.taskType || '').toLowerCase();
   if (type === 'session_note') return true;
@@ -56,28 +59,28 @@ export function taskToWorkQueueItem(task) {
   };
 }
 
-export function stashNoteAidWorkQueue(items) {
+export function scrubLegacyWorkQueueSessionStash() {
   try {
-    sessionStorage.setItem(
-      NOTE_AID_QUEUE_STORAGE_KEY,
-      JSON.stringify({ items: items || [], at: Date.now() })
-    );
+    sessionStorage.removeItem(NOTE_AID_QUEUE_STORAGE_KEY);
   } catch {
     // ignore
   }
 }
 
+export function stashNoteAidWorkQueue(items) {
+  scrubLegacyWorkQueueSessionStash();
+  memoryWorkQueueStash = {
+    items: Array.isArray(items) ? items.map((row) => ({ ...row })) : [],
+    at: Date.now()
+  };
+}
+
 export function consumeNoteAidWorkQueueStash() {
-  try {
-    const raw = sessionStorage.getItem(NOTE_AID_QUEUE_STORAGE_KEY);
-    if (!raw) return null;
-    sessionStorage.removeItem(NOTE_AID_QUEUE_STORAGE_KEY);
-    const parsed = JSON.parse(raw);
-    if (!parsed || !Array.isArray(parsed.items)) return null;
-    return parsed.items;
-  } catch {
-    return null;
-  }
+  scrubLegacyWorkQueueSessionStash();
+  const stash = memoryWorkQueueStash;
+  memoryWorkQueueStash = null;
+  if (!stash || !Array.isArray(stash.items)) return null;
+  return stash.items;
 }
 
 /** CPT psychotherapy duration → preferred code (billing bands). */
