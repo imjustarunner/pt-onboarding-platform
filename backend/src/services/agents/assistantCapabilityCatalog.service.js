@@ -13,9 +13,7 @@ import {
   resolveBestProfileSection
 } from '../../../../frontend/src/navigation/profileSearchCatalog.js';
 import {
-  looksLikeProductLocationAsk,
-  resolveBestProductLocation,
-  formatProductLocationAnswer
+  matchProductLocationIntent
 } from '../../../../frontend/src/navigation/productLocationCatalog.js';
 import {
   extractServiceCodes,
@@ -501,6 +499,27 @@ export function resolveNavigateRouteNameFromPrompt(promptLower) {
     return 'SkillBuildersProgramsEvents';
   }
   if (/\bevents\b/.test(s)) return 'SkillBuildersProgramsEvents';
+  if (/\b(office approvals?|approve office)\b/.test(s)) return 'OfficeApprovals';
+  if (/\b(client action needed|client onboarding workspace)\b/.test(s)) return 'ClientOnboardingWorkspace';
+  if (/\b(office intake|new office clients)\b/.test(s)) return 'OfficeIntakeQueue';
+  if (/\b(admin update|staff newsletter)\b/.test(s)) return 'CommunicationsHub';
+  if (/\b(communications?(?:\s+center)?|comms hub)\b/.test(s)) return 'CommunicationsHub';
+  if (/\b(tools?\s*&?\s*aids?|tools aids)\b/.test(s)) return 'ToolsAids';
+  if (/\b(my learning|on[- ]?demand training)\b/.test(s)) return 'MyLearning';
+  if (/\b(library|resource library|handouts)\b/.test(s)) return 'Library';
+  if (/\b(provider fall update|year update)\b/.test(s)) return 'ProviderYearUpdateAdmin';
+  if (/\b(provider update)\b/.test(s)) return 'ProviderUpdateAdmin';
+  if (/\b(payroll pending|pending submissions)\b/.test(s)) return 'PayrollPendingSubmissions';
+  if (/\b(escalations?)\b/.test(s)) return 'EscalationsDesk';
+  if (/\b(announcements?)\b/.test(s)) return 'AnnouncementsHub';
+  if (/\b(assigned training|training tab)\b/.test(s)) return 'AssignedTraining';
+  if (/\b(my work|momentum list|checklist)\b/.test(s)) return 'MyWorkChecklist';
+  if (/\bsubmit\b/.test(s)) return 'SubmitHub';
+  if (/\b(my supervision)\b/.test(s)) return 'MySupervisionHub';
+  if (/\b(supervision)\b/.test(s)) return 'SupervisionHub';
+  if (/\b(platform chats?|team chats?)\b/.test(s) || (/\bchats?\b/.test(s) && !/\b(video|meeting|call)\b/.test(s))) {
+    return 'PlatformChats';
+  }
   if (/\b(provider directory|provider list)\b/.test(s)) return 'ProviderDirectory';
   if (/\b(gear|inventory|stock levels?|unique assets?)\b/.test(s)) return 'GearInventory';
   if (
@@ -585,52 +604,7 @@ export function matchCatalogBackedPageNavigationIntent({ prompt, allowedToolName
   };
 }
 
-/**
- * "Where can I find X?" / "Where do staff see school events?" — answer with a
- * real product location (and navigate when the route is whitelisted for the user).
- */
-export function matchProductLocationIntent({
-  prompt,
-  allowedToolNames,
-  role,
-  allowedRouteNames = null
-}) {
-  const lower = String(prompt || '').toLowerCase().trim();
-  if (!lower) return null;
-  if (!looksLikeProductLocationAsk(lower)) return null;
-
-  const resolved = resolveBestProductLocation({
-    prompt: lower,
-    role,
-    allowedRouteNames:
-      allowedRouteNames ||
-      (allowedToolNames?.has?.('navigateTo') ? null : new Set()),
-    minScore: 70
-  });
-  if (!resolved?.entry) return null;
-
-  const { entry, canNavigate } = resolved;
-  const assistantText = formatProductLocationAnswer(entry, {
-    canNavigate: Boolean(canNavigate && allowedToolNames?.has?.('navigateTo'))
-  });
-
-  if (canNavigate && entry.routeName && allowedToolNames?.has?.('navigateTo')) {
-    return {
-      intent: 'product_location',
-      capabilityId: 'product_location_help',
-      toolCalls: [{ name: 'navigateTo', args: { routeName: entry.routeName } }],
-      assistantText
-    };
-  }
-
-  return {
-    intent: 'product_location',
-    capabilityId: 'product_location_help',
-    toolCalls: [],
-    assistantText,
-    uiCommands: []
-  };
-}
+export { matchProductLocationIntent };
 
 function canUseAll(requiredTools, allowedToolNames) {
   return requiredTools.every((t) => allowedToolNames.has(t));

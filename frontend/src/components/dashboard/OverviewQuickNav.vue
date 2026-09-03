@@ -82,6 +82,8 @@
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useAuthStore } from '../../store/auth';
+import { useAgencyStore } from '../../store/agency';
+import { getMyDashboardPath } from '../../utils/router';
 import {
   buildQuickNavContext,
   resolveQuickNavRoute,
@@ -102,8 +104,22 @@ const props = defineProps({
 const emit = defineEmits(['navigated']);
 
 const authStore = useAuthStore();
+const agencyStore = useAgencyStore();
 const router = useRouter();
 const route = useRoute();
+
+function orgSlugForNavigation() {
+  return (
+    route.params?.organizationSlug ||
+    agencyStore.currentAgency?.slug ||
+    agencyStore.currentAgency?.portal_url ||
+    null
+  );
+}
+
+function dashboardPathForQuickNav() {
+  return getMyDashboardPath({ orgSlug: orgSlugForNavigation() });
+}
 
 const inputRef = ref(null);
 const query = ref('');
@@ -191,11 +207,11 @@ function moveActive(delta) {
 
 async function go(item) {
   if (!item) return;
-  const orgSlug = route.params?.organizationSlug || null;
   const loc = resolveQuickNavRoute(item, {
     currentPath: route.path,
-    orgSlug,
-    currentQuery: route.query
+    orgSlug: orgSlugForNavigation(),
+    currentQuery: route.query,
+    dashboardPath: dashboardPathForQuickNav()
   });
   if (!loc) return;
   query.value = '';

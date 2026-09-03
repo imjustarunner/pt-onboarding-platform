@@ -129,6 +129,16 @@ export const PRODUCT_LOCATIONS = [
     keywords: ['school clients', 'school caseload', 'my school clients', 'caseload']
   },
   {
+    id: 'my-clients',
+    routeName: 'MyClients',
+    label: 'My Clients',
+    description: 'Your caseload and client workflow hub.',
+    group: 'clients',
+    howToFind: 'My Dashboard → Clients',
+    keywords: ['my clients', 'clients tab', 'caseload hub', 'client workflow'],
+    rolesAny: ['provider', 'provider_plus', 'intern', 'intern_plus', 'clinical_practice_assistant', 'admin', 'super_admin', 'supervisor', 'support', 'staff']
+  },
+  {
     id: 'office-clients',
     routeName: 'OfficeClients',
     label: 'Office Clients',
@@ -439,7 +449,210 @@ export const PRODUCT_LOCATIONS = [
     description: 'Tasks hub / work lists.',
     group: 'workspace',
     howToFind: 'Tasks (top nav / Tasks hub)',
-    keywords: ['tasks', 'task list', 'to do', 'todos', 'work lists']
+    keywords: ['tasks', 'task list', 'to do', 'todos', 'work lists', 'shared lists']
+  },
+  {
+    id: 'submit',
+    routeName: 'SubmitHub',
+    label: 'Submit',
+    description: 'Mileage, reimbursement, PTO, time, and availability claims.',
+    group: 'schedule',
+    howToFind: 'My Dashboard → Submit',
+    keywords: ['submit', 'claims', 'mileage', 'reimbursement', 'time claim', 'submit hub']
+  },
+  {
+    id: 'supervision',
+    routeName: 'SupervisionHub',
+    label: 'Supervision',
+    description: 'Supervisee sessions, notes, and support.',
+    group: 'schedule',
+    howToFind: 'My Dashboard → Supervision',
+    keywords: ['supervision', 'supervisee', 'supervisor hub']
+  },
+  {
+    id: 'my-supervision',
+    routeName: 'MySupervisionHub',
+    label: 'My Supervision',
+    description: 'Your supervision sessions, transcripts, and summaries.',
+    group: 'schedule',
+    howToFind: 'My Dashboard → My Supervision',
+    keywords: ['my supervision', 'supervision transcripts']
+  },
+  {
+    id: 'assigned-training',
+    routeName: 'AssignedTraining',
+    label: 'Assigned Training',
+    description: 'Assigned onboarding modules and learning paths.',
+    group: 'learning',
+    howToFind: 'My Dashboard → Training',
+    keywords: ['assigned training', 'training modules', 'onboarding modules', 'learning paths']
+  },
+  {
+    id: 'my-work',
+    routeName: 'MyWorkChecklist',
+    label: 'My Work',
+    description: 'Focus digest, checklist, and actionable items.',
+    group: 'learning',
+    howToFind: 'My Dashboard → My Work / Checklist',
+    keywords: ['my work', 'momentum', 'checklist', 'focus digest']
+  },
+  {
+    id: 'platform-chats',
+    routeName: 'PlatformChats',
+    label: 'Platform Chats',
+    description: 'Message your team.',
+    group: 'workspace',
+    howToFind: 'My Dashboard → Chats',
+    keywords: ['chats', 'chat', 'messages', 'messaging', 'platform chats']
+  },
+  {
+    id: 'my-learning',
+    routeName: 'MyLearning',
+    label: 'My Learning',
+    description: 'Catalog, progress, and continuing education courses.',
+    group: 'learning',
+    howToFind: 'My Learning (catalog / on-demand training)',
+    keywords: ['my learning', 'on demand training', 'on-demand', 'continuing education', 'certificates']
+  },
+  {
+    id: 'library',
+    routeName: 'Library',
+    label: 'Library',
+    description: 'Guides, templates, care documents, forms, and shared Google Docs.',
+    group: 'workspace',
+    howToFind: 'Library',
+    keywords: ['library', 'resources', 'templates', 'guides', 'handouts', 'shared files']
+  },
+  {
+    id: 'tools-aids',
+    routeName: 'ToolsAids',
+    label: 'Tools',
+    description: 'Assessments, games and activities, and AI tools.',
+    group: 'workspace',
+    howToFind: 'Tools / Tools & Aids',
+    keywords: ['tools', 'aids', 'tools aids', 'assessments', 'games', 'activities', 'ai tools'],
+    rolesAny: [
+      'admin',
+      'support',
+      'staff',
+      'provider',
+      'provider_plus',
+      'super_admin',
+      'intern',
+      'intern_plus',
+      'clinical_practice_assistant',
+      'supervisor',
+      'facilitator',
+      'school_staff'
+    ]
+  },
+  {
+    id: 'office-approvals',
+    routeName: 'OfficeApprovals',
+    label: 'Office Approvals',
+    description: 'Approve office requests and triage Therapy Notes coverage conflicts.',
+    group: 'schedule',
+    howToFind: 'Admin → Office Approvals',
+    keywords: ['office approvals', 'approve office', 'coverage flags', 'therapy notes conflicts'],
+    rolesAny: [
+      'admin',
+      'support',
+      'staff',
+      'super_admin',
+      'clinical_practice_assistant',
+      'provider_plus',
+      'schedule_manager'
+    ]
+  },
+  {
+    id: 'client-action-admin',
+    routeName: 'ClientOnboardingWorkspace',
+    label: 'Client Action Needed',
+    description: 'Clients who still need a next step — fall confirmation, intake, or clearance.',
+    group: 'clients',
+    howToFind: 'Admin → Client Onboarding / Client Action Needed',
+    keywords: ['client action needed', 'client onboarding', 'fall confirmation', 'onboarding workspace'],
+    rolesAny: ['admin', 'staff', 'support', 'super_admin', 'clinical_practice_assistant', 'provider_plus']
+  },
+  {
+    id: 'client-action-provider',
+    routeName: 'ProviderClientOnboarding',
+    label: 'Client Action Needed (Provider)',
+    description: 'Provider fall confirmation and new-client next steps.',
+    group: 'clients',
+    howToFind: 'Provider → Client Action Needed',
+    keywords: ['provider client onboarding', 'provider fall confirmation'],
+    rolesAny: ['provider', 'provider_plus', 'intern', 'supervisor']
+  },
+  {
+    id: 'office-intake-queue',
+    routeName: 'OfficeIntakeQueue',
+    label: 'New Office Clients',
+    description: 'Office/clinical digital intakes awaiting provider assignment.',
+    group: 'admin',
+    howToFind: 'Admin → Office Intake Queue',
+    keywords: ['office intake', 'new office clients', 'digital intake', 'pending assignment'],
+    rolesAny: ['admin', 'support', 'staff', 'super_admin', 'provider_plus', 'clinical_practice_assistant']
+  },
+  {
+    id: 'announcements',
+    routeName: 'AnnouncementsHub',
+    label: 'Announcements',
+    description: 'Splashes, banners, engagement, and birthday / anniversary queue.',
+    group: 'admin',
+    howToFind: 'Admin → Announcements',
+    keywords: ['announcements', 'splash', 'banner', 'birthday', 'anniversary'],
+    rolesAny: ['admin', 'super_admin', 'support', 'staff', 'clinical_practice_assistant']
+  },
+  {
+    id: 'admin-update',
+    routeName: 'CommunicationsHub',
+    label: 'Admin Update',
+    description: 'Monthly branded staff newsletter from Communications Center.',
+    group: 'admin',
+    howToFind: 'Admin → Communications → Admin Update',
+    keywords: ['admin update', 'newsletter', 'staffing updates', 'communications center'],
+    rolesAny: ['admin', 'super_admin', 'support', 'staff', 'clinical_practice_assistant', 'provider_plus']
+  },
+  {
+    id: 'escalations',
+    routeName: 'EscalationsDesk',
+    label: 'Escalations',
+    description: 'Escalations desk for urgent agency issues.',
+    group: 'admin',
+    howToFind: 'Admin → Escalations',
+    keywords: ['escalations', 'escalation desk', 'urgent issues'],
+    rolesAny: ['admin', 'super_admin', 'support']
+  },
+  {
+    id: 'provider-fall-update',
+    routeName: 'ProviderYearUpdateAdmin',
+    label: 'Provider Fall Update',
+    description: 'Provider year / fall update administration.',
+    group: 'admin',
+    howToFind: 'Admin → Provider Fall Update',
+    keywords: ['provider fall update', 'year update', 'provider year update'],
+    rolesAny: ['admin', 'support', 'staff', 'super_admin', 'provider_plus', 'clinical_practice_assistant']
+  },
+  {
+    id: 'provider-update',
+    routeName: 'ProviderUpdateAdmin',
+    label: 'Provider Update',
+    description: 'Modular provider update pushes, handbook, and payroll time submit.',
+    group: 'admin',
+    howToFind: 'Admin → Provider Update',
+    keywords: ['provider update', 'handbook push', 'people ops update'],
+    rolesAny: ['admin', 'support', 'staff', 'super_admin', 'provider_plus', 'clinical_practice_assistant']
+  },
+  {
+    id: 'payroll-pending',
+    routeName: 'PayrollPendingSubmissions',
+    label: 'Payroll Pending Submissions',
+    description: 'Review pending payroll claims and submissions.',
+    group: 'admin',
+    howToFind: 'Admin → Payroll → Pending Submissions',
+    keywords: ['payroll pending', 'pending submissions', 'pending claims'],
+    rolesAny: ['admin', 'super_admin', 'support', 'staff']
   }
 ];
 
@@ -502,6 +715,7 @@ export function extractProductLocationQuery(prompt) {
       ''
     )
     .replace(/\bwhere\s+(can|do)\s+i\s+(find|see|view|access|open)\s+/gi, '')
+    .replace(/\bwhere\s+(can|do)\s+i\s+/gi, '')
     .replace(/\bwhere\s+(is|are)\s+(the\s+)?/gi, '')
     .replace(/\bwhere\s+to\s+(find|see|go)\s+(the\s+)?/gi, '')
     .replace(/\bhow\s+do\s+i\s+(find|get to|open|see|access|reach)\s+(the\s+)?/gi, '')
@@ -621,4 +835,51 @@ export function formatProductLocationAnswer(entry, { canNavigate = false } = {})
   if (canNavigate) bits.push('Opening it for you.');
   else if (entry?.routeName) bits.push('You may not have access to open it from here — ask an admin if you need it.');
   return bits.join(' ');
+}
+
+/**
+ * Ask Assistant intent: "Where can I find X?" → explain + optional navigateTo.
+ * Kept Vue-free / DB-free so unit tests don't need the capability catalog.
+ */
+export function matchProductLocationIntent({
+  prompt,
+  allowedToolNames,
+  role,
+  allowedRouteNames = null
+}) {
+  const lower = String(prompt || '').toLowerCase().trim();
+  if (!lower) return null;
+  if (!looksLikeProductLocationAsk(lower)) return null;
+
+  const resolved = resolveBestProductLocation({
+    prompt: lower,
+    role,
+    allowedRouteNames:
+      allowedRouteNames ||
+      (allowedToolNames?.has?.('navigateTo') ? null : new Set()),
+    minScore: 70
+  });
+  if (!resolved?.entry) return null;
+
+  const { entry, canNavigate } = resolved;
+  const assistantText = formatProductLocationAnswer(entry, {
+    canNavigate: Boolean(canNavigate && allowedToolNames?.has?.('navigateTo'))
+  });
+
+  if (canNavigate && entry.routeName && allowedToolNames?.has?.('navigateTo')) {
+    return {
+      intent: 'product_location',
+      capabilityId: 'product_location_help',
+      toolCalls: [{ name: 'navigateTo', args: { routeName: entry.routeName } }],
+      assistantText
+    };
+  }
+
+  return {
+    intent: 'product_location',
+    capabilityId: 'product_location_help',
+    toolCalls: [],
+    assistantText,
+    uiCommands: []
+  };
 }

@@ -4,12 +4,9 @@ import {
   extractProductLocationQuery,
   looksLikeProductLocationAsk,
   resolveBestProductLocation,
-  formatProductLocationAnswer
+  formatProductLocationAnswer,
+  matchProductLocationIntent
 } from '../../../../../frontend/src/navigation/productLocationCatalog.js';
-import {
-  matchProductLocationIntent,
-  resolveNavigateRouteNameFromPrompt
-} from '../assistantCapabilityCatalog.service.js';
 import { shouldAttemptAgencyResearch } from '../assistantResearch.service.js';
 
 test('looksLikeProductLocationAsk catches where/find phrasing', () => {
@@ -23,13 +20,17 @@ test('looksLikeProductLocationAsk catches where/find phrasing', () => {
 });
 
 test('extractProductLocationQuery normalizes school events paraphrases', () => {
-  assert.match(
+  assert.equal(
     extractProductLocationQuery('where do staff see the events for schools'),
-    /school events/
+    'school events'
   );
-  assert.match(
+  assert.equal(
     extractProductLocationQuery('where can I find school events'),
-    /school events/
+    'school events'
+  );
+  assert.equal(
+    extractProductLocationQuery('Where can I find where staff can see the events for schools?'),
+    'school events'
   );
 });
 
@@ -62,21 +63,6 @@ test('matchProductLocationIntent returns navigateTo + explanation', () => {
   assert.match(String(intent.assistantText || ''), /Opening it for you/);
 });
 
-test('resolveNavigateRouteNameFromPrompt prefers school events over program events', () => {
-  assert.equal(
-    resolveNavigateRouteNameFromPrompt('open school events'),
-    'CaseloadHubEvents'
-  );
-  assert.equal(
-    resolveNavigateRouteNameFromPrompt('open program events'),
-    'SkillBuildersProgramsEvents'
-  );
-  assert.equal(
-    resolveNavigateRouteNameFromPrompt('open upcoming events'),
-    'SkillBuildersProgramsEvents'
-  );
-});
-
 test('shouldAttemptAgencyResearch skips product location asks', () => {
   assert.equal(
     shouldAttemptAgencyResearch('where can I find school events'),
@@ -86,4 +72,25 @@ test('shouldAttemptAgencyResearch skips product location asks', () => {
     shouldAttemptAgencyResearch('what is the PTO policy in the handbook'),
     true
   );
+});
+
+test('expanded destinations resolve for where-is asks', () => {
+  const cases = [
+    ['where is office approvals', 'OfficeApprovals'],
+    ['where can I find the library', 'Library'],
+    ['where is my learning', 'MyLearning'],
+    ['where do I submit mileage', 'SubmitHub'],
+    ['where is admin update', 'CommunicationsHub'],
+    ['where are escalations', 'EscalationsDesk']
+  ];
+  for (const [prompt, routeName] of cases) {
+    const intent = matchProductLocationIntent({
+      prompt,
+      allowedToolNames: new Set(['navigateTo']),
+      role: 'admin',
+      allowedRouteNames: new Set([routeName])
+    });
+    assert.ok(intent, `expected hit for: ${prompt}`);
+    assert.equal(intent.toolCalls?.[0]?.args?.routeName, routeName, prompt);
+  }
 });

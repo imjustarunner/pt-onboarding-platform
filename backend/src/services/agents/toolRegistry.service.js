@@ -160,10 +160,35 @@ const NAVIGATION_ROUTE_WHITELIST = {
   MyDocuments: { path: '/dashboard?tab=my&my=documents', roles: null },
   LifeBalance: { path: '/dashboard?tab=my&my=life-balance', roles: null },
   Notifications: { path: '/dashboard?tab=notifications', roles: null },
+  SubmitHub: { path: '/dashboard?tab=submit', roles: null },
+  SupervisionHub: { path: '/dashboard?tab=supervision', roles: null },
+  MySupervisionHub: { path: '/dashboard?tab=my_supervision', roles: null },
+  AssignedTraining: { path: '/dashboard?tab=training', roles: null },
+  MyWorkChecklist: { path: '/dashboard?tab=checklist', roles: null },
+  PlatformChats: { path: '/dashboard?tab=chats', roles: null },
+  MyLearning: { path: '/my-learning', roles: null },
+  Library: { path: '/library', roles: null },
+  ToolsAids: {
+    path: '/tools-aids',
+    roles: [
+      'admin',
+      'support',
+      'staff',
+      'provider',
+      'provider_plus',
+      'super_admin',
+      'intern',
+      'intern_plus',
+      'clinical_practice_assistant',
+      'supervisor',
+      'facilitator',
+      'school_staff'
+    ]
+  },
 
   // Provider Clients tab sections (My Dashboard)
   MyClients: {
-    path: '/dashboard?tab=clients&clients=school',
+    path: '/dashboard?tab=clients',
     roles: ['provider', 'provider_plus', 'intern', 'intern_plus', 'clinical_practice_assistant', 'supervisor', 'admin', 'super_admin', 'support', 'staff']
   },
   SchoolClients: {
@@ -182,12 +207,40 @@ const NAVIGATION_ROUTE_WHITELIST = {
     path: '/dashboard?tab=clients&clients=exchange',
     roles: ['provider', 'provider_plus', 'intern', 'intern_plus', 'clinical_practice_assistant', 'supervisor', 'admin', 'super_admin', 'support', 'staff']
   },
+  ClientOnboardingWorkspace: {
+    path: '/admin/client-onboarding?scope=school',
+    roles: ['admin', 'staff', 'support', 'super_admin', 'clinical_practice_assistant', 'provider_plus']
+  },
+  ProviderClientOnboarding: {
+    path: '/provider/client-onboarding',
+    roles: ['provider', 'provider_plus', 'intern', 'supervisor']
+  },
+  OfficeIntakeQueue: {
+    path: '/admin/office-intake-queue',
+    roles: ['admin', 'support', 'staff', 'super_admin', 'provider_plus', 'clinical_practice_assistant']
+  },
+  OfficeApprovals: {
+    path: '/admin/office-approvals',
+    roles: [
+      'admin',
+      'support',
+      'staff',
+      'super_admin',
+      'clinical_practice_assistant',
+      'provider_plus',
+      'schedule_manager'
+    ]
+  },
 
   // Admin surfaces (gated via requiresRole in router; tool checks role too)
   ClientManagement: { path: '/admin/clients', roles: ['admin', 'support', 'staff', 'provider', 'provider_plus', 'super_admin'] },
   ReferralDirectory: { path: '/admin/referral-directory', roles: ['admin', 'support', 'staff', 'provider', 'provider_plus', 'super_admin'] },
   UserManager: { path: '/admin/users', roles: ['admin', 'super_admin', 'support', 'staff'] },
   AnnouncementsHub: { path: '/admin/announcements', roles: ['admin', 'super_admin', 'support', 'staff', 'clinical_practice_assistant'] },
+  CommunicationsHub: {
+    path: '/admin/communications?mode=admin-update',
+    roles: ['admin', 'super_admin', 'support', 'staff', 'clinical_practice_assistant', 'provider_plus']
+  },
   SchoolPortalsHub: { path: '/admin/school-portals-hub', roles: ['admin', 'support', 'staff', 'super_admin', 'provider_plus', 'clinical_practice_assistant'] },
   OutreachHub: { path: '/admin/outreach-hub', roles: ['admin', 'support', 'staff', 'super_admin', 'provider_plus', 'provider', 'clinical_practice_assistant'] },
   SkillBuildersProgramsEvents: { path: '/admin/program-events', roles: ['admin', 'staff', 'support', 'super_admin', 'provider', 'provider_plus', 'intern', 'intern_plus', 'clinical_practice_assistant'] },
@@ -220,10 +273,38 @@ const NAVIGATION_ROUTE_WHITELIST = {
     path: '/admin/materials-requests',
     roles: ['admin', 'support', 'staff', 'super_admin', 'provider_plus', 'clinical_practice_assistant']
   },
+  ProviderYearUpdateAdmin: {
+    path: '/admin/provider-year-update',
+    roles: ['admin', 'support', 'staff', 'super_admin', 'provider_plus', 'clinical_practice_assistant']
+  },
+  ProviderUpdateAdmin: {
+    path: '/admin/provider-update',
+    roles: ['admin', 'support', 'staff', 'super_admin', 'provider_plus', 'clinical_practice_assistant']
+  },
+  PayrollPendingSubmissions: {
+    path: '/admin/payroll/pending',
+    roles: ['admin', 'super_admin', 'support', 'staff']
+  },
   AuditCenter: { path: '/admin/audit-center', roles: ['admin', 'support', 'super_admin'] },
   EscalationsDesk: { path: '/admin/escalations', roles: ['admin', 'super_admin', 'support'] },
   AutomatedEmailSettings: { path: '/admin/email-settings', roles: ['admin', 'super_admin', 'support'] },
-  NoteAid: { path: '/admin/note-aid', roles: ['admin', 'support', 'staff', 'provider', 'super_admin'] },
+  NoteAid: {
+    path: '/note-aid',
+    roles: [
+      'admin',
+      'support',
+      'staff',
+      'provider',
+      'provider_plus',
+      'super_admin',
+      'intern',
+      'intern_plus',
+      'clinical_practice_assistant',
+      'supervisor',
+      'facilitator',
+      'school_staff'
+    ]
+  },
   AgencyCredentialing: { path: '/admin/credentialing', roles: ['admin', 'support', 'staff', 'super_admin'] },
   PresenceTeamBoard: { path: '/admin/presence', roles: ['admin', 'super_admin'] },
   AdminPayroll: { path: '/admin/payroll', roles: ['admin', 'super_admin', 'support', 'staff'] },

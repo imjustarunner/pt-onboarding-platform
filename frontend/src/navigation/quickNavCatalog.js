@@ -142,7 +142,7 @@ function buildAppEntries() {
     },
     {
       id: 'schedule-submit',
-      routeName: null,
+      routeName: 'SubmitHub',
       label: 'Submit',
       description: 'Mileage, reimbursement, PTO, time, and availability claims.',
       group: 'schedule',
@@ -153,7 +153,7 @@ function buildAppEntries() {
     },
     {
       id: 'schedule-supervision',
-      routeName: null,
+      routeName: 'SupervisionHub',
       label: 'Supervision',
       description: 'Supervisee sessions, notes, and support.',
       group: 'schedule',
@@ -164,7 +164,7 @@ function buildAppEntries() {
     },
     {
       id: 'schedule-my-supervision',
-      routeName: null,
+      routeName: 'MySupervisionHub',
       label: 'My Supervision',
       description: 'Your supervision sessions, transcripts, and summaries.',
       group: 'schedule',
@@ -175,7 +175,7 @@ function buildAppEntries() {
     },
     {
       id: 'clients-caseload',
-      routeName: null,
+      routeName: 'MyClients',
       label: 'My Clients',
       description: 'Your caseload and client workflow.',
       group: 'clients',
@@ -318,11 +318,11 @@ function buildAppEntries() {
     },
     {
       id: 'learning-training',
-      routeName: null,
+      routeName: 'AssignedTraining',
       label: 'Assigned Training',
       description: 'Assigned onboarding modules and learning paths.',
       group: 'learning',
-      keywords: ['training', 'modules', 'learning', 'courses', 'onboarding'],
+      keywords: ['training', 'modules', 'learning', 'courses', 'onboarding', 'assigned training'],
       kind: 'dashboard',
       tab: 'training',
       requires: ['showLearning']
@@ -358,7 +358,7 @@ function buildAppEntries() {
     },
     {
       id: 'learning-checklist',
-      routeName: null,
+      routeName: 'MyWorkChecklist',
       label: 'My Work',
       description: 'Focus digest, checklist, and actionable items.',
       group: 'learning',
@@ -369,7 +369,7 @@ function buildAppEntries() {
     },
     {
       id: 'learning-tasks-hub',
-      routeName: null,
+      routeName: 'Tasks',
       label: 'Tasks',
       description: 'Assigned tasks, shared lists, and meeting actions.',
       group: 'learning',
@@ -400,7 +400,7 @@ function buildAppEntries() {
     },
     {
       id: 'workspace-chats',
-      routeName: null,
+      routeName: 'PlatformChats',
       label: 'Platform Chats',
       description: 'Message your team.',
       group: 'workspace',
@@ -726,11 +726,11 @@ function buildAppEntries() {
     },
     {
       id: 'admin-update-newsletter',
-      routeName: 'CommunicationsCenter',
+      routeName: 'CommunicationsHub',
       label: 'Admin Update',
       description: 'Monthly branded staff newsletter from Communications Center.',
       group: 'admin',
-      keywords: ['admin update', 'newsletter', 'staffing updates', 'departures', 'monthly email'],
+      keywords: ['admin update', 'newsletter', 'staffing updates', 'departures', 'monthly email', 'communications center'],
       kind: 'path',
       path: '/admin/communications?mode=admin-update',
       rolesAny: ['admin', 'super_admin', 'support', 'staff']

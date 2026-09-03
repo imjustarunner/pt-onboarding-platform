@@ -1201,7 +1201,8 @@ function orgSlugForNavigation() {
 
 async function goQuickNav(item) {
   if (!item || busy.value) return;
-  const orgSlug = route.params?.organizationSlug || null;
+  // Prefer agency slug when the current route is not org-scoped (e.g. /messages).
+  const orgSlug = orgSlugForNavigation();
   const loc = resolveQuickNavRoute(item, {
     currentPath: route.path,
     orgSlug,

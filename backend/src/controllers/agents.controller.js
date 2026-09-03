@@ -434,7 +434,19 @@ async function detectExplicitIntent({
           'ModuleManager',
           'TrainingKnowledgeBase',
           'MaterialsRequests',
-          'OutreachHub'
+          'OutreachHub',
+          'OfficeApprovals',
+          'ClientOnboardingWorkspace',
+          'OfficeIntakeQueue',
+          'CommunicationsHub',
+          'ToolsAids',
+          'Library',
+          'MyLearning',
+          'AnnouncementsHub',
+          'EscalationsDesk',
+          'ProviderYearUpdateAdmin',
+          'ProviderUpdateAdmin',
+          'PayrollPendingSubmissions'
         ]);
         if (routeName && !leaveProfileOk.has(routeName)) {
           // Still answer where it is; don't yank them off the profile.
@@ -488,7 +500,19 @@ async function detectExplicitIntent({
         'ModuleManager',
         'TrainingKnowledgeBase',
         'MaterialsRequests',
-        'OutreachHub'
+        'OutreachHub',
+        'OfficeApprovals',
+        'ClientOnboardingWorkspace',
+        'OfficeIntakeQueue',
+        'CommunicationsHub',
+        'ToolsAids',
+        'Library',
+        'MyLearning',
+        'AnnouncementsHub',
+        'EscalationsDesk',
+        'ProviderYearUpdateAdmin',
+        'ProviderUpdateAdmin',
+        'PayrollPendingSubmissions'
       ]);
       // Stay on the profile unless they clearly asked for an admin hub page.
       if (!leaveProfileOk.has(routeName)) return null;
