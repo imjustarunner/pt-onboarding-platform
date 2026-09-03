@@ -537,7 +537,7 @@ export const APP_PAGES = [
     desc: 'Agency documents — view, sign, and manage.'
   },
   {
-    title: 'Library',
+    title: 'Tools and Resources',
     section: 'Directory',
     path: '/library',
     keywords: [
@@ -815,5 +815,12 @@ export const APP_PAGES = [
     path: '/school',
     keywords: ['school portal', 'school view', 'portal', 'school page'],
     desc: 'School-facing portal view.'
+  },
+  {
+    title: 'School Portal Settings',
+    section: 'School Portal',
+    path: '/school?sp=settings',
+    keywords: ['school portal settings', 'group email', 'subscription', 'no email', 'digest', 'notification settings', 'school staff settings'],
+    desc: 'Change school group email subscription and portal notification settings.'
   },
 ];

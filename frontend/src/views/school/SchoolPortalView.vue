@@ -236,6 +236,20 @@
         </button>
 
         <button
+          data-tour="school-nav-settings"
+          class="sp-nav-item"
+          type="button"
+          :class="{ active: portalMode === 'settings' }"
+          @click="navigateSidebar(() => setPortalMode('settings'))"
+        >
+          <span class="sp-nav-icon">
+            <img v-if="settingsIconUrl" :src="settingsIconUrl" alt="" class="sp-nav-icon-img" />
+            <span v-else aria-hidden="true">⚙</span>
+          </span>
+          <span class="sp-nav-label">Settings</span>
+        </button>
+
+        <button
           data-tour="school-nav-docs"
           class="sp-nav-item"
           type="button"
@@ -625,6 +639,15 @@
           </div>
           <div class="top-actions">
             <div class="top-actions-utils">
+              <button
+                class="btn btn-secondary btn-sm"
+                type="button"
+                @click="setPortalMode('settings')"
+                title="Your settings"
+                aria-label="Your settings"
+              >
+                Settings
+              </button>
               <button
                 v-if="canShowSchoolSettingsButton"
                 class="btn btn-secondary btn-sm settings-icon-btn"
@@ -1042,6 +1065,18 @@
           <div class="section-group">
             <div class="section-group-label">Staff &amp; Communication</div>
             <div class="dashboard-card-grid">
+              <button data-tour="school-home-card-settings" class="dash-card" type="button" @click="setPortalMode('settings')">
+                <div class="dash-card-icon">
+                  <img v-if="settingsIconUrl" :src="settingsIconUrl" alt="Settings icon" class="dash-card-icon-img" />
+                  <div v-else class="dash-card-icon-fallback" aria-hidden="true">⚙</div>
+                </div>
+                <div class="dash-card-title">Settings</div>
+                <div class="dash-card-desc">Change your school group email subscription and notification settings.</div>
+                <div class="dash-card-meta">
+                  <span class="dash-card-cta">Open ›</span>
+                </div>
+              </button>
+
               <button data-tour="school-home-card-staff" class="dash-card" type="button" @click="setPortalMode('school_staff')">
                 <div class="dash-card-icon">
                   <img
@@ -1522,6 +1557,17 @@
             @open-school-switcher="adminSchoolSwitcherOpen = true"
           />
         </div>
+          </div>
+
+          <div v-else-if="portalMode === 'settings'">
+            <div data-tour="school-settings-panel">
+              <div v-if="!organizationId" class="empty-state">Organization not loaded.</div>
+              <SchoolPortalSettingsPanel
+                v-else
+                :school-organization-id="organizationId"
+                :read-only="isPreviewOrDemo"
+              />
+            </div>
           </div>
 
           <div v-else-if="portalMode === 'documents'">
@@ -2629,6 +2675,7 @@ import SkillsGroupsPanel from '../../components/school/redesign/SkillsGroupsPane
 import ProvidersDirectoryPanel from '../../components/school/redesign/ProvidersDirectoryPanel.vue';
 import ProviderSchoolProfile from '../../components/school/redesign/ProviderSchoolProfile.vue';
 import SchoolStaffPanel from '../../components/school/redesign/SchoolStaffPanel.vue';
+import SchoolPortalSettingsPanel from '../../components/school/redesign/SchoolPortalSettingsPanel.vue';
 import SchoolPortalMessagesPanel from '../../components/school/redesign/SchoolPortalMessagesPanel.vue';
 import PublicDocumentsPanel from '../../components/school/redesign/PublicDocumentsPanel.vue';
 import SchoolMyDocumentsPanel from '../../components/school/redesign/SchoolMyDocumentsPanel.vue';
@@ -3307,7 +3354,7 @@ const comingSoonTitle = computed(() => {
   return 'Coming soon';
 });
 const selectedClient = ref(null);
-const portalMode = ref('home'); // home | providers | days | roster | skills | events | calendar | school_staff | documents | faq | messages
+const portalMode = ref('home'); // home | providers | days | roster | skills | events | calendar | school_staff | settings | documents | faq | messages
 const portalBootstrapLoading = ref(false);
 const rosterStatusFilterKey = ref(''); // client_status_key filter for roster panel
 const rosterActionFilterKey = ref(''); // lifecycle action filter (fall_confirmation, agency_insurance, …)
@@ -3392,6 +3439,7 @@ const PORTAL_MODES_WITH_SP = new Set([
   'events',
   'calendar',
   'school_staff',
+  'settings',
   'documents',
   'faq',
   'messages',
@@ -3573,7 +3621,7 @@ const applyRequestedPortalMode = async (mode) => {
     return;
   }
   // fall back to direct set for other known modes (URL already matches; don't push again)
-  if (['roster', 'skills', 'school_staff', 'documents', 'faq'].includes(m)) {
+  if (['roster', 'skills', 'school_staff', 'settings', 'documents', 'faq'].includes(m)) {
     await setPortalMode(m, { syncQuery: false });
   }
 };
@@ -5269,6 +5317,7 @@ const portalSectionLabel = computed(() => {
     case 'roster': return isProvider.value ? 'My roster' : 'Roster';
     case 'skills': return 'Skill Builders';
     case 'school_staff': return 'School staff';
+    case 'settings': return 'Settings';
     case 'messages': return 'Messages';
     case 'days': return 'Days / Schedule';
     case 'events': return 'Events';
