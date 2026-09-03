@@ -870,7 +870,7 @@
               </span>
             </label>
             <span
-              v-for="addon in billingAddons.filter((a) => a.code !== '90785' || includeInteractiveComplexity)"
+              v-for="addon in (billingAddons || []).filter((a) => a.code !== '90785' || includeInteractiveComplexity)"
               :key="addon.code"
               class="na-tag na-tag--accent"
               :title="addon.code === '90840' ? 'Crisis add-on from duration' : addon.code"
@@ -1686,6 +1686,28 @@ const formatProgramLabel = (program) => {
 // Form state
 const selectedNoteCategory = ref('');
 const selectedAidId = ref('');
+const agencyNoteAidCatalog = ref({
+  settings: [],
+  assignments: [],
+  customAids: [],
+  peopleScopedCatalogIds: [],
+  peopleScopedCustomIds: []
+});
+/** Must be declared before any computed that reads selectedAid / noteAidCategories (avoids TDZ white screen). */
+const noteAidCategories = computed(() =>
+  mergeAgencyCatalogIntoCategories(NOTE_AID_CATEGORIES, agencyNoteAidCatalog.value, derivedTier.value)
+);
+const selectedAid = computed(() => {
+  const id = String(selectedAidId.value || '');
+  if (!id) return null;
+  const hit = findNoteAidById(id);
+  if (hit?.aid) return hit.aid;
+  for (const cat of noteAidCategories.value || []) {
+    const aid = (cat.aids || []).find((a) => a.id === id);
+    if (aid) return aid;
+  }
+  return null;
+});
 const selectedServiceCode = ref('');
 const otherServiceCode = ref('');
 const selectedProgramId = ref('');
@@ -2643,16 +2665,6 @@ const STATIC_COMMON_CODES = [
 
 const HIDDEN_ADDON_CODES = HIDDEN_NOTE_AID_CODES;
 const NOTE_TYPE_GROUPS = NOTE_TYPE_CODE_GROUPS;
-const agencyNoteAidCatalog = ref({
-  settings: [],
-  assignments: [],
-  customAids: [],
-  peopleScopedCatalogIds: [],
-  peopleScopedCustomIds: []
-});
-const noteAidCategories = computed(() =>
-  mergeAgencyCatalogIntoCategories(NOTE_AID_CATEGORIES, agencyNoteAidCatalog.value, derivedTier.value)
-);
 
 const includeAfterHours99051 = ref(false);
 const billingAddons = ref([]);
@@ -2823,18 +2835,6 @@ const aidsForSelectedCategory = computed(() => {
   const cat = noteAidCategories.value.find((c) => c.id === selectedNoteCategory.value);
   if (!cat) return [];
   return (cat.aids || []).filter((aid) => aidIsEligible(aid));
-});
-
-const selectedAid = computed(() => {
-  const id = String(selectedAidId.value || '');
-  if (!id) return null;
-  const hit = findNoteAidById(id);
-  if (hit?.aid) return hit.aid;
-  for (const cat of noteAidCategories.value || []) {
-    const aid = (cat.aids || []).find((a) => a.id === id);
-    if (aid) return aid;
-  }
-  return null;
 });
 
 const selectedAidGuidance = computed(() => String(selectedAid.value?.guidance || '').trim());
