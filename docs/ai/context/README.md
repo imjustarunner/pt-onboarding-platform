@@ -2,15 +2,14 @@
 
 This folder holds **small, focused knowledge snippets** (“context cards”) for product workflows.
 
-### Runtime “where is X?” help
+### Runtime product map (Quick Nav + Ask)
 
-Ask Assistant product-location answers (“Where can staff see school events?”) are powered by
-`frontend/src/navigation/productLocationCatalog.js` (labels, breadcrumbs, keywords → `navigateTo`).
-When you add a major screen, add it there **and** to `NAVIGATION_ROUTE_WHITELIST` /
-`quickNavCatalog.js` so staff can ask where it is.
+- **Quick Nav** = jump straight to a page (typeahead). Prefer this when you already know the destination name.
+- **Ask Assistant** = conversational “where can I find…?” — explains the breadcrumb and can open the page.
 
-These markdown cards are still useful for deeper “how does this workflow work?” docs; they are
-not loaded automatically by Ask Assistant yet.
+Both share `frontend/src/navigation/appPagesData.js` (~100 app pages). Curated Quick Nav / `productLocationCatalog` entries stay first-class; the full index fills the rest so you do not have to teach every screen one by one.
+
+When you add a major screen, add it to `appPagesData.js` (and curated catalogs if it needs a `routeName` / role gate).
 
 ### How to use (markdown cards)
 
