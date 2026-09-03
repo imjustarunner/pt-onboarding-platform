@@ -3,6 +3,7 @@ import Agency from '../models/Agency.model.js';
 import OrganizationAffiliation from '../models/OrganizationAffiliation.model.js';
 import GoogleWorkspaceDirectoryService from './googleWorkspaceDirectory.service.js';
 import { syncSchoolEmailInboundForAgency } from './unifiedEmail/schoolEmailInboundSync.service.js';
+import { applyGoogleGroupDeliverySettings, normalizeGroupSubscription } from './schoolGroupSubscription.service.js';
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -147,6 +148,24 @@ export async function resolveSchoolGroupEmail(schoolOrganizationId) {
   }
 }
 
+async function lookupStaffSubscription(schoolOrganizationId, email) {
+  const orgId = Number(schoolOrganizationId || 0);
+  const member = normalizeEmail(email);
+  if (!orgId || !member.includes('@')) return 'all_mail';
+  try {
+    const [rows] = await pool.execute(
+      `SELECT email_delivery_preference
+       FROM school_contacts
+       WHERE school_organization_id = ? AND LOWER(TRIM(email)) = ?
+       LIMIT 1`,
+      [orgId, member]
+    );
+    return normalizeGroupSubscription(rows?.[0]?.email_delivery_preference);
+  } catch {
+    return 'all_mail';
+  }
+}
+
 async function listStaffEmailsForSchoolOrg(schoolOrganizationId, primaryEmail = null) {
   const orgId = Number(schoolOrganizationId || 0);
   if (!orgId) return [];
@@ -176,8 +195,7 @@ async function listStaffEmailsForSchoolOrg(schoolOrganizationId, primaryEmail = 
        FROM school_contacts
        WHERE school_organization_id = ?
          AND email IS NOT NULL
-         AND TRIM(email) <> ''
-         AND COALESCE(email_delivery_preference, 'email') <> 'no_email'`,
+         AND TRIM(email) <> ''`,
       [orgId]
     );
     for (const row of contacts || []) {
@@ -337,6 +355,19 @@ export async function provisionSchoolGoogleGroup({
     if (protectedEmails.has(staffEmail)) continue;
     if (emailsToStripFromSchoolGroups(agency).includes(staffEmail)) continue;
     await addMemberSafe(email, staffEmail, 'MEMBER', { membersAdded, memberErrors });
+    const pref = await lookupStaffSubscription(schoolOrganizationId, staffEmail);
+    const delivery = await applyGoogleGroupDeliverySettings({
+      groupEmail: email,
+      memberEmail: staffEmail,
+      subscription: pref
+    });
+    if (!delivery.ok && !delivery.skipped) {
+      memberErrors.push({
+        email: staffEmail,
+        role: 'DELIVERY',
+        error: delivery.error || 'delivery_settings_failed'
+      });
+    }
   }
 
   try {
@@ -367,7 +398,8 @@ export async function provisionSchoolGoogleGroup({
 export async function syncSchoolStaffGoogleGroupMembership({
   schoolOrganizationId,
   email,
-  action = 'add'
+  action = 'add',
+  subscription = null
 } = {}) {
   const memberEmail = normalizeEmail(email);
   const orgId = Number(schoolOrganizationId || 0);
@@ -423,7 +455,15 @@ export async function syncSchoolStaffGoogleGroupMembership({
       memberEmail,
       role: 'MEMBER'
     });
-    return { ok: true, groupEmail, action: 'add', ...result };
+    const pref = subscription
+      ? normalizeGroupSubscription(subscription)
+      : await lookupStaffSubscription(orgId, memberEmail);
+    await applyGoogleGroupDeliverySettings({
+      groupEmail,
+      memberEmail,
+      subscription: pref
+    });
+    return { ok: true, groupEmail, action: 'add', subscription: pref, ...result };
   } catch (e) {
     return { ok: false, groupEmail, action: 'add', error: e?.message || String(e) };
   }

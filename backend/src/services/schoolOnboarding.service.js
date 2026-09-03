@@ -13,6 +13,7 @@ import { resolvePreferredSenderIdentityForAgency } from './emailSenderIdentityRe
 import { validatePasswordStrength, checkPasswordBasics } from '../utils/passwordValidation.js';
 import { ensureDigitalIntakeFormsForSchool } from './schoolOnboardingIntakeBootstrap.service.js';
 import { buildPublicAppUrl } from '../utils/publicPortalUrl.js';
+import { normalizeGroupSubscription } from './schoolGroupSubscription.service.js';
 
 const AGENCY_HELPER_ROLES = new Set([
   'admin',
@@ -241,7 +242,8 @@ async function upsertSchoolContactRoleFlags({
   roleTitle = null,
   isSchoolAdmin,
   isScheduler,
-  isPrimary = false
+  isPrimary = false,
+  groupEmailSubscription = undefined
 }) {
   const normalized = String(email || '').trim().toLowerCase();
   if (!normalized || !normalized.includes('@')) return;
@@ -249,6 +251,9 @@ async function upsertSchoolContactRoleFlags({
     roleTitle != null && String(roleTitle).trim() !== ''
       ? String(roleTitle).trim().slice(0, 255)
       : null;
+  const subscription = groupEmailSubscription !== undefined
+    ? normalizeGroupSubscription(groupEmailSubscription)
+    : undefined;
   try {
     const [existingRows] = await pool.execute(
       `SELECT id FROM school_contacts
@@ -257,29 +262,52 @@ async function upsertSchoolContactRoleFlags({
       [orgId, normalized]
     );
     if (existingRows?.length) {
-      await pool.execute(
-        `UPDATE school_contacts
-         SET full_name = COALESCE(?, full_name),
-             role_title = COALESCE(?, role_title),
-             is_school_admin = ?,
-             is_scheduler = ?,
-             is_primary = IF(?, 1, is_primary),
-             updated_at = CURRENT_TIMESTAMP
-         WHERE id = ?`,
-        [
-          fullName || null,
-          title,
-          isSchoolAdmin ? 1 : 0,
-          isScheduler ? 1 : 0,
-          isPrimary ? 1 : 0,
-          existingRows[0].id
-        ]
-      );
+      if (subscription !== undefined) {
+        await pool.execute(
+          `UPDATE school_contacts
+           SET full_name = COALESCE(?, full_name),
+               role_title = COALESCE(?, role_title),
+               is_school_admin = ?,
+               is_scheduler = ?,
+               is_primary = IF(?, 1, is_primary),
+               email_delivery_preference = ?,
+               updated_at = CURRENT_TIMESTAMP
+           WHERE id = ?`,
+          [
+            fullName || null,
+            title,
+            isSchoolAdmin ? 1 : 0,
+            isScheduler ? 1 : 0,
+            isPrimary ? 1 : 0,
+            subscription,
+            existingRows[0].id
+          ]
+        );
+      } else {
+        await pool.execute(
+          `UPDATE school_contacts
+           SET full_name = COALESCE(?, full_name),
+               role_title = COALESCE(?, role_title),
+               is_school_admin = ?,
+               is_scheduler = ?,
+               is_primary = IF(?, 1, is_primary),
+               updated_at = CURRENT_TIMESTAMP
+           WHERE id = ?`,
+          [
+            fullName || null,
+            title,
+            isSchoolAdmin ? 1 : 0,
+            isScheduler ? 1 : 0,
+            isPrimary ? 1 : 0,
+            existingRows[0].id
+          ]
+        );
+      }
     } else {
       await pool.execute(
         `INSERT INTO school_contacts
-          (school_organization_id, full_name, email, role_title, notes, is_primary, is_school_admin, is_scheduler)
-         VALUES (?, ?, ?, ?, NULL, ?, ?, ?)`,
+          (school_organization_id, full_name, email, role_title, notes, is_primary, is_school_admin, is_scheduler, email_delivery_preference)
+         VALUES (?, ?, ?, ?, NULL, ?, ?, ?, ?)`,
         [
           orgId,
           fullName || null,
@@ -287,7 +315,8 @@ async function upsertSchoolContactRoleFlags({
           title,
           isPrimary ? 1 : 0,
           isSchoolAdmin ? 1 : 0,
-          isScheduler ? 1 : 0
+          isScheduler ? 1 : 0,
+          subscription !== undefined ? subscription : 'all_mail'
         ]
       );
     }
@@ -1485,6 +1514,9 @@ export async function saveStep(token, stepKey, payload = {}, markComplete = true
       const { firstName, lastName } = parseName(row.fullName || row.name);
       const flags = parseAccessRole(row.accessRole || row.role || 'standard');
       const jobTitle = String(row.jobTitle || row.roleTitle || row.title || '').trim().slice(0, 255) || null;
+      const groupEmailSubscription = normalizeGroupSubscription(
+        row.groupEmailSubscription || row.subscription || 'all_mail'
+      );
       let user = await User.findByEmail(email);
       if (!user) {
         user = await User.create({
@@ -1538,7 +1570,8 @@ export async function saveStep(token, stepKey, payload = {}, markComplete = true
         roleTitle: jobTitle,
         isSchoolAdmin: isPrimary ? true : flags.isSchoolAdmin,
         isScheduler: flags.isScheduler,
-        isPrimary
+        isPrimary,
+        groupEmailSubscription
       });
 
       created.push({
@@ -1547,6 +1580,7 @@ export async function saveStep(token, stepKey, payload = {}, markComplete = true
         fullName: `${user.first_name || firstName} ${user.last_name || lastName}`.trim(),
         jobTitle,
         accessRole,
+        groupEmailSubscription,
         isSchoolAdmin: isPrimary ? true : flags.isSchoolAdmin,
         isScheduler: isPrimary ? false : flags.isScheduler,
         roiEligible: isPrimary ? true : !flags.isScheduler
@@ -1554,19 +1588,27 @@ export async function saveStep(token, stepKey, payload = {}, markComplete = true
     }
 
     // Ensure primary remains School Admin + ROI-eligible unless explicitly also listed as scheduler
+    const primarySubscription = normalizeGroupSubscription(
+      body.primaryGroupEmailSubscription ||
+        staff.find((row) => String(row.email || '').trim().toLowerCase() === String(invite.contact_email || '').toLowerCase())
+          ?.groupEmailSubscription ||
+        'all_mail'
+    );
     await upsertSchoolContactRoleFlags({
       orgId: invite.school_organization_id,
       email: invite.contact_email,
       fullName: `${invite.contact_first_name} ${invite.contact_last_name}`,
       isSchoolAdmin: true,
       isScheduler: false,
-      isPrimary: true
+      isPrimary: true,
+      groupEmailSubscription: primarySubscription
     });
 
     let staffPayload = stampStepPayload(
       'school_staff',
       {
         staff: created,
+        primaryGroupEmailSubscription: primarySubscription,
         portalAccessEmailsOnSubmit: true,
         portalAccessTokenExpiresHours: SCHOOL_STAFF_TEMP_PASSWORD_EXPIRY_HOURS
       },

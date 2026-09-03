@@ -81,6 +81,11 @@ import {
   syncSchoolStaffUserTitle
 } from '../services/schoolStaffContactRole.service.js';
 import { queueSchoolStaffGoogleGroupSync } from '../services/schoolGroupProvisioning.service.js';
+import {
+  applySchoolGroupSubscription,
+  normalizeGroupSubscription,
+  resolveGroupEmailForSchool
+} from '../services/schoolGroupSubscription.service.js';
 
 function rosterHasWeekday(client) {
   const day = String(client?.service_day || '').trim();
@@ -3571,7 +3576,7 @@ const normalizeEmail = (value) => {
 async function getSchoolContactRowsByOrg(orgId) {
   try {
     const [rows] = await pool.execute(
-      `SELECT id, email, role_title, is_primary, is_school_admin, is_scheduler
+      `SELECT id, email, role_title, is_primary, is_school_admin, is_scheduler, email_delivery_preference
        FROM school_contacts
        WHERE school_organization_id = ?`,
       [orgId]
@@ -3581,7 +3586,7 @@ async function getSchoolContactRowsByOrg(orgId) {
     if (err?.code !== 'ER_BAD_FIELD_ERROR' && err?.code !== 'ER_NO_SUCH_TABLE') throw err;
     try {
       const [rows] = await pool.execute(
-        `SELECT id, email, NULL AS role_title, is_primary, 0 AS is_school_admin, 0 AS is_scheduler
+        `SELECT id, email, NULL AS role_title, is_primary, 0 AS is_school_admin, 0 AS is_scheduler, NULL AS email_delivery_preference
          FROM school_contacts
          WHERE school_organization_id = ?`,
         [orgId]
@@ -3604,7 +3609,8 @@ async function getSchoolStaffRoleFlagsForOrg(orgId) {
       roleTitle: String(r?.role_title || '').trim() || null,
       isPrimary: Number(r?.is_primary || 0) === 1,
       isSchoolAdmin: Number(r?.is_school_admin || 0) === 1 || Number(r?.is_primary || 0) === 1,
-      isScheduler: Number(r?.is_scheduler || 0) === 1
+      isScheduler: Number(r?.is_scheduler || 0) === 1,
+      groupEmailSubscription: normalizeGroupSubscription(r?.email_delivery_preference)
     });
   }
   return byEmail;
@@ -3648,7 +3654,8 @@ async function upsertSchoolContactRoleFlags({
   fullName = null,
   isSchoolAdmin,
   isScheduler,
-  roleTitle = undefined
+  roleTitle = undefined,
+  groupEmailSubscription = undefined
 }) {
   const normalized = normalizeEmail(email);
   if (!normalized) return;
@@ -3664,6 +3671,9 @@ async function upsertSchoolContactRoleFlags({
     );
     const normalizedRoleTitle = roleTitle !== undefined
       ? (String(roleTitle || '').trim() || null)
+      : undefined;
+    const normalizedSubscription = groupEmailSubscription !== undefined
+      ? normalizeGroupSubscription(groupEmailSubscription)
       : undefined;
     if (existingRows?.length) {
       const row = existingRows[0];
@@ -3685,6 +3695,10 @@ async function upsertSchoolContactRoleFlags({
         updates.push('role_title = ?');
         values.push(normalizedRoleTitle);
       }
+      if (normalizedSubscription !== undefined) {
+        updates.push('email_delivery_preference = ?');
+        values.push(normalizedSubscription);
+      }
       if (updates.length) {
         updates.push('updated_at = CURRENT_TIMESTAMP');
         values.push(row.id, orgId);
@@ -3696,15 +3710,16 @@ async function upsertSchoolContactRoleFlags({
     } else {
       await conn.execute(
         `INSERT INTO school_contacts
-          (school_organization_id, full_name, email, role_title, notes, is_primary, is_school_admin, is_scheduler)
-         VALUES (?, ?, ?, ?, NULL, 0, ?, ?)`,
+          (school_organization_id, full_name, email, role_title, notes, is_primary, is_school_admin, is_scheduler, email_delivery_preference)
+         VALUES (?, ?, ?, ?, NULL, 0, ?, ?, ?)`,
         [
           orgId,
           fullName || null,
           normalized,
           normalizedRoleTitle !== undefined ? normalizedRoleTitle : null,
           isSchoolAdmin ? 1 : 0,
-          isScheduler ? 1 : 0
+          isScheduler ? 1 : 0,
+          normalizedSubscription !== undefined ? normalizedSubscription : 'all_mail'
         ]
       );
     }
@@ -3756,6 +3771,7 @@ export const listSchoolStaff = async (req, res, next) => {
     }
 
     const roleFlagsByEmail = await getSchoolStaffRoleFlagsForOrg(orgId);
+    const schoolGroupEmail = await resolveGroupEmailForSchool(orgId);
 
     const [rows] = await pool.execute(
       `SELECT
@@ -3832,11 +3848,108 @@ export const listSchoolStaff = async (req, res, next) => {
         is_scheduler: flags.isScheduler,
         role_title: flags.roleTitle || null,
         school_contact_id: flags.contactId || null,
+        group_email_subscription: flags.groupEmailSubscription || 'all_mail',
+        school_group_email: schoolGroupEmail,
         needs_activation: String(r.status || '').toUpperCase() === 'PENDING_SETUP'
       };
     });
 
     res.json(result);
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
+ * Change a staff member's Google Group delivery subscription (membership and portal access stay).
+ * PATCH /api/school-portal/:organizationId/school-staff/:userId/group-subscription
+ * Self, school admin, or agency admin/support/staff.
+ */
+export const updateSchoolStaffGroupSubscription = async (req, res, next) => {
+  try {
+    const { organizationId, userId: targetUserIdParam } = req.params;
+    const orgId = parseInt(String(organizationId), 10);
+    const targetUserId = parseInt(String(targetUserIdParam), 10);
+    if (!orgId || !targetUserId) {
+      return res.status(400).json({ error: { message: 'Invalid organizationId or userId' } });
+    }
+
+    const actorId = Number(req.user?.id || 0);
+    const actorRole = String(req.user?.role || '').toLowerCase();
+    const actorEmail = req.user?.email || req.user?.username || null;
+    const isAgencyAdmin =
+      actorRole === 'super_admin' ||
+      actorRole === 'admin' ||
+      actorRole === 'staff' ||
+      actorRole === 'support' ||
+      actorRole === 'clinical_practice_assistant' ||
+      actorRole === 'provider_plus';
+    const isSelf = actorId === targetUserId;
+    const actorFlags = actorRole === 'school_staff'
+      ? await getActorSchoolRoleFlags({ actorUserId: actorId, actorEmail, orgId })
+      : { isSchoolAdmin: false };
+    const isSchoolAdmin = actorRole === 'school_staff' && actorFlags.isSchoolAdmin === true;
+
+    if (!isAgencyAdmin && !isSchoolAdmin && !isSelf) {
+      return res.status(403).json({
+        error: { message: 'You can only change your own group email subscription, or a School Admin can change it for staff.' }
+      });
+    }
+
+    if (!isAgencyAdmin) {
+      const ok = await userHasOrgOrAffiliatedAgencyAccess({
+        userId: actorId,
+        role: actorRole,
+        user: req.user,
+        schoolOrganizationId: orgId
+      });
+      if (!ok) return res.status(403).json({ error: { message: 'You do not have access to this school organization' } });
+    }
+
+    const user = await User.findById(targetUserId);
+    if (!user) return res.status(404).json({ error: { message: 'User not found' } });
+    if (String(user.role || '').toLowerCase() !== 'school_staff') {
+      return res.status(400).json({ error: { message: 'Only school staff have a school group email subscription' } });
+    }
+    const membership = await User.getAgencyMembership(targetUserId, orgId);
+    if (!membership) return res.status(400).json({ error: { message: 'User is not assigned to this school' } });
+
+    const email = normalizeEmail(user.email || user.work_email || user.username || '');
+    if (!email) return res.status(400).json({ error: { message: 'Target user must have a valid email address' } });
+
+    const subscription = normalizeGroupSubscription(req.body?.subscription || req.body?.groupEmailSubscription);
+    const result = await applySchoolGroupSubscription({
+      schoolOrganizationId: orgId,
+      email,
+      subscription,
+      source: 'staff_settings',
+      actorUserId: actorId,
+      displayName: `${user.first_name || ''} ${user.last_name || ''}`.trim() || null,
+      notify: true
+    });
+
+    const activeAgencyId = await resolveActiveAgencyIdForOrg(orgId);
+    logAuditEvent(req, {
+      actionType: 'school_portal_group_email_subscription_updated',
+      agencyId: activeAgencyId || undefined,
+      targetType: 'user',
+      targetId: targetUserId,
+      metadata: {
+        schoolOrganizationId: orgId,
+        email,
+        subscription: result.subscription,
+        groupEmail: result.groupEmail,
+        source: 'staff_settings'
+      }
+    }).catch(() => {});
+
+    return res.json({
+      ok: true,
+      userId: targetUserId,
+      group_email_subscription: result.subscription,
+      group_email_subscription_label: result.subscriptionLabel,
+      school_group_email: result.groupEmail
+    });
   } catch (e) {
     next(e);
   }
@@ -4520,6 +4633,9 @@ export const addSchoolStaff = async (req, res, next) => {
     const assignSchoolAdmin = req.body?.isSchoolAdmin === true;
     const assignScheduler = req.body?.isScheduler === true;
     const roleTitle = req.body?.roleTitle !== undefined ? String(req.body.roleTitle || '').trim() : undefined;
+    const groupEmailSubscription = req.body?.groupEmailSubscription !== undefined || req.body?.subscription !== undefined
+      ? normalizeGroupSubscription(req.body.groupEmailSubscription || req.body.subscription)
+      : 'all_mail';
     if (!email || !email.includes('@')) {
       return res.status(400).json({ error: { message: 'Invalid email address' } });
     }
@@ -4584,7 +4700,8 @@ export const addSchoolStaff = async (req, res, next) => {
     queueSchoolStaffGoogleGroupSync({
       schoolOrganizationId: orgId,
       email,
-      action: 'add'
+      action: 'add',
+      subscription: groupEmailSubscription
     });
     await ClientSchoolStaffRoiAccess.revokeForSchoolStaff({
       schoolStaffUserId: user.id,
@@ -4598,7 +4715,17 @@ export const addSchoolStaff = async (req, res, next) => {
       fullName: fullName || `${user.first_name || ''} ${user.last_name || ''}`.trim() || null,
       isSchoolAdmin: assignSchoolAdmin,
       isScheduler: assignScheduler,
-      roleTitle: roleTitle !== undefined ? roleTitle : undefined
+      roleTitle: roleTitle !== undefined ? roleTitle : undefined,
+      groupEmailSubscription
+    });
+    await applySchoolGroupSubscription({
+      schoolOrganizationId: orgId,
+      email,
+      subscription: groupEmailSubscription,
+      source: 'staff_settings',
+      actorUserId: actorId,
+      displayName: fullName || `${user.first_name || ''} ${user.last_name || ''}`.trim() || null,
+      notify: groupEmailSubscription !== 'all_mail'
     });
 
     const setupLink = await User.generatePasswordlessToken(user.id, 24 * 7, 'setup');

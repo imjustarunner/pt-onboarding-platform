@@ -2,24 +2,33 @@
   <div class="eoo">
     <div v-if="loading" class="pad">Loading…</div>
     <div v-else-if="done" class="pad">
-      <h1>You’re opted out</h1>
-      <p>
+      <h1>{{ isSchoolStaff ? 'Group emails stopped' : 'You’re opted out' }}</h1>
+      <p v-if="isSchoolStaff">
+        We set the group email subscription for <strong>{{ email }}</strong>
+        to <strong>No email</strong>
+        <template v-if="groupEmail"> on <strong>{{ groupEmail }}</strong></template>.
+        You still have school portal access and remain a member of the group — we only stopped email delivery.
+      </p>
+      <p v-else>
         We won’t email <strong>{{ email }}</strong> from this system anymore.
-        <template v-if="schoolStaffNote">
-          If you’re school staff on a shared group, you remain on the group — we only stopped email delivery to you.
-        </template>
       </p>
     </div>
     <div v-else-if="error" class="err pad">{{ error }}</div>
     <div v-else class="pad">
-      <h1>Opt out of emails</h1>
-      <p>
+      <h1>{{ isSchoolStaff ? 'Stop school group emails' : 'Opt out of emails' }}</h1>
+      <p v-if="isSchoolStaff">
+        Confirm you want to change your subscription to the school group
+        <template v-if="groupEmail"> <strong>{{ groupEmail }}</strong></template>
+        from Each email to <strong>No email</strong>.
+        This does not remove you from the portal or the group.
+      </p>
+      <p v-else>
         Confirm you want to stop receiving emails
         <template v-if="email"> at <strong>{{ email }}</strong></template>
         <template v-if="agencyName"> from {{ agencyName }}</template>.
       </p>
       <button type="button" class="btn" :disabled="busy" @click="confirm">
-        {{ busy ? 'Saving…' : 'Confirm opt out' }}
+        {{ busy ? 'Saving…' : (isSchoolStaff ? 'Change to No email' : 'Confirm opt out') }}
       </button>
     </div>
   </div>
@@ -37,7 +46,8 @@ const error = ref('');
 const email = ref('');
 const agencyName = ref('');
 const done = ref(false);
-const schoolStaffNote = ref(false);
+const isSchoolStaff = ref(false);
+const groupEmail = ref('');
 
 onMounted(async () => {
   try {
@@ -45,6 +55,8 @@ onMounted(async () => {
     const { data } = await axios.get(`/api/public/email-opt-out/${encodeURIComponent(token)}`);
     email.value = data.email || '';
     agencyName.value = data.agencyName || '';
+    isSchoolStaff.value = !!data.isSchoolStaff;
+    groupEmail.value = data.groupEmail || '';
   } catch (e) {
     error.value = e?.response?.data?.error?.message || 'This opt-out link is invalid or expired.';
   } finally {
@@ -59,8 +71,9 @@ async function confirm() {
     const token = String(route.params.token || '');
     const { data } = await axios.post(`/api/public/email-opt-out/${encodeURIComponent(token)}`);
     done.value = true;
-    schoolStaffNote.value = !!data.keptGroupMembership || data.role === 'school_staff';
+    isSchoolStaff.value = !!data.keptGroupMembership || data.role === 'school_staff' || isSchoolStaff.value;
     if (data.email) email.value = data.email;
+    if (data.groupEmail) groupEmail.value = data.groupEmail;
   } catch (e) {
     error.value = e?.response?.data?.error?.message || 'Could not complete opt out.';
   } finally {

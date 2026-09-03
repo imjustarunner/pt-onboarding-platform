@@ -4,8 +4,8 @@
 import crypto from 'crypto';
 import pool from '../config/database.js';
 import UserPreferences from '../models/UserPreferences.model.js';
-import GoogleWorkspaceDirectoryService from './googleWorkspaceDirectory.service.js';
 import { prepareEncryptedTicketText } from '../utils/supportTicketCrypto.js';
+import { applySchoolGroupSubscription, resolveGroupEmailForSchool } from './schoolGroupSubscription.service.js';
 
 function sha256(v) {
   return crypto.createHash('sha256').update(String(v)).digest('hex');
@@ -104,7 +104,7 @@ async function createOptOutSupportTicket({ email, agencyId, userId, user, school
     `School org id: ${schoolOrgId || '—'}`,
     '',
     role === 'school_staff'
-      ? 'School staff: email delivery preference set to no_email; Google Group membership kept (delivery muted when possible).'
+      ? 'School staff: group email subscription set to No email; Google Group membership and portal access kept.'
       : 'Account email preference set to opted out.'
   ].join('\n');
 
@@ -150,48 +150,6 @@ async function createOptOutSupportTicket({ email, agencyId, userId, user, school
 }
 
 /**
- * For school staff: keep Google Group membership, set delivery to NONE.
- */
-async function muteSchoolGroupDeliveryForEmail(email) {
-  const normalized = normalizeEmail(email);
-  const muted = [];
-  try {
-    const [contacts] = await pool.execute(
-      `SELECT sc.id, sc.school_organization_id, sp.itsco_email
-       FROM school_contacts sc
-       LEFT JOIN school_profiles sp ON sp.school_organization_id = sc.school_organization_id
-       WHERE LOWER(TRIM(sc.email)) = ?`,
-      [normalized]
-    );
-    for (const c of contacts || []) {
-      await pool.execute(
-        `UPDATE school_contacts SET email_delivery_preference = 'no_email' WHERE id = ?`,
-        [c.id]
-      );
-      const groupEmail = String(c.itsco_email || '').trim().toLowerCase();
-      if (groupEmail && groupEmail.includes('@')) {
-        try {
-          await GoogleWorkspaceDirectoryService.setGroupMemberDeliverySettings({
-            groupEmail,
-            memberEmail: normalized,
-            deliverySettings: 'NONE'
-          });
-          muted.push(groupEmail);
-        } catch (e) {
-          console.warn(
-            `[emailOptOut] could not mute ${normalized} on ${groupEmail}:`,
-            e?.message || e
-          );
-        }
-      }
-    }
-  } catch (e) {
-    console.warn('[emailOptOut] school contact mute failed:', e?.message || e);
-  }
-  return muted;
-}
-
-/**
  * Apply opt-out from a valid public token.
  */
 export async function applyEmailOptOutFromToken(rawToken, { source = 'email_link' } = {}) {
@@ -222,9 +180,73 @@ export async function applyEmailOptOutFromToken(rawToken, { source = 'email_link
     }
   }
 
-  const mutedGroups = role === 'school_staff' || schoolOrgId
-    ? await muteSchoolGroupDeliveryForEmail(email)
-    : [];
+  const mutedGroups = [];
+  const isSchoolStaffRecipient = role === 'school_staff' || !!schoolOrgId;
+
+  if (isSchoolStaffRecipient) {
+    const orgIds = new Set();
+    if (schoolOrgId) orgIds.add(schoolOrgId);
+    try {
+      const [contacts] = await pool.execute(
+        `SELECT school_organization_id FROM school_contacts WHERE LOWER(TRIM(email)) = ?`,
+        [email]
+      );
+      for (const c of contacts || []) {
+        const id = Number(c.school_organization_id || 0);
+        if (id) orgIds.add(id);
+      }
+    } catch {
+      /* ignore */
+    }
+    if (!orgIds.size && userId) {
+      try {
+        const [orgs] = await pool.execute(
+          `SELECT ua.agency_id
+           FROM user_agencies ua
+           INNER JOIN agencies a ON a.id = ua.agency_id
+           WHERE ua.user_id = ?
+             AND LOWER(COALESCE(a.organization_type, '')) IN ('school', 'program', 'learning')`,
+          [userId]
+        );
+        for (const o of orgs || []) {
+          const id = Number(o.agency_id || 0);
+          if (id) orgIds.add(id);
+        }
+      } catch {
+        /* ignore */
+      }
+    }
+    for (const orgId of orgIds) {
+      const result = await applySchoolGroupSubscription({
+        schoolOrganizationId: orgId,
+        email,
+        subscription: 'none',
+        source: source || 'email_link',
+        actorUserId: userId,
+        displayName: [user?.first_name, user?.last_name].filter(Boolean).join(' ') || null,
+        notify: true
+      });
+      if (result?.groupEmail) mutedGroups.push(result.groupEmail);
+    }
+
+    await pool.execute(
+      `UPDATE email_opt_out_tokens SET used_at = NOW() WHERE id = ?`,
+      [row.id]
+    );
+
+    return {
+      ok: true,
+      email,
+      agencyId,
+      userId,
+      role: role || 'school_staff',
+      schoolStaffMutedGroups: mutedGroups,
+      supportTicketId: null,
+      keptGroupMembership: true,
+      groupEmail: mutedGroups[0] || (await resolveGroupEmailForSchool(schoolOrgId)) || null,
+      subscription: 'none'
+    };
+  }
 
   if (userId) {
     try {

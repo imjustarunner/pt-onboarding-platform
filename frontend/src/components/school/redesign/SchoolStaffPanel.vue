@@ -43,6 +43,29 @@
     <div v-if="error" class="ssp-alert ssp-alert-error">{{ error }}</div>
     <div v-if="success" class="ssp-alert ssp-alert-success">{{ success }}</div>
 
+    <section v-if="schoolGroupEmail || currentUserStaff" class="ssp-admin-box ssp-subscription-box">
+      <h3>Group email subscription</h3>
+      <p class="ssp-role-help">
+        Changing a subscription here updates delivery for the school group
+        <strong>{{ schoolGroupEmail || 'email' }}</strong>.
+        Staff stay in the portal and remain members of the group. Options match Google Groups:
+        Each email, Digest, Abridged, or No email.
+      </p>
+      <label v-if="currentUserStaff && canChangeGroupSubscription(currentUserStaff)" class="ssp-field ssp-field-role">
+        <span>Your subscription to {{ schoolGroupEmail || 'the school group' }}</span>
+        <select
+          class="ssp-select"
+          :value="normalizeGroupSubscription(currentUserStaff.group_email_subscription)"
+          :disabled="savingSubscriptionId === currentUserStaff.id"
+          @change="changeGroupSubscription(currentUserStaff, $event.target.value)"
+        >
+          <option v-for="opt in GROUP_SUBSCRIPTION_OPTIONS" :key="opt.value" :value="opt.value">
+            {{ opt.label }}
+          </option>
+        </select>
+      </label>
+    </section>
+
     <div class="ssp-toolbar">
       <div class="ssp-search">
         <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="2" fill="none"/><path d="M20 20l-3.5-3.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
@@ -146,6 +169,23 @@
           <div v-if="u.password_reset_expires_at" class="ssp-meta-sub">
             Reset link expires: {{ formatDate(u.password_reset_expires_at) }}
           </div>
+          <div class="ssp-meta-sub">
+            Group email ({{ schoolGroupEmail || u.school_group_email || 'school group' }}):
+            {{ groupSubscriptionLabel(u.group_email_subscription) }}
+          </div>
+          <label v-if="canChangeGroupSubscription(u)" class="ssp-inline-sub">
+            <span>Subscription</span>
+            <select
+              class="ssp-select ssp-select-compact"
+              :value="normalizeGroupSubscription(u.group_email_subscription)"
+              :disabled="savingSubscriptionId === u.id"
+              @change="changeGroupSubscription(u, $event.target.value)"
+            >
+              <option v-for="opt in GROUP_SUBSCRIPTION_OPTIONS" :key="opt.value" :value="opt.value">
+                {{ opt.label }}
+              </option>
+            </select>
+          </label>
         </div>
 
         <div class="ssp-quick-actions">
@@ -280,8 +320,21 @@
             <option value="school_admin_scheduler">School Admin + Scheduler</option>
           </select>
         </label>
+        <label class="ssp-field ssp-field-role">
+          <span>Group email subscription</span>
+          <select v-model="addGroupEmailSubscription" class="ssp-select">
+            <option v-for="opt in GROUP_SUBSCRIPTION_OPTIONS" :key="opt.value" :value="opt.value">
+              {{ opt.label }}
+            </option>
+          </select>
+        </label>
       </div>
       <p class="ssp-role-help">{{ addRoleHelperText }}</p>
+      <p class="ssp-role-help">
+        Subscription is for the school group
+        <strong>{{ schoolGroupEmail || 'email' }}</strong>.
+        Changing it does not remove this person from the portal.
+      </p>
       <div class="ssp-add-actions">
         <button class="ssp-btn ssp-btn-primary" type="button" :disabled="adding" @click="addStaff">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
@@ -493,6 +546,19 @@
             <span>Role/Title</span>
             <input v-model="editForm.roleTitle" class="ssp-plain-input" type="text" placeholder="e.g., Special Education Director" />
           </label>
+          <label class="ssp-field">
+            <span>Group email subscription</span>
+            <select v-model="editForm.groupEmailSubscription" class="ssp-select">
+              <option v-for="opt in GROUP_SUBSCRIPTION_OPTIONS" :key="opt.value" :value="opt.value">
+                {{ opt.label }}
+              </option>
+            </select>
+            <p class="ssp-role-help">
+              You are changing their subscription to
+              <strong>{{ schoolGroupEmail || editTarget?.school_group_email || 'the school group' }}</strong>.
+              They stay in the portal and the group.
+            </p>
+          </label>
           <div class="ssp-modal-actions">
             <button class="ssp-btn ssp-btn-primary" type="button" :disabled="savingEdit" @click="saveEdit">
               {{ savingEdit ? 'Saving…' : 'Save' }}
@@ -540,6 +606,26 @@
               {{ settingSchedulerId === permissionsTarget?.id ? 'Saving…' : (permissionsTarget?.is_scheduler ? 'Remove' : 'Assign') }}
             </button>
           </div>
+          <div v-if="permissionsTarget && canChangeGroupSubscription(permissionsTarget)" class="ssp-perm-row ssp-perm-row-stack">
+            <div>
+              <div class="ssp-perm-title">Group email subscription</div>
+              <div class="ssp-perm-copy">
+                Changing their subscription to
+                <strong>{{ schoolGroupEmail || permissionsTarget.school_group_email || 'the school group' }}</strong>.
+                They stay in the portal and the group.
+              </div>
+            </div>
+            <select
+              class="ssp-select"
+              :value="normalizeGroupSubscription(permissionsTarget.group_email_subscription)"
+              :disabled="savingSubscriptionId === permissionsTarget.id"
+              @change="changeGroupSubscription(permissionsTarget, $event.target.value)"
+            >
+              <option v-for="opt in GROUP_SUBSCRIPTION_OPTIONS" :key="opt.value" :value="opt.value">
+                {{ opt.label }}
+              </option>
+            </select>
+          </div>
         </div>
       </div>
     </div>
@@ -556,6 +642,11 @@ import {
   canSetCustomSchoolStaffTempPassword,
   validateCustomSchoolStaffTempPassword
 } from '../../../utils/schoolStaffTempPassword';
+import {
+  GROUP_SUBSCRIPTION_OPTIONS,
+  groupSubscriptionLabel,
+  normalizeGroupSubscription
+} from '../../../utils/schoolGroupSubscription.js';
 
 const props = defineProps({
   schoolOrganizationId: { type: Number, required: true },
@@ -598,6 +689,8 @@ const canAdd = computed(
   () => isAgencyAdmin.value || (roleNorm.value === 'school_staff' && isCurrentUserSchoolAdmin.value)
 );
 const canEdit = computed(() => isAgencyAdmin.value || (roleNorm.value === 'school_staff' && isCurrentUserSchoolAdmin.value));
+const canChangeGroupSubscription = (u) =>
+  !!u?.id && (canEdit.value || Number(u.id) === Number(currentUserId.value));
 const canToggleSchoolRoles = (u) => isAgencyAdmin.value || (roleNorm.value === 'school_staff' && isCurrentUserSchoolAdmin.value && u.id !== currentUserId.value);
 const canManageTickets = computed(() =>
   ['super_admin', 'admin', 'support', 'staff', 'clinical_practice_assistant', 'provider_plus'].includes(roleNorm.value)
@@ -613,6 +706,8 @@ const ticketsPath = computed(() => {
 });
 
 const staff = ref([]);
+const schoolGroupEmail = ref('');
+const currentUserStaff = computed(() => staff.value.find((s) => Number(s.id) === Number(currentUserId.value)) || null);
 const loading = ref(false);
 const error = ref('');
 const removingId = ref(null);
@@ -631,13 +726,15 @@ const addName = ref('');
 const addEmail = ref('');
 const addRoleTitle = ref('');
 const addAccessRole = ref('standard');
+const addGroupEmailSubscription = ref('all_mail');
 const addSuccess = ref('');
 const addFormRef = ref(null);
 
 const showEditModal = ref(false);
 const editTarget = ref(null);
-const editForm = ref({ firstName: '', lastName: '', email: '', roleTitle: '' });
+const editForm = ref({ firstName: '', lastName: '', email: '', roleTitle: '', groupEmailSubscription: 'all_mail' });
 const savingEdit = ref(false);
+const savingSubscriptionId = ref(null);
 const settingPrimaryId = ref(null);
 const settingSchedulerId = ref(null);
 const forfeiting = ref(false);
@@ -1057,10 +1154,18 @@ const load = async () => {
     error.value = '';
     photoLoadFailed.value = {};
     const r = await api.get(`/school-portal/${props.schoolOrganizationId}/school-staff`);
-    staff.value = Array.isArray(r.data) ? r.data : [];
+    const data = r.data;
+    if (Array.isArray(data)) {
+      staff.value = data;
+      schoolGroupEmail.value = data.find((s) => s.school_group_email)?.school_group_email || '';
+    } else {
+      staff.value = Array.isArray(data?.staff) ? data.staff : [];
+      schoolGroupEmail.value = data?.schoolGroupEmail || staff.value.find((s) => s.school_group_email)?.school_group_email || '';
+    }
   } catch (e) {
     error.value = e.response?.data?.error?.message || 'Failed to load school staff';
     staff.value = [];
+    schoolGroupEmail.value = '';
   } finally {
     loading.value = false;
   }
@@ -1072,7 +1177,8 @@ const openEdit = (u) => {
     firstName: u.first_name || '',
     lastName: u.last_name || '',
     email: u.email || '',
-    roleTitle: u.role_title || ''
+    roleTitle: u.role_title || '',
+    groupEmailSubscription: normalizeGroupSubscription(u.group_email_subscription)
   };
   showEditModal.value = true;
 };
@@ -1090,6 +1196,34 @@ const openPermissions = (u) => {
 const closePermissions = () => {
   showPermissionsModal.value = false;
   permissionsTarget.value = null;
+};
+
+const changeGroupSubscription = async (u, subscription) => {
+  if (!u?.id) return;
+  const next = normalizeGroupSubscription(subscription);
+  if (next === normalizeGroupSubscription(u.group_email_subscription)) return;
+  try {
+    savingSubscriptionId.value = u.id;
+    error.value = '';
+    const r = await api.patch(
+      `/school-portal/${props.schoolOrganizationId}/school-staff/${u.id}/group-subscription`,
+      { subscription: next }
+    );
+    const applied = r.data?.group_email_subscription || next;
+    staff.value = staff.value.map((row) =>
+      row.id === u.id ? { ...row, group_email_subscription: applied } : row
+    );
+    if (permissionsTarget.value?.id === u.id) {
+      permissionsTarget.value = { ...permissionsTarget.value, group_email_subscription: applied };
+    }
+    if (r.data?.school_group_email) schoolGroupEmail.value = r.data.school_group_email;
+    success.value = `Subscription for ${displayName(u)} set to ${groupSubscriptionLabel(applied)}.`;
+    setTimeout(() => { success.value = ''; }, 3500);
+  } catch (e) {
+    error.value = e.response?.data?.error?.message || 'Failed to update group email subscription';
+  } finally {
+    savingSubscriptionId.value = null;
+  }
 };
 
 const saveEdit = async () => {
@@ -1114,6 +1248,14 @@ const saveEdit = async () => {
       isSchoolAdmin: !!u.is_school_admin,
       isScheduler: !!u.is_scheduler
     });
+    if (canChangeGroupSubscription(u)) {
+      const nextSub = normalizeGroupSubscription(editForm.value.groupEmailSubscription);
+      if (nextSub !== normalizeGroupSubscription(u.group_email_subscription)) {
+        await api.patch(`/school-portal/${props.schoolOrganizationId}/school-staff/${u.id}/group-subscription`, {
+          subscription: nextSub
+        });
+      }
+    }
     closeEdit();
     await load();
     success.value = 'Staff updated.';
@@ -1230,12 +1372,14 @@ const addStaff = async () => {
       fullName: addName.value.trim() || undefined,
       roleTitle: addRoleTitle.value.trim() || undefined,
       isSchoolAdmin: roleFlags.isSchoolAdmin,
-      isScheduler: roleFlags.isScheduler
+      isScheduler: roleFlags.isScheduler,
+      groupEmailSubscription: addGroupEmailSubscription.value
     });
     addName.value = '';
     addEmail.value = '';
     addRoleTitle.value = '';
     addAccessRole.value = 'standard';
+    addGroupEmailSubscription.value = 'all_mail';
     addSuccess.value = 'Staff added. They should appear in the list now; a setup email is being sent.';
     await load();
     if (error.value) {
@@ -2002,6 +2146,30 @@ export default {
   border: 1px solid #e5e7eb;
   border-radius: 12px;
   background: #fff;
+}
+
+.ssp-select-compact {
+  min-height: 36px;
+  margin-top: 6px;
+}
+
+.ssp-inline-sub {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 8px;
+  font-size: 0.82rem;
+  color: #4b5563;
+}
+
+.ssp-subscription-box .ssp-field {
+  max-width: 360px;
+}
+
+.ssp-perm-row-stack {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 10px;
 }
 
 .ssp-role-help {

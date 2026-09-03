@@ -428,6 +428,31 @@
               <strong>Standard / School Admin</strong> accounts can be selected for Smart School ROI.
               <strong>Scheduler</strong> accounts stay limited/own-only and are not added to ROI assignment lists.
             </p>
+            <p v-if="schoolForm.itscoEmail" class="muted">
+              Group email for this school: <strong>{{ schoolForm.itscoEmail }}</strong>.
+              Subscription controls how often each person receives messages sent to that group.
+              Choosing <strong>No email</strong> keeps them in the portal and the group — it only stops delivery.
+            </p>
+
+            <div class="so-staff-card">
+              <p class="muted tiny"><strong>Your subscription</strong> ({{ invite?.contactEmail || schoolForm.primaryContactEmail || 'primary contact' }})</p>
+              <label class="block">
+                Group email subscription
+                <select v-model="primaryGroupEmailSubscription">
+                  <option
+                    v-for="opt in GROUP_SUBSCRIPTION_OPTIONS"
+                    :key="opt.value"
+                    :value="opt.value"
+                  >
+                    {{ opt.label }}
+                  </option>
+                </select>
+                <span class="muted tiny">
+                  You are changing your subscription to the school group
+                  <strong>{{ schoolForm.itscoEmail || 'email' }}</strong>.
+                </span>
+              </label>
+            </div>
 
             <div v-for="(row, idx) in staffRows" :key="idx" class="so-staff-card">
               <label class="block">
@@ -462,13 +487,30 @@
                   it determines whether they can appear on Smart School ROI for students or their parents to sign.
                 </span>
               </label>
+              <label class="block">
+                Group email subscription
+                <select v-model="row.groupEmailSubscription">
+                  <option
+                    v-for="opt in GROUP_SUBSCRIPTION_OPTIONS"
+                    :key="opt.value"
+                    :value="opt.value"
+                  >
+                    {{ opt.label }}
+                  </option>
+                </select>
+                <span class="muted tiny">
+                  Changing their subscription to
+                  <strong>{{ schoolForm.itscoEmail || 'the school group' }}</strong>
+                  (Each email, Digest, Abridged, or No email). They stay in the portal either way.
+                </span>
+              </label>
               <p class="muted tiny">{{ roleHelper(row.accessRole) }}</p>
               <button type="button" class="linkish danger" @click="staffRows.splice(idx, 1)">Remove</button>
             </div>
             <button
               type="button"
               class="btn ghost"
-              @click="staffRows.push({ fullName: '', email: '', jobTitle: '', accessRole: '' })"
+              @click="staffRows.push({ fullName: '', email: '', jobTitle: '', accessRole: '', groupEmailSubscription: 'all_mail' })"
             >
               + Add another
             </button>
@@ -761,6 +803,7 @@ import { buildOrgLoginPath } from '../../utils/orgLoginPath.js';
 import { resolveHostImpliedPortalSlug } from '../../utils/orgScopedPath.js';
 import { checkPasswordBasics } from '../../utils/passwordPolicy.js';
 import PublicAgencySupportForm from '../../components/public/PublicAgencySupportForm.vue';
+import { GROUP_SUBSCRIPTION_OPTIONS } from '../../utils/schoolGroupSubscription.js';
 
 const DEDICATED_APP_HOSTS = Object.freeze({
   itsco: 'app.itsco.health',
@@ -840,7 +883,8 @@ const preferredNotes = ref('');
 const materialsSelected = ref([]);
 const materialsOther = ref('');
 const requestPaperPackets = ref(null);
-const staffRows = ref([{ fullName: '', email: '', jobTitle: '', accessRole: '' }]);
+const staffRows = ref([{ fullName: '', email: '', jobTitle: '', accessRole: '', groupEmailSubscription: 'all_mail' }]);
+const primaryGroupEmailSubscription = ref('all_mail');
 const showStaffRoiConfirm = ref(false);
 const showSchoolInfoValidation = ref(false);
 const personalPasswordForThankYou = ref('');
@@ -889,7 +933,7 @@ const startHereGuide = computed(() => {
       description: 'Invite school staff who will use the portal.',
       bullets: [
         'Colleague names and school emails',
-        'Access role for each person',
+        'Access role and group email subscription for each person',
         'Optional job title; staff set their own password via email link after you submit'
       ]
     };
@@ -1177,7 +1221,8 @@ function buildStaffPayload() {
       fullName: r.fullName,
       email: r.email,
       jobTitle: String(r.jobTitle || '').trim(),
-      accessRole: r.accessRole || ''
+      accessRole: r.accessRole || '',
+      groupEmailSubscription: r.groupEmailSubscription || 'all_mail'
     }));
 }
 
@@ -1272,9 +1317,12 @@ function hydrateForms() {
       fullName: s.fullName || s.name || '',
       email: s.email || '',
       jobTitle: s.jobTitle || s.roleTitle || s.title || '',
-      accessRole: s.accessRole || 'standard'
+      accessRole: s.accessRole || 'standard',
+      groupEmailSubscription: s.groupEmailSubscription || 'all_mail'
     }));
   }
+  primaryGroupEmailSubscription.value =
+    inv.stepPayload?.school_staff?.primaryGroupEmailSubscription || 'all_mail';
 }
 
 function confettiStyle(i) {
@@ -1549,7 +1597,7 @@ function persistStaffStep(staff) {
   showStaffRoiConfirm.value = false;
   return saveStep(
     'school_staff',
-    { staff },
+    { staff, primaryGroupEmailSubscription: primaryGroupEmailSubscription.value },
     'preferred_days'
   );
 }

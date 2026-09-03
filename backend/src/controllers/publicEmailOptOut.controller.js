@@ -2,6 +2,7 @@ import {
   resolveOptOutToken,
   applyEmailOptOutFromToken
 } from '../services/emailOptOut.service.js';
+import { lookupSchoolStaffGroupContext } from '../services/schoolGroupSubscription.service.js';
 
 export async function getEmailOptOutPreview(req, res, next) {
   try {
@@ -20,11 +21,24 @@ export async function getEmailOptOutPreview(req, res, next) {
         code: row.reason
       });
     }
+
+    let isSchoolStaff = false;
+    let groupEmail = null;
+    try {
+      const ctx = await lookupSchoolStaffGroupContext(row.email);
+      isSchoolStaff = !!ctx?.isSchoolStaff;
+      groupEmail = ctx?.groupEmail || null;
+    } catch {
+      /* ignore */
+    }
+
     res.json({
       ok: true,
       email: row.email,
       agencyName: row.agency_name || null,
-      agencyId: row.agency_id || null
+      agencyId: row.agency_id || null,
+      isSchoolStaff,
+      groupEmail
     });
   } catch (e) {
     next(e);

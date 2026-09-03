@@ -14,6 +14,7 @@ import {
   updateSchoolStaff,
   setPrimarySchoolStaff,
   updateSchoolStaffRoleFlags,
+  updateSchoolStaffGroupSubscription,
   forfeitSchoolAdmin,
   listSchoolPortalFaq,
   createSchoolPortalFaq,
@@ -203,6 +204,7 @@ router.post('/:organizationId/school-staff/:userId/issue-reset-link', authentica
 router.post('/:organizationId/school-staff/:userId/activate', authenticate, activateSchoolStaff);
 router.post('/:organizationId/school-staff/:userId/set-primary', authenticate, setPrimarySchoolStaff);
 router.patch('/:organizationId/school-staff/:userId/roles', authenticate, updateSchoolStaffRoleFlags);
+router.patch('/:organizationId/school-staff/:userId/group-subscription', authenticate, updateSchoolStaffGroupSubscription);
 router.post('/:organizationId/school-staff/forfeit-school-admin', authenticate, forfeitSchoolAdmin);
 router.post('/:organizationId/school-staff', authenticate, addSchoolStaff);
 router.get('/:organizationId/faq', authenticate, listSchoolPortalFaq);

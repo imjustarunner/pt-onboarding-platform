@@ -4,6 +4,7 @@
 import crypto from 'crypto';
 import pool from '../config/database.js';
 import { isEmailOptedOut } from './emailOptOut.service.js';
+import { lookupSchoolStaffGroupContext } from './schoolGroupSubscription.service.js';
 
 export const CONFIDENTIALITY_DISCLAIMER = [
   'CONFIDENTIAL AND POTENTIALLY SENSITIVE INFORMATION!',
@@ -74,8 +75,17 @@ export async function appendComplianceFooter({
   skipOptOutLink = false
 } = {}) {
   let optOutUrl = null;
+  let schoolStaffFooter = false;
+  let schoolGroupEmail = null;
   if (!skipOptOutLink && to) {
     optOutUrl = await createEmailOptOutLink({ email: to, agencyId, userId });
+    try {
+      const staffCtx = await lookupSchoolStaffGroupContext(to);
+      schoolStaffFooter = !!staffCtx?.isSchoolStaff;
+      schoolGroupEmail = staffCtx?.groupEmail || null;
+    } catch {
+      schoolStaffFooter = false;
+    }
   }
 
   const textParts = [
@@ -85,9 +95,31 @@ export async function appendComplianceFooter({
     CONFIDENTIALITY_DISCLAIMER
   ];
   if (optOutUrl) {
-    textParts.push('', 'Prefer fewer emails? Opt out of emails from us here:', optOutUrl);
+    if (schoolStaffFooter) {
+      const groupBit = schoolGroupEmail ? ` (${schoolGroupEmail})` : '';
+      textParts.push(
+        '',
+        `Don't want emails from your school group${groupBit}? Change your subscription to No email here (you stay on the portal and in the group):`,
+        optOutUrl
+      );
+    } else {
+      textParts.push('', 'Prefer fewer emails? Opt out of emails from us here:', optOutUrl);
+    }
   }
   const textOut = textParts.join('\n').trim();
+
+  const optOutHtml = !optOutUrl
+    ? ''
+    : schoolStaffFooter
+      ? `<p style="margin:12px 0 0;">Don't want emails from your school group${
+          schoolGroupEmail ? ` (${escapeHtml(schoolGroupEmail)})` : ''
+        }?
+          <a href="${escapeHtml(optOutUrl)}" style="color:#1d4ed8;">Change your subscription to No email</a>
+          (you stay on the portal and in the group).
+        </p>`
+      : `<p style="margin:12px 0 0;">Prefer fewer emails?
+          <a href="${escapeHtml(optOutUrl)}" style="color:#1d4ed8;">Opt out of emails from us</a>.
+        </p>`;
 
   const disclaimerHtml = `
     <div style="margin-top:24px;padding-top:16px;border-top:1px solid #d1d5db;font-family:Arial,Helvetica,sans-serif;font-size:11px;line-height:1.45;color:#4b5563;">
@@ -99,13 +131,7 @@ export async function appendComplianceFooter({
         If you are not the intended recipient, any review, dissemination, distribution, or duplication of this email is strictly prohibited.
         If you are not the intended recipient, please contact the sender by reply email and destroy all copies of the original message.
       </p>
-      ${
-        optOutUrl
-          ? `<p style="margin:12px 0 0;">Prefer fewer emails?
-              <a href="${escapeHtml(optOutUrl)}" style="color:#1d4ed8;">Opt out of emails from us</a>.
-            </p>`
-          : ''
-      }
+      ${optOutHtml}
     </div>
   `.trim();
 
