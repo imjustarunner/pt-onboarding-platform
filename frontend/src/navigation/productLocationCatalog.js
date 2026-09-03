@@ -2,9 +2,13 @@
  * Product location knowledge for Ask Assistant ("where can I find…?").
  *
  * Vue-free so the backend can import it (same pattern as profileSearchCatalog).
- * Keep destinations aligned with `quickNavCatalog.js` + backend
- * `NAVIGATION_ROUTE_WHITELIST` in toolRegistry.service.js.
+ * Curated PRODUCT_LOCATIONS cover high-traffic destinations with routeNames;
+ * APP_PAGES (full page index) fills the rest so Ask can explain + open by path.
+ *
+ * Quick Nav is the jump-to-page UI; Ask is the conversational “where/what” option.
  */
+
+import { APP_PAGES } from './appPagesData.js';
 
 export const PRODUCT_LOCATION_GROUP_LABELS = {
   account: 'My Account',
@@ -786,13 +790,31 @@ export function scoreProductLocation(query, entry) {
   return 0;
 }
 
+function appPageToLocationEntry(page) {
+  if (!page?.path) return null;
+  return {
+    id: `app-page-${String(page.path).replace(/[^\w]+/g, '-')}`,
+    routeName: null,
+    path: page.path,
+    label: page.title,
+    description: page.desc || '',
+    group: 'admin',
+    howToFind: page.section || 'the app',
+    keywords: [
+      String(page.title || '').toLowerCase(),
+      ...((page.keywords || []).map((k) => String(k || '').toLowerCase()))
+    ].filter(Boolean),
+    fromAppPages: true
+  };
+}
+
 /**
  * @param {object} opts
  * @param {string} opts.prompt
  * @param {string} [opts.role]
  * @param {Set<string>|string[]} [opts.allowedRouteNames]  navigateTo whitelist for this user
  * @param {number} [opts.minScore]
- * @returns {{ entry: ProductLocation, score: number, canNavigate: boolean }|null}
+ * @returns {{ entry: object, score: number, canNavigate: boolean }|null}
  */
 export function resolveBestProductLocation({ prompt, role, allowedRouteNames = null, minScore = 70 } = {}) {
   const ask = looksLikeProductLocationAsk(prompt);
@@ -815,15 +837,32 @@ export function resolveBestProductLocation({ prompt, role, allowedRouteNames = n
     if (!roleAllowed(role, entry.rolesAny)) continue;
     const score = scoreProductLocation(q, entry);
     if (score < minScore) continue;
+    // Prefer curated destinations slightly over raw index pages.
+    const adj = score + 10;
+    if (!best || adj > best.score) {
+      best = { entry, score: adj };
+    }
+  }
+
+  for (const page of APP_PAGES || []) {
+    const entry = appPageToLocationEntry(page);
+    if (!entry) continue;
+    const score = scoreProductLocation(q, entry);
+    if (score < minScore) continue;
     if (!best || score > best.score) {
       best = { entry, score };
     }
   }
+
   if (!best) return null;
 
   const routeName = best.entry.routeName;
-  const canNavigate = Boolean(routeName && (!allowed || allowed.has(routeName)));
-  return { ...best, canNavigate };
+  const canNavigateByRoute = Boolean(routeName && (!allowed || allowed.has(routeName)));
+  const canNavigateByPath = Boolean(best.entry.path && !routeName);
+  return {
+    ...best,
+    canNavigate: canNavigateByRoute || canNavigateByPath
+  };
 }
 
 export function formatProductLocationAnswer(entry, { canNavigate = false } = {}) {
@@ -833,13 +872,15 @@ export function formatProductLocationAnswer(entry, { canNavigate = false } = {})
   const bits = [`${label} is under ${where}.`];
   if (desc) bits.push(desc);
   if (canNavigate) bits.push('Opening it for you.');
-  else if (entry?.routeName) bits.push('You may not have access to open it from here — ask an admin if you need it.');
+  else if (entry?.routeName || entry?.path) {
+    bits.push('You may not have access to open it from here — ask an admin if you need it.');
+  }
   return bits.join(' ');
 }
 
 /**
- * Ask Assistant intent: "Where can I find X?" → explain + optional navigateTo.
- * Kept Vue-free / DB-free so unit tests don't need the capability catalog.
+ * Ask Assistant intent: "Where can I find X?" → explain + optional navigate.
+ * Quick Nav remains the simpler jump-to list for the same destinations.
  */
 export function matchProductLocationIntent({
   prompt,
@@ -862,15 +903,26 @@ export function matchProductLocationIntent({
   if (!resolved?.entry) return null;
 
   const { entry, canNavigate } = resolved;
-  const assistantText = formatProductLocationAnswer(entry, {
-    canNavigate: Boolean(canNavigate && allowedToolNames?.has?.('navigateTo'))
-  });
+  const canOpen =
+    Boolean(canNavigate) &&
+    (Boolean(entry.routeName && allowedToolNames?.has?.('navigateTo')) || Boolean(entry.path));
+  const assistantText = formatProductLocationAnswer(entry, { canNavigate: canOpen });
 
-  if (canNavigate && entry.routeName && allowedToolNames?.has?.('navigateTo')) {
+  if (canOpen && entry.routeName && allowedToolNames?.has?.('navigateTo')) {
     return {
       intent: 'product_location',
       capabilityId: 'product_location_help',
       toolCalls: [{ name: 'navigateTo', args: { routeName: entry.routeName } }],
+      assistantText
+    };
+  }
+
+  if (canOpen && entry.path) {
+    return {
+      intent: 'product_location',
+      capabilityId: 'product_location_help',
+      toolCalls: [],
+      uiCommands: [{ type: 'navigate', to: entry.path }],
       assistantText
     };
   }

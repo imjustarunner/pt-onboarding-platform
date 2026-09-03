@@ -94,3 +94,16 @@ test('expanded destinations resolve for where-is asks', () => {
     assert.equal(intent.toolCalls?.[0]?.args?.routeName, routeName, prompt);
   }
 });
+
+test('Ask falls back to full APP_PAGES index for hubs not in curated list', () => {
+  const intent = matchProductLocationIntent({
+    prompt: 'where is receivables',
+    allowedToolNames: new Set(['navigateTo']),
+    role: 'admin',
+    allowedRouteNames: new Set()
+  });
+  assert.ok(intent, 'expected receivables hit from APP_PAGES');
+  assert.match(String(intent.assistantText || ''), /Receivables/i);
+  assert.equal(intent.uiCommands?.[0]?.type, 'navigate');
+  assert.match(String(intent.uiCommands?.[0]?.to || ''), /receivables/i);
+});

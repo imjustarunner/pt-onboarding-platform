@@ -10,6 +10,7 @@ import { ACCOUNT_SECTIONS } from '../config/accountDisplaySections.js';
 import { isSupervisor } from '../utils/helpers.js';
 import { resolveOrgSlugForNavigation } from '../utils/router.js';
 import { surfaceBoostForQuickNavEntry } from '../utils/resolveCommandSurface.js';
+import { APP_PAGES } from './appPagesData.js';
 
 export const QUICK_NAV_GROUP_ORDER = [
   'account',
@@ -957,13 +958,83 @@ export function scoreQuickNavEntry(query, entry) {
   return 0;
 }
 
+function groupFromAppPageSection(section) {
+  const s = String(section || '').toLowerCase();
+  if (s.includes('account')) return 'account';
+  if (s.includes('schedule') || s.includes('staff & scheduling')) return 'schedule';
+  if (s.includes('client')) return 'clients';
+  if (s.includes('learning') || s.includes('training')) return 'learning';
+  if (s === 'hub' || s.includes('messages') || s.includes('school portal')) return 'workspace';
+  return 'admin';
+}
+
+function appPageVisibleForRole(path, role) {
+  const p = String(path || '');
+  const r = normalizeRole(role);
+  const needsOps =
+    p.startsWith('/admin') ||
+    p.startsWith('/workforce-operations') ||
+    p.startsWith('/school-operations') ||
+    p.startsWith('/people-operations') ||
+    p.startsWith('/operations-dashboard');
+  if (!needsOps) return true;
+  return (
+    r === 'admin' ||
+    r === 'super_admin' ||
+    r === 'superadmin' ||
+    r === 'support' ||
+    r === 'staff' ||
+    r === 'provider_plus' ||
+    r === 'clinical_practice_assistant' ||
+    r === 'schedule_manager'
+  );
+}
+
+/**
+ * Supplement curated Quick Nav with the full APP_PAGES index so Jump To
+ * covers hubs/reports that are not hand-listed yet. Curated entries win on
+ * duplicate paths (better routeName / role gates).
+ */
+function appPagesAsQuickNavEntries(ctx) {
+  const role = ctx?.role;
+  return (APP_PAGES || [])
+    .filter((page) => page?.path && appPageVisibleForRole(page.path, role))
+    .map((page) => ({
+      id: `app-page-${String(page.path).replace(/[^\w]+/g, '-')}`,
+      routeName: null,
+      label: page.title,
+      description: page.desc || '',
+      group: groupFromAppPageSection(page.section),
+      keywords: [
+        String(page.title || '').toLowerCase(),
+        String(page.section || '').toLowerCase(),
+        ...((page.keywords || []).map((k) => String(k || '').toLowerCase()))
+      ].filter(Boolean),
+      kind: 'path',
+      path: page.path,
+      fromAppPages: true
+    }));
+}
+
 /**
  * Search accessible entries; returns scored results grouped for UI.
+ * Quick Nav = jump to a page. Ask Assistant is the conversational option.
  * @param {object} [opts.surface] – active command surface (boosts matching groups/keywords)
  * @returns {{ flat: Array, groups: Array<{ group, label, items }> }}
  */
 export function searchQuickNav(query, ctx, { limit = 24, surface = null } = {}) {
-  const accessible = getAccessibleQuickNavEntries(ctx);
+  const curated = getAccessibleQuickNavEntries(ctx);
+  const curatedPathBases = new Set(
+    curated
+      .map((e) => String(e.path || '').split('?')[0])
+      .filter(Boolean)
+  );
+  // Prefer curated destinations when the same path exists in APP_PAGES.
+  const supplemental = appPagesAsQuickNavEntries(ctx).filter((e) => {
+    const base = String(e.path || '').split('?')[0];
+    return base && !curatedPathBases.has(base);
+  });
+  const accessible = [...curated, ...supplemental];
   const q = String(query || '').trim();
   if (!q) {
     return { flat: [], groups: [] };
@@ -973,10 +1044,12 @@ export function searchQuickNav(query, ctx, { limit = 24, surface = null } = {}) 
     .map((entry) => {
       const base = scoreQuickNavEntry(q, entry);
       if (!base) return null;
+      // Slight preference for curated (role-aware) destinations over index fillers.
+      const curatedBoost = entry.fromAppPages ? 0 : 8;
       return {
         ...entry,
         groupLabel: QUICK_NAV_GROUP_LABELS[entry.group] || entry.group,
-        score: base + surfaceBoostForQuickNavEntry(entry, surface)
+        score: base + curatedBoost + surfaceBoostForQuickNavEntry(entry, surface)
       };
     })
     .filter(Boolean)

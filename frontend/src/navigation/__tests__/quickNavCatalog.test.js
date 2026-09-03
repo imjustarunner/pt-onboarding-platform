@@ -167,10 +167,19 @@ describe('quickNavCatalog', () => {
     );
     expect(scoped).toBe('/itsco/tasks');
 
+    expect(resolveQuickNavRoute({ kind: 'route', routeName: 'MyLearning' }, {})).toEqual({ name: 'MyLearning' });
     expect(resolveQuickNavRoute({ kind: 'route', routeName: 'OrganizationTasks' }, {})).toEqual({ name: 'Tasks' });
     expect(resolveQuickNavRoute({ kind: 'route', routeName: 'OrganizationTasks' }, { orgSlug: 'itsco' })).toEqual({
       name: 'OrganizationTasks',
       params: { organizationSlug: 'itsco' }
     });
+  });
+
+  it('searches full APP_PAGES index for hubs missing from curated quick nav', () => {
+    const { flat } = searchQuickNav(
+      'receivables',
+      buildQuickNavContext({ user: { role: 'admin', capabilities: {} } })
+    );
+    expect(flat.some((r) => /receivables/i.test(r.label) || /receivables/i.test(r.path || ''))).toBe(true);
   });
 });
