@@ -18,6 +18,14 @@ import {
   generateClinicalNote,
   recordNoteAidAudit
 } from '../controllers/clinicalNoteGenerator.controller.js';
+import {
+  listNoteAidWorkQueue,
+  syncNoteAidWorkQueue,
+  appendNoteAidWorkQueue,
+  patchNoteAidWorkQueueItem,
+  deleteNoteAidWorkQueueItem,
+  clearNoteAidWorkQueue
+} from '../controllers/noteAidWorkQueue.controller.js';
 
 const router = express.Router();
 
@@ -40,6 +48,38 @@ const transcribeUpload = multer({
 });
 
 router.get('/context', apiLimiter, [query('agencyId').isInt({ min: 1 })], getClinicalNotesContext);
+
+router.get('/work-queue', apiLimiter, listNoteAidWorkQueue);
+
+router.put(
+  '/work-queue',
+  apiLimiter,
+  [body('items').isArray({ max: 500 })],
+  syncNoteAidWorkQueue
+);
+
+router.post(
+  '/work-queue',
+  apiLimiter,
+  [body('items').isArray({ min: 1, max: 200 })],
+  appendNoteAidWorkQueue
+);
+
+router.patch(
+  '/work-queue/:id',
+  apiLimiter,
+  [param('id').isInt({ min: 1 })],
+  patchNoteAidWorkQueueItem
+);
+
+router.delete(
+  '/work-queue/:id',
+  apiLimiter,
+  [param('id').isInt({ min: 1 })],
+  deleteNoteAidWorkQueueItem
+);
+
+router.delete('/work-queue', apiLimiter, clearNoteAidWorkQueue);
 
 router.get('/programs', apiLimiter, [query('agencyId').isInt({ min: 1 })], listClinicalNotePrograms);
 

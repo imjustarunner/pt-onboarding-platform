@@ -882,7 +882,7 @@ import {
   taskToWorkQueueItem,
   isSessionNoteTask
 } from '../../utils/noteAidSessionQueue.js';
-import { saveWorkQueue } from '../../utils/noteAidWorkQueue.js';
+import { appendWorkQueueToApi, saveWorkQueue } from '../../utils/noteAidWorkQueue.js';
 
 const props = defineProps({
   /** Render inside a profile/dashboard panel instead of the full Tasks page. */
@@ -1451,13 +1451,18 @@ function openCosignNote(n) {
   navigateToNoteAid(router, { noteId, launchIntent: 'cosign' });
 }
 
-function openNotesTasksInNoteAid(tasks) {
+async function openNotesTasksInNoteAid(tasks) {
   const items = (tasks || [])
     .filter((t) => isSessionNoteTask(t))
     .map((t) => taskToWorkQueueItem(t));
   if (!items.length) return;
   stashNoteAidWorkQueue(items);
   saveWorkQueue(authStore.user?.id, items);
+  try {
+    await appendWorkQueueToApi(authStore.user?.id, items);
+  } catch (e) {
+    console.warn('Note Aid work queue handoff save failed:', e?.response?.data?.error?.message || e.message);
+  }
   navigateToNoteAid(router, { launchIntent: 'work_queue' });
 }
 

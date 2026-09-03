@@ -2,15 +2,19 @@
  * Note Aid work-queue helpers.
  *
  * PHI policy: client names / todo actions must NEVER be written to localStorage
- * or sessionStorage (not encrypted at rest — not HIPAA-appropriate). The queue
- * lives in memory for the current SPA session only. Legacy browser keys are
- * scrubbed on load/save.
+ * or sessionStorage. Queue state is persisted on the server (encrypted payload)
+ * and cached in memory for the SPA session. Legacy browser keys are scrubbed.
  */
+
+import api from '../services/api';
 
 /** @type {Map<string|number, Array>} */
 const memoryWorkQueues = new Map();
 
 const LEGACY_PREFIX = 'noteAidWorkQueue:';
+
+/** @type {Map<string|number, ReturnType<typeof setTimeout>>} */
+const syncTimers = new Map();
 
 export function workQueueStorageKey(userId) {
   const uid = Number(userId || 0) || 'anon';
@@ -38,7 +42,6 @@ export function scrubLegacyWorkQueueStorage(userId = null) {
 }
 
 export function loadWorkQueue(userId) {
-  // Never rehydrate PHI from browser storage — scrub any leftover keys.
   scrubLegacyWorkQueueStorage(userId);
   const uid = Number(userId || 0) || 'anon';
   const items = memoryWorkQueues.get(uid);
@@ -55,7 +58,100 @@ export function saveWorkQueue(userId, items) {
 export function clearAllWorkQueues(userId) {
   const uid = Number(userId || 0) || 'anon';
   memoryWorkQueues.delete(uid);
+  const timer = syncTimers.get(uid);
+  if (timer) {
+    clearTimeout(timer);
+    syncTimers.delete(uid);
+  }
   scrubLegacyWorkQueueStorage(userId);
+}
+
+function normalizeApiItems(items) {
+  return (Array.isArray(items) ? items : []).map((row) => ({
+    ...row,
+    id: row.id || row.clientKey || (row.serverId ? `srv_${row.serverId}` : newWorkQueueItemId()),
+    clientKey: row.clientKey || row.id || null,
+    serverId: row.serverId || null,
+    status: row.status || row.docStatus || 'not_started',
+    docStatus: row.docStatus || row.status || 'not_started'
+  }));
+}
+
+/** Load queue from server into memory cache. */
+export async function fetchWorkQueueFromApi(userId) {
+  scrubLegacyWorkQueueStorage(userId);
+  const res = await api.get('/clinical-notes/work-queue', { skipGlobalLoading: true });
+  const items = normalizeApiItems(res?.data?.items);
+  saveWorkQueue(userId, items);
+  return items;
+}
+
+/** Full reconcile to server (source of truth after Clear / lifecycle updates). */
+export async function syncWorkQueueToApi(userId, items) {
+  saveWorkQueue(userId, items);
+  const res = await api.put(
+    '/clinical-notes/work-queue',
+    { items: Array.isArray(items) ? items : [] },
+    { skipGlobalLoading: true }
+  );
+  const saved = normalizeApiItems(res?.data?.items);
+  saveWorkQueue(userId, saved);
+  return saved;
+}
+
+/** Debounced sync — coalesces rapid status patches. */
+export function scheduleWorkQueueSync(userId, items, { delayMs = 400 } = {}) {
+  const uid = Number(userId || 0) || 'anon';
+  saveWorkQueue(userId, items);
+  const prev = syncTimers.get(uid);
+  if (prev) clearTimeout(prev);
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(async () => {
+      syncTimers.delete(uid);
+      try {
+        resolve(await syncWorkQueueToApi(userId, loadWorkQueue(userId)));
+      } catch (err) {
+        reject(err);
+      }
+    }, delayMs);
+    syncTimers.set(uid, timer);
+  });
+}
+
+/** Flush any pending debounced sync immediately. */
+export async function flushWorkQueueSync(userId) {
+  const uid = Number(userId || 0) || 'anon';
+  const prev = syncTimers.get(uid);
+  if (prev) {
+    clearTimeout(prev);
+    syncTimers.delete(uid);
+  }
+  return syncWorkQueueToApi(userId, loadWorkQueue(userId));
+}
+
+/** Append / upsert without wiping other rows (import + Tasks handoff). */
+export async function appendWorkQueueToApi(userId, items) {
+  const res = await api.post(
+    '/clinical-notes/work-queue',
+    { items: Array.isArray(items) ? items : [] },
+    { skipGlobalLoading: true }
+  );
+  const saved = normalizeApiItems(res?.data?.items);
+  // Merge into memory cache by client key
+  const existing = loadWorkQueue(userId);
+  const byKey = new Map(existing.map((i) => [String(i.clientKey || i.id), i]));
+  for (const row of saved) {
+    byKey.set(String(row.clientKey || row.id), row);
+  }
+  const merged = Array.from(byKey.values());
+  saveWorkQueue(userId, merged);
+  return { saved, merged };
+}
+
+export async function clearWorkQueueOnApi(userId) {
+  clearAllWorkQueues(userId);
+  await api.delete('/clinical-notes/work-queue', { skipGlobalLoading: true });
+  return [];
 }
 
 export function newWorkQueueItemId() {

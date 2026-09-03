@@ -26,7 +26,7 @@
       <div>
         <strong>Work queue</strong>
         <p>{{ pendingCount }} not started · {{ startedCount }} in progress</p>
-        <p class="na-wq-privacy">Kept in this browser session only (not saved to disk).</p>
+        <p class="na-wq-privacy">Saved to your account (encrypted). Signed / completed links clear after 24 hours.</p>
       </div>
       <div class="na-wq-head-actions">
         <button type="button" class="na-wq-add" @click="$emit('add-todo')">Add ToDo List</button>

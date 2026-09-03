@@ -1354,7 +1354,17 @@ import NoteAidDiagnosisWriterModal from '../../components/clinical/NoteAidDiagno
 import NoteAidTreatmentPlanStandaloneModal from '../../components/clinical/NoteAidTreatmentPlanStandaloneModal.vue';
 import NoteAidSessionContextStrip from '../../components/clinical/NoteAidSessionContextStrip.vue';
 import NoteAidStructuredChartPanel from '../../components/clinical/NoteAidStructuredChartPanel.vue';
-import { loadWorkQueue, saveWorkQueue, clearAllWorkQueues, matchTodoClientFromSearchRows, namesLikelySamePerson } from '../../utils/noteAidWorkQueue.js';
+import {
+  loadWorkQueue,
+  saveWorkQueue,
+  clearAllWorkQueues,
+  fetchWorkQueueFromApi,
+  syncWorkQueueToApi,
+  appendWorkQueueToApi,
+  clearWorkQueueOnApi,
+  matchTodoClientFromSearchRows,
+  namesLikelySamePerson
+} from '../../utils/noteAidWorkQueue.js';
 import {
   DOC_STATUS,
   buildLeftLibraryRows,
@@ -5988,8 +5998,33 @@ const onDemographicsImported = async () => {
   clientContextPanelRef.value?.switchTab?.('demographics');
 };
 
+let workQueueSyncSeq = 0;
+
 function persistWorkQueue() {
-  saveWorkQueue(authStore.user?.id, workQueueItems.value);
+  const uid = authStore.user?.id;
+  saveWorkQueue(uid, workQueueItems.value);
+  const seq = ++workQueueSyncSeq;
+  const snapshot = (workQueueItems.value || []).map((row) => ({ ...row }));
+  syncWorkQueueToApi(uid, snapshot).then((saved) => {
+    if (seq !== workQueueSyncSeq) return;
+    if (!Array.isArray(saved)) return;
+    const active = activeWorkQueueItemId.value;
+    const activeKey = String(
+      snapshot.find((i) => i.id === active)?.clientKey || active || ''
+    );
+    workQueueItems.value = saved.map(normalizeWorkQueueItemStatus);
+    if (active) {
+      const match = workQueueItems.value.find(
+        (i) => i.id === active
+          || String(i.clientKey) === activeKey
+          || String(i.serverId) === String(active)
+      );
+      if (match) activeWorkQueueItemId.value = match.id;
+    }
+  }).catch((e) => {
+    if (seq !== workQueueSyncSeq) return;
+    console.warn('Work queue sync failed:', e?.response?.data?.error?.message || e.message);
+  });
 }
 
 function queueItemSessionKey(item) {
@@ -6187,13 +6222,16 @@ function markActiveWorkQueueItemDone() {
 function clearWorkQueue() {
   workQueueItems.value = [];
   activeWorkQueueItemId.value = null;
-  persistWorkQueue();
+  clearWorkQueueOnApi(authStore.user?.id).catch((e) => {
+    console.warn('Work queue clear failed:', e?.response?.data?.error?.message || e.message);
+  });
 }
 
 function onTodoListBuilt({ items }) {
   showTodoImportModal.value = false;
   const incoming = (Array.isArray(items) ? items : []).map((i) => ({
     ...i,
+    clientKey: i.clientKey || i.id || null,
     status: DOC_STATUS.NOT_STARTED,
     docStatus: DOC_STATUS.NOT_STARTED
   }));
@@ -6207,7 +6245,14 @@ function onTodoListBuilt({ items }) {
     return true;
   });
   workQueueItems.value = [...(workQueueItems.value || []), ...appended];
-  persistWorkQueue();
+  appendWorkQueueToApi(authStore.user?.id, appended)
+    .then(({ merged }) => {
+      if (Array.isArray(merged)) workQueueItems.value = merged.map(normalizeWorkQueueItemStatus);
+    })
+    .catch((e) => {
+      console.warn('Work queue append failed:', e?.response?.data?.error?.message || e.message);
+      persistWorkQueue();
+    });
   api.post('/clinical-notes/audit', {
     agencyId: noteAidAgencyId.value || currentAgencyId.value,
     action: 'note_aid_todo_added',
@@ -7253,7 +7298,7 @@ onMounted(async () => {
   await loadNoteAidWriterPrefs();
 
   if (String(route.query?.noteAidReset || '') === '1') {
-    clearAllWorkQueues(authStore.user?.id);
+    await clearWorkQueueOnApi(authStore.user?.id).catch(() => clearAllWorkQueues(authStore.user?.id));
     workQueueItems.value = [];
     activeWorkQueueItemId.value = null;
     draftId.value = null;
@@ -7298,12 +7343,28 @@ onMounted(async () => {
       }
       noteWizardStep.value = 2;
     } else {
+      let loaded = [];
+      try {
+        loaded = await fetchWorkQueueFromApi(authStore.user?.id);
+      } catch (e) {
+        console.warn('Work queue load failed:', e?.response?.data?.error?.message || e.message);
+        loaded = loadWorkQueue(authStore.user?.id);
+      }
       const stashed = consumeNoteAidWorkQueueStash();
       if (stashed?.length) {
-        workQueueItems.value = stashed.map(normalizeWorkQueueItemStatus);
-        persistWorkQueue();
+        try {
+          const { merged } = await appendWorkQueueToApi(authStore.user?.id, stashed.map(normalizeWorkQueueItemStatus));
+          workQueueItems.value = (merged || []).map(normalizeWorkQueueItemStatus);
+        } catch (e) {
+          console.warn('Work queue stash merge failed:', e?.response?.data?.error?.message || e.message);
+          const incoming = stashed.map(normalizeWorkQueueItemStatus);
+          const byKey = new Map((loaded || []).map((i) => [String(i.clientKey || i.id), i]));
+          for (const row of incoming) byKey.set(String(row.clientKey || row.id), row);
+          workQueueItems.value = Array.from(byKey.values());
+          persistWorkQueue();
+        }
       } else {
-        workQueueItems.value = loadWorkQueue(authStore.user?.id).map(normalizeWorkQueueItemStatus);
+        workQueueItems.value = (loaded || []).map(normalizeWorkQueueItemStatus);
       }
       const qAgency = Number(route.query?.agencyId || route.query?.agency_id || 0) || null;
       if (qAgency) selectedQueueAgencyId.value = qAgency;

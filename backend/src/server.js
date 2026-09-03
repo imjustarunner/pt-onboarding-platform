@@ -1493,15 +1493,20 @@ if (!isBootstrap) {
       const ClinicalNoteDraftCleanupService = (await import('./services/clinicalNoteDraftCleanup.service.js')).default;
       const result = await ClinicalNoteDraftCleanupService.run({
         archiveAfterDays: 7,
-        hardDeleteAfterDays: 2555
+        hardDeleteAfterDays: 2555,
+        workQueueTerminalHours: 24
       });
       const archived = Number(result?.archived || 0);
       const deleted = Number(result?.deleted || 0);
+      const workQueueDeleted = Number(result?.workQueueDeleted || 0);
       if (archived > 0) {
         console.log(`[clinical_note_drafts] auto-archived ${archived} records older than 7 days`);
       }
       if (deleted > 0) {
         console.log(`[clinical_note_drafts] hard-deleted ${deleted} records older than 7 years`);
+      }
+      if (workQueueDeleted > 0) {
+        console.log(`[note_aid_work_queue] purged ${workQueueDeleted} signed/completed items older than 24h`);
       }
     } catch (error) {
       if (error.code === 'ER_NO_SUCH_TABLE') {

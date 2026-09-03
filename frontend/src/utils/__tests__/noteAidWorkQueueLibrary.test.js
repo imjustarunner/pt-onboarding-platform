@@ -1,4 +1,15 @@
-import { describe, expect, it, beforeEach, afterEach } from 'vitest';
+import { describe, expect, it, beforeEach, afterEach, vi } from 'vitest';
+
+vi.mock('../../services/api', () => ({
+  default: {
+    get: vi.fn(),
+    put: vi.fn(),
+    post: vi.fn(),
+    delete: vi.fn(),
+    patch: vi.fn()
+  }
+}));
+
 import { filterClinicalNoteDrafts, groupClinicalNoteDrafts } from '../clinicalNoteLibrary.js';
 import {
   parseNoteAidTodoList,
@@ -44,7 +55,7 @@ describe('work queue PHI storage', () => {
     sessionStorage.clear();
   });
 
-  it('keeps the queue in memory and never writes PHI to localStorage', () => {
+  it('keeps a memory cache and never writes PHI to localStorage', () => {
     localStorage.setItem(workQueueStorageKey(userId), JSON.stringify([phiItem]));
     saveWorkQueue(userId, [phiItem]);
     expect(loadWorkQueue(userId)).toEqual([phiItem]);

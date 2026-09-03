@@ -6,7 +6,7 @@
         <button type="button" class="na-link-btn" @click="emit('close')">Close</button>
       </header>
       <p class="hint">
-        Paste your day list (one line per item or date / name / action blocks). Consultation / 99415 items are skipped. New items append under your current queue for this browser session only (not saved to disk). Choose the tenant and program once for the whole batch.
+        Paste your day list (one line per item or date / name / action blocks). Consultation / 99415 items are skipped. New items append under your current queue and stay until you Clear, delete, complete, or sign them (signed/completed links drop off after 24 hours). Choose the tenant and program once for the whole batch.
       </p>
 
       <label class="na-label">
