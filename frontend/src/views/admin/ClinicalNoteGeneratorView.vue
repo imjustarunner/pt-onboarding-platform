@@ -2814,6 +2814,30 @@ const noteTypeOptions = computed(() => {
   return options;
 });
 
+const noteTypePrimaryCode = (selection) => {
+  const v = String(selection || '').trim();
+  if (!v || v === '__other__') return '';
+  const opt = (noteTypeOptions.value || []).find((o) => o.value === v);
+  if (opt?.primary) return opt.primary;
+  const group = NOTE_TYPE_GROUPS.find((g) => g.id === v);
+  if (group) return group.primary;
+  return v.toUpperCase();
+};
+
+/** Declared before any watch/computed that reads it (avoids TDZ white screen). */
+const actualServiceCode = computed(() => {
+  if (selectedServiceCode.value === '__other__') return String(otherServiceCode.value || '').trim().toUpperCase();
+  const fromPicker = noteTypePrimaryCode(selectedServiceCode.value);
+  if (fromPicker) return fromPicker;
+  const aidCode = String(selectedAid.value?.serviceCode || '').trim().toUpperCase();
+  if (aidCode) return aidCode;
+  if (selectedAid.value?.codeGroupId) {
+    const g = NOTE_TYPE_GROUPS.find((x) => x.id === selectedAid.value.codeGroupId);
+    if (g?.primary) return g.primary;
+  }
+  return '';
+});
+
 function aidIsEligible(aid) {
   if (!aid || RETIRED_NOTE_AID_IDS.has(aid.id)) return false;
   if (!aidIsVisibleForTiers(aid, derivedTier.value)) return false;
@@ -3084,16 +3108,6 @@ const resolveNoteTypeSelection = (raw) => {
   return upper;
 };
 
-const noteTypePrimaryCode = (selection) => {
-  const v = String(selection || '').trim();
-  if (!v || v === '__other__') return '';
-  const opt = (noteTypeOptions.value || []).find((o) => o.value === v);
-  if (opt?.primary) return opt.primary;
-  const group = NOTE_TYPE_GROUPS.find((g) => g.id === v);
-  if (group) return group.primary;
-  return v.toUpperCase();
-};
-
 watch(selectedNoteCategory, () => {
   const aids = aidsForSelectedCategory.value;
   if (selectedAidId.value && !aids.some((a) => a.id === selectedAidId.value)) {
@@ -3259,19 +3273,6 @@ const applyBookingContextPrefill = () => {
   autoSelectCode.value = false;
   bookingPrefillApplied.value = true;
 };
-
-const actualServiceCode = computed(() => {
-  if (selectedServiceCode.value === '__other__') return String(otherServiceCode.value || '').trim().toUpperCase();
-  const fromPicker = noteTypePrimaryCode(selectedServiceCode.value);
-  if (fromPicker) return fromPicker;
-  const aidCode = String(selectedAid.value?.serviceCode || '').trim().toUpperCase();
-  if (aidCode) return aidCode;
-  if (selectedAid.value?.codeGroupId) {
-    const g = NOTE_TYPE_GROUPS.find((x) => x.id === selectedAid.value.codeGroupId);
-    if (g?.primary) return g.primary;
-  }
-  return '';
-});
 
 const showProgramDropdown = computed(
   () => !!selectedAid.value?.needsProgram || actualServiceCode.value === 'H2014'
