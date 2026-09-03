@@ -3796,6 +3796,9 @@ const authStore = useAuthStore();
 // Keep link initialized before any computed/translation helpers that read link.value.
 // Prevents TDZ crashes in production minified bundles.
 const link = ref(null);
+// Must be declared before dfProgressSteps / shellCoverMode — watch(dfProgressIndex)
+// reads those computeds during setup and TDZ-crashes the whole packet (white screen).
+const isJobApplication = computed(() => String(link.value?.form_type || '').toLowerCase() === 'job_application');
 const step = ref(-1);
 const inPageLocale = ref('en');
 const userChoseLocale = ref(false);
@@ -7885,7 +7888,6 @@ const usesRegistrationFeatures = computed(
 const isExistingClientByMatch = computed(() =>
   String(intakeResponses.submission?.registration_client_match || '').trim().toLowerCase() === 'existing'
 );
-const isJobApplication = computed(() => String(link.value?.form_type || '').toLowerCase() === 'job_application');
 const jobApplicationPage = computed(() => {
   const raw = jobDescriptionSummary.value?.applicationPage;
   return raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
