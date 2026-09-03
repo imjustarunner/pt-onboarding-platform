@@ -5,6 +5,7 @@ import ClientSchoolStaffRoiAccess from '../models/ClientSchoolStaffRoiAccess.mod
 import OrganizationAffiliation from '../models/OrganizationAffiliation.model.js';
 import AgencySchool from '../models/AgencySchool.model.js';
 import { setSchoolStaffRoleTitleForOrg, syncSchoolStaffUserTitle } from '../services/schoolStaffContactRole.service.js';
+import { queueSchoolStaffGoogleGroupSync } from '../services/schoolGroupProvisioning.service.js';
 import {
   sqlNonEmpty,
   sqlUnicodeEq,
@@ -1125,6 +1126,11 @@ export const createSchoolStaffUserFromContact = async (req, res, next) => {
 
     // Ensure membership exists.
     await User.assignToAgency(user.id, orgId);
+    queueSchoolStaffGoogleGroupSync({
+      schoolOrganizationId: orgId,
+      email,
+      action: 'add'
+    });
     await ClientSchoolStaffRoiAccess.revokeForSchoolStaff({
       schoolStaffUserId: user.id,
       schoolOrganizationId: orgId,
@@ -1261,6 +1267,14 @@ export const revokeSchoolStaffAccess = async (req, res, next) => {
       actorUserId: req.user?.id || null
     });
     await User.removeFromAgency(userId, orgId);
+    const revokedEmail = normalizeEmail(user.email || user.work_email);
+    if (revokedEmail) {
+      queueSchoolStaffGoogleGroupSync({
+        schoolOrganizationId: orgId,
+        email: revokedEmail,
+        action: 'remove'
+      });
+    }
     const stillHasSchoolAccess = await User.hasAnySchoolAgencyMembership(userId);
     if (!stillHasSchoolAccess) {
       await User.disableSchoolStaffLogin(userId, req.user?.id || null);

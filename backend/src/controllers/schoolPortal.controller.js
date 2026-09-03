@@ -80,6 +80,7 @@ import {
 import {
   syncSchoolStaffUserTitle
 } from '../services/schoolStaffContactRole.service.js';
+import { queueSchoolStaffGoogleGroupSync } from '../services/schoolGroupProvisioning.service.js';
 
 function rosterHasWeekday(client) {
   const day = String(client?.service_day || '').trim();
@@ -3900,6 +3901,13 @@ export const removeSchoolStaff = async (req, res, next) => {
       actorUserId: actorId
     });
     await User.removeFromAgency(targetUserId, orgId);
+    if (targetEmail) {
+      queueSchoolStaffGoogleGroupSync({
+        schoolOrganizationId: orgId,
+        email: targetEmail,
+        action: 'remove'
+      });
+    }
     const stillHasSchoolAccess = await User.hasAnySchoolAgencyMembership(targetUserId);
     if (!stillHasSchoolAccess) {
       await User.disableSchoolStaffLogin(targetUserId, actorId);
@@ -4573,6 +4581,11 @@ export const addSchoolStaff = async (req, res, next) => {
     }
 
     await User.assignToAgency(user.id, orgId);
+    queueSchoolStaffGoogleGroupSync({
+      schoolOrganizationId: orgId,
+      email,
+      action: 'add'
+    });
     await ClientSchoolStaffRoiAccess.revokeForSchoolStaff({
       schoolStaffUserId: user.id,
       schoolOrganizationId: orgId,

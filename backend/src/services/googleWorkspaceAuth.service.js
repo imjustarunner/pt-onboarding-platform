@@ -19,6 +19,10 @@ export const GOOGLE_WORKSPACE_DIRECTORY_SCOPES = [
   'https://www.googleapis.com/auth/admin.directory.group.member'
 ];
 
+/** Optional — only used when applying allowExternalMembers via Groups Settings API. */
+export const GOOGLE_WORKSPACE_GROUPS_SETTINGS_SCOPE =
+  'https://www.googleapis.com/auth/apps.groups.settings';
+
 export function parseGoogleWorkspaceServiceAccountFromEnv() {
   // Prefer base64 env (recommended), but support legacy raw JSON as fallback.
   const raw = process.env.GOOGLE_WORKSPACE_SERVICE_ACCOUNT_JSON;

@@ -18,6 +18,7 @@ import ClientPhiDocument from '../../models/ClientPhiDocument.model.js';
 import DocumentEncryptionService from '../documentEncryption.service.js';
 import StorageService from '../storage.service.js';
 import { buildAndPersistResponsePlanForTicket } from '../schoolSupportResponsePlan.service.js';
+import { queueSchoolStaffGoogleGroupSync } from '../schoolGroupProvisioning.service.js';
 
 export const TICKET_ACTION_TYPES = {
   CREATE_SCHOOL_CONTACT: 'create_school_contact',
@@ -766,6 +767,11 @@ async function createSchoolStaffAccountFromPayload({
   }
 
   await User.assignToAgency(user.id, Number(schoolOrganizationId));
+  queueSchoolStaffGoogleGroupSync({
+    schoolOrganizationId: Number(schoolOrganizationId),
+    email: em,
+    action: 'add'
+  });
   await ClientSchoolStaffRoiAccess.revokeForSchoolStaff({
     schoolStaffUserId: user.id,
     schoolOrganizationId: Number(schoolOrganizationId),

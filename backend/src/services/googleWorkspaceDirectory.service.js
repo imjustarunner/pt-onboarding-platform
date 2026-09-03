@@ -3,7 +3,8 @@ import {
   buildImpersonatedJwtClient,
   logGoogleUnauthorizedHint,
   parseGoogleWorkspaceServiceAccountFromEnv,
-  GOOGLE_WORKSPACE_DIRECTORY_SCOPES
+  GOOGLE_WORKSPACE_DIRECTORY_SCOPES,
+  GOOGLE_WORKSPACE_GROUPS_SETTINGS_SCOPE
 } from './googleWorkspaceAuth.service.js';
 
 function resolveDirectoryImpersonateUser() {
@@ -145,7 +146,9 @@ class GoogleWorkspaceDirectoryService {
       return result?.data || null;
     } catch (e) {
       const status = e?.code || e?.response?.status || null;
-      if (status === 404) return null;
+      // 404 = not a group. 403 is Google's usual response when the address is a user
+      // (or a group this admin cannot see) — treat as "not a nested group".
+      if (status === 404 || status === 403) return null;
       logGoogleUnauthorizedHint(e, { context: 'GoogleWorkspaceDirectoryService.getGroup' });
       throw e;
     }
@@ -196,6 +199,56 @@ class GoogleWorkspaceDirectoryService {
       return result?.data || null;
     } catch (e) {
       logGoogleUnauthorizedHint(e, { context: 'GoogleWorkspaceDirectoryService.createGroup' });
+      throw e;
+    }
+  }
+
+  /**
+   * Groups Settings API (apps.groups.settings). Directory groups.update ignores
+   * allowExternalMembers — school staff use district addresses outside the Workspace domain.
+   */
+  static async applyGroupAccessSettings({
+    groupEmail,
+    allowExternalMembers = true,
+    whoCanJoin = 'CAN_REQUEST_TO_JOIN',
+    whoCanViewMembership = 'ALL_IN_DOMAIN_CAN_VIEW',
+    whoCanViewGroup = 'ALL_MEMBERS_CAN_VIEW',
+    whoCanPostMessage = 'ANYONE_CAN_POST',
+    whoCanModerateMembers = 'OWNERS_AND_MANAGERS',
+    includeInGlobalAddressList = true,
+    isArchived = false,
+    messageModerationLevel = 'MODERATE_NONE',
+    spamModerationLevel = 'MODERATE'
+  } = {}) {
+    const email = String(groupEmail || '').trim().toLowerCase();
+    if (!email) throw new Error('groupEmail is required');
+    const impersonate = resolveDirectoryImpersonateUser();
+    const auth = await buildImpersonatedJwtClient({
+      subjectEmail: impersonate,
+      scopes: [...GOOGLE_WORKSPACE_DIRECTORY_SCOPES, GOOGLE_WORKSPACE_GROUPS_SETTINGS_SCOPE]
+    });
+    const groupssettings = google.groupssettings({ version: 'v1', auth });
+    const bool = (v) => (v ? 'true' : 'false');
+    try {
+      const result = await groupssettings.groups.patch({
+        groupUniqueId: email,
+        requestBody: {
+          email,
+          allowExternalMembers: bool(allowExternalMembers),
+          whoCanJoin,
+          whoCanViewMembership,
+          whoCanViewGroup,
+          whoCanPostMessage,
+          whoCanModerateMembers,
+          includeInGlobalAddressList: bool(includeInGlobalAddressList),
+          isArchived: bool(isArchived),
+          messageModerationLevel,
+          spamModerationLevel
+        }
+      });
+      return result?.data || { email, allowExternalMembers: bool(allowExternalMembers) };
+    } catch (e) {
+      logGoogleUnauthorizedHint(e, { context: 'GoogleWorkspaceDirectoryService.applyGroupAccessSettings' });
       throw e;
     }
   }
