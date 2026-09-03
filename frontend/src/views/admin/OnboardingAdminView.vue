@@ -19,6 +19,7 @@
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg>
           Refresh
         </button>
+        <router-link :to="hiringDashboardRoute" class="ona-btn ona-btn-secondary">Hiring Dashboard</router-link>
         <router-link :to="applicantsRoute" class="ona-btn ona-btn-secondary">View Applications</router-link>
         <router-link :to="preHireRoute" class="ona-btn ona-btn-secondary">View Pre-Hire</router-link>
         <span class="ona-btn ona-btn-primary ona-btn-active">View Onboarding</span>
@@ -253,6 +254,7 @@ const effectiveSlug = computed(() => {
 });
 const applicantsRoute = computed(() => effectiveSlug.value ? `/${effectiveSlug.value}/admin/hiring/applicants` : '/admin/hiring/applicants');
 const preHireRoute = computed(() => effectiveSlug.value ? `/${effectiveSlug.value}/admin/pre-hire` : '/admin/pre-hire');
+const hiringDashboardRoute = computed(() => effectiveSlug.value ? `/${effectiveSlug.value}/admin/hiring` : '/admin/hiring');
 const userProfileRoute = (id) => effectiveSlug.value ? `/${effectiveSlug.value}/admin/users/${id}` : `/admin/users/${id}`;
 
 const goToProfile = (e) => router.push(userProfileRoute(e.id));

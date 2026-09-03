@@ -21,9 +21,16 @@
         <button type="button" class="btn btn-secondary" :disabled="loading" @click="load">
           Refresh
         </button>
-        <button type="button" class="btn btn-primary" @click="goApplicants()">
-          View applications
+        <button type="button" class="btn btn-secondary" @click="goApplicants()">
+          View Applications
         </button>
+        <button type="button" class="btn btn-secondary" @click="goPreHire">
+          View Pre-Hire
+        </button>
+        <button type="button" class="btn btn-secondary" @click="goOnboarding">
+          View Onboarding
+        </button>
+        <span class="btn btn-primary hd-nav-active" aria-current="page">Hiring Dashboard</span>
       </div>
     </div>
 
@@ -358,6 +365,14 @@ function goInterviewHub() {
   router.push(orgPath('/admin/interview-hub'));
 }
 
+function goPreHire() {
+  router.push(orgPath('/admin/pre-hire'));
+}
+
+function goOnboarding() {
+  router.push(orgPath('/admin/onboarding'));
+}
+
 async function load() {
   if (!effectiveAgencyId.value) {
     error.value = 'Select an agency to view hiring stats.';
@@ -445,6 +460,10 @@ onMounted(() => {
   gap: 8px;
   align-items: center;
   flex-wrap: wrap;
+}
+.hd-nav-active {
+  pointer-events: none;
+  cursor: default;
 }
 .hd-agency-picker {
   display: flex;
