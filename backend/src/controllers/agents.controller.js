@@ -1,11 +1,16 @@
 import ActivityLogService from '../services/activityLog.service.js';
 import pool from '../config/database.js';
 import { runAgentAssist, safeParseAgentJson } from '../services/agents/agentRuntime.service.js';
-import { executeToolCall, getToolSchemasForUser } from '../services/agents/toolRegistry.service.js';
+import {
+  executeToolCall,
+  getToolSchemasForUser,
+  navigableRouteNamesForUser
+} from '../services/agents/toolRegistry.service.js';
 import {
   buildCapabilityUiPayload,
   matchCatalogBackedPageNavigationIntent,
   matchDeterministicCapabilityIntent,
+  matchProductLocationIntent,
   matchProfileSectionJumpIntent,
   getCapabilityCatalogForTests,
   rankCorrectionChoices
@@ -19,6 +24,7 @@ import {
   looksLikeBillingOrServiceCodeTopic
 } from '../services/agents/assistantResearch.service.js';
 import { isUserProfileContext } from '../../../frontend/src/navigation/profileSearchCatalog.js';
+import { looksLikeProductLocationAsk } from '../../../frontend/src/navigation/productLocationCatalog.js';
 import { hasTenantAccess, resolveTenantRootAgencyId } from '../utils/meDashboardTenantScope.js';
 import {
   insertAssistantRouteFeedback,
@@ -378,7 +384,15 @@ function tryDisambiguationFollowUp(prompt, history) {
  *
  * Returns null when the prompt is genuinely conversational and needs an LLM.
  */
-async function detectExplicitIntent({ prompt, allowedToolNames, context, forceCapabilityId, agencyTimezone }) {
+async function detectExplicitIntent({
+  prompt,
+  allowedToolNames,
+  context,
+  forceCapabilityId,
+  agencyTimezone,
+  role,
+  allowedRouteNames
+}) {
   const lower = String(prompt || '').toLowerCase().trim();
   if (!lower) return null;
 
@@ -387,6 +401,52 @@ async function detectExplicitIntent({ prompt, allowedToolNames, context, forceCa
   if (!forceCapabilityId) {
     const profileJump = matchProfileSectionJumpIntent({ prompt: lower, context });
     if (profileJump) return profileJump;
+  }
+
+  // "Where can I find X?" — product map answers before operational capabilities / research.
+  if (!forceCapabilityId) {
+    const productLoc = matchProductLocationIntent({
+      prompt: lower,
+      allowedToolNames,
+      role,
+      allowedRouteNames
+    });
+    if (productLoc) {
+      if (isUserProfileContext(context)) {
+        const routeName = productLoc.toolCalls?.[0]?.args?.routeName;
+        const leaveProfileOk = new Set([
+          'GearInventory',
+          'UserManager',
+          'ReferralDirectory',
+          'ClientManagement',
+          'HiringCandidates',
+          'AdminPayroll',
+          'AuditCenter',
+          'SchoolPortalsHub',
+          'SkillBuildersProgramsEvents',
+          'CaseloadHubEvents',
+          'CaseloadHubCalendar',
+          'CaseloadHubSchoolsStaff',
+          'ProviderDirectory',
+          'NoteAid',
+          'AgencyCredentialing',
+          'PresenceTeamBoard',
+          'ModuleManager',
+          'TrainingKnowledgeBase',
+          'MaterialsRequests',
+          'OutreachHub'
+        ]);
+        if (routeName && !leaveProfileOk.has(routeName)) {
+          // Still answer where it is; don't yank them off the profile.
+          return {
+            ...productLoc,
+            toolCalls: [],
+            assistantText: String(productLoc.assistantText || '').replace(/\s*Opening it for you\.\s*$/i, '').trim()
+          };
+        }
+      }
+      return productLoc;
+    }
   }
 
   // Capability-catalog fast path: high-frequency deterministic asks are
@@ -418,12 +478,17 @@ async function detectExplicitIntent({ prompt, allowedToolNames, context, forceCa
         'AuditCenter',
         'SchoolPortalsHub',
         'SkillBuildersProgramsEvents',
+        'CaseloadHubEvents',
+        'CaseloadHubCalendar',
+        'CaseloadHubSchoolsStaff',
         'ProviderDirectory',
         'NoteAid',
         'AgencyCredentialing',
         'PresenceTeamBoard',
         'ModuleManager',
-        'TrainingKnowledgeBase'
+        'TrainingKnowledgeBase',
+        'MaterialsRequests',
+        'OutreachHub'
       ]);
       // Stay on the profile unless they clearly asked for an admin hub page.
       if (!leaveProfileOk.has(routeName)) return null;
@@ -2644,7 +2709,9 @@ export const assist = async (req, res, next) => {
       allowedToolNames,
       context,
       forceCapabilityId,
-      agencyTimezone
+      agencyTimezone,
+      role: req.user?.role,
+      allowedRouteNames: navigableRouteNamesForUser(req.user)
     });
     if (explicit?.followUpAgencyResearch) {
       try {
@@ -2965,7 +3032,8 @@ export const assist = async (req, res, next) => {
     }
 
     // ---- No-LLM research fallback (Training KB + clinical KB) ----
-    if (shouldAttemptAgencyResearch(prompt)) {
+    // Skip for product "where is X?" asks — those are UI locations, not handbook.
+    if (shouldAttemptAgencyResearch(prompt) && !looksLikeProductLocationAsk(prompt)) {
       try {
         const payload = await runAgencyResearchAssistResponse({
           req,

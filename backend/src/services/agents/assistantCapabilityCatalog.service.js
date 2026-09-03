@@ -13,6 +13,11 @@ import {
   resolveBestProfileSection
 } from '../../../../frontend/src/navigation/profileSearchCatalog.js';
 import {
+  looksLikeProductLocationAsk,
+  resolveBestProductLocation,
+  formatProductLocationAnswer
+} from '../../../../frontend/src/navigation/productLocationCatalog.js';
+import {
   extractServiceCodes,
   looksLikeServiceCodeQuery
 } from './assistantResearch.service.js';
@@ -468,7 +473,7 @@ export function resolveNavigateRouteNameFromPrompt(promptLower) {
   if (!s) return null;
 
   // Prefer more specific intents first.
-  // Keep in sync with frontend `quickNavCatalog.js` account + app destinations.
+  // Keep in sync with frontend `quickNavCatalog.js` / `productLocationCatalog.js`.
   if (/\b(note ?aid|note generator|clinical note|generate note)\b/.test(s)) return 'NoteAid';
   if (/\b(credentialing|credentialling|agency credentialing|provider credentialing)\b/.test(s)) return 'AgencyCredentialing';
   if (/\b(presence|team board|who is in|who's in)\b/.test(s)) return 'PresenceTeamBoard';
@@ -484,7 +489,18 @@ export function resolveNavigateRouteNameFromPrompt(promptLower) {
   if (/\b(client|clients)\b/.test(s)) return 'MyClients';
   if (/\b(school portal|school portals|portals hub|school-portals)\b/.test(s)) return 'SchoolPortalsHub';
   if (/\b(outreach hub|school outreach|outreach tracker|school visits?)\b/.test(s)) return 'OutreachHub';
-  if (/\b(program events|program event|skill builders|events)\b/.test(s)) return 'SkillBuildersProgramsEvents';
+  // School / Caseload Hub events BEFORE bare "events" → Program Events.
+  if (/\b(school events? calendar|caseload hub calendar)\b/.test(s)) return 'CaseloadHubCalendar';
+  if (/\b(school events?|caseload hub events?|events for schools?|events at schools?)\b/.test(s)) {
+    return 'CaseloadHubEvents';
+  }
+  if (/\b(school management|schools?\s*&\s*staff|schools?\s+and\s+staff|caseload hub)\b/.test(s)) {
+    return 'CaseloadHubSchoolsStaff';
+  }
+  if (/\b(program events?|program event|skill builders?(?:\s+events?)?)\b/.test(s)) {
+    return 'SkillBuildersProgramsEvents';
+  }
+  if (/\bevents\b/.test(s)) return 'SkillBuildersProgramsEvents';
   if (/\b(provider directory|provider list)\b/.test(s)) return 'ProviderDirectory';
   if (/\b(gear|inventory|stock levels?|unique assets?)\b/.test(s)) return 'GearInventory';
   if (
@@ -551,11 +567,13 @@ export function matchProfileSectionJumpIntent({ prompt, context }) {
 export function matchCatalogBackedPageNavigationIntent({ prompt, allowedToolNames }) {
   const lower = String(prompt || '').toLowerCase().trim();
   if (!lower || !allowedToolNames?.has?.('navigateTo')) return null;
-  const hasAction = /\b(open|show|find|go to|take me to|navigate to|visit|search( for)?|look (up|for))\b/.test(lower);
+  const hasAction = /\b(open|show|find|go to|take me to|navigate to|visit|search( for)?|look (up|for)|where|see|locate|access)\b/.test(
+    lower
+  );
   const routeName = resolveNavigateRouteNameFromPrompt(lower);
   if (!routeName) return null;
   // Allow bare destination keywords ("gear", "payroll") without action verbs when the
-  // prompt is short — otherwise send conversational asks to the LLM.
+  // prompt is short — otherwise send conversational asks to the LLM / product-location matcher.
   if (!hasAction) {
     const words = lower.split(/\s+/).filter(Boolean);
     if (words.length > 4) return null;
@@ -564,6 +582,53 @@ export function matchCatalogBackedPageNavigationIntent({ prompt, allowedToolName
     intent: 'page_navigate',
     capabilityId: 'page_navigation_generic',
     toolCalls: [{ name: 'navigateTo', args: { routeName } }]
+  };
+}
+
+/**
+ * "Where can I find X?" / "Where do staff see school events?" — answer with a
+ * real product location (and navigate when the route is whitelisted for the user).
+ */
+export function matchProductLocationIntent({
+  prompt,
+  allowedToolNames,
+  role,
+  allowedRouteNames = null
+}) {
+  const lower = String(prompt || '').toLowerCase().trim();
+  if (!lower) return null;
+  if (!looksLikeProductLocationAsk(lower)) return null;
+
+  const resolved = resolveBestProductLocation({
+    prompt: lower,
+    role,
+    allowedRouteNames:
+      allowedRouteNames ||
+      (allowedToolNames?.has?.('navigateTo') ? null : new Set()),
+    minScore: 70
+  });
+  if (!resolved?.entry) return null;
+
+  const { entry, canNavigate } = resolved;
+  const assistantText = formatProductLocationAnswer(entry, {
+    canNavigate: Boolean(canNavigate && allowedToolNames?.has?.('navigateTo'))
+  });
+
+  if (canNavigate && entry.routeName && allowedToolNames?.has?.('navigateTo')) {
+    return {
+      intent: 'product_location',
+      capabilityId: 'product_location_help',
+      toolCalls: [{ name: 'navigateTo', args: { routeName: entry.routeName } }],
+      assistantText
+    };
+  }
+
+  return {
+    intent: 'product_location',
+    capabilityId: 'product_location_help',
+    toolCalls: [],
+    assistantText,
+    uiCommands: []
   };
 }
 

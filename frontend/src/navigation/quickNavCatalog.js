@@ -647,7 +647,7 @@ function buildAppEntries() {
       label: 'School Events',
       description: 'School event list and provider request review.',
       group: 'admin',
-      keywords: ['school events', 'event list', 'provider requests'],
+      keywords: ['school events', 'event list', 'provider requests', 'events for schools', 'caseload hub events'],
       kind: 'path',
       path: '/admin/caseload-hub/events',
       rolesAny: [

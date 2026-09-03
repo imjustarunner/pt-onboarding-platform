@@ -191,6 +191,29 @@ const NAVIGATION_ROUTE_WHITELIST = {
   SchoolPortalsHub: { path: '/admin/school-portals-hub', roles: ['admin', 'support', 'staff', 'super_admin', 'provider_plus', 'clinical_practice_assistant'] },
   OutreachHub: { path: '/admin/outreach-hub', roles: ['admin', 'support', 'staff', 'super_admin', 'provider_plus', 'provider', 'clinical_practice_assistant'] },
   SkillBuildersProgramsEvents: { path: '/admin/program-events', roles: ['admin', 'staff', 'support', 'super_admin', 'provider', 'provider_plus', 'intern', 'intern_plus', 'clinical_practice_assistant'] },
+  // Caseload Hub — school events / coverage (keep in sync with quickNav + productLocationCatalog)
+  CaseloadHubEvents: {
+    path: '/admin/caseload-hub/events',
+    roles: ['admin', 'support', 'staff', 'super_admin', 'provider_plus', 'provider', 'clinical_practice_assistant']
+  },
+  CaseloadHubCalendar: {
+    path: '/admin/caseload-hub/calendar',
+    roles: ['admin', 'support', 'staff', 'super_admin', 'provider_plus', 'provider', 'clinical_practice_assistant']
+  },
+  CaseloadHubSchoolsStaff: {
+    path: '/admin/caseload-hub/schools-staff',
+    roles: [
+      'admin',
+      'support',
+      'staff',
+      'super_admin',
+      'provider_plus',
+      'provider',
+      'clinical_practice_assistant',
+      'schedule_manager',
+      'supervisor'
+    ]
+  },
   ProviderDirectory: { path: '/admin/provider-directory', roles: ['admin', 'support', 'staff', 'super_admin'] },
   HiringCandidates: { path: '/admin/hiring-candidates', roles: ['admin', 'super_admin'] },
   MaterialsRequests: {

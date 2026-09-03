@@ -6,6 +6,7 @@
 import { searchTrainingKnowledgeBase } from '../trainingKnowledgeBase.service.js';
 import { getKnowledgeBaseContext } from '../clinicalKnowledgeBase.service.js';
 import { detectAgeBucketFromText } from '../../utils/ageMatch.util.js';
+import { looksLikeProductLocationAsk } from '../../../../frontend/src/navigation/productLocationCatalog.js';
 
 /**
  * Medicaid / HCPCS-style service codes used in this product (H2014, T1017, S9454, …).
@@ -199,6 +200,8 @@ export function shouldAttemptAgencyResearch(prompt) {
   if (looksLikeTeamPresenceQuery(lower)) return false;
   if (looksLikeMyDayScheduleQuery(lower)) return false;
   if (looksLikeStartMeetingWithPerson(lower)) return false;
+  // Product UI location asks ("where can I find school events?") are not handbook.
+  if (looksLikeProductLocationAsk(lower)) return false;
   if (looksLikeBillingOrServiceCodeTopic(lower)) return true;
   if (looksLikeServiceCodeQuery(lower) || extractServiceCodes(lower).length) return true;
   if (/\b(what|whats|what's|who|where|when|how|why|explain|define|tell me|look up|lookup|meaning)\b/.test(lower)) {
