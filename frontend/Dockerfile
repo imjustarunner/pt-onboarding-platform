@@ -41,13 +41,16 @@ ARG VITE_API_URL
 ARG VITE_APP_BUILD_ID=dev
 ENV VITE_API_URL=${VITE_API_URL}
 ENV VITE_APP_BUILD_ID=${VITE_APP_BUILD_ID}
+# Vite production builds OOM under the default Node heap on Cloud Build / CI runners.
+ENV NODE_OPTIONS=--max-old-space-size=8192
 
 # Debug: Show environment variables
 RUN echo "VITE_API_URL=$VITE_API_URL" && \
+    echo "NODE_OPTIONS=$NODE_OPTIONS" && \
     node -v && npm -v && \
     ls -la && ls -la node_modules/@vitejs || true
 
-# Build the application
+# Build the application (install used --ignore-scripts so postinstall does not double-build)
 RUN npm run build && printf '{"buildId":"%s"}\n' "$VITE_APP_BUILD_ID" > dist/version.json || ( \
     echo "❌ Build failed!" && \
     echo "VITE_API_URL=$VITE_API_URL" && \
