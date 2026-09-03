@@ -56,6 +56,8 @@ export async function resolveJobApplicationSenderIdentity(agencyId) {
     const from = String(identity.from_email || '').trim();
     if (!from) continue;
     if (String(identity.identity_key || '').toLowerCase().startsWith('personal_')) continue;
+    // Job applications must never send as the AI mailbox.
+    if (/^ai@/i.test(from)) continue;
     return identity;
   }
   // Last resort: first active agency-specific team identity (never personal_* mailboxes)

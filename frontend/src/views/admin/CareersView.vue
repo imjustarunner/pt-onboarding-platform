@@ -337,6 +337,15 @@
         </div>
         <input v-model="createForm.city" class="input" type="text" placeholder="City" />
         <input v-model="createForm.state" class="input" type="text" placeholder="State" />
+        <input v-model="createForm.scheduleText" class="input" type="text" placeholder="Work schedule (e.g. Mon–Fri, 8am–5pm)" />
+        <div>
+          <label class="small muted">Credential on application</label>
+          <select v-model="createForm.credentialMode" class="input">
+            <option value="none">Do not collect credential</option>
+            <option value="expected">Expected (ask, not required)</option>
+            <option value="mandatory">Mandatory (required to apply)</option>
+          </select>
+        </div>
         <input v-model="createForm.postedDate" class="input" type="date" />
         <select v-model="createForm.educationLevel" class="input">
           <option value="">Education level (optional)</option>
@@ -394,6 +403,7 @@
           <span class="muted small">Shown on the careers details modal and apply acknowledgement screen.</span>
         </div>
         <JobDescriptionSectionsEditor v-model="createForm.descriptionSections" />
+        <JobPrehireDocsEditor v-model="createForm.prehireConfig" />
       </div>
       <div class="application-page-config">
         <div class="config-header">
@@ -572,6 +582,15 @@
             </div>
             <input v-model="editForm.city" class="input" type="text" placeholder="City" />
             <input v-model="editForm.state" class="input" type="text" placeholder="State" />
+            <input v-model="editForm.scheduleText" class="input" type="text" placeholder="Work schedule (e.g. Mon–Fri, 8am–5pm)" />
+            <div>
+              <label class="small muted">Credential on application</label>
+              <select v-model="editForm.credentialMode" class="input">
+                <option value="none">Do not collect credential</option>
+                <option value="expected">Expected (ask, not required)</option>
+                <option value="mandatory">Mandatory (required to apply)</option>
+              </select>
+            </div>
             <input v-model="editForm.postedDate" class="input" type="date" />
             <select v-model="editForm.educationLevel" class="input">
               <option value="">Education level (optional)</option>
@@ -629,6 +648,7 @@
               <span class="muted small">Shown on careers details and apply acknowledgement.</span>
             </div>
             <JobDescriptionSectionsEditor v-model="editForm.descriptionSections" />
+            <JobPrehireDocsEditor v-model="editForm.prehireConfig" />
           </div>
           <div v-if="editingRow?.id" class="application-page-config eval-rubric-panel">
             <div class="config-header">
@@ -736,6 +756,7 @@ import api from '../../services/api';
 import { useAgencyStore } from '../../store/agency';
 import { useAuthStore } from '../../store/auth';
 import JobDescriptionSectionsEditor from '../../components/careers/JobDescriptionSectionsEditor.vue';
+import JobPrehireDocsEditor from '../../components/careers/JobPrehireDocsEditor.vue';
 import { buildPublicIntakeUrl } from '../../utils/publicIntakeUrl';
 import { toUploadsUrl } from '../../utils/uploadsUrl';
 import {
@@ -755,15 +776,28 @@ const props = defineProps({
 
 const blankSections = () => ({
   aboutTheRole: '',
-  responsibilities: [],
+  responsibilitySets: [{ title: '', items: [] }],
   qualifications: [],
   benefits: []
 });
 const normalizeSections = (raw) => {
   const src = raw && typeof raw === 'object' ? raw : {};
+  let sets = Array.isArray(src.responsibilitySets) ? src.responsibilitySets : [];
+  if (!sets.length && Array.isArray(src.responsibilities) && src.responsibilities.length) {
+    const objectSets = src.responsibilities.some((x) => x && typeof x === 'object');
+    sets = objectSets
+      ? src.responsibilities
+      : [{ title: '', items: src.responsibilities }];
+  }
+  if (!sets.length) sets = [{ title: '', items: [] }];
   return {
     aboutTheRole: String(src.aboutTheRole || ''),
-    responsibilities: Array.isArray(src.responsibilities) ? src.responsibilities.map((s) => String(s || '').trim()).filter(Boolean) : [],
+    responsibilitySets: sets.map((s) => ({
+      title: String(s?.title || '').trim(),
+      items: Array.isArray(s?.items)
+        ? s.items.map((x) => String(x || '').trim()).filter(Boolean)
+        : (Array.isArray(s?.bullets) ? s.bullets.map((x) => String(x || '').trim()).filter(Boolean) : [])
+    })),
     qualifications: Array.isArray(src.qualifications) ? src.qualifications.map((s) => String(s || '').trim()).filter(Boolean) : [],
     benefits: Array.isArray(src.benefits) ? src.benefits.map((s) => String(s || '').trim()).filter(Boolean) : []
   };
@@ -966,6 +1000,9 @@ const createForm = ref({
   unpublishAt: '',
   city: '',
   state: '',
+  scheduleText: '',
+  credentialMode: 'none',
+  prehireConfig: { documents: [] },
   educationLevel: '',
   roleType: '',
   isFeatured: false,
@@ -987,6 +1024,9 @@ const editForm = ref({
   unpublishAt: '',
   city: '',
   state: '',
+  scheduleText: '',
+  credentialMode: 'none',
+  prehireConfig: { documents: [] },
   educationLevel: '',
   roleType: '',
   isFeatured: false,
@@ -1309,6 +1349,9 @@ const createJob = async () => {
     fd.append('unpublishAt', String(createForm.value.unpublishAt || '').trim());
     if (String(createForm.value.city || '').trim()) fd.append('city', String(createForm.value.city || '').trim());
     if (String(createForm.value.state || '').trim()) fd.append('state', String(createForm.value.state || '').trim());
+    if (String(createForm.value.scheduleText || '').trim()) fd.append('scheduleText', String(createForm.value.scheduleText || '').trim());
+    fd.append('credentialMode', String(createForm.value.credentialMode || 'none').trim() || 'none');
+    fd.append('prehireConfigJson', JSON.stringify(createForm.value.prehireConfig || { documents: [] }));
     if (String(createForm.value.educationLevel || '').trim()) fd.append('educationLevel', String(createForm.value.educationLevel || '').trim());
     if (String(createForm.value.roleType || '').trim()) fd.append('roleType', String(createForm.value.roleType || '').trim());
     fd.append('isFeatured', createForm.value.isFeatured ? '1' : '0');
@@ -1335,6 +1378,9 @@ const createJob = async () => {
       unpublishAt: '',
       city: '',
       state: '',
+      scheduleText: '',
+      credentialMode: 'none',
+      prehireConfig: { documents: [] },
       educationLevel: '',
       roleType: '',
       isFeatured: false,
@@ -1369,6 +1415,13 @@ const openEdit = (row) => {
     unpublishAt: row.unpublishAtLocal || '',
     city: row.city || '',
     state: row.state || '',
+    scheduleText: row.scheduleText || '',
+    credentialMode: ['expected', 'mandatory'].includes(String(row.credentialMode || '').toLowerCase())
+      ? String(row.credentialMode).toLowerCase()
+      : 'none',
+    prehireConfig: {
+      documents: Array.isArray(row.prehireConfig?.documents) ? row.prehireConfig.documents.map((d) => ({ ...d })) : []
+    },
     educationLevel: row.educationLevel || '',
     roleType: row.roleType || '',
     isFeatured: !!row.isFeatured,
@@ -1399,6 +1452,9 @@ const closeEdit = () => {
     unpublishAt: '',
     city: '',
     state: '',
+    scheduleText: '',
+    credentialMode: 'none',
+    prehireConfig: { documents: [] },
     educationLevel: '',
     roleType: '',
     isFeatured: false,
@@ -1463,6 +1519,9 @@ const saveEdit = async () => {
     fd.append('unpublishAt', String(editForm.value.unpublishAt || '').trim());
     fd.append('city', String(editForm.value.city || '').trim());
     fd.append('state', String(editForm.value.state || '').trim());
+    fd.append('scheduleText', String(editForm.value.scheduleText || '').trim());
+    fd.append('credentialMode', String(editForm.value.credentialMode || 'none').trim() || 'none');
+    fd.append('prehireConfigJson', JSON.stringify(editForm.value.prehireConfig || { documents: [] }));
     fd.append('educationLevel', String(editForm.value.educationLevel || '').trim());
     fd.append('roleType', String(editForm.value.roleType || '').trim());
     fd.append('isFeatured', editForm.value.isFeatured ? '1' : '0');

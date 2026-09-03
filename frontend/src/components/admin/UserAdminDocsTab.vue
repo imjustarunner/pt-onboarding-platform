@@ -16,6 +16,12 @@
       Track HR/remediation/issue notes and uploaded documents. Content may require admin approval to open.
     </div>
 
+    <BackgroundCheckAuthorizationCard
+      v-if="userId"
+      :user-id="userId"
+      :agency-id="agencyId"
+    />
+
     <div v-if="isBackoffice" class="deleted-toggle-row">
       <label class="toggle-label">
         <input type="checkbox" v-model="showDeleted" />
@@ -65,6 +71,9 @@
             <td class="muted">
               <span v-if="d.hasNote">Note</span><span v-if="d.hasNote && d.hasFile"> + </span><span v-if="d.hasFile">File</span>
               <span v-if="!d.hasNote && !d.hasFile">-</span>
+              <div v-if="d.docType === 'background_check_authorization'" class="muted" style="margin-top:4px;">
+                Encrypted authorization. Use Reveal above to view full SSN/DL (logged). Receipt shows *** plus last 4.
+              </div>
             </td>
             <td class="cell-actions">
               <button
@@ -311,14 +320,18 @@
 import { computed, onMounted, ref, watch } from 'vue';
 import api from '../../services/api';
 import { useAuthStore } from '../../store/auth';
+import { useAgencyStore } from '../../store/agency';
+import BackgroundCheckAuthorizationCard from '../hiring/BackgroundCheckAuthorizationCard.vue';
 
 const props = defineProps({
   userId: { type: Number, required: true }
 });
 
 const authStore = useAuthStore();
+const agencyStore = useAgencyStore();
 const role = computed(() => String(authStore.user?.role || '').toLowerCase());
 const isBackoffice = computed(() => ['admin', 'super_admin', 'support'].includes(role.value));
+const agencyId = computed(() => Number(agencyStore.currentAgency?.id || 0) || null);
 
 const loading = ref(false);
 const error = ref('');

@@ -59,7 +59,19 @@ const SKIP_BAG_KEYS = new Set([
   'coverLetterText',
   'cover_letter_text',
   'coverLetter',
-  'cover_letter'
+  'cover_letter',
+  'references',
+  'professionalReferences',
+  'referencesJson',
+  'referencesConsent',
+  'referencesWaived',
+  'fluentLanguages',
+  'languagesSpoken',
+  'jobDescriptionAcknowledged',
+  'jobAcknowledged',
+  'applicantProfile',
+  'referenceReleaseSignature',
+  'referenceReleaseSigned'
 ]);
 const INSTRUMENT_SKIP_KEYS = {
   phq9: 'skip_phq9',
@@ -720,14 +732,40 @@ export function buildCompletedIntakeRecord({
   const whoFor = String(submissionBag.whoFor || submissionBag.this_is_for || intakeData.whoFor || '').trim();
   if (whoFor) pushRow(contactRows, 'This is for', humanizeKey(whoFor));
   const isJobApplication = String(link?.form_type || '').toLowerCase() === 'job_application';
-  listedClients.forEach((client, index) => {
-    const fallback = isJobApplication
-      ? (listedClients.length > 1 ? `Applicant ${index + 1}` : 'Applicant')
-      : (listedClients.length > 1 ? `Client ${index + 1}` : 'Client');
-    const name = String(client?.fullName || `${client?.firstName || ''} ${client?.lastName || ''}`.trim() || fallback).trim();
-    const dob = String(client?.dateOfBirth || client?.date_of_birth || '').trim();
-    pushRow(contactRows, fallback, dob ? `${name} · Date of birth ${dob}` : name);
-  });
+  if (!isJobApplication) {
+    listedClients.forEach((client, index) => {
+      const fallback = listedClients.length > 1 ? `Client ${index + 1}` : 'Client';
+      const name = String(client?.fullName || `${client?.firstName || ''} ${client?.lastName || ''}`.trim() || fallback).trim();
+      const dob = String(client?.dateOfBirth || client?.date_of_birth || '').trim();
+      pushRow(contactRows, fallback, dob ? `${name} · Date of birth ${dob}` : name);
+    });
+  }
+
+  const applicantProfile = {
+    ...(intakeData?.applicantProfile && typeof intakeData.applicantProfile === 'object' ? intakeData.applicantProfile : {}),
+    ...(submissionBag.applicantProfile && typeof submissionBag.applicantProfile === 'object' ? submissionBag.applicantProfile : {})
+  };
+  if (isJobApplication) {
+    const langs = Array.isArray(intakeData?.fluentLanguages)
+      ? intakeData.fluentLanguages
+      : (Array.isArray(submissionBag.fluentLanguages) ? submissionBag.fluentLanguages : []);
+    pushRow(contactRows, 'Credential', applicantProfile.credential || applicantProfile.licensure);
+    pushRow(contactRows, 'License number', applicantProfile.licenseNumber || applicantProfile.license_number);
+    pushRow(contactRows, 'Best time to contact', applicantProfile.bestTimeToContact || applicantProfile.best_time_to_contact);
+    pushRow(contactRows, 'Interview availability', applicantProfile.interviewAvailability || applicantProfile.interview_availability);
+    if (langs.length) pushRow(contactRows, 'Languages spoken fluently', langs.join(', '));
+    if (applicantProfile.independentlyCredentialed === true || applicantProfile.independentlyCredentialed === 1) {
+      pushRow(contactRows, 'Practice type', 'Independently credentialed');
+    } else if (applicantProfile.independentlyCredentialed === false || applicantProfile.independentlyCredentialed === 0) {
+      pushRow(contactRows, 'Practice type', 'Group practice');
+      pushRow(contactRows, 'Group practice insurances', applicantProfile.groupPracticeInsurances || applicantProfile.group_practice_insurances);
+    }
+    if (applicantProfile.willingToSupervise === true || applicantProfile.willingToSupervise === 1) {
+      pushRow(contactRows, 'Willing to supervise', 'Yes');
+    } else if (applicantProfile.willingToSupervise === false || applicantProfile.willingToSupervise === 0) {
+      pushRow(contactRows, 'Willing to supervise', 'No');
+    }
+  }
 
   const clinicalBag = (submissionBag.clinicalResponses && typeof submissionBag.clinicalResponses === 'object')
     ? submissionBag.clinicalResponses
@@ -791,21 +829,38 @@ export function buildCompletedIntakeRecord({
     ? { title: 'Preferred providers', rows: [{ label: 'Selected', value: providerSummary }] }
     : null;
 
-  const clientSections = clientBags.map((bag, index) => {
-    const rows = [];
-    const identitySkip = new Set(['firstName', 'lastName', 'middleName', 'fullName', 'dateOfBirth', 'date_of_birth']);
-    const dob = String(listedClients[index]?.dateOfBirth || listedClients[index]?.date_of_birth || bag?.child_dob || '').trim();
-    const values = { ...bag, ...childAgeFlags(dob, bag || {}) };
-    walkBag(bag, { byKey, locale, link, skipKeys: identitySkip, values }, rows, new Set(printed));
-    const name = String(listedClients[index]?.fullName || `${listedClients[index]?.firstName || ''} ${listedClients[index]?.lastName || ''}`.trim() || `Client ${index + 1}`).trim();
-    return rows.length ? { title: listedClients.length > 1 ? `${name} details` : 'Client details', rows } : null;
-  }).filter(Boolean);
+  const clientSections = isJobApplication
+    ? []
+    : clientBags.map((bag, index) => {
+      const rows = [];
+      const identitySkip = new Set(['firstName', 'lastName', 'middleName', 'fullName', 'dateOfBirth', 'date_of_birth']);
+      const dob = String(listedClients[index]?.dateOfBirth || listedClients[index]?.date_of_birth || bag?.child_dob || '').trim();
+      const values = { ...bag, ...childAgeFlags(dob, bag || {}) };
+      walkBag(bag, { byKey, locale, link, skipKeys: identitySkip, values }, rows, new Set(printed));
+      const name = String(listedClients[index]?.fullName || `${listedClients[index]?.firstName || ''} ${listedClients[index]?.lastName || ''}`.trim() || `Client ${index + 1}`).trim();
+      return rows.length ? { title: listedClients.length > 1 ? `${name} details` : 'Client details', rows } : null;
+    }).filter(Boolean);
+
+  const referencesRaw = intakeData?.referencesJson ?? submissionBag.references ?? submissionBag.professionalReferences ?? [];
+  const referencesList = Array.isArray(referencesRaw) ? referencesRaw : [];
+  const referenceRows = [];
+  referencesList.forEach((ref, index) => {
+    if (!ref || typeof ref !== 'object') return;
+    const n = index + 1;
+    pushRow(referenceRows, `Reference ${n} name`, ref.name);
+    pushRow(referenceRows, `Reference ${n} email`, ref.email);
+    pushRow(referenceRows, `Reference ${n} relationship`, ref.relationship);
+    pushRow(referenceRows, `Reference ${n} organization`, ref.organization);
+    pushRow(referenceRows, `Reference ${n} phone`, ref.phone);
+  });
+  const referencesBlock = referenceRows.length ? { title: 'References', rows: referenceRows } : null;
 
   const sections = [
     contactRows.length
       ? { title: isJobApplication ? 'Applicant' : 'Who this packet is for', rows: contactRows }
       : null,
     leftoverGuardian.length ? { title: isJobApplication ? 'Applicant details' : 'Parent / guardian', rows: leftoverGuardian } : null,
+    referencesBlock,
     coverLetterBlock,
     commsBlock,
     reminderBlock,

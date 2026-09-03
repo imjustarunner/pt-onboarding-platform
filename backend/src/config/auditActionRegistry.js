@@ -40,6 +40,7 @@ const AUDIT_ACTION_REGISTRY = {
   admin_doc_restored: { label: 'Admin document restored', category: 'Documents' },
   admin_doc_legal_hold_set: { label: 'Legal hold placed on document', category: 'Documents' },
   admin_doc_legal_hold_released: { label: 'Legal hold removed from document', category: 'Documents' },
+  background_check_ssn_viewed: { label: 'Background-check SSN/DL viewed', category: 'Documents' },
   clinical_session_started: { label: 'Clinical session started', category: 'Documents' },
   clinical_note_created: { label: 'Clinical note created', category: 'Documents' },
   clinical_note_deleted: { label: 'Clinical note deleted', category: 'Documents' },

@@ -26,14 +26,17 @@
         <p class="jds-card-body">{{ aboutTheRole }}</p>
       </section>
 
-      <section v-if="responsibilities.length" class="jds-card">
+      <section v-if="responsibilitySets.length" class="jds-card">
         <h3 class="jds-card-title">
           <span class="jds-card-ico" aria-hidden="true">✅</span>
           Responsibilities
         </h3>
-        <ul class="jds-list">
-          <li v-for="(item, i) in responsibilities" :key="`r-${i}`">{{ item }}</li>
-        </ul>
+        <div v-for="(set, si) in responsibilitySets" :key="`rs-${si}`" class="jds-set">
+          <h4 v-if="set.title" class="jds-set-title">{{ set.title }}</h4>
+          <ul class="jds-list">
+            <li v-for="(item, i) in set.items" :key="`r-${si}-${i}`">{{ item }}</li>
+          </ul>
+        </div>
       </section>
 
       <section v-if="qualifications.length" class="jds-card">
@@ -74,6 +77,7 @@ const props = defineProps({
   summary: { type: String, default: '' },
   roleType: { type: String, default: '' },
   location: { type: String, default: '' },
+  schedule: { type: String, default: '' },
   workMode: { type: String, default: '' },
   accentColor: { type: String, default: '#1a8c54' },
   compact: { type: Boolean, default: false },
@@ -83,11 +87,24 @@ const props = defineProps({
 });
 
 const aboutTheRole = computed(() => String(props.sections?.aboutTheRole || '').trim());
-const responsibilities = computed(() =>
-  Array.isArray(props.sections?.responsibilities)
-    ? props.sections.responsibilities.map((s) => String(s || '').trim()).filter(Boolean)
-    : []
-);
+const responsibilitySets = computed(() => {
+  const src = props.sections;
+  const sets = Array.isArray(src?.responsibilitySets) ? src.responsibilitySets : null;
+  if (sets && sets.length) {
+    return sets
+      .map((s) => ({
+        title: String(s?.title || '').trim(),
+        items: Array.isArray(s?.items)
+          ? s.items.map((x) => String(x || '').trim()).filter(Boolean)
+          : []
+      }))
+      .filter((s) => s.title || s.items.length);
+  }
+  const flat = Array.isArray(src?.responsibilities)
+    ? src.responsibilities.map((s) => String(s || '').trim()).filter(Boolean)
+    : [];
+  return flat.length ? [{ title: '', items: flat }] : [];
+});
 const qualifications = computed(() =>
   Array.isArray(props.sections?.qualifications)
     ? props.sections.qualifications.map((s) => String(s || '').trim()).filter(Boolean)
@@ -102,7 +119,7 @@ const benefits = computed(() =>
 const hasContent = computed(() =>
   !!(
     aboutTheRole.value
-    || responsibilities.value.length
+    || responsibilitySets.value.length
     || qualifications.value.length
     || benefits.value.length
     || props.pdfUrl
@@ -114,6 +131,7 @@ const metaItems = computed(() => {
   const items = [];
   if (String(props.roleType || '').trim()) items.push({ icon: '💼', label: String(props.roleType).trim() });
   if (String(props.location || '').trim()) items.push({ icon: '📍', label: String(props.location).trim() });
+  if (String(props.schedule || '').trim()) items.push({ icon: '🗓️', label: String(props.schedule).trim() });
   if (String(props.workMode || '').trim()) items.push({ icon: '👥', label: String(props.workMode).trim() });
   return items;
 });
@@ -191,6 +209,13 @@ const rootStyle = computed(() => ({
   font-size: 0.92rem;
   line-height: 1.55;
   color: #1e293b;
+}
+.jds-set + .jds-set { margin-top: 14px; }
+.jds-set-title {
+  margin: 0 0 8px;
+  font-size: 0.92rem;
+  font-weight: 700;
+  color: #0f172a;
 }
 .jds-list li::marker { color: var(--jds-accent); }
 .jds-pdf { margin: 18px 0 0; }

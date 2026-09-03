@@ -3,7 +3,7 @@
     <div class="hps-header">
       <h2 class="hps-title">Hiring &amp; Pre-Hire</h2>
       <p class="hps-subtitle">
-        Configure defaults for the pre-hire workflow. Settings here drive the <strong>Mark Hired</strong> modal
+        Configure defaults for the pre-hire workflow. Settings here drive the <strong>Start Pre-Hire</strong> page
         and control what candidates see when they first receive access.
       </p>
     </div>
@@ -17,8 +17,7 @@
         <div class="hps-section-header">
           <div class="hps-section-title">Default Pre-Hire Package</div>
           <div class="hps-section-sub">
-            Assigned automatically when "Send to candidate" is clicked. Must be a package with type <em>pre_hire</em>.
-            Configure packages in <strong>Settings → Packages</strong>.
+            Assigned automatically when Initiate is clicked on Start Pre-Hire, unless that job posting lists its own documents.
           </div>
         </div>
         <div class="hps-field">
@@ -57,8 +56,7 @@
         <div class="hps-section-header">
           <div class="hps-section-title">Default Contract Template</div>
           <div class="hps-section-sub">
-            Pre-loaded in the Mark Hired modal. Requires both candidate signature and internal countersignatures.
-            Templates are managed in Documents Library.
+            Used when Start Pre-Hire generates the employment contract. Requires candidate signature and internal countersignatures.
           </div>
         </div>
         <div class="hps-field">
@@ -68,6 +66,36 @@
             <option v-for="t in signatureTemplates" :key="t.id" :value="t.id">{{ t.name }}</option>
           </select>
         </div>
+      </div>
+
+      <!-- Workplace handbook links -->
+      <div class="hps-section">
+        <div class="hps-section-header">
+          <div class="hps-section-title">Workplace handbook links</div>
+          <div class="hps-section-sub">
+            Shown in the candidate pre-hire portal Resources section. Opens are tracked.
+          </div>
+        </div>
+        <div class="hps-field-group">
+          <div class="hps-field">
+            <label class="hps-label">Handbook acknowledgement URL</label>
+            <input v-model="form.handbook_ack_url" class="input" type="url" placeholder="https://…" />
+          </div>
+          <div class="hps-field">
+            <label class="hps-label">Full Workplace Handbook URL</label>
+            <input v-model="form.handbook_full_url" class="input" type="url" placeholder="https://…" />
+          </div>
+        </div>
+      </div>
+
+      <div class="hps-section">
+        <div class="hps-section-header">
+          <div class="hps-section-title">Default pre-hire documents</div>
+          <div class="hps-section-sub">
+            Agency-wide defaults merged with each job posting’s documents. Job-level items take priority.
+          </div>
+        </div>
+        <JobPrehireDocsEditor v-model="defaultDocsModel" heading="Agency default documents" />
       </div>
 
       <!-- Candidate Access Token -->
@@ -212,10 +240,10 @@
       <div class="hps-now-section">
         <div class="hps-now-title">What's live</div>
         <ul class="hps-now-list">
-          <li><span class="now-check">✓</span><span><strong>Mark Hired modal</strong> — now auto-loads pre_hire tagged templates and your signer roles.</span></li>
+          <li><span class="now-check">✓</span><span><strong>Start Pre-Hire page</strong> — generate the contract, pick job-level documents, then click Initiate.</span></li>
           <li><span class="now-check">✓</span><span><strong>Pre-Hire tab</strong> — People Ops → Pre-Hire shows all PENDING_SETUP, PREHIRE_OPEN, and PREHIRE_REVIEW candidates.</span></li>
-          <li><span class="now-check">✓</span><span><strong>Internal signer to-dos</strong> — countersign tasks are created for each signer when "Send to candidate" is clicked.</span></li>
-          <li><span class="now-check">✓</span><span><strong>Document stage tags</strong> — tag templates as <em>pre_hire</em> in Documents Library so they auto-load in the modal.</span></li>
+          <li><span class="now-check">✓</span><span><strong>Internal signer to-dos</strong> — countersign tasks are created for each signer when Initiate is clicked.</span></li>
+          <li><span class="now-check">✓</span><span><strong>Job-level documents</strong> — attach print-only, IdentoGO, acknowledgements, and uploads on the job posting. The unused library dump is not used.</span></li>
         </ul>
       </div>
     </template>
@@ -226,6 +254,7 @@
 import { ref, computed, watch, onMounted } from 'vue';
 import api from '../../services/api';
 import { useAgencyStore } from '../../store/agency';
+import JobPrehireDocsEditor from '../careers/JobPrehireDocsEditor.vue';
 
 const props = defineProps({
   scopedAgencyId: { type: [Number, String], default: null }
@@ -249,7 +278,14 @@ const form = ref({
   token_expiry_hours: 168,
   invite_email_subject: '',
   invite_email_body: '',
-  role_package_mappings: []
+  role_package_mappings: [],
+  handbook_ack_url: '',
+  handbook_full_url: '',
+  default_prehire_docs: []
+});
+const defaultDocsModel = computed({
+  get: () => ({ documents: Array.isArray(form.value.default_prehire_docs) ? form.value.default_prehire_docs : [] }),
+  set: (v) => { form.value.default_prehire_docs = v?.documents || []; }
 });
 
 // Role→package mapping helpers
@@ -312,7 +348,10 @@ const loadAll = async () => {
       token_expiry_hours: s.token_expiry_hours ?? 168,
       invite_email_subject: s.invite_email_subject ?? '',
       invite_email_body: s.invite_email_body ?? '',
-      role_package_mappings: Array.isArray(s.role_package_mappings) ? s.role_package_mappings : []
+      role_package_mappings: Array.isArray(s.role_package_mappings) ? s.role_package_mappings : [],
+      handbook_ack_url: s.handbook_ack_url ?? '',
+      handbook_full_url: s.handbook_full_url ?? '',
+      default_prehire_docs: Array.isArray(s.default_prehire_docs) ? s.default_prehire_docs : []
     };
 
     const pkgList = Array.isArray(pkgsRes.data) ? pkgsRes.data : [];

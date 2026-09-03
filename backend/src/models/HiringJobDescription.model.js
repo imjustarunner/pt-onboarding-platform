@@ -26,7 +26,9 @@ class HiringJobDescription {
     createdByUserId,
     isActive = true,
     publishAt = null,
-    unpublishAt = null
+    unpublishAt = null,
+    scheduleText = null,
+    credentialMode = 'none'
   }) {
     const baseParams = [
       parseIntParam(agencyId),
@@ -50,6 +52,12 @@ class HiringJobDescription {
       isActive ? 1 : 0,
       parseIntParam(createdByUserId)
     ];
+    const scheduleTextVal = scheduleText !== undefined && scheduleText !== null
+      ? String(scheduleText).trim().slice(0, 500) || null
+      : null;
+    const credentialModeVal = ['expected', 'mandatory'].includes(String(credentialMode || '').trim().toLowerCase())
+      ? String(credentialMode).trim().toLowerCase()
+      : 'none';
     try {
       const [result] = await pool.execute(
         `INSERT INTO hiring_job_descriptions (
@@ -57,24 +65,40 @@ class HiringJobDescription {
           posted_date, application_deadline, city, state, education_level,
           role_type, is_featured, tags_json,
           application_page_json, storage_path, original_name, mime_type,
-          is_active, created_by_user_id, publish_at, unpublish_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [...baseParams, publishAt || null, unpublishAt || null]
+          is_active, created_by_user_id, publish_at, unpublish_at,
+          schedule_text, credential_mode
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [...baseParams, publishAt || null, unpublishAt || null, scheduleTextVal, credentialModeVal]
       );
       return this.findById(result.insertId);
     } catch (e) {
       if (e?.code !== 'ER_BAD_FIELD_ERROR') throw e;
-      const [result] = await pool.execute(
-        `INSERT INTO hiring_job_descriptions (
-          agency_id, title, description_text, description_sections_json,
-          posted_date, application_deadline, city, state, education_level,
-          role_type, is_featured, tags_json,
-          application_page_json, storage_path, original_name, mime_type,
-          is_active, created_by_user_id
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        baseParams
-      );
-      return this.findById(result.insertId);
+      try {
+        const [result] = await pool.execute(
+          `INSERT INTO hiring_job_descriptions (
+            agency_id, title, description_text, description_sections_json,
+            posted_date, application_deadline, city, state, education_level,
+            role_type, is_featured, tags_json,
+            application_page_json, storage_path, original_name, mime_type,
+            is_active, created_by_user_id, publish_at, unpublish_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [...baseParams, publishAt || null, unpublishAt || null]
+        );
+        return this.findById(result.insertId);
+      } catch (e2) {
+        if (e2?.code !== 'ER_BAD_FIELD_ERROR') throw e2;
+        const [result] = await pool.execute(
+          `INSERT INTO hiring_job_descriptions (
+            agency_id, title, description_text, description_sections_json,
+            posted_date, application_deadline, city, state, education_level,
+            role_type, is_featured, tags_json,
+            application_page_json, storage_path, original_name, mime_type,
+            is_active, created_by_user_id
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          baseParams
+        );
+        return this.findById(result.insertId);
+      }
     }
   }
 
@@ -122,7 +146,10 @@ class HiringJobDescription {
     mimeType,
     isActive,
     publishAt,
-    unpublishAt
+    unpublishAt,
+    scheduleText,
+    credentialMode,
+    prehireConfigJson
   } = {}) {
     const updates = [];
     const params = [];
@@ -199,19 +226,47 @@ class HiringJobDescription {
       updates.push('unpublish_at = ?');
       params.push(unpublishAt || null);
     }
+    if (scheduleText !== undefined) {
+      updates.push('schedule_text = ?');
+      params.push(scheduleText !== null ? String(scheduleText).trim().slice(0, 500) || null : null);
+    }
+    if (credentialMode !== undefined) {
+      const mode = String(credentialMode || '').trim().toLowerCase();
+      updates.push('credential_mode = ?');
+      params.push(['expected', 'mandatory'].includes(mode) ? mode : 'none');
+    }
+    if (prehireConfigJson !== undefined) {
+      updates.push('prehire_config_json = ?');
+      params.push(prehireConfigJson !== null ? JSON.stringify(prehireConfigJson) : null);
+    }
 
     if (updates.length === 0) {
       return this.findById(id);
     }
 
     params.push(parseIntParam(id));
-    await pool.execute(
-      `UPDATE hiring_job_descriptions
-       SET ${updates.join(', ')}
-       WHERE id = ?
-       LIMIT 1`,
-      params
-    );
+    try {
+      await pool.execute(
+        `UPDATE hiring_job_descriptions
+         SET ${updates.join(', ')}
+         WHERE id = ?
+         LIMIT 1`,
+        params
+      );
+    } catch (e) {
+      if (e?.code !== 'ER_BAD_FIELD_ERROR' || prehireConfigJson === undefined) throw e;
+      const filtered = updates
+        .map((sql, i) => ({ sql, val: params[i] }))
+        .filter((row) => !String(row.sql).includes('prehire_config_json'));
+      if (!filtered.length) return this.findById(id);
+      await pool.execute(
+        `UPDATE hiring_job_descriptions
+         SET ${filtered.map((r) => r.sql).join(', ')}
+         WHERE id = ?
+         LIMIT 1`,
+        [...filtered.map((r) => r.val), parseIntParam(id)]
+      );
+    }
     return this.findById(id);
   }
 

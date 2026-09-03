@@ -2778,6 +2778,12 @@ const routes = [
     meta: { requiresAuth: true, requiresCapability: 'canManageHiring', organizationSlug: true }
   },
   {
+    path: '/:organizationSlug/admin/hiring/start-pre-hire/:userId',
+    name: 'OrganizationStartPreHire',
+    component: () => import('../views/admin/StartPreHireView.vue'),
+    meta: { requiresAuth: true, requiresCapability: 'canManageHiring', organizationSlug: true }
+  },
+  {
     path: '/:organizationSlug/admin/pre-hire',
     name: 'OrganizationPreHire',
     component: () => import('../views/admin/PreHireView.vue'),
@@ -4298,6 +4304,12 @@ const routes = [
     meta: { requiresAuth: true, requiresCapability: 'canManageHiring' }
   },
   {
+    path: '/admin/hiring/start-pre-hire/:userId',
+    name: 'StartPreHire',
+    component: () => import('../views/admin/StartPreHireView.vue'),
+    meta: { requiresAuth: true, requiresCapability: 'canManageHiring' }
+  },
+  {
     path: '/admin/pre-hire',
     name: 'PreHire',
     component: () => import('../views/admin/PreHireView.vue'),
@@ -4461,6 +4473,12 @@ const routes = [
     path: '/pre-hire/:token',
     name: 'CandidatePreHirePortal',
     component: () => import('../views/CandidatePreHirePortalView.vue'),
+    meta: { requiresGuest: false, isPublicPortal: true }
+  },
+  {
+    path: '/pre-hire/:token/print/:itemKey',
+    name: 'CandidatePreHirePrint',
+    component: () => import('../views/CandidatePreHirePrintView.vue'),
     meta: { requiresGuest: false, isPublicPortal: true }
   },
   {

@@ -4067,7 +4067,7 @@ const dashboardCards = computed(() => {
       const libraryPath = orgSlug ? `/${orgSlug}/library` : '/library';
       cards.push({
         id: 'library',
-        label: 'Library',
+        label: 'Tools and Resources',
         kind: 'link',
         to: libraryPath,
         badgeCount: 0,

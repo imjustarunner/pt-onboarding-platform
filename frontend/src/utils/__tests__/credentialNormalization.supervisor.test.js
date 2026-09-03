@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   isClinicalOrBillingSupervisorCredentialText,
+  isFullyLicensedCredentialText,
   supervisorCredentialText
 } from '../credentialNormalization.js';
 
@@ -16,6 +17,22 @@ describe('isClinicalOrBillingSupervisorCredentialText', () => {
     'rejects %s',
     (cred) => {
       expect(isClinicalOrBillingSupervisorCredentialText(cred)).toBe(false);
+    }
+  );
+});
+
+describe('isFullyLicensedCredentialText Colorado DORA prefixes', () => {
+  it.each(['LPC.002383', 'CSW.09931054', 'MFT.0002328', 'CSW'])(
+    'treats %s as fully licensed',
+    (cred) => {
+      expect(isFullyLicensedCredentialText(cred)).toBe(true);
+    }
+  );
+
+  it.each(['LPCC', 'MFTC', 'SWC', 'LSW'])(
+    'still excludes prelicensed %s',
+    (cred) => {
+      expect(isFullyLicensedCredentialText(cred)).toBe(false);
     }
   );
 });

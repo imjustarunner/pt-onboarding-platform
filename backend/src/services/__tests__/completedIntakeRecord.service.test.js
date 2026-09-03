@@ -295,12 +295,33 @@ test('job application completed record uses application copy instead of intake/c
       signer_email: 'haleyinyart@gmail.com',
       intake_data: {
         responses: {
-          guardian: { firstName: 'Haley', lastName: 'Inyart', email: 'haleyinyart@gmail.com' },
+          guardian: { firstName: 'Haley', lastName: 'Inyart', email: 'haleyinyart@gmail.com', phone: '555-0100' },
           submission: {
             resume_text: 'Sample resume',
-            uploadTextByStep: { 'Step 1 Resume': 'pasted resume dump' }
+            uploadTextByStep: { 'Step 1 Resume': 'pasted resume dump' },
+            applicantProfile: {
+              credential: 'LPC',
+              licenseNumber: 'LPC.002383',
+              bestTimeToContact: 'Weekday mornings',
+              interviewAvailability: 'Afternoons after 3pm'
+            },
+            fluentLanguages: ['English', 'Spanish'],
+            references: [
+              { name: 'Alex Rivera', email: 'alex@example.com', organization: 'Clinic A' },
+              { name: 'Jordan Lee', email: 'jordan@example.com', organization: 'Clinic B' },
+              { name: 'Sam Patel', email: 'sam@example.com', organization: 'Clinic C' }
+            ]
           }
-        }
+        },
+        applicantProfile: {
+          credential: 'LPC',
+          licenseNumber: 'LPC.002383'
+        },
+        referencesJson: [
+          { name: 'Alex Rivera', email: 'alex@example.com', organization: 'Clinic A' },
+          { name: 'Jordan Lee', email: 'jordan@example.com', organization: 'Clinic B' },
+          { name: 'Sam Patel', email: 'sam@example.com', organization: 'Clinic C' }
+        ]
       }
     },
     clients: [{ fullName: 'Haley Inyart' }]
@@ -310,8 +331,14 @@ test('job application completed record uses application copy instead of intake/c
   assert.equal(spec.skipCoverPage, true);
   assert.ok(!/intake packet/i.test(spec.title));
   const labels = spec.sections.flatMap((section) => section.rows.map((row) => row.label));
-  assert.ok(labels.includes('Applicant'));
+  assert.ok(labels.includes('Name'));
+  assert.ok(labels.includes('Credential'));
+  assert.ok(labels.includes('License number'));
+  assert.ok(labels.includes('Reference 1 name'));
+  assert.ok(labels.includes('Reference 2 email'));
+  assert.ok(labels.includes('Reference 3 name'));
   assert.ok(!labels.includes('Client'));
+  assert.ok(!spec.sections.some((section) => /Client details/i.test(section.title)));
   assert.ok(!labels.some((l) => /resume text/i.test(l)));
   assert.ok(!labels.some((l) => /upload text/i.test(l)));
   const leftover = spec.sections.find((section) => /Additional answers/i.test(section.title));

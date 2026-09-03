@@ -33,15 +33,26 @@ function applyCustomTokens(text, { firstName, portalLink }) {
     .replace(/\{\{PORTAL_LOGIN_LINK\}\}/g, portalLink);
 }
 
-function buildDefaultInviteContent({ firstName, agencyName, jobTitle, portalLink }) {
+function buildDefaultInviteContent({ firstName, agencyName, jobTitle, portalLink, inviteDetails }) {
+  const details = inviteDetails || {};
+  const extraLines = [];
+  if (details.startDate) extraLines.push(`Start date: ${details.startDate}`);
+  if (details.expirationDate) extraLines.push(`Offer / contract expiration: ${details.expirationDate}`);
+  if (details.minDays) extraLines.push(`Days per week: ${details.minDays}`);
+  if (details.minHours) extraLines.push(`Minimum hours per week: ${details.minHours}`);
+  const steps = Array.isArray(details.steps) ? details.steps.filter(Boolean) : [];
   const subject = `Welcome to ${agencyName} — complete your pre-hire documents`;
   const text = [
     `Hi ${firstName},`,
     '',
     `We're thrilled to welcome you to the ${agencyName} team${jobTitle ? ` as ${jobTitle}` : ''}!`,
     '',
+    extraLines.length ? extraLines.join('\n') : '',
+    extraLines.length ? '' : '',
     'To complete your pre-hire process, please click the link below to access your secure pre-hire portal. You\'ll find documents to review and sign, as well as any other items required before your start date.',
     '',
+    steps.length ? `Your pre-hire steps:\n${steps.map((s) => `• ${s}`).join('\n')}` : '',
+    steps.length ? '' : '',
     `Your pre-hire portal: ${portalLink}`,
     '',
     'This link is valid for 7 days. If it expires, please contact your HR coordinator for a new one.',
@@ -51,12 +62,21 @@ function buildDefaultInviteContent({ firstName, agencyName, jobTitle, portalLink
     'We look forward to having you on the team!',
     '',
     `— ${agencyName} People Operations`
-  ].join('\n');
+  ].filter((line, idx, arr) => !(line === '' && arr[idx - 1] === '')).join('\n');
+
+  const extraHtml = extraLines.length
+    ? `<ul>${extraLines.map((l) => `<li>${escHtml(l)}</li>`).join('')}</ul>`
+    : '';
+  const stepsHtml = steps.length
+    ? `<p><strong>Your pre-hire steps:</strong></p><ul>${steps.map((s) => `<li>${escHtml(s)}</li>`).join('')}</ul>`
+    : '';
 
   const html = `<div style="font-family:Arial,sans-serif;line-height:1.6;color:#111;max-width:600px;">
     <p>Hi ${escHtml(firstName)},</p>
     <p>We're thrilled to welcome you to the <strong>${escHtml(agencyName)}</strong> team${jobTitle ? ` as <strong>${escHtml(jobTitle)}</strong>` : ''}!</p>
+    ${extraHtml}
     <p>To complete your pre-hire process, please click the button below to access your secure pre-hire portal. You'll find documents to review and sign, as well as any other items required before your start date.</p>
+    ${stepsHtml}
     <p style="margin:24px 0;">
       <a href="${escHtml(portalLink)}" style="background:#1a5c38;color:white;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:bold;display:inline-block;">Access Your Pre-Hire Portal →</a>
     </p>
@@ -85,7 +105,8 @@ export async function sendPrehirePortalInviteEmail({
   portalLink,
   customSubject = null,
   customBody = null,
-  generatedByUserId = null
+  generatedByUserId = null,
+  inviteDetails = null
 }) {
   const user = await User.findById(candidateUserId);
   if (!user) return { skipped: true, reason: 'user_not_found' };
@@ -147,10 +168,30 @@ export async function sendPrehirePortalInviteEmail({
   }
 
   if (!text) {
-    const fallback = buildDefaultInviteContent({ firstName, agencyName, jobTitle, portalLink });
+    const fallback = buildDefaultInviteContent({ firstName, agencyName, jobTitle, portalLink, inviteDetails });
     subject = subject || fallback.subject;
     text = fallback.text;
     html = fallback.html;
+  } else if (inviteDetails) {
+    const extraLines = [
+      inviteDetails.startDate ? `Start date: ${inviteDetails.startDate}` : '',
+      inviteDetails.expirationDate ? `Offer / contract expiration: ${inviteDetails.expirationDate}` : '',
+      inviteDetails.minDays ? `Days per week: ${inviteDetails.minDays}` : '',
+      inviteDetails.minHours ? `Minimum hours per week: ${inviteDetails.minHours}` : ''
+    ].filter(Boolean);
+    const steps = Array.isArray(inviteDetails.steps) ? inviteDetails.steps.filter(Boolean) : [];
+    if (extraLines.length || steps.length) {
+      const extraText = [
+        extraLines.join('\n'),
+        steps.length ? `Pre-hire steps:\n${steps.map((s) => `• ${s}`).join('\n')}` : ''
+      ].filter(Boolean).join('\n');
+      text = `${text}\n\n${extraText}`;
+      const extraHtmlBits = [
+        extraLines.length ? `<ul>${extraLines.map((l) => `<li>${escHtml(l)}</li>`).join('')}</ul>` : '',
+        steps.length ? `<p><strong>Pre-hire steps:</strong></p><ul>${steps.map((s) => `<li>${escHtml(s)}</li>`).join('')}</ul>` : ''
+      ].join('');
+      html = `${html}<div style="margin-top:16px;font-size:14px;color:#111;">${extraHtmlBits}</div>`;
+    }
   }
 
   const result = await sendNotificationEmail({

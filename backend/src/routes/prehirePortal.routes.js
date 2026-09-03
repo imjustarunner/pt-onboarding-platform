@@ -27,7 +27,11 @@ import {
   checkPortalAccountEmail,
   provisionPortalAccount,
   getPortalSubmissions,
-  getPortalHandbook
+  getPortalHandbook,
+  submitPortalBackgroundCheck,
+  recordPortalHandbookOpen,
+  completePortalChecklistItem,
+  acknowledgePortalJobDescription
 } from '../controllers/prehirePortal.controller.js';
 
 const router = express.Router();
@@ -70,6 +74,14 @@ router.post(
 );
 router.get('/:token/submissions', getPortalSubmissions);
 router.get('/:token/resources/handbook', getPortalHandbook);
+router.post('/:token/background-check', submitPortalBackgroundCheck);
+router.post('/:token/resources/handbook/open', recordPortalHandbookOpen);
+router.post('/:token/checklist/:itemKey/complete', completePortalChecklistItem);
+router.post(
+  '/:token/job-description/acknowledge',
+  [body('signatureData').notEmpty().withMessage('Signature is required')],
+  acknowledgePortalJobDescription
+);
 
 // Token-scoped module / employee-info form (no login required)
 router.get('/:token/modules/:moduleId', getPortalModule);

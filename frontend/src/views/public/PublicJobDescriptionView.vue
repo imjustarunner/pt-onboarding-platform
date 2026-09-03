@@ -26,6 +26,7 @@
         :title="job.title"
         :role-type="job.roleType || ''"
         :location="job.location || ''"
+        :schedule="job.scheduleText || ''"
         :accent-color="accentColor"
         :show-header="false"
       />

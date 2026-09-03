@@ -8,8 +8,18 @@
         <div class="cov-kv"><span>Role applied</span><strong>{{ roleTitle }}</strong></div>
         <div class="cov-kv"><span>Email</span><strong>{{ email || '—' }}</strong></div>
         <div class="cov-kv"><span>Phone</span><strong>{{ phone || '—' }}</strong></div>
+        <div class="cov-kv"><span>Credential</span><strong>{{ credentialLabel }}</strong></div>
+        <div class="cov-kv"><span>Best time to contact</span><strong>{{ bestTimeLabel }}</strong></div>
+        <div class="cov-kv"><span>Interview availability</span><strong>{{ availabilityLabel }}</strong></div>
         <div class="cov-kv"><span>Source</span><strong>{{ source || '—' }}</strong></div>
       </section>
+
+      <BackgroundCheckAuthorizationCard
+        v-if="user?.id"
+        :user-id="user.id"
+        :agency-id="agencyId"
+        :initial-summary="backgroundCheck"
+      />
 
       <section class="cov-card">
         <h4>Recommendation</h4>
@@ -78,6 +88,7 @@
 <script setup>
 import { computed } from 'vue';
 import { buildOverviewHighlights, buildOverviewFlags } from '../../utils/hiringPreScreenDigest.js';
+import BackgroundCheckAuthorizationCard from './BackgroundCheckAuthorizationCard.vue';
 
 const props = defineProps({
   profile: { type: Object, default: null },
@@ -88,7 +99,9 @@ const props = defineProps({
   latestPreScreen: { type: Object, default: null },
   interviews: { type: Array, default: () => [] },
   averageInterviewScore: { type: [Number, String], default: null },
-  activityItems: { type: Array, default: () => [] }
+  activityItems: { type: Array, default: () => [] },
+  agencyId: { type: [Number, String], default: null },
+  backgroundCheck: { type: Object, default: null }
 });
 
 defineEmits(['goto-tab', 'schedule-interview']);
@@ -110,6 +123,14 @@ const roleTitle = computed(() => props.jobTitle || props.profile?.applied_role |
 const email = computed(() => props.user?.personal_email || props.user?.email || '');
 const phone = computed(() => props.user?.phone_number || '');
 const source = computed(() => props.profile?.source || '');
+const credentialLabel = computed(() => {
+  const cred = String(props.profile?.credential || '').trim();
+  const lic = String(props.profile?.license_number || '').trim();
+  if (cred && lic) return `${cred} · ${lic}`;
+  return cred || lic || '—';
+});
+const bestTimeLabel = computed(() => String(props.profile?.best_time_to_contact || '').trim() || '—');
+const availabilityLabel = computed(() => String(props.profile?.interview_availability || '').trim() || '—');
 
 const interviewCount = computed(() => (props.interviews || []).length);
 

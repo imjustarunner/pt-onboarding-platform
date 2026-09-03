@@ -191,6 +191,124 @@
               <p v-if="tokenExpiresLabel" class="portal-link-expiry">Link valid until {{ tokenExpiresLabel }}</p>
             </section>
 
+            <section
+              v-if="activeSection === 'dashboard' && portalPhase !== 'account_setup'"
+              class="portal-link-card"
+              aria-label="Authorization for background check"
+            >
+              <div class="portal-link-card-head">
+                <strong>Authorization for Background Check</strong>
+              </div>
+              <p v-if="backgroundCheck?.signed" class="cred-ok">
+                Signed{{ backgroundCheck.signerName ? ` by ${backgroundCheck.signerName}` : '' }}.
+                SSN {{ backgroundCheck.ssnMasked || '***' }} · DL {{ backgroundCheck.dlMasked || '***' }}.
+                Full numbers are encrypted and are not shown again.
+              </p>
+              <form v-else class="bg-form" @submit.prevent="submitBackgroundCheck">
+                <p class="portal-link-help">
+                  {{ agency?.name || 'This organization' }} uses a consumer reporting agency for employment screening.
+                  Your Social Security number and driver’s license are encrypted in transit and at rest.
+                  After you sign, this portal only shows a masked receipt (*** plus the last four digits).
+                </p>
+                <label>Legal name <input v-model="bgForm.legalName" type="text" required autocomplete="name" /></label>
+                <label>Date of birth <input v-model="bgForm.dateOfBirth" type="date" required /></label>
+                <label>Current address <input v-model="bgForm.currentAddress" type="text" required autocomplete="street-address" /></label>
+                <label>Previous addresses (optional) <textarea v-model="bgForm.previousAddresses" rows="2" /></label>
+                <label>Other names / aliases (optional) <input v-model="bgForm.aliases" type="text" /></label>
+                <label>Social Security number
+                  <input v-model="bgForm.ssn" type="text" inputmode="numeric" autocomplete="off" required placeholder="###-##-####" />
+                </label>
+                <label>Driver’s license number
+                  <input v-model="bgForm.driversLicense" type="text" autocomplete="off" required />
+                </label>
+                <p class="portal-link-help">
+                  By signing, I authorize {{ agency?.name || 'the employer' }} and its agents to obtain consumer reports
+                  and investigate my background for employment purposes. I certify the information is true.
+                </p>
+                <AdaptiveSignatureCapture
+                  v-model="bgForm.signatureData"
+                  title="Sign authorization"
+                  :signer-name="bgForm.legalName"
+                />
+                <p v-if="bgError" class="cred-warn">{{ bgError }}</p>
+                <button type="submit" class="btn-primary" :disabled="bgSaving">
+                  {{ bgSaving ? 'Saving…' : 'Submit authorization' }}
+                </button>
+              </form>
+            </section>
+
+            <section
+              v-if="activeSection === 'dashboard' && portalPhase !== 'account_setup'"
+              class="portal-link-card"
+              aria-label="Job description acknowledgement"
+            >
+              <div class="portal-link-card-head"><strong>Job description</strong></div>
+              <p v-if="jdAcknowledged" class="cred-ok">You acknowledged this job description.</p>
+              <template v-else>
+                <JobDescriptionSections
+                  v-if="jobDescription?.descriptionSections"
+                  :sections="jobDescription.descriptionSections"
+                  :title="jobDescription.title"
+                  :schedule="jobDescription.scheduleText"
+                  show-header
+                  compact
+                />
+                <p v-else class="muted">{{ jobDescription?.title || 'Job description' }}</p>
+                <AdaptiveSignatureCapture
+                  v-model="jdSignature"
+                  title="Acknowledge job description"
+                  :signer-name="candidateDisplayName"
+                />
+                <p v-if="jdError" class="cred-warn">{{ jdError }}</p>
+                <button type="button" class="btn-primary" :disabled="jdSaving" @click="acknowledgeJobDescription">
+                  {{ jdSaving ? 'Saving…' : 'I acknowledge this job description' }}
+                </button>
+              </template>
+            </section>
+
+            <section
+              v-if="(activeSection === 'dashboard' || activeSection === 'tasks') && prehireDocs.length"
+              class="portal-link-card"
+              aria-label="Pre-hire documents"
+            >
+              <div class="portal-link-card-head"><strong>Pre-hire documents</strong></div>
+              <ul class="portal-simple-list">
+                <li v-for="doc in prehireDocs" :key="doc.id">
+                  <strong>{{ doc.title }}</strong>
+                  <span class="cred-muted"> · {{ doc.kind }}</span>
+                  <p v-if="doc.instructions" class="portal-link-help">{{ doc.instructions }}</p>
+                  <a
+                    v-if="doc.kind === 'print_only'"
+                    class="portal-link-copy"
+                    :href="`/pre-hire/${token}/print/${encodeURIComponent(doc.id)}`"
+                  >Open print page</a>
+                  <a
+                    v-else-if="doc.kind === 'reference' && doc.url"
+                    class="portal-link-copy"
+                    :href="doc.url"
+                    target="_blank"
+                    rel="noopener"
+                    @click="trackHandbookOpen(`ref:${doc.id}`)"
+                  >Open link</a>
+                </li>
+              </ul>
+            </section>
+
+            <section
+              v-if="(activeSection === 'dashboard' || activeSection === 'tasks') && checklistItems.length"
+              class="portal-link-card"
+              aria-label="Pre-hire checklist"
+            >
+              <div class="portal-link-card-head"><strong>Checklist</strong></div>
+              <ul class="portal-simple-list">
+                <li v-for="item in checklistItems" :key="item.itemKey">
+                  <strong>{{ item.title }}</strong>
+                  <span v-if="item.scheduledOn" class="cred-muted"> · scheduled {{ formatChecklistDate(item.scheduledOn) }}</span>
+                  <span v-if="item.completedOn" class="cred-ok"> · completed {{ formatChecklistDate(item.completedOn) }}</span>
+                </li>
+              </ul>
+            </section>
+
             <!-- Submissions -->
             <section v-if="activeSection === 'submissions'" class="portal-submissions" aria-label="My submissions">
               <div class="portal-tasks-head">
@@ -234,19 +352,40 @@
                 </div>
               </div>
               <div v-if="handbookLoading" class="empty-tasks">Loading handbook…</div>
-              <div v-else-if="!handbook?.available" class="empty-tasks">
-                Workplace handbook is not published yet. Check back soon.
-              </div>
-              <div v-else class="cred-card handbook-card">
-                <h3>{{ handbook.handbook?.title || 'Workplace Handbook' }}</h3>
-                <article
-                  v-for="sec in (handbook.handbook?.sections || [])"
-                  :key="sec.id"
-                  class="handbook-section"
-                >
-                  <h4>{{ sec.title }}</h4>
-                  <div class="handbook-body" v-html="sec.bodyHtml"></div>
-                </article>
+              <div v-else>
+                <div class="cred-card handbook-card" v-if="handbookLinks.acknowledgementUrl || handbookLinks.fullUrl">
+                  <h3>Workplace handbook</h3>
+                  <p v-if="handbookLinks.acknowledgementUrl">
+                    <a
+                      :href="handbookLinks.acknowledgementUrl"
+                      target="_blank"
+                      rel="noopener"
+                      @click="trackHandbookOpen('ack')"
+                    >Employee Handbook acknowledgement</a>
+                  </p>
+                  <p v-if="handbookLinks.fullUrl">
+                    <a
+                      :href="handbookLinks.fullUrl"
+                      target="_blank"
+                      rel="noopener"
+                      @click="trackHandbookOpen('full')"
+                    >Full Workplace Handbook</a>
+                  </p>
+                </div>
+                <div v-if="!handbook?.available && !handbookLinks.acknowledgementUrl && !handbookLinks.fullUrl" class="empty-tasks">
+                  Workplace handbook is not published yet. Check back soon.
+                </div>
+                <div v-else-if="handbook?.available" class="cred-card handbook-card">
+                  <h3>{{ handbook.handbook?.title || 'Workplace Handbook' }}</h3>
+                  <article
+                    v-for="sec in (handbook.handbook?.sections || [])"
+                    :key="sec.id"
+                    class="handbook-section"
+                  >
+                    <h4>{{ sec.title }}</h4>
+                    <div class="handbook-body" v-html="sec.bodyHtml"></div>
+                  </article>
+                </div>
               </div>
             </section>
 
@@ -259,35 +398,8 @@
               <div class="portal-tasks-head">
                 <div>
                   <h2>Accounts &amp; Access</h2>
-                  <p>Confirm your identity and acknowledge system logins. Temporary passwords are shown once.</p>
+                  <p>Acknowledge your company email. Phone and TherapyNotes logins appear after onboarding is initiated.</p>
                 </div>
-              </div>
-
-              <div class="cred-card">
-                <h3>Identity &amp; contact</h3>
-                <div class="cred-grid">
-                  <label>
-                    <span>Legal first name</span>
-                    <input v-model="identityForm.firstName" type="text" />
-                  </label>
-                  <label>
-                    <span>Legal last name</span>
-                    <input v-model="identityForm.lastName" type="text" />
-                  </label>
-                  <label>
-                    <span>Personal phone</span>
-                    <input v-model="identityForm.phone" type="tel" />
-                  </label>
-                </div>
-                <button
-                  type="button"
-                  class="btn-primary"
-                  :disabled="confirmingIdentity"
-                  @click="confirmIdentity"
-                >
-                  {{ credentialPacket?.identity?.confirmed ? 'Update &amp; confirm' : 'Confirm identity' }}
-                </button>
-                <p v-if="credentialPacket?.identity?.confirmed" class="cred-ok">Identity confirmed</p>
               </div>
 
               <div
@@ -674,6 +786,8 @@ import { useRoute, useRouter } from 'vue-router';
 import DOMPurify from 'dompurify';
 import axios from 'axios';
 import PreHirePortalChat from '../components/prehire/PreHirePortalChat.vue';
+import AdaptiveSignatureCapture from '../components/adaptive-intake/AdaptiveSignatureCapture.vue';
+import JobDescriptionSections from '../components/careers/JobDescriptionSections.vue';
 import { buildFormUrl } from '../utils/publicIntakeUrl.js';
 import { learnerFillableFields } from '../utils/documentFieldLayout.js';
 
@@ -743,6 +857,100 @@ const submissions = ref(null);
 const submissionsLoading = ref(false);
 const handbook = ref(null);
 const handbookLoading = ref(false);
+const bgSaving = ref(false);
+const bgError = ref('');
+const bgForm = ref({
+  legalName: '',
+  dateOfBirth: '',
+  currentAddress: '',
+  previousAddresses: '',
+  aliases: '',
+  ssn: '',
+  driversLicense: '',
+  signatureData: ''
+});
+const jdSignature = ref('');
+const jdSaving = ref(false);
+const jdError = ref('');
+const jdAcknowledgedLocal = ref(false);
+
+const backgroundCheck = computed(() => portalData.value?.backgroundCheck || { signed: false });
+const handbookLinks = computed(() => portalData.value?.handbookLinks || {});
+const jobDescription = computed(() => portalData.value?.jobDescription || null);
+const prehireDocs = computed(() => portalData.value?.prehireDocs || []);
+const checklistItems = computed(() => portalData.value?.checklistItems || []);
+const jdAcknowledged = computed(() => jdAcknowledgedLocal.value || !!portalData.value?.jdAcknowledged);
+const candidateDisplayName = computed(() => `${candidate.value.firstName || ''} ${candidate.value.lastName || ''}`.trim());
+
+const formatChecklistDate = (raw) => {
+  if (!raw) return '';
+  try {
+    return new Date(raw).toLocaleDateString();
+  } catch {
+    return String(raw);
+  }
+};
+
+const trackHandbookOpen = async (linkKey) => {
+  try {
+    await portalApi.post(`/prehire-portal/${token.value}/resources/handbook/open`, { linkKey });
+  } catch { /* ignore */ }
+};
+
+const submitBackgroundCheck = async () => {
+  bgError.value = '';
+  if (!bgForm.value.signatureData) {
+    bgError.value = 'Please capture your signature.';
+    return;
+  }
+  bgSaving.value = true;
+  try {
+    const { data } = await portalApi.post(`/prehire-portal/${token.value}/background-check`, {
+      legalName: bgForm.value.legalName,
+      dateOfBirth: bgForm.value.dateOfBirth,
+      currentAddress: bgForm.value.currentAddress,
+      previousAddresses: bgForm.value.previousAddresses,
+      aliases: bgForm.value.aliases,
+      ssn: bgForm.value.ssn,
+      driversLicense: bgForm.value.driversLicense,
+      signatureData: bgForm.value.signatureData
+    });
+    bgForm.value.ssn = '';
+    bgForm.value.driversLicense = '';
+    if (portalData.value) {
+      portalData.value.backgroundCheck = {
+        signed: true,
+        ssnMasked: data.ssnMasked,
+        dlMasked: data.dlMasked,
+        signerName: data.signerName
+      };
+    }
+  } catch (e) {
+    bgError.value = e?.response?.data?.error?.message || 'Could not save authorization.';
+  } finally {
+    bgSaving.value = false;
+  }
+};
+
+const acknowledgeJobDescription = async () => {
+  jdError.value = '';
+  if (!jdSignature.value) {
+    jdError.value = 'Please capture your signature.';
+    return;
+  }
+  jdSaving.value = true;
+  try {
+    await portalApi.post(`/prehire-portal/${token.value}/job-description/acknowledge`, {
+      signatureData: jdSignature.value,
+      signerName: candidateDisplayName.value
+    });
+    jdAcknowledgedLocal.value = true;
+  } catch (e) {
+    jdError.value = e?.response?.data?.error?.message || 'Could not save acknowledgement.';
+  } finally {
+    jdSaving.value = false;
+  }
+};
 
 const canProvisionAccount = computed(() => {
   const email = accountForm.value.workEmail || (accountForm.value.localPart && accountDomain.value
@@ -1290,6 +1498,9 @@ const loadPortal = async () => {
   try {
     const res = await portalApi.get(`/prehire-portal/${token.value}`);
     portalData.value = res.data;
+    if (!bgForm.value.legalName) {
+      bgForm.value.legalName = `${res.data?.candidate?.firstName || ''} ${res.data?.candidate?.lastName || ''}`.trim();
+    }
     if (res.data?.portalPhase === 'account_setup' || res.data?.hireAccountMode === 'group_password') {
       await loadAccountSuggestions();
     }
@@ -1633,6 +1844,16 @@ onMounted(async () => {
   margin: 8px 0 0;
   font-size: 12px;
   color: #64748b;
+}
+
+.bg-form { display: flex; flex-direction: column; gap: 10px; margin-top: 8px; }
+.bg-form label { display: flex; flex-direction: column; gap: 4px; font-size: 0.82rem; font-weight: 650; }
+.bg-form input, .bg-form textarea {
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  padding: 8px 10px;
+  font: inherit;
+  font-weight: 400;
 }
 
 .portal-link-copy {

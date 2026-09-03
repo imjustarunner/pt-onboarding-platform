@@ -223,25 +223,29 @@ export async function getCredentialPacketForPortal(userId) {
         tempPasswordConsumed: wsRevealed,
         acknowledged: !!info.portal_acked_email
       },
-      {
-        key: 'grasshopper',
-        label: 'Grasshopper',
-        username: info.grasshopper_login || null,
-        extension: info.grasshopper_extension || null,
-        pinAvailable: !!info.grasshopper_pin,
-        pin: info.grasshopper_pin || null,
-        hasTempPassword: false,
-        acknowledged: !!info.portal_acked_grasshopper
-      },
-      {
-        key: 'therapynotes',
-        label: 'TherapyNotes',
-        username: info.therapynotes_login || null,
-        hasTempPassword: !!info.therapynotes_temp_password,
-        tempPasswordAvailable: !!info.therapynotes_temp_password && !tnRevealed,
-        tempPasswordConsumed: tnRevealed,
-        acknowledged: !!info.portal_acked_therapynotes
-      }
+      ...(user.status === 'ONBOARDING'
+        ? [
+            {
+              key: 'grasshopper',
+              label: 'Grasshopper',
+              username: info.grasshopper_login || null,
+              extension: info.grasshopper_extension || null,
+              pinAvailable: !!info.grasshopper_pin,
+              pin: info.grasshopper_pin || null,
+              hasTempPassword: false,
+              acknowledged: !!info.portal_acked_grasshopper
+            },
+            {
+              key: 'therapynotes',
+              label: 'TherapyNotes',
+              username: info.therapynotes_login || null,
+              hasTempPassword: !!info.therapynotes_temp_password,
+              tempPasswordAvailable: !!info.therapynotes_temp_password && !tnRevealed,
+              tempPasswordConsumed: tnRevealed,
+              acknowledged: !!info.portal_acked_therapynotes
+            }
+          ]
+        : [])
     ]
   };
 }

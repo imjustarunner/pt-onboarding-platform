@@ -3,7 +3,7 @@
     <div class="library-page__inner">
       <header class="library-page__header">
         <div>
-          <h1>Library</h1>
+          <h1>Tools and Resources</h1>
           <p class="library-page__sub">
             Find guides, resources, templates, care documents, forms, and links available through your
             organization.
@@ -25,7 +25,7 @@
             v-model="search"
             type="search"
             placeholder="Search resources, guides, templates, links…"
-            aria-label="Search the Library"
+            aria-label="Search Tools and Resources"
             @keydown.enter="runSearch"
           />
         </div>

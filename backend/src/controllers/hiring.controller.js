@@ -36,6 +36,7 @@ import EmailService from '../services/email.service.js';
 import UserActivityLog from '../models/UserActivityLog.model.js';
 import { createAndSendReferenceRequests } from '../services/hiringReferenceRequests.service.js';
 import { sanitizeCareersPageJson } from '../utils/careersPageSanitize.js';
+import { sanitizePrehireConfig, mergePrehireDocuments } from '../utils/prehireConfigSanitize.js';
 import {
   parseJobDescriptionSections,
   sanitizeJobDescriptionSections
@@ -390,6 +391,10 @@ function mapJobDescriptionRow(r, agencyTimezone = DEFAULT_SCHEDULE_TZ) {
     applicationDeadline: r.application_deadline || null,
     city: r.city || null,
     state: r.state || null,
+    scheduleText: String(r.schedule_text || '').trim() || null,
+    credentialMode: ['expected', 'mandatory'].includes(String(r.credential_mode || '').trim().toLowerCase())
+      ? String(r.credential_mode).trim().toLowerCase()
+      : 'none',
     educationLevel: r.education_level || null,
     roleType: String(r.role_type || '').trim() || null,
     isFeatured: Number(r.is_featured) === 1,
@@ -402,9 +407,23 @@ function mapJobDescriptionRow(r, agencyTimezone = DEFAULT_SCHEDULE_TZ) {
     unpublishAtLocal: utcToDatetimeLocal(unpublishAt, agencyTimezone),
     agencyTimezone,
     scheduleStatus: deriveJobScheduleStatus({ isActive, publishAt, unpublishAt }),
+    prehireConfig: sanitizePrehireConfig(r.prehire_config_json),
     createdAt: r.created_at,
     updatedAt: r.updated_at
   };
+}
+
+function parsePrehireConfigFromBody(body) {
+  if (!body) return undefined;
+  if (body.prehireConfigJson === undefined && body.prehire_config_json === undefined) return undefined;
+  const raw = body.prehireConfigJson ?? body.prehire_config_json;
+  if (raw == null || raw === '') return null;
+  try {
+    const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
+    return sanitizePrehireConfig(parsed);
+  } catch {
+    return null;
+  }
 }
 
 function hiringStageLabel(stage) {
@@ -1240,7 +1259,10 @@ export const getCandidate = async (req, res, next) => {
     let jobDescription = null;
     if (profile?.job_description_id) {
       const jd = await HiringJobDescription.findById(profile.job_description_id);
-      if (jd && Number(jd.agency_id) === Number(agencyId)) jobDescription = jd;
+      if (jd && Number(jd.agency_id) === Number(agencyId)) {
+        const agencyTimezone = await resolveAgencyTimezone(agencyId);
+        jobDescription = mapJobDescriptionRow(jd, agencyTimezone);
+      }
     }
 
     await markHiringCandidateViewed(agencyId, candidateUserId, req.user.id);
@@ -1299,9 +1321,68 @@ export const getCandidate = async (req, res, next) => {
       latestResearch,
       latestPreScreen,
       applications,
-      coverLetterDocuments
+      coverLetterDocuments,
+      backgroundCheck: await (async () => {
+        try {
+          const {
+            getBackgroundCheckAuthorizationSummary,
+            listBackgroundCheckAccessLog
+          } = await import('../services/backgroundCheckAuthorization.service.js');
+          const summary = await getBackgroundCheckAuthorizationSummary(candidateUserId, agencyId);
+          if (!summary?.signed) return summary;
+          const accessLog = await listBackgroundCheckAccessLog(candidateUserId, agencyId);
+          return { ...summary, accessLog };
+        } catch {
+          return { signed: false };
+        }
+      })()
     });
   } catch (e) {
+    next(e);
+  }
+};
+
+export const getBackgroundCheckAuthorization = async (req, res, next) => {
+  try {
+    const agencyId = parseIntParam(req.query.agencyId || req.user?.agencyId);
+    await ensureAgencyAccess(req, agencyId);
+    const candidateUserId = parseIntParam(req.params.userId);
+    if (!candidateUserId) return res.status(400).json({ error: { message: 'Invalid userId' } });
+    const inAgency = await ensureCandidateInAgency(candidateUserId, agencyId);
+    if (!inAgency) return res.status(404).json({ error: { message: 'Candidate not found in this agency' } });
+    const {
+      getBackgroundCheckAuthorizationSummary,
+      listBackgroundCheckAccessLog
+    } = await import('../services/backgroundCheckAuthorization.service.js');
+    const summary = await getBackgroundCheckAuthorizationSummary(candidateUserId, agencyId);
+    const accessLog = summary?.signed
+      ? await listBackgroundCheckAccessLog(candidateUserId, agencyId)
+      : [];
+    res.json({ ...summary, accessLog });
+  } catch (e) { next(e); }
+};
+
+export const revealBackgroundCheckAuthorization = async (req, res, next) => {
+  try {
+    const agencyId = parseIntParam(req.query.agencyId || req.body?.agencyId || req.user?.agencyId);
+    await ensureAgencyAccess(req, agencyId);
+    const candidateUserId = parseIntParam(req.params.userId);
+    if (!candidateUserId) return res.status(400).json({ error: { message: 'Invalid userId' } });
+    const inAgency = await ensureCandidateInAgency(candidateUserId, agencyId);
+    if (!inAgency) return res.status(404).json({ error: { message: 'Candidate not found in this agency' } });
+    const { revealBackgroundCheckAuthorization: reveal } = await import('../services/backgroundCheckAuthorization.service.js');
+    const revealed = await reveal({
+      userId: candidateUserId,
+      agencyId,
+      viewerUserId: req.user.id,
+      ipAddress: req.ip || req.get?.('x-forwarded-for') || null
+    });
+    if (!revealed) return res.status(404).json({ error: { message: 'No background-check authorization on file' } });
+    const { listBackgroundCheckAccessLog } = await import('../services/backgroundCheckAuthorization.service.js');
+    const accessLog = await listBackgroundCheckAccessLog(candidateUserId, agencyId);
+    res.json({ ...revealed, accessLog });
+  } catch (e) {
+    if (e?.status) return res.status(e.status).json({ error: { message: e.message } });
     next(e);
   }
 };
@@ -1357,6 +1438,11 @@ export const createJobDescription = async (req, res, next) => {
     const applicationDeadline = req.body?.applicationDeadline !== undefined ? normalizeDateOnly(req.body.applicationDeadline) : null;
     const city = req.body?.city !== undefined ? String(req.body.city || '').trim().slice(0, 120) : null;
     const state = req.body?.state !== undefined ? String(req.body.state || '').trim().slice(0, 120) : null;
+    const scheduleText = req.body?.scheduleText !== undefined || req.body?.schedule_text !== undefined
+      ? String(req.body.scheduleText ?? req.body.schedule_text ?? '').trim().slice(0, 500) || null
+      : null;
+    const credentialModeRaw = String(req.body?.credentialMode ?? req.body?.credential_mode ?? 'none').trim().toLowerCase();
+    const credentialMode = ['expected', 'mandatory'].includes(credentialModeRaw) ? credentialModeRaw : 'none';
     const educationLevel = req.body?.educationLevel !== undefined ? String(req.body.educationLevel || '').trim().slice(0, 80) : null;
     const roleType = req.body?.roleType !== undefined ? String(req.body.roleType || '').trim().slice(0, 80) || null : null;
     const isFeatured = String(req.body?.isFeatured || '').trim() === '1' || req.body?.isFeatured === true;
@@ -1412,6 +1498,8 @@ export const createJobDescription = async (req, res, next) => {
       applicationDeadline,
       city: city || null,
       state: state || null,
+      scheduleText,
+      credentialMode,
       educationLevel: educationLevel || null,
       roleType: roleType || null,
       isFeatured,
@@ -1426,7 +1514,14 @@ export const createJobDescription = async (req, res, next) => {
       unpublishAt
     });
 
-    res.status(201).json(mapJobDescriptionRow(created, agencyTimezone));
+    const prehireConfigJson = parsePrehireConfigFromBody(req.body);
+    if (prehireConfigJson && created?.id) {
+      try {
+        await HiringJobDescription.updateById(created.id, { prehireConfigJson });
+      } catch { /* column may not exist yet */ }
+    }
+    const saved = created?.id ? (await HiringJobDescription.findById(created.id)) || created : created;
+    res.status(201).json(mapJobDescriptionRow(saved, agencyTimezone));
   } catch (e) {
     if (e?.status) return res.status(e.status).json({ error: { message: e.message } });
     next(e);
@@ -1549,7 +1644,17 @@ export const updateJobDescription = async (req, res, next) => {
         createdByUserId: req.user.id,
         isActive: true,
         publishAt,
-        unpublishAt
+        unpublishAt,
+        scheduleText: req.body?.scheduleText !== undefined || req.body?.schedule_text !== undefined
+          ? String(req.body.scheduleText ?? req.body.schedule_text ?? '').trim().slice(0, 500) || null
+          : (existing.schedule_text || null),
+        credentialMode: req.body?.credentialMode !== undefined || req.body?.credential_mode !== undefined
+          ? (['expected', 'mandatory'].includes(String(req.body.credentialMode ?? req.body.credential_mode ?? '').trim().toLowerCase())
+            ? String(req.body.credentialMode ?? req.body.credential_mode).trim().toLowerCase()
+            : 'none')
+          : (['expected', 'mandatory'].includes(String(existing.credential_mode || '').trim().toLowerCase())
+            ? String(existing.credential_mode).trim().toLowerCase()
+            : 'none')
       });
       await HiringJobDescription.deactivateById(existing.id);
       return res.json({
@@ -1584,6 +1689,14 @@ export const updateJobDescription = async (req, res, next) => {
       : undefined;
     const city = req.body?.city !== undefined ? String(req.body.city || '').trim().slice(0, 120) : undefined;
     const state = req.body?.state !== undefined ? String(req.body.state || '').trim().slice(0, 120) : undefined;
+    const scheduleText = req.body?.scheduleText !== undefined || req.body?.schedule_text !== undefined
+      ? String(req.body.scheduleText ?? req.body.schedule_text ?? '').trim().slice(0, 500) || null
+      : undefined;
+    const credentialMode = req.body?.credentialMode !== undefined || req.body?.credential_mode !== undefined
+      ? (['expected', 'mandatory'].includes(String(req.body.credentialMode ?? req.body.credential_mode ?? '').trim().toLowerCase())
+        ? String(req.body.credentialMode ?? req.body.credential_mode).trim().toLowerCase()
+        : 'none')
+      : undefined;
     const educationLevel = req.body?.educationLevel !== undefined
       ? String(req.body.educationLevel || '').trim().slice(0, 80)
       : undefined;
@@ -1617,6 +1730,8 @@ export const updateJobDescription = async (req, res, next) => {
       applicationDeadline,
       city: city !== undefined ? (city || null) : undefined,
       state: state !== undefined ? (state || null) : undefined,
+      ...(scheduleText !== undefined ? { scheduleText } : {}),
+      ...(credentialMode !== undefined ? { credentialMode } : {}),
       educationLevel: educationLevel !== undefined ? (educationLevel || null) : undefined,
       roleType,
       isFeatured,
@@ -1624,7 +1739,10 @@ export const updateJobDescription = async (req, res, next) => {
       applicationPageJson,
       ...(isActive !== undefined ? { isActive } : {}),
       ...(publishAt !== undefined ? { publishAt } : {}),
-      ...(unpublishAt !== undefined ? { unpublishAt } : {})
+      ...(unpublishAt !== undefined ? { unpublishAt } : {}),
+      ...(req.body?.prehireConfigJson !== undefined || req.body?.prehire_config_json !== undefined
+        ? { prehireConfigJson: parsePrehireConfigFromBody(req.body) }
+        : {})
     });
 
     res.json(mapJobDescriptionRow(updated, agencyTimezone));
@@ -3758,10 +3876,14 @@ export const updateHiringSettings = async (req, res, next) => {
       'default_prehire_package_id',
       'default_onboarding_package_id',
       'default_contract_template_id',
+      'default_contract_config_id',
       'token_expiry_hours',
       'invite_email_subject',
       'invite_email_body',
-      'role_package_mappings'
+      'role_package_mappings',
+      'handbook_ack_url',
+      'handbook_full_url',
+      'default_prehire_docs'
     ];
     const patch = {};
     for (const key of allowed) {
@@ -3769,6 +3891,8 @@ export const updateHiringSettings = async (req, res, next) => {
         // Validate role_package_mappings is an array
         if (key === 'role_package_mappings') {
           patch[key] = Array.isArray(req.body[key]) ? req.body[key] : [];
+        } else if (key === 'default_prehire_docs') {
+          patch[key] = sanitizePrehireConfig({ documents: req.body[key] }).documents;
         } else {
           patch[key] = req.body[key] ?? null;
         }
@@ -3962,30 +4086,13 @@ export const sendPreHire = async (req, res, next) => {
       ? `${config.frontendUrl}/pre-hire/${tokenResult.token}`
       : null;
 
-    // Send invite email via People Operations trigger (respects Email Settings on/off)
     const recipientEmail = String(user.personal_email || user.email || '').trim();
-    if (tokenLink && recipientEmail) {
-      setImmediate(async () => {
-        try {
-          const { sendPrehirePortalInviteEmail } = await import('../services/prehireInviteEmail.service.js');
-          await sendPrehirePortalInviteEmail({
-            agencyId,
-            candidateUserId,
-            portalLink: tokenLink,
-            customSubject: req.body?.msgSubject,
-            customBody: req.body?.msgBody,
-            generatedByUserId: req.user?.id || null
-          });
-        } catch (emailErr) {
-          console.error('[sendPreHire] Failed to send invite email:', emailErr);
-        }
-      });
-    } else if (tokenLink && !recipientEmail) {
+    if (tokenLink && !recipientEmail) {
       console.warn('[sendPreHire] No personal_email or email for candidate', candidateUserId);
     }
 
     // 2. Assign selected document templates as tasks
-    const { documentTemplateIds = [], signerAssignments = [], packageId: bodyPackageId } = req.body;
+    const { documentTemplateIds, signerAssignments = [], packageId: bodyPackageId } = req.body;
     const { default: TaskAssignmentService } = await import('../services/taskAssignment.service.js');
     const { default: DocumentTemplate } = await import('../models/DocumentTemplate.model.js');
     const { default: OnboardingPackage } = await import('../models/OnboardingPackage.model.js');
@@ -4004,13 +4111,25 @@ export const sendPreHire = async (req, res, next) => {
       settings: prehireSettings
     });
 
-    let templateIds = (documentTemplateIds || [])
-      .map((id) => parseInt(id, 10))
-      .filter((n) => Number.isFinite(n) && n > 0);
+    let templateIds;
+    if (Array.isArray(documentTemplateIds)) {
+      // Explicit list (including empty) — do not dump the unused library or package
+      templateIds = documentTemplateIds
+        .map((id) => parseInt(id, 10))
+        .filter((n) => Number.isFinite(n) && n > 0);
+    } else {
+      templateIds = [];
+      if (resolvedPackageId) {
+        const docs = await OnboardingPackage.getDocuments(resolvedPackageId);
+        templateIds = (docs || []).map((d) => d.document_template_id).filter(Boolean);
+      }
+    }
 
-    if (!templateIds.length && resolvedPackageId) {
-      const docs = await OnboardingPackage.getDocuments(resolvedPackageId);
-      templateIds = (docs || []).map((d) => d.document_template_id).filter(Boolean);
+    const extraTemplateIds = (req.body?.selectedJobDocs || [])
+      .map((d) => Number(d?.templateId || d?.documentTemplateId || 0))
+      .filter((n) => Number.isFinite(n) && n > 0);
+    for (const id of extraTemplateIds) {
+      if (!templateIds.includes(id)) templateIds.push(id);
     }
 
     for (const templateId of templateIds) {
@@ -4092,15 +4211,117 @@ export const sendPreHire = async (req, res, next) => {
         contractResult = await generateAndAssignCandidateContract({
           agencyId,
           candidateUserId,
-          configId: contractConfigId || null,
-          templateId: contractTemplateId || null,
+          configId: Number(req.body?.contractConfigId || 0) || contractConfigId || null,
+          templateId: Number(req.body?.contractTemplateId || 0) || contractTemplateId || null,
           createdByUserId: req.user.id,
-          taskMetadata: { prehire: true, autoFromSendPreHire: true }
+          credentialOverride: String(req.body?.credential || '').trim() || null,
+          compensationCategory: req.body?.compensationCategory != null && req.body?.compensationCategory !== ''
+            ? Number(req.body.compensationCategory)
+            : null,
+          tokens: req.body?.contractTokens && typeof req.body.contractTokens === 'object'
+            ? req.body.contractTokens
+            : {},
+          taskMetadata: { prehire: true, autoFromSendPreHire: true, contractGeneration: true }
         });
         if (contractResult?.task) assignedTasks.push(contractResult.task);
       }
     } catch (contractErr) {
       console.warn('[sendPreHire] contract generate failed:', contractErr?.message || contractErr);
+    }
+
+    const checklistTitles = [];
+    try {
+      const tokens = req.body?.contractTokens && typeof req.body.contractTokens === 'object'
+        ? req.body.contractTokens
+        : {};
+      const profile = await HiringProfile.findByCandidateUserId(candidateUserId);
+      let jobConfig = null;
+      if (profile?.job_description_id) {
+        const jd = await HiringJobDescription.findById(profile.job_description_id);
+        jobConfig = jd?.prehire_config_json || null;
+      }
+      const merged = mergePrehireDocuments(jobConfig, {
+        documents: Array.isArray(prehireSettings?.default_prehire_docs)
+          ? prehireSettings.default_prehire_docs
+          : []
+      });
+      const seedItems = [
+        {
+          itemKey: 'background_check',
+          title: 'Authorization for Background Check',
+          instructions: 'Complete the encrypted authorization form in your portal.',
+          scheduledOn: null
+        },
+        {
+          itemKey: 'job_description_ack',
+          title: 'Acknowledge job description',
+          instructions: 'Review the job description and sign to confirm.',
+          scheduledOn: null
+        },
+        ...merged.documents.map((d) => ({
+          itemKey: `doc:${d.id}`,
+          title: d.title,
+          instructions: d.instructions || null,
+          scheduledOn: d.scheduledOn || null
+        }))
+      ];
+      if (prehireSettings?.handbook_ack_url) {
+        seedItems.push({
+          itemKey: 'handbook_ack',
+          title: 'Employee Handbook acknowledgement',
+          instructions: 'Open and review the handbook acknowledgement.',
+          scheduledOn: null
+        });
+      }
+      for (const item of seedItems) {
+        checklistTitles.push(item.title);
+        try {
+          await pool.execute(
+            `INSERT INTO hiring_prehire_checklist_items
+              (user_id, agency_id, item_key, title, instructions, scheduled_on)
+             VALUES (?, ?, ?, ?, ?, ?)
+             ON DUPLICATE KEY UPDATE
+               title = VALUES(title),
+               instructions = VALUES(instructions),
+               scheduled_on = COALESCE(VALUES(scheduled_on), scheduled_on)`,
+            [candidateUserId, agencyId, item.itemKey, item.title, item.instructions, item.scheduledOn]
+          );
+        } catch (seedErr) {
+          if (seedErr?.code !== 'ER_NO_SUCH_TABLE') {
+            console.warn('[sendPreHire] checklist seed failed:', seedErr?.message);
+          }
+        }
+      }
+    } catch (checkErr) {
+      console.warn('[sendPreHire] checklist seed failed:', checkErr?.message);
+    }
+
+    if (tokenLink && recipientEmail) {
+      const tokens = req.body?.contractTokens && typeof req.body.contractTokens === 'object'
+        ? req.body.contractTokens
+        : {};
+      setImmediate(async () => {
+        try {
+          const { sendPrehirePortalInviteEmail } = await import('../services/prehireInviteEmail.service.js');
+          await sendPrehirePortalInviteEmail({
+            agencyId,
+            candidateUserId,
+            portalLink: tokenLink,
+            customSubject: req.body?.msgSubject,
+            customBody: req.body?.msgBody,
+            generatedByUserId: req.user?.id || null,
+            inviteDetails: {
+              startDate: tokens.START_DATE || req.body?.startDate || null,
+              expirationDate: tokens.EXPIRATION_DATE || tokens.CONTRACT_EXPIRATION || null,
+              minDays: tokens.MIN_DAYS_PER_WEEK || tokens.MIN_DAYS || null,
+              minHours: tokens.MIN_HOURS || tokens.MIN_HOURS_PER_WEEK || null,
+              steps: checklistTitles
+            }
+          });
+        } catch (emailErr) {
+          console.error('[sendPreHire] Failed to send invite email:', emailErr);
+        }
+      });
     }
 
     res.json({

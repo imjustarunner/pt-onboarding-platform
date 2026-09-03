@@ -341,7 +341,7 @@ function buildAppEntries() {
     {
       id: 'workspace-library',
       routeName: 'Library',
-      label: 'Library',
+      label: 'Tools and Resources',
       description: 'Guides, templates, care documents, forms, and shared Google Docs.',
       group: 'workspace',
       keywords: [

@@ -41,7 +41,7 @@ const PAGE_META = {
   'agency-progress':                { label: 'Training Progress',    icon: '📊' },
   'unassigned-documents':           { label: 'Unassigned Docs',      icon: '📄' },
   'documents':                      { label: 'My Documents',         icon: '📄' },
-  'library':                        { label: 'Library',              icon: '📚' },
+  'library':                        { label: 'Tools and Resources', icon: '📚' },
   'client-onboarding':              { label: 'Client Action Needed',     icon: '📋' },
   'provider-client-onboarding':     { label: 'Client Action Needed',     icon: '📋' },
   'client-exchange':                { label: 'Client Exchange',      icon: '🔄' },

@@ -158,6 +158,10 @@ export async function getPublicJobDescriptionPayload({ agencySlug = null, jobId 
       roleType: String(job.role_type || '').trim() || null,
       city: String(job.city || '').trim() || null,
       state: String(job.state || '').trim() || null,
+      scheduleText: String(job.schedule_text || '').trim() || null,
+      credentialMode: ['expected', 'mandatory'].includes(String(job.credential_mode || '').trim().toLowerCase())
+        ? String(job.credential_mode).trim().toLowerCase()
+        : 'none',
       location,
       educationLevel: String(job.education_level || '').trim() || null,
       postedDate: job.posted_date || null,
@@ -243,6 +247,7 @@ async function buildBrandedJobDescriptionPdfBuffer({ agency, job, sections }) {
   const meta = [
     job?.role_type ? `Role type: ${job.role_type}` : '',
     [job?.city, job?.state].filter(Boolean).join(', ') ? `Location: ${[job.city, job.state].filter(Boolean).join(', ')}` : '',
+    job?.schedule_text || job?.scheduleText ? `Schedule: ${job.schedule_text || job.scheduleText}` : '',
     job?.education_level ? `Education: ${job.education_level}` : ''
   ].filter(Boolean);
   if (meta.length) {
@@ -260,8 +265,20 @@ async function buildBrandedJobDescriptionPdfBuffer({ agency, job, sections }) {
   if (sections?.aboutTheRole) {
     pushSection('About the Role', wrap(sections.aboutTheRole, font, 11));
   }
+  const sets = Array.isArray(sections?.responsibilitySets) ? sections.responsibilitySets : [];
+  if (sets.length) {
+    const lines = sets.flatMap((set) => {
+      const title = String(set?.title || '').trim();
+      const items = Array.isArray(set?.items) ? set.items : [];
+      const heading = title ? wrap(title, fontBold, 11) : [];
+      const bullets = items.flatMap((item) => wrap(`• ${item}`, font, 11));
+      return [...heading, ...bullets];
+    });
+    pushSection('Responsibilities', lines);
+  } else if (Array.isArray(sections?.responsibilities) && sections.responsibilities.length) {
+    pushSection('Responsibilities', sections.responsibilities.flatMap((item) => wrap(`• ${item}`, font, 11)));
+  }
   for (const [heading, items] of [
-    ['Responsibilities', sections?.responsibilities],
     ['Qualifications', sections?.qualifications],
     ['Benefits', sections?.benefits]
   ]) {

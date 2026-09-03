@@ -145,7 +145,7 @@
                   </select>
                 </div>
                 <button class="btn btn-primary" @click="openMarkHiredModal" :disabled="!selectedId">
-                  Mark hired
+                  Start pre-hire
                 </button>
                 <div class="more-actions">
                   <button type="button" class="btn btn-secondary" @click="showMoreActions = !showMoreActions">···</button>
@@ -201,6 +201,8 @@
                 :interviews="hubInterviews"
                 :average-interview-score="averageHubInterviewScore"
                 :activity-items="candidateActivityItems"
+                :agency-id="effectiveAgencyId"
+                :background-check="detail.backgroundCheck"
                 @goto-tab="onDetailGotoTab"
                 @schedule-interview="openInterviewSchedule"
               />
@@ -757,15 +759,6 @@
       </div>
     </div>
 
-    <!-- Mark Hired Modal -->
-    <MarkHiredModal
-      :show="showMarkHiredModal"
-      :candidate="markHiredCandidate"
-      :agency-id="effectiveAgencyId"
-      :applied-role="markHiredAppliedRole"
-      @close="showMarkHiredModal = false"
-      @hired="onHired"
-    />
   </div>
 </template>
 
@@ -779,7 +772,6 @@ import { useAgencyStore } from '../../store/agency';
 import { useAuthStore } from '../../store/auth';
 import { buildPublicIntakeUrl } from '../../utils/publicIntakeUrl';
 import UserAvatar from '../../components/common/UserAvatar.vue';
-import MarkHiredModal from '../../components/hiring/MarkHiredModal.vue';
 import CandidateOverviewPanel from '../../components/hiring/CandidateOverviewPanel.vue';
 import CandidateAssessmentWorkspace from '../../components/hiring/CandidateAssessmentWorkspace.vue';
 import CandidateInterviewPanel from '../../components/hiring/CandidateInterviewPanel.vue';
@@ -1536,28 +1528,17 @@ const generatePreScreenReport = async (opts = {}) => {
   }
 };
 
-// Mark Hired Modal
-const showMarkHiredModal = ref(false);
+// Mark Hired → dedicated Start Pre-Hire page
 const lastHireTokenLink = ref('');
-
-const markHiredCandidate = computed(() => detail.value?.user || null);
-const markHiredAppliedRole = computed(
-  () => detail.value?.profile?.applied_role || detail.value?.profile?.appliedRole || ''
-);
 
 const openMarkHiredModal = () => {
   if (!selectedId.value) return;
-  lastHireTokenLink.value = '';
-  showMarkHiredModal.value = true;
+  const aid = Number(effectiveAgencyId.value || agencyStore.currentAgency?.id || 0);
+  const q = aid ? `?agencyId=${aid}` : '';
+  router.push(orgPath(`/admin/hiring/start-pre-hire/${selectedId.value}${q}`));
 };
 
-const onHired = async (result) => {
-  lastHireTokenLink.value = result?.passwordlessTokenLink || '';
-  await refresh();
-  await loadDetail();
-};
-
-// Legacy promote (kept for reference — now triggered via modal)
+// Legacy promote (kept for reference — now triggered via Start Pre-Hire)
 const promoting = ref(false);
 const promoteResult = ref(null);
 

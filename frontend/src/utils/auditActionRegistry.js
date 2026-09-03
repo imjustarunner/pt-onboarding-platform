@@ -135,6 +135,7 @@ export const AUDIT_ACTION_REGISTRY = {
   client_intake_note_diagnosis_confirmed: { label: 'Client intake diagnosis confirmed', category: 'AI & Tools' },
   client_intake_note_diagnosis_updated: { label: 'Client intake diagnosis updated by provider', category: 'AI & Tools' },
   client_intake_note_finalized: { label: 'Client intake note finalized', category: 'AI & Tools' },
+  background_check_ssn_viewed: { label: 'Background-check SSN/DL viewed', category: 'Documents' },
   note_aid_execute: { label: 'Note Aid used', category: 'AI & Tools' },
   agent_assist: { label: 'Focus Assistant used', category: 'AI & Tools' },
   agent_assist_feedback: { label: 'Focus Assistant feedback', category: 'AI & Tools' },

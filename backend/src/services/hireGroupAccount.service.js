@@ -49,18 +49,17 @@ export function isGroupPasswordHireMode(agency) {
 function buildLocalParts({ first, last, format }) {
   const f = first || 'user';
   const l = last || 'hire';
-  const candidates = [];
+  // Prefer the simplest local-part first (eden@) before longer variants.
+  const candidates = [f];
   if (format === 'first') {
-    candidates.push(f, `${f}${l[0] || ''}`, `${f}.${l}`);
+    candidates.push(`${f}${l[0] || ''}`, `${f}.${l}`);
   } else if (format === 'first_last') {
-    candidates.push(`${f}.${l}`, `${f}${l}`, f);
+    candidates.push(`${f}.${l}`, `${f}${l}`);
   } else if (format === 'last_first_initial') {
     candidates.push(`${l}${f[0] || ''}`, `${l}.${f}`, `${f}.${l}`);
   } else {
-    // first_initial_last
-    candidates.push(`${f[0] || ''}${l}`, `${f}.${l}`, f, `${f}${l}`);
+    candidates.push(`${f[0] || ''}${l}`, `${f}.${l}`, `${f}${l}`);
   }
-  // Dedupe
   return [...new Set(candidates.filter(Boolean))];
 }
 
@@ -240,6 +239,15 @@ export async function provisionHireGroupAccount({
     } catch (memberErr) {
       console.warn('[hireGroupAccount] add personal email to group failed:', memberErr?.message || memberErr);
     }
+  }
+  try {
+    await GoogleWorkspaceDirectoryService.addGroupMember({
+      groupEmail: email,
+      memberEmail: 'ai@plottwistco.com',
+      role: 'MANAGER'
+    });
+  } catch (managerErr) {
+    console.warn('[hireGroupAccount] add AI manager to group failed:', managerErr?.message || managerErr);
   }
 
   // Persist emails + SSO override

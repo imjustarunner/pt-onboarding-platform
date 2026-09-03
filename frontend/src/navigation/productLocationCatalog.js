@@ -521,7 +521,7 @@ export const PRODUCT_LOCATIONS = [
   {
     id: 'library',
     routeName: 'Library',
-    label: 'Library',
+    label: 'Tools and Resources',
     description: 'Guides, templates, care documents, forms, and shared Google Docs.',
     group: 'workspace',
     howToFind: 'Library',

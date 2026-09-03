@@ -27,6 +27,7 @@ import { maybeCreateSchoolIntakeReviewTask } from '../services/schoolIntakeRevie
 import { generateIntakeSummaryPdf } from '../services/intakeSummaryPdf.service.js';
 import { brandedIntakeSummarySpec } from '../services/packetBrandChrome.service.js';
 import { buildCompletedIntakeRecord } from '../services/completedIntakeRecord.service.js';
+import { buildReferenceReleasePdfBuffer } from '../services/referenceReleasePdf.service.js';
 import { getClientIpAddress } from '../utils/ipAddress.util.js';
 import { resolveRequestedMasterLanguage } from '../utils/schoolIntakeMasterLanguage.js';
 import ClientPhiDocument from '../models/ClientPhiDocument.model.js';
@@ -4756,11 +4757,14 @@ const validateJobApplicationSubmission = (link, ctx) => {
   const waived = !!ctx.referencesWaived;
   const refs = Array.isArray(ctx.referencesJson) ? ctx.referencesJson : [];
   if (!waived) {
-    if (!ctx.referencesConsentJson?.digitalFormAtInterviewOrOffer) {
-      return 'You must consent to digital reference forms (at interview or offer stage) before continuing.';
-    }
-    if (!ctx.referencesConsentJson?.referenceContentWaiverAcknowledged) {
-      return 'You must acknowledge the reference confidentiality statement before continuing.';
+    const releaseSigned = !!ctx.referencesConsentJson?.referenceReleaseSigned || !!ctx.referenceReleaseSignature;
+    if (!releaseSigned) {
+      if (!ctx.referencesConsentJson?.digitalFormAtInterviewOrOffer) {
+        return 'You must consent to digital reference forms (at interview or offer stage) before continuing.';
+      }
+      if (!ctx.referencesConsentJson?.referenceContentWaiverAcknowledged) {
+        return 'You must acknowledge the reference confidentiality statement before continuing.';
+      }
     }
     const filled = refs.filter(
       (r) =>
@@ -5014,8 +5018,33 @@ const parseJobApplicationContext = (intakeData, link = null) => {
     consentVersion: Number(rcIn.consentVersion) || 1,
     digitalFormAtInterviewOrOffer: toBooleanSafe(rcIn.digitalFormAtInterviewOrOffer),
     referenceContentWaiverAcknowledged: toBooleanSafe(rcIn.referenceContentWaiverAcknowledged),
-    referencesWaived: !!referencesWaived
+    referencesWaived: !!referencesWaived,
+    referenceReleaseSigned: toBooleanSafe(
+      rcIn.referenceReleaseSigned
+      || intakeData?.referenceReleaseSignature
+      || submission.referenceReleaseSignature
+    )
   };
+  const profileIn = (intakeData?.applicantProfile && typeof intakeData.applicantProfile === 'object')
+    ? intakeData.applicantProfile
+    : ((submission.applicantProfile && typeof submission.applicantProfile === 'object') ? submission.applicantProfile : {});
+  const independentlyRaw = profileIn.independentlyCredentialed ?? profileIn.independently_credentialed;
+  const applicantProfile = {
+    credential: String(profileIn.credential || '').trim().slice(0, 255) || null,
+    licenseNumber: String(profileIn.licenseNumber || profileIn.license_number || '').trim().slice(0, 120) || null,
+    bestTimeToContact: String(profileIn.bestTimeToContact || profileIn.best_time_to_contact || '').trim().slice(0, 255) || null,
+    interviewAvailability: String(profileIn.interviewAvailability || profileIn.interview_availability || '').trim().slice(0, 4000) || null,
+    independentlyCredentialed: independentlyRaw === true || independentlyRaw === 1 || independentlyRaw === '1'
+      ? true
+      : independentlyRaw === false || independentlyRaw === 0 || independentlyRaw === '0'
+        ? false
+        : null,
+    groupPracticeInsurances: String(profileIn.groupPracticeInsurances || profileIn.group_practice_insurances || '').trim().slice(0, 4000) || null,
+    willingToSupervise: toBooleanSafe(profileIn.willingToSupervise ?? profileIn.willing_to_supervise)
+  };
+  const referenceReleaseSignature = String(
+    intakeData?.referenceReleaseSignature || submission.referenceReleaseSignature || ''
+  ).trim() || null;
   return {
     coverLetterText,
     resumeText,
@@ -5023,7 +5052,9 @@ const parseJobApplicationContext = (intakeData, link = null) => {
     fluentLanguagesJson,
     jobAcknowledged,
     referencesWaived,
-    referencesConsentJson
+    referencesConsentJson,
+    applicantProfile,
+    referenceReleaseSignature
   };
 };
 
@@ -5055,6 +5086,8 @@ export const listPublicCareers = async (req, res, next) => {
           hjd.application_deadline,
           hjd.city,
           hjd.state,
+          hjd.schedule_text,
+          hjd.credential_mode,
           hjd.education_level,
           hjd.role_type,
           hjd.is_featured,
@@ -5135,6 +5168,10 @@ export const listPublicCareers = async (req, res, next) => {
           applicationDeadline: r.application_deadline || null,
           city: String(r.city || '').trim() || null,
           state: String(r.state || '').trim() || null,
+          scheduleText: String(r.schedule_text || '').trim() || null,
+          credentialMode: ['expected', 'mandatory'].includes(String(r.credential_mode || '').trim().toLowerCase())
+            ? String(r.credential_mode).trim().toLowerCase()
+            : 'none',
           educationLevel: String(r.education_level || '').trim() || null,
           roleType: String(r.role_type || '').trim() || null,
           isFeatured: Number(r.is_featured) === 1,
@@ -5651,6 +5688,10 @@ export const getPublicIntakeLink = async (req, res, next) => {
           applicationDeadline: jd.application_deadline || null,
           city: String(jd.city || '').trim() || null,
           state: String(jd.state || '').trim() || null,
+          scheduleText: String(jd.schedule_text || '').trim() || null,
+          credentialMode: ['expected', 'mandatory'].includes(String(jd.credential_mode || '').trim().toLowerCase())
+            ? String(jd.credential_mode).trim().toLowerCase()
+            : 'none',
           educationLevel: String(jd.education_level || '').trim() || null,
           roleType: String(jd.role_type || '').trim() || null,
           applicationPage: sanitizeApplicationPageJson(jd.application_page_json),
@@ -7554,7 +7595,8 @@ export const finalizePublicIntake = async (req, res, next) => {
         referencesJson,
         fluentLanguagesJson,
         jobAcknowledged,
-        referencesConsentJson
+        referencesConsentJson,
+        applicantProfile
       } = jobAppCtx;
 
       const {
@@ -7612,6 +7654,14 @@ export const finalizePublicIntake = async (req, res, next) => {
           error: { message: 'Please acknowledge that you have read the job description before continuing.' }
         });
       }
+      const credMode = String(jdForAck?.credential_mode || 'none').trim().toLowerCase();
+      if (credMode === 'mandatory') {
+        if (!String(applicantProfile?.credential || '').trim() || !String(applicantProfile?.licenseNumber || '').trim()) {
+          return res.status(400).json({
+            error: { message: 'Credential and license number are required for this role.' }
+          });
+        }
+      }
       await HiringProfile.upsert({
         candidateUserId: user.id,
         stage: 'applied',
@@ -7623,7 +7673,14 @@ export const finalizePublicIntake = async (req, res, next) => {
         referencesConsentJson,
         referencesConsentAt: new Date().toISOString().slice(0, 19).replace('T', ' '),
         fluentLanguagesJson,
-        jobAcknowledged
+        jobAcknowledged,
+        credential: applicantProfile?.credential || null,
+        licenseNumber: applicantProfile?.licenseNumber || null,
+        bestTimeToContact: applicantProfile?.bestTimeToContact || null,
+        interviewAvailability: applicantProfile?.interviewAvailability || null,
+        independentlyCredentialed: applicantProfile?.independentlyCredentialed,
+        groupPracticeInsurances: applicantProfile?.groupPracticeInsurances || null,
+        willingToSupervise: applicantProfile?.willingToSupervise
       });
 
       try {
@@ -7744,6 +7801,55 @@ export const finalizePublicIntake = async (req, res, next) => {
           }
         } catch {
           // best effort
+        }
+      }
+
+      try {
+        const releaseSig = String(jobAppCtx.referenceReleaseSignature || '').trim();
+        if (releaseSig) {
+          const agencyRow = await Agency.findById(agencyId).catch(() => null);
+          const pdfBuf = await buildReferenceReleasePdfBuffer({
+            agencyName: String(agencyRow?.name || agencyRow?.official_name || 'the organization').trim() || 'the organization',
+            applicantName: `${gFirst} ${gLast}`.trim(),
+            applicantEmail: gEmail,
+            jobTitle: String(jdForAck?.title || link?.title || '').trim(),
+            signatureDataUrl: releaseSig,
+            signedAt: now,
+            references: Array.isArray(referencesJson) ? referencesJson : [],
+            accentHex: '#1a8c54'
+          });
+          const filename = `reference-release-${user.id}-${Date.now()}.pdf`;
+          const storageResult = await StorageService.saveAdminDoc(pdfBuf, filename, 'application/pdf');
+          await pool.execute(
+            `INSERT INTO user_admin_docs (user_id, title, doc_type, storage_path, original_name, mime_type, created_by_user_id, is_legal_hold)
+             VALUES (?, ?, ?, ?, ?, ?, ?, 1)`,
+            [user.id, 'Reference Release', 'reference_release', storageResult.relativePath, filename, 'application/pdf', user.id]
+          );
+        }
+      } catch (releaseErr) {
+        try {
+          const releaseSig = String(jobAppCtx.referenceReleaseSignature || '').trim();
+          if (releaseSig) {
+            const agencyRow = await Agency.findById(agencyId).catch(() => null);
+            const pdfBuf = await buildReferenceReleasePdfBuffer({
+              agencyName: String(agencyRow?.name || agencyRow?.official_name || 'the organization').trim() || 'the organization',
+              applicantName: `${gFirst} ${gLast}`.trim(),
+              applicantEmail: gEmail,
+              jobTitle: String(jdForAck?.title || link?.title || '').trim(),
+              signatureDataUrl: releaseSig,
+              signedAt: now,
+              references: Array.isArray(referencesJson) ? referencesJson : []
+            });
+            const filename = `reference-release-${user.id}-${Date.now()}.pdf`;
+            const storageResult = await StorageService.saveAdminDoc(pdfBuf, filename, 'application/pdf');
+            await pool.execute(
+              `INSERT INTO user_admin_docs (user_id, title, doc_type, storage_path, original_name, mime_type, created_by_user_id)
+               VALUES (?, ?, ?, ?, ?, ?, ?)`,
+              [user.id, 'Reference Release', 'reference_release', storageResult.relativePath, filename, 'application/pdf', user.id]
+            );
+          }
+        } catch {
+          console.warn('[job_application] reference release PDF failed', releaseErr?.message || releaseErr);
         }
       }
 
@@ -11881,6 +11987,28 @@ export const uploadIntakeFiles = async (req, res, next) => {
     }
 
     const pool = (await import('../config/database.js')).default;
+    try {
+      const [existing] = await pool.execute(
+        `SELECT id, storage_path FROM intake_submission_uploads
+         WHERE intake_submission_id = ? AND step_id = ?`,
+        [submissionId, stepId]
+      );
+      for (const row of existing || []) {
+        const path = String(row?.storage_path || '').trim();
+        if (path) {
+          try { await StorageService.deleteObject(path); } catch { /* best effort */ }
+        }
+      }
+      if (existing?.length) {
+        await pool.execute(
+          `DELETE FROM intake_submission_uploads WHERE intake_submission_id = ? AND step_id = ?`,
+          [submissionId, stepId]
+        );
+      }
+    } catch (e) {
+      if (e?.code !== 'ER_NO_SUCH_TABLE') throw e;
+    }
+
     const saved = [];
     const useEncryption = DocumentEncryptionService.isConfigured();
     if (!useEncryption && process.env.NODE_ENV === 'production') {

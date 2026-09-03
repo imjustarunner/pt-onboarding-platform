@@ -13,6 +13,8 @@ import {
   deleteJobDescription,
   viewJobDescriptionFile,
   getCandidate,
+  getBackgroundCheckAuthorization,
+  revealBackgroundCheckAuthorization,
   listCandidateApplications,
   createCandidateNote,
   listCandidateResumes,
@@ -132,6 +134,8 @@ router.put('/job-descriptions/:jobDescriptionId', upload.fields([{ name: 'file',
 router.delete('/job-descriptions/:jobDescriptionId', deleteJobDescription);
 router.get('/job-descriptions/:jobDescriptionId/view', viewJobDescriptionFile);
 router.get('/candidates/:userId', getCandidate);
+router.get('/candidates/:userId/background-check-authorization', getBackgroundCheckAuthorization);
+router.post('/candidates/:userId/background-check-authorization/reveal', revealBackgroundCheckAuthorization);
 router.get('/candidates/:userId/applications', listCandidateApplications);
 router.patch('/candidates/:userId/interview', patchCandidateInterview);
 router.get('/candidates/:userId/reference-requests', listCandidateReferenceRequests);

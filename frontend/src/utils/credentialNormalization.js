@@ -65,6 +65,9 @@ export function isFullyLicensedCredentialText(raw) {
   const upper = s.toUpperCase();
 
   if (/\bLCSW\b/.test(upper)) return true;
+  // Colorado DORA Clinical Social Worker prefix (CSW.09931054) — not SWC candidate
+  if (/\bCSW\b/.test(upper) && !/\bSWC\b/.test(upper)) return true;
+  if (/^(LPC|CSW|MFT|LCSW|LMFT|LAC)\.\d+/i.test(s.trim())) return true;
   if (/\bLPC\b/.test(upper)) return true;
   if (/\bLMFT\b/.test(upper) || /\bLMFC\b/.test(upper)) return true;
   if (/\bMFT\b/.test(upper)) return true;

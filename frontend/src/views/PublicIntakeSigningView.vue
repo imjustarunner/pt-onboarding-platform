@@ -14,7 +14,7 @@
     :scenic-sidebar-url="officeScenicSidebarUrl"
     :logo-url-override="officeLogoFallback"
     :hide-sidebar="(isJobApplication && step === -1) || (loading && !looksLikeOfficeIntake)"
-    :wide="(isJobApplication && step === -1) || (isOfficeInDepthIntake && step >= 0.5) || (!isOfficeInDepthIntake && step === 2)"
+    :wide="(isJobApplication && (step === -1 || step === 1 || step === 2)) || (isOfficeInDepthIntake && step >= 0.5) || (!isOfficeInDepthIntake && step === 2)"
     :show-language-toggle="hasLinkedLanguageToggle && !loading && !fatalError"
     :language="currentFormLanguage"
     :language-switching="linkedLanguageSwitching"
@@ -170,6 +170,7 @@
               :summary="jobDescriptionSummary.descriptionText || ''"
               :role-type="jobDescriptionSummary.roleType || ''"
               :location="[jobDescriptionSummary.city, jobDescriptionSummary.state].filter(Boolean).join(', ')"
+              :schedule="jobDescriptionSummary.scheduleText || ''"
               :accent-color="jobLandingAccent"
               :pdf-url="jobLandingPdfUrl"
               :pdf-label="jobLandingPdfLabel"
@@ -661,8 +662,58 @@
       </OfficeIntakeStartPage>
 
       <div v-else-if="step === 1" class="step">
+        <JobApplicationApplyPages
+          v-if="isJobApplication"
+          page="personal"
+          :accent-color="jobLandingAccent"
+          :agency-name="jobLandingAgencyName"
+          :job-title="jobLandingTitle"
+          :location="[jobDescriptionSummary?.city, jobDescriptionSummary?.state].filter(Boolean).join(', ')"
+          :schedule="jobDescriptionSummary?.scheduleText || ''"
+          :role-summary="jobDescriptionSummary?.descriptionText || ''"
+          :sections="jobDescriptionSummary?.descriptionSections || null"
+          :pdf-url="jobDescriptionSummary?.fileUrl || ''"
+          :pdf-label="jobDescriptionSummary?.fileName ? `Download ${jobDescriptionSummary.fileName}` : 'Download full PDF'"
+          :credential-mode="jobDescriptionSummary?.credentialMode || 'none'"
+          :first-name="guardianFirstName"
+          :last-name="guardianLastName"
+          :email="guardianEmail"
+          :phone="guardianPhone"
+          :fluent-languages="fluentLanguagesInput"
+          :best-time-to-contact="bestTimeToContact"
+          :interview-availability="interviewAvailability"
+          :credential="applicantCredential"
+          :license-number="applicantLicenseNumber"
+          :independently-credentialed="independentlyCredentialed"
+          :group-practice-insurances="groupPracticeInsurances"
+          :willing-to-supervise="willingToSupervise"
+          :resume-file-name="jobResumeFileName"
+          :cover-file-name="jobCoverFileName"
+          :cover-letter-text="coverLetterPastedText"
+          :error="stepError"
+          :busy="submitLoading"
+          @update:firstName="guardianFirstName = $event"
+          @update:lastName="guardianLastName = $event"
+          @update:email="guardianEmail = $event"
+          @update:phone="guardianPhone = formatUsPhoneInput($event)"
+          @update:fluentLanguages="fluentLanguagesInput = $event"
+          @update:bestTimeToContact="bestTimeToContact = $event"
+          @update:interviewAvailability="interviewAvailability = $event"
+          @update:credential="applicantCredential = $event"
+          @update:licenseNumber="applicantLicenseNumber = $event"
+          @update:independentlyCredentialed="independentlyCredentialed = $event"
+          @update:groupPracticeInsurances="groupPracticeInsurances = $event"
+          @update:willingToSupervise="willingToSupervise = $event"
+          @update:coverLetterText="coverLetterPastedText = $event"
+          @resume-file="onJobResumeFile"
+          @cover-file="onJobCoverFile"
+          @replace-resume="replaceJobResume"
+          @replace-cover="replaceJobCover"
+          @continue="continueJobApplicationPage1"
+          @back="step = -1"
+        />
         <SmartSchoolRoiFlow
-          v-if="isSmartSchoolRoi"
+          v-else-if="isSmartSchoolRoi"
           :public-key="publicKey"
           :session-token="sessionToken"
           :roi-context="roiContext"
@@ -1240,6 +1291,28 @@
         />
         </div>
       </div>
+
+        <div v-else-if="step === 2 && isJobApplication" class="step">
+        <JobApplicationApplyPages
+          page="references"
+          :accent-color="jobLandingAccent"
+          :agency-name="jobLandingAgencyName"
+          :job-title="jobLandingTitle"
+          :references="referencesEntries"
+          :job-acknowledged="jobDescriptionAcknowledged"
+          :release-acknowledged="referenceReleaseAcknowledged"
+          :signature-data="signatureData"
+          :first-name="guardianFirstName"
+          :last-name="guardianLastName"
+          :error="stepError"
+          :busy="submitLoading"
+          @update:jobAcknowledged="jobDescriptionAcknowledged = $event"
+          @update:releaseAcknowledged="referenceReleaseAcknowledged = $event"
+          @update:signatureData="onSigned($event)"
+          @submit="submitJobApplicationPage2"
+          @back="step = 1"
+        />
+        </div>
 
         <div v-else-if="step === 2" class="step" :class="{ 'intake-interview-page': isOfficeInDepthIntake }">
         <div :class="{ 'ai-layout': isOfficeInDepthIntake, 'ai-layout--help': officeHelpColumnVisible }">
@@ -2763,6 +2836,7 @@ import { useRoute, useRouter } from 'vue-router';
 import api from '../services/api';
 import SignaturePad from '../components/SignaturePad.vue';
 import JobDescriptionSections from '../components/careers/JobDescriptionSections.vue';
+import JobApplicationApplyPages from '../components/careers/JobApplicationApplyPages.vue';
 import SmartSchoolRoiFlow from '../components/public/SmartSchoolRoiFlow.vue';
 import SmartDisclosureFlow from '../components/public/SmartDisclosureFlow.vue';
 import PacketSectionConsentFlow from '../components/public/PacketSectionConsentFlow.vue';
@@ -5248,6 +5322,13 @@ function progressBucketId(s) {
 }
 
 const dfProgressSteps = computed(() => {
+  if (isJobApplication.value) {
+    return [
+      { id: 'personal', label: 'Your information', marker: '1' },
+      { id: 'references', label: 'References & signature', marker: '2' },
+      { id: 'complete', label: t('completed'), marker: '3' }
+    ];
+  }
   const steps = [];
   if (asksWhoFor.value) steps.push({ id: 'who', label: t('letsGetIntakeStarted'), marker: '1' });
   const seen = new Set();
@@ -5303,6 +5384,12 @@ const dfProgressSteps = computed(() => {
 const dfProgressIndex = computed(() => {
   const total = dfProgressSteps.value.length;
   if (!total) return 0;
+  if (isJobApplication.value) {
+    if (step.value <= 0) return 0;
+    if (step.value === 1) return 0;
+    if (step.value === 2) return 1;
+    return Math.max(0, total - 1);
+  }
   if (step.value <= 0) return 0;
   if (step.value === WHO_FOR_STEP) return 0;
   if (step.value === 1) return asksWhoFor.value ? 1 : 0;
@@ -6080,6 +6167,26 @@ const referenceContentWaiverAcknowledged = ref(false);
 const jobDescriptionSummary = ref(null);
 const jobAckPdfZoom = ref(125);
 const jobDescriptionAcknowledged = ref(false);
+const bestTimeToContact = ref('');
+const interviewAvailability = ref('');
+const applicantCredential = ref('');
+const applicantLicenseNumber = ref('');
+const independentlyCredentialed = ref(null);
+const groupPracticeInsurances = ref('');
+const willingToSupervise = ref(false);
+const referenceReleaseAcknowledged = ref(false);
+const jobResumeFile = ref(null);
+const jobCoverFile = ref(null);
+const jobResumeUploadedName = ref('');
+const jobCoverUploadedName = ref('');
+const jobResumeFileName = computed(() => jobResumeFile.value?.name || jobResumeUploadedName.value || '');
+const jobCoverFileName = computed(() => jobCoverFile.value?.name || jobCoverUploadedName.value || '');
+const jobResumeFlowStep = computed(() =>
+  (flowSteps.value || []).find((s) => String(s?.type || '') === 'upload' && /resume|cv/i.test(String(s?.label || s?.id || '')))
+);
+const jobCoverFlowStep = computed(() =>
+  (flowSteps.value || []).find((s) => String(s?.type || '') === 'upload' && /cover/i.test(String(s?.label || s?.id || '')))
+);
 const defaultReferencesAuthorizationNotice =
   'By submitting this information, you authorize [tenant] to contact the individuals listed and obtain information regarding your employment history, educational background, professional conduct, and qualifications for employment.';
 
@@ -7101,6 +7208,10 @@ function goBackPublicPage() {
     return;
   }
   if (step.value === 1) {
+    if (isJobApplication.value) {
+      step.value = -1;
+      return;
+    }
     if (asksWhoFor.value) {
       step.value = WHO_FOR_STEP;
       return;
@@ -7109,6 +7220,10 @@ function goBackPublicPage() {
     return;
   }
     if (step.value === 2) {
+    if (isJobApplication.value) {
+      step.value = 1;
+      return;
+    }
     if (currentFlowIndex.value > 0) {
       goToPrevious();
       return;
@@ -11059,12 +11174,24 @@ const finalizePacket = async () => {
           }))
           .filter((r) => r.name || r.email || r.phone || r.organization || r.relationship),
         jobDescriptionAcknowledged: !!jobDescriptionAcknowledged.value,
-        referencesWaived: !!referencesWaived.value,
+        referencesWaived: false,
         referencesConsent: {
           consentVersion: 1,
-          digitalFormAtInterviewOrOffer: !!referencesDigitalFormConsent.value,
-          referenceContentWaiverAcknowledged: !!referenceContentWaiverAcknowledged.value
-        }
+          digitalFormAtInterviewOrOffer: true,
+          referenceContentWaiverAcknowledged: true,
+          referenceReleaseSigned: !!String(signatureData.value || '').trim()
+        },
+        fluentLanguages: String(fluentLanguagesInput.value || '').split(',').map((s) => s.trim()).filter(Boolean),
+        applicantProfile: {
+          credential: String(applicantCredential.value || '').trim() || null,
+          licenseNumber: String(applicantLicenseNumber.value || '').trim() || null,
+          bestTimeToContact: String(bestTimeToContact.value || '').trim() || null,
+          interviewAvailability: String(interviewAvailability.value || '').trim() || null,
+          independentlyCredentialed: independentlyCredentialed.value,
+          groupPracticeInsurances: String(groupPracticeInsurances.value || '').trim() || null,
+          willingToSupervise: !!willingToSupervise.value
+        },
+        referenceReleaseSignature: String(signatureData.value || '').trim() || null
       }
     }, { skipGlobalLoading: isOfficeInDepthIntake.value });
     downloadUrl.value = resp.data?.downloadUrl || '';
@@ -11205,6 +11332,18 @@ const resetIntakeState = () => {
   guardianEmail.value = '';
   guardianPhone.value = '';
   fluentLanguagesInput.value = '';
+  bestTimeToContact.value = '';
+  interviewAvailability.value = '';
+  applicantCredential.value = '';
+  applicantLicenseNumber.value = '';
+  independentlyCredentialed.value = null;
+  groupPracticeInsurances.value = '';
+  willingToSupervise.value = false;
+  referenceReleaseAcknowledged.value = false;
+  jobResumeFile.value = null;
+  jobCoverFile.value = null;
+  jobResumeUploadedName.value = '';
+  jobCoverUploadedName.value = '';
   guardianRelationship.value = '';
   jobApplicationSubmitted.value = false;
   coverLetterInputMode.value = 'upload';
@@ -12134,6 +12273,139 @@ const removeUploadStepFile = (idx) => {
   uploadStepFiles.value = uploadStepFiles.value.filter((_, i) => i !== idx);
 };
 
+const uploadJobApplicationFile = async (stepObj, file, fallbackId, fallbackLabel) => {
+  const stepId = String(stepObj?.id || fallbackId);
+  const label = String(stepObj?.label || fallbackLabel);
+  const formData = new FormData();
+  formData.append('stepId', stepId);
+  formData.append('label', label);
+  formData.append('replace', '1');
+  formData.append('files', file);
+  await api.post(`/public-intake/${publicKey}/${submissionId.value}/upload`, formData);
+  uploadStatus[stepId] = true;
+};
+
+const onJobResumeFile = (e) => {
+  const file = e?.target?.files?.[0] || null;
+  jobResumeFile.value = file;
+  if (e?.target) e.target.value = '';
+};
+
+const onJobCoverFile = (e) => {
+  const file = e?.target?.files?.[0] || null;
+  jobCoverFile.value = file;
+  if (e?.target) e.target.value = '';
+};
+
+const replaceJobResume = () => {
+  jobResumeFile.value = null;
+  jobResumeUploadedName.value = '';
+};
+
+const replaceJobCover = () => {
+  jobCoverFile.value = null;
+  jobCoverUploadedName.value = '';
+};
+
+const continueJobApplicationPage1 = async () => {
+  stepError.value = '';
+  if (!String(guardianFirstName.value || '').trim()
+    || !String(guardianLastName.value || '').trim()
+    || !String(guardianEmail.value || '').trim()
+    || !String(guardianPhone.value || '').trim()) {
+    stepError.value = t('applicantRequired') || 'First name, last name, email, and phone are required.';
+    return;
+  }
+  const credMode = String(jobDescriptionSummary.value?.credentialMode || 'none').toLowerCase();
+  if (credMode === 'mandatory') {
+    if (!String(applicantCredential.value || '').trim() || !String(applicantLicenseNumber.value || '').trim()) {
+      stepError.value = 'Credential and license number are required for this role.';
+      return;
+    }
+  }
+  if (!jobResumeFile.value && !jobResumeUploadedName.value) {
+    stepError.value = 'Please upload your resume.';
+    return;
+  }
+  if (!submissionId.value) {
+    stepError.value = 'Session expired. Please start over.';
+    return;
+  }
+  try {
+    submitLoading.value = true;
+    if (jobResumeFile.value) {
+      await uploadJobApplicationFile(jobResumeFlowStep.value, jobResumeFile.value, '_resume', 'Resume');
+      jobResumeUploadedName.value = jobResumeFile.value.name;
+      jobResumeFile.value = null;
+    }
+    if (jobCoverFile.value) {
+      await uploadJobApplicationFile(jobCoverFlowStep.value, jobCoverFile.value, '_cover_letter', 'Cover Letter');
+      jobCoverUploadedName.value = jobCoverFile.value.name;
+      jobCoverFile.value = null;
+    }
+    if (String(coverLetterPastedText.value || '').trim()) {
+      if (!intakeResponses.submission.uploadTextByStep || typeof intakeResponses.submission.uploadTextByStep !== 'object') {
+        intakeResponses.submission.uploadTextByStep = {};
+      }
+      intakeResponses.submission.coverLetterText = String(coverLetterPastedText.value || '').trim();
+    }
+    intakeResponses.submission.fluentLanguages = String(fluentLanguagesInput.value || '')
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+    step.value = 2;
+    if (typeof window !== 'undefined') window.scrollTo({ top: 0, behavior: 'auto' });
+  } catch (e) {
+    stepError.value = e.response?.data?.error?.message || 'Upload failed. Please try again.';
+  } finally {
+    submitLoading.value = false;
+  }
+};
+
+const submitJobApplicationPage2 = async () => {
+  stepError.value = '';
+  const emailOk = (e) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(e || '').trim());
+  const filled = (referencesEntries.value || []).map((r) => ({
+    name: String(r?.name || '').trim(),
+    email: String(r?.email || '').trim(),
+    relationship: String(r?.relationship || '').trim(),
+    organization: String(r?.organization || '').trim(),
+    phone: String(r?.phone || '').trim()
+  }));
+  const withNameEmail = filled.filter((r) => r.name && emailOk(r.email));
+  if (withNameEmail.length < 3) {
+    stepError.value = 'Please provide a name and valid email for three professional references.';
+    return;
+  }
+  if (!jobDescriptionAcknowledged.value) {
+    stepError.value = 'Please acknowledge that you have read the job description.';
+    return;
+  }
+  if (!referenceReleaseAcknowledged.value) {
+    stepError.value = 'Please agree to the Reference Release.';
+    return;
+  }
+  if (!String(signatureData.value || '').trim()) {
+    stepError.value = 'Please sign the Reference Release.';
+    return;
+  }
+  referencesDigitalFormConsent.value = true;
+  referenceContentWaiverAcknowledged.value = true;
+  referencesWaived.value = false;
+  intakeResponses.submission.references = filled.filter((r) => r.name || r.email);
+  intakeResponses.submission.applicantProfile = {
+    credential: String(applicantCredential.value || '').trim() || null,
+    licenseNumber: String(applicantLicenseNumber.value || '').trim() || null,
+    bestTimeToContact: String(bestTimeToContact.value || '').trim() || null,
+    interviewAvailability: String(interviewAvailability.value || '').trim() || null,
+    independentlyCredentialed: independentlyCredentialed.value,
+    groupPracticeInsurances: String(groupPracticeInsurances.value || '').trim() || null,
+    willingToSupervise: !!willingToSupervise.value
+  };
+  intakeResponses.submission.referenceReleaseSignature = String(signatureData.value || '').trim() || null;
+  await finalizePacket();
+};
+
 const completeUploadStep = async () => {
   const s = currentFlowStep.value;
   if (!s || s.type !== 'upload') return;
@@ -12549,7 +12821,9 @@ async function submitEnrollmentReminderConsent(consentStatus) {
       }
     }
     await postReminderConsent(status);
-    if (!skipBrandingIntro.value && introScreens.value.length) {
+    if (isJobApplication.value) {
+      goToFirstFormStep();
+    } else if (!skipBrandingIntro.value && introScreens.value.length) {
       step.value = 0;
       introIndex.value = 0;
     } else {
@@ -12582,7 +12856,9 @@ const beginIntakeSession = async () => {
       showReminderConsentGate.value = true;
       return;
     }
-    if (!skipBrandingIntro.value && introScreens.value.length) {
+    if (isJobApplication.value) {
+      goToFirstFormStep();
+    } else if (!skipBrandingIntro.value && introScreens.value.length) {
       step.value = 0;
       introIndex.value = 0;
     } else {
@@ -12726,7 +13002,7 @@ onMounted(async () => {
     await maybeInitRecaptchaForCover();
     return;
   }
-  if (!restoredDraft && !skipBrandingIntro.value && introScreens.value.length && !looksLikeOfficeIntake.value) {
+  if (!restoredDraft && !isJobApplication.value && !skipBrandingIntro.value && introScreens.value.length && !looksLikeOfficeIntake.value) {
     step.value = 0;
     introIndex.value = 0;
   }
