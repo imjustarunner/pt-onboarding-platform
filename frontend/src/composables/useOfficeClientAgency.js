@@ -1,6 +1,19 @@
-import { computed } from 'vue';
+import { computed, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import { useAgencyStore } from '../store/agency';
+import { isNestedOrganizationType } from '../utils/organizationTypes.js';
+
+function agencyLogoFromRow(a) {
+  if (!a) return null;
+  const direct = String(a.logo_url || a.logoUrl || '').trim();
+  if (direct) return direct;
+  const path = String(a.logo_path || a.logoPath || '').trim();
+  if (!path) return null;
+  if (/^https?:\/\//i.test(path)) return path;
+  if (path.startsWith('/uploads/')) return path;
+  if (path.startsWith('uploads/')) return `/${path}`;
+  return `/uploads/${path.replace(/^\//, '')}`;
+}
 
 export function useOfficeClientAgency() {
   const agencyStore = useAgencyStore();
@@ -10,6 +23,57 @@ export function useOfficeClientAgency() {
     const a = agencyStore.currentAgency?.value || agencyStore.currentAgency;
     return a?.id || null;
   });
+
+  /** Tenants the signed-in user can operate across (no brand switch required). */
+  const accessibleAgencies = computed(() => {
+    const list = Array.isArray(agencyStore.userAgencies) && agencyStore.userAgencies.length
+      ? agencyStore.userAgencies
+      : (Array.isArray(agencyStore.agencies) ? agencyStore.agencies : []);
+    return (list || [])
+      .map((a) => ({
+        id: Number(a.id || a.agency_id || 0),
+        name: a.name || a.agency_name || 'Agency',
+        slug: a.slug || null,
+        logoUrl: agencyLogoFromRow(a),
+        organizationType: a.organization_type || a.organizationType || null
+      }))
+      .filter((a) => a.id > 0)
+      .filter((a) => !isNestedOrganizationType(a.organizationType));
+  });
+
+  const multiTenant = computed(() => accessibleAgencies.value.length > 1);
+
+  /** 'all' or a specific agency id — defaults to all affiliates when multi-tenant. */
+  const tenantFilter = ref('all');
+
+  watch(
+    multiTenant,
+    (multi) => {
+      if (!multi && agencyId.value) tenantFilter.value = String(agencyId.value);
+      else if (multi && tenantFilter.value !== 'all') {
+        // keep explicit filter
+      } else if (multi) {
+        tenantFilter.value = 'all';
+      }
+    },
+    { immediate: true }
+  );
+
+  const scopeAgencyIds = computed(() => {
+    const filter = String(tenantFilter.value || 'all');
+    if (filter !== 'all') {
+      const id = Number(filter);
+      if (id > 0) return [id];
+    }
+    const ids = accessibleAgencies.value.map((a) => a.id);
+    if (ids.length) return ids;
+    if (agencyId.value) return [Number(agencyId.value)];
+    return [];
+  });
+
+  const showingAllAgencies = computed(
+    () => multiTenant.value && String(tenantFilter.value || 'all') === 'all'
+  );
 
   const orgSlug = computed(() => String(route.params?.organizationSlug || '').trim());
 
@@ -22,7 +86,22 @@ export function useOfficeClientAgency() {
     return orgPath(`/admin/clients/${clientId}`);
   }
 
-  return { agencyId, orgSlug, orgPath, clientProfilePath };
+  function agencyIdsParam() {
+    return scopeAgencyIds.value.join(',');
+  }
+
+  return {
+    agencyId,
+    accessibleAgencies,
+    multiTenant,
+    tenantFilter,
+    scopeAgencyIds,
+    showingAllAgencies,
+    agencyIdsParam,
+    orgSlug,
+    orgPath,
+    clientProfilePath
+  };
 }
 
 export function formatRelativeTime(v) {

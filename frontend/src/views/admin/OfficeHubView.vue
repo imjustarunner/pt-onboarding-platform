@@ -7,6 +7,10 @@
         <p class="oh-subtitle">What is happening in the office right now, and what needs attention.</p>
       </div>
       <div class="oh-header-actions">
+        <select v-if="multiTenant" v-model="tenantFilter" class="oh-select">
+          <option value="all">All my offices</option>
+          <option v-for="a in accessibleAgencies" :key="a.id" :value="String(a.id)">{{ a.name }}</option>
+        </select>
         <router-link class="oh-btn oh-btn--primary" :to="orgPath('/admin/office-clients')">Office Clients</router-link>
         <button class="oh-btn oh-btn--ghost" type="button" :disabled="loading" @click="load">
           {{ loading ? 'Loading…' : '↺ Refresh' }}
@@ -104,10 +108,19 @@
           <h2>New office clients</h2>
           <router-link class="oh-link" :to="orgPath('/admin/office-clients?bucket=prospective')">View all</router-link>
         </div>
-        <div v-for="c in (summary.clientsSample || []).filter((x) => !x.providerId || x.bucket === 'prospective').slice(0, 6)" :key="c.id" class="oh-queue-row">
+        <div v-for="c in (summary.clientsSample || []).filter((x) => !(x.providers?.length || x.providerId) || x.bucket === 'prospective').slice(0, 6)" :key="c.id" class="oh-queue-row">
           <div>
             <strong>{{ c.fullName }}</strong>
             <div class="oh-muted">
+              <span v-if="c.agencies?.length" class="oh-agency-inline">
+                <img
+                  v-for="a in c.agencies.filter((x) => x.logoUrl).slice(0, 3)"
+                  :key="'ha-' + c.id + '-' + a.agencyId"
+                  class="oh-mini-logo"
+                  :src="a.logoUrl"
+                  :alt="a.name || ''"
+                />
+              </span>
               {{ c.intakeType || 'Intake' }}
               <span v-if="c.needsClinicalReview"> · Clinical review</span>
               · {{ formatRelativeTime(c.createdAt) }}
@@ -173,7 +186,16 @@ import api from '../../services/api';
 import { useOfficeClientAgency, formatRelativeTime } from '../../composables/useOfficeClientAgency.js';
 
 const router = useRouter();
-const { agencyId, orgPath, orgSlug } = useOfficeClientAgency();
+const {
+  agencyId,
+  multiTenant,
+  tenantFilter,
+  scopeAgencyIds,
+  agencyIdsParam,
+  accessibleAgencies,
+  orgPath,
+  orgSlug
+} = useOfficeClientAgency();
 
 const loading = ref(false);
 const error = ref('');
@@ -209,20 +231,23 @@ function todayWindow() {
 }
 
 async function load() {
-  if (!agencyId.value) {
-    error.value = 'Select an agency to load the Office Hub.';
+  if (!scopeAgencyIds.value.length) {
+    error.value = 'No office agencies available for your account.';
     return;
   }
   loading.value = true;
   error.value = '';
   try {
     const { windowStart, windowEnd } = todayWindow();
+    const primaryAgency = scopeAgencyIds.value[0] || agencyId.value;
     const [sumRes, apptRes] = await Promise.all([
-      api.get('/office-clients/hub-summary', { params: { agencyId: agencyId.value } }),
-      api.get('/appointments', {
-        params: { agencyId: agencyId.value, windowStart, windowEnd },
-        skipGlobalLoading: true
-      }).catch(() => ({ data: { appointments: [] } }))
+      api.get('/office-clients/hub-summary', { params: { agencyIds: agencyIdsParam() } }),
+      primaryAgency
+        ? api.get('/appointments', {
+          params: { agencyId: primaryAgency, windowStart, windowEnd },
+          skipGlobalLoading: true
+        }).catch(() => ({ data: { appointments: [] } }))
+        : Promise.resolve({ data: { appointments: [] } })
     ]);
     summary.value = sumRes.data?.summary || {};
     const rows = apptRes.data?.appointments || apptRes.data?.rows || apptRes.data || [];
@@ -243,7 +268,8 @@ function goPath(path) {
   router.push(orgPath(path));
 }
 
-watch(agencyId, () => load());
+watch(scopeAgencyIds, () => load(), { deep: true });
+watch(tenantFilter, () => load());
 onMounted(load);
 </script>
 
@@ -253,7 +279,8 @@ onMounted(load);
 .oh-eyebrow { margin: 0; font-size: 0.75rem; letter-spacing: 0.06em; text-transform: uppercase; color: #5b6b63; }
 .oh-title { margin: 0.15rem 0; font-size: 1.75rem; color: #14352a; }
 .oh-subtitle { margin: 0; color: #5b6b63; }
-.oh-header-actions { display: flex; gap: 0.5rem; }
+.oh-header-actions { display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center; }
+.oh-select { border: 1px solid #d7e3dc; border-radius: 10px; padding: 0.45rem 0.65rem; background: #fff; }
 .oh-banner { background: #fef3c7; color: #92400e; border-radius: 10px; padding: 0.75rem 1rem; margin-bottom: 1rem; }
 .oh-kpis { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 0.75rem; margin-bottom: 1rem; }
 .oh-kpi { background: #fff; border: 1px solid #d7e3dc; border-radius: 12px; padding: 0.9rem 1rem; display: flex; gap: 0.75rem; align-items: center; }
@@ -274,6 +301,8 @@ onMounted(load);
 .oh-card-actions { display: flex; gap: 0.75rem; }
 .oh-lead { margin: 0 0 0.75rem; color: #4b5563; }
 .oh-muted { color: #6b7280; font-size: 0.85rem; }
+.oh-agency-inline { display: inline-flex; gap: 0.15rem; vertical-align: middle; margin-right: 0.25rem; }
+.oh-mini-logo { width: 0.95rem; height: 0.95rem; border-radius: 3px; object-fit: contain; border: 1px solid #e5e7eb; background: #fff; }
 .oh-link { color: #0f766e; font-weight: 600; text-decoration: none; }
 .oh-pill { display: inline-flex; border-radius: 999px; padding: 0.1rem 0.5rem; font-size: 0.72rem; font-weight: 600; background: #eff6ff; color: #1d4ed8; }
 .oh-pill--ok { background: #ecfdf5; color: #047857; }

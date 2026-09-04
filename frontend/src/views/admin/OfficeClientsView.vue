@@ -4,7 +4,9 @@
       <div>
         <p class="ocm-eyebrow">Office Client Management</p>
         <h1 class="ocm-title">Office Clients</h1>
-        <p class="ocm-subtitle">Prospective and continuing office enrollments — status and next step without opening every chart.</p>
+        <p class="ocm-subtitle">
+          Prospective and continuing office enrollments across your affiliated offices — no brand switch required.
+        </p>
       </div>
       <div class="ocm-header-actions">
         <router-link class="ocm-btn ocm-btn--ghost" :to="orgPath('/admin/office-hub')">Office Hub</router-link>
@@ -25,6 +27,10 @@
 
     <div class="ocm-toolbar">
       <input v-model="searchQuery" class="ocm-search" type="search" placeholder="Search clients, guardians, providers…" />
+      <select v-if="multiTenant" v-model="tenantFilter" class="ocm-select">
+        <option value="all">All my offices</option>
+        <option v-for="a in accessibleAgencies" :key="a.id" :value="String(a.id)">{{ a.name }}</option>
+      </select>
       <select v-model="bucket" class="ocm-select">
         <option value="all">All office clients</option>
         <option value="prospective">Prospective</option>
@@ -40,6 +46,7 @@
       </select>
       <select v-model="sort" class="ocm-select">
         <option value="submitted">Sort: Submitted</option>
+        <option value="agency">Sort: Agency / tenant</option>
         <option value="name">Sort: Name</option>
         <option value="preferredProvider">Sort: Preferred provider</option>
         <option value="assignedProvider">Sort: Assigned provider</option>
@@ -81,17 +88,50 @@
                 @click="selectedId = c.id"
               >
                 <td>
-                  <strong>{{ c.fullName || '—' }}</strong>
-                  <div class="ocm-muted">
-                    <span v-if="c.age != null">Age {{ c.age }}</span>
-                    <span v-if="c.therapyUnit" class="ocm-pill ocm-pill--unit">{{ c.therapyUnit.unitType }} · {{ c.therapyUnit.memberCount }}</span>
-                    <span v-if="c.needsClinicalReview" class="ocm-pill ocm-pill--hold">Clinical review</span>
+                  <div class="ocm-client-cell">
+                    <div v-if="agencyChips(c).length" class="ocm-agency-logos" :title="agencyNames(c)">
+                      <template v-for="a in agencyChips(c)" :key="'ag-' + c.id + '-' + a.agencyId">
+                        <img
+                          v-if="a.logoUrl"
+                          class="ocm-agency-logo"
+                          :src="a.logoUrl"
+                          :alt="a.name || 'Agency'"
+                          loading="lazy"
+                        />
+                        <span v-else class="ocm-agency-fallback" :title="a.name">{{ agencyInitials(a.name) }}</span>
+                      </template>
+                    </div>
+                    <div>
+                      <strong>{{ c.fullName || '—' }}</strong>
+                      <div class="ocm-muted">
+                        <span v-if="showingAllAgencies && agencyNames(c)" class="ocm-agency-names">{{ agencyNames(c) }}</span>
+                        <span v-if="c.age != null">Age {{ c.age }}</span>
+                        <span v-if="c.therapyUnit" class="ocm-pill ocm-pill--unit">{{ c.therapyUnit.unitType }} · {{ c.therapyUnit.memberCount }}</span>
+                        <span v-if="c.needsClinicalReview" class="ocm-pill ocm-pill--hold">Clinical review</span>
+                      </div>
+                    </div>
                   </div>
                 </td>
                 <td>{{ guardianSummary(c) }}</td>
                 <td>{{ c.intakeType || '—' }}</td>
                 <td>{{ c.preferredProviderName || '—' }}</td>
-                <td>{{ c.providerName || 'Unassigned' }}</td>
+                <td>
+                  <div v-if="assignedProviders(c).length" class="ocm-provider-stack">
+                    <div v-for="p in assignedProviders(c)" :key="'p-' + c.id + '-' + p.providerId + '-' + (p.agencyId || 0)" class="ocm-provider-row">
+                      <img
+                        v-if="p.agencyLogoUrl && showProviderAgencyLogo(c, p)"
+                        class="ocm-provider-agency-logo"
+                        :src="p.agencyLogoUrl"
+                        :alt="p.agencyName || ''"
+                        :title="p.agencyName || ''"
+                        loading="lazy"
+                      />
+                      <span v-else-if="showProviderAgencyLogo(c, p) && p.agencyName" class="ocm-provider-agency-fallback" :title="p.agencyName">{{ agencyInitials(p.agencyName) }}</span>
+                      <span>{{ p.name || 'Provider' }}</span>
+                    </div>
+                  </div>
+                  <span v-else>Unassigned</span>
+                </td>
                 <td><span class="ocm-pill" :class="c.portalEnabled ? 'ocm-pill--ok' : 'ocm-pill--muted'">{{ portalLabel(c.portalEnabled) }}</span></td>
                 <td>
                   <span class="ocm-pill ocm-pill--status">{{ statusText(c) }}</span>
@@ -111,8 +151,18 @@
           <h2>Continuing clients</h2>
           <div class="ocm-continue-grid">
             <article v-for="c in continuingRows.slice(0, 8)" :key="'cont-' + c.id" class="ocm-continue-card">
+              <div v-if="agencyChips(c).length" class="ocm-agency-logos ocm-agency-logos--card">
+                <img
+                  v-for="a in agencyChips(c)"
+                  :key="'cag-' + c.id + '-' + a.agencyId"
+                  class="ocm-agency-logo"
+                  :src="a.logoUrl"
+                  :alt="a.name || 'Agency'"
+                  loading="lazy"
+                />
+              </div>
               <strong>{{ c.fullName }}</strong>
-              <div class="ocm-muted">Provider: {{ c.providerName || '—' }}</div>
+              <div class="ocm-muted">Provider: {{ providerSummary(c) }}</div>
               <div class="ocm-muted">Next: {{ c.nextAppointmentAt ? formatRelativeTime(c.nextAppointmentAt) : 'None scheduled' }}</div>
               <a :href="clientProfilePath(c.id)" class="ocm-link">Open ↗</a>
             </article>
@@ -139,22 +189,47 @@
             <h3>{{ selected.fullName }}</h3>
             <button type="button" class="ocm-icon-btn" @click="selectedId = null">✕</button>
           </div>
+          <div v-if="agencyChips(selected).length" class="ocm-agency-logos ocm-agency-logos--drawer">
+            <div v-for="a in agencyChips(selected)" :key="'dag-' + a.agencyId" class="ocm-agency-chip">
+              <img v-if="a.logoUrl" class="ocm-agency-logo" :src="a.logoUrl" :alt="a.name || ''" />
+              <span v-else class="ocm-agency-fallback">{{ agencyInitials(a.name) }}</span>
+              <span>{{ a.name }}</span>
+            </div>
+          </div>
           <dl class="ocm-dl">
             <div><dt>Status</dt><dd>{{ statusText(selected) }}</dd></div>
             <div><dt>Next step</dt><dd>{{ selected.nextStep?.label || '—' }}</dd></div>
             <div><dt>Guardians</dt><dd>{{ guardianSummary(selected) }}</dd></div>
             <div><dt>Preferred provider</dt><dd>{{ selected.preferredProviderName || '—' }}</dd></div>
-            <div><dt>Assigned</dt><dd>{{ selected.providerName || 'Unassigned' }}</dd></div>
+            <div>
+              <dt>Assigned</dt>
+              <dd>
+                <div v-if="assignedProviders(selected).length" class="ocm-provider-stack">
+                  <div v-for="p in assignedProviders(selected)" :key="'sp-' + p.providerId + '-' + (p.agencyId || 0)" class="ocm-provider-row">
+                    <img
+                      v-if="p.agencyLogoUrl && showProviderAgencyLogo(selected, p)"
+                      class="ocm-provider-agency-logo"
+                      :src="p.agencyLogoUrl"
+                      :alt="p.agencyName || ''"
+                    />
+                    <span>{{ p.name }}<template v-if="p.agencyName"> · {{ p.agencyName }}</template></span>
+                  </div>
+                </div>
+                <template v-else>Unassigned</template>
+              </dd>
+            </div>
             <div><dt>Portal</dt><dd>{{ portalLabel(selected.portalEnabled) }}</dd></div>
             <div v-if="selected.needsClinicalReview"><dt>Clinical</dt><dd>Needs clinical review</dd></div>
             <div v-if="selected.therapyUnit"><dt>Unit</dt><dd>{{ selected.therapyUnit.unitType }} ({{ selected.therapyUnit.memberCount }} members)</dd></div>
           </dl>
 
-          <div v-if="!selected.providerId" class="ocm-assign">
+          <div v-if="!hasAssigned(selected)" class="ocm-assign">
             <label>Assign provider</label>
             <select v-model="assignProviderId" class="ocm-select">
               <option value="">Select…</option>
-              <option v-for="p in providers" :key="p.id" :value="String(p.id)">{{ p.name }}</option>
+              <option v-for="p in providers" :key="p.id" :value="String(p.id)">
+                {{ p.name }}<template v-if="providerAgencyLabel(p)"> · {{ providerAgencyLabel(p) }}</template>
+              </option>
             </select>
             <button type="button" class="ocm-btn ocm-btn--primary" :disabled="!assignProviderId || assigning" @click="assignSelected">
               {{ assigning ? 'Assigning…' : 'Assign' }}
@@ -202,7 +277,17 @@ import {
 } from '../../composables/useOfficeClientAgency.js';
 
 const route = useRoute();
-const { agencyId, orgPath, clientProfilePath } = useOfficeClientAgency();
+const {
+  agencyId,
+  accessibleAgencies,
+  multiTenant,
+  tenantFilter,
+  scopeAgencyIds,
+  showingAllAgencies,
+  agencyIdsParam,
+  orgPath,
+  clientProfilePath
+} = useOfficeClientAgency();
 
 const loading = ref(false);
 const error = ref('');
@@ -213,7 +298,7 @@ const selectedId = ref(null);
 const searchQuery = ref('');
 const bucket = ref(String(route.query.bucket || 'all'));
 const whoFor = ref(String(route.query.whoFor || ''));
-const sort = ref(String(route.query.sort || 'submitted'));
+const sort = ref(String(route.query.sort || (multiTenant.value ? 'agency' : 'submitted')));
 const clinicalReviewOnly = ref(String(route.query.clinicalReview || '') === '1');
 const needsActionOnly = ref(String(route.query.needsAction || '') === '1');
 const unassignedOnly = ref(false);
@@ -226,17 +311,84 @@ const selected = computed(() => clients.value.find((c) => c.id === selectedId.va
 
 const displayRows = computed(() => {
   let rows = clients.value;
-  if (unassignedOnly.value) rows = rows.filter((c) => !c.providerId);
+  if (unassignedOnly.value) rows = rows.filter((c) => !hasAssigned(c));
   return rows;
 });
 
 const queueRows = computed(() =>
-  clients.value.filter((c) => c.bucket === 'prospective' || !c.providerId)
+  clients.value.filter((c) => c.bucket === 'prospective' || !hasAssigned(c))
 );
 
 const continuingRows = computed(() =>
   clients.value.filter((c) => c.bucket === 'continuing')
 );
+
+function agencyChips(c) {
+  const list = Array.isArray(c?.agencies) ? c.agencies : [];
+  if (list.length) return list;
+  if (c?.agencyId) {
+    return [{
+      agencyId: c.agencyId,
+      name: c.agencyName || null,
+      logoUrl: c.agencyLogoUrl || null,
+      isPrimary: true
+    }];
+  }
+  return [];
+}
+
+function agencyNames(c) {
+  return agencyChips(c).map((a) => a.name).filter(Boolean).join(' · ');
+}
+
+function agencyInitials(name) {
+  return String(name || '?')
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((p) => p[0]?.toUpperCase() || '')
+    .join('')
+    .slice(0, 2) || '?';
+}
+
+function assignedProviders(c) {
+  if (Array.isArray(c?.providers) && c.providers.length) return c.providers;
+  if (c?.providerId) {
+    return [{
+      providerId: c.providerId,
+      name: c.providerName || 'Provider',
+      agencyId: c.agencyId || null,
+      agencyName: c.agencyName || null,
+      agencyLogoUrl: c.agencyLogoUrl || null
+    }];
+  }
+  return [];
+}
+
+function hasAssigned(c) {
+  return assignedProviders(c).length > 0;
+}
+
+/** Mini agency logo on provider when client has multiple agencies, or multiple providers. */
+function showProviderAgencyLogo(c, p) {
+  const agencies = agencyChips(c);
+  const providersList = assignedProviders(c);
+  if (providersList.length > 1) return true;
+  if (agencies.length > 1 && p?.agencyId) return true;
+  return false;
+}
+
+function providerSummary(c) {
+  const list = assignedProviders(c);
+  if (!list.length) return '—';
+  return list.map((p) => p.name).filter(Boolean).join(', ') || '—';
+}
+
+function providerAgencyLabel(p) {
+  if (Array.isArray(p?.agencies) && p.agencies.length) {
+    return p.agencies.map((a) => a.name).filter(Boolean).join(', ');
+  }
+  return '';
+}
 
 function guardianSummary(c) {
   const list = c?.guardians || [];
@@ -253,16 +405,20 @@ function statusText(c) {
   return c.statusLabel || c.statusKey || c.status || '—';
 }
 
+function waitlistAgencyId(c) {
+  return Number(c?.agencyId || agencyChips(c)[0]?.agencyId || scopeAgencyIds.value[0] || agencyId.value || 0) || null;
+}
+
 async function load() {
-  if (!agencyId.value) {
-    error.value = 'Select an agency to load office clients.';
+  if (!scopeAgencyIds.value.length) {
+    error.value = 'No office agencies available for your account.';
     return;
   }
   loading.value = true;
   error.value = '';
   try {
     const params = {
-      agencyId: agencyId.value,
+      agencyIds: agencyIdsParam(),
       bucket: bucket.value,
       sort: sort.value,
       search: searchQuery.value || undefined,
@@ -272,7 +428,7 @@ async function load() {
     };
     const [rosterRes, providersRes] = await Promise.all([
       api.get('/office-clients', { params }),
-      api.get('/office-clients/providers', { params: { agencyId: agencyId.value } })
+      api.get('/office-clients/providers', { params: { agencyIds: agencyIdsParam() } })
     ]);
     clients.value = Array.isArray(rosterRes.data?.clients) ? rosterRes.data.clients : [];
     aggregates.value = rosterRes.data?.aggregates || {};
@@ -302,11 +458,12 @@ async function assignSelected() {
 }
 
 async function setWaitlist(remove) {
-  if (!selected.value || !agencyId.value) return;
+  const aid = waitlistAgencyId(selected.value);
+  if (!selected.value || !aid) return;
   waitlisting.value = true;
   try {
     await api.put(`/office-clients/${selected.value.id}/waitlist`, {
-      agencyId: agencyId.value,
+      agencyId: aid,
       reason: waitlistReason.value,
       remove
     });
@@ -320,12 +477,12 @@ async function setWaitlist(remove) {
 }
 
 let searchTimer = null;
-watch([bucket, whoFor, sort, clinicalReviewOnly, needsActionOnly], () => load());
+watch([bucket, whoFor, sort, clinicalReviewOnly, needsActionOnly, tenantFilter], () => load());
 watch(searchQuery, () => {
   clearTimeout(searchTimer);
   searchTimer = setTimeout(() => load(), 300);
 });
-watch(agencyId, () => load());
+watch(scopeAgencyIds, () => load(), { deep: true });
 watch(selected, (c) => {
   waitlistReason.value = c?.waitlistReason || c?.waitlistNote || '';
   assignProviderId.value = '';
@@ -336,6 +493,7 @@ watch(
     if (q.bucket) bucket.value = String(q.bucket);
     if (q.whoFor != null) whoFor.value = String(q.whoFor || '');
     if (q.sort) sort.value = String(q.sort);
+    if (q.agencyId || q.tenant) tenantFilter.value = String(q.agencyId || q.tenant);
     if (q.clinicalReview != null) clinicalReviewOnly.value = String(q.clinicalReview) === '1';
     if (q.needsAction != null) needsActionOnly.value = String(q.needsAction) === '1';
   },
@@ -350,7 +508,7 @@ onMounted(load);
 .ocm-header { display: flex; justify-content: space-between; gap: 1rem; align-items: flex-start; margin-bottom: 1.25rem; }
 .ocm-eyebrow { margin: 0; font-size: 0.75rem; letter-spacing: 0.06em; text-transform: uppercase; color: #5b6b63; }
 .ocm-title { margin: 0.15rem 0; font-size: 1.75rem; color: #14352a; }
-.ocm-subtitle { margin: 0; color: #5b6b63; max-width: 40rem; }
+.ocm-subtitle { margin: 0; color: #5b6b63; max-width: 42rem; }
 .ocm-header-actions { display: flex; gap: 0.5rem; flex-wrap: wrap; }
 .ocm-kpis { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 0.75rem; margin-bottom: 1rem; }
 .ocm-kpi { background: #fff; border: 1px solid #d7e3dc; border-radius: 12px; padding: 0.85rem 1rem; }
@@ -369,6 +527,20 @@ onMounted(load);
 .ocm-table tr { cursor: pointer; }
 .ocm-table tr.is-active, .ocm-table tr:hover { background: #f8fbf9; }
 .ocm-empty { text-align: center; color: #6b7280; padding: 2rem !important; }
+.ocm-client-cell { display: flex; gap: 0.55rem; align-items: flex-start; }
+.ocm-agency-logos { display: flex; gap: 0.2rem; flex-shrink: 0; align-items: center; }
+.ocm-agency-logos--card { margin-bottom: 0.35rem; }
+.ocm-agency-logos--drawer { display: flex; flex-wrap: wrap; gap: 0.45rem; margin: 0.65rem 0 0.25rem; }
+.ocm-agency-chip { display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.8rem; color: #374151; }
+.ocm-agency-logo { width: 1.35rem; height: 1.35rem; border-radius: 6px; object-fit: contain; background: #fff; border: 1px solid #e5e7eb; }
+.ocm-agency-fallback, .ocm-provider-agency-fallback {
+  width: 1.35rem; height: 1.35rem; border-radius: 6px; background: #1e4d3b; color: #fff;
+  display: inline-grid; place-items: center; font-size: 0.55rem; font-weight: 700;
+}
+.ocm-agency-names { font-weight: 600; color: #4b5563; }
+.ocm-provider-stack { display: grid; gap: 0.3rem; }
+.ocm-provider-row { display: flex; align-items: center; gap: 0.35rem; }
+.ocm-provider-agency-logo { width: 1rem; height: 1rem; border-radius: 4px; object-fit: contain; border: 1px solid #e5e7eb; background: #fff; flex-shrink: 0; }
 .ocm-muted { color: #6b7280; font-size: 0.8rem; display: flex; gap: 0.35rem; flex-wrap: wrap; margin-top: 0.2rem; }
 .ocm-pill { display: inline-flex; align-items: center; border-radius: 999px; padding: 0.1rem 0.5rem; font-size: 0.72rem; font-weight: 600; }
 .ocm-pill--status { background: #eff6ff; color: #1d4ed8; }

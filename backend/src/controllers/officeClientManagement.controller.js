@@ -7,6 +7,24 @@ function safeInt(v) {
   return Number.isFinite(n) && n > 0 ? Math.trunc(n) : null;
 }
 
+function parseAgencyIds(query = {}, body = {}) {
+  const raw = query.agencyIds ?? body.agencyIds ?? null;
+  const out = [];
+  const seen = new Set();
+  const push = (v) => {
+    const n = safeInt(v);
+    if (!n || seen.has(n)) return;
+    seen.add(n);
+    out.push(n);
+  };
+  if (Array.isArray(raw)) raw.forEach(push);
+  else if (typeof raw === 'string' && raw.trim()) {
+    raw.split(',').forEach((p) => push(p.trim()));
+  }
+  push(query.agencyId ?? body.agencyId);
+  return out;
+}
+
 const BACKOFFICE_ROLES = new Set(['admin', 'super_admin', 'support', 'staff']);
 
 function isBackoffice(role) {
@@ -33,26 +51,37 @@ async function assertAgencyAccess(req, agencyId) {
   }
 }
 
-async function assertOfficeStaff(req, agencyId) {
-  if (!(await assertAgencyAccess(req, agencyId))) return { ok: false, status: 403, message: 'Forbidden' };
+async function assertAgenciesAccess(req, agencyIds) {
+  const ids = (agencyIds || []).map((n) => safeInt(n)).filter(Boolean);
+  if (!ids.length) return { ok: false, status: 400, message: 'agencyId or agencyIds is required' };
+  for (const id of ids) {
+    if (!(await assertAgencyAccess(req, id))) {
+      return { ok: false, status: 403, message: 'Forbidden' };
+    }
+  }
+  return { ok: true, agencyIds: ids };
+}
+
+async function assertOfficeStaff(req, agencyIds) {
+  const access = await assertAgenciesAccess(req, agencyIds);
+  if (!access.ok) return access;
   const requestingUser = await User.findById(req.user.id);
   const isSupervisor = requestingUser && User.isSupervisor(requestingUser);
   if (!isBackoffice(req.user.role) && !isSupervisor) {
     return { ok: false, status: 403, message: 'Support/admin access required' };
   }
-  return { ok: true };
+  return { ok: true, agencyIds: access.agencyIds };
 }
 
-/** GET /api/office-clients?agencyId=&bucket=&search=&sort= */
+/** GET /api/office-clients?agencyId=&agencyIds=&bucket=&search=&sort= */
 export async function listOfficeClients(req, res, next) {
   try {
-    const agencyId = safeInt(req.query.agencyId);
-    if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
-    const gate = await assertOfficeStaff(req, agencyId);
+    const agencyIds = parseAgencyIds(req.query);
+    const gate = await assertOfficeStaff(req, agencyIds);
     if (!gate.ok) return res.status(gate.status).json({ error: { message: gate.message } });
 
     const result = await OfficeClients.listOfficeClients({
-      agencyId,
+      agencyIds: gate.agencyIds,
       bucket: req.query.bucket || 'all',
       providerId: safeInt(req.query.providerId),
       preferredProviderId: safeInt(req.query.preferredProviderId),
@@ -71,14 +100,13 @@ export async function listOfficeClients(req, res, next) {
   }
 }
 
-/** GET /api/office-clients/hub-summary?agencyId= */
+/** GET /api/office-clients/hub-summary?agencyId=&agencyIds= */
 export async function getOfficeHubSummary(req, res, next) {
   try {
-    const agencyId = safeInt(req.query.agencyId);
-    if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
-    const gate = await assertOfficeStaff(req, agencyId);
+    const agencyIds = parseAgencyIds(req.query);
+    const gate = await assertOfficeStaff(req, agencyIds);
     if (!gate.ok) return res.status(gate.status).json({ error: { message: gate.message } });
-    const summary = await OfficeClients.getOfficeHubSummary({ agencyId });
+    const summary = await OfficeClients.getOfficeHubSummary({ agencyIds: gate.agencyIds });
     res.json({ summary });
   } catch (e) {
     next(e);
@@ -88,9 +116,9 @@ export async function getOfficeHubSummary(req, res, next) {
 /** GET /api/office-clients/units?agencyId= */
 export async function listOfficeTherapyUnits(req, res, next) {
   try {
-    const agencyId = safeInt(req.query.agencyId);
+    const agencyId = safeInt(req.query.agencyId) || parseAgencyIds(req.query)[0];
     if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
-    const gate = await assertOfficeStaff(req, agencyId);
+    const gate = await assertOfficeStaff(req, [agencyId]);
     if (!gate.ok) return res.status(gate.status).json({ error: { message: gate.message } });
     const units = await OfficeClients.listOfficeTherapyUnits({ agencyId });
     res.json({ units });
@@ -99,14 +127,13 @@ export async function listOfficeTherapyUnits(req, res, next) {
   }
 }
 
-/** GET /api/office-clients/providers?agencyId= */
+/** GET /api/office-clients/providers?agencyId=&agencyIds= */
 export async function listOfficeHubProviders(req, res, next) {
   try {
-    const agencyId = safeInt(req.query.agencyId);
-    if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
-    const gate = await assertOfficeStaff(req, agencyId);
+    const agencyIds = parseAgencyIds(req.query);
+    const gate = await assertOfficeStaff(req, agencyIds);
     if (!gate.ok) return res.status(gate.status).json({ error: { message: gate.message } });
-    const providers = await OfficeClients.listHubProviders({ agencyId });
+    const providers = await OfficeClients.listHubProviders({ agencyIds: gate.agencyIds });
     res.json({ providers });
   } catch (e) {
     next(e);
@@ -119,24 +146,23 @@ export async function putOfficeClientWaitlist(req, res, next) {
     const clientId = safeInt(req.params.id);
     const agencyId = safeInt(req.body?.agencyId || req.query.agencyId);
     if (!clientId || !agencyId) {
-      return res.status(400).json({ error: { message: 'client id and agencyId are required' } });
+      return res.status(400).json({ error: { message: 'clientId and agencyId are required' } });
     }
-    const gate = await assertOfficeStaff(req, agencyId);
+    const gate = await assertOfficeStaff(req, [agencyId]);
     if (!gate.ok) return res.status(gate.status).json({ error: { message: gate.message } });
 
-    const remove = req.body?.remove === true || req.body?.removeFromWaitlist === true;
     const result = await OfficeClients.setOfficeClientWaitlist({
       clientId,
       agencyId,
-      reason: req.body?.reason || req.body?.waitlistReason || '',
+      reason: req.body?.reason || '',
       priority: req.body?.priority || null,
       followUpAt: req.body?.followUpAt || null,
       actorUserId: req.user.id,
-      remove
+      remove: !!req.body?.remove
     });
     res.json(result);
   } catch (e) {
-    if (e.status) return res.status(e.status).json({ error: { message: e.message } });
+    if (e?.status) return res.status(e.status).json({ error: { message: e.message } });
     next(e);
   }
 }
