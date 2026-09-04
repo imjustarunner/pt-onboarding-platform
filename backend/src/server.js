@@ -1749,7 +1749,9 @@ if (!isBootstrap) {
         `[school_group_contacts_sync] matched=${result.groupsMatched || 0} ` +
           `contacts+${result.contactsCreated || 0}/~${result.contactsUpdated || 0} ` +
           `staffPending+${result.staffCreatedPending || 0} assigned+${result.staffAssigned || 0} ` +
-          `skippedOtherRole=${result.staffSkippedOtherRole || 0} errors=${(result.errors || []).length}`
+          `skippedOtherRole=${result.staffSkippedOtherRole || 0} ` +
+          `ticketIntake+${result.ticketIntakeReconcile?.membersAdded || 0} ` +
+          `errors=${(result.errors || []).length}`
       );
     } catch (error) {
       console.error('Error in school group contacts sync:', error?.message || error);

@@ -10,6 +10,7 @@
     "email-agent": "node src/scripts/runEmailAgent.js",
     "sync-school-email-inbound": "node src/scripts/syncItscoSchoolEmailInbound.js",
     "sync-school-group-contacts": "node src/scripts/syncSchoolGroupContacts.js",
+    "reconcile-school-group-ticket-intake": "node src/scripts/reconcileSchoolGroupTicketIntake.js",
     "provision-school-google-group": "node src/scripts/provisionSchoolGoogleGroup.js",
     "create-admin": "node src/scripts/createAdmin.js",
     "create-super-admin": "node src/scripts/createSuperAdmin.js",

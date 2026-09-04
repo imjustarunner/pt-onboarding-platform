@@ -2,6 +2,7 @@ import pool from '../../config/database.js';
 import User from '../../models/User.model.js';
 import GoogleWorkspaceDirectoryService from '../googleWorkspaceDirectory.service.js';
 import { syncSchoolEmailInboundForAgency } from './schoolEmailInboundSync.service.js';
+import { reconcileSchoolGroupTicketIntakeForAgency } from './reconcileSchoolGroupTicketIntake.service.js';
 
 const DEFAULT_MEMBER_EMAIL = 'schoolreply@itsco.health';
 const SYNC_SOURCE_PREFIX = 'google_group_sync';
@@ -220,6 +221,19 @@ export async function syncSchoolGroupContactsForAgency({
     throw err;
   }
 
+  // Ensure schoolreply@ (ticket-intake mailbox) is on every school group with an
+  // itsco_email, and refresh inbound routes before contact sync.
+  let ticketIntakeReconcile = null;
+  try {
+    ticketIntakeReconcile = await reconcileSchoolGroupTicketIntakeForAgency({
+      agencyId: resolvedAgencyId,
+      dryRun
+    });
+  } catch (e) {
+    // Continue contact sync even if membership reconcile fails.
+    ticketIntakeReconcile = { error: e?.message || String(e) };
+  }
+
   const schoolMap = await buildSchoolEmailMap(resolvedAgencyId);
   const member = normalizeEmail(memberEmail) || DEFAULT_MEMBER_EMAIL;
 
@@ -393,6 +407,7 @@ export async function syncSchoolGroupContactsForAgency({
 
   return {
     ...stats,
+    ticketIntakeReconcile,
     inboundSync: inboundSync
       ? {
           identityId: inboundSync.identity?.id || null,
