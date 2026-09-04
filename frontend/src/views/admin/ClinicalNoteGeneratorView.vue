@@ -184,9 +184,10 @@
         </header>
 
         <NoteAidQuickSessionBar
-          v-if="!isEmbedded && !showAidPicker"
+          v-if="!showAidPicker"
           :client-label="noteSubjectLabel"
           :client-linked="!!effectiveClientId"
+          :profile-href="clientProfileHref"
           v-model:date-of-service="dateOfService"
           :service-label="quickSessionServiceLabel"
           :service-code="actualServiceCode"
@@ -194,6 +195,7 @@
           v-model:participants="sessionParticipants"
           v-model:participants-detail="sessionParticipantsDetail"
           v-model:duration-minutes="sessionDurationMinutes"
+          v-model:location-label="sessionLocationLabel"
           v-model:start-time="sessionStartTimeLocal"
           v-model:end-time="sessionEndTimeLocal"
           :clinician-label="sessionClinicianLabel"
@@ -207,6 +209,58 @@
           @toggle-setup="showClientSetupDrawer = true"
         />
 
+        <section
+          v-if="needsClientAttachStep"
+          class="na-client-attach-step"
+          aria-label="Attach client"
+        >
+          <nav class="na-client-attach-steps" aria-label="Note setup steps">
+            <span class="na-client-attach-step-pill is-done">1. Note type</span>
+            <span class="na-client-attach-steps-line" aria-hidden="true" />
+            <span class="na-client-attach-step-pill is-active">2. Client / initials</span>
+          </nav>
+          <div class="na-client-attach-card">
+            <h2>Attach a client</h2>
+            <p>
+              Choose a chart client or enter initials before writing
+              <strong>{{ selectedAid?.label || 'this note' }}</strong>.
+            </p>
+            <NoteAidClientPicker
+              v-model="selectedClientId"
+              :agency-id="noteAidAgencyId || currentAgencyId"
+              :selected-client="selectedClient"
+              :allow-clear="canClearLinkedClient"
+              :profile-href="clientProfileHref"
+              :search-all-tenants="true"
+              @select="onClientPicked"
+              @clear="onClientCleared"
+              @create-request="openCreateClientModal"
+            />
+            <label v-if="!selectedClientId" class="na-label" for="na-attach-initials">
+              Client initials
+              <input
+                id="na-attach-initials"
+                v-model="initials"
+                class="na-input"
+                maxlength="16"
+                placeholder="e.g., SB"
+                autocomplete="off"
+              />
+            </label>
+            <p v-else class="na-field-hint">Chart client linked — you can continue writing.</p>
+            <button
+              type="button"
+              class="na-generate"
+              :disabled="!canContinueToWriteStep"
+              @click="dismissClientAttachStep"
+            >
+              Continue to write
+              <span aria-hidden="true">›</span>
+            </button>
+          </div>
+        </section>
+
+        <div v-if="!needsClientAttachStep" class="na-write-after-attach">
         <div class="na-aid-bar">
           <div class="na-aid-bar-copy">
             <span class="na-aid-kicker">{{ selectedCategoryLabel || 'Selected aid' }}</span>
@@ -600,7 +654,7 @@
                   </div>
                   <div>
                     <dt>Program / service</dt>
-                    <dd>{{ selectedAid?.label || noteTypeDisplayLabel || '—' }}</dd>
+                    <dd>{{ noteTypeDisplayLabel || selectedAid?.label || '—' }}</dd>
                   </div>
                   <div>
                     <dt>Date of service</dt>
@@ -680,12 +734,12 @@
               <dl v-else class="na-snapshot-dl">
                 <div><dt>Client</dt><dd>{{ noteSubjectLabel }}</dd></div>
                 <div><dt>Date</dt><dd>{{ dateOfService || '—' }}</dd></div>
-                <div><dt>Service</dt><dd>{{ selectedAid?.label || noteTypeDisplayLabel || '—' }}</dd></div>
+                <div><dt>Service</dt><dd>{{ noteTypeDisplayLabel || selectedAid?.label || '—' }}</dd></div>
                 <div v-if="hasScheduledSessionContext && sessionDurationMinutes"><dt>Duration</dt><dd>{{ sessionDurationMinutes }} min</dd></div>
               </dl>
               <dl v-if="canEditNoteSubject" class="na-snapshot-dl na-snapshot-dl--compact">
                 <div><dt>Date</dt><dd>{{ dateOfService || '—' }}</dd></div>
-                <div><dt>Service</dt><dd>{{ selectedAid?.label || noteTypeDisplayLabel || '—' }}</dd></div>
+                <div><dt>Service</dt><dd>{{ noteTypeDisplayLabel || selectedAid?.label || '—' }}</dd></div>
                 <div v-if="hasScheduledSessionContext && sessionDurationMinutes"><dt>Duration</dt><dd>{{ sessionDurationMinutes }} min</dd></div>
               </dl>
             </div>
@@ -1203,6 +1257,7 @@
           :clientId="Number(retentionClientId || 0)"
           :officeEventId="Number(retentionOfficeEventId || 0)"
         />
+        </div>
         </template>
         </template>
         </div>
@@ -2077,6 +2132,24 @@ const noteWizardStep = ref(1);
 const canContinueToWriteStep = computed(() =>
   !!(String(dateOfService.value || '').trim() && (effectiveClientId.value || String(initials.value || '').trim()))
 );
+
+/** After choosing a note tool, require client or initials before writing. */
+const needsClientAttachStep = computed(() => {
+  if (showAidPicker.value) return false;
+  if (signedNoteViewerId.value || viewingChartNote.value) return false;
+  if (isSessionlessAid.value) return false;
+  if (!String(selectedAidId.value || '').trim() && !draftId.value) return false;
+  if (effectiveClientId.value) return false;
+  if (String(initials.value || '').trim()) return false;
+  return true;
+});
+
+function dismissClientAttachStep() {
+  if (!canContinueToWriteStep.value) return;
+  noteWizardStep.value = 2;
+  scheduleAutosave(200);
+}
+
 function goToWriteStep() {
   if (!canContinueToWriteStep.value) return;
   noteWizardStep.value = 2;
@@ -2961,12 +3034,7 @@ const workspaceTitle = computed(() =>
   || (outputObj.value?.meta?.source === 'session_recording' ? 'Session Recording' : 'Note')
 );
 
-const quickSessionServiceLabel = computed(() => {
-  const code = actualServiceCode.value || '';
-  const label = selectedAid.value?.label || noteTypeDisplayLabel.value || '';
-  if (code && label) return `${code} — ${label}`;
-  return code || label || '—';
-});
+const quickSessionServiceLabel = computed(() => actualServiceCode.value || '—');
 
 const sessionDurationHint = computed(() => {
   if (chartNoteReadOnly.value) return '';
@@ -3602,16 +3670,15 @@ const canSaveTreatmentPlanToChart = computed(() => {
 });
 
 const noteTypeDisplayLabel = computed(() => {
-  const sel = String(selectedServiceCode.value || '').trim();
-  if (sel && sel !== '__other__') {
-    const opt = (noteTypeOptions.value || []).find((o) => o.value === sel);
-    if (opt?.label) return opt.label;
-  }
-  const code = actualServiceCode.value || outputObj.value?.meta?.serviceCode || '';
-  if (!code) return 'Progress Note';
-  const group = NOTE_TYPE_GROUPS.find((g) => g.codes.includes(String(code).toUpperCase()));
-  if (group) return group.label;
-  return serviceCodeOptionLabel(code);
+  // Always show the active code only — never the full group list (90832 / 90834 / …).
+  const code = String(
+    actualServiceCode.value
+    || (selectedServiceCode.value && selectedServiceCode.value !== '__other__' ? selectedServiceCode.value : '')
+    || outputObj.value?.meta?.serviceCode
+    || ''
+  ).trim().toUpperCase();
+  if (code) return code;
+  return selectedAid.value?.label || 'Progress Note';
 });
 
 const isCurrentDraftArchived = computed(() => !!currentDraftArchivedAt.value);
@@ -7383,13 +7450,31 @@ onMounted(async () => {
     if (isEmbedded.value) {
       const qAgency = Number(props.embedAgencyId || 0) || null;
       if (qAgency) selectedQueueAgencyId.value = qAgency;
+      const embedCid = Number(props.embedClientId || 0) || null;
+      if (embedCid) {
+        selectedClientId.value = embedCid;
+        selectedClient.value = { id: embedCid, initials: '' };
+        await hydrateSelectedClient(embedCid);
+        await loadClientAgencyContext(embedCid);
+        await Promise.all([
+          loadClientTreatmentPlan(embedCid),
+          loadClientIntakeSummary(embedCid),
+          loadClientGuardianNames(embedCid)
+        ]);
+      }
       if (props.embedClinicalNoteId) {
         await loadClinicalNoteIntoWorkspace(props.embedClinicalNoteId);
       } else if (props.embedDraftId) {
         const hit = recentDrafts.value.find((d) => String(d.id) === String(props.embedDraftId));
         if (hit) await loadDraftIntoWorkspace(hit);
+      } else {
+        // New note from client profile — pick a tool with the client already attached.
+        showAidPicker.value = true;
+        noteWizardStep.value = 1;
       }
-      noteWizardStep.value = 2;
+      if (props.embedClinicalNoteId || props.embedDraftId) {
+        noteWizardStep.value = 2;
+      }
     } else {
       let loaded = [];
       try {
@@ -8165,6 +8250,73 @@ onBeforeUnmount(() => {
   background: #fffbeb;
   border: 1px solid #fcd34d;
   border-radius: 10px;
+}
+
+.na-client-attach-step {
+  margin: 0 0 16px;
+}
+
+.na-client-attach-steps {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.na-client-attach-step-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 12px;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  border: 1px solid #e2e8f0;
+  background: #f8fafc;
+  color: #94a3b8;
+}
+
+.na-client-attach-step-pill.is-done {
+  color: #0f766e;
+  border-color: #99f6e4;
+  background: #f0fdfa;
+}
+
+.na-client-attach-step-pill.is-active {
+  color: #92400e;
+  border-color: #fcd34d;
+  background: #fffbeb;
+  box-shadow: 0 0 0 3px rgba(251, 191, 36, 0.25);
+}
+
+.na-client-attach-steps-line {
+  flex: 0 0 28px;
+  height: 2px;
+  background: #e2e8f0;
+}
+
+.na-client-attach-card {
+  border: 2px solid #fbbf24;
+  background: linear-gradient(180deg, #fffbeb 0%, #fff 55%);
+  border-radius: 14px;
+  padding: 18px 20px;
+  max-width: 520px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.na-client-attach-card h2 {
+  margin: 0;
+  font-size: 1.15rem;
+  font-weight: 800;
+  color: #0f172a;
+}
+
+.na-client-attach-card > p {
+  margin: 0;
+  color: #475569;
+  font-size: 0.9rem;
+  line-height: 1.45;
 }
 
 .na-aid-bar {

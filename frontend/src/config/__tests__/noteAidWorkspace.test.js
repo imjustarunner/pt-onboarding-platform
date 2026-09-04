@@ -131,9 +131,9 @@ describe('note aid kinds', () => {
     expect(aidAllowsInteractiveComplexity(findNoteAidById('code_decider')?.aid)).toBe(true);
   });
 
-  it('shows psychotherapy code group as 90839/90837/90834/90832 on library cards', () => {
+  it('shows psychotherapy primary code only on library cards', () => {
     const aid = findNoteAidById('psychotherapy')?.aid;
-    expect(aidServiceCodeDisplay(aid)).toBe('90839/90837/90834/90832');
+    expect(aidServiceCodeDisplay(aid)).toBe('90837');
   });
 });
 

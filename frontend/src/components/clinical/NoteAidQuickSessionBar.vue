@@ -3,7 +3,17 @@
     <div class="na-quick-session__grid">
       <div class="na-quick-session__cell na-quick-session__cell--client">
         <span class="lbl">Client</span>
-        <strong>{{ clientLabel || '—' }}</strong>
+        <a
+          v-if="profileHref && clientLabel"
+          class="na-quick-session__client-link"
+          :href="profileHref"
+          target="_blank"
+          rel="noopener noreferrer"
+          :title="'Open client profile'"
+        >
+          <strong>{{ clientLabel }}</strong>
+        </a>
+        <strong v-else>{{ clientLabel || '—' }}</strong>
         <span v-if="clientLinked" class="badge">Chart linked</span>
       </div>
       <div class="na-quick-session__cell">
@@ -27,7 +37,7 @@
         >
           <option v-for="c in serviceCodeChoices" :key="c" :value="c">{{ c }}</option>
         </select>
-        <strong v-else>{{ serviceLabel || serviceCode || '—' }}</strong>
+        <strong v-else>{{ serviceCode || '—' }}</strong>
       </div>
       <div class="na-quick-session__cell na-quick-session__cell--participants">
         <span class="lbl">Participants</span>
@@ -69,6 +79,18 @@
           @change="$emit('update:durationMinutes', Number($event.target.value) || null)"
         />
         <strong v-else>{{ durationLabel }}</strong>
+      </div>
+      <div class="na-quick-session__cell">
+        <span class="lbl">Location</span>
+        <input
+          v-if="editable"
+          type="text"
+          class="na-quick-session__input"
+          :value="locationLabel"
+          placeholder="Office, telehealth…"
+          @input="$emit('update:locationLabel', $event.target.value)"
+        />
+        <strong v-else>{{ locationLabel || '—' }}</strong>
       </div>
       <div class="na-quick-session__cell">
         <span class="lbl">Start</span>
@@ -123,6 +145,7 @@ import { computed } from 'vue';
 const props = defineProps({
   clientLabel: { type: String, default: '' },
   clientLinked: { type: Boolean, default: false },
+  profileHref: { type: String, default: '' },
   dateOfService: { type: String, default: '' },
   serviceLabel: { type: String, default: '' },
   serviceCode: { type: String, default: '' },
@@ -130,6 +153,7 @@ const props = defineProps({
   participants: { type: String, default: 'Client Only' },
   participantsDetail: { type: String, default: '' },
   durationMinutes: { type: [Number, null], default: null },
+  locationLabel: { type: String, default: '' },
   startTime: { type: String, default: '' },
   endTime: { type: String, default: '' },
   clinicianLabel: { type: String, default: '' },
@@ -147,6 +171,7 @@ defineEmits([
   'update:participants',
   'update:participantsDetail',
   'update:durationMinutes',
+  'update:locationLabel',
   'update:startTime',
   'update:endTime',
   'toggle-setup'
@@ -173,7 +198,7 @@ const durationLabel = computed(() => {
 
 .na-quick-session__grid {
   display: grid;
-  grid-template-columns: minmax(120px, 1.3fr) repeat(4, minmax(0, 1fr)) minmax(70px, 0.8fr) repeat(3, minmax(0, 1fr));
+  grid-template-columns: minmax(120px, 1.3fr) repeat(5, minmax(0, 1fr)) minmax(70px, 0.8fr) repeat(3, minmax(0, 1fr));
   gap: 10px 10px;
   align-items: start;
 }
@@ -192,6 +217,17 @@ const durationLabel = computed(() => {
   font-size: 0.86rem;
   line-height: 1.3;
   word-break: break-word;
+}
+
+.na-quick-session__client-link {
+  color: inherit;
+  text-decoration: none;
+}
+
+.na-quick-session__client-link:hover strong,
+.na-quick-session__client-link:focus-visible strong {
+  color: #0f766e;
+  text-decoration: underline;
 }
 
 .badge {

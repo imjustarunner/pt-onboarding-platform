@@ -485,16 +485,14 @@ export function aidSetting(aid) {
   return 'individual';
 }
 
-/** Library card sublabel — e.g. 90837/90834/90832 for psychotherapy code groups. */
+/** Library card sublabel — current/primary code only (not the full group list). */
 export function aidServiceCodeDisplay(aid) {
   const custom = String(aid?.serviceCodeDisplay || '').trim();
   if (custom) return custom;
   if (aid?.codeGroupId) {
     const g = NOTE_TYPE_CODE_GROUPS.find((x) => x.id === aid.codeGroupId);
-    if (g?.codes?.length) {
-      const sorted = [...g.codes].sort((a, b) => Number(b) - Number(a));
-      return sorted.join('/');
-    }
+    if (g?.primary) return String(g.primary);
+    if (g?.codes?.length) return String(g.codes[0]);
   }
   return String(aid?.serviceCode || '').trim();
 }

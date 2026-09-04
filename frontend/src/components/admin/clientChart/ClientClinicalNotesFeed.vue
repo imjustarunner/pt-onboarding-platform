@@ -11,23 +11,28 @@
           }}
         </p>
       </div>
-      <div v-if="!workspace" class="ccnf-filters">
-        <select v-model="kindFilter" class="ccnf-select" aria-label="Filter note type">
-          <option value="all">All types</option>
-          <option value="progress">Progress / session</option>
-          <option value="intake">Intake</option>
-          <option value="plan">{{ isLearning ? 'Learning plan' : 'Treatment plan' }}</option>
-          <option value="draft">Note Aid drafts</option>
-          <option v-if="!isLearning" value="contact">Contact</option>
-          <option v-if="!isLearning" value="termination">Termination</option>
-        </select>
+      <div v-if="!workspace" class="ccnf-head-actions">
+        <button type="button" class="ccnf-write-btn" @click="startNewNoteInProfile">
+          Write note
+        </button>
+        <div class="ccnf-filters">
+          <select v-model="kindFilter" class="ccnf-select" aria-label="Filter note type">
+            <option value="all">All types</option>
+            <option value="progress">Progress / session</option>
+            <option value="intake">Intake</option>
+            <option value="plan">{{ isLearning ? 'Learning plan' : 'Treatment plan' }}</option>
+            <option value="draft">Note Aid drafts</option>
+            <option v-if="!isLearning" value="contact">Contact</option>
+            <option v-if="!isLearning" value="termination">Termination</option>
+          </select>
+        </div>
       </div>
     </header>
 
     <div v-if="workspace" class="ccnf-workspace">
       <header class="ccnf-workspace-bar">
         <button type="button" class="ccnf-back" @click="closeWorkspace">← Notes list</button>
-        <span>{{ workspace.mode === 'view' ? 'Completed note' : 'Write this session note' }}</span>
+        <span>{{ workspaceTitle }}</span>
         <a
           class="ccnf-full-aid"
           :href="fullNoteAidHref"
@@ -42,6 +47,7 @@
       />
       <ClinicalNoteGeneratorView
         v-else
+        :key="workspaceKey"
         embedded
         :embed-draft-id="workspace.draftId"
         :embed-clinical-note-id="workspace.clinicalNoteId"
@@ -54,7 +60,9 @@
     <div v-if="loading" class="ccnf-muted">Loading notes…</div>
     <div v-else-if="error" class="ccnf-error">{{ error }}</div>
     <div v-else-if="!filteredRows.length" class="ccnf-muted">
-      No notes on file yet. Start one in Note Aid or finalize an intake.
+      No notes on file yet.
+      <button type="button" class="ccnf-text-link" @click="startNewNoteInProfile">Write a note</button>
+      or finalize an intake.
     </div>
 
     <ul v-else class="ccnf-list" role="list">
@@ -515,8 +523,28 @@ const fullNoteAidHref = computed(() => {
   });
 });
 
+const workspaceTitle = computed(() => {
+  const ws = workspace.value;
+  if (!ws) return '';
+  if (ws.mode === 'view') return 'Completed note';
+  if (ws.isNew || !ws.draftId) return 'Write note';
+  return 'Write this session note';
+});
+
+const workspaceKey = computed(() => {
+  const ws = workspace.value;
+  if (!ws) return 'none';
+  if (ws.mode === 'view') return `view-${ws.clinicalNoteId || 0}`;
+  if (ws.draftId) return `draft-${ws.draftId}`;
+  return `new-${ws.isNew ? '1' : '0'}-${props.clientId}`;
+});
+
 function closeWorkspace() {
   workspace.value = null;
+}
+
+function startNewNoteInProfile() {
+  workspace.value = { mode: 'write', draftId: null, clinicalNoteId: null, isNew: true };
 }
 
 function openRow(row) {
@@ -594,6 +622,36 @@ defineExpose({ reload: load, diagnoses: computed(() => chart.value.diagnoses) })
   gap: 10px;
   margin-bottom: 12px;
   align-items: flex-start;
+}
+.ccnf-head-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.ccnf-write-btn {
+  border: none;
+  border-radius: 8px;
+  padding: 7px 12px;
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 700;
+  background: #0f766e;
+  color: #fff;
+  cursor: pointer;
+}
+.ccnf-write-btn:hover {
+  background: #0d9488;
+}
+.ccnf-text-link {
+  border: none;
+  background: none;
+  color: #0f766e;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+  text-decoration: underline;
+  padding: 0 2px;
 }
 .ccnf-title {
   margin: 0;
