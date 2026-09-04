@@ -9,6 +9,11 @@
         </p>
       </div>
       <div class="ona-header-right">
+        <HiringHubSwitcher
+          active="onboarding"
+          :org-prefix="effectiveSlug ? `/${effectiveSlug}` : ''"
+          :agency-id="selectedAgencyId"
+        />
         <div v-if="canChooseAgency" class="ona-agency-picker">
           <label class="ona-agency-label">Agency</label>
           <select :value="selectedAgencyId" class="ona-select" @change="onPickAgency">
@@ -19,10 +24,6 @@
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg>
           Refresh
         </button>
-        <router-link :to="hiringDashboardRoute" class="ona-btn ona-btn-secondary">Hiring Dashboard</router-link>
-        <router-link :to="applicantsRoute" class="ona-btn ona-btn-secondary">View Applications</router-link>
-        <router-link :to="preHireRoute" class="ona-btn ona-btn-secondary">View Pre-Hire</router-link>
-        <span class="ona-btn ona-btn-primary ona-btn-active">View Onboarding</span>
       </div>
     </div>
 
@@ -199,6 +200,7 @@ import { useAgencyStore } from '../../store/agency';
 import { useBrandingStore } from '../../store/branding';
 import { pickDefaultAgencyChoiceId } from '../../utils/peopleOpsAgencyPicker.js';
 import { resolveHostImpliedPortalSlug } from '../../utils/orgScopedPath.js';
+import HiringHubSwitcher from '../../components/hiring/HiringHubSwitcher.vue';
 
 const authStore = useAuthStore();
 const agencyStore = useAgencyStore();

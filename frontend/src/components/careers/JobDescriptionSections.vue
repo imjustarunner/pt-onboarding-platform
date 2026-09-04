@@ -13,17 +13,21 @@
           {{ m.label }}
         </span>
       </div>
-      <p v-if="summary" class="jds-summary">{{ summary }}</p>
-      <hr v-if="title || summary || metaItems.length" class="jds-rule" />
+      <div v-if="summaryParagraphs.length && !aboutTheRole" class="jds-summary">
+        <p v-for="(para, i) in summaryParagraphs" :key="`sum-${i}`">{{ para }}</p>
+      </div>
+      <hr v-if="title || summaryParagraphs.length || metaItems.length" class="jds-rule" />
     </header>
 
     <div class="jds-grid">
-      <section v-if="aboutTheRole" class="jds-card">
+      <section v-if="aboutParagraphs.length" class="jds-card">
         <h3 class="jds-card-title">
           <span class="jds-card-ico" aria-hidden="true">👤</span>
           About the Role
         </h3>
-        <p class="jds-card-body">{{ aboutTheRole }}</p>
+        <div class="jds-card-body">
+          <p v-for="(para, i) in aboutParagraphs" :key="`about-${i}`">{{ para }}</p>
+        </div>
       </section>
 
       <section v-if="responsibilitySets.length" class="jds-card">
@@ -87,6 +91,36 @@ const props = defineProps({
 });
 
 const aboutTheRole = computed(() => String(props.sections?.aboutTheRole || '').trim());
+
+/** Split dense walls of text into readable paragraphs. */
+function splitIntoParagraphs(raw) {
+  const text = String(raw || '').replace(/\r\n/g, '\n').trim();
+  if (!text) return [];
+  const byBlank = text.split(/\n{2,}/).map((p) => p.trim()).filter(Boolean);
+  if (byBlank.length > 1) return byBlank;
+  const byLine = text.split(/\n/).map((p) => p.trim()).filter(Boolean);
+  if (byLine.length > 1) return byLine;
+  // Single long block: break on sentence boundaries into ~2–4 chunks.
+  if (text.length < 280) return [text];
+  const sentences = text.match(/[^.!?]+[.!?]+(?:\s+|$)|[^.!?]+$/g) || [text];
+  const chunks = [];
+  let buf = '';
+  for (const s of sentences) {
+    const next = `${buf}${s}`.trim();
+    if (buf && next.length > 220) {
+      chunks.push(buf.trim());
+      buf = s;
+    } else {
+      buf = next;
+    }
+  }
+  if (buf.trim()) chunks.push(buf.trim());
+  return chunks.length ? chunks : [text];
+}
+
+const aboutParagraphs = computed(() => splitIntoParagraphs(aboutTheRole.value));
+const summaryParagraphs = computed(() => splitIntoParagraphs(props.summary));
+
 const responsibilitySets = computed(() => {
   const src = props.sections;
   const sets = Array.isArray(src?.responsibilitySets) ? src.responsibilitySets : null;
@@ -118,12 +152,12 @@ const benefits = computed(() =>
 
 const hasContent = computed(() =>
   !!(
-    aboutTheRole.value
+    aboutParagraphs.value.length
     || responsibilitySets.value.length
     || qualifications.value.length
     || benefits.value.length
     || props.pdfUrl
-    || (props.showHeader && (props.title || props.summary))
+    || (props.showHeader && (props.title || summaryParagraphs.value.length))
   )
 );
 
@@ -146,14 +180,16 @@ const rootStyle = computed(() => ({
   --jds-accent: #1a8c54;
   color: #0f172a;
   font-family: inherit;
+  text-align: left;
 }
-.jds-header { margin-bottom: 8px; }
+.jds-header { margin-bottom: 8px; text-align: left; }
 .jds-title {
   margin: 0 0 10px;
   font-size: 1.65rem;
   font-weight: 800;
   color: var(--jds-accent);
   letter-spacing: -0.02em;
+  text-align: left;
 }
 .jds-meta {
   display: flex;
@@ -163,6 +199,7 @@ const rootStyle = computed(() => ({
   font-size: 0.88rem;
   color: #475569;
   font-weight: 600;
+  justify-content: flex-start;
 }
 .jds-meta-item { display: inline-flex; align-items: center; gap: 6px; }
 .jds-meta-ico { font-size: 0.95rem; }
@@ -171,7 +208,10 @@ const rootStyle = computed(() => ({
   font-size: 0.98rem;
   line-height: 1.65;
   color: #334155;
+  text-align: left;
 }
+.jds-summary p { margin: 0 0 0.75rem; }
+.jds-summary p:last-child { margin-bottom: 0; }
 .jds-rule {
   border: 0;
   border-top: 1px solid #e2e8f0;
@@ -181,8 +221,10 @@ const rootStyle = computed(() => ({
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 22px 28px;
+  text-align: left;
 }
 .jds--compact .jds-grid { gap: 16px; }
+.jds-card { text-align: left; min-width: 0; }
 .jds-card-title {
   margin: 0 0 10px;
   display: flex;
@@ -191,6 +233,8 @@ const rootStyle = computed(() => ({
   font-size: 1.02rem;
   font-weight: 800;
   color: var(--jds-accent);
+  text-align: left;
+  justify-content: flex-start;
 }
 .jds-card-ico { font-size: 1.05rem; line-height: 1; }
 .jds-card-body {
@@ -198,27 +242,35 @@ const rootStyle = computed(() => ({
   font-size: 0.92rem;
   line-height: 1.65;
   color: #1e293b;
-  white-space: pre-wrap;
+  text-align: left;
 }
+.jds-card-body p { margin: 0 0 0.75rem; }
+.jds-card-body p:last-child { margin-bottom: 0; }
 .jds-list {
   margin: 0;
-  padding-left: 1.15rem;
-  display: flex;
-  flex-direction: column;
-  gap: 7px;
+  padding-left: 1.25rem;
+  list-style: disc outside;
   font-size: 0.92rem;
   line-height: 1.55;
   color: #1e293b;
+  text-align: left;
 }
+.jds-list li {
+  margin: 0 0 7px;
+  padding-left: 0.15rem;
+  text-align: left;
+}
+.jds-list li:last-child { margin-bottom: 0; }
 .jds-set + .jds-set { margin-top: 14px; }
 .jds-set-title {
   margin: 0 0 8px;
   font-size: 0.92rem;
   font-weight: 700;
   color: #0f172a;
+  text-align: left;
 }
 .jds-list li::marker { color: var(--jds-accent); }
-.jds-pdf { margin: 18px 0 0; }
+.jds-pdf { margin: 18px 0 0; text-align: left; }
 .jds-pdf-link {
   font-size: 0.9rem;
   font-weight: 700;

@@ -1,4 +1,5 @@
 import express from 'express';
+import multer from 'multer';
 import { body } from 'express-validator';
 import { authenticatePrehireToken } from '../middleware/prehirePortalAuth.middleware.js';
 import {
@@ -31,10 +32,22 @@ import {
   submitPortalBackgroundCheck,
   recordPortalHandbookOpen,
   completePortalChecklistItem,
-  acknowledgePortalJobDescription
+  acknowledgePortalJobDescription,
+  uploadPortalPrehireDocument
 } from '../controllers/prehirePortal.controller.js';
 
 const router = express.Router();
+
+const prehireDocUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 15 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    const ok = /pdf|image|jpeg|jpg|png|webp|heic|msword|officedocument/i.test(
+      `${file.mimetype || ''} ${file.originalname || ''}`
+    );
+    cb(ok ? null : new Error('Unsupported file type'), ok);
+  }
+});
 
 // All routes validated by the pre-hire token — token is the :token route param
 router.use('/:token', authenticatePrehireToken);
@@ -81,6 +94,16 @@ router.post(
   '/:token/job-description/acknowledge',
   [body('signatureData').notEmpty().withMessage('Signature is required')],
   acknowledgePortalJobDescription
+);
+router.post(
+  '/:token/documents/upload',
+  (req, res, next) => {
+    prehireDocUpload.single('file')(req, res, (err) => {
+      if (err) return res.status(400).json({ error: { message: err.message || 'Upload failed' } });
+      return next();
+    });
+  },
+  uploadPortalPrehireDocument
 );
 
 // Token-scoped module / employee-info form (no login required)

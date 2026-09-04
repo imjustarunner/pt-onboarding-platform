@@ -72,7 +72,7 @@
               @click.prevent="openResources"
             >
               <span class="portal-nav-icon">📚</span>
-              Resources
+              Tools and Resources
             </a>
           </nav>
 
@@ -193,7 +193,7 @@
 
             <section
               v-if="activeSection === 'dashboard' && portalPhase !== 'account_setup'"
-              class="portal-link-card"
+              class="portal-link-card portal-bg-card"
               aria-label="Authorization for background check"
             >
               <div class="portal-link-card-head">
@@ -205,26 +205,37 @@
                 Full numbers are encrypted and are not shown again.
               </p>
               <form v-else class="bg-form" @submit.prevent="submitBackgroundCheck">
-                <p class="portal-link-help">
-                  {{ agency?.name || 'This organization' }} uses a consumer reporting agency for employment screening.
-                  Your Social Security number and driver’s license are encrypted in transit and at rest.
-                  After you sign, this portal only shows a masked receipt (*** plus the last four digits).
-                </p>
-                <label>Legal name <input v-model="bgForm.legalName" type="text" required autocomplete="name" /></label>
-                <label>Date of birth <input v-model="bgForm.dateOfBirth" type="date" required /></label>
-                <label>Current address <input v-model="bgForm.currentAddress" type="text" required autocomplete="street-address" /></label>
-                <label>Previous addresses (optional) <textarea v-model="bgForm.previousAddresses" rows="2" /></label>
-                <label>Other names / aliases (optional) <input v-model="bgForm.aliases" type="text" /></label>
-                <label>Social Security number
-                  <input v-model="bgForm.ssn" type="text" inputmode="numeric" autocomplete="off" required placeholder="###-##-####" />
-                </label>
-                <label>Driver’s license number
-                  <input v-model="bgForm.driversLicense" type="text" autocomplete="off" required />
-                </label>
-                <p class="portal-link-help">
-                  By signing, I authorize {{ agency?.name || 'the employer' }} and its agents to obtain consumer reports
-                  and investigate my background for employment purposes. I certify the information is true.
-                </p>
+                <div class="bg-legal-panel">
+                  <h3 class="bg-legal-title">Why we ask</h3>
+                  <p>
+                    {{ agency?.name || 'This organization' }} uses a consumer reporting agency for employment screening
+                    (references, employment history, and criminal records where permitted by law).
+                  </p>
+                  <ul class="bg-legal-list">
+                    <li>Your Social Security number and driver’s license are encrypted in transit and at rest.</li>
+                    <li>After you sign, this portal only shows a masked receipt (*** plus the last four digits).</li>
+                    <li>People Operations can reveal full values only when needed, and each reveal is logged.</li>
+                  </ul>
+                </div>
+                <div class="bg-form-grid">
+                  <label>Legal name <input v-model="bgForm.legalName" type="text" required autocomplete="name" /></label>
+                  <label>Date of birth <input v-model="bgForm.dateOfBirth" type="date" required /></label>
+                  <label class="bg-span">Current address <input v-model="bgForm.currentAddress" type="text" required autocomplete="street-address" /></label>
+                  <label class="bg-span">Previous addresses (optional) <textarea v-model="bgForm.previousAddresses" rows="2" /></label>
+                  <label class="bg-span">Other names / aliases (optional) <input v-model="bgForm.aliases" type="text" /></label>
+                  <label>Social Security number
+                    <input v-model="bgForm.ssn" type="text" inputmode="numeric" autocomplete="off" required placeholder="###-##-####" />
+                  </label>
+                  <label>Driver’s license number
+                    <input v-model="bgForm.driversLicense" type="text" autocomplete="off" required />
+                  </label>
+                </div>
+                <div class="bg-legal-panel bg-legal-panel--ack">
+                  <p>
+                    By signing, I authorize {{ agency?.name || 'the employer' }} and its agents to obtain consumer reports
+                    and investigate my background for employment purposes. I certify the information above is true and complete.
+                  </p>
+                </div>
                 <AdaptiveSignatureCapture
                   v-model="bgForm.signatureData"
                   title="Sign authorization"
@@ -239,7 +250,7 @@
 
             <section
               v-if="activeSection === 'dashboard' && portalPhase !== 'account_setup'"
-              class="portal-link-card"
+              class="portal-link-card portal-jd-card"
               aria-label="Job description acknowledgement"
             >
               <div class="portal-link-card-head"><strong>Job description</strong></div>
@@ -253,7 +264,13 @@
                   show-header
                   compact
                 />
-                <p v-else class="muted">{{ jobDescription?.title || 'Job description' }}</p>
+                <div v-else-if="jdPlainParagraphs.length" class="portal-jd-plain">
+                  <h3 v-if="jobDescription?.title">{{ jobDescription.title }}</h3>
+                  <p v-for="(para, i) in jdPlainParagraphs" :key="`jd-p-${i}`">{{ para }}</p>
+                </div>
+                <p v-else class="muted">
+                  {{ jobDescription?.title || 'Job description will appear here once your hiring team attaches the posting.' }}
+                </p>
                 <AdaptiveSignatureCapture
                   v-model="jdSignature"
                   title="Acknowledge job description"
@@ -273,9 +290,9 @@
             >
               <div class="portal-link-card-head"><strong>Pre-hire documents</strong></div>
               <ul class="portal-simple-list">
-                <li v-for="doc in prehireDocs" :key="doc.id">
+                <li v-for="doc in prehireDocs" :key="doc.id" class="portal-doc-row">
                   <strong>{{ doc.title }}</strong>
-                  <span class="cred-muted"> · {{ doc.kind }}</span>
+                  <span class="cred-muted"> · {{ docKindLabel(doc.kind) }}</span>
                   <p v-if="doc.instructions" class="portal-link-help">{{ doc.instructions }}</p>
                   <a
                     v-if="doc.kind === 'print_only'"
@@ -290,6 +307,29 @@
                     rel="noopener"
                     @click="trackHandbookOpen(`ref:${doc.id}`)"
                   >Open link</a>
+                  <template v-else-if="doc.kind === 'upload'">
+                    <a
+                      v-if="doc.url"
+                      class="portal-link-copy"
+                      :href="doc.url"
+                      target="_blank"
+                      rel="noopener"
+                    >Download blank form</a>
+                    <p v-if="uploadDone[doc.id]" class="cred-ok">Uploaded — thank you.</p>
+                    <label v-else class="portal-upload-field">
+                      <span>{{ uploadBusy[doc.id] ? 'Uploading…' : 'Upload your file' }}</span>
+                      <input
+                        type="file"
+                        accept=".pdf,.png,.jpg,.jpeg,.webp,.heic,application/pdf,image/*"
+                        :disabled="!!uploadBusy[doc.id]"
+                        @change="onPrehireDocUpload(doc, $event)"
+                      />
+                    </label>
+                    <p v-if="uploadError[doc.id]" class="cred-warn">{{ uploadError[doc.id] }}</p>
+                  </template>
+                  <span v-else-if="doc.kind === 'acknowledgement'" class="portal-link-help">
+                    Use the Job description section above to review and sign.
+                  </span>
                 </li>
               </ul>
             </section>
@@ -344,10 +384,10 @@
             </section>
 
             <!-- Resources / handbook -->
-            <section v-if="activeSection === 'resources'" class="portal-resources" aria-label="Resources">
+            <section v-if="activeSection === 'resources'" class="portal-resources" aria-label="Tools and Resources">
               <div class="portal-tasks-head">
                 <div>
-                  <h2>Resources</h2>
+                  <h2>Tools and Resources</h2>
                   <p>Limited agency information available during hire and onboarding.</p>
                 </div>
               </div>
@@ -790,6 +830,8 @@ import AdaptiveSignatureCapture from '../components/adaptive-intake/AdaptiveSign
 import JobDescriptionSections from '../components/careers/JobDescriptionSections.vue';
 import { buildFormUrl } from '../utils/publicIntakeUrl.js';
 import { learnerFillableFields } from '../utils/documentFieldLayout.js';
+import '../styles/adaptive-intake.css';
+import '../styles/digital-form.css';
 
 const route = useRoute();
 const router = useRouter();
@@ -873,10 +915,74 @@ const jdSignature = ref('');
 const jdSaving = ref(false);
 const jdError = ref('');
 const jdAcknowledgedLocal = ref(false);
+const uploadBusy = ref({});
+const uploadDone = ref({});
+const uploadError = ref({});
+
+const splitPlainParagraphs = (raw) => {
+  const text = String(raw || '').replace(/\r\n/g, '\n').trim();
+  if (!text) return [];
+  const byBlank = text.split(/\n{2,}/).map((p) => p.trim()).filter(Boolean);
+  if (byBlank.length > 1) return byBlank;
+  const byLine = text.split(/\n/).map((p) => p.trim()).filter(Boolean);
+  if (byLine.length > 1) return byLine;
+  if (text.length < 280) return [text];
+  const sentences = text.match(/[^.!?]+[.!?]+(?:\s+|$)|[^.!?]+$/g) || [text];
+  const chunks = [];
+  let buf = '';
+  for (const s of sentences) {
+    const next = `${buf}${s}`.trim();
+    if (buf && next.length > 220) {
+      chunks.push(buf.trim());
+      buf = s;
+    } else {
+      buf = next;
+    }
+  }
+  if (buf.trim()) chunks.push(buf.trim());
+  return chunks.length ? chunks : [text];
+};
+
+const docKindLabel = (kind) => {
+  switch (String(kind || '').toLowerCase()) {
+    case 'acknowledgement': return 'Sign job description';
+    case 'print_only': return 'Printable instructions';
+    case 'reference': return 'External link';
+    case 'upload': return 'File upload';
+    default: return kind || 'Document';
+  }
+};
+
+const onPrehireDocUpload = async (doc, event) => {
+  const file = event?.target?.files?.[0];
+  const docId = doc?.id;
+  if (!file || !docId) return;
+  uploadError.value = { ...uploadError.value, [docId]: '' };
+  uploadBusy.value = { ...uploadBusy.value, [docId]: true };
+  try {
+    const fd = new FormData();
+    fd.append('file', file);
+    fd.append('docId', String(docId));
+    fd.append('title', String(doc.title || 'Pre-hire upload'));
+    await portalApi.post(`/prehire-portal/${token.value}/documents/upload`, fd, {
+      headers: { 'Content-Type': 'multipart/form-data' }
+    });
+    uploadDone.value = { ...uploadDone.value, [docId]: true };
+  } catch (e) {
+    uploadError.value = {
+      ...uploadError.value,
+      [docId]: e?.response?.data?.error?.message || 'Upload failed. Try again.'
+    };
+  } finally {
+    uploadBusy.value = { ...uploadBusy.value, [docId]: false };
+    if (event?.target) event.target.value = '';
+  }
+};
 
 const backgroundCheck = computed(() => portalData.value?.backgroundCheck || { signed: false });
 const handbookLinks = computed(() => portalData.value?.handbookLinks || {});
 const jobDescription = computed(() => portalData.value?.jobDescription || null);
+const jdPlainParagraphs = computed(() => splitPlainParagraphs(jobDescription.value?.descriptionText));
 const prehireDocs = computed(() => portalData.value?.prehireDocs || []);
 const checklistItems = computed(() => portalData.value?.checklistItems || []);
 const jdAcknowledged = computed(() => jdAcknowledgedLocal.value || !!portalData.value?.jdAcknowledged);
@@ -1710,8 +1816,11 @@ onMounted(async () => {
 
 .portal-content {
   flex: 1;
-  padding: 28px 32px 20px;
-  max-width: 920px;
+  width: 100%;
+  max-width: 880px;
+  margin: 0 auto;
+  padding: 28px 32px 48px;
+  box-sizing: border-box;
 }
 
 .portal-welcome h1 {
@@ -1846,14 +1955,144 @@ onMounted(async () => {
   color: #64748b;
 }
 
-.bg-form { display: flex; flex-direction: column; gap: 10px; margin-top: 8px; }
-.bg-form label { display: flex; flex-direction: column; gap: 4px; font-size: 0.82rem; font-weight: 650; }
-.bg-form input, .bg-form textarea {
-  border: 1px solid #d1d5db;
+.bg-form { display: flex; flex-direction: column; gap: 14px; margin-top: 8px; }
+.bg-form-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+.bg-form-grid label,
+.bg-form > label {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  font-size: 0.82rem;
+  font-weight: 650;
+  color: #334155;
+}
+.bg-span { grid-column: 1 / -1; }
+.bg-form input,
+.bg-form textarea {
+  border: 1px solid #d0d7e2;
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-size: 0.95rem;
+  background: #fff;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.bg-form input:focus,
+.bg-form textarea:focus {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 22%, transparent);
+}
+.bg-legal-panel {
+  padding: 14px 16px;
+  border-radius: 12px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  color: #475569;
+  font-size: 0.88rem;
+  line-height: 1.55;
+}
+.bg-legal-panel--ack {
+  background: #ecfdf5;
+  border-color: #a7f3d0;
+  color: #065f46;
+}
+.bg-legal-title {
+  margin: 0 0 6px;
+  font-size: 0.92rem;
+  font-weight: 750;
+  color: #0f172a;
+}
+.bg-legal-list {
+  margin: 8px 0 0;
+  padding-left: 1.15rem;
+}
+.bg-legal-list li { margin-bottom: 4px; }
+.portal-jd-plain {
+  text-align: left;
+  margin: 8px 0 16px;
+  padding: 14px 16px;
+  border-radius: 12px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+}
+.portal-jd-plain h3 {
+  margin: 0 0 10px;
+  font-size: 1.15rem;
+  color: var(--primary);
+}
+.portal-jd-plain p {
+  margin: 0 0 0.75rem;
+  line-height: 1.6;
+  color: #334155;
+  text-align: left;
+}
+.portal-jd-plain p:last-child { margin-bottom: 0; }
+.portal-jd-card :deep(.jds),
+.portal-jd-card :deep(.ai-signature-panel) {
+  text-align: left;
+}
+.portal-upload-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 8px;
+  font-size: 0.82rem;
+  font-weight: 650;
+}
+.portal-upload-field input[type="file"] {
+  font-size: 0.85rem;
+}
+.portal-doc-row {
+  margin-bottom: 14px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid #eef2f7;
+}
+.portal-doc-row:last-child {
+  border-bottom: 0;
+  margin-bottom: 0;
+  padding-bottom: 0;
+}
+.portal-bg-card :deep(.ai-signature-tabs),
+.portal-jd-card :deep(.ai-signature-tabs) {
+  display: inline-flex;
+  gap: 4px;
+  padding: 3px;
+  border-radius: 10px;
+  background: #f1f5f9;
+  border: 1px solid #e2e8f0;
+}
+.portal-bg-card :deep(.ai-signature-tab),
+.portal-jd-card :deep(.ai-signature-tab) {
+  border: 0;
+  background: transparent;
   border-radius: 8px;
-  padding: 8px 10px;
-  font: inherit;
-  font-weight: 400;
+  padding: 7px 12px;
+  font-size: 0.82rem;
+  font-weight: 650;
+  color: #64748b;
+  cursor: pointer;
+}
+.portal-bg-card :deep(.ai-signature-tab--active),
+.portal-jd-card :deep(.ai-signature-tab--active) {
+  background: #fff;
+  color: var(--primary);
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.08);
+}
+.portal-bg-card :deep(.ai-signature-type-input),
+.portal-jd-card :deep(.ai-signature-type-input) {
+  width: 100%;
+  border: 1px solid #d0d7e2;
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-size: 1.05rem;
+  font-family: "Segoe Script", "Bradley Hand", cursive;
+}
+@media (max-width: 640px) {
+  .bg-form-grid { grid-template-columns: 1fr; }
 }
 
 .portal-link-copy {

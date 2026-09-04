@@ -6,6 +6,11 @@
         <div class="subtle">Review applications and move candidates through hiring</div>
       </div>
       <div class="header-actions" data-tour="hiring-actions">
+        <HiringHubSwitcher
+          active="applicants"
+          :org-prefix="orgSlugPrefix"
+          :agency-id="effectiveAgencyId || selectedAgencyId"
+        />
         <div v-if="canChooseAgency" class="agency-picker" data-tour="hiring-agency-picker">
           <label class="agency-label">Agency</label>
           <select v-model="selectedAgencyId" class="input agency-select">
@@ -14,9 +19,6 @@
             </option>
           </select>
         </div>
-        <button class="btn btn-secondary" @click="router.push(orgPath('/admin/hiring'))">Hiring Dashboard</button>
-        <button class="btn btn-secondary" @click="router.push(orgPath('/admin/pre-hire'))">View Pre-Hire</button>
-        <button class="btn btn-secondary" @click="router.push(orgPath('/admin/onboarding'))">View Onboarding</button>
         <button class="btn btn-secondary" @click="refresh" :disabled="loading">Refresh</button>
         <button class="btn btn-primary" @click="openCreate">New application</button>
         <span v-if="newForMeInView > 0" class="pill unread-pill">
@@ -775,6 +777,7 @@ import UserAvatar from '../../components/common/UserAvatar.vue';
 import CandidateOverviewPanel from '../../components/hiring/CandidateOverviewPanel.vue';
 import CandidateAssessmentWorkspace from '../../components/hiring/CandidateAssessmentWorkspace.vue';
 import CandidateInterviewPanel from '../../components/hiring/CandidateInterviewPanel.vue';
+import HiringHubSwitcher from '../../components/hiring/HiringHubSwitcher.vue';
 import { buildQuickResumeBullets } from '../../utils/hiringResumeSummaryBullets.js';
 
 const props = defineProps({
@@ -793,6 +796,10 @@ const orgPath = (path) => {
   if (!slug) return path;
   return `/${slug}${path}`;
 };
+const orgSlugPrefix = computed(() => {
+  const slug = String(route.params?.organizationSlug || '').trim();
+  return slug ? `/${slug}` : '';
+});
 
 const loading = ref(false);
 const error = ref('');

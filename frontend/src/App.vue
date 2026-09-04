@@ -641,7 +641,7 @@
                       v-if="canSeeProgramOverviewNav || canSeeClientsNavGroup || canSeeReferralDirectoryNavLink || canSeeProviderBookingNav"
                     />
                     <div class="directory-bottom-links">
-                      <router-link :to="orgTo('/library')" v-if="canSeeLibraryNav" @click="closeAllNavMenus">Library</router-link>
+                      <router-link :to="orgTo('/library')" v-if="canSeeLibraryNav" @click="closeAllNavMenus">Tools and Resources</router-link>
                       <router-link :to="orgTo('/admin/schools/overview?orgType=program')" v-if="canSeeProgramOverviewNav" @click="closeAllNavMenus">Program Overview</router-link>
                       <router-link :to="orgTo('/admin/find-providers')" v-if="canSeeProviderBookingNav" @click="closeAllNavMenus">Provider Booking Interface</router-link>
                       <router-link :to="orgTo('/admin/users')" v-if="isAdmin || isSupervisor(user) || user?.role === 'clinical_practice_assistant'" @click="closeAllNavMenus">{{ isSscSstcTenant ? 'Members' : 'Users' }}</router-link>
@@ -904,15 +904,24 @@
                   <button
                     type="button"
                     class="nav-dropdown-trigger"
-                    title="Tools"
+                    title="Tools and Resources"
                     :aria-expanded="toolsMenuOpen ? 'true' : 'false'"
                     @click.stop="toggleToolsMenu"
                   >
-                    <span class="nav-dropdown-label">Tools</span> <span class="brand-caret">▾</span>
+                    <span class="nav-dropdown-label">Tools and Resources</span> <span class="brand-caret">▾</span>
                   </button>
                   <div v-if="toolsMenuOpen" class="nav-dropdown-menu nav-tools-menu" @click.stop>
                     <div class="nav-tools-panel">
                       <div class="nav-tools-categories">
+                        <router-link
+                          v-if="canSeeLibraryNav || hasCapability('canViewLibrary')"
+                          :to="orgTo('/library')"
+                          class="nav-tools-cat nav-tools-cat--library"
+                          @click="closeAllNavMenus"
+                        >
+                          <span class="nav-tools-cat-label">Library</span>
+                          <span class="nav-tools-cat-chevron" aria-hidden="true">›</span>
+                        </router-link>
                         <button
                           v-for="cat in toolsNavCategories"
                           :key="cat.id"
@@ -1369,7 +1378,7 @@
               :to="orgTo('/library')"
               @click="closeMobileMenu"
               class="mobile-nav-link"
-            >Library</router-link>
+            >Tools and Resources</router-link>
             <div
               v-if="dashboardMobileNavItems.length"
               class="mobile-nav-group mobile-nav-group-collapsible"
@@ -1456,10 +1465,16 @@
                 :aria-expanded="mobileToolsExpanded ? 'true' : 'false'"
                 @click="mobileToolsExpanded = !mobileToolsExpanded"
               >
-                <span>Tools</span>
+                <span>Tools and Resources</span>
                 <span class="mobile-nav-group-caret" :class="{ open: mobileToolsExpanded }" aria-hidden="true">▸</span>
               </button>
               <template v-if="mobileToolsExpanded">
+                <router-link
+                  v-if="canSeeLibraryNav || hasCapability('canViewLibrary')"
+                  :to="orgTo('/library')"
+                  class="mobile-nav-link mobile-nav-sublink"
+                  @click="closeMobileMenu"
+                >Tools and Resources (Library)</router-link>
                 <button
                   v-for="cat in toolsNavCategories"
                   :key="`m-tools-cat-${cat.id}`"
@@ -1680,7 +1695,7 @@
               </div>
 
                   <div class="directory-bottom-links">
-                  <router-link :to="orgTo('/library')" v-if="canSeeLibraryNav" @click="closeMobileMenu" class="mobile-nav-group-trigger">Library</router-link>
+                  <router-link :to="orgTo('/library')" v-if="canSeeLibraryNav" @click="closeMobileMenu" class="mobile-nav-group-trigger">Tools and Resources</router-link>
                   <router-link :to="orgTo('/admin/schools/overview?orgType=program')" v-if="canSeeProgramOverviewNav" @click="closeMobileMenu" class="mobile-nav-group-trigger">Program Overview</router-link>
                   <router-link :to="orgTo('/admin/find-providers')" v-if="canSeeProviderBookingNav" @click="closeMobileMenu" class="mobile-nav-group-trigger">Provider Booking Interface</router-link>
                   <router-link :to="orgTo('/admin/users')" v-if="isAdmin || isSupervisor(user) || user?.role === 'clinical_practice_assistant'" @click="closeMobileMenu" class="mobile-nav-group-trigger">{{ isSscSstcTenant ? 'Members' : 'Users' }}</router-link>
@@ -7481,6 +7496,8 @@ onUnmounted(() => {
   color: var(--text-primary);
   font-size: 0.95rem;
   font-family: var(--agency-font-family, var(--font-body));
+  text-decoration: none;
+  box-sizing: border-box;
 }
 .nav-tools-cat:hover,
 .nav-tools-cat.active {

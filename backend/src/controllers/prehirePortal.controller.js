@@ -1293,6 +1293,50 @@ export const acknowledgePortalJobDescription = async (req, res, next) => {
   } catch (e) { next(e); }
 };
 
+export const uploadPortalPrehireDocument = async (req, res, next) => {
+  try {
+    const userId = req.portalUser.id;
+    if (!req.file) return res.status(400).json({ error: { message: 'file upload is required' } });
+    const title = String(req.body?.title || 'Pre-hire upload').trim().slice(0, 255) || 'Pre-hire upload';
+    const docId = String(req.body?.docId || '').trim().slice(0, 80);
+    const StorageService = (await import('../services/storage.service.js')).default;
+    const UserAdminDoc = (await import('../models/UserAdminDoc.model.js')).default;
+
+    const originalName = req.file.originalname || 'document';
+    const mimeType = req.file.mimetype || 'application/octet-stream';
+    const uniqueSuffix = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
+    const safeExt = originalName.includes('.') ? `.${originalName.split('.').pop()}` : '';
+    const filename = `prehire-upload-${userId}-${uniqueSuffix}${safeExt}`;
+    const storageResult = await StorageService.saveAdminDoc(req.file.buffer, filename, mimeType);
+
+    const created = await UserAdminDoc.create({
+      userId,
+      title,
+      docType: 'prehire_upload',
+      noteText: docId ? `Pre-hire document ${docId}` : 'Candidate portal upload',
+      storagePath: storageResult.relativePath,
+      originalName,
+      mimeType,
+      createdByUserId: userId
+    });
+
+    if (docId) {
+      try {
+        await pool.execute(
+          `UPDATE hiring_prehire_checklist_items
+           SET completed_on = COALESCE(completed_on, CURDATE())
+           WHERE user_id = ? AND item_key = ?`,
+          [userId, `doc:${docId}`]
+        );
+      } catch { /* ignore */ }
+    }
+
+    res.status(201).json({ ok: true, id: created?.id || null, title });
+  } catch (e) {
+    next(e);
+  }
+};
+
 async function loadPortalPrehireExtras({ userId, agencyId, hiringProfile }) {
   const extras = {
     jobDescription: null,

@@ -520,7 +520,6 @@
             v-if="learnMoreJob.descriptionSections"
             :sections="learnMoreJob.descriptionSections"
             :title="learnMoreJob.title"
-            :summary="learnMoreJob.descriptionText || ''"
             :role-type="learnMoreJob.roleType || ''"
             :location="[learnMoreJob.city, learnMoreJob.state].filter(Boolean).join(', ')"
             :accent-color="accentColor"
@@ -546,9 +545,13 @@
             <div v-if="learnMoreJob.tags && learnMoreJob.tags.length" class="cr-tags cr-modal-tags">
               <span v-for="tag in learnMoreJob.tags" :key="tag" class="cr-tag">{{ tag }}</span>
             </div>
-            <div v-if="learnMoreJob.descriptionText" class="cr-modal-desc-block">
+            <div v-if="descriptionParagraphs(learnMoreJob.descriptionText).length" class="cr-modal-desc-block">
               <h4 class="cr-modal-section-label">About this role</h4>
-              <p class="cr-modal-desc">{{ learnMoreJob.descriptionText }}</p>
+              <p
+                v-for="(para, i) in descriptionParagraphs(learnMoreJob.descriptionText)"
+                :key="`desc-${i}`"
+                class="cr-modal-desc"
+              >{{ para }}</p>
             </div>
             <p v-if="learnMoreJob.jobDescriptionFileUrl" class="cr-modal-pdf-link-wrap">
               <a
@@ -1217,6 +1220,29 @@ const formatDate = (v) => {
   if (!Number.isFinite(dt.getTime())) return raw;
   return dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 };
+const descriptionParagraphs = (raw) => {
+  const text = String(raw || '').replace(/\r\n/g, '\n').trim();
+  if (!text) return [];
+  const byBlank = text.split(/\n{2,}/).map((p) => p.trim()).filter(Boolean);
+  if (byBlank.length > 1) return byBlank;
+  const byLine = text.split(/\n/).map((p) => p.trim()).filter(Boolean);
+  if (byLine.length > 1) return byLine;
+  if (text.length < 280) return [text];
+  const sentences = text.match(/[^.!?]+[.!?]+(?:\s+|$)|[^.!?]+$/g) || [text];
+  const chunks = [];
+  let buf = '';
+  for (const s of sentences) {
+    const next = `${buf}${s}`.trim();
+    if (buf && next.length > 220) {
+      chunks.push(buf.trim());
+      buf = s;
+    } else {
+      buf = next;
+    }
+  }
+  if (buf.trim()) chunks.push(buf.trim());
+  return chunks.length ? chunks : [text];
+};
 const trimText = (text, max = 220) => {
   const raw = String(text || '').trim();
   if (!raw) return 'No description provided.';
@@ -1550,8 +1576,9 @@ watch(slug, () => loadCareers(), { immediate: true });
 .cr-modal-meta { display: flex; flex-wrap: wrap; gap: 14px; margin-bottom: 12px; font-size: 0.85rem; color: var(--muted); }
 .cr-modal-tags { margin-bottom: 16px; }
 .cr-modal-section-label { margin: 0 0 8px; font-size: 0.78rem; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
-.cr-modal-desc-block { margin-bottom: 16px; }
-.cr-modal-desc { margin: 0; color: var(--dark); line-height: 1.6; white-space: pre-wrap; }
+.cr-modal-desc-block { margin-bottom: 16px; text-align: left; }
+.cr-modal-desc { margin: 0 0 0.85rem; color: var(--dark); line-height: 1.65; text-align: left; }
+.cr-modal-desc:last-child { margin-bottom: 0; }
 .cr-embed-wrap { border: 1px solid var(--border); border-radius: 10px; overflow: hidden; margin-bottom: 8px; }
 .cr-embed { width: 100%; min-height: 420px; border: 0; }
 .cr-modal-nodoc { color: var(--muted); font-size: 0.85rem; font-style: italic; }

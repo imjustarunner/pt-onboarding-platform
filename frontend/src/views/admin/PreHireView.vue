@@ -7,6 +7,11 @@
         <p class="phr-subtitle">Candidates in setup, pre-hire, and ready-for-review stages</p>
       </div>
       <div class="phr-header-right">
+        <HiringHubSwitcher
+          active="prehire"
+          :org-prefix="effectiveSlug ? `/${effectiveSlug}` : ''"
+          :agency-id="selectedAgencyId"
+        />
         <div v-if="canChooseAgency" class="phr-agency-picker">
           <label class="phr-agency-label">Agency</label>
           <select :value="selectedAgencyId" class="phr-select" @change="onPickAgency">
@@ -17,10 +22,6 @@
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg>
           Refresh
         </button>
-        <router-link :to="hiringDashboardRoute" class="phr-btn phr-btn-secondary">Hiring Dashboard</router-link>
-        <router-link :to="applicantsRoute" class="phr-btn phr-btn-secondary">View Applications</router-link>
-        <span class="phr-btn phr-btn-primary phr-btn-active">View Pre-Hire</span>
-        <router-link :to="onboardingRoute" class="phr-btn phr-btn-secondary">View Onboarding</router-link>
         <router-link :to="settingsRoute" class="phr-btn phr-btn-ghost phr-btn-icon" title="Hiring & Pre-Hire Settings">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
           Settings
@@ -540,6 +541,7 @@ import { useAuthStore } from '../../store/auth';
 import { useAgencyStore } from '../../store/agency';
 import { useBrandingStore } from '../../store/branding';
 import PromoteToOnboardingModal from '../../components/hiring/PromoteToOnboardingModal.vue';
+import HiringHubSwitcher from '../../components/hiring/HiringHubSwitcher.vue';
 import { pickDefaultAgencyChoiceId } from '../../utils/peopleOpsAgencyPicker.js';
 import { resolveHostImpliedPortalSlug } from '../../utils/orgScopedPath.js';
 
@@ -608,7 +610,9 @@ const contractGeneratorRoute = computed(() => {
   return selectedId.value ? { path: base, query: { candidateUserId: selectedId.value } } : base;
 });
 const settingsRoute = computed(() => {
-  const query = 'category=workflow&item=hiring-prehire';
+  const params = new URLSearchParams({ category: 'workflow', item: 'hiring-prehire' });
+  if (selectedAgencyId.value) params.set('agencyId', String(selectedAgencyId.value));
+  const query = params.toString();
   return effectiveSlug.value ? `/${effectiveSlug.value}/admin/settings?${query}` : `/admin/settings?${query}`;
 });
 const userProfileRoute = (id) => effectiveSlug.value ? `/${effectiveSlug.value}/admin/users/${id}` : `/admin/users/${id}`;

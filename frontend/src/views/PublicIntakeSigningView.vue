@@ -167,13 +167,13 @@
             <JobDescriptionSections
               :sections="jobDescriptionSummary.descriptionSections"
               :title="jobDescriptionSummary.title || 'Job description'"
-              :summary="jobDescriptionSummary.descriptionText || ''"
               :role-type="jobDescriptionSummary.roleType || ''"
               :location="[jobDescriptionSummary.city, jobDescriptionSummary.state].filter(Boolean).join(', ')"
               :schedule="jobDescriptionSummary.scheduleText || ''"
               :accent-color="jobLandingAccent"
               :pdf-url="jobLandingPdfUrl"
               :pdf-label="jobLandingPdfLabel"
+              show-header
               compact
             />
           </section>
@@ -5237,7 +5237,8 @@ const showOfficeStartSupport = computed(
 );
 const shellCoverMode = computed(() => {
   if (fatalError.value) return true;
-  if (isJobApplication.value) return loading.value || step.value < 1;
+  // Job landing has its own full-bleed layout — cover-mode centers text and breaks JD bullets.
+  if (isJobApplication.value) return loading.value;
   if (isSchoolScopedIntake.value || (link.value && !isOfficeInDepthIntake.value)) {
     return loading.value || step.value < 1;
   }
@@ -15364,6 +15365,10 @@ onBeforeUnmount(() => {
   border-radius: 18px;
   background: rgba(255, 255, 255, 0.88);
   box-shadow: 0 10px 28px -18px rgba(15, 23, 42, 0.14);
+  text-align: left;
+}
+.job-landing-description-section :deep(.jds) {
+  text-align: left;
 }
 .job-landing-start-card {
   display: grid;

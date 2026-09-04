@@ -112,7 +112,7 @@
         <div v-if="signerRolesLoading" class="loading-sm">Loading signer roles…</div>
         <div v-else-if="signerRoles.length === 0" class="empty-sm">
           No signer roles configured.
-          <router-link to="/admin/settings?tab=hiring-prehire" class="link-text">Configure in Settings → Hiring &amp; Pre-Hire</router-link>
+          <router-link to="/admin/settings?category=workflow&item=hiring-prehire" class="link-text">Configure in Settings → Hiring &amp; Pre-Hire</router-link>
         </div>
         <div v-else class="signer-list">
           <div v-for="role in signerAssignments" :key="role.id" class="signer-row">

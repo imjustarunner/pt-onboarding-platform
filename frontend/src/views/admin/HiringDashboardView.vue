@@ -6,6 +6,11 @@
         <p class="hd-subtitle">Here’s what’s happening with your hiring today.</p>
       </div>
       <div class="hd-header-actions">
+        <HiringHubSwitcher
+          active="dashboard"
+          :org-prefix="orgSlugPrefix"
+          :agency-id="effectiveAgencyId"
+        />
         <div v-if="canChooseAgency" class="hd-agency-picker">
           <label class="hd-label">Agency</label>
           <select v-model="selectedAgencyId" class="input">
@@ -21,16 +26,6 @@
         <button type="button" class="btn btn-secondary" :disabled="loading" @click="load">
           Refresh
         </button>
-        <button type="button" class="btn btn-secondary" @click="goApplicants()">
-          View Applications
-        </button>
-        <button type="button" class="btn btn-secondary" @click="goPreHire">
-          View Pre-Hire
-        </button>
-        <button type="button" class="btn btn-secondary" @click="goOnboarding">
-          View Onboarding
-        </button>
-        <span class="btn btn-primary hd-nav-active" aria-current="page">Hiring Dashboard</span>
       </div>
     </div>
 
@@ -203,6 +198,7 @@ import { useRoute, useRouter } from 'vue-router';
 import { useAuthStore } from '../../store/auth';
 import { useAgencyStore } from '../../store/agency';
 import api from '../../services/api';
+import HiringHubSwitcher from '../../components/hiring/HiringHubSwitcher.vue';
 
 const authStore = useAuthStore();
 const agencyStore = useAgencyStore();
@@ -256,6 +252,10 @@ const orgPath = (path) => {
   if (!slug) return path;
   return `/${slug}${path}`;
 };
+const orgSlugPrefix = computed(() => {
+  const slug = String(route.params?.organizationSlug || '').trim();
+  return slug ? `/${slug}` : '';
+});
 
 const maxPipe = computed(() => {
   const nums = (stats.value.pipeline || []).map((p) => Number(p.count) || 0);
