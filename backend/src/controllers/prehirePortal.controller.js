@@ -174,25 +174,14 @@ export const getPortal = async (req, res, next) => {
       }
     })();
     const hireAccountMode = String(featureFlags.hireAccountMode || '').trim().toLowerCase() || null;
-    const accountSetupComplete = Boolean(
-      user.work_email
-      && (
-        hireAccountMode !== 'group_password'
-        || user.sso_password_override === 1
-        || user.sso_password_override === true
-        || user.sso_password_override === '1'
-      )
+    // Pre-hire "account setup" = work username chosen (group email). Password comes at end of onboarding.
+    const usernameChosen = Boolean(user.work_email && String(user.work_email).includes('@'));
+    const passwordFinalized = Boolean(
+      user.sso_password_override === 1
+      || user.sso_password_override === true
+      || user.sso_password_override === '1'
     );
-
-    const status = String(user.status || '').toUpperCase();
-    let portalPhase = 'pre_hire';
-    if (status === 'PREHIRE_REVIEW') portalPhase = 'review';
-    else if (status === 'ONBOARDING') portalPhase = 'onboarding';
-    else if (status === 'PENDING_SETUP' || status === 'PREHIRE_OPEN') {
-      portalPhase = hireAccountMode === 'group_password' && !accountSetupComplete
-        ? 'account_setup'
-        : 'pre_hire';
-    }
+    const accountSetupComplete = usernameChosen;
 
     // Tasks assigned to the candidate (exclude countersign tasks, which are for staff)
     const [taskRows] = await pool.execute(
@@ -224,6 +213,27 @@ export const getPortal = async (req, res, next) => {
     const requiredTasks = tasks.filter(t => t.isRequired);
     const completedRequired = requiredTasks.filter(t => t.status === 'completed').length;
     const allDone = totalTasks > 0 && completedTasks === totalTasks;
+    const requiredComplete = requiredTasks.length > 0
+      ? completedRequired === requiredTasks.length
+      : (totalTasks === 0 || allDone);
+
+    const status = String(user.status || '').toUpperCase();
+    let portalPhase = 'pre_hire';
+    if (status === 'PREHIRE_REVIEW') portalPhase = 'review';
+    else if (status === 'ONBOARDING') {
+      portalPhase = (
+        hireAccountMode === 'group_password'
+        && usernameChosen
+        && !passwordFinalized
+        && requiredComplete
+      )
+        ? 'finalize_login'
+        : 'onboarding';
+    } else if (status === 'PENDING_SETUP' || status === 'PREHIRE_OPEN') {
+      portalPhase = hireAccountMode === 'group_password' && !usernameChosen
+        ? 'account_setup'
+        : 'pre_hire';
+    }
     const token = String(req.params.token || '');
     const portalPath = token ? `/pre-hire/${token}` : null;
     const portalLink = portalPath ? `${resolveBaseUrl(req)}${portalPath}` : null;
@@ -246,12 +256,11 @@ export const getPortal = async (req, res, next) => {
         personalEmail: user.personal_email || null,
         status: user.status,
         appliedRole: hiringProfile?.applied_role || null,
-        ssoPasswordOverride: Boolean(
-          user.sso_password_override === 1
-          || user.sso_password_override === true
-          || user.sso_password_override === '1'
-        ),
-        accountSetupComplete
+        ssoPasswordOverride: passwordFinalized,
+        accountSetupComplete,
+        usernameChosen,
+        passwordFinalized,
+        canFinalizeLogin: portalPhase === 'finalize_login'
       },
       agency,
       supportTeam,
@@ -1052,26 +1061,20 @@ export const checkPortalAccountEmail = async (req, res, next) => {
 export const provisionPortalAccount = async (req, res, next) => {
   try {
     const workEmail = req.body?.workEmail || req.body?.email;
-    const password = req.body?.password;
-    const confirmPassword = req.body?.confirmPassword;
-    if (confirmPassword != null && String(confirmPassword) !== String(password || '')) {
-      return res.status(400).json({ error: { message: 'Passwords do not match.' } });
-    }
     const user = await User.findById(req.portalUser.id);
     if (!user) return res.status(404).json({ error: { message: 'User not found.' } });
-    if (user.work_email && user.sso_password_override) {
+    if (user.work_email && String(user.work_email).includes('@')) {
       return res.status(400).json({
-        error: { message: 'Account already set up.', workEmail: user.work_email }
+        error: { message: 'Work username is already set.', workEmail: user.work_email }
       });
     }
     const agency = await loadPortalAgency(user.id);
     if (!agency) return res.status(400).json({ error: { message: 'No organization found.' } });
-    const { provisionHireGroupAccount } = await import('../services/hireGroupAccount.service.js');
-    const result = await provisionHireGroupAccount({
+    const { provisionHireGroupUsername } = await import('../services/hireGroupAccount.service.js');
+    const result = await provisionHireGroupUsername({
       user,
       agency,
-      workEmail,
-      password
+      workEmail
     });
     // Move PENDING_SETUP → PREHIRE_OPEN so docs/tasks become the focus
     if (String(user.status || '').toUpperCase() === 'PENDING_SETUP') {
@@ -1083,8 +1086,131 @@ export const provisionPortalAccount = async (req, res, next) => {
     }
     res.json({ ok: true, ...result });
   } catch (e) {
-    if (e?.code === 'EMAIL_UNAVAILABLE') {
+    if (e?.code === 'EMAIL_UNAVAILABLE' || e?.code === 'USERNAME_ALREADY_SET') {
       return res.status(409).json({ error: { message: e.message, details: e.details } });
+    }
+    if (e?.code === 'PERSONAL_EMAIL_REQUIRED') {
+      return res.status(400).json({ error: { message: e.message } });
+    }
+    if (e?.message) {
+      return res.status(400).json({ error: { message: e.message } });
+    }
+    next(e);
+  }
+};
+
+/**
+ * End of onboarding: set password, activate employee, expire portal token.
+ */
+export const setPortalAccountPassword = async (req, res, next) => {
+  try {
+    const password = req.body?.password;
+    const confirmPassword = req.body?.confirmPassword;
+    if (confirmPassword != null && String(confirmPassword) !== String(password || '')) {
+      return res.status(400).json({ error: { message: 'Passwords do not match.' } });
+    }
+
+    const user = await User.findById(req.portalUser.id);
+    if (!user) return res.status(404).json({ error: { message: 'User not found.' } });
+    const agency = await loadPortalAgency(user.id);
+    if (!agency) return res.status(400).json({ error: { message: 'No organization found.' } });
+
+    const {
+      isGroupPasswordHireMode,
+      hasHireGroupPasswordFinalized,
+      finalizeHireGroupPassword
+    } = await import('../services/hireGroupAccount.service.js');
+    if (!isGroupPasswordHireMode(agency)) {
+      return res.status(400).json({ error: { message: 'Password finalization is not enabled for this organization.' } });
+    }
+    if (hasHireGroupPasswordFinalized(user) && user.password_hash) {
+      return res.status(400).json({ error: { message: 'Password is already set.' } });
+    }
+    if (!user.work_email) {
+      return res.status(400).json({ error: { message: 'Choose your work username during pre-hire first.' } });
+    }
+
+    const status = String(user.status || '').toUpperCase();
+    if (status !== 'ONBOARDING') {
+      return res.status(400).json({
+        error: { message: 'Password can only be set after onboarding is active and required steps are complete.' }
+      });
+    }
+
+    const [taskRows] = await pool.execute(
+      `SELECT status, is_required
+       FROM tasks
+       WHERE assigned_to_user_id = ?
+         AND (document_action_type IS NULL OR document_action_type != 'countersignature')
+         AND status NOT IN ('overridden', 'archived')`,
+      [user.id]
+    );
+    const required = (taskRows || []).filter((t) => t.is_required === 1 || t.is_required === true);
+    const requiredComplete = required.length === 0
+      || required.every((t) => String(t.status || '') === 'completed');
+    if (!requiredComplete) {
+      return res.status(400).json({
+        error: { message: 'Finish all required onboarding tasks before setting your password.' }
+      });
+    }
+
+    const result = await finalizeHireGroupPassword({ user, agency, password });
+
+    await User.updateStatus(user.id, 'ACTIVE_EMPLOYEE', user.id);
+
+    try {
+      await pool.execute(
+        `UPDATE users
+         SET passwordless_token = NULL,
+             passwordless_token_expires_at = NULL
+         WHERE id = ?`,
+        [user.id]
+      );
+    } catch {
+      /* ignore */
+    }
+
+    try {
+      const { enableWorkspaceLoginForUser } = await import('../services/workspaceLoginTransition.service.js');
+      const refreshed = await User.findById(user.id);
+      await enableWorkspaceLoginForUser(refreshed || user);
+    } catch (e) {
+      console.warn('[setPortalAccountPassword] workspace login transition failed:', e?.message || e);
+    }
+
+    let loginUrl = null;
+    try {
+      const { buildPublicAppUrl } = await import('../utils/publicPortalUrl.js');
+      loginUrl = buildPublicAppUrl(agency, 'login');
+      const to = result.personalEmail || user.personal_email;
+      if (to && loginUrl) {
+        const EmailService = (await import('../services/email.service.js')).default;
+        await EmailService.sendEmail({
+          to,
+          subject: 'Your account is ready — sign in',
+          text:
+            `Hi ${user.first_name || 'there'},\n\n` +
+            `Your onboarding is complete. Sign in to the app with:\n\n` +
+            `Username: ${result.workEmail}\n` +
+            `Password: the password you just created\n\n` +
+            `${loginUrl}\n\n` +
+            `Your personal portal link has expired. Use Forgot password on the login page if you need a reset — recovery goes to this personal email.`
+        }).catch(() => {});
+      }
+    } catch (mailErr) {
+      console.warn('[setPortalAccountPassword] welcome email failed:', mailErr?.message || mailErr);
+    }
+
+    res.json({
+      ok: true,
+      ...result,
+      status: 'ACTIVE_EMPLOYEE',
+      portalTokenExpired: true,
+      loginUrl
+    });
+  } catch (e) {
+    if (e?.code === 'PASSWORD_ALREADY_SET' || e?.code === 'USERNAME_REQUIRED' || e?.code === 'PERSONAL_EMAIL_REQUIRED') {
+      return res.status(400).json({ error: { message: e.message } });
     }
     if (e?.message) {
       return res.status(400).json({ error: { message: e.message } });

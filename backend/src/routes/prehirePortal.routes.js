@@ -27,6 +27,7 @@ import {
   getPortalAccountSuggestions,
   checkPortalAccountEmail,
   provisionPortalAccount,
+  setPortalAccountPassword,
   getPortalSubmissions,
   getPortalHandbook,
   submitPortalBackgroundCheck,
@@ -82,10 +83,16 @@ router.get('/:token/account/suggestions', getPortalAccountSuggestions);
 router.post('/:token/account/check-email', checkPortalAccountEmail);
 router.post(
   '/:token/account/provision',
-  [
-    body('password').isLength({ min: 8 }).withMessage('Password must be at least 8 characters')
-  ],
+  [body('workEmail').optional().isString(), body('email').optional().isString()],
   provisionPortalAccount
+);
+router.post(
+  '/:token/account/set-password',
+  [
+    body('password').isLength({ min: 8 }).withMessage('Password must be at least 8 characters'),
+    body('confirmPassword').optional().isString()
+  ],
+  setPortalAccountPassword
 );
 router.get('/:token/submissions', getPortalSubmissions);
 router.get('/:token/resources/handbook', getPortalHandbook);

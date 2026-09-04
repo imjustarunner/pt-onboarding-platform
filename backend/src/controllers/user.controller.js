@@ -10527,6 +10527,34 @@ export const markUserComplete = async (req, res, next) => {
       return res.status(404).json({ error: { message: 'User not found' } });
     }
 
+    // Group-password hires must set password on the portal at end of onboarding.
+    try {
+      const [agRows] = await pool.execute(
+        `SELECT a.feature_flags
+         FROM agencies a
+         JOIN user_agencies ua ON ua.agency_id = a.id
+         WHERE ua.user_id = ?
+         LIMIT 1`,
+        [id]
+      );
+      const rawFlags = agRows[0]?.feature_flags;
+      const flags = typeof rawFlags === 'string' ? JSON.parse(rawFlags) : (rawFlags || {});
+      const groupMode = String(flags.hireAccountMode || '').trim().toLowerCase() === 'group_password';
+      const passwordReady = user.sso_password_override === 1
+        || user.sso_password_override === true
+        || user.sso_password_override === '1';
+      if (groupMode && !passwordReady) {
+        return res.status(400).json({
+          error: {
+            message: 'This hire uses group username + password. They must finish required onboarding tasks and set their password on the personal portal link before becoming an active employee.',
+            requiresPortalPassword: true
+          }
+        });
+      }
+    } catch (gateErr) {
+      console.warn('[markUserComplete] group_password gate skipped:', gateErr?.message || gateErr);
+    }
+
     // Allow admins to convert a PENDING_SETUP user directly to ACTIVE_EMPLOYEE (current employee).
     // Note: This does NOT set/changing passwords. Use reset-password link flow for that.
     if (user.status === 'PENDING_SETUP') {
@@ -10804,23 +10832,28 @@ export const promoteToOnboarding = async (req, res, next) => {
               await EmailService.sendEmail({
                 to,
                 subject: 'Your onboarding portal is ready',
-                text: `Hi ${user.first_name || 'there'},\n\nYou've been promoted to onboarding! Continue with the same personal portal link (bookmark it):\n\n${tokenLink}\n\nThis link is valid until ${expiresAt ? new Date(expiresAt).toLocaleString() : 'further notice'}.\n\nComplete your onboarding steps there. If your account uses a password, sign in later with your work email and that password.`
+                text: `Hi ${user.first_name || 'there'},\n\nYou've been promoted to onboarding! Continue with the same personal portal link (bookmark it):\n\n${tokenLink}\n\nThis link is valid until ${expiresAt ? new Date(expiresAt).toLocaleString() : 'further notice'}.\n\nComplete your onboarding steps there. When everything required is done, you will set your password on that same link to activate your login.`
               }).catch(() => {});
             }
           } catch (te) { console.warn('[promoteToOnboarding] Token send failed:', te?.message); }
         } else if (sendMethod === 'login') {
-          // Send workspace login instructions
+          // Send portal continuation (group-password hires set password at end of onboarding)
           try {
-            const loginEmail = user.work_email || user.personal_email;
-            if (loginEmail) {
+            const to = user.personal_email || user.email;
+            if (to) {
               const EmailService = (await import('../services/email.service.js')).default;
               const Agency = (await import('../models/Agency.model.js')).default;
               const agency = agencyId ? await Agency.findById(agencyId) : null;
-              const loginUrl = buildPublicAppUrl(agency, 'login');
+              let portalToken = user.passwordless_token || null;
+              if (!portalToken) {
+                const tokenResult = await User.generatePasswordlessToken(parseInt(id, 10), 14 * 24, 'prehire_portal');
+                portalToken = tokenResult.token;
+              }
+              const tokenLink = buildPublicAppUrl(agency, `pre-hire/${portalToken}`);
               await EmailService.sendEmail({
-                to: loginEmail,
-                subject: 'Your workspace account is ready',
-                text: `Hi ${user.first_name || 'there'},\n\nYour onboarding account is now active. Log in with your work email address at:\n\n${loginUrl}\n\nEmail: ${user.work_email || user.personal_email}\n\nIf you need to reset your password, use the "Forgot password" link on the login page.`
+                to,
+                subject: 'Your onboarding portal is ready',
+                text: `Hi ${user.first_name || 'there'},\n\nYour onboarding portal is ready. Continue here:\n\n${tokenLink}\n\nWork username: ${user.work_email || 'set during pre-hire'}\n\nYou will set your password at the end of onboarding on this link.`
               }).catch(() => {});
             }
           } catch (le) { console.warn('[promoteToOnboarding] Login email send failed:', le?.message); }
@@ -11220,6 +11253,39 @@ export const markUserActive = async (req, res, next) => {
     const currentUser = await User.findById(id);
     if (!currentUser) {
       return res.status(404).json({ error: { message: 'User not found' } });
+    }
+
+    // Group-password hires finalize password on the portal after onboarding tasks.
+    try {
+      const [agRows] = await pool.execute(
+        `SELECT a.feature_flags
+         FROM agencies a
+         JOIN user_agencies ua ON ua.agency_id = a.id
+         WHERE ua.user_id = ?
+         LIMIT 1`,
+        [id]
+      );
+      const rawFlags = agRows[0]?.feature_flags;
+      const flags = typeof rawFlags === 'string' ? JSON.parse(rawFlags) : (rawFlags || {});
+      const groupMode = String(flags.hireAccountMode || '').trim().toLowerCase() === 'group_password';
+      const passwordReady = currentUser.sso_password_override === 1
+        || currentUser.sso_password_override === true
+        || currentUser.sso_password_override === '1';
+      const statusU = String(currentUser.status || '').toUpperCase();
+      if (
+        groupMode
+        && !passwordReady
+        && ['PENDING_SETUP', 'PREHIRE_OPEN', 'PREHIRE_REVIEW', 'ONBOARDING'].includes(statusU)
+      ) {
+        return res.status(400).json({
+          error: {
+            message: 'This hire uses group username + password. They must set their password on the personal portal after required onboarding tasks before staff can mark them active.',
+            requiresPortalPassword: true
+          }
+        });
+      }
+    } catch (gateErr) {
+      console.warn('[markUserActive] group_password gate skipped:', gateErr?.message || gateErr);
     }
 
     const statusNorm = String(currentUser.status || '').trim().toUpperCase();

@@ -127,7 +127,7 @@ class User {
       // This is more reliable, especially with connection pooling and Unix sockets
       const dbName = process.env.DB_NAME || 'onboarding_stage';
       const [columns] = await pool.execute(
-        "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'users' AND COLUMN_NAME IN ('work_email', 'personal_email', 'username', 'has_supervisor_privileges', 'has_provider_access', 'has_staff_access', 'personal_phone', 'work_phone', 'work_phone_extension', 'credential', 'sso_password_override')",
+        "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'users' AND COLUMN_NAME IN ('work_email', 'personal_email', 'username', 'has_supervisor_privileges', 'has_provider_access', 'has_staff_access', 'personal_phone', 'work_phone', 'work_phone_extension', 'credential', 'sso_password_override', 'login_is_group_email')",
         [dbName]
       );
       const existingColumns = columns.map(c => c.COLUMN_NAME);
@@ -143,6 +143,7 @@ class User {
       if (existingColumns.includes('work_phone_extension')) query += ', work_phone_extension';
       if (existingColumns.includes('credential')) query += ', credential';
       if (existingColumns.includes('sso_password_override')) query += ', sso_password_override';
+      if (existingColumns.includes('login_is_group_email')) query += ', login_is_group_email';
     } catch (err) {
       // If we can't check columns, just use the base query
       console.warn('Could not check for email columns:', err.message);

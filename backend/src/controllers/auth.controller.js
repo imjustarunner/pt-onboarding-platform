@@ -625,7 +625,29 @@ export const login = async (req, res, next) => {
         error: { 
           message: 'Please complete your account setup first. Use the passwordless login link sent to your email.',
           requiresSetup: true
-        } 
+        }
+      });
+    }
+
+    // Group-password hires: username exists during pre-hire/onboarding, but app login waits until
+    // they set a password at end of onboarding (sso_password_override). Portal token only until then.
+    const hireStatusesNeedingPortal = new Set([
+      'PENDING_SETUP',
+      'PREHIRE_OPEN',
+      'PREHIRE_REVIEW',
+      'ONBOARDING'
+    ]);
+    const isGroupHirePendingPassword =
+      hireStatusesNeedingPortal.has(String(userStatus || '').toUpperCase())
+      && (user.login_is_group_email === 1 || user.login_is_group_email === true || user.login_is_group_email === '1')
+      && !(user.sso_password_override === 1 || user.sso_password_override === true || user.sso_password_override === '1');
+    if (isGroupHirePendingPassword) {
+      return res.status(403).json({
+        error: {
+          message: 'Your employee login is not active yet. Finish onboarding on your personal portal link, then set your password there to activate your account.',
+          requiresPortalPassword: true,
+          usePortalLink: true
+        }
       });
     }
     

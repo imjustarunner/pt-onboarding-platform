@@ -97,7 +97,10 @@
               <h1>Welcome, {{ candidate.firstName }}!</h1>
               <p>
                 <template v-if="portalPhase === 'account_setup'">
-                  Set up your work email and password to continue joining {{ agency?.name || 'the team' }}.
+                  Choose your work username to continue joining {{ agency?.name || 'the team' }}.
+                </template>
+                <template v-else-if="portalPhase === 'finalize_login'">
+                  Onboarding is complete — set your password to activate your account and sign in.
                 </template>
                 <template v-else-if="portalPhase === 'review'">
                   Your pre-hire packet is with People Operations for review. You can still view submissions and resources.
@@ -114,19 +117,19 @@
               </div>
             </div>
 
-            <!-- Group password account setup -->
+            <!-- Group password: pick work username only (pre-hire) -->
             <section
               v-if="activeSection === 'dashboard' && portalPhase === 'account_setup'"
               class="portal-account-setup"
-              aria-label="Choose work email"
+              aria-label="Choose work username"
             >
               <div class="portal-tasks-head">
                 <div>
-                  <h2>Choose your work email</h2>
+                  <h2>Choose your work username</h2>
                   <p>
                     Pick an available address at @{{ accountDomain || 'your organization' }}.
-                    This becomes your app username (Google SSO is off for this account — you sign in with the password you set).
-                    Outside messages to this address come into your app inbox. Password recovery uses your personal email.
+                    This becomes your app username and Google Group mailbox.
+                    You will set your password after onboarding is complete — recovery always uses your personal email.
                   </p>
                 </div>
               </div>
@@ -146,6 +149,35 @@
                   </div>
                 </label>
                 <p v-if="emailCheckMessage" :class="emailAvailable ? 'cred-ok' : 'cred-warn'">{{ emailCheckMessage }}</p>
+                <button
+                  type="button"
+                  class="btn-primary"
+                  :disabled="provisioningAccount || !canProvisionAccount"
+                  @click="provisionAccount"
+                >
+                  {{ provisioningAccount ? 'Creating…' : 'Save my username' }}
+                </button>
+                <p v-if="accountError" class="cred-warn">{{ accountError }}</p>
+              </div>
+            </section>
+
+            <!-- End of onboarding: set password + activate login -->
+            <section
+              v-if="activeSection === 'dashboard' && portalPhase === 'finalize_login'"
+              class="portal-account-setup"
+              aria-label="Set password and activate account"
+            >
+              <div class="portal-tasks-head">
+                <div>
+                  <h2>Set your password</h2>
+                  <p>
+                    Your username is <strong>{{ candidate.workEmail }}</strong>.
+                    Create a password to activate your employee account. Google SSO stays off for this login.
+                    Password recovery goes to {{ candidate.personalEmail || 'your personal email' }}.
+                  </p>
+                </div>
+              </div>
+              <div class="cred-card">
                 <label>
                   <span>Password (min 8 characters)</span>
                   <input v-model="accountForm.password" type="password" autocomplete="new-password" />
@@ -157,12 +189,13 @@
                 <button
                   type="button"
                   class="btn-primary"
-                  :disabled="provisioningAccount || !canProvisionAccount"
-                  @click="provisionAccount"
+                  :disabled="finalizingPassword || !canFinalizePassword"
+                  @click="finalizePassword"
                 >
-                  {{ provisioningAccount ? 'Creating…' : 'Create my account' }}
+                  {{ finalizingPassword ? 'Activating…' : 'Activate my account' }}
                 </button>
                 <p v-if="accountError" class="cred-warn">{{ accountError }}</p>
+                <p v-if="finalizeSuccess" class="cred-ok">{{ finalizeSuccess }}</p>
               </div>
             </section>
 
@@ -172,8 +205,8 @@
               </div>
               <code class="portal-link-url">{{ candidate.workEmail }}</code>
               <p class="portal-link-help">
-                This is your username for signing into the app with your password.
-                Password reset links go to your personal email.
+                This is your work username. You will set a password at the end of onboarding to sign into the app.
+                Password recovery will use your personal email.
               </p>
             </section>
 
@@ -942,6 +975,8 @@ const accountForm = ref({ workEmail: '', localPart: '', password: '', confirmPas
 const emailAvailable = ref(null);
 const emailCheckMessage = ref('');
 const provisioningAccount = ref(false);
+const finalizingPassword = ref(false);
+const finalizeSuccess = ref('');
 const accountError = ref('');
 const submissions = ref(null);
 const submissionsLoading = ref(false);
@@ -1167,12 +1202,15 @@ const canProvisionAccount = computed(() => {
   const email = accountForm.value.workEmail || (accountForm.value.localPart && accountDomain.value
     ? `${accountForm.value.localPart}@${accountDomain.value}`
     : '');
-  return (
-    email
-    && accountForm.value.password?.length >= 8
-    && accountForm.value.password === accountForm.value.confirmPassword
-  );
+  if (!email || !String(email).includes('@')) return false;
+  if (accountForm.value.localPart && emailAvailable.value === false) return false;
+  return true;
 });
+
+const canFinalizePassword = computed(() => (
+  accountForm.value.password?.length >= 8
+  && accountForm.value.password === accountForm.value.confirmPassword
+));
 
 const loadAccountSuggestions = async () => {
   try {
@@ -1216,16 +1254,35 @@ const provisionAccount = async () => {
     const workEmail = accountForm.value.workEmail
       || `${accountForm.value.localPart}@${accountDomain.value}`;
     await portalApi.post(`/prehire-portal/${token.value}/account/provision`, {
-      workEmail,
-      password: accountForm.value.password,
-      confirmPassword: accountForm.value.confirmPassword
+      workEmail
     });
     await reloadPortal();
     activeSection.value = 'tasks';
   } catch (e) {
-    accountError.value = e?.response?.data?.error?.message || 'Could not create account';
+    accountError.value = e?.response?.data?.error?.message || 'Could not save username';
   } finally {
     provisioningAccount.value = false;
+  }
+};
+
+const finalizePassword = async () => {
+  accountError.value = '';
+  finalizeSuccess.value = '';
+  finalizingPassword.value = true;
+  try {
+    const { data } = await portalApi.post(`/prehire-portal/${token.value}/account/set-password`, {
+      password: accountForm.value.password,
+      confirmPassword: accountForm.value.confirmPassword
+    });
+    finalizeSuccess.value = data?.loginUrl
+      ? `Account activated. Sign in at ${data.loginUrl} — this portal link has expired.`
+      : 'Account activated. You can sign in with your work username and password. This portal link has expired.';
+    accountForm.value.password = '';
+    accountForm.value.confirmPassword = '';
+  } catch (e) {
+    accountError.value = e?.response?.data?.error?.message || 'Could not activate account';
+  } finally {
+    finalizingPassword.value = false;
   }
 };
 
@@ -1422,7 +1479,8 @@ const progressPct = computed(() => totalCount.value > 0 ? Math.round((completedC
 const isPrehire = computed(() => ['PENDING_SETUP', 'PREHIRE_OPEN', 'PREHIRE_REVIEW'].includes(candidate.value.status));
 const isOnboardingPortal = computed(() => candidate.value.status === 'ONBOARDING');
 const phaseLabel = computed(() => {
-  if (portalPhase.value === 'account_setup') return 'Account setup';
+  if (portalPhase.value === 'account_setup') return 'Choose username';
+  if (portalPhase.value === 'finalize_login') return 'Activate account';
   if (portalPhase.value === 'review') return 'Under review';
   if (portalPhase.value === 'onboarding' || isOnboardingPortal.value) return 'Onboarding';
   return 'Pre-Hire';
