@@ -21,17 +21,25 @@
     <link id="app-favicon" rel="icon" href="/branding/plottwisthq-platform-bg.png">
     <link id="app-apple-touch-icon" rel="apple-touch-icon" href="/branding/plottwisthq-platform-bg.png">
     <script>
-      // Early NLU tab icon on dedicated host (before Vue branding boots).
+      // Early tenant tab icons on dedicated hosts (before Vue branding boots).
       (function () {
         try {
           var h = String(location.hostname || '').toLowerCase();
+          var href = '';
           if (h === 'app.nextleveluplcc.com' || h.indexOf('nextlevelup') !== -1) {
-            var href = '/assets/branding/NLUWatermark.png';
-            var fav = document.getElementById('app-favicon');
-            var apple = document.getElementById('app-apple-touch-icon');
-            if (fav) fav.setAttribute('href', href);
-            if (apple) apple.setAttribute('href', href);
+            href = '/assets/branding/NLUWatermark.png';
+          } else if (
+            h === 'app.theinnerstrengthinstitute.com'
+            || h.indexOf('innerstrength') !== -1
+            || h.indexOf('theinnerstrengthinstitute') !== -1
+          ) {
+            href = '/assets/branding/innerstrength-favicon.png';
           }
+          if (!href) return;
+          var fav = document.getElementById('app-favicon');
+          var apple = document.getElementById('app-apple-touch-icon');
+          if (fav) fav.setAttribute('href', href);
+          if (apple) apple.setAttribute('href', href);
         } catch (e) {}
       })();
     </script>

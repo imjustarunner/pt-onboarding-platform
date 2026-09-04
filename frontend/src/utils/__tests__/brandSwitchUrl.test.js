@@ -20,7 +20,7 @@ describe('getAgencyAppHostname', () => {
 describe('Inner Strength brand aliases', () => {
   it('maps tisi slug to innerstrength brand key and favicon', () => {
     expect(normalizeTenantBrandKey('tisi')).toBe('innerstrength');
-    expect(tenantFaviconUrl('tisi')).toContain('InnerStrength');
-    expect(tenantFaviconUrl('app.theinnerstrengthinstitute.com')).toContain('InnerStrength');
+    expect(tenantFaviconUrl('tisi')).toContain('innerstrength-favicon');
+    expect(tenantFaviconUrl('app.theinnerstrengthinstitute.com')).toContain('innerstrength-favicon');
   });
 });

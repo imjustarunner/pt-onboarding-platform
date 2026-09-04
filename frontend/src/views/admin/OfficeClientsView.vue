@@ -8,10 +8,15 @@
           Prospective and continuing office enrollments across your affiliated offices — no brand switch required.
         </p>
       </div>
-      <div class="ocm-header-actions">
-        <router-link class="ocm-btn ocm-btn--ghost" :to="orgPath('/admin/office-hub')">Office Hub</router-link>
-        <router-link class="ocm-btn ocm-btn--primary" :to="orgPath('/admin/clients')">+ New intake</router-link>
-        <button class="ocm-btn ocm-btn--ghost" type="button" :disabled="loading" @click="load">
+      <div class="ocm-hub-header-actions">
+        <nav class="ocm-hub-switcher" aria-label="Office tools">
+          <template v-for="item in officeNavLinks" :key="item.key">
+            <span v-if="item.isActive" class="ocm-hub-switcher-btn is-active" aria-current="page">{{ item.label }}</span>
+            <router-link v-else class="ocm-hub-switcher-btn" :to="item.to">{{ item.label }}</router-link>
+          </template>
+        </nav>
+        <router-link class="ocm-hub-action-btn ocm-hub-action-btn--primary" :to="orgPath('/admin/clients')">+ New intake</router-link>
+        <button class="ocm-hub-action-btn" type="button" :disabled="loading" @click="load">
           {{ loading ? 'Loading…' : '↺ Refresh' }}
         </button>
       </div>
@@ -44,14 +49,6 @@
         <option value="couple">Couple</option>
         <option value="family">Family</option>
       </select>
-      <select v-model="sort" class="ocm-select">
-        <option value="submitted">Sort: Submitted</option>
-        <option value="agency">Sort: Agency / tenant</option>
-        <option value="name">Sort: Name</option>
-        <option value="preferredProvider">Sort: Preferred provider</option>
-        <option value="assignedProvider">Sort: Assigned provider</option>
-        <option value="family">Sort: Family / couple unit</option>
-      </select>
       <label class="ocm-check"><input v-model="clinicalReviewOnly" type="checkbox" /> Clinical review</label>
       <label class="ocm-check"><input v-model="needsActionOnly" type="checkbox" /> Needs action</label>
       <label class="ocm-check"><input v-model="unassignedOnly" type="checkbox" /> Unassigned</label>
@@ -65,15 +62,51 @@
           <table class="ocm-table">
             <thead>
               <tr>
-                <th>Client</th>
-                <th>Guardian(s)</th>
-                <th>Intake</th>
-                <th>Preferred</th>
-                <th>Assigned</th>
-                <th>Portal</th>
-                <th>Status</th>
-                <th>Next step</th>
-                <th>Submitted</th>
+                <th>
+                  <button type="button" class="ocm-th-btn" @click="toggleSort('name')">
+                    Client<span class="ocm-sort-ind">{{ sortIndicator('name') }}</span>
+                  </button>
+                </th>
+                <th>
+                  <button type="button" class="ocm-th-btn" @click="toggleSort('guardian')">
+                    Guardian(s)<span class="ocm-sort-ind">{{ sortIndicator('guardian') }}</span>
+                  </button>
+                </th>
+                <th>
+                  <button type="button" class="ocm-th-btn" @click="toggleSort('intake')">
+                    Intake<span class="ocm-sort-ind">{{ sortIndicator('intake') }}</span>
+                  </button>
+                </th>
+                <th>
+                  <button type="button" class="ocm-th-btn" @click="toggleSort('preferredProvider')">
+                    Preferred<span class="ocm-sort-ind">{{ sortIndicator('preferredProvider') }}</span>
+                  </button>
+                </th>
+                <th>
+                  <button type="button" class="ocm-th-btn" @click="toggleSort('assignedProvider')">
+                    Assigned<span class="ocm-sort-ind">{{ sortIndicator('assignedProvider') }}</span>
+                  </button>
+                </th>
+                <th>
+                  <button type="button" class="ocm-th-btn" @click="toggleSort('portal')">
+                    Portal<span class="ocm-sort-ind">{{ sortIndicator('portal') }}</span>
+                  </button>
+                </th>
+                <th>
+                  <button type="button" class="ocm-th-btn" @click="toggleSort('status')">
+                    Status<span class="ocm-sort-ind">{{ sortIndicator('status') }}</span>
+                  </button>
+                </th>
+                <th>
+                  <button type="button" class="ocm-th-btn" @click="toggleSort('nextStep')">
+                    Next step<span class="ocm-sort-ind">{{ sortIndicator('nextStep') }}</span>
+                  </button>
+                </th>
+                <th>
+                  <button type="button" class="ocm-th-btn" @click="toggleSort('submitted')">
+                    Submitted<span class="ocm-sort-ind">{{ sortIndicator('submitted') }}</span>
+                  </button>
+                </th>
                 <th></th>
               </tr>
             </thead>
@@ -275,6 +308,8 @@ import {
   formatRelativeTime,
   portalLabel
 } from '../../composables/useOfficeClientAgency.js';
+import { buildOfficeQuickNavLinks } from '../../utils/officeQuickNav.js';
+import '../../styles/officeQuickNav.css';
 
 const route = useRoute();
 const {
@@ -289,6 +324,8 @@ const {
   clientProfilePath
 } = useOfficeClientAgency();
 
+const officeNavLinks = computed(() => buildOfficeQuickNavLinks({ orgPath, current: 'clients' }));
+
 const loading = ref(false);
 const error = ref('');
 const clients = ref([]);
@@ -299,6 +336,7 @@ const searchQuery = ref('');
 const bucket = ref(String(route.query.bucket || 'all'));
 const whoFor = ref(String(route.query.whoFor || ''));
 const sort = ref(String(route.query.sort || (multiTenant.value ? 'agency' : 'submitted')));
+const sortDir = ref(String(route.query.sortDir || 'desc') === 'asc' ? 'asc' : 'desc');
 const clinicalReviewOnly = ref(String(route.query.clinicalReview || '') === '1');
 const needsActionOnly = ref(String(route.query.needsAction || '') === '1');
 const unassignedOnly = ref(false);
@@ -309,9 +347,64 @@ const waitlisting = ref(false);
 
 const selected = computed(() => clients.value.find((c) => c.id === selectedId.value) || null);
 
+const CLIENT_SIDE_SORTS = new Set(['guardian', 'intake', 'portal', 'status', 'nextStep', 'agency']);
+
+function sortValue(c, key) {
+  switch (key) {
+    case 'name':
+      return String(c.fullName || '');
+    case 'guardian':
+      return guardianSummary(c);
+    case 'intake':
+      return String(c.intakeType || '');
+    case 'preferredProvider':
+      return String(c.preferredProviderName || '');
+    case 'assignedProvider':
+      return providerSummary(c);
+    case 'portal':
+      return c.portalEnabled ? '1' : '0';
+    case 'status':
+      return statusText(c);
+    case 'nextStep':
+      return String(c.nextStep?.label || '');
+    case 'agency':
+      return agencyNames(c) || String(c.agencyName || '');
+    case 'submitted':
+      return new Date(c.createdAt || 0).getTime();
+    default:
+      return String(c.fullName || '');
+  }
+}
+
+function toggleSort(key) {
+  const k = String(key || '');
+  if (!k) return;
+  if (sort.value === k) {
+    sortDir.value = sortDir.value === 'asc' ? 'desc' : 'asc';
+  } else {
+    sort.value = k;
+    sortDir.value = k === 'submitted' ? 'desc' : 'asc';
+  }
+}
+
+function sortIndicator(key) {
+  if (sort.value !== key) return '';
+  return sortDir.value === 'asc' ? ' ▲' : ' ▼';
+}
+
 const displayRows = computed(() => {
-  let rows = clients.value;
+  let rows = [...clients.value];
   if (unassignedOnly.value) rows = rows.filter((c) => !hasAssigned(c));
+  const key = String(sort.value || 'submitted');
+  const dir = sortDir.value === 'asc' ? 1 : -1;
+  if (CLIENT_SIDE_SORTS.has(key) || key === 'name' || key === 'preferredProvider' || key === 'assignedProvider' || key === 'submitted') {
+    rows.sort((a, b) => {
+      const av = sortValue(a, key);
+      const bv = sortValue(b, key);
+      if (typeof av === 'number' && typeof bv === 'number') return (av - bv) * dir;
+      return String(av).localeCompare(String(bv), undefined, { sensitivity: 'base' }) * dir;
+    });
+  }
   return rows;
 });
 
@@ -477,7 +570,7 @@ async function setWaitlist(remove) {
 }
 
 let searchTimer = null;
-watch([bucket, whoFor, sort, clinicalReviewOnly, needsActionOnly, tenantFilter], () => load());
+watch([bucket, whoFor, clinicalReviewOnly, needsActionOnly, tenantFilter], () => load());
 watch(searchQuery, () => {
   clearTimeout(searchTimer);
   searchTimer = setTimeout(() => load(), 300);
@@ -510,6 +603,24 @@ onMounted(load);
 .ocm-title { margin: 0.15rem 0; font-size: 1.75rem; color: #14352a; }
 .ocm-subtitle { margin: 0; color: #5b6b63; max-width: 42rem; }
 .ocm-header-actions { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+.ocm-th-btn {
+  border: 0;
+  background: transparent;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: inherit;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.15rem;
+}
+.ocm-th-btn:hover { color: #0f766e; }
+.ocm-sort-ind { font-size: 0.65rem; opacity: 0.85; }
 .ocm-kpis { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 0.75rem; margin-bottom: 1rem; }
 .ocm-kpi { background: #fff; border: 1px solid #d7e3dc; border-radius: 12px; padding: 0.85rem 1rem; }
 .ocm-kpi-value { font-size: 1.5rem; font-weight: 700; color: #14352a; }

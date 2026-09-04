@@ -1513,7 +1513,7 @@ import {
   isObjectiveScaleValid,
   parseScalePair
 } from '../../utils/treatmentPlanDuration.js';
-import { rememberRecentAid, loadNoteLibraryUiPrefs, saveNoteLibraryUiPrefs } from '../../utils/noteAidLibraryPrefs.js';
+import { rememberRecentAid, saveNoteLibraryUiPrefs } from '../../utils/noteAidLibraryPrefs.js';
 import { isClinicalChartEnabled, parseAgencyFeatureFlags } from '../../config/medicalBillingAccess.js';
 import { useAgencyStore } from '../../store/agency';
 import { useAuthStore } from '../../store/auth';
@@ -2356,14 +2356,13 @@ const libraryGroupBy = ref('status');
 const libraryDateOrder = ref('newest');
 const libraryConnectionFilter = ref('');
 const libraryTenantFilter = ref('');
-const libraryCollapsed = ref(true);
+const libraryCollapsed = ref(false);
 const workQueueCollapsed = ref(false);
 const libraryExpanded = ref(false);
 
 watch(libraryCollapsed, (collapsed) => {
-  if (!collapsed && typeof window !== 'undefined' && window.innerWidth < 1400) {
-    workQueueCollapsed.value = true;
-  }
+  // Do not auto-collapse the work queue when opening the library.
+  void collapsed;
 });
 
 watch([libraryCollapsed, libraryExpanded], ([collapsed, expanded]) => {
@@ -3006,7 +3005,7 @@ async function claimUnassignedNoteAidClients() {
   try {
     await api.post(
       '/clients/note-aid/claim-unassigned',
-      { agencyId: currentAgencyId.value || undefined },
+      { allCreators: true },
       { skipGlobalLoading: true }
     );
   } catch (e) {
@@ -3088,9 +3087,7 @@ function applySessionTimingDefaults({ force = false } = {}) {
 }
 
 function collapseSidebarsForNote() {
-  libraryCollapsed.value = true;
-  workQueueCollapsed.value = true;
-  libraryExpanded.value = false;
+  // Keep library + work queue open when a note is active (user can still hide manually).
 }
 
 watch(hasOpenNote, (open) => {
@@ -7406,9 +7403,11 @@ onMounted(async () => {
   speechSupported.value = !!(window.SpeechRecognition || window.webkitSpeechRecognition);
   // Scrub any pre-fix PHI left in browser storage from older Note Aid builds.
   scrubLegacyWorkQueueSessionStash();
-  const libraryUi = loadNoteLibraryUiPrefs(authStore.user?.id);
-  libraryCollapsed.value = libraryUi.collapsed;
-  libraryExpanded.value = libraryUi.expanded;
+  // Always open library + work queue when Note Aid loads (user can still hide).
+  libraryCollapsed.value = false;
+  libraryExpanded.value = false;
+  workQueueCollapsed.value = false;
+  saveNoteLibraryUiPrefs(authStore.user?.id, { collapsed: false, expanded: false });
   await loadNoteAidWriterPrefs();
 
   if (String(route.query?.noteAidReset || '') === '1') {
@@ -7440,7 +7439,8 @@ onMounted(async () => {
     }
   }
 
-  if (typeof window !== 'undefined' && window.innerWidth < 1180) {
+  // Prefer both side panels open; only tuck the queue on very small phones.
+  if (typeof window !== 'undefined' && window.innerWidth < 720) {
     workQueueCollapsed.value = true;
   }
 

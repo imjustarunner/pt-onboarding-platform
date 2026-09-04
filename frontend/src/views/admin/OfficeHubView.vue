@@ -6,13 +6,18 @@
         <h1 class="oh-title">Office Hub</h1>
         <p class="oh-subtitle">What is happening in the office right now, and what needs attention.</p>
       </div>
-      <div class="oh-header-actions">
+      <div class="ocm-hub-header-actions">
+        <nav class="ocm-hub-switcher" aria-label="Office tools">
+          <template v-for="item in officeNavLinks" :key="item.key">
+            <span v-if="item.isActive" class="ocm-hub-switcher-btn is-active" aria-current="page">{{ item.label }}</span>
+            <router-link v-else class="ocm-hub-switcher-btn" :to="item.to">{{ item.label }}</router-link>
+          </template>
+        </nav>
         <select v-if="multiTenant" v-model="tenantFilter" class="oh-select">
           <option value="all">All my offices</option>
           <option v-for="a in accessibleAgencies" :key="a.id" :value="String(a.id)">{{ a.name }}</option>
         </select>
-        <router-link class="oh-btn oh-btn--primary" :to="orgPath('/admin/office-clients')">Office Clients</router-link>
-        <button class="oh-btn oh-btn--ghost" type="button" :disabled="loading" @click="load">
+        <button class="ocm-hub-action-btn" type="button" :disabled="loading" @click="load">
           {{ loading ? 'Loading…' : '↺ Refresh' }}
         </button>
       </div>
@@ -180,10 +185,12 @@
 </template>
 
 <script setup>
-import { onMounted, ref, watch } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import api from '../../services/api';
 import { useOfficeClientAgency, formatRelativeTime } from '../../composables/useOfficeClientAgency.js';
+import { buildOfficeQuickNavLinks } from '../../utils/officeQuickNav.js';
+import '../../styles/officeQuickNav.css';
 
 const router = useRouter();
 const {
@@ -196,6 +203,8 @@ const {
   orgPath,
   orgSlug
 } = useOfficeClientAgency();
+
+const officeNavLinks = computed(() => buildOfficeQuickNavLinks({ orgPath, current: 'hub' }));
 
 const loading = ref(false);
 const error = ref('');

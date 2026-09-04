@@ -21,11 +21,11 @@ function writeJson(key, value) {
   }
 }
 
-/** Library chrome prefs — default collapsed so the workspace has room first. */
+/** Library chrome prefs — default open so library + queue are visible on Note Aid open. */
 export function loadNoteLibraryUiPrefs(userId) {
   const raw = readJson(LIBRARY_UI_KEY(userId), null);
   return {
-    collapsed: raw?.collapsed !== false, // default true
+    collapsed: raw?.collapsed === true, // default false (open)
     expanded: !!raw?.expanded
   };
 }

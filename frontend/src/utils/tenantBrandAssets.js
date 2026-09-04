@@ -258,8 +258,8 @@ export const TENANT_DARK_LOGOS = {
 /** Browser tab / apple-touch favicons (compact marks from printing assets). */
 export const TENANT_FAVICONS = {
   nlu: '/assets/branding/NLUWatermark.png',
-  // Compact counseling mark until a dedicated watermark is added.
-  innerstrength: '/assets/SMSAssets/InnerStrength/10_Counseling.png'
+  // Circular Inner Strength mark (nav logo) for browser tab / apple-touch.
+  innerstrength: '/assets/branding/innerstrength-favicon.png'
 };
 
 export function tenantDarkLogoUrl(slugOrHost = '') {
