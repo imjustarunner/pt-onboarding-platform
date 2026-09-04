@@ -349,14 +349,44 @@ export const getPortalTask = async (req, res, next) => {
     if (!rows.length) return res.status(404).json({ error: { message: 'Task not found.' } });
 
     const task = rows[0];
-    const fieldDefs = (() => {
-      try { return typeof task.field_definitions === 'string' ? JSON.parse(task.field_definitions) : (task.field_definitions || null); }
-      catch { return null; }
-    })();
     const metadata = (() => {
       try { return typeof task.metadata === 'string' ? JSON.parse(task.metadata) : (task.metadata || {}); }
       catch { return {}; }
     })();
+
+    // Generated contracts store HTML on user_specific_documents; reference_id is the USD id
+    // (not a document_templates row), so fall back when the library join is empty.
+    let docName = task.template_name || null;
+    let htmlContent = task.html_content || null;
+    let filePath = task.file_path || null;
+    let documentType = task.document_type || null;
+    let templateType = task.template_type || null;
+    let fieldDefs = (() => {
+      try { return typeof task.field_definitions === 'string' ? JSON.parse(task.field_definitions) : (task.field_definitions || null); }
+      catch { return null; }
+    })();
+
+    if (!htmlContent || metadata.contractGeneration || metadata.autoFromSendPreHire) {
+      try {
+        const UserSpecificDocument = (await import('../models/UserSpecificDocument.model.js')).default;
+        const usd = await UserSpecificDocument.findByTask(taskId)
+          || (task.reference_id ? await UserSpecificDocument.findById(task.reference_id) : null);
+        if (usd) {
+          docName = usd.name || docName || task.title;
+          htmlContent = usd.html_content || htmlContent;
+          filePath = usd.file_path || filePath;
+          templateType = usd.template_type || templateType || 'html';
+          documentType = documentType || 'contract';
+          if (usd.field_definitions) {
+            try {
+              fieldDefs = typeof usd.field_definitions === 'string'
+                ? JSON.parse(usd.field_definitions)
+                : usd.field_definitions;
+            } catch { /* keep prior */ }
+          }
+        }
+      } catch { /* ignore */ }
+    }
 
     res.json({
       id: task.id,
@@ -367,12 +397,12 @@ export const getPortalTask = async (req, res, next) => {
       status: task.status,
       referenceId: task.reference_id,
       metadata,
-      document: task.reference_id ? {
-        name: task.template_name,
-        htmlContent: task.html_content || null,
-        filePath: task.file_path || null,
-        documentType: task.document_type,
-        templateType: task.template_type,
+      document: (htmlContent || filePath || task.reference_id) ? {
+        name: docName || task.title,
+        htmlContent: htmlContent || null,
+        filePath: filePath || null,
+        documentType,
+        templateType: templateType || (htmlContent ? 'html' : null),
         fieldDefinitions: fieldDefs
       } : null,
       auditTrail: (() => {

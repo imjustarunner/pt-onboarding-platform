@@ -66,6 +66,17 @@
               My Submissions
             </a>
             <a
+              v-if="handbookSideLink"
+              class="portal-nav-link"
+              :href="handbookSideLink"
+              target="_blank"
+              rel="noopener noreferrer"
+              @click="trackHandbookOpen(handbookLinks.fullUrl ? 'full' : 'ack')"
+            >
+              <span class="portal-nav-icon">📖</span>
+              Workplace handbook
+            </a>
+            <a
               class="portal-nav-link"
               :class="{ 'portal-nav-link--active': activeSection === 'resources' }"
               href="#"
@@ -1121,6 +1132,9 @@ const backgroundCheckLegalParagraphs = computed(() => {
   ];
 });
 const handbookLinks = computed(() => portalData.value?.handbookLinks || {});
+const handbookSideLink = computed(() =>
+  handbookLinks.value.fullUrl || handbookLinks.value.acknowledgementUrl || null
+);
 const jobDescription = computed(() => portalData.value?.jobDescription || null);
 const jdPlainParagraphs = computed(() => splitPlainParagraphs(jobDescription.value?.descriptionText));
 const prehireDocs = computed(() => portalData.value?.prehireDocs || []);

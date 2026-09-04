@@ -12,7 +12,8 @@ class SignedDocument {
       ipAddress,
       userAgent,
       auditTrail,
-      userDocumentId
+      userDocumentId,
+      userSpecificDocumentId
     } = documentData;
 
     // Pass timestamp as parameter instead of using NOW() in SQL for better compatibility
@@ -20,10 +21,11 @@ class SignedDocument {
     const [result] = await pool.execute(
       `INSERT INTO signed_documents (
         document_template_id, template_version, user_id, task_id,
-        signed_pdf_path, pdf_hash, signed_at, ip_address, user_agent, audit_trail, user_document_id
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        signed_pdf_path, pdf_hash, signed_at, ip_address, user_agent, audit_trail,
+        user_document_id, user_specific_document_id
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
-        documentTemplateId,
+        documentTemplateId || null,
         templateVersion,
         userId,
         taskId,
@@ -33,7 +35,8 @@ class SignedDocument {
         ipAddress || null,
         userAgent || null,
         auditTrail ? JSON.stringify(auditTrail) : null,
-        userDocumentId || null
+        userDocumentId || null,
+        userSpecificDocumentId || null
       ]
     );
 

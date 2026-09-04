@@ -4304,18 +4304,71 @@ export const sendPreHire = async (req, res, next) => {
       console.warn('[sendPreHire] comfort prefs promote failed:', comfortErr?.message);
     }
 
-    // Auto-generate employment contract when agency has a default contract config/template
+    // Employment contract:
+    // 1) Contract builder config (preferred) → generated branded HTML task
+    // 2) Else library document template from settings → assigned like other pre-hire docs
+    // Cosigner tasks are created for the contract (builder or library), not only library docs above.
     let contractResult = null;
+    let contractWarning = null;
+    let contractCountersignCount = 0;
+    const createCountersignTasksForDoc = async (candidateTask, docTitle) => {
+      let n = 0;
+      for (const sa of signerAssignments) {
+        if (!sa?.userId) continue;
+        await pool.execute(
+          `INSERT INTO tasks (
+            task_type, document_action_type, title, description,
+            assigned_to_user_id, assigned_to_agency_id, assigned_by_user_id,
+            reference_id, metadata,
+            countersign_signer_user_id, countersign_role_label, countersign_field_key
+          ) VALUES (?, 'countersignature', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [
+            'document',
+            `Countersign: ${docTitle}`,
+            `Please countersign ${(user.first_name || '')} ${(user.last_name || '')} — ${docTitle}`.trim(),
+            sa.userId,
+            agencyId,
+            req.user.id,
+            candidateTask.id,
+            JSON.stringify({ prehire: true, candidateUserId, countersign: true }),
+            sa.userId,
+            sa.roleLabel || null,
+            sa.fieldKey || null
+          ]
+        );
+        n += 1;
+      }
+      return n;
+    };
+
     try {
-      const contractTemplateId = Number(prehireSettings?.default_contract_template_id || 0) || null;
-      const contractConfigId = Number(prehireSettings?.default_contract_config_id || 0) || null;
-      if (contractConfigId || contractTemplateId) {
+      let jobDefaultConfigId = null;
+      try {
+        const profile = await HiringProfile.findByCandidateUserId(candidateUserId);
+        if (profile?.job_description_id) {
+          const jd = await HiringJobDescription.findById(profile.job_description_id);
+          jobDefaultConfigId = Number(jd?.default_contract_config_id || 0) || null;
+        }
+      } catch { /* ignore */ }
+
+      const bodyConfigId = Number(req.body?.contractConfigId || 0) || null;
+      const settingsConfigId = Number(prehireSettings?.default_contract_config_id || 0) || null;
+      // Only accept contract_templates ids from the builder wizard — never conflate with
+      // settings.default_contract_template_id (that key is a Documents Library template id).
+      const builderTemplateId = Number(req.body?.contractBuilderTemplateId || req.body?.contractTemplateId || 0) || null;
+      const libraryContractTemplateId = Number(
+        req.body?.libraryContractTemplateId || prehireSettings?.default_contract_template_id || 0
+      ) || null;
+
+      const resolvedConfigId = bodyConfigId || settingsConfigId || jobDefaultConfigId || null;
+
+      if (resolvedConfigId) {
         const { generateAndAssignCandidateContract } = await import('../services/contractGenerator.service.js');
         contractResult = await generateAndAssignCandidateContract({
           agencyId,
           candidateUserId,
-          configId: Number(req.body?.contractConfigId || 0) || contractConfigId || null,
-          templateId: Number(req.body?.contractTemplateId || 0) || contractTemplateId || null,
+          configId: resolvedConfigId,
+          templateId: builderTemplateId || null,
           createdByUserId: req.user.id,
           credentialOverride: String(req.body?.credential || '').trim() || null,
           compensationCategory: req.body?.compensationCategory != null && req.body?.compensationCategory !== ''
@@ -4326,10 +4379,44 @@ export const sendPreHire = async (req, res, next) => {
             : {},
           taskMetadata: { prehire: true, autoFromSendPreHire: true, contractGeneration: true }
         });
-        if (contractResult?.task) assignedTasks.push(contractResult.task);
+        if (contractResult?.task) {
+          assignedTasks.push(contractResult.task);
+          contractCountersignCount = await createCountersignTasksForDoc(
+            contractResult.task,
+            contractResult.task.title || 'Employment Agreement'
+          );
+        }
+      } else if (libraryContractTemplateId && !templateIds.includes(libraryContractTemplateId)) {
+        const tmpl = await DocumentTemplate.findById(libraryContractTemplateId);
+        if (tmpl) {
+          const task = await TaskAssignmentService.assignDocumentTask({
+            title: tmpl.name,
+            description: tmpl.description || 'Please review and sign your employment agreement.',
+            documentTemplateId: libraryContractTemplateId,
+            assignedByUserId: req.user.id,
+            assignedToUserId: candidateUserId,
+            assignedToAgencyId: agencyId,
+            documentActionType: tmpl.document_action_type || 'signature',
+            isRequired: 1,
+            lifecycleItemKey: tmpl.lifecycle_item_key || null,
+            metadata: {
+              prehire: true,
+              employmentContract: true,
+              lifecycleItemKey: tmpl.lifecycle_item_key || undefined
+            }
+          });
+          assignedTasks.push(task);
+          contractResult = { task, userSpecificDocumentId: null, fromLibrary: true };
+          contractCountersignCount = await createCountersignTasksForDoc(task, tmpl.name);
+        } else {
+          contractWarning = 'Employment contract template is missing from the Documents Library. Set a contract config in Hiring settings or Contract Generator.';
+        }
+      } else if (!libraryContractTemplateId) {
+        contractWarning = 'No employment contract was assigned. Set a default contract config (or library contract template) in Hiring & Pre-Hire settings, or pick a config on Start Pre-Hire.';
       }
     } catch (contractErr) {
       console.warn('[sendPreHire] contract generate failed:', contractErr?.message || contractErr);
+      contractWarning = contractErr?.message || 'Failed to generate employment contract.';
     }
 
     const checklistTitles = [];
@@ -4432,9 +4519,12 @@ export const sendPreHire = async (req, res, next) => {
       passwordlessToken: tokenResult?.token || null,
       passwordlessTokenLink: tokenLink,
       assignedTaskCount: assignedTasks.length,
-      signerTaskCount: signerAssignments.length * assignedTasks.length,
+      signerTaskCount: contractCountersignCount
+        + (Array.isArray(signerAssignments) ? signerAssignments.filter((s) => s?.userId).length : 0)
+          * Math.max(0, assignedTasks.length - (contractResult?.task ? 1 : 0)),
       packageId: resolvedPackageId || null,
-      contractTaskId: contractResult?.task?.id || null
+      contractTaskId: contractResult?.task?.id || null,
+      contractWarning: contractWarning || null
     });
   } catch (e) { next(e); }
 };

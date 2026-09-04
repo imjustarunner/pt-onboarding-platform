@@ -1430,6 +1430,7 @@ class DocumentSigningService {
     const SignedDocument = (await import('../models/SignedDocument.model.js')).default;
     const DocumentSignatureWorkflow = (await import('../models/DocumentSignatureWorkflow.model.js')).default;
     const DocumentTemplate = (await import('../models/DocumentTemplate.model.js')).default;
+    const UserSpecificDocument = (await import('../models/UserSpecificDocument.model.js')).default;
     const User = (await import('../models/User.model.js')).default;
     const StorageService = (await import('./storage.service.js')).default;
 
@@ -1461,11 +1462,26 @@ class DocumentSigningService {
       return { alreadyFinalized: true, signedDocument: signedDoc };
     }
 
-    const template = await DocumentTemplate.findById(task.reference_id);
-    if (!template) {
-      const err = new Error('Document template not found');
-      err.statusCode = 404;
-      throw err;
+    let taskMeta = {};
+    try {
+      taskMeta = typeof task.metadata === 'string' ? JSON.parse(task.metadata || '{}') : (task.metadata || {});
+    } catch {
+      taskMeta = {};
+    }
+
+    const userSpecificDocument = await UserSpecificDocument.findByTask(taskId)
+      || ((taskMeta.contractGeneration || taskMeta.autoFromSendPreHire)
+        ? await UserSpecificDocument.findById(task.reference_id)
+        : null);
+
+    let template = null;
+    if (!userSpecificDocument) {
+      template = await DocumentTemplate.findById(task.reference_id);
+      if (!template) {
+        const err = new Error('Document template not found');
+        err.statusCode = 404;
+        throw err;
+      }
     }
 
     const user = await User.findById(userId);
@@ -1487,10 +1503,11 @@ class DocumentSigningService {
 
     if (!signedDoc) {
       signedDoc = await SignedDocument.create({
-        documentTemplateId: template.id,
-        templateVersion: template.version || task.template_version || 1,
+        documentTemplateId: template?.id || null,
+        templateVersion: template?.version || task.template_version || 1,
         userId,
         taskId,
+        userSpecificDocumentId: userSpecificDocument?.id || null,
         signedPdfPath: null,
         pdfHash: null,
         ipAddress,
@@ -1498,7 +1515,8 @@ class DocumentSigningService {
         auditTrail: {
           context,
           portalConsent: taskAudit.portalConsent || null,
-          portalIntent: taskAudit.portalIntent || null
+          portalIntent: taskAudit.portalIntent || null,
+          userSpecificDocumentId: userSpecificDocument?.id || null
         }
       });
     }
@@ -1516,21 +1534,22 @@ class DocumentSigningService {
     await DocumentSignatureWorkflow.recordIdentityVerification(signedDoc.id);
     workflow = await DocumentSignatureWorkflow.findBySignedDocument(signedDoc.id);
 
-    const templateType = template.template_type;
-    const htmlContent = templateType === 'html' ? (template.html_content || null) : null;
-    const templatePath = templateType === 'pdf' ? (template.file_path || null) : null;
+    const source = userSpecificDocument || template;
+    const templateType = source.template_type || (userSpecificDocument ? 'html' : null);
+    const htmlContent = templateType === 'html' ? (source.html_content || null) : null;
+    const templatePath = templateType === 'pdf' ? (source.file_path || null) : null;
 
     let fieldDefinitions = [];
     try {
-      const raw = template.field_definitions;
+      const raw = source.field_definitions;
       fieldDefinitions = raw ? (typeof raw === 'string' ? JSON.parse(raw) : raw) : [];
       if (!Array.isArray(fieldDefinitions)) fieldDefinitions = [];
     } catch {
       fieldDefinitions = [];
     }
 
-    const signatureCoords = this.resolveSignatureCoords(template, fieldDefinitions);
-    const documentName = template.name || task.title || 'Document';
+    const signatureCoords = this.resolveSignatureCoords(source, fieldDefinitions);
+    const documentName = source.name || task.title || 'Document';
     const referenceNumber = `DOC-${signedDoc.id}-${Date.now().toString(36).toUpperCase()}`;
     const nameParts = String(signerName || `${user.first_name || ''} ${user.last_name || ''}`).trim().split(/\s+/);
     const signerInfo = {
@@ -1546,7 +1565,8 @@ class DocumentSigningService {
       documentName,
       portalConsent: taskAudit.portalConsent || null,
       portalIntent: taskAudit.portalIntent || null,
-      signedAt: new Date().toISOString()
+      signedAt: new Date().toISOString(),
+      userSpecificDocumentId: userSpecificDocument?.id || null
     };
 
     const pdfBytes = await this.generateFinalizedPDF(

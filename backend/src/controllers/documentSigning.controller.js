@@ -483,10 +483,10 @@ export const giveConsent = async (req, res, next) => {
         userSpecificDocument = await UserSpecificDocument.findByTask(taskId);
         if (userSpecificDocument) {
           console.log(`giveConsent: Found user-specific document ${userSpecificDocument.id}`);
-          // For user-specific documents, we still need a template ID for signed_documents
-          // Use the task's reference_id (which should be the user-specific document ID)
-          documentTemplateId = task.reference_id; // This will be the user-specific document ID
+          // Generated contracts are not document_templates rows — leave template id null.
+          documentTemplateId = null;
           templateVersion = 1;
+          userDocumentId = null;
         } else {
           // Fallback to template (for backward compatibility)
           console.log(`giveConsent: No user document found, using template ${task.reference_id}`);
@@ -551,6 +551,7 @@ export const giveConsent = async (req, res, next) => {
         userId,
         taskId: taskIdInt,
         userDocumentId: userDocumentId || null,
+        userSpecificDocumentId: userSpecificDocument?.id || null,
         signedPdfPath: null, // NULL during consent phase, will be set on finalization
         pdfHash: null,        // NULL during consent phase, will be set on finalization
         ipAddress: ipAddress || 'unknown',

@@ -21,7 +21,17 @@
 
       <section class="sph-card">
         <h2>Employment contract</h2>
-        <p class="muted">Generated in this flow from agency contract defaults. Pay category is inferred from credential.</p>
+        <p class="muted">Generated in this flow from the selected contract config (or agency default). Pay category is inferred from credential.</p>
+        <div v-if="!contractConfigs.length && !libraryContractTemplateId" class="sph-warn">
+          No contract config is set up for this tenant yet. Create one in Contract Generator (or pick a library contract template in Hiring &amp; Pre-Hire settings). Initiate will still send the portal link, but the hire will not get a contract step until that is configured.
+        </div>
+        <label v-if="contractConfigs.length" class="sph-config">
+          Contract config
+          <select v-model.number="contractConfigId" class="input">
+            <option :value="null">Use agency / job default</option>
+            <option v-for="c in contractConfigs" :key="c.id" :value="c.id">{{ c.name }}</option>
+          </select>
+        </label>
         <div class="sph-grid">
           <label>Start date <input v-model="contract.startDate" type="date" /></label>
           <label>Execution date <input v-model="contract.executionDate" type="date" /></label>
@@ -89,8 +99,14 @@
         </div>
       </section>
 
-      <section v-if="signerAssignments.length" class="sph-card">
-        <h2>Internal signers</h2>
+      <section class="sph-card">
+        <h2>Internal signers (cosigners)</h2>
+        <p class="muted">Each selected person gets a countersign to-do after the candidate signs the employment contract (and other signature docs).</p>
+        <div v-if="!signerAssignments.length" class="muted small" style="margin-bottom:10px;">
+          No signer roles configured yet.
+          <router-link :to="settingsPath">Add roles in Hiring &amp; Pre-Hire settings</router-link>,
+          or add an ad-hoc signer below.
+        </div>
         <label v-for="role in signerAssignments" :key="role.id" class="sph-doc">
           <span class="sph-kind">{{ role.roleLabel }}</span>
           <select v-model.number="role.userId" class="input">
@@ -98,9 +114,17 @@
             <option v-for="u in staffUsers" :key="u.id" :value="u.id">{{ u.first_name }} {{ u.last_name }}</option>
           </select>
         </label>
+        <label class="sph-doc">
+          <span class="sph-kind">+ Add signer</span>
+          <select v-model.number="adhocSignerUserId" class="input">
+            <option :value="null">None</option>
+            <option v-for="u in staffUsers" :key="u.id" :value="u.id">{{ u.first_name }} {{ u.last_name }}</option>
+          </select>
+        </label>
       </section>
 
       <p v-if="sendError" class="error">{{ sendError }}</p>
+      <p v-if="contractWarning" class="sph-warn">{{ contractWarning }}</p>
       <div class="sph-actions">
         <button type="button" class="btn btn-secondary" @click="goBack">Cancel</button>
         <button type="button" class="btn btn-primary" :disabled="sending" @click="initiate">
@@ -111,6 +135,7 @@
         Portal link created:
         <a :href="tokenLink" target="_blank" rel="noopener">{{ tokenLink }}</a>
       </p>
+      <p v-if="tokenLink && contractTaskId" class="sph-ok">Employment contract task #{{ contractTaskId }} assigned to the candidate.</p>
     </template>
   </div>
 </template>
@@ -129,6 +154,7 @@ const loading = ref(true);
 const sending = ref(false);
 const error = ref('');
 const sendError = ref('');
+const contractWarning = ref('');
 const detail = ref(null);
 const settings = ref({});
 const extraFiles = ref([]);
@@ -138,9 +164,13 @@ const inferredPayLabel = ref('');
 const inferredCategory = ref(null);
 const signerAssignments = ref([]);
 const staffUsers = ref([]);
+const adhocSignerUserId = ref(null);
 const wizardTokens = ref({});
 const contractConfigId = ref(null);
-const contractTemplateId = ref(null);
+const contractBuilderTemplateId = ref(null);
+const libraryContractTemplateId = ref(null);
+const contractConfigs = ref([]);
+const contractTaskId = ref(null);
 
 const contract = reactive({
   startDate: '',
@@ -187,6 +217,11 @@ const locationLabel = computed(() => {
 const careersEditPath = computed(() => {
   const q = agencyId.value ? `?agencyId=${agencyId.value}` : '';
   return orgPath(`/admin/careers${q}`);
+});
+
+const settingsPath = computed(() => {
+  const q = agencyId.value ? `?agencyId=${agencyId.value}&category=workflow&item=hiring-prehire` : '?category=workflow&item=hiring-prehire';
+  return orgPath(`/admin/settings${q}`);
 });
 
 const docKindLabel = (kind) => {
@@ -246,8 +281,12 @@ const load = async () => {
       fieldKey: r.field_key || null
     }));
     wizardTokens.value = wizardRes.data?.tokens || {};
-    contractConfigId.value = wizardRes.data?.suggested?.configId || settings.value.default_contract_config_id || null;
-    contractTemplateId.value = wizardRes.data?.suggested?.templateId || settings.value.default_contract_template_id || null;
+    contractConfigs.value = Array.isArray(wizardRes.data?.configs) ? wizardRes.data.configs : [];
+    contractConfigId.value = wizardRes.data?.suggested?.configId
+      || settings.value.default_contract_config_id
+      || null;
+    contractBuilderTemplateId.value = wizardRes.data?.suggested?.templateId || null;
+    libraryContractTemplateId.value = settings.value.default_contract_template_id || null;
     if (wizardTokens.value.START_DATE) contract.startDate = String(wizardTokens.value.START_DATE).slice(0, 10);
     if (wizardTokens.value.SUPERVISOR_NAME) contract.supervisor = wizardTokens.value.SUPERVISOR_NAME;
     if (wizardTokens.value.MIN_HOURS) contract.minHours = wizardTokens.value.MIN_HOURS;
@@ -294,6 +333,8 @@ const load = async () => {
 
 const initiate = async () => {
   sendError.value = '';
+  contractWarning.value = '';
+  contractTaskId.value = null;
   sending.value = true;
   try {
     for (const item of extraFiles.value) {
@@ -319,25 +360,34 @@ const initiate = async () => {
       CANDIDATE_NAME: candidateName.value,
       JOB_TITLE: jobTitle.value
     };
+    const signers = [
+      ...signerAssignments.value
+        .filter((s) => s.userId)
+        .map((s) => ({ userId: s.userId, roleLabel: s.roleLabel, fieldKey: s.fieldKey })),
+      ...(adhocSignerUserId.value
+        ? [{ userId: adhocSignerUserId.value, roleLabel: 'Cosigner', fieldKey: null }]
+        : [])
+    ];
     const { data } = await api.post(
       `/hiring/candidates/${userId.value}/send-prehire`,
       {
         documentTemplateIds: templateIds,
         selectedJobDocs: jobDocs.value.filter((d) => d.selected),
-        signerAssignments: signerAssignments.value
-          .filter((s) => s.userId)
-          .map((s) => ({ userId: s.userId, roleLabel: s.roleLabel, fieldKey: s.fieldKey })),
+        signerAssignments: signers,
         contractTokens: tokens,
         compensationCategory: contract.compensationCategory || inferredCategory.value || null,
         credential: detail.value?.profile?.credential || wizardTokens.value.CREDENTIAL || null,
         contractConfigId: contractConfigId.value,
-        contractTemplateId: contractTemplateId.value,
+        contractBuilderTemplateId: contractBuilderTemplateId.value,
+        libraryContractTemplateId: libraryContractTemplateId.value,
         msgSubject: settings.value.invite_email_subject || null,
         msgBody: settings.value.invite_email_body || null
       },
       { params: { agencyId: agencyId.value } }
     );
     tokenLink.value = data?.passwordlessTokenLink || '';
+    contractTaskId.value = data?.contractTaskId || null;
+    contractWarning.value = data?.contractWarning || '';
     extraFiles.value = [];
   } catch (e) {
     sendError.value = e.response?.data?.error?.message || 'Failed to initiate pre-hire';
@@ -439,6 +489,17 @@ onMounted(load);
 }
 .sph-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 12px; }
 .sph-ok { color: #1a8c54; font-weight: 650; word-break: break-all; }
+.sph-warn {
+  background: #fff7ed;
+  border: 1px solid #fdba74;
+  color: #9a3412;
+  border-radius: 10px;
+  padding: 10px 12px;
+  margin: 8px 0 14px;
+  font-size: 0.9rem;
+}
+.sph-config { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; font-weight: 650; }
+.sph-config .input { font-weight: 400; }
 .sph-upload { margin-top: 12px; }
 .muted { color: #6b7280; }
 .small { font-size: 0.82rem; }

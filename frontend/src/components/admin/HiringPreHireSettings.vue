@@ -51,18 +51,26 @@
         </div>
       </div>
 
-      <!-- Default Contract Template -->
+      <!-- Default Contract -->
       <div class="hps-section">
         <div class="hps-section-header">
-          <div class="hps-section-title">Default Contract Template</div>
+          <div class="hps-section-title">Default Employment Contract</div>
           <div class="hps-section-sub">
-            Used when Start Pre-Hire generates the employment contract. Requires candidate signature and internal countersignatures.
+            Used when Start Pre-Hire generates the employment contract. Prefer a Contract Generator
+            <em>config</em> (branded merge). A Documents Library template is only a fallback when no config is set.
           </div>
         </div>
         <div class="hps-field">
-          <label class="hps-label">Contract template</label>
+          <label class="hps-label">Contract config (recommended)</label>
+          <select v-model="form.default_contract_config_id" class="input">
+            <option :value="null">None — pick per hire or use job posting default</option>
+            <option v-for="c in contractConfigs" :key="c.id" :value="c.id">{{ c.name }}</option>
+          </select>
+        </div>
+        <div class="hps-field">
+          <label class="hps-label">Fallback library template</label>
           <select v-model="form.default_contract_template_id" class="input">
-            <option :value="null">None — attach manually per hire</option>
+            <option :value="null">None</option>
             <option v-for="t in signatureTemplates" :key="t.id" :value="t.id">{{ t.name }}</option>
           </select>
         </div>
@@ -280,6 +288,7 @@ const form = ref({
   default_prehire_package_id: null,
   default_onboarding_package_id: null,
   default_contract_template_id: null,
+  default_contract_config_id: null,
   token_expiry_hours: 168,
   invite_email_subject: '',
   invite_email_body: '',
@@ -313,6 +322,7 @@ const removeRoleMapping = (idx) => {
 
 const packages = ref([]);
 const templates = ref([]);
+const contractConfigs = ref([]);
 const signerRoles = ref([]);
 const staffUsers = ref([]);
 
@@ -337,12 +347,13 @@ const loadAll = async () => {
   pageError.value = '';
   try {
     const params = { agencyId: agencyId.value };
-    const [settingsRes, pkgsRes, tmplRes, rolesRes, usersRes] = await Promise.all([
+    const [settingsRes, pkgsRes, tmplRes, rolesRes, usersRes, libraryRes] = await Promise.all([
       api.get('/hiring/settings', { params }),
       api.get('/onboarding-packages', { params: { ...params, includeInactive: 'true' } }),
       api.get('/document-templates', { params: { limit: 1000 } }),
       api.get('/hiring/signer-roles', { params }),
-      api.get('/users').catch(() => ({ data: [] }))
+      api.get('/users').catch(() => ({ data: [] })),
+      api.get('/contracts/library', { params }).catch(() => ({ data: {} }))
     ]);
 
     const s = settingsRes.data?.settings || {};
@@ -350,6 +361,7 @@ const loadAll = async () => {
       default_prehire_package_id: s.default_prehire_package_id ?? null,
       default_onboarding_package_id: s.default_onboarding_package_id ?? null,
       default_contract_template_id: s.default_contract_template_id ?? null,
+      default_contract_config_id: s.default_contract_config_id ?? null,
       token_expiry_hours: s.token_expiry_hours ?? 168,
       invite_email_subject: s.invite_email_subject ?? '',
       invite_email_body: s.invite_email_body ?? '',
@@ -362,6 +374,7 @@ const loadAll = async () => {
     const pkgList = Array.isArray(pkgsRes.data) ? pkgsRes.data : [];
     packages.value = pkgList.filter(p => p.is_active !== false);
     templates.value = parseTemplateList(tmplRes.data).filter(t => t.is_active !== false && t.is_active !== 0);
+    contractConfigs.value = Array.isArray(libraryRes.data?.configs) ? libraryRes.data.configs : [];
     signerRoles.value = rolesRes.data || [];
 
     const STAFF_ROLES = ['admin', 'support', 'staff', 'super_admin'];

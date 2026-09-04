@@ -517,6 +517,14 @@ export async function renderContractHtml({
 
   const font = template?.font_family || 'Georgia, serif';
   const css = template?.css_extras || '';
+  const companyName = escapeHtml(mergedTokens.COMPANY_NAME || '');
+  const companyAddress = escapeHtml(mergedTokens.COMPANY_ADDRESS || '');
+  const brandHeader = companyName
+    ? `<header class="contract-brand" style="border-bottom:2px solid #0f172a;padding-bottom:12px;margin-bottom:24px;">
+  <div style="font-size:1.35rem;font-weight:700;letter-spacing:0.02em;">${companyName}</div>
+  ${companyAddress ? `<div style="font-size:0.85rem;color:#475569;margin-top:4px;">${companyAddress}</div>` : ''}
+</header>`
+    : '';
   const html = `<!DOCTYPE html>
 <html><head><meta charset="utf-8"/><style>
   body { font-family: ${font}; color: #111; line-height: 1.45; max-width: 800px; margin: 0 auto; padding: 24px; }
@@ -524,6 +532,7 @@ export async function renderContractHtml({
   table { width: 100%; }
   ${css}
 </style></head><body>
+${brandHeader}
 ${bodyParts.join('\n')}
 </body></html>`;
 
