@@ -887,9 +887,78 @@ onMounted(loadDirectory);
     order: -1;
   }
 
+  .srf-body {
+    padding: 8px 14px calc(28px + env(safe-area-inset-bottom, 0px));
+  }
+
+  .srf-page {
+    overflow-x: hidden;
+  }
+
+  .srf-table-wrap {
+    overflow: visible;
+    border: 0;
+    background: transparent;
+  }
+
+  .srf-table,
+  .srf-table thead,
+  .srf-table tbody,
+  .srf-table tr,
+  .srf-table th,
+  .srf-table td {
+    display: block;
+    width: 100%;
+  }
+
+  .srf-table thead {
+    display: none;
+  }
+
+  .srf-table tbody {
+    display: grid;
+    gap: 10px;
+  }
+
+  .srf-table tr {
+    background: #fff;
+    border: 1px solid var(--srf-border, #e2e8f0);
+    border-radius: 14px;
+    padding: 12px;
+    box-sizing: border-box;
+  }
+
+  .srf-table td {
+    padding: 0;
+    border: 0;
+  }
+
+  .srf-table td:nth-child(2) {
+    margin-top: 6px;
+    color: var(--srf-muted, #64748b);
+    font-size: 0.9rem;
+    font-weight: 600;
+  }
+
   .srf-table th:nth-child(3),
   .srf-table td:nth-child(3) {
     display: none;
+  }
+
+  .srf-actions-cell {
+    text-align: left;
+    margin-top: 12px;
+  }
+
+  .srf-start-btn {
+    width: 100%;
+    justify-content: center;
+    min-height: 44px;
+    box-sizing: border-box;
+  }
+
+  .srf-school-cell {
+    align-items: flex-start;
   }
 }
 </style>

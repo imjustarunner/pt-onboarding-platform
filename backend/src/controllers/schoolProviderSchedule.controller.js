@@ -309,7 +309,7 @@ export const listSchoolProvidersForScheduling = async (req, res, next) => {
                 u.psychology_today_url
          FROM provider_school_assignments psa
          JOIN users u ON u.id = psa.provider_user_id
-         JOIN user_agencies ua
+         LEFT JOIN user_agencies ua
            ON ua.user_id = psa.provider_user_id
           AND ua.agency_id = psa.school_organization_id
          LEFT JOIN provider_school_profiles psp
@@ -343,7 +343,7 @@ export const listSchoolProvidersForScheduling = async (req, res, next) => {
                   psp.school_info_blurb
            FROM provider_school_assignments psa
            JOIN users u ON u.id = psa.provider_user_id
-           JOIN user_agencies ua
+           LEFT JOIN user_agencies ua
              ON ua.user_id = psa.provider_user_id
             AND ua.agency_id = psa.school_organization_id
            LEFT JOIN provider_school_profiles psp
@@ -379,7 +379,7 @@ export const listSchoolProvidersForScheduling = async (req, res, next) => {
                   psa.is_active
            FROM provider_school_assignments psa
            JOIN users u ON u.id = psa.provider_user_id
-           JOIN user_agencies ua
+           LEFT JOIN user_agencies ua
              ON ua.user_id = psa.provider_user_id
             AND ua.agency_id = psa.school_organization_id
            WHERE psa.school_organization_id = ? AND psa.is_active = TRUE

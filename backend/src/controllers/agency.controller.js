@@ -5,6 +5,7 @@ import AgencySchool from '../models/AgencySchool.model.js';
 import OrganizationAffiliation from '../models/OrganizationAffiliation.model.js';
 import pool from '../config/database.js';
 import { syncTenantState } from '../services/featureEntitlement.service.js';
+import { toPublicDistrictDisplayName } from '../utils/districtSlug.shared.js';
 import {
   isPractitionerOrgType,
   requirePractitionerOwner
@@ -1020,7 +1021,10 @@ export const updateAgency = async (req, res, next) => {
           return null;
         };
 
-        const districtName = sp.districtName !== undefined ? String(sp.districtName || '').trim() : '';
+        const districtNameRaw = sp.districtName !== undefined ? String(sp.districtName || '').trim() : '';
+        const districtName = districtNameRaw
+          ? toPublicDistrictDisplayName(districtNameRaw)
+          : '';
         const schoolNumber = sp.schoolNumber !== undefined ? String(sp.schoolNumber || '').trim() : '';
         const itscoEmail = sp.itscoEmail !== undefined ? String(sp.itscoEmail || '').trim() : '';
         const schoolDaysTimes = sp.schoolDaysTimes !== undefined ? String(sp.schoolDaysTimes || '').trim() : '';

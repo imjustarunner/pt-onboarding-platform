@@ -6,6 +6,33 @@ import {
 } from '../constants/schoolPrintablePacket.js';
 import { sendSchoolPrintablePacketPdf } from './schoolPublicDocuments.controller.js';
 
+const EXCLUDED_PUBLIC_SCHOOL_SLUGS = new Set([
+  'hogwarts',
+  'durmstrang',
+  'demo-school',
+  'demo',
+  'fake-school-test',
+  'detention-academy',
+  'analytical-engine-academy',
+  'riverdale-high-onboarding-test-d9fc'
+]);
+
+function isExcludedPublicSchool(school = {}) {
+  const slug = String(school.slug || school.key || school.portal_url || '').trim().toLowerCase();
+  const name = String(school.name || '').trim().toLowerCase();
+  if (EXCLUDED_PUBLIC_SCHOOL_SLUGS.has(slug) || slug.startsWith('demo-')) return true;
+  if (
+    /^demo\b/.test(name)
+    || name.includes('fake school')
+    || name.includes('onboarding test')
+    || name.includes('detention academy')
+    || name.includes('analytical engine')
+  ) {
+    return true;
+  }
+  return false;
+}
+
 function normalizeKey(input) {
   const s = String(input || '')
     .toLowerCase()
@@ -115,6 +142,7 @@ export const searchPublicSchools = async (req, res, next) => {
 
     const scored = [];
     for (const s of schools || []) {
+      if (isExcludedPublicSchool(s)) continue;
       const sc = scoreMatch(queryKey, s);
       if (sc === null) continue;
       scored.push({
@@ -127,6 +155,7 @@ export const searchPublicSchools = async (req, res, next) => {
       });
     }
     for (const s of COLORADO_OUTREACH_SCHOOLS || []) {
+      if (isExcludedPublicSchool(s)) continue;
       const sc = scoreMatch(queryKey, { ...s, slug: s.key });
       if (sc === null) continue;
       scored.push({

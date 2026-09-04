@@ -575,7 +575,15 @@
             <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 10px;">
               <div class="form-group">
                 <label>District</label>
-                <input v-model="agencyForm.schoolProfile.districtName" type="text" placeholder="e.g. District 12" />
+                <select v-model="agencyForm.schoolProfile.districtName">
+                  <option value="">Select district…</option>
+                  <option value="D11">D11</option>
+                  <option value="D12">D12</option>
+                  <option value="D13">D13</option>
+                  <option value="DPS">DPS</option>
+                  <option value="Other">Other</option>
+                </select>
+                <p class="form-help">Use short codes (D11, D12, DPS) so public school lists stay consistent.</p>
               </div>
               <div class="form-group">
                 <label>School Number</label>
@@ -7182,6 +7190,24 @@ const fetchFontFamiliesForOrg = async (orgId) => {
 
 const normalizeText = (v) => String(v || '').trim().toLowerCase();
 
+const normalizeSchoolDistrictOption = (raw) => {
+  const n = normalizeText(raw);
+  if (!n) return '';
+  if (
+    n === 'd11'
+    || n.includes('district 11')
+    || n.includes('colorado springs school district 11')
+    || n.includes('coloradosprings d11')
+  ) return 'D11';
+  if (n === 'd12' || n.includes('district 12')) return 'D12';
+  if (n === 'd13' || n.includes('district 13')) return 'D13';
+  if (n === 'dps' || n === 'denver' || n.includes('denver public school')) return 'DPS';
+  if (n === 'other') return 'Other';
+  // Keep known short codes; otherwise fall back to Other so the select stays valid.
+  if (['d11', 'd12', 'd13', 'dps', 'other'].includes(n)) return n.toUpperCase() === 'OTHER' ? 'Other' : n.toUpperCase();
+  return 'Other';
+};
+
 const sortByNameAsc = (list) => {
   return [...(list || [])].sort((a, b) => normalizeText(a?.name).localeCompare(normalizeText(b?.name)));
 };
@@ -8133,7 +8159,7 @@ const editAgency = async (agency) => {
     phoneNumber: agency.phone_number || '',
     phoneExtension: agency.phone_extension || '',
     schoolProfile: {
-      districtName: agency?.school_profile?.district_name || '',
+      districtName: normalizeSchoolDistrictOption(agency?.school_profile?.district_name || ''),
       schoolNumber: agency?.school_profile?.school_number || '',
       itscoEmail: agency?.school_profile?.itsco_email || '',
       schoolDaysTimes: agency?.school_profile?.school_days_times || '',

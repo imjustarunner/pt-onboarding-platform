@@ -1428,8 +1428,25 @@ main .df-page--full-bleed .df-shell {
     border-radius: 0;
     box-shadow: none;
     flex-direction: column;
+    overflow: visible;
   }
 
+  .df-main {
+    min-height: 0;
+    flex: 1 1 auto;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .df-main-body--cover {
+    max-width: none;
+    padding-top: 1rem;
+    padding-bottom: calc(1.75rem + env(safe-area-inset-bottom, 0px));
+  }
+
+  .df-cover-secondary-actions {
+    margin-bottom: calc(0.75rem + env(safe-area-inset-bottom, 0px));
+  }
   .df-page--scenic-side .df-shell--cover-mode {
     --df-sidebar-w: 100%;
   }
@@ -1502,6 +1519,7 @@ main .df-page--full-bleed .df-shell {
   .df-main-body--cover {
     max-width: none;
     padding-top: 1rem;
+    padding-bottom: calc(1.75rem + env(safe-area-inset-bottom, 0px));
   }
 
   .df-field-row {

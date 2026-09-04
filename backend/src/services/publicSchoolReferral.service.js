@@ -14,8 +14,39 @@ import {
   normalizeSupportTicketSourceKey
 } from '../constants/supportTicketSources.js';
 import { prepareEncryptedTicketText } from '../utils/supportTicketCrypto.js';
+import { toPublicDistrictDisplayName } from '../utils/districtSlug.shared.js';
 
-const DEMO_SCHOOL_SLUGS = new Set(['hogwarts', 'durmstrang']);
+const DEMO_SCHOOL_SLUGS = new Set([
+  'hogwarts',
+  'durmstrang',
+  'demo-school',
+  'demo',
+  'fake-school-test',
+  'detention-academy',
+  'analytical-engine-academy',
+  'riverdale-high-onboarding-test-d9fc'
+]);
+
+function isExcludedPublicDirectorySchool({ slug = '', name = '', district = '' } = {}) {
+  const s = String(slug || '').trim().toLowerCase();
+  const n = String(name || '').trim().toLowerCase();
+  const d = String(district || '').trim().toLowerCase();
+  if (!s && !n) return true;
+  if (DEMO_SCHOOL_SLUGS.has(s) || s.startsWith('demo-')) return true;
+  if (d.includes('demo') || d === 'math') return true;
+  if (
+    /^demo\b/.test(n)
+    || n.includes('fake school')
+    || n.includes('onboarding test')
+    || n.includes('detention academy')
+    || n.includes('analytical engine')
+    || /\btest school\b/.test(n)
+    || (n.includes('math') && n.includes('test'))
+  ) {
+    return true;
+  }
+  return false;
+}
 
 function parseJsonObject(v) {
   if (!v) return {};
@@ -141,10 +172,13 @@ export async function listPublicReferralDirectory(agencySlug, req = null) {
 
   for (const row of rows || []) {
     const slug = String(row.school_slug || row.school_portal_url || '').trim().toLowerCase();
+    const schoolName = String(row.school_name || '').trim() || `School #${row.school_organization_id}`;
+    const rawDistrict = String(row.district_name || '').trim() || 'Other';
+    if (isExcludedPublicDirectorySchool({ slug, name: schoolName, district: rawDistrict })) continue;
     if (DEMO_SCHOOL_SLUGS.has(slug)) continue;
     const publicKey = String(row.intake_public_key || '').trim();
 
-    const district = String(row.district_name || '').trim() || 'Other';
+    const district = toPublicDistrictDisplayName(rawDistrict);
     districtCounts.set(district, (districtCounts.get(district) || 0) + 1);
 
     const city = String(row.city || '').trim();
@@ -156,7 +190,7 @@ export async function listPublicReferralDirectory(agencySlug, req = null) {
 
     schools.push({
       id: Number(row.school_organization_id),
-      name: String(row.school_name || '').trim() || `School #${row.school_organization_id}`,
+      name: schoolName,
       slug: slug || null,
       district,
       city: city || null,

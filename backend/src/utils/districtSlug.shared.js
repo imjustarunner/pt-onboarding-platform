@@ -19,24 +19,50 @@ export function normalizeDistrictName(name) {
 /**
  * Same real-world district often has several stored labels
  * (D11 vs District 11 vs Colorado Springs School District 11).
+ * Public/UI canonical display uses short codes (D11, D12, DPS).
  */
 export const DISTRICT_CANONICAL_GROUPS = [
   {
-    canonicalName: 'Colorado Springs School District 11',
-    canonicalSlug: 'colorado-springs-school-district-11',
-    aliases: ['d11', 'district 11', 'colorado springs school district 11', 'csd 11', 'csd11']
+    canonicalName: 'D11',
+    canonicalSlug: 'd11',
+    shortCode: 'D11',
+    aliases: [
+      'd11',
+      'district 11',
+      'colorado springs school district 11',
+      'csd 11',
+      'csd11',
+      'coloradosprings d11',
+      'colorado springs d11'
+    ]
   },
   {
-    canonicalName: 'District 12',
+    canonicalName: 'D12',
     canonicalSlug: 'd12',
-    aliases: ['d12', 'district 12']
+    shortCode: 'D12',
+    aliases: ['d12', 'district 12', 'colorado springs school district 12']
   },
   {
-    canonicalName: 'Denver Public Schools',
+    canonicalName: 'DPS',
     canonicalSlug: 'dps',
-    aliases: ['dps', 'denver', 'denver public schools']
+    shortCode: 'DPS',
+    aliases: ['dps', 'denver', 'denver public schools', 'denver public school']
   }
 ];
+
+/** Preferred short labels for school create/edit pickers. */
+export const DISTRICT_SHORT_CODE_OPTIONS = [
+  { value: 'D11', label: 'D11' },
+  { value: 'D12', label: 'D12' },
+  { value: 'DPS', label: 'DPS' },
+  { value: 'D13', label: 'D13' },
+  { value: 'Other', label: 'Other' }
+];
+
+export function toPublicDistrictDisplayName(nameOrSlug) {
+  const group = resolveCanonicalDistrict(nameOrSlug);
+  return group.shortCode || group.canonicalName || normalizeDistrictName(nameOrSlug);
+}
 
 function aliasKey(value) {
   return String(value || '')
@@ -61,6 +87,7 @@ export function resolveCanonicalDistrict(nameOrSlug) {
   return {
     canonicalName: name,
     canonicalSlug: slugifyDistrictName(name),
+    shortCode: name,
     aliases: [aliasKey(name)]
   };
 }

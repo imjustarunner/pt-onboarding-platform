@@ -373,7 +373,14 @@
                 </div>
                 <label :class="{ 'so-field-missing': showSchoolInfoValidation && isSchoolInfoFieldBlank('districtName') }">
                   District
-                  <input v-model.trim="schoolForm.districtName" />
+                  <select v-model="schoolForm.districtName">
+                    <option value="">Select district…</option>
+                    <option value="D11">D11</option>
+                    <option value="D12">D12</option>
+                    <option value="D13">D13</option>
+                    <option value="DPS">DPS</option>
+                    <option value="Other">Other</option>
+                  </select>
                 </label>
                 <label :class="{ 'so-field-missing': showSchoolInfoValidation && isSchoolInfoFieldBlank('schoolNumber') }">
                   School number
@@ -1276,13 +1283,32 @@ async function loadInvite() {
   }
 }
 
+function normalizeSchoolDistrictOption(raw) {
+  const n = String(raw || '').trim().toLowerCase();
+  if (!n) return '';
+  if (
+    n === 'd11'
+    || n.includes('district 11')
+    || n.includes('colorado springs school district 11')
+    || n.includes('coloradosprings d11')
+  ) return 'D11';
+  if (n === 'd12' || n.includes('district 12')) return 'D12';
+  if (n === 'd13' || n.includes('district 13')) return 'D13';
+  if (n === 'dps' || n === 'denver' || n.includes('denver public school')) return 'DPS';
+  if (n === 'other') return 'Other';
+  if (['d11', 'd12', 'd13', 'dps'].includes(n)) return n.toUpperCase();
+  return 'Other';
+}
+
 function hydrateForms() {
   const inv = invite.value;
   if (!inv) return;
   const info = inv.stepPayload?.school_information || {};
   schoolForm.schoolName = info.schoolName || inv.schoolName || '';
   schoolForm.itscoEmail = info.itscoEmail || inv.schoolProfile?.itsco_email || '';
-  schoolForm.districtName = info.districtName || inv.schoolProfile?.district_name || '';
+  schoolForm.districtName = normalizeSchoolDistrictOption(
+    info.districtName || inv.schoolProfile?.district_name || ''
+  );
   schoolForm.schoolNumber = info.schoolNumber || inv.schoolProfile?.school_number || '';
   schoolForm.schoolAddress = info.schoolAddress || inv.schoolProfile?.school_address || '';
   schoolForm.academicYear = info.academicYear || '';
