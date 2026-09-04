@@ -38,12 +38,18 @@ const normalizeNamePart = (value) =>
 
 export const resolveWorkspaceFormat = (raw) => {
   const v = String(raw || '').trim().toLowerCase();
-  if (!v) return 'first_initial_last';
+  // Default: first name + last initial (e.g. bobbyi)
+  if (!v) return 'first_last_initial';
   if (['first', 'first_name', 'firstname'].includes(v)) return 'first';
   if (['first_last', 'first.last', 'firstdotlast'].includes(v)) return 'first_last';
+  if (
+    ['first_last_initial', 'firstlastinitial', 'firstname_lastinitial', 'firstnameL', 'firstl'].includes(v)
+  ) {
+    return 'first_last_initial';
+  }
   if (['first_initial_last', 'firstinitiallast', 'flast'].includes(v)) return 'first_initial_last';
   if (['last_first_initial', 'lastfirstinitial', 'lastf'].includes(v)) return 'last_first_initial';
-  return 'first_initial_last';
+  return 'first_last_initial';
 };
 
 export const resolveWorkspaceDomain = (raw) => {
@@ -68,15 +74,20 @@ export function hasHireGroupPasswordFinalized(user) {
 function buildLocalParts({ first, last, format }) {
   const f = first || 'user';
   const l = last || 'hire';
-  const candidates = [f];
+  const lastInitial = l[0] || '';
+  const firstInitial = f[0] || '';
+  let candidates = [];
   if (format === 'first') {
-    candidates.push(`${f}${l[0] || ''}`, `${f}.${l}`);
+    candidates = [f, `${f}${lastInitial}`, `${f}.${l}`];
   } else if (format === 'first_last') {
-    candidates.push(`${f}.${l}`, `${f}${l}`);
+    candidates = [`${f}.${l}`, `${f}${l}`, `${f}${lastInitial}`];
+  } else if (format === 'first_last_initial') {
+    candidates = [`${f}${lastInitial}`, `${f}.${lastInitial}`, `${f}.${l}`, f];
   } else if (format === 'last_first_initial') {
-    candidates.push(`${l}${f[0] || ''}`, `${l}.${f}`, `${f}.${l}`);
+    candidates = [`${l}${firstInitial}`, `${l}.${f}`, `${f}.${l}`];
   } else {
-    candidates.push(`${f[0] || ''}${l}`, `${f}.${l}`, `${f}${l}`);
+    // first_initial_last (legacy flast)
+    candidates = [`${firstInitial}${l}`, `${f}${lastInitial}`, `${f}.${l}`, `${f}${l}`];
   }
   return [...new Set(candidates.filter(Boolean))];
 }

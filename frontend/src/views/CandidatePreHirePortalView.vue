@@ -155,7 +155,7 @@
                 <label>
                   <span>Or type a local part</span>
                   <div class="portal-email-row">
-                    <input v-model="accountForm.localPart" type="text" placeholder="firstname.lastname" @blur="checkTypedEmail" />
+                    <input v-model="accountForm.localPart" type="text" placeholder="firstnameL" @blur="checkTypedEmail" />
                     <span class="portal-email-domain">@{{ accountDomain }}</span>
                   </div>
                 </label>
@@ -240,12 +240,12 @@
             </section>
 
             <section
-              v-if="activeSection === 'dashboard' && portalPhase !== 'account_setup'"
+              v-if="(activeSection === 'dashboard' || activeSection === 'tasks')"
               class="portal-link-card portal-bg-card"
               aria-label="Authorization for background check"
             >
               <div class="portal-link-card-head">
-                <strong>Authorization for Background Check</strong>
+                <strong>Step: Authorization for Background Check</strong>
               </div>
               <p v-if="backgroundCheck?.signed" class="cred-ok">
                 Signed{{ backgroundCheck.signerName ? ` by ${backgroundCheck.signerName}` : '' }}.
@@ -300,11 +300,11 @@
             </section>
 
             <section
-              v-if="activeSection === 'dashboard' && portalPhase !== 'account_setup'"
+              v-if="(activeSection === 'dashboard' || activeSection === 'tasks')"
               class="portal-link-card portal-jd-card"
               aria-label="Job description acknowledgement"
             >
-              <div class="portal-link-card-head"><strong>Job description</strong></div>
+              <div class="portal-link-card-head"><strong>Step: Job description</strong></div>
               <p v-if="jdAcknowledged" class="cred-ok">
                 You acknowledged this job description. A signed copy is saved on your hire record.
               </p>

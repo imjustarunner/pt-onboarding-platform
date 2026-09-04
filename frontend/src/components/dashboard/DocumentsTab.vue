@@ -33,6 +33,41 @@
     </template>
   </DocumentsHubPanel>
 
+  <section class="personal-copies" aria-labelledby="application-copies-title">
+    <header class="personal-copies__head">
+      <div>
+        <h3 id="application-copies-title">Application &amp; hire copies</h3>
+        <p>
+          Your job application receipt, signed waivers, and uploaded application materials.
+        </p>
+      </div>
+      <button
+        type="button"
+        class="doc-hub__btn doc-hub__btn--ghost"
+        :disabled="appCopiesLoading"
+        @click="fetchApplicationCopies"
+      >
+        Refresh
+      </button>
+    </header>
+    <p v-if="appCopiesError" class="personal-copies__error">{{ appCopiesError }}</p>
+    <p v-else-if="appCopiesLoading" class="personal-copies__empty">Loading application copies…</p>
+    <p v-else-if="!applicationCopies.length" class="personal-copies__empty">
+      No application copies yet. Receipts and signed waivers appear here after you apply or complete hire acknowledgments.
+    </p>
+    <ul v-else class="personal-copies__list">
+      <li v-for="doc in applicationCopies" :key="doc.id">
+        <button type="button" class="personal-copies__row" @click="downloadApplicationCopy(doc)">
+          <span class="personal-copies__name">{{ doc.title }}</span>
+          <span class="personal-copies__meta">
+            <span class="personal-copies__pill">{{ formatAppDocType(doc.docType) }}</span>
+            <span class="personal-copies__date">{{ formatCopyDate(doc.createdAt) }}</span>
+          </span>
+        </button>
+      </li>
+    </ul>
+  </section>
+
   <section class="personal-copies" aria-labelledby="personal-copies-title">
     <header class="personal-copies__head">
       <div>
@@ -125,6 +160,55 @@ const sortOption = ref('unfinished');
 const personalCopies = ref([]);
 const copiesLoading = ref(false);
 const copiesError = ref('');
+const applicationCopies = ref([]);
+const appCopiesLoading = ref(false);
+const appCopiesError = ref('');
+
+const formatAppDocType = (docType) => {
+  const map = {
+    application_receipt: 'Receipt',
+    reference_release: 'Waiver',
+    resume: 'Resume',
+    cover_letter: 'Cover letter',
+    application_material: 'Application',
+    job_description_ack: 'Job description',
+    job_description_acknowledgement: 'Job description',
+    background_check_authorization: 'Background check',
+    company_document_signed: 'Signed document'
+  };
+  return map[String(docType || '')] || 'Document';
+};
+
+const fetchApplicationCopies = async () => {
+  try {
+    appCopiesLoading.value = true;
+    appCopiesError.value = '';
+    const { data } = await api.get('/users/me/application-copies');
+    applicationCopies.value = Array.isArray(data?.documents) ? data.documents : [];
+  } catch (err) {
+    appCopiesError.value = err.response?.data?.error?.message || 'Failed to load application copies';
+    applicationCopies.value = [];
+  } finally {
+    appCopiesLoading.value = false;
+  }
+};
+
+const downloadApplicationCopy = async (doc) => {
+  try {
+    const response = await api.get(`/users/me/application-copies/${doc.id}/download`, {
+      responseType: 'blob'
+    });
+    const filename = safeFilename(doc.originalName || doc.title || 'document.pdf');
+    const url = window.URL.createObjectURL(new Blob([response.data], { type: doc.mimeType || 'application/pdf' }));
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    a.click();
+    window.URL.revokeObjectURL(url);
+  } catch (err) {
+    alert(err.response?.data?.error?.message || 'Failed to download document');
+  }
+};
 
 const fetchPersonalCopies = async () => {
   try {
@@ -295,7 +379,7 @@ const closeDetails = () => {
 
 onMounted(async () => {
   if (!agencyStore.userAgencies?.length) await agencyStore.fetchUserAgencies();
-  await Promise.all([fetchDocuments(), fetchPersonalCopies()]);
+  await Promise.all([fetchDocuments(), fetchPersonalCopies(), fetchApplicationCopies()]);
 });
 
 watch(

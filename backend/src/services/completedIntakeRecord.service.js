@@ -761,7 +761,7 @@ export function buildCompletedIntakeRecord({
     pushRow(contactRows, 'Credential', applicantProfile.credential || applicantProfile.licensure);
     pushRow(contactRows, 'License number', applicantProfile.licenseNumber || applicantProfile.license_number);
     pushRow(contactRows, 'Best time to contact', applicantProfile.bestTimeToContact || applicantProfile.best_time_to_contact);
-    pushRow(contactRows, 'Interview availability', applicantProfile.interviewAvailability || applicantProfile.interview_availability);
+    pushRow(contactRows, 'General virtual interview availability', applicantProfile.interviewAvailability || applicantProfile.interview_availability);
     if (langs.length) pushRow(contactRows, 'Languages spoken fluently', langs.join(', '));
     if (applicantProfile.independentlyCredentialed === true || applicantProfile.independentlyCredentialed === 1) {
       pushRow(contactRows, 'Practice type', 'Independently credentialed');
@@ -864,12 +864,54 @@ export function buildCompletedIntakeRecord({
   });
   const referencesBlock = referenceRows.length ? { title: 'References', rows: referenceRows } : null;
 
+  const waiverRows = [];
+  if (isJobApplication) {
+    const waived =
+      intakeData?.referencesWaived === true
+      || intakeData?.referencesWaived === 1
+      || submissionBag.referencesWaived === true
+      || submissionBag.referencesWaived === 1;
+    const consent =
+      intakeData?.referencesConsent === true
+      || intakeData?.referencesConsent === 1
+      || submissionBag.referencesConsent === true
+      || submissionBag.referencesConsent === 1
+      || Boolean(String(intakeData?.referenceReleaseSignature || submissionBag.referenceReleaseSignature || '').trim());
+    const releaseSigned = Boolean(
+      String(intakeData?.referenceReleaseSignature || submissionBag.referenceReleaseSignature || '').trim()
+      || intakeData?.referenceReleaseSigned === true
+      || submissionBag.referenceReleaseSigned === true
+    );
+    const jobAck =
+      intakeData?.jobDescriptionAcknowledged === true
+      || intakeData?.jobAcknowledged === true
+      || submissionBag.jobDescriptionAcknowledged === true
+      || submissionBag.jobAcknowledged === true;
+    if (waived) {
+      pushRow(waiverRows, 'Professional references', 'Waived by applicant');
+    } else if (referencesList.length) {
+      pushRow(waiverRows, 'Professional references', `${referencesList.length} provided`);
+    }
+    if (consent || releaseSigned) {
+      pushRow(
+        waiverRows,
+        'Reference release / waiver',
+        releaseSigned ? 'Electronically signed' : 'Acknowledged'
+      );
+    }
+    if (jobAck) {
+      pushRow(waiverRows, 'Job description acknowledgement', 'Acknowledged and signed');
+    }
+  }
+  const waiversBlock = waiverRows.length ? { title: 'Waivers & acknowledgments', rows: waiverRows } : null;
+
   const sections = [
     contactRows.length
       ? { title: isJobApplication ? 'Applicant' : 'Who this packet is for', rows: contactRows }
       : null,
     leftoverGuardian.length ? { title: isJobApplication ? 'Applicant details' : 'Parent / guardian', rows: leftoverGuardian } : null,
     referencesBlock,
+    waiversBlock,
     coverLetterBlock,
     commsBlock,
     reminderBlock,

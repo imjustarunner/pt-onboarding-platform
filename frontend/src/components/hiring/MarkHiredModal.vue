@@ -210,6 +210,7 @@
 import { ref, computed, watch } from 'vue';
 import api from '../../services/api';
 import StaffClientComfortPreferencesModal from '../tutoring/StaffClientComfortPreferencesModal.vue';
+import { mapSignerRolesWithDefaults } from '../../utils/hiringSignerDefaults.js';
 
 const props = defineProps({
   show: { type: Boolean, default: false },
@@ -309,12 +310,7 @@ const activeSignerCount = computed(() => {
 });
 
 const buildSignerAssignments = (roles) => {
-  signerAssignments.value = roles.map(r => ({
-    id: r.id,
-    roleLabel: r.role_label,
-    userId: r.default_user_id ?? null,
-    fieldKey: null
-  }));
+  signerAssignments.value = mapSignerRolesWithDefaults(roles, staffUsers.value);
 };
 
 // ─── Token settings ───────────────────────────────────────────────────────────
@@ -412,13 +408,13 @@ const loadModal = async () => {
       contractTemplateId.value = settings.value.default_contract_template_id;
     }
 
-    signerRoles.value = rolesRes.data || [];
-    buildSignerAssignments(signerRoles.value);
-
     const STAFF_ROLES = ['admin', 'support', 'staff', 'super_admin'];
-    staffUsers.value = (usersRes.data || [])
+    staffUsers.value = (Array.isArray(usersRes.data) ? usersRes.data : (usersRes.data?.users || []))
       .filter(u => STAFF_ROLES.includes(u.role))
       .sort((a, b) => `${a.first_name}${a.last_name}`.localeCompare(`${b.first_name}${b.last_name}`));
+
+    signerRoles.value = rolesRes.data || [];
+    buildSignerAssignments(signerRoles.value);
 
     setDefaultMessage();
   } catch (e) {

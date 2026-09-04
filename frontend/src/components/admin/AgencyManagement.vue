@@ -1514,9 +1514,11 @@
             <label>Workspace email format</label>
             <select v-model="agencyForm.featureFlags.workspaceEmailFormat">
               <option value="">Select a format…</option>
+              <option value="first_last_initial">firstnameL@domain (first + last initial)</option>
               <option value="first">first@domain</option>
-              <option value="first_initial_last">flast@domain</option>
+              <option value="first_initial_last">flast@domain (first initial + last)</option>
               <option value="last_first_initial">lastf@domain</option>
+              <option value="first_last">first.last@domain</option>
             </select>
             <small class="hint">Format is based on the employee's first and last name.</small>
           </div>

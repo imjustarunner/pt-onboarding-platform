@@ -50,12 +50,17 @@ function resolveWorkspaceFormat(raw) {
   const v = String(raw || '')
     .trim()
     .toLowerCase();
-  if (!v) return 'first_initial_last';
+  if (!v) return 'first_last_initial';
   if (['first', 'first_name', 'firstname'].includes(v)) return 'first';
+  if (
+    ['first_last_initial', 'firstlastinitial', 'firstname_lastinitial', 'firstnameL', 'firstl'].includes(v)
+  ) {
+    return 'first_last_initial';
+  }
   if (['first_initial_last', 'firstinitiallast', 'flast'].includes(v)) return 'first_initial_last';
   if (['last_first_initial', 'lastfirstinitial', 'lastf'].includes(v)) return 'last_first_initial';
   if (['first_last', 'firstlast', 'first.last'].includes(v)) return 'first_last';
-  return 'first_initial_last';
+  return 'first_last_initial';
 }
 
 function buildLocalPart(user, format) {
@@ -63,6 +68,7 @@ function buildLocalPart(user, format) {
   const last = normalizeNamePart(user?.last_name);
   if (!first && !last) return `user${user?.id || ''}`;
   if (format === 'first') return first || last;
+  if (format === 'first_last_initial') return `${first || 'user'}${(last || 'x')[0]}`;
   if (format === 'last_first_initial') return `${last || 'user'}${(first || 'x')[0]}`;
   if (format === 'first_last') return [first, last].filter(Boolean).join('.');
   return `${(first || 'x')[0]}${last || first}`;

@@ -145,6 +145,7 @@ import { computed, onMounted, reactive, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import api from '../../services/api';
 import { useAgencyStore } from '../../store/agency';
+import { mapSignerRolesWithDefaults } from '../../utils/hiringSignerDefaults.js';
 
 const route = useRoute();
 const router = useRouter();
@@ -274,12 +275,7 @@ const load = async () => {
     settings.value = setRes.data?.settings || setRes.data || {};
     staffUsers.value = Array.isArray(usersRes.data) ? usersRes.data : (usersRes.data?.users || []);
     const roles = Array.isArray(rolesRes.data) ? rolesRes.data : [];
-    signerAssignments.value = roles.map((r) => ({
-      id: r.id,
-      roleLabel: r.role_label || r.roleLabel,
-      userId: r.default_user_id || r.defaultUserId || null,
-      fieldKey: r.field_key || null
-    }));
+    signerAssignments.value = mapSignerRolesWithDefaults(roles, staffUsers.value);
     wizardTokens.value = wizardRes.data?.tokens || {};
     contractConfigs.value = Array.isArray(wizardRes.data?.configs) ? wizardRes.data.configs : [];
     contractConfigId.value = wizardRes.data?.suggested?.configId

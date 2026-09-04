@@ -64,6 +64,10 @@ import {
   putMyBackgroundScheduledDate,
   getUserDistrictBackgroundProcesses
 } from '../controllers/districtBackgroundProcess.controller.js';
+import {
+  listMyApplicationCopies,
+  downloadMyApplicationCopy
+} from '../controllers/myApplicationCopies.controller.js';
 
 const router = express.Router();
 
@@ -74,6 +78,8 @@ router.get('/me/supervisee-portal-slugs', authenticate, getSuperviseePortalSlugs
 router.get('/me/providers-for-support', authenticate, getProvidersForSupport);
 router.get('/me/background-expiration', authenticate, getMyBackgroundExpiration);
 router.put('/me/background-scheduled', authenticate, putMyBackgroundScheduledDate);
+router.get('/me/application-copies', authenticate, listMyApplicationCopies);
+router.get('/me/application-copies/:id/download', authenticate, downloadMyApplicationCopy);
 router.get('/', authenticate, requireAdmin, getAllUsers);
 router.get('/grid/fields', authenticate, requireBackofficeAdmin, getUserGridFields);
 router.get('/grid', authenticate, requireBackofficeAdmin, getUserGrid);

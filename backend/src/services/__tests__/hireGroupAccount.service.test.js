@@ -13,9 +13,11 @@ test('resolveWorkspaceDomain strips @', () => {
 });
 
 test('resolveWorkspaceFormat defaults and aliases', () => {
-  assert.equal(resolveWorkspaceFormat(''), 'first_initial_last');
+  assert.equal(resolveWorkspaceFormat(''), 'first_last_initial');
   assert.equal(resolveWorkspaceFormat('first'), 'first');
   assert.equal(resolveWorkspaceFormat('first.last'), 'first_last');
+  assert.equal(resolveWorkspaceFormat('first_last_initial'), 'first_last_initial');
+  assert.equal(resolveWorkspaceFormat('first_initial_last'), 'first_initial_last');
 });
 
 test('isGroupPasswordHireMode reads feature flag', () => {

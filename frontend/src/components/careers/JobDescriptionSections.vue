@@ -26,7 +26,13 @@
           About the Role
         </h3>
         <div class="jds-card-body">
-          <p v-for="(para, i) in aboutParagraphs" :key="`about-${i}`">{{ para }}</p>
+          <p v-if="aboutParagraphs.length === 1">{{ aboutParagraphs[0] }}</p>
+          <template v-else>
+            <p>{{ aboutParagraphs[0] }}</p>
+            <ul class="jds-list">
+              <li v-for="(para, i) in aboutParagraphs.slice(1)" :key="`about-b-${i}`">{{ para }}</li>
+            </ul>
+          </template>
         </div>
       </section>
 
@@ -55,7 +61,7 @@
 
       <section v-if="benefits.length" class="jds-card">
         <h3 class="jds-card-title">
-          <span class="jds-card-ico" aria-hidden="true">💚</span>
+          <span class="jds-card-ico" aria-hidden="true">✨</span>
           Benefits
         </h3>
         <ul class="jds-list">

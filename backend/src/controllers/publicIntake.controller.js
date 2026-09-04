@@ -7932,6 +7932,25 @@ export const finalizePublicIntake = async (req, res, next) => {
             combined_pdf_hash: bundleHash
           });
           applicationDownloadUrl = await StorageService.getSignedUrl(bundleResult.relativePath, 60 * 24 * 7);
+          try {
+            const receiptName = `job-application-receipt-${user.id}-${Date.now()}.pdf`;
+            const receiptStore = await StorageService.saveAdminDoc(answersPdf, receiptName, 'application/pdf');
+            await pool.execute(
+              `INSERT INTO user_admin_docs (user_id, title, doc_type, storage_path, original_name, mime_type, created_by_user_id, is_legal_hold)
+               VALUES (?, ?, ?, ?, ?, ?, ?, 1)`,
+              [
+                user.id,
+                'Job application receipt',
+                'application_receipt',
+                receiptStore.relativePath,
+                receiptName,
+                'application/pdf',
+                user.id
+              ]
+            );
+          } catch (receiptDocErr) {
+            console.warn('[job_application] receipt admin doc failed:', receiptDocErr?.message || receiptDocErr);
+          }
         }
       } catch {
         // best effort: application can still submit without bundle generation

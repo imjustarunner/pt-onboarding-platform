@@ -10,7 +10,7 @@
         <div class="cov-kv"><span>Phone</span><strong>{{ phone || '—' }}</strong></div>
         <div class="cov-kv"><span>Credential</span><strong>{{ credentialLabel }}</strong></div>
         <div class="cov-kv"><span>Best time to contact</span><strong>{{ bestTimeLabel }}</strong></div>
-        <div class="cov-kv"><span>Interview availability</span><strong>{{ availabilityLabel }}</strong></div>
+        <div class="cov-kv"><span>General virtual interview availability</span><strong>{{ availabilityLabel }}</strong></div>
         <div class="cov-kv"><span>Source</span><strong>{{ source || '—' }}</strong></div>
       </section>
 

@@ -8,7 +8,12 @@
           <span v-if="location">{{ location }}</span>
           <span v-if="schedule">{{ schedule }}</span>
         </div>
-        <p v-if="roleSummary" class="jap-job-summary">{{ roleSummary }}</p>
+        <p v-if="introSummary" class="jap-job-summary">{{ introSummary }}</p>
+        <div v-if="summaryHighlightBullets.length" class="jap-resp">
+          <ul>
+            <li v-for="(item, i) in summaryHighlightBullets" :key="`sum-${i}`">{{ item }}</li>
+          </ul>
+        </div>
         <div v-if="keyResponsibilities.length" class="jap-resp">
           <h2>Key responsibilities</h2>
           <template v-for="(set, si) in keyResponsibilities" :key="`kr-${si}`">
@@ -68,8 +73,8 @@
             <input :value="fluentLanguages" type="text" placeholder="e.g., English, Spanish, ASL" @input="$emit('update:fluentLanguages', $event.target.value)" />
           </label>
           <label class="jap-span">
-            General interview availability
-            <textarea :value="interviewAvailability" rows="3" placeholder="Days, times, or notice you need…" @input="$emit('update:interviewAvailability', $event.target.value)" />
+            General virtual interview availability
+            <textarea :value="interviewAvailability" rows="3" placeholder="Days, times, or notice you need for a virtual interview…" @input="$emit('update:interviewAvailability', $event.target.value)" />
           </label>
         </div>
 
@@ -275,6 +280,38 @@ const showLicensedFollowUps = computed(() =>
   collectCredential.value && isFullyLicensedCredentialText(props.credential)
 );
 const signerName = computed(() => `${props.firstName || ''} ${props.lastName || ''}`.trim());
+
+/** Prefer structured about-the-role over a flat description dump on the apply card. */
+const aboutParagraphs = computed(() => {
+  const about = String(props.sections?.aboutTheRole || '').replace(/\r\n/g, '\n').trim();
+  if (!about) return [];
+  const byBlank = about.split(/\n{2,}/).map((p) => p.trim()).filter(Boolean);
+  if (byBlank.length > 1) return byBlank;
+  return about.split(/\n/).map((p) => p.trim()).filter(Boolean);
+});
+
+const introSummary = computed(() => {
+  if (aboutParagraphs.value.length) return aboutParagraphs.value[0];
+  const raw = String(props.roleSummary || '').replace(/\r\n/g, '\n').trim();
+  if (!raw) return '';
+  // Avoid dumping a huge flat JD blob as one paragraph.
+  if (raw.length > 420) {
+    const first = raw.split(/\n{2,}|\n/).map((p) => p.trim()).filter(Boolean)[0] || raw;
+    return first.length > 420 ? `${first.slice(0, 417).trim()}…` : first;
+  }
+  return raw;
+});
+
+const summaryHighlightBullets = computed(() => {
+  if (aboutParagraphs.value.length > 1) {
+    return aboutParagraphs.value.slice(1, 5);
+  }
+  const benefits = Array.isArray(props.sections?.benefits)
+    ? props.sections.benefits.map((s) => String(s || '').trim()).filter(Boolean).slice(0, 4)
+    : [];
+  return benefits;
+});
+
 const keyResponsibilities = computed(() => {
   const src = props.sections || {};
   const sets = Array.isArray(src.responsibilitySets) ? src.responsibilitySets : [];
