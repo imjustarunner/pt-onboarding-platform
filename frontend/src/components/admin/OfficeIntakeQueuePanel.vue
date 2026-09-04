@@ -125,12 +125,22 @@
 
             <template v-if="selected">
               <strong class="oiq-card-name oiq-card-name--compact">{{ getClientLabel(c) }}</strong>
+              <span
+                v-if="c.createdViaDevFill"
+                class="oiq-pill oiq-pill--dev-fill"
+                title="Created via Dev Fill (test/fake intake)"
+              >Dev Fill</span>
             </template>
 
             <template v-else>
               <div class="oiq-card-info">
                 <div class="oiq-card-row-main">
                   <strong class="oiq-card-name">{{ getClientLabel(c) }}</strong>
+                  <span
+                    v-if="c.createdViaDevFill"
+                    class="oiq-pill oiq-pill--dev-fill"
+                    title="Created via Dev Fill (test/fake intake)"
+                  >Dev Fill</span>
                   <span class="oiq-pill oiq-pill--type">{{ clientTypeLabel(c.clientType) }}</span>
                   <span class="oiq-pill oiq-pill--pathway">{{ pathwayLabel(c) }}</span>
                   <span
@@ -174,6 +184,11 @@
             <h2>{{ getClientLabel(selected) }}</h2>
             <div class="oiq-detail-id">
               <span v-if="selected.identifierCode"># {{ selected.identifierCode }}</span>
+              <span
+                v-if="selected.createdViaDevFill"
+                class="oiq-pill oiq-pill--dev-fill"
+                title="Created via Dev Fill (test/fake intake)"
+              >Dev Fill</span>
               <span class="oiq-pill oiq-pill--type">{{ clientTypeLabel(selected.clientType) }}</span>
               <span class="oiq-pill oiq-pill--pathway">{{ pathwayLabel(selected) }}</span>
               <span
@@ -998,6 +1013,14 @@ onMounted(() => {
 .oiq-pill--type { background: #eff6ff; color: #1d4ed8; }
 .oiq-pill--pathway { background: #ecfdf5; color: #14532d; }
 .oiq-pill--clinical-hold { background: #fef3c7; color: #92400e; font-weight: 600; }
+.oiq-pill--dev-fill {
+  background: #fef3c7;
+  color: #92400e;
+  border: 1px solid #fcd34d;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
 
 /* ── Detail panel ──────────────────────────────────── */
 .oiq-detail {

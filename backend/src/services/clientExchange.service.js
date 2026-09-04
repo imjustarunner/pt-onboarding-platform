@@ -490,14 +490,15 @@ export async function listPendingOfficeClients({ agencyId }) {
     const [r] = await pool.execute(
       `SELECT c.id, c.initials, c.full_name, c.identifier_code, c.client_type, c.status,
               c.contact_phone, c.submission_date, c.source, c.intake_preferences_json,
-              c.adaptive_intake_meta_json, c.created_at, c.date_of_birth
+              c.adaptive_intake_meta_json, c.created_at, c.date_of_birth,
+              c.created_via_dev_fill
        FROM clients c
        ${baseWhere}`,
       [aid, ...OFFICE_CLIENT_TYPES]
     );
     rows = r;
   } catch (err) {
-    if (!/Unknown column|adaptive_intake_meta/i.test(String(err?.message || ''))) throw err;
+    if (!/Unknown column|adaptive_intake_meta|created_via_dev_fill/i.test(String(err?.message || ''))) throw err;
     const [r] = await pool.execute(
       `SELECT c.id, c.initials, c.full_name, c.identifier_code, c.client_type, c.status,
               c.contact_phone, c.submission_date, c.source, c.intake_preferences_json,
@@ -523,7 +524,8 @@ export async function listPendingOfficeClients({ agencyId }) {
     adaptiveMeta: parseJsonColumn(row.adaptive_intake_meta_json),
     pathway: parseJsonColumn(row.adaptive_intake_meta_json)?.pathway || null,
     createdAt: row.created_at,
-    dateOfBirth: row.date_of_birth || null
+    dateOfBirth: row.date_of_birth || null,
+    createdViaDevFill: Number(row.created_via_dev_fill) === 1
   }));
 }
 

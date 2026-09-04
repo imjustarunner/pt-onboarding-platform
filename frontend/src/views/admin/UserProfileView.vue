@@ -60,17 +60,19 @@
               <svg viewBox="0 0 20 20" fill="currentColor" width="13" height="13"><path fill-rule="evenodd" d="M5.05 4.05a7 7 0 119.9 9.9L10 18.9l-4.95-4.95a7 7 0 010-9.9zM10 11a2 2 0 100-4 2 2 0 000 4z" clip-rule="evenodd"/></svg>
               {{ headerLocation }}
             </span>
+            <span v-if="headerEmployeeId" class="ph-contact-chip ph-contact-chip--id" :title="'Employee ID'">
+              {{ headerEmployeeId }}
+            </span>
           </div>
 
           <div v-if="headerAcceptedInsurances.length" class="ph-accepted-insurance">
             <AcceptedInsuranceBadges :items="headerAcceptedInsurances" label="Insurance accepted" />
           </div>
 
-          <div class="ph-metrics-bar">
-            <div v-if="headerEmployeeId" class="ph-metric">
-              <div class="ph-ml">Employee ID</div>
-              <div class="ph-mv">{{ headerEmployeeId }}</div>
-            </div>
+          <div
+            v-if="headerHireDate || headerStartDate || headerManagerName || headerSupervisorName"
+            class="ph-metrics-bar"
+          >
             <div v-if="headerHireDate" class="ph-metric">
               <div class="ph-ml">Hire Date</div>
               <div class="ph-mv">{{ fmtHeaderDate(headerHireDate) }}</div>
@@ -8219,6 +8221,12 @@ onUnmounted(() => {
   color: #374151;
 }
 .ph-contact-chip svg { flex-shrink: 0; opacity: 0.6; }
+.ph-contact-chip--id {
+  font-weight: 650;
+  color: #1f2937;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+}
 
 .ph-accepted-insurance {
   margin-top: 10px;
@@ -9786,6 +9794,19 @@ onUnmounted(() => {
   margin-bottom: 16px;
 }
 
+.agencies-list.aa-agency-cards {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 12px;
+  align-items: stretch;
+}
+
+@media (min-width: 1100px) {
+  .agencies-list.aa-agency-cards {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
 .agency-item {
   display: flex;
   justify-content: space-between;
@@ -9805,8 +9826,11 @@ onUnmounted(() => {
   background: #fff;
   border: 1px solid #e5e7eb;
   border-radius: 10px;
-  margin-bottom: 10px;
-  max-width: 720px;
+  margin-bottom: 0;
+  max-width: none;
+  min-width: 0;
+  height: 100%;
+  box-sizing: border-box;
 }
 
 .aa-agency-card__head {

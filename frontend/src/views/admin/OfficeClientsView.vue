@@ -136,6 +136,11 @@
                     </div>
                     <div>
                       <strong>{{ c.fullName || '—' }}</strong>
+                      <span
+                        v-if="c.createdViaDevFill"
+                        class="ocm-pill ocm-pill--dev-fill"
+                        title="Created via Dev Fill (test/fake client)"
+                      >Dev Fill</span>
                       <div class="ocm-muted">
                         <span v-if="showingAllAgencies && agencyNames(c)" class="ocm-agency-names">{{ agencyNames(c) }}</span>
                         <span v-if="c.age != null">Age {{ c.age }}</span>
@@ -195,6 +200,11 @@
                 />
               </div>
               <strong>{{ c.fullName }}</strong>
+              <span
+                v-if="c.createdViaDevFill"
+                class="ocm-pill ocm-pill--dev-fill"
+                title="Created via Dev Fill (test/fake client)"
+              >Dev Fill</span>
               <div class="ocm-muted">Provider: {{ providerSummary(c) }}</div>
               <div class="ocm-muted">Next: {{ c.nextAppointmentAt ? formatRelativeTime(c.nextAppointmentAt) : 'None scheduled' }}</div>
               <a :href="clientProfilePath(c.id)" class="ocm-link">Open ↗</a>
@@ -211,6 +221,11 @@
         <div v-for="c in queueRows.slice(0, 12)" :key="'q-' + c.id" class="ocm-queue-row" @click="selectedId = c.id">
           <div>
             <strong>{{ c.fullName }}</strong>
+            <span
+              v-if="c.createdViaDevFill"
+              class="ocm-pill ocm-pill--dev-fill"
+              title="Created via Dev Fill (test/fake client)"
+            >Dev Fill</span>
             <div class="ocm-muted">{{ c.nextStep?.label || statusText(c) }} · {{ formatRelativeTime(c.createdAt) }}</div>
           </div>
           <button type="button" class="ocm-btn ocm-btn--tiny" @click.stop="selectedId = c.id">Review</button>
@@ -219,7 +234,14 @@
 
         <div v-if="selected" class="ocm-drawer">
           <div class="ocm-drawer-head">
-            <h3>{{ selected.fullName }}</h3>
+            <h3>
+              {{ selected.fullName }}
+              <span
+                v-if="selected.createdViaDevFill"
+                class="ocm-pill ocm-pill--dev-fill"
+                title="Created via Dev Fill (test/fake client)"
+              >Dev Fill</span>
+            </h3>
             <button type="button" class="ocm-icon-btn" @click="selectedId = null">✕</button>
           </div>
           <div v-if="agencyChips(selected).length" class="ocm-agency-logos ocm-agency-logos--drawer">
@@ -660,6 +682,18 @@ onMounted(load);
 .ocm-pill--muted { background: #f3f4f6; color: #6b7280; }
 .ocm-pill--hold { background: #fef3c7; color: #92400e; }
 .ocm-pill--unit { background: #f3e8ff; color: #6b21a8; }
+.ocm-pill--dev-fill {
+  display: inline-flex;
+  margin-left: 0.4rem;
+  vertical-align: middle;
+  background: #fef3c7;
+  color: #92400e;
+  border: 1px solid #fcd34d;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  font-size: 0.68rem;
+}
 .ocm-row-actions { display: flex; gap: 0.5rem; white-space: nowrap; }
 .ocm-link { color: #0f766e; font-weight: 600; text-decoration: none; background: none; border: 0; cursor: pointer; padding: 0; }
 .ocm-btn { border-radius: 10px; border: 1px solid #d7e3dc; background: #fff; padding: 0.45rem 0.8rem; cursor: pointer; font-weight: 600; color: #14352a; text-decoration: none; display: inline-flex; align-items: center; justify-content: center; }

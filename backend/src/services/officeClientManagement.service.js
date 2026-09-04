@@ -546,6 +546,7 @@ export async function listOfficeClients({
            c.contact_phone, c.submission_date, c.source, c.intake_preferences_json,
            c.adaptive_intake_meta_json, c.created_at, c.date_of_birth, c.provider_id,
            c.agency_id, c.guardian_portal_enabled, c.waitlist_started_at, c.client_status_id,
+           c.created_via_dev_fill,
            cs.status_key AS client_status_key, cs.label AS client_status_label,
            u.first_name AS provider_first, u.last_name AS provider_last,
            a.name AS agency_name, a.slug AS agency_slug, a.logo_url AS agency_logo_url, a.logo_path AS agency_logo_path
@@ -633,7 +634,8 @@ export async function listOfficeClients({
       logo_path: row.agency_logo_path
     }),
     portalEnabled: Number(row.guardian_portal_enabled) === 1,
-    waitlistStartedAt: row.waitlist_started_at || null
+    waitlistStartedAt: row.waitlist_started_at || null,
+    createdViaDevFill: Number(row.created_via_dev_fill) === 1
   }));
 
   const ids = baseRows.map((r) => r.id);
