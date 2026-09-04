@@ -44,21 +44,48 @@
 
       <section class="sph-card">
         <h2>Pre-hire documents for this job</h2>
-        <p class="muted">Only documents attached to this posting (plus agency defaults). The unused document library dump is not listed.</p>
-        <div v-if="!jobDocs.length" class="muted">No job-level documents yet. Add them on the job posting, or agency defaults will still apply on Initiate.</div>
+        <p class="muted">
+          Pulled from this candidate’s job posting (Careers → edit posting → Pre-hire documents),
+          plus agency defaults. Titles come from those settings — you don’t re-enter them here.
+        </p>
+        <div v-if="!jobDocs.length" class="sph-empty-docs">
+          <p class="muted">No job-level documents yet.</p>
+          <p class="muted small">
+            Add them on the job posting under <strong>Pre-hire documents for this job</strong>
+            (or set agency defaults in Hiring &amp; Pre-Hire settings). They’ll appear here on Initiate.
+          </p>
+          <router-link
+            v-if="careersEditPath"
+            class="sph-careers-link"
+            :to="careersEditPath"
+          >Open job posting settings</router-link>
+        </div>
         <label v-for="(doc, idx) in jobDocs" :key="doc.id || idx" class="sph-doc">
           <input v-model="doc.selected" type="checkbox" />
           <div>
             <strong>{{ doc.title }}</strong>
-            <span class="sph-kind">{{ doc.kind || 'document' }}</span>
+            <span class="sph-kind">{{ docKindLabel(doc.kind) }}</span>
             <p v-if="doc.instructions" class="muted small">{{ doc.instructions }}</p>
           </div>
         </label>
         <div class="sph-upload">
-          <label>Upload additional file (stored on the employee file)
-            <input type="file" @change="onExtraFile" />
+          <label>Upload additional files (stored on the employee file)
+            <input type="file" multiple accept=".pdf,.png,.jpg,.jpeg,.webp,.doc,.docx,application/pdf,image/*" @change="onExtraFiles" />
           </label>
-          <p v-if="extraFileName" class="muted small">{{ extraFileName }}</p>
+          <p class="muted small">
+            You can select multiple files. Titles default from each filename (editable below).
+          </p>
+          <ul v-if="extraFiles.length" class="sph-extra-list">
+            <li v-for="(f, idx) in extraFiles" :key="`${f.name}-${idx}`" class="sph-extra-item">
+              <label>Title
+                <input v-model="f.title" type="text" class="input" :placeholder="f.name" />
+              </label>
+              <div class="sph-extra-meta">
+                <span class="muted small">{{ f.name }}</span>
+                <button type="button" class="sph-extra-remove" @click="removeExtraFile(idx)">Remove</button>
+              </div>
+            </li>
+          </ul>
         </div>
       </section>
 
@@ -104,8 +131,7 @@ const error = ref('');
 const sendError = ref('');
 const detail = ref(null);
 const settings = ref({});
-const extraFile = ref(null);
-const extraFileName = ref('');
+const extraFiles = ref([]);
 const tokenLink = ref('');
 const jobDocs = ref([]);
 const inferredPayLabel = ref('');
@@ -158,11 +184,44 @@ const locationLabel = computed(() => {
   return [city, state].filter(Boolean).join(', ');
 });
 
+const careersEditPath = computed(() => {
+  const q = agencyId.value ? `?agencyId=${agencyId.value}` : '';
+  return orgPath(`/admin/careers${q}`);
+});
+
+const docKindLabel = (kind) => {
+  switch (String(kind || '').toLowerCase()) {
+    case 'company_document': return 'company document';
+    case 'upload': return 'candidate upload';
+    case 'print_only': return 'printable';
+    case 'reference': return 'external link';
+    case 'acknowledgement': return 'job description sign';
+    default: return kind || 'document';
+  }
+};
+
 const goBack = () => router.push(orgPath('/admin/hiring/applicants'));
 
-const onExtraFile = (e) => {
-  extraFile.value = e?.target?.files?.[0] || null;
-  extraFileName.value = extraFile.value?.name || '';
+const titleFromFilename = (name) =>
+  String(name || 'Document').replace(/\.[^.]+$/, '').trim() || 'Document';
+
+const onExtraFiles = (e) => {
+  const picked = Array.from(e?.target?.files || []);
+  if (!picked.length) return;
+  const next = [...extraFiles.value];
+  for (const file of picked) {
+    next.push({
+      file,
+      name: file.name,
+      title: titleFromFilename(file.name)
+    });
+  }
+  extraFiles.value = next;
+  if (e?.target) e.target.value = '';
+};
+
+const removeExtraFile = (idx) => {
+  extraFiles.value = extraFiles.value.filter((_, i) => i !== idx);
 };
 
 const load = async () => {
@@ -237,12 +296,12 @@ const initiate = async () => {
   sendError.value = '';
   sending.value = true;
   try {
-    if (extraFile.value) {
+    for (const item of extraFiles.value) {
       const fd = new FormData();
-      fd.append('file', extraFile.value);
-      fd.append('title', extraFile.value.name || 'Pre-hire upload');
+      fd.append('file', item.file);
+      fd.append('title', String(item.title || '').trim() || titleFromFilename(item.name));
       fd.append('docType', 'prehire_upload');
-      await api.post(`/users/${userId.value}/admin-docs`, fd);
+      await api.post(`/users/${userId.value}/admin-docs/upload`, fd);
     }
     const templateIds = jobDocs.value
       .filter((d) => d.selected && d.templateId)
@@ -279,6 +338,7 @@ const initiate = async () => {
       { params: { agencyId: agencyId.value } }
     );
     tokenLink.value = data?.passwordlessTokenLink || '';
+    extraFiles.value = [];
   } catch (e) {
     sendError.value = e.response?.data?.error?.message || 'Failed to initiate pre-hire';
   } finally {
@@ -318,8 +378,57 @@ onMounted(load);
   display: flex;
   gap: 10px;
   align-items: flex-start;
-  padding: 10px 0;
-  border-top: 1px solid #f3f4f6;
+  margin: 10px 0;
+  padding: 10px 12px;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+}
+.sph-empty-docs {
+  padding: 10px 0 4px;
+}
+.sph-careers-link {
+  display: inline-block;
+  margin-top: 8px;
+  color: #1a8c54;
+  font-weight: 700;
+  text-decoration: none;
+}
+.sph-careers-link:hover { text-decoration: underline; }
+.sph-extra-list {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.sph-extra-item {
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  padding: 10px 12px;
+  background: #f8fafc;
+}
+.sph-extra-item label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.82rem;
+  font-weight: 650;
+}
+.sph-extra-meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  margin-top: 6px;
+}
+.sph-extra-remove {
+  border: 0;
+  background: none;
+  color: #b91c1c;
+  font-weight: 650;
+  cursor: pointer;
+  font-size: 0.8rem;
 }
 .sph-kind {
   margin-left: 8px;

@@ -922,6 +922,23 @@
                           <span class="nav-tools-cat-label">Library</span>
                           <span class="nav-tools-cat-chevron" aria-hidden="true">›</span>
                         </router-link>
+                        <router-link
+                          v-if="canSeeReferralDirectoryNavLink"
+                          :to="orgTo('/admin/referral-directory')"
+                          class="nav-tools-cat"
+                          @click="closeAllNavMenus"
+                        >
+                          <span class="nav-tools-cat-label">Referral Directory</span>
+                          <span class="nav-tools-cat-chevron" aria-hidden="true">›</span>
+                        </router-link>
+                        <router-link
+                          :to="myDocumentsTo"
+                          class="nav-tools-cat"
+                          @click="closeAllNavMenus"
+                        >
+                          <span class="nav-tools-cat-label">My Documents</span>
+                          <span class="nav-tools-cat-chevron" aria-hidden="true">›</span>
+                        </router-link>
                         <button
                           v-for="cat in toolsNavCategories"
                           :key="cat.id"
@@ -1474,7 +1491,18 @@
                   :to="orgTo('/library')"
                   class="mobile-nav-link mobile-nav-sublink"
                   @click="closeMobileMenu"
-                >Tools and Resources (Library)</router-link>
+                >Library</router-link>
+                <router-link
+                  v-if="canSeeReferralDirectoryNavLink"
+                  :to="orgTo('/admin/referral-directory')"
+                  class="mobile-nav-link mobile-nav-sublink"
+                  @click="closeMobileMenu"
+                >Referral Directory</router-link>
+                <router-link
+                  :to="myDocumentsTo"
+                  class="mobile-nav-link mobile-nav-sublink"
+                  @click="closeMobileMenu"
+                >My Documents</router-link>
                 <button
                   v-for="cat in toolsNavCategories"
                   :key="`m-tools-cat-${cat.id}`"
@@ -5843,6 +5871,19 @@ const myDashboardTo = computed(() => {
 
   // Keep existing behavior for non-portal roles (guardian, kiosk, etc.).
   return orgTo('/dashboard');
+});
+
+/** Direct link to personal My Documents (dashboard account tab). */
+const myDocumentsTo = computed(() => {
+  const dash = myDashboardTo.value;
+  if (dash && typeof dash === 'object') {
+    return {
+      ...dash,
+      query: { ...(dash.query || {}), tab: 'my', my: 'documents' }
+    };
+  }
+  const path = String(dash || '/dashboard');
+  return { path, query: { tab: 'my', my: 'documents' } };
 });
 
 /** Personal My Dashboard surfaces (used by My Dashboard nav click handling). */

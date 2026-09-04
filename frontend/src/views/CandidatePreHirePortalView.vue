@@ -231,9 +231,12 @@
                   </label>
                 </div>
                 <div class="bg-legal-panel bg-legal-panel--ack">
-                  <p>
-                    By signing, I authorize {{ agency?.name || 'the employer' }} and its agents to obtain consumer reports
-                    and investigate my background for employment purposes. I certify the information above is true and complete.
+                  <p
+                    v-for="(para, i) in backgroundCheckLegalParagraphs"
+                    :key="`bg-legal-${i}`"
+                    class="bg-legal-para"
+                  >
+                    {{ para }}
                   </p>
                 </div>
                 <AdaptiveSignatureCapture
@@ -254,8 +257,15 @@
               aria-label="Job description acknowledgement"
             >
               <div class="portal-link-card-head"><strong>Job description</strong></div>
-              <p v-if="jdAcknowledged" class="cred-ok">You acknowledged this job description.</p>
+              <p v-if="jdAcknowledged" class="cred-ok">
+                You acknowledged this job description. A signed copy is saved on your hire record.
+              </p>
               <template v-else>
+                <p class="portal-jd-accountability">
+                  Review the role expectations below. By signing, you confirm you have read and understand
+                  this job description for {{ jobDescription?.title || 'this role' }} and accept that
+                  {{ agency?.name || 'the employer' }} may hold you accountable to these expectations.
+                </p>
                 <JobDescriptionSections
                   v-if="jobDescription?.descriptionSections"
                   :sections="jobDescription.descriptionSections"
@@ -307,9 +317,43 @@
                     rel="noopener"
                     @click="trackHandbookOpen(`ref:${doc.id}`)"
                   >Open link</a>
+                  <template v-else-if="doc.kind === 'company_document'">
+                    <p v-if="doc.signed || companyDocSigned[doc.id]" class="cred-ok">Signed — thank you. Saved on your hire record.</p>
+                    <template v-else>
+                      <div v-if="doc.filePath" class="portal-doc-embed">
+                        <iframe
+                          class="portal-doc-frame"
+                          title="Company document"
+                          :src="companyDocFileUrl(doc)"
+                        />
+                      </div>
+                      <p v-else class="muted">Your hiring team still needs to attach this document file.</p>
+                      <AdaptiveSignatureCapture
+                        v-model="companyDocSignatures[doc.id]"
+                        title="Sign this document"
+                        :signer-name="candidateDisplayName"
+                      />
+                      <p v-if="companyDocError[doc.id]" class="cred-warn">{{ companyDocError[doc.id] }}</p>
+                      <button
+                        type="button"
+                        class="btn-primary"
+                        :disabled="!!companyDocBusy[doc.id]"
+                        @click="signCompanyDocument(doc)"
+                      >
+                        {{ companyDocBusy[doc.id] ? 'Saving…' : 'I acknowledge this document' }}
+                      </button>
+                    </template>
+                  </template>
                   <template v-else-if="doc.kind === 'upload'">
                     <a
-                      v-if="doc.url"
+                      v-if="doc.filePath"
+                      class="portal-link-copy"
+                      :href="companyDocFileUrl(doc)"
+                      target="_blank"
+                      rel="noopener"
+                    >Download blank form</a>
+                    <a
+                      v-else-if="doc.url"
                       class="portal-link-copy"
                       :href="doc.url"
                       target="_blank"
@@ -328,7 +372,7 @@
                     <p v-if="uploadError[doc.id]" class="cred-warn">{{ uploadError[doc.id] }}</p>
                   </template>
                   <span v-else-if="doc.kind === 'acknowledgement'" class="portal-link-help">
-                    Use the Job description section above to review and sign.
+                    Use the Job description section above to review and sign the role expectations.
                   </span>
                 </li>
               </ul>
@@ -821,7 +865,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, nextTick, watch } from 'vue';
+import { ref, computed, onMounted, nextTick, watch, reactive } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import DOMPurify from 'dompurify';
 import axios from 'axios';
@@ -918,6 +962,39 @@ const jdAcknowledgedLocal = ref(false);
 const uploadBusy = ref({});
 const uploadDone = ref({});
 const uploadError = ref({});
+const companyDocSignatures = reactive({});
+const companyDocBusy = reactive({});
+const companyDocError = reactive({});
+const companyDocSigned = reactive({});
+
+const companyDocFileUrl = (doc) => {
+  if (!doc?.id || !token.value) return '';
+  const base = String(import.meta.env.VITE_API_URL || '/api').replace(/\/$/, '');
+  return `${base}/prehire-portal/${token.value}/documents/${encodeURIComponent(doc.id)}/file`;
+};
+
+const signCompanyDocument = async (doc) => {
+  const id = doc?.id;
+  if (!id) return;
+  companyDocError[id] = '';
+  const signatureData = companyDocSignatures[id];
+  if (!signatureData) {
+    companyDocError[id] = 'Please capture your signature.';
+    return;
+  }
+  companyDocBusy[id] = true;
+  try {
+    await portalApi.post(`/prehire-portal/${token.value}/documents/${encodeURIComponent(id)}/sign`, {
+      signatureData,
+      signerName: candidateDisplayName.value
+    });
+    companyDocSigned[id] = true;
+  } catch (e) {
+    companyDocError[id] = e?.response?.data?.error?.message || 'Could not save acknowledgement.';
+  } finally {
+    companyDocBusy[id] = false;
+  }
+};
 
 const splitPlainParagraphs = (raw) => {
   const text = String(raw || '').replace(/\r\n/g, '\n').trim();
@@ -945,10 +1022,11 @@ const splitPlainParagraphs = (raw) => {
 
 const docKindLabel = (kind) => {
   switch (String(kind || '').toLowerCase()) {
-    case 'acknowledgement': return 'Sign job description';
-    case 'print_only': return 'Printable instructions';
+    case 'print_only': return 'Printable';
     case 'reference': return 'External link';
-    case 'upload': return 'File upload';
+    case 'upload': return 'Your upload';
+    case 'company_document': return 'Review & sign';
+    case 'acknowledgement': return 'Job description';
     default: return kind || 'Document';
   }
 };
@@ -980,6 +1058,29 @@ const onPrehireDocUpload = async (doc, event) => {
 };
 
 const backgroundCheck = computed(() => portalData.value?.backgroundCheck || { signed: false });
+const backgroundCheckLegal = computed(() => portalData.value?.backgroundCheckLegal || null);
+const backgroundCheckLegalParagraphs = computed(() => {
+  const fromApi = backgroundCheckLegal.value?.paragraphs;
+  const signer = String(bgForm.value?.legalName || '').trim();
+  if (Array.isArray(fromApi) && fromApi.length) {
+    const paras = fromApi.filter((p) => String(p || '').trim());
+    if (!signer || !paras[0]) return paras;
+    // Keep the opening "I, {name}," line in sync with the legal-name field.
+    const updated = [...paras];
+    updated[0] = updated[0]
+      .replace(/^I,\s*[^,]+,\s*hereby authorize/, `I, ${signer}, hereby authorize`)
+      .replace(/^I hereby authorize/, `I, ${signer}, hereby authorize`);
+    return updated;
+  }
+  const company = agency.value?.legalName || agency.value?.officialName || agency.value?.name || 'the employer';
+  const iLine = signer
+    ? `I, ${signer}, hereby authorize ${company} (the "Company"), and/or its agents`
+    : `I hereby authorize ${company} (the "Company"), and/or its agents`;
+  return [
+    `${iLine} to make investigation of my background, references, character, past employment, consumer reports, education, and criminal history record information which may be in any state or local files, including those maintained by both public and private organizations, and all public records, for the purpose of confirming the information contained on my application and/or obtaining other information which may be material to my qualifications for employment. A telephone facsimile (fax) or xerographic copy of this consent shall be considered as valid as the original consent.`,
+    `I hereby consent to the Company's verification of all the information I have provided on my application form. I also agree to execute as a condition of employment or a condition of continued employment any additional written authorization necessary for the Company to obtain access to and copies of records pertaining to this information. I also hereby authorize the Company's access to any medical histories or records pertaining to me (and any other individuals who due to my employment may be covered by any Company medical or other insurance program). With regard to the foregoing disclosures, I hereby agree to release any person, company, or other entity from any and all causes of action that otherwise might arise from supplying the Company with information it may request pursuant to this release. I understand that any false answers or statements, or misrepresentations by omission, made by me on this application or any related document, will be sufficient for rejection of my application or for my immediate discharge should such falsifications or misrepresentations be discovered after I am employed.`
+  ];
+});
 const handbookLinks = computed(() => portalData.value?.handbookLinks || {});
 const jobDescription = computed(() => portalData.value?.jobDescription || null);
 const jdPlainParagraphs = computed(() => splitPlainParagraphs(jobDescription.value?.descriptionText));
@@ -2000,6 +2101,12 @@ onMounted(async () => {
   border-color: #a7f3d0;
   color: #065f46;
 }
+.bg-legal-para {
+  margin: 0 0 0.85rem;
+}
+.bg-legal-para:last-child {
+  margin-bottom: 0;
+}
 .bg-legal-title {
   margin: 0 0 6px;
   font-size: 0.92rem;
@@ -2031,6 +2138,30 @@ onMounted(async () => {
   text-align: left;
 }
 .portal-jd-plain p:last-child { margin-bottom: 0; }
+.portal-jd-accountability {
+  margin: 0 0 14px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  color: #1e3a8a;
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+.portal-doc-embed {
+  margin: 10px 0 12px;
+  border: 1px solid #dbe3ef;
+  border-radius: 12px;
+  overflow: hidden;
+  background: #fff;
+}
+.portal-doc-frame {
+  width: 100%;
+  min-height: 420px;
+  border: 0;
+  display: block;
+  background: #f8fafc;
+}
 .portal-jd-card :deep(.jds),
 .portal-jd-card :deep(.ai-signature-panel) {
   text-align: left;

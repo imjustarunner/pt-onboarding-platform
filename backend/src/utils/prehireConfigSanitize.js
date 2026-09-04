@@ -1,4 +1,4 @@
-const KINDS = new Set(['print_only', 'reference', 'acknowledgement', 'upload']);
+const KINDS = new Set(['print_only', 'reference', 'acknowledgement', 'upload', 'company_document']);
 
 function asObject(raw) {
   if (!raw) return null;
@@ -22,6 +22,9 @@ export function sanitizePrehireConfig(raw) {
       const title = String(d?.title || d?.name || '').trim().slice(0, 255);
       if (!title) return null;
       const templateId = Number(d?.templateId || d?.documentTemplateId || 0) || null;
+      const filePath = String(d?.filePath || d?.file_path || '').trim().slice(0, 1000) || null;
+      const fileName = String(d?.fileName || d?.file_name || d?.originalName || '').trim().slice(0, 255) || null;
+      const mimeType = String(d?.mimeType || d?.mime_type || '').trim().slice(0, 120) || null;
       return {
         id: String(d?.id || `doc-${i + 1}`).trim().slice(0, 80),
         kind,
@@ -29,6 +32,9 @@ export function sanitizePrehireConfig(raw) {
         instructions: String(d?.instructions || '').trim().slice(0, 4000),
         printInstructions: String(d?.printInstructions || d?.print_instructions || '').trim().slice(0, 8000),
         url: String(d?.url || '').trim().slice(0, 2000),
+        filePath,
+        fileName,
+        mimeType,
         templateId,
         scheduledOn: String(d?.scheduledOn || d?.scheduled_on || '').trim().slice(0, 10) || null
       };

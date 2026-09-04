@@ -332,7 +332,7 @@
           </div>
         </div>
         <div class="file-upload-field">
-          <label class="field-label">Optional compliance PDF <span class="field-hint">— download only on the public/apply pages</span></label>
+          <label class="field-label">Optional compliance PDF <span class="field-hint">— optional download on public/apply pages; the structured job description below is what candidates sign in the portal</span></label>
           <input ref="jobFileRef" class="input" type="file" accept="application/pdf,.pdf" @change="onCreateFileChange" />
         </div>
         <input v-model="createForm.city" class="input" type="text" placeholder="City" />
@@ -403,7 +403,7 @@
           <span class="muted small">Shown on the careers details modal and apply acknowledgement screen.</span>
         </div>
         <JobDescriptionSectionsEditor v-model="createForm.descriptionSections" />
-        <JobPrehireDocsEditor v-model="createForm.prehireConfig" />
+        <JobPrehireDocsEditor v-model="createForm.prehireConfig" :agency-id="effectiveAgencyId" />
       </div>
       <div class="application-page-config">
         <div class="config-header">
@@ -571,7 +571,7 @@
               </div>
             </div>
             <div class="file-upload-field">
-              <label class="field-label">Optional compliance PDF <span class="field-hint">— download only</span></label>
+              <label class="field-label">Optional compliance PDF <span class="field-hint">— optional download; portal signing uses the structured job description</span></label>
               <input ref="editFileRef" class="input" type="file" accept="application/pdf,.pdf" @change="onEditFileChange" />
               <div v-if="editingRow?.hasFile" class="muted small">
                 Current file: {{ editingRow.originalName || 'Uploaded file' }}
@@ -648,7 +648,7 @@
               <span class="muted small">Shown on careers details and apply acknowledgement.</span>
             </div>
             <JobDescriptionSectionsEditor v-model="editForm.descriptionSections" />
-            <JobPrehireDocsEditor v-model="editForm.prehireConfig" />
+            <JobPrehireDocsEditor v-model="editForm.prehireConfig" :agency-id="effectiveAgencyId" />
           </div>
           <div v-if="editingRow?.id" class="application-page-config eval-rubric-panel">
             <div class="config-header">

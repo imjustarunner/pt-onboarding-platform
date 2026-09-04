@@ -3984,13 +3984,28 @@ const dashboardCards = computed(() => {
             description: 'Note Aid and other AI documentation aids.'
           }
         ];
+        if (caps.canViewLibrary !== false && !isSchoolStaff.value) {
+          const libraryPath = orgSlug ? `/${orgSlug}/library` : '/library';
+          children.unshift({
+            id: 'tools_library',
+            label: 'Library',
+            kind: 'link',
+            to: libraryPath,
+            badgeCount: 0,
+            iconUrl:
+              brandingStore.getDashboardCardIconUrl('library', iconOrg) ||
+              brandingStore.getDashboardCardIconUrl('documents', iconOrg) ||
+              iconUrl,
+            description: 'Guides, templates, care documents, forms, and shared links.'
+          });
+        }
         cards.push({
           id: 'tools_nest',
-          label: 'Tools',
+          label: 'Tools and Resources',
           kind: 'nest',
           badgeCount: children.reduce((acc, c) => acc + (Number(c.badgeCount) || 0), 0),
           iconUrl,
-          description: 'Assessments & evaluations, games and activities, and AI tools.',
+          description: 'Library, assessments & evaluations, games and activities, and AI tools.',
           children
         });
       }
@@ -4039,13 +4054,28 @@ const dashboardCards = computed(() => {
           description: 'Note Aid and other AI documentation aids.'
         }
       ];
+      if (caps.canViewLibrary !== false && !isSchoolStaff.value) {
+        const libraryPath = orgSlug ? `/${orgSlug}/library` : '/library';
+        children.unshift({
+          id: 'tools_library',
+          label: 'Library',
+          kind: 'link',
+          to: libraryPath,
+          badgeCount: 0,
+          iconUrl:
+            brandingStore.getDashboardCardIconUrl('library', iconOrg) ||
+            brandingStore.getDashboardCardIconUrl('documents', iconOrg) ||
+            iconUrl,
+          description: 'Guides, templates, care documents, forms, and shared links.'
+        });
+      }
       cards.push({
         id: 'tools_nest',
-        label: 'Tools',
+        label: 'Tools and Resources',
         kind: 'nest',
         badgeCount: children.reduce((acc, c) => acc + (Number(c.badgeCount) || 0), 0),
         iconUrl,
-        description: 'Assessments & evaluations, games and activities, and AI tools.',
+        description: 'Library, assessments & evaluations, games and activities, and AI tools.',
         children
       });
     }
@@ -4057,27 +4087,6 @@ const dashboardCards = computed(() => {
       iconUrl: brandingStore.getDashboardCardIconUrl('my', iconOrg),
       description: 'Account info, credentials, and personal preferences.'
     });
-
-    // Organization Library on rail only when Directory top-nav is NOT available
-    // (Directory roles get Library under Directory instead).
-    const hasDirectoryNav =
-      !isClubContext.value &&
-      ['admin', 'super_admin', 'support', 'clinical_practice_assistant', 'provider_plus'].includes(role);
-    if (caps.canViewLibrary !== false && !isSchoolStaff.value && !hasDirectoryNav) {
-      const libraryPath = orgSlug ? `/${orgSlug}/library` : '/library';
-      cards.push({
-        id: 'library',
-        label: 'Tools and Resources',
-        kind: 'link',
-        to: libraryPath,
-        badgeCount: 0,
-        iconUrl:
-          brandingStore.getDashboardCardIconUrl('library', iconOrg) ||
-          brandingStore.getDashboardCardIconUrl('documents', iconOrg) ||
-          brandingStore.getDashboardCardIconUrl('training', iconOrg),
-        description: 'Guides, templates, care documents, forms, and shared links.'
-      });
-    }
 
     // Club admin: Start new season card (SSTC clubs only)
     if (
@@ -4440,7 +4449,7 @@ const handleCardClick = (card) => {
     navFn({ query: { ...route.query, tab: 'on_demand_training' } });
     return;
   }
-  if (card.id === 'library') {
+  if (card.id === 'library' || card.id === 'tools_library') {
     closeInlineProgramHub();
     if (!props.previewMode) {
       const org = route.params.organizationSlug;

@@ -2,20 +2,42 @@
   <div class="library-page">
     <div class="library-page__inner">
       <header class="library-page__header">
-        <div>
-          <h1>Tools and Resources</h1>
-          <p class="library-page__sub">
-            Find guides, resources, templates, care documents, forms, and links available through your
-            organization.
-          </p>
+        <div class="library-page__header-main">
+          <div>
+            <h1>Tools and Resources</h1>
+            <p class="library-page__sub">
+              Find guides, resources, templates, care documents, forms, and links available through your
+              organization.
+            </p>
+          </div>
+          <div class="library-page__header-actions">
+            <nav v-if="hubSwitcherLinks.length" class="hub-switcher" aria-label="Switch hub">
+              <template v-for="item in hubSwitcherLinks" :key="item.key">
+                <span
+                  v-if="item.isActive"
+                  class="hub-switcher-btn is-active"
+                  aria-current="page"
+                >{{ item.label }}</span>
+                <router-link v-else class="hub-switcher-btn" :to="item.to">
+                  {{ item.label }}
+                </router-link>
+              </template>
+            </nav>
+            <button
+              type="button"
+              class="lib-btn lib-btn--primary"
+              @click="openAdd('link')"
+            >
+              + Add Resource
+            </button>
+          </div>
         </div>
-        <button
-          type="button"
-          class="lib-btn lib-btn--primary"
-          @click="openAdd('link')"
-        >
-          + Add Resource
-        </button>
+        <ToolsResourcesHubSwitcher
+          class="library-page__tools-switcher"
+          :org-prefix="orgPrefix"
+          active="library"
+          :show-referral-directory="showReferralDirectoryNav"
+        />
       </header>
 
       <div class="library-search-row">
@@ -294,7 +316,8 @@
       v-if="distributeItem"
       :resource="distributeItem"
       :agency-id="agencyId"
-      @close="distributeItem = null"
+      :initial-mode="distributeInitialMode"
+      @close="distributeItem = null; distributeInitialMode = 'personal_copy'"
       @done="onDistributed"
     />
   </div>
@@ -304,11 +327,18 @@
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useAuthStore } from '../store/auth';
+import { useAgencyStore } from '../store/agency';
+import { useBrandingStore } from '../store/branding';
 import LibraryResourceGrid from '../components/library/LibraryResourceGrid.vue';
 import LibraryResourceList from '../components/library/LibraryResourceList.vue';
 import LibraryAddResourceModal from '../components/library/LibraryAddResourceModal.vue';
 import LibraryResourceViewer from '../components/library/LibraryResourceViewer.vue';
 import LibraryDistributeModal from '../components/library/LibraryDistributeModal.vue';
+import ToolsResourcesHubSwitcher from '../components/library/ToolsResourcesHubSwitcher.vue';
+import {
+  buildHubSwitcherLinks,
+  workspaceNavContextFromStores
+} from '../utils/workspaceNavAccess.js';
 import {
   fetchLibraryHome,
   fetchLibraryResources,
@@ -386,6 +416,7 @@ const shareList = ref([]);
 const shareSaving = ref(false);
 const shareError = ref('');
 const distributeItem = ref(null);
+const distributeInitialMode = ref('personal_copy');
 
 const caps = computed(() => authStore.user?.capabilities || {});
 const canManage = computed(() => !!caps.value.canManageLibrary);
@@ -400,7 +431,26 @@ const agencyId = computed(
 const categories = computed(() => home.value?.categories || []);
 const folders = computed(() => home.value?.folders || []);
 
+const agencyStore = useAgencyStore();
+const brandingStore = useBrandingStore();
 const orgSlug = computed(() => route.params.organizationSlug || '');
+const orgPrefix = computed(() => (orgSlug.value ? `/${orgSlug.value}` : ''));
+const showReferralDirectoryNav = computed(() => {
+  const role = String(authStore.user?.role || '').toLowerCase();
+  return ['admin', 'support', 'staff', 'provider', 'provider_plus', 'super_admin'].includes(role);
+});
+const hubSwitcherLinks = computed(() => {
+  const ctx = workspaceNavContextFromStores({
+    role: authStore.user?.role,
+    slug: orgSlug.value,
+    agency: agencyStore.currentAgency,
+    branding: brandingStore,
+    user: authStore.user,
+    isAffiliationContext:
+      String(agencyStore.currentAgency?.organization_type || '').toLowerCase() === 'affiliation'
+  });
+  return buildHubSwitcherLinks({ ...ctx, currentSurface: null });
+});
 const settingsPath = computed(() =>
   orgSlug.value ? `/${orgSlug.value}/admin/library-settings` : '/admin/library-settings'
 );
@@ -656,7 +706,10 @@ function canDistribute(item) {
   return Number(item.ownerUserId) === Number(authStore.user?.id);
 }
 
-function openDistribute(item) {
+function openDistribute(item, initialMode = 'personal_copy') {
+  distributeInitialMode.value = ['view_only', 'collaborate', 'personal_copy'].includes(initialMode)
+    ? initialMode
+    : 'personal_copy';
   distributeItem.value = item;
   menuItem.value = null;
 }
@@ -687,8 +740,13 @@ async function archiveItem(item) {
   }
 }
 
-async function onCreated() {
+async function onCreated(payload = {}) {
   await refresh();
+  const item = payload?.item;
+  const shareMode = payload?.shareMode;
+  if (payload?.kind === 'resource' && item && shareMode && canDistribute(item)) {
+    openDistribute(item, shareMode);
+  }
 }
 
 function onDocClick() {
@@ -744,10 +802,68 @@ onUnmounted(() => {
 
 .library-page__header {
   display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.85rem;
+  margin-bottom: 1.15rem;
+}
+
+.library-page__header-main {
+  display: flex;
   justify-content: space-between;
   align-items: flex-start;
   gap: 1rem;
-  margin-bottom: 1.15rem;
+  flex-wrap: wrap;
+}
+
+.library-page__header-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.library-page__tools-switcher {
+  align-self: flex-start;
+}
+
+.hub-switcher {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  background: #f1f5f9;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 3px;
+  flex-wrap: wrap;
+}
+
+.hub-switcher-btn {
+  display: inline-flex;
+  align-items: center;
+  padding: 7px 13px;
+  border-radius: 9px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #64748b;
+  text-decoration: none;
+  white-space: nowrap;
+  transition: background 0.15s, color 0.15s;
+  border: none;
+  background: transparent;
+}
+
+.hub-switcher-btn:hover {
+  background: #fff;
+  color: #1e293b;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+
+.hub-switcher-btn.is-active {
+  background: #fff;
+  color: var(--primary, #1f6b4a);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
 }
 
 .library-page__header h1 {

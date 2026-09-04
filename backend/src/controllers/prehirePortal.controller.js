@@ -11,6 +11,7 @@ import EmailService from '../services/email.service.js';
 import { syncLifecycleItems } from '../services/lifecycleSync.service.js';
 import { mergePrehireDocuments } from '../utils/prehireConfigSanitize.js';
 import { sanitizeJobDescriptionSections } from '../utils/jobDescriptionSectionsSanitize.js';
+import { buildBackgroundCheckLegalCopy } from '../utils/backgroundCheckLegalCopy.js';
 
 function resolveBaseUrl(req) {
   const proto = (req.get('x-forwarded-proto') || req.protocol || 'https').split(',')[0].trim();
@@ -63,6 +64,12 @@ function buildAgencyBranding(req, raw) {
   return {
     id: raw.id,
     name: raw.name,
+    officialName: raw.official_name || null,
+    legalName: raw.official_name || raw.name || null,
+    streetAddress: raw.street_address || null,
+    city: raw.city || null,
+    state: raw.state || null,
+    postalCode: raw.postal_code || null,
     logoUrl: resolveLogoUrl(req, raw),
     phoneNumber: raw.phone_number || null,
     portalUrl: raw.portal_url || null,
@@ -123,8 +130,9 @@ export const getPortal = async (req, res, next) => {
     let supportTeam = { label: 'People Operations', members: [] };
     try {
       const [agRows] = await pool.execute(
-        `SELECT a.id, a.name, a.logo_url, a.logo_path, a.color_palette, a.theme_settings,
-                a.phone_number, a.portal_url, a.feature_flags
+        `SELECT a.id, a.name, a.official_name, a.logo_url, a.logo_path, a.color_palette, a.theme_settings,
+                a.phone_number, a.portal_url, a.feature_flags,
+                a.street_address, a.city, a.state, a.postal_code
          FROM agencies a
          JOIN user_agencies ua ON ua.agency_id = a.id
          WHERE ua.user_id = ?
@@ -287,6 +295,9 @@ export const getPortal = async (req, res, next) => {
           return { signed: false };
         }
       })(),
+      backgroundCheckLegal: buildBackgroundCheckLegalCopy(agencyRaw || {}, {
+        legalName: `${user.first_name || ''} ${user.last_name || ''}`.trim()
+      }),
       handbookLinks: await (async () => {
         try {
           const [sRows] = await pool.execute(`SELECT prehire_settings FROM agencies WHERE id = ? LIMIT 1`, [agencyRaw?.id]);
@@ -1271,12 +1282,73 @@ export const acknowledgePortalJobDescription = async (req, res, next) => {
     if (!signature) return res.status(400).json({ error: { message: 'Signature is required.' } });
     const user = await User.findById(userId);
     const signerName = String(req.body?.signerName || `${user?.first_name || ''} ${user?.last_name || ''}`).trim();
+
+    let snapshotTitle = 'Job description';
+    let snapshotBody = '';
+    try {
+      const [hpRows] = await pool.execute(
+        `SELECT job_description_id FROM hiring_profiles WHERE candidate_user_id = ? LIMIT 1`,
+        [userId]
+      );
+      let jdId = Number(hpRows?.[0]?.job_description_id || 0) || null;
+      if (!jdId) {
+        jdId = await resolveJobDescriptionIdForCandidate({
+          userId,
+          agencyId: agency.id,
+          hiringProfile: hpRows?.[0] || null
+        });
+      }
+      if (jdId) {
+        const [jdRows] = await pool.execute(
+          `SELECT id, title, description_text, description_sections_json, schedule_text
+           FROM hiring_job_descriptions WHERE id = ? LIMIT 1`,
+          [jdId]
+        );
+        const jd = jdRows?.[0];
+        if (jd) {
+          snapshotTitle = String(jd.title || 'Job description').trim() || 'Job description';
+          const sections = sanitizeJobDescriptionSections(jd.description_sections_json);
+          const parts = [
+            `Job: ${snapshotTitle}`,
+            jd.schedule_text ? `Schedule: ${jd.schedule_text}` : '',
+            '',
+            String(jd.description_text || '').trim()
+          ];
+          if (sections?.aboutTheRole) {
+            parts.push('', 'About the role:', sections.aboutTheRole);
+          }
+          if (Array.isArray(sections?.responsibilities) && sections.responsibilities.length) {
+            parts.push('', 'Responsibilities:');
+            for (const item of sections.responsibilities) parts.push(`• ${item}`);
+          }
+          if (Array.isArray(sections?.qualifications) && sections.qualifications.length) {
+            parts.push('', 'Qualifications:');
+            for (const item of sections.qualifications) parts.push(`• ${item}`);
+          }
+          if (Array.isArray(sections?.benefits) && sections.benefits.length) {
+            parts.push('', 'Benefits:');
+            for (const item of sections.benefits) parts.push(`• ${item}`);
+          }
+          snapshotBody = parts.filter((line, i, arr) => !(line === '' && arr[i - 1] === '')).join('\n').trim();
+        }
+      }
+    } catch { /* best-effort snapshot */ }
+
+    const noteText = [
+      `Signed by ${signerName}.`,
+      `Signed at ${new Date().toISOString()}.`,
+      'Candidate acknowledged the role expectations for this job posting.',
+      '',
+      '--- Job description snapshot ---',
+      snapshotBody || '(No job description text was available at signing time.)'
+    ].join('\n').slice(0, 600000);
+
     try {
       await pool.execute(
         `INSERT INTO hiring_prehire_checklist_items
           (user_id, agency_id, item_key, title, instructions, completed_on)
          VALUES (?, ?, 'job_description_ack', 'Acknowledge job description', ?, CURDATE())
-         ON DUPLICATE KEY UPDATE completed_on = COALESCE(completed_on, CURDATE())`,
+         ON DUPLICATE KEY UPDATE completed_on = COALESCE(completed_on, CURDATE()), instructions = VALUES(instructions)`,
         [userId, agency.id, `Signed by ${signerName}`]
       );
     } catch (e) {
@@ -1286,10 +1358,114 @@ export const acknowledgePortalJobDescription = async (req, res, next) => {
       await pool.execute(
         `INSERT INTO user_admin_docs (user_id, title, doc_type, note_text, created_by_user_id, is_legal_hold)
          VALUES (?, ?, 'job_description_acknowledgement', ?, ?, 1)`,
-        [userId, 'Job description acknowledgement', `Signed by ${signerName}.`, userId]
+        [userId, `Job description acknowledgement — ${snapshotTitle}`, noteText, userId]
       );
     } catch { /* ignore */ }
     res.json({ ok: true, signed: true, signerName });
+  } catch (e) { next(e); }
+};
+
+async function findPortalPrehireDocForUser(userId, docId) {
+  const agency = await loadPortalAgency(userId);
+  if (!agency) return { agency: null, doc: null };
+  const [hpRows] = await pool.execute(
+    `SELECT job_description_id FROM hiring_profiles WHERE candidate_user_id = ? LIMIT 1`,
+    [userId]
+  );
+  const hiringProfile = hpRows?.[0] || null;
+  let jobConfig = null;
+  const jobDescriptionId = await resolveJobDescriptionIdForCandidate({
+    userId,
+    agencyId: agency.id,
+    hiringProfile
+  });
+  if (jobDescriptionId) {
+    const [jdRows] = await pool.execute(
+      `SELECT prehire_config_json FROM hiring_job_descriptions WHERE id = ? LIMIT 1`,
+      [jobDescriptionId]
+    );
+    jobConfig = jdRows?.[0]?.prehire_config_json || null;
+  }
+  let agencyDefaults = [];
+  try {
+    const [sRows] = await pool.execute(`SELECT prehire_settings FROM agencies WHERE id = ? LIMIT 1`, [agency.id]);
+    const raw = sRows[0]?.prehire_settings;
+    const settings = typeof raw === 'string' ? JSON.parse(raw) : (raw || {});
+    agencyDefaults = Array.isArray(settings.default_prehire_docs) ? settings.default_prehire_docs : [];
+  } catch { /* ignore */ }
+  const docs = mergePrehireDocuments(jobConfig, { documents: agencyDefaults }).documents;
+  const doc = docs.find((d) => String(d.id) === String(docId)) || null;
+  return { agency, doc };
+}
+
+export const viewPortalPrehireDocFile = async (req, res, next) => {
+  try {
+    const userId = req.portalUser.id;
+    const docId = String(req.params.docId || '').trim();
+    const { doc } = await findPortalPrehireDocForUser(userId, docId);
+    if (!doc?.filePath) {
+      return res.status(404).json({ error: { message: 'Document file not found.' } });
+    }
+    const StorageService = (await import('../services/storage.service.js')).default;
+    const buf = await StorageService.readObject(doc.filePath);
+    const mime = doc.mimeType || 'application/pdf';
+    const fileName = doc.fileName || 'document.pdf';
+    res.setHeader('Content-Type', mime);
+    res.setHeader('Content-Disposition', `inline; filename="${String(fileName).replace(/"/g, '')}"`);
+    res.setHeader('Cache-Control', 'private, max-age=60');
+    return res.send(buf);
+  } catch (e) { next(e); }
+};
+
+export const signPortalCompanyDocument = async (req, res, next) => {
+  try {
+    const userId = req.portalUser.id;
+    const docId = String(req.params.docId || req.body?.docId || '').trim();
+    const signature = String(req.body?.signatureData || '').trim();
+    if (!signature) return res.status(400).json({ error: { message: 'Signature is required.' } });
+    const { agency, doc } = await findPortalPrehireDocForUser(userId, docId);
+    if (!agency) return res.status(404).json({ error: { message: 'Organization not found.' } });
+    if (!doc || doc.kind !== 'company_document') {
+      return res.status(404).json({ error: { message: 'Company document not found.' } });
+    }
+    const user = await User.findById(userId);
+    const signerName = String(req.body?.signerName || `${user?.first_name || ''} ${user?.last_name || ''}`).trim();
+    const itemKey = `prehire_doc_${doc.id}`.slice(0, 120);
+    try {
+      await pool.execute(
+        `INSERT INTO hiring_prehire_checklist_items
+          (user_id, agency_id, item_key, title, instructions, completed_on)
+         VALUES (?, ?, ?, ?, ?, CURDATE())
+         ON DUPLICATE KEY UPDATE completed_on = COALESCE(completed_on, CURDATE())`,
+        [userId, agency.id, itemKey, doc.title || 'Company document', `Signed by ${signerName}`]
+      );
+    } catch (e) {
+      if (e?.code !== 'ER_NO_SUCH_TABLE') throw e;
+    }
+    try {
+      await pool.execute(
+        `INSERT INTO user_admin_docs (
+          user_id, title, doc_type, note_text,
+          storage_path, original_name, mime_type,
+          created_by_user_id, is_legal_hold
+        ) VALUES (?, ?, 'prehire_company_document_ack', ?, ?, ?, ?, ?, 1)`,
+        [
+          userId,
+          `${doc.title || 'Company document'} — signed acknowledgement`,
+          [
+            `Signed by ${signerName}.`,
+            `Signed at ${new Date().toISOString()}.`,
+            `Pre-hire document id: ${doc.id}`,
+            doc.instructions ? `Instructions: ${doc.instructions}` : ''
+          ].filter(Boolean).join('\n'),
+          doc.filePath || null,
+          doc.fileName || null,
+          doc.mimeType || null,
+          userId
+        ]
+      );
+    } catch { /* ignore */ }
+    res.json({ ok: true, signed: true, signerName, itemKey });
   } catch (e) { next(e); }
 };
 
@@ -1337,6 +1513,59 @@ export const uploadPortalPrehireDocument = async (req, res, next) => {
   }
 };
 
+async function resolveJobDescriptionIdForCandidate({ userId, agencyId, hiringProfile }) {
+  let jobDescriptionId = Number(hiringProfile?.job_description_id || 0) || null;
+  if (jobDescriptionId) return jobDescriptionId;
+
+  // Fall back to the job application intake link that created this candidate.
+  try {
+    const [rows] = await pool.execute(
+      `SELECT il.job_description_id
+         FROM intake_submissions s
+         INNER JOIN intake_links il ON il.id = s.intake_link_id
+        WHERE s.guardian_user_id = ?
+          AND il.form_type = 'job_application'
+          AND il.job_description_id IS NOT NULL
+        ORDER BY s.id DESC
+        LIMIT 1`,
+      [userId]
+    );
+    jobDescriptionId = Number(rows?.[0]?.job_description_id || 0) || null;
+  } catch {
+    jobDescriptionId = null;
+  }
+
+  if (!jobDescriptionId) return null;
+
+  // Backfill so later portal loads and hire docs stay attached.
+  try {
+    let appliedRole = null;
+    try {
+      const [titleRows] = await pool.execute(
+        `SELECT title FROM hiring_job_descriptions WHERE id = ? LIMIT 1`,
+        [jobDescriptionId]
+      );
+      appliedRole = titleRows?.[0]?.title || null;
+    } catch { /* ignore */ }
+    await pool.execute(
+      `UPDATE hiring_profiles
+          SET job_description_id = ?,
+              applied_role = COALESCE(NULLIF(applied_role, ''), ?)
+        WHERE candidate_user_id = ?
+          AND (job_description_id IS NULL OR job_description_id = 0)`,
+      [jobDescriptionId, appliedRole, userId]
+    );
+  } catch {
+    try {
+      await pool.execute(
+        `UPDATE hiring_profiles SET job_description_id = ? WHERE candidate_user_id = ? AND job_description_id IS NULL`,
+        [jobDescriptionId, userId]
+      );
+    } catch { /* ignore */ }
+  }
+  return jobDescriptionId;
+}
+
 async function loadPortalPrehireExtras({ userId, agencyId, hiringProfile }) {
   const extras = {
     jobDescription: null,
@@ -1346,14 +1575,15 @@ async function loadPortalPrehireExtras({ userId, agencyId, hiringProfile }) {
   };
   try {
     let jobConfig = null;
-    if (hiringProfile?.job_description_id) {
+    const jobDescriptionId = await resolveJobDescriptionIdForCandidate({ userId, agencyId, hiringProfile });
+    if (jobDescriptionId) {
       const [jdRows] = await pool.execute(
-        `SELECT id, title, description_text, description_sections_json, schedule_text, prehire_config_json
+        `SELECT id, title, description_text, description_sections_json, schedule_text, prehire_config_json, agency_id
          FROM hiring_job_descriptions WHERE id = ? LIMIT 1`,
-        [hiringProfile.job_description_id]
+        [jobDescriptionId]
       );
       const jd = jdRows[0];
-      if (jd) {
+      if (jd && (!agencyId || Number(jd.agency_id) === Number(agencyId))) {
         extras.jobDescription = {
           id: jd.id,
           title: jd.title,
@@ -1391,6 +1621,15 @@ async function loadPortalPrehireExtras({ userId, agencyId, hiringProfile }) {
     extras.jdAcknowledged = extras.checklistItems.some(
       (i) => i.itemKey === 'job_description_ack' && i.completedOn
     );
+    const signedDocKeys = new Set(
+      extras.checklistItems
+        .filter((i) => i.completedOn && String(i.itemKey || '').startsWith('prehire_doc_'))
+        .map((i) => String(i.itemKey).replace(/^prehire_doc_/, ''))
+    );
+    extras.prehireDocs = (extras.prehireDocs || []).map((d) => ({
+      ...d,
+      signed: signedDocKeys.has(String(d.id))
+    }));
   } catch { /* table may not exist */ }
   return extras;
 }

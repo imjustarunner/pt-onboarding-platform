@@ -1257,8 +1257,36 @@ export const getCandidate = async (req, res, next) => {
     const latestPreScreen = await HiringResearchReport.findLatestAiByCandidateUserId(candidateUserId);
 
     let jobDescription = null;
-    if (profile?.job_description_id) {
-      const jd = await HiringJobDescription.findById(profile.job_description_id);
+    let jobDescriptionId = Number(profile?.job_description_id || 0) || null;
+    if (!jobDescriptionId) {
+      // Fall back to the job application intake link (same as portal backfill).
+      try {
+        const [rows] = await pool.execute(
+          `SELECT il.job_description_id
+             FROM intake_submissions s
+             INNER JOIN intake_links il ON il.id = s.intake_link_id
+            WHERE s.guardian_user_id = ?
+              AND il.form_type = 'job_application'
+              AND il.job_description_id IS NOT NULL
+            ORDER BY s.id DESC
+            LIMIT 1`,
+          [candidateUserId]
+        );
+        jobDescriptionId = Number(rows?.[0]?.job_description_id || 0) || null;
+        if (jobDescriptionId) {
+          try {
+            await pool.execute(
+              `UPDATE hiring_profiles
+                  SET job_description_id = COALESCE(job_description_id, ?)
+                WHERE candidate_user_id = ?`,
+              [jobDescriptionId, candidateUserId]
+            );
+          } catch { /* ignore */ }
+        }
+      } catch { /* ignore */ }
+    }
+    if (jobDescriptionId) {
+      const jd = await HiringJobDescription.findById(jobDescriptionId);
       if (jd && Number(jd.agency_id) === Number(agencyId)) {
         const agencyTimezone = await resolveAgencyTimezone(agencyId);
         jobDescription = mapJobDescriptionRow(jd, agencyTimezone);
@@ -2197,7 +2225,9 @@ export const promoteCandidateToPendingSetup = async (req, res, next) => {
         candidateUserId,
         stage: 'hired',
         appliedRole: existing?.applied_role || existing?.appliedRole || null,
-        source: existing?.source || null
+        source: existing?.source || null,
+        jobDescriptionId: existing?.job_description_id || existing?.jobDescriptionId || null,
+        coverLetterText: existing?.cover_letter_text || existing?.coverLetterText || null
       });
     } catch {
       // ignore (older DBs or missing table)
@@ -3915,6 +3945,77 @@ export const updateHiringSettings = async (req, res, next) => {
   } catch (e) { next(e); }
 };
 
+/**
+ * Upload a company-provided pre-hire document file (blank form or document to sign).
+ * Stores under GCS and returns metadata to embed in prehire_config_json / agency defaults.
+ */
+export const uploadPrehireDocFile = async (req, res, next) => {
+  try {
+    const agencyId = parseIntParam(req.query.agencyId || req.user?.agencyId);
+    await ensureAgencyAccess(req, agencyId);
+    const file = req.file || getUploadedFile(req, 'file');
+    if (!file?.buffer) {
+      return res.status(400).json({ error: { message: 'file upload is required' } });
+    }
+    const originalName = String(file.originalname || 'document.pdf').trim().slice(0, 255) || 'document.pdf';
+    const mimeType = String(file.mimetype || 'application/octet-stream').trim().slice(0, 120);
+    const uniqueSuffix = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
+    const safeExt = originalName.includes('.') ? `.${originalName.split('.').pop()}` : '';
+    const filename = `prehire-doc-${agencyId}-${uniqueSuffix}${safeExt}`;
+    const storageResult = await StorageService.saveAdminDoc(file.buffer, filename, mimeType);
+    const filePath = storageResult.relativePath;
+    let viewUrl = null;
+    try {
+      viewUrl = await StorageService.getSignedUrl(filePath, 60);
+    } catch { /* ignore */ }
+    res.status(201).json({
+      filePath,
+      fileName: originalName,
+      mimeType,
+      viewUrl
+    });
+  } catch (e) {
+    if (e?.status) return res.status(e.status).json({ error: { message: e.message } });
+    next(e);
+  }
+};
+
+/**
+ * Append one sanitized pre-hire document into agency default_prehire_docs (by id upsert).
+ */
+export const addPrehireDocToAgencyDefaults = async (req, res, next) => {
+  try {
+    const agencyId = parseIntParam(req.query.agencyId || req.user?.agencyId);
+    await ensureAgencyAccess(req, agencyId);
+    const sanitized = sanitizePrehireConfig({ documents: [req.body?.document || req.body] });
+    const doc = sanitized.documents[0];
+    if (!doc) {
+      return res.status(400).json({ error: { message: 'A document with a title is required.' } });
+    }
+
+    const [existingRows] = await pool.execute(
+      'SELECT prehire_settings FROM agencies WHERE id = ? LIMIT 1',
+      [agencyId]
+    );
+    const rawExisting = existingRows[0]?.prehire_settings;
+    const existing = typeof rawExisting === 'string' ? JSON.parse(rawExisting) : (rawExisting || {});
+    const currentDocs = Array.isArray(existing.default_prehire_docs) ? existing.default_prehire_docs : [];
+    const nextDocs = sanitizePrehireConfig({ documents: currentDocs }).documents;
+    const idx = nextDocs.findIndex((d) => d.id === doc.id);
+    if (idx >= 0) nextDocs[idx] = doc;
+    else nextDocs.push(doc);
+    const merged = { ...existing, default_prehire_docs: nextDocs };
+    await pool.execute(
+      'UPDATE agencies SET prehire_settings = ? WHERE id = ?',
+      [JSON.stringify(merged), agencyId]
+    );
+    res.json({ agencyId, settings: merged, document: doc });
+  } catch (e) {
+    if (e?.status) return res.status(e.status).json({ error: { message: e.message } });
+    next(e);
+  }
+};
+
 // ─── Hiring Signer Roles ────────────────────────────────────────────────────
 
 export const listSignerRoles = async (req, res, next) => {
@@ -4071,7 +4172,9 @@ export const sendPreHire = async (req, res, next) => {
           candidateUserId,
           stage: 'hired',
           appliedRole: existing?.applied_role || existing?.appliedRole || null,
-          source: existing?.source || null
+          source: existing?.source || null,
+          jobDescriptionId: existing?.job_description_id || existing?.jobDescriptionId || null,
+          coverLetterText: existing?.cover_letter_text || existing?.coverLetterText || null
         });
       } catch { /* ignore */ }
       tokenResult = await User.generatePasswordlessToken(candidateUserId, 7 * 24);

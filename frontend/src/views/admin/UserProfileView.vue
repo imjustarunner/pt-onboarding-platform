@@ -1533,10 +1533,10 @@
 <AccountDashboardCard
                             section-id="agency-assignments"
                             title="Agency Assignments"
-                            subtitle="Manage tenant membership, roles, licensing, and classification. Changes affect access, supervision requirements, and billing."
+                            subtitle="Tenant membership, position, role, licensing, and classification. Edit fields directly — changes save when you leave a field or pick a new option."
                             :can-edit="canEditUser"
                             :editing="editingAgencyAssignments"
-                            edit-label="Edit Assignments"
+                            edit-label="Manage membership"
                             save-label="Done"
                             @edit="editingAgencyAssignments = true"
                             @save="editingAgencyAssignments = false"
@@ -1561,7 +1561,7 @@
                                         class="aa-badge aa-badge--default"
                                       >Default</span>
                                     </div>
-                                    <div class="aa-agency-card__actions" v-if="canEditUser && editingAgencyAssignments">
+                                    <div class="aa-agency-card__actions" v-if="canEditUser">
                                       <button
                                         v-if="!Number(agency.is_default)"
                                         type="button"
@@ -1589,7 +1589,7 @@
                                         <input
                                           class="agency-select"
                                           :value="aliasForAgency(agency.id)"
-                                          :disabled="!canEditUser || !editingAgencyAssignments || savingAgencyAliasId === agency.id"
+                                          :disabled="!canEditUser || savingAgencyAliasId === agency.id"
                                           placeholder="alias@domain.com"
                                           @change="saveAliasForAgency(agency.id, $event.target.value)"
                                         />
@@ -1599,7 +1599,7 @@
                                         <input
                                           class="agency-select"
                                           :value="agency.agency_position || ''"
-                                          :disabled="!canEditUser || !editingAgencyAssignments || savingAgencyMembershipId === agency.id"
+                                          :disabled="!canEditUser || savingAgencyMembershipId === agency.id"
                                           placeholder="Title at this agency"
                                           @change="saveAgencyMembership(agency.id, { agencyPosition: $event.target.value })"
                                         />
@@ -1609,7 +1609,7 @@
                                         <select
                                           class="agency-select"
                                           :value="agencyRoleFor(agency)"
-                                          :disabled="!canEditUser || !editingAgencyAssignments || savingAgencyMembershipId === agency.id"
+                                          :disabled="!canEditUser || savingAgencyMembershipId === agency.id"
                                           @change="saveAgencyMembership(agency.id, { agencyRole: $event.target.value })"
                                         >
                                           <option
@@ -1643,13 +1643,13 @@
             
                                   <div v-if="canEditUser && canShowH0032Mode" class="aa-section">
                                     <h4 class="aa-section__title"><span>2</span> Clinical &amp; Billing Setup</h4>
-                                    <div class="aa-section__grid">
+                                    <div class="aa-section__grid aa-section__grid--billing">
                                       <label class="aa-field">
                                         <span>H0032 Billing Mode</span>
                                         <select
                                           :value="h0032ModeForAgency(agency)"
                                           class="agency-select"
-                                          :disabled="!editingAgencyAssignments || updatingH0032AgencyId === agency.id"
+                                          :disabled="updatingH0032AgencyId === agency.id"
                                           @change="setH0032Mode(agency.id, $event.target.value)"
                                         >
                                           <option value="cat1_hour">Cat1 Hour (manual minutes)</option>
@@ -1712,7 +1712,7 @@
                                         <input
                                           type="checkbox"
                                           :checked="isPrelicensedForAgency(agency)"
-                                          :disabled="!canEditUser || updatingPrelicensedAgencyId === agency.id || !isEditingPrelicensedForAgency(agency)"
+                                          :disabled="!canEditUser || updatingPrelicensedAgencyId === agency.id"
                                           @change="savePrelicensedSettings(agency, { isPrelicensed: $event.target.checked })"
                                         />
                                         <span>{{ isPrelicensedForAgency(agency) ? 'On' : 'Off' }}</span>
@@ -1724,7 +1724,7 @@
                                         :disabled="updatingPrelicensedAgencyId === agency.id"
                                         @click="togglePrelicensedEdit(agency.id)"
                                       >
-                                        {{ isEditingPrelicensedForAgency(agency) ? 'Done' : 'Edit' }}
+                                        {{ isEditingPrelicensedForAgency(agency) ? 'Hide details' : 'Hours' }}
                                       </button>
                                       <template v-if="prelicensedClassificationFor(agency.id)">
                                         <span
@@ -1812,9 +1812,7 @@
                                       </p>
                                     </div>
                                     <div class="category-axes-note muted">
-                                      Current 50/100 supervision hours apply to pay-Cat-2 prelicensed only (not interns).
-                                      HCBS category will feed future State Supervision Oversight Requirements (not built yet).
-                                      H0032 Cat1/Cat2 above is billing-minutes mode, not Pay/HCBS.
+                                      50/100 hours apply to pay Cat-2 prelicensed only. H0032 is billing minutes, not Pay/HCBS.
                                     </div>
                                   </div>
             
@@ -9802,32 +9800,33 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   align-items: stretch;
-  gap: 14px;
-  padding: 16px;
+  gap: 8px;
+  padding: 12px 14px;
   background: #fff;
   border: 1px solid #e5e7eb;
-  border-radius: 12px;
-  margin-bottom: 14px;
+  border-radius: 10px;
+  margin-bottom: 10px;
+  max-width: 720px;
 }
 
 .aa-agency-card__head {
   display: flex;
   justify-content: space-between;
-  gap: 12px;
-  align-items: flex-start;
+  gap: 8px;
+  align-items: center;
   flex-wrap: wrap;
 }
 
 .aa-agency-card__title-row {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: 6px;
   align-items: center;
 }
 
 .aa-agency-card__actions {
   display: flex;
-  gap: 8px;
+  gap: 6px;
   flex-wrap: wrap;
 }
 
@@ -9835,8 +9834,8 @@ onUnmounted(() => {
   display: inline-flex;
   align-items: center;
   border-radius: 999px;
-  padding: 2px 10px;
-  font-size: 11px;
+  padding: 1px 8px;
+  font-size: 10px;
   font-weight: 700;
 }
 
@@ -9857,68 +9856,81 @@ onUnmounted(() => {
 
 .aa-section {
   border-top: 1px solid #edf0f4;
-  padding-top: 12px;
+  padding-top: 8px;
 }
 
 .aa-section__title {
-  margin: 0 0 10px;
-  font-size: 13px;
+  margin: 0 0 6px;
+  font-size: 12px;
   font-weight: 700;
   color: #0f172a;
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
 }
 
 .aa-section__title span {
   display: inline-flex;
-  width: 20px;
-  height: 20px;
+  width: 16px;
+  height: 16px;
   border-radius: 999px;
   align-items: center;
   justify-content: center;
   background: #166534;
   color: #fff;
-  font-size: 11px;
+  font-size: 10px;
 }
 
 .aa-section__grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
+  grid-template-columns: repeat(2, minmax(0, 220px));
+  gap: 8px 12px;
+  align-items: end;
+}
+
+.aa-section__grid--billing {
+  grid-template-columns: minmax(0, 280px) auto;
 }
 
 .aa-field {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  font-size: 12px;
-  font-weight: 600;
+  gap: 3px;
+  font-size: 11px;
+  font-weight: 650;
   color: #475569;
+}
+
+.aa-field .agency-select {
+  max-width: 100%;
+  min-height: 34px;
+  padding: 6px 8px;
+  font-size: 13px;
 }
 
 .aa-hint {
   margin: 0;
-  font-size: 12px;
+  font-size: 11px;
   color: #64748b;
-  align-self: end;
+  align-self: center;
+  padding-bottom: 4px;
 }
 
 .aa-classification-row {
   display: flex;
   flex-wrap: wrap;
-  gap: 12px;
+  gap: 8px;
 }
 
 .aa-class-pill {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  min-width: 160px;
+  gap: 2px;
+  min-width: 120px;
 }
 
 .aa-class-detail {
-  font-size: 11px;
+  font-size: 10px;
 }
 
 .aa-dual-list {
@@ -10014,8 +10026,12 @@ onUnmounted(() => {
 
 @media (max-width: 900px) {
   .aa-section__grid,
+  .aa-section__grid--billing,
   .aa-dual-list {
     grid-template-columns: 1fr;
+  }
+  .aa-agency-card {
+    max-width: none;
   }
   .aa-dual-controls {
     padding-top: 0;

@@ -247,11 +247,12 @@ export const createUserAdminDocUpload = async (req, res, next) => {
     if (!userId) return res.status(400).json({ error: { message: 'Invalid userId' } });
     await ensureMetadataAccess(req, userId);
 
-    const title = String(req.body?.title || '').trim();
+    const title = String(req.body?.title || req.file?.originalname || '').trim()
+      || String(req.file?.originalname || 'Document').replace(/\.[^.]+$/, '').trim()
+      || 'Document';
     const docType = req.body?.docType !== undefined ? String(req.body.docType || '').trim() : null;
     const noteText = req.body?.noteText !== undefined ? String(req.body.noteText || '').trim() : null;
 
-    if (!title) return res.status(400).json({ error: { message: 'title is required' } });
     if (!req.file) return res.status(400).json({ error: { message: 'file upload is required' } });
 
     const fileBuffer = req.file.buffer;

@@ -4,8 +4,8 @@
       <div>
         <h4>{{ heading }}</h4>
         <p class="muted">
-          These items appear on the candidate’s pre-hire portal when Start Pre-Hire runs.
-          Pick a type below — each one does something different for the candidate.
+          These items appear on the candidate’s pre-hire portal. Upload company documents here for
+          candidates to review and sign — or ask them to upload a completed file.
         </p>
       </div>
       <button type="button" class="btn btn-secondary btn-sm" @click="addDoc">Add document</button>
@@ -14,19 +14,19 @@
     <div class="jpde-kind-guide" role="note">
       <div class="jpde-kind-guide-item">
         <strong>Sign job description</strong>
-        <span>Shows the posting on the portal and collects a signature acknowledging the role.</span>
+        <span>Copies this posting’s details into the portal for the candidate to read and sign.</span>
       </div>
       <div class="jpde-kind-guide-item">
-        <strong>Printable instructions</strong>
-        <span>Opens a dedicated print page (fingerprint steps, checklists, etc.).</span>
-      </div>
-      <div class="jpde-kind-guide-item">
-        <strong>External website</strong>
-        <span>Opens an outside URL such as IdentoGO or a vendor enrollment portal.</span>
+        <strong>Company document to sign</strong>
+        <span>Upload a PDF/form you provide. Candidate reviews it in the portal and signs.</span>
       </div>
       <div class="jpde-kind-guide-item">
         <strong>Candidate upload</strong>
-        <span>Asks the candidate to upload a completed form, receipt, or other file.</span>
+        <span>Candidate uploads their completed form or receipt (optionally download your blank first).</span>
+      </div>
+      <div class="jpde-kind-guide-item">
+        <strong>Printable / external</strong>
+        <span>Printable instructions page, or open an outside vendor site (IdentoGO, etc.).</span>
       </div>
     </div>
 
@@ -39,28 +39,45 @@
       </div>
       <div class="jpde-grid">
         <label>Title
-          <input v-model="doc.title" class="input" type="text" placeholder="e.g. IdentoGO fingerprinting" />
+          <input v-model="doc.title" class="input" type="text" placeholder="e.g. Handbook acknowledgement" />
         </label>
         <label>What should the candidate do?
           <select v-model="doc.kind" class="input">
             <option value="acknowledgement">Sign job description</option>
+            <option value="company_document">Company document to review &amp; sign</option>
+            <option value="upload">Candidate file upload</option>
             <option value="print_only">Printable instructions</option>
             <option value="reference">External website link</option>
-            <option value="upload">Candidate file upload</option>
           </select>
         </label>
         <label v-if="doc.kind === 'reference'">Website URL
           <input v-model="doc.url" class="input" type="url" placeholder="https://uenroll.identogo.com/…" />
           <span class="jpde-field-hint">Candidate taps “Open link” and leaves your portal for this site.</span>
         </label>
-        <label v-if="doc.kind === 'upload'">Optional blank form URL
-          <input v-model="doc.url" class="input" type="url" placeholder="https://…/blank-form.pdf" />
-          <span class="jpde-field-hint">If you host a blank PDF, candidates can download it before uploading their completed copy.</span>
-        </label>
-        <label v-if="doc.kind === 'upload'">Library template ID (optional)
-          <input v-model="doc.templateId" class="input" type="number" min="1" placeholder="Advanced — document_templates.id" />
-          <span class="jpde-field-hint">Only needed if you also assign a formal document task from the library.</span>
-        </label>
+        <div v-if="doc.kind === 'company_document' || doc.kind === 'upload'" class="jpde-file-block">
+          <label>{{ doc.kind === 'company_document' ? 'Upload company document' : 'Upload blank form (optional)' }}
+            <input
+              class="input"
+              type="file"
+              accept=".pdf,.png,.jpg,.jpeg,.webp,application/pdf,image/*"
+              :disabled="!!uploadBusy[doc.id]"
+              @change="onFilePicked(doc, $event)"
+            />
+          </label>
+          <p v-if="doc.fileName || doc.filePath" class="jpde-file-current">
+            Attached: <strong>{{ doc.fileName || 'Uploaded file' }}</strong>
+            <button type="button" class="jpde-clear-file" @click="clearFile(doc)">Remove file</button>
+          </p>
+          <p v-if="uploadError[doc.id]" class="jpde-upload-err">{{ uploadError[doc.id] }}</p>
+          <p v-if="uploadBusy[doc.id]" class="jpde-field-hint">Uploading…</p>
+          <span class="jpde-field-hint">
+            {{
+              doc.kind === 'company_document'
+                ? 'Candidate sees this file in their portal and signs to acknowledge it. No external link needed.'
+                : 'Optional: give candidates your blank form to download before they upload their completed copy.'
+            }}
+          </span>
+        </div>
         <label>Scheduled on (optional)
           <input v-model="doc.scheduledOn" class="input" type="date" />
         </label>
@@ -81,19 +98,40 @@
           placeholder="Shown only on the print page — step-by-step what to print or bring."
         />
       </label>
-      <p class="jpde-kind-callout">{{ kindCallout(doc.kind) }}</p>
+      <div class="jpde-actions-row">
+        <p class="jpde-kind-callout">{{ kindCallout(doc.kind) }}</p>
+        <button
+          v-if="allowAgencyDefault"
+          type="button"
+          class="btn btn-secondary btn-sm"
+          :disabled="!!defaultBusy[doc.id] || !String(doc.title || '').trim()"
+          @click="saveAsAgencyDefault(doc)"
+        >
+          {{ defaultBusy[doc.id] ? 'Saving…' : (defaultDone[doc.id] ? 'Saved as agency default' : 'Also set as agency default') }}
+        </button>
+      </div>
+      <p v-if="defaultError[doc.id]" class="jpde-upload-err">{{ defaultError[doc.id] }}</p>
     </div>
   </div>
 </template>
 
 <script setup>
-import { computed } from 'vue';
+import { computed, reactive } from 'vue';
+import api from '../../services/api';
 
 const props = defineProps({
   modelValue: { type: Object, default: () => ({ documents: [] }) },
-  heading: { type: String, default: 'Pre-hire documents for this job' }
+  heading: { type: String, default: 'Pre-hire documents for this job' },
+  agencyId: { type: [Number, String], default: null },
+  allowAgencyDefault: { type: Boolean, default: true }
 });
 const emit = defineEmits(['update:modelValue']);
+
+const uploadBusy = reactive({});
+const uploadError = reactive({});
+const defaultBusy = reactive({});
+const defaultDone = reactive({});
+const defaultError = reactive({});
 
 const model = computed({
   get: () => {
@@ -104,13 +142,21 @@ const model = computed({
   set: (val) => emit('update:modelValue', val)
 });
 
+const agencyParams = () => {
+  const id = Number(props.agencyId || 0);
+  return id > 0 ? { agencyId: id } : {};
+};
+
 const blankDoc = () => ({
   id: `doc-${Date.now()}-${Math.round(Math.random() * 1e6)}`,
-  kind: 'acknowledgement',
+  kind: 'company_document',
   title: '',
   instructions: '',
   printInstructions: '',
   url: '',
+  filePath: '',
+  fileName: '',
+  mimeType: '',
   templateId: '',
   scheduledOn: ''
 });
@@ -122,6 +168,64 @@ const removeDoc = (idx) => {
   model.value.documents.splice(idx, 1);
 };
 
+const clearFile = (doc) => {
+  doc.filePath = '';
+  doc.fileName = '';
+  doc.mimeType = '';
+  doc.url = '';
+};
+
+const onFilePicked = async (doc, event) => {
+  const file = event?.target?.files?.[0];
+  if (!file) return;
+  uploadError[doc.id] = '';
+  uploadBusy[doc.id] = true;
+  try {
+    const fd = new FormData();
+    fd.append('file', file);
+    const { data } = await api.post('/hiring/prehire-doc-files', fd, {
+      params: agencyParams(),
+      headers: { 'Content-Type': 'multipart/form-data' }
+    });
+    doc.filePath = data.filePath || '';
+    doc.fileName = data.fileName || file.name;
+    doc.mimeType = data.mimeType || file.type || '';
+    // Keep signed view URL out of persisted config — portal resolves via filePath.
+    if (doc.kind === 'upload' && data.viewUrl) {
+      // Optional convenience for candidate blank-form download while admin is editing;
+      // portal prefers filePath when present.
+      doc.url = '';
+    }
+  } catch (e) {
+    uploadError[doc.id] = e?.response?.data?.error?.message || 'Upload failed.';
+  } finally {
+    uploadBusy[doc.id] = false;
+    if (event?.target) event.target.value = '';
+  }
+};
+
+const saveAsAgencyDefault = async (doc) => {
+  defaultError[doc.id] = '';
+  defaultDone[doc.id] = false;
+  if (!String(doc.title || '').trim()) {
+    defaultError[doc.id] = 'Add a title before saving as an agency default.';
+    return;
+  }
+  defaultBusy[doc.id] = true;
+  try {
+    await api.post(
+      '/hiring/prehire-docs/agency-default',
+      { document: { ...doc } },
+      { params: agencyParams() }
+    );
+    defaultDone[doc.id] = true;
+  } catch (e) {
+    defaultError[doc.id] = e?.response?.data?.error?.message || 'Could not save agency default.';
+  } finally {
+    defaultBusy[doc.id] = false;
+  }
+};
+
 const instructionsPlaceholder = (kind) => {
   switch (String(kind || '')) {
     case 'print_only':
@@ -130,8 +234,10 @@ const instructionsPlaceholder = (kind) => {
       return 'e.g. Complete fingerprint enrollment on the IdentoGO site, then return here.';
     case 'upload':
       return 'e.g. Upload a photo or PDF of your completed fingerprint receipt.';
+    case 'company_document':
+      return 'e.g. Read this document carefully, then sign to acknowledge you received and understand it.';
     default:
-      return 'e.g. Read the job description carefully, then sign to acknowledge.';
+      return 'e.g. Read the job description carefully, then sign to acknowledge the role expectations.';
   }
 };
 
@@ -140,11 +246,13 @@ const kindCallout = (kind) => {
     case 'print_only':
       return 'Candidate sees an “Open print page” button. Put the long checklist in Print-page instructions.';
     case 'reference':
-      return 'Candidate sees an “Open link” button. Use this for vendor sites you do not host.';
+      return 'Candidate sees an “Open link” button. Use this only for vendor sites you do not host.';
     case 'upload':
-      return 'Candidate sees an upload control on their portal. Files are stored on their hire record.';
+      return 'Candidate uploads a file to their hire record. Optionally attach your blank form above.';
+    case 'company_document':
+      return 'Candidate reviews your uploaded document in the portal and signs. Stored on their hire record.';
     default:
-      return 'Candidate reviews the job description in the portal and signs to acknowledge it. No extra URL needed.';
+      return 'Candidate reviews this job’s description in the portal and signs. That signed copy is kept on their hire record.';
   }
 };
 </script>
@@ -186,7 +294,8 @@ const kindCallout = (kind) => {
 .jpde-card-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
 .jpde-remove { border: 0; background: none; color: #b91c1c; font-weight: 650; cursor: pointer; }
 .jpde-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-.jpde-grid label, .jpde-full { display: flex; flex-direction: column; gap: 4px; font-size: 0.8rem; font-weight: 650; }
+.jpde-grid label, .jpde-full, .jpde-file-block { display: flex; flex-direction: column; gap: 4px; font-size: 0.8rem; font-weight: 650; }
+.jpde-file-block { grid-column: 1 / -1; }
 .jpde-full { margin-top: 8px; }
 .jpde-field-hint {
   font-size: 0.75rem;
@@ -194,8 +303,39 @@ const kindCallout = (kind) => {
   color: #64748b;
   line-height: 1.35;
 }
+.jpde-file-current {
+  margin: 0;
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: #065f46;
+}
+.jpde-clear-file {
+  margin-left: 8px;
+  border: 0;
+  background: none;
+  color: #b91c1c;
+  font-weight: 650;
+  cursor: pointer;
+  font-size: 0.75rem;
+}
+.jpde-upload-err {
+  margin: 4px 0 0;
+  color: #b91c1c;
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+.jpde-actions-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: flex-start;
+  justify-content: space-between;
+  margin-top: 10px;
+}
 .jpde-kind-callout {
-  margin: 10px 0 0;
+  margin: 0;
+  flex: 1;
+  min-width: 200px;
   padding: 8px 10px;
   border-radius: 8px;
   background: #ecfdf5;

@@ -57,6 +57,8 @@ import {
   openCandidateTimeCapsule,
   getHiringSettings,
   updateHiringSettings,
+  uploadPrehireDocFile,
+  addPrehireDocToAgencyDefaults,
   listSignerRoles,
   createSignerRole,
   updateSignerRole,
@@ -178,6 +180,8 @@ router.post('/candidates/:userId/send-onboarding-invite', sendOnboardingInvite);
 // Pre-hire workflow settings
 router.get('/settings', getHiringSettings);
 router.put('/settings', updateHiringSettings);
+router.post('/prehire-doc-files', upload.single('file'), uploadPrehireDocFile);
+router.post('/prehire-docs/agency-default', addPrehireDocToAgencyDefaults);
 
 // Internal signer roles
 router.get('/signer-roles', listSignerRoles);

@@ -92,6 +92,51 @@
           </div>
         </div>
 
+        <div v-if="mode !== 'folder'" class="lib-share-modes">
+          <span class="lib-scope__label">When you share it, how should people receive it?</span>
+          <p class="lib-hint lib-share-modes__hint">
+            Choose now so the next step can give personal copies or open collaboration — not only a view link.
+          </p>
+          <div class="lib-share-modes__grid">
+            <button
+              type="button"
+              class="lib-share-mode"
+              :class="{ 'is-active': form.shareMode === 'personal_copy' }"
+              @click="form.shareMode = 'personal_copy'"
+            >
+              <strong>Personal copy</strong>
+              <small>Each person gets their own editable copy. Their edits stay private.</small>
+            </button>
+            <button
+              type="button"
+              class="lib-share-mode"
+              :class="{ 'is-active': form.shareMode === 'collaborate' }"
+              @click="form.shareMode = 'collaborate'"
+            >
+              <strong>Collaborate</strong>
+              <small>Same shared document — permitted people edit the master together.</small>
+            </button>
+            <button
+              type="button"
+              class="lib-share-mode"
+              :class="{ 'is-active': form.shareMode === 'view_only' }"
+              @click="form.shareMode = 'view_only'"
+            >
+              <strong>View only</strong>
+              <small>Same document — they can open it, but cannot edit the master.</small>
+            </button>
+            <button
+              type="button"
+              class="lib-share-mode lib-share-mode--later"
+              :class="{ 'is-active': form.shareMode === 'later' }"
+              @click="form.shareMode = 'later'"
+            >
+              <strong>Distribute later</strong>
+              <small>Just add it to the Library for now. You can distribute anytime.</small>
+            </button>
+          </div>
+        </div>
+
         <template v-if="mode !== 'folder'">
           <label class="lib-field">
             <span>Description</span>
@@ -181,7 +226,8 @@ const form = reactive({
   folderId: props.defaultFolderId ? String(props.defaultFolderId) : '',
   tags: '',
   featured: false,
-  scope: props.canManage ? 'organization' : 'personal'
+  scope: props.canManage ? 'organization' : 'personal',
+  shareMode: 'personal_copy'
 });
 
 watch(
@@ -217,6 +263,10 @@ async function submit() {
   error.value = '';
   saving.value = true;
   try {
+    const shareMode = ['personal_copy', 'collaborate', 'view_only'].includes(form.shareMode)
+      ? form.shareMode
+      : null;
+
     if (mode.value === 'folder') {
       if (!form.name.trim()) throw new Error('Folder name is required');
       const folder = await createLibraryFolder({
@@ -242,7 +292,7 @@ async function submit() {
       if (form.tags) fd.append('tags', form.tags);
       if (form.featured && form.scope === 'organization') fd.append('featured', '1');
       const item = await uploadLibraryResource(fd);
-      emit('created', { kind: 'resource', item });
+      emit('created', { kind: 'resource', item, shareMode });
       emit('close');
       return;
     }
@@ -262,7 +312,7 @@ async function submit() {
         .filter(Boolean),
       featured: form.scope === 'organization' && form.featured
     });
-    emit('created', { kind: 'resource', item });
+    emit('created', { kind: 'resource', item, shareMode });
     emit('close');
   } catch (e) {
     error.value = e?.response?.data?.error?.message || e?.message || 'Could not save';
@@ -426,6 +476,71 @@ async function submit() {
   font-size: 0.75rem;
   color: #64748b;
   margin-top: 0.1rem;
+}
+
+.lib-share-modes {
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  padding: 0.75rem;
+  background: #fff;
+}
+
+.lib-share-modes__hint {
+  margin: -0.25rem 0 0.65rem;
+}
+
+.lib-share-modes__grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.5rem;
+}
+
+.lib-share-mode {
+  text-align: left;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 0.65rem 0.75rem;
+  background: #f8fafc;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s, box-shadow 0.15s;
+}
+
+.lib-share-mode:hover {
+  border-color: #94a3b8;
+  background: #fff;
+}
+
+.lib-share-mode.is-active {
+  border-color: #166534;
+  background: #ecfdf5;
+  box-shadow: 0 0 0 1px #16653433;
+}
+
+.lib-share-mode--later.is-active {
+  border-color: #64748b;
+  background: #f1f5f9;
+  box-shadow: none;
+}
+
+.lib-share-mode strong {
+  display: block;
+  font-size: 0.82rem;
+  color: #0f172a;
+  margin-bottom: 0.2rem;
+}
+
+.lib-share-mode small {
+  display: block;
+  font-size: 0.72rem;
+  color: #64748b;
+  line-height: 1.35;
+  font-weight: 500;
+}
+
+@media (max-width: 560px) {
+  .lib-share-modes__grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 .lib-hint {

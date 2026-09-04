@@ -95,7 +95,12 @@
             Agency-wide defaults merged with each job posting’s documents. Job-level items take priority.
           </div>
         </div>
-        <JobPrehireDocsEditor v-model="defaultDocsModel" heading="Agency default documents" />
+        <JobPrehireDocsEditor
+          v-model="defaultDocsModel"
+          heading="Agency default documents"
+          :agency-id="agencyId"
+          :allow-agency-default="false"
+        />
       </div>
 
       <!-- Candidate Access Token -->

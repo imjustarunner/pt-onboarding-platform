@@ -85,12 +85,21 @@ import { distributeLibraryResource } from '../../services/library.js';
 
 const props = defineProps({
   resource: { type: Object, required: true },
-  agencyId: { type: [Number, String], default: null }
+  agencyId: { type: [Number, String], default: null },
+  initialMode: {
+    type: String,
+    default: 'personal_copy',
+    validator: (v) => ['view_only', 'collaborate', 'personal_copy'].includes(String(v || ''))
+  }
 });
 
 const emit = defineEmits(['close', 'done']);
 
-const mode = ref('personal_copy');
+const mode = ref(
+  ['view_only', 'collaborate', 'personal_copy'].includes(props.initialMode)
+    ? props.initialMode
+    : 'personal_copy'
+);
 const audience = ref('providers');
 const emails = ref('');
 const saving = ref(false);

@@ -4,6 +4,12 @@
       <router-link v-if="isStandaloneHub" :to="orgTo('/dashboard')" class="back-link">← Back to Dashboard</router-link>
       <h1>Tools &amp; Aids</h1>
       <p class="subtitle">Assessments, games and activities, and AI aids for sessions and client care.</p>
+      <ToolsResourcesHubSwitcher
+        class="tools-aids__switcher"
+        :org-prefix="organizationSlug ? `/${organizationSlug}` : ''"
+        :active="toolsSwitcherActive"
+        :show-referral-directory="showReferralDirectoryNav"
+      />
     </div>
 
     <div class="toolbar">
@@ -215,6 +221,7 @@ import {
 import ToolCard from '../../components/tools/ToolCard.vue';
 import ToolsAssignModal from '../../components/tools/ToolsAssignModal.vue';
 import ToolsEditModal from '../../components/tools/ToolsEditModal.vue';
+import ToolsResourcesHubSwitcher from '../../components/library/ToolsResourcesHubSwitcher.vue';
 import { ensureHourlySessionForNoteAid } from '../../utils/noteAidIndirectSession.js';
 import { parseAgencyFeatureFlags } from '../../config/medicalBillingAccess.js';
 import {
@@ -271,6 +278,18 @@ const isStandaloneHub = computed(() => {
 });
 
 const activeTab = computed(() => hubTab.value);
+
+const toolsSwitcherActive = computed(() => {
+  const t = activeTab.value;
+  if (t === 'games') return 'games';
+  if (t === 'ai') return 'ai';
+  return 'assessments';
+});
+
+const showReferralDirectoryNav = computed(() => {
+  const role = String(authStore.user?.role || '').toLowerCase();
+  return ['admin', 'support', 'staff', 'provider', 'provider_plus', 'super_admin'].includes(role);
+});
 
 const canSeeGames = computed(() => {
   const role = String(authStore.user?.role || '').toLowerCase();
@@ -784,6 +803,9 @@ watch(
 .tools-aids__header h1 {
   margin: 0;
   letter-spacing: -0.02em;
+}
+.tools-aids__switcher {
+  margin-top: 12px;
 }
 .back-link {
   display: inline-block;

@@ -33,7 +33,9 @@ import {
   recordPortalHandbookOpen,
   completePortalChecklistItem,
   acknowledgePortalJobDescription,
-  uploadPortalPrehireDocument
+  uploadPortalPrehireDocument,
+  viewPortalPrehireDocFile,
+  signPortalCompanyDocument
 } from '../controllers/prehirePortal.controller.js';
 
 const router = express.Router();
@@ -94,6 +96,12 @@ router.post(
   '/:token/job-description/acknowledge',
   [body('signatureData').notEmpty().withMessage('Signature is required')],
   acknowledgePortalJobDescription
+);
+router.get('/:token/documents/:docId/file', viewPortalPrehireDocFile);
+router.post(
+  '/:token/documents/:docId/sign',
+  [body('signatureData').notEmpty().withMessage('Signature is required')],
+  signPortalCompanyDocument
 );
 router.post(
   '/:token/documents/upload',
