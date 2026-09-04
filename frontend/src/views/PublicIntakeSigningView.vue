@@ -380,7 +380,7 @@
         @support="openSplashSupportModal"
         @dev-fill="fillExample"
       >
-          <div v-if="intakeForSelf !== false" class="intake-start-grid">
+          <div v-if="intakeForSelf !== false || serviceSubject" class="intake-start-grid">
             <section class="intake-start-col">
               <h2 class="intake-start-col-title">
                 <span class="intake-start-col-num">1.</span>
@@ -388,22 +388,44 @@
               </h2>
               <div class="intake-who-stack">
                 <button
+                  v-if="isEnrollmentOptionEnabled('self')"
                   type="button"
                   class="ai-pathway-card"
-                  :class="{ 'ai-pathway-card--selected': intakeForSelf === false }"
-                  @click="chooseWhoFor(false)"
+                  :class="{ 'ai-pathway-card--selected': serviceSubject === 'self' }"
+                  @click="chooseServiceSubject('self')"
+                >
+                  <span class="intake-who-icon" aria-hidden="true">👤</span>
+                  <h3 class="ai-pathway-card-title">{{ t('myself') }}</h3>
+                </button>
+                <button
+                  v-if="isEnrollmentOptionEnabled('dependent')"
+                  type="button"
+                  class="ai-pathway-card"
+                  :class="{ 'ai-pathway-card--selected': serviceSubject === 'dependent' }"
+                  @click="chooseServiceSubject('dependent')"
                 >
                   <span class="intake-who-icon" aria-hidden="true">👨‍👩‍👧</span>
                   <h3 class="ai-pathway-card-title">{{ t('myChildDependent') }}</h3>
                 </button>
                 <button
+                  v-if="isEnrollmentOptionEnabled('couple')"
                   type="button"
                   class="ai-pathway-card"
-                  :class="{ 'ai-pathway-card--selected': intakeForSelf === true }"
-                  @click="chooseWhoFor(true)"
+                  :class="{ 'ai-pathway-card--selected': serviceSubject === 'couple' }"
+                  @click="chooseServiceSubject('couple')"
                 >
-                  <span class="intake-who-icon" aria-hidden="true">👤</span>
-                  <h3 class="ai-pathway-card-title">{{ t('myself') }}</h3>
+                  <span class="intake-who-icon" aria-hidden="true">💑</span>
+                  <h3 class="ai-pathway-card-title">{{ t('aCouple') }}</h3>
+                </button>
+                <button
+                  v-if="isEnrollmentOptionEnabled('family')"
+                  type="button"
+                  class="ai-pathway-card"
+                  :class="{ 'ai-pathway-card--selected': serviceSubject === 'family' }"
+                  @click="chooseServiceSubject('family')"
+                >
+                  <span class="intake-who-icon" aria-hidden="true">🏠</span>
+                  <h3 class="ai-pathway-card-title">{{ t('aFamily') }}</h3>
                 </button>
               </div>
             </section>
@@ -1332,7 +1354,13 @@
           v-if="showClinicalSafetyBanner"
           variant="warn"
           title="If you are in immediate danger, call 911"
-          body="If you are having thoughts of suicide or feel unsafe, call or text 988. Your therapist will also be notified so this is not missed."
+          body="If you are having thoughts of suicide or feel unsafe, call or text 988. Your care team will also be notified so this is not missed."
+        />
+        <DigitalFormNotice
+          v-if="isCurrentStepPrivateSafety"
+          variant="info"
+          title="Private answers"
+          body="Please complete this page alone when possible. These answers stay private to clinical review and are not shown on shared review screens."
         />
         <div v-if="stepError" class="error" style="margin-bottom: 10px;">{{ stepError }}</div>
         <div :key="flowStepRenderKey" class="intake-flow-step-body">
@@ -1829,7 +1857,15 @@
         </div>
 
         <div v-if="currentFlowStep?.type === 'provider_match'" class="provider-match-step">
+          <div v-if="providerMatchOnClinicalHold" class="clinical-review-hold">
+            <DigitalFormNotice
+              variant="warn"
+              title="Clinical review before provider matching"
+              body="Based on answers in this intake, a clinician will review your information before matching you with a provider. You can continue — no provider selection is needed right now."
+            />
+          </div>
           <ChooseProviderDirectory
+            v-else
             mode="intake"
             title="Choose a provider"
             lead="Select one or more providers. Optionally rank your top 3. Choosing a slot is a preference — not a booking."
@@ -1839,6 +1875,76 @@
             :selected-ids="selectedOfficeProviderIds"
             @update:selected-ids="setSelectedOfficeProviderIds"
           />
+        </div>
+
+        <div v-if="currentFlowStep?.type === 'family_roster'" class="family-roster-step intake-interview-page">
+          <p class="df-section-help">
+            Add everyone who may be part of care. Adults and children can both be listed.
+          </p>
+          <div
+            v-for="(member, idx) in familyRosterMembers"
+            :key="'fr-' + idx"
+            class="family-roster-card"
+          >
+            <div class="family-roster-card-head">
+              <strong>Family member {{ idx + 1 }}</strong>
+              <button
+                v-if="familyRosterMembers.length > 1"
+                type="button"
+                class="btn btn-outline btn-sm"
+                @click="removeFamilyRosterMember(idx)"
+              >Remove</button>
+            </div>
+            <div class="demographics-grid">
+              <div class="form-group">
+                <label>Legal first name <span class="required-indicator">*</span></label>
+                <input v-model="member.firstName" type="text" />
+              </div>
+              <div class="form-group">
+                <label>Legal last name <span class="required-indicator">*</span></label>
+                <input v-model="member.lastName" type="text" />
+              </div>
+              <div class="form-group">
+                <label>Preferred name</label>
+                <input v-model="member.preferredName" type="text" />
+              </div>
+              <div class="form-group">
+                <label>Date of birth <span class="required-indicator">*</span></label>
+                <input v-model="member.dateOfBirth" type="date" />
+              </div>
+              <div class="form-group">
+                <label>Sex</label>
+                <select v-model="member.sex">
+                  <option value="">Select…</option>
+                  <option value="female">Female</option>
+                  <option value="male">Male</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label>Relationship to primary contact</label>
+                <input v-model="member.relationshipToPrimary" type="text" />
+              </div>
+              <div class="form-group">
+                <label>Lives in household?</label>
+                <select v-model="member.livesInHousehold">
+                  <option value="">Select…</option>
+                  <option value="yes">Yes</option>
+                  <option value="no">No</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label>Participating in therapy?</label>
+                <select v-model="member.participation">
+                  <option value="expected_regular">Expected to participate regularly</option>
+                  <option value="may_participate">May participate</option>
+                  <option value="not_participating">Not currently participating</option>
+                </select>
+              </div>
+            </div>
+          </div>
+          <button type="button" class="btn btn-outline" @click="addFamilyRosterMember">
+            + Add family member
+          </button>
         </div>
 
         <!-- Demographics step -->
@@ -2888,7 +2994,8 @@ import {
   JOIN_BOOT_THEME_URL,
   restoreJoinWelcomeCopy,
   readJoinLandingCache,
-  writeJoinLandingCache
+  writeJoinLandingCache,
+  isEnrollmentSubjectEnabled
 } from '../utils/joinLandingTemplate.js';
 import { pickTenantBackgroundUrl, pickTenantWelcomeUrl } from '../utils/tenantBrandAssets.js';
 import {
@@ -2896,6 +3003,8 @@ import {
   mergeShowIfValues,
   isCheckboxGroupField,
   isClinicalSafetyPositive,
+  clinicalReviewHoldReason,
+  isPrivateIntakeField,
   childAgeFlags,
   ageYearsFromDob
 } from '../utils/intakeShowIf.js';
@@ -3089,7 +3198,9 @@ const INTAKE_TRANSLATIONS = {
     completingForDependents: 'I am a parent or guardian submitting for my child(ren)',
     completingForSomeoneElse: 'I am a parent, guardian, or caregiver completing this for someone else.',
     someoneElse: 'Someone else',
-    myChildDependent: 'My dependent',
+    myChildDependent: 'My child / dependent',
+    aCouple: 'A couple',
+    aFamily: 'A family',
     needSchoolProvider: 'School / provider details',
     continueToIntakePacket: 'Continue to Intake Packet',
     childDateOfBirth: "Child's date of birth",
@@ -5251,8 +5362,9 @@ const FLOW_STEP_PROGRESS_LABELS = {
   demographics: 'Demographics',
     questions: 'Questions',
     clinical_questions: 'Clinical',
-    child_review: 'Review'
-};
+    child_review: 'Review',
+    family_roster: 'Family roster'
+  };
 
 const PACKET_SECTION_STEP_TO_KEY = {
   packet_informed_group_consent: 'informed_group_consent',
@@ -5303,7 +5415,9 @@ function childDisplayName(idx) {
 
 function isRepeatPerClientStep(s) {
   const audience = String(s?.audience || '').trim().toLowerCase();
-  return s?.repeatPerClient === true || audience === 'dependent';
+  return s?.repeatPerClient === true
+    || audience === 'dependent'
+    || audience === 'family_member';
 }
 
 function progressBucketId(s) {
@@ -5313,6 +5427,7 @@ function progressBucketId(s) {
   const rawId = String(s?.id || '');
   if (type === 'communications') return 'communications';
   if (type === 'provider_match') return 'provider_match';
+  if (type === 'family_roster') return 'family_roster';
   if (rawId.includes('scheduling_prefs')) return 'scheduling_prefs';
   if (
     audience === 'guardian'
@@ -5607,6 +5722,7 @@ const flowSteps = computed(() => {
           || s?.type === 'clinical_questions'
           || s?.type === 'questions'
           || s?.type === 'child_review'
+          || s?.type === 'family_roster'
       )
       .filter((s) => {
         // Skip payment_collection when the guardian selected Medicaid coverage
@@ -5629,8 +5745,12 @@ const flowSteps = computed(() => {
           if (isOfficeInDepthIntake.value) return false;
         }
         const audience = String(s?.audience || '').trim().toLowerCase();
-        if (audience === 'self' && !intakeForSelf.value) return false;
-        if ((audience === 'dependent' || audience === 'guardian') && intakeForSelf.value) return false;
+        const subject = serviceSubject.value
+          || (intakeForSelf.value === true ? 'self' : intakeForSelf.value === false ? 'dependent' : '');
+        if (audience === 'self' && subject !== 'self') return false;
+        if ((audience === 'dependent' || audience === 'guardian') && subject !== 'dependent') return false;
+        if ((audience === 'couple' || audience === 'couple_partner') && subject !== 'couple') return false;
+        if ((audience === 'family' || audience === 'family_member') && subject !== 'family') return false;
         if (!isRepeatPerClientStep(s) && s?.showIf) {
           const bag = mergeShowIfValues(
             intakeResponses.submission || {},
@@ -5701,6 +5821,7 @@ const flowSteps = computed(() => {
           return { ...s };
         }
         if (s.type === 'provider_match') return { ...s };
+        if (s.type === 'family_roster') return { ...s };
         if (s.type === 'references') return { ...s };
         if (s.type === 'demographics') return { ...s };
         if (s.type === 'clinical_questions' || s.type === 'questions') {
@@ -6857,10 +6978,120 @@ const consentErrors = reactive({
 });
 const startClientErrors = ref([]);
 const intakeForSelf = ref(null);
+/** self | dependent | couple | family — preferred over boolean intakeForSelf for office counseling. */
+const serviceSubject = ref('');
 const whoForError = ref('');
 
 function emptyOfficeClient() {
   return { firstName: '', middleName: '', lastName: '', dateOfBirth: '' };
+}
+
+function emptyFamilyRosterMember() {
+  return {
+    firstName: '',
+    lastName: '',
+    preferredName: '',
+    dateOfBirth: '',
+    sex: '',
+    relationshipToPrimary: '',
+    livesInHousehold: '',
+    participation: 'expected_regular'
+  };
+}
+
+const familyRosterMembers = ref([emptyFamilyRosterMember()]);
+
+function addFamilyRosterMember() {
+  familyRosterMembers.value.push(emptyFamilyRosterMember());
+}
+
+function removeFamilyRosterMember(idx) {
+  if (familyRosterMembers.value.length <= 1) return;
+  familyRosterMembers.value.splice(idx, 1);
+}
+
+function seedFamilyRosterFromClients() {
+  const existing = (clients.value || []).filter((c) =>
+    String(c?.firstName || '').trim() || String(c?.lastName || '').trim() || String(c?.dateOfBirth || '').trim()
+  );
+  if (!existing.length) {
+    familyRosterMembers.value = [emptyFamilyRosterMember()];
+    return;
+  }
+  familyRosterMembers.value = existing.map((c, i) => {
+    const bag = intakeResponses.clients?.[i] || {};
+    return {
+      firstName: String(c.firstName || bag.member_legal_first || '').trim(),
+      lastName: String(c.lastName || bag.member_legal_last || '').trim(),
+      preferredName: String(bag.member_preferred_name || c.preferredName || '').trim(),
+      dateOfBirth: String(c.dateOfBirth || bag.member_date_of_birth || '').trim(),
+      sex: String(bag.member_sex || '').trim(),
+      relationshipToPrimary: String(bag.member_relationship_to_primary || '').trim(),
+      livesInHousehold: String(bag.member_lives_in_household || '').trim(),
+      participation: String(bag.member_participation || 'expected_regular').trim() || 'expected_regular'
+    };
+  });
+}
+
+function applyFamilyRosterToClients() {
+  const members = familyRosterMembers.value || [];
+  clients.value = members.map((m) => ({
+    firstName: String(m.firstName || '').trim(),
+    middleName: '',
+    lastName: String(m.lastName || '').trim(),
+    dateOfBirth: String(m.dateOfBirth || '').trim()
+  }));
+  if (!Array.isArray(intakeResponses.clients)) intakeResponses.clients = [];
+  while (intakeResponses.clients.length < members.length) intakeResponses.clients.push({});
+  intakeResponses.clients.length = members.length;
+  members.forEach((m, i) => {
+    const bag = intakeResponses.clients[i] || {};
+    bag.member_legal_first = String(m.firstName || '').trim();
+    bag.member_legal_last = String(m.lastName || '').trim();
+    bag.member_preferred_name = String(m.preferredName || '').trim();
+    bag.member_date_of_birth = String(m.dateOfBirth || '').trim();
+    bag.member_sex = String(m.sex || '').trim();
+    bag.member_relationship_to_primary = String(m.relationshipToPrimary || '').trim();
+    bag.member_lives_in_household = String(m.livesInHousehold || '').trim();
+    bag.member_participation = String(m.participation || '').trim();
+    if (bag.member_preferred_name) {
+      bag.child_preferred_name = bag.member_preferred_name;
+    }
+    bag.child_legal_first = bag.member_legal_first;
+    bag.child_legal_last = bag.member_legal_last;
+    bag.child_dob = bag.member_date_of_birth;
+    intakeResponses.clients[i] = bag;
+  });
+  intakeResponses.submission.serviceSubject = 'family';
+  intakeResponses.submission.familyRosterCount = members.length;
+}
+
+async function completeFamilyRosterStep() {
+  const missing = (familyRosterMembers.value || []).some(
+    (m) => !String(m.firstName || '').trim() || !String(m.lastName || '').trim() || !String(m.dateOfBirth || '').trim()
+  );
+  if (missing && !canBypassIntakeRequired.value) {
+    stepError.value = 'Please enter first name, last name, and date of birth for each family member.';
+    return;
+  }
+  stepError.value = '';
+  applyFamilyRosterToClients();
+  await nextFlowStep();
+}
+
+function stampClinicalReviewOnSubmission() {
+  if (!intakeResponses.submission) intakeResponses.submission = {};
+  const values = interviewShowIfValues.value;
+  const alert = isClinicalSafetyPositive(values)
+    || matchesShowIf({ fieldKey: 'unusual_experiences_unsafe', equals: 'yes' }, values);
+  intakeResponses.submission.clinicalSafetyAlert = !!alert;
+  if (alert) {
+    intakeResponses.submission.needsClinicalReview = true;
+    intakeResponses.submission.clinicalReviewHoldReason = clinicalReviewHoldReason(values) || 'safety_screen';
+    // Do not silently schedule couples matching when safety flags fire.
+    intakeResponses.submission.preferred_office_provider_ids = [];
+    intakeResponses.submission.preferred_office_provider_summary = '';
+  }
 }
 
 function applySameLastName(idx) {
@@ -6934,19 +7165,41 @@ function applySameAsMeToDemographics() {
 }
 
 function chooseWhoFor(isSelf) {
-  intakeForSelf.value = !!isSelf;
+  chooseServiceSubject(isSelf ? 'self' : 'dependent');
+}
+
+function isEnrollmentOptionEnabled(subject) {
+  return isEnrollmentSubjectEnabled(
+    officeStart.enrollmentSubjects?.value ?? joinLandingCopy.value?.enrollmentSubjects,
+    subject
+  );
+}
+
+function chooseServiceSubject(subject) {
+  const next = String(subject || '').trim().toLowerCase();
+  if (!isEnrollmentOptionEnabled(next)) return;
+  serviceSubject.value = next;
+  intakeForSelf.value = next === 'self';
   whoForError.value = '';
-  if (!isSelf && !clients.value.length) clients.value = [emptyOfficeClient()];
+  if ((next === 'dependent' || next === 'family') && !clients.value.length) {
+    clients.value = [emptyOfficeClient()];
+  }
+  if (next === 'couple' && clients.value.length < 2) {
+    clients.value = [emptyOfficeClient(), emptyOfficeClient()];
+  }
 }
 
 async function continueWhoFor() {
-  if (typeof intakeForSelf.value !== 'boolean') {
+  if (!serviceSubject.value && typeof intakeForSelf.value !== 'boolean') {
     if (canBypassIntakeRequired.value) {
-      intakeForSelf.value = true;
+      chooseServiceSubject('self');
     } else {
       whoForError.value = t('chooseWhoForToContinue');
       return;
     }
+  }
+  if (!serviceSubject.value && typeof intakeForSelf.value === 'boolean') {
+    serviceSubject.value = intakeForSelf.value ? 'self' : 'dependent';
   }
   if (canBypassIntakeRequired.value) {
     whoForError.value = '';
@@ -6974,12 +7227,27 @@ async function continueWhoFor() {
   consentErrors.guardianLastName = guardianLastName.value.trim() ? '' : t('required');
   consentErrors.guardianEmail = guardianEmail.value.trim() ? '' : t('required');
   consentErrors.guardianPhone = guardianPhone.value.trim() ? '' : t('required');
-  consentErrors.guardianRelationship = intakeForSelf.value === false && !guardianRelationship.value.trim()
-    ? t('required')
-    : '';
-  if (intakeForSelf.value === false) {
+  consentErrors.guardianRelationship = (() => {
+    const subject = serviceSubject.value
+      || (intakeForSelf.value === true ? 'self' : intakeForSelf.value === false ? 'dependent' : '');
+    if (subject !== 'dependent') return '';
+    return guardianRelationship.value.trim() ? '' : t('required');
+  })();
+  const subjectNow = serviceSubject.value
+    || (intakeForSelf.value === true ? 'self' : intakeForSelf.value === false ? 'dependent' : '');
+  if (subjectNow === 'dependent' || subjectNow === 'family') {
     if (!clients.value.length) clients.value = [emptyOfficeClient()];
     startClientErrors.value = clients.value.map((c) => ({
+      firstName: String(c?.firstName || '').trim() ? '' : t('required'),
+      lastName: String(c?.lastName || '').trim() ? '' : t('required'),
+      dob: String(c?.dateOfBirth || '').trim() ? '' : t('required')
+    }));
+    consentErrors.starterDob = '';
+    consentErrors.clientFirstName = startClientErrors.value[0]?.firstName || '';
+    consentErrors.clientLastName = startClientErrors.value[0]?.lastName || '';
+  } else if (subjectNow === 'couple') {
+    if (clients.value.length < 2) clients.value = [emptyOfficeClient(), emptyOfficeClient()];
+    startClientErrors.value = clients.value.slice(0, 2).map((c) => ({
       firstName: String(c?.firstName || '').trim() ? '' : t('required'),
       lastName: String(c?.lastName || '').trim() ? '' : t('required'),
       dob: String(c?.dateOfBirth || '').trim() ? '' : t('required')
@@ -6994,6 +7262,7 @@ async function continueWhoFor() {
     consentErrors.clientLastName = '';
   }
   const childFieldMissing = startClientErrors.value.some((row) => row.firstName || row.lastName || row.dob);
+  const requireOtherGuardian = subjectNow === 'dependent';
   if (
     consentErrors.guardianFirstName
     || consentErrors.guardianLastName
@@ -7002,11 +7271,11 @@ async function continueWhoFor() {
     || consentErrors.starterDob
     || consentErrors.guardianRelationship
     || childFieldMissing
-    || !otherGuardianContactOk()
+    || (requireOtherGuardian && !otherGuardianContactOk())
   ) {
-    whoForError.value = otherGuardianBlockReason() || t('requiredFields');
+    whoForError.value = (requireOtherGuardian && otherGuardianBlockReason()) || t('requiredFields');
     await nextTick();
-    const scrollId = !otherGuardianContactOk()
+    const scrollId = requireOtherGuardian && !otherGuardianContactOk()
       ? 'other-guardian-fields'
       : (consentErrors.guardianFirstName
         ? 'guardianFirstName'
@@ -7021,7 +7290,7 @@ async function continueWhoFor() {
     el?.scrollIntoView?.({ behavior: 'smooth', block: 'center' });
     return;
   }
-  if (intakeForSelf.value === false && clients.value.length > 1 && !multiClientConsentAccepted.value) {
+  if (subjectNow === 'dependent' && clients.value.length > 1 && !multiClientConsentAccepted.value) {
     multiClientPlanChoice.value = 'multiple';
     multiClientConsentDialogOpen.value = true;
     whoForError.value = t('multiClientConsentTitle');
@@ -10087,7 +10356,8 @@ function isOfficeEssentialFlowStep(step) {
       'reminder_contacts',
       'provider_match',
       'demographics',
-      'child_review'
+      'child_review',
+      'family_roster'
     ].includes(type)
   ) {
     return true;
@@ -10151,7 +10421,7 @@ async function proceedOfficeQuestionStepAfterSplash() {
     }
     bag.clinicalSafetyAlert = isClinicalSafetyPositive(interviewShowIfValues.value);
   }
-  intakeResponses.submission.clinicalSafetyAlert = showClinicalSafetyBanner.value;
+  stampClinicalReviewOnSubmission();
   await nextFlowStep();
 }
 
@@ -10159,7 +10429,7 @@ async function proceedOfficeClinicalStepAfterSplash() {
   skipConfirmActive.value = false;
   skipConfirmKeys.value = [];
   intakeResponses.submission.clinicalResponses = { ...clinicalResponses };
-  intakeResponses.submission.clinicalSafetyAlert = showClinicalSafetyBanner.value;
+  stampClinicalReviewOnSubmission();
   stepError.value = '';
   await nextTick();
   void nextFlowStep();
@@ -11018,6 +11288,7 @@ const handleCurrentFlowContinue = () => {
   if (currentFlowStep.value?.type === 'reminder_contacts') return completeReminderContactsStep();
   if (currentFlowStep.value?.type === 'provider_match') {
     stepError.value = '';
+    stampClinicalReviewOnSubmission();
     return nextFlowStep();
   }
   if (currentFlowStep.value?.type === 'demographics') return completeDemographicsStep();
@@ -11026,6 +11297,7 @@ const handleCurrentFlowContinue = () => {
     stepError.value = '';
     return nextFlowStep();
   }
+  if (currentFlowStep.value?.type === 'family_roster') return completeFamilyRosterStep();
   return completeQuestionStep();
 };
 const currentFlowContinueLabel = computed(() => {
@@ -11042,6 +11314,7 @@ const currentFlowContinueLabel = computed(() => {
   if (isQuestionnaireFlowStep(currentFlowStep.value) || currentFlowStep.value?.type === 'clinical_questions') return 'Save & continue';
   if (currentFlowStep.value?.type === 'questions') return 'Save & continue';
   if (currentFlowStep.value?.type === 'child_review') return t('continue');
+  if (currentFlowStep.value?.type === 'family_roster') return 'Save & continue';
   if (currentFlowStep.value?.type === 'document') {
     return currentDoc.value?.document_action_type === 'signature' ? t('signContinue') : t('markReviewedContinue');
   }
@@ -11129,6 +11402,17 @@ const finalizePacket = async () => {
       return;
     }
     const sanitizedResponses = sanitizeFinalizeResponses(intakeResponses || {});
+    stampClinicalReviewOnSubmission();
+    if (sanitizedResponses?.submission) {
+      sanitizedResponses.submission.clinicalSafetyAlert = !!intakeResponses.submission?.clinicalSafetyAlert;
+      sanitizedResponses.submission.needsClinicalReview = !!intakeResponses.submission?.needsClinicalReview;
+      sanitizedResponses.submission.clinicalReviewHoldReason =
+        intakeResponses.submission?.clinicalReviewHoldReason || null;
+      if (intakeResponses.submission?.needsClinicalReview) {
+        sanitizedResponses.submission.preferred_office_provider_ids = [];
+        sanitizedResponses.submission.preferred_office_provider_summary = '';
+      }
+    }
     const resp = await api.post(`/public-intake/${publicKey}/${submissionId.value}/finalize`, {
       submissionId: submissionId.value,
       sessionToken: activeSessionToken || null,
@@ -11822,6 +12106,7 @@ const currentInterviewPageTitle = computed(() => {
   if (type === 'communications') return tx(s?.label) || t('communicationPreferences');
   if (type === 'reminder_contacts') return tx(s?.label) || tx('Who should get appointment reminders?');
   if (type === 'provider_match') return tx(s?.label) || tx('Choose a provider');
+  if (type === 'family_roster') return tx(s?.label) || tx('Your Family');
   if (type === 'demographics') return tx(s?.label) || t('demographics');
   if (type === 'clinical_questions') return currentFlowStepTitle.value || t('clinicalQuestions');
   if (type === 'references') return tx(s?.label) || t('professionalReferences');
@@ -12024,6 +12309,16 @@ const showClinicalSafetyBanner = computed(() =>
   isClinicalSafetyPositive(interviewShowIfValues.value)
     || matchesShowIf({ fieldKey: 'unusual_experiences_unsafe', equals: 'yes' }, interviewShowIfValues.value)
 );
+
+const providerMatchOnClinicalHold = computed(() => showClinicalSafetyBanner.value);
+
+const isCurrentStepPrivateSafety = computed(() => {
+  const step = currentFlowStep.value;
+  if (!step) return false;
+  if (step.privatePerPartner || step.privateToRespondent) return true;
+  const fields = Array.isArray(step.fields) ? step.fields : [];
+  return fields.some((f) => isPrivateIntakeField(f));
+});
 
 const applyRegistrationAccountState = (exists) => {
   ensureRegistrationMaps();
@@ -12616,7 +12911,13 @@ watch(currentFlowStep, async (step) => {
     seedReminderContacts();
   }
   if (step?.type === 'provider_match') {
-    await loadOfficeIntakeProviders();
+    stampClinicalReviewOnSubmission();
+    if (!providerMatchOnClinicalHold.value) {
+      await loadOfficeIntakeProviders();
+    }
+  }
+  if (step?.type === 'family_roster') {
+    seedFamilyRosterFromClients();
   }
   if (step?.type === 'upload') {
     uploadStepFiles.value = [];
@@ -14011,6 +14312,26 @@ onBeforeUnmount(() => {
 }
 .provider-match-step {
   margin: 16px 0;
+}
+.clinical-review-hold {
+  margin-bottom: 12px;
+}
+.family-roster-step {
+  display: grid;
+  gap: 1rem;
+}
+.family-roster-card {
+  border: 1px solid var(--df-border, #d7e3dc);
+  border-radius: 12px;
+  padding: 1rem 1.1rem;
+  background: var(--df-surface, #fff);
+}
+.family-roster-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 0.75rem;
 }
 .provider-match-table-wrap {
   overflow-x: auto;
@@ -15648,8 +15969,11 @@ onBeforeUnmount(() => {
 }
 
 .public-intake.public-intake--office-start.df-page--scenic-side {
-  background-position: left center;
-  background-size: cover;
+  /* Fit height with a centered crop — between tight cover-zoom and letterboxing. */
+  background-position: center center;
+  background-size: auto 100%;
+  background-repeat: no-repeat;
+  background-color: #1c3d52;
 }
 
 /* Drop the opaque “panel over the scenic photo” on office start. */
@@ -15715,17 +16039,33 @@ onBeforeUnmount(() => {
 .intake-start-welcome-block,
 .intake-start-glad-block {
   position: relative;
-  width: fit-content;
-  max-width: min(46rem, 100%);
+  width: min(780px, 100%);
+  max-width: 100%;
   margin-bottom: 0.45rem;
   z-index: 3;
   background: rgba(255, 255, 255, 0.5);
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
   border-radius: 16px;
-  padding: 0.45rem 0.85rem 0.55rem;
+  padding: 0.55rem 1.25rem 0.65rem;
   border: 1px solid rgba(255, 255, 255, 0.45);
   box-shadow: 0 6px 18px rgba(15, 23, 42, 0.06);
+  box-sizing: border-box;
+}
+
+.intake-start-welcome-block {
+  width: min(920px, 100%);
+  padding: 0.6rem 1.5rem 0.7rem;
+}
+
+.intake-start-welcome-block .intake-start-welcome-title {
+  display: block;
+  width: 100%;
+}
+
+.intake-start-glad-block {
+  width: fit-content;
+  max-width: min(780px, 100%);
 }
 
 .intake-start-block {
@@ -15793,9 +16133,12 @@ onBeforeUnmount(() => {
   margin: 0;
   font-family: 'Great Vibes', cursive;
   font-size: inherit;
-  line-height: 1.05;
+  line-height: 1.12;
   color: #123c6d;
   text-align: inherit;
+  white-space: normal;
+  overflow-wrap: normal;
+  word-break: normal;
 }
 
 .intake-start-welcome-glad {
@@ -16034,9 +16377,9 @@ onBeforeUnmount(() => {
   -webkit-backdrop-filter: blur(14px);
   border: 1px solid rgba(255, 255, 255, 0.5);
   border-radius: 24px;
-  padding: clamp(1.1rem, 2.4vw, 1.75rem);
+  padding: clamp(0.95rem, 2vw, 1.45rem);
   box-shadow: 0 16px 40px rgba(15, 23, 42, 0.08);
-  width: min(920px, 100%);
+  width: min(780px, 100%);
   max-width: 100%;
   box-sizing: border-box;
   margin: 0 auto;

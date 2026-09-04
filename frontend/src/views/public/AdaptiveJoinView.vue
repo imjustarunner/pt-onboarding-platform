@@ -90,6 +90,22 @@
           <input type="checkbox" :checked="showChooseProvider" :disabled="savingChooseToggle" @change="toggleChooseProvider" />
           Show Choose a provider
         </label>
+        <div v-if="isCounselingJoin && canEditLanding" class="ai-join-subjects-edit" role="group" aria-label="Who-for enrollment options">
+          <span class="ai-join-subjects-label">Who can enroll</span>
+          <label
+            v-for="key in enrollmentSubjectKeys"
+            :key="key"
+            class="ai-join-subject-toggle"
+          >
+            <input
+              type="checkbox"
+              :checked="!!enrollmentSubjectsDraft[key]"
+              :disabled="savingSubjectsToggle"
+              @change="toggleEnrollmentSubject(key)"
+            />
+            {{ enrollmentSubjectLabels[key] }}
+          </label>
+        </div>
         <a
           v-if="isCounselingJoin"
           class="ai-join-view-page"
@@ -122,8 +138,14 @@
         </header>
 
         <section v-if="!isCoGuardianInvitee" class="ai-join-section">
-          <p class="ai-who-label">Who is this for?</p>
-          <div class="ai-who-grid" role="radiogroup" aria-label="Who is this for?">
+          <p class="ai-who-label">Who are you looking for services for?</p>
+          <p v-if="form.whoFor === 'couple'" class="ai-page-lead" style="margin-top:0.35rem;">
+            Tell us who would be participating so we can help you find the right provider.
+          </p>
+          <p v-else-if="form.whoFor === 'family'" class="ai-page-lead" style="margin-top:0.35rem;">
+            Tell us who may participate. You can include adults and children.
+          </p>
+          <div class="ai-who-grid" role="radiogroup" aria-label="Who are you looking for services for?">
             <button
               v-for="opt in whoForOptions"
               :key="opt.value"
@@ -183,15 +205,163 @@
               <DigitalFormField
                 v-model="form.birthdate"
                 type="date"
-                :label="form.whoFor === 'myself' ? 'Date of birth' : 'Dependent date of birth'"
+                :label="whoForDobLabel"
                 required
+              />
+            </div>
+          </div>
+          <div v-if="form.whoFor === 'family'" class="ai-join-grid" style="margin-top:0.75rem;">
+            <div class="ai-span-6">
+              <DigitalFormField
+                v-model="form.familyRole"
+                type="select"
+                label="Your role in the family"
+                required
+                :options="familyRoleOptions"
               />
             </div>
           </div>
         </section>
 
+        <!-- Couple: partner -->
+        <section v-if="form.whoFor === 'couple'" class="ai-join-section">
+          <h2 class="ai-join-section-title">Your partner</h2>
+          <div class="ai-join-grid">
+            <div class="ai-span-4">
+              <DigitalFormField v-model="form.partner.firstName" label="First name" required />
+            </div>
+            <div class="ai-span-4">
+              <DigitalFormField v-model="form.partner.middleName" label="Middle name" />
+            </div>
+            <div class="ai-span-4">
+              <DigitalFormField v-model="form.partner.lastName" label="Last name" required />
+            </div>
+          </div>
+          <div class="ai-join-grid">
+            <div class="ai-span-4">
+              <DigitalFormField v-model="form.partner.dateOfBirth" type="date" label="Date of birth" required />
+            </div>
+            <div class="ai-span-4">
+              <DigitalFormField v-model="form.partner.email" type="email" label="Email" />
+            </div>
+            <div class="ai-span-4">
+              <DigitalFormField v-model="form.partner.phone" type="tel" label="Phone" />
+            </div>
+          </div>
+          <DigitalFormField
+            v-model="form.notifyPartner"
+            type="select"
+            label="Should your partner receive information about this request?"
+            required
+            :options="notifyPartnerOptions"
+          />
+          <p class="ai-page-lead" style="margin-top:0.5rem;">
+            This controls communications only. We do not automatically send your partner everything you enter.
+          </p>
+        </section>
+
+        <!-- Family: roster -->
+        <section v-if="form.whoFor === 'family'" class="ai-join-section">
+          <h2 class="ai-join-section-title">Family members</h2>
+          <p class="ai-page-lead">Add everyone who may participate. Adult / minor is determined from date of birth.</p>
+          <div
+            v-for="(member, idx) in form.familyMembers"
+            :key="'fm-' + idx"
+            class="ai-add-dependent-form"
+            style="margin-bottom:1rem;"
+          >
+            <div class="ai-add-dependent-head">
+              <h2>Family member {{ idx + 1 }}</h2>
+              <button
+                v-if="form.familyMembers.length > 1"
+                type="button"
+                class="ai-add-dependent-remove"
+                @click="removeFamilyMember(idx)"
+              >Remove</button>
+            </div>
+            <div class="ai-join-grid">
+              <div class="ai-span-4">
+                <DigitalFormField v-model="member.firstName" label="First name" required />
+              </div>
+              <div class="ai-span-4">
+                <DigitalFormField v-model="member.middleName" label="Middle name" />
+              </div>
+              <div class="ai-span-4">
+                <DigitalFormField v-model="member.lastName" label="Last name" required />
+              </div>
+            </div>
+            <div class="ai-join-grid">
+              <div class="ai-span-4">
+                <DigitalFormField v-model="member.dateOfBirth" type="date" label="Date of birth" required />
+              </div>
+              <div class="ai-span-4">
+                <DigitalFormField v-model="member.relationshipToPrimary" label="Relationship to you" required />
+              </div>
+              <div class="ai-span-4">
+                <DigitalFormField
+                  v-model="member.participationStatus"
+                  type="select"
+                  label="Who do you expect to participate?"
+                  :options="participationOptions"
+                />
+              </div>
+            </div>
+            <div v-if="isAdultDob(member.dateOfBirth)" class="ai-join-grid">
+              <div class="ai-span-6">
+                <DigitalFormField v-model="member.email" type="email" label="Email (optional)" />
+              </div>
+              <div class="ai-span-6">
+                <DigitalFormField v-model="member.phone" type="tel" label="Phone (optional)" />
+              </div>
+            </div>
+          </div>
+          <button type="button" class="df-btn df-btn-secondary" @click="addFamilyMember">
+            + Add family member
+          </button>
+        </section>
+
         <section class="ai-join-section">
           <h2 class="ai-join-section-title">Address</h2>
+          <template v-if="form.whoFor === 'couple'">
+            <DigitalFormField
+              v-model="form.partnersSameAddress"
+              type="select"
+              label="Do you currently live at the same address?"
+              required
+              :options="[
+                { value: 'yes', label: 'Yes' },
+                { value: 'no', label: 'No' }
+              ]"
+            />
+          </template>
+          <template v-else-if="form.whoFor === 'family'">
+            <DigitalFormField
+              v-model="form.sameHousehold"
+              type="select"
+              label="Does everyone primarily live in the same household?"
+              required
+              :options="[
+                { value: 'yes', label: 'Yes' },
+                { value: 'no', label: 'No' }
+              ]"
+            />
+            <DigitalFormField
+              v-if="form.sameHousehold === 'no'"
+              v-model="form.householdsInvolved"
+              type="select"
+              label="How many households are involved?"
+              :options="[
+                { value: '2', label: '2' },
+                { value: '3plus', label: '3+' }
+              ]"
+            />
+            <p v-if="form.sameHousehold === 'no'" class="ai-page-lead">
+              Detailed addresses for each household can be collected during full enrollment.
+            </p>
+          </template>
+          <p v-if="form.whoFor === 'couple' || form.whoFor === 'family'" class="ai-page-lead">
+            Primary household / contact address
+          </p>
           <div class="ai-join-grid">
             <div class="ai-span-12">
               <DigitalFormField v-model="form.address.street" label="Street address" required />
@@ -209,9 +379,29 @@
               <DigitalFormField v-model="form.address.state" label="State" required />
             </div>
           </div>
+          <template v-if="form.whoFor === 'couple' && form.partnersSameAddress === 'no'">
+            <h3 class="ai-join-section-title" style="margin-top:1rem;">Partner address</h3>
+            <div class="ai-join-grid">
+              <div class="ai-span-12">
+                <DigitalFormField v-model="form.partner.address.street" label="Street address" required />
+              </div>
+              <div class="ai-span-5">
+                <DigitalFormField v-model="form.partner.address.apt" label="Apartment, suite, or unit" />
+              </div>
+              <div class="ai-span-2">
+                <DigitalFormField v-model="form.partner.address.zip" label="ZIP" required />
+              </div>
+              <div class="ai-span-3">
+                <DigitalFormField v-model="form.partner.address.city" label="City" required />
+              </div>
+              <div class="ai-span-2">
+                <DigitalFormField v-model="form.partner.address.state" label="State" required />
+              </div>
+            </div>
+          </template>
         </section>
 
-        <template v-if="form.whoFor !== 'myself'">
+        <template v-if="isDependentWhoFor">
           <section class="ai-join-section">
             <h2 class="ai-join-section-title">Dependent information</h2>
             <p class="ai-dependent-heading">Dependent 1</p>
@@ -248,11 +438,7 @@
       <!-- Step: needs -->
       <div v-else-if="quickStep === 1" class="ai-join-form">
         <h1 class="ai-page-title">What support are you looking for?</h1>
-        <p class="ai-page-lead">
-          {{ form.whoFor === 'myself'
-            ? 'Select anything that has been a real problem recently. You can share more detail below.'
-            : 'Select all that apply for this dependent. You can share more detail below.' }}
-        </p>
+        <p class="ai-page-lead">{{ concernsLead }}</p>
         <div class="ai-concern-grid">
           <button
             v-for="c in concernOptions"
@@ -268,7 +454,7 @@
         <DigitalFormField
           v-model="form.accomplishGoal"
           type="textarea"
-          label="What would you like to accomplish?"
+          :label="accomplishGoalLabel"
           :rows="3"
         />
         <DigitalFormField
@@ -365,9 +551,21 @@
         <div class="ai-help-card" style="margin-bottom: 1rem;">
           <p><strong>For:</strong> {{ whoForLabel }}</p>
           <p><strong>Contact:</strong> {{ form.respondent.firstName }} {{ form.respondent.lastName }} · {{ form.respondent.email }} · {{ form.respondent.phone }}</p>
-          <p v-if="form.whoFor !== 'myself'">
+          <p v-if="isDependentWhoFor">
             <strong>Dependent 1:</strong> {{ form.client.firstName }} {{ form.client.middleName }} {{ form.client.lastName }}
           </p>
+          <p v-if="form.whoFor === 'couple'">
+            <strong>Partner:</strong> {{ form.partner.firstName }} {{ form.partner.middleName }} {{ form.partner.lastName }}
+            <span v-if="form.notifyPartner"> · Notify: {{ form.notifyPartner === 'yes' ? 'Yes' : 'Not yet' }}</span>
+          </p>
+          <template v-if="form.whoFor === 'family'">
+            <p><strong>Your role:</strong> {{ familyRoleOptions.find((o) => o.value === form.familyRole)?.label || form.familyRole }}</p>
+            <p v-for="(m, i) in form.familyMembers" :key="'rev-fm-' + i">
+              <strong>Member {{ i + 1 }}:</strong> {{ m.firstName }} {{ m.middleName }} {{ m.lastName }}
+              <span v-if="m.relationshipToPrimary"> · {{ m.relationshipToPrimary }}</span>
+              <span v-if="m.participationStatus"> · {{ m.participationStatus.replace(/_/g, ' ') }}</span>
+            </p>
+          </template>
           <p v-if="form.additionalDependent.enabled">
             <strong>Dependent 2:</strong> {{ form.additionalDependent.firstName }} {{ form.additionalDependent.middleName }} {{ form.additionalDependent.lastName }}
             <span v-if="form.additionalDependent.dateOfBirth"> · {{ formatBirthdate(form.additionalDependent.dateOfBirth) }}</span>
@@ -403,7 +601,7 @@
             </ul>
           </div>
         </div>
-        <template v-if="form.whoFor !== 'myself'">
+        <template v-if="isDependentWhoFor">
           <div v-if="!form.additionalDependent.enabled" class="ai-add-dependent">
             <button type="button" class="df-btn df-btn-secondary" @click="form.additionalDependent.enabled = true">
               + Add another dependent
@@ -487,7 +685,11 @@ import {
   restoreJoinWelcomeCopy,
   mergeJoinLayout,
   readJoinLandingCache,
-  writeJoinLandingCache
+  writeJoinLandingCache,
+  normalizeEnrollmentSubjects,
+  isEnrollmentSubjectEnabled,
+  ENROLLMENT_SUBJECT_KEYS,
+  ENROLLMENT_SUBJECT_LABELS
 } from '../../utils/joinLandingTemplate.js';
 import { pickTenantBackgroundUrl, pickTenantWelcomeUrl } from '../../utils/tenantBrandAssets.js';
 import { lookupUsZipCityState } from '../../utils/usZipAutofill.js';
@@ -630,6 +832,32 @@ const form = reactive({
   client: { firstName: '', middleName: '', lastName: '' },
   birthdate: '',
   address: { street: '', apt: '', city: '', state: '', zip: '' },
+  partner: {
+    firstName: '',
+    middleName: '',
+    lastName: '',
+    dateOfBirth: '',
+    email: '',
+    phone: '',
+    address: { street: '', apt: '', city: '', state: '', zip: '' }
+  },
+  notifyPartner: 'not_yet',
+  partnersSameAddress: 'yes',
+  familyRole: 'parent',
+  sameHousehold: 'yes',
+  householdsInvolved: '2',
+  familyMembers: [
+    {
+      firstName: '',
+      middleName: '',
+      lastName: '',
+      dateOfBirth: '',
+      relationshipToPrimary: '',
+      participationStatus: 'participating',
+      email: '',
+      phone: ''
+    }
+  ],
   additionalDependent: {
     enabled: false,
     firstName: '',
@@ -660,18 +888,59 @@ const form = reactive({
   consentGiven: false
 });
 
-const whoForOptions = [
+const whoForOptionsAll = [
   { value: 'myself', label: 'Myself', description: 'I will be the client receiving services.' },
   {
     value: 'child',
-    label: 'My dependent',
+    label: 'My child / dependent',
     description: 'I am a parent or guardian completing this for a dependent.'
   },
   {
-    value: 'legal',
-    label: 'Someone I have legal authority for',
-    description: 'I am completing this for someone I have legal authority to care for.'
+    value: 'couple',
+    label: 'A couple',
+    description: 'Two adults seeking couples therapy together.'
+  },
+  {
+    value: 'family',
+    label: 'A family',
+    description: 'Two or more people seeking family therapy.'
   }
+];
+
+const enrollmentSubjectKeys = ENROLLMENT_SUBJECT_KEYS;
+const enrollmentSubjectLabels = ENROLLMENT_SUBJECT_LABELS;
+const enrollmentSubjectsDraft = reactive(
+  normalizeEnrollmentSubjects(config.value?.copy?.enrollmentSubjects)
+);
+const savingSubjectsToggle = ref(false);
+
+const enrollmentSubjects = computed(() =>
+  normalizeEnrollmentSubjects(
+    config.value?.copy?.enrollmentSubjects || enrollmentSubjectsDraft
+  )
+);
+
+const whoForOptions = computed(() =>
+  whoForOptionsAll.filter((opt) => isEnrollmentSubjectEnabled(enrollmentSubjects.value, opt.value))
+);
+
+const familyRoleOptions = [
+  { value: 'parent', label: 'Parent' },
+  { value: 'spouse_partner', label: 'Spouse/partner' },
+  { value: 'adult_child', label: 'Adult child' },
+  { value: 'guardian', label: 'Guardian' },
+  { value: 'other', label: 'Other' }
+];
+
+const participationOptions = [
+  { value: 'participating', label: 'Participating' },
+  { value: 'may_participate', label: 'May participate' },
+  { value: 'not_participating', label: 'Not currently participating' }
+];
+
+const notifyPartnerOptions = [
+  { value: 'yes', label: 'Yes' },
+  { value: 'not_yet', label: 'Not yet' }
 ];
 
 const modalityOptions = [
@@ -730,6 +999,32 @@ const pageTitle = computed(() => {
   return 'Get Started';
 });
 
+const isDependentWhoFor = computed(() => form.whoFor === 'child' || form.whoFor === 'legal');
+
+const whoForDobLabel = computed(() => {
+  if (form.whoFor === 'myself' || form.whoFor === 'couple' || form.whoFor === 'family') return 'Date of birth';
+  return 'Dependent date of birth';
+});
+
+const concernsLead = computed(() => {
+  if (form.whoFor === 'couple') {
+    return 'Select anything that describes what you would like help with. You do not need to agree on everything before starting therapy.';
+  }
+  if (form.whoFor === 'family') {
+    return 'Select what best describes why your family is looking for support.';
+  }
+  if (form.whoFor === 'myself') {
+    return 'Select anything that has been a real problem recently. You can share more detail below.';
+  }
+  return 'Select all that apply for this dependent. You can share more detail below.';
+});
+
+const accomplishGoalLabel = computed(() => {
+  if (form.whoFor === 'couple') return 'What would you most like to be different?';
+  if (form.whoFor === 'family') return 'What would you most like to see improve for your family?';
+  return 'What would you like to accomplish?';
+});
+
 const concernOptions = computed(() => {
   const clinical = String(config.value?.vertical || '').toLowerCase() === 'clinical'
     || String(resolvedServiceType.value || '').toLowerCase() === 'counseling';
@@ -737,13 +1032,19 @@ const concernOptions = computed(() => {
     if (form.whoFor === 'myself') {
       return config.value?.selfConcernOptions || config.value?.concernOptions || [];
     }
+    if (form.whoFor === 'couple') {
+      return config.value?.coupleConcernOptions || [];
+    }
+    if (form.whoFor === 'family') {
+      return config.value?.familyConcernOptions || [];
+    }
     return config.value?.dependentConcernOptions || config.value?.concernOptions || [];
   }
   return config.value?.concernOptions || [];
 });
 
 const whoForLabel = computed(
-  () => whoForOptions.find((o) => o.value === form.whoFor)?.label || form.whoFor
+  () => whoForOptions.value.find((o) => o.value === form.whoFor)?.label || form.whoFor
 );
 
 const concernLabels = computed(() =>
@@ -919,7 +1220,24 @@ const canContinueQuick = computed(() => {
     if (!isValidEmailAddress(r.email) || !isValidUsPhone(r.phone)) return false;
     if (!form.birthdate.trim()) return false;
     if (!form.address.street.trim() || !form.address.city.trim() || !form.address.state.trim() || !form.address.zip.trim()) return false;
-    if (form.whoFor !== 'myself') {
+    if (form.whoFor === 'couple') {
+      const p = form.partner;
+      if (!p.firstName.trim() || !p.lastName.trim() || !p.dateOfBirth.trim()) return false;
+      if (!form.notifyPartner) return false;
+      if (form.partnersSameAddress === 'no') {
+        const a = p.address || {};
+        if (!a.street?.trim() || !a.city?.trim() || !a.state?.trim() || !a.zip?.trim()) return false;
+      }
+      return true;
+    }
+    if (form.whoFor === 'family') {
+      if (!form.familyRole) return false;
+      if (!form.familyMembers.length) return false;
+      return form.familyMembers.every((m) =>
+        m.firstName.trim() && m.lastName.trim() && m.dateOfBirth.trim() && m.relationshipToPrimary.trim()
+      );
+    }
+    if (isDependentWhoFor.value) {
       if (!form.client.firstName.trim()) return false;
       if (!isCoGuardianInvitee.value && !form.client.lastName.trim()) return false;
       if (!isCoGuardianInvitee.value) {
@@ -928,7 +1246,7 @@ const canContinueQuick = computed(() => {
     }
     return true;
   }
-  if (quickStep.value === 5 && form.whoFor !== 'myself' && form.additionalDependent.enabled) {
+  if (quickStep.value === 5 && isDependentWhoFor.value && form.additionalDependent.enabled) {
     return !!form.additionalDependent.firstName.trim()
       && !!form.additionalDependent.lastName.trim()
       && !!form.additionalDependent.dateOfBirth.trim();
@@ -1015,9 +1333,98 @@ async function saveSidebarSteps() {
 
 function chooseWhoFor(value) {
   const next = String(value || '').trim();
+  if (!isEnrollmentSubjectEnabled(enrollmentSubjects.value, next)) return;
   if (form.whoFor === next) return;
   form.whoFor = next;
   form.concerns.splice(0, form.concerns.length);
+  loadProviders();
+}
+
+async function toggleEnrollmentSubject(key) {
+  const k = String(key || '').trim();
+  if (!ENROLLMENT_SUBJECT_KEYS.includes(k)) return;
+  const next = normalizeEnrollmentSubjects({
+    ...enrollmentSubjectsDraft,
+    [k]: !enrollmentSubjectsDraft[k]
+  });
+  Object.assign(enrollmentSubjectsDraft, next);
+  savingSubjectsToggle.value = true;
+  try {
+    const existing = {
+      ...(config.value?.copy || {}),
+      enrollmentSubjects: { ...enrollmentSubjectsDraft }
+    };
+    const { data } = await api.patch(`/public/adaptive-intake/${encodeURIComponent(agencySlug.value)}/landing`, {
+      serviceType: resolvedServiceType.value || serviceType.value || 'counseling',
+      copy: existing
+    }, { skipGlobalLoading: true });
+    if (config.value) {
+      config.value.copy = {
+        ...(config.value.copy || {}),
+        ...(data?.copy || existing),
+        enrollmentSubjects: normalizeEnrollmentSubjects(
+          data?.copy?.enrollmentSubjects || enrollmentSubjectsDraft
+        )
+      };
+      Object.assign(
+        enrollmentSubjectsDraft,
+        normalizeEnrollmentSubjects(config.value.copy.enrollmentSubjects)
+      );
+      writeJoinLandingCache(
+        agencySlug.value,
+        resolvedServiceType.value || serviceType.value || 'counseling',
+        config.value
+      );
+    }
+    if (!isEnrollmentSubjectEnabled(enrollmentSubjects.value, form.whoFor)) {
+      const first = whoForOptions.value[0]?.value || 'myself';
+      form.whoFor = first;
+      form.concerns.splice(0, form.concerns.length);
+      loadProviders();
+    }
+  } catch (e) {
+    Object.assign(
+      enrollmentSubjectsDraft,
+      normalizeEnrollmentSubjects(config.value?.copy?.enrollmentSubjects)
+    );
+    providersError.value = e?.response?.data?.error?.message || e?.message || 'Could not save enrollment options.';
+  } finally {
+    savingSubjectsToggle.value = false;
+  }
+}
+
+function emptyFamilyMember() {
+  return {
+    firstName: '',
+    middleName: '',
+    lastName: '',
+    dateOfBirth: '',
+    relationshipToPrimary: '',
+    participationStatus: 'participating',
+    email: '',
+    phone: ''
+  };
+}
+
+function addFamilyMember() {
+  form.familyMembers.push(emptyFamilyMember());
+}
+
+function removeFamilyMember(idx) {
+  if (form.familyMembers.length <= 1) return;
+  form.familyMembers.splice(idx, 1);
+}
+
+function isAdultDob(dob) {
+  const raw = String(dob || '').trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) return false;
+  const d = new Date(`${raw}T12:00:00`);
+  if (Number.isNaN(d.getTime())) return false;
+  const now = new Date();
+  let age = now.getFullYear() - d.getFullYear();
+  const m = now.getMonth() - d.getMonth();
+  if (m < 0 || (m === 0 && now.getDate() < d.getDate())) age -= 1;
+  return age >= 18;
 }
 
 function clearAdditionalDependent() {
@@ -1138,8 +1545,17 @@ async function loadProviders() {
   providersLoading.value = true;
   providersError.value = '';
   try {
+    const serviceMode =
+      form.whoFor === 'couple'
+        ? 'couple'
+        : form.whoFor === 'family'
+          ? 'family'
+          : form.whoFor === 'child' || form.whoFor === 'legal'
+            ? 'child'
+            : 'individual';
     const { data } = await api.get(
-      `/public/agency-services/${encodeURIComponent(agencySlug.value)}/choose-providers`
+      `/public/agency-services/${encodeURIComponent(agencySlug.value)}/choose-providers`,
+      { params: { serviceMode } }
     );
     providers.value = Array.isArray(data?.providers) ? data.providers : (config.value?.providerPreview || []);
   } catch (e) {
@@ -1179,7 +1595,7 @@ async function toggleChooseProvider(event) {
 async function onQuickContinue() {
   if (quickStep.value === 0) {
     if (!validateBasicsFields()) return;
-    if (form.whoFor !== 'myself' && !isCoGuardianInvitee.value && !otherGuardianContactOk()) {
+    if (isDependentWhoFor.value && !isCoGuardianInvitee.value && !otherGuardianContactOk()) {
       otherGuardianError.value = 'Please enter their email or phone so we can reach out on your behalf.';
       return;
     }
@@ -1234,7 +1650,7 @@ async function submitQuick() {
       return;
     }
     const clientPayload =
-      form.whoFor === 'myself'
+      form.whoFor === 'myself' || form.whoFor === 'couple' || form.whoFor === 'family'
         ? {
             firstName: form.respondent.firstName,
             middleName: form.respondent.middleName,
@@ -1243,7 +1659,7 @@ async function submitQuick() {
         : { ...form.client };
 
     const additionalDependents =
-      form.whoFor !== 'myself' && form.additionalDependent.enabled
+      isDependentWhoFor.value && form.additionalDependent.enabled
         ? [{
             firstName: form.additionalDependent.firstName,
             middleName: form.additionalDependent.middleName,
@@ -1252,6 +1668,31 @@ async function submitQuick() {
             notes: form.additionalDependent.notes
           }]
         : [];
+
+    const partnerPayload = form.whoFor === 'couple'
+      ? {
+          firstName: form.partner.firstName,
+          middleName: form.partner.middleName,
+          lastName: form.partner.lastName,
+          dateOfBirth: form.partner.dateOfBirth,
+          email: form.partner.email,
+          phone: form.partner.phone,
+          address: form.partnersSameAddress === 'no' ? { ...form.partner.address } : null
+        }
+      : null;
+
+    const familyMembersPayload = form.whoFor === 'family'
+      ? form.familyMembers.map((m) => ({
+          firstName: m.firstName,
+          middleName: m.middleName,
+          lastName: m.lastName,
+          dateOfBirth: m.dateOfBirth,
+          relationshipToPrimary: m.relationshipToPrimary,
+          participationStatus: m.participationStatus,
+          email: m.email || null,
+          phone: m.phone || null
+        }))
+      : [];
 
     const { data } = await api.post(`/public/adaptive-intake/${agencySlug.value}/quick`, {
       serviceType: serviceType.value || config.value?.activeService?.serviceType || null,
@@ -1278,7 +1719,15 @@ async function submitQuick() {
       },
       consentGiven: form.consentGiven,
       acknowledgments: form.consentGiven ? consentAcknowledgmentLines : [],
-      additionalDependents
+      additionalDependents,
+      partner: partnerPayload,
+      notifyPartner: form.notifyPartner,
+      partnersSameAddress: form.partnersSameAddress,
+      sameAddress: form.partnersSameAddress,
+      familyRole: form.familyRole,
+      sameHousehold: form.sameHousehold,
+      householdsInvolved: form.householdsInvolved,
+      familyMembers: familyMembersPayload
     });
     confirmation.value = data?.confirmation || null;
     submitted.value = true;
@@ -1287,7 +1736,7 @@ async function submitQuick() {
     const otherPhoneOk = String(form.otherGuardian.phone || '').replace(/\D/g, '').length >= 7;
     if (
       !isCoGuardianInvitee.value
-      && form.whoFor !== 'myself'
+      && isDependentWhoFor.value
       && (rights === 'yes' || rights === 'shared')
       && (otherEmailOk || otherPhoneOk)
     ) {
@@ -1368,6 +1817,10 @@ onMounted(async () => {
       if (config.value.copy.layout) {
         config.value.copy.layout = mergeJoinLayout(config.value.copy.layout);
       }
+      Object.assign(
+        enrollmentSubjectsDraft,
+        normalizeEnrollmentSubjects(config.value.copy.enrollmentSubjects)
+      );
     }
     writeJoinLandingCache(agencySlug.value, resolvedServiceType.value || serviceType.value || 'counseling', data);
     providers.value = data?.providerPreview || [];
@@ -1524,6 +1977,30 @@ onMounted(async () => {
   border: 1px solid #cbd5e1;
   border-radius: 999px;
   padding: 0.25rem 0.65rem;
+}
+.ai-join-subjects-edit {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem 0.7rem;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #334155;
+  background: rgba(255, 255, 255, 0.92);
+  border: 1px solid #cbd5e1;
+  border-radius: 12px;
+  padding: 0.3rem 0.7rem;
+}
+.ai-join-subjects-label {
+  font-weight: 700;
+  color: #123c6d;
+}
+.ai-join-subject-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  cursor: pointer;
+  user-select: none;
 }
 .ai-join-view-page {
   font-size: 0.78rem;

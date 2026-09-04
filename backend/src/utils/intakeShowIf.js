@@ -103,24 +103,82 @@ export function isClinicalSafetyPositive(values = {}) {
   const merged = mergeShowIfValues(values, values?.clinicalResponses);
   const yes = (key) => matchesShowIf({ fieldKey: key, equals: 'yes' }, merged);
   const yesOrNotSure = (key) => matchesShowIf({ fieldKey: key, equals: ['yes', 'not_sure'] }, merged);
-  return (
-    yes('safety_immediate_danger')
-    || yes('self_harm_urges_now')
-    || yes('cssrs_1')
-    || yes('cssrs_2')
-    || yes('cssrs_3')
-    || yes('cssrs_4')
-    || yes('cssrs_5')
-    || yes('cssrs_6')
-    || yes('asq_1')
-    || yes('asq_2')
-    || yes('asq_3')
-    || yes('asq_4')
-    || yes('asq_5')
-    || yesOrNotSure('self_harm')
-    || yesOrNotSure('talked_wanting_to_die')
-    || yes('wanting_to_die_current')
-  );
+  const prefixes = ['', 'p1_', 'p2_'];
+  for (const p of prefixes) {
+    if (
+      yes(`${p}safety_immediate_danger`)
+      || yes(`${p}self_harm_urges_now`)
+      || yes(`${p}immediate_danger`)
+      || yes(`${p}cssrs_1`)
+      || yes(`${p}cssrs_2`)
+      || yes(`${p}cssrs_3`)
+      || yes(`${p}cssrs_4`)
+      || yes(`${p}cssrs_5`)
+      || yes(`${p}cssrs_6`)
+      || yes(`${p}asq_1`)
+      || yes(`${p}asq_2`)
+      || yes(`${p}asq_3`)
+      || yes(`${p}asq_4`)
+      || yes(`${p}asq_5`)
+      || yesOrNotSure(`${p}self_harm`)
+      || yesOrNotSure(`${p}talked_wanting_to_die`)
+      || yes(`${p}wanting_to_die_current`)
+    ) {
+      return true;
+    }
+  }
+  if (
+    yes('member_immediate_danger')
+    || yes('member_thoughts_killing_self')
+    || yes('member_wish_dead')
+    || yes('member_afraid_of_someone')
+  ) {
+    return true;
+  }
+  return isRelationshipIpvPositive(merged);
+}
+
+/**
+ * Intimate-partner / household safety flags from couple/family private pages.
+ * Does not name which person endorsed what — only that clinical review is required.
+ */
+export function isRelationshipIpvPositive(values = {}) {
+  const merged = mergeShowIfValues(values, values?.clinicalResponses);
+  const val = (key) => String(merged[key] ?? '').trim().toLowerCase();
+  const isYes = (key) => val(key) === 'yes';
+  const isNoOrUnsure = (key) => {
+    const v = val(key);
+    return v === 'no' || v === 'not_sure' || v === 'unsure';
+  };
+  const prefixes = ['', 'p1_', 'p2_'];
+  for (const p of prefixes) {
+    if (
+      isYes(`${p}afraid_of_partner`)
+      || isYes(`${p}partner_threatened_harmed`)
+      || isYes(`${p}disagreements_physically_violent`)
+      || isYes(`${p}immediate_danger`)
+      || isYes(`${p}member_immediate_danger`)
+      || isYes(`${p}member_afraid_of_someone`)
+    ) {
+      return true;
+    }
+    if (isNoOrUnsure(`${p}feel_safe_in_relationship`) || isNoOrUnsure(`${p}safe_disagreeing`)) {
+      return true;
+    }
+    if (isNoOrUnsure(`${p}member_feel_safe_home`)) return true;
+  }
+  if (isYes('household_safety_concerns') || val('household_safety_concerns') === 'unsure') return true;
+  return false;
+}
+
+export function clinicalReviewHoldReason(values = {}) {
+  if (isRelationshipIpvPositive(values)) return 'relationship_safety';
+  if (isClinicalSafetyPositive(values)) return 'safety_screen';
+  return null;
+}
+
+export function isPrivateIntakeField(field) {
+  return !!(field && (field.privateToRespondent === true || field.private === true));
 }
 
 export function ageYearsFromDob(dob) {

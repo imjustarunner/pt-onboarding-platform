@@ -207,12 +207,75 @@ const ACTIVE_CLAUSE = `
   AND (u.is_archived IS NULL OR u.is_archived = FALSE)
 `;
 
+async function loadPopulationFocusMap(userIds = []) {
+  const ids = userIds.map((id) => Number(id)).filter(Boolean);
+  if (!ids.length) return new Map();
+  const placeholders = ids.map(() => '?').join(',');
+  try {
+    const [rows] = await pool.execute(
+      `SELECT uiv.user_id, uiv.value, uifd.field_key
+         FROM user_info_values uiv
+         JOIN user_info_field_definitions uifd ON uifd.id = uiv.field_definition_id
+        WHERE uiv.user_id IN (${placeholders})
+          AND uifd.field_key IN (
+            'groups', 'provider_marketing_focus', 'provider_marketing_groups', 'focus'
+          )`,
+      ids
+    );
+    const map = new Map();
+    for (const row of rows || []) {
+      const id = Number(row.user_id);
+      const raw = row.value;
+      let values = [];
+      if (Array.isArray(raw)) values = raw;
+      else if (typeof raw === 'string') {
+        const text = raw.trim();
+        if (text.startsWith('[')) {
+          try {
+            const parsed = JSON.parse(text);
+            values = Array.isArray(parsed) ? parsed : [text];
+          } catch {
+            values = text.split(/[,;|]/);
+          }
+        } else {
+          values = text.split(/[,;|]/);
+        }
+      }
+      const normalized = values.map((v) => String(v || '').trim().toLowerCase()).filter(Boolean);
+      const prev = map.get(id) || [];
+      map.set(id, [...new Set([...prev, ...normalized])]);
+    }
+    return map;
+  } catch {
+    return new Map();
+  }
+}
+
+function providerSupportsServiceMode(populations = [], serviceMode = '') {
+  const mode = String(serviceMode || '').trim().toLowerCase();
+  if (!mode || mode === 'individual' || mode === 'self' || mode === 'myself') return true;
+  const pops = Array.isArray(populations) ? populations : [];
+  if (!pops.length) return true; // no facet data → do not hard-exclude
+  if (mode === 'couple' || mode === 'couples' || mode === 'couples_therapy') {
+    return pops.some((p) => /couple/.test(p));
+  }
+  if (mode === 'family' || mode === 'family_therapy') {
+    return pops.some((p) => /famil/.test(p));
+  }
+  if (mode === 'child' || mode === 'dependent' || mode === 'child_adolescent') {
+    return pops.some((p) => /child|teen|adolesc|youth|famil|individual/.test(p)) || true;
+  }
+  return true;
+}
+
 /**
  * Office intake / Choose a provider directory.
  * Includes providers who are not accepting (shown as waitlist) and those with
  * zero open office slots. Open-slot providers sort first.
+ * @param {{ ages?: number[], includeNotAccepting?: boolean, serviceMode?: string }} opts
+ * serviceMode: individual | couple | family | child — filters on provider groups/focus when set.
  */
-export async function listOfficeIntakeProviders(agencyId, { ages = [], includeNotAccepting = true } = {}) {
+export async function listOfficeIntakeProviders(agencyId, { ages = [], includeNotAccepting = true, serviceMode = '' } = {}) {
   const aid = Number(agencyId || 0);
   if (!aid) return [];
   const ageYears = youngestAge(ages);
@@ -277,22 +340,44 @@ export async function listOfficeIntakeProviders(agencyId, { ages = [], includeNo
   }
 
   const ids = rows.map((r) => r.id);
-  const [ageMap, slotMap, waitlistMap] = await Promise.all([
+  const [ageMap, slotMap, waitlistMap, populationMap] = await Promise.all([
     loadAgeSpecialtyMap(ids),
     loadSlotDetailsMap(ids),
-    loadWaitlistCountMap(aid, ids)
+    loadWaitlistCountMap(aid, ids),
+    loadPopulationFocusMap(ids)
   ]);
 
-  const mapped = rows.map((row) => mapProviderRow(
-    { ...row, age_specialty: ageMap.get(Number(row.id)) || '' },
-    {
-      ageYears,
-      slots: slotMap.get(Number(row.id)) || [],
-      waitlistCount: waitlistMap.get(Number(row.id)) || 0
-    }
-  ));
+  let mapped = rows.map((row) => {
+    const populations = populationMap.get(Number(row.id)) || [];
+    const supportsCouples = populations.some((p) => /couple/.test(p));
+    const supportsFamilyTherapy = populations.some((p) => /famil/.test(p));
+    return {
+      ...mapProviderRow(
+        { ...row, age_specialty: ageMap.get(Number(row.id)) || '' },
+        {
+          ageYears,
+          slots: slotMap.get(Number(row.id)) || [],
+          waitlistCount: waitlistMap.get(Number(row.id)) || 0
+        }
+      ),
+      populations,
+      supportsCouples,
+      supportsFamilyTherapy,
+      supportsServiceMode: providerSupportsServiceMode(populations, serviceMode)
+    };
+  });
+
+  const mode = String(serviceMode || '').trim().toLowerCase();
+  if (mode === 'couple' || mode === 'couples' || mode === 'couples_therapy'
+    || mode === 'family' || mode === 'family_therapy') {
+    const filtered = mapped.filter((p) => p.supportsServiceMode);
+    // Prefer strict match; if no one has the facet, keep full list rather than empty directory.
+    if (filtered.length) mapped = filtered;
+  }
+
   mapped.sort((a, b) => {
     if (a.waitlist !== b.waitlist) return a.waitlist ? 1 : -1;
+    if (a.supportsServiceMode !== b.supportsServiceMode) return a.supportsServiceMode ? -1 : 1;
     if (a.ageMatch !== b.ageMatch) return a.ageMatch ? -1 : 1;
     if (a.servesAge !== b.servesAge) return a.servesAge ? -1 : 1;
     if ((b.openSlots || 0) !== (a.openSlots || 0)) return (b.openSlots || 0) - (a.openSlots || 0);

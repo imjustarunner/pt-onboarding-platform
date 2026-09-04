@@ -13,9 +13,12 @@ import EmailService from './email.service.js';
 import { pickTenantWelcomeUrl } from '../content/tenantBrandAssets.js';
 import {
   SELF_QUICK_CONCERN_OPTIONS,
-  DEPENDENT_QUICK_CONCERN_OPTIONS
+  DEPENDENT_QUICK_CONCERN_OPTIONS,
+  COUPLE_QUICK_CONCERN_OPTIONS,
+  FAMILY_QUICK_CONCERN_OPTIONS
 } from '../constants/adaptiveQuickConcerns.js';
 import { applyDevFillAfterIntakeCreate, resolveDevFillContext } from './devFill.service.js';
+import TherapyEnrollmentUnit from '../models/TherapyEnrollmentUnit.model.js';
 
 function parseJson(value, fallback = null) {
   if (value == null) return fallback;
@@ -28,6 +31,36 @@ function parseJson(value, fallback = null) {
 }
 
 const INTAKE_SERVICE_TYPES = new Set(['counseling', 'tutoring', 'coaching', 'consulting']);
+
+const ENROLLMENT_SUBJECT_KEYS = ['myself', 'dependent', 'couple', 'family'];
+
+export function defaultEnrollmentSubjects() {
+  return { myself: true, dependent: true, couple: true, family: true };
+}
+
+export function normalizeEnrollmentSubjects(raw) {
+  const base = defaultEnrollmentSubjects();
+  if (!raw || typeof raw !== 'object') return { ...base };
+  const next = { ...base };
+  for (const key of ENROLLMENT_SUBJECT_KEYS) {
+    if (Object.prototype.hasOwnProperty.call(raw, key)) {
+      const v = raw[key];
+      next[key] = v === true || v === 1 || v === '1' || v === 'true';
+    }
+  }
+  if (!ENROLLMENT_SUBJECT_KEYS.some((k) => next[k])) next.myself = true;
+  return next;
+}
+
+export function isEnrollmentSubjectEnabled(subjects, whoFor) {
+  const normalized = normalizeEnrollmentSubjects(subjects);
+  const key = String(whoFor || '').trim().toLowerCase();
+  if (key === 'self' || key === 'myself') return !!normalized.myself;
+  if (key === 'dependent' || key === 'child' || key === 'legal') return !!normalized.dependent;
+  if (key === 'couple' || key === 'couples') return !!normalized.couple;
+  if (key === 'family') return !!normalized.family;
+  return true;
+}
 
 function defaultDisplayNameForServiceType(serviceType) {
   const st = String(serviceType || '').toLowerCase();
@@ -369,6 +402,8 @@ export async function getAdaptiveIntakeConfig(agencySlugOrId, req, options = {})
     concernOptions,
     selfConcernOptions: vertical === 'clinical' ? SELF_QUICK_CONCERN_OPTIONS : concernOptions,
     dependentConcernOptions: vertical === 'clinical' ? DEPENDENT_QUICK_CONCERN_OPTIONS : concernOptions,
+    coupleConcernOptions: vertical === 'clinical' ? COUPLE_QUICK_CONCERN_OPTIONS : concernOptions,
+    familyConcernOptions: vertical === 'clinical' ? FAMILY_QUICK_CONCERN_OPTIONS : concernOptions,
     practitionerFrame: practitionerTemplate,
     providerPreview: providers,
     copy: mergeJoinLandingCopy(vertical, agencyRow, activeService),
@@ -575,6 +610,10 @@ function mergeJoinLandingCopy(vertical, agencyRow, activeService) {
       merged.showChooseProvider = value === true || value === 1 || value === '1' || value === 'true';
       continue;
     }
+    if (key === 'enrollmentSubjects' && value && typeof value === 'object') {
+      merged.enrollmentSubjects = normalizeEnrollmentSubjects(value);
+      continue;
+    }
     if (typeof value === 'string') {
       const trimmed = value.trim();
       // Empty welcome lines mean "use the original copy", not a permanent delete.
@@ -583,6 +622,7 @@ function mergeJoinLandingCopy(vertical, agencyRow, activeService) {
     }
   }
   if (merged.showChooseProvider == null) merged.showChooseProvider = false;
+  merged.enrollmentSubjects = normalizeEnrollmentSubjects(merged.enrollmentSubjects);
   if (/non-?judgmental/i.test(String(merged.value1 || ''))) {
     merged.value1 = 'Supportive & Welcoming';
   }
@@ -649,6 +689,10 @@ export async function updateJoinLandingCopy({
     }
     if (field === 'showChooseProvider' || field === 'showProviderDirectory') {
       next.showChooseProvider = value === true || value === 1 || value === '1' || value === 'true';
+      continue;
+    }
+    if (field === 'enrollmentSubjects' && value && typeof value === 'object') {
+      next.enrollmentSubjects = normalizeEnrollmentSubjects(value);
       continue;
     }
     if (typeof value === 'boolean') {
@@ -802,11 +846,14 @@ async function provisionQuickProspectiveAccess({
   try {
     const linkGuardian = async (userId) => {
       await ensureUserAgencyAffiliation(userId, agencyId);
+      const isSelfLike = whoFor === 'myself' || whoFor === 'couple';
       await ClientGuardian.upsertLink({
         clientId,
         guardianUserId: userId,
-        relationshipType: whoFor === 'myself' ? 'self' : 'guardian',
-        relationshipTitle: whoFor === 'myself' ? 'Self' : 'Guardian',
+        relationshipType: isSelfLike ? 'self' : 'guardian',
+        relationshipTitle: isSelfLike
+          ? (whoFor === 'couple' ? 'Partner' : 'Self')
+          : (whoFor === 'family' ? 'Primary contact' : 'Guardian'),
         accessEnabled: true
       }).catch(() => null);
     };
@@ -878,6 +925,10 @@ export async function submitQuickProspective({ agencySlugOrId, payload = {}, req
     ? verticalFromServiceType(activeService.serviceType, agencyRow.organization_type)
     : verticalFromOrgType(agencyRow.organization_type);
   const whoFor = String(payload.whoFor || 'myself').trim();
+  const joinCopy = mergeJoinLandingCopy(vertical, agencyRow, activeService);
+  if (!isEnrollmentSubjectEnabled(joinCopy.enrollmentSubjects, whoFor)) {
+    throw new Error('This organization does not currently offer enrollment for that option.');
+  }
   const respondent = payload.respondent || {};
   const clientInfo = payload.client || {};
   const concerns = Array.isArray(payload.concerns) ? payload.concerns : [];
@@ -950,13 +1001,23 @@ export async function submitQuickProspective({ agencySlugOrId, payload = {}, req
       email: respondent.email || payload.email || null,
       phone: respondent.phone || payload.contactPhone || payload.phone || null,
       preferredContactMethod: respondent.preferredContactMethod || preferences.preferredContactMethod || null,
-      relationship: respondent.relationship || (whoFor === 'myself' ? 'self' : 'guardian')
+      relationship: respondent.relationship
+        || (whoFor === 'myself' || whoFor === 'couple'
+          ? 'self'
+          : whoFor === 'family'
+            ? (payload.familyRole || 'primary_contact')
+            : 'guardian')
     },
     client: {
       firstName: clientFirst || null,
       middleName: clientMiddle || null,
       lastName: clientLast || null
     },
+    familyRole: payload.familyRole || null,
+    notifyPartner: payload.notifyPartner || null,
+    partnersSameAddress: payload.partnersSameAddress || payload.sameAddress || null,
+    sameHousehold: payload.sameHousehold || null,
+    householdsInvolved: payload.householdsInvolved || null,
     concerns,
     accomplishGoal,
     homeAddress,
@@ -1023,78 +1084,216 @@ export async function submitQuickProspective({ agencySlugOrId, payload = {}, req
     /* non-fatal */
   }
 
-  const extraDependents = whoFor === 'myself'
+  const isCouple = whoFor === 'couple';
+  const isFamily = whoFor === 'family';
+  const isMultiPersonUnit = isCouple || isFamily;
+
+  const extraDependents = whoFor === 'myself' || isMultiPersonUnit
     ? []
     : (Array.isArray(payload.additionalDependents) ? payload.additionalDependents : []);
+  const unitParticipants = isCouple
+    ? (Array.isArray(payload.partners) ? payload.partners : [])
+    : isFamily
+      ? (Array.isArray(payload.familyMembers) ? payload.familyMembers : [])
+      : [];
   const extraCreated = [];
-  for (const dep of extraDependents) {
-    const extraFirst = String(dep?.firstName || '').trim();
-    const extraMiddle = String(dep?.middleName || '').trim();
-    const extraLast = String(dep?.lastName || '').trim();
-    if (!extraFirst || !extraLast) continue;
-    const extraDob = normalizeBirthdate(dep.dateOfBirth || dep.birthdate);
-    const extraConcern = String(dep.notes || dep.presentingConcern || '').trim() || accomplishGoal;
-    try {
-      const { client: extraClient } = await ClientExchange.createPublicOfficeIntakeClient({
-        agencySlugOrId: agencyRow.id,
-        payload: {
-          firstName: extraFirst,
-          middleName: extraMiddle,
-          lastName: extraLast,
-          fullName: [extraFirst, extraMiddle, extraLast].filter(Boolean).join(' '),
-          contactPhone: respondent.phone || payload.contactPhone || payload.phone,
-          dateOfBirth: extraDob,
-          homeAddress,
-          addressStreet: addressInfo.street || homeAddress,
-          addressApt: addressInfo.apt || null,
-          addressCity: addressInfo.city || null,
-          addressState: addressInfo.state || null,
-          addressZip: addressInfo.zip || null,
-          presentingConcern: extraConcern || payload.notes || null,
-          preferredDays: preferences.preferredDays || payload.preferredDays,
-          preferredTimeOfDay: preferences.preferredTimeOfDay || payload.preferredTimeOfDay,
-          preferredModality: preferences.preferredModality || payload.preferredModality,
-          preferredLocation: preferences.preferredLocation || payload.preferredLocation,
-          insuranceOrPayment: preferences.insuranceOrPayment || payload.insuranceOrPayment,
-          clientType
-        }
-      });
-      extraCreated.push({
-        client: extraClient,
+
+  async function createLinkedParticipant(person, { role, participationStatus, relationshipToPrimary, notifyAboutRequest, sameAddress, sortOrder, notes }) {
+    const extraFirst = String(person?.firstName || '').trim();
+    const extraMiddle = String(person?.middleName || '').trim();
+    const extraLast = String(person?.lastName || '').trim();
+    if (!extraFirst || !extraLast) return null;
+    const extraDob = normalizeBirthdate(person.dateOfBirth || person.birthdate);
+    const personAddress = sameAddress
+      ? addressInfo
+      : formatStructuredAddress(person.address, person.homeAddress || null);
+    const { client: extraClient } = await ClientExchange.createPublicOfficeIntakeClient({
+      agencySlugOrId: agencyRow.id,
+      payload: {
         firstName: extraFirst,
         middleName: extraMiddle,
         lastName: extraLast,
-        dateOfBirth: extraDob
-      });
-      const extraMeta = {
-        ...meta,
-        additionalDependent: true,
-        linkedPrimaryClientId: client.id,
-        birthdate: extraDob,
-        notes: dep.notes || payload.notes || null
-      };
-      try {
-        await pool.execute(`UPDATE clients SET adaptive_intake_meta_json = ?, source = ? WHERE id = ?`, [
-          JSON.stringify(extraMeta),
-          'ADAPTIVE_QUICK_PROSPECTIVE',
-          extraClient.id
-        ]);
-      } catch (err) {
-        if (!/Unknown column|adaptive_intake_meta/i.test(String(err?.message || ''))) throw err;
+        fullName: [extraFirst, extraMiddle, extraLast].filter(Boolean).join(' '),
+        contactPhone: person.phone || respondent.phone || payload.contactPhone || payload.phone,
+        dateOfBirth: extraDob,
+        homeAddress: personAddress.formatted || homeAddress,
+        addressStreet: personAddress.street || addressInfo.street || homeAddress,
+        addressApt: personAddress.apt || addressInfo.apt || null,
+        addressCity: personAddress.city || addressInfo.city || null,
+        addressState: personAddress.state || addressInfo.state || null,
+        addressZip: personAddress.zip || addressInfo.zip || null,
+        presentingConcern: String(person.notes || notes || accomplishGoal || '').trim() || payload.notes || null,
+        preferredDays: preferences.preferredDays || payload.preferredDays,
+        preferredTimeOfDay: preferences.preferredTimeOfDay || payload.preferredTimeOfDay,
+        preferredModality: preferences.preferredModality || payload.preferredModality,
+        preferredLocation: preferences.preferredLocation || payload.preferredLocation,
+        insuranceOrPayment: preferences.insuranceOrPayment || payload.insuranceOrPayment,
+        clientType
       }
+    });
+    const row = {
+      client: extraClient,
+      firstName: extraFirst,
+      middleName: extraMiddle,
+      lastName: extraLast,
+      dateOfBirth: extraDob,
+      role,
+      participationStatus,
+      relationshipToPrimary,
+      notifyAboutRequest,
+      sameAddress: !!sameAddress,
+      sortOrder,
+      email: person.email || null,
+      phone: person.phone || null
+    };
+    extraCreated.push(row);
+    const extraMeta = {
+      ...meta,
+      therapyUnitRole: role,
+      linkedPrimaryClientId: client.id,
+      birthdate: extraDob,
+      notes: person.notes || payload.notes || null,
+      participationStatus: participationStatus || null,
+      notifyAboutRequest: notifyAboutRequest == null ? null : !!notifyAboutRequest
+    };
+    try {
+      await pool.execute(`UPDATE clients SET adaptive_intake_meta_json = ?, source = ? WHERE id = ?`, [
+        JSON.stringify(extraMeta),
+        'ADAPTIVE_QUICK_PROSPECTIVE',
+        extraClient.id
+      ]);
+    } catch (err) {
+      if (!/Unknown column|adaptive_intake_meta/i.test(String(err?.message || ''))) throw err;
+    }
+    try {
+      await notifyNewProspectiveInquiry({
+        agencyId: agencyRow.id,
+        clientId: extraClient.id,
+        clientName: extraClient.full_name || `${extraFirst} ${extraLast}`.trim(),
+        pathway: 'quick_prospective',
+        vertical
+      });
+    } catch {
+      /* non-fatal */
+    }
+    return row;
+  }
+
+  for (const dep of extraDependents) {
+    try {
+      await createLinkedParticipant(dep, {
+        role: 'additional_dependent',
+        participationStatus: 'participating',
+        relationshipToPrimary: null,
+        notifyAboutRequest: null,
+        sameAddress: true,
+        sortOrder: extraCreated.length + 1,
+        notes: dep.notes
+      });
+    } catch (err) {
+      console.warn('Quick prospective additional dependent skipped:', err?.message || err);
+    }
+  }
+
+  if (isCouple) {
+    // Primary client is partner 1 (respondent). Create partner 2 from payload.partner / partners[0].
+    const partner =
+      payload.partner
+      || unitParticipants.find((p) => p && (p.firstName || p.lastName))
+      || null;
+    const sameAddress = String(payload.partnersSameAddress || payload.sameAddress || 'yes').toLowerCase() !== 'no';
+    const notifyPartner = String(payload.notifyPartner || 'not_yet').toLowerCase() === 'yes';
+    if (partner) {
       try {
-        await notifyNewProspectiveInquiry({
-          agencyId: agencyRow.id,
-          clientId: extraClient.id,
-          clientName: extraClient.full_name || `${extraFirst} ${extraLast}`.trim(),
-          pathway: 'quick_prospective',
-          vertical
+        await createLinkedParticipant(partner, {
+          role: 'partner_2',
+          participationStatus: 'participating',
+          relationshipToPrimary: 'partner',
+          notifyAboutRequest: notifyPartner,
+          sameAddress,
+          sortOrder: 2,
+          notes: null
         });
+      } catch (err) {
+        console.warn('Quick prospective partner skipped:', err?.message || err);
+      }
+    }
+  }
+
+  if (isFamily) {
+    let sort = 1;
+    for (const member of unitParticipants) {
+      try {
+        await createLinkedParticipant(member, {
+          role: String(member.role || 'family_member'),
+          participationStatus: member.participationStatus || 'participating',
+          relationshipToPrimary: member.relationshipToPrimary || member.relationship || null,
+          notifyAboutRequest: null,
+          sameAddress: String(payload.sameHousehold || 'yes').toLowerCase() !== 'no',
+          sortOrder: sort++,
+          notes: member.notes
+        });
+      } catch (err) {
+        console.warn('Quick prospective family member skipped:', err?.message || err);
+      }
+    }
+  }
+
+  let therapyUnit = null;
+  if (isMultiPersonUnit) {
+    try {
+      therapyUnit = await TherapyEnrollmentUnit.create({
+        agencyId: agencyRow.id,
+        unitType: isCouple ? 'couple' : 'family',
+        pathway: 'quick_prospective',
+        primaryContactClientId: client.id,
+        status: 'prospective',
+        meta: {
+          whoFor,
+          concerns,
+          accomplishGoal,
+          familyRole: payload.familyRole || null,
+          notifyPartner: payload.notifyPartner || null,
+          partnersSameAddress: payload.partnersSameAddress || payload.sameAddress || null,
+          sameHousehold: payload.sameHousehold || null,
+          householdsInvolved: payload.householdsInvolved || null,
+          preferredProviderUserId: meta.preferredProviderUserId
+        }
+      });
+      await TherapyEnrollmentUnit.addMember({
+        unitId: therapyUnit.id,
+        clientId: client.id,
+        memberRole: isCouple ? 'partner_1' : 'primary_contact',
+        participationStatus: 'participating',
+        relationshipToPrimary: isCouple ? 'self' : (payload.familyRole || 'primary_contact'),
+        notifyAboutRequest: true,
+        sameAddressAsPrimary: true,
+        sortOrder: 0
+      });
+      for (const extra of extraCreated) {
+        await TherapyEnrollmentUnit.addMember({
+          unitId: therapyUnit.id,
+          clientId: extra.client.id,
+          memberRole: extra.role || 'participant',
+          participationStatus: extra.participationStatus || 'participating',
+          relationshipToPrimary: extra.relationshipToPrimary,
+          notifyAboutRequest: extra.notifyAboutRequest,
+          sameAddressAsPrimary: extra.sameAddress !== false,
+          sortOrder: extra.sortOrder || 0
+        });
+      }
+      meta.therapyEnrollmentUnitId = therapyUnit.id;
+      meta.therapyUnitType = isCouple ? 'couple' : 'family';
+      try {
+        await pool.execute(`UPDATE clients SET adaptive_intake_meta_json = ? WHERE id = ?`, [
+          JSON.stringify(meta),
+          client.id
+        ]);
       } catch {
         /* non-fatal */
       }
     } catch (err) {
-      console.warn('Quick prospective additional dependent skipped:', err?.message || err);
+      console.warn('Therapy enrollment unit create skipped:', err?.message || err);
     }
   }
 
@@ -1114,11 +1313,17 @@ export async function submitQuickProspective({ agencySlugOrId, payload = {}, req
 
   if (temporaryAccess?.userId && extraCreated.length) {
     for (const extra of extraCreated) {
+      const relType = whoFor === 'couple' ? 'proxy' : 'guardian';
+      const relTitle = whoFor === 'couple'
+        ? 'Partner'
+        : whoFor === 'family'
+          ? (extra.relationshipToPrimary || 'Family member')
+          : 'Guardian';
       await ClientGuardian.upsertLink({
         clientId: extra.client.id,
         guardianUserId: temporaryAccess.userId,
-        relationshipType: 'guardian',
-        relationshipTitle: 'Guardian',
+        relationshipType: relType,
+        relationshipTitle: relTitle,
         accessEnabled: true
       }).catch(() => null);
     }
@@ -1174,10 +1379,16 @@ export async function submitQuickProspective({ agencySlugOrId, payload = {}, req
           whoFor === 'myself'
             ? 'Myself'
             : whoFor === 'child'
-              ? 'My dependent'
+              ? 'My child / dependent'
               : whoFor === 'legal'
                 ? 'Someone I have legal authority for'
-                : humanizeToken(whoFor),
+                : whoFor === 'couple'
+                  ? 'A couple'
+                  : whoFor === 'family'
+                    ? 'A family'
+                    : humanizeToken(whoFor),
+        therapyEnrollmentUnitId: therapyUnit?.id || meta.therapyEnrollmentUnitId || null,
+        therapyUnitType: meta.therapyUnitType || null,
         contactName: `${String(respondent.firstName || '').trim()} ${String(respondent.lastName || '').trim()}`.trim(),
         contactEmail: meta.respondent.email,
         contactPhone: meta.respondent.phone,

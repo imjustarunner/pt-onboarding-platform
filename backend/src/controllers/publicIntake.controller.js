@@ -65,7 +65,7 @@ import {
   resolveIntakeFieldLabel,
   resolveIntakeFormLocale
 } from '../utils/intakeFieldLabels.js';
-import { matchesShowIf, mergeShowIfValues, isClinicalSafetyPositive, childAgeFlags } from '../utils/intakeShowIf.js';
+import { matchesShowIf, mergeShowIfValues, isClinicalSafetyPositive, isRelationshipIpvPositive, childAgeFlags } from '../utils/intakeShowIf.js';
 import { sanitizeCareersPageJson } from '../utils/careersPageSanitize.js';
 import {
   parseJobDescriptionSections,
@@ -2792,6 +2792,44 @@ const BACKOFFICE_NOTIFICATION_AUDIENCE = Object.freeze({
   clinicalPracticeAssistant: false
 });
 
+const stampClinicalReviewHoldOnClient = async (clientId, holdReason) => {
+  const cid = Number(clientId || 0) || null;
+  if (!cid) return;
+  try {
+    const [rows] = await pool.execute(
+      `SELECT intake_preferences_json, adaptive_intake_meta_json FROM clients WHERE id = ? LIMIT 1`,
+      [cid]
+    );
+    const row = rows?.[0];
+    if (!row) return;
+    const parse = (raw) => {
+      if (!raw) return {};
+      if (typeof raw === 'object') return raw || {};
+      try { return JSON.parse(raw) || {}; } catch { return {}; }
+    };
+    const prefs = parse(row.intake_preferences_json);
+    const meta = parse(row.adaptive_intake_meta_json);
+    const nextPrefs = {
+      ...prefs,
+      needsClinicalReview: true,
+      clinicalReviewHoldReason: holdReason || prefs.clinicalReviewHoldReason || 'safety_screen',
+      clinicalSafetyAlert: true
+    };
+    const nextMeta = {
+      ...meta,
+      needsClinicalReview: true,
+      clinicalReviewHoldReason: holdReason || meta.clinicalReviewHoldReason || 'safety_screen',
+      clinicalSafetyAlert: true
+    };
+    await pool.execute(
+      `UPDATE clients SET intake_preferences_json = ?, adaptive_intake_meta_json = ? WHERE id = ?`,
+      [JSON.stringify(nextPrefs), JSON.stringify(nextMeta), cid]
+    );
+  } catch {
+    /* column may be missing — non-fatal */
+  }
+};
+
 const maybeNotifyClinicalSafetyAlert = ({ agencyId, clientId, clientName, intakeData }) => {
   const submission = intakeData?.responses?.submission || intakeData?.submission || {};
   const guardian = intakeData?.responses?.guardian || {};
@@ -2799,8 +2837,13 @@ const maybeNotifyClinicalSafetyAlert = ({ agencyId, clientId, clientName, intake
     ? intakeData.responses.clients
     : (Array.isArray(intakeData?.clients) ? intakeData.clients : []);
   const bags = [submission, guardian, ...clients.filter((c) => c && typeof c === 'object')];
-  const positive = bags.some((bag) => bag.clinicalSafetyAlert || isClinicalSafetyPositive(mergeShowIfValues(bag)));
+  const mergedAll = mergeShowIfValues(...bags);
+  const positive = bags.some((bag) => bag.clinicalSafetyAlert || bag.needsClinicalReview)
+    || isClinicalSafetyPositive(mergedAll);
   if (!positive) return;
+  const holdReason = submission.clinicalReviewHoldReason
+    || (isRelationshipIpvPositive(mergedAll) ? 'relationship_safety' : 'safety_screen');
+  stampClinicalReviewHoldOnClient(clientId, holdReason).catch(() => {});
   notifyClinicalSafetyAlert({
     agencyId,
     clientId,
@@ -3552,6 +3595,7 @@ const formatAnswerForField = (field, value) => {
 const buildAnswerLinesForScope = ({ fields, responses, link, locale }) => {
   const lines = [];
   fields.forEach((field) => {
+    if (field?.privateToRespondent === true || field?.private === true) return;
     if (!isIntakeFieldVisible(field, responses)) return;
     const value = responses?.[field.key];
     if (!hasValue(value)) return;
@@ -3680,6 +3724,10 @@ export const buildIntakeAnswersText = ({ link, intakeData, clientIndex = 0 }) =>
       const stepLines = [];
       for (const field of stepFields) {
         if (!field?.key || field.type === 'info') continue;
+        if (field.privateToRespondent === true || field.private === true) {
+          printedKeys.add(field.key);
+          continue;
+        }
         if (!matchesShowIf(field.showIf, interviewValues)) continue;
         const value = interviewValues[field.key];
         if (!hasValue(value)) continue;
@@ -3785,6 +3833,11 @@ export const buildIntakeAnswersText = ({ link, intakeData, clientIndex = 0 }) =>
       const stepLines = [];
       for (const field of stepFields) {
         if (!field?.key || field.type === 'info') continue;
+        // Keep private IPV/safety answers off shared packet text; clinical alert header covers staff.
+        if (field.privateToRespondent === true || field.private === true) {
+          printedKeys.add(field.key);
+          continue;
+        }
         if (!matchesShowIf(field.showIf, values)) continue;
         const value = values[field.key];
         if (!hasValue(value)) continue;
@@ -6194,7 +6247,11 @@ export const listPublicOfficeIntakeProviders = async (req, res, next) => {
       .split(',')
       .map((v) => Number(v))
       .filter((n) => Number.isFinite(n) && n >= 0 && n < 120);
-    const providers = await listOfficeIntakeProviders(Number(agency?.id || link.organization_id || 0), { ages });
+    const serviceMode = String(req.query.serviceMode || req.query.whoFor || '').trim();
+    const providers = await listOfficeIntakeProviders(Number(agency?.id || link.organization_id || 0), {
+      ages,
+      serviceMode
+    });
     res.setHeader('Cache-Control', 'no-store');
     return res.json({ providers });
   } catch (error) {

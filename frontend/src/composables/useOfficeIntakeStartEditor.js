@@ -9,6 +9,9 @@ import {
   localizeOfficeStartCopy,
   mergeIntakeStartLayout,
   normalizeAlign,
+  normalizeEnrollmentSubjects,
+  ENROLLMENT_SUBJECT_KEYS,
+  ENROLLMENT_SUBJECT_LABELS,
   readJoinLandingCache,
   restoreJoinWelcomeCopy,
   writeJoinLandingCache
@@ -80,6 +83,7 @@ export function useOfficeIntakeStartEditor({
   const intakeStartLayout = reactive(mergeIntakeStartLayout(null));
   const startLayoutDraft = reactive(mergeIntakeStartLayout(null));
   const startCopyDraft = reactive(blankStartCopy({}, 'ITSCO', t));
+  const enrollmentSubjectsDraft = reactive(normalizeEnrollmentSubjects(null));
   let startDragState = null;
   let startResizeState = null;
   let startLayoutOkTimer = null;
@@ -92,6 +96,12 @@ export function useOfficeIntakeStartEditor({
     editingStartLayout.value
       ? { ...startCopyDraft }
       : localizeOfficeStartCopy(blankStartCopy(joinLandingCopy.value, agencyName.value, t), intakeLocale.value)
+  ));
+
+  const enrollmentSubjects = computed(() => (
+    editingStartLayout.value
+      ? normalizeEnrollmentSubjects(enrollmentSubjectsDraft)
+      : normalizeEnrollmentSubjects(joinLandingCopy.value?.enrollmentSubjects)
   ));
 
   const activeStartLayout = computed(() => (
@@ -192,7 +202,19 @@ export function useOfficeIntakeStartEditor({
     if (!editingStartLayout.value) {
       Object.assign(startLayoutDraft, next);
       Object.assign(startCopyDraft, blankStartCopy(copy, agencyName.value, t));
+      Object.assign(enrollmentSubjectsDraft, normalizeEnrollmentSubjects(copy?.enrollmentSubjects));
     }
+  }
+
+  function toggleEnrollmentSubject(key) {
+    if (!editingStartLayout.value) return;
+    const k = String(key || '').trim();
+    if (!ENROLLMENT_SUBJECT_KEYS.includes(k)) return;
+    const next = normalizeEnrollmentSubjects({
+      ...enrollmentSubjectsDraft,
+      [k]: !enrollmentSubjectsDraft[k]
+    });
+    Object.assign(enrollmentSubjectsDraft, next);
   }
 
   function toggleStartHidden(key) {
@@ -213,6 +235,7 @@ export function useOfficeIntakeStartEditor({
   function startOfficeStartEdit() {
     Object.assign(startLayoutDraft, mergeIntakeStartLayout(intakeStartLayout));
     Object.assign(startCopyDraft, blankStartCopy(joinLandingCopy.value, agencyName.value, t));
+    Object.assign(enrollmentSubjectsDraft, normalizeEnrollmentSubjects(joinLandingCopy.value?.enrollmentSubjects));
     selectedStartBlock.value = 'card';
     editingStartLayout.value = true;
     startLayoutError.value = '';
@@ -222,6 +245,7 @@ export function useOfficeIntakeStartEditor({
     editingStartLayout.value = false;
     Object.assign(startLayoutDraft, mergeIntakeStartLayout(intakeStartLayout));
     Object.assign(startCopyDraft, blankStartCopy(joinLandingCopy.value, agencyName.value, t));
+    Object.assign(enrollmentSubjectsDraft, normalizeEnrollmentSubjects(joinLandingCopy.value?.enrollmentSubjects));
   }
 
   function onOfficeStartBlockMouseDown(key, event) {
@@ -351,12 +375,14 @@ export function useOfficeIntakeStartEditor({
       const layout = mergeIntakeStartLayout(startLayoutDraft);
       const existing = { ...(joinLandingCopy.value || {}), ...blankStartCopy(startCopyDraft, agencyName.value, t) };
       existing.intakeStartLayout = layout;
+      existing.enrollmentSubjects = normalizeEnrollmentSubjects(enrollmentSubjectsDraft);
       const { data } = await api.patch(`/public/adaptive-intake/${encodeURIComponent(slug)}/landing`, {
         serviceType: 'counseling',
         copy: existing
       }, { skipGlobalLoading: true });
       Object.assign(intakeStartLayout, layout);
       joinLandingCopy.value = data?.copy || existing;
+      Object.assign(enrollmentSubjectsDraft, normalizeEnrollmentSubjects(joinLandingCopy.value?.enrollmentSubjects));
       if (data) {
         writeJoinLandingCache(slug, 'counseling', {
           ...(readJoinLandingCache(slug, 'counseling') || {}),
@@ -390,6 +416,8 @@ export function useOfficeIntakeStartEditor({
   return {
     JOIN_FONT_HREF,
     START_ALIGN_OPTIONS,
+    ENROLLMENT_SUBJECT_KEYS,
+    ENROLLMENT_SUBJECT_LABELS,
     editingStartLayout,
     savingStartLayout,
     startLayoutError,
@@ -397,7 +425,9 @@ export function useOfficeIntakeStartEditor({
     selectedStartBlock,
     startCopyDraft,
     startLayoutDraft,
+    enrollmentSubjectsDraft,
     startCopy,
+    enrollmentSubjects,
     intakeStartLayout,
     canEditOfficeStart,
     selectedStartBlockLabel,
@@ -414,6 +444,7 @@ export function useOfficeIntakeStartEditor({
     officeStartBlockStyle,
     hydrate,
     toggleStartHidden,
+    toggleEnrollmentSubject,
     restoreOriginalStartCopy,
     startOfficeStartEdit,
     cancelOfficeStartEdit,

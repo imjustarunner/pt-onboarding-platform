@@ -1079,8 +1079,10 @@ async function saveEdit() {
 .ajl-bg {
   position: absolute;
   inset: 0;
-  background-size: cover;
-  background-position: center;
+  background-size: auto 100%;
+  background-position: center center;
+  background-repeat: no-repeat;
+  background-color: #1c3d52;
   z-index: 0;
 }
 

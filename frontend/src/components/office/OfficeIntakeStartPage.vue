@@ -152,7 +152,22 @@
           Card width
           <input v-model.number="ctx.startLayoutDraft.width" type="range" min="420" max="1200" step="10" />
         </label>
-        <span class="intake-start-edit-hint">Drag to move, including up over this bar and left into the photo. Pull the blue handle to resize. Alignment is left / center / right. Hide keeps the original wording — it does not delete it.</span>
+        <div class="intake-start-subjects-edit" role="group" aria-label="Who-for enrollment options">
+          <span class="intake-start-subjects-label">Who can enroll</span>
+          <label
+            v-for="key in ctx.ENROLLMENT_SUBJECT_KEYS"
+            :key="key"
+            class="intake-start-subject-toggle"
+          >
+            <input
+              type="checkbox"
+              :checked="!!ctx.enrollmentSubjectsDraft[key]"
+              @change="ctx.toggleEnrollmentSubject(key)"
+            />
+            {{ ctx.ENROLLMENT_SUBJECT_LABELS[key] }}
+          </label>
+        </div>
+        <span class="intake-start-edit-hint">Drag to move, including up over this bar and left into the photo. Pull the blue handle to resize. Alignment is left / center / right. Hide keeps the original wording — it does not delete it. Uncheck Couple or Family if your organization does not offer those services.</span>
       </template>
       <button
         v-if="canDevFill"
@@ -291,17 +306,33 @@ if (!ctx) {
 .intake-start-welcome-block,
 .intake-start-glad-block {
   position: relative;
-  width: fit-content;
-  max-width: min(46rem, 100%);
+  width: min(780px, 100%);
+  max-width: 100%;
   margin-bottom: 0.45rem;
   z-index: 3;
   background: rgba(255, 255, 255, 0.5);
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
   border-radius: 16px;
-  padding: 0.4rem 0.8rem 0.5rem;
+  padding: 0.55rem 1.25rem 0.65rem;
   border: 1px solid rgba(255, 255, 255, 0.45);
   box-shadow: 0 6px 18px rgba(15, 23, 42, 0.06);
+  box-sizing: border-box;
+}
+
+.intake-start-welcome-block {
+  width: min(920px, 100%);
+  padding: 0.6rem 1.5rem 0.7rem;
+}
+
+.intake-start-welcome-block .intake-start-welcome-title {
+  display: block;
+  width: 100%;
+}
+
+.intake-start-glad-block {
+  width: fit-content;
+  max-width: min(780px, 100%);
 }
 
 .intake-start-block {
@@ -749,6 +780,42 @@ if (!ctx) {
   font-weight: 700;
   cursor: pointer;
   text-decoration: underline;
+}
+
+.intake-start-edit-hint {
+  flex: 1 1 100%;
+  font-size: 0.78rem;
+  color: #475569;
+  line-height: 1.35;
+}
+
+.intake-start-subjects-edit {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.55rem 0.85rem;
+  width: 100%;
+  padding: 0.45rem 0.65rem;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid #dbe7df;
+}
+
+.intake-start-subjects-label {
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: #123c6d;
+  margin-right: 0.25rem;
+}
+
+.intake-start-subject-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.8rem;
+  color: #1f2937;
+  cursor: pointer;
+  user-select: none;
 }
 
 .intake-start-page select {

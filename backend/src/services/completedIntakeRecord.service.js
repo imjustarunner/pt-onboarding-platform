@@ -366,6 +366,10 @@ function walkBag(bag, { byKey, locale, link, prefix = '', skipKeys = new Set(), 
     if (PHOTO_KEY.test(key) && typeof raw === 'string' && raw.startsWith('data:')) continue;
     if (INSTRUMENT_LEFTOVER_KEY.test(key)) continue;
     const field = byKey.get(key);
+    if (field?.privateToRespondent === true || field?.private === true) {
+      printed.add(key);
+      continue;
+    }
     if (field?.showIf && !matchesShowIf(field.showIf, showIfValues)) continue;
     const label = [prefix, field ? (resolveIntakeFieldLabel(field, locale, link) || humanizeKey(key)) : humanizeKey(key)]
       .filter(Boolean)
@@ -432,6 +436,11 @@ function rowsFromInterview(link, values, locale, printed, childName = '', { incl
     const rows = [];
     for (const field of fields) {
       if (!field?.key || field.type === 'info') continue;
+      // Private partner/family safety answers stay off the shared family-facing record.
+      if (field.privateToRespondent === true || field.private === true) {
+        printed.add(field.key);
+        continue;
+      }
       if (SKIP_BAG_KEYS.has(field.key)) {
         printed.add(field.key);
         continue;

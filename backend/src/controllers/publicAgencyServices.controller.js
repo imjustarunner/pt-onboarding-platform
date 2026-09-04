@@ -730,7 +730,12 @@ export const listChooseProviders = async (req, res, next) => {
       .split(',')
       .map((v) => Number(v))
       .filter((n) => Number.isFinite(n) && n >= 0 && n < 120);
-    const providers = await listOfficeIntakeProviders(agency.id, { ages, includeNotAccepting: true });
+    const serviceMode = String(req.query.serviceMode || req.query.whoFor || '').trim();
+    const providers = await listOfficeIntakeProviders(agency.id, {
+      ages,
+      includeNotAccepting: true,
+      serviceMode
+    });
     const fullIntake = await findFullIntakePublicKey(agency.id);
     res.setHeader('Cache-Control', 'no-store');
     return res.json({

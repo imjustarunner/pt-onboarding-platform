@@ -4,6 +4,8 @@
  * Part A is completed once. Part B repeats for every child.
  */
 import { buildCounselingSelfEnSteps, COUNSELING_SELF_STEP_PREFIX } from './counselingIntakeSelfEn.js';
+import { buildCounselingCoupleEnSteps, COUNSELING_COUPLE_STEP_PREFIX } from './counselingIntakeCoupleEn.js';
+import { buildCounselingFamilyEnSteps, COUNSELING_FAMILY_STEP_PREFIX } from './counselingIntakeFamilyEn.js';
 import {
   buildAsqFields,
   buildCrafftFields,
@@ -1897,12 +1899,16 @@ export function buildCounselingDependentEnSteps() {
 export function mergeCounselingOfficeEnIntoSteps(existingSteps = [], { paymentOnly = false } = {}) {
   const self = buildCounselingSelfEnSteps();
   const dep = buildCounselingDependentEnSteps();
+  const couple = buildCounselingCoupleEnSteps();
+  const family = buildCounselingFamilyEnSteps();
   const kept = (Array.isArray(existingSteps) ? existingSteps : []).filter((s) => {
     const id = String(s?.id || '');
     const type = String(s?.type || '');
     const label = String(s?.label || s?.title || '');
     if (id.startsWith(COUNSELING_SELF_STEP_PREFIX)) return false;
     if (id.startsWith(COUNSELING_DEP_STEP_PREFIX)) return false;
+    if (id.startsWith(COUNSELING_COUPLE_STEP_PREFIX)) return false;
+    if (id.startsWith(COUNSELING_FAMILY_STEP_PREFIX)) return false;
     if (type === 'provider_match') return false;
     if (type === 'guardian_waiver' || type === 'guardian_waivers') return false;
     if (type === 'package_selection' || type === 'insurance_info' || type === 'insurance' || type === 'payment_collection') {
@@ -1931,9 +1937,10 @@ export function mergeCounselingOfficeEnIntoSteps(existingSteps = [], { paymentOn
   });
   const comms = kept.filter((s) => String(s?.type || '') === 'communications');
   const rest = kept.filter((s) => String(s?.type || '') !== 'communications');
-  const family = dep.filter((s) => s.audience === 'guardian' && !String(s.id || '').includes('scheduling_prefs'));
+  const familyGuardian = dep.filter((s) => s.audience === 'guardian' && !String(s.id || '').includes('scheduling_prefs'));
   const prefs = dep.filter((s) => String(s.id || '').includes('scheduling_prefs'));
   const restDep = dep.filter((s) => s.audience !== 'guardian');
+  const familyUnit = family;
   const incomingComms = comms[0] || {};
   const commsStep = {
     id: incomingComms.id || 'office_communications',
@@ -2012,5 +2019,18 @@ export function mergeCounselingOfficeEnIntoSteps(existingSteps = [], { paymentOn
   };
   const billingSteps = normalizeBilling(billingFromMaster);
 
-  return [...self, ...family, commsStep, ...prefs, providersStep, ...restDep, ...billingSteps, ...rest];
+  // Composition order: self + dependent (existing) + couple + family (new shared relationship layers).
+  // PublicIntakeSigningView filters by audience / serviceSubject so only the chosen path is shown.
+  return [
+    ...self,
+    ...familyGuardian,
+    ...couple,
+    ...familyUnit,
+    commsStep,
+    ...prefs,
+    providersStep,
+    ...restDep,
+    ...billingSteps,
+    ...rest
+  ];
 }

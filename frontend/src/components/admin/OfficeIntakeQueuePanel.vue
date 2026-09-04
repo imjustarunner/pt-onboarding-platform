@@ -133,6 +133,11 @@
                   <strong class="oiq-card-name">{{ getClientLabel(c) }}</strong>
                   <span class="oiq-pill oiq-pill--type">{{ clientTypeLabel(c.clientType) }}</span>
                   <span class="oiq-pill oiq-pill--pathway">{{ pathwayLabel(c) }}</span>
+                  <span
+                    v-if="needsClinicalReview(c)"
+                    class="oiq-pill oiq-pill--clinical-hold"
+                    title="Safety or relationship flags require clinical review before routine matching"
+                  >Clinical review</span>
                   <span v-if="intakeAge(c) != null" class="oiq-inline-age">Age {{ intakeAge(c) }}</span>
                 </div>
                 <div class="oiq-card-row-details">
@@ -171,6 +176,10 @@
               <span v-if="selected.identifierCode"># {{ selected.identifierCode }}</span>
               <span class="oiq-pill oiq-pill--type">{{ clientTypeLabel(selected.clientType) }}</span>
               <span class="oiq-pill oiq-pill--pathway">{{ pathwayLabel(selected) }}</span>
+              <span
+                v-if="needsClinicalReview(selected)"
+                class="oiq-pill oiq-pill--clinical-hold"
+              >Clinical review</span>
             </div>
           </div>
           <div class="oiq-detail-header-actions">
@@ -270,7 +279,9 @@
             </div>
             <div>
               <span class="oiq-detail-label">Status</span>
-              <span class="oiq-detail-value">Awaiting provider assignment</span>
+              <span class="oiq-detail-value">
+                {{ needsClinicalReview(selected) ? 'Needs clinical review before routine matching' : 'Awaiting provider assignment' }}
+              </span>
             </div>
           </div>
         </section>
@@ -469,10 +480,21 @@ function pathwayLabel(c) {
   return c.source || '—';
 }
 
+function needsClinicalReview(c) {
+  return !!(
+    c?.adaptiveMeta?.needsClinicalReview
+    || c?.adaptiveMeta?.clinicalSafetyAlert
+    || c?.intakePreferences?.needsClinicalReview
+    || c?.intakePreferences?.clinicalSafetyAlert
+  );
+}
+
 function whoForLabel(c) {
   const who = c.adaptiveMeta?.whoFor;
   if (who === 'myself' || !who) return 'Self';
   if (who === 'child') return 'Child / dependent';
+  if (who === 'couple') return 'Couple';
+  if (who === 'family') return 'Family';
   if (who === 'legal') return 'Legal representative';
   return String(who).replace(/_/g, ' ');
 }
@@ -975,6 +997,7 @@ onMounted(() => {
 }
 .oiq-pill--type { background: #eff6ff; color: #1d4ed8; }
 .oiq-pill--pathway { background: #ecfdf5; color: #14532d; }
+.oiq-pill--clinical-hold { background: #fef3c7; color: #92400e; font-weight: 600; }
 
 /* ── Detail panel ──────────────────────────────────── */
 .oiq-detail {
