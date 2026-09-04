@@ -290,7 +290,7 @@ async function assignSelected() {
   assigning.value = true;
   try {
     await api.put(`/clients/${selected.value.id}/provider`, {
-      providerId: Number(assignProviderId.value)
+      provider_id: Number(assignProviderId.value)
     });
     assignProviderId.value = '';
     await load();

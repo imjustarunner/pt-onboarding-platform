@@ -672,6 +672,16 @@
                         </div>
                         <div v-show="directoryClientsNavExpanded" class="nav-dropdown-group-items">
                           <router-link
+                            v-if="canSeeOfficeClientManagementNav"
+                            :to="orgTo('/admin/office-hub')"
+                            @click="closeAllNavMenus"
+                          >Office Hub</router-link>
+                          <router-link
+                            v-if="canSeeOfficeClientManagementNav"
+                            :to="orgTo('/admin/office-clients')"
+                            @click="closeAllNavMenus"
+                          >Office Clients</router-link>
+                          <router-link
                             v-if="canSeeClientsManagementNav"
                             :to="orgTo('/admin/clients')"
                             @click="closeAllNavMenus"
@@ -1693,6 +1703,24 @@
                       <span class="mobile-nav-group-caret" :class="{ open: directoryClientsNavExpanded }" aria-hidden="true">▸</span>
                     </button>
                     <template v-if="directoryClientsNavExpanded">
+                      <router-link
+                        v-if="canSeeOfficeClientManagementNav"
+                        :to="orgTo('/admin/office-hub')"
+                        @click="closeMobileMenu"
+                        class="mobile-nav-link mobile-nav-sublink mobile-clients-sublink"
+                      >Office Hub</router-link>
+                      <router-link
+                        v-if="canSeeOfficeClientManagementNav"
+                        :to="orgTo('/admin/office-clients')"
+                        @click="closeMobileMenu"
+                        class="mobile-nav-link mobile-nav-sublink mobile-clients-sublink"
+                      >Office Clients</router-link>
+                      <router-link
+                        v-if="canSeeClientsManagementNav"
+                        :to="orgTo('/admin/clients')"
+                        @click="closeMobileMenu"
+                        class="mobile-nav-link mobile-nav-sublink mobile-clients-sublink"
+                      >Client Management</router-link>
                       <router-link
                         v-if="canSeeClientExchangeNavLink"
                         :to="orgTo('/client-exchange')"
@@ -4181,8 +4209,23 @@ const canSeeClientsManagementNav = computed(
 const canSeeClientExchangeNavLink = computed(
   () => canSeeClientExchangeNav(user.value?.role) && !isAffiliationContext.value
 );
+const canSeeOfficeClientManagementNav = computed(() => {
+  if (isAffiliationContext.value) return false;
+  const role = String(user.value?.role || '').toLowerCase();
+  return [
+    'admin',
+    'super_admin',
+    'support',
+    'staff',
+    'provider_plus',
+    'clinical_practice_assistant'
+  ].includes(role);
+});
 const canSeeClientsNavGroup = computed(
-  () => canSeeClientsManagementNav.value || canSeeClientExchangeNavLink.value
+  () =>
+    canSeeClientsManagementNav.value
+    || canSeeClientExchangeNavLink.value
+    || canSeeOfficeClientManagementNav.value
 );
 
 const isSscSstcTenant = computed(() => {

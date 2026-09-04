@@ -187,6 +187,7 @@ function onTenantChange() {
 async function findOrCreateClient(item, agencyId, organizationId) {
   const name = String(item.clientName || '').trim();
   const initials = deriveInitialsFromName(name);
+  const selfProviderId = Number(authStore.user?.id || 0) || null;
   try {
     const searchRes = await api.get('/clients', {
       params: {
@@ -199,6 +200,18 @@ async function findOrCreateClient(item, agencyId, organizationId) {
     const rows = searchRes?.data?.clients || searchRes?.data || [];
     const match = matchTodoClientFromSearchRows(name, rows);
     if (match?.id) {
+      const matchedProviderId = Number(match.provider_id || match.providerId || 0) || null;
+      if (selfProviderId && !matchedProviderId) {
+        try {
+          await api.put(
+            `/clients/${match.id}/provider`,
+            { provider_id: selfProviderId },
+            { skipGlobalLoading: true }
+          );
+        } catch {
+          // best-effort — create path still assigns for new clients
+        }
+      }
       return { clientId: Number(match.id), clientName: match.full_name || name, created: false };
     }
   } catch {
@@ -214,7 +227,8 @@ async function findOrCreateClient(item, agencyId, organizationId) {
       initials,
       submission_date: item.date || new Date().toISOString().slice(0, 10),
       client_type: 'clinical',
-      source: 'NOTE_AID_MINIMAL'
+      source: 'NOTE_AID_MINIMAL',
+      provider_id: selfProviderId || undefined
     },
     { skipGlobalLoading: true }
   );

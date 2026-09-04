@@ -286,7 +286,8 @@ async function submit() {
       initials: String(form.initials || '').trim().toUpperCase(),
       submission_date: form.submissionDate,
       client_type: derivedClientType.value || 'clinical',
-      source: 'NOTE_AID_MINIMAL'
+      source: 'NOTE_AID_MINIMAL',
+      provider_id: Number(authStore.user?.id || 0) || undefined
     };
     const res = await api.post('/clients', payload);
     const row = res?.data?.client || res?.data || null;

@@ -1623,9 +1623,12 @@ export const createClient = async (req, res, next) => {
     }
 
     // Provider-created contacts should always be owned by that provider.
+    // Note Aid todo / minimal create: assign the creating user so the caseload
+    // is owned by whoever imported or created the client.
     // Agency staff/admin can still set provider_id explicitly.
     let resolvedProviderId = null;
     const roleNorm2 = String(userRole || '').toLowerCase();
+    const sourceNorm = String(source || '').trim().toUpperCase();
     if (roleNorm2 === 'provider') {
       resolvedProviderId = userId;
     } else if (provider_id !== undefined && provider_id !== null && provider_id !== '') {
@@ -1643,6 +1646,8 @@ export const createClient = async (req, res, next) => {
         return res.status(400).json({ error: { message: 'Selected provider is not assigned to this agency' } });
       }
       resolvedProviderId = parsedProviderId;
+    } else if (sourceNorm === 'NOTE_AID_MINIMAL' && userId) {
+      resolvedProviderId = userId;
     }
 
     // New school/office clients with no explicit status default to Received (legacy: packet).
@@ -3913,9 +3918,18 @@ export const assignProvider = async (req, res, next) => {
     const userId = req.user.id;
     const userRole = req.user.role;
 
-    // Permission check: agency-side admin/staff/support/super_admin can assign providers
+    // Permission check: agency-side admin/staff/support/super_admin can assign providers.
+    // Providers may assign themselves (e.g. Note Aid todo import claiming an unassigned chart).
     const roleNorm = String(userRole || '').toLowerCase();
-    const canAssign = roleNorm === 'super_admin' || roleNorm === 'admin' || roleNorm === 'support' || roleNorm === 'staff';
+    const providerIdPreview = provider_id === null || provider_id === '' || provider_id === undefined
+      ? null
+      : parseInt(provider_id, 10);
+    const canAssign =
+      roleNorm === 'super_admin'
+      || roleNorm === 'admin'
+      || roleNorm === 'support'
+      || roleNorm === 'staff'
+      || (roleNorm === 'provider' && providerIdPreview === parseInt(userId, 10));
     if (!canAssign) {
       return res.status(403).json({ 
         error: { message: 'Only admin/staff can assign providers' } 
