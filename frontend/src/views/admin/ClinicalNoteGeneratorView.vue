@@ -2902,6 +2902,53 @@ const clientSetupComplete = computed(() => {
   return demographicsOnFile.value && intakeOnFile.value && planOnFile.value && !!primaryChartDiagnosis.value;
 });
 
+/** Avoid re-POSTing setup-complete for the same client in one session. */
+const noteAidSetupPromotedIds = new Set();
+
+async function promoteNoteAidClientIfSetupComplete() {
+  const cid = Number(effectiveClientId.value || 0);
+  if (!cid || !clientSetupComplete.value) return;
+  const source = String(selectedClient.value?.source || '').toUpperCase();
+  if (source && source !== 'NOTE_AID_MINIMAL') return;
+  if (noteAidSetupPromotedIds.has(cid)) return;
+  noteAidSetupPromotedIds.add(cid);
+  try {
+    const res = await api.post(`/clients/${cid}/note-aid-setup-complete`, {}, { skipGlobalLoading: true });
+    const client = res?.data?.client;
+    if (client && Number(selectedClient.value?.id) === cid) {
+      selectedClient.value = {
+        ...selectedClient.value,
+        ...normalizeNoteAidClientRow(client, agencyLookup.value),
+        status: client.status || selectedClient.value.status,
+        client_status_key: client.client_status_key || client.status_key || selectedClient.value.client_status_key
+      };
+    }
+  } catch (e) {
+    noteAidSetupPromotedIds.delete(cid);
+    console.warn('Note Aid setup promote failed:', e?.response?.data?.error?.message || e.message);
+  }
+}
+
+async function claimUnassignedNoteAidClients() {
+  try {
+    await api.post(
+      '/clients/note-aid/claim-unassigned',
+      { agencyId: currentAgencyId.value || undefined },
+      { skipGlobalLoading: true }
+    );
+  } catch (e) {
+    console.warn('Note Aid claim unassigned failed:', e?.response?.data?.error?.message || e.message);
+  }
+}
+
+watch(
+  [clientSetupComplete, effectiveClientId],
+  ([complete]) => {
+    if (complete) promoteNoteAidClientIfSetupComplete();
+  },
+  { flush: 'post' }
+);
+
 const startPageClientLabel = computed(() => {
   if (selectedClient.value?.full_name || selectedClient.value?.name) {
     return selectedClient.value.full_name || selectedClient.value.name;
@@ -7332,6 +7379,7 @@ onMounted(async () => {
 
   if (canUseTool.value) {
     await bootstrapWorkspace();
+    claimUnassignedNoteAidClients().catch(() => {});
     if (isEmbedded.value) {
       const qAgency = Number(props.embedAgencyId || 0) || null;
       if (qAgency) selectedQueueAgencyId.value = qAgency;

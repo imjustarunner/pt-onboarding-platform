@@ -57,6 +57,10 @@ import {
   filterClientsByRenewalFlag
 } from '../services/clientRenewalFlags.service.js';
 import * as ClientRenewal from '../services/clientRenewal.service.js';
+import {
+  promoteNoteAidClientAfterSetup,
+  backfillNoteAidProviderAssignments
+} from '../services/noteAidClientLifecycle.service.js';
 
 const INSURANCE_CARD_SLOTS = new Set(['primary_front', 'primary_back', 'secondary_front', 'secondary_back']);
 
@@ -3593,6 +3597,106 @@ export const updateClientStatus = async (req, res, next) => {
     res.json(updatedClient);
   } catch (error) {
     console.error('Update client status error:', error);
+    next(error);
+  }
+};
+
+/**
+ * Promote a Note Aid minimal client to current/active after chart setup completes.
+ * POST /api/clients/:id/note-aid-setup-complete
+ */
+export const postNoteAidSetupComplete = async (req, res, next) => {
+  try {
+    const clientId = parseInt(req.params.id, 10);
+    if (!clientId) return res.status(400).json({ error: { message: 'Invalid client id' } });
+
+    const currentClient = await Client.findById(clientId);
+    if (!currentClient) return res.status(404).json({ error: { message: 'Client not found' } });
+
+    const userId = req.user.id;
+    const userRole = String(req.user.role || '').toLowerCase();
+    if (userRole !== 'super_admin') {
+      const userAgencies = await User.getAgencies(userId);
+      const userAgencyIds = (userAgencies || []).map((a) => a.id);
+      if (!userAgencyIds.includes(currentClient.agency_id)) {
+        return res.status(403).json({ error: { message: 'You do not have access to this client' } });
+      }
+    }
+
+    const result = await promoteNoteAidClientAfterSetup({
+      clientId,
+      actorUserId: userId
+    });
+    logClientAccess(req, clientId, 'note_aid_setup_complete').catch(() => {});
+    const client = await Client.findById(clientId);
+    res.json({ ...result, client });
+  } catch (error) {
+    if (error?.status) {
+      return res.status(error.status).json({ error: { message: error.message } });
+    }
+    console.error('Note Aid setup complete error:', error);
+    next(error);
+  }
+};
+
+/**
+ * Claim unassigned Note Aid minimal clients (provider_id = created_by_user_id).
+ * POST /api/clients/note-aid/claim-unassigned
+ * Body/query: agencyId (optional), allCreators (admin/staff — default true for those roles)
+ */
+export const postNoteAidClaimUnassigned = async (req, res, next) => {
+  try {
+    const userId = req.user.id;
+    const userRole = String(req.user.role || '').toLowerCase();
+    const agencyIdRaw = req.body?.agencyId ?? req.query?.agencyId ?? null;
+    const agencyId = agencyIdRaw != null && agencyIdRaw !== '' ? Number(agencyIdRaw) : null;
+
+    const canClaimAll =
+      userRole === 'super_admin' ||
+      userRole === 'admin' ||
+      userRole === 'staff' ||
+      userRole === 'support';
+    const allCreators =
+      canClaimAll &&
+      (req.body?.allCreators === true ||
+        req.body?.allCreators === '1' ||
+        req.query?.allCreators === '1' ||
+        req.body?.allCreators == null);
+
+    if (userRole !== 'super_admin' && agencyId) {
+      const userAgencies = await User.getAgencies(userId);
+      const userAgencyIds = (userAgencies || []).map((a) => Number(a.id));
+      if (!userAgencyIds.includes(Number(agencyId))) {
+        return res.status(403).json({ error: { message: 'You do not have access to this agency' } });
+      }
+    }
+
+    // Providers: only their own creates. Admins: agency-wide (or scoped) to each creator.
+    if (!agencyId && userRole !== 'super_admin' && canClaimAll) {
+      const userAgencies = await User.getAgencies(userId);
+      const ids = (userAgencies || []).map((a) => Number(a.id)).filter(Boolean);
+      let total = 0;
+      const clients = [];
+      for (const aid of ids) {
+        const part = await backfillNoteAidProviderAssignments({
+          agencyId: aid,
+          actorUserId: userId,
+          onlyMine: !allCreators
+        });
+        total += part.count || 0;
+        clients.push(...(part.clients || []));
+      }
+      return res.json({ count: total, clients });
+    }
+
+    const result = await backfillNoteAidProviderAssignments({
+      agencyId: agencyId || null,
+      actorUserId: userId,
+      onlyMine: !canClaimAll || !allCreators
+    });
+    res.json(result);
+  } catch (error) {
+    console.error('Note Aid claim unassigned error:', error);
     next(error);
   }
 };

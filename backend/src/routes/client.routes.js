@@ -10,6 +10,8 @@ import {
   updateClient,
   graduateClientType,
   updateClientStatus,
+  postNoteAidSetupComplete,
+  postNoteAidClaimUnassigned,
   unarchiveClient,
   terminateClient,
   bulkPromoteSchoolYear,
@@ -153,6 +155,9 @@ router.get('/provider-onboarding-queue', getProviderOnboardingQueue);
 // DELETE /api/clients/bulk-import?agencyId=123&confirm=true
 router.delete('/bulk-import', deleteBulkImportedClients);
 
+// Note Aid: claim unassigned minimal clients (must be before /:id)
+router.post('/note-aid/claim-unassigned', postNoteAidClaimUnassigned);
+
 // Bulk actions
 router.post('/bulk/promote-school-year', bulkPromoteSchoolYear);
 router.post('/bulk/rollover-school-year', rolloverSchoolYear);
@@ -179,6 +184,9 @@ router.post('/:id/terminate', terminateClient);
 
 // Update client status
 router.put('/:id/status', updateClientStatus);
+
+// Note Aid: promote to current after chart setup (demographics + intake + plan + diagnosis)
+router.post('/:id/note-aid-setup-complete', postNoteAidSetupComplete);
 
 // Assign provider
 router.put('/:id/provider', assignProvider);
