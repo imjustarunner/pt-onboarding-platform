@@ -803,13 +803,16 @@ function buildSupportTicketResponsePrompt({
   client,
   messages,
   notes,
-  recentTickets
+  recentTickets,
+  recentAnswers = [],
+  regenerationGuidance = ''
 }) {
   const lines = [
     'You are a support agent writing a reply to a help ticket.',
     'Use only the information provided below.',
     'If key details are missing, ask a short clarifying question.',
     'Do not invent facts. Do not include PHI beyond what is already shown here.',
+    'Match the tone and structure of recent successful staff replies when they are relevant.',
     '',
     'Ticket:',
     `- Subject: ${truncateText(ticket?.subject || 'Support ticket', 240)}`,
@@ -839,13 +842,14 @@ function buildSupportTicketResponsePrompt({
   }
 
   if (Array.isArray(messages) && messages.length) {
-    lines.push('', 'Recent ticket messages:');
+    lines.push('', 'Recent ticket messages (this thread — learn from the exchange):');
     for (const msg of messages) {
       const author =
         truncateText(msg?.author_name || `${msg?.author_first_name || ''} ${msg?.author_last_name || ''}`, 120) ||
         `User #${msg?.author_user_id || '—'}`;
+      const kind = msg?.is_internal ? 'internal' : 'public';
       lines.push(
-        `- ${author} (${formatPromptDate(msg?.created_at)}): ${truncateText(msg?.body, 600)}`
+        `- [${kind}] ${author} (${formatPromptDate(msg?.created_at)}): ${truncateText(msg?.body, 700)}`
       );
     }
   }
@@ -870,9 +874,31 @@ function buildSupportTicketResponsePrompt({
     }
   }
 
+  if (Array.isArray(recentAnswers) && recentAnswers.length) {
+    lines.push('', 'Recent successful staff replies (same org — use as style/examples, adapt to this ticket):');
+    for (const ra of recentAnswers) {
+      lines.push(
+        `- Ticket #${ra.id} (${truncateText(ra.school_name || 'school', 80)}, ${formatPromptDate(ra.answered_at || ra.created_at)}):`,
+        `  Subject: ${truncateText(ra.subject || 'Support ticket', 160)}`,
+        `  Question: ${truncateText(ra.question, 320)}`,
+        `  Staff answer: ${truncateText(ra.answer, 900)}`
+      );
+    }
+  }
+
+  const guidance = String(regenerationGuidance || '').trim();
+  if (guidance) {
+    lines.push(
+      '',
+      'Staff regeneration guidance (follow this closely while staying accurate):',
+      truncateText(guidance, 1500)
+    );
+  }
+
   lines.push(
     '',
-    'Write a helpful, concise response. Keep it professional and actionable.'
+    'Write a helpful, concise response. Keep it professional and actionable.',
+    'If regeneration guidance is present, revise the draft accordingly without inventing new facts.'
   );
 
   return lines.join('\n');
@@ -2607,7 +2633,7 @@ export const generateSupportTicketResponse = async (req, res, next) => {
          LEFT JOIN users u ON u.id = m.author_user_id
          WHERE m.ticket_id = ?
          ORDER BY m.created_at DESC, m.id DESC
-         LIMIT 8`,
+         LIMIT 20`,
         [ticketId]
       );
       const raw = Array.isArray(mRows) ? mRows : [];
@@ -2653,6 +2679,38 @@ export const generateSupportTicketResponse = async (req, res, next) => {
       }
     }
 
+    // Learn from recent successful official answers / exchanges in this agency
+    // (prefer same school, then other agency replies).
+    let recentAnswers = [];
+    if (ticket.agency_id) {
+      try {
+        const schoolOrgId = Number(ticket.school_organization_id) || 0;
+        const [aRows] = await pool.execute(
+          `SELECT t.id, t.subject, t.question, t.answer, t.answered_at, t.created_at,
+                  s.name AS school_name, t.school_organization_id
+           FROM support_tickets t
+           LEFT JOIN agencies s ON s.id = t.school_organization_id
+           WHERE t.agency_id = ?
+             AND t.id <> ?
+             AND t.answer IS NOT NULL
+             AND TRIM(t.answer) <> ''
+             AND t.status IN ('answered', 'closed', 'waiting')
+           ORDER BY
+             CASE WHEN ? > 0 AND t.school_organization_id = ? THEN 0 ELSE 1 END,
+             COALESCE(t.answered_at, t.updated_at, t.created_at) DESC
+           LIMIT 8`,
+          [ticket.agency_id, ticketId, schoolOrgId, schoolOrgId]
+        );
+        recentAnswers = Array.isArray(aRows) ? aRows : [];
+      } catch {
+        recentAnswers = [];
+      }
+    }
+
+    const regenerationGuidance = String(
+      req.body?.regenerationGuidance || req.body?.suggestion || ''
+    ).trim().slice(0, 2000);
+
     const intentKey = inferIntentFromTicket(ticket);
     let libraryMatches = [];
     let promptNotes = [];
@@ -2681,9 +2739,11 @@ export const generateSupportTicketResponse = async (req, res, next) => {
       messages,
       notes,
       recentTickets,
+      recentAnswers,
       libraryMatches,
       promptNotes,
-      intentKey
+      intentKey,
+      regenerationGuidance
     });
 
     const prompt = buildSupportTicketResponsePrompt({
@@ -2691,35 +2751,60 @@ export const generateSupportTicketResponse = async (req, res, next) => {
       client,
       messages,
       notes,
-      recentTickets
+      recentTickets,
+      recentAnswers,
+      regenerationGuidance
     })
       + buildReplyLibraryPromptBlock(libraryMatches)
       + await buildAgencyPromptGuardrailsBlock(ticket.agency_id);
 
     const { text, modelName, provider, latencyMs } = await callGeminiText({
       prompt,
-      temperature: 0.2,
-      maxOutputTokens: 800
+      temperature: regenerationGuidance ? 0.35 : 0.2,
+      maxOutputTokens: 1000
     });
 
     if (libraryMatches.length) {
       recordReplyLibraryUsage(libraryMatches.map((m) => m.id)).catch(() => {});
     }
 
+    const suggestedAnswer = String(text || '').trim();
+    if (suggestedAnswer) {
+      try {
+        await pool.execute(
+          `UPDATE support_tickets
+           SET ai_draft_response = ?,
+               ai_draft_review_state = 'pending',
+               ai_draft_reviewed_at = NULL,
+               ai_draft_reviewed_by_user_id = NULL,
+               ai_draft_review_note = NULL
+           WHERE id = ?`,
+          [suggestedAnswer, ticketId]
+        );
+      } catch {
+        // best-effort persist
+      }
+    }
+
     try {
-      await persistTicketDraftSources(ticketId, draftSources, { lastDraftOrigin: 'generate_response' });
+      await persistTicketDraftSources(ticketId, draftSources, {
+        lastDraftOrigin: regenerationGuidance ? 'regenerate_with_guidance' : 'generate_response'
+      });
     } catch {
       // best-effort
     }
 
     res.json({
-      suggestedAnswer: String(text || '').trim(),
+      suggestedAnswer,
       modelName,
       provider,
       latencyMs,
       intentKey,
       librarySources: summarizeLibrarySources(libraryMatches),
-      draftSources
+      draftSources,
+      usedRecentAnswers: recentAnswers.length,
+      usedThreadMessages: messages.length,
+      regenerationGuidance: regenerationGuidance || null
     });
   } catch (e) {
     next(e);

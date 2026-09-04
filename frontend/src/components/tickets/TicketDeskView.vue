@@ -629,8 +629,24 @@
                   </ul>
                 </div>
                 <div v-if="!generatingDraft" class="ai-draft-body">{{ prominentDraftText }}</div>
-                <div v-if="!generatingDraft && selected.ai_draft_response" class="ai-draft-actions">
+                <div v-if="!generatingDraft && (selected.ai_draft_response || draft.trim())" class="ai-draft-actions">
                   <button type="button" class="btn btn-secondary btn-xs" @click="copyAiDraft">Copy</button>
+                  <button
+                    type="button"
+                    class="btn btn-secondary btn-xs"
+                    :disabled="generatingDraft"
+                    @click="generateDraft({ replace: true })"
+                  >
+                    Regenerate
+                  </button>
+                  <button
+                    type="button"
+                    class="btn btn-secondary btn-xs"
+                    :disabled="generatingDraft"
+                    @click="showRegenGuidance = !showRegenGuidance"
+                  >
+                    Regenerate with suggestion…
+                  </button>
                   <button
                     type="button"
                     class="btn btn-secondary btn-xs"
@@ -663,6 +679,26 @@
                   >
                     Mark sent
                   </button>
+                </div>
+                <div v-if="showRegenGuidance" class="regen-guidance-box">
+                  <label class="regen-guidance-label">How should we regenerate this draft?</label>
+                  <textarea
+                    v-model="regenGuidance"
+                    class="regen-guidance-input"
+                    rows="3"
+                    placeholder="e.g. Be warmer, ask which portal (school vs staff), and include next steps for password reset…"
+                  />
+                  <div class="regen-guidance-actions">
+                    <button
+                      type="button"
+                      class="btn btn-primary btn-sm"
+                      :disabled="generatingDraft || !regenGuidance.trim()"
+                      @click="runRegenWithGuidance"
+                    >
+                      {{ generatingDraft ? 'Generating…' : 'Generate with this suggestion' }}
+                    </button>
+                    <button type="button" class="btn btn-secondary btn-sm" @click="showRegenGuidance = false">Cancel</button>
+                  </div>
                 </div>
               </div>
 
@@ -699,7 +735,8 @@
                 </div>
                 <textarea
                   v-model="draft"
-                  rows="3"
+                  class="composer-textarea"
+                  :rows="composerTextRows"
                   :placeholder="composerPlaceholder"
                 />
                 <div v-if="visibleDraftSources.length && composerMode !== 'internal'" class="draft-sources composer-draft-sources">
@@ -708,8 +745,32 @@
                     <li v-for="(src, idx) in visibleDraftSources" :key="`composer-${src.type}-${src.id || idx}`">
                       <span class="draft-source-type">{{ draftSourceTypeLabel(src.type) }}</span>
                       {{ src.label }}
+                      <span v-if="src.detail" class="muted"> — {{ src.detail }}</span>
                     </li>
                   </ul>
+                </div>
+                <div
+                  v-if="canAnswer && composerMode !== 'internal' && showRegenGuidance && !showAutoDraftBanner"
+                  class="regen-guidance-box"
+                >
+                  <label class="regen-guidance-label">How should we regenerate this draft?</label>
+                  <textarea
+                    v-model="regenGuidance"
+                    class="regen-guidance-input"
+                    rows="3"
+                    placeholder="e.g. Be warmer, ask which portal (school vs staff), and include next steps for password reset…"
+                  />
+                  <div class="regen-guidance-actions">
+                    <button
+                      type="button"
+                      class="btn btn-primary btn-sm"
+                      :disabled="generatingDraft || !regenGuidance.trim()"
+                      @click="runRegenWithGuidance"
+                    >
+                      {{ generatingDraft ? 'Generating…' : 'Generate with this suggestion' }}
+                    </button>
+                    <button type="button" class="btn btn-secondary btn-sm" @click="showRegenGuidance = false">Cancel</button>
+                  </div>
                 </div>
                 <label v-if="composerMode === 'answer' && canAnswer" class="promote-library-check">
                   <input v-model="promoteToLibrary" type="checkbox" />
@@ -729,9 +790,18 @@
                     type="button"
                     class="btn btn-secondary"
                     :disabled="generatingDraft || busy || !selected?.id"
-                    @click="generateDraft"
+                    @click="generateDraft({ replace: true })"
                   >
-                    {{ generatingDraft ? 'Generating…' : 'AI draft' }}
+                    {{ generatingDraft ? 'Generating…' : (draft.trim() ? 'Regenerate' : 'AI draft') }}
+                  </button>
+                  <button
+                    v-if="canAnswer && composerMode !== 'internal'"
+                    type="button"
+                    class="btn btn-secondary"
+                    :disabled="generatingDraft || busy || !selected?.id"
+                    @click="showRegenGuidance = !showRegenGuidance"
+                  >
+                    Regenerate with suggestion…
                   </button>
                   <button
                     v-if="canAnswer"
@@ -1038,6 +1108,8 @@ const promoteToLibrary = ref(false);
 const promoteLibraryTitle = ref('');
 const draftSources = ref([]);
 const pendingProposalCount = ref(0);
+const showRegenGuidance = ref(false);
+const regenGuidance = ref('');
 const visibleDraftSources = computed(() => {
   if (draftSources.value.length) return draftSources.value;
   return Array.isArray(selected.value?.draft_sources) ? selected.value.draft_sources : [];
@@ -1054,12 +1126,14 @@ function draftSourceTypeLabel(type) {
     ticket_message: 'Message',
     client_note: 'Note',
     prior_ticket: 'Prior ticket',
+    recent_answer: 'Recent reply',
     reply_library: 'Library',
     ticket_answer: 'Past reply',
     past_reply: 'Past reply',
     prompt_guardrail: 'Guardrail',
     attachment: 'Attachment',
-    intent: 'Intent'
+    intent: 'Intent',
+    regen_guidance: 'Guidance'
   };
   return map[String(type || '').toLowerCase()] || 'Source';
 }
@@ -1291,6 +1365,13 @@ const composerPlaceholder = computed(() => {
   if (composerMode.value === 'internal') return 'Internal note (agency only)…';
   if (composerMode.value === 'answer') return 'Official answer (marks ticket answered)…';
   return 'Write a reply…';
+});
+
+const composerTextRows = computed(() => {
+  if (composerMode.value === 'internal') return 4;
+  const len = String(draft.value || '').length;
+  if (composerMode.value === 'answer' || len > 40) return 12;
+  return 6;
 });
 
 function statusLabel(t) {
@@ -1637,6 +1718,8 @@ function selectTicket(t) {
   draft.value = loadDraftForTicket(t.id);
   draftSources.value = [];
   actionError.value = '';
+  showRegenGuidance.value = false;
+  regenGuidance.value = '';
   assignToId.value = '';
   showForward.value = false;
   forwardProviders.value = [];
@@ -2074,7 +2157,7 @@ function insertReplyLibraryText(text) {
   composerMode.value = 'answer';
 }
 
-async function generateDraft() {
+async function generateDraft({ replace = true, guidance = null } = {}) {
   if (!selected.value?.id) return;
   if (!canActOnSelected.value) {
     actionError.value = `Ticket is claimed by ${assigneeName(selected.value) || 'someone else'}.`;
@@ -2086,24 +2169,50 @@ async function generateDraft() {
     if (!selected.value.claimed_by_user_id) {
       await api.post(`/support-tickets/${selected.value.id}/claim`);
     }
-    const r = await api.post(`/support-tickets/${selected.value.id}/generate-response`);
+    const body = {};
+    const guide = String(guidance ?? '').trim();
+    if (guide) body.regenerationGuidance = guide;
+    const r = await api.post(`/support-tickets/${selected.value.id}/generate-response`, body);
     const text = String(r.data?.suggestedAnswer || '').trim();
     draftSources.value = Array.isArray(r.data?.draftSources) ? r.data.draftSources : [];
     if (!text) {
       actionError.value = 'No draft was generated.';
       return;
     }
-    const existing = draft.value.trim();
-    draft.value = existing ? `${existing}\n\n---\n\n${text}` : text;
+    if (replace) {
+      draft.value = text;
+    } else {
+      const existing = draft.value.trim();
+      draft.value = existing ? `${existing}\n\n---\n\n${text}` : text;
+    }
     composerMode.value = 'answer';
+    selected.value = {
+      ...selected.value,
+      ai_draft_response: text,
+      ai_draft_review_state: 'pending',
+      draft_sources: draftSources.value
+    };
     const found = tickets.value.find((x) => x.id === selected.value.id);
-    if (found) selected.value = { ...selected.value, ...found };
+    if (found) {
+      found.ai_draft_response = text;
+      found.ai_draft_review_state = 'pending';
+    }
+    showRegenGuidance.value = false;
     await loadResponsePlan(selected.value.id);
   } catch (e) {
     actionError.value = e?.response?.data?.error?.message || e?.message || 'Failed to generate draft';
   } finally {
     generatingDraft.value = false;
   }
+}
+
+async function runRegenWithGuidance() {
+  const guide = String(regenGuidance.value || '').trim();
+  if (!guide) {
+    actionError.value = 'Add a short suggestion for how to regenerate the draft.';
+    return;
+  }
+  await generateDraft({ replace: true, guidance: guide });
 }
 
 function useAiDraft() {
@@ -3012,22 +3121,68 @@ defineExpose({ loadAll, clearSelection });
 }
 .ai-draft-banner {
   margin: 0 12px;
-  padding: 10px 12px;
+  padding: 12px 14px;
   border: 1px dashed #81c784;
   border-radius: 10px;
   background: #e8f5e9;
 }
-.ai-draft-head { font-size: 12px; margin-bottom: 6px; }
+.ai-draft-head { font-size: 13px; margin-bottom: 8px; }
 .ai-draft-body {
   white-space: pre-wrap;
-  font-size: 13px;
-  line-height: 1.4;
+  font-size: 14px;
+  line-height: 1.5;
   max-height: none;
   overflow: visible;
-  margin-bottom: 8px;
+  margin-bottom: 10px;
   user-select: text;
+  padding: 12px 14px;
+  background: #fff;
+  border: 1px solid #c8e6c9;
+  border-radius: 8px;
+  min-height: 120px;
 }
 .ai-draft-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.regen-guidance-box {
+  margin-top: 10px;
+  padding: 10px 12px;
+  border: 1px solid #a5d6a7;
+  border-radius: 8px;
+  background: #f1f8f2;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.regen-guidance-label {
+  font-size: 12px;
+  font-weight: 700;
+  color: #1b5e20;
+}
+.regen-guidance-input {
+  width: 100%;
+  border-radius: 8px;
+  border: 1px solid #c8e6c9;
+  padding: 8px 10px;
+  font: inherit;
+  resize: vertical;
+  box-sizing: border-box;
+  min-height: 72px;
+}
+.regen-guidance-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.composer-textarea {
+  width: 100%;
+  border-radius: 8px;
+  border: 1px solid var(--border, #e2e8f0);
+  padding: 10px 12px;
+  resize: vertical;
+  font: inherit;
+  line-height: 1.45;
+  min-height: 140px;
+  box-sizing: border-box;
+}
 .suggested-actions-banner {
   margin: 0 12px 8px;
   padding: 6px 10px;

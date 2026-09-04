@@ -54,9 +54,11 @@ export function buildManualDraftSources({
   messages = [],
   notes = [],
   recentTickets = [],
+  recentAnswers = [],
   libraryMatches = [],
   promptNotes = [],
-  intentKey = null
+  intentKey = null,
+  regenerationGuidance = ''
 } = {}) {
   const sources = [];
 
@@ -97,7 +99,7 @@ export function buildManualDraftSources({
     }
   }
 
-  for (const msg of (messages || []).slice(-3)) {
+  for (const msg of (messages || []).slice(-5)) {
     const author = msg.author_name || `User #${msg.author_user_id || '—'}`;
     sources.push(source('ticket_message', {
       id: msg.id || null,
@@ -122,6 +124,14 @@ export function buildManualDraftSources({
     }));
   }
 
+  for (const ra of (recentAnswers || []).slice(0, 4)) {
+    sources.push(source('recent_answer', {
+      id: ra.id,
+      label: `Recent reply #${ra.id}`,
+      detail: truncateLabel(ra.subject || ra.answer, 90)
+    }));
+  }
+
   for (const entry of libraryMatches || []) {
     sources.push(source('reply_library', {
       id: entry.id,
@@ -141,6 +151,13 @@ export function buildManualDraftSources({
   if (intentKey) {
     sources.push(source('intent', {
       label: `Intent: ${String(intentKey).replace(/_/g, ' ')}`
+    }));
+  }
+
+  if (String(regenerationGuidance || '').trim()) {
+    sources.push(source('regen_guidance', {
+      label: 'Regeneration guidance',
+      detail: truncateLabel(regenerationGuidance, 100)
     }));
   }
 
