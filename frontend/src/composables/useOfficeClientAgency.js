@@ -1,6 +1,6 @@
 import { computed } from 'vue';
 import { useRoute } from 'vue-router';
-import { useAgencyStore } from '../../store/agency';
+import { useAgencyStore } from '../store/agency';
 
 export function useOfficeClientAgency() {
   const agencyStore = useAgencyStore();
