@@ -1257,8 +1257,8 @@
           :clientId="Number(retentionClientId || 0)"
           :officeEventId="Number(retentionOfficeEventId || 0)"
         />
-        </div>
         </template>
+        </div>
         </template>
         </div>
       </main>
