@@ -1,6 +1,13 @@
 <template>
-  <div class="ticket-desk" :class="{ compact, 'ticket-desk--platform': isPlatformTheme }">
-    <header v-if="!compact" class="desk-header">
+  <div
+    class="ticket-desk"
+    :class="{
+      compact,
+      'ticket-desk--platform': isPlatformTheme,
+      'ticket-desk--focus': !!selectedId && !compact
+    }"
+  >
+    <header v-if="!compact && !selectedId" class="desk-header">
       <div>
         <h2 class="desk-title">Tickets</h2>
         <p class="desk-sub">Manage and respond to support requests.</p>
@@ -20,7 +27,7 @@
       </div>
     </header>
 
-    <div v-if="showTenantSwitcher || showPlatformChip" class="tenant-rail-wrap">
+    <div v-if="(!selectedId || compact) && (showTenantSwitcher || showPlatformChip)" class="tenant-rail-wrap">
       <button
         v-if="showPlatformChip"
         type="button"
@@ -49,7 +56,7 @@
       />
     </div>
 
-    <div v-if="!compact" class="metrics">
+    <div v-if="!compact && !selectedId" class="metrics">
       <button
         v-for="m in metricCards"
         :key="m.key"
@@ -64,7 +71,11 @@
     </div>
 
     <div class="desk-body">
-      <aside class="list-pane" :class="{ 'hide-mobile': selectedId && isNarrow }">
+      <aside
+        v-if="!selectedId || compact"
+        class="list-pane"
+        :class="{ 'hide-mobile': selectedId && isNarrow }"
+      >
         <div class="list-toolbar">
           <input
             v-model="searchInput"
@@ -161,8 +172,14 @@
         </div>
         <template v-else>
           <div class="detail-header">
-            <button v-if="isNarrow || compact" type="button" class="btn btn-secondary btn-xs" @click="clearSelection">
-              ← Back
+            <button
+              type="button"
+              class="btn-exit-ticket"
+              title="Back to queue"
+              aria-label="Back to queue"
+              @click="exitToQueue"
+            >
+              ×
             </button>
             <div class="detail-title-block">
               <div class="detail-id">Ticket #{{ selected.id }}</div>
@@ -197,6 +214,32 @@
             </div>
             <div class="detail-actions">
               <button
+                type="button"
+                class="btn btn-secondary btn-sm"
+                :disabled="!canGoPrev"
+                title="Previous ticket in queue"
+                @click="goAdjacent(-1)"
+              >
+                Previous
+              </button>
+              <button
+                type="button"
+                class="btn btn-secondary btn-sm"
+                :disabled="!canGoNext"
+                title="Next ticket in queue"
+                @click="goAdjacent(1)"
+              >
+                Next
+              </button>
+              <button
+                type="button"
+                class="btn btn-secondary btn-sm"
+                title="Save draft and open next ticket"
+                @click="saveDraftAndNext"
+              >
+                Save draft &amp; next
+              </button>
+              <button
                 v-if="canClaim && !selected.claimed_by_user_id"
                 type="button"
                 class="btn btn-primary btn-sm"
@@ -227,11 +270,11 @@
               <button
                 v-if="canClose"
                 type="button"
-                class="btn btn-secondary btn-sm"
+                class="btn btn-primary btn-sm"
                 :disabled="busy || selected.status === 'closed'"
                 @click="closeTicket"
               >
-                Close
+                Mark closed
               </button>
             </div>
           </div>
@@ -266,6 +309,7 @@
                 </button>
               </div>
 
+              <div class="conversation-scroll">
               <!-- Conversation tab -->
               <template v-if="detailTab === 'conversation'">
                 <div v-if="messagesLoading" class="muted pad">Loading conversation…</div>
@@ -621,6 +665,8 @@
                   </button>
                 </div>
               </div>
+
+              </div><!-- /.conversation-scroll -->
 
               <div ref="composerEl" class="composer">
                 <div v-if="canInternal || canAnswer" class="composer-tabs">
@@ -1514,12 +1560,81 @@ async function loadMessages(ticketId) {
   }
 }
 
+function draftStorageKey(id) {
+  return `ticket-draft:${id}`;
+}
+
+function saveDraftForTicket(id, text) {
+  if (!id) return;
+  try {
+    const raw = String(text ?? '');
+    if (!raw.trim()) {
+      localStorage.removeItem(draftStorageKey(id));
+      return;
+    }
+    localStorage.setItem(draftStorageKey(id), raw);
+  } catch {
+    /* ignore quota / private mode */
+  }
+}
+
+function loadDraftForTicket(id) {
+  if (!id) return '';
+  try {
+    return localStorage.getItem(draftStorageKey(id)) || '';
+  } catch {
+    return '';
+  }
+}
+
+function clearDraftForTicket(id) {
+  if (!id) return;
+  try {
+    localStorage.removeItem(draftStorageKey(id));
+  } catch {
+    /* ignore */
+  }
+}
+
+const selectedIndex = computed(() =>
+  tickets.value.findIndex((t) => Number(t.id) === Number(selectedId.value))
+);
+const canGoPrev = computed(() => selectedIndex.value > 0);
+const canGoNext = computed(() =>
+  selectedIndex.value >= 0 && selectedIndex.value < tickets.value.length - 1
+);
+
+function ticketIsClosed(t) {
+  const st = String(t?.status || t?.display_status || '').toLowerCase();
+  return st === 'closed';
+}
+
+function goAdjacent(delta) {
+  const idx = selectedIndex.value;
+  if (idx < 0) return;
+  const next = tickets.value[idx + delta];
+  if (next) selectTicket(next);
+}
+
+function saveDraftAndNext() {
+  if (selectedId.value) saveDraftForTicket(selectedId.value, draft.value);
+  if (canGoNext.value) goAdjacent(1);
+}
+
+function exitToQueue() {
+  if (selectedId.value) saveDraftForTicket(selectedId.value, draft.value);
+  clearSelection();
+}
+
 function selectTicket(t) {
+  if (selectedId.value && Number(selectedId.value) !== Number(t.id)) {
+    saveDraftForTicket(selectedId.value, draft.value);
+  }
   selectedId.value = t.id;
   selected.value = t;
   detailTab.value = 'conversation';
   composerMode.value = 'reply';
-  draft.value = '';
+  draft.value = loadDraftForTicket(t.id);
   draftSources.value = [];
   actionError.value = '';
   assignToId.value = '';
@@ -1543,7 +1658,9 @@ function selectTicket(t) {
   if (canAnswer.value) loadTicketActions(t.id);
   if (canAnswer.value && isEmailTicket.value) loadResponsePlan(t.id);
   nextTick(() => {
-    maybeAutoPrepareDraftOnOpen(t);
+    if (!String(draft.value || '').trim()) {
+      maybeAutoPrepareDraftOnOpen(t);
+    }
   });
 }
 
@@ -1554,6 +1671,7 @@ async function maybeAutoPrepareDraftOnOpen(t) {
   if (!ticketIsAwaitingAnswer(ticket)) return;
   if (autoDraftPreparedIds.value.has(ticket.id)) return;
   if (!canActOnSelected.value) return;
+  if (String(draft.value || '').trim()) return;
 
   autoDraftPreparedIds.value = new Set([...autoDraftPreparedIds.value, ticket.id]);
 
@@ -1579,6 +1697,8 @@ function clearSelection() {
   ticketAttachments.value = [];
   suggestedActionsDismissed.value = false;
   oneTimePasswords.value = {};
+  draft.value = '';
+  draftSources.value = [];
   emit('selection-change', null);
   const q = { ...route.query };
   delete q.ticketId;
@@ -1813,11 +1933,13 @@ async function sendMessage() {
   if (!selected.value?.id || !draft.value.trim()) return;
   sending.value = true;
   try {
+    const ticketId = selected.value.id;
     await api.post(`/support-tickets/${selected.value.id}/messages`, {
       body: draft.value.trim(),
       isInternal: composerMode.value === 'internal'
     });
     draft.value = '';
+    clearDraftForTicket(ticketId);
     await loadMessages(selected.value.id);
     await loadTickets();
     await loadMetrics();
@@ -1858,12 +1980,35 @@ async function unclaim() {
 
 async function closeTicket() {
   if (!selected.value?.id) return;
-  if (!window.confirm('Close this ticket?')) return;
+  if (!window.confirm('Mark this ticket closed?')) return;
+  const closedId = selected.value.id;
+  const prevOrder = tickets.value.map((t) => t.id);
+  const idx = prevOrder.findIndex((id) => Number(id) === Number(closedId));
   busy.value = true;
   try {
-    await api.post(`/support-tickets/${selected.value.id}/close`);
+    await api.post(`/support-tickets/${closedId}/close`);
+    clearDraftForTicket(closedId);
     await loadAll();
-    await loadMessages(selected.value.id);
+    // Prefer the next still-open ticket after this one in the prior queue order.
+    for (let i = idx + 1; i < prevOrder.length; i++) {
+      const candidate = tickets.value.find(
+        (t) => Number(t.id) === Number(prevOrder[i]) && !ticketIsClosed(t)
+      );
+      if (candidate) {
+        selectTicket(candidate);
+        return;
+      }
+    }
+    for (let i = 0; i < idx; i++) {
+      const candidate = tickets.value.find(
+        (t) => Number(t.id) === Number(prevOrder[i]) && !ticketIsClosed(t)
+      );
+      if (candidate) {
+        selectTicket(candidate);
+        return;
+      }
+    }
+    clearSelection();
   } catch (e) {
     error.value = e?.response?.data?.error?.message || e?.message || 'Close failed';
   } finally {
@@ -2057,6 +2202,7 @@ async function submitOfficialAnswer() {
         : undefined
     });
     draft.value = '';
+    clearDraftForTicket(selected.value.id);
     promoteToLibrary.value = false;
     promoteLibraryTitle.value = '';
     draftSources.value = [];
@@ -2209,12 +2355,25 @@ defineExpose({ loadAll, clearSelection });
   flex-direction: column;
   gap: 12px;
   min-height: 0;
-  height: calc(100vh - 120px);
+  height: calc(100dvh - 120px);
+  max-height: calc(100dvh - 80px);
   color: var(--text-primary, #1a3d2b);
 }
 .ticket-desk.compact {
   height: 100%;
   min-height: 420px;
+  max-height: none;
+}
+.ticket-desk--focus {
+  height: calc(100dvh - 48px);
+  max-height: none;
+  gap: 0;
+}
+.ticket-desk--focus .desk-body {
+  grid-template-columns: 1fr;
+  border-radius: 12px;
+  flex: 1;
+  min-height: 0;
 }
 .desk-header {
   display: flex;
@@ -2469,6 +2628,30 @@ defineExpose({ loadAll, clearSelection });
   border-bottom: 1px solid var(--border, #e2e8f0);
   align-items: flex-start;
   flex-wrap: wrap;
+  flex: 0 0 auto;
+  background: #fff;
+  position: sticky;
+  top: 0;
+  z-index: 3;
+}
+.btn-exit-ticket {
+  flex: 0 0 auto;
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  border: 1px solid var(--border, #e2e8f0);
+  background: #fff;
+  color: var(--text-primary, #1a3d2b);
+  font-size: 1.5rem;
+  line-height: 1;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  padding: 0;
+}
+.btn-exit-ticket:hover {
+  background: #f1f5f9;
+  border-color: #cbd5e1;
 }
 .detail-title-block { flex: 1; min-width: 180px; }
 .detail-id { font-size: 12px; font-weight: 700; color: var(--text-secondary, #64748b); }
@@ -2482,12 +2665,12 @@ defineExpose({ loadAll, clearSelection });
   border-radius: 999px;
   background: rgba(45, 106, 79, 0.12);
 }
-.detail-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+.detail-actions { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; max-width: 100%; }
 .detail-main {
   flex: 1;
   min-height: 0;
   display: grid;
-  grid-template-columns: 1fr 220px;
+  grid-template-columns: 1fr minmax(220px, 260px);
 }
 .ticket-desk.compact .detail-main { grid-template-columns: 1fr; }
 .conversation-col {
@@ -2497,6 +2680,16 @@ defineExpose({ loadAll, clearSelection });
   border-right: 1px solid var(--border, #e2e8f0);
 }
 .ticket-desk.compact .conversation-col { border-right: none; }
+.conversation-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  -webkit-overflow-scrolling: touch;
+  user-select: text;
+}
 .tab-row {
   display: flex;
   gap: 4px;
@@ -2515,9 +2708,9 @@ defineExpose({ loadAll, clearSelection });
   color: #0369a1;
 }
 .thread {
-  flex: 1 1 auto;
-  min-height: 180px;
-  overflow: auto;
+  flex: 0 0 auto;
+  min-height: 120px;
+  overflow: visible;
   padding: 14px;
   display: flex;
   flex-direction: column;
@@ -2614,6 +2807,10 @@ defineExpose({ loadAll, clearSelection });
   flex-direction: column;
   gap: 8px;
   flex: 0 0 auto;
+  background: #fff;
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
 }
 .composer-tabs { display: flex; gap: 6px; }
 .composer-tab {
@@ -2825,9 +3022,10 @@ defineExpose({ loadAll, clearSelection });
   white-space: pre-wrap;
   font-size: 13px;
   line-height: 1.4;
-  max-height: 140px;
-  overflow: auto;
+  max-height: none;
+  overflow: visible;
   margin-bottom: 8px;
+  user-select: text;
 }
 .ai-draft-actions { display: flex; flex-wrap: wrap; gap: 6px; }
 .suggested-actions-banner {
@@ -2837,8 +3035,8 @@ defineExpose({ loadAll, clearSelection });
   border-radius: 8px;
   background: #e3f2fd;
   flex: 0 0 auto;
-  max-height: 160px;
-  overflow: auto;
+  max-height: none;
+  overflow: visible;
 }
 .suggested-actions-banner.collapsed {
   max-height: none;
@@ -3034,6 +3232,14 @@ defineExpose({ loadAll, clearSelection });
 .ticket-desk--platform .composer {
   border-color: rgba(148, 163, 184, 0.18);
   background: #0b1220;
+}
+.ticket-desk--platform .btn-exit-ticket {
+  background: #111827;
+  border-color: rgba(148, 163, 184, 0.28);
+  color: #e5e7eb;
+}
+.ticket-desk--platform .btn-exit-ticket:hover {
+  background: #1e293b;
 }
 .ticket-desk--platform .platform-chip {
   background: #111827;

@@ -1,6 +1,6 @@
 <template>
-  <div v-if="usePlatformShell" class="pthq-tickets">
-    <header class="pthq-tickets-top">
+  <div v-if="usePlatformShell" class="pthq-tickets" :class="{ 'pthq-tickets--focus': hasTicketFocus }">
+    <header v-if="!hasTicketFocus" class="pthq-tickets-top">
       <div class="pthq-tickets-brand">
         <div class="pthq-tickets-mark" aria-hidden="true">PT</div>
         <div>
@@ -14,16 +14,21 @@
       </div>
     </header>
     <div class="pthq-tickets-body">
-      <TicketDeskView theme="platform" />
+      <TicketDeskView theme="platform" @selection-change="onTicketSelection" />
     </div>
   </div>
-  <div v-else class="container tickets-page" data-tour="tickets-page">
-    <TicketDeskView />
+  <div
+    v-else
+    class="container tickets-page"
+    :class="{ 'tickets-page--focus': hasTicketFocus }"
+    data-tour="tickets-page"
+  >
+    <TicketDeskView @selection-change="onTicketSelection" />
   </div>
 </template>
 
 <script setup>
-import { computed } from 'vue';
+import { computed, ref } from 'vue';
 import { useRoute } from 'vue-router';
 import TicketDeskView from '../../components/tickets/TicketDeskView.vue';
 import { useAuthStore } from '../../store/auth';
@@ -32,6 +37,15 @@ import { useAgencyStore } from '../../store/agency';
 const authStore = useAuthStore();
 const agencyStore = useAgencyStore();
 const route = useRoute();
+
+const selectedTicket = ref(null);
+const hasTicketFocus = computed(() =>
+  !!(selectedTicket.value?.id || String(route.query?.ticketId || '').trim())
+);
+
+function onTicketSelection(ticket) {
+  selectedTicket.value = ticket || null;
+}
 
 const usePlatformShell = computed(() => {
   const role = String(authStore.user?.role || '').toLowerCase();
@@ -48,6 +62,17 @@ const usePlatformShell = computed(() => {
 <style scoped>
 .tickets-page {
   padding-bottom: 24px;
+  min-height: calc(100dvh - 80px);
+  display: flex;
+  flex-direction: column;
+}
+.tickets-page--focus {
+  padding-bottom: 0;
+  min-height: calc(100dvh - 24px);
+}
+.tickets-page :deep(.ticket-desk) {
+  flex: 1;
+  min-height: 0;
 }
 
 .pthq-tickets {
@@ -56,7 +81,9 @@ const usePlatformShell = computed(() => {
   --line: rgba(148, 163, 184, 0.18);
   --text: #e5e7eb;
   --muted: #94a3b8;
-  min-height: 100vh;
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
   background:
     radial-gradient(1200px 500px at 10% -10%, rgba(139, 92, 246, 0.22), transparent 55%),
     radial-gradient(900px 400px at 90% 0%, rgba(56, 189, 248, 0.12), transparent 50%),
@@ -64,6 +91,10 @@ const usePlatformShell = computed(() => {
   color: var(--text);
   font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
   padding: 1rem 1.25rem 2rem;
+  box-sizing: border-box;
+}
+.pthq-tickets--focus {
+  padding: 0.5rem 0.75rem 0.75rem;
 }
 
 .pthq-tickets-top {
@@ -75,6 +106,7 @@ const usePlatformShell = computed(() => {
   margin-bottom: 1rem;
   padding-bottom: 0.85rem;
   border-bottom: 1px solid var(--line);
+  flex: 0 0 auto;
 }
 
 .pthq-tickets-brand {
@@ -132,5 +164,19 @@ const usePlatformShell = computed(() => {
   border: 1px solid var(--line);
   border-radius: 16px;
   padding: 1rem 1.1rem 1.25rem;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.pthq-tickets--focus .pthq-tickets-body {
+  padding: 0.65rem;
+  border-radius: 12px;
+}
+.pthq-tickets-body :deep(.ticket-desk) {
+  flex: 1;
+  min-height: 0;
+  height: 100%;
+  max-height: none;
 }
 </style>
