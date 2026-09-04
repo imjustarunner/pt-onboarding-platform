@@ -92,18 +92,27 @@ export async function updateJoinLanding(req, res, next) {
     });
     if (!config) return res.status(404).json({ error: { message: 'Organization not found' } });
     const role = String(req.user?.role || '').toLowerCase();
-    if (!['admin', 'super_admin'].includes(role)) {
+    if (!['admin', 'super_admin', 'support'].includes(role)) {
       return res.status(403).json({ error: { message: 'Only admins can edit this page.' } });
     }
     if (!(await assertAgencyAccess(req, config.agency.id)) && role !== 'super_admin') {
       return res.status(403).json({ error: { message: 'Forbidden' } });
     }
-    const copy = await AdaptiveIntake.updateJoinLandingCopy({
+    const result = await AdaptiveIntake.updateJoinLandingCopy({
       agencySlugOrId: req.params.agencySlug,
       serviceType: req.body?.serviceType || config.activeService?.serviceType,
-      copy: req.body?.copy || {}
+      copy: req.body?.copy || {},
+      supportContact: req.body?.supportContact ?? null,
+      logoPath: req.body?.logoPath,
+      logoUrl: req.body?.logoUrl,
+      req
     });
-    res.json({ ok: true, copy });
+    res.json({
+      ok: true,
+      copy: result.copy,
+      branding: result.branding,
+      supportContact: result.supportContact
+    });
   } catch (e) {
     next(e);
   }

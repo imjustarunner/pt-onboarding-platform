@@ -24,6 +24,19 @@
           <div v-if="editing && selectedBlock === 'logo'" class="ajl-resize ajl-resize--e" @mousedown.stop="startResize('logo', 'e', $event)" />
           <img v-if="logoUrl" class="ajl-logo" :src="logoUrl" :alt="agencyName" :style="logoStyle" />
           <div v-else class="ajl-logo-fallback" :style="logoStyle">{{ agencyInitial }}</div>
+          <div v-if="editing && selectedBlock === 'logo'" class="ajl-logo-upload" @mousedown.stop>
+            <input
+              ref="logoFileInput"
+              type="file"
+              accept="image/png,image/jpeg,image/jpg,image/gif,image/svg+xml,image/webp"
+              class="ajl-logo-file"
+              @change="onLogoFileSelected"
+            />
+            <button type="button" class="ajl-logo-upload-btn" :disabled="uploadingLogo" @click="pickLogoFile">
+              {{ uploadingLogo ? 'Uploading…' : (logoUrl ? 'Replace logo' : 'Upload logo') }}
+            </button>
+            <p v-if="logoUploadError" class="ajl-logo-upload-error">{{ logoUploadError }}</p>
+          </div>
         </div>
         <div
           class="ajl-block ajl-block--tagline"
@@ -101,8 +114,24 @@
             <input v-if="editing" v-model="draft.helpBody" class="ajl-inline" />
             <span v-else>{{ copy.helpBody }}</span>
           </p>
-          <a v-if="contactTel" class="ajl-help-line" :href="`tel:${contactTel}`">{{ contactPhone }}</a>
-          <a v-if="contactEmail" class="ajl-help-line" :href="`mailto:${contactEmail}`">{{ contactEmail }}</a>
+          <template v-if="editing">
+            <label class="ajl-help-field" @mousedown.stop>
+              Phone
+              <input v-model.trim="contactDraft.phone" type="tel" class="ajl-inline" placeholder="719-657-7444" />
+            </label>
+            <label class="ajl-help-field" @mousedown.stop>
+              Extension
+              <input v-model.trim="contactDraft.phoneExtension" type="text" maxlength="20" class="ajl-inline" placeholder="0" />
+            </label>
+            <label class="ajl-help-field" @mousedown.stop>
+              Support email
+              <input v-model.trim="contactDraft.email" type="email" class="ajl-inline" placeholder="support@example.com" />
+            </label>
+          </template>
+          <template v-else>
+            <a v-if="displayContactTel" class="ajl-help-line" :href="`tel:${displayContactTel}`">{{ displayContactPhone }}</a>
+            <a v-if="displayContactEmail" class="ajl-help-line" :href="`mailto:${displayContactEmail}`">{{ displayContactEmail }}</a>
+          </template>
           <button type="button" class="ajl-help-btn" @click="$emit('contact-support')">
             <input v-if="editing" v-model="draft.sendMessage" class="ajl-inline" @click.stop />
             <span v-else>{{ copy.sendMessage }}</span>
@@ -149,6 +178,15 @@
             Logo size
             <input v-model.number="draft.layout.sizes.logoWidth" type="range" min="48" max="360" step="4" />
           </label>
+          <button
+            v-if="selectedBlock === 'logo'"
+            type="button"
+            class="ajl-edit-btn ajl-edit-btn--ghost"
+            :disabled="uploadingLogo"
+            @click="pickLogoFile"
+          >
+            {{ uploadingLogo ? 'Uploading…' : 'Upload logo' }}
+          </button>
           <label class="ajl-edit-field">
             Footer
             <select v-model="draft.layout.footerStyle">
@@ -391,6 +429,8 @@ import {
   writeJoinLandingCache
 } from '../../utils/joinLandingTemplate.js';
 import { pickTenantWelcomeUrl, tenantSmsImage } from '../../utils/tenantBrandAssets.js';
+import { toUploadsUrl } from '../../utils/uploadsUrl.js';
+import { resolveSchoolOnboardingSupportPhone } from '../../utils/schoolGroupEmailSuggestions.js';
 
 const ALIGN_OPTIONS = [
   { id: 'left', label: 'Align left', glyph: '⭰' },
@@ -422,7 +462,7 @@ const props = defineProps({
   canEdit: { type: Boolean, default: false }
 });
 
-defineEmits(['continue', 'contact-support']);
+const emit = defineEmits(['continue', 'contact-support', 'tenant-updated']);
 
 const editing = ref(false);
 const saving = ref(false);
@@ -433,6 +473,12 @@ const selectedBlock = ref('');
 const viewportWidth = ref(typeof window === 'undefined' ? 1200 : window.innerWidth);
 const skipDesktopLayout = computed(() => !editing.value && viewportWidth.value <= 1100);
 const draft = reactive(blankDraft());
+const contactDraft = reactive({ phone: '', phoneExtension: '', email: '' });
+const logoDraftPath = ref(null);
+const logoDraftPreviewUrl = ref('');
+const logoFileInput = ref(null);
+const uploadingLogo = ref(false);
+const logoUploadError = ref('');
 let dragState = null;
 let resizeState = null;
 let saveOkTimer = null;
@@ -466,6 +512,7 @@ const joinSharePageKey = computed(() => {
 });
 const agencyInitial = computed(() => String(agencyName.value).trim().charAt(0) || '•');
 const logoUrl = computed(() => {
+  if (logoDraftPreviewUrl.value) return logoDraftPreviewUrl.value;
   const branding = props.config?.branding || {};
   const fromApi = String(
     branding.logoUrl
@@ -480,6 +527,38 @@ const logoUrl = computed(() => {
   if (slug === 'itsco') return '/assets/provider-action/itsco-logo.png';
   return '';
 });
+
+function stripPhoneExtensionSuffix(phone) {
+  return String(phone || '').replace(/\s*(?:ext\.?|x)\s*\S+\s*$/i, '').trim();
+}
+
+function hydrateContactDraft() {
+  const sc = props.config?.supportContact || {};
+  contactDraft.phone = stripPhoneExtensionSuffix(sc.phone || props.contactPhone || '');
+  contactDraft.phoneExtension = String(sc.phoneExtension || '').trim();
+  contactDraft.email = String(sc.email || props.contactEmail || '').trim();
+}
+
+const displayContactPhoneInfo = computed(() => {
+  if (editing.value) {
+    return resolveSchoolOnboardingSupportPhone({
+      slug: props.config?.agency?.slug || props.agencySlug,
+      phone: contactDraft.phone,
+      phone_number: contactDraft.phone,
+      phoneExtension: contactDraft.phoneExtension,
+      phone_extension: contactDraft.phoneExtension
+    });
+  }
+  return {
+    display: props.contactPhone || '',
+    tel: props.contactTel || ''
+  };
+});
+const displayContactPhone = computed(() => displayContactPhoneInfo.value?.display || '');
+const displayContactTel = computed(() => String(displayContactPhoneInfo.value?.tel || '').replace(/^tel:/, ''));
+const displayContactEmail = computed(() =>
+  editing.value ? contactDraft.email : (props.contactEmail || '')
+);
 const themeUrl = computed(() =>
   String(
     pickTenantWelcomeUrl(props.agencySlug || props.config?.agency?.slug)
@@ -678,6 +757,9 @@ function closeEditor() {
   editing.value = false;
   selectedBlock.value = '';
   holdEditClosed.value = true;
+  logoDraftPath.value = null;
+  logoDraftPreviewUrl.value = '';
+  logoUploadError.value = '';
   if (holdEditTimer) clearTimeout(holdEditTimer);
   holdEditTimer = setTimeout(() => { holdEditClosed.value = false; }, 500);
 }
@@ -718,6 +800,10 @@ function startEdit() {
   });
   while (draft.quickBullets.length < 3) draft.quickBullets.push('');
   while (draft.fullBullets.length < 3) draft.fullBullets.push('');
+  hydrateContactDraft();
+  logoDraftPath.value = null;
+  logoDraftPreviewUrl.value = '';
+  logoUploadError.value = '';
   saveError.value = '';
   saveOk.value = '';
   selectedBlock.value = 'cards';
@@ -882,6 +968,42 @@ function applyDraftToConfig() {
   props.config.copy = next;
 }
 
+function pickLogoFile() {
+  logoUploadError.value = '';
+  logoFileInput.value?.click();
+}
+
+async function onLogoFileSelected(event) {
+  const file = event?.target?.files?.[0];
+  if (event?.target) event.target.value = '';
+  if (!file) return;
+  if (file.size > 5 * 1024 * 1024) {
+    logoUploadError.value = 'Logo must be 5MB or smaller.';
+    return;
+  }
+  const allowed = ['image/png', 'image/jpeg', 'image/jpg', 'image/gif', 'image/svg+xml', 'image/webp'];
+  if (!allowed.includes(file.type)) {
+    logoUploadError.value = 'Use PNG, JPG, GIF, SVG, or WebP.';
+    return;
+  }
+  uploadingLogo.value = true;
+  logoUploadError.value = '';
+  try {
+    const formData = new FormData();
+    formData.append('logo', file);
+    const { data } = await api.post('/logos/upload', formData, { skipGlobalLoading: true });
+    if (!data?.success || !data?.path) {
+      throw new Error(data?.error?.message || 'Upload failed');
+    }
+    logoDraftPath.value = data.path;
+    logoDraftPreviewUrl.value = toUploadsUrl(data.path) || data.url || '';
+  } catch (e) {
+    logoUploadError.value = e?.response?.data?.error?.message || e?.message || 'Could not upload logo.';
+  } finally {
+    uploadingLogo.value = false;
+  }
+}
+
 async function saveEdit() {
   saving.value = true;
   saveError.value = '';
@@ -894,12 +1016,25 @@ async function saveEdit() {
       ...toRaw(draft),
       layout: mergeJoinLayout(draft.layout)
     }));
-    const { data } = await api.patch(`/public/adaptive-intake/${props.agencySlug}/landing`, {
+    const body = {
       serviceType,
-      copy: payload
-    }, { skipGlobalLoading: true });
+      copy: payload,
+      supportContact: {
+        phone: contactDraft.phone,
+        phoneExtension: contactDraft.phoneExtension,
+        email: contactDraft.email
+      }
+    };
+    if (logoDraftPath.value) {
+      body.logoPath = logoDraftPath.value;
+    }
+    const { data } = await api.patch(`/public/adaptive-intake/${props.agencySlug}/landing`, body, {
+      skipGlobalLoading: true
+    });
     applyDraftToConfig();
     if (props.config) {
+      if (data?.branding) props.config.branding = data.branding;
+      if (data?.supportContact) props.config.supportContact = data.supportContact;
       writeJoinLandingCache(props.agencySlug, serviceType, props.config);
     }
     if (props.config && data?.copy) {
@@ -909,6 +1044,10 @@ async function saveEdit() {
         layout: mergeJoinLayout(data.copy.layout || draft.layout)
       };
     }
+    emit('tenant-updated', {
+      branding: data?.branding || null,
+      supportContact: data?.supportContact || null
+    });
     closeEditor();
     saveOk.value = 'Saved.';
     if (saveOkTimer) clearTimeout(saveOkTimer);
@@ -1028,6 +1167,59 @@ async function saveEdit() {
   background: rgba(18, 60, 109, 0.1);
   color: #123c6d;
   font-weight: 700;
+}
+
+.ajl-logo-upload {
+  margin-top: 0.45rem;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.25rem;
+}
+
+.ajl-logo-file {
+  display: none;
+}
+
+.ajl-logo-upload-btn {
+  border: 1px solid rgba(18, 60, 109, 0.28);
+  background: rgba(255, 255, 255, 0.92);
+  color: #123c6d;
+  border-radius: 8px;
+  padding: 0.28rem 0.6rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.ajl-logo-upload-btn:disabled {
+  opacity: 0.65;
+  cursor: wait;
+}
+
+.ajl-logo-upload-error {
+  margin: 0;
+  font-size: 0.7rem;
+  color: #b91c1c;
+}
+
+.ajl-help-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  margin: 0.35rem 0 0;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: rgba(18, 60, 109, 0.72);
+}
+
+.ajl-help-field .ajl-inline {
+  text-transform: none;
+  letter-spacing: normal;
+  font-weight: 600;
+  font-size: 0.9rem;
 }
 
 .ajl-tagline {

@@ -134,16 +134,17 @@ async function resolveAgency(agencySlugOrId) {
 async function loadAgencyRow(agencySlugOrId) {
   const slug = String(agencySlugOrId || '').trim();
   if (!slug) return null;
+  const cols = `id, name, slug, portal_url, organization_type, logo_url, logo_path, color_palette, feature_flags, public_booking_settings, careers_page_json, theme_settings, phone_number, phone_extension, onboarding_team_email, support_team_email`;
   if (/^\d+$/.test(slug)) {
     const [rows] = await pool.execute(
-      `SELECT id, name, slug, portal_url, organization_type, logo_url, color_palette, feature_flags, public_booking_settings, careers_page_json, theme_settings, phone_number, phone_extension, onboarding_team_email, support_team_email
+      `SELECT ${cols}
        FROM agencies WHERE id = ? AND is_active = 1 LIMIT 1`,
       [Number(slug)]
     );
     return rows[0] || null;
   }
   const [rows] = await pool.execute(
-    `SELECT id, name, slug, portal_url, organization_type, logo_url, color_palette, feature_flags, public_booking_settings, careers_page_json, theme_settings, phone_number, phone_extension, onboarding_team_email, support_team_email
+    `SELECT ${cols}
      FROM agencies
      WHERE (slug = ? OR portal_url = ?) AND is_active = 1
      LIMIT 1`,
@@ -427,21 +428,22 @@ export async function resolveClientFacingSupport(agencyRow = {}) {
   const digits = String(rawPhone).replace(/\D/g, '');
   const isTollFree = digits === '8334448726' || digits === '18334448726';
   const extRaw = String(agencyRow.phone_extension || agencyRow.phoneExtension || '').trim();
+  // Keep phone and extension separate so public UIs can format once (avoids "Ext 0 Ext 0").
   if (slug === 'itsco' || isTollFree || !digits) {
     return {
       email: email || 'support@itsco.health',
-      phone: '719-657-7444 Ext 0',
-      phoneExtension: '0',
+      phone: '719-657-7444',
+      phoneExtension: extRaw || '0',
       tel: '+17196577444,0'
     };
   }
   const formatted = formatUsPhone(rawPhone);
-  const ext = extRaw ? (/^ext/i.test(extRaw) ? extRaw.replace(/^ext\.?\s*/i, 'Ext ') : `Ext ${extRaw}`) : '';
+  const extDigits = extRaw.replace(/\D/g, '');
   return {
     email: email || null,
-    phone: ext ? `${formatted} ${ext}` : formatted,
+    phone: formatted,
     phoneExtension: extRaw || null,
-    tel: `+1${digits}${extRaw ? `,${extRaw.replace(/\D/g, '')}` : ''}`
+    tel: `+1${digits}${extDigits ? `,${extDigits}` : ''}`
   };
 }
 
@@ -610,7 +612,25 @@ function mergeJoinLandingCopy(vertical, agencyRow, activeService) {
   return merged;
 }
 
-export async function updateJoinLandingCopy({ agencySlugOrId, serviceType, copy = {} }) {
+function stripEmbeddedPhoneExtension(phone) {
+  return String(phone || '')
+    .replace(/\s*(?:ext\.?|x)\s*\S+\s*$/i, '')
+    .trim();
+}
+
+/**
+ * Persist join-landing copy plus optional tenant logo / public support contact.
+ * Logo and contact live on the agency row (same fields as Company Profile → Branding / Contact).
+ */
+export async function updateJoinLandingCopy({
+  agencySlugOrId,
+  serviceType,
+  copy = {},
+  supportContact = null,
+  logoPath = undefined,
+  logoUrl = undefined,
+  req = null
+}) {
   const agencyRow = await loadAgencyRow(agencySlugOrId);
   if (!agencyRow) throw new Error('Organization not found');
   const theme = parseJson(agencyRow.theme_settings, {}) || {};
@@ -639,15 +659,55 @@ export async function updateJoinLandingCopy({ agencySlugOrId, serviceType, copy 
   }
   existing[key] = next;
   theme.joinLanding = existing;
-  await pool.execute('UPDATE agencies SET theme_settings = ? WHERE id = ?', [
-    JSON.stringify(theme),
-    agencyRow.id
-  ]);
-  return mergeJoinLandingCopy(
-    verticalFromServiceType(key, agencyRow.organization_type),
-    { ...agencyRow, theme_settings: theme },
-    { serviceType: key }
-  );
+
+  const agencyPatch = { themeSettings: theme };
+  if (logoPath !== undefined) {
+    const path = logoPath ? String(logoPath).trim().slice(0, 500) : null;
+    agencyPatch.logoPath = path;
+    if (path) agencyPatch.logoUrl = null;
+  }
+  if (logoUrl !== undefined && logoPath === undefined) {
+    const url = logoUrl ? String(logoUrl).trim().slice(0, 1000) : null;
+    agencyPatch.logoUrl = url;
+    if (url) agencyPatch.logoPath = null;
+  }
+  if (supportContact && typeof supportContact === 'object') {
+    if (supportContact.phone !== undefined) {
+      agencyPatch.phoneNumber = stripEmbeddedPhoneExtension(supportContact.phone).slice(0, 40) || null;
+    }
+    if (supportContact.phoneExtension !== undefined) {
+      agencyPatch.phoneExtension = String(supportContact.phoneExtension || '').trim().slice(0, 20) || null;
+    }
+    if (supportContact.email !== undefined) {
+      const email = String(supportContact.email || '').trim().slice(0, 255) || null;
+      agencyPatch.supportTeamEmail = email;
+      // Keep public /support page in sync (it reads onboarding_team_email).
+      agencyPatch.onboardingTeamEmail = email;
+    }
+  }
+
+  await Agency.update(agencyRow.id, agencyPatch);
+  const refreshed = await loadAgencyRow(agencyRow.id);
+  const row = refreshed || { ...agencyRow, theme_settings: theme };
+  let branding = null;
+  try {
+    branding = await buildPublicFormBranding({
+      organization: row,
+      agency: row,
+      baseUrl: requestBaseUrl(req)
+    });
+  } catch {
+    branding = null;
+  }
+  return {
+    copy: mergeJoinLandingCopy(
+      verticalFromServiceType(key, row.organization_type),
+      row,
+      { serviceType: key }
+    ),
+    branding,
+    supportContact: await resolveClientFacingSupport(row)
+  };
 }
 
 function normalizeBirthdate(value) {

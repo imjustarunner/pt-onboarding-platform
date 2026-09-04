@@ -18,6 +18,7 @@
     :can-edit="canEditLanding"
     @continue="onPathwayContinue"
     @contact-support="openJoinSupport"
+    @tenant-updated="onJoinTenantUpdated"
   />
   <AdaptiveIntakeShell
     v-else-if="!loading || submitted || phase !== 'pathway'"
@@ -830,16 +831,25 @@ const decorHero = computed(() => {
   };
 });
 
-const joinSupportAgency = computed(() => ({
-  slug: config.value?.agency?.slug || agencySlug.value,
-  portal_url: config.value?.agency?.slug || agencySlug.value,
-  phone: config.value?.supportContact?.phone || config.value?.agency?.phone,
-  phone_number: config.value?.supportContact?.phone || config.value?.agency?.phone,
-  phoneExtension: config.value?.supportContact?.phoneExtension,
-  phone_extension: config.value?.supportContact?.phoneExtension,
-  supportEmail: config.value?.supportContact?.email,
-  onboarding_team_email: config.value?.agency?.onboarding_team_email
-}));
+const joinSupportAgency = computed(() => {
+  const sc = config.value?.supportContact || {};
+  let phone = String(sc.phone || config.value?.agency?.phone || '').trim();
+  const phoneExtension = String(sc.phoneExtension || '').trim();
+  if (phoneExtension && /\s*(?:ext\.?|x)\s*\S+$/i.test(phone)) {
+    phone = phone.replace(/\s*(?:ext\.?|x)\s*\S+$/i, '').trim();
+  }
+  return {
+    slug: config.value?.agency?.slug || agencySlug.value,
+    portal_url: config.value?.agency?.slug || agencySlug.value,
+    phone,
+    phone_number: phone,
+    phoneExtension,
+    phone_extension: phoneExtension,
+    supportEmail: sc.email,
+    support_team_email: sc.email,
+    onboarding_team_email: config.value?.agency?.onboarding_team_email
+  };
+});
 const joinContactEmail = computed(() =>
   resolveSchoolOnboardingSupportEmail(joinSupportAgency.value)
   || String(config.value?.supportContact?.email || '').trim()
@@ -847,6 +857,14 @@ const joinContactEmail = computed(() =>
 const joinContactPhoneInfo = computed(() => resolveSchoolOnboardingSupportPhone(joinSupportAgency.value));
 const joinContactPhone = computed(() => joinContactPhoneInfo.value?.display || '');
 const joinContactTel = computed(() => String(joinContactPhoneInfo.value?.tel || '').replace(/^tel:/, ''));
+
+function onJoinTenantUpdated(payload = {}) {
+  if (!config.value) return;
+  if (payload.branding) config.value.branding = payload.branding;
+  if (payload.supportContact) config.value.supportContact = payload.supportContact;
+  const st = resolvedServiceType.value || 'counseling';
+  writeJoinLandingCache(agencySlug.value, st, config.value);
+}
 
 const canEditLanding = computed(() => {
   if (!authStore.isAuthenticated) return false;
