@@ -295,6 +295,13 @@ if (!ctx) {
   max-width: min(46rem, 100%);
   margin-bottom: 0.45rem;
   z-index: 3;
+  background: rgba(255, 255, 255, 0.5);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border-radius: 16px;
+  padding: 0.4rem 0.8rem 0.5rem;
+  border: 1px solid rgba(255, 255, 255, 0.45);
+  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.06);
 }
 
 .intake-start-block {
@@ -611,12 +618,14 @@ if (!ctx) {
 .intake-start-card {
   position: relative;
   z-index: 1;
-  background: #fff;
-  border: 1px solid var(--df-border, #dce8e2);
+  background: rgba(255, 255, 255, 0.62);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1px solid rgba(255, 255, 255, 0.5);
   border-radius: 24px;
-  padding: clamp(1.35rem, 3vw, 2.15rem);
+  padding: clamp(1.1rem, 2.4vw, 1.75rem);
   box-shadow: 0 16px 40px rgba(15, 23, 42, 0.08);
-  width: min(1080px, 100%);
+  width: min(920px, 100%);
   margin: 0 auto;
   text-align: left;
 }

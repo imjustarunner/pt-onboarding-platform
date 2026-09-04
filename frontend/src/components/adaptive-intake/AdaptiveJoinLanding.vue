@@ -1105,14 +1105,9 @@ async function saveEdit() {
 }
 
 .ajl:not(.ajl--editing) .ajl-rail {
-  background: linear-gradient(
-    180deg,
-    rgba(255, 255, 255, 0.72) 0%,
-    rgba(255, 255, 255, 0.55) 55%,
-    rgba(255, 255, 255, 0.4) 100%
-  );
-  backdrop-filter: blur(6px);
-  -webkit-backdrop-filter: blur(6px);
+  background: transparent;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
 }
 
 .ajl-rail--editing {
@@ -1259,7 +1254,7 @@ async function saveEdit() {
   margin-top: 0;
   text-align: left;
   border: 1px solid rgba(18, 60, 109, 0.14);
-  background: rgba(255, 255, 255, 0.92);
+  background: rgba(255, 255, 255, 0.55);
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
   border-radius: 16px;
@@ -1470,13 +1465,13 @@ async function saveEdit() {
 
 /* Always keep welcome copy readable over dark/busy scenic photos */
 .ajl:not(.ajl--editing) .ajl-block--overlay {
-  background: rgba(255, 255, 255, 0.88);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
+  background: rgba(255, 255, 255, 0.52);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
   border-radius: 18px;
   padding: 0.55rem 0.95rem 0.7rem;
-  box-shadow: 0 10px 28px rgba(15, 23, 42, 0.1);
-  border: 1px solid rgba(255, 255, 255, 0.7);
+  box-shadow: 0 8px 22px rgba(15, 23, 42, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.45);
 }
 
 .ajl:not(.ajl--editing) .ajl-block--overlay .ajl-glad {
@@ -1498,10 +1493,13 @@ async function saveEdit() {
 }
 
 .ajl-card {
-  background: #fff;
+  background: rgba(255, 255, 255, 0.62);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.5);
   border-radius: 18px;
   padding: 1.25rem 1.25rem 1.45rem;
-  box-shadow: 0 16px 40px rgba(15, 23, 42, 0.16);
+  box-shadow: 0 16px 40px rgba(15, 23, 42, 0.12);
   min-width: 0;
   height: 100%;
   display: flex;

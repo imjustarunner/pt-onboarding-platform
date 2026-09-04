@@ -5145,12 +5145,17 @@ const showCompactSidebarContact = computed(
 
 const splashContactPhoneInfo = computed(() => {
   if (isJobApplication.value) return null;
+  let phone = String(agencyInfo.value?.phone_number || agencyInfo.value?.phone || '').trim();
+  const phoneExtension = String(agencyInfo.value?.phone_extension || '').trim();
+  if (phoneExtension && /\s*(?:ext\.?|x)\s*\S+$/i.test(phone)) {
+    phone = phone.replace(/\s*(?:ext\.?|x)\s*\S+$/i, '').trim();
+  }
   return resolveSchoolOnboardingSupportPhone({
-    slug: referralAgencySlug.value,
-    phone: agencyInfo.value?.phone_number || agencyInfo.value?.phone,
-    phone_number: agencyInfo.value?.phone_number || agencyInfo.value?.phone,
-    phoneExtension: agencyInfo.value?.phone_extension,
-    phone_extension: agencyInfo.value?.phone_extension
+    slug: referralAgencySlug.value || agencyInfo.value?.slug || agencyInfo.value?.portal_url,
+    phone,
+    phone_number: phone,
+    phoneExtension,
+    phone_extension: phoneExtension
   });
 });
 const splashContactPhone = computed(() => splashContactPhoneInfo.value?.display || '');
@@ -5158,8 +5163,10 @@ const splashContactTel = computed(() => String(splashContactPhoneInfo.value?.tel
 const splashContactEmail = computed(() => {
   if (isJobApplication.value) return '';
   return resolveSchoolOnboardingSupportEmail({
-    slug: referralAgencySlug.value,
-    supportEmail: agencyInfo.value?.onboarding_team_email,
+    slug: referralAgencySlug.value || agencyInfo.value?.slug || agencyInfo.value?.portal_url,
+    supportTeamEmail: agencyInfo.value?.support_team_email,
+    support_team_email: agencyInfo.value?.support_team_email,
+    supportEmail: agencyInfo.value?.support_team_email || agencyInfo.value?.onboarding_team_email,
     onboarding_team_email: agencyInfo.value?.onboarding_team_email
   }) || '';
 });
@@ -15641,7 +15648,20 @@ onBeforeUnmount(() => {
 }
 
 .public-intake.public-intake--office-start.df-page--scenic-side {
-  background-position: center center;
+  background-position: left center;
+  background-size: cover;
+}
+
+/* Drop the opaque “panel over the scenic photo” on office start. */
+.public-intake.public-intake--office-start.df-page--scenic-side :deep(.df-sidebar) {
+  background: transparent !important;
+  border-right: none !important;
+  box-shadow: none !important;
+  overflow: visible !important;
+}
+
+.public-intake.public-intake--office-start.df-page--scenic-side :deep(.df-main::before) {
+  display: none !important;
 }
 
 .public-intake.public-intake--office-start :deep(.df-shell),
@@ -15656,12 +15676,29 @@ onBeforeUnmount(() => {
 .public-intake :deep(.df-shell--cover-mode:has(.intake-start-page) .df-main-body--cover) {
   max-width: none;
   width: 100%;
-  align-items: center;
+  align-items: stretch;
   justify-content: flex-start;
   text-align: left;
-  padding-top: 0.35rem;
-  padding-bottom: clamp(1.5rem, 4vh, 2.5rem);
+  padding-top: clamp(0.75rem, 2vh, 1.25rem);
+  padding-bottom: clamp(1.25rem, 3vh, 2rem);
+  padding-left: clamp(0.75rem, 2vw, 1.5rem);
+  padding-right: clamp(0.75rem, 2vw, 1.5rem);
   overflow: visible;
+  box-sizing: border-box;
+}
+
+.public-intake.public-intake--office-start :deep(.df-shell--cover-mode) {
+  --df-sidebar-w: clamp(220px, 22vw, 300px);
+  align-items: stretch;
+}
+
+.public-intake.public-intake--office-start :deep(.df-sidebar) {
+  width: var(--df-sidebar-w);
+  min-width: var(--df-sidebar-w);
+  max-width: var(--df-sidebar-w);
+  flex-shrink: 0;
+  box-sizing: border-box;
+  padding: clamp(1rem, 2vw, 1.5rem) clamp(0.75rem, 1.5vw, 1.1rem);
 }
 
 .intake-start-page {
@@ -15682,13 +15719,13 @@ onBeforeUnmount(() => {
   max-width: min(46rem, 100%);
   margin-bottom: 0.45rem;
   z-index: 3;
-  background: rgba(255, 255, 255, 0.88);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
+  background: rgba(255, 255, 255, 0.5);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
   border-radius: 16px;
   padding: 0.45rem 0.85rem 0.55rem;
-  border: 1px solid rgba(255, 255, 255, 0.7);
-  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.45);
+  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.06);
 }
 
 .intake-start-block {
@@ -15992,12 +16029,14 @@ onBeforeUnmount(() => {
 .intake-start-card {
   position: relative;
   z-index: 1;
-  background: #fff;
-  border: 1px solid var(--df-border, #dce8e2);
+  background: rgba(255, 255, 255, 0.62);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1px solid rgba(255, 255, 255, 0.5);
   border-radius: 24px;
-  padding: clamp(1.35rem, 3vw, 2.15rem);
+  padding: clamp(1.1rem, 2.4vw, 1.75rem);
   box-shadow: 0 16px 40px rgba(15, 23, 42, 0.08);
-  width: min(1080px, 100%);
+  width: min(920px, 100%);
   max-width: 100%;
   box-sizing: border-box;
   margin: 0 auto;
@@ -16806,7 +16845,9 @@ onBeforeUnmount(() => {
   padding: 1.15rem 1.1rem;
   border: 1px solid rgba(16, 35, 31, 0.12);
   border-radius: 16px;
-  background: rgba(255, 255, 255, 0.88);
+  background: rgba(255, 255, 255, 0.5);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
   text-align: left;
 }
 .reminder-consent-panel--office {

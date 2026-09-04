@@ -4736,7 +4736,11 @@ const toOrgPayload = (org) => {
     logo_url: org.logo_url || null,
     logo_path: org.logo_path || null,
     slug: org.slug || null,
-    portal_url: org.portal_url || null
+    portal_url: org.portal_url || null,
+    phone_number: org.phone_number || null,
+    phone_extension: org.phone_extension || null,
+    support_team_email: org.support_team_email || null,
+    onboarding_team_email: org.onboarding_team_email || null
   };
 };
 
