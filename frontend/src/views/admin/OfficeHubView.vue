@@ -26,41 +26,41 @@
     <div v-if="error" class="oh-banner">{{ error }}</div>
 
     <div class="oh-kpis">
-      <div class="oh-kpi">
+      <button type="button" class="oh-kpi oh-kpi--click" @click="goPath('/my-schedule')">
         <div class="oh-kpi-icon oh-kpi-icon--green">◷</div>
         <div>
           <div class="oh-kpi-value">{{ summary.todaysAppointments || 0 }}</div>
           <div class="oh-kpi-label">Today's appointments</div>
         </div>
-      </div>
-      <div class="oh-kpi">
+      </button>
+      <button type="button" class="oh-kpi oh-kpi--click" @click="goClients({ bucket: 'prospective' })">
         <div class="oh-kpi-icon oh-kpi-icon--blue">↓</div>
         <div>
           <div class="oh-kpi-value">{{ summary.newOfficeIntakes || 0 }}</div>
           <div class="oh-kpi-label">New office intakes</div>
         </div>
-      </div>
-      <div class="oh-kpi">
+      </button>
+      <button type="button" class="oh-kpi oh-kpi--click" @click="goClients({ unassigned: '1' })">
         <div class="oh-kpi-icon oh-kpi-icon--purple">◎</div>
         <div>
           <div class="oh-kpi-value">{{ summary.pendingReview || 0 }}</div>
           <div class="oh-kpi-label">Pending review</div>
         </div>
-      </div>
-      <div class="oh-kpi">
+      </button>
+      <button type="button" class="oh-kpi oh-kpi--click" @click="goClients({})">
         <div class="oh-kpi-icon oh-kpi-icon--teal">☺</div>
         <div>
           <div class="oh-kpi-value">{{ summary.activeProviders || 0 }}</div>
           <div class="oh-kpi-label">Active providers</div>
         </div>
-      </div>
-      <div class="oh-kpi">
+      </button>
+      <button type="button" class="oh-kpi oh-kpi--click" @click="goClients({ bucket: 'waitlisted' })">
         <div class="oh-kpi-icon oh-kpi-icon--orange">☰</div>
         <div>
           <div class="oh-kpi-value">{{ summary.waitlisted || 0 }}</div>
           <div class="oh-kpi-label">On waitlist</div>
         </div>
-      </div>
+      </button>
     </div>
 
     <div class="oh-grid">
@@ -111,7 +111,7 @@
       <section class="oh-card">
         <div class="oh-card-head">
           <h2>New office clients</h2>
-          <router-link class="oh-link" :to="orgPath('/admin/office-clients?bucket=prospective')">View all</router-link>
+          <router-link class="oh-link" :to="orgPath('/admin/office-clients?unassigned=1')">View all</router-link>
         </div>
         <div v-for="c in (summary.clientsSample || []).filter((x) => !(x.providers?.length || x.providerId) || x.bucket === 'prospective').slice(0, 6)" :key="c.id" class="oh-queue-row">
           <div>
@@ -141,7 +141,7 @@
         <button type="button" class="oh-action-row" @click="goClients({ clinicalReview: '1' })">
           <span>Clinical review required</span><strong>{{ summary.clinicalReview || 0 }}</strong>
         </button>
-        <button type="button" class="oh-action-row" @click="goClients({ bucket: 'prospective' })">
+        <button type="button" class="oh-action-row" @click="goClients({ unassigned: '1' })">
           <span>Provider unassigned</span><strong>{{ summary.unassigned || 0 }}</strong>
         </button>
         <button type="button" class="oh-action-row" @click="goClients({ bucket: 'waitlisted' })">
@@ -158,16 +158,28 @@
       <section class="oh-card">
         <div class="oh-card-head"><h2>Quick actions</h2></div>
         <div class="oh-quick">
-          <router-link class="oh-quick-btn oh-quick-btn--green" :to="orgPath('/admin/office-clients')">Assign provider</router-link>
+          <router-link class="oh-quick-btn oh-quick-btn--green" :to="orgPath('/admin/office-clients?unassigned=1')">Assign provider</router-link>
           <router-link class="oh-quick-btn oh-quick-btn--blue" :to="orgPath('/admin/office-intake-queue')">Review intake</router-link>
           <router-link class="oh-quick-btn oh-quick-btn--purple" :to="orgPath('/admin/clients')">Add client</router-link>
           <router-link class="oh-quick-btn oh-quick-btn--orange" :to="orgPath('/admin/office-clients?bucket=waitlisted')">View waitlist</router-link>
         </div>
         <div class="oh-card-head" style="margin-top:1rem;"><h2>Alerts</h2></div>
         <ul class="oh-alerts">
-          <li v-if="summary.clinicalReview">{{ summary.clinicalReview }} client(s) flagged for clinical review before routine matching.</li>
-          <li v-if="summary.unassigned">{{ summary.unassigned }} office client(s) still need a provider assignment.</li>
-          <li v-if="summary.acceptancePending">{{ summary.acceptancePending }} referral(s) awaiting provider acceptance.</li>
+          <li v-if="summary.clinicalReview">
+            <button type="button" class="oh-alert-link" @click="goClients({ clinicalReview: '1' })">
+              {{ summary.clinicalReview }} client(s) flagged for clinical review before routine matching.
+            </button>
+          </li>
+          <li v-if="summary.unassigned">
+            <button type="button" class="oh-alert-link" @click="goClients({ unassigned: '1' })">
+              {{ summary.unassigned }} office client(s) still need a provider assignment.
+            </button>
+          </li>
+          <li v-if="summary.acceptancePending">
+            <button type="button" class="oh-alert-link" @click="goPath('/admin/office-intake-queue')">
+              {{ summary.acceptancePending }} referral(s) awaiting provider acceptance.
+            </button>
+          </li>
           <li v-if="!summary.clinicalReview && !summary.unassigned && !summary.acceptancePending" class="oh-muted">No operational alerts from live office signals.</li>
         </ul>
       </section>
@@ -293,6 +305,17 @@ onMounted(load);
 .oh-banner { background: #fef3c7; color: #92400e; border-radius: 10px; padding: 0.75rem 1rem; margin-bottom: 1rem; }
 .oh-kpis { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 0.75rem; margin-bottom: 1rem; }
 .oh-kpi { background: #fff; border: 1px solid #d7e3dc; border-radius: 12px; padding: 0.9rem 1rem; display: flex; gap: 0.75rem; align-items: center; }
+.oh-kpi--click {
+  width: 100%;
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.oh-kpi--click:hover {
+  border-color: #0f766e;
+  box-shadow: 0 1px 6px rgba(15, 118, 110, 0.12);
+}
 .oh-kpi-value { font-size: 1.55rem; font-weight: 700; color: #14352a; }
 .oh-kpi-label { font-size: 0.8rem; color: #5b6b63; }
 .oh-kpi-icon { width: 2.2rem; height: 2.2rem; border-radius: 10px; display: grid; place-items: center; font-weight: 700; }
@@ -329,6 +352,20 @@ onMounted(load);
 .oh-quick-btn--purple { background: #7c3aed; }
 .oh-quick-btn--orange { background: #c2410c; }
 .oh-alerts { margin: 0; padding-left: 1.1rem; display: grid; gap: 0.35rem; color: #374151; font-size: 0.9rem; }
+.oh-alert-link {
+  border: 0;
+  background: transparent;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  color: #0f766e;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.oh-alert-link:hover { color: #115e59; }
 .oh-btn { border-radius: 10px; border: 1px solid #d7e3dc; background: #fff; padding: 0.45rem 0.8rem; cursor: pointer; font-weight: 600; color: #14352a; text-decoration: none; display: inline-flex; align-items: center; }
 .oh-btn--primary { background: #1e4d3b; color: #fff; border-color: #1e4d3b; }
 .oh-btn--ghost { background: #f8faf9; }

@@ -339,7 +339,7 @@ const sort = ref(String(route.query.sort || (multiTenant.value ? 'agency' : 'sub
 const sortDir = ref(String(route.query.sortDir || 'desc') === 'asc' ? 'asc' : 'desc');
 const clinicalReviewOnly = ref(String(route.query.clinicalReview || '') === '1');
 const needsActionOnly = ref(String(route.query.needsAction || '') === '1');
-const unassignedOnly = ref(false);
+const unassignedOnly = ref(String(route.query.unassigned || '') === '1');
 const assignProviderId = ref('');
 const assigning = ref(false);
 const waitlistReason = ref('');
@@ -589,6 +589,7 @@ watch(
     if (q.agencyId || q.tenant) tenantFilter.value = String(q.agencyId || q.tenant);
     if (q.clinicalReview != null) clinicalReviewOnly.value = String(q.clinicalReview) === '1';
     if (q.needsAction != null) needsActionOnly.value = String(q.needsAction) === '1';
+    if (q.unassigned != null) unassignedOnly.value = String(q.unassigned) === '1';
   },
   { deep: true }
 );
