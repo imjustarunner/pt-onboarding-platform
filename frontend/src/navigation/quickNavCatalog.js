@@ -209,11 +209,11 @@ function buildAppEntries() {
     },
     {
       id: 'my-office-clients',
-      routeName: 'OfficeClients',
-      label: 'Office Clients',
-      description: 'In-office, virtual, and other non-school clinical clients.',
+      routeName: 'MyOfficeCaseload',
+      label: 'My Office Caseload',
+      description: 'Your assigned in-office and virtual clinical clients on My Dashboard.',
       group: 'clients',
-      keywords: ['office clients', 'clinical clients', 'in-office', 'virtual clients'],
+      keywords: ['office clients', 'clinical clients', 'in-office', 'virtual clients', 'my office caseload'],
       kind: 'path',
       path: '/dashboard?tab=clients&clients=office',
       rolesAny: [
@@ -228,6 +228,28 @@ function buildAppEntries() {
         'support',
         'staff'
       ]
+    },
+    {
+      id: 'office-hub',
+      routeName: 'OfficeHub',
+      label: 'Office Hub',
+      description: 'Office operational command center — intakes, waitlist, providers, and today’s activity.',
+      group: 'clients',
+      keywords: ['office hub', 'office client management', 'office intakes', 'office waitlist'],
+      kind: 'path',
+      path: '/admin/office-hub',
+      rolesAny: ['admin', 'support', 'staff', 'super_admin', 'provider_plus', 'clinical_practice_assistant']
+    },
+    {
+      id: 'office-clients-admin',
+      routeName: 'OfficeClients',
+      label: 'Office Clients',
+      description: 'Prospective and continuing office enrollments — assign, waitlist, and next steps.',
+      group: 'clients',
+      keywords: ['office clients', 'office enrollments', 'couple', 'family', 'preferred provider', 'waitlist'],
+      kind: 'path',
+      path: '/admin/office-clients',
+      rolesAny: ['admin', 'support', 'staff', 'super_admin', 'provider_plus', 'clinical_practice_assistant']
     },
     {
       id: 'my-new-clients',

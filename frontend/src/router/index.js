@@ -2041,6 +2041,28 @@ const routes = [
     meta: { requiresAuth: true, requiresRole: CLIENT_RECORD_ROLES, organizationSlug: true }
   },
   {
+    path: '/:organizationSlug/admin/office-hub',
+    name: 'OrganizationOfficeHub',
+    component: () => import('../views/admin/OfficeHubView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresRole: ['admin', 'support', 'staff', 'super_admin', 'provider_plus', 'clinical_practice_assistant'],
+      allowSubCoordinator: true,
+      organizationSlug: true
+    }
+  },
+  {
+    path: '/:organizationSlug/admin/office-clients',
+    name: 'OrganizationOfficeClients',
+    component: () => import('../views/admin/OfficeClientsView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresRole: ['admin', 'support', 'staff', 'super_admin', 'provider_plus', 'clinical_practice_assistant'],
+      allowSubCoordinator: true,
+      organizationSlug: true
+    }
+  },
+  {
     path: '/:organizationSlug/admin/referral-directory',
     name: 'OrganizationReferralDirectory',
     component: () => import('../views/admin/ReferralDirectoryView.vue'),
@@ -3434,6 +3456,26 @@ const routes = [
     name: 'ClientManagement',
     component: () => import('../views/admin/ClientManagementView.vue'),
     meta: { requiresAuth: true, requiresRole: CLIENT_RECORD_ROLES }
+  },
+  {
+    path: '/admin/office-hub',
+    name: 'OfficeHub',
+    component: () => import('../views/admin/OfficeHubView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresRole: ['admin', 'support', 'staff', 'super_admin', 'provider_plus', 'clinical_practice_assistant'],
+      allowSubCoordinator: true
+    }
+  },
+  {
+    path: '/admin/office-clients',
+    name: 'OfficeClients',
+    component: () => import('../views/admin/OfficeClientsView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresRole: ['admin', 'support', 'staff', 'super_admin', 'provider_plus', 'clinical_practice_assistant'],
+      allowSubCoordinator: true
+    }
   },
   {
     path: '/admin/referral-directory',

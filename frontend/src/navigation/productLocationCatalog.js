@@ -146,10 +146,33 @@ export const PRODUCT_LOCATIONS = [
     id: 'office-clients',
     routeName: 'OfficeClients',
     label: 'Office Clients',
-    description: 'In-office / clinical clients.',
+    description: 'Prospective and continuing office enrollments workspace.',
+    group: 'clients',
+    howToFind: 'Admin → Office Clients',
+    path: '/admin/office-clients',
+    keywords: ['office clients', 'clinical clients', 'in office clients', 'office enrollments', 'waitlist'],
+    rolesAny: ['admin', 'support', 'staff', 'super_admin', 'provider_plus', 'clinical_practice_assistant']
+  },
+  {
+    id: 'office-hub',
+    routeName: 'OfficeHub',
+    label: 'Office Hub',
+    description: 'Office operational command center for intakes, waitlist, and today’s activity.',
+    group: 'clients',
+    howToFind: 'Admin → Office Hub',
+    path: '/admin/office-hub',
+    keywords: ['office hub', 'office client management', 'office dashboard'],
+    rolesAny: ['admin', 'support', 'staff', 'super_admin', 'provider_plus', 'clinical_practice_assistant']
+  },
+  {
+    id: 'my-office-caseload',
+    routeName: 'MyOfficeCaseload',
+    label: 'My Office Caseload',
+    description: 'Provider dashboard office/clinical clients tab.',
     group: 'clients',
     howToFind: 'My Dashboard → Clients → Office',
-    keywords: ['office clients', 'clinical clients', 'in office clients']
+    path: '/dashboard?tab=clients&clients=office',
+    keywords: ['my office clients', 'office caseload']
   },
   {
     id: 'new-clients',

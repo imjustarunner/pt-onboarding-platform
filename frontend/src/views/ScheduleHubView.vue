@@ -756,6 +756,32 @@ const allSections = computed(() => [
         count: 0
       },
       {
+        id: 'office-hub',
+        title: 'Office Hub',
+        shortDesc: 'Office intakes, waitlist, and today’s activity.',
+        desc: 'Operational command center for office enrollments — new intakes, clinical review, waitlist, and provider signals.',
+        cta: 'Open →',
+        to: orgTo('/admin/office-hub'),
+        tone: 'teal',
+        icon: icon.clients,
+        tour: null,
+        show: canSeeClientsManagementHub.value,
+        count: 0
+      },
+      {
+        id: 'office-clients',
+        title: 'Office Clients',
+        shortDesc: 'Prospective and continuing office roster.',
+        desc: 'Filter and act on office enrollments — assign providers, waitlist, couple/family units, and next steps.',
+        cta: 'Open →',
+        to: orgTo('/admin/office-clients'),
+        tone: 'green',
+        icon: icon.clients,
+        tour: null,
+        show: canSeeClientsManagementHub.value,
+        count: 0
+      },
+      {
         id: 'guardians',
         title: 'Guardians',
         shortDesc: 'All guardian accounts and contacts.',

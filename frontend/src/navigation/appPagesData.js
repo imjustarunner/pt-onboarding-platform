@@ -500,6 +500,20 @@ export const APP_PAGES = [
     desc: 'Full client management and caseload assignment.'
   },
   {
+    title: 'Office Hub',
+    section: 'Directory › Office Client Management',
+    path: '/admin/office-hub',
+    keywords: ['office hub', 'office client management', 'office intakes', 'office waitlist'],
+    desc: 'Operational command center for office enrollments and today’s activity.'
+  },
+  {
+    title: 'Office Clients',
+    section: 'Directory › Office Client Management',
+    path: '/admin/office-clients',
+    keywords: ['office clients', 'prospective clients', 'office enrollments', 'preferred provider'],
+    desc: 'Prospective and continuing office enrollments — assign, waitlist, and next steps.'
+  },
+  {
     title: 'Referral Directory',
     section: 'Directory',
     path: '/admin/referral-directory',

@@ -100,6 +100,7 @@ import publicProviderUpdateRoutes from './routes/publicProviderUpdate.routes.js'
 import publicAdminUpdateRoutes from './routes/publicAdminUpdate.routes.js';
 import adminUpdateMeRoutes from './routes/adminUpdate.routes.js';
 import clientExchangeRoutes from './routes/clientExchange.routes.js';
+import officeClientManagementRoutes from './routes/officeClientManagement.routes.js';
 import publicOfficeIntakeRoutes from './routes/publicOfficeIntake.routes.js';
 import publicUsZipRoutes from './routes/publicUsZip.routes.js';
 import publicAdaptiveIntakeRoutes from './routes/publicAdaptiveIntake.routes.js';
@@ -880,6 +881,7 @@ app.use('/api/provider-year-update', providerYearUpdateRoutes);
 app.use('/api/provider-update', providerUpdateRoutes);
 app.use('/api/provider-action', providerActionRoutes);
 app.use('/api/client-exchange', clientExchangeRoutes);
+app.use('/api/office-clients', officeClientManagementRoutes);
 app.use('/api/school-portal', agencyMarketingSplashPortalRoutes); // School portal — marketing splash fetch + dismiss
 app.use('/api/marketing-splashes', agencyMarketingSplashDashboardRoutes); // Regular dashboard — marketing splash fetch + dismiss
 app.use('/api/agency-marketing-splashes', agencyMarketingSplashManagerRoutes);
