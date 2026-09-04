@@ -37,6 +37,10 @@ import {
   handleAppEmailInbound,
   isAppEmailIdentity
 } from '../appEmail/index.js';
+import {
+  ingestPersonalMailboxInbound,
+  isPersonalMailboxIdentity
+} from '../personalMailbox.service.js';
 
 function headerMap(headers = []) {
   const m = new Map();
@@ -851,6 +855,40 @@ export async function runInboundEmailAgentOnce({ maxMessages = 10 } = {}) {
         });
       } catch (appErr) {
         console.error('[EmailAgent] App Email Assistant failed:', appErr);
+        results.needsHuman += 1;
+        await gmail.users.messages.modify({
+          userId: 'me',
+          id,
+          requestBody: { removeLabelIds: ['UNREAD'], addLabelIds: [processedLabelId, needsHumanLabelId] }
+        });
+      }
+      continue;
+    }
+
+    // Hire / personal My Inbox (group work email) — deliver into the owner's app inbox
+    if (isPersonalMailboxIdentity(identity)) {
+      try {
+        const ingested = await ingestPersonalMailboxInbound({
+          agencyId,
+          identity,
+          fromEmail,
+          subject,
+          bodyText,
+          messageIdHeader: hdrs.get('message-id') || null,
+          threadId: full.data?.threadId || null,
+          receivedAt: new Date(full.data?.internalDate ? Number(full.data.internalDate) : Date.now()),
+          to: routed.to || [],
+          cc: routed.cc || []
+        });
+        if (ingested?.ingested) results.draftedToTickets += 1;
+        else results.ignored += 1;
+        await gmail.users.messages.modify({
+          userId: 'me',
+          id,
+          requestBody: { removeLabelIds: ['UNREAD'], addLabelIds: [processedLabelId] }
+        });
+      } catch (personalErr) {
+        console.error('[EmailAgent] Personal mailbox ingest failed:', personalErr);
         results.needsHuman += 1;
         await gmail.users.messages.modify({
           userId: 'me',

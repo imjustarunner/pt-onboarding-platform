@@ -18,7 +18,7 @@
       <div v-if="agency?.logoUrl" class="splash-logo"><img :src="agency.logoUrl" :alt="agency.name" /></div>
       <div class="done-icon">✓</div>
       <h2>You're an active team member</h2>
-      <p>Your hire portal is complete. Sign in with your work email and password (or Google SSO if enabled for your account).</p>
+      <p>Your hire portal is complete. Sign in with your work email (username) and the password you created.</p>
       <p class="contact-line">
         If you still need help, contact People Operations — they can re-send access if needed.
       </p>
@@ -125,7 +125,8 @@
                   <h2>Choose your work email</h2>
                   <p>
                     Pick an available address at @{{ accountDomain || 'your organization' }}.
-                    Mail is delivered to a Google Group; you'll sign in to this app with the password you set (SSO stays on for others).
+                    This becomes your app username (Google SSO is off for this account — you sign in with the password you set).
+                    Outside messages to this address come into your app inbox. Password recovery uses your personal email.
                   </p>
                 </div>
               </div>
@@ -170,7 +171,10 @@
                 <strong>Your work email</strong>
               </div>
               <code class="portal-link-url">{{ candidate.workEmail }}</code>
-              <p class="portal-link-help">Use this address and your password when you eventually sign in outside this portal.</p>
+              <p class="portal-link-help">
+                This is your username for signing into the app with your password.
+                Password reset links go to your personal email.
+              </p>
             </section>
 
             <section
@@ -1194,7 +1198,11 @@ const checkTypedEmail = async () => {
     emailAvailable.value = !!data.available;
     emailCheckMessage.value = data.available
       ? `${email} is available`
-      : `${email} is not available (${data.reason || 'taken'})`;
+      : data.reason === 'taken_in_directory'
+        ? `${email} is already used by a Google user or group`
+        : data.reason === 'taken_in_app'
+          ? `${email} is already used in the app`
+          : `${email} is not available (${data.reason || 'taken'})`;
   } catch (e) {
     emailAvailable.value = false;
     emailCheckMessage.value = e?.response?.data?.error?.message || 'Could not check availability';

@@ -40,6 +40,21 @@ function normalizeOrgSlug(value) {
 
 function pickRecipientEmail(user, requestedEmail = null) {
   const requested = String(requestedEmail || '').trim().toLowerCase();
+  const personal = String(user?.personal_email || '').trim().toLowerCase();
+  const groupLogin =
+    user?.login_is_group_email === 1 ||
+    user?.login_is_group_email === true ||
+    user?.login_is_group_email === '1' ||
+    user?.sso_password_override === 1 ||
+    user?.sso_password_override === true ||
+    user?.sso_password_override === '1';
+
+  // Hire group-username accounts: password recovery ALWAYS goes to personal email
+  // (never the Google Group work/login address). Phone recovery comes later.
+  if (groupLogin && personal.includes('@')) {
+    return personal;
+  }
+
   const candidates = [
     requested || null,
     user?.email || null,

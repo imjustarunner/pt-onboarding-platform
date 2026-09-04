@@ -181,3 +181,217 @@ export async function findPersonalInbox({ agencyId, userId }) {
   );
   return rows[0] || null;
 }
+
+/**
+ * Ensure a personal communication inbox + sender identity for a specific address
+ * (hire Google Group work email). Registers inbound routes so Gmail poll delivers
+ * into this user's My Inbox in the app.
+ */
+export async function ensurePersonalMailboxForAddress({
+  agencyId,
+  userId,
+  fromEmail,
+  displayName = null,
+  actorUserId = null
+} = {}) {
+  const uid = Number(userId);
+  const aid = Number(agencyId);
+  const email = String(fromEmail || '')
+    .trim()
+    .toLowerCase();
+  if (!uid || !aid || !email.includes('@')) {
+    throw new Error('agencyId, userId, and fromEmail are required');
+  }
+
+  const user = await User.findById(uid);
+  if (!user) throw new Error('User not found');
+  const role = String(user.role || '').toLowerCase();
+  const status = String(user.status || '').toUpperCase();
+  const prehireStatus = ['PENDING_SETUP', 'PREHIRE_OPEN', 'PREHIRE_REVIEW', 'PROSPECTIVE'].includes(status);
+  if (!isPersonalMailboxEligibleRole(role) && !prehireStatus) {
+    throw new Error('This role is not eligible for an app mailbox');
+  }
+
+  const name =
+    String(displayName || '').trim() ||
+    [user.first_name, user.last_name].filter(Boolean).join(' ') ||
+    email;
+  const identityKey = `personal_${uid}`;
+
+  let identity = await EmailSenderIdentity.findByAgencyAndIdentityKey(aid, identityKey);
+  if (!identity) {
+    identity = await EmailSenderIdentity.create({
+      agencyId: aid,
+      identityKey,
+      displayName: name,
+      fromEmail: email,
+      replyTo: email,
+      inboundAddresses: [email],
+      isActive: true
+    });
+  } else {
+    identity = await EmailSenderIdentity.update(identity.id, {
+      displayName: name,
+      fromEmail: email,
+      replyTo: email,
+      inboundAddresses: [email],
+      isActive: true
+    });
+  }
+
+  const [existing] = await pool.execute(
+    `SELECT * FROM communication_inboxes
+     WHERE agency_id = ? AND kind = 'personal' AND owner_user_id = ?
+     LIMIT 1`,
+    [aid, uid]
+  );
+
+  let inboxId = existing[0]?.id || null;
+  if (inboxId) {
+    await pool.execute(
+      `UPDATE communication_inboxes
+       SET sender_identity_id = ?, identity_key = ?, display_name = ?, from_email = ?, is_active = 1
+       WHERE id = ?`,
+      [identity.id, identityKey, `${name} (My Inbox)`, email, inboxId]
+    );
+  } else {
+    const [ins] = await pool.execute(
+      `INSERT INTO communication_inboxes
+       (agency_id, sender_identity_id, kind, owner_user_id, identity_key, display_name, from_email, is_active)
+       VALUES (?, ?, 'personal', ?, ?, ?, ?, 1)`,
+      [aid, identity.id, uid, identityKey, `${name} (My Inbox)`, email]
+    );
+    inboxId = ins.insertId;
+  }
+
+  await ensureMember(inboxId, uid, 'owner');
+  if (actorUserId && Number(actorUserId) !== uid) {
+    // audit hook point
+  }
+  return CommunicationInbox.findById(inboxId);
+}
+
+/**
+ * Ingest an inbound Gmail message into a personal My Inbox conversation.
+ */
+export async function ingestPersonalMailboxInbound({
+  agencyId,
+  identity,
+  fromEmail,
+  subject,
+  bodyText,
+  messageIdHeader = null,
+  threadId = null,
+  receivedAt = null,
+  to = [],
+  cc = []
+} = {}) {
+  const aid = Number(agencyId || identity?.agency_id || 0);
+  const key = String(identity?.identity_key || '').trim().toLowerCase();
+  const ownerMatch = /^personal_(\d+)$/.exec(key);
+  const ownerUserId = ownerMatch ? Number(ownerMatch[1]) : null;
+  if (!aid || !identity?.id) return { ingested: false, reason: 'missing_identity' };
+
+  const CommunicationConversation = (await import('../models/CommunicationConversation.model.js')).default;
+
+  let inbox = null;
+  const [inboxRows] = await pool.execute(
+    `SELECT * FROM communication_inboxes
+     WHERE sender_identity_id = ? AND is_active = 1
+     LIMIT 1`,
+    [identity.id]
+  );
+  inbox = inboxRows[0] || null;
+  if (!inbox && ownerUserId) {
+    inbox = await findPersonalInbox({ agencyId: aid, userId: ownerUserId });
+  }
+  if (!inbox) return { ingested: false, reason: 'no_inbox' };
+
+  const ownerId = Number(inbox.owner_user_id || ownerUserId || 0) || null;
+  const msgId = String(messageIdHeader || '').trim() || null;
+  if (msgId) {
+    const [dup] = await pool.execute(
+      `SELECT id FROM communication_messages WHERE internet_message_id = ? LIMIT 1`,
+      [msgId]
+    );
+    if (dup[0]) return { ingested: false, reason: 'duplicate', conversationId: null };
+  }
+
+  let conv = threadId
+    ? await CommunicationConversation.findByExternalThreadId(aid, String(threadId))
+    : null;
+  if (conv && inbox.id && Number(conv.inbox_id) !== Number(inbox.id)) {
+    conv = null;
+  }
+
+  const preview = String(bodyText || '')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 240);
+  const when = receivedAt || new Date();
+
+  if (!conv) {
+    conv = await CommunicationConversation.create({
+      agencyId: aid,
+      inboxId: inbox.id,
+      channel: 'email',
+      subject: subject || '(no subject)',
+      status: 'needs_reply',
+      priority: 'normal',
+      ownerUserId: ownerId,
+      lastMessageAt: when,
+      lastMessagePreview: preview || null,
+      externalThreadId: threadId ? String(threadId) : null
+    });
+  } else {
+    await CommunicationConversation.update(conv.id, {
+      status: conv.status === 'resolved' ? 'needs_reply' : conv.status || 'needs_reply',
+      lastMessageAt: when,
+      lastMessagePreview: preview || conv.last_message_preview
+    });
+  }
+
+  if (fromEmail) {
+    await CommunicationConversation.upsertParticipant(conv.id, {
+      kind: 'external',
+      email: String(fromEmail).trim().toLowerCase(),
+      displayName: String(fromEmail).trim(),
+      isPrimary: true
+    });
+  }
+
+  const messageDbId = await CommunicationConversation.addMessage({
+    conversationId: conv.id,
+    channel: 'email',
+    direction: 'inbound',
+    from: fromEmail ? { email: fromEmail, name: fromEmail } : null,
+    to: (to || []).map((e) => ({ email: e })),
+    cc: (cc || []).map((e) => ({ email: e })),
+    subject: subject || null,
+    bodyText: bodyText || '',
+    internetMessageId: msgId,
+    sentAt: when
+  });
+
+  try {
+    const { processInboundCommunicationEvent } = await import('./inboundCommunication.service.js');
+    await processInboundCommunicationEvent({
+      agencyId: aid,
+      conversationId: conv.id,
+      messageId: messageDbId,
+      fromEmail,
+      subject,
+      bodyText: bodyText || ''
+    });
+  } catch (e) {
+    console.warn('[personalMailbox] inbound post-process failed:', e?.message || e);
+  }
+
+  return { ingested: true, conversationId: conv.id, messageId: messageDbId, inboxId: inbox.id };
+}
+
+export function isPersonalMailboxIdentity(identity) {
+  const key = String(identity?.identity_key || '').trim().toLowerCase();
+  return key.startsWith('personal_');
+}

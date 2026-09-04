@@ -5,6 +5,7 @@
 import pool from '../config/database.js';
 import User from '../models/User.model.js';
 import GoogleWorkspaceDirectoryService from './googleWorkspaceDirectory.service.js';
+import { ensurePersonalMailboxForAddress } from './personalMailbox.service.js';
 
 const parseJsonObject = (raw, fallback = {}) => {
   if (!raw) return fallback;
@@ -77,11 +78,29 @@ async function isAppEmailTaken(email, excludeUserId = null) {
   } catch {
     /* table may not exist */
   }
+  try {
+    const [rows] = await pool.execute(
+      `SELECT id FROM users WHERE LOWER(TRIM(username)) = ? LIMIT 1`,
+      [normalized]
+    );
+    if (rows?.[0]?.id && Number(rows[0].id) !== Number(excludeUserId || 0)) return true;
+  } catch {
+    /* username column may not exist */
+  }
+  try {
+    const [rows] = await pool.execute(
+      `SELECT id FROM email_inbound_routes WHERE LOWER(TRIM(email_address)) = ? AND is_active = 1 LIMIT 1`,
+      [normalized]
+    );
+    if (rows?.[0]?.id) return true;
+  } catch {
+    /* ignore */
+  }
   return false;
 }
 
 /**
- * Suggest available @domain addresses for a hire (app + Directory).
+ * Suggest available @domain addresses for a hire (app + Directory users/groups).
  */
 export async function suggestHireWorkEmails({ user, agency, limit = 8 } = {}) {
   const flags = parseJsonObject(agency?.feature_flags, {});
@@ -161,7 +180,14 @@ export async function checkHireWorkEmailAvailability({ email, userId = null, age
   if (GoogleWorkspaceDirectoryService.isConfigured()) {
     try {
       const free = await GoogleWorkspaceDirectoryService.isDirectoryEmailAvailable(normalized);
-      if (!free) return { available: false, reason: 'taken_in_directory', email: normalized };
+      if (!free) {
+        return {
+          available: false,
+          reason: 'taken_in_directory',
+          email: normalized,
+          message: 'That address is already used by a Google user or group.'
+        };
+      }
     } catch (e) {
       return { available: false, reason: 'directory_error', message: e?.message || String(e), email: normalized };
     }
@@ -169,8 +195,22 @@ export async function checkHireWorkEmailAvailability({ email, userId = null, age
   return { available: true, email: normalized, domain };
 }
 
+const HIRE_GROUP_ACCESS_SETTINGS = {
+  allowExternalMembers: true,
+  whoCanJoin: 'CAN_REQUEST_TO_JOIN',
+  whoCanViewMembership: 'ALL_IN_DOMAIN_CAN_VIEW',
+  whoCanViewGroup: 'ALL_MEMBERS_CAN_VIEW',
+  whoCanPostMessage: 'ANYONE_CAN_POST',
+  whoCanModerateMembers: 'OWNERS_AND_MANAGERS',
+  includeInGlobalAddressList: true,
+  isArchived: true,
+  messageModerationLevel: 'MODERATE_NONE',
+  spamModerationLevel: 'MODERATE'
+};
+
 /**
  * Create Google Group at work email, set app password + SSO override, skip Workspace user.
+ * Group email becomes app username; personal email is password recovery; anyone can post.
  */
 export async function provisionHireGroupAccount({
   user,
@@ -202,6 +242,14 @@ export async function provisionHireGroupAccount({
 
   const email = availability.email;
   const personalEmail = normalizeEmail(user.personal_email || user.email);
+  if (!personalEmail || !personalEmail.includes('@') || personalEmail === email) {
+    const err = new Error(
+      'A personal email is required for password recovery before creating the group work email.'
+    );
+    err.code = 'PERSONAL_EMAIL_REQUIRED';
+    throw err;
+  }
+
   const name =
     String(displayName || '').trim() ||
     `${String(user.first_name || '').trim()} ${String(user.last_name || '').trim()}`.trim() ||
@@ -217,7 +265,13 @@ export async function provisionHireGroupAccount({
     group = await GoogleWorkspaceDirectoryService.createGroup({
       email,
       name: `${name} (hire)`.slice(0, 73),
-      description: `Hire mailbox for ${name} — PlotTwistHQ group_password path`
+      description: `Hire mailbox for ${name} — PlotTwistHQ group_password path. External senders may post; mail is delivered to the app inbox.`,
+      whoCanPostMessage: 'ANYONE_CAN_POST',
+      whoCanViewGroup: 'ALL_MEMBERS_CAN_VIEW',
+      allowExternalMembers: true,
+      isArchived: true,
+      messageModerationLevel: 'MODERATE_NONE',
+      spamModerationLevel: 'MODERATE'
     });
   } catch (e) {
     const status = e?.code || e?.response?.status || null;
@@ -229,17 +283,29 @@ export async function provisionHireGroupAccount({
     }
   }
 
-  if (personalEmail && personalEmail !== email) {
-    try {
-      await GoogleWorkspaceDirectoryService.addGroupMember({
-        groupEmail: email,
-        memberEmail: personalEmail,
-        role: 'OWNER'
-      });
-    } catch (memberErr) {
-      console.warn('[hireGroupAccount] add personal email to group failed:', memberErr?.message || memberErr);
-    }
+  // Groups Settings API is authoritative for "Anyone on the web" posting.
+  try {
+    await GoogleWorkspaceDirectoryService.applyGroupAccessSettings({
+      groupEmail: email,
+      ...HIRE_GROUP_ACCESS_SETTINGS
+    });
+  } catch (settingsErr) {
+    console.warn(
+      '[hireGroupAccount] applyGroupAccessSettings failed (posting may be restricted):',
+      settingsErr?.message || settingsErr
+    );
   }
+
+  try {
+    await GoogleWorkspaceDirectoryService.addGroupMember({
+      groupEmail: email,
+      memberEmail: personalEmail,
+      role: 'OWNER'
+    });
+  } catch (memberErr) {
+    console.warn('[hireGroupAccount] add personal email to group failed:', memberErr?.message || memberErr);
+  }
+  // Polled mailbox (ai@ owns schoolreply aliases) must receive group mail for app ingest.
   try {
     await GoogleWorkspaceDirectoryService.addGroupMember({
       groupEmail: email,
@@ -250,56 +316,85 @@ export async function provisionHireGroupAccount({
     console.warn('[hireGroupAccount] add AI manager to group failed:', managerErr?.message || managerErr);
   }
 
-  // Persist emails + SSO override
-  if (!user.personal_email && personalEmail) {
-    await pool.execute('UPDATE users SET personal_email = ? WHERE id = ?', [personalEmail, user.id]);
-  }
+  // Persist: group email = login username; personal email = recovery; SSO password override on.
+  await pool.execute('UPDATE users SET personal_email = ? WHERE id = ?', [personalEmail, user.id]);
   await User.setWorkEmail(user.id, email);
   try {
     await pool.execute(
-      `UPDATE users SET email = ?, sso_password_override = 1, login_is_group_email = 1 WHERE id = ?`,
-      [email, user.id]
+      `UPDATE users
+       SET email = ?,
+           username = ?,
+           sso_password_override = 1,
+           login_is_group_email = 1
+       WHERE id = ?`,
+      [email, email, user.id]
     );
   } catch (e) {
     if (e?.code === 'ER_BAD_FIELD_ERROR') {
-      await pool.execute(
-        `UPDATE users SET email = ?, sso_password_override = 1 WHERE id = ?`,
-        [email, user.id]
-      );
+      try {
+        await pool.execute(
+          `UPDATE users SET email = ?, username = ?, sso_password_override = 1 WHERE id = ?`,
+          [email, email, user.id]
+        );
+      } catch (e2) {
+        if (e2?.code === 'ER_BAD_FIELD_ERROR') {
+          await pool.execute(
+            `UPDATE users SET email = ?, sso_password_override = 1 WHERE id = ?`,
+            [email, user.id]
+          );
+        } else {
+          throw e2;
+        }
+      }
     } else {
       throw e;
     }
   }
 
-  // App password (login)
+  // App password (login with group username — Google SSO forced-off via override)
   await User.changePassword(user.id, pwd);
 
-  // Alias personal email for recovery login if distinct
-  if (personalEmail && personalEmail !== email) {
+  // Keep personal email as login alias + recovery target (not primary username)
+  try {
+    await pool.execute(
+      `INSERT IGNORE INTO user_login_emails (user_id, email, is_primary, source)
+       VALUES (?, ?, 0, 'hire_group_personal')`,
+      [user.id, personalEmail]
+    );
+  } catch {
     try {
       await pool.execute(
-        `INSERT IGNORE INTO user_login_emails (user_id, email, is_primary, source)
-         VALUES (?, ?, 0, 'hire_group_personal')`,
+        `INSERT IGNORE INTO user_login_emails (user_id, email) VALUES (?, ?)`,
         [user.id, personalEmail]
       );
     } catch {
-      try {
-        await pool.execute(
-          `INSERT IGNORE INTO user_login_emails (user_id, email) VALUES (?, ?)`,
-          [user.id, personalEmail]
-        );
-      } catch {
-        /* ignore */
-      }
+      /* ignore */
     }
+  }
+
+  // Wire group address into personal My Inbox + inbound routes for the email agent.
+  let personalInbox = null;
+  try {
+    personalInbox = await ensurePersonalMailboxForAddress({
+      agencyId: agency.id,
+      userId: user.id,
+      fromEmail: email,
+      displayName: name
+    });
+  } catch (inboxErr) {
+    console.warn('[hireGroupAccount] personal mailbox wiring failed:', inboxErr?.message || inboxErr);
   }
 
   return {
     workEmail: email,
     groupEmail: email,
+    username: email,
     groupId: group?.id || null,
     ssoPasswordOverride: true,
-    personalEmail: personalEmail || null
+    personalEmail,
+    recoveryEmail: personalEmail,
+    whoCanPostMessage: 'ANYONE_CAN_POST',
+    personalInboxId: personalInbox?.id || null
   };
 }
 
