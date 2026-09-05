@@ -39,6 +39,11 @@ export async function generateHubSmartReply({
 
   if (!history.length) return null;
 
+  const last = (recentMessages || [])[recentMessages.length - 1];
+  if (!last || String(last.direction || '').toLowerCase() !== 'inbound') {
+    return null;
+  }
+
   const channelHint =
     channel === 'email'
       ? 'Write a short professional email reply (2–4 sentences). No subject line. No signature block.'

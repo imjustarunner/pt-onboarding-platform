@@ -1935,12 +1935,22 @@ async function undoScheduledMessage(msg) {
 function scheduleSmartReply() {
   clearTimeout(smartReplyTimer);
   smartReply.value = '';
+  smartReplyLoading.value = false;
   if (!selected.value?.personKey || !agencyId.value) return;
+  // Only suggest when the other person sent the latest message.
+  const last = timeline.value?.length ? timeline.value[timeline.value.length - 1] : null;
+  if (!last || String(last.direction || '').toLowerCase() !== 'inbound') return;
   smartReplyTimer = setTimeout(() => loadSmartReply(), 450);
 }
 
 async function loadSmartReply() {
   if (!selected.value?.personKey || !agencyId.value) return;
+  const last = timeline.value?.length ? timeline.value[timeline.value.length - 1] : null;
+  if (!last || String(last.direction || '').toLowerCase() !== 'inbound') {
+    smartReply.value = '';
+    smartReplyLoading.value = false;
+    return;
+  }
   smartReplyLoading.value = true;
   try {
     const { data } = await api.get('/messages/hub/smart-reply', {
@@ -1951,6 +1961,12 @@ async function loadSmartReply() {
       },
       skipGlobalLoading: true
     });
+    // Re-check in case we sent while the request was in flight.
+    const stillLast = timeline.value?.length ? timeline.value[timeline.value.length - 1] : null;
+    if (!stillLast || String(stillLast.direction || '').toLowerCase() !== 'inbound') {
+      smartReply.value = '';
+      return;
+    }
     smartReply.value = String(data?.suggestion || '').trim();
   } catch {
     smartReply.value = '';
@@ -3906,14 +3922,14 @@ defineExpose({
   color: var(--mh-primary);
 }
 .msg-hub-composer {
-  padding: 12px 16px;
+  padding: 8px 14px 4px;
   border-top: 1px solid var(--mh-line);
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  flex-shrink: 1;
+  gap: 6px;
+  flex-shrink: 0;
   min-height: 0;
-  max-height: min(52vh, 520px);
+  max-height: min(42vh, 380px);
   overflow-y: auto;
   background: #fff;
 }
@@ -4059,8 +4075,8 @@ defineExpose({
 .msg-hub-chat-tools {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  margin-top: 6px;
+  gap: 4px;
+  margin-top: 2px;
 }
 .msg-hub-chat-tool-row {
   display: flex;
@@ -4236,12 +4252,14 @@ defineExpose({
   margin-top: 12px;
 }
 .msg-hub-sig-preview {
-  margin-top: 8px;
-  padding: 6px 8px;
+  margin-top: 4px;
+  margin-bottom: 0;
+  padding: 4px 6px 0;
   border: 1px solid var(--mh-line);
   border-radius: 10px;
   background: #fff;
   flex-shrink: 0;
+  overflow: visible;
 }
 .msg-hub-sig-preview-head {
   display: flex;
@@ -4249,11 +4267,24 @@ defineExpose({
   gap: 8px;
   font-size: 0.78rem;
   color: var(--mh-ink-muted, #64748b);
-  margin-bottom: 6px;
+  margin-bottom: 2px;
 }
 .msg-hub-sig-preview-body {
   overflow: visible;
   max-width: 100%;
+  line-height: 0;
+}
+.msg-hub-sig-preview-body :deep(table) {
+  margin: 0 !important;
+  margin-bottom: 0 !important;
+}
+.msg-hub-sig-preview-body :deep(td),
+.msg-hub-sig-preview-body :deep(div) {
+  line-height: normal;
+}
+.msg-hub-sig-preview-body :deep(img) {
+  max-width: 100%;
+  height: auto;
 }
 .msg-hub-context { padding: 12px; gap: 10px; overflow: auto; }
 .msg-hub-panel {

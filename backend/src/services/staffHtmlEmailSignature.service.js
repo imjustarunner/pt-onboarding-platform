@@ -9,7 +9,6 @@ import { resolveOrgLogoUrl } from './publicFormBranding.service.js';
 import {
   listSignatureSocialLinks,
   getAgencySignatureTagline,
-  platformMark,
   platformLabel
 } from './agencySocialLinks.service.js';
 
@@ -76,8 +75,11 @@ function assetUrl(relativePath, { absolute = true } = {}) {
   return base ? `${base}/${path}` : `/${path}`;
 }
 
-function staffHtmlAsset(name, { absolute = true } = {}) {
-  return assetUrl(`email-signatures/staff-html/${name}`, { absolute });
+function staffHtmlAsset(name, { absolute = true, cacheKey = null } = {}) {
+  const url = assetUrl(`email-signatures/staff-html/${name}`, { absolute });
+  if (!cacheKey) return url;
+  const sep = url.includes('?') ? '&' : '?';
+  return `${url}${sep}v=${encodeURIComponent(cacheKey)}`;
 }
 
 function formatDisplayName(firstName, lastName, credential) {
@@ -202,7 +204,7 @@ export async function resolveStaffSignatureContext({
 
   let logoUrl = null;
   if (isItsco) {
-    logoUrl = staffHtmlAsset('itsco-main-logo.png');
+    logoUrl = `${staffHtmlAsset('itsco-main-logo.png', { cacheKey: '4' })}`;
   } else {
     logoUrl = resolveOrgLogoUrl(agency || {}, { baseUrl: pubBase }) || staffHtmlAsset('itsco-main-logo.png');
     if (logoUrl && logoUrl.startsWith('/') && pubBase) logoUrl = `${pubBase}${logoUrl}`;
@@ -267,7 +269,12 @@ export async function resolveStaffSignatureContext({
       iconWeb: staffHtmlAsset('icon-web.png'),
       leaf: staffHtmlAsset('itsco-leaf-mark.png'),
       phoenix: staffHtmlAsset('phoenix-mark.png'),
-      placeholderPhoto: staffHtmlAsset('photo-placeholder.png')
+      placeholderPhoto: staffHtmlAsset('photo-placeholder.png'),
+      socialFacebook: staffHtmlAsset('social-facebook.png', { cacheKey: '2' }),
+      socialTwitter: staffHtmlAsset('social-twitter.png', { cacheKey: '2' }),
+      socialInstagram: staffHtmlAsset('social-instagram.png', { cacheKey: '2' }),
+      socialYoutube: staffHtmlAsset('social-youtube.png', { cacheKey: '2' }),
+      socialLinkedin: staffHtmlAsset('social-linkedin.png', { cacheKey: '2' })
     },
     isItsco
   };
@@ -326,22 +333,40 @@ export function buildStaffSignatureHtml(ctx) {
     </tr>`;
 
   // Shared right-rail width so the top green divider and footer gray divider share one vertical axis.
-  const rightRailWidth = 188;
-  const rightRailPad = `padding:8px 4px 8px 14px;`;
+  const rightRailWidth = 210;
+  // Keep right rail tight so logo + socials don’t leave a tall empty gap under the photo/contact block.
+  const rightRailPad = `padding:4px 10px 0 14px;`;
+  const photoSize = 120;
+  const logoWidth = 156;
+
+  const socialIconSrc = (platform) => {
+    const a = ctx.assets || {};
+    const map = {
+      facebook: a.socialFacebook,
+      twitter: a.socialTwitter,
+      instagram: a.socialInstagram,
+      youtube: a.socialYoutube,
+      linkedin: a.socialLinkedin
+    };
+    return map[String(platform || '').toLowerCase()] || '';
+  };
 
   const social = Array.isArray(ctx.socialLinks) ? ctx.socialLinks.filter((l) => l?.url) : [];
   const socialIconsHtml = social.length
-    ? `<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;margin:10px auto 0;">
+    ? `<table role="presentation" cellpadding="0" cellspacing="0" border="0" align="center" style="border-collapse:collapse;margin:6px auto 0;">
         <tr>
           ${social
             .map((link) => {
               const href = escapeHtml(link.url);
-              const mark = escapeHtml(platformMark(link.platform));
               const title = escapeHtml(link.label || platformLabel(link.platform));
-              return `<td style="padding:0 3px;vertical-align:middle;">
+              const icon = escapeHtml(socialIconSrc(link.platform));
+              if (!icon) return '';
+              // White glyph on tenant primary tile — color follows each agency palette.
+              return `<td style="padding:0 2px;vertical-align:middle;text-align:center;">
                 <a href="${href}" title="${title}" target="_blank" rel="noopener noreferrer"
-                  style="display:inline-block;width:24px;height:24px;line-height:24px;text-align:center;border-radius:6px;background:${c.green};color:#ffffff;font-family:Arial,Helvetica,sans-serif;font-size:11px;font-weight:700;text-decoration:none !important;">
-                  ${mark}
+                  style="display:inline-block;background:${c.green};border-radius:5px;padding:2px;line-height:0;text-decoration:none !important;border:0;">
+                  <img src="${icon}" width="18" height="18" alt="${title}"
+                    style="display:block;border:0;width:18px;height:18px;" />
                 </a>
               </td>`;
             })
@@ -350,17 +375,28 @@ export function buildStaffSignatureHtml(ctx) {
       </table>`
     : '';
 
+  const logoBlockHtml = `
+    <table role="presentation" cellpadding="0" cellspacing="0" border="0" align="center" width="100%" style="border-collapse:collapse;margin:0 auto;">
+      <tr>
+        <td align="center" style="text-align:center;vertical-align:top;padding:0;">
+          <img src="${logo}" width="${logoWidth}" alt="${org}"
+            style="display:block;border:0;max-width:${logoWidth}px;width:${logoWidth}px;height:auto;margin:0 auto;" />
+          ${socialIconsHtml}
+        </td>
+      </tr>
+    </table>`;
+
   const confidentialHtml = `
     <tr>
-      <td colspan="3" style="padding:12px 0 0;" data-pt-signature-confidential="1">
-        <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="border-collapse:collapse;">
-          <tr><td style="border-top:1px solid ${c.line};font-size:0;line-height:0;height:1px;">&nbsp;</td></tr>
+      <td colspan="3" style="padding:6px 0 0;margin:0;" data-pt-signature-confidential="1">
+        <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="border-collapse:collapse;margin:0;">
+          <tr><td style="border-top:1px solid ${c.line};font-size:0;line-height:0;height:1px;padding:0;mso-line-height-rule:exactly;">&nbsp;</td></tr>
         </table>
-        <div style="margin-top:8px;font-family:Arial,Helvetica,sans-serif;font-size:10px;line-height:1.4;color:#6B7280;">
-          <div style="font-weight:700;color:${c.navy};text-transform:uppercase;letter-spacing:0.02em;margin-bottom:4px;">
+        <div style="margin:5px 0 0;padding:0;font-family:Arial,Helvetica,sans-serif;font-size:9px;line-height:1.3;color:#6B7280;">
+          <div style="font-weight:700;color:${c.navy};text-transform:uppercase;letter-spacing:0.02em;margin:0 0 2px;padding:0;">
             CONFIDENTIAL AND POTENTIALLY SENSITIVE INFORMATION!
           </div>
-          <div>
+          <div style="margin:0;padding:0;">
             The information enclosed in this email may contain privileged and confidential materials intended solely for the individual indicated.
             If you are not the intended recipient, any review, dissemination, distribution, or duplication of this email is strictly prohibited.
             If you are not the intended recipient, please contact the sender by reply email and destroy all copies of the original message.
@@ -372,16 +408,16 @@ export function buildStaffSignatureHtml(ctx) {
   return `
 <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;max-width:620px;width:100%;background:#ffffff;">
   <tr>
-    <td style="padding:0;vertical-align:middle;width:118px;">
-      <img src="${photo}" width="110" height="110" alt="${name}"
-        style="display:block;border:2px solid ${c.green};border-radius:12px;width:110px;height:110px;object-fit:cover;object-position:center 18%;" />
+    <td style="padding:0;vertical-align:top;width:${photoSize + 8}px;">
+      <img src="${photo}" width="${photoSize}" height="${photoSize}" alt="${name}"
+        style="display:block;border:2px solid ${c.green};border-radius:12px;width:${photoSize}px;height:${photoSize}px;object-fit:cover;object-position:center 18%;" />
     </td>
-    <td style="padding:0 10px;vertical-align:middle;">
+    <td style="padding:4px 10px 0;vertical-align:top;">
       <div style="font-family:Arial,Helvetica,sans-serif;font-size:18px;line-height:1.2;font-weight:700;color:${c.navy};">
         ${name}
       </div>
       ${titleLine}
-      <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="border-collapse:collapse;margin:8px 0 6px;">
+      <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="border-collapse:collapse;margin:6px 0 4px;">
         <tr><td style="border-top:1px solid ${c.divider};font-size:0;line-height:0;height:1px;">&nbsp;</td></tr>
       </table>
       <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;">
@@ -390,21 +426,19 @@ export function buildStaffSignatureHtml(ctx) {
         ${contactRow(iconWeb, 'Website', webLink)}
       </table>
     </td>
-    <td width="${rightRailWidth}" style="width:${rightRailWidth}px;${rightRailPad}vertical-align:middle;border-left:1px solid ${c.divider};">
-      <img src="${logo}" width="160" alt="${org}"
-        style="display:block;border:0;max-width:160px;width:160px;height:auto;margin:0 auto;" />
-      ${socialIconsHtml}
+    <td width="${rightRailWidth}" style="width:${rightRailWidth}px;${rightRailPad}vertical-align:top;border-left:1px solid ${c.divider};text-align:center;overflow:visible;">
+      ${logoBlockHtml}
     </td>
   </tr>
   <tr>
-    <td colspan="3" style="padding:10px 0 0;">
+    <td colspan="3" style="padding:6px 0 0;">
       <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="border-collapse:collapse;">
-        <tr><td style="border-top:1px solid ${c.line};font-size:0;line-height:0;height:1px;">&nbsp;</td></tr>
+        <tr><td style="border-top:1px solid ${c.line};font-size:0;line-height:0;height:1px;padding:0;">&nbsp;</td></tr>
       </table>
     </td>
   </tr>
   <tr>
-    <td colspan="2" style="padding:8px 10px 0 0;vertical-align:middle;">
+    <td colspan="2" style="padding:6px 10px 0 0;vertical-align:middle;">
       <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;">
         <tr>
           <td style="vertical-align:middle;width:24px;">
@@ -417,7 +451,7 @@ export function buildStaffSignatureHtml(ctx) {
         </tr>
       </table>
     </td>
-    <td width="${rightRailWidth}" style="width:${rightRailWidth}px;padding:8px 4px 0 14px;vertical-align:middle;border-left:1px solid ${c.line};white-space:nowrap;">
+    <td width="${rightRailWidth}" style="width:${rightRailWidth}px;padding:6px 4px 0 14px;vertical-align:middle;border-left:1px solid ${c.line};white-space:nowrap;">
       <span style="font-family:Arial,Helvetica,sans-serif;font-size:10px;color:${c.muted};vertical-align:middle;">powered by</span>
       <img src="${phoenix}" width="32" height="26" alt="PlotTwistCo" style="display:inline-block;border:0;width:32px;height:auto;vertical-align:middle;margin:0 3px 0 5px;" />
       <span style="font-family:Arial,Helvetica,sans-serif;font-size:10px;color:${c.muted};vertical-align:middle;font-weight:600;">PlotTwistCo</span>

@@ -227,6 +227,10 @@ async function resolveAssignedSchoolAgencyIds(userId, hubAgencyIds = []) {
 /** Platform SMS outbound is not live yet — keep the channel visible but unavailable. */
 const HUB_SMS_PLATFORM_READY = false;
 
+function method(id, available, reason, recommended = false) {
+  return { id, available: !!available, reason: reason || null, recommended: !!recommended };
+}
+
 function isPendingPortalSetupStatus(status) {
   const s = String(status || '').trim().toUpperCase();
   return s === 'PENDING_SETUP' || s === 'PENDING' || s === 'INVITED';

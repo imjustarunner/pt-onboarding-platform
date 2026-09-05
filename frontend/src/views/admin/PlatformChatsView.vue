@@ -185,7 +185,7 @@ onMounted(async () => {
   width: 100%;
   max-width: none;
   margin: 0;
-  padding: 10px 16px 12px;
+  padding: 8px 16px 4px;
   box-sizing: border-box;
   overflow: hidden;
 }
@@ -262,7 +262,7 @@ onMounted(async () => {
   .chats-view {
     height: calc(100dvh - 56px);
     max-height: calc(100dvh - 56px);
-    padding: 8px 10px 10px;
+    padding: 6px 10px 4px;
   }
 }
 </style>

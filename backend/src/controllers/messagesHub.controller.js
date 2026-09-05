@@ -803,10 +803,17 @@ export const getMessagesHubSmartReply = async (req, res, next) => {
       limit: 16
     });
     if (!person) return res.status(404).json({ error: { message: 'Person not found' } });
+    const recent = Array.isArray(items) ? items : [];
+    const last = recent.length ? recent[recent.length - 1] : null;
+    // Only suggest replies to the other person's latest message — not after our own send,
+    // and not on an empty / brand-new thread.
+    if (!last || String(last.direction || '').toLowerCase() !== 'inbound') {
+      return res.json({ suggestion: null, personKey, channel, reason: 'awaiting_inbound' });
+    }
     const suggestion = await generateHubSmartReply({
       channel,
       personName: person.displayName,
-      recentMessages: items || []
+      recentMessages: recent
     });
     res.json({ suggestion: suggestion || null, personKey, channel });
   } catch (e) {
