@@ -1,10 +1,12 @@
 /**
  * Tenant HTML email header/footer chrome.
- * Assets live under /email-branding/{slug}/ or any absolute URL stored on agency_email_settings.
+ * Preferred: uploaded assets stored on agency_email_settings as /uploads/...
+ * (same public host as other agency images). Bundled /email-branding/{slug}/ is fallback only.
  */
 import pool from '../config/database.js';
 import { publicAppBaseUrl } from './contactReminderToken.service.js';
 import { buildPublicAppUrl } from '../utils/publicPortalUrl.js';
+import { publicUploadsUrlFromStoredPath } from '../utils/uploads.js';
 
 const ITSCO_HEADER = '/email-branding/itsco/email-header.png';
 const ITSCO_FOOTER = '/email-branding/itsco/email-footer.png';
@@ -57,12 +59,15 @@ function absolutizeAssetUrl(pathOrUrl) {
   if (!raw) return '';
   if (/^https?:\/\//i.test(raw)) {
     let url = rewriteLocalhostToPublic(raw);
-    // Still cache-bust our bundled branding paths if someone stored an absolute URL without ?v=
     if (/\/email-branding\//i.test(url) && !/[?&]v=/.test(url)) {
       const sep = url.includes('?') ? '&' : '?';
       return `${url}${sep}v=${EMAIL_CHROME_ASSET_VERSION}`;
     }
     return url;
+  }
+  // Uploaded header/footer — same public URL pattern as logos / user photos.
+  if (/^\/?uploads\//i.test(raw) || /^logos\//i.test(raw.replace(/^\/+/, ''))) {
+    return publicUploadsUrlFromStoredPath(raw) || '';
   }
   const base = publicAppBaseUrl();
   const path = raw.startsWith('/') ? raw : `/${raw.replace(/^\/+/, '')}`;

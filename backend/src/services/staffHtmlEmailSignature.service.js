@@ -209,13 +209,19 @@ export async function resolveStaffSignatureContext({
   if (photoUrl && photoUrl.startsWith('/') && pubBase) photoUrl = `${pubBase}${photoUrl}`;
   if (!photoUrl) photoUrl = staffHtmlAsset('photo-placeholder.png');
 
-  // Prefer uploaded logos; never Wix CDN. ITSCO always uses the bundled signature mark.
-  let logoUrl = resolveOrgLogoUrl(agency || {}, { baseUrl: pubBase });
-  if (logoUrl && logoUrl.startsWith('/') && pubBase) logoUrl = `${pubBase}${logoUrl}`;
+  // Prefer agency upload (/uploads/...) — same host as profile photos. Skip Wix CDN.
+  let logoUrl = null;
+  if (agency?.logo_path) {
+    logoUrl = publicUploadsUrlFromStoredPath(agency.logo_path);
+  }
+  if (!logoUrl) {
+    logoUrl = resolveOrgLogoUrl(agency || {}, { baseUrl: pubBase });
+    if (logoUrl && logoUrl.startsWith('/') && pubBase) logoUrl = `${pubBase}${logoUrl}`;
+  }
   if (/wixstatic\.com|\.wix\.com/i.test(String(logoUrl || ''))) {
     logoUrl = '';
   }
-  if (isItsco) {
+  if (!logoUrl && isItsco) {
     logoUrl = staffHtmlAsset('itsco-main-logo.png', { cacheKey: '6' });
   }
 
