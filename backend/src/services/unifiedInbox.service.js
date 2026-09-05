@@ -638,7 +638,9 @@ export async function composeNewEmail({ agencyId, inboxId, userId, payload }) {
     replyToOverride: payload.replyTo || null,
     fromDisplayNameOverride: payload.fromDisplayName || null,
     source: 'manual',
-    generatedByUserId: userId
+    generatedByUserId: userId,
+    clientId: payload.clientId || null,
+    templateType: payload.templateType || 'hub_email'
   });
 
   await CommunicationConversation.addMessage({

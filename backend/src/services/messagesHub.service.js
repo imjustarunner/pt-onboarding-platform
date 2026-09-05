@@ -342,6 +342,27 @@ function clientMeta(c) {
 
 async function finalizePeople(map, inboxByAgency, lim, { sortRecent = false } = {}) {
   const people = [];
+  const userIds = [...new Set([...map.values()].map((p) => Number(p.userId)).filter((n) => n > 0))];
+  const photoByUser = new Map();
+  if (userIds.length) {
+    try {
+      const ph = userIds.map(() => '?').join(',');
+      const [photoRows] = await pool.execute(
+        `SELECT id, profile_photo_path, title FROM users WHERE id IN (${ph})`,
+        userIds
+      );
+      const { publicUploadsUrlFromStoredPath } = await import('../utils/uploads.js');
+      for (const r of photoRows || []) {
+        photoByUser.set(Number(r.id), {
+          photoUrl: publicUploadsUrlFromStoredPath(r.profile_photo_path) || null,
+          title: r.title || null
+        });
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+
   for (const person of map.values()) {
     const aid = person.agencyId;
     const hasAppInbox = aid ? !!inboxByAgency.get(Number(aid)) : [...inboxByAgency.values()].some(Boolean);
@@ -355,12 +376,15 @@ async function finalizePeople(map, inboxByAgency, lim, { sortRecent = false } = 
       clientStatusKey: person.clientStatusKey,
       clientType: person.clientType
     });
+    const photoMeta = person.userId ? photoByUser.get(Number(person.userId)) : null;
     people.push({
       ...person,
       methods,
       preferredMethod,
       secureDefault,
-      isActiveClient
+      isActiveClient,
+      photoUrl: person.photoUrl || photoMeta?.photoUrl || null,
+      title: person.title || photoMeta?.title || null
     });
   }
   if (sortRecent) {
@@ -441,11 +465,19 @@ export async function browseHubPeople({ agencyId, agencyIds = null, userId, brow
         `SELECT ${CLIENT_SELECT_CORE}
          ${CLIENT_FROM_JOIN}
          WHERE c.agency_id IN (${ph})
-           AND c.provider_id = ?
            AND (c.compliance_archived_at IS NULL)
+           AND (
+             c.provider_id = ?
+             OR EXISTS (
+               SELECT 1 FROM client_provider_assignments cpa
+               WHERE cpa.client_id = c.id
+                 AND cpa.provider_user_id = ?
+                 AND cpa.is_active = 1
+             )
+           )
          ORDER BY COALESCE(c.full_name, c.initials, c.identifier_code) ASC
          LIMIT ${lim}`,
-        [...ids, userId]
+        [...ids, userId, userId]
       );
       for (const c of rows || []) {
         const aid = Number(c.agency_id);
@@ -456,10 +488,19 @@ export async function browseHubPeople({ agencyId, agencyIds = null, userId, brow
         const [rows] = await pool.execute(
           `SELECT ${CLIENT_SELECT_CORE}
            ${CLIENT_FROM_JOIN}
-           WHERE c.agency_id IN (${ph}) AND c.provider_id = ?
+           WHERE c.agency_id IN (${ph})
+             AND (
+               c.provider_id = ?
+               OR EXISTS (
+                 SELECT 1 FROM client_provider_assignments cpa
+                 WHERE cpa.client_id = c.id
+                   AND cpa.provider_user_id = ?
+                   AND cpa.is_active = 1
+               )
+             )
            ORDER BY COALESCE(c.full_name, c.initials, c.identifier_code) ASC
            LIMIT ${lim}`,
-          [...ids, userId]
+          [...ids, userId, userId]
         );
         for (const c of rows || []) {
           const aid = Number(c.agency_id);
@@ -554,26 +595,6 @@ export async function browseHubPeople({ agencyId, agencyIds = null, userId, brow
             agencyName: nameMap.get(aid) || person.agencyName || null
           });
         }
-      }
-    } catch {
-      /* ignore */
-    }
-  }
-
-  if (wantCaseload && mode === 'caseload' && map.size === 0) {
-    try {
-      const [rows] = await pool.execute(
-        `SELECT ${CLIENT_SELECT_CORE}
-         ${CLIENT_FROM_JOIN}
-         WHERE c.agency_id IN (${ph})
-           AND c.contact_phone IS NOT NULL AND c.contact_phone <> ''
-         ORDER BY COALESCE(c.full_name, c.initials, c.identifier_code) ASC
-         LIMIT ${lim}`,
-        ids
-      );
-      for (const c of rows || []) {
-        const aid = Number(c.agency_id);
-        upsertClientRow(map, c, aid, nameMap.get(aid) || null);
       }
     } catch {
       /* ignore */
@@ -856,7 +877,23 @@ export async function resolveHubPerson({ agencyId, userId, personKey }) {
     clientType: seed.clientType
   });
 
-  return { ...seed, methods, preferredMethod, secureDefault, isActiveClient };
+  let photoUrl = null;
+  let title = seed.title || null;
+  if (seed.userId) {
+    try {
+      const [pr] = await pool.execute(
+        `SELECT profile_photo_path, title FROM users WHERE id = ? LIMIT 1`,
+        [seed.userId]
+      );
+      const { publicUploadsUrlFromStoredPath } = await import('../utils/uploads.js');
+      photoUrl = publicUploadsUrlFromStoredPath(pr?.[0]?.profile_photo_path) || null;
+      title = title || pr?.[0]?.title || null;
+    } catch {
+      /* ignore */
+    }
+  }
+
+  return { ...seed, methods, preferredMethod, secureDefault, isActiveClient, photoUrl, title };
 }
 
 async function loadChatTimeline({ agencyId, actorUserId, otherUserId, limit = 40 }) {
@@ -953,32 +990,72 @@ async function loadEmailTimeline({ agencyId, actorUserId, email, limit = 40 }) {
   if (!email) return [];
   const normalized = String(email).trim().toLowerCase();
   try {
-    const inbox = await findPersonalInbox({ agencyId, userId: actorUserId });
-    if (!inbox?.id) return [];
+    // Hub sends via shared messages@ inbox (not personal App inbox). Include both.
     const [rows] = await pool.execute(
-      `SELECT c.id, c.subject, c.last_message_at, c.last_message_preview, c.created_at, c.status
-       FROM communication_conversations c
+      `SELECT m.id AS message_id, m.conversation_id, m.direction, m.body_text, m.subject,
+              m.sent_at, m.created_at, c.subject AS conv_subject,
+              i.identity_key AS inbox_key,
+              (
+                SELECT uc.opened_at FROM user_communications uc
+                WHERE uc.external_message_id = m.internet_message_id
+                  AND m.internet_message_id IS NOT NULL
+                ORDER BY uc.id DESC LIMIT 1
+              ) AS opened_at,
+              (
+                SELECT uc.delivered_at FROM user_communications uc
+                WHERE uc.external_message_id = m.internet_message_id
+                  AND m.internet_message_id IS NOT NULL
+                ORDER BY uc.id DESC LIMIT 1
+              ) AS delivered_at,
+              (
+                SELECT uc.id FROM user_communications uc
+                WHERE uc.external_message_id = m.internet_message_id
+                  AND m.internet_message_id IS NOT NULL
+                ORDER BY uc.id DESC LIMIT 1
+              ) AS user_communication_id
+       FROM communication_messages m
+       JOIN communication_conversations c ON c.id = m.conversation_id
+       LEFT JOIN communication_inboxes i ON i.id = c.inbox_id
        WHERE c.agency_id = ?
-         AND c.inbox_id = ?
          AND c.channel = 'email'
          AND EXISTS (
            SELECT 1 FROM communication_participants p
            WHERE p.conversation_id = c.id
              AND LOWER(COALESCE(p.email, '')) = ?
          )
-       ORDER BY COALESCE(c.last_message_at, c.created_at) DESC
-       LIMIT ${Math.min(limit, 40)}`,
-      [agencyId, inbox.id, normalized]
+         AND (
+           c.owner_user_id = ?
+           OR i.identity_key IN ('messages', 'secure_message')
+           OR i.kind = 'shared'
+         )
+         AND COALESCE(m.is_internal_note, 0) = 0
+         AND COALESCE(m.send_status, 'sent') <> 'cancelled'
+       ORDER BY COALESCE(m.sent_at, m.created_at) DESC, m.id DESC
+       LIMIT ${Math.min(limit, 80)}`,
+      [agencyId, normalized, actorUserId]
     );
-    return (rows || []).map((r) => ({
-      id: `email-${r.id}`,
-      channel: 'email',
-      bodyPreview: String(r.last_message_preview || r.subject || '').slice(0, 400),
-      createdAt: r.last_message_at || r.created_at,
-      direction: 'outbound',
-      meta: { conversationId: r.id, subject: r.subject, status: r.status }
-    }));
-  } catch {
+    return (rows || []).map((r) => {
+      const dir = String(r.direction || '').toLowerCase() === 'inbound' ? 'inbound' : 'outbound';
+      const preview = String(r.body_text || r.subject || r.conv_subject || '').slice(0, 400);
+      return {
+        id: `email-msg-${r.message_id}`,
+        channel: 'email',
+        bodyPreview: preview,
+        createdAt: r.sent_at || r.created_at,
+        direction: dir,
+        meta: {
+          conversationId: r.conversation_id,
+          messageId: r.message_id,
+          subject: r.subject || r.conv_subject,
+          openedAt: r.opened_at || null,
+          deliveredAt: r.delivered_at || null,
+          userCommunicationId: r.user_communication_id || null,
+          inboxKey: r.inbox_key || null
+        }
+      };
+    });
+  } catch (e) {
+    console.warn('[loadEmailTimeline]', e?.message || e);
     return [];
   }
 }
@@ -1096,8 +1173,19 @@ export async function sendHubEmail({
     throw err;
   }
 
-  const [agencyRows] = await pool.execute(`SELECT name FROM agencies WHERE id = ? LIMIT 1`, [aid]);
-  const agencyName = agencyRows?.[0]?.name || person.agencyName || 'Your care team';
+  const [agencyRows] = await pool.execute(
+    `SELECT name, logo_url, logo_path, color_palette FROM agencies WHERE id = ? LIMIT 1`,
+    [aid]
+  );
+  const agency = agencyRows?.[0] || {};
+  const agencyName = agency.name || person.agencyName || 'Your care team';
+  let logoUrl = null;
+  try {
+    const { resolveOrgLogoUrl } = await import('./publicFormBranding.service.js');
+    logoUrl = resolveOrgLogoUrl(agency);
+  } catch {
+    logoUrl = agency.logo_url || null;
+  }
   const [senderRows] = await pool.execute(
     `SELECT first_name, last_name, title FROM users WHERE id = ? LIMIT 1`,
     [userId]
@@ -1110,7 +1198,9 @@ export async function sendHubEmail({
     agencyName,
     senderDisplayName,
     senderTitle,
-    bodyText: body
+    bodyText: body,
+    colorPalette: agency.color_palette,
+    logoUrl
   });
 
   const normalizeList = (list) => {
@@ -1132,15 +1222,12 @@ export async function sendHubEmail({
       .filter((x) => x?.email);
   };
 
+  // Stable Reply-To (messages@) — Google Groups often mishandle plus-addresses.
+  // Token still stored so we can match; inbound also falls back by participant email.
   const crypto = await import('crypto');
   const replyRaw = crypto.randomBytes(24).toString('hex');
   const replyHash = crypto.createHash('sha256').update(replyRaw).digest('hex');
-  const baseFrom = String(mailboxes.messages?.from_email || '').trim().toLowerCase();
-  const at = baseFrom.lastIndexOf('@');
-  const replyTo =
-    at > 0
-      ? `${baseFrom.slice(0, at)}+${replyRaw}${baseFrom.slice(at)}`
-      : baseFrom || null;
+  const replyTo = String(mailboxes.messages?.from_email || '').trim() || null;
 
   const result = await composeNewEmail({
     agencyId: aid,
@@ -1156,7 +1243,9 @@ export async function sendHubEmail({
       attachments: Array.isArray(attachments) ? attachments : null,
       fromDisplayName: senderDisplayName,
       replyTo,
-      skipUndo: true
+      skipUndo: true,
+      clientId: person.clientId || null,
+      templateType: 'hub_email'
     }
   });
 

@@ -1,5 +1,5 @@
 /**
- * Route inbound replies to messages+{token}@domain into the hub communication thread.
+ * Route inbound replies to messages@ into the hub communication thread.
  */
 import crypto from 'crypto';
 import pool from '../config/database.js';
@@ -51,8 +51,30 @@ export async function resolveHubReplyToken(rawToken) {
   return rows?.[0] || null;
 }
 
+async function findConversationByParticipantEmail({ agencyId, identity, fromEmail }) {
+  const email = String(fromEmail || '').trim().toLowerCase();
+  if (!email || !identity?.id) return null;
+  const aid = Number(agencyId || identity.agency_id) || null;
+  const [rows] = await pool.execute(
+    `SELECT c.id, c.agency_id
+     FROM communication_conversations c
+     JOIN communication_inboxes i ON i.id = c.inbox_id
+     JOIN communication_participants p ON p.conversation_id = c.id
+     WHERE c.channel = 'email'
+       AND i.sender_identity_id = ?
+       ${aid ? 'AND c.agency_id = ?' : ''}
+       AND LOWER(COALESCE(p.email, '')) = ?
+       AND c.archived_at IS NULL
+     ORDER BY COALESCE(c.last_message_at, c.created_at) DESC
+     LIMIT 1`,
+    aid ? [identity.id, aid, email] : [identity.id, email]
+  );
+  return rows?.[0] || null;
+}
+
 /**
- * Ingest an email reply into an existing hub conversation when Reply-To plus-token matches.
+ * Ingest an email reply into an existing hub conversation.
+ * Prefer plus-token; fall back to matching From address on the messages@ inbox thread.
  */
 export async function ingestHubEmailReply({
   agencyId,
@@ -75,12 +97,22 @@ export async function ingestHubEmailReply({
     tokenRow = await resolveHubReplyToken(tag);
     if (tokenRow) break;
   }
-  if (!tokenRow) return { ingested: false, reason: 'no_reply_token' };
 
-  const conversationId = Number(tokenRow.conversation_id);
-  if (!conversationId) return { ingested: false, reason: 'no_conversation' };
+  let conversationId = tokenRow ? Number(tokenRow.conversation_id) : null;
+  let personKey = tokenRow?.person_key || null;
+  let aid = Number(tokenRow?.agency_id || agencyId || identity?.agency_id) || null;
 
-  const aid = Number(tokenRow.agency_id || agencyId || identity?.agency_id);
+  if (!conversationId) {
+    const hit = await findConversationByParticipantEmail({
+      agencyId: aid,
+      identity,
+      fromEmail
+    });
+    if (!hit?.id) return { ingested: false, reason: 'no_matching_conversation' };
+    conversationId = Number(hit.id);
+    aid = Number(hit.agency_id || aid);
+  }
+
   await CommunicationConversation.addMessage({
     conversationId,
     channel: 'email',
@@ -97,18 +129,28 @@ export async function ingestHubEmailReply({
     sentAt: receivedAt || new Date()
   });
 
-  await pool.execute(
-    `UPDATE communication_conversations
-     SET status = CASE WHEN status = 'closed' THEN 'needs_reply' ELSE status END,
-         last_message_at = COALESCE(?, last_message_at, NOW())
-     WHERE id = ?`,
-    [receivedAt || new Date(), conversationId]
-  ).catch(() => {});
+  await pool
+    .execute(
+      `UPDATE communication_conversations
+       SET status = 'needs_reply',
+           last_message_at = COALESCE(?, last_message_at, NOW()),
+           last_message_preview = ?
+       WHERE id = ?`,
+      [
+        receivedAt || new Date(),
+        String(bodyText || subject || '')
+          .replace(/\s+/g, ' ')
+          .trim()
+          .slice(0, 240),
+        conversationId
+      ]
+    )
+    .catch(() => {});
 
   return {
     ingested: true,
     conversationId,
     agencyId: aid,
-    personKey: tokenRow.person_key || null
+    personKey
   };
 }

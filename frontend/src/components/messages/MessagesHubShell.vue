@@ -45,16 +45,23 @@
             :class="{ active: selected?.personKey === p.personKey }"
             @click="pickPerson(p)"
           >
-            <div class="msg-hub-avatar" aria-hidden="true">{{ initials(p.displayName) }}</div>
+            <div class="msg-hub-avatar" aria-hidden="true">
+              <img v-if="p.photoUrl" :src="photoSrc(p.photoUrl)" :alt="''" />
+              <span v-else>{{ initials(p.displayName) }}</span>
+            </div>
             <div class="msg-hub-row-body">
               <div class="msg-hub-row-top">
                 <strong>{{ p.displayName }}</strong>
                 <span v-if="p.occurredAt" class="msg-hub-time">{{ formatTime(p.occurredAt) }}</span>
               </div>
               <p class="msg-hub-snippet">
-                <span v-if="p.agencyName" class="msg-hub-agency">{{ p.agencyName }}</span>
-                <span v-if="p.agencyName && (p.relationshipMeta || kindsLabel(p.kinds))"> · </span>
-                {{ p.relationshipMeta || kindsLabel(p.kinds) }}
+                <span
+                  v-if="p.agencyName"
+                  class="msg-hub-agency"
+                  :class="{ 'msg-hub-agency-other': isOtherAgency(p) }"
+                >{{ p.agencyName }}</span>
+                <span v-if="p.agencyName && (p.title || p.relationshipMeta || kindsLabel(p.kinds))"> · </span>
+                {{ p.title || p.relationshipMeta || kindsLabel(p.kinds) }}
               </p>
             </div>
             <span class="msg-hub-kind" :class="`kind-${p.preferredMethod || 'secure'}`">
@@ -73,13 +80,20 @@
       <section class="msg-hub-thread-col" aria-label="Conversation">
         <template v-if="selected">
           <header class="msg-hub-thread-head">
-            <div class="msg-hub-avatar lg" aria-hidden="true">{{ initials(selected.displayName) }}</div>
+            <div class="msg-hub-avatar lg" aria-hidden="true">
+              <img v-if="selected.photoUrl" :src="photoSrc(selected.photoUrl)" :alt="''" />
+              <span v-else>{{ initials(selected.displayName) }}</span>
+            </div>
             <div>
               <h3>{{ selected.displayName }}</h3>
               <p class="msg-hub-muted">
-                <span v-if="selected.agencyName" class="msg-hub-agency">{{ selected.agencyName }}</span>
-                <span v-if="selected.agencyName && (selected.relationshipMeta || kindsLabel(selected.kinds))"> · </span>
-                {{ selected.relationshipMeta || kindsLabel(selected.kinds) }}
+                <span
+                  v-if="selected.agencyName"
+                  class="msg-hub-agency"
+                  :class="{ 'msg-hub-agency-other': isOtherAgency(selected) }"
+                >{{ selected.agencyName }}</span>
+                <span v-if="selected.agencyName && (selected.title || selected.relationshipMeta || kindsLabel(selected.kinds))"> · </span>
+                {{ selected.title || selected.relationshipMeta || kindsLabel(selected.kinds) }}
               </p>
             </div>
           </header>
@@ -125,6 +139,13 @@
                 <p>{{ msg.bodyPreview }}</p>
                 <div class="msg-hub-bubble-meta">
                   <time>{{ formatTime(msg.createdAt) }}</time>
+                  <span v-if="msg.direction === 'outbound'" class="msg-hub-sent-tag">Sent</span>
+                  <span v-if="msg.meta?.openedAt" class="msg-hub-open-tag" :title="formatTime(msg.meta.openedAt)">
+                    Opened
+                  </span>
+                  <span v-else-if="msg.channel === 'email' && msg.direction === 'outbound'" class="msg-hub-open-tag pending">
+                    Not opened
+                  </span>
                   <button
                     v-if="msg.channel === 'email' && msg.meta?.conversationId"
                     type="button"
@@ -164,14 +185,27 @@
                 v-model="composeCc"
                 type="text"
                 class="msg-hub-subject"
-                placeholder="Cc (comma-separated emails)"
+                placeholder="Cc — type a name or email, pick from staff"
+                list="msg-hub-staff-suggest"
+                @input="onCcBccInput('cc')"
               />
               <input
                 v-model="composeBcc"
                 type="text"
                 class="msg-hub-subject"
-                placeholder="Bcc (comma-separated emails)"
+                placeholder="Bcc — type a name or email, pick from staff"
+                list="msg-hub-staff-suggest"
+                @input="onCcBccInput('bcc')"
               />
+              <datalist id="msg-hub-staff-suggest">
+                <option
+                  v-for="s in staffSuggest"
+                  :key="s.email"
+                  :value="s.email"
+                >
+                  {{ s.displayName }}{{ s.agencyName ? ` · ${s.agencyName}` : '' }}
+                </option>
+              </datalist>
               <div class="msg-hub-attach-row">
                 <label class="msg-hub-attach-btn">
                   Attach files
@@ -288,13 +322,20 @@
         <div v-if="peopleLoading" class="msg-hub-muted">Loading…</div>
         <ul v-else-if="peopleResults.length" class="msg-hub-people">
           <li v-for="p in peopleResults" :key="p.personKey" @click="pickPerson(p)">
-            <div class="msg-hub-avatar" aria-hidden="true">{{ initials(p.displayName) }}</div>
+            <div class="msg-hub-avatar" aria-hidden="true">
+              <img v-if="p.photoUrl" :src="photoSrc(p.photoUrl)" :alt="''" />
+              <span v-else>{{ initials(p.displayName) }}</span>
+            </div>
             <div>
               <strong>{{ p.displayName }}</strong>
               <p class="msg-hub-muted">
-                <span v-if="p.agencyName" class="msg-hub-agency">{{ p.agencyName }}</span>
-                <span v-if="p.agencyName && (p.relationshipMeta || kindsLabel(p.kinds))"> · </span>
-                {{ p.relationshipMeta || kindsLabel(p.kinds) }}
+                <span
+                  v-if="p.agencyName"
+                  class="msg-hub-agency"
+                  :class="{ 'msg-hub-agency-other': isOtherAgency(p) }"
+                >{{ p.agencyName }}</span>
+                <span v-if="p.agencyName && (p.title || p.relationshipMeta || kindsLabel(p.kinds))"> · </span>
+                {{ p.title || p.relationshipMeta || kindsLabel(p.kinds) }}
               </p>
               <p class="msg-hub-methods-inline">
                 <span
@@ -317,6 +358,7 @@
 import { computed, nextTick, onMounted, ref, watch } from 'vue';
 import api from '../../services/api';
 import { useAgencyStore } from '../../store/agency';
+import { toUploadsUrl } from '../../utils/uploadsUrl';
 
 const agencyStore = useAgencyStore();
 
@@ -340,6 +382,8 @@ const composeAttachments = ref([]);
 const composeFromAliasId = ref(null);
 const emailAliases = ref([]);
 const reactingId = ref(null);
+const staffSuggest = ref([]);
+let staffSuggestTimer = null;
 const showNew = ref(false);
 const newTab = ref('caseload');
 const peopleQuery = ref('');
@@ -355,13 +399,15 @@ const listFilters = [
   { id: 'caseload', label: 'My clients' },
   { id: 'clients', label: 'Clients' },
   { id: 'guardians', label: 'Guardians' },
-  { id: 'staff', label: 'Staff' }
+  { id: 'staff', label: 'Staff' },
+  { id: 'school_staff', label: 'School staff' }
 ];
 
 const newTabs = [
   { id: 'caseload', label: 'My clients' },
   { id: 'recent', label: 'Recent' },
   { id: 'staff', label: 'Staff' },
+  { id: 'school_staff', label: 'School staff' },
   { id: 'guardians', label: 'Guardians' },
   { id: 'clients', label: 'Clients' },
   { id: 'search', label: 'Search' }
@@ -375,8 +421,10 @@ const filteredPeople = computed(() => {
     list = list.filter((p) => (p.kinds || []).includes('client'));
   } else if (listFilter.value === 'staff') {
     list = list.filter((p) =>
-      (p.kinds || []).some((k) => ['employee', 'staff', 'team', 'school_staff'].includes(k))
+      (p.kinds || []).some((k) => ['employee', 'staff', 'team'].includes(k))
     );
+  } else if (listFilter.value === 'school_staff') {
+    list = list.filter((p) => (p.kinds || []).includes('school_staff'));
   } else if (listFilter.value === 'caseload') {
     list = list.filter((p) => (p.kinds || []).includes('client'));
   }
@@ -389,24 +437,26 @@ const filteredPeople = computed(() => {
 
 const emptyListCopy = computed(() => {
   if (listFilter.value === 'caseload' || listFilter.value === 'clients') {
-    return 'No clients in this view yet. Try Search (letters can match anywhere in the name).';
+    return 'No clients assigned to you across your agencies yet. Try Search, or open New conversation → My clients.';
   }
   if (listFilter.value === 'recent') {
     return 'No recent people yet. Open New conversation and browse My clients.';
   }
   if (listFilter.value === 'staff') return 'No staff in this list. Try Search.';
+  if (listFilter.value === 'school_staff') return 'No school staff in this list. Try Search.';
   if (listFilter.value === 'guardians') return 'No guardians in this list. Try Search.';
   return 'Nothing in this filter. Try My clients or Search.';
 });
 
 const newTabHint = computed(() => {
   if (newTab.value === 'caseload') {
-    return 'Your assigned clients — shown by name, initials, or code so you can find them without memorizing a full name.';
+    return 'Your assigned clients across every agency you belong to — other agencies are labeled in the primary color.';
   }
   if (newTab.value === 'recent') {
     return 'People you recently messaged across every agency you belong to — each row shows the person and their agency.';
   }
-  if (newTab.value === 'staff') return 'Staff and school staff across your agencies.';
+  if (newTab.value === 'staff') return 'Agency staff (not school staff).';
+  if (newTab.value === 'school_staff') return 'School staff across your agencies.';
   if (newTab.value === 'guardians') return 'Guardians / parents with portal access.';
   if (newTab.value === 'clients') return 'Clients across your agencies.';
   return 'Type at least 2 characters — matches anywhere in the name (typos OK). Initials, code, email, or phone also work.';
@@ -487,6 +537,44 @@ function onSecureToggle(ev) {
 function methodLabel(id) {
   const map = { secure: 'Secure', sms: 'SMS', email: 'Email', internal: 'Internal' };
   return map[id] || '';
+}
+
+function photoSrc(url) {
+  return toUploadsUrl(url) || url;
+}
+
+function isOtherAgency(person) {
+  const current = Number(agencyId.value);
+  const theirs = Number(person?.agencyId);
+  return !!(current && theirs && current !== theirs);
+}
+
+function onCcBccInput() {
+  clearTimeout(staffSuggestTimer);
+  const raw = `${composeCc.value} ${composeBcc.value}`;
+  const parts = raw.split(/[,;]/).map((s) => s.trim()).filter(Boolean);
+  const q = parts[parts.length - 1] || '';
+  if (q.length < 2) {
+    staffSuggest.value = [];
+    return;
+  }
+  staffSuggestTimer = setTimeout(async () => {
+    try {
+      const results = await fetchPeople({ q, limit: 20 });
+      staffSuggest.value = (results || [])
+        .filter((p) =>
+          p.email &&
+          (p.kinds || []).some((k) => ['employee', 'staff', 'team', 'school_staff'].includes(k))
+        )
+        .map((p) => ({
+          email: p.email,
+          displayName: p.displayName,
+          agencyName: p.agencyName || null
+        }));
+    } catch {
+      staffSuggest.value = [];
+    }
+  }, 200);
 }
 
 function kindsLabel(kinds) {
@@ -571,12 +659,15 @@ async function setNewTab(id) {
       peopleResults.value = [];
       await nextTick();
       newSearchEl.value?.focus?.();
-    } else if (id === 'staff' || id === 'guardians' || id === 'clients') {
+    } else if (id === 'staff' || id === 'school_staff' || id === 'guardians' || id === 'clients') {
       const browse = id === 'clients' ? 'caseload' : 'suggested';
       const all = await fetchPeople({ browse, limit: 60 });
       peopleResults.value = all.filter((p) => {
         if (id === 'staff') {
-          return (p.kinds || []).some((k) => ['employee', 'staff', 'team', 'school_staff'].includes(k));
+          return (p.kinds || []).some((k) => ['employee', 'staff', 'team'].includes(k));
+        }
+        if (id === 'school_staff') {
+          return (p.kinds || []).includes('school_staff');
         }
         if (id === 'guardians') return (p.kinds || []).includes('guardian');
         return (p.kinds || []).includes('client');
@@ -898,6 +989,13 @@ defineExpose({ reload: loadList });
   place-items: center;
   font-size: 12px;
   font-weight: 800;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+.msg-hub-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 .msg-hub-avatar.lg { width: 48px; height: 48px; font-size: 14px; }
 .msg-hub-row-top { display: flex; justify-content: space-between; gap: 8px; }
@@ -907,7 +1005,23 @@ defineExpose({ reload: loadList });
 .msg-hub-snippet { margin-top: 4px; color: #475569; }
 .msg-hub-agency {
   font-weight: 700;
+  color: var(--mh-muted);
+}
+.msg-hub-agency-other {
   color: var(--mh-primary);
+  font-weight: 800;
+}
+.msg-hub-sent-tag,
+.msg-hub-open-tag {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--mh-primary);
+}
+.msg-hub-open-tag.pending {
+  color: var(--mh-muted);
+  font-weight: 600;
 }
 .msg-hub-kind {
   font-size: 10px;

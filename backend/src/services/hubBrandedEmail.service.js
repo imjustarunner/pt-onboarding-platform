@@ -1,8 +1,7 @@
 /**
  * Email HTML helpers for Messages Hub.
- * - Normal outbound: ordinary email look (no “secure” language).
- * - Branded: digests / secure notify only.
- * Never includes personal/SSO addresses of staff in visible headers/body.
+ * Outbound hub Email uses tenant branding (logo + primary color).
+ * Digests / secure notify use the heavier branded template.
  */
 
 function escapeHtml(s) {
@@ -28,27 +27,60 @@ function formatWhen(v) {
   }
 }
 
+function parsePrimaryColor(colorPalette) {
+  try {
+    const p = typeof colorPalette === 'string' ? JSON.parse(colorPalette || '{}') : colorPalette || {};
+    const c = String(p.primary || p.primaryColor || '').trim();
+    if (/^#[0-9a-fA-F]{3,8}$/.test(c)) return c;
+  } catch {
+    /* ignore */
+  }
+  return '#0f766e';
+}
+
 /**
- * Normal outbound email (hub Email channel). Looks like ordinary mail.
+ * Professional tenant-branded outbound email (hub Email channel).
  */
 export function buildNormalOutboundEmailHtml(opts = {}) {
   const sender = escapeHtml(opts.senderDisplayName || 'Team member');
   const title = escapeHtml(opts.senderTitle || '');
   const agencyName = escapeHtml(opts.agencyName || '');
   const body = escapeHtml(opts.bodyText || '').replace(/\n/g, '<br/>');
+  const primary = escapeHtml(parsePrimaryColor(opts.colorPalette));
+  const logoUrl = String(opts.logoUrl || '').trim();
+  const logo = logoUrl
+    ? `<img src="${escapeHtml(logoUrl)}" alt="${agencyName}" style="max-height:48px;max-width:200px;display:block;margin:0 0 14px;" />`
+    : '';
+
   return `<!DOCTYPE html>
 <html><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/></head>
-<body style="margin:0;padding:16px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#1e293b;font-size:15px;line-height:1.55;">
-  <div style="margin-bottom:12px;color:#64748b;font-size:13px;">
-    ${sender}${title ? ` · ${title}` : ''}${agencyName ? ` · ${agencyName}` : ''}
-  </div>
-  <div>${body}</div>
-  <p style="color:#94a3b8;font-size:12px;margin-top:24px;">You can reply to this email as usual.</p>
+<body style="margin:0;padding:0;background:#f1f5f9;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#f1f5f9;padding:28px 12px;">
+    <tr><td align="center">
+      <table role="presentation" width="100%" style="max-width:600px;background:#ffffff;border-radius:14px;overflow:hidden;border:1px solid #e2e8f0;">
+        <tr><td style="height:6px;background:${primary};font-size:0;line-height:0;">&nbsp;</td></tr>
+        <tr><td style="padding:22px 24px 8px;">
+          ${logo}
+          ${agencyName ? `<div style="font-size:18px;font-weight:800;color:#0f172a;letter-spacing:-0.02em;margin:0 0 4px;">${agencyName}</div>` : ''}
+          <div style="color:#64748b;font-size:13px;margin:0 0 18px;">
+            ${sender}${title ? ` · ${title}` : ''}
+          </div>
+          <div style="color:#1e293b;font-size:15px;line-height:1.6;">${body}</div>
+          <p style="color:#94a3b8;font-size:12px;margin:22px 0 0;line-height:1.45;">
+            You can reply to this email as usual. Replies return to ${agencyName || 'your care team'} — not a personal staff inbox.
+          </p>
+        </td></tr>
+        <tr><td style="padding:14px 24px 20px;border-top:1px solid #f1f5f9;">
+          <div style="font-size:11px;color:#94a3b8;">Sent via ${agencyName || 'Messages'}</div>
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
 </body></html>`;
 }
 
 /**
- * Branded template for unread digests / secure notify (not everyday hub Email).
+ * Branded template for unread digests / secure notify.
  */
 export function buildBrandedMessageEmailHtml(opts = {}) {
   const agencyName = escapeHtml(opts.agencyName || 'Your care team');
@@ -57,6 +89,8 @@ export function buildBrandedMessageEmailHtml(opts = {}) {
   const title = escapeHtml(opts.senderTitle || '');
   const body = escapeHtml(opts.bodyText || '').replace(/\n/g, '<br/>');
   const appUrl = escapeHtml(opts.appUrl || '');
+  const primary = escapeHtml(parsePrimaryColor(opts.colorPalette));
+  const logoUrl = String(opts.logoUrl || '').trim();
   const footerNote = escapeHtml(
     opts.footerNote ||
       'To respond, reply to this email or open Messages in the app. Personal email addresses are never shared.'
@@ -78,13 +112,18 @@ export function buildBrandedMessageEmailHtml(opts = {}) {
     })
     .join('');
 
+  const logo = logoUrl
+    ? `<img src="${escapeHtml(logoUrl)}" alt="" style="max-height:40px;max-width:180px;display:block;margin:0 0 10px;" />`
+    : '';
+
   return `<!DOCTYPE html>
 <html><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/></head>
 <body style="margin:0;padding:0;background:#f8fafc;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
   <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#f8fafc;padding:24px 12px;">
     <tr><td align="center">
       <table role="presentation" width="100%" style="max-width:640px;background:#ffffff;border-radius:16px;overflow:hidden;border:1px solid #e2e8f0;">
-        <tr><td style="background:#0f766e;color:#fff;padding:18px 22px;">
+        <tr><td style="background:${primary};color:#fff;padding:18px 22px;">
+          ${logo}
           <div style="font-size:18px;font-weight:800;letter-spacing:-0.02em;">${agencyName}</div>
           ${location ? `<div style="opacity:0.9;font-size:13px;margin-top:4px;">${location}</div>` : ''}
         </td></tr>
@@ -95,7 +134,7 @@ export function buildBrandedMessageEmailHtml(opts = {}) {
           <div style="color:#64748b;font-size:12px;margin-bottom:8px;">Sent through ${agencyName}</div>
           ${
             appUrl
-              ? `<p style="margin:0 0 18px;"><a href="${appUrl}" style="color:#0f766e;font-weight:700;">Open in Messages</a></p>`
+              ? `<p style="margin:0 0 18px;"><a href="${appUrl}" style="color:${primary};font-weight:700;">Open in Messages</a></p>`
               : ''
           }
           ${
@@ -114,12 +153,14 @@ export function buildBrandedMessageEmailHtml(opts = {}) {
 </body></html>`;
 }
 
-export function buildLikedMessageEmailHtml({ agencyName, actorName, preview, appUrl }) {
+export function buildLikedMessageEmailHtml({ agencyName, actorName, preview, appUrl, colorPalette, logoUrl }) {
   return buildBrandedMessageEmailHtml({
     agencyName,
     senderDisplayName: actorName || 'Someone',
     bodyText: `${actorName || 'Someone'} liked your message${preview ? `:\n\n“${String(preview).slice(0, 200)}”` : '.'}`,
     appUrl,
+    colorPalette,
+    logoUrl,
     footerNote: 'You are receiving this because someone reacted to a message in the app.'
   });
 }
