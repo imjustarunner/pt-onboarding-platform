@@ -3863,9 +3863,10 @@ async function loadEmailAliases(aid) {
       skipGlobalLoading: true
     });
     emailAliases.value = Array.isArray(data?.aliases) ? data.aliases : [];
-    const personal = emailAliases.value.find((a) => a.kind === 'personal');
+    // Delivery From stays messages@ by default; signature uses the Send-as tenant alias.
     const messages = emailAliases.value.find((a) => a.kind === 'messages');
-    composeFromAliasId.value = personal?.id || messages?.id || emailAliases.value[0]?.id || null;
+    const personal = emailAliases.value.find((a) => a.kind === 'personal');
+    composeFromAliasId.value = messages?.id || personal?.id || emailAliases.value[0]?.id || null;
   } catch {
     emailAliases.value = [];
   }
