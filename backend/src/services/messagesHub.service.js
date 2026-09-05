@@ -12,6 +12,7 @@ import {
 import { composeNewEmail } from './unifiedInbox.service.js';
 import { findOrCreateDirectThread, findExistingDirectThreadBetweenUsers } from '../controllers/chat.controller.js';
 import { decryptChatText, isChatEncryptionConfigured } from './chatEncryption.service.js';
+import { listHubQueuedForPerson } from './hubMessageQueue.service.js';
 
 const TEAM_ROLES = new Set([
   'admin',
@@ -2099,7 +2100,7 @@ export async function getHubPersonTimeline({ agencyId, userId, personKey, limit 
   if (!person) return { person: null, items: [] };
   const aid = person.agencyId || agencyId;
 
-  const [chat, sms, email] = await Promise.all([
+  const [chat, sms, email, pendingQueue] = await Promise.all([
     loadChatTimeline({
       agencyId: aid,
       actorUserId: userId,
@@ -2118,7 +2119,13 @@ export async function getHubPersonTimeline({ agencyId, userId, personKey, limit 
       actorUserId: userId,
       email: person.email,
       limit
-    })
+    }),
+    listHubQueuedForPerson({
+      userId,
+      personKey,
+      agencyId: aid,
+      limit: 20
+    }).catch(() => [])
   ]);
 
   const isClientFacing = person.kinds.includes('guardian') || person.kinds.includes('client');
@@ -2127,7 +2134,29 @@ export async function getHubPersonTimeline({ agencyId, userId, personKey, limit 
     channel: isClientFacing ? 'secure' : 'internal'
   }));
 
-  const items = [...normalizedChat, ...sms, ...email].sort(
+  const pendingItems = (pendingQueue || []).map((r) => {
+    const channel = String(r.channel || 'internal').toLowerCase();
+    const resolvedChannel =
+      channel === 'secure' && isClientFacing ? 'secure' : channel === 'secure' ? 'internal' : channel;
+    return {
+      id: `hubq-${r.id}`,
+      channel: resolvedChannel,
+      bodyPreview: String(r.body || '').slice(0, 500),
+      subject: r.subject || null,
+      createdAt: r.scheduled_send_at || r.created_at,
+      direction: 'outbound',
+      attachments: [],
+      reactions: [],
+      meta: {
+        queueId: Number(r.id),
+        queueReason: r.queue_reason || 'undo_delay',
+        scheduledSendAt: r.scheduled_send_at,
+        sendStatus: 'scheduled'
+      }
+    };
+  });
+
+  const items = [...normalizedChat, ...sms, ...email, ...pendingItems].sort(
     (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
   );
 

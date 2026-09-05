@@ -1319,7 +1319,7 @@ const sendConfirmOpen = ref(false);
 const sendConfirmPending = ref(null);
 const selectedConversation = ref(null);
 const conversationPreview = ref(null);
-const inboxCounts = ref({ unread: 0, snoozed: 0, unknown: 0 });
+const inboxCounts = ref({ unread: 0, snoozed: 0, unknown: 0, queued: 0 });
 const showResolveUnknown = ref(false);
 const snoozeMenuFor = ref(null);
 const timeline = ref([]);
@@ -2219,16 +2219,36 @@ function startUndoBanner({
     method: method || sendMethod.value
   };
   undoNow.value = Date.now();
+  let expiredHandled = false;
+  const onExpired = async () => {
+    if (expiredHandled) return;
+    expiredHandled = true;
+    clearUndoBanner();
+    // Worker may still be a few seconds behind the client countdown — refresh a couple times.
+    const personKey = selected.value?.personKey;
+    const refresh = async () => {
+      if (personKey) await loadTimeline(personKey);
+      await refreshQueuedCount();
+      if (navId.value === 'queued') await loadQueued();
+    };
+    await refresh();
+    setTimeout(() => {
+      refresh().catch(() => {});
+    }, 2500);
+    setTimeout(() => {
+      refresh().catch(() => {});
+    }, 8000);
+  };
   undoTickTimer = setInterval(() => {
     undoNow.value = Date.now();
     if (undoBanner.value && undoNow.value >= undoBanner.value.expiresAt) {
-      clearUndoBanner();
+      onExpired();
     }
   }, 500);
   // Keep the sticky banner for at most 10 minutes; long schedules stay undoable in Queued.
   const displayMs = Math.min(Math.max(1000, exp - Date.now()), 10 * 60 * 1000);
   undoBannerTimer = setTimeout(() => {
-    clearUndoBanner();
+    onExpired();
   }, displayMs);
 }
 
@@ -2263,6 +2283,7 @@ async function undoBannerSend() {
     clearUndoBanner();
     if (selected.value?.personKey) await loadTimeline(selected.value.personKey);
     if (navId.value === 'queued') await loadQueued();
+    await refreshQueuedCount();
     await focusComposer();
   } catch (e) {
     sendError.value = e?.response?.data?.error?.message || 'Could not undo';
@@ -2421,11 +2442,34 @@ async function loadQueued() {
       skipGlobalLoading: true
     });
     queuedItems.value = Array.isArray(data?.items) ? data.items : [];
+    inboxCounts.value = {
+      ...inboxCounts.value,
+      queued: Number(data?.count ?? queuedItems.value.length) || 0
+    };
   } catch (e) {
     queuedItems.value = [];
     error.value = e?.response?.data?.error?.message || 'Could not load queued messages';
   } finally {
     loadingQueued.value = false;
+  }
+}
+
+async function refreshQueuedCount() {
+  if (!agencyId.value) {
+    inboxCounts.value = { ...inboxCounts.value, queued: 0 };
+    return;
+  }
+  try {
+    const { data } = await api.get('/messages/hub/queued', {
+      params: { agencyId: agencyId.value, limit: 1 },
+      skipGlobalLoading: true
+    });
+    inboxCounts.value = {
+      ...inboxCounts.value,
+      queued: Number(data?.count ?? data?.items?.length) || 0
+    };
+  } catch {
+    /* keep prior */
   }
 }
 
@@ -2970,7 +3014,7 @@ async function loadConversations() {
 
 async function loadInboxCounts() {
   if (!agencyId.value) {
-    inboxCounts.value = { unread: 0, snoozed: 0, unknown: 0 };
+    inboxCounts.value = { unread: 0, snoozed: 0, unknown: 0, queued: 0 };
     return;
   }
   try {
@@ -2980,6 +3024,7 @@ async function loadInboxCounts() {
     });
     const s = data?.summary || {};
     inboxCounts.value = {
+      ...inboxCounts.value,
       unread: Number(s.unread || 0),
       snoozed: Number(s.snoozed || 0),
       unknown: Number(s.unknownSenders || 0)
@@ -2987,12 +3032,14 @@ async function loadInboxCounts() {
   } catch {
     /* keep prior counts */
   }
+  await refreshQueuedCount();
 }
 
 function inboxBadgeCount(id) {
   if (id === 'unread') return inboxCounts.value.unread > 0 ? inboxCounts.value.unread : 0;
   if (id === 'snoozed') return inboxCounts.value.snoozed > 0 ? inboxCounts.value.snoozed : 0;
   if (id === 'unknown') return inboxCounts.value.unknown > 0 ? inboxCounts.value.unknown : 0;
+  if (id === 'queued') return inboxCounts.value.queued > 0 ? inboxCounts.value.queued : 0;
   return 0;
 }
 
@@ -3687,6 +3734,7 @@ async function executeSend({ sendToAllPortalGuardians = false, includeClient = f
             : 'undo'
       });
       if (navId.value === 'queued') loadQueued();
+      else refreshQueuedCount();
     }
     await loadTimeline(selected.value.personKey);
     await loadPersonContext(selected.value.personKey);

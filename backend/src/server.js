@@ -2077,7 +2077,16 @@ if (!isBootstrap) {
     }
   };
   scheduleUnifiedOutbound();
-  setInterval(scheduleUnifiedOutbound, 10 * 1000);
+  let hubQueueFlushInFlight = false;
+  setInterval(async () => {
+    if (hubQueueFlushInFlight) return;
+    hubQueueFlushInFlight = true;
+    try {
+      await scheduleUnifiedOutbound();
+    } finally {
+      hubQueueFlushInFlight = false;
+    }
+  }, 10 * 1000);
 
   // Join reminder (email/SMS 5 min before supervision + team meetings)
   const scheduleJoinReminder = async () => {

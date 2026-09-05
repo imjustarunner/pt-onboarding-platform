@@ -116,11 +116,76 @@ export async function cancelHubQueuedMessage({ id, userId }) {
 
 export async function listDueHubQueue({ limit = 40 } = {}) {
   const lim = Math.min(Math.max(Number(limit) || 40, 1), 100);
+  // Reclaim abandoned "sending" rows (crashed worker) after 2 minutes
+  await pool
+    .execute(
+      `UPDATE hub_message_queue
+       SET status = 'queued', updated_at = CURRENT_TIMESTAMP
+       WHERE status = 'sending'
+         AND updated_at < (NOW() - INTERVAL 2 MINUTE)`
+    )
+    .catch(() => null);
   const [rows] = await pool.execute(
     `SELECT * FROM hub_message_queue
      WHERE status = 'queued' AND scheduled_send_at <= NOW()
      ORDER BY scheduled_send_at ASC, id ASC
      LIMIT ${lim}`
+  );
+  return rows || [];
+}
+
+/**
+ * Atomically claim a queued row for sending. Returns true only if this caller owns the send.
+ */
+export async function claimHubQueueRow(id) {
+  const [result] = await pool.execute(
+    `UPDATE hub_message_queue
+     SET status = 'sending', updated_at = CURRENT_TIMESTAMP
+     WHERE id = ? AND status = 'queued'`,
+    [id]
+  );
+  return Number(result?.affectedRows || 0) === 1;
+}
+
+export async function countHubQueuedMessages({ userId, agencyId = null } = {}) {
+  if (!userId) return 0;
+  const params = [userId];
+  let agencyClause = '';
+  if (agencyId) {
+    agencyClause = 'AND agency_id = ?';
+    params.push(agencyId);
+  }
+  const [rows] = await pool.execute(
+    `SELECT COUNT(*) AS n FROM hub_message_queue
+     WHERE user_id = ? AND status = 'queued' ${agencyClause}`,
+    params
+  );
+  return Number(rows?.[0]?.n || 0);
+}
+
+export async function listHubQueuedForPerson({
+  userId,
+  personKey,
+  agencyId = null,
+  limit = 20
+} = {}) {
+  if (!userId || !personKey) return [];
+  const lim = Math.min(Math.max(Number(limit) || 20, 1), 50);
+  const params = [userId, String(personKey)];
+  let agencyClause = '';
+  if (agencyId) {
+    agencyClause = 'AND agency_id = ?';
+    params.push(agencyId);
+  }
+  const [rows] = await pool.execute(
+    `SELECT * FROM hub_message_queue
+     WHERE user_id = ?
+       AND person_key = ?
+       AND status = 'queued'
+       ${agencyClause}
+     ORDER BY scheduled_send_at ASC, id ASC
+     LIMIT ${lim}`,
+    params
   );
   return rows || [];
 }

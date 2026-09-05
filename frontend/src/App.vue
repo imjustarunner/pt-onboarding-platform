@@ -1414,7 +1414,7 @@
                   v-for="item in dashboardMobileNavItems"
                   :key="`dash-mob-${item.id}`"
                   type="button"
-                  class="mobile-nav-link mobile-nav-sublink"
+                  class="mobile-nav-link mobile-nav-sublink mobile-nav-button"
                   :class="{ 'mobile-nav-sublink--nested': !!item.nestedUnder }"
                   @click="onDashboardMobileNavClick(item)"
                 >
@@ -9202,6 +9202,18 @@ button.nav-dropdown-button-link:hover {
   display: block;
 }
 
+/* Drawer buttons that reuse .mobile-nav-link (Dashboard sections, etc.) */
+button.mobile-nav-link {
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: none;
+  border-left: 3px solid transparent;
+  font: inherit;
+  cursor: pointer;
+  color: var(--header-text-color, #fff);
+}
+
 .mobile-nav-link:hover,
 .mobile-nav-link.router-link-active {
   background-color: rgba(255, 255, 255, 0.1);
@@ -9215,6 +9227,7 @@ button.nav-dropdown-button-link:hover {
   border: none;
   font: inherit;
   cursor: pointer;
+  color: inherit;
 }
 
 .mobile-nav-link-assistant {

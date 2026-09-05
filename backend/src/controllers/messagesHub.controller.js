@@ -22,8 +22,10 @@ import {
   listHubQueuedMessages,
   cancelHubQueuedMessage,
   listDueHubQueue,
+  claimHubQueueRow,
   markHubQueueSent,
   markHubQueueFailed,
+  countHubQueuedMessages,
   clampSendDelaySeconds,
   DEFAULT_DELAY_SECONDS
 } from '../services/hubMessageQueue.service.js';
@@ -899,7 +901,11 @@ export const getMessagesHubQueued = async (req, res, next) => {
       (a, b) =>
         new Date(a.scheduledSendAt || 0).getTime() - new Date(b.scheduledSendAt || 0).getTime()
     );
-    res.json({ items });
+    const hubCount = await countHubQueuedMessages({
+      userId: req.user.id,
+      agencyId: agencyId || null
+    }).catch(() => hubRows?.length || 0);
+    res.json({ items, count: items.length, hubCount });
   } catch (e) {
     next(e);
   }
@@ -936,11 +942,13 @@ export const postMessagesHubQueuedUndo = async (req, res, next) => {
 
 /**
  * Worker: deliver due hub_message_queue rows (secure/internal/sms).
+ * Claims each row (queued → sending) so overlapping ticks / processes cannot double-send.
  */
 export async function processHubMessageQueue({ limit = 40 } = {}) {
   const due = await listDueHubQueue({ limit });
   let sent = 0;
   let failed = 0;
+  let skipped = 0;
 
   const runWithMockRes = (handler, reqLike) =>
     new Promise((resolve, reject) => {
@@ -967,7 +975,13 @@ export async function processHubMessageQueue({ limit = 40 } = {}) {
     });
 
   for (const row of due) {
+    let claimed = false;
     try {
+      claimed = await claimHubQueueRow(row.id);
+      if (!claimed) {
+        skipped += 1;
+        continue;
+      }
       const payload =
         row.payload_json && typeof row.payload_json === 'string'
           ? JSON.parse(row.payload_json)
@@ -1012,9 +1026,11 @@ export async function processHubMessageQueue({ limit = 40 } = {}) {
       sent += 1;
     } catch (e) {
       console.warn('[processHubMessageQueue]', row.id, e?.message || e);
-      await markHubQueueFailed(row.id, e?.message || 'send failed').catch(() => {});
+      if (claimed) {
+        await markHubQueueFailed(row.id, e?.message || 'send failed').catch(() => {});
+      }
       failed += 1;
     }
   }
-  return { sent, failed, checked: due.length };
+  return { sent, failed, skipped, checked: due.length };
 }
