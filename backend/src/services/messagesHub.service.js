@@ -3652,11 +3652,6 @@ export async function listHubUnreadFeed({
       const threadType = String(row.thread_type || 'direct').toLowerCase();
       const isDirect = threadType === 'direct';
       const isChannel = threadType === 'channel';
-      const isGroup =
-        threadType === 'group' ||
-        threadType === 'team' ||
-        threadType === 'club' ||
-        threadType === 'skill_builders_event';
       let preview = String(row.last_message_body || '').trim();
       if (!preview && row.body_ciphertext && isChatEncryptionConfigured()) {
         try {
