@@ -17,7 +17,7 @@ function formatWhen(v) {
   if (!v) return '';
   try {
     return new Date(v).toLocaleString('en-US', {
-      month: 'long',
+      month: 'short',
       day: 'numeric',
       year: 'numeric',
       hour: 'numeric',
@@ -36,36 +36,212 @@ function parsePrimaryColor(colorPalette) {
   } catch {
     /* ignore */
   }
-  return '#0f766e';
+  return '#669878';
+}
+
+function initialsFromName(name) {
+  const parts = String(name || '')
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+  if (!parts.length) return '?';
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return `${parts[0][0] || ''}${parts[parts.length - 1][0] || ''}`.toUpperCase();
+}
+
+function htmlToPlainPreview(html) {
+  return String(html || '')
+    .replace(/<style[\s\S]*?<\/style>/gi, '')
+    .replace(/<script[\s\S]*?<\/script>/gi, '')
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/p>/gi, '\n')
+    .replace(/<\/div>/gi, '\n')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&quot;/gi, '"')
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .replace(/[ \t]{2,}/g, ' ')
+    .trim();
+}
+
+/**
+ * Strip signatures, chrome, and boilerplate so history shows only the message prose.
+ */
+export function stripEmailHistoryBody(html, text) {
+  let s = String(html || '').trim();
+  if (s) {
+    const bodyMatch = s.match(/<body[^>]*>([\s\S]*)<\/body>/i);
+    if (bodyMatch) s = bodyMatch[1];
+
+    // Prefer the dedicated latest-body marker (Hub conversation emails).
+    const marked = s.match(
+      /data-hub-email-latest-body=["']?1["']?[^>]*>([\s\S]*?)<\/div>/i
+    );
+    if (marked?.[1]) {
+      return htmlToPlainPreview(marked[1]);
+    }
+
+    // Drop nested history + signature/chrome so we don't quote the whole prior email.
+    s = s
+      .replace(/<div[^>]*data-hub-email-history[^>]*>[\s\S]*$/i, '')
+      .replace(/<!--\s*pt-staff-html-signature\s*-->[\s\S]*$/i, '')
+      .replace(/<div[^>]*data-pt-staff-signature[^>]*>[\s\S]*$/i, '')
+      .replace(/<div[^>]*data-pt-signature-confidential[^>]*>[\s\S]*$/i, '')
+      .replace(/<!--\s*tenant-email-chrome\s*-->[\s\S]*$/i, '')
+      .replace(/You can reply to this email as usual[\s\S]*?(Sent via[\s\S]*?)?/gi, '')
+      .replace(/Sent via\s+[^<\n]+/gi, '')
+      .replace(/Prefer fewer emails\?[\s\S]*/gi, '')
+      .replace(/CONFIDENTIAL AND POTENTIALLY SENSITIVE INFORMATION![\s\S]*/gi, '');
+
+    s = htmlToPlainPreview(s)
+      .replace(/^Conversation\b/i, '')
+      .replace(/Replies return to[^.]*\./gi, '')
+      .replace(/Same team\.\s*A brighter tomorrow\./gi, '')
+      .replace(/\bLatest message\b/gi, '')
+      .replace(/Earlier in this conversation/gi, '')
+      .replace(/\bOriginal message\b/gi, '')
+      .replace(/\bTo:\s*[^\n]+/gi, '')
+      .replace(/\bSubject:\s*[^\n]+/gi, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+  if (s) return s;
+  return String(text || '')
+    .replace(/You can reply to this email as usual[\s\S]*/i, '')
+    .replace(/Sent via\s+.*/gi, '')
+    .replace(/CONFIDENTIAL AND POTENTIALLY SENSITIVE INFORMATION![\s\S]*/gi, '')
+    .trim();
+}
+
+function truncatePreview(text, max = 160) {
+  const t = String(text || '').replace(/\s+/g, ' ').trim();
+  if (t.length <= max) return t;
+  return `${t.slice(0, Math.max(0, max - 1)).trim()}…`;
+}
+
+/**
+ * Greyed prior messages for Hub outbound email (email-safe tables).
+ * @param {Array<{ authorName?: string, createdAt?: any, bodyText?: string, direction?: string, isOriginal?: boolean }>} history
+ */
+export function buildHubConversationHistoryHtml(history = [], opts = {}) {
+  const items = Array.isArray(history) ? history.filter(Boolean).slice(0, 12) : [];
+  if (!items.length) return '';
+  const primary = escapeHtml(parsePrimaryColor(opts.colorPalette));
+
+  const rows = items
+    .map((h, idx) => {
+      const name = escapeHtml(h.authorName || (h.direction === 'outbound' ? 'Team' : 'Participant'));
+      const when = escapeHtml(formatWhen(h.createdAt));
+      const preview = escapeHtml(truncatePreview(h.bodyText || '', h.isOriginal ? 120 : 180));
+      const initials = escapeHtml(initialsFromName(h.authorName || name));
+      const isOriginal = !!h.isOriginal || idx === items.length - 1;
+      const badge = isOriginal
+        ? `<span style="display:inline-block;margin-left:8px;padding:2px 8px;border-radius:999px;background:#e2e8f0;color:#64748b;font-size:10px;font-weight:700;letter-spacing:0.02em;vertical-align:middle;">Original message</span>`
+        : '';
+      return `
+      <tr>
+        <td style="padding:0 0 12px;vertical-align:top;">
+          <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;">
+            <tr>
+              <td width="44" style="width:44px;vertical-align:top;padding:4px 10px 0 0;">
+                <div style="width:32px;height:32px;border-radius:16px;background:#cbd5e1;color:#334155;font-size:11px;font-weight:700;line-height:32px;text-align:center;">
+                  ${initials}
+                </div>
+              </td>
+              <td style="vertical-align:top;padding:0;">
+                <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;padding:12px 14px;">
+                  <div style="font-size:13px;font-weight:700;color:#64748b;">
+                    ${name}${badge}
+                  </div>
+                  <div style="font-size:11px;color:#94a3b8;margin:2px 0 8px;">${when}</div>
+                  <div style="font-size:13px;line-height:1.45;color:#94a3b8;">${preview}</div>
+                </div>
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>`;
+    })
+    .join('');
+
+  return `
+  <div data-hub-email-history="1" style="margin:18px 0 0;padding-top:4px;border-top:1px solid #eef2f6;">
+    <div style="font-size:11px;font-weight:800;letter-spacing:0.06em;text-transform:uppercase;color:#94a3b8;margin:0 0 12px;">Earlier in this conversation</div>
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;">
+      ${rows}
+    </table>
+    <div style="font-size:0;line-height:0;color:${primary};">.</div>
+  </div>`;
 }
 
 /**
  * Hub outbound message body fragment (no DOCTYPE / outer gray frame).
- * Tenant chrome + staff signature wrap this into one continuous email.
+ * Latest message + optional greyed history; staff signature is appended later.
  */
 export function buildNormalOutboundEmailHtml(opts = {}) {
   const sender = escapeHtml(opts.senderDisplayName || 'Team member');
   const agencyName = escapeHtml(opts.agencyName || '');
+  const subject = escapeHtml(opts.subject || '');
+  const toLabel = escapeHtml(opts.toDisplayName || opts.toEmail || '');
   const rawHtml = String(opts.bodyHtml || '').trim();
   const body = rawHtml
     ? rawHtml.replace(/<script[\s\S]*?>[\s\S]*?<\/script>/gi, '')
     : escapeHtml(opts.bodyText || '').replace(/\n/g, '<br/>');
-  const sigUrl = String(opts.userSignatureUrl || '').trim();
-  const signatureBlock = sigUrl
-    ? `<div style="margin:18px 0 0;">
-          <img src="${escapeHtml(sigUrl)}" alt="${sender} signature" style="max-width:100%;width:auto;height:auto;display:block;border:0;" />
-        </div>`
-    : '';
+  const primary = escapeHtml(parsePrimaryColor(opts.colorPalette));
+  const photoUrl = String(opts.senderPhotoUrl || '').trim();
+  const when = escapeHtml(formatWhen(opts.sentAt || new Date()));
+  const historyHtml = buildHubConversationHistoryHtml(opts.history || [], {
+    colorPalette: opts.colorPalette
+  });
+  const initials = escapeHtml(initialsFromName(opts.senderDisplayName || 'Team'));
+  const avatar = photoUrl
+    ? `<img src="${escapeHtml(photoUrl)}" width="40" height="40" alt="" style="display:block;width:40px;height:40px;border-radius:20px;object-fit:cover;border:0;" />`
+    : `<div style="width:40px;height:40px;border-radius:20px;background:${primary};color:#ffffff;font-size:13px;font-weight:700;line-height:40px;text-align:center;">${initials}</div>`;
 
-  return `<div data-hub-email-body="1" style="padding:22px 24px 8px;background:#ffffff;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
-  <div style="color:#1e293b;font-size:15px;line-height:1.6;">${body}</div>
-  ${signatureBlock}
-  <p style="color:#94a3b8;font-size:12px;margin:18px 0 0;line-height:1.45;">
-    You can reply to this email as usual. Replies return to ${agencyName || 'your care team'} — not a personal staff inbox.
-  </p>
-  <div style="font-size:11px;color:#94a3b8;margin:14px 0 8px;padding-top:12px;border-top:1px solid #eef2f6;">
-    Sent via ${agencyName || 'Messages'}
-  </div>
+  const metaBits = [
+    toLabel ? `<div style="margin:0 0 2px;"><span style="color:#64748b;">To:</span> ${toLabel}</div>` : '',
+    subject ? `<div style="margin:0;"><span style="color:#64748b;">Subject:</span> ${subject}</div>` : ''
+  ]
+    .filter(Boolean)
+    .join('');
+
+  return `<div data-hub-email-body="1" style="padding:18px 22px 10px;background:#ffffff;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;margin:0 0 14px;">
+    <tr>
+      <td style="vertical-align:middle;">
+        <div style="font-size:18px;font-weight:800;color:#0f172a;letter-spacing:-0.02em;">Conversation</div>
+        <div style="font-size:12px;color:#64748b;margin-top:2px;">Replies return to ${agencyName || 'your care team'} — not a personal staff inbox.</div>
+      </td>
+      <td align="right" style="vertical-align:middle;font-size:10px;font-weight:800;letter-spacing:0.04em;color:${primary};text-transform:uppercase;white-space:nowrap;">
+        Same team. A brighter tomorrow.
+      </td>
+    </tr>
+  </table>
+
+  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;margin:0 0 4px;">
+    <tr>
+      <td width="52" style="width:52px;vertical-align:top;padding:6px 12px 0 0;">
+        ${avatar}
+      </td>
+      <td style="vertical-align:top;">
+        <div style="background:#f3faf5;border:1px solid ${primary};border-radius:14px;padding:14px 16px;">
+          <div style="font-size:14px;font-weight:800;color:#0f172a;">
+            ${sender}
+            <span style="display:inline-block;margin-left:8px;padding:2px 8px;border-radius:999px;background:${primary};color:#ffffff;font-size:10px;font-weight:700;letter-spacing:0.02em;vertical-align:middle;">Latest message</span>
+          </div>
+          <div style="font-size:11px;color:#64748b;margin:4px 0 10px;">${when}</div>
+          ${metaBits ? `<div style="font-size:12px;color:#475569;margin:0 0 12px;line-height:1.4;">${metaBits}</div>` : ''}
+          <div data-hub-email-latest-body="1" style="color:#0f172a;font-size:15px;line-height:1.6;">${body}</div>
+        </div>
+      </td>
+    </tr>
+  </table>
+
+  ${historyHtml}
 </div>`;
 }
 

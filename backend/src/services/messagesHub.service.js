@@ -2011,6 +2011,78 @@ async function loadSmsTimeline({ agencyId, actorUserId, clientId, contactId, lim
   }
 }
 
+/**
+ * Prior email messages for Hub outbound history (greyed quotes under the latest body).
+ * Newest prior first; oldest last (marked original by the email HTML builder).
+ */
+async function loadHubEmailHistoryForPerson({
+  agencyId,
+  actorUserId,
+  email,
+  agencyName = 'Team',
+  limit = 8
+} = {}) {
+  if (!email) return [];
+  const normalized = String(email).trim().toLowerCase();
+  try {
+    const { stripEmailHistoryBody } = await import('./hubBrandedEmail.service.js');
+    const [rows] = await pool.execute(
+      `SELECT m.id AS message_id, m.direction, m.body_text, m.body_html, m.subject,
+              m.from_json, m.sent_at, m.created_at, m.author_user_id,
+              u.first_name AS author_first_name, u.last_name AS author_last_name
+       FROM communication_messages m
+       JOIN communication_conversations c ON c.id = m.conversation_id
+       LEFT JOIN communication_inboxes i ON i.id = c.inbox_id
+       LEFT JOIN users u ON u.id = m.author_user_id
+       WHERE c.agency_id = ?
+         AND c.channel = 'email'
+         AND EXISTS (
+           SELECT 1 FROM communication_participants p
+           WHERE p.conversation_id = c.id
+             AND LOWER(COALESCE(p.email, '')) = ?
+         )
+         AND (
+           c.owner_user_id = ?
+           OR i.identity_key IN ('messages', 'secure_message')
+           OR i.kind = 'shared'
+         )
+         AND COALESCE(m.is_internal_note, 0) = 0
+         AND COALESCE(m.send_status, 'sent') = 'sent'
+       ORDER BY COALESCE(m.sent_at, m.created_at) DESC, m.id DESC
+       LIMIT ${Math.min(Math.max(Number(limit) || 8, 1), 12)}`,
+      [agencyId, normalized, actorUserId]
+    );
+    const parseFrom = (raw) => {
+      if (!raw) return null;
+      if (typeof raw === 'object') return raw;
+      try {
+        return JSON.parse(raw);
+      } catch {
+        return null;
+      }
+    };
+    return (rows || []).map((r, idx, arr) => {
+      const from = parseFrom(r.from_json);
+      const authorFromUser = [r.author_first_name, r.author_last_name].filter(Boolean).join(' ');
+      const dir = String(r.direction || '').toLowerCase() === 'inbound' ? 'inbound' : 'outbound';
+      const authorName =
+        authorFromUser ||
+        from?.name ||
+        (dir === 'outbound' ? agencyName || 'Team' : from?.email || 'Participant');
+      return {
+        authorName,
+        createdAt: r.sent_at || r.created_at,
+        bodyText: stripEmailHistoryBody(r.body_html, r.body_text || r.subject),
+        direction: dir,
+        isOriginal: idx === arr.length - 1
+      };
+    });
+  } catch (e) {
+    console.warn('[loadHubEmailHistoryForPerson]', e?.message || e);
+    return [];
+  }
+}
+
 async function loadEmailTimeline({ agencyId, actorUserId, email, limit = 40 }) {
   if (!email) return [];
   const normalized = String(email).trim().toLowerCase();
@@ -2564,12 +2636,38 @@ export async function sendHubEmail({
     logoUrl = agency.logo_url || null;
   }
   const [senderRows] = await pool.execute(
-    `SELECT first_name, last_name, title FROM users WHERE id = ? LIMIT 1`,
+    `SELECT first_name, last_name, title, profile_photo_path FROM users WHERE id = ? LIMIT 1`,
     [userId]
   );
   const su = senderRows?.[0] || {};
   const senderDisplayName = [su.first_name, su.last_name].filter(Boolean).join(' ') || 'Team member';
   const senderTitle = su.title || '';
+  let senderPhotoUrl = null;
+  try {
+    const { publicUploadsUrlFromStoredPath } = await import('../utils/uploads.js');
+    const { publicAppBaseUrl } = await import('./contactReminderToken.service.js');
+    senderPhotoUrl = publicUploadsUrlFromStoredPath(su.profile_photo_path) || null;
+    if (senderPhotoUrl?.startsWith('/')) {
+      const base = publicAppBaseUrl();
+      if (base) senderPhotoUrl = `${base}${senderPhotoUrl}`;
+    }
+  } catch {
+    senderPhotoUrl = null;
+  }
+
+  let history = [];
+  try {
+    history = await loadHubEmailHistoryForPerson({
+      agencyId: aid,
+      actorUserId: userId,
+      email: person.email,
+      agencyName,
+      limit: 8
+    });
+  } catch (e) {
+    console.warn('[sendHubEmail] history:', e?.message || e);
+    history = [];
+  }
 
   // User signature is appended after the agency identity signature in the send
   // pipeline (finalizeOutboundContent). Do not embed it here or it would appear first.
@@ -2577,10 +2675,16 @@ export async function sendHubEmail({
     agencyName,
     senderDisplayName,
     senderTitle,
+    senderPhotoUrl,
+    subject: subject || `Message from ${agencyName}`,
+    toDisplayName: person.displayName || person.email,
+    toEmail: person.email,
     bodyText: body,
     bodyHtml: bodyHtml || null,
     colorPalette: agency.color_palette,
-    logoUrl
+    logoUrl,
+    history,
+    sentAt: new Date()
   });
 
   const normalizeList = (list) => {
