@@ -118,11 +118,25 @@ function normalizeWebsite(raw, { allowEmpty = false } = {}) {
 }
 
 /**
- * Per-tenant staff From alias (email_sender_identities personal_{userId}), then login alias, then work/email.
+ * Prefer {local-part of primary email}@{tenant mail domain}.
+ * e.g. michael@plottwistco.com at ITSCO → michael@itsco.health
+ * Falls back to personal_* identity, login alias, then work/email.
  */
-async function resolveTenantStaffContactEmail(userId, agencyId, fallbackEmail = '') {
+async function resolveTenantStaffContactEmail(userId, agencyId, fallbackEmail = '', primaryEmail = '') {
   const uid = Number(userId || 0);
   const aid = Number(agencyId || 0);
+  const primary = String(primaryEmail || fallbackEmail || '')
+    .trim()
+    .toLowerCase();
+  const primaryLocal = primary.includes('@')
+    ? primary
+        .split('@')[0]
+        .replace(/[^a-z0-9._+-]/gi, '')
+        .toLowerCase()
+    : '';
+
+  let personalAlias = '';
+  let tenantDomain = '';
   if (uid && aid) {
     try {
       const [rows] = await pool.execute(
@@ -131,11 +145,47 @@ async function resolveTenantStaffContactEmail(userId, agencyId, fallbackEmail = 
          ORDER BY id ASC LIMIT 1`,
         [aid, `personal_${uid}`]
       );
-      const alias = String(rows?.[0]?.from_email || '').trim();
-      if (alias) return alias;
+      personalAlias = String(rows?.[0]?.from_email || '')
+        .trim()
+        .toLowerCase();
+      if (personalAlias.includes('@')) {
+        tenantDomain = personalAlias.split('@')[1] || '';
+      }
     } catch {
       /* ignore */
     }
+    if (!tenantDomain) {
+      try {
+        const { resolvePersonalMailboxDomain } = await import('./personalMailbox.service.js');
+        const [aRows] = await pool.execute(
+          `SELECT id, name, official_name, portal_url, slug, feature_flags FROM agencies WHERE id = ? LIMIT 1`,
+          [aid]
+        );
+        const agency = aRows?.[0] || { id: aid };
+        let flags = {};
+        try {
+          flags =
+            typeof agency.feature_flags === 'string'
+              ? JSON.parse(agency.feature_flags || '{}')
+              : agency.feature_flags || {};
+        } catch {
+          flags = {};
+        }
+        tenantDomain = String((await resolvePersonalMailboxDomain(agency, flags)) || '')
+          .trim()
+          .toLowerCase();
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+
+  if (primaryLocal && tenantDomain) {
+    return `${primaryLocal}@${tenantDomain}`;
+  }
+  if (personalAlias) return personalAlias;
+
+  if (uid && aid) {
     try {
       const [loginRows] = await pool.execute(
         `SELECT email FROM user_login_emails
@@ -280,7 +330,8 @@ export async function resolveStaffSignatureContext({
   const email = await resolveTenantStaffContactEmail(
     uid,
     agency?.id || aid,
-    u.work_email || u.email || ''
+    u.work_email || u.email || '',
+    u.email || ''
   );
   const enabled =
     u.email_signature_enabled === undefined || u.email_signature_enabled === null

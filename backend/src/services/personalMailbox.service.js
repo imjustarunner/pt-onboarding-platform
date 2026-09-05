@@ -107,6 +107,11 @@ function resolveWorkspaceFormat(raw) {
 }
 
 function buildLocalPart(user, format) {
+  // Prefer primary email local-part (michael@plottwistco.com → michael@tenant.domain).
+  const primaryLocal = normalizeNamePart(String(user?.email || '').split('@')[0]);
+  if (primaryLocal && primaryLocal.length >= 2 && !/^user\d+$/i.test(primaryLocal)) {
+    return primaryLocal;
+  }
   const first = normalizeNamePart(user?.first_name);
   const last = normalizeNamePart(user?.last_name);
   if (!first && !last) return `user${user?.id || ''}`;
