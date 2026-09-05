@@ -170,15 +170,26 @@ export async function resolveTenantEmailChrome(agencyId) {
 /**
  * Wrap any HTML email body with tenant header/footer when assets exist.
  * Idempotent when data-tenant-email-chrome is already present.
+ * Renders one continuous 600px column: header → body/signature → footer (no gaps).
  */
 export function applyTenantEmailChromeHtml(html, chrome = {}, opts = {}) {
-  const raw = String(html || '');
+  let raw = String(html || '');
   if (!raw.trim()) return html;
   if (/data-tenant-email-chrome\s*=\s*["']?1["']?/i.test(raw)) return html;
 
   const headerUrl = String(chrome.headerUrl || '').trim();
   const footerUrl = String(chrome.footerUrl || '').trim();
   if (!headerUrl && !footerUrl) return html;
+
+  // If a full document was passed (legacy), use only the body contents.
+  const bodyMatch = raw.match(/<body[^>]*>([\s\S]*)<\/body>/i);
+  if (bodyMatch) raw = bodyMatch[1];
+  // Drop nested outer gray frames from older hub templates.
+  raw = raw
+    .replace(/<!DOCTYPE[^>]*>/gi, '')
+    .replace(/<\/?html[^>]*>/gi, '')
+    .replace(/<\/?head[^>]*>[\s\S]*?<\/head>/gi, '')
+    .replace(/<\/?body[^>]*>/gi, '');
 
   const agencyName = escapeHtml(opts.agencyName || chrome.agencyName || '');
   const supportUrl = escapeHtml(
@@ -190,7 +201,7 @@ export function applyTenantEmailChromeHtml(html, chrome = {}, opts = {}) {
   const website = escapeHtml(opts.agencyWebsite || '');
 
   const footerLinks = `
-    <table role="presentation" width="100%" cellspacing="0" cellpadding="0">
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;">
       <tr>
         <td align="center" style="padding:10px 12px 4px;font-size:12px;line-height:1.55;">
           <a href="${supportUrl}" style="color:#ffffff;text-decoration:underline;margin:0 8px;">Need help? Contact Support</a>
@@ -216,13 +227,13 @@ export function applyTenantEmailChromeHtml(html, chrome = {}, opts = {}) {
     </table>`;
 
   const headerBlock = headerUrl
-    ? `<img src="${escapeHtml(headerUrl)}" alt="${agencyName}" width="600" style="display:block;width:100%;max-width:600px;height:auto;border:0;" />`
+    ? `<img src="${escapeHtml(headerUrl)}" alt="${agencyName}" width="600" style="display:block;width:100%;max-width:600px;height:auto;border:0;margin:0;padding:0;line-height:0;" />`
     : '';
 
   const footerBlock = footerUrl
-    ? `<td style="padding:0;background:#0b3d2e;" data-tenant-email-footer="1">
-        <img src="${escapeHtml(footerUrl)}" alt="" width="600" style="display:block;width:100%;max-width:600px;height:auto;border:0;" />
-        <div style="padding:0 12px 8px;margin-top:-92px;position:relative;">${footerLinks}</div>
+    ? `<td style="padding:0;margin:0;background:#0b3d2e;line-height:0;" data-tenant-email-footer="1">
+        <img src="${escapeHtml(footerUrl)}" alt="" width="600" style="display:block;width:100%;max-width:600px;height:auto;border:0;margin:0;padding:0;" />
+        <div style="padding:0 12px 8px;margin-top:-92px;position:relative;line-height:normal;">${footerLinks}</div>
       </td>`
     : `<td style="padding:16px 12px;background:#0b3d2e;">${footerLinks}</td>`;
 
@@ -230,14 +241,16 @@ export function applyTenantEmailChromeHtml(html, chrome = {}, opts = {}) {
 <html><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/></head>
 <body style="margin:0;padding:0;background:#eef2f6;" data-tenant-email-chrome="1">
   <!-- tenant-email-chrome -->
-  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#eef2f6;padding:20px 8px;">
-    <tr><td align="center">
-      <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:600px;background:#ffffff;overflow:hidden;">
-        ${headerBlock ? `<tr><td style="padding:0;">${headerBlock}</td></tr>` : ''}
-        <tr><td style="padding:0;">${raw}</td></tr>
-        <tr>${footerBlock}</tr>
-      </table>
-    </td></tr>
+  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="border-collapse:collapse;background:#eef2f6;margin:0;padding:0;">
+    <tr>
+      <td align="center" style="padding:16px 8px;">
+        <table role="presentation" width="600" cellspacing="0" cellpadding="0" border="0" style="border-collapse:collapse;width:100%;max-width:600px;background:#ffffff;margin:0;padding:0;">
+          ${headerBlock ? `<tr><td style="padding:0;margin:0;line-height:0;font-size:0;">${headerBlock}</td></tr>` : ''}
+          <tr><td style="padding:0;margin:0;background:#ffffff;vertical-align:top;">${raw}</td></tr>
+          <tr>${footerBlock}</tr>
+        </table>
+      </td>
+    </tr>
   </table>
 </body></html>`;
 }

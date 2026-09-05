@@ -1,6 +1,7 @@
 /**
  * Email HTML helpers for Messages Hub.
- * Outbound hub Email uses tenant branding (logo + primary color).
+ * Outbound hub Email uses a content fragment (no outer card) so tenant chrome
+ * can wrap header → body → signature → footer as one continuous column.
  * Digests / secure notify use the heavier branded template.
  */
 
@@ -39,10 +40,8 @@ function parsePrimaryColor(colorPalette) {
 }
 
 /**
- * Professional tenant-branded outbound email (hub Email channel).
- * Optional `userSignatureUrl` embeds a personal signature image after the body.
- * Prefer the send-pipeline append (after agency identity signature) for Hub sends;
- * pass this when the caller wants the image in the stored HTML preview.
+ * Hub outbound message body fragment (no DOCTYPE / outer gray frame).
+ * Tenant chrome + staff signature wrap this into one continuous email.
  */
 export function buildNormalOutboundEmailHtml(opts = {}) {
   const sender = escapeHtml(opts.senderDisplayName || 'Team member');
@@ -51,42 +50,25 @@ export function buildNormalOutboundEmailHtml(opts = {}) {
   const body = rawHtml
     ? rawHtml.replace(/<script[\s\S]*?>[\s\S]*?<\/script>/gi, '')
     : escapeHtml(opts.bodyText || '').replace(/\n/g, '<br/>');
-  const primary = escapeHtml(parsePrimaryColor(opts.colorPalette));
-  // Logo / agency name / title live in tenant chrome + staff signature — keep the
-  // message card body-only so Hub mail doesn't repeat "ITSCO · Director…" above the text.
   const sigUrl = String(opts.userSignatureUrl || '').trim();
   const signatureBlock = sigUrl
-    ? `<div style="margin:22px 0 0;">
-          <img src="${escapeHtml(sigUrl)}" alt="${sender} signature" style="max-width:600px;width:100%;height:auto;display:block;border:0;" />
+    ? `<div style="margin:18px 0 0;">
+          <img src="${escapeHtml(sigUrl)}" alt="${sender} signature" style="max-width:100%;width:auto;height:auto;display:block;border:0;" />
         </div>`
     : '';
 
-  return `<!DOCTYPE html>
-<html><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/></head>
-<body style="margin:0;padding:0;background:#f1f5f9;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
-  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#f1f5f9;padding:28px 12px;">
-    <tr><td align="center">
-      <table role="presentation" width="100%" style="max-width:600px;background:#ffffff;border-radius:14px;overflow:hidden;border:1px solid #e2e8f0;">
-        <tr><td style="height:6px;background:${primary};font-size:0;line-height:0;">&nbsp;</td></tr>
-        <tr><td style="padding:22px 24px 8px;">
-          <div style="color:#1e293b;font-size:15px;line-height:1.6;">${body}</div>
-          ${signatureBlock}
-          <p style="color:#94a3b8;font-size:12px;margin:22px 0 0;line-height:1.45;">
-            You can reply to this email as usual. Replies return to ${agencyName || 'your care team'} — not a personal staff inbox.
-          </p>
-        </td></tr>
-        <tr><td style="padding:14px 24px 20px;border-top:1px solid #f1f5f9;">
-          <div style="font-size:11px;color:#94a3b8;">Sent via ${agencyName || 'Messages'}</div>
-        </td></tr>
-      </table>
-    </td></tr>
-  </table>
-</body></html>`;
+  return `<div data-hub-email-body="1" style="padding:22px 24px 8px;background:#ffffff;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+  <div style="color:#1e293b;font-size:15px;line-height:1.6;">${body}</div>
+  ${signatureBlock}
+  <p style="color:#94a3b8;font-size:12px;margin:18px 0 0;line-height:1.45;">
+    You can reply to this email as usual. Replies return to ${agencyName || 'your care team'} — not a personal staff inbox.
+  </p>
+  <div style="font-size:11px;color:#94a3b8;margin:14px 0 8px;padding-top:12px;border-top:1px solid #eef2f6;">
+    Sent via ${agencyName || 'Messages'}
+  </div>
+</div>`;
 }
 
-/**
- * Branded template for unread digests / secure notify.
- */
 export function buildBrandedMessageEmailHtml(opts = {}) {
   const agencyName = escapeHtml(opts.agencyName || 'Your care team');
   const location = escapeHtml(opts.agencyLocation || '');

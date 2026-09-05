@@ -2585,21 +2585,33 @@ export async function sendHubEmail({
 
   const normalizeList = (list) => {
     if (!list) return [];
+    let raw = [];
     if (typeof list === 'string') {
-      return list
+      raw = list
         .split(/[,;]/)
         .map((s) => s.trim())
         .filter(Boolean)
         .map((email) => ({ email }));
+    } else if (Array.isArray(list)) {
+      raw = list
+        .map((item) => {
+          if (typeof item === 'string') return { email: item.trim() };
+          if (item?.email) return { email: String(item.email).trim(), name: item.name || null };
+          return null;
+        })
+        .filter((x) => x?.email);
     }
-    if (!Array.isArray(list)) return [];
-    return list
-      .map((item) => {
-        if (typeof item === 'string') return { email: item.trim() };
-        if (item?.email) return { email: String(item.email).trim(), name: item.name || null };
-        return null;
-      })
-      .filter((x) => x?.email);
+    const seen = new Set();
+    const out = [];
+    for (const item of raw) {
+      const email = String(item.email || '')
+        .trim()
+        .toLowerCase();
+      if (!email || seen.has(email)) continue;
+      seen.add(email);
+      out.push({ email: String(item.email).trim(), name: item.name || null });
+    }
+    return out;
   };
 
   // Stable Reply-To (messages@) — Google Groups often mishandle plus-addresses.
@@ -2693,10 +2705,22 @@ export async function sendHubEmail({
     }
   }
 
+  const toList = [{ email: person.email, name: person.displayName }];
+  const ccList = normalizeList(cc).filter(
+    (c) => String(c.email || '').toLowerCase() !== String(person.email || '').toLowerCase()
+  );
+  const bccList = normalizeList(bcc).filter((c) => {
+    const e = String(c.email || '').toLowerCase();
+    return (
+      e !== String(person.email || '').toLowerCase() &&
+      !ccList.some((x) => String(x.email || '').toLowerCase() === e)
+    );
+  });
+
   const payload = {
-    to: [{ email: person.email, name: person.displayName }],
-    cc: normalizeList(cc),
-    bcc: normalizeList(bcc),
+    to: toList,
+    cc: ccList,
+    bcc: bccList,
     subject: subject || `Message from ${agencyName}`,
     text: body,
     html,

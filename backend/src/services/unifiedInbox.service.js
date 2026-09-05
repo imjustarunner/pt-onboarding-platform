@@ -16,6 +16,24 @@ import { sendClinicalSms, parseSmsConversationTarget } from './clinicalSmsSend.s
 const UNDO_WINDOW_MS = 20 * 1000;
 const MAX_UNDO_DELAY_MS = 10 * 60 * 1000;
 
+function dedupeAddressList(list, exclude = null) {
+  const seen = exclude instanceof Set ? new Set(exclude) : new Set();
+  const out = [];
+  for (const item of Array.isArray(list) ? list : []) {
+    const email = String(item?.email || item || '')
+      .trim()
+      .toLowerCase();
+    if (!email || !email.includes('@') || seen.has(email)) continue;
+    seen.add(email);
+    out.push(
+      typeof item === 'object' && item
+        ? { email: String(item.email || email).trim(), name: item.name || null }
+        : { email: String(item).trim(), name: null }
+    );
+  }
+  return out;
+}
+
 /** Default 20s; clamp 0…10 minutes. */
 export function resolveUndoDelayMs(payload = {}) {
   if (payload.skipUndo === true) return 0;
@@ -195,21 +213,23 @@ export async function updateConversation(conversationId, patch, { userId } = {})
 
 function normalizeAddressList(list) {
   if (!list) return [];
+  let raw = [];
   if (typeof list === 'string') {
-    return list
+    raw = list
       .split(/[,;]/)
       .map((s) => s.trim())
       .filter(Boolean)
       .map((email) => ({ email }));
+  } else if (Array.isArray(list)) {
+    raw = list
+      .map((item) => {
+        if (typeof item === 'string') return { email: item.trim() };
+        if (item?.email) return { email: String(item.email).trim(), name: item.name || null };
+        return null;
+      })
+      .filter((x) => x?.email);
   }
-  if (!Array.isArray(list)) return [];
-  return list
-    .map((item) => {
-      if (typeof item === 'string') return { email: item.trim() };
-      if (item?.email) return { email: String(item.email).trim(), name: item.name || null };
-      return null;
-    })
-    .filter((x) => x?.email);
+  return dedupeAddressList(raw);
 }
 
 export async function replyToConversation(conversationId, payload, { userId } = {}) {
@@ -278,11 +298,18 @@ export async function replyToConversation(conversationId, payload, { userId } = 
       cc.push({ email, name: a?.name || null });
     }
   }
+  // Never put the same address on To and Cc/Bcc (causes duplicate copies in Gmail).
+  to = dedupeAddressList(to);
+  cc = dedupeAddressList(cc, new Set(to.map((t) => t.email.toLowerCase())));
+  const bccFinal = dedupeAddressList(
+    bcc,
+    new Set([...to, ...cc].map((t) => t.email.toLowerCase()))
+  );
 
   if (!to.length) throw new Error('Recipient (To) is required');
 
   // Blocked sender/recipient guard (agency + personal contact blocks)
-  for (const addr of [...to, ...cc, ...bcc]) {
+  for (const addr of [...to, ...cc, ...bccFinal]) {
     const blocked = await isAddressBlocked(conv.agency_id, addr.email, { ownerUserId: userId });
     if (blocked) throw new Error(`Blocked address: ${addr.email}`);
   }
@@ -306,7 +333,7 @@ export async function replyToConversation(conversationId, payload, { userId } = 
       from: { email: inbox.from_email, name: inbox.display_name },
       to,
       cc,
-      bcc,
+      bcc: bccFinal,
       subject,
       bodyText: payload.text || '',
       bodyHtml: payload.html || null,
@@ -335,7 +362,7 @@ export async function replyToConversation(conversationId, payload, { userId } = 
     userId,
     to,
     cc,
-    bcc,
+    bcc: bccFinal,
     subject,
     text: payload.text,
     html: payload.html,
@@ -352,7 +379,7 @@ export async function replyToConversation(conversationId, payload, { userId } = 
     from: { email: inbox.from_email, name: inbox.display_name },
     to,
     cc,
-    bcc,
+    bcc: bccFinal,
     subject,
     bodyText: payload.text || '',
     bodyHtml: payload.html || null,
@@ -529,8 +556,16 @@ export async function processScheduledOutboundSends({ limit = 40 } = {}) {
   let sent = 0;
   let failed = 0;
   let deferred = 0;
+  let skipped = 0;
   for (const row of due) {
     try {
+      // Claim before any async work so concurrent workers cannot double-send.
+      const claimed = await CommunicationConversation.claimScheduledMessage(row.id);
+      if (!claimed) {
+        skipped += 1;
+        continue;
+      }
+
       const conv = await CommunicationConversation.findById(row.conversation_id);
       const inbox = conv?.inbox_id ? await CommunicationInbox.findById(conv.inbox_id) : null;
       if (!inbox?.sender_identity_id) {
@@ -538,9 +573,17 @@ export async function processScheduledOutboundSends({ limit = 40 } = {}) {
         failed += 1;
         continue;
       }
-      const to = typeof row.to_json === 'string' ? JSON.parse(row.to_json || '[]') : row.to_json || [];
-      const cc = typeof row.cc_json === 'string' ? JSON.parse(row.cc_json || '[]') : row.cc_json || [];
-      const bcc = typeof row.bcc_json === 'string' ? JSON.parse(row.bcc_json || '[]') : row.bcc_json || [];
+      const to = dedupeAddressList(
+        typeof row.to_json === 'string' ? JSON.parse(row.to_json || '[]') : row.to_json || []
+      );
+      const cc = dedupeAddressList(
+        typeof row.cc_json === 'string' ? JSON.parse(row.cc_json || '[]') : row.cc_json || [],
+        new Set(to.map((a) => String(a.email || '').toLowerCase()))
+      );
+      const bcc = dedupeAddressList(
+        typeof row.bcc_json === 'string' ? JSON.parse(row.bcc_json || '[]') : row.bcc_json || [],
+        new Set([...to, ...cc].map((a) => String(a.email || '').toLowerCase()))
+      );
 
       // Re-hold if recipient is still planned out / outside availability.
       try {
@@ -560,6 +603,7 @@ export async function processScheduledOutboundSends({ limit = 40 } = {}) {
             const holdUntil = new Date(gate.receiveAt);
             if (holdUntil.getTime() > Date.now() + 15000) {
               await CommunicationConversation.updateMessage(row.id, {
+                sendStatus: 'scheduled',
                 scheduledSendAt: holdUntil,
                 undoExpiresAt: holdUntil
               });
@@ -602,6 +646,9 @@ export async function processScheduledOutboundSends({ limit = 40 } = {}) {
         undoExpiresAt: null,
         internetMessageId: sendResult?.id || null
       });
+      await pool
+        .execute(`UPDATE communication_messages SET send_claimed_at = NULL WHERE id = ?`, [row.id])
+        .catch(() => null);
       try {
         await CommunicationConversation.update(row.conversation_id, {
           snoozedUntil: null,
@@ -618,7 +665,7 @@ export async function processScheduledOutboundSends({ limit = 40 } = {}) {
       failed += 1;
     }
   }
-  return { processed: due.length, sent, failed, deferred };
+  return { processed: due.length, sent, failed, deferred, skipped };
 }
 
 export async function markConversationSpam(conversationId, { userId, blockSender = true } = {}) {
@@ -738,10 +785,16 @@ export async function composeNewEmail({ agencyId, inboxId, userId, payload }) {
   if (!inbox?.sender_identity_id) {
     throw new Error('Select an inbox with a configured From address');
   }
-  const to = normalizeAddressList(payload.to);
+  const to = dedupeAddressList(normalizeAddressList(payload.to));
   if (!to.length) throw new Error('Recipient (To) is required');
-  const cc = normalizeAddressList(payload.cc);
-  const bcc = normalizeAddressList(payload.bcc);
+  const cc = dedupeAddressList(
+    normalizeAddressList(payload.cc),
+    new Set(to.map((t) => t.email.toLowerCase()))
+  );
+  const bcc = dedupeAddressList(
+    normalizeAddressList(payload.bcc),
+    new Set([...to, ...cc].map((t) => t.email.toLowerCase()))
+  );
   const subject = payload.subject || '(no subject)';
 
   for (const addr of [...to, ...cc, ...bcc]) {

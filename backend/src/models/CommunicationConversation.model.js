@@ -784,6 +784,16 @@ class CommunicationConversation {
 
   static async listDueScheduledMessages({ limit = 50 } = {}) {
     const lim = Math.min(Math.max(Number(limit) || 50, 1), 200);
+    // Reclaim abandoned "sending" rows (crashed worker) after 2 minutes
+    await pool
+      .execute(
+        `UPDATE communication_messages
+         SET send_status = 'scheduled', send_claimed_at = NULL
+         WHERE send_status = 'sending'
+           AND send_claimed_at IS NOT NULL
+           AND send_claimed_at < (NOW() - INTERVAL 2 MINUTE)`
+      )
+      .catch(() => null);
     const [rows] = await pool.execute(
       `SELECT m.*, c.agency_id, c.inbox_id, c.subject AS conversation_subject, c.external_thread_id
        FROM communication_messages m
@@ -795,6 +805,17 @@ class CommunicationConversation {
        LIMIT ${lim}`
     );
     return rows || [];
+  }
+
+  /** Atomically claim a scheduled message so only one worker delivers it. */
+  static async claimScheduledMessage(messageId) {
+    const [result] = await pool.execute(
+      `UPDATE communication_messages
+       SET send_status = 'sending', send_claimed_at = NOW()
+       WHERE id = ? AND send_status = 'scheduled'`,
+      [messageId]
+    );
+    return Number(result?.affectedRows || 0) === 1;
   }
 
   static async addAttachment(messageId, att) {
