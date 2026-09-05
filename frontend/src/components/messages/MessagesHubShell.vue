@@ -149,12 +149,16 @@
               }"
               @click="pickConversation(c)"
             >
-              <div class="msg-hub-avatar" aria-hidden="true">
-                <span>{{ initials(c.primary_participant_name || c.subject || '?') }}</span>
+              <div class="msg-hub-avatar-wrap">
+                <div class="msg-hub-avatar" aria-hidden="true">
+                  <span>{{ initials(c.primary_participant_name || c.subject || '?') }}</span>
+                </div>
+                <span v-if="c.is_unread" class="msg-hub-unread-dot" aria-hidden="true" />
               </div>
               <div class="msg-hub-row-body">
                 <div class="msg-hub-row-top">
                   <strong>{{ c.primary_participant_name || c.subject || 'Conversation' }}</strong>
+                  <span v-if="c.is_unread" class="msg-hub-unread-pill">Unread</span>
                   <span v-if="c.last_message_at" class="msg-hub-time">{{ formatTime(c.last_message_at) }}</span>
                 </div>
                 <p class="msg-hub-snippet">
@@ -202,7 +206,6 @@
                   {{ c.starred ? '★' : '☆' }}
                 </button>
               </div>
-              <span v-if="c.is_unread" class="msg-hub-unread-dot" aria-label="Unread" />
             </li>
           </ul>
 
@@ -794,6 +797,7 @@
               </div>
               <div class="msg-hub-compose-actions">
                 <span class="msg-hub-muted">Via {{ methodLabel(sendMethod) || '…' }}</span>
+                <span v-if="draftSaveHint" class="msg-hub-draft-hint">{{ draftSaveHint }}</span>
                 <label class="msg-hub-delay-label">
                   Undo delay
                   <select v-model.number="undoDelaySeconds" class="msg-hub-delay-select">
@@ -1305,7 +1309,7 @@ const error = ref('');
 const sendError = ref('');
 const people = ref([]);
 const conversations = ref([]);
-const listFilter = ref('recent');
+const listFilter = ref('unread');
 const listSearch = ref('');
 const selected = ref(null);
 const talkingToUserId = ref(null);
@@ -1323,8 +1327,8 @@ const activeEmailThreadKey = ref(null);
 const recentFiles = ref([]);
 const recentActivity = ref([]);
 const loadingContext = ref(false);
-const navSection = ref('people'); // inbox | people | tools
-const navId = ref('recent');
+const navSection = ref('inbox'); // inbox | people | tools
+const navId = ref('unread');
 const railOpen = ref(false);
 const mobileShowThread = ref(false);
 const sharedFilesHint = ref(false);
@@ -1337,6 +1341,10 @@ const composeBcc = ref('');
 const showCcField = ref(false);
 const showBccField = ref(false);
 const emailEditorEl = ref(null);
+const draftSaveHint = ref('');
+let draftSaveTimer = null;
+let draftHintTimer = null;
+let suppressDraftAutosave = false;
 const composeAttachments = ref([]);
 const chatStagedAttachments = ref([]);
 const chatThreadId = ref(null);
@@ -1935,6 +1943,141 @@ watch(
   () => timeline.value?.length,
   () => scheduleSmartReply()
 );
+
+watch(
+  [composeBody, composeSubject, sendMethod],
+  () => {
+    scheduleDraftAutosave();
+  }
+);
+
+function parseStoredDraft(raw) {
+  const text = String(raw || '');
+  if (!text.trim()) return { body: '', subject: null, method: null };
+  if (text.startsWith('{')) {
+    try {
+      const parsed = JSON.parse(text);
+      if (parsed && typeof parsed === 'object' && (parsed.body != null || parsed.subject != null)) {
+        return {
+          body: String(parsed.body || ''),
+          subject: parsed.subject != null ? String(parsed.subject) : null,
+          method: parsed.method ? String(parsed.method) : null
+        };
+      }
+    } catch {
+      /* plain body */
+    }
+  }
+  return { body: text, subject: null, method: null };
+}
+
+function buildStoredDraft() {
+  return JSON.stringify({
+    v: 1,
+    body: composeBody.value || '',
+    subject: composeSubject.value || '',
+    method: sendMethod.value || null
+  });
+}
+
+function scheduleDraftAutosave() {
+  if (suppressDraftAutosave) return;
+  const convId = selectedConversation.value?.id;
+  if (!convId) return;
+  const body = String(composeBody.value || '').trim();
+  const subject = String(composeSubject.value || '').trim();
+  clearTimeout(draftSaveTimer);
+  draftSaveTimer = setTimeout(() => {
+    const payload = body || subject ? buildStoredDraft() : '';
+    api
+      .patch(
+        `/communications/conversations/${convId}`,
+        { draftBody: payload || null },
+        { skipGlobalLoading: true }
+      )
+      .then(() => {
+        if (selectedConversation.value?.id === convId) {
+          selectedConversation.value = {
+            ...selectedConversation.value,
+            draft_body: payload || null
+          };
+        }
+        draftSaveHint.value = payload ? 'Draft saved' : '';
+        clearTimeout(draftHintTimer);
+        if (payload) {
+          draftHintTimer = setTimeout(() => {
+            draftSaveHint.value = '';
+          }, 2500);
+        }
+      })
+      .catch(() => {});
+  }, 800);
+}
+
+async function hydrateComposeFromConversation(conv) {
+  if (!conv?.id) return;
+  let raw = conv.draft_body;
+  if (raw == null) {
+    try {
+      const { data } = await api.get(`/communications/conversations/${conv.id}`, {
+        params: { agencyId: agencyId.value, markRead: '0' },
+        skipGlobalLoading: true
+      });
+      raw = data?.conversation?.draft_body;
+      if (data?.conversation) {
+        selectedConversation.value = {
+          ...(selectedConversation.value || conv),
+          ...data.conversation,
+          primary_participant_email:
+            conv.primary_participant_email || data.conversation.primary_participant_email,
+          primary_participant_name:
+            conv.primary_participant_name || data.conversation.primary_participant_name
+        };
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+  const parsed = parseStoredDraft(raw);
+  suppressDraftAutosave = true;
+  if (parsed.body) composeBody.value = parsed.body;
+  if (parsed.subject) composeSubject.value = parsed.subject;
+  else if (!composeSubject.value && conv.subject) {
+    const bare = String(conv.subject || '').trim();
+    composeSubject.value = bare.startsWith('Re:') ? bare : `Re: ${bare}`;
+  }
+  if (parsed.method && ['email', 'secure', 'internal', 'sms'].includes(parsed.method)) {
+    sendMethod.value = parsed.method;
+  }
+  await nextTick();
+  suppressDraftAutosave = false;
+  if (parsed.body || parsed.subject) {
+    draftSaveHint.value = 'Draft restored';
+    clearTimeout(draftHintTimer);
+    draftHintTimer = setTimeout(() => {
+      draftSaveHint.value = '';
+    }, 2500);
+  }
+}
+
+async function clearConversationDraft() {
+  const convId = selectedConversation.value?.id;
+  clearTimeout(draftSaveTimer);
+  draftSaveHint.value = '';
+  if (!convId) return;
+  try {
+    await api.patch(
+      `/communications/conversations/${convId}`,
+      { draftBody: null },
+      { skipGlobalLoading: true }
+    );
+    if (selectedConversation.value?.id === convId) {
+      selectedConversation.value = { ...selectedConversation.value, draft_body: null };
+    }
+  } catch {
+    /* ignore */
+  }
+}
 
 function normalizeEmailSubjectKey(subject) {
   let s = String(subject || '').trim().toLowerCase();
@@ -2791,7 +2934,7 @@ async function loadConversations() {
       conversations.value = [];
       return;
     }
-    const params = { agencyId: agencyId.value, limit: 40 };
+    const params = { agencyId: agencyId.value, limit: 40, hubScope: 1 };
     const id = navId.value;
     if (id === 'mentions') {
       params.channel = 'mention';
@@ -2799,7 +2942,7 @@ async function loadConversations() {
     } else if (id === 'drafts') {
       params.filter = 'drafts';
     } else if (id === 'inbox') {
-      // Non-admins are server-scoped to assigned + personal App inbox (not shared messages@).
+      // Hub always personal-scopes (assigned + App inbox), even for admins.
       params.filter = 'all';
     } else if (id === 'unknown') {
       params.filter = 'unknown';
@@ -2832,7 +2975,7 @@ async function loadInboxCounts() {
   }
   try {
     const { data } = await api.get('/communications/attention-summary', {
-      params: { agencyId: agencyId.value },
+      params: { agencyId: agencyId.value, hubScope: 1 },
       skipGlobalLoading: true
     });
     const s = data?.summary || {};
@@ -3004,7 +3147,7 @@ async function pickConversation(conv) {
             return false;
           }) || results?.[0];
         if (match) {
-          await pickPerson(match);
+          await pickPerson(match, { fromConversation: conv });
           return;
         }
       } catch {
@@ -3031,6 +3174,7 @@ async function pickConversation(conv) {
         primary_participant_name:
           conv.primary_participant_name || detailConv.primary_participant_name
       };
+      await hydrateComposeFromConversation(selectedConversation.value);
     }
   } catch (e) {
     error.value = e?.response?.data?.error?.message || 'Could not open conversation';
@@ -3153,13 +3297,15 @@ async function onOpenGroupFromModal(group) {
   }
 }
 
-async function pickPerson(person) {
+async function pickPerson(person, opts = {}) {
+  const fromConversation = opts?.fromConversation || null;
   showNew.value = false;
   selected.value = person;
-  selectedConversation.value = null;
+  selectedConversation.value = fromConversation || null;
   conversationPreview.value = null;
   mobileShowThread.value = true;
   sendMethod.value = person.preferredMethod || person.methods?.find((m) => m.available)?.id || 'secure';
+  suppressDraftAutosave = true;
   composeBody.value = '';
   composeSubject.value = '';
   composeCc.value = '';
@@ -3173,6 +3319,7 @@ async function pickPerson(person) {
   participantExtraIds.value = [];
   sendConfirmOpen.value = false;
   sendConfirmPending.value = null;
+  draftSaveHint.value = '';
   talkingToUserId.value =
     person?.clientMessaging?.talkingToUserId ||
     person?.userId ||
@@ -3198,6 +3345,12 @@ async function pickPerson(person) {
   );
   if (pickedClient && talkingGuardian?.personKey && talkingGuardian.personKey !== selected.value?.personKey) {
     await onTalkingToChange();
+  }
+  if (fromConversation) {
+    await hydrateComposeFromConversation(fromConversation);
+  } else {
+    await nextTick();
+    suppressDraftAutosave = false;
   }
   await focusComposer();
 }
@@ -3457,12 +3610,16 @@ async function executeSend({ sendToAllPortalGuardians = false, includeClient = f
     const sentBody = composeBody.value.trim();
     const sentSubject = composeSubject.value.trim();
     const sentMethod = sendMethod.value;
+    await clearConversationDraft();
+    suppressDraftAutosave = true;
     composeBody.value = '';
     composeSubject.value = '';
     composeCc.value = '';
     composeBcc.value = '';
     composeAttachments.value = [];
     chatStagedAttachments.value = [];
+    await nextTick();
+    suppressDraftAutosave = false;
     if (sentMethod === 'email' && sentSubject) {
       activeEmailThreadKey.value = normalizeEmailSubjectKey(sentSubject);
       composeSubject.value = sentSubject.startsWith('Re:') ? sentSubject : `Re: ${sentSubject}`;
@@ -3572,7 +3729,7 @@ watch(listSearch, () => {
 });
 
 onMounted(() => {
-  selectNav('people', 'recent');
+  selectNav('inbox', 'unread');
   document.addEventListener('click', onDocClickClosePickers);
   loadInboxCounts();
   loadSendDelayPrefs();
@@ -3583,6 +3740,8 @@ onUnmounted(() => {
   clearTimeout(peopleTimer);
   clearTimeout(listSearchTimer);
   clearTimeout(smartReplyTimer);
+  clearTimeout(draftSaveTimer);
+  clearTimeout(draftHintTimer);
   document.removeEventListener('click', onDocClickClosePickers);
 });
 
@@ -3728,6 +3887,23 @@ defineExpose({
 }
 .msg-hub-row:hover,
 .msg-hub-row.active { background: color-mix(in srgb, var(--mh-primary) 6%, #fff); }
+.msg-hub-row.unread {
+  background: color-mix(in srgb, var(--mh-primary) 10%, #fff);
+  box-shadow: inset 3px 0 0 var(--mh-primary);
+}
+.msg-hub-row.unread strong {
+  font-weight: 800;
+  color: var(--mh-ink, #0f172a);
+}
+.msg-hub-row:not(.unread) .msg-hub-row-body strong {
+  font-weight: 600;
+  color: #475569;
+}
+.msg-hub-avatar-wrap {
+  position: relative;
+  width: 40px;
+  height: 40px;
+}
 .msg-hub-avatar {
   width: 40px;
   height: 40px;
@@ -3753,7 +3929,14 @@ defineExpose({
   background: #fff;
 }
 .msg-hub-avatar.lg { width: 48px; height: 48px; font-size: 14px; }
-.msg-hub-row-top { display: flex; justify-content: space-between; gap: 8px; }
+.msg-hub-row-top { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.msg-hub-row-top strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.msg-hub-row-top .msg-hub-time { margin-left: auto; flex-shrink: 0; }
 .msg-hub-time,
 .msg-hub-muted,
 .msg-hub-snippet { margin: 0; font-size: 12px; color: var(--mh-muted); }
@@ -4523,6 +4706,12 @@ defineExpose({
   justify-content: space-between;
   align-items: center;
   gap: 8px;
+  flex-wrap: wrap;
+}
+.msg-hub-draft-hint {
+  font-size: 12px;
+  color: var(--mh-primary, #0f766e);
+  font-weight: 650;
 }
 .msg-hub-sender-avail {
   margin: 6px 0 0;
@@ -4878,10 +5067,27 @@ defineExpose({
   color: var(--mh-primary);
 }
 .msg-hub-unread-dot {
-  width: 8px;
-  height: 8px;
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 11px;
+  height: 11px;
   border-radius: 50%;
   background: var(--mh-primary);
+  border: 2px solid #fff;
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--mh-primary) 35%, transparent);
+}
+.msg-hub-unread-pill {
+  flex-shrink: 0;
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: #fff;
+  background: var(--mh-primary);
+  border-radius: 999px;
+  padding: 1px 7px;
+  line-height: 1.4;
 }
 .msg-hub-star-btn {
   border: none;
@@ -5025,7 +5231,6 @@ defineExpose({
   flex-shrink: 0;
 }
 .msg-hub-thread-head-main { min-width: 0; flex: 1; }
-.msg-hub-row.unread strong { font-weight: 800; }
 .msg-hub-back-list {
   display: none;
   border: 1px solid var(--mh-line);

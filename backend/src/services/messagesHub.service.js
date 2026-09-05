@@ -2911,7 +2911,7 @@ async function listMyAgencyContactsAsPeople({ agencyIds, userId, limit = 40 } = 
            OR ac.share_with_all = 1
            OR EXISTS (
              SELECT 1 FROM contact_provider_assignments cpa
-             WHERE cpa.agency_contact_id = ac.id AND cpa.provider_user_id = ?
+             WHERE cpa.contact_id = ac.id AND cpa.provider_user_id = ?
            )
          )
        ORDER BY COALESCE(ac.updated_at, ac.created_at) DESC
@@ -2945,7 +2945,7 @@ async function listMyAgencyContactsAsPeople({ agencyIds, userId, limit = 40 } = 
              OR ac.share_with_all = 1
              OR EXISTS (
                SELECT 1 FROM contact_provider_assignments cpa
-               WHERE cpa.agency_contact_id = ac.id AND cpa.provider_user_id = ?
+               WHERE cpa.contact_id = ac.id AND cpa.provider_user_id = ?
              )
            )
          ORDER BY COALESCE(ac.updated_at, ac.created_at) DESC

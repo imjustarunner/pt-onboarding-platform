@@ -86,8 +86,11 @@ export async function getUnifiedAttentionSummary(req, res, next) {
     if (!isAllowedRole(req.user)) return deny(res);
     const agencyId = resolveAgencyId(req);
     if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
-    // Match Hub / conversation list: non-ops see assigned + personal App inbox only
-    const scopeToUserId = isBackofficeRole(req.user) ? null : req.user.id;
+    // Match Hub / conversation list: non-ops see assigned + personal App inbox only.
+    // Messages Hub always personal-scopes (even for admins) so shared school/ticket mail stays in Communications Center.
+    const hubScope = req.query.hubScope === '1' || req.query.hubScope === 'true';
+    const scopeToUserId =
+      hubScope || !isBackofficeRole(req.user) ? req.user.id : null;
     const summary = await getAttentionSummary({
       agencyId,
       userId: req.user.id,
@@ -109,6 +112,7 @@ export async function getUnifiedConversations(req, res, next) {
     if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
 
     const adminViewer = isBackofficeRole(req.user);
+    const hubScope = req.query.hubScope === '1' || req.query.hubScope === 'true';
     const rawInbox = req.query.inboxId;
     let inboxId =
       rawInbox != null && rawInbox !== '' && rawInbox !== 'null' && rawInbox !== 'assigned' && rawInbox !== 'my_inbox'
@@ -126,7 +130,8 @@ export async function getUnifiedConversations(req, res, next) {
 
     // Non-ops roles: never browse shared agency/tickets mailboxes (messages@, etc.).
     // Their Hub "Inbox" is assigned-to-me + personal App inbox only.
-    if (!adminViewer) {
+    // Messages Hub (hubScope) uses the same personal scope even for admins.
+    if (!adminViewer || hubScope) {
       scopeToUserId = req.user.id;
       if (Number.isFinite(inboxId)) {
         const CommunicationInbox = (await import('../models/CommunicationInbox.model.js')).default;
@@ -151,6 +156,21 @@ export async function getUnifiedConversations(req, res, next) {
       }
     }
 
+    if (filter === 'unknown') {
+      try {
+        const { reclassifyUnknownConversationsForAgency } = await import(
+          '../services/senderTrust.service.js'
+        );
+        await reclassifyUnknownConversationsForAgency({
+          agencyId,
+          ownerUserId: req.user.id,
+          limit: 100
+        });
+      } catch (e) {
+        console.warn('[unifiedInbox] unknown reclassify:', e?.message || e);
+      }
+    }
+
     const conversations = await listConversations({
       agencyId,
       inboxId: Number.isFinite(inboxId) ? inboxId : null,
@@ -169,11 +189,11 @@ export async function getUnifiedConversations(req, res, next) {
       limit: req.query.limit,
       offset: req.query.offset,
       userId: req.user.id,
-      syncTickets: req.query.sync !== '0' && adminViewer,
-      isAdminViewer: adminViewer,
+      syncTickets: req.query.sync !== '0' && adminViewer && !hubScope,
+      isAdminViewer: adminViewer && !hubScope,
       scopeToUserId,
       unknownOnly: filter === 'unknown' || req.query.unknown === '1',
-      includeHeld: req.query.includeHeld === '1' && adminViewer
+      includeHeld: req.query.includeHeld === '1' && adminViewer && !hubScope
     });
     res.json({ conversations });
   } catch (e) {

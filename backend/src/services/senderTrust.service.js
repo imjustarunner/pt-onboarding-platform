@@ -123,6 +123,90 @@ export async function classifyInboundSender({
     }
   }
 
+  // ITSCO / tenant school-site Google Groups (russell@, north@, sabin@, …)
+  if (result.trust === 'unknown') {
+    const [siteRows] = await pool.execute(
+      `SELECT sp.school_organization_id, sp.itsco_email, a.name AS school_name
+       FROM school_profiles sp
+       LEFT JOIN agencies a ON a.id = sp.school_organization_id
+       WHERE LOWER(TRIM(COALESCE(sp.itsco_email,''))) = ?
+       LIMIT 1`,
+      [email]
+    ).catch(() => [[]]);
+    if (siteRows?.[0]) {
+      result.trust = 'school_contact';
+      result.isUnknownSender = false;
+      result.displayName = siteRows[0].school_name
+        ? `${siteRows[0].school_name} (site mailbox)`
+        : email;
+      result.linkedEntityType = 'school_site';
+      result.linkedEntityId = siteRows[0].school_organization_id || null;
+    }
+  }
+
+  // Agency sender identities + inbound routes (messages@, support@, schoolreply@, …)
+  if (result.trust === 'unknown') {
+    const [idRows] = await pool.execute(
+      `SELECT esi.id, esi.from_email, esi.display_name, esi.identity_key
+       FROM email_sender_identities esi
+       WHERE esi.agency_id = ?
+         AND esi.is_active = 1
+         AND LOWER(TRIM(esi.from_email)) = ?
+       LIMIT 1`,
+      [aid, email]
+    ).catch(() => [[]]);
+    if (idRows?.[0]) {
+      result.trust = 'staff';
+      result.isUnknownSender = false;
+      result.displayName = idRows[0].display_name || email;
+      result.linkedEntityType = 'email_identity';
+      result.linkedEntityId = idRows[0].id;
+    }
+  }
+  if (result.trust === 'unknown') {
+    const [routeRows] = await pool.execute(
+      `SELECT r.id, r.email_address, esi.display_name, esi.id AS identity_id
+       FROM email_inbound_routes r
+       JOIN email_sender_identities esi ON esi.id = r.sender_identity_id
+       WHERE esi.agency_id = ?
+         AND r.is_active = 1
+         AND esi.is_active = 1
+         AND LOWER(TRIM(r.email_address)) = ?
+       LIMIT 1`,
+      [aid, email]
+    ).catch(() => [[]]);
+    if (routeRows?.[0]) {
+      result.trust = 'school_contact';
+      result.isUnknownSender = false;
+      result.displayName = routeRows[0].display_name || email;
+      result.linkedEntityType = 'inbound_route';
+      result.linkedEntityId = routeRows[0].id;
+    }
+  }
+
+  // Same-domain as this agency's outbound identities → org mailbox, not spam
+  if (result.trust === 'unknown') {
+    const domain = email.includes('@') ? email.split('@').pop() : '';
+    if (domain && !['gmail.com', 'yahoo.com', 'outlook.com', 'hotmail.com', 'icloud.com'].includes(domain)) {
+      const [domRows] = await pool.execute(
+        `SELECT id, from_email, display_name
+         FROM email_sender_identities
+         WHERE agency_id = ?
+           AND is_active = 1
+           AND LOWER(TRIM(SUBSTRING_INDEX(from_email, '@', -1))) = ?
+         LIMIT 1`,
+        [aid, domain]
+      ).catch(() => [[]]);
+      if (domRows?.[0]) {
+        result.trust = 'staff';
+        result.isUnknownSender = false;
+        result.displayName = email;
+        result.linkedEntityType = 'agency_domain';
+        result.linkedEntityId = domRows[0].id;
+      }
+    }
+  }
+
   if (result.trust === 'unknown') {
     const [cRows] = await pool.execute(
       `SELECT id, initials, contact_email, agency_id
@@ -160,29 +244,30 @@ export async function classifyInboundSender({
     }
   }
 
-  // Agency contacts visible to this mailbox owner only (not other staff's personal copies)
-  if (result.trust === 'unknown' && oid) {
+  // Agency contacts in this agency (org address book) — not only mailbox-owner-visible copies
+  if (result.trust === 'unknown') {
     try {
       const [acRows] = await pool.execute(
-        `SELECT ac.id, ac.full_name, ac.client_id
+        `SELECT ac.id, ac.full_name, ac.client_id, ac.relationship_type
          FROM agency_contacts ac
-         LEFT JOIN contact_provider_assignments cpa
-           ON cpa.contact_id = ac.id AND cpa.provider_user_id = ?
          WHERE ac.agency_id = ? AND ac.is_active = TRUE
            AND (
              LOWER(TRIM(COALESCE(ac.email,''))) = ?
              OR LOWER(TRIM(COALESCE(ac.email_alt,''))) = ?
            )
-           AND (
-             ac.share_with_all = TRUE
-             OR ac.created_by_user_id = ?
-             OR cpa.provider_user_id IS NOT NULL
-           )
+         ORDER BY
+           CASE
+             WHEN ac.relationship_type IN ('school_staff','school_contact','school','counselor','teacher') THEN 0
+             WHEN ac.share_with_all = TRUE THEN 1
+             ELSE 2
+           END,
+           ac.id ASC
          LIMIT 1`,
-        [oid, aid, email, email, oid]
+        [aid, email, email]
       );
       if (acRows?.[0]) {
-        result.trust = 'contact';
+        const rel = String(acRows[0].relationship_type || '').toLowerCase();
+        result.trust = /school|counselor|teacher/.test(rel) ? 'school_contact' : 'contact';
         result.isUnknownSender = false;
         result.linkedClientId = acRows[0].client_id || null;
         result.displayName = acRows[0].full_name || email;
@@ -194,17 +279,10 @@ export async function classifyInboundSender({
         const [acRows] = await pool.execute(
           `SELECT ac.id, ac.full_name, ac.client_id
            FROM agency_contacts ac
-           LEFT JOIN contact_provider_assignments cpa
-             ON cpa.contact_id = ac.id AND cpa.provider_user_id = ?
            WHERE ac.agency_id = ? AND ac.is_active = TRUE
              AND LOWER(TRIM(COALESCE(ac.email,''))) = ?
-             AND (
-               ac.share_with_all = TRUE
-               OR ac.created_by_user_id = ?
-               OR cpa.provider_user_id IS NOT NULL
-             )
            LIMIT 1`,
-          [oid, aid, email, oid]
+          [aid, email]
         ).catch(() => [[]]);
         if (acRows?.[0]) {
           result.trust = 'contact';
@@ -275,8 +353,72 @@ export async function runConversationReleaseTick({ now = new Date() } = {}) {
   return { released: rows?.affectedRows || 0 };
 }
 
+/**
+ * Re-run sender classification for unknown conversations (fixes stale flags when
+ * school site mailboxes / contacts become known).
+ */
+export async function reclassifyUnknownConversationsForAgency({
+  agencyId,
+  ownerUserId = null,
+  limit = 80
+} = {}) {
+  const aid = Number(agencyId || 0);
+  if (!aid) return { checked: 0, updated: 0 };
+  const lim = Math.min(Math.max(Number(limit) || 80, 1), 200);
+  const [rows] = await pool.execute(
+    `SELECT c.id, c.owner_user_id,
+            (
+              SELECT p.email FROM communication_participants p
+              WHERE p.conversation_id = c.id
+              ORDER BY p.is_primary DESC, p.id ASC
+              LIMIT 1
+            ) AS from_email
+     FROM communication_conversations c
+     WHERE c.agency_id = ?
+       AND c.archived_at IS NULL
+       AND COALESCE(c.is_unknown_sender, 0) = 1
+     ORDER BY c.last_message_at DESC
+     LIMIT ${lim}`,
+    [aid]
+  ).catch(() => [[]]);
+
+  let updated = 0;
+  for (const row of rows || []) {
+    const fromEmail = String(row.from_email || '').trim();
+    if (!fromEmail) continue;
+    const classification = await classifyInboundSender({
+      agencyId: aid,
+      ownerUserId: ownerUserId || row.owner_user_id || null,
+      fromEmail
+    });
+    if (classification.isUnknownSender) continue;
+    await applySenderClassificationToConversation(row.id, classification);
+    if (classification.displayName) {
+      await pool.execute(
+        `UPDATE communication_participants
+         SET display_name = COALESCE(NULLIF(display_name, ''), ?),
+             kind = CASE
+               WHEN ? IN ('school_contact','school_staff') THEN 'school_contact'
+               WHEN ? = 'staff' THEN 'staff'
+               ELSE kind
+             END
+         WHERE conversation_id = ? AND is_primary = 1`,
+        [
+          classification.displayName,
+          classification.trust,
+          classification.trust,
+          row.id
+        ]
+      ).catch(() => null);
+    }
+    updated += 1;
+  }
+  return { checked: (rows || []).length, updated };
+}
+
 export default {
   classifyInboundSender,
   applySenderClassificationToConversation,
-  runConversationReleaseTick
+  runConversationReleaseTick,
+  reclassifyUnknownConversationsForAgency
 };
