@@ -14,9 +14,9 @@
             v-if="showWorkspace"
             class="btn btn-secondary btn-xs"
             type="button"
-            @click="goToDashboardView"
+            @click="goToHubView"
           >
-            Messages Dashboard
+            Messages hub
           </button>
           <router-link
             v-if="canUseCommunicationsCenter"
@@ -48,7 +48,7 @@
       Select an agency first.
     </div>
     <div v-else class="workspace-host" data-tour="chats-workspace">
-      <MessagesDashboard v-if="!showWorkspace" @open-workspace="onOpenWorkspace" />
+      <MessagesHubShell v-if="!showWorkspace" />
       <MessagesWorkspace v-else layout="page" />
     </div>
   </div>
@@ -62,7 +62,7 @@ import { useAuthStore } from '../../store/auth';
 import { useBrandingStore } from '../../store/branding';
 import { useOrganizationStore } from '../../store/organization';
 import MessagesWorkspace from '../../components/messages/MessagesWorkspace.vue';
-import MessagesDashboard from '../../components/messages/MessagesDashboard.vue';
+import MessagesHubShell from '../../components/messages/MessagesHubShell.vue';
 
 const agencyStore = useAgencyStore();
 const authStore = useAuthStore();
@@ -113,7 +113,7 @@ const goToDashboard = async () => {
   await router.push({ path: dashboardPath.value });
 };
 
-const goToDashboardView = async () => {
+const goToHubView = async () => {
   const q = { ...route.query };
   delete q.view;
   delete q.tab;
@@ -127,10 +127,6 @@ const goBack = async () => {
     return;
   }
   await goToDashboard();
-};
-
-const onOpenWorkspace = () => {
-  // Navigation handled inside MessagesDashboard; keep for emit completeness
 };
 
 const onAgencyPicked = async () => {

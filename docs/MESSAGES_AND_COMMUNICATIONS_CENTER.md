@@ -6,14 +6,25 @@
 
 **One Messages experience**, reached from:
 - My Dashboard → Messages
-- Side chat → **Messages Dashboard**
+- Side chat → **Messages hub**
 - Communications Center → **Messages** tab
 
 **Route:** `/messages` (and `/:slug/messages`)
 
-**Job:** Personal inbox overview (unread, client SMS, team chat, calls, voicemail, mentions, files) then the conversation workspace (`?view=workspace`). No tickets.
+**Job:** People-first **Messages hub** — browse **My clients** / **Recent** or search by name, initials, code, email, or phone; see available methods (Secure / SMS / Email / Internal); send from one composer; one chronological timeline labeled by channel. Team chat workspace (`?view=workspace`) and Communications Center shared inboxes are separate tools — not parallel “message systems” inside the hub.
 
 Admins/support use this same Messages UI when they select **Messages** in the Communications Center — not a separate ops-only variant.
+
+**Hub APIs** (orchestration over existing chat / SMS / App inbox backends):
+
+| Endpoint | Purpose |
+|----------|---------|
+| `GET /api/messages/hub/people?q=&agencyId=` | Universal people search + method availability |
+| `GET /api/messages/hub/people/:personKey` | Hydrate one person + methods |
+| `GET /api/messages/hub/people/:personKey/timeline` | Merge-on-read Secure / SMS / Email / Internal history |
+| `POST /api/messages/hub/send` | Dispatch send (`method`: secure \| sms \| email \| internal) |
+
+Communications Center remains the admin shared-inbox tool; Hub personal Email uses App inbox only.
 
 ### Communications Center (admin, support, super_admin + eligible staff mailbox roles)
 
@@ -21,11 +32,21 @@ Admins/support use this same Messages UI when they select **Messages** in the Co
 
 | Section | Purpose |
 |---------|---------|
-| **Home** (default) | **Unified Inbox** — personal + shared inboxes, attention KPIs, email threads, status/snooze/owner, Linked To, directory compose, send warnings |
-| **Messages** | Embeds the **same** Messages dashboard as My Dashboard |
+| **Home** (default) | **Unified Inbox** — App inbox + shared team inboxes, attention KPIs, email threads, status/snooze/owner, Linked To, directory compose, send warnings |
+| **Messages** | Embeds the **same** Messages hub as My Dashboard |
 | **Support Hub** | Tickets, engagement/delivery queue, analytics, management tools |
 
 Top-nav **Communications** opens Center **Home** (Unified Inbox). Engagement Feed archive remains at `/admin/communications/feed` (linked from Support Hub tools), not a separate top-nav item.
+
+### App inbox vs shared team inboxes vs Google seats
+
+| Concept | What it is |
+|---------|------------|
+| **App inbox** | Personal alias (e.g. `bobbyi@itsco.health`) the app sends/receives through because it has **alias rights on the org Google Group** (group_password hire path). Labeled **App inbox · address**. Not a Google Workspace user seat. |
+| **Shared team inboxes** | Ops addresses like `PO@itsco.health`, `Technology@itsco.health` from `email_sender_identities` → shared `communication_inboxes`. |
+| **Domain** | Uses agency `feature_flags.workspaceEmailDomain` (or inferred from shared identities). `@plottwisthq.com` is only for PlotTwist HQ / unset platform contexts — not a silent default for ITSCO staff. |
+
+Provisioning: `POST /communications/inboxes/personal/ensure` → `ensurePersonalMailbox` in `personalMailbox.service.js`.
 
 ## Roadmap
 
@@ -62,6 +83,10 @@ Later: optional further chat/secure channel unification.
 | Endpoint | Used by |
 |----------|---------|
 | `GET /api/messages/dashboard-summary` | Messages + legacy Center summaries |
+| `GET /api/messages/hub/people` | Messages Hub people search **or** browse (`browse=caseload\|recent\|suggested`; empty `q` browses) |
+| `GET /api/messages/hub/people/:personKey` | Messages Hub person detail |
+| `GET /api/messages/hub/people/:personKey/timeline` | Messages Hub merged timeline |
+| `POST /api/messages/hub/send` | Messages Hub unified send |
 | `GET /api/communications/center-summary` | Support Hub (org) |
 | `GET /api/communications/inboxes` | Unified Inbox selector |
 | `POST /api/communications/inboxes/personal/ensure` | Provision personal My Inbox |

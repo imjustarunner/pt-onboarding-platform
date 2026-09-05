@@ -45,7 +45,7 @@
     <div class="panel" :class="{ 'panel--wide': hasActiveChatLocal }">
       <div class="drawer-dash-bar">
         <button type="button" class="drawer-dash-btn" @click="goToMessagesDashboard">
-          Messages Dashboard
+          Messages hub
         </button>
         <button type="button" class="drawer-dash-btn drawer-dash-btn-assistant" @click="openAssistant">
           Assistant
@@ -173,6 +173,17 @@ function openAssistant() {
   workspaceRef.value?.switchToAssistant?.();
 }
 
+function applyChatTab(tab) {
+  const t = String(tab || '').trim().toLowerCase();
+  if (!t || !workspaceRef.value) return;
+  if (t === 'assistant') workspaceRef.value.switchToAssistant?.();
+  else if (t === 'mentions') workspaceRef.value.switchToMentionsInbox?.();
+  else if (t === 'channels') workspaceRef.value.switchToChannels?.();
+  else if (t === 'files') workspaceRef.value.switchToFilesInbox?.();
+  else if (t === 'sms') workspaceRef.value.switchToSms?.();
+  else workspaceRef.value.switchToDms?.();
+}
+
 const onEnter = () => {
   if (isDragging.value) return;
   if (openMode.value !== 'hover') return;
@@ -273,15 +284,19 @@ function onRailPointerDown(e) {
   window.addEventListener('pointercancel', onUp);
 }
 
-// Deep-link: openChat=1 opens the panel
+// Deep-link: openChat=1 opens the panel; optional chatTab selects workspace tab
 watch(
-  () => route.query?.openChat,
-  (val) => {
-    if (val === '1' || val === 'true') {
+  () => [route.query?.openChat, route.query?.chatTab],
+  ([openVal, tabVal]) => {
+    if (openVal === '1' || openVal === 'true') {
       isOpen.value = true;
+      const tab = tabVal;
       const q = { ...route.query };
       delete q.openChat;
+      delete q.chatTab;
       router.replace({ path: route.path, query: q }).catch(() => {});
+      // Workspace may mount on open — apply tab on next tick
+      setTimeout(() => applyChatTab(tab), 50);
     }
   },
   { immediate: true }

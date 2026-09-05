@@ -16,6 +16,12 @@ import {
   updateCareThread
 } from '../controllers/message.controller.js';
 import { getMessagesDashboardSummary } from '../controllers/messagesDashboard.controller.js';
+import {
+  searchMessagesHubPeople,
+  getMessagesHubPerson,
+  getMessagesHubTimeline,
+  postMessagesHubSend
+} from '../controllers/messagesHub.controller.js';
 
 const router = express.Router();
 
@@ -23,6 +29,12 @@ router.use(authenticate);
 
 // Employee Messages Dashboard summary (personal unread / priority)
 router.get('/dashboard-summary', getMessagesDashboardSummary);
+
+// People-first Messaging Hub
+router.get('/hub/people', searchMessagesHubPeople);
+router.get('/hub/people/:personKey', getMessagesHubPerson);
+router.get('/hub/people/:personKey/timeline', getMessagesHubTimeline);
+router.post('/hub/send', postMessagesHubSend);
 
 // Grouped conversation threads (one row per client, last message + unread count)
 router.get('/threads', getThreads);

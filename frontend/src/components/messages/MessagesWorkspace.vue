@@ -2359,7 +2359,16 @@ watch(
   { immediate: true }
 );
 
-defineExpose({ switchToAssistant, switchToDms, closeChat, hasActiveChat });
+defineExpose({
+  switchToAssistant,
+  switchToDms,
+  switchToChannels,
+  switchToMentionsInbox,
+  switchToFilesInbox,
+  switchToSms,
+  closeChat,
+  hasActiveChat
+});
 
 const filteredFilesInbox = computed(() => {
   const q = filesInboxQ.value.trim().toLowerCase();

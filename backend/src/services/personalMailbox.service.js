@@ -46,6 +46,49 @@ function resolveWorkspaceDomain(raw) {
   return v.startsWith('@') ? v.slice(1) : v;
 }
 
+function isPlotTwistPlatformAgency(agency) {
+  const blob = `${agency?.slug || ''} ${agency?.portal_url || ''} ${agency?.name || ''} ${agency?.official_name || ''}`.toLowerCase();
+  return blob.includes('plottwist') || blob.includes('plot twist') || blob.includes('pthq');
+}
+
+/**
+ * Prefer agency workspaceEmailDomain; infer from shared identities; only use
+ * plottwisthq.com for true PlotTwist HQ / unset platform contexts.
+ */
+export async function resolvePersonalMailboxDomain(agency, flags = {}) {
+  const fromFlags = resolveWorkspaceDomain(flags.workspaceEmailDomain);
+  if (fromFlags) return fromFlags;
+  const fromEnv = resolveWorkspaceDomain(process.env.WORKSPACE_EMAIL_DOMAIN);
+  if (fromEnv) return fromEnv;
+  const agencyId = Number(agency?.id || 0);
+  if (agencyId) {
+    try {
+      const [rows] = await pool.execute(
+        `SELECT from_email FROM email_sender_identities
+         WHERE agency_id = ?
+           AND from_email LIKE '%@%'
+           AND (identity_key IS NULL OR identity_key NOT LIKE 'personal_%')
+         LIMIT 20`,
+        [agencyId]
+      );
+      for (const row of rows || []) {
+        const domain = String(row.from_email || '')
+          .split('@')[1]
+          ?.trim()
+          .toLowerCase();
+        if (domain && domain !== 'plottwisthq.com' && domain !== 'gmail.com' && domain !== 'example.com') {
+          return domain;
+        }
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+  if (isPlotTwistPlatformAgency(agency) || !agencyId) return 'plottwisthq.com';
+  // Last resort: keep platform domain only when nothing else is known
+  return 'plottwisthq.com';
+}
+
 function resolveWorkspaceFormat(raw) {
   const v = String(raw || '')
     .trim()
@@ -127,10 +170,7 @@ export async function ensurePersonalMailbox({ agencyId, userId, actorUserId = nu
 
   const agency = await Agency.findById(aid);
   const flags = parseFeatureFlags(agency?.feature_flags);
-  const domain =
-    resolveWorkspaceDomain(flags.workspaceEmailDomain) ||
-    resolveWorkspaceDomain(process.env.WORKSPACE_EMAIL_DOMAIN) ||
-    'plottwisthq.com';
+  const domain = await resolvePersonalMailboxDomain(agency, flags);
   const format = resolveWorkspaceFormat(flags.workspaceEmailFormat);
   const fromEmail = await uniqueAliasEmail({ agencyId: aid, user, domain, format });
   const displayName = [user.first_name, user.last_name].filter(Boolean).join(' ') || fromEmail;
@@ -156,7 +196,7 @@ export async function ensurePersonalMailbox({ agencyId, userId, actorUserId = nu
     `INSERT INTO communication_inboxes
      (agency_id, sender_identity_id, kind, owner_user_id, identity_key, display_name, from_email, is_active)
      VALUES (?, ?, 'personal', ?, ?, ?, ?, 1)`,
-    [aid, identity.id, uid, identityKey, `${displayName} (My Inbox)`, fromEmail]
+    [aid, identity.id, uid, identityKey, `${displayName} (App inbox)`, fromEmail]
   );
 
   const inboxId = ins.insertId;

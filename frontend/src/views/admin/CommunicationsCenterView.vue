@@ -96,14 +96,13 @@
         <div class="cc-mode-intro split compact">
           <div>
             <h2>Messages</h2>
-            <p>Same Messages experience as My Dashboard — your personal inbox overview.</p>
+            <p>Same people-first Messages hub as My Dashboard — pick who to reach, then how.</p>
           </div>
           <div class="cc-intro-actions">
             <button type="button" class="cc-btn outline" @click.prevent.stop="setMode('home')">← Center Home</button>
-            <router-link class="cc-btn solid" :to="messagesWorkspacePath">Open inbox</router-link>
           </div>
         </div>
-        <MessagesDashboard />
+        <MessagesHubShell />
       </section>
 
       <!-- ========== SUPPORT HUB ========== -->
@@ -248,7 +247,7 @@ import { useRoute, useRouter } from 'vue-router';
 import api from '../../services/api';
 import { useAuthStore } from '../../store/auth';
 import { useAgencyStore } from '../../store/agency';
-import MessagesDashboard from '../../components/messages/MessagesDashboard.vue';
+import MessagesHubShell from '../../components/messages/MessagesHubShell.vue';
 import CommunicationsCenterAutomation from '../../components/communications/CommunicationsCenterAutomation.vue';
 import CommunicationsCenterSchoolAlerts from '../../components/communications/CommunicationsCenterSchoolAlerts.vue';
 import CommunicationsCenterAdminUpdate from '../../components/communications/CommunicationsCenterAdminUpdate.vue';
@@ -293,9 +292,7 @@ const campaignsPath = computed(() => `${prefix.value}/admin/communications/campa
 const contactsPath = computed(() => `${prefix.value}/admin/contacts`);
 const textingSettingsPath = computed(() => `${prefix.value}/admin/settings?category=system&item=sms-numbers`);
 const feedPath = computed(() => `${prefix.value}/admin/communications/feed`);
-const messagesWorkspacePath = computed(() => `${prefix.value}/messages?view=workspace`);
 const myDashboardPath = computed(() => (slug.value ? `/${slug.value}/dashboard` : '/dashboard'));
-const myMessagesPath = computed(() => (slug.value ? `/${slug.value}/messages` : '/messages'));
 
 const agencyLabel = computed(
   () => agencyStore.currentAgency?.name || agencyStore.currentAgency?.short_name || 'Admin'
@@ -349,13 +346,6 @@ function openAutomationTab() {
   }
   setMode('automation');
 }
-
-const hubGreeting = computed(() => {
-  const name = authStore.user?.first_name || 'there';
-  const h = new Date().getHours();
-  const hi = h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening';
-  return `${hi}, ${name}`;
-});
 
 const personalUnread = computed(() => Number(personal.value.cards?.unread || 0));
 const openTicketTotal = computed(
@@ -436,21 +426,11 @@ function setMode(next, extraQuery = {}) {
   router.replace({ path: route.path, query }).catch(() => {});
 }
 
-function goSmsInbox() {
-  router.push(smsPath.value).catch(() => {});
-}
-
 function prioClass(p) {
   const s = String(p || 'medium').toLowerCase();
   if (s === 'high' || s === 'failed' || s === 'bounced') return 'prio-high';
   if (s === 'low') return 'prio-low';
   return 'prio-medium';
-}
-
-function kindLabel(kind) {
-  if (kind === 'sms') return 'SMS';
-  if (kind === 'team') return 'Team';
-  return 'Secure';
 }
 
 function formatTime(v) {
@@ -460,24 +440,6 @@ function formatTime(v) {
   } catch {
     return '';
   }
-}
-
-function openPriorityItem(item) {
-  let tab = 'dms';
-  if (item.kind === 'sms') tab = 'sms';
-  else if (item.kind === 'team') tab = 'dms';
-
-  const threadId = item.threadId || String(item.id || '').replace(/^chat-/, '');
-  router.push({
-    path: myMessagesPath.value,
-    query: {
-      ...route.query,
-      view: 'workspace',
-      tab,
-      ...(threadId ? { threadId: String(threadId) } : {}),
-      ...(item.agencyId ? { agencyId: String(item.agencyId) } : {})
-    }
-  }).catch(() => {});
 }
 
 function openTicket(ticket) {

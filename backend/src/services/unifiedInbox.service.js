@@ -40,21 +40,32 @@ export async function listInboxes({ agencyId, userId }) {
   const rows = await CommunicationInbox.listForAgency({ agencyId, userId });
   const personal = rows.find((r) => r.kind === 'personal' && Number(r.owner_user_id) === Number(userId));
   const shared = rows.filter((r) => r.kind === 'shared');
-  const mapped = (r) => ({
-    id: r.id,
-    kind: r.kind,
-    display_name: r.kind === 'personal' ? 'My Inbox' : r.display_name,
-    from_email: r.from_email,
-    identity_key: r.identity_key,
-    sender_identity_id: r.sender_identity_id,
-    reply_to: r.reply_to,
-    signature_image_url: r.signature_image_url,
-    owner_user_id: r.owner_user_id || null
-  });
+  const mapped = (r) => {
+    const isPersonal = r.kind === 'personal';
+    return {
+      id: r.id,
+      kind: r.kind,
+      display_name: isPersonal ? 'App inbox' : r.display_name,
+      from_email: r.from_email,
+      identity_key: r.identity_key,
+      sender_identity_id: r.sender_identity_id,
+      reply_to: r.reply_to,
+      signature_image_url: r.signature_image_url,
+      owner_user_id: r.owner_user_id || null,
+      routing: isPersonal ? 'app_group_alias' : (r.kind === 'shared' ? 'shared_team' : null)
+    };
+  };
   return [
     personal
       ? mapped(personal)
-      : { id: null, kind: 'virtual', display_name: 'My Inbox', from_email: null, identity_key: 'my_inbox' },
+      : {
+          id: null,
+          kind: 'virtual',
+          display_name: 'App inbox',
+          from_email: null,
+          identity_key: 'my_inbox',
+          routing: 'app_group_alias'
+        },
     { id: 'assigned', kind: 'virtual', display_name: 'All Assigned to Me', from_email: null, identity_key: 'assigned' },
     ...shared.map(mapped)
   ];

@@ -1,5 +1,7 @@
 <script setup>
-defineProps({
+import { computed } from 'vue';
+
+const props = defineProps({
   inboxes: { type: Array, default: () => [] },
   attention: { type: Object, default: () => ({}) },
   selectedInboxId: { type: [Number, String, null], default: null },
@@ -35,6 +37,20 @@ function channelCount(id, attention) {
   return c[id] || 0;
 }
 
+function inboxOptionLabel(box) {
+  const name = box?.display_name || (box?.kind === 'personal' ? 'App inbox' : 'Inbox');
+  return box?.from_email ? `${name} · ${box.from_email}` : name;
+}
+
+const selectedIsAppInbox = computed(() => {
+  const id = props.selectedInboxId;
+  const box = (props.inboxes || []).find((b) => {
+    if (id == null || id === 'null') return b.kind === 'personal' || b.identity_key === 'my_inbox';
+    return String(b.id) === String(id);
+  });
+  return box?.routing === 'app_group_alias' || box?.kind === 'personal' || box?.identity_key === 'my_inbox';
+});
+
 function onInboxChange(e) {
   const v = e.target.value;
   if (v === '' || v === 'null') emit('update:selectedInboxId', null);
@@ -69,9 +85,12 @@ function onDigestHours(e) {
         :key="String(box.id) + (box.identity_key || '')"
         :value="box.id == null ? 'null' : String(box.id)"
       >
-        {{ box.display_name }}{{ box.from_email ? ` · ${box.from_email}` : '' }}
+        {{ inboxOptionLabel(box) }}
       </option>
     </select>
+    <p v-if="selectedIsAppInbox" class="uc-inbox-help">
+      App inbox sends and receives through your organization’s group mail the app is authorized to use — not a personal Google Workspace seat.
+    </p>
 
     <div class="uc-prefs">
       <p class="uc-section">Personal email alerts</p>
@@ -170,6 +189,12 @@ function onDigestHours(e) {
   padding: 8px;
   font-size: 0.85rem;
   background: #fff;
+}
+.uc-inbox-help {
+  margin: 6px 0 0;
+  font-size: 11px;
+  line-height: 1.4;
+  color: #64748b;
 }
 .uc-prefs {
   margin-top: 12px;
