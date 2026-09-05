@@ -7,10 +7,8 @@ import Client from '../models/Client.model.js';
 import ClientContactAffiliation from '../models/ClientContactAffiliation.model.js';
 import User from '../models/User.model.js';
 import { buildContactAssignedReminderEmailForAgency } from './brandedNotificationEmail.service.js';
-import {
-  buildContactReminderLinks,
-  publicAppBaseUrl
-} from './contactReminderToken.service.js';
+import { buildContactReminderLinks } from './contactReminderToken.service.js';
+import { buildPublicAppUrl } from '../utils/publicPortalUrl.js';
 import { inferAgencyMailDomain } from './tenantMessageMailboxes.service.js';
 import { sendNotificationEmail } from './unifiedEmail/unifiedEmailSender.service.js';
 
@@ -82,7 +80,7 @@ export async function sendContactAssignedNotifyEmail({
     notificationsEmail,
     links,
     unsubscribeUrl: links.off,
-    supportUrl: `${publicAppBaseUrl()}/support`,
+    supportUrl: buildPublicAppUrl(agency, 'support'),
     agencyPhone: agency.phone || agency.main_phone || '',
     agencyWebsite: agency.website || (domain ? `https://${domain}` : ''),
     colorPalette: agency.color_palette

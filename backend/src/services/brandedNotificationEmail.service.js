@@ -168,7 +168,8 @@ export async function buildContactAssignedReminderEmailForAgency(opts = {}) {
   return buildContactAssignedReminderEmail({
     ...opts,
     headerUrl: chrome?.headerUrl || opts.headerUrl,
-    footerUrl: chrome?.footerUrl || opts.footerUrl
+    footerUrl: chrome?.footerUrl || opts.footerUrl,
+    supportUrl: opts.supportUrl || chrome?.supportUrl
   });
 }
 

@@ -46,17 +46,14 @@ function parsePrimaryColor(colorPalette) {
  */
 export function buildNormalOutboundEmailHtml(opts = {}) {
   const sender = escapeHtml(opts.senderDisplayName || 'Team member');
-  const title = escapeHtml(opts.senderTitle || '');
   const agencyName = escapeHtml(opts.agencyName || '');
   const rawHtml = String(opts.bodyHtml || '').trim();
   const body = rawHtml
     ? rawHtml.replace(/<script[\s\S]*?>[\s\S]*?<\/script>/gi, '')
     : escapeHtml(opts.bodyText || '').replace(/\n/g, '<br/>');
   const primary = escapeHtml(parsePrimaryColor(opts.colorPalette));
-  const logoUrl = String(opts.logoUrl || '').trim();
-  const logo = logoUrl
-    ? `<img src="${escapeHtml(logoUrl)}" alt="${agencyName}" style="max-height:48px;max-width:200px;display:block;margin:0 0 14px;" />`
-    : '';
+  // Logo / agency name / title live in tenant chrome + staff signature — keep the
+  // message card body-only so Hub mail doesn't repeat "ITSCO · Director…" above the text.
   const sigUrl = String(opts.userSignatureUrl || '').trim();
   const signatureBlock = sigUrl
     ? `<div style="margin:22px 0 0;">
@@ -72,11 +69,6 @@ export function buildNormalOutboundEmailHtml(opts = {}) {
       <table role="presentation" width="100%" style="max-width:600px;background:#ffffff;border-radius:14px;overflow:hidden;border:1px solid #e2e8f0;">
         <tr><td style="height:6px;background:${primary};font-size:0;line-height:0;">&nbsp;</td></tr>
         <tr><td style="padding:22px 24px 8px;">
-          ${logo}
-          ${agencyName ? `<div style="font-size:18px;font-weight:800;color:#0f172a;letter-spacing:-0.02em;margin:0 0 4px;">${agencyName}</div>` : ''}
-          <div style="color:#64748b;font-size:13px;margin:0 0 18px;">
-            ${sender}${title ? ` · ${title}` : ''}
-          </div>
           <div style="color:#1e293b;font-size:15px;line-height:1.6;">${body}</div>
           ${signatureBlock}
           <p style="color:#94a3b8;font-size:12px;margin:22px 0 0;line-height:1.45;">

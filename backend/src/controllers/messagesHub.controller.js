@@ -16,6 +16,7 @@ import {
   lookupHubExternalIdentity,
   sendHubPortalInvitation,
   listHubUnreadFeed,
+  listHubInboxFeed,
   markHubPersonRead,
   markHubPersonUnread
 } from '../services/messagesHub.service.js';
@@ -857,6 +858,30 @@ export const getMessagesHubUnread = async (req, res, next) => {
     const sort = String(req.query.sort || 'newest').toLowerCase() === 'oldest' ? 'oldest' : 'newest';
     const limit = Math.min(Math.max(parseInt(String(req.query.limit || '80'), 10) || 80, 1), 120);
     const data = await listHubUnreadFeed({
+      agencyId,
+      userId: req.user.id,
+      limit,
+      sort
+    });
+    res.json(data);
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
+ * GET /api/messages/hub/inbox?agencyId=&sort=newest|oldest&limit=
+ * Running conversation list (read + unread) across email, secure, internal, SMS, groups.
+ */
+export const getMessagesHubInbox = async (req, res, next) => {
+  try {
+    const agencyId = parseAgencyId(req);
+    if (!agencyId) {
+      return res.status(400).json({ error: { message: 'agencyId is required' } });
+    }
+    const sort = String(req.query.sort || 'newest').toLowerCase() === 'oldest' ? 'oldest' : 'newest';
+    const limit = Math.min(Math.max(parseInt(String(req.query.limit || '80'), 10) || 80, 1), 120);
+    const data = await listHubInboxFeed({
       agencyId,
       userId: req.user.id,
       limit,

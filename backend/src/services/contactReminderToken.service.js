@@ -87,9 +87,24 @@ export function verifyContactReminderToken(token) {
 }
 
 export function publicAppBaseUrl() {
-  return String(
-    process.env.PUBLIC_APP_URL || process.env.FRONTEND_URL || process.env.APP_BASE_URL || 'https://plottwisthq.com'
-  ).replace(/\/$/, '');
+  const candidates = [
+    process.env.PUBLIC_APP_URL,
+    process.env.APP_PUBLIC_URL,
+    process.env.APP_BASE_URL,
+    process.env.FRONTEND_URL,
+    process.env.CORS_ORIGIN
+  ];
+  for (const raw of candidates) {
+    const base = String(raw || '')
+      .split(',')[0]
+      .trim()
+      .replace(/\/$/, '');
+    if (!base) continue;
+    // Outbound links/images must be publicly reachable — skip local Vite/API hosts.
+    if (/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(base)) continue;
+    return base;
+  }
+  return 'https://plottwisthq.com';
 }
 
 export function buildContactReminderLinks(affiliationId, baseUrl = publicAppBaseUrl()) {

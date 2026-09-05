@@ -6,6 +6,7 @@
 import pool from '../config/database.js';
 import { publicUploadsUrlFromStoredPath } from '../utils/uploads.js';
 import { resolveOrgLogoUrl } from './publicFormBranding.service.js';
+import { publicAppBaseUrl } from './contactReminderToken.service.js';
 import {
   listSignatureSocialLinks,
   getAgencySignatureTagline,
@@ -51,31 +52,29 @@ function escapeHtml(value) {
     .replace(/'/g, '&#39;');
 }
 
-function publicBaseUrl() {
-  // Prefer frontend origin for /email-signatures/* and other Vite public assets.
-  // BACKEND_PUBLIC_URL often points at API/prod host that does not serve those files locally.
-  return String(
-    process.env.FRONTEND_URL ||
-      process.env.CORS_ORIGIN ||
-      process.env.APP_PUBLIC_URL ||
-      process.env.BACKEND_PUBLIC_URL ||
-      ''
-  )
-    .split(',')[0]
-    .trim()
-    .replace(/\/$/, '');
-}
+/** Bump when replacing files under frontend/public/email-signatures/staff-html/ */
+const STAFF_HTML_ASSET_VERSION = '3';
 
 function assetUrl(relativePath, { absolute = true } = {}) {
   const path = String(relativePath || '').replace(/^\//, '');
   if (!path) return '';
-  if (/^https?:\/\//i.test(path)) return path;
+  if (/^https?:\/\//i.test(path)) {
+    try {
+      const u = new URL(path);
+      if (/^(localhost|127\.0\.0\.1)$/i.test(u.hostname)) {
+        return `${publicAppBaseUrl()}${u.pathname}${u.search}${u.hash}`;
+      }
+    } catch {
+      /* keep as-is */
+    }
+    return path;
+  }
   if (!absolute) return `/${path}`;
-  const base = publicBaseUrl();
+  const base = publicAppBaseUrl();
   return base ? `${base}/${path}` : `/${path}`;
 }
 
-function staffHtmlAsset(name, { absolute = true, cacheKey = null } = {}) {
+function staffHtmlAsset(name, { absolute = true, cacheKey = STAFF_HTML_ASSET_VERSION } = {}) {
   const url = assetUrl(`email-signatures/staff-html/${name}`, { absolute });
   if (!cacheKey) return url;
   const sep = url.includes('?') ? '&' : '?';
@@ -194,21 +193,29 @@ export async function resolveStaffSignatureContext({
   const phone = normalizePhone(
     agency?.phone_number || (isItsco ? ITSCO_SIGNATURE_DEFAULTS.phoneDisplay : '')
   );
-  // Always prefer this agency’s portal/domain — never borrow another tenant’s site.
-  const website = normalizeWebsite(
-    agency?.portal_url || agency?.custom_domain || (isItsco ? ITSCO_SIGNATURE_DEFAULTS.websiteDisplay : ''),
-    { allowEmpty: !isItsco }
-  );
+  // Prefer a real host (custom_domain) over portal slug (e.g. "itsco").
+  const websiteRaw = (() => {
+    const domain = String(agency?.custom_domain || '').trim();
+    const portal = String(agency?.portal_url || '').trim();
+    if (domain) return domain;
+    if (portal && /[./]/.test(portal)) return portal;
+    if (isItsco) return ITSCO_SIGNATURE_DEFAULTS.websiteDisplay;
+    return '';
+  })();
+  const website = normalizeWebsite(websiteRaw, { allowEmpty: !isItsco });
 
-  const pubBase = baseUrl || publicBaseUrl();
+  const pubBase = baseUrl || publicAppBaseUrl();
   let photoUrl = publicUploadsUrlFromStoredPath(u.profile_photo_path) || null;
   if (photoUrl && photoUrl.startsWith('/') && pubBase) photoUrl = `${pubBase}${photoUrl}`;
   if (!photoUrl) photoUrl = staffHtmlAsset('photo-placeholder.png');
 
-  // Agency’s own logo only — ITSCO bundled mark is a fallback for ITSCO when no upload exists.
+  // Prefer uploaded logos; never Wix CDN. ITSCO always uses the bundled signature mark.
   let logoUrl = resolveOrgLogoUrl(agency || {}, { baseUrl: pubBase });
   if (logoUrl && logoUrl.startsWith('/') && pubBase) logoUrl = `${pubBase}${logoUrl}`;
-  if (!logoUrl && isItsco) {
+  if (/wixstatic\.com|\.wix\.com/i.test(String(logoUrl || ''))) {
+    logoUrl = '';
+  }
+  if (isItsco) {
     logoUrl = staffHtmlAsset('itsco-main-logo.png', { cacheKey: '6' });
   }
 
@@ -272,11 +279,11 @@ export async function resolveStaffSignatureContext({
       leaf: staffHtmlAsset('itsco-leaf-mark.png'),
       phoenix: staffHtmlAsset('phoenix-mark.png'),
       placeholderPhoto: staffHtmlAsset('photo-placeholder.png'),
-      socialFacebook: staffHtmlAsset('social-facebook.png', { cacheKey: '2' }),
-      socialTwitter: staffHtmlAsset('social-twitter.png', { cacheKey: '2' }),
-      socialInstagram: staffHtmlAsset('social-instagram.png', { cacheKey: '2' }),
-      socialYoutube: staffHtmlAsset('social-youtube.png', { cacheKey: '2' }),
-      socialLinkedin: staffHtmlAsset('social-linkedin.png', { cacheKey: '2' })
+      socialFacebook: staffHtmlAsset('social-facebook.png'),
+      socialTwitter: staffHtmlAsset('social-twitter.png'),
+      socialInstagram: staffHtmlAsset('social-instagram.png'),
+      socialYoutube: staffHtmlAsset('social-youtube.png'),
+      socialLinkedin: staffHtmlAsset('social-linkedin.png')
     },
     isItsco
   };
@@ -295,7 +302,11 @@ export function buildStaffSignatureHtml(ctx) {
   const emailHref = ctx.email ? `mailto:${String(ctx.email).replace(/\s/g, '')}` : '#';
   const phoneDisplay = escapeHtml(ctx.phone?.display || ITSCO_SIGNATURE_DEFAULTS.phoneDisplay);
   const phoneHref = `tel:${String(ctx.phone?.tel || ITSCO_SIGNATURE_DEFAULTS.phoneTel).replace(/\s/g, '')}`;
-  const ext = ctx.extension ? ` Ext. ${escapeHtml(ctx.extension)}` : '';
+  const rawExt = String(ctx.extension || '').trim();
+  const extClean = rawExt.replace(/^(ext\.?|x)\s*/i, '').trim();
+  const phoneAlreadyHasExt = /\bext\.?\b/i.test(String(ctx.phone?.display || ''));
+  const ext =
+    extClean && !phoneAlreadyHasExt ? ` Ext. ${escapeHtml(extClean)}` : '';
   const webDisplay = escapeHtml(ctx.website?.display || '');
   const webHref = escapeHtml(ctx.website?.url || '');
   // mailto links should not open a new tab

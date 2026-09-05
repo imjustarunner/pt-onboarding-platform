@@ -5,6 +5,7 @@ import crypto from 'crypto';
 import pool from '../config/database.js';
 import { isEmailOptedOut } from './emailOptOut.service.js';
 import { lookupSchoolStaffGroupContext } from './schoolGroupSubscription.service.js';
+import { publicAppBaseUrl } from './contactReminderToken.service.js';
 
 export const CONFIDENTIALITY_DISCLAIMER = [
   'CONFIDENTIAL AND POTENTIALLY SENSITIVE INFORMATION!',
@@ -18,15 +19,6 @@ function escapeHtml(value) {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;');
-}
-
-function publicAppBaseUrl() {
-  return String(
-    process.env.APP_PUBLIC_URL ||
-    process.env.FRONTEND_URL ||
-    process.env.CORS_ORIGIN ||
-    'https://plottwisthq.com'
-  ).replace(/\/$/, '');
 }
 
 function sha256(v) {

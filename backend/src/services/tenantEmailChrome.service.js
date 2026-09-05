@@ -4,6 +4,7 @@
  */
 import pool from '../config/database.js';
 import { publicAppBaseUrl } from './contactReminderToken.service.js';
+import { buildPublicAppUrl } from '../utils/publicPortalUrl.js';
 
 const ITSCO_HEADER = '/email-branding/itsco/email-header.png';
 const ITSCO_FOOTER = '/email-branding/itsco/email-footer.png';
@@ -36,13 +37,40 @@ function escapeHtml(s) {
     .replace(/"/g, '&quot;');
 }
 
+const EMAIL_CHROME_ASSET_VERSION = '3';
+
+function rewriteLocalhostToPublic(url) {
+  const s = String(url || '').trim();
+  if (!s) return s;
+  try {
+    const u = new URL(s);
+    if (!/^(localhost|127\.0\.0\.1)$/i.test(u.hostname)) return s;
+    const base = publicAppBaseUrl();
+    return `${base}${u.pathname}${u.search}${u.hash}`;
+  } catch {
+    return s;
+  }
+}
+
 function absolutizeAssetUrl(pathOrUrl) {
   const raw = String(pathOrUrl || '').trim();
   if (!raw) return '';
-  if (/^https?:\/\//i.test(raw)) return raw;
+  if (/^https?:\/\//i.test(raw)) {
+    let url = rewriteLocalhostToPublic(raw);
+    // Still cache-bust our bundled branding paths if someone stored an absolute URL without ?v=
+    if (/\/email-branding\//i.test(url) && !/[?&]v=/.test(url)) {
+      const sep = url.includes('?') ? '&' : '?';
+      return `${url}${sep}v=${EMAIL_CHROME_ASSET_VERSION}`;
+    }
+    return url;
+  }
   const base = publicAppBaseUrl();
-  if (raw.startsWith('/')) return `${base}${raw}`;
-  return `${base}/${raw.replace(/^\/+/, '')}`;
+  const path = raw.startsWith('/') ? raw : `/${raw.replace(/^\/+/, '')}`;
+  const url = `${base}${path}`;
+  if (/\/email-branding\//i.test(path) && !/[?&]v=/.test(url)) {
+    return `${url}?v=${EMAIL_CHROME_ASSET_VERSION}`;
+  }
+  return url;
 }
 
 function looksLikeItsco(agency = {}) {
@@ -73,7 +101,7 @@ export async function resolveTenantEmailChrome(agencyId) {
   try {
     const [rows] = await pool.execute(
       `SELECT aes.html_email_header_url, aes.html_email_footer_url,
-              a.name, a.slug, a.official_name
+              a.name, a.slug, a.official_name, a.portal_url, a.custom_domain, a.organization_type
        FROM agencies a
        LEFT JOIN agency_email_settings aes ON aes.agency_id = a.id
        WHERE a.id = ?
@@ -94,6 +122,7 @@ export async function resolveTenantEmailChrome(agencyId) {
 
   const headerUrl = absolutizeAssetUrl(headerPath);
   const footerUrl = absolutizeAssetUrl(footerPath);
+  const supportUrl = agency ? buildPublicAppUrl(agency, 'support') : `${publicAppBaseUrl()}/support`;
   return {
     headerUrl,
     footerUrl,
@@ -104,7 +133,8 @@ export async function resolveTenantEmailChrome(agencyId) {
     exampleFooterUrl: absolutizeAssetUrl(ITSCO_FOOTER),
     llmHeaderPrompt: LLM_HEADER_PROMPT,
     llmFooterPrompt: LLM_FOOTER_PROMPT,
-    agencyName: agency?.name || null
+    agencyName: agency?.name || null,
+    supportUrl
   };
 }
 
@@ -122,7 +152,9 @@ export function applyTenantEmailChromeHtml(html, chrome = {}, opts = {}) {
   if (!headerUrl && !footerUrl) return html;
 
   const agencyName = escapeHtml(opts.agencyName || chrome.agencyName || '');
-  const supportUrl = escapeHtml(opts.supportUrl || `${publicAppBaseUrl()}/support`);
+  const supportUrl = escapeHtml(
+    opts.supportUrl || chrome.supportUrl || `${publicAppBaseUrl()}/support`
+  );
   const replyMailto = escapeHtml(opts.replyMailto || '');
   const unsubscribeUrl = escapeHtml(opts.unsubscribeUrl || '');
   const phone = escapeHtml(opts.agencyPhone || '');
@@ -187,6 +219,7 @@ export async function wrapOutboundHtmlWithTenantChrome({ html, agencyId, opts = 
   if (!chrome.complete && !chrome.headerUrl && !chrome.footerUrl) return html;
   return applyTenantEmailChromeHtml(html, chrome, {
     agencyName: chrome.agencyName,
+    supportUrl: chrome.supportUrl,
     ...opts
   });
 }

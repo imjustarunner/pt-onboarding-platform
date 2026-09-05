@@ -104,8 +104,11 @@
         >
           <div class="msg-hub-list-head">
             <h3>{{ listColumnTitle }}</h3>
-            <label v-if="navId === 'unread' && isConversationMode" class="msg-hub-sort">
-              <span class="sr-only">Sort unread</span>
+            <label
+              v-if="(navId === 'unread' || navId === 'inbox') && isConversationMode"
+              class="msg-hub-sort"
+            >
+              <span class="sr-only">Sort list</span>
               <select v-model="unreadSort" @change="loadConversations">
                 <option value="newest">Newest first</option>
                 <option value="oldest">Oldest first</option>
@@ -158,8 +161,22 @@
             >
               <div class="msg-hub-avatar-wrap">
                 <div class="msg-hub-avatar" aria-hidden="true">
-                  <span>{{ initials(c.primary_participant_name || c.subject || '?') }}</span>
+                  <img v-if="c.photoUrl" :src="photoSrc(c.photoUrl)" :alt="''" />
+                  <span v-else>{{ initials(c.primary_participant_name || c.subject || '?') }}</span>
                 </div>
+                <span
+                  class="msg-hub-ch-badge"
+                  :class="'ch-' + (c.channel || c.hubKind || 'email')"
+                  :title="hubChannelTitle(c)"
+                  aria-hidden="true"
+                >
+                  <svg v-if="(c.channel || c.hubKind) === 'email'" viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M4 6h16v12H4z"/><path d="m4 7 8 6 8-6"/></svg>
+                  <svg v-else-if="(c.channel || c.hubKind) === 'secure'" viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>
+                  <svg v-else-if="(c.channel || c.hubKind) === 'sms'" viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M4 5h16v11H8l-4 3V5z"/></svg>
+                  <svg v-else-if="(c.channel || c.hubKind) === 'internal'" viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="12" cy="8" r="3.2"/><path d="M5.5 19a6.5 6.5 0 0 1 13 0"/></svg>
+                  <svg v-else-if="(c.channel || c.hubKind) === 'group' || (c.channel || c.hubKind) === 'channel'" viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="9" cy="9" r="2.5"/><circle cx="16" cy="10" r="2.2"/><path d="M4.5 18a4.5 4.5 0 0 1 9 0"/><path d="M13 18a3.8 3.8 0 0 1 6.5-2.5"/></svg>
+                  <svg v-else viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M4 6h16v12H4z"/><path d="m4 7 8 6 8-6"/></svg>
+                </span>
                 <span v-if="c.is_unread" class="msg-hub-unread-dot" aria-hidden="true" />
               </div>
               <div class="msg-hub-row-body">
@@ -181,7 +198,7 @@
                   {{ c.last_message_preview || c.subject || '' }}
                 </p>
               </div>
-              <div v-if="!c.hubKind || c.hubKind === 'email'" class="msg-hub-row-actions" @click.stop>
+              <div v-if="!c.hubKind || c.hubKind === 'email' || c.hubKind === 'sms'" class="msg-hub-row-actions" @click.stop>
                 <div class="msg-hub-snooze-wrap">
                   <button
                     type="button"
@@ -1472,6 +1489,12 @@ const hubSubtitle = computed(() => {
     if (navId.value === 'unknown') {
       return 'Mail from senders who are not in your known contacts — treat like a spam review folder.';
     }
+    if (navId.value === 'inbox') {
+      return 'All your conversations in one list — email, secure, internal, and SMS when enabled.';
+    }
+    if (navId.value === 'unread') {
+      return 'Only conversations with messages you have not seen yet.';
+    }
     return 'Conversations assigned to you or in your App inbox — not the shared agency mailbox.';
   }
   return 'Pick a person, choose how to send, then write in the box at the bottom.';
@@ -1632,7 +1655,7 @@ const emptyListCopy = computed(() => {
       return 'You\'re caught up — no unread email or chat.';
     }
     if (navId.value === 'inbox') {
-      return 'Nothing in your inbox yet.';
+      return 'No conversations yet. Send a message or wait for the first reply.';
     }
     return 'Nothing in this inbox view yet.';
   }
@@ -2778,15 +2801,21 @@ function hubUnreadChannelLabel(item) {
   const kind = String(item?.kind || '').toLowerCase();
   const ch = String(item?.channel || '').toLowerCase();
   const tType = String(item?.threadType || '').toLowerCase();
+  if (ch === 'secure') return 'Secure';
+  if (ch === 'internal') return 'Internal';
   if (kind === 'group' || ch === 'group' || tType === 'group' || tType === 'team' || tType === 'club') {
     return 'Group';
   }
   if (tType === 'skill_builders_event') return 'Event';
   if (ch === 'channel' || kind === 'channel') return 'Channel';
-  if (ch === 'internal' || kind === 'chat') return 'Internal';
-  if (ch === 'sms') return 'SMS';
+  if (kind === 'chat' && ch !== 'secure') return 'Internal';
+  if (ch === 'sms' || kind === 'sms') return 'SMS';
   if (ch === 'call' || ch === 'voicemail') return methodLabel(ch);
   return 'Email';
+}
+
+function hubChannelTitle(c) {
+  return c?.hubChannelLabel || hubUnreadChannelLabel(c) || 'Conversation';
 }
 
 function queueReasonLabel(reason) {
@@ -3058,9 +3087,9 @@ async function loadConversations() {
     }
     const id = navId.value;
 
-    // Unified Unread: email + internal/secure chat + channels
-    if (id === 'unread') {
-      const { data } = await api.get('/messages/hub/unread', {
+    // Unified Inbox / Unread: email + secure + internal + SMS + groups
+    if (id === 'unread' || id === 'inbox') {
+      const { data } = await api.get(id === 'unread' ? '/messages/hub/unread' : '/messages/hub/inbox', {
         params: {
           agencyId: agencyId.value,
           sort: unreadSort.value,
@@ -3083,8 +3112,8 @@ async function loadConversations() {
         subject: item.subject,
         last_message_preview: item.preview,
         last_message_at: item.sortAt,
-        is_unread: true,
-        unreadCount: Number(item.unreadCount || 1),
+        is_unread: !!item.is_unread,
+        unreadCount: Number(item.unreadCount || 0),
         starred: !!item.starred,
         snoozed_until: item.snoozedUntil || null,
         sender_trust: item.senderTrust || null,
@@ -3101,9 +3130,6 @@ async function loadConversations() {
       params.filter = 'all';
     } else if (id === 'drafts') {
       params.filter = 'drafts';
-    } else if (id === 'inbox') {
-      // Hub always personal-scopes (assigned + App inbox), even for admins.
-      params.filter = 'all';
     } else if (id === 'unknown') {
       params.filter = 'unknown';
     } else {
@@ -4208,6 +4234,41 @@ defineExpose({
   position: relative;
   width: 40px;
   height: 40px;
+}
+.msg-hub-ch-badge {
+  position: absolute;
+  left: -2px;
+  bottom: -2px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  border: 2px solid #fff;
+  background: #e2e8f0;
+  color: #475569;
+  z-index: 1;
+}
+.msg-hub-ch-badge.ch-email {
+  background: #fff7ed;
+  color: #c2410c;
+}
+.msg-hub-ch-badge.ch-secure {
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+.msg-hub-ch-badge.ch-internal {
+  background: #f5f3ff;
+  color: #6d28d9;
+}
+.msg-hub-ch-badge.ch-sms {
+  background: #ecfdf5;
+  color: #047857;
+}
+.msg-hub-ch-badge.ch-group,
+.msg-hub-ch-badge.ch-channel {
+  background: #f1f5f9;
+  color: #334155;
 }
 .msg-hub-avatar {
   width: 40px;

@@ -46,7 +46,9 @@ export function buildPortalInvitationEmail(opts = {}) {
   const greet = recipientFirst ? `Hello ${escapeHtml(recipientFirst)},` : 'Hello,';
   const setupUrl = String(opts.setupUrl || '').trim();
   const setupDisplay = String(opts.setupDisplayUrl || setupUrl || '').trim();
-  const supportUrl = String(opts.supportUrl || `${publicAppBaseUrl()}/support`).trim();
+  const supportUrl = String(
+    opts.supportUrl || `${publicAppBaseUrl()}/support`
+  ).trim();
   const primary = parsePrimaryColor(opts.colorPalette);
   const navy = '#0B1F3A';
   const soft = '#E8F2F4';
@@ -191,7 +193,7 @@ export async function buildPortalInvitationEmailForAgency(agency, opts = {}) {
         },
         {
           agencyName: opts.agencyName || agency?.name,
-          supportUrl: opts.supportUrl || `${publicAppBaseUrl()}/support`,
+          supportUrl: opts.supportUrl || chrome.supportUrl || `${publicAppBaseUrl()}/support`,
           replyMailto: opts.replyMailto || null,
           agencyPhone: opts.agencyPhone || agency?.phone || null,
           agencyWebsite: opts.agencyWebsite || agency?.website || null

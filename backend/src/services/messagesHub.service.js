@@ -3662,18 +3662,12 @@ export async function sendHubPortalInvitation({
   }
 
   const tokenResult = await User.generatePasswordlessToken(guardian.id, 48, 'setup');
-  const config = (await import('../config/config.js')).default;
-  const frontendBase = String(config.frontendUrl || '').replace(/\/$/, '');
-  const userOrgs = await User.getAgencies(guardian.id);
-  const portalSlug = userOrgs?.[0]?.portal_url || userOrgs?.[0]?.slug || null;
-  const setupUrl = portalSlug
-    ? `${frontendBase}/${portalSlug}/passwordless-login/${tokenResult.token}`
-    : `${frontendBase}/passwordless-login/${tokenResult.token}`;
-  const setupDisplayUrl = portalSlug
-    ? `${String(frontendBase).replace(/^https?:\/\//, '')}/${portalSlug}`
-    : String(frontendBase).replace(/^https?:\/\//, '');
-
   const agency = await Agency.findById(aid);
+  const { buildPublicAppUrl, buildPublicPortalBaseUrl } = await import('../utils/publicPortalUrl.js');
+  const frontendBase = buildPublicPortalBaseUrl(agency);
+  const setupUrl = buildPublicAppUrl(agency, `passwordless-login/${tokenResult.token}`);
+  const setupDisplayUrl = String(frontendBase || '').replace(/^https?:\/\//, '');
+
   const actor = actorRows?.[0];
   const providerName =
     [actor?.first_name, actor?.last_name].filter(Boolean).join(' ') || 'your provider';
@@ -3688,7 +3682,7 @@ export async function sendHubPortalInvitation({
     setupUrl,
     setupDisplayUrl,
     colorPalette: agency?.color_palette,
-    supportUrl: `${frontendBase}${portalSlug ? `/${portalSlug}` : ''}/support`
+    supportUrl: buildPublicAppUrl(agency, 'support')
   });
 
   const { sendEmailFromIdentity } = await import('./unifiedEmail/unifiedEmailSender.service.js');
@@ -3726,21 +3720,33 @@ export async function sendHubPortalInvitation({
 }
 
 /**
- * Unified Hub Unread: email conversations + unread chat threads (direct + channels).
+ * Unified Hub conversation feed (email + chat/groups).
+ * mode='unread' → inbound you haven't seen only
+ * mode='inbox'  → running list of recent conversations (read + unread)
  */
-export async function listHubUnreadFeed({
+export async function listHubConversationFeed({
   agencyId,
   userId,
   limit = 60,
-  sort = 'newest'
+  sort = 'newest',
+  mode = 'inbox'
 } = {}) {
   const aid = Number(agencyId || 0) || null;
   const uid = Number(userId || 0);
   const lim = Math.min(Math.max(Number(limit) || 60, 1), 120);
   const sortNewest = String(sort || 'newest').toLowerCase() !== 'oldest';
-  if (!uid) return { items: [], counts: { total: 0, email: 0, chat: 0 }, sort: sortNewest ? 'newest' : 'oldest' };
+  const unreadOnly = String(mode || 'inbox').toLowerCase() === 'unread';
+  if (!uid) {
+    return {
+      items: [],
+      counts: { total: 0, email: 0, chat: 0, unread: 0 },
+      sort: sortNewest ? 'newest' : 'oldest',
+      mode: unreadOnly ? 'unread' : 'inbox'
+    };
+  }
 
   const items = [];
+  const CLIENT_FACING_ROLES = new Set(['client', 'client_guardian', 'guardian']);
 
   // Email / SMS / call conversations (personal-scoped like hubScope)
   try {
@@ -3748,7 +3754,7 @@ export async function listHubUnreadFeed({
       .default;
     const emailRows = await CommunicationConversation.list({
       agencyId: aid,
-      filter: 'unread',
+      filter: unreadOnly ? 'unread' : 'all',
       userId: uid,
       scopeToUserId: uid,
       limit: lim,
@@ -3757,16 +3763,23 @@ export async function listHubUnreadFeed({
     });
     for (const c of emailRows || []) {
       const channel = String(c.channel || 'email').toLowerCase();
+      const resolvedChannel = ['sms', 'call', 'voicemail'].includes(channel) ? channel : 'email';
+      const isUnread = !!c.is_unread;
+      if (unreadOnly && !isUnread) continue;
       items.push({
         id: `email-${c.id}`,
-        kind: 'email',
-        channel: ['sms', 'call', 'voicemail'].includes(channel) ? channel : 'email',
-        sortAt: c.last_inbound_at || c.last_message_at || c.updated_at || c.created_at,
-        unreadCount: 1,
-        is_unread: true,
+        kind: resolvedChannel === 'sms' ? 'sms' : 'email',
+        channel: resolvedChannel,
+        sortAt: unreadOnly
+          ? c.last_inbound_at || c.last_message_at || c.updated_at || c.created_at
+          : c.last_message_at || c.last_inbound_at || c.updated_at || c.created_at,
+        unreadCount: isUnread ? 1 : 0,
+        is_unread: isUnread,
         conversationId: Number(c.id),
         subject: c.subject || null,
-        preview: c.last_inbound_preview || c.last_message_preview || c.subject || '',
+        preview: unreadOnly
+          ? c.last_inbound_preview || c.last_message_preview || c.subject || ''
+          : c.last_message_preview || c.last_inbound_preview || c.subject || '',
         displayName: c.primary_participant_name || c.subject || 'Conversation',
         primaryEmail: c.primary_participant_email || null,
         personKey: null,
@@ -3778,15 +3791,42 @@ export async function listHubUnreadFeed({
       });
     }
   } catch (e) {
-    console.warn('[listHubUnreadFeed] email:', e?.message || e);
+    console.warn('[listHubConversationFeed] email:', e?.message || e);
   }
 
-  // Chat threads with unread (direct + channels / team / club)
+  // Chat threads (direct + channels / team / club)
   try {
     const agencyClause = aid ? 'AND t.agency_id = ?' : '';
-    // unread subquery (2) + other participant (1) + tp/r/td (3) + lm delete (1) + ou (1) [+ agency]
-    const params = [uid, uid, uid, uid, uid, uid, uid, uid, uid];
+    // unread(2) + other(1) + tp/r/td(3) + lm delete(1) + ou(1) [+ agency]
+    // For inbox, last message is any sender; for unread, prefer unread inbound preview.
+    const params = unreadOnly
+      ? [uid, uid, uid, uid, uid, uid, uid, uid, uid]
+      : [uid, uid, uid, uid, uid, uid, uid, uid];
     if (aid) params.push(aid);
+
+    const lastMessageSql = unreadOnly
+      ? `LEFT JOIN chat_messages lm ON lm.id = (
+           SELECT m.id
+           FROM chat_messages m
+           LEFT JOIN chat_message_deletes d ON d.message_id = m.id AND d.user_id = ?
+           WHERE m.thread_id = t.id
+             AND d.message_id IS NULL
+             AND m.sender_user_id <> ?
+             AND (r.last_read_message_id IS NULL OR m.id > r.last_read_message_id)
+           ORDER BY m.id DESC
+           LIMIT 1
+         )`
+      : `LEFT JOIN chat_messages lm ON lm.id = (
+           SELECT m.id
+           FROM chat_messages m
+           LEFT JOIN chat_message_deletes d ON d.message_id = m.id AND d.user_id = ?
+           WHERE m.thread_id = t.id AND d.message_id IS NULL
+           ORDER BY m.id DESC
+           LIMIT 1
+         )`;
+
+    const havingClause = unreadOnly ? 'HAVING unread_count > 0' : 'HAVING last_message_id IS NOT NULL';
+
     const [chatRows] = await pool.execute(
       `SELECT t.id AS thread_id,
               t.agency_id,
@@ -3820,22 +3860,13 @@ export async function listHubUnreadFeed({
               ) AS other_user_id,
               ou.first_name AS other_first_name,
               ou.last_name AS other_last_name,
-              ou.profile_photo_path AS other_photo
+              ou.profile_photo_path AS other_photo,
+              ou.role AS other_role
        FROM chat_threads t
        JOIN chat_thread_participants tp ON tp.thread_id = t.id AND tp.user_id = ?
        LEFT JOIN chat_thread_reads r ON r.thread_id = t.id AND r.user_id = ?
        LEFT JOIN chat_thread_deletes td ON td.thread_id = t.id AND td.user_id = ?
-       LEFT JOIN chat_messages lm ON lm.id = (
-         SELECT m.id
-         FROM chat_messages m
-         LEFT JOIN chat_message_deletes d ON d.message_id = m.id AND d.user_id = ?
-         WHERE m.thread_id = t.id
-           AND d.message_id IS NULL
-           AND m.sender_user_id <> ?
-           AND (r.last_read_message_id IS NULL OR m.id > r.last_read_message_id)
-         ORDER BY m.id DESC
-         LIMIT 1
-       )
+       ${lastMessageSql}
        LEFT JOIN users ou ON ou.id = (
          SELECT tp2.user_id
          FROM chat_thread_participants tp2
@@ -3845,7 +3876,7 @@ export async function listHubUnreadFeed({
        )
        WHERE td.deleted_at IS NULL
          ${agencyClause}
-       HAVING unread_count > 0
+       ${havingClause}
        ORDER BY COALESCE(last_message_at, t.updated_at) DESC
        LIMIT ${Number(lim)}`,
       params
@@ -3853,7 +3884,7 @@ export async function listHubUnreadFeed({
 
     for (const row of chatRows || []) {
       const unreadCount = Number(row.unread_count || 0);
-      if (unreadCount <= 0) continue;
+      if (unreadOnly && unreadCount <= 0) continue;
       const threadType = String(row.thread_type || 'direct').toLowerCase();
       const isDirect = threadType === 'direct';
       const isChannel = threadType === 'channel';
@@ -3871,6 +3902,7 @@ export async function listHubUnreadFeed({
         }
       }
       const otherId = row.other_user_id ? Number(row.other_user_id) : null;
+      const otherRole = String(row.other_role || '').toLowerCase();
       let displayName;
       let kind;
       let channel;
@@ -3879,7 +3911,7 @@ export async function listHubUnreadFeed({
           [row.other_first_name, row.other_last_name].filter(Boolean).join(' ').trim() ||
           `User #${otherId || '?'}`;
         kind = 'chat';
-        channel = 'internal';
+        channel = CLIENT_FACING_ROLES.has(otherRole) ? 'secure' : 'internal';
       } else if (isChannel) {
         displayName = row.channel_name || 'Channel';
         kind = 'channel';
@@ -3889,7 +3921,6 @@ export async function listHubUnreadFeed({
         kind = 'group';
         channel = 'group';
       } else {
-        // group / team / club
         displayName = row.channel_name || (threadType === 'team' ? 'Team chat' : 'Group chat');
         kind = 'group';
         channel = 'group';
@@ -3900,7 +3931,7 @@ export async function listHubUnreadFeed({
         channel,
         sortAt: row.last_message_at || null,
         unreadCount,
-        is_unread: true,
+        is_unread: unreadCount > 0,
         conversationId: null,
         subject: null,
         preview: String(preview || '').slice(0, 200),
@@ -3919,21 +3950,23 @@ export async function listHubUnreadFeed({
       });
     }
   } catch (e) {
-    console.warn('[listHubUnreadFeed] chat:', e?.message || e);
+    console.warn('[listHubConversationFeed] chat:', e?.message || e);
   }
 
-  // One unread row per person for direct chat (duplicate threads are the same conversation).
+  // One row per person for direct chat (duplicate threads are the same conversation).
   const byPerson = new Map();
   const collapsed = [];
   for (const item of items) {
     if (item.kind === 'chat' && item.personKey) {
       const prev = byPerson.get(item.personKey);
       if (prev) {
-        prev.unreadCount += Number(item.unreadCount || 0);
+        prev.unreadCount = Number(prev.unreadCount || 0) + Number(item.unreadCount || 0);
+        prev.is_unread = prev.unreadCount > 0;
         if (new Date(item.sortAt || 0).getTime() > new Date(prev.sortAt || 0).getTime()) {
           prev.sortAt = item.sortAt;
           prev.preview = item.preview;
           prev.threadId = item.threadId;
+          prev.channel = item.channel;
         }
         continue;
       }
@@ -3948,19 +3981,40 @@ export async function listHubUnreadFeed({
     return sortNewest ? tb - ta : ta - tb;
   });
 
-  const emailCount = collapsed.filter((i) => i.kind === 'email').length;
-  const chatCount = collapsed.filter((i) => i.kind === 'chat' || i.kind === 'channel' || i.kind === 'group').length;
   const sliced = collapsed.slice(0, lim);
+  const emailCount = sliced.filter((i) => i.kind === 'email' || i.channel === 'email').length;
+  const smsCount = sliced.filter((i) => i.channel === 'sms').length;
+  const chatCount = sliced.filter((i) =>
+    ['chat', 'channel', 'group'].includes(i.kind) || ['internal', 'secure', 'channel', 'group'].includes(i.channel)
+  ).length;
+  const unreadCount = sliced.filter((i) => i.is_unread).length;
 
   return {
     items: sliced,
     counts: {
-      total: emailCount + chatCount,
+      total: sliced.length,
       email: emailCount,
-      chat: chatCount
+      sms: smsCount,
+      chat: chatCount,
+      unread: unreadCount
     },
-    sort: sortNewest ? 'newest' : 'oldest'
+    sort: sortNewest ? 'newest' : 'oldest',
+    mode: unreadOnly ? 'unread' : 'inbox'
   };
+}
+
+/**
+ * Unified Hub Unread: inbound you haven't seen (email + chat/groups).
+ */
+export async function listHubUnreadFeed(opts = {}) {
+  return listHubConversationFeed({ ...opts, mode: 'unread' });
+}
+
+/**
+ * Unified Hub Inbox: running list of recent conversations (read + unread).
+ */
+export async function listHubInboxFeed(opts = {}) {
+  return listHubConversationFeed({ ...opts, mode: 'inbox' });
 }
 
 /**

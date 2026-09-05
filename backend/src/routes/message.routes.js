@@ -35,6 +35,7 @@ import {
   getMessagesHubSmartReply,
   getMessagesHubQueued,
   getMessagesHubUnread,
+  getMessagesHubInbox,
   postMessagesHubMarkUnread,
   postMessagesHubQueuedUndo
 } from '../controllers/messagesHub.controller.js';
@@ -56,6 +57,7 @@ router.post('/hub/portal-invite', postMessagesHubPortalInvite);
 router.get('/hub/smart-reply', getMessagesHubSmartReply);
 router.get('/hub/queued', getMessagesHubQueued);
 router.get('/hub/unread', getMessagesHubUnread);
+router.get('/hub/inbox', getMessagesHubInbox);
 router.post('/hub/people/:personKey/unread', postMessagesHubMarkUnread);
 router.post('/hub/queued/:id/undo', postMessagesHubQueuedUndo);
 router.get('/hub/people/:personKey/timeline', getMessagesHubTimeline);
