@@ -8,8 +8,12 @@ import { publicAppBaseUrl } from './contactReminderToken.service.js';
 import { buildPublicAppUrl } from '../utils/publicPortalUrl.js';
 import { publicUploadsUrlFromStoredPath } from '../utils/uploads.js';
 
-const ITSCO_HEADER = '/email-branding/itsco/email-header.png';
+  const ITSCO_HEADER = '/email-branding/itsco/email-header.png';
 const ITSCO_FOOTER = '/email-branding/itsco/email-footer.png';
+const NLU_HEADER = '/email-branding/nlu/email-header.jpg';
+const NLU_FOOTER = '/email-branding/nlu/email-footer.jpg';
+const INNER_HEADER = '/email-branding/innerstrength/email-header.jpg';
+const INNER_FOOTER = '/email-branding/innerstrength/email-footer.jpg';
 
 const LLM_HEADER_PROMPT = `Create a wide HTML-email header banner (≈1200×280 px, PNG) for a behavioral-health / family-care organization.
 
@@ -79,8 +83,25 @@ function absolutizeAssetUrl(pathOrUrl) {
 }
 
 function looksLikeItsco(agency = {}) {
-  const hay = `${agency.name || ''} ${agency.slug || ''} ${agency.official_name || ''}`.toLowerCase();
+  const hay = `${agency.name || ''} ${agency.slug || ''} ${agency.official_name || ''} ${agency.portal_url || ''}`.toLowerCase();
   return hay.includes('itsco');
+}
+
+function looksLikeNlu(agency = {}) {
+  const hay = `${agency.name || ''} ${agency.slug || ''} ${agency.official_name || ''} ${agency.portal_url || ''}`.toLowerCase();
+  return /\bnext level up\b/.test(hay) || /\bnlu\b/.test(hay) || hay.includes('nextlevelup');
+}
+
+function looksLikeInnerStrength(agency = {}) {
+  const hay = `${agency.name || ''} ${agency.slug || ''} ${agency.official_name || ''} ${agency.portal_url || ''}`.toLowerCase();
+  return hay.includes('inner strength') || hay.includes('innerstrength') || /\btisi\b/.test(hay);
+}
+
+function bundledChromeFallback(agency = {}) {
+  if (looksLikeItsco(agency)) return { header: ITSCO_HEADER, footer: ITSCO_FOOTER };
+  if (looksLikeNlu(agency)) return { header: NLU_HEADER, footer: NLU_FOOTER };
+  if (looksLikeInnerStrength(agency)) return { header: INNER_HEADER, footer: INNER_FOOTER };
+  return null;
 }
 
 /**
@@ -120,9 +141,12 @@ export async function resolveTenantEmailChrome(agencyId) {
     /* columns may be missing pre-migration */
   }
 
-  if ((!headerPath || !footerPath) && looksLikeItsco(agency || {})) {
-    headerPath = headerPath || ITSCO_HEADER;
-    footerPath = footerPath || ITSCO_FOOTER;
+  if ((!headerPath || !footerPath)) {
+    const bundled = bundledChromeFallback(agency || {});
+    if (bundled) {
+      headerPath = headerPath || bundled.header;
+      footerPath = footerPath || bundled.footer;
+    }
   }
 
   const headerUrl = absolutizeAssetUrl(headerPath);
@@ -262,4 +286,4 @@ export async function updateAgencyHtmlEmailChrome(agencyId, { headerUrl = undefi
   return resolveTenantEmailChrome(aid);
 }
 
-export { ITSCO_HEADER, ITSCO_FOOTER, LLM_HEADER_PROMPT, LLM_FOOTER_PROMPT };
+export { ITSCO_HEADER, ITSCO_FOOTER, NLU_HEADER, NLU_FOOTER, INNER_HEADER, INNER_FOOTER, LLM_HEADER_PROMPT, LLM_FOOTER_PROMPT };

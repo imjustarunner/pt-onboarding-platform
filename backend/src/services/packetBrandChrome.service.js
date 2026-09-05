@@ -2,6 +2,7 @@
  * Resolve printable-packet chrome (cover / header / footer / body font) per agency.
  * ITSCO (and demo ITSCO) keep legacy Comfortaa/Anton + bundled brand assets.
  * NLU uses bundled Next Level Up print assets (header, logo, footer, watermark).
+ * Inner Strength uses document header + icon watermark + black footer mark + enrollment cover.
  * Other tenants use Montserrat body + agency-uploaded assets (no ITSCO inheritance).
  */
 import path from 'path';
@@ -19,6 +20,9 @@ const BRAND_FALLBACK_ROOT_LEGACY = path.resolve(__dirname, '../../../assets/ITSC
 const NLU_BRAND_DIR = path.join(BRAND_DIR, 'nlu');
 const NLU_PRINTING_DIR = path.resolve(__dirname, '../../../assets/PrintingAssets/NLU Assets');
 const NLU_PRINTING_DIR_DOCKER = path.resolve(__dirname, '../../assets/PrintingAssets/NLU Assets');
+const INNER_BRAND_DIR = path.join(BRAND_DIR, 'innerstrength');
+const INNER_PRINTING_DIR = path.resolve(__dirname, '../../../assets/PrintingAssets/innerstrength');
+const INNER_PRINTING_DIR_DOCKER = path.resolve(__dirname, '../../assets/PrintingAssets/innerstrength');
 const ITSCO_PRINTING_DIR = path.resolve(__dirname, '../../../assets/PrintingAssets/ITSCO Brand');
 const ITSCO_PRINTING_DIR_DOCKER = path.resolve(__dirname, '../../assets/PrintingAssets/ITSCO Brand');
 const FONTS_DIR = path.join(__dirname, '../assets/fonts');
@@ -270,6 +274,43 @@ function nluBundledChrome(packetKind = 'counseling') {
   };
 }
 
+export function isInnerStrengthPacketChromeAgency(agency = {}) {
+  const slug = String(agency?.slug || agency?.portal_url || '').trim().toLowerCase();
+  if (normalizeTenantBrandKey(slug) === 'innerstrength') return true;
+  const name = String(agency?.official_name || agency?.name || '').trim().toLowerCase();
+  const nameKey = name.replace(/[^a-z0-9-]+/g, '');
+  if (normalizeTenantBrandKey(nameKey) === 'innerstrength') return true;
+  return /\binner strength\b/.test(name) || /\btisi\b/.test(`${slug} ${name}`);
+}
+
+function innerAssetDataUrl(filename) {
+  return firstExistingDataUrl(
+    [
+      path.join(INNER_BRAND_DIR, filename),
+      path.join(INNER_PRINTING_DIR, filename),
+      path.join(INNER_PRINTING_DIR_DOCKER, filename)
+    ],
+    mimeFromPath(filename)
+  );
+}
+
+function innerBundledChrome() {
+  return {
+    // Enrollment cover for office / intake / school printable packets.
+    coverDataUrl: innerAssetDataUrl('innerstrengthenrollment.png'),
+    // Wordless icon for logo fallbacks.
+    headerLogoDataUrl: innerAssetDataUrl('TheInnerStrengthNowords.png'),
+    // Black document header banner for PDF page chrome.
+    headerImageDataUrl: innerAssetDataUrl('innerstrengthdocumentheader.png'),
+    // Black footer mark (icon ink on transparent).
+    footerMarkDataUrl:
+      innerAssetDataUrl('footer-mark-black.png') || innerAssetDataUrl('TheInnerStrengthNowords.png'),
+    // Icon watermark on content pages.
+    watermarkDataUrl: innerAssetDataUrl('TheInnerStrengthNowords.png'),
+    coverKind: 'enrollment'
+  };
+}
+
 function montserratRegularDataUrl() {
   return fileToDataUrl(path.join(FONTS_DIR, 'Montserrat-Regular.ttf'), 'font/ttf');
 }
@@ -327,19 +368,21 @@ export async function resolvePacketBrandChrome(agency = {}, options = {}) {
     ? resolveNluPacketCoverKind(options, options?.link || null, agency)
     : null;
   const nlu = nluCoverKind ? nluBundledChrome(nluCoverKind) : null;
+  const inner = !nlu && isInnerStrengthPacketChromeAgency(agency) ? innerBundledChrome() : null;
+  const bundled = nlu || inner;
 
   return {
     useItscoChrome: false,
     bodyFontFamily: "'Montserrat', Arial, Helvetica, sans-serif",
-    coverDataUrl: coverDataUrl || nlu?.coverDataUrl || null,
-    headerLogoDataUrl: headerLogoDataUrl || nlu?.headerLogoDataUrl || null,
-    headerImageDataUrl: headerImageDataUrl || nlu?.headerImageDataUrl || null,
-    footerMarkDataUrl: footerMarkDataUrl || nlu?.footerMarkDataUrl || null,
-    watermarkDataUrl: nlu?.watermarkDataUrl || null,
+    coverDataUrl: coverDataUrl || bundled?.coverDataUrl || null,
+    headerLogoDataUrl: headerLogoDataUrl || bundled?.headerLogoDataUrl || null,
+    headerImageDataUrl: headerImageDataUrl || bundled?.headerImageDataUrl || null,
+    footerMarkDataUrl: footerMarkDataUrl || bundled?.footerMarkDataUrl || null,
+    watermarkDataUrl: bundled?.watermarkDataUrl || null,
     versionLabel,
     montserratRegularDataUrl: montserratRegularDataUrl(),
     montserratSemiBoldDataUrl: montserratSemiBoldDataUrl(),
-    coverKind: nlu?.coverKind || null
+    coverKind: bundled?.coverKind || null
   };
 }
 

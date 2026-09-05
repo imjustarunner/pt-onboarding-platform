@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   isNluPacketChromeAgency,
   isItscoPacketChromeAgency,
+  isInnerStrengthPacketChromeAgency,
   resolvePacketBrandChrome,
   resolveNluPacketCoverKind
 } from '../packetBrandChrome.service.js';
@@ -15,6 +16,13 @@ test('detects NLU agencies without treating ITSCO as NLU', () => {
   assert.equal(isNluPacketChromeAgency({ official_name: 'Next Level Up' }), true);
   assert.equal(isNluPacketChromeAgency({ slug: 'itsco' }), false);
   assert.equal(isItscoPacketChromeAgency({ slug: 'itsco' }), true);
+});
+
+test('detects Inner Strength / TISI agencies', () => {
+  assert.equal(isInnerStrengthPacketChromeAgency({ slug: 'tisi' }), true);
+  assert.equal(isInnerStrengthPacketChromeAgency({ portal_url: 'innerstrength' }), true);
+  assert.equal(isInnerStrengthPacketChromeAgency({ name: 'The Inner Strength Institute' }), true);
+  assert.equal(isInnerStrengthPacketChromeAgency({ slug: 'nlu' }), false);
 });
 
 test('resolveNluPacketCoverKind maps channel/title to counseling, tutoring, skill-enriched', () => {
@@ -64,4 +72,18 @@ test('ITSCO school and office packets use bundled enrollment covers', async () =
   assert.match(String(office.coverDataUrl || ''), DATA_IMAGE);
   // Shared NewITSCOPacketCover / ITSCOEnrollmentPacketCover is preferred for both kinds.
   assert.equal(office.coverDataUrl, intake.coverDataUrl);
+});
+
+test('Inner Strength print chrome uses document header, black footer mark, icon watermark, enrollment cover', async () => {
+  const brand = await resolvePacketBrandChrome({
+    slug: 'tisi',
+    name: 'The Inner Strength Institute'
+  });
+  assert.equal(brand.useItscoChrome, false);
+  assert.equal(brand.coverKind, 'enrollment');
+  assert.match(String(brand.coverDataUrl || ''), DATA_IMAGE);
+  assert.match(String(brand.headerImageDataUrl || ''), DATA_IMAGE);
+  assert.match(String(brand.footerMarkDataUrl || ''), DATA_IMAGE);
+  assert.match(String(brand.watermarkDataUrl || ''), DATA_IMAGE);
+  assert.match(brand.bodyFontFamily, /Montserrat/);
 });
