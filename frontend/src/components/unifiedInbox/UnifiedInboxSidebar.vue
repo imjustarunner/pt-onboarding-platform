@@ -44,10 +44,8 @@ function inboxOptionLabel(box) {
 
 const selectedIsAppInbox = computed(() => {
   const id = props.selectedInboxId;
-  const box = (props.inboxes || []).find((b) => {
-    if (id == null || id === 'null') return b.kind === 'personal' || b.identity_key === 'my_inbox';
-    return String(b.id) === String(id);
-  });
+  if (id == null || id === 'null' || id === 'assigned') return false;
+  const box = (props.inboxes || []).find((b) => String(b.id) === String(id));
   return box?.routing === 'app_group_alias' || box?.kind === 'personal' || box?.identity_key === 'my_inbox';
 });
 
@@ -55,6 +53,7 @@ function onInboxChange(e) {
   const v = e.target.value;
   if (v === '' || v === 'null') emit('update:selectedInboxId', null);
   else if (v === 'assigned') emit('update:selectedInboxId', 'assigned');
+  else if (v === 'my_inbox') emit('update:selectedInboxId', 'my_inbox');
   else emit('update:selectedInboxId', parseInt(v, 10));
 }
 

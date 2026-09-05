@@ -4,7 +4,7 @@
       <div>
         <h2 class="msg-hub-title">Messages</h2>
         <p class="msg-hub-sub">
-          {{ greeting }} Pick a person, then choose Secure, SMS, Email, or Internal.
+          {{ greeting }} Messages from every agency you belong to — each person shows who they are and which agency.
         </p>
       </div>
       <button type="button" class="btn btn-primary" @click="openNewConversation">
@@ -51,7 +51,11 @@
                 <strong>{{ p.displayName }}</strong>
                 <span v-if="p.occurredAt" class="msg-hub-time">{{ formatTime(p.occurredAt) }}</span>
               </div>
-              <p class="msg-hub-snippet">{{ p.relationshipMeta || kindsLabel(p.kinds) }}</p>
+              <p class="msg-hub-snippet">
+                <span v-if="p.agencyName" class="msg-hub-agency">{{ p.agencyName }}</span>
+                <span v-if="p.agencyName && (p.relationshipMeta || kindsLabel(p.kinds))"> · </span>
+                {{ p.relationshipMeta || kindsLabel(p.kinds) }}
+              </p>
             </div>
             <span class="msg-hub-kind" :class="`kind-${p.preferredMethod || 'secure'}`">
               {{ methodLabel(p.preferredMethod) || kindFromKinds(p.kinds) }}
@@ -72,7 +76,11 @@
             <div class="msg-hub-avatar lg" aria-hidden="true">{{ initials(selected.displayName) }}</div>
             <div>
               <h3>{{ selected.displayName }}</h3>
-              <p class="msg-hub-muted">{{ selected.relationshipMeta || kindsLabel(selected.kinds) }}</p>
+              <p class="msg-hub-muted">
+                <span v-if="selected.agencyName" class="msg-hub-agency">{{ selected.agencyName }}</span>
+                <span v-if="selected.agencyName && (selected.relationshipMeta || kindsLabel(selected.kinds))"> · </span>
+                {{ selected.relationshipMeta || kindsLabel(selected.kinds) }}
+              </p>
             </div>
           </header>
 
@@ -156,8 +164,13 @@
           <section class="msg-hub-panel">
             <h3>Profile</h3>
             <p class="msg-hub-profile-name">{{ selected.displayName }}</p>
-            <p class="msg-hub-muted">{{ selected.relationshipMeta || kindsLabel(selected.kinds) }}</p>
+            <p class="msg-hub-muted">
+              <span v-if="selected.agencyName" class="msg-hub-agency">{{ selected.agencyName }}</span>
+              <span v-if="selected.agencyName && (selected.relationshipMeta || kindsLabel(selected.kinds))"> · </span>
+              {{ selected.relationshipMeta || kindsLabel(selected.kinds) }}
+            </p>
             <ul class="msg-hub-kv">
+              <li v-if="selected.agencyName"><span>Agency</span><strong>{{ selected.agencyName }}</strong></li>
               <li v-if="selected.email"><span>Email</span><strong>{{ selected.email }}</strong></li>
               <li v-if="selected.phone"><span>Phone</span><strong>{{ selected.phone }}</strong></li>
               <li>
@@ -219,7 +232,11 @@
             <div class="msg-hub-avatar" aria-hidden="true">{{ initials(p.displayName) }}</div>
             <div>
               <strong>{{ p.displayName }}</strong>
-              <p class="msg-hub-muted">{{ p.relationshipMeta || kindsLabel(p.kinds) }}</p>
+              <p class="msg-hub-muted">
+                <span v-if="p.agencyName" class="msg-hub-agency">{{ p.agencyName }}</span>
+                <span v-if="p.agencyName && (p.relationshipMeta || kindsLabel(p.kinds))"> · </span>
+                {{ p.relationshipMeta || kindsLabel(p.kinds) }}
+              </p>
               <p class="msg-hub-methods-inline">
                 <span
                   v-for="m in (p.methods || []).filter((x) => x.available)"
@@ -301,7 +318,7 @@ const filteredPeople = computed(() => {
   const q = listSearch.value.trim().toLowerCase();
   if (q) {
     list = list.filter((p) =>
-      `${p.displayName} ${p.relationshipMeta || ''} ${p.email || ''} ${p.phone || ''}`
+      `${p.displayName} ${p.relationshipMeta || ''} ${p.agencyName || ''} ${p.email || ''} ${p.phone || ''}`
         .toLowerCase()
         .includes(q)
     );
@@ -323,7 +340,9 @@ const newTabHint = computed(() => {
   if (newTab.value === 'caseload') {
     return 'Your assigned clients — shown by name, initials, or code so you can find them without memorizing a full name.';
   }
-  if (newTab.value === 'recent') return 'People you recently messaged across Secure, SMS, Email, or Internal.';
+  if (newTab.value === 'recent') {
+    return 'People you recently messaged across every agency you belong to — each row shows the person and their agency.';
+  }
   return 'Type at least 2 characters: name, initials, identifier code, email, or phone.';
 });
 
@@ -378,8 +397,8 @@ function formatTime(v) {
 }
 
 async function fetchPeople({ browse, q, limit = 40 } = {}) {
-  if (!agencyId.value) return [];
-  const params = { agencyId: agencyId.value, limit };
+  const params = { allAgencies: true, limit };
+  if (agencyId.value) params.agencyId = agencyId.value;
   if (browse) params.browse = browse;
   if (q) params.q = q;
   const { data } = await api.get('/messages/hub/people', { params, skipGlobalLoading: true });
@@ -387,7 +406,6 @@ async function fetchPeople({ browse, q, limit = 40 } = {}) {
 }
 
 async function loadList() {
-  if (!agencyId.value) return;
   loadingList.value = true;
   error.value = '';
   try {
@@ -468,14 +486,17 @@ async function pickPerson(person) {
 }
 
 async function loadTimeline(personKey) {
-  if (!agencyId.value || !personKey) {
+  if (!personKey) {
     timeline.value = [];
     return;
   }
   loadingTimeline.value = true;
   try {
+    const aid = selected.value?.agencyId || agencyId.value;
+    const reqParams = {};
+    if (aid) reqParams.agencyId = aid;
     const { data } = await api.get(`/messages/hub/people/${encodeURIComponent(personKey)}/timeline`, {
-      params: { agencyId: agencyId.value },
+      params: reqParams,
       skipGlobalLoading: true
     });
     if (data?.person) selected.value = data.person;
@@ -489,7 +510,12 @@ async function loadTimeline(personKey) {
 }
 
 async function send() {
-  if (!selected.value?.personKey || !agencyId.value || !composeBody.value.trim()) return;
+  if (!selected.value?.personKey || !composeBody.value.trim()) return;
+  const sendAgencyId = selected.value.agencyId || agencyId.value;
+  if (!sendAgencyId) {
+    sendError.value = 'Missing agency for this conversation';
+    return;
+  }
   if (!activeMethod.value?.available) {
     sendError.value = activeMethod.value?.reason || 'That method is not available';
     return;
@@ -498,7 +524,7 @@ async function send() {
   sendError.value = '';
   try {
     await api.post('/messages/hub/send', {
-      agencyId: agencyId.value,
+      agencyId: sendAgencyId,
       personKey: selected.value.personKey,
       method: sendMethod.value,
       body: composeBody.value.trim(),
@@ -647,6 +673,10 @@ defineExpose({ reload: loadList });
 .msg-hub-muted,
 .msg-hub-snippet { margin: 0; font-size: 12px; color: var(--mh-muted); }
 .msg-hub-snippet { margin-top: 4px; color: #475569; }
+.msg-hub-agency {
+  font-weight: 700;
+  color: var(--mh-primary);
+}
 .msg-hub-kind {
   font-size: 10px;
   font-weight: 800;

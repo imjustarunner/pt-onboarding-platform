@@ -11,7 +11,7 @@
 
 **Route:** `/messages` (and `/:slug/messages`)
 
-**Job:** People-first **Messages hub** — browse **My clients** / **Recent** or search by name, initials, code, email, or phone; see available methods (Secure / SMS / Email / Internal); send from one composer; one chronological timeline labeled by channel. Team chat workspace (`?view=workspace`) and Communications Center shared inboxes are separate tools — not parallel “message systems” inside the hub.
+**Job:** People-first **Messages hub** — browse **My clients** / **Recent** or search by name, initials, code, email, or phone **across every agency you belong to**; each person is labeled with their agency; see available methods (Secure / SMS / Email / Internal); send from one composer; one chronological timeline labeled by channel. Team chat workspace (`?view=workspace`) and Communications Center shared inboxes are separate tools — not parallel “message systems” inside the hub.
 
 Admins/support use this same Messages UI when they select **Messages** in the Communications Center — not a separate ops-only variant.
 

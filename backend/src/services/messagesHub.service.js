@@ -27,6 +27,15 @@ function likeParam(q) {
 
 export function parsePersonKey(personKey) {
   const raw = String(personKey || '').trim();
+  // user:123@2 | client:45@2 | contact:67@2  (agency-scoped)
+  const scoped = raw.match(/^(user|client|contact):(\d+)@(\d+)$/i);
+  if (scoped) {
+    const type = scoped[1].toLowerCase();
+    const id = Number(scoped[2]);
+    const agencyId = Number(scoped[3]);
+    if (!Number.isFinite(id) || id <= 0 || !Number.isFinite(agencyId) || agencyId <= 0) return null;
+    return { type, id, value: String(id), agencyId };
+  }
   const m = raw.match(/^(user|client|contact|email|phone):(.+)$/i);
   if (!m) return null;
   const type = m[1].toLowerCase();
@@ -34,9 +43,34 @@ export function parsePersonKey(personKey) {
   if (type === 'user' || type === 'client' || type === 'contact') {
     const id = Number(value);
     if (!Number.isFinite(id) || id <= 0) return null;
-    return { type, id, value };
+    return { type, id, value, agencyId: null };
   }
-  return { type, id: null, value };
+  return { type, id: null, value, agencyId: null };
+}
+
+export function formatPersonKey(type, idOrValue, agencyId = null) {
+  const t = String(type || '').toLowerCase();
+  if (t === 'email' || t === 'phone') {
+    return `${t}:${idOrValue}`;
+  }
+  const id = Number(idOrValue);
+  if (agencyId) return `${t}:${id}@${agencyId}`;
+  return `${t}:${id}`;
+}
+
+async function loadAgencyNameMap(agencyIds) {
+  const ids = [...new Set((agencyIds || []).map(Number).filter((n) => Number.isFinite(n) && n > 0))];
+  if (!ids.length) return new Map();
+  const ph = ids.map(() => '?').join(',');
+  const [rows] = await pool.execute(
+    `SELECT id, name, official_name FROM agencies WHERE id IN (${ph})`,
+    ids
+  );
+  const map = new Map();
+  for (const r of rows || []) {
+    map.set(Number(r.id), r.name || r.official_name || `Agency #${r.id}`);
+  }
+  return map;
 }
 
 function method(id, available, reason, recommended = false) {
@@ -198,7 +232,9 @@ function upsertPerson(map, key, patch) {
     phone: null,
     relationshipMeta: null,
     portalAccess: false,
-    smsOptIn: false
+    smsOptIn: false,
+    agencyId: null,
+    agencyName: null
   };
   const kinds = new Set([...(existing.kinds || []), ...(patch.kinds || [])]);
   map.set(key, {
@@ -213,7 +249,9 @@ function upsertPerson(map, key, patch) {
     phone: patch.phone || existing.phone,
     relationshipMeta: patch.relationshipMeta || existing.relationshipMeta,
     portalAccess: !!(patch.portalAccess || existing.portalAccess),
-    smsOptIn: !!(patch.smsOptIn || existing.smsOptIn)
+    smsOptIn: !!(patch.smsOptIn || existing.smsOptIn),
+    agencyId: patch.agencyId ?? existing.agencyId,
+    agencyName: patch.agencyName || existing.agencyName
   });
 }
 
@@ -227,9 +265,11 @@ function clientMeta(c) {
   return bits.length ? bits.join(' · ') : 'Client';
 }
 
-function finalizePeople(map, hasAppInbox, lim) {
+async function finalizePeople(map, inboxByAgency, lim, { sortRecent = false } = {}) {
   const people = [];
   for (const person of map.values()) {
+    const aid = person.agencyId;
+    const hasAppInbox = aid ? !!inboxByAgency.get(Number(aid)) : [...inboxByAgency.values()].some(Boolean);
     const { methods, preferredMethod } = buildMethods({
       kinds: person.kinds,
       hasUserId: !!person.userId,
@@ -244,14 +284,34 @@ function finalizePeople(map, hasAppInbox, lim) {
       preferredMethod
     });
   }
-  people.sort((a, b) => String(a.displayName).localeCompare(String(b.displayName)));
+  if (sortRecent) {
+    people.sort((a, b) => {
+      const ta = a.occurredAt ? new Date(a.occurredAt).getTime() : 0;
+      const tb = b.occurredAt ? new Date(b.occurredAt).getTime() : 0;
+      if (tb !== ta) return tb - ta;
+      return String(a.displayName).localeCompare(String(b.displayName));
+    });
+  } else {
+    people.sort((a, b) => String(a.displayName).localeCompare(String(b.displayName)));
+  }
   return people.slice(0, lim);
 }
 
-function upsertClientRow(map, c) {
+async function buildInboxMap(agencyIds, userId) {
+  const map = new Map();
+  await Promise.all(
+    (agencyIds || []).map(async (aid) => {
+      map.set(Number(aid), await actorHasAppInbox(aid, userId));
+    })
+  );
+  return map;
+}
+
+function upsertClientRow(map, c, agencyId, agencyName) {
   const smsDenied = c.session_sms_opt_in === 0 || c.session_sms_opt_in === false;
   const smsOk = !!c.contact_phone && !smsDenied;
-  upsertPerson(map, `client:${c.id}`, {
+  const key = formatPersonKey('client', c.id, agencyId);
+  upsertPerson(map, key, {
     displayName: clientDisplayName(c),
     kinds: ['client'],
     clientId: c.id,
@@ -260,20 +320,26 @@ function upsertClientRow(map, c) {
     relationshipMeta: clientMeta(c),
     portalAccess: !!(c.guardian_portal_enabled === 1 || c.guardian_portal_enabled === true),
     smsOptIn: smsOk,
-    occurredAt: c.last_at || null
+    occurredAt: c.last_at || null,
+    agencyId,
+    agencyName
   });
 }
 
 /**
  * Browse people without knowing a name: caseload and/or recent activity.
+ * Supports multiple agencies so staff see DMs/clients across every tenant they belong to.
  * browse: 'caseload' | 'recent' | 'suggested' (caseload + recent, default)
  */
-export async function browseHubPeople({ agencyId, userId, browse = 'suggested', limit = 30 }) {
-  if (!agencyId || !userId) return [];
-  const lim = Math.min(Math.max(Number(limit) || 30, 1), 60);
+export async function browseHubPeople({ agencyId, agencyIds = null, userId, browse = 'suggested', limit = 30 }) {
+  const ids = [...new Set((agencyIds?.length ? agencyIds : [agencyId]).map(Number).filter((n) => n > 0))];
+  if (!ids.length || !userId) return [];
+  const lim = Math.min(Math.max(Number(limit) || 30, 1), 80);
   const mode = String(browse || 'suggested').toLowerCase();
-  const hasAppInbox = await actorHasAppInbox(agencyId, userId);
+  const nameMap = await loadAgencyNameMap(ids);
+  const inboxByAgency = await buildInboxMap(ids, userId);
   const map = new Map();
+  const ph = ids.map(() => '?').join(',');
 
   const wantCaseload = mode === 'caseload' || mode === 'suggested';
   const wantRecent = mode === 'recent' || mode === 'suggested';
@@ -281,30 +347,35 @@ export async function browseHubPeople({ agencyId, userId, browse = 'suggested', 
   if (wantCaseload) {
     try {
       const [rows] = await pool.execute(
-        `SELECT c.id, c.full_name, c.initials, c.identifier_code, c.contact_phone, c.email,
+        `SELECT c.id, c.agency_id, c.full_name, c.initials, c.identifier_code, c.contact_phone, c.email,
                 c.session_sms_opt_in, c.guardian_portal_enabled
          FROM clients c
-         WHERE c.agency_id = ?
+         WHERE c.agency_id IN (${ph})
            AND c.provider_id = ?
            AND (c.compliance_archived_at IS NULL)
          ORDER BY COALESCE(c.full_name, c.initials, c.identifier_code) ASC
          LIMIT ${lim}`,
-        [agencyId, userId]
+        [...ids, userId]
       );
-      for (const c of rows || []) upsertClientRow(map, c);
+      for (const c of rows || []) {
+        const aid = Number(c.agency_id);
+        upsertClientRow(map, c, aid, nameMap.get(aid) || null);
+      }
     } catch {
-      // If archived column missing, retry without it
       try {
         const [rows] = await pool.execute(
-          `SELECT c.id, c.full_name, c.initials, c.identifier_code, c.contact_phone, c.email,
+          `SELECT c.id, c.agency_id, c.full_name, c.initials, c.identifier_code, c.contact_phone, c.email,
                   c.session_sms_opt_in, c.guardian_portal_enabled
            FROM clients c
-           WHERE c.agency_id = ? AND c.provider_id = ?
+           WHERE c.agency_id IN (${ph}) AND c.provider_id = ?
            ORDER BY COALESCE(c.full_name, c.initials, c.identifier_code) ASC
            LIMIT ${lim}`,
-          [agencyId, userId]
+          [...ids, userId]
         );
-        for (const c of rows || []) upsertClientRow(map, c);
+        for (const c of rows || []) {
+          const aid = Number(c.agency_id);
+          upsertClientRow(map, c, aid, nameMap.get(aid) || null);
+        }
       } catch {
         /* ignore */
       }
@@ -312,37 +383,38 @@ export async function browseHubPeople({ agencyId, userId, browse = 'suggested', 
   }
 
   if (wantRecent) {
-    // Recent SMS partners (clients / contacts this user texted)
     try {
       const [smsRows] = await pool.execute(
-        `SELECT ml.client_id, ml.agency_contact_id, MAX(ml.created_at) AS last_at
+        `SELECT ml.client_id, ml.agency_contact_id, ml.agency_id, MAX(ml.created_at) AS last_at
          FROM message_logs ml
-         WHERE ml.agency_id = ?
+         WHERE ml.agency_id IN (${ph})
            AND (ml.user_id = ? OR ml.assigned_user_id = ?)
            AND (ml.client_id IS NOT NULL OR ml.agency_contact_id IS NOT NULL)
-         GROUP BY ml.client_id, ml.agency_contact_id
+         GROUP BY ml.client_id, ml.agency_contact_id, ml.agency_id
          ORDER BY last_at DESC
          LIMIT ${lim}`,
-        [agencyId, userId, userId]
+        [...ids, userId, userId]
       );
       for (const r of smsRows || []) {
+        const aid = Number(r.agency_id);
+        const agencyName = nameMap.get(aid) || null;
         if (r.client_id) {
           const [clients] = await pool.execute(
             `SELECT id, full_name, initials, identifier_code, contact_phone, email,
                     session_sms_opt_in, guardian_portal_enabled
              FROM clients WHERE id = ? AND agency_id = ? LIMIT 1`,
-            [r.client_id, agencyId]
+            [r.client_id, aid]
           );
-          if (clients?.[0]) upsertClientRow(map, { ...clients[0], last_at: r.last_at });
+          if (clients?.[0]) upsertClientRow(map, { ...clients[0], last_at: r.last_at }, aid, agencyName);
         } else if (r.agency_contact_id) {
           const [contacts] = await pool.execute(
             `SELECT id, full_name, email, phone, client_id FROM agency_contacts
              WHERE id = ? AND agency_id = ? AND is_active = TRUE LIMIT 1`,
-            [r.agency_contact_id, agencyId]
+            [r.agency_contact_id, aid]
           );
           const c = contacts?.[0];
           if (c) {
-            upsertPerson(map, `contact:${c.id}`, {
+            upsertPerson(map, formatPersonKey('contact', c.id, aid), {
               displayName: c.full_name || c.email || c.phone || `Contact #${c.id}`,
               kinds: ['contact', 'external'],
               contactId: c.id,
@@ -351,7 +423,9 @@ export async function browseHubPeople({ agencyId, userId, browse = 'suggested', 
               phone: c.phone,
               relationshipMeta: 'Agency contact',
               smsOptIn: !!c.phone,
-              occurredAt: r.last_at
+              occurredAt: r.last_at,
+              agencyId: aid,
+              agencyName
             });
           }
         }
@@ -360,31 +434,36 @@ export async function browseHubPeople({ agencyId, userId, browse = 'suggested', 
       /* ignore */
     }
 
-    // Recent direct chat partners
     try {
       const [dmRows] = await pool.execute(
-        `SELECT other.user_id AS other_user_id, MAX(lm.created_at) AS last_at
+        `SELECT other.user_id AS other_user_id, t.agency_id, MAX(lm.created_at) AS last_at
          FROM chat_threads t
          INNER JOIN chat_thread_participants me ON me.thread_id = t.id AND me.user_id = ?
          INNER JOIN chat_thread_participants other ON other.thread_id = t.id AND other.user_id <> ?
          LEFT JOIN chat_messages lm ON lm.id = (
            SELECT m.id FROM chat_messages m WHERE m.thread_id = t.id ORDER BY m.id DESC LIMIT 1
          )
-         WHERE t.agency_id = ? AND t.thread_type = 'direct'
-         GROUP BY other.user_id
+         WHERE t.agency_id IN (${ph}) AND t.thread_type = 'direct'
+         GROUP BY other.user_id, t.agency_id
          ORDER BY last_at DESC
          LIMIT ${lim}`,
-        [userId, userId, agencyId]
+        [userId, userId, ...ids]
       );
       for (const r of dmRows || []) {
         if (!r.other_user_id) continue;
+        const aid = Number(r.agency_id);
         const person = await resolveHubPerson({
-          agencyId,
+          agencyId: aid,
           userId,
-          personKey: `user:${r.other_user_id}`
+          personKey: formatPersonKey('user', r.other_user_id, aid)
         });
         if (person) {
-          map.set(person.personKey, { ...person, occurredAt: r.last_at });
+          map.set(person.personKey, {
+            ...person,
+            occurredAt: r.last_at,
+            agencyId: aid,
+            agencyName: nameMap.get(aid) || person.agencyName || null
+          });
         }
       }
     } catch {
@@ -392,107 +471,117 @@ export async function browseHubPeople({ agencyId, userId, browse = 'suggested', 
     }
   }
 
-  // Caseload empty for admins: fall back to recent agency clients with phone (browseable)
   if (wantCaseload && mode === 'caseload' && map.size === 0) {
     try {
       const [rows] = await pool.execute(
-        `SELECT c.id, c.full_name, c.initials, c.identifier_code, c.contact_phone, c.email,
+        `SELECT c.id, c.agency_id, c.full_name, c.initials, c.identifier_code, c.contact_phone, c.email,
                 c.session_sms_opt_in, c.guardian_portal_enabled
          FROM clients c
-         WHERE c.agency_id = ?
+         WHERE c.agency_id IN (${ph})
            AND c.contact_phone IS NOT NULL AND c.contact_phone <> ''
          ORDER BY COALESCE(c.full_name, c.initials, c.identifier_code) ASC
          LIMIT ${lim}`,
-        [agencyId]
+        ids
       );
-      for (const c of rows || []) upsertClientRow(map, c);
+      for (const c of rows || []) {
+        const aid = Number(c.agency_id);
+        upsertClientRow(map, c, aid, nameMap.get(aid) || null);
+      }
     } catch {
       /* ignore */
     }
   }
 
-  const people = finalizePeople(map, hasAppInbox, lim);
-  if (mode === 'recent' || mode === 'suggested') {
-    people.sort((a, b) => {
-      const ta = a.occurredAt ? new Date(a.occurredAt).getTime() : 0;
-      const tb = b.occurredAt ? new Date(b.occurredAt).getTime() : 0;
-      if (tb !== ta) return tb - ta;
-      return String(a.displayName).localeCompare(String(b.displayName));
-    });
-  }
-  return people.slice(0, lim);
+  return finalizePeople(map, inboxByAgency, lim, {
+    sortRecent: mode === 'recent' || mode === 'suggested'
+  });
 }
 
 /**
  * Search people across directory, guardians, clients, contacts.
  * Matches name, initials, identifier code, email, phone.
+ * When agencyIds is provided, searches every tenant the viewer belongs to.
  */
-export async function searchHubPeople({ agencyId, userId, q, limit = 20 }) {
+export async function searchHubPeople({ agencyId, agencyIds = null, userId, q, limit = 20 }) {
   const query = String(q || '').trim();
-  if (!agencyId || query.length < 2) return [];
+  const ids = [...new Set((agencyIds?.length ? agencyIds : [agencyId]).map(Number).filter((n) => n > 0))];
+  if (!ids.length || query.length < 2) return [];
 
-  const lim = Math.min(Math.max(Number(limit) || 20, 1), 40);
-  const hasAppInbox = await actorHasAppInbox(agencyId, userId);
+  const lim = Math.min(Math.max(Number(limit) || 20, 1), 50);
+  const nameMap = await loadAgencyNameMap(ids);
+  const inboxByAgency = await buildInboxMap(ids, userId);
   const map = new Map();
 
-  const [dir, guardians, clients, contacts] = await Promise.all([
-    searchCommunicationDirectory({ agencyId, q: query, limit: lim }),
-    searchGuardians({ agencyId, q: query, limit: lim }),
-    searchClients({ agencyId, q: query, limit: lim }),
-    searchContacts({ agencyId, q: query, limit: lim })
-  ]);
+  for (const aid of ids) {
+    const agencyName = nameMap.get(aid) || null;
+    const [dir, guardians, clients, contacts] = await Promise.all([
+      searchCommunicationDirectory({ agencyId: aid, q: query, limit: lim }),
+      searchGuardians({ agencyId: aid, q: query, limit: lim }),
+      searchClients({ agencyId: aid, q: query, limit: lim }),
+      searchContacts({ agencyId: aid, q: query, limit: lim })
+    ]);
 
-  for (const d of dir || []) {
-    const kinds =
-      d.kind === 'school_staff'
-        ? ['school_staff']
-        : d.kind === 'school_contact'
-          ? ['external', 'school_contact']
-          : ['employee', 'staff', 'team'];
-    const key = d.kind === 'school_contact' ? `email:${String(d.email || '').toLowerCase()}` : `user:${d.id}`;
-    upsertPerson(map, key, {
-      displayName: d.name,
-      kinds,
-      userId: d.kind === 'school_contact' ? null : d.id,
-      email: d.email,
-      relationshipMeta: d.meta || d.role || null,
-      portalAccess: d.kind !== 'school_contact'
-    });
+    for (const d of dir || []) {
+      const kinds =
+        d.kind === 'school_staff'
+          ? ['school_staff']
+          : d.kind === 'school_contact'
+            ? ['external', 'school_contact']
+            : ['employee', 'staff', 'team'];
+      const key =
+        d.kind === 'school_contact'
+          ? `email:${String(d.email || '').toLowerCase()}@${aid}`
+          : formatPersonKey('user', d.id, aid);
+      upsertPerson(map, key, {
+        displayName: d.name,
+        kinds,
+        userId: d.kind === 'school_contact' ? null : d.id,
+        email: d.email,
+        relationshipMeta: d.meta || d.role || null,
+        portalAccess: d.kind !== 'school_contact',
+        agencyId: aid,
+        agencyName
+      });
+    }
+
+    for (const g of guardians) {
+      const clientLabel = g.client_name || g.client_initials || `Client #${g.client_id}`;
+      upsertPerson(map, formatPersonKey('user', g.id, aid), {
+        displayName: [g.first_name, g.last_name].filter(Boolean).join(' ') || g.email,
+        kinds: ['guardian'],
+        userId: g.id,
+        clientId: g.client_id,
+        email: g.email,
+        phone: g.phone,
+        relationshipMeta: `Guardian of ${clientLabel}`,
+        portalAccess: true,
+        smsOptIn: !!g.phone,
+        agencyId: aid,
+        agencyName
+      });
+    }
+
+    for (const c of clients) {
+      upsertClientRow(map, c, aid, agencyName);
+    }
+
+    for (const c of contacts) {
+      upsertPerson(map, formatPersonKey('contact', c.id, aid), {
+        displayName: c.full_name || c.email || c.phone || `Contact #${c.id}`,
+        kinds: ['contact', 'external'],
+        contactId: c.id,
+        clientId: c.client_id || null,
+        email: c.email,
+        phone: c.phone,
+        relationshipMeta: 'Agency contact',
+        smsOptIn: !!c.phone,
+        agencyId: aid,
+        agencyName
+      });
+    }
   }
 
-  for (const g of guardians) {
-    const clientLabel = g.client_name || g.client_initials || `Client #${g.client_id}`;
-    upsertPerson(map, `user:${g.id}`, {
-      displayName: [g.first_name, g.last_name].filter(Boolean).join(' ') || g.email,
-      kinds: ['guardian'],
-      userId: g.id,
-      clientId: g.client_id,
-      email: g.email,
-      phone: g.phone,
-      relationshipMeta: `Guardian of ${clientLabel}`,
-      portalAccess: true,
-      smsOptIn: !!g.phone
-    });
-  }
-
-  for (const c of clients) {
-    upsertClientRow(map, c);
-  }
-
-  for (const c of contacts) {
-    upsertPerson(map, `contact:${c.id}`, {
-      displayName: c.full_name || c.email || c.phone || `Contact #${c.id}`,
-      kinds: ['contact', 'external'],
-      contactId: c.id,
-      clientId: c.client_id || null,
-      email: c.email,
-      phone: c.phone,
-      relationshipMeta: 'Agency contact',
-      smsOptIn: !!c.phone
-    });
-  }
-
-  return finalizePeople(map, hasAppInbox, lim);
+  return finalizePeople(map, inboxByAgency, lim);
 }
 
 /**
@@ -501,9 +590,18 @@ export async function searchHubPeople({ agencyId, userId, q, limit = 20 }) {
 export async function resolveHubPerson({ agencyId, userId, personKey }) {
   const parsed = parsePersonKey(personKey);
   if (!parsed) return null;
+  const resolvedAgencyId = parsed.agencyId || agencyId;
+  if (!resolvedAgencyId) return null;
+
+  const nameMap = await loadAgencyNameMap([resolvedAgencyId]);
+  const agencyName = nameMap.get(Number(resolvedAgencyId)) || null;
+  const scopedKey =
+    parsed.type === 'email' || parsed.type === 'phone'
+      ? `${parsed.type}:${parsed.value}`
+      : formatPersonKey(parsed.type, parsed.id, resolvedAgencyId);
 
   let seed = {
-    personKey,
+    personKey: scopedKey,
     displayName: '',
     kinds: [],
     userId: null,
@@ -513,7 +611,9 @@ export async function resolveHubPerson({ agencyId, userId, personKey }) {
     phone: null,
     relationshipMeta: null,
     portalAccess: false,
-    smsOptIn: false
+    smsOptIn: false,
+    agencyId: resolvedAgencyId,
+    agencyName
   };
 
   if (parsed.type === 'user') {
@@ -553,7 +653,7 @@ export async function resolveHubPerson({ agencyId, userId, personKey }) {
            INNER JOIN clients c ON c.id = cg.client_id
            WHERE cg.guardian_user_id = ? AND c.agency_id = ? AND cg.access_enabled = 1
            LIMIT 1`,
-          [u.id, agencyId]
+          [u.id, resolvedAgencyId]
         );
         if (links?.[0]) {
           seed.clientId = links[0].id;
@@ -569,19 +669,19 @@ export async function resolveHubPerson({ agencyId, userId, personKey }) {
       `SELECT id, full_name, initials, identifier_code, contact_phone, email,
               session_sms_opt_in, guardian_portal_enabled
        FROM clients WHERE id = ? AND agency_id = ? LIMIT 1`,
-      [parsed.id, agencyId]
+      [parsed.id, resolvedAgencyId]
     );
     const c = rows?.[0];
     if (!c) return null;
     const smsDenied = c.session_sms_opt_in === 0 || c.session_sms_opt_in === false;
     seed = {
       ...seed,
-      displayName: c.full_name || c.initials || `Client #${c.id}`,
+      displayName: clientDisplayName(c),
       kinds: ['client'],
       clientId: c.id,
       email: c.email,
       phone: c.contact_phone,
-      relationshipMeta: c.identifier_code || 'Client',
+      relationshipMeta: clientMeta(c),
       portalAccess: !!(c.guardian_portal_enabled === 1 || c.guardian_portal_enabled === true),
       smsOptIn: !!c.contact_phone && !smsDenied
     };
@@ -589,7 +689,7 @@ export async function resolveHubPerson({ agencyId, userId, personKey }) {
     const [rows] = await pool.execute(
       `SELECT id, full_name, email, phone, client_id FROM agency_contacts
        WHERE id = ? AND agency_id = ? AND is_active = TRUE LIMIT 1`,
-      [parsed.id, agencyId]
+      [parsed.id, resolvedAgencyId]
     );
     const c = rows?.[0];
     if (!c) return null;
@@ -623,7 +723,7 @@ export async function resolveHubPerson({ agencyId, userId, personKey }) {
     };
   }
 
-  const hasAppInbox = await actorHasAppInbox(agencyId, userId);
+  const hasAppInbox = await actorHasAppInbox(resolvedAgencyId, userId);
   const { methods, preferredMethod } = buildMethods({
     kinds: seed.kinds,
     hasUserId: !!seed.userId,
@@ -766,30 +866,30 @@ async function loadEmailTimeline({ agencyId, actorUserId, email, limit = 40 }) {
 export async function getHubPersonTimeline({ agencyId, userId, personKey, limit = 60 }) {
   const person = await resolveHubPerson({ agencyId, userId, personKey });
   if (!person) return { person: null, items: [] };
+  const aid = person.agencyId || agencyId;
 
   const [chat, sms, email] = await Promise.all([
     loadChatTimeline({
-      agencyId,
+      agencyId: aid,
       actorUserId: userId,
       otherUserId: person.userId,
       limit
     }),
     loadSmsTimeline({
-      agencyId,
+      agencyId: aid,
       actorUserId: userId,
       clientId: person.clientId,
       contactId: person.contactId,
       limit
     }),
     loadEmailTimeline({
-      agencyId,
+      agencyId: aid,
       actorUserId: userId,
       email: person.email,
       limit
     })
   ]);
 
-  // Fix channel labels: if person is staff-only, chat items are internal
   const isClientFacing = person.kinds.includes('guardian') || person.kinds.includes('client');
   const normalizedChat = chat.map((item) => ({
     ...item,

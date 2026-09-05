@@ -56,10 +56,18 @@ export async function listInboxes({ agencyId, userId }) {
     };
   };
   return [
+    {
+      id: null,
+      kind: 'virtual',
+      display_name: 'All inboxes',
+      from_email: null,
+      identity_key: 'all_inboxes',
+      routing: null
+    },
     personal
       ? mapped(personal)
       : {
-          id: null,
+          id: 'my_inbox',
           kind: 'virtual',
           display_name: 'App inbox',
           from_email: null,

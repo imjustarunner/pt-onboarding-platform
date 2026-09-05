@@ -44,7 +44,7 @@ const selectedId = ref(null);
 const detail = ref(null);
 const detailLoading = ref(false);
 
-const selectedInboxId = ref(null); // null = My Inbox (or personal id after ensure)
+const selectedInboxId = ref(null); // null = All inboxes (matches agency-wide KPIs)
 const channel = ref('all');
 const listFilter = ref('all');
 const searchQ = ref('');
@@ -61,14 +61,13 @@ let draftTimer = null;
 async function ensurePersonalMailbox() {
   if (!resolvedAgencyId.value) return;
   try {
-    const { data } = await api.post(
+    // Provision App inbox for compose/send, but do not select it — Home defaults to All inboxes
+    // so KPI counts (agency-wide) match the conversation list.
+    await api.post(
       '/communications/inboxes/personal/ensure',
       { agencyId: resolvedAgencyId.value },
       { skipGlobalLoading: true }
     );
-    if (data?.inbox?.id) {
-      selectedInboxId.value = data.inbox.id;
-    }
   } catch (e) {
     // Role may not be eligible — ignore
     console.warn('[unifiedInbox] personal mailbox ensure skipped:', e?.response?.data?.error?.message || e?.message);
@@ -110,10 +109,6 @@ async function loadInboxes() {
     skipGlobalLoading: true
   });
   inboxes.value = data?.inboxes || [];
-  const personal = inboxes.value.find((i) => i.kind === 'personal' || i.identity_key?.startsWith?.('personal_'));
-  if (personal?.id && (selectedInboxId.value == null || selectedInboxId.value === 'null')) {
-    selectedInboxId.value = personal.id;
-  }
 }
 
 async function refreshAll() {
@@ -138,6 +133,9 @@ async function loadConversations() {
     };
     if (selectedInboxId.value === 'assigned') {
       params.inboxId = 'assigned';
+    } else if (selectedInboxId.value === 'my_inbox') {
+      const personal = inboxes.value.find((i) => i.kind === 'personal' && i.id != null);
+      if (personal?.id) params.inboxId = personal.id;
     } else if (selectedInboxId.value != null) {
       params.inboxId = selectedInboxId.value;
     }
@@ -314,7 +312,9 @@ onUnmounted(() => {
 });
 
 const selectedInbox = computed(() => {
-  if (selectedInboxId.value == null) return inboxes.value.find((i) => i.identity_key === 'my_inbox') || null;
+  if (selectedInboxId.value == null) {
+    return inboxes.value.find((i) => i.identity_key === 'all_inboxes') || null;
+  }
   return inboxes.value.find((i) => String(i.id) === String(selectedInboxId.value)) || null;
 });
 
