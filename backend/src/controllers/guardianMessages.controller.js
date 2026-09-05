@@ -139,8 +139,114 @@ export const listGuardianMessageThreads = async (req, res, next) => {
         available: !!threadId
       });
     }
-    res.json({ threads });
+
+    if (!threads.length) {
+      try {
+        const [selfRows] = await pool.execute(
+          `SELECT c.id AS client_id, c.agency_id, c.organization_id, c.full_name, c.initials
+           FROM clients c
+           WHERE c.user_id = ?
+           LIMIT 1`,
+          [req.user.id]
+        );
+        const self = selfRows?.[0];
+        if (self?.client_id) {
+          const provider = await resolveAssignedProvider(self.client_id, self.organization_id);
+          if (provider?.id) {
+            let threadId = null;
+            try {
+              threadId = await findOrCreateDirectThread(
+                self.agency_id,
+                self.organization_id || null,
+                req.user.id,
+                provider.id
+              );
+            } catch {
+              threadId = null;
+            }
+            threads.push({
+              client_id: self.client_id,
+              client_label: self.full_name || self.initials || 'You',
+              organization_name: null,
+              agency_id: self.agency_id,
+              organization_id: self.organization_id,
+              provider: {
+                id: provider.id,
+                first_name: provider.first_name,
+                last_name: provider.last_name,
+                email: provider.email
+              },
+              thread_id: threadId,
+              available: !!threadId
+            });
+          }
+        }
+      } catch {
+        /* clients.user_id may be unset */
+      }
+    }
+
+    let emails = [];
+    try {
+      const { listPortalEmails } = await import('../services/portalMailbox.service.js');
+      emails = await listPortalEmails({ userId: req.user.id });
+    } catch (e) {
+      console.warn('[listGuardianMessageThreads] emails:', e?.message || e);
+    }
+    res.json({ threads, emails });
   } catch (e) {
+    next(e);
+  }
+};
+
+/**
+ * GET /api/guardian-portal/emails
+ */
+export const listGuardianEmails = async (req, res, next) => {
+  try {
+    if (req.guardianPreviewMode) return res.json({ emails: [] });
+    const { listPortalEmails } = await import('../services/portalMailbox.service.js');
+    const emails = await listPortalEmails({ userId: req.user.id });
+    res.json({ emails });
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
+ * GET /api/guardian-portal/emails/:conversationId
+ */
+export const getGuardianEmail = async (req, res, next) => {
+  try {
+    if (req.guardianPreviewMode) return res.json({ conversation: null, messages: [] });
+    const conversationId = parseInt(req.params.conversationId, 10);
+    const { getPortalEmail } = await import('../services/portalMailbox.service.js');
+    const data = await getPortalEmail({ userId: req.user.id, conversationId });
+    if (!data) return res.status(404).json({ error: { message: 'Email not found' } });
+    res.json(data);
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
+ * POST /api/guardian-portal/emails/:conversationId
+ */
+export const replyGuardianEmail = async (req, res, next) => {
+  try {
+    if (req.guardianPreviewMode) {
+      return res.status(403).json({ error: { message: 'Preview cannot send messages' } });
+    }
+    const conversationId = parseInt(req.params.conversationId, 10);
+    const { replyPortalEmail } = await import('../services/portalMailbox.service.js');
+    const out = await replyPortalEmail({
+      userId: req.user.id,
+      conversationId,
+      body: req.body?.body || req.body?.text || ''
+    });
+    res.json(out);
+  } catch (e) {
+    if (e?.status) return res.status(e.status).json({ error: { message: e.message } });
     next(e);
   }
 };
@@ -158,6 +264,12 @@ export const listGuardianThreadMessages = async (req, res, next) => {
     if (!threadId) return res.status(400).json({ error: { message: 'Invalid thread id' } });
     if (!(await hasThreadAccess(req.user.id, threadId))) {
       return res.status(403).json({ error: { message: 'Access denied' } });
+    }
+    try {
+      const { markChatThreadReadToLatest } = await import('../services/messagesHub.service.js');
+      await markChatThreadReadToLatest({ threadId, userId: req.user.id });
+    } catch {
+      /* ignore */
     }
     // Delegate to chat listMessages
     req.params.threadId = String(threadId);

@@ -303,17 +303,24 @@ class CommunicationConversation {
       where.push('(c.snoozed_until IS NULL OR c.snoozed_until <= ?)');
       params.push(now);
     } else if (filter === 'unread' && userId) {
-      where.push(`(
-        c.last_message_at IS NOT NULL AND (
-          NOT EXISTS (
-            SELECT 1 FROM communication_conversation_reads r
-            WHERE r.conversation_id = c.id AND r.user_id = ?
+      // Unread = inbound you haven't seen. Outbound replies must not keep a thread unread.
+      where.push(`EXISTS (
+        SELECT 1 FROM communication_messages m
+        WHERE m.conversation_id = c.id
+          AND m.direction = 'inbound'
+          AND COALESCE(m.is_internal_note, 0) = 0
+          AND (m.send_status IS NULL OR m.send_status NOT IN ('cancelled'))
+          AND (
+            NOT EXISTS (
+              SELECT 1 FROM communication_conversation_reads r
+              WHERE r.conversation_id = c.id AND r.user_id = ?
+            )
+            OR EXISTS (
+              SELECT 1 FROM communication_conversation_reads r
+              WHERE r.conversation_id = c.id AND r.user_id = ?
+                AND r.last_read_at < COALESCE(m.sent_at, m.created_at)
+            )
           )
-          OR EXISTS (
-            SELECT 1 FROM communication_conversation_reads r
-            WHERE r.conversation_id = c.id AND r.user_id = ? AND r.last_read_at < c.last_message_at
-          )
-        )
       )`);
       // Actively snoozed mail leaves Unread until it wakes
       where.push('(c.snoozed_until IS NULL OR c.snoozed_until <= ?)');
@@ -367,7 +374,27 @@ class CommunicationConversation {
                 SELECT r.last_read_at FROM communication_conversation_reads r
                 WHERE r.conversation_id = c.id AND r.user_id = ${Number(userId)}
                 LIMIT 1
-              ) AS last_read_at` : ''}
+              ) AS last_read_at,
+              (
+                SELECT COALESCE(m.sent_at, m.created_at)
+                FROM communication_messages m
+                WHERE m.conversation_id = c.id
+                  AND m.direction = 'inbound'
+                  AND COALESCE(m.is_internal_note, 0) = 0
+                  AND (m.send_status IS NULL OR m.send_status NOT IN ('cancelled'))
+                ORDER BY COALESCE(m.sent_at, m.created_at) DESC, m.id DESC
+                LIMIT 1
+              ) AS last_inbound_at,
+              (
+                SELECT LEFT(COALESCE(m.body_text, m.subject, ''), 240)
+                FROM communication_messages m
+                WHERE m.conversation_id = c.id
+                  AND m.direction = 'inbound'
+                  AND COALESCE(m.is_internal_note, 0) = 0
+                  AND (m.send_status IS NULL OR m.send_status NOT IN ('cancelled'))
+                ORDER BY COALESCE(m.sent_at, m.created_at) DESC, m.id DESC
+                LIMIT 1
+              ) AS last_inbound_preview` : ''}
        FROM communication_conversations c
        LEFT JOIN communication_inboxes i ON i.id = c.inbox_id
        LEFT JOIN users u ON u.id = c.owner_user_id
@@ -389,8 +416,8 @@ class CommunicationConversation {
         is_unread: userId
           ? !!(
               !isSnoozed &&
-              r.last_message_at &&
-              (!r.last_read_at || new Date(r.last_read_at) < new Date(r.last_message_at))
+              r.last_inbound_at &&
+              (!r.last_read_at || new Date(r.last_read_at) < new Date(r.last_inbound_at))
             )
           : false
       };
@@ -511,17 +538,24 @@ class CommunicationConversation {
            WHERE c.archived_at IS NULL AND COALESCE(c.is_spam, 0) = 0 AND ${agencyClause}
              AND COALESCE(c.is_unknown_sender, 0) = 0
              AND (c.snoozed_until IS NULL OR c.snoozed_until <= ?)
-             AND c.last_message_at IS NOT NULL
              ${scopeClause}
-             AND (
-               NOT EXISTS (
-                 SELECT 1 FROM communication_conversation_reads r
-                 WHERE r.conversation_id = c.id AND r.user_id = ?
-               )
-               OR EXISTS (
-                 SELECT 1 FROM communication_conversation_reads r
-                 WHERE r.conversation_id = c.id AND r.user_id = ? AND r.last_read_at < c.last_message_at
-               )
+             AND EXISTS (
+               SELECT 1 FROM communication_messages m
+               WHERE m.conversation_id = c.id
+                 AND m.direction = 'inbound'
+                 AND COALESCE(m.is_internal_note, 0) = 0
+                 AND (m.send_status IS NULL OR m.send_status NOT IN ('cancelled'))
+                 AND (
+                   NOT EXISTS (
+                     SELECT 1 FROM communication_conversation_reads r
+                     WHERE r.conversation_id = c.id AND r.user_id = ?
+                   )
+                   OR EXISTS (
+                     SELECT 1 FROM communication_conversation_reads r
+                     WHERE r.conversation_id = c.id AND r.user_id = ?
+                       AND r.last_read_at < COALESCE(m.sent_at, m.created_at)
+                   )
+                 )
              )`,
           [...paramsBase, now, ...scopeParams, userId, userId]
         );

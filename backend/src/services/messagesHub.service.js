@@ -2093,6 +2093,199 @@ async function loadEmailTimeline({ agencyId, actorUserId, email, limit = 40 }) {
 }
 
 /**
+ * Mark a chat thread read through its latest message for this user.
+ */
+export async function markChatThreadReadToLatest({ threadId, userId } = {}) {
+  const tid = Number(threadId || 0);
+  const uid = Number(userId || 0);
+  if (!tid || !uid) return false;
+  const [rows] = await pool.execute(
+    `SELECT MAX(id) AS max_id FROM chat_messages WHERE thread_id = ?`,
+    [tid]
+  );
+  const maxId = Number(rows[0]?.max_id || 0);
+  if (!maxId) return false;
+  await pool.execute(
+    `INSERT INTO chat_thread_reads (thread_id, user_id, last_read_message_id, last_read_at)
+     VALUES (?, ?, ?, NOW())
+     ON DUPLICATE KEY UPDATE
+       last_read_message_id = GREATEST(COALESCE(last_read_message_id, 0), VALUES(last_read_message_id)),
+       last_read_at = NOW()`,
+    [tid, uid, maxId]
+  );
+  return true;
+}
+
+/**
+ * Opening or sending in Hub means you saw the thread.
+ * Marks direct chat with this person + email conversations with their address as read.
+ */
+export async function markHubPersonRead({ agencyId, userId, person } = {}) {
+  const uid = Number(userId || 0);
+  if (!uid || !person) return { chat: 0, email: 0 };
+  const aid = Number(person.agencyId || agencyId || 0) || null;
+  let chat = 0;
+  let email = 0;
+
+  if (person.userId) {
+    try {
+      const [threadRows] = await pool.execute(
+        `SELECT t.id AS thread_id
+         FROM chat_threads t
+         INNER JOIN chat_thread_participants p_me
+           ON p_me.thread_id = t.id AND p_me.user_id = ?
+         INNER JOIN chat_thread_participants p_other
+           ON p_other.thread_id = t.id AND p_other.user_id = ?
+         WHERE t.thread_type = 'direct'`,
+        [uid, Number(person.userId)]
+      );
+      for (const row of threadRows || []) {
+        const ok = await markChatThreadReadToLatest({ threadId: row.thread_id, userId: uid });
+        if (ok) chat += 1;
+      }
+    } catch (e) {
+      console.warn('[markHubPersonRead] chat:', e?.message || e);
+    }
+  }
+
+  const addr = String(person.email || '').trim().toLowerCase();
+  if (addr) {
+    try {
+      const CommunicationConversation = (await import('../models/CommunicationConversation.model.js'))
+        .default;
+      const params = [addr, uid];
+      const agencyClause = aid ? 'AND c.agency_id = ?' : '';
+      if (aid) params.push(aid);
+      const [convs] = await pool.execute(
+        `SELECT DISTINCT c.id
+         FROM communication_conversations c
+         LEFT JOIN communication_inboxes i ON i.id = c.inbox_id
+         WHERE c.channel = 'email'
+           AND c.archived_at IS NULL
+           AND EXISTS (
+             SELECT 1 FROM communication_participants p
+             WHERE p.conversation_id = c.id
+               AND LOWER(COALESCE(p.email, '')) = ?
+           )
+           AND (
+             c.owner_user_id = ?
+             OR i.identity_key IN ('messages', 'secure_message')
+             OR i.kind IN ('personal', 'shared')
+           )
+           ${agencyClause}`,
+        params
+      );
+      for (const row of convs || []) {
+        await CommunicationConversation.markRead(row.id, uid);
+        email += 1;
+      }
+    } catch (e) {
+      console.warn('[markHubPersonRead] email:', e?.message || e);
+    }
+  }
+
+  return { chat, email };
+}
+
+/**
+ * Rewind a chat thread so the latest inbound is unread again.
+ */
+export async function markChatThreadUnread({ threadId, userId } = {}) {
+  const tid = Number(threadId || 0);
+  const uid = Number(userId || 0);
+  if (!tid || !uid) return false;
+  const [rows] = await pool.execute(
+    `SELECT MAX(id) AS last_inbound
+     FROM chat_messages
+     WHERE thread_id = ?
+       AND sender_user_id <> ?`,
+    [tid, uid]
+  );
+  const lastInbound = Number(rows[0]?.last_inbound || 0);
+  if (!lastInbound) return false;
+  const cursor = Math.max(0, lastInbound - 1);
+  await pool.execute(
+    `INSERT INTO chat_thread_reads (thread_id, user_id, last_read_message_id, last_read_at)
+     VALUES (?, ?, ?, NOW())
+     ON DUPLICATE KEY UPDATE
+       last_read_message_id = VALUES(last_read_message_id),
+       last_read_at = NOW()`,
+    [tid, uid, cursor]
+  );
+  return true;
+}
+
+/**
+ * Mark this person's Hub conversation unread again (chat + email).
+ */
+export async function markHubPersonUnread({ agencyId, userId, person } = {}) {
+  const uid = Number(userId || 0);
+  if (!uid || !person) return { chat: 0, email: 0 };
+  const aid = Number(person.agencyId || agencyId || 0) || null;
+  let chat = 0;
+  let email = 0;
+
+  if (person.userId) {
+    try {
+      const [threadRows] = await pool.execute(
+        `SELECT t.id AS thread_id
+         FROM chat_threads t
+         INNER JOIN chat_thread_participants p_me
+           ON p_me.thread_id = t.id AND p_me.user_id = ?
+         INNER JOIN chat_thread_participants p_other
+           ON p_other.thread_id = t.id AND p_other.user_id = ?
+         WHERE t.thread_type = 'direct'`,
+        [uid, Number(person.userId)]
+      );
+      for (const row of threadRows || []) {
+        const ok = await markChatThreadUnread({ threadId: row.thread_id, userId: uid });
+        if (ok) chat += 1;
+      }
+    } catch (e) {
+      console.warn('[markHubPersonUnread] chat:', e?.message || e);
+    }
+  }
+
+  const addr = String(person.email || '').trim().toLowerCase();
+  if (addr) {
+    try {
+      const CommunicationConversation = (await import('../models/CommunicationConversation.model.js'))
+        .default;
+      const params = [addr, uid];
+      const agencyClause = aid ? 'AND c.agency_id = ?' : '';
+      if (aid) params.push(aid);
+      const [convs] = await pool.execute(
+        `SELECT DISTINCT c.id
+         FROM communication_conversations c
+         LEFT JOIN communication_inboxes i ON i.id = c.inbox_id
+         WHERE c.channel = 'email'
+           AND c.archived_at IS NULL
+           AND EXISTS (
+             SELECT 1 FROM communication_participants p
+             WHERE p.conversation_id = c.id
+               AND LOWER(COALESCE(p.email, '')) = ?
+           )
+           AND (
+             c.owner_user_id = ?
+             OR i.identity_key IN ('messages', 'secure_message')
+             OR i.kind IN ('personal', 'shared')
+           )
+           ${agencyClause}`,
+        params
+      );
+      for (const row of convs || []) {
+        await CommunicationConversation.markUnread(row.id, uid);
+        email += 1;
+      }
+    } catch (e) {
+      console.warn('[markHubPersonUnread] email:', e?.message || e);
+    }
+  }
+
+  return { chat, email };
+}
+
+/**
  * Merge-on-read timeline for a person.
  */
 export async function getHubPersonTimeline({ agencyId, userId, personKey, limit = 60 }) {
@@ -2532,6 +2725,15 @@ export async function sendHubEmail({
   });
 
   const conversationId = result?.id || result?.conversation?.id || null;
+  if (conversationId) {
+    try {
+      const CommunicationConversation = (await import('../models/CommunicationConversation.model.js'))
+        .default;
+      await CommunicationConversation.markRead(conversationId, userId);
+    } catch (e) {
+      console.warn('[sendHubEmail] markRead:', e?.message || e);
+    }
+  }
   if (conversationId && replyHash) {
     try {
       await pool.execute(
@@ -3559,12 +3761,12 @@ export async function listHubUnreadFeed({
         id: `email-${c.id}`,
         kind: 'email',
         channel: ['sms', 'call', 'voicemail'].includes(channel) ? channel : 'email',
-        sortAt: c.last_message_at || c.updated_at || c.created_at,
+        sortAt: c.last_inbound_at || c.last_message_at || c.updated_at || c.created_at,
         unreadCount: 1,
         is_unread: true,
         conversationId: Number(c.id),
         subject: c.subject || null,
-        preview: c.last_message_preview || c.subject || '',
+        preview: c.last_inbound_preview || c.last_message_preview || c.subject || '',
         displayName: c.primary_participant_name || c.subject || 'Conversation',
         primaryEmail: c.primary_participant_email || null,
         personKey: null,
@@ -3583,7 +3785,7 @@ export async function listHubUnreadFeed({
   try {
     const agencyClause = aid ? 'AND t.agency_id = ?' : '';
     // unread subquery (2) + other participant (1) + tp/r/td (3) + lm delete (1) + ou (1) [+ agency]
-    const params = [uid, uid, uid, uid, uid, uid, uid, uid];
+    const params = [uid, uid, uid, uid, uid, uid, uid, uid, uid];
     if (aid) params.push(aid);
     const [chatRows] = await pool.execute(
       `SELECT t.id AS thread_id,
@@ -3627,7 +3829,10 @@ export async function listHubUnreadFeed({
          SELECT m.id
          FROM chat_messages m
          LEFT JOIN chat_message_deletes d ON d.message_id = m.id AND d.user_id = ?
-         WHERE m.thread_id = t.id AND d.message_id IS NULL
+         WHERE m.thread_id = t.id
+           AND d.message_id IS NULL
+           AND m.sender_user_id <> ?
+           AND (r.last_read_message_id IS NULL OR m.id > r.last_read_message_id)
          ORDER BY m.id DESC
          LIMIT 1
        )
@@ -3717,15 +3922,35 @@ export async function listHubUnreadFeed({
     console.warn('[listHubUnreadFeed] chat:', e?.message || e);
   }
 
-  items.sort((a, b) => {
+  // One unread row per person for direct chat (duplicate threads are the same conversation).
+  const byPerson = new Map();
+  const collapsed = [];
+  for (const item of items) {
+    if (item.kind === 'chat' && item.personKey) {
+      const prev = byPerson.get(item.personKey);
+      if (prev) {
+        prev.unreadCount += Number(item.unreadCount || 0);
+        if (new Date(item.sortAt || 0).getTime() > new Date(prev.sortAt || 0).getTime()) {
+          prev.sortAt = item.sortAt;
+          prev.preview = item.preview;
+          prev.threadId = item.threadId;
+        }
+        continue;
+      }
+      byPerson.set(item.personKey, item);
+    }
+    collapsed.push(item);
+  }
+
+  collapsed.sort((a, b) => {
     const ta = new Date(a.sortAt || 0).getTime();
     const tb = new Date(b.sortAt || 0).getTime();
     return sortNewest ? tb - ta : ta - tb;
   });
 
-  const emailCount = items.filter((i) => i.kind === 'email').length;
-  const chatCount = items.filter((i) => i.kind === 'chat' || i.kind === 'channel' || i.kind === 'group').length;
-  const sliced = items.slice(0, lim);
+  const emailCount = collapsed.filter((i) => i.kind === 'email').length;
+  const chatCount = collapsed.filter((i) => i.kind === 'chat' || i.kind === 'channel' || i.kind === 'group').length;
+  const sliced = collapsed.slice(0, lim);
 
   return {
     items: sliced,

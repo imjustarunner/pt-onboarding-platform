@@ -35,7 +35,10 @@ import {
   listGuardianThreadMessages,
   sendGuardianThreadMessage,
   openGuardianClientThread,
-  listGuardianSmsAudit
+  listGuardianSmsAudit,
+  listGuardianEmails,
+  getGuardianEmail,
+  replyGuardianEmail
 } from '../controllers/guardianMessages.controller.js';
 import {
   listGuardianSupportTickets,
@@ -60,7 +63,7 @@ router.use((req, res, next) => {
   const previewMode = String(req.query?.previewMode || '').trim().toLowerCase();
   const isSuperadminPreview = role === 'super_admin' && previewMode === 'superadmin';
   req.guardianPreviewMode = isSuperadminPreview;
-  if (role !== 'client_guardian' && !isSuperadminPreview) {
+  if (role !== 'client_guardian' && role !== 'client' && !isSuperadminPreview) {
     return res.status(403).json({ error: { message: 'Guardian access required' } });
   }
   next();
@@ -69,6 +72,9 @@ router.use((req, res, next) => {
 router.get('/clients', listMyGuardianClients);
 router.get('/messages', listGuardianMessageThreads);
 router.post('/messages/open', openGuardianClientThread);
+router.get('/emails', listGuardianEmails);
+router.get('/emails/:conversationId', getGuardianEmail);
+router.post('/emails/:conversationId', replyGuardianEmail);
 router.get('/messages/:threadId', listGuardianThreadMessages);
 router.post('/messages/:threadId', sendGuardianThreadMessage);
 router.get('/sms-audit', listGuardianSmsAudit);

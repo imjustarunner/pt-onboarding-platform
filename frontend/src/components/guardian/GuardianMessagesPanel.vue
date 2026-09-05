@@ -2,12 +2,12 @@
   <div class="gmsg">
     <div class="panel-head">
       <div class="panel-title">Messages</div>
-      <div class="panel-subtitle">Message your child’s provider, or contact agency support</div>
+      <div class="panel-subtitle">Secure messages and email with your care team — open, read, reply.</div>
     </div>
 
     <div class="gmsg-tabs">
       <button type="button" class="gmsg-tab" :class="{ active: mode === 'provider' }" @click="mode = 'provider'">
-        Provider
+        Messages
       </button>
       <button type="button" class="gmsg-tab" :class="{ active: mode === 'support' }" @click="switchToSupport">
         Support
@@ -24,33 +24,29 @@
       <div v-else class="gmsg-body">
         <aside class="gmsg-list">
           <button
-            v-for="t in threads"
-            :key="t.client_id"
+            v-for="item in mailboxItems"
+            :key="item.key"
             type="button"
             class="gmsg-row"
-            :class="{ active: selected?.client_id === t.client_id }"
-            :disabled="!t.available && !t.provider"
-            @click="selectThread(t)"
+            :class="{ active: selectedKey === item.key, unread: item.unread }"
+            :disabled="item.type === 'secure' && !item.available && !item.provider"
+            @click="selectMailboxItem(item)"
           >
-            <div class="gmsg-row-title">{{ t.client_label }}</div>
-            <div class="gmsg-row-meta">
-              <template v-if="t.provider">
-                {{ t.provider.first_name }} {{ t.provider.last_name }}
-              </template>
-              <template v-else>No assigned provider yet</template>
+            <div class="gmsg-row-title">
+              <span class="gmsg-type" :class="'gmsg-type--' + item.type">{{ item.type === 'email' ? 'Email' : 'Secure' }}</span>
+              {{ item.title }}
             </div>
+            <div class="gmsg-row-meta">{{ item.subtitle }}</div>
           </button>
-          <div v-if="!threads.length" class="muted pad">No dependents linked for messaging.</div>
+          <div v-if="!mailboxItems.length" class="muted pad">No messages yet. When your team emails you or sends a secure message, it will show here.</div>
         </aside>
 
         <section class="gmsg-chat">
-          <div v-if="!selected" class="muted pad">Select a child to message their provider.</div>
+          <div v-if="!selectedKey" class="muted pad">Select a conversation to read and reply.</div>
           <template v-else>
             <div class="gmsg-chat-head">
-              <strong>{{ selected.client_label }}</strong>
-              <span class="muted">
-                with {{ selected.provider?.first_name }} {{ selected.provider?.last_name }}
-              </span>
+              <strong>{{ selectedTitle }}</strong>
+              <span class="muted">{{ selectedSubtitle }}</span>
             </div>
             <div v-if="messagesLoading" class="muted pad">Loading…</div>
             <div v-else class="gmsg-thread" ref="threadEl">
@@ -58,7 +54,7 @@
                 v-for="m in messages"
                 :key="m.id"
                 class="gmsg-bubble"
-                :class="{ mine: m.sender_user_id === meId }"
+                :class="{ mine: m.isMine }"
               >
                 <div class="gmsg-meta">{{ formatTime(m.created_at) }}</div>
                 <div class="gmsg-body">{{ m.body }}</div>
@@ -66,14 +62,18 @@
               <div v-if="!messages.length" class="muted">No messages yet. Say hello.</div>
             </div>
             <div class="gmsg-composer">
-              <textarea v-model="draft" rows="2" placeholder="Write a secure message…" />
+              <textarea
+                v-model="draft"
+                rows="2"
+                :placeholder="selectedType === 'email' ? 'Write an email reply…' : 'Write a secure message…'"
+              />
               <button
                 type="button"
                 class="btn btn-primary"
                 :disabled="sending || !draft.trim()"
                 @click="send"
               >
-                {{ sending ? 'Sending…' : 'Send' }}
+                {{ sending ? 'Sending…' : 'Reply' }}
               </button>
             </div>
           </template>
@@ -239,7 +239,10 @@ const guardianTopics = GUARDIAN_TICKET_TOPICS;
 
 const mode = ref('provider');
 const threads = ref([]);
+const emails = ref([]);
 const selected = ref(null);
+const selectedEmail = ref(null);
+const selectedType = ref('secure');
 const messages = ref([]);
 const loading = ref(false);
 const messagesLoading = ref(false);
@@ -271,6 +274,50 @@ const childOptions = computed(() =>
   }))
 );
 
+const mailboxItems = computed(() => {
+  const secure = (threads.value || []).map((t) => ({
+    key: `secure-${t.client_id || t.thread_id}`,
+    type: 'secure',
+    title: t.client_label || 'Secure message',
+    subtitle: t.provider
+      ? `${t.provider.first_name || ''} ${t.provider.last_name || ''}`.trim() || 'Provider'
+      : 'No assigned provider yet',
+    unread: false,
+    available: t.available,
+    provider: t.provider,
+    thread: t
+  }));
+  const mail = (emails.value || []).map((e) => ({
+    key: `email-${e.conversationId}`,
+    type: 'email',
+    title: e.subject || 'Email',
+    subtitle: e.preview || 'Email',
+    unread: !!e.unread,
+    conversationId: e.conversationId,
+    email: e
+  }));
+  return [...mail, ...secure];
+});
+
+const selectedKey = computed(() => {
+  if (selectedType.value === 'email' && selectedEmail.value?.conversationId) {
+    return `email-${selectedEmail.value.conversationId}`;
+  }
+  if (selected.value) return `secure-${selected.value.client_id || selected.value.thread_id}`;
+  return null;
+});
+
+const selectedTitle = computed(() => {
+  if (selectedType.value === 'email') return selectedEmail.value?.subject || 'Email';
+  return selected.value?.client_label || 'Secure message';
+});
+
+const selectedSubtitle = computed(() => {
+  if (selectedType.value === 'email') return 'Email with your care team';
+  const p = selected.value?.provider;
+  return p ? `Secure · ${p.first_name || ''} ${p.last_name || ''}`.trim() : 'Secure message';
+});
+
 function formatTime(v) {
   if (!v) return '';
   try {
@@ -286,11 +333,52 @@ async function loadThreads() {
   try {
     const r = await api.get('/guardian-portal/messages', { skipGlobalLoading: true });
     threads.value = Array.isArray(r.data?.threads) ? r.data.threads : [];
+    emails.value = Array.isArray(r.data?.emails) ? r.data.emails : [];
   } catch (e) {
     error.value = e?.response?.data?.error?.message || e?.message || 'Failed to load messages';
     threads.value = [];
+    emails.value = [];
   } finally {
     loading.value = false;
+  }
+}
+
+async function selectMailboxItem(item) {
+  if (item?.type === 'email') {
+    await selectEmail(item);
+    return;
+  }
+  await selectThread(item.thread);
+}
+
+async function selectEmail(item) {
+  const conversationId = item?.conversationId || item?.email?.conversationId;
+  if (!conversationId) return;
+  creatingTicket.value = false;
+  selected.value = null;
+  selectedType.value = 'email';
+  selectedEmail.value = item.email || item;
+  messagesLoading.value = true;
+  error.value = '';
+  draft.value = '';
+  try {
+    const r = await api.get(`/guardian-portal/emails/${conversationId}`, { skipGlobalLoading: true });
+    messages.value = (Array.isArray(r.data?.messages) ? r.data.messages : []).map((m) => ({
+      id: m.id,
+      body: m.body,
+      created_at: m.created_at,
+      isMine: !!m.isMine
+    }));
+    if (selectedEmail.value) selectedEmail.value.unread = false;
+    const idx = emails.value.findIndex((e) => Number(e.conversationId) === Number(conversationId));
+    if (idx >= 0) emails.value[idx] = { ...emails.value[idx], unread: false };
+    await nextTick();
+    if (threadEl.value) threadEl.value.scrollTop = threadEl.value.scrollHeight;
+  } catch (e) {
+    error.value = e?.response?.data?.error?.message || e?.message || 'Failed to load email';
+    messages.value = [];
+  } finally {
+    messagesLoading.value = false;
   }
 }
 
@@ -318,9 +406,17 @@ async function selectThread(t) {
       if (idx >= 0) threads.value[idx] = thread;
     }
     if (!thread.thread_id) throw new Error('Could not open conversation');
+    selectedType.value = 'secure';
+    selectedEmail.value = null;
     selected.value = thread;
     const r = await api.get(`/guardian-portal/messages/${thread.thread_id}`, { skipGlobalLoading: true });
-    messages.value = Array.isArray(r.data?.messages) ? r.data.messages : (Array.isArray(r.data) ? r.data : []);
+    const raw = Array.isArray(r.data?.messages) ? r.data.messages : (Array.isArray(r.data) ? r.data : []);
+    messages.value = raw.map((m) => ({
+      id: m.id,
+      body: m.body,
+      created_at: m.created_at,
+      isMine: Number(m.sender_user_id) === Number(meId.value)
+    }));
     await nextTick();
     if (threadEl.value) threadEl.value.scrollTop = threadEl.value.scrollHeight;
   } catch (e) {
@@ -332,9 +428,18 @@ async function selectThread(t) {
 }
 
 async function send() {
-  if (!selected.value?.thread_id || !draft.value.trim()) return;
+  if (!draft.value.trim()) return;
   sending.value = true;
   try {
+    if (selectedType.value === 'email' && selectedEmail.value?.conversationId) {
+      await api.post(`/guardian-portal/emails/${selectedEmail.value.conversationId}`, {
+        body: draft.value.trim()
+      });
+      draft.value = '';
+      await selectEmail(selectedEmail.value);
+      return;
+    }
+    if (!selected.value?.thread_id) return;
     await api.post(`/guardian-portal/messages/${selected.value.thread_id}`, {
       body: draft.value.trim()
     });
@@ -542,9 +647,21 @@ onMounted(loadThreads);
   cursor: pointer;
 }
 .gmsg-row.active { background: rgba(45, 106, 79, 0.08); border-left: 3px solid var(--primary, #2d6a4f); }
+.gmsg-row.unread .gmsg-row-title { font-weight: 800; }
 .gmsg-row:disabled { opacity: 0.55; cursor: not-allowed; }
 .gmsg-new { background: #f0fdf4; }
-.gmsg-row-title { font-weight: 700; font-size: 14px; }
+.gmsg-row-title { font-weight: 700; font-size: 14px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.gmsg-type {
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  border-radius: 999px;
+  padding: 1px 6px;
+  border: 1px solid var(--border, #e2e8f0);
+}
+.gmsg-type--email { background: #eff6ff; color: #1d4ed8; border-color: #bfdbfe; }
+.gmsg-type--secure { background: #ecfdf5; color: #047857; border-color: #a7f3d0; }
 .gmsg-row-meta { font-size: 12px; color: var(--text-secondary, #64748b); margin-top: 2px; }
 .gmsg-chat { display: flex; flex-direction: column; min-height: 0; }
 .gmsg-chat-head {

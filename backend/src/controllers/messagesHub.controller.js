@@ -15,7 +15,9 @@ import {
   ensureHubExternalContact,
   lookupHubExternalIdentity,
   sendHubPortalInvitation,
-  listHubUnreadFeed
+  listHubUnreadFeed,
+  markHubPersonRead,
+  markHubPersonUnread
 } from '../services/messagesHub.service.js';
 import { generateHubSmartReply } from '../services/hubSmartReply.service.js';
 import {
@@ -295,6 +297,15 @@ export const getMessagesHubTimeline = async (req, res, next) => {
       personKey
     });
     if (!data.person) return res.status(404).json({ error: { message: 'Person not found' } });
+    const skipRead =
+      req.query.markRead === '0' || req.query.markRead === 'false';
+    if (!skipRead) {
+      await markHubPersonRead({
+        agencyId,
+        userId: req.user.id,
+        person: data.person
+      }).catch((e) => console.warn('[hub timeline] markRead:', e?.message || e));
+    }
     res.json(data);
   } catch (e) {
     next(e);
@@ -479,6 +490,11 @@ export const postMessagesHubSend = async (req, res, next) => {
     });
     agencyId = person.agencyId || agencyId;
     if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
+    await markHubPersonRead({
+      agencyId,
+      userId: req.user.id,
+      person
+    }).catch((e) => console.warn('[hub send] markRead:', e?.message || e));
 
     // Per-channel undo delay / schedule → queue (email keeps communication_messages path)
     const prefs = await getCommunicationPrefs(req.user.id).catch(() => null);
@@ -847,6 +863,31 @@ export const getMessagesHubUnread = async (req, res, next) => {
       sort
     });
     res.json(data);
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
+ * POST /api/messages/hub/people/:personKey/unread?agencyId=
+ * Mark this conversation unread again so it returns to Unread.
+ */
+export const postMessagesHubMarkUnread = async (req, res, next) => {
+  try {
+    const agencyId = parseAgencyId(req);
+    const personKey = decodeURIComponent(String(req.params.personKey || ''));
+    const person = await resolveHubPerson({
+      agencyId,
+      userId: req.user.id,
+      personKey
+    });
+    if (!person) return res.status(404).json({ error: { message: 'Person not found' } });
+    const result = await markHubPersonUnread({
+      agencyId,
+      userId: req.user.id,
+      person
+    });
+    res.json({ ok: true, ...result });
   } catch (e) {
     next(e);
   }

@@ -21,6 +21,7 @@ import {
   unpinMessage,
   startMeetingFromThread,
   markRead,
+  markUnread,
   sendMessage,
   unsendMessage
 } from '../controllers/chat.controller.js';
@@ -87,6 +88,7 @@ router.post('/threads/:threadId/messages/delete-for-me', bulkDeleteForMe);
 router.delete('/threads/:threadId/messages/:messageId', unsendMessage);
 router.post('/threads/:threadId/messages/:messageId/delete-for-me', deleteForMe);
 router.post('/threads/:threadId/read', markRead);
+router.post('/threads/:threadId/unread', markUnread);
 router.post('/threads/:threadId/start-meeting', startMeetingFromThread);
 
 router.post(

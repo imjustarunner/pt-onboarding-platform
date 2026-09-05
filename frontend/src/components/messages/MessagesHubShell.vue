@@ -330,6 +330,14 @@
                   </template>
                 </p>
               </div>
+              <button
+                type="button"
+                class="btn btn-ghost btn-sm msg-hub-mark-unread"
+                title="Put this conversation back in Unread"
+                @click="markSelectedUnread"
+              >
+                Mark unread
+              </button>
             </header>
 
             <p v-if="clientNoPortalBanner" class="msg-hub-banner-warn">
@@ -933,6 +941,14 @@
                     </button>
                   </div>
                 </div>
+                <button
+                  type="button"
+                  class="btn btn-ghost btn-sm msg-hub-mark-unread"
+                  title="Put this conversation back in Unread"
+                  @click="markSelectedUnread"
+                >
+                  Mark unread
+                </button>
                 <button
                   type="button"
                   class="msg-hub-star-btn lg"
@@ -3289,21 +3305,21 @@ async function pickConversation(conv) {
           photoUrl: conv.photoUrl,
           preferredMethod: 'internal'
         });
-        if (navId.value === 'unread') {
-          await loadInboxCounts();
-        }
+        dropOpenedFromUnread(conv);
         return;
       } catch {
         /* fall through */
       }
     }
     if (conv.threadId) {
+      await markChatThreadOpened(conv.threadId);
+      dropOpenedFromUnread(conv);
+      await refreshUnreadAfterOpen();
       await onOpenGroupFromModal({
         groupId: conv.threadId,
         threadId: conv.threadId,
         displayName: conv.primary_participant_name || 'Chat'
       });
-      if (navId.value === 'unread') await loadInboxCounts();
       return;
     }
   }
@@ -3327,7 +3343,7 @@ async function pickConversation(conv) {
           }) || results?.[0];
         if (match) {
           await pickPerson(match, { fromConversation: { ...conv, id: emailConvId || conv.id } });
-          if (navId.value === 'unread') await loadInboxCounts();
+          dropOpenedFromUnread({ ...conv, conversationId: emailConvId, personKey: match.personKey });
           return;
         }
       } catch {
@@ -3361,7 +3377,8 @@ async function pickConversation(conv) {
       };
       await hydrateComposeFromConversation(selectedConversation.value);
     }
-    if (navId.value === 'unread') await loadInboxCounts();
+    dropOpenedFromUnread({ ...conv, conversationId: emailConvId });
+    await refreshUnreadAfterOpen();
   } catch (e) {
     error.value = e?.response?.data?.error?.message || 'Could not open conversation';
   }
@@ -3392,6 +3409,47 @@ async function loadPersonContext(personKey) {
 
 function backToList() {
   mobileShowThread.value = false;
+}
+
+async function markSelectedUnread() {
+  try {
+    if (selected.value?.personKey) {
+      const params = {};
+      const aid = selected.value?.agencyId || agencyId.value;
+      if (aid) params.agencyId = aid;
+      await api.post(
+        `/messages/hub/people/${encodeURIComponent(selected.value.personKey)}/unread`,
+        {},
+        { params, skipGlobalLoading: true }
+      );
+    } else if (selectedConversation.value?.conversationId || Number(selectedConversation.value?.id) > 0) {
+      const cid = selectedConversation.value.conversationId || selectedConversation.value.id;
+      if (selectedConversation.value.hubKind === 'chat' || selectedConversation.value.hubKind === 'channel' || selectedConversation.value.hubKind === 'group') {
+        if (selectedConversation.value.threadId) {
+          await api.post(`/chat/threads/${selectedConversation.value.threadId}/unread`, {}, { skipGlobalLoading: true });
+        }
+      } else {
+        await api.patch(
+          `/communications/conversations/${cid}`,
+          { markUnread: true },
+          { skipGlobalLoading: true }
+        );
+      }
+    } else if (chatThreadId.value) {
+      await api.post(`/chat/threads/${chatThreadId.value}/unread`, {}, { skipGlobalLoading: true });
+    }
+  } catch (e) {
+    error.value = e?.response?.data?.error?.message || 'Could not mark unread';
+    return;
+  }
+  selected.value = null;
+  selectedConversation.value = null;
+  conversationPreview.value = null;
+  timeline.value = [];
+  mobileShowThread.value = false;
+  navSection.value = 'inbox';
+  navId.value = 'unread';
+  await loadConversations();
 }
 
 function createReminderStub() {
@@ -3483,6 +3541,35 @@ async function onOpenGroupFromModal(group) {
   }
 }
 
+function dropOpenedFromUnread(match = {}) {
+  if (navId.value !== 'unread') return;
+  const personKey = match.personKey || null;
+  const threadId = match.threadId != null ? Number(match.threadId) : null;
+  const conversationId = match.conversationId != null ? Number(match.conversationId) : null;
+  const rowId = match.id != null ? String(match.id) : null;
+  conversations.value = conversations.value.filter((c) => {
+    if (personKey && c.personKey && c.personKey === personKey) return false;
+    if (threadId && Number(c.threadId) === threadId) return false;
+    if (conversationId && Number(c.conversationId || c.id) === conversationId) return false;
+    if (rowId && String(c.id) === rowId) return false;
+    return true;
+  });
+}
+
+async function markChatThreadOpened(threadId) {
+  const id = Number(threadId || 0);
+  if (!id) return;
+  try {
+    await api.post(`/chat/threads/${id}/read`, {}, { skipGlobalLoading: true });
+  } catch {
+    /* ignore */
+  }
+}
+
+async function refreshUnreadAfterOpen() {
+  await loadInboxCounts();
+}
+
 async function pickPerson(person, opts = {}) {
   const fromConversation = opts?.fromConversation || null;
   showNew.value = false;
@@ -3520,6 +3607,12 @@ async function pickPerson(person, opts = {}) {
     loadTimeline(person.personKey),
     loadPersonContext(person.personKey)
   ]);
+  dropOpenedFromUnread({
+    personKey: person.personKey,
+    conversationId: fromConversation?.conversationId || fromConversation?.id,
+    id: fromConversation?.id
+  });
+  await refreshUnreadAfterOpen();
   const ctx = selected.value?.clientMessaging;
   if (ctx?.talkingToUserId) {
     talkingToUserId.value = ctx.talkingToUserId;
@@ -3892,6 +3985,8 @@ async function executeSend({ sendToAllPortalGuardians = false, includeClient = f
     }
     await loadTimeline(selected.value.personKey);
     await loadPersonContext(selected.value.personKey);
+    dropOpenedFromUnread({ personKey: selected.value.personKey });
+    await refreshUnreadAfterOpen();
     scrollTimelineToBottom();
     scheduleSmartReply();
     if (selected.value && !people.value.some((p) => p.personKey === selected.value.personKey)) {
@@ -4403,6 +4498,7 @@ defineExpose({
   flex-shrink: 0;
 }
 .msg-hub-thread-head h3 { margin: 0; font-size: 1.05rem; }
+.msg-hub-mark-unread { margin-left: auto; }
 .msg-hub-name-link {
   appearance: none;
   border: none;

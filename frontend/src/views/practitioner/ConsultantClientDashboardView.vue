@@ -144,9 +144,8 @@
       </ul>
     </section>
 
-    <section id="messages" class="card coming-soon" style="margin-top: 1rem;">
-      <div class="card-head"><h2>Messages</h2></div>
-      <p class="muted">Coming soon — messaging with your consultant will live here.</p>
+    <section id="messages" class="card" style="margin-top: 1rem;">
+      <GuardianMessagesPanel />
     </section>
 
     <section id="settings" class="card coming-soon" style="margin-top: 1rem;">
@@ -162,6 +161,7 @@ import { useRoute } from 'vue-router';
 import { useAuthStore } from '../../store/auth';
 import { useAgencyStore } from '../../store/agency';
 import PractitionerShell from '../../layouts/PractitionerShell.vue';
+import GuardianMessagesPanel from '../../components/guardian/GuardianMessagesPanel.vue';
 import api from '../../services/api';
 
 const route = useRoute();

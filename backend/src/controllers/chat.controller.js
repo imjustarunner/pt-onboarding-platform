@@ -1485,6 +1485,20 @@ export const sendMessage = async (req, res, next) => {
     }
     await pool.execute('UPDATE chat_threads SET updated_at = NOW() WHERE id = ?', [threadId]);
 
+    // Sending means this user has seen the thread — own outbound must never keep Unread.
+    try {
+      await pool.execute(
+        `INSERT INTO chat_thread_reads (thread_id, user_id, last_read_message_id, last_read_at)
+         VALUES (?, ?, ?, NOW())
+         ON DUPLICATE KEY UPDATE
+           last_read_message_id = GREATEST(COALESCE(last_read_message_id, 0), VALUES(last_read_message_id)),
+           last_read_at = NOW()`,
+        [threadId, req.user.id, insertedMessageId]
+      );
+    } catch {
+      /* ignore */
+    }
+
     // Client/guardian email notify: secure for clinical+school; regular email for learning
     try {
       const staffRoles = new Set([
@@ -2054,19 +2068,62 @@ export const bulkDeleteForMe = async (req, res, next) => {
 export const markRead = async (req, res, next) => {
   try {
     const threadId = parseInt(req.params.threadId, 10);
-    const lastReadMessageId = req.body?.lastReadMessageId ? parseInt(req.body.lastReadMessageId, 10) : null;
-    if (!threadId || !lastReadMessageId) {
-      return res.status(400).json({ error: { message: 'lastReadMessageId is required' } });
+    let lastReadMessageId = req.body?.lastReadMessageId
+      ? parseInt(req.body.lastReadMessageId, 10)
+      : null;
+    if (!threadId) {
+      return res.status(400).json({ error: { message: 'threadId is required' } });
     }
     await assertThreadAccess(req.user.id, threadId);
+
+    if (!lastReadMessageId) {
+      const [rows] = await pool.execute(
+        `SELECT MAX(id) AS max_id FROM chat_messages WHERE thread_id = ?`,
+        [threadId]
+      );
+      lastReadMessageId = Number(rows[0]?.max_id || 0);
+    }
+    if (!lastReadMessageId) return res.json({ ok: true });
 
     await pool.execute(
       `INSERT INTO chat_thread_reads (thread_id, user_id, last_read_message_id, last_read_at)
        VALUES (?, ?, ?, NOW())
-       ON DUPLICATE KEY UPDATE last_read_message_id = VALUES(last_read_message_id), last_read_at = NOW()`,
+       ON DUPLICATE KEY UPDATE
+         last_read_message_id = GREATEST(COALESCE(last_read_message_id, 0), VALUES(last_read_message_id)),
+         last_read_at = NOW()`,
       [threadId, req.user.id, lastReadMessageId]
     );
     res.json({ ok: true });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const markUnread = async (req, res, next) => {
+  try {
+    const threadId = parseInt(req.params.threadId, 10);
+    if (!threadId) {
+      return res.status(400).json({ error: { message: 'threadId is required' } });
+    }
+    await assertThreadAccess(req.user.id, threadId);
+    const [rows] = await pool.execute(
+      `SELECT MAX(id) AS last_inbound
+       FROM chat_messages
+       WHERE thread_id = ?
+         AND sender_user_id <> ?`,
+      [threadId, req.user.id]
+    );
+    const lastInbound = Number(rows[0]?.last_inbound || 0);
+    if (!lastInbound) return res.json({ ok: true, unread: false });
+    await pool.execute(
+      `INSERT INTO chat_thread_reads (thread_id, user_id, last_read_message_id, last_read_at)
+       VALUES (?, ?, ?, NOW())
+       ON DUPLICATE KEY UPDATE
+         last_read_message_id = VALUES(last_read_message_id),
+         last_read_at = NOW()`,
+      [threadId, req.user.id, Math.max(0, lastInbound - 1)]
+    );
+    res.json({ ok: true, unread: true });
   } catch (e) {
     next(e);
   }
