@@ -29,8 +29,20 @@
     </div>
 
     <div v-if="showWorkspace" class="workspace-title">
-      <h2 data-tour="chats-title">Team chat</h2>
-      <p class="subtitle" data-tour="chats-subtitle">Channels, threads, and mentions.</p>
+      <div class="workspace-title-row">
+        <div>
+          <h2 data-tour="chats-title">Team chat</h2>
+          <p class="subtitle" data-tour="chats-subtitle">Channels, threads, and mentions. Use this full Messages workspace for day-to-day team chat.</p>
+        </div>
+        <button
+          type="button"
+          class="btn btn-secondary btn-xs"
+          :title="sideRailEnabled ? 'Hide the floating side chat rail' : 'Show a floating Team chat rail on every page'"
+          @click="toggleSideRail"
+        >
+          {{ sideRailEnabled ? 'Hide side chat rail' : 'Enable side chat rail' }}
+        </button>
+      </div>
     </div>
 
     <div v-if="!agencyId && !isSuperAdmin" class="empty" data-tour="chats-empty">
@@ -52,6 +64,7 @@ import { useBrandingStore } from '../../store/branding';
 import { useOrganizationStore } from '../../store/organization';
 import MessagesWorkspace from '../../components/messages/MessagesWorkspace.vue';
 import MessagesHubShell from '../../components/messages/MessagesHubShell.vue';
+import { isChatSideRailEnabled, setChatSideRailEnabled } from '../../utils/chatSideRail.js';
 
 const agencyStore = useAgencyStore();
 const authStore = useAuthStore();
@@ -59,6 +72,11 @@ const brandingStore = useBrandingStore();
 const organizationStore = useOrganizationStore();
 const route = useRoute();
 const router = useRouter();
+
+const sideRailEnabled = ref(isChatSideRailEnabled());
+function toggleSideRail() {
+  sideRailEnabled.value = setChatSideRailEnabled(!sideRailEnabled.value);
+}
 
 const isSuperAdmin = computed(() => String(authStore.user?.role || '').toLowerCase() === 'super_admin');
 const canUseCommunicationsCenter = computed(() => {
@@ -209,6 +227,13 @@ onMounted(async () => {
 }
 .workspace-title {
   flex-shrink: 0;
+}
+.workspace-title-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
 }
 .workspace-title h2 {
   margin: 0;

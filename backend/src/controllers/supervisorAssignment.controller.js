@@ -160,6 +160,13 @@ export const createAssignment = async (req, res, next) => {
       isPrimary: isPrimary === true
     });
 
+    try {
+      const { ensureSupervisorSuperviseesChannel } = await import('../services/smartChatGroups.service.js');
+      await ensureSupervisorSuperviseesChannel({ agencyId, supervisorId });
+    } catch (e) {
+      console.warn('[createAssignment] smart group reconcile:', e?.message || e);
+    }
+
     res.status(existingForType ? 200 : 201).json(assignment);
   } catch (error) {
     next(error);
@@ -208,10 +215,23 @@ export const deleteAssignment = async (req, res, next) => {
     }
 
     const { id } = req.params;
+    const existing = await SupervisorAssignment.findById(id);
     const deleted = await SupervisorAssignment.deleteById(id);
 
     if (!deleted) {
       return res.status(404).json({ error: { message: 'Assignment not found' } });
+    }
+
+    if (existing?.supervisor_id && existing?.agency_id) {
+      try {
+        const { ensureSupervisorSuperviseesChannel } = await import('../services/smartChatGroups.service.js');
+        await ensureSupervisorSuperviseesChannel({
+          agencyId: existing.agency_id,
+          supervisorId: existing.supervisor_id
+        });
+      } catch (e) {
+        console.warn('[deleteAssignment] smart group reconcile:', e?.message || e);
+      }
     }
 
     res.json({ message: 'Assignment deleted successfully' });

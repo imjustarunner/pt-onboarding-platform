@@ -95,13 +95,32 @@ async function removeParticipant(threadId, userId) {
   ]);
 }
 
+function isSmartMembershipChannel(channel) {
+  if (channel?.membership_rule) return true;
+  const slug = String(channel?.slug || '');
+  return slug === 'office-available' || /^supervisor-\d+-supervisees$/.test(slug);
+}
+
 async function loadChannelOrThrow(threadId) {
-  const [[t]] = await pool.execute(
-    `SELECT id, agency_id, organization_id, thread_type, name, slug, description,
-            visibility, archived_at, created_by_user_id, updated_at, created_at
-       FROM chat_threads WHERE id = ? LIMIT 1`,
-    [threadId]
-  );
+  let t;
+  try {
+    const [[row]] = await pool.execute(
+      `SELECT id, agency_id, organization_id, thread_type, name, slug, description,
+              visibility, archived_at, created_by_user_id, updated_at, created_at,
+              membership_rule, membership_owner_user_id
+         FROM chat_threads WHERE id = ? LIMIT 1`,
+      [threadId]
+    );
+    t = row;
+  } catch {
+    const [[row]] = await pool.execute(
+      `SELECT id, agency_id, organization_id, thread_type, name, slug, description,
+              visibility, archived_at, created_by_user_id, updated_at, created_at
+         FROM chat_threads WHERE id = ? LIMIT 1`,
+      [threadId]
+    );
+    t = row;
+  }
   if (!t || String(t.thread_type) !== 'channel') {
     const err = new Error('Channel not found');
     err.status = 404;
@@ -379,7 +398,16 @@ function mapChannelRow(row, { isMember, unreadCount, lastMessage } = {}) {
     slug: row.slug,
     description: row.description || null,
     visibility: row.visibility || 'public',
-    kind: row.slug === 'general' ? 'general' : String(row.slug || '').startsWith('school-') ? 'school' : 'custom',
+    kind: row.slug === 'general'
+      ? 'general'
+      : row.slug === 'office-available'
+        ? 'office_available'
+        : String(row.slug || '').startsWith('school-')
+          ? 'school'
+          : String(row.slug || '').startsWith('supervisor-')
+            ? 'supervisor_supervisees'
+            : 'custom',
+    membership_rule: row.membership_rule || null,
     is_member: Boolean(isMember),
     unread_count: Number(unreadCount || 0),
     last_message: lastMessage || null,
@@ -407,6 +435,20 @@ export const listChannels = async (req, res, next) => {
     const me = req.user.id;
     await ensureGeneralChannel(agencyId, me);
     await ensureSchoolChannels(agencyId, me);
+    try {
+      const SmartGroups = await import('../services/smartChatGroups.service.js');
+      await SmartGroups.ensureOfficeAvailableChannel(agencyId);
+      const SupervisorAssignment = (await import('../models/SupervisorAssignment.model.js')).default;
+      const superviseeIds = await SupervisorAssignment.getSuperviseeIds(me, agencyId);
+      if ((superviseeIds || []).length) {
+        await SmartGroups.ensureSupervisorSuperviseesChannel({
+          agencyId,
+          supervisorId: me
+        });
+      }
+    } catch (e) {
+      console.warn('[listChannels] smart groups ensure skipped:', e?.message || e);
+    }
 
     const [rows] = await pool.execute(
       `SELECT t.id, t.agency_id, t.organization_id, t.name, t.slug, t.description,
@@ -426,8 +468,9 @@ export const listChannels = async (req, res, next) => {
           )
         ORDER BY
           CASE WHEN t.slug = 'general' THEN 0
-               WHEN t.slug LIKE 'school-%' THEN 1
-               ELSE 2 END,
+               WHEN t.slug = 'office-available' THEN 1
+               WHEN t.slug LIKE 'school-%' THEN 2
+               ELSE 3 END,
           t.name ASC`,
       [me, agencyId, me]
     );
@@ -744,6 +787,15 @@ export const inviteChannelMembers = async (req, res, next) => {
     await assertChannelMember(threadId, req.user.id);
     assertCanManageChannelMembers(req.user, channel);
 
+    if (isSmartMembershipChannel(channel)) {
+      return res.status(400).json({
+        error: {
+          message:
+            'This is a smart group — membership updates automatically (Office Available or supervisees).'
+        }
+      });
+    }
+
     const userIds = parseUserIds(req.body?.userIds ?? req.body?.memberUserIds);
     if (!userIds.length) {
       return res.status(400).json({ error: { message: 'userIds is required' } });
@@ -796,6 +848,15 @@ export const removeChannelMember = async (req, res, next) => {
     await assertChannelMember(threadId, req.user.id);
     assertCanManageChannelMembers(req.user, channel);
 
+    if (isSmartMembershipChannel(channel)) {
+      return res.status(400).json({
+        error: {
+          message:
+            'This is a smart group — turn Office Availability off or update supervisee assignments to change membership.'
+        }
+      });
+    }
+
     if (!(await isChannelMember(threadId, targetUserId))) {
       return res.status(404).json({ error: { message: 'User is not a member of this channel' } });
     }
@@ -828,6 +889,15 @@ export const leaveChannel = async (req, res, next) => {
     const channel = await loadChannelOrThrow(threadId);
     await assertAgencyAccess(req.user, channel.agency_id);
     await assertChannelMember(threadId, req.user.id);
+
+    if (isSmartMembershipChannel(channel)) {
+      return res.status(400).json({
+        error: {
+          message:
+            'This is a smart group — turn Office Availability off or update supervisee assignments to leave.'
+        }
+      });
+    }
 
     const count = await memberCount(threadId);
     if (count <= 1) {

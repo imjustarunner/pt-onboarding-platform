@@ -4,7 +4,10 @@
     <div class="cep-page-header">
       <div class="cep-header-copy">
         <h1 class="cep-title">Client Exchange</h1>
-        <p class="cep-subtitle">Navigate, assign, and distribute clients quickly.</p>
+        <p class="cep-subtitle">
+          Post and claim client referrals here. Google Chat is being retired for this workflow —
+          new listings notify the Office Available team chat group.
+        </p>
       </div>
       <div class="cep-header-actions">
         <button class="cep-btn cep-btn--ghost" type="button" @click="load" :disabled="loading">
@@ -14,6 +17,11 @@
           + Post a client
         </button>
       </div>
+    </div>
+
+    <div class="cep-banner cep-banner--info">
+      Turn on <strong>Office Availability</strong> in the header to receive Client Exchange posts in Team chat.
+      Office Available is independent of whether you have open schedule slots.
     </div>
 
     <!-- Stats row -->
@@ -655,6 +663,7 @@ onMounted(load);
 /* ── Banner ────────────────────────────────────────── */
 .cep-banner { border-radius: 8px; padding: 0.65rem 0.85rem; }
 .cep-banner--warn { background: #fef9c3; color: #713f12; border: 1px solid #fde68a; }
+.cep-banner--info { background: #eff6ff; color: #1e3a5f; border: 1px solid #bfdbfe; }
 
 /* ── Layout ────────────────────────────────────────── */
 .cep-layout {

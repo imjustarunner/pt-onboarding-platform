@@ -11,6 +11,10 @@ provider, and a "Client Exchange" marketplace so providers can hand off an
 existing office client to another provider without ever exposing the
 client's identity to the browsing provider until an assignment is approved.
 
+**Routing note:** Client referral chatter is moving off Google Chat. New Client
+Exchange listings post into the agency **Office Available** smart Team chat
+group (membership = `users.in_office_available`, independent of schedule slots).
+
 This is a **foundation** — it ships the core data model, API, and enough UI
 to use the flow end-to-end. See "Not built yet" at the bottom for deliberately
 deferred work.

@@ -88,6 +88,24 @@
                   </span>
                   <span class="scm-chev" aria-hidden="true">›</span>
                 </button>
+                <div v-if="smartGroups.length" class="scm-grid scm-smart-groups">
+                  <button
+                    v-for="g in smartGroups"
+                    :key="g.key"
+                    type="button"
+                    class="scm-person"
+                    :disabled="smartGroupBusy === g.key || (g.canOpen === false)"
+                    :title="g.canJoinHint || g.description"
+                    @click="openSmartGroup(g)"
+                  >
+                    <span class="scm-avatar" aria-hidden="true">◎</span>
+                    <span class="scm-person-text">
+                      <strong>{{ g.label }}</strong>
+                      <small>{{ g.canOpen === false ? (g.canJoinHint || 'Not a member') : (g.description || `${g.memberCount || 0} members`) }}</small>
+                    </span>
+                    <span class="scm-chev" aria-hidden="true">›</span>
+                  </button>
+                </div>
                 <div v-if="(sections.groups || []).length" class="scm-grid">
                   <button
                     v-for="p in (sections.groups || []).slice(0, previewCount)"
@@ -105,7 +123,8 @@
                     <span class="scm-chev" aria-hidden="true">›</span>
                   </button>
                 </div>
-                <p v-else class="scm-muted scm-empty-sec">No groups yet — start one above.</p>
+                <p v-else-if="!smartGroups.length" class="scm-muted scm-empty-sec">No groups yet — start one above.</p>
+                <p v-if="smartGroupError" class="scm-error">{{ smartGroupError }}</p>
               </div>
 
               <div v-else-if="(sections[sec.id] || []).length" class="scm-grid">
@@ -367,6 +386,9 @@ const newGroupName = ref('');
 const newGroupPrivate = ref(false);
 const creatingGroup = ref(false);
 const createGroupError = ref('');
+const smartGroups = ref([]);
+const smartGroupBusy = ref('');
+const smartGroupError = ref('');
 
 const externalForm = ref({
   channel: 'email',
@@ -529,6 +551,60 @@ async function createGroup() {
       e?.response?.data?.error?.message || 'Could not create group. You may need channel create access.';
   } finally {
     creatingGroup.value = false;
+  }
+}
+
+async function loadSmartGroups() {
+  smartGroups.value = [];
+  smartGroupError.value = '';
+  if (!props.agencyId) return;
+  try {
+    const { data } = await api.get('/chat/smart-groups', {
+      params: { agencyId: Number(props.agencyId) },
+      skipGlobalLoading: true
+    });
+    smartGroups.value = Array.isArray(data?.groups) ? data.groups : [];
+  } catch {
+    smartGroups.value = [];
+  }
+}
+
+async function openSmartGroup(g) {
+  if (!g || g.canOpen === false || !props.agencyId) return;
+  smartGroupBusy.value = g.key;
+  smartGroupError.value = '';
+  try {
+    let threadId = Number(g.threadId || 0) || null;
+    if (g.key === 'office_available') {
+      const { data } = await api.post(
+        '/chat/smart-groups/office-available',
+        { agencyId: Number(props.agencyId) },
+        { skipGlobalLoading: true }
+      );
+      threadId = Number(data?.threadId || threadId) || null;
+    } else if (g.key === 'my_supervisees') {
+      const { data } = await api.post(
+        '/chat/smart-groups/my-supervisees',
+        { agencyId: Number(props.agencyId) },
+        { skipGlobalLoading: true }
+      );
+      threadId = Number(data?.threadId || threadId) || null;
+    }
+    if (!threadId) throw new Error('No thread');
+    emit('open-group', {
+      kinds: ['group'],
+      displayName: g.label,
+      groupId: threadId,
+      threadId,
+      agencyId: Number(props.agencyId),
+      personKey: `group:${threadId}@${props.agencyId}`
+    });
+    emit('close');
+  } catch (e) {
+    smartGroupError.value =
+      e?.response?.data?.error?.message || e?.message || 'Could not open smart group';
+  } finally {
+    smartGroupBusy.value = '';
   }
 }
 
@@ -761,7 +837,7 @@ watch(activeChip, async (id) => {
 });
 
 onMounted(async () => {
-  await Promise.all([loadDirectory(), loadClientOptions()]);
+  await Promise.all([loadDirectory(), loadClientOptions(), loadSmartGroups()]);
   await nextTick();
   searchEl.value?.focus?.();
 });
@@ -771,6 +847,7 @@ watch(
   () => {
     loadDirectory();
     loadClientOptions();
+    loadSmartGroups();
   }
 );
 </script>

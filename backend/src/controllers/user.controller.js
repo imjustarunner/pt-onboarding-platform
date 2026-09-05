@@ -363,6 +363,10 @@ export const getCurrentUser = async (req, res, next) => {
         user.provider_accepting_new_clients === undefined || user.provider_accepting_new_clients === null
           ? true
           : Boolean(user.provider_accepting_new_clients),
+      in_office_available:
+        user.in_office_available === undefined || user.in_office_available === null
+          ? false
+          : Boolean(user.in_office_available),
       medcancelEnabled: ['low', 'high'].includes(String(user.medcancel_rate_schedule || '').toLowerCase()),
       medcancelRateSchedule: user.medcancel_rate_schedule || null,
       employmentType: user.employment_type || null,
@@ -2569,6 +2573,7 @@ export const updateUser = async (req, res, next) => {
       hasProviderAccess,
       hasStaffAccess,
       providerAcceptingNewClients,
+      inOfficeAvailable,
       providerSchoolInfoBlurb,
       psychologyTodayUrl,
       personalPhone,
@@ -3012,6 +3017,19 @@ export const updateUser = async (req, res, next) => {
       }
     }
 
+    // Office Availability (independent of schedule slots) — Client Exchange smart group.
+    if (inOfficeAvailable !== undefined) {
+      const targetUser = await User.findById(id);
+      if (!targetUser) return res.status(404).json({ error: { message: 'User not found' } });
+      const canEditSelf = parseInt(id, 10) === Number(req.user.id);
+      const canEditOthers = ['admin', 'super_admin', 'support'].includes(
+        String(req.user?.role || '').toLowerCase()
+      );
+      if (canEditSelf || canEditOthers) {
+        updateData.inOfficeAvailable = Boolean(inOfficeAvailable);
+      }
+    }
+
     // Provider school info blurb (shared across all schools) - admin/support only.
     if (providerSchoolInfoBlurb !== undefined) {
       const roleForBlurb = String(req.user?.role || '').toLowerCase();
@@ -3194,6 +3212,15 @@ export const updateUser = async (req, res, next) => {
     } : 'null');
     if (!user) {
       return res.status(404).json({ error: { message: 'User not found' } });
+    }
+
+    if (updateData.inOfficeAvailable !== undefined) {
+      try {
+        const { onOfficeAvailabilityChanged } = await import('../services/smartChatGroups.service.js');
+        await onOfficeAvailabilityChanged({ userId: id });
+      } catch (e) {
+        console.warn('[updateUser] Office Available smart group reconcile failed:', e?.message || e);
+      }
     }
 
     // Keep legacy provider_credential user-info value synchronized while older

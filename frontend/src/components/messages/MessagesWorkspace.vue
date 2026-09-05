@@ -465,6 +465,8 @@
                     <span class="name">
                       {{ ch.name }}
                       <span v-if="ch.kind === 'school'" class="agency-chip">School</span>
+                      <span v-if="ch.kind === 'office_available'" class="agency-chip">Smart</span>
+                      <span v-if="ch.kind === 'supervisor_supervisees'" class="agency-chip">Supervisees</span>
                       <span v-if="ch.visibility === 'private'" class="agency-chip">Private</span>
                     </span>
                     <span class="status-line">{{ channelPreview(ch) }}</span>

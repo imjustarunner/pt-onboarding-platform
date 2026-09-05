@@ -1028,7 +1028,7 @@
                 </div>
 
               <div v-if="showGlobalAvailabilityToggle" class="nav-availability" @click.stop>
-                <div class="nav-availability-label">Global availability</div>
+                <div class="nav-availability-label">Office Availability</div>
                 <label class="switch" :title="globalAvailabilityTitle">
                   <input type="checkbox" :checked="globalAvailabilityOpen" @change="onToggleGlobalAvailability" />
                   <span class="slider" />
@@ -1037,7 +1037,8 @@
                   i
                 </button>
                 <div v-if="showAvailabilityHint" class="nav-availability-hint">
-                  <strong>Reminder:</strong> Please ensure your schedule is open in the Therapy Notes for the times you are available via “Extra availability”.
+                  <strong>Office Available</strong> can stay on even when you have no open schedule slots.
+                  Client Exchange posts go to people who are Office Available.
                 </div>
               </div>
               </template>
@@ -1929,14 +1930,15 @@
             </template>
             <div v-if="showGlobalAvailabilityToggle" class="mobile-nav-availability" @click.stop>
               <div class="mobile-nav-availability-row">
-                <span class="mobile-nav-availability-label">Global availability</span>
+                <span class="mobile-nav-availability-label">Office Availability</span>
                 <label class="switch" :title="globalAvailabilityTitle">
                   <input type="checkbox" :checked="globalAvailabilityOpen" @change="onToggleGlobalAvailability" />
                   <span class="slider" />
                 </label>
               </div>
               <p v-if="showAvailabilityHint" class="mobile-nav-availability-hint">
-                <strong>Reminder:</strong> Please ensure your schedule is open in Therapy Notes for the times you are available via “Extra availability”.
+                <strong>Office Available</strong> can stay on even with no open schedule slots.
+                Client Exchange notifies people who are Office Available.
               </p>
             </div>
             <button
@@ -2000,9 +2002,10 @@
       <FloatingMeetingBar v-if="isAuthenticated && !hideGlobalNavForSchoolStaff" />
       <SuperAdminBuilderPanel v-if="isAuthenticated && brandingStore.isSuperAdmin && !hideGlobalNavForSchoolStaff" />
       <TourManager v-if="isAuthenticated && !isSummitStatsChallengeChrome && !hideGlobalNavForSchoolStaff" />
-      <!-- School staff get DM-only Messages (no global nav); other hidden-chrome verticals stay without it. -->
+      <!-- School staff get DM-only Messages (no global nav); other hidden-chrome verticals stay without it.
+           Side rail is opt-in (default off) — enable from full Team chat. -->
       <PlatformChatDrawer
-        v-if="isAuthenticated && !isImmersiveJoinRoute && !isPublicIntakeRoute && !isSscSstcTenant && (String(user?.role || '').toLowerCase() === 'school_staff' || !hideGlobalNavForSchoolStaff)"
+        v-if="sideChatRailEnabled && isAuthenticated && !isImmersiveJoinRoute && !isPublicIntakeRoute && !isSscSstcTenant && (String(user?.role || '').toLowerCase() === 'school_staff' || !hideGlobalNavForSchoolStaff)"
       />
       <SessionLockScreen
         v-if="isAuthenticated"
@@ -2356,6 +2359,7 @@ import { ensureHourlySessionForNoteAid } from './utils/noteAidIndirectSession.js
 import ToolsAssignModal from './components/tools/ToolsAssignModal.vue';
 import AgencySelector from './components/AgencySelector.vue';
 import PlatformChatDrawer from './components/PlatformChatDrawer.vue';
+import { isChatSideRailEnabled } from './utils/chatSideRail.js';
 import BrandingProvider from './components/BrandingProvider.vue';
 import BrandingLogo from './components/BrandingLogo.vue';
 import PoweredByFooter from './components/PoweredByFooter.vue';
@@ -4532,14 +4536,36 @@ const showEngagementMenu = computed(() => {
 
 const showAvailabilityHint = ref(false);
 const savingAvailability = ref(false);
+const sideChatRailEnabled = ref(isChatSideRailEnabled());
+const onSideChatRailChanged = (ev) => {
+  sideChatRailEnabled.value = !!(ev?.detail?.enabled ?? isChatSideRailEnabled());
+};
+onMounted(() => {
+  window.addEventListener('pt-chat-side-rail-changed', onSideChatRailChanged);
+});
+onUnmounted(() => {
+  window.removeEventListener('pt-chat-side-rail-changed', onSideChatRailChanged);
+});
 const showGlobalAvailabilityToggle = computed(() => {
   if (isSummitStatsChallengeChrome.value) return false;
   const role = String(user.value?.role || '').toLowerCase();
-  return role === 'provider' || role === 'supervisor';
+  return [
+    'provider',
+    'provider_plus',
+    'intern',
+    'intern_plus',
+    'supervisor',
+    'clinical_practice_assistant'
+  ].includes(role);
 });
-const globalAvailabilityOpen = computed(() => user.value?.provider_accepting_new_clients !== false);
+const globalAvailabilityOpen = computed(() => {
+  const v = user.value?.in_office_available;
+  return v === true || v === 1 || v === '1';
+});
 const globalAvailabilityTitle = computed(() =>
-  globalAvailabilityOpen.value ? 'Open globally for new clients' : 'Closed globally for new clients'
+  globalAvailabilityOpen.value
+    ? 'Office Available — you appear in Client Exchange / office routing'
+    : 'Not Office Available — you will not be included in Office Available smart groups'
 );
 
 const onToggleGlobalAvailability = async (e) => {
@@ -4547,18 +4573,20 @@ const onToggleGlobalAvailability = async (e) => {
     const nextVal = !!e?.target?.checked;
     if (!user.value?.id) return;
     savingAvailability.value = true;
-    await api.put(`/users/${user.value.id}`, { providerAcceptingNewClients: nextVal });
+    await api.put(`/users/${user.value.id}`, { inOfficeAvailable: nextVal });
     await authStore.refreshUser();
     showAvailabilityHint.value = true;
-    // Auto-hide hint after a bit
     window.setTimeout(() => {
       showAvailabilityHint.value = false;
     }, 8000);
   } catch (err) {
-    console.error('Failed to update global availability:', err);
-    // revert via refresh
-    try { await authStore.refreshUser(); } catch {}
-    alert(err.response?.data?.error?.message || 'Failed to update global availability');
+    console.error('Failed to update office availability:', err);
+    try {
+      await authStore.refreshUser();
+    } catch {
+      /* ignore */
+    }
+    alert(err.response?.data?.error?.message || 'Failed to update Office Availability');
   } finally {
     savingAvailability.value = false;
   }

@@ -245,6 +245,24 @@ export async function createListing({
     console.warn('[createListing] office acceptance tracking failed:', e?.message || e);
   }
 
+  // Announce into the Office Available smart group (replaces Google Chat referral routing).
+  try {
+    const SmartGroups = await import('./smartChatGroups.service.js');
+    const clientName = [client.first_name, client.last_name].filter(Boolean).join(' ').trim();
+    const previewBits = [
+      clientName || null,
+      notes ? String(notes).slice(0, 160) : null
+    ].filter(Boolean);
+    await SmartGroups.announceClientExchangeListing({
+      agencyId: aid,
+      listingId: result.insertId,
+      postedByUserId: posterId,
+      preview: previewBits.join(' · ') || null
+    });
+  } catch (e) {
+    console.warn('[createListing] Office Available chat announce failed:', e?.message || e);
+  }
+
   return getListingById(result.insertId, { viewerUserId: posterId, viewerRole: 'admin' });
 }
 

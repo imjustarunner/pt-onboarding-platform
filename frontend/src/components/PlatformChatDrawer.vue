@@ -22,7 +22,7 @@
 
       <div class="rail-icon">
         <img v-if="iconUrl" :src="iconUrl" alt="Messages" />
-        <span v-else class="icon-fallback">Msgs</span>
+        <span v-else class="icon-fallback">Team</span>
       </div>
 
       <div class="rail-badge rail-badge-bottom" :class="{ disabled: needsAgency }">
@@ -42,26 +42,10 @@
 
     <div v-if="isDragging" class="dock-hint" aria-live="polite">Snap to any edge</div>
 
-    <div class="panel" :class="{ 'panel--wide': hasActiveChatLocal || drawerSurface === 'hub' }">
+    <div class="panel" :class="{ 'panel--wide': hasActiveChatLocal }">
       <div class="drawer-dash-bar">
         <button type="button" class="drawer-dash-btn" @click="goToMessagesDashboard">
-          Open Messages hub
-        </button>
-        <button
-          type="button"
-          class="drawer-dash-btn"
-          :class="{ active: drawerSurface === 'hub' }"
-          @click="drawerSurface = 'hub'"
-        >
-          Hub
-        </button>
-        <button
-          type="button"
-          class="drawer-dash-btn"
-          :class="{ active: drawerSurface === 'team' }"
-          @click="showTeamChat"
-        >
-          Team chat
+          Open full Messages
         </button>
         <button type="button" class="drawer-dash-btn drawer-dash-btn-assistant" @click="openAssistant">
           Assistant
@@ -74,15 +58,16 @@
         >
           {{ openMode === 'hover' ? '↕ Hover' : '⊙ Click' }}
         </button>
+        <button
+          type="button"
+          class="drawer-dash-btn"
+          title="Hide the side chat rail (turn it back on from Team chat)"
+          @click="disableSideRail"
+        >
+          Hide rail
+        </button>
       </div>
-      <MessagesHubShell
-        v-if="drawerSurface === 'hub'"
-        ref="hubRef"
-        layout="drawer"
-        @open-team-chat="showTeamChat"
-      />
       <MessagesWorkspace
-        v-else
         ref="workspaceRef"
         layout="drawer"
         @unread-change="onUnreadChange"
@@ -99,8 +84,8 @@ import { useAuthStore } from '../store/auth';
 import { useBrandingStore } from '../store/branding';
 import { toUploadsUrl } from '../utils/uploadsUrl';
 import { dockToStyle, loadDock, saveDock, snapPointerToEdge } from '../utils/chatDrawerDock';
+import { setChatSideRailEnabled } from '../utils/chatSideRail.js';
 import MessagesWorkspace from './messages/MessagesWorkspace.vue';
-import MessagesHubShell from './messages/MessagesHubShell.vue';
 
 const OPEN_MODE_KEY = 'pt.messages.openMode.v1';
 
@@ -124,15 +109,10 @@ const isOpen = ref(false);
 const totalUnread = ref(0);
 const loggedInNow = ref(0);
 const workspaceRef = ref(null);
-const hubRef = ref(null);
-const drawerSurface = ref('hub'); // hub | team
 const openMode = ref(loadOpenMode());
 const isHovering = ref(false);
 
-const hasActiveChatLocal = computed(() => {
-  if (drawerSurface.value === 'hub') return !!hubRef.value?.hasActiveChat;
-  return !!workspaceRef.value?.hasActiveChat;
-});
+const hasActiveChatLocal = computed(() => !!workspaceRef.value?.hasActiveChat);
 
 const needsAgency = computed(() => {
   const role = String(authStore.user?.role || '').toLowerCase();
@@ -166,7 +146,7 @@ const drawerStyle = computed(() => {
     ? Math.min(vh - 24, Math.max(460, vh * 0.78))
     : 0;
   const panelWidth = isOpen.value
-    ? (hasActiveChatLocal.value || drawerSurface.value === 'hub'
+    ? (hasActiveChatLocal.value
       ? Math.min(720, vw - 56)
       : Math.min(320, vw - 56))
     : 0;
@@ -179,16 +159,18 @@ const drawerStyle = computed(() => {
 
 const railTitle = computed(() => {
   const modeHint = openMode.value === 'hover' ? 'hover to open' : 'tap to open';
-  if (needsAgency.value) return `Select an agency to use messages — hold & drag to move`;
-  return `Messages — ${modeHint} · hold & drag to snap to an edge`;
+  if (needsAgency.value) return `Select an agency to use team chat — hold & drag to move`;
+  return `Team chat — ${modeHint} · hold & drag to snap to an edge`;
 });
 
 function toggleOpenMode() {
   openMode.value = openMode.value === 'hover' ? 'click' : 'hover';
   try { localStorage.setItem(OPEN_MODE_KEY, openMode.value); } catch { /* ignore */ }
-  if (openMode.value === 'click' && !isHovering.value) {
-    // Switched to click-only: keep the panel open if it already is, just stop auto-close
-  }
+}
+
+function disableSideRail() {
+  isOpen.value = false;
+  setChatSideRailEnabled(false);
 }
 
 function onUnreadChange(payload) {
@@ -200,25 +182,22 @@ function goToMessagesDashboard() {
   const slug = String(route.params?.organizationSlug || '').trim();
   const path = slug ? `/${slug}/messages` : '/messages';
   isOpen.value = false;
-  router.push({ path }).catch(() => {});
+  router.push({ path, query: { view: 'workspace' } }).catch(() => {});
 }
 
 function showTeamChat(tab = null) {
-  drawerSurface.value = 'team';
   isOpen.value = true;
   if (tab) setTimeout(() => applyChatTab(tab), 50);
 }
 
 function openAssistant() {
   isOpen.value = true;
-  drawerSurface.value = 'team';
   setTimeout(() => workspaceRef.value?.switchToAssistant?.(), 50);
 }
 
 function applyChatTab(tab) {
   const t = String(tab || '').trim().toLowerCase();
   if (!t) return;
-  drawerSurface.value = 'team';
   setTimeout(() => {
     if (!workspaceRef.value) return;
     if (t === 'assistant') workspaceRef.value.switchToAssistant?.();

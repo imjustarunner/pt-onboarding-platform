@@ -41,6 +41,12 @@ import {
   removeReaction,
   listReactions
 } from '../controllers/chatReactions.controller.js';
+import {
+  listSmartGroups,
+  openOfficeAvailable,
+  openMySupervisees,
+  messageAllSupervisees
+} from '../controllers/chatSmartGroups.controller.js';
 
 const router = express.Router();
 
@@ -61,6 +67,11 @@ const chatAttachmentUpload = multer({
 });
 
 router.use(authenticate);
+
+router.get('/smart-groups', listSmartGroups);
+router.post('/smart-groups/office-available', openOfficeAvailable);
+router.post('/smart-groups/my-supervisees', openMySupervisees);
+router.post('/smart-groups/my-supervisees/message', messageAllSupervisees);
 
 router.get('/channels', listChannels);
 router.post('/channels', createChannel);
