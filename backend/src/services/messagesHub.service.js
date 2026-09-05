@@ -3522,3 +3522,279 @@ export async function sendHubPortalInvitation({
     personKey: formatPersonKey('user', guardian.id, aid)
   };
 }
+
+/**
+ * Unified Hub Unread: email conversations + unread chat threads (direct + channels).
+ */
+export async function listHubUnreadFeed({
+  agencyId,
+  userId,
+  limit = 60,
+  sort = 'newest'
+} = {}) {
+  const aid = Number(agencyId || 0) || null;
+  const uid = Number(userId || 0);
+  const lim = Math.min(Math.max(Number(limit) || 60, 1), 120);
+  const sortNewest = String(sort || 'newest').toLowerCase() !== 'oldest';
+  if (!uid) return { items: [], counts: { total: 0, email: 0, chat: 0 }, sort: sortNewest ? 'newest' : 'oldest' };
+
+  const items = [];
+
+  // Email / SMS / call conversations (personal-scoped like hubScope)
+  try {
+    const CommunicationConversation = (await import('../models/CommunicationConversation.model.js'))
+      .default;
+    const emailRows = await CommunicationConversation.list({
+      agencyId: aid,
+      filter: 'unread',
+      userId: uid,
+      scopeToUserId: uid,
+      limit: lim,
+      offset: 0,
+      isAdminViewer: false
+    });
+    for (const c of emailRows || []) {
+      const channel = String(c.channel || 'email').toLowerCase();
+      items.push({
+        id: `email-${c.id}`,
+        kind: 'email',
+        channel: ['sms', 'call', 'voicemail'].includes(channel) ? channel : 'email',
+        sortAt: c.last_message_at || c.updated_at || c.created_at,
+        unreadCount: 1,
+        is_unread: true,
+        conversationId: Number(c.id),
+        subject: c.subject || null,
+        preview: c.last_message_preview || c.subject || '',
+        displayName: c.primary_participant_name || c.subject || 'Conversation',
+        primaryEmail: c.primary_participant_email || null,
+        personKey: null,
+        threadId: null,
+        starred: !!c.starred,
+        snoozedUntil: c.snoozed_until || null,
+        senderTrust: c.sender_trust || null,
+        isUnknownSender: !!c.is_unknown_sender
+      });
+    }
+  } catch (e) {
+    console.warn('[listHubUnreadFeed] email:', e?.message || e);
+  }
+
+  // Chat threads with unread (direct + channels / team / club)
+  try {
+    const agencyClause = aid ? 'AND t.agency_id = ?' : '';
+    // unread subquery (2) + other participant (1) + tp/r/td (3) + lm delete (1) + ou (1) [+ agency]
+    const params = [uid, uid, uid, uid, uid, uid, uid, uid];
+    if (aid) params.push(aid);
+    const [chatRows] = await pool.execute(
+      `SELECT t.id AS thread_id,
+              t.agency_id,
+              t.thread_type,
+              t.name AS channel_name,
+              lm.id AS last_message_id,
+              lm.body AS last_message_body,
+              lm.body_ciphertext,
+              lm.body_iv,
+              lm.body_auth_tag,
+              lm.encryption_key_id,
+              lm.created_at AS last_message_at,
+              lm.sender_user_id AS last_sender_id,
+              (
+                SELECT COUNT(*)
+                FROM chat_messages m2
+                WHERE m2.thread_id = t.id
+                  AND (r.last_read_message_id IS NULL OR m2.id > r.last_read_message_id)
+                  AND m2.sender_user_id <> ?
+                  AND NOT EXISTS (
+                    SELECT 1 FROM chat_message_deletes d2
+                    WHERE d2.user_id = ? AND d2.message_id = m2.id
+                  )
+              ) AS unread_count,
+              (
+                SELECT tp2.user_id
+                FROM chat_thread_participants tp2
+                WHERE tp2.thread_id = t.id AND tp2.user_id <> ?
+                ORDER BY tp2.user_id ASC
+                LIMIT 1
+              ) AS other_user_id,
+              ou.first_name AS other_first_name,
+              ou.last_name AS other_last_name,
+              ou.profile_photo_path AS other_photo
+       FROM chat_threads t
+       JOIN chat_thread_participants tp ON tp.thread_id = t.id AND tp.user_id = ?
+       LEFT JOIN chat_thread_reads r ON r.thread_id = t.id AND r.user_id = ?
+       LEFT JOIN chat_thread_deletes td ON td.thread_id = t.id AND td.user_id = ?
+       LEFT JOIN chat_messages lm ON lm.id = (
+         SELECT m.id
+         FROM chat_messages m
+         LEFT JOIN chat_message_deletes d ON d.message_id = m.id AND d.user_id = ?
+         WHERE m.thread_id = t.id AND d.message_id IS NULL
+         ORDER BY m.id DESC
+         LIMIT 1
+       )
+       LEFT JOIN users ou ON ou.id = (
+         SELECT tp2.user_id
+         FROM chat_thread_participants tp2
+         WHERE tp2.thread_id = t.id AND tp2.user_id <> ?
+         ORDER BY tp2.user_id ASC
+         LIMIT 1
+       )
+       WHERE td.deleted_at IS NULL
+         ${agencyClause}
+       HAVING unread_count > 0
+       ORDER BY COALESCE(last_message_at, t.updated_at) DESC
+       LIMIT ${Number(lim)}`,
+      params
+    );
+
+    for (const row of chatRows || []) {
+      const unreadCount = Number(row.unread_count || 0);
+      if (unreadCount <= 0) continue;
+      const threadType = String(row.thread_type || 'direct').toLowerCase();
+      const isDirect = threadType === 'direct';
+      const isChannel = threadType === 'channel';
+      const isGroup =
+        threadType === 'group' ||
+        threadType === 'team' ||
+        threadType === 'club' ||
+        threadType === 'skill_builders_event';
+      let preview = String(row.last_message_body || '').trim();
+      if (!preview && row.body_ciphertext && isChatEncryptionConfigured()) {
+        try {
+          preview = decryptChatText({
+            ciphertextB64: row.body_ciphertext,
+            ivB64: row.body_iv,
+            authTagB64: row.body_auth_tag,
+            keyId: row.encryption_key_id
+          });
+        } catch {
+          preview = '[encrypted message]';
+        }
+      }
+      const otherId = row.other_user_id ? Number(row.other_user_id) : null;
+      let displayName;
+      let kind;
+      let channel;
+      if (isDirect) {
+        displayName =
+          [row.other_first_name, row.other_last_name].filter(Boolean).join(' ').trim() ||
+          `User #${otherId || '?'}`;
+        kind = 'chat';
+        channel = 'internal';
+      } else if (isChannel) {
+        displayName = row.channel_name || 'Channel';
+        kind = 'channel';
+        channel = 'channel';
+      } else if (threadType === 'skill_builders_event') {
+        displayName = row.channel_name || 'Event chat';
+        kind = 'group';
+        channel = 'group';
+      } else {
+        // group / team / club
+        displayName = row.channel_name || (threadType === 'team' ? 'Team chat' : 'Group chat');
+        kind = 'group';
+        channel = 'group';
+      }
+      items.push({
+        id: `chat-${row.thread_id}`,
+        kind,
+        channel,
+        sortAt: row.last_message_at || null,
+        unreadCount,
+        is_unread: true,
+        conversationId: null,
+        subject: null,
+        preview: String(preview || '').slice(0, 200),
+        displayName,
+        primaryEmail: null,
+        personKey: isDirect && otherId ? formatPersonKey('user', otherId, row.agency_id || aid) : null,
+        threadId: Number(row.thread_id),
+        threadType,
+        photoUrl: isDirect ? row.other_photo || null : null,
+        otherUserId: isDirect ? otherId : null,
+        agencyId: row.agency_id ? Number(row.agency_id) : aid,
+        starred: false,
+        snoozedUntil: null,
+        senderTrust: null,
+        isUnknownSender: false
+      });
+    }
+  } catch (e) {
+    console.warn('[listHubUnreadFeed] chat:', e?.message || e);
+  }
+
+  items.sort((a, b) => {
+    const ta = new Date(a.sortAt || 0).getTime();
+    const tb = new Date(b.sortAt || 0).getTime();
+    return sortNewest ? tb - ta : ta - tb;
+  });
+
+  const emailCount = items.filter((i) => i.kind === 'email').length;
+  const chatCount = items.filter((i) => i.kind === 'chat' || i.kind === 'channel' || i.kind === 'group').length;
+  const sliced = items.slice(0, lim);
+
+  return {
+    items: sliced,
+    counts: {
+      total: emailCount + chatCount,
+      email: emailCount,
+      chat: chatCount
+    },
+    sort: sortNewest ? 'newest' : 'oldest'
+  };
+}
+
+/**
+ * Count unread chat threads only (for Hub badge merge with email unread).
+ */
+export async function countHubChatUnreadThreads({ agencyId, userId } = {}) {
+  const aid = Number(agencyId || 0) || null;
+  const uid = Number(userId || 0);
+  if (!uid) return 0;
+  try {
+    const agencyClause = aid ? 'AND t.agency_id = ?' : '';
+    const params = [uid, uid, uid, uid, uid];
+    if (aid) params.push(aid);
+    const [rows] = await pool.execute(
+      `SELECT COUNT(*) AS n FROM (
+         SELECT t.id,
+                (
+                  SELECT COUNT(*)
+                  FROM chat_messages m2
+                  WHERE m2.thread_id = t.id
+                    AND (r.last_read_message_id IS NULL OR m2.id > r.last_read_message_id)
+                    AND m2.sender_user_id <> ?
+                    AND NOT EXISTS (
+                      SELECT 1 FROM chat_message_deletes d2
+                      WHERE d2.user_id = ? AND d2.message_id = m2.id
+                    )
+                ) AS unread_count
+         FROM chat_threads t
+         JOIN chat_thread_participants tp ON tp.thread_id = t.id AND tp.user_id = ?
+         LEFT JOIN chat_thread_reads r ON r.thread_id = t.id AND r.user_id = ?
+         LEFT JOIN chat_thread_deletes td ON td.thread_id = t.id AND td.user_id = ?
+         WHERE td.deleted_at IS NULL
+           ${agencyClause}
+         HAVING unread_count > 0
+       ) x`,
+      params
+    );
+    return Number(rows[0]?.n || 0);
+  } catch (e) {
+    console.warn('[countHubChatUnreadThreads]', e?.message || e);
+    return 0;
+  }
+}
+
+/**
+ * Count unread email conversations + unread chat threads for Hub badge.
+ */
+export async function countHubUnreadTotal({ agencyId, userId } = {}) {
+  const feed = await listHubUnreadFeed({
+    agencyId,
+    userId,
+    limit: 200,
+    sort: 'newest'
+  });
+  return feed.counts;
+}
+

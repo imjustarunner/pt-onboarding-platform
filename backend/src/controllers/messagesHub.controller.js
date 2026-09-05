@@ -14,7 +14,8 @@ import {
   browseHubContacts,
   ensureHubExternalContact,
   lookupHubExternalIdentity,
-  sendHubPortalInvitation
+  sendHubPortalInvitation,
+  listHubUnreadFeed
 } from '../services/messagesHub.service.js';
 import { generateHubSmartReply } from '../services/hubSmartReply.service.js';
 import {
@@ -822,6 +823,30 @@ export const getMessagesHubSmartReply = async (req, res, next) => {
       recentMessages: recent
     });
     res.json({ suggestion: suggestion || null, personKey, channel });
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
+ * GET /api/messages/hub/unread?agencyId=&sort=newest|oldest&limit=
+ * Unified unread feed: email conversations + chat/channel threads.
+ */
+export const getMessagesHubUnread = async (req, res, next) => {
+  try {
+    const agencyId = parseAgencyId(req);
+    if (!agencyId) {
+      return res.status(400).json({ error: { message: 'agencyId is required' } });
+    }
+    const sort = String(req.query.sort || 'newest').toLowerCase() === 'oldest' ? 'oldest' : 'newest';
+    const limit = Math.min(Math.max(parseInt(String(req.query.limit || '80'), 10) || 80, 1), 120);
+    const data = await listHubUnreadFeed({
+      agencyId,
+      userId: req.user.id,
+      limit,
+      sort
+    });
+    res.json(data);
   } catch (e) {
     next(e);
   }

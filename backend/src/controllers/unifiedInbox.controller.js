@@ -96,6 +96,22 @@ export async function getUnifiedAttentionSummary(req, res, next) {
       userId: req.user.id,
       scopeToUserId
     });
+    // Hub Unread badge = email unread + unread chat/channel threads
+    if (hubScope) {
+      try {
+        const { countHubChatUnreadThreads } = await import('../services/messagesHub.service.js');
+        const chatUnread = await countHubChatUnreadThreads({
+          agencyId,
+          userId: req.user.id
+        });
+        const emailUnread = Number(summary?.unread || 0);
+        summary.emailUnread = emailUnread;
+        summary.chatUnread = chatUnread;
+        summary.unread = emailUnread + chatUnread;
+      } catch (e) {
+        console.warn('[attention-summary] chat unread:', e?.message || e);
+      }
+    }
     res.json({ summary });
   } catch (e) {
     next(e);

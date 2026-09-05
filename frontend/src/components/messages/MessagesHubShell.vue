@@ -104,6 +104,13 @@
         >
           <div class="msg-hub-list-head">
             <h3>{{ listColumnTitle }}</h3>
+            <label v-if="navId === 'unread' && isConversationMode" class="msg-hub-sort">
+              <span class="sr-only">Sort unread</span>
+              <select v-model="unreadSort" @change="loadConversations">
+                <option value="newest">Newest first</option>
+                <option value="oldest">Oldest first</option>
+              </select>
+            </label>
           </div>
           <label class="msg-hub-search">
             <span class="sr-only">Filter list</span>
@@ -158,7 +165,10 @@
               <div class="msg-hub-row-body">
                 <div class="msg-hub-row-top">
                   <strong>{{ c.primary_participant_name || c.subject || 'Conversation' }}</strong>
-                  <span v-if="c.is_unread" class="msg-hub-unread-pill">Unread</span>
+                  <span v-if="c.hubChannelLabel" class="msg-hub-channel-pill">{{ c.hubChannelLabel }}</span>
+                  <span v-if="c.is_unread" class="msg-hub-unread-pill">
+                    {{ c.unreadCount > 1 ? `${c.unreadCount} unread` : 'Unread' }}
+                  </span>
                   <span v-if="c.last_message_at" class="msg-hub-time">{{ formatTime(c.last_message_at) }}</span>
                 </div>
                 <p class="msg-hub-snippet">
@@ -171,7 +181,7 @@
                   {{ c.last_message_preview || c.subject || '' }}
                 </p>
               </div>
-              <div class="msg-hub-row-actions" @click.stop>
+              <div v-if="!c.hubKind || c.hubKind === 'email'" class="msg-hub-row-actions" @click.stop>
                 <div class="msg-hub-snooze-wrap">
                   <button
                     type="button"
@@ -1311,6 +1321,7 @@ const people = ref([]);
 const conversations = ref([]);
 const listFilter = ref('unread');
 const listSearch = ref('');
+const unreadSort = ref('newest');
 const selected = ref(null);
 const talkingToUserId = ref(null);
 const includeClientOnSend = ref(false);
@@ -1585,7 +1596,7 @@ const filteredConversations = computed(() => {
   const q = listSearch.value.trim().toLowerCase();
   if (!q) return list;
   return list.filter((c) => {
-    const hay = `${c.primary_participant_name || ''} ${c.primary_participant_email || ''} ${c.subject || ''} ${c.last_message_preview || ''}`.toLowerCase();
+    const hay = `${c.primary_participant_name || ''} ${c.primary_participant_email || ''} ${c.subject || ''} ${c.last_message_preview || ''} ${c.hubChannelLabel || ''}`.toLowerCase();
     return hay.includes(q);
   });
 });
@@ -1601,8 +1612,11 @@ const emptyListCopy = computed(() => {
     if (navId.value === 'unknown') {
       return 'No unknown senders right now. New mail from addresses outside your known contacts will land here.';
     }
-    if (navId.value === 'unread' || navId.value === 'inbox') {
-      return 'No unread email here. Internal and secure chat live on each person — open Recent or Staff to see new messages.';
+    if (navId.value === 'unread') {
+      return 'You\'re caught up — no unread email or chat.';
+    }
+    if (navId.value === 'inbox') {
+      return 'Nothing in your inbox yet.';
     }
     return 'Nothing in this inbox view yet.';
   }
@@ -2731,8 +2745,32 @@ function onSecureToggle(ev) {
 }
 
 function methodLabel(id) {
-  const map = { secure: 'Secure', sms: 'SMS', email: 'Email', internal: 'Internal' };
+  const map = {
+    secure: 'Secure',
+    sms: 'SMS',
+    email: 'Email',
+    internal: 'Internal',
+    channel: 'Channel',
+    group: 'Group',
+    call: 'Call',
+    voicemail: 'Voicemail'
+  };
   return map[id] || '';
+}
+
+function hubUnreadChannelLabel(item) {
+  const kind = String(item?.kind || '').toLowerCase();
+  const ch = String(item?.channel || '').toLowerCase();
+  const tType = String(item?.threadType || '').toLowerCase();
+  if (kind === 'group' || ch === 'group' || tType === 'group' || tType === 'team' || tType === 'club') {
+    return 'Group';
+  }
+  if (tType === 'skill_builders_event') return 'Event';
+  if (ch === 'channel' || kind === 'channel') return 'Channel';
+  if (ch === 'internal' || kind === 'chat') return 'Internal';
+  if (ch === 'sms') return 'SMS';
+  if (ch === 'call' || ch === 'voicemail') return methodLabel(ch);
+  return 'Email';
 }
 
 function queueReasonLabel(reason) {
@@ -3002,8 +3040,46 @@ async function loadConversations() {
       conversations.value = [];
       return;
     }
-    const params = { agencyId: agencyId.value, limit: 40, hubScope: 1 };
     const id = navId.value;
+
+    // Unified Unread: email + internal/secure chat + channels
+    if (id === 'unread') {
+      const { data } = await api.get('/messages/hub/unread', {
+        params: {
+          agencyId: agencyId.value,
+          sort: unreadSort.value,
+          limit: 80
+        },
+        skipGlobalLoading: true
+      });
+      const items = Array.isArray(data?.items) ? data.items : [];
+      conversations.value = items.map((item) => ({
+        id: item.conversationId || item.id,
+        hubKind: item.kind,
+        hubChannelLabel: hubUnreadChannelLabel(item),
+        conversationId: item.conversationId || null,
+        threadId: item.threadId || null,
+        threadType: item.threadType || null,
+        personKey: item.personKey || null,
+        channel: item.channel,
+        primary_participant_name: item.displayName,
+        primary_participant_email: item.primaryEmail,
+        subject: item.subject,
+        last_message_preview: item.preview,
+        last_message_at: item.sortAt,
+        is_unread: true,
+        unreadCount: Number(item.unreadCount || 1),
+        starred: !!item.starred,
+        snoozed_until: item.snoozedUntil || null,
+        sender_trust: item.senderTrust || null,
+        is_unknown_sender: !!item.isUnknownSender,
+        photoUrl: item.photoUrl || null
+      }));
+      await loadInboxCounts();
+      return;
+    }
+
+    const params = { agencyId: agencyId.value, limit: 40, hubScope: 1 };
     if (id === 'mentions') {
       params.channel = 'mention';
       params.filter = 'all';
@@ -3015,7 +3091,7 @@ async function loadConversations() {
     } else if (id === 'unknown') {
       params.filter = 'unknown';
     } else {
-      params.filter = id; // unread, starred, snoozed
+      params.filter = id; // starred, snoozed
     }
     const { data } = await api.get('/communications/conversations', {
       params,
@@ -3053,6 +3129,7 @@ async function loadInboxCounts() {
       snoozed: Number(s.snoozed || 0),
       unknown: Number(s.unknownSenders || 0)
     };
+    emit('unread-change', inboxCounts.value.unread);
   } catch {
     /* keep prior counts */
   }
@@ -3201,6 +3278,37 @@ async function pickConversation(conv) {
   selectedConversation.value = conv;
   conversationPreview.value = null;
   mobileShowThread.value = true;
+
+  // Unified Unread: open chat person timeline, group, or channel
+  if (conv?.hubKind === 'chat' || conv?.hubKind === 'channel' || conv?.hubKind === 'group') {
+    if (conv.hubKind === 'chat' && conv.personKey) {
+      try {
+        await pickPerson({
+          personKey: conv.personKey,
+          displayName: conv.primary_participant_name,
+          photoUrl: conv.photoUrl,
+          preferredMethod: 'internal'
+        });
+        if (navId.value === 'unread') {
+          await loadInboxCounts();
+        }
+        return;
+      } catch {
+        /* fall through */
+      }
+    }
+    if (conv.threadId) {
+      await onOpenGroupFromModal({
+        groupId: conv.threadId,
+        threadId: conv.threadId,
+        displayName: conv.primary_participant_name || 'Chat'
+      });
+      if (navId.value === 'unread') await loadInboxCounts();
+      return;
+    }
+  }
+
+  const emailConvId = conv?.conversationId || (Number(conv?.id) > 0 ? Number(conv.id) : null);
   const unknown =
     !!(conv?.is_unknown_sender || conv?.sender_trust === 'unknown') || navId.value === 'unknown';
   // Unknown senders stay in conversation preview so staff can mark known / add contact
@@ -3218,7 +3326,8 @@ async function pickConversation(conv) {
             return false;
           }) || results?.[0];
         if (match) {
-          await pickPerson(match, { fromConversation: conv });
+          await pickPerson(match, { fromConversation: { ...conv, id: emailConvId || conv.id } });
+          if (navId.value === 'unread') await loadInboxCounts();
           return;
         }
       } catch {
@@ -3229,8 +3338,12 @@ async function pickConversation(conv) {
   // Preview conversation messages when person cannot be resolved
   selected.value = null;
   timeline.value = [];
+  if (!emailConvId) {
+    error.value = 'Could not open this conversation';
+    return;
+  }
   try {
-    const { data } = await api.get(`/communications/conversations/${conv.id}`, {
+    const { data } = await api.get(`/communications/conversations/${emailConvId}`, {
       params: { agencyId: agencyId.value, markRead: unknown ? '0' : undefined },
       skipGlobalLoading: true
     });
@@ -3240,6 +3353,7 @@ async function pickConversation(conv) {
       selectedConversation.value = {
         ...conv,
         ...detailConv,
+        id: detailConv.id,
         primary_participant_email:
           conv.primary_participant_email || detailConv.primary_participant_email,
         primary_participant_name:
@@ -3247,6 +3361,7 @@ async function pickConversation(conv) {
       };
       await hydrateComposeFromConversation(selectedConversation.value);
     }
+    if (navId.value === 'unread') await loadInboxCounts();
   } catch (e) {
     error.value = e?.response?.data?.error?.message || 'Could not open conversation';
   }
@@ -5156,11 +5271,35 @@ defineExpose({
 }
 .msg-hub-list-head {
   padding: 12px 12px 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
 }
 .msg-hub-list-head h3 {
   margin: 0;
   font-size: 0.95rem;
   color: var(--mh-primary);
+}
+.msg-hub-sort select {
+  font-size: 12px;
+  border: 1px solid var(--mh-line);
+  border-radius: 6px;
+  background: var(--mh-surface);
+  color: var(--mh-muted);
+  padding: 3px 6px;
+}
+.msg-hub-channel-pill {
+  flex-shrink: 0;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  color: var(--mh-muted);
+  background: var(--mh-surface-2);
+  border: 1px solid var(--mh-line);
+  border-radius: 999px;
+  padding: 1px 6px;
 }
 .msg-hub-unread-dot {
   position: absolute;
