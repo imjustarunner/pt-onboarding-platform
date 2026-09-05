@@ -110,7 +110,8 @@ async function applyUserEmailSignatureBlock({
   userId,
   agencyId = null,
   text = null,
-  html = null
+  html = null,
+  misdirectedReportUrl = null
 }) {
   const uid = Number(userId || 0);
   if (!Number.isFinite(uid) || uid <= 0) return { text, html };
@@ -122,7 +123,8 @@ async function applyUserEmailSignatureBlock({
       userId: uid,
       agencyId,
       text,
-      html
+      html,
+      misdirectedReportUrl
     });
     if (out.appended) return { text: out.text, html: out.html };
     // Eligible but disabled — do not fall back to legacy image upload.
@@ -175,6 +177,19 @@ async function finalizeOutboundContent({
   source = null,
   templateType = null
 }) {
+  const aid = Number(agencyId || identity?.agency_id || 0) || null;
+  let misdirectedReportUrl = null;
+  try {
+    const { createMisdirectedEmailReportLink } = await import('../misdirectedEmailReport.service.js');
+    misdirectedReportUrl = await createMisdirectedEmailReportLink({
+      agencyId: aid,
+      senderUserId: generatedByUserId || userId || null,
+      toEmail: to
+    });
+  } catch (e) {
+    console.warn('[unifiedEmail] misdirected report link:', e?.message || e);
+  }
+
   let signed = applySenderSignatureBlock({ identity, text, html });
   const src = String(source || '').toLowerCase();
   const tt = String(templateType || '').toLowerCase();
@@ -184,15 +199,15 @@ async function finalizeOutboundContent({
   if (appendUser) {
     signed = await applyUserEmailSignatureBlock({
       userId: generatedByUserId,
-      agencyId: agencyId || identity?.agency_id || null,
+      agencyId: aid,
       text: signed.text,
-      html: signed.html
+      html: signed.html,
+      misdirectedReportUrl
     });
   }
 
   // Tenant HTML header/footer chrome (Email Settings assets; ITSCO seeded)
   try {
-    const aid = Number(agencyId || identity?.agency_id || 0);
     if (aid && signed.html) {
       const { wrapOutboundHtmlWithTenantChrome } = await import('../tenantEmailChrome.service.js');
       const replyMailto = String(identity?.reply_to || identity?.from_email || '').trim();
@@ -213,8 +228,9 @@ async function finalizeOutboundContent({
     text: signed.text,
     html: signed.html,
     to,
-    agencyId: agencyId || identity?.agency_id || null,
-    userId
+    agencyId: aid,
+    userId,
+    misdirectedReportUrl
   });
 }
 

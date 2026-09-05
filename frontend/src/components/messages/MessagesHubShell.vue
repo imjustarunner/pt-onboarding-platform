@@ -394,9 +394,124 @@
 
             <div class="msg-hub-timeline">
               <div v-if="loadingTimeline" class="msg-hub-muted">Loading conversation…</div>
-              <template v-else-if="timeline.length">
+              <template v-else-if="sendMethod === 'email'">
+                <div class="msg-hub-email-thread-bar">
+                  <button
+                    type="button"
+                    class="msg-hub-email-new-btn"
+                    :class="{ active: !activeEmailThreadKey }"
+                    @click="startNewEmailCompose"
+                  >
+                    New email
+                  </button>
+                  <button
+                    v-for="thread in emailSubjectThreads"
+                    :key="thread.key"
+                    type="button"
+                    class="msg-hub-email-thread-chip"
+                    :class="{ active: activeEmailThreadKey === thread.key }"
+                    :title="thread.subject"
+                    @click="openEmailSubjectThread(thread)"
+                  >
+                    <span class="msg-hub-email-thread-sub">{{ thread.subject }}</span>
+                    <span class="msg-hub-email-thread-count">{{ thread.messages.length }}</span>
+                  </button>
+                </div>
+                <template v-if="!activeEmailThreadKey">
+                  <div class="msg-hub-empty soft">
+                    New email — prior email threads stay nested above. Pick a subject to continue a conversation.
+                  </div>
+                </template>
+                <template v-else-if="visibleTimeline.length">
+                  <div class="msg-hub-email-thread-head">
+                    <strong>{{ activeEmailThreadSubject }}</strong>
+                  </div>
+                  <div
+                    v-for="msg in visibleTimeline"
+                    :key="msg.id"
+                    class="msg-hub-bubble"
+                    :class="[msg.direction, `ch-${msg.channel}`]"
+                  >
+                    <span class="msg-hub-bubble-ch">{{ methodLabel(msg.channel) }}</span>
+                    <p v-if="msg.bodyPreview">{{ msg.bodyPreview }}</p>
+                    <div v-if="msg.attachments?.length" class="msg-hub-bubble-atts">
+                      <a
+                        v-for="att in msg.attachments"
+                        :key="att.id || att.file_path"
+                        class="msg-hub-att-link"
+                        :href="att.file_url"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                      >
+                        <img
+                          v-if="isImageAttachment(att)"
+                          :src="att.file_url"
+                          :alt="att.original_filename || 'attachment'"
+                          class="msg-hub-att-img"
+                        />
+                        <span v-else>{{ att.original_filename || 'Attachment' }}</span>
+                      </a>
+                    </div>
+                    <div class="msg-hub-bubble-meta">
+                      <time>{{ formatTime(msg.createdAt) }}</time>
+                      <span
+                        v-if="msg.meta?.sendStatus === 'scheduled'"
+                        class="msg-hub-sent-tag"
+                      >Queued</span>
+                      <span
+                        v-else-if="msg.direction === 'outbound'"
+                        class="msg-hub-sent-tag"
+                      >Sent</span>
+                      <span
+                        v-if="msg.meta?.openedAt"
+                        class="msg-hub-open-tag"
+                        :title="formatTime(msg.meta.openedAt)"
+                      >
+                        Opened
+                      </span>
+                      <span
+                        v-else-if="msg.direction === 'outbound' && msg.meta?.sendStatus !== 'scheduled'"
+                        class="msg-hub-open-tag pending"
+                      >
+                        Not opened
+                      </span>
+                      <button
+                        v-if="msg.meta?.conversationId"
+                        type="button"
+                        class="msg-hub-star-btn"
+                        :class="{ on: !!msg.meta?.starred }"
+                        :title="msg.meta?.starred ? 'Unstar conversation' : 'Star conversation'"
+                        @click="toggleStarByConversationId(msg.meta.conversationId, !!msg.meta?.starred, msg)"
+                      >
+                        {{ msg.meta?.starred ? '★' : '☆' }}
+                      </button>
+                      <button
+                        v-if="msg.meta?.conversationId && msg.meta?.sendStatus === 'scheduled'"
+                        type="button"
+                        class="msg-hub-like"
+                        title="Undo / recall"
+                        @click="undoScheduledMessage(msg)"
+                      >
+                        Undo
+                      </button>
+                      <button
+                        v-else-if="msg.meta?.conversationId"
+                        type="button"
+                        class="msg-hub-like"
+                        title="Like"
+                        :disabled="reactingId === msg.id"
+                        @click="reactToMessage(msg)"
+                      >
+                        {{ reactingId === msg.id ? '…' : '❤️' }}
+                      </button>
+                    </div>
+                  </div>
+                </template>
+                <div v-else class="msg-hub-empty soft">No messages in this email thread yet.</div>
+              </template>
+              <template v-else-if="visibleTimeline.length">
                 <div
-                  v-for="msg in timeline"
+                  v-for="msg in visibleTimeline"
                   :key="msg.id"
                   class="msg-hub-bubble"
                   :class="[msg.direction, `ch-${msg.channel}`]"
@@ -516,7 +631,7 @@
               </div>
             </div>
 
-            <div class="msg-hub-composer">
+            <div class="msg-hub-composer" :class="{ 'is-email': sendMethod === 'email' }">
               <p v-if="deliveryNotice" class="msg-hub-delivery-note">{{ deliveryNotice }}</p>
               <div v-if="undoBanner" class="msg-hub-undo">
                 <span>
@@ -532,6 +647,24 @@
                     <strong>{{ composeToName || '—' }}</strong>
                     <span v-if="composeToEmail" class="msg-hub-to-email">{{ composeToEmail }}</span>
                     <span v-else class="msg-hub-to-missing">No email on this recipient</span>
+                  </div>
+                  <div class="msg-hub-cc-bcc-btns">
+                    <button
+                      v-if="!showCcField"
+                      type="button"
+                      class="msg-hub-inline-add"
+                      @click="showCcField = true"
+                    >
+                      Add Cc
+                    </button>
+                    <button
+                      v-if="!showBccField"
+                      type="button"
+                      class="msg-hub-inline-add"
+                      @click="showBccField = true"
+                    >
+                      Add Bcc
+                    </button>
                   </div>
                 </div>
                 <input
@@ -550,6 +683,7 @@
                   </select>
                 </div>
                 <input
+                  v-if="showCcField"
                   v-model="composeCc"
                   type="text"
                   class="msg-hub-subject"
@@ -558,6 +692,7 @@
                   @input="onCcBccInput('cc')"
                 />
                 <input
+                  v-if="showBccField"
                   v-model="composeBcc"
                   type="text"
                   class="msg-hub-subject"
@@ -574,18 +709,12 @@
                     {{ s.displayName }}{{ s.agencyName ? ` · ${s.agencyName}` : '' }}
                   </option>
                 </datalist>
-                <div class="msg-hub-attach-row">
-                  <label class="msg-hub-attach-btn">
-                    Attach files
-                    <input type="file" multiple hidden @change="onAttachFiles" />
-                  </label>
-                  <ul v-if="composeAttachments.length" class="msg-hub-attach-list">
-                    <li v-for="(f, i) in composeAttachments" :key="i">
-                      {{ f.filename }}
-                      <button type="button" @click="composeAttachments.splice(i, 1)">×</button>
-                    </li>
-                  </ul>
-                </div>
+                <ul v-if="composeAttachments.length" class="msg-hub-attach-list">
+                  <li v-for="(f, i) in composeAttachments" :key="i">
+                    {{ f.filename }}
+                    <button type="button" @click="composeAttachments.splice(i, 1)">×</button>
+                  </li>
+                </ul>
               </template>
               <div
                 v-if="smartReply || smartReplyLoading"
@@ -603,10 +732,19 @@
                   Apply suggestion
                 </button>
               </div>
+              <HubEmailBodyEditor
+                v-if="sendMethod === 'email'"
+                ref="emailEditorEl"
+                v-model="composeBody"
+                :placeholder="composerPlaceholder"
+                @attach-files="onAttachFiles"
+                @attach-images="onAttachFiles"
+              />
               <textarea
+                v-else
                 ref="composeEl"
                 v-model="composeBody"
-                rows="3"
+                rows="4"
                 :placeholder="composerPlaceholder"
                 @keydown.meta.enter.prevent="send"
                 @keydown.ctrl.enter.prevent="send"
@@ -732,6 +870,9 @@
                   <span>Email signature preview</span>
                   <span v-if="!signaturePreview.enabled" class="msg-hub-muted">Off on profile</span>
                 </div>
+                <p class="msg-hub-muted msg-hub-sig-preview-note">
+                  Recipients get a live <strong>Report misdirected email</strong> button in this footer (unique link per send). The preview button is a sample only.
+                </p>
                 <div class="msg-hub-sig-preview-body" v-html="signaturePreview.html" />
               </div>
               <p v-if="sendError" class="msg-hub-error inline">{{ sendError }}</p>
@@ -1143,6 +1284,7 @@ import { useAuthStore } from '../../store/auth';
 import { toUploadsUrl } from '../../utils/uploadsUrl';
 import StartConversationModal from './StartConversationModal.vue';
 import ResolveUnknownSenderModal from './ResolveUnknownSenderModal.vue';
+import HubEmailBodyEditor from './HubEmailBodyEditor.vue';
 
 const props = defineProps({
   layout: { type: String, default: 'page' } // 'page' | 'drawer'
@@ -1177,6 +1319,7 @@ const inboxCounts = ref({ unread: 0, snoozed: 0, unknown: 0 });
 const showResolveUnknown = ref(false);
 const snoozeMenuFor = ref(null);
 const timeline = ref([]);
+const activeEmailThreadKey = ref(null);
 const recentFiles = ref([]);
 const recentActivity = ref([]);
 const loadingContext = ref(false);
@@ -1191,6 +1334,9 @@ const composeBody = ref('');
 const composeSubject = ref('');
 const composeCc = ref('');
 const composeBcc = ref('');
+const showCcField = ref(false);
+const showBccField = ref(false);
+const emailEditorEl = ref(null);
 const composeAttachments = ref([]);
 const chatStagedAttachments = ref([]);
 const chatThreadId = ref(null);
@@ -1770,18 +1916,100 @@ const activeDelaySeconds = computed(() => {
 
 watch(sendMethod, (m) => {
   undoDelaySeconds.value = activeDelaySeconds.value;
+  if (m === 'email') {
+    // New compose by default — don’t show prior email/chat history until a subject is opened.
+    activeEmailThreadKey.value = null;
+  }
   scheduleSmartReply();
 });
 
 watch(
   () => selected.value?.personKey,
-  () => scheduleSmartReply()
+  () => {
+    activeEmailThreadKey.value = null;
+    scheduleSmartReply();
+  }
 );
 
 watch(
   () => timeline.value?.length,
   () => scheduleSmartReply()
 );
+
+function normalizeEmailSubjectKey(subject) {
+  let s = String(subject || '').trim().toLowerCase();
+  s = s.replace(/^(re|fw|fwd)\s*:\s*/gi, '');
+  while (/^(re|fw|fwd)\s*:/i.test(s)) {
+    s = s.replace(/^(re|fw|fwd)\s*:\s*/i, '');
+  }
+  return s || '(no subject)';
+}
+
+const emailSubjectThreads = computed(() => {
+  const map = new Map();
+  for (const msg of timeline.value || []) {
+    if (String(msg.channel || '').toLowerCase() !== 'email') continue;
+    const subject = String(msg.meta?.subject || '').trim() || '(No subject)';
+    const key = normalizeEmailSubjectKey(subject);
+    if (!map.has(key)) {
+      map.set(key, { key, subject, messages: [] });
+    }
+    map.get(key).messages.push(msg);
+  }
+  return [...map.values()]
+    .map((t) => ({
+      ...t,
+      messages: [...t.messages].sort(
+        (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+      )
+    }))
+    .sort((a, b) => {
+      const aLast = a.messages[a.messages.length - 1]?.createdAt || 0;
+      const bLast = b.messages[b.messages.length - 1]?.createdAt || 0;
+      return new Date(bLast).getTime() - new Date(aLast).getTime();
+    });
+});
+
+const activeEmailThreadSubject = computed(() => {
+  const t = emailSubjectThreads.value.find((x) => x.key === activeEmailThreadKey.value);
+  return t?.subject || '';
+});
+
+const visibleTimeline = computed(() => {
+  const method = String(sendMethod.value || '').toLowerCase();
+  const items = Array.isArray(timeline.value) ? timeline.value : [];
+  if (method === 'email') {
+    if (!activeEmailThreadKey.value) return [];
+    const thread = emailSubjectThreads.value.find((t) => t.key === activeEmailThreadKey.value);
+    return thread?.messages || [];
+  }
+  if (method === 'internal' || method === 'secure') {
+    return items.filter((m) => {
+      const ch = String(m.channel || '').toLowerCase();
+      return ch === method || (method === 'secure' && ch === 'secure') || (method === 'internal' && ch === 'internal');
+    });
+  }
+  if (method === 'sms') {
+    return items.filter((m) => String(m.channel || '').toLowerCase() === 'sms');
+  }
+  return items;
+});
+
+function startNewEmailCompose() {
+  activeEmailThreadKey.value = null;
+  composeSubject.value = '';
+  composeBody.value = '';
+}
+
+function openEmailSubjectThread(thread) {
+  if (!thread?.key) return;
+  activeEmailThreadKey.value = thread.key;
+  const sub = String(thread.subject || '').trim();
+  if (sub && sub !== '(No subject)') {
+    const bare = sub.replace(/^(re|fw|fwd)\s*:\s*/gi, '').trim();
+    composeSubject.value = bare.startsWith('Re:') ? bare : `Re: ${bare}`;
+  }
+}
 
 const undoCountdownLabel = computed(() => {
   if (!undoBanner.value?.expiresAt) return '';
@@ -1937,15 +2165,17 @@ function scheduleSmartReply() {
   smartReply.value = '';
   smartReplyLoading.value = false;
   if (!selected.value?.personKey || !agencyId.value) return;
-  // Only suggest when the other person sent the latest message.
-  const last = timeline.value?.length ? timeline.value[timeline.value.length - 1] : null;
+  // Only suggest when the other person sent the latest message (in the visible channel thread).
+  const list = visibleTimeline.value;
+  const last = list?.length ? list[list.length - 1] : null;
   if (!last || String(last.direction || '').toLowerCase() !== 'inbound') return;
   smartReplyTimer = setTimeout(() => loadSmartReply(), 450);
 }
 
 async function loadSmartReply() {
   if (!selected.value?.personKey || !agencyId.value) return;
-  const last = timeline.value?.length ? timeline.value[timeline.value.length - 1] : null;
+  const list = visibleTimeline.value;
+  const last = list?.length ? list[list.length - 1] : null;
   if (!last || String(last.direction || '').toLowerCase() !== 'inbound') {
     smartReply.value = '';
     smartReplyLoading.value = false;
@@ -1961,8 +2191,8 @@ async function loadSmartReply() {
       },
       skipGlobalLoading: true
     });
-    // Re-check in case we sent while the request was in flight.
-    const stillLast = timeline.value?.length ? timeline.value[timeline.value.length - 1] : null;
+    const stillList = visibleTimeline.value;
+    const stillLast = stillList?.length ? stillList[stillList.length - 1] : null;
     if (!stillLast || String(stillLast.direction || '').toLowerCase() !== 'inbound') {
       smartReply.value = '';
       return;
@@ -1977,7 +2207,16 @@ async function loadSmartReply() {
 
 function applySmartReply() {
   if (!smartReply.value) return;
-  composeBody.value = smartReply.value;
+  if (sendMethod.value === 'email') {
+    const safe = String(smartReply.value)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/\n/g, '<br/>');
+    composeBody.value = `<p>${safe}</p>`;
+  } else {
+    composeBody.value = smartReply.value;
+  }
   focusComposer();
 }
 
@@ -2157,6 +2396,11 @@ const canSendCompose = computed(() => {
   if (sendMethod.value === 'internal' || sendMethod.value === 'secure') {
     return !!(composeBody.value.trim() || chatStagedAttachments.value.length);
   }
+  if (sendMethod.value === 'email') {
+    const html = String(composeBody.value || '');
+    const text = html.replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').trim();
+    return !!(text || composeAttachments.value.length);
+  }
   return !!composeBody.value.trim();
 });
 
@@ -2179,6 +2423,11 @@ function isImageAttachment(att) {
 }
 
 function insertEmoji(emoji) {
+  if (sendMethod.value === 'email' && emailEditorEl.value?.insertEmoji) {
+    emailEditorEl.value.insertEmoji(emoji);
+    emojiPickerOpen.value = false;
+    return;
+  }
   const el = composeEl.value;
   if (!el || typeof el.selectionStart !== 'number') {
     composeBody.value += emoji;
@@ -2194,6 +2443,17 @@ function insertEmoji(emoji) {
     el.focus();
     el.setSelectionRange(pos, pos);
   });
+}
+
+function htmlToPlainText(html) {
+  return String(html || '')
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/p>/gi, '\n')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/\s+\n/g, '\n')
+    .replace(/[ \t]+/g, ' ')
+    .trim();
 }
 
 async function ensureChatThread() {
@@ -2432,6 +2692,7 @@ async function focusComposer() {
 function selectMethod(id) {
   sendMethod.value = id;
   if (id === 'email') {
+    activeEmailThreadKey.value = null;
     loadSignaturePreview(selected.value?.agencyId || agencyId.value);
   }
   focusComposer();
@@ -3150,10 +3411,14 @@ async function executeSend({ sendToAllPortalGuardians = false, includeClient = f
         agencyId: sendAgencyId,
         personKey,
         method: sendMethod.value,
-        body: composeBody.value.trim(),
+        body:
+          sendMethod.value === 'email'
+            ? htmlToPlainText(composeBody.value)
+            : composeBody.value.trim(),
         subject: composeSubject.value.trim() || undefined
       };
       if (sendMethod.value === 'email') {
+        payload.bodyHtml = String(composeBody.value || '').trim() || null;
         let cc = composeCc.value.trim();
         if (personKey === primaryKey && emailCcExtra) {
           const parts = cc ? cc.split(/[,;]/).map((s) => s.trim()).filter(Boolean) : [];
@@ -3198,6 +3463,12 @@ async function executeSend({ sendToAllPortalGuardians = false, includeClient = f
     composeBcc.value = '';
     composeAttachments.value = [];
     chatStagedAttachments.value = [];
+    if (sentMethod === 'email' && sentSubject) {
+      activeEmailThreadKey.value = normalizeEmailSubjectKey(sentSubject);
+      composeSubject.value = sentSubject.startsWith('Re:') ? sentSubject : `Re: ${sentSubject}`;
+    } else if (sentMethod === 'email') {
+      activeEmailThreadKey.value = null;
+    }
     if (data?.threadRef?.threadId) chatThreadId.value = data.threadRef.threadId;
     schedulePreset.value = null;
     showSchedule.value = false;
@@ -3431,8 +3702,7 @@ defineExpose({
 .msg-hub-search { display: block; padding: 10px 12px; }
 .msg-hub-search input,
 .msg-hub-modal-input,
-.msg-hub-subject,
-.msg-hub-composer textarea {
+.msg-hub-subject {
   width: 100%;
   box-sizing: border-box;
   border: 1px solid var(--mh-line);
@@ -3760,7 +4030,10 @@ defineExpose({
 .msg-hub-missing { color: #b45309; font-weight: 600; }
 .msg-hub-kv-hint { font-style: normal; color: #64748b; font-weight: 500; font-size: 0.85em; }
 .msg-hub-to-row {
-  align-items: flex-start;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 .msg-hub-to-value {
   display: flex;
@@ -3892,7 +4165,7 @@ defineExpose({
   padding: 1px 4px;
 }
 .msg-hub-timeline {
-  flex: 1;
+  flex: 1 1 auto;
   min-height: 0;
   overflow: auto;
   padding: 14px 16px;
@@ -3922,16 +4195,102 @@ defineExpose({
   color: var(--mh-primary);
 }
 .msg-hub-composer {
-  padding: 8px 14px 4px;
+  padding: 8px 14px 16px;
   border-top: 1px solid var(--mh-line);
   display: flex;
   flex-direction: column;
   gap: 6px;
-  flex-shrink: 0;
+  flex: 0 1 auto;
   min-height: 0;
-  max-height: min(42vh, 380px);
+  max-height: min(48vh, 420px);
+  overflow-x: hidden;
   overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
   background: #fff;
+}
+.msg-hub-composer.is-email {
+  max-height: min(68vh, 640px);
+  padding-bottom: 24px;
+}
+.msg-hub-composer textarea {
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 120px;
+  flex: 0 0 auto;
+  resize: vertical;
+  border: 1px solid var(--mh-line);
+  border-radius: 8px;
+  padding: 10px 12px;
+  font: inherit;
+  line-height: 1.45;
+}
+.msg-hub-cc-bcc-btns {
+  display: inline-flex;
+  gap: 6px;
+  margin-left: auto;
+}
+.msg-hub-inline-add {
+  border: 1px solid var(--mh-line);
+  background: #fff;
+  color: var(--mh-primary);
+  border-radius: 999px;
+  padding: 3px 10px;
+  font-size: 12px;
+  font-weight: 650;
+  cursor: pointer;
+}
+.msg-hub-emoji-picker.email {
+  position: relative;
+  bottom: auto;
+  left: auto;
+  width: 100%;
+  max-width: none;
+  margin-bottom: 4px;
+}
+.msg-hub-email-thread-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  margin-bottom: 4px;
+}
+.msg-hub-email-new-btn,
+.msg-hub-email-thread-chip {
+  border: 1px solid var(--mh-line);
+  background: #fff;
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 12px;
+  cursor: pointer;
+  color: var(--mh-ink);
+  max-width: 100%;
+}
+.msg-hub-email-new-btn.active,
+.msg-hub-email-thread-chip.active {
+  border-color: var(--mh-primary);
+  background: color-mix(in srgb, var(--mh-primary) 10%, #fff);
+  color: var(--mh-primary);
+  font-weight: 650;
+}
+.msg-hub-email-thread-sub {
+  display: inline-block;
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
+}
+.msg-hub-email-thread-count {
+  margin-left: 6px;
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--mh-muted);
+}
+.msg-hub-email-thread-head {
+  font-size: 12px;
+  color: var(--mh-muted);
+  margin: 2px 0 6px;
 }
 .msg-hub-subject {
   width: 100%;
@@ -4268,6 +4627,11 @@ defineExpose({
   font-size: 0.78rem;
   color: var(--mh-ink-muted, #64748b);
   margin-bottom: 2px;
+}
+.msg-hub-sig-preview-note {
+  margin: 0 0 6px;
+  font-size: 0.75rem;
+  line-height: 1.35;
 }
 .msg-hub-sig-preview-body {
   overflow: visible;

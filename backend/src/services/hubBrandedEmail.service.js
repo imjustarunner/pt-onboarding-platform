@@ -48,7 +48,10 @@ export function buildNormalOutboundEmailHtml(opts = {}) {
   const sender = escapeHtml(opts.senderDisplayName || 'Team member');
   const title = escapeHtml(opts.senderTitle || '');
   const agencyName = escapeHtml(opts.agencyName || '');
-  const body = escapeHtml(opts.bodyText || '').replace(/\n/g, '<br/>');
+  const rawHtml = String(opts.bodyHtml || '').trim();
+  const body = rawHtml
+    ? rawHtml.replace(/<script[\s\S]*?>[\s\S]*?<\/script>/gi, '')
+    : escapeHtml(opts.bodyText || '').replace(/\n/g, '<br/>');
   const primary = escapeHtml(parsePrimaryColor(opts.colorPalette));
   const logoUrl = String(opts.logoUrl || '').trim();
   const logo = logoUrl

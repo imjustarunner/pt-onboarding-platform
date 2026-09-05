@@ -90,9 +90,12 @@ function formatDisplayName(firstName, lastName, credential) {
   return `${name}, ${cred}`;
 }
 
-function normalizeWebsite(raw) {
+function normalizeWebsite(raw, { allowEmpty = false } = {}) {
   const s = String(raw || '').trim();
-  if (!s) return { display: ITSCO_SIGNATURE_DEFAULTS.websiteDisplay, url: ITSCO_SIGNATURE_DEFAULTS.websiteUrl };
+  if (!s) {
+    if (allowEmpty) return { display: '', url: '' };
+    return { display: ITSCO_SIGNATURE_DEFAULTS.websiteDisplay, url: ITSCO_SIGNATURE_DEFAULTS.websiteUrl };
+  }
   const display = s.replace(/^https?:\/\//i, '').replace(/\/$/, '');
   const url = /^https?:\/\//i.test(s) ? s : `https://${display}`;
   return { display, url };
@@ -189,12 +192,12 @@ export async function resolveStaffSignatureContext({
   }
 
   const phone = normalizePhone(
-    isItsco ? ITSCO_SIGNATURE_DEFAULTS.phoneDisplay : agency?.phone_number || ITSCO_SIGNATURE_DEFAULTS.phoneDisplay
+    agency?.phone_number || (isItsco ? ITSCO_SIGNATURE_DEFAULTS.phoneDisplay : '')
   );
+  // Always prefer this agency’s portal/domain — never borrow another tenant’s site.
   const website = normalizeWebsite(
-    isItsco
-      ? ITSCO_SIGNATURE_DEFAULTS.websiteDisplay
-      : agency?.portal_url || agency?.custom_domain || ITSCO_SIGNATURE_DEFAULTS.websiteDisplay
+    agency?.portal_url || agency?.custom_domain || (isItsco ? ITSCO_SIGNATURE_DEFAULTS.websiteDisplay : ''),
+    { allowEmpty: !isItsco }
   );
 
   const pubBase = baseUrl || publicBaseUrl();
@@ -202,12 +205,11 @@ export async function resolveStaffSignatureContext({
   if (photoUrl && photoUrl.startsWith('/') && pubBase) photoUrl = `${pubBase}${photoUrl}`;
   if (!photoUrl) photoUrl = staffHtmlAsset('photo-placeholder.png');
 
-  let logoUrl = null;
-  if (isItsco) {
-    logoUrl = `${staffHtmlAsset('itsco-main-logo.png', { cacheKey: '4' })}`;
-  } else {
-    logoUrl = resolveOrgLogoUrl(agency || {}, { baseUrl: pubBase }) || staffHtmlAsset('itsco-main-logo.png');
-    if (logoUrl && logoUrl.startsWith('/') && pubBase) logoUrl = `${pubBase}${logoUrl}`;
+  // Agency’s own logo only — ITSCO bundled mark is a fallback for ITSCO when no upload exists.
+  let logoUrl = resolveOrgLogoUrl(agency || {}, { baseUrl: pubBase });
+  if (logoUrl && logoUrl.startsWith('/') && pubBase) logoUrl = `${pubBase}${logoUrl}`;
+  if (!logoUrl && isItsco) {
+    logoUrl = staffHtmlAsset('itsco-main-logo.png', { cacheKey: '6' });
   }
 
   const email = String(u.work_email || u.email || '').trim();
@@ -294,14 +296,14 @@ export function buildStaffSignatureHtml(ctx) {
   const phoneDisplay = escapeHtml(ctx.phone?.display || ITSCO_SIGNATURE_DEFAULTS.phoneDisplay);
   const phoneHref = `tel:${String(ctx.phone?.tel || ITSCO_SIGNATURE_DEFAULTS.phoneTel).replace(/\s/g, '')}`;
   const ext = ctx.extension ? ` Ext. ${escapeHtml(ctx.extension)}` : '';
-  const webDisplay = escapeHtml(ctx.website?.display || ITSCO_SIGNATURE_DEFAULTS.websiteDisplay);
-  const webHref = escapeHtml(ctx.website?.url || ITSCO_SIGNATURE_DEFAULTS.websiteUrl);
+  const webDisplay = escapeHtml(ctx.website?.display || '');
+  const webHref = escapeHtml(ctx.website?.url || '');
   // mailto links should not open a new tab
   const emailLink = (label) =>
     `<a href="${escapeHtml(emailHref)}" style="color:${c.navy};text-decoration:none !important;border-bottom:none;"><span style="color:${c.navy};text-decoration:none !important;">${label}</span></a>`;
   const phoneLink = (label) =>
     `<a href="${escapeHtml(phoneHref)}" style="color:${c.navy};text-decoration:none !important;border-bottom:none;"><span style="color:${c.navy};text-decoration:none !important;">${label}</span></a>`;
-  const webLink = plainTextLink(webHref, webDisplay, c.navy);
+  const webLink = webHref && webDisplay ? plainTextLink(webHref, webDisplay, c.navy) : '';
   const photo = escapeHtml(ctx.photoUrl || ctx.assets?.placeholderPhoto || '');
   const logo = escapeHtml(ctx.logoUrl || '');
   const iconEmail = escapeHtml(ctx.assets?.iconEmail || '');
@@ -322,22 +324,24 @@ export function buildStaffSignatureHtml(ctx) {
         <span style="color:${c.green};font-weight:700;">${org}</span>
       </div>`;
 
-  const contactRow = (icon, label, valueHtml) => `
+  const contactRow = (icon, label, valueHtml) => {
+    if (!valueHtml) return '';
+    return `
     <tr>
-      <td style="padding:2px 0;vertical-align:middle;width:20px;">
+      <td style="padding:1px 0;vertical-align:middle;width:20px;">
         <img src="${icon}" width="16" height="16" alt="" style="display:block;border:0;width:16px;height:16px;" />
       </td>
-      <td style="padding:2px 0 2px 6px;font-family:Arial,Helvetica,sans-serif;font-size:12px;line-height:1.3;color:${c.navy};">
+      <td style="padding:1px 0 1px 6px;font-family:Arial,Helvetica,sans-serif;font-size:12px;line-height:1.25;color:${c.navy};">
         <span style="color:${c.green};font-weight:700;">${label}:</span>&nbsp;${valueHtml}
       </td>
     </tr>`;
+  };
 
-  // Shared right-rail width so the top green divider and footer gray divider share one vertical axis.
-  const rightRailWidth = 210;
-  // Keep right rail tight so logo + socials don’t leave a tall empty gap under the photo/contact block.
-  const rightRailPad = `padding:4px 10px 0 14px;`;
-  const photoSize = 120;
-  const logoWidth = 156;
+  // Compact right rail — logo sized to contact block so we don’t leave a tall empty gap under the photo.
+  const rightRailWidth = 148;
+  const rightRailPad = `padding:0 2px 0 6px;`;
+  const photoSize = 104;
+  const logoWidth = 108;
 
   const socialIconSrc = (platform) => {
     const a = ctx.assets || {};
@@ -352,39 +356,55 @@ export function buildStaffSignatureHtml(ctx) {
   };
 
   const social = Array.isArray(ctx.socialLinks) ? ctx.socialLinks.filter((l) => l?.url) : [];
-  const socialIconsHtml = social.length
-    ? `<table role="presentation" cellpadding="0" cellspacing="0" border="0" align="center" style="border-collapse:collapse;margin:6px auto 0;">
-        <tr>
-          ${social
-            .map((link) => {
-              const href = escapeHtml(link.url);
-              const title = escapeHtml(link.label || platformLabel(link.platform));
-              const icon = escapeHtml(socialIconSrc(link.platform));
-              if (!icon) return '';
-              // White glyph on tenant primary tile — color follows each agency palette.
-              return `<td style="padding:0 2px;vertical-align:middle;text-align:center;">
-                <a href="${href}" title="${title}" target="_blank" rel="noopener noreferrer"
-                  style="display:inline-block;background:${c.green};border-radius:5px;padding:2px;line-height:0;text-decoration:none !important;border:0;">
-                  <img src="${icon}" width="18" height="18" alt="${title}"
-                    style="display:block;border:0;width:18px;height:18px;" />
-                </a>
-              </td>`;
-            })
-            .join('')}
-        </tr>
-      </table>`
+  const socialIconsRow = social.length
+    ? `<tr>
+        <td align="center" style="text-align:center;padding:4px 0 0;line-height:0;">
+          <table role="presentation" cellpadding="0" cellspacing="0" border="0" align="center" style="border-collapse:collapse;margin:0 auto;">
+            <tr>
+              ${social
+                .map((link) => {
+                  const href = escapeHtml(link.url);
+                  const title = escapeHtml(link.label || platformLabel(link.platform));
+                  const icon = escapeHtml(socialIconSrc(link.platform));
+                  if (!icon) return '';
+                  return `<td align="center" style="padding:0 2px;vertical-align:middle;text-align:center;">
+                    <a href="${href}" title="${title}" target="_blank" rel="noopener noreferrer"
+                      style="display:inline-block;background:${c.green};border-radius:5px;padding:2px;line-height:0;text-decoration:none !important;border:0;">
+                      <img src="${icon}" width="16" height="16" alt="${title}"
+                        style="display:block;border:0;width:16px;height:16px;margin:0 auto;" />
+                    </a>
+                  </td>`;
+                })
+                .join('')}
+            </tr>
+          </table>
+        </td>
+      </tr>`
     : '';
 
-  const logoBlockHtml = `
-    <table role="presentation" cellpadding="0" cellspacing="0" border="0" align="center" width="100%" style="border-collapse:collapse;margin:0 auto;">
+  const logoImg = logo
+    ? `<img src="${logo}" width="${logoWidth}" alt="${org}"
+        style="display:block;border:0;max-width:${logoWidth}px;width:${logoWidth}px;height:auto;margin:0 auto;" />`
+    : '';
+  const logoLinked = logoImg
+    ? webHref
+      ? `<a href="${webHref}" target="_blank" rel="noopener noreferrer" style="text-decoration:none !important;border:0;display:inline-block;">${logoImg}</a>`
+      : logoImg
+    : '';
+
+  const logoBlockHtml = logoLinked
+    ? `
+    <table role="presentation" cellpadding="0" cellspacing="0" border="0" align="center" width="${logoWidth}" style="border-collapse:collapse;margin:0 auto;width:${logoWidth}px;">
       <tr>
-        <td align="center" style="text-align:center;vertical-align:top;padding:0;">
-          <img src="${logo}" width="${logoWidth}" alt="${org}"
-            style="display:block;border:0;max-width:${logoWidth}px;width:${logoWidth}px;height:auto;margin:0 auto;" />
-          ${socialIconsHtml}
+        <td align="center" style="text-align:center;vertical-align:top;padding:0;line-height:0;">
+          ${logoLinked}
         </td>
       </tr>
-    </table>`;
+      ${socialIconsRow}
+    </table>`
+    : socialIconsRow
+      ? `<table role="presentation" cellpadding="0" cellspacing="0" border="0" align="center" style="border-collapse:collapse;margin:0 auto;">${socialIconsRow}</table>`
+      : '';
 
   const confidentialHtml = `
     <tr>
@@ -399,25 +419,31 @@ export function buildStaffSignatureHtml(ctx) {
           <div style="margin:0;padding:0;">
             The information enclosed in this email may contain privileged and confidential materials intended solely for the individual indicated.
             If you are not the intended recipient, any review, dissemination, distribution, or duplication of this email is strictly prohibited.
-            If you are not the intended recipient, please contact the sender by reply email and destroy all copies of the original message.
+            ${
+              ctx.misdirectedReportUrl
+                ? `If this email was sent to you by mistake,
+            <a href="${escapeHtml(ctx.misdirectedReportUrl)}" style="color:#ffffff;background:#1d4ed8;text-decoration:none;padding:4px 10px;border-radius:4px;font-weight:700;display:inline-block;margin:3px 0;font-size:10px;line-height:1.3;" target="_blank" rel="noopener noreferrer">Report misdirected email</a>
+            so our support team can escalate and investigate — then destroy all copies of the original message.`
+                : `If this email was sent to you by mistake, please report it to the sending organization so they can escalate and investigate — then destroy all copies of the original message.`
+            }
           </div>
         </div>
       </td>
     </tr>`;
 
   return `
-<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;max-width:620px;width:100%;background:#ffffff;">
+<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;max-width:520px;width:100%;background:#ffffff;">
   <tr>
     <td style="padding:0;vertical-align:top;width:${photoSize + 8}px;">
       <img src="${photo}" width="${photoSize}" height="${photoSize}" alt="${name}"
         style="display:block;border:2px solid ${c.green};border-radius:12px;width:${photoSize}px;height:${photoSize}px;object-fit:cover;object-position:center 18%;" />
     </td>
-    <td style="padding:4px 10px 0;vertical-align:top;">
+    <td style="padding:2px 4px 0 6px;vertical-align:top;">
       <div style="font-family:Arial,Helvetica,sans-serif;font-size:18px;line-height:1.2;font-weight:700;color:${c.navy};">
         ${name}
       </div>
       ${titleLine}
-      <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="border-collapse:collapse;margin:6px 0 4px;">
+      <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;margin:4px 0 2px;">
         <tr><td style="border-top:1px solid ${c.divider};font-size:0;line-height:0;height:1px;">&nbsp;</td></tr>
       </table>
       <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;">
@@ -431,14 +457,14 @@ export function buildStaffSignatureHtml(ctx) {
     </td>
   </tr>
   <tr>
-    <td colspan="3" style="padding:6px 0 0;">
+    <td colspan="3" style="padding:3px 0 0;">
       <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="border-collapse:collapse;">
         <tr><td style="border-top:1px solid ${c.line};font-size:0;line-height:0;height:1px;padding:0;">&nbsp;</td></tr>
       </table>
     </td>
   </tr>
   <tr>
-    <td colspan="2" style="padding:6px 10px 0 0;vertical-align:middle;">
+    <td colspan="2" style="padding:3px 6px 0 0;vertical-align:middle;">
       <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;">
         <tr>
           <td style="vertical-align:middle;width:24px;">
@@ -451,10 +477,16 @@ export function buildStaffSignatureHtml(ctx) {
         </tr>
       </table>
     </td>
-    <td width="${rightRailWidth}" style="width:${rightRailWidth}px;padding:6px 4px 0 14px;vertical-align:middle;border-left:1px solid ${c.line};white-space:nowrap;">
-      <span style="font-family:Arial,Helvetica,sans-serif;font-size:10px;color:${c.muted};vertical-align:middle;">powered by</span>
-      <img src="${phoenix}" width="32" height="26" alt="PlotTwistCo" style="display:inline-block;border:0;width:32px;height:auto;vertical-align:middle;margin:0 3px 0 5px;" />
-      <span style="font-family:Arial,Helvetica,sans-serif;font-size:10px;color:${c.muted};vertical-align:middle;font-weight:600;">PlotTwistCo</span>
+    <td width="${rightRailWidth}" align="center" style="width:${rightRailWidth}px;padding:3px 2px 0 6px;vertical-align:middle;border-left:1px solid ${c.line};text-align:center;">
+      <table role="presentation" cellpadding="0" cellspacing="0" border="0" align="center" width="${logoWidth}" style="border-collapse:collapse;margin:0 auto;width:${logoWidth}px;">
+        <tr>
+          <td align="center" style="text-align:center;white-space:nowrap;font-size:0;line-height:0;">
+            <span style="font-family:Arial,Helvetica,sans-serif;font-size:10px;color:${c.muted};vertical-align:middle;line-height:normal;">powered by</span>
+            <img src="${phoenix}" width="28" height="22" alt="PlotTwistCo" style="display:inline-block;border:0;width:28px;height:auto;vertical-align:middle;margin:0 2px 0 4px;" />
+            <span style="font-family:Arial,Helvetica,sans-serif;font-size:10px;color:${c.muted};vertical-align:middle;font-weight:600;line-height:normal;">PlotTwistCo</span>
+          </td>
+        </tr>
+      </table>
     </td>
   </tr>
   ${confidentialHtml}
@@ -477,18 +509,25 @@ export function buildStaffSignatureText(ctx) {
 
 /**
  * Full preview payload for API / Hub compose.
+ * Uses a non-functional placeholder report URL so the compose UI shows the same
+ * "Report misdirected email" control recipients get on real sends (token minted at send time).
  */
 export async function getStaffSignaturePreview({ userId, agencyId = null } = {}) {
   const ctx = await resolveStaffSignatureContext({ userId, agencyId });
   if (!ctx) return null;
   // Hub preview runs in the browser — prefer same-origin /email-signatures/* paths
   // so local Vite (and any CDN mismatch) still loads icons / phoenix mark.
-  let html = buildStaffSignatureHtml(ctx);
+  const previewReportUrl = '#misdirected-report-preview';
+  let html = buildStaffSignatureHtml({
+    ...ctx,
+    misdirectedReportUrl: previewReportUrl
+  });
   html = html.replace(/src="https?:\/\/[^"]+\/(email-signatures\/[^"]+)"/gi, 'src="/$1"');
   return {
     eligible: ctx.eligible,
     enabled: ctx.enabled,
     agencyId: ctx.agencyId,
+    reportLinkInSentMail: true,
     html,
     text: buildStaffSignatureText(ctx),
     fields: {
@@ -513,13 +552,17 @@ export async function appendStaffHtmlSignature({
   agencyId = null,
   text = null,
   html = null,
-  force = false
+  force = false,
+  misdirectedReportUrl = null
 } = {}) {
   const ctx = await resolveStaffSignatureContext({ userId, agencyId });
   if (!ctx) return { text, html, appended: false };
   if (!force && (!ctx.eligible || !ctx.enabled)) return { text, html, appended: false, ctx };
 
-  const block = buildStaffSignatureHtml(ctx);
+  const block = buildStaffSignatureHtml({
+    ...ctx,
+    misdirectedReportUrl: misdirectedReportUrl || ctx.misdirectedReportUrl || null
+  });
   const textBlock = buildStaffSignatureText(ctx);
   if (!block) return { text, html, appended: false, ctx };
 

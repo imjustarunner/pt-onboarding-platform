@@ -2279,6 +2279,7 @@ export async function sendHubEmail({
   userId,
   person,
   body,
+  bodyHtml = null,
   subject,
   cc = null,
   bcc = null,
@@ -2355,6 +2356,7 @@ export async function sendHubEmail({
     senderDisplayName,
     senderTitle,
     bodyText: body,
+    bodyHtml: bodyHtml || null,
     colorPalette: agency.color_palette,
     logoUrl
   });

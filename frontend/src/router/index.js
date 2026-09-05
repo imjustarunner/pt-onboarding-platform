@@ -412,6 +412,12 @@ const routes = [
     meta: { requiresGuest: false, hideNav: true }
   },
   {
+    path: '/report-misdirected-email/:token',
+    name: 'MisdirectedEmailReport',
+    component: () => import('../views/MisdirectedEmailReportView.vue'),
+    meta: { requiresGuest: false, hideNav: true }
+  },
+  {
     path: '/values-alignment',
     name: 'ValuesAlignmentGuest',
     component: () => import('../views/valuesAlignment/ValuesAlignmentAssessmentView.vue'),

@@ -8,7 +8,7 @@ import { lookupSchoolStaffGroupContext } from './schoolGroupSubscription.service
 
 export const CONFIDENTIALITY_DISCLAIMER = [
   'CONFIDENTIAL AND POTENTIALLY SENSITIVE INFORMATION!',
-  'The information enclosed in this email may contain privileged and confidential materials intended solely for the individual indicated. If you are not the intended recipient, any review, dissemination, distribution, or duplication of this email is strictly prohibited. If you are not the intended recipient, please contact the sender by reply email and destroy all copies of the original message.'
+  'The information enclosed in this email may contain privileged and confidential materials intended solely for the individual indicated. If you are not the intended recipient, any review, dissemination, distribution, or duplication of this email is strictly prohibited. If this email was sent to you by mistake, please use the report link in the email (or contact the sending organization) so support can escalate and investigate — then destroy all copies of the original message.'
 ].join('\n');
 
 function escapeHtml(value) {
@@ -72,7 +72,8 @@ export async function appendComplianceFooter({
   to = null,
   agencyId = null,
   userId = null,
-  skipOptOutLink = false
+  skipOptOutLink = false,
+  misdirectedReportUrl = null
 } = {}) {
   let optOutUrl = null;
   let schoolStaffFooter = false;
@@ -88,6 +89,20 @@ export async function appendComplianceFooter({
     }
   }
 
+  let reportUrl = misdirectedReportUrl || null;
+  if (!reportUrl && agencyId) {
+    try {
+      const { createMisdirectedEmailReportLink } = await import('./misdirectedEmailReport.service.js');
+      reportUrl = await createMisdirectedEmailReportLink({
+        agencyId,
+        senderUserId: userId,
+        toEmail: to
+      });
+    } catch (e) {
+      console.warn('[emailCompliance] misdirected report link failed:', e?.message || e);
+    }
+  }
+
   const disclaimerAlreadyPresent =
     (html && /data-pt-signature-confidential\s*=\s*["']?1["']?/i.test(String(html))) ||
     (html && /CONFIDENTIAL AND POTENTIALLY SENSITIVE INFORMATION/i.test(String(html)));
@@ -95,6 +110,9 @@ export async function appendComplianceFooter({
   const textParts = [String(text || '').trim()];
   if (!disclaimerAlreadyPresent) {
     textParts.push('', '---', CONFIDENTIALITY_DISCLAIMER);
+    if (reportUrl) {
+      textParts.push('', `Report a misdirected email: ${reportUrl}`);
+    }
   }
   if (optOutUrl) {
     if (schoolStaffFooter) {
@@ -123,6 +141,12 @@ export async function appendComplianceFooter({
           <a href="${escapeHtml(optOutUrl)}" style="color:#1d4ed8;">Opt out of emails from us</a>.
         </p>`;
 
+  const reportHtml = reportUrl
+    ? `If this email was sent to you by mistake,
+        <a href="${escapeHtml(reportUrl)}" style="color:#ffffff;background:#1d4ed8;text-decoration:none;padding:5px 12px;border-radius:4px;font-weight:700;display:inline-block;margin:4px 0;">Report misdirected email</a>
+        so our support team can escalate and investigate — then destroy all copies of the original message.`
+    : `If this email was sent to you by mistake, please report it to the sending organization so they can escalate and investigate — then destroy all copies of the original message.`;
+
   const disclaimerBodyHtml = disclaimerAlreadyPresent
     ? ''
     : `
@@ -132,7 +156,7 @@ export async function appendComplianceFooter({
       <p style="margin:0;">
         The information enclosed in this email may contain privileged and confidential materials intended solely for the individual indicated.
         If you are not the intended recipient, any review, dissemination, distribution, or duplication of this email is strictly prohibited.
-        If you are not the intended recipient, please contact the sender by reply email and destroy all copies of the original message.
+        ${reportHtml}
       </p>`;
 
   const footerBlock =
@@ -146,6 +170,23 @@ export async function appendComplianceFooter({
 
   let htmlOut = html;
   if (htmlOut) {
+    // If signature already has confidential block without a report link, inject one when available.
+    if (
+      disclaimerAlreadyPresent &&
+      reportUrl &&
+      !/report-misdirected-email|Report misdirected email|report it here/i.test(String(htmlOut))
+    ) {
+      const reportBtn = `<a href="${escapeHtml(reportUrl)}" style="color:#ffffff;background:#1d4ed8;text-decoration:none;padding:5px 12px;border-radius:4px;font-weight:700;display:inline-block;margin:4px 0;">Report misdirected email</a>`;
+      htmlOut = String(htmlOut)
+        .replace(
+          /please contact the sender by reply email and destroy all copies of the original message\./i,
+          `${reportBtn} so our support team can escalate and investigate — then destroy all copies of the original message.`
+        )
+        .replace(
+          /please report it to the sending organization so they can escalate and investigate — then destroy all copies of the original message\./i,
+          `${reportBtn} so our support team can escalate and investigate — then destroy all copies of the original message.`
+        );
+    }
     htmlOut = footerBlock ? `${String(htmlOut)}\n${footerBlock}` : String(htmlOut);
   } else if (text) {
     htmlOut = `<div style="font-family:Arial,sans-serif;line-height:1.5;color:#111;">${
@@ -156,7 +197,7 @@ export async function appendComplianceFooter({
     }${footerBlock}</div>`;
   }
 
-  return { text: textOut, html: htmlOut, optOutUrl };
+  return { text: textOut, html: htmlOut, optOutUrl, misdirectedReportUrl: reportUrl };
 }
 
 /**

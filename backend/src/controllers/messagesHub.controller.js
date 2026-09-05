@@ -447,7 +447,10 @@ export const postMessagesHubSend = async (req, res, next) => {
     let agencyId = parseAgencyId(req);
     const personKey = String(req.body?.personKey || '').trim();
     const method = String(req.body?.method || '').trim().toLowerCase();
-    const body = String(req.body?.body || '').trim();
+    const bodyHtmlRaw = String(req.body?.bodyHtml || '').trim();
+    const body =
+      String(req.body?.body || '').trim() ||
+      (bodyHtmlRaw ? bodyHtmlRaw.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim() : '');
     const subject = String(req.body?.subject || '').trim();
     const attachments = Array.isArray(req.body?.attachments) ? req.body.attachments : [];
 
@@ -458,7 +461,7 @@ export const postMessagesHubSend = async (req, res, next) => {
     if ((method === 'secure' || method === 'internal') && !body && !attachments.length) {
       return res.status(400).json({ error: { message: 'body or attachments required' } });
     }
-    if (method === 'email' && !body) {
+    if (method === 'email' && !body && !bodyHtmlRaw) {
       return res.status(400).json({ error: { message: 'body is required' } });
     }
     if (method === 'sms' && !body) {
@@ -499,6 +502,7 @@ export const postMessagesHubSend = async (req, res, next) => {
         userId: req.user.id,
         person,
         body,
+        bodyHtml: bodyHtmlRaw || null,
         subject,
         cc: req.body?.cc ?? null,
         bcc: req.body?.bcc ?? null,
