@@ -88,6 +88,14 @@
           </div>
         </div>
         <button
+          v-if="canEhrPatientImport"
+          class="pct-btn pct-btn--ghost"
+          type="button"
+          @click="showEhrPatientListModal = true"
+        >
+          Paste patient list
+        </button>
+        <button
           class="pct-btn pct-btn--primary"
           type="button"
           @click="refreshCurrentScope"
@@ -184,6 +192,7 @@
                   Since
                   <span class="pct-sort-indicator" aria-hidden="true">{{ allSortIndicatorFor('since') }}</span>
                 </th>
+                <th v-if="canEhrPatientImport">Chart setup</th>
               </tr>
             </thead>
             <tbody>
@@ -205,6 +214,15 @@
                 <td v-if="allColumnPrefs.status">{{ officeStatusLabel(c) }}</td>
                 <td v-if="allColumnPrefs.sessions">{{ officeSessionTotal(c) }}</td>
                 <td v-if="allColumnPrefs.since">{{ formatSinceDate(c.submission_date) }}</td>
+                <td v-if="canEhrPatientImport">
+                  <button
+                    type="button"
+                    class="pct-link-btn"
+                    @click="openBringUpToDate(c)"
+                  >
+                    Bring up to date
+                  </button>
+                </td>
               </tr>
             </tbody>
           </table>
@@ -418,6 +436,23 @@
         />
       </div>
     </Teleport>
+
+    <EhrPatientListImportModal
+      :open="showEhrPatientListModal"
+      :provider-user-id="currentUserId"
+      :provider-label="subjectUserName"
+      :agency-id="agencyId"
+      @close="showEhrPatientListModal = false"
+      @imported="onEhrPatientListImported"
+    />
+    <ClientEhrBringUpToDatePanel
+      :open="!!bringUpClient"
+      :client-id="bringUpClient?.id || 0"
+      :agency-id="agencyId || bringUpClient?.agency_id || 0"
+      :client-label="bringUpClientLabel"
+      @close="bringUpClient = null"
+      @done="onBringUpDone"
+    />
   </div>
 </template>
 
@@ -431,6 +466,8 @@ import ClientListGrid from '../school/ClientListGrid.vue';
 import ClientDetailPanel from '../admin/ClientDetailPanel.vue';
 import ReferralDirectoryPanel from '../referralDirectory/ReferralDirectoryPanel.vue';
 import ClientExchangePanel from '../clientExchange/ClientExchangePanel.vue';
+import EhrPatientListImportModal from '../admin/EhrPatientListImportModal.vue';
+import ClientEhrBringUpToDatePanel from '../admin/clientChart/ClientEhrBringUpToDatePanel.vue';
 import { displaySchoolClientStatusLabel } from '../../utils/schoolClientStatusDisplay.js';
 
 const props = defineProps({
@@ -439,6 +476,8 @@ const props = defineProps({
   /** Profile tab: load caseload for this user instead of signed-in user */
   subjectUserId: { type: Number, default: null },
   subjectAgencyId: { type: Number, default: null },
+  /** Display name for the profile provider (patient-list paste copy) */
+  subjectUserName: { type: String, default: '' },
   /** Profile embed: only In School + In Office (no exchange/referrals/new) */
   profileEmbed: { type: Boolean, default: false },
 });
@@ -530,6 +569,35 @@ const currentUserId = computed(() => {
   if (subject > 0) return subject;
   return Number(authStore.user?.id || 0) || null;
 });
+
+const actorRole = computed(() => String(authStore.user?.role || '').toLowerCase());
+const canEhrPatientImport = computed(
+  () =>
+    props.profileEmbed === true &&
+    (actorRole.value === 'admin' || actorRole.value === 'super_admin') &&
+    Number(currentUserId.value || 0) > 0
+);
+
+const showEhrPatientListModal = ref(false);
+const bringUpClient = ref(null);
+const bringUpClientLabel = computed(() => {
+  const c = bringUpClient.value;
+  if (!c) return '';
+  return String(c.full_name || c.fullName || c.initials || `Client ${c.id}` || '').trim();
+});
+
+function openBringUpToDate(client) {
+  if (!client?.id) return;
+  bringUpClient.value = client;
+}
+
+async function onEhrPatientListImported() {
+  await refreshCurrentScope();
+}
+
+function onBringUpDone() {
+  bringUpClient.value = null;
+}
 
 const rosterProviderUserId = computed(() => {
   const uid = Number(currentUserId.value || 0);

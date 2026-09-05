@@ -1315,7 +1315,7 @@ export const createClient = async (req, res, next) => {
       const sourceNorm = String(source || '').trim().toUpperCase();
       const serviceType =
         String(req.body?.serviceType || req.body?.service_type || '').trim().toLowerCase()
-        || (sourceNorm === 'NOTE_AID_MINIMAL' ? 'counseling' : '');
+        || (sourceNorm === 'NOTE_AID_MINIMAL' || sourceNorm === 'EHR_PATIENT_LIST' ? 'counseling' : '');
       const resolvedOrgId = await resolveOrganizationIdForPublicBooking({
         agencyId: parsedAgencyId,
         organizationIdHint: parsedOrganizationId,
@@ -1631,7 +1631,7 @@ export const createClient = async (req, res, next) => {
         return res.status(400).json({ error: { message: 'Selected provider is not assigned to this agency' } });
       }
       resolvedProviderId = parsedProviderId;
-    } else if (sourceNorm === 'NOTE_AID_MINIMAL' && userId) {
+    } else if ((sourceNorm === 'NOTE_AID_MINIMAL' || sourceNorm === 'EHR_PATIENT_LIST') && userId) {
       resolvedProviderId = userId;
     }
 

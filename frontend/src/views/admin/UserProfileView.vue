@@ -1509,6 +1509,7 @@
           <ProviderClientsTab
             :subject-user-id="userId"
             :subject-agency-id="scheduleAgencyId"
+            :subject-user-name="headerDisplayName"
             profile-embed
             initial-section="all"
           />
