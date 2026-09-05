@@ -76,7 +76,7 @@
 
 <script setup>
 import { computed, reactive, ref, watch } from 'vue';
-import api from '../../services/api';
+import api from '../../../services/api';
 import NoteAidTreatmentPlanImportReview from '../../clinical/NoteAidTreatmentPlanImportReview.vue';
 import {
   DEFAULT_MEASUREMENT_METHOD,
