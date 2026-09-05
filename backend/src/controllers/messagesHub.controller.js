@@ -530,6 +530,12 @@ export const postMessagesHubSend = async (req, res, next) => {
         fromAliasIdentityId: req.body?.fromAliasIdentityId || null,
         schedulePreset: req.body?.schedulePreset || null,
         scheduledSendAt: req.body?.scheduledSendAt || null,
+        conversationId: req.body?.conversationId != null ? Number(req.body.conversationId) : null,
+        mode: String(req.body?.mode || 'reply').toLowerCase() === 'forward' ? 'forward' : 'reply',
+        toOverride:
+          String(req.body?.mode || '').toLowerCase() === 'forward'
+            ? req.body?.to || req.body?.forwardTo || null
+            : null,
         undoDelaySeconds:
           explicitDelay != null ? explicitDelay : hasSchedule ? null : prefDelay,
         sendDuringNextAvailable: !!(

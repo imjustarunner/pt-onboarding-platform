@@ -89,15 +89,67 @@ function formatDisplayName(firstName, lastName, credential) {
   return `${name}, ${cred}`;
 }
 
+/**
+ * Marketing / public website host — strip protocol, path, www., and app. portal subdomain.
+ * e.g. app.itsco.health → ITSCO.health display / https://itsco.health
+ */
+function toMarketingWebsiteHost(raw) {
+  let host = String(raw || '')
+    .trim()
+    .replace(/^https?:\/\//i, '')
+    .replace(/\/.*$/, '')
+    .replace(/:\d+$/, '')
+    .toLowerCase();
+  if (!host || !host.includes('.')) return '';
+  host = host.replace(/^www\./, '').replace(/^app\./, '');
+  return host;
+}
+
 function normalizeWebsite(raw, { allowEmpty = false } = {}) {
-  const s = String(raw || '').trim();
-  if (!s) {
+  const host = toMarketingWebsiteHost(raw);
+  if (!host) {
     if (allowEmpty) return { display: '', url: '' };
     return { display: ITSCO_SIGNATURE_DEFAULTS.websiteDisplay, url: ITSCO_SIGNATURE_DEFAULTS.websiteUrl };
   }
-  const display = s.replace(/^https?:\/\//i, '').replace(/\/$/, '');
-  const url = /^https?:\/\//i.test(s) ? s : `https://${display}`;
-  return { display, url };
+  // Preserve common brand casing for known hosts
+  const display =
+    host === 'itsco.health' ? 'ITSCO.health' : host.replace(/^./, (c) => c.toUpperCase());
+  return { display, url: `https://${host}` };
+}
+
+/**
+ * Per-tenant staff From alias (email_sender_identities personal_{userId}), then login alias, then work/email.
+ */
+async function resolveTenantStaffContactEmail(userId, agencyId, fallbackEmail = '') {
+  const uid = Number(userId || 0);
+  const aid = Number(agencyId || 0);
+  if (uid && aid) {
+    try {
+      const [rows] = await pool.execute(
+        `SELECT from_email FROM email_sender_identities
+         WHERE agency_id = ? AND identity_key = ? AND is_active = 1
+         ORDER BY id ASC LIMIT 1`,
+        [aid, `personal_${uid}`]
+      );
+      const alias = String(rows?.[0]?.from_email || '').trim();
+      if (alias) return alias;
+    } catch {
+      /* ignore */
+    }
+    try {
+      const [loginRows] = await pool.execute(
+        `SELECT email FROM user_login_emails
+         WHERE user_id = ? AND agency_id = ?
+         ORDER BY id ASC LIMIT 1`,
+        [uid, aid]
+      );
+      const login = String(loginRows?.[0]?.email || '').trim();
+      if (login) return login;
+    } catch {
+      /* ignore */
+    }
+  }
+  return String(fallbackEmail || '').trim();
 }
 
 function normalizePhone(raw) {
@@ -193,7 +245,7 @@ export async function resolveStaffSignatureContext({
   const phone = normalizePhone(
     agency?.phone_number || (isItsco ? ITSCO_SIGNATURE_DEFAULTS.phoneDisplay : '')
   );
-  // Prefer a real host (custom_domain) over portal slug (e.g. "itsco").
+  // Prefer marketing host derived from custom_domain (strip app.), never the portal app URL.
   const websiteRaw = (() => {
     const domain = String(agency?.custom_domain || '').trim();
     const portal = String(agency?.portal_url || '').trim();
@@ -225,7 +277,11 @@ export async function resolveStaffSignatureContext({
     logoUrl = staffHtmlAsset('itsco-main-logo.png', { cacheKey: '6' });
   }
 
-  const email = String(u.work_email || u.email || '').trim();
+  const email = await resolveTenantStaffContactEmail(
+    uid,
+    agency?.id || aid,
+    u.work_email || u.email || ''
+  );
   const enabled =
     u.email_signature_enabled === undefined || u.email_signature_enabled === null
       ? true

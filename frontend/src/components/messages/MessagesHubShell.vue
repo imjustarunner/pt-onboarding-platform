@@ -463,6 +463,14 @@
                 <template v-else-if="visibleTimeline.length">
                   <div class="msg-hub-email-thread-head">
                     <strong>{{ activeEmailThreadSubject }}</strong>
+                    <button
+                      type="button"
+                      class="msg-hub-forward-btn"
+                      title="Forward this email thread"
+                      @click="startForwardFromActiveThread"
+                    >
+                      Forward
+                    </button>
                   </div>
                   <div
                     v-for="msg in visibleTimeline"
@@ -679,7 +687,20 @@
                 <button type="button" @click="undoBannerSend">Undo</button>
               </div>
               <template v-if="sendMethod === 'email'">
-                <div class="msg-hub-email-row msg-hub-to-row">
+                <div
+                  v-if="emailComposeMode === 'forward'"
+                  class="msg-hub-email-row msg-hub-to-row"
+                >
+                  <label>Forward to</label>
+                  <input
+                    v-model="forwardToEmails"
+                    type="text"
+                    class="msg-hub-input"
+                    placeholder="email@example.com, other@example.com"
+                    autocomplete="off"
+                  />
+                </div>
+                <div v-else class="msg-hub-email-row msg-hub-to-row">
                   <label>To</label>
                   <div class="msg-hub-to-value">
                     <strong>{{ composeToName || '—' }}</strong>
@@ -1400,6 +1421,8 @@ const reactionPickerFor = ref(null);
 const composeFromAliasId = ref(null);
 const emailAliases = ref([]);
 const signaturePreview = ref(null);
+const emailComposeMode = ref('reply'); // reply | forward | new
+const forwardToEmails = ref('');
 const reactingId = ref(null);
 const staffSuggest = ref([]);
 let staffSuggestTimer = null;
@@ -2192,6 +2215,8 @@ const visibleTimeline = computed(() => {
 
 function startNewEmailCompose() {
   activeEmailThreadKey.value = null;
+  emailComposeMode.value = 'new';
+  forwardToEmails.value = '';
   composeSubject.value = '';
   composeBody.value = '';
 }
@@ -2199,11 +2224,35 @@ function startNewEmailCompose() {
 function openEmailSubjectThread(thread) {
   if (!thread?.key) return;
   activeEmailThreadKey.value = thread.key;
+  emailComposeMode.value = 'reply';
+  forwardToEmails.value = '';
   const sub = String(thread.subject || '').trim();
   if (sub && sub !== '(No subject)') {
     const bare = sub.replace(/^(re|fw|fwd)\s*:\s*/gi, '').trim();
     composeSubject.value = bare.startsWith('Re:') ? bare : `Re: ${bare}`;
   }
+}
+
+function startForwardFromActiveThread() {
+  const thread = emailSubjectThreads.value.find((t) => t.key === activeEmailThreadKey.value);
+  if (!thread?.messages?.length) return;
+  emailComposeMode.value = 'forward';
+  forwardToEmails.value = '';
+  const sub = String(thread.subject || activeEmailThreadSubject.value || '').trim();
+  const bare = sub.replace(/^(re|fw|fwd)\s*:\s*/gi, '').trim() || 'Message';
+  composeSubject.value = /^fwd:/i.test(sub) ? sub : `Fwd: ${bare}`;
+  const quoted = [...thread.messages]
+    .slice(-6)
+    .map((m) => {
+      const when = formatTime(m.createdAt);
+      const who = m.direction === 'outbound' ? 'You' : selected.value?.displayName || 'Them';
+      const text = String(m.bodyPreview || '').trim();
+      return `On ${when}, ${who} wrote:\n${text}`;
+    })
+    .join('\n\n');
+  composeBody.value = `\n\n---------- Forwarded message ----------\n${quoted}`;
+  showCcField.value = false;
+  focusComposer();
 }
 
 const undoCountdownLabel = computed(() => {
@@ -3611,6 +3660,8 @@ async function pickPerson(person, opts = {}) {
   composeBcc.value = '';
   composeAttachments.value = [];
   chatStagedAttachments.value = [];
+  emailComposeMode.value = 'reply';
+  forwardToEmails.value = '';
   chatThreadId.value = null;
   emojiPickerOpen.value = false;
   reactionPickerFor.value = null;
@@ -3657,6 +3708,44 @@ async function pickPerson(person, opts = {}) {
     await nextTick();
     suppressDraftAutosave = false;
   }
+
+  // Inbox / conversation click: open the matching email thread (not blank "New email").
+  const fromEmail =
+    fromConversation &&
+    (String(fromConversation.channel || fromConversation.hubKind || '').toLowerCase() === 'email' ||
+      fromConversation.subject ||
+      fromConversation.conversationId ||
+      fromConversation.primary_participant_email);
+  if (fromEmail) {
+    sendMethod.value = 'email';
+    await loadSignaturePreview(person?.agencyId || agencyId.value);
+    await nextTick();
+    const sub = String(fromConversation.subject || '').trim();
+    const key = normalizeEmailSubjectKey(sub);
+    let thread =
+      (key && emailSubjectThreads.value.find((t) => t.key === key)) ||
+      (fromConversation.conversationId &&
+        emailSubjectThreads.value.find((t) =>
+          t.messages.some(
+            (m) => Number(m.meta?.conversationId) === Number(fromConversation.conversationId)
+          )
+        )) ||
+      emailSubjectThreads.value[0] ||
+      null;
+    if (thread) {
+      openEmailSubjectThread(thread);
+    } else if (sub) {
+      activeEmailThreadKey.value = key;
+      emailComposeMode.value = 'reply';
+      const bare = sub.replace(/^(re|fw|fwd)\s*:\s*/gi, '').trim();
+      composeSubject.value = bare.startsWith('Re:') ? bare : `Re: ${bare}`;
+    }
+    await nextTick();
+    scrollTimelineToBottom({ smooth: true });
+    // Images / late layout — pin again to most recent
+    setTimeout(() => scrollTimelineToBottom(), 250);
+  }
+
   await focusComposer();
 }
 
@@ -3904,6 +3993,24 @@ async function executeSend({ sendToAllPortalGuardians = false, includeClient = f
         if (composeBcc.value.trim()) payload.bcc = composeBcc.value.trim();
         if (composeAttachments.value.length) payload.attachments = composeAttachments.value;
         if (composeFromAliasId.value) payload.fromAliasIdentityId = composeFromAliasId.value;
+        const convId =
+          selectedConversation.value?.conversationId ||
+          selectedConversation.value?.id ||
+          visibleTimeline.value?.[visibleTimeline.value.length - 1]?.meta?.conversationId ||
+          null;
+        if (convId) payload.conversationId = Number(convId);
+        if (emailComposeMode.value === 'forward') {
+          payload.mode = 'forward';
+          const fwd = String(forwardToEmails.value || '').trim();
+          if (!fwd) {
+            throw Object.assign(new Error('Enter at least one Forward to address'), {
+              response: { data: { error: { message: 'Enter at least one Forward to address' } } }
+            });
+          }
+          payload.to = fwd;
+        } else {
+          payload.mode = 'reply';
+        }
       }
       if (sendMethod.value === 'internal' || sendMethod.value === 'secure') {
         if (chatStagedAttachments.value.length) {
@@ -3938,11 +4045,18 @@ async function executeSend({ sendToAllPortalGuardians = false, includeClient = f
     composeBcc.value = '';
     composeAttachments.value = [];
     chatStagedAttachments.value = [];
+    emailComposeMode.value = 'reply';
+    forwardToEmails.value = '';
     await nextTick();
     suppressDraftAutosave = false;
     if (sentMethod === 'email' && sentSubject) {
       activeEmailThreadKey.value = normalizeEmailSubjectKey(sentSubject);
-      composeSubject.value = sentSubject.startsWith('Re:') ? sentSubject : `Re: ${sentSubject}`;
+      composeSubject.value = /^fwd:/i.test(sentSubject)
+        ? sentSubject
+        : sentSubject.startsWith('Re:')
+          ? sentSubject
+          : `Re: ${sentSubject}`;
+      emailComposeMode.value = 'reply';
     } else if (sentMethod === 'email') {
       activeEmailThreadKey.value = null;
     }
@@ -4842,6 +4956,25 @@ defineExpose({
   font-size: 12px;
   color: var(--mh-muted);
   margin: 2px 0 6px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.msg-hub-forward-btn {
+  flex: 0 0 auto;
+  border: 1px solid var(--mh-line);
+  background: #fff;
+  color: var(--mh-text, #0f172a);
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.msg-hub-forward-btn:hover {
+  border-color: var(--mh-accent, #669878);
+  color: var(--mh-accent, #669878);
 }
 .msg-hub-subject {
   width: 100%;

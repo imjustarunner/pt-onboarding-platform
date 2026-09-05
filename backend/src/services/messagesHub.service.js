@@ -2012,7 +2012,22 @@ async function loadSmsTimeline({ agencyId, actorUserId, clientId, contactId, lim
 }
 
 /**
+ * Normalize email subject for thread matching (strip Re:/Fwd: prefixes).
+ */
+export function normalizeHubEmailSubjectKey(subject) {
+  let s = String(subject || '')
+    .trim()
+    .toLowerCase();
+  while (/^(re|fw|fwd)\s*:/i.test(s)) {
+    s = s.replace(/^(re|fw|fwd)\s*:\s*/i, '');
+  }
+  return s || '(no subject)';
+}
+
+/**
  * Prior email messages for Hub outbound history (greyed quotes under the latest body).
+ * Strictly scoped to the same subject thread (and optional conversation) — never all mail
+ * for the participant (that mixed unrelated tickets into the quote).
  * Newest prior first; oldest last (marked original by the email HTML builder).
  */
 async function loadHubEmailHistoryForPerson({
@@ -2020,15 +2035,23 @@ async function loadHubEmailHistoryForPerson({
   actorUserId,
   email,
   agencyName = 'Team',
+  subject = null,
+  conversationId = null,
   limit = 8
 } = {}) {
   if (!email) return [];
   const normalized = String(email).trim().toLowerCase();
+  const subjectKey = normalizeHubEmailSubjectKey(subject);
+  const hasSubject = subjectKey && subjectKey !== '(no subject)';
+  const cid = Number(conversationId || 0) || null;
+  // New compose with no subject / conversation → no history (avoid unrelated threads).
+  if (!hasSubject && !cid) return [];
   try {
     const { stripEmailHistoryBody } = await import('./hubBrandedEmail.service.js');
     const [rows] = await pool.execute(
-      `SELECT m.id AS message_id, m.direction, m.body_text, m.body_html, m.subject,
+      `SELECT m.id AS message_id, m.conversation_id, m.direction, m.body_text, m.body_html, m.subject,
               m.from_json, m.sent_at, m.created_at, m.author_user_id,
+              c.subject AS conv_subject,
               u.first_name AS author_first_name, u.last_name AS author_last_name
        FROM communication_messages m
        JOIN communication_conversations c ON c.id = m.conversation_id
@@ -2049,9 +2072,10 @@ async function loadHubEmailHistoryForPerson({
          AND COALESCE(m.is_internal_note, 0) = 0
          AND COALESCE(m.send_status, 'sent') = 'sent'
        ORDER BY COALESCE(m.sent_at, m.created_at) DESC, m.id DESC
-       LIMIT ${Math.min(Math.max(Number(limit) || 8, 1), 12)}`,
+       LIMIT 80`,
       [agencyId, normalized, actorUserId]
     );
+
     const parseFrom = (raw) => {
       if (!raw) return null;
       if (typeof raw === 'object') return raw;
@@ -2061,7 +2085,22 @@ async function loadHubEmailHistoryForPerson({
         return null;
       }
     };
-    return (rows || []).map((r, idx, arr) => {
+
+    let seedKey = hasSubject ? subjectKey : null;
+    if (!seedKey && cid) {
+      const seed = (rows || []).find((r) => Number(r.conversation_id) === cid);
+      seedKey = normalizeHubEmailSubjectKey(seed?.subject || seed?.conv_subject || '');
+    }
+
+    const filtered = (rows || []).filter((r) => {
+      if (cid && Number(r.conversation_id) === cid) return true;
+      if (!seedKey || seedKey === '(no subject)') return false;
+      const key = normalizeHubEmailSubjectKey(r.subject || r.conv_subject || '');
+      return key === seedKey;
+    });
+
+    const sliced = filtered.slice(0, Math.min(Math.max(Number(limit) || 8, 1), 12));
+    return sliced.map((r, idx, arr) => {
       const from = parseFrom(r.from_json);
       const authorFromUser = [r.author_first_name, r.author_last_name].filter(Boolean).join(' ');
       const dir = String(r.direction || '').toLowerCase() === 'inbound' ? 'inbound' : 'outbound';
@@ -2080,6 +2119,49 @@ async function loadHubEmailHistoryForPerson({
   } catch (e) {
     console.warn('[loadHubEmailHistoryForPerson]', e?.message || e);
     return [];
+  }
+}
+
+/**
+ * Prefer an existing Hub messages@ conversation with the same participant + subject thread.
+ */
+async function findHubEmailConversationForSubject({
+  agencyId,
+  inboxId,
+  email,
+  subject,
+  explicitConversationId = null
+} = {}) {
+  const cid = Number(explicitConversationId || 0);
+  if (cid > 0) return cid;
+  const normalized = String(email || '')
+    .trim()
+    .toLowerCase();
+  const subjectKey = normalizeHubEmailSubjectKey(subject);
+  if (!normalized || !subjectKey || subjectKey === '(no subject)' || !inboxId) return null;
+  try {
+    const [rows] = await pool.execute(
+      `SELECT c.id, c.subject
+       FROM communication_conversations c
+       WHERE c.agency_id = ?
+         AND c.inbox_id = ?
+         AND c.channel = 'email'
+         AND EXISTS (
+           SELECT 1 FROM communication_participants p
+           WHERE p.conversation_id = c.id
+             AND LOWER(COALESCE(p.email, '')) = ?
+         )
+       ORDER BY COALESCE(c.last_message_at, c.updated_at, c.created_at) DESC, c.id DESC
+       LIMIT 40`,
+      [agencyId, inboxId, normalized]
+    );
+    const match = (rows || []).find(
+      (r) => normalizeHubEmailSubjectKey(r.subject) === subjectKey
+    );
+    return match?.id ? Number(match.id) : null;
+  } catch (e) {
+    console.warn('[findHubEmailConversationForSubject]', e?.message || e);
+    return null;
   }
 }
 
@@ -2582,7 +2664,10 @@ export async function sendHubEmail({
   schedulePreset = null,
   scheduledSendAt = null,
   undoDelaySeconds = null,
-  sendDuringNextAvailable = false
+  sendDuringNextAvailable = false,
+  conversationId = null,
+  mode = 'reply',
+  toOverride = null
 }) {
   if (!person.email) {
     const err = new Error('Person has no email address');
@@ -2590,6 +2675,7 @@ export async function sendHubEmail({
     throw err;
   }
   const aid = person.agencyId || agencyId;
+  const sendMode = String(mode || 'reply').toLowerCase() === 'forward' ? 'forward' : 'reply';
   const { ensureTenantMessageMailboxes } = await import('./tenantMessageMailboxes.service.js');
   const { buildNormalOutboundEmailHtml } = await import('./hubBrandedEmail.service.js');
   const mailboxes = await ensureTenantMessageMailboxes(aid);
@@ -2655,6 +2741,15 @@ export async function sendHubEmail({
     senderPhotoUrl = null;
   }
 
+  const effectiveSubject = subject || `Message from ${agencyName}`;
+  const replyConversationId = await findHubEmailConversationForSubject({
+    agencyId: aid,
+    inboxId: inbox.id,
+    email: person.email,
+    subject: effectiveSubject,
+    explicitConversationId: conversationId
+  });
+
   let history = [];
   try {
     history = await loadHubEmailHistoryForPerson({
@@ -2662,6 +2757,8 @@ export async function sendHubEmail({
       actorUserId: userId,
       email: person.email,
       agencyName,
+      subject: effectiveSubject,
+      conversationId: replyConversationId,
       limit: 8
     });
   } catch (e) {
@@ -2676,7 +2773,7 @@ export async function sendHubEmail({
     senderDisplayName,
     senderTitle,
     senderPhotoUrl,
-    subject: subject || `Message from ${agencyName}`,
+    subject: effectiveSubject,
     toDisplayName: person.displayName || person.email,
     toEmail: person.email,
     bodyText: body,
@@ -2809,30 +2906,37 @@ export async function sendHubEmail({
     }
   }
 
-  const toList = [{ email: person.email, name: person.displayName }];
+  const toList = (() => {
+    if (sendMode === 'forward' && toOverride) {
+      const list = normalizeList(toOverride);
+      if (list.length) return list;
+    }
+    return [{ email: person.email, name: person.displayName }];
+  })();
+  const primaryToEmail = String(toList[0]?.email || person.email || '')
+    .trim()
+    .toLowerCase();
   const ccList = normalizeList(cc).filter(
-    (c) => String(c.email || '').toLowerCase() !== String(person.email || '').toLowerCase()
+    (c) => String(c.email || '').toLowerCase() !== primaryToEmail
   );
   const bccList = normalizeList(bcc).filter((c) => {
     const e = String(c.email || '').toLowerCase();
-    return (
-      e !== String(person.email || '').toLowerCase() &&
-      !ccList.some((x) => String(x.email || '').toLowerCase() === e)
-    );
+    return e !== primaryToEmail && !ccList.some((x) => String(x.email || '').toLowerCase() === e);
   });
 
   const payload = {
     to: toList,
     cc: ccList,
     bcc: bccList,
-    subject: subject || `Message from ${agencyName}`,
+    subject: effectiveSubject,
     text: body,
     html,
     attachments: Array.isArray(attachments) ? attachments : null,
     fromDisplayName: senderDisplayName,
     replyTo,
     clientId: person.clientId || null,
-    templateType: 'hub_email'
+    templateType: 'hub_email',
+    mode: sendMode
   };
 
   if (effectiveScheduledAt) {
@@ -2845,29 +2949,36 @@ export async function sendHubEmail({
     payload.undoDelaySeconds = Number.isFinite(secs) ? secs : 20;
   }
 
-  const result = await composeNewEmail({
-    agencyId: aid,
-    inboxId: inbox.id,
-    userId,
-    payload
-  });
+  const { composeNewEmail, replyToConversation } = await import('./unifiedInbox.service.js');
+  let result;
+  if (replyConversationId) {
+    result = await replyToConversation(replyConversationId, payload, { userId });
+    result = { ...result, id: replyConversationId, conversation: { id: replyConversationId } };
+  } else {
+    result = await composeNewEmail({
+      agencyId: aid,
+      inboxId: inbox.id,
+      userId,
+      payload
+    });
+  }
 
-  const conversationId = result?.id || result?.conversation?.id || null;
-  if (conversationId) {
+  const outConversationId = result?.id || result?.conversation?.id || replyConversationId || null;
+  if (outConversationId) {
     try {
       const CommunicationConversation = (await import('../models/CommunicationConversation.model.js'))
         .default;
-      await CommunicationConversation.markRead(conversationId, userId);
+      await CommunicationConversation.markRead(outConversationId, userId);
     } catch (e) {
       console.warn('[sendHubEmail] markRead:', e?.message || e);
     }
   }
-  if (conversationId && replyHash) {
+  if (outConversationId && replyHash) {
     try {
       await pool.execute(
         `INSERT INTO hub_email_reply_tokens (token_hash, agency_id, conversation_id, person_key, created_by_user_id, expires_at)
          VALUES (?, ?, ?, ?, ?, DATE_ADD(NOW(), INTERVAL 180 DAY))`,
-        [replyHash, aid, conversationId, person.personKey || null, userId]
+        [replyHash, aid, outConversationId, person.personKey || null, userId]
       );
     } catch (e) {
       console.warn('[sendHubEmail] reply token:', e?.message || e);
@@ -2876,13 +2987,13 @@ export async function sendHubEmail({
 
   // Availability / next-available holds land in Snoozed until release (no notify while held).
   const shouldSnoozeHold =
-    conversationId &&
+    outConversationId &&
     effectiveScheduledAt &&
     (deliveryGate?.receiveAt || wantSenderHold || holdReason);
   if (shouldSnoozeHold) {
     try {
       const CommunicationConversation = (await import('../models/CommunicationConversation.model.js')).default;
-      await CommunicationConversation.update(conversationId, {
+      await CommunicationConversation.update(outConversationId, {
         snoozedUntil: effectiveScheduledAt,
         snoozeRestoreUnread: true
       });
@@ -2893,7 +3004,7 @@ export async function sendHubEmail({
 
   return {
     channel: 'email',
-    threadRef: { conversationId, messageId: result?.messageId || null },
+    threadRef: { conversationId: outConversationId, messageId: result?.messageId || null },
     fromEmail: mailboxes.messages?.from_email || null,
     scheduled: !!result?.scheduled,
     scheduledSendAt: result?.scheduledSendAt || null,
@@ -4081,8 +4192,9 @@ export async function listHubConversationFeed({
     console.warn('[listHubConversationFeed] chat:', e?.message || e);
   }
 
-  // One row per person for direct chat (duplicate threads are the same conversation).
+  // One row per person for direct chat; one row per email subject thread (same participant + subject).
   const byPerson = new Map();
+  const byEmailThread = new Map();
   const collapsed = [];
   for (const item of items) {
     if (item.kind === 'chat' && item.personKey) {
@@ -4099,6 +4211,31 @@ export async function listHubConversationFeed({
         continue;
       }
       byPerson.set(item.personKey, item);
+      collapsed.push(item);
+      continue;
+    }
+    if (item.kind === 'email' && item.primaryEmail) {
+      const emailKey = String(item.primaryEmail).trim().toLowerCase();
+      const subjectKey = normalizeHubEmailSubjectKey(item.subject);
+      const threadKey = `${emailKey}::${subjectKey}`;
+      const prev = byEmailThread.get(threadKey);
+      if (prev) {
+        prev.unreadCount = Number(prev.unreadCount || 0) + Number(item.unreadCount || 0);
+        prev.is_unread = prev.unreadCount > 0 || prev.is_unread;
+        if (new Date(item.sortAt || 0).getTime() > new Date(prev.sortAt || 0).getTime()) {
+          prev.sortAt = item.sortAt;
+          prev.preview = item.preview;
+          prev.conversationId = item.conversationId;
+          prev.id = item.id;
+          prev.subject = item.subject || prev.subject;
+          prev.starred = prev.starred || item.starred;
+          prev.snoozedUntil = item.snoozedUntil || prev.snoozedUntil;
+        }
+        continue;
+      }
+      byEmailThread.set(threadKey, item);
+      collapsed.push(item);
+      continue;
     }
     collapsed.push(item);
   }
