@@ -6,6 +6,8 @@
  * Everyone else keeps path-based links on the platform frontend host.
  */
 
+import { publicAppBaseUrl } from '../services/contactReminderToken.service.js';
+
 export const DEDICATED_APP_HOSTS = Object.freeze({
   itsco: 'app.itsco.health',
   nextlevelup: 'app.nextleveluplcc.com',
@@ -18,12 +20,8 @@ function norm(value) {
 }
 
 export function platformFrontendBase() {
-  const raw = String(
-    process.env.FRONTEND_URL
-    || String(process.env.CORS_ORIGIN || '').split(',')[0]
-    || 'http://localhost:5173'
-  ).trim();
-  return raw.replace(/\/$/, '');
+  // Never emit localhost into outbound email / portal links.
+  return publicAppBaseUrl();
 }
 
 export function hostnameFromCustomDomain(value) {
