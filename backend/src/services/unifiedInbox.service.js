@@ -14,6 +14,23 @@ import { computeResponseTimeMetrics } from './unifiedInboxAi.service.js';
 import { sendClinicalSms, parseSmsConversationTarget } from './clinicalSmsSend.service.js';
 
 const UNDO_WINDOW_MS = 20 * 1000;
+const MAX_UNDO_DELAY_MS = 10 * 60 * 1000;
+
+/** Default 20s; clamp 0…10 minutes. */
+export function resolveUndoDelayMs(payload = {}) {
+  if (payload.skipUndo === true) return 0;
+  if (payload.undoDelayMs != null && payload.undoDelayMs !== '') {
+    const n = Number(payload.undoDelayMs);
+    if (!Number.isFinite(n) || n <= 0) return 0;
+    return Math.min(Math.max(Math.round(n), 1000), MAX_UNDO_DELAY_MS);
+  }
+  if (payload.undoDelaySeconds != null && payload.undoDelaySeconds !== '') {
+    const n = Number(payload.undoDelaySeconds);
+    if (!Number.isFinite(n) || n <= 0) return 0;
+    return Math.min(Math.max(Math.round(n * 1000), 1000), MAX_UNDO_DELAY_MS);
+  }
+  return UNDO_WINDOW_MS;
+}
 
 function snoozeUntilPreset(preset) {
   const d = new Date();
@@ -244,10 +261,11 @@ export async function replyToConversation(conversationId, payload, { userId } = 
   else if (mode !== 'forward' && !/^re:/i.test(subject)) subject = `Re: ${subjectBase}`;
 
   const scheduleAt = resolveScheduleAt(payload);
-  const useDelayUndo = !scheduleAt && payload.skipUndo !== true;
+  const undoMs = scheduleAt ? 0 : resolveUndoDelayMs(payload);
+  const useDelayUndo = !scheduleAt && undoMs > 0;
 
   if (scheduleAt || useDelayUndo) {
-    const when = scheduleAt || new Date(Date.now() + UNDO_WINDOW_MS);
+    const when = scheduleAt || new Date(Date.now() + undoMs);
     const msgId = await CommunicationConversation.addMessage({
       conversationId,
       channel: 'email',
@@ -263,8 +281,10 @@ export async function replyToConversation(conversationId, payload, { userId } = 
       inReplyTo: lastInbound?.internet_message_id || null,
       sendStatus: 'scheduled',
       scheduledSendAt: when,
+      undoExpiresAt: when,
       sentAt: null
     });
+    await persistScheduledAttachments(msgId, payload.attachments);
     const nextStatus = payload.setStatus || 'waiting_on_them';
     await CommunicationConversation.update(conversationId, { status: nextStatus });
     return {
@@ -272,7 +292,7 @@ export async function replyToConversation(conversationId, payload, { userId } = 
       sent: false,
       scheduled: true,
       scheduledSendAt: when,
-      undoExpiresAt: useDelayUndo ? when : null
+      undoExpiresAt: when
     };
   }
 
@@ -344,6 +364,72 @@ function resolveScheduleAt(payload) {
   return null;
 }
 
+async function persistScheduledAttachments(messageId, attachments) {
+  if (!messageId || !Array.isArray(attachments) || !attachments.length) return;
+  const fs = await import('fs/promises');
+  const path = await import('path');
+  const root = path.join(process.cwd(), 'uploads', 'scheduled-email', String(messageId));
+  await fs.mkdir(root, { recursive: true });
+  for (const att of attachments) {
+    const filename = String(att.filename || att.name || 'file')
+      .replace(/[/\\]/g, '_')
+      .slice(0, 180);
+    const b64 = String(att.contentBase64 || att.content || '').replace(/^data:[^;]+;base64,/, '');
+    if (!b64) continue;
+    const buf = Buffer.from(b64, 'base64');
+    await fs.writeFile(path.join(root, filename), buf);
+    await CommunicationConversation.addAttachment(messageId, {
+      filename,
+      contentType: att.contentType || att.content_type || null,
+      sizeBytes: buf.length,
+      storageKey: `scheduled-email/${messageId}/${filename}`,
+      storageUrl: null
+    });
+  }
+}
+
+async function loadScheduledAttachments(messageId) {
+  if (!messageId) return null;
+  try {
+    const [rows] = await (
+      await import('../config/database.js')
+    ).default.execute(
+      `SELECT filename, content_type, storage_key FROM communication_attachments WHERE message_id = ?`,
+      [messageId]
+    );
+    if (!rows?.length) return null;
+    const fs = await import('fs/promises');
+    const path = await import('path');
+    const out = [];
+    for (const r of rows) {
+      const key = String(r.storage_key || '');
+      if (!key.startsWith('scheduled-email/')) continue;
+      const filePath = path.join(process.cwd(), 'uploads', key);
+      const buf = await fs.readFile(filePath);
+      out.push({
+        filename: r.filename,
+        contentType: r.content_type || 'application/octet-stream',
+        contentBase64: buf.toString('base64')
+      });
+    }
+    return out.length ? out : null;
+  } catch (e) {
+    console.warn('[unifiedInbox] load scheduled attachments:', e?.message || e);
+    return null;
+  }
+}
+
+async function cleanupScheduledAttachments(messageId) {
+  try {
+    const fs = await import('fs/promises');
+    const path = await import('path');
+    const dir = path.join(process.cwd(), 'uploads', 'scheduled-email', String(messageId));
+    await fs.rm(dir, { recursive: true, force: true });
+  } catch {
+    /* ignore */
+  }
+}
+
 async function deliverOutboundEmail({
   conv,
   inbox,
@@ -386,6 +472,7 @@ export async function undoOutboundMessage(conversationId, messageId, { userId } 
   }
   if (msg.send_status === 'scheduled') {
     await CommunicationConversation.updateMessage(messageId, { sendStatus: 'cancelled' });
+    await cleanupScheduledAttachments(messageId);
     return { cancelled: true, scheduled: true };
   }
   if (msg.send_status === 'sent') {
@@ -399,6 +486,7 @@ export async function processScheduledOutboundSends({ limit = 40 } = {}) {
   const due = await CommunicationConversation.listDueScheduledMessages({ limit });
   let sent = 0;
   let failed = 0;
+  let deferred = 0;
   for (const row of due) {
     try {
       const conv = await CommunicationConversation.findById(row.conversation_id);
@@ -411,6 +499,38 @@ export async function processScheduledOutboundSends({ limit = 40 } = {}) {
       const to = typeof row.to_json === 'string' ? JSON.parse(row.to_json || '[]') : row.to_json || [];
       const cc = typeof row.cc_json === 'string' ? JSON.parse(row.cc_json || '[]') : row.cc_json || [];
       const bcc = typeof row.bcc_json === 'string' ? JSON.parse(row.bcc_json || '[]') : row.bcc_json || [];
+
+      // Re-hold if recipient is still planned out / outside availability.
+      try {
+        const primaryEmail = to[0]?.email || to[0];
+        const {
+          resolveRecipientDeliveryGate,
+          findAgencyUserIdByEmail
+        } = await import('./hubRecipientDelivery.service.js');
+        const recipientUserId = await findAgencyUserIdByEmail(conv.agency_id, primaryEmail);
+        if (recipientUserId) {
+          const gate = await resolveRecipientDeliveryGate({
+            agencyId: conv.agency_id,
+            userId: recipientUserId,
+            displayName: to[0]?.name || primaryEmail
+          });
+          if (gate?.receiveAt) {
+            const holdUntil = new Date(gate.receiveAt);
+            if (holdUntil.getTime() > Date.now() + 15000) {
+              await CommunicationConversation.updateMessage(row.id, {
+                scheduledSendAt: holdUntil,
+                undoExpiresAt: holdUntil
+              });
+              deferred += 1;
+              continue;
+            }
+          }
+        }
+      } catch (gateErr) {
+        console.warn('[unifiedInbox] delivery gate recheck:', gateErr?.message || gateErr);
+      }
+
+      const attachments = await loadScheduledAttachments(row.id);
       const sendResult = await deliverOutboundEmail({
         conv,
         inbox,
@@ -422,7 +542,7 @@ export async function processScheduledOutboundSends({ limit = 40 } = {}) {
         subject: row.subject,
         text: row.body_text,
         html: row.body_html,
-        attachments: null,
+        attachments,
         inReplyTo: row.in_reply_to
       });
       await CommunicationConversation.updateMessage(row.id, {
@@ -432,6 +552,7 @@ export async function processScheduledOutboundSends({ limit = 40 } = {}) {
         undoExpiresAt: null,
         internetMessageId: sendResult?.id || null
       });
+      await cleanupScheduledAttachments(row.id);
       sent += 1;
     } catch (e) {
       console.warn('[unifiedInbox] scheduled send failed:', e?.message || e);
@@ -439,7 +560,7 @@ export async function processScheduledOutboundSends({ limit = 40 } = {}) {
       failed += 1;
     }
   }
-  return { processed: due.length, sent, failed };
+  return { processed: due.length, sent, failed, deferred };
 }
 
 export async function markConversationSpam(conversationId, { userId, blockSender = true } = {}) {
@@ -605,9 +726,11 @@ export async function composeNewEmail({ agencyId, inboxId, userId, payload }) {
   });
 
   const scheduleAt = resolveScheduleAt(payload);
-  if (scheduleAt || payload.skipUndo !== true) {
-    const when = scheduleAt || new Date(Date.now() + UNDO_WINDOW_MS);
-    await CommunicationConversation.addMessage({
+  const undoMs = scheduleAt ? 0 : resolveUndoDelayMs(payload);
+
+  if (scheduleAt || undoMs > 0) {
+    const when = scheduleAt || new Date(Date.now() + undoMs);
+    const msgId = await CommunicationConversation.addMessage({
       conversationId: conv.id,
       channel: 'email',
       direction: 'outbound',
@@ -621,9 +744,19 @@ export async function composeNewEmail({ agencyId, inboxId, userId, payload }) {
       bodyHtml: payload.html || null,
       sendStatus: 'scheduled',
       scheduledSendAt: when,
+      undoExpiresAt: when,
       sentAt: null
     });
-    return conv;
+    await persistScheduledAttachments(msgId, payload.attachments);
+    return {
+      ...conv,
+      id: conv.id,
+      messageId: msgId,
+      scheduled: true,
+      sent: false,
+      scheduledSendAt: when,
+      undoExpiresAt: when
+    };
   }
 
   const sendResult = await sendEmailFromIdentity({
@@ -643,7 +776,7 @@ export async function composeNewEmail({ agencyId, inboxId, userId, payload }) {
     templateType: payload.templateType || 'hub_email'
   });
 
-  await CommunicationConversation.addMessage({
+  const msgId = await CommunicationConversation.addMessage({
     conversationId: conv.id,
     channel: 'email',
     direction: 'outbound',
@@ -659,7 +792,13 @@ export async function composeNewEmail({ agencyId, inboxId, userId, payload }) {
     sentAt: new Date()
   });
 
-  return conv;
+  return {
+    ...conv,
+    id: conv.id,
+    messageId: msgId,
+    scheduled: false,
+    sent: true
+  };
 }
 
 function previewText(text) {

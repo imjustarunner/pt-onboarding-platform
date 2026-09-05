@@ -217,7 +217,11 @@ export const postMessagesHubSend = async (req, res, next) => {
         cc: req.body?.cc ?? null,
         bcc: req.body?.bcc ?? null,
         attachments: Array.isArray(req.body?.attachments) ? req.body.attachments : null,
-        fromAliasIdentityId: req.body?.fromAliasIdentityId || null
+        fromAliasIdentityId: req.body?.fromAliasIdentityId || null,
+        schedulePreset: req.body?.schedulePreset || null,
+        scheduledSendAt: req.body?.scheduledSendAt || null,
+        undoDelaySeconds:
+          req.body?.undoDelaySeconds != null ? req.body.undoDelaySeconds : null
       });
       return res.json({ ok: true, ...out, person });
     }

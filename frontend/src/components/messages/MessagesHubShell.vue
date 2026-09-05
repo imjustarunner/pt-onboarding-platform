@@ -139,15 +139,38 @@
                 <p>{{ msg.bodyPreview }}</p>
                 <div class="msg-hub-bubble-meta">
                   <time>{{ formatTime(msg.createdAt) }}</time>
-                  <span v-if="msg.direction === 'outbound'" class="msg-hub-sent-tag">Sent</span>
-                  <span v-if="msg.meta?.openedAt" class="msg-hub-open-tag" :title="formatTime(msg.meta.openedAt)">
+                  <span
+                    v-if="msg.meta?.sendStatus === 'scheduled'"
+                    class="msg-hub-sent-tag"
+                  >Scheduled</span>
+                  <span
+                    v-else-if="msg.direction === 'outbound'"
+                    class="msg-hub-sent-tag"
+                  >Sent</span>
+                  <span
+                    v-if="msg.meta?.openedAt"
+                    class="msg-hub-open-tag"
+                    :title="formatTime(msg.meta.openedAt)"
+                  >
                     Opened
                   </span>
-                  <span v-else-if="msg.channel === 'email' && msg.direction === 'outbound'" class="msg-hub-open-tag pending">
+                  <span
+                    v-else-if="msg.channel === 'email' && msg.direction === 'outbound' && msg.meta?.sendStatus !== 'scheduled'"
+                    class="msg-hub-open-tag pending"
+                  >
                     Not opened
                   </span>
                   <button
-                    v-if="msg.channel === 'email' && msg.meta?.conversationId"
+                    v-if="msg.channel === 'email' && msg.meta?.conversationId && msg.meta?.sendStatus === 'scheduled'"
+                    type="button"
+                    class="msg-hub-like"
+                    title="Undo / recall"
+                    @click="undoScheduledMessage(msg)"
+                  >
+                    Undo
+                  </button>
+                  <button
+                    v-else-if="msg.channel === 'email' && msg.meta?.conversationId"
                     type="button"
                     class="msg-hub-like"
                     title="Like"
@@ -165,6 +188,14 @@
           </div>
 
           <div class="msg-hub-composer">
+            <p v-if="deliveryNotice" class="msg-hub-delivery-note">{{ deliveryNotice }}</p>
+            <div v-if="undoBanner" class="msg-hub-undo">
+              <span>
+                {{ undoBannerLabel }}
+                <strong v-if="undoCountdownLabel"> {{ undoCountdownLabel }}</strong>
+              </span>
+              <button type="button" @click="undoBannerSend">Undo</button>
+            </div>
             <template v-if="sendMethod === 'email'">
               <input
                 v-model="composeSubject"
@@ -229,13 +260,34 @@
             />
             <div class="msg-hub-compose-actions">
               <span class="msg-hub-muted">Via {{ methodLabel(sendMethod) || '…' }}</span>
+              <template v-if="sendMethod === 'email'">
+                <label class="msg-hub-delay-label">
+                  Undo delay
+                  <select v-model.number="undoDelaySeconds" class="msg-hub-delay-select">
+                    <option v-for="opt in undoDelayOptions" :key="opt.value" :value="opt.value">
+                      {{ opt.label }}
+                    </option>
+                  </select>
+                </label>
+                <div class="msg-hub-schedule-wrap">
+                  <button type="button" class="btn btn-ghost" @click="showSchedule = !showSchedule">
+                    {{ schedulePreset ? scheduleLabel(schedulePreset) : 'Send later' }}
+                  </button>
+                  <div v-if="showSchedule" class="msg-hub-schedule-menu">
+                    <button type="button" @click="pickSchedule(null)">Send with undo delay</button>
+                    <button type="button" @click="pickSchedule('in_1_hour')">In 1 hour</button>
+                    <button type="button" @click="pickSchedule('tomorrow_9am')">Tomorrow 9am</button>
+                    <button type="button" @click="pickSchedule('monday_9am')">Next Monday 9am</button>
+                  </div>
+                </div>
+              </template>
               <button
                 type="button"
                 class="btn btn-primary"
                 :disabled="sending || !composeBody.trim() || !activeMethod?.available"
                 @click="send"
               >
-                {{ sending ? 'Sending…' : 'Send' }}
+                {{ sendButtonLabel }}
               </button>
             </div>
             <p v-if="sendError" class="msg-hub-error inline">{{ sendError }}</p>
@@ -271,6 +323,7 @@
                 <strong>{{ methodLabel(selected.preferredMethod) || '—' }}</strong>
               </li>
             </ul>
+            <p v-if="deliveryNotice" class="msg-hub-delivery-note sidebar">{{ deliveryNotice }}</p>
           </section>
           <section class="msg-hub-panel">
             <h3>Methods</h3>
@@ -355,7 +408,7 @@
 </template>
 
 <script setup>
-import { computed, nextTick, onMounted, ref, watch } from 'vue';
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import api from '../../services/api';
 import { useAgencyStore } from '../../store/agency';
 import { toUploadsUrl } from '../../utils/uploadsUrl';
@@ -391,6 +444,23 @@ const peopleResults = ref([]);
 const newSearchEl = ref(null);
 const composeEl = ref(null);
 let peopleTimer = null;
+
+const undoDelaySeconds = ref(20);
+const schedulePreset = ref(null);
+const showSchedule = ref(false);
+const undoBanner = ref(null);
+const undoNow = ref(Date.now());
+let undoBannerTimer = null;
+let undoTickTimer = null;
+
+const undoDelayOptions = [
+  { value: 20, label: '20 seconds' },
+  { value: 30, label: '30 seconds' },
+  { value: 60, label: '1 minute' },
+  { value: 120, label: '2 minutes' },
+  { value: 300, label: '5 minutes' },
+  { value: 600, label: '10 minutes' }
+];
 
 const agencyId = computed(() => agencyStore.currentAgency?.id || null);
 
@@ -461,6 +531,114 @@ const newTabHint = computed(() => {
   if (newTab.value === 'clients') return 'Clients across your agencies.';
   return 'Type at least 2 characters — matches anywhere in the name (typos OK). Initials, code, email, or phone also work.';
 });
+
+const deliveryNotice = computed(() => {
+  const gate = selected.value?.deliveryGate;
+  if (!gate?.message || gate.availableNow) return '';
+  return gate.message;
+});
+
+const sendButtonLabel = computed(() => {
+  if (sending.value) return 'Sending…';
+  if (sendMethod.value !== 'email') return 'Send';
+  if (schedulePreset.value || deliveryNotice.value) return 'Schedule send';
+  return 'Send';
+});
+
+const undoBannerLabel = computed(() => {
+  if (!undoBanner.value) return '';
+  if (undoBanner.value.kind === 'scheduled') return 'Email scheduled — you can recall it until it sends.';
+  return 'Email queued — you can undo before it sends.';
+});
+
+const undoCountdownLabel = computed(() => {
+  if (!undoBanner.value?.expiresAt) return '';
+  const ms = Math.max(0, undoBanner.value.expiresAt - undoNow.value);
+  if (ms <= 0) return '';
+  const totalSec = Math.ceil(ms / 1000);
+  if (totalSec >= 60) {
+    const m = Math.floor(totalSec / 60);
+    const s = totalSec % 60;
+    return `(${m}m ${String(s).padStart(2, '0')}s)`;
+  }
+  return `(${totalSec}s)`;
+});
+
+function scheduleLabel(preset) {
+  const map = {
+    in_1_hour: 'In 1 hour',
+    tomorrow_9am: 'Tomorrow 9am',
+    monday_9am: 'Next Monday 9am'
+  };
+  return map[preset] || preset;
+}
+
+function pickSchedule(preset) {
+  schedulePreset.value = preset;
+  showSchedule.value = false;
+}
+
+function clearUndoBanner() {
+  if (undoBannerTimer) {
+    clearTimeout(undoBannerTimer);
+    undoBannerTimer = null;
+  }
+  if (undoTickTimer) {
+    clearInterval(undoTickTimer);
+    undoTickTimer = null;
+  }
+  undoBanner.value = null;
+}
+
+function startUndoBanner({ conversationId, messageId, expiresAt, kind }) {
+  clearUndoBanner();
+  const exp = expiresAt ? new Date(expiresAt).getTime() : Date.now() + undoDelaySeconds.value * 1000;
+  undoBanner.value = { conversationId, messageId, expiresAt: exp, kind: kind || 'undo' };
+  undoNow.value = Date.now();
+  undoTickTimer = setInterval(() => {
+    undoNow.value = Date.now();
+    if (undoBanner.value && undoNow.value >= undoBanner.value.expiresAt) {
+      clearUndoBanner();
+    }
+  }, 500);
+  // Keep the sticky banner for at most 10 minutes; long schedules stay undoable on the bubble.
+  const displayMs = Math.min(Math.max(1000, exp - Date.now()), 10 * 60 * 1000);
+  undoBannerTimer = setTimeout(() => {
+    clearUndoBanner();
+  }, displayMs);
+}
+
+async function undoBannerSend() {
+  if (!undoBanner.value?.conversationId || !undoBanner.value?.messageId) return;
+  try {
+    await api.post(
+      `/communications/conversations/${undoBanner.value.conversationId}/messages/${undoBanner.value.messageId}/undo`,
+      {},
+      { skipGlobalLoading: true }
+    );
+    clearUndoBanner();
+    if (selected.value?.personKey) await loadTimeline(selected.value.personKey);
+  } catch (e) {
+    sendError.value = e?.response?.data?.error?.message || 'Could not undo';
+  }
+}
+
+async function undoScheduledMessage(msg) {
+  const conversationId = msg?.meta?.conversationId;
+  const messageId = msg?.meta?.messageId;
+  if (!conversationId || !messageId) return;
+  try {
+    await api.post(
+      `/communications/conversations/${conversationId}/messages/${messageId}/undo`,
+      {},
+      { skipGlobalLoading: true }
+    );
+    clearUndoBanner();
+    await loadTimeline(selected.value?.personKey);
+  } catch (e) {
+    sendError.value = e?.response?.data?.error?.message || 'Could not undo';
+  }
+}
 
 function fuzzyMatchPerson(p, q) {
   const hay = `${p.displayName || ''} ${p.relationshipMeta || ''} ${p.agencyName || ''} ${p.email || ''} ${p.phone || ''}`
@@ -839,13 +1017,27 @@ async function send() {
       if (composeBcc.value.trim()) payload.bcc = composeBcc.value.trim();
       if (composeAttachments.value.length) payload.attachments = composeAttachments.value;
       if (composeFromAliasId.value) payload.fromAliasIdentityId = composeFromAliasId.value;
+      if (schedulePreset.value) payload.schedulePreset = schedulePreset.value;
+      else payload.undoDelaySeconds = undoDelaySeconds.value;
     }
-    await api.post('/messages/hub/send', payload);
+    const { data } = await api.post('/messages/hub/send', payload);
+    const wasScheduledPreset = !!schedulePreset.value;
     composeBody.value = '';
     composeSubject.value = '';
     composeCc.value = '';
     composeBcc.value = '';
     composeAttachments.value = [];
+    schedulePreset.value = null;
+    showSchedule.value = false;
+    if (data?.scheduled && data?.messageId && data?.threadRef?.conversationId) {
+      startUndoBanner({
+        conversationId: data.threadRef.conversationId,
+        messageId: data.messageId,
+        expiresAt: data.undoExpiresAt || data.scheduledSendAt,
+        kind:
+          wasScheduledPreset || data.deliveryGate?.receiveAt ? 'scheduled' : 'undo'
+      });
+    }
     await loadTimeline(selected.value.personKey);
   } catch (e) {
     sendError.value = e?.response?.data?.error?.message || 'Send failed';
@@ -864,6 +1056,11 @@ watch(
 );
 
 onMounted(loadList);
+onUnmounted(() => {
+  clearUndoBanner();
+  clearTimeout(staffSuggestTimer);
+  clearTimeout(peopleTimer);
+});
 
 defineExpose({ reload: loadList });
 </script>
@@ -1022,6 +1219,93 @@ defineExpose({ reload: loadList });
 .msg-hub-open-tag.pending {
   color: var(--mh-muted);
   font-weight: 600;
+}
+.msg-hub-delivery-note {
+  margin: 0 0 8px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--mh-primary) 12%, #fff);
+  border: 1px solid color-mix(in srgb, var(--mh-primary) 28%, #e2e8f0);
+  color: var(--mh-ink);
+  font-size: 13px;
+  line-height: 1.45;
+}
+.msg-hub-delivery-note.sidebar {
+  margin-top: 10px;
+}
+.msg-hub-undo {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 0 0 8px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: #0f172a;
+  color: #f8fafc;
+  font-size: 13px;
+}
+.msg-hub-undo button {
+  border: 0;
+  border-radius: 8px;
+  background: #fff;
+  color: #0f172a;
+  font-weight: 700;
+  padding: 6px 10px;
+  cursor: pointer;
+}
+.msg-hub-delay-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--mh-muted);
+}
+.msg-hub-delay-select {
+  border: 1px solid var(--mh-line);
+  border-radius: 8px;
+  padding: 4px 8px;
+  font-size: 12px;
+  background: #fff;
+}
+.msg-hub-schedule-wrap {
+  position: relative;
+}
+.msg-hub-schedule-menu {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 6px);
+  min-width: 180px;
+  background: #fff;
+  border: 1px solid var(--mh-line);
+  border-radius: 10px;
+  box-shadow: 0 10px 28px rgba(15, 23, 42, 0.12);
+  padding: 6px;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.msg-hub-schedule-menu button {
+  border: 0;
+  background: transparent;
+  text-align: left;
+  padding: 8px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 13px;
+}
+.msg-hub-schedule-menu button:hover {
+  background: #f1f5f9;
+}
+.msg-hub-compose-actions .btn-ghost {
+  border: 1px solid var(--mh-line);
+  background: #fff;
+  color: var(--mh-ink);
+  font-size: 12px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  cursor: pointer;
 }
 .msg-hub-kind {
   font-size: 10px;

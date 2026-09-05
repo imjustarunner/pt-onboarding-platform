@@ -893,7 +893,21 @@ export async function resolveHubPerson({ agencyId, userId, personKey }) {
     }
   }
 
-  return { ...seed, methods, preferredMethod, secureDefault, isActiveClient, photoUrl, title };
+  let deliveryGate = null;
+  if (seed.userId) {
+    try {
+      const { resolveRecipientDeliveryGate } = await import('./hubRecipientDelivery.service.js');
+      deliveryGate = await resolveRecipientDeliveryGate({
+        agencyId: resolvedAgencyId,
+        userId: seed.userId,
+        displayName: seed.displayName
+      });
+    } catch (e) {
+      console.warn('[resolveHubPerson] deliveryGate:', e?.message || e);
+    }
+  }
+
+  return { ...seed, methods, preferredMethod, secureDefault, isActiveClient, photoUrl, title, deliveryGate };
 }
 
 async function loadChatTimeline({ agencyId, actorUserId, otherUserId, limit = 40 }) {
@@ -993,7 +1007,8 @@ async function loadEmailTimeline({ agencyId, actorUserId, email, limit = 40 }) {
     // Hub sends via shared messages@ inbox (not personal App inbox). Include both.
     const [rows] = await pool.execute(
       `SELECT m.id AS message_id, m.conversation_id, m.direction, m.body_text, m.subject,
-              m.sent_at, m.created_at, c.subject AS conv_subject,
+              m.sent_at, m.created_at, m.send_status, m.scheduled_send_at, m.undo_expires_at,
+              c.subject AS conv_subject,
               i.identity_key AS inbox_key,
               (
                 SELECT uc.opened_at FROM user_communications uc
@@ -1030,18 +1045,19 @@ async function loadEmailTimeline({ agencyId, actorUserId, email, limit = 40 }) {
          )
          AND COALESCE(m.is_internal_note, 0) = 0
          AND COALESCE(m.send_status, 'sent') <> 'cancelled'
-       ORDER BY COALESCE(m.sent_at, m.created_at) DESC, m.id DESC
+       ORDER BY COALESCE(m.sent_at, m.scheduled_send_at, m.created_at) DESC, m.id DESC
        LIMIT ${Math.min(limit, 80)}`,
       [agencyId, normalized, actorUserId]
     );
     return (rows || []).map((r) => {
       const dir = String(r.direction || '').toLowerCase() === 'inbound' ? 'inbound' : 'outbound';
       const preview = String(r.body_text || r.subject || r.conv_subject || '').slice(0, 400);
+      const sendStatus = String(r.send_status || 'sent').toLowerCase();
       return {
         id: `email-msg-${r.message_id}`,
         channel: 'email',
         bodyPreview: preview,
-        createdAt: r.sent_at || r.created_at,
+        createdAt: r.sent_at || r.scheduled_send_at || r.created_at,
         direction: dir,
         meta: {
           conversationId: r.conversation_id,
@@ -1050,7 +1066,10 @@ async function loadEmailTimeline({ agencyId, actorUserId, email, limit = 40 }) {
           openedAt: r.opened_at || null,
           deliveredAt: r.delivered_at || null,
           userCommunicationId: r.user_communication_id || null,
-          inboxKey: r.inbox_key || null
+          inboxKey: r.inbox_key || null,
+          sendStatus,
+          scheduledSendAt: r.scheduled_send_at || null,
+          undoExpiresAt: r.undo_expires_at || null
         }
       };
     });
@@ -1133,7 +1152,10 @@ export async function sendHubEmail({
   cc = null,
   bcc = null,
   attachments = null,
-  fromAliasIdentityId = null
+  fromAliasIdentityId = null,
+  schedulePreset = null,
+  scheduledSendAt = null,
+  undoDelaySeconds = null
 }) {
   if (!person.email) {
     const err = new Error('Person has no email address');
@@ -1229,24 +1251,88 @@ export async function sendHubEmail({
   const replyHash = crypto.createHash('sha256').update(replyRaw).digest('hex');
   const replyTo = String(mailboxes.messages?.from_email || '').trim() || null;
 
+  let deliveryGate = person.deliveryGate || null;
+  if (!deliveryGate && person.userId) {
+    try {
+      const { resolveRecipientDeliveryGate } = await import('./hubRecipientDelivery.service.js');
+      deliveryGate = await resolveRecipientDeliveryGate({
+        agencyId: aid,
+        userId: person.userId,
+        displayName: person.displayName
+      });
+    } catch {
+      deliveryGate = null;
+    }
+  }
+
+  const resolvePresetDate = (preset) => {
+    const p = String(preset || '').toLowerCase();
+    if (!p) return null;
+    const d = new Date();
+    if (p === 'in_1_hour') {
+      d.setHours(d.getHours() + 1);
+      return d;
+    }
+    if (p === 'tomorrow_9am') {
+      d.setDate(d.getDate() + 1);
+      d.setHours(9, 0, 0, 0);
+      return d;
+    }
+    if (p === 'monday_9am') {
+      const day = d.getDay();
+      const add = day === 1 ? 7 : (8 - day) % 7 || 7;
+      d.setDate(d.getDate() + add);
+      d.setHours(9, 0, 0, 0);
+      return d;
+    }
+    return null;
+  };
+
+  // Explicit schedule vs undo delay (default 20s). Recipient hold wins if later.
+  let effectiveScheduledAt = null;
+  if (scheduledSendAt) {
+    const d = new Date(scheduledSendAt);
+    if (!Number.isNaN(d.getTime()) && d.getTime() > Date.now() + 5000) effectiveScheduledAt = d;
+  }
+  if (!effectiveScheduledAt && schedulePreset) {
+    effectiveScheduledAt = resolvePresetDate(schedulePreset);
+  }
+  if (deliveryGate?.receiveAt) {
+    const hold = new Date(deliveryGate.receiveAt);
+    if (!Number.isNaN(hold.getTime())) {
+      if (!effectiveScheduledAt || hold > effectiveScheduledAt) effectiveScheduledAt = hold;
+    }
+  }
+
+  const payload = {
+    to: [{ email: person.email, name: person.displayName }],
+    cc: normalizeList(cc),
+    bcc: normalizeList(bcc),
+    subject: subject || `Message from ${agencyName}`,
+    text: body,
+    html,
+    attachments: Array.isArray(attachments) ? attachments : null,
+    fromDisplayName: senderDisplayName,
+    replyTo,
+    clientId: person.clientId || null,
+    templateType: 'hub_email'
+  };
+
+  if (effectiveScheduledAt) {
+    payload.scheduledSendAt = effectiveScheduledAt.toISOString();
+  } else {
+    const secs =
+      undoDelaySeconds != null && undoDelaySeconds !== ''
+        ? Number(undoDelaySeconds)
+        : 20;
+    payload.undoDelaySeconds = Number.isFinite(secs) ? secs : 20;
+  }
+
   const result = await composeNewEmail({
     agencyId: aid,
     inboxId: inbox.id,
     userId,
-    payload: {
-      to: [{ email: person.email, name: person.displayName }],
-      cc: normalizeList(cc),
-      bcc: normalizeList(bcc),
-      subject: subject || `Message from ${agencyName}`,
-      text: body,
-      html,
-      attachments: Array.isArray(attachments) ? attachments : null,
-      fromDisplayName: senderDisplayName,
-      replyTo,
-      skipUndo: true,
-      clientId: person.clientId || null,
-      templateType: 'hub_email'
-    }
+    payload
   });
 
   const conversationId = result?.id || result?.conversation?.id || null;
@@ -1264,8 +1350,13 @@ export async function sendHubEmail({
 
   return {
     channel: 'email',
-    threadRef: { conversationId },
-    fromEmail: mailboxes.messages?.from_email || null
+    threadRef: { conversationId, messageId: result?.messageId || null },
+    fromEmail: mailboxes.messages?.from_email || null,
+    scheduled: !!result?.scheduled,
+    scheduledSendAt: result?.scheduledSendAt || null,
+    undoExpiresAt: result?.undoExpiresAt || null,
+    messageId: result?.messageId || null,
+    deliveryGate: deliveryGate || null
   };
 }
 
