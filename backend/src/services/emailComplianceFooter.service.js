@@ -88,12 +88,14 @@ export async function appendComplianceFooter({
     }
   }
 
-  const textParts = [
-    String(text || '').trim(),
-    '',
-    '---',
-    CONFIDENTIALITY_DISCLAIMER
-  ];
+  const disclaimerAlreadyPresent =
+    (html && /data-pt-signature-confidential\s*=\s*["']?1["']?/i.test(String(html))) ||
+    (html && /CONFIDENTIAL AND POTENTIALLY SENSITIVE INFORMATION/i.test(String(html)));
+
+  const textParts = [String(text || '').trim()];
+  if (!disclaimerAlreadyPresent) {
+    textParts.push('', '---', CONFIDENTIALITY_DISCLAIMER);
+  }
   if (optOutUrl) {
     if (schoolStaffFooter) {
       const groupBit = schoolGroupEmail ? ` (${schoolGroupEmail})` : '';
@@ -121,8 +123,9 @@ export async function appendComplianceFooter({
           <a href="${escapeHtml(optOutUrl)}" style="color:#1d4ed8;">Opt out of emails from us</a>.
         </p>`;
 
-  const disclaimerHtml = `
-    <div style="margin-top:24px;padding-top:16px;border-top:1px solid #d1d5db;font-family:Arial,Helvetica,sans-serif;font-size:11px;line-height:1.45;color:#4b5563;">
+  const disclaimerBodyHtml = disclaimerAlreadyPresent
+    ? ''
+    : `
       <p style="margin:0 0 8px;font-weight:700;color:#111827;text-transform:uppercase;letter-spacing:0.02em;">
         CONFIDENTIAL AND POTENTIALLY SENSITIVE INFORMATION!
       </p>
@@ -130,21 +133,27 @@ export async function appendComplianceFooter({
         The information enclosed in this email may contain privileged and confidential materials intended solely for the individual indicated.
         If you are not the intended recipient, any review, dissemination, distribution, or duplication of this email is strictly prohibited.
         If you are not the intended recipient, please contact the sender by reply email and destroy all copies of the original message.
-      </p>
+      </p>`;
+
+  const footerBlock =
+    disclaimerBodyHtml || optOutHtml
+      ? `
+    <div style="margin-top:${disclaimerAlreadyPresent ? '12' : '24'}px;padding-top:16px;border-top:1px solid #d1d5db;font-family:Arial,Helvetica,sans-serif;font-size:11px;line-height:1.45;color:#4b5563;">
+      ${disclaimerBodyHtml}
       ${optOutHtml}
-    </div>
-  `.trim();
+    </div>`.trim()
+      : '';
 
   let htmlOut = html;
   if (htmlOut) {
-    htmlOut = `${String(htmlOut)}\n${disclaimerHtml}`;
+    htmlOut = footerBlock ? `${String(htmlOut)}\n${footerBlock}` : String(htmlOut);
   } else if (text) {
     htmlOut = `<div style="font-family:Arial,sans-serif;line-height:1.5;color:#111;">${
       String(text)
         .split('\n')
         .map((line) => `<p style="margin:0 0 8px;">${escapeHtml(line) || '&nbsp;'}</p>`)
         .join('')
-    }${disclaimerHtml}</div>`;
+    }${footerBlock}</div>`;
   }
 
   return { text: textOut, html: htmlOut, optOutUrl };

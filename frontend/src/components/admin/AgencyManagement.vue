@@ -2165,6 +2165,13 @@
           </div>
 
           <div
+            v-if="(userRole === 'admin' || userRole === 'super_admin' || userRole === 'support') && activeTab === 'social_links' && editingAgency && String(editingAgency.organization_type || 'agency').toLowerCase() === 'agency'"
+            class="tab-section"
+          >
+            <AgencySocialLinksAdmin :agency-id="editingAgency.id" />
+          </div>
+
+          <div
             v-if="userRole === 'super_admin' && activeTab === 'social_feeds' && editingAgency && String(editingAgency.organization_type || 'agency').toLowerCase() === 'agency'"
             class="tab-section"
           >
@@ -4156,6 +4163,7 @@ import IconTemplateModal from './IconTemplateModal.vue';
 import SplashPagePreviewModal from './SplashPagePreviewModal.vue';
 import ToggleSwitch from '../ui/ToggleSwitch.vue';
 import SocialFeedsAdmin from './SocialFeedsAdmin.vue';
+import AgencySocialLinksAdmin from './AgencySocialLinksAdmin.vue';
 import CompanyEventsManager from './CompanyEventsManager.vue';
 import KudosTiersAdmin from './KudosTiersAdmin.vue';
 
@@ -4575,6 +4583,7 @@ const EDITOR_TAB_DEFS = [
   { id: 'notifications', label: 'Notifications' },
   { id: 'announcements', label: 'Announcements' },
   { id: 'company_events', label: 'Company Events' },
+  { id: 'social_links', label: 'Social links' },
   { id: 'social_feeds', label: 'Social feeds' },
   { id: 'theme', label: 'Theme' },
   { id: 'terminology', label: 'Terminology' },
@@ -4591,13 +4600,16 @@ const tabAvailable = (tabId) => {
   const isChild = ['school', 'program', 'learning', 'clinical', 'affiliation'].includes(orgType);
   if (t === 'general') return true;
   // Sub-orgs inherit tenant platform settings; don't expose unused tenant chrome.
-  if (isChild && ['theme', 'terminology', 'icons', 'branding', 'features', 'social_feeds'].includes(t)) return false;
+  if (isChild && ['theme', 'terminology', 'icons', 'branding', 'features', 'social_feeds', 'social_links'].includes(t)) return false;
   if (t === 'theme' || t === 'terminology' || t === 'icons') return true;
   if (t === 'branding') return orgType !== 'office';
   if (t === 'features') return isAgency;
   if (t === 'contact') return orgType !== 'office' && orgType !== 'school';
   if (t === 'address') return orgType !== 'office';
   if (t === 'school_providers' || t === 'school_staff') return isSchool;
+  if (t === 'social_links') {
+    return ['admin', 'super_admin', 'support'].includes(String(userRole.value || '').toLowerCase()) && !!editingAgency.value && isAgency;
+  }
   if (t === 'social_feeds') return String(userRole.value || '').toLowerCase() === 'super_admin' && !!editingAgency.value && isAgency;
   if (t === 'sites' || t === 'notifications' || t === 'announcements' || t === 'company_events' || t === 'kudos' || t === 'payroll') {
     return !!editingAgency.value && isAgency;
@@ -4615,6 +4627,7 @@ const superadminQuickTabs = computed(() => {
     { id: 'theme', label: 'Theme' },
     { id: 'terminology', label: 'Terminology' },
     { id: 'icons', label: 'Icons' },
+    { id: 'social_links', label: 'Social links' },
     { id: 'social_feeds', label: 'Social feeds' }
   ];
   return base.filter((x) => tabAvailable(x.id));
@@ -4702,7 +4715,7 @@ const setFeatureProfileCustom = () => {
 const tabOwnerType = (tabId) => {
   const t = String(tabId || '').trim().toLowerCase();
   if (['features', 'theme', 'terminology', 'icons', 'social_feeds'].includes(t)) return 'platform';
-  if (['company_events', 'notifications', 'announcements', 'sites', 'payroll', 'kudos', 'school_providers', 'school_staff'].includes(t)) {
+  if (['company_events', 'notifications', 'announcements', 'sites', 'payroll', 'kudos', 'school_providers', 'school_staff', 'social_links'].includes(t)) {
     return 'tenant';
   }
   return 'shared';
@@ -4727,11 +4740,12 @@ const onboardingChecklistSteps = computed(() => {
     { id: 'theme', label: '4. Theme' },
     { id: 'terminology', label: '5. Terminology' },
     { id: 'icons', label: '6. Icons' },
-    { id: 'company_events', label: '7. Company Events' },
-    { id: 'notifications', label: '8. Notifications' },
-    { id: 'announcements', label: '9. Announcements' },
-    { id: 'sites', label: '10. Sites' },
-    { id: 'payroll', label: '11. Payroll' }
+    { id: 'social_links', label: '7. Social links' },
+    { id: 'company_events', label: '8. Company Events' },
+    { id: 'notifications', label: '9. Notifications' },
+    { id: 'announcements', label: '10. Announcements' },
+    { id: 'sites', label: '11. Sites' },
+    { id: 'payroll', label: '12. Payroll' }
   ];
   return base.filter((x) => tabAvailable(x.id));
 });

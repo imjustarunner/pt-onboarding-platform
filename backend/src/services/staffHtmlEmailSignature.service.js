@@ -6,6 +6,12 @@
 import pool from '../config/database.js';
 import { publicUploadsUrlFromStoredPath } from '../utils/uploads.js';
 import { resolveOrgLogoUrl } from './publicFormBranding.service.js';
+import {
+  listSignatureSocialLinks,
+  getAgencySignatureTagline,
+  platformMark,
+  platformLabel
+} from './agencySocialLinks.service.js';
 
 const STAFF_HTML_SIGNATURE_ROLES = new Set([
   'provider',
@@ -208,9 +214,32 @@ export async function resolveStaffSignatureContext({
       ? true
       : !(u.email_signature_enabled === 0 || u.email_signature_enabled === false || u.email_signature_enabled === '0');
 
+  const agencyIdResolved = agency?.id || aid || null;
+  let socialLinks = [];
+  let customTagline = null;
+  try {
+    if (agencyIdResolved) {
+      socialLinks = await listSignatureSocialLinks(agencyIdResolved);
+      customTagline = await getAgencySignatureTagline(agencyIdResolved);
+    }
+  } catch {
+    socialLinks = [];
+    customTagline = null;
+  }
+
+  let taglineLeft = ITSCO_SIGNATURE_DEFAULTS.taglineLeft;
+  let taglineRight = ITSCO_SIGNATURE_DEFAULTS.taglineRight;
+  if (customTagline) {
+    taglineLeft = customTagline;
+    taglineRight = '';
+  } else if (!isItsco) {
+    taglineLeft = orgName;
+    taglineRight = '';
+  }
+
   return {
     userId: uid,
-    agencyId: agency?.id || aid || null,
+    agencyId: agencyIdResolved,
     role: u.role,
     enabled,
     eligible: isStaffHtmlSignatureRole(u.role),
@@ -228,8 +257,9 @@ export async function resolveStaffSignatureContext({
     orgFullName: orgName,
     phone,
     website,
-    taglineLeft: ITSCO_SIGNATURE_DEFAULTS.taglineLeft,
-    taglineRight: ITSCO_SIGNATURE_DEFAULTS.taglineRight,
+    taglineLeft,
+    taglineRight,
+    socialLinks,
     colors,
     assets: {
       iconEmail: staffHtmlAsset('icon-email.png'),
@@ -299,6 +329,46 @@ export function buildStaffSignatureHtml(ctx) {
   const rightRailWidth = 188;
   const rightRailPad = `padding:8px 4px 8px 14px;`;
 
+  const social = Array.isArray(ctx.socialLinks) ? ctx.socialLinks.filter((l) => l?.url) : [];
+  const socialIconsHtml = social.length
+    ? `<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;margin:10px auto 0;">
+        <tr>
+          ${social
+            .map((link) => {
+              const href = escapeHtml(link.url);
+              const mark = escapeHtml(platformMark(link.platform));
+              const title = escapeHtml(link.label || platformLabel(link.platform));
+              return `<td style="padding:0 3px;vertical-align:middle;">
+                <a href="${href}" title="${title}" target="_blank" rel="noopener noreferrer"
+                  style="display:inline-block;width:24px;height:24px;line-height:24px;text-align:center;border-radius:6px;background:${c.green};color:#ffffff;font-family:Arial,Helvetica,sans-serif;font-size:11px;font-weight:700;text-decoration:none !important;">
+                  ${mark}
+                </a>
+              </td>`;
+            })
+            .join('')}
+        </tr>
+      </table>`
+    : '';
+
+  const confidentialHtml = `
+    <tr>
+      <td colspan="3" style="padding:12px 0 0;" data-pt-signature-confidential="1">
+        <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="border-collapse:collapse;">
+          <tr><td style="border-top:1px solid ${c.line};font-size:0;line-height:0;height:1px;">&nbsp;</td></tr>
+        </table>
+        <div style="margin-top:8px;font-family:Arial,Helvetica,sans-serif;font-size:10px;line-height:1.4;color:#6B7280;">
+          <div style="font-weight:700;color:${c.navy};text-transform:uppercase;letter-spacing:0.02em;margin-bottom:4px;">
+            CONFIDENTIAL AND POTENTIALLY SENSITIVE INFORMATION!
+          </div>
+          <div>
+            The information enclosed in this email may contain privileged and confidential materials intended solely for the individual indicated.
+            If you are not the intended recipient, any review, dissemination, distribution, or duplication of this email is strictly prohibited.
+            If you are not the intended recipient, please contact the sender by reply email and destroy all copies of the original message.
+          </div>
+        </div>
+      </td>
+    </tr>`;
+
   return `
 <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;max-width:620px;width:100%;background:#ffffff;">
   <tr>
@@ -323,6 +393,7 @@ export function buildStaffSignatureHtml(ctx) {
     <td width="${rightRailWidth}" style="width:${rightRailWidth}px;${rightRailPad}vertical-align:middle;border-left:1px solid ${c.divider};">
       <img src="${logo}" width="160" alt="${org}"
         style="display:block;border:0;max-width:160px;width:160px;height:auto;margin:0 auto;" />
+      ${socialIconsHtml}
     </td>
   </tr>
   <tr>
@@ -341,7 +412,7 @@ export function buildStaffSignatureHtml(ctx) {
           </td>
           <td style="vertical-align:middle;padding-left:6px;font-family:Arial,Helvetica,sans-serif;font-size:10px;letter-spacing:0.02em;line-height:1.25;">
             <span style="color:${c.navy};font-weight:700;">${tagL}</span>
-            <span style="color:${c.greenDark};font-weight:700;"> ${tagR}</span>
+            ${tagR ? `<span style="color:${c.greenDark};font-weight:700;"> ${tagR}</span>` : ''}
           </td>
         </tr>
       </table>
@@ -352,6 +423,7 @@ export function buildStaffSignatureHtml(ctx) {
       <span style="font-family:Arial,Helvetica,sans-serif;font-size:10px;color:${c.muted};vertical-align:middle;font-weight:600;">PlotTwistCo</span>
     </td>
   </tr>
+  ${confidentialHtml}
 </table>`.trim();
 }
 

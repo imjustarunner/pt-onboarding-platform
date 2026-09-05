@@ -111,6 +111,7 @@ import {
   dashboardRouter as agencyMarketingSplashDashboardRoutes
 } from './routes/agencyMarketingSplash.routes.js';
 import socialFeedLinksRoutes from './routes/socialFeedLinks.routes.js';
+import agencySocialLinksRoutes from './routes/agencySocialLinks.routes.js';
 import referralRoutes from './routes/referral.routes.js';
 import referralDirectoryRoutes from './routes/referralDirectory.routes.js';
 import bulkImportRoutes from './routes/bulkImport.routes.js';
@@ -792,6 +793,7 @@ app.use('/api/agencies', agencySchoolsRoutes);
 app.use('/api/agencies', agencyDepartmentsRoutes);
 app.use('/api/agencies', agencyDashboardRoutes);
 app.use('/api/agencies', socialFeedLinksRoutes);
+app.use('/api/agencies', agencySocialLinksRoutes);
 app.use('/api/me', meRoutes);
 app.use('/api/focus-music', focusMusicRoutes);
 app.use('/api/focus-quotes', focusQuotesRoutes);
