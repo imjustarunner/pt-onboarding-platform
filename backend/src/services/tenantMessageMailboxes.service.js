@@ -185,23 +185,49 @@ export async function ensureTenantNotificationsMailbox(agencyId, domainOverride 
   return { domain, notifications };
 }
 
-export async function listMessageAliasesForAgency(agencyId) {
+export async function listMessageAliasesForAgency(agencyId, { userId = null } = {}) {
   const mailboxes = await ensureTenantMessageMailboxes(agencyId).catch(() => null);
-  if (!mailboxes) return [];
-  return [
-    {
-      id: mailboxes.messages?.id,
-      email: mailboxes.messages?.from_email,
-      displayName: mailboxes.messages?.display_name || 'Messages',
-      kind: 'messages',
-      inboxId: mailboxes.messagesInbox?.id || null
-    },
-    {
-      id: mailboxes.secure?.id,
-      email: mailboxes.secure?.from_email,
-      displayName: mailboxes.secure?.display_name || 'Secure Messages',
-      kind: 'secure_message',
-      inboxId: mailboxes.secureInbox?.id || null
+  const shared = mailboxes
+    ? [
+        {
+          id: mailboxes.messages?.id,
+          email: mailboxes.messages?.from_email,
+          displayName: mailboxes.messages?.display_name || 'Messages',
+          kind: 'messages',
+          inboxId: mailboxes.messagesInbox?.id || null
+        },
+        {
+          id: mailboxes.secure?.id,
+          email: mailboxes.secure?.from_email,
+          displayName: mailboxes.secure?.display_name || 'Secure Messages',
+          kind: 'secure_message',
+          inboxId: mailboxes.secureInbox?.id || null
+        }
+      ].filter((a) => a.email)
+    : [];
+
+  const out = [];
+  if (userId) {
+    try {
+      const { ensureStaffTenantSendAlias } = await import('./personalMailbox.service.js');
+      const personal = await ensureStaffTenantSendAlias({ agencyId, userId });
+      if (personal?.email && personal.id) {
+        out.push({
+          id: personal.id,
+          email: personal.email,
+          displayName: personal.displayName || 'You',
+          kind: personal.kind || 'personal',
+          inboxId: personal.inboxId || null
+        });
+      }
+    } catch (e) {
+      console.warn('[listMessageAliasesForAgency] personal:', e?.message || e);
     }
-  ].filter((a) => a.email);
+  }
+  for (const a of shared) {
+    if (!out.some((x) => String(x.email || '').toLowerCase() === String(a.email || '').toLowerCase())) {
+      out.push(a);
+    }
+  }
+  return out;
 }

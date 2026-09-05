@@ -9,6 +9,7 @@ import {
   sendHubEmail,
   ensureHubChatThread,
   listHubMessageAliases,
+  listHubSendAgencies,
   reactToHubMessage,
   getStartConversationDirectory,
   browseHubContacts,
@@ -360,8 +361,25 @@ export const getMessagesHubAliases = async (req, res, next) => {
   try {
     const agencyId = parseAgencyId(req);
     if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
-    const aliases = await listHubMessageAliases({ agencyId });
+    const aliases = await listHubMessageAliases({ agencyId, userId: req.user.id });
     res.json({ aliases });
+  } catch (e) {
+    if (e?.status) return res.status(e.status).json({ error: { message: e.message } });
+    next(e);
+  }
+};
+
+/**
+ * GET /api/messages/hub/send-agencies
+ * Tenants the current user may send Hub email as (memberships, or all for super_admin).
+ */
+export const getMessagesHubSendAgencies = async (req, res, next) => {
+  try {
+    const agencies = await listHubSendAgencies({
+      userId: req.user.id,
+      role: req.user.role
+    });
+    res.json({ agencies });
   } catch (e) {
     if (e?.status) return res.status(e.status).json({ error: { message: e.message } });
     next(e);
@@ -489,10 +507,26 @@ export const postMessagesHubSend = async (req, res, next) => {
       personKey,
       method
     });
-    agencyId = person.agencyId || agencyId;
-    if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
+    // Prefer explicit compose "send as" agency; fall back to person's agency.
+    const requestedAgencyId = parseAgencyId(req);
+    let sendAgencyId = requestedAgencyId || person.agencyId || agencyId;
+    if (!sendAgencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
+
+    const sendAgencies = await listHubSendAgencies({
+      userId: req.user.id,
+      role: req.user.role
+    });
+    const allowed = new Set((sendAgencies || []).map((a) => Number(a.id)));
+    if (allowed.size && !allowed.has(Number(sendAgencyId))) {
+      if (String(req.user.role || '').toLowerCase() !== 'super_admin') {
+        return res.status(403).json({
+          error: { message: 'You can only send as a tenant you are affiliated with' }
+        });
+      }
+    }
+    agencyId = sendAgencyId;
     await markHubPersonRead({
-      agencyId,
+      agencyId: person.agencyId || agencyId,
       userId: req.user.id,
       person
     }).catch((e) => console.warn('[hub send] markRead:', e?.message || e));

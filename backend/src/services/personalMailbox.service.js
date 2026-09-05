@@ -147,6 +147,117 @@ async function uniqueAliasEmail({ agencyId, user, domain, format }) {
 }
 
 /**
+ * Prefer primary email local-part @ tenant domain (michael@plottwistco.com → michael@itsco.health).
+ * Falls back to name-based workspace format, then the user's real email.
+ */
+export async function resolvePreferredTenantFromEmail({ agencyId, user } = {}) {
+  const agency = await Agency.findById(agencyId);
+  const flags = parseFeatureFlags(agency?.feature_flags);
+  const domain = await resolvePersonalMailboxDomain(agency, flags);
+  const primary = String(user?.email || user?.work_email || '')
+    .trim()
+    .toLowerCase();
+  const primaryLocal = normalizeNamePart(String(primary.split('@')[0] || ''));
+  if (domain && primaryLocal && primaryLocal.length >= 2 && !/^user\d+$/i.test(primaryLocal)) {
+    return `${primaryLocal}@${domain}`.toLowerCase();
+  }
+  if (domain) {
+    const format = resolveWorkspaceFormat(flags.workspaceEmailFormat);
+    return uniqueAliasEmail({ agencyId, user, domain, format });
+  }
+  // No tenant domain — use whatever address they already have.
+  if (primary.includes('@')) return primary;
+  return null;
+}
+
+/**
+ * Ensure personal_{userId} identity (+ personal inbox) for Hub "send as" / signature.
+ * Syncs from_email to preferred tenant alias when possible.
+ */
+export async function ensureStaffTenantSendAlias({ agencyId, userId } = {}) {
+  const uid = Number(userId);
+  const aid = Number(agencyId);
+  if (!uid || !aid) return null;
+
+  const user = await User.findById(uid);
+  if (!user) return null;
+  if (!isPersonalMailboxEligibleRole(user.role)) {
+    const fallback = String(user.work_email || user.email || '')
+      .trim()
+      .toLowerCase();
+    if (!fallback.includes('@')) return null;
+    return {
+      id: null,
+      email: fallback,
+      displayName: [user.first_name, user.last_name].filter(Boolean).join(' ') || fallback,
+      kind: 'fallback',
+      inboxId: null,
+      identityKey: null
+    };
+  }
+
+  const preferred = await resolvePreferredTenantFromEmail({ agencyId: aid, user });
+  if (!preferred || !preferred.includes('@')) return null;
+
+  const displayName =
+    [user.first_name, user.last_name].filter(Boolean).join(' ') || preferred;
+  const identityKey = `personal_${uid}`;
+  let identity = await EmailSenderIdentity.findByAgencyAndIdentityKey(aid, identityKey);
+
+  if (!identity) {
+    identity = await EmailSenderIdentity.create({
+      agencyId: aid,
+      identityKey,
+      displayName,
+      fromEmail: preferred,
+      replyTo: preferred,
+      inboundAddresses: [preferred],
+      isActive: true
+    });
+  } else {
+    const current = String(identity.from_email || '')
+      .trim()
+      .toLowerCase();
+    if (current !== preferred || Number(identity.is_active) === 0) {
+      identity = await EmailSenderIdentity.update(identity.id, {
+        fromEmail: preferred,
+        replyTo: preferred,
+        inboundAddresses: [preferred],
+        displayName,
+        isActive: true
+      });
+    }
+  }
+
+  let inbox = await findPersonalInbox({ agencyId: aid, userId: uid });
+  if (!inbox) {
+    try {
+      inbox = await ensurePersonalMailbox({ agencyId: aid, userId: uid });
+    } catch {
+      inbox = null;
+    }
+  }
+  if (inbox?.id && String(inbox.from_email || '').toLowerCase() !== preferred) {
+    await pool.execute(
+      `UPDATE communication_inboxes
+       SET from_email = ?, sender_identity_id = ?, display_name = ?, is_active = 1
+       WHERE id = ?`,
+      [preferred, identity.id, `${displayName} (App inbox)`, inbox.id]
+    );
+    inbox = await CommunicationInbox.findById(inbox.id);
+  }
+
+  return {
+    id: identity.id,
+    email: preferred,
+    displayName,
+    kind: 'personal',
+    inboxId: inbox?.id || null,
+    identityKey
+  };
+}
+
+/**
  * Ensure a personal communication inbox + sender identity + membership for a user.
  * Does not create a Google Workspace seat — alias is app-routed via EmailSenderIdentity.
  */

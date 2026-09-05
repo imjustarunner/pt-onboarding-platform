@@ -733,10 +733,29 @@
                   placeholder="Subject"
                 />
                 <div class="msg-hub-email-row">
+                  <label>Send as</label>
+                  <select
+                    v-model="composeAgencyId"
+                    class="msg-hub-alias"
+                    @change="onComposeAgencyChange"
+                  >
+                    <option
+                      v-for="a in sendAgencies"
+                      :key="a.id"
+                      :value="a.id"
+                    >
+                      {{ a.name }}
+                    </option>
+                    <option v-if="!sendAgencies.length" :value="null">
+                      Current tenant
+                    </option>
+                  </select>
+                </div>
+                <div class="msg-hub-email-row">
                   <label>From</label>
                   <select v-model="composeFromAliasId" class="msg-hub-alias">
-                    <option v-for="a in emailAliases" :key="a.id" :value="a.id">
-                      {{ a.email }} ({{ a.displayName }})
+                    <option v-for="a in emailAliases" :key="a.id || a.email" :value="a.id">
+                      {{ a.email }} ({{ a.kind === 'personal' ? 'You' : a.displayName }})
                     </option>
                     <option v-if="!emailAliases.length" :value="null">messages@ (default)</option>
                   </select>
@@ -1419,6 +1438,8 @@ const uploadingChatAttach = ref(false);
 const emojiPickerOpen = ref(false);
 const reactionPickerFor = ref(null);
 const composeFromAliasId = ref(null);
+const composeAgencyId = ref(null);
+const sendAgencies = ref([]);
 const emailAliases = ref([]);
 const signaturePreview = ref(null);
 const emailComposeMode = ref('reply'); // reply | forward | new
@@ -3036,7 +3057,11 @@ function selectMethod(id) {
   sendMethod.value = id;
   if (id === 'email') {
     activeEmailThreadKey.value = null;
-    loadSignaturePreview(selected.value?.agencyId || agencyId.value);
+    const aid = composeAgencyId.value || selected.value?.agencyId || agencyId.value;
+    if (!composeAgencyId.value && aid) composeAgencyId.value = Number(aid);
+    loadSendAgencies().then(() =>
+      Promise.all([loadEmailAliases(composeAgencyId.value), loadSignaturePreview(composeAgencyId.value)])
+    );
   }
   focusComposer();
 }
@@ -3674,8 +3699,11 @@ async function pickPerson(person, opts = {}) {
     person?.clientMessaging?.talkingToUserId ||
     person?.userId ||
     null;
-  await loadEmailAliases(person?.agencyId || agencyId.value);
-  await loadSignaturePreview(person?.agencyId || agencyId.value);
+  await loadSendAgencies();
+  const defaultAid = person?.agencyId || agencyId.value || sendAgencies.value[0]?.id || null;
+  composeAgencyId.value = defaultAid ? Number(defaultAid) : null;
+  await loadEmailAliases(composeAgencyId.value);
+  await loadSignaturePreview(composeAgencyId.value);
   sendError.value = '';
   if (!people.value.some((p) => p.personKey === person.personKey)) {
     people.value = [person, ...people.value];
@@ -3796,6 +3824,35 @@ async function loadTimeline(personKey) {
   }
 }
 
+async function loadSendAgencies() {
+  try {
+    const { data } = await api.get('/messages/hub/send-agencies', { skipGlobalLoading: true });
+    sendAgencies.value = Array.isArray(data?.agencies) ? data.agencies : [];
+  } catch {
+    // Fallback to store memberships / catalog
+    const role = String(authStore.user?.role || '').toLowerCase();
+    const list =
+      role === 'super_admin'
+        ? agencyStore.agencies || []
+        : agencyStore.userAgencies?.length
+          ? agencyStore.userAgencies
+          : agencyStore.agencies || [];
+    sendAgencies.value = (list || []).map((a) => ({
+      id: Number(a.id),
+      name: a.name || a.official_name || `Agency ${a.id}`
+    }));
+  }
+  if (!composeAgencyId.value && sendAgencies.value.length) {
+    const preferred = selected.value?.agencyId || agencyId.value || sendAgencies.value[0].id;
+    composeAgencyId.value = Number(preferred);
+  }
+}
+
+async function onComposeAgencyChange() {
+  const aid = composeAgencyId.value ? Number(composeAgencyId.value) : null;
+  await Promise.all([loadEmailAliases(aid), loadSignaturePreview(aid)]);
+}
+
 async function loadEmailAliases(aid) {
   emailAliases.value = [];
   composeFromAliasId.value = null;
@@ -3806,8 +3863,9 @@ async function loadEmailAliases(aid) {
       skipGlobalLoading: true
     });
     emailAliases.value = Array.isArray(data?.aliases) ? data.aliases : [];
+    const personal = emailAliases.value.find((a) => a.kind === 'personal');
     const messages = emailAliases.value.find((a) => a.kind === 'messages');
-    composeFromAliasId.value = messages?.id || emailAliases.value[0]?.id || null;
+    composeFromAliasId.value = personal?.id || messages?.id || emailAliases.value[0]?.id || null;
   } catch {
     emailAliases.value = [];
   }
@@ -3815,7 +3873,7 @@ async function loadEmailAliases(aid) {
 
 async function loadSignaturePreview(aid) {
   signaturePreview.value = null;
-  const agency = aid || selected.value?.agencyId || agencyId.value;
+  const agency = aid || composeAgencyId.value || selected.value?.agencyId || agencyId.value;
   try {
     const { data } = await api.get('/messages/hub/signature-preview', {
       params: agency ? { agencyId: agency } : {},
@@ -3881,7 +3939,12 @@ async function reactToMessage(msg) {
 async function send() {
   if (!selected.value?.personKey) return;
   if (!canSendCompose.value) return;
-  const sendAgencyId = selected.value.agencyId || agencyId.value;
+  const sendAgencyId =
+    (sendMethod.value === 'email' && composeAgencyId.value
+      ? Number(composeAgencyId.value)
+      : null) ||
+    selected.value.agencyId ||
+    agencyId.value;
   if (!sendAgencyId) {
     sendError.value = 'Missing agency for this conversation';
     return;
@@ -3924,7 +3987,12 @@ function cancelSendConfirm() {
 }
 
 async function executeSend({ sendToAllPortalGuardians = false, includeClient = false } = {}) {
-  const sendAgencyId = selected.value.agencyId || agencyId.value;
+  const sendAgencyId =
+    (sendMethod.value === 'email' && composeAgencyId.value
+      ? Number(composeAgencyId.value)
+      : null) ||
+    selected.value.agencyId ||
+    agencyId.value;
   sending.value = true;
   sendError.value = '';
   try {

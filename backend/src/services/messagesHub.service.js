@@ -2674,14 +2674,45 @@ export async function sendHubEmail({
     err.status = 400;
     throw err;
   }
-  const aid = person.agencyId || agencyId;
+  const aid = Number(agencyId || person.agencyId || 0);
+  if (!aid) {
+    const err = new Error('agencyId is required to send email');
+    err.status = 400;
+    throw err;
+  }
   const sendMode = String(mode || 'reply').toLowerCase() === 'forward' ? 'forward' : 'reply';
   const { ensureTenantMessageMailboxes } = await import('./tenantMessageMailboxes.service.js');
   const { buildNormalOutboundEmailHtml } = await import('./hubBrandedEmail.service.js');
+  const EmailSenderIdentity = (await import('../models/EmailSenderIdentity.model.js')).default;
   const mailboxes = await ensureTenantMessageMailboxes(aid);
   let inbox = mailboxes.messagesInbox;
-  if (fromAliasIdentityId && Number(fromAliasIdentityId) === Number(mailboxes.secure?.id)) {
-    inbox = mailboxes.secureInbox;
+  let selectedIdentity = null;
+  const aliasId = fromAliasIdentityId != null ? Number(fromAliasIdentityId) : null;
+  if (aliasId) {
+    selectedIdentity = await EmailSenderIdentity.findById(aliasId).catch(() => null);
+    if (selectedIdentity && Number(selectedIdentity.agency_id) !== aid) {
+      selectedIdentity = null;
+    }
+  }
+  if (selectedIdentity) {
+    const key = String(selectedIdentity.identity_key || '').toLowerCase();
+    if (key === 'secure_message' || Number(selectedIdentity.id) === Number(mailboxes.secure?.id)) {
+      inbox = mailboxes.secureInbox;
+    } else if (key.startsWith('personal_')) {
+      const { ensureStaffTenantSendAlias, findPersonalInbox } = await import(
+        './personalMailbox.service.js'
+      );
+      await ensureStaffTenantSendAlias({ agencyId: aid, userId });
+      const personalInbox = await findPersonalInbox({ agencyId: aid, userId });
+      if (personalInbox?.id) {
+        inbox = personalInbox;
+      } else {
+        // Still send via messages@ mailbox but use personal From identity below.
+        inbox = mailboxes.messagesInbox;
+      }
+    } else {
+      inbox = mailboxes.messagesInbox;
+    }
   }
   if (!inbox?.id && mailboxes.messages?.id) {
     // Fallback: create minimal inbox row if ensure missed columns
@@ -2706,6 +2737,25 @@ export async function sendHubEmail({
     const err = new Error('Could not provision messages@ mailbox for this agency');
     err.status = 400;
     throw err;
+  }
+
+  // Hub replies should return to messages@ even when From is a personal tenant alias.
+  const replyTo = String(mailboxes.messages?.from_email || '').trim() || null;
+
+  // If sending as personal while using messages inbox, use personal From identity for delivery.
+  if (
+    selectedIdentity?.id &&
+    Number(inbox.sender_identity_id) !== Number(selectedIdentity.id) &&
+    String(selectedIdentity.identity_key || '')
+      .toLowerCase()
+      .startsWith('personal_')
+  ) {
+    inbox = {
+      ...inbox,
+      sender_identity_id: selectedIdentity.id,
+      from_email: selectedIdentity.from_email,
+      display_name: selectedIdentity.display_name || inbox.display_name
+    };
   }
 
   const [agencyRows] = await pool.execute(
@@ -2820,7 +2870,6 @@ export async function sendHubEmail({
   const crypto = await import('crypto');
   const replyRaw = crypto.randomBytes(24).toString('hex');
   const replyHash = crypto.createHash('sha256').update(replyRaw).digest('hex');
-  const replyTo = String(mailboxes.messages?.from_email || '').trim() || null;
 
   let deliveryGate = person.deliveryGate || null;
   const recipientIsStaffish = (person.kinds || []).some((k) =>
@@ -3016,9 +3065,47 @@ export async function sendHubEmail({
   };
 }
 
-export async function listHubMessageAliases({ agencyId }) {
+export async function listHubMessageAliases({ agencyId, userId = null }) {
   const { listMessageAliasesForAgency } = await import('./tenantMessageMailboxes.service.js');
-  return listMessageAliasesForAgency(agencyId);
+  return listMessageAliasesForAgency(agencyId, { userId });
+}
+
+/**
+ * Agencies the sender may choose as "Send as / From tenant" in Hub compose.
+ * Super-admins: all active agencies. Everyone else: memberships (user_agencies + inheritance).
+ */
+export async function listHubSendAgencies({ userId, role = null } = {}) {
+  const uid = Number(userId || 0);
+  if (!uid) return [];
+  const roleNorm = String(role || '').toLowerCase();
+  try {
+    if (roleNorm === 'super_admin') {
+      const [rows] = await pool.execute(
+        `SELECT id, name, official_name, portal_url, custom_domain, logo_url, logo_path
+         FROM agencies
+         WHERE COALESCE(is_active, 1) = 1
+         ORDER BY name ASC
+         LIMIT 500`
+      );
+      return (rows || []).map((a) => ({
+        id: Number(a.id),
+        name: a.name || a.official_name || `Agency ${a.id}`,
+        portalUrl: a.portal_url || null,
+        customDomain: a.custom_domain || null
+      }));
+    }
+    const User = (await import('../models/User.model.js')).default;
+    const agencies = await User.getAgencies(uid);
+    return (agencies || []).map((a) => ({
+      id: Number(a.id),
+      name: a.name || a.official_name || `Agency ${a.id}`,
+      portalUrl: a.portal_url || a.portalUrl || null,
+      customDomain: a.custom_domain || a.customDomain || null
+    }));
+  } catch (e) {
+    console.warn('[listHubSendAgencies]', e?.message || e);
+    return [];
+  }
 }
 
 /**
