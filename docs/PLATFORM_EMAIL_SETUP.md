@@ -25,7 +25,7 @@ GMAIL_IMPERSONATE_USER=ai@yourdomain.com
 
 Emails will be sent as `Summit Stats Team Challenge <ai@yourdomain.com>` when no other From address is configured.
 
-## Optional: custom From address
+## Optional: custom From address / Send-as
 
 To use a different From address (e.g. `noreply@summitstats.com`):
 
@@ -36,6 +36,14 @@ GOOGLE_WORKSPACE_REPLY_TO=support@summitstats.com
 ```
 
 The impersonated user must have “Send mail as” permission for this address in Gmail.
+
+### Tenant messages@ / securemessage@ (Messages Hub)
+
+Locked domains: `plottwistco.com`, `itsco.health`, `innerstrengthin.com`, `nextleveluplcc.com`, `mh4kidz.com`, `risereviveco.com`.
+
+1. In Google Admin → Domain-wide Delegation, add `https://www.googleapis.com/auth/gmail.settings.sharing` to the Workspace service account client ID (with existing Gmail scopes), then re-authorize / wait for propagation.
+2. Run `node backend/src/scripts/provisionTenantMessageGroups.js` (optional `--dry-run`, `--domain=itsco.health`).
+3. Script creates Groups (`messages@` / `securemessage@`), OWNER `michael@plottwistco.com` (delivery muted), MANAGER `ai@plottwistco.com`, Gmail Send-as on `ai@`, and upserts `email_sender_identities` + shared inboxes for agencies with `feature_flags.workspaceEmailDomain` set to that domain.
 
 ## Optional: platform sender identity (DB)
 

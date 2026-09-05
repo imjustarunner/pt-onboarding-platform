@@ -257,3 +257,145 @@ export async function runInboxDigestTick({ now = new Date() } = {}) {
 
   return { sent, checked: (prefsRows || []).length };
 }
+
+/**
+ * 24h Availability Hours unread digest for SSO / group-password users who have
+ * unread secure/hub chat messages. Branded messages@ From; never exposes other
+ * parties' personal/SSO addresses in headers.
+ */
+export async function runHubSecureUnreadDigestTick({ now = new Date() } = {}) {
+  const [users] = await pool.execute(
+    `SELECT u.id AS user_id, u.email, u.personal_email, u.first_name, u.sso_password_override,
+            COALESCE(p.digest_hours, ?) AS digest_hours,
+            p.digest_business_hours,
+            p.last_inbox_digest_at,
+            (
+              SELECT ua.agency_id FROM user_agencies ua
+              WHERE ua.user_id = u.id AND (ua.is_active = 1 OR ua.is_active IS NULL)
+              ORDER BY ua.agency_id ASC LIMIT 1
+            ) AS agency_id
+     FROM users u
+     LEFT JOIN user_communication_prefs p ON p.user_id = u.id
+     WHERE u.status = 'active'
+       AND (
+         u.sso_password_override = 1
+         OR COALESCE(p.personal_email_notify, 0) = 1
+       )
+       AND (
+         (u.personal_email IS NOT NULL AND TRIM(u.personal_email) <> '')
+         OR (u.email IS NOT NULL AND TRIM(u.email) <> '')
+       )
+     LIMIT 500`,
+    [DEFAULT_DIGEST_HOURS]
+  );
+
+  let sent = 0;
+  for (const row of users || []) {
+    const agencyId = row.agency_id || null;
+    if (!agencyId) continue;
+
+    const to = String(row.personal_email || row.email || '').trim().toLowerCase();
+    if (!to) continue;
+
+    const businessHours = normalizeDigestHours(
+      row.digest_business_hours ?? row.digest_hours ?? DEFAULT_DIGEST_HOURS
+    );
+
+    if (row.last_inbox_digest_at) {
+      const last = new Date(row.last_inbox_digest_at);
+      if (now - last < businessHours * 60 * 60 * 1000 * 0.5) continue;
+    }
+
+    const schedule = await resolveAvailabilitySchedule(row.user_id, { agencyId });
+
+    // Unread chat messages in threads the user belongs to
+    const [unread] = await pool.execute(
+      `SELECT t.id AS thread_id, MIN(m.created_at) AS oldest_unread_at, COUNT(*) AS unread_count
+       FROM chat_thread_participants p
+       JOIN chat_threads t ON t.id = p.thread_id
+       JOIN chat_messages m ON m.thread_id = t.id
+       LEFT JOIN chat_thread_reads r ON r.thread_id = t.id AND r.user_id = ?
+       WHERE p.user_id = ?
+         AND t.agency_id = ?
+         AND m.sender_user_id <> ?
+         AND (r.last_read_message_id IS NULL OR m.id > r.last_read_message_id)
+         AND m.created_at <= ?
+       GROUP BY t.id
+       HAVING unread_count > 0
+       ORDER BY oldest_unread_at ASC
+       LIMIT 20`,
+      [row.user_id, row.user_id, agencyId, row.user_id, now]
+    );
+
+    const eligible = [];
+    for (const u of unread || []) {
+      const started = new Date(u.oldest_unread_at || now);
+      const eligibleAt = addBusinessHours(schedule, started, businessHours);
+      if (eligibleAt <= now) eligible.push(u);
+    }
+    if (!eligible.length) continue;
+
+    const Agency = (await import('../models/Agency.model.js')).default;
+    const agency = await Agency.findById(agencyId);
+    const tenantName = agency?.name || 'Your care team';
+    const slug = agency?.slug || '';
+    const baseUrl = String(process.env.APP_PUBLIC_URL || process.env.FRONTEND_URL || 'https://plottwisthq.com').replace(
+      /\/$/,
+      ''
+    );
+    const messagesUrl = `${baseUrl}/${slug}/messages`;
+
+    const count = eligible.reduce((n, x) => n + Number(x.unread_count || 0), 0);
+    const { buildBrandedMessageEmailHtml } = await import('./hubBrandedEmail.service.js');
+    const html = buildBrandedMessageEmailHtml({
+      agencyName: tenantName,
+      senderDisplayName: tenantName,
+      bodyText: `You have ${count} unread message${count === 1 ? '' : 's'} waiting in Messages (unopened for about ${businessHours} Availability Hours). Open the app to read and reply. Message content is not included in this email.`,
+      history: [],
+      appUrl: messagesUrl,
+      footerNote:
+        'This digest never includes message bodies or other people’s personal email addresses. Reply in the app.'
+    });
+
+    try {
+      const { ensureTenantMessageMailboxes } = await import('./tenantMessageMailboxes.service.js');
+      const mailboxes = await ensureTenantMessageMailboxes(agencyId).catch(() => null);
+      if (mailboxes?.messages?.id) {
+        const { sendEmailFromIdentity } = await import('./unifiedEmail/unifiedEmailSender.service.js');
+        await sendEmailFromIdentity({
+          senderIdentityId: mailboxes.messages.id,
+          to,
+          subject: `${tenantName}: ${count} unread message${count === 1 ? '' : 's'}`,
+          html,
+          text: `You have ${count} unread message(s).\n\nOpen: ${messagesUrl}`,
+          replyToOverride: mailboxes.messages.from_email,
+          source: 'auto',
+          templateType: 'hub_secure_unread_digest',
+          userId: row.user_id
+        });
+      } else {
+        await sendNotificationEmail({
+          to,
+          subject: `${tenantName}: ${count} unread message${count === 1 ? '' : 's'}`,
+          html,
+          text: `You have ${count} unread message(s).\n\nOpen: ${messagesUrl}`,
+          agencyId,
+          userId: row.user_id,
+          templateType: 'hub_secure_unread_digest',
+          source: 'auto'
+        });
+      }
+      await pool.execute(
+        `INSERT INTO user_communication_prefs (user_id, personal_email_notify, digest_hours, last_inbox_digest_at)
+         VALUES (?, 1, ?, ?)
+         ON DUPLICATE KEY UPDATE last_inbox_digest_at = VALUES(last_inbox_digest_at)`,
+        [row.user_id, businessHours, now]
+      );
+      sent += 1;
+    } catch (e) {
+      console.warn('[hubSecureDigest] send failed for user', row.user_id, e?.message || e);
+    }
+  }
+
+  return { sent, checked: (users || []).length };
+}

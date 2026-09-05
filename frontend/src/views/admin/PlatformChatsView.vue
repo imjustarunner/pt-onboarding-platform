@@ -1,47 +1,39 @@
 <template>
-  <div class="chats-view" :class="{ 'is-dashboard': !showWorkspace }">
-    <div class="chats-bg" aria-hidden="true" />
-    <div class="header" data-tour="chats-header">
-      <div>
-        <div class="back-row">
-          <button class="btn btn-secondary btn-xs" type="button" @click="goBack">
-            Back
-          </button>
-          <button class="btn btn-secondary btn-xs" type="button" @click="goToDashboard" title="Go to My Dashboard">
-            My Dashboard
-          </button>
-          <button
-            v-if="showWorkspace"
-            class="btn btn-secondary btn-xs"
-            type="button"
-            @click="goToHubView"
-          >
-            Messages hub
-          </button>
-          <router-link
-            v-if="canUseCommunicationsCenter"
-            class="btn btn-secondary btn-xs"
-            :to="communicationsCenterPath"
-          >
-            Communications Center
-          </router-link>
-        </div>
-        <template v-if="showWorkspace">
-          <h2 data-tour="chats-title">Messages</h2>
-          <p class="subtitle" data-tour="chats-subtitle">
-            Direct messages, channels, threads, and mentions.
-          </p>
-        </template>
+  <div class="chats-view" :class="{ 'is-hub': !showWorkspace, 'is-workspace': showWorkspace }">
+    <div class="toolbar" data-tour="chats-header">
+      <div class="toolbar-left">
+        <button class="btn btn-secondary btn-xs" type="button" @click="goBack">Back</button>
+        <button class="btn btn-secondary btn-xs" type="button" @click="goToDashboard">
+          My Dashboard
+        </button>
+        <button
+          v-if="showWorkspace"
+          class="btn btn-secondary btn-xs"
+          type="button"
+          @click="goToHubView"
+        >
+          Messages hub
+        </button>
+        <router-link
+          v-if="canUseCommunicationsCenter"
+          class="btn btn-secondary btn-xs"
+          :to="communicationsCenterPath"
+        >
+          Communications Center
+        </router-link>
       </div>
-      <div class="header-actions" data-tour="chats-actions">
-        <div v-if="canChooseAgency" class="agency-picker" data-tour="chats-agency-picker">
-          <label>Agency</label>
-          <select v-model="selectedAgencyId" @change="onAgencyPicked">
-            <option :value="''">Select…</option>
-            <option v-for="a in agencyOptions" :key="a.id" :value="String(a.id)">{{ a.name }}</option>
-          </select>
-        </div>
+      <div v-if="canChooseAgency" class="agency-picker" data-tour="chats-agency-picker">
+        <label>Agency</label>
+        <select v-model="selectedAgencyId" @change="onAgencyPicked">
+          <option :value="''">Select…</option>
+          <option v-for="a in agencyOptions" :key="a.id" :value="String(a.id)">{{ a.name }}</option>
+        </select>
       </div>
+    </div>
+
+    <div v-if="showWorkspace" class="workspace-title">
+      <h2 data-tour="chats-title">Team chat</h2>
+      <p class="subtitle" data-tour="chats-subtitle">Channels, threads, and mentions.</p>
     </div>
 
     <div v-if="!agencyId && !isSuperAdmin" class="empty" data-tour="chats-empty">
@@ -188,74 +180,53 @@ onMounted(async () => {
 
 <style scoped>
 .chats-view {
-  position: relative;
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  min-height: calc(100vh - 64px);
+  gap: 10px;
+  height: calc(100dvh - 72px);
+  max-height: calc(100dvh - 72px);
   width: 100%;
-  max-width: none;
   margin: 0;
-  padding: 16px 28px 32px;
+  padding: 10px 16px 12px;
+  box-sizing: border-box;
+  overflow: hidden;
 }
-.chats-view.is-dashboard {
-  padding-top: 20px;
-}
-.chats-bg {
-  display: none;
-}
-.chats-view.is-dashboard .chats-bg {
-  display: block;
-  position: absolute;
-  inset: 0;
-  z-index: 0;
-  pointer-events: none;
-  background:
-    radial-gradient(900px 360px at 0% 0%, rgba(56, 189, 248, 0.12), transparent 55%),
-    radial-gradient(700px 300px at 100% 0%, rgba(251, 191, 36, 0.1), transparent 50%),
-    linear-gradient(180deg, #f8fafc 0%, #eef2f7 100%);
-}
-.header,
-.workspace-host,
-.empty {
-  position: relative;
-  z-index: 1;
-}
-.header {
+.toolbar {
   display: flex;
   justify-content: space-between;
-  gap: 16px;
-  flex-wrap: wrap;
-  align-items: flex-start;
-}
-.back-row {
-  display: flex;
-  gap: 8px;
-  margin-bottom: 8px;
+  gap: 12px;
   flex-wrap: wrap;
   align-items: center;
+  flex-shrink: 0;
+}
+.toolbar-left {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.workspace-title {
+  flex-shrink: 0;
+}
+.workspace-title h2 {
+  margin: 0;
+  font-size: 1.25rem;
 }
 .subtitle {
   margin: 4px 0 0;
   color: var(--text-secondary, #64748b);
   font-size: 14px;
 }
-.header-actions {
-  display: flex;
-  gap: 10px;
-  align-items: flex-end;
-  flex-wrap: wrap;
-}
 .agency-picker {
   display: flex;
-  flex-direction: column;
-  gap: 4px;
+  align-items: center;
+  gap: 8px;
   font-size: 12px;
   font-weight: 700;
   color: var(--text-secondary, #64748b);
 }
 .agency-picker select {
-  min-width: 180px;
+  min-width: 160px;
   padding: 6px 8px;
   border-radius: 8px;
   border: 1px solid var(--border, #e2e8f0);
@@ -269,8 +240,13 @@ onMounted(async () => {
   min-height: 0;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
 }
 @media (max-width: 700px) {
-  .chats-view { padding: 12px 14px 24px; }
+  .chats-view {
+    height: calc(100dvh - 56px);
+    max-height: calc(100dvh - 56px);
+    padding: 8px 10px 10px;
+  }
 }
 </style>

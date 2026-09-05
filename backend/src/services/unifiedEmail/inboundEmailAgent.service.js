@@ -166,8 +166,20 @@ async function routeSenderIdentityFromHeaders(hdrs) {
   const xOriginalTo = extractEmails(hdrs.get('x-original-to'));
   const envelopeTo = extractEmails(hdrs.get('envelope-to'));
   const all = [...to, ...cc, ...deliveredTo, ...xOriginalTo, ...envelopeTo];
+  const { stripPlusAddress } = await import('../hubEmailInbound.service.js');
   for (const addr of all) {
-    const identity = await EmailSenderIdentity.findByInboundAddress(addr);
+    let identity = await EmailSenderIdentity.findByInboundAddress(addr);
+    if (!identity?.id) {
+      const base = stripPlusAddress(addr);
+      if (base && base !== addr) {
+        identity =
+          (await EmailSenderIdentity.findByInboundAddress(base)) ||
+          (await EmailSenderIdentity.findByFromEmail(base));
+      }
+    }
+    if (!identity?.id) {
+      identity = await EmailSenderIdentity.findByFromEmail(addr);
+    }
     if (identity?.id) return { senderIdentityId: identity.id, matchedAddress: addr, to, cc, deliveredTo };
   }
   return { senderIdentityId: null, matchedAddress: null, to, cc, deliveredTo };
@@ -863,6 +875,38 @@ export async function runInboundEmailAgentOnce({ maxMessages = 10 } = {}) {
         });
       }
       continue;
+    }
+
+    // Hub messages@ replies (messages+token@domain) → same communication conversation
+    {
+      const { isMessagesIdentity, ingestHubEmailReply } = await import('../hubEmailInbound.service.js');
+      if (isMessagesIdentity(identity)) {
+        try {
+          const hubResult = await ingestHubEmailReply({
+            agencyId,
+            identity,
+            fromEmail,
+            subject,
+            bodyText,
+            toAddresses: [...(routed.to || []), ...(routed.deliveredTo || []), ...(routed.cc || [])],
+            messageIdHeader: hdrs.get('message-id') || null,
+            inReplyTo: hdrs.get('in-reply-to') || null,
+            referencesHeader: hdrs.get('references') || null,
+            receivedAt: new Date(full.data?.internalDate ? Number(full.data.internalDate) : Date.now())
+          });
+          if (hubResult?.ingested) {
+            results.draftedToTickets += 1;
+            await gmail.users.messages.modify({
+              userId: 'me',
+              id,
+              requestBody: { removeLabelIds: ['UNREAD'], addLabelIds: [processedLabelId] }
+            });
+            continue;
+          }
+        } catch (hubErr) {
+          console.error('[EmailAgent] Hub email reply ingest failed:', hubErr);
+        }
+      }
     }
 
     // Hire / personal My Inbox (group work email) — deliver into the owner's app inbox

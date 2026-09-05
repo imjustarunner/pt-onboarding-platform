@@ -41,6 +41,7 @@ Each secret is only used if it exists (non-empty). Missing optional secrets = fe
 - `GOOGLE_WORKSPACE_SERVICE_ACCOUNT_JSON_BASE64`
 - `GOOGLE_WORKSPACE_IMPERSONATE_USER`
 - `GOOGLE_WORKSPACE_DIRECTORY_IMPERSONATE_USER` — human super admin or Groups admin for Directory/group sync + hire Group create (not `ai@`). DWD scopes must include `admin.directory.group` and `admin.directory.group.member` (write).
+- **DWD re-auth after scope change:** When adding Gmail Send-as automation, Admin Console Domain-wide Delegation for the Workspace service account client ID must include `https://www.googleapis.com/auth/gmail.settings.sharing` (in addition to existing gmail.send / gmail.compose / gmail.readonly). Re-save the DWD client scopes, wait for propagation, then run `node backend/src/scripts/provisionTenantMessageGroups.js` to create `messages@` / `securemessage@` Groups + Send-as on `ai@plottwistco.com`.
 - `GOOGLE_WORKSPACE_DRIVE_IMPERSONATE_USER`
 - `GMAIL_IMPERSONATE_USER`
 - `GOOGLE_WORKSPACE_FROM_NAME`

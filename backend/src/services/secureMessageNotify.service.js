@@ -146,90 +146,41 @@ export async function sendLearningClientMessageEmail({
   };
 }
 
-function domainFromEmail(email) {
-  const e = String(email || '').trim().toLowerCase();
-  const at = e.lastIndexOf('@');
-  if (at < 0) return null;
-  const domain = e.slice(at + 1).replace(/[^a-z0-9.-]/g, '');
-  return domain || null;
-}
-
-async function inferAgencyMailDomain(agencyId) {
-  const { default: EmailSenderIdentity } = await import('../models/EmailSenderIdentity.model.js');
-  const list = await EmailSenderIdentity.list({
-    agencyId,
-    includePlatformDefaults: false,
-    onlyActive: true
-  });
-  const preferKeys = ['support', 'notifications', 'forms', 'people_operations', 'technology'];
-  for (const key of preferKeys) {
-    const hit = (list || []).find((i) => String(i.identity_key || '').toLowerCase() === key);
-    const domain = domainFromEmail(hit?.from_email);
-    if (domain && !domain.includes('plottwisthq.com') && !domain.includes('gmail.com')) return domain;
-  }
-  for (const i of list || []) {
-    if (String(i.identity_key || '').toLowerCase().startsWith('personal_')) continue;
-    const domain = domainFromEmail(i.from_email);
-    if (domain && !domain.includes('plottwisthq.com') && !domain.includes('gmail.com')) return domain;
-  }
-  const agency = await Agency.findById(agencyId);
-  const slug = String(agency?.slug || '').toLowerCase().replace(/[^a-z0-9-]/g, '');
-  if (slug === 'itsco') return 'itsco.health';
-  return null;
-}
-
 /**
  * Resolve From = securemessage@tenant and Reply-To = noreply@tenant.
  * Creates identities on first use when the tenant mail domain is known.
  */
 async function ensureSecureMessageMailboxes(agencyId) {
-  const { default: EmailSenderIdentity } = await import('../models/EmailSenderIdentity.model.js');
+  const { ensureTenantMessageMailboxes, inferAgencyMailDomain } = await import('./tenantMessageMailboxes.service.js');
   const { default: AgencyEmailSettings } = await import('../models/AgencyEmailSettings.model.js');
   const settings = await getAgencyEmailSettings(agencyId);
 
-  let fromIdentity = settings.secureMessageSenderIdentityId
-    ? await EmailSenderIdentity.findById(settings.secureMessageSenderIdentityId)
-    : null;
-  if (!fromIdentity) {
-    fromIdentity =
-      (await EmailSenderIdentity.findByAgencyAndIdentityKey(agencyId, 'secure_message')) ||
-      (await EmailSenderIdentity.findByAgencyAndIdentityKey(agencyId, 'securemessage'));
+  let mailboxes = null;
+  try {
+    mailboxes = await ensureTenantMessageMailboxes(agencyId);
+  } catch (e) {
+    console.warn('[secureMessageNotify] ensureTenantMessageMailboxes:', e?.message || e);
   }
+
+  let fromIdentity = settings.secureMessageSenderIdentityId
+    ? await (await import('../models/EmailSenderIdentity.model.js')).default.findById(
+        settings.secureMessageSenderIdentityId
+      )
+    : null;
+  fromIdentity = fromIdentity || mailboxes?.secure || null;
 
   let noreplyIdentity = settings.noreplySenderIdentityId
-    ? await EmailSenderIdentity.findById(settings.noreplySenderIdentityId)
+    ? await (await import('../models/EmailSenderIdentity.model.js')).default.findById(
+        settings.noreplySenderIdentityId
+      )
     : null;
-  if (!noreplyIdentity) {
-    noreplyIdentity = await EmailSenderIdentity.findByAgencyAndIdentityKey(agencyId, 'noreply');
-  }
+  noreplyIdentity = noreplyIdentity || mailboxes?.noreply || null;
 
-  const domain = await inferAgencyMailDomain(agencyId);
-  if (!fromIdentity && domain) {
-    fromIdentity = await EmailSenderIdentity.create({
-      agencyId,
-      identityKey: 'secure_message',
-      displayName: 'Secure Messages',
-      fromEmail: `securemessage@${domain}`,
-      replyTo: `noreply@${domain}`,
-      isActive: true
-    });
-  }
-  if (!noreplyIdentity && domain) {
-    noreplyIdentity = await EmailSenderIdentity.create({
-      agencyId,
-      identityKey: 'noreply',
-      displayName: 'No Reply',
-      fromEmail: `noreply@${domain}`,
-      replyTo: `noreply@${domain}`,
-      isActive: true
-    });
-  }
-
+  const domain = mailboxes?.domain || (await inferAgencyMailDomain(agencyId));
   const noreplyEmail =
     String(noreplyIdentity?.from_email || '').trim() ||
     (domain ? `noreply@${domain}` : null);
 
-  // Persist linked identities when we auto-created / discovered them
   const nextSecureId = fromIdentity?.id || null;
   const nextNoreplyId = noreplyIdentity?.id || null;
   if (
@@ -328,16 +279,18 @@ export async function sendSecureMessageNotification({
   const claimUrl = `${baseUrl}/secure-message/${encodeURIComponent(rawToken)}`;
 
   const subject = `You have a secure message from your provider`;
-  const html = `
-    <p>You have a secure message from your provider on our portal.</p>
-    <p><strong>${escapeHtml(senderName)}</strong> at ${escapeHtml(tenant)} sent you a message.</p>
-    <p><a href="${claimUrl}">Click this link to sign in and access your message</a></p>
-    <p style="color:#64748b;font-size:12px">
-      If you have not set a password yet, you will create one and then sign in to read the message.
-      Replies to this email go to an unmonitored address (noreply) and will not be read —
-      please use the link above to view and reply securely in the portal.
-    </p>
-  `;
+  const { buildBrandedMessageEmailHtml } = await import('./hubBrandedEmail.service.js');
+  const html = buildBrandedMessageEmailHtml({
+    agencyName: tenant,
+    senderDisplayName: senderName,
+    senderTitle: sender?.title || '',
+    bodyText:
+      'You have a secure message from your provider on our portal. Open the link below to sign in and read it securely. Message content is not included in this email.',
+    history: [],
+    appUrl: claimUrl,
+    footerNote:
+      'Replies to this email go to an unmonitored address (noreply) and will not be read — please use the secure link to view and reply in the portal. Personal email addresses are never shared.'
+  });
   const text =
     `You have a secure message from your provider on our portal.\n\n` +
     `${senderName} at ${tenant} sent you a message.\n\n` +
@@ -437,15 +390,18 @@ export async function sendSchoolStaffSecureMessageNotification({
   const claimUrl = `${baseUrl}/secure-message/${encodeURIComponent(rawToken)}`;
 
   const subject = `You have a secure message from ${tenant}`;
-  const html = `
-    <p>You have a secure message on our portal.</p>
-    <p><strong>${escapeHtml(senderName)}</strong> at ${escapeHtml(tenant)} sent you a message.</p>
-    <p><a href="${claimUrl}">Click this link to sign in and access your message</a></p>
-    <p style="color:#64748b;font-size:12px">
-      Replies to this email go to an unmonitored address and will not be read —
-      please use the link above to view and reply securely in the portal.
-    </p>
-  `;
+  const { buildBrandedMessageEmailHtml } = await import('./hubBrandedEmail.service.js');
+  const html = buildBrandedMessageEmailHtml({
+    agencyName: tenant,
+    senderDisplayName: senderName,
+    senderTitle: sender?.title || '',
+    bodyText:
+      'You have a secure message on our portal. Open the link below to sign in and access it. Message content is not included in this email.',
+    history: [],
+    appUrl: claimUrl,
+    footerNote:
+      'Replies to this email go to an unmonitored address and will not be read — please use the secure link to view and reply in the portal.'
+  });
   const text =
     `You have a secure message on our portal.\n\n` +
     `${senderName} at ${tenant} sent you a message.\n\n` +

@@ -5,7 +5,9 @@ import {
   getHubPersonTimeline,
   prepareHubSend,
   sendHubEmail,
-  ensureHubChatThread
+  ensureHubChatThread,
+  listHubMessageAliases,
+  reactToHubMessage
 } from '../services/messagesHub.service.js';
 import { sendMessage as sendChatMessage } from './chat.controller.js';
 import { sendMessage as sendSmsMessage } from './message.controller.js';
@@ -37,7 +39,6 @@ async function resolveHubAgencyIds(req) {
   }
 
   if (memberIds.length) {
-    // Prefer listing membership agencies; keep preferred first for stable UX
     if (preferred && memberIds.includes(preferred)) {
       return [preferred, ...memberIds.filter((id) => id !== preferred)];
     }
@@ -137,8 +138,51 @@ export const getMessagesHubTimeline = async (req, res, next) => {
 };
 
 /**
+ * GET /api/messages/hub/aliases?agencyId=
+ */
+export const getMessagesHubAliases = async (req, res, next) => {
+  try {
+    const agencyId = parseAgencyId(req);
+    if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
+    const aliases = await listHubMessageAliases({ agencyId });
+    res.json({ aliases });
+  } catch (e) {
+    if (e?.status) return res.status(e.status).json({ error: { message: e.message } });
+    next(e);
+  }
+};
+
+/**
+ * POST /api/messages/hub/react
+ * body: { agencyId, conversationId, messageId?, emoji? }
+ */
+export const postMessagesHubReact = async (req, res, next) => {
+  try {
+    const agencyId = parseAgencyId(req);
+    const conversationId = Number(req.body?.conversationId);
+    const messageId = req.body?.messageId != null ? Number(req.body.messageId) : null;
+    const emoji = String(req.body?.emoji || '❤️').slice(0, 32);
+    if (!conversationId) {
+      return res.status(400).json({ error: { message: 'conversationId is required' } });
+    }
+    const out = await reactToHubMessage({
+      agencyId,
+      userId: req.user.id,
+      conversationId,
+      messageId,
+      emoji,
+      notifyEmail: req.body?.notifyEmail !== false
+    });
+    res.json(out);
+  } catch (e) {
+    if (e?.status) return res.status(e.status).json({ error: { message: e.message } });
+    next(e);
+  }
+};
+
+/**
  * POST /api/messages/hub/send
- * body: { agencyId, personKey, method, body, subject? }
+ * body: { agencyId, personKey, method, body, subject?, cc?, bcc?, attachments?, fromAliasIdentityId? }
  */
 export const postMessagesHubSend = async (req, res, next) => {
   try {
@@ -154,7 +198,6 @@ export const postMessagesHubSend = async (req, res, next) => {
     }
     if (!body) return res.status(400).json({ error: { message: 'body is required' } });
 
-    // Agency may be encoded on personKey (user:123@2)
     const person = await prepareHubSend({
       agencyId,
       userId: req.user.id,
@@ -170,7 +213,11 @@ export const postMessagesHubSend = async (req, res, next) => {
         userId: req.user.id,
         person,
         body,
-        subject
+        subject,
+        cc: req.body?.cc ?? null,
+        bcc: req.body?.bcc ?? null,
+        attachments: Array.isArray(req.body?.attachments) ? req.body.attachments : null,
+        fromAliasIdentityId: req.body?.fromAliasIdentityId || null
       });
       return res.json({ ok: true, ...out, person });
     }

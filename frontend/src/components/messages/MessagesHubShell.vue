@@ -4,7 +4,7 @@
       <div>
         <h2 class="msg-hub-title">Messages</h2>
         <p class="msg-hub-sub">
-          {{ greeting }} Messages from every agency you belong to — each person shows who they are and which agency.
+          Pick a person, choose how to send, then write in the box at the bottom.
         </p>
       </div>
       <button type="button" class="btn btn-primary" @click="openNewConversation">
@@ -93,12 +93,24 @@
               :class="{ active: sendMethod === ch.id, recommended: ch.recommended }"
               :disabled="!ch.available"
               :title="ch.reason || ''"
-              @click="sendMethod = ch.id"
+              @click="selectMethod(ch.id)"
             >
               {{ methodLabel(ch.id) }}
               <span v-if="ch.recommended && ch.available" class="msg-hub-rec">Best</span>
             </button>
           </div>
+          <p v-if="secureHint" class="msg-hub-secure-hint">{{ secureHint }}</p>
+          <label
+            v-if="showSecureEmailToggle"
+            class="msg-hub-secure-toggle"
+          >
+            <input
+              type="checkbox"
+              :checked="sendMethod === 'secure'"
+              @change="onSecureToggle($event)"
+            />
+            Send as secure portal message (recommended for active clients)
+          </label>
 
           <div class="msg-hub-timeline">
             <div v-if="loadingTimeline" class="msg-hub-muted">Loading conversation…</div>
@@ -111,23 +123,70 @@
               >
                 <span class="msg-hub-bubble-ch">{{ methodLabel(msg.channel) }}</span>
                 <p>{{ msg.bodyPreview }}</p>
-                <time>{{ formatTime(msg.createdAt) }}</time>
+                <div class="msg-hub-bubble-meta">
+                  <time>{{ formatTime(msg.createdAt) }}</time>
+                  <button
+                    v-if="msg.channel === 'email' && msg.meta?.conversationId"
+                    type="button"
+                    class="msg-hub-like"
+                    title="Like"
+                    :disabled="reactingId === msg.id"
+                    @click="reactToMessage(msg)"
+                  >
+                    {{ reactingId === msg.id ? '…' : '❤️' }}
+                  </button>
+                </div>
               </div>
             </template>
             <div v-else class="msg-hub-empty soft">
-              No messages yet. Pick a method above and send the first one.
+              No messages yet. Write below and send.
             </div>
           </div>
 
           <div class="msg-hub-composer">
-            <input
-              v-if="sendMethod === 'email'"
-              v-model="composeSubject"
-              type="text"
-              class="msg-hub-subject"
-              placeholder="Subject"
-            />
+            <template v-if="sendMethod === 'email'">
+              <input
+                v-model="composeSubject"
+                type="text"
+                class="msg-hub-subject"
+                placeholder="Subject"
+              />
+              <div class="msg-hub-email-row">
+                <label>From</label>
+                <select v-model="composeFromAliasId" class="msg-hub-alias">
+                  <option v-for="a in emailAliases" :key="a.id" :value="a.id">
+                    {{ a.email }} ({{ a.displayName }})
+                  </option>
+                  <option v-if="!emailAliases.length" :value="null">messages@ (default)</option>
+                </select>
+              </div>
+              <input
+                v-model="composeCc"
+                type="text"
+                class="msg-hub-subject"
+                placeholder="Cc (comma-separated emails)"
+              />
+              <input
+                v-model="composeBcc"
+                type="text"
+                class="msg-hub-subject"
+                placeholder="Bcc (comma-separated emails)"
+              />
+              <div class="msg-hub-attach-row">
+                <label class="msg-hub-attach-btn">
+                  Attach files
+                  <input type="file" multiple hidden @change="onAttachFiles" />
+                </label>
+                <ul v-if="composeAttachments.length" class="msg-hub-attach-list">
+                  <li v-for="(f, i) in composeAttachments" :key="i">
+                    {{ f.filename }}
+                    <button type="button" @click="composeAttachments.splice(i, 1)">×</button>
+                  </li>
+                </ul>
+              </div>
+            </template>
             <textarea
+              ref="composeEl"
               v-model="composeBody"
               rows="3"
               :placeholder="composerPlaceholder"
@@ -135,7 +194,7 @@
               @keydown.ctrl.enter.prevent="send"
             />
             <div class="msg-hub-compose-actions">
-              <span class="msg-hub-muted">Via {{ methodLabel(sendMethod) }}</span>
+              <span class="msg-hub-muted">Via {{ methodLabel(sendMethod) || '…' }}</span>
               <button
                 type="button"
                 class="btn btn-primary"
@@ -257,10 +316,8 @@
 <script setup>
 import { computed, nextTick, onMounted, ref, watch } from 'vue';
 import api from '../../services/api';
-import { useAuthStore } from '../../store/auth';
 import { useAgencyStore } from '../../store/agency';
 
-const authStore = useAuthStore();
 const agencyStore = useAgencyStore();
 
 const loadingList = ref(false);
@@ -277,25 +334,26 @@ const timeline = ref([]);
 const sendMethod = ref('secure');
 const composeBody = ref('');
 const composeSubject = ref('');
+const composeCc = ref('');
+const composeBcc = ref('');
+const composeAttachments = ref([]);
+const composeFromAliasId = ref(null);
+const emailAliases = ref([]);
+const reactingId = ref(null);
 const showNew = ref(false);
 const newTab = ref('caseload');
 const peopleQuery = ref('');
 const peopleResults = ref([]);
 const newSearchEl = ref(null);
+const composeEl = ref(null);
 let peopleTimer = null;
 
 const agencyId = computed(() => agencyStore.currentAgency?.id || null);
 
-const greeting = computed(() => {
-  const name = authStore.user?.first_name || 'there';
-  const h = new Date().getHours();
-  const hi = h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening';
-  return `${hi}, ${name}.`;
-});
-
 const listFilters = [
   { id: 'recent', label: 'Recent' },
   { id: 'caseload', label: 'My clients' },
+  { id: 'clients', label: 'Clients' },
   { id: 'guardians', label: 'Guardians' },
   { id: 'staff', label: 'Staff' }
 ];
@@ -303,6 +361,9 @@ const listFilters = [
 const newTabs = [
   { id: 'caseload', label: 'My clients' },
   { id: 'recent', label: 'Recent' },
+  { id: 'staff', label: 'Staff' },
+  { id: 'guardians', label: 'Guardians' },
+  { id: 'clients', label: 'Clients' },
   { id: 'search', label: 'Search' }
 ];
 
@@ -310,29 +371,31 @@ const filteredPeople = computed(() => {
   let list = [...(people.value || [])];
   if (listFilter.value === 'guardians') {
     list = list.filter((p) => (p.kinds || []).includes('guardian'));
+  } else if (listFilter.value === 'clients') {
+    list = list.filter((p) => (p.kinds || []).includes('client'));
   } else if (listFilter.value === 'staff') {
     list = list.filter((p) =>
       (p.kinds || []).some((k) => ['employee', 'staff', 'team', 'school_staff'].includes(k))
     );
+  } else if (listFilter.value === 'caseload') {
+    list = list.filter((p) => (p.kinds || []).includes('client'));
   }
   const q = listSearch.value.trim().toLowerCase();
   if (q) {
-    list = list.filter((p) =>
-      `${p.displayName} ${p.relationshipMeta || ''} ${p.agencyName || ''} ${p.email || ''} ${p.phone || ''}`
-        .toLowerCase()
-        .includes(q)
-    );
+    list = list.filter((p) => fuzzyMatchPerson(p, q));
   }
   return list;
 });
 
 const emptyListCopy = computed(() => {
-  if (listFilter.value === 'caseload') {
-    return 'No caseload clients yet. Try Search in New conversation (initials or code work too).';
+  if (listFilter.value === 'caseload' || listFilter.value === 'clients') {
+    return 'No clients in this view yet. Try Search (letters can match anywhere in the name).';
   }
   if (listFilter.value === 'recent') {
     return 'No recent people yet. Open New conversation and browse My clients.';
   }
+  if (listFilter.value === 'staff') return 'No staff in this list. Try Search.';
+  if (listFilter.value === 'guardians') return 'No guardians in this list. Try Search.';
   return 'Nothing in this filter. Try My clients or Search.';
 });
 
@@ -343,8 +406,36 @@ const newTabHint = computed(() => {
   if (newTab.value === 'recent') {
     return 'People you recently messaged across every agency you belong to — each row shows the person and their agency.';
   }
-  return 'Type at least 2 characters: name, initials, identifier code, email, or phone.';
+  if (newTab.value === 'staff') return 'Staff and school staff across your agencies.';
+  if (newTab.value === 'guardians') return 'Guardians / parents with portal access.';
+  if (newTab.value === 'clients') return 'Clients across your agencies.';
+  return 'Type at least 2 characters — matches anywhere in the name (typos OK). Initials, code, email, or phone also work.';
 });
+
+function fuzzyMatchPerson(p, q) {
+  const hay = `${p.displayName || ''} ${p.relationshipMeta || ''} ${p.agencyName || ''} ${p.email || ''} ${p.phone || ''}`
+    .toLowerCase()
+    .replace(/[^a-z0-9@+.\s]/g, ' ');
+  const needle = String(q || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9@+.\s]/g, ' ')
+    .trim();
+  if (!needle) return true;
+  if (hay.includes(needle)) return true;
+  const tokens = needle.split(/\s+/).filter(Boolean);
+  if (tokens.length > 1 && tokens.every((t) => hay.includes(t))) return true;
+  // light typo tolerance: consecutive chars appear in order
+  const compact = hay.replace(/\s+/g, '');
+  const n = needle.replace(/\s+/g, '');
+  if (n.length >= 2) {
+    let i = 0;
+    for (const ch of compact) {
+      if (ch === n[i]) i += 1;
+      if (i >= n.length) return true;
+    }
+  }
+  return false;
+}
 
 const emptyPickerCopy = computed(() => {
   if (newTab.value === 'search' && peopleQuery.value.trim().length >= 2) return 'No matches.';
@@ -357,12 +448,41 @@ const activeMethod = computed(() =>
   (selected.value?.methods || []).find((m) => m.id === sendMethod.value)
 );
 
+const showSecureEmailToggle = computed(() => {
+  if (!selected.value?.isActiveClient && !selected.value?.secureDefault) return false;
+  const secure = (selected.value?.methods || []).find((m) => m.id === 'secure');
+  const email = (selected.value?.methods || []).find((m) => m.id === 'email');
+  return !!(secure?.available && email?.available);
+});
+
+const secureHint = computed(() => {
+  if (!selected.value) return '';
+  if (selected.value.isActiveClient || selected.value.secureDefault) {
+    if (sendMethod.value === 'secure') {
+      return 'Active client: Secure is on. Uncheck below (or pick Email) for a normal email if they prefer not to open the portal.';
+    }
+    if (sendMethod.value === 'email') {
+      return 'Sending as regular email — not a secure portal message. Replies look like normal email.';
+    }
+  }
+  if (sendMethod.value === 'email') {
+    return 'Regular email via messages@ — looks like normal email in and out.';
+  }
+  return '';
+});
+
 const composerPlaceholder = computed(() => {
   if (sendMethod.value === 'sms') return 'Write a text message…';
   if (sendMethod.value === 'email') return 'Write an email…';
   if (sendMethod.value === 'internal') return 'Write an internal message…';
   return 'Write a secure message…';
 });
+
+function onSecureToggle(ev) {
+  const on = !!ev?.target?.checked;
+  if (on) selectMethod('secure');
+  else selectMethod('email');
+}
 
 function methodLabel(id) {
   const map = { secure: 'Secure', sms: 'SMS', email: 'Email', internal: 'Internal' };
@@ -394,6 +514,16 @@ function formatTime(v) {
   } catch {
     return '';
   }
+}
+
+async function focusComposer() {
+  await nextTick();
+  composeEl.value?.focus?.();
+}
+
+function selectMethod(id) {
+  sendMethod.value = id;
+  focusComposer();
 }
 
 async function fetchPeople({ browse, q, limit = 40 } = {}) {
@@ -441,6 +571,16 @@ async function setNewTab(id) {
       peopleResults.value = [];
       await nextTick();
       newSearchEl.value?.focus?.();
+    } else if (id === 'staff' || id === 'guardians' || id === 'clients') {
+      const browse = id === 'clients' ? 'caseload' : 'suggested';
+      const all = await fetchPeople({ browse, limit: 60 });
+      peopleResults.value = all.filter((p) => {
+        if (id === 'staff') {
+          return (p.kinds || []).some((k) => ['employee', 'staff', 'team', 'school_staff'].includes(k));
+        }
+        if (id === 'guardians') return (p.kinds || []).includes('guardian');
+        return (p.kinds || []).includes('client');
+      });
     } else {
       peopleResults.value = await fetchPeople({ browse: id, limit: 40 });
     }
@@ -478,11 +618,16 @@ async function pickPerson(person) {
   sendMethod.value = person.preferredMethod || person.methods?.find((m) => m.available)?.id || 'secure';
   composeBody.value = '';
   composeSubject.value = '';
+  composeCc.value = '';
+  composeBcc.value = '';
+  composeAttachments.value = [];
+  await loadEmailAliases(person?.agencyId || agencyId.value);
   sendError.value = '';
   if (!people.value.some((p) => p.personKey === person.personKey)) {
     people.value = [person, ...people.value];
   }
   await loadTimeline(person.personKey);
+  await focusComposer();
 }
 
 async function loadTimeline(personKey) {
@@ -509,6 +654,74 @@ async function loadTimeline(personKey) {
   }
 }
 
+async function loadEmailAliases(aid) {
+  emailAliases.value = [];
+  composeFromAliasId.value = null;
+  if (!aid) return;
+  try {
+    const { data } = await api.get('/messages/hub/aliases', {
+      params: { agencyId: aid },
+      skipGlobalLoading: true
+    });
+    emailAliases.value = Array.isArray(data?.aliases) ? data.aliases : [];
+    const messages = emailAliases.value.find((a) => a.kind === 'messages');
+    composeFromAliasId.value = messages?.id || emailAliases.value[0]?.id || null;
+  } catch {
+    emailAliases.value = [];
+  }
+}
+
+function readFileAsAttachment(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = String(reader.result || '');
+      const base64 = result.includes(',') ? result.split(',')[1] : result;
+      resolve({
+        filename: file.name,
+        contentType: file.type || 'application/octet-stream',
+        contentBase64: base64
+      });
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+async function onAttachFiles(ev) {
+  const files = Array.from(ev.target?.files || []);
+  ev.target.value = '';
+  for (const file of files) {
+    if (file.size > 8 * 1024 * 1024) {
+      sendError.value = `${file.name} is too large (max 8MB)`;
+      continue;
+    }
+    try {
+      const att = await readFileAsAttachment(file);
+      composeAttachments.value.push(att);
+    } catch {
+      sendError.value = `Could not attach ${file.name}`;
+    }
+  }
+}
+
+async function reactToMessage(msg) {
+  const conversationId = msg?.meta?.conversationId;
+  if (!conversationId) return;
+  reactingId.value = msg.id;
+  try {
+    await api.post('/messages/hub/react', {
+      agencyId: selected.value?.agencyId || agencyId.value,
+      conversationId,
+      emoji: '❤️'
+    });
+  } catch (e) {
+    sendError.value = e?.response?.data?.error?.message || 'Could not react';
+  } finally {
+    reactingId.value = null;
+  }
+}
+
 async function send() {
   if (!selected.value?.personKey || !composeBody.value.trim()) return;
   const sendAgencyId = selected.value.agencyId || agencyId.value;
@@ -523,14 +736,25 @@ async function send() {
   sending.value = true;
   sendError.value = '';
   try {
-    await api.post('/messages/hub/send', {
+    const payload = {
       agencyId: sendAgencyId,
       personKey: selected.value.personKey,
       method: sendMethod.value,
       body: composeBody.value.trim(),
       subject: composeSubject.value.trim() || undefined
-    });
+    };
+    if (sendMethod.value === 'email') {
+      if (composeCc.value.trim()) payload.cc = composeCc.value.trim();
+      if (composeBcc.value.trim()) payload.bcc = composeBcc.value.trim();
+      if (composeAttachments.value.length) payload.attachments = composeAttachments.value;
+      if (composeFromAliasId.value) payload.fromAliasIdentityId = composeFromAliasId.value;
+    }
+    await api.post('/messages/hub/send', payload);
     composeBody.value = '';
+    composeSubject.value = '';
+    composeCc.value = '';
+    composeBcc.value = '';
+    composeAttachments.value = [];
     await loadTimeline(selected.value.personKey);
   } catch (e) {
     sendError.value = e?.response?.data?.error?.message || 'Send failed';
@@ -561,8 +785,11 @@ defineExpose({ reload: loadList });
   --mh-line: #e2e8f0;
   display: flex;
   flex-direction: column;
-  gap: 14px;
-  min-height: calc(100vh - 140px);
+  gap: 10px;
+  height: 100%;
+  min-height: 0;
+  max-height: 100%;
+  overflow: hidden;
   color: var(--mh-ink);
 }
 .msg-hub-head {
@@ -571,28 +798,31 @@ defineExpose({ reload: loadList });
   gap: 16px;
   flex-wrap: wrap;
   align-items: flex-start;
+  flex-shrink: 0;
 }
 .msg-hub-title {
   margin: 0;
-  font-size: clamp(1.6rem, 2.2vw, 2rem);
+  font-size: clamp(1.35rem, 2vw, 1.75rem);
   font-weight: 800;
   letter-spacing: -0.03em;
   color: color-mix(in srgb, var(--mh-primary) 45%, var(--mh-ink));
 }
-.msg-hub-sub { margin: 6px 0 0; color: var(--mh-muted); font-size: 14px; max-width: 42rem; }
+.msg-hub-sub { margin: 4px 0 0; color: var(--mh-muted); font-size: 13px; max-width: 42rem; }
 .msg-hub-error {
   color: #b91c1c;
   background: #fef2f2;
   padding: 10px 12px;
   border-radius: 10px;
+  flex-shrink: 0;
 }
 .msg-hub-error.inline { margin: 0; padding: 8px 10px; }
 .msg-hub-grid {
   flex: 1;
   min-height: 0;
   display: grid;
-  grid-template-columns: minmax(260px, 320px) minmax(0, 1fr) minmax(220px, 280px);
-  gap: 12px;
+  grid-template-columns: minmax(240px, 300px) minmax(0, 1fr) minmax(200px, 260px);
+  gap: 10px;
+  overflow: hidden;
 }
 .msg-hub-list-col,
 .msg-hub-thread-col,
@@ -600,9 +830,11 @@ defineExpose({ reload: loadList });
   background: #fff;
   border: 1px solid var(--mh-line);
   border-radius: 14px;
-  min-height: 420px;
+  min-height: 0;
+  height: 100%;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
 }
 .msg-hub-filters,
 .msg-hub-modal-tabs {
@@ -712,6 +944,7 @@ defineExpose({ reload: loadList });
   align-items: center;
   padding: 14px 16px;
   border-bottom: 1px solid var(--mh-line);
+  flex-shrink: 0;
 }
 .msg-hub-thread-head h3 { margin: 0; font-size: 1.05rem; }
 .msg-hub-channel-toggles {
@@ -720,6 +953,7 @@ defineExpose({ reload: loadList });
   gap: 6px;
   padding: 10px 16px;
   border-bottom: 1px solid var(--mh-line);
+  flex-shrink: 0;
 }
 .msg-hub-channel {
   border: 1px solid var(--mh-line);
@@ -739,6 +973,27 @@ defineExpose({ reload: loadList });
   color: var(--mh-primary);
 }
 .msg-hub-channel:disabled { opacity: 0.4; cursor: not-allowed; }
+.msg-hub-secure-hint {
+  margin: 0;
+  padding: 0 16px 8px;
+  font-size: 12px;
+  color: var(--mh-muted);
+  line-height: 1.4;
+}
+.msg-hub-secure-toggle {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 0;
+  padding: 0 16px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--mh-ink);
+  cursor: pointer;
+}
+.msg-hub-secure-toggle input {
+  margin-top: 2px;
+}
 .msg-hub-rec {
   font-size: 9px;
   text-transform: uppercase;
@@ -749,6 +1004,7 @@ defineExpose({ reload: loadList });
 }
 .msg-hub-timeline {
   flex: 1;
+  min-height: 0;
   overflow: auto;
   padding: 14px 16px;
   display: flex;
@@ -782,7 +1038,80 @@ defineExpose({ reload: loadList });
   display: flex;
   flex-direction: column;
   gap: 8px;
+  flex-shrink: 0;
+  background: #fff;
 }
+.msg-hub-subject {
+  width: 100%;
+  border: 1px solid var(--mh-line);
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 13px;
+}
+.msg-hub-email-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--mh-muted);
+}
+.msg-hub-alias {
+  flex: 1;
+  border: 1px solid var(--mh-line);
+  border-radius: 8px;
+  padding: 6px 8px;
+  font-size: 12px;
+}
+.msg-hub-attach-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+.msg-hub-attach-btn {
+  cursor: pointer;
+  color: var(--mh-primary);
+  font-weight: 650;
+}
+.msg-hub-attach-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.msg-hub-attach-list li {
+  background: #f1f5f9;
+  border-radius: 6px;
+  padding: 2px 8px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.msg-hub-attach-list button {
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+}
+.msg-hub-bubble-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+}
+.msg-hub-like {
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font-size: 12px;
+  padding: 0;
+  opacity: 0.75;
+}
+.msg-hub-like:hover { opacity: 1; }
 .msg-hub-compose-actions {
   display: flex;
   justify-content: space-between;

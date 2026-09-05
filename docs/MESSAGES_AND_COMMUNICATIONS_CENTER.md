@@ -15,16 +15,28 @@
 
 Admins/support use this same Messages UI when they select **Messages** in the Communications Center — not a separate ops-only variant.
 
-**Hub APIs** (orchestration over existing chat / SMS / App inbox backends):
+**Hub APIs** (orchestration over existing chat / SMS / shared messages@ backends):
 
 | Endpoint | Purpose |
 |----------|---------|
-| `GET /api/messages/hub/people?q=&agencyId=` | Universal people search + method availability |
+| `GET /api/messages/hub/people?q=&agencyId=&browse=` | People search / browse + method availability (Staff / Guardians / Clients / My clients / Recent) |
 | `GET /api/messages/hub/people/:personKey` | Hydrate one person + methods |
 | `GET /api/messages/hub/people/:personKey/timeline` | Merge-on-read Secure / SMS / Email / Internal history |
-| `POST /api/messages/hub/send` | Dispatch send (`method`: secure \| sms \| email \| internal) |
+| `GET /api/messages/hub/aliases?agencyId=` | `messages@` / `securemessage@` From aliases for the agency domain |
+| `POST /api/messages/hub/send` | Dispatch send (`method`: secure \| sms \| email \| internal). Email supports `cc`, `bcc`, `attachments`, `fromAliasIdentityId` |
+| `POST /api/messages/hub/react` | Like/react on a communication message (+ optional messages@ ping) |
 
-Communications Center remains the admin shared-inbox tool; Hub personal Email uses App inbox only.
+**Hub Email** sends as `messages@{recipientAgencyDomain}` as a **normal-looking email** (reply as usual). Branded digests are only for unread reminders — not every outbound message. Secure notify continues from `securemessage@{domain}` with noreply Reply-To for **active** clinical/school clients (providers can switch to Email instead).
+
+**Secure vs email rules**
+- Active clinical/school clients (and their guardians): **Secure is default**; provider can turn it off by choosing Email.
+- Pre-active / intake / learning / staff / everyone else: **regular email** (not secure).
+- Client logged in → messages provider in-app: always secure chat.
+- Client (or anyone) emails provider: regular email in and out — never labeled secure.
+
+**Tenant domains** (Groups + Send-as; not plottwisthq.com): `plottwistco.com`, `itsco.health`, `innerstrengthin.com`, `nextleveluplcc.com`, `mh4kidz.com`, `risereviveco.com`. Provision via `backend/src/scripts/provisionTenantMessageGroups.js` after DWD includes `gmail.settings.sharing`.
+
+Communications Center remains the admin shared-inbox tool; Hub Email uses the shared **messages@** mailbox (not personal App inbox From).
 
 ### Communications Center (admin, support, super_admin + eligible staff mailbox roles)
 

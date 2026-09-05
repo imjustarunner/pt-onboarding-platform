@@ -93,15 +93,6 @@
       </section>
       <!-- ========== MESSAGES (same as My Dashboard) ========== -->
       <section v-show="activeMode === 'messages'" class="cc-mode cc-messages-host">
-        <div class="cc-mode-intro split compact">
-          <div>
-            <h2>Messages</h2>
-            <p>Same people-first Messages hub as My Dashboard — pick who to reach, then how.</p>
-          </div>
-          <div class="cc-intro-actions">
-            <button type="button" class="cc-btn outline" @click.prevent.stop="setMode('home')">← Center Home</button>
-          </div>
-        </div>
         <MessagesHubShell />
       </section>
 
@@ -704,7 +695,14 @@ onMounted(() => {
   white-space: nowrap;
   border: 0;
 }
-.cc-messages-host { padding-bottom: 24px; }
+.cc-messages-host {
+  padding-bottom: 0;
+  min-height: calc(100dvh - 220px);
+  height: calc(100dvh - 220px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
 .cc-mode-intro { margin-bottom: 16px; }
 .cc-mode-intro.split {
   display: flex;

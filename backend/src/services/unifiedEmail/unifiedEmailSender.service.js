@@ -755,6 +755,7 @@ export async function sendEmailFromIdentity({
   html = null,
   attachments = null,
   cc = null,
+  bcc = null,
   inReplyTo = null,
   references = null,
   threadId = null,
@@ -1079,6 +1080,7 @@ export async function sendEmailFromIdentity({
     from,
     replyTo,
     cc,
+    bcc,
     inReplyTo,
     references,
     attachments

@@ -20,7 +20,9 @@ import {
   searchMessagesHubPeople,
   getMessagesHubPerson,
   getMessagesHubTimeline,
-  postMessagesHubSend
+  postMessagesHubSend,
+  getMessagesHubAliases,
+  postMessagesHubReact
 } from '../controllers/messagesHub.controller.js';
 
 const router = express.Router();
@@ -34,7 +36,9 @@ router.get('/dashboard-summary', getMessagesDashboardSummary);
 router.get('/hub/people', searchMessagesHubPeople);
 router.get('/hub/people/:personKey', getMessagesHubPerson);
 router.get('/hub/people/:personKey/timeline', getMessagesHubTimeline);
+router.get('/hub/aliases', getMessagesHubAliases);
 router.post('/hub/send', postMessagesHubSend);
+router.post('/hub/react', postMessagesHubReact);
 
 // Grouped conversation threads (one row per client, last message + unread count)
 router.get('/threads', getThreads);

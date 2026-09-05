@@ -1520,7 +1520,24 @@ export const sendMessage = async (req, res, next) => {
               recipientUserId: g.id,
               clientId: g.client_id || null
             });
-            if (isSecureMessageEligibleClientType(ctx.clientType)) {
+            const { shouldDefaultToSecureMessage } = await import('../services/secureMessagingPolicy.service.js');
+            let clientStatusKey = null;
+            if (ctx.clientId) {
+              const [st] = await pool.execute(
+                `SELECT cs.status_key AS client_status_key
+                 FROM clients c
+                 LEFT JOIN client_statuses cs ON cs.id = c.client_status_id
+                 WHERE c.id = ? LIMIT 1`,
+                [ctx.clientId]
+              );
+              clientStatusKey = st?.[0]?.client_status_key || null;
+            }
+            const useSecure = shouldDefaultToSecureMessage({
+              clientStatusKey,
+              clientType: ctx.clientType,
+              isClientOrGuardian: true
+            });
+            if (useSecure && isSecureMessageEligibleClientType(ctx.clientType)) {
               await sendSecureMessageNotification({
                 agencyId: notifyAgencyId,
                 senderUserId: req.user.id,
@@ -1533,7 +1550,8 @@ export const sendMessage = async (req, res, next) => {
               }).catch((err) => {
                 console.warn('[chat] secure notify failed:', err?.message || err);
               });
-            } else if (String(ctx.clientType || '').toLowerCase() === 'learning') {
+            } else if (email) {
+              // Pre-active / learning / non-secure: regular email notify (not a secure claim link)
               await sendLearningClientMessageEmail({
                 agencyId: notifyAgencyId,
                 senderUserId: req.user.id,
@@ -1543,7 +1561,7 @@ export const sendMessage = async (req, res, next) => {
                 chatThreadId: threadId,
                 messageBody: messagePlain
               }).catch((err) => {
-                console.warn('[chat] learning email notify failed:', err?.message || err);
+                console.warn('[chat] regular email notify failed:', err?.message || err);
               });
             }
           }

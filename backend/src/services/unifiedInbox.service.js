@@ -630,10 +630,13 @@ export async function composeNewEmail({ agencyId, inboxId, userId, payload }) {
     senderIdentityId: inbox.sender_identity_id,
     to: to.map((t) => t.email).join(', '),
     cc: cc.length ? cc.map((c) => c.email).join(', ') : null,
+    bcc: bcc.length ? bcc.map((c) => c.email).join(', ') : null,
     subject,
     text: payload.text || null,
     html: payload.html || null,
     attachments: payload.attachments || null,
+    replyToOverride: payload.replyTo || null,
+    fromDisplayNameOverride: payload.fromDisplayName || null,
     source: 'manual',
     generatedByUserId: userId
   });

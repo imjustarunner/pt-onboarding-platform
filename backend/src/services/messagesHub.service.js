@@ -4,6 +4,11 @@
 import pool from '../config/database.js';
 import { searchCommunicationDirectory } from './communicationDirectory.service.js';
 import { findPersonalInbox, ensurePersonalMailbox } from './personalMailbox.service.js';
+import {
+  shouldDefaultToSecureMessage,
+  isSecureMessageClientType,
+  isActiveClientStatusKey
+} from './secureMessagingPolicy.service.js';
 import { composeNewEmail } from './unifiedInbox.service.js';
 import { findOrCreateDirectThread } from '../controllers/chat.controller.js';
 import { decryptChatText, isChatEncryptionConfigured } from './chatEncryption.service.js';
@@ -23,6 +28,55 @@ const TEAM_ROLES = new Set([
 
 function likeParam(q) {
   return `%${String(q || '').trim().replace(/[%_]/g, '')}%`;
+}
+
+function normalizeSearchText(s) {
+  return String(s || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9@+.\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/** Substring + ordered-char fuzzy score (higher = better). */
+export function scoreNameMatch(haystack, needle) {
+  const hay = normalizeSearchText(haystack);
+  const n = normalizeSearchText(needle);
+  if (!n || !hay) return 0;
+  if (hay === n) return 100;
+  if (hay.includes(n)) return 80;
+  const tokens = n.split(' ').filter(Boolean);
+  if (tokens.length > 1 && tokens.every((t) => hay.includes(t))) return 70;
+  const compactHay = hay.replace(/\s+/g, '');
+  const compactN = n.replace(/\s+/g, '');
+  if (compactN.length < 2) return 0;
+  let i = 0;
+  for (const ch of compactHay) {
+    if (ch === compactN[i]) i += 1;
+    if (i >= compactN.length) {
+      // reward shorter gaps
+      return Math.max(25, 55 - Math.abs(compactHay.length - compactN.length));
+    }
+  }
+  // allow one missing char for typos (len >= 4)
+  if (compactN.length >= 4) {
+    for (let skip = 0; skip < compactN.length; skip += 1) {
+      const variant = compactN.slice(0, skip) + compactN.slice(skip + 1);
+      if (compactHay.includes(variant)) return 40;
+    }
+  }
+  return 0;
+}
+
+function rankPeopleByQuery(people, q) {
+  const scored = (people || [])
+    .map((p) => {
+      const blob = `${p.displayName || ''} ${p.relationshipMeta || ''} ${p.email || ''} ${p.phone || ''}`;
+      return { p, score: scoreNameMatch(blob, q) };
+    })
+    .filter((x) => x.score > 0);
+  scored.sort((a, b) => b.score - a.score || String(a.p.displayName).localeCompare(String(b.p.displayName)));
+  return scored.map((x) => x.p);
 }
 
 export function parsePersonKey(personKey) {
@@ -83,38 +137,50 @@ function buildMethods({
   hasPhone = false,
   smsOk = false,
   hasEmail = false,
-  hasAppInbox = false
+  hasAppInbox = false,
+  clientStatusKey = null,
+  clientType = null
 }) {
   const isClientish = kinds.includes('client') || kinds.includes('guardian');
   const isStaffish =
     kinds.includes('employee') || kinds.includes('staff') || kinds.includes('school_staff') || kinds.includes('team');
   const isExternal = kinds.includes('external') || kinds.includes('school_contact');
 
-  const secureAvailable = hasUserId && (isClientish || kinds.includes('school_staff'));
+  const activeSecureClient = shouldDefaultToSecureMessage({
+    clientStatusKey,
+    clientType,
+    isClientOrGuardian: isClientish
+  });
+
+  // Secure portal: active clinical/school clients (and guardians). School staff keep secure option.
+  // Pre-active / learning / others: normal email — not labeled secure.
+  const secureAvailable =
+    (hasUserId && activeSecureClient) || (hasUserId && kinds.includes('school_staff'));
   const internalAvailable = hasUserId && (isStaffish || kinds.includes('school_staff'));
-  // Guardians can use the same chat thread; label as secure preferred, internal as alternate only for staff
   const internalForGuardian = hasUserId && kinds.includes('guardian');
   const smsAvailable = hasPhone && smsOk && (isClientish || isExternal || kinds.includes('contact'));
-  const emailAvailable = hasEmail && hasAppInbox;
+  const emailAvailable = hasEmail;
 
   let preferred = null;
   if (isClientish && secureAvailable) preferred = 'secure';
+  else if (isClientish && emailAvailable) preferred = 'email';
   else if (isStaffish && internalAvailable) preferred = 'internal';
   else if (smsAvailable) preferred = 'sms';
   else if (emailAvailable) preferred = 'email';
   else if (secureAvailable) preferred = 'secure';
   else if (internalAvailable || internalForGuardian) preferred = 'internal';
 
+  const secureReason = secureAvailable
+    ? 'Secure portal message (default for active clients — turn off by choosing Email)'
+    : isClientish && hasUserId && isSecureMessageClientType(clientType) && !isActiveClientStatusKey(clientStatusKey)
+      ? 'Secure is for active clients — use Email until they are active'
+      : isClientish && hasUserId && !isSecureMessageClientType(clientType)
+        ? 'Secure is for clinical/school clients — use Email'
+        : 'Needs an active clinical/school client (or school staff) portal user';
+
   return {
     methods: [
-      method(
-        'secure',
-        secureAvailable,
-        secureAvailable
-          ? 'Secure portal message (client/guardian notify email when applicable)'
-          : 'Needs a portal user (client, guardian, or school staff)',
-        preferred === 'secure'
-      ),
+      method('secure', secureAvailable, secureReason, preferred === 'secure'),
       method(
         'sms',
         smsAvailable,
@@ -124,7 +190,9 @@ function buildMethods({
       method(
         'email',
         emailAvailable,
-        emailAvailable ? 'Send from your App inbox' : !hasEmail ? 'No email on file' : 'App inbox not available for you',
+        emailAvailable
+          ? 'Regular email via messages@ (looks like normal email — reply as usual)'
+          : 'No email on file',
         preferred === 'email'
       ),
       method(
@@ -136,7 +204,9 @@ function buildMethods({
         preferred === 'internal'
       )
     ],
-    preferredMethod: preferred
+    preferredMethod: preferred,
+    secureDefault: preferred === 'secure',
+    isActiveClient: activeSecureClient
   };
 }
 
@@ -159,10 +229,12 @@ async function searchGuardians({ agencyId, q, limit }) {
       `SELECT u.id, u.first_name, u.last_name, u.email,
               COALESCE(u.phone_number, u.personal_phone, u.work_phone) AS phone,
               u.role,
-              c.id AS client_id, c.full_name AS client_name, c.initials AS client_initials
+              c.id AS client_id, c.full_name AS client_name, c.initials AS client_initials,
+              c.client_type, cs.status_key AS client_status_key
        FROM users u
        INNER JOIN client_guardians cg ON cg.guardian_user_id = u.id AND cg.access_enabled = 1
        INNER JOIN clients c ON c.id = cg.client_id AND c.agency_id = ?
+       LEFT JOIN client_statuses cs ON cs.id = c.client_status_id
        WHERE LOWER(COALESCE(u.role, '')) = 'client_guardian'
          AND (
            u.first_name LIKE ? OR u.last_name LIKE ? OR u.email LIKE ?
@@ -184,9 +256,8 @@ async function searchClients({ agencyId, q, limit }) {
   const like = likeParam(q);
   try {
     const [rows] = await pool.execute(
-      `SELECT c.id, c.full_name, c.initials, c.identifier_code, c.contact_phone, c.email,
-              c.session_sms_opt_in, c.guardian_portal_enabled, c.provider_id
-       FROM clients c
+      `SELECT ${CLIENT_SELECT_ONE}, c.provider_id
+       ${CLIENT_FROM_JOIN}
        WHERE c.agency_id = ?
          AND (
            c.full_name LIKE ? OR c.initials LIKE ? OR c.identifier_code LIKE ?
@@ -234,7 +305,9 @@ function upsertPerson(map, key, patch) {
     portalAccess: false,
     smsOptIn: false,
     agencyId: null,
-    agencyName: null
+    agencyName: null,
+    clientStatusKey: null,
+    clientType: null
   };
   const kinds = new Set([...(existing.kinds || []), ...(patch.kinds || [])]);
   map.set(key, {
@@ -251,7 +324,9 @@ function upsertPerson(map, key, patch) {
     portalAccess: !!(patch.portalAccess || existing.portalAccess),
     smsOptIn: !!(patch.smsOptIn || existing.smsOptIn),
     agencyId: patch.agencyId ?? existing.agencyId,
-    agencyName: patch.agencyName || existing.agencyName
+    agencyName: patch.agencyName || existing.agencyName,
+    clientStatusKey: patch.clientStatusKey ?? existing.clientStatusKey,
+    clientType: patch.clientType ?? existing.clientType
   });
 }
 
@@ -270,18 +345,22 @@ async function finalizePeople(map, inboxByAgency, lim, { sortRecent = false } = 
   for (const person of map.values()) {
     const aid = person.agencyId;
     const hasAppInbox = aid ? !!inboxByAgency.get(Number(aid)) : [...inboxByAgency.values()].some(Boolean);
-    const { methods, preferredMethod } = buildMethods({
+    const { methods, preferredMethod, secureDefault, isActiveClient } = buildMethods({
       kinds: person.kinds,
       hasUserId: !!person.userId,
       hasPhone: !!person.phone,
       smsOk: person.smsOptIn || (person.kinds.includes('contact') && !!person.phone),
       hasEmail: !!person.email,
-      hasAppInbox
+      hasAppInbox,
+      clientStatusKey: person.clientStatusKey,
+      clientType: person.clientType
     });
     people.push({
       ...person,
       methods,
-      preferredMethod
+      preferredMethod,
+      secureDefault,
+      isActiveClient
     });
   }
   if (sortRecent) {
@@ -322,9 +401,21 @@ function upsertClientRow(map, c, agencyId, agencyName) {
     smsOptIn: smsOk,
     occurredAt: c.last_at || null,
     agencyId,
-    agencyName
+    agencyName,
+    clientStatusKey: c.client_status_key || null,
+    clientType: c.client_type || null,
+    userId: c.user_id || null
   });
 }
+
+const CLIENT_SELECT_CORE = `c.id, c.agency_id, c.full_name, c.initials, c.identifier_code, c.contact_phone, c.email,
+                c.session_sms_opt_in, c.guardian_portal_enabled, c.client_type, c.user_id,
+                cs.status_key AS client_status_key`;
+const CLIENT_SELECT_ONE = `c.id, c.full_name, c.initials, c.identifier_code, c.contact_phone, c.email,
+                c.session_sms_opt_in, c.guardian_portal_enabled, c.client_type, c.user_id,
+                cs.status_key AS client_status_key`;
+const CLIENT_FROM_JOIN = `FROM clients c
+         LEFT JOIN client_statuses cs ON cs.id = c.client_status_id`;
 
 /**
  * Browse people without knowing a name: caseload and/or recent activity.
@@ -347,9 +438,8 @@ export async function browseHubPeople({ agencyId, agencyIds = null, userId, brow
   if (wantCaseload) {
     try {
       const [rows] = await pool.execute(
-        `SELECT c.id, c.agency_id, c.full_name, c.initials, c.identifier_code, c.contact_phone, c.email,
-                c.session_sms_opt_in, c.guardian_portal_enabled
-         FROM clients c
+        `SELECT ${CLIENT_SELECT_CORE}
+         ${CLIENT_FROM_JOIN}
          WHERE c.agency_id IN (${ph})
            AND c.provider_id = ?
            AND (c.compliance_archived_at IS NULL)
@@ -364,9 +454,8 @@ export async function browseHubPeople({ agencyId, agencyIds = null, userId, brow
     } catch {
       try {
         const [rows] = await pool.execute(
-          `SELECT c.id, c.agency_id, c.full_name, c.initials, c.identifier_code, c.contact_phone, c.email,
-                  c.session_sms_opt_in, c.guardian_portal_enabled
-           FROM clients c
+          `SELECT ${CLIENT_SELECT_CORE}
+           ${CLIENT_FROM_JOIN}
            WHERE c.agency_id IN (${ph}) AND c.provider_id = ?
            ORDER BY COALESCE(c.full_name, c.initials, c.identifier_code) ASC
            LIMIT ${lim}`,
@@ -400,9 +489,9 @@ export async function browseHubPeople({ agencyId, agencyIds = null, userId, brow
         const agencyName = nameMap.get(aid) || null;
         if (r.client_id) {
           const [clients] = await pool.execute(
-            `SELECT id, full_name, initials, identifier_code, contact_phone, email,
-                    session_sms_opt_in, guardian_portal_enabled
-             FROM clients WHERE id = ? AND agency_id = ? LIMIT 1`,
+            `SELECT ${CLIENT_SELECT_ONE}
+             ${CLIENT_FROM_JOIN}
+             WHERE c.id = ? AND c.agency_id = ? LIMIT 1`,
             [r.client_id, aid]
           );
           if (clients?.[0]) upsertClientRow(map, { ...clients[0], last_at: r.last_at }, aid, agencyName);
@@ -474,9 +563,8 @@ export async function browseHubPeople({ agencyId, agencyIds = null, userId, brow
   if (wantCaseload && mode === 'caseload' && map.size === 0) {
     try {
       const [rows] = await pool.execute(
-        `SELECT c.id, c.agency_id, c.full_name, c.initials, c.identifier_code, c.contact_phone, c.email,
-                c.session_sms_opt_in, c.guardian_portal_enabled
-         FROM clients c
+        `SELECT ${CLIENT_SELECT_CORE}
+         ${CLIENT_FROM_JOIN}
          WHERE c.agency_id IN (${ph})
            AND c.contact_phone IS NOT NULL AND c.contact_phone <> ''
          ORDER BY COALESCE(c.full_name, c.initials, c.identifier_code) ASC
@@ -557,7 +645,9 @@ export async function searchHubPeople({ agencyId, agencyIds = null, userId, q, l
         portalAccess: true,
         smsOptIn: !!g.phone,
         agencyId: aid,
-        agencyName
+        agencyName,
+        clientStatusKey: g.client_status_key || null,
+        clientType: g.client_type || null
       });
     }
 
@@ -581,7 +671,7 @@ export async function searchHubPeople({ agencyId, agencyIds = null, userId, q, l
     }
   }
 
-  return finalizePeople(map, inboxByAgency, lim);
+  return rankPeopleByQuery(await finalizePeople(map, inboxByAgency, lim * 2), query).slice(0, lim);
 }
 
 /**
@@ -630,11 +720,13 @@ export async function resolveHubPerson({ agencyId, userId, personKey }) {
     const kinds =
       role === 'client_guardian'
         ? ['guardian']
-        : role === 'school_staff'
-          ? ['school_staff']
-          : TEAM_ROLES.has(role)
-            ? ['employee', 'staff', 'team']
-            : ['employee'];
+        : role === 'client'
+          ? ['client']
+          : role === 'school_staff'
+            ? ['school_staff']
+            : TEAM_ROLES.has(role)
+              ? ['employee', 'staff', 'team']
+              : ['employee'];
     seed = {
       ...seed,
       displayName: [u.first_name, u.last_name].filter(Boolean).join(' ') || u.email,
@@ -645,18 +737,44 @@ export async function resolveHubPerson({ agencyId, userId, personKey }) {
       relationshipMeta: role,
       portalAccess: true
     };
-    if (role === 'client_guardian') {
+    if (role === 'client') {
       try {
         const [links] = await pool.execute(
-          `SELECT c.id, c.full_name, c.initials
+          `SELECT c.id, c.full_name, c.initials, c.client_type, c.contact_phone, c.email AS client_email,
+                  cs.status_key AS client_status_key
+           FROM clients c
+           LEFT JOIN client_statuses cs ON cs.id = c.client_status_id
+           WHERE c.user_id = ? AND c.agency_id = ?
+           LIMIT 1`,
+          [u.id, resolvedAgencyId]
+        );
+        if (links?.[0]) {
+          seed.clientId = links[0].id;
+          seed.clientType = links[0].client_type || null;
+          seed.clientStatusKey = links[0].client_status_key || null;
+          seed.email = seed.email || links[0].client_email || null;
+          seed.phone = seed.phone || links[0].contact_phone || null;
+          seed.relationshipMeta = clientMeta(links[0]);
+          seed.smsOptIn = !!seed.phone;
+        }
+      } catch {
+        /* ignore */
+      }
+    } else if (role === 'client_guardian') {
+      try {
+        const [links] = await pool.execute(
+          `SELECT c.id, c.full_name, c.initials, c.client_type, cs.status_key AS client_status_key
            FROM client_guardians cg
            INNER JOIN clients c ON c.id = cg.client_id
+           LEFT JOIN client_statuses cs ON cs.id = c.client_status_id
            WHERE cg.guardian_user_id = ? AND c.agency_id = ? AND cg.access_enabled = 1
            LIMIT 1`,
           [u.id, resolvedAgencyId]
         );
         if (links?.[0]) {
           seed.clientId = links[0].id;
+          seed.clientType = links[0].client_type || null;
+          seed.clientStatusKey = links[0].client_status_key || null;
           seed.relationshipMeta = `Guardian of ${links[0].full_name || links[0].initials || links[0].id}`;
         }
       } catch {
@@ -666,9 +784,9 @@ export async function resolveHubPerson({ agencyId, userId, personKey }) {
     }
   } else if (parsed.type === 'client') {
     const [rows] = await pool.execute(
-      `SELECT id, full_name, initials, identifier_code, contact_phone, email,
-              session_sms_opt_in, guardian_portal_enabled
-       FROM clients WHERE id = ? AND agency_id = ? LIMIT 1`,
+      `SELECT ${CLIENT_SELECT_ONE}
+       ${CLIENT_FROM_JOIN}
+       WHERE c.id = ? AND c.agency_id = ? LIMIT 1`,
       [parsed.id, resolvedAgencyId]
     );
     const c = rows?.[0];
@@ -679,11 +797,14 @@ export async function resolveHubPerson({ agencyId, userId, personKey }) {
       displayName: clientDisplayName(c),
       kinds: ['client'],
       clientId: c.id,
+      userId: c.user_id || null,
       email: c.email,
       phone: c.contact_phone,
       relationshipMeta: clientMeta(c),
       portalAccess: !!(c.guardian_portal_enabled === 1 || c.guardian_portal_enabled === true),
-      smsOptIn: !!c.contact_phone && !smsDenied
+      smsOptIn: !!c.contact_phone && !smsDenied,
+      clientStatusKey: c.client_status_key || null,
+      clientType: c.client_type || null
     };
   } else if (parsed.type === 'contact') {
     const [rows] = await pool.execute(
@@ -724,16 +845,18 @@ export async function resolveHubPerson({ agencyId, userId, personKey }) {
   }
 
   const hasAppInbox = await actorHasAppInbox(resolvedAgencyId, userId);
-  const { methods, preferredMethod } = buildMethods({
+  const { methods, preferredMethod, secureDefault, isActiveClient } = buildMethods({
     kinds: seed.kinds,
     hasUserId: !!seed.userId,
     hasPhone: !!seed.phone,
     smsOk: seed.smsOptIn,
     hasEmail: !!seed.email,
-    hasAppInbox
+    hasAppInbox,
+    clientStatusKey: seed.clientStatusKey,
+    clientType: seed.clientType
   });
 
-  return { ...seed, methods, preferredMethod };
+  return { ...seed, methods, preferredMethod, secureDefault, isActiveClient };
 }
 
 async function loadChatTimeline({ agencyId, actorUserId, otherUserId, limit = 40 }) {
@@ -924,32 +1047,245 @@ export async function prepareHubSend({ agencyId, userId, personKey, method }) {
   return person;
 }
 
-export async function sendHubEmail({ agencyId, userId, person, body, subject }) {
+export async function sendHubEmail({
+  agencyId,
+  userId,
+  person,
+  body,
+  subject,
+  cc = null,
+  bcc = null,
+  attachments = null,
+  fromAliasIdentityId = null
+}) {
   if (!person.email) {
     const err = new Error('Person has no email address');
     err.status = 400;
     throw err;
   }
-  let inbox = await findPersonalInbox({ agencyId, userId });
-  if (!inbox) {
-    inbox = await ensurePersonalMailbox({ agencyId, userId });
+  const aid = person.agencyId || agencyId;
+  const { ensureTenantMessageMailboxes } = await import('./tenantMessageMailboxes.service.js');
+  const { buildNormalOutboundEmailHtml } = await import('./hubBrandedEmail.service.js');
+  const mailboxes = await ensureTenantMessageMailboxes(aid);
+  let inbox = mailboxes.messagesInbox;
+  if (fromAliasIdentityId && Number(fromAliasIdentityId) === Number(mailboxes.secure?.id)) {
+    inbox = mailboxes.secureInbox;
+  }
+  if (!inbox?.id && mailboxes.messages?.id) {
+    // Fallback: create minimal inbox row if ensure missed columns
+    const [ins] = await pool.execute(
+      `INSERT INTO communication_inboxes
+        (agency_id, sender_identity_id, kind, identity_key, display_name, from_email, is_active)
+       VALUES (?, ?, 'shared', 'messages', 'Messages', ?, 1)
+       ON DUPLICATE KEY UPDATE sender_identity_id = VALUES(sender_identity_id), from_email = VALUES(from_email), is_active = 1`,
+      [aid, mailboxes.messages.id, mailboxes.messages.from_email]
+    );
+    inbox = await (await import('../models/CommunicationInbox.model.js')).default.findById(
+      ins.insertId ||
+        (
+          await pool.execute(
+            `SELECT id FROM communication_inboxes WHERE agency_id = ? AND identity_key = 'messages' LIMIT 1`,
+            [aid]
+          )
+        )[0]?.[0]?.id
+    );
   }
   if (!inbox?.id) {
-    const err = new Error('Could not provision App inbox');
+    const err = new Error('Could not provision messages@ mailbox for this agency');
     err.status = 400;
     throw err;
   }
+
+  const [agencyRows] = await pool.execute(`SELECT name FROM agencies WHERE id = ? LIMIT 1`, [aid]);
+  const agencyName = agencyRows?.[0]?.name || person.agencyName || 'Your care team';
+  const [senderRows] = await pool.execute(
+    `SELECT first_name, last_name, title FROM users WHERE id = ? LIMIT 1`,
+    [userId]
+  );
+  const su = senderRows?.[0] || {};
+  const senderDisplayName = [su.first_name, su.last_name].filter(Boolean).join(' ') || 'Team member';
+  const senderTitle = su.title || '';
+
+  const html = buildNormalOutboundEmailHtml({
+    agencyName,
+    senderDisplayName,
+    senderTitle,
+    bodyText: body
+  });
+
+  const normalizeList = (list) => {
+    if (!list) return [];
+    if (typeof list === 'string') {
+      return list
+        .split(/[,;]/)
+        .map((s) => s.trim())
+        .filter(Boolean)
+        .map((email) => ({ email }));
+    }
+    if (!Array.isArray(list)) return [];
+    return list
+      .map((item) => {
+        if (typeof item === 'string') return { email: item.trim() };
+        if (item?.email) return { email: String(item.email).trim(), name: item.name || null };
+        return null;
+      })
+      .filter((x) => x?.email);
+  };
+
+  const crypto = await import('crypto');
+  const replyRaw = crypto.randomBytes(24).toString('hex');
+  const replyHash = crypto.createHash('sha256').update(replyRaw).digest('hex');
+  const baseFrom = String(mailboxes.messages?.from_email || '').trim().toLowerCase();
+  const at = baseFrom.lastIndexOf('@');
+  const replyTo =
+    at > 0
+      ? `${baseFrom.slice(0, at)}+${replyRaw}${baseFrom.slice(at)}`
+      : baseFrom || null;
+
   const result = await composeNewEmail({
-    agencyId,
+    agencyId: aid,
     inboxId: inbox.id,
     userId,
     payload: {
       to: [{ email: person.email, name: person.displayName }],
-      subject: subject || `Message from ${person.displayName ? 'your team' : 'PlotTwist'}`,
-      text: body
+      cc: normalizeList(cc),
+      bcc: normalizeList(bcc),
+      subject: subject || `Message from ${agencyName}`,
+      text: body,
+      html,
+      attachments: Array.isArray(attachments) ? attachments : null,
+      fromDisplayName: senderDisplayName,
+      replyTo,
+      skipUndo: true
     }
   });
-  return { channel: 'email', threadRef: { conversationId: result?.id || result?.conversation?.id || null } };
+
+  const conversationId = result?.id || result?.conversation?.id || null;
+  if (conversationId && replyHash) {
+    try {
+      await pool.execute(
+        `INSERT INTO hub_email_reply_tokens (token_hash, agency_id, conversation_id, person_key, created_by_user_id, expires_at)
+         VALUES (?, ?, ?, ?, ?, DATE_ADD(NOW(), INTERVAL 180 DAY))`,
+        [replyHash, aid, conversationId, person.personKey || null, userId]
+      );
+    } catch (e) {
+      console.warn('[sendHubEmail] reply token:', e?.message || e);
+    }
+  }
+
+  return {
+    channel: 'email',
+    threadRef: { conversationId },
+    fromEmail: mailboxes.messages?.from_email || null
+  };
+}
+
+export async function listHubMessageAliases({ agencyId }) {
+  const { listMessageAliasesForAgency } = await import('./tenantMessageMailboxes.service.js');
+  return listMessageAliasesForAgency(agencyId);
+}
+
+/**
+ * Emoji/like on a communication message; notify other party in-app + optional messages@ ping.
+ */
+export async function reactToHubMessage({
+  agencyId,
+  userId,
+  conversationId,
+  messageId = null,
+  emoji = '❤️',
+  notifyEmail = true
+}) {
+  const cid = Number(conversationId);
+  if (!cid) {
+    const err = new Error('conversationId is required');
+    err.status = 400;
+    throw err;
+  }
+  let mid = messageId ? Number(messageId) : null;
+  if (!mid) {
+    const [rows] = await pool.execute(
+      `SELECT id FROM communication_messages WHERE conversation_id = ? ORDER BY id DESC LIMIT 1`,
+      [cid]
+    );
+    mid = rows?.[0]?.id ? Number(rows[0].id) : null;
+  }
+  if (!mid) {
+    const err = new Error('No message found to react to');
+    err.status = 404;
+    throw err;
+  }
+
+  const emojiSafe = String(emoji || '❤️').slice(0, 32);
+  await pool.execute(
+    `INSERT INTO communication_message_reactions (message_id, conversation_id, user_id, emoji)
+     VALUES (?, ?, ?, ?)
+     ON DUPLICATE KEY UPDATE created_at = CURRENT_TIMESTAMP`,
+    [mid, cid, userId, emojiSafe]
+  );
+
+  const [msgRows] = await pool.execute(
+    `SELECT m.*, c.agency_id, c.subject, c.client_id
+     FROM communication_messages m
+     JOIN communication_conversations c ON c.id = m.conversation_id
+     WHERE m.id = ? AND m.conversation_id = ?
+     LIMIT 1`,
+    [mid, cid]
+  );
+  const msg = msgRows?.[0];
+  if (!msg) return { ok: true, messageId: mid, conversationId: cid, emoji: emojiSafe };
+
+  const aid = Number(msg.agency_id || agencyId);
+  const [reactorRows] = await pool.execute(
+    `SELECT first_name, last_name FROM users WHERE id = ? LIMIT 1`,
+    [userId]
+  );
+  const reactorName =
+    [reactorRows?.[0]?.first_name, reactorRows?.[0]?.last_name].filter(Boolean).join(' ') || 'Someone';
+
+  // Email ping is the primary notify channel for reactions (in-app table types are constrained).
+
+  if (notifyEmail) {
+    try {
+      const { ensureTenantMessageMailboxes } = await import('./tenantMessageMailboxes.service.js');
+      const { buildLikedMessageEmailHtml } = await import('./hubBrandedEmail.service.js');
+      const mailboxes = await ensureTenantMessageMailboxes(aid);
+      const [partRows] = await pool.execute(
+        `SELECT email FROM communication_participants
+         WHERE conversation_id = ? AND email IS NOT NULL AND TRIM(email) <> ''
+         ORDER BY is_primary DESC, id ASC LIMIT 1`,
+        [cid]
+      );
+      const toEmail = String(partRows?.[0]?.email || '').trim();
+      if (toEmail && mailboxes.messages?.id) {
+        const [agencyRows] = await pool.execute(`SELECT name FROM agencies WHERE id = ? LIMIT 1`, [aid]);
+        const agencyName = agencyRows?.[0]?.name || 'Your care team';
+        const html = buildLikedMessageEmailHtml({
+          agencyName,
+          actorName: reactorName,
+          preview: msg.body_text || msg.subject || '',
+          appUrl: process.env.APP_PUBLIC_URL ? `${process.env.APP_PUBLIC_URL}/messages` : null
+        });
+        const { sendEmailFromIdentity } = await import('./unifiedEmail/unifiedEmailSender.service.js');
+        await sendEmailFromIdentity({
+          senderIdentityId: mailboxes.messages.id,
+          to: toEmail,
+          subject: `${reactorName} liked your message`,
+          html,
+          text: `${reactorName} liked your message (${emojiSafe}). Open Messages in the app to reply.`,
+          replyToOverride: mailboxes.messages.from_email,
+          source: 'auto',
+          generatedByUserId: userId,
+          templateType: 'hub_message_reaction',
+          clientId: msg.client_id || null
+        });
+      }
+    } catch (e) {
+      console.warn('[reactToHubMessage] email ping:', e?.message || e);
+    }
+  }
+
+  return { ok: true, messageId: mid, conversationId: cid, emoji: emojiSafe };
 }
 
 export async function ensureHubChatThread({ agencyId, userId, otherUserId }) {

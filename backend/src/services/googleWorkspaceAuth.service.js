@@ -6,6 +6,8 @@ export const GOOGLE_WORKSPACE_SCOPES = [
   'https://www.googleapis.com/auth/gmail.readonly',
   'https://www.googleapis.com/auth/gmail.send',
   'https://www.googleapis.com/auth/gmail.compose',
+  // Send-as alias management for messages@ / securemessage@ (Admin DWD must include this).
+  'https://www.googleapis.com/auth/gmail.settings.sharing',
   // Needed for uploading receipts to a Drive folder from the app.
   // Note: requires Google Admin Console DWD scope update to include Drive.
   'https://www.googleapis.com/auth/drive'

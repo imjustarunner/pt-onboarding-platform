@@ -1985,8 +1985,9 @@ if (!isBootstrap) {
   // Unified Inbox personal-email digests (24/48h delay for stale needs_reply / follow_up)
   const scheduleInboxDigest = async () => {
     try {
-      const { runInboxDigestTick } = await import('./services/inboxDigest.service.js');
+      const { runInboxDigestTick, runHubSecureUnreadDigestTick } = await import('./services/inboxDigest.service.js');
       await runInboxDigestTick();
+      await runHubSecureUnreadDigestTick();
     } catch (error) {
       const msg = String(error?.message || '');
       const missing =
