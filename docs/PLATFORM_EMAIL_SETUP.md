@@ -43,7 +43,7 @@ Locked domains: `plottwistco.com`, `itsco.health`, `innerstrengthin.com`, `nextl
 
 1. In Google Admin → Domain-wide Delegation, add `https://www.googleapis.com/auth/gmail.settings.sharing` to the Workspace service account client ID (with existing Gmail scopes), then re-authorize / wait for propagation.
 2. Run `node backend/src/scripts/provisionTenantMessageGroups.js` (optional `--dry-run`, `--domain=itsco.health`).
-3. Script creates Groups (`messages@` / `securemessage@`), OWNER `michael@plottwistco.com` (delivery muted), MANAGER `ai@plottwistco.com`, Gmail Send-as on `ai@`, and upserts `email_sender_identities` + shared inboxes for agencies with `feature_flags.workspaceEmailDomain` set to that domain.
+3. Script creates Groups (`messages@` / `securemessage@`), OWNER `michael@plottwistco.com` (**delivery DISABLED — no mail**), MANAGER `ai@plottwistco.com`, Gmail Send-as on `ai@`, and upserts `email_sender_identities` + shared inboxes for agencies with `feature_flags.workspaceEmailDomain` set to that domain. External *members* are off on these groups (school hire groups still allow external); anyone can still email the address for replies.
 
 ## Optional: platform sender identity (DB)
 

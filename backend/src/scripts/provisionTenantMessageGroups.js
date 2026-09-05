@@ -7,8 +7,10 @@
  *   node backend/src/scripts/provisionTenantMessageGroups.js --dry-run
  *   node backend/src/scripts/provisionTenantMessageGroups.js --domain=itsco.health
  *
- * Ops: After adding gmail.settings.sharing to DWD, re-authorize the service
- * account client ID in Google Admin before this script can create Send-as.
+ * Fixes / re-runs:
+ * - OWNER michael@plottwistco.com delivery = DISABLED (no mail)
+ * - allowExternalMembers = false (school hire groups still use external; these do not)
+ * - whoCanPostMessage stays ANYONE_CAN_POST so external *replies* to messages@ still work
  */
 import pool from '../config/database.js';
 import GoogleWorkspaceDirectoryService from '../services/googleWorkspaceDirectory.service.js';
@@ -31,7 +33,7 @@ function parseArgs(argv) {
 
 async function ensureGroupWithRoles(groupEmail, displayName, { dryRun }) {
   if (dryRun) {
-    console.log(`[dry-run] would ensure group ${groupEmail}`);
+    console.log(`[dry-run] would ensure group ${groupEmail} (owner muted, no external members)`);
     return { email: groupEmail, dryRun: true };
   }
 
@@ -41,8 +43,10 @@ async function ensureGroupWithRoles(groupEmail, displayName, { dryRun }) {
       email: groupEmail,
       name: displayName,
       description: `PlotTwistHQ ${displayName} mailbox — app-managed`,
+      // External *members* not needed (school hire groups need that; these do not).
+      // Anyone can still *email* the address so client replies to messages@ work.
       whoCanPostMessage: 'ANYONE_CAN_POST',
-      allowExternalMembers: true,
+      allowExternalMembers: false,
       includeInGlobalAddressList: true
     });
     console.log(`[created] group ${groupEmail}`);
@@ -53,17 +57,20 @@ async function ensureGroupWithRoles(groupEmail, displayName, { dryRun }) {
   try {
     await GoogleWorkspaceDirectoryService.applyGroupAccessSettings({
       groupEmail,
-      allowExternalMembers: true,
+      allowExternalMembers: false,
       whoCanPostMessage: 'ANYONE_CAN_POST',
-      whoCanViewGroup: 'ALL_MEMBERS_CAN_VIEW'
+      whoCanViewGroup: 'ALL_MEMBERS_CAN_VIEW',
+      whoCanJoin: 'INVITED_CAN_JOIN'
     });
+    console.log(`[settings] ${groupEmail}: external members off`);
   } catch (e) {
     console.warn(`[warn] group settings ${groupEmail}:`, e?.message || e);
   }
 
-  // OWNER michael@ (delivery muted), MANAGER ai@
+  // OWNER michael@ must not receive mail; MANAGER ai@ gets delivery for inbound.
+  // Use DISABLED (stronger than NONE) so owners are not subscribed to every message.
   for (const { email, role, delivery } of [
-    { email: OWNER_EMAIL, role: 'OWNER', delivery: 'NONE' },
+    { email: OWNER_EMAIL, role: 'OWNER', delivery: 'DISABLED' },
     { email: MANAGER_EMAIL, role: 'MANAGER', delivery: 'ALL_MAIL' }
   ]) {
     try {
@@ -84,8 +91,22 @@ async function ensureGroupWithRoles(groupEmail, displayName, { dryRun }) {
         memberEmail: email,
         deliverySettings: delivery
       });
+      console.log(`[delivery] ${email} on ${groupEmail}: ${delivery}`);
     } catch (e) {
       console.warn(`[warn] delivery ${email} on ${groupEmail}:`, e?.message || e);
+      // Fallback if DISABLED is rejected
+      if (delivery === 'DISABLED') {
+        try {
+          await GoogleWorkspaceDirectoryService.setGroupMemberDeliverySettings({
+            groupEmail,
+            memberEmail: email,
+            deliverySettings: 'NONE'
+          });
+          console.log(`[delivery] ${email} on ${groupEmail}: NONE (fallback)`);
+        } catch (e2) {
+          console.warn(`[warn] delivery fallback ${email}:`, e2?.message || e2);
+        }
+      }
     }
   }
 
