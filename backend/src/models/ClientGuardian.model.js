@@ -38,18 +38,68 @@ class ClientGuardian {
          u.first_name,
          u.last_name,
          u.email,
+         COALESCE(u.phone_number, u.personal_phone, u.work_phone) AS phone,
+         u.profile_photo_path,
          u.status,
          u.role
        FROM client_guardians cg
        JOIN users u ON u.id = cg.guardian_user_id
        WHERE cg.client_id = ?
-       ORDER BY cg.created_at DESC`,
+       ORDER BY
+         CASE WHEN cg.access_enabled = 1 THEN 0 ELSE 1 END,
+         CASE WHEN ${hasRelationshipType ? "cg.relationship_type = 'self'" : '0'} THEN 0 ELSE 1 END,
+         cg.created_at ASC`,
       [cid]
     );
     return (rows || []).map((r) => ({
       ...r,
       permissions_json: r.permissions_json ? (typeof r.permissions_json === 'string' ? JSON.parse(r.permissions_json) : r.permissions_json) : null
     }));
+  }
+
+  /**
+   * Primary portal guardian name per client (for Hub list "Talking to:" hints).
+   * Prefers access_enabled non-self links, then self, then any link.
+   */
+  static async primaryTalkingToByClientIds(clientIds = []) {
+    const ids = [...new Set((clientIds || []).map(Number).filter((n) => n > 0))];
+    if (!ids.length) return new Map();
+    const hasRelationshipType = await this.hasRelationshipTypeColumn();
+    const ph = ids.map(() => '?').join(',');
+    const [rows] = await pool.execute(
+      `SELECT
+         cg.client_id,
+         cg.guardian_user_id,
+         ${hasRelationshipType ? 'cg.relationship_type,' : "'guardian' AS relationship_type,"}
+         cg.relationship_title,
+         cg.access_enabled,
+         u.first_name,
+         u.last_name,
+         u.email
+       FROM client_guardians cg
+       JOIN users u ON u.id = cg.guardian_user_id
+       WHERE cg.client_id IN (${ph})
+       ORDER BY
+         CASE WHEN cg.access_enabled = 1 THEN 0 ELSE 1 END,
+         CASE WHEN ${hasRelationshipType ? "cg.relationship_type = 'self'" : '0'} THEN 1 ELSE 0 END,
+         cg.created_at ASC`,
+      ids
+    );
+    const map = new Map();
+    for (const r of rows || []) {
+      const cid = Number(r.client_id);
+      if (!cid || map.has(cid)) continue;
+      const name = [r.first_name, r.last_name].filter(Boolean).join(' ') || r.email || null;
+      if (!name) continue;
+      map.set(cid, {
+        userId: Number(r.guardian_user_id) || null,
+        displayName: name,
+        relationshipType: this.normalizeRelationshipType(r.relationship_type),
+        relationshipTitle: r.relationship_title || null,
+        portalAccess: r.access_enabled === 1 || r.access_enabled === true
+      });
+    }
+    return map;
   }
 
   static async upsertLink({ clientId, guardianUserId, relationshipType, relationshipTitle, accessEnabled, permissionsJson, createdByUserId }) {

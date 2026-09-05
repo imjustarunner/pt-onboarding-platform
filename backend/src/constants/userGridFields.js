@@ -105,7 +105,19 @@ export const USER_GRID_FIELDS = [
   { key: 'schools', label: 'Schools', group: 'Affiliations', type: 'text', source: 'affiliation', editable: false, sortable: true },
   { key: 'districts', label: 'Districts', group: 'Affiliations', type: 'text', source: 'affiliation', editable: false, sortable: true },
 
-  { key: 'admin_doc_contract', label: 'Contract', group: 'Documents', type: 'file', source: 'admin_doc', editable: true, sortable: true }
+  { key: 'admin_doc_contract', label: 'Contract', group: 'Documents', type: 'file', source: 'admin_doc', editable: true, sortable: true },
+
+  {
+    key: 'email_signature',
+    label: 'Email signature',
+    group: 'Communications',
+    type: 'text',
+    source: 'computed',
+    editable: false,
+    sortable: false,
+    guidance:
+      'HTML staff signature is generated from profile (name, credentials, title, photo). Toggle on the user profile Email Signature section.'
+  }
 ];
 
 const FIELD_BY_KEY = new Map(USER_GRID_FIELDS.map((f) => [f.key, f]));

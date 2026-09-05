@@ -2290,10 +2290,14 @@
         :track="focusMusic.currentTrack.value"
         :playlist-name="focusMusic.playbackPlaylistName.value"
         :playing="focusMusic.playing.value"
+        :shuffle-enabled="focusMusic.shuffleEnabled.value"
+        :loop-mode="focusMusic.loopMode.value"
         @toggle-play="focusMusic.togglePlay()"
         @next="focusMusic.playNext()"
         @end="focusMusic.endSession()"
         @open-modal="openFocusMusic()"
+        @toggle-shuffle="focusMusic.toggleShuffle()"
+        @toggle-loop-mode="focusMusic.toggleLoopMode()"
       />
       <ActiveTaskDock v-if="isAuthenticated" />
       <CommandPalette v-if="isAuthenticated" />
@@ -2489,14 +2493,10 @@ const openFocusMusic = () => {
 const onPauseFocusAudio = () => {
   try { focusMusic.endSession(); } catch { /* ignore */ }
 };
-const onVisibilityPauseMusic = () => {
-  if (document.visibilityState === 'hidden') {
-    try { focusMusic.pause(); } catch { /* ignore */ }
-  }
-};
 if (typeof window !== 'undefined') {
   window.addEventListener('pt:pause-focus-audio', onPauseFocusAudio);
-  document.addEventListener('visibilitychange', onVisibilityPauseMusic);
+  // Do not pause on tab hide — focus music should keep playing in the background.
+  // Only idle timeout (pt:pause-focus-audio from activityTracker) ends the session.
 }
 const userIdForSnooze = computed(() => authStore.user?.id ?? null);
 const sessionIdForDefer = computed(() => {

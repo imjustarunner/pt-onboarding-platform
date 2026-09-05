@@ -380,8 +380,8 @@ class EmailService {
     let sendResult;
     try {
       sendResult = await GoogleWorkspaceEmailService.sendEmail({
-        to,
-        subject,
+        to: redirectedPreview.to || to,
+        subject: redirectedPreview.subject || subject,
         text: outboundText,
         html: outboundHtml,
         fromName,

@@ -12,6 +12,7 @@ import EmailService from './email.service.js';
 import VonageService from './vonage.service.js';
 import { resolveReminderNumber } from './communicationRouting.service.js';
 import { dateToMysqlUtcDateTime, utcMysqlToIso } from '../utils/zonedWallTime.util.js';
+import ClientContactAffiliation from '../models/ClientContactAffiliation.model.js';
 
 const DEFAULT_REMINDERS = [
   { channel: 'email', offsetMinutes: 1440 },
@@ -257,6 +258,75 @@ async function resolveRecipientForAppointment(appt) {
   return { email, phone, clientId, userId, participantId: primary?.id || null };
 }
 
+/**
+ * Fan-out appointment reminders to client-affiliated contacts (email/SMS prefs).
+ * Does not change the primary reminder row status — best-effort additional sends.
+ */
+async function sendAffiliatedContactReminders(appt, { channel, label, when, reminderId } = {}) {
+  const clientId = appt.clientId || null;
+  // Resolve client from participants if not on appointment
+  let resolvedClientId = clientId;
+  if (!resolvedClientId) {
+    const participants = await Appointment.listParticipants(appt.id);
+    resolvedClientId = participants.find((p) => p.clientId)?.clientId || null;
+  }
+  if (!resolvedClientId) return { sent: 0 };
+
+  const contacts = await ClientContactAffiliation.listReminderRecipientsForClient(resolvedClientId);
+  let sent = 0;
+  for (const c of contacts || []) {
+    try {
+      if (channel === 'email' && c.email_reminders_enabled && c.contact_email) {
+        if (EmailService.isConfigured?.()) {
+          await EmailService.sendEmail({
+            to: c.contact_email,
+            subject: `Reminder: ${label}`,
+            text: `Reminder: ${label} is scheduled for ${when}.`,
+            html: `<p>Reminder: <strong>${label}</strong> is scheduled for ${when}.</p>`
+          });
+        }
+        await logCommunication({
+          appointmentId: appt.id,
+          agencyId: appt.agencyId,
+          channel: 'email',
+          kind: 'reminder',
+          bodyPreview: `Email reminder to contact ${c.contact_email}`,
+          reminderId,
+          metadata: { recipientRole: 'contact', affiliationId: c.affiliation_id }
+        });
+        sent += 1;
+      }
+      if ((channel === 'sms' || channel === 'phone') && c.sms_reminders_enabled && c.sms_opt_in && c.contact_phone) {
+        const toPhoneNorm = PhoneNumber.normalizePhone(c.contact_phone);
+        if (!toPhoneNorm) continue;
+        const resolved = await resolveReminderNumber({
+          providerUserId: appt.providerUserId,
+          clientId: resolvedClientId
+        });
+        const from = resolved?.number?.phone_number
+          ? PhoneNumber.normalizePhone(resolved.number.phone_number) || resolved.number.phone_number
+          : null;
+        if (!from) continue;
+        const body = `Reminder: ${label} on ${when}.`.slice(0, 480);
+        await VonageService.sendSms({ to: toPhoneNorm, from, body });
+        await logCommunication({
+          appointmentId: appt.id,
+          agencyId: appt.agencyId,
+          channel: 'sms',
+          kind: 'reminder',
+          bodyPreview: body,
+          reminderId,
+          metadata: { recipientRole: 'contact', affiliationId: c.affiliation_id }
+        });
+        sent += 1;
+      }
+    } catch (e) {
+      console.warn('[appointmentReminder] contact fan-out failed:', e?.message || e);
+    }
+  }
+  return { sent };
+}
+
 async function sendOneReminder(row) {
   const appt = await Appointment.findById(row.appointment_id);
   if (!appt) {
@@ -280,123 +350,136 @@ async function sendOneReminder(row) {
   const when = appt.startAt;
 
   if (channel === 'email') {
-    if (!recipient.email) {
+    let primarySent = false;
+    if (recipient.email) {
+      try {
+        if (EmailService.isConfigured?.()) {
+          await EmailService.sendEmail({
+            to: recipient.email,
+            subject: `Reminder: ${label}`,
+            text: `Reminder: ${label} is scheduled for ${when}.\n\nReply CONFIRM or CANCEL if your provider supports SMS replies.`,
+            html: `<p>Reminder: <strong>${label}</strong> is scheduled for ${when}.</p>`
+          });
+        }
+        await logCommunication({
+          appointmentId: appt.id,
+          agencyId: appt.agencyId,
+          channel: 'email',
+          kind: 'reminder',
+          bodyPreview: `Email reminder to ${recipient.email}`,
+          reminderId: row.id
+        });
+        primarySent = true;
+      } catch (e) {
+        await pool.execute(
+          `UPDATE appointment_reminders SET status = 'failed', error_message = ? WHERE id = ?`,
+          [String(e?.message || 'send failed').slice(0, 500), row.id]
+        );
+        return { failed: true };
+      }
+    }
+    const contactOut = await sendAffiliatedContactReminders(appt, {
+      channel: 'email',
+      label,
+      when,
+      reminderId: row.id
+    });
+    if (!primarySent && !(contactOut?.sent > 0)) {
       await pool.execute(
         `UPDATE appointment_reminders SET status = 'skipped', skip_reason = 'no_recipient' WHERE id = ?`,
         [row.id]
       );
       return { skipped: true };
     }
-    try {
-      if (EmailService.isConfigured?.()) {
-        await EmailService.sendEmail({
-          to: recipient.email,
-          subject: `Reminder: ${label}`,
-          text: `Reminder: ${label} is scheduled for ${when}.\n\nReply CONFIRM or CANCEL if your provider supports SMS replies.`,
-          html: `<p>Reminder: <strong>${label}</strong> is scheduled for ${when}.</p>`
-        });
-      }
-      await pool.execute(
-        `UPDATE appointment_reminders SET status = 'sent', sent_at = NOW() WHERE id = ?`,
-        [row.id]
-      );
-      await logCommunication({
-        appointmentId: appt.id,
-        agencyId: appt.agencyId,
-        channel: 'email',
-        kind: 'reminder',
-        bodyPreview: `Email reminder to ${recipient.email}`,
-        reminderId: row.id
-      });
-      return { sent: true };
-    } catch (e) {
-      await pool.execute(
-        `UPDATE appointment_reminders SET status = 'failed', error_message = ? WHERE id = ?`,
-        [String(e?.message || 'send failed').slice(0, 500), row.id]
-      );
-      return { failed: true };
-    }
+    await pool.execute(
+      `UPDATE appointment_reminders SET status = 'sent', sent_at = NOW() WHERE id = ?`,
+      [row.id]
+    );
+    return { sent: true };
   }
 
   if (channel === 'sms' || channel === 'phone') {
     const consent = await clientHasSmsConsent(recipient.clientId);
-    if (!consent) {
-      await pool.execute(
-        `UPDATE appointment_reminders SET status = 'skipped', skip_reason = 'no_consent' WHERE id = ?`,
-        [row.id]
-      );
-      await logCommunication({
-        appointmentId: appt.id,
-        agencyId: appt.agencyId,
-        channel: 'sms',
-        kind: 'reminder',
-        bodyPreview: 'SMS skipped — no documented consent',
-        reminderId: row.id,
-        metadata: { skipReason: 'no_consent' }
-      });
-      return { skipped: true, reason: 'no_consent' };
-    }
     const toPhoneNorm = recipient.phone ? PhoneNumber.normalizePhone(recipient.phone) : null;
-    if (!toPhoneNorm) {
-      await pool.execute(
-        `UPDATE appointment_reminders SET status = 'skipped', skip_reason = 'no_recipient' WHERE id = ?`,
-        [row.id]
-      );
-      return { skipped: true };
-    }
-    try {
-      const resolved = await resolveReminderNumber({
-        providerUserId: appt.providerUserId,
-        clientId: recipient.clientId
-      });
-      const from = resolved?.number?.phone_number
-        ? PhoneNumber.normalizePhone(resolved.number.phone_number) || resolved.number.phone_number
-        : null;
-      if (!from) {
-        await pool.execute(
-          `UPDATE appointment_reminders SET status = 'skipped', skip_reason = 'no_from_number' WHERE id = ?`,
-          [row.id]
-        );
-        return { skipped: true };
-      }
-      const body = `Reminder: ${label} on ${when}. Reply CONFIRM or CANCEL.`.slice(0, 480);
-      await VonageService.sendSms({ to: toPhoneNorm, from, body });
-      await pool.execute(
-        `UPDATE appointment_reminders SET status = 'sent', sent_at = NOW() WHERE id = ?`,
-        [row.id]
-      );
-      await logCommunication({
-        appointmentId: appt.id,
-        agencyId: appt.agencyId,
-        channel: 'sms',
-        kind: 'reminder',
-        bodyPreview: body,
-        reminderId: row.id
-      });
+    let primarySent = false;
+
+    if (consent && toPhoneNorm) {
       try {
-        const { recordSmsProfileAudit } = await import('./smsProfileAudit.service.js');
-        await recordSmsProfileAudit({
-          agencyId: appt.agencyId,
-          direction: 'OUTBOUND',
-          fromNumber: from,
-          toNumber: toPhoneNorm,
-          numberId: resolved?.number?.id || null,
-          numberPurpose: resolved?.number?.number_purpose || 'notification',
-          body,
-          clientId: recipient.clientId || null,
-          userId: recipient.userId || null
+        const resolved = await resolveReminderNumber({
+          providerUserId: appt.providerUserId,
+          clientId: recipient.clientId
         });
-      } catch (auditErr) {
-        console.warn('[appointmentReminder] sms profile audit failed:', auditErr?.message || auditErr);
+        const from = resolved?.number?.phone_number
+          ? PhoneNumber.normalizePhone(resolved.number.phone_number) || resolved.number.phone_number
+          : null;
+        if (from) {
+          const body = `Reminder: ${label} on ${when}. Reply CONFIRM or CANCEL.`.slice(0, 480);
+          await VonageService.sendSms({ to: toPhoneNorm, from, body });
+          await logCommunication({
+            appointmentId: appt.id,
+            agencyId: appt.agencyId,
+            channel: 'sms',
+            kind: 'reminder',
+            bodyPreview: body,
+            reminderId: row.id
+          });
+          try {
+            const { recordSmsProfileAudit } = await import('./smsProfileAudit.service.js');
+            await recordSmsProfileAudit({
+              agencyId: appt.agencyId,
+              direction: 'OUTBOUND',
+              fromNumber: from,
+              toNumber: toPhoneNorm,
+              numberId: resolved?.number?.id || null,
+              numberPurpose: resolved?.number?.number_purpose || 'notification',
+              body,
+              clientId: recipient.clientId || null,
+              userId: recipient.userId || null
+            });
+          } catch (auditErr) {
+            console.warn('[appointmentReminder] sms profile audit failed:', auditErr?.message || auditErr);
+          }
+          primarySent = true;
+        }
+      } catch (e) {
+        await pool.execute(
+          `UPDATE appointment_reminders SET status = 'failed', error_message = ? WHERE id = ?`,
+          [String(e?.message || 'sms failed').slice(0, 500), row.id]
+        );
+        return { failed: true };
       }
-      return { sent: true };
-    } catch (e) {
-      await pool.execute(
-        `UPDATE appointment_reminders SET status = 'failed', error_message = ? WHERE id = ?`,
-        [String(e?.message || 'sms failed').slice(0, 500), row.id]
-      );
-      return { failed: true };
     }
+
+    const contactOut = await sendAffiliatedContactReminders(appt, {
+      channel: 'sms',
+      label,
+      when,
+      reminderId: row.id
+    });
+    if (!primarySent && !(contactOut?.sent > 0)) {
+      const reason = !consent ? 'no_consent' : 'no_recipient';
+      await pool.execute(
+        `UPDATE appointment_reminders SET status = 'skipped', skip_reason = ? WHERE id = ?`,
+        [reason, row.id]
+      );
+      if (!consent) {
+        await logCommunication({
+          appointmentId: appt.id,
+          agencyId: appt.agencyId,
+          channel: 'sms',
+          kind: 'reminder',
+          bodyPreview: 'SMS skipped — no documented consent',
+          reminderId: row.id,
+          metadata: { skipReason: 'no_consent' }
+        });
+      }
+      return { skipped: true, reason };
+    }
+    await pool.execute(
+      `UPDATE appointment_reminders SET status = 'sent', sent_at = NOW() WHERE id = ?`,
+      [row.id]
+    );
+    return { sent: true };
   }
 
   await pool.execute(

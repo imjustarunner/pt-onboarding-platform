@@ -9,7 +9,7 @@ import {
   bulkPatchDemo
 } from '../controllers/identityHygiene.controller.js';
 import { getUserOfficeAssignments, upsertUserOfficeAssignments } from '../controllers/userOfficeAssignments.controller.js';
-import { upload as uploadProfilePhoto, uploadUserProfilePhoto } from '../controllers/userProfilePhoto.controller.js';
+import { upload as uploadProfilePhoto, uploadUserProfilePhoto, uploadUserEmailSignature, getUserEmailSignaturePreview, patchUserEmailSignature } from '../controllers/userProfilePhoto.controller.js';
 import {
   photoUpload,
   listUserPhotos,
@@ -139,6 +139,9 @@ router.put('/:id', authenticate, updateUser);
 router.put('/:id/status', authenticate, requireBackofficeAdmin, updateUserStatus);
 router.post('/:id/skill-builder/require-confirm-next-login', authenticate, requireSkillBuilderConfirmNextLogin);
 router.post('/:id/profile-photo', authenticate, uploadProfilePhoto.single('photo'), uploadUserProfilePhoto);
+router.get('/:id/email-signature/preview', authenticate, getUserEmailSignaturePreview);
+router.patch('/:id/email-signature', authenticate, patchUserEmailSignature);
+router.post('/:id/email-signature', authenticate, uploadProfilePhoto.single('signature'), uploadUserEmailSignature);
 
 // User photo album
 router.get('/photos/flagged', authenticate, listFlaggedPhotos);

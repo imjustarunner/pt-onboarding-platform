@@ -228,9 +228,14 @@
             <span class="guardian-tab-meta">Forms and pickup details</span>
           </router-link>
 
-          <button type="button" class="guardian-tab guardian-tab-subtle" @click="openComingSoon('contact')">
-            <span class="guardian-tab-label">Contact</span>
-            <span class="guardian-tab-meta">Coming soon</span>
+          <button
+            type="button"
+            class="guardian-tab"
+            :class="{ active: activePanel === 'contact' }"
+            @click="activePanel = 'contact'"
+          >
+            <span class="guardian-tab-label">Contacts</span>
+            <span class="guardian-tab-meta">Appointment reminders</span>
           </button>
         </div>
 
@@ -897,6 +902,29 @@
               />
             </template>
 
+            <template v-else-if="activePanel === 'contact'">
+              <div class="panel-head">
+                <div class="panel-title">Reminder contacts</div>
+                <div class="panel-subtitle">
+                  Add people who should get appointment reminders for
+                  {{ selectedChild ? childDisplayName(selectedChild) : 'your child' }} without portal access.
+                </div>
+              </div>
+              <div v-if="isSuperadminPreview" class="guardian-preview-surface">
+                <p class="hint" style="margin: 0;">
+                  Contact management is available for real guardian accounts. Preview keeps this empty.
+                </p>
+              </div>
+              <ClientAffiliatedContactsPanel
+                v-else-if="selectedChildId"
+                mode="guardian"
+                :client-id="selectedChildId"
+                :client-initials="selectedChildInitials"
+                title="Appointment reminder contacts"
+              />
+              <p v-else class="hint">Select a child to manage reminder contacts.</p>
+            </template>
+
             <template v-else>
               <div class="panel-head">
                 <div class="panel-title">{{ panelTitle }}</div>
@@ -1008,6 +1036,7 @@ import GuardianSkillBuildersEventView from './GuardianSkillBuildersEventView.vue
 import GuardianSessionBookingDrawer from '../../components/guardian/GuardianSessionBookingDrawer.vue';
 import GuardianMessagesPanel from '../../components/guardian/GuardianMessagesPanel.vue';
 import GuardianTutoringDashboard from '../../components/guardian/GuardianTutoringDashboard.vue';
+import ClientAffiliatedContactsPanel from '../../components/client/ClientAffiliatedContactsPanel.vue';
 import { fetchGuardianLearningFeed } from '../../services/tutoringLearningOs';
 
 const authStore = useAuthStore();
@@ -1400,6 +1429,16 @@ function childDisplayName(c) {
   if (c?.initials) return `Child (${c.initials})`;
   return 'Child';
 }
+
+const selectedChildInitials = computed(() => {
+  const c = selectedChild.value;
+  if (!c) return '';
+  if (c.initials) return String(c.initials).toUpperCase();
+  const name = String(c.full_name || '').trim();
+  const parts = name.split(/\s+/).filter(Boolean);
+  if (parts.length >= 2) return `${parts[0][0]}${parts[parts.length - 1][0]}`.toUpperCase();
+  return name.slice(0, 2).toUpperCase();
+});
 
 function programChildrenLine(p) {
   const parts = (p?.children || []).map((c) => {
@@ -2088,6 +2127,13 @@ watch(
   dashboardTabs,
   (tabs) => {
     const allowedKeys = new Set((tabs || []).map((tab) => String(tab?.key || '')));
+    // Extra panels outside dashboardTabs
+    allowedKeys.add('contact');
+    allowedKeys.add('billing');
+    allowedKeys.add('payment_methods');
+    allowedKeys.add('dependents');
+    allowedKeys.add('messages');
+    allowedKeys.add('account');
     if (!allowedKeys.has(activePanel.value)) {
       activePanel.value = standardsLearningVisible.value && allowedKeys.has('tutoring')
         ? 'tutoring'

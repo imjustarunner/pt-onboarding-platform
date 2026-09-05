@@ -94,6 +94,7 @@ import providerActionRoutes from './routes/providerAction.routes.js';
 import publicProviderActionRoutes from './routes/publicProviderAction.routes.js';
 import publicSecureMessageRoutes from './routes/publicSecureMessage.routes.js';
 import publicEmailOptOutRoutes from './routes/publicEmailOptOut.routes.js';
+import publicContactRemindersRoutes from './routes/publicContactReminders.routes.js';
 import publicProviderYearUpdateRoutes from './routes/publicProviderYearUpdate.routes.js';
 import publicClientRenewalRoutes from './routes/publicClientRenewal.routes.js';
 import publicProviderUpdateRoutes from './routes/publicProviderUpdate.routes.js';
@@ -730,6 +731,7 @@ app.use('/api/public/provider-update', publicProviderUpdateRoutes);
 app.use('/api/public/provider-action', publicProviderActionRoutes);
 app.use('/api/public/secure-message', publicSecureMessageRoutes);
 app.use('/api/public/email-opt-out', publicEmailOptOutRoutes);
+app.use('/api/public/contact-reminders', publicContactRemindersRoutes);
 app.use('/api/public/admin-updates', publicAdminUpdateRoutes);
 app.use('/api/admin-updates', adminUpdateMeRoutes);
 app.use('/api/public/marketing-pages', publicMarketingPagesRoutes);
@@ -988,14 +990,17 @@ app.use('/api/phi-documents', phiDocumentsRoutes);
 
 // Error handling middleware
 app.use((err, req, res, next) => {
-  console.error('Error:', err);
-  console.error('Error stack:', err.stack);
-  console.error('Error details:', {
-    message: err.message,
-    code: err.code,
-    sqlMessage: err.sqlMessage,
-    sqlState: err.sqlState
-  });
+  // Expected / soft denials (e.g. hiring polled with a stale agencyId) — respond without log spam.
+  if (!err?.quiet) {
+    console.error('Error:', err);
+    console.error('Error stack:', err.stack);
+    console.error('Error details:', {
+      message: err.message,
+      code: err.code,
+      sqlMessage: err.sqlMessage,
+      sqlState: err.sqlState
+    });
+  }
 
   // Normalize common MySQL errors into actionable 4xx responses
   const sqlMessage = String(err.sqlMessage || err.message || '');
@@ -2040,7 +2045,7 @@ if (!isBootstrap) {
   schedulePresenceExpiryTick();
   setInterval(schedulePresenceExpiryTick, 5 * 60 * 1000);
 
-  // Unified Inbox scheduled / undo-delayed outbound email
+  // Unified Inbox scheduled / undo-delayed outbound email + Hub secure/SMS queue
   const scheduleUnifiedOutbound = async () => {
     try {
       const { processScheduledOutboundSends } = await import('./services/unifiedInbox.service.js');
@@ -2056,6 +2061,14 @@ if (!isBootstrap) {
         console.warn('Unified scheduled-send columns missing. Run migration 1312_unified_inbox_phase3.sql');
       } else {
         console.error('Error in unified outbound scheduler:', error);
+      }
+    }
+    try {
+      const { processHubMessageQueue } = await import('./controllers/messagesHub.controller.js');
+      await processHubMessageQueue({ limit: 40 });
+    } catch (error) {
+      if (error?.code !== 'ER_NO_SUCH_TABLE' && error?.code !== 'ER_BAD_FIELD_ERROR') {
+        console.error('Error in hub message queue:', error);
       }
     }
   };

@@ -509,6 +509,16 @@
                 </select>
               </div>
 
+              <div
+                v-if="showPassword && !needsOrgChoice && passwordExpiryBanner"
+                class="login-password-expiry-banner"
+                :class="passwordExpiryBanner.tone"
+                role="status"
+              >
+                <strong>{{ passwordExpiryBanner.title }}</strong>
+                <span>{{ passwordExpiryBanner.body }}</span>
+              </div>
+
               <div v-if="showPassword && !needsOrgChoice" class="form-group login-credentials-password">
                 <label for="password">Password</label>
                 <div class="password-input-wrap">
@@ -1507,6 +1517,7 @@ const loading = ref(false);
 const verifying = ref(false);
 const passwordVisible = ref(false);
 const showPassword = ref(false);
+const identifyPasswordPolicy = ref(null);
 const needsOrgChoice = ref(false);
 const orgOptions = ref([]);
 const selectedOrgSlug = ref('');
@@ -1520,6 +1531,28 @@ const showForgotPasswordMessage = ref(false);
 const showGuardianTempPasswordMessage = ref(false);
 const showForgotUsernameMessage = ref(false);
 const lastErrorCode = ref(null);
+
+const passwordExpiryBanner = computed(() => {
+  const p = identifyPasswordPolicy.value;
+  if (!p) return null;
+  const days = Number(p.passwordPolicyDays) || 120;
+  if (p.passwordExpired || (p.requiresPasswordChange && p.passwordExpiresInDays === 0)) {
+    return {
+      tone: 'expired',
+      title: 'Password expired',
+      body: `Your password has expired (${days}-day limit). After you sign in you will be asked to change it.`
+    };
+  }
+  if (p.passwordExpiresSoon && p.passwordExpiresInDays != null) {
+    const n = Number(p.passwordExpiresInDays);
+    return {
+      tone: 'soon',
+      title: 'Password expiring soon',
+      body: `Your password expires in ${n} day${n === 1 ? '' : 's'}. You’ll be prompted to change it soon.`
+    };
+  }
+  return null;
+});
 
 // Recovery state (forgot password/username)
 const recoveryLoading = ref(false);
@@ -1812,6 +1845,7 @@ const resetToUsernameStep = () => {
   username.value = '';
   lastErrorCode.value = null;
   lastVerifiedUsername.value = '';
+  identifyPasswordPolicy.value = null;
   sstcClubBranding.value = null;
   rememberedGoogleLogin.value = null;
   error.value = '';
@@ -1828,6 +1862,7 @@ const verifyUsername = async ({ orgSlugOverride = null, reason = 'user' } = {}) 
     lastErrorCode.value = null;
     needsOrgChoice.value = false;
     orgOptions.value = [];
+    identifyPasswordPolicy.value = null;
 
     const slug =
       orgSlugOverride ||
@@ -1854,6 +1889,13 @@ const verifyUsername = async ({ orgSlugOverride = null, reason = 'user' } = {}) 
 
     lastVerifiedUsername.value = String(data?.normalizedUsername || u).trim().toLowerCase();
     identifiedLoginMethod.value = String(data?.login?.method || 'password').toLowerCase();
+    identifyPasswordPolicy.value = {
+      passwordExpired: data?.passwordExpired === true,
+      passwordExpiresSoon: data?.passwordExpiresSoon === true,
+      passwordExpiresInDays: data?.passwordExpiresInDays ?? null,
+      requiresPasswordChange: data?.requiresPasswordChange === true,
+      passwordPolicyDays: data?.passwordPolicyDays ?? 120
+    };
 
     if (data?.needsOrgChoice === true) {
       // Simplified login UX: never show an org picker.
@@ -3301,6 +3343,30 @@ const handleLogoError = (event) => {
 .password-toggle-btn:focus-visible {
   outline: 2px solid var(--primary, #0f766e);
   border-radius: 3px;
+}
+
+.login-password-expiry-banner {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  font-size: 13px;
+  line-height: 1.4;
+}
+.login-password-expiry-banner strong {
+  font-size: 13px;
+}
+.login-password-expiry-banner.expired {
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  color: #991b1b;
+}
+.login-password-expiry-banner.soon {
+  background: #fffbeb;
+  border: 1px solid #fde68a;
+  color: #92400e;
 }
 
 .login-credentials-wrap--school-split {

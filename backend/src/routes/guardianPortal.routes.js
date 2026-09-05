@@ -43,6 +43,12 @@ import {
   getGuardianSupportTicket,
   sendGuardianSupportTicketMessage
 } from '../controllers/guardianSupportTickets.controller.js';
+import {
+  listClientAffiliatedContacts,
+  createClientAffiliatedContact,
+  patchClientAffiliatedContact,
+  deleteClientAffiliatedContact
+} from '../controllers/clientContactAffiliation.controller.js';
 
 const router = express.Router();
 
@@ -100,5 +106,11 @@ router.get('/waivers/clients/:clientId', getMyClientWaiverProfile);
 router.post('/waivers/clients/:clientId/sections/:sectionKey', postMyClientWaiverSectionCreate);
 router.put('/waivers/clients/:clientId/sections/:sectionKey', putMyClientWaiverSection);
 router.post('/waivers/clients/:clientId/sections/:sectionKey/revoke', postMyClientWaiverSectionRevoke);
+
+// Affiliated contacts / appointment reminder recipients
+router.get('/clients/:clientId/contacts', listClientAffiliatedContacts);
+router.post('/clients/:clientId/contacts', createClientAffiliatedContact);
+router.patch('/clients/:clientId/contacts/:affiliationId', patchClientAffiliatedContact);
+router.delete('/clients/:clientId/contacts/:affiliationId', deleteClientAffiliatedContact);
 
 export default router;

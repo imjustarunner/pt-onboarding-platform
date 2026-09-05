@@ -8,6 +8,27 @@ import ActivityLogService from '../services/activityLog.service.js';
 import config from '../config/config.js';
 import { getUserCapabilities, buildAgencyAccessCaps } from '../utils/capabilities.js';
 import { calcPasswordExpiry, resolveRequiresPasswordChange } from '../utils/passwordPolicy.js';
+
+/** Safe password-expiry fields for /auth/identify (no secrets). */
+function buildIdentifyPasswordPolicy(user, { ssoRequired = false } = {}) {
+  if (!user?.id || ssoRequired) {
+    return {
+      passwordExpired: false,
+      passwordExpiresSoon: false,
+      passwordExpiresInDays: null,
+      requiresPasswordChange: false,
+      passwordPolicyDays: null
+    };
+  }
+  const pw = resolveRequiresPasswordChange(user, { ssoRequired: false });
+  return {
+    passwordExpired: Boolean(pw.passwordExpired),
+    passwordExpiresSoon: Boolean(pw.passwordExpiresSoon),
+    passwordExpiresInDays: pw.passwordExpiresInDays,
+    requiresPasswordChange: Boolean(pw.requiresPasswordChange),
+    passwordPolicyDays: pw.passwordPolicyDays ?? 120
+  };
+}
 import { checkPasswordBasics } from '../utils/passwordValidation.js';
 import Agency from '../models/Agency.model.js';
 import { createSignedState as createGoogleState, verifySignedState as verifyGoogleState, exchangeCodeForTokens, getGoogleAuthorizeUrl, getGoogleOAuthClient } from '../services/googleOAuth.service.js';
@@ -1161,7 +1182,8 @@ export const identifyLogin = async (req, res, next) => {
         normalizedUsername,
         needsOrgChoice: false,
         resolvedOrg: null,
-        login: { method: 'password' }
+        login: { method: 'password' },
+        ...buildIdentifyPasswordPolicy(user, { ssoRequired: false })
       });
     }
 
@@ -1477,6 +1499,10 @@ export const identifyLogin = async (req, res, next) => {
     }
 
     notifyRescueAttempt({ matched: true, method: loginMethod, resolvedSlug });
+    const passwordPolicy =
+      loginMethod === 'password'
+        ? buildIdentifyPasswordPolicy(user, { ssoRequired: false })
+        : buildIdentifyPasswordPolicy(null, { ssoRequired: true });
     return res.json({
       matched: true,
       normalizedUsername,
@@ -1495,7 +1521,8 @@ export const identifyLogin = async (req, res, next) => {
       login:
         loginMethod === 'google'
           ? { method: 'google', googleStartUrl }
-          : { method: 'password' }
+          : { method: 'password' },
+      ...passwordPolicy
     });
   } catch (e) {
     next(e);

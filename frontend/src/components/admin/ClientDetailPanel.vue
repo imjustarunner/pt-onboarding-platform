@@ -20,7 +20,20 @@
           <div class="cdp-header-info">
             <div class="cdp-header-row">
               <h2 class="cdp-title">
-                <template v-if="canSeeClientFullName && client.full_name">
+                <button
+                  v-if="!props.fullPage && props.client?.id"
+                  type="button"
+                  class="cdp-title-link"
+                  title="Open full client profile"
+                  @click="openFullClientRecord"
+                >
+                  <template v-if="canSeeClientFullName && client.full_name">
+                    {{ client.full_name }}
+                    <span class="cdp-title-initials">({{ client.initials || '—' }})</span>
+                  </template>
+                  <template v-else>{{ client.initials || '—' }}</template>
+                </button>
+                <template v-else-if="canSeeClientFullName && client.full_name">
                   {{ client.full_name }}
                   <span class="cdp-title-initials">({{ client.initials || '—' }})</span>
                 </template>
@@ -375,6 +388,14 @@
                 <div class="cdp-contact-card__name">{{ client.organization_name || '—' }}</div>
                 <div class="cdp-glance-meta">{{ clientTypeLabel }}</div>
               </article>
+            </div>
+            <div v-if="client?.id" class="cdp-affiliated-wrap">
+              <ClientAffiliatedContactsPanel
+                mode="staff"
+                :client-id="client.id"
+                :client-initials="client.initials || ''"
+                title="Appointment reminder contacts"
+              />
             </div>
           </div>
 
@@ -1510,20 +1531,34 @@
             <strong>Non-clinical portal access:</strong> Guardians can be given access to docs, links, and program materials.
           </div>
 
-          <div v-if="!canManageGuardians" class="empty-state">
-            <p>You don’t have permission to manage guardians for this client.</p>
+          <div v-if="!canViewGuardians" class="empty-state">
+            <p>You don’t have permission to view guardians for this client.</p>
           </div>
 
           <div v-else>
             <div v-if="guardiansError" class="error" style="margin-bottom: 10px;">{{ guardiansError }}</div>
             <div style="display:flex; justify-content: space-between; align-items:center; gap: 12px; margin-bottom: 12px;">
-              <div class="hint">Add one or more guardian accounts (e.g., divorced guardians) with their own logins.</div>
-              <button type="button" class="btn btn-primary" @click="openAddGuardian">Add Guardian</button>
+              <div class="hint">
+                <template v-if="canManageGuardians">
+                  Add one or more guardian accounts (e.g., divorced guardians) with their own logins.
+                </template>
+                <template v-else>
+                  Guardians linked to this client (view only — ask an admin to add or edit).
+                </template>
+              </div>
+              <button
+                v-if="canManageGuardians"
+                type="button"
+                class="btn btn-primary"
+                @click="openAddGuardian"
+              >
+                Add Guardian
+              </button>
             </div>
 
             <!-- Intake guardian placeholder (not yet a full account) -->
             <div
-              v-if="guardianIntakeProfile && !intakeGuardianAlreadyLinked && !guardiansLoading"
+              v-if="canManageGuardians && guardianIntakeProfile && !intakeGuardianAlreadyLinked && !guardiansLoading"
               class="intake-guardian-placeholder"
             >
               <div class="intake-guardian-placeholder-header">
@@ -1563,7 +1598,7 @@
             </div>
 
             <div
-              v-if="!hasSelfGuardianLink && !guardiansLoading"
+              v-if="canManageGuardians && !hasSelfGuardianLink && !guardiansLoading"
               class="intake-guardian-placeholder"
               style="margin-top: 10px;"
             >
@@ -1622,10 +1657,22 @@
                     <td>{{ g.first_name }} {{ g.last_name }}</td>
                     <td>{{ g.email }}</td>
                     <td style="min-width: 220px;">
-                      <input v-model="g.relationship_title" type="text" />
+                      <input
+                        v-if="canManageGuardians"
+                        v-model="g.relationship_title"
+                        type="text"
+                      />
+                      <span v-else>{{ g.relationship_title || '—' }}</span>
                     </td>
                     <td>
-                      <input v-model="g.access_enabled" type="checkbox" :true-value="1" :false-value="0" />
+                      <input
+                        v-if="canManageGuardians"
+                        v-model="g.access_enabled"
+                        type="checkbox"
+                        :true-value="1"
+                        :false-value="0"
+                      />
+                      <span v-else>{{ Number(g.access_enabled) === 1 ? 'Yes' : 'No' }}</span>
                     </td>
                     <td class="right" style="white-space: nowrap;">
                       <button
@@ -1639,6 +1686,7 @@
                         Message
                       </button>
                       <button
+                        v-if="canManageGuardians"
                         type="button"
                         class="btn btn-secondary btn-sm"
                         :disabled="updatingGuardianId === g.guardian_user_id"
@@ -1647,6 +1695,7 @@
                         {{ updatingGuardianId === g.guardian_user_id ? 'Saving…' : 'Save' }}
                       </button>
                       <button
+                        v-if="canManageGuardians"
                         type="button"
                         class="btn btn-danger btn-sm"
                         :disabled="updatingGuardianId === g.guardian_user_id"
@@ -2691,6 +2740,7 @@ import { useClientPaperwork } from '../../composables/useClientPaperwork.js';
 import { isPractitionerOrgType } from '../../utils/practitionerVertical';
 import { toPlainEnglish } from '../../utils/auditActionRegistry.js';
 import ClientSkillBuildersProgramTab from '../skillBuilders/ClientSkillBuildersProgramTab.vue';
+import ClientAffiliatedContactsPanel from '../client/ClientAffiliatedContactsPanel.vue';
 import { isSkillsClientFlag } from '../../utils/skillsClientFlag.js';
 import {
   formatGradeDisplay,
@@ -4423,6 +4473,13 @@ const canManageGuardians = computed(() => {
   return ['super_admin', 'admin', 'support'].includes(r) && hasAgencyAccess.value;
 });
 
+/** Assigned clinicians can view guardian links; admins manage them. */
+const canViewGuardians = computed(() => {
+  if (canManageGuardians.value) return true;
+  const r = String(authStore.user?.role || '').toLowerCase();
+  return ['provider', 'provider_plus', 'intern', 'intern_plus', 'clinical_practice_assistant', 'supervisor'].includes(r);
+});
+
 const canEditPaperwork = computed(() => {
   const r = String(authStore.user?.role || '').toLowerCase();
   return ['super_admin', 'admin', 'support', 'staff'].includes(r) && hasAgencyAccess.value;
@@ -5095,7 +5152,7 @@ const fetchHistory = async () => {
 };
 
 const fetchGuardians = async () => {
-  if (!canManageGuardians.value) return;
+  if (!canViewGuardians.value) return;
   try {
     guardiansLoading.value = true;
     guardiansError.value = '';
@@ -6800,6 +6857,20 @@ watch(
   letter-spacing: -0.01em;
   white-space: nowrap;
 }
+.cdp-title-link {
+  appearance: none;
+  border: none;
+  background: none;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  color: var(--primary, #2e9a43);
+  cursor: pointer;
+  text-align: left;
+}
+.cdp-title-link:hover {
+  text-decoration: underline;
+}
 
 .cdp-identity-line {
   display: flex;
@@ -7305,6 +7376,11 @@ watch(
 .cdp-care-section,
 .cdp-contacts-section {
   margin-bottom: 20px;
+}
+.cdp-affiliated-wrap {
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid #e2e8f0;
 }
 /* Care strip — compact horizontal row of clickable chips */
 .cdp-care-strip {

@@ -49,6 +49,35 @@
         </div>
       </div>
 
+      <!-- Email signature (tenant HTML) -->
+      <div v-if="!isSsc" class="info-section">
+        <div class="section-header">
+          <h2 style="margin: 0;">Email Signature</h2>
+        </div>
+        <p class="hint" style="margin-top: 8px; max-width: 36rem;">
+          Automatically built from your profile (name, credentials, job title, email, extension, photo) and branded to the tenant you’re sending from. Appended on Hub email for providers, admins, and CPAs.
+        </p>
+        <label v-if="emailSignaturePreview?.eligible" style="display:flex;align-items:center;gap:8px;margin:10px 0;">
+          <input
+            type="checkbox"
+            :checked="!!emailSignaturePreview?.enabled"
+            :disabled="signatureSaving || !userId"
+            @change="onToggleEmailSignature($event)"
+          />
+          Signature active on outbound Hub email
+        </label>
+        <p v-else-if="emailSignaturePreview && !emailSignaturePreview.eligible" class="hint">
+          HTML signatures are not enabled for this account type.
+        </p>
+        <div
+          v-if="emailSignaturePreview?.html"
+          class="email-sig-live-preview"
+          style="border:1px solid var(--border,#e2e8f0);border-radius:8px;padding:12px;background:#fff;overflow-x:auto;margin-top:8px;"
+          v-html="emailSignaturePreview.html"
+        />
+        <div v-if="signatureError" class="error" style="margin-top: 10px;">{{ signatureError }}</div>
+      </div>
+
       <div v-if="bgExpiration && (bgExpiration.expiresAt || bgExpiration.completedAt || bgExpiration.districts?.length)" class="info-section">
         <div class="section-header">
           <h2 style="margin: 0;">Federal Background / Fingerprint Check</h2>
@@ -1334,6 +1363,45 @@ const initials = computed(() => {
 const photoInput = ref(null);
 const photoUploading = ref(false);
 const photoError = ref('');
+const signatureSaving = ref(false);
+const signatureError = ref('');
+const emailSignaturePreview = ref(null);
+
+const loadEmailSignaturePreview = async () => {
+  emailSignaturePreview.value = null;
+  if (!userId.value) return;
+  try {
+    const agencyId = agencyStore.currentAgency?.id || null;
+    const { data } = await api.get(`/users/${userId.value}/email-signature/preview`, {
+      params: agencyId ? { agencyId } : {},
+      skipGlobalLoading: true
+    });
+    emailSignaturePreview.value = data || null;
+  } catch {
+    emailSignaturePreview.value = null;
+  }
+};
+
+const onToggleEmailSignature = async (event) => {
+  try {
+    signatureError.value = '';
+    signatureSaving.value = true;
+    const enabled = !!event?.target?.checked;
+    const agencyId = agencyStore.currentAgency?.id || null;
+    const { data } = await api.patch(`/users/${userId.value}/email-signature`, {
+      enabled,
+      agencyId: agencyId || undefined
+    });
+    emailSignaturePreview.value = data?.preview
+      ? { ...data.preview, enabled: data.enabled }
+      : { ...(emailSignaturePreview.value || {}), enabled };
+  } catch (e) {
+    signatureError.value = e.response?.data?.error?.message || 'Could not update signature setting';
+    await loadEmailSignaturePreview();
+  } finally {
+    signatureSaving.value = false;
+  }
+};
 
 const onPhotoSelected = async (event) => {
   try {
@@ -2353,6 +2421,7 @@ onMounted(() => {
     fetchAutoImportSeasonEnabled();
     loadClubSummitContext();
     loadSstcPrefs();
+    loadEmailSignaturePreview();
   }
   loadBiometricStatus();
 });

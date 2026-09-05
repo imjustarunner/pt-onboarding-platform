@@ -41,9 +41,12 @@ function mapContactRow(row, { includeClientLink = false, userCanSeeClient = fals
     client_id: row.client_id,
     full_name: row.full_name,
     email: row.email,
+    email_alt: row.email_alt || null,
     phone: row.phone,
     source: row.source,
     source_ref_id: row.source_ref_id,
+    relationship_type: row.relationship_type || null,
+    identity_group_id: row.identity_group_id || null,
     is_active: row.is_active === 1 || row.is_active === true,
     created_at: row.created_at,
     updated_at: row.updated_at,
@@ -456,6 +459,85 @@ export const listAudience = async (req, res, next) => {
 
     res.json(filtered);
   } catch (e) {
+    next(e);
+  }
+};
+
+function assertAdminOrSupport(req) {
+  const role = String(req.user?.role || '').toLowerCase();
+  if (!['admin', 'super_admin', 'support'].includes(role)) {
+    throw Object.assign(new Error('Admin or support access required to link contact duplicates'), {
+      status: 403
+    });
+  }
+}
+
+/**
+ * GET /api/contacts/agency/:agencyId/duplicate-suggestions
+ * Admin/support: clusters of likely personal duplicates (email/phone/name).
+ */
+export const listDuplicateSuggestions = async (req, res, next) => {
+  try {
+    assertAdminOrSupport(req);
+    const agencyId = parseInt(req.params.agencyId, 10);
+    await assertAgencyAccess(req, agencyId, { requireAdmin: true });
+    const {
+      listAgencyContactDuplicateSuggestions
+    } = await import('../services/agencyContactIdentity.service.js');
+    const suggestions = await listAgencyContactDuplicateSuggestions({
+      agencyId,
+      limit: parseInt(req.query?.limit, 10) || 40
+    });
+    res.json({ suggestions });
+  } catch (e) {
+    if (e?.status) return res.status(e.status).json({ error: { message: e.message } });
+    next(e);
+  }
+};
+
+/**
+ * POST /api/contacts/agency/:agencyId/link-identities
+ * Body: { contactIds: number[] }
+ * Links duplicates into one identity group. Does NOT grant provider access.
+ */
+export const linkIdentities = async (req, res, next) => {
+  try {
+    assertAdminOrSupport(req);
+    const agencyId = parseInt(req.params.agencyId, 10);
+    await assertAgencyAccess(req, agencyId, { requireAdmin: true });
+    const contactIds = Array.isArray(req.body?.contactIds) ? req.body.contactIds : [];
+    const { linkAgencyContactIdentities } = await import('../services/agencyContactIdentity.service.js');
+    const result = await linkAgencyContactIdentities({
+      agencyId,
+      contactIds,
+      linkedByUserId: req.user.id
+    });
+    res.json({ ok: true, ...result });
+  } catch (e) {
+    if (e?.status) return res.status(e.status).json({ error: { message: e.message } });
+    next(e);
+  }
+};
+
+/**
+ * POST /api/contacts/:id/unlink-identity
+ * Remove this contact from its identity group.
+ */
+export const unlinkIdentity = async (req, res, next) => {
+  try {
+    assertAdminOrSupport(req);
+    const contactId = parseInt(req.params.id, 10);
+    const contact = await AgencyContact.findById(contactId);
+    if (!contact) return res.status(404).json({ error: { message: 'Contact not found' } });
+    await assertAgencyAccess(req, contact.agency_id, { requireAdmin: true });
+    const { unlinkAgencyContactIdentity } = await import('../services/agencyContactIdentity.service.js');
+    const result = await unlinkAgencyContactIdentity({
+      agencyId: contact.agency_id,
+      contactId
+    });
+    res.json({ ok: true, ...result });
+  } catch (e) {
+    if (e?.status) return res.status(e.status).json({ error: { message: e.message } });
     next(e);
   }
 };

@@ -13,6 +13,8 @@ import {
 } from './quickViewAuth.service.js';
 
 const DEFAULT_DIGEST_HOURS = 24;
+const DEFAULT_SEND_DELAY_SECONDS = 20;
+const MAX_SEND_DELAY_SECONDS = 600;
 
 function normalizeDigestHours(v) {
   const n = Number(v);
@@ -20,35 +22,79 @@ function normalizeDigestHours(v) {
   return Math.min(168, Math.max(1, Math.round(n)));
 }
 
-export async function getCommunicationPrefs(userId) {
-  const [rows] = await pool.execute(
-    `SELECT * FROM user_communication_prefs WHERE user_id = ? LIMIT 1`,
-    [userId]
-  );
-  if (rows[0]) {
+function normalizeSendDelaySeconds(v, fallback = DEFAULT_SEND_DELAY_SECONDS) {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.min(MAX_SEND_DELAY_SECONDS, Math.max(1, Math.round(n)));
+}
+
+function mapPrefsRow(row, userId) {
+  if (!row) {
     return {
       userId,
-      personalEmailNotify: !!rows[0].personal_email_notify,
-      digestHours: normalizeDigestHours(rows[0].digest_hours),
-      digestBusinessHours: rows[0].digest_business_hours != null
-        ? normalizeDigestHours(rows[0].digest_business_hours)
-        : null,
-      availabilityHoursEnabled: rows[0].availability_hours_enabled !== 0,
-      meetingReminderBypassAvailability: rows[0].meeting_reminder_bypass_availability !== 0,
-      lastInboxDigestAt: rows[0].last_inbox_digest_at || null,
-      lastPersonalForwardAt: rows[0].last_personal_forward_at || null
+      personalEmailNotify: false,
+      digestHours: DEFAULT_DIGEST_HOURS,
+      digestBusinessHours: null,
+      availabilityHoursEnabled: true,
+      meetingReminderBypassAvailability: true,
+      lastInboxDigestAt: null,
+      lastPersonalForwardAt: null,
+      sendDelayEmailSeconds: DEFAULT_SEND_DELAY_SECONDS,
+      sendDelaySecureSeconds: DEFAULT_SEND_DELAY_SECONDS,
+      sendDelayInternalSeconds: DEFAULT_SEND_DELAY_SECONDS,
+      sendDelaySmsSeconds: DEFAULT_SEND_DELAY_SECONDS
     };
   }
   return {
     userId,
-    personalEmailNotify: false,
-    digestHours: DEFAULT_DIGEST_HOURS,
-    digestBusinessHours: null,
-    availabilityHoursEnabled: true,
-    meetingReminderBypassAvailability: true,
-    lastInboxDigestAt: null,
-    lastPersonalForwardAt: null
+    personalEmailNotify: !!row.personal_email_notify,
+    digestHours: normalizeDigestHours(row.digest_hours),
+    digestBusinessHours:
+      row.digest_business_hours != null ? normalizeDigestHours(row.digest_business_hours) : null,
+    availabilityHoursEnabled: row.availability_hours_enabled !== 0,
+    meetingReminderBypassAvailability: row.meeting_reminder_bypass_availability !== 0,
+    lastInboxDigestAt: row.last_inbox_digest_at || null,
+    lastPersonalForwardAt: row.last_personal_forward_at || null,
+    sendDelayEmailSeconds: normalizeSendDelaySeconds(
+      row.send_delay_email_seconds,
+      DEFAULT_SEND_DELAY_SECONDS
+    ),
+    sendDelaySecureSeconds: normalizeSendDelaySeconds(
+      row.send_delay_secure_seconds,
+      DEFAULT_SEND_DELAY_SECONDS
+    ),
+    sendDelayInternalSeconds: normalizeSendDelaySeconds(
+      row.send_delay_internal_seconds,
+      DEFAULT_SEND_DELAY_SECONDS
+    ),
+    sendDelaySmsSeconds: normalizeSendDelaySeconds(
+      row.send_delay_sms_seconds,
+      DEFAULT_SEND_DELAY_SECONDS
+    )
   };
+}
+
+export async function getCommunicationPrefs(userId) {
+  try {
+    const [rows] = await pool.execute(
+      `SELECT * FROM user_communication_prefs WHERE user_id = ? LIMIT 1`,
+      [userId]
+    );
+    return mapPrefsRow(rows[0], userId);
+  } catch (e) {
+    // Pre-migration 1380: delay columns may be missing
+    if (String(e?.message || '').includes('send_delay_')) {
+      const [rows] = await pool.execute(
+        `SELECT user_id, personal_email_notify, digest_hours, digest_business_hours,
+                availability_hours_enabled, meeting_reminder_bypass_availability,
+                last_inbox_digest_at, last_personal_forward_at
+         FROM user_communication_prefs WHERE user_id = ? LIMIT 1`,
+        [userId]
+      );
+      return mapPrefsRow(rows[0], userId);
+    }
+    throw e;
+  }
 }
 
 export async function updateCommunicationPrefs(userId, patch = {}) {
@@ -59,7 +105,9 @@ export async function updateCommunicationPrefs(userId, patch = {}) {
     patch.digestHours !== undefined ? normalizeDigestHours(patch.digestHours) : current.digestHours;
   const digestBusinessHours =
     patch.digestBusinessHours !== undefined
-      ? (patch.digestBusinessHours == null ? null : normalizeDigestHours(patch.digestBusinessHours))
+      ? patch.digestBusinessHours == null
+        ? null
+        : normalizeDigestHours(patch.digestBusinessHours)
       : current.digestBusinessHours;
   const availabilityHoursEnabled =
     patch.availabilityHoursEnabled !== undefined
@@ -69,27 +117,77 @@ export async function updateCommunicationPrefs(userId, patch = {}) {
     patch.meetingReminderBypassAvailability !== undefined
       ? !!patch.meetingReminderBypassAvailability
       : current.meetingReminderBypassAvailability;
+  const sendDelayEmailSeconds =
+    patch.sendDelayEmailSeconds !== undefined
+      ? normalizeSendDelaySeconds(patch.sendDelayEmailSeconds)
+      : current.sendDelayEmailSeconds;
+  const sendDelaySecureSeconds =
+    patch.sendDelaySecureSeconds !== undefined
+      ? normalizeSendDelaySeconds(patch.sendDelaySecureSeconds)
+      : current.sendDelaySecureSeconds;
+  const sendDelayInternalSeconds =
+    patch.sendDelayInternalSeconds !== undefined
+      ? normalizeSendDelaySeconds(patch.sendDelayInternalSeconds)
+      : current.sendDelayInternalSeconds;
+  const sendDelaySmsSeconds =
+    patch.sendDelaySmsSeconds !== undefined
+      ? normalizeSendDelaySeconds(patch.sendDelaySmsSeconds)
+      : current.sendDelaySmsSeconds;
 
-  await pool.execute(
-    `INSERT INTO user_communication_prefs
-      (user_id, personal_email_notify, digest_hours, digest_business_hours,
-       availability_hours_enabled, meeting_reminder_bypass_availability)
-     VALUES (?, ?, ?, ?, ?, ?)
-     ON DUPLICATE KEY UPDATE
-       personal_email_notify = VALUES(personal_email_notify),
-       digest_hours = VALUES(digest_hours),
-       digest_business_hours = VALUES(digest_business_hours),
-       availability_hours_enabled = VALUES(availability_hours_enabled),
-       meeting_reminder_bypass_availability = VALUES(meeting_reminder_bypass_availability)`,
-    [
-      userId,
-      personalEmailNotify ? 1 : 0,
-      digestHours,
-      digestBusinessHours,
-      availabilityHoursEnabled ? 1 : 0,
-      meetingReminderBypassAvailability ? 1 : 0
-    ]
-  );
+  try {
+    await pool.execute(
+      `INSERT INTO user_communication_prefs
+        (user_id, personal_email_notify, digest_hours, digest_business_hours,
+         availability_hours_enabled, meeting_reminder_bypass_availability,
+         send_delay_email_seconds, send_delay_secure_seconds,
+         send_delay_internal_seconds, send_delay_sms_seconds)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON DUPLICATE KEY UPDATE
+         personal_email_notify = VALUES(personal_email_notify),
+         digest_hours = VALUES(digest_hours),
+         digest_business_hours = VALUES(digest_business_hours),
+         availability_hours_enabled = VALUES(availability_hours_enabled),
+         meeting_reminder_bypass_availability = VALUES(meeting_reminder_bypass_availability),
+         send_delay_email_seconds = VALUES(send_delay_email_seconds),
+         send_delay_secure_seconds = VALUES(send_delay_secure_seconds),
+         send_delay_internal_seconds = VALUES(send_delay_internal_seconds),
+         send_delay_sms_seconds = VALUES(send_delay_sms_seconds)`,
+      [
+        userId,
+        personalEmailNotify ? 1 : 0,
+        digestHours,
+        digestBusinessHours,
+        availabilityHoursEnabled ? 1 : 0,
+        meetingReminderBypassAvailability ? 1 : 0,
+        sendDelayEmailSeconds,
+        sendDelaySecureSeconds,
+        sendDelayInternalSeconds,
+        sendDelaySmsSeconds
+      ]
+    );
+  } catch (e) {
+    if (!String(e?.message || '').includes('send_delay_')) throw e;
+    await pool.execute(
+      `INSERT INTO user_communication_prefs
+        (user_id, personal_email_notify, digest_hours, digest_business_hours,
+         availability_hours_enabled, meeting_reminder_bypass_availability)
+       VALUES (?, ?, ?, ?, ?, ?)
+       ON DUPLICATE KEY UPDATE
+         personal_email_notify = VALUES(personal_email_notify),
+         digest_hours = VALUES(digest_hours),
+         digest_business_hours = VALUES(digest_business_hours),
+         availability_hours_enabled = VALUES(availability_hours_enabled),
+         meeting_reminder_bypass_availability = VALUES(meeting_reminder_bypass_availability)`,
+      [
+        userId,
+        personalEmailNotify ? 1 : 0,
+        digestHours,
+        digestBusinessHours,
+        availabilityHoursEnabled ? 1 : 0,
+        meetingReminderBypassAvailability ? 1 : 0
+      ]
+    );
+  }
   return getCommunicationPrefs(userId);
 }
 

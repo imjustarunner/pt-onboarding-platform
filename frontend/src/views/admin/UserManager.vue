@@ -344,6 +344,14 @@
                 {{ rosterEditorMode ? 'List view' : 'Roster editor' }}
               </button>
               <button
+                v-if="rosterEditorMode && !isSscSstcTenant"
+                type="button"
+                class="btn btn-ghost btn-sm"
+                @click="closeRosterEditor"
+              >
+                Close roster editor
+              </button>
+              <button
                 v-if="!rosterEditorMode && !isSscSstcTenant"
                 type="button"
                 class="btn btn-secondary btn-sm"
@@ -2018,6 +2026,9 @@ const columnViewMode = ref(false);
 function toggleRosterEditor() {
   rosterEditorMode.value = !rosterEditorMode.value;
   if (rosterEditorMode.value) columnViewMode.value = false;
+}
+function closeRosterEditor() {
+  rosterEditorMode.value = false;
 }
 function toggleColumnView() {
   columnViewMode.value = !columnViewMode.value;

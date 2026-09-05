@@ -130,6 +130,12 @@ import {
   createClientRenewal,
   sendClientRenewal
 } from '../controllers/clientRenewal.controller.js';
+import {
+  listClientAffiliatedContacts,
+  createClientAffiliatedContact,
+  patchClientAffiliatedContact,
+  deleteClientAffiliatedContact
+} from '../controllers/clientContactAffiliation.controller.js';
 
 const router = express.Router();
 
@@ -342,6 +348,12 @@ router.post(
 );
 router.patch('/:id/guardians/:guardianUserId', requireBackofficeAdmin, updateClientGuardian);
 router.delete('/:id/guardians/:guardianUserId', requireBackofficeAdmin, removeClientGuardian);
+
+// Affiliated contacts (reminder recipients without portal access)
+router.get('/:id/contacts', listClientAffiliatedContacts);
+router.post('/:id/contacts', createClientAffiliatedContact);
+router.patch('/:id/contacts/:affiliationId', patchClientAffiliatedContact);
+router.delete('/:id/contacts/:affiliationId', deleteClientAffiliatedContact);
 
 router.post('/bulk/delete-preview', requireBackofficeAdmin, getBulkClientsDeletePreviewHandler);
 router.post('/bulk/delete-dev-fill', requireBackofficeAdmin, bulkDeleteDevFillClients);

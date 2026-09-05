@@ -197,6 +197,7 @@ async function enrichRows(rows, fields, { agencyId }) {
   const needPayroll = fields.some((f) => f.source === 'payroll' || f.source === 'payroll_flag');
   const needClassification = fields.some((f) => f.source === 'classification');
   const needContract = fields.some((f) => f.key === 'admin_doc_contract');
+  const needEmailSignature = fields.some((f) => f.key === 'email_signature');
 
   const extraByUser = new Map();
   const ensure = (id) => {
@@ -512,6 +513,44 @@ async function enrichRows(rows, fields, { agencyId }) {
     });
   }
 
+  if (needEmailSignature) {
+    await loadMapInChunks(ids, async (group) => {
+      const [rows] = await pool.execute(
+        `SELECT id, role, COALESCE(email_signature_enabled, 1) AS email_signature_enabled
+         FROM users WHERE id IN (${group.map(() => '?').join(',')})`,
+        group
+      ).catch(async () => {
+        const [fb] = await pool.execute(
+          `SELECT id, role FROM users WHERE id IN (${group.map(() => '?').join(',')})`,
+          group
+        );
+        return [fb];
+      });
+      const signatureRoles = new Set([
+        'provider',
+        'provider_plus',
+        'intern',
+        'intern_plus',
+        'admin',
+        'super_admin',
+        'clinical_practice_assistant'
+      ]);
+      for (const row of rows || []) {
+        const role = String(row.role || '').toLowerCase();
+        const eligible = signatureRoles.has(role);
+        const enabled =
+          row.email_signature_enabled === undefined
+            ? true
+            : !(row.email_signature_enabled === 0 || row.email_signature_enabled === false);
+        ensure(Number(row.id)).email_signature = !eligible
+          ? 'N/A'
+          : enabled
+            ? 'HTML · Active'
+            : 'HTML · Off';
+      }
+    });
+  }
+
   return rows.map((r) => {
     const bag = extraByUser.get(Number(r.id)) || {};
     const values = {};
@@ -807,13 +846,23 @@ export async function bulkDeleteUsers({ reqUser, userIds }) {
 
 export async function uploadUserGridFile({ reqUser, userId, fieldKey, file }) {
   assertGridAccess(reqUser);
-  if (fieldKey !== 'admin_doc_contract') {
-    throw Object.assign(new Error('That column does not accept files'), { status: 400 });
-  }
   if (!(await actorCanEditUser(reqUser, userId))) {
     throw Object.assign(new Error('Access denied for this user'), { status: 403 });
   }
   if (!file?.buffer) throw Object.assign(new Error('File is required'), { status: 400 });
+
+  if (fieldKey === 'email_signature') {
+    throw Object.assign(
+      new Error(
+        'Email signatures are now HTML templates from the staff profile (name, credentials, title, photo). Open the user profile → Email Signature.'
+      ),
+      { status: 400 }
+    );
+  }
+
+  if (fieldKey !== 'admin_doc_contract') {
+    throw Object.assign(new Error('That column does not accept files'), { status: 400 });
+  }
   const originalName = file.originalname || 'contract.pdf';
   const mimeType = file.mimetype || 'application/octet-stream';
   const uniqueSuffix = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;

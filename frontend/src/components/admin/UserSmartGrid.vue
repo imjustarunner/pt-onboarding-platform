@@ -19,6 +19,7 @@
 
     <div v-if="pickerOpen" class="roster-picker">
       <p class="muted">Choose up to {{ maxColumns }} columns. Name stays frozen on the left.</p>
+      <p v-if="emailSignatureGuidance" class="muted roster-sig-hint">{{ emailSignatureGuidance }}</p>
       <div class="roster-picker-grid">
         <div v-for="group in fieldGroups" :key="group.name" class="roster-picker-group">
           <div class="roster-picker-group-title">{{ group.name }}</div>
@@ -111,11 +112,26 @@
             <td v-for="f in selectedFields" :key="`${row.id}-${f.key}`">
               <template v-if="f.type === 'file'">
                 <div class="file-cell">
+                  <img
+                    v-if="f.key === 'email_signature' && fileUrl(row, f)"
+                    :src="fileUrl(row, f)"
+                    alt=""
+                    class="sig-thumb"
+                  />
                   <span v-if="fileName(row, f)" class="file-name" :title="fileName(row, f)">{{ fileName(row, f) }}</span>
-                  <span v-else class="muted">None</span>
-                  <label v-if="!viewOnly" class="btn btn-secondary btn-sm file-btn">
-                    Upload
-                    <input type="file" hidden @change="onFile(row, f, $event)" />
+                  <span v-else class="muted" :title="f.guidance || f.hint || ''">None</span>
+                  <label
+                    v-if="!viewOnly"
+                    class="btn btn-secondary btn-sm file-btn"
+                    :title="f.guidance || f.hint || 'Upload file'"
+                  >
+                    {{ f.key === 'email_signature' && fileName(row, f) ? 'Replace' : 'Upload' }}
+                    <input
+                      type="file"
+                      hidden
+                      :accept="f.accept || undefined"
+                      @change="onFile(row, f, $event)"
+                    />
                   </label>
                 </div>
               </template>
@@ -248,6 +264,11 @@ const fieldGroups = computed(() => {
 const selectedFields = computed(() =>
   selectedKeys.value.map((k) => allFields.value.find((f) => f.key === k)).filter(Boolean)
 );
+const emailSignatureGuidance = computed(() => {
+  if (!selectedKeys.value.includes('email_signature')) return '';
+  const f = allFields.value.find((x) => x.key === 'email_signature');
+  return f?.guidance || 'Best size: max width 600px, height 150–200px (~3:1 or 4:1). PNG or JPG under ~100KB.';
+});
 const editableSelectedFields = computed(() => selectedFields.value.filter((f) => f.editable !== false && f.type !== 'file'));
 const bulkFieldDef = computed(() => selectedFields.value.find((f) => f.key === bulkField.value) || null);
 
@@ -405,6 +426,11 @@ function flagClass(row, field) {
 function fileName(row, field) {
   const v = cellValue(row, field);
   return v?.name || '';
+}
+
+function fileUrl(row, field) {
+  const v = cellValue(row, field);
+  return v?.url || '';
 }
 
 function optionsFor(field) {
@@ -741,6 +767,16 @@ watch(
 .file-cell { display: flex; align-items: center; gap: 8px; }
 .file-name { max-width: 140px; overflow: hidden; text-overflow: ellipsis; }
 .file-btn { margin: 0; }
+.sig-thumb {
+  width: 48px;
+  height: 16px;
+  object-fit: contain;
+  border-radius: 2px;
+  background: #f8fafc;
+  border: 1px solid var(--border, #e2e8f0);
+  flex-shrink: 0;
+}
+.roster-sig-hint { margin: 0 0 10px; font-size: 12px; max-width: 52rem; }
 .empty { text-align: center; padding: 24px; }
 .filter-input, .filter-select { padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--text-primary); }
 </style>

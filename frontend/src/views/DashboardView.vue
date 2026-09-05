@@ -25,7 +25,12 @@
     <div
       class="container"
       :class="{
-        'container-wide': activeTab === 'my_schedule' || activeTab === 'overview' || activeTab === 'log_time',
+            'container-wide':
+              activeTab === 'my_schedule' ||
+              activeTab === 'overview' ||
+              activeTab === 'log_time' ||
+              activeTab === 'chats' ||
+              activeTab === 'communications',
         'pthq-personal-inner': usePlatformShell,
       }"
     >
@@ -461,7 +466,8 @@
             'card-content--account-hub': activeTab === 'my',
             'card-content--documents': activeTab === 'documents',
             'card-content--overview': activeTab === 'overview',
-            'card-content--log-time': activeTab === 'log_time'
+            'card-content--log-time': activeTab === 'log_time',
+            'card-content--messages-hub': activeTab === 'chats' || activeTab === 'communications'
           }"
         >
           <div
@@ -7034,6 +7040,22 @@ h1 {
   border: none;
   box-shadow: none;
   border-radius: 12px;
+}
+
+.card-content.card-content--messages-hub,
+.my-panel.dashboard-embedded-view {
+  background: var(--bg-alt, #f3f4f6);
+  padding: 10px 12px 14px;
+  border: none;
+  box-shadow: none;
+  border-radius: 12px;
+  min-height: calc(100dvh - 160px);
+}
+.card-content.card-content--messages-hub :deep(.chats-view),
+.my-panel.dashboard-embedded-view :deep(.chats-view) {
+  height: calc(100dvh - 180px);
+  max-height: calc(100dvh - 180px);
+  padding: 0;
 }
 
 .my-panel--account-hub :deep(.pay-hub) {

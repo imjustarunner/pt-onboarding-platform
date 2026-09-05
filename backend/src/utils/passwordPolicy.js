@@ -10,7 +10,7 @@
  */
 
 const PASSWORD_POLICY_DAYS = 120;
-const EXPIRY_WARNING_DAYS = 14;
+const EXPIRY_WARNING_DAYS = 7;
 
 const EMPTY_POLICY = {
   requiresPasswordChange: false,

@@ -50,6 +50,8 @@ class GoogleWorkspaceEmailService {
     fromName = null,
     fromAddress = null,
     replyTo = null,
+    cc = null,
+    bcc = null,
     attachments = null,
     agencyId = null,
     userId = null,
@@ -57,6 +59,8 @@ class GoogleWorkspaceEmailService {
   }) {
     const redirected = await rewriteHogwartsOutboundRecipient({
       to,
+      cc,
+      bcc,
       subject,
       agencyId,
       userId,
@@ -64,6 +68,8 @@ class GoogleWorkspaceEmailService {
     });
     to = redirected.to;
     subject = redirected.subject;
+    cc = redirected.cc;
+    bcc = redirected.bcc;
     const impersonate = getImpersonatedUser();
     if (!impersonate) {
       throw new Error('Missing GOOGLE_WORKSPACE_IMPERSONATE_USER or GMAIL_IMPERSONATE_USER');
@@ -97,6 +103,8 @@ class GoogleWorkspaceEmailService {
       html,
       from: fromHeader,
       replyTo,
+      cc,
+      bcc,
       attachments
     });
 

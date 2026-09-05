@@ -67,7 +67,11 @@ export async function getUnifiedInboxes(req, res, next) {
     if (!isAllowedRole(req.user)) return deny(res);
     const agencyId = resolveAgencyId(req);
     if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
-    const inboxes = await listInboxes({ agencyId, userId: req.user.id });
+    const inboxes = await listInboxes({
+      agencyId,
+      userId: req.user.id,
+      includeShared: isBackofficeRole(req.user)
+    });
     res.json({ inboxes });
   } catch (e) {
     next(e);
@@ -82,7 +86,13 @@ export async function getUnifiedAttentionSummary(req, res, next) {
     if (!isAllowedRole(req.user)) return deny(res);
     const agencyId = resolveAgencyId(req);
     if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
-    const summary = await getAttentionSummary({ agencyId, userId: req.user.id });
+    // Match Hub / conversation list: non-ops see assigned + personal App inbox only
+    const scopeToUserId = isBackofficeRole(req.user) ? null : req.user.id;
+    const summary = await getAttentionSummary({
+      agencyId,
+      userId: req.user.id,
+      scopeToUserId
+    });
     res.json({ summary });
   } catch (e) {
     next(e);
@@ -98,16 +108,47 @@ export async function getUnifiedConversations(req, res, next) {
     const agencyId = resolveAgencyId(req);
     if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
 
-    let inboxId = req.query.inboxId != null && req.query.inboxId !== '' && req.query.inboxId !== 'null'
-      ? parseInt(req.query.inboxId, 10)
-      : null;
+    const adminViewer = isBackofficeRole(req.user);
+    const rawInbox = req.query.inboxId;
+    let inboxId =
+      rawInbox != null && rawInbox !== '' && rawInbox !== 'null' && rawInbox !== 'assigned' && rawInbox !== 'my_inbox'
+        ? parseInt(String(rawInbox), 10)
+        : null;
     let ownerUserId = null;
     let filter = String(req.query.filter || 'all');
+    let scopeToUserId = null;
 
-    if (req.query.inboxId === 'assigned') {
+    if (rawInbox === 'assigned') {
       inboxId = null;
       filter = filter === 'all' ? 'assigned' : filter;
       ownerUserId = req.user.id;
+    }
+
+    // Non-ops roles: never browse shared agency/tickets mailboxes (messages@, etc.).
+    // Their Hub "Inbox" is assigned-to-me + personal App inbox only.
+    if (!adminViewer) {
+      scopeToUserId = req.user.id;
+      if (Number.isFinite(inboxId)) {
+        const CommunicationInbox = (await import('../models/CommunicationInbox.model.js')).default;
+        const box = await CommunicationInbox.findById(inboxId);
+        if (!box || (box.agency_id != null && Number(box.agency_id) !== Number(agencyId))) {
+          return res.status(404).json({ error: { message: 'Inbox not found' } });
+        }
+        if (String(box.kind || '') === 'shared') {
+          inboxId = null;
+        } else if (
+          String(box.kind || '') === 'personal' &&
+          Number(box.owner_user_id) !== Number(req.user.id)
+        ) {
+          return deny(res);
+        }
+      }
+      if (rawInbox === 'my_inbox') {
+        const CommunicationInbox = (await import('../models/CommunicationInbox.model.js')).default;
+        const personal = await CommunicationInbox.findPersonalForUser(agencyId, req.user.id);
+        inboxId = personal?.id || null;
+        // Still keep scopeToUserId so empty personal inbox does not fall open to shared
+      }
     }
 
     const conversations = await listConversations({
@@ -128,10 +169,11 @@ export async function getUnifiedConversations(req, res, next) {
       limit: req.query.limit,
       offset: req.query.offset,
       userId: req.user.id,
-      syncTickets: req.query.sync !== '0',
-      isAdminViewer: isBackofficeRole(req.user),
+      syncTickets: req.query.sync !== '0' && adminViewer,
+      isAdminViewer: adminViewer,
+      scopeToUserId,
       unknownOnly: filter === 'unknown' || req.query.unknown === '1',
-      includeHeld: req.query.includeHeld === '1' && isBackofficeRole(req.user)
+      includeHeld: req.query.includeHeld === '1' && adminViewer
     });
     res.json({ conversations });
   } catch (e) {
@@ -152,6 +194,24 @@ export async function getUnifiedConversation(req, res, next) {
       markRead: req.query.markRead !== '0'
     });
     if (!detail) return res.status(404).json({ error: { message: 'Conversation not found' } });
+
+    if (!isBackofficeRole(req.user)) {
+      const conv = detail.conversation;
+      const ownerOk = Number(conv?.owner_user_id) === Number(req.user.id);
+      let personalOk = false;
+      if (conv?.inbox_id) {
+        const CommunicationInbox = (await import('../models/CommunicationInbox.model.js')).default;
+        const box = await CommunicationInbox.findById(conv.inbox_id);
+        personalOk =
+          box &&
+          String(box.kind || '') === 'personal' &&
+          Number(box.owner_user_id) === Number(req.user.id);
+      }
+      if (!ownerOk && !personalOk) {
+        return res.status(404).json({ error: { message: 'Conversation not found' } });
+      }
+    }
+
     res.json(detail);
   } catch (e) {
     next(e);
@@ -283,7 +343,14 @@ export async function patchUnifiedPrefs(req, res, next) {
     if (!isAllowedRole(req.user)) return deny(res);
     const prefs = await updateCommunicationPrefs(req.user.id, {
       personalEmailNotify: req.body?.personalEmailNotify,
-      digestHours: req.body?.digestHours
+      digestHours: req.body?.digestHours,
+      digestBusinessHours: req.body?.digestBusinessHours,
+      availabilityHoursEnabled: req.body?.availabilityHoursEnabled,
+      meetingReminderBypassAvailability: req.body?.meetingReminderBypassAvailability,
+      sendDelayEmailSeconds: req.body?.sendDelayEmailSeconds,
+      sendDelaySecureSeconds: req.body?.sendDelaySecureSeconds,
+      sendDelayInternalSeconds: req.body?.sendDelayInternalSeconds,
+      sendDelaySmsSeconds: req.body?.sendDelaySmsSeconds
     });
     res.json({ prefs });
   } catch (e) {
@@ -731,6 +798,7 @@ export async function deleteMyCommunicationContact(req, res, next) {
 
 /**
  * POST /api/communications/conversations/:id/mark-known
+ * Marks sender as known (trust contact) and surfaces unread mail in Unread.
  */
 export async function postMarkSenderKnown(req, res, next) {
   try {
@@ -738,23 +806,63 @@ export async function postMarkSenderKnown(req, res, next) {
     const agencyId = resolveAgencyId(req);
     const id = parseInt(req.params.id, 10);
     if (!agencyId || !id) return res.status(400).json({ error: { message: 'agencyId and id required' } });
-    const detail = await getConversationDetail(id, { userId: req.user.id, markRead: false });
-    if (!detail?.conversation) return res.status(404).json({ error: { message: 'Not found' } });
-    const participants = await (await import('../models/CommunicationConversation.model.js')).default
-      .listParticipants(id);
-    const primary = participants.find((p) => p.is_primary) || participants[0];
-    if (!primary?.email) return res.status(400).json({ error: { message: 'No sender email' } });
-    const UserCommunicationContact = (await import('../models/UserCommunicationContact.model.js')).default;
-    const contact = await UserCommunicationContact.upsertSafe({
+    const { resolveUnknownSenderConversation } = await import('../services/resolveUnknownSender.service.js');
+    const result = await resolveUnknownSenderConversation({
       agencyId,
-      ownerUserId: req.user.id,
-      email: primary.email,
-      displayName: primary.display_name || null,
-      source: 'mark_known'
+      userId: req.user.id,
+      role: req.user.role,
+      conversationId: id,
+      mode: 'known_only',
+      markUnreadIfNeeded: true
     });
-    await poolOrUpdateUnknown(id);
-    res.json({ contact, conversationId: id });
+    res.json({
+      contact: result.trustContact,
+      conversationId: id,
+      markedUnread: result.markedUnread
+    });
   } catch (e) {
+    next(e);
+  }
+}
+
+/**
+ * POST /api/communications/conversations/:id/resolve-unknown
+ * One-click: mark known + add to existing / create agency contact, then unread if needed.
+ * Body: {
+ *   mode: 'known_only' | 'existing_contact' | 'new_contact',
+ *   existingContactId?, clientId?, fullName?, email?, phone?, relationshipType?,
+ *   attachEmailToContact?: boolean (default true)
+ * }
+ */
+export async function postResolveUnknownSender(req, res, next) {
+  try {
+    if (!isAllowedRole(req.user)) return deny(res);
+    const agencyId = resolveAgencyId(req);
+    const id = parseInt(req.params.id, 10);
+    if (!agencyId || !id) return res.status(400).json({ error: { message: 'agencyId and id required' } });
+    const mode = String(req.body?.mode || 'new_contact').trim();
+    if (!['known_only', 'existing_contact', 'new_contact'].includes(mode)) {
+      return res.status(400).json({ error: { message: 'Invalid mode' } });
+    }
+    const { resolveUnknownSenderConversation } = await import('../services/resolveUnknownSender.service.js');
+    const result = await resolveUnknownSenderConversation({
+      agencyId,
+      userId: req.user.id,
+      role: req.user.role,
+      conversationId: id,
+      mode,
+      existingContactId: req.body?.existingContactId || null,
+      clientId: req.body?.clientId || null,
+      fullName: req.body?.fullName || null,
+      email: req.body?.email || null,
+      phone: req.body?.phone || null,
+      relationshipType: req.body?.relationshipType || null,
+      attachEmailToContact: req.body?.attachEmailToContact !== false,
+      markUnreadIfNeeded: true
+    });
+    res.json({ ok: true, ...result });
+  } catch (e) {
+    if (e?.status) return res.status(e.status).json({ error: { message: e.message } });
     next(e);
   }
 }

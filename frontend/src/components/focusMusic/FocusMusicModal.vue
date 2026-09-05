@@ -232,7 +232,10 @@
         <aside class="focus-music-features">
           <div class="focus-music-loop-icon" aria-hidden="true">∞</div>
           <h3>Loop mode</h3>
-          <p v-if="isFullLibraryActive || isMyFocusActive">
+          <p v-if="isFullLibraryActive">
+            Playing from <strong>Full Library</strong> advances through every track. Heart songs to save them in <strong>My focus</strong>.
+          </p>
+          <p v-else-if="isMyFocusActive">
             Heart tracks in <strong>Full Library</strong> to build <strong>My focus</strong>, then start looping.
           </p>
           <p v-else>Heart tracks in your playlist for today&apos;s loop, then start.</p>
@@ -255,8 +258,13 @@
             <span>Shuffle order</span>
             <small>Randomize playback order for today&apos;s loop.</small>
           </label>
-          <button type="button" class="focus-music-start" :disabled="!loopCount" @click="$emit('start-looping')">
-            ▶ Start looping
+          <button
+            type="button"
+            class="focus-music-start"
+            :disabled="isFullLibraryActive ? !playlistTracks.length : !loopCount"
+            @click="$emit('start-looping')"
+          >
+            ▶ {{ isFullLibraryActive ? 'Play library' : 'Start looping' }}
           </button>
         </aside>
       </div>

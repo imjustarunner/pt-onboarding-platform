@@ -365,7 +365,7 @@ async function userInAgency(userId, agencyId) {
  * Reuse an existing direct thread between two users when one already exists.
  * Prefers school-scoped threads when organizationId is provided, then unread/recent activity.
  */
-async function findExistingDirectThreadBetweenUsers(
+export async function findExistingDirectThreadBetweenUsers(
   meUserId,
   otherUserId,
   { requestedAgencyId = null, organizationId = null } = {}

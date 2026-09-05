@@ -222,9 +222,17 @@ export async function checkHireWorkEmailAvailability({ email, userId = null, age
   return { available: true, email: normalized, domain };
 }
 
+/** Platform owner (no mail delivery) + AI manager (receives mail / send-as). */
+export const HIRE_GROUP_OWNER_EMAIL = 'michael@plottwistco.com';
+export const HIRE_GROUP_MANAGER_EMAIL = 'ai@plottwistco.com';
+
+/**
+ * Hire work-email groups are app mailboxes only — personal addresses stay in the app,
+ * not as Google Group members. External people email the group address; they are not members.
+ */
 const HIRE_GROUP_ACCESS_SETTINGS = {
-  allowExternalMembers: true,
-  whoCanJoin: 'CAN_REQUEST_TO_JOIN',
+  allowExternalMembers: false,
+  whoCanJoin: 'INVITED_CAN_JOIN',
   whoCanViewMembership: 'ALL_IN_DOMAIN_CAN_VIEW',
   whoCanViewGroup: 'ALL_MEMBERS_CAN_VIEW',
   whoCanPostMessage: 'ANYONE_CAN_POST',
@@ -234,6 +242,85 @@ const HIRE_GROUP_ACCESS_SETTINGS = {
   messageModerationLevel: 'MODERATE_NONE',
   spamModerationLevel: 'MODERATE'
 };
+
+async function ensureHireGroupRole({ groupEmail, memberEmail, role, delivery }) {
+  try {
+    await GoogleWorkspaceDirectoryService.addGroupMember({
+      groupEmail,
+      memberEmail,
+      role
+    });
+  } catch (e) {
+    const msg = String(e?.message || e?.response?.data?.error?.message || e);
+    if (!/already|Member already exists|duplicate|409/i.test(msg)) {
+      console.warn(`[hireGroupAccount] add ${role} ${memberEmail}:`, msg);
+    }
+  }
+  try {
+    await GoogleWorkspaceDirectoryService.setGroupMemberDeliverySettings({
+      groupEmail,
+      memberEmail,
+      deliverySettings: delivery
+    });
+  } catch (e) {
+    console.warn(`[hireGroupAccount] delivery ${memberEmail}:`, e?.message || e);
+    if (delivery === 'DISABLED') {
+      try {
+        await GoogleWorkspaceDirectoryService.setGroupMemberDeliverySettings({
+          groupEmail,
+          memberEmail,
+          deliverySettings: 'NONE'
+        });
+      } catch (e2) {
+        console.warn(`[hireGroupAccount] delivery fallback ${memberEmail}:`, e2?.message || e2);
+      }
+    }
+  }
+}
+
+/**
+ * Delete the hire Google Group for a user when they are terminated / inactive / archived.
+ * Safe to call repeatedly. Only deletes when the work address is a Google Group (not a user).
+ */
+export async function removeHireGoogleGroupForUser(userOrId) {
+  let user = userOrId;
+  if (userOrId != null && typeof userOrId !== 'object') {
+    user = await User.findById(userOrId);
+  }
+  if (!user?.id) return { skipped: true, reason: 'no_user' };
+
+  const candidates = [
+    normalizeEmail(user.work_email),
+    user.login_is_group_email ? normalizeEmail(user.email) : '',
+    user.login_is_group_email ? normalizeEmail(user.username) : ''
+  ].filter((e) => e && e.includes('@'));
+
+  if (!candidates.length) return { skipped: true, reason: 'no_work_email' };
+  if (!GoogleWorkspaceDirectoryService.isConfigured()) {
+    return { skipped: true, reason: 'directory_not_configured' };
+  }
+
+  const seen = new Set();
+  const results = [];
+  for (const email of candidates) {
+    if (seen.has(email)) continue;
+    seen.add(email);
+    try {
+      const group = await GoogleWorkspaceDirectoryService.getGroup({ groupEmail: email });
+      if (!group) {
+        results.push({ email, skipped: true, reason: 'not_a_group' });
+        continue;
+      }
+      const deleted = await GoogleWorkspaceDirectoryService.deleteGroup({ groupEmail: email });
+      results.push({ email, ...deleted });
+      console.log(`[hireGroupAccount] deleted group ${email} for user ${user.id}`);
+    } catch (e) {
+      console.warn(`[hireGroupAccount] delete group ${email}:`, e?.message || e);
+      results.push({ email, ok: false, error: e?.message || String(e) });
+    }
+  }
+  return { ok: true, results };
+}
 
 async function persistGroupUsernameFields({ userId, email, personalEmail }) {
   await pool.execute('UPDATE users SET personal_email = ? WHERE id = ?', [personalEmail, userId]);
@@ -343,10 +430,11 @@ export async function provisionHireGroupUsername({
     group = await GoogleWorkspaceDirectoryService.createGroup({
       email,
       name: `${name} (hire)`.slice(0, 73),
-      description: `Hire mailbox for ${name} — PlotTwistHQ group_password path. External senders may post; mail is delivered to the app inbox.`,
+      description: `Hire mailbox for ${name} — PlotTwistHQ group_password path. External senders may email the address; personal email stays in-app only (not a group member).`,
       whoCanPostMessage: 'ANYONE_CAN_POST',
       whoCanViewGroup: 'ALL_MEMBERS_CAN_VIEW',
-      allowExternalMembers: true,
+      allowExternalMembers: false,
+      whoCanJoin: 'INVITED_CAN_JOIN',
       isArchived: true,
       messageModerationLevel: 'MODERATE_NONE',
       spamModerationLevel: 'MODERATE'
@@ -373,24 +461,20 @@ export async function provisionHireGroupUsername({
     );
   }
 
-  try {
-    await GoogleWorkspaceDirectoryService.addGroupMember({
-      groupEmail: email,
-      memberEmail: personalEmail,
-      role: 'OWNER'
-    });
-  } catch (memberErr) {
-    console.warn('[hireGroupAccount] add personal email to group failed:', memberErr?.message || memberErr);
-  }
-  try {
-    await GoogleWorkspaceDirectoryService.addGroupMember({
-      groupEmail: email,
-      memberEmail: 'ai@plottwistco.com',
-      role: 'MANAGER'
-    });
-  } catch (managerErr) {
-    console.warn('[hireGroupAccount] add AI manager to group failed:', managerErr?.message || managerErr);
-  }
+  // Owner michael@ gets no mail; manager ai@ receives delivery for inbound / send-as.
+  // Do not add the hire's personal email — app mail to personal goes through the app.
+  await ensureHireGroupRole({
+    groupEmail: email,
+    memberEmail: HIRE_GROUP_OWNER_EMAIL,
+    role: 'OWNER',
+    delivery: 'DISABLED'
+  });
+  await ensureHireGroupRole({
+    groupEmail: email,
+    memberEmail: HIRE_GROUP_MANAGER_EMAIL,
+    role: 'MANAGER',
+    delivery: 'ALL_MAIL'
+  });
 
   await persistGroupUsernameFields({ userId: user.id, email, personalEmail });
 

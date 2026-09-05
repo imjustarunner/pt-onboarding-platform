@@ -67,6 +67,9 @@ export const getEmailSettings = async (req, res, next) => {
         intentConfidenceThreshold: setting.intentConfidenceThreshold ?? 0.75,
         quickViewEnabled: !!setting.quickViewEnabled,
         secureClientMessageEmailEnabled: !!setting.secureClientMessageEmailEnabled,
+        htmlEmailHeaderUrl: setting.htmlEmailHeaderUrl || null,
+        htmlEmailFooterUrl: setting.htmlEmailFooterUrl || null,
+        htmlEmailChromeComplete: !!(setting.htmlEmailHeaderUrl && setting.htmlEmailFooterUrl),
         effectiveNotificationsEnabled: effectiveEnabled
       };
     });
@@ -80,6 +83,15 @@ export const getEmailSettings = async (req, res, next) => {
       }
     }
 
+    let htmlEmailChromeMeta = null;
+    try {
+      const { resolveTenantEmailChrome } = await import('../services/tenantEmailChrome.service.js');
+      const focusAgencyId = Number(req.query?.agencyId || agenciesPayload[0]?.agencyId || 0);
+      htmlEmailChromeMeta = await resolveTenantEmailChrome(focusAgencyId || 0);
+    } catch {
+      htmlEmailChromeMeta = null;
+    }
+
     res.json({
       platform: {
         sendingMode: platform.sendingMode,
@@ -90,7 +102,8 @@ export const getEmailSettings = async (req, res, next) => {
       fromName: process.env.GOOGLE_WORKSPACE_FROM_NAME || null,
       impersonateUser: process.env.GMAIL_IMPERSONATE_USER || process.env.GOOGLE_WORKSPACE_IMPERSONATE_USER || null,
       agencies: agenciesPayload,
-      schoolOverridesByAgency: overridesByAgency
+      schoolOverridesByAgency: overridesByAgency,
+      htmlEmailChrome: htmlEmailChromeMeta
     });
   } catch (error) {
     next(error);
@@ -205,5 +218,54 @@ export const updateEmailSettings = async (req, res, next) => {
     });
   } catch (error) {
     next(error);
+  }
+};
+
+export const getHtmlEmailChrome = async (req, res, next) => {
+  try {
+    const agencyId = Number(req.query?.agencyId || 0);
+    if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
+    const { resolveTenantEmailChrome } = await import('../services/tenantEmailChrome.service.js');
+    const chrome = await resolveTenantEmailChrome(agencyId);
+    res.json({ agencyId, ...chrome });
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
+ * POST /api/email-settings/html-chrome/:kind  kind = header|footer
+ * multipart field: file
+ * query/body: agencyId
+ */
+export const uploadHtmlEmailChrome = async (req, res, next) => {
+  try {
+    const kind = String(req.params?.kind || '').toLowerCase();
+    if (!['header', 'footer'].includes(kind)) {
+      return res.status(400).json({ error: { message: 'kind must be header or footer' } });
+    }
+    const agencyId = Number(req.body?.agencyId || req.query?.agencyId || 0);
+    if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
+    if (!req.file) return res.status(400).json({ error: { message: 'No file uploaded' } });
+
+    const path = await import('path');
+    const StorageService = (await import('../services/storage.service.js')).default;
+    const ext = path.extname(req.file.originalname || '') || '.png';
+    const filename = `email-${kind}-${agencyId}-${Date.now()}${ext}`;
+    const storageResult = await StorageService.saveLogo(req.file.buffer, filename, req.file.mimetype);
+    const filePath = storageResult.relativePath || '';
+    const publicRel = String(filePath).startsWith('uploads/')
+      ? String(filePath).substring('uploads/'.length)
+      : String(filePath);
+    const url = `/uploads/${publicRel}`;
+
+    const { updateAgencyHtmlEmailChrome } = await import('../services/tenantEmailChrome.service.js');
+    const chrome = await updateAgencyHtmlEmailChrome(agencyId, {
+      ...(kind === 'header' ? { headerUrl: url } : { footerUrl: url })
+    });
+
+    res.json({ ok: true, kind, url, chrome });
+  } catch (e) {
+    next(e);
   }
 };

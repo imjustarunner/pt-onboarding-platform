@@ -20,9 +20,21 @@ import {
   searchMessagesHubPeople,
   getMessagesHubPerson,
   getMessagesHubTimeline,
+  getMessagesHubPersonFiles,
+  getMessagesHubPersonActivity,
   postMessagesHubSend,
+  postMessagesHubEnsureThread,
   getMessagesHubAliases,
-  postMessagesHubReact
+  getMessagesHubSignaturePreview,
+  postMessagesHubReact,
+  getMessagesHubStartDirectory,
+  getMessagesHubContacts,
+  getMessagesHubExternalLookup,
+  postMessagesHubExternalContact,
+  postMessagesHubPortalInvite,
+  getMessagesHubSmartReply,
+  getMessagesHubQueued,
+  postMessagesHubQueuedUndo
 } from '../controllers/messagesHub.controller.js';
 
 const router = express.Router();
@@ -34,10 +46,22 @@ router.get('/dashboard-summary', getMessagesDashboardSummary);
 
 // People-first Messaging Hub
 router.get('/hub/people', searchMessagesHubPeople);
-router.get('/hub/people/:personKey', getMessagesHubPerson);
+router.get('/hub/start-directory', getMessagesHubStartDirectory);
+router.get('/hub/contacts', getMessagesHubContacts);
+router.get('/hub/external-lookup', getMessagesHubExternalLookup);
+router.post('/hub/external-contact', postMessagesHubExternalContact);
+router.post('/hub/portal-invite', postMessagesHubPortalInvite);
+router.get('/hub/smart-reply', getMessagesHubSmartReply);
+router.get('/hub/queued', getMessagesHubQueued);
+router.post('/hub/queued/:id/undo', postMessagesHubQueuedUndo);
 router.get('/hub/people/:personKey/timeline', getMessagesHubTimeline);
+router.get('/hub/people/:personKey/files', getMessagesHubPersonFiles);
+router.get('/hub/people/:personKey/activity', getMessagesHubPersonActivity);
+router.get('/hub/people/:personKey', getMessagesHubPerson);
 router.get('/hub/aliases', getMessagesHubAliases);
+router.get('/hub/signature-preview', getMessagesHubSignaturePreview);
 router.post('/hub/send', postMessagesHubSend);
+router.post('/hub/ensure-thread', postMessagesHubEnsureThread);
 router.post('/hub/react', postMessagesHubReact);
 
 // Grouped conversation threads (one row per client, last message + unread count)

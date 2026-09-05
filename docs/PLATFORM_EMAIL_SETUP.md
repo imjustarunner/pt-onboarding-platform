@@ -37,13 +37,27 @@ GOOGLE_WORKSPACE_REPLY_TO=support@summitstats.com
 
 The impersonated user must have “Send mail as” permission for this address in Gmail.
 
-### Tenant messages@ / securemessage@ (Messages Hub)
+### Tenant messages@ / securemessage@ / notifications@ (Messages Hub + automated notices)
 
 Locked domains: `plottwistco.com`, `itsco.health`, `innerstrengthin.com`, `nextleveluplcc.com`, `mh4kidz.com`, `risereviveco.com`.
 
 1. In Google Admin → Domain-wide Delegation, add `https://www.googleapis.com/auth/gmail.settings.sharing` to the Workspace service account client ID (with existing Gmail scopes), then re-authorize / wait for propagation.
 2. Run `node backend/src/scripts/provisionTenantMessageGroups.js` (optional `--dry-run`, `--domain=itsco.health`).
-3. Script creates Groups (`messages@` / `securemessage@`), OWNER `michael@plottwistco.com` (**delivery DISABLED — no mail**), MANAGER `ai@plottwistco.com`, Gmail Send-as on `ai@`, and upserts `email_sender_identities` + shared inboxes for agencies with `feature_flags.workspaceEmailDomain` set to that domain. External *members* are off on these groups (school hire groups still allow external); anyone can still email the address for replies.
+3. Script creates Groups (`messages@` / `securemessage@` / `notifications@`), OWNER `michael@plottwistco.com` (**delivery DISABLED — no mail**), MANAGER `ai@plottwistco.com`, Gmail Send-as on `ai@`, and upserts `email_sender_identities` + shared inboxes for agencies with `feature_flags.workspaceEmailDomain` set to that domain. External *members* are off on these groups (school hire groups still allow external); anyone can still email the address for replies.
+4. **`notifications@`** is the From/Reply-To for automated notices (contact reminder assignment, digests, etc.). Re-run the provision script to create the group if missing and to upsert the `notifications` sender identity.
+
+### Hire / individual work-email groups (`hireAccountMode: group_password`)
+
+App-created hire mailboxes (e.g. `eden@itsco.health`) use the same ownership pattern:
+
+| Role | Address | Delivery |
+|------|---------|----------|
+| OWNER | `michael@plottwistco.com` | **DISABLED** (no mail) |
+| MANAGER | `ai@plottwistco.com` | ALL_MAIL |
+
+- **Do not** add the hire’s personal email as a Google Group member — personal mail stays in the app.
+- **Allow external members:** OFF. **Who can join:** Invited only. **Who can post:** Anyone on the web (so outsiders can *email* the address).
+- When the user is marked **terminated**, **inactive**, or **archived**, the app deletes their hire Google Group automatically.
 
 ## Optional: platform sender identity (DB)
 

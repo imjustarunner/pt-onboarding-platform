@@ -489,17 +489,12 @@ export const requireKioskUser = (req, res, next) => {
 };
 
 /**
- * Guardian list access: backoffice admin OR supervisor with access to the client.
- * Use for GET /clients/:id/guardians (view only).
+ * Guardian list access: backoffice admin, supervisor with client access,
+ * or assigned clinician (view). Mutations stay on requireBackofficeAdmin routes.
  */
 export const requireGuardianListAccess = async (req, res, next) => {
   if (req.user.role === 'admin' || req.user.role === 'super_admin' || req.user.role === 'support') {
     return next();
-  }
-  const requestingUser = await User.findById(req.user.id);
-  const isSupervisor = requestingUser && User.isSupervisor(requestingUser);
-  if (!isSupervisor) {
-    return res.status(403).json({ error: { message: 'Admin access required' } });
   }
   try {
     const clientId = parseInt(req.params.id, 10);
@@ -507,6 +502,23 @@ export const requireGuardianListAccess = async (req, res, next) => {
     const Client = (await import('../models/Client.model.js')).default;
     const client = await Client.findById(clientId);
     if (!client) return res.status(404).json({ error: { message: 'Client not found' } });
+
+    const { resolveClientRecordAccess } = await import('../services/clientRecordAccess.service.js');
+    const access = await resolveClientRecordAccess({
+      userId: req.user.id,
+      role: req.user.role,
+      clientId,
+      client
+    });
+    if (access.ok && access.isAssignedClinician) {
+      return next();
+    }
+
+    const requestingUser = await User.findById(req.user.id);
+    const isSupervisor = requestingUser && User.isSupervisor(requestingUser);
+    if (!isSupervisor) {
+      return res.status(403).json({ error: { message: 'Admin access required' } });
+    }
     const { supervisorCanAccessClient } = await import('../utils/supervisorSchoolAccess.js');
     const allowed = await supervisorCanAccessClient({ supervisorUserId: req.user.id, client });
     if (!allowed) return res.status(403).json({ error: { message: 'You do not have access to this client' } });

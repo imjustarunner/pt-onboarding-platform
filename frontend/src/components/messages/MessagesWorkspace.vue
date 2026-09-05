@@ -2348,6 +2348,10 @@ watch(
       if (mainTab.value !== 'mentions') await switchToMentionsInbox();
       return;
     }
+    if (t === 'channels' && !isSchoolStaffViewer.value) {
+      if (mainTab.value !== 'channels') await switchToChannels();
+      return;
+    }
     if (t === 'files') {
       if (mainTab.value !== 'files') await switchToFilesInbox();
       return;

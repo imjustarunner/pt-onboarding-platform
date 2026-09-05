@@ -33,11 +33,27 @@ class AgencyContact {
 
   static async findByEmail(email, agencyId) {
     if (!email || !agencyId) return null;
-    const [rows] = await pool.execute(
-      'SELECT * FROM agency_contacts WHERE email = ? AND agency_id = ? AND is_active = TRUE LIMIT 1',
-      [String(email).trim().toLowerCase(), agencyId]
-    );
-    return rows[0] || null;
+    const e = String(email).trim().toLowerCase();
+    try {
+      const [rows] = await pool.execute(
+        `SELECT * FROM agency_contacts
+         WHERE agency_id = ? AND is_active = TRUE
+           AND (
+             LOWER(TRIM(COALESCE(email,''))) = ?
+             OR LOWER(TRIM(COALESCE(email_alt,''))) = ?
+           )
+         LIMIT 1`,
+        [agencyId, e, e]
+      );
+      return rows[0] || null;
+    } catch (err) {
+      if (!String(err?.message || '').includes('email_alt')) throw err;
+      const [rows] = await pool.execute(
+        'SELECT * FROM agency_contacts WHERE email = ? AND agency_id = ? AND is_active = TRUE LIMIT 1',
+        [e, agencyId]
+      );
+      return rows[0] || null;
+    }
   }
 
   static async create(data) {
@@ -50,36 +66,72 @@ class AgencyContact {
       email,
       phone,
       source = 'manual',
-      sourceRefId = null
+      sourceRefId = null,
+      relationshipType = null
     } = data;
-    const [result] = await pool.execute(
-      `INSERT INTO agency_contacts
-       (agency_id, created_by_user_id, share_with_all, client_id, full_name, email, phone, source, source_ref_id, is_active)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, TRUE)`,
-      [
-        agencyId,
-        createdByUserId,
-        shareWithAll ? 1 : 0,
-        clientId,
-        fullName || null,
-        email || null,
-        phone ? normalizePhone(phone) || phone : null,
-        source,
-        sourceRefId
-      ]
-    );
-    return this.findById(result.insertId);
+    const rel = relationshipType ? String(relationshipType).trim().slice(0, 64) : null;
+    try {
+      const [result] = await pool.execute(
+        `INSERT INTO agency_contacts
+         (agency_id, created_by_user_id, share_with_all, client_id, full_name, email, phone, source, source_ref_id, relationship_type, is_active)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, TRUE)`,
+        [
+          agencyId,
+          createdByUserId,
+          shareWithAll ? 1 : 0,
+          clientId,
+          fullName || null,
+          email || null,
+          phone ? normalizePhone(phone) || phone : null,
+          source,
+          sourceRefId,
+          rel
+        ]
+      );
+      return this.findById(result.insertId);
+    } catch (e) {
+      if (!String(e?.message || '').includes('relationship_type')) throw e;
+      const [result] = await pool.execute(
+        `INSERT INTO agency_contacts
+         (agency_id, created_by_user_id, share_with_all, client_id, full_name, email, phone, source, source_ref_id, is_active)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, TRUE)`,
+        [
+          agencyId,
+          createdByUserId,
+          shareWithAll ? 1 : 0,
+          clientId,
+          fullName || null,
+          email || null,
+          phone ? normalizePhone(phone) || phone : null,
+          source,
+          sourceRefId
+        ]
+      );
+      return this.findById(result.insertId);
+    }
   }
 
   static async update(id, patch) {
     const updates = [];
     const params = [];
-    const allowed = ['full_name', 'email', 'phone', 'share_with_all', 'client_id', 'is_active'];
+    const allowed = [
+      'full_name',
+      'email',
+      'email_alt',
+      'phone',
+      'share_with_all',
+      'client_id',
+      'is_active',
+      'relationship_type'
+    ];
     for (const key of allowed) {
       if (patch[key] === undefined) continue;
       if (key === 'phone' && patch[key]) {
         updates.push('phone = ?');
         params.push(normalizePhone(patch[key]) || patch[key]);
+      } else if (key === 'email' || key === 'email_alt') {
+        updates.push(`${key} = ?`);
+        params.push(patch[key] ? String(patch[key]).trim().toLowerCase() : null);
       } else if (key === 'share_with_all') {
         updates.push('share_with_all = ?');
         params.push(patch[key] ? 1 : 0);

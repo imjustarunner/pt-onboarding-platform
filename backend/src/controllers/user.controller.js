@@ -352,6 +352,7 @@ export const getCurrentUser = async (req, res, next) => {
       serviceFocus: user.service_focus ?? null,
       username: user.username || user.personal_email || user.email,
       profilePhotoUrl: publicUploadsUrlFromStoredPath(user.profile_photo_path),
+      emailSignatureUrl: publicUploadsUrlFromStoredPath(user.email_signature_path),
       requiresPasswordChange: pw.requiresPasswordChange,
       passwordExpiresAt: pw.passwordExpiresAt,
       passwordExpired: pw.passwordExpired,
@@ -1656,6 +1657,13 @@ export const archiveUser = async (req, res, next) => {
     }
 
     try {
+      const { removeHireGoogleGroupForUser } = await import('../services/hireGroupAccount.service.js');
+      await removeHireGoogleGroupForUser(user);
+    } catch (e) {
+      console.warn('[archiveUser] hire Google Group delete failed', e?.message || e);
+    }
+
+    try {
       const agencyId = archivedByAgencyId ?? (await getFirstAgencyForAudit(req.user.id, parseInt(id), req.user.role));
       if (agencyId) {
         await AdminAuditLog.logAction({
@@ -1756,6 +1764,13 @@ export const setStaffInactive = async (req, res, next) => {
     );
 
     await conn.commit();
+
+    try {
+      const { removeHireGoogleGroupForUser } = await import('../services/hireGroupAccount.service.js');
+      await removeHireGoogleGroupForUser(uid);
+    } catch (e) {
+      console.warn('[setStaffInactive] hire Google Group delete failed', e?.message || e);
+    }
 
     try {
       const agencyId = await getFirstAgencyForAudit(req.user.id, uid, req.user.role);
@@ -2214,7 +2229,11 @@ export const getUserById = async (req, res, next) => {
     if (parseInt(id) === req.user.id) {
       const self = await User.findById(id);
       if (!self) return res.status(404).json({ error: { message: 'User not found' } });
-      return res.json({ ...self, profile_photo_url: publicUploadsUrlFromStoredPath(self.profile_photo_path) });
+      return res.json({
+        ...self,
+        profile_photo_url: publicUploadsUrlFromStoredPath(self.profile_photo_path),
+        email_signature_url: publicUploadsUrlFromStoredPath(self.email_signature_path)
+      });
     }
 
     // Admin, super_admin, and support can view any user (trumps supervisor privileges)
@@ -2223,7 +2242,11 @@ export const getUserById = async (req, res, next) => {
       if (!user) {
         return res.status(404).json({ error: { message: 'User not found' } });
       }
-      return res.json({ ...user, profile_photo_url: publicUploadsUrlFromStoredPath(user.profile_photo_path) });
+      return res.json({
+        ...user,
+        profile_photo_url: publicUploadsUrlFromStoredPath(user.profile_photo_path),
+        email_signature_url: publicUploadsUrlFromStoredPath(user.email_signature_path)
+      });
     }
 
     // Supervisors can ONLY view their assigned supervisees
@@ -2251,7 +2274,11 @@ export const getUserById = async (req, res, next) => {
         return res.status(403).json({ error: { message: 'You can only view users assigned to you as supervisees' } });
       }
       
-      return res.json({ ...targetUser, profile_photo_url: publicUploadsUrlFromStoredPath(targetUser.profile_photo_path) });
+      return res.json({
+        ...targetUser,
+        profile_photo_url: publicUploadsUrlFromStoredPath(targetUser.profile_photo_path),
+        email_signature_url: publicUploadsUrlFromStoredPath(targetUser.email_signature_path)
+      });
     }
 
     // CPAs/provider_plus users can view users in their agencies
@@ -2277,7 +2304,11 @@ export const getUserById = async (req, res, next) => {
         return res.status(403).json({ error: { message: 'You can only view users from your assigned agencies' } });
       }
       
-      return res.json({ ...targetUser, profile_photo_url: publicUploadsUrlFromStoredPath(targetUser.profile_photo_path) });
+      return res.json({
+        ...targetUser,
+        profile_photo_url: publicUploadsUrlFromStoredPath(targetUser.profile_photo_path),
+        email_signature_url: publicUploadsUrlFromStoredPath(targetUser.email_signature_path)
+      });
     }
 
     // Summit Stats: club managers may view members (or pending applicants) in clubs they manage.
@@ -2287,7 +2318,11 @@ export const getUserById = async (req, res, next) => {
         return res.status(404).json({ error: { message: 'User not found' } });
       }
       if (await clubManagerCanViewClubMemberUser(req, id)) {
-        return res.json({ ...targetUser, profile_photo_url: publicUploadsUrlFromStoredPath(targetUser.profile_photo_path) });
+        return res.json({
+          ...targetUser,
+          profile_photo_url: publicUploadsUrlFromStoredPath(targetUser.profile_photo_path),
+          email_signature_url: publicUploadsUrlFromStoredPath(targetUser.email_signature_path)
+        });
       }
       return res.status(403).json({ error: { message: 'Access denied' } });
     }
@@ -8366,7 +8401,12 @@ export const getUserAgencies = async (req, res, next) => {
       }
     }
     
-    const agencies = await User.getAgencies(userId);
+    const viewingOtherUser = !!req.params.id && Number(req.params.id) !== Number(req.user.id);
+    const adminViewer = ['admin', 'super_admin', 'support'].includes(String(req.user.role || '').toLowerCase());
+    const agencies = await User.getAgencies(userId, {
+      // Admin profile editing must see inactive memberships (role/default still apply).
+      includeInactive: viewingOtherUser && adminViewer
+    });
     await attachAffiliationMeta(agencies);
 
     // If the user is attached to an affiliated child org (program/school/learning/etc),
@@ -10982,6 +11022,15 @@ export const updateUserStatus = async (req, res, next) => {
       return res.status(404).json({ error: { message: 'User not found' } });
     }
 
+    if (statusUpper === 'ARCHIVED' || statusUpper === 'INACTIVE_EMPLOYEE' || statusUpper === 'TERMINATED_PENDING') {
+      try {
+        const { removeHireGoogleGroupForUser } = await import('../services/hireGroupAccount.service.js');
+        await removeHireGoogleGroupForUser(updatedUser);
+      } catch (e) {
+        console.warn('[updateUserStatus] hire Google Group delete failed', e?.message || e);
+      }
+    }
+
     try {
       const agencyId = await getFirstAgencyForAudit(req.user.id, parseInt(id), req.user.role);
       if (agencyId) {
@@ -11211,6 +11260,13 @@ export const markUserTerminated = async (req, res, next) => {
       await scopeOffboardingChecklist(parseInt(id, 10));
     } catch (scopeErr) {
       console.warn('[markUserTerminated] offboarding scope failed:', scopeErr?.message);
+    }
+
+    try {
+      const { removeHireGoogleGroupForUser } = await import('../services/hireGroupAccount.service.js');
+      await removeHireGoogleGroupForUser(user);
+    } catch (e) {
+      console.warn('[markUserTerminated] hire Google Group delete failed', e?.message || e);
     }
 
     try {

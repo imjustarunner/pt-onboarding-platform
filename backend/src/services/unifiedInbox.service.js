@@ -35,6 +35,10 @@ export function resolveUndoDelayMs(payload = {}) {
 function snoozeUntilPreset(preset) {
   const d = new Date();
   const p = String(preset || '').toLowerCase();
+  if (p === '1h' || p === 'one_hour') {
+    d.setHours(d.getHours() + 1);
+    return d;
+  }
   if (p === 'later_today') {
     d.setHours(d.getHours() + 3);
     return d;
@@ -52,11 +56,11 @@ function snoozeUntilPreset(preset) {
   return null;
 }
 
-export async function listInboxes({ agencyId, userId }) {
+export async function listInboxes({ agencyId, userId, includeShared = true }) {
   await CommunicationInbox.ensureFromSenderIdentities(agencyId);
   const rows = await CommunicationInbox.listForAgency({ agencyId, userId });
   const personal = rows.find((r) => r.kind === 'personal' && Number(r.owner_user_id) === Number(userId));
-  const shared = rows.filter((r) => r.kind === 'shared');
+  const shared = includeShared ? rows.filter((r) => r.kind === 'shared') : [];
   const mapped = (r) => {
     const isPersonal = r.kind === 'personal';
     return {
@@ -76,7 +80,7 @@ export async function listInboxes({ agencyId, userId }) {
     {
       id: null,
       kind: 'virtual',
-      display_name: 'All inboxes',
+      display_name: includeShared ? 'All inboxes' : 'My conversations',
       from_email: null,
       identity_key: 'all_inboxes',
       routing: null
@@ -97,7 +101,12 @@ export async function listInboxes({ agencyId, userId }) {
 }
 
 export async function listConversations(opts) {
-  const { agencyId, syncTickets = true, channel = null } = opts;
+  const { agencyId, syncTickets = true, channel = null, userId = null } = opts;
+  try {
+    await CommunicationConversation.wakeExpiredSnoozes({ agencyId, userId });
+  } catch (e) {
+    console.warn('[unifiedInbox] wakeExpiredSnoozes:', e?.message || e);
+  }
   if (syncTickets && agencyId) {
     await syncEmailTicketsToInbox({ agencyId, limit: 80 }).catch((e) => {
       console.warn('[unifiedInbox] ticket sync failed:', e?.message || e);
@@ -112,9 +121,13 @@ export async function listConversations(opts) {
   return CommunicationConversation.list(opts);
 }
 
-export async function getAttentionSummary({ agencyId, userId } = {}) {
+export async function getAttentionSummary({ agencyId, userId, scopeToUserId = null } = {}) {
   // Do not re-sync tickets here — listConversations already syncs on load.
-  const summary = await CommunicationConversation.attentionSummary({ agencyId, userId });
+  const summary = await CommunicationConversation.attentionSummary({
+    agencyId,
+    userId,
+    scopeToUserId
+  });
   const responseTime = await computeResponseTimeMetrics({ agencyId, days: 7 }).catch(() => null);
   return { ...summary, responseTime };
 }
@@ -141,12 +154,30 @@ export async function updateConversation(conversationId, patch, { userId } = {})
   if (patch.starred !== undefined) updates.starred = !!patch.starred;
   if (patch.archive === true) updates.archivedAt = new Date();
   if (patch.archive === false) updates.archivedAt = null;
+
+  let applyingSnooze = false;
   if (patch.snoozePreset) {
     const until = snoozeUntilPreset(patch.snoozePreset);
-    if (until) updates.snoozedUntil = until;
+    if (until) {
+      updates.snoozedUntil = until;
+      updates.snoozeRestoreUnread = true;
+      applyingSnooze = true;
+    }
   }
-  if (patch.snoozedUntil !== undefined) updates.snoozedUntil = patch.snoozedUntil;
-  if (patch.clearSnooze) updates.snoozedUntil = null;
+  if (patch.snoozedUntil !== undefined) {
+    updates.snoozedUntil = patch.snoozedUntil;
+    if (patch.snoozedUntil) {
+      updates.snoozeRestoreUnread = true;
+      applyingSnooze = true;
+    } else {
+      updates.snoozeRestoreUnread = false;
+    }
+  }
+  if (patch.clearSnooze) {
+    updates.snoozedUntil = null;
+    updates.snoozeRestoreUnread = false;
+  }
+
   if (patch.draftBody !== undefined) {
     updates.draftBody = patch.draftBody;
     updates.draftUpdatedAt = new Date();
@@ -155,7 +186,8 @@ export async function updateConversation(conversationId, patch, { userId } = {})
   if (patch.markUnread && userId) {
     await CommunicationConversation.markUnread(conversationId, userId);
   }
-  if (patch.markRead && userId) {
+  // Snooze leaves Unread: mark read now; wakeExpiredSnoozes restores unread later.
+  if ((patch.markRead || applyingSnooze) && userId) {
     await CommunicationConversation.markRead(conversationId, userId);
   }
   return CommunicationConversation.update(conversationId, updates);
@@ -337,7 +369,7 @@ export async function replyToConversation(conversationId, payload, { userId } = 
   return { messageId: msgId, sent: true, provider: sendResult, undoExpiresAt };
 }
 
-function resolveScheduleAt(payload) {
+export function resolveScheduleAt(payload) {
   if (payload.scheduledSendAt) {
     const d = new Date(payload.scheduledSendAt);
     if (!Number.isNaN(d.getTime()) && d.getTime() > Date.now() + 5000) return d;
@@ -448,6 +480,7 @@ async function deliverOutboundEmail({
     senderIdentityId,
     to: to.map((t) => t.email).join(', '),
     cc: cc.length ? cc.map((c) => c.email).join(', ') : null,
+    bcc: bcc.length ? bcc.map((b) => b.email).join(', ') : null,
     subject,
     text: text || null,
     html: html || null,
@@ -458,7 +491,8 @@ async function deliverOutboundEmail({
     source: 'manual',
     generatedByUserId: userId,
     userId: null,
-    clientId: null
+    clientId: null,
+    templateType: 'hub_email'
   });
 }
 
@@ -473,7 +507,15 @@ export async function undoOutboundMessage(conversationId, messageId, { userId } 
   if (msg.send_status === 'scheduled') {
     await CommunicationConversation.updateMessage(messageId, { sendStatus: 'cancelled' });
     await cleanupScheduledAttachments(messageId);
-    return { cancelled: true, scheduled: true };
+    return {
+      cancelled: true,
+      scheduled: true,
+      body: msg.body_text || '',
+      subject: msg.subject || '',
+      channel: 'email',
+      conversationId: Number(conversationId),
+      messageId: Number(messageId)
+    };
   }
   if (msg.send_status === 'sent') {
     // Already delivered — cannot recall from remote mailbox; reject if past window.
@@ -521,6 +563,14 @@ export async function processScheduledOutboundSends({ limit = 40 } = {}) {
                 scheduledSendAt: holdUntil,
                 undoExpiresAt: holdUntil
               });
+              try {
+                await CommunicationConversation.update(row.conversation_id, {
+                  snoozedUntil: holdUntil,
+                  snoozeRestoreUnread: true
+                });
+              } catch {
+                /* ignore */
+              }
               deferred += 1;
               continue;
             }
@@ -552,6 +602,14 @@ export async function processScheduledOutboundSends({ limit = 40 } = {}) {
         undoExpiresAt: null,
         internetMessageId: sendResult?.id || null
       });
+      try {
+        await CommunicationConversation.update(row.conversation_id, {
+          snoozedUntil: null,
+          snoozeRestoreUnread: false
+        });
+      } catch {
+        /* ignore */
+      }
       await cleanupScheduledAttachments(row.id);
       sent += 1;
     } catch (e) {

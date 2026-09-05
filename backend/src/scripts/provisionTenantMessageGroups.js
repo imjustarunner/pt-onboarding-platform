@@ -1,5 +1,5 @@
 /**
- * Provision messages@ / securemessage@ Google Groups + Gmail Send-as on ai@
+ * Provision messages@ / securemessage@ / notifications@ Google Groups + Gmail Send-as on ai@
  * for the six locked tenant domains, and upsert DB identities/inboxes.
  *
  * Usage:
@@ -22,7 +22,21 @@ import {
 
 const OWNER_EMAIL = 'michael@plottwistco.com';
 const MANAGER_EMAIL = 'ai@plottwistco.com';
-const LOCAL_PARTS = ['messages', 'securemessage'];
+const LOCAL_PARTS = ['messages', 'securemessage', 'notifications'];
+
+function displayNameForLocal(local, domain) {
+  if (local === 'messages') return `Messages (${domain})`;
+  if (local === 'securemessage') return `Secure Messages (${domain})`;
+  if (local === 'notifications') return `Notifications (${domain})`;
+  return `${local}@${domain}`;
+}
+
+function sendAsDisplayName(local) {
+  if (local === 'messages') return 'Messages';
+  if (local === 'securemessage') return 'Secure Messages';
+  if (local === 'notifications') return 'Notifications';
+  return local;
+}
 
 function parseArgs(argv) {
   const dryRun = argv.includes('--dry-run');
@@ -153,14 +167,14 @@ async function main() {
     console.log(`\n=== ${domain} ===`);
     for (const local of LOCAL_PARTS) {
       const email = `${local}@${domain}`;
-      const displayName = local === 'messages' ? `Messages (${domain})` : `Secure Messages (${domain})`;
+      const displayName = displayNameForLocal(local, domain);
       try {
         await ensureGroupWithRoles(email, displayName, { dryRun });
         if (!dryRun) {
           const sendAs = await ensureSendAsAlias({
             impersonateUser: MANAGER_EMAIL,
             sendAsEmail: email,
-            displayName: local === 'messages' ? 'Messages' : 'Secure Messages',
+            displayName: sendAsDisplayName(local),
             treatAsAlias: true,
             replyToAddress: local === 'securemessage' ? `noreply@${domain}` : email
           });

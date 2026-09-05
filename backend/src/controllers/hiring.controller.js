@@ -64,16 +64,33 @@ async function ensureAgencyAccess(req, agencyId) {
     err.status = 400;
     throw err;
   }
-  if (req.user?.role === 'super_admin') return true;
+  const role = String(req.user?.role || '').toLowerCase();
+  if (role === 'super_admin' || role === 'support') return true;
 
   const agencies = await User.getAgencies(req.user.id);
   const ok = (agencies || []).some((a) => Number(a.id) === Number(agencyId));
   if (!ok) {
     const err = new Error('You do not have access to this agency');
     err.status = 403;
+    // Quiet deny — hiring UI often polls with a stale/school context agencyId.
+    err.quiet = true;
     throw err;
   }
   return true;
+}
+
+/** Resolve agencyId for hiring reads; null means “no usable agency” (return empty, don’t 403). */
+function resolveHiringAgencyId(req) {
+  const fromQuery = parseIntParam(req.query?.agencyId);
+  if (fromQuery) return fromQuery;
+  const fromBody = parseIntParam(req.body?.agencyId);
+  if (fromBody) return fromBody;
+  return (
+    parseIntParam(req.user?.agencyId) ||
+    parseIntParam(req.user?.agency_id) ||
+    parseIntParam(req.user?.currentAgencyId) ||
+    null
+  );
 }
 
 async function ensureCandidateInAgency(candidateUserId, agencyId) {
@@ -456,8 +473,16 @@ async function markHiringCandidateViewed(agencyId, candidateUserId, viewerUserId
 
 export const listCandidates = async (req, res, next) => {
   try {
-    const agencyId = parseIntParam(req.query.agencyId || req.user?.agencyId);
-    await ensureAgencyAccess(req, agencyId);
+    const agencyId = resolveHiringAgencyId(req);
+    if (!agencyId) {
+      return res.json([]);
+    }
+    try {
+      await ensureAgencyAccess(req, agencyId);
+    } catch (e) {
+      if (e?.status === 403) return res.json([]);
+      throw e;
+    }
 
     const status = req.query.status ? String(req.query.status).trim() : 'PROSPECTIVE';
     const statusNorm = String(status || '').trim().toUpperCase();
@@ -683,10 +708,49 @@ export const listCandidates = async (req, res, next) => {
 
 const PIPELINE_STAGES = ['applied', 'review', 'interview', 'offered', 'hired', 'not_hired'];
 
+const EMPTY_HIRING_DASHBOARD = {
+  agencyId: null,
+  openJobs: 0,
+  totalApplicants: 0,
+  pendingReviews: 0,
+  upcomingInterviewsCount: 0,
+  stageCounts: {
+    applied: 0,
+    review: 0,
+    interview: 0,
+    offered: 0,
+    hired: 0,
+    not_hired: 0,
+    other: 0,
+    totalActive: 0,
+    totalAll: 0
+  },
+  jobs: [],
+  upcomingInterviews: [],
+  recentApplicants: [],
+  pipeline: [
+    { stage: 'applied', label: 'Applied', count: 0 },
+    { stage: 'review', label: 'Review', count: 0 },
+    { stage: 'interview', label: 'Interview', count: 0 },
+    { stage: 'offered', label: 'Offer', count: 0 },
+    { stage: 'hired', label: 'Hired', count: 0 }
+  ]
+};
+
 export const getDashboardStats = async (req, res, next) => {
   try {
-    const agencyId = parseIntParam(req.query.agencyId || req.user?.agencyId);
-    await ensureAgencyAccess(req, agencyId);
+    const agencyId = resolveHiringAgencyId(req);
+    if (!agencyId) {
+      return res.json({ ...EMPTY_HIRING_DASHBOARD });
+    }
+    try {
+      await ensureAgencyAccess(req, agencyId);
+    } catch (e) {
+      if (e?.status === 403) {
+        return res.json({ ...EMPTY_HIRING_DASHBOARD });
+      }
+      throw e;
+    }
     const viewerId = parseIntParam(req.user?.id) || 0;
 
     const stageCounts = {
@@ -4676,8 +4740,15 @@ export const listPrehireCandidates = async (req, res, next) => {
 // Returns ONBOARDING status users with task progress.
 export const listOnboardingCandidates = async (req, res, next) => {
   try {
-    const agencyId = parseIntParam(req.query.agencyId || req.user?.agencyId);
-    if (agencyId) await ensureAgencyAccess(req, agencyId);
+    const agencyId = resolveHiringAgencyId(req);
+    if (agencyId) {
+      try {
+        await ensureAgencyAccess(req, agencyId);
+      } catch (e) {
+        if (e?.status === 403) return res.json([]);
+        throw e;
+      }
+    }
 
     const agencyClause = agencyId ? `AND ua.agency_id = ${agencyId}` : '';
 

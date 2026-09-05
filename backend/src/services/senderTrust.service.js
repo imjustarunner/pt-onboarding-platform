@@ -1,6 +1,8 @@
 /**
  * Classify inbound email senders for unified inbox routing.
- * Order: blocked → app staff → school staff → school contact → client/guardian → user contact → unknown
+ * Known = anyone already in the app (any role, including archived), plus
+ * personal trust rows and agency contacts visible to the mailbox owner.
+ * Personal / limited agency contacts do NOT make a sender known for other staff.
  */
 import pool from '../config/database.js';
 import UserCommunicationContact from '../models/UserCommunicationContact.model.js';
@@ -19,6 +21,15 @@ const STAFF_ROLES = new Set([
   'supervisor', 'clinical_practice_assistant', 'intern', 'intern_plus',
   'schedule_manager', 'facilitator'
 ]);
+
+function trustFromUserRole(role) {
+  const r = String(role || '').toLowerCase();
+  if (r === 'school_staff') return 'school_staff';
+  if (r === 'client_guardian') return 'guardian';
+  if (r === 'client') return 'client';
+  if (STAFF_ROLES.has(r)) return 'staff';
+  return 'user';
+}
 
 export async function classifyInboundSender({
   agencyId,
@@ -61,32 +72,37 @@ export async function classifyInboundSender({
     }
   }
 
-  // App staff in same agency
-  const [staffRows] = await pool.execute(
-    `SELECT u.id, u.first_name, u.last_name, u.role, u.email, u.work_email, u.personal_email
+  // Anyone in the app (any role / agency), including archived — prefer same-agency membership
+  const [userRows] = await pool.execute(
+    `SELECT u.id, u.first_name, u.last_name, u.role, u.is_archived,
+            EXISTS (
+              SELECT 1 FROM user_agencies ua
+              WHERE ua.user_id = u.id AND ua.agency_id = ?
+            ) AS in_agency
      FROM users u
-     JOIN user_agencies ua ON ua.user_id = u.id AND ua.agency_id = ?
-     WHERE (u.is_archived = FALSE OR u.is_archived IS NULL)
-       AND (
-         LOWER(TRIM(COALESCE(u.email,''))) = ?
-         OR LOWER(TRIM(COALESCE(u.work_email,''))) = ?
-         OR LOWER(TRIM(COALESCE(u.personal_email,''))) = ?
-       )
+     WHERE LOWER(TRIM(COALESCE(u.email,''))) = ?
+        OR LOWER(TRIM(COALESCE(u.work_email,''))) = ?
+        OR LOWER(TRIM(COALESCE(u.personal_email,''))) = ?
+     ORDER BY in_agency DESC, (u.is_archived = TRUE) ASC, u.id ASC
      LIMIT 1`,
     [aid, email, email, email]
   ).catch(() => [[]]);
-  const staff = staffRows?.[0];
-  if (staff) {
-    const role = String(staff.role || '').toLowerCase();
-    const isSchoolStaff = role === 'school_staff';
-    const isStaff = STAFF_ROLES.has(role) || isSchoolStaff;
-    if (isStaff) {
-      result.trust = isSchoolStaff ? 'school_staff' : 'staff';
-      result.isUnknownSender = false;
-      result.linkedUserId = staff.id;
-      result.displayName = [staff.first_name, staff.last_name].filter(Boolean).join(' ') || email;
-      result.linkedEntityType = 'user';
-      result.linkedEntityId = staff.id;
+  const appUser = userRows?.[0];
+  if (appUser) {
+    const trust = trustFromUserRole(appUser.role);
+    result.trust = trust;
+    result.isUnknownSender = false;
+    result.linkedUserId = appUser.id;
+    result.displayName =
+      [appUser.first_name, appUser.last_name].filter(Boolean).join(' ') || email;
+    result.linkedEntityType = trust === 'guardian' ? 'guardian' : 'user';
+    result.linkedEntityId = appUser.id;
+    if (trust === 'guardian') {
+      const [gLink] = await pool.execute(
+        `SELECT client_id FROM client_guardians WHERE guardian_user_id = ? ORDER BY id ASC LIMIT 1`,
+        [appUser.id]
+      ).catch(() => [[]]);
+      result.linkedClientId = gLink?.[0]?.client_id || null;
     }
   }
 
@@ -104,28 +120,6 @@ export async function classifyInboundSender({
       result.displayName = scRows[0].full_name || email;
       result.linkedEntityType = 'school_contact';
       result.linkedEntityId = scRows[0].id;
-    }
-  }
-
-  if (result.trust === 'unknown') {
-    const [gRows] = await pool.execute(
-      `SELECT u.id, u.first_name, u.last_name, u.role, cg.client_id
-       FROM users u
-       LEFT JOIN client_guardians cg ON cg.guardian_user_id = u.id
-       WHERE LOWER(TRIM(COALESCE(u.email,''))) = ?
-          OR LOWER(TRIM(COALESCE(u.personal_email,''))) = ?
-       ORDER BY cg.id ASC
-       LIMIT 1`,
-      [email, email]
-    ).catch(() => [[]]);
-    if (gRows?.[0] && String(gRows[0].role || '').toLowerCase() === 'client_guardian') {
-      result.trust = 'guardian';
-      result.isUnknownSender = false;
-      result.linkedUserId = gRows[0].id;
-      result.linkedClientId = gRows[0].client_id || null;
-      result.displayName = [gRows[0].first_name, gRows[0].last_name].filter(Boolean).join(' ') || email;
-      result.linkedEntityType = 'guardian';
-      result.linkedEntityId = gRows[0].id;
     }
   }
 
@@ -148,6 +142,7 @@ export async function classifyInboundSender({
     }
   }
 
+  // Personal mailbox trust book (mark-known / resolve for this owner)
   if (result.trust === 'unknown' && oid) {
     const contact = await UserCommunicationContact.findByEmail({
       ownerUserId: oid,
@@ -165,6 +160,64 @@ export async function classifyInboundSender({
     }
   }
 
+  // Agency contacts visible to this mailbox owner only (not other staff's personal copies)
+  if (result.trust === 'unknown' && oid) {
+    try {
+      const [acRows] = await pool.execute(
+        `SELECT ac.id, ac.full_name, ac.client_id
+         FROM agency_contacts ac
+         LEFT JOIN contact_provider_assignments cpa
+           ON cpa.contact_id = ac.id AND cpa.provider_user_id = ?
+         WHERE ac.agency_id = ? AND ac.is_active = TRUE
+           AND (
+             LOWER(TRIM(COALESCE(ac.email,''))) = ?
+             OR LOWER(TRIM(COALESCE(ac.email_alt,''))) = ?
+           )
+           AND (
+             ac.share_with_all = TRUE
+             OR ac.created_by_user_id = ?
+             OR cpa.provider_user_id IS NOT NULL
+           )
+         LIMIT 1`,
+        [oid, aid, email, email, oid]
+      );
+      if (acRows?.[0]) {
+        result.trust = 'contact';
+        result.isUnknownSender = false;
+        result.linkedClientId = acRows[0].client_id || null;
+        result.displayName = acRows[0].full_name || email;
+        result.linkedEntityType = 'agency_contact';
+        result.linkedEntityId = acRows[0].id;
+      }
+    } catch (e) {
+      if (String(e?.message || '').includes('email_alt')) {
+        const [acRows] = await pool.execute(
+          `SELECT ac.id, ac.full_name, ac.client_id
+           FROM agency_contacts ac
+           LEFT JOIN contact_provider_assignments cpa
+             ON cpa.contact_id = ac.id AND cpa.provider_user_id = ?
+           WHERE ac.agency_id = ? AND ac.is_active = TRUE
+             AND LOWER(TRIM(COALESCE(ac.email,''))) = ?
+             AND (
+               ac.share_with_all = TRUE
+               OR ac.created_by_user_id = ?
+               OR cpa.provider_user_id IS NOT NULL
+             )
+           LIMIT 1`,
+          [oid, aid, email, oid]
+        ).catch(() => [[]]);
+        if (acRows?.[0]) {
+          result.trust = 'contact';
+          result.isUnknownSender = false;
+          result.linkedClientId = acRows[0].client_id || null;
+          result.displayName = acRows[0].full_name || email;
+          result.linkedEntityType = 'agency_contact';
+          result.linkedEntityId = acRows[0].id;
+        }
+      }
+    }
+  }
+
   // Availability hold for staff/school mail
   const settings = await getAgencyEmailSettings(aid);
   const holdEnabled = settings.holdStaffSchoolOutsideAvailability !== false;
@@ -177,7 +230,6 @@ export async function classifyInboundSender({
     }
   }
 
-  // Unknown sender box
   if (result.trust === 'unknown') {
     result.isUnknownSender = settings.unknownSenderBoxEnabled !== false;
   }

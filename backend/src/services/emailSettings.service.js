@@ -191,7 +191,9 @@ function mapAgencyEmailSettingsRow(agencyId, row) {
     quickViewEnabled: row ? row.quick_view_enabled === 1 || row.quick_view_enabled === true : true,
     secureClientMessageEmailEnabled: row
       ? row.secure_client_message_email_enabled === 1 || row.secure_client_message_email_enabled === true
-      : true
+      : true,
+    htmlEmailHeaderUrl: row?.html_email_header_url || null,
+    htmlEmailFooterUrl: row?.html_email_footer_url || null
   };
 }
 

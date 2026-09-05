@@ -4,6 +4,13 @@
       <h1>Contacts</h1>
       <div class="header-actions">
         <button
+          v-if="canLinkDuplicates"
+          class="btn btn-secondary"
+          @click="openDuplicatePanel"
+        >
+          Link duplicates
+        </button>
+        <button
           v-if="canCreate"
           class="btn btn-primary"
           @click="showAddModal = true"
@@ -22,6 +29,49 @@
     </div>
 
     <div v-if="error" class="error-box">{{ error }}</div>
+    <div v-if="linkNotice" class="success-box">{{ linkNotice }}</div>
+
+    <div v-if="showDuplicatePanel" class="duplicate-panel">
+      <div class="duplicate-panel-head">
+        <div>
+          <h2>Link duplicate contacts</h2>
+          <p>
+            Personal copies created by different staff can be linked so the app knows they are the same person.
+            Linking does <strong>not</strong> give either staff member access to the other’s contact — assignment still controls access.
+          </p>
+        </div>
+        <button type="button" class="btn btn-secondary btn-sm" @click="showDuplicatePanel = false">Close</button>
+      </div>
+      <div v-if="dupLoading" class="loading">Scanning for duplicates…</div>
+      <div v-else-if="!duplicateSuggestions.length" class="empty-state">
+        <p>No duplicate clusters found right now.</p>
+      </div>
+      <ul v-else class="duplicate-list">
+        <li v-for="(group, idx) in duplicateSuggestions" :key="idx" class="duplicate-card">
+          <div class="duplicate-card-head">
+            <span v-if="group.alreadyLinked" class="pill linked">Already linked</span>
+            <span v-else class="pill source">{{ group.contacts.length }} copies</span>
+            <button
+              v-if="!group.alreadyLinked"
+              type="button"
+              class="btn btn-primary btn-sm"
+              :disabled="linkBusy"
+              @click="linkDuplicateGroup(group)"
+            >
+              Link these
+            </button>
+          </div>
+          <ul class="duplicate-members">
+            <li v-for="c in group.contacts" :key="c.id">
+              <strong>{{ c.full_name || '—' }}</strong>
+              <span>{{ c.email || c.email_alt || '—' }}</span>
+              <span v-if="c.phone">{{ c.phone }}</span>
+              <span class="muted">#{{ c.id }} · {{ c.share_with_all ? 'Shared' : 'Personal/limited' }}</span>
+            </li>
+          </ul>
+        </li>
+      </ul>
+    </div>
 
     <!-- Filters -->
     <div class="table-controls" v-show="contacts.length > 0 || loading">
@@ -65,6 +115,7 @@
             <th>Phone</th>
             <th>Source</th>
             <th>Share</th>
+            <th>Linked</th>
             <th>Client</th>
             <th></th>
           </tr>
@@ -76,6 +127,10 @@
             <td>{{ c.phone || '—' }}</td>
             <td><span class="pill source">{{ formatSource(c.source) }}</span></td>
             <td>{{ c.share_with_all ? 'All' : 'Limited' }}</td>
+            <td>
+              <span v-if="c.identity_group_id" class="pill linked" :title="c.identity_group_id">Linked</span>
+              <span v-else>—</span>
+            </td>
             <td>
               <router-link v-if="c.client_link" :to="clientLinkTo(c.client_link)">{{ c.client_id }}</router-link>
               <span v-else-if="c.client_id">{{ c.client_id }}</span>
@@ -288,16 +343,22 @@ const agencyId = computed(() => Number(agencyStore.currentAgency?.id || 0) || nu
 const role = computed(() => String(authStore.user?.role || '').toLowerCase());
 const canCreate = computed(() => ['admin', 'support', 'staff', 'super_admin', 'provider_plus'].includes(role.value));
 const canSync = computed(() => ['admin', 'support', 'staff', 'super_admin'].includes(role.value));
+const canLinkDuplicates = computed(() => ['admin', 'super_admin', 'support'].includes(role.value));
 
 const contacts = ref([]);
 const schools = ref([]);
 const providers = ref([]);
 const loading = ref(false);
 const error = ref('');
+const linkNotice = ref('');
 const syncLoading = ref(false);
 const saveLoading = ref(false);
 const commsLoading = ref(false);
 const conversionLoading = ref(false);
+const showDuplicatePanel = ref(false);
+const duplicateSuggestions = ref([]);
+const dupLoading = ref(false);
+const linkBusy = ref(false);
 
 const filters = ref({
   schoolId: '',
@@ -396,6 +457,43 @@ const fetchContacts = async () => {
     contacts.value = [];
   } finally {
     loading.value = false;
+  }
+};
+
+const openDuplicatePanel = async () => {
+  showDuplicatePanel.value = true;
+  linkNotice.value = '';
+  if (!agencyId.value) return;
+  dupLoading.value = true;
+  error.value = '';
+  try {
+    const res = await api.get(`/contacts/agency/${agencyId.value}/duplicate-suggestions`, {
+      skipGlobalLoading: true
+    });
+    duplicateSuggestions.value = Array.isArray(res.data?.suggestions) ? res.data.suggestions : [];
+  } catch (e) {
+    error.value = e?.response?.data?.error?.message || 'Could not load duplicate suggestions.';
+    duplicateSuggestions.value = [];
+  } finally {
+    dupLoading.value = false;
+  }
+};
+
+const linkDuplicateGroup = async (group) => {
+  if (!agencyId.value || !group?.contacts?.length) return;
+  linkBusy.value = true;
+  error.value = '';
+  try {
+    await api.post(`/contacts/agency/${agencyId.value}/link-identities`, {
+      contactIds: group.contacts.map((c) => c.id)
+    });
+    linkNotice.value = 'Contacts linked. Visibility is unchanged — staff only see contacts they own, are assigned to, or that are shared.';
+    await openDuplicatePanel();
+    await fetchContacts();
+  } catch (e) {
+    error.value = e?.response?.data?.error?.message || 'Could not link contacts.';
+  } finally {
+    linkBusy.value = false;
   }
 };
 
@@ -627,11 +725,87 @@ onUnmounted(() => {
 }
 
 .error-box {
-  background: #fee;
-  color: #c00;
-  padding: 12px;
-  border-radius: 6px;
-  margin-bottom: 16px;
+  background: #fef2f2;
+  color: #991b1b;
+  border: 1px solid #fecaca;
+  border-radius: 8px;
+  padding: 0.75rem 1rem;
+  margin-bottom: 1rem;
+}
+.success-box {
+  background: #ecfdf5;
+  color: #065f46;
+  border: 1px solid #a7f3d0;
+  border-radius: 8px;
+  padding: 0.75rem 1rem;
+  margin-bottom: 1rem;
+}
+.duplicate-panel {
+  margin-bottom: 1.25rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 1rem;
+  background: #f8fafc;
+}
+.duplicate-panel-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: flex-start;
+  margin-bottom: 0.85rem;
+}
+.duplicate-panel-head h2 {
+  margin: 0 0 0.35rem;
+  font-size: 1.1rem;
+}
+.duplicate-panel-head p {
+  margin: 0;
+  font-size: 0.88rem;
+  color: #475569;
+  max-width: 52rem;
+  line-height: 1.4;
+}
+.duplicate-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+.duplicate-card {
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 0.75rem;
+}
+.duplicate-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.5rem;
+}
+.duplicate-members {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+.duplicate-members li {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 0.85rem;
+  font-size: 0.88rem;
+}
+.duplicate-members .muted {
+  color: #94a3b8;
+}
+.pill.linked {
+  background: #ecfeff;
+  color: #0e7490;
 }
 
 .empty-state {

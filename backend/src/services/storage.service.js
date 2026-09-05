@@ -505,6 +505,34 @@ class StorageService {
   }
 
   /**
+   * Save a per-user email signature image (Hub / personal outbound).
+   * Served via /uploads/* like profile photos.
+   */
+  static async saveUserEmailSignature(userId, fileBuffer, filename, contentType = 'image/png') {
+    const sanitizedFilename = this.sanitizeFilename(filename);
+    const key = `uploads/user_email_signatures/${sanitizedFilename}`;
+
+    const bucket = await this.getGCSBucket();
+    const file = bucket.file(key);
+
+    await file.save(fileBuffer, {
+      contentType,
+      metadata: {
+        userId: String(userId || ''),
+        uploadedAt: new Date().toISOString(),
+        purpose: 'email_signature'
+      }
+    });
+
+    return {
+      path: key,
+      key,
+      filename: sanitizedFilename,
+      relativePath: key
+    };
+  }
+
+  /**
    * Save a user album photo to GCS (for user photo albums / SSC profile).
    * Stored under uploads/user_photos/ so it can be served via /uploads/*.
    * @param {number} userId - Owner user ID

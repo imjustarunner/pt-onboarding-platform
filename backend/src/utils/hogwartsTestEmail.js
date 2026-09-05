@@ -34,6 +34,20 @@ let hogwartsEmailCache = { at: 0, emails: new Set() };
 let demoAgencyCache = { at: 0, ids: new Set() };
 
 export function extractEmailAddresses(raw) {
+  if (raw == null || raw === '') return [];
+  // Hub / compose often pass [{ email, name }] or string arrays.
+  if (Array.isArray(raw)) {
+    const collected = [];
+    for (const item of raw) {
+      if (item == null) continue;
+      if (typeof item === 'string') collected.push(...extractEmailAddresses(item));
+      else if (typeof item === 'object' && item.email) collected.push(...extractEmailAddresses(item.email));
+    }
+    return [...new Set(collected)];
+  }
+  if (typeof raw === 'object' && raw.email) {
+    return extractEmailAddresses(raw.email);
+  }
   const text = String(raw || '').trim();
   if (!text) return [];
   const found = [];
@@ -224,48 +238,81 @@ export function buildTestInboxRedirectMetadata({ originalTo, deliveredTo = HOGWA
 }
 
 /**
- * Rewrite outbound To/subject so demo/Hogwarts/@example.com mail lands in testing@itsco.health.
+ * Rewrite outbound To/Cc/Bcc/subject so demo/Hogwarts/@example.com mail lands in testing@itsco.health.
  * Real Williams / Chuckie / Piper / Loriana addresses are left unchanged.
  *
  * Optional agencyId / userId / clientId: when the send is attached to a demo
  * tenant or demo person, every non-keep-real recipient is redirected.
+ *
+ * Client/guardian @example addresses (and Cc/Bcc copies of them) always redirect
+ * so QA mail is delivered to testing@itsco.health instead of a dead mailbox.
  */
 export async function rewriteHogwartsOutboundRecipient({
   to,
+  cc = null,
+  bcc = null,
   subject,
   agencyId = null,
   userId = null,
   clientId = null
 } = {}) {
-  const emails = extractEmailAddresses(to);
-  if (!emails.length) {
-    return { to, subject, redirected: false, originalTo: null };
-  }
-
   const demoAttached = await shouldRedirectForDemoAttachment({ agencyId, userId, clientId });
-  const redirect = [];
-  const next = [];
-  for (const email of emails) {
-    if (isKeepRealHogwartsEmail(email)) {
-      next.push(email);
-      continue;
+
+  async function rewriteField(raw) {
+    if (raw == null || raw === '') {
+      return { value: raw, redirected: [], changed: false };
     }
-    if (demoAttached || (await shouldRedirectHogwartsOutboundEmail(email))) {
-      redirect.push(email);
-      next.push(HOGWARTS_TEST_INBOX);
-    } else {
-      next.push(email);
+    const emails = extractEmailAddresses(raw);
+    if (!emails.length) {
+      return { value: raw, redirected: [], changed: false };
     }
+
+    const redirect = [];
+    const next = [];
+    for (const email of emails) {
+      if (isKeepRealHogwartsEmail(email)) {
+        next.push(email);
+        continue;
+      }
+      if (demoAttached || (await shouldRedirectHogwartsOutboundEmail(email))) {
+        redirect.push(email);
+        next.push(HOGWARTS_TEST_INBOX);
+      } else {
+        next.push(email);
+      }
+    }
+
+    if (!redirect.length) {
+      return { value: raw, redirected: [], changed: false };
+    }
+    return {
+      value: [...new Set(next)].join(', '),
+      redirected: [...new Set(redirect)],
+      changed: true
+    };
   }
 
-  if (!redirect.length) {
-    return { to, subject, redirected: false, originalTo: null };
+  const toResult = await rewriteField(to);
+  const ccResult = await rewriteField(cc);
+  const bccResult = await rewriteField(bcc);
+  const allRedirected = [...new Set([...toResult.redirected, ...ccResult.redirected, ...bccResult.redirected])];
+
+  if (!allRedirected.length) {
+    return {
+      to,
+      cc,
+      bcc,
+      subject,
+      redirected: false,
+      originalTo: null
+    };
   }
 
-  const uniqueTo = [...new Set(next)].join(', ');
-  const originalTo = [...new Set(redirect)].join(', ');
+  const originalTo = allRedirected.join(', ');
   return {
-    to: uniqueTo,
+    to: toResult.changed ? toResult.value : to,
+    cc: ccResult.changed ? ccResult.value : cc,
+    bcc: bccResult.changed ? bccResult.value : bcc,
     subject: formatHogwartsTestSubject(originalTo, subject),
     redirected: true,
     originalTo

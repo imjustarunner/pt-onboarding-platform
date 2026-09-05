@@ -106,15 +106,109 @@ function applySenderSignatureBlock({ identity, text = null, html = null }) {
   return { text: textOut, html: htmlOut };
 }
 
+async function applyUserEmailSignatureBlock({
+  userId,
+  agencyId = null,
+  text = null,
+  html = null
+}) {
+  const uid = Number(userId || 0);
+  if (!Number.isFinite(uid) || uid <= 0) return { text, html };
+
+  // Preferred path: tenant HTML staff signature (providers).
+  try {
+    const { appendStaffHtmlSignature } = await import('../staffHtmlEmailSignature.service.js');
+    const out = await appendStaffHtmlSignature({
+      userId: uid,
+      agencyId,
+      text,
+      html
+    });
+    if (out.appended) return { text: out.text, html: out.html };
+    // Eligible but disabled — do not fall back to legacy image upload.
+    if (out.ctx?.eligible) return { text, html };
+  } catch (e) {
+    console.warn('[unifiedEmail] staff HTML signature:', e?.message || e);
+  }
+
+  // Legacy image signature (non-providers / older rows) — keep until fully retired.
+  let path = '';
+  let displayName = '';
+  try {
+    const [rows] = await pool.execute(
+      `SELECT email_signature_path, first_name, last_name FROM users WHERE id = ? LIMIT 1`,
+      [uid]
+    );
+    path = String(rows?.[0]?.email_signature_path || '').trim();
+    displayName = [rows?.[0]?.first_name, rows?.[0]?.last_name].filter(Boolean).join(' ').trim();
+  } catch {
+    return { text, html };
+  }
+  if (!path) return { text, html };
+
+  const imageUrl = resolveAbsoluteSignatureImageUrl({
+    signature_image_path: path,
+    signature_image_url: path.startsWith('http') || path.startsWith('/') ? path : null
+  });
+  if (!imageUrl) return { text, html };
+  if (html && String(html).includes(imageUrl)) return { text, html };
+
+  return applySenderSignatureBlock({
+    identity: {
+      signature_image_url: imageUrl,
+      signature_alt_text: displayName ? `${displayName} signature` : 'Email signature',
+      display_name: displayName || ''
+    },
+    text,
+    html
+  });
+}
+
 async function finalizeOutboundContent({
   identity,
   text = null,
   html = null,
   to = null,
   agencyId = null,
-  userId = null
+  userId = null,
+  generatedByUserId = null,
+  source = null,
+  templateType = null
 }) {
-  const signed = applySenderSignatureBlock({ identity, text, html });
+  let signed = applySenderSignatureBlock({ identity, text, html });
+  const src = String(source || '').toLowerCase();
+  const tt = String(templateType || '').toLowerCase();
+  const appendUser =
+    generatedByUserId &&
+    (src === 'manual' || tt === 'hub_email');
+  if (appendUser) {
+    signed = await applyUserEmailSignatureBlock({
+      userId: generatedByUserId,
+      agencyId: agencyId || identity?.agency_id || null,
+      text: signed.text,
+      html: signed.html
+    });
+  }
+
+  // Tenant HTML header/footer chrome (Email Settings assets; ITSCO seeded)
+  try {
+    const aid = Number(agencyId || identity?.agency_id || 0);
+    if (aid && signed.html) {
+      const { wrapOutboundHtmlWithTenantChrome } = await import('../tenantEmailChrome.service.js');
+      const replyMailto = String(identity?.reply_to || identity?.from_email || '').trim();
+      signed = {
+        ...signed,
+        html: await wrapOutboundHtmlWithTenantChrome({
+          html: signed.html,
+          agencyId: aid,
+          opts: { replyMailto }
+        })
+      };
+    }
+  } catch (e) {
+    console.warn('[unifiedEmail] tenant chrome wrap failed:', e?.message || e);
+  }
+
   return appendComplianceFooter({
     text: signed.text,
     html: signed.html,
@@ -560,7 +654,10 @@ export async function sendNotificationEmail({
     html,
     to,
     agencyId,
-    userId
+    userId,
+    generatedByUserId,
+    source,
+    templateType: templateType || `trigger:${triggerKey}`
   });
 
   const quality = validateOutboundEmailQuality({
@@ -901,7 +998,10 @@ export async function sendEmailFromIdentity({
     html,
     to,
     agencyId: identity?.agency_id || null,
-    userId
+    userId,
+    generatedByUserId,
+    source,
+    templateType
   });
 
   const quality = validateOutboundEmailQuality({
@@ -958,6 +1058,8 @@ export async function sendEmailFromIdentity({
   // Resolve demo/fake redirect before approval so testing@itsco.health mail actually sends.
   const redirected = await rewriteHogwartsOutboundRecipient({
     to,
+    cc,
+    bcc,
     subject,
     agencyId: identity?.agency_id || null,
     userId: resolvedUserId,
@@ -1079,8 +1181,8 @@ export async function sendEmailFromIdentity({
     html: htmlWithPixel,
     from,
     replyTo,
-    cc,
-    bcc,
+    cc: redirected.cc,
+    bcc: redirected.bcc,
     inReplyTo,
     references,
     attachments

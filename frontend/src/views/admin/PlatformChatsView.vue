@@ -3,9 +3,6 @@
     <div class="toolbar" data-tour="chats-header">
       <div class="toolbar-left">
         <button class="btn btn-secondary btn-xs" type="button" @click="goBack">Back</button>
-        <button class="btn btn-secondary btn-xs" type="button" @click="goToDashboard">
-          My Dashboard
-        </button>
         <button
           v-if="showWorkspace"
           class="btn btn-secondary btn-xs"
@@ -186,10 +183,15 @@ onMounted(async () => {
   height: calc(100dvh - 72px);
   max-height: calc(100dvh - 72px);
   width: 100%;
+  max-width: none;
   margin: 0;
   padding: 10px 16px 12px;
   box-sizing: border-box;
   overflow: hidden;
+}
+.chats-view.is-hub {
+  width: 100%;
+  max-width: none;
 }
 .toolbar {
   display: flex;
@@ -241,6 +243,20 @@ onMounted(async () => {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+}
+:global([data-theme='dark']) .chats-view {
+  color: #e2e8f0;
+}
+:global([data-theme='dark']) .agency-picker {
+  color: #94a3b8;
+}
+:global([data-theme='dark']) .agency-picker select {
+  background: #0f172a;
+  color: #e2e8f0;
+  border-color: #334155;
+}
+:global([data-theme='dark']) .subtitle {
+  color: #94a3b8;
 }
 @media (max-width: 700px) {
   .chats-view {

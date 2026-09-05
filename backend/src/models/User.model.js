@@ -27,7 +27,10 @@ export function invalidateUserAgenciesCache(userId = null) {
     _userAgenciesCache.clear();
     return;
   }
-  _userAgenciesCache.delete(Number(userId));
+  const n = Number(userId);
+  _userAgenciesCache.delete(n);
+  _userAgenciesCache.delete(`${n}:0`);
+  _userAgenciesCache.delete(`${n}:1`);
 }
 
 // Membership and affiliation writes happen across many controllers and services, so
@@ -127,7 +130,7 @@ class User {
       // This is more reliable, especially with connection pooling and Unix sockets
       const dbName = process.env.DB_NAME || 'onboarding_stage';
       const [columns] = await pool.execute(
-        "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'users' AND COLUMN_NAME IN ('work_email', 'personal_email', 'username', 'has_supervisor_privileges', 'has_provider_access', 'has_staff_access', 'personal_phone', 'work_phone', 'work_phone_extension', 'credential', 'sso_password_override', 'login_is_group_email')",
+        "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'users' AND COLUMN_NAME IN ('work_email', 'personal_email', 'username', 'has_supervisor_privileges', 'has_provider_access', 'has_staff_access', 'personal_phone', 'work_phone', 'work_phone_extension', 'credential', 'sso_password_override', 'login_is_group_email', 'password_changed_at')",
         [dbName]
       );
       const existingColumns = columns.map(c => c.COLUMN_NAME);
@@ -144,6 +147,7 @@ class User {
       if (existingColumns.includes('credential')) query += ', credential';
       if (existingColumns.includes('sso_password_override')) query += ', sso_password_override';
       if (existingColumns.includes('login_is_group_email')) query += ', login_is_group_email';
+      if (existingColumns.includes('password_changed_at')) query += ', password_changed_at';
     } catch (err) {
       // If we can't check columns, just use the base query
       console.warn('Could not check for email columns:', err.message);
@@ -215,7 +219,7 @@ class User {
     try {
       const dbName = process.env.DB_NAME || 'onboarding_stage';
       const [columns] = await pool.execute(
-        "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'users' AND COLUMN_NAME IN ('work_email', 'personal_email', 'username', 'has_supervisor_privileges', 'has_provider_access', 'has_staff_access', 'personal_phone', 'work_phone', 'work_phone_extension', 'credential', 'sso_password_override')",
+        "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'users' AND COLUMN_NAME IN ('work_email', 'personal_email', 'username', 'has_supervisor_privileges', 'has_provider_access', 'has_staff_access', 'personal_phone', 'work_phone', 'work_phone_extension', 'credential', 'sso_password_override', 'password_changed_at')",
         [dbName]
       );
       const existingColumns = columns.map(c => c.COLUMN_NAME);
@@ -230,6 +234,7 @@ class User {
       if (existingColumns.includes('work_phone_extension')) query += ', work_phone_extension';
       if (existingColumns.includes('credential')) query += ', credential';
       if (existingColumns.includes('sso_password_override')) query += ', sso_password_override';
+      if (existingColumns.includes('password_changed_at')) query += ', password_changed_at';
     } catch (err) {
       console.warn('Could not check for columns:', err.message);
     }
@@ -278,7 +283,7 @@ class User {
     let existingColumns = [];
     try {
       const [cols] = await pool.execute(
-        "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'users' AND COLUMN_NAME IN ('username', 'work_email', 'personal_email', 'has_supervisor_privileges', 'has_provider_access', 'has_staff_access', 'personal_phone', 'work_phone', 'work_phone_extension', 'credential', 'sso_password_override')",
+        "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'users' AND COLUMN_NAME IN ('username', 'work_email', 'personal_email', 'has_supervisor_privileges', 'has_provider_access', 'has_staff_access', 'personal_phone', 'work_phone', 'work_phone_extension', 'credential', 'sso_password_override', 'password_changed_at')",
         [dbName]
       );
       existingColumns = cols.map((c) => c.COLUMN_NAME);
@@ -296,6 +301,7 @@ class User {
     if (existingColumns.includes('work_phone_extension')) sel += ', work_phone_extension';
     if (existingColumns.includes('credential')) sel += ', credential';
     if (existingColumns.includes('sso_password_override')) sel += ', sso_password_override';
+    if (existingColumns.includes('password_changed_at')) sel += ', password_changed_at';
 
     // Match on digits-only comparison for whichever phone columns exist
     const conditions = [`REGEXP_REPLACE(phone_number, '[^0-9]', '') = ?`];
@@ -398,7 +404,7 @@ class User {
     try {
       const dbName = process.env.DB_NAME || 'onboarding_stage';
       const [columns] = await pool.execute(
-        "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'users' AND COLUMN_NAME IN ('pending_completed_at', 'pending_auto_complete_at', 'pending_identity_verified', 'pending_access_locked', 'pending_completion_notified', 'work_email', 'personal_email', 'preferred_name', 'username', 'has_supervisor_privileges', 'has_provider_access', 'has_staff_access', 'has_hiring_access', 'has_outreach_access', 'has_platform_gear_access', 'has_platform_support', 'has_medical_records_release_access', 'has_games_access', 'provider_accepting_new_clients', 'provider_school_info_blurb', 'psychology_today_url', 'personal_phone', 'work_phone', 'work_phone_extension', 'system_phone_number', 'home_street_address', 'home_address_line2', 'home_city', 'home_state', 'home_postal_code', 'medcancel_enabled', 'medcancel_rate_schedule', 'company_card_enabled', 'company_car_submit_access', 'company_car_manage_access', 'profile_photo_path', 'password_changed_at', 'title', 'department', 'work_location', 'service_focus', 'languages_spoken', 'credential', 'skill_builder_eligible', 'group_supervision_eligible', 'has_skill_builder_coordinator_access', 'skill_builder_confirm_required_next_login', 'is_hourly_worker', 'hourly_dual_rate_enabled', 'employee_id', 'sso_password_override', 'login_is_group_email', 'provider_start_date', 'work_role', 'employment_type', 'benefits_notes', 'benefits_eligibility_overrides_json', 'benefits_enrollment_json', 'is_demo')",
+        "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'users' AND COLUMN_NAME IN ('pending_completed_at', 'pending_auto_complete_at', 'pending_identity_verified', 'pending_access_locked', 'pending_completion_notified', 'work_email', 'personal_email', 'preferred_name', 'username', 'has_supervisor_privileges', 'has_provider_access', 'has_staff_access', 'has_hiring_access', 'has_outreach_access', 'has_platform_gear_access', 'has_platform_support', 'has_medical_records_release_access', 'has_games_access', 'provider_accepting_new_clients', 'provider_school_info_blurb', 'psychology_today_url', 'personal_phone', 'work_phone', 'work_phone_extension', 'system_phone_number', 'home_street_address', 'home_address_line2', 'home_city', 'home_state', 'home_postal_code', 'medcancel_enabled', 'medcancel_rate_schedule', 'company_card_enabled', 'company_car_submit_access', 'company_car_manage_access', 'profile_photo_path', 'email_signature_path', 'email_signature_enabled', 'password_changed_at', 'title', 'department', 'work_location', 'service_focus', 'languages_spoken', 'credential', 'skill_builder_eligible', 'group_supervision_eligible', 'has_skill_builder_coordinator_access', 'skill_builder_confirm_required_next_login', 'is_hourly_worker', 'hourly_dual_rate_enabled', 'employee_id', 'sso_password_override', 'login_is_group_email', 'provider_start_date', 'work_role', 'employment_type', 'benefits_notes', 'benefits_eligibility_overrides_json', 'benefits_enrollment_json', 'is_demo')",
         [dbName]
       );
       const existingColumns = columns.map(c => c.COLUMN_NAME);
@@ -433,6 +439,8 @@ class User {
       if (existingColumns.includes('company_car_submit_access')) query += ', company_car_submit_access';
       if (existingColumns.includes('company_car_manage_access')) query += ', company_car_manage_access';
       if (existingColumns.includes('profile_photo_path')) query += ', profile_photo_path';
+      if (existingColumns.includes('email_signature_path')) query += ', email_signature_path';
+      if (existingColumns.includes('email_signature_enabled')) query += ', email_signature_enabled';
       if (existingColumns.includes('title')) query += ', title';
       if (existingColumns.includes('department')) query += ', department';
       if (existingColumns.includes('work_location')) query += ', work_location';
@@ -1849,17 +1857,21 @@ class User {
     return result.affectedRows > 0;
   }
 
-  static async getAgencies(userId) {
-    if (!USER_AGENCIES_CACHE_ENABLED) return User._getAgenciesUncached(userId);
+  static async getAgencies(userId, { includeInactive = false } = {}) {
+    if (!USER_AGENCIES_CACHE_ENABLED) {
+      return User._getAgenciesUncached(userId, { includeInactive });
+    }
 
-    const key = Number(userId);
-    if (!Number.isFinite(key)) return User._getAgenciesUncached(userId);
+    const key = `${Number(userId)}:${includeInactive ? 1 : 0}`;
+    if (!Number.isFinite(Number(userId))) {
+      return User._getAgenciesUncached(userId, { includeInactive });
+    }
 
     const now = Date.now();
     const hit = _userAgenciesCache.get(key);
     if (hit && hit.expiresAt > now) return hit.promise;
 
-    const promise = User._getAgenciesUncached(userId).catch((err) => {
+    const promise = User._getAgenciesUncached(userId, { includeInactive }).catch((err) => {
       _userAgenciesCache.delete(key);
       throw err;
     });
@@ -1874,7 +1886,7 @@ class User {
     return promise;
   }
 
-  static async _getAgenciesUncached(userId) {
+  static async _getAgenciesUncached(userId, { includeInactive = false } = {}) {
     // School staff listed on multiple schools' school_contacts should get
     // user_agencies membership for each (powers the portal school switcher).
     try {
@@ -2048,8 +2060,8 @@ class User {
       // ignore
     }
 
-    const activeFilter = hasIsActive ? ' AND ua.is_active = 1' : '';
-    const query = `SELECT a.*${selectExtra ? ', ' + selectExtra : ''}
+    const activeFilter = hasIsActive && !includeInactive ? ' AND ua.is_active = 1' : '';
+    const query = `SELECT a.*${selectExtra ? ', ' + selectExtra : ''}${hasIsActive ? ', ua.is_active AS membership_is_active' : ''}
        FROM agencies a
        JOIN user_agencies ua ON a.id = ua.agency_id
        ${joins ? joins : ''}
@@ -2309,12 +2321,16 @@ class User {
       fields.push('include_on_disclosure = ?');
       params.push(includeOnDisclosure);
     }
-    if (!fields.length) return this.getAgencyMembership(uid, aid);
+    if (!fields.length) {
+      invalidateUserAgenciesCache(uid);
+      return this.getAgencyMembership(uid, aid);
+    }
     params.push(uid, aid);
     await pool.execute(
       `UPDATE user_agencies SET ${fields.join(', ')} WHERE user_id = ? AND agency_id = ?`,
       params
     );
+    invalidateUserAgenciesCache(uid);
     return this.getAgencyMembership(uid, aid);
   }
 
@@ -2993,6 +3009,22 @@ class User {
     const now = new Date();
     const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
 
+    // Snapshot work emails before archive so we can remove hire Google Groups.
+    let pending = [];
+    try {
+      const [rows] = await pool.execute(
+        `SELECT id, email, work_email, username, login_is_group_email
+         FROM users
+         WHERE status = 'TERMINATED_PENDING'
+           AND termination_date <= ?
+           AND (is_archived IS NULL OR is_archived = FALSE)`,
+        [sevenDaysAgo]
+      );
+      pending = rows || [];
+    } catch {
+      pending = [];
+    }
+
     // Archive TERMINATED_PENDING users if termination_date is 7+ days ago
     const [archiveResult] = await pool.execute(
       `UPDATE users 
@@ -3002,6 +3034,21 @@ class User {
        AND (is_archived IS NULL OR is_archived = FALSE)`,
       [sevenDaysAgo]
     );
+
+    if (pending.length) {
+      try {
+        const { removeHireGoogleGroupForUser } = await import('../services/hireGroupAccount.service.js');
+        for (const row of pending) {
+          try {
+            await removeHireGoogleGroupForUser(row);
+          } catch (e) {
+            console.warn('[processTerminatedUsers] hire group delete failed', row?.id, e?.message || e);
+          }
+        }
+      } catch (e) {
+        console.warn('[processTerminatedUsers] hire group cleanup skipped', e?.message || e);
+      }
+    }
 
     return {
       archived: archiveResult.affectedRows

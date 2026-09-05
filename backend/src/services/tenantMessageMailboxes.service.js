@@ -139,6 +139,13 @@ export async function ensureTenantMessageMailboxes(agencyId, domainOverride = nu
     fromEmail: `noreply@${domain}`,
     replyTo: `noreply@${domain}`
   });
+  const notifications = await ensureIdentity({
+    agencyId,
+    identityKey: 'notifications',
+    displayName: 'Notifications',
+    fromEmail: `notifications@${domain}`,
+    replyTo: `notifications@${domain}`
+  });
 
   const messagesInbox = await ensureSharedInbox({
     agencyId,
@@ -153,7 +160,29 @@ export async function ensureTenantMessageMailboxes(agencyId, domainOverride = nu
     identityKey: 'secure_message'
   });
 
-  return { domain, messages, secure, noreply, messagesInbox, secureInbox };
+  return { domain, messages, secure, noreply, notifications, messagesInbox, secureInbox };
+}
+
+/**
+ * Ensure notifications@{domain} sender identity for an agency.
+ */
+export async function ensureTenantNotificationsMailbox(agencyId, domainOverride = null) {
+  const domain = String(domainOverride || (await inferAgencyMailDomain(agencyId)) || '')
+    .trim()
+    .toLowerCase();
+  if (!domain) {
+    const err = new Error('Agency mail domain is not configured');
+    err.status = 400;
+    throw err;
+  }
+  const notifications = await ensureIdentity({
+    agencyId,
+    identityKey: 'notifications',
+    displayName: 'Notifications',
+    fromEmail: `notifications@${domain}`,
+    replyTo: `notifications@${domain}`
+  });
+  return { domain, notifications };
 }
 
 export async function listMessageAliasesForAgency(agencyId) {

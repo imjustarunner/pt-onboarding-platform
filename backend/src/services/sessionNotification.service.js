@@ -733,6 +733,29 @@ export async function processDueSessionNotifications({ limit = 50 } = {}) {
           bodyPreview: body.slice(0, 500),
           reminderId: row.id
         });
+        try {
+          const ClientContactAffiliation = (await import('../models/ClientContactAffiliation.model.js')).default;
+          const contacts = clientId
+            ? await ClientContactAffiliation.listReminderRecipientsForClient(clientId)
+            : [];
+          for (const c of contacts || []) {
+            if (!c.sms_reminders_enabled || !c.sms_opt_in || !c.contact_phone) continue;
+            const toC = PhoneNumber.normalizePhone(c.contact_phone);
+            if (!toC || !from) continue;
+            await VonageService.sendSms({ to: toC, from, body: body.slice(0, 480) });
+            await logCommunication({
+              appointmentId: appt.id,
+              agencyId: appt.agencyId,
+              channel: 'sms',
+              kind: 'reminder',
+              bodyPreview: body.slice(0, 500),
+              reminderId: row.id,
+              metadata: { recipientRole: 'contact', affiliationId: c.affiliation_id }
+            });
+          }
+        } catch (fanErr) {
+          console.warn('[sessionNotification] contact SMS fan-out:', fanErr?.message || fanErr);
+        }
         results.sent += 1;
       } catch (e) {
         await pool.execute(
@@ -759,7 +782,10 @@ export async function processDueSessionNotifications({ limit = 50 } = {}) {
           to: consent.emailAddress,
           subject: kind.startsWith('confirmation') ? 'Please confirm your session' : 'Session reminder',
           text: body,
-          html: `<p>${body.replace(/\n/g, '<br/>')}</p>`
+          html: `<p>${body.replace(/\n/g, '<br/>')}</p>`,
+          agencyId: appt.agencyId || null,
+          clientId: clientId || null,
+          templateType: 'session_reminder'
         });
       }
       await pool.execute(
@@ -774,6 +800,37 @@ export async function processDueSessionNotifications({ limit = 50 } = {}) {
         bodyPreview: body.slice(0, 500),
         reminderId: row.id
       });
+      try {
+        const ClientContactAffiliation = (await import('../models/ClientContactAffiliation.model.js')).default;
+        const contacts = clientId
+          ? await ClientContactAffiliation.listReminderRecipientsForClient(clientId)
+          : [];
+        for (const c of contacts || []) {
+          if (!c.email_reminders_enabled || !c.contact_email) continue;
+          if (EmailService.isConfigured?.()) {
+            await EmailService.sendEmail({
+              to: c.contact_email,
+              subject: kind.startsWith('confirmation') ? 'Please confirm your session' : 'Session reminder',
+              text: body,
+              html: `<p>${body.replace(/\n/g, '<br/>')}</p>`,
+              agencyId: appt.agencyId || null,
+              clientId: clientId || null,
+              templateType: 'session_reminder'
+            });
+          }
+          await logCommunication({
+            appointmentId: appt.id,
+            agencyId: appt.agencyId,
+            channel: 'email',
+            kind: 'reminder',
+            bodyPreview: body.slice(0, 500),
+            reminderId: row.id,
+            metadata: { recipientRole: 'contact', affiliationId: c.affiliation_id }
+          });
+        }
+      } catch (fanErr) {
+        console.warn('[sessionNotification] contact email fan-out:', fanErr?.message || fanErr);
+      }
       results.sent += 1;
     } catch (e) {
       await pool.execute(

@@ -118,7 +118,19 @@ let sharedAudio = null;
 function getAudio() {
   if (!sharedAudio && typeof Audio !== 'undefined') {
     sharedAudio = new Audio();
-    sharedAudio.preload = 'metadata';
+    sharedAudio.preload = 'auto';
+    try {
+      sharedAudio.setAttribute('playsinline', 'true');
+      sharedAudio.setAttribute('webkit-playsinline', 'true');
+      // Keep a live element in the DOM so browsers are less likely to suspend
+      // playback when the SPA navigates or the tab is backgrounded.
+      if (typeof document !== 'undefined' && document.body && !sharedAudio.isConnected) {
+        sharedAudio.style.cssText = 'position:fixed;width:0;height:0;opacity:0;pointer-events:none;';
+        document.body.appendChild(sharedAudio);
+      }
+    } catch {
+      /* ignore */
+    }
   }
   return sharedAudio;
 }
@@ -129,6 +141,8 @@ export function useFocusMusicPlayer({ userIdRef } = {}) {
   const loadError = ref('');
   const modalOpen = ref(false);
   const playing = ref(false);
+  /** True while the user intends continuous playback (survives tab hide / browser auto-pause). */
+  const wantKeepPlaying = ref(false);
   const currentTrackId = ref(null);
   const currentTime = ref(0);
   const duration = ref(0);
@@ -212,18 +226,24 @@ export function useFocusMusicPlayer({ userIdRef } = {}) {
     return tracks.value.filter((t) => !memberSet.has(t.id));
   });
 
+  /** Hearted / "today's loop" ids for UI. Full Library hearts still write to My focus. */
   const loopTrackIds = computed(() => {
     if (isFullLibraryActive.value || isMyFocusActive.value) return myFocusLoopTrackIds.value;
     return activePlaylist.value?.loopTrackIds || [];
   });
 
   const playbackPlaylistName = computed(() => {
-    if (isFullLibraryActive.value || isMyFocusActive.value) return findMyFocusPlaylist()?.name || 'My focus';
+    if (isFullLibraryActive.value) return 'Full Library';
+    if (isMyFocusActive.value) return findMyFocusPlaylist()?.name || 'My focus';
     return activePlaylist.value?.name || 'Playlist';
   });
 
+  /** What Next / auto-advance will cycle through. */
   const enabledTracks = computed(() => {
-    if (isFullLibraryActive.value || isMyFocusActive.value) {
+    if (isFullLibraryActive.value) {
+      return tracks.value;
+    }
+    if (isMyFocusActive.value) {
       const ids = myFocusLoopTrackIds.value;
       return ids.map((id) => trackById.value.get(id)).filter(Boolean);
     }
@@ -340,8 +360,16 @@ export function useFocusMusicPlayer({ userIdRef } = {}) {
       currentTime.value = audio.currentTime || 0;
       duration.value = Number.isFinite(audio.duration) ? audio.duration : duration.value;
     });
-    audio.addEventListener('play', () => { playing.value = true; });
-    audio.addEventListener('pause', () => { playing.value = false; });
+    audio.addEventListener('play', () => {
+      playing.value = true;
+      wantKeepPlaying.value = true;
+      syncMediaSession();
+    });
+    audio.addEventListener('pause', () => {
+      playing.value = false;
+      // Do not clear wantKeepPlaying — browsers often auto-pause on tab hide.
+      syncMediaSession();
+    });
     audio.addEventListener('ended', () => {
       playing.value = false;
       if (loopMode.value === 'single' && currentTrackId.value) {
@@ -354,6 +382,71 @@ export function useFocusMusicPlayer({ userIdRef } = {}) {
       duration.value = Number.isFinite(audio.duration) ? audio.duration : 0;
     });
   };
+
+  const syncMediaSession = () => {
+    try {
+      if (typeof navigator === 'undefined' || !navigator.mediaSession) return;
+      const track = currentTrack.value;
+      if (track) {
+        navigator.mediaSession.metadata = new MediaMetadata({
+          title: track.title || 'Focus Music',
+          artist: playbackPlaylistName.value || 'PlotTwistHQ',
+          album: 'Focus Music'
+        });
+      }
+      navigator.mediaSession.playbackState = playing.value ? 'playing' : 'paused';
+    } catch {
+      /* ignore */
+    }
+  };
+
+  const resumeIfWanted = async () => {
+    if (!wantKeepPlaying.value || !currentTrackId.value) return;
+    const audio = getAudio();
+    if (!audio || !audio.paused) return;
+    try {
+      await audio.play();
+      playing.value = true;
+      syncMediaSession();
+    } catch {
+      /* autoplay policies may still block until user gesture */
+    }
+  };
+
+  const bindBackgroundPlayback = () => {
+    if (typeof window === 'undefined' || window.__focusMusicBgBound) return;
+    window.__focusMusicBgBound = true;
+    // Never pause on hide — only resume if the browser auto-paused while we still want playback.
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') resumeIfWanted();
+    });
+    window.addEventListener('pageshow', () => { resumeIfWanted(); });
+    window.addEventListener('focus', () => { resumeIfWanted(); });
+    // Some browsers pause HTMLAudioElement when the tab is backgrounded without firing a
+    // reliable resume path; poll lightly and restart if the user still wants music.
+    window.setInterval(() => {
+      if (!wantKeepPlaying.value) return;
+      const audio = getAudio();
+      if (audio?.paused && currentTrackId.value) resumeIfWanted();
+    }, 2500);
+    try {
+      if (navigator.mediaSession) {
+        navigator.mediaSession.setActionHandler('play', () => {
+          wantKeepPlaying.value = true;
+          resumeIfWanted();
+        });
+        navigator.mediaSession.setActionHandler('pause', () => {
+          wantKeepPlaying.value = false;
+          getAudio()?.pause();
+        });
+        navigator.mediaSession.setActionHandler('nexttrack', () => { playNext(); });
+        navigator.mediaSession.setActionHandler('previoustrack', () => { playPrev(); });
+      }
+    } catch {
+      /* ignore */
+    }
+  };
+  bindBackgroundPlayback();
 
   const fetchPlatformPlaylists = async () => {
     try {
@@ -415,6 +508,10 @@ export function useFocusMusicPlayer({ userIdRef } = {}) {
   const playTrack = async (trackId) => {
     const track = trackById.value.get(trackId);
     if (!track) return;
+    // Playing from Full Library should advance through the whole catalog, not a single hearted song.
+    if (isFullLibraryActive.value) {
+      rebuildPlayOrder();
+    }
     attachAudioListeners();
     const audio = getAudio();
     if (!audio) return;
@@ -423,8 +520,10 @@ export function useFocusMusicPlayer({ userIdRef } = {}) {
     try {
       const url = await loadTrackSource(track);
       if (audio.src !== url) audio.src = url;
+      wantKeepPlaying.value = true;
       await audio.play();
       playing.value = true;
+      syncMediaSession();
     } catch {
       playing.value = false;
     }
@@ -440,8 +539,10 @@ export function useFocusMusicPlayer({ userIdRef } = {}) {
       return;
     }
     if (playing.value) {
+      wantKeepPlaying.value = false;
       audio.pause();
     } else {
+      wantKeepPlaying.value = true;
       try {
         await audio.play();
       } catch {
@@ -451,11 +552,13 @@ export function useFocusMusicPlayer({ userIdRef } = {}) {
   };
 
   const pause = () => {
+    wantKeepPlaying.value = false;
     getAudio()?.pause();
   };
 
   /** Fully stop playback and clear toast (prevents background streaming). */
   const endSession = () => {
+    wantKeepPlaying.value = false;
     const audio = getAudio();
     if (audio) {
       audio.pause();
@@ -467,13 +570,31 @@ export function useFocusMusicPlayer({ userIdRef } = {}) {
     currentTime.value = 0;
     duration.value = 0;
     persistPrefs();
+    syncMediaSession();
   };
 
   const playNext = async () => {
     const pool = getPlayPool();
-    if (!pool.length) return;
+    if (!pool.length) {
+      // Fallback: if somehow no pool, walk the full catalog when in Full Library.
+      if (isFullLibraryActive.value && tracks.value.length) {
+        const idx = tracks.value.findIndex((t) => t.id === currentTrackId.value);
+        const next = tracks.value[(idx + 1) % tracks.value.length];
+        if (next) await playTrack(next.id);
+      }
+      return;
+    }
+    if (pool.length === 1 && pool[0].id === currentTrackId.value) {
+      // Re-seek same track when pool is a single song (repeat).
+      const audio = getAudio();
+      if (audio) {
+        try { audio.currentTime = 0; } catch { /* ignore */ }
+        try { await audio.play(); playing.value = true; } catch { /* ignore */ }
+      }
+      return;
+    }
     const idx = pool.findIndex((t) => t.id === currentTrackId.value);
-    const next = pool[(idx + 1) % pool.length];
+    const next = pool[(idx < 0 ? 0 : idx + 1) % pool.length];
     await playTrack(next.id);
   };
 
@@ -616,6 +737,10 @@ export function useFocusMusicPlayer({ userIdRef } = {}) {
 
   const setLoopMode = (mode) => {
     loopMode.value = mode === 'single' ? 'single' : 'playlist';
+  };
+
+  const toggleLoopMode = () => {
+    setLoopMode(loopMode.value === 'single' ? 'playlist' : 'single');
   };
 
   const setShuffleEnabled = (enabled) => {
@@ -822,6 +947,7 @@ export function useFocusMusicPlayer({ userIdRef } = {}) {
     renamePlaylist,
     deletePlaylist,
     setLoopMode,
+    toggleLoopMode,
     setShuffleEnabled,
     toggleShuffle,
     setVolume,

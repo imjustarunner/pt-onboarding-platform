@@ -38,6 +38,15 @@
             v-if="turns.length > 0"
             type="button"
             class="aap-clear"
+            title="Start a new conversation"
+            @click="startNewAssistantChat"
+          >
+            New chat
+          </button>
+          <button
+            v-if="turns.length > 0"
+            type="button"
+            class="aap-clear"
             title="Clear conversation"
             @click="clearChat({ report: true })"
           >
@@ -1029,6 +1038,8 @@ const prompt = ref('');
 const busy = ref(false);
 const error = ref('');
 const turns = ref([]);
+const persistentThreadId = ref(null);
+const pastThreads = ref([]);
 const textareaRef = ref(null);
 const turnsRef = ref(null);
 const stickToBottom = ref(true);
@@ -1559,6 +1570,7 @@ function close() {
 function clearChat({ report = false } = {}) {
   if (report) reportDisengage('cleared_without_engagement');
   turns.value = [];
+  persistentThreadId.value = null;
   error.value = '';
   prompt.value = '';
   pendingAutoJoinMeeting.value = false;
@@ -1574,6 +1586,61 @@ function clearChat({ report = false } = {}) {
     autoGrow();
     textareaRef.value?.focus?.();
   });
+}
+
+function startNewAssistantChat() {
+  clearChat({ report: true });
+}
+
+async function loadLatestAssistantThread() {
+  const agencyId = effectiveAgencyId.value;
+  if (!agencyId || !authStore.user?.id) return;
+  try {
+    const { data } = await api.get('/agents/assist/threads', {
+      params: { agencyId, limit: 12 },
+      skipGlobalLoading: true
+    });
+    pastThreads.value = Array.isArray(data?.threads) ? data.threads : [];
+    const latest = pastThreads.value[0];
+    if (!latest?.id || turns.value.length) return;
+    const detail = await api.get(`/agents/assist/threads/${latest.id}`, { skipGlobalLoading: true });
+    const msgs = Array.isArray(detail?.data?.messages) ? detail.data.messages : [];
+    if (!msgs.length) return;
+    persistentThreadId.value = latest.id;
+    turns.value = msgs.map((m) => ({
+      role: m.role === 'assistant' ? 'assistant' : 'user',
+      text: String(m.text || m.body || ''),
+      cards: m.cards || [],
+      actions: [],
+      navs: []
+    }));
+  } catch {
+    /* persistence optional until migration runs */
+  }
+}
+
+async function persistAssistantTurn(userText, assistantPayload) {
+  const agencyId = effectiveAgencyId.value;
+  if (!agencyId) return;
+  try {
+    const { data } = await api.post(
+      '/agents/assist/threads/turns',
+      {
+        threadId: persistentThreadId.value || undefined,
+        agencyId,
+        userText,
+        assistantText: String(assistantPayload?.assistantText || '').trim(),
+        meta: {
+          cards: assistantPayload?.nextCards || null,
+          uiCommands: assistantPayload?.uiCommands || null
+        }
+      },
+      { skipGlobalLoading: true }
+    );
+    if (data?.thread?.id) persistentThreadId.value = data.thread.id;
+  } catch {
+    /* ignore */
+  }
 }
 
 function toggleMic() {
@@ -1667,6 +1734,7 @@ async function submit() {
       cards: Array.isArray(data.nextCards) ? data.nextCards : [],
       feedback: attachFeedbackMeta(data, q)
     });
+    await persistAssistantTurn(q, data);
     await maybeAutoJoinFromResponse(data);
   } catch (e) {
     error.value = e?.response?.data?.error?.message || e?.message || 'Assistant request failed';
@@ -1904,6 +1972,7 @@ watch(
     }
     resetSessionEngagement();
     loadCapabilities();
+    loadLatestAssistantThread();
     if (schoolPortalQuickNavEligible.value) {
       const agencyId = agencyStore.currentAgency?.id || selectedAgencyId.value;
       if (agencyId) ensureSchoolPortalQuickNavCache(agencyId);

@@ -42,10 +42,26 @@
 
     <div v-if="isDragging" class="dock-hint" aria-live="polite">Snap to any edge</div>
 
-    <div class="panel" :class="{ 'panel--wide': hasActiveChatLocal }">
+    <div class="panel" :class="{ 'panel--wide': hasActiveChatLocal || drawerSurface === 'hub' }">
       <div class="drawer-dash-bar">
         <button type="button" class="drawer-dash-btn" @click="goToMessagesDashboard">
-          Messages hub
+          Open Messages hub
+        </button>
+        <button
+          type="button"
+          class="drawer-dash-btn"
+          :class="{ active: drawerSurface === 'hub' }"
+          @click="drawerSurface = 'hub'"
+        >
+          Hub
+        </button>
+        <button
+          type="button"
+          class="drawer-dash-btn"
+          :class="{ active: drawerSurface === 'team' }"
+          @click="showTeamChat"
+        >
+          Team chat
         </button>
         <button type="button" class="drawer-dash-btn drawer-dash-btn-assistant" @click="openAssistant">
           Assistant
@@ -59,7 +75,18 @@
           {{ openMode === 'hover' ? '↕ Hover' : '⊙ Click' }}
         </button>
       </div>
-      <MessagesWorkspace ref="workspaceRef" layout="drawer" @unread-change="onUnreadChange" />
+      <MessagesHubShell
+        v-if="drawerSurface === 'hub'"
+        ref="hubRef"
+        layout="drawer"
+        @open-team-chat="showTeamChat"
+      />
+      <MessagesWorkspace
+        v-else
+        ref="workspaceRef"
+        layout="drawer"
+        @unread-change="onUnreadChange"
+      />
     </div>
   </div>
 </template>
@@ -73,6 +100,7 @@ import { useBrandingStore } from '../store/branding';
 import { toUploadsUrl } from '../utils/uploadsUrl';
 import { dockToStyle, loadDock, saveDock, snapPointerToEdge } from '../utils/chatDrawerDock';
 import MessagesWorkspace from './messages/MessagesWorkspace.vue';
+import MessagesHubShell from './messages/MessagesHubShell.vue';
 
 const OPEN_MODE_KEY = 'pt.messages.openMode.v1';
 
@@ -96,10 +124,15 @@ const isOpen = ref(false);
 const totalUnread = ref(0);
 const loggedInNow = ref(0);
 const workspaceRef = ref(null);
+const hubRef = ref(null);
+const drawerSurface = ref('hub'); // hub | team
 const openMode = ref(loadOpenMode());
 const isHovering = ref(false);
 
-const hasActiveChatLocal = computed(() => workspaceRef.value?.hasActiveChat ?? false);
+const hasActiveChatLocal = computed(() => {
+  if (drawerSurface.value === 'hub') return !!hubRef.value?.hasActiveChat;
+  return !!workspaceRef.value?.hasActiveChat;
+});
 
 const needsAgency = computed(() => {
   const role = String(authStore.user?.role || '').toLowerCase();
@@ -133,7 +166,9 @@ const drawerStyle = computed(() => {
     ? Math.min(vh - 24, Math.max(460, vh * 0.78))
     : 0;
   const panelWidth = isOpen.value
-    ? (hasActiveChatLocal.value ? Math.min(720, vw - 56) : Math.min(320, vw - 56))
+    ? (hasActiveChatLocal.value || drawerSurface.value === 'hub'
+      ? Math.min(720, vw - 56)
+      : Math.min(320, vw - 56))
     : 0;
   return dockToStyle(dock.value, isDragging.value ? dragPoint.value : null, {
     isOpen: isOpen.value,
@@ -168,20 +203,31 @@ function goToMessagesDashboard() {
   router.push({ path }).catch(() => {});
 }
 
+function showTeamChat(tab = null) {
+  drawerSurface.value = 'team';
+  isOpen.value = true;
+  if (tab) setTimeout(() => applyChatTab(tab), 50);
+}
+
 function openAssistant() {
   isOpen.value = true;
-  workspaceRef.value?.switchToAssistant?.();
+  drawerSurface.value = 'team';
+  setTimeout(() => workspaceRef.value?.switchToAssistant?.(), 50);
 }
 
 function applyChatTab(tab) {
   const t = String(tab || '').trim().toLowerCase();
-  if (!t || !workspaceRef.value) return;
-  if (t === 'assistant') workspaceRef.value.switchToAssistant?.();
-  else if (t === 'mentions') workspaceRef.value.switchToMentionsInbox?.();
-  else if (t === 'channels') workspaceRef.value.switchToChannels?.();
-  else if (t === 'files') workspaceRef.value.switchToFilesInbox?.();
-  else if (t === 'sms') workspaceRef.value.switchToSms?.();
-  else workspaceRef.value.switchToDms?.();
+  if (!t) return;
+  drawerSurface.value = 'team';
+  setTimeout(() => {
+    if (!workspaceRef.value) return;
+    if (t === 'assistant') workspaceRef.value.switchToAssistant?.();
+    else if (t === 'mentions') workspaceRef.value.switchToMentionsInbox?.();
+    else if (t === 'channels') workspaceRef.value.switchToChannels?.();
+    else if (t === 'files') workspaceRef.value.switchToFilesInbox?.();
+    else if (t === 'sms') workspaceRef.value.switchToSms?.();
+    else workspaceRef.value.switchToDms?.();
+  }, 50);
 }
 
 const onEnter = () => {
@@ -527,6 +573,11 @@ onUnmounted(() => {
 .drawer-dash-btn:hover {
   border-color: var(--primary, #2563eb);
   background: color-mix(in srgb, var(--primary, #2563eb) 8%, #fff);
+}
+.drawer-dash-btn.active {
+  border-color: var(--primary, #166534);
+  background: color-mix(in srgb, var(--primary, #166534) 12%, #fff);
+  color: var(--primary, #166534);
 }
 .drawer-dash-btn-assistant {
   color: var(--primary, #0d9488);

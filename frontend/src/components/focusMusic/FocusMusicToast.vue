@@ -13,6 +13,22 @@
       </div>
     </button>
     <div class="focus-music-toast-controls">
+      <button
+        type="button"
+        :class="{ on: shuffleEnabled }"
+        :title="shuffleEnabled ? 'Shuffle on' : 'Shuffle off'"
+        @click.stop="$emit('toggle-shuffle')"
+      >
+        🔀
+      </button>
+      <button
+        type="button"
+        :class="{ on: loopMode === 'single' }"
+        :title="loopMode === 'single' ? 'Repeat one on' : 'Repeat one'"
+        @click.stop="$emit('toggle-loop-mode')"
+      >
+        🔂
+      </button>
       <button type="button" :title="playing ? 'Pause' : 'Play'" @click.stop="$emit('toggle-play')">
         {{ playing ? '⏸' : '▶' }}
       </button>
@@ -31,10 +47,12 @@ import { trackSubtitle } from '../../utils/focusMusicTrackDisplay.js';
 const props = defineProps({
   track: { type: Object, default: null },
   playlistName: { type: String, default: '' },
-  playing: { type: Boolean, default: false }
+  playing: { type: Boolean, default: false },
+  shuffleEnabled: { type: Boolean, default: false },
+  loopMode: { type: String, default: 'playlist' }
 });
 
-defineEmits(['toggle-play', 'next', 'open-modal', 'end']);
+defineEmits(['toggle-play', 'next', 'open-modal', 'end', 'toggle-shuffle', 'toggle-loop-mode']);
 
 const subtitle = computed(() => props.playlistName || trackSubtitle(props.track));
 </script>
@@ -54,7 +72,7 @@ const subtitle = computed(() => props.playlistName || trackSubtitle(props.track)
   border-radius: 999px;
   padding: 6px 8px 6px 6px;
   box-shadow: 0 12px 40px rgba(0, 0, 0, 0.28);
-  max-width: min(420px, calc(100vw - 32px));
+  max-width: min(480px, calc(100vw - 32px));
 }
 
 .focus-music-toast-main {
@@ -80,7 +98,7 @@ const subtitle = computed(() => props.playlistName || trackSubtitle(props.track)
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  max-width: 180px;
+  max-width: 160px;
 }
 
 .focus-music-toast-meta span {
@@ -103,5 +121,11 @@ const subtitle = computed(() => props.playlistName || trackSubtitle(props.track)
   background: #1f2937;
   color: #f3f4f6;
   cursor: pointer;
+}
+
+.focus-music-toast-controls button.on {
+  background: #374151;
+  color: #a7f3d0;
+  box-shadow: inset 0 0 0 1px #6ee7b7;
 }
 </style>

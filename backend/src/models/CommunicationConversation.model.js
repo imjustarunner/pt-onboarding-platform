@@ -101,6 +101,7 @@ class CommunicationConversation {
       ownerUserId: 'owner_user_id',
       dueAt: 'due_at',
       snoozedUntil: 'snoozed_until',
+      snoozeRestoreUnread: 'snooze_restore_unread',
       starred: 'starred',
       archivedAt: 'archived_at',
       draftBody: 'draft_body',
@@ -116,7 +117,7 @@ class CommunicationConversation {
       if (updates[k] !== undefined) {
         fields.push(`${col} = ?`);
         let v = updates[k];
-        if (k === 'starred' || k === 'isSpam') v = v ? 1 : 0;
+        if (k === 'starred' || k === 'isSpam' || k === 'snoozeRestoreUnread') v = v ? 1 : 0;
         values.push(v);
       }
     }
@@ -143,7 +144,9 @@ class CommunicationConversation {
     userId = null,
     includeHeld = false,
     unknownOnly = false,
-    isAdminViewer = false
+    isAdminViewer = false,
+    /** When set (non-admin feeds), only personal inbox + assigned-to-user threads. */
+    scopeToUserId = null
   } = {}) {
     const where = ['c.archived_at IS NULL', 'COALESCE(c.is_spam, 0) = 0'];
     const params = [];
@@ -163,6 +166,19 @@ class CommunicationConversation {
     }
     if (filter === 'unknown') {
       where.push('COALESCE(c.is_unknown_sender, 0) = 1');
+    }
+    // Providers/staff must not see shared messages@ / tickets unless assigned or in their App inbox
+    if (scopeToUserId) {
+      where.push(`(
+        c.owner_user_id = ?
+        OR EXISTS (
+          SELECT 1 FROM communication_inboxes pi
+          WHERE pi.id = c.inbox_id
+            AND pi.kind = 'personal'
+            AND pi.owner_user_id = ?
+        )
+      )`);
+      params.push(scopeToUserId, scopeToUserId);
     }
     if (inboxId) {
       // Email is inbox-scoped; SMS/calls are agency-wide (no mailbox) and still appear in All.
@@ -299,7 +315,11 @@ class CommunicationConversation {
           )
         )
       )`);
-      params.push(userId, userId);
+      // Actively snoozed mail leaves Unread until it wakes
+      where.push('(c.snoozed_until IS NULL OR c.snoozed_until <= ?)');
+      // Unknown senders live only in the Unknown Senders folder
+      where.push('COALESCE(c.is_unknown_sender, 0) = 0');
+      params.push(userId, userId, now);
     } else if (filter === 'starred') {
       where.push('c.starred = 1');
     } else if (filter === 'snoozed') {
@@ -308,13 +328,18 @@ class CommunicationConversation {
     } else if (filter === 'assigned' && userId) {
       where.push('c.owner_user_id = ?');
       params.push(userId);
+    } else if (filter === 'drafts' || filter === 'draft') {
+      where.push(`c.draft_body IS NOT NULL AND TRIM(c.draft_body) <> ''`);
     } else if (filter === 'waiting') {
       where.push(`c.status = 'waiting_on_them'`);
     } else if (filter === 'follow_up') {
       where.push(`(c.status = 'follow_up' OR (c.due_at IS NOT NULL AND c.due_at <= ? AND c.status <> 'resolved'))`);
       params.push(now);
+    } else if (filter === 'all' || filter === 'inbox' || !filter) {
+      // Inbox keeps snoozed rows visible (with a snooze icon in the UI).
+      // Other smart filters (needs_reply, etc.) still hide active snoozes above.
     } else {
-      // default active: hide future-snoozed
+      // default active smart views: hide future-snoozed
       where.push('(c.snoozed_until IS NULL OR c.snoozed_until <= ?)');
       params.push(now);
     }
@@ -352,56 +377,168 @@ class CommunicationConversation {
       params
     );
 
-    return rows.map((r) => ({
-      ...r,
-      starred: !!r.starred,
-      is_spam: !!r.is_spam,
-      is_unread: userId
-        ? !!(r.last_message_at && (!r.last_read_at || new Date(r.last_read_at) < new Date(r.last_message_at)))
-        : false
-    }));
+    return rows.map((r) => {
+      const snoozedUntil = r.snoozed_until ? new Date(r.snoozed_until) : null;
+      const isSnoozed = !!(snoozedUntil && snoozedUntil > now);
+      return {
+        ...r,
+        starred: !!r.starred,
+        is_spam: !!r.is_spam,
+        is_snoozed: isSnoozed,
+        snoozed_until: r.snoozed_until || null,
+        is_unread: userId
+          ? !!(
+              !isSnoozed &&
+              r.last_message_at &&
+              (!r.last_read_at || new Date(r.last_read_at) < new Date(r.last_message_at))
+            )
+          : false
+      };
+    });
   }
 
-  static async attentionSummary({ agencyId, userId } = {}) {
+  /**
+   * When snooze windows end, clear snooze and restore unread for the viewer (or everyone).
+   */
+  static async wakeExpiredSnoozes({ agencyId = null, userId = null } = {}) {
     const now = new Date();
-    const agencyClause = agencyId != null ? '(agency_id = ? OR agency_id IS NULL)' : '1=1';
+    const where = [
+      'COALESCE(snooze_restore_unread, 0) = 1',
+      'snoozed_until IS NOT NULL',
+      'snoozed_until <= ?'
+    ];
+    const params = [now];
+    if (agencyId != null) {
+      where.push('(agency_id = ? OR agency_id IS NULL)');
+      params.push(agencyId);
+    }
+    let rows = [];
+    try {
+      const [found] = await pool.execute(
+        `SELECT id FROM communication_conversations WHERE ${where.join(' AND ')} LIMIT 200`,
+        params
+      );
+      rows = found || [];
+    } catch (e) {
+      // Column may not exist until migration 1375 runs
+      if (e?.code === 'ER_BAD_FIELD_ERROR') return 0;
+      throw e;
+    }
+    for (const r of rows) {
+      const cid = Number(r.id);
+      if (!cid) continue;
+      try {
+        if (userId) {
+          await this.markUnread(cid, userId);
+        } else {
+          await pool.execute(
+            `DELETE FROM communication_conversation_reads WHERE conversation_id = ?`,
+            [cid]
+          );
+        }
+        await pool.execute(
+          `UPDATE communication_conversations
+           SET snoozed_until = NULL, snooze_restore_unread = 0
+           WHERE id = ?`,
+          [cid]
+        );
+      } catch (e) {
+        console.warn('[wakeExpiredSnoozes]', cid, e?.message || e);
+      }
+    }
+    return rows.length;
+  }
+
+  static async attentionSummary({ agencyId, userId, scopeToUserId = null } = {}) {
+    const now = new Date();
+    const agencyClause = agencyId != null ? '(c.agency_id = ? OR c.agency_id IS NULL)' : '1=1';
     const paramsBase = agencyId != null ? [agencyId] : [];
+    const scopeUid = scopeToUserId != null ? Number(scopeToUserId) : null;
+    const scopeClause = scopeUid
+      ? `AND (
+           c.owner_user_id = ?
+           OR EXISTS (
+             SELECT 1 FROM communication_inboxes pi
+             WHERE pi.id = c.inbox_id
+               AND pi.kind = 'personal'
+               AND pi.owner_user_id = ?
+           )
+         )`
+      : '';
+    const scopeParams = scopeUid ? [scopeUid, scopeUid] : [];
 
     const count = async (extra, extraParams = []) => {
       const [rows] = await pool.execute(
-        `SELECT COUNT(*) AS n FROM communication_conversations
-         WHERE archived_at IS NULL AND COALESCE(is_spam, 0) = 0 AND ${agencyClause} AND ${extra}`,
-        [...paramsBase, ...extraParams]
+        `SELECT COUNT(*) AS n FROM communication_conversations c
+         WHERE c.archived_at IS NULL AND COALESCE(c.is_spam, 0) = 0 AND ${agencyClause}
+           AND ${extra} ${scopeClause}`,
+        [...paramsBase, ...extraParams, ...scopeParams]
       );
       return Number(rows[0]?.n || 0);
     };
 
     const needsAttention = await count(
-      `status IN ('new', 'needs_reply') AND (snoozed_until IS NULL OR snoozed_until <= ?)`,
+      `c.status IN ('new', 'needs_reply') AND (c.snoozed_until IS NULL OR c.snoozed_until <= ?)`,
       [now]
     );
-    const waitingOnOthers = await count(`status = 'waiting_on_them'`);
+    const waitingOnOthers = await count(`c.status = 'waiting_on_them'`);
     const followUpsDue = await count(
-      `(status = 'follow_up' OR (due_at IS NOT NULL AND due_at <= ?)) AND status <> 'resolved' AND (snoozed_until IS NULL OR snoozed_until <= ?)`,
+      `(c.status = 'follow_up' OR (c.due_at IS NOT NULL AND c.due_at <= ?)) AND c.status <> 'resolved' AND (c.snoozed_until IS NULL OR c.snoozed_until <= ?)`,
       [now, now]
     );
     const assignedToYou = userId
-      ? await count(`owner_user_id = ? AND status <> 'resolved'`, [userId])
+      ? await count(`c.owner_user_id = ? AND c.status <> 'resolved'`, [userId])
       : 0;
     const unknownSenders = userId
       ? await count(
-          `COALESCE(is_unknown_sender, 0) = 1 AND (owner_user_id = ? OR owner_user_id IS NULL)`,
+          `COALESCE(c.is_unknown_sender, 0) = 1 AND (c.owner_user_id = ? OR c.owner_user_id IS NULL)`,
           [userId]
         )
-      : await count(`COALESCE(is_unknown_sender, 0) = 1`);
+      : await count(`COALESCE(c.is_unknown_sender, 0) = 1`);
+
+    let snoozed = 0;
+    try {
+      snoozed = await count(`c.snoozed_until IS NOT NULL AND c.snoozed_until > ?`, [now]);
+    } catch {
+      snoozed = 0;
+    }
+
+    let unread = 0;
+    if (userId) {
+      try {
+        const [uRows] = await pool.execute(
+          `SELECT COUNT(*) AS n FROM communication_conversations c
+           WHERE c.archived_at IS NULL AND COALESCE(c.is_spam, 0) = 0 AND ${agencyClause}
+             AND COALESCE(c.is_unknown_sender, 0) = 0
+             AND (c.snoozed_until IS NULL OR c.snoozed_until <= ?)
+             AND c.last_message_at IS NOT NULL
+             ${scopeClause}
+             AND (
+               NOT EXISTS (
+                 SELECT 1 FROM communication_conversation_reads r
+                 WHERE r.conversation_id = c.id AND r.user_id = ?
+               )
+               OR EXISTS (
+                 SELECT 1 FROM communication_conversation_reads r
+                 WHERE r.conversation_id = c.id AND r.user_id = ? AND r.last_read_at < c.last_message_at
+               )
+             )`,
+          [...paramsBase, now, ...scopeParams, userId, userId]
+        );
+        unread = Number(uRows[0]?.n || 0);
+      } catch {
+        unread = 0;
+      }
+    }
 
     const [channelRows] = await pool.execute(
-      `SELECT channel, COUNT(*) AS n
-       FROM communication_conversations
-       WHERE archived_at IS NULL AND COALESCE(is_spam, 0) = 0 AND ${agencyClause}
-         AND (snoozed_until IS NULL OR snoozed_until <= ?)
-       GROUP BY channel`,
-      [...paramsBase, now]
+      `SELECT c.channel, COUNT(*) AS n
+       FROM communication_conversations c
+       WHERE c.archived_at IS NULL AND COALESCE(c.is_spam, 0) = 0 AND ${agencyClause}
+         AND (c.snoozed_until IS NULL OR c.snoozed_until <= ?)
+         ${scopeClause}
+       GROUP BY c.channel`,
+      [...paramsBase, now, ...scopeParams]
     );
     const channels = Object.fromEntries((channelRows || []).map((r) => [r.channel, Number(r.n || 0)]));
 
@@ -411,6 +548,8 @@ class CommunicationConversation {
       followUpsDue,
       assignedToYou,
       unknownSenders,
+      snoozed,
+      unread,
       channels: {
         email: channels.email || 0,
         secure: channels.secure || 0,

@@ -43,6 +43,72 @@
         <button v-if="fallbackCount" class="btn btn-secondary btn-sm" type="button" @click="filterStatus = 'fallback'">Show them</button>
       </section>
 
+      <section class="aes-chrome" :class="htmlChromeComplete ? 'ok' : 'warn'">
+        <header class="aes-chrome-head">
+          <div>
+            <strong>HTML email header &amp; footer</strong>
+            <span v-if="htmlChromeComplete"> — complete. All HTML emails for this tenant use these banners.</span>
+            <span v-else> — required to complete the tenant email profile. Upload both before going live.</span>
+          </div>
+        </header>
+        <p class="aes-chrome-help">
+          Use wide PNG banners (~1200×280 header, ~1200×220 footer). ITSCO’s live art is the reference —
+          leave a clear center band in the footer for Support / Reply / Unsubscribe links.
+        </p>
+        <div class="aes-chrome-grid">
+          <div class="aes-chrome-card">
+            <h3>Header</h3>
+            <img
+              v-if="chromePreview.headerUrl"
+              :src="chromePreview.headerUrl"
+              alt="Email header preview"
+              class="aes-chrome-img"
+            />
+            <img
+              v-else-if="chromeMeta.exampleHeaderUrl"
+              :src="chromeMeta.exampleHeaderUrl"
+              alt="ITSCO example header"
+              class="aes-chrome-img example"
+            />
+            <p v-if="!chromePreview.headerUrl" class="muted">Showing ITSCO example until you upload.</p>
+            <label class="btn btn-secondary btn-sm aes-upload-btn">
+              {{ chromeUploading === 'header' ? 'Uploading…' : 'Upload header' }}
+              <input type="file" accept="image/png,image/jpeg,image/webp" hidden :disabled="!!chromeUploading" @change="onChromeUpload('header', $event)" />
+            </label>
+            <details class="aes-prompt">
+              <summary>LLM prompt for header art</summary>
+              <pre>{{ chromeMeta.llmHeaderPrompt || '' }}</pre>
+              <button type="button" class="btn btn-ghost btn-sm" @click="copyText(chromeMeta.llmHeaderPrompt)">Copy prompt</button>
+            </details>
+          </div>
+          <div class="aes-chrome-card">
+            <h3>Footer</h3>
+            <img
+              v-if="chromePreview.footerUrl"
+              :src="chromePreview.footerUrl"
+              alt="Email footer preview"
+              class="aes-chrome-img"
+            />
+            <img
+              v-else-if="chromeMeta.exampleFooterUrl"
+              :src="chromeMeta.exampleFooterUrl"
+              alt="ITSCO example footer"
+              class="aes-chrome-img example"
+            />
+            <p v-if="!chromePreview.footerUrl" class="muted">Showing ITSCO example until you upload. Keep the center clear for links.</p>
+            <label class="btn btn-secondary btn-sm aes-upload-btn">
+              {{ chromeUploading === 'footer' ? 'Uploading…' : 'Upload footer' }}
+              <input type="file" accept="image/png,image/jpeg,image/webp" hidden :disabled="!!chromeUploading" @change="onChromeUpload('footer', $event)" />
+            </label>
+            <details class="aes-prompt">
+              <summary>LLM prompt for footer art</summary>
+              <pre>{{ chromeMeta.llmFooterPrompt || '' }}</pre>
+              <button type="button" class="btn btn-ghost btn-sm" @click="copyText(chromeMeta.llmFooterPrompt)">Copy prompt</button>
+            </details>
+          </div>
+        </div>
+      </section>
+
       <div class="aes-toolbar">
         <input v-model.trim="search" type="search" placeholder="Search emails, triggers, From…" />
         <select v-model="filterStatus">
@@ -368,6 +434,12 @@ const form = ref({
   templateSenderIdentityIds: {}
 });
 
+const chromeMeta = ref({});
+const chromePreview = ref({ headerUrl: '', footerUrl: '' });
+const chromeUploading = ref('');
+const htmlChromeComplete = computed(
+  () => !!(chromePreview.value.headerUrl && chromePreview.value.footerUrl)
+);
 const orgSlug = computed(() => String(route.params.organizationSlug || '').trim());
 const agencyId = computed(() => Number(agencyStore.currentAgency?.id || 0));
 const agencyName = computed(() => agencyStore.currentAgency?.name || agencyStore.currentAgency?.short_name || '');
@@ -726,6 +798,24 @@ async function load() {
       defaultSenderIdentityId: agencyRow.defaultSenderIdentityId ? String(agencyRow.defaultSenderIdentityId) : '',
       templateSenderIdentityIds: { ...(agencyRow.templateSenderIdentityIds || {}) }
     };
+    chromeMeta.value = settings.htmlEmailChrome || {};
+    chromePreview.value = {
+      headerUrl: agencyRow.htmlEmailHeaderUrl || chromeMeta.value.headerUrl || '',
+      footerUrl: agencyRow.htmlEmailFooterUrl || chromeMeta.value.footerUrl || ''
+    };
+    try {
+      const { data: chrome } = await api.get('/email-settings/html-chrome', {
+        params: { agencyId: agencyId.value },
+        skipGlobalLoading: true
+      });
+      chromeMeta.value = { ...chromeMeta.value, ...chrome };
+      chromePreview.value = {
+        headerUrl: chrome.headerUrl || chromePreview.value.headerUrl || '',
+        footerUrl: chrome.footerUrl || chromePreview.value.footerUrl || ''
+      };
+    } catch {
+      /* optional */
+    }
     senderIdentities.value = Array.isArray(sendersRes.data) ? sendersRes.data : [];
     catalogRows.value = buildCatalogRows(Array.isArray(triggersRes.data) ? triggersRes.data : []);
     const qType = String(route.query.type || '').trim();
@@ -897,6 +987,47 @@ async function sendTest() {
 }
 
 onMounted(load);
+async function onChromeUpload(kind, ev) {
+  const file = ev?.target?.files?.[0];
+  if (!file || !agencyId.value) return;
+  chromeUploading.value = kind;
+  saveError.value = '';
+  try {
+    const fd = new FormData();
+    fd.append('file', file);
+    fd.append('agencyId', String(agencyId.value));
+    const { data } = await api.post(`/email-settings/html-chrome/${kind}`, fd, {
+      skipGlobalLoading: true,
+      headers: { 'Content-Type': 'multipart/form-data' }
+    });
+    if (kind === 'header') {
+      chromePreview.value.headerUrl = data?.url || data?.chrome?.headerUrl || '';
+    } else {
+      chromePreview.value.footerUrl = data?.url || data?.chrome?.footerUrl || '';
+    }
+    if (data?.chrome) chromeMeta.value = { ...chromeMeta.value, ...data.chrome };
+    saveSuccess.value = `${kind === 'header' ? 'Header' : 'Footer'} uploaded for HTML emails.`;
+  } catch (e) {
+    saveError.value = e?.response?.data?.error?.message || `Failed to upload ${kind}`;
+  } finally {
+    chromeUploading.value = '';
+    if (ev?.target) ev.target.value = '';
+  }
+}
+
+function copyText(text) {
+  const t = String(text || '');
+  if (!t) return;
+  navigator.clipboard?.writeText(t).then(
+    () => {
+      saveSuccess.value = 'Prompt copied.';
+    },
+    () => {
+      saveError.value = 'Could not copy prompt';
+    }
+  );
+}
+
 watch(agencyId, () => { if (agencyId.value) load(); });
 </script>
 
@@ -920,6 +1051,67 @@ watch(agencyId, () => { if (agencyId.value) load(); });
 }
 .aes-banner.warn { background: #fff7ed; border-color: #fdba74; }
 .aes-banner.ok { background: #ecfdf5; border-color: #6ee7b7; }
+.aes-chrome {
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 14px 16px;
+  margin: 0 0 14px;
+  background: #fff;
+}
+.aes-chrome.warn { border-color: #fdba74; background: #fffbeb; }
+.aes-chrome.ok { border-color: #6ee7b7; background: #f0fdf4; }
+.aes-chrome-head { margin-bottom: 6px; }
+.aes-chrome-help {
+  margin: 0 0 12px;
+  font-size: 13px;
+  color: #64748b;
+  line-height: 1.45;
+}
+.aes-chrome-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+.aes-chrome-card {
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 12px;
+  display: grid;
+  gap: 8px;
+}
+.aes-chrome-card h3 {
+  margin: 0;
+  font-size: 14px;
+}
+.aes-chrome-img {
+  width: 100%;
+  height: auto;
+  border-radius: 6px;
+  border: 1px solid #e2e8f0;
+  background: #0f172a;
+}
+.aes-chrome-img.example { opacity: 0.85; }
+.aes-upload-btn { justify-self: start; cursor: pointer; }
+.aes-prompt summary {
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 650;
+  color: #0369a1;
+}
+.aes-prompt pre {
+  white-space: pre-wrap;
+  font-size: 11px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 10px;
+  max-height: 180px;
+  overflow: auto;
+}
+@media (max-width: 900px) {
+  .aes-chrome-grid { grid-template-columns: 1fr; }
+}
 .aes-toolbar {
   display: flex;
   gap: 8px;

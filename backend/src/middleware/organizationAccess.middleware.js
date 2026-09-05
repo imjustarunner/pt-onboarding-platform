@@ -10,6 +10,7 @@
 import Agency from '../models/Agency.model.js';
 import User from '../models/User.model.js';
 import Client from '../models/Client.model.js';
+import { resolveClientRecordAccess } from '../services/clientRecordAccess.service.js';
 
 /**
  * Verify user has access to the specified organization
@@ -152,18 +153,15 @@ export const verifyClientAccess = async (req, res, next) => {
       return next();
     }
 
-    // Get user's organizations
-    const userAgencies = await User.getAgencies(req.user.id);
-    const userAgencyIds = userAgencies.map(a => a.id);
-    const userOrganizationIds = userAgencies.map(a => a.id);
-
-    // Check if user belongs to client's agency OR client's school organization
-    const hasAgencyAccess = userAgencyIds.includes(client.agency_id);
-    const hasSchoolAccess = userOrganizationIds.includes(client.organization_id);
-
-    if (!hasAgencyAccess && !hasSchoolAccess) {
-      return res.status(403).json({ 
-        error: { message: 'You do not have access to this client' } 
+    const access = await resolveClientRecordAccess({
+      userId: req.user.id,
+      role: req.user.role,
+      clientId: client.id,
+      client
+    });
+    if (!access.ok) {
+      return res.status(access.status).json({
+        error: { message: access.message }
       });
     }
 

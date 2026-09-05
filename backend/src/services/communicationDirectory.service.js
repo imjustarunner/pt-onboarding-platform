@@ -58,6 +58,16 @@ function domainOf(email) {
   return (parts[1] || '').toLowerCase();
 }
 
+/** Active directory users only — matches real status enums (INACTIVE_EMPLOYEE, etc.). */
+export const ACTIVE_USER_STATUS_SQL = `
+  COALESCE(u.is_archived, 0) = 0
+  AND UPPER(COALESCE(u.status, '')) NOT IN (
+    'ARCHIVED', 'INACTIVE', 'INACTIVE_EMPLOYEE', 'TERMINATED', 'TERMINATED_PENDING', 'DELETED', 'PROSPECTIVE'
+  )
+  AND UPPER(COALESCE(u.status, '')) NOT LIKE '%ARCHIV%'
+  AND UPPER(COALESCE(u.status, '')) NOT LIKE 'INACTIVE%'
+`;
+
 /**
  * Search agency users + school contacts for compose typeahead.
  */
@@ -79,8 +89,7 @@ export async function searchCommunicationDirectory({ agencyId, q, limit = 20 }) 
          'clinical_practice_assistant','schedule_manager','supervisor','intern',
          'school_staff'
        )
-       AND LOWER(COALESCE(u.status, '')) NOT IN ('archived', 'inactive', 'terminated', 'deleted')
-       AND LOWER(COALESCE(u.status, '')) NOT LIKE '%archiv%'
+       AND (${ACTIVE_USER_STATUS_SQL})
        AND (
          u.first_name LIKE ? OR u.last_name LIKE ? OR u.email LIKE ?
          OR u.work_email LIKE ? OR CONCAT(u.first_name, ' ', u.last_name) LIKE ?
@@ -140,6 +149,82 @@ export async function searchCommunicationDirectory({ agencyId, q, limit = 20 }) 
     deduped.push(r);
   }
   return deduped.slice(0, lim);
+}
+
+const STAFF_ROLES = [
+  'admin',
+  'super_admin',
+  'support',
+  'staff',
+  'provider',
+  'provider_plus',
+  'clinical_practice_assistant',
+  'schedule_manager',
+  'supervisor',
+  'intern'
+];
+
+/**
+ * List agency directory users by kind without requiring a search query.
+ * kinds: 'staff' | 'school_staff'
+ */
+export async function listCommunicationDirectoryByKind({ agencyId, kind = 'staff', limit = 40, q = '' } = {}) {
+  if (!agencyId) return [];
+  const lim = Math.min(Math.max(Number(limit) || 40, 1), 80);
+  const query = String(q || '').trim();
+  const like = query.length >= 2 ? `%${query.replace(/[%_]/g, '')}%` : null;
+  const mode = String(kind || 'staff').toLowerCase();
+
+  let roleClause;
+  let roleParams;
+  if (mode === 'school_staff') {
+    roleClause = `LOWER(COALESCE(u.role, '')) = 'school_staff'`;
+    roleParams = [];
+  } else {
+    roleClause = `LOWER(COALESCE(u.role, '')) IN (${STAFF_ROLES.map(() => '?').join(',')})`;
+    roleParams = STAFF_ROLES;
+  }
+
+  const searchClause = like
+    ? `AND (
+         u.first_name LIKE ? OR u.last_name LIKE ? OR u.email LIKE ?
+         OR u.work_email LIKE ? OR CONCAT(u.first_name, ' ', u.last_name) LIKE ?
+         OR LOWER(COALESCE(u.role, '')) LIKE ?
+       )`
+    : '';
+  const searchParams = like ? [like, like, like, like, like, like] : [];
+
+  const [users] = await pool.execute(
+    `SELECT u.id, u.first_name, u.last_name, u.email, u.work_email, u.role,
+            u.sso_password_override, u.profile_photo_path, u.title
+     FROM users u
+     INNER JOIN user_agencies ua ON ua.user_id = u.id AND ua.agency_id = ?
+       AND (ua.is_active = 1 OR ua.is_active IS NULL)
+     WHERE ${roleClause}
+       AND (${ACTIVE_USER_STATUS_SQL})
+       ${searchClause}
+     ORDER BY u.last_name ASC, u.first_name ASC
+     LIMIT ${lim}`,
+    [agencyId, ...roleParams, ...searchParams]
+  );
+
+  const results = [];
+  for (const u of users || []) {
+    const email = String(u.work_email || u.email || '').trim();
+    // Internal chat still works without email; keep rows for hub messaging.
+    results.push({
+      kind: u.role === 'school_staff' ? 'school_staff' : 'employee',
+      id: u.id,
+      name: [u.first_name, u.last_name].filter(Boolean).join(' ') || email || `User #${u.id}`,
+      email: email || null,
+      meta: u.role,
+      role: u.role,
+      title: u.title || null,
+      profilePhotoPath: u.profile_photo_path || null,
+      ssoPasswordOverride: !!(u.sso_password_override === 1 || u.sso_password_override === true)
+    });
+  }
+  return results;
 }
 
 /**

@@ -40,6 +40,9 @@ function parsePrimaryColor(colorPalette) {
 
 /**
  * Professional tenant-branded outbound email (hub Email channel).
+ * Optional `userSignatureUrl` embeds a personal signature image after the body.
+ * Prefer the send-pipeline append (after agency identity signature) for Hub sends;
+ * pass this when the caller wants the image in the stored HTML preview.
  */
 export function buildNormalOutboundEmailHtml(opts = {}) {
   const sender = escapeHtml(opts.senderDisplayName || 'Team member');
@@ -50,6 +53,12 @@ export function buildNormalOutboundEmailHtml(opts = {}) {
   const logoUrl = String(opts.logoUrl || '').trim();
   const logo = logoUrl
     ? `<img src="${escapeHtml(logoUrl)}" alt="${agencyName}" style="max-height:48px;max-width:200px;display:block;margin:0 0 14px;" />`
+    : '';
+  const sigUrl = String(opts.userSignatureUrl || '').trim();
+  const signatureBlock = sigUrl
+    ? `<div style="margin:22px 0 0;">
+          <img src="${escapeHtml(sigUrl)}" alt="${sender} signature" style="max-width:600px;width:100%;height:auto;display:block;border:0;" />
+        </div>`
     : '';
 
   return `<!DOCTYPE html>
@@ -66,6 +75,7 @@ export function buildNormalOutboundEmailHtml(opts = {}) {
             ${sender}${title ? ` · ${title}` : ''}
           </div>
           <div style="color:#1e293b;font-size:15px;line-height:1.6;">${body}</div>
+          ${signatureBlock}
           <p style="color:#94a3b8;font-size:12px;margin:22px 0 0;line-height:1.45;">
             You can reply to this email as usual. Replies return to ${agencyName || 'your care team'} — not a personal staff inbox.
           </p>

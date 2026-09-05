@@ -39,6 +39,7 @@ import {
   postBlockCommunicationContact,
   deleteMyCommunicationContact,
   postMarkSenderKnown,
+  postResolveUnknownSender,
   postSecureNotify
 } from '../controllers/unifiedInbox.controller.js';
 import {
@@ -82,6 +83,7 @@ router.get('/conversations/:id', getUnifiedConversation);
 router.patch('/conversations/:id', patchUnifiedConversation);
 router.post('/conversations/:id/reply', postUnifiedReply);
 router.post('/conversations/:id/mark-known', postMarkSenderKnown);
+router.post('/conversations/:id/resolve-unknown', postResolveUnknownSender);
 router.get('/conversations/:id/export', getConversationExport);
 router.post('/conversations/:id/ai/draft', postAiDraft);
 router.post('/conversations/:id/ai/insight', postAiInsight);

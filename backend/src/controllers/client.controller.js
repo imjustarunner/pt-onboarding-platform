@@ -16,6 +16,10 @@ import { enqueueD11ComplianceEnsure } from '../services/d11Compliance.service.js
 import { notifyClientBecameCurrent, notifyClientChecklistUpdated, notifyPaperworkReceived, notifyClientTerminated } from '../services/clientNotifications.service.js';
 import { createClientOnboardingTaskForProvider } from '../services/clientOnboardingTask.service.js';
 import { logClientAccess } from '../services/clientAccessLog.service.js';
+import {
+  providerHasAssignedClientAccess as providerHasAssignedClientAccessSvc,
+  resolveClientRecordAccess
+} from '../services/clientRecordAccess.service.js';
 import Notification from '../models/Notification.model.js';
 import NotificationDispatcherService from '../services/notificationDispatcher.service.js';
 import { sendNotificationEmail } from '../services/unifiedEmail/unifiedEmailSender.service.js';
@@ -357,28 +361,7 @@ function getClientTypeTransitionError({ fromType, toType }) {
 }
 
 async function providerHasAssignedClientAccess({ userId, clientId, client = null }) {
-  const uid = parseInt(userId, 10);
-  const cid = parseInt(clientId, 10);
-  if (!uid || !cid) return false;
-
-  try {
-    const [rows] = await pool.execute(
-      `SELECT 1
-       FROM client_provider_assignments
-       WHERE client_id = ?
-         AND provider_user_id = ?
-         AND is_active = TRUE
-       LIMIT 1`,
-      [cid, uid]
-    );
-    if (rows?.[0]) return true;
-  } catch (e) {
-    const msg = String(e?.message || '');
-    const missing = msg.includes("doesn't exist") || msg.includes('ER_NO_SUCH_TABLE');
-    if (!missing) throw e;
-  }
-
-  return parseInt(client?.provider_id || 0, 10) === uid;
+  return providerHasAssignedClientAccessSvc({ userId, clientId, client });
 }
 
 async function ensureAssignedProviderClientAccess({ userId, role, clientId, client = null }) {
@@ -1099,34 +1082,32 @@ export const getClientById = async (req, res, next) => {
       return res.json(client);
     }
 
-    // Get user's organizations
-    const userAgencies = await User.getAgencies(userId);
-    const userAgencyIds = userAgencies.map(a => a.id);
-    const userOrganizationIds = userAgencies.map(a => a.id);
-
-    // Check if user belongs to client's agency OR client's organization
-    const hasAgencyAccess = userAgencyIds.includes(client.agency_id);
-    const hasOrganizationAccess = userOrganizationIds.includes(client.organization_id);
-
-    if (!hasAgencyAccess && !hasOrganizationAccess) {
-      return res.status(403).json({ 
-        error: { message: 'You do not have access to this client' } 
-      });
-    }
-
-    const providerAccess = await ensureAssignedProviderClientAccess({
+    const access = await resolveClientRecordAccess({
       userId,
       role: userRole,
       clientId: client.id,
       client
     });
-    if (!providerAccess.ok) {
-      return res.status(providerAccess.status).json({ error: { message: providerAccess.message } });
+    if (!access.ok) {
+      return res.status(access.status).json({ error: { message: access.message } });
     }
 
+    // Get user's organizations (for restricted school-staff view below)
+    const userAgencies = await User.getAgencies(userId);
+    const hasAgencyAccess = !!access.hasAgencyAccess;
+    const agencyIdNum = Number(client.agency_id) || 0;
+    const orgIdNum = Number(client.organization_id) || 0;
+    const membershipHasAgency =
+      hasAgencyAccess ||
+      (userAgencies || []).some((a) => Number(a.id) === agencyIdNum);
+
     // If user is accessing via a non-agency organization (school/program/learning), return restricted view
-    const userOrganization = userAgencies.find(org => org.id === client.organization_id);
-    const isNonAgencyOrgStaff = userOrganization && (String(userOrganization.organization_type || 'agency').toLowerCase() !== 'agency');
+    const userOrganization = (userAgencies || []).find((org) => Number(org.id) === orgIdNum);
+    const isNonAgencyOrgStaff =
+      userOrganization &&
+      String(userOrganization.organization_type || 'agency').toLowerCase() !== 'agency' &&
+      !membershipHasAgency &&
+      !access.isAssignedClinician;
 
     if (isNonAgencyOrgStaff && !hasAgencyAccess) {
       if (String(userRole || '').toLowerCase() === 'school_staff') {
@@ -4901,28 +4882,18 @@ export const getClientNotes = async (req, res, next) => {
         });
       }
     } else if (userRole !== 'super_admin') {
-      const userAgencies = await User.getAgencies(userId);
-      const userAgencyIds = userAgencies.map(a => a.id);
-      const userOrganizationIds = userAgencies.map(a => a.id);
-      
-      hasAgencyAccess = userAgencyIds.includes(currentClient.agency_id);
-      const hasSchoolAccess = userOrganizationIds.includes(currentClient.organization_id);
-
-      if (!hasAgencyAccess && !hasSchoolAccess) {
-        return res.status(403).json({ 
-          error: { message: 'You do not have access to this client' } 
-        });
+      const access = await resolveClientRecordAccess({
+        userId,
+        role: userRole,
+        clientId: id,
+        client: currentClient
+      });
+      if (!access.ok) {
+        return res.status(access.status).json({ error: { message: access.message } });
       }
-    }
-
-    const providerAccess = await ensureAssignedProviderClientAccess({
-      userId,
-      role: userRole,
-      clientId: id,
-      client: currentClient
-    });
-    if (!providerAccess.ok) {
-      return res.status(providerAccess.status).json({ error: { message: providerAccess.message } });
+      hasAgencyAccess = !!access.hasAgencyAccess || !!access.isAssignedClinician;
+    } else {
+      hasAgencyAccess = true;
     }
 
     // Get notes (filtered by permission)
@@ -7256,45 +7227,11 @@ const isBackofficeRole = (role) => {
 };
 
 async function ensureAgencyAccessToClient({ userId, role, clientId }) {
-  const client = await Client.findById(clientId, { includeSensitive: true });
-  if (!client) return { ok: false, status: 404, message: 'Client not found', client: null };
-  if (String(role || '').toLowerCase() === 'super_admin') return { ok: true, client };
-  const orgs = await User.getAgencies(userId);
-  const userAgencyIds = (orgs || []).map((o) => parseInt(o.id, 10)).filter(Boolean);
-
-  // Prefer multi-agency client affiliations when available.
-  let hasAgencyAccess = false;
-  try {
-    const placeholders = userAgencyIds.length ? userAgencyIds.map(() => '?').join(',') : '';
-    if (placeholders) {
-      const [rows] = await pool.execute(
-        `SELECT 1
-         FROM client_agency_assignments
-         WHERE client_id = ?
-           AND is_active = TRUE
-           AND agency_id IN (${placeholders})
-         LIMIT 1`,
-        [parseInt(clientId, 10), ...userAgencyIds]
-      );
-      hasAgencyAccess = !!rows?.[0]?.['1'] || rows.length > 0;
-    }
-  } catch (e) {
-    const msg = String(e?.message || '');
-    const missing = msg.includes("doesn't exist") || msg.includes('ER_NO_SUCH_TABLE');
-    if (!missing) throw e;
-    // Fall back to legacy single-agency check.
-    hasAgencyAccess = userAgencyIds.some((id) => id === parseInt(client.agency_id, 10));
+  const access = await resolveClientRecordAccess({ userId, role, clientId });
+  if (!access.ok) {
+    return { ok: false, status: access.status, message: access.message, client: access.client };
   }
-  // Safety fallback: if the multi-agency table exists but doesn't have a row yet
-  // (e.g., client created before seeding), fall back to the legacy primary agency_id.
-  if (!hasAgencyAccess) {
-    const legacyAgencyId = parseInt(client?.agency_id, 10);
-    if (Number.isFinite(legacyAgencyId) && legacyAgencyId > 0) {
-      hasAgencyAccess = userAgencyIds.some((id) => id === legacyAgencyId);
-    }
-  }
-  if (!hasAgencyAccess) return { ok: false, status: 403, message: 'You do not have access to this client', client };
-  return { ok: true, client };
+  return { ok: true, client: access.client };
 }
 
 async function isOrgLinkedToAgency({ connection, agencyId, organizationId }) {

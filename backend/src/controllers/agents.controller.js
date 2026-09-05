@@ -3423,3 +3423,70 @@ export const assist = async (req, res, next) => {
   }
 };
 
+export const listAssistThreads = async (req, res, next) => {
+  try {
+    const { listAssistantThreads } = await import('../services/assistantThread.service.js');
+    const agencyId = parseInt(String(req.query?.agencyId || ''), 10) || null;
+    const threads = await listAssistantThreads({
+      userId: req.user.id,
+      agencyId: Number.isFinite(agencyId) && agencyId > 0 ? agencyId : null,
+      limit: parseInt(String(req.query?.limit || '30'), 10) || 30
+    });
+    res.json({ threads });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const getAssistThread = async (req, res, next) => {
+  try {
+    const { listAssistantThreadMessages } = await import('../services/assistantThread.service.js');
+    const out = await listAssistantThreadMessages({
+      threadId: req.params.id,
+      userId: req.user.id
+    });
+    if (!out.thread) return res.status(404).json({ error: { message: 'Thread not found' } });
+    res.json(out);
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const createAssistThread = async (req, res, next) => {
+  try {
+    const { ensureAssistantThread } = await import('../services/assistantThread.service.js');
+    const agencyId = Number(req.body?.agencyId || 0);
+    if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
+    const thread = await ensureAssistantThread({
+      userId: req.user.id,
+      agencyId,
+      title: req.body?.title || null
+    });
+    res.json({ thread });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const appendAssistThreadTurn = async (req, res, next) => {
+  try {
+    const { appendAssistantTurn } = await import('../services/assistantThread.service.js');
+    const agencyId = Number(req.body?.agencyId || 0);
+    if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
+    const rawId = req.body?.threadId || req.params?.id || null;
+    const threadId =
+      rawId && String(rawId) !== 'new' && Number(rawId) > 0 ? Number(rawId) : null;
+    const thread = await appendAssistantTurn({
+      threadId,
+      userId: req.user.id,
+      agencyId,
+      userText: req.body?.userText || '',
+      assistantText: req.body?.assistantText || '',
+      meta: req.body?.meta || null
+    });
+    res.json({ thread });
+  } catch (e) {
+    next(e);
+  }
+};
+

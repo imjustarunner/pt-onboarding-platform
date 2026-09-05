@@ -1,0 +1,40 @@
+---
+description: How to add tenant/agency HTML email header and footer branding assets
+alwaysApply: true
+---
+
+# Tenant HTML email header / footer assets
+
+When the user says they are adding email header/footer art for a tenant or agency (e.g. “add these tenant email assets”, drops PNGs, or names a new org), wire them as **HTML email chrome** — not staff signatures.
+
+## Canonical locations
+
+1. **Bundled public examples (ITSCO):**  
+   `frontend/public/email-branding/itsco/email-header.png`  
+   `frontend/public/email-branding/itsco/email-footer.png`  
+   Source masters: `assets/PrintingAssets/ITSCO Brand/Email Header.png` and `Email Footer.png`.
+
+2. **Per-tenant uploads (preferred for non-ITSCO):**  
+   Admin → **Email Settings** → “HTML email header & footer” uploads via  
+   `POST /api/email-settings/html-chrome/header|footer` with `agencyId`.  
+   Paths stored on `agency_email_settings.html_email_header_url` / `html_email_footer_url`.
+
+3. **Runtime wrap:**  
+   [`backend/src/services/tenantEmailChrome.service.js`](backend/src/services/tenantEmailChrome.service.js) resolves URLs and wraps outbound HTML in [`unifiedEmailSender.service.js`](backend/src/services/unifiedEmail/unifiedEmailSender.service.js) `finalizeOutboundContent` (skips if `data-tenant-email-chrome="1"` already present). ITSCO agencies without DB rows fall back to the public ITSCO art.
+
+## When adding assets for a named tenant
+
+1. Copy or export PNGs into `frontend/public/email-branding/{slug}/email-header.png` and `email-footer.png` **or** upload through Email Settings for that agency.
+2. Set `agency_email_settings` URLs to `/email-branding/{slug}/email-header.png` and `.../email-footer.png` (or the `/uploads/...` URL from the API).
+3. Confirm Email Settings shows both previews and `htmlEmailChromeComplete`.
+4. Do **not** put these in `email-signatures/` (that folder is for From-identity signature strips).
+
+## Specs / LLM prompts
+
+- Header ≈ 1200×280: logo + tagline + scenic transition + motto panel (see ITSCO example).  
+- Footer ≈ 1200×220: wave + logo + **empty center band for HTML link overlay** + mountain slogan.  
+- Prompts are returned by `resolveTenantEmailChrome` / shown in Email Settings (“LLM prompt for header/footer art”).
+
+## Profile completeness
+
+Missing header or footer = incomplete tenant email profile (Email Settings warns). Treat as an onboarding checklist item for every new tenant.

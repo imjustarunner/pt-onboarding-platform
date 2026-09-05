@@ -139,6 +139,41 @@ export async function resolveRecipientDeliveryGate({
   };
 }
 
+/**
+ * Sender-side gate: when the actor is outside their own availability hours.
+ * Used for "Send during next available time" (separate from recipient holds).
+ */
+export async function resolveSenderDeliveryGate({
+  agencyId,
+  userId,
+  now = new Date()
+} = {}) {
+  const uid = Number(userId || 0);
+  if (!uid) {
+    return { availableNow: true, sendAt: null, message: null, outsideAvailability: false };
+  }
+  try {
+    const schedule = await resolveAvailabilitySchedule(uid, { agencyId });
+    if (!schedule.enabled || isInsideSchedule(schedule, now)) {
+      return { availableNow: true, sendAt: null, message: null, outsideAvailability: false };
+    }
+    const next = nextAvailableAt(schedule, now);
+    if (!next || next.getTime() <= now.getTime() + 2000) {
+      return { availableNow: true, sendAt: null, message: null, outsideAvailability: false };
+    }
+    const whenLabel = formatReceiveWhen(next);
+    return {
+      availableNow: false,
+      sendAt: next.toISOString(),
+      message: `You're outside your availability hours. This will send during your next available time (${whenLabel}).`,
+      outsideAvailability: true
+    };
+  } catch (e) {
+    console.warn('[hubRecipientDelivery] sender gate:', e?.message || e);
+    return { availableNow: true, sendAt: null, message: null, outsideAvailability: false };
+  }
+}
+
 export async function findAgencyUserIdByEmail(agencyId, email) {
   const normalized = String(email || '')
     .trim()

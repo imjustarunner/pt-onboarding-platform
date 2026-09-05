@@ -88,4 +88,26 @@ describe('hogwartsTestEmail', () => {
     assert.equal(result.originalTo, 'guardian@example.com');
     assert.match(result.subject, /Demo test → guardian@example\.com/);
   });
+
+  it('extracts emails from hub-style address objects', () => {
+    assert.deepEqual(
+      extractEmailAddresses([{ email: 'guardian@example.com', name: 'Parent' }, 'kid@example.org']),
+      ['guardian@example.com', 'kid@example.org']
+    );
+  });
+
+  it('rewrites @example recipients in To and Cc so testing inbox gets the mail', async () => {
+    const result = await rewriteHogwartsOutboundRecipient({
+      to: [{ email: 'parent@example.com', name: 'Parent' }],
+      cc: 'co-guardian@example.org',
+      bcc: 'real.person@gmail.com',
+      subject: 'Session reminder'
+    });
+    assert.equal(result.redirected, true);
+    assert.equal(result.to, HOGWARTS_TEST_INBOX);
+    assert.equal(result.cc, HOGWARTS_TEST_INBOX);
+    assert.equal(result.bcc, 'real.person@gmail.com');
+    assert.match(result.originalTo, /parent@example\.com/);
+    assert.match(result.originalTo, /co-guardian@example\.org/);
+  });
 });

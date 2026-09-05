@@ -398,6 +398,24 @@ class GoogleWorkspaceDirectoryService {
   }
 
   /**
+   * Permanently delete a Google Group. No-ops (returns notFound) when missing.
+   */
+  static async deleteGroup({ groupEmail }) {
+    const email = String(groupEmail || '').trim().toLowerCase();
+    if (!email) throw new Error('groupEmail is required');
+    const admin = await this.getClient();
+    try {
+      await admin.groups.delete({ groupKey: email });
+      return { email, deleted: true };
+    } catch (e) {
+      const status = e?.code || e?.response?.status || null;
+      if (status === 404) return { email, deleted: false, notFound: true };
+      logGoogleUnauthorizedHint(e, { context: 'GoogleWorkspaceDirectoryService.deleteGroup' });
+      throw e;
+    }
+  }
+
+  /**
    * True when neither a Workspace user nor a Group owns this address.
    */
   static async isDirectoryEmailAvailable(email) {

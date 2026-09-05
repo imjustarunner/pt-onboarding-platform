@@ -48,7 +48,14 @@ async function markKnown() {
   if (!conv.value?.id) return;
   trustBusy.value = true;
   try {
-    await api.post(`/communications/conversations/${conv.value.id}/mark-known`, {}, { skipGlobalLoading: true });
+    await api.post(
+      `/communications/conversations/${conv.value.id}/resolve-unknown`,
+      { mode: 'known_only' },
+      {
+        params: { agencyId: props.agencyId },
+        skipGlobalLoading: true
+      }
+    );
     emit('refresh');
   } catch (e) {
     sendError.value = e?.response?.data?.error?.message || 'Could not mark known';
@@ -59,18 +66,22 @@ async function markKnown() {
 
 async function addContact() {
   if (!primaryEmail.value || !props.agencyId) return;
+  // Prefer Hub resolve flow when available; fall back to display-name prompt for Center
   const name = window.prompt('Display name for this contact (optional):', '') || null;
   trustBusy.value = true;
   try {
-    await api.post('/communications/contacts', {
-      agencyId: props.agencyId,
-      email: primaryEmail.value,
-      displayName: name,
-      trustStatus: 'safe'
-    }, { skipGlobalLoading: true });
-    if (conv.value?.id) {
-      await api.post(`/communications/conversations/${conv.value.id}/mark-known`, {}, { skipGlobalLoading: true });
-    }
+    await api.post(
+      `/communications/conversations/${conv.value.id}/resolve-unknown`,
+      {
+        mode: 'new_contact',
+        fullName: name,
+        email: primaryEmail.value
+      },
+      {
+        params: { agencyId: props.agencyId },
+        skipGlobalLoading: true
+      }
+    );
     emit('refresh');
   } catch (e) {
     sendError.value = e?.response?.data?.error?.message || 'Could not add contact';
@@ -379,7 +390,9 @@ function applySuggestedStatus() {
           <button type="button" class="uc-btn ghost" @click="emit('patch', { archive: true })">Archive</button>
           <template v-if="conv.is_unknown_sender || conv.sender_trust === 'unknown'">
             <button type="button" class="uc-btn ghost" :disabled="trustBusy" @click="markKnown">Mark known</button>
-            <button type="button" class="uc-btn ghost" :disabled="trustBusy" @click="addContact">Add contact</button>
+            <button type="button" class="uc-btn primary" :disabled="trustBusy" @click="addContact">
+              Mark known &amp; add contact
+            </button>
           </template>
           <button
             v-if="primaryEmail"
@@ -396,6 +409,7 @@ function applySuggestedStatus() {
           <div class="uc-snooze-wrap">
             <button type="button" class="uc-btn ghost" @click="showSnooze = !showSnooze">Snooze</button>
             <div v-if="showSnooze" class="uc-snooze-menu">
+              <button type="button" @click="emit('patch', { snoozePreset: '1h' }); showSnooze = false">1 hour</button>
               <button type="button" @click="emit('patch', { snoozePreset: 'later_today' }); showSnooze = false">Later today</button>
               <button type="button" @click="emit('patch', { snoozePreset: 'tomorrow' }); showSnooze = false">Tomorrow</button>
               <button type="button" @click="emit('patch', { snoozePreset: 'next_week' }); showSnooze = false">Next week</button>
