@@ -395,7 +395,7 @@
               Send as secure portal message (recommended for active clients)
             </label>
 
-            <div class="msg-hub-timeline">
+            <div ref="timelineEl" class="msg-hub-timeline">
               <div v-if="loadingTimeline" class="msg-hub-muted">Loading conversation…</div>
               <template v-else-if="sendMethod === 'email'">
                 <div class="msg-hub-email-thread-bar">
@@ -747,7 +747,7 @@
                 v-else
                 ref="composeEl"
                 v-model="composeBody"
-                rows="4"
+                rows="3"
                 :placeholder="composerPlaceholder"
                 @keydown.meta.enter.prevent="send"
                 @keydown.ctrl.enter.prevent="send"
@@ -1341,10 +1341,12 @@ const composeBcc = ref('');
 const showCcField = ref(false);
 const showBccField = ref(false);
 const emailEditorEl = ref(null);
+const timelineEl = ref(null);
 const draftSaveHint = ref('');
 let draftSaveTimer = null;
 let draftHintTimer = null;
 let suppressDraftAutosave = false;
+let queuedPollTimer = null;
 const composeAttachments = ref([]);
 const chatStagedAttachments = ref([]);
 const chatThreadId = ref(null);
@@ -1598,6 +1600,9 @@ const emptyListCopy = computed(() => {
   if (isConversationMode.value) {
     if (navId.value === 'unknown') {
       return 'No unknown senders right now. New mail from addresses outside your known contacts will land here.';
+    }
+    if (navId.value === 'unread' || navId.value === 'inbox') {
+      return 'No unread email here. Internal and secure chat live on each person — open Recent or Staff to see new messages.';
     }
     return 'Nothing in this inbox view yet.';
   }
@@ -2121,20 +2126,14 @@ const activeEmailThreadSubject = computed(() => {
 const visibleTimeline = computed(() => {
   const method = String(sendMethod.value || '').toLowerCase();
   const items = Array.isArray(timeline.value) ? timeline.value : [];
+  // Email mode uses subject nesting — only show that thread's emails.
   if (method === 'email') {
     if (!activeEmailThreadKey.value) return [];
     const thread = emailSubjectThreads.value.find((t) => t.key === activeEmailThreadKey.value);
     return thread?.messages || [];
   }
-  if (method === 'internal' || method === 'secure') {
-    return items.filter((m) => {
-      const ch = String(m.channel || '').toLowerCase();
-      return ch === method || (method === 'secure' && ch === 'secure') || (method === 'internal' && ch === 'internal');
-    });
-  }
-  if (method === 'sms') {
-    return items.filter((m) => String(m.channel || '').toLowerCase() === 'sms');
-  }
+  // Secure / Internal / SMS: show the full person timeline so replies aren't hidden
+  // when the composer's channel differs from older messages.
   return items;
 });
 
@@ -2224,20 +2223,26 @@ function startUndoBanner({
     if (expiredHandled) return;
     expiredHandled = true;
     clearUndoBanner();
-    // Worker may still be a few seconds behind the client countdown — refresh a couple times.
+    // Worker may still be a few seconds behind the client countdown — refresh until queue clears.
     const personKey = selected.value?.personKey;
     const refresh = async () => {
-      if (personKey) await loadTimeline(personKey);
+      if (personKey) {
+        await loadTimeline(personKey);
+        scrollTimelineToBottom();
+      }
       await refreshQueuedCount();
       if (navId.value === 'queued') await loadQueued();
     };
     await refresh();
     setTimeout(() => {
       refresh().catch(() => {});
-    }, 2500);
+    }, 1500);
     setTimeout(() => {
       refresh().catch(() => {});
-    }, 8000);
+    }, 4000);
+    setTimeout(() => {
+      refresh().catch(() => {});
+    }, 10000);
   };
   undoTickTimer = setInterval(() => {
     undoNow.value = Date.now();
@@ -2876,6 +2881,25 @@ async function focusComposer() {
   composeEl.value?.focus?.();
 }
 
+function scrollTimelineToBottom({ smooth = false } = {}) {
+  const el = timelineEl.value;
+  if (!el) return;
+  const run = () => {
+    el.scrollTop = el.scrollHeight;
+  };
+  run();
+  requestAnimationFrame(run);
+  setTimeout(run, 50);
+  setTimeout(run, 200);
+  if (smooth) {
+    try {
+      el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
+    } catch {
+      run();
+    }
+  }
+}
+
 function selectMethod(id) {
   sendMethod.value = id;
   if (id === 'email') {
@@ -3424,13 +3448,28 @@ async function loadTimeline(personKey) {
       };
     }
     timeline.value = Array.isArray(data?.items) ? data.items : [];
-    const chatMsg = timeline.value.find((m) => m?.meta?.threadId);
+    const chatMsg = [...timeline.value].reverse().find((m) => m?.meta?.threadId);
     if (chatMsg?.meta?.threadId) chatThreadId.value = chatMsg.meta.threadId;
+
+    // Prefer composing on the latest channel so Internal replies aren't hidden behind Email.
+    const latest = [...timeline.value].reverse().find((m) => {
+      const ch = String(m.channel || '').toLowerCase();
+      return ['internal', 'secure', 'sms', 'email'].includes(ch);
+    });
+    if (latest?.channel) {
+      const ch = String(latest.channel).toLowerCase();
+      const available = (selected.value?.methods || []).some((m) => m.id === ch && m.available);
+      if (available || ch === 'internal' || ch === 'secure') {
+        sendMethod.value = ch;
+      }
+    }
   } catch (e) {
     timeline.value = [];
     error.value = e?.response?.data?.error?.message || 'Could not load timeline';
   } finally {
     loadingTimeline.value = false;
+    await nextTick();
+    scrollTimelineToBottom();
   }
 }
 
@@ -3738,6 +3777,7 @@ async function executeSend({ sendToAllPortalGuardians = false, includeClient = f
     }
     await loadTimeline(selected.value.personKey);
     await loadPersonContext(selected.value.personKey);
+    scrollTimelineToBottom();
     scheduleSmartReply();
     if (selected.value && !people.value.some((p) => p.personKey === selected.value.personKey)) {
       people.value = [selected.value, ...people.value];
@@ -3781,6 +3821,12 @@ onMounted(() => {
   document.addEventListener('click', onDocClickClosePickers);
   loadInboxCounts();
   loadSendDelayPrefs();
+  queuedPollTimer = setInterval(() => {
+    if (inboxCounts.value.queued > 0 || navId.value === 'queued' || undoBanner.value) {
+      refreshQueuedCount();
+      if (navId.value === 'queued') loadQueued();
+    }
+  }, 4000);
 });
 onUnmounted(() => {
   clearUndoBanner();
@@ -3790,6 +3836,7 @@ onUnmounted(() => {
   clearTimeout(smartReplyTimer);
   clearTimeout(draftSaveTimer);
   clearTimeout(draftHintTimer);
+  if (queuedPollTimer) clearInterval(queuedPollTimer);
   document.removeEventListener('click', onDocClickClosePickers);
 });
 
@@ -4426,14 +4473,14 @@ defineExpose({
   color: var(--mh-primary);
 }
 .msg-hub-composer {
-  padding: 8px 14px 16px;
+  padding: 8px 14px 12px;
   border-top: 1px solid var(--mh-line);
   display: flex;
   flex-direction: column;
   gap: 6px;
-  flex: 0 1 auto;
+  flex: 0 0 auto;
   min-height: 0;
-  max-height: min(48vh, 420px);
+  max-height: min(36vh, 280px);
   overflow-x: hidden;
   overflow-y: auto;
   overscroll-behavior: contain;
@@ -4441,13 +4488,14 @@ defineExpose({
   background: #fff;
 }
 .msg-hub-composer.is-email {
-  max-height: min(68vh, 640px);
-  padding-bottom: 24px;
+  max-height: min(52vh, 480px);
+  padding-bottom: 16px;
 }
 .msg-hub-composer textarea {
   width: 100%;
   box-sizing: border-box;
-  min-height: 120px;
+  min-height: 72px;
+  max-height: 140px;
   flex: 0 0 auto;
   resize: vertical;
   border: 1px solid var(--mh-line);

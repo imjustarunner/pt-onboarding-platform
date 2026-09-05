@@ -101,7 +101,7 @@ const props = defineProps({
 const emit = defineEmits(['update:modelValue', 'attach-files', 'attach-images']);
 
 const emojiOpen = ref(false);
-const editorHeight = ref(220);
+const editorHeight = ref(160);
 let resizing = false;
 let resizeStartY = 0;
 let resizeStartH = 0;
