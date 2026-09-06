@@ -1873,14 +1873,47 @@ async function loadChatTimeline({ agencyId, actorUserId, otherUserId, limit = 40
 
     const ph = threadIds.map(() => '?').join(',');
     const [rows] = await pool.execute(
-      `SELECT m.id, m.thread_id, m.body, m.body_ciphertext, m.body_iv, m.body_auth_tag, m.created_at, m.sender_user_id
+      `SELECT m.id, m.thread_id, m.body, m.body_ciphertext, m.body_iv, m.body_auth_tag, m.created_at, m.sender_user_id,
+              u.first_name AS sender_first_name, u.last_name AS sender_last_name,
+              u.profile_photo_path AS sender_profile_photo_path
        FROM chat_messages m
+       LEFT JOIN users u ON u.id = m.sender_user_id
        WHERE m.thread_id IN (${ph})
        ORDER BY m.created_at DESC, m.id DESC
        LIMIT ${Math.min(limit, 80)}`,
       threadIds
     );
     const messageIds = (rows || []).map((m) => Number(m.id)).filter(Boolean);
+
+    // Other participants' read watermarks (for face-style read receipts on outbound).
+    const readersByThread = new Map();
+    try {
+      const [readRows] = await pool.execute(
+        `SELECT r.thread_id, r.user_id, r.last_read_message_id,
+                u.first_name, u.last_name, u.profile_photo_path
+         FROM chat_thread_reads r
+         INNER JOIN users u ON u.id = r.user_id
+         WHERE r.thread_id IN (${ph})
+           AND r.user_id <> ?
+           AND r.last_read_message_id IS NOT NULL`,
+        [...threadIds, actorUserId]
+      );
+      for (const r of readRows || []) {
+        const tid = Number(r.thread_id);
+        const arr = readersByThread.get(tid) || [];
+        arr.push({
+          userId: Number(r.user_id),
+          lastReadMessageId: Number(r.last_read_message_id) || 0,
+          firstName: r.first_name || '',
+          lastName: r.last_name || '',
+          photoPath: r.profile_photo_path || null
+        });
+        readersByThread.set(tid, arr);
+      }
+    } catch {
+      /* best-effort */
+    }
+
     const attachmentsByMessage = new Map();
     const reactionsByMessage = new Map();
     if (messageIds.length) {
@@ -1958,14 +1991,40 @@ async function loadChatTimeline({ agencyId, actorUserId, otherUserId, limit = 40
         }
       }
       const mid = Number(m.id);
+      const senderId = Number(m.sender_user_id) || null;
+      const direction = senderId === Number(actorUserId) ? 'outbound' : 'inbound';
+      const senderName = [m.sender_first_name, m.sender_last_name].filter(Boolean).join(' ').trim() || null;
+      const readers = readersByThread.get(Number(m.thread_id)) || [];
+      const readBy =
+        direction === 'outbound'
+          ? readers
+              .filter((r) => r.lastReadMessageId >= mid && r.userId !== senderId)
+              .map((r) => ({
+                userId: r.userId,
+                firstName: r.firstName,
+                lastName: r.lastName,
+                displayName: [r.firstName, r.lastName].filter(Boolean).join(' ').trim() || 'Read',
+                photoPath: r.photoPath
+              }))
+          : [];
       items.push({
         id: `chat-${m.id}`,
         channel: 'secure',
         bodyPreview: String(body || '').slice(0, 400),
         createdAt: m.created_at,
-        direction: Number(m.sender_user_id) === Number(actorUserId) ? 'outbound' : 'inbound',
+        direction,
         attachments: attachmentsByMessage.get(mid) || [],
         reactions: reactionsByMessage.get(mid) || [],
+        sender: senderId
+          ? {
+              userId: senderId,
+              firstName: m.sender_first_name || '',
+              lastName: m.sender_last_name || '',
+              displayName: senderName,
+              photoPath: m.sender_profile_photo_path || null
+            }
+          : null,
+        readBy,
         meta: { threadId: Number(m.thread_id), messageId: mid }
       });
     }
@@ -2494,6 +2553,8 @@ export async function getHubPersonTimeline({ agencyId, userId, personKey, limit 
       direction: 'outbound',
       attachments: [],
       reactions: [],
+      sender: null,
+      readBy: [],
       meta: {
         queueId: Number(r.id),
         queueReason: r.queue_reason || 'undo_delay',

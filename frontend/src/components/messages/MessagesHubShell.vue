@@ -560,10 +560,72 @@
                   v-for="msg in visibleTimeline"
                   :key="msg.id"
                   class="msg-hub-bubble"
-                  :class="[msg.direction, `ch-${msg.channel}`]"
+                  :class="[
+                    msg.direction,
+                    `ch-${msg.channel}`,
+                    { 'is-chat': isChatChannel(msg.channel), 'is-wide': true }
+                  ]"
                 >
-                  <span class="msg-hub-bubble-ch">{{ methodLabel(msg.channel) }}</span>
-                  <p v-if="msg.bodyPreview">{{ msg.bodyPreview }}</p>
+                  <div class="msg-hub-bubble-top">
+                    <span class="msg-hub-bubble-ch">{{ methodLabel(msg.channel) }}</span>
+                    <div class="msg-hub-bubble-who">
+                      <div class="msg-hub-bubble-avatar" aria-hidden="true">
+                        <img
+                          v-if="hubMsgPhoto(msg)"
+                          :src="photoSrc(hubMsgPhoto(msg))"
+                          :alt="''"
+                        />
+                        <span v-else>{{ initials(hubMsgName(msg)) }}</span>
+                      </div>
+                      <span class="msg-hub-bubble-name">{{ hubMsgName(msg) }}</span>
+                      <time class="msg-hub-bubble-time">{{ formatTime(msg.createdAt) }}</time>
+                      <span
+                        v-if="msg.meta?.sendStatus === 'scheduled'"
+                        class="msg-hub-sent-tag"
+                      >Queued</span>
+                      <span
+                        v-else-if="msg.direction === 'outbound' && isChatChannel(msg.channel)"
+                        class="msg-hub-sent-tag"
+                      >{{ (msg.readBy || []).length ? 'Read' : 'Sent' }}</span>
+                      <span
+                        v-else-if="msg.direction === 'outbound'"
+                        class="msg-hub-sent-tag"
+                      >Sent</span>
+                      <div
+                        v-if="(msg.readBy || []).length"
+                        class="msg-hub-read-faces"
+                        :title="hubReadByTitle(msg)"
+                      >
+                        <div
+                          v-for="r in msg.readBy"
+                          :key="r.userId"
+                          class="msg-hub-read-face"
+                          :title="r.displayName || 'Read'"
+                        >
+                          <img
+                            v-if="r.photoPath"
+                            :src="photoSrc(r.photoPath)"
+                            :alt="r.displayName || ''"
+                          />
+                          <span v-else>{{ initials(r.displayName || '?') }}</span>
+                        </div>
+                      </div>
+                      <span
+                        v-if="msg.meta?.openedAt"
+                        class="msg-hub-open-tag"
+                        :title="formatTime(msg.meta.openedAt)"
+                      >
+                        Opened
+                      </span>
+                      <span
+                        v-else-if="msg.channel === 'email' && msg.direction === 'outbound' && msg.meta?.sendStatus !== 'scheduled'"
+                        class="msg-hub-open-tag pending"
+                      >
+                        Not opened
+                      </span>
+                    </div>
+                  </div>
+                  <p v-if="msg.bodyPreview" class="msg-hub-bubble-body">{{ msg.bodyPreview }}</p>
                   <div v-if="msg.attachments?.length" class="msg-hub-bubble-atts">
                     <a
                       v-for="att in msg.attachments"
@@ -617,31 +679,11 @@
                       </div>
                     </div>
                   </div>
-                  <div class="msg-hub-bubble-meta">
-                    <time>{{ formatTime(msg.createdAt) }}</time>
-                    <span
-                      v-if="msg.meta?.sendStatus === 'scheduled'"
-                      class="msg-hub-sent-tag"
-                    >Queued</span>
-                    <span
-                      v-else-if="msg.direction === 'outbound'"
-                      class="msg-hub-sent-tag"
-                    >Sent</span>
-                    <span
-                      v-if="msg.meta?.openedAt"
-                      class="msg-hub-open-tag"
-                      :title="formatTime(msg.meta.openedAt)"
-                    >
-                      Opened
-                    </span>
-                    <span
-                      v-else-if="msg.channel === 'email' && msg.direction === 'outbound' && msg.meta?.sendStatus !== 'scheduled'"
-                      class="msg-hub-open-tag pending"
-                    >
-                      Not opened
-                    </span>
+                  <div
+                    v-if="msg.channel === 'email' && msg.meta?.conversationId"
+                    class="msg-hub-bubble-meta"
+                  >
                     <button
-                      v-if="msg.channel === 'email' && msg.meta?.conversationId"
                       type="button"
                       class="msg-hub-star-btn"
                       :class="{ on: !!msg.meta?.starred }"
@@ -651,7 +693,7 @@
                       {{ msg.meta?.starred ? '★' : '☆' }}
                     </button>
                     <button
-                      v-if="msg.channel === 'email' && msg.meta?.conversationId && msg.meta?.sendStatus === 'scheduled'"
+                      v-if="msg.meta?.sendStatus === 'scheduled'"
                       type="button"
                       class="msg-hub-like"
                       title="Undo / recall"
@@ -660,7 +702,7 @@
                       Undo
                     </button>
                     <button
-                      v-else-if="msg.channel === 'email' && msg.meta?.conversationId"
+                      v-else
                       type="button"
                       class="msg-hub-like"
                       title="Like"
@@ -2912,6 +2954,37 @@ function photoSrc(url) {
   return toUploadsUrl(url) || url;
 }
 
+function hubMsgName(msg) {
+  const fromSender = String(msg?.sender?.displayName || '').trim();
+  if (fromSender) return fromSender;
+  if (msg?.direction === 'outbound') {
+    const u = authStore.user;
+    const me = [u?.first_name || u?.firstName, u?.last_name || u?.lastName]
+      .filter(Boolean)
+      .join(' ')
+      .trim();
+    if (me) return me;
+    return 'You';
+  }
+  return String(selected.value?.displayName || 'Them').trim() || 'Them';
+}
+
+function hubMsgPhoto(msg) {
+  if (msg?.sender?.photoPath) return msg.sender.photoPath;
+  if (msg?.direction === 'outbound') {
+    return authStore.user?.profile_photo_path || authStore.user?.profilePhotoPath || null;
+  }
+  return selected.value?.photoUrl || null;
+}
+
+function hubReadByTitle(msg) {
+  const names = (msg?.readBy || [])
+    .map((r) => r.displayName)
+    .filter(Boolean);
+  if (!names.length) return 'Read';
+  return `Read by ${names.join(', ')}`;
+}
+
 function isOtherAgency(person) {
   const current = Number(agencyId.value);
   const theirs = Number(person?.agencyId);
@@ -4153,6 +4226,15 @@ async function executeSend({ sendToAllPortalGuardians = false, includeClient = f
             direction: 'outbound',
             attachments: data?.chat?.attachments || [],
             reactions: [],
+            sender: {
+              userId: Number(authStore.user?.id) || null,
+              firstName: authStore.user?.first_name || authStore.user?.firstName || '',
+              lastName: authStore.user?.last_name || authStore.user?.lastName || '',
+              displayName: hubMsgName({ direction: 'outbound' }),
+              photoPath:
+                authStore.user?.profile_photo_path || authStore.user?.profilePhotoPath || null
+            },
+            readBy: [],
             meta: {
               threadId: data?.threadRef?.threadId || chatThreadId.value,
               messageId: data?.chat?.id || null
@@ -4908,16 +4990,68 @@ defineExpose({
   background: #f8fafc;
 }
 .msg-hub-bubble {
-  max-width: 85%;
-  padding: 10px 12px;
-  border-radius: 12px;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+  padding: 8px 12px;
+  border-radius: 10px;
   background: #fff;
   border: 1px solid var(--mh-line);
-  align-self: flex-start;
+  align-self: stretch;
 }
 .msg-hub-bubble.outbound {
-  align-self: flex-end;
   background: color-mix(in srgb, var(--mh-primary) 10%, #fff);
+}
+.msg-hub-bubble-top {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 2px;
+}
+.msg-hub-bubble-who {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+  min-width: 0;
+}
+.msg-hub-bubble-avatar {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  overflow: hidden;
+  background: #e2e8f0;
+  color: #334155;
+  font-size: 9px;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.msg-hub-bubble-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.msg-hub-bubble-name {
+  font-size: 13px;
+  font-weight: 650;
+  color: var(--mh-ink, #0f172a);
+  min-width: 0;
+}
+.msg-hub-bubble-time {
+  font-size: 11px;
+  color: var(--mh-muted);
+  margin-left: auto;
+}
+.msg-hub-bubble-body {
+  margin: 2px 0 0;
+  white-space: pre-wrap;
+  font-size: 14px;
+  line-height: 1.4;
+  font-weight: 500;
 }
 .msg-hub-bubble p { margin: 4px 0; white-space: pre-wrap; font-size: 14px; }
 .msg-hub-bubble time { font-size: 11px; color: var(--mh-muted); }
@@ -4925,7 +5059,36 @@ defineExpose({
   font-size: 10px;
   font-weight: 800;
   text-transform: uppercase;
+  letter-spacing: 0.04em;
   color: var(--mh-primary);
+}
+.msg-hub-read-faces {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 2px;
+}
+.msg-hub-read-face {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  overflow: hidden;
+  background: #cbd5e1;
+  color: #1e293b;
+  font-size: 8px;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1.5px solid #fff;
+  margin-left: -4px;
+  box-sizing: border-box;
+}
+.msg-hub-read-face:first-child { margin-left: 0; }
+.msg-hub-read-face img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
 }
 .msg-hub-composer {
   padding: 8px 14px 12px;
