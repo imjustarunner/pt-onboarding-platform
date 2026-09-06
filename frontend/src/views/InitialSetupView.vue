@@ -65,12 +65,25 @@
               </div>
             </div>
 
+            <div v-if="requiresClientDob" class="form-group">
+              <label for="clientDob">Client’s date of birth</label>
+              <input
+                id="clientDob"
+                v-model="clientDob"
+                type="date"
+                required
+                class="form-input"
+                :disabled="setting"
+              />
+              <p class="field-hint">Enter the client’s date of birth to finish opening this portal account.</p>
+            </div>
+
             <p v-if="setupError" class="error-message">{{ setupError }}</p>
 
             <button
               type="submit"
               class="btn btn-primary"
-              :disabled="setting || !!passwordMismatch || !password || !confirmPassword"
+              :disabled="setting || !!passwordMismatch || !password || !confirmPassword || (requiresClientDob && !clientDob)"
             >
               {{ setting ? 'Saving and signing you in…' : 'Create password and continue' }}
             </button>
@@ -107,6 +120,8 @@ const setting = ref(false);
 const setupError = ref('');
 const showPassword = ref(false);
 const showConfirm = ref(false);
+const requiresClientDob = ref(false);
+const clientDob = ref('');
 const tenantBrand = ref(null);
 const schoolBrand = ref(null);
 
@@ -139,6 +154,7 @@ const validateToken = async () => {
     const first = response.data.firstName || 'User';
     const preferred = String(response.data?.preferredName || '').trim();
     userFirstName.value = preferred ? `${first} "${preferred}"` : first;
+    requiresClientDob.value = !!response.data?.requiresClientDob;
     tenantBrand.value = response.data?.tenant || null;
     schoolBrand.value = response.data?.school || null;
     const slug = route.params.organizationSlug || response.data?.portalSlug || response.data?.tenant?.slug;
@@ -172,7 +188,8 @@ const handleSetup = async () => {
 
   try {
     const response = await api.post(`/auth/initial-setup/${encodeURIComponent(token)}`, {
-      password: password.value
+      password: password.value,
+      clientDob: requiresClientDob.value ? clientDob.value : undefined
     });
     await completePasswordTokenLogin(response.data, router);
   } catch (err) {
@@ -226,6 +243,17 @@ onMounted(async () => {
   color: #666;
   margin-bottom: 30px;
   font-size: 14px;
+}
+
+.field-hint {
+  margin: 6px 0 0;
+  font-size: 12px;
+  color: #64748b;
+  line-height: 1.4;
+}
+
+.form-group input[type='date'].form-input {
+  padding-right: 12px;
 }
 
 .form-group {

@@ -501,7 +501,7 @@ export const postMessagesHubSend = async (req, res, next) => {
       return res.status(400).json({ error: { message: 'body is required' } });
     }
 
-    const person = await prepareHubSend({
+    let person = await prepareHubSend({
       agencyId,
       userId: req.user.id,
       personKey,
@@ -675,6 +675,23 @@ export const postMessagesHubSend = async (req, res, next) => {
       return sendSmsMessage(req, res, next);
     }
 
+    if (method === 'secure' && !person.userId) {
+      const invited = await sendHubPortalInvitation({
+        agencyId,
+        actorUserId: req.user.id,
+        personKey,
+        clientId: person.clientId || req.body?.clientId || null,
+        guardianUserId: person.userId || null,
+        skipEmail: true
+      });
+      person = await prepareHubSend({
+        agencyId,
+        userId: req.user.id,
+        personKey: invited?.personKey || personKey,
+        method
+      });
+    }
+
     if (!person.userId) {
       return res.status(400).json({
         error: { message: 'Secure/internal messaging requires a user account on the recipient' }
@@ -694,7 +711,7 @@ export const postMessagesHubSend = async (req, res, next) => {
         return null;
       })
       .filter(Boolean);
-    req.body = { ...req.body, body, attachments: chatAttachments };
+    req.body = { ...req.body, body, attachments: chatAttachments, subject: subject || req.body?.subject || null };
 
     const originalJson = res.json.bind(res);
     res.json = (payload) => {
@@ -1117,7 +1134,7 @@ export async function processHubMessageQueue({ limit = 40 } = {}) {
         row.payload_json && typeof row.payload_json === 'string'
           ? JSON.parse(row.payload_json)
           : row.payload_json || {};
-      const person = await prepareHubSend({
+      let person = await prepareHubSend({
         agencyId: row.agency_id,
         userId: row.user_id,
         personKey: row.person_key,
@@ -1136,6 +1153,20 @@ export async function processHubMessageQueue({ limit = 40 } = {}) {
           }
         });
       } else if (row.channel === 'secure' || row.channel === 'internal') {
+        if (row.channel === 'secure' && !person.userId) {
+          const invited = await sendHubPortalInvitation({
+            agencyId: row.agency_id,
+            actorUserId: row.user_id,
+            personKey: row.person_key,
+            skipEmail: true
+          });
+          person = await prepareHubSend({
+            agencyId: row.agency_id,
+            userId: row.user_id,
+            personKey: invited?.personKey || row.person_key,
+            method: row.channel
+          });
+        }
         if (!person.userId) throw new Error('Recipient has no user account');
         const threadId = await ensureHubChatThread({
           agencyId: row.agency_id,
@@ -1148,7 +1179,7 @@ export async function processHubMessageQueue({ limit = 40 } = {}) {
         await runWithMockRes(sendChatMessage, {
           user,
           params: { threadId: String(threadId) },
-          body: { body: row.body || '', attachments: chatAttachments }
+          body: { body: row.body || '', attachments: chatAttachments, subject: row.subject || null }
         });
       } else {
         throw new Error(`Unsupported queue channel: ${row.channel}`);

@@ -2654,6 +2654,8 @@ export const validateSetupToken = async (req, res, next) => {
 
     const { buildPasswordRecoveryBranding } = await import('../services/passwordRecoveryBranding.service.js');
     const branding = await buildPasswordRecoveryBranding(req, user);
+    const { clientDobSetupMeta } = await import('../utils/portalClientDob.js');
+    const dobMeta = await clientDobSetupMeta(user);
 
     // Return user info for welcome message
     res.json({
@@ -2662,6 +2664,7 @@ export const validateSetupToken = async (req, res, next) => {
       preferredName: user.preferred_name || null,
       email: user.personal_email || user.email,
       username: user.username || user.personal_email || user.email,
+      ...dobMeta,
       ...branding
     });
   } catch (error) {
@@ -3543,7 +3546,7 @@ export const resetPasswordWithToken = async (req, res, next) => {
 export const initialSetup = async (req, res, next) => {
   try {
     const { token } = req.params;
-    const { password } = req.body;
+    const { password, clientDob, dateOfBirth } = req.body;
 
     if (!token) {
       return res.status(400).json({ error: { message: 'Token is required' } });
@@ -3570,6 +3573,18 @@ export const initialSetup = async (req, res, next) => {
     const pwCheck2 = await validatePwStrength(password, { accountId: user.username || user.email });
     if (!pwCheck2.valid) {
       return res.status(400).json({ error: { message: pwCheck2.message } });
+    }
+
+    try {
+      const { assertClientDobForPortalSetup } = await import('../utils/portalClientDob.js');
+      await assertClientDobForPortalSetup(user, clientDob || dateOfBirth);
+    } catch (dobErr) {
+      if (dobErr?.status) {
+        return res.status(dobErr.status).json({
+          error: { message: dobErr.message, code: dobErr.code || 'CLIENT_DOB_REQUIRED' }
+        });
+      }
+      throw dobErr;
     }
 
     // Set password

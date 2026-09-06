@@ -343,7 +343,9 @@ class CommunicationConversation {
       where.push('c.owner_user_id = ?');
       params.push(userId);
     } else if (filter === 'drafts' || filter === 'draft') {
-      where.push(`c.draft_body IS NOT NULL AND TRIM(c.draft_body) <> ''`);
+      // Unsent compose only — leftover draft_body after a send must not keep the thread here.
+      where.push(`c.draft_body IS NOT NULL AND TRIM(c.draft_body) <> ''
+        AND (c.last_message_at IS NULL OR c.draft_updated_at IS NULL OR c.draft_updated_at > c.last_message_at)`);
     } else if (filter === 'waiting') {
       where.push(`c.status = 'waiting_on_them'`);
     } else if (filter === 'follow_up') {

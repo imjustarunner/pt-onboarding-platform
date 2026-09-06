@@ -1460,6 +1460,17 @@ export const sendMessage = async (req, res, next) => {
       );
     }
     const insertedMessageId = Number(ins.insertId);
+    const subjectRaw = String(req.body?.subject || '').trim();
+    if (subjectRaw) {
+      try {
+        await pool.execute(`UPDATE chat_messages SET subject = ? WHERE id = ?`, [
+          subjectRaw.slice(0, 500),
+          insertedMessageId
+        ]);
+      } catch {
+        /* column may not exist until migration 1391 */
+      }
+    }
 
     if (incomingAttachments.length && (await hasChatMessageAttachmentsTable())) {
       const values = incomingAttachments.map(() => '(?, ?, ?, ?, ?, ?, ?, ?)').join(',');

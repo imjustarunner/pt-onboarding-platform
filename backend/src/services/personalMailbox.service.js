@@ -43,7 +43,10 @@ function resolveWorkspaceDomain(raw) {
     .trim()
     .toLowerCase();
   if (!v) return null;
-  return v.startsWith('@') ? v.slice(1) : v;
+  const domain = v.startsWith('@') ? v.slice(1) : v;
+  // Marketing / website hosts that must not be used as staff mailbox domains.
+  if (domain === 'theinnerstrengthinstitute.com') return 'innerstrengthin.com';
+  return domain;
 }
 
 function isPlotTwistPlatformAgency(agency) {
@@ -77,6 +80,8 @@ export async function resolvePersonalMailboxDomain(agency, flags = {}) {
           ?.trim()
           .toLowerCase();
         if (domain && domain !== 'plottwisthq.com' && domain !== 'gmail.com' && domain !== 'example.com') {
+          // Website host is not the staff mailbox domain for TISI.
+          if (domain === 'theinnerstrengthinstitute.com') return 'innerstrengthin.com';
           return domain;
         }
       }

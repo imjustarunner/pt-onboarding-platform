@@ -177,8 +177,8 @@ const attemptLogin = async (lastNameValue = null) => {
 
     // Check if setup is required (no password set)
     if (err.response?.data?.error?.requiresSetup) {
-      // Redirect to initial setup page
-      router.push(`/initial-setup/${cleanToken}`);
+      const slug = route.params.organizationSlug;
+      router.push(slug ? `/${slug}/new_account/${cleanToken}` : `/initial-setup/${cleanToken}`);
       return;
     }
     

@@ -502,7 +502,7 @@ export async function buildSecureClaimRedirect(row) {
     const token = await User.generatePasswordlessToken(recipient.id, 48, 'setup');
     return {
       mode: 'setup',
-      setupUrl: `${baseUrl}/${slug}/passwordless-login/${encodeURIComponent(token)}?redirect=${encodeURIComponent(targetPath)}`,
+      setupUrl: `${baseUrl}/${slug}/new_account/${encodeURIComponent(token)}?redirect=${encodeURIComponent(targetPath)}`,
       targetPath,
       userId: recipient.id
     };

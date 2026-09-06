@@ -196,7 +196,8 @@ export async function listCommunicationDirectoryByKind({ agencyId, kind = 'staff
 
   const [users] = await pool.execute(
     `SELECT u.id, u.first_name, u.last_name, u.email, u.work_email, u.role,
-            u.sso_password_override, u.profile_photo_path, u.title
+            u.sso_password_override, u.profile_photo_path, u.title,
+            u.work_phone, u.work_phone_extension, u.work_location
      FROM users u
      INNER JOIN user_agencies ua ON ua.user_id = u.id AND ua.agency_id = ?
        AND (ua.is_active = 1 OR ua.is_active IS NULL)
@@ -217,6 +218,10 @@ export async function listCommunicationDirectoryByKind({ agencyId, kind = 'staff
       id: u.id,
       name: [u.first_name, u.last_name].filter(Boolean).join(' ') || email || `User #${u.id}`,
       email: email || null,
+      workEmail: email || null,
+      workPhone: u.work_phone || null,
+      workPhoneExtension: u.work_phone_extension || null,
+      workLocation: u.work_location || null,
       meta: u.role,
       role: u.role,
       title: u.title || null,

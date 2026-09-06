@@ -250,6 +250,7 @@
       :class="{
         'dashboard-shell--sstc': isSummitStatsSurface,
         'schedule-focus': activeTab === 'my_schedule',
+        'messages-focus': activeTab === 'chats' || activeTab === 'communications',
         'rail-expanded': !railEffectiveCollapsed,
         'rail-collapsed': railEffectiveCollapsed
       }"
@@ -5871,6 +5872,13 @@ h1 {
 .dashboard-shell.schedule-focus.rail-expanded {
   grid-template-columns: 320px minmax(0, 1fr);
 }
+.dashboard-shell.messages-focus {
+  grid-template-columns: 88px minmax(0, 1fr);
+  gap: 6px;
+}
+.dashboard-shell.messages-focus.rail-expanded {
+  grid-template-columns: 320px minmax(0, 1fr);
+}
 /* When rail is collapsed (any tab), shrink grid column so content fills the space */
 .dashboard-shell.rail-collapsed {
   grid-template-columns: 88px minmax(0, 1fr);
@@ -6018,6 +6026,9 @@ h1 {
   border-color: var(--primary);
 }
 .dashboard-shell.schedule-focus .rail-card-row {
+  width: 100%;
+}
+.dashboard-shell.messages-focus .rail-card-row {
   width: 100%;
 }
 .card-content.card-content-schedule,
@@ -6729,6 +6740,8 @@ h1 {
   .dashboard-shell,
   .dashboard-shell.schedule-focus,
   .dashboard-shell.schedule-focus.rail-expanded,
+  .dashboard-shell.messages-focus,
+  .dashboard-shell.messages-focus.rail-expanded,
   .dashboard-shell.rail-collapsed,
   .dashboard-shell.rail-expanded {
     grid-template-columns: minmax(0, 1fr);
@@ -7045,7 +7058,7 @@ h1 {
 .card-content.card-content--messages-hub,
 .my-panel.dashboard-embedded-view {
   background: var(--bg-alt, #f3f4f6);
-  padding: 10px 12px 14px;
+  padding: 4px 4px 8px;
   border: none;
   box-shadow: none;
   border-radius: 12px;

@@ -28,7 +28,9 @@ export async function inferAgencyMailDomain(agencyId) {
       .trim()
       .toLowerCase()
       .replace(/^@/, '');
-    if (fromFlags) return fromFlags;
+    if (fromFlags) {
+      return fromFlags === 'theinnerstrengthinstitute.com' ? 'innerstrengthin.com' : fromFlags;
+    }
   } catch {
     /* ignore */
   }
@@ -44,6 +46,7 @@ export async function inferAgencyMailDomain(agencyId) {
         .split('@')[1]
         ?.trim()
         .toLowerCase();
+      if (domain === 'theinnerstrengthinstitute.com') return 'innerstrengthin.com';
       if (domain && TENANT_MESSAGE_DOMAINS.includes(domain)) return domain;
       if (domain && !domain.includes('plottwisthq.com')) return domain;
     }

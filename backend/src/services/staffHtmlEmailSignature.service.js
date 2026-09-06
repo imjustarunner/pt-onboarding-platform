@@ -121,7 +121,18 @@ function normalizeWebsite(raw, { allowEmpty = false } = {}) {
  * Prefer {local-part of primary email}@{tenant mail domain}.
  * e.g. michael@plottwistco.com at ITSCO → michael@itsco.health
  * Falls back to personal_* identity, login alias, then work/email.
+ * TISI staff mail is innerstrengthin.com (website theinnerstrengthinstitute.com is not a mailbox domain).
  */
+function normalizeStaffMailDomain(domain) {
+  const d = String(domain || '')
+    .trim()
+    .toLowerCase()
+    .replace(/^@/, '');
+  if (!d) return '';
+  if (d === 'theinnerstrengthinstitute.com') return 'innerstrengthin.com';
+  return d;
+}
+
 async function resolveTenantStaffContactEmail(userId, agencyId, fallbackEmail = '', primaryEmail = '') {
   const uid = Number(userId || 0);
   const aid = Number(agencyId || 0);
@@ -149,7 +160,11 @@ async function resolveTenantStaffContactEmail(userId, agencyId, fallbackEmail = 
         .trim()
         .toLowerCase();
       if (personalAlias.includes('@')) {
-        tenantDomain = personalAlias.split('@')[1] || '';
+        tenantDomain = normalizeStaffMailDomain(personalAlias.split('@')[1] || '');
+        const local = personalAlias.split('@')[0] || '';
+        if (local && tenantDomain) {
+          personalAlias = `${local}@${tenantDomain}`;
+        }
       }
     } catch {
       /* ignore */
@@ -171,9 +186,9 @@ async function resolveTenantStaffContactEmail(userId, agencyId, fallbackEmail = 
         } catch {
           flags = {};
         }
-        tenantDomain = String((await resolvePersonalMailboxDomain(agency, flags)) || '')
-          .trim()
-          .toLowerCase();
+        tenantDomain = normalizeStaffMailDomain(
+          String((await resolvePersonalMailboxDomain(agency, flags)) || '')
+        );
       } catch {
         /* ignore */
       }
@@ -194,7 +209,13 @@ async function resolveTenantStaffContactEmail(userId, agencyId, fallbackEmail = 
         [uid, aid]
       );
       const login = String(loginRows?.[0]?.email || '').trim();
-      if (login) return login;
+      if (login) {
+        const at = login.indexOf('@');
+        if (at > 0) {
+          return `${login.slice(0, at)}@${normalizeStaffMailDomain(login.slice(at + 1)) || login.slice(at + 1)}`;
+        }
+        return login;
+      }
     } catch {
       /* ignore */
     }

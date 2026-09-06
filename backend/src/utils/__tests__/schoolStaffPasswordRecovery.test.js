@@ -12,6 +12,8 @@ describe('schoolStaffPasswordRecovery', () => {
   it('includes school_staff in non-agency recovery roles', () => {
     assert.equal(NON_AGENCY_RECOVERY_ROLES.has('school_staff'), true);
     assert.equal(EXTERNAL_PORTAL_PASSWORD_ROLES.has('school_staff'), true);
+    assert.equal(EXTERNAL_PORTAL_PASSWORD_ROLES.has('client'), true);
+    assert.equal(EXTERNAL_PORTAL_PASSWORD_ROLES.has('client_guardian'), true);
   });
 
   it('treats never-set password as first password set', () => {

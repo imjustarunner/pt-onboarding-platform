@@ -10,7 +10,8 @@ export const NON_AGENCY_RECOVERY_ROLES = new Set([
 export const EXTERNAL_PORTAL_PASSWORD_ROLES = new Set([
   'school_staff',
   'client_guardian',
-  'guardian'
+  'guardian',
+  'client'
 ]);
 
 /**

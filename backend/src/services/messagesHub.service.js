@@ -5,9 +5,7 @@ import pool from '../config/database.js';
 import { searchCommunicationDirectory, listCommunicationDirectoryByKind } from './communicationDirectory.service.js';
 import { findPersonalInbox, ensurePersonalMailbox } from './personalMailbox.service.js';
 import {
-  shouldDefaultToSecureMessage,
-  isSecureMessageClientType,
-  isActiveClientStatusKey
+  shouldDefaultToSecureMessage
 } from './secureMessagingPolicy.service.js';
 import { composeNewEmail } from './unifiedInbox.service.js';
 import { findOrCreateDirectThread, findExistingDirectThreadBetweenUsers } from '../controllers/chat.controller.js';
@@ -273,14 +271,15 @@ function buildMethods({
       ? !!hasUserId
       : hasActivePortalAccess({ portalAccess, userStatus, hasUserId });
 
+  // Secure is in-app messaging with clients/guardians. Sending it is also how
+  // they start the portal when they do not have a password yet.
   const secureOk = isSchoolStaff
     ? !!hasUserId
     : isClientish
-      ? portalReady && activeSecureClient
+      ? !!(hasEmail || hasUserId)
       : false;
 
-  const internalAvailable = hasUserId && (isStaffish || isSchoolStaff);
-  const internalForGuardian = portalReady && kinds.includes('guardian');
+  const internalAvailable = hasUserId && (isStaffish || isSchoolStaff) && !isClientish;
   // SMS: platform not shipping yet — always unavailable with clear copy.
   const smsAvailable =
     HUB_SMS_PLATFORM_READY && hasPhone && smsOk && (isClientish || isExternal || kinds.includes('contact'));
@@ -296,27 +295,24 @@ function buildMethods({
   else if (smsAvailable) preferred = 'sms';
   else if (emailAvailable) preferred = 'email';
   else if (secureOk) preferred = 'secure';
-  else if (internalAvailable || internalForGuardian) preferred = 'internal';
+  else if (internalAvailable) preferred = 'internal';
 
   let secureReason;
-  if (secureOk) {
-    secureReason = 'Secure portal message (default for active clients — turn off by choosing Email)';
-  } else if (isClientish && hasUserId && isPendingPortalSetupStatus(userStatus)) {
-    secureReason = 'Portal invite sent / setup not finished yet';
-  } else if (isClientish && !portalReady) {
-    secureReason = 'No portal yet — send a portal invitation';
-  } else if (isClientish && hasUserId && isSecureMessageClientType(clientType) && !isActiveClientStatusKey(clientStatusKey)) {
-    secureReason = 'Secure is for active clients — use Email until they are active';
-  } else if (isClientish && hasUserId && !isSecureMessageClientType(clientType)) {
-    secureReason = 'Secure is for clinical/school clients — use Email';
+  if (secureOk && isClientish && !portalReady) {
+    secureReason =
+      'Secure message is their portal invite — they set a password (and confirm the client’s date of birth) from the link';
+  } else if (secureOk) {
+    secureReason = 'Secure in-app message with this client or guardian';
+  } else if (isClientish && !hasEmail && !hasUserId) {
+    secureReason = 'Add an email on the client or guardian record to send a secure message';
   } else {
     secureReason = isStaffish
       ? 'Use Internal for staff-to-staff chat'
-      : 'Needs an active portal account';
+      : 'Needs a client or guardian to message securely';
   }
 
   const smsReason = !HUB_SMS_PLATFORM_READY
-    ? 'SMS isn’t available in the app yet'
+    ? 'Soon'
     : smsAvailable
       ? 'SMS to their phone'
       : !hasPhone
@@ -331,17 +327,17 @@ function buildMethods({
       ? 'Email via messages@ — they can reply by email or respond in the app'
       : 'Regular email via messages@ (looks like normal email — reply as usual)';
 
-  const internalReason =
-    internalAvailable || internalForGuardian
-      ? isSchoolStaff
-        ? 'Internal app chat — they can also use Email to reply from outside'
-        : 'Internal encrypted team chat'
+  const internalReason = internalAvailable
+    ? isSchoolStaff
+      ? 'Internal app chat — they can also use Email to reply from outside'
+      : 'Internal encrypted team chat'
+    : isClientish
+      ? 'Secure is the in-app channel for clients and guardians'
       : 'Internal chat requires a staff/school user';
 
   const canInviteToPortal =
     isClientish &&
     emailAvailable &&
-    !secureOk &&
     (!portalReady || isPendingPortalSetupStatus(userStatus));
 
   const isPureStaff = isStaffish && !isSchoolStaff && !isClientish;
@@ -359,14 +355,16 @@ function buildMethods({
       preferred === 'email' || (isSchoolStaff && emailAvailable)
     )
   );
-  methods.push(
-    method(
-      'internal',
-      internalAvailable || internalForGuardian,
-      internalReason,
-      preferred === 'internal'
-    )
-  );
+  if (!isClientish) {
+    methods.push(
+      method(
+        'internal',
+        internalAvailable,
+        internalReason,
+        preferred === 'internal'
+      )
+    );
+  }
 
   return {
     methods,
@@ -576,7 +574,7 @@ function clientGuardianAccessLabel(c) {
   if (guardianLinks > 0) {
     return guardianLinks === 1 ? 'Guardian linked' : `${guardianLinks} guardians linked`;
   }
-  return 'No guardian yet';
+  return null;
 }
 
 function clientMeta(c) {
@@ -1011,6 +1009,11 @@ export async function browseHubPeople({
           kinds,
           userId: d.id,
           email: d.email,
+          phone: d.workPhone || null,
+          workEmail: d.workEmail || d.email || null,
+          workPhone: d.workPhone || null,
+          workPhoneExtension: d.workPhoneExtension || null,
+          workLocation: d.workLocation || null,
           relationshipMeta: roleMeta,
           title: d.title || null,
           photoUrl: publicUploadsUrlFromStoredPath(d.profilePhotoPath) || null,
@@ -1489,7 +1492,7 @@ export async function resolveHubPerson({ agencyId, userId, personKey }) {
 
   if (parsed.type === 'user') {
     const [rows] = await pool.execute(
-      `SELECT id, first_name, last_name, email, work_email,
+      `SELECT id, first_name, last_name, email, work_email, work_phone, work_phone_extension, work_location,
               COALESCE(phone_number, personal_phone, work_phone) AS phone,
               role, status, is_archived
        FROM users WHERE id = ? LIMIT 1`,
@@ -1516,13 +1519,18 @@ export async function resolveHubPerson({ agencyId, userId, personKey }) {
             : TEAM_ROLES.has(role)
               ? ['employee', 'staff', 'team']
               : ['employee'];
+    const isAgencyStaff = TEAM_ROLES.has(role);
     seed = {
       ...seed,
       displayName: [u.first_name, u.last_name].filter(Boolean).join(' ') || u.email,
       kinds,
       userId: u.id,
       email: u.work_email || u.email,
-      phone: u.phone,
+      phone: isAgencyStaff ? u.work_phone || null : u.phone,
+      workEmail: isAgencyStaff ? u.work_email || u.email || null : null,
+      workPhone: isAgencyStaff ? u.work_phone || null : null,
+      workPhoneExtension: isAgencyStaff ? u.work_phone_extension || null : null,
+      workLocation: isAgencyStaff ? u.work_location || null : null,
       relationshipMeta:
         role === 'school_staff' && agencyName
           ? `School staff · ${agencyName}`
@@ -1883,17 +1891,35 @@ async function loadChatTimeline({ agencyId, actorUserId, otherUserId, limit = 40
     if (!threadIds.length) return [];
 
     const ph = threadIds.map(() => '?').join(',');
-    const [rows] = await pool.execute(
-      `SELECT m.id, m.thread_id, m.body, m.body_ciphertext, m.body_iv, m.body_auth_tag, m.created_at, m.sender_user_id,
-              u.first_name AS sender_first_name, u.last_name AS sender_last_name,
-              u.profile_photo_path AS sender_profile_photo_path
-       FROM chat_messages m
-       LEFT JOIN users u ON u.id = m.sender_user_id
-       WHERE m.thread_id IN (${ph})
-       ORDER BY m.created_at DESC, m.id DESC
-       LIMIT ${Math.min(limit, 80)}`,
-      threadIds
-    );
+    let rows;
+    try {
+      const [withSubject] = await pool.execute(
+        `SELECT m.id, m.thread_id, m.body, m.body_ciphertext, m.body_iv, m.body_auth_tag, m.created_at, m.sender_user_id,
+                m.subject,
+                u.first_name AS sender_first_name, u.last_name AS sender_last_name,
+                u.profile_photo_path AS sender_profile_photo_path
+         FROM chat_messages m
+         LEFT JOIN users u ON u.id = m.sender_user_id
+         WHERE m.thread_id IN (${ph})
+         ORDER BY m.created_at DESC, m.id DESC
+         LIMIT ${Math.min(limit, 80)}`,
+        threadIds
+      );
+      rows = withSubject;
+    } catch {
+      const [withoutSubject] = await pool.execute(
+        `SELECT m.id, m.thread_id, m.body, m.body_ciphertext, m.body_iv, m.body_auth_tag, m.created_at, m.sender_user_id,
+                u.first_name AS sender_first_name, u.last_name AS sender_last_name,
+                u.profile_photo_path AS sender_profile_photo_path
+         FROM chat_messages m
+         LEFT JOIN users u ON u.id = m.sender_user_id
+         WHERE m.thread_id IN (${ph})
+         ORDER BY m.created_at DESC, m.id DESC
+         LIMIT ${Math.min(limit, 80)}`,
+        threadIds
+      );
+      rows = withoutSubject;
+    }
     const messageIds = (rows || []).map((m) => Number(m.id)).filter(Boolean);
 
     // Other participants' read watermarks (for face-style read receipts on outbound).
@@ -2036,7 +2062,7 @@ async function loadChatTimeline({ agencyId, actorUserId, otherUserId, limit = 40
             }
           : null,
         readBy,
-        meta: { threadId: Number(m.thread_id), messageId: mid }
+        meta: { threadId: Number(m.thread_id), messageId: mid, subject: m.subject || null }
       });
     }
     return items;
@@ -3914,7 +3940,8 @@ export async function sendHubPortalInvitation({
   actorUserId,
   personKey = null,
   clientId = null,
-  guardianUserId = null
+  guardianUserId = null,
+  skipEmail = false
 } = {}) {
   const aid = Number(agencyId);
   const actorId = Number(actorUserId);
@@ -4078,8 +4105,10 @@ export async function sendHubPortalInvitation({
   const agency = await Agency.findById(aid);
   const { buildPublicAppUrl, buildPublicPortalBaseUrl } = await import('../utils/publicPortalUrl.js');
   const frontendBase = buildPublicPortalBaseUrl(agency);
-  const setupUrl = buildPublicAppUrl(agency, `passwordless-login/${tokenResult.token}`);
+  const setupUrl = buildPublicAppUrl(agency, `new_account/${tokenResult.token}`);
   const setupDisplayUrl = String(frontendBase || '').replace(/^https?:\/\//, '');
+
+  if (!skipEmail) {
 
   const actor = actorRows?.[0];
   const providerName =
@@ -4121,10 +4150,11 @@ export async function sendHubPortalInvitation({
     agencyId: aid,
     templateType: 'hub_portal_invite'
   });
+  }
 
   return {
     ok: true,
-    emailed: email,
+    emailed: skipEmail ? null : email,
     guardianUserId: guardian.id,
     clientId: cid,
     setupUrl,
