@@ -303,30 +303,37 @@ class CommunicationConversation {
       where.push('(c.snoozed_until IS NULL OR c.snoozed_until <= ?)');
       params.push(now);
     } else if (filter === 'unread' && userId) {
-      // Unread = inbound you haven't seen. Outbound replies must not keep a thread unread.
-      where.push(`EXISTS (
-        SELECT 1 FROM communication_messages m
-        WHERE m.conversation_id = c.id
-          AND m.direction = 'inbound'
-          AND COALESCE(m.is_internal_note, 0) = 0
-          AND (m.send_status IS NULL OR m.send_status NOT IN ('cancelled'))
-          AND (
-            NOT EXISTS (
-              SELECT 1 FROM communication_conversation_reads r
-              WHERE r.conversation_id = c.id AND r.user_id = ?
+      // Unread = inbound you haven't seen, OR explicitly Mark unread (forced_unread).
+      where.push(`(
+        EXISTS (
+          SELECT 1 FROM communication_conversation_reads fr
+          WHERE fr.conversation_id = c.id AND fr.user_id = ? AND COALESCE(fr.forced_unread, 0) = 1
+        )
+        OR EXISTS (
+          SELECT 1 FROM communication_messages m
+          WHERE m.conversation_id = c.id
+            AND m.direction = 'inbound'
+            AND COALESCE(m.is_internal_note, 0) = 0
+            AND (m.send_status IS NULL OR m.send_status NOT IN ('cancelled'))
+            AND (
+              NOT EXISTS (
+                SELECT 1 FROM communication_conversation_reads r
+                WHERE r.conversation_id = c.id AND r.user_id = ?
+              )
+              OR EXISTS (
+                SELECT 1 FROM communication_conversation_reads r
+                WHERE r.conversation_id = c.id AND r.user_id = ?
+                  AND COALESCE(r.forced_unread, 0) = 0
+                  AND r.last_read_at < COALESCE(m.sent_at, m.created_at)
+              )
             )
-            OR EXISTS (
-              SELECT 1 FROM communication_conversation_reads r
-              WHERE r.conversation_id = c.id AND r.user_id = ?
-                AND r.last_read_at < COALESCE(m.sent_at, m.created_at)
-            )
-          )
+        )
       )`);
       // Actively snoozed mail leaves Unread until it wakes
       where.push('(c.snoozed_until IS NULL OR c.snoozed_until <= ?)');
       // Unknown senders live only in the Unknown Senders folder
       where.push('COALESCE(c.is_unknown_sender, 0) = 0');
-      params.push(userId, userId, now);
+      params.push(userId, userId, userId, now);
     } else if (filter === 'starred') {
       where.push('c.starred = 1');
     } else if (filter === 'snoozed') {
@@ -376,6 +383,11 @@ class CommunicationConversation {
                 LIMIT 1
               ) AS last_read_at,
               (
+                SELECT COALESCE(r.forced_unread, 0) FROM communication_conversation_reads r
+                WHERE r.conversation_id = c.id AND r.user_id = ${Number(userId)}
+                LIMIT 1
+              ) AS forced_unread,
+              (
                 SELECT COALESCE(m.sent_at, m.created_at)
                 FROM communication_messages m
                 WHERE m.conversation_id = c.id
@@ -416,8 +428,9 @@ class CommunicationConversation {
         is_unread: userId
           ? !!(
               !isSnoozed &&
-              r.last_inbound_at &&
-              (!r.last_read_at || new Date(r.last_read_at) < new Date(r.last_inbound_at))
+              (Number(r.forced_unread || 0) === 1 ||
+                (r.last_inbound_at &&
+                  (!r.last_read_at || new Date(r.last_read_at) < new Date(r.last_inbound_at))))
             )
           : false
       };
@@ -598,19 +611,47 @@ class CommunicationConversation {
   }
 
   static async markRead(conversationId, userId) {
-    await pool.execute(
-      `INSERT INTO communication_conversation_reads (conversation_id, user_id, last_read_at)
-       VALUES (?, ?, NOW())
-       ON DUPLICATE KEY UPDATE last_read_at = NOW()`,
-      [conversationId, userId]
-    );
+    try {
+      await pool.execute(
+        `INSERT INTO communication_conversation_reads (conversation_id, user_id, last_read_at, forced_unread)
+         VALUES (?, ?, NOW(), 0)
+         ON DUPLICATE KEY UPDATE last_read_at = NOW(), forced_unread = 0`,
+        [conversationId, userId]
+      );
+    } catch (e) {
+      if (e?.code === 'ER_BAD_FIELD_ERROR') {
+        await pool.execute(
+          `INSERT INTO communication_conversation_reads (conversation_id, user_id, last_read_at)
+           VALUES (?, ?, NOW())
+           ON DUPLICATE KEY UPDATE last_read_at = NOW()`,
+          [conversationId, userId]
+        );
+        return;
+      }
+      throw e;
+    }
   }
 
   static async markUnread(conversationId, userId) {
-    await pool.execute(
-      `DELETE FROM communication_conversation_reads WHERE conversation_id = ? AND user_id = ?`,
-      [conversationId, userId]
-    );
+    // Keep a read row so we can flag forced unread (outbound-only threads have no inbound).
+    try {
+      await pool.execute(
+        `INSERT INTO communication_conversation_reads (conversation_id, user_id, last_read_at, forced_unread)
+         VALUES (?, ?, '1970-01-01 00:00:00', 1)
+         ON DUPLICATE KEY UPDATE forced_unread = 1, last_read_at = '1970-01-01 00:00:00'`,
+        [conversationId, userId]
+      );
+    } catch (e) {
+      // Column may not exist until migration 1390
+      if (e?.code === 'ER_BAD_FIELD_ERROR') {
+        await pool.execute(
+          `DELETE FROM communication_conversation_reads WHERE conversation_id = ? AND user_id = ?`,
+          [conversationId, userId]
+        );
+        return;
+      }
+      throw e;
+    }
   }
 
   static async listParticipants(conversationId) {

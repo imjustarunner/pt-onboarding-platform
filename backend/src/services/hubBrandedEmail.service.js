@@ -105,6 +105,7 @@ export function stripEmailHistoryBody(html, text) {
       .replace(/Earlier in this conversation/gi, '')
       .replace(/\bOriginal message\b/gi, '')
       .replace(/\bTo:\s*[^\n]+/gi, '')
+      .replace(/\bCc:\s*[^\n]+/gi, '')
       .replace(/\bSubject:\s*[^\n]+/gi, '')
       .replace(/\s+/g, ' ')
       .trim();
@@ -136,33 +137,21 @@ export function buildHubConversationHistoryHtml(history = [], opts = {}) {
     .map((h, idx) => {
       const name = escapeHtml(h.authorName || (h.direction === 'outbound' ? 'Team' : 'Participant'));
       const when = escapeHtml(formatWhen(h.createdAt));
-      const preview = escapeHtml(truncatePreview(h.bodyText || '', h.isOriginal ? 120 : 180));
-      const initials = escapeHtml(initialsFromName(h.authorName || name));
+      const preview = escapeHtml(truncatePreview(h.bodyText || '', h.isOriginal ? 220 : 280));
       const isOriginal = !!h.isOriginal || idx === items.length - 1;
       const badge = isOriginal
-        ? `<span style="display:inline-block;margin-left:8px;padding:2px 8px;border-radius:999px;background:#e2e8f0;color:#64748b;font-size:10px;font-weight:700;letter-spacing:0.02em;vertical-align:middle;">Original message</span>`
+        ? `<span style="display:inline-block;margin-left:8px;padding:2px 8px;border-radius:999px;background:#e2e8f0;color:#64748b;font-size:11px;font-weight:700;letter-spacing:0.02em;vertical-align:middle;">Original message</span>`
         : '';
       return `
       <tr>
         <td style="padding:0 0 12px;vertical-align:top;">
-          <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;">
-            <tr>
-              <td width="44" style="width:44px;vertical-align:top;padding:4px 10px 0 0;">
-                <div style="width:32px;height:32px;border-radius:16px;background:#cbd5e1;color:#334155;font-size:11px;font-weight:700;line-height:32px;text-align:center;">
-                  ${initials}
-                </div>
-              </td>
-              <td style="vertical-align:top;padding:0;">
-                <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;padding:12px 14px;">
-                  <div style="font-size:13px;font-weight:700;color:#64748b;">
-                    ${name}${badge}
-                  </div>
-                  <div style="font-size:11px;color:#94a3b8;margin:2px 0 8px;">${when}</div>
-                  <div style="font-size:13px;line-height:1.45;color:#94a3b8;">${preview}</div>
-                </div>
-              </td>
-            </tr>
-          </table>
+          <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;padding:14px 16px;">
+            <div style="font-size:15px;font-weight:700;color:#334155;">
+              ${name}${badge}
+            </div>
+            <div style="font-size:12px;color:#64748b;margin:3px 0 10px;">${when}</div>
+            <div style="font-size:15px;line-height:1.55;color:#475569;">${preview}</div>
+          </div>
         </td>
       </tr>`;
     })
@@ -170,7 +159,7 @@ export function buildHubConversationHistoryHtml(history = [], opts = {}) {
 
   return `
   <div data-hub-email-history="1" style="margin:18px 0 0;padding-top:4px;border-top:1px solid #eef2f6;">
-    <div style="font-size:11px;font-weight:800;letter-spacing:0.06em;text-transform:uppercase;color:#94a3b8;margin:0 0 12px;">Earlier in this conversation</div>
+    <div style="font-size:12px;font-weight:800;letter-spacing:0.06em;text-transform:uppercase;color:#64748b;margin:0 0 12px;">Earlier in this conversation</div>
     <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;">
       ${rows}
     </table>
@@ -187,6 +176,7 @@ export function buildNormalOutboundEmailHtml(opts = {}) {
   const agencyName = escapeHtml(opts.agencyName || '');
   const subject = escapeHtml(opts.subject || '');
   const toLabel = escapeHtml(opts.toDisplayName || opts.toEmail || '');
+  const ccLabel = escapeHtml(formatRecipientList(opts.ccList || opts.cc || []));
   const rawHtml = String(opts.bodyHtml || '').trim();
   const body = rawHtml
     ? rawHtml.replace(/<script[\s\S]*?>[\s\S]*?<\/script>/gi, '')
@@ -199,11 +189,12 @@ export function buildNormalOutboundEmailHtml(opts = {}) {
   });
   const initials = escapeHtml(initialsFromName(opts.senderDisplayName || 'Team'));
   const avatar = photoUrl
-    ? `<img src="${escapeHtml(photoUrl)}" width="40" height="40" alt="" style="display:block;width:40px;height:40px;border-radius:20px;object-fit:cover;border:0;" />`
-    : `<div style="width:40px;height:40px;border-radius:20px;background:${primary};color:#ffffff;font-size:13px;font-weight:700;line-height:40px;text-align:center;">${initials}</div>`;
+    ? `<img src="${escapeHtml(photoUrl)}" width="36" height="36" alt="" style="display:block;width:36px;height:36px;border-radius:18px;object-fit:cover;border:0;" />`
+    : `<div style="width:36px;height:36px;border-radius:18px;background:${primary};color:#ffffff;font-size:12px;font-weight:700;line-height:36px;text-align:center;">${initials}</div>`;
 
   const metaBits = [
     toLabel ? `<div style="margin:0 0 2px;"><span style="color:#64748b;">To:</span> ${toLabel}</div>` : '',
+    ccLabel ? `<div style="margin:0 0 2px;"><span style="color:#64748b;">Cc:</span> ${ccLabel}</div>` : '',
     subject ? `<div style="margin:0;"><span style="color:#64748b;">Subject:</span> ${subject}</div>` : ''
   ]
     .filter(Boolean)
@@ -222,27 +213,50 @@ export function buildNormalOutboundEmailHtml(opts = {}) {
     </tr>
   </table>
 
-  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;margin:0 0 4px;">
-    <tr>
-      <td width="52" style="width:52px;vertical-align:top;padding:6px 12px 0 0;">
-        ${avatar}
-      </td>
-      <td style="vertical-align:top;">
-        <div style="background:#f3faf5;border:1px solid ${primary};border-radius:14px;padding:14px 16px;">
-          <div style="font-size:14px;font-weight:800;color:#0f172a;">
+  <div style="background:#f3faf5;border:1px solid ${primary};border-radius:14px;padding:16px 18px;">
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;margin:0 0 10px;">
+      <tr>
+        <td width="44" style="width:44px;vertical-align:middle;padding:0 10px 0 0;">
+          ${avatar}
+        </td>
+        <td style="vertical-align:middle;">
+          <div style="font-size:16px;font-weight:800;color:#0f172a;line-height:1.3;">
             ${sender}
             <span style="display:inline-block;margin-left:8px;padding:2px 8px;border-radius:999px;background:${primary};color:#ffffff;font-size:10px;font-weight:700;letter-spacing:0.02em;vertical-align:middle;">Latest message</span>
           </div>
-          <div style="font-size:11px;color:#64748b;margin:4px 0 10px;">${when}</div>
-          ${metaBits ? `<div style="font-size:12px;color:#475569;margin:0 0 12px;line-height:1.4;">${metaBits}</div>` : ''}
-          <div data-hub-email-latest-body="1" style="color:#0f172a;font-size:15px;line-height:1.6;">${body}</div>
-        </div>
-      </td>
-    </tr>
-  </table>
+          <div style="font-size:12px;color:#64748b;margin-top:3px;">${when}</div>
+        </td>
+      </tr>
+    </table>
+    ${metaBits ? `<div style="font-size:13px;color:#475569;margin:0 0 12px;line-height:1.45;">${metaBits}</div>` : ''}
+    <div data-hub-email-latest-body="1" style="color:#0f172a;font-size:17px;line-height:1.65;">${body}</div>
+  </div>
 
   ${historyHtml}
 </div>`;
+}
+
+function formatRecipientList(list) {
+  if (!list) return '';
+  let items = [];
+  if (typeof list === 'string') {
+    items = list
+      .split(/[,;]/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+  } else if (Array.isArray(list)) {
+    items = list
+      .map((item) => {
+        if (!item) return '';
+        if (typeof item === 'string') return item.trim();
+        const name = String(item.name || item.displayName || '').trim();
+        const email = String(item.email || '').trim();
+        if (name && email) return `${name} <${email}>`;
+        return name || email;
+      })
+      .filter(Boolean);
+  }
+  return items.join(', ');
 }
 
 export function buildBrandedMessageEmailHtml(opts = {}) {

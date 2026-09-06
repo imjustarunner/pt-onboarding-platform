@@ -310,7 +310,9 @@ function buildMethods({
   } else if (isClientish && hasUserId && !isSecureMessageClientType(clientType)) {
     secureReason = 'Secure is for clinical/school clients — use Email';
   } else {
-    secureReason = 'Needs an active portal account';
+    secureReason = isStaffish
+      ? 'Use Internal for staff-to-staff chat'
+      : 'Needs an active portal account';
   }
 
   const smsReason = !HUB_SMS_PLATFORM_READY
@@ -342,23 +344,32 @@ function buildMethods({
     !secureOk &&
     (!portalReady || isPendingPortalSetupStatus(userStatus));
 
+  const isPureStaff = isStaffish && !isSchoolStaff && !isClientish;
+  const methods = [];
+  // Pure staff already use the portal — hide Secure/portal scare UI. Keep SMS visible for when it's enabled.
+  if (!isPureStaff) {
+    methods.push(method('secure', secureOk, secureReason, preferred === 'secure'));
+  }
+  methods.push(method('sms', smsAvailable, smsReason, preferred === 'sms'));
+  methods.push(
+    method(
+      'email',
+      emailAvailable,
+      emailReason,
+      preferred === 'email' || (isSchoolStaff && emailAvailable)
+    )
+  );
+  methods.push(
+    method(
+      'internal',
+      internalAvailable || internalForGuardian,
+      internalReason,
+      preferred === 'internal'
+    )
+  );
+
   return {
-    methods: [
-      method('secure', secureOk, secureReason, preferred === 'secure'),
-      method('sms', smsAvailable, smsReason, preferred === 'sms'),
-      method(
-        'email',
-        emailAvailable,
-        emailReason,
-        preferred === 'email' || (isSchoolStaff && emailAvailable)
-      ),
-      method(
-        'internal',
-        internalAvailable || internalForGuardian,
-        internalReason,
-        preferred === 'internal'
-      )
-    ],
+    methods,
     preferredMethod: preferred,
     secureDefault: preferred === 'secure',
     isActiveClient: activeSecureClient,
@@ -2877,24 +2888,6 @@ export async function sendHubEmail({
     history = [];
   }
 
-  // User signature is appended after the agency identity signature in the send
-  // pipeline (finalizeOutboundContent). Do not embed it here or it would appear first.
-  const html = buildNormalOutboundEmailHtml({
-    agencyName,
-    senderDisplayName,
-    senderTitle,
-    senderPhotoUrl,
-    subject: effectiveSubject,
-    toDisplayName: person.displayName || person.email,
-    toEmail: person.email,
-    bodyText: body,
-    bodyHtml: bodyHtml || null,
-    colorPalette: agency.color_palette,
-    logoUrl,
-    history,
-    sentAt: new Date()
-  });
-
   const normalizeList = (list) => {
     if (!list) return [];
     let raw = [];
@@ -2925,6 +2918,39 @@ export async function sendHubEmail({
     }
     return out;
   };
+
+  const toListEarly = (() => {
+    if (sendMode === 'forward' && toOverride) {
+      const list = normalizeList(toOverride);
+      if (list.length) return list;
+    }
+    return [{ email: person.email, name: person.displayName }];
+  })();
+  const primaryToEmailEarly = String(toListEarly[0]?.email || person.email || '')
+    .trim()
+    .toLowerCase();
+  const ccListForHtml = normalizeList(cc).filter(
+    (c) => String(c.email || '').toLowerCase() !== primaryToEmailEarly
+  );
+
+  // User signature is appended after the agency identity signature in the send
+  // pipeline (finalizeOutboundContent). Do not embed it here or it would appear first.
+  const html = buildNormalOutboundEmailHtml({
+    agencyName,
+    senderDisplayName,
+    senderTitle,
+    senderPhotoUrl,
+    subject: effectiveSubject,
+    toDisplayName: person.displayName || person.email,
+    toEmail: person.email,
+    ccList: ccListForHtml,
+    bodyText: body,
+    bodyHtml: bodyHtml || null,
+    colorPalette: agency.color_palette,
+    logoUrl,
+    history,
+    sentAt: new Date()
+  });
 
   // Stable Reply-To (messages@) — Google Groups often mishandle plus-addresses.
   // Token still stored so we can match; inbound also falls back by participant email.
@@ -4134,6 +4160,7 @@ export async function listHubConversationFeed({
 
   const items = [];
   const CLIENT_FACING_ROLES = new Set(['client', 'client_guardian', 'guardian']);
+  const { publicUploadsUrlFromStoredPath } = await import('../utils/uploads.js');
 
   // Email / SMS / call conversations (personal-scoped like hubScope)
   try {
@@ -4148,11 +4175,64 @@ export async function listHubConversationFeed({
       offset: 0,
       isAdminViewer: false
     });
+    const emailAddrs = [
+      ...new Set(
+        (emailRows || [])
+          .map((c) => String(c.primary_participant_email || '').trim().toLowerCase())
+          .filter(Boolean)
+      )
+    ];
+    const photoByEmail = new Map();
+    if (emailAddrs.length) {
+      try {
+        const ph = emailAddrs.map(() => '?').join(',');
+        const [userPhotos] = await pool.execute(
+          `SELECT LOWER(email) AS email, profile_photo_path
+           FROM users
+           WHERE LOWER(email) IN (${ph})
+             AND profile_photo_path IS NOT NULL
+             AND TRIM(profile_photo_path) <> ''
+           LIMIT 200`,
+          emailAddrs
+        );
+        for (const u of userPhotos || []) {
+          const url = publicUploadsUrlFromStoredPath(u.profile_photo_path);
+          if (url) photoByEmail.set(String(u.email || '').toLowerCase(), url);
+        }
+        // Also match work_email / personal_email when present
+        const [altPhotos] = await pool.execute(
+          `SELECT LOWER(COALESCE(work_email, '')) AS work_email,
+                  LOWER(COALESCE(personal_email, '')) AS personal_email,
+                  profile_photo_path
+           FROM users
+           WHERE profile_photo_path IS NOT NULL
+             AND TRIM(profile_photo_path) <> ''
+             AND (
+               LOWER(COALESCE(work_email, '')) IN (${ph})
+               OR LOWER(COALESCE(personal_email, '')) IN (${ph})
+             )
+           LIMIT 200`,
+          [...emailAddrs, ...emailAddrs]
+        );
+        for (const u of altPhotos || []) {
+          const url = publicUploadsUrlFromStoredPath(u.profile_photo_path);
+          if (!url) continue;
+          if (u.work_email) photoByEmail.set(u.work_email, url);
+          if (u.personal_email) photoByEmail.set(u.personal_email, url);
+        }
+      } catch (e) {
+        console.warn('[listHubConversationFeed] email photos:', e?.message || e);
+      }
+    }
     for (const c of emailRows || []) {
       const channel = String(c.channel || 'email').toLowerCase();
       const resolvedChannel = ['sms', 'call', 'voicemail'].includes(channel) ? channel : 'email';
       const isUnread = !!c.is_unread;
       if (unreadOnly && !isUnread) continue;
+      const primaryEmail = c.primary_participant_email || null;
+      const photoUrl = primaryEmail
+        ? photoByEmail.get(String(primaryEmail).toLowerCase()) || null
+        : null;
       items.push({
         id: `email-${c.id}`,
         kind: resolvedChannel === 'sms' ? 'sms' : 'email',
@@ -4168,7 +4248,8 @@ export async function listHubConversationFeed({
           ? c.last_inbound_preview || c.last_message_preview || c.subject || ''
           : c.last_message_preview || c.last_inbound_preview || c.subject || '',
         displayName: c.primary_participant_name || c.subject || 'Conversation',
-        primaryEmail: c.primary_participant_email || null,
+        primaryEmail,
+        photoUrl,
         personKey: null,
         threadId: null,
         starred: !!c.starred,
@@ -4327,7 +4408,9 @@ export async function listHubConversationFeed({
         personKey: isDirect && otherId ? formatPersonKey('user', otherId, row.agency_id || aid) : null,
         threadId: Number(row.thread_id),
         threadType,
-        photoUrl: isDirect ? row.other_photo || null : null,
+        photoUrl: isDirect
+          ? publicUploadsUrlFromStoredPath(row.other_photo) || row.other_photo || null
+          : null,
         otherUserId: isDirect ? otherId : null,
         agencyId: row.agency_id ? Number(row.agency_id) : aid,
         starred: false,
@@ -4355,7 +4438,9 @@ export async function listHubConversationFeed({
           prev.preview = item.preview;
           prev.threadId = item.threadId;
           prev.channel = item.channel;
+          if (item.photoUrl) prev.photoUrl = item.photoUrl;
         }
+        if (!prev.photoUrl && item.photoUrl) prev.photoUrl = item.photoUrl;
         continue;
       }
       byPerson.set(item.personKey, item);
@@ -4378,7 +4463,9 @@ export async function listHubConversationFeed({
           prev.subject = item.subject || prev.subject;
           prev.starred = prev.starred || item.starred;
           prev.snoozedUntil = item.snoozedUntil || prev.snoozedUntil;
+          if (item.photoUrl) prev.photoUrl = item.photoUrl;
         }
+        if (!prev.photoUrl && item.photoUrl) prev.photoUrl = item.photoUrl;
         continue;
       }
       byEmailThread.set(threadKey, item);

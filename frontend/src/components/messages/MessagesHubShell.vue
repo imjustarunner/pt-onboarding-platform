@@ -97,13 +97,22 @@
         </div>
       </nav>
 
-      <div class="msg-hub-grid">
+      <div class="msg-hub-grid" :class="{ 'list-collapsed': listColCollapsed && !!selected }">
         <section
           class="msg-hub-list-col"
           :aria-label="listColumnTitle"
         >
           <div class="msg-hub-list-head">
             <h3>{{ listColumnTitle }}</h3>
+            <button
+              v-if="selected"
+              type="button"
+              class="msg-hub-list-collapse"
+              :title="listColCollapsed ? 'Expand conversation list' : 'Collapse conversation list'"
+              @click="listColCollapsed = !listColCollapsed"
+            >
+              {{ listColCollapsed ? '»' : '«' }}
+            </button>
             <label
               v-if="(navId === 'unread' || navId === 'inbox') && isConversationMode"
               class="msg-hub-sort"
@@ -433,31 +442,37 @@
             <div ref="timelineEl" class="msg-hub-timeline">
               <div v-if="loadingTimeline" class="msg-hub-muted">Loading conversation…</div>
               <template v-else-if="sendMethod === 'email'">
-                <div class="msg-hub-email-thread-bar">
+                <div class="msg-hub-email-thread-bar msg-hub-email-thread-list">
                   <button
                     type="button"
                     class="msg-hub-email-new-btn"
                     :class="{ active: !activeEmailThreadKey }"
                     @click="startNewEmailCompose"
                   >
-                    New email
+                    + New email
                   </button>
                   <button
                     v-for="thread in emailSubjectThreads"
                     :key="thread.key"
                     type="button"
-                    class="msg-hub-email-thread-chip"
+                    class="msg-hub-email-thread-row"
                     :class="{ active: activeEmailThreadKey === thread.key }"
                     :title="thread.subject"
                     @click="openEmailSubjectThread(thread)"
                   >
                     <span class="msg-hub-email-thread-sub">{{ thread.subject }}</span>
-                    <span class="msg-hub-email-thread-count">{{ thread.messages.length }}</span>
+                    <span class="msg-hub-email-thread-meta">
+                      <span class="msg-hub-email-thread-preview">{{
+                        thread.messages[thread.messages.length - 1]?.bodyPreview || ''
+                      }}</span>
+                      <span class="msg-hub-email-thread-count">{{ thread.messages.length }}</span>
+                      <time>{{ formatTime(thread.messages[thread.messages.length - 1]?.createdAt) }}</time>
+                    </span>
                   </button>
                 </div>
                 <template v-if="!activeEmailThreadKey">
                   <div class="msg-hub-empty soft">
-                    New email — prior email threads stay nested above. Pick a subject to continue a conversation.
+                    Pick a thread above to continue, or start a new email.
                   </div>
                 </template>
                 <template v-else-if="visibleTimeline.length">
@@ -475,11 +490,42 @@
                   <div
                     v-for="msg in visibleTimeline"
                     :key="msg.id"
-                    class="msg-hub-bubble"
+                    class="msg-hub-bubble is-wide"
                     :class="[msg.direction, `ch-${msg.channel}`]"
                   >
-                    <span class="msg-hub-bubble-ch">{{ methodLabel(msg.channel) }}</span>
-                    <p v-if="msg.bodyPreview">{{ msg.bodyPreview }}</p>
+                    <div class="msg-hub-bubble-top">
+                      <span class="msg-hub-bubble-ch">{{ methodLabel(msg.channel) }}</span>
+                      <div class="msg-hub-bubble-who">
+                        <div class="msg-hub-bubble-avatar" aria-hidden="true">
+                          <img
+                            v-if="hubMsgPhoto(msg)"
+                            :src="photoSrc(hubMsgPhoto(msg))"
+                            :alt="''"
+                          />
+                          <span v-else>{{ initials(hubMsgName(msg)) }}</span>
+                        </div>
+                        <span class="msg-hub-bubble-name">{{ hubMsgName(msg) }}</span>
+                        <time class="msg-hub-bubble-time">{{ formatTime(msg.createdAt) }}</time>
+                        <span
+                          v-if="msg.meta?.sendStatus === 'scheduled'"
+                          class="msg-hub-sent-tag"
+                        >Queued</span>
+                        <span
+                          v-else-if="msg.direction === 'outbound'"
+                          class="msg-hub-sent-tag"
+                        >Sent</span>
+                        <span
+                          v-if="msg.meta?.openedAt"
+                          class="msg-hub-open-tag"
+                          :title="formatTime(msg.meta.openedAt)"
+                        >Opened</span>
+                        <span
+                          v-else-if="msg.direction === 'outbound' && msg.meta?.sendStatus !== 'scheduled'"
+                          class="msg-hub-open-tag pending"
+                        >Not opened</span>
+                      </div>
+                    </div>
+                    <p v-if="msg.bodyPreview" class="msg-hub-bubble-body">{{ msg.bodyPreview }}</p>
                     <div v-if="msg.attachments?.length" class="msg-hub-bubble-atts">
                       <a
                         v-for="att in msg.attachments"
@@ -499,28 +545,6 @@
                       </a>
                     </div>
                     <div class="msg-hub-bubble-meta">
-                      <time>{{ formatTime(msg.createdAt) }}</time>
-                      <span
-                        v-if="msg.meta?.sendStatus === 'scheduled'"
-                        class="msg-hub-sent-tag"
-                      >Queued</span>
-                      <span
-                        v-else-if="msg.direction === 'outbound'"
-                        class="msg-hub-sent-tag"
-                      >Sent</span>
-                      <span
-                        v-if="msg.meta?.openedAt"
-                        class="msg-hub-open-tag"
-                        :title="formatTime(msg.meta.openedAt)"
-                      >
-                        Opened
-                      </span>
-                      <span
-                        v-else-if="msg.direction === 'outbound' && msg.meta?.sendStatus !== 'scheduled'"
-                        class="msg-hub-open-tag pending"
-                      >
-                        Not opened
-                      </span>
                       <button
                         v-if="msg.meta?.conversationId"
                         type="button"
@@ -1235,7 +1259,7 @@
             <section class="msg-hub-panel">
               <h3>Methods</h3>
               <ul class="msg-hub-methods">
-                <li v-for="m in selected.methods || []" :key="m.id" :class="{ off: !m.available }">
+                <li v-for="m in methodButtons" :key="m.id" :class="{ off: !m.available }">
                   <strong>{{ methodLabel(m.id) }}</strong>
                   <span>{{ m.available ? (m.recommended ? 'Recommended' : 'Available') : (m.reason || 'Not available yet') }}</span>
                 </li>
@@ -1438,6 +1462,7 @@ const listFilter = ref('unread');
 const listSearch = ref('');
 const unreadSort = ref('newest');
 const selected = ref(null);
+const listColCollapsed = ref(false);
 const talkingToUserId = ref(null);
 const includeClientOnSend = ref(false);
 const participantExtraIds = ref([]);
@@ -1828,15 +1853,6 @@ const talkingToGuardian = computed(() => {
   return ctx.guardians.find((g) => Number(g.userId) === tid) || null;
 });
 
-const methodUnavailableHint = computed(() => {
-  const secure = (selected.value?.methods || []).find((m) => m.id === 'secure');
-  const sms = (selected.value?.methods || []).find((m) => m.id === 'sms');
-  const bits = [];
-  if (secure && !secure.available) bits.push(secure.reason || 'Secure portal messaging isn’t available yet');
-  if (sms && !sms.available) bits.push(sms.reason || 'SMS isn’t available yet');
-  return bits.join(' · ');
-});
-
 function methodUnavailableShort(ch) {
   if (!ch || ch.available) return '';
   if (ch.id === 'sms') return 'Not yet';
@@ -2068,9 +2084,9 @@ const activeDelaySeconds = computed(() => {
 
 watch(sendMethod, (m) => {
   undoDelaySeconds.value = activeDelaySeconds.value;
-  if (m === 'email') {
-    // New compose by default — don’t show prior email/chat history until a subject is opened.
-    activeEmailThreadKey.value = null;
+  // Keep the open email subject when switching away and back; only clear on explicit New email.
+  if (m === 'email' && !activeEmailThreadKey.value && emailSubjectThreads.value.length === 1) {
+    activeEmailThreadKey.value = emailSubjectThreads.value[0].key;
   }
   scheduleSmartReply();
 });
@@ -2265,14 +2281,15 @@ const activeEmailThreadSubject = computed(() => {
 const visibleTimeline = computed(() => {
   const method = String(sendMethod.value || '').toLowerCase();
   const items = Array.isArray(timeline.value) ? timeline.value : [];
-  // Email mode uses subject nesting — only show that thread's emails.
   if (method === 'email') {
     if (!activeEmailThreadKey.value) return [];
     const thread = emailSubjectThreads.value.find((t) => t.key === activeEmailThreadKey.value);
     return thread?.messages || [];
   }
-  // Secure / Internal / SMS: show the full person timeline so replies aren't hidden
-  // when the composer's channel differs from older messages.
+  // Internal / Secure / SMS: only that channel (not a mix of email + chat).
+  if (method === 'internal' || method === 'secure' || method === 'sms') {
+    return items.filter((m) => String(m.channel || '').toLowerCase() === method);
+  }
   return items;
 });
 
@@ -2714,7 +2731,35 @@ const emptyPickerCopy = computed(() => {
   return 'No people in this list yet.';
 });
 
-const methodButtons = computed(() => selected.value?.methods || []);
+const methodButtons = computed(() => {
+  const methods = selected.value?.methods || [];
+  const kinds = selected.value?.kinds || [];
+  const isPureStaff =
+    (kinds.includes('employee') || kinds.includes('staff') || kinds.includes('team')) &&
+    !kinds.includes('school_staff') &&
+    !kinds.includes('client') &&
+    !kinds.includes('guardian');
+  if (!isPureStaff) return methods;
+  // Staff: hide Secure/portal scare; keep SMS visible for when campaign is live.
+  return methods.filter((m) => m.id !== 'secure');
+});
+
+const methodUnavailableHint = computed(() => {
+  const kinds = selected.value?.kinds || [];
+  const isPureStaff =
+    (kinds.includes('employee') || kinds.includes('staff') || kinds.includes('team')) &&
+    !kinds.includes('school_staff') &&
+    !kinds.includes('client') &&
+    !kinds.includes('guardian');
+  const sms = (selected.value?.methods || []).find((m) => m.id === 'sms');
+  const bits = [];
+  if (!isPureStaff) {
+    const secure = (selected.value?.methods || []).find((m) => m.id === 'secure');
+    if (secure && !secure.available) bits.push(secure.reason || 'Secure portal messaging isn’t available yet');
+  }
+  if (sms && !sms.available) bits.push(sms.reason || 'SMS isn’t available yet');
+  return bits.join(' · ');
+});
 const activeMethod = computed(() =>
   (selected.value?.methods || []).find((m) => m.id === sendMethod.value)
 );
@@ -3691,14 +3736,21 @@ async function onOpenGroupFromModal(group) {
     : slug
       ? `/${slug}/messages`
       : '/messages';
-  const q = { ...route.query, view: 'workspace', tab: 'channels' };
+  // Groups / channels open in the full Team chat workspace (multi-person internal chat).
+  const q = {
+    ...route.query,
+    view: 'workspace',
+    tab: group?.kinds?.includes?.('channel') || String(group?.tab || '') === 'channels'
+      ? 'channels'
+      : 'dms'
+  };
   if (threadId) q.threadId = String(threadId);
-  emit('open-team-chat', 'channels');
+  emit('open-team-chat', q.tab);
   if (isDrawerLayout.value) {
     if (group?.displayName) {
       reminderNotice.value = threadId
         ? `Opening “${group.displayName}” in Team chat…`
-        : `Open Channels in Team chat to continue in “${group.displayName}”.`;
+        : `Open Team chat to continue in “${group.displayName}”.`;
       setTimeout(() => {
         reminderNotice.value = '';
       }, 5000);
@@ -3706,12 +3758,6 @@ async function onOpenGroupFromModal(group) {
     return;
   }
   await router.push({ path, query: q }).catch(() => {});
-  if (group?.displayName && !threadId) {
-    reminderNotice.value = `Open Channels in Team chat to continue in “${group.displayName}”.`;
-    setTimeout(() => {
-      reminderNotice.value = '';
-    }, 5000);
-  }
 }
 
 function dropOpenedFromUnread(match = {}) {
@@ -3750,7 +3796,7 @@ async function pickPerson(person, opts = {}) {
   selectedConversation.value = fromConversation || null;
   conversationPreview.value = null;
   mobileShowThread.value = true;
-  sendMethod.value = person.preferredMethod || person.methods?.find((m) => m.available)?.id || 'secure';
+  sendMethod.value = person.preferredMethod || person.methods?.find((m) => m.available)?.id || 'internal';
   suppressDraftAutosave = true;
   composeBody.value = '';
   composeSubject.value = '';
@@ -3850,12 +3896,13 @@ async function pickPerson(person, opts = {}) {
   await focusComposer();
 }
 
-async function loadTimeline(personKey) {
+async function loadTimeline(personKey, { quiet = false } = {}) {
   if (!personKey) {
     timeline.value = [];
     return;
   }
-  loadingTimeline.value = true;
+  const samePerson = selected.value?.personKey === personKey && (timeline.value || []).length > 0;
+  if (!quiet && !samePerson) loadingTimeline.value = true;
   try {
     const aid = selected.value?.agencyId || agencyId.value;
     const reqParams = {};
@@ -3875,16 +3922,25 @@ async function loadTimeline(personKey) {
     const chatMsg = [...timeline.value].reverse().find((m) => m?.meta?.threadId);
     if (chatMsg?.meta?.threadId) chatThreadId.value = chatMsg.meta.threadId;
 
-    // Prefer composing on the latest channel so Internal replies aren't hidden behind Email.
-    const latest = [...timeline.value].reverse().find((m) => {
-      const ch = String(m.channel || '').toLowerCase();
-      return ['internal', 'secure', 'sms', 'email'].includes(ch);
-    });
-    if (latest?.channel) {
-      const ch = String(latest.channel).toLowerCase();
-      const available = (selected.value?.methods || []).some((m) => m.id === ch && m.available);
-      if (available || ch === 'internal' || ch === 'secure') {
-        sendMethod.value = ch;
+    // Don't yank the composer channel on refresh — only set when unset / unavailable.
+    const current = String(sendMethod.value || '').toLowerCase();
+    const availableIds = new Set(
+      (selected.value?.methods || []).filter((m) => m.available).map((m) => m.id)
+    );
+    if (!current || (availableIds.size && !availableIds.has(current) && current !== 'internal')) {
+      const preferred = selected.value?.preferredMethod;
+      if (preferred && (availableIds.has(preferred) || preferred === 'internal')) {
+        sendMethod.value = preferred;
+      } else if (availableIds.has('internal')) {
+        sendMethod.value = 'internal';
+      } else if (availableIds.has('email')) {
+        sendMethod.value = 'email';
+      }
+    }
+    await nextTick();
+    if (String(sendMethod.value) === 'email' && !activeEmailThreadKey.value) {
+      if (emailSubjectThreads.value.length >= 1) {
+        activeEmailThreadKey.value = emailSubjectThreads.value[0].key;
       }
     }
   } catch (e) {
@@ -4415,9 +4471,19 @@ defineExpose({
   flex: 1;
   min-height: 0;
   display: grid;
-  grid-template-columns: minmax(240px, 300px) minmax(0, 1fr) minmax(220px, 280px);
+  grid-template-columns: minmax(280px, 360px) minmax(0, 1fr) minmax(200px, 260px);
   gap: 10px;
   overflow: hidden;
+}
+.msg-hub-grid.list-collapsed {
+  grid-template-columns: 52px minmax(0, 1fr) minmax(200px, 260px);
+}
+.msg-hub-grid.list-collapsed .msg-hub-list-col .msg-hub-list-head h3,
+.msg-hub-grid.list-collapsed .msg-hub-list-col .msg-hub-search,
+.msg-hub-grid.list-collapsed .msg-hub-list-col .msg-hub-list,
+.msg-hub-grid.list-collapsed .msg-hub-list-col .msg-hub-sort,
+.msg-hub-grid.list-collapsed .msg-hub-list-col .msg-hub-muted {
+  display: none;
 }
 .msg-hub-list-col,
 .msg-hub-thread-col,
@@ -4562,12 +4628,29 @@ defineExpose({
 .msg-hub-avatar.lg { width: 48px; height: 48px; font-size: 14px; }
 .msg-hub-row-top { display: flex; align-items: center; gap: 6px; min-width: 0; }
 .msg-hub-row-top strong {
+  flex: 1 1 auto;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  font-size: 13px;
 }
 .msg-hub-row-top .msg-hub-time { margin-left: auto; flex-shrink: 0; }
+.msg-hub-channel-pill {
+  flex-shrink: 0;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: #f1f5f9;
+  color: #475569;
+  max-width: 72px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .msg-hub-time,
 .msg-hub-muted,
 .msg-hub-snippet { margin: 0; font-size: 12px; color: var(--mh-muted); }
@@ -5152,11 +5235,55 @@ defineExpose({
   align-items: center;
   margin-bottom: 4px;
 }
+.msg-hub-email-thread-list {
+  flex-direction: column;
+  flex-wrap: nowrap;
+  align-items: stretch;
+  max-height: 168px;
+  overflow: auto;
+  border: 1px solid var(--mh-line);
+  border-radius: 10px;
+  padding: 6px;
+  background: #fff;
+  gap: 2px;
+}
+.msg-hub-email-thread-row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  text-align: left;
+  border: 0;
+  background: transparent;
+  border-radius: 8px;
+  padding: 8px 10px;
+  cursor: pointer;
+  width: 100%;
+  color: inherit;
+}
+.msg-hub-email-thread-row:hover,
+.msg-hub-email-thread-row.active {
+  background: color-mix(in srgb, var(--mh-primary) 10%, #fff);
+}
+.msg-hub-email-thread-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  font-size: 11px;
+  color: var(--mh-muted);
+}
+.msg-hub-email-thread-preview {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .msg-hub-email-new-btn,
 .msg-hub-email-thread-chip {
   border: 1px solid var(--mh-line);
   background: #fff;
-  border-radius: 999px;
+  border-radius: 8px;
   padding: 4px 10px;
   font-size: 12px;
   cursor: pointer;
@@ -5665,7 +5792,8 @@ defineExpose({
   clip: rect(0, 0, 0, 0);
 }
 @media (max-width: 1100px) {
-  .msg-hub-grid { grid-template-columns: minmax(220px, 280px) minmax(0, 1fr); }
+  .msg-hub-grid { grid-template-columns: minmax(260px, 340px) minmax(0, 1fr); }
+  .msg-hub-grid.list-collapsed { grid-template-columns: 52px minmax(0, 1fr); }
   .msg-hub-context { display: none; }
 }
 @media (max-width: 800px) {
@@ -5728,17 +5856,17 @@ defineExpose({
   position: relative;
 }
 .msg-hub-rail {
-  width: 168px;
+  width: 132px;
   flex-shrink: 0;
   background: var(--mh-surface);
   color: var(--mh-ink);
   border: 1px solid var(--mh-line);
   border-radius: 14px;
-  padding: 12px 8px;
+  padding: 10px 6px;
   overflow: auto;
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 12px;
 }
 .msg-hub:not(.msg-hub--drawer) .msg-hub-rail {
   display: flex;
@@ -5797,6 +5925,22 @@ defineExpose({
   align-items: center;
   justify-content: space-between;
   gap: 8px;
+}
+.msg-hub-list-collapse {
+  border: 1px solid var(--mh-line);
+  background: #fff;
+  border-radius: 6px;
+  width: 28px;
+  height: 28px;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  color: var(--mh-muted);
+  flex-shrink: 0;
+}
+.msg-hub-list-collapse:hover {
+  color: var(--mh-primary);
+  border-color: var(--mh-primary);
 }
 .msg-hub-list-head h3 {
   margin: 0;
