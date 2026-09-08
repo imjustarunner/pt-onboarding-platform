@@ -363,7 +363,7 @@ import {
   OUTREACH_OPTIONS,
   WAIVER_REASONS,
   TERMINATION_WAIVE_REASONS
-} from '../utils/appointmentChangeNarrative.js';
+} from '../../utils/appointmentChangeNarrative.js';
 
 const props = defineProps({
   change: { type: Object, required: true }
