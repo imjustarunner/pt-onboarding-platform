@@ -97,6 +97,7 @@
       />
 
       <main
+        ref="naMainEl"
         v-show="!libraryExpanded || libraryCollapsed"
         class="na-main"
         :class="{ 'na-main--start': showStartPage, 'na-main--library': showAidPicker }"
@@ -983,26 +984,11 @@
           <small v-if="generateError" class="error">{{ generateError }}</small>
         </section>
 
-        <NoteAidStructuredChartPanel
-          v-if="showStructuredChartPanel && !chartNoteReadOnly && !signedNoteViewerId"
-          :diagnoses="structuredChartDiagnoses"
-          :diagnosis-mode="chartDiagnosisMode"
-          v-model:diagnostic-justification="chartDiagnosticJustification"
-          v-model:mse="chartMentalStatus"
-          v-model:risk="chartRiskAssessment"
-          v-model:medications="chartMedications"
-          :skip-mse="skipMentalStatusExam"
-          :mse-skip-label="mseSkipLabel"
-          @mse-all-normal="setMseAllNormal"
-          @mse-all-not-assessed="setMseAllNotAssessed"
-        />
-          </div>
-        </div>
-
-        <!-- Keep output after either step when present (visible on write step) -->
-        <template v-if="true">
-
-        <section v-if="signedNoteViewerId" class="na-output na-output--signed-view">
+        <section
+          v-if="signedNoteViewerId"
+          ref="naGeneratedOutputEl"
+          class="na-output na-output--signed-view"
+        >
           <div class="na-output-head">
             <div>
               <h2>Finalized note</h2>
@@ -1022,11 +1008,16 @@
           />
         </section>
 
-        <section v-else-if="displayPanels.length" class="na-output">
+        <section
+          v-else-if="displayPanels.length"
+          ref="naGeneratedOutputEl"
+          class="na-output"
+          :class="{ 'na-output--fresh': generatedOutputFresh }"
+        >
           <div class="na-output-head">
             <div>
               <h2>AI Generated Note</h2>
-              <span class="na-ready-badge">Ready to Copy</span>
+              <span class="na-ready-badge">Ready for review</span>
             </div>
             <button type="button" class="na-link-btn" @click="collapseAllSections = !collapseAllSections">
               {{ collapseAllSections ? 'Expand All' : 'Collapse All' }}
@@ -1130,7 +1121,7 @@
             </p>
             <label class="na-sign-check">
               <input v-model="attestAccurateAndComplete" type="checkbox" />
-              I mark this note as accurate and complete{{ isReviewOnlyAid ? '' : ', and apply my signature' }}.
+              I mark this note as accurate and complete.
             </label>
             <label v-if="isReviewOnlyAid" class="na-sign-check">
               <input v-model="attestMedicallyNecessary" type="checkbox" />
@@ -1151,6 +1142,14 @@
               <input v-model="signAndOpenNextInQueue" type="checkbox" />
               After {{ isReviewOnlyAid ? 'review' : 'signing' }}, open next in queue
             </label>
+            <button
+              v-if="!bothAttestationsChecked"
+              type="button"
+              class="na-btn-outline na-mark-both-attest"
+              @click="markBothAttestations"
+            >
+              {{ markBothAttestationsLabel }}
+            </button>
             <p v-if="sessionParticipantsHint && !participantsPresenceDismissed" class="na-sign-attest-warn">
               Note language may suggest others attended. Update <strong>Participants</strong> in session
               details (Step 1), or confirm client-only below if family was only discussed.
@@ -1177,52 +1176,52 @@
             >
               {{ savingTreatmentPlan ? 'Saving plan…' : 'Save treatment plan to chart' }}
             </button>
-            <button
-              v-if="canApproveToClinicalRecord && !nextInQueueItem && !nextInProgressRow"
-              type="button"
-              class="na-btn-primary"
-              :disabled="!displayPanels.length || approvingNote || !canConfirmAndSign"
-              @click="approveNoteOutput({
-                autoAttest: true,
-                afterSign: signAndOpenNextInQueue ? 'queue' : 'close'
-              })"
-            >
-              {{ approvingNote
-                ? (isReviewOnlyAid || isTreatmentSummaryAid ? 'Saving…' : 'Signing…')
-                : (isReviewOnlyAid
-                  ? 'Complete review'
-                  : (isTreatmentSummaryAid ? 'Save document' : 'Sign')) }}
-            </button>
-            <button
-              v-if="canApproveToClinicalRecord && nextInQueueItem"
-              type="button"
-              class="na-btn-primary"
-              :disabled="!displayPanels.length || approvingNote || !canConfirmAndSign"
-              @click="approveNoteOutput({ autoAttest: true, afterSign: 'queue' })"
-            >
-              {{ approvingNote
-                ? (isReviewOnlyAid || isTreatmentSummaryAid ? 'Saving…' : 'Signing…')
-                : (isReviewOnlyAid
-                  ? 'Complete review & open next in queue'
-                  : (isTreatmentSummaryAid
-                    ? 'Save & open next in queue'
-                    : 'Sign and open next in queue')) }}
-            </button>
-            <button
-              v-if="canApproveToClinicalRecord && nextInProgressRow"
-              type="button"
-              class="na-btn-outline"
-              :disabled="!displayPanels.length || approvingNote || !canConfirmAndSign"
-              @click="approveNoteOutput({ autoAttest: true, afterSign: 'progress' })"
-            >
-              {{ approvingNote
-                ? (isReviewOnlyAid || isTreatmentSummaryAid ? 'Saving…' : 'Signing…')
-                : (isReviewOnlyAid
-                  ? 'Complete review & open next in progress'
-                  : (isTreatmentSummaryAid
-                    ? 'Save & open next in progress'
-                    : 'Sign and open next in progress')) }}
-            </button>
+            <template v-if="canApproveToClinicalRecord && bothAttestationsChecked">
+              <button
+                type="button"
+                class="na-btn-primary"
+                :disabled="!displayPanels.length || approvingNote || !canConfirmAndSign"
+                @click="approveNoteOutput({
+                  afterSign: (signAndOpenNextInQueue && nextInQueueItem) ? 'queue' : 'close'
+                })"
+              >
+                {{ approvingNote
+                  ? (isReviewOnlyAid || isTreatmentSummaryAid ? 'Saving…' : 'Signing…')
+                  : (isReviewOnlyAid
+                    ? 'Complete review'
+                    : (isTreatmentSummaryAid ? 'Save document' : 'Sign')) }}
+              </button>
+              <button
+                v-if="!signAndOpenNextInQueue && nextInQueueItem"
+                type="button"
+                class="na-btn-outline"
+                :disabled="!displayPanels.length || approvingNote || !canConfirmAndSign"
+                @click="approveNoteOutput({ afterSign: 'queue' })"
+              >
+                {{ approvingNote
+                  ? (isReviewOnlyAid || isTreatmentSummaryAid ? 'Saving…' : 'Signing…')
+                  : (isReviewOnlyAid
+                    ? 'Complete review & open next in queue'
+                    : (isTreatmentSummaryAid
+                      ? 'Save & open next in queue'
+                      : 'Sign and open next in queue')) }}
+              </button>
+              <button
+                v-if="nextInProgressRow"
+                type="button"
+                class="na-btn-outline"
+                :disabled="!displayPanels.length || approvingNote || !canConfirmAndSign"
+                @click="approveNoteOutput({ afterSign: 'progress' })"
+              >
+                {{ approvingNote
+                  ? (isReviewOnlyAid || isTreatmentSummaryAid ? 'Saving…' : 'Signing…')
+                  : (isReviewOnlyAid
+                    ? 'Complete review & open next in progress'
+                    : (isTreatmentSummaryAid
+                      ? 'Save & open next in progress'
+                      : 'Sign and open next in progress')) }}
+              </button>
+            </template>
           </div>
           <div class="na-feedback">
             <span v-if="approvalMessage" class="hint">{{ approvalMessage }}</span>
@@ -1231,10 +1230,19 @@
           <p class="na-gen-summary">{{ generationLogicSummary }}</p>
         </section>
 
-        <section v-else class="na-output na-output--empty">
-          <h2>AI Generated Note</h2>
-          <p>Your structured note will appear here after you generate.</p>
-        </section>
+        <NoteAidStructuredChartPanel
+          v-if="showStructuredChartPanel && !chartNoteReadOnly && !signedNoteViewerId"
+          :diagnoses="structuredChartDiagnoses"
+          :diagnosis-mode="chartDiagnosisMode"
+          v-model:diagnostic-justification="chartDiagnosticJustification"
+          v-model:mse="chartMentalStatus"
+          v-model:risk="chartRiskAssessment"
+          v-model:medications="chartMedications"
+          :skip-mse="skipMentalStatusExam"
+          :mse-skip-label="mseSkipLabel"
+          @mse-all-normal="setMseAllNormal"
+          @mse-all-not-assessed="setMseAllNotAssessed"
+        />
 
         <ClinicalArtifactRetentionPanel
           v-if="canApproveToClinicalRecord"
@@ -1242,7 +1250,8 @@
           :clientId="Number(retentionClientId || 0)"
           :officeEventId="Number(retentionOfficeEventId || 0)"
         />
-        </template>
+          </div>
+        </div>
         </div>
         </template>
         </div>
@@ -2379,11 +2388,58 @@ const canConfirmAndSign = computed(() => {
 });
 const attestAccurateAndComplete = ref(false);
 const attestMedicallyNecessary = ref(false);
+const bothAttestationsChecked = computed(
+  () => !!attestAccurateAndComplete.value && !!attestMedicallyNecessary.value
+);
+const markBothAttestationsLabel = computed(() => {
+  if (isReviewOnlyAid.value) {
+    return 'Mark as accurate and complete and confirm content review';
+  }
+  if (isTreatmentSummaryAid.value) {
+    return 'Mark as accurate and complete and confirm this Treatment Summary';
+  }
+  return 'Mark as accurate and complete and declare this service medically necessary';
+});
+function markBothAttestations() {
+  attestAccurateAndComplete.value = true;
+  attestMedicallyNecessary.value = true;
+  approvalError.value = '';
+}
 const canSubmitSignature = computed(
   () => canConfirmAndSign.value
     && attestAccurateAndComplete.value
     && attestMedicallyNecessary.value
 );
+const naMainEl = ref(null);
+const naGeneratedOutputEl = ref(null);
+const generatedOutputFresh = ref(false);
+let generatedOutputFreshTimer = null;
+
+async function scrollNoteMainToTop() {
+  await nextTick();
+  await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+  const main = naMainEl.value;
+  if (main && typeof main.scrollTo === 'function') {
+    main.scrollTo({ top: 0, behavior: 'smooth' });
+    return;
+  }
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+async function scrollGeneratedOutputIntoView() {
+  await nextTick();
+  await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+  generatedOutputFresh.value = true;
+  if (generatedOutputFreshTimer) window.clearTimeout(generatedOutputFreshTimer);
+  generatedOutputFreshTimer = window.setTimeout(() => {
+    generatedOutputFresh.value = false;
+    generatedOutputFreshTimer = null;
+  }, 1800);
+  const el = naGeneratedOutputEl.value;
+  if (el && typeof el.scrollIntoView === 'function') {
+    el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+}
 const needsSessionPicker = computed(() => {
   if (!isProgressAid.value) return false;
   if (!showProgressSessionPicker.value) return false;
@@ -5105,6 +5161,9 @@ const generateNote = async () => {
       }
     }
     await loadRecent();
+    if (outputObj.value) {
+      await scrollGeneratedOutputIntoView();
+    }
   } catch (e) {
     const base = e.response?.data?.error?.message || 'Failed to generate note';
     const details = e.response?.data?.error?.details;
@@ -5244,14 +5303,10 @@ const ensureClinicalSessionForApproval = async () => {
   return sessionId;
 };
 
-const approveNoteOutput = async ({ silent = false, afterSign = 'queue', autoAttest = false } = {}) => {
+const approveNoteOutput = async ({ silent = false, afterSign = 'queue' } = {}) => {
   if (silent) return;
   if (!mergedSectionEntries.value.length) return;
   if (approvingNote.value) return;
-  if (autoAttest) {
-    attestAccurateAndComplete.value = true;
-    attestMedicallyNecessary.value = true;
-  }
   if (!attestAccurateAndComplete.value || !attestMedicallyNecessary.value) {
     approvalError.value = isReviewOnlyAid.value
       ? 'Check both attestations (accurate & complete, and content review) before saving.'
@@ -5425,10 +5480,12 @@ const approveNoteOutput = async ({ silent = false, afterSign = 'queue', autoAtte
       approvalMessage.value = signedMsg;
       await onLibrarySidebarSelect(nextProgress);
       sidebarTab.value = DOC_STATUS.STARTED;
+      await scrollNoteMainToTop();
     } else if (mode === 'queue' && nextQueue && !isTreatmentSummaryAid.value) {
       approvalMessage.value = signedMsg;
       await activateWorkQueueItem(nextQueue);
       sidebarTab.value = DOC_STATUS.STARTED;
+      await scrollNoteMainToTop();
     } else if (isTreatmentSummaryAid.value && treatmentSummaryNoteId.value) {
       approvalMessage.value = signedMsg;
       // Stay on document so print / share / sign panel remains available.
@@ -6884,6 +6941,7 @@ async function activateWorkQueueItem(item) {
   await loadRecent();
   } finally {
     endWorkspaceHydration();
+    void scrollNoteMainToTop();
   }
 }
 
@@ -9186,6 +9244,12 @@ a.na-chip--link {
   background: #f0fdfa;
 }
 
+.na-mark-both-attest {
+  margin-top: 10px;
+  width: 100%;
+  justify-content: center;
+}
+
 .na-sign-attest-lead {
   margin: 0 0 8px;
   font-size: 0.82rem;
@@ -9537,6 +9601,27 @@ a.na-chip--link {
   border-radius: 16px;
   padding: 16px;
   margin-bottom: 16px;
+}
+
+.na-output--fresh {
+  animation: na-output-pop 0.85s ease-out;
+  border-color: #2dd4bf;
+  box-shadow: 0 0 0 1px rgba(45, 212, 191, 0.35), 0 12px 28px rgba(15, 118, 110, 0.12);
+}
+
+@keyframes na-output-pop {
+  0% {
+    opacity: 0.35;
+    transform: translateY(18px);
+  }
+  55% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  100% {
+    border-color: var(--na-border);
+    box-shadow: none;
+  }
 }
 
 .na-input-tabs {
