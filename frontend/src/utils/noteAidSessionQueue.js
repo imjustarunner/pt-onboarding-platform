@@ -2,6 +2,13 @@
  * Bridge Tasks hub Notes → Note Aid work queue.
  */
 
+import {
+  MSE_DOMAINS,
+  emptyRiskAssessment
+} from './noteAidMseCatalog.js';
+
+export { MSE_DOMAINS } from './noteAidMseCatalog.js';
+
 export const NOTE_AID_QUEUE_STORAGE_KEY = 'noteAidWorkQueueImport';
 
 /** In-memory handoff only — never put PHI in sessionStorage. */
@@ -162,39 +169,17 @@ export function participantsLikelyIncludeOthers(text) {
   return patterns.some((re) => re.test(t));
 }
 
-export const MSE_DOMAINS = [
-  'Orientation',
-  'Insight',
-  'General Appearance',
-  'Judgment/Impulse Control',
-  'Dress',
-  'Memory',
-  'Motor Activity',
-  'Attention/Concentration',
-  'Interview Behavior',
-  'Thought Process',
-  'Speech',
-  'Thought Content',
-  'Mood',
-  'Perception',
-  'Affect',
-  'Functional Status'
-];
-
 export function defaultMentalStatusExam() {
+  // Empty until the clinician selects options (or All Normal / All Not Assessed).
   const domains = {};
   for (const d of MSE_DOMAINS) {
-    domains[d] = { status: 'normal', detail: '' };
+    domains[d] = { status: '', option: '', detail: '' };
   }
-  return { allNormal: true, allNotAssessed: false, domains };
+  return { allNormal: false, allNotAssessed: false, domains };
 }
 
 export function defaultRiskAssessment() {
-  return {
-    patientDeniesAll: true,
-    areas: [],
-    notes: ''
-  };
+  return emptyRiskAssessment();
 }
 
 export function defaultMedicationsBlock() {

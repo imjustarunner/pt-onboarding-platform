@@ -1336,12 +1336,15 @@
         :collapsed="workQueueCollapsed"
         :sort-by="workQueueSortBy"
         :sort-dir="workQueueSortDir"
+        :can-undo-import="!!lastTodoImportBatch?.clientKeys?.length"
+        :undo-import-count="lastTodoImportBatch?.clientKeys?.length || 0"
         @add-todo="showTodoImportModal = true"
         @generate="generateNote"
         @next="advanceWorkQueue"
         @clear="clearWorkQueue"
         @select="activateWorkQueueItem"
         @delete="onWorkQueueDeleteDraft"
+        @undo-import="undoLastTodoImport"
         @update:collapsed="workQueueCollapsed = $event"
         @update:sort-by="workQueueSortBy = $event"
         @update:sort-dir="workQueueSortDir = $event"
@@ -1516,6 +1519,12 @@ import {
   taskToWorkQueueItem,
   MSE_DOMAINS
 } from '../../utils/noteAidSessionQueue.js';
+import {
+  buildAllNormalMse,
+  buildAllNotAssessedMse,
+  isMentalStatusExamComplete,
+  isRiskAssessmentComplete
+} from '../../utils/noteAidMseCatalog.js';
 import {
   buildDisplaySections,
   extractSections,
@@ -1907,6 +1916,8 @@ const showIntakeDraftEditor = ref(false);
 const intakeDraftEditorId = ref(null);
 const showDemographicsImport = ref(false);
 const showTodoImportModal = ref(false);
+/** Last Add ToDo List batch — used by Undo on the work queue panel. */
+const lastTodoImportBatch = ref(null);
 const showDiagnosisWriterModal = ref(false);
 const showTreatmentPlanWriterModal = ref(false);
 const standaloneModalClients = computed(() => {
@@ -2517,14 +2528,9 @@ const canConfirmAndSign = computed(() => {
   if (familyAttendeesRequired.value && !String(sessionParticipantsDetail.value || '').trim()) return false;
   if (!skipMentalStatusExam.value && showStructuredChartPanel.value) {
     const mse = chartMentalStatus.value || {};
-    const domains = mse.domains || {};
-    const hasDomains = Object.keys(domains).length > 0;
-    const mseOk = !!mse.allNormal || !!mse.allNotAssessed || hasDomains;
-    if (!mseOk) return false;
+    if (!isMentalStatusExamComplete(mse, MSE_DOMAINS)) return false;
     const risk = chartRiskAssessment.value || {};
-    const riskOk = !!risk.patientDeniesAll
-      || (Array.isArray(risk.areas) && risk.areas.length > 0);
-    if (!riskOk) return false;
+    if (!isRiskAssessmentComplete(risk)) return false;
     if (!mseRiskAcknowledged.value) return false;
   }
   if (
@@ -4627,7 +4633,14 @@ const autosave = async () => {
         openDateGroups.value = { ...openDateGroups.value, [dayKey]: true };
         if (activeWorkQueueItemId.value) {
           workQueueItems.value = (workQueueItems.value || []).map((row) =>
-            row.id === activeWorkQueueItemId.value ? { ...row, draftId: created.id } : row
+            String(row.id) === String(activeWorkQueueItemId.value)
+              ? {
+                  ...row,
+                  draftId: created.id,
+                  status: DOC_STATUS.STARTED,
+                  docStatus: DOC_STATUS.STARTED
+                }
+              : row
           );
           persistWorkQueue();
         }
@@ -6901,27 +6914,25 @@ function snapMissingDraftsOnQueue() {
   workQueueItems.value = (workQueueItems.value || []).map((item) => {
     const status = deriveWorkQueueDocStatus(item);
     if (status === DOC_STATUS.SIGNED || status === DOC_STATUS.COMPLETED) return item;
-    if (item.draftId && live.has(String(item.draftId))) return item;
-    // Stale draftId (draft deleted) — always clear, including the active ToDo.
+    if (item.draftId && live.has(String(item.draftId))) {
+      // Ensure right panel matches left: linked draft ⇒ in progress.
+      if (status !== DOC_STATUS.STARTED) {
+        return { ...item, status: DOC_STATUS.STARTED, docStatus: DOC_STATUS.STARTED };
+      }
+      return item;
+    }
+    // Stale draftId (draft deleted) — clear link; keep STARTED only while this ToDo is open.
     if (item.draftId && !live.has(String(item.draftId))) {
+      const keepStarted = activeId && String(item.id) === String(activeId);
       return {
         ...item,
         draftId: null,
-        status: DOC_STATUS.NOT_STARTED,
-        docStatus: DOC_STATUS.NOT_STARTED
+        status: keepStarted ? DOC_STATUS.STARTED : DOC_STATUS.NOT_STARTED,
+        docStatus: keepStarted ? DOC_STATUS.STARTED : DOC_STATUS.NOT_STARTED
       };
     }
-    // Keep the ToDo you just opened — loadRecent can run before a draft row exists.
-    if (activeId && String(item.id) === String(activeId) && status === DOC_STATUS.STARTED && !item.draftId) {
-      return item;
-    }
-    if (!item.draftId && status === DOC_STATUS.NOT_STARTED) return item;
-    return {
-      ...item,
-      draftId: null,
-      status: DOC_STATUS.NOT_STARTED,
-      docStatus: DOC_STATUS.NOT_STARTED
-    };
+    if (status === DOC_STATUS.STARTED) return item;
+    return item;
   });
 }
 
@@ -6967,6 +6978,29 @@ async function onWorkQueueDeleteDraft(item) {
   if (!item) return;
   const status = deriveWorkQueueDocStatus(item);
   if (status === DOC_STATUS.SIGNED) return;
+
+  // Not-started shell: remove entirely (wrong tenant / mistaken import).
+  if (status === DOC_STATUS.NOT_STARTED && !item.draftId) {
+    if (!window.confirm('Remove this ToDo from the work queue?')) return;
+    workQueueItems.value = (workQueueItems.value || []).filter(
+      (row) => String(row.id) !== String(item.id)
+    );
+    if (String(activeWorkQueueItemId.value) === String(item.id)) {
+      activeWorkQueueItemId.value = null;
+    }
+    const serverId = Number(item.serverId || 0);
+    if (serverId > 0) {
+      await api.delete(`/clinical-notes/work-queue/${serverId}`, { skipGlobalLoading: true }).catch(() => null);
+    }
+    if (!(workQueueItems.value || []).length) {
+      await clearWorkQueueOnApi(authStore.user?.id).catch(() => {});
+    } else {
+      persistWorkQueue();
+    }
+    approvalMessage.value = 'ToDo removed from the work queue.';
+    return;
+  }
+
   if (item.draftId) {
     if (!window.confirm('Delete this draft? The ToDo stays in the queue as not started.')) return;
     try {
@@ -6991,7 +7025,7 @@ async function onWorkQueueDeleteDraft(item) {
     await loadRecent();
   }
   workQueueItems.value = (workQueueItems.value || []).map((row) => {
-    if (row.id !== item.id) return row;
+    if (String(row.id) !== String(item.id)) return row;
     return {
       ...row,
       draftId: null,
@@ -6999,7 +7033,7 @@ async function onWorkQueueDeleteDraft(item) {
       docStatus: DOC_STATUS.NOT_STARTED
     };
   });
-  if (activeWorkQueueItemId.value === item.id) activeWorkQueueItemId.value = null;
+  if (String(activeWorkQueueItemId.value) === String(item.id)) activeWorkQueueItemId.value = null;
   persistWorkQueue();
   approvalMessage.value = item.draftId ? 'Draft deleted. ToDo is waiting to be started.' : 'Reset to not started.';
 }
@@ -7071,6 +7105,12 @@ function onTodoListBuilt({ items }) {
     return true;
   });
   workQueueItems.value = [...(workQueueItems.value || []), ...appended];
+  lastTodoImportBatch.value = appended.length
+    ? {
+        clientKeys: appended.map((i) => String(i.clientKey || i.id)),
+        at: new Date().toISOString()
+      }
+    : null;
   appendWorkQueueToApi(authStore.user?.id, appended)
     .then(({ merged }) => {
       if (Array.isArray(merged)) workQueueItems.value = merged.map(normalizeWorkQueueItemStatus);
@@ -7095,6 +7135,46 @@ function onTodoListBuilt({ items }) {
       (i) => deriveWorkQueueDocStatus(i) === DOC_STATUS.NOT_STARTED
     );
     if (first) activateWorkQueueItem(first);
+  }
+}
+
+async function undoLastTodoImport() {
+  const batch = lastTodoImportBatch.value;
+  const keys = new Set((batch?.clientKeys || []).map(String).filter(Boolean));
+  if (!keys.size) return;
+  const uid = authStore.user?.id;
+  const removed = (workQueueItems.value || []).filter((i) =>
+    keys.has(String(i.clientKey || i.id))
+  );
+  workQueueItems.value = (workQueueItems.value || []).filter(
+    (i) => !keys.has(String(i.clientKey || i.id))
+  );
+  if (
+    activeWorkQueueItemId.value
+    && removed.some((i) => String(i.id) === String(activeWorkQueueItemId.value))
+  ) {
+    activeWorkQueueItemId.value = null;
+  }
+  lastTodoImportBatch.value = null;
+  try {
+    const serverIds = removed
+      .map((i) => Number(i.serverId || 0))
+      .filter((id) => id > 0);
+    if (serverIds.length) {
+      await Promise.all(
+        serverIds.map((id) =>
+          api.delete(`/clinical-notes/work-queue/${id}`, { skipGlobalLoading: true }).catch(() => null)
+        )
+      );
+    }
+    if (!(workQueueItems.value || []).length) {
+      await clearWorkQueueOnApi(uid);
+    } else {
+      persistWorkQueue();
+    }
+  } catch (e) {
+    console.warn('Undo last ToDo import failed:', e?.response?.data?.error?.message || e.message);
+    persistWorkQueue();
   }
 }
 
@@ -7210,16 +7290,14 @@ async function activateWorkQueueItem(item) {
   }
   if (!isFinished) {
     workQueueItems.value = (workQueueItems.value || []).map((row) => {
-      if (row.id === item.id) {
-        return {
-          ...row,
-          status: DOC_STATUS.STARTED,
-          docStatus: DOC_STATUS.STARTED,
-          startedAt: row.startedAt || new Date().toISOString(),
-          updatedAt: new Date().toISOString()
-        };
-      }
-      return row;
+      if (String(row.id) !== String(item.id)) return row;
+      return {
+        ...row,
+        status: DOC_STATUS.STARTED,
+        docStatus: DOC_STATUS.STARTED,
+        startedAt: row.startedAt || new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      };
     });
   }
   activeWorkQueueItemId.value = item.id;
@@ -7426,10 +7504,12 @@ async function activateWorkQueueItem(item) {
     ensureSessionEndFromDuration();
     progressEntryMode.value = item.officeEventId ? 'appointment' : 'client';
     workQueueItems.value = (workQueueItems.value || []).map((row) =>
-      row.id === item.id
+      String(row.id) === String(item.id)
         ? {
             ...row,
             draftId: reuse.id,
+            status: DOC_STATUS.STARTED,
+            docStatus: DOC_STATUS.STARTED,
             serviceCode: item.serviceCode || row.serviceCode,
             date: dosIso || row.date
           }
@@ -7523,7 +7603,14 @@ async function ensureWorkQueueDraft(item) {
       ...(recentDrafts.value || []).filter((d) => String(d.id) !== String(created.id))
     ];
     workQueueItems.value = (workQueueItems.value || []).map((row) =>
-      row.id === item.id ? { ...row, draftId: created.id } : row
+      String(row.id) === String(item.id)
+        ? {
+            ...row,
+            draftId: created.id,
+            status: DOC_STATUS.STARTED,
+            docStatus: DOC_STATUS.STARTED
+          }
+        : row
     );
     persistWorkQueue();
   } catch {
@@ -8401,25 +8488,19 @@ watch(actualServiceCode, (code, prev) => {
 });
 
 function setMseAllNormal() {
-  const domains = {};
-  for (const d of MSE_DOMAINS) domains[d] = { status: 'normal', detail: '' };
-  chartMentalStatus.value = { allNormal: true, allNotAssessed: false, domains };
+  chartMentalStatus.value = buildAllNormalMse();
 }
 
 function setMseAllNotAssessed() {
-  const domains = {};
-  for (const d of MSE_DOMAINS) domains[d] = { status: 'not_assessed', detail: '' };
-  chartMentalStatus.value = { allNormal: false, allNotAssessed: true, domains };
+  chartMentalStatus.value = buildAllNotAssessedMse();
 }
 
 function onMseAllNormal() {
   setMseAllNormal();
-  mseRiskAcknowledged.value = true;
 }
 
 function onMseAllNotAssessed() {
   setMseAllNotAssessed();
-  mseRiskAcknowledged.value = true;
 }
 
 async function loadClinicalCosignSupervisor() {

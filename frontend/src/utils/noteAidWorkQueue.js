@@ -234,28 +234,30 @@ function ymdFromDateParts(mmRaw, ddRaw, yyRaw) {
 
 function classifyTodoAction(action) {
   const actionLower = String(action || '').toLowerCase();
-  if (
-    /consultation/i.test(action)
-    || /\b99415\b/.test(action)
-    || /supervision/i.test(action)
-  ) {
+  const codeMatch = String(action || '').match(/\((\d{5}|[A-Z]\d{4})\)/i);
+  let serviceCode = codeMatch ? codeMatch[1].toUpperCase() : null;
+
+  // True skip: 99415 / supervision. H0031 "Consultation" is the additional-assessment
+  // session type (not intake) and must be queued as a progress/additional note.
+  if (/\b99415\b/.test(action) || /supervision/i.test(action)) {
+    return { skip: true, reason: 'consultation' };
+  }
+  if (/consultation/i.test(action) && serviceCode !== 'H0031') {
     return { skip: true, reason: 'consultation' };
   }
 
   let noteKind = 'progress';
-  let serviceCode = null;
-  const codeMatch = String(action || '').match(/\((\d{5}|[A-Z]\d{4})\)/i);
-  if (codeMatch) serviceCode = codeMatch[1].toUpperCase();
-
   if (/intake/i.test(actionLower)) {
     noteKind = 'intake';
     serviceCode = serviceCode || '90791';
   } else if (/termination/i.test(actionLower)) {
     noteKind = 'termination';
-    serviceCode = serviceCode || null;
   } else if (/treatment\s*plan/i.test(actionLower)) {
     noteKind = 'treatment_plan';
-    serviceCode = serviceCode || null;
+  } else if (serviceCode === 'H0031') {
+    // Consultation (H0031) / progress Note (H0031) → additional assessment, not intake.
+    noteKind = 'progress';
+    serviceCode = 'H0031';
   } else {
     noteKind = 'progress';
     serviceCode = serviceCode || '90837';
@@ -327,7 +329,8 @@ function parseOneLineTodo(line) {
  * Supports:
  *  - 3-line blocks (date / name / action)
  *  - single-line rows (date name action…)
- * Skips Consultation / 99415. Keeps progress, intake, termination, treatment-plan renewal.
+ * Skips 99415 / supervision / non-H0031 Consultation. Keeps H0031 Consultation
+ * (additional assessment), progress, intake, termination, treatment-plan renewal.
  */
 export function parseNoteAidTodoList(rawText) {
   const raw = String(rawText || '').replace(/\r\n/g, '\n').trim();

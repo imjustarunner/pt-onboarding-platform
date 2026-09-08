@@ -6,7 +6,7 @@
         <button type="button" class="na-link-btn" @click="emit('close')">Close</button>
       </header>
       <p class="hint">
-        Paste your day list (one line per item or date / name / action blocks). Consultation / 99415 items are skipped. New items append under your current queue and stay until you Clear, delete, complete, or sign them (signed/completed links drop off after 24 hours). Choose the tenant and program once for the whole batch.
+        Paste your day list (one line per item or date / name / action blocks). 99415 / supervision items are skipped. H0031 “Consultation” notes are kept (additional assessment, not intake). New items append under your current queue — use Undo on the work queue if you picked the wrong tenant. Choose the tenant and program once for the whole batch.
       </p>
 
       <label class="na-label">
@@ -36,7 +36,7 @@
       </label>
 
       <p v-if="preview.skipped.length" class="muted">
-        Will skip {{ preview.skipped.length }} consultation item{{ preview.skipped.length === 1 ? '' : 's' }}.
+        Will skip {{ preview.skipped.length }} consultation / 99415 item{{ preview.skipped.length === 1 ? '' : 's' }}.
       </p>
       <p v-if="preview.items.length" class="muted">
         Will queue {{ preview.items.length }} item{{ preview.items.length === 1 ? '' : 's' }}
@@ -53,7 +53,7 @@
         v-else-if="pasteText.trim() && !preview.items.length && preview.skipped.length"
         class="error"
       >
-        Every parsed line was Consultation / 99415 (skipped). Add at least one progress, intake, or treatment-plan item.
+        Every parsed line was 99415 / supervision (skipped). Add at least one progress, H0031, intake, or treatment-plan item.
       </p>
       <p v-if="error" class="error">{{ error }}</p>
 

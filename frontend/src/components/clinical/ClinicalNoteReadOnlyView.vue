@@ -472,29 +472,63 @@ const mseLines = computed(() => {
   if (mse.allNormal) {
     return [{ domain: 'All domains', status: 'Normal', statusKey: 'normal', detail: '' }];
   }
-  const lines = MSE_DOMAINS.map((domain) => {
-    const val = mse.domains?.[domain] || { status: 'normal', detail: '' };
-    const statusKey = String(val.status || 'normal').toLowerCase();
-    let status = 'Normal';
-    if (statusKey === 'not_assessed') status = 'Not assessed';
-    else if (statusKey === 'abnormal') status = 'Abnormal';
+  const domainKeys = Object.keys(mse.domains || {}).length
+    ? [...new Set([...MSE_DOMAINS, ...Object.keys(mse.domains || {})])]
+    : MSE_DOMAINS;
+  const lines = domainKeys.map((domain) => {
+    const val = mse.domains?.[domain] || { status: '', option: '', detail: '' };
+    const option = String(val.option || '').trim();
+    const statusRaw = String(val.status || '').toLowerCase();
+    let status = option;
+    let statusKey = 'selected';
+    if (!status) {
+      if (statusRaw === 'not_assessed') {
+        status = 'Not assessed';
+        statusKey = 'not_assessed';
+      } else if (statusRaw === 'abnormal') {
+        status = 'Abnormal';
+        statusKey = 'abnormal';
+      } else if (statusRaw === 'normal') {
+        status = 'Normal';
+        statusKey = 'normal';
+      } else if (statusRaw && statusRaw !== 'selected') {
+        status = String(val.status);
+        statusKey = 'selected';
+      } else {
+        status = '—';
+        statusKey = 'empty';
+      }
+    }
     return {
       domain,
       status,
       statusKey,
       detail: String(val.detail || '').trim()
     };
-  });
+  }).filter((l) => l.statusKey !== 'empty');
   if (props.compact) {
-    const abnormal = lines.filter((l) => l.statusKey === 'abnormal' || l.detail);
-    return abnormal.length ? abnormal : lines.slice(0, 4);
+    const notable = lines.filter((l) => l.statusKey === 'abnormal' || l.detail);
+    return notable.length ? notable : lines.slice(0, 6);
   }
   return lines;
 });
 
-const riskAreas = computed(() =>
-  (structuredChart.value?.riskAssessment?.areas || []).filter((a) => String(a?.name || '').trim())
-);
+const riskAreas = computed(() => {
+  const risk = structuredChart.value?.riskAssessment;
+  if (!risk) return [];
+  if (risk.patientDeniesAll) return [];
+  const items = risk.items && typeof risk.items === 'object' ? risk.items : null;
+  if (items && Object.keys(items).length) {
+    return Object.entries(items)
+      .map(([name, cell]) => ({
+        name,
+        level: String(cell?.option || cell?.status || '').trim(),
+        details: String(cell?.detail || '').trim()
+      }))
+      .filter((a) => a.level);
+  }
+  return (risk.areas || []).filter((a) => String(a?.name || '').trim());
+});
 
 const medItems = computed(() =>
   (structuredChart.value?.medications?.items || []).filter((m) => String(m?.name || '').trim())

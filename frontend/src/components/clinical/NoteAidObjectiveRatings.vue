@@ -46,6 +46,7 @@
         v-for="obj in goal.objectives || []"
         :key="obj.id"
         class="na-obj-card"
+        :data-objective-id="obj.id"
         :class="{ 'na-obj-card--collapsed': isObjectiveCollapsed(obj.id) }"
       >
         <div v-if="isObjectiveCollapsed(obj.id)" class="na-obj-collapsed-line">
@@ -109,7 +110,7 @@
 </template>
 
 <script setup>
-import { computed, reactive, ref, watch } from 'vue';
+import { computed, nextTick, reactive, ref, watch } from 'vue';
 import {
   computeProgressLabel,
   kioskPromptForObjective,
@@ -314,6 +315,7 @@ function rate(obj, goal, n) {
   };
   emitAll();
   collapseObjective(obj.id);
+  bounceToNextObjective(obj.id);
 }
 
 function setDisposition(obj, goal, disposition) {
@@ -333,6 +335,36 @@ function setDisposition(obj, goal, disposition) {
   };
   emitAll();
   collapseObjective(obj.id);
+  bounceToNextObjective(obj.id);
+}
+
+function flatObjectiveIds() {
+  const ids = [];
+  for (const goal of props.goals || []) {
+    for (const obj of goal.objectives || []) ids.push(obj.id);
+  }
+  return ids;
+}
+
+function nextUnratedObjectiveId(afterId) {
+  const ids = flatObjectiveIds();
+  const start = Math.max(0, ids.findIndex((id) => String(id) === String(afterId)) + 1);
+  for (let i = start; i < ids.length; i += 1) {
+    if (!entry(ids[i])) return ids[i];
+  }
+  return null;
+}
+
+function bounceToNextObjective(afterId) {
+  const nextId = nextUnratedObjectiveId(afterId);
+  if (nextId == null) return;
+  nextTick(() => {
+    const el = document.querySelector(`[data-objective-id="${CSS.escape(String(nextId))}"]`);
+    if (!el) return;
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    el.classList.add('na-obj-card--focus');
+    window.setTimeout(() => el.classList.remove('na-obj-card--focus'), 900);
+  });
 }
 
 watch(
@@ -507,6 +539,11 @@ defineExpose({
   padding: 10px 12px;
   margin-bottom: 8px;
   background: #f8fafc;
+  transition: box-shadow 0.25s ease, border-color 0.25s ease;
+}
+.na-obj-card--focus {
+  border-color: #14b8a6;
+  box-shadow: 0 0 0 3px rgba(20, 184, 166, 0.25);
 }
 .na-obj-text {
   display: flex;

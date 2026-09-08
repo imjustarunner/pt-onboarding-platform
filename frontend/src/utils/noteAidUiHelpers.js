@@ -416,11 +416,17 @@ export function formatFullNoteCopy({
   return lines.join('\n').trim();
 }
 
-function mseStatusLabel(status) {
-  const s = String(status || 'normal').toLowerCase();
+function mseStatusLabel(status, option = '') {
+  const opt = String(option || '').trim();
+  if (opt) return opt;
+  const s = String(status || '').toLowerCase();
   if (s === 'not_assessed') return 'Not assessed';
   if (s === 'abnormal') return 'Abnormal';
-  return 'Normal';
+  if (s === 'normal') return 'Normal';
+  if (s === 'selected' || !s) return opt || '—';
+  // Rich option stored directly in status
+  if (s && s !== 'selected') return String(status);
+  return '—';
 }
 
 /** Read-only MSE lines for chart copy / display. */
@@ -431,10 +437,15 @@ export function formatMentalStatusExamLines(mse, { domains = [] } = {}) {
   const list = domains.length ? domains : Object.keys(mse.domains || {});
   const lines = [];
   for (const domain of list) {
-    const val = mse.domains?.[domain] || { status: 'normal', detail: '' };
-    const label = mseStatusLabel(val.status);
+    const val = mse.domains?.[domain] || { status: '', option: '', detail: '' };
+    const label = mseStatusLabel(val.status, val.option);
     const detail = String(val.detail || '').trim();
-    lines.push(detail && val.status === 'abnormal' ? `${domain}: ${label} — ${detail}` : `${domain}: ${label}`);
+    if (!label || label === '—') {
+      lines.push(`${domain}: (not selected)`);
+      continue;
+    }
+    const isLegacyAbnormal = String(val.status || '').toLowerCase() === 'abnormal';
+    lines.push(detail && (isLegacyAbnormal || val.option) ? `${domain}: ${label} — ${detail}` : `${domain}: ${label}`);
   }
   return lines;
 }
@@ -442,6 +453,20 @@ export function formatMentalStatusExamLines(mse, { domains = [] } = {}) {
 export function formatRiskAssessmentText(risk) {
   if (!risk) return '';
   if (risk.patientDeniesAll) return 'Patient denies all areas of risk.';
+  const items = risk.items && typeof risk.items === 'object' ? risk.items : null;
+  if (items && Object.keys(items).length) {
+    const bits = Object.entries(items)
+      .map(([name, cell]) => {
+        const label = mseStatusLabel(cell?.status, cell?.option);
+        const detail = String(cell?.detail || '').trim();
+        if (!label || label === '—') return null;
+        return detail ? `${name}: ${label} — ${detail}` : `${name}: ${label}`;
+      })
+      .filter(Boolean);
+    const notes = String(risk.notes || '').trim();
+    if (notes) bits.push(`Notes: ${notes}`);
+    return bits.length ? bits.join('\n') : 'Risk areas documented.';
+  }
   const areas = Array.isArray(risk.areas) ? risk.areas : [];
   const bits = areas
     .filter((a) => String(a?.name || '').trim())

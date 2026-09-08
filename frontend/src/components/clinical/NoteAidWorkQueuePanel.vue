@@ -81,6 +81,11 @@
       </button>
     </div>
 
+    <div v-if="canUndoImport" class="na-wq-undo" role="status">
+      <span>Last ToDo import added {{ undoImportCount }} item{{ undoImportCount === 1 ? '' : 's' }}.</span>
+      <button type="button" class="na-wq-undo-btn" @click="$emit('undo-import')">Undo</button>
+    </div>
+
     <div v-if="!visibleItems.length" class="na-wq-empty">
       Paste a ToDo list or open pending Notes. Signed notes and copy-only Done notes live in the left library.
     </div>
@@ -124,10 +129,10 @@
           </div>
         </button>
         <button
-          v-if="canDeleteDraft(item)"
+          v-if="canRemoveQueueItem(item)"
           type="button"
           class="na-wq-delete"
-          title="Delete draft and return this ToDo to not started"
+          :title="removeQueueTitle(item)"
           @click.stop="$emit('delete', item)"
         >
           ×
@@ -162,7 +167,9 @@ const props = defineProps({
   activeId: { type: [String, null], default: null },
   collapsed: { type: Boolean, default: false },
   sortBy: { type: String, default: '' },
-  sortDir: { type: String, default: '' }
+  sortDir: { type: String, default: '' },
+  canUndoImport: { type: Boolean, default: false },
+  undoImportCount: { type: Number, default: 0 }
 });
 
 const emit = defineEmits([
@@ -172,6 +179,7 @@ const emit = defineEmits([
   'clear',
   'select',
   'delete',
+  'undo-import',
   'update:collapsed',
   'update:sortBy',
   'update:sortDir'
@@ -399,9 +407,17 @@ function connectionStyle(item) {
   return { color: m.color, background: m.bg, borderColor: m.border };
 }
 
-function canDeleteDraft(item) {
+function canRemoveQueueItem(item) {
   const st = docStatus(item);
-  return st === DOC_STATUS.STARTED || !!item.draftId;
+  return st === DOC_STATUS.STARTED || st === DOC_STATUS.NOT_STARTED || !!item.draftId;
+}
+
+function removeQueueTitle(item) {
+  const st = docStatus(item);
+  if (st === DOC_STATUS.NOT_STARTED && !item.draftId) {
+    return 'Remove this ToDo from the work queue';
+  }
+  return 'Delete draft and return this ToDo to not started';
 }
 
 function typeLabel(item) {
@@ -572,6 +588,34 @@ function typeLabel(item) {
 .na-wq-primary:disabled, .na-wq-outline:disabled, .na-wq-link:disabled {
   opacity: 0.45;
   cursor: not-allowed;
+}
+.na-wq-undo {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: -4px 0 12px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: #fff7ed;
+  border: 1px solid #fdba74;
+  color: #9a3412;
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+.na-wq-undo-btn {
+  border: 1px solid #ea580c;
+  background: #fff;
+  color: #c2410c;
+  border-radius: 8px;
+  font-weight: 750;
+  font-size: 0.76rem;
+  padding: 4px 10px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.na-wq-undo-btn:hover {
+  background: #ffedd5;
 }
 .na-wq-empty {
   color: #64748b;

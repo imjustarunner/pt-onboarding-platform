@@ -124,7 +124,7 @@ describe('clinicalNoteLibrary search/group', () => {
 });
 
 describe('parseNoteAidTodoList', () => {
-  it('skips consultations and keeps progress/intake/plan', () => {
+  it('skips 99415 consultations and keeps progress/intake/plan', () => {
     const text = `4/9/26
 She Bar
 Create a Progress Note for Therapy Session (90837) on 4/9 at 12 PM.
@@ -144,6 +144,21 @@ Create a new Treatment Plan since the most recent Treatment Plan is more than 90
     expect(skipped.length).toBe(1);
     expect(items.length).toBe(3);
     expect(items.map((i) => i.noteKind).sort()).toEqual(['intake', 'progress', 'treatment_plan'].sort());
+  });
+
+  it('keeps H0031 Consultation notes as progress (additional assessment)', () => {
+    const text = `8/23/26
+Hollyn Pinar
+Create a Consultation Note for Consultation (H0031) on 8/23 at 7 PM.
+
+8/23/26
+Hollyn Pinar
+Create a progress Note for (H0031) on 8/23 at 7 PM.`;
+    const { items, skipped } = parseNoteAidTodoList(text);
+    expect(skipped.length).toBe(0);
+    expect(items.length).toBe(2);
+    expect(items.every((i) => i.serviceCode === 'H0031')).toBe(true);
+    expect(items.every((i) => i.noteKind === 'progress')).toBe(true);
   });
 
   it('parses single-line day list rows', () => {

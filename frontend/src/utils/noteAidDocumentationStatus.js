@@ -234,11 +234,29 @@ export function deriveDraftDocStatus(draft) {
 /**
  * Map legacy work-queue status → documentation status.
  * Supports new statuses and old pending/active/done.
+ * A linked draft means the clinician has opened the item → treat as started.
  */
 export function deriveWorkQueueDocStatus(item) {
   if (!item) return DOC_STATUS.NOT_STARTED;
-  if (item.docStatus) return normalizeDocStatus(item.docStatus);
-  return normalizeDocStatus(item.status);
+  const rank = {
+    [DOC_STATUS.NOT_STARTED]: 0,
+    [DOC_STATUS.STARTED]: 1,
+    [DOC_STATUS.COMPLETED]: 2,
+    [DOC_STATUS.SIGNED]: 3
+  };
+  const fromDoc = item.docStatus != null && item.docStatus !== ''
+    ? normalizeDocStatus(item.docStatus)
+    : null;
+  const fromStatus = item.status != null && item.status !== ''
+    ? normalizeDocStatus(item.status)
+    : null;
+  let base = fromDoc || fromStatus || DOC_STATUS.NOT_STARTED;
+  if (fromDoc && fromStatus && (rank[fromStatus] || 0) > (rank[fromDoc] || 0)) {
+    base = fromStatus;
+  }
+  if (base === DOC_STATUS.SIGNED || base === DOC_STATUS.COMPLETED) return base;
+  if (item.draftId) return DOC_STATUS.STARTED;
+  return base;
 }
 
 /** Filter work-queue items for the right smart queue. */
