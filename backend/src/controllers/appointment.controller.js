@@ -56,7 +56,8 @@ export const listAppointments = async (req, res, next) => {
       agencyId,
       windowStart: `${windowStart} 00:00:00`,
       windowEnd: end,
-      providerUserId: req.query.providerId ? Number(req.query.providerId) : null
+      providerUserId: req.query.providerId ? Number(req.query.providerId) : null,
+      clientId: req.query.clientId ? Number(req.query.clientId) : null
     });
     res.json({ ok: true, appointments: rows });
   } catch (e) {
@@ -224,6 +225,50 @@ export const settleAppointmentHandler = async (req, res, next) => {
     res.json({ ok: true, appointment: bundle });
   } catch (e) {
     if (e?.status) return res.status(e.status).json({ error: { message: e.message } });
+    next(e);
+  }
+};
+
+export const previewAppointmentChangeHandler = async (req, res, next) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    const existing = await Appointment.findById(id);
+    if (!existing) return res.status(404).json({ error: { message: 'Appointment not found' } });
+    if (!(await assertAgencyAccess(req, existing.agencyId))) {
+      return res.status(403).json({ error: { message: 'Access denied' } });
+    }
+    const {
+      previewAppointmentChange
+    } = await import('../services/appointmentChange.service.js');
+    const preview = await previewAppointmentChange(id, req.body || {}, {
+      actorUserId: req.user?.id || null,
+      actorRole: req.user?.role || 'staff'
+    });
+    res.json({ ok: true, preview });
+  } catch (e) {
+    if (e?.status) return res.status(e.status).json({ error: { message: e.message } });
+    next(e);
+  }
+};
+
+export const completeAppointmentChangeHandler = async (req, res, next) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    const existing = await Appointment.findById(id);
+    if (!existing) return res.status(404).json({ error: { message: 'Appointment not found' } });
+    if (!(await assertAgencyAccess(req, existing.agencyId))) {
+      return res.status(403).json({ error: { message: 'Access denied' } });
+    }
+    const {
+      completeAppointmentChange
+    } = await import('../services/appointmentChange.service.js');
+    const result = await completeAppointmentChange(id, req.body || {}, {
+      actorUserId: req.user?.id || null,
+      actorRole: req.user?.role || 'staff'
+    });
+    res.json(result);
+  } catch (e) {
+    if (e?.status) return res.status(e.status).json({ error: { message: e.message, code: e.code } });
     next(e);
   }
 };

@@ -189,3 +189,46 @@ export function buildContactReminderPrefResultHtml(opts = {}) {
   </div>
 </body></html>`;
 }
+
+/**
+ * HTML body for "New client assigned" provider emails.
+ * Tenant header/footer chrome is applied by unifiedEmail finalizeOutboundContent.
+ */
+export function buildClientAssignedEmailHtml(opts = {}) {
+  const agencyName = String(opts.agencyName || 'Care team').trim();
+  const clientName = String(opts.clientName || 'a client').trim();
+  const serviceDay = String(opts.serviceDay || '').trim();
+  const appUrl = String(opts.appUrl || '').trim();
+  const primary = parsePrimaryColor(opts.colorPalette);
+
+  const dayLine = serviceDay
+    ? `<p style="margin:0 0 18px;font-size:15px;line-height:1.55;color:#334155;">Service day: <strong>${escapeHtml(serviceDay)}</strong></p>`
+    : '';
+
+  const cta = appUrl
+    ? `<p style="margin:0 0 8px;">
+        <a href="${escapeHtml(appUrl)}" style="display:inline-block;background:${escapeHtml(primary)};color:#ffffff;text-decoration:none;font-weight:700;font-size:15px;padding:12px 18px;border-radius:10px;">
+          Open client list
+        </a>
+      </p>`
+    : '';
+
+  return `
+<table role="presentation" width="100%" cellspacing="0" cellpadding="0">
+  <tr><td style="padding:28px 28px 8px;">
+    <p style="margin:0 0 10px;font-size:18px;font-weight:700;color:${escapeHtml(primary)};">Hello,</p>
+    <h1 style="margin:0 0 14px;font-size:24px;line-height:1.25;font-weight:800;color:#0f172a;">New client assigned</h1>
+    <p style="margin:0 0 14px;font-size:15px;line-height:1.55;color:#334155;">
+      <strong>${escapeHtml(clientName)}</strong> was assigned to you at <strong>${escapeHtml(agencyName)}</strong>.
+    </p>
+    ${dayLine}
+    <p style="margin:0 0 22px;font-size:15px;line-height:1.55;color:#475569;">
+      Please review their record and complete any required onboarding steps in the portal.
+    </p>
+    ${cta}
+  </td></tr>
+  <tr><td style="padding:8px 28px 28px;">
+    <p style="margin:0;font-size:15px;color:${escapeHtml(primary)};">Thank you,<br/><strong>The ${escapeHtml(agencyName)} Team</strong></p>
+  </td></tr>
+</table>`;
+}

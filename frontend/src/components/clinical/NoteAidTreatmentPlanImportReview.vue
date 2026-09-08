@@ -141,7 +141,13 @@
             <div v-for="(o, oi) in g.objectives" :key="`o-${gi}-${oi}`" class="na-import-obj">
               <label class="na-label">
                 Objective {{ gi + 1 }}.{{ oi + 1 }}
-                <textarea v-model="o.objectiveText" class="na-textarea na-textarea--objective" rows="4" placeholder="Objective" />
+                <textarea
+                  v-model="o.objectiveText"
+                  class="na-textarea na-textarea--objective"
+                  rows="4"
+                  placeholder="Objective"
+                  @blur="reparseObjectiveScales(o)"
+                />
               </label>
 
               <div class="na-import-scale">
@@ -264,7 +270,9 @@ import {
   completionDateFromDurationMonths,
   durationLabel,
   formatDurationPreview,
-  isObjectiveScaleValid
+  isObjectiveScaleValid,
+  parseScalePair,
+  inferScaleDirection
 } from '../../utils/treatmentPlanDuration.js';
 
 const props = defineProps({
@@ -325,6 +333,22 @@ function onScaleEdit(o) {
   }
 }
 
+function reparseObjectiveScales(o) {
+  if (!o) return;
+  if (isObjectiveScaleValid(o.scaleCurrent, o.scaleTarget)) {
+    onScaleEdit(o);
+    return;
+  }
+  const parsed = parseScalePair(o.objectiveText || '');
+  if (parsed.scaleCurrent != null) o.scaleCurrent = parsed.scaleCurrent;
+  if (parsed.scaleTarget != null) o.scaleTarget = parsed.scaleTarget;
+  if (isObjectiveScaleValid(o.scaleCurrent, o.scaleTarget)) {
+    o.scaleDirection = inferScaleDirection(o.scaleCurrent, o.scaleTarget, o.scaleDirection);
+    o.measurementMethod = DEFAULT_MEASUREMENT_METHOD;
+  }
+  onScaleEdit(o);
+}
+
 function syncGoalCompletion(goal) {
   const months = Number(goal.durationMonths);
   goal.projectedCompletion = completionDateFromDurationMonths(months) || null;
@@ -349,21 +373,31 @@ function mapGoal(g) {
     parsedDateHint: g.parsedDateHint || null,
     projectedCompletion:
       g.projectedCompletion || g.projected_completion || completionDateFromDurationMonths(months) || null,
-    objectives: (g.objectives || []).map((o) => ({
-      objectiveText: o.objectiveText || o.objective_text || '',
-      scaleCurrent: o.scaleCurrent ?? o.scale_current ?? null,
-      scaleTarget: o.scaleTarget ?? o.scale_target ?? null,
-      scaleDirection: o.scaleDirection || o.scale_direction || null,
-      measurementMethod: o.measurementMethod || o.measurement_method || DEFAULT_MEASUREMENT_METHOD,
-      scaleNeedsRewrite: o.scaleNeedsRewrite ?? !isObjectiveScaleValid(
-        o.scaleCurrent ?? o.scale_current,
-        o.scaleTarget ?? o.scale_target
-      ),
-      pendingSuggestion: null,
-      showParamEditor: false,
-      paramInstructions: '',
-      lastRewriteNote: ''
-    }))
+    objectives: (g.objectives || []).map((o) => {
+      const text = o.objectiveText || o.objective_text || '';
+      let scaleCurrent = o.scaleCurrent ?? o.scale_current ?? null;
+      let scaleTarget = o.scaleTarget ?? o.scale_target ?? null;
+      if (!isObjectiveScaleValid(scaleCurrent, scaleTarget) && text) {
+        const parsed = parseScalePair(text);
+        if (parsed.scaleCurrent != null) scaleCurrent = parsed.scaleCurrent;
+        if (parsed.scaleTarget != null) scaleTarget = parsed.scaleTarget;
+      }
+      const scaleDirection = o.scaleDirection
+        || o.scale_direction
+        || inferScaleDirection(scaleCurrent, scaleTarget);
+      return {
+        objectiveText: text,
+        scaleCurrent,
+        scaleTarget,
+        scaleDirection,
+        measurementMethod: o.measurementMethod || o.measurement_method || DEFAULT_MEASUREMENT_METHOD,
+        scaleNeedsRewrite: !isObjectiveScaleValid(scaleCurrent, scaleTarget),
+        pendingSuggestion: null,
+        showParamEditor: false,
+        paramInstructions: '',
+        lastRewriteNote: ''
+      };
+    })
   };
 }
 

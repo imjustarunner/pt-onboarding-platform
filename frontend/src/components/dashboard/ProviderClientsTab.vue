@@ -12,7 +12,7 @@
       >
         <span class="pct-cat-icon" aria-hidden="true" v-html="sectionIcons[sec.iconKey]" />
         <span class="pct-cat-label">{{ sec.label }}</span>
-        <span v-if="sec.badge" class="pct-cat-badge">{{ sec.badge }}</span>
+        <span v-if="Number(sec.badge) > 0 || sec.id === 'all' || sec.id === 'school' || sec.id === 'office' || sec.id === 'new'" class="pct-cat-badge">{{ sec.badge }}</span>
       </button>
     </nav>
 
@@ -196,16 +196,41 @@
               </tr>
             </thead>
             <tbody>
-              <tr v-for="c in sortedCombinedClientsList" :key="c.id" :class="{ 'is-terminated': isTerminatedClient(c) }">
+              <tr
+                v-for="c in sortedCombinedClientsList"
+                :key="c.id"
+                :class="{ 'is-terminated': isTerminatedClient(c) }"
+                :style="c.agencyPrimaryColor ? { boxShadow: `inset 3px 0 0 ${c.agencyPrimaryColor}`, background: `${c.agencyPrimaryColor}12` } : null"
+              >
                 <td>
-                  <button
-                    type="button"
-                    class="pct-client-link"
-                    :title="officeHoverTitle(c)"
-                    @click="openClientProfile(c, sortedCombinedClientsList)"
-                  >
-                    {{ formatOfficeClientLabel(c) }}
-                  </button>
+                  <div class="pct-client-cell">
+                    <div v-if="(c.agencyBrands || []).length" class="pct-agency-logos" aria-hidden="true">
+                      <img
+                        v-for="b in c.agencyBrands"
+                        :key="`logo-${c.id}-${b.agencyId}`"
+                        v-show="b.logoUrl"
+                        class="pct-agency-logo"
+                        :src="b.logoUrl"
+                        :alt="b.agencyName || ''"
+                        :title="b.agencyName || ''"
+                      />
+                      <span
+                        v-for="b in (c.agencyBrands || []).filter((x) => !x.logoUrl)"
+                        :key="`dot-${c.id}-${b.agencyId}`"
+                        class="pct-agency-dot"
+                        :style="{ background: b.primaryColor }"
+                        :title="b.agencyName || ''"
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      class="pct-client-link"
+                      :title="officeHoverTitle(c)"
+                      @click="openClientProfile(c, sortedCombinedClientsList)"
+                    >
+                      {{ formatOfficeClientLabel(c) }}
+                    </button>
+                  </div>
                 </td>
                 <td v-if="allColumnPrefs.setting">{{ c.setting || '—' }}</td>
                 <td v-if="allColumnPrefs.school">{{ c.schoolName || '—' }}</td>
@@ -499,7 +524,7 @@ function normalizeSection(raw) {
   if (s === 'new-clients' || s === 'pending') return 'new';
   if (s === 'client-exchange') return 'exchange';
   if (VALID_SECTIONS.has(s)) return s;
-  return props.profileEmbed ? 'all' : 'school';
+  return 'all';
 }
 
 const activeSection = ref(
@@ -507,7 +532,7 @@ const activeSection = ref(
     props.initialSection ||
       route.query.clients ||
       route.query.clientsSection ||
-      (props.profileEmbed ? 'all' : 'school')
+      'all'
   )
 );
 
@@ -523,6 +548,74 @@ const agencyId = computed(() => {
   const a = agencyStore.currentAgency?.value || agencyStore.currentAgency;
   return a?.id || null;
 });
+
+/** Membership agencies for cross-tenant caseload (exclude nested schools/programs when possible). */
+const membershipAgencies = computed(() => {
+  const raw = Array.isArray(agencyStore.userAgencies) ? agencyStore.userAgencies : [];
+  const list = raw.length
+    ? raw
+    : (Array.isArray(agencyStore.agencies) ? agencyStore.agencies : []);
+  return (list || [])
+    .map((a) => {
+      const id = Number(a?.id || 0);
+      if (!id) return null;
+      const type = String(a?.organization_type || a?.organizationType || 'agency').toLowerCase();
+      if (type && type !== 'agency' && type !== 'tenant') return null;
+      return a;
+    })
+    .filter(Boolean);
+});
+
+function parseAgencyPrimary(agency) {
+  try {
+    const raw = agency?.color_palette || agency?.colorPalette || agency?.primary_color || '';
+    if (typeof raw === 'string' && raw.startsWith('#')) return raw;
+    const p = typeof raw === 'string' ? JSON.parse(raw || '{}') : (raw || {});
+    const c = String(p.primary || p.primaryColor || '').trim();
+    if (/^#[0-9a-fA-F]{3,8}$/.test(c)) return c;
+  } catch {
+    /* ignore */
+  }
+  return '#2d6a4f';
+}
+
+function agencyLogoUrl(agency) {
+  const path = agency?.logo_url || agency?.logoUrl || agency?.logo_path || agency?.logoPath || '';
+  if (!path) return '';
+  if (String(path).startsWith('http') || String(path).startsWith('/assets/')) return String(path);
+  if (String(path).startsWith('/uploads/') || String(path).startsWith('/')) return String(path);
+  return `/uploads/${path}`;
+}
+
+function agencyBrandMeta(agencyIdVal) {
+  const id = Number(agencyIdVal || 0);
+  const hit = (membershipAgencies.value || []).find((a) => Number(a.id) === id)
+    || (Number(agencyStore.currentAgency?.id) === id ? agencyStore.currentAgency : null);
+  if (!hit) return { agencyId: id, agencyName: '', primaryColor: '#2d6a4f', logoUrl: '' };
+  return {
+    agencyId: id,
+    agencyName: String(hit.name || '').trim(),
+    primaryColor: parseAgencyPrimary(hit),
+    logoUrl: agencyLogoUrl(hit)
+  };
+}
+
+function decorateClientAgency(row, agencyIdVal) {
+  const brand = agencyBrandMeta(agencyIdVal || row?.agency_id);
+  const existing = Array.isArray(row?.agencyBrands) ? row.agencyBrands : [];
+  const brands = [...existing];
+  if (brand.agencyId && !brands.some((b) => Number(b.agencyId) === brand.agencyId)) {
+    brands.push(brand);
+  }
+  return {
+    ...row,
+    agency_id: Number(agencyIdVal || row?.agency_id || 0) || row?.agency_id,
+    agencyBrands: brands,
+    agencyPrimaryColor: brands[0]?.primaryColor || brand.primaryColor,
+    agencyLogoUrl: brands[0]?.logoUrl || brand.logoUrl,
+    agencyName: brands.map((b) => b.agencyName).filter(Boolean).join(' · ') || brand.agencyName
+  };
+}
 
 const schools = ref([]);
 const schoolAffiliatedClientIds = ref(new Set());
@@ -549,7 +642,7 @@ const allClients = ref([]);
 const skillBuildersOnlyFilter = ref(false);
 const error = ref('');
 const sessionTotalsByClientId = ref(null);
-const showTerminated = ref(true);
+const showTerminated = ref(false);
 const pendingClients = ref([]);
 const pendingError = ref('');
 const MIN_PENDING_DATE = '2026-02-01';
@@ -899,20 +992,31 @@ const sectionIcons = {
 };
 
 const primarySections = computed(() => {
-  const list = [{ id: 'all', label: 'All Clients', iconKey: 'all', badge: 0 }];
-  list.push({ id: 'school', label: 'School Clients', iconKey: 'school', badge: 0 });
-  list.push({ id: 'office', label: 'Office Clients', iconKey: 'office', badge: 0 });
-  list.push({ id: 'new', label: 'New Clients', iconKey: 'new', badge: newClientsCount.value || 0 });
-  list.push({ id: 'exchange', label: 'Client Exchange', iconKey: 'exchange', badge: 0 });
-  return list;
+  const schoolCount = new Set([
+    ...(currentSchoolBillingClients.value || []).map((c) => Number(c?.id)).filter(Boolean),
+    ...(filterActiveAssignedClients(allClients.value) || []).map((c) => Number(c?.id)).filter(Boolean)
+  ]).size;
+  return [
+    { id: 'all', label: 'All Clients', iconKey: 'all', badge: sortedCombinedClientsList.value.length || 0 },
+    { id: 'school', label: 'School Clients', iconKey: 'school', badge: schoolCount },
+    { id: 'office', label: 'Office Clients', iconKey: 'office', badge: currentOfficeClients.value.length || 0 },
+    { id: 'new', label: 'New Clients', iconKey: 'new', badge: newClientsCount.value || 0 },
+    { id: 'exchange', label: 'Client Exchange', iconKey: 'exchange', badge: 0 }
+  ];
 });
 
 const allSections = computed(() => {
   if (props.profileEmbed) {
-    const list = [{ id: 'all', label: 'All Clients', iconKey: 'all', badge: 0 }];
-    list.push({ id: 'school', label: 'In School', iconKey: 'school', badge: 0 });
-    list.push({ id: 'office', label: 'In Office', iconKey: 'office', badge: 0 });
-    return list;
+    return [
+      { id: 'all', label: 'All Clients', iconKey: 'all', badge: sortedCombinedClientsList.value.length || 0 },
+      {
+        id: 'school',
+        label: 'In School',
+        iconKey: 'school',
+        badge: currentSchoolBillingClients.value.length || 0
+      },
+      { id: 'office', label: 'In Office', iconKey: 'office', badge: currentOfficeClients.value.length || 0 }
+    ];
   }
   return [
     ...primarySections.value,
@@ -1038,13 +1142,15 @@ function onSchoolRosterEditClient(payload) {
 async function openClientProfile(client, navList = null) {
   const id = Number(client?.id || client?.client_id || 0);
   if (!id) return;
-  const rosterSnap = client && typeof client === 'object' ? client : null;
+  const rosterSnap = client && typeof client === 'object' ? { ...client } : null;
   if (Array.isArray(navList)) {
     profileNavClients.value = navList;
   } else if (!profileNavClients.value.some((c) => Number(c?.id) === id)) {
     profileNavClients.value = client?.id ? [client] : [{ id }];
   }
-  profileLoading.value = true;
+  // Show the roster row immediately so the chart chrome paints without a blocking overlay.
+  profileClient.value = rosterSnap ? { ...rosterSnap, id } : { id };
+  profileLoading.value = false;
   try {
     const r = await api.get(`/clients/${id}`, { skipGlobalLoading: true });
     const full = r.data ? { ...r.data } : null;
@@ -1056,12 +1162,11 @@ async function openClientProfile(client, navList = null) {
       full.provider_name = full.provider_name || rosterSnap.provider_name;
       full.school_year = full.school_year || rosterSnap.school_year;
       if (full.grade == null) full.grade = rosterSnap.grade;
+      if (!full.agencyBrands && rosterSnap.agencyBrands) full.agencyBrands = rosterSnap.agencyBrands;
     }
-    profileClient.value = full;
+    if (full) profileClient.value = full;
   } catch (e) {
     window.alert(e.response?.data?.error?.message || e.message || 'Failed to load client');
-  } finally {
-    profileLoading.value = false;
   }
 }
 
@@ -1186,7 +1291,7 @@ const loadOfficeAcceptance = async () => {
 };
 
 const loadOfficeClients = async () => {
-  if (!agencyId.value || !currentUserId.value) {
+  if (!currentUserId.value) {
     officeClients.value = [];
     assignedProviderClients.value = [];
     billingPosByClientId.value = {};
@@ -1196,19 +1301,48 @@ const loadOfficeClients = async () => {
   officeError.value = '';
   try {
     await refreshSchoolAffiliatedClientIds();
-    const [r] = await Promise.all([
-      api.get('/clients', {
-        params: {
-          agency_id: agencyId.value,
-          provider_id: currentUserId.value,
-        },
-        skipGlobalLoading: true,
-      }),
+    const agencyIds = (membershipAgencies.value || [])
+      .map((a) => Number(a.id))
+      .filter((id) => id > 0);
+    const idsToFetch = agencyIds.length
+      ? agencyIds
+      : (agencyId.value ? [Number(agencyId.value)] : []);
+    if (!idsToFetch.length) {
+      assignedProviderClients.value = [];
+      officeClients.value = [];
+      return;
+    }
+    const [responses] = await Promise.all([
+      Promise.all(
+        idsToFetch.map((aid) =>
+          api
+            .get('/clients', {
+              params: { agency_id: aid, provider_id: currentUserId.value },
+              skipGlobalLoading: true
+            })
+            .then((r) => ({ aid, rows: Array.isArray(r.data) ? r.data : r.data?.items || [] }))
+            .catch(() => ({ aid, rows: [] }))
+        )
+      ),
       loadOfficeAcceptance(),
-      loadBillingPosFlags(),
+      loadBillingPosFlags()
     ]);
-    const rows = Array.isArray(r.data) ? r.data : r.data?.items || [];
-    assignedProviderClients.value = rows.filter((c) => String(c?.status || '').toUpperCase() !== 'ARCHIVED');
+    const byId = new Map();
+    for (const { aid, rows } of responses || []) {
+      for (const raw of rows || []) {
+        if (String(raw?.status || '').toUpperCase() === 'ARCHIVED') continue;
+        const id = Number(raw?.id || 0);
+        if (!id) continue;
+        const decorated = decorateClientAgency(raw, aid);
+        const existing = byId.get(id);
+        if (existing) {
+          byId.set(id, decorateClientAgency(existing, aid));
+        } else {
+          byId.set(id, decorated);
+        }
+      }
+    }
+    assignedProviderClients.value = Array.from(byId.values());
     officeClients.value = assignedProviderClients.value.filter((c) => isPosOfficeClient(c));
   } catch (e) {
     officeClients.value = [];
@@ -1814,6 +1948,31 @@ watch(skillBuildersOnlyFilter, async () => {
 .muted { color: var(--text-secondary); }
 .office-clients-table-wrap { overflow-x: auto; }
 .office-clients-table tr.is-terminated td { color: #9a1f14; opacity: 0.9; }
+.pct-client-cell {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.pct-agency-logos {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  flex-shrink: 0;
+}
+.pct-agency-logo {
+  width: 18px;
+  height: 18px;
+  border-radius: 4px;
+  object-fit: contain;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+}
+.pct-agency-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  display: inline-block;
+}
 .pct-client-link {
   appearance: none;
   background: none;

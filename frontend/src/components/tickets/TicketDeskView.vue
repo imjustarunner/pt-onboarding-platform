@@ -17,9 +17,10 @@
           v-if="!useMineForced"
           type="button"
           class="btn btn-secondary btn-sm"
+          :class="{ 'is-active': viewMode === 'mine' }"
           @click="toggleViewMode"
         >
-          {{ viewMode === 'mine' ? 'Show all tickets' : 'Show my tickets' }}
+          {{ viewMode === 'mine' ? 'Show all tickets' : 'My tickets' }}
         </button>
         <button type="button" class="btn btn-secondary btn-sm" @click="loadAll" :disabled="loading">
           {{ loading ? 'Loading…' : 'Refresh' }}
@@ -105,6 +106,16 @@
               <option value="">Audience</option>
               <option v-for="t in ticketTopics" :key="t.id" :value="t.id">{{ t.id === 'billing' ? 'Billing tickets' : t.short }}</option>
             </select>
+            <button
+              v-if="!useMineForced"
+              type="button"
+              class="btn btn-secondary btn-sm"
+              :class="{ 'is-active': viewMode === 'mine' }"
+              title="Show only tickets claimed by you"
+              @click="toggleViewMode"
+            >
+              {{ viewMode === 'mine' ? 'Show all tickets' : 'My tickets' }}
+            </button>
             <button
               v-if="canFocusBilling"
               type="button"
@@ -2037,7 +2048,7 @@ async function claim() {
   if (!selected.value?.id) return;
   busy.value = true;
   try {
-    await api.post(`/support-tickets/${selected.value.id}/claim`);
+    await api.post(`/support-tickets/${selected.value.id}/claim`, {}, { skipGlobalLoading: true });
     await loadAll();
     await loadMessages(selected.value.id);
   } catch (e) {
@@ -2167,12 +2178,14 @@ async function generateDraft({ replace = true, guidance = null } = {}) {
   actionError.value = '';
   try {
     if (!selected.value.claimed_by_user_id) {
-      await api.post(`/support-tickets/${selected.value.id}/claim`);
+      await api.post(`/support-tickets/${selected.value.id}/claim`, {}, { skipGlobalLoading: true });
     }
     const body = {};
     const guide = String(guidance ?? '').trim();
     if (guide) body.regenerationGuidance = guide;
-    const r = await api.post(`/support-tickets/${selected.value.id}/generate-response`, body);
+    const r = await api.post(`/support-tickets/${selected.value.id}/generate-response`, body, {
+      skipGlobalLoading: true
+    });
     const text = String(r.data?.suggestedAnswer || '').trim();
     draftSources.value = Array.isArray(r.data?.draftSources) ? r.data.draftSources : [];
     if (!text) {
@@ -2438,6 +2451,14 @@ onMounted(async () => {
   if (String(route.query?.targetScope || '').toLowerCase() === 'platform') {
     agencyIdInput.value = 'platform';
   }
+  const qMine = String(route.query?.mine || '').toLowerCase();
+  if (qMine === 'true' || qMine === '1') {
+    viewMode.value = 'mine';
+  }
+  const qStatus = String(route.query?.status || '').toLowerCase();
+  if (['open', 'in_progress', 'waiting', 'closed'].includes(qStatus)) {
+    displayStatus.value = qStatus;
+  }
   await loadAll();
   await loadPendingProposalCount();
   const qid = parseInt(String(route.query?.ticketId || ''), 10);
@@ -2489,6 +2510,7 @@ defineExpose({ loadAll, clearSelection });
   justify-content: space-between;
   align-items: flex-start;
   gap: 12px;
+  flex-shrink: 0;
 }
 .desk-title { margin: 0; font-size: 1.5rem; font-weight: 800; }
 .desk-sub { margin: 4px 0 0; color: var(--text-secondary, #64748b); font-size: 14px; }
@@ -2499,6 +2521,7 @@ defineExpose({ loadAll, clearSelection });
   align-items: flex-start;
   min-width: 0;
   overflow-x: auto;
+  flex-shrink: 0;
 }
 .tenant-rail-wrap :deep(.tcs) {
   flex: 1;
@@ -2590,6 +2613,7 @@ defineExpose({ loadAll, clearSelection });
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 10px;
+  flex-shrink: 0;
 }
 .metric-card {
   border: 1px solid var(--border, #e2e8f0);
@@ -2611,11 +2635,13 @@ defineExpose({ loadAll, clearSelection });
 .desk-body {
   flex: 1;
   min-height: 0;
+  min-width: 0;
   display: grid;
-  grid-template-columns: minmax(280px, 38%) 1fr;
+  grid-template-columns: minmax(0, minmax(240px, 38%)) minmax(0, 1fr);
   border: 1px solid var(--border, #e2e8f0);
   border-radius: 12px;
-  overflow: hidden;
+  overflow-x: auto;
+  overflow-y: hidden;
   background: #fff;
 }
 .ticket-desk.compact .desk-body {
@@ -2643,6 +2669,18 @@ defineExpose({ loadAll, clearSelection });
   border-radius: 8px;
   border: 1px solid var(--border, #e2e8f0);
   font-size: 12px;
+}
+.filters .btn.is-active {
+  border-color: var(--primary, #2d6a4f);
+  background: rgba(45, 106, 79, 0.12);
+  color: var(--primary, #1a3d2b);
+  font-weight: 700;
+}
+.desk-header-actions .btn.is-active {
+  border-color: var(--primary, #2d6a4f);
+  background: rgba(45, 106, 79, 0.12);
+  color: var(--primary, #1a3d2b);
+  font-weight: 700;
 }
 .ticket-list {
   list-style: none;
@@ -2778,14 +2816,17 @@ defineExpose({ loadAll, clearSelection });
 .detail-main {
   flex: 1;
   min-height: 0;
+  min-width: 0;
   display: grid;
-  grid-template-columns: 1fr minmax(220px, 260px);
+  grid-template-columns: minmax(0, 1fr) minmax(0, min(260px, 32%));
 }
 .ticket-desk.compact .detail-main { grid-template-columns: 1fr; }
 .conversation-col {
   display: flex;
   flex-direction: column;
   min-height: 0;
+  min-width: 0;
+  overflow-x: hidden;
   border-right: 1px solid var(--border, #e2e8f0);
 }
 .ticket-desk.compact .conversation-col { border-right: none; }
@@ -3125,14 +3166,20 @@ defineExpose({ loadAll, clearSelection });
   border: 1px dashed #81c784;
   border-radius: 10px;
   background: #e8f5e9;
+  max-width: 100%;
+  box-sizing: border-box;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 .ai-draft-head { font-size: 13px; margin-bottom: 8px; }
 .ai-draft-body {
   white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
   font-size: 14px;
   line-height: 1.5;
-  max-height: none;
-  overflow: visible;
+  max-height: min(48vh, 420px);
+  overflow: auto;
   margin-bottom: 10px;
   user-select: text;
   padding: 12px 14px;
@@ -3140,6 +3187,8 @@ defineExpose({ loadAll, clearSelection });
   border: 1px solid #c8e6c9;
   border-radius: 8px;
   min-height: 120px;
+  max-width: 100%;
+  box-sizing: border-box;
 }
 .ai-draft-actions { display: flex; flex-wrap: wrap; gap: 6px; }
 .regen-guidance-box {
@@ -3174,6 +3223,7 @@ defineExpose({ loadAll, clearSelection });
 }
 .composer-textarea {
   width: 100%;
+  max-width: 100%;
   border-radius: 8px;
   border: 1px solid var(--border, #e2e8f0);
   padding: 10px 12px;
@@ -3182,6 +3232,8 @@ defineExpose({ loadAll, clearSelection });
   line-height: 1.45;
   min-height: 140px;
   box-sizing: border-box;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 .suggested-actions-banner {
   margin: 0 12px 8px;
@@ -3317,6 +3369,12 @@ defineExpose({ loadAll, clearSelection });
 .error { color: #b91c1c; }
 .muted { color: var(--text-secondary, #64748b); }
 
+@media (max-width: 1100px) {
+  .desk-body { grid-template-columns: minmax(0, minmax(220px, 42%)) minmax(0, 1fr); }
+  .detail-main { grid-template-columns: minmax(0, 1fr); }
+  .meta-sidebar { display: none; }
+  .conversation-col { border-right: none; }
+}
 @media (max-width: 899px) {
   .metrics { grid-template-columns: repeat(2, 1fr); }
   .desk-body { grid-template-columns: 1fr; }

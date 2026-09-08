@@ -1133,9 +1133,32 @@ export const useBrandingStore = defineStore('branding', () => {
     if (routeSlug && _logosBySlug[routeSlug]) {
       return addCacheBuster(_logosBySlug[routeSlug]);
     }
-    // Legacy fallback: portalAgency (kept for non-slug routes / portal host context)
-    if (portalAgency.value?.logoUrl && !routeSlug) {
-      return addCacheBuster(portalAgency.value.logoUrl);
+    // Flat host routes (e.g. app.itsco.health/admin): prefer host / current tenant caches.
+    // Never trust a drifted portalAgency from a prior soft-switch (e.g. NLU brain sticking on ITSCO).
+    if (!routeSlug) {
+      const hostSlug = String(portalHostPortalUrl.value || '').trim().toLowerCase();
+      if (hostSlug && _logosBySlug[hostSlug]) {
+        return addCacheBuster(_logosBySlug[hostSlug]);
+      }
+      const agency = agencyStore.currentAgency;
+      const agencySlug = String(agency?.slug || agency?.portal_url || agency?.portalUrl || '')
+        .trim()
+        .toLowerCase();
+      if (agencySlug && _logosBySlug[agencySlug]) {
+        return addCacheBuster(_logosBySlug[agencySlug]);
+      }
+      const portalSlug = String(portalAgency.value?.slug || '').trim().toLowerCase();
+      const portalMatches =
+        portalAgency.value?.logoUrl &&
+        ((hostSlug && portalSlug === hostSlug) || (agencySlug && portalSlug === agencySlug));
+      if (portalMatches) {
+        return addCacheBuster(portalAgency.value.logoUrl);
+      }
+    } else if (portalAgency.value?.logoUrl) {
+      const portalSlug = String(portalAgency.value?.slug || '').trim().toLowerCase();
+      if (portalSlug === routeSlug) {
+        return addCacheBuster(portalAgency.value.logoUrl);
+      }
     }
     const agency = agencyStore.currentAgency;
     if (agency?.logo_path) {
@@ -1220,8 +1243,27 @@ export const useBrandingStore = defineStore('branding', () => {
       if (pSlug === routeSlug && portalAgency.value?.iconUrl) {
         return addCacheBuster(portalAgency.value.iconUrl);
       }
-    } else if (portalAgency.value?.iconUrl) {
-      return addCacheBuster(portalAgency.value.iconUrl);
+    } else {
+      // Flat host routes: prefer host / current-tenant icon caches over a drifted portalAgency
+      // (switching NLU → ITSCO on app.itsco.health left the NLU brain stuck in nav).
+      const hostSlug = String(portalHostPortalUrl.value || '').trim().toLowerCase();
+      if (hostSlug && _iconsBySlug[hostSlug]) {
+        return addCacheBuster(_iconsBySlug[hostSlug]);
+      }
+      const agencyEarly = agencyStore.currentAgency;
+      const agencySlug = String(agencyEarly?.slug || agencyEarly?.portal_url || agencyEarly?.portalUrl || '')
+        .trim()
+        .toLowerCase();
+      if (agencySlug && _iconsBySlug[agencySlug]) {
+        return addCacheBuster(_iconsBySlug[agencySlug]);
+      }
+      const portalSlug = String(portalAgency.value?.slug || '').trim().toLowerCase();
+      const portalMatches =
+        portalAgency.value?.iconUrl &&
+        ((hostSlug && portalSlug === hostSlug) || (agencySlug && portalSlug === agencySlug));
+      if (portalMatches) {
+        return addCacheBuster(portalAgency.value.iconUrl);
+      }
     }
     const agency = agencyStore.currentAgency;
     if (agency?.icon_file_path) {

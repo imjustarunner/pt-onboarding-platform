@@ -204,8 +204,10 @@ function normalizeServiceCode(s) {
 function normalizeDateOnly(s) {
   const v = String(s || '').trim();
   if (!v) return null;
-  // Accept YYYY-MM-DD from date picker; slice defensively.
-  return v.slice(0, 10);
+  const iso = v.match(/^(\d{4}-\d{2}-\d{2})/);
+  if (iso) return iso[1];
+  // Reject locale labels like "Thu Apr 09" — MySQL DATE cannot store them.
+  return null;
 }
 
 function parseBool(v) {

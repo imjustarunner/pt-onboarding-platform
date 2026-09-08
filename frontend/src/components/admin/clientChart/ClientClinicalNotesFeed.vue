@@ -34,14 +34,59 @@
         <button type="button" class="ccnf-back" @click="closeWorkspace">← Notes list</button>
         <span>{{ workspaceTitle }}</span>
         <a
+          v-if="workspace.mode === 'write' || workspace.mode === 'view'"
           class="ccnf-full-aid"
           :href="fullNoteAidHref"
           target="_blank"
           rel="noopener"
         >Open in Note Aid</a>
       </header>
+
+      <ClientNoteTypePicker
+        v-if="workspace.mode === 'pick-type'"
+        :is-learning="isLearning"
+        @select="onNoteTypeSelected"
+      />
+
+      <div v-else-if="workspace.mode === 'treatment-plan-choice'" class="ccnf-plan-choice">
+        <h3>Treatment plan</h3>
+        <p>Write a new plan from scratch, or update the current plan with AI suggestions you review before applying.</p>
+        <div class="ccnf-plan-actions">
+          <button type="button" class="ccnf-write-btn" @click="openNoteAid({ kind: 'plan', launchIntent: 'new_treatment_plan' })">
+            Write new from scratch
+          </button>
+          <button type="button" class="ccnf-write-btn secondary" @click="openNoteAid({ kind: 'plan', launchIntent: 'update_treatment_plan' })">
+            Update current plan
+          </button>
+        </div>
+      </div>
+
+      <ClientManualNoteForm
+        v-else-if="workspace.mode === 'manual'"
+        :client-id="clientId"
+        :agency-id="agencyId"
+        :note-kind="workspace.noteKind || 'contact'"
+        @cancel="closeWorkspace"
+        @saved="onManualNoteSaved"
+      />
+
+      <div v-else-if="workspace.mode === 'appointment-change-pick'" class="ccnf-plan-choice">
+        <h3>Missed / canceled appointment</h3>
+        <p>Select the session this change applies to. The 15-second workflow will classify timing, consequence, and generate the note.</p>
+        <p v-if="!recentAppointments.length" class="muted">
+          No recent appointments found for this client. Open the schedule, select the appointment, and use <strong>Change appointment…</strong>.
+        </p>
+        <ul v-else class="ccnf-appt-pick">
+          <li v-for="a in recentAppointments" :key="a.id">
+            <button type="button" class="ccnf-write-btn" @click="openAppointmentChangeFor(a)">
+              {{ a.label }}
+            </button>
+          </li>
+        </ul>
+      </div>
+
       <ClientChartCompletedNote
-        v-if="workspace.mode === 'view'"
+        v-else-if="workspace.mode === 'view'"
         :note-id="workspace.clinicalNoteId"
         :agency-id="agencyId"
       />
@@ -53,6 +98,9 @@
         :embed-clinical-note-id="workspace.clinicalNoteId"
         :embed-client-id="clientId"
         :embed-agency-id="agencyId"
+        :embed-open-library="workspace.openLibrary !== false"
+        :embed-initial-kind="workspace.initialKind || ''"
+        :embed-launch-intent="workspace.launchIntent || ''"
       />
     </div>
 
@@ -112,6 +160,11 @@
       </li>
     </ul>
     </template>
+
+    <AppointmentChangeWizard
+      :change="appointmentChange"
+      @completed="onAppointmentChangeDone"
+    />
   </div>
 </template>
 
@@ -120,6 +173,10 @@ import { computed, defineAsyncComponent, onMounted, ref, watch } from 'vue';
 import api from '../../../services/api.js';
 import { sessionDedupeKey } from '../../../utils/noteAidDocumentationStatus.js';
 import ClientChartCompletedNote from './ClientChartCompletedNote.vue';
+import ClientNoteTypePicker from './ClientNoteTypePicker.vue';
+import ClientManualNoteForm from './ClientManualNoteForm.vue';
+import AppointmentChangeWizard from '../../schedule/AppointmentChangeWizard.vue';
+import { useAppointmentChange } from '../../../composables/useAppointmentChange.js';
 
 const ClinicalNoteGeneratorView = defineAsyncComponent(() =>
   import('../../../views/admin/ClinicalNoteGeneratorView.vue')
@@ -140,6 +197,8 @@ const kindFilter = ref('all');
 const workspace = ref(null);
 const selfPayBusyKey = ref('');
 const selfPayNoteIds = ref(new Set());
+const recentAppointments = ref([]);
+const appointmentChange = useAppointmentChange();
 const chart = ref({
   notes: [],
   plans: [],
@@ -527,6 +586,14 @@ const workspaceTitle = computed(() => {
   const ws = workspace.value;
   if (!ws) return '';
   if (ws.mode === 'view') return 'Completed note';
+  if (ws.mode === 'pick-type') return 'Write note';
+  if (ws.mode === 'appointment-change-pick') return 'Missed appointment';
+  if (ws.mode === 'treatment-plan-choice') return 'Treatment plan';
+  if (ws.mode === 'manual') {
+    if (ws.noteKind === 'consultation') return 'Consultation note';
+    if (ws.noteKind === 'misc') return 'Miscellaneous note';
+    return 'Contact note';
+  }
   if (ws.isNew || !ws.draftId) return 'Write note';
   return 'Write this session note';
 });
@@ -535,8 +602,11 @@ const workspaceKey = computed(() => {
   const ws = workspace.value;
   if (!ws) return 'none';
   if (ws.mode === 'view') return `view-${ws.clinicalNoteId || 0}`;
+  if (ws.mode === 'pick-type') return 'pick-type';
+  if (ws.mode === 'treatment-plan-choice') return 'tp-choice';
+  if (ws.mode === 'manual') return `manual-${ws.noteKind || 'contact'}`;
   if (ws.draftId) return `draft-${ws.draftId}`;
-  return `new-${ws.isNew ? '1' : '0'}-${props.clientId}`;
+  return `new-${ws.initialKind || 'aid'}-${ws.launchIntent || 'x'}-${props.clientId}`;
 });
 
 function closeWorkspace() {
@@ -544,7 +614,108 @@ function closeWorkspace() {
 }
 
 function startNewNoteInProfile() {
-  workspace.value = { mode: 'write', draftId: null, clinicalNoteId: null, isNew: true };
+  workspace.value = { mode: 'pick-type' };
+}
+
+function openNoteAid({ kind = '', launchIntent = '' } = {}) {
+  workspace.value = {
+    mode: 'write',
+    draftId: null,
+    clinicalNoteId: null,
+    isNew: true,
+    openLibrary: true,
+    initialKind: kind || '',
+    launchIntent: launchIntent || ''
+  };
+}
+
+async function onNoteTypeSelected(opt) {
+  if (!opt || opt.disabled) return;
+  if (opt.path === 'manual-contact') {
+    workspace.value = { mode: 'manual', noteKind: 'contact' };
+    return;
+  }
+  if (opt.path === 'manual-misc') {
+    workspace.value = { mode: 'manual', noteKind: 'misc' };
+    return;
+  }
+  if (opt.path === 'manual-consultation') {
+    workspace.value = { mode: 'manual', noteKind: 'consultation' };
+    return;
+  }
+  if (opt.path === 'treatment-plan-choice') {
+    workspace.value = { mode: 'treatment-plan-choice' };
+    return;
+  }
+  if (opt.path === 'appointment-change') {
+    await loadRecentAppointmentsForChange();
+    workspace.value = { mode: 'appointment-change-pick' };
+    return;
+  }
+  if (opt.path === 'note-aid') {
+    openNoteAid({ kind: opt.kind || '', launchIntent: opt.launchIntent || '' });
+  }
+}
+
+async function loadRecentAppointmentsForChange() {
+  recentAppointments.value = [];
+  const aid = Number(props.agencyId || 0);
+  const cid = Number(props.clientId || 0);
+  if (!aid || !cid) return;
+  try {
+    const end = new Date();
+    const start = new Date();
+    start.setDate(start.getDate() - 45);
+    const windowStart = start.toISOString().slice(0, 10);
+    const windowEnd = end.toISOString().slice(0, 10);
+    const r = await api.get('/appointments', {
+      params: { agencyId: aid, windowStart, windowEnd, clientId: cid },
+      skipGlobalLoading: true
+    });
+    const rows = Array.isArray(r.data?.appointments) ? r.data.appointments : [];
+    recentAppointments.value = rows
+      .filter((a) => !['voided', 'completed'].includes(String(a.status || '').toLowerCase()))
+      .slice(0, 12)
+      .map((a) => {
+        const when = a.startAt || a.start_at;
+        let label = when;
+        try {
+          label = new Date(String(when).includes('T') ? when : String(when).replace(' ', 'T')).toLocaleString();
+        } catch { /* keep */ }
+        return {
+          id: Number(a.id),
+          label: `${label} · ${a.title || a.status || 'Appointment'}`,
+          startAt: when,
+          title: a.title || ''
+        };
+      });
+  } catch {
+    recentAppointments.value = [];
+  }
+}
+
+function openAppointmentChangeFor(a) {
+  appointmentChange.openWizard({
+    appointmentId: a.id,
+    context: {
+      clientId: Number(props.clientId),
+      clientName: '',
+      serviceLabel: a.title || 'Session',
+      whenLabel: a.label,
+      providerName: '',
+      payerLabel: ''
+    }
+  });
+}
+
+async function onAppointmentChangeDone() {
+  closeWorkspace();
+  await load();
+}
+
+async function onManualNoteSaved() {
+  closeWorkspace();
+  await load();
 }
 
 function openRow(row) {
@@ -634,14 +805,47 @@ defineExpose({ reload: load, diagnoses: computed(() => chart.value.diagnoses) })
   border-radius: 8px;
   padding: 7px 12px;
   font: inherit;
-  font-size: 0.82rem;
   font-weight: 700;
   background: #0f766e;
   color: #fff;
   cursor: pointer;
 }
+.ccnf-write-btn.secondary {
+  background: #fff;
+  color: #0f766e;
+  border: 1px solid #99f6e4;
+}
+.ccnf-plan-choice {
+  padding: 16px 18px 20px;
+  max-width: 520px;
+}
+.ccnf-plan-choice h3 {
+  margin: 0 0 6px;
+  font-size: 1.05rem;
+}
+.ccnf-plan-choice p {
+  margin: 0 0 14px;
+  font-size: 13px;
+  color: #64748b;
+  line-height: 1.45;
+}
+.ccnf-plan-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.ccnf-appt-pick {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
 .ccnf-write-btn:hover {
   background: #0d9488;
+}
+.ccnf-write-btn.secondary:hover {
+  background: #f0fdfa;
 }
 .ccnf-text-link {
   border: none;

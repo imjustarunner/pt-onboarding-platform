@@ -913,7 +913,7 @@
             />
             <ProviderClientsTab
               v-else
-              :initial-section="String(route.query.clients || route.query.clientsSection || 'school')"
+              :initial-section="String(route.query.clients || route.query.clientsSection || 'all')"
               @update:needsAttentionCount="clientsNeedsAttentionCount = $event"
               @update:pendingClientsCount="providerPendingClientsCount = $event"
             />

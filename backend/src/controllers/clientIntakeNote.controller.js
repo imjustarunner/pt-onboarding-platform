@@ -1155,6 +1155,7 @@ export const finalizeClientIntakeNote = async (req, res, next) => {
 
       let confirmedDx = null;
       let allDiagnoses = [];
+      const planDiagnosesLinks = [];
       try {
         const parsed = draftNow.confirmed_dx_json ? JSON.parse(draftNow.confirmed_dx_json) : null;
         if (Array.isArray(parsed?.diagnoses)) {
@@ -1216,6 +1217,14 @@ export const finalizeClientIntakeNote = async (req, res, next) => {
             setPrimary: i === 0
           });
           if (i === 0) primaryDiagnosisId = dxId;
+          if (dxId) {
+            planDiagnosesLinks.push({
+              diagnosisId: dxId,
+              isPrimary: i === 0,
+              justification: i === 0 ? diagnosticJustification : dx.justification || null,
+              sortOrder: i + 1
+            });
+          }
         }
 
         if (!primaryDiagnosisId && confirmedDx?.code) {
@@ -1227,6 +1236,14 @@ export const finalizeClientIntakeNote = async (req, res, next) => {
             justification: diagnosticJustification,
             createdByUserId: req.user.id
           });
+          if (primaryDiagnosisId) {
+            planDiagnosesLinks.push({
+              diagnosisId: primaryDiagnosisId,
+              isPrimary: true,
+              justification: diagnosticJustification,
+              sortOrder: 1
+            });
+          }
         }
 
         // Refresh or create linked Treatment Plan Draft from finalized intake content.
@@ -1238,7 +1255,9 @@ export const finalizeClientIntakeNote = async (req, res, next) => {
           agencyId,
           clientId,
           actorUserId: req.user.id,
-          goalsFromRequest: goals.length ? goals : null
+          goalsFromRequest: goals.length ? goals : null,
+          primaryDiagnosisId,
+          planDiagnoses: planDiagnosesLinks
         });
       }
     } catch (e) {

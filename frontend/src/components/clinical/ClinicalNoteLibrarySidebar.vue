@@ -225,7 +225,7 @@
                       <div class="cnl-row-sub">
                         <span class="cnl-row-kind">{{ rowTypeLabel(d) }}</span>
                         <span class="cnl-row-conn">{{ connMeta(d.connection).shortLabel }}</span>
-                        <span v-if="d.service_code" class="cnl-row-code">{{ d.service_code }}</span>
+                        <span v-if="singleCode(d.service_code)" class="cnl-row-code">{{ singleCode(d.service_code) }}</span>
                       </div>
                     </div>
                   </button>
@@ -530,12 +530,14 @@ function rowInitials(d) {
   return initialsFromDisplayName(rowTitle(d));
 }
 function rowDos(d) {
-  const raw = String(d?.date_of_service || d?.raw?.date || '').slice(0, 10);
-  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
-    const [, m, day] = raw.split('-');
+  const raw = String(d?.date_of_service || d?.raw?.date || '').trim();
+  const iso = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (iso) {
     const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-    return `${months[Number(m) - 1] || m} ${Number(day)}`;
+    return `${months[Number(iso[2]) - 1] || iso[2]} ${Number(iso[3])}`;
   }
+  const short = raw.match(/^(?:Sun|Mon|Tue|Wed|Thu|Fri|Sat)\s+([A-Za-z]{3})\s+(\d{1,2})/i);
+  if (short) return `${short[1]} ${Number(short[2])}`;
   return raw || '—';
 }
 function rowTitle(d) {
@@ -548,17 +550,25 @@ function rowTitle(d) {
 }
 function rowTypeLabel(d) {
   if (d?.source === 'signed_note') {
-    const code = String(d.service_code || d.raw?.serviceCode || '').trim().toUpperCase();
+    const code = singleCode(d.service_code || d.raw?.serviceCode);
     return code ? `${code} · Signed` : 'Signed note';
   }
   if (d?.source === 'work_queue') {
     const kind = d.noteKind || d.raw?.noteKind;
-    if (kind === 'intake') return `Intake${d.service_code ? ` (${d.service_code})` : ''}`;
+    const code = singleCode(d.service_code || d.raw?.serviceCode);
+    if (kind === 'intake') return `Intake${code ? ` (${code})` : ''}`;
     if (kind === 'termination') return 'Termination note';
     if (kind === 'treatment_plan') return 'Treatment plan renewal';
-    return `Progress${d.service_code ? ` (${d.service_code})` : ''}`;
+    return `Progress${code ? ` (${code})` : ''}`;
   }
   return props.typeLabel(d.raw || d);
+}
+function singleCode(raw) {
+  const s = String(raw || '').trim().toUpperCase();
+  if (!s) return '';
+  if (/^[A-Z]?\d{4,5}[A-Z]?$/.test(s)) return s;
+  const m = s.match(/\b((?:90\d{3}|H\d{4}|T\d{4}|G\d{4}|99\d{3}))\b/);
+  return m ? m[1] : '';
 }
 function canDeleteRow(d) {
   const status = normalizeStatus(d?.docStatus);

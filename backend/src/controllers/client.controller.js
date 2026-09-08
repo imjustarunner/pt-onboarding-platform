@@ -8468,13 +8468,25 @@ export const upsertClientProviderAssignment = async (req, res, next) => {
               const provider = await User.findById(providerUserId);
               const to = provider?.email || provider?.work_email || null;
               if (to) {
+                const { buildClientAssignedEmailHtml } = await import(
+                  '../services/brandedNotificationEmail.service.js'
+                );
+                const { publicAppBaseUrl } = await import('../services/contactReminderToken.service.js');
+                const base = String(publicAppBaseUrl() || '').replace(/\/+$/, '');
+                const html = buildClientAssignedEmailHtml({
+                  agencyName: orgName,
+                  clientName,
+                  serviceDay: serviceDay || '',
+                  colorPalette: org?.color_palette || org?.colorPalette || null,
+                  appUrl: base ? `${base}/admin/clients` : ''
+                });
                 await sendNotificationEmail({
                   agencyId: client?.agency_id || null,
                   triggerKey: 'client_assigned',
                   to,
                   subject: title,
                   text: message,
-                  html: null,
+                  html,
                   source: 'auto',
                   userId: providerUserId,
                   templateType: 'client_assigned',

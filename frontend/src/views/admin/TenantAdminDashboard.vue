@@ -296,6 +296,13 @@
               @navigate="go"
               @assigned="refreshEscalationGlance"
             />
+
+            <AttendanceDischargeReviewsPanel
+              v-if="currentAgencyId && canSeeAttendanceDischargeReviews"
+              class="ops-board-card"
+              :agency-id="currentAgencyId"
+              @open-terminate="onOpenTerminateFromDischargeReview"
+            />
           </div>
 
           <TenantContextCards
@@ -475,6 +482,7 @@ import MomentumListTab from '../../components/dashboard/MomentumListTab.vue';
 import UnifiedChecklistTab from '../../components/dashboard/UnifiedChecklistTab.vue';
 import PresenceTeamPreview from '../../components/dashboard/PresenceTeamPreview.vue';
 import EscalationsCard from '../../components/admin/opsDashboard/EscalationsCard.vue';
+import AttendanceDischargeReviewsPanel from '../../components/admin/AttendanceDischargeReviewsPanel.vue';
 import PlannedOutsPanel from '../../components/admin/opsDashboard/PlannedOutsPanel.vue';
 import '../../styles/ops-board-card.css';
 import { useMomentumListAddon } from '../../composables/useMomentumListAddon';
@@ -667,6 +675,12 @@ const canSeeEscalations = computed(() =>
 const showEscalationsCard = computed(() =>
   canSeeEscalations.value && isVisible('escalations') && !!currentAgencyId.value && !isOperationsMode.value
 );
+const canSeeAttendanceDischargeReviews = computed(() => false); // Provider decides third-strike waive; admins get notifications only
+function onOpenTerminateFromDischargeReview({ clientId }) {
+  const id = Number(clientId || 0);
+  if (!id) return;
+  go(`/admin/clients/${id}?action=terminate`);
+}
 const showTeamBoardAndEscalations = computed(() =>
   showTeamBoardCard.value && showEscalationsCard.value
 );
@@ -951,11 +965,11 @@ const glanceCards = computed(() => {
       key: 'support_tickets',
       label: 'Support Tickets',
       metrics: [
-        { label: 'New', value: supportTicketsNew.value, tone: 'danger' },
-        { label: 'Need attention', value: supportTicketsActive.value, tone: 'warn' },
+        { label: 'Unclaimed', value: supportTicketsNew.value, tone: 'danger' },
+        { label: 'Active', value: supportTicketsActive.value, tone: 'warn' },
         { label: 'Mine', value: supportTicketsAssignedToMe.value, tone: 'accent' }
       ],
-      hint: 'Queue workload and tickets assigned to you',
+      hint: 'Active = unclaimed + in progress · Mine is your claimed work',
       cta: 'View queue',
       tone: 'danger',
       to: `${ticketsPath.value}?status=open`
@@ -1807,11 +1821,9 @@ const applyGlanceFromPayloads = ({ center, personal, openCountRes, metrics, spec
   const unclaimed = Number(metrics?.open ?? center?.tickets?.open ?? openCountRes?.count ?? 0);
   const inProgress = Number(metrics?.in_progress ?? center?.tickets?.in_progress ?? 0);
   supportTicketsNew.value = unclaimed;
-  supportTicketsActive.value = Number(
-    center?.kpis?.openTickets
-    ?? (unclaimed + inProgress)
-    ?? unclaimed
-  );
+  // Same formula as the Tickets desk: unclaimed + claimed-open. Do not prefer
+  // center.kpis.openTickets — that KPI can include platform-scoped rows the desk excludes.
+  supportTicketsActive.value = unclaimed + inProgress;
   supportTicketsAssignedToMe.value = Number(metrics?.mine ?? 0);
   const escCounts = escalationSummary?.counts || {};
   escalationNew.value = Number(escCounts.submitted ?? 0);

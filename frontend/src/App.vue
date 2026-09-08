@@ -3768,6 +3768,9 @@ const selectAgencyBrand = async (a) => {
     try {
       brandingStore.setActiveRouteSlug(slugNorm);
       brandingStore.syncDocumentThemeFromSelectedAgency({ skipRouteSlugGuard: true });
+      // Refresh logos/icons too — color sync alone leaves a stale portalAgency mark
+      // (e.g. NLU brain stuck after returning to ITSCO on the same host).
+      brandingStore.fetchAgencyTheme(slugNorm).catch(() => {});
     } catch {
       // ignore
     }
@@ -3967,7 +3970,8 @@ const affiliationPortalLinks = computed(() => {
   }).filter((row) => row.id > 0 && row.path);
 });
 
-const showAffiliationsNav = computed(() => affiliationPortalLinks.value.length > 0);
+// Affiliations removed from Directory — open nested orgs via school/program portal UIs instead.
+const showAffiliationsNav = computed(() => false);
 
 const openAffiliationPortalLink = async (row) => {
   if (!row?.org) return;
@@ -5188,6 +5192,7 @@ async function loadDirectoryEventPortals() {
   directoryPortalsLastKey = key;
   directoryPortalsLastAt = now;
   const all = [];
+  const seenIds = new Set();
   for (const org of orgs) {
     try {
       const res = await api.get('/availability/admin/program-company-events', {
@@ -5196,6 +5201,12 @@ async function loadDirectoryEventPortals() {
       });
       const rows = Array.isArray(res.data?.events) ? res.data.events : [];
       for (const ev of rows) {
+        const id = Number(ev?.id || 0);
+        if (!id || seenIds.has(id)) continue;
+        // Directory nav should only surface active portals (program hub can still list inactive).
+        const active = ev.isActive !== false && ev.is_active !== 0 && ev.is_active !== false;
+        if (!active) continue;
+        seenIds.add(id);
         all.push({ ...ev, programOrgSlug: org.slug || null });
       }
     } catch {
@@ -5244,25 +5255,19 @@ const eventPortalRegistrantBadgeCount = computed(() =>
 );
 
 const directoryBadgeCount = computed(() => {
-  let count = 0;
+  // Match what Directory can show: event-portal workflow items only.
+  // Pending school clients live under Management → School Operations, not Directory rows.
   if (canSeeEventsProgramsNavGroup.value && !isAffiliationContext.value && canSeeEventPortalsTopNav.value) {
-    count += eventPortalRegistrantBadgeCount.value;
+    return eventPortalRegistrantBadgeCount.value;
   }
-  if (canSeeSchoolPortalsNav.value || canSeeSchoolClientsNav.value) {
-    count += schoolClientsPendingCount.value;
-  }
-  return count;
+  return 0;
 });
 
 const directoryBadgeTitle = computed(() => {
-  const parts = [];
   if (eventPortalRegistrantBadgeCount.value > 0) {
-    parts.push(`${eventPortalRegistrantBadgeCount.value} event registration workflow item(s)`);
+    return `${eventPortalRegistrantBadgeCount.value} event registration workflow item(s)`;
   }
-  if (schoolClientsPendingCount.value > 0) {
-    parts.push(`${schoolClientsPendingCount.value} pending school client(s)`);
-  }
-  return parts.join(' · ') || 'No directory items need attention';
+  return 'No directory items need attention';
 });
 
 /** Build the href for an event portal link, using the program org slug when available. */
@@ -7711,6 +7716,10 @@ onUnmounted(() => {
   font: inherit;
   font-weight: 400;
   background: transparent !important;
+}
+/* Beat `.nav-dropdown-menu a { padding: 8px 10px }` so Clients lines up with sibling links */
+.nav-dropdown-menu .nav-dropdown-group-link {
+  padding: 0 !important;
 }
 .nav-dropdown-group-link-static {
   flex: 1;

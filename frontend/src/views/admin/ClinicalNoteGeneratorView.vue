@@ -1418,7 +1418,10 @@ import {
   appendWorkQueueToApi,
   clearWorkQueueOnApi,
   matchTodoClientFromSearchRows,
-  namesLikelySamePerson
+  namesLikelySamePerson,
+  toWorkQueueDateOnly,
+  timeLabelToHhMm,
+  scheduledStartFromQueueDateAndTime
 } from '../../utils/noteAidWorkQueue.js';
 import {
   DOC_STATUS,
@@ -1536,7 +1539,13 @@ const props = defineProps({
   embedDraftId: { type: [Number, String], default: null },
   embedClinicalNoteId: { type: [Number, String], default: null },
   embedClientId: { type: [Number, String], default: null },
-  embedAgencyId: { type: [Number, String], default: null }
+  embedAgencyId: { type: [Number, String], default: null },
+  /** When false, embedded new notes do not auto-open the aid library. */
+  embedOpenLibrary: { type: Boolean, default: true },
+  /** Prefers Note Aid library filter to this kind (progress, intake, termination, …). */
+  embedInitialKind: { type: String, default: '' },
+  /** Optional launch intent (e.g. update_treatment_plan). */
+  embedLaunchIntent: { type: String, default: '' }
 });
 const isEmbedded = computed(() => !!props.embedded);
 
@@ -2971,8 +2980,15 @@ const showStartPage = computed(() => !isEmbedded.value && !hasOpenNote.value && 
 const showLibraryPanel = computed(() => showAidPicker.value);
 const clientSetupComplete = computed(() => {
   if (!effectiveClientId.value) return false;
+  // Clients imported with a treatment plan already on file do not need the paste setup flow.
+  if (planOnFile.value) return true;
   return demographicsOnFile.value && intakeOnFile.value && planOnFile.value && !!primaryChartDiagnosis.value;
 });
+
+function reopenClientSetupIfNeeded() {
+  if (!effectiveClientId.value || clientSetupComplete.value) return;
+  showClientSetupDrawer.value = true;
+}
 
 /** Avoid re-POSTing setup-complete for the same client in one session. */
 const noteAidSetupPromotedIds = new Set();
@@ -3175,10 +3191,31 @@ const showAfterHours99051Option = computed(() => {
   return !!selectedAid.value && aidKind(selectedAid.value) !== 'plan';
 });
 const libraryCategories = computed(() => {
-  const filtered = (noteAidCategories.value || []).map((cat) => ({
+  let filtered = (noteAidCategories.value || []).map((cat) => ({
     ...cat,
     aids: (cat.aids || []).filter((aid) => aidIsEligible(aid))
   })).filter((cat) => cat.aids.length);
+  const kindGate = String(props.embedInitialKind || '').trim().toLowerCase();
+  if (kindGate) {
+    filtered = filtered
+      .map((cat) => ({
+        ...cat,
+        aids: (cat.aids || []).filter((aid) => {
+          const k = String(aidKind(aid) || aid?.kind || '').toLowerCase();
+          if (kindGate === 'missed_appointment') {
+            return k.includes('miss') || k.includes('no_show') || /missed|no-show/i.test(String(aid?.label || ''));
+          }
+          if (kindGate === 'treatment_summary') {
+            return k.includes('summary') || k === 'treatment_summary';
+          }
+          if (kindGate === 'treatment_plan' || kindGate === 'plan') {
+            return k === 'plan' || k.includes('treatment_plan') || k.includes('plan');
+          }
+          return k === kindGate || k.includes(kindGate);
+        })
+      }))
+      .filter((cat) => cat.aids.length);
+  }
   return orderNoteAidCategoriesForHcbs(filtered, hcbsCategory.value);
 });
 /** Explicit gem/tool from the Aid picker — this is how we reuse the working Gemini Gem prompts in-app. */
@@ -3900,12 +3937,23 @@ const draftNoteTypeLabel = (d) => {
     }
   })();
   if (String(parsed?.meta?.source || '') === 'session_recording') return 'Session Recording';
-  const code = String(d?.service_code || '').trim().toUpperCase();
+  const code = singleServiceCodeLabel(d?.service_code || d?.serviceCode || '');
   if (!code) return 'Progress Note';
-  const group = NOTE_TYPE_GROUPS.find((g) => g.codes.includes(code));
-  if (group) return group.label;
-  return serviceCodeDescription(code) ? `${code} Note` : code;
+  const kind = String(d?.note_kind || d?.noteKind || '').toLowerCase();
+  if (kind.includes('intake')) return `Intake (${code})`;
+  if (kind.includes('termination')) return 'Termination note';
+  if (kind.includes('treatment')) return 'Treatment plan';
+  return `Progress (${code})`;
 };
+
+/** Prefer one CPT/HCPCS — never the slash-joined psychotherapy group label. */
+function singleServiceCodeLabel(raw) {
+  const s = String(raw || '').trim().toUpperCase();
+  if (!s) return '';
+  if (/^[A-Z]?\d{4,5}[A-Z]?$/.test(s)) return s;
+  const m = s.match(/\b((?:90\d{3}|H\d{4}|T\d{4}|G\d{4}|99\d{3}))\b/);
+  return m ? m[1] : '';
+}
 
 watch(outputObj, () => {
   Object.keys(sectionOverrides).forEach((k) => delete sectionOverrides[k]);
@@ -5994,6 +6042,7 @@ const onPlanImportSaved = async (plan) => {
       ? 'Treatment plan draft saved.'
       : 'Treatment plan saved to chart.')
     : 'Treatment plan import completed.';
+  reopenClientSetupIfNeeded();
 };
 
 const closePlanDraftEditor = () => {
@@ -6001,6 +6050,7 @@ const closePlanDraftEditor = () => {
   planDraftEditorId.value = null;
   planDraftEditorMode.value = 'import';
   planDraftInitialPlan.value = null;
+  reopenClientSetupIfNeeded();
 };
 
 const openPlanImportReview = () => {
@@ -6030,11 +6080,13 @@ const onIntakeDraftEditorFinalized = async (payload) => {
   clientContextPanelRef.value?.switchTab?.('goals');
   const draftId = Number(latestTreatmentPlan.value?.id || 0);
   const isDraft = String(latestTreatmentPlan.value?.status || '').toLowerCase() === 'draft';
-  if (draftId && isDraft && !planImportedOnce.value) {
+  if (draftId && isDraft && !planImportedOnce.value && !planOnFile.value) {
     planDraftEditorId.value = draftId;
     planDraftEditorMode.value = 'draft';
     planDraftInitialPlan.value = latestTreatmentPlan.value;
     showPlanImportReview.value = true;
+  } else {
+    reopenClientSetupIfNeeded();
   }
   approvalMessage.value = 'Intake note finalized.';
 };
@@ -6068,11 +6120,13 @@ const onIntakeImportFinalized = async () => {
   clientContextPanelRef.value?.switchTab?.('goals');
   const draftId = Number(latestTreatmentPlan.value?.id || 0);
   const isDraft = String(latestTreatmentPlan.value?.status || '').toLowerCase() === 'draft';
-  if (draftId && isDraft && !planImportedOnce.value) {
+  if (draftId && isDraft && !planImportedOnce.value && !planOnFile.value) {
     planDraftEditorId.value = draftId;
     planDraftEditorMode.value = 'draft';
     planDraftInitialPlan.value = latestTreatmentPlan.value;
     showPlanImportReview.value = true;
+  } else {
+    reopenClientSetupIfNeeded();
   }
   approvalMessage.value = 'Intake note saved to chart.';
 };
@@ -6107,6 +6161,7 @@ const onDemographicsImported = async () => {
   }
   approvalMessage.value = 'Demographics encrypted and saved to the client chart.';
   clientContextPanelRef.value?.switchTab?.('demographics');
+  reopenClientSetupIfNeeded();
 };
 
 let workQueueSyncSeq = 0;
@@ -6497,7 +6552,8 @@ async function activateWorkQueueItem(item) {
 
   showProgressSessionPicker.value = false;
   progressEntryMode.value = item.officeEventId ? 'appointment' : 'client';
-  dateOfService.value = item.date || todayIsoDate();
+  const dosIso = toWorkQueueDateOnly(item.date) || todayIsoDate();
+  dateOfService.value = dosIso;
   sessionOfficeEventId.value = item.officeEventId || null;
   sessionClinicalSessionId.value = item.clinicalSessionId || null;
   sessionDurationMinutes.value = item.durationMinutes || null;
@@ -6505,10 +6561,19 @@ async function activateWorkQueueItem(item) {
   sessionParticipants.value = normalizeParticipantsLabel(item.participantsSummary || 'Client Only');
   sessionParticipantsDetail.value = item.participantsDetail || '';
   sessionPatientDob.value = item.clientDob ? String(item.clientDob).slice(0, 10) : '';
-  sessionScheduledStart.value = item.scheduledStart || null;
-  sessionScheduledEnd.value = item.scheduledEnd || null;
+  let scheduledStart = item.scheduledStart || null;
+  let scheduledEnd = item.scheduledEnd || null;
+  if (!scheduledStart && item.timeLabel) {
+    scheduledStart = scheduledStartFromQueueDateAndTime(dosIso, item.timeLabel);
+  }
+  sessionScheduledStart.value = scheduledStart;
+  sessionScheduledEnd.value = scheduledEnd;
   sessionCodeSwitchBanner.value = '';
   applySessionTimingDefaults({ force: sessionDurationMinutes.value == null });
+  if (!sessionStartTimeLocal.value && item.timeLabel) {
+    const hhmm = timeLabelToHhMm(item.timeLabel);
+    if (hhmm) sessionStartTimeLocal.value = hhmm;
+  }
   chartMentalStatus.value = defaultMentalStatusExam();
   chartRiskAssessment.value = defaultRiskAssessment();
   chartMedications.value = defaultMedicationsBlock();
@@ -6655,17 +6720,47 @@ async function activateWorkQueueItem(item) {
   if (reuse) {
     await loadDraftIntoWorkspace(reuse, {
       preserveWorkQueueItemId: true,
-      expectedClientId: clientId
+      expectedClientId: clientId,
+      preferredServiceCode: item.serviceCode || null,
+      preferredDateOfService: toWorkQueueDateOnly(item.date),
+      preferredStartTimeLabel: item.timeLabel || null,
+      preferredScheduledStart: item.scheduledStart || null,
+      preferredScheduledEnd: item.scheduledEnd || null
     });
     if (seq !== workQueueActivateSeq) return;
     activeWorkQueueItemId.value = item.id;
     if (item.officeEventId) sessionOfficeEventId.value = item.officeEventId;
     if (item.clinicalSessionId) sessionClinicalSessionId.value = item.clinicalSessionId;
-    if (item.date) dateOfService.value = String(item.date).slice(0, 10);
+    const dosIso = toWorkQueueDateOnly(item.date);
+    if (dosIso) dateOfService.value = dosIso;
+    if (item.serviceCode) {
+      selectedServiceCode.value = String(item.serviceCode).toUpperCase();
+      otherServiceCode.value = '';
+    }
+    if (!sessionStartTimeLocal.value && item.timeLabel) {
+      const hhmm = timeLabelToHhMm(item.timeLabel);
+      if (hhmm) sessionStartTimeLocal.value = hhmm;
+    }
     progressEntryMode.value = item.officeEventId ? 'appointment' : 'client';
     workQueueItems.value = (workQueueItems.value || []).map((row) =>
-      row.id === item.id ? { ...row, draftId: reuse.id } : row
+      row.id === item.id
+        ? {
+            ...row,
+            draftId: reuse.id,
+            serviceCode: item.serviceCode || row.serviceCode,
+            date: dosIso || row.date
+          }
+        : row
     );
+    // Keep the left-library draft card in sync with the queue CPT (not group primary).
+    if (item.serviceCode && reuse.id) {
+      recentDrafts.value = (recentDrafts.value || []).map((d) =>
+        String(d.id) === String(reuse.id)
+          ? { ...d, service_code: String(item.serviceCode).toUpperCase(), date_of_service: dosIso || d.date_of_service }
+          : d
+      );
+      scheduleAutosave(400);
+    }
     persistWorkQueue();
     if (isFinished) sidebarTab.value = incomingStatus;
     return;
@@ -6707,7 +6802,7 @@ async function ensureWorkQueueDraft(item) {
       clientId,
       officeEventId: Number(item.officeEventId || 0) || null,
       clinicalSessionId: Number(item.clinicalSessionId || 0) || null,
-      dateOfService: item.date ? String(item.date).slice(0, 10) : dateOfService.value,
+      dateOfService: item.date ? (toWorkQueueDateOnly(item.date) || null) : dateOfService.value,
       serviceCode: item.serviceCode || null,
       initials: initials.value || deriveInitialsFromNameSafe(item.clientName),
       inputText: null
@@ -7072,7 +7167,9 @@ const loadDraftIntoWorkspace = async (d, options = {}) => {
   noteAidAgencyChoiceId.value = null;
   currentDraftArchivedAt.value = d.archived_at || null;
   currentDraftCreatedAt.value = d.created_at || null;
-  const draftCode = String(d.service_code || '').trim().toUpperCase();
+  const draftCode = singleServiceCodeLabel(
+    options.preferredServiceCode || d.service_code || d.serviceCode || ''
+  );
   otherServiceCode.value = '';
   if (!draftCode) {
     selectedServiceCode.value = '';
@@ -7080,12 +7177,13 @@ const loadDraftIntoWorkspace = async (d, options = {}) => {
     selectedServiceCode.value = '__other__';
     otherServiceCode.value = draftCode;
   } else {
-    const resolved = resolveNoteTypeSelection(draftCode);
+    // Keep the concrete CPT (e.g. 90832). Do not collapse to the psychotherapy
+    // group id — that would make actualServiceCode jump to the group primary (90837).
     const known = (noteTypeOptions.value || []).some(
-      (o) => o.value === resolved || o.codes.includes(draftCode)
+      (o) => o.value === draftCode || (o.codes || []).includes(draftCode)
     );
-    if (known) {
-      selectedServiceCode.value = resolved;
+    if (known || NOTE_TYPE_GROUPS.some((g) => g.codes.includes(draftCode))) {
+      selectedServiceCode.value = draftCode;
     } else {
       selectedServiceCode.value = '__other__';
       otherServiceCode.value = draftCode;
@@ -7093,7 +7191,20 @@ const loadDraftIntoWorkspace = async (d, options = {}) => {
   }
   selectedProgramId.value = d.program_id ? String(d.program_id) : '';
   inputText.value = unwrapDraftText(d.input_text);
-  dateOfService.value = d.date_of_service ? String(d.date_of_service).slice(0, 10) : todayIsoDate();
+  const preferredDos = toWorkQueueDateOnly(options.preferredDateOfService);
+  const draftDos = toWorkQueueDateOnly(d.date_of_service || d.dateOfService);
+  dateOfService.value = preferredDos || draftDos || todayIsoDate();
+  if (options.preferredScheduledStart || options.preferredStartTimeLabel) {
+    const startIso = options.preferredScheduledStart
+      || scheduledStartFromQueueDateAndTime(dateOfService.value, options.preferredStartTimeLabel);
+    if (startIso) sessionScheduledStart.value = startIso;
+    if (options.preferredScheduledEnd) sessionScheduledEnd.value = options.preferredScheduledEnd;
+    applySessionTimingDefaults({ force: sessionDurationMinutes.value == null });
+    if (!sessionStartTimeLocal.value && options.preferredStartTimeLabel) {
+      const hhmm = timeLabelToHhMm(options.preferredStartTimeLabel);
+      if (hhmm) sessionStartTimeLocal.value = hhmm;
+    }
+  }
   initials.value = d.initials || '';
   let draftClientId = expectedClientId || resolveDraftClientIdOnLoad(d);
   if (expectedClientId) draftClientId = expectedClientId;
@@ -7467,9 +7578,12 @@ onMounted(async () => {
       } else if (props.embedDraftId) {
         const hit = recentDrafts.value.find((d) => String(d.id) === String(props.embedDraftId));
         if (hit) await loadDraftIntoWorkspace(hit);
-      } else {
+      } else if (props.embedOpenLibrary !== false) {
         // New note from client profile — pick a tool with the client already attached.
         showAidPicker.value = true;
+        noteWizardStep.value = 1;
+      } else {
+        showAidPicker.value = false;
         noteWizardStep.value = 1;
       }
       if (props.embedClinicalNoteId || props.embedDraftId) {

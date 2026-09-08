@@ -855,12 +855,15 @@ function buildSupportTicketResponsePrompt({
   }
 
   if (Array.isArray(notes) && notes.length) {
-    lines.push('', 'Recent client notes:');
+    lines.push(
+      '',
+      'Client account notes (use these for contact attempts, spring/fall updates, terminations — do not invent):'
+    );
     for (const note of notes) {
       const author = truncateText(note?.author_name || `User #${note?.author_id || '—'}`, 120);
       const category = truncateText(note?.category || 'general', 40);
       lines.push(
-        `- [${category}] ${author} (${formatPromptDate(note?.created_at)}): ${truncateText(note?.message, 600)}`
+        `- [${category}] ${author} (${formatPromptDate(note?.created_at)}): ${truncateText(note?.message, 800)}`
       );
     }
   }
@@ -897,7 +900,8 @@ function buildSupportTicketResponsePrompt({
 
   lines.push(
     '',
-    'Write a helpful, concise response. Keep it professional and actionable.',
+    'Write a helpful, complete response (do not stop mid-sentence). Keep it professional and actionable.',
+    'When client notes mention prior contact attempts, spring/fall updates, or termination, reflect that accurately.',
     'If regeneration guidance is present, revise the draft accordingly without inventing new facts.'
   );
 
@@ -2655,7 +2659,51 @@ export const generateSupportTicketResponse = async (req, res, next) => {
           hasAgencyAccess: true,
           canViewInternalNotes
         });
-        notes = Array.isArray(list) ? list.slice(0, 5) : [];
+        const allNotes = Array.isArray(list) ? list : [];
+        // Prefer contact / clinical / status notes (school-reply context: parent contact attempts, updates).
+        const prioritized = allNotes.filter((n) => {
+          const cat = String(n?.category || '').toLowerCase();
+          return ['contact', 'clinical', 'status', 'administrative', 'termination'].includes(cat)
+            || /terminat|spring|fall|contact|parent|guardian|dencon/i.test(String(n?.message || ''));
+        });
+        notes = (prioritized.length ? prioritized : allNotes).slice(0, 12);
+
+        try {
+          const [lifeRows] = await pool.execute(
+            `SELECT c.status, cs.status_key, cs.label AS status_label,
+                    c.termination_reason, c.terminated_at, c.updated_at
+             FROM clients c
+             LEFT JOIN client_statuses cs ON cs.id = c.client_status_id
+             WHERE c.id = ?
+             LIMIT 1`,
+            [ticket.client_id]
+          );
+          const life = lifeRows?.[0] || null;
+          if (life) {
+            const statusKey = String(life.status_key || life.status || '').toLowerCase();
+            const bits = [
+              `Status: ${life.status_label || life.status || '—'}`,
+              statusKey.includes('spring') ? 'Spring update pending/on file' : null,
+              statusKey.includes('fall') ? 'Fall update pending/on file' : null,
+              life.terminated_at || /terminat/i.test(statusKey)
+                ? `Terminated${life.termination_reason ? `: ${String(life.termination_reason).slice(0, 160)}` : ''}`
+                : null
+            ].filter(Boolean);
+            if (bits.length) {
+              notes = [
+                {
+                  category: 'lifecycle',
+                  author_name: 'System',
+                  created_at: life.updated_at || life.terminated_at,
+                  message: bits.join(' · ')
+                },
+                ...notes
+              ].slice(0, 14);
+            }
+          }
+        } catch {
+          /* optional enrichment */
+        }
       } catch {
         notes = [];
       }
@@ -2761,7 +2809,7 @@ export const generateSupportTicketResponse = async (req, res, next) => {
     const { text, modelName, provider, latencyMs } = await callGeminiText({
       prompt,
       temperature: regenerationGuidance ? 0.35 : 0.2,
-      maxOutputTokens: 1000
+      maxOutputTokens: 2800
     });
 
     if (libraryMatches.length) {

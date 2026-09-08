@@ -1606,6 +1606,16 @@
             >
               ● Quick note
             </button>
+            <button
+              v-if="Number(editorAppointmentId || 0) > 0"
+              type="button"
+              class="appt-workspace-quicknote-btn"
+              data-testid="appointment-change-workflow-btn"
+              title="Cancel, no-show, reschedule, or void with auto note"
+              @click="openAppointmentChangeWizard"
+            >
+              Change appointment…
+            </button>
           </div>
 
           <div
@@ -5438,6 +5448,11 @@
       @queued="showPushSessionUpdatePanel = false"
     />
 
+    <AppointmentChangeWizard
+      :change="appointmentChange"
+      @completed="onAppointmentChangeCompleted"
+    />
+
     <div
       v-if="peerActivityModal"
       class="modal-backdrop modal-backdrop--request"
@@ -5536,6 +5551,7 @@ import UnifiedBookingPanel from './UnifiedBookingPanel.vue';
 import WorkHoursEditor from './WorkHoursEditor.vue';
 import PersonSearchSelect from './PersonSearchSelect.vue';
 import AppointmentEditorShell from './AppointmentEditorShell.vue';
+import AppointmentChangeWizard from './AppointmentChangeWizard.vue';
 import AppointmentInfoPanel from './AppointmentInfoPanel.vue';
 import AppointmentBillingPanel from './AppointmentBillingPanel.vue';
 import AppointmentPackageSettlement from './AppointmentPackageSettlement.vue';
@@ -5557,6 +5573,7 @@ import MeetingNotesPanel from '../meetings/MeetingNotesPanel.vue';
 import SupervisionSuperviseePanel from './SupervisionSuperviseePanel.vue';
 import SupervisionPresenterCasePanel from './SupervisionPresenterCasePanel.vue';
 import OpenSlotPlusOfficeRequestBody from './OpenSlotPlusOfficeRequestBody.vue';
+import { useAppointmentChange } from '../../composables/useAppointmentChange.js';
 import AppointmentRemindersPanel from './AppointmentRemindersPanel.vue';
 import PushSessionUpdatePanel from './PushSessionUpdatePanel.vue';
 import {
@@ -5627,6 +5644,7 @@ const scheduleOrgTo = (path) => (scheduleOrgSlug.value ? `/${scheduleOrgSlug.val
 const staffSchedulesCompareTo = computed(() => scheduleOrgTo('/schedule/staff'));
 
 const showUnifiedBookingPanel = ref(false);
+const appointmentChange = useAppointmentChange();
 const unifiedBookingStartAt = ref('');
 const unifiedBookingEndAt = ref('');
 const unifiedBookingDayLabel = ref('');
@@ -14767,6 +14785,30 @@ function openEditorQuickNote() {
     const el = document.querySelector('[data-testid="office-event-session-note"] textarea, [data-testid="appointment-clinical-panel"] .acp-textarea');
     if (el && typeof el.focus === 'function') el.focus();
   });
+}
+
+function openAppointmentChangeWizard() {
+  const id = Number(editorAppointmentId.value || 0);
+  if (!id) {
+    window.alert('Save or open a linked appointment first, then use Change appointment.');
+    return;
+  }
+  appointmentChange.openWizard({
+    appointmentId: id,
+    context: {
+      clientName: editorInfoClientName.value || '',
+      clientId: editorInfoClientId.value || null,
+      clientCode: '',
+      serviceLabel: editorInfoServiceLabel.value || editorInfoTypeLabel.value || '',
+      whenLabel: editorInfoWhenLabel.value || '',
+      providerName: bookingTargetUserLabel.value || '',
+      payerLabel: ''
+    }
+  });
+}
+
+function onAppointmentChangeCompleted() {
+  window.alert('Appointment change saved and note signed.');
 }
 
 /**

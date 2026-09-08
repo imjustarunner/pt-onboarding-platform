@@ -14,6 +14,7 @@ import { scrubIntakeTextForNoteWriter } from './phiScrubber.service.js';
 import { collectClientPhiNames } from './clientPhiNames.service.js';
 import { parseIntakeDiagnoses } from './intakeImport.service.js';
 import { deriveCredentialTierFromText } from '../utils/credentialNormalization.js';
+import { parseScalePair, inferScaleDirection } from './treatmentPlanImport.service.js';
 
 export const INTAKE_PACKET_BOOTSTRAP_TOOL = 'intake_packet_bootstrap';
 export const TREATMENT_PLAN_DRAFT_TITLE = 'Treatment Plan Draft';
@@ -172,22 +173,26 @@ export function extractGoalsFromIntakeText(text) {
           .replace(/^(?:Objective|Obj\.?)\s*\d*\s*[:.\-–—]?\s*/i, '')
           .replace(/^[-*•]\s+/, '')
           .trim();
-        const scaleMatch = text.match(/(\d{1,2})\s*(?:\/|→|->|to)\s*(\d{1,2})/);
+        const scales = parseScalePair(text);
         currentObj = {
           objectiveIndex: objectives.length + 1,
-          objectiveText: text.replace(/\s*\(?\s*\d{1,2}\s*(?:\/|→|->|to)\s*\d{1,2}\s*\)?/g, '').trim() || text,
-          scaleCurrent: scaleMatch ? Math.max(1, Math.min(10, Number(scaleMatch[1]))) : null,
-          scaleTarget: scaleMatch ? Math.max(1, Math.min(10, Number(scaleMatch[2]))) : null,
+          objectiveText: text,
+          scaleCurrent: scales.scaleCurrent,
+          scaleTarget: scales.scaleTarget,
+          scaleDirection: inferScaleDirection(scales.scaleCurrent, scales.scaleTarget),
           measurementMethod: '1-10 scale (client self-report)'
         };
       } else if (currentObj) {
         currentObj.objectiveText = `${currentObj.objectiveText} ${line}`.trim();
-        if (currentObj.scaleCurrent == null) {
-          const scaleMatch = line.match(/(\d{1,2})\s*(?:\/|→|->|to)\s*(\d{1,2})/);
-          if (scaleMatch) {
-            currentObj.scaleCurrent = Math.max(1, Math.min(10, Number(scaleMatch[1])));
-            currentObj.scaleTarget = Math.max(1, Math.min(10, Number(scaleMatch[2])));
-          }
+        if (currentObj.scaleCurrent == null || currentObj.scaleTarget == null) {
+          const scales = parseScalePair(currentObj.objectiveText);
+          if (scales.scaleCurrent != null) currentObj.scaleCurrent = scales.scaleCurrent;
+          if (scales.scaleTarget != null) currentObj.scaleTarget = scales.scaleTarget;
+          currentObj.scaleDirection = inferScaleDirection(
+            currentObj.scaleCurrent,
+            currentObj.scaleTarget,
+            currentObj.scaleDirection
+          );
         }
       }
     }
@@ -364,6 +369,16 @@ export async function bootstrapIntakeAndPlanFromPacket({
   const sectionsObject = parseSections(geminiText);
   const sections = normalizeDraftSections(sectionsObject, geminiText);
   const goals = extractGoalsFromIntakeText(geminiText);
+  const presentingProblem = String(
+    sectionsObject?.['Presenting Problem'] || sectionsObject?.['Chief Complaint'] || ''
+  ).trim() || null;
+  const dischargeParts = [];
+  if (presentingProblem) dischargeParts.push(`Presenting Problem\n${presentingProblem}`);
+  if (suggestedDx?.justification) {
+    // Justification is also stored on diagnostic_justification; keep discharge block for editor hydrate.
+  }
+  dischargeParts.push('Discharge Criteria/Planning\n');
+  const dischargePlan = dischargeParts.join('\n\n');
 
   const scrubbedInputEnc = maybeEncryptNotePayload(scrubbedText);
   const noteBodyEnc = maybeEncryptNotePayload(geminiText);
@@ -395,7 +410,8 @@ export async function bootstrapIntakeAndPlanFromPacket({
       sourceToolId: INTAKE_PACKET_BOOTSTRAP_TOOL,
       createdByUserId: providerUserId || actorUserId || null,
       goals,
-      diagnosticJustification: suggestedDx?.justification || null
+      diagnosticJustification: suggestedDx?.justification || null,
+      dischargePlan
     });
     if (treatmentPlan?.id) {
       await ClientIntakeNoteDraft.updateStatus({
@@ -531,32 +547,79 @@ export async function regenerateIntakeDraftFromAddendum({
 
 /**
  * After intake finalize, refresh linked bootstrap TP draft (or create one).
+ * Hydrates presenting problem, diagnostic justification, and linked diagnoses from the intake.
  */
 export async function refreshTreatmentPlanDraftFromIntake({
   intakeDraft,
   agencyId,
   clientId,
   actorUserId = null,
-  goalsFromRequest = null
+  goalsFromRequest = null,
+  primaryDiagnosisId = null,
+  planDiagnoses = null,
+  presentingProblem: presentingProblemOverride = null,
+  diagnosticJustification: diagnosticJustificationOverride = null,
+  dischargePlan: dischargePlanOverride = null
 } = {}) {
   const aid = safeInt(agencyId);
   const cid = safeInt(clientId);
   if (!aid || !cid || !intakeDraft?.id) return null;
 
   const noteBody = maybeDecryptNotePayload(intakeDraft.note_body_enc) || '';
+  const sections = parseSections(noteBody) || {};
   const goals = Array.isArray(goalsFromRequest) && goalsFromRequest.length
     ? goalsFromRequest
     : extractGoalsFromIntakeText(noteBody);
 
-  let justification = null;
+  let confirmed = null;
+  let suggested = null;
   try {
-    const confirmed = intakeDraft.confirmed_dx_json
-      ? JSON.parse(intakeDraft.confirmed_dx_json)
-      : null;
-    justification = confirmed?.justification || null;
+    confirmed = intakeDraft.confirmed_dx_json ? JSON.parse(intakeDraft.confirmed_dx_json) : null;
   } catch {
-    justification = null;
+    confirmed = null;
   }
+  try {
+    suggested = intakeDraft.suggested_dx_json ? JSON.parse(intakeDraft.suggested_dx_json) : null;
+  } catch {
+    suggested = null;
+  }
+
+  const dxPrimary = confirmed?.primary || confirmed?.diagnoses?.[0] || confirmed
+    || suggested?.primary || suggested?.diagnoses?.[0] || suggested
+    || null;
+  const justification = String(
+    diagnosticJustificationOverride
+    || confirmed?.justification
+    || dxPrimary?.justification
+    || suggested?.justification
+    || sections['Clinical Impressions']
+    || sections.Assessment
+    || ''
+  ).trim() || null;
+
+  const presentingProblem = String(
+    presentingProblemOverride
+    || sections['Presenting Problem']
+    || sections['Chief Complaint']
+    || ''
+  ).trim() || null;
+
+  const prescribedFrequency = String(sections['Treatment Recommendations'] || '').trim() || null;
+  const dischargeCriteria = String(sections['Discharge Plan'] || '').trim() || null;
+
+  const dischargeParts = [];
+  if (presentingProblem) dischargeParts.push(`Presenting Problem\n${presentingProblem}`);
+  if (prescribedFrequency) {
+    dischargeParts.push(`Prescribed Frequency of Treatment\n${prescribedFrequency}`);
+  }
+  if (dischargeCriteria) {
+    dischargeParts.push(`Discharge Criteria/Planning\n${dischargeCriteria}`);
+  } else if (presentingProblem) {
+    dischargeParts.push('Discharge Criteria/Planning\n');
+  }
+  const dischargePlan = dischargePlanOverride != null
+    ? dischargePlanOverride
+    : (dischargeParts.length ? dischargeParts.join('\n\n') : null);
 
   const existingPlanId = safeInt(intakeDraft.treatment_plan_id);
   let plan = null;
@@ -568,33 +631,47 @@ export async function refreshTreatmentPlanDraftFromIntake({
     && String(plan.source_tool_id || '') === INTAKE_PACKET_BOOTSTRAP_TOOL
     && String(plan.status || '').toLowerCase() === 'draft';
 
-  if (isBootstrapDraft) {
-    // Replace draft by creating a fresh plan and leaving the old draft orphaned (still draft).
-    // Prefer create new + relink to avoid complex amend supersede noise on bootstrap drafts.
-    plan = await ClinicalTreatmentPlan.create({
-      agencyId: aid,
-      clientId: cid,
-      title: TREATMENT_PLAN_DRAFT_TITLE,
-      status: 'draft',
-      sourceToolId: INTAKE_PACKET_BOOTSTRAP_TOOL,
-      createdByUserId: actorUserId || intakeDraft.provider_user_id || null,
-      goals,
-      diagnosticJustification: justification
-    });
-  } else if (!plan) {
-    plan = await ClinicalTreatmentPlan.create({
-      agencyId: aid,
-      clientId: cid,
-      title: TREATMENT_PLAN_DRAFT_TITLE,
-      status: 'draft',
-      sourceToolId: INTAKE_PACKET_BOOTSTRAP_TOOL,
-      createdByUserId: actorUserId || intakeDraft.provider_user_id || null,
-      goals,
-      diagnosticJustification: justification
-    });
+  const createPayload = {
+    agencyId: aid,
+    clientId: cid,
+    title: TREATMENT_PLAN_DRAFT_TITLE,
+    status: 'draft',
+    sourceToolId: INTAKE_PACKET_BOOTSTRAP_TOOL,
+    createdByUserId: actorUserId || intakeDraft.provider_user_id || null,
+    goals,
+    diagnosticJustification: justification,
+    primaryDiagnosisId: safeInt(primaryDiagnosisId) || null,
+    dischargePlan
+  };
+
+  if (isBootstrapDraft || !plan) {
+    // Replace bootstrap draft by creating a fresh plan (or create when missing).
+    plan = await ClinicalTreatmentPlan.create(createPayload);
   }
 
   if (plan?.id) {
+    if (Array.isArray(planDiagnoses) && planDiagnoses.length) {
+      try {
+        plan = await ClinicalTreatmentPlan.replacePlanDiagnoses({
+          planId: plan.id,
+          diagnoses: planDiagnoses,
+          primaryDiagnosisId: safeInt(primaryDiagnosisId) || null
+        }) || plan;
+      } catch (e) {
+        console.warn('[intakePacketBootstrap] replacePlanDiagnoses failed', e?.message || e);
+      }
+    } else if (safeInt(primaryDiagnosisId)) {
+      try {
+        plan = await ClinicalTreatmentPlan.replacePlanDiagnoses({
+          planId: plan.id,
+          diagnoses: [{ diagnosisId: safeInt(primaryDiagnosisId), isPrimary: true, justification }],
+          primaryDiagnosisId: safeInt(primaryDiagnosisId)
+        }) || plan;
+      } catch (e) {
+        console.warn('[intakePacketBootstrap] link primary diagnosis failed', e?.message || e);
+      }
+    }
+
     await ClientIntakeNoteDraft.updateStatus({
       draftId: intakeDraft.id,
       status: intakeDraft.status || 'final',

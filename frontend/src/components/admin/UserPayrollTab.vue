@@ -335,6 +335,36 @@
           <span class="muted" style="font-size:12px;">When on, % fields appear on the rate card and percent pay is used where configured.</span>
         </div>
 
+        <div class="missed-appt-comp-row">
+          <label>
+            <span class="comp-subtitle">Missed appointment compensation</span>
+            <select
+              v-model="missedApptCompMode"
+              class="input"
+              :disabled="!canEditRates || savingMissedApptComp"
+              @change="saveMissedApptCompensation"
+            >
+              <option value="none">No compensation</option>
+              <option value="hourly">Hourly rate</option>
+              <option value="percent_of_fee">Percentage of collected missed-appointment fee</option>
+            </select>
+          </label>
+          <label v-if="missedApptCompMode === 'percent_of_fee'">
+            <span class="comp-subtitle">Percentage</span>
+            <input
+              v-model.number="missedApptCompPercent"
+              class="input"
+              type="number"
+              min="0"
+              max="100"
+              step="0.01"
+              :disabled="!canEditRates || savingMissedApptComp"
+              @change="saveMissedApptCompensation"
+            />
+          </label>
+          <span v-if="savingMissedApptComp" class="muted">Saving…</span>
+        </div>
+
         <div v-if="editingRates" class="muted" style="margin-top: 8px;">
           Tip: set a <strong>$</strong> rate, a <strong>%</strong> rate, or both per code — leave blank to not override.
           <span v-if="percentOfChargePayEnabled && userPercentPayEnabled"> Which value is used at pay time depends on the pay method set for that code in Settings → Payroll Settings → Percent-of-charge pay.</span>
@@ -880,6 +910,9 @@ const percentagePayDefaultPercent = ref(0);
 const userPercentPayEnabled = ref(false);
 const savingUserPercentToggle = ref(false);
 const userRateVisibilityRows = ref([]);
+const missedApptCompMode = ref('none');
+const missedApptCompPercent = ref(50);
+const savingMissedApptComp = ref(false);
 
 const ptoLoading = ref(false);
 const savingPto = ref(false);
@@ -1689,6 +1722,44 @@ const saveUserPercentPayToggle = async (val) => {
   }
 };
 
+function hydrateMissedApptCompFromUser() {
+  const u = props.user || {};
+  const mode = String(
+    u.missed_appointment_compensation_mode || u.missedAppointmentCompensationMode || 'none'
+  ).toLowerCase();
+  missedApptCompMode.value = ['none', 'hourly', 'percent_of_fee'].includes(mode) ? mode : 'none';
+  const pct = Number(u.missed_appointment_compensation_percent ?? u.missedAppointmentCompensationPercent);
+  missedApptCompPercent.value = Number.isFinite(pct) ? pct : 50;
+}
+
+const saveMissedApptCompensation = async () => {
+  if (!canEditRates.value || !props.userId) return;
+  try {
+    savingMissedApptComp.value = true;
+    editError.value = '';
+    await api.put(`/users/${props.userId}`, {
+      missedAppointmentCompensationMode: missedApptCompMode.value,
+      missedAppointmentCompensationPercent:
+        missedApptCompMode.value === 'percent_of_fee' ? Number(missedApptCompPercent.value) : null
+    });
+  } catch (e) {
+    editError.value = e.response?.data?.error?.message || e.message || 'Failed to save missed appointment compensation';
+  } finally {
+    savingMissedApptComp.value = false;
+  }
+};
+
+watch(
+  () => [
+    props.user?.missed_appointment_compensation_mode,
+    props.user?.missedAppointmentCompensationMode,
+    props.user?.missed_appointment_compensation_percent,
+    props.user?.missedAppointmentCompensationPercent
+  ],
+  () => hydrateMissedApptCompFromUser(),
+  { immediate: true }
+);
+
 const beginEditRates = () => {
   if (!canEditRates.value) return;
   editError.value = '';
@@ -2215,6 +2286,28 @@ select option {
   background: #f0fdf4;
   border: 1px solid #bbf7d0;
   border-radius: 8px;
+}
+.missed-appt-comp-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: flex-end;
+  margin-top: 12px;
+  padding: 12px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #f8fafc;
+}
+.missed-appt-comp-row label {
+  display: grid;
+  gap: 4px;
+  font-size: 13px;
+}
+.missed-appt-comp-row .input {
+  min-width: 220px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid #cbd5e1;
 }
 .pct-toggle-label {
   display: flex;

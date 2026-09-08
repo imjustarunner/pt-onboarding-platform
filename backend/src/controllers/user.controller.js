@@ -2586,6 +2586,8 @@ export const updateUser = async (req, res, next) => {
       homePostalCode,
       medcancelEnabled,
       medcancelRateSchedule,
+      missedAppointmentCompensationMode,
+      missedAppointmentCompensationPercent,
       companyCardEnabled,
       companyCarSubmitAccess,
       companyCarManageAccess,
@@ -3077,6 +3079,12 @@ export const updateUser = async (req, res, next) => {
     // Med Cancel flags (contract feature / Benefits tab)
     if (medcancelEnabled !== undefined) updateData.medcancelEnabled = Boolean(medcancelEnabled);
     if (medcancelRateSchedule !== undefined) updateData.medcancelRateSchedule = medcancelRateSchedule;
+    if (missedAppointmentCompensationMode !== undefined) {
+      updateData.missedAppointmentCompensationMode = missedAppointmentCompensationMode;
+    }
+    if (missedAppointmentCompensationPercent !== undefined) {
+      updateData.missedAppointmentCompensationPercent = missedAppointmentCompensationPercent;
+    }
 
     // Benefits tab: employment classification, notes, eligibility overrides, enrollment
     if (employmentType !== undefined) updateData.employmentType = employmentType;

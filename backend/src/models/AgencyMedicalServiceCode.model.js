@@ -190,6 +190,39 @@ class AgencyMedicalServiceCode {
     }
     return this.findByAgencyAndCode(agencyId, code);
   }
+
+  /**
+   * Opt-in missed-event billing override. Default mode is none (no insurance claim).
+   */
+  static async updateMissedBillingOverride(agencyId, serviceCode, {
+    missedBillingMode = 'none',
+    missedBillingServiceCode = null,
+    missedBillingTriggers = 'no_show,late_cancel'
+  } = {}) {
+    const code = String(serviceCode || '').trim().toUpperCase();
+    const mode = String(missedBillingMode || 'none').trim().toLowerCase();
+    if (!['none', 'fee_ledger_only', 'secondary_claim_draft'].includes(mode)) {
+      throw Object.assign(new Error('missedBillingMode must be none, fee_ledger_only, or secondary_claim_draft'), {
+        status: 400
+      });
+    }
+    await pool.execute(
+      `UPDATE agency_medical_service_codes
+       SET missed_billing_mode = ?,
+           missed_billing_service_code = ?,
+           missed_billing_triggers = ?,
+           updated_at = CURRENT_TIMESTAMP
+       WHERE agency_id = ? AND service_code = ?`,
+      [
+        mode,
+        missedBillingServiceCode ? String(missedBillingServiceCode).trim().toUpperCase() : null,
+        String(missedBillingTriggers || 'no_show,late_cancel'),
+        Number(agencyId),
+        code
+      ]
+    );
+    return this.findByAgencyAndCode(agencyId, code);
+  }
 }
 
 export default AgencyMedicalServiceCode;

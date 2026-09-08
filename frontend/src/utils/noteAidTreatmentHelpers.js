@@ -2,6 +2,9 @@
  * Progress relative to measurable objective goal (1–10).
  * Closer to target = progressing; at target = improved; farther = regressed.
  */
+import { isTenantOrganizationType } from './organizationTypes.js';
+import { isBookClubAgency } from './bookClubAgency.js';
+
 export function distanceToGoal(value, target) {
   if (value == null || target == null) return null;
   const v = Number(value);
@@ -613,6 +616,9 @@ export function noteAidTenantOptions(agencyStore, { role = '' } = {}) {
   for (const a of source) {
     const id = Number(a?.id || 0);
     if (!id || seen.has(id)) continue;
+    // Main tenants only — schools, programs, book clubs, etc. are not ToDo-list tenants.
+    if (!isTenantOrganizationType(a)) continue;
+    if (isBookClubAgency(a)) continue;
     seen.add(id);
     out.push({
       id,

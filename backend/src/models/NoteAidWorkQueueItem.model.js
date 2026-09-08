@@ -16,6 +16,28 @@ function clampText(v, maxLen) {
   return trimmed.length > maxLen ? trimmed.slice(0, maxLen) : trimmed;
 }
 
+/** Serialize DATE / Date / ISO strings as YYYY-MM-DD (never weekday labels). */
+function toDateOnly(value) {
+  if (value == null || value === '') return null;
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    const y = value.getFullYear();
+    const m = String(value.getMonth() + 1).padStart(2, '0');
+    const d = String(value.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+  }
+  const s = String(value).trim();
+  const iso = s.match(/^(\d{4}-\d{2}-\d{2})/);
+  if (iso) return iso[1];
+  const withYear = s.match(
+    /^(?:Sun|Mon|Tue|Wed|Thu|Fri|Sat)\s+[A-Za-z]{3}\s+\d{1,2}\s+\d{4}/i
+  );
+  if (withYear) {
+    const parsed = new Date(withYear[0]);
+    if (!Number.isNaN(parsed.getTime())) return toDateOnly(parsed);
+  }
+  return null;
+}
+
 function normalizeStatus(raw) {
   const s = String(raw || '').trim().toLowerCase();
   if (s === 'pending' || s === 'queued') return 'not_started';
@@ -81,7 +103,7 @@ function toApiItem(row) {
     taskId: row.task_id != null ? Number(row.task_id) : null,
     draftId: row.draft_id != null ? Number(row.draft_id) : null,
     clinicalNoteId: row.clinical_note_id != null ? Number(row.clinical_note_id) : null,
-    date: row.date_of_service ? String(row.date_of_service).slice(0, 10) : null,
+    date: toDateOnly(row.date_of_service),
     serviceCode: row.service_code || null,
     noteKind: row.note_kind || null,
     timeLabel: row.time_label || null,
@@ -139,9 +161,7 @@ function rowValuesFromItem(userId, item = {}) {
     draftId: status === 'signed' ? null : safeInt(item.draftId ?? item.draft_id),
     clinicalNoteId: safeInt(item.clinicalNoteId ?? item.clinical_note_id),
     clientKey: resolveClientKey(item),
-    dateOfService: item.date || item.dateOfService || item.date_of_service
-      ? String(item.date || item.dateOfService || item.date_of_service).slice(0, 10)
-      : null,
+    dateOfService: toDateOnly(item.date || item.dateOfService || item.date_of_service),
     serviceCode: item.serviceCode || item.service_code
       ? clampText(item.serviceCode || item.service_code, 32).toUpperCase()
       : null,

@@ -819,6 +819,8 @@ class User {
       systemPhoneNumber,
       medcancelEnabled,
       medcancelRateSchedule,
+      missedAppointmentCompensationMode,
+      missedAppointmentCompensationPercent,
       companyCardEnabled,
       companyCarSubmitAccess,
       companyCarManageAccess,
@@ -1347,6 +1349,29 @@ class User {
       } catch (err) {
         // If this field was provided, treat missing column as a real error (not silent no-op)
         throw err;
+      }
+    }
+
+    if (missedAppointmentCompensationMode !== undefined) {
+      const mode = String(missedAppointmentCompensationMode || 'none').trim().toLowerCase();
+      if (!['none', 'hourly', 'percent_of_fee'].includes(mode)) {
+        throw new Error('missedAppointmentCompensationMode must be none, hourly, or percent_of_fee');
+      }
+      updates.push('missed_appointment_compensation_mode = ?');
+      values.push(mode);
+    }
+    if (missedAppointmentCompensationPercent !== undefined) {
+      const raw = missedAppointmentCompensationPercent;
+      if (raw === null || raw === '') {
+        updates.push('missed_appointment_compensation_percent = ?');
+        values.push(null);
+      } else {
+        const n = Number(raw);
+        if (!Number.isFinite(n) || n < 0 || n > 100) {
+          throw new Error('missedAppointmentCompensationPercent must be 0–100');
+        }
+        updates.push('missed_appointment_compensation_percent = ?');
+        values.push(n);
       }
     }
 

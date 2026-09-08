@@ -2173,14 +2173,14 @@ const handleLogin = async () => {
 
     const redirectPath = route.query?.redirect;
     if (redirectPath && typeof redirectPath === 'string' && redirectPath.startsWith('/')) {
-      router.push(redirectPath);
+      router.replace(redirectPath);
       loading.value = false;
       return;
     }
 
     const summitDestination = summitPostLoginDestination(currentOrgSlug, authStore.user?.role);
     if (summitDestination) {
-      router.push(summitDestination);
+      router.replace(summitDestination);
       loading.value = false;
       return;
     }
@@ -2193,18 +2193,18 @@ const handleLogin = async () => {
       const slug = String(loginSlug.value || '').trim().toLowerCase();
       const hostImplied = resolveHostImpliedPortalSlug(brandingStore);
       const adminPath = hostImplied && hostImplied === slug ? '/admin' : `/${slug}/admin`;
-      router.push(adminPath);
+      router.replace(adminPath);
       loading.value = false;
       return;
     }
 
     if (roleNorm === 'school_staff' && schoolStaffSlug) {
-      router.push(`/${schoolStaffSlug}/dashboard`);
+      router.replace(`/${schoolStaffSlug}/dashboard`);
       loading.value = false;
       return;
     }
 
-    router.push(getDashboardRoute());
+    router.replace(getDashboardRoute());
   } else {
     error.value = result.error;
     lastErrorCode.value = result.code || null;

@@ -4,6 +4,7 @@ import {
   inferScaleDirection,
   parseDurationMonths,
   parseTreatmentPlanText,
+  parseScalePair,
   completionDateFromDurationMonths,
   isObjectiveScaleValid
 } from '../treatmentPlanImport.service.js';
@@ -55,13 +56,29 @@ Objective 1: Complete behavioral activation 3x/week 8 -> 3 decrease
     assert.equal(inferScaleDirection(8, 3), 'decrease');
   });
 
+  it('parses currently N/10 and N/10 or higher phrasing', () => {
+    const abstinence =
+      'Client will maintain abstinence from alcohol and identify one alternative behavioral outlet for stress '
+      + '(e.g., physical activity, creative expression), rating behavioral control at a 7/10 or higher (currently 3/10). '
+      + 'A level 10 would mean complete abstinence.';
+    const awareness =
+      'Client will identify triggers, reporting increased awareness on a scale of 1-10 (currently 2/10), aiming for 7/10.';
+    const a = parseScalePair(abstinence);
+    const b = parseScalePair(awareness);
+    assert.equal(a.scaleCurrent, 3);
+    assert.equal(a.scaleTarget, 7);
+    assert.equal(b.scaleCurrent, 2);
+    assert.equal(b.scaleTarget, 7);
+    assert.equal(inferScaleDirection(a.scaleCurrent, a.scaleTarget), 'increase');
+  });
+
   it('parses out-of-10 scale phrasing with correct direction', () => {
     const reduceText =
       'Within the next three months, reduce avoidance from a current level of 7 out of 10 to a target level of 3 out of 10';
     const improveText =
       'Within the next three months, improve attention from a current level of 4 out of 10 to a target level of 8 out of 10';
     const parsedReduce = parseTreatmentPlanText(`Goal 1: Reduce anxiety\nObjective 1.1 ${reduceText}`);
-    const parsedImprove = parseTreatmentPlanText(`Goal 2: Improve attention\nObjective 2.1 ${improveText}`);
+    const parsedImprove = parseTreatmentPlanText(`Goal 1: Improve attention\nObjective 1.1 ${improveText}`);
     const objReduce = parsedReduce.goals[0].objectives[0];
     const objImprove = parsedImprove.goals[0].objectives[0];
     assert.equal(objReduce.scaleCurrent, 7);

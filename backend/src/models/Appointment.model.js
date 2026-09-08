@@ -13,7 +13,8 @@ const LIVE_STATUSES = new Set([
   'no_show',
   'rescheduled',
   'reschedule_requested',
-  'cancellation_requested'
+  'cancellation_requested',
+  'voided'
 ]);
 
 function parseJsonSafe(raw, fallback = null) {
@@ -95,8 +96,27 @@ class Appointment {
     return this.mapRow(rows?.[0]);
   }
 
-  static async listForAgencyInWindow({ agencyId, windowStart, windowEnd, providerUserId = null }) {
-    const params = [Number(agencyId), windowEnd, windowStart];
+  static async listForAgencyInWindow({ agencyId, windowStart, windowEnd, providerUserId = null, clientId = null }) {
+    const cid = Number(clientId || 0);
+    if (cid) {
+      const p = [cid, Number(agencyId), windowEnd, windowStart];
+      let q = `
+        SELECT DISTINCT a.* FROM appointments a
+        INNER JOIN appointment_participants ap ON ap.appointment_id = a.id AND ap.client_id = ?
+        WHERE a.agency_id = ?
+          AND a.start_at < ?
+          AND a.end_at > ?
+      `;
+      if (providerUserId) {
+        q += ` AND a.provider_user_id = ?`;
+        p.push(Number(providerUserId));
+      }
+      q += ` ORDER BY a.start_at DESC LIMIT 100`;
+      const [rows] = await pool.execute(q, p);
+      return (rows || []).map((r) => this.mapRow(r));
+    }
+
+    const plainParams = [Number(agencyId), windowEnd, windowStart];
     let sql = `
       SELECT * FROM appointments
       WHERE agency_id = ?
@@ -105,10 +125,10 @@ class Appointment {
     `;
     if (providerUserId) {
       sql += ` AND provider_user_id = ?`;
-      params.push(Number(providerUserId));
+      plainParams.push(Number(providerUserId));
     }
     sql += ` ORDER BY start_at ASC LIMIT 500`;
-    const [rows] = await pool.execute(sql, params);
+    const [rows] = await pool.execute(sql, plainParams);
     return (rows || []).map((r) => this.mapRow(r));
   }
 

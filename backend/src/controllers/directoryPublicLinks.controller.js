@@ -88,15 +88,55 @@ export const listDirectoryPublicLinks = async (req, res, next) => {
 
     let intakeLinksOut = [];
     try {
-      const [rows] = await pool.execute(
-        `SELECT id, public_key, title, form_type, scope_type, organization_id, is_active, created_by_user_id, updated_at
-         FROM intake_links
-         ORDER BY updated_at DESC, id DESC`
-      );
+      let rows;
+      try {
+        [rows] = await pool.execute(
+          `SELECT id, public_key, title, form_type, scope_type, organization_id, is_active, created_by_user_id, updated_at,
+                  inherits_school_master, is_school_master, inherits_office_master, is_office_master, master_channel
+           FROM intake_links
+           ORDER BY updated_at DESC, id DESC`
+        );
+      } catch (colErr) {
+        if (colErr?.code !== 'ER_BAD_FIELD_ERROR') throw colErr;
+        [rows] = await pool.execute(
+          `SELECT id, public_key, title, form_type, scope_type, organization_id, is_active, created_by_user_id, updated_at
+           FROM intake_links
+           ORDER BY updated_at DESC, id DESC`
+        );
+      }
       let links = (rows || []).map((row) => IntakeLink.normalize(row));
       if (!isSuperAdmin(req.user?.role)) {
         links = links.filter((link) => canAccessIntakeLink({ link, userOrgIds, userId }));
       }
+      // Directory: hide per-school published shells that inherit the school master.
+      // Those public URLs still work; staff should use master / manage digital forms.
+      links = links.filter((l) => Number(l.inherits_school_master || 0) !== 1);
+
+      // When an agency context is provided, only show links for that agency + its affiliated orgs
+      // (avoids super-admin Directory listing every tenant's Master Office Digital).
+      const agencyIdForLinks = await resolveAgencyIdForDirectory(req);
+      if (agencyIdForLinks) {
+        const orgIdsForAgency = new Set([agencyIdForLinks]);
+        try {
+          const [affRows] = await pool.execute(
+            `SELECT organization_id FROM organization_affiliations
+             WHERE agency_id = ? AND is_active = TRUE`,
+            [agencyIdForLinks]
+          );
+          for (const r of affRows || []) {
+            const oid = asNumberOrNull(r.organization_id);
+            if (oid) orgIdsForAgency.add(oid);
+          }
+        } catch {
+          // table may be missing on older DBs
+        }
+        links = links.filter((link) => {
+          const orgId = asNumberOrNull(link?.organization_id);
+          if (!orgId) return asNumberOrNull(link?.created_by_user_id) === asNumberOrNull(userId);
+          return orgIdsForAgency.has(orgId);
+        });
+      }
+
       intakeLinksOut = links
         .filter((l) => l.is_active && String(l.public_key || '').trim())
         .map((l) => ({

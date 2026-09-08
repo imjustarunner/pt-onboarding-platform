@@ -201,3 +201,112 @@ export const ingestAppointmentReply = async (req, res, next) => {
     next(e);
   }
 };
+
+export const getMedicaidStrikePolicy = async (req, res, next) => {
+  try {
+    const agencyId = parseInt(req.params.agencyId, 10);
+    if (!(await assertAgencyAccess(req, agencyId))) {
+      return res.status(403).json({ error: { message: 'Access denied' } });
+    }
+    const {
+      getAgencyMedicaidStrikePolicy
+    } = await import('../services/appointmentChange.service.js');
+    const out = await getAgencyMedicaidStrikePolicy(agencyId);
+    res.json({ ok: true, ...out });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const putMedicaidStrikePolicy = async (req, res, next) => {
+  try {
+    const agencyId = parseInt(req.params.agencyId, 10);
+    if (!(await assertAgencyAccess(req, agencyId))) {
+      return res.status(403).json({ error: { message: 'Access denied' } });
+    }
+    if (!canManage(req.user?.role)) {
+      return res.status(403).json({ error: { message: 'Only admins can update this policy' } });
+    }
+    const {
+      setAgencyMedicaidStrikePolicy
+    } = await import('../services/appointmentChange.service.js');
+    const enabled = req.body?.medicaidStrikePolicyEnabled === true
+      || req.body?.enabled === true
+      || req.body?.medicaid_strike_policy_enabled === true;
+    const out = await setAgencyMedicaidStrikePolicy(agencyId, enabled);
+    res.json({ ok: true, ...out });
+  } catch (e) {
+    if (e?.status) return res.status(e.status).json({ error: { message: e.message } });
+    next(e);
+  }
+};
+
+export const listAttendanceDischargeReviews = async (req, res, next) => {
+  try {
+    const agencyId = parseInt(req.params.agencyId, 10);
+    if (!(await assertAgencyAccess(req, agencyId))) {
+      return res.status(403).json({ error: { message: 'Access denied' } });
+    }
+    const ClientAttendanceDischargeReview = (
+      await import('../models/ClientAttendanceDischargeReview.model.js')
+    ).default;
+    const reviews = await ClientAttendanceDischargeReview.listPendingForAgency(agencyId, {
+      includeResolved: String(req.query.includeResolved || '') === 'true'
+    });
+    res.json({ ok: true, reviews });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const decideAttendanceDischargeReview = async (req, res, next) => {
+  try {
+    const agencyId = parseInt(req.params.agencyId, 10);
+    const reviewId = parseInt(req.params.reviewId, 10);
+    if (!(await assertAgencyAccess(req, agencyId))) {
+      return res.status(403).json({ error: { message: 'Access denied' } });
+    }
+    if (!canManage(req.user?.role)) {
+      return res.status(403).json({ error: { message: 'Only admins can decide discharge reviews' } });
+    }
+    const ClientAttendanceDischargeReview = (
+      await import('../models/ClientAttendanceDischargeReview.model.js')
+    ).default;
+    const existing = await ClientAttendanceDischargeReview.findById(reviewId);
+    if (!existing || Number(existing.agencyId) !== agencyId) {
+      return res.status(404).json({ error: { message: 'Review not found' } });
+    }
+    const status = String(req.body?.status || '').toLowerCase();
+    const review = await ClientAttendanceDischargeReview.decide(reviewId, {
+      status,
+      reason: req.body?.reason || null,
+      comment: req.body?.comment || null,
+      reviewedByUserId: req.user?.id || null
+    });
+
+    // Continue scheduling with waive: mark strike termination recommendation waived.
+    if (status === 'continue_scheduling' && existing.strikeId) {
+      try {
+        const ClientMedicaidAttendanceStrike = (
+          await import('../models/ClientMedicaidAttendanceStrike.model.js')
+        ).default;
+        await ClientMedicaidAttendanceStrike.waiveTerminationRecommendation(existing.strikeId, {
+          reason: req.body?.reason || 'admin_continue_scheduling',
+          comment: req.body?.comment || null,
+          waivedByUserId: req.user?.id || null
+        });
+      } catch { /* best-effort */ }
+    }
+
+    res.json({
+      ok: true,
+      review,
+      // Caller opens terminate UI; we never auto-terminate here.
+      openTerminateClientId:
+        status === 'proceed_to_termination' ? existing.clientId : null
+    });
+  } catch (e) {
+    if (e?.status) return res.status(e.status).json({ error: { message: e.message } });
+    next(e);
+  }
+};

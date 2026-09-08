@@ -22,6 +22,66 @@ export function workQueueStorageKey(userId) {
   return `${LEGACY_PREFIX}${uid}:${day}`;
 }
 
+/** Normalize work-queue / DOS values to YYYY-MM-DD (rejects ambiguous weekday-only labels). */
+export function toWorkQueueDateOnly(value) {
+  if (value == null || value === '') return null;
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    const y = value.getFullYear();
+    const m = String(value.getMonth() + 1).padStart(2, '0');
+    const d = String(value.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+  }
+  const s = String(value).trim();
+  const iso = s.match(/^(\d{4}-\d{2}-\d{2})/);
+  if (iso) return iso[1];
+  const mdy = s.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})$/);
+  if (mdy) {
+    let yyyy = mdy[3];
+    if (yyyy.length === 2) yyyy = `20${yyyy}`;
+    return `${yyyy}-${String(mdy[1]).padStart(2, '0')}-${String(mdy[2]).padStart(2, '0')}`;
+  }
+  // Recover corrupted mysql Date stringification: "Mon Aug 03 2026 00:00:00 GMT-0600"
+  const withYear = s.match(
+    /^(?:Sun|Mon|Tue|Wed|Thu|Fri|Sat)\s+[A-Za-z]{3}\s+\d{1,2}\s+\d{4}/i
+  );
+  if (withYear) {
+    const d = new Date(withYear[0]);
+    if (!Number.isNaN(d.getTime())) return toWorkQueueDateOnly(d);
+  }
+  // Short display form "Mon Aug 03" — assume current year (best-effort for stale UI cache).
+  const short = s.match(/^(?:Sun|Mon|Tue|Wed|Thu|Fri|Sat)\s+([A-Za-z]{3})\s+(\d{1,2})$/i);
+  if (short) {
+    const d = new Date(`${short[1]} ${short[2]}, ${new Date().getFullYear()} 12:00:00`);
+    if (!Number.isNaN(d.getTime())) return toWorkQueueDateOnly(d);
+  }
+  return null;
+}
+
+/** Convert "1 PM" / "10:30 AM" labels into HH:MM (24h). */
+export function timeLabelToHhMm(label) {
+  const m = String(label || '').trim().match(/^(\d{1,2})(?::(\d{2}))?\s*(AM|PM)$/i);
+  if (!m) return null;
+  let hour = Number(m[1]);
+  const minute = Number(m[2] || 0);
+  const ap = m[3].toUpperCase();
+  if (ap === 'PM' && hour < 12) hour += 12;
+  if (ap === 'AM' && hour === 12) hour = 0;
+  if (!Number.isFinite(hour) || hour < 0 || hour > 23 || minute < 0 || minute > 59) return null;
+  return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
+}
+
+/**
+ * Build a local ISO start from YYYY-MM-DD + time label for queue → note porting.
+ */
+export function scheduledStartFromQueueDateAndTime(dateOnly, timeLabel) {
+  const dos = toWorkQueueDateOnly(dateOnly);
+  const hhmm = timeLabelToHhMm(timeLabel);
+  if (!dos || !hhmm) return null;
+  const d = new Date(`${dos}T${hhmm}:00`);
+  if (Number.isNaN(d.getTime())) return null;
+  return d.toISOString();
+}
+
 /** Remove legacy work-queue keys that may contain PHI. */
 export function scrubLegacyWorkQueueStorage(userId = null) {
   try {

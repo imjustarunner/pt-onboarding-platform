@@ -28,7 +28,11 @@ import {
   createCancellationPolicy,
   updateCancellationPolicy,
   resolvePolicyPreview,
-  runReminderCron
+  runReminderCron,
+  getMedicaidStrikePolicy,
+  putMedicaidStrikePolicy,
+  listAttendanceDischargeReviews,
+  decideAttendanceDischargeReview
 } from '../controllers/bookingPolicies.controller.js';
 import {
   getTenantSessionNotifications,
@@ -69,6 +73,10 @@ router.get('/agencies/:agencyId/cancellation-policies', listCancellationPolicies
 router.post('/agencies/:agencyId/cancellation-policies', createCancellationPolicy);
 router.patch('/agencies/:agencyId/cancellation-policies/:policyId', updateCancellationPolicy);
 router.get('/agencies/:agencyId/cancellation-policy-preview', resolvePolicyPreview);
+router.get('/agencies/:agencyId/medicaid-strike-policy', getMedicaidStrikePolicy);
+router.put('/agencies/:agencyId/medicaid-strike-policy', putMedicaidStrikePolicy);
+router.get('/agencies/:agencyId/attendance-discharge-reviews', listAttendanceDischargeReviews);
+router.post('/agencies/:agencyId/attendance-discharge-reviews/:reviewId/decide', decideAttendanceDischargeReview);
 router.get('/agencies/:agencyId/session-notifications', getTenantSessionNotifications);
 router.put('/agencies/:agencyId/session-notifications', putTenantSessionNotifications);
 router.get('/agencies/:agencyId/clients/:clientId/session-notification-preferences', getClientSessionNotificationPrefs);

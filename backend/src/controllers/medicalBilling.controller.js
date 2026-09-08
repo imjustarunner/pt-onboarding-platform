@@ -2020,6 +2020,22 @@ export const upsertMedicalServiceCode = async (req, res, next) => {
       createdByUserId: req.user.id
     });
 
+    if (
+      req.body.missedBillingMode !== undefined
+      || req.body.missedBillingServiceCode !== undefined
+      || req.body.missedBillingTriggers !== undefined
+    ) {
+      try {
+        await AgencyMedicalServiceCode.updateMissedBillingOverride(agencyId, serviceCode, {
+          missedBillingMode: req.body.missedBillingMode ?? 'none',
+          missedBillingServiceCode: req.body.missedBillingServiceCode ?? null,
+          missedBillingTriggers: req.body.missedBillingTriggers ?? 'no_show,late_cancel'
+        });
+      } catch (e) {
+        if (e?.code !== 'ER_BAD_FIELD_ERROR') throw e;
+      }
+    }
+
     // Best-effort: ensure code exists in scheduling dictionary so calendar can select it
     try {
       await pool.execute(

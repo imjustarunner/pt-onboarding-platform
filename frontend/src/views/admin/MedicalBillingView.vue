@@ -127,6 +127,23 @@
           <input v-model="svcForm.overflowServiceCode" class="mb-input" placeholder="Overflow code" />
           <input v-model.number="svcForm.overflowAtMinutes" class="mb-input" type="number" placeholder="Overflow at (min)" />
           <input v-model="svcForm.defaultPlaceOfService" class="mb-input" placeholder="Default POS" maxlength="2" />
+          <select v-model="svcForm.missedBillingMode" class="mb-input mb-input--wide" title="Missed / no-show billing override">
+            <option value="none">Missed event billing: none (default — no insurance claim)</option>
+            <option value="fee_ledger_only">Missed event: fee ledger only (no claim)</option>
+            <option value="secondary_claim_draft">Missed event: secondary claim draft for billing review</option>
+          </select>
+          <input
+            v-if="svcForm.missedBillingMode !== 'none'"
+            v-model="svcForm.missedBillingServiceCode"
+            class="mb-input"
+            placeholder="Missed-fee code (optional)"
+          />
+          <input
+            v-if="svcForm.missedBillingMode !== 'none'"
+            v-model="svcForm.missedBillingTriggers"
+            class="mb-input mb-input--wide"
+            placeholder="Triggers: no_show,late_cancel"
+          />
           <label class="mb-check"><input v-model="svcForm.tierQbha" type="checkbox" /> QBHA</label>
           <label class="mb-check"><input v-model="svcForm.tierBachelors" type="checkbox" /> Bachelor’s+</label>
           <label class="mb-check"><input v-model="svcForm.tierInternPlus" type="checkbox" /> Licensed / pre-licensed</label>
@@ -152,6 +169,9 @@
             <span v-if="c.min_minutes != null">min {{ c.min_minutes }}m</span>
             <span v-if="c.max_minutes != null">max {{ c.max_minutes }}m</span>
             <span v-if="c.overflow_service_code">→ {{ c.overflow_service_code }}</span>
+            <span v-if="c.missed_billing_mode && c.missed_billing_mode !== 'none'" class="muted">
+              missed: {{ c.missed_billing_mode }}{{ c.missed_billing_service_code ? ` (${c.missed_billing_service_code})` : '' }}
+            </span>
             <span v-if="formatAllowedPos(c)" class="muted">POS {{ formatAllowedPos(c) }}</span>
             <button type="button" class="mb-btn mb-btn--small" @click="editServiceCode(c)">Edit</button>
           </li>
@@ -336,6 +356,9 @@ const svcForm = ref({
   overflowServiceCode: '',
   overflowAtMinutes: null,
   defaultPlaceOfService: '',
+  missedBillingMode: 'none',
+  missedBillingServiceCode: '',
+  missedBillingTriggers: 'no_show,late_cancel',
   allowedPos: ['02', '10', '11', '03'],
   tierQbha: true,
   tierBachelors: true,
@@ -432,6 +455,9 @@ const editServiceCode = (row) => {
     overflowServiceCode: row.overflow_service_code || '',
     overflowAtMinutes: row.overflow_at_minutes,
     defaultPlaceOfService: row.default_place_of_service || '',
+    missedBillingMode: row.missed_billing_mode || 'none',
+    missedBillingServiceCode: row.missed_billing_service_code || '',
+    missedBillingTriggers: row.missed_billing_triggers || 'no_show,late_cancel',
     allowedPos: allowed.length ? allowed : ['02', '10', '11', '03'],
     tierQbha: true,
     tierBachelors: true,
@@ -459,6 +485,9 @@ const saveServiceCode = async () => {
       overflowAtMinutes: svcForm.value.overflowAtMinutes,
       defaultPlaceOfService: svcForm.value.defaultPlaceOfService || null,
       allowedPlaceOfService: Array.isArray(svcForm.value.allowedPos) ? svcForm.value.allowedPos : [],
+      missedBillingMode: svcForm.value.missedBillingMode || 'none',
+      missedBillingServiceCode: svcForm.value.missedBillingServiceCode || null,
+      missedBillingTriggers: svcForm.value.missedBillingTriggers || 'no_show,late_cancel',
       allowedCredentialTiers: tiersFromForm()
     });
     await loadServiceCodes();

@@ -7,6 +7,8 @@
  * - signed: left only — provider signed after accuracy + medical-necessity attestation
  */
 
+import { toWorkQueueDateOnly } from './noteAidWorkQueue.js';
+
 export const DOC_STATUS = {
   NOT_STARTED: 'not_started',
   STARTED: 'started',
@@ -281,7 +283,14 @@ export function sortWorkQueueItems(items = [], sortBy = 'date', sortDir = 'asc')
     [DOC_STATUS.SIGNED]: 3
   };
   const keyClient = (i) => String(i?.clientName || '').toLowerCase();
-  const keyDate = (i) => String(i?.date || i?.scheduledStart || '').slice(0, 10);
+  const keyDateMs = (i) => {
+    const iso = toWorkQueueDateOnly(i?.date)
+      || toWorkQueueDateOnly(i?.scheduledStart)
+      || toWorkQueueDateOnly(String(i?.date || i?.scheduledStart || '').slice(0, 10));
+    if (!iso) return Number.POSITIVE_INFINITY;
+    const t = Date.parse(`${iso}T00:00:00`);
+    return Number.isFinite(t) ? t : Number.POSITIVE_INFINITY;
+  };
   const keyCode = (i) => String(i?.serviceCode || '').toUpperCase();
   const keyAgency = (i) => String(i?.agencyId || i?.agency_id || 0);
   const keyStatus = (i) => statusRank[deriveWorkQueueDocStatus(i)] ?? 9;
@@ -303,7 +312,7 @@ export function sortWorkQueueItems(items = [], sortBy = 'date', sortDir = 'asc')
         break;
       case 'date':
       default:
-        cmp = keyDate(a).localeCompare(keyDate(b));
+        cmp = keyDateMs(a) - keyDateMs(b);
         break;
     }
     if (cmp !== 0) return cmp * dir;

@@ -3144,9 +3144,9 @@ const loadOverviewOptions = async () => {
   if (!agencyId) return;
   try {
     const [orgResp, statusResp, insResp] = await Promise.all([
-      api.get(`/agencies/${agencyId}/affiliated-organizations`),
-      api.get('/client-settings/client-statuses', { params: { agencyId } }),
-      api.get('/client-settings/insurance-types', { params: { agencyId } })
+      api.get(`/agencies/${agencyId}/affiliated-organizations`, { skipGlobalLoading: true }),
+      api.get('/client-settings/client-statuses', { params: { agencyId }, skipGlobalLoading: true }),
+      api.get('/client-settings/insurance-types', { params: { agencyId }, skipGlobalLoading: true })
     ]);
     overviewOrganizations.value = (orgResp.data || [])
       .filter((o) => ['school', 'program', 'learning', 'clinical'].includes(String(o?.organization_type || '').toLowerCase()))
@@ -4209,7 +4209,7 @@ const refreshOverviewProviders = async () => {
     const params = {};
     const orgId = Number(props.schoolOrganizationId || props.client?.organization_id || 0);
     if (orgId > 0) params.organizationId = orgId;
-    const r = await api.get(`/clients/${clientId}/provider-assignments`, { params });
+    const r = await api.get(`/clients/${clientId}/provider-assignments`, { params, skipGlobalLoading: true });
     const rows = Array.isArray(r.data) ? r.data : [];
     overviewProviders.value = rows.length
       ? rows.sort((a, b) => {
@@ -4872,7 +4872,7 @@ const fetchAdminNote = async () => {
   if (!canViewAdminNote.value || !props.client?.id) return;
   try {
     adminNoteLoading.value = true;
-    const r = await api.get(`/clients/${props.client.id}/admin-note`);
+    const r = await api.get(`/clients/${props.client.id}/admin-note`, { skipGlobalLoading: true });
     adminNoteMessage.value = String(r.data?.note?.message || '').trim();
     adminNoteDraft.value = adminNoteMessage.value;
   } catch {
@@ -5370,7 +5370,7 @@ const removeGuardian = async (g) => {
 
 const fetchAccess = async () => {
   try {
-    const response = await api.get('/users/me/agencies');
+    const response = await api.get('/users/me/agencies', { skipGlobalLoading: true });
     const agencies = response.data || [];
     myAgencies.value = Array.isArray(agencies) ? agencies : [];
     // Keep selected agency synced to client's primary agency.
@@ -5382,7 +5382,7 @@ const fetchAccess = async () => {
 
 const fetchClientAgencyAffiliations = async () => {
   try {
-    const r = await api.get(`/clients/${props.client.id}/agency-affiliations`);
+    const r = await api.get(`/clients/${props.client.id}/agency-affiliations`, { skipGlobalLoading: true });
     clientAgencyAffiliations.value = Array.isArray(r.data) ? r.data : [];
     tenantBookingDrafts.value = {};
     await loadAllTenantCatalogs();
@@ -6050,7 +6050,7 @@ const makePrimaryProvider = async (pa) => {
 
 const fetchProviders = async () => {
   try {
-    const response = await api.get('/users');
+    const response = await api.get('/users', { skipGlobalLoading: true });
     const allUsers = response.data || [];
     availableProviders.value = allUsers.filter(u => 
       ['provider', 'supervisor', 'admin'].includes(u.role?.toLowerCase())
@@ -6583,7 +6583,7 @@ onMounted(async () => {
   }
   // Log that this profile was viewed (best-effort)
   if (props.client?.id) {
-    api.post(`/clients/${props.client.id}/log-view`).catch(() => {});
+    api.post(`/clients/${props.client.id}/log-view`, {}, { skipGlobalLoading: true }).catch(() => {});
   }
   if (activeTab.value === 'history') {
     await fetchHistory();

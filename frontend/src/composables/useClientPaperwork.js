@@ -133,7 +133,7 @@ export function useClientPaperwork(client, canEditPaperwork, onClientUpdated) {
     try {
       docChecklistLoading.value = true;
       docChecklistError.value = '';
-      const r = await api.get(`/clients/${c.id}/document-status`);
+      const r = await api.get(`/clients/${c.id}/document-status`, { skipGlobalLoading: true });
       docChecklistItems.value = Array.isArray(r.data?.items) ? r.data.items : [];
     } catch (e) {
       docChecklistItems.value = [];

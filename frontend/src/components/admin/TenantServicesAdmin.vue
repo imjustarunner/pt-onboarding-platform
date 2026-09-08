@@ -237,6 +237,13 @@
             </button>
           </div>
         </div>
+        <div class="tsa-strike-policy">
+          <label class="check">
+            <input v-model="medicaidStrikeEnabled" type="checkbox" @change="saveMedicaidStrikePolicy" />
+            Enable Medicaid missed-appointment strike policy (rolling 365 days; third strike recommends review, does not auto-terminate)
+          </label>
+          <span v-if="savingStrikePolicy" class="muted">Saving…</span>
+        </div>
         <ul class="tsa-list">
           <li v-for="pol in policies" :key="pol.id" class="tsa-item">
             <div>
@@ -284,6 +291,8 @@ const savingService = ref(false);
 const savingStaff = ref(false);
 const savingPackage = ref(false);
 const savingPolicy = ref(false);
+const medicaidStrikeEnabled = ref(false);
+const savingStrikePolicy = ref(false);
 const staffService = ref(null);
 const staffRows = ref([]);
 const staffUserIdsText = ref('');
@@ -385,18 +394,21 @@ const load = async () => {
     businessTypes.value = bt.data?.businessTypes || [];
     emitCapabilities(bt.data?.capabilities || null);
 
-    const [svc, pkg, pol] = await Promise.all([
+    const [svc, pkg, pol, strike] = await Promise.all([
       api.get(`/tenant-booking/agencies/${aid}/tenant-services`, {
         params: { includeInactive: 'false', ensureSuites: 'false' }
       }),
       api.get(`/tenant-booking/agencies/${aid}/packages`, { params: { ensureSuites: 'false' } })
         .catch(() => ({ data: { packages: [] } })),
       api.get(`/tenant-booking/agencies/${aid}/cancellation-policies`, { params: { ensureDefault: 'true' } })
-        .catch(() => ({ data: { policies: [] } }))
+        .catch(() => ({ data: { policies: [] } })),
+      api.get(`/tenant-booking/agencies/${aid}/medicaid-strike-policy`, { skipGlobalLoading: true })
+        .catch(() => ({ data: { medicaidStrikePolicyEnabled: false } }))
     ]);
     services.value = svc.data?.services || [];
     packages.value = pkg.data?.packages || [];
     policies.value = pol.data?.policies || [];
+    medicaidStrikeEnabled.value = !!strike.data?.medicaidStrikePolicyEnabled;
   } catch (e) {
     error.value = e?.response?.data?.error?.message || e?.message || 'Failed to load catalog';
   } finally {
@@ -521,6 +533,22 @@ const savePolicy = async () => {
     error.value = e?.response?.data?.error?.message || e?.message || 'Failed to save policy';
   } finally {
     savingPolicy.value = false;
+  }
+};
+
+const saveMedicaidStrikePolicy = async () => {
+  const aid = Number(props.agencyId || 0);
+  if (!aid) return;
+  savingStrikePolicy.value = true;
+  error.value = '';
+  try {
+    await api.put(`/tenant-booking/agencies/${aid}/medicaid-strike-policy`, {
+      medicaidStrikePolicyEnabled: !!medicaidStrikeEnabled.value
+    });
+  } catch (e) {
+    error.value = e?.response?.data?.error?.message || e?.message || 'Failed to save strike policy';
+  } finally {
+    savingStrikePolicy.value = false;
   }
 };
 

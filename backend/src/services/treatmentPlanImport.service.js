@@ -42,6 +42,30 @@ function isBoilerplateOnlyLine(text) {
 export function parseScalePair(text) {
   const s = String(text || '');
 
+  // "7/10 or higher (currently 3/10)" — target stated first, current in parentheses
+  const targetThenCurrent = s.match(
+    /(\d{1,2})\s*\/\s*10(?:\s+or\s+higher)?[^0-9]{0,48}?\(\s*currently\s+(\d{1,2})\s*\/\s*10\s*\)/i
+  );
+  if (targetThenCurrent) {
+    const target = Number(targetThenCurrent[1]);
+    const current = Number(targetThenCurrent[2]);
+    if (current >= 1 && current <= 10 && target >= 1 && target <= 10) {
+      return { scaleCurrent: current, scaleTarget: target };
+    }
+  }
+
+  // "(currently 2/10), aiming for 7/10"
+  const currentlyAiming = s.match(
+    /(?:\(\s*)?currently\s+(\d{1,2})\s*\/\s*10(?:\s*\))?[^0-9]{0,60}?(?:aiming\s+for|target(?:\s+of)?|goal(?:\s+of)?)\s+(\d{1,2})\s*\/\s*10/i
+  );
+  if (currentlyAiming) {
+    const current = Number(currentlyAiming[1]);
+    const target = Number(currentlyAiming[2]);
+    if (current >= 1 && current <= 10 && target >= 1 && target <= 10) {
+      return { scaleCurrent: current, scaleTarget: target };
+    }
+  }
+
   // "from a current level of 7 out of 10 to a target level of 3 out of 10"
   const outOfTen = s.match(
     /(?:from\s+a\s+)?current\s+level\s+of\s+(\d{1,2})\s+out\s+of\s+10\s+\bto\b\s+(?:a\s+)?(?:target\s+level\s+of\s+)?(\d{1,2})(?:\s+out\s+of\s+10)?/i
@@ -100,14 +124,18 @@ export function parseScalePair(text) {
   }
 
   const currentOnly = s.match(
-    /(?:current\s+level\s+of|currently\s+(?:functions|reports)?\s*(?:at\s+)?(?:a\s+)?level\s*(?:of\s*)?|baseline\s*(?:of\s*)?)(\d{1,2})(?:\s+out\s+of\s+10)?/i
+    /(?:\(\s*currently\s+(\d{1,2})\s*\/\s*10\s*\)|currently\s+(\d{1,2})\s*\/\s*10|current\s+level\s+of\s+(\d{1,2})|currently\s+(?:functions|reports)?\s*(?:at\s+)?(?:a\s+)?level\s*(?:of\s*)?(\d{1,2})|baseline\s*(?:of\s*)?(\d{1,2}))(?:\s+out\s+of\s+10)?/i
   );
   const targetOnly = s.match(
-    /(?:target\s+level\s+of|achieving\s+(?:a\s+)?level\s*(?:of\s*)?|(?:^|\s)target\s*(?:level\s*(?:of\s*)?)?|(?:^|\s)goal\s*(?:level\s*(?:of\s*)?)?)(\d{1,2})(?:\s+out\s+of\s+10)?/i
+    /(?:aiming\s+for\s+(\d{1,2})\s*\/\s*10|(\d{1,2})\s*\/\s*10\s+or\s+higher|target\s+level\s+of\s+(\d{1,2})|achieving\s+(?:a\s+)?level\s*(?:of\s*)?(\d{1,2})|(?:^|\s)target\s*(?:level\s*(?:of\s*)?)?(\d{1,2})|(?:^|\s)goal\s*(?:level\s*(?:of\s*)?)?(\d{1,2}))(?:\s+out\s+of\s+10)?/i
   );
   if (currentOnly || targetOnly) {
-    const current = currentOnly ? Number(currentOnly[1]) : null;
-    const target = targetOnly ? Number(targetOnly[1]) : null;
+    const current = currentOnly
+      ? Number(currentOnly[1] || currentOnly[2] || currentOnly[3] || currentOnly[4] || currentOnly[5])
+      : null;
+    const target = targetOnly
+      ? Number(targetOnly[1] || targetOnly[2] || targetOnly[3] || targetOnly[4] || targetOnly[5] || targetOnly[6])
+      : null;
     if (
       (current == null || (current >= 1 && current <= 10))
       && (target == null || (target >= 1 && target <= 10))

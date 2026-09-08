@@ -591,7 +591,7 @@ async function generateStatusDraft({
     '',
     'Return only the reply body text.'
   ].join('\n');
-  const { text } = await callGeminiText({ prompt, temperature: 0.2, maxOutputTokens: 420 });
+  const { text } = await callGeminiText({ prompt, temperature: 0.2, maxOutputTokens: 2200 });
   if (libraryMatches.length) {
     recordReplyLibraryUsage(libraryMatches.map((m) => m.id)).catch(() => {});
   }

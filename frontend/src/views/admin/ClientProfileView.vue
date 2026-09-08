@@ -65,7 +65,7 @@ async function fetchClient() {
   loading.value = true;
   error.value = '';
   try {
-    const res = await api.get(`/clients/${id}`);
+    const res = await api.get(`/clients/${id}`, { skipGlobalLoading: true });
     client.value = res.data ? { ...res.data } : null;
     if (!client.value) error.value = 'Client not found.';
   } catch (e) {

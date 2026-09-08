@@ -4903,7 +4903,16 @@ router.beforeEach(async (to, from, next) => {
       const rest = rawPath === prefix ? '/' : rawPath.slice(prefix.length) || '/';
       // Provider mobile shell is only registered under /:organizationSlug/provider-mobile; /provider-mobile redirects back to a slugbed URL.
       if (rest !== '/provider-mobile' && !rest.startsWith('/provider-mobile/')) {
-        next({ path: rest, query: to.query, hash: to.hash, replace: true });
+        // Only replace when we are canonicalizing the *same* page (slugbed ↔ flat).
+        // Using replace for every strip wiped the previous page (e.g. /admin) from history,
+        // so Back from /tickets jumped to pre-login instead of the dashboard.
+        const fromPath = String(from.path || '');
+        const fromPrefixed = fromPath === prefix || fromPath.startsWith(`${prefix}/`);
+        const fromRest = fromPrefixed
+          ? (fromPath === prefix ? '/' : fromPath.slice(prefix.length) || '/')
+          : null;
+        const sameLogicalPage = fromRest === rest || fromPath === rest;
+        next({ path: rest, query: to.query, hash: to.hash, replace: sameLogicalPage });
         return;
       }
     }
@@ -4995,6 +5004,18 @@ router.beforeEach(async (to, from, next) => {
     // On custom-domain portals, /login should remain branded (portalHostPortalUrl is set at boot).
     if (!brandingStore.portalHostPortalUrl) {
       brandingStore.clearPortalTheme();
+    } else {
+      // Soft-switch may have left portalAgency on a foreign tenant (e.g. NLU on ITSCO host).
+      // Restore the host theme so flat /admin chrome matches ITSCO, not the prior visit.
+      const hostPortal = String(brandingStore.portalHostPortalUrl || '').trim().toLowerCase();
+      const portalSlug = String(brandingStore.portalAgency?.slug || '').trim().toLowerCase();
+      if (hostPortal && portalSlug !== hostPortal) {
+        try {
+          await brandingStore.fetchAgencyTheme(hostPortal);
+        } catch {
+          // best effort
+        }
+      }
     }
   }
 
@@ -5075,8 +5096,13 @@ router.beforeEach(async (to, from, next) => {
             .trim()
             .toLowerCase();
           const slugNorm = String(slug).trim().toLowerCase();
+          const portalSlugNow = String(brandingStore.portalAgency?.slug || '').trim().toLowerCase();
           const skipRedundantTheme =
-            authStore.isAuthenticated && isSuperAdmin && hostPortal && slugNorm === hostPortal;
+            authStore.isAuthenticated &&
+            isSuperAdmin &&
+            hostPortal &&
+            slugNorm === hostPortal &&
+            portalSlugNow === hostPortal;
           // Login routes fetch their own login-theme in onMounted (fetchLoginTheme), which applies
           // full branding via setPortalThemeFromLoginTheme. Skip the guard's /theme call to avoid
           // a redundant round-trip that causes a visible flash before the richer theme loads.
@@ -5534,21 +5560,26 @@ router.beforeEach(async (to, from, next) => {
           .trim()
           .toLowerCase() || null;
       const loginPath = buildOrgLoginPath(slug, parent, hostImplied);
-      next(`${loginPath}${redirectQuery}`);
+      next({ path: loginPath, query: redirectPath && redirectPath !== '/' ? { redirect: redirectPath } : {}, replace: true });
       return;
     }
     // Otherwise, redirect based on stored agencies/user role.
     const loginUrl = getLoginUrl(authStore.user);
-    next(loginUrl + redirectQuery);
+    const loginPathOnly = String(loginUrl || '/login').split('?')[0] || '/login';
+    next({
+      path: loginPathOnly,
+      query: redirectPath && redirectPath !== '/' ? { redirect: redirectPath } : {},
+      replace: true
+    });
   } else if (to.meta.requiresProviderMobileAccess) {
     if (hasProviderMobileAccess(authStore.user)) {
       next();
     } else {
-      next(getDashboardRoute());
+      next({ path: getDashboardRoute(), replace: true });
     }
   } else if (to.meta.requiresGuest && authStore.isAuthenticated && !allowWhenAuthenticated.has(String(to.name || ''))) {
     // Redirect to appropriate dashboard based on user role
-    next(getDashboardRoute());
+    next({ path: getDashboardRoute(), replace: true });
   } else if (to.meta.requiresApprovedEmployee) {
     // Approved employees and ACTIVE_EMPLOYEE/TERMINATED_PENDING users can access on-demand training
     const canAccessOnDemand = authStore.user?.type === 'approved_employee' || 

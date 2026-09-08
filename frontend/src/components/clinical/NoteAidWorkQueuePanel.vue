@@ -118,7 +118,7 @@
             <span>{{ statusLabel(item) }}</span>
           </div>
           <div class="na-wq-item-meta">
-            {{ item.date }}
+            {{ formatQueueDate(item.date) }}
             <template v-if="item.timeLabel"> · {{ item.timeLabel }}</template>
             · {{ typeLabel(item) }}
           </div>
@@ -296,6 +296,19 @@ function connection(item) {
 
 function statusLabel(item) {
   return docStatusMeta(docStatus(item)).shortLabel;
+}
+
+function formatQueueDate(value) {
+  const raw = String(value || '').trim();
+  const iso = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!iso) return raw || '—';
+  try {
+    const d = new Date(`${iso[1]}-${iso[2]}-${iso[3]}T12:00:00`);
+    if (Number.isNaN(d.getTime())) return raw;
+    return d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: '2-digit' });
+  } catch {
+    return raw;
+  }
 }
 
 function connectionLabel(item) {
