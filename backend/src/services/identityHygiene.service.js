@@ -326,11 +326,36 @@ export async function mergeUsers({ keepId, sourceIds, fieldChoices = {}, actorUs
 export async function mergeClients({ keepId, sourceIds, fieldChoices = {}, actorUserId = null }) {
   const preview = await previewClientMerge({ keepId, sourceIds, fieldChoices });
   const conn = await pool.getConnection();
+  let clinicalConn = null;
   try {
+    try {
+      const clinicalPool = (await import('../config/clinicalDatabase.js')).default;
+      clinicalConn = await clinicalPool.getConnection();
+    } catch {
+      clinicalConn = null;
+    }
     await conn.beginTransaction();
+    if (clinicalConn) await clinicalConn.beginTransaction();
+
+    // Free unique identifier_code on sources before any keep-field update that might adopt one.
+    for (const other of preview.others) {
+      await execIgnore(
+        `UPDATE clients SET identifier_code = CONCAT('X', LPAD(?, 5, '0')) WHERE id = ?`,
+        [other.id % 100000, other.id],
+        conn
+      );
+    }
+
     const sets = [];
     const values = [];
     for (const field of preview.fields) {
+      // Keep's existing identifier stays unless keep has none and a source contributed one.
+      if (field.key === 'identifier_code') {
+        const keepCode = String(preview.keep?.identifier_code || '').trim();
+        const chosen = String(field.chosenValue || '').trim();
+        if (keepCode && /^\d{6}$/.test(keepCode)) continue;
+        if (!chosen || !/^\d{6}$/.test(chosen)) continue;
+      }
       sets.push(`${field.key} = ?`);
       values.push(field.chosenValue);
     }
@@ -341,18 +366,57 @@ export async function mergeClients({ keepId, sourceIds, fieldChoices = {}, actor
     for (const other of preview.others) {
       await execIgnore(`UPDATE client_guardians SET client_id = ? WHERE client_id = ?`, [keepId, other.id], conn);
       await execIgnore(`UPDATE client_organization_assignments SET client_id = ? WHERE client_id = ?`, [keepId, other.id], conn);
-      await execIgnore(`UPDATE clinical_sessions SET client_id = ? WHERE client_id = ?`, [keepId, other.id], conn);
+      await execIgnore(`UPDATE client_agency_assignments SET client_id = ? WHERE client_id = ?`, [keepId, other.id], conn);
+      await execIgnore(`UPDATE client_notes SET client_id = ? WHERE client_id = ?`, [keepId, other.id], conn);
+      await execIgnore(`UPDATE note_aid_work_queue_items SET client_id = ? WHERE client_id = ?`, [keepId, other.id], conn);
+      await execIgnore(`UPDATE appointment_participants SET client_id = ? WHERE client_id = ?`, [keepId, other.id], conn);
+      await execIgnore(`UPDATE appointments SET client_id = ? WHERE client_id = ?`, [keepId, other.id], conn);
+      await execIgnore(`UPDATE office_event_clients SET client_id = ? WHERE client_id = ?`, [keepId, other.id], conn);
+      await execIgnore(
+        `UPDATE client_intake_note_drafts SET client_id = ? WHERE client_id = ?`,
+        [keepId, other.id],
+        conn
+      );
+
+      if (clinicalConn) {
+        await execIgnore(`UPDATE clinical_sessions SET client_id = ? WHERE client_id = ?`, [keepId, other.id], clinicalConn);
+        await execIgnore(`UPDATE clinical_notes SET client_id = ? WHERE client_id = ?`, [keepId, other.id], clinicalConn);
+        await execIgnore(`UPDATE clinical_note_drafts SET client_id = ? WHERE client_id = ?`, [keepId, other.id], clinicalConn);
+        await execIgnore(`UPDATE clinical_treatment_plans SET client_id = ? WHERE client_id = ?`, [keepId, other.id], clinicalConn);
+        await execIgnore(`UPDATE clinical_diagnoses SET client_id = ? WHERE client_id = ?`, [keepId, other.id], clinicalConn);
+        await execIgnore(
+          `UPDATE clinical_treatment_objective_ratings SET client_id = ? WHERE client_id = ?`,
+          [keepId, other.id],
+          clinicalConn
+        );
+        await execIgnore(`UPDATE clinical_claims SET client_id = ? WHERE client_id = ?`, [keepId, other.id], clinicalConn);
+      } else {
+        // Legacy single-DB installs may still host clinical_* on the main pool.
+        await execIgnore(`UPDATE clinical_sessions SET client_id = ? WHERE client_id = ?`, [keepId, other.id], conn);
+        await execIgnore(`UPDATE clinical_notes SET client_id = ? WHERE client_id = ?`, [keepId, other.id], conn);
+        await execIgnore(`UPDATE clinical_note_drafts SET client_id = ? WHERE client_id = ?`, [keepId, other.id], conn);
+        await execIgnore(`UPDATE clinical_treatment_plans SET client_id = ? WHERE client_id = ?`, [keepId, other.id], conn);
+      }
+
       await conn.execute(
-        `UPDATE clients SET status = 'ARCHIVED', identifier_code = CONCAT(COALESCE(identifier_code,''), '-merged-', ?) WHERE id = ?`,
-        [other.id, other.id]
+        `UPDATE clients
+         SET status = 'ARCHIVED',
+             identifier_code = CONCAT('M', LPAD(?, 5, '0'))
+         WHERE id = ?`,
+        [other.id % 100000, other.id]
       );
     }
     await conn.commit();
+    if (clinicalConn) await clinicalConn.commit();
   } catch (err) {
     await conn.rollback();
+    if (clinicalConn) {
+      try { await clinicalConn.rollback(); } catch { /* ignore */ }
+    }
     throw err;
   } finally {
     conn.release();
+    if (clinicalConn) clinicalConn.release();
   }
   return { keepId, mergedSourceIds: sourceIds, actorUserId };
 }

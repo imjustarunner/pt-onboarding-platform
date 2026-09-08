@@ -397,12 +397,41 @@ export function namesLikelySamePerson(a, b) {
   const pa = na.split(' ');
   const pb = nb.split(' ');
   if (pa.length < 2 || pb.length < 2) return false;
-  return pa[0] === pb[0] && pa[pa.length - 1] === pb[pb.length - 1];
+  return pa[0] === pb[0] && pa[pa.length - 1] === pb[pa.length - 1];
+}
+
+/** Prefer the chart with the most durable identity data (and oldest id on ties). */
+export function scoreTodoClientCompleteness(client) {
+  if (!client) return -1;
+  let score = 0;
+  const status = String(client.status || client.client_status_key || '').toUpperCase();
+  if (status && status !== 'ARCHIVED') score += 20;
+  if (client.date_of_birth || client.dateOfBirth) score += 8;
+  if (client.contact_phone || client.contactPhone) score += 4;
+  if (client.email) score += 3;
+  if (client.demographics_phi_enc || client.demographicsPhiEnc || client.demographics_on_file || client.demographicsOnFile) {
+    score += 6;
+  }
+  const full = String(client.full_name || client.fullName || '').trim();
+  if (full.includes(' ')) score += 2;
+  if (client.provider_id || client.providerId) score += 1;
+  // Older records win ties so repeated ToDos converge on the first chart.
+  const id = Number(client.id || 0) || 0;
+  if (id > 0) score += Math.max(0, 1000000 - id) / 1000000;
+  return score;
+}
+
+function normalizeInitialsCompareKey(value) {
+  return String(value || '')
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, '');
 }
 
 /**
- * Attach a ToDo name to an existing client only on a unique exact (or unique first+last) match.
- * Do not use substring matches — "Ann" must not steal "Joanna" / a prior queue client.
+ * Attach a ToDo name to an existing client on:
+ * 1) unique exact full-name / first+last match, or
+ * 2) unique initials match (or best completeness when several share initials).
+ * Do not use substring name matches — "Ann" must not steal "Joanna".
  */
 export function matchTodoClientFromSearchRows(todoName, rows = []) {
   const nameKey = normalizePersonNameKey(todoName);
@@ -417,8 +446,21 @@ export function matchTodoClientFromSearchRows(todoName, rows = []) {
     return full === nameKey || (firstLast && firstLast === nameKey);
   });
   if (exact.length === 1) return exact[0];
-  if (exact.length > 1) return null;
-  return null;
+  if (exact.length > 1) {
+    return [...exact].sort((a, b) => scoreTodoClientCompleteness(b) - scoreTodoClientCompleteness(a))[0];
+  }
+
+  const initialsKey = normalizeInitialsCompareKey(deriveInitialsFromName(todoName));
+  if (!initialsKey || initialsKey.length < 2 || initialsKey === 'TBD') return null;
+  const byInitials = list.filter((c) => {
+    const status = String(c.status || '').toUpperCase();
+    if (status === 'ARCHIVED') return false;
+    const rowKey = normalizeInitialsCompareKey(c.initials || '');
+    return rowKey && rowKey === initialsKey;
+  });
+  if (!byInitials.length) return null;
+  if (byInitials.length === 1) return byInitials[0];
+  return [...byInitials].sort((a, b) => scoreTodoClientCompleteness(b) - scoreTodoClientCompleteness(a))[0];
 }
 
 export function deriveInitialsFromName(fullName) {

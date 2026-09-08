@@ -1686,6 +1686,63 @@ export const createClient = async (req, res, next) => {
         ? (skills === undefined || skills === null ? undefined : !!skills)
         : false
     };
+
+    // Note Aid / EHR list creates: reuse an active same-agency initials match instead of duplicating.
+    if (
+      !forceCreate
+      && normalizedInitials
+      && (sourceNorm === 'NOTE_AID_MINIMAL' || sourceNorm === 'EHR_PATIENT_LIST')
+    ) {
+      try {
+        const [existingRows] = await pool.execute(
+          `SELECT *
+           FROM clients
+           WHERE agency_id = ?
+             AND UPPER(REPLACE(COALESCE(initials, ''), ' ', '')) = ?
+             AND UPPER(COALESCE(status, '')) <> 'ARCHIVED'
+           ORDER BY id ASC
+           LIMIT 20`,
+          [parsedAgencyId, normalizedInitials.replace(/\s+/g, '')]
+        );
+        if ((existingRows || []).length) {
+          const scored = [...existingRows].sort((a, b) => {
+            const score = (c) => {
+              let s = 0;
+              if (c.date_of_birth) s += 8;
+              if (c.contact_phone) s += 4;
+              if (c.email) s += 3;
+              if (c.demographics_phi_enc) s += 6;
+              if (String(c.full_name || '').includes(' ')) s += 2;
+              const id = Number(c.id || 0) || 0;
+              if (id > 0) s += Math.max(0, 1000000 - id) / 1000000;
+              return s;
+            };
+            return score(b) - score(a);
+          });
+          const reused = scored[0];
+          if (reused?.id) {
+            if (resolvedProviderId && !reused.provider_id) {
+              try {
+                await Client.update(reused.id, { provider_id: resolvedProviderId }, userId);
+                reused.provider_id = resolvedProviderId;
+              } catch {
+                // best-effort
+              }
+            }
+            logClientAccess(req, reused.id, 'client_reused_note_aid').catch(() => {});
+            return res.status(200).json({
+              ...(warnings.length ? { warnings, warningMeta } : {}),
+              ...reused,
+              client: reused,
+              reused: true
+            });
+          }
+        }
+      } catch (reuseErr) {
+        console.warn('[createClient] Note Aid reuse check failed:', reuseErr?.message || reuseErr);
+      }
+    }
+
     const client = await Client.create(clientCreatePayload);
 
     // Seed multi-agency affiliation table so access control works immediately.

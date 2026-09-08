@@ -189,17 +189,26 @@ async function findOrCreateClient(item, agencyId, organizationId) {
   const name = String(item.clientName || '').trim();
   const initials = deriveInitialsFromName(name);
   const selfProviderId = Number(authStore.user?.id || 0) || null;
-  try {
+
+  async function searchAndMatch(term) {
+    if (!String(term || '').trim()) return null;
     const searchRes = await api.get('/clients', {
       params: {
         agency_id: agencyId,
-        search: name,
-        limit: 20
+        search: term,
+        limit: 40
       },
       skipGlobalLoading: true
     });
     const rows = searchRes?.data?.clients || searchRes?.data || [];
-    const match = matchTodoClientFromSearchRows(name, rows);
+    return matchTodoClientFromSearchRows(name, rows);
+  }
+
+  try {
+    let match = await searchAndMatch(name);
+    if (!match?.id && initials && initials !== 'TBD' && initials.toUpperCase() !== name.toUpperCase()) {
+      match = await searchAndMatch(initials);
+    }
     if (match?.id) {
       const matchedProviderId = Number(match.provider_id || match.providerId || 0) || null;
       if (selfProviderId && !matchedProviderId) {
@@ -234,10 +243,11 @@ async function findOrCreateClient(item, agencyId, organizationId) {
     { skipGlobalLoading: true }
   );
   const row = createRes?.data?.client || createRes?.data || {};
+  const reused = !!(createRes?.data?.reused || row.reused);
   return {
     clientId: Number(row.id),
     clientName: row.full_name || name,
-    created: true
+    created: !reused
   };
 }
 

@@ -324,8 +324,8 @@ describe('noteAidDocumentationStatus panels', () => {
 
 describe('todo client matching', () => {
   const rows = [
-    { id: 1, full_name: 'Cole Pratt', first_name: 'Cole', last_name: 'Pratt' },
-    { id: 2, full_name: 'Colleen Pratt', first_name: 'Colleen', last_name: 'Pratt' }
+    { id: 1, full_name: 'Cole Pratt', first_name: 'Cole', last_name: 'Pratt', initials: 'COLPRA', status: 'ACTIVE' },
+    { id: 2, full_name: 'Colleen Pratt', first_name: 'Colleen', last_name: 'Pratt', initials: 'COLPRA2', status: 'ACTIVE' }
   ];
 
   it('requires a unique exact name, not a substring', () => {
@@ -333,6 +333,28 @@ describe('todo client matching', () => {
     expect(matchTodoClientFromSearchRows('Colleen Pratt', rows)?.id).toBe(2);
     expect(matchTodoClientFromSearchRows('Col', rows)).toBeNull();
     expect(matchTodoClientFromSearchRows('Pratt', rows)).toBeNull();
+  });
+
+  it('reuses a unique initials match for ToDo paste names', () => {
+    const chart = [
+      {
+        id: 2043,
+        full_name: 'Cooper Douglas Moser',
+        initials: 'COOMOS',
+        status: 'ACTIVE',
+        date_of_birth: '2017-09-10',
+        contact_phone: '+13033326023',
+        email: 'markpmoser@gmail.com'
+      },
+      {
+        id: 2084,
+        full_name: 'Cooper D. Moser',
+        initials: 'COOMOS',
+        status: 'ACTIVE'
+      }
+    ];
+    expect(matchTodoClientFromSearchRows('COOMOS', chart)?.id).toBe(2043);
+    expect(matchTodoClientFromSearchRows('Cooper Douglas Moser', chart)?.id).toBe(2043);
   });
 
   it('does not treat similar first names as the same person', () => {
