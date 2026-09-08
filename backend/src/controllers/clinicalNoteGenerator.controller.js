@@ -777,6 +777,14 @@ export const createClinicalNoteDraft = async (req, res, next) => {
     const initials = req.body?.initials ? String(req.body.initials).trim() : null;
     const inputText = req.body?.inputText === undefined ? null : String(req.body.inputText || '');
     const encryptedInputText = maybeEncryptText(inputText);
+    let outputJson = null;
+    if (req.body?.outputJson != null) {
+      if (typeof req.body.outputJson === 'object') {
+        outputJson = maybeEncryptText(JSON.stringify(req.body.outputJson));
+      } else {
+        outputJson = maybeEncryptText(String(req.body.outputJson || ''));
+      }
+    }
 
     const draft = await ClinicalNoteDraft.create({
       userId: req.user.id,
@@ -789,7 +797,7 @@ export const createClinicalNoteDraft = async (req, res, next) => {
       dateOfService,
       initials,
       inputText: encryptedInputText,
-      outputJson: null
+      outputJson
     });
     res.status(201).json({ draft: sanitizeDraftRow(draft) });
     await logNoteAidChartEvent(req, {
@@ -879,6 +887,15 @@ export const patchClinicalNoteDraft = async (req, res, next) => {
     if (req.body?.inputText !== undefined) {
       const inputText = req.body.inputText === null ? null : String(req.body.inputText || '');
       patch.inputText = maybeEncryptText(inputText);
+    }
+    if (req.body?.outputJson !== undefined) {
+      if (req.body.outputJson === null) {
+        patch.outputJson = null;
+      } else if (typeof req.body.outputJson === 'object') {
+        patch.outputJson = maybeEncryptText(JSON.stringify(req.body.outputJson));
+      } else {
+        patch.outputJson = maybeEncryptText(String(req.body.outputJson || ''));
+      }
     }
 
     const updated = await ClinicalNoteDraft.updateForUser({

@@ -30,9 +30,9 @@ export const RETIRED_NOTE_AID_IDS = new Set([
 export const NOTE_TYPE_CODE_GROUPS = [
   {
     id: 'psychotherapy',
-    codes: ['90832', '90834', '90837', '90839'],
+    codes: ['90832', '90834', '90837'],
     primary: '90837',
-    label: '90832 / 90834 / 90837 / 90839 — Psychotherapy progress note'
+    label: '90832 / 90834 / 90837 — Psychotherapy progress note'
   },
   {
     id: 'family_couples',
@@ -89,7 +89,7 @@ export const NOTE_AID_CATEGORIES = [
         diagnosisMode: 'zr_only',
         attachQuestionnaires: true,
         guidance:
-          'Paste client history and intake information. Same structured intake flow as 90791, but bachelor’s-level: Z and R (social determinant) codes only — no DSM mental-health diagnoses. No mental status exam. Recent unattached questionnaires (e.g. GAD, PHQ, PSC) are auto-included.'
+          'Paste client history and intake information. Same structured intake flow as 90791 (without MSE). Bachelor’s-level defaults to Z/R codes; clinicians with diagnose permission also attach chart DSM diagnoses when present. Recent unattached questionnaires (e.g. GAD, PHQ, PSC) are auto-included.'
       },
       {
         id: 'h0031_additional',
@@ -102,7 +102,7 @@ export const NOTE_AID_CATEGORIES = [
         diagnosisMode: 'zr_only',
         attachQuestionnaires: true,
         guidance:
-          'Type additional assessment / collateral session content. Freeform Colorado narrative (not full 90791 sections). Z/R codes only when supported — no DSM diagnoses. No mental status exam. Use Freeform or CSNoteBuild. Recent unattached questionnaires are auto-included when available.'
+          'Type additional assessment / collateral session content. Freeform Colorado narrative (not full 90791 sections). Z/R by default; diagnose-capable clinicians also attach chart diagnoses when present. No mental status exam. Use Freeform or CSNoteBuild. Recent unattached questionnaires are auto-included when available.'
       },
       {
         id: 'h0032_plan',
@@ -461,18 +461,25 @@ export function aidRequiresProviderSupervisorSign(aid) {
 /**
  * How diagnoses appear on the chart strip for this aid.
  * - full: DSM + Z/R (90791 / psychotherapy)
- * - zr_only: social determinant Z/R codes only (H0031)
+ * - zr_only: social determinant Z/R codes only (H0031 at bachelor’s level)
  * - none: hide diagnoses block (H0023 outreach)
  * - chart: show whatever is on the chart (H0004 note)
+ * Diagnose-capable tiers (intern_plus+) upgrade zr_only → full so chart diagnoses attach.
  */
-export function aidDiagnosisMode(aid) {
-  const mode = String(aid?.diagnosisMode || '').trim();
-  if (mode) return mode;
-  const code = String(aid?.serviceCode || '').toUpperCase();
-  if (code === 'H0031') return 'zr_only';
-  if (code === 'H0023') return 'none';
-  if (code === 'H0004') return 'chart';
-  return 'full';
+export function aidDiagnosisMode(aid, { credentialTier = null } = {}) {
+  let mode = String(aid?.diagnosisMode || '').trim();
+  if (!mode) {
+    const code = String(aid?.serviceCode || '').toUpperCase();
+    if (code === 'H0031') mode = 'zr_only';
+    else if (code === 'H0023') mode = 'none';
+    else if (code === 'H0004') mode = 'chart';
+    else mode = 'full';
+  }
+  const tier = String(credentialTier || '').toLowerCase();
+  if (mode === 'zr_only' && (tier === 'intern_plus' || tier === 'provider' || tier === 'provider_plus')) {
+    return 'full';
+  }
+  return mode;
 }
 
 /** True if ICD-10 / psychosocial code is Z or R (social determinants / symptoms). */

@@ -98,10 +98,12 @@ describe('note aid kinds', () => {
     expect(aid?.printableDocument).toBe(true);
   });
 
-  it('H0031 intake is Z/R only without MSE; H0004 note is SOIP without MSE', () => {
+  it('H0031 intake is Z/R only without MSE; diagnose-capable tiers attach full chart diagnoses', () => {
     const intake = findNoteAidById('h0031_intake')?.aid;
     const h0004 = findNoteAidById('h0004_note')?.aid;
     expect(aidDiagnosisMode(intake)).toBe('zr_only');
+    expect(aidDiagnosisMode(intake, { credentialTier: 'bachelors' })).toBe('zr_only');
+    expect(aidDiagnosisMode(intake, { credentialTier: 'intern_plus' })).toBe('full');
     expect(aidSkipsMentalStatusExam(intake)).toBe(true);
     expect(aidSkipsMentalStatusExam(h0004, 'H0004')).toBe(true);
     expect(isSocialDeterminantCode('Z55.3')).toBe(true);

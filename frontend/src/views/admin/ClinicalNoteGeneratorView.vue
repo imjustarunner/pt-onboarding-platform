@@ -935,12 +935,12 @@
               </span>
             </label>
             <span
-              v-for="addon in (billingAddons || []).filter((a) => a.code !== '90785' || includeInteractiveComplexity)"
-              :key="addon.code"
+              v-for="addon in displayedBillingAddons"
+              :key="addon.code + String(addon.units || 1)"
               class="na-tag na-tag--accent"
-              :title="addon.code === '90840' ? 'Crisis add-on from duration' : addon.code"
+              :title="addon.code === '90840' ? 'Crisis add-on — auto from duration beyond 74 minutes' : addon.code"
             >
-              +{{ addon.code }}{{ addon.units > 1 ? ` ×${addon.units}` : '' }}
+              +{{ addon.code }}{{ addon.units > 1 ? ` ×${addon.units}` : '' }}{{ addon.pending ? ' (auto)' : '' }}
             </span>
             <button class="na-generate" type="button" :disabled="generateDisabled" @click="generateNote">
               <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true">
@@ -1182,10 +1182,15 @@
             </p>
             <label
               v-if="!skipMentalStatusExam && showStructuredChartPanel"
-              class="na-sign-check"
+              class="na-sign-status"
+              :class="{ ok: mseRiskComplete }"
             >
-              <input v-model="mseRiskAcknowledged" type="checkbox" />
-              I have completed mental status and risk assessment for this session.
+              <span class="na-sign-status-dot" aria-hidden="true" />
+              {{
+                mseRiskComplete
+                  ? 'Mental status and risk assessment complete'
+                  : 'Complete mental status and risk assessment above before signing'
+              }}
             </label>
             <label class="na-sign-check">
               <input v-model="attestAccurateAndComplete" type="checkbox" />
@@ -1735,7 +1740,6 @@ const chartIntakeNotes = ref([]);
 const noteTreatmentRecommendation = ref('continue');
 const notePrescribedFrequency = ref('');
 const planFrequencyBaseline = ref('');
-const mseRiskAcknowledged = ref(false);
 const clinicalCosignSupervisor = ref(null);
 
 const phiExtraNames = computed(() =>
@@ -1984,14 +1988,50 @@ async function loadNoteAidWriterPrefs() {
 function seedManualEmptySections() {
   const freeform = usesFreeformCsPathway.value || isReviewOnlyAid.value;
   const placeholder = 'Write this section…';
-  const sections = freeform
-    ? { Output: placeholder }
-    : {
-        Subjective: placeholder,
-        Objective: placeholder,
-        Interventions: placeholder,
-        Plan: placeholder
-      };
+  const aid = selectedAid.value;
+  const toolId = String(aid?.toolId || '');
+  const isIntakeManual =
+    aidKind(aid) === 'intake'
+    || toolId === 'clinical_h0031_intake'
+    || toolId === 'clinical_90791_intake_plan';
+
+  let sections;
+  if (isIntakeManual) {
+    const isH0031 = toolId === 'clinical_h0031_intake'
+      || String(actualServiceCode.value || aid?.serviceCode || '').toUpperCase() === 'H0031';
+    // Same titled boxes as 90791 intake (H0031 skips MSE; Z/R vs Diagnosis).
+    sections = {
+      Identification: placeholder,
+      'Presenting Problem': placeholder,
+      'History of Present Illness': placeholder,
+      'Psychiatric History': placeholder,
+      'Substance Use History': placeholder,
+      'Medical History': placeholder,
+      'Family History': placeholder,
+      'Social History': placeholder,
+      'Developmental History': placeholder,
+      'Educational / Occupational History': placeholder,
+      'Objective Content': placeholder,
+      ...(isH0031
+        ? {}
+        : { 'Mental Status Examination': placeholder }),
+      ...(isH0031
+        ? { 'Psychosocial Codes (Z/R)': placeholder }
+        : { Diagnosis: placeholder }),
+      'Clinical Impressions': placeholder,
+      Plan: placeholder,
+      'Treatment Recommendations': placeholder
+    };
+  } else if (freeform) {
+    sections = { Output: placeholder };
+  } else {
+    sections = {
+      Subjective: placeholder,
+      Objective: placeholder,
+      Interventions: placeholder,
+      Plan: placeholder
+    };
+  }
   outputObj.value = {
     sections,
     meta: {
@@ -2112,6 +2152,16 @@ async function loadSessionLocationChoices(agencyId = null) {
       });
     }
     choices.sort((a, b) => a.sortKey - b.sortKey || a.label.localeCompare(b.label));
+    // Keep a free-text / queue location visible in the select even if it is not in billing locations.
+    const current = String(sessionLocationLabel.value || '').trim();
+    if (current && !choices.some((c) => c.value.toLowerCase() === current.toLowerCase())) {
+      choices.unshift({
+        value: current,
+        label: current,
+        placeOfService: null,
+        sortKey: -1
+      });
+    }
     sessionLocationChoices.value = choices;
     if (!sessionLocationLabel.value && choices.length === 1) {
       sessionLocationLabel.value = choices[0].value;
@@ -2395,7 +2445,20 @@ function goToWriteStep() {
 const skipMentalStatusExam = computed(() =>
   aidSkipsMentalStatusExam(selectedAid.value, actualServiceCode.value)
 );
-const chartDiagnosisMode = computed(() => aidDiagnosisMode(selectedAid.value));
+/** Diagnose-capable credential tiers (intern_plus+) may attach full chart diagnoses on H0031. */
+const chartDiagnosisMode = computed(() =>
+  aidDiagnosisMode(selectedAid.value, { credentialTier: derivedTier.value })
+);
+const displayedBillingAddons = computed(() => {
+  const list = (billingAddons.value || [])
+    .filter((a) => a.code !== '90785' || includeInteractiveComplexity.value)
+    .map((a) => ({ ...a, pending: false }));
+  const primary = String(actualServiceCode.value || '').toUpperCase();
+  if (primary === '90839' && !list.some((a) => String(a.code || '').toUpperCase() === '90840')) {
+    list.push({ code: '90840', units: 0, pending: true });
+  }
+  return list;
+});
 const mseSkipLabel = computed(() => {
   const code = String(actualServiceCode.value || selectedAid.value?.serviceCode || '').toUpperCase();
   if (code === 'H0004') return 'Mental status exam is not used for H0004.';
@@ -2419,6 +2482,12 @@ const showStructuredChartPanel = computed(() => {
   // H0023 outreach: no chart MSE/dx strip (Colorado freeform note only).
   if (chartDiagnosisMode.value === 'none' && skipMentalStatusExam.value) return false;
   return !!effectiveClientId.value;
+});
+const mseRiskComplete = computed(() => {
+  if (skipMentalStatusExam.value || !showStructuredChartPanel.value) return true;
+  const mse = chartMentalStatus.value || {};
+  const risk = chartRiskAssessment.value || {};
+  return isMentalStatusExamComplete(mse, MSE_DOMAINS) && isRiskAssessmentComplete(risk);
 });
 const familyAttendeesRequired = computed(() => {
   const code = String(actualServiceCode.value || '').toUpperCase();
@@ -2531,11 +2600,7 @@ const canConfirmAndSign = computed(() => {
   if (sessionParticipantsFlag.value) return false;
   if (familyAttendeesRequired.value && !String(sessionParticipantsDetail.value || '').trim()) return false;
   if (!skipMentalStatusExam.value && showStructuredChartPanel.value) {
-    const mse = chartMentalStatus.value || {};
-    if (!isMentalStatusExamComplete(mse, MSE_DOMAINS)) return false;
-    const risk = chartRiskAssessment.value || {};
-    if (!isRiskAssessmentComplete(risk)) return false;
-    if (!mseRiskAcknowledged.value) return false;
+    if (!mseRiskComplete.value) return false;
   }
   if (
     showProgressPlanFields.value
@@ -2804,7 +2869,7 @@ function endWorkspaceHydration() {
   cancelPendingAutosave();
 }
 
-function scheduleAutosave(delayMs = 1500) {
+function scheduleAutosave(delayMs = 600) {
   if (!canUseTool.value || isWorkspaceHydrating()) return;
   if (autosaveDebounceTimer) clearTimeout(autosaveDebounceTimer);
   const seq = workQueueActivateSeq;
@@ -3766,6 +3831,9 @@ watch(selectedAidId, (aidId) => {
     }
     otherServiceCode.value = '';
     applyParticipantsDefaultForServiceCode(selectedServiceCode.value);
+    if (!isWorkspaceHydrating()) {
+      applyBillingRulesForCurrentSession({ announce: false });
+    }
   } else {
     selectedServiceCode.value = '';
     otherServiceCode.value = '';
@@ -4578,6 +4646,15 @@ const autosave = async () => {
   }
 
   const linkedClientId = resolveDraftClientIdForSave();
+  const sessionContext = {
+    locationLabel: sessionLocationLabel.value || null,
+    durationMinutes: sessionDurationMinutes.value != null ? Number(sessionDurationMinutes.value) : null,
+    startTimeLocal: sessionStartTimeLocal.value || null,
+    endTimeLocal: sessionEndTimeLocal.value || null,
+    participants: sessionParticipants.value || null,
+    participantsDetail: sessionParticipantsDetail.value || null,
+    serviceCode: autoSelectCode.value ? null : actualServiceCode.value || null
+  };
   const payload = {
     agencyId: noteAidAgencyId.value || currentAgencyId.value,
     preferLearningSponsor: preferLearningSponsorForAid.value,
@@ -4598,6 +4675,22 @@ const autosave = async () => {
     clinicalSessionId:
       Number(bookingContext.value?.clinicalSessionId || sessionClinicalSessionId.value || 0) || null
   };
+  // Persist session context (location, duration, times) into draft output_json.meta.
+  if (targetDraftId || outputObj.value) {
+    payload.outputJson = {
+      ...(outputObj.value && typeof outputObj.value === 'object' ? outputObj.value : {}),
+      meta: {
+        ...(outputObj.value?.meta && typeof outputObj.value.meta === 'object' ? outputObj.value.meta : {}),
+        toolId: selectedAid.value?.toolId || outputObj.value?.meta?.toolId || null,
+        sessionContext
+      }
+    };
+  } else if (sessionLocationLabel.value || sessionDurationMinutes.value != null) {
+    payload.outputJson = {
+      sections: {},
+      meta: { sessionContext, toolId: selectedAid.value?.toolId || null }
+    };
+  }
   if (linkedClientId) {
     payload.clientId = linkedClientId;
     persistClientUnlink = false;
@@ -5580,6 +5673,9 @@ watch(
   () => selectedAidId.value,
   () => {
     if (notePathway.value === 'soap') notePathway.value = 'standard';
+    if (skipAiAid.value && noteAidAllowManualWrite.value) {
+      seedManualEmptySections();
+    }
   }
 );
 
@@ -5662,8 +5758,8 @@ const approveNoteOutput = async ({ silent = false, afterSign = 'queue' } = {}) =
   if (!isClientChartAid.value && !canConfirmAndSign.value) {
     approvalError.value = sessionParticipantsFlag.value
       ? 'Update Participants — session content suggests others were present.'
-      : (!mseRiskAcknowledged.value && !skipMentalStatusExam.value
-        ? 'Complete and acknowledge mental status and risk assessment before signing.'
+      : (!mseRiskComplete.value && !skipMentalStatusExam.value
+        ? 'Complete mental status and risk assessment above before signing.'
         : 'Complete required chart sections before signing.');
     return;
   }
@@ -6244,7 +6340,6 @@ const resetClientClinicalContext = () => {
   noteTreatmentRecommendation.value = 'continue';
   notePrescribedFrequency.value = '';
   planFrequencyBaseline.value = '';
-  mseRiskAcknowledged.value = false;
 };
 
 const loadClientTreatmentPlan = async (clientId) => {
@@ -7308,7 +7403,6 @@ async function activateWorkQueueItem(item) {
   billingAddons.value = [];
   billingPrimaryUnits.value = 1;
   includeInteractiveComplexity.value = false;
-  mseRiskAcknowledged.value = false;
   noteTreatmentRecommendation.value = 'continue';
   notePrescribedFrequency.value = '';
   planFrequencyBaseline.value = '';
@@ -7366,9 +7460,10 @@ async function activateWorkQueueItem(item) {
     if (hhmm) sessionStartTimeLocal.value = hhmm;
   }
   ensureSessionEndFromDuration();
-  if (!sessionLocationLabel.value) {
-    loadSessionLocationChoices(item.agencyId || noteAidAgencyId.value);
-  }
+  await loadSessionLocationChoices(item.agencyId || noteAidAgencyId.value);
+  if (seq !== workQueueActivateSeq) return;
+  // Prefer queue location after choices load (do not let Main Office overwrite).
+  if (item.locationLabel) sessionLocationLabel.value = item.locationLabel;
   chartMentalStatus.value = defaultMentalStatusExam();
   chartRiskAssessment.value = defaultRiskAssessment();
   chartMedications.value = defaultMedicationsBlock();
@@ -7481,7 +7576,14 @@ async function activateWorkQueueItem(item) {
     const code = String(item.serviceCode || '90837').trim().toUpperCase();
     selectedServiceCode.value = code;
     otherServiceCode.value = '';
-    const hit = findNoteAidByToolOrCode({ serviceCode: code });
+    // H0031 from ToDo/consultation is additional assessment (progress), not initial intake.
+    let hit = null;
+    if (code === 'H0031' && String(item.noteKind || '') !== 'intake') {
+      hit = findNoteAidById('h0031_additional')
+        || findNoteAidByToolOrCode({ toolId: 'clinical_h0031_additional', serviceCode: 'H0031' });
+    } else {
+      hit = findNoteAidByToolOrCode({ serviceCode: code });
+    }
     if (hit) {
       selectedNoteCategory.value = hit.category.id;
       selectedAidId.value = hit.aid.id;
@@ -7522,7 +7624,8 @@ async function activateWorkQueueItem(item) {
       preferredDateOfService: toWorkQueueDateOnly(item.date),
       preferredStartTimeLabel: item.timeLabel || null,
       preferredScheduledStart: item.scheduledStart || null,
-      preferredScheduledEnd: item.scheduledEnd || null
+      preferredScheduledEnd: item.scheduledEnd || null,
+      preferredLocationLabel: item.locationLabel || null
     });
     if (seq !== workQueueActivateSeq) return;
     activeWorkQueueItemId.value = item.id;
@@ -7534,6 +7637,7 @@ async function activateWorkQueueItem(item) {
       selectedServiceCode.value = String(item.serviceCode).toUpperCase();
       otherServiceCode.value = '';
     }
+    if (item.locationLabel) sessionLocationLabel.value = item.locationLabel;
     if (!sessionStartTimeLocal.value && item.timeLabel) {
       const hhmm = timeLabelToHhMm(item.timeLabel);
       if (hhmm) sessionStartTimeLocal.value = hhmm;
@@ -8092,6 +8196,34 @@ const loadDraftIntoWorkspace = async (d, options = {}) => {
     includeInteractiveComplexity.value =
       !!outputObj.value.meta.includeInteractiveComplexity && aidAllowsInteractiveComplexity(aidHit?.aid || selectedAid.value);
   }
+  // Restore session context (location / duration / times) persisted on the draft.
+  const savedCtx = outputObj.value?.meta?.sessionContext;
+  if (savedCtx && typeof savedCtx === 'object') {
+    if (savedCtx.locationLabel && !options.preferredLocationLabel) {
+      sessionLocationLabel.value = String(savedCtx.locationLabel);
+    }
+    if (savedCtx.durationMinutes != null && sessionDurationMinutes.value == null) {
+      sessionDurationMinutes.value = Number(savedCtx.durationMinutes);
+    }
+    if (savedCtx.startTimeLocal && !sessionStartTimeLocal.value) {
+      sessionStartTimeLocal.value = String(savedCtx.startTimeLocal);
+    }
+    if (savedCtx.endTimeLocal && !sessionEndTimeLocal.value) {
+      sessionEndTimeLocal.value = String(savedCtx.endTimeLocal);
+    }
+    if (savedCtx.participants) {
+      sessionParticipants.value = normalizeParticipantsLabel(savedCtx.participants);
+    }
+    if (savedCtx.participantsDetail != null) {
+      sessionParticipantsDetail.value = String(savedCtx.participantsDetail || '');
+    }
+  }
+  if (options.preferredLocationLabel) {
+    sessionLocationLabel.value = String(options.preferredLocationLabel);
+  }
+  await loadSessionLocationChoices(
+    Number(d.agency_id || d.agencyId || noteAidAgencyId.value || currentAgencyId.value || 0) || null
+  );
   const dayKey = draftCreatedKey(d.created_at);
   openDateGroups.value = { ...openDateGroups.value, [dayKey]: true };
   archiveMessage.value = '';
@@ -8457,7 +8589,7 @@ onMounted(async () => {
 
   autosaveTimer = window.setInterval(() => {
     if (!isWorkspaceHydrating()) autosave();
-  }, 30_000);
+  }, 12_000);
 });
 
 watch(sessionDurationMinutes, (mins) => {
@@ -8466,7 +8598,13 @@ watch(sessionDurationMinutes, (mins) => {
   }
   if (isWorkspaceHydrating()) return;
   const current = String(actualServiceCode.value || '').toUpperCase();
-  const psychCodes = ['90832', '90834', '90837', '90839'];
+  // Crisis 90839 keeps its own duration/add-on rules — never remap via psychotherapy bands.
+  if (current === '90839') {
+    applyBillingRulesForCurrentSession({ announce: true });
+    scheduleAutosave(600);
+    return;
+  }
+  const psychCodes = ['90832', '90834', '90837'];
   if (psychCodes.includes(current) || !current) {
     const suggested = suggestPsychotherapyCodeForDuration(mins);
     if (suggested) {
@@ -8487,6 +8625,7 @@ watch(sessionDurationMinutes, (mins) => {
     }
     applyBillingRulesForCurrentSession({ announce: true });
   }
+  scheduleAutosave(600);
 });
 
 watch(sessionStartTimeLocal, (next, prev) => {
@@ -8652,8 +8791,24 @@ watch(clinicalNoteGeneratorEnabled, async (enabled, wasEnabled) => {
 
 watch(inputText, () => {
   if (isWorkspaceHydrating()) return;
-  scheduleAutosave(1500);
+  scheduleAutosave(600);
 });
+
+watch(
+  [
+    sessionLocationLabel,
+    sessionParticipants,
+    sessionParticipantsDetail,
+    sessionStartTimeLocal,
+    sessionEndTimeLocal,
+    selectedServiceCode,
+    otherServiceCode
+  ],
+  () => {
+    if (isWorkspaceHydrating()) return;
+    scheduleAutosave(600);
+  }
+);
 
 watch(
   [effectiveClientId, noteAidAgencyId, () => clientAgencyMembershipIds.value.join(',')],
@@ -10025,6 +10180,29 @@ a.na-chip--link {
   font-size: 0.85rem;
   color: #134e4a;
   margin: 6px 0;
+}
+
+.na-sign-status {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 0.85rem;
+  color: #92400e;
+  margin: 6px 0;
+  font-weight: 600;
+}
+
+.na-sign-status.ok {
+  color: #0f766e;
+}
+
+.na-sign-status-dot {
+  width: 8px;
+  height: 8px;
+  margin-top: 5px;
+  border-radius: 50%;
+  background: currentColor;
+  flex-shrink: 0;
 }
 
 .na-sign-check input {
