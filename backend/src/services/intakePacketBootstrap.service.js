@@ -14,7 +14,7 @@ import { scrubIntakeTextForNoteWriter } from './phiScrubber.service.js';
 import { collectClientPhiNames } from './clientPhiNames.service.js';
 import { parseIntakeDiagnoses } from './intakeImport.service.js';
 import { deriveCredentialTierFromText } from '../utils/credentialNormalization.js';
-import { parseScalePair, inferScaleDirection } from './treatmentPlanImport.service.js';
+import { parseScalePair, inferScaleDirection, parseTreatmentPlanText } from './treatmentPlanImport.service.js';
 
 export const INTAKE_PACKET_BOOTSTRAP_TOOL = 'intake_packet_bootstrap';
 export const TREATMENT_PLAN_DRAFT_TITLE = 'Treatment Plan Draft';
@@ -145,10 +145,39 @@ function extractSuggestedDiagnosis(text) {
  */
 export function extractGoalsFromIntakeText(text) {
   const raw = String(text || '');
+  // Prefer the full treatment-plan parser when the note already has Goal/Objective structure.
+  if (
+    /(?:treatment\s+)?goal\s*\d+/i.test(raw)
+    && /(?:objective|obj)\s*\d+/i.test(raw)
+  ) {
+    try {
+      const parsed = parseTreatmentPlanText(raw);
+      if (Array.isArray(parsed?.goals) && parsed.goals.length) {
+        return parsed.goals.map((g, i) => ({
+          goalIndex: i + 1,
+          goalText: g.goalText || `Goal ${i + 1}`,
+          status: 'active',
+          projectedCompletion: g.projectedCompletion || null,
+          durationMonths: g.durationMonths || null,
+          objectives: (g.objectives || []).map((o, j) => ({
+            objectiveIndex: j + 1,
+            objectiveText: o.objectiveText || '',
+            scaleCurrent: o.scaleCurrent,
+            scaleTarget: o.scaleTarget,
+            scaleDirection: o.scaleDirection,
+            measurementMethod: o.measurementMethod || '1-10 scale (client self-report)'
+          }))
+        })).filter((g) => String(g.goalText || '').trim() || g.objectives.some((o) => String(o.objectiveText || '').trim()));
+      }
+    } catch {
+      // fall through to legacy splitter
+    }
+  }
+
   const goals = [];
   const goalBlocks = raw
-    .split(/\n(?=(?:Goal|GOAL)\s*\d+\s*[:.])/i)
-    .filter((b) => /^(?:Goal|GOAL)\s*\d+\s*[:.]/i.test(b.trim()));
+    .split(/\n(?=(?:Treatment\s+)?Goal\s*\d+\s*[:.]?)/i)
+    .filter((b) => /^(?:Treatment\s+)?Goal\s*\d+\s*[:.]?/i.test(b.trim()));
   const sourceBlocks = goalBlocks.length
     ? goalBlocks
     : (() => {
@@ -604,16 +633,34 @@ export async function refreshTreatmentPlanDraftFromIntake({
     || ''
   ).trim() || null;
 
-  const prescribedFrequency = String(sections['Treatment Recommendations'] || '').trim() || null;
-  const dischargeCriteria = String(sections['Discharge Plan'] || '').trim() || null;
+  const prescribedFrequency = String(
+    sections['Treatment Recommendations']
+    || sections['Prescribed Frequency of Treatment']
+    || sections['Prescribed Frequency']
+    || ''
+  ).trim() || null;
+  const dischargeCriteria = String(
+    sections['Discharge Plan']
+    || sections['Discharge Criteria/Planning']
+    || sections['Discharge Criteria']
+    || ''
+  ).trim() || null;
+
+  let freq = prescribedFrequency;
+  let disc = dischargeCriteria;
+  try {
+    const parsed = parseTreatmentPlanText(noteBody);
+    if (!freq && parsed?.prescribedFrequency) freq = parsed.prescribedFrequency;
+    if (!disc && parsed?.dischargePlan) disc = parsed.dischargePlan;
+  } catch { /* ignore */ }
 
   const dischargeParts = [];
   if (presentingProblem) dischargeParts.push(`Presenting Problem\n${presentingProblem}`);
-  if (prescribedFrequency) {
-    dischargeParts.push(`Prescribed Frequency of Treatment\n${prescribedFrequency}`);
+  if (freq) {
+    dischargeParts.push(`Prescribed Frequency of Treatment\n${freq}`);
   }
-  if (dischargeCriteria) {
-    dischargeParts.push(`Discharge Criteria/Planning\n${dischargeCriteria}`);
+  if (disc) {
+    dischargeParts.push(`Discharge Criteria/Planning\n${disc}`);
   } else if (presentingProblem) {
     dischargeParts.push('Discharge Criteria/Planning\n');
   }

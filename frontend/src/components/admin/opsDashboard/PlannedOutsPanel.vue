@@ -44,10 +44,13 @@
             @click="remove(row)"
           >Delete</button>
           <template v-if="canReview && canReviewPlannedOut(row)">
-            <button type="button" class="tiny" @click="review(row, 'approve')">Approve</button>
-            <button type="button" class="tiny danger" @click="review(row, 'reject')">Reject</button>
-            <button type="button" class="tiny warn" @click="review(row, 'revision')">Revise</button>
+            <button type="button" class="tiny" @click="review(row, 'acknowledge')">Acknowledge</button>
+            <button type="button" class="tiny warn" @click="review(row, 'send_back')">Send Back</button>
           </template>
+          <p v-if="row.conflict_count > 0" class="po-conflict">
+            ⚠️ Schedule Conflict — {{ row.conflict_count }} scheduled
+            appointment{{ row.conflict_count === 1 ? '' : 's' }} during this time
+          </p>
         </div>
         <p v-if="row.admin_comment" class="admin-note">Admin: {{ row.admin_comment }}</p>
       </li>
@@ -112,7 +115,9 @@ function moveColumn(idx) {
 }
 
 function canDelete(row) {
-  return Number(row.user_id) === Number(authStore.user?.id) || canReview.value;
+  // Admins acknowledge/send back — only the submitting provider may remove their own pending item.
+  return Number(row.user_id) === Number(authStore.user?.id)
+    && ['pending', 'revision'].includes(String(row.status || '').toLowerCase());
 }
 
 async function load() {
@@ -142,7 +147,7 @@ function onCreated() {
 }
 
 async function remove(row) {
-  if (!window.confirm('Delete this planned out and its schedule block?')) return;
+  if (!window.confirm('Remove this Planned Out notification and its schedule block?')) return;
   try {
     await api.delete(`/planned-outs/${row.id}`, { skipGlobalLoading: true });
     await load();
@@ -153,8 +158,8 @@ async function remove(row) {
 
 async function review(row, action) {
   let comment = '';
-  if (action === 'reject' || action === 'revision') {
-    comment = window.prompt(action === 'reject' ? 'Reject comment (required):' : 'Revision comment (required):') || '';
+  if (action === 'send_back' || action === 'revision') {
+    comment = window.prompt('Send Back — what needs clarification? (required):') || '';
     if (!comment.trim()) return;
   }
   try {
@@ -170,7 +175,7 @@ async function review(row, action) {
     }
     await load();
   } catch (e) {
-    window.alert(e.response?.data?.error?.message || 'Review failed');
+    window.alert(e.response?.data?.error?.message || 'Update failed');
   }
 }
 
@@ -296,6 +301,13 @@ defineExpose({ reload: load });
 }
 .tiny.danger { color: #b91c1c; }
 .tiny.warn { color: #c2410c; }
+.po-conflict {
+  margin: 6px 0 0;
+  font-size: 11px;
+  font-weight: 700;
+  color: #b45309;
+  line-height: 1.35;
+}
 .admin-note {
   margin: 4px 0 0;
   font-size: 11px;

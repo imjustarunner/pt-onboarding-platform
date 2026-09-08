@@ -195,10 +195,10 @@ export const NOTE_AID_CATEGORIES = [
         label: '90839 — Crisis Psychotherapy',
         toolId: 'clinical_psychotherapy_note',
         serviceCode: '90839',
-        kind: 'progress',
+        kind: 'crisis',
         requiresCredentialTier: ['intern_plus'],
         guidance:
-          'Crisis psychotherapy (intern_plus and above). Type or speak urgent assessment, crisis state, MSE, disposition, mobilization of resources, and interventions to restore safety. Minimum 31 minutes (≤30 switches to 90832). After 74 minutes, 90840 crisis add-on units apply automatically.'
+          'Crisis psychotherapy (intern_plus and above). Type or speak urgent assessment, crisis state, MSE, disposition, mobilization of resources, and interventions to restore safety. Minimum 31 minutes (≤30 switches to 90832). After 74 minutes, 90840 crisis add-on units apply automatically (one unit per ~30 minutes beyond 74).'
       },
       {
         id: 'family',
@@ -378,6 +378,7 @@ export const NOTE_AID_KIND_FILTERS = [
   { id: 'all', label: 'All' },
   { id: 'intake', label: 'Intake' },
   { id: 'progress', label: 'Progress Note' },
+  { id: 'crisis', label: 'Crisis' },
   { id: 'plan', label: 'Treatment Plan' },
   { id: 'consultation', label: 'Consultation' },
   { id: 'summary', label: 'Summary' },
@@ -398,6 +399,7 @@ export function aidKind(aid) {
   const blob = `${aid?.toolId || ''} ${aid?.id || ''} ${aid?.label || ''}`.toLowerCase();
   if (blob.includes('terminat')) return 'termination';
   if (blob.includes('summary')) return 'summary';
+  if (blob.includes('90839') || blob.includes('crisis')) return 'crisis';
   if (
     blob.includes('consult')
     || blob.includes('pcp_note')

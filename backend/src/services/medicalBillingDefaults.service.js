@@ -95,6 +95,47 @@ function buildDefaultMedicalServiceCodes() {
     have.add(code);
   }
 
+  // Agency medical claim rules (not payroll): day caps + day-code overflow.
+  const patchByCode = new Map(out.map((r) => [r.serviceCode, r]));
+  if (patchByCode.has('H0004')) {
+    Object.assign(patchByCode.get('H0004'), {
+      maxUnitsPerSession: 4,
+      maxUnitsPerDay: 4,
+      description: patchByCode.get('H0004').description
+        || 'Behavioral health counseling and therapy (max 4 units / day)'
+    });
+  }
+  // H2015 (15-min community support) → H2016 day code at 4h 8m (248 min).
+  // Below that, H2015 bills the 8-minute ladder; at/above 248 min bill H2016 × 1.
+  if (patchByCode.has('H2015')) {
+    Object.assign(patchByCode.get('H2015'), {
+      maxMinutes: 247,
+      maxUnitsPerSession: 16,
+      maxUnitsPerDay: 16,
+      overflowServiceCode: 'H2016',
+      overflowAtMinutes: 248
+    });
+  }
+  if (patchByCode.has('H2016')) {
+    Object.assign(patchByCode.get('H2016'), {
+      unitCalcMode: 'SINGLE',
+      unitMinutes: null,
+      minMinutes: 248,
+      maxMinutes: null,
+      maxUnitsPerSession: 1,
+      maxUnitsPerDay: 1,
+      overflowServiceCode: null,
+      overflowAtMinutes: null,
+      description: 'Comprehensive community support (day) — 1 unit when duration ≥ 4 hours 8 minutes'
+    });
+  }
+  // Cap 90837 before extended-encounter handling in Note Aid (75+ → 90834 ×2).
+  if (patchByCode.has('90837')) {
+    Object.assign(patchByCode.get('90837'), {
+      maxMinutes: 74
+    });
+  }
+
   return out;
 }
 
@@ -130,6 +171,25 @@ export function parseAllowedCredentialTiers(raw) {
   return arr.map((t) => String(t || '').trim().toLowerCase()).filter(Boolean);
 }
 
+/** Patch only when critical claim-duration fields are still unset on an existing row. */
+function shouldPatchMedicalCodeDefaults(existing, def) {
+  if (!existing || !def) return false;
+  const code = String(def.serviceCode || '').toUpperCase();
+  if (code === 'H0004') {
+    return existing.max_units_per_day == null || existing.max_units_per_session == null;
+  }
+  if (code === 'H2015') {
+    return !existing.overflow_service_code || existing.overflow_at_minutes == null || existing.max_minutes == null;
+  }
+  if (code === 'H2016') {
+    return existing.min_minutes == null || Number(existing.min_minutes) < 248;
+  }
+  if (code === '90837') {
+    return existing.max_minutes == null;
+  }
+  return false;
+}
+
 export async function ensureAgencyMedicalBillingDefaults(agencyId, { actorUserId = null } = {}) {
   const aid = Number(agencyId || 0);
   if (!aid) return { codesCreated: 0, locationsCreated: 0 };
@@ -142,7 +202,40 @@ export async function ensureAgencyMedicalBillingDefaults(agencyId, { actorUserId
 
   for (const def of DEFAULT_MEDICAL_SERVICE_CODES) {
     const code = String(def.serviceCode).toUpperCase();
-    if (haveCode.has(code)) continue;
+    if (haveCode.has(code)) {
+      const existing = (existingCodes || []).find((r) => String(r.service_code || '').toUpperCase() === code);
+      if (existing && shouldPatchMedicalCodeDefaults(existing, def)) {
+        let ladderBandsJson = existing.ladder_bands_json || null;
+        if (!ladderBandsJson && (existing.unit_calc_mode || def.unitCalcMode) === 'MEDICAID_8_MINUTE_LADDER') {
+          ladderBandsJson = buildMedicaid8MinuteBands({
+            unitMinutes: existing.unit_minutes || def.unitMinutes || 15,
+            maxUnits: existing.max_units_per_session || def.maxUnitsPerSession || 8,
+            minMinutes: existing.min_minutes || def.minMinutes || 8
+          });
+        }
+        await AgencyMedicalServiceCode.upsert({
+          agencyId: aid,
+          serviceCode: code,
+          description: existing.description || def.description,
+          unitCalcMode: def.unitCalcMode || existing.unit_calc_mode,
+          unitMinutes: def.unitMinutes ?? existing.unit_minutes ?? null,
+          minMinutes: def.minMinutes ?? existing.min_minutes ?? null,
+          maxMinutes: def.maxMinutes ?? existing.max_minutes ?? null,
+          maxUnitsPerSession: def.maxUnitsPerSession ?? existing.max_units_per_session ?? null,
+          maxUnitsPerDay: def.maxUnitsPerDay ?? existing.max_units_per_day ?? null,
+          ladderBandsJson,
+          overflowServiceCode: def.overflowServiceCode || existing.overflow_service_code || null,
+          overflowAtMinutes: def.overflowAtMinutes ?? existing.overflow_at_minutes ?? null,
+          defaultPlaceOfService: existing.default_place_of_service || def.defaultPlaceOfService || null,
+          allowedCredentialTiers: parseAllowedCredentialTiers(existing.allowed_credential_tiers_json)
+            || def.allowedCredentialTiers
+            || null,
+          isActive: existing.is_active !== 0,
+          createdByUserId: actorUserId
+        });
+      }
+      continue;
+    }
     let ladderBandsJson = null;
     if (def.unitCalcMode === 'MEDICAID_8_MINUTE_LADDER') {
       ladderBandsJson = buildMedicaid8MinuteBands({

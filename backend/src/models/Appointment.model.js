@@ -64,6 +64,13 @@ class Appointment {
       source: String(r.source || 'staff_grid'),
       title: r.title != null ? String(r.title) : null,
       notes: r.notes != null ? String(r.notes) : null,
+      serviceCode: r.service_code ? String(r.service_code).toUpperCase() : null,
+      addonServiceCodes: (() => {
+        const raw = parseJsonSafe(r.addon_service_codes_json, []);
+        return Array.isArray(raw)
+          ? raw.map((c) => String(c || '').toUpperCase().trim()).filter(Boolean)
+          : [];
+      })(),
       createdByUserId: r.created_by_user_id == null ? null : Number(r.created_by_user_id),
       updatedByUserId: r.updated_by_user_id == null ? null : Number(r.updated_by_user_id),
       createdAt: r.created_at || null,
@@ -203,6 +210,30 @@ class Appointment {
       ]
     );
     return this.findById(result.insertId);
+  }
+
+  static async setServiceCodes(id, { serviceCode = null, addonServiceCodes = [] } = {}) {
+    const aid = Number(id || 0);
+    if (!aid) return null;
+    const code = serviceCode ? String(serviceCode).trim().toUpperCase().slice(0, 32) : null;
+    const addons = Array.isArray(addonServiceCodes)
+      ? addonServiceCodes.map((c) => String(c || '').trim().toUpperCase()).filter(Boolean)
+      : [];
+    const json = addons.length ? JSON.stringify(addons) : null;
+    try {
+      await pool.execute(
+        `UPDATE appointments
+         SET service_code = COALESCE(?, service_code),
+             addon_service_codes_json = ?,
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id = ?`,
+        [code, json, aid]
+      );
+    } catch (e) {
+      if (e?.code !== 'ER_BAD_FIELD_ERROR') throw e;
+      return this.findById(aid);
+    }
+    return this.findById(aid);
   }
 
   static async update(id, patch = {}) {

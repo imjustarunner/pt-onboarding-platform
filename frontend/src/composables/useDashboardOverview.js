@@ -8,6 +8,7 @@ import { buildRecentSubmissionActivityItems } from '../utils/submitSubmissionHis
 import { shouldShowOnProviderDashboardEvents } from '../utils/companyEventStaffing';
 import { formatViewerTimeRangeMs } from '../utils/timezones.js';
 import { parseScheduleUtcInstant } from '../utils/scheduleEventInstants.js';
+import { notificationDestination } from '../utils/notificationActions.js';
 
 function localYmd(d = new Date()) {
   const y = d.getFullYear();
@@ -376,13 +377,18 @@ export function useDashboardOverview(opts = {}) {
       });
     }
     for (const n of notifications.value.slice(0, 8)) {
+      const dest = notificationDestination(n, {
+        organizationSlug: resolve(opts.organizationSlug) || null,
+        role: resolve(opts.role) || null
+      });
       items.push({
         id: `n-${n.id}`,
         kind: 'notification',
         title: n.title || n.message || n.type || 'Notification',
         subtitle: n.message && n.title ? n.message : '',
         at: n.created_at || n.createdAt || null,
-        unread: !n.is_read && !n.is_resolved
+        unread: !n.is_read && !n.is_resolved,
+        navTarget: dest || 'notifications'
       });
     }
     if (taskCount.value > 0) {

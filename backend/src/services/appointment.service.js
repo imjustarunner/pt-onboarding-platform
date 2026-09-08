@@ -167,7 +167,9 @@ export async function createAppointment({
   notes = null,
   createdByUserId = null,
   participants = [],
-  billing = null
+  billing = null,
+  serviceCode = null,
+  addonServiceCodes = []
 } = {}) {
   const aid = Number(agencyId || 0);
   if (!aid) throw Object.assign(new Error('agencyId is required'), { status: 400 });
@@ -247,11 +249,22 @@ export async function createAppointment({
     source,
     title: title || service?.name || null,
     notes,
-    createdByUserId
+    createdByUserId,
+    serviceCode: serviceCode || service?.serviceCode || null,
+    addonServiceCodes
   });
 
   if (participants?.length) {
     await Appointment.replaceParticipants(appt.id, participants);
+  }
+  // Persist primary + add-on codes when columns exist (migration 1398).
+  try {
+    await Appointment.setServiceCodes(appt.id, {
+      serviceCode: serviceCode || service?.serviceCode || null,
+      addonServiceCodes
+    });
+  } catch {
+    /* columns may not exist yet */
   }
   if (billing || service || packageEntitlementId) {
     await Appointment.upsertBilling(appt.id, billing || {

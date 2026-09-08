@@ -4476,8 +4476,16 @@ const handleCardClick = (card) => {
 };
 
 const onOverviewNavigate = (tab) => {
+  if (tab && typeof tab === 'object') {
+    router.push(tab).catch(() => {});
+    return;
+  }
   const id = String(tab || '').trim();
   if (!id) return;
+  if (id.startsWith('/') || id.includes('/my-schedule') || id.includes('/admin/planned-outs')) {
+    router.push(id).catch(() => {});
+    return;
+  }
   if (id === 'my_schedule') {
     const slug = typeof route.params.organizationSlug === 'string' ? route.params.organizationSlug : '';
     router.push(slug ? `/${slug}/my-schedule` : '/my-schedule').catch(() => {});

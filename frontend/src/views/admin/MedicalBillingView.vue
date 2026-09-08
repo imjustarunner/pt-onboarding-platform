@@ -222,6 +222,7 @@
             <span class="mb-ready" :class="claimLifecycleClass(c)">{{ c.claim_lifecycle || c.claim_status }}</span>
             — {{ formatCents(c.amount_cents) }}
             <span v-if="c.date_of_service"> · DOS {{ String(c.date_of_service).slice(0, 10) }}</span>
+            <span v-if="c.place_of_service"> · POS {{ c.place_of_service }}</span>
             <span v-if="c.clinical_note_id"> · note #{{ c.clinical_note_id }}</span>
             <span v-if="claimDxLabel(c)"> · dx {{ claimDxLabel(c) }}</span>
             <span v-if="c.claimmd_claim_id"> · Claim.MD {{ c.claimmd_claim_id }}</span>
@@ -231,9 +232,58 @@
               class="mb-btn mb-btn--small"
               @click="submitClaim(c.id)"
             >Submit to Claim.MD</button>
+            <button
+              type="button"
+              class="mb-btn mb-btn--small"
+              @click="quickClaimPosOverride(c)"
+            >POS override</button>
           </li>
         </ul>
-        <p v-else class="muted">No claims yet. Create from a signed encounter via API / Note Aid chart flow.</p>
+        <p v-else class="muted">No claims yet. Signed Note Aid notes draft claims here for billing review (no auto Claim.MD submit).</p>
+
+        <h3 style="margin-top: 1.25rem;">Billing overrides (claim-side POS)</h3>
+        <p class="muted">Remap place of service on claims only (e.g. payer requires 12 instead of 03). Providers still see the real service location on schedule/notes.</p>
+        <div class="mb-row">
+          <select v-model="overrideForm.scope" class="mb-input">
+            <option value="payer">Payer</option>
+            <option value="client">Client</option>
+            <option value="claim">Claim</option>
+          </select>
+          <input
+            v-if="overrideForm.scope === 'payer'"
+            v-model="overrideForm.payerName"
+            class="mb-input"
+            placeholder="Payer / insurer name"
+          />
+          <input
+            v-if="overrideForm.scope === 'client'"
+            v-model.number="overrideForm.clientId"
+            class="mb-input"
+            type="number"
+            placeholder="Client ID"
+          />
+          <input
+            v-if="overrideForm.scope === 'claim'"
+            v-model.number="overrideForm.claimId"
+            class="mb-input"
+            type="number"
+            placeholder="Claim ID"
+          />
+          <input v-model="overrideForm.fromValue" class="mb-input" placeholder="From POS (e.g. 03)" maxlength="2" />
+          <input v-model="overrideForm.toValue" class="mb-input" placeholder="To POS (e.g. 12)" maxlength="2" />
+          <button type="button" class="mb-btn" @click="saveOverride">Save override</button>
+        </div>
+        <ul class="mb-list">
+          <li v-for="o in claimOverrides" :key="o.id">
+            #{{ o.id }} · {{ o.scope }}
+            <template v-if="o.payer_name"> · {{ o.payer_name }}</template>
+            <template v-if="o.client_id"> · client {{ o.client_id }}</template>
+            <template v-if="o.claim_id"> · claim {{ o.claim_id }}</template>
+            · POS {{ o.from_value || '*' }} → {{ o.to_value }}
+            <span v-if="!o.is_active" class="muted"> (inactive)</span>
+          </li>
+        </ul>
+        <p v-if="!claimOverrides.length" class="muted">No claim overrides yet.</p>
 
         <h3 style="margin-top: 1.25rem;">Fee schedule</h3>
         <div class="mb-row">
@@ -293,6 +343,15 @@ const signingNotes = ref([]);
 const signingLoading = ref(false);
 const claims = ref([]);
 const claimsLoading = ref(false);
+const claimOverrides = ref([]);
+const overrideForm = ref({
+  scope: 'payer',
+  payerName: '',
+  clientId: null,
+  claimId: null,
+  fromValue: '03',
+  toValue: '12'
+});
 const feeItems = ref([]);
 const feeCode = ref('');
 const feeCents = ref(0);
@@ -646,11 +705,58 @@ const loadClaims = async () => {
     claims.value = res?.data?.claims || [];
     const fee = await api.get('/medical-billing/fee-schedule', { params: { agencyId: agencyId.value } });
     feeItems.value = fee?.data?.items || [];
+    await loadClaimOverrides();
   } catch (e) {
     error.value = e.response?.data?.error?.message || 'Failed to load claims';
   } finally {
     claimsLoading.value = false;
   }
+};
+
+const loadClaimOverrides = async () => {
+  if (!agencyId.value) return;
+  try {
+    const res = await api.get('/medical-billing/claim-overrides', {
+      params: { agencyId: agencyId.value },
+      skipGlobalLoading: true
+    });
+    claimOverrides.value = res?.data?.items || [];
+  } catch {
+    claimOverrides.value = [];
+  }
+};
+
+const saveOverride = async () => {
+  try {
+    await api.post('/medical-billing/claim-overrides', {
+      agencyId: agencyId.value,
+      scope: overrideForm.value.scope,
+      payerName: overrideForm.value.scope === 'payer' ? overrideForm.value.payerName : null,
+      clientId: overrideForm.value.scope === 'client' ? overrideForm.value.clientId : null,
+      claimId: overrideForm.value.scope === 'claim' ? overrideForm.value.claimId : null,
+      fromValue: overrideForm.value.fromValue || null,
+      toValue: overrideForm.value.toValue,
+      fieldKey: 'place_of_service'
+    });
+    await loadClaimOverrides();
+  } catch (e) {
+    error.value = e.response?.data?.error?.message || 'Failed to save override';
+  }
+};
+
+const quickClaimPosOverride = async (claim) => {
+  const from = String(claim?.place_of_service || '03').padStart(2, '0').slice(-2);
+  const to = window.prompt(`Remap POS for claim #${claim.id} (from ${from}) to:`, '12');
+  if (!to) return;
+  overrideForm.value = {
+    scope: 'claim',
+    payerName: '',
+    clientId: null,
+    claimId: Number(claim.id),
+    fromValue: from,
+    toValue: String(to).padStart(2, '0').slice(-2)
+  };
+  await saveOverride();
 };
 
 const addFeeItem = async () => {

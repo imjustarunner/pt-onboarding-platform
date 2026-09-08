@@ -253,6 +253,7 @@ import { useAgencyStore } from '../../store/agency';
 import { useAuthStore } from '../../store/auth';
 import api from '../../services/api';
 import OfficeRequestAssignModal from '../../components/admin/OfficeRequestAssignModal.vue';
+import { notificationDestination } from '../../utils/notificationActions.js';
 
 const router = useRouter();
 const route = useRoute();
@@ -818,6 +819,15 @@ const handleNotificationClick = async (notification) => {
   // Mark as read when clicked
   if (!notification.is_read) {
     await markAsRead(notification.id);
+  }
+
+  const dest = notificationDestination(notification, {
+    organizationSlug: route.params.organizationSlug || getAgencySlug(notification.agency_id) || null,
+    role: authStore.user?.effectiveRole || authStore.user?.role || null
+  });
+  if (dest) {
+    router.push(dest).catch(() => {});
+    return;
   }
 
   // Budget expense approval: navigate to budget management

@@ -226,6 +226,44 @@ export function resolveNoteAidBillingCodes({
   };
 }
 
+/**
+ * Merge schedule-seeded add-on codes into rule-resolved addons.
+ * Schedule codes are pre-checked (seed); rule addons keep max units on conflict.
+ */
+export function mergeScheduleSeededAddons(ruleAddons = [], scheduleCodes = []) {
+  const byCode = new Map();
+  for (const a of ruleAddons || []) {
+    const c = String(a?.code || '').trim().toUpperCase();
+    if (!c) continue;
+    byCode.set(c, Math.max(byCode.get(c) || 0, Number(a.units) || 1));
+  }
+  for (const raw of scheduleCodes || []) {
+    const c = String(raw || '').trim().toUpperCase();
+    if (!c) continue;
+    byCode.set(c, Math.max(byCode.get(c) || 0, 1));
+  }
+  return [...byCode.entries()].map(([code, units]) => ({ code, units }));
+}
+
+export function parseAddonServiceCodesJson(raw) {
+  if (Array.isArray(raw)) {
+    return raw.map((c) => String(c || '').trim().toUpperCase()).filter(Boolean);
+  }
+  if (raw == null || raw === '') return [];
+  if (typeof raw === 'string') {
+    try {
+      const parsed = JSON.parse(raw);
+      return parseAddonServiceCodesJson(parsed);
+    } catch {
+      return String(raw)
+        .split(/[,;\s]+/)
+        .map((c) => c.trim().toUpperCase())
+        .filter(Boolean);
+    }
+  }
+  return [];
+}
+
 export const CRISIS_90839_SERVICE_DESCRIPTION = [
   'Service Description (Including example activities):',
   'Urgent assessment and relevant Behavioral Health history of a crisis state, mental status exam, and disposition.',

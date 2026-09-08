@@ -238,7 +238,9 @@ const {
   enabled: enabledRef,
   companyEvents: companyEventsRef,
   supervisionPrompts: supervisionPromptsRef,
-  includeSubmissionUpdates: computed(() => props.showPayroll || props.showClaims || props.showLogTime)
+  includeSubmissionUpdates: computed(() => props.showPayroll || props.showClaims || props.showLogTime),
+  organizationSlug: computed(() => route.params.organizationSlug || authStore.user?.organization?.slug || null),
+  role: computed(() => authStore.user?.effectiveRole || authStore.user?.role || null)
 });
 
 const onEventsRequestChanged = () => {

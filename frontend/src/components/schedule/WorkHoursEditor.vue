@@ -94,9 +94,9 @@
         <section class="work-hours__vacation">
           <div class="work-hours__vacation-head">
             <div>
-              <h4>Vacation / planned out</h4>
+              <h4>Planned Out</h4>
               <p class="work-hours__help work-hours__help--tight">
-                Multi-day or all-day time off uses Planned Out (shows on Team Board and schedule).
+                Notify Admin when you will not be available. This is not vacation, PTO, or sick time.
               </p>
             </div>
             <button
@@ -106,7 +106,7 @@
               data-testid="work-hours-set-vacation"
               @click="showVacation = true"
             >
-              Set vacation
+              Schedule Planned Out
             </button>
           </div>
           <p class="work-hours__help">
@@ -115,10 +115,13 @@
           <ul v-if="upcomingOuts.length" class="work-hours__outs">
             <li v-for="o in upcomingOuts" :key="o.id">
               {{ formatOut(o) }}
-              <em>{{ o.status || 'pending' }}</em>
+              <em>{{ statusLabel(o.status) }}</em>
+              <span v-if="o.admin_comment && String(o.status).toLowerCase() === 'revision'" class="work-hours__admin-note">
+                Admin: {{ o.admin_comment }}
+              </span>
             </li>
           </ul>
-          <p v-else class="muted">No upcoming vacation / planned outs.</p>
+          <p v-else class="muted">No upcoming Planned Out notifications.</p>
         </section>
       </div>
     </div>
@@ -138,6 +141,7 @@ import api from '../../services/api';
 import { useAgencyStore } from '../../store/agency';
 import { TIMEZONE_GROUPS, ALL_TIMEZONES, detectLocalTimezone, timezoneLabelFor } from '../../utils/timezones.js';
 import PlannedOutModal from '../admin/opsDashboard/PlannedOutModal.vue';
+import { statusLabel } from '../../utils/plannedOuts.js';
 
 const props = defineProps({
   userId: { type: Number, required: true },
@@ -490,6 +494,13 @@ watch(agencyId, loadOuts);
   color: #64748b;
   font-style: normal;
   margin-left: 6px;
+}
+.work-hours__admin-note {
+  display: block;
+  margin-top: 4px;
+  font-size: 12px;
+  color: #b45309;
+  font-weight: 600;
 }
 .field { display: flex; flex-direction: column; gap: 4px; font-size: 12px; }
 .field--tz { min-width: 220px; }

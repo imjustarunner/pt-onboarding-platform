@@ -25,7 +25,7 @@ const SOAP_INLINE_HEADER_RE = new RegExp(
 
 /** Goal N / Objective N / Discharge / Projected Time — EHR paste + structured plan UI. */
 const TREATMENT_PLAN_HEADER_RE =
-  /^(?:\d+[\).\s-]*)?(?:\*\*)?(Goal\s*(\d+)|Objective\s*(\d+(?:\.\d+)?)|Projected\s*Time\s*(?:to\s*Completion)?(?:\s*\d+)?|Discharge\s*Plan|Discharge)(?:\*\*)?\s*:?\s*(.*)$/i;
+  /^(?:\d+[\).\s-]*)?(?:\*\*)?(Treatment\s+Goal\s*(\d+)|Goal\s*(\d+)|Objective\s*(\d+(?:\.\d+)?)?|Projected\s*Time\s*(?:to\s*Completion)?(?:\s*\d+)?|Estimated\s*Completion|Discharge\s*Criteria(?:\s*\/\s*Planning)?|Discharge\s*Plan|Discharge|Prescribed\s*Frequency(?:\s+of\s+Treatment)?|Presenting\s*Problem|Diagnostic\s*Justification|Diagnos(?:is|es))(?:\*\*)?\s*:?\s*(.*)$/i;
 
 function normalizeSectionKey(title) {
   let t = String(title || '').trim().toLowerCase();
@@ -78,35 +78,60 @@ export function parseTreatmentPlanPanelsFromText(text) {
     if (match) {
       flush();
       const label = String(match[1] || '').trim();
-      const goalNum = match[2] ? Number(match[2]) : null;
-      const objRef = match[3] ? String(match[3]).trim() : null;
-      const inline = String(match[4] || '').trim();
+      const treatmentGoalNum = match[2] ? Number(match[2]) : null;
+      const plainGoalNum = match[3] != null && match[3] !== '' ? Number(match[3]) : null;
+      const goalNum = plainGoalNum != null && !Number.isNaN(plainGoalNum)
+        ? plainGoalNum
+        : (treatmentGoalNum != null && !Number.isNaN(treatmentGoalNum) ? treatmentGoalNum : null);
+      const objRef = match[4] != null && String(match[4]).trim() !== '' ? String(match[4]).trim() : null;
+      const bodyInline = String(match[5] || '').trim();
       let kind = 'other';
       let index = null;
       let id = label;
       let title = label;
-      if (goalNum != null && !Number.isNaN(goalNum)) {
+      const lower = label.toLowerCase();
+      if (/^diagnos|^presenting|^diagnostic\s+justification|^prescribed\s+frequency/.test(lower)) {
+        kind = 'intro';
+        id = label.replace(/\s+/g, '_');
+        title = label.replace(/:$/, '');
+      } else if (goalNum != null && !Number.isNaN(goalNum) && /goal/.test(lower)) {
         kind = 'goal';
         index = goalNum;
         lastGoalIndex = goalNum;
         id = `Goal ${goalNum}`;
         title = `Goal ${goalNum}`;
-      } else if (objRef) {
+      } else if (/^objective/i.test(lower)) {
         kind = 'objective';
-        index = Number(objRef.split('.')[0]) || 1;
-        id = `Objective ${objRef}`;
-        title = `Objective ${objRef}`;
-      } else if (/^projected\s*time/i.test(label)) {
+        const ref = objRef || String(lastGoalIndex || 1);
+        index = Number(String(ref).split('.')[0]) || lastGoalIndex || 1;
+        id = objRef ? `Objective ${objRef}` : `Objective ${index}`;
+        title = id;
+      } else if (/^projected\s*time|^estimated\s+completion/i.test(lower)) {
         kind = 'projected_time';
         index = lastGoalIndex;
         id = lastGoalIndex != null ? `Projected Time ${lastGoalIndex}` : 'Projected Time';
         title = id;
-      } else if (/^discharge/i.test(label)) {
+      } else if (/^discharge/i.test(lower)) {
         kind = 'discharge';
         id = 'Discharge Plan';
         title = 'Discharge Plan';
       }
-      current = { id, title, kind, index, buffer: inline ? [inline] : [] };
+      current = { id, title, kind, index, buffer: bodyInline ? [bodyInline] : [] };
+      continue;
+    }
+    // Diagnosis / ICD lines must not pad Goal body when they appear without a header.
+    if (
+      current?.kind === 'goal'
+      && (/^diagnos(?:is|es|tic)\b/i.test(trimmed) || /^[A-Z][0-9][0-9A-Z](?:\.[0-9A-Z]{1,4})?\b/.test(trimmed))
+    ) {
+      flush();
+      current = {
+        id: 'Diagnosis',
+        title: 'Diagnosis',
+        kind: 'intro',
+        index: null,
+        buffer: [trimmed]
+      };
       continue;
     }
     if (!current) {
@@ -274,12 +299,26 @@ export function soapSectionTextFromDraft(draft, key) {
 
 /**
  * Returns ordered display panels.
- * Prefer SOAP when ≥2 SOAP sections; else treatment-plan Goal/Objective pairs; else raw sections.
+ * Prefer treatment-plan Goal/Objective structure when present (even if the word
+ * "Objective" would also match SOAP) — otherwise TP writers get mis-labeled as
+ * "O - Objective" progress notes. Fall back to SOAP when ≥2 SOAP sections.
  */
-export function buildDisplaySections(sectionsObj) {
+export function buildDisplaySections(sectionsObj, { preferTreatmentPlan = false } = {}) {
   const sections = expandSoapSections(
     sectionsObj && typeof sectionsObj === 'object' ? sectionsObj : {}
   );
+
+  const planPanels = buildTreatmentPlanPanels(sections);
+  const planHasStructure = planPanels.some((p) => p.kind === 'goal')
+    && planPanels.some((p) => p.kind === 'objective');
+  if ((preferTreatmentPlan || planHasStructure) && planPanels.length >= 2) {
+    return planPanels.map((p) => ({
+      ...p,
+      letter: p.kind === 'goal' ? 'G' : p.kind === 'objective' ? 'O' : '',
+      isSoap: false
+    }));
+  }
+
   const usedKeys = new Set();
   const soapPanels = [];
 
@@ -323,7 +362,6 @@ export function buildDisplaySections(sectionsObj) {
     return [...soapPanels, ...otherPanels];
   }
 
-  const planPanels = buildTreatmentPlanPanels(sections);
   if (planPanels.length >= 2) {
     return planPanels.map((p) => ({
       ...p,
@@ -522,6 +560,22 @@ export function formatChartClinicalNoteCopy({
     lines.push(panel.text);
     lines.push('');
   }
+
+  const providerStmt = String(note.attestation?.statement || '').trim();
+  const supervisorStmt = String(note.supervisorCosign?.statement || '').trim();
+  if (providerStmt || supervisorStmt) {
+    lines.push('Electronic signature');
+    if (providerStmt) lines.push(providerStmt);
+    if (note.attestation?.ipAddress) {
+      lines.push(`Provider e-signature IP: ${note.attestation.ipAddress}`);
+    }
+    if (supervisorStmt) lines.push(supervisorStmt);
+    if (note.supervisorCosign?.ipAddress) {
+      lines.push(`Supervisor e-signature IP: ${note.supervisorCosign.ipAddress}`);
+    }
+    lines.push('');
+  }
+
   return lines.join('\n').trim();
 }
 

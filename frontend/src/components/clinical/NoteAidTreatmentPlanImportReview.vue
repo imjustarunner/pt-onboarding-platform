@@ -3,16 +3,50 @@
     <div class="na-modal na-modal--wide" role="dialog" aria-labelledby="na-plan-import-title">
       <header class="na-modal-head">
         <h3 id="na-plan-import-title">
-          {{ isDraftEditor ? 'Edit treatment plan draft' : 'Review imported treatment plan' }}
+          {{ isUpdaterMode ? 'Update treatment plan' : (isDraftEditor ? 'Edit treatment plan draft' : 'Review imported treatment plan') }}
         </h3>
         <button type="button" class="na-link-btn" @click="emit('close')">Close</button>
       </header>
 
-      <p v-if="isDraftEditor" class="hint hint-block">
+      <p v-if="isUpdaterMode" class="hint hint-block">
+        Review AI suggestions from recent sessions, add narrative changes, or paste a full plan as a rewrite source (no section parsing). Confirm and sign — do not trust AI without review.
+      </p>
+      <p v-else-if="isDraftEditor" class="hint hint-block">
         Edit goals, objectives, and 1–10 scales. Add information below to regenerate, then finalize once intake is final.
       </p>
 
-      <template v-if="!isDraftEditor">
+      <template v-if="isUpdaterMode">
+        <label class="na-label">
+          Paste whole plan (optional rewrite source)
+          <textarea
+            v-model="pasteText"
+            class="na-textarea"
+            rows="4"
+            placeholder="Paste an entire treatment plan to rewrite — sections are not parsed here."
+          />
+        </label>
+        <label class="na-label">
+          Narrative changes you want
+          <textarea
+            v-model="providerNarrative"
+            class="na-textarea"
+            rows="3"
+            placeholder="e.g. Add anxiety goal; Goal 1 nearly accomplished; update discharge for step-down…"
+          />
+        </label>
+        <div class="na-modal-actions na-modal-actions--start">
+          <button
+            type="button"
+            class="na-btn-primary"
+            :disabled="proposingUpdate || !model"
+            @click="runUpdaterPropose"
+          >
+            {{ proposingUpdate ? 'Suggesting update…' : 'Suggest update from sessions + notes' }}
+          </button>
+        </div>
+        <p v-if="changeSummary" class="hint hint-block">{{ changeSummary }}</p>
+      </template>
+      <template v-else-if="!isDraftEditor">
         <label class="na-label">
           Paste plan text
           <textarea v-model="pasteText" class="na-textarea" rows="5" placeholder="Paste treatment plan…" />
@@ -140,7 +174,7 @@
 
             <div v-for="(o, oi) in g.objectives" :key="`o-${gi}-${oi}`" class="na-import-obj">
               <label class="na-label">
-                Objective {{ gi + 1 }}.{{ oi + 1 }}
+                O{{ gi + 1 }}.{{ oi + 1 }}
                 <textarea
                   v-model="o.objectiveText"
                   class="na-textarea na-textarea--objective"
@@ -242,17 +276,41 @@
         </div>
 
         <p v-if="error" class="error">{{ error }}</p>
+        <label v-if="aiContentUsed" class="na-sign-check" style="display:flex;gap:8px;align-items:flex-start;margin:8px 0;">
+          <input v-model="attestAiReviewed" type="checkbox" />
+          <span>I have reviewed this AI-generated treatment plan content and confirm it is accurate.</span>
+        </label>
         <div class="na-modal-actions">
           <button type="button" class="na-btn-outline" @click="emit('close')">Cancel</button>
-          <template v-if="isDraftEditor">
+          <button
+            v-if="isDraftEditor && Number(props.planId || 0)"
+            type="button"
+            class="na-btn-outline na-btn-danger"
+            :disabled="saving || discarding"
+            @click="discardDraft"
+          >
+            {{ discarding ? 'Discarding…' : 'Discard draft' }}
+          </button>
+          <template v-if="isDraftEditor || isUpdaterMode">
             <button type="button" class="na-btn-outline" :disabled="saving" @click="save({ finalize: false })">
               {{ saving && !finalizing ? 'Saving…' : 'Save draft' }}
             </button>
-            <button type="button" class="na-btn-primary" :disabled="saving" @click="save({ finalize: true })">
-              {{ finalizing ? 'Finalizing…' : 'Finalize treatment plan' }}
+            <button
+              type="button"
+              class="na-btn-primary"
+              :disabled="saving || (aiContentUsed && !attestAiReviewed)"
+              @click="save({ finalize: true })"
+            >
+              {{ finalizing ? 'Finalizing…' : (isUpdaterMode ? 'Confirm &amp; sign updated plan' : 'Finalize treatment plan') }}
             </button>
           </template>
-          <button v-else type="button" class="na-btn-primary" :disabled="saving" @click="save({ finalize: true })">
+          <button
+            v-else
+            type="button"
+            class="na-btn-primary"
+            :disabled="saving || (aiContentUsed && !attestAiReviewed)"
+            @click="save({ finalize: true })"
+          >
             {{ saving ? 'Saving…' : 'Confirm &amp; save to chart' }}
           </button>
         </div>
@@ -282,16 +340,22 @@ const props = defineProps({
   initialText: { type: String, default: '' },
   planId: { type: [Number, String], default: null },
   mode: { type: String, default: 'import' },
-  initialPlan: { type: Object, default: null }
+  initialPlan: { type: Object, default: null },
+  renewalReason: { type: String, default: '' },
+  progressExcerpt: { type: String, default: '' }
 });
 
 const emit = defineEmits(['close', 'saved']);
 
 const pasteText = ref('');
+const providerNarrative = ref('');
+const changeSummary = ref('');
 const model = ref(null);
 const parsing = ref(false);
+const proposingUpdate = ref(false);
 const saving = ref(false);
 const finalizing = ref(false);
+const discarding = ref(false);
 const regenerating = ref(false);
 const loadingPlan = ref(false);
 const error = ref('');
@@ -301,13 +365,20 @@ const rewriteKey = ref('');
 const suggestingDischarge = ref(false);
 const durationPresets = DURATION_PRESETS;
 const loadedPlanId = ref(null);
+const aiContentUsed = ref(false);
+const attestAiReviewed = ref(false);
 
 function todayIsoDate() {
   return new Date().toISOString().slice(0, 10);
 }
 
+const isUpdaterMode = computed(
+  () => String(props.mode || '').toLowerCase() === 'update' || String(props.mode || '').toLowerCase() === 'updater'
+);
+
 const isDraftEditor = computed(
-  () => props.mode === 'draft' || !!Number(props.planId || 0) || !!props.initialPlan
+  () => !isUpdaterMode.value
+    && (props.mode === 'draft' || !!Number(props.planId || 0) || !!props.initialPlan)
 );
 
 function directionHint(o) {
@@ -411,17 +482,27 @@ function applyPlanRecord(plan) {
   }));
   const discharge = String(plan.discharge_plan || plan.dischargePlan || '');
   const presentMatch = discharge.match(/Presenting Problem\n([\s\S]*?)(?=\n\n(?:Prescribed Frequency|Discharge Criteria)|$)/i);
-  const freqMatch = discharge.match(/Prescribed Frequency of Treatment\n([\s\S]*?)(?=\n\nDischarge Criteria|$)/i);
-  const discMatch = discharge.match(/Discharge Criteria\/Planning\n([\s\S]*)$/i);
+  const freqMatch = discharge.match(/Prescribed Frequency(?: of Treatment)?\n([\s\S]*?)(?=\n\nDischarge Criteria|$)/i);
+  const discMatch = discharge.match(/Discharge Criteria\s*\/\s*Planning\n([\s\S]*)$/i)
+    || discharge.match(/Discharge Plan\n([\s\S]*)$/i);
   model.value = reactive({
     effectiveDate: (plan.effective_date || plan.effectiveDate || '').toString().slice(0, 10) || todayIsoDate(),
     presentingProblem: presentMatch?.[1]?.trim() || plan.presentingProblem || '',
-    prescribedFrequency: freqMatch?.[1]?.trim() || '',
-    dischargePlan: discMatch?.[1]?.trim() || (!presentMatch && !freqMatch ? discharge : ''),
+    prescribedFrequency: freqMatch?.[1]?.trim() || plan.prescribedFrequency || plan.prescribed_frequency || '',
+    dischargePlan: discMatch?.[1]?.trim()
+      || plan.dischargePlan
+      || (!presentMatch && !freqMatch ? discharge : '')
+      || '',
     diagnosticJustification: String(plan.diagnostic_justification || plan.diagnosticJustification || '').trim(),
     diagnoses: dxFromLinks.length
       ? dxFromLinks
-      : [{ icd10Code: '', description: '', isPrimary: true }],
+      : (Array.isArray(plan.diagnoses) && plan.diagnoses.length
+        ? plan.diagnoses.map((d, i) => ({
+          icd10Code: d.icd10Code || d.icd10_code || '',
+          description: d.description || '',
+          isPrimary: !!(d.isPrimary ?? d.is_primary) || i === 0
+        }))
+        : [{ icd10Code: '', description: '', isPrimary: true }]),
     goals: (plan.goals || []).map((g) => mapGoal(g))
   });
   if (!model.value.goals.length) addGoal();
@@ -526,6 +607,8 @@ async function suggestRewrite(gi, oi, { withParams = false } = {}) {
       return;
     }
     applySuggestionToObjective(o, suggestion);
+    aiContentUsed.value = true;
+    attestAiReviewed.value = false;
   } catch (e) {
     error.value = e.response?.data?.error?.message || e.message || 'AI suggestion failed';
   } finally {
@@ -556,6 +639,8 @@ async function suggestDischarge() {
       return;
     }
     model.value.dischargePlan = suggestion.dischargePlan;
+    aiContentUsed.value = true;
+    attestAiReviewed.value = false;
   } catch (e) {
     error.value = e.response?.data?.error?.message || e.message || 'Discharge suggestion failed';
   } finally {
@@ -646,6 +731,50 @@ async function parse() {
   await parseText(pasteText.value);
 }
 
+async function runUpdaterPropose() {
+  proposingUpdate.value = true;
+  error.value = '';
+  changeSummary.value = '';
+  try {
+    const currentPlan = model.value
+      ? {
+          presentingProblem: model.value.presentingProblem,
+          prescribedFrequency: model.value.prescribedFrequency,
+          dischargePlan: model.value.dischargePlan,
+          diagnosticJustification: model.value.diagnosticJustification,
+          diagnoses: model.value.diagnoses,
+          goals: model.value.goals,
+          effectiveDate: model.value.effectiveDate
+        }
+      : props.initialPlan;
+    const res = await api.post(
+      '/medical-billing/treatment-plans/propose-update',
+      {
+        agencyId: Number(props.agencyId),
+        clientId: Number(props.clientId),
+        currentPlan,
+        providerNarrative: providerNarrative.value || addendum.value || '',
+        pasteRewriteSource: pasteText.value || '',
+        progressExcerpt: props.progressExcerpt || '',
+        renewalReason: props.renewalReason || ''
+      },
+      { skipGlobalLoading: true }
+    );
+    const proposed = res?.data?.proposed;
+    if (!proposed) throw new Error('No update proposal returned');
+    applyPlanRecord(proposed);
+    changeSummary.value = String(res?.data?.changeSummary || '').trim();
+    if (res?.data?.aiUsed) {
+      aiContentUsed.value = true;
+      attestAiReviewed.value = false;
+    }
+  } catch (e) {
+    error.value = e.response?.data?.error?.message || e.message || 'Could not propose treatment plan update';
+  } finally {
+    proposingUpdate.value = false;
+  }
+}
+
 async function regenerateFromAddendum() {
   const extra = String(addendum.value || '').trim();
   if (!extra) return;
@@ -692,14 +821,23 @@ watch(
   (open) => {
     if (!open) return;
     pasteText.value = props.initialText || '';
+    providerNarrative.value = props.renewalReason || '';
+    changeSummary.value = '';
     model.value = null;
     error.value = '';
     addendum.value = '';
     bulkDurationMonths.value = 0;
     rewriteKey.value = '';
     loadedPlanId.value = null;
-    if (isDraftEditor.value) {
-      void loadPlan();
+    aiContentUsed.value = false;
+    attestAiReviewed.value = false;
+    if (isUpdaterMode.value || isDraftEditor.value) {
+      void loadPlan().then(() => {
+        if (isUpdaterMode.value && (props.progressExcerpt || props.renewalReason || pasteText.value.trim())) {
+          // Auto-propose when updater opens with context; provider still reviews.
+          void runUpdaterPropose();
+        }
+      });
     } else if (pasteText.value.trim()) {
       parse();
     }
@@ -786,6 +924,30 @@ async function save({ finalize = true } = {}) {
   } finally {
     saving.value = false;
     finalizing.value = false;
+  }
+}
+
+async function discardDraft() {
+  const pid = Number(props.planId || loadedPlanId.value || 0);
+  const agencyId = Number(props.agencyId || 0);
+  const clientId = Number(props.clientId || 0);
+  if (!pid || !agencyId || !clientId || discarding.value) return;
+  if (!window.confirm('Discard this treatment plan draft? Setup will reopen if no other plan is on file.')) {
+    return;
+  }
+  discarding.value = true;
+  error.value = '';
+  try {
+    await api.post(`/medical-billing/treatment-plans/${pid}/discard`, {
+      agencyId,
+      clientId
+    }, { skipGlobalLoading: true });
+    emit('saved', null);
+    emit('close');
+  } catch (e) {
+    error.value = e.response?.data?.error?.message || e.message || 'Discard failed';
+  } finally {
+    discarding.value = false;
   }
 }
 </script>
@@ -978,6 +1140,10 @@ async function save({ finalize = true } = {}) {
   background: #fff;
   border: 1px solid #cbd5e1;
   color: #0f172a;
+}
+.na-btn-danger {
+  color: #b91c1c !important;
+  border-color: #fecaca !important;
 }
 .na-link-btn {
   border: 0;

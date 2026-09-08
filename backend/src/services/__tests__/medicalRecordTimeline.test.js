@@ -61,4 +61,23 @@ describe('mergeMedicalRecordSources', () => {
     assert.equal(rows[0].service_code, 'SESSION');
     assert.equal(rows[0].office_event_id, 88);
   });
+
+  it('includes signed notes that have no billing encounter or calendar session', () => {
+    const signedNotes = [
+      {
+        id: 501,
+        client_id: 5,
+        agency_id: 2,
+        title: 'Progress note',
+        note_type: 'PROGRESS',
+        provider_signed_at: '2026-09-01 12:00:00',
+        created_at: '2026-09-01 11:00:00'
+      }
+    ];
+    const rows = mergeMedicalRecordSources({ billing: [], sessions: [], officeEvents: [], signedNotes });
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0].source, 'signed_note');
+    assert.equal(rows[0].note_status, 'signed');
+    assert.equal(rows[0].clinical_note_id, 501);
+  });
 });

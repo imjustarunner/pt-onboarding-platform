@@ -228,6 +228,38 @@
       </template>
     </section>
 
+    <section v-if="!compact && (providerAttestationStatement || supervisorCosignStatement)" class="ccn-block ccn-esign" aria-label="Electronic signatures">
+      <h4 class="ccn-block-title">Electronic signature</h4>
+      <button
+        v-if="providerAttestationStatement"
+        type="button"
+        class="ccn-esign-line"
+        @click="showProviderSigMeta = !showProviderSigMeta"
+      >
+        {{ providerAttestationStatement }}
+        <span class="ccn-esign-hint">{{ showProviderSigMeta ? 'Hide details' : 'Show e-signature details' }}</span>
+      </button>
+      <dl v-if="showProviderSigMeta && note.attestation" class="ccn-esign-meta">
+        <div><dt>Signed at</dt><dd>{{ formatTimestamp(note.attestation.attestedAt || note.providerSignedAt) }}</dd></div>
+        <div v-if="note.attestation.ipAddress"><dt>IP address</dt><dd>{{ note.attestation.ipAddress }}</dd></div>
+        <div v-if="note.attestation.userAgent"><dt>Device</dt><dd class="ccn-esign-ua">{{ note.attestation.userAgent }}</dd></div>
+      </dl>
+      <button
+        v-if="supervisorCosignStatement"
+        type="button"
+        class="ccn-esign-line ccn-esign-line--sup"
+        @click="showSupervisorSigMeta = !showSupervisorSigMeta"
+      >
+        {{ supervisorCosignStatement }}
+        <span class="ccn-esign-hint">{{ showSupervisorSigMeta ? 'Hide details' : 'Show e-signature details' }}</span>
+      </button>
+      <dl v-if="showSupervisorSigMeta && note.supervisorCosign" class="ccn-esign-meta">
+        <div><dt>Reviewed at</dt><dd>{{ formatTimestamp(note.supervisorCosign.cosignedAt || note.supervisorCosignedAt) }}</dd></div>
+        <div v-if="note.supervisorCosign.ipAddress"><dt>IP address</dt><dd>{{ note.supervisorCosign.ipAddress }}</dd></div>
+        <div v-if="note.supervisorCosign.userAgent"><dt>Device</dt><dd class="ccn-esign-ua">{{ note.supervisorCosign.userAgent }}</dd></div>
+      </dl>
+    </section>
+
     <section v-if="!compact" class="ccn-block ccn-audit" aria-label="Signature and claim audit">
       <h4 class="ccn-block-title">Signature & claim data</h4>
       <dl class="ccn-facts-grid">
@@ -297,6 +329,8 @@ const emit = defineEmits(['open-claim']);
 const authStore = useAuthStore();
 const copiedKey = ref('');
 const copiedFull = ref(false);
+const showProviderSigMeta = ref(false);
+const showSupervisorSigMeta = ref(false);
 let copiedTimer = null;
 
 const structuredChart = computed(() =>
@@ -344,6 +378,22 @@ const clinicianDisplay = computed(() => {
   if (s?.name && s?.credentials) return `${s.name}, ${s.credentials}`;
   if (s?.name) return s.name;
   return '';
+});
+
+const providerAttestationStatement = computed(() => {
+  const stmt = String(props.note?.attestation?.statement || '').trim();
+  if (stmt) return stmt;
+  if (!props.note?.providerSignedAt) return '';
+  const who = clinicianDisplay.value || 'Provider';
+  return `${who}, signed this note and declared this information to be accurate and complete and marked the note as medically necessary on ${formatTimestamp(props.note.providerSignedAt)}.`;
+});
+
+const supervisorCosignStatement = computed(() => {
+  const stmt = String(props.note?.supervisorCosign?.statement || '').trim();
+  if (stmt) return stmt;
+  if (!props.note?.supervisorCosignedAt) return '';
+  const who = props.note?.supervisorCosign?.signerLabel || 'Supervisor';
+  return `${who}, reviewed and signed this note and approved it for clinical documentation under their license on ${formatTimestamp(props.note.supervisorCosignedAt)}.`;
 });
 
 const providerNpi = computed(() => props.note?.providerSigner?.npi || null);
@@ -591,6 +641,43 @@ async function copyFullNote() {
   border: 1px dashed #94a3b8;
   background: #f8fafc;
 }
+.ccn-esign {
+  border-color: #bfdbfe;
+  background: #eff6ff;
+}
+.ccn-esign-line {
+  display: block;
+  width: 100%;
+  text-align: left;
+  border: none;
+  background: transparent;
+  padding: 6px 0;
+  font: inherit;
+  font-size: 0.86rem;
+  line-height: 1.45;
+  color: #1e3a8a;
+  font-weight: 600;
+  cursor: pointer;
+}
+.ccn-esign-line--sup { color: #334155; }
+.ccn-esign-hint {
+  display: block;
+  margin-top: 4px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: #2563eb;
+  text-decoration: underline;
+}
+.ccn-esign-meta {
+  margin: 0 0 8px;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 6px 12px;
+  font-size: 0.78rem;
+}
+.ccn-esign-meta dt { color: #64748b; font-weight: 700; }
+.ccn-esign-meta dd { margin: 0; color: #0f172a; word-break: break-word; }
+.ccn-esign-ua { font-size: 0.7rem; color: #475569; }
 .ccn-compact-actions { margin-bottom: 8px; }
 .ccn-block {
   border: 1px solid #dbeafe; border-radius: 8px; background: #f8fafc;

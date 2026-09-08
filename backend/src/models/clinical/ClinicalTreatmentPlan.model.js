@@ -283,7 +283,7 @@ class ClinicalTreatmentPlan {
 
   /**
    * Client-setup only: remove intake-packet bootstrap drafts once the clinician
-   * cancels the draft editor or uploads/imports an authoritative plan.
+   * uploads/imports an authoritative plan (not on Cancel — cancel must leave setup intact).
    */
   static async voidPacketBootstrapDrafts({ agencyId, clientId, exceptPlanId = null } = {}) {
     const aid = Number(agencyId || 0);
@@ -293,7 +293,12 @@ class ClinicalTreatmentPlan {
     try {
       const params = [aid, cid, 'intake_packet_bootstrap'];
       let sql = `UPDATE clinical_treatment_plans
-                 SET status = 'superseded', updated_at = NOW()
+                 SET status = 'discarded',
+                     title = CASE
+                       WHEN title LIKE '%Draft%' THEN 'Discarded treatment plan draft'
+                       ELSE CONCAT(COALESCE(title, 'Treatment Plan'), ' (discarded)')
+                     END,
+                     updated_at = NOW()
                  WHERE agency_id = ?
                    AND client_id = ?
                    AND source_tool_id = ?
@@ -326,6 +331,53 @@ class ClinicalTreatmentPlan {
       }
       throw e;
     }
+  }
+
+  /**
+   * Discard a chart treatment-plan draft (clinician cancelled / deleted draft).
+   * Does not delete rows — marks discarded so Notes / setup stay consistent.
+   */
+  static async discardDraft({ planId, agencyId, clientId } = {}) {
+    const pid = Number(planId || 0);
+    const aid = Number(agencyId || 0);
+    const cid = Number(clientId || 0);
+    if (!pid || !aid || !cid) return null;
+    const [rows] = await clinicalPool.execute(
+      `SELECT id, status, title FROM clinical_treatment_plans
+       WHERE id = ? AND agency_id = ? AND client_id = ?
+       LIMIT 1`,
+      [pid, aid, cid]
+    );
+    const plan = rows?.[0];
+    if (!plan) return null;
+    if (String(plan.status || '').toLowerCase() !== 'draft') {
+      const err = new Error('Only draft treatment plans can be discarded');
+      err.status = 400;
+      throw err;
+    }
+    const nextTitle = /draft/i.test(String(plan.title || ''))
+      ? 'Discarded treatment plan draft'
+      : `${String(plan.title || 'Treatment Plan').trim()} (discarded)`;
+    try {
+      await clinicalPool.execute(
+        `UPDATE clinical_treatment_plans
+         SET status = 'discarded', title = ?, updated_at = NOW()
+         WHERE id = ? AND agency_id = ? AND client_id = ?`,
+        [nextTitle, pid, aid, cid]
+      );
+    } catch (e) {
+      if (e?.code === 'ER_TRUNCATED_WRONG_VALUE_FOR_FIELD') {
+        await clinicalPool.execute(
+          `UPDATE clinical_treatment_plans
+           SET status = 'inactive', title = ?, updated_at = NOW()
+           WHERE id = ? AND agency_id = ? AND client_id = ?`,
+          [nextTitle, pid, aid, cid]
+        );
+      } else {
+        throw e;
+      }
+    }
+    return this.findById(pid);
   }
 
   /**

@@ -150,11 +150,22 @@ async function hydrateMainDbContext(rows = []) {
   if (officeEventIds.length) {
     const ph = officeEventIds.map(() => '?').join(', ');
     try {
-      const [eRows] = await pool.execute(
-        `SELECT id, start_at, end_at, service_code, clinical_session_id, client_id
-         FROM office_events WHERE id IN (${ph})`,
-        officeEventIds
-      );
+      let eRows;
+      try {
+        const [rows] = await pool.execute(
+          `SELECT id, start_at, end_at, service_code, clinical_session_id, client_id, addon_service_codes_json
+           FROM office_events WHERE id IN (${ph})`,
+          officeEventIds
+        );
+        eRows = rows;
+      } catch {
+        const [rows] = await pool.execute(
+          `SELECT id, start_at, end_at, service_code, clinical_session_id, client_id
+           FROM office_events WHERE id IN (${ph})`,
+          officeEventIds
+        );
+        eRows = rows;
+      }
       for (const e of eRows || []) eventsById.set(Number(e.id), e);
     } catch {
       // optional columns vary by migration
@@ -523,6 +534,25 @@ function buildQueueItems({
       if (!hay.includes(q)) continue;
     }
 
+    const addonServiceCodes = (() => {
+      const raw = event?.addon_service_codes_json;
+      if (Array.isArray(raw)) {
+        return raw.map((c) => String(c || '').trim().toUpperCase()).filter(Boolean);
+      }
+      if (raw == null || raw === '') return [];
+      if (typeof raw === 'string') {
+        try {
+          const parsed = JSON.parse(raw);
+          return Array.isArray(parsed)
+            ? parsed.map((c) => String(c || '').trim().toUpperCase()).filter(Boolean)
+            : [];
+        } catch {
+          return [];
+        }
+      }
+      return [];
+    })();
+
     out.push({
       clinicalSessionId: sid || null,
       officeEventId: Number(s.office_event_id || 0) || null,
@@ -535,6 +565,7 @@ function buildQueueItems({
       identifierCode: client?.identifier_code || null,
       dateOfService,
       serviceCode,
+      addonServiceCodes,
       providerUserId: providerId,
       providerName: providerDisplayName(provider),
       noteStatus: note.noteStatus,

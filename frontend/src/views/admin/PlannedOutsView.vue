@@ -44,10 +44,13 @@
           <td class="actions">
             <button v-if="canDelete(row)" type="button" class="link" @click="remove(row)">Delete</button>
             <template v-if="canReview && canReviewPlannedOut(row)">
-              <button type="button" class="link" @click="review(row, 'approve')">Approve</button>
-              <button type="button" class="link danger" @click="review(row, 'reject')">Reject</button>
-              <button type="button" class="link warn" @click="review(row, 'revision')">Revise</button>
+              <button type="button" class="link" @click="review(row, 'acknowledge')">Acknowledge</button>
+              <button type="button" class="link warn" @click="review(row, 'send_back')">Send Back</button>
             </template>
+            <p v-if="row.conflict_count > 0" class="po-conflict">
+              ⚠️ Schedule Conflict — {{ row.conflict_count }} scheduled
+              appointment{{ Number(row.conflict_count) === 1 ? '' : 's' }} during this time
+            </p>
           </td>
         </tr>
       </tbody>
@@ -115,7 +118,8 @@ function moveColumn(idx) {
 }
 
 function canDelete(row) {
-  return Number(row.user_id) === Number(authStore.user?.id) || canReview.value;
+  return Number(row.user_id) === Number(authStore.user?.id)
+    && ['pending', 'revision'].includes(String(row.status || '').toLowerCase());
 }
 
 async function load() {
@@ -142,7 +146,7 @@ async function load() {
 }
 
 async function remove(row) {
-  if (!window.confirm('Delete this planned out and its schedule block?')) return;
+  if (!window.confirm('Remove this Planned Out notification and its schedule block?')) return;
   try {
     await api.delete(`/planned-outs/${row.id}`, { skipGlobalLoading: true });
     await load();
@@ -153,8 +157,8 @@ async function remove(row) {
 
 async function review(row, action) {
   let comment = '';
-  if (action === 'reject' || action === 'revision') {
-    comment = window.prompt(action === 'reject' ? 'Reject comment (required):' : 'Revision comment (required):') || '';
+  if (action === 'send_back' || action === 'revision') {
+    comment = window.prompt('Send Back — what needs clarification? (required):') || '';
     if (!comment.trim()) return;
   }
   try {
@@ -283,6 +287,14 @@ onMounted(load);
 }
 .link.danger { color: #b91c1c; }
 .link.warn { color: #c2410c; }
+.po-conflict {
+  margin: 6px 0 0;
+  font-size: 11px;
+  font-weight: 700;
+  color: #b45309;
+  line-height: 1.35;
+  white-space: normal;
+}
 .empty { color: #94a3b8; padding: 16px 0; }
 .empty.err { color: #b91c1c; }
 </style>

@@ -12,6 +12,7 @@ import {
 } from '../utils/zonedWallTime.util.js';
 import { applyPlannedOutPresenceForUser } from '../services/plannedOutPresence.service.js';
 import { syncScheduleEventFromPlannedOut } from '../services/plannedOutScheduleSync.service.js';
+import { createNotificationAndDispatch } from '../services/notificationDispatcher.service.js';
 
 function roleOf(req) {
   return String(req.user?.effectiveRole || req.user?.role || '').toLowerCase();
@@ -132,6 +133,97 @@ async function createScheduleBlockForOut({ req, agencyId, userId, payload, userN
   });
 }
 
+function plannedOutWhenLabel(row) {
+  if (!row) return 'your selected dates';
+  if (row.all_day || row.span_type === 'all_day') {
+    const start = String(row.start_date || '').slice(0, 10);
+    if (!start) return 'your selected dates';
+    try {
+      return new Date(`${start}T12:00:00`).toLocaleDateString('en-US', {
+        month: 'long',
+        day: 'numeric'
+      });
+    } catch {
+      return start;
+    }
+  }
+  const startAt = row.start_at || row.start_date;
+  if (!startAt) return 'your selected dates';
+  try {
+    const d = new Date(String(startAt).includes('T') ? startAt : `${String(startAt).replace(' ', 'T')}Z`);
+    if (!Number.isFinite(d.getTime())) return String(startAt).slice(0, 10);
+    return d.toLocaleDateString('en-US', { month: 'long', day: 'numeric' });
+  } catch {
+    return String(startAt).slice(0, 10);
+  }
+}
+
+async function countScheduleConflictsForPlannedOut(row) {
+  if (!row?.user_id) return 0;
+  const allDay = !!(row.all_day || row.span_type === 'all_day');
+  let windowStart;
+  let windowEnd;
+  if (allDay) {
+    const start = String(row.start_date || '').slice(0, 10);
+    const end = String(row.end_date || start).slice(0, 10);
+    if (!start) return 0;
+    windowStart = `${start} 00:00:00`;
+    windowEnd = `${end} 00:00:00`;
+  } else {
+    windowStart = row.start_at;
+    windowEnd = row.end_at;
+  }
+  if (!windowStart || !windowEnd) return 0;
+  try {
+    const events = await ProviderScheduleEvent.listForUserInWindow({
+      agencyId: row.agency_id,
+      providerId: row.user_id,
+      windowStart,
+      windowEnd
+    });
+    const excludeId = Number(row.schedule_event_id || 0);
+    return (events || []).filter((ev) => {
+      if (excludeId && Number(ev.id) === excludeId) return false;
+      if (String(ev.status || '').toUpperCase() === 'CANCELLED') return false;
+      if (String(ev.reason_code || '').toUpperCase() === 'PLANNED_OUT') return false;
+      const title = String(ev.title || '').toLowerCase();
+      if (title.includes('planned out')) return false;
+      return true;
+    }).length;
+  } catch {
+    return 0;
+  }
+}
+
+async function notifyPlannedOut(type, {
+  userId = null,
+  agencyId,
+  plannedOutId,
+  actorUserId = null,
+  title,
+  message,
+  audienceJson = null,
+  severity = 'info'
+}) {
+  try {
+    await createNotificationAndDispatch({
+      type,
+      severity,
+      title,
+      message,
+      audienceJson,
+      userId,
+      agencyId,
+      relatedEntityType: 'planned_out',
+      relatedEntityId: plannedOutId,
+      actorUserId,
+      actorSource: 'Planned Out'
+    });
+  } catch (err) {
+    console.warn('[plannedOuts] notification failed', type, err?.message || err);
+  }
+}
+
 function normalizePayload(body = {}, timeZone = DEFAULT_SCHEDULE_TZ) {
   const tz = isValidTimeZone(timeZone) ? String(timeZone).trim() : DEFAULT_SCHEDULE_TZ;
   const spanTypeRaw = String(body.spanType || body.span_type || 'hours').toLowerCase();
@@ -216,7 +308,13 @@ export const listPlannedOuts = async (req, res, next) => {
       upcomingOnly,
       limit: Number(req.query.limit) || 100
     });
-    return res.json({ plannedOuts: items.map((row) => serializePlannedOutForApi(row)) });
+    const withConflicts = await Promise.all(
+      (items || []).map(async (row) => {
+        const conflictCount = await countScheduleConflictsForPlannedOut(row);
+        return serializePlannedOutForApi({ ...row, conflict_count: conflictCount });
+      })
+    );
+    return res.json({ plannedOuts: withConflicts });
   } catch (e) {
     return next(e);
   }
@@ -283,6 +381,31 @@ export const createPlannedOut = async (req, res, next) => {
 
     await syncScheduleEventFromPlannedOut(created?.id);
 
+    const whenLabel = plannedOutWhenLabel(created);
+    const submitterName = [user.first_name, user.last_name].filter(Boolean).join(' ').trim() || user.email || 'A provider';
+    await notifyPlannedOut('planned_out_submitted', {
+      userId: targetUserId,
+      agencyId: access.agencyId,
+      plannedOutId: created?.id,
+      actorUserId: req.user.id,
+      title: 'Planned Out Submitted',
+      message: `Your Planned Out notification for ${whenLabel} has been submitted.`
+    });
+    await notifyPlannedOut('planned_out_admin_alert', {
+      agencyId: access.agencyId,
+      plannedOutId: created?.id,
+      actorUserId: req.user.id,
+      title: 'Planned Out submitted',
+      message: `${submitterName} submitted a Planned Out notification for ${whenLabel}.`,
+      audienceJson: {
+        admin: true,
+        clinicalPracticeAssistant: true,
+        schoolStaff: false,
+        provider: false,
+        supervisor: true
+      }
+    });
+
     return res.status(201).json({ plannedOut: serializePlannedOutForApi(created) });
   } catch (e) {
     return next(e);
@@ -299,8 +422,16 @@ export const deletePlannedOut = async (req, res, next) => {
     const access = await ensureAgencyAccess(req, row.agency_id);
     if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
     const isOwner = Number(row.user_id) === Number(req.user.id);
-    if (!isOwner && !isManager(req)) {
-      return res.status(403).json({ error: { message: 'Access denied' } });
+    // Admins acknowledge / send back — they cannot delete Planned Out notifications.
+    if (!isOwner) {
+      return res.status(403).json({
+        error: { message: 'Only the submitting provider can remove a Planned Out notification' }
+      });
+    }
+    if (!['pending', 'revision'].includes(String(row.status || '').toLowerCase())) {
+      return res.status(400).json({
+        error: { message: 'Only pending or needs-clarification items can be removed' }
+      });
     }
     if (row.schedule_event_id) {
       await ProviderScheduleEvent.cancelByIds({
@@ -353,30 +484,29 @@ export const reviewPlannedOut = async (req, res, next) => {
     const access = await ensureAgencyAccess(req, row.agency_id);
     if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
 
-    const action = String(req.body?.action || '').toLowerCase();
+    const actionRaw = String(req.body?.action || '').toLowerCase();
     const comment = String(req.body?.comment || req.body?.adminComment || '').trim() || null;
-    if (!['approve', 'reject', 'revision'].includes(action)) {
-      return res.status(400).json({ error: { message: 'action must be approve, reject, or revision' } });
-    }
-    if ((action === 'reject' || action === 'revision') && !comment) {
-      return res.status(400).json({ error: { message: 'A comment is required for reject / revision' } });
-    }
-
-    if (action === 'reject' && row.schedule_event_id) {
-      await ProviderScheduleEvent.cancelByIds({
-        eventIds: [row.schedule_event_id],
-        updatedByUserId: req.user.id
+    // Acknowledge / Send Back are the admin workflow. Legacy approve/revision still accepted.
+    let action = actionRaw;
+    if (action === 'acknowledge') action = 'approve';
+    if (action === 'send_back') action = 'revision';
+    if (!['approve', 'revision'].includes(action)) {
+      return res.status(400).json({
+        error: { message: 'action must be acknowledge or send_back' }
       });
     }
+    if (action === 'revision' && !comment) {
+      return res.status(400).json({ error: { message: 'A comment is required when sending back for clarification' } });
+    }
 
-    const status = action === 'approve' ? 'approved' : action === 'reject' ? 'rejected' : 'revision';
+    const status = action === 'approve' ? 'approved' : 'revision';
     const patch = {
       status,
       reviewedByUserId: req.user.id,
       reviewedAt: asMysqlDateTime(new Date()),
-      scheduleEventId: action === 'reject' ? null : row.schedule_event_id
+      scheduleEventId: row.schedule_event_id
     };
-    if (action === 'reject' || action === 'revision') {
+    if (action === 'revision') {
       patch.adminComment = comment;
     }
     const updated = await PlannedOut.updateById(row.id, patch);
@@ -389,25 +519,27 @@ export const reviewPlannedOut = async (req, res, next) => {
       await applyPlannedOutPresenceForUser(row.user_id, updated);
     }
 
-    if (action === 'reject') {
-      const remaining = await PlannedOut.listActiveApprovedNowForAgency(row.agency_id, {
-        userId: row.user_id
+    const whenLabel = plannedOutWhenLabel(updated || row);
+    if (action === 'approve') {
+      await notifyPlannedOut('planned_out_acknowledged', {
+        userId: row.user_id,
+        agencyId: row.agency_id,
+        plannedOutId: row.id,
+        actorUserId: req.user.id,
+        title: 'Planned Out Acknowledged',
+        message: `Admin has acknowledged your Planned Out notification for ${whenLabel}.`
       });
-      if (!remaining.length) {
-        const presence = await UserPresenceStatus.findByUserId(row.user_id);
-        const pStatus = String(presence?.status || '').toLowerCase();
-        const pReason = String(presence?.reason || '').toLowerCase();
-        const pLabel = String(presence?.display_label || '').toLowerCase();
-        if (
-          pLabel.includes('planned out') ||
-          pReason === 'out_day' ||
-          pStatus === 'out_full_day' ||
-          pStatus === 'out_am' ||
-          pStatus === 'out_pm'
-        ) {
-          await UserPresenceStatus.clearForUser(row.user_id);
-        }
-      }
+    } else {
+      const commentBit = comment ? ` Comment: ${comment}` : '';
+      await notifyPlannedOut('planned_out_needs_clarification', {
+        userId: row.user_id,
+        agencyId: row.agency_id,
+        plannedOutId: row.id,
+        actorUserId: req.user.id,
+        title: 'Planned Out Needs Clarification',
+        message: `Admin has returned your Planned Out notification for ${whenLabel}.${commentBit}`,
+        severity: 'warning'
+      });
     }
 
     return res.json({ plannedOut: serializePlannedOutForApi(updated) });
@@ -426,11 +558,12 @@ export const updatePlannedOut = async (req, res, next) => {
     const access = await ensureAgencyAccess(req, row.agency_id);
     if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
     const isOwner = Number(row.user_id) === Number(req.user.id);
-    if (!isOwner && !isManager(req)) {
-      return res.status(403).json({ error: { message: 'Access denied' } });
+    // Providers may update their own pending / needs-clarification items. Admins do not edit submissions.
+    if (!isOwner) {
+      return res.status(403).json({ error: { message: 'Only the submitting provider can update a Planned Out notification' } });
     }
-    if (!['pending', 'revision'].includes(String(row.status)) && !isManager(req)) {
-      return res.status(400).json({ error: { message: 'Only pending or revision items can be edited' } });
+    if (!['pending', 'revision'].includes(String(row.status))) {
+      return res.status(400).json({ error: { message: 'Only pending or needs-clarification items can be edited' } });
     }
 
     const agencyTz = String(access.agency?.timezone || '').trim() || DEFAULT_SCHEDULE_TZ;
@@ -489,6 +622,31 @@ export const updatePlannedOut = async (req, res, next) => {
       reviewedAt: null
     });
     await syncScheduleEventFromPlannedOut(updated?.id);
+
+    const whenLabel = plannedOutWhenLabel(updated);
+    await notifyPlannedOut('planned_out_submitted', {
+      userId: row.user_id,
+      agencyId: row.agency_id,
+      plannedOutId: updated?.id || row.id,
+      actorUserId: req.user.id,
+      title: 'Planned Out Updated',
+      message: `Your Planned Out notification for ${whenLabel} was updated and resubmitted.`
+    });
+    await notifyPlannedOut('planned_out_admin_alert', {
+      agencyId: row.agency_id,
+      plannedOutId: updated?.id || row.id,
+      actorUserId: req.user.id,
+      title: 'Planned Out updated',
+      message: `A Planned Out notification for ${whenLabel} was updated and is pending review.`,
+      audienceJson: {
+        admin: true,
+        clinicalPracticeAssistant: true,
+        schoolStaff: false,
+        provider: false,
+        supervisor: true
+      }
+    });
+
     return res.json({ plannedOut: serializePlannedOutForApi(updated) });
   } catch (e) {
     return next(e);

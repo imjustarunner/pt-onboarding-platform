@@ -125,6 +125,17 @@
       </div>
       <div class="csb-row">
         <label class="csb-label">Add-on service codes</label>
+        <div class="csb-addon-toolbar">
+          <button
+            type="button"
+            class="csb-addon-add"
+            :disabled="disabled || !addonCodeOptions.length"
+            title="Add an add-on code such as 99051 (after hours). Linked to this booking and recurring series when saved."
+            @click="promptAddAddon"
+          >
+            + Add on Code
+          </button>
+        </div>
         <div class="csb-addon-list">
           <label
             v-for="opt in addonCodeOptions"
@@ -301,6 +312,20 @@ function toggleAddon(code) {
   else next.add(c);
   emit('update:addonServiceCodes', Array.from(next.values()));
 }
+
+function promptAddAddon() {
+  if (!addonCodeOptions.value.length) return;
+  const preferred = addonCodeOptions.value.find((o) => o.code === '99051') || addonCodeOptions.value[0];
+  const list = addonCodeOptions.value.map((o) => o.code).join(', ');
+  const raw = window.prompt(`Add-on code (${list}):`, preferred?.code || '99051');
+  const code = String(raw || '').trim().toUpperCase();
+  if (!code) return;
+  if (!addonCodeOptions.value.some((o) => o.code === code)) {
+    window.alert(`“${code}” is not configured as an add-on for this tenant.`);
+    return;
+  }
+  if (!addonCodeSet.value.has(code)) toggleAddon(code);
+}
 </script>
 
 <style scoped>
@@ -383,6 +408,19 @@ function toggleAddon(code) {
   padding: 0;
 }
 .csb-group-body { margin-top: 8px; }
+.csb-addon-toolbar { margin-bottom: 6px; }
+.csb-addon-add {
+  border: 1px solid #1d4ed8;
+  background: #eff6ff;
+  color: #1e3a8a;
+  font: inherit;
+  font-size: 0.8rem;
+  font-weight: 800;
+  padding: 6px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+.csb-addon-add:disabled { opacity: 0.5; cursor: not-allowed; }
 .csb-client-list,
 .csb-addon-list {
   display: flex;

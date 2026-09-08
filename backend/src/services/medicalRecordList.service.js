@@ -85,7 +85,51 @@ export async function listClientMedicalRecordRows({ agencyId, clientId, limit = 
     officeEvents = [];
   }
 
-  return mergeMedicalRecordSources({ billing, sessions, officeEvents }).slice(0, lim);
+  let signedNotes = [];
+  try {
+    const [rows] = await clinicalPool.execute(
+      `SELECT n.id, n.agency_id, n.client_id, n.clinical_session_id, n.title, n.note_type,
+              n.provider_signed_at, n.provider_signed_by_user_id, n.created_by_user_id, n.created_at,
+              cs.service_code AS session_service_code,
+              cs.scheduled_start_at AS service_date,
+              u.first_name AS provider_first_name, u.last_name AS provider_last_name
+       FROM clinical_notes n
+       LEFT JOIN clinical_sessions cs ON cs.id = n.clinical_session_id
+       LEFT JOIN users u ON u.id = COALESCE(n.provider_signed_by_user_id, n.created_by_user_id)
+       WHERE n.client_id IN (${clientIn})
+         AND n.agency_id IN (${inList})
+         AND n.is_deleted = 0
+         AND n.provider_signed_at IS NOT NULL
+       ORDER BY n.provider_signed_at DESC
+       LIMIT ${lim}`,
+      [...clientIds, ...agencyIds]
+    );
+    signedNotes = rows || [];
+  } catch (e) {
+    console.warn('[medicalRecordTimeline] signed notes query failed', e?.message || e);
+    signedNotes = [];
+  }
+
+  let claims = [];
+  try {
+    const [rows] = await clinicalPool.execute(
+      `SELECT id, clinical_session_id, clinical_note_id, agency_id, client_id, claim_status
+       FROM clinical_claims
+       WHERE client_id IN (${clientIn})
+         AND agency_id IN (${inList})
+         AND COALESCE(is_deleted, 0) = 0
+         AND UPPER(COALESCE(claim_status, '')) NOT IN ('VOID', 'CANCELLED', 'CANCELED')
+       ORDER BY id DESC
+       LIMIT ${lim}`,
+      [...clientIds, ...agencyIds]
+    );
+    claims = rows || [];
+  } catch (e) {
+    console.warn('[medicalRecordTimeline] claims query failed', e?.message || e);
+    claims = [];
+  }
+
+  return mergeMedicalRecordSources({ billing, sessions, officeEvents, signedNotes, claims }).slice(0, lim);
 }
 
 export default { listClientMedicalRecordRows };

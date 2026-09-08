@@ -135,6 +135,26 @@
         <span class="lbl">Clinician</span>
         <strong>{{ clinicianLabel || '—' }}</strong>
       </div>
+      <div v-if="editable && !finalized" class="na-quick-session__cell">
+        <span class="lbl">Add-ons</span>
+        <button
+          type="button"
+          class="na-quick-session__addon-btn"
+          title="Add billing add-on codes (e.g. 99051 after hours)"
+          @click="$emit('add-addon-code')"
+        >
+          + Add on Code
+        </button>
+        <div v-if="(billingAddons || []).length" class="na-quick-session__addon-chips">
+          <span
+            v-for="addon in billingAddons"
+            :key="`qa-${addon.code}-${addon.units || 1}`"
+            class="na-quick-session__addon-chip"
+          >
+            +{{ addon.code }}{{ addon.units > 1 ? ` ×${addon.units}` : '' }}
+          </span>
+        </div>
+      </div>
       <div v-if="!setupComplete" class="na-quick-session__cell na-quick-session__cell--setup">
         <span class="lbl">Setup</span>
         <button
@@ -189,7 +209,8 @@ const props = defineProps({
   attendeesRequired: { type: Boolean, default: false },
   editable: { type: Boolean, default: true },
   finalized: { type: Boolean, default: false },
-  durationHint: { type: String, default: '' }
+  durationHint: { type: String, default: '' },
+  billingAddons: { type: Array, default: () => [] }
 });
 
 const emit = defineEmits([
@@ -202,7 +223,8 @@ const emit = defineEmits([
   'update:startTime',
   'update:endTime',
   'toggle-setup',
-  'choose-more-codes'
+  'choose-more-codes',
+  'add-addon-code'
 ]);
 
 const showAllCodes = ref(false);
@@ -411,6 +433,34 @@ function onCodeChange(raw) {
   font-size: 0.78rem;
   font-weight: 700;
   cursor: pointer;
+}
+
+.na-quick-session__addon-btn {
+  border: 1px solid #1d4ed8;
+  background: #eff6ff;
+  color: #1e3a8a;
+  border-radius: 10px;
+  padding: 6px 10px;
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.na-quick-session__addon-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+.na-quick-session__addon-chip {
+  font-size: 0.72rem;
+  font-weight: 800;
+  color: #1d4ed8;
+  background: #dbeafe;
+  border-radius: 999px;
+  padding: 2px 8px;
 }
 
 .na-quick-session__setup .chev {

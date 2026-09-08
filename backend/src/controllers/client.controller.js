@@ -5074,6 +5074,99 @@ export const createClientNote = async (req, res, next) => {
     });
     logClientAccess(req, parseInt(id, 10), 'create_client_note').catch(() => {});
 
+    let contactBilling = null;
+    const meta = req.body?.meta && typeof req.body.meta === 'object' ? req.body.meta : null;
+    if (String(category || '').toLowerCase() === 'contact' && meta?.billing_enabled) {
+      try {
+        const { processContactNoteBillingMeta } = await import('../services/contactNoteBillability.service.js');
+        contactBilling = await processContactNoteBillingMeta({
+          agencyId: currentClient.agency_id,
+          clientId: parseInt(id, 10),
+          authorUserId: userId,
+          noteMessage: message.trim(),
+          meta
+        });
+        if (contactBilling?.claimReady && contactBilling.clinicalSessionId && contactBilling.clinicalNoteId) {
+          try {
+            const ClinicalClaim = (await import('../models/clinical/ClinicalClaim.model.js')).default;
+            const [existing] = await (await import('../config/clinicalDatabase.js')).default.execute(
+              `SELECT id FROM clinical_claims
+               WHERE clinical_session_id = ? AND clinical_note_id = ?
+                 AND UPPER(COALESCE(claim_status,'')) NOT IN ('VOID','CANCELLED','CANCELED')
+                 AND COALESCE(is_deleted,0)=0
+               LIMIT 1`,
+              [contactBilling.clinicalSessionId, contactBilling.clinicalNoteId]
+            );
+            if (!existing?.[0]?.id) {
+              const claim = await ClinicalClaim.create({
+                clinicalSessionId: contactBilling.clinicalSessionId,
+                agencyId: currentClient.agency_id,
+                clientId: parseInt(id, 10),
+                claimNumber: null,
+                claimStatus: 'PENDING',
+                amountCents: 0,
+                currencyCode: 'USD',
+                claimPayload: JSON.stringify({
+                  source: 'contact_chart_note',
+                  lines: [{
+                    procedureCode: contactBilling.serviceCode || 'H0023',
+                    units: 1,
+                    chargeCents: 0
+                  }]
+                }),
+                metadataJson: {
+                  createdVia: 'contactNoteBillability',
+                  contactClientNoteId: note?.id || null
+                },
+                createdByUserId: userId
+              });
+              try {
+                const clinicalPool = (await import('../config/clinicalDatabase.js')).default;
+                let placeOfService = null;
+                try {
+                  const { applyBillingClaimOverrides } = await import('../services/applyBillingClaimOverrides.service.js');
+                  const ov = await applyBillingClaimOverrides({
+                    agencyId: currentClient.agency_id,
+                    clientId: parseInt(id, 10),
+                    placeOfService: null
+                  });
+                  placeOfService = ov?.placeOfService || null;
+                } catch { /* optional */ }
+                await clinicalPool.execute(
+                  `UPDATE clinical_claims SET
+                     clinical_note_id = ?,
+                     place_of_service = ?,
+                     date_of_service = CURDATE(),
+                     claim_lifecycle = 'draft'
+                   WHERE id = ?`,
+                  [contactBilling.clinicalNoteId, placeOfService, claim.id]
+                );
+                await clinicalPool.execute(
+                  `INSERT INTO clinical_claim_lines
+                   (clinical_claim_id, line_number, procedure_code, units, charge_cents, diagnosis_pointers, clinical_note_id, service_date)
+                   VALUES (?, 1, ?, 1, 0, '1', ?, CURDATE())`,
+                  [claim.id, contactBilling.serviceCode || 'H0023', contactBilling.clinicalNoteId]
+                );
+              } catch (lineErr) {
+                console.warn('[createClientNote] contact claim lines skipped', lineErr?.message || lineErr);
+              }
+              contactBilling.claimId = claim.id;
+              contactBilling.claimCreated = true;
+            } else {
+              contactBilling.claimId = existing[0].id;
+              contactBilling.claimCreated = false;
+              contactBilling.alreadyExists = true;
+            }
+          } catch (claimErr) {
+            console.warn('[createClientNote] contact claim draft failed', claimErr?.message || claimErr);
+            contactBilling.claimError = claimErr?.message || String(claimErr);
+          }
+        }
+      } catch (contactErr) {
+        console.warn('[createClientNote] contact billing hook failed', contactErr?.message || contactErr);
+      }
+    }
+
     // Notify support staff (and assigned provider) about new note
     try {
       const { createNotificationAndDispatch } = await import('../services/notificationDispatcher.service.js');
@@ -5117,7 +5210,7 @@ export const createClientNote = async (req, res, next) => {
       // best-effort; do not block note creation
     }
 
-    res.status(201).json(note);
+    res.status(201).json(contactBilling ? { ...note, contactBilling } : note);
   } catch (error) {
     console.error('Create client note error:', error);
     if (error.message.includes('internal notes')) {

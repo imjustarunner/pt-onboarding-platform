@@ -4,8 +4,9 @@
       <div class="cc-enc-toolbar__meta">
         <h3>Medical Record</h3>
         <p>
-          Chronological clinical record from calendar sessions, notes, and imported billing.
-          Sessions with a client, date, and service code appear here before a claim is imported.
+          Chronological clinical record from calendar sessions, signed notes, and imported billing.
+          Signed documentation appears here even without a claim. Sessions with a client, date, and
+          service code appear before a claim is imported.
         </p>
       </div>
       <div class="cc-enc-toolbar__actions">
@@ -26,7 +27,7 @@
     <p v-if="error" class="cc-enc-error">{{ error }}</p>
     <p v-else-if="loading" class="muted">Loading sessions…</p>
     <p v-else-if="!sortedEncounters.length" class="cc-enc-empty">
-      No sessions on file for this client yet. Linked appointments with a date and service code appear here even before a billing report is imported.
+      No sessions or signed documentation on file for this client yet. Linked appointments and signed notes appear here even before a billing report is imported.
     </p>
 
     <div v-else class="cc-enc-master-detail">
@@ -69,7 +70,7 @@
               <span class="cc-enc-mono">{{ row.service_code || '—' }}</span>
               · {{ formatEncounterProvider(row) }}
             </div>
-            <div v-if="row.billing_attached === false" class="cc-enc-list-item__meta muted tiny">
+            <div v-if="canViewMissingClaimFlag && row.billing_attached === false" class="cc-enc-list-item__meta muted tiny">
               No claim / billing info attached
             </div>
           </button>
@@ -139,7 +140,7 @@
               </div>
             </div>
             <p class="muted tiny" style="margin: 0;">
-              <template v-if="selectedRow.billing_attached === false">
+              <template v-if="canViewMissingClaimFlag && selectedRow.billing_attached === false">
                 No claim / billing info attached. Importing a billing report for this date and service code will attach to this session instead of creating a duplicate.
               </template>
               <template v-else>
@@ -241,7 +242,8 @@ const props = defineProps({
   agencyId: { type: Number, default: null },
   clientId: { type: Number, default: null },
   client: { type: Object, default: null },
-  initialEncounterId: { type: Number, default: null }
+  initialEncounterId: { type: Number, default: null },
+  canViewMissingClaimFlag: { type: Boolean, default: false }
 });
 
 const emit = defineEmits(['encounter-change']);
@@ -321,11 +323,17 @@ function printRecord() {
   }, 250);
 }
 
-const filterOptions = [
-  { id: 'all', label: 'All' },
-  { id: 'notes_needed', label: 'Notes needed' },
-  { id: 'signed', label: 'Signed' }
-];
+const filterOptions = computed(() => {
+  const base = [
+    { id: 'all', label: 'All' },
+    { id: 'notes_needed', label: 'Notes needed' },
+    { id: 'signed', label: 'Signed' }
+  ];
+  if (props.canViewMissingClaimFlag) {
+    base.push({ id: 'missing_claim', label: 'Missing claim' });
+  }
+  return base;
+});
 
 const detailTabs = [
   { id: 'summary', label: 'Summary' },
@@ -339,6 +347,8 @@ const filteredEncounters = computed(() => {
     rows = rows.filter((row) => String(row?.note_status || 'none') !== 'signed');
   } else if (listFilter.value === 'signed') {
     rows = rows.filter((row) => String(row?.note_status || 'none') === 'signed');
+  } else if (listFilter.value === 'missing_claim' && props.canViewMissingClaimFlag) {
+    rows = rows.filter((row) => row?.billing_attached === false);
   }
   const q = searchQuery.value;
   if (q) rows = rows.filter((row) => matchesEncounterSearch(row, q));

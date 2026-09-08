@@ -151,9 +151,9 @@ export async function enrichEncountersWithNoteSummary(encounters = []) {
   if (!sessionIds.length) {
     return list.map((row) => ({
       ...row,
-      clinical_note_id: null,
-      note_status: 'none',
-      note_title: null
+      clinical_note_id: row.clinical_note_id || null,
+      note_status: row.note_status || (row.clinical_note_id && row.provider_signed_at ? 'signed' : 'none'),
+      note_title: row.note_title || null
     }));
   }
 
@@ -180,16 +180,19 @@ export async function enrichEncountersWithNoteSummary(encounters = []) {
   }
 
   return list.map((row) => {
+    if (row.clinical_note_id && row.note_status) {
+      return row;
+    }
     const sid = Number(row.clinical_session_id || 0);
     const note = sid ? latestBySession.get(sid) : null;
-    let noteStatus = 'none';
+    let noteStatus = row.note_status || 'none';
     if (note?.provider_signed_at) noteStatus = 'signed';
     else if (note?.id) noteStatus = 'draft';
     return {
       ...row,
-      clinical_note_id: note?.id ? Number(note.id) : null,
+      clinical_note_id: note?.id ? Number(note.id) : (row.clinical_note_id || null),
       note_status: noteStatus,
-      note_title: note?.title || null
+      note_title: note?.title || row.note_title || null
     };
   });
 }

@@ -27,10 +27,19 @@ export function isPacketBootstrapDraftPlan(plan) {
  * @returns {object|null}
  */
 export function pickAuthoritativeTreatmentPlan(plans = []) {
-  const list = (Array.isArray(plans) ? plans : []).filter(Boolean);
+  const list = (Array.isArray(plans) ? plans : [])
+    .filter(Boolean)
+    .filter((p) => {
+      const status = String(p?.status || '').toLowerCase();
+      return status !== 'superseded' && status !== 'inactive' && status !== 'discarded';
+    });
   if (!list.length) return null;
-  const imported = list.find((p) => isNoteAidPlanImport(p));
+  const imported = list.find((p) => isNoteAidPlanImport(p) && String(p.status || '').toLowerCase() === 'active');
   if (imported) return imported;
+  const active = list.find((p) => String(p.status || '').toLowerCase() === 'active' && !isIntakeAutoTreatmentPlan(p));
+  if (active) return active;
+  const draft = list.find((p) => String(p.status || '').toLowerCase() === 'draft' && !isPacketBootstrapDraftPlan(p));
+  if (draft) return draft;
   const nonIntake = list.find(
     (p) => !isIntakeAutoTreatmentPlan(p) && !isPacketBootstrapDraftPlan(p)
   );

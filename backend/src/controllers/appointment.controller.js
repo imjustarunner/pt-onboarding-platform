@@ -116,6 +116,10 @@ export const createAppointmentHandler = async (req, res, next) => {
       source: req.body?.source || 'staff_grid',
       title: req.body?.title || null,
       notes,
+      serviceCode: req.body?.serviceCode || req.body?.service_code || null,
+      addonServiceCodes: Array.isArray(req.body?.addonServiceCodes)
+        ? req.body.addonServiceCodes
+        : (Array.isArray(req.body?.addon_service_codes) ? req.body.addon_service_codes : []),
       createdByUserId: req.user?.id || null,
       participants: Array.isArray(req.body?.participants) ? req.body.participants : [],
       billing: req.body?.billing || null

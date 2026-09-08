@@ -200,7 +200,30 @@ export const bootstrapClinicalSession = async (req, res, next) => {
       metadata: { clientId, officeEventId }
     });
 
-    res.json({ ok: true, session });
+    const addonServiceCodes = (() => {
+      const raw = event?.addon_service_codes_json;
+      if (Array.isArray(raw)) {
+        return raw.map((c) => String(c || '').trim().toUpperCase()).filter(Boolean);
+      }
+      if (typeof raw === 'string' && raw.trim()) {
+        try {
+          const parsed = JSON.parse(raw);
+          return Array.isArray(parsed)
+            ? parsed.map((c) => String(c || '').trim().toUpperCase()).filter(Boolean)
+            : [];
+        } catch {
+          return [];
+        }
+      }
+      return [];
+    })();
+
+    res.json({
+      ok: true,
+      session,
+      addonServiceCodes,
+      serviceCode: event?.service_code ? String(event.service_code).toUpperCase() : null
+    });
   } catch (error) {
     if (handleSchemaError(error, res)) return;
     next(error);

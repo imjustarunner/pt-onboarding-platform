@@ -94,23 +94,34 @@ export function parseScalePair(text) {
     }
   }
 
-  const slashPair = s.match(
-    /(\d{1,2})\s*\/\s*10\s*(?:→|->|\bto\b)\s*(?:a\s+)?(?:target\s+level\s+of\s+)?(\d{1,2})(?:\s*\/\s*10)?/i
+  const baselineLevel = s.match(
+    /(?:from\s+(?:a\s+)?)?(?:current\s+)?baseline\s+level\s+(\d{1,2})[^0-9]{0,40}?\bto\b\s+(?:a\s+)?level\s+(\d{1,2})/i
   );
-  if (slashPair) {
-    const current = Number(slashPair[1]);
-    const target = Number(slashPair[2]);
+  if (baselineLevel) {
+    const current = Number(baselineLevel[1]);
+    const target = Number(baselineLevel[2]);
     if (current >= 1 && current <= 10 && target >= 1 && target <= 10) {
       return { scaleCurrent: current, scaleTarget: target };
     }
   }
 
   const fromTo = s.match(
-    /(?:from\s+a\s+)?(?:current|baseline)[^0-9]{0,40}?(\d{1,2})\s*(?:or below|or less)?(?:\s+out\s+of\s+10)?[^0-9]{0,30}?\bto\b\s*(?:a\s+)?(?:target\s+level\s+of\s+)?(\d{1,2})/i
+    /(?:from\s+a\s+)?(?:current|baseline)[^0-9]{0,40}?(\d{1,2})\s*(?:or below|or less)?(?:\s+out\s+of\s+10)?[^0-9]{0,40}?\bto\b\s*(?:a\s+)?(?:(?:target\s+)?level\s+(?:of\s+)?)?(\d{1,2})/i
   );
   if (fromTo) {
     const current = Number(fromTo[1]);
     const target = Number(fromTo[2]);
+    if (current >= 1 && current <= 10 && target >= 1 && target <= 10) {
+      return { scaleCurrent: current, scaleTarget: target };
+    }
+  }
+
+  const slashPair = s.match(
+    /(\d{1,2})\s*\/\s*10\s*(?:→|->|\bto\b)\s*(?:a\s+)?(?:(?:target\s+)?level\s+(?:of\s+)?)?(\d{1,2})(?:\s*\/\s*10)?/i
+  );
+  if (slashPair) {
+    const current = Number(slashPair[1]);
+    const target = Number(slashPair[2]);
     if (current >= 1 && current <= 10 && target >= 1 && target <= 10) {
       return { scaleCurrent: current, scaleTarget: target };
     }

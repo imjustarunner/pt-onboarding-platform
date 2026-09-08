@@ -1,7 +1,8 @@
 /**
- * Merge billing encounters, clinical sessions, and office appointments
- * into one medical-record timeline. Same client + date + service code
- * collapse to a single row so billing import attaches instead of duplicating.
+ * Merge billing encounters, clinical sessions, office appointments, and
+ * signed clinical notes into one medical-record timeline. Same client + date +
+ * service code collapse to a single row so billing import attaches instead of
+ * duplicating. Signed notes without a session appear as documentation rows.
  */
 
 function ymd(value) {
@@ -25,11 +26,19 @@ function dateCodeKey(clientId, date, code) {
  * @param {{
  *   billing?: Array<object>,
  *   sessions?: Array<object>,
- *   officeEvents?: Array<object>
+ *   officeEvents?: Array<object>,
+ *   signedNotes?: Array<object>,
+ *   claims?: Array<object>
  * }} sources
  * @returns {Array<object>}
  */
-export function mergeMedicalRecordSources({ billing = [], sessions = [], officeEvents = [] } = {}) {
+export function mergeMedicalRecordSources({
+  billing = [],
+  sessions = [],
+  officeEvents = [],
+  signedNotes = [],
+  claims = []
+} = {}) {
   const byKey = new Map();
 
   const rememberAliases = (row, aliases) => {
@@ -147,6 +156,75 @@ export function mergeMedicalRecordSources({ billing = [], sessions = [], officeE
       source: 'appointment'
     };
     rememberAliases(row, [recordKey, csid ? `cs:${csid}` : null, dateCodeKey(oe.client_id, date, code)]);
+  }
+
+  for (const note of signedNotes || []) {
+    const nid = Number(note.id || 0);
+    if (!nid || !note.provider_signed_at) continue;
+    const sid = Number(note.clinical_session_id || 0);
+    const date = ymd(note.service_date || note.provider_signed_at || note.created_at);
+    const code = codeKey(note.service_code || note.session_service_code || note.note_type) || 'DOC';
+    if (sid) {
+      const existing = byKey.get(`cs:${sid}`);
+      if (existing) {
+        existing.clinical_note_id = nid;
+        existing.note_status = 'signed';
+        existing.note_title = note.title || existing.note_title || null;
+        existing.provider_signed_at = note.provider_signed_at;
+        byKey.set(`cn:${nid}`, existing);
+        continue;
+      }
+    }
+    if (!date) continue;
+    // Avoid duplicating an encounter already present for same date+code when possible.
+    const dc = dateCodeKey(note.client_id, date, code);
+    const existingDc = code !== 'DOC' ? byKey.get(dc) : null;
+    if (existingDc && !existingDc.clinical_note_id) {
+      existingDc.clinical_note_id = nid;
+      existingDc.note_status = 'signed';
+      existingDc.note_title = note.title || null;
+      existingDc.provider_signed_at = note.provider_signed_at;
+      byKey.set(`cn:${nid}`, existingDc);
+      continue;
+    }
+    const recordKey = `cn:${nid}`;
+    const row = {
+      id: nid,
+      record_key: recordKey,
+      billing_encounter_id: null,
+      clinical_session_id: sid || null,
+      clinical_note_id: nid,
+      office_event_id: null,
+      agency_id: note.agency_id,
+      client_id: note.client_id,
+      provider_user_id: note.provider_signed_by_user_id || note.created_by_user_id || null,
+      provider_first_name: note.provider_first_name || null,
+      provider_last_name: note.provider_last_name || null,
+      service_date: date,
+      service_code: code,
+      place_of_service: null,
+      diagnosis_text: null,
+      billing_attached: false,
+      note_status: 'signed',
+      note_title: note.title || null,
+      provider_signed_at: note.provider_signed_at,
+      source: 'signed_note'
+    };
+    rememberAliases(row, [recordKey, sid ? `cs:${sid}` : null]);
+  }
+
+  for (const claim of claims || []) {
+    const claimId = Number(claim.id || 0);
+    if (!claimId) continue;
+    const sid = Number(claim.clinical_session_id || 0);
+    const noteId = Number(claim.clinical_note_id || 0);
+    const existing = (sid ? byKey.get(`cs:${sid}`) : null)
+      || (noteId ? byKey.get(`cn:${noteId}`) : null);
+    if (existing) {
+      existing.billing_attached = true;
+      existing.clinical_claim_id = existing.clinical_claim_id || claimId;
+      continue;
+    }
   }
 
   const unique = [];

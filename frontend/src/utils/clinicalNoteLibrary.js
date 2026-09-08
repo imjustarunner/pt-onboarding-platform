@@ -160,7 +160,13 @@ export function parseDraftOutput(d) {
 export function defaultDraftTypeLabel(d) {
   const parsed = parseDraftOutput(d);
   if (String(parsed?.meta?.source || '') === 'session_recording') return 'Session Recording';
+  const kind = String(d?.note_kind || d?.noteKind || parsed?.meta?.noteKind || '').toLowerCase();
+  const toolId = String(parsed?.meta?.toolId || d?.tool_id || '').toLowerCase();
+  if (kind.includes('treatment') || kind === 'plan' || toolId.includes('plan')) {
+    return 'Treatment plan';
+  }
   const code = String(d?.service_code || parsed?.meta?.serviceCode || '').trim().toUpperCase();
-  if (!code) return 'Progress Note';
-  return `${code} Note`;
+  if (!code) return kind.includes('intake') ? 'Intake' : 'Progress Note';
+  if (kind.includes('intake')) return `Intake (${code})`;
+  return `Progress (${code})`;
 }

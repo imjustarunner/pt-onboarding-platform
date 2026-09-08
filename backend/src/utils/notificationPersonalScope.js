@@ -47,7 +47,8 @@ export const MANAGED_AGENCY_EVENT_TYPES = new Set([
   'support_ticket_created',
   'survey_completed',
   'unassigned_document_submitted',
-  'user_activity_digest'
+  'user_activity_digest',
+  'planned_out_admin_alert'
 ]);
 
 /** Types that may use user_id=NULL as a true agency-wide broadcast in personal inboxes. */

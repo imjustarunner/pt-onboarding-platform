@@ -145,9 +145,9 @@ export function canReviewPlannedOut(row) {
 
 export function statusLabel(status) {
   const s = String(status || '').toLowerCase();
-  if (s === 'approved') return 'Approved';
-  if (s === 'rejected') return 'Rejected';
-  if (s === 'revision') return 'Needs revision';
+  if (s === 'approved') return 'Acknowledged';
+  if (s === 'rejected') return 'Closed';
+  if (s === 'revision') return 'Needs Clarification';
   return 'Pending';
 }
 

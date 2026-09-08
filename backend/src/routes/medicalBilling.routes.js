@@ -20,9 +20,13 @@ import {
   saveTreatmentPlanToChart,
   getTreatmentPlanById,
   voidPacketBootstrapTreatmentPlanDrafts,
+  discardTreatmentPlanDraft,
+  getClaimBillingMode,
+  updateClaimBillingMode,
   parseTreatmentPlanImport,
   normalizeTreatmentPlanObjective,
   suggestTreatmentPlanDischarge,
+  proposeTreatmentPlanUpdate,
   listClientChart,
   createObjectiveRating,
   listClientObjectiveRatings,
@@ -41,6 +45,8 @@ import {
   upsertFeeScheduleItem,
   createMedicalClaim,
   listMedicalClaims,
+  listBillingClaimOverrides,
+  upsertBillingClaimOverride,
   getSessionClaimReadiness,
   saveClaimMdCredentials,
   submitClaimToClaimMd,
@@ -101,6 +107,35 @@ router.post(
   voidPacketBootstrapTreatmentPlanDrafts
 );
 
+router.post(
+  '/treatment-plans/:planId/discard',
+  requireClinicalChart,
+  [
+    param('planId').isInt({ min: 1 }),
+    body('agencyId').isInt({ min: 1 }),
+    body('clientId').isInt({ min: 1 })
+  ],
+  discardTreatmentPlanDraft
+);
+
+router.get(
+  '/claim-billing-mode',
+  requireMedicalBillingActorAccess,
+  [query('agencyId').isInt({ min: 1 })],
+  getClaimBillingMode
+);
+
+router.patch(
+  '/claim-billing-mode',
+  requireMedicalBillingActorAccess,
+  [
+    body('agencyId').isInt({ min: 1 }),
+    body('mode').isIn(['self', 'billing_supervisor']),
+    body('userId').optional().isInt({ min: 1 })
+  ],
+  updateClaimBillingMode
+);
+
 router.get(
   '/treatment-plans/:planId',
   requireClinicalChart,
@@ -149,6 +184,24 @@ router.post(
     body('goals').optional().isArray()
   ],
   suggestTreatmentPlanDischarge
+);
+
+router.post(
+  '/treatment-plans/propose-update',
+  requireClinicalChart,
+  [
+    body('agencyId').isInt({ min: 1 }),
+    body('clientId').isInt({ min: 1 }),
+    body('currentPlan').optional(),
+    body('providerNarrative').optional().isString(),
+    body('narrative').optional().isString(),
+    body('pasteRewriteSource').optional().isString(),
+    body('pasteText').optional().isString(),
+    body('progressExcerpt').optional().isString(),
+    body('renewalReason').optional().isString(),
+    body('sinceDate').optional().isString()
+  ],
+  proposeTreatmentPlanUpdate
 );
 
 router.get(
@@ -377,6 +430,32 @@ router.get(
   ...claimsGate,
   [query('agencyId').isInt({ min: 1 })],
   listMedicalClaims
+);
+
+router.get(
+  '/claim-overrides',
+  ...claimsGate,
+  [query('agencyId').isInt({ min: 1 })],
+  listBillingClaimOverrides
+);
+
+router.post(
+  '/claim-overrides',
+  ...claimsGate,
+  [
+    body('agencyId').isInt({ min: 1 }),
+    body('scope').isString().isIn(['payer', 'client', 'claim']),
+    body('toValue').isString().isLength({ min: 1, max: 64 }),
+    body('fromValue').optional({ nullable: true }).isString(),
+    body('payerName').optional({ nullable: true }).isString(),
+    body('clientId').optional({ nullable: true }).isInt({ min: 1 }),
+    body('claimId').optional({ nullable: true }).isInt({ min: 1 }),
+    body('fieldKey').optional().isString(),
+    body('isActive').optional(),
+    body('notes').optional({ nullable: true }).isString(),
+    body('id').optional().isInt({ min: 1 })
+  ],
+  upsertBillingClaimOverride
 );
 
 router.get(

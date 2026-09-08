@@ -70,7 +70,7 @@ const iconClass = (item) => {
 };
 
 const onClick = (item) => {
-  if (item.kind === 'submission_update' && item.navTarget) {
+  if (item.navTarget) {
     emit('navigate', item.navTarget);
     return;
   }

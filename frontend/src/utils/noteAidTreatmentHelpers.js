@@ -109,7 +109,10 @@ export function isTreatmentPlanOnFileForSetup({
   const plan = latestPlan;
   if (!plan) return false;
   const status = String(plan.status || '').toLowerCase();
-  if (status === 'draft') return false;
+  // Bootstrap/intake drafts and discarded/superseded plans do not complete setup.
+  if (status === 'draft' || status === 'superseded' || status === 'inactive' || status === 'discarded') {
+    return false;
+  }
   const goals = Array.isArray(activeGoals) ? activeGoals : activePlanGoals(plan);
   return goals.some(
     (g) => (g.objectives || []).length > 0 || String(g.goal_text || '').trim()

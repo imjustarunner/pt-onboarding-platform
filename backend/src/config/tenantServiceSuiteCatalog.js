@@ -83,8 +83,8 @@ const ITSCO_DIRECT_SERVICE_META = {
     description: 'Individual counseling/therapy addressing problems in the treatment/service plan.'
   },
   H0023: {
-    name: 'Behavioral health outreach',
-    description: 'Proactive outreach to prevent or address behavioral health issues (alliance building, re-engagement).'
+    name: 'Contact / behavioral health outreach',
+    description: 'Bookable contact/outreach (alliance building, re-engagement). May be evaluated for Medicaid billability from note content, or billed self-pay / waived as pro bono.'
   },
   H0025: {
     name: 'Behavioral health prevention education',

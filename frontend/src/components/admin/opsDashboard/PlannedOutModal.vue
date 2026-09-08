@@ -7,6 +7,15 @@
       </header>
 
       <form class="pom-form" @submit.prevent="submit">
+        <p class="pom-info" role="note">
+          This is a notification to let the admin team know when you will not be available.
+          It does not submit vacation, PTO, or sick time.
+        </p>
+        <p class="pom-info pom-info--sub" role="note">
+          The purpose of this feature is to notify Admin of a provider's availability.
+          It is not a time-off request and should not affect PTO or sick-time balances.
+        </p>
+
         <fieldset class="pom-span">
           <legend>Duration</legend>
           <label><input v-model="spanType" type="radio" value="hours" /> Hours</label>
@@ -95,6 +104,12 @@
         </label>
 
         <p v-if="error" class="pom-err">{{ error }}</p>
+
+        <p class="pom-info pom-info--foot" role="note">
+          <strong>Important:</strong>
+          Submitting this does not guarantee schedule changes. If you have appointments or events
+          scheduled during this time, the admin team may need to follow up with you.
+        </p>
 
         <footer class="pom-foot">
           <button type="button" class="btn ghost" @click="$emit('close')">Cancel</button>
@@ -280,6 +295,20 @@ async function submit() {
 }
 .pom-tz-note strong { color: #1f6b4a; }
 .pom-err { margin: 0; color: #b91c1c; font-size: 13px; font-weight: 700; }
+.pom-info {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  color: #1e3a8a;
+  font-size: 12.5px;
+  font-weight: 600;
+  line-height: 1.45;
+}
+.pom-info--sub { margin-top: -4px; font-weight: 500; }
+.pom-info--foot { margin-top: 4px; font-size: 12px; font-weight: 500; }
+.pom-info--foot strong { font-weight: 800; }
 .pom-foot {
   display: flex;
   justify-content: flex-end;

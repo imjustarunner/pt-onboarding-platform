@@ -135,10 +135,15 @@ function eventLooksBooked(ev = {}) {
 }
 
 function bookingSelectionFromBody(body = {}) {
+  const rawAddons = body?.addonServiceCodes ?? body?.addon_service_codes ?? null;
+  const addonServiceCodes = Array.isArray(rawAddons)
+    ? rawAddons.map((c) => String(c || '').toUpperCase().trim()).filter(Boolean)
+    : [];
   return {
     appointmentTypeCode: body?.appointmentTypeCode || body?.appointment_type_code || null,
     appointmentSubtypeCode: body?.appointmentSubtypeCode || body?.appointment_subtype_code || null,
     serviceCode: body?.serviceCode || body?.service_code || null,
+    addonServiceCodes,
     modality: body?.modality || null,
     serviceLocationId: Number(body?.serviceLocationId || body?.service_location_id || 0) || null
   };
@@ -671,6 +676,17 @@ export const setBookingPlan = async (req, res, next) => {
       bookedOccurrenceCount,
       createdByUserId: req.user.id
     });
+    try {
+      const sel = bookingSelectionFromBody(req.body);
+      if (plan?.id && (sel.serviceCode || (sel.addonServiceCodes || []).length)) {
+        await OfficeBookingPlan.setServiceCodes(plan.id, {
+          serviceCode: sel.serviceCode,
+          addonServiceCodes: sel.addonServiceCodes
+        });
+      }
+    } catch {
+      /* migration 1398 may not be applied yet */
+    }
 
     OfficeScheduleMaterializer.invalidateOffice(officeLocationId);
 
@@ -705,7 +721,8 @@ export const setBookingPlan = async (req, res, next) => {
           appointmentSubtypeCode: sel.appointmentSubtypeCode,
           serviceCode: sel.serviceCode,
           modality: sel.modality,
-          serviceLocationId: sel.serviceLocationId
+          serviceLocationId: sel.serviceLocationId,
+          addonServiceCodes: sel.addonServiceCodes || null
         });
         await pool.execute(
           `UPDATE office_events SET booking_plan_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,

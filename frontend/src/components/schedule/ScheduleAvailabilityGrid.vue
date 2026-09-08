@@ -12,8 +12,20 @@
       <div class="sched-chrome-top" data-tour="my-schedule-week-nav">
         <div class="sched-chrome-title-block">
           <template v-if="!compactPageChrome">
-            <h2 class="sched-page-title">Schedule</h2>
-            <p class="sched-page-sub">View and manage availability.</p>
+            <h2
+              class="sched-page-title"
+              :class="{
+                'sched-page-title--mine': viewMode === 'open_finder',
+                'sched-page-title--office': viewMode === 'office_layout'
+              }"
+            >
+              {{ viewMode === 'office_layout' ? 'Office & Room Booking' : 'My Schedule' }}
+            </h2>
+            <p class="sched-page-sub">
+              {{ viewMode === 'office_layout'
+                ? 'Request or assign rooms in a building.'
+                : 'Your personal week — sessions, meetings, and holds.' }}
+            </p>
           </template>
           <p class="sched-week-range" :class="{ 'sched-week-range--hero': compactPageChrome }">
             <span class="sched-week-range__primary">{{ weekRangePrimaryLabel }}</span>
@@ -113,6 +125,16 @@
               @click="setScheduleSpanMode('week')"
             >Week</button>
           </div>
+          <button
+            v-if="!calendarSettingsOpen && isDayOrAgendaSpan"
+            type="button"
+            class="sched-nav-btn sched-nav-btn--week"
+            title="Return to the full week grid"
+            :disabled="loading"
+            @click="setScheduleSpanMode('week'); clearFocusedDays()"
+          >
+            Full week view
+          </button>
         </div>
       </div>
 
@@ -140,7 +162,7 @@
                 </svg>
               </span>
               <span class="sched-office-cta-copy">
-                <span class="sched-office-cta-title">{{ viewMode === 'office_layout' ? 'Personal calendar' : 'Request office or room' }}</span>
+                <span class="sched-office-cta-title">{{ viewMode === 'office_layout' ? 'My Schedule' : 'Request office or room' }}</span>
                 <span class="sched-office-cta-sub">{{ viewMode === 'office_layout' ? 'Back to your week grid' : 'Send a time for staff approval' }}</span>
               </span>
             </button>
@@ -149,7 +171,7 @@
                 type="button"
                 class="sched-pill sched-pill--emphasis"
                 data-tour="my-schedule-availability-btn"
-                title="Edit Availability Hours, split days, and vacation / planned out"
+                title="Edit Availability Hours, split days, and Planned Out"
                 @click="showAvailabilityEditor = !showAvailabilityEditor"
               >
                 Availability
@@ -180,27 +202,6 @@
                 </div>
                 <p class="sched-avail-legend__note">Default: Mon–Fri 6:00 AM–7:00 PM. Disable Availability to treat all hours as available.</p>
               </div>
-            </div>
-            <div class="sched-view-switch" role="tablist" aria-label="Schedule view" data-tour="my-schedule-view-switch">
-              <button
-                v-for="opt in viewModeOptions"
-                :key="`view-${opt.id}`"
-                type="button"
-                class="sched-seg"
-                role="tab"
-                :aria-selected="String(viewMode === opt.id)"
-                :class="{
-                  on: viewMode === opt.id,
-                  'sched-seg--back': opt.id === 'open_finder' && viewMode === 'office_layout'
-                }"
-                :disabled="loading"
-                :title="opt.id === 'open_finder'
-                  ? 'Personal week grid — book sessions, meetings, and holds on your calendar'
-                  : 'Office & room board — request or assign rooms in a building'"
-                @click="viewMode = opt.id"
-              >
-                <span v-if="opt.id === 'open_finder' && viewMode === 'office_layout'">← </span>{{ opt.label }}
-              </button>
             </div>
           </div>
         </div>
@@ -240,6 +241,13 @@
         </div>
       </div>
 
+      <details class="sched-calendar-settings" data-testid="my-schedule-calendar-settings" @toggle="onCalendarSettingsToggle">
+        <summary class="sched-calendar-settings__summary">
+          <span class="sched-calendar-settings__title">Calendar settings</span>
+          <span class="sched-calendar-settings__hint muted">people · office · feeds · layout · more tools</span>
+          <span class="sched-calendar-settings__chev" aria-hidden="true">▾</span>
+        </summary>
+        <div class="sched-calendar-settings__body">
       <div class="sched-tool-bar" data-tour="my-schedule-tool-groups">
         <div v-if="!hideOfficeAndCalendarIntegration" class="sched-tool-cluster" title="Ways to see other people’s calendars">
           <span class="sched-tool-cluster__label">People</span>
@@ -437,7 +445,7 @@
       </div>
 
       <div
-        v-if="!showMobileDayTimeline"
+        v-if="false && !showMobileDayTimeline"
         class="sched-day-focus-bar"
         title="Narrow the week grid to specific days"
       >
@@ -465,12 +473,8 @@
         </button>
       </div>
 
-      <details class="sched-more-tools" data-tour="my-schedule-more-tools">
-        <summary class="sched-more-tools__summary" title="Therapy Notes feeds, organization filters, programs, and color key">
-          <span class="sched-more-tools__title">More tools</span>
-          <span class="sched-more-tools__hint muted">feeds · organization · programs · office peek · key</span>
-          <span class="sched-more-tools__chev" aria-hidden="true">▾</span>
-        </summary>
+      <div class="sched-more-tools sched-more-tools--flat" data-tour="my-schedule-more-tools">
+        <div class="sched-more-tools__heading">More tools</div>
         <div class="sched-more-tools__body">
           <div class="sched-tool-cluster sched-tool-cluster--wrap">
             <span class="sched-tool-cluster__label">Programs & layout</span>
@@ -673,6 +677,8 @@
             </div>
           </details>
         </div>
+      </div>
+        </div>
       </details>
 
       <div v-if="!hideOfficeAndCalendarIntegration && isOfficeScopeSpecific && officeGridError" class="error" style="margin-top: 10px;">
@@ -742,7 +748,7 @@
 
     <div v-if="showAvailabilityEditor && Number(props.userId || 0)" class="sched-availability-panel" data-tour="my-schedule-availability-panel">
       <div class="sched-availability-panel__head">
-        <strong>Availability Hours &amp; vacation</strong>
+        <strong>Availability Hours &amp; Planned Out</strong>
         <button type="button" class="btn btn-secondary btn-sm" @click="showAvailabilityEditor = false">Close</button>
       </div>
       <WorkHoursEditor
@@ -5514,7 +5520,7 @@ import { useRoute, useRouter } from 'vue-router';
 import { createCounselingSession, openCounselingFromAppointment } from '../../services/counselingApi.js';
 import { isSupervisor, canScheduleGroupSupervision } from '../../utils/helpers.js';
 import api from '../../services/api';
-import { getScheduleSummary, setScheduleSummary, invalidateScheduleSummaryCacheForUser } from '../../utils/scheduleSummaryCache';
+import { getScheduleSummaryStale, setScheduleSummary, invalidateScheduleSummaryCacheForUser } from '../../utils/scheduleSummaryCache';
 import { timezoneLabelFor, isoToZonedDatetimeLocal, zonedDatetimeLocalToIso, timezoneAbbrevAt } from '../../utils/timezones.js';
 import {
   parseScheduleUtcInstant as parseScheduleInstant,
@@ -5903,6 +5909,10 @@ const showQuarterDetail = ref(false);
 const showPeerBusyOverlay = ref(false);
 const showAvailabilityEditor = ref(false);
 const showAvailHoursLegend = ref(false);
+const calendarSettingsOpen = ref(false);
+function onCalendarSettingsToggle(ev) {
+  calendarSettingsOpen.value = !!(ev?.target?.open);
+}
 
 /** Availability Hours for quiet-hour shading (mirrors availabilityWindow defaults). */
 const availabilityHoursState = ref({
@@ -7311,6 +7321,16 @@ watch(
       void consumeScheduleActionQuery();
     }
   }
+);
+
+watch(
+  () => [route.query?.availability, route.query?.plannedOutId],
+  ([availability]) => {
+    if (String(availability || '') === '1' || String(availability || '').toLowerCase() === 'true') {
+      showAvailabilityEditor.value = true;
+    }
+  },
+  { immediate: true }
 );
 
 onUnmounted(() => {
@@ -9052,14 +9072,14 @@ const load = async ({ forceRefresh = false } = {}) => {
   const ids = effectiveAgencyIds.value;
   const useAllAgencies = props.mode === 'self';
   const cacheKey = `${props.userId}|${useAllAgencies ? 'all' : [...ids].sort((a, b) => a - b).join(',')}|${weekStart.value}|${effectiveWeekStartsOn.value}|${showGoogleBusy.value}|${showGoogleEvents.value}|${showExternalBusy.value}|${(selectedExternalCalendarIds.value || []).slice().sort((a, b) => a - b).join(',')}`;
-  const cached = forceRefresh ? null : getScheduleSummary(cacheKey);
-  if (cached) {
-    mergeDiscoveredScheduleAgencies(cached.scheduleAgencyIds || []);
-    summary.value = filterSummaryByActiveAgencies(cached);
+  const stalePack = forceRefresh ? null : getScheduleSummaryStale(cacheKey);
+  if (stalePack?.data) {
+    mergeDiscoveredScheduleAgencies(stalePack.data.scheduleAgencyIds || []);
+    summary.value = filterSummaryByActiveAgencies(stalePack.data);
     error.value = '';
     loading.value = false;
     tryOpenFocusScheduleEvent();
-    return;
+    if (stalePack.fresh) return;
   }
 
   // Coalesce concurrent identical fetches (save/close + watchers used to stack dozens).
@@ -9070,7 +9090,7 @@ const load = async ({ forceRefresh = false } = {}) => {
 
   const run = (async () => {
   try {
-    if (!cached) loading.value = true;
+    if (!stalePack?.data) loading.value = true;
     error.value = '';
 
     // Self / My Schedule: one cross-tenant request so every booking shows (and load stays fast).
@@ -9080,6 +9100,8 @@ const load = async ({ forceRefresh = false } = {}) => {
           weekStart: weekStart.value,
           weekStartsOn: effectiveWeekStartsOn.value,
           includeAllAgencies: 'true',
+          // Skip office materialization on personal grid — big win for first paint.
+          skipOfficeMaterialize: viewMode.value === 'office_layout' ? 'false' : 'true',
           includeGoogleBusy: props.hideOfficeAndCalendarIntegration ? 'false' : (showGoogleBusy.value ? 'true' : 'false'),
           includeGoogleEvents: props.hideOfficeAndCalendarIntegration ? 'false' : (showGoogleEvents.value ? 'true' : 'false'),
           ...(props.hideOfficeAndCalendarIntegration ? {} : (showExternalBusy.value && selectedExternalCalendarIds.value.length
@@ -11760,7 +11782,7 @@ const scheduleEventAllDay = ref(false);
 const scheduleEventPrivate = ref(false);
 const scheduleEventRecurrence = ref('ONCE'); // ONCE | WEEKLY | BIWEEKLY | EVERY_3_WEEKS | EVERY_4_WEEKS | MONTHLY
 const scheduleEventRecurrenceEndMode = ref('count'); // count | indefinite
-const scheduleEventOccurrenceCount = ref(6); // 1–104 for recurring meeting/huddle
+const scheduleEventOccurrenceCount = ref(7); // 1–104 for recurring meeting/huddle
 const supervisionRecurrence = ref('ONCE');
 const supervisionRecurrenceEndMode = ref('count'); // count | indefinite
 const supervisionOccurrenceCount = ref(6);
@@ -11789,7 +11811,7 @@ const DEFAULT_BOOKING_TYPE = 'SESSION';
 
 // Office booking request (office-schedule/booking-requests)
 const officeBookingRecurrence = ref('ONCE'); // ONCE | WEEKLY | BIWEEKLY | EVERY_3_WEEKS | EVERY_4_WEEKS | MONTHLY
-const officeBookingOccurrenceCount = ref(6); // 1–104 when recurrence is WEEKLY/BIWEEKLY/MONTHLY
+const officeBookingOccurrenceCount = ref(7); // 1–104 when recurrence is WEEKLY/BIWEEKLY/MONTHLY
 const selectedOfficeRoomId = ref(0); // 0 = any open room
 const intakeConfirmStep = ref(null); // 'ask_inperson' | 'ask_virtual' | null – confirmation before intake submit
 const intakeConfirmChoice = ref(null); // 'both' | 'ip_only' | 'vi_yes' – set by confirm buttons, read by submit
@@ -14251,7 +14273,7 @@ function editorOfficeSeriesParams() {
     } else {
       occurrenceCount = Math.min(
         recurrence === 'WEEKLY' ? 52 : 104,
-        Math.max(1, Number(scheduleEventOccurrenceCount.value || officeBookingOccurrenceCount.value || 6))
+        Math.max(1, Number(scheduleEventOccurrenceCount.value || officeBookingOccurrenceCount.value || 7))
       );
     }
   }
@@ -15286,10 +15308,15 @@ const normalizeBookingSelectionPayload = () => {
   const clientId = String(requestType.value || '') === 'individual_session'
     ? (Number(primarySessionClientId.value || 0) || null)
     : null;
+  const addonServiceCodes = (editorAddonServiceCodes.value || [])
+    .map((c) => String(c || '').toUpperCase().trim())
+    .filter(Boolean);
   return {
     appointmentTypeCode,
     appointmentSubtypeCode: null,
     serviceCode: isSession ? (normalizeCodeValue(bookingServiceCode.value) || null) : null,
+    // Recurring-series add-ons (99051 after-hours is the primary pre-linkable code).
+    addonServiceCodes: isSession && addonServiceCodes.length ? addonServiceCodes : [],
     modality: isSessionBookingRequestType.value
       ? (normalizeCodeValue(bookingModality.value) || null)
       : null,
@@ -15320,22 +15347,55 @@ const refreshBookingUnitPreview = async () => {
   bookingUnitPreview.value = '';
   if (!showClinicalBookingFields.value || !effectiveAgencyFeatureFlags.value.medicalBillingEnabled) return;
   const agencyId = Number(effectiveAgencyId.value || 0);
-  const code = normalizeCodeValue(bookingServiceCode.value);
+  let code = normalizeCodeValue(bookingServiceCode.value);
   if (!agencyId || !code) return;
+  const minutes = modalSessionDurationMinutes.value;
+
+  // Soft psychotherapy band switch (90832 ↔ 90834 ↔ 90837) before unit preview.
+  const psychCodes = new Set(['90832', '90834', '90837']);
+  if (psychCodes.has(code)) {
+    try {
+      const { suggestPsychotherapyCodeForDuration, normalizePsychotherapyServiceCode } = await import(
+        '../../utils/noteAidSessionQueue.js'
+      );
+      const suggestedRaw = suggestPsychotherapyCodeForDuration(minutes);
+      const suggested = normalizePsychotherapyServiceCode(suggestedRaw);
+      if (suggested && psychCodes.has(suggested) && suggested !== code) {
+        bookingServiceCode.value = suggested;
+        code = suggested;
+        bookingUnitPreview.value = `Duration ${minutes} min → switched service code to ${suggested}.`;
+      }
+    } catch {
+      // optional helper
+    }
+  }
+
   try {
     const res = await api.post('/medical-billing/service-codes/preview-units', {
       agencyId,
       serviceCode: code,
-      minutes: modalSessionDurationMinutes.value
+      minutes
     });
     const d = res?.data || {};
-    if (d.claimable === false) {
-      bookingUnitPreview.value = d.reason || `Not claimable at ${modalSessionDurationMinutes.value} min for ${code}.`;
+    if (
+      d.overflowApplied
+      && d.effectiveServiceCode
+      && String(d.effectiveServiceCode).toUpperCase() !== code
+    ) {
+      const next = String(d.effectiveServiceCode).toUpperCase();
+      bookingServiceCode.value = next;
+      code = next;
+      bookingUnitPreview.value = `Duration ${minutes} min → overflow switched to ${next} (${d.units || 1} unit).`;
       return;
     }
-    const parts = [`~${modalSessionDurationMinutes.value} min → ${d.units || 0} unit(s)`];
+    if (d.claimable === false) {
+      bookingUnitPreview.value = d.reason || `Not claimable at ${minutes} min for ${code}.`;
+      return;
+    }
+    const parts = [`~${minutes} min → ${d.units || 0} unit(s)`];
     if (d.effectiveServiceCode && d.effectiveServiceCode !== code) parts.push(`bills as ${d.effectiveServiceCode}`);
     if (d.overflowApplied) parts.push('overflow code applied');
+    if (Number(d.maxUnitsPerDay || 0) > 0) parts.push(`max ${d.maxUnitsPerDay}/day`);
     bookingUnitPreview.value = parts.join(' · ');
   } catch {
     bookingUnitPreview.value = '';
@@ -17762,7 +17822,7 @@ const openSlotActionModal = async ({
   meetingSubtype.value = 'general';
   scheduleEventRecurrence.value = 'ONCE';
   scheduleEventRecurrenceEndMode.value = 'count';
-  scheduleEventOccurrenceCount.value = 6;
+  scheduleEventOccurrenceCount.value = 7;
   supervisionRecurrence.value = 'ONCE';
   supervisionRecurrenceEndMode.value = 'count';
   supervisionOccurrenceCount.value = 6;
@@ -17775,7 +17835,7 @@ const openSlotActionModal = async ({
   forfeitScope.value = 'occurrence';
   ackForfeit.value = false;
   officeBookingRecurrence.value = 'ONCE';
-  officeBookingOccurrenceCount.value = 6;
+  officeBookingOccurrenceCount.value = 7;
   selectedOfficeRoomId.value = viewMode.value === 'office_layout' ? (Number(roomId || 0) || 0) : 0;
   resetBookingSelectionDefaults();
   sessionAlsoRequestOffice.value = false;
@@ -19770,7 +19830,7 @@ const closeModal = () => {
   selectedMeetingInviteGroupIds.value = [];
   scheduleEventRecurrence.value = 'ONCE';
   scheduleEventRecurrenceEndMode.value = 'count';
-  scheduleEventOccurrenceCount.value = 6;
+  scheduleEventOccurrenceCount.value = 7;
   supervisionRecurrence.value = 'ONCE';
   supervisionRecurrenceEndMode.value = 'count';
   supervisionOccurrenceCount.value = 6;
@@ -20081,7 +20141,7 @@ const recurringMeetingOccurrenceCount = (recurrence, endMode, occurrenceCount) =
   if (String(endMode || 'count') === 'indefinite') {
     return indefiniteOccurrenceCount(normalized);
   }
-  return Math.min(104, Math.max(1, Number(occurrenceCount || 6) || 6));
+  return Math.min(104, Math.max(1, Number(occurrenceCount || 7) || 6));
 };
 
 const generateRecurrenceSeriesId = () => {
@@ -20696,7 +20756,7 @@ const submitRequest = async () => {
         : String(officeBookingRecurrence.value || 'ONCE');
       const recurringRecurrences = [...RECURRING_FREQUENCIES];
       const occurrenceCount = recurringRecurrences.includes(recurrence)
-        ? Math.min(104, Math.max(1, Number(officeBookingOccurrenceCount.value) || 6))
+        ? Math.min(104, Math.max(1, Number(officeBookingOccurrenceCount.value) || 7))
         : null;
       const contexts = selectedActionContexts().filter((ctx) => Number(ctx?.officeLocationId || 0) > 0);
       if (!contexts.length) {
@@ -20730,7 +20790,7 @@ const submitRequest = async () => {
             // eslint-disable-next-line no-await-in-loop
             await api.post(`/office-slots/${ctx.officeLocationId}/assignments/${standingAssignmentId}/booking-plan`, {
               bookedFrequency: recurrence,
-              bookedOccurrenceCount: Number(occurrenceCount || 6),
+              bookedOccurrenceCount: Number(occurrenceCount || 7),
               bookingStartDate: String(ctx?.dateYmd || '').slice(0, 10) || addDaysYmd(weekStart.value, dayIdxFromWeekStartMonday(dn)),
               recurringUntilDate: addDaysYmd(String(ctx?.dateYmd || '').slice(0, 10) || addDaysYmd(weekStart.value, dayIdxFromWeekStartMonday(dn)), 364),
               ...normalizeBookingSelectionPayload()
@@ -20750,7 +20810,7 @@ const submitRequest = async () => {
             // eslint-disable-next-line no-await-in-loop
             await api.post(`/office-slots/${ctx.officeLocationId}/events/${officeEventId}/booking-plan`, {
               bookedFrequency: recurrence,
-              bookedOccurrenceCount: Number(occurrenceCount || 6),
+              bookedOccurrenceCount: Number(occurrenceCount || 7),
               bookingStartDate: String(ctx?.dateYmd || '').slice(0, 10) || addDaysYmd(weekStart.value, dayIdxFromWeekStartMonday(dn)),
               recurringUntilDate: addDaysYmd(String(ctx?.dateYmd || '').slice(0, 10) || addDaysYmd(weekStart.value, dayIdxFromWeekStartMonday(dn)), 364),
               ...normalizeBookingSelectionPayload()
@@ -20939,7 +20999,7 @@ const submitRequest = async () => {
       const recurrence = String(officeBookingRecurrence.value || 'ONCE');
       const recurringRecurrences = [...RECURRING_FREQUENCIES];
       const occurrenceCount = recurringRecurrences.includes(recurrence)
-        ? Math.min(104, Math.max(1, Number(officeBookingOccurrenceCount.value) || 6))
+        ? Math.min(104, Math.max(1, Number(officeBookingOccurrenceCount.value) || 7))
         : null;
       const targets = sortedSelectedActionSlots().length ? sortedSelectedActionSlots() : [{
         dateYmd: addDaysYmd(weekStart.value, dayIdxFromWeekStartMonday(dn)),
@@ -21036,13 +21096,13 @@ const submitRequest = async () => {
         const occurrenceCount = recurringRecurrences.includes(recurrence)
           ? (endMode === 'indefinite'
             ? null
-            : Math.min(52, Math.max(1, Number(scheduleEventOccurrenceCount.value || officeBookingOccurrenceCount.value || 6))))
+            : Math.min(52, Math.max(1, Number(scheduleEventOccurrenceCount.value || officeBookingOccurrenceCount.value || 7))))
           : null;
         const dates = expandRecurrenceDates({
           startYmd: baseDateYmd,
           frequency: recurrence,
           endMode,
-          occurrenceCount: occurrenceCount || 6,
+          occurrenceCount: occurrenceCount || 7,
           untilDate: editorRecurrenceUntilDate.value,
           weekdays: editorRecurrenceWeekdays.value
         });
@@ -21113,7 +21173,7 @@ const submitRequest = async () => {
           ? null
           : Math.min(
             occurrenceMax,
-            Math.max(1, Number(scheduleEventOccurrenceCount.value || officeBookingOccurrenceCount.value) || (recurrence === 'WEEKLY' ? 6 : 1))
+            Math.max(1, Number(scheduleEventOccurrenceCount.value || officeBookingOccurrenceCount.value) || (recurrence === 'WEEKLY' ? 7 : 1))
           ))
         : null;
       if (occurrenceCount) officeBookingOccurrenceCount.value = occurrenceCount;
@@ -21655,7 +21715,7 @@ watch(requestType, (t) => {
   if (!['agency_meeting', 'huddle'].includes(String(t || ''))) {
     scheduleEventRecurrence.value = 'ONCE';
     scheduleEventRecurrenceEndMode.value = 'count';
-    scheduleEventOccurrenceCount.value = 6;
+    scheduleEventOccurrenceCount.value = 7;
   }
   if (String(t || '') !== 'supervision') {
     supervisionRecurrence.value = 'ONCE';
@@ -25515,6 +25575,17 @@ defineExpose({ resetToOpenFinder, openQuickBook });
   background: var(--bg-alt, #f1f5f9);
   padding: 0;
 }
+.sched-more-tools--flat {
+  padding-bottom: 8px;
+}
+.sched-more-tools__heading {
+  font-weight: 800;
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-secondary, #64748b);
+  padding: 10px 12px 0;
+}
 .sched-more-tools[open] {
   border-color: var(--border, #94a3b8);
   background: var(--bg-alt, #f8fafc);
@@ -25607,6 +25678,35 @@ defineExpose({ resetToOpenFinder, openQuickBook });
   letter-spacing: -0.03em;
   line-height: 1.15;
 }
+.sched-page-title--mine {
+  color: #1d4ed8;
+}
+.sched-page-title--office {
+  color: #0f766e;
+}
+.sched-calendar-settings {
+  margin-top: 10px;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  background: #f8fafc;
+  padding: 0;
+}
+.sched-calendar-settings__summary {
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  cursor: pointer;
+  padding: 10px 12px;
+  font-weight: 700;
+  color: #1e293b;
+}
+.sched-calendar-settings__summary::-webkit-details-marker { display: none; }
+.sched-calendar-settings__hint { font-weight: 500; font-size: 0.8rem; }
+.sched-calendar-settings__chev { margin-left: auto; opacity: 0.6; }
+.sched-calendar-settings[open] .sched-calendar-settings__chev { transform: rotate(180deg); }
+.sched-calendar-settings__body { padding: 0 10px 12px; }
 .sched-page-sub {
   margin: 4px 0 0;
   font-size: 14px;

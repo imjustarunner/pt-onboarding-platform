@@ -1347,6 +1347,7 @@
             :client-id="Number(props.client?.id || 0) || null"
             :client="client"
             :initial-encounter-id="medicalRecordEncounterId"
+            :can-view-missing-claim-flag="canViewMissingClaimFlag"
             @encounter-change="onMedicalRecordEncounterChange"
           />
         </div>
@@ -3910,6 +3911,12 @@ const schoolRoiStatusLabel = computed(() => {
 const canViewClientBillingImport = computed(() => {
   if (!isClinicalLikeClientType.value) return false;
   return ['super_admin', 'admin', 'support'].includes(roleNorm.value);
+});
+
+/** Missing-claim flag on medical record — billing staff / admin, not providers. */
+const canViewMissingClaimFlag = computed(() => {
+  if (!isClinicalLikeClientType.value) return false;
+  return ['super_admin', 'admin', 'support', 'billing'].includes(roleNorm.value);
 });
 
 const canViewMedicalRecord = computed(() => {

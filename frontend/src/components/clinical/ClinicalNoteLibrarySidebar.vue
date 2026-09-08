@@ -574,7 +574,10 @@ function canDeleteRow(d) {
   const status = normalizeStatus(d?.docStatus);
   if (status === DOC_STATUS.SIGNED) return false;
   if (d?.raw?.provider_signed_at || d?.raw?.signed_at) return false;
-  return d?.source === 'draft' || d?.source === 'work_queue';
+  // Pure work-queue shells stay queued; only drafts (or draft-linked rows) can be deleted here.
+  if (d?.source === 'draft') return true;
+  if (d?.source === 'work_queue' && (d?.draftId || d?.raw?.draftId)) return true;
+  return false;
 }
 function shortCreated(raw) {
   try {

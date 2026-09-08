@@ -409,9 +409,8 @@ const rows = computed(() => {
   for (const p of chart.value.plans || []) {
     const id = Number(p.id || 0);
     const status = String(p.status || 'active').toLowerCase();
-    // Client-setup bootstrap drafts should not linger once cancelled/replaced.
-    if (status === 'draft' && String(p.source_tool_id || '') === 'intake_packet_bootstrap') continue;
-    if (status === 'superseded' || status === 'inactive') continue;
+    // Keep Treatment Plan Drafts visible on the client file so clinicians can finish them.
+    if (status === 'superseded' || status === 'inactive' || status === 'discarded') continue;
     out.push({
       key: `plan-${id}`,
       kind: 'plan',
@@ -419,7 +418,7 @@ const rows = computed(() => {
       codeTone: '',
       title: p.title || (isLearning.value ? 'Learning plan' : 'Treatment plan'),
       status,
-      statusLabel: status === 'draft' ? 'Draft plan' : String(p.status || 'active'),
+      statusLabel: status === 'draft' ? 'Draft — updating' : String(p.status || 'active'),
       dateLabel: formatDate(p.effective_date || p.created_at),
       sortAt: p.updated_at || p.created_at,
       serviceCode: '',

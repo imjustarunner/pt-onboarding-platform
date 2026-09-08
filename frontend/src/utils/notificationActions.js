@@ -44,6 +44,13 @@ export function notificationDestination(notification, { organizationSlug = null,
     return `${base}/admin/availability-intake?agencyId=${n.agency_id}&tab=school`;
   }
   if (n.type.startsWith('office_schedule_') || n.type === 'office_availability_request_approved') return `${base}/buildings/schedule`;
+  if (n.type === 'planned_out_admin_alert') {
+    return `${base}/admin/planned-outs${n.agency_id ? `?agencyId=${n.agency_id}` : ''}${entityId ? `${n.agency_id ? '&' : '?'}id=${entityId}` : ''}`;
+  }
+  if (['planned_out_submitted', 'planned_out_acknowledged', 'planned_out_needs_clarification'].includes(n.type)
+    || entityType === 'planned_out') {
+    return `${base}/my-schedule?availability=1${entityId ? `&plannedOutId=${entityId}` : ''}`;
+  }
   if (n.type === 'budget_expense_pending_approval' && entityId) return `${base}/admin/budget-management?tab=expenses&status=submitted&expenseId=${entityId}`;
   if (['unassigned_document_submitted', 'medical_records_release_submitted'].includes(n.type)) return `${base}/admin/unassigned-documents?agencyId=${n.agency_id}`;
   if (entityType === 'user' && n.user_id && adminLike) return `${base}/admin/users/${n.user_id}`;

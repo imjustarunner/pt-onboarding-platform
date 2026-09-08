@@ -78,25 +78,38 @@ export function parseScalePair(text) {
     }
   }
 
-  // "7/10 to 3/10" or "4/10 → 8/10"
-  const slashPair = s.match(
-    /(\d{1,2})\s*\/\s*10\s*(?:→|->|\bto\b)\s*(?:a\s+)?(?:target\s+level\s+of\s+)?(\d{1,2})(?:\s*\/\s*10)?/i
+  // "from a current baseline level 7 to a level 3 or below"
+  // "from a baseline level 8 to a level 3" / "to a level 8 or higher"
+  const baselineLevel = s.match(
+    /(?:from\s+(?:a\s+)?)?(?:current\s+)?baseline\s+level\s+(\d{1,2})[^0-9]{0,40}?\bto\b\s+(?:a\s+)?level\s+(\d{1,2})/i
   );
-  if (slashPair) {
-    const current = Number(slashPair[1]);
-    const target = Number(slashPair[2]);
+  if (baselineLevel) {
+    const current = Number(baselineLevel[1]);
+    const target = Number(baselineLevel[2]);
     if (current >= 1 && current <= 10 && target >= 1 && target <= 10) {
       return { scaleCurrent: current, scaleTarget: target };
     }
   }
 
-  // "from a current … level of 9 to a target level of 5" (without "out of 10")
+  // "from a current … level of 9 to a target level of 5" / "to a level 3"
   const fromTo = s.match(
-    /(?:from\s+a\s+)?(?:current|baseline)[^0-9]{0,40}?(\d{1,2})\s*(?:or below|or less)?(?:\s+out\s+of\s+10)?[^0-9]{0,30}?\bto\b\s*(?:a\s+)?(?:target\s+level\s+of\s+)?(\d{1,2})/i
+    /(?:from\s+a\s+)?(?:current|baseline)[^0-9]{0,40}?(\d{1,2})\s*(?:or below|or less)?(?:\s+out\s+of\s+10)?[^0-9]{0,40}?\bto\b\s*(?:a\s+)?(?:(?:target\s+)?level\s+(?:of\s+)?)?(\d{1,2})/i
   );
   if (fromTo) {
     const current = Number(fromTo[1]);
     const target = Number(fromTo[2]);
+    if (current >= 1 && current <= 10 && target >= 1 && target <= 10) {
+      return { scaleCurrent: current, scaleTarget: target };
+    }
+  }
+
+  // "7/10 to 3/10" or "4/10 → 8/10"
+  const slashPair = s.match(
+    /(\d{1,2})\s*\/\s*10\s*(?:→|->|\bto\b)\s*(?:a\s+)?(?:(?:target\s+)?level\s+(?:of\s+)?)?(\d{1,2})(?:\s*\/\s*10)?/i
+  );
+  if (slashPair) {
+    const current = Number(slashPair[1]);
+    const target = Number(slashPair[2]);
     if (current >= 1 && current <= 10 && target >= 1 && target <= 10) {
       return { scaleCurrent: current, scaleTarget: target };
     }
@@ -484,15 +497,18 @@ export function parseTreatmentPlanText(rawText) {
     }
 
     if (
-      /^discharge\s*(?:criteria|plan|criteria\/planning|criteria\/plan)?\b/i.test(trimmed)
-      || /^discharge\b/i.test(trimmed)
+      /^discharge\s*criteria\s*\/\s*planning\b/i.test(trimmed)
+      || /^discharge\s*(?:criteria|plan)\b/i.test(trimmed)
+      || (/^discharge\b/i.test(trimmed) && !/^discharge\s+from\b/i.test(trimmed))
     ) {
       flushJustification();
       flushPresenting();
       mode = 'discharge';
       const rest = trimmed
-        .replace(/^discharge(?:\s*(?:criteria(?:\/planning)?|plan))?\s*[:\-]?\s*/i, '')
+        .replace(/^discharge\s*criteria\s*\/\s*planning\s*[:\-]?\s*/i, '')
+        .replace(/^discharge(?:\s*(?:criteria|plan))?\s*[:\-]?\s*/i, '')
         .trim();
+      // New section header resets; narrative "Discharge from…" is handled elsewhere.
       dischargePlan = rest || '';
       continue;
     }
@@ -590,10 +606,17 @@ export function parseTreatmentPlanText(rawText) {
       continue;
     }
 
-    if (/^estimated\s+completion\b/i.test(trimmed) || (/projected|timeframe|target date|completion/i.test(trimmed) && currentGoal)) {
+    if (
+      /^estimated\s+completion\b/i.test(trimmed)
+      || /^projected(?:\s+(?:time\s+to\s+)?completion)?\b/i.test(trimmed)
+      || /^timeframe\b/i.test(trimmed)
+      || /^target\s+date\b/i.test(trimmed)
+    ) {
       const rest = trimmed
         .replace(/^estimated\s+completion\s*[:\-]?\s*/i, '')
-        .replace(/^(?:projected(?:\s*completion)?|timeframe|target date|completion)\s*[:\-]?\s*/i, '');
+        .replace(/^projected(?:\s+(?:time\s+to\s+)?completion)?\s*[:\-]?\s*/i, '')
+        .replace(/^timeframe\s*[:\-]?\s*/i, '')
+        .replace(/^target\s+date\s*[:\-]?\s*/i, '');
       if (applyGoalDuration(currentGoal, rest) || applyGoalDuration(currentGoal, trimmed)) {
         continue;
       }

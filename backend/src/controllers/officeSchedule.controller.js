@@ -101,10 +101,15 @@ async function resolveAuditAgencyIdForOffice(officeLocationId, actorUserId) {
 }
 
 function bookingSelectionFromBody(body = {}) {
+  const rawAddons = body?.addonServiceCodes ?? body?.addon_service_codes ?? null;
+  const addonServiceCodes = Array.isArray(rawAddons)
+    ? rawAddons.map((c) => String(c || '').toUpperCase().trim()).filter(Boolean)
+    : [];
   return {
     appointmentTypeCode: body?.appointmentTypeCode || body?.appointment_type_code || null,
     appointmentSubtypeCode: body?.appointmentSubtypeCode || body?.appointment_subtype_code || null,
     serviceCode: body?.serviceCode || body?.service_code || null,
+    addonServiceCodes,
     modality: body?.modality || null,
     serviceLocationId: Number(body?.serviceLocationId || body?.service_location_id || 0) || null
   };
@@ -2619,17 +2624,20 @@ export const createOfficeBookingRequest = async (req, res, next) => {
     }
 
     const policyAgencyId = await resolveAuditAgencyIdForOffice(loc.id, req.user.id);
-    const validatedSelection = await validateSchedulingSelection({
-      agencyId: policyAgencyId,
-      userRole: requestedProvider.role,
-      providerCredentialText: requestedProvider.credential,
-      appointmentTypeCode: rawSelection.appointmentTypeCode,
-      appointmentSubtypeCode: rawSelection.appointmentSubtypeCode,
-      serviceCode: rawSelection.serviceCode,
-      modality: rawSelection.modality,
-      scheduledStartAt: startAt,
-      scheduledEndAt: endAt
-    });
+    const validatedSelection = {
+      ...(await validateSchedulingSelection({
+        agencyId: policyAgencyId,
+        userRole: requestedProvider.role,
+        providerCredentialText: requestedProvider.credential,
+        appointmentTypeCode: rawSelection.appointmentTypeCode,
+        appointmentSubtypeCode: rawSelection.appointmentSubtypeCode,
+        serviceCode: rawSelection.serviceCode,
+        modality: rawSelection.modality,
+        scheduledStartAt: startAt,
+        scheduledEndAt: endAt
+      })),
+      addonServiceCodes: rawSelection.addonServiceCodes || []
+    };
 
     // Room is optional (open-to-alternative). If provided it must match location.
     let room = null;
@@ -2710,7 +2718,8 @@ export const createOfficeBookingRequest = async (req, res, next) => {
               appointmentSubtypeCode: validatedSelection.appointmentSubtypeCode || occ.appointment_subtype_code || null,
               serviceCode: validatedSelection.serviceCode || occ.service_code || null,
               modality: validatedSelection.modality || occ.modality || null,
-              serviceLocationId: rawSelection.serviceLocationId || null
+              serviceLocationId: rawSelection.serviceLocationId || null,
+              addonServiceCodes: validatedSelection.addonServiceCodes || null
             });
             // Keep standing ownership coherent — never leave assigned pointing at someone else
             // while booking "for" the assignee under a mistaken schedule-context user id.
@@ -3230,17 +3239,31 @@ export const approveOfficeBookingRequest = async (req, res, next) => {
       return res.status(404).json({ error: { message: 'Requested provider not found' } });
     }
     const policyAgencyId = await resolveAuditAgencyIdForOffice(loc.id, req.user.id);
-    const validatedSelection = await validateSchedulingSelection({
-      agencyId: policyAgencyId,
-      userRole: requestedProvider.role,
-      providerCredentialText: requestedProvider.credential,
-      appointmentTypeCode: reqRow.appointment_type_code,
-      appointmentSubtypeCode: reqRow.appointment_subtype_code,
-      serviceCode: reqRow.service_code,
-      modality: reqRow.modality,
-      scheduledStartAt: reqRow.start_at,
-      scheduledEndAt: reqRow.end_at
-    });
+    const validatedSelection = {
+      ...(await validateSchedulingSelection({
+        agencyId: policyAgencyId,
+        userRole: requestedProvider.role,
+        providerCredentialText: requestedProvider.credential,
+        appointmentTypeCode: reqRow.appointment_type_code,
+        appointmentSubtypeCode: reqRow.appointment_subtype_code,
+        serviceCode: reqRow.service_code,
+        modality: reqRow.modality,
+        scheduledStartAt: reqRow.start_at,
+        scheduledEndAt: reqRow.end_at
+      })),
+      addonServiceCodes: (() => {
+        try {
+          const raw = reqRow.addon_service_codes_json;
+          if (!raw) return [];
+          const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
+          return Array.isArray(parsed)
+            ? parsed.map((c) => String(c || '').toUpperCase().trim()).filter(Boolean)
+            : [];
+        } catch {
+          return [];
+        }
+      })()
+    };
 
     const requestedRoomId = reqRow.room_id ? Number(reqRow.room_id) : null;
     const rooms = await OfficeRoom.findByLocation(loc.id);
@@ -3321,7 +3344,8 @@ export const approveOfficeBookingRequest = async (req, res, next) => {
             appointmentSubtypeCode: validatedSelection.appointmentSubtypeCode,
             serviceCode: validatedSelection.serviceCode,
             modality: validatedSelection.modality,
-            serviceLocationId: requestServiceLocationId
+            serviceLocationId: requestServiceLocationId,
+            addonServiceCodes: validatedSelection.addonServiceCodes || null
           });
           if (Number(reqRow.client_id || 0) > 0) {
             await OfficeEvent.setContextLinkage({

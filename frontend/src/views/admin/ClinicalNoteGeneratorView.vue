@@ -165,7 +165,7 @@
         >
           <template #before>
             <div class="na-aid-picker-head">
-              <button type="button" class="na-link-btn" @click="cancelAidPicker">← Back</button>
+              <button type="button" class="na-aid-picker-back" @click="cancelAidPicker">← Back</button>
               <strong>Choose a note tool</strong>
             </div>
           </template>
@@ -210,8 +210,10 @@
           :editable="!chartNoteReadOnly"
           :finalized="!!signedNoteViewerId"
           :duration-hint="sessionDurationHint"
+          :billing-addons="billingAddons"
           @update:service-code="onQuickSessionServiceCode"
           @toggle-setup="showClientSetupDrawer = true"
+          @add-addon-code="promptManualAddonCode"
         />
 
         <section
@@ -1019,7 +1021,7 @@
         >
           <div class="na-output-head">
             <div>
-              <h2>AI Generated Note</h2>
+              <h2>{{ noteTypeDisplayLabel.includes('Treatment') || noteTypeDisplayLabel.includes('Plan') ? 'AI Generated Treatment Plan' : 'AI Generated Note' }}</h2>
               <span class="na-ready-badge">Ready for review</span>
             </div>
             <button type="button" class="na-link-btn" @click="collapseAllSections = !collapseAllSections">
@@ -1138,6 +1140,10 @@
               <input v-model="attestMedicallyNecessary" type="checkbox" />
               I declare that this service was medically necessary.
             </label>
+            <label v-if="requiresAiReviewAttestation" class="na-sign-check">
+              <input v-model="attestAiContentReviewed" type="checkbox" />
+              I have reviewed this AI-generated content and confirm it is accurate.
+            </label>
             <label
               v-if="nextInQueueItem || nextInProgressRow"
               class="na-sign-check"
@@ -1223,6 +1229,21 @@
                     : (isTreatmentSummaryAid
                       ? 'Save & open next in progress'
                       : 'Sign and open next in progress')) }}
+              </button>
+              <button
+                v-if="hasSameClientNext"
+                type="button"
+                class="na-btn-outline"
+                :disabled="!displayPanels.length || approvingNote || !canConfirmAndSign"
+                @click="approveNoteOutput({ afterSign: 'same_client' })"
+              >
+                {{ approvingNote
+                  ? (isReviewOnlyAid || isTreatmentSummaryAid ? 'Saving…' : 'Signing…')
+                  : (isReviewOnlyAid
+                    ? 'Complete review & open next for this client'
+                    : (isTreatmentSummaryAid
+                      ? 'Save & open next for this client'
+                      : 'Sign and open next for this client')) }}
               </button>
             </template>
           </div>
@@ -1339,8 +1360,10 @@
       :client-id="effectiveClientId"
       :initial-text="pastedPlanText"
       :plan-id="planDraftEditorId"
-      :mode="planDraftEditorId || planDraftEditorMode === 'draft' ? 'draft' : 'import'"
+      :mode="planImportReviewMode"
       :initial-plan="planDraftInitialPlan"
+      :renewal-reason="planUpdaterRenewalReason"
+      :progress-excerpt="planUpdaterProgressExcerpt"
       @close="closePlanDraftEditor"
       @saved="onPlanImportSaved"
     />
@@ -1507,6 +1530,7 @@ import {
 } from '../../config/noteAidWorkspace.js';
 import {
   CRISIS_90839_SERVICE_DESCRIPTION,
+  mergeScheduleSeededAddons,
   resolveNoteAidBillingCodes,
   shouldSuggest99051
 } from '../../utils/noteAidBillingAddons.js';
@@ -1797,12 +1821,19 @@ const progressEntryMode = ref('appointment'); // appointment | client | unlinked
 const showCreateClientModal = ref(false);
 const showClientSetupDrawer = ref(false);
 const showPlanImportReview = ref(false);
-const showIntakeImportReview = ref(false);
-const showIntakeDraftEditor = ref(false);
-const intakeDraftEditorId = ref(null);
 const planDraftEditorId = ref(null);
 const planDraftEditorMode = ref('import');
 const planDraftInitialPlan = ref(null);
+const planUpdaterRenewalReason = ref('');
+const planUpdaterProgressExcerpt = ref('');
+const planImportReviewMode = computed(() => {
+  if (planDraftEditorMode.value === 'update') return 'update';
+  if (planDraftEditorId.value || planDraftEditorMode.value === 'draft') return 'draft';
+  return 'import';
+});
+const showIntakeImportReview = ref(false);
+const showIntakeDraftEditor = ref(false);
+const intakeDraftEditorId = ref(null);
 const showDemographicsImport = ref(false);
 const showTodoImportModal = ref(false);
 const showDiagnosisWriterModal = ref(false);
@@ -2153,13 +2184,17 @@ function chartAgencyCandidates() {
 
 function scoreChartPlan(plan) {
   if (!plan) return -1;
+  const status = String(plan.status || '').toLowerCase();
+  if (status === 'superseded' || status === 'inactive' || status === 'discarded') return -1;
   const goals = activePlanGoals(plan);
   const recency = Number(plan.id || 0);
   const imported = String(plan.source_tool_id || plan.sourceToolId || '') === 'note_aid_plan_import';
   const intakeAuto = /^Intake Treatment Plan/i.test(String(plan.title || ''));
   // Imported treatment plans always outrank intake auto-drafts for chart display.
-  if (imported) return 50_000 + recency;
+  if (imported && status === 'active') return 50_000 + recency;
+  if (imported) return 40_000 + recency;
   if (intakeAuto) return recency;
+  if (status === 'draft') return 5_000 + recency;
   return goals.length ? 10_000 + recency : recency;
 }
 const agencyLookup = computed(() => {
@@ -2417,9 +2452,16 @@ const canConfirmAndSign = computed(() => {
 });
 const attestAccurateAndComplete = ref(false);
 const attestMedicallyNecessary = ref(false);
-const bothAttestationsChecked = computed(
-  () => !!attestAccurateAndComplete.value && !!attestMedicallyNecessary.value
-);
+const requiresAiReviewAttestation = computed(() => {
+  if (skipAiAid.value) return false;
+  if (outputObj.value?.meta?.manualSections) return false;
+  return !!aiContentGenerated.value || !!outputObj.value?.meta?.aiGenerated || !!outputObj.value?.meta?.model;
+});
+const bothAttestationsChecked = computed(() => {
+  if (!attestAccurateAndComplete.value || !attestMedicallyNecessary.value) return false;
+  if (requiresAiReviewAttestation.value && !attestAiContentReviewed.value) return false;
+  return true;
+});
 const markBothAttestationsLabel = computed(() => {
   if (isReviewOnlyAid.value) {
     return 'Mark as accurate and complete and confirm content review';
@@ -2432,12 +2474,14 @@ const markBothAttestationsLabel = computed(() => {
 function markBothAttestations() {
   attestAccurateAndComplete.value = true;
   attestMedicallyNecessary.value = true;
+  if (requiresAiReviewAttestation.value) attestAiContentReviewed.value = true;
   approvalError.value = '';
 }
 const canSubmitSignature = computed(
   () => canConfirmAndSign.value
     && attestAccurateAndComplete.value
     && attestMedicallyNecessary.value
+    && (!requiresAiReviewAttestation.value || !!attestAiContentReviewed.value)
 );
 const naMainEl = ref(null);
 const naGeneratedOutputEl = ref(null);
@@ -2938,6 +2982,22 @@ const billingPrimaryUnits = ref(1);
 const billingRulesBanner = ref('');
 const serviceCodeChangedAfterGenerate = ref(false);
 const lastGeneratedServiceCode = ref('');
+/** Add-on codes seeded from the schedule appointment / office event (e.g. 99051). */
+const scheduleSeededAddonCodes = ref([]);
+/** True after AI generate produced output that must be reviewed before sign. */
+const aiContentGenerated = ref(false);
+const attestAiContentReviewed = ref(false);
+
+function promptManualAddonCode() {
+  const raw = window.prompt('Add-on code (e.g. 99051):', '99051');
+  const code = String(raw || '').trim().toUpperCase();
+  if (!code) return;
+  if (code === '99051') includeAfterHours99051.value = true;
+  applyBillingRulesForCurrentSession({ announce: true });
+  if (!billingAddons.value.some((a) => String(a.code || '').toUpperCase() === code)) {
+    billingAddons.value = [...billingAddons.value, { code, units: 1 }];
+  }
+}
 
 function applyBillingRulesForCurrentSession({ announce = false } = {}) {
   const primary = String(actualServiceCode.value || selectedServiceCode.value || '').trim().toUpperCase();
@@ -2949,7 +3009,10 @@ function applyBillingRulesForCurrentSession({ announce = false } = {}) {
     includeAfterHours99051: includeAfterHours99051.value,
     sessionStartAt: sessionScheduledStart.value || null
   });
-  billingAddons.value = resolved.addons || [];
+  billingAddons.value = mergeScheduleSeededAddons(
+    resolved.addons || [],
+    scheduleSeededAddonCodes.value
+  );
   billingPrimaryUnits.value = resolved.primaryUnits || 1;
   if (resolved.switchedFrom && resolved.primaryCode !== primary) {
     selectedServiceCode.value = resolved.primaryCode;
@@ -2958,7 +3021,11 @@ function applyBillingRulesForCurrentSession({ announce = false } = {}) {
   if (!resolved.allow90785 && includeInteractiveComplexity.value) {
     includeInteractiveComplexity.value = false;
   }
-  if (shouldSuggest99051(sessionScheduledStart.value || null) && !includeAfterHours99051.value) {
+  if (
+    (shouldSuggest99051(sessionScheduledStart.value || null)
+      || scheduleSeededAddonCodes.value.includes('99051'))
+    && !includeAfterHours99051.value
+  ) {
     includeAfterHours99051.value = true;
     if (!billingAddons.value.some((a) => a.code === '99051')) {
       billingAddons.value = [...billingAddons.value, { code: '99051', units: 1 }];
@@ -2971,6 +3038,17 @@ function applyBillingRulesForCurrentSession({ announce = false } = {}) {
   } else if (!warnings.length) {
     billingRulesBanner.value = '';
   }
+}
+
+function seedScheduleAddonCodes(codes = []) {
+  const next = (Array.isArray(codes) ? codes : [])
+    .map((c) => String(c || '').trim().toUpperCase())
+    .filter(Boolean);
+  scheduleSeededAddonCodes.value = [...new Set(next)];
+  if (scheduleSeededAddonCodes.value.includes('99051')) {
+    includeAfterHours99051.value = true;
+  }
+  applyBillingRulesForCurrentSession({ announce: false });
 }
 
 async function loadAgencyNoteAidCatalog() {
@@ -3869,7 +3947,12 @@ const mergedSectionEntries = computed(() =>
 
 const displayPanels = computed(() => {
   const sections = Object.fromEntries(mergedSectionEntries.value || []);
-  return buildDisplaySections(sections);
+  const preferTreatmentPlan = isSessionlessAid.value
+    || aidKind(selectedAid.value) === 'plan'
+    || ['update_treatment_plan', 'psychotherapy_plan', 'treatment_plan', 'new_treatment_plan'].includes(
+      String(launchIntent.value || '')
+    );
+  return buildDisplaySections(sections, { preferTreatmentPlan });
 });
 
 const canSaveTreatmentPlanToChart = computed(() => {
@@ -3880,6 +3963,12 @@ const canSaveTreatmentPlanToChart = computed(() => {
 });
 
 const noteTypeDisplayLabel = computed(() => {
+  const planIntent = isSessionlessAid.value
+    || aidKind(selectedAid.value) === 'plan'
+    || ['update_treatment_plan', 'psychotherapy_plan', 'treatment_plan', 'new_treatment_plan'].includes(
+      String(launchIntent.value || '')
+    );
+  if (planIntent) return selectedAid.value?.label || 'Treatment Plan';
   // Always show the active code only — never the full group list (90832 / 90834 / …).
   const code = String(
     actualServiceCode.value
@@ -3954,6 +4043,20 @@ const nextInProgressRow = computed(() => {
   return rows[0] || null;
 });
 
+const nextSameClientInProgressRow = computed(() => {
+  const cid = Number(effectiveClientId.value || 0);
+  if (!cid) return null;
+  const rows = buildLeftLibraryRows({
+    drafts: recentDrafts.value,
+    workQueueItems: workQueueItems.value
+  }).filter(
+    (r) => normalizeDocStatus(r.docStatus) === DOC_STATUS.STARTED
+      && !isCurrentLibraryRow(r)
+      && Number(r.clientId || 0) === cid
+  );
+  return rows[0] || null;
+});
+
 const sortedWorkQueueItems = computed(() =>
   sortWorkQueueItems(
     filterWorkQueueForRightPanel(workQueueItems.value),
@@ -3969,6 +4072,23 @@ const nextInQueueItem = computed(() =>
   ) || sortedWorkQueueItems.value.find(
     (i) => deriveWorkQueueDocStatus(i) === DOC_STATUS.NOT_STARTED
   ) || null
+);
+
+const nextSameClientInQueueItem = computed(() => {
+  const cid = Number(effectiveClientId.value || 0);
+  if (!cid) return null;
+  return sortedWorkQueueItems.value.find(
+    (i) => deriveWorkQueueDocStatus(i) === DOC_STATUS.NOT_STARTED
+      && Number(i.clientId || 0) === cid
+      && i.id !== activeWorkQueueItemId.value
+  ) || sortedWorkQueueItems.value.find(
+    (i) => deriveWorkQueueDocStatus(i) === DOC_STATUS.NOT_STARTED
+      && Number(i.clientId || 0) === cid
+  ) || null;
+});
+
+const hasSameClientNext = computed(
+  () => !!(nextSameClientInProgressRow.value || nextSameClientInQueueItem.value)
 );
 
 const filteredSidebarDrafts = computed(() => {
@@ -4113,12 +4233,15 @@ const draftNoteTypeLabel = (d) => {
     }
   })();
   if (String(parsed?.meta?.source || '') === 'session_recording') return 'Session Recording';
+  const kind = String(d?.note_kind || d?.noteKind || parsed?.meta?.noteKind || '').toLowerCase();
+  const toolId = String(parsed?.meta?.toolId || d?.tool_id || '').toLowerCase();
+  if (kind.includes('treatment') || toolId.includes('plan') || kind === 'plan') {
+    return 'Treatment plan';
+  }
   const code = singleServiceCodeLabel(d?.service_code || d?.serviceCode || '');
-  if (!code) return 'Progress Note';
-  const kind = String(d?.note_kind || d?.noteKind || '').toLowerCase();
+  if (!code) return kind.includes('intake') ? 'Intake' : 'Progress Note';
   if (kind.includes('intake')) return `Intake (${code})`;
   if (kind.includes('termination')) return 'Termination note';
-  if (kind.includes('treatment')) return 'Treatment plan';
   return `Progress (${code})`;
 };
 
@@ -4506,25 +4629,26 @@ async function deleteCurrentDraft() {
 
 async function onLibrarySidebarDelete(row) {
   if (!row) return;
-  if (row.source === 'work_queue') {
-    const status = String(row.docStatus || '');
-    if (status === 'signed') {
-      approvalError.value = 'Signed notes cannot be deleted from Note Aid.';
-      return;
-    }
-    if (!window.confirm('Remove this item from the work queue?')) return;
-    workQueueItems.value = (workQueueItems.value || []).filter((i) => i.id !== row.workQueueId);
-    if (activeWorkQueueItemId.value === row.workQueueId) activeWorkQueueItemId.value = null;
-    persistWorkQueue();
+  // Left library never removes a work-queue ToDo. Only the work-queue panel removes queue items.
+  // Deleting a draft resets any linked ToDo to not started (session stays queued).
+  const draftIdToDelete = Number(row.draftId || row.raw?.id || 0) || null;
+  const isDraftRow = row.source === 'draft' || (draftIdToDelete && row.source !== 'signed_note');
+  const linkedWorkQueueId = row.workQueueId || (row.source === 'work_queue' ? row.raw?.id : null);
+
+  if (row.source === 'work_queue' && !draftIdToDelete) {
+    // Pure ToDo shell in the left list — keep it queued; do not remove.
+    approvalMessage.value = 'This session stays in the work queue. Remove it from the work queue panel if you no longer need the ToDo.';
     return;
   }
-  const draftIdToDelete = row.draftId || row.raw?.id;
-  if (!draftIdToDelete) return;
-  if (row.docStatus === 'signed' || row.raw?.provider_signed_at) {
+
+  if (row.docStatus === 'signed' || row.raw?.provider_signed_at || row.source === 'signed_note') {
     approvalError.value = 'Signed notes cannot be deleted.';
     return;
   }
-  if (!window.confirm('Delete this draft note? This cannot be undone.')) return;
+
+  if (!isDraftRow || !draftIdToDelete) return;
+  if (!window.confirm('Delete this draft note? The session stays in the work queue as not started.')) return;
+
   try {
     const res = await api.post(
       '/clinical-notes/drafts/delete',
@@ -4549,8 +4673,24 @@ async function onLibrarySidebarDelete(row) {
       inputText.value = '';
       await clearDraftFromRouteQuery();
     }
+    // Reset linked ToDo(s) to not started — never remove from work queue here.
+    workQueueItems.value = (workQueueItems.value || []).map((item) => {
+      const matchById = linkedWorkQueueId && String(item.id) === String(linkedWorkQueueId);
+      const matchByDraft = String(item.draftId || '') === String(draftIdToDelete);
+      if (!matchById && !matchByDraft) return item;
+      return {
+        ...item,
+        draftId: null,
+        status: DOC_STATUS.NOT_STARTED,
+        docStatus: DOC_STATUS.NOT_STARTED
+      };
+    });
+    if (linkedWorkQueueId && activeWorkQueueItemId.value === linkedWorkQueueId) {
+      activeWorkQueueItemId.value = null;
+    }
+    persistWorkQueue();
     await loadRecent();
-    approvalMessage.value = 'Draft deleted.';
+    approvalMessage.value = 'Draft deleted. Session is waiting in the work queue.';
   } catch (e) {
     approvalError.value = e.response?.data?.error?.message || e.message || 'Failed to delete draft';
   }
@@ -5140,6 +5280,8 @@ const generateNote = async () => {
 
     const res = await api.post('/clinical-notes/generate', fd, { skipGlobalLoading: true });
     outputObj.value = res?.data?.outputJson || null;
+    aiContentGenerated.value = true;
+    attestAiContentReviewed.value = false;
     lastGeneratedServiceCode.value = String(actualServiceCode.value || '').toUpperCase();
     serviceCodeChangedAfterGenerate.value = false;
     if (amendmentParentNoteId.value) {
@@ -5342,6 +5484,10 @@ const approveNoteOutput = async ({ silent = false, afterSign = 'queue' } = {}) =
       : 'Check both attestations (accurate & complete, and medically necessary) before signing.';
     return;
   }
+  if (requiresAiReviewAttestation.value && !attestAiContentReviewed.value) {
+    approvalError.value = 'Confirm you have reviewed the AI-generated content before signing.';
+    return;
+  }
   const hasScheduledSession = !!(
     bookingContext.value?.officeEventId
     || sessionOfficeEventId.value
@@ -5445,6 +5591,7 @@ const approveNoteOutput = async ({ silent = false, afterSign = 'queue' } = {}) =
           accurateAndComplete: true,
           medicallyNecessary: !isReviewOnlyAid.value,
           contentReviewConfirmed: !!isReviewOnlyAid.value,
+          aiContentReviewed: requiresAiReviewAttestation.value ? !!attestAiContentReviewed.value : null,
           attestedAt: new Date().toISOString()
         }
       }
@@ -5477,6 +5624,60 @@ const approveNoteOutput = async ({ silent = false, afterSign = 'queue' } = {}) =
       }
     }
 
+    let claimDraftMsg = '';
+    const shouldQueueClaim =
+      shouldAutosign
+      && noteId
+      && sessionId
+      && !isReviewOnlyAid.value
+      && !isTreatmentSummaryAid.value
+      && !isClientChartAid.value
+      && serviceCodeForMetadata;
+    if (shouldQueueClaim) {
+      try {
+        const primary = String(serviceCodeForMetadata).toUpperCase();
+        const claimLines = [
+          {
+            procedureCode: primary,
+            units: Number(billingPrimaryUnits.value || 1) || 1,
+            chargeCents: 0,
+            diagnosisPointers: '1',
+            serviceDate: dos
+          },
+          ...(billingAddons.value || [])
+            .map((a) => ({
+              procedureCode: String(a.code || '').toUpperCase(),
+              units: Number(a.units || 1) || 1,
+              chargeCents: 0,
+              diagnosisPointers: '1',
+              serviceDate: dos
+            }))
+            .filter((l) => l.procedureCode && l.procedureCode !== primary)
+        ];
+        const claimRes = await api.post(
+          '/medical-billing/claims',
+          {
+            agencyId: Number(noteAidAgencyId.value || currentAgencyId.value || 0),
+            clientId: Number(effectiveClientId.value || selectedClientId.value || 0),
+            clinicalSessionId: sessionId,
+            clinicalNoteId: noteId,
+            dateOfService: dos,
+            primaryProcedureCode: primary,
+            lines: claimLines
+          },
+          { skipGlobalLoading: true }
+        );
+        if (claimRes?.data?.alreadyExists) {
+          claimDraftMsg = ' Claim already in billing queue.';
+        } else if (claimRes?.data?.claim?.id) {
+          claimDraftMsg = ' Claim drafted for billing.';
+        }
+      } catch (claimErr) {
+        console.warn('[NoteAid] claim queue draft failed', claimErr?.response?.data?.error?.message || claimErr?.message || claimErr);
+        claimDraftMsg = ' Note signed — claim draft skipped (billing can create it).';
+      }
+    }
+
     if (isTreatmentSummaryAid.value && noteId) {
       treatmentSummaryNoteId.value = noteId;
       treatmentSummaryProviderSignedAt.value = shouldAutosign ? new Date().toISOString() : null;
@@ -5490,23 +5691,39 @@ const approveNoteOutput = async ({ silent = false, afterSign = 'queue' } = {}) =
     revisionInstruction.value = '';
     attestAccurateAndComplete.value = false;
     attestMedicallyNecessary.value = false;
+    attestAiContentReviewed.value = false;
+    aiContentGenerated.value = false;
     const signedMsg = isReviewOnlyAid.value
       ? (shouldAutosign
         ? 'Review complete — note saved to client chart and signed.'
         : 'Review complete — note saved to client chart.')
       : (isTreatmentSummaryAid.value
         ? 'Treatment Summary saved. Download/print PDF, then complete provider and clinical supervisor signatures.'
-        : 'Signed as medically necessary and saved to clinical records.');
+        : `Signed as medically necessary and saved to clinical records.${claimDraftMsg}`);
     const nextQueue = nextInQueueItem.value;
     const nextProgress = nextInProgressRow.value;
+    const nextSameClientProgress = nextSameClientInProgressRow.value;
+    const nextSameClientQueue = nextSameClientInQueueItem.value;
     markActiveWorkQueueItemSigned();
     await loadRecent();
 
-    const mode = afterSign === 'progress' || afterSign === 'queue' || afterSign === 'close'
+    const mode = afterSign === 'progress'
+      || afterSign === 'queue'
+      || afterSign === 'close'
+      || afterSign === 'same_client'
       ? afterSign
       : (signAndOpenNextInQueue.value ? 'queue' : 'close');
 
-    if (mode === 'progress' && nextProgress) {
+    if (mode === 'same_client' && (nextSameClientProgress || nextSameClientQueue)) {
+      approvalMessage.value = signedMsg;
+      if (nextSameClientProgress) {
+        await onLibrarySidebarSelect(nextSameClientProgress);
+      } else {
+        await activateWorkQueueItem(nextSameClientQueue);
+      }
+      sidebarTab.value = DOC_STATUS.STARTED;
+      await scrollNoteMainToTop();
+    } else if (mode === 'progress' && nextProgress) {
       approvalMessage.value = signedMsg;
       await onLibrarySidebarSelect(nextProgress);
       sidebarTab.value = DOC_STATUS.STARTED;
@@ -5745,6 +5962,9 @@ const bootstrapWorkspace = async ({ resetForm = false } = {}) => {
   } else if (launchAid === 'psychotherapy_plan' || launchIntentQ === 'update_treatment_plan') {
     const qClient = Number(route.query?.clientId || route.query?.client_id || 0);
     const qPlanId = Number(route.query?.planId || route.query?.plan_id || 0);
+    // Clear any billable CPT context — TP writer is never a 90832/34/37 session note.
+    selectedServiceCode.value = '';
+    actualServiceCode.value = '';
     if (qClient) {
       selectedClientId.value = qClient;
       selectedClient.value = { id: qClient };
@@ -5760,12 +5980,11 @@ const bootstrapWorkspace = async ({ resetForm = false } = {}) => {
       showPlanImportReview.value = true;
     } else if (
       latestTreatmentPlan.value?.id
-      && String(latestTreatmentPlan.value?.status || '').toLowerCase() === 'draft'
-      && String(latestTreatmentPlan.value?.source_tool_id || latestTreatmentPlan.value?.sourceToolId || '')
-        === 'intake_packet_bootstrap'
+      && ['draft', 'active'].includes(String(latestTreatmentPlan.value?.status || '').toLowerCase())
     ) {
       planDraftEditorId.value = latestTreatmentPlan.value.id;
-      planDraftEditorMode.value = 'draft';
+      planDraftEditorMode.value =
+        String(latestTreatmentPlan.value?.status || '').toLowerCase() === 'draft' ? 'draft' : 'import';
       planDraftInitialPlan.value = latestTreatmentPlan.value;
       showPlanImportReview.value = true;
     } else {
@@ -6085,6 +6304,12 @@ async function hydrateSelectedClient(clientId) {
         insurance_member_id: raw?.insurance_member_id || row.insurance_member_id || null,
         payer_name: raw?.payer_name || row.payer_name || null
       };
+      // Library / output header use initials — fill from chart when empty.
+      if (!String(initials.value || '').trim()) {
+        const fromClient = clientDisplayInitials(selectedClient.value)
+          || deriveInitialsFromNameSafe(clientDisplayName(selectedClient.value));
+        if (fromClient) initials.value = fromClient;
+      }
     }
   } catch {
     // keep partial row
@@ -6155,6 +6380,9 @@ const onDocumentationQueueSelect = async (row) => {
   if (row.officeEventId) nextQuery.officeEventId = String(row.officeEventId);
   router.replace({ query: nextQuery }).catch(() => {});
   resetClientClinicalContext();
+  seedScheduleAddonCodes(row.addonServiceCodes || row.addon_service_codes || []);
+  if (row.officeEventId) sessionOfficeEventId.value = Number(row.officeEventId) || null;
+  if (row.clinicalSessionId) sessionClinicalSessionId.value = Number(row.clinicalSessionId) || null;
   await Promise.all([
     loadClientTreatmentPlan(selectedClientId.value),
     loadClientIntakeSummary(selectedClientId.value)
@@ -6228,36 +6456,38 @@ const onPlanImportSaved = async (plan) => {
   planDraftEditorId.value = null;
   planDraftEditorMode.value = 'import';
   planDraftInitialPlan.value = null;
+  planUpdaterRenewalReason.value = '';
+  planUpdaterProgressExcerpt.value = '';
   pastedPlanText.value = '';
-  planImportedOnce.value = true;
+  if (plan?.id) {
+    planImportedOnce.value = true;
+  }
   if (effectiveClientId.value) await loadClientTreatmentPlan(effectiveClientId.value);
-  approvalMessage.value = plan?.id
-    ? (String(plan.status || '').toLowerCase() === 'draft'
-      ? 'Treatment plan draft saved.'
-      : 'Treatment plan saved to chart.')
-    : 'Treatment plan import completed.';
+  if (!plan) {
+    approvalMessage.value = 'Treatment plan draft discarded.';
+  } else if (String(plan.status || '').toLowerCase() === 'draft') {
+    approvalMessage.value = 'Treatment plan draft saved.';
+  } else if (plan?.id) {
+    approvalMessage.value = 'Treatment plan saved to chart.';
+  } else {
+    approvalMessage.value = 'Treatment plan import completed.';
+  }
   reopenClientSetupIfNeeded();
 };
 
 const closePlanDraftEditor = async () => {
-  const cid = Number(effectiveClientId.value || 0);
-  const aid = Number(noteAidAgencyId.value || currentAgencyId.value || 0);
-  const wasSetupDraft = !!planDraftEditorId.value
-    || planDraftEditorMode.value === 'draft'
-    || !planImportedOnce.value;
+  // Cancel only closes the editor. Do NOT void bootstrap drafts — that marked the
+  // intake TP as superseded, hid setup, and left cancelled goals as "authoritative".
   showPlanImportReview.value = false;
   planDraftEditorId.value = null;
   planDraftEditorMode.value = 'import';
   planDraftInitialPlan.value = null;
-  if (wasSetupDraft && cid && aid) {
+  const cid = Number(effectiveClientId.value || 0);
+  if (cid) {
     try {
-      await api.post('/medical-billing/treatment-plans/void-bootstrap-drafts', {
-        agencyId: aid,
-        clientId: cid
-      }, { skipGlobalLoading: true });
       await loadClientTreatmentPlan(cid);
     } catch {
-      // best-effort eradicate during client setup cancel
+      // best-effort refresh
     }
   }
   reopenClientSetupIfNeeded();
@@ -6461,8 +6691,17 @@ function snapMissingDraftsOnQueue() {
     const status = deriveWorkQueueDocStatus(item);
     if (status === DOC_STATUS.SIGNED || status === DOC_STATUS.COMPLETED) return item;
     if (item.draftId && live.has(String(item.draftId))) return item;
-    // Keep the ToDo you just opened — loadRecent runs before a draft exists.
-    if (activeId && String(item.id) === String(activeId) && status === DOC_STATUS.STARTED) {
+    // Stale draftId (draft deleted) — always clear, including the active ToDo.
+    if (item.draftId && !live.has(String(item.draftId))) {
+      return {
+        ...item,
+        draftId: null,
+        status: DOC_STATUS.NOT_STARTED,
+        docStatus: DOC_STATUS.NOT_STARTED
+      };
+    }
+    // Keep the ToDo you just opened — loadRecent can run before a draft row exists.
+    if (activeId && String(item.id) === String(activeId) && status === DOC_STATUS.STARTED && !item.draftId) {
       return item;
     }
     if (!item.draftId && status === DOC_STATUS.NOT_STARTED) return item;
@@ -6986,6 +7225,29 @@ async function activateWorkQueueItem(item) {
     return;
   }
 
+  seedScheduleAddonCodes(item.addonServiceCodes || item.addon_service_codes || []);
+  if (
+    !scheduleSeededAddonCodes.value.length
+    && (item.officeEventId || item.clinicalSessionId)
+  ) {
+    try {
+      const boot = await api.post('/clinical-data/sessions/bootstrap', {
+        agencyId: Number(item.agencyId || noteAidAgencyId.value || currentAgencyId.value || 0),
+        clientId: Number(item.clientId || selectedClientId.value || 0) || undefined,
+        officeEventId: Number(item.officeEventId || 0) || undefined,
+        sourceTimezone: 'America/New_York'
+      }, { skipGlobalLoading: true });
+      if (seq !== workQueueActivateSeq) return;
+      if (Array.isArray(boot?.data?.addonServiceCodes) && boot.data.addonServiceCodes.length) {
+        seedScheduleAddonCodes(boot.data.addonServiceCodes);
+      }
+      const sid = Number(boot?.data?.session?.id || 0);
+      if (sid) sessionClinicalSessionId.value = sid;
+    } catch {
+      // best-effort schedule seed
+    }
+  }
+
   await ensureWorkQueueDraft(item);
   if (seq !== workQueueActivateSeq) return;
   await loadRecent();
@@ -7121,56 +7383,36 @@ const openTreatmentPlanUpdater = async ({
   renewalReason = '',
   progressExcerpt = ''
 } = {}) => {
-  const planAidId = resolveTreatmentPlanAidId({
-    noteAidId: selectedAidId.value,
-    toolId: selectedToolId.value || selectedAid.value?.toolId,
-    serviceCode: actualServiceCode.value,
-    categoryId: selectedNoteCategory.value
-  });
-  const planHit = findNoteAidById(planAidId);
-  selectedNoteCategory.value = planHit?.category?.id || 'psychotherapy';
-  selectedAidId.value = planAidId;
+  // Treatment plan writer is sessionless and must never open as a billable progress note (90837).
+  selectedServiceCode.value = '';
+  actualServiceCode.value = '';
+  showAidPicker.value = false;
 
   const cid = Number(effectiveClientId.value || 0);
   if (cid && !latestTreatmentPlan.value && !loadingClientPlan.value) {
     await loadClientTreatmentPlan(cid);
   }
 
-  const reason =
-    renewalReason ||
-    renewalSuggestReason.value ||
-    (suggestUpdateTreatmentPlan.value
-      ? 'Objective(s) improved to goal — renew / update treatment plan.'
-      : '');
+  const plan = latestTreatmentPlan.value;
+  const planStatus = String(plan?.status || '').toLowerCase();
+  const usablePlan = plan?.id
+    && planStatus !== 'superseded'
+    && planStatus !== 'inactive'
+    && planStatus !== 'discarded';
 
-  const excerpt =
-    progressExcerpt ||
-    lastProgressNoteExcerpt.value ||
-    '';
-
-  const prefill = buildUpdaterPrefillDocument({
-    latestPlan: latestTreatmentPlan.value,
-    pastedPlanText: pastedPlanText.value,
-    diagnoses: chartDiagnoses.value,
-    ratings: [
-      ...chartObjectiveRatings.value.slice(0, 40),
-      ...(sessionObjectiveRatings.value || []).map((r) => ({
-        goal_text: r.goalText,
-        objective_text: r.objectiveText,
-        disposition: r.disposition,
-        scale_value: r.scaleValue,
-        scale_target: r.scaleTarget,
-        progress_label: r.progressLabel
-      }))
-    ],
-    progressNoteExcerpt: excerpt,
-    renewalReason: reason
-  });
-
-  if (prefill) {
-    inputText.value = prefill;
+  if (usablePlan) {
+    planDraftEditorId.value = Number(plan.id);
+    planDraftEditorMode.value = planStatus === 'draft' ? 'draft' : 'update';
+    planDraftInitialPlan.value = plan;
+    planUpdaterRenewalReason.value = String(renewalReason || '').trim();
+    planUpdaterProgressExcerpt.value = String(progressExcerpt || '').trim();
+    showPlanImportReview.value = true;
+    return;
   }
-  configExpanded.value = true;
+
+  // No chart plan yet — open the dedicated sessionless treatment-plan writer modal.
+  selectedAidId.value = '';
+  showTreatmentPlanWriterModal.value = true;
 };
 
 const useIntakeToInformPlan = async () => {
@@ -7758,10 +8000,27 @@ onMounted(async () => {
 
   // Direct entry (bookmark / quick nav): hourly workers not clocked in get offered a Log Time start.
   // Launchers (Tools & Aids / nav) already prompt; skipPrompt when already linked to a session.
+  // Treatment-plan / intake / sessionless writers must NOT be forced into a billable progress note.
   if (!isEmbedded.value && !fromIndirectSession.value) {
-    const { fromIndirectSession: linked } = await ensureHourlySessionForNoteAid();
-    if (linked) {
+    const launchIntent = String(route.query?.launchIntent || route.query?.intent || '').toLowerCase();
+    const isPlanOrIntakeIntent = [
+      'update_treatment_plan',
+      'psychotherapy_plan',
+      'treatment_plan',
+      'intake_draft',
+      'intake'
+    ].includes(launchIntent)
+      || String(route.query?.aidId || '').toLowerCase().includes('plan')
+      || String(route.query?.planId || '').trim() !== '';
+    const { fromIndirectSession: linked } = await ensureHourlySessionForNoteAid({
+      skipPrompt: isPlanOrIntakeIntent
+    });
+    if (linked && !isPlanOrIntakeIntent) {
       const nextQuery = { ...route.query, fromIndirectSession: '1', launchIntent: 'note' };
+      router.replace({ query: nextQuery }).catch(() => {});
+    } else if (linked && isPlanOrIntakeIntent) {
+      const nextQuery = { ...route.query, fromIndirectSession: '1' };
+      // Preserve launchIntent — never overwrite with 'note'
       router.replace({ query: nextQuery }).catch(() => {});
     }
   }
@@ -8297,6 +8556,21 @@ onBeforeUnmount(() => {
   align-items: center;
   gap: 12px;
   margin-bottom: 12px;
+}
+.na-aid-picker-back {
+  border: 1px solid #1d4ed8;
+  background: #eff6ff;
+  color: #1e3a8a;
+  font: inherit;
+  font-size: 0.9rem;
+  font-weight: 800;
+  padding: 8px 14px;
+  border-radius: 10px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.na-aid-picker-back:hover {
+  background: #dbeafe;
 }
 
 .na-ready-badge--signed {

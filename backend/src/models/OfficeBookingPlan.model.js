@@ -243,6 +243,31 @@ class OfficeBookingPlan {
     return rows?.[0] || null;
   }
 
+  static async setServiceCodes(planId, { serviceCode = null, addonServiceCodes = [] } = {}) {
+    const pid = Number(planId || 0);
+    if (!pid) return null;
+    const code = serviceCode ? String(serviceCode).trim().toUpperCase().slice(0, 32) : null;
+    const addons = Array.isArray(addonServiceCodes)
+      ? addonServiceCodes.map((c) => String(c || '').trim().toUpperCase()).filter(Boolean)
+      : [];
+    const json = addons.length ? JSON.stringify(addons) : null;
+    try {
+      await pool.execute(
+        `UPDATE office_booking_plans
+         SET service_code = COALESCE(?, service_code),
+             addon_service_codes_json = ?,
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id = ?`,
+        [code, json, pid]
+      );
+    } catch (e) {
+      if (e?.code !== 'ER_BAD_FIELD_ERROR') throw e;
+      return null;
+    }
+    const [rows] = await pool.execute(`SELECT * FROM office_booking_plans WHERE id = ? LIMIT 1`, [pid]);
+    return rows?.[0] || null;
+  }
+
   static async deactivateByAssignmentId(assignmentId) {
     await pool.execute(
       `UPDATE office_booking_plans

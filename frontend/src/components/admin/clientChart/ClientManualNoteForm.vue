@@ -33,11 +33,40 @@
           <span>Time spent (minutes)</span>
           <input v-model.number="form.minutes" type="number" min="0" step="1" placeholder="e.g. 15" />
         </label>
-        <label class="cmnf-check">
-          <input v-model="form.billingClaim" type="checkbox" />
-          <span>Create billing claim for billing team (manual follow-up for now)</span>
+        <label class="cmnf-field">
+          <span>Suggested service code (optional)</span>
+          <input v-model="form.serviceCode" type="text" maxlength="16" placeholder="e.g. H0023" />
         </label>
       </div>
+      <fieldset class="cmnf-billing">
+        <legend>Billing for this contact (mental health)</legend>
+        <p class="cmnf-hint">
+          Enable billing when the contact may satisfy a billable service. You can submit to insurance
+          (they may deny; client may then owe self-pay), bill self-pay, or waive as pro bono.
+        </p>
+        <label class="cmnf-check">
+          <input v-model="form.billingEnabled" type="checkbox" />
+          <span>This contact may be billable — enable billing options</span>
+        </label>
+        <template v-if="form.billingEnabled">
+          <label class="cmnf-field">
+            <span>Billing disposition</span>
+            <select v-model="form.billingDisposition" required>
+              <option value="submit_insurance">Submit to insurance / ClaimMD (denial → client may self-pay)</option>
+              <option value="self_pay">Bill client self-pay rate for selected service</option>
+              <option value="pro_bono">Waive — pro bono / no compensation</option>
+            </select>
+          </label>
+          <label class="cmnf-check">
+            <input v-model="form.billingAttestation" type="checkbox" required />
+            <span>
+              I attest this contact is not covered (or not expected to be paid) under the client’s insurance
+              as a standard session, and I understand the client may owe the self-pay rate if a service is
+              selected and insurance denies — unless I waive it as pro bono.
+            </span>
+          </label>
+        </template>
+      </fieldset>
     </template>
 
     <label class="cmnf-field">
@@ -86,7 +115,10 @@ const form = reactive({
   method: '',
   reason: '',
   minutes: null,
-  billingClaim: false,
+  serviceCode: 'H0023',
+  billingEnabled: false,
+  billingDisposition: 'submit_insurance',
+  billingAttestation: false,
   details: ''
 });
 
@@ -126,7 +158,7 @@ const title = computed(() => {
 
 const subtitle = computed(() => {
   if (props.noteKind === 'contact') {
-    return 'Manual documentation of outreach. Billing claims (if checked) go to the billing queue without an auto service code for now.';
+    return 'Document outreach. If billable, choose insurance submission, self-pay, or pro-bono waiver — AI/code review can evaluate Medicaid billability later from note content + duration.';
   }
   return 'Manual chart note — saved to this client’s notes.';
 });
@@ -135,13 +167,21 @@ function buildMessage() {
   if (props.noteKind !== 'contact') {
     return String(form.details || '').trim();
   }
+  const dispositionLabel = {
+    submit_insurance: 'Submit to insurance / ClaimMD',
+    self_pay: 'Self-pay',
+    pro_bono: 'Pro bono / waived'
+  }[form.billingDisposition] || form.billingDisposition;
   const lines = [
     `Contacted: ${form.partyName}`,
     `Relationship: ${form.relationship}`,
     `Method: ${form.method}`,
     `Reason: ${form.reason}`,
     form.minutes != null && form.minutes !== '' ? `Time spent: ${form.minutes} min` : null,
-    form.billingClaim ? 'Billing claim requested: yes (pending billing team)' : 'Billing claim requested: no',
+    form.serviceCode ? `Suggested service code: ${String(form.serviceCode).toUpperCase()}` : null,
+    form.billingEnabled
+      ? `Billing enabled: yes · Disposition: ${dispositionLabel} · Provider attestation: ${form.billingAttestation ? 'yes' : 'no'}`
+      : 'Billing enabled: no',
     '',
     String(form.details || '').trim()
   ].filter((x) => x != null);
@@ -150,6 +190,16 @@ function buildMessage() {
 
 async function submit() {
   error.value = '';
+  if (props.noteKind === 'contact' && form.billingEnabled) {
+    if (!form.billingAttestation) {
+      error.value = 'Attest the insurance / self-pay understanding before enabling billing.';
+      return;
+    }
+    if (form.billingDisposition !== 'pro_bono' && !String(form.serviceCode || '').trim()) {
+      error.value = 'Enter a suggested service code, or choose pro bono.';
+      return;
+    }
+  }
   saving.value = true;
   try {
     const category =
@@ -174,7 +224,13 @@ async function submit() {
               method: form.method,
               reason: form.reason,
               minutes: form.minutes,
-              billing_claim_requested: !!form.billingClaim
+              service_code: String(form.serviceCode || '').trim().toUpperCase() || null,
+              billing_enabled: !!form.billingEnabled,
+              billing_disposition: form.billingEnabled ? form.billingDisposition : null,
+              billing_attestation: form.billingEnabled ? !!form.billingAttestation : false,
+              billing_claim_requested: !!form.billingEnabled && form.billingDisposition === 'submit_insurance',
+              self_pay_requested: !!form.billingEnabled && form.billingDisposition === 'self_pay',
+              pro_bono_waived: !!form.billingEnabled && form.billingDisposition === 'pro_bono'
             }
           : { note_form: props.noteKind }
       },
@@ -236,6 +292,25 @@ async function submit() {
   padding-bottom: 6px;
 }
 .cmnf-check input { margin-top: 3px; }
+.cmnf-billing {
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 10px 12px 6px;
+  margin: 0;
+}
+.cmnf-billing legend {
+  font-size: 12px;
+  font-weight: 800;
+  color: #0f766e;
+  padding: 0 4px;
+}
+.cmnf-hint {
+  margin: 0 0 8px;
+  font-size: 12px;
+  color: #64748b;
+  line-height: 1.45;
+  font-weight: 500;
+}
 .cmnf-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 4px; }
 .cmnf-btn {
   border-radius: 10px;

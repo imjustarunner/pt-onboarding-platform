@@ -478,11 +478,25 @@
       <div class="section-header">
         <h2>Note Aid</h2>
         <p class="section-description">
-          Manual writing and Colorado-style autosign after content Review (not supervisor cosign).
+          Manual writing, Colorado-style autosign after content Review, and default claim billing NPI scenario.
         </p>
       </div>
       <div class="section-content">
         <div class="prefs-grid">
+          <div class="card">
+            <h3 class="card-title">Claim billing default (all payers)</h3>
+            <label class="field">
+              <span>Bill claims under</span>
+              <select v-model="prefs.claim_billing_mode" :disabled="viewOnly" @change="saveClaimBillingMode">
+                <option value="self">My NPI (rendering provider)</option>
+                <option value="billing_supervisor">Billing supervisor NPI</option>
+              </select>
+            </label>
+            <div class="field-help">
+              Applies to ClaimMD submissions for this tenant. Rendering provider is still listed on the claim when available. Rule changes requiring every rendering provider on the claim are tracked separately.
+            </div>
+            <p v-if="claimBillingModeMessage" class="field-help">{{ claimBillingModeMessage }}</p>
+          </div>
           <div class="card">
             <h3 class="card-title">Writer options</h3>
             <label class="field checkbox">
@@ -922,6 +936,7 @@ const agencyNotificationSettings = ref({
 });
 const sessionLockMaxMinutes = ref({ platformMax: 30, agencyMax: 30 });
 const vapidPublicKey = ref('');
+const claimBillingModeMessage = ref('');
 
 const dayOptions = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 
@@ -1000,6 +1015,7 @@ const prefs = ref({
   default_landing_page: 'dashboard',
   note_aid_allow_manual_write: true,
   note_aid_autosign_after_review: false,
+  claim_billing_mode: 'self',
 
   // Session Lock (HIPAA-style)
   session_lock_enabled: false,
@@ -1658,9 +1674,45 @@ const loadClubSummitContext = async () => {
   }
 };
 
+const loadClaimBillingMode = async () => {
+  claimBillingModeMessage.value = '';
+  const agencyId = Number(agencyStore.currentAgency?.id || 0);
+  if (!agencyId) return;
+  try {
+    const { data } = await api.get('/medical-billing/claim-billing-mode', {
+      params: { agencyId },
+      skipGlobalLoading: true
+    });
+    prefs.value.claim_billing_mode = data?.mode === 'billing_supervisor' ? 'billing_supervisor' : 'self';
+  } catch {
+    /* column or access may be missing until migration */
+  }
+};
+
+const saveClaimBillingMode = async () => {
+  claimBillingModeMessage.value = '';
+  const agencyId = Number(agencyStore.currentAgency?.id || 0);
+  if (!agencyId) {
+    claimBillingModeMessage.value = 'Select a tenant first.';
+    return;
+  }
+  try {
+    const { data } = await api.patch(
+      '/medical-billing/claim-billing-mode',
+      { agencyId, mode: prefs.value.claim_billing_mode },
+      { skipGlobalLoading: true }
+    );
+    prefs.value.claim_billing_mode = data?.mode === 'billing_supervisor' ? 'billing_supervisor' : 'self';
+    claimBillingModeMessage.value = 'Claim billing default saved.';
+  } catch (e) {
+    claimBillingModeMessage.value = e?.response?.data?.error?.message || 'Could not save claim billing default.';
+  }
+};
+
 onMounted(async () => {
   await load();
   await loadClubSummitContext();
+  await loadClaimBillingMode();
 });
 
 onBeforeUnmount(() => {

@@ -523,8 +523,12 @@ class OfficeEvent {
     appointmentSubtypeCode = null,
     serviceCode = null,
     modality = null,
-    serviceLocationId = null
+    serviceLocationId = null,
+    addonServiceCodes = null
   }) {
+    const addonsJson = Array.isArray(addonServiceCodes) && addonServiceCodes.length
+      ? JSON.stringify(addonServiceCodes.map((c) => String(c || '').toUpperCase().trim()).filter(Boolean))
+      : null;
     try {
       await pool.execute(
         `UPDATE office_events
@@ -536,6 +540,7 @@ class OfficeEvent {
              service_code = COALESCE(?, service_code),
              modality = COALESCE(?, modality),
              service_location_id = COALESCE(?, service_location_id),
+             addon_service_codes_json = COALESCE(?, addon_service_codes_json),
              updated_at = CURRENT_TIMESTAMP
          WHERE id = ?`,
         [
@@ -545,6 +550,7 @@ class OfficeEvent {
           serviceCode,
           modality,
           serviceLocationId,
+          addonsJson,
           eventId
         ]
       );
@@ -560,21 +566,47 @@ class OfficeEvent {
                appointment_subtype_code = COALESCE(?, appointment_subtype_code),
                service_code = COALESCE(?, service_code),
                modality = COALESCE(?, modality),
+               service_location_id = COALESCE(?, service_location_id),
                updated_at = CURRENT_TIMESTAMP
            WHERE id = ?`,
-          [bookedProviderId, appointmentTypeCode, appointmentSubtypeCode, serviceCode, modality, eventId]
+          [
+            bookedProviderId,
+            appointmentTypeCode,
+            appointmentSubtypeCode,
+            serviceCode,
+            modality,
+            serviceLocationId,
+            eventId
+          ]
         );
       } catch (e2) {
         if (e2?.code !== 'ER_BAD_FIELD_ERROR') throw e2;
-        await pool.execute(
-          `UPDATE office_events
-           SET status = 'BOOKED',
-               slot_state = 'ASSIGNED_BOOKED',
-               booked_provider_id = ?,
-               updated_at = CURRENT_TIMESTAMP
-           WHERE id = ?`,
-          [bookedProviderId, eventId]
-        );
+        try {
+          await pool.execute(
+            `UPDATE office_events
+             SET status = 'BOOKED',
+                 slot_state = 'ASSIGNED_BOOKED',
+                 booked_provider_id = ?,
+                 appointment_type_code = COALESCE(?, appointment_type_code),
+                 appointment_subtype_code = COALESCE(?, appointment_subtype_code),
+                 service_code = COALESCE(?, service_code),
+                 modality = COALESCE(?, modality),
+                 updated_at = CURRENT_TIMESTAMP
+             WHERE id = ?`,
+            [bookedProviderId, appointmentTypeCode, appointmentSubtypeCode, serviceCode, modality, eventId]
+          );
+        } catch (e3) {
+          if (e3?.code !== 'ER_BAD_FIELD_ERROR') throw e3;
+          await pool.execute(
+            `UPDATE office_events
+             SET status = 'BOOKED',
+                 slot_state = 'ASSIGNED_BOOKED',
+                 booked_provider_id = ?,
+                 updated_at = CURRENT_TIMESTAMP
+             WHERE id = ?`,
+            [bookedProviderId, eventId]
+          );
+        }
       }
     }
     return await this.findById(eventId);

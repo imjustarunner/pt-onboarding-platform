@@ -86,6 +86,10 @@
               Updated {{ formatWhen(plan.updated_at || plan.created_at) }}
             </div>
           </article>
+          <p v-if="!currentPlans.length" class="muted tiny" style="padding: 8px 4px;">
+            No active or in-progress treatment plan.
+            <button type="button" class="cdp-text-link" @click="openNoteAidUpdater">Write or update in Note Aid →</button>
+          </p>
         </div>
 
         <div v-if="detailPlan" class="ctp-detail">
@@ -104,6 +108,15 @@
               Share via kiosk
             </label>
             <button type="button" class="cdp-btn-soft" @click="openNoteAidUpdater">Open updater</button>
+            <button
+              v-if="isDiscardableDraft(detailPlan)"
+              type="button"
+              class="cdp-btn-soft cdp-btn-danger"
+              :disabled="discardBusy"
+              @click="discardDraftPlan"
+            >
+              {{ discardBusy ? 'Discarding…' : 'Discard draft' }}
+            </button>
           </div>
 
           <div v-if="planDiagnosesDisplay.length" class="ctp-dx">
@@ -155,7 +168,7 @@
                   class="ctp-obj"
                 >
                   <div class="ctp-obj__text">
-                    <span class="ctp-pill ctp-pill--obj">O{{ o.objective_index }}</span>
+                    <span class="ctp-pill ctp-pill--obj">O{{ g.goal_index }}.{{ o.objective_index }}</span>
                     <span>{{ stripPlanHeadingPrefix(o.objective_text) || o.objective_text }}</span>
                   </div>
                   <div class="ctp-obj__scale">
@@ -305,6 +318,7 @@ const objectiveRatings = ref([]);
 const selectedId = ref(null);
 const selectedFullPlan = ref(null);
 const kioskBusy = ref(false);
+const discardBusy = ref(false);
 const expandAllGoals = ref(true);
 const openGoalIds = reactive({});
 
@@ -342,13 +356,10 @@ const structuredGoals = computed(() => activePlanGoals(detailPlan.value));
 
 const currentPlans = computed(() => {
   const list = plans.value || [];
-  if (list.length <= 1) return list;
-  // Show active/draft selected first in the main list; rest go to Previous
-  const active = list.filter((p) => {
+  return list.filter((p) => {
     const s = String(p.status || '').toLowerCase();
-    return s === 'active' || s === 'draft' || Number(p.id) === Number(selectedId.value);
-  });
-  return active.length ? active.slice(0, 2) : list.slice(0, 1);
+    return s === 'active' || s === 'draft';
+  }).slice(0, 3);
 });
 
 const previousPlans = computed(() => {
@@ -478,11 +489,24 @@ function isLearningConcernCode(code) {
 
 function planTitle(plan) {
   const fallback = isLearning.value ? 'Learning plan' : 'Treatment plan';
-  return String(plan?.title || plan?.plan_title || `${fallback} #${plan?.id || ''}`).trim() || fallback;
+  const status = String(plan?.status || '').toLowerCase();
+  const raw = String(plan?.title || plan?.plan_title || '').trim();
+  if (status === 'discarded' || status === 'superseded' || status === 'inactive') {
+    if (/draft/i.test(raw)) return 'Discarded treatment plan draft';
+    return raw || `${fallback} (archived)`;
+  }
+  if (status === 'draft') {
+    return raw && !/^treatment plan$/i.test(raw) ? raw : 'Treatment plan draft';
+  }
+  return raw || `${fallback} #${plan?.id || ''}` || fallback;
 }
 
 function statusLabel(plan) {
-  const s = String(plan?.status || plan?.plan_status || '').trim();
+  const s = String(plan?.status || plan?.plan_status || '').trim().toLowerCase();
+  if (s === 'discarded' || s === 'inactive') return 'Discarded draft';
+  if (s === 'superseded') return 'Superseded';
+  if (s === 'draft') return 'Draft — updating';
+  if (s === 'active') return 'Active';
   return s ? s.replace(/_/g, ' ') : 'On file';
 }
 
@@ -490,6 +514,7 @@ function statusClass(plan) {
   const s = String(plan?.status || '').toLowerCase();
   if (s.includes('active') || s.includes('final')) return 'ctp-badge--ok';
   if (s.includes('draft')) return 'ctp-badge--draft';
+  if (s.includes('discard') || s.includes('superseded') || s.includes('inactive')) return 'ctp-badge--archived';
   return '';
 }
 
@@ -533,8 +558,44 @@ async function selectPlan(id) {
 
 function openNoteAidUpdater() {
   const slug = agencyStore.currentAgency?.slug || agencyStore.currentAgency?.organization_slug;
-  const query = treatmentPlanUpdaterQuery(props.clientId);
+  const planId = Number(detailPlan.value?.id || latestPlan.value?.id || 0) || null;
+  const status = String(detailPlan.value?.status || latestPlan.value?.status || '').toLowerCase();
+  const usable = planId && !['superseded', 'inactive', 'discarded'].includes(status);
+  const query = treatmentPlanUpdaterQuery(props.clientId, {
+    planId: usable ? planId : null,
+    // Never pass a psychotherapy CPT — treatment plan writer is sessionless / non-billable.
+    serviceCode: null
+  });
   router.push({ path: noteAidPath({ organizationSlug: slug }), query });
+}
+
+function isDiscardableDraft(plan) {
+  return String(plan?.status || '').toLowerCase() === 'draft' && !!Number(plan?.id || 0);
+}
+
+async function discardDraftPlan() {
+  const planId = Number(detailPlan.value?.id || 0);
+  const clientId = Number(props.clientId || 0);
+  const agencyId = Number(props.agencyId || 0);
+  if (!planId || !clientId || !agencyId || discardBusy.value) return;
+  if (!window.confirm('Discard this treatment plan draft? It will move to Previous and no longer count as an in-progress update.')) {
+    return;
+  }
+  discardBusy.value = true;
+  error.value = '';
+  try {
+    await api.post(`/medical-billing/treatment-plans/${planId}/discard`, {
+      agencyId,
+      clientId
+    }, { skipGlobalLoading: true });
+    selectedId.value = null;
+    selectedFullPlan.value = null;
+    await load();
+  } catch (e) {
+    error.value = e?.response?.data?.error?.message || 'Unable to discard draft.';
+  } finally {
+    discardBusy.value = false;
+  }
 }
 
 function applyPlanToState(plan) {
@@ -626,11 +687,25 @@ async function load() {
     latestPlan.value = res.data?.latestPlan || null;
     diagnoses.value = Array.isArray(res.data?.diagnoses) ? res.data.diagnoses : [];
     objectiveRatings.value = Array.isArray(res.data?.objectiveRatings) ? res.data.objectiveRatings : [];
-    if (!selectedId.value && plans.value[0]?.id) {
-      selectedId.value = plans.value[0].id;
-      selectedFullPlan.value = latestPlan.value;
+    const live = (plans.value || []).find((p) => {
+      const s = String(p.status || '').toLowerCase();
+      return s === 'active' || s === 'draft';
+    });
+    const preferredId = Number(latestPlan.value?.id || live?.id || 0);
+    if (!selectedId.value && preferredId) {
+      selectedId.value = preferredId;
+      selectedFullPlan.value = latestPlan.value && Number(latestPlan.value.id) === preferredId
+        ? latestPlan.value
+        : null;
+      if (!selectedFullPlan.value) await selectPlan(preferredId);
     } else if (selectedId.value && latestPlan.value && Number(latestPlan.value.id) === Number(selectedId.value)) {
       selectedFullPlan.value = latestPlan.value;
+    } else if (selectedId.value) {
+      const stillThere = (plans.value || []).some((p) => Number(p.id) === Number(selectedId.value));
+      if (!stillThere && preferredId) {
+        selectedId.value = preferredId;
+        selectedFullPlan.value = latestPlan.value;
+      }
     }
   } catch (e) {
     plans.value = [];
@@ -767,6 +842,8 @@ watch(() => [props.clientId, props.agencyId], load);
 }
 .ctp-badge--ok { background: #dcfce7; color: #166534; }
 .ctp-badge--draft { background: #fef3c7; color: #92400e; }
+.ctp-badge--archived { background: #e2e8f0; color: #475569; }
+.cdp-btn-danger { color: #b91c1c; border-color: #fecaca; }
 .ctp-detail {
   margin-top: 16px;
   padding: 14px;

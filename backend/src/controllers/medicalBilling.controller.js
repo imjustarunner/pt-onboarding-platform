@@ -26,6 +26,7 @@ import { collectChartScope } from '../utils/noteAidClientAgency.js';
 import { getMedicalBillingFlags } from '../services/medicalBillingFlags.service.js';
 import { maybeEncryptNotePayload, maybeDecryptNotePayload } from '../services/clinicalNoteCrypto.service.js';
 import { encryptChatText, decryptChatText, isChatEncryptionConfigured } from '../services/chatEncryption.service.js';
+import { getClientIpAddress } from '../utils/ipAddress.util.js';
 import {
   uploadClaims,
   fetchResponses,
@@ -56,6 +57,18 @@ function parseIntValue(v) {
 
 function contentHash(text) {
   return crypto.createHash('sha256').update(String(text || ''), 'utf8').digest('hex');
+}
+
+function formatAttestationClock(iso) {
+  try {
+    const d = new Date(iso);
+    if (!Number.isFinite(d.getTime())) return String(iso || '');
+    const date = d.toLocaleDateString('en-US', { month: 'numeric', day: 'numeric', year: 'numeric' });
+    const time = d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+    return `${date} at ${time}`;
+  } catch {
+    return String(iso || '');
+  }
 }
 
 /**
@@ -347,6 +360,59 @@ export const saveTreatmentPlanToChart = async (req, res, next) => {
   }
 };
 
+/** Discard a chart treatment-plan draft (not a Note Aid clinical_note_drafts row). */
+export const discardTreatmentPlanDraft = async (req, res, next) => {
+  try {
+    const agencyId = parseIntValue(req.body.agencyId);
+    const clientId = parseIntValue(req.body.clientId);
+    const planId = parseIntValue(req.params.planId);
+    if (!agencyId || !clientId || !planId) {
+      return res.status(400).json({ error: { message: 'agencyId, clientId, and planId are required' } });
+    }
+    await ClinicalEligibilityService.ensureAgencyAccess({ reqUser: req.user, agencyId });
+    const plan = await ClinicalTreatmentPlan.discardDraft({ planId, agencyId, clientId });
+    if (!plan) return res.status(404).json({ error: { message: 'Treatment plan not found' } });
+    return res.json({ plan });
+  } catch (e) {
+    if (e?.status) return res.status(e.status).json({ error: { message: e.message } });
+    next(e);
+  }
+};
+
+export const getClaimBillingMode = async (req, res, next) => {
+  try {
+    const agencyId = parseIntValue(req.query.agencyId);
+    if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
+    await ClinicalEligibilityService.ensureAgencyAccess({ reqUser: req.user, agencyId });
+    const { getProviderClaimBillingMode } = await import('../services/resolveClaimProviders.service.js');
+    const mode = await getProviderClaimBillingMode({
+      agencyId,
+      providerUserId: req.user.id
+    });
+    return res.json({ mode });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const updateClaimBillingMode = async (req, res, next) => {
+  try {
+    const agencyId = parseIntValue(req.body.agencyId);
+    if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
+    await ClinicalEligibilityService.ensureAgencyAccess({ reqUser: req.user, agencyId });
+    const { setProviderClaimBillingMode } = await import('../services/resolveClaimProviders.service.js');
+    const mode = await setProviderClaimBillingMode({
+      agencyId,
+      providerUserId: Number(req.body.userId || req.user.id),
+      mode: req.body.mode
+    });
+    return res.json({ mode });
+  } catch (e) {
+    if (e?.status) return res.status(e.status).json({ error: { message: e.message } });
+    next(e);
+  }
+};
+
 /** Client-setup only: eradicate intake-packet bootstrap treatment plan drafts. */
 export const voidPacketBootstrapTreatmentPlanDrafts = async (req, res, next) => {
   try {
@@ -433,6 +499,34 @@ export const suggestTreatmentPlanDischarge = async (req, res, next) => {
       return res.status(502).json({ error: { message: 'Could not generate discharge criteria' } });
     }
     return res.json({ suggestion });
+  } catch (e) {
+    next(e);
+  }
+};
+
+/** Session-aware treatment plan update proposal (provider must review/confirm). */
+export const proposeTreatmentPlanUpdate = async (req, res, next) => {
+  try {
+    const agencyId = parseIntValue(req.body.agencyId);
+    const clientId = parseIntValue(req.body.clientId);
+    if (!agencyId || !clientId) {
+      return res.status(400).json({ error: { message: 'agencyId and clientId are required' } });
+    }
+    await ClinicalEligibilityService.ensureAgencyAccess({ reqUser: req.user, agencyId });
+    const { proposeTreatmentPlanUpdate: propose } = await import(
+      '../services/treatmentPlanUpdater.service.js'
+    );
+    const result = await propose({
+      agencyId,
+      clientId,
+      currentPlan: req.body.currentPlan || null,
+      providerNarrative: req.body.providerNarrative || req.body.narrative || '',
+      pasteRewriteSource: req.body.pasteRewriteSource || req.body.pasteText || '',
+      progressExcerpt: req.body.progressExcerpt || '',
+      renewalReason: req.body.renewalReason || '',
+      sinceDate: req.body.sinceDate || null
+    });
+    return res.json(result);
   } catch (e) {
     next(e);
   }
@@ -1253,8 +1347,12 @@ export const getClinicalNoteById = async (req, res, next) => {
         officeEventId,
         standalone,
         providerSignedAt: note.provider_signed_at || null,
+        providerSignedByUserId: note.provider_signed_by_user_id || null,
         supervisorCosignedAt: note.supervisor_cosigned_at || null,
+        supervisorCosignedByUserId: note.supervisor_cosigned_by_user_id || null,
         needsSupervisorCosign,
+        attestation: metadata?.attestation || null,
+        supervisorCosign: metadata?.supervisorCosign || null,
         dateOfService: metadata?.dateOfService || null,
         createdAt: note.created_at,
         updatedAt: note.updated_at,
@@ -1448,12 +1546,68 @@ export const signClinicalNote = async (req, res, next) => {
     } catch {
       meta = {};
     }
+
+    let signerLabel = null;
+    try {
+      const pool = (await import('../config/database.js')).default;
+      const [userRows] = await pool.execute(
+        `SELECT id, first_name, last_name, credentials, license_type, npi
+         FROM users WHERE id = ? LIMIT 1`,
+        [Number(req.user.id)]
+      );
+      const u = userRows?.[0];
+      if (u) {
+        const name = [u.first_name, u.last_name].filter(Boolean).join(' ').trim();
+        const creds = String(u.credentials || u.license_type || '').trim();
+        let licenseLine = '';
+        try {
+          const [infoRows] = await pool.execute(
+            `SELECT uifd.field_key, uiv.value
+             FROM user_info_values uiv
+             JOIN user_info_field_definitions uifd ON uifd.id = uiv.field_definition_id
+             WHERE uiv.user_id = ?
+               AND uifd.field_key IN (
+                 'provider_credential_license_type_number',
+                 'license_type_number',
+                 'license_type_and_number',
+                 'license_number'
+               )
+             ORDER BY uiv.id DESC
+             LIMIT 4`,
+            [Number(req.user.id)]
+          );
+          const hit = (infoRows || []).find((r) => String(r.value || '').trim());
+          if (hit?.value) licenseLine = String(hit.value).trim();
+        } catch {
+          // optional profile field
+        }
+        const parts = [name];
+        if (creds) parts.push(creds);
+        if (licenseLine) {
+          const looksLabeled = /license/i.test(licenseLine);
+          parts.push(looksLabeled ? licenseLine : `License ${licenseLine}`);
+        }
+        signerLabel = parts.filter(Boolean).join(', ');
+      }
+    } catch {
+      signerLabel = null;
+    }
+
+    const signedAtIso = new Date().toISOString();
+    const attestationStatement = signerLabel
+      ? `${signerLabel}, signed this note and declared this information to be accurate and complete and marked the note as medically necessary on ${formatAttestationClock(signedAtIso)}.`
+      : `Provider signed this note and declared this information to be accurate and complete and marked the note as medically necessary on ${formatAttestationClock(signedAtIso)}.`;
+
     meta.attestation = {
       ...(meta.attestation || {}),
       accurateAndComplete: true,
       medicallyNecessary: true,
-      attestedAt: new Date().toISOString(),
-      attestedByUserId: req.user.id
+      attestedAt: signedAtIso,
+      attestedByUserId: req.user.id,
+      signerLabel,
+      statement: attestationStatement,
+      ipAddress: getClientIpAddress(req),
+      userAgent: String(req.headers['user-agent'] || '').slice(0, 500) || null
     };
     await clinicalPool.execute(
       `UPDATE clinical_notes
@@ -1531,16 +1685,90 @@ export const cosignClinicalNote = async (req, res, next) => {
     if (!note.provider_signed_at) {
       return res.status(400).json({ error: { message: 'Provider must sign before supervisor cosign' } });
     }
+
+    let meta = {};
+    try {
+      meta =
+        typeof note.metadata_json === 'string'
+          ? JSON.parse(note.metadata_json || '{}')
+          : note.metadata_json || {};
+    } catch {
+      meta = {};
+    }
+
+    let signerLabel = null;
+    try {
+      const pool = (await import('../config/database.js')).default;
+      const [userRows] = await pool.execute(
+        `SELECT id, first_name, last_name, credentials, license_type, npi
+         FROM users WHERE id = ? LIMIT 1`,
+        [Number(req.user.id)]
+      );
+      const u = userRows?.[0];
+      if (u) {
+        const name = [u.first_name, u.last_name].filter(Boolean).join(' ').trim();
+        const creds = String(u.credentials || u.license_type || '').trim();
+        let licenseLine = '';
+        try {
+          const [infoRows] = await pool.execute(
+            `SELECT uifd.field_key, uiv.value
+             FROM user_info_values uiv
+             JOIN user_info_field_definitions uifd ON uifd.id = uiv.field_definition_id
+             WHERE uiv.user_id = ?
+               AND uifd.field_key IN (
+                 'provider_credential_license_type_number',
+                 'license_type_number',
+                 'license_type_and_number',
+                 'license_number'
+               )
+             ORDER BY uiv.id DESC
+             LIMIT 4`,
+            [Number(req.user.id)]
+          );
+          const hit = (infoRows || []).find((r) => String(r.value || '').trim());
+          if (hit?.value) licenseLine = String(hit.value).trim();
+        } catch {
+          // optional
+        }
+        const parts = [name];
+        if (creds) parts.push(creds);
+        if (licenseLine) {
+          const looksLabeled = /license/i.test(licenseLine);
+          parts.push(looksLabeled ? licenseLine : `License ${licenseLine}`);
+        }
+        signerLabel = parts.filter(Boolean).join(', ');
+      }
+    } catch {
+      signerLabel = null;
+    }
+
+    const cosignedAtIso = new Date().toISOString();
+    const statement = signerLabel
+      ? `${signerLabel}, reviewed and signed this note and approved it for clinical documentation under their license on ${formatAttestationClock(cosignedAtIso)}.`
+      : `Supervisor reviewed and signed this note and approved it for clinical documentation on ${formatAttestationClock(cosignedAtIso)}.`;
+
+    meta.supervisorCosign = {
+      ...(meta.supervisorCosign || {}),
+      reviewedAndApproved: true,
+      cosignedAt: cosignedAtIso,
+      cosignedByUserId: req.user.id,
+      signerLabel,
+      statement,
+      ipAddress: getClientIpAddress(req),
+      userAgent: String(req.headers['user-agent'] || '').slice(0, 500) || null
+    };
+
     await clinicalPool.execute(
       `UPDATE clinical_notes
        SET supervisor_cosigned_at = NOW(),
            supervisor_cosigned_by_user_id = ?,
            is_billable = 1,
+           metadata_json = ?,
            updated_at = CURRENT_TIMESTAMP
        WHERE id = ?`,
-      [req.user.id, noteId]
+      [req.user.id, JSON.stringify(meta), noteId]
     );
-    return res.json({ ok: true, noteId, cosignedAt: new Date().toISOString(), isBillable: true });
+    return res.json({ ok: true, noteId, cosignedAt: cosignedAtIso, isBillable: true });
   } catch (e) {
     next(e);
   }
@@ -1680,7 +1908,8 @@ export const createMedicalClaim = async (req, res, next) => {
 
     if (noteId) {
       const [nRows] = await clinicalPool.execute(
-        `SELECT id, provider_signed_at, supervisor_cosigned_at, is_billable FROM clinical_notes WHERE id = ? LIMIT 1`,
+        `SELECT id, provider_signed_at, supervisor_cosigned_at, is_billable, metadata_json, service_code
+         FROM clinical_notes WHERE id = ? LIMIT 1`,
         [noteId]
       );
       const note = nRows?.[0];
@@ -1692,6 +1921,37 @@ export const createMedicalClaim = async (req, res, next) => {
         if (!note.supervisor_cosigned_at && !note.is_billable) {
           return res.status(400).json({ error: { message: 'Note must be supervisor-cosigned before creating a claim' } });
         }
+      }
+
+      // Idempotent: return existing non-void claim for this note/session.
+      try {
+        const [existing] = await clinicalPool.execute(
+          `SELECT id, claim_status, claim_lifecycle, clinical_note_id, clinical_session_id, amount_cents
+           FROM clinical_claims
+           WHERE agency_id = ?
+             AND clinical_session_id = ?
+             AND (clinical_note_id = ? OR clinical_note_id IS NULL)
+             AND UPPER(COALESCE(claim_status, '')) NOT IN ('VOID', 'CANCELLED', 'CANCELED', 'DENIED')
+             AND COALESCE(is_deleted, 0) = 0
+           ORDER BY (clinical_note_id = ?) DESC, id DESC
+           LIMIT 1`,
+          [agencyId, sessionId, noteId, noteId]
+        );
+        if (existing?.[0]?.id) {
+          return res.json({
+            claim: existing[0],
+            alreadyExists: true,
+            diagnosisCodes: await resolveClaimDiagnosisCodes({
+              agencyId,
+              clientId,
+              clinicalNoteId: noteId,
+              diagnosisCodes: req.body.diagnosisCodes || null
+            }),
+            readiness
+          });
+        }
+      } catch (idemErr) {
+        console.warn('[createMedicalClaim] idempotency check skipped', idemErr?.message || idemErr);
       }
     }
 
@@ -1717,7 +1977,201 @@ export const createMedicalClaim = async (req, res, next) => {
       dateOfService: req.body.dateOfService || null
     });
 
-    const lines = Array.isArray(req.body.lines) ? req.body.lines : [];
+    let resolvedBillingNpi = req.body.billingNpi || null;
+    let resolvedRenderingNpi = req.body.renderingNpi || null;
+    let claimProviderMeta = null;
+    if (!resolvedBillingNpi || !resolvedRenderingNpi) {
+      try {
+        const { resolveClaimProviders } = await import('../services/resolveClaimProviders.service.js');
+        const [sessRows] = await clinicalPool.execute(
+          `SELECT rendering_provider_user_id, provider_user_id FROM clinical_sessions WHERE id = ? LIMIT 1`,
+          [sessionId]
+        );
+        const sess = sessRows?.[0] || {};
+        const renderingProviderUserId = Number(
+          sess.rendering_provider_user_id || sess.provider_user_id || req.user?.id || 0
+        ) || null;
+        claimProviderMeta = await resolveClaimProviders({
+          agencyId,
+          renderingProviderUserId,
+          overrideMode: req.body.claimBillingMode || null
+        });
+        if (!resolvedBillingNpi) resolvedBillingNpi = claimProviderMeta.billingNpi || null;
+        if (!resolvedRenderingNpi) resolvedRenderingNpi = claimProviderMeta.renderingNpi || null;
+      } catch (resolveErr) {
+        console.warn('[createMedicalClaim] resolveClaimProviders failed', resolveErr?.message || resolveErr);
+      }
+    }
+
+    let lines = Array.isArray(req.body.lines) ? req.body.lines : [];
+    let sessionRow = null;
+    try {
+      const [sessRows] = await clinicalPool.execute(
+        `SELECT id, place_of_service, service_code, scheduled_start_at, scheduled_end_at, office_event_id
+         FROM clinical_sessions WHERE id = ? LIMIT 1`,
+        [sessionId]
+      );
+      sessionRow = sessRows?.[0] || null;
+    } catch {
+      sessionRow = null;
+    }
+
+    const sessionDurationMinutes = (() => {
+      if (!sessionRow?.scheduled_start_at || !sessionRow?.scheduled_end_at) return null;
+      const a = new Date(sessionRow.scheduled_start_at).getTime();
+      const b = new Date(sessionRow.scheduled_end_at).getTime();
+      if (!Number.isFinite(a) || !Number.isFinite(b) || b <= a) return null;
+      return Math.round((b - a) / 60000);
+    })();
+
+    if (!lines.length && noteId) {
+      try {
+        const [metaRows] = await clinicalPool.execute(
+          `SELECT metadata_json, service_code FROM clinical_notes WHERE id = ? LIMIT 1`,
+          [noteId]
+        );
+        let meta = {};
+        const rawMeta = metaRows?.[0]?.metadata_json;
+        try {
+          meta = typeof rawMeta === 'string' ? JSON.parse(rawMeta || '{}') : (rawMeta || {});
+        } catch {
+          meta = {};
+        }
+        let primary =
+          String(req.body.primaryProcedureCode || meta.serviceCode || metaRows?.[0]?.service_code || sessionRow?.service_code || '')
+            .trim()
+            .toUpperCase();
+        let primaryUnits = Number(meta.billingPrimaryUnits || req.body.primaryUnits || 0) || 0;
+        const durationMins = Number(meta.structuredChart?.durationMinutes || meta.durationMinutes || sessionDurationMinutes || 0) || 0;
+
+        // Resolve units / overflow from agency medical service codes when duration is known.
+        if (primary && durationMins > 0) {
+          try {
+            const AgencyMedicalServiceCode = (await import('../models/AgencyMedicalServiceCode.model.js')).default;
+            const {
+              ruleFromMedicalServiceCodeRow,
+              resolveWithOverflowChain
+            } = await import('../services/serviceCodeUnits.service.js');
+            const row = await AgencyMedicalServiceCode.findByAgencyAndCode(agencyId, primary);
+            if (row) {
+              const primaryRule = ruleFromMedicalServiceCodeRow(row);
+              const codes = await AgencyMedicalServiceCode.listByAgency(agencyId, { includeInactive: false });
+              const byCode = new Map(codes.map((c) => [String(c.service_code).toUpperCase(), c]));
+              const resolved = resolveWithOverflowChain(durationMins, primaryRule, (code) => {
+                const hit = byCode.get(String(code).toUpperCase());
+                return hit ? ruleFromMedicalServiceCodeRow(hit) : null;
+              });
+              if (resolved?.effectiveServiceCode) primary = resolved.effectiveServiceCode;
+              if (resolved?.claimable && Number(resolved.units || 0) > 0) {
+                primaryUnits = Number(resolved.units);
+              }
+            }
+          } catch (unitErr) {
+            console.warn('[createMedicalClaim] unit resolve skipped', unitErr?.message || unitErr);
+          }
+        }
+        if (!primaryUnits) primaryUnits = 1;
+
+        if (primary) {
+          lines.push({
+            procedureCode: primary,
+            units: primaryUnits,
+            chargeCents: Number(req.body.primaryChargeCents || 0) || 0,
+            diagnosisPointers: '1',
+            serviceDate: dateOfService
+          });
+        }
+        const addons = Array.isArray(meta.billingAddons) ? meta.billingAddons : [];
+        for (const a of addons) {
+          const code = String(a?.code || '').trim().toUpperCase();
+          if (!code || code === primary) continue;
+          lines.push({
+            procedureCode: code,
+            units: Number(a.units || 1) || 1,
+            chargeCents: 0,
+            diagnosisPointers: '1',
+            serviceDate: dateOfService
+          });
+        }
+        const modifiers = Array.isArray(meta.modifiers) ? meta.modifiers : [];
+        for (const m of modifiers) {
+          const code = String(m || '').trim().toUpperCase();
+          if (!code || code === primary || lines.some((l) => l.procedureCode === code)) continue;
+          lines.push({
+            procedureCode: code,
+            units: 1,
+            chargeCents: 0,
+            diagnosisPointers: '1',
+            serviceDate: dateOfService
+          });
+        }
+      } catch (lineBuildErr) {
+        console.warn('[createMedicalClaim] auto line build failed', lineBuildErr?.message || lineBuildErr);
+      }
+    }
+
+    // Fill missing unit charges from agency fee schedule (best-effort).
+    try {
+      const missingCharge = lines.some((l) => !Number(l.chargeCents || 0));
+      if (missingCharge && lines.length) {
+        const codes = [...new Set(lines.map((l) => String(l.procedureCode || '').toUpperCase()).filter(Boolean))];
+        if (codes.length) {
+          const ph = codes.map(() => '?').join(',');
+          const [feeRows] = await clinicalPool.execute(
+            `SELECT procedure_code, unit_price_cents
+             FROM medical_fee_schedule_items
+             WHERE agency_id = ? AND procedure_code IN (${ph}) AND is_active = 1`,
+            [agencyId, ...codes]
+          );
+          const feeByCode = new Map(
+            (feeRows || []).map((r) => [String(r.procedure_code || '').toUpperCase(), Number(r.unit_price_cents || 0)])
+          );
+          lines = lines.map((l) => {
+            if (Number(l.chargeCents || 0) > 0) return l;
+            const unitPrice = feeByCode.get(String(l.procedureCode || '').toUpperCase()) || 0;
+            if (!unitPrice) return l;
+            return { ...l, chargeCents: unitPrice * (Number(l.units || 1) || 1) };
+          });
+        }
+      }
+    } catch (feeErr) {
+      console.warn('[createMedicalClaim] fee schedule lookup skipped', feeErr?.message || feeErr);
+    }
+
+    let placeOfService = req.body.placeOfService || sessionRow?.place_of_service || null;
+    let payerName = req.body.payerName || null;
+    let memberId = req.body.memberId || null;
+    if (!payerName || !memberId) {
+      try {
+        const pool = (await import('../config/database.js')).default;
+        const [cRows] = await pool.execute(
+          `SELECT primary_insurer_name, insurance_member_id FROM clients WHERE id = ? LIMIT 1`,
+          [clientId]
+        );
+        if (!payerName) payerName = cRows?.[0]?.primary_insurer_name || null;
+        if (!memberId) memberId = cRows?.[0]?.insurance_member_id || null;
+      } catch {
+        // optional
+      }
+    }
+
+    try {
+      const { applyBillingClaimOverrides } = await import('../services/applyBillingClaimOverrides.service.js');
+      const overrideResult = await applyBillingClaimOverrides({
+        agencyId,
+        clientId,
+        claimId: null,
+        placeOfService,
+        payerName
+      });
+      if (overrideResult?.placeOfService) placeOfService = overrideResult.placeOfService;
+    } catch (ovErr) {
+      // Table may not exist until migration 1399 runs.
+      if (!String(ovErr?.message || '').includes('billing_claim_overrides')) {
+        console.warn('[createMedicalClaim] override apply skipped', ovErr?.message || ovErr);
+      }
+    }
+
     const amountCents = lines.reduce((s, l) => s + Number(l.chargeCents || 0), 0);
     const claim = await ClinicalClaim.create({
       clinicalSessionId: sessionId,
@@ -1727,9 +2181,17 @@ export const createMedicalClaim = async (req, res, next) => {
       claimStatus: 'PENDING',
       amountCents,
       currencyCode: 'USD',
-      claimPayload: JSON.stringify({ source: 'medical_billing', lines, diagnosisCodes }),
+      claimPayload: JSON.stringify({
+        source: 'medical_billing',
+        lines,
+        diagnosisCodes,
+        claimBillingMode: claimProviderMeta?.mode || null
+      }),
       metadataJson: {
         createdVia: 'medicalBilling.createMedicalClaim',
+        claimBillingMode: claimProviderMeta?.mode || null,
+        billingUserId: claimProviderMeta?.billingUserId || null,
+        renderingUserId: claimProviderMeta?.renderingUserId || null,
         readiness: {
           ready: readiness.ready,
           blockers: readiness.blockers,
@@ -1759,12 +2221,12 @@ export const createMedicalClaim = async (req, res, next) => {
          WHERE id = ?`,
         [
           noteId,
-          req.body.payerName || null,
-          req.body.memberId || null,
-          req.body.billingNpi || null,
-          req.body.renderingNpi || null,
+          payerName,
+          memberId,
+          resolvedBillingNpi,
+          resolvedRenderingNpi,
           req.body.taxonomyCode || null,
-          req.body.placeOfService || null,
+          placeOfService,
           dateOfService,
           claimLifecycle,
           JSON.stringify(diagnosisCodes),
@@ -1837,7 +2299,7 @@ export const listMedicalClaims = async (req, res, next) => {
     const [rows] = await clinicalPool.execute(
       `SELECT id, clinical_session_id, client_id, claim_number, claim_status, amount_cents, currency_code,
               clinical_note_id, payer_name, claim_lifecycle, claimmd_claim_id, claimmd_last_status,
-              date_of_service, diagnosis_codes_json, created_at, updated_at
+              date_of_service, diagnosis_codes_json, place_of_service, created_at, updated_at
        FROM clinical_claims
        WHERE agency_id = ? AND is_deleted = 0
        ORDER BY created_at DESC
@@ -1846,6 +2308,42 @@ export const listMedicalClaims = async (req, res, next) => {
     );
     return res.json({ claims: rows || [] });
   } catch (e) {
+    next(e);
+  }
+};
+
+export const listBillingClaimOverrides = async (req, res, next) => {
+  try {
+    const agencyId = parseIntValue(req.query.agencyId);
+    if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
+    await ClinicalEligibilityService.ensureAgencyAccess({ reqUser: req.user, agencyId });
+    const { listBillingClaimOverrides: listRows } = await import(
+      '../services/applyBillingClaimOverrides.service.js'
+    );
+    const items = await listRows(agencyId);
+    return res.json({ items });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const upsertBillingClaimOverride = async (req, res, next) => {
+  try {
+    const agencyId = parseIntValue(req.body.agencyId);
+    if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
+    await ClinicalEligibilityService.ensureAgencyAccess({ reqUser: req.user, agencyId });
+    const { upsertBillingClaimOverride: upsert } = await import(
+      '../services/applyBillingClaimOverrides.service.js'
+    );
+    const row = await upsert({
+      ...req.body,
+      agencyId,
+      createdByUserId: req.user.id,
+      updatedByUserId: req.user.id
+    });
+    return res.json({ item: row });
+  } catch (e) {
+    if (e?.status) return res.status(e.status).json({ error: { message: e.message } });
     next(e);
   }
 };
@@ -1913,6 +2411,26 @@ export const submitClaimToClaimMd = async (req, res, next) => {
     );
     const claim = cRows?.[0];
     if (!claim) return res.status(404).json({ error: { message: 'Claim not found' } });
+
+    try {
+      const { applyBillingClaimOverrides } = await import('../services/applyBillingClaimOverrides.service.js');
+      const ov = await applyBillingClaimOverrides({
+        agencyId,
+        clientId: claim.client_id,
+        claimId,
+        placeOfService: claim.place_of_service,
+        payerName: claim.payer_name
+      });
+      if (ov?.placeOfService && ov.placeOfService !== claim.place_of_service) {
+        claim.place_of_service = ov.placeOfService;
+        await clinicalPool.execute(
+          `UPDATE clinical_claims SET place_of_service = ? WHERE id = ?`,
+          [ov.placeOfService, claimId]
+        );
+      }
+    } catch (ovErr) {
+      console.warn('[submitClaimToClaimMd] override apply skipped', ovErr?.message || ovErr);
+    }
 
     const [lines] = await clinicalPool.execute(
       `SELECT * FROM clinical_claim_lines WHERE clinical_claim_id = ? ORDER BY line_number ASC`,
@@ -2268,6 +2786,8 @@ export const previewServiceCodeUnits = async (req, res, next) => {
     });
     return res.json({
       ...result,
+      maxUnitsPerDay: primary.maxUnitsPerDay || null,
+      maxUnitsPerSession: primary.maxUnitsPerSession || null,
       ladderBands: primary.ladderBandsJson
         || (String(primary.unitCalcMode).toUpperCase() === 'MEDICAID_8_MINUTE_LADDER'
           ? buildMedicaid8MinuteBands({

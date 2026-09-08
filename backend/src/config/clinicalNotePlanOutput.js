@@ -88,19 +88,18 @@ export const TREATMENT_PLAN_OUTPUT_INSTRUCTIONS = [
   'Return the treatment plan only—no preamble, title block, or closing commentary.',
   'Use these headers exactly, each on its own line, then the body on the following lines:',
   'Goal 1:',
-  'Objective 1:',
+  'Objective 1.1:',
   'Projected Time to Completion 1:',
   'Goal 2:',
-  'Objective 2:',
+  'Objective 2.1:',
   'Projected Time to Completion 2:',
   'Goal 3:',
-  'Objective 3:',
-  'Projected Time to Completion 3:',
+  'Objective 3.1:',
   'Discharge Plan:',
-  'Each goal must have its matching numbered objective (Goal 1 with Objective 1, and so on).',
+  'Number objectives as Goal#.Objective# (Objective 1.1 under Goal 1, Objective 2.1 under Goal 2).',
   'Objectives must be SMART and ratable on a 1–10 scale.',
-  'Every Objective MUST include: current level (e.g. 4/10), target level (e.g. 8/10), what 1 and 10 mean, and how progress is measured (self-report, family report, school report, and/or clinical observation as applicable).',
-  'Preferred scale phrasing: "from a current level of X/10 to a Y/10, where 1 = … and 10 = …".',
+  'Every Objective MUST include: current baseline level, target level, what level 1 and level 10 look like for that objective, and how progress is measured (self-report, family report, school report, and/or clinical observation as applicable).',
+  'Preferred scale phrasing: "from a current baseline level 7 to a level 3 or below on a 1–10 scale. On this rating scale, a level 10 represents …, whereas a level 1 represents …".',
   'Projected Time to Completion should be a duration in months (e.g. "3 months") when possible.',
   'Use the clinician transcript in full: include specific details, quotes, and functional examples rather than generic summaries.',
   'When updating an existing plan, also include Diagnosis: and Diagnostic Justification: before Goal 1.'
@@ -112,10 +111,12 @@ export const TREATMENT_PLAN_OUTPUT_INSTRUCTIONS = [
  */
 export const TREATMENT_PLAN_STRUCTURE_CONTRACT = [
   'MACHINE OUTPUT CONTRACT (overrides conflicting outline headings in the style guide above):',
-  'Emit ONLY these headers (each on its own line): Goal 1:, Objective 1:, Projected Time to Completion 1:, Goal 2:, Objective 2:, Projected Time to Completion 2:, Goal 3:, Objective 3:, Projected Time to Completion 3:, Discharge Plan:.',
+  'Emit ONLY these headers (each on its own line): Goal 1:, Objective 1.1:, Projected Time to Completion 1:, Goal 2:, Objective 2.1:, Projected Time to Completion 2:, Goal 3:, Objective 3.1:, Projected Time to Completion 3:, Discharge Plan:.',
   'When updating, also include Diagnosis: and Diagnostic Justification: before Goal 1.',
-  'Every Objective MUST include a 1–10 scale with current and target (e.g. "from a current level of 4/10 to an 8/10"), definitions of 1 and 10, and measurement via self-report / family / school / clinical observation as applicable.',
-  'Do NOT use alternate top-level outlines such as Presenting Concerns, Services and Support Plan, or 1.1/1.2 objective numbers as section headers.',
+  'Number objectives as Goal#.Objective# (Objective 1.1 under Goal 1, Objective 2.1 under Goal 2). Add Objective 1.2 only when a second objective is clinically needed under the same goal.',
+  'Every Objective MUST include a 1–10 scale with current and target using phrasing like "from a current baseline level 7 to a level 3 or below" (or "to a level 8 or higher"), plus explicit definitions of what level 1 and level 10 look like for THAT objective, and measurement via self-report / family / school / clinical observation as applicable.',
+  'Also emit Discharge Plan: with concrete step-down/discharge criteria and prescribed frequency when known.',
+  'Do NOT use alternate top-level outlines such as Presenting Concerns or Services and Support Plan.',
   'Keep this aid’s tone and wording appropriate for the service line, but use the Goal / Objective / Projected Time / Discharge structure above so charts, copy panels, and paste-import stay consistent.'
 ].join('\n');
 

@@ -4121,6 +4121,11 @@ export const getUserScheduleSummary = async (req, res, next) => {
       : [];
 
     // Ensure office_events are materialized for this week for buildings relevant to this provider (best-effort).
+    // My Schedule personal grid can skip this — materialize only when office board needs it.
+    const skipOfficeMaterialize = ['1', 'true', 'yes'].includes(
+      String(req.query.skipOfficeMaterialize || '').trim().toLowerCase()
+    );
+    if (!skipOfficeMaterialize) {
     try {
       const officeLocationIdSet = new Set();
       const [rows] = await pool.execute(
@@ -4179,6 +4184,7 @@ export const getUserScheduleSummary = async (req, res, next) => {
       );
     } catch {
       // ignore if tables don't exist yet
+    }
     }
 
     // 1) Pending office availability requests (PENDING)

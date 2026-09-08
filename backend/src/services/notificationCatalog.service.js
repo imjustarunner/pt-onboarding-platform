@@ -52,7 +52,9 @@ const TYPES_BY_CATEGORY = {
     'school_provider_slot_verification_completed', 'facilitator_availability_push',
     'school_primary_staff_removed', 'public_appointment_request_received',
     'shift_calloff_need_coverage',
-    'supervision_session_scheduled', 'team_meeting_scheduled'
+    'supervision_session_scheduled', 'team_meeting_scheduled',
+    'planned_out_submitted', 'planned_out_acknowledged', 'planned_out_needs_clarification',
+    'planned_out_admin_alert'
   ],
   events_registration: [
     'company_event_registration_submitted', 'company_event_message',
@@ -145,6 +147,10 @@ const LABEL_OVERRIDES = {
   school_provider_slot_verification_completed: 'School slot verification completed',
   facilitator_availability_push: 'Facilitator availability requested',
   shift_calloff_need_coverage: 'Shift coverage needed',
+  planned_out_submitted: 'Planned Out Submitted',
+  planned_out_acknowledged: 'Planned Out Acknowledged',
+  planned_out_needs_clarification: 'Planned Out Needs Clarification',
+  planned_out_admin_alert: 'Planned Out notification',
   medcancel_claim_approved: 'Medical cancellation claim approved',
   medcancel_claim_rejected: 'Medical cancellation claim rejected',
   medcancel_claim_returned: 'Medical cancellation claim returned',
@@ -208,7 +214,8 @@ const PROVIDER_RELEVANT = new Set([
   'supervision_individual_50_reached', 'supervision_total_100_reached',
   'supervision_supervisee_completed', 'supervision_session_scheduled',
   'team_meeting_scheduled', 'sstc_club_member_application_pending',
-  'sstc_club_invite_request'
+  'sstc_club_invite_request',
+  'planned_out_submitted', 'planned_out_acknowledged', 'planned_out_needs_clarification'
 ]);
 
 const SCHOOL_RELEVANT = new Set([
@@ -237,7 +244,7 @@ const MANAGER_RELEVANT = new Set([
   'onboarding_completed', 'pending_completed', 'new_job_application_submitted',
   'school_portal_onboarding_completed', 'provider_year_update_completed',
   'school_collaborative_year_update_completed', 'kudos_earned_admin_digest',
-  'school_group_subscription_changed'
+  'school_group_subscription_changed', 'planned_out_admin_alert'
 ]);
 
 const OPERATIONS_RELEVANT = new Set([
