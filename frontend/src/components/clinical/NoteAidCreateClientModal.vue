@@ -6,8 +6,8 @@
         <button type="button" class="na-link-btn" @click="emit('close')">Close</button>
       </header>
       <p class="na-modal-hint">
-        Clients belong to a <strong>program / portal</strong> under the tenant (clinical, school, coaching, etc.) —
-        not the tenant root itself. You can add more program affiliations later on the chart.
+        Clients belong to a <strong>clinical / coaching program portal</strong> under the tenant —
+        not the tenant root itself, and not school portals. You can add more affiliations later on the chart.
       </p>
       <form class="na-modal-form" @submit.prevent="submit">
         <label class="na-label">
@@ -69,7 +69,7 @@ import {
 } from '../../utils/noteAidTreatmentHelpers.js';
 
 const ALLOWED_ORG_TYPES = new Set([
-  'school',
+  // Note Aid chart clients: clinical / coaching portals only — never schools.
   'program',
   'learning',
   'clinical',
@@ -129,7 +129,6 @@ function orgTypeLabel(type) {
 
 function clientTypeFromOrgType(orgType) {
   const t = String(orgType || '').toLowerCase();
-  if (t === 'school') return 'school';
   if (t === 'learning') return 'learning';
   if (t === 'clinical' || t === 'program') return 'clinical';
   // life_coach / consultant: chart still uses clinical-ish baseline for Note Aid today
@@ -158,7 +157,6 @@ const derivedClientType = computed(() =>
 const derivedClientTypeLabel = computed(() => {
   if (!selectedProgram.value) return '';
   const t = derivedClientType.value;
-  if (t === 'school') return 'School';
   if (t === 'learning') return 'Learning';
   return 'Clinical';
 });
@@ -231,8 +229,8 @@ async function loadProgramsForTenant(agencyId) {
 
     if (!eligible.length) {
       orgHint.value =
-        'No clinical/school/learning/coaching program is linked under this tenant yet. '
-        + 'Create or affiliate a Clinical (or other) program org first, then try again.';
+        'No clinical/learning/coaching program is linked under this tenant yet. '
+        + 'Create or affiliate a Clinical (or other non-school) program org first, then try again.';
     } else {
       form.organizationId = pickDefaultOrganizationId(eligible);
     }

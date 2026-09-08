@@ -302,9 +302,9 @@ class NoteAidWorkQueueItem {
     return this.findByIdForUser({ id, userId });
   }
 
-  /**
-   * Full-queue reconcile for the owning user.
+  /** Full-queue reconcile for the owning user.
    * Upserts by client_key (or server id), deletes rows not present in `items`.
+   * Empty `items` does NOT wipe — use clearForUser for intentional clear (guards reload races).
    */
   static async syncForUser(userId, items = []) {
     const uid = safeInt(userId);
@@ -312,6 +312,9 @@ class NoteAidWorkQueueItem {
     await this.purgeExpiredTerminal();
 
     const list = Array.isArray(items) ? items : [];
+    if (!list.length) {
+      return this.listForUser(uid, { purgeExpired: false });
+    }
     const [existingRows] = await pool.execute(
       `SELECT id, client_key FROM note_aid_work_queue_items WHERE user_id = ?`,
       [uid]

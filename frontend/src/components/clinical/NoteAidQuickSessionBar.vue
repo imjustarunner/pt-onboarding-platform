@@ -82,8 +82,19 @@
       </div>
       <div class="na-quick-session__cell">
         <span class="lbl">Location</span>
+        <select
+          v-if="editable && locationChoices.length"
+          class="na-quick-session__select"
+          :value="locationLabel"
+          @change="$emit('update:locationLabel', $event.target.value)"
+        >
+          <option value="">Select location…</option>
+          <option v-for="loc in locationChoices" :key="loc.value" :value="loc.value">
+            {{ loc.label }}
+          </option>
+        </select>
         <input
-          v-if="editable"
+          v-else-if="editable"
           type="text"
           class="na-quick-session__input"
           :value="locationLabel"
@@ -154,6 +165,7 @@ const props = defineProps({
   participantsDetail: { type: String, default: '' },
   durationMinutes: { type: [Number, null], default: null },
   locationLabel: { type: String, default: '' },
+  locationChoices: { type: Array, default: () => [] },
   startTime: { type: String, default: '' },
   endTime: { type: String, default: '' },
   clinicianLabel: { type: String, default: '' },

@@ -23,6 +23,7 @@
           <option v-for="o in programOptions" :key="o.id" :value="String(o.id)">{{ o.label }}</option>
         </select>
       </label>
+      <p class="muted" style="margin-top:-4px;">Clinical / coaching portals only — schools are hidden.</p>
 
       <label class="na-label">
         Paste ToDo list
@@ -84,7 +85,7 @@ import {
 } from '../../utils/noteAidWorkQueue.js';
 
 const ALLOWED_ORG_TYPES = new Set([
-  'school',
+  // Note Aid ToDo import: clinical / coaching portals only — never schools.
   'program',
   'learning',
   'clinical',

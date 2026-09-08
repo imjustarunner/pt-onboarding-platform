@@ -148,10 +148,16 @@ export async function fetchWorkQueueFromApi(userId) {
 
 /** Full reconcile to server (source of truth after Clear / lifecycle updates). */
 export async function syncWorkQueueToApi(userId, items) {
-  saveWorkQueue(userId, items);
+  const list = Array.isArray(items) ? items : [];
+  // Never PUT an empty list — that used to wipe the server queue on reload races.
+  // Intentional clear goes through clearWorkQueueOnApi.
+  if (!list.length) {
+    return fetchWorkQueueFromApi(userId);
+  }
+  saveWorkQueue(userId, list);
   const res = await api.put(
     '/clinical-notes/work-queue',
-    { items: Array.isArray(items) ? items : [] },
+    { items: list },
     { skipGlobalLoading: true }
   );
   const saved = normalizeApiItems(res?.data?.items);

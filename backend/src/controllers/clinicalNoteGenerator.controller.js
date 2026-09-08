@@ -608,7 +608,11 @@ export const listClinicalNotePrograms = async (req, res, next) => {
           .filter(Boolean)
           .map((name) => ({ id: `custom:${name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`, name, isCustom: true }))
       : [];
-    res.json({ programs: [...(Array.isArray(programs) ? programs : []), ...customPrograms] });
+    const filtered = [...(Array.isArray(programs) ? programs : []), ...customPrograms].filter((p) => {
+      const t = String(p?.organization_type || p?.organizationType || p?.type || '').toLowerCase();
+      return t !== 'school';
+    });
+    res.json({ programs: filtered });
   } catch (e) {
     next(e);
   }

@@ -196,6 +196,7 @@
           v-model:participants-detail="sessionParticipantsDetail"
           v-model:duration-minutes="sessionDurationMinutes"
           v-model:location-label="sessionLocationLabel"
+          :location-choices="sessionLocationChoices"
           v-model:start-time="sessionStartTimeLocal"
           v-model:end-time="sessionEndTimeLocal"
           :clinician-label="sessionClinicianLabel"
@@ -1167,35 +1168,6 @@
           </div>
 
           <div class="na-output-actions">
-            <button type="button" class="na-btn-primary" :disabled="!displayPanels.length" @click="copyFullNote">
-              Copy Full Note
-            </button>
-            <button
-              v-if="!chartNoteReadOnly"
-              type="button"
-              class="na-btn-outline"
-              :disabled="!draftId || archivingDraft"
-              @click="archiveCurrentDraft"
-            >
-              {{ archivingDraft ? 'Archiving…' : (isCurrentDraftArchived ? 'Unarchive' : 'Add to Archive') }}
-            </button>
-            <button
-              v-if="canApproveToClinicalRecord"
-              type="button"
-              class="na-btn-outline"
-              :disabled="!displayPanels.length || approvingNote || !canConfirmAndSign"
-              @click="approveNoteOutput({ afterSign: signAndOpenNextInQueue ? 'queue' : 'close' })"
-            >
-              {{ approvingNote
-                ? (isReviewOnlyAid || isTreatmentSummaryAid ? 'Saving…' : 'Signing…')
-                : (attestAccurateAndComplete && attestMedicallyNecessary
-                  ? (isReviewOnlyAid ? 'Complete review' : (isTreatmentSummaryAid ? 'Save document' : 'Sign'))
-                  : (isReviewOnlyAid
-                    ? 'Mark accurate, complete review'
-                    : (isTreatmentSummaryAid
-                      ? 'Confirm & save Treatment Summary'
-                      : 'Mark accurate, medically necessary & sign'))) }}
-            </button>
             <button
               v-if="canSaveTreatmentPlanToChart"
               type="button"
@@ -1206,42 +1178,55 @@
               {{ savingTreatmentPlan ? 'Saving plan…' : 'Save treatment plan to chart' }}
             </button>
             <button
+              v-if="canApproveToClinicalRecord && !nextInQueueItem && !nextInProgressRow"
+              type="button"
+              class="na-btn-primary"
+              :disabled="!displayPanels.length || approvingNote || !canConfirmAndSign"
+              @click="approveNoteOutput({
+                autoAttest: true,
+                afterSign: signAndOpenNextInQueue ? 'queue' : 'close'
+              })"
+            >
+              {{ approvingNote
+                ? (isReviewOnlyAid || isTreatmentSummaryAid ? 'Saving…' : 'Signing…')
+                : (isReviewOnlyAid
+                  ? 'Complete review'
+                  : (isTreatmentSummaryAid ? 'Save document' : 'Sign')) }}
+            </button>
+            <button
+              v-if="canApproveToClinicalRecord && nextInQueueItem"
+              type="button"
+              class="na-btn-primary"
+              :disabled="!displayPanels.length || approvingNote || !canConfirmAndSign"
+              @click="approveNoteOutput({ autoAttest: true, afterSign: 'queue' })"
+            >
+              {{ approvingNote
+                ? (isReviewOnlyAid || isTreatmentSummaryAid ? 'Saving…' : 'Signing…')
+                : (isReviewOnlyAid
+                  ? 'Complete review & open next in queue'
+                  : (isTreatmentSummaryAid
+                    ? 'Save & open next in queue'
+                    : 'Sign and open next in queue')) }}
+            </button>
+            <button
+              v-if="canApproveToClinicalRecord && nextInProgressRow"
               type="button"
               class="na-btn-outline"
-              :disabled="regenerateDisabled"
-              @click="generateNote"
+              :disabled="!displayPanels.length || approvingNote || !canConfirmAndSign"
+              @click="approveNoteOutput({ autoAttest: true, afterSign: 'progress' })"
             >
-              {{ regenerateButtonLabel }}
+              {{ approvingNote
+                ? (isReviewOnlyAid || isTreatmentSummaryAid ? 'Saving…' : 'Signing…')
+                : (isReviewOnlyAid
+                  ? 'Complete review & open next in progress'
+                  : (isTreatmentSummaryAid
+                    ? 'Save & open next in progress'
+                    : 'Sign and open next in progress')) }}
             </button>
           </div>
           <div class="na-feedback">
-            <span v-if="copied" class="hint">Copied.</span>
             <span v-if="approvalMessage" class="hint">{{ approvalMessage }}</span>
             <span v-if="approvalError" class="error">{{ approvalError }}</span>
-            <span v-if="archiveMessage" class="hint">{{ archiveMessage }}</span>
-          </div>
-          <div
-            v-if="displayPanels.length && canApproveToClinicalRecord && (nextInProgressRow || nextInQueueItem)"
-            class="na-next-nav"
-          >
-            <button
-              v-if="nextInQueueItem"
-              type="button"
-              class="na-btn-outline na-next-nav-btn"
-              :disabled="approvingNote || !canConfirmAndSign"
-              @click="approveNoteOutput({ afterSign: 'queue' })"
-            >
-              {{ approvingNote ? 'Signing…' : 'Sign and open next in queue' }}
-            </button>
-            <button
-              v-if="nextInProgressRow"
-              type="button"
-              class="na-btn-outline na-next-nav-btn"
-              :disabled="approvingNote || !canConfirmAndSign"
-              @click="approveNoteOutput({ afterSign: 'progress' })"
-            >
-              {{ approvingNote ? 'Signing…' : 'Sign and open next in progress' }}
-            </button>
           </div>
           <p class="na-gen-summary">{{ generationLogicSummary }}</p>
         </section>
@@ -1896,10 +1881,114 @@ const sessionOfficeEventId = ref(null);
 const sessionClinicalSessionId = ref(null);
 const sessionDurationMinutes = ref(null);
 const sessionLocationLabel = ref('');
+const sessionLocationChoices = ref([]);
 const sessionParticipants = ref('Client Only');
 const sessionParticipantsDetail = ref('');
 const sessionStartTimeLocal = ref('');
 const sessionEndTimeLocal = ref('');
+let sessionTimingSyncLock = false;
+
+function parseLocalTimeToMinutes(value) {
+  const m = String(value || '').trim().match(/^(\d{1,2}):(\d{2})$/);
+  if (!m) return null;
+  const h = Number(m[1]);
+  const min = Number(m[2]);
+  if (!Number.isFinite(h) || !Number.isFinite(min) || h < 0 || h > 23 || min < 0 || min > 59) return null;
+  return h * 60 + min;
+}
+
+function formatMinutesToLocalTime(totalMinutes) {
+  const day = 24 * 60;
+  let m = Number(totalMinutes);
+  if (!Number.isFinite(m)) return '';
+  m = ((m % day) + day) % day;
+  const h = Math.floor(m / 60);
+  const min = m % 60;
+  return `${String(h).padStart(2, '0')}:${String(min).padStart(2, '0')}`;
+}
+
+function syncEndFromStartAndDuration() {
+  const start = parseLocalTimeToMinutes(sessionStartTimeLocal.value);
+  const dur = Number(sessionDurationMinutes.value);
+  if (start == null || !Number.isFinite(dur) || dur <= 0) return;
+  sessionTimingSyncLock = true;
+  sessionEndTimeLocal.value = formatMinutesToLocalTime(start + dur);
+  nextTick(() => { sessionTimingSyncLock = false; });
+}
+
+function syncStartFromEndAndDuration() {
+  const end = parseLocalTimeToMinutes(sessionEndTimeLocal.value);
+  const dur = Number(sessionDurationMinutes.value);
+  if (end == null || !Number.isFinite(dur) || dur <= 0) return;
+  sessionTimingSyncLock = true;
+  sessionStartTimeLocal.value = formatMinutesToLocalTime(end - dur);
+  nextTick(() => { sessionTimingSyncLock = false; });
+}
+
+/** After start or duration is known, fill the missing end (duration stays sticky). */
+function ensureSessionEndFromDuration() {
+  if (sessionTimingSyncLock) return;
+  if (!sessionStartTimeLocal.value) return;
+  if (sessionDurationMinutes.value == null || sessionDurationMinutes.value === '') return;
+  syncEndFromStartAndDuration();
+}
+
+async function loadSessionLocationChoices(agencyId = null) {
+  const aid = Number(agencyId || noteAidAgencyId.value || currentAgencyId.value || 0);
+  if (!aid) {
+    sessionLocationChoices.value = [];
+    return;
+  }
+  try {
+    const res = await api.get('/medical-billing/service-locations', {
+      params: { agencyId: aid },
+      skipGlobalLoading: true
+    });
+    const items = Array.isArray(res?.data?.items) ? res.data.items : [];
+    const offices = Array.isArray(res?.data?.billingOffices) ? res.data.billingOffices : [];
+    const choices = [];
+    const seen = new Set();
+    for (const loc of items) {
+      const name = String(loc?.name || '').trim();
+      if (!name) continue;
+      const pos = String(loc?.place_of_service || loc?.placeOfService || '').trim();
+      const value = name;
+      if (seen.has(value.toLowerCase())) continue;
+      seen.add(value.toLowerCase());
+      choices.push({
+        value,
+        label: pos ? `${name} (POS ${pos})` : name,
+        placeOfService: pos || null,
+        sortKey: /main\s*office/i.test(name) ? 0 : 1
+      });
+    }
+    for (const o of offices) {
+      const name = String(o?.name || '').trim();
+      if (!name) continue;
+      if (seen.has(name.toLowerCase())) continue;
+      seen.add(name.toLowerCase());
+      const pos = String(
+        o?.default_place_of_service || o?.defaultPlaceOfService || o?.place_of_service || '11'
+      ).trim();
+      choices.push({
+        value: name,
+        label: pos ? `${name} (POS ${pos})` : name,
+        placeOfService: pos || null,
+        sortKey: /main\s*office/i.test(name) ? 0 : 1
+      });
+    }
+    choices.sort((a, b) => a.sortKey - b.sortKey || a.label.localeCompare(b.label));
+    sessionLocationChoices.value = choices;
+    if (!sessionLocationLabel.value && choices.length === 1) {
+      sessionLocationLabel.value = choices[0].value;
+    } else if (!sessionLocationLabel.value) {
+      const main = choices.find((c) => /main\s*office/i.test(c.value));
+      if (main) sessionLocationLabel.value = main.value;
+    }
+  } catch {
+    sessionLocationChoices.value = [];
+  }
+}
 /** Clinician confirmed client-only despite a soft presence hint (no re-check until participants changes). */
 const participantsPresenceDismissed = ref(false);
 
@@ -3100,6 +3189,8 @@ function applySessionTimingDefaults({ force = false } = {}) {
   if (!hasCalendar && force) {
     // Keep start/end optional for queue/todo notes without appointment times.
   }
+  // Duration is sticky: with start + duration, always derive end.
+  ensureSessionEndFromDuration();
 }
 
 function collapseSidebarsForNote() {
@@ -4082,7 +4173,15 @@ const loadPrograms = async () => {
       skipGlobalLoading: true,
       timeout: 15000
     });
-    programs.value = Array.isArray(res?.data?.programs) ? res.data.programs : [];
+    const rows = Array.isArray(res?.data?.programs) ? res.data.programs : [];
+    // H2014 program picker — exclude school-typed orgs if they appear in user_programs.
+    programs.value = rows.filter((p) => {
+      const t = String(p?.organization_type || p?.organizationType || p?.type || '').toLowerCase();
+      if (t === 'school') return false;
+      const name = String(p?.name || '').toLowerCase();
+      if (/\(school\)\s*$/.test(name) || /\bschool\b/.test(t)) return false;
+      return true;
+    });
   } catch {
     programs.value = [];
   }
@@ -5145,10 +5244,14 @@ const ensureClinicalSessionForApproval = async () => {
   return sessionId;
 };
 
-const approveNoteOutput = async ({ silent = false, afterSign = 'queue' } = {}) => {
+const approveNoteOutput = async ({ silent = false, afterSign = 'queue', autoAttest = false } = {}) => {
   if (silent) return;
   if (!mergedSectionEntries.value.length) return;
   if (approvingNote.value) return;
+  if (autoAttest) {
+    attestAccurateAndComplete.value = true;
+    attestMedicallyNecessary.value = true;
+  }
   if (!attestAccurateAndComplete.value || !attestMedicallyNecessary.value) {
     approvalError.value = isReviewOnlyAid.value
       ? 'Check both attestations (accurate & complete, and content review) before saving.'
@@ -6574,6 +6677,10 @@ async function activateWorkQueueItem(item) {
     const hhmm = timeLabelToHhMm(item.timeLabel);
     if (hhmm) sessionStartTimeLocal.value = hhmm;
   }
+  ensureSessionEndFromDuration();
+  if (!sessionLocationLabel.value) {
+    loadSessionLocationChoices(item.agencyId || noteAidAgencyId.value);
+  }
   chartMentalStatus.value = defaultMentalStatusExam();
   chartRiskAssessment.value = defaultRiskAssessment();
   chartMedications.value = defaultMedicationsBlock();
@@ -6741,6 +6848,7 @@ async function activateWorkQueueItem(item) {
       const hhmm = timeLabelToHhMm(item.timeLabel);
       if (hhmm) sessionStartTimeLocal.value = hhmm;
     }
+    ensureSessionEndFromDuration();
     progressEntryMode.value = item.officeEventId ? 'appointment' : 'client';
     workQueueItems.value = (workQueueItems.value || []).map((row) =>
       row.id === item.id
@@ -7632,6 +7740,10 @@ onMounted(async () => {
 });
 
 watch(sessionDurationMinutes, (mins) => {
+  if (!sessionTimingSyncLock && !isWorkspaceHydrating()) {
+    if (sessionStartTimeLocal.value) syncEndFromStartAndDuration();
+    else if (sessionEndTimeLocal.value) syncStartFromEndAndDuration();
+  }
   if (!showSessionContextStrip.value) return;
   const current = String(actualServiceCode.value || '').toUpperCase();
   // Crisis / extended encounter rules take priority over standard psychotherapy bands.
@@ -7651,6 +7763,30 @@ watch(sessionDurationMinutes, (mins) => {
     `Duration ${mins} min is outside ${current || 'prior'} band — switched service code to ${suggested}.`;
   applyBillingRulesForCurrentSession({ announce: true });
 });
+
+watch(sessionStartTimeLocal, (next, prev) => {
+  if (sessionTimingSyncLock || isWorkspaceHydrating()) return;
+  if (!next || next === prev) return;
+  if (sessionDurationMinutes.value != null && sessionDurationMinutes.value !== '') {
+    syncEndFromStartAndDuration();
+  }
+});
+
+watch(sessionEndTimeLocal, (next, prev) => {
+  if (sessionTimingSyncLock || isWorkspaceHydrating()) return;
+  if (!next || next === prev) return;
+  if (sessionDurationMinutes.value != null && sessionDurationMinutes.value !== '') {
+    syncStartFromEndAndDuration();
+  }
+});
+
+watch(
+  () => Number(noteAidAgencyId.value || currentAgencyId.value || 0),
+  (aid) => {
+    if (aid) loadSessionLocationChoices(aid);
+  },
+  { immediate: true }
+);
 
 watch(actualServiceCode, (code, prev) => {
   if (!code || code === prev) return;
