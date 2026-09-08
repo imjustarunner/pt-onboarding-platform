@@ -232,6 +232,42 @@ class ClinicalTreatmentPlan {
     }
   }
 
+  /**
+   * Update or insert the "Prescribed Frequency of Treatment" block inside discharge_plan.
+   */
+  static async updatePrescribedFrequency({ planId, agencyId, clientId, prescribedFrequency } = {}) {
+    const id = Number(planId || 0);
+    const aid = Number(agencyId || 0);
+    const cid = Number(clientId || 0);
+    if (!id || !aid || !cid) return null;
+    const plan = await this.findById(id);
+    if (!plan || Number(plan.agency_id) !== aid || Number(plan.client_id) !== cid) {
+      const err = new Error('Treatment plan not found');
+      err.status = 404;
+      throw err;
+    }
+    const freq = String(prescribedFrequency || '').trim();
+    let discharge = String(plan.discharge_plan || plan.dischargePlan || '');
+    const blockRe =
+      /Prescribed Frequency of Treatment\n[\s\S]*?(?=\n\n(?:Discharge Criteria|Presenting Problem)|$)/i;
+    if (blockRe.test(discharge)) {
+      discharge = freq
+        ? discharge.replace(blockRe, `Prescribed Frequency of Treatment\n${freq}`)
+        : discharge.replace(blockRe, '').replace(/\n{3,}/g, '\n\n').trim();
+    } else if (freq) {
+      discharge = [discharge.trim(), `Prescribed Frequency of Treatment\n${freq}`]
+        .filter(Boolean)
+        .join('\n\n');
+    }
+    await clinicalPool.execute(
+      `UPDATE clinical_treatment_plans
+       SET discharge_plan = ?, updated_at = NOW()
+       WHERE id = ? AND agency_id = ? AND client_id = ?`,
+      [discharge || null, id, aid, cid]
+    );
+    return this.findById(id);
+  }
+
   static async updateObjectiveKioskPrompts(objectiveId, { kioskPrompt, kioskPromptOther } = {}) {
     const id = Number(objectiveId || 0);
     if (!id) return;

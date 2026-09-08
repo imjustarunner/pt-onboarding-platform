@@ -92,6 +92,23 @@ Objective 1: Complete behavioral activation 3x/week 8 -> 3 decrease
     assert.equal(objImprove.scaleNeedsRewrite, false);
   });
 
+  it('parses current level of N/10 with parenthetical then to a level of M/10', () => {
+    const text =
+      'The client will increase his ability to regulate emotions during high-stress or overwhelming moments, '
+      + 'improving from a current level of 5/10 (moderate dysregulation with some recovery) to a level of 7/10 '
+      + '(occasional dysregulation with quicker recovery), as measured by self-report.';
+    const parsed = parseScalePair(text);
+    assert.equal(parsed.scaleCurrent, 5);
+    assert.equal(parsed.scaleTarget, 7);
+    assert.equal(inferScaleDirection(parsed.scaleCurrent, parsed.scaleTarget), 'increase');
+    const plan = parseTreatmentPlanText(`Goal 1: Emotion regulation\nObjective 1.1 ${text}`);
+    const obj = plan.goals[0].objectives[0];
+    assert.equal(obj.scaleCurrent, 5);
+    assert.equal(obj.scaleTarget, 7);
+    assert.equal(obj.scaleDirection, 'increase');
+    assert.equal(obj.scaleNeedsRewrite, false);
+  });
+
   it('attaches stacked diagnosis names to each code, not the shared justification', () => {
     const text = `
 Diagnosis

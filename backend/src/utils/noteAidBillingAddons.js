@@ -148,7 +148,7 @@ export function resolveNoteAidBillingCodes({
   }
   if (wantIc) addons.push({ code: ADDON_CODES.INTERACTIVE_COMPLEXITY, units: 1 });
 
-  if (includeAfterHours99051 || shouldSuggest99051(sessionStartAt, { timeZone })) {
+  if (includeAfterHours99051) {
     addons.push({ code: ADDON_CODES.AFTER_HOURS, units: 1 });
   }
 

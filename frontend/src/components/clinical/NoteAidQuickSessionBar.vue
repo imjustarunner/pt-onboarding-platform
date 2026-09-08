@@ -135,16 +135,40 @@
         <span class="lbl">Clinician</span>
         <strong>{{ clinicianLabel || '—' }}</strong>
       </div>
-      <div v-if="editable && !finalized" class="na-quick-session__cell">
+      <div v-if="editable && !finalized" class="na-quick-session__cell na-quick-session__cell--addons">
         <span class="lbl">Add-ons</span>
-        <button
-          type="button"
-          class="na-quick-session__addon-btn"
-          title="Add billing add-on codes (e.g. 99051 after hours)"
-          @click="$emit('add-addon-code')"
-        >
-          + Add on Code
-        </button>
+        <div class="na-quick-session__addon-wrap">
+          <button
+            type="button"
+            class="na-quick-session__addon-btn"
+            title="Add billing add-on codes"
+            aria-haspopup="menu"
+            :aria-expanded="addonMenuOpen ? 'true' : 'false'"
+            @click="addonMenuOpen = !addonMenuOpen"
+          >
+            + Add on Code
+          </button>
+          <div
+            v-if="addonMenuOpen"
+            class="na-quick-session__addon-menu"
+            role="menu"
+          >
+            <button
+              v-for="opt in resolvedAddonMenuOptions"
+              :key="`addon-opt-${opt.code}`"
+              type="button"
+              role="menuitemcheckbox"
+              class="na-quick-session__addon-option"
+              :aria-checked="isAddonSelected(opt.code) ? 'true' : 'false'"
+              @click="onAddonMenuPick(opt.code)"
+            >
+              <span class="na-quick-session__addon-check" aria-hidden="true">
+                {{ isAddonSelected(opt.code) ? '✓' : '' }}
+              </span>
+              <span>{{ opt.label || opt.code }}</span>
+            </button>
+          </div>
+        </div>
         <div v-if="(billingAddons || []).length" class="na-quick-session__addon-chips">
           <span
             v-for="addon in billingAddons"
@@ -210,7 +234,10 @@ const props = defineProps({
   editable: { type: Boolean, default: true },
   finalized: { type: Boolean, default: false },
   durationHint: { type: String, default: '' },
-  billingAddons: { type: Array, default: () => [] }
+  billingAddons: { type: Array, default: () => [] },
+  addonMenuOptions: { type: Array, default: () => [] },
+  includeInteractiveComplexity: { type: Boolean, default: false },
+  includeAfterHours99051: { type: Boolean, default: false }
 });
 
 const emit = defineEmits([
@@ -224,10 +251,38 @@ const emit = defineEmits([
   'update:endTime',
   'toggle-setup',
   'choose-more-codes',
-  'add-addon-code'
+  'toggle-addon-code'
 ]);
 
 const showAllCodes = ref(false);
+const addonMenuOpen = ref(false);
+
+const DEFAULT_ADDON_MENU = [
+  { code: '90785', label: '90785 — Interactive complexity' },
+  { code: '99051', label: '99051 — After hours' }
+];
+
+const resolvedAddonMenuOptions = computed(() => {
+  const list = (props.addonMenuOptions || []).length
+    ? props.addonMenuOptions
+    : DEFAULT_ADDON_MENU;
+  return list.map((o) => ({
+    code: String(o.code || '').toUpperCase(),
+    label: o.label || o.code
+  })).filter((o) => o.code);
+});
+
+function isAddonSelected(code) {
+  const c = String(code || '').toUpperCase();
+  if (c === '90785') return !!props.includeInteractiveComplexity;
+  if (c === '99051') return !!props.includeAfterHours99051;
+  return (props.billingAddons || []).some((a) => String(a.code || '').toUpperCase() === c);
+}
+
+function onAddonMenuPick(code) {
+  emit('toggle-addon-code', code);
+  addonMenuOpen.value = false;
+}
 
 watch(
   () => props.serviceCodeChoices,
@@ -445,6 +500,50 @@ function onCodeChange(raw) {
   font-size: 0.78rem;
   font-weight: 800;
   cursor: pointer;
+}
+
+.na-quick-session__addon-wrap {
+  position: relative;
+  display: inline-block;
+}
+
+.na-quick-session__addon-menu {
+  position: absolute;
+  z-index: 30;
+  top: calc(100% + 4px);
+  left: 0;
+  min-width: 14rem;
+  background: #fff;
+  border: 1px solid #cbd5e1;
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.12);
+  padding: 4px;
+}
+
+.na-quick-session__addon-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  padding: 8px 10px;
+  border-radius: 8px;
+  font: inherit;
+  font-size: 0.8rem;
+  cursor: pointer;
+  color: #0f172a;
+}
+
+.na-quick-session__addon-option:hover {
+  background: #f1f5f9;
+}
+
+.na-quick-session__addon-check {
+  width: 1rem;
+  color: #0f766e;
+  font-weight: 700;
 }
 
 .na-quick-session__addon-chips {

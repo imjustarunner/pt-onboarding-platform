@@ -201,8 +201,7 @@ export function resolveNoteAidBillingCodes({
     addons.push({ code: ADDON_CODES.INTERACTIVE_COMPLEXITY, units: 1 });
   }
 
-  const want99051 = includeAfterHours99051
-    || shouldSuggest99051(sessionStartAt, { timeZone });
+  const want99051 = !!includeAfterHours99051;
   if (want99051) {
     addons.push({ code: ADDON_CODES.AFTER_HOURS, units: 1 });
   }

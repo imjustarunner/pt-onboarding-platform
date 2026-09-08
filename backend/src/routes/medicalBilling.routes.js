@@ -32,6 +32,7 @@ import {
   listClientObjectiveRatings,
   amendTreatmentPlan,
   setTreatmentPlanKioskShare,
+  updateTreatmentPlanPrescribedFrequency,
   updateObjectiveKioskPrompts,
   updateEncounter,
   signClinicalNote,
@@ -246,6 +247,18 @@ router.patch(
     body('clientId').isInt({ min: 1 })
   ],
   setTreatmentPlanKioskShare
+);
+
+router.patch(
+  '/treatment-plans/:planId/prescribed-frequency',
+  requireClinicalChart,
+  [
+    param('planId').isInt({ min: 1 }),
+    body('agencyId').isInt({ min: 1 }),
+    body('clientId').isInt({ min: 1 }),
+    body('prescribedFrequency').optional({ nullable: true }).isString()
+  ],
+  updateTreatmentPlanPrescribedFrequency
 );
 
 router.get(

@@ -129,7 +129,7 @@ const props = defineProps({
   clientName: { type: String, default: 'the client' }
 });
 
-const emit = defineEmits(['update:ratings', 'improved']);
+const emit = defineEmits(['update:ratings', 'improved', 'all-rated']);
 
 const raterKind = ref('clinician');
 const otherLabel = ref('');
@@ -171,7 +171,11 @@ function maybeCollapseSection() {
       if (entry(obj.id)) done += 1;
     }
   }
-  if (total > 0 && done >= total) sectionCollapsed.value = true;
+  if (total > 0 && done >= total) {
+    const wasCollapsed = sectionCollapsed.value;
+    sectionCollapsed.value = true;
+    if (!wasCollapsed) emit('all-rated');
+  }
 }
 
 function collapsedLine(obj, goal) {

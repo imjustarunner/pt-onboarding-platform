@@ -969,6 +969,33 @@ export const setTreatmentPlanKioskShare = async (req, res, next) => {
   }
 };
 
+export const updateTreatmentPlanPrescribedFrequency = async (req, res, next) => {
+  try {
+    const planId = parseIntValue(req.params.planId);
+    const agencyId = parseIntValue(req.body.agencyId);
+    const clientId = parseIntValue(req.body.clientId);
+    const prescribedFrequency = req.body.prescribedFrequency != null
+      ? String(req.body.prescribedFrequency).trim()
+      : '';
+    if (!planId || !agencyId || !clientId) {
+      return res.status(400).json({ error: { message: 'planId, agencyId, and clientId are required' } });
+    }
+    await ClinicalEligibilityService.ensureAgencyAccess({ reqUser: req.user, agencyId });
+    const plan = await ClinicalTreatmentPlan.updatePrescribedFrequency({
+      planId,
+      agencyId,
+      clientId,
+      prescribedFrequency
+    });
+    return res.json({ plan });
+  } catch (e) {
+    if (e?.status === 404) {
+      return res.status(404).json({ error: { message: e.message || 'Treatment plan not found' } });
+    }
+    next(e);
+  }
+};
+
 export const updateObjectiveKioskPrompts = async (req, res, next) => {
   try {
     const objectiveId = parseIntValue(req.params.objectiveId);

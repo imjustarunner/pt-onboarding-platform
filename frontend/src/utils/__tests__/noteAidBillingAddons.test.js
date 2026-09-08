@@ -63,7 +63,7 @@ describe('90785 eligibility', () => {
 });
 
 describe('resolveNoteAidBillingCodes', () => {
-  it('combines 90839 duration switch with after-hours', () => {
+  it('combines 90839 duration switch with after-hours only when opted in', () => {
     const weekend = new Date('2026-09-05T10:00:00'); // Saturday
     const r = resolveNoteAidBillingCodes({
       primaryCode: '90839',
@@ -73,7 +73,15 @@ describe('resolveNoteAidBillingCodes', () => {
     });
     expect(r.primaryCode).toBe('90839');
     expect(r.addons.some((a) => a.code === '90840' && a.units === 1)).toBe(true);
-    expect(r.addons.some((a) => a.code === '99051')).toBe(true);
+    expect(r.addons.some((a) => a.code === '99051')).toBe(false);
+
+    const with99051 = resolveNoteAidBillingCodes({
+      primaryCode: '90839',
+      durationMinutes: 90,
+      includeAfterHours99051: true,
+      sessionStartAt: weekend
+    });
+    expect(with99051.addons.some((a) => a.code === '99051')).toBe(true);
   });
 
   it('drops 90785 on extended 90837', () => {

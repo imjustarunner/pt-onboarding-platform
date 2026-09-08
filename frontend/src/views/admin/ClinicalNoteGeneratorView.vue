@@ -211,9 +211,12 @@
           :finalized="!!signedNoteViewerId"
           :duration-hint="sessionDurationHint"
           :billing-addons="billingAddons"
+          :addon-menu-options="noteAidAddonMenuOptions"
+          :include-interactive-complexity="includeInteractiveComplexity"
+          :include-after-hours99051="includeAfterHours99051"
           @update:service-code="onQuickSessionServiceCode"
           @toggle-setup="showClientSetupDrawer = true"
-          @add-addon-code="promptManualAddonCode"
+          @toggle-addon-code="toggleManualAddonCode"
         />
 
         <section
@@ -767,6 +770,7 @@
           :client-name="selectedClient?.full_name || 'the client'"
           @update:ratings="sessionObjectiveRatings = $event"
           @improved="onObjectiveImproved"
+          @all-rated="scrollToTypeSpeakPanel"
         />
 
         <NoteAidCsNoteBuildPanel
@@ -926,7 +930,7 @@
             >
               <span>After hours (99051)</span>
               <span class="na-switch" :class="{ on: includeAfterHours99051 }">
-                <input v-model="includeAfterHours99051" type="checkbox" @change="applyBillingRulesForCurrentSession({ announce: true })" />
+                <input v-model="includeAfterHours99051" type="checkbox" @change="onAfterHours99051Change" />
                 <span class="na-switch-thumb" />
               </span>
             </label>
@@ -975,7 +979,7 @@
             >
               <span>After hours (99051)</span>
               <span class="na-switch" :class="{ on: includeAfterHours99051 }">
-                <input v-model="includeAfterHours99051" type="checkbox" @change="applyBillingRulesForCurrentSession({ announce: true })" />
+                <input v-model="includeAfterHours99051" type="checkbox" @change="onAfterHours99051Change" />
                 <span class="na-switch-thumb" />
               </span>
             </label>
@@ -1112,6 +1116,53 @@
             </div>
           </div>
 
+          <div
+            v-if="showProgressPlanFields && canApproveToClinicalRecord && !chartNoteReadOnly && !signedNoteViewerId"
+            class="na-plan-fields"
+          >
+            <div class="na-plan-fields__rec">
+              <span class="na-plan-fields__label">Recommendation:</span>
+              <label class="na-plan-fields__radio">
+                <input v-model="noteTreatmentRecommendation" type="radio" value="continue" />
+                Continue current therapeutic focus
+              </label>
+              <label class="na-plan-fields__radio">
+                <input v-model="noteTreatmentRecommendation" type="radio" value="change_goals" />
+                Change treatment goals or objectives
+              </label>
+              <label class="na-plan-fields__radio">
+                <input v-model="noteTreatmentRecommendation" type="radio" value="terminate" />
+                Terminate treatment
+              </label>
+            </div>
+            <label class="na-plan-fields__freq">
+              <span class="na-plan-fields__label">Prescribed Frequency of Treatment <span class="req">*</span></span>
+              <input
+                v-model="notePrescribedFrequency"
+                class="na-input"
+                type="text"
+                placeholder="e.g. Every 2 Weeks"
+              />
+              <small v-if="planFrequencyBaseline && notePrescribedFrequency !== planFrequencyBaseline" class="hint">
+                Changing this updates the treatment plan frequency when you sign.
+              </small>
+            </label>
+          </div>
+
+          <NoteAidStructuredChartPanel
+            v-if="showStructuredChartPanel && !chartNoteReadOnly && !signedNoteViewerId"
+            :diagnoses="structuredChartDiagnoses"
+            :diagnosis-mode="chartDiagnosisMode"
+            v-model:diagnostic-justification="chartDiagnosticJustification"
+            v-model:mse="chartMentalStatus"
+            v-model:risk="chartRiskAssessment"
+            v-model:medications="chartMedications"
+            :skip-mse="skipMentalStatusExam"
+            :mse-skip-label="mseSkipLabel"
+            @mse-all-normal="onMseAllNormal"
+            @mse-all-not-assessed="onMseAllNotAssessed"
+          />
+
           <div v-if="canApproveToClinicalRecord && !chartNoteReadOnly" class="na-sign-attest">
             <p class="na-sign-attest-lead">
               <template v-if="isReviewOnlyAid">
@@ -1124,6 +1175,17 @@
                 Signing writes this note to the chart. Generating a draft does not sign.
               </template>
             </p>
+            <p v-if="showSupervisorCosignNotice" class="na-sign-supervisor" role="status">
+              After you sign, this note will be submitted to clinical supervisor
+              <strong>{{ clinicalCosignSupervisorLabel }}</strong> for cosignature.
+            </p>
+            <label
+              v-if="!skipMentalStatusExam && showStructuredChartPanel"
+              class="na-sign-check"
+            >
+              <input v-model="mseRiskAcknowledged" type="checkbox" />
+              I have completed mental status and risk assessment for this session.
+            </label>
             <label class="na-sign-check">
               <input v-model="attestAccurateAndComplete" type="checkbox" />
               I mark this note as accurate and complete.
@@ -1171,7 +1233,7 @@
               Confirm client only — family or others discussed but not present in this session.
             </label>
             <p v-if="!canConfirmAndSign && !sessionParticipantsFlag" class="error">
-              Complete required chart sections (including mental status when this is a scheduled session) before signing.
+              Complete mental status, risk assessment, and required fields before signing.
             </p>
           </div>
 
@@ -1253,20 +1315,6 @@
           </div>
           <p class="na-gen-summary">{{ generationLogicSummary }}</p>
         </section>
-
-        <NoteAidStructuredChartPanel
-          v-if="showStructuredChartPanel && !chartNoteReadOnly && !signedNoteViewerId"
-          :diagnoses="structuredChartDiagnoses"
-          :diagnosis-mode="chartDiagnosisMode"
-          v-model:diagnostic-justification="chartDiagnosticJustification"
-          v-model:mse="chartMentalStatus"
-          v-model:risk="chartRiskAssessment"
-          v-model:medications="chartMedications"
-          :skip-mse="skipMentalStatusExam"
-          :mse-skip-label="mseSkipLabel"
-          @mse-all-normal="setMseAllNormal"
-          @mse-all-not-assessed="setMseAllNotAssessed"
-        />
 
         <ClinicalArtifactRetentionPanel
           v-if="canApproveToClinicalRecord"
@@ -1531,13 +1579,13 @@ import {
 import {
   CRISIS_90839_SERVICE_DESCRIPTION,
   mergeScheduleSeededAddons,
-  resolveNoteAidBillingCodes,
-  shouldSuggest99051
+  resolveNoteAidBillingCodes
 } from '../../utils/noteAidBillingAddons.js';
 import {
   DEFAULT_MEASUREMENT_METHOD,
   inferScaleDirection,
   isObjectiveScaleValid,
+  parsePrescribedFrequencyFromDischarge,
   parseScalePair
 } from '../../utils/treatmentPlanDuration.js';
 import { rememberRecentAid, saveNoteLibraryUiPrefs } from '../../utils/noteAidLibraryPrefs.js';
@@ -1666,6 +1714,19 @@ const chartPresentingProblem = computed(() => {
   return m ? String(m[1] || '').trim() : '';
 });
 
+const chartPrescribedFrequency = computed(() =>
+  parsePrescribedFrequencyFromDischarge(
+    latestTreatmentPlan.value?.discharge_plan || latestTreatmentPlan.value?.dischargePlan || ''
+  )
+);
+
+const chartIntakeNotes = ref([]);
+const noteTreatmentRecommendation = ref('continue');
+const notePrescribedFrequency = ref('');
+const planFrequencyBaseline = ref('');
+const mseRiskAcknowledged = ref(false);
+const clinicalCosignSupervisor = ref(null);
+
 const phiExtraNames = computed(() =>
   collectFrontendPhiNames(selectedClient.value, clientGuardianNames.value)
 );
@@ -1714,10 +1775,20 @@ const demographicsPreviewRows = computed(() => {
 });
 
 const intakeOnFile = computed(() => {
-  // Only a finalized intake note (or a completed import in this session) counts.
-  // Copy-blocks / plan diagnoses must not hide the intake paste step.
-  if (intakeImportedOnce.value) return true;
-  return intakeDraftFinalized.value;
+  if (intakeImportedOnce.value || intakeDraftFinalized.value) return true;
+  const intakeNotes = chartIntakeNotes.value || [];
+  if (intakeNotes.some((n) => {
+    const st = String(n.status || '').toLowerCase();
+    return st === 'final' || !!n.finalized_at || !!n.finalizedAt;
+  })) return true;
+  const clinical = chartNotesMeta.value || [];
+  if (clinical.some((n) => {
+    const blob = `${n.note_type || ''} ${n.title || ''} ${n.service_code || n.serviceCode || ''}`.toUpperCase();
+    return blob.includes('90791') || blob.includes('H0031') || blob.includes('INTAKE');
+  })) return true;
+  // De-identified intake narrative already on chart (EHR / copy blocks).
+  if (String(intakeSummary.value || '').trim().length >= 40) return true;
+  return false;
 });
 
 const planOnFile = computed(() =>
@@ -1962,12 +2033,16 @@ function syncEndFromStartAndDuration() {
   nextTick(() => { sessionTimingSyncLock = false; });
 }
 
-function syncStartFromEndAndDuration() {
+/** End time changed: keep start fixed and derive duration (then code can follow duration). */
+function syncDurationFromStartAndEnd() {
+  const start = parseLocalTimeToMinutes(sessionStartTimeLocal.value);
   const end = parseLocalTimeToMinutes(sessionEndTimeLocal.value);
-  const dur = Number(sessionDurationMinutes.value);
-  if (end == null || !Number.isFinite(dur) || dur <= 0) return;
+  if (start == null || end == null) return;
+  let dur = end - start;
+  if (dur <= 0) dur += 24 * 60;
+  if (dur <= 0 || dur > 24 * 60) return;
   sessionTimingSyncLock = true;
-  sessionStartTimeLocal.value = formatMinutesToLocalTime(end - dur);
+  sessionDurationMinutes.value = dur;
   nextTick(() => { sessionTimingSyncLock = false; });
 }
 
@@ -2430,25 +2505,52 @@ const sessionParticipantsHint = computed(() => {
 const sessionParticipantsFlag = computed(
   () => sessionParticipantsHint.value && !participantsPresenceDismissed.value
 );
+const showProgressPlanFields = computed(() => {
+  if (isReviewOnlyAid.value || isTreatmentSummaryAid.value || isClientChartAid.value) return false;
+  const kind = aidKind(selectedAid.value);
+  return kind === 'progress' || (!selectedAid.value && !!outputObj.value);
+});
+
 const canConfirmAndSign = computed(() => {
   if (isClientChartAid.value) return true;
   if (sessionParticipantsFlag.value) return false;
   if (familyAttendeesRequired.value && !String(sessionParticipantsDetail.value || '').trim()) return false;
-  const hasScheduledSession = !!(
-    bookingContext.value?.officeEventId
-    || sessionOfficeEventId.value
-    || bookingContext.value?.clinicalSessionId
-  );
-  // Note-only (no calendar) generates can save without MSE; scheduled sessions still require it.
-  if (!hasScheduledSession) return true;
-  if (!skipMentalStatusExam.value) {
-    const domains = chartMentalStatus.value?.domains || {};
-    const hasAny = Object.keys(domains).length > 0;
-    if (!hasAny && !chartMentalStatus.value?.allNormal && !chartMentalStatus.value?.allNotAssessed) {
-      return false;
-    }
+  if (!skipMentalStatusExam.value && showStructuredChartPanel.value) {
+    const mse = chartMentalStatus.value || {};
+    const domains = mse.domains || {};
+    const hasDomains = Object.keys(domains).length > 0;
+    const mseOk = !!mse.allNormal || !!mse.allNotAssessed || hasDomains;
+    if (!mseOk) return false;
+    const risk = chartRiskAssessment.value || {};
+    const riskOk = !!risk.patientDeniesAll
+      || (Array.isArray(risk.areas) && risk.areas.length > 0);
+    if (!riskOk) return false;
+    if (!mseRiskAcknowledged.value) return false;
+  }
+  if (
+    showProgressPlanFields.value
+    && planFrequencyBaseline.value
+    && !String(notePrescribedFrequency.value || '').trim()
+  ) {
+    return false;
   }
   return true;
+});
+
+const clinicalCosignSupervisorLabel = computed(() => {
+  const s = clinicalCosignSupervisor.value;
+  if (!s) return '';
+  const name = [s.supervisor_first_name || s.first_name, s.supervisor_last_name || s.last_name]
+    .filter(Boolean)
+    .join(' ')
+    .trim();
+  return name || s.supervisor_email || s.email || 'assigned supervisor';
+});
+
+const showSupervisorCosignNotice = computed(() => {
+  if (!clinicalCosignSupervisor.value) return false;
+  if (isReviewOnlyAid.value || isClientChartAid.value) return false;
+  return canApproveToClinicalRecord.value && !chartNoteReadOnly.value;
 });
 const attestAccurateAndComplete = ref(false);
 const attestMedicallyNecessary = ref(false);
@@ -2509,6 +2611,17 @@ async function scrollGeneratedOutputIntoView() {
     generatedOutputFreshTimer = null;
   }, 1800);
   const el = naGeneratedOutputEl.value;
+  if (el && typeof el.scrollIntoView === 'function') {
+    el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+}
+
+async function scrollToTypeSpeakPanel() {
+  await nextTick();
+  await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+  const root = naMainEl.value;
+  const el = root?.querySelector?.('.na-input-panel')
+    || document.querySelector('.na-write-main .na-input-panel');
   if (el && typeof el.scrollIntoView === 'function') {
     el.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
@@ -2977,6 +3090,8 @@ const HIDDEN_ADDON_CODES = HIDDEN_NOTE_AID_CODES;
 const NOTE_TYPE_GROUPS = NOTE_TYPE_CODE_GROUPS;
 
 const includeAfterHours99051 = ref(false);
+/** Once the clinician clears 99051, do not re-force it from weekend/after-hours heuristics. */
+const afterHours99051UserDismissed = ref(false);
 const billingAddons = ref([]);
 const billingPrimaryUnits = ref(1);
 const billingRulesBanner = ref('');
@@ -2988,20 +3103,52 @@ const scheduleSeededAddonCodes = ref([]);
 const aiContentGenerated = ref(false);
 const attestAiContentReviewed = ref(false);
 
-function promptManualAddonCode() {
-  const raw = window.prompt('Add-on code (e.g. 99051):', '99051');
-  const code = String(raw || '').trim().toUpperCase();
-  if (!code) return;
-  if (code === '99051') includeAfterHours99051.value = true;
+const noteAidAddonMenuOptions = [
+  { code: '90785', label: '90785 — Interactive complexity' },
+  { code: '99051', label: '99051 — After hours' }
+];
+
+function onAfterHours99051Change() {
+  if (!includeAfterHours99051.value) afterHours99051UserDismissed.value = true;
+  else afterHours99051UserDismissed.value = false;
   applyBillingRulesForCurrentSession({ announce: true });
-  if (!billingAddons.value.some((a) => String(a.code || '').toUpperCase() === code)) {
+}
+
+function maybeSuggestAfterHours99051() {
+  if (afterHours99051UserDismissed.value || includeAfterHours99051.value) return;
+  // Only auto-include when the schedule booking explicitly seeded 99051.
+  // Weekend/after-hours is a suggestion via the toggle/menu — do not force onto every claim.
+  if (scheduleSeededAddonCodes.value.includes('99051')) {
+    includeAfterHours99051.value = true;
+  }
+}
+
+function toggleManualAddonCode(codeRaw) {
+  const code = String(codeRaw || '').trim().toUpperCase();
+  if (!code) return;
+  if (code === '90785') {
+    includeInteractiveComplexity.value = !includeInteractiveComplexity.value;
+    applyBillingRulesForCurrentSession({ announce: true });
+    return;
+  }
+  if (code === '99051') {
+    includeAfterHours99051.value = !includeAfterHours99051.value;
+    onAfterHours99051Change();
+    return;
+  }
+  const exists = billingAddons.value.some((a) => String(a.code || '').toUpperCase() === code);
+  if (exists) {
+    billingAddons.value = billingAddons.value.filter((a) => String(a.code || '').toUpperCase() !== code);
+  } else {
     billingAddons.value = [...billingAddons.value, { code, units: 1 }];
   }
+  applyBillingRulesForCurrentSession({ announce: true });
 }
 
 function applyBillingRulesForCurrentSession({ announce = false } = {}) {
   const primary = String(actualServiceCode.value || selectedServiceCode.value || '').trim().toUpperCase();
   if (!primary || primary === '__OTHER__') return;
+  maybeSuggestAfterHours99051();
   const resolved = resolveNoteAidBillingCodes({
     primaryCode: primary,
     durationMinutes: sessionDurationMinutes.value,
@@ -3011,7 +3158,11 @@ function applyBillingRulesForCurrentSession({ announce = false } = {}) {
   });
   billingAddons.value = mergeScheduleSeededAddons(
     resolved.addons || [],
-    scheduleSeededAddonCodes.value
+    scheduleSeededAddonCodes.value.filter((c) => {
+      // Seeded 99051 only sticks when after-hours is opted in (or not dismissed yet / suggested).
+      if (c === '99051') return !!includeAfterHours99051.value;
+      return true;
+    })
   );
   billingPrimaryUnits.value = resolved.primaryUnits || 1;
   if (resolved.switchedFrom && resolved.primaryCode !== primary) {
@@ -3020,16 +3171,6 @@ function applyBillingRulesForCurrentSession({ announce = false } = {}) {
   }
   if (!resolved.allow90785 && includeInteractiveComplexity.value) {
     includeInteractiveComplexity.value = false;
-  }
-  if (
-    (shouldSuggest99051(sessionScheduledStart.value || null)
-      || scheduleSeededAddonCodes.value.includes('99051'))
-    && !includeAfterHours99051.value
-  ) {
-    includeAfterHours99051.value = true;
-    if (!billingAddons.value.some((a) => a.code === '99051')) {
-      billingAddons.value = [...billingAddons.value, { code: '99051', units: 1 }];
-    }
   }
   const warnings = (resolved.warnings || []).filter(Boolean);
   if (announce && warnings.length) {
@@ -3045,6 +3186,7 @@ function seedScheduleAddonCodes(codes = []) {
     .map((c) => String(c || '').trim().toUpperCase())
     .filter(Boolean);
   scheduleSeededAddonCodes.value = [...new Set(next)];
+  afterHours99051UserDismissed.value = false;
   if (scheduleSeededAddonCodes.value.includes('99051')) {
     includeAfterHours99051.value = true;
   }
@@ -3230,10 +3372,15 @@ const showStartPage = computed(() => !isEmbedded.value && !hasOpenNote.value && 
 
 /** @deprecated use showAidPicker */
 const showLibraryPanel = computed(() => showAidPicker.value);
+const clientSetupHydrating = computed(
+  () => !!(effectiveClientId.value && (loadingClientPlan.value || loadingIntake.value))
+);
 const clientSetupComplete = computed(() => {
   if (!effectiveClientId.value) return false;
-  // Clients imported with a treatment plan already on file do not need the paste setup flow.
+  // While chart is loading, do not flash "Complete client setup" for clients already on file.
+  if (clientSetupHydrating.value) return true;
   if (planOnFile.value) return true;
+  if (demographicsOnFile.value && intakeOnFile.value && !!primaryChartDiagnosis.value) return true;
   return demographicsOnFile.value && intakeOnFile.value && planOnFile.value && !!primaryChartDiagnosis.value;
 });
 
@@ -3596,7 +3743,14 @@ watch(selectedAidId, (aidId) => {
   if (aid.serviceCode || aid.codeGroupId) {
     if (aid.codeGroupId) {
       const g = NOTE_TYPE_GROUPS.find((x) => x.id === aid.codeGroupId);
-      selectedServiceCode.value = g?.primary || aid.serviceCode || '';
+      const current = String(selectedServiceCode.value || otherServiceCode.value || '').trim().toUpperCase();
+      // Keep concrete CPT already set from ToDo/draft/appointment (e.g. 90832).
+      // Do not collapse the psychotherapy group to its primary (90837).
+      if (g?.codes?.includes(current)) {
+        selectedServiceCode.value = current;
+      } else {
+        selectedServiceCode.value = g?.primary || aid.serviceCode || '';
+      }
     } else {
       selectedServiceCode.value = aid.serviceCode;
     }
@@ -5488,21 +5642,49 @@ const approveNoteOutput = async ({ silent = false, afterSign = 'queue' } = {}) =
     approvalError.value = 'Confirm you have reviewed the AI-generated content before signing.';
     return;
   }
-  const hasScheduledSession = !!(
-    bookingContext.value?.officeEventId
-    || sessionOfficeEventId.value
-    || bookingContext.value?.clinicalSessionId
-  );
-  if (hasScheduledSession && !isClientChartAid.value && !canConfirmAndSign.value) {
+  if (!isClientChartAid.value && !canConfirmAndSign.value) {
     approvalError.value = sessionParticipantsFlag.value
       ? 'Update Participants — session content suggests others were present.'
-      : 'Complete required chart sections before signing.';
+      : (!mseRiskAcknowledged.value && !skipMentalStatusExam.value
+        ? 'Complete and acknowledge mental status and risk assessment before signing.'
+        : 'Complete required chart sections before signing.');
     return;
   }
   try {
     approvingNote.value = true;
     approvalError.value = '';
     approvalMessage.value = '';
+    // Persist frequency change onto the active treatment plan before signing.
+    const freqNow = String(notePrescribedFrequency.value || '').trim();
+    const freqBase = String(planFrequencyBaseline.value || '').trim();
+    const planId = Number(latestTreatmentPlan.value?.id || 0);
+    const clientId = Number(effectiveClientId.value || 0);
+    const agencyId = Number(noteAidAgencyId.value || currentAgencyId.value || 0);
+    if (
+      showProgressPlanFields.value
+      && planId
+      && clientId
+      && agencyId
+      && freqNow
+      && freqNow !== freqBase
+    ) {
+      try {
+        const freqRes = await api.patch(
+          `/medical-billing/treatment-plans/${planId}/prescribed-frequency`,
+          { agencyId, clientId, prescribedFrequency: freqNow },
+          { skipGlobalLoading: true }
+        );
+        if (freqRes?.data?.plan) {
+          latestTreatmentPlan.value = {
+            ...latestTreatmentPlan.value,
+            ...freqRes.data.plan
+          };
+          planFrequencyBaseline.value = freqNow;
+        }
+      } catch (freqErr) {
+        console.warn('Prescribed frequency update failed:', freqErr?.response?.data || freqErr.message);
+      }
+    }
     const sessionId = await ensureClinicalSessionForApproval();
     const approvedPayload = buildApprovedPayloadText();
     if (!approvedPayload) throw new Error('No approved note content available to persist.');
@@ -5532,6 +5714,8 @@ const approveNoteOutput = async ({ silent = false, afterSign = 'queue' } = {}) =
       startTime: sessionStartTimeLocal.value || null,
       endTime: sessionEndTimeLocal.value || null,
       locationLabel: sessionLocationLabel.value || null,
+      treatmentRecommendation: noteTreatmentRecommendation.value || 'continue',
+      prescribedFrequency: String(notePrescribedFrequency.value || '').trim() || null,
       skippedMseReason: skipMentalStatusExam.value
         ? (String(actualServiceCode.value || selectedAid.value?.serviceCode || 'skipped').toUpperCase())
         : null
@@ -5587,6 +5771,10 @@ const approveNoteOutput = async ({ silent = false, afterSign = 'queue' } = {}) =
         printableDocument: !!isTreatmentSummaryAid.value,
         attachMode: isClientChartAid.value ? 'client_chart' : undefined,
         structuredChart: isClientChartAid.value ? null : structuredChart,
+        treatmentRecommendation: noteTreatmentRecommendation.value || 'continue',
+        prescribedFrequency: String(notePrescribedFrequency.value || '').trim() || null,
+        clinicalCosignSupervisorId: clinicalCosignSupervisor.value?.supervisor_id || null,
+        clinicalCosignSupervisorName: clinicalCosignSupervisorLabel.value || null,
         attestation: {
           accurateAndComplete: true,
           medicallyNecessary: !isReviewOnlyAid.value,
@@ -6014,6 +6202,7 @@ const resetClientClinicalContext = () => {
   latestTreatmentPlan.value = null;
   chartDiagnoses.value = [];
   chartObjectiveRatings.value = [];
+  chartIntakeNotes.value = [];
   chartDiagnosticJustification.value = '';
   chartMentalStatus.value = defaultMentalStatusExam();
   chartRiskAssessment.value = defaultRiskAssessment();
@@ -6033,6 +6222,10 @@ const resetClientClinicalContext = () => {
   lastProgressNoteExcerpt.value = '';
   intakeSummary.value = '';
   intakeError.value = '';
+  noteTreatmentRecommendation.value = 'continue';
+  notePrescribedFrequency.value = '';
+  planFrequencyBaseline.value = '';
+  mseRiskAcknowledged.value = false;
 };
 
 const loadClientTreatmentPlan = async (clientId) => {
@@ -6063,6 +6256,7 @@ const loadClientTreatmentPlan = async (clientId) => {
     let bestRatings = [];
     let bestSessions = [];
     let bestNotes = [];
+    let bestIntakeNotes = [];
     let lastError = null;
 
     for (const aid of agencies) {
@@ -6082,6 +6276,7 @@ const loadClientTreatmentPlan = async (clientId) => {
             : [];
           bestSessions = Array.isArray(res?.data?.sessions) ? res.data.sessions : [];
           bestNotes = Array.isArray(res?.data?.notes) ? res.data.notes : [];
+          bestIntakeNotes = Array.isArray(res?.data?.intakeNotes) ? res.data.intakeNotes : [];
         }
       } catch (e) {
         lastError = e;
@@ -6093,6 +6288,22 @@ const loadClientTreatmentPlan = async (clientId) => {
     chartObjectiveRatings.value = bestRatings;
     chartSessions.value = bestSessions;
     chartNotesMeta.value = bestNotes;
+    chartIntakeNotes.value = bestIntakeNotes;
+    if (bestIntakeNotes.some((n) => {
+      const st = String(n.status || '').toLowerCase();
+      return st === 'final' || !!n.finalized_at || !!n.finalizedAt;
+    })) {
+      intakeDraftFinalized.value = true;
+      intakeImportedOnce.value = true;
+    }
+    const freq = parsePrescribedFrequencyFromDischarge(
+      bestPlan?.discharge_plan || bestPlan?.dischargePlan || ''
+    );
+    planFrequencyBaseline.value = freq;
+    if (!String(notePrescribedFrequency.value || '').trim()) {
+      notePrescribedFrequency.value = freq || '';
+    }
+    noteTreatmentRecommendation.value = 'continue';
     // Prefer plan diagnostic justification over whatever intake last wrote on the dx row.
     const planJust = String(
       bestPlan?.diagnostic_justification || bestPlan?.diagnosticJustification || ''
@@ -6968,6 +7179,22 @@ async function activateWorkQueueItem(item) {
   try {
   cancelPendingAutosave();
   const seq = ++workQueueActivateSeq;
+  afterHours99051UserDismissed.value = false;
+  includeAfterHours99051.value = false;
+  // Clear prior note timing/billing so "sign + open next" cannot leak duration/code.
+  sessionStartTimeLocal.value = '';
+  sessionEndTimeLocal.value = '';
+  sessionDurationMinutes.value = null;
+  sessionScheduledStart.value = null;
+  sessionScheduledEnd.value = null;
+  sessionCodeSwitchBanner.value = '';
+  billingAddons.value = [];
+  billingPrimaryUnits.value = 1;
+  includeInteractiveComplexity.value = false;
+  mseRiskAcknowledged.value = false;
+  noteTreatmentRecommendation.value = 'continue';
+  notePrescribedFrequency.value = '';
+  planFrequencyBaseline.value = '';
   clientHydrateSeq += 1;
   const incomingStatus = deriveWorkQueueDocStatus(item);
   const isFinished = incomingStatus === DOC_STATUS.SIGNED || incomingStatus === DOC_STATUS.COMPLETED;
@@ -7136,7 +7363,9 @@ async function activateWorkQueueItem(item) {
       selectedAidId.value = hit.aid.id;
     }
   } else {
-    const code = item.serviceCode || '90837';
+    const code = String(item.serviceCode || '90837').trim().toUpperCase();
+    selectedServiceCode.value = code;
+    otherServiceCode.value = '';
     const hit = findNoteAidByToolOrCode({ serviceCode: code });
     if (hit) {
       selectedNoteCategory.value = hit.category.id;
@@ -7978,6 +8207,7 @@ onMounted(async () => {
   workQueueCollapsed.value = false;
   saveNoteLibraryUiPrefs(authStore.user?.id, { collapsed: false, expanded: false });
   await loadNoteAidWriterPrefs();
+  await loadClinicalCosignSupervisor();
 
   if (String(route.query?.noteAidReset || '') === '1') {
     await clearWorkQueueOnApi(authStore.user?.id).catch(() => clearAllWorkQueues(authStore.user?.id));
@@ -8109,7 +8339,6 @@ onMounted(async () => {
 watch(sessionDurationMinutes, (mins) => {
   if (!sessionTimingSyncLock && !isWorkspaceHydrating()) {
     if (sessionStartTimeLocal.value) syncEndFromStartAndDuration();
-    else if (sessionEndTimeLocal.value) syncStartFromEndAndDuration();
   }
   if (isWorkspaceHydrating()) return;
   const current = String(actualServiceCode.value || '').toUpperCase();
@@ -8147,8 +8376,8 @@ watch(sessionStartTimeLocal, (next, prev) => {
 watch(sessionEndTimeLocal, (next, prev) => {
   if (sessionTimingSyncLock || isWorkspaceHydrating()) return;
   if (!next || next === prev) return;
-  if (sessionDurationMinutes.value != null && sessionDurationMinutes.value !== '') {
-    syncStartFromEndAndDuration();
+  if (sessionStartTimeLocal.value) {
+    syncDurationFromStartAndEnd();
   }
 });
 
@@ -8181,6 +8410,41 @@ function setMseAllNotAssessed() {
   const domains = {};
   for (const d of MSE_DOMAINS) domains[d] = { status: 'not_assessed', detail: '' };
   chartMentalStatus.value = { allNormal: false, allNotAssessed: true, domains };
+}
+
+function onMseAllNormal() {
+  setMseAllNormal();
+  mseRiskAcknowledged.value = true;
+}
+
+function onMseAllNotAssessed() {
+  setMseAllNotAssessed();
+  mseRiskAcknowledged.value = true;
+}
+
+async function loadClinicalCosignSupervisor() {
+  clinicalCosignSupervisor.value = null;
+  const uid = Number(authStore.user?.id || 0);
+  const agencyId = Number(noteAidAgencyId.value || currentAgencyId.value || 0);
+  if (!uid || !agencyId) return;
+  try {
+    const res = await api.get(`/supervisor-assignments/supervisee/${uid}`, {
+      params: { agencyId },
+      skipGlobalLoading: true
+    });
+    const rows = Array.isArray(res?.data)
+      ? res.data
+      : (res?.data?.assignments || res?.data?.supervisors || []);
+    const eligible = (rows || []).filter((s) => {
+      const type = String(s.supervisor_type || 'clinical').toLowerCase();
+      if (type === 'billing' || type === 'manager') return false;
+      return Number(s.supervisor_id || 0) > 0 && Number(s.supervisor_id || 0) !== uid;
+    });
+    clinicalCosignSupervisor.value =
+      eligible.find((s) => Number(s.is_primary) === 1) || eligible[0] || null;
+  } catch {
+    clinicalCosignSupervisor.value = null;
+  }
 }
 
 async function openAllPendingSessionNotes() {
@@ -9559,6 +9823,60 @@ a.na-chip--link {
   align-items: center;
   gap: 10px;
   margin-top: 8px;
+}
+
+.na-plan-fields {
+  display: grid;
+  grid-template-columns: 1.2fr 1fr;
+  gap: 16px;
+  margin: 12px 0;
+  padding: 12px 14px;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  background: #fff;
+}
+
+.na-plan-fields__label {
+  display: block;
+  font-size: 0.72rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #64748b;
+  margin-bottom: 6px;
+}
+
+.na-plan-fields__radio {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 0.86rem;
+  color: #0f172a;
+  margin: 4px 0;
+}
+
+.na-plan-fields__freq .na-input {
+  width: 100%;
+}
+
+.na-plan-fields .req {
+  color: #b45309;
+}
+
+.na-sign-supervisor {
+  margin: 0 0 10px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  color: #1e3a8a;
+  font-size: 0.84rem;
+}
+
+@media (max-width: 800px) {
+  .na-plan-fields {
+    grid-template-columns: 1fr;
+  }
 }
 
 .na-sign-attest {

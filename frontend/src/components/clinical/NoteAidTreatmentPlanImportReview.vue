@@ -384,7 +384,10 @@ const isDraftEditor = computed(
 function directionHint(o) {
   const cur = Number(o.scaleCurrent);
   const tgt = Number(o.scaleTarget);
-  if (!Number.isFinite(cur) || !Number.isFinite(tgt)) return '';
+  // Number(null|'') === 0 — require real 1–10 ints so empty target never shows "5 → 0 decrease".
+  if (!Number.isInteger(cur) || !Number.isInteger(tgt) || cur < 1 || cur > 10 || tgt < 1 || tgt > 10) {
+    return '';
+  }
   const dir = o.scaleDirection || (tgt > cur ? 'increase' : tgt < cur ? 'decrease' : '');
   if (!dir) return `${cur} → ${tgt}`;
   return `${cur} → ${tgt} ${dir}`;

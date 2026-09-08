@@ -126,15 +126,22 @@
       <div class="csb-row">
         <label class="csb-label">Add-on service codes</label>
         <div class="csb-addon-toolbar">
-          <button
-            type="button"
-            class="csb-addon-add"
+          <select
+            class="csb-input csb-addon-select"
             :disabled="disabled || !addonCodeOptions.length"
-            title="Add an add-on code such as 99051 (after hours). Linked to this booking and recurring series when saved."
-            @click="promptAddAddon"
+            value=""
+            @change="onAddonSelect"
           >
-            + Add on Code
-          </button>
+            <option value="" disabled>+ Add on Code…</option>
+            <option
+              v-for="opt in addonCodeOptions"
+              :key="`addon-add-${opt.code}`"
+              :value="opt.code"
+              :disabled="addonCodeSet.has(opt.code)"
+            >
+              {{ opt.label || opt.code }}{{ addonCodeSet.has(opt.code) ? ' (added)' : '' }}
+            </option>
+          </select>
         </div>
         <div class="csb-addon-list">
           <label
@@ -313,17 +320,11 @@ function toggleAddon(code) {
   emit('update:addonServiceCodes', Array.from(next.values()));
 }
 
-function promptAddAddon() {
-  if (!addonCodeOptions.value.length) return;
-  const preferred = addonCodeOptions.value.find((o) => o.code === '99051') || addonCodeOptions.value[0];
-  const list = addonCodeOptions.value.map((o) => o.code).join(', ');
-  const raw = window.prompt(`Add-on code (${list}):`, preferred?.code || '99051');
-  const code = String(raw || '').trim().toUpperCase();
+function onAddonSelect(event) {
+  const code = String(event?.target?.value || '').trim().toUpperCase();
+  if (event?.target) event.target.value = '';
   if (!code) return;
-  if (!addonCodeOptions.value.some((o) => o.code === code)) {
-    window.alert(`“${code}” is not configured as an add-on for this tenant.`);
-    return;
-  }
+  if (!addonCodeOptions.value.some((o) => o.code === code)) return;
   if (!addonCodeSet.value.has(code)) toggleAddon(code);
 }
 </script>
