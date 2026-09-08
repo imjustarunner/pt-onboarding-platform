@@ -72,7 +72,8 @@ test('H0023 / H0031 additional / H0032 use Colorado freeform (not SOIP)', () => 
   assert.match(getOutputInstructionsForTool('clinical_h0023_full_packet'), /Do NOT use Subjective/);
   assert.match(getOutputInstructionsForTool('clinical_h0031_additional'), /Z\/R/);
   assert.match(getOutputInstructionsForTool('clinical_h0032_plan_development'), /Do NOT use Subjective/);
-  assert.match(getOutputInstructionsForTool('clinical_h0031_intake'), /Z and R codes only/);
+  assert.match(getOutputInstructionsForTool('clinical_h0031_intake'), /same titled narrative sections as a 90791/);
+  assert.match(getOutputInstructionsForTool('clinical_h0031_intake'), /Mental Status Examination/);
   assert.doesNotMatch(getOutputInstructionsForTool('clinical_h0031_intake'), /Subjective:/);
 });
 

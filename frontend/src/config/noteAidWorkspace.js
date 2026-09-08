@@ -89,7 +89,7 @@ export const NOTE_AID_CATEGORIES = [
         diagnosisMode: 'zr_only',
         attachQuestionnaires: true,
         guidance:
-          'Paste client history and intake information. Same structured intake flow as 90791 (without MSE). Bachelor’s-level defaults to Z/R codes; clinicians with diagnose permission also attach chart DSM diagnoses when present. Recent unattached questionnaires (e.g. GAD, PHQ, PSC) are auto-included.'
+          'Paste client history and intake information. Same structured intake sections as 90791 (Identification through Treatment Recommendations, including MSE and Diagnosis boxes). Bachelor’s-level defaults to Z/R emphasis; diagnose-capable clinicians also attach chart DSM diagnoses when present. Recent unattached questionnaires (e.g. GAD, PHQ, PSC) are auto-included.'
       },
       {
         id: 'h0031_additional',
@@ -102,7 +102,7 @@ export const NOTE_AID_CATEGORIES = [
         diagnosisMode: 'zr_only',
         attachQuestionnaires: true,
         guidance:
-          'Type additional assessment / collateral session content. Freeform Colorado narrative (not full 90791 sections). Z/R by default; diagnose-capable clinicians also attach chart diagnoses when present. No mental status exam. Use Freeform or CSNoteBuild. Recent unattached questionnaires are auto-included when available.'
+          'Type additional assessment / collateral session content. Freeform Colorado narrative in one session-information block (not SOIP). Z/R by default; diagnose-capable clinicians also attach chart diagnoses when present. No mental status exam. Use Freeform or CSNoteBuild. Recent unattached questionnaires are auto-included when available.'
       },
       {
         id: 'h0032_plan',

@@ -190,7 +190,7 @@ class NoteAidWorkQueueItem {
     return Number(result?.affectedRows || 0);
   }
 
-  static async listForUser(userId, { purgeExpired = true } = {}) {
+  static async listForUser(userId, { purgeExpired = false } = {}) {
     const uid = safeInt(userId);
     if (!uid) return [];
     if (purgeExpired) {
@@ -309,7 +309,6 @@ class NoteAidWorkQueueItem {
   static async syncForUser(userId, items = []) {
     const uid = safeInt(userId);
     if (!uid) throw new Error('Invalid userId');
-    await this.purgeExpiredTerminal();
 
     const list = Array.isArray(items) ? items : [];
     if (!list.length) {

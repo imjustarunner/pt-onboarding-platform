@@ -1344,13 +1344,16 @@
         :sort-dir="workQueueSortDir"
         :can-undo-import="!!lastTodoImportBatch?.clientKeys?.length"
         :undo-import-count="lastTodoImportBatch?.clientKeys?.length || 0"
+        :show-cosign-mode="canSuperviseCosign"
+        :cosign-items="cosignQueueItems"
+        :cosign-loading="cosignQueueLoading"
+        :active-cosign-id="activeCosignQueueId"
         @add-todo="showTodoImportModal = true"
-        @generate="generateNote"
-        @next="advanceWorkQueue"
-        @clear="clearWorkQueue"
         @select="activateWorkQueueItem"
+        @select-cosign="activateCosignQueueItem"
         @delete="onWorkQueueDeleteDraft"
         @undo-import="undoLastTodoImport"
+        @refresh-cosign="loadCosignQueue"
         @update:collapsed="workQueueCollapsed = $event"
         @update:sort-by="workQueueSortBy = $event"
         @update:sort-dir="workQueueSortDir = $event"
@@ -1948,6 +1951,10 @@ async function onStandalonePlanApplied() {
 const workQueueItems = ref([]);
 const workQueueSortBy = ref('date');
 const workQueueSortDir = ref('asc');
+const cosignQueueItems = ref([]);
+const cosignQueueLoading = ref(false);
+const activeCosignQueueId = ref(null);
+const canSuperviseCosign = ref(false);
 /** Session preference: after signing, open the next not-started queue item (default on). */
 const signAndOpenNextInQueue = ref(true);
 const skipAiAid = ref(false);
@@ -1990,16 +1997,21 @@ function seedManualEmptySections() {
   const placeholder = 'Write this section…';
   const aid = selectedAid.value;
   const toolId = String(aid?.toolId || '');
+  const isH0031Additional = toolId === 'clinical_h0031_additional'
+    || (String(aid?.id || '') === 'h0031_additional');
   const isIntakeManual =
     aidKind(aid) === 'intake'
     || toolId === 'clinical_h0031_intake'
     || toolId === 'clinical_90791_intake_plan';
 
   let sections;
-  if (isIntakeManual) {
-    const isH0031 = toolId === 'clinical_h0031_intake'
-      || String(actualServiceCode.value || aid?.serviceCode || '').toUpperCase() === 'H0031';
-    // Same titled boxes as 90791 intake (H0031 skips MSE; Z/R vs Diagnosis).
+  if (isH0031Additional || (freeform && !isIntakeManual)) {
+    // H0031 additional (and other Colorado freeform aids): one narrative block — not SOIP.
+    sections = {
+      'Session information': placeholder
+    };
+  } else if (isIntakeManual) {
+    // H0031 intake matches 90791 section boxes exactly (alter later if needed).
     sections = {
       Identification: placeholder,
       'Presenting Problem': placeholder,
@@ -2012,18 +2024,12 @@ function seedManualEmptySections() {
       'Developmental History': placeholder,
       'Educational / Occupational History': placeholder,
       'Objective Content': placeholder,
-      ...(isH0031
-        ? {}
-        : { 'Mental Status Examination': placeholder }),
-      ...(isH0031
-        ? { 'Psychosocial Codes (Z/R)': placeholder }
-        : { Diagnosis: placeholder }),
+      'Mental Status Examination': placeholder,
+      Diagnosis: placeholder,
       'Clinical Impressions': placeholder,
       Plan: placeholder,
       'Treatment Recommendations': placeholder
     };
-  } else if (freeform) {
-    sections = { Output: placeholder };
   } else {
     sections = {
       Subjective: placeholder,
@@ -7219,6 +7225,55 @@ function clearWorkQueue() {
   });
 }
 
+async function refreshCosignCapability() {
+  try {
+    const { data } = await api.get('/me/notes-to-sign/count', { skipGlobalLoading: true });
+    canSuperviseCosign.value = !!data?.isSupervisor;
+  } catch {
+    canSuperviseCosign.value = false;
+  }
+}
+
+async function loadCosignQueue() {
+  cosignQueueLoading.value = true;
+  try {
+    const { data } = await api.get('/me/notes-to-sign', { skipGlobalLoading: true });
+    const notes = Array.isArray(data?.notes) ? data.notes : [];
+    if (data?.isSupervisor != null) canSuperviseCosign.value = !!data.isSupervisor;
+    else if (notes.length) canSuperviseCosign.value = true;
+    cosignQueueItems.value = notes.map((n) => ({
+      id: `cosign_${n.id || n.clinical_note_id}`,
+      signoffId: n.id,
+      clinicalNoteId: n.clinical_note_id || n.clinicalNoteId,
+      agencyId: n.agency_id || n.agencyId || null,
+      clientId: n.client_id || n.clientId || null,
+      clientName: n.client_name || n.clientName
+        || [n.client_first_name, n.client_last_name].filter(Boolean).join(' ').trim()
+        || null,
+      providerName: [n.provider_first_name, n.provider_last_name].filter(Boolean).join(' ').trim()
+        || n.provider_name
+        || 'Provider',
+      serviceCode: n.service_code || n.serviceCode || null,
+      date: String(n.date_of_service || n.dateOfService || n.provider_signed_at || n.created_at || '')
+        .slice(0, 10),
+      signedAt: n.provider_signed_at || n.created_at || null
+    }));
+  } catch {
+    cosignQueueItems.value = [];
+  } finally {
+    cosignQueueLoading.value = false;
+  }
+}
+
+async function activateCosignQueueItem(item) {
+  if (!item?.clinicalNoteId) return;
+  activeCosignQueueId.value = item.id;
+  await openSignedClinicalNote(item.clinicalNoteId, {
+    agencyId: Number(item.agencyId || 0) || null
+  });
+  approvalMessage.value = 'Opened note for supervisor co-signature.';
+}
+
 function onTodoListBuilt({ items }) {
   showTodoImportModal.value = false;
   const incoming = (Array.isArray(items) ? items : []).map((i) => ({
@@ -8464,6 +8519,7 @@ onMounted(async () => {
   saveNoteLibraryUiPrefs(authStore.user?.id, { collapsed: false, expanded: false });
   await loadNoteAidWriterPrefs();
   await loadClinicalCosignSupervisor();
+  await refreshCosignCapability();
 
   if (String(route.query?.noteAidReset || '') === '1') {
     await clearWorkQueueOnApi(authStore.user?.id).catch(() => clearAllWorkQueues(authStore.user?.id));

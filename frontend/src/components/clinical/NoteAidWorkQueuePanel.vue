@@ -19,17 +19,34 @@
           <span class="na-wq-rail-dot na-wq-rail-dot--started" />
           <em>{{ startedCount }}</em>
         </button>
+        <button
+          v-if="showCosignMode"
+          type="button"
+          class="na-wq-rail-tab"
+          title="Notes to co-sign"
+          @click="openCosignMode"
+        >
+          <span class="na-wq-rail-dot na-wq-rail-dot--cosign" />
+          <em>{{ cosignCount }}</em>
+        </button>
       </div>
     </template>
     <template v-else>
     <header class="na-wq-head">
       <div>
         <strong>Work queue</strong>
-        <p>{{ pendingCount }} not started · {{ startedCount }} in progress</p>
-        <p class="na-wq-privacy">Saved to your account (encrypted). Signed / completed links clear after 24 hours.</p>
+        <p v-if="queueMode === 'notes'">{{ pendingCount }} not started · {{ startedCount }} in progress</p>
+        <p v-else>{{ cosignCount }} awaiting your co-sign</p>
       </div>
       <div class="na-wq-head-actions">
-        <button type="button" class="na-wq-add" @click="$emit('add-todo')">Add ToDo List</button>
+        <button
+          v-if="queueMode === 'notes'"
+          type="button"
+          class="na-wq-add"
+          @click="$emit('add-todo')"
+        >
+          Add ToDo List
+        </button>
         <button
           type="button"
           class="na-wq-collapse"
@@ -42,103 +59,154 @@
       </div>
     </header>
 
-    <div class="na-wq-legend" aria-hidden="true">
-      <span class="na-wq-chip na-wq-chip--pending">Not started</span>
-      <span class="na-wq-chip na-wq-chip--started">Started</span>
-    </div>
-
-    <div class="na-wq-sort">
-      <label class="na-wq-sort-label" for="na-wq-sort">
-        Sort
-        <select id="na-wq-sort" v-model="sortField" class="na-wq-sort-select">
-          <option value="date">Date</option>
-          <option value="client">Client name</option>
-          <option value="status">Status</option>
-          <option value="code">Service code</option>
-          <option value="agency">Agency</option>
-        </select>
-      </label>
+    <div class="na-wq-modes" role="tablist" aria-label="Work queue mode">
       <button
         type="button"
-        class="na-wq-sort-dir"
-        :title="sortDir === 'asc' ? 'Ascending — click for descending' : 'Descending — click for ascending'"
-        :aria-label="sortDir === 'asc' ? 'Sort ascending' : 'Sort descending'"
-        @click="toggleSortDir"
+        role="tab"
+        class="na-wq-mode"
+        :class="{ on: queueMode === 'notes' }"
+        :aria-selected="queueMode === 'notes' ? 'true' : 'false'"
+        @click="setQueueMode('notes')"
       >
-        {{ sortDir === 'asc' ? '↑ Asc' : '↓ Desc' }}
+        Session notes
       </button>
-    </div>
-
-    <div class="na-wq-actions">
-      <button type="button" class="na-wq-primary" :disabled="!activeItem" @click="$emit('generate')">
-        Generate
-      </button>
-      <button type="button" class="na-wq-outline" :disabled="!hasNext" @click="$emit('next')">
-        Next
-      </button>
-      <button type="button" class="na-wq-link" :disabled="!items.length" @click="$emit('clear')">
-        Clear
-      </button>
-    </div>
-
-    <div v-if="canUndoImport" class="na-wq-undo" role="status">
-      <span>Last ToDo import added {{ undoImportCount }} item{{ undoImportCount === 1 ? '' : 's' }}.</span>
-      <button type="button" class="na-wq-undo-btn" @click="$emit('undo-import')">Undo</button>
-    </div>
-
-    <div v-if="!visibleItems.length" class="na-wq-empty">
-      Paste a ToDo list or open pending Notes. Signed notes and copy-only Done notes live in the left library.
-    </div>
-    <ul v-else class="na-wq-list">
-      <li
-        v-for="item in visibleItems"
-        :key="item.id"
-        class="na-wq-item"
-        :class="[
-          `na-wq-item--${docStatus(item)}`,
-          { active: item.id === activeId }
-        ]"
+      <button
+        v-if="showCosignMode"
+        type="button"
+        role="tab"
+        class="na-wq-mode na-wq-mode--cosign"
+        :class="{ on: queueMode === 'cosign' }"
+        :aria-selected="queueMode === 'cosign' ? 'true' : 'false'"
+        @click="setQueueMode('cosign')"
       >
-        <button type="button" class="na-wq-item-btn" @click="$emit('select', item)">
-          <div class="na-wq-item-top">
-            <strong>
-              <span
-                class="na-wq-conn"
-                :class="{ 'na-wq-conn--logo': !!tenantLogoUrl(item) }"
-                :style="tenantLogoUrl(item) ? undefined : connectionStyle(item)"
-                :title="tenantTitle(item)"
-                aria-hidden="true"
-              >
-                <img
-                  v-if="tenantLogoUrl(item)"
-                  :src="tenantLogoUrl(item)"
-                  alt=""
-                  class="na-wq-tenant-logo"
-                  @error="onLogoError(item)"
-                />
-                <span v-else v-html="connectionIconSvg(item)" />
-              </span>
-              {{ item.clientName }}
-            </strong>
-            <span>{{ statusLabel(item) }}</span>
-          </div>
-          <div class="na-wq-item-meta">
-            {{ formatQueueDate(item.date) }}
-            <template v-if="item.timeLabel"> · {{ item.timeLabel }}</template>
-            · {{ typeLabel(item) }}
-          </div>
-        </button>
+        Notes to co-sign{{ cosignCount ? ` (${cosignCount})` : '' }}
+      </button>
+    </div>
+
+    <template v-if="queueMode === 'notes'">
+      <div class="na-wq-legend" aria-hidden="true">
+        <span class="na-wq-chip na-wq-chip--pending">Not started</span>
+        <span class="na-wq-chip na-wq-chip--started">Started</span>
+      </div>
+
+      <div class="na-wq-sort">
+        <label class="na-wq-sort-label" for="na-wq-sort">
+          Sort
+          <select id="na-wq-sort" v-model="sortField" class="na-wq-sort-select">
+            <option value="date">Date</option>
+            <option value="client">Client name</option>
+            <option value="status">Status</option>
+            <option value="code">Service code</option>
+            <option value="agency">Agency</option>
+          </select>
+        </label>
         <button
-          v-if="canRemoveQueueItem(item)"
           type="button"
-          class="na-wq-delete"
-          :title="removeQueueTitle(item)"
-          @click.stop="$emit('delete', item)"
+          class="na-wq-sort-dir"
+          :title="sortDir === 'asc' ? 'Ascending — click for descending' : 'Descending — click for ascending'"
+          :aria-label="sortDir === 'asc' ? 'Sort ascending' : 'Sort descending'"
+          @click="toggleSortDir"
         >
-          ×
+          {{ sortDir === 'asc' ? '↑ Asc' : '↓ Desc' }}
         </button>
-      </li>
-    </ul>
+      </div>
+
+      <div v-if="canUndoImport" class="na-wq-undo" role="status">
+        <span>Last ToDo import added {{ undoImportCount }} item{{ undoImportCount === 1 ? '' : 's' }}.</span>
+        <button type="button" class="na-wq-undo-btn" @click="$emit('undo-import')">Undo</button>
+      </div>
+
+      <div v-if="!visibleItems.length" class="na-wq-empty">
+        Session notes that need documentation appear here. Use Add ToDo List or open pending Notes tasks.
+      </div>
+      <ul v-else class="na-wq-list">
+        <li
+          v-for="item in visibleItems"
+          :key="item.id"
+          class="na-wq-item"
+          :class="[
+            `na-wq-item--${docStatus(item)}`,
+            { active: item.id === activeId }
+          ]"
+        >
+          <button type="button" class="na-wq-item-btn" @click="$emit('select', item)">
+            <div class="na-wq-item-top">
+              <strong>
+                <span
+                  class="na-wq-conn"
+                  :class="{ 'na-wq-conn--logo': !!tenantLogoUrl(item) }"
+                  :style="tenantLogoUrl(item) ? undefined : connectionStyle(item)"
+                  :title="tenantTitle(item)"
+                  aria-hidden="true"
+                >
+                  <img
+                    v-if="tenantLogoUrl(item)"
+                    :src="tenantLogoUrl(item)"
+                    alt=""
+                    class="na-wq-tenant-logo"
+                    @error="onLogoError(item)"
+                  />
+                  <span v-else v-html="connectionIconSvg(item)" />
+                </span>
+                {{ item.clientName }}
+              </strong>
+              <span>{{ statusLabel(item) }}</span>
+            </div>
+            <div class="na-wq-item-meta">
+              {{ formatQueueDate(item.date) }}
+              <template v-if="item.timeLabel"> · {{ item.timeLabel }}</template>
+              · {{ typeLabel(item) }}
+            </div>
+          </button>
+          <button
+            v-if="canRemoveQueueItem(item)"
+            type="button"
+            class="na-wq-delete"
+            :title="removeQueueTitle(item)"
+            @click.stop="$emit('delete', item)"
+          >
+            ×
+          </button>
+        </li>
+      </ul>
+    </template>
+
+    <template v-else>
+      <div class="na-wq-sort">
+        <label class="na-wq-sort-label" for="na-wq-cosign-sort">
+          Sort
+          <select id="na-wq-cosign-sort" v-model="cosignSortField" class="na-wq-sort-select">
+            <option value="date">Date signed</option>
+            <option value="provider">Provider</option>
+            <option value="client">Client</option>
+          </select>
+        </label>
+      </div>
+      <div v-if="cosignLoading" class="na-wq-empty">Loading notes awaiting co-sign…</div>
+      <div v-else-if="!sortedCosignItems.length" class="na-wq-empty">
+        No supervisee notes are waiting for your co-signature.
+      </div>
+      <ul v-else class="na-wq-list">
+        <li
+          v-for="item in sortedCosignItems"
+          :key="item.id"
+          class="na-wq-item na-wq-item--cosign"
+          :class="{ active: String(activeCosignId) === String(item.id) }"
+        >
+          <button type="button" class="na-wq-item-btn" @click="$emit('select-cosign', item)">
+            <div class="na-wq-item-top">
+              <strong>{{ item.clientName || `Note #${item.clinicalNoteId}` }}</strong>
+              <span>Co-sign</span>
+            </div>
+            <div class="na-wq-item-meta">
+              {{ item.providerName || 'Provider' }}
+              <template v-if="item.date"> · {{ formatQueueDate(item.date) }}</template>
+              <template v-if="item.serviceCode"> · {{ item.serviceCode }}</template>
+            </div>
+          </button>
+        </li>
+      </ul>
+    </template>
     </template>
   </aside>
 </template>
@@ -161,6 +229,7 @@ import { tenantSmsImage } from '../../utils/tenantBrandAssets.js';
 
 const SORT_FIELD_KEY = 'noteAidWorkQueueSortBy';
 const SORT_DIR_KEY = 'noteAidWorkQueueSortDir';
+const MODE_KEY = 'noteAidWorkQueueMode';
 
 const props = defineProps({
   items: { type: Array, default: () => [] },
@@ -169,20 +238,24 @@ const props = defineProps({
   sortBy: { type: String, default: '' },
   sortDir: { type: String, default: '' },
   canUndoImport: { type: Boolean, default: false },
-  undoImportCount: { type: Number, default: 0 }
+  undoImportCount: { type: Number, default: 0 },
+  showCosignMode: { type: Boolean, default: false },
+  cosignItems: { type: Array, default: () => [] },
+  cosignLoading: { type: Boolean, default: false },
+  activeCosignId: { type: [String, Number, null], default: null }
 });
 
 const emit = defineEmits([
   'add-todo',
-  'generate',
-  'next',
-  'clear',
   'select',
+  'select-cosign',
   'delete',
   'undo-import',
   'update:collapsed',
   'update:sortBy',
-  'update:sortDir'
+  'update:sortDir',
+  'update:queueMode',
+  'refresh-cosign'
 ]);
 
 const agencyStore = useAgencyStore();
@@ -203,6 +276,16 @@ function loadStoredSort() {
   return { field, direction };
 }
 
+function loadStoredMode() {
+  try {
+    const raw = localStorage.getItem(MODE_KEY);
+    if (raw === 'cosign' && props.showCosignMode) return 'cosign';
+  } catch {
+    // ignore
+  }
+  return 'notes';
+}
+
 const stored = loadStoredSort();
 const localSortField = ref(
   normalizeWorkQueueSort(props.sortBy || stored.field, props.sortDir || stored.direction).field
@@ -210,6 +293,8 @@ const localSortField = ref(
 const localSortDir = ref(
   normalizeWorkQueueSort(props.sortBy || stored.field, props.sortDir || stored.direction).direction
 );
+const queueMode = ref(loadStoredMode());
+const cosignSortField = ref('date');
 
 function persistSort() {
   try {
@@ -221,6 +306,30 @@ function persistSort() {
   emit('update:sortBy', localSortField.value);
   emit('update:sortDir', localSortDir.value);
 }
+
+function setQueueMode(mode) {
+  const next = mode === 'cosign' && props.showCosignMode ? 'cosign' : 'notes';
+  queueMode.value = next;
+  try {
+    localStorage.setItem(MODE_KEY, next);
+  } catch {
+    // ignore
+  }
+  emit('update:queueMode', next);
+  if (next === 'cosign') emit('refresh-cosign');
+}
+
+function openCosignMode() {
+  emit('update:collapsed', false);
+  setQueueMode('cosign');
+}
+
+watch(
+  () => props.showCosignMode,
+  (ok) => {
+    if (!ok && queueMode.value === 'cosign') setQueueMode('notes');
+  }
+);
 
 watch(
   () => [props.sortBy, props.sortDir],
@@ -260,17 +369,28 @@ const visibleItems = computed(() =>
   )
 );
 
+const cosignCount = computed(() => (props.cosignItems || []).length);
+
+const sortedCosignItems = computed(() => {
+  const list = [...(props.cosignItems || [])];
+  const field = cosignSortField.value;
+  list.sort((a, b) => {
+    if (field === 'provider') {
+      return String(a.providerName || '').localeCompare(String(b.providerName || ''));
+    }
+    if (field === 'client') {
+      return String(a.clientName || '').localeCompare(String(b.clientName || ''));
+    }
+    return String(b.date || b.signedAt || '').localeCompare(String(a.date || a.signedAt || ''));
+  });
+  return list;
+});
+
 const pendingCount = computed(
   () => visibleItems.value.filter((i) => docStatus(i) === DOC_STATUS.NOT_STARTED).length
 );
 const startedCount = computed(
   () => visibleItems.value.filter((i) => docStatus(i) === DOC_STATUS.STARTED).length
-);
-const activeItem = computed(() => (props.items || []).find((i) => i.id === props.activeId) || null);
-const hasNext = computed(() =>
-  visibleItems.value.some(
-    (i) => i.id !== props.activeId && docStatus(i) === DOC_STATUS.NOT_STARTED
-  )
 );
 
 watch(
@@ -319,10 +439,6 @@ function formatQueueDate(value) {
   }
 }
 
-function connectionLabel(item) {
-  return noteConnectionMeta(connection(item)).shortLabel;
-}
-
 function resolveAgency(item) {
   const id = Number(item?.agencyId || item?.agency_id || 0);
   if (id && agenciesById.value.has(id)) return agenciesById.value.get(id);
@@ -351,382 +467,352 @@ function tenantLogoUrl(item) {
   if (direct) return direct;
 
   const agency = resolveAgency(item);
-  if (agency) {
-    const fromAgency = resolveAssetUrl(
-      agency.logo_path || agency.logoPath || agency.logo_url || agency.logoUrl
-        || agency.icon_file_path || agency.iconFilePath
-    );
-    if (fromAgency) return fromAgency;
-  }
+  if (!agency) return '';
+  return resolveAssetUrl(
+    agency.logo_url
+    || agency.logoUrl
+    || agency.sms_image_url
+    || agency.smsImageUrl
+    || tenantSmsImage(agency)
+  );
+}
 
-  const slug = String(
-    item?.agencySlug
-      || item?.agency_slug
-      || agency?.slug
-      || agency?.portal_url
-      || agency?.portalUrl
-      || ''
-  ).trim();
-  if (slug) {
-    const sms = tenantSmsImage(slug, 'counseling') || tenantSmsImage(slug, 'join') || tenantSmsImage(slug, 'login');
-    if (sms) return sms;
-  }
-  return '';
+function onLogoError(item) {
+  const next = new Set(failedLogoKeys.value);
+  next.add(logoKey(item));
+  failedLogoKeys.value = next;
 }
 
 function tenantTitle(item) {
   const agency = resolveAgency(item);
-  const name = String(
-    item?.agencyName || item?.agency_name || agency?.name || ''
-  ).trim();
-  if (name) return name;
-  return connectionLabel(item);
+  return agency?.name || item?.agencyName || noteConnectionMeta(connection(item)).label;
 }
 
-function onLogoError(item) {
-  const key = logoKey(item);
-  if (!key) return;
-  const next = new Set(failedLogoKeys.value);
-  next.add(key);
-  failedLogoKeys.value = next;
+function connectionStyle(item) {
+  const meta = noteConnectionMeta(connection(item));
+  return { color: meta.color || '#0f766e' };
 }
 
 function connectionIconSvg(item) {
   const key = connection(item);
   if (key === 'session') {
-    return `<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>`;
+    return `<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>`;
   }
   if (key === 'client') {
-    return `<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>`;
+    return `<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>`;
   }
-  return `<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M8 13h8M8 17h5"/></svg>`;
-}
-
-function connectionStyle(item) {
-  const m = noteConnectionMeta(connection(item));
-  return { color: m.color, background: m.bg, borderColor: m.border };
-}
-
-function canRemoveQueueItem(item) {
-  const st = docStatus(item);
-  return st === DOC_STATUS.STARTED || st === DOC_STATUS.NOT_STARTED || !!item.draftId;
-}
-
-function removeQueueTitle(item) {
-  const st = docStatus(item);
-  if (st === DOC_STATUS.NOT_STARTED && !item.draftId) {
-    return 'Remove this ToDo from the work queue';
-  }
-  return 'Delete draft and return this ToDo to not started';
+  return `<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M8 13h8M8 17h5"/></svg>`;
 }
 
 function typeLabel(item) {
-  if (item.noteKind === 'intake') return `Intake${item.serviceCode ? ` (${item.serviceCode})` : ''}`;
-  if (item.noteKind === 'termination') return 'Termination note';
-  if (item.noteKind === 'treatment_plan') return 'Treatment plan renewal';
-  return `Progress${item.serviceCode ? ` (${item.serviceCode})` : ''}`;
+  const code = String(item?.serviceCode || '').trim();
+  const kind = String(item?.noteKind || 'progress').replace(/_/g, ' ');
+  if (code) return `${kind} (${code})`;
+  return kind;
+}
+
+function canRemoveQueueItem(item) {
+  const status = docStatus(item);
+  return status === DOC_STATUS.NOT_STARTED || status === DOC_STATUS.STARTED;
+}
+
+function removeQueueTitle(item) {
+  return docStatus(item) === DOC_STATUS.NOT_STARTED
+    ? 'Remove from work queue'
+    : 'Delete draft (ToDo stays as not started)';
 }
 </script>
 
 <style scoped>
 .na-wq {
-  background: #fff;
+  width: 300px;
+  flex-shrink: 0;
   border-left: 1px solid #e2e8f0;
+  background: #f8fafc;
   display: flex;
   flex-direction: column;
   min-height: 0;
-  height: 100%;
-  max-height: 100%;
   overflow: hidden;
-  padding: 14px 12px;
-  min-width: 0;
 }
 .na-wq--collapsed {
-  padding: 10px 6px;
+  width: 52px;
   align-items: center;
-  gap: 10px;
+  padding: 8px 0;
 }
-.na-wq-rail-expand {
-  width: 36px; height: 36px; border: 1px solid #e2e8f0; border-radius: 10px;
-  background: #f0fdfa; color: #0d5f59; font-size: 1.1rem; cursor: pointer;
-}
-.na-wq-rail-tabs { display: flex; flex-direction: column; gap: 8px; width: 100%; }
-.na-wq-rail-tab {
-  display: flex; flex-direction: column; align-items: center; gap: 4px; border: none;
-  background: #f8fafc; border-radius: 10px; padding: 10px 4px; cursor: pointer;
-  color: #64748b; font-weight: 700; font-size: 0.68rem;
-}
-.na-wq-rail-tab em { font-style: normal; color: #0f172a; }
-.na-wq-rail-dot { width: 8px; height: 8px; border-radius: 999px; }
-.na-wq-rail-dot--pending { background: #0f766e; }
-.na-wq-rail-dot--started { background: #d97706; }
-.na-wq-head-actions { display: flex; align-items: flex-start; gap: 6px; }
+.na-wq-rail-expand,
 .na-wq-collapse {
-  width: 32px; height: 32px; border: 1px solid #e2e8f0; background: #f8fafc;
-  border-radius: 8px; cursor: pointer; color: #475569; font-size: 0.95rem; line-height: 1;
+  border: 1px solid #cbd5e1;
+  background: #fff;
+  border-radius: 8px;
+  width: 32px;
+  height: 32px;
+  cursor: pointer;
+  font-size: 1rem;
+  color: #0f766e;
 }
-.na-wq-collapse:hover { border-color: #99f6e4; color: #0d5f59; }
+.na-wq-rail-tabs {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 12px;
+}
+.na-wq-rail-tab {
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  font-size: 0.7rem;
+  color: #64748b;
+}
+.na-wq-rail-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+}
+.na-wq-rail-dot--pending { background: #0f766e; }
+.na-wq-rail-dot--started { background: #ea580c; }
+.na-wq-rail-dot--cosign { background: #7c3aed; }
 .na-wq-head {
   display: flex;
   justify-content: space-between;
   gap: 8px;
-  align-items: flex-start;
-  margin-bottom: 8px;
+  padding: 14px 14px 8px;
 }
-.na-wq-head strong { display: block; font-size: 0.92rem; color: #0f172a; }
-.na-wq-head p { margin: 2px 0 0; font-size: 0.75rem; color: #64748b; }
-.na-wq-privacy { margin-top: 4px !important; font-size: 0.68rem !important; color: #94a3b8 !important; line-height: 1.3; }
+.na-wq-head strong {
+  display: block;
+  font-size: 0.95rem;
+  color: #0f172a;
+}
+.na-wq-head p {
+  margin: 4px 0 0;
+  font-size: 0.75rem;
+  color: #64748b;
+}
+.na-wq-head-actions {
+  display: flex;
+  gap: 6px;
+  align-items: flex-start;
+}
 .na-wq-add {
   border: none;
   background: #0f766e;
   color: #fff;
   border-radius: 8px;
-  font-weight: 700;
+  padding: 6px 10px;
   font-size: 0.75rem;
-  padding: 8px 10px;
+  font-weight: 600;
   cursor: pointer;
   white-space: nowrap;
+}
+.na-wq-modes {
+  display: flex;
+  gap: 6px;
+  padding: 0 14px 10px;
+}
+.na-wq-mode {
+  flex: 1;
+  border: 1px solid #cbd5e1;
+  background: #fff;
+  border-radius: 999px;
+  padding: 6px 8px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: #475569;
+  cursor: pointer;
+}
+.na-wq-mode.on {
+  border-color: #0f766e;
+  background: #ecfdf5;
+  color: #0f766e;
+}
+.na-wq-mode--cosign.on {
+  border-color: #7c3aed;
+  background: #f5f3ff;
+  color: #6d28d9;
 }
 .na-wq-legend {
   display: flex;
   gap: 6px;
-  margin-bottom: 10px;
-  flex-wrap: wrap;
-}
-.na-wq-sort {
-  display: flex;
-  align-items: flex-end;
-  gap: 8px;
-  margin: 0 0 10px;
-}
-.na-wq-sort-label {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  flex: 1;
-  min-width: 0;
-  font-size: 0.72rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: #64748b;
-}
-.na-wq-sort-select {
-  width: 100%;
-  border: 1px solid #cbd5e1;
-  border-radius: 8px;
-  padding: 6px 8px;
-  font-size: 0.82rem;
-  font-weight: 600;
-  color: #0f172a;
-  background: #fff;
-  text-transform: none;
-  letter-spacing: 0;
-}
-.na-wq-sort-dir {
-  flex-shrink: 0;
-  border: 1px solid #cbd5e1;
-  border-radius: 8px;
-  padding: 6px 10px;
-  font-size: 0.78rem;
-  font-weight: 700;
-  color: #0f172a;
-  background: #f8fafc;
-  cursor: pointer;
-  white-space: nowrap;
-}
-.na-wq-sort-dir:hover {
-  border-color: #99f6e4;
-  color: #0d5f59;
-  background: #f0fdfa;
+  padding: 0 14px 8px;
 }
 .na-wq-chip {
   font-size: 0.68rem;
-  font-weight: 800;
+  font-weight: 600;
   border-radius: 999px;
-  padding: 3px 8px;
-  border: 1px solid;
+  padding: 2px 8px;
 }
 .na-wq-chip--pending {
+  background: #ccfbf1;
   color: #0f766e;
-  background: #f0fdfa;
-  border-color: #99f6e4;
 }
 .na-wq-chip--started {
-  color: #b45309;
-  background: #fffbeb;
-  border-color: #fcd34d;
+  background: #ffedd5;
+  color: #c2410c;
 }
-.na-wq-actions {
-  display: grid;
-  grid-template-columns: 1fr 1fr auto;
-  gap: 6px;
-  margin-bottom: 12px;
-}
-.na-wq-primary, .na-wq-outline, .na-wq-link {
-  border-radius: 8px;
-  font-weight: 700;
-  font-size: 0.78rem;
-  padding: 8px 6px;
-  cursor: pointer;
-}
-.na-wq-primary {
-  border: none;
-  background: #0f766e;
-  color: #fff;
-}
-.na-wq-outline {
-  border: 1px solid #0f766e;
-  background: #fff;
-  color: #0d5f59;
-}
-.na-wq-link {
-  border: none;
-  background: transparent;
-  color: #64748b;
-}
-.na-wq-primary:disabled, .na-wq-outline:disabled, .na-wq-link:disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
-}
-.na-wq-undo {
+.na-wq-sort {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: 8px;
-  margin: -4px 0 12px;
+  padding: 0 14px 10px;
+}
+.na-wq-sort-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #64748b;
+  flex: 1;
+}
+.na-wq-sort-select {
+  flex: 1;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  padding: 4px 6px;
+  font-size: 0.78rem;
+  text-transform: none;
+  letter-spacing: normal;
+  font-weight: 500;
+  color: #0f172a;
+  background: #fff;
+}
+.na-wq-sort-dir {
+  border: 1px solid #cbd5e1;
+  background: #fff;
+  border-radius: 8px;
+  padding: 4px 8px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: #334155;
+  cursor: pointer;
+}
+.na-wq-undo {
+  margin: 0 14px 8px;
   padding: 8px 10px;
   border-radius: 10px;
-  background: #fff7ed;
-  border: 1px solid #fdba74;
-  color: #9a3412;
-  font-size: 0.78rem;
-  font-weight: 600;
+  background: #ecfeff;
+  border: 1px solid #a5f3fc;
+  font-size: 0.75rem;
+  color: #0e7490;
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  align-items: center;
 }
 .na-wq-undo-btn {
-  border: 1px solid #ea580c;
-  background: #fff;
-  color: #c2410c;
-  border-radius: 8px;
-  font-weight: 750;
-  font-size: 0.76rem;
-  padding: 4px 10px;
+  border: none;
+  background: transparent;
+  color: #0f766e;
+  font-weight: 700;
   cursor: pointer;
-  white-space: nowrap;
-}
-.na-wq-undo-btn:hover {
-  background: #ffedd5;
 }
 .na-wq-empty {
+  margin: 8px 14px;
+  padding: 16px 12px;
+  border-radius: 12px;
+  background: #fff;
+  border: 1px dashed #cbd5e1;
   color: #64748b;
-  font-size: 0.82rem;
+  font-size: 0.8rem;
   line-height: 1.4;
-  padding: 8px 2px;
 }
 .na-wq-list {
   list-style: none;
   margin: 0;
-  padding: 0;
+  padding: 0 10px 16px;
   overflow: auto;
   flex: 1;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 8px;
 }
 .na-wq-item {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 4px;
+  position: relative;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  background: #fff;
+  overflow: hidden;
 }
-.na-wq-delete {
-  border: none;
-  background: transparent;
-  color: #b91c1c;
-  font-size: 1.1rem;
-  font-weight: 700;
-  cursor: pointer;
-  padding: 4px 6px;
-  line-height: 1;
+.na-wq-item.active {
+  border-color: #14b8a6;
+  box-shadow: 0 0 0 1px rgba(20, 184, 166, 0.25);
+}
+.na-wq-item--started {
+  border-left: 3px solid #ea580c;
+}
+.na-wq-item--not_started {
+  border-left: 3px solid #0f766e;
+}
+.na-wq-item--cosign {
+  border-left: 3px solid #7c3aed;
 }
 .na-wq-item-btn {
   width: 100%;
   text-align: left;
-  border: 1px solid #e2e8f0;
-  background: #f8fafc;
-  border-radius: 8px;
-  padding: 6px 8px;
+  border: none;
+  background: transparent;
+  padding: 10px 12px;
   cursor: pointer;
-  font: inherit;
-  color: inherit;
-}
-.na-wq-item--completed .na-wq-item-btn,
-.na-wq-item--signed .na-wq-item-btn {
-  border-color: #99f6e4;
-  background: #ecfdf5;
-}
-.na-wq-item--not_started .na-wq-item-btn {
-  border-color: #99f6e4;
-  background: #f0fdfa;
-}
-.na-wq-item--started .na-wq-item-btn {
-  border-color: #fcd34d;
-  background: #fffbeb;
-}
-.na-wq-item.active .na-wq-item-btn {
-  box-shadow: inset 0 0 0 2px rgba(15, 23, 42, 0.12);
 }
 .na-wq-item-top {
   display: flex;
   justify-content: space-between;
-  gap: 6px;
-  font-size: 0.84rem;
-  align-items: center;
+  gap: 8px;
+  align-items: flex-start;
+  font-size: 0.82rem;
 }
 .na-wq-item-top strong {
+  color: #0f172a;
   display: inline-flex;
   align-items: center;
   gap: 6px;
   min-width: 0;
 }
+.na-wq-item-top span {
+  font-size: 0.68rem;
+  font-weight: 700;
+  color: #c2410c;
+  white-space: nowrap;
+}
+.na-wq-item--not_started .na-wq-item-top span { color: #0f766e; }
+.na-wq-item--cosign .na-wq-item-top span { color: #6d28d9; }
+.na-wq-item-meta {
+  margin-top: 4px;
+  font-size: 0.72rem;
+  color: #64748b;
+  line-height: 1.35;
+}
 .na-wq-conn {
-  width: 22px;
-  height: 22px;
-  border-radius: 6px;
-  border: 1px solid;
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  overflow: hidden;
-}
-.na-wq-conn--logo {
-  border-color: #e2e8f0;
-  background: #fff;
-  color: inherit;
 }
 .na-wq-tenant-logo {
-  width: 100%;
-  height: 100%;
+  width: 16px;
+  height: 16px;
   object-fit: contain;
-  display: block;
+  border-radius: 3px;
 }
-.na-wq-item-top span { color: #64748b; font-size: 0.72rem; font-weight: 700; }
-.na-wq-item--started .na-wq-item-top span { color: #b45309; }
-.na-wq-item--not_started .na-wq-item-top span { color: #0f766e; }
-.na-wq-item-meta, .na-wq-item-type {
-  color: #64748b;
-  font-size: 0.75rem;
-  margin-top: 2px;
+.na-wq-delete {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  border: none;
+  background: transparent;
+  color: #94a3b8;
+  cursor: pointer;
+  font-size: 1rem;
+  line-height: 1;
+  padding: 2px 6px;
 }
-.na-wq-item-type { font-weight: 600; color: #334155; }
-@media (max-width: 1100px) {
-  .na-wq {
-    height: auto;
-    max-height: 320px;
-    position: relative;
-    border-left: none;
-    border-top: 1px solid #e2e8f0;
-  }
-}
+.na-wq-delete:hover { color: #b91c1c; }
 </style>

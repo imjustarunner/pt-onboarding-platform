@@ -10,7 +10,12 @@
           <span class="na-swatch na-swatch--goal" /> Goal
         </p>
         <ul v-else-if="compactLines.length" class="na-obj-compact-list">
-          <li v-for="(line, idx) in compactLines" :key="idx">{{ line }}</li>
+          <li v-for="(line, idx) in compactLines" :key="idx">
+            <span class="na-obj-compact-prefix">{{ line.prefix }}</span>
+            <span class="na-obj-compact-text">{{ line.text }}</span>
+            <span v-if="line.rating" class="na-obj-compact-rating">{{ line.rating }}</span>
+            <span v-if="line.progress" class="na-obj-compact-progress" :class="line.progressClass">{{ line.progress }}</span>
+          </li>
         </ul>
       </div>
       <button type="button" class="na-obj-toggle" @click="sectionCollapsed = !sectionCollapsed">
@@ -50,7 +55,16 @@
         :class="{ 'na-obj-card--collapsed': isObjectiveCollapsed(obj.id) }"
       >
         <div v-if="isObjectiveCollapsed(obj.id)" class="na-obj-collapsed-line">
-          <span>{{ collapsedLine(obj, goal) }}</span>
+          <span>
+            <span class="na-obj-compact-prefix">{{ collapsedParts(obj, goal).prefix }}</span>
+            <span class="na-obj-compact-text">{{ collapsedParts(obj, goal).text }}</span>
+            <span v-if="collapsedParts(obj, goal).rating" class="na-obj-compact-rating">{{ collapsedParts(obj, goal).rating }}</span>
+            <span
+              v-if="collapsedParts(obj, goal).progress"
+              class="na-obj-compact-progress"
+              :class="collapsedParts(obj, goal).progressClass"
+            >{{ collapsedParts(obj, goal).progress }}</span>
+          </span>
           <button type="button" class="na-obj-edit-btn" :disabled="disabled" @click="expandObjective(obj.id)">Edit</button>
         </div>
         <template v-else>
@@ -119,7 +133,6 @@ import {
   startScaleValue,
   stripPlanHeadingPrefix
 } from '../../utils/noteAidTreatmentHelpers.js';
-import { formatObjectiveRatingLine } from '../../utils/noteAidUiHelpers.js';
 
 const props = defineProps({
   goals: { type: Array, default: () => [] },
@@ -143,7 +156,7 @@ const compactLines = computed(() => {
     for (const obj of goal.objectives || []) {
       const e = entry(obj.id);
       if (!e) continue;
-      lines.push(collapsedLine(obj, goal));
+      lines.push(collapsedParts(obj, goal));
     }
   }
   return lines;
@@ -179,20 +192,40 @@ function maybeCollapseSection() {
   }
 }
 
-function collapsedLine(obj, goal) {
+function collapsedParts(obj, goal) {
   const e = entry(obj.id);
-  if (!e) return displayObjectiveText(obj);
-  return formatObjectiveRatingLine({
-    goalIndex: goal.goal_index,
-    objectiveIndex: obj.objective_index,
-    objectiveText: displayObjectiveText(obj),
-    disposition: e.disposition,
-    scaleValue: e.scaleValue,
-    scaleTarget: e.scaleTarget,
-    progressLabel: e.progressLabel,
-    raterKind: e.raterKind,
-    raterLabel: e.raterLabel
-  });
+  const goalIdx = goal.goal_index != null ? `G${goal.goal_index}` : '';
+  const objIdx = obj.objective_index != null ? `O${obj.objective_index}` : '';
+  const prefix = [goalIdx, objIdx].filter(Boolean).join(' · ');
+  const text = displayObjectiveText(obj);
+  if (!e) {
+    return { prefix: prefix ? `${prefix} ` : '', text, rating: '', progress: '', progressClass: '' };
+  }
+  if (e.disposition && e.disposition !== 'rated') {
+    return {
+      prefix: prefix ? `${prefix} ` : '',
+      text: `${text}: `,
+      rating: String(e.disposition).replace(/_/g, ' '),
+      progress: '',
+      progressClass: ''
+    };
+  }
+  const val = e.scaleValue != null ? `${e.scaleValue}/10` : '—';
+  const target = e.scaleTarget != null ? ` (goal ${e.scaleTarget})` : '';
+  const progressRaw = e.progressLabel ? String(e.progressLabel) : '';
+  const progressShort = progressRaw ? progressRaw.replace(/_/g, ' ') : '';
+  return {
+    prefix: prefix ? `${prefix} ` : '',
+    text: `${text}: `,
+    rating: `${val}${target}`,
+    progress: progressShort ? ` · ${progressShort}` : '',
+    progressClass: progressRaw || ''
+  };
+}
+
+function collapsedLine(obj, goal) {
+  const p = collapsedParts(obj, goal);
+  return `${p.prefix}${p.text}${p.rating}${p.progress}`.trim();
 }
 
 /** @type {Record<string, object>} keyed objectiveId:raterKind */
@@ -586,6 +619,9 @@ defineExpose({
   border-color: #0f766e;
   color: #fff;
   outline: none;
+  font-weight: 800;
+  transform: scale(1.08);
+  box-shadow: 0 0 0 2px rgba(15, 118, 110, 0.35);
 }
 .na-scale-btn.selected.goal,
 .na-scale-btn.prev.goal:not(.selected),
@@ -619,13 +655,32 @@ defineExpose({
 .na-obj-progress {
   margin: 8px 0 0;
   font-size: 0.82rem;
-  font-weight: 600;
+  font-weight: 700;
 }
 .na-obj-progress.improved { color: #15803d; }
 .na-obj-progress.progressing { color: #0f766e; }
 .na-obj-progress.regressed { color: #b91c1c; }
 .na-obj-progress.unchanged { color: #64748b; }
 .na-obj-progress.muted { color: #64748b; font-weight: 500; }
+.na-obj-compact-prefix {
+  font-weight: 700;
+  color: #0f766e;
+}
+.na-obj-compact-rating {
+  font-weight: 800;
+  color: #0f172a;
+  background: #ecfeff;
+  border-radius: 6px;
+  padding: 0 5px;
+  margin-left: 2px;
+}
+.na-obj-compact-progress {
+  font-weight: 700;
+}
+.na-obj-compact-progress.improved { color: #15803d; }
+.na-obj-compact-progress.progressing { color: #0f766e; }
+.na-obj-compact-progress.regressed { color: #b91c1c; }
+.na-obj-compact-progress.unchanged { color: #64748b; }
 .na-field-hint {
   margin: 6px 0 0;
   font-size: 0.75rem;

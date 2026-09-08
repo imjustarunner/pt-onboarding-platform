@@ -56,11 +56,10 @@ export const COLORADO_FREEFORM_PARAGRAPH_INSTRUCTIONS = [
  */
 export const H0031_INTAKE_OUTPUT_INSTRUCTIONS = [
   'Return the H0031 intake note only—no preamble.',
-  'Use these titled narrative sections (same structure as 90791 intake):',
-  'Identification, Presenting Problem, History of Present Illness, Psychiatric History, Substance Use History, Medical History, Family History, Social History, Developmental History, Educational / Occupational History, Objective Content, Psychosocial Codes (Z/R), Clinical Impressions, Plan, Treatment Recommendations.',
-  'Diagnoses / psychosocial coding: Z and R codes only (social determinants / symptom codes) unless the clinician credential permits DSM diagnoses and chart diagnoses were supplied.',
-  'Do NOT invent DSM-5 / F-code mental-health diagnoses when operating at bachelor’s level.',
-  'Do not include a Mental Status Exam section.',
+  'Use the same titled narrative sections as a 90791 intake, exactly:',
+  'Identification, Presenting Problem, History of Present Illness, Psychiatric History, Substance Use History, Medical History, Family History, Social History, Developmental History, Educational / Occupational History, Objective Content, Mental Status Examination, Diagnosis, Clinical Impressions, Plan, Treatment Recommendations.',
+  'Fill every section from the clinician input when information is available; write "Not assessed / not provided" only when the source material truly lacks that domain.',
+  'Diagnoses: include chart diagnoses when the clinician credential permits; otherwise prefer Z and R (social determinant) codes and do not invent DSM F-codes.',
   TRANSCRIPT_FIDELITY_INSTRUCTIONS
 ].join('\n');
 

@@ -408,6 +408,7 @@ describe('collapseLeftLibraryRows signed vs leftover draft', () => {
       }],
       signedSessions: [{
         noteId: 50,
+        draftId: 99,
         clientId: 2031,
         dateOfService: '2026-06-25',
         serviceCode: '90837'
@@ -431,6 +432,7 @@ describe('collapseLeftLibraryRows signed vs leftover draft', () => {
       }],
       signedSessions: [{
         noteId: 77,
+        draftId: 12,
         clientId: 8,
         dateOfService: '2026-06-13',
         serviceCode: '90834'
@@ -480,6 +482,7 @@ describe('collapseLeftLibraryRows signed vs leftover draft', () => {
       }],
       signedSessions: [{
         noteId: 901,
+        draftId: 99,
         clientId: 2031,
         clinicalSessionId: 777,
         dateOfService: '2026-06-25',
@@ -489,6 +492,29 @@ describe('collapseLeftLibraryRows signed vs leftover draft', () => {
     expect(rows).toHaveLength(1);
     expect(rows[0].docStatus).toBe(DOC_STATUS.SIGNED);
     expect(rows[0].source).toBe('signed_note');
+  });
+
+  it('does not hide an open draft behind an unrelated same-day signed note', () => {
+    const rows = buildLeftLibraryRows({
+      drafts: [{
+        id: 99,
+        input_text: 'notes',
+        client_id: 2031,
+        client_full_name: 'Frank W. Meyers, IV',
+        date_of_service: '2026-08-25',
+        service_code: '90837'
+      }],
+      signedSessions: [{
+        noteId: 901,
+        clientId: 2031,
+        dateOfService: '2026-08-25',
+        serviceCode: '90837',
+        clientName: 'Frank W. Meyers, IV'
+      }]
+    });
+    expect(rows.length).toBeGreaterThanOrEqual(2);
+    expect(rows.some((r) => r.source === 'draft' && r.docStatus === DOC_STATUS.STARTED)).toBe(true);
+    expect(rows.some((r) => r.source === 'signed_note')).toBe(true);
   });
 
   it('keeps two signed chart notes for the same client on different dates', () => {
@@ -516,5 +542,30 @@ describe('collapseLeftLibraryRows signed vs leftover draft', () => {
     expect(rows).toHaveLength(2);
     expect(rows.map((r) => r.date_of_service).sort()).toEqual(['2026-06-10', '2026-06-25']);
     expect(rows.every((r) => r.docStatus === DOC_STATUS.SIGNED)).toBe(true);
+  });
+
+  it('keeps an in-progress ToDo visible when a same-day signed note exists without shared draft/session', () => {
+    const rows = buildLeftLibraryRows({
+      drafts: [],
+      workQueueItems: [{
+        id: 'wq-frank',
+        clientId: 2031,
+        clientName: 'Frank W. Meyers, IV',
+        date: '2026-08-25',
+        serviceCode: '90837',
+        status: DOC_STATUS.STARTED,
+        docStatus: DOC_STATUS.STARTED
+      }],
+      signedSessions: [{
+        noteId: 50,
+        clientId: 2031,
+        dateOfService: '2026-08-25',
+        serviceCode: '90837',
+        clientName: 'Frank W. Meyers, IV'
+      }]
+    });
+    expect(rows.length).toBeGreaterThanOrEqual(2);
+    expect(rows.some((r) => r.source === 'work_queue' && r.docStatus === DOC_STATUS.STARTED)).toBe(true);
+    expect(rows.some((r) => r.source === 'signed_note' && r.docStatus === DOC_STATUS.SIGNED)).toBe(true);
   });
 });

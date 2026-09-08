@@ -411,7 +411,8 @@ export function buildLeftLibraryRows({ drafts = [], workQueueItems = [], signedS
       clinicalSessionId: item.clinicalSessionId || null,
       client_full_name: item.clientName || null,
       initials: initialsFromDisplayName(item.clientName || item.initials),
-      agency_name: null,
+      agency_id: item.agencyId || item.agency_id || null,
+      agency_name: item.agencyName || item.agency_name || null,
       client_type: null,
       service_code: item.serviceCode || null,
       date_of_service: item.date || null,
@@ -481,7 +482,8 @@ export function sessionDedupeKeys(row = {}) {
   if (cid > 0 && dos && code) keys.push(`cdc:${cid}:${dos}:${code}`);
   const cs = Number(row.clinicalSessionId || row.clinical_session_id || 0);
   if (cs > 0) keys.push(`cs:${cs}`);
-  if (cid > 0 && dos) keys.push(`cd:${cid}:${dos}`);
+  // Do NOT add bare client+date keys — that collapses a new in-progress ToDo with an
+  // unrelated signed note from the same day and hides the client from In progress.
   if (!keys.length && row.id) keys.push(`row:${row.id}`);
   return keys;
 }
@@ -575,7 +577,9 @@ function mergeCollapsedLibraryRows(a, b) {
   };
 }
 
-/** Collapse duplicate rows; never merge two distinct signed chart notes (note:{id}). */
+/** Collapse duplicate rows; never merge two distinct signed chart notes (note:{id}).
+ *  Never merge an in-progress draft/ToDo into a signed chart note on weak client+DOS+code
+ *  alone — require draft / office-event / clinical-session / note identity. */
 export function collapseLeftLibraryRows(rows = []) {
   const list = Array.isArray(rows) ? rows : [];
   if (list.length <= 1) return list;
@@ -593,11 +597,33 @@ export function collapseLeftLibraryRows(rows = []) {
     const rj = find(j);
     if (ri !== rj) parent[rj] = ri;
   };
+  const isSigned = (row) => normalizeDocStatus(row?.docStatus) === DOC_STATUS.SIGNED;
+  const strongKeys = (row) => sessionDedupeKeys(row).filter(
+    (k) => k.startsWith('note:') || k.startsWith('draft:') || k.startsWith('oe:') || k.startsWith('cs:')
+  );
+  const canUnion = (a, b, sharedKey) => {
+    if (isSigned(a) === isSigned(b)) return true;
+    const weak = !!sharedKey && (
+      sharedKey.startsWith('cdc:')
+      || sharedKey.startsWith('cd:')
+      || sharedKey.startsWith('row:')
+    );
+    if (!weak) return true;
+    const sa = new Set(strongKeys(a));
+    if (strongKeys(b).some((k) => sa.has(k))) return true;
+    // Mixed started/signed on client+DOS+code alone must not hide open work.
+    // Leftover drafts after sign collapse only when draftId is shared (strong key above).
+    return false;
+  };
   const keyToIndex = new Map();
   for (let i = 0; i < list.length; i += 1) {
     for (const key of sessionDedupeKeys(list[i])) {
-      if (keyToIndex.has(key)) union(i, keyToIndex.get(key));
-      else keyToIndex.set(key, i);
+      if (keyToIndex.has(key)) {
+        const j = keyToIndex.get(key);
+        if (canUnion(list[i], list[j], key)) union(i, j);
+      } else {
+        keyToIndex.set(key, i);
+      }
     }
   }
   const groups = new Map();

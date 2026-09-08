@@ -18,25 +18,45 @@ export const listNotesToSign = async (req, res, next) => {
 
     const isSupervisor = await SupervisorAssignment.hasSupervisees(userId);
     if (!isSupervisor) {
-      return res.json({ notes: [], count: 0 });
+      return res.json({ notes: [], count: 0, isSupervisor: false });
     }
 
     const [rows] = await pool.execute(
       `SELECT cns.id, cns.clinical_note_id, cns.provider_user_id, cns.supervisor_user_id,
-              cns.status, cns.created_at, cns.provider_signed_at,
-              u.first_name AS provider_first_name, u.last_name AS provider_last_name
+              cns.status, cns.created_at, cns.provider_signed_at, cns.agency_id,
+              u.first_name AS provider_first_name, u.last_name AS provider_last_name,
+              cn.client_id, cn.service_code, cn.date_of_service, cn.title,
+              c.full_name AS client_name, c.first_name AS client_first_name, c.last_name AS client_last_name
        FROM clinical_note_signoffs cns
        JOIN users u ON u.id = cns.provider_user_id
+       LEFT JOIN clinical_notes cn ON cn.id = cns.clinical_note_id
+       LEFT JOIN clients c ON c.id = cn.client_id
        WHERE cns.supervisor_user_id = ?
          AND cns.status = 'awaiting_supervisor'
        ORDER BY cns.provider_signed_at DESC, cns.created_at DESC
        LIMIT 50`,
       [userId]
-    ).catch(() => [[]]);
+    ).catch(async () => {
+      // Fallback when clinical_notes / clients are unavailable on this pool.
+      const [basic] = await pool.execute(
+        `SELECT cns.id, cns.clinical_note_id, cns.provider_user_id, cns.supervisor_user_id,
+                cns.status, cns.created_at, cns.provider_signed_at, cns.agency_id,
+                u.first_name AS provider_first_name, u.last_name AS provider_last_name
+         FROM clinical_note_signoffs cns
+         JOIN users u ON u.id = cns.provider_user_id
+         WHERE cns.supervisor_user_id = ?
+           AND cns.status = 'awaiting_supervisor'
+         ORDER BY cns.provider_signed_at DESC, cns.created_at DESC
+         LIMIT 50`,
+        [userId]
+      ).catch(() => [[]]);
+      return [basic || []];
+    });
 
     res.json({
       notes: rows || [],
-      count: (rows || []).length
+      count: (rows || []).length,
+      isSupervisor: true
     });
   } catch (err) {
     next(err);
@@ -53,7 +73,7 @@ export const getNotesToSignCount = async (req, res, next) => {
 
     const isSupervisor = await SupervisorAssignment.hasSupervisees(userId);
     if (!isSupervisor) {
-      return res.json({ count: 0 });
+      return res.json({ count: 0, isSupervisor: false });
     }
 
     const [[row]] = await pool.execute(
@@ -64,7 +84,7 @@ export const getNotesToSignCount = async (req, res, next) => {
       [userId]
     ).catch(() => [[{ c: 0 }]]);
 
-    res.json({ count: Number(row?.c || 0) });
+    res.json({ count: Number(row?.c || 0), isSupervisor: true });
   } catch (err) {
     next(err);
   }
