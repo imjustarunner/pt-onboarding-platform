@@ -271,6 +271,20 @@ export const saveTreatmentPlanToChart = async (req, res, next) => {
       }))
     });
 
+    // Client setup: importing/finalizing a plan replaces intake-packet bootstrap drafts.
+    const sourceTool = String(req.body.sourceToolId || '').trim();
+    if (sourceTool === 'note_aid_plan_import' || requestedStatus !== 'draft') {
+      try {
+        await ClinicalTreatmentPlan.voidPacketBootstrapDrafts({
+          agencyId,
+          clientId,
+          exceptPlanId: plan?.id || null
+        });
+      } catch (voidErr) {
+        console.warn('[treatment-plans] void bootstrap drafts failed', voidErr?.message || voidErr);
+      }
+    }
+
     if (plan?.id && primaryDiagnosisId) {
       await attachDiagnosisToTreatmentPlan({
         planId: plan.id,
@@ -328,6 +342,26 @@ export const saveTreatmentPlanToChart = async (req, res, next) => {
       // best-effort
     }
     return res.status(201).json({ plan: refreshed, primaryDiagnosisId: primaryDiagnosisId || null });
+  } catch (e) {
+    next(e);
+  }
+};
+
+/** Client-setup only: eradicate intake-packet bootstrap treatment plan drafts. */
+export const voidPacketBootstrapTreatmentPlanDrafts = async (req, res, next) => {
+  try {
+    const agencyId = parseIntValue(req.body.agencyId);
+    const clientId = parseIntValue(req.body.clientId);
+    if (!agencyId || !clientId) {
+      return res.status(400).json({ error: { message: 'agencyId and clientId are required' } });
+    }
+    await ClinicalEligibilityService.ensureAgencyAccess({ reqUser: req.user, agencyId });
+    const voided = await ClinicalTreatmentPlan.voidPacketBootstrapDrafts({
+      agencyId,
+      clientId,
+      exceptPlanId: parseIntValue(req.body.exceptPlanId)
+    });
+    return res.json({ voided });
   } catch (e) {
     next(e);
   }
@@ -1075,6 +1109,136 @@ export const getClinicalNoteById = async (req, res, next) => {
       || primaryDiagnosis?.justification
       || null;
 
+    let providerSigner = null;
+    const signerId = note.created_by_user_id || metadata?.signedByUserId || metadata?.providerUserId || null;
+    if (signerId) {
+      try {
+        const pool = (await import('../config/database.js')).default;
+        const [userRows] = await pool.execute(
+          `SELECT id, first_name, last_name, credentials, license_type, npi, email
+           FROM users WHERE id = ? LIMIT 1`,
+          [Number(signerId)]
+        );
+        const u = userRows?.[0];
+        if (u) {
+          providerSigner = {
+            id: u.id,
+            name: [u.first_name, u.last_name].filter(Boolean).join(' ').trim() || null,
+            credentials: u.credentials || u.license_type || null,
+            npi: u.npi || null,
+            email: u.email || null
+          };
+        }
+      } catch {
+        providerSigner = null;
+      }
+    }
+
+    let sessionTiming = null;
+    if (clinicalSessionId) {
+      try {
+        const [sessRows] = await clinicalPool.execute(
+          `SELECT id, scheduled_start_at, scheduled_end_at, duration_minutes, service_code, location_label, provider_user_id
+           FROM clinical_sessions WHERE id = ? LIMIT 1`,
+          [clinicalSessionId]
+        );
+        const s = sessRows?.[0];
+        if (s) {
+          sessionTiming = {
+            startAt: s.scheduled_start_at || null,
+            endAt: s.scheduled_end_at || null,
+            durationMinutes: s.duration_minutes ?? structuredChart?.durationMinutes ?? null,
+            serviceCode: s.service_code || null,
+            locationLabel: s.location_label || null,
+            providerUserId: s.provider_user_id || null
+          };
+          if (!providerSigner && s.provider_user_id) {
+            try {
+              const pool = (await import('../config/database.js')).default;
+              const [userRows] = await pool.execute(
+                `SELECT id, first_name, last_name, credentials, license_type, npi, email
+                 FROM users WHERE id = ? LIMIT 1`,
+                [Number(s.provider_user_id)]
+              );
+              const u = userRows?.[0];
+              if (u) {
+                providerSigner = {
+                  id: u.id,
+                  name: [u.first_name, u.last_name].filter(Boolean).join(' ').trim() || null,
+                  credentials: u.credentials || u.license_type || null,
+                  npi: u.npi || null,
+                  email: u.email || null
+                };
+              }
+            } catch {
+              // ignore
+            }
+          }
+        }
+      } catch {
+        sessionTiming = null;
+      }
+    }
+
+    let linkedClaim = null;
+    try {
+      const encounters = await listBillingEncountersForClient({
+        agencyId: note.agency_id,
+        clientId: note.client_id,
+        limit: 50
+      });
+      const dos = metadata?.dateOfService ? String(metadata.dateOfService).slice(0, 10) : null;
+      const claimRow = (encounters || []).find((e) => {
+        if (Number(e.clinical_note_id || 0) === Number(note.id)) return true;
+        if (dos && String(e.service_date || '').slice(0, 10) === dos) return true;
+        return false;
+      }) || null;
+      if (claimRow) {
+        const raw = String(
+          claimRow.claim_status || claimRow.claim_md_status || claimRow.billing_status || claimRow.status || ''
+        ).toLowerCase();
+        let statusKey = 'waiting';
+        if (/submit|sent|transmit/.test(raw)) statusKey = 'submitted';
+        else if (/reject|deny|denied/.test(raw)) statusKey = 'rejected';
+        else if (/complete|paid|accept|adjudicat/.test(raw)) statusKey = 'complete';
+        else if (/pend|wait|draft|ready|queue/.test(raw)) statusKey = 'waiting';
+        linkedClaim = {
+          id: claimRow.id,
+          statusKey,
+          statusLabel:
+            statusKey === 'submitted' ? 'Submitted'
+              : statusKey === 'rejected' ? 'Rejected'
+                : statusKey === 'complete' ? 'Complete'
+                  : 'Waiting',
+          billingNpi: claimRow.billing_npi || null,
+          renderingNpi: claimRow.rendering_npi || null
+        };
+      }
+    } catch {
+      linkedClaim = null;
+    }
+
+    let clientPayer = null;
+    if (note.client_id) {
+      try {
+        const pool = (await import('../config/database.js')).default;
+        const [cRows] = await pool.execute(
+          `SELECT primary_insurer_name, insurance_type_label, insurance_member_id
+           FROM clients WHERE id = ? LIMIT 1`,
+          [note.client_id]
+        );
+        const c = cRows?.[0];
+        if (c) {
+          clientPayer = {
+            name: c.primary_insurer_name || c.insurance_type_label || null,
+            memberId: c.insurance_member_id || null
+          };
+        }
+      } catch {
+        clientPayer = null;
+      }
+    }
+
     return res.json({
       note: {
         id: note.id,
@@ -1082,7 +1246,9 @@ export const getClinicalNoteById = async (req, res, next) => {
         clientId: note.client_id,
         title: note.title,
         noteType: note.note_type || metadata?.noteType || null,
-        serviceCode: metadata?.serviceCode || null,
+        serviceCode: metadata?.serviceCode || sessionTiming?.serviceCode || null,
+        billingPrimaryUnits: metadata?.billingPrimaryUnits || 1,
+        billingAddons: metadata?.billingAddons || [],
         clinicalSessionId,
         officeEventId,
         standalone,
@@ -1095,6 +1261,14 @@ export const getClinicalNoteById = async (req, res, next) => {
         outputJson,
         metadata,
         structuredChart,
+        sessionTiming,
+        providerSigner,
+        linkedClaim,
+        clientPayer,
+        locationLabel: structuredChart?.locationLabel || sessionTiming?.locationLabel || metadata?.locationLabel || null,
+        startTime: structuredChart?.startTime || null,
+        endTime: structuredChart?.endTime || null,
+        durationMinutes: structuredChart?.durationMinutes ?? sessionTiming?.durationMinutes ?? null,
         primaryDiagnosis: primaryDiagnosis
           ? {
               id: primaryDiagnosis.id,

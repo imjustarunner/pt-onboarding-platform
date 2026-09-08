@@ -15,6 +15,7 @@
         </a>
         <strong v-else>{{ clientLabel || '—' }}</strong>
         <span v-if="clientLinked" class="badge">Chart linked</span>
+        <span v-if="payerLabel" class="payer">Payer · {{ payerLabel }}</span>
       </div>
       <div class="na-quick-session__cell">
         <span class="lbl">DOS</span>
@@ -27,17 +28,22 @@
         />
         <strong v-else>{{ dateOfService || '—' }}</strong>
       </div>
-      <div class="na-quick-session__cell">
+      <div class="na-quick-session__cell na-quick-session__cell--code">
         <span class="lbl">Code</span>
         <select
-          v-if="editable && serviceCodeChoices.length > 1"
+          v-if="editable && displayCodeChoices.length"
           class="na-quick-session__select"
-          :value="serviceCode"
-          @change="$emit('update:serviceCode', $event.target.value)"
+          :value="serviceCodeSelectValue"
+          @change="onCodeChange($event.target.value)"
         >
-          <option v-for="c in serviceCodeChoices" :key="c" :value="c">{{ c }}</option>
+          <option v-for="opt in displayCodeChoices" :key="opt.value" :value="opt.value">
+            {{ opt.label }}
+          </option>
+          <option v-if="moreCodesAvailable && !showAllCodes" value="__choose_more__">
+            Choose more…
+          </option>
         </select>
-        <strong v-else>{{ serviceCode || '—' }}</strong>
+        <strong v-else>{{ serviceCodeLabel || serviceCode || '—' }}</strong>
       </div>
       <div class="na-quick-session__cell na-quick-session__cell--participants">
         <span class="lbl">Participants</span>
@@ -129,16 +135,15 @@
         <span class="lbl">Clinician</span>
         <strong>{{ clinicianLabel || '—' }}</strong>
       </div>
-      <div class="na-quick-session__cell na-quick-session__cell--setup">
+      <div v-if="!setupComplete" class="na-quick-session__cell na-quick-session__cell--setup">
         <span class="lbl">Setup</span>
         <button
           type="button"
           class="na-quick-session__setup"
-          :class="{ ok: setupComplete }"
           @click="$emit('toggle-setup')"
         >
-          <span aria-hidden="true">{{ setupComplete ? '✓' : '!' }}</span>
-          {{ setupComplete ? 'Client setup complete' : 'Complete client setup' }}
+          <span aria-hidden="true">!</span>
+          Complete client setup
           <span class="chev" aria-hidden="true">▾</span>
         </button>
       </div>
@@ -151,16 +156,26 @@
 </template>
 
 <script setup>
-import { computed } from 'vue';
+import { computed, ref, watch } from 'vue';
+import {
+  EXTENDED_ENCOUNTER_CODE,
+  isExtendedEncounterCode,
+  psychotherapyCodeOptionLabel
+} from '../../utils/noteAidSessionQueue.js';
 
 const props = defineProps({
   clientLabel: { type: String, default: '' },
   clientLinked: { type: Boolean, default: false },
   profileHref: { type: String, default: '' },
+  payerLabel: { type: String, default: '' },
   dateOfService: { type: String, default: '' },
   serviceLabel: { type: String, default: '' },
   serviceCode: { type: String, default: '' },
   serviceCodeChoices: { type: Array, default: () => [] },
+  /** All eligible codes for the logged-in user (Choose more…). */
+  allServiceCodeChoices: { type: Array, default: () => [] },
+  /** When units are 2 for 90834, treat as extended encounter in the select. */
+  billingPrimaryUnits: { type: Number, default: 1 },
   participants: { type: String, default: 'Client Only' },
   participantsDetail: { type: String, default: '' },
   durationMinutes: { type: [Number, null], default: null },
@@ -177,7 +192,7 @@ const props = defineProps({
   durationHint: { type: String, default: '' }
 });
 
-defineEmits([
+const emit = defineEmits([
   'update:dateOfService',
   'update:serviceCode',
   'update:participants',
@@ -186,8 +201,16 @@ defineEmits([
   'update:locationLabel',
   'update:startTime',
   'update:endTime',
-  'toggle-setup'
+  'toggle-setup',
+  'choose-more-codes'
 ]);
+
+const showAllCodes = ref(false);
+
+watch(
+  () => props.serviceCodeChoices,
+  () => { showAllCodes.value = false; }
+);
 
 const needsAttendeeDetail = computed(
   () => props.participants && props.participants !== 'Client Only'
@@ -197,6 +220,81 @@ const durationLabel = computed(() => {
   if (props.durationMinutes != null && props.durationMinutes !== '') return `${props.durationMinutes} min`;
   return '—';
 });
+
+function toOption(code) {
+  const value = String(code || '').trim().toUpperCase();
+  if (!value) return null;
+  return { value, label: psychotherapyCodeOptionLabel(value) };
+}
+
+const toolChoices = computed(() => {
+  const base = (props.serviceCodeChoices || []).map((c) => String(c).toUpperCase()).filter(Boolean);
+  const out = [];
+  const seen = new Set();
+  for (const c of base) {
+    if (c === '90834' && !seen.has(EXTENDED_ENCOUNTER_CODE)) {
+      // Keep standard 90834, and also offer extended after it when psychotherapy group.
+      out.push(toOption(c));
+      seen.add(c);
+      out.push(toOption(EXTENDED_ENCOUNTER_CODE));
+      seen.add(EXTENDED_ENCOUNTER_CODE);
+      continue;
+    }
+    if (seen.has(c)) continue;
+    out.push(toOption(c));
+    seen.add(c);
+  }
+  return out.filter(Boolean);
+});
+
+const allChoices = computed(() => {
+  const list = (props.allServiceCodeChoices || []).length
+    ? props.allServiceCodeChoices
+    : props.serviceCodeChoices;
+  const out = [];
+  const seen = new Set();
+  for (const raw of list || []) {
+    const c = String(raw).toUpperCase();
+    if (!c || seen.has(c)) continue;
+    seen.add(c);
+    out.push(toOption(c));
+    if (c === '90834' && !seen.has(EXTENDED_ENCOUNTER_CODE)) {
+      seen.add(EXTENDED_ENCOUNTER_CODE);
+      out.push(toOption(EXTENDED_ENCOUNTER_CODE));
+    }
+  }
+  return out.filter(Boolean);
+});
+
+const moreCodesAvailable = computed(() => {
+  const tool = new Set(toolChoices.value.map((o) => o.value));
+  return allChoices.value.some((o) => !tool.has(o.value));
+});
+
+const displayCodeChoices = computed(() => (showAllCodes.value ? allChoices.value : toolChoices.value));
+
+const serviceCodeSelectValue = computed(() => {
+  const code = String(props.serviceCode || '').toUpperCase();
+  if (
+    (code === '90834' && Number(props.billingPrimaryUnits) >= 2)
+    || isExtendedEncounterCode(code)
+  ) {
+    return EXTENDED_ENCOUNTER_CODE;
+  }
+  return code;
+});
+
+const serviceCodeLabel = computed(() => psychotherapyCodeOptionLabel(serviceCodeSelectValue.value));
+
+function onCodeChange(raw) {
+  const v = String(raw || '');
+  if (v === '__choose_more__') {
+    showAllCodes.value = true;
+    emit('choose-more-codes');
+    return;
+  }
+  emit('update:serviceCode', v);
+}
 </script>
 
 <style scoped>
@@ -244,20 +342,23 @@ const durationLabel = computed(() => {
 
 .badge {
   display: inline-block;
-  margin-top: 2px;
-  padding: 2px 6px;
-  border-radius: 6px;
-  background: #ccfbf1;
-  color: #0f766e;
-  font-size: 0.68rem;
+  margin-top: 4px;
+  font-size: 0.65rem;
   font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #0f766e;
+  background: #ccfbf1;
+  border-radius: 999px;
+  padding: 2px 7px;
 }
 
-.detail {
+.payer {
   display: block;
   margin-top: 4px;
-  font-size: 0.78rem;
+  font-size: 0.75rem;
   color: #475569;
+  font-weight: 600;
 }
 
 .na-quick-session__input,
@@ -266,14 +367,13 @@ const durationLabel = computed(() => {
   border: 1px solid #cbd5e1;
   border-radius: 8px;
   padding: 5px 8px;
+  font: inherit;
   font-size: 0.84rem;
   background: #fff;
-  color: #0f172a;
-  box-sizing: border-box;
 }
 
 .na-quick-session__input--num {
-  max-width: 4.5rem;
+  max-width: 5.5rem;
 }
 
 .na-quick-session__input--detail {
@@ -287,51 +387,55 @@ const durationLabel = computed(() => {
 .na-quick-session__req {
   display: block;
   margin-top: 2px;
-  font-size: 0.7rem;
-  font-weight: 600;
+  font-size: 0.72rem;
   color: #b45309;
+}
+
+.detail {
+  display: block;
+  margin-top: 2px;
+  font-size: 0.78rem;
+  color: #64748b;
 }
 
 .na-quick-session__setup {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  border: 1px solid #fcd34d;
+  border: 1px solid #f59e0b;
   background: #fffbeb;
   color: #92400e;
-  border-radius: 8px;
+  border-radius: 10px;
   padding: 6px 10px;
+  font: inherit;
   font-size: 0.78rem;
   font-weight: 700;
   cursor: pointer;
 }
 
-.na-quick-session__setup.ok {
-  border-color: #86efac;
-  background: #f0fdf4;
-  color: #166534;
-}
-
-.chev {
+.na-quick-session__setup .chev {
   opacity: 0.7;
 }
 
 .na-quick-session__hint {
   margin: 8px 0 0;
-  font-size: 0.75rem;
+  font-size: 0.78rem;
   color: #64748b;
 }
 
 .na-quick-session__flag {
-  margin: 6px 0 0;
-  font-size: 0.75rem;
+  margin: 8px 0 0;
+  font-size: 0.8rem;
   color: #b45309;
-  font-weight: 600;
+  background: #fffbeb;
+  border: 1px solid #fcd34d;
+  border-radius: 8px;
+  padding: 6px 10px;
 }
 
 @media (max-width: 1100px) {
   .na-quick-session__grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }
 </style>

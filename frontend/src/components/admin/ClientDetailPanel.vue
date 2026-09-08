@@ -1290,6 +1290,7 @@
         <!-- Notes running list (Records → Notes) -->
         <div v-if="showPanel('clinical-notes')" class="detail-section">
           <ClientClinicalNotesFeed
+            ref="clinicalNotesFeedRef"
             :client-id="client.id"
             :agency-id="client.agency_id || selectedAgencyId"
             :client-type="effectiveClientType"
@@ -2846,6 +2847,7 @@ const activeTab = ref('overview');
 const hubSub = ref('');
 const pendingChartViewKey = ref('');
 const documentsTabRef = ref(null);
+const clinicalNotesFeedRef = ref(null);
 const chartHub = computed(() => resolveChartTab(activeTab.value).hub);
 const chartSubnav = computed(() => {
   const hub = chartHub.value;
@@ -2935,6 +2937,15 @@ function goChartSub(subOrLegacy) {
   const key = String(subOrLegacy || '');
   if (LEGACY_TAB_ALIASES[key]) {
     const resolved = resolveChartTab(key);
+    // Re-clicking Notes while a note is open returns to the notes list.
+    if (
+      (key === 'notes' || key === 'clinical-notes')
+      && (activeTab.value === 'clinical-notes' || resolved.sub === 'notes')
+      && clinicalNotesFeedRef.value?.isWorkspaceOpen?.()
+    ) {
+      clinicalNotesFeedRef.value.closeWorkspace?.();
+      return;
+    }
     setChartNav(resolved.hub, resolved.sub || '');
     // Preserve precise legacy tab when secondary surfaces share a hub sub,
     // or when the subnav id differs from the panel legacy id (notes → clinical-notes).

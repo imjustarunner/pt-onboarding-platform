@@ -83,10 +83,26 @@ export function consumeNoteAidWorkQueueStash() {
   return stash.items;
 }
 
+/** Sentinel for 90834 × 2 extended encounter (75+ min). */
+export const EXTENDED_ENCOUNTER_CODE = '90834_EXT';
+
+export function isExtendedEncounterCode(code) {
+  const c = String(code || '').trim().toUpperCase();
+  return c === EXTENDED_ENCOUNTER_CODE || c === '90834X2' || c === '90834×2';
+}
+
+/** Normalize UI/select values to a billable CPT (90834_EXT → 90834). */
+export function normalizePsychotherapyServiceCode(code) {
+  const c = String(code || '').trim().toUpperCase();
+  if (isExtendedEncounterCode(c)) return '90834';
+  return c;
+}
+
 /** CPT psychotherapy duration → preferred code (billing bands). */
 export function suggestPsychotherapyCodeForDuration(minutes) {
   const m = Number(minutes);
   if (!Number.isFinite(m) || m <= 0) return null;
+  if (m >= 75) return EXTENDED_ENCOUNTER_CODE;
   if (m >= 53) return '90837';
   if (m >= 38) return '90834';
   if (m >= 16) return '90832';
@@ -95,15 +111,27 @@ export function suggestPsychotherapyCodeForDuration(minutes) {
 
 /**
  * Default billed/documentation duration for a service code when no calendar times exist.
- * 90832 → 30, 90834 → 45, 90837 and most others → 60.
+ * 90832 → 30, 90834 → 45, extended encounter → 75, 90837 and most others → 60.
  */
 export function defaultDurationMinutesForServiceCode(code) {
   const c = String(code || '').trim().toUpperCase();
   if (c === '90832') return 30;
+  if (isExtendedEncounterCode(c)) return 75;
   if (c === '90834') return 45;
   if (c === '90837') return 60;
+  if (c === '90839') return 60;
   if (/^908\d{2}$/.test(c)) return 60;
   return 60;
+}
+
+export function psychotherapyCodeOptionLabel(code) {
+  const c = String(code || '').trim().toUpperCase();
+  if (isExtendedEncounterCode(c)) return '90834 EXTENDED ENCOUNTER (×2)';
+  if (c === '90832') return '90832 (16–37 min)';
+  if (c === '90834') return '90834 (38–52 min)';
+  if (c === '90837') return '90837 (53–74 min)';
+  if (c === '90839') return '90839 Crisis';
+  return c;
 }
 
 /**

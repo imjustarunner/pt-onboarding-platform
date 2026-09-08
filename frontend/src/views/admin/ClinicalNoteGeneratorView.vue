@@ -189,10 +189,13 @@
           :client-label="noteSubjectLabel"
           :client-linked="!!effectiveClientId"
           :profile-href="clientProfileHref"
+          :payer-label="sessionPayerLabel"
           v-model:date-of-service="dateOfService"
           :service-label="quickSessionServiceLabel"
-          :service-code="actualServiceCode"
+          :service-code="quickSessionServiceCodeValue"
           :service-code-choices="quickSessionServiceCodeChoices"
+          :all-service-code-choices="rawEligibleServiceCodes"
+          :billing-primary-units="billingPrimaryUnits"
           v-model:participants="sessionParticipants"
           v-model:participants-detail="sessionParticipantsDetail"
           v-model:duration-minutes="sessionDurationMinutes"
@@ -1432,6 +1435,9 @@ import {
   scrubLegacyWorkQueueSessionStash,
   suggestPsychotherapyCodeForDuration,
   defaultDurationMinutesForServiceCode,
+  EXTENDED_ENCOUNTER_CODE,
+  isExtendedEncounterCode,
+  normalizePsychotherapyServiceCode,
   participantsLikelyIncludeOthers,
   defaultMentalStatusExam,
   defaultRiskAssessment,
@@ -2304,16 +2310,29 @@ const quickSessionServiceCodeChoices = computed(() => {
   const code = String(aid.serviceCode || '').trim().toUpperCase();
   return code ? [code] : [];
 });
+const quickSessionServiceCodeValue = computed(() => {
+  const code = String(actualServiceCode.value || '').toUpperCase();
+  if (code === '90834' && Number(billingPrimaryUnits.value) >= 2) return EXTENDED_ENCOUNTER_CODE;
+  return code;
+});
+const sessionPayerLabel = computed(() => {
+  const c = selectedClient.value || {};
+  return String(c.primary_insurer_name || c.insurance_type_label || c.payer_name || '').trim();
+});
 function onQuickSessionServiceCode(code) {
-  const next = String(code || '').trim().toUpperCase();
-  if (!next) return;
+  const raw = String(code || '').trim().toUpperCase();
+  if (!raw) return;
+  const extended = isExtendedEncounterCode(raw);
+  const next = normalizePsychotherapyServiceCode(raw);
   selectedServiceCode.value = next;
   otherServiceCode.value = '';
   applyParticipantsDefaultForServiceCode(next);
   // Autoselect matching Note Aid when the clinician changes the service code.
-  let hit = findNoteAidByToolOrCode({ serviceCode: next });
+  let hit = findNoteAidByToolOrCode({ serviceCode: next === '90834' && extended ? '90837' : next });
   if (hit?.aid && !aidIsEligible(hit.aid)) {
-    hit = ['90832', '90834', '90837'].includes(next) ? findNoteAidById('psychotherapy') : null;
+    hit = ['90832', '90834', '90837', EXTENDED_ENCOUNTER_CODE].includes(raw)
+      ? findNoteAidById('psychotherapy')
+      : null;
   }
   if (hit?.aid && aidIsEligible(hit.aid) && hit.aid.id !== selectedAidId.value) {
     selectedAidId.value = hit.aid.id;
@@ -2323,12 +2342,22 @@ function onQuickSessionServiceCode(code) {
   if (lastGeneratedServiceCode.value && lastGeneratedServiceCode.value !== next) {
     serviceCodeChangedAfterGenerate.value = true;
   }
+  // Code → duration → end time (always, so claim units stay aligned).
+  sessionDurationMinutes.value = defaultDurationMinutesForServiceCode(extended ? EXTENDED_ENCOUNTER_CODE : next);
+  if (extended) billingPrimaryUnits.value = 2;
+  ensureSessionEndFromDuration();
   applyBillingRulesForCurrentSession({ announce: true });
+  if (extended) {
+    billingPrimaryUnits.value = 2;
+    sessionCodeSwitchBanner.value =
+      'EXTENDED ENCOUNTER selected — default 75 minutes; claim bills 90834 × 2.';
+  }
 }
 const sessionClinicianLabel = computed(() => {
   const u = authStore.user || {};
-  const name = [u.first_name, u.last_name].filter(Boolean).join(' ').trim();
-  const cred = u.credentials || u.license_type || u.credential || '';
+  const name = [u.first_name, u.last_name].filter(Boolean).join(' ').trim()
+    || String(u.full_name || u.name || '').trim();
+  const cred = u.credentials || u.license_type || u.credential || u.credential_letters || '';
   if (name && cred) return `${name}, ${cred}`;
   return name || 'Clinician';
 });
@@ -5356,6 +5385,7 @@ const approveNoteOutput = async ({ silent = false, afterSign = 'queue' } = {}) =
       durationMinutes: sessionDurationMinutes.value,
       startTime: sessionStartTimeLocal.value || null,
       endTime: sessionEndTimeLocal.value || null,
+      locationLabel: sessionLocationLabel.value || null,
       skippedMseReason: skipMentalStatusExam.value
         ? (String(actualServiceCode.value || selectedAid.value?.serviceCode || 'skipped').toUpperCase())
         : null
@@ -6049,7 +6079,11 @@ async function hydrateSelectedClient(clientId) {
         email: row.email || raw?.email,
         address_street: row.address_street || raw?.address_street,
         address_city: row.address_city || raw?.address_city,
-        address_state: row.address_state || raw?.address_state
+        address_state: row.address_state || raw?.address_state,
+        primary_insurer_name: raw?.primary_insurer_name || row.primary_insurer_name || null,
+        insurance_type_label: raw?.insurance_type_label || row.insurance_type_label || null,
+        insurance_member_id: raw?.insurance_member_id || row.insurance_member_id || null,
+        payer_name: raw?.payer_name || row.payer_name || null
       };
     }
   } catch {
@@ -6205,11 +6239,27 @@ const onPlanImportSaved = async (plan) => {
   reopenClientSetupIfNeeded();
 };
 
-const closePlanDraftEditor = () => {
+const closePlanDraftEditor = async () => {
+  const cid = Number(effectiveClientId.value || 0);
+  const aid = Number(noteAidAgencyId.value || currentAgencyId.value || 0);
+  const wasSetupDraft = !!planDraftEditorId.value
+    || planDraftEditorMode.value === 'draft'
+    || !planImportedOnce.value;
   showPlanImportReview.value = false;
   planDraftEditorId.value = null;
   planDraftEditorMode.value = 'import';
   planDraftInitialPlan.value = null;
+  if (wasSetupDraft && cid && aid) {
+    try {
+      await api.post('/medical-billing/treatment-plans/void-bootstrap-drafts', {
+        agencyId: aid,
+        clientId: cid
+      }, { skipGlobalLoading: true });
+      await loadClientTreatmentPlan(cid);
+    } catch {
+      // best-effort eradicate during client setup cancel
+    }
+  }
   reopenClientSetupIfNeeded();
 };
 
@@ -7802,24 +7852,29 @@ watch(sessionDurationMinutes, (mins) => {
     if (sessionStartTimeLocal.value) syncEndFromStartAndDuration();
     else if (sessionEndTimeLocal.value) syncStartFromEndAndDuration();
   }
-  if (!showSessionContextStrip.value) return;
+  if (isWorkspaceHydrating()) return;
   const current = String(actualServiceCode.value || '').toUpperCase();
-  // Crisis / extended encounter rules take priority over standard psychotherapy bands.
-  if (current === '90839' || current === '90837' || current === '90832' || current === '90834') {
+  const psychCodes = ['90832', '90834', '90837', '90839'];
+  if (psychCodes.includes(current) || !current) {
+    const suggested = suggestPsychotherapyCodeForDuration(mins);
+    if (suggested) {
+      const suggestedBillable = normalizePsychotherapyServiceCode(suggested);
+      const wantExtended = isExtendedEncounterCode(suggested);
+      const alreadyExtended = current === '90834' && Number(billingPrimaryUnits.value) >= 2;
+      if (wantExtended && !alreadyExtended) {
+        selectedServiceCode.value = '90834';
+        billingPrimaryUnits.value = 2;
+        sessionCodeSwitchBanner.value =
+          `Duration ${mins} min is an EXTENDED ENCOUNTER — switched to 90834 × 2.`;
+      } else if (!wantExtended && suggestedBillable !== current) {
+        selectedServiceCode.value = suggestedBillable;
+        billingPrimaryUnits.value = 1;
+        sessionCodeSwitchBanner.value =
+          `Duration ${mins} min is outside ${current || 'prior'} band — switched service code to ${suggestedBillable}.`;
+      }
+    }
     applyBillingRulesForCurrentSession({ announce: true });
-    return;
   }
-  const suggested = suggestPsychotherapyCodeForDuration(mins);
-  if (!suggested) return;
-  if (!['90832', '90834', '90837'].includes(current) && current) return;
-  if (current === suggested) {
-    sessionCodeSwitchBanner.value = '';
-    return;
-  }
-  selectedServiceCode.value = suggested;
-  sessionCodeSwitchBanner.value =
-    `Duration ${mins} min is outside ${current || 'prior'} band — switched service code to ${suggested}.`;
-  applyBillingRulesForCurrentSession({ announce: true });
 });
 
 watch(sessionStartTimeLocal, (next, prev) => {
@@ -7854,10 +7909,6 @@ watch(actualServiceCode, (code, prev) => {
   // Only reset participants when entering / switching family codes — not on every duration-driven 9083x change.
   if (['90846', '90847'].includes(upper) && upper !== prevUpper) {
     applyParticipantsDefaultForServiceCode(code);
-  }
-  if (sessionScheduledStart.value && sessionScheduledEnd.value) return;
-  if (sessionDurationMinutes.value == null || sessionDurationMinutes.value === '') {
-    applySessionTimingDefaults({ force: true });
   }
 });
 

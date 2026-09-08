@@ -19,6 +19,7 @@ import {
   getMedicalBillingStatus,
   saveTreatmentPlanToChart,
   getTreatmentPlanById,
+  voidPacketBootstrapTreatmentPlanDrafts,
   parseTreatmentPlanImport,
   normalizeTreatmentPlanObjective,
   suggestTreatmentPlanDischarge,
@@ -87,6 +88,17 @@ router.post(
     body('goals').optional().isArray()
   ],
   saveTreatmentPlanToChart
+);
+
+router.post(
+  '/treatment-plans/void-bootstrap-drafts',
+  requireClinicalChart,
+  [
+    body('agencyId').isInt({ min: 1 }),
+    body('clientId').isInt({ min: 1 }),
+    body('exceptPlanId').optional().isInt({ min: 1 })
+  ],
+  voidPacketBootstrapTreatmentPlanDrafts
 );
 
 router.get(

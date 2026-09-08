@@ -5,12 +5,23 @@
         <h3>{{ note.title || 'Clinical note' }}</h3>
         <p class="ccn-meta-line">
           <span v-if="note.dateOfService">DOS {{ formatDos(note.dateOfService) }}</span>
-          <span v-if="note.serviceCode"> · {{ note.serviceCode }}</span>
+          <span v-if="serviceCodeDisplay"> · {{ serviceCodeDisplay }}</span>
           <span v-if="note.noteType"> · {{ formatNoteType(note.noteType) }}</span>
         </p>
       </div>
       <div class="ccn-head-actions">
         <span class="ccn-sign">{{ signStatusLabel }}</span>
+        <button
+          type="button"
+          class="ccn-claim-link"
+          :class="{ 'is-disabled': !claimLinkActive }"
+          :disabled="!claimLinkActive"
+          :title="claimLinkTitle"
+          @click="onClaimClick"
+        >
+          Billing claim
+          <span class="ccn-claim-status">{{ claimStatusLabel }}</span>
+        </button>
         <button type="button" class="ccn-copy-btn ccn-copy-btn--primary" @click="copyFullNote">
           {{ copiedFull ? 'Copied' : 'Copy full note' }}
         </button>
@@ -25,25 +36,37 @@
     <section v-if="hasSessionFacts" class="ccn-block ccn-facts" aria-label="Session details">
       <h4 class="ccn-block-title">Session details</h4>
       <dl class="ccn-facts-grid">
+        <div v-if="note.clientPayer?.name">
+          <dt>Payer</dt>
+          <dd>{{ note.clientPayer.name }}</dd>
+        </div>
+        <div v-if="clinicianDisplay">
+          <dt>Provider</dt>
+          <dd>{{ clinicianDisplay }}</dd>
+        </div>
         <div v-if="structuredChart.participants">
           <dt>Participants</dt>
           <dd>{{ structuredChart.participants }}</dd>
         </div>
-        <div v-if="structuredChart.durationMinutes != null && structuredChart.durationMinutes !== ''">
+        <div v-if="durationDisplay">
           <dt>Duration</dt>
-          <dd>{{ structuredChart.durationMinutes }} min</dd>
+          <dd>{{ durationDisplay }}</dd>
+        </div>
+        <div v-if="startEndDisplay">
+          <dt>Start – End</dt>
+          <dd>{{ startEndDisplay }}</dd>
+        </div>
+        <div v-if="locationDisplay">
+          <dt>Location</dt>
+          <dd>{{ locationDisplay }}</dd>
         </div>
         <div v-if="note.dateOfService">
           <dt>Date of service</dt>
           <dd>{{ formatDos(note.dateOfService) }}</dd>
         </div>
-        <div v-if="note.serviceCode">
+        <div v-if="serviceCodeDisplay">
           <dt>Service code</dt>
-          <dd><code>{{ note.serviceCode }}</code></dd>
-        </div>
-        <div v-if="!compact && note.providerSignedAt">
-          <dt>Provider signed</dt>
-          <dd>{{ formatTimestamp(note.providerSignedAt) }}</dd>
+          <dd><code>{{ serviceCodeDisplay }}</code></dd>
         </div>
       </dl>
     </section>
@@ -204,6 +227,48 @@
         </article>
       </template>
     </section>
+
+    <section v-if="!compact" class="ccn-block ccn-audit" aria-label="Signature and claim audit">
+      <h4 class="ccn-block-title">Signature & claim data</h4>
+      <dl class="ccn-facts-grid">
+        <div>
+          <dt>Provider</dt>
+          <dd>{{ clinicianDisplay || '—' }}</dd>
+        </div>
+        <div>
+          <dt>Provider NPI</dt>
+          <dd>{{ providerNpi || '—' }}</dd>
+        </div>
+        <div>
+          <dt>Provider signed</dt>
+          <dd>{{ note.providerSignedAt ? formatTimestamp(note.providerSignedAt) : 'Not signed' }}</dd>
+        </div>
+        <div>
+          <dt>Supervisor cosign</dt>
+          <dd>{{ note.supervisorCosignedAt ? formatTimestamp(note.supervisorCosignedAt) : (note.needsSupervisorCosign ? 'Awaiting' : '—') }}</dd>
+        </div>
+        <div>
+          <dt>Billing NPI</dt>
+          <dd>{{ note.linkedClaim?.billingNpi || providerNpi || '—' }}</dd>
+        </div>
+        <div>
+          <dt>Rendering NPI</dt>
+          <dd>{{ note.linkedClaim?.renderingNpi || providerNpi || '—' }}</dd>
+        </div>
+        <div>
+          <dt>Claim status</dt>
+          <dd>{{ claimStatusLabel }}</dd>
+        </div>
+        <div v-if="note.clientPayer?.memberId">
+          <dt>Member ID</dt>
+          <dd>{{ note.clientPayer.memberId }}</dd>
+        </div>
+        <div v-if="unitsDisplay">
+          <dt>Billed units</dt>
+          <dd>{{ unitsDisplay }}</dd>
+        </div>
+      </dl>
+    </section>
   </div>
 </template>
 
@@ -220,18 +285,96 @@ import {
   formatObjectiveRatingLine,
   SOAP_SECTION_DEFS
 } from '../../utils/noteAidUiHelpers.js';
+import { useAuthStore } from '../../store/auth.js';
 
 const props = defineProps({
   note: { type: Object, required: true },
   compact: { type: Boolean, default: false }
 });
 
+const emit = defineEmits(['open-claim']);
+
+const authStore = useAuthStore();
 const copiedKey = ref('');
 const copiedFull = ref(false);
 let copiedTimer = null;
 
 const structuredChart = computed(() =>
   props.note?.structuredChart || props.note?.metadata?.structuredChart || {}
+);
+
+const roleNorm = computed(() => String(authStore.user?.role || '').toLowerCase());
+const canOpenClaim = computed(() =>
+  ['super_admin', 'admin', 'support', 'billing'].includes(roleNorm.value)
+);
+
+const claimStatusLabel = computed(() => {
+  if (props.note?.linkedClaim?.statusLabel) return props.note.linkedClaim.statusLabel;
+  return props.note?.linkedClaim ? 'Waiting' : 'No claim yet';
+});
+
+const claimLinkActive = computed(() => canOpenClaim.value && !!props.note?.linkedClaim?.id);
+const claimLinkTitle = computed(() => {
+  if (!canOpenClaim.value) return 'Claim details are available to admin, support, billing, and super admin';
+  if (!props.note?.linkedClaim?.id) return 'No billing claim linked yet';
+  return 'Open billing claim';
+});
+
+function onClaimClick() {
+  if (!claimLinkActive.value) return;
+  emit('open-claim', props.note.linkedClaim);
+}
+
+const units = computed(() => Number(props.note?.billingPrimaryUnits || props.note?.metadata?.billingPrimaryUnits || 1));
+const serviceCodeDisplay = computed(() => {
+  const code = String(props.note?.serviceCode || '').toUpperCase();
+  if (!code) return '';
+  if (code === '90834' && units.value >= 2) return '90834 × 2 (EXTENDED ENCOUNTER)';
+  return code;
+});
+
+const unitsDisplay = computed(() => {
+  const code = String(props.note?.serviceCode || '').toUpperCase();
+  if (!code) return '';
+  return `${code} × ${units.value}`;
+});
+
+const clinicianDisplay = computed(() => {
+  const s = props.note?.providerSigner;
+  if (s?.name && s?.credentials) return `${s.name}, ${s.credentials}`;
+  if (s?.name) return s.name;
+  return '';
+});
+
+const providerNpi = computed(() => props.note?.providerSigner?.npi || null);
+
+const durationDisplay = computed(() => {
+  const d = props.note?.durationMinutes ?? structuredChart.value?.durationMinutes;
+  if (d == null || d === '') return '';
+  return `${d} min`;
+});
+
+const startEndDisplay = computed(() => {
+  const start = props.note?.startTime || structuredChart.value?.startTime;
+  const end = props.note?.endTime || structuredChart.value?.endTime;
+  if (start && end) return `${start} – ${end}`;
+  if (props.note?.sessionTiming?.startAt) {
+    try {
+      const s = new Date(props.note.sessionTiming.startAt);
+      const e = props.note.sessionTiming.endAt ? new Date(props.note.sessionTiming.endAt) : null;
+      const opts = { hour: 'numeric', minute: '2-digit' };
+      return e
+        ? `${s.toLocaleTimeString([], opts)} – ${e.toLocaleTimeString([], opts)}`
+        : s.toLocaleTimeString([], opts);
+    } catch {
+      return '';
+    }
+  }
+  return start || end || '';
+});
+
+const locationDisplay = computed(
+  () => props.note?.locationLabel || structuredChart.value?.locationLabel || ''
 );
 
 const panels = computed(() => {
@@ -257,9 +400,13 @@ const primaryDxLabel = computed(() => {
 
 const hasSessionFacts = computed(() =>
   !!(structuredChart.value?.participants
-    || (structuredChart.value?.durationMinutes != null && structuredChart.value?.durationMinutes !== '')
+    || durationDisplay.value
+    || startEndDisplay.value
+    || locationDisplay.value
     || props.note?.dateOfService
-    || props.note?.serviceCode)
+    || props.note?.serviceCode
+    || clinicianDisplay.value
+    || props.note?.clientPayer?.name)
 );
 
 const showMse = computed(() =>
@@ -411,6 +558,39 @@ async function copyFullNote() {
 .ccn-meta-line { margin: 4px 0 0; color: #64748b; font-size: 0.82rem; }
 .ccn-head-actions { display: flex; flex-direction: column; align-items: flex-end; gap: 8px; }
 .ccn-sign { font-size: 0.75rem; color: #0f766e; font-weight: 700; }
+.ccn-claim-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid #cbd5e1;
+  background: #f8fafc;
+  color: #334155;
+  border-radius: 10px;
+  padding: 6px 10px;
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+.ccn-claim-link.is-disabled,
+.ccn-claim-link:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  color: #94a3b8;
+}
+.ccn-claim-status {
+  font-weight: 600;
+  color: #0f766e;
+  background: #ccfbf1;
+  border-radius: 999px;
+  padding: 1px 8px;
+  font-size: 0.72rem;
+}
+.ccn-audit {
+  margin-top: 8px;
+  border: 1px dashed #94a3b8;
+  background: #f8fafc;
+}
 .ccn-compact-actions { margin-bottom: 8px; }
 .ccn-block {
   border: 1px solid #dbeafe; border-radius: 8px; background: #f8fafc;

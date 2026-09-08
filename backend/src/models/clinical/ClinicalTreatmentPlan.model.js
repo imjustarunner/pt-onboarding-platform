@@ -282,6 +282,53 @@ class ClinicalTreatmentPlan {
   }
 
   /**
+   * Client-setup only: remove intake-packet bootstrap drafts once the clinician
+   * cancels the draft editor or uploads/imports an authoritative plan.
+   */
+  static async voidPacketBootstrapDrafts({ agencyId, clientId, exceptPlanId = null } = {}) {
+    const aid = Number(agencyId || 0);
+    const cid = Number(clientId || 0);
+    if (!aid || !cid) return 0;
+    const exceptId = Number(exceptPlanId || 0) || null;
+    try {
+      const params = [aid, cid, 'intake_packet_bootstrap'];
+      let sql = `UPDATE clinical_treatment_plans
+                 SET status = 'superseded', updated_at = NOW()
+                 WHERE agency_id = ?
+                   AND client_id = ?
+                   AND source_tool_id = ?
+                   AND LOWER(COALESCE(status, '')) = 'draft'`;
+      if (exceptId) {
+        sql += ' AND id <> ?';
+        params.push(exceptId);
+      }
+      const [result] = await clinicalPool.execute(sql, params);
+      return Number(result?.affectedRows || 0);
+    } catch (e) {
+      if (e?.code === 'ER_BAD_FIELD_ERROR' || e?.code === 'ER_TRUNCATED_WRONG_VALUE_FOR_FIELD') {
+        try {
+          const params = [aid, cid, 'intake_packet_bootstrap'];
+          let sql = `UPDATE clinical_treatment_plans
+                     SET status = 'inactive'
+                     WHERE agency_id = ?
+                       AND client_id = ?
+                       AND source_tool_id = ?
+                       AND LOWER(COALESCE(status, '')) = 'draft'`;
+          if (exceptId) {
+            sql += ' AND id <> ?';
+            params.push(exceptId);
+          }
+          const [result] = await clinicalPool.execute(sql, params);
+          return Number(result?.affectedRows || 0);
+        } catch {
+          return 0;
+        }
+      }
+      throw e;
+    }
+  }
+
+  /**
    * Replace ordered diagnosis links for a plan. Keeps primary_diagnosis_id in sync.
    */
   static async replacePlanDiagnoses({

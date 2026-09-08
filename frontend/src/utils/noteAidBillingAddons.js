@@ -160,16 +160,32 @@ export function resolveNoteAidBillingCodes({
     addons.push(...crisis.addons);
     warnings.push(...crisis.warnings);
     switchedFrom = crisis.switchedFrom;
-  } else if (code === '90837') {
+  } else if (
+    code === '90837'
+    || code === '90834_EXT'
+    || code === '90834X2'
+    || (['90832', '90834'].includes(code) && Number(durationMinutes) >= 75)
+  ) {
+    const forceExtended = code === '90834_EXT' || code === '90834X2' || Number(durationMinutes) >= 75;
     const ext = resolveExtendedEncounter90837({
-      durationMinutes,
+      durationMinutes: forceExtended ? Math.max(Number(durationMinutes) || 0, 75) : durationMinutes,
       includeInteractiveComplexity
     });
-    code = ext.primaryCode;
-    primaryUnits = ext.primaryUnits;
-    isExtendedEncounter = ext.isExtendedEncounter;
-    warnings.push(...ext.warnings);
-    switchedFrom = ext.switchedFrom || null;
+    if (forceExtended || ext.isExtendedEncounter) {
+      code = '90834';
+      primaryUnits = 2;
+      isExtendedEncounter = true;
+      warnings.push(...(ext.warnings?.length ? ext.warnings : [
+        'EXTENDED ENCOUNTER: Session 75+ minutes — bill two units of 90834 (not 90837).'
+      ]));
+      switchedFrom = switchedFrom || (code !== String(primaryCode || '').toUpperCase() ? String(primaryCode || '').toUpperCase() : '90837');
+    } else if (code === '90837') {
+      code = ext.primaryCode;
+      primaryUnits = ext.primaryUnits;
+      isExtendedEncounter = ext.isExtendedEncounter;
+      warnings.push(...ext.warnings);
+      switchedFrom = ext.switchedFrom || null;
+    }
   }
 
   let wantIc = !!includeInteractiveComplexity;

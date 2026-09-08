@@ -3,11 +3,11 @@
     <header class="ccnf-head">
       <div>
         <h3 class="ccnf-title">{{ isLearning ? 'Learning notes' : 'Notes' }}</h3>
-        <p class="ccnf-sub">
+        <p v-if="!workspace" class="ccnf-sub">
           {{
             isLearning
               ? 'Session and contact notes for this student — newest first.'
-              : 'Running list of intake, progress, treatment plans, and drafts — newest first.'
+              : 'All clinical notes on file (including contact and canceled) — newest first. Documents live under Documents.'
           }}
         </p>
       </div>
@@ -20,8 +20,7 @@
             <option value="all">All types</option>
             <option value="progress">Progress / session</option>
             <option value="intake">Intake</option>
-            <option value="plan">{{ isLearning ? 'Learning plan' : 'Treatment plan' }}</option>
-            <option value="draft">Note Aid drafts</option>
+            <option value="plan">{{ isLearning ? 'Learning progress' : 'Treatment progress' }}</option>
             <option v-if="!isLearning" value="contact">Contact</option>
             <option v-if="!isLearning" value="termination">Termination</option>
           </select>
@@ -171,7 +170,6 @@
 <script setup>
 import { computed, defineAsyncComponent, onMounted, ref, watch } from 'vue';
 import api from '../../../services/api.js';
-import { sessionDedupeKey } from '../../../utils/noteAidDocumentationStatus.js';
 import ClientChartCompletedNote from './ClientChartCompletedNote.vue';
 import ClientNoteTypePicker from './ClientNoteTypePicker.vue';
 import ClientManualNoteForm from './ClientManualNoteForm.vue';
@@ -276,62 +274,9 @@ const sessionIds = computed(() => {
 
 const rows = computed(() => {
   const out = [];
-  const draftBySession = new Map();
   const activePlanId = Number(chart.value.plans?.[0]?.id || 0);
 
-  const signedKeys = new Set();
-  for (const n of chart.value.notes || []) {
-    if (!n.provider_signed_at) continue;
-    const session = (chart.value.sessions || []).find((s) => Number(s.id) === Number(n.clinical_session_id || 0));
-    const k = sessionDedupeKey({
-      office_event_id: session?.office_event_id,
-      clinical_session_id: n.clinical_session_id,
-      client_id: props.clientId,
-      date_of_service: session?.scheduled_start_at || n.created_at,
-      service_code: n.session_service_code || n.service_code
-    });
-    if (k) signedKeys.add(k);
-  }
-
-  for (const d of chart.value.noteAidDrafts || []) {
-    const hasOut = !!d.has_output;
-    const key = sessionDedupeKey(d) || `draft-${d.id}`;
-    if (key && signedKeys.has(key)) continue;
-    const next = {
-      key: `draft-${d.id}`,
-      sessionKey: key,
-      kind: 'draft',
-      title: `Note Aid draft${d.service_code ? ` (${d.service_code})` : ''}`,
-      tone: noteTone('draft', d.service_code, 'Note Aid draft'),
-      codeTone: noteTone('draft', d.service_code) === 'progress' ? progressCodeTone(d.service_code) : '',
-      status: hasOut ? 'completed' : 'draft',
-      statusLabel: hasOut ? 'Draft · generated' : 'Draft · in progress',
-      dateLabel: formatDate(d.date_of_service || d.created_at),
-      sortAt: d.updated_at || d.created_at,
-      serviceCode: d.service_code || '',
-      author: d.author_name || '',
-      linkedSession: !!(d.office_event_id || d.clinical_session_id),
-      linkedClaim: false,
-      awaitingCosign: false,
-      providerSigned: false,
-      supervisorSigned: false,
-      isActivePlan: false,
-      draftId: d.id,
-      openMode: 'note-aid-draft'
-    };
-    const prev = draftBySession.get(key);
-    if (!prev) {
-      draftBySession.set(key, next);
-      continue;
-    }
-    const prevScore = (prev.status === 'completed' ? 2 : 0) + (prev.serviceCode ? 1 : 0);
-    const nextScore = (next.status === 'completed' ? 2 : 0) + (next.serviceCode ? 1 : 0);
-    if (nextScore > prevScore || String(next.sortAt || '') > String(prev.sortAt || '')) {
-      draftBySession.set(key, next);
-    }
-  }
-  out.push(...draftBySession.values());
-
+  // Note Aid in-progress drafts stay in the Note Aid library — not the client file.
   for (const n of chart.value.notes || []) {
     const providerSigned = !!n.provider_signed_at;
     const supervisorSigned = !!n.supervisor_cosigned_at;
@@ -372,9 +317,18 @@ const rows = computed(() => {
     if (nt.includes('termination')) kind = 'termination';
     else if (nt.includes('treatment summary') || nt.includes('treatment_summary')) kind = 'summary';
     else if (nt.includes('intake')) kind = 'intake';
-    else if (nt.includes('treatment plan') || nt.includes('learning plan') || nt.includes('plan development')) {
+    else if (
+      nt.includes('treatment plan')
+      || nt.includes('learning plan')
+      || nt.includes('plan development')
+      || nt.includes('treatment progress')
+    ) {
       kind = 'plan';
     } else if (nt.includes('contact')) kind = 'contact';
+    else if (nt.includes('cancel') || nt.includes('missed') || nt.includes('no-show') || nt.includes('no show')) {
+      kind = 'progress';
+    }
+    const cancelish = /cancel|missed|no-show|no show|appointment change/i.test(String(n.title || n.note_type || ''));
     out.push({
       key: `note-${n.id}`,
       kind: kind === 'summary' ? 'plan' : kind,
@@ -382,9 +336,11 @@ const rows = computed(() => {
       codeTone: kind === 'progress' ? progressCodeTone(serviceCode) : '',
       title: n.title || 'Clinical note',
       status,
-      statusLabel: kind === 'summary' && !supervisorSigned && providerSigned
-        ? 'Awaiting supervisor'
-        : statusLabel,
+      statusLabel: cancelish
+        ? (providerSigned ? 'Canceled · on file' : 'Canceled')
+        : (kind === 'summary' && !supervisorSigned && providerSigned
+          ? 'Awaiting supervisor'
+          : statusLabel),
       dateLabel: formatDate(n.created_at),
       sortAt: n.updated_at || n.created_at,
       serviceCode,
@@ -452,14 +408,18 @@ const rows = computed(() => {
 
   for (const p of chart.value.plans || []) {
     const id = Number(p.id || 0);
+    const status = String(p.status || 'active').toLowerCase();
+    // Client-setup bootstrap drafts should not linger once cancelled/replaced.
+    if (status === 'draft' && String(p.source_tool_id || '') === 'intake_packet_bootstrap') continue;
+    if (status === 'superseded' || status === 'inactive') continue;
     out.push({
       key: `plan-${id}`,
       kind: 'plan',
       tone: 'plan',
       codeTone: '',
       title: p.title || (isLearning.value ? 'Learning plan' : 'Treatment plan'),
-      status: String(p.status || 'active'),
-      statusLabel: String(p.status || 'active'),
+      status,
+      statusLabel: status === 'draft' ? 'Draft plan' : String(p.status || 'active'),
       dateLabel: formatDate(p.effective_date || p.created_at),
       sortAt: p.updated_at || p.created_at,
       serviceCode: '',
@@ -745,7 +705,12 @@ function openRow(row) {
 onMounted(load);
 watch(() => [props.clientId, props.agencyId], load);
 
-defineExpose({ reload: load, diagnoses: computed(() => chart.value.diagnoses) });
+defineExpose({
+  reload: load,
+  closeWorkspace,
+  isWorkspaceOpen: () => !!workspace.value,
+  diagnoses: computed(() => chart.value.diagnoses)
+});
 </script>
 
 <style scoped>
