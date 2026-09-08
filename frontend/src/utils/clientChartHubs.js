@@ -119,7 +119,9 @@ export function recordsSubnav({
   if (showLearningSurfaces) {
     items.push({ id: 'learning-plans', label: 'Learning' });
   }
-  if (!showClinicalSurfaces && !showLearningSurfaces) {
+  // Legacy fallback only for clinician roles that can view clinical content
+  // but lack an explicit surface flag (do not expose plans to school staff).
+  if (!showClinicalSurfaces && !showLearningSurfaces && canViewClinical) {
     items.push({ id: 'treatment-plans', label: 'Treatment plans' });
   }
 

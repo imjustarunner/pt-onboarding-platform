@@ -65,8 +65,8 @@ export async function ensureClinicalSessionForBillingEncounter({
     err.status = 404;
     throw err;
   }
-  if (String(encounter.client_type || '').toLowerCase() !== 'clinical') {
-    const err = new Error('Clinical sessions require a clinical client');
+  if (!['clinical', 'school'].includes(String(encounter.client_type || '').toLowerCase())) {
+    const err = new Error('Clinical sessions require a clinical or school client');
     err.status = 409;
     throw err;
   }

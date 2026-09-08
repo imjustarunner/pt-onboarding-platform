@@ -2862,14 +2862,26 @@ const chartSubnav = computed(() => {
     return lifecycleSubnav({ isSchool: isSchoolClientType.value });
   }
   if (hub === 'records') {
+    const clinicalRoleOk = [
+      'provider',
+      'provider_plus',
+      'admin',
+      'super_admin',
+      'support',
+      'staff',
+      'supervisor',
+      'clinical_practice_assistant',
+      'intern',
+      'intern_plus'
+    ].includes(roleNorm.value);
     return recordsSubnav({
-      canViewClinical: isClinicalLikeClientType.value
-        && ['provider', 'provider_plus', 'admin', 'super_admin', 'support', 'staff'].includes(roleNorm.value),
+      canViewClinical: isClinicalLikeClientType.value && clinicalRoleOk,
       canViewMedicalRecord: canViewMedicalRecord.value,
       canViewBilling: (canViewClientBillingImport.value || learningBillingEnabledForClient.value)
         && !['provider', 'provider_plus'].includes(roleNorm.value),
       showLearningSurfaces: showLearningChartSurfaces.value,
-      showClinicalSurfaces: showClinicalChartSurfaces.value,
+      // School staff never get clinical chart surfaces even on School clients.
+      showClinicalSurfaces: showClinicalChartSurfaces.value && clinicalRoleOk,
       isLearningBilling: learningBillingEnabledForClient.value && showLearningChartSurfaces.value
     });
   }
@@ -3725,7 +3737,16 @@ const fallbackClientTypeFromOrg = computed(() => {
 const effectiveClientType = computed(() => explicitClientType.value || fallbackClientTypeFromOrg.value);
 const clientTypeLabel = computed(() => CLIENT_TYPE_LABELS[effectiveClientType.value] || effectiveClientType.value || 'Unknown');
 const isSchoolClientType = computed(() => effectiveClientType.value === 'school');
-const isClinicalLikeClientType = computed(() => ['clinical', 'learning'].includes(effectiveClientType.value));
+/** Clinical chart surfaces (notes / plans / medical record) — clinical, learning, and school. */
+const isClinicalLikeClientType = computed(() =>
+  ['clinical', 'learning', 'school'].includes(effectiveClientType.value)
+);
+
+/** Clinical summary / Medical record / Treatment plans (not learning-only student surfaces). */
+const showClinicalChartSurfaces = computed(() =>
+  effectiveClientType.value === 'clinical'
+  || effectiveClientType.value === 'school'
+);
 
 const clientLearningOrgIds = computed(() => {
   const ids = new Set();
@@ -3787,12 +3808,6 @@ const activeTenantSponsorsClientLearning = computed(() => {
 /** Student summary / Learning plans — gated by active chart tenant sponsorship. */
 const showLearningChartSurfaces = computed(() =>
   hasLearningProgramEnrollment.value && activeTenantSponsorsClientLearning.value
-);
-
-/** Clinical summary / Medical record / Treatment plans. */
-const showClinicalChartSurfaces = computed(() =>
-  effectiveClientType.value === 'clinical'
-  || (isClinicalLikeClientType.value && effectiveClientType.value !== 'learning')
 );
 
 const showSchoolSpecificOverviewFields = computed(() => isSchoolClientType.value);

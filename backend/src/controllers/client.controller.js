@@ -5879,7 +5879,8 @@ function mergeClinicalSectionsWithTemplate({ sections, templateFieldDefs, includ
 }
 
 function isClinicalLikeClientType(clientType) {
-  return clientType === 'clinical' || clientType === 'learning';
+  const t = String(clientType || '').toLowerCase();
+  return t === 'clinical' || t === 'learning' || t === 'school';
 }
 
 function canEditClinicalResponsesRole(userRole) {

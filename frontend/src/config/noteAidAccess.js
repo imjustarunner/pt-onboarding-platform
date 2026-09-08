@@ -13,8 +13,7 @@ export const NOTE_AID_EMPLOYEE_ROLES = [
   'clinical_practice_assistant',
   'intern',
   'intern_plus',
-  'facilitator',
-  'school_staff'
+  'facilitator'
 ];
 
 export function isNoteAidEmployeeRole(role) {

@@ -74,7 +74,7 @@ export async function ensureAppointmentContext({
     return { ok: false, reason: 'missing_agency', ensured: false, event };
   }
 
-  if (String(client.client_type || '').trim().toLowerCase() !== 'clinical') {
+  if (!['clinical', 'school'].includes(String(client.client_type || '').trim().toLowerCase())) {
     const billingContextId = await lookupBillingContextIdByOfficeEvent({ officeEventId: eid });
     const updatedEvent = await OfficeEvent.setContextLinkage({
       eventId: eid,

@@ -101,8 +101,13 @@ function isTruthyFlag(v) {
   return s === '1' || s === 'true' || s === 'yes' || s === 'on';
 }
 
-function requireNotSchoolStaff(_req, _res) {
-  // Note Aid is available to all employee roles, including school_staff.
+function requireNotSchoolStaff(req, res) {
+  if (String(req.user?.role || '').toLowerCase() === 'school_staff') {
+    res.status(403).json({
+      error: { message: 'Clinical Note Aid is not available for school staff accounts.' }
+    });
+    return false;
+  }
   return true;
 }
 

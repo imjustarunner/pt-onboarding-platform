@@ -34,6 +34,35 @@ describe('clientChartHubs Record Center', () => {
     ]);
   });
 
+  it('exposes the same clinical Records surfaces for school clients (clinician roles)', () => {
+    const items = recordsSubnav({
+      canViewClinical: true,
+      canViewMedicalRecord: true,
+      canViewBilling: false,
+      showClinicalSurfaces: true,
+      showLearningSurfaces: false
+    });
+    expect(items.map((i) => i.id)).toContain('clinical-summary');
+    expect(items.map((i) => i.id)).toContain('notes');
+    expect(items.map((i) => i.id)).toContain('medical-record');
+    expect(items.map((i) => i.id)).toContain('treatment-plans');
+  });
+
+  it('hides clinical Records surfaces when school staff lack clinical view flags', () => {
+    const items = recordsSubnav({
+      canViewClinical: false,
+      canViewMedicalRecord: false,
+      canViewBilling: false,
+      showClinicalSurfaces: false,
+      showLearningSurfaces: false
+    });
+    expect(items.map((i) => i.id)).not.toContain('notes');
+    expect(items.map((i) => i.id)).not.toContain('medical-record');
+    expect(items.map((i) => i.id)).not.toContain('clinical-summary');
+    expect(items.map((i) => i.id)).not.toContain('treatment-plans');
+    expect(items.map((i) => i.id)).toContain('documents');
+  });
+
   it('shows student summary + learning plans for learning-only surfaces', () => {
     const items = recordsSubnav({
       canViewClinical: true,

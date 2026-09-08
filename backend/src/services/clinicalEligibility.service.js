@@ -7,6 +7,13 @@ import { getMedicalBillingFlags, parseFeatureFlags } from './medicalBillingFlags
 
 const BACKOFFICE_ROLES = new Set(['admin', 'super_admin', 'support', 'staff', 'clinical_practice_assistant', 'provider_plus']);
 
+/** Client types that may hold clinical notes / sessions / medical record. School staff never see these via role gates. */
+const CLINICAL_CHART_CLIENT_TYPES = new Set(['clinical', 'school']);
+
+function isClinicalChartClientType(clientType) {
+  return CLINICAL_CHART_CLIENT_TYPES.has(String(clientType || '').toLowerCase());
+}
+
 class ClinicalEligibilityService {
   /**
    * Ensure agency has a clinical organization attached (notes/billing features are clinical-org only).
@@ -56,8 +63,8 @@ class ClinicalEligibilityService {
       err.status = 404;
       throw err;
     }
-    if (String(client.client_type || '').toLowerCase() !== 'clinical') {
-      const err = new Error('Clinical data plane only supports clinical client type');
+    if (!isClinicalChartClientType(client.client_type)) {
+      const err = new Error('Clinical data plane only supports clinical or school client types');
       err.status = 409;
       throw err;
     }
@@ -104,8 +111,8 @@ class ClinicalEligibilityService {
         throw err;
       }
     }
-    if (String(client.client_type || '').toLowerCase() !== 'clinical') {
-      const err = new Error('Clinical data plane only supports clinical client type');
+    if (!isClinicalChartClientType(client.client_type)) {
+      const err = new Error('Clinical data plane only supports clinical or school client types');
       err.status = 409;
       throw err;
     }
