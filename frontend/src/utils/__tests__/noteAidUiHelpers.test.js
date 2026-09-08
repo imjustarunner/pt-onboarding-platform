@@ -3,11 +3,45 @@ import {
   buildDisplaySections,
   buildTreatmentPlanPanels,
   formatFullNoteCopy,
+  medicationsFromClinicalSections,
   parseSoapSectionsFromText,
   parseTreatmentPlanPanelsFromText
 } from '../../utils/noteAidUiHelpers.js';
 
 describe('noteAidUiHelpers', () => {
+  it('parses intake medication fields into the chart medications block', () => {
+    const sections = [
+      {
+        fields: [
+          { key: 'currently_taking_medications', label: 'Are you currently taking medications?', value: 'yes' },
+          { key: 'medications_list', label: 'Current medications', value: 'Sertraline — 50 mg daily\nMelatonin 3mg' }
+        ]
+      }
+    ];
+    expect(medicationsFromClinicalSections(sections)).toEqual({
+      noneCurrently: false,
+      items: [
+        { name: 'Sertraline', dose: '50 mg daily' },
+        { name: 'Melatonin', dose: '3mg' }
+      ],
+      commentsHtml: ''
+    });
+  });
+
+  it('maps none medications from intake', () => {
+    const sections = [
+      {
+        fields: [
+          { key: 'currently_taking_medications', label: 'Are you currently taking medications?', value: 'no' }
+        ]
+      }
+    ];
+    expect(medicationsFromClinicalSections(sections)).toEqual({
+      noneCurrently: true,
+      items: [],
+      commentsHtml: ''
+    });
+  });
   it('maps SOAP sections to lettered panels', () => {
     const panels = buildDisplaySections({
       Subjective: 'S text',

@@ -160,7 +160,16 @@
           {{ copiedKey === 'risk' ? 'Copied' : 'Copy' }}
         </button>
       </div>
-      <p v-if="structuredChart.riskAssessment?.patientDeniesAll" class="ccn-prose">Patient denies all areas of risk.</p>
+      <p v-if="structuredChart.riskAssessment?.patientDeniesAll" class="ccn-prose">
+        Patient denies all areas of risk and no contraindications.
+      </p>
+      <p
+        v-if="(structuredChart.riskAssessment?.protectiveFactors || []).length"
+        class="ccn-prose"
+      >
+        Protective factors:
+        {{ (structuredChart.riskAssessment.protectiveFactors || []).join('; ') }}
+      </p>
       <ul v-else-if="riskAreas.length" class="ccn-risk-list">
         <li v-for="(area, idx) in riskAreas" :key="idx">
           <strong>{{ area.name }}</strong>

@@ -4,12 +4,8 @@
       <div>
         <strong>Mental Status &amp; Risk Assessment</strong>
         <p class="na-chart__sub">
-          Hover a domain to see options, then hover an option for its description. Click to select.
+          Click a domain (or hover) to open options, then hover an option for its description.
         </p>
-      </div>
-      <div v-if="!skipMse" class="na-chart__toggles">
-        <button type="button" class="na-chart__btn" @click="$emit('mse-all-normal')">All Normal</button>
-        <button type="button" class="na-chart__btn" @click="$emit('mse-all-not-assessed')">All Not Assessed</button>
       </div>
     </header>
 
@@ -42,6 +38,10 @@
           <span class="badge">{{ mseDomainDefs.length }} fields</span>
           <span class="badge" :class="mseSummaryComplete ? 'badge--ok' : 'badge--warn'">{{ mseSummaryBadge }}</span>
         </div>
+        <div class="na-chart__toggles">
+          <button type="button" class="na-chart__btn" @click="$emit('mse-all-normal')">All Normal</button>
+          <button type="button" class="na-chart__btn" @click="$emit('mse-all-not-assessed')">All Not Assessed</button>
+        </div>
       </div>
       <div class="na-mse-grid">
         <div
@@ -53,7 +53,7 @@
             'na-mse-domain--set': !!domainLabel(mse.domains?.[def.key])
           }"
           @mouseenter="openMse(def.key)"
-          @mouseleave="closeMse(def.key)"
+          @mouseleave="scheduleCloseMse(def.key)"
           @focusin="openMse(def.key)"
         >
           <button
@@ -65,25 +65,34 @@
             <span class="na-mse-name">{{ def.label }}</span>
             <span class="na-mse-value">{{ domainLabel(mse.domains?.[def.key]) || 'Select…' }}</span>
           </button>
-          <div v-if="openMseKey === def.key" class="na-mse-flyout" role="listbox" :aria-label="def.label">
-            <div class="na-mse-options">
-              <button
-                v-for="opt in def.options"
-                :key="opt.label"
-                type="button"
-                class="na-mse-opt"
-                :class="{ on: domainLabel(mse.domains?.[def.key]) === opt.label }"
-                role="option"
-                @mouseenter="hoverMseOpt = opt"
-                @focus="hoverMseOpt = opt"
-                @click="selectMseOption(def, opt)"
-              >
-                {{ opt.label }}
-              </button>
+          <div
+            v-if="openMseKey === def.key"
+            class="na-mse-flyout"
+            role="listbox"
+            :aria-label="def.label"
+            @mouseenter="cancelCloseMse"
+            @mouseleave="scheduleCloseMse(def.key)"
+          >
+            <div class="na-mse-flyout-inner">
+              <div class="na-mse-options">
+                <button
+                  v-for="opt in def.options"
+                  :key="opt.label"
+                  type="button"
+                  class="na-mse-opt"
+                  :class="{ on: domainLabel(mse.domains?.[def.key]) === opt.label }"
+                  role="option"
+                  @mouseenter="hoverMseOpt = opt"
+                  @focus="hoverMseOpt = opt"
+                  @click="selectMseOption(def, opt)"
+                >
+                  {{ opt.label }}
+                </button>
+              </div>
+              <p class="na-mse-desc">
+                {{ (hoverMseOpt && hoverMseOpt.description) || 'Hover an option to see its clinical description.' }}
+              </p>
             </div>
-            <p class="na-mse-desc">
-              {{ (hoverMseOpt && hoverMseOpt.description) || 'Hover an option to see its clinical description.' }}
-            </p>
           </div>
         </div>
       </div>
@@ -95,8 +104,8 @@
 
       <div class="na-risk-deny" :class="{ on: !!risk.patientDeniesAll }">
         <div>
-          <strong>Patient denies all areas of risk</strong>
-          <p>Sets SI, HI, and self-harm to Denied. Clear this to document specific findings.</p>
+          <strong>Patient denies all areas of risk and no contraindications</strong>
+          <p>Check this when the client denies SI, HI, self-harm, and related safety concerns for this session.</p>
         </div>
         <label class="na-risk-deny-toggle">
           <input
@@ -104,7 +113,7 @@
             :checked="!!risk.patientDeniesAll"
             @change="onDenyAll($event.target.checked)"
           />
-          <span>{{ risk.patientDeniesAll ? 'Denied' : 'Not set' }}</span>
+          <span>Patient denies all and no contraindications</span>
         </label>
       </div>
 
@@ -120,7 +129,7 @@
               'na-mse-domain--set': !!domainLabel(risk.items?.[def.key])
             }"
             @mouseenter="!risk.patientDeniesAll && openRisk(def.key)"
-            @mouseleave="closeRisk(def.key)"
+            @mouseleave="scheduleCloseRisk(def.key)"
             @focusin="!risk.patientDeniesAll && openRisk(def.key)"
           >
             <button
@@ -133,26 +142,65 @@
               <span class="na-mse-name">{{ def.label }}</span>
               <span class="na-mse-value">{{ domainLabel(risk.items?.[def.key]) || 'Select…' }}</span>
             </button>
-            <div v-if="openRiskKey === def.key && !risk.patientDeniesAll" class="na-mse-flyout" role="listbox">
-              <div class="na-mse-options">
-                <button
-                  v-for="opt in def.options"
-                  :key="opt.label"
-                  type="button"
-                  class="na-mse-opt"
-                  :class="{ on: domainLabel(risk.items?.[def.key]) === opt.label }"
-                  @mouseenter="hoverRiskOpt = opt"
-                  @focus="hoverRiskOpt = opt"
-                  @click="selectRiskOption(def, opt)"
-                >
-                  {{ opt.label }}
-                </button>
+            <div
+              v-if="openRiskKey === def.key && !risk.patientDeniesAll"
+              class="na-mse-flyout"
+              role="listbox"
+              @mouseenter="cancelCloseRisk"
+              @mouseleave="scheduleCloseRisk(def.key)"
+            >
+              <div class="na-mse-flyout-inner">
+                <div class="na-mse-options">
+                  <button
+                    v-for="opt in def.options"
+                    :key="opt.label"
+                    type="button"
+                    class="na-mse-opt"
+                    :class="{ on: domainLabel(risk.items?.[def.key]) === opt.label }"
+                    @mouseenter="hoverRiskOpt = opt"
+                    @focus="hoverRiskOpt = opt"
+                    @click="selectRiskOption(def, opt)"
+                  >
+                    {{ opt.label }}
+                  </button>
+                </div>
+                <p class="na-mse-desc">
+                  {{ (hoverRiskOpt && hoverRiskOpt.description) || 'Hover an option to see its clinical description.' }}
+                </p>
               </div>
-              <p class="na-mse-desc">
-                {{ (hoverRiskOpt && hoverRiskOpt.description) || 'Hover an option to see its clinical description.' }}
-              </p>
             </div>
           </div>
+        </div>
+
+        <label class="na-chart__label">
+          Protective factors
+          <select
+            class="na-risk-protect-select"
+            :value="''"
+            @change="addProtectiveFactor($event.target.value); $event.target.value = ''"
+          >
+            <option value="" disabled>Add a protective factor…</option>
+            <option
+              v-for="opt in protectiveFactorChoices"
+              :key="opt"
+              :value="opt"
+              :disabled="hasProtectiveFactor(opt)"
+            >
+              {{ opt }}
+            </option>
+          </select>
+        </label>
+        <div v-if="(risk.protectiveFactors || []).length" class="na-risk-protect-chips">
+          <button
+            v-for="factor in risk.protectiveFactors"
+            :key="factor"
+            type="button"
+            class="na-risk-protect-chip"
+            :title="`Remove ${factor}`"
+            @click="removeProtectiveFactor(factor)"
+          >
+            {{ factor }} ×
+          </button>
         </div>
 
         <label class="na-chart__label na-risk-notes">
@@ -161,7 +209,7 @@
             :value="risk.notes || ''"
             rows="3"
             maxlength="1000"
-            placeholder="Document any relevant risk details, protective factors, or clinical observations…"
+            placeholder="Document any relevant risk details, safety planning, or clinical observations…"
             :disabled="!!risk.patientDeniesAll"
             @input="emit('update:risk', { ...risk, notes: $event.target.value })"
           />
@@ -186,6 +234,7 @@
           None currently
         </label>
       </div>
+      <p v-if="medicationsSourceHint" class="muted tiny">{{ medicationsSourceHint }}</p>
       <div v-for="(med, idx) in (medications.items || [])" :key="idx" class="na-med-row">
         <input
           type="text"
@@ -221,10 +270,11 @@
 </template>
 
 <script setup>
-import { computed, ref } from 'vue';
+import { computed, onBeforeUnmount, ref } from 'vue';
 import {
   MSE_DOMAIN_DEFS,
   RISK_DOMAIN_DEFS,
+  PROTECTIVE_FACTOR_OPTIONS,
   domainSelectionLabel,
   isMentalStatusExamComplete,
   buildDeniedRiskAssessment,
@@ -235,8 +285,12 @@ const props = defineProps({
   diagnoses: { type: Array, default: () => [] },
   diagnosticJustification: { type: String, default: '' },
   mse: { type: Object, default: () => ({ domains: {} }) },
-  risk: { type: Object, default: () => ({ patientDeniesAll: false, items: {}, areas: [], notes: '' }) },
+  risk: {
+    type: Object,
+    default: () => ({ patientDeniesAll: false, items: {}, areas: [], protectiveFactors: [], notes: '' })
+  },
   medications: { type: Object, default: () => ({ noneCurrently: true, items: [], commentsHtml: '' }) },
+  medicationsSourceHint: { type: String, default: '' },
   skipMse: { type: Boolean, default: false },
   diagnosisMode: { type: String, default: 'full' },
   mseSkipLabel: { type: String, default: 'Mental status exam skipped for this service.' }
@@ -253,11 +307,14 @@ const emit = defineEmits([
 
 const mseDomainDefs = MSE_DOMAIN_DEFS;
 const riskDomainDefs = RISK_DOMAIN_DEFS;
+const protectiveFactorChoices = PROTECTIVE_FACTOR_OPTIONS;
 
 const openMseKey = ref(null);
 const openRiskKey = ref(null);
 const hoverMseOpt = ref(null);
 const hoverRiskOpt = ref(null);
+let mseCloseTimer = null;
+let riskCloseTimer = null;
 
 const mseSummaryComplete = computed(() => isMentalStatusExamComplete(props.mse));
 
@@ -278,7 +335,15 @@ function domainLabel(cell) {
   return domainSelectionLabel(cell);
 }
 
+function cancelCloseMse() {
+  if (mseCloseTimer) {
+    clearTimeout(mseCloseTimer);
+    mseCloseTimer = null;
+  }
+}
+
 function openMse(key) {
+  cancelCloseMse();
   openMseKey.value = key;
   const cur = domainLabel(props.mse?.domains?.[key]);
   const def = mseDomainDefs.find((d) => d.key === key);
@@ -292,7 +357,13 @@ function closeMse(key) {
   }
 }
 
+function scheduleCloseMse(key) {
+  cancelCloseMse();
+  mseCloseTimer = setTimeout(() => closeMse(key), 180);
+}
+
 function toggleMse(key) {
+  cancelCloseMse();
   if (openMseKey.value === key) closeMse(key);
   else openMse(key);
 }
@@ -310,11 +381,20 @@ function selectMseOption(def, opt) {
     allNormal: false,
     allNotAssessed: false
   });
+  cancelCloseMse();
   openMseKey.value = null;
   hoverMseOpt.value = null;
 }
 
+function cancelCloseRisk() {
+  if (riskCloseTimer) {
+    clearTimeout(riskCloseTimer);
+    riskCloseTimer = null;
+  }
+}
+
 function openRisk(key) {
+  cancelCloseRisk();
   openRiskKey.value = key;
   const cur = domainLabel(props.risk?.items?.[key]);
   const def = riskDomainDefs.find((d) => d.key === key);
@@ -328,7 +408,13 @@ function closeRisk(key) {
   }
 }
 
+function scheduleCloseRisk(key) {
+  cancelCloseRisk();
+  riskCloseTimer = setTimeout(() => closeRisk(key), 180);
+}
+
 function toggleRisk(key) {
+  cancelCloseRisk();
   if (openRiskKey.value === key) closeRisk(key);
   else openRisk(key);
 }
@@ -346,6 +432,7 @@ function selectRiskOption(def, opt) {
     items,
     areas: syncLegacyAreasFromItems(items)
   });
+  cancelCloseRisk();
   openRiskKey.value = null;
   hoverRiskOpt.value = null;
 }
@@ -360,13 +447,39 @@ function syncLegacyAreasFromItems(items) {
     }));
 }
 
+function hasProtectiveFactor(factor) {
+  return (props.risk?.protectiveFactors || []).some(
+    (f) => String(f).toLowerCase() === String(factor).toLowerCase()
+  );
+}
+
+function addProtectiveFactor(factor) {
+  const label = String(factor || '').trim();
+  if (!label || hasProtectiveFactor(label)) return;
+  emit('update:risk', {
+    ...props.risk,
+    protectiveFactors: [...(props.risk?.protectiveFactors || []), label]
+  });
+}
+
+function removeProtectiveFactor(factor) {
+  emit('update:risk', {
+    ...props.risk,
+    protectiveFactors: (props.risk?.protectiveFactors || []).filter((f) => f !== factor)
+  });
+}
+
 function onDenyAll(checked) {
   if (checked) {
-    emit('update:risk', buildDeniedRiskAssessment(props.risk?.notes || ''));
+    emit(
+      'update:risk',
+      buildDeniedRiskAssessment(props.risk?.notes || '', props.risk?.protectiveFactors || [])
+    );
     return;
   }
   emit('update:risk', {
     ...emptyRiskAssessment(),
+    protectiveFactors: props.risk?.protectiveFactors || [],
     notes: props.risk?.notes || ''
   });
 }
@@ -397,6 +510,11 @@ function patchMed(idx, patch) {
   const items = (props.medications?.items || []).map((m, i) => (i === idx ? { ...m, ...patch } : m));
   emit('update:medications', { ...props.medications, items });
 }
+
+onBeforeUnmount(() => {
+  cancelCloseMse();
+  cancelCloseRisk();
+});
 </script>
 
 <style scoped>
@@ -409,13 +527,6 @@ function patchMed(idx, patch) {
   display: flex;
   flex-direction: column;
   gap: 16px;
-}
-.na-chart__head {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: 12px;
-  flex-wrap: wrap;
 }
 .na-chart__head strong {
   display: block;
@@ -445,6 +556,7 @@ function patchMed(idx, patch) {
 .na-chart__btn:hover {
   border-color: #14b8a6;
   color: #0f766e;
+  background: #f0fdfa;
 }
 .na-chart__block {
   border: 1px solid #e2e8f0;
@@ -540,7 +652,7 @@ function patchMed(idx, patch) {
   z-index: 1;
 }
 .na-mse-domain--open {
-  z-index: 20;
+  z-index: 40;
 }
 .na-mse-domain__trigger {
   width: 100%;
@@ -562,7 +674,9 @@ function patchMed(idx, patch) {
 }
 .na-mse-domain--open .na-mse-domain__trigger {
   border-color: #14b8a6;
-  box-shadow: 0 0 0 2px rgba(20, 184, 166, 0.15);
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+  box-shadow: none;
 }
 .na-mse-domain__trigger:disabled {
   opacity: 0.55;
@@ -585,19 +699,23 @@ function patchMed(idx, patch) {
   color: #94a3b8;
   font-weight: 500;
 }
+/* Continuous hover bridge: no gap between trigger and panel */
 .na-mse-flyout {
   position: absolute;
   left: 0;
   right: 0;
-  top: calc(100% + 4px);
+  top: calc(100% - 1px);
   min-width: min(420px, 80vw);
   width: max(100%, 320px);
+  z-index: 50;
+  padding: 0;
+}
+.na-mse-flyout-inner {
   background: #fff;
-  border: 1px solid #cbd5e1;
-  border-radius: 12px;
-  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.14);
+  border: 1px solid #14b8a6;
+  border-radius: 0 0 12px 12px;
+  box-shadow: 0 14px 28px rgba(15, 23, 42, 0.14);
   padding: 10px;
-  z-index: 30;
 }
 .na-mse-options {
   display: flex;
@@ -671,13 +789,14 @@ function patchMed(idx, patch) {
   gap: 8px;
   border: 1px solid #94a3b8;
   background: #fff;
-  border-radius: 999px;
+  border-radius: 12px;
   padding: 8px 12px;
   font-weight: 700;
-  font-size: 0.82rem;
+  font-size: 0.78rem;
   color: #0f172a;
   cursor: pointer;
-  white-space: nowrap;
+  max-width: 16rem;
+  line-height: 1.25;
 }
 .na-risk-deny.on .na-risk-deny-toggle {
   border-color: #16a34a;
@@ -692,6 +811,33 @@ function patchMed(idx, patch) {
   text-transform: uppercase;
   letter-spacing: 0.04em;
 }
+.na-risk-protect-select {
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  padding: 8px 10px;
+  font: inherit;
+  background: #fff;
+}
+.na-risk-protect-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+.na-risk-protect-chip {
+  border: 1px solid #99f6e4;
+  background: #f0fdfa;
+  color: #115e59;
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 0.75rem;
+  font-weight: 650;
+  cursor: pointer;
+}
+.na-risk-protect-chip:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
 .na-med-row {
   display: grid;
   grid-template-columns: 1.2fr 1fr auto;
@@ -700,7 +846,8 @@ function patchMed(idx, patch) {
   align-items: center;
 }
 .na-med-row input,
-.na-chart__label textarea {
+.na-chart__label textarea,
+.na-risk-protect-select {
   border: 1px solid #cbd5e1;
   border-radius: 8px;
   padding: 6px 8px;

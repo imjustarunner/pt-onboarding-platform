@@ -1157,6 +1157,7 @@
             v-model:mse="chartMentalStatus"
             v-model:risk="chartRiskAssessment"
             v-model:medications="chartMedications"
+            :medications-source-hint="medicationsSourceHint"
             :skip-mse="skipMentalStatusExam"
             :mse-skip-label="mseSkipLabel"
             @mse-all-normal="onMseAllNormal"
@@ -1531,7 +1532,8 @@ import {
   formatDraftListDate,
   formatDraftListTime,
   formatFullNoteCopy,
-  todayIsoDate
+  todayIsoDate,
+  medicationsFromClinicalSections
 } from '../../utils/noteAidUiHelpers';
 import {
   activePlanGoals,
@@ -2156,6 +2158,8 @@ const chartDiagnosticJustification = ref('');
 const chartMentalStatus = ref(defaultMentalStatusExam());
 const chartRiskAssessment = ref(defaultRiskAssessment());
 const chartMedications = ref(defaultMedicationsBlock());
+const medicationsSourceHint = ref('');
+const medicationsPrefillClientId = ref(null);
 const createClientDefaults = reactive({ initials: '', name: '', agencyId: null });
 const initialsMatchSuggestions = ref([]);
 const initialsMatchDismissed = ref(false);
@@ -6220,6 +6224,8 @@ const resetClientClinicalContext = () => {
   chartMentalStatus.value = defaultMentalStatusExam();
   chartRiskAssessment.value = defaultRiskAssessment();
   chartMedications.value = defaultMedicationsBlock();
+  medicationsSourceHint.value = '';
+  medicationsPrefillClientId.value = null;
   clientGuardianNames.value = [];
   dismissPhiNameWarn.value = false;
   clientPlanError.value = '';
@@ -6350,9 +6356,10 @@ const loadClientIntakeSummary = async (clientId) => {
   loadingIntake.value = true;
   intakeError.value = '';
   try {
-    const [blocksRes, draftRes] = await Promise.all([
+    const [blocksRes, draftRes, clinicalRes] = await Promise.all([
       api.get(`/clients/${cid}/records-copy-blocks`, { skipGlobalLoading: true }).catch(() => null),
-      api.get(`/clients/${cid}/intake-note`, { skipGlobalLoading: true }).catch(() => null)
+      api.get(`/clients/${cid}/intake-note`, { skipGlobalLoading: true }).catch(() => null),
+      api.get(`/clients/${cid}/clinical-responses`, { skipGlobalLoading: true }).catch(() => null)
     ]);
     const data = blocksRes?.data || {};
     // API returns { demographics, clinicalDeidentified, intakeNarrative } — not blocks[]
@@ -6390,6 +6397,7 @@ const loadClientIntakeSummary = async (clientId) => {
     if (intakeDraftFinalized.value) {
       intakeImportedOnce.value = true;
     }
+    applyIntakeMedicationsPrefill(cid, clinicalRes?.data?.sections || []);
   } catch (e) {
     intakeSummary.value = '';
     intakeError.value = e.response?.data?.error?.message || e.message || 'Could not load intake';
@@ -6397,6 +6405,35 @@ const loadClientIntakeSummary = async (clientId) => {
     loadingIntake.value = false;
   }
 };
+
+function medicationsBlockIsPristine(block) {
+  const items = Array.isArray(block?.items) ? block.items : [];
+  const hasNamed = items.some((m) => String(m?.name || '').trim());
+  const comments = String(block?.commentsHtml || block?.comments || '').trim();
+  return !!block?.noneCurrently && !hasNamed && !comments;
+}
+
+function applyIntakeMedicationsPrefill(clientId, sections) {
+  const cid = Number(clientId || 0);
+  if (!cid) return;
+  const switchingClient = medicationsPrefillClientId.value != null
+    && medicationsPrefillClientId.value !== cid;
+  if (!switchingClient && !medicationsBlockIsPristine(chartMedications.value)) return;
+
+  const parsed = medicationsFromClinicalSections(sections);
+  medicationsPrefillClientId.value = cid;
+  if (!parsed) {
+    if (switchingClient) {
+      chartMedications.value = defaultMedicationsBlock();
+      medicationsSourceHint.value = '';
+    }
+    return;
+  }
+  chartMedications.value = parsed;
+  medicationsSourceHint.value = parsed.noneCurrently
+    ? 'Prefill from intake: no current medications reported.'
+    : 'Prefill from intake medications — edit if needed.';
+}
 
 const onClientPicked = async (client) => {
   const normalized = normalizeNoteAidClientRow(client, agencyLookup.value) || client;

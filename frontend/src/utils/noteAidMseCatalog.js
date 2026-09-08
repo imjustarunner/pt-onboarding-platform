@@ -409,7 +409,7 @@ export function buildAllNotAssessedMse() {
   return { allNormal: false, allNotAssessed: true, domains };
 }
 
-export function buildDeniedRiskAssessment(notes = '') {
+export function buildDeniedRiskAssessment(notes = '', protectiveFactors = []) {
   const items = {};
   for (const def of RISK_DOMAIN_DEFS) {
     const label = def.allNormalLabel || 'Denied';
@@ -423,6 +423,7 @@ export function buildDeniedRiskAssessment(notes = '') {
     patientDeniesAll: true,
     items,
     areas: [],
+    protectiveFactors: Array.isArray(protectiveFactors) ? [...protectiveFactors] : [],
     notes: notes || ''
   };
 }
@@ -432,6 +433,23 @@ export function emptyRiskAssessment() {
     patientDeniesAll: false,
     items: {},
     areas: [],
+    protectiveFactors: [],
     notes: ''
   };
 }
+
+/** Common protective factors for risk documentation. */
+export const PROTECTIVE_FACTOR_OPTIONS = [
+  'Supportive family or friends',
+  'Engaged in treatment / therapeutic alliance',
+  'Future orientation / reasons for living',
+  'Spirituality or faith community',
+  'Stable housing',
+  'Employment or school engagement',
+  'Effective coping skills',
+  'No access to lethal means',
+  'Willingness to safety plan',
+  'Pets / dependents to care for',
+  'Hopefulness',
+  'Other (see notes)'
+];

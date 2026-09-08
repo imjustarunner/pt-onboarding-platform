@@ -452,33 +452,98 @@ export function formatMentalStatusExamLines(mse, { domains = [] } = {}) {
 
 export function formatRiskAssessmentText(risk) {
   if (!risk) return '';
-  if (risk.patientDeniesAll) return 'Patient denies all areas of risk.';
-  const items = risk.items && typeof risk.items === 'object' ? risk.items : null;
-  if (items && Object.keys(items).length) {
-    const bits = Object.entries(items)
-      .map(([name, cell]) => {
+  const bits = [];
+  if (risk.patientDeniesAll) {
+    bits.push('Patient denies all areas of risk and no contraindications.');
+  } else {
+    const items = risk.items && typeof risk.items === 'object' ? risk.items : null;
+    if (items && Object.keys(items).length) {
+      for (const [name, cell] of Object.entries(items)) {
         const label = mseStatusLabel(cell?.status, cell?.option);
         const detail = String(cell?.detail || '').trim();
-        if (!label || label === '—') return null;
-        return detail ? `${name}: ${label} — ${detail}` : `${name}: ${label}`;
-      })
-      .filter(Boolean);
-    const notes = String(risk.notes || '').trim();
-    if (notes) bits.push(`Notes: ${notes}`);
-    return bits.length ? bits.join('\n') : 'Risk areas documented.';
+        if (!label || label === '—') continue;
+        bits.push(detail ? `${name}: ${label} — ${detail}` : `${name}: ${label}`);
+      }
+    } else {
+      const areas = Array.isArray(risk.areas) ? risk.areas : [];
+      for (const a of areas.filter((row) => String(row?.name || '').trim())) {
+        const level = a.level ? ` (${String(a.level).replace(/_/g, ' ')})` : '';
+        const details = String(a.details || '').trim();
+        bits.push(details ? `${a.name}${level}: ${details}` : `${a.name}${level}`);
+      }
+    }
   }
-  const areas = Array.isArray(risk.areas) ? risk.areas : [];
-  const bits = areas
-    .filter((a) => String(a?.name || '').trim())
-    .map((a) => {
-      const level = a.level ? ` (${String(a.level).replace(/_/g, ' ')})` : '';
-      const details = String(a.details || '').trim();
-      return details ? `${a.name}${level}: ${details}` : `${a.name}${level}`;
-    });
+  const factors = Array.isArray(risk.protectiveFactors)
+    ? risk.protectiveFactors.map((f) => String(f || '').trim()).filter(Boolean)
+    : [];
+  if (factors.length) bits.push(`Protective factors: ${factors.join('; ')}`);
   const notes = String(risk.notes || '').trim();
   if (notes) bits.push(`Notes: ${notes}`);
+  if (risk.patientDeniesAll && bits.length === 1) return bits[0];
   return bits.length ? bits.join('\n') : 'Risk areas documented.';
 }
+
+/**
+ * Build medications block from clinical-responses sections (intake medications fields).
+ * @returns {{ noneCurrently: boolean, items: Array<{name:string,dose:string}>, commentsHtml: string } | null}
+ */
+export function medicationsFromClinicalSections(sections = []) {
+  let medsText = '';
+  let takingRaw = '';
+  for (const section of sections || []) {
+    for (const field of section?.fields || []) {
+      const key = String(field?.key || '').toLowerCase();
+      const label = String(field?.label || '').toLowerCase();
+      const value = String(field?.value || '').trim();
+      if (!value) continue;
+      if (
+        /currently_taking_medications/.test(key)
+        || /currently taking medications/.test(label)
+        || /are you currently taking medications/.test(label)
+      ) {
+        takingRaw = value;
+      }
+      if (
+        /medications_list/.test(key)
+        || (/medication/.test(key) && !/currently_taking/.test(key) && !/means_medications/.test(key))
+        || /current medications/.test(label)
+        || /medications list/.test(label)
+        || (/^medications$/.test(label))
+      ) {
+        medsText = value;
+      }
+    }
+  }
+  const taking = takingRaw.toLowerCase();
+  if (taking === 'no' || taking === 'n' || taking === 'none') {
+    return { noneCurrently: true, items: [], commentsHtml: '' };
+  }
+  if (!medsText) {
+    if (taking === 'yes' || taking === 'y') {
+      return { noneCurrently: false, items: [{ name: '', dose: '' }], commentsHtml: '' };
+    }
+    return null;
+  }
+  if (/^(none|n\/a|na|no meds?|not currently)\b/i.test(medsText)) {
+    return { noneCurrently: true, items: [], commentsHtml: medsText };
+  }
+  const chunks = medsText
+    .split(/\n|;|\u2022|\|/g)
+    .map((s) => s.replace(/^[\s\-*]+/, '').trim())
+    .filter(Boolean);
+  const items = chunks.map((chunk) => {
+    const m = chunk.match(/^(.+?)\s*[—\-–,:]\s+(.+)$/);
+    if (m) return { name: m[1].trim(), dose: m[2].trim() };
+    const doseMatch = chunk.match(/^(.+?)\s+(\d[\w./%\-\s]*)$/);
+    if (doseMatch && doseMatch[1].split(/\s+/).length <= 4) {
+      return { name: doseMatch[1].trim(), dose: doseMatch[2].trim() };
+    }
+    return { name: chunk, dose: '' };
+  }).filter((row) => row.name);
+  if (!items.length) return { noneCurrently: false, items: [], commentsHtml: medsText };
+  return { noneCurrently: false, items, commentsHtml: '' };
+}
+
 
 export function formatMedicationsText(medications) {
   if (!medications) return '';
