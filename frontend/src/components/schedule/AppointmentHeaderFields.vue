@@ -1,9 +1,9 @@
 <template>
   <div class="ahf" :class="{ 'ahf--book': bookSessionLayout }" data-testid="appointment-header-fields">
-    <!-- Agency + Provider strip -->
-    <div class="ahf-agency-strip">
+    <!-- Agency + Provider strip (always first) -->
+    <div class="ahf-agency-strip" :class="{ 'ahf-agency-strip--book': bookSessionLayout }">
       <div class="ahf-field ahf-field--tenant">
-        <span class="ahf-label">Provider · Agency</span>
+        <span class="ahf-label">{{ bookSessionLayout ? 'Agency' : 'Provider · Agency' }}</span>
         <div class="ahf-tenant-row">
           <img v-if="tenantIconUrl" class="ahf-tenant-logo" :src="tenantIconUrl" alt="" />
           <select
@@ -151,7 +151,8 @@
           A virtual meeting link will be available after booking.
         </p>
 
-        <div v-if="showLocation" class="ahf-field ahf-field--grow">
+        <div v-if="showLocation || showRoom || showOfficeRequestCta || officeRequestActive" class="ahf-location-stack">
+        <div v-if="showLocation" class="ahf-field ahf-field--full">
           <span class="ahf-label">{{ modality === 'TELEHEALTH' ? 'Office location / room (optional)' : 'Location' }}</span>
           <select
             v-if="locationOptions.length"
@@ -183,7 +184,7 @@
           </p>
         </div>
 
-        <div v-if="showRoom && roomOptions.length" class="ahf-field">
+        <div v-if="showRoom && roomOptions.length" class="ahf-field ahf-field--full">
           <span class="ahf-label">Room</span>
           <select
             class="ahf-input"
@@ -211,7 +212,7 @@
               </div>
               <button
                 type="button"
-                class="btn btn-secondary btn-sm"
+                class="btn btn-secondary btn-sm ahf-office-btn"
                 :disabled="disabled"
                 @click="emit('request-office')"
               >
@@ -317,13 +318,14 @@
             </template>
           </div>
         </div>
+        </div>
       </div>
       <p v-if="modalityPosWarning" class="ahf-soft-warn" role="status">{{ modalityPosWarning }}</p>
     </section>
 
     <!-- Section 3: Service & clients -->
     <section
-      v-if="showType || showService || showPrimaryServiceCode || showParticipant || showGroupClients || showAddonServiceCodes || showStatus || showOccurrenceCount || showBookedUntil"
+      v-if="showType || showService || showPrimaryServiceCode || showParticipant || showAddonServiceCodes || showStatus || showOccurrenceCount || showBookedUntil"
       class="ahf-section"
     >
       <header class="ahf-section-head">
@@ -388,8 +390,8 @@
 
         <div
           v-if="showParticipant"
-          class="ahf-field"
-          :class="{ 'ahf-field--participant-open': participantTrayOpen }"
+          class="ahf-field ahf-field--client"
+          :class="{ 'ahf-field--participant-open': participantTrayOpen, 'ahf-field--grow': bookSessionLayout }"
         >
           <span class="ahf-label">{{ participantLabel }} <span v-if="bookSessionLayout" class="ahf-req">*</span></span>
           <slot name="participant">
@@ -397,15 +399,22 @@
           </slot>
         </div>
 
-        <div v-if="showOthersPresent" class="ahf-field ahf-field--grow">
-          <span class="ahf-label">Others present (name)</span>
+        <div v-if="bookSessionLayout && showParticipant" class="ahf-field ahf-field--attendance">
+          <span class="ahf-label">Attendance</span>
+          <slot name="attendance">
+            <span class="ahf-value">Client Only</span>
+          </slot>
+        </div>
+
+        <div v-if="showOthersPresent" class="ahf-field ahf-field--full">
+          <span class="ahf-label">Others present (names)</span>
           <input
             class="ahf-input"
             type="text"
             maxlength="500"
             :value="othersPresentNames"
             :disabled="disabled"
-            placeholder="Type names of others attending…"
+            placeholder="Type names of others attending (e.g. mother, guardian)…"
             @input="emit('update:othersPresentNames', String($event.target.value || ''))"
           />
         </div>
@@ -456,13 +465,13 @@
           <span v-else class="ahf-value">{{ bookedUntilLabel || bookedUntil || '—' }}</span>
         </div>
 
-        <div v-if="showAddonServiceCodes && addonServiceCodeOptions.length" class="ahf-field ahf-field--full">
-          <span class="ahf-label">Add-ons</span>
+        <div v-if="showAddonServiceCodes && addonServiceCodeOptions.length" class="ahf-field ahf-field--full ahf-addons">
+          <span class="ahf-label">Add-on service codes</span>
           <div class="ahf-addon-list">
             <label
               v-for="opt in addonServiceCodeOptions"
               :key="`ahf-addon-${opt.code}`"
-              class="ahf-check"
+              class="ahf-check ahf-check--addon"
             >
               <input
                 type="checkbox"
@@ -477,38 +486,43 @@
             <a class="ahf-admin-link" :href="adminCatalogLinks.addons" target="_blank" rel="noopener">Update add-ons ↗</a>
           </p>
         </div>
+      </div>
+    </section>
 
-        <div v-if="showGroupClients" class="ahf-field ahf-field--full" id="ahf-group-clients">
-          <div class="ahf-group-head">
-            <span class="ahf-label">Additional clients (optional)</span>
-            <button
-              type="button"
-              class="ahf-action-btn"
-              :disabled="disabled"
-              @click="groupExpanded = !groupExpanded"
-            >
-              {{ groupExpanded ? 'Hide' : '+ Add clients' }}
-            </button>
-          </div>
-          <p class="ahf-hint">Add additional clients for a group session.</p>
-          <div v-if="groupExpanded" class="ahf-group-list">
-            <label
-              v-for="c in groupClientOptions"
-              :key="`ahf-gc-${c.id}`"
-              class="ahf-check"
-            >
-              <input
-                type="checkbox"
-                :checked="selectedClientIdSet.has(Number(c.id))"
-                :disabled="disabled || groupClientsLoading"
-                @change="toggleGroupClient(Number(c.id))"
-              />
-              <span>{{ c.displayName || c.fullName || `Client #${c.id}` }}</span>
-            </label>
-            <p v-if="groupClientsLoading" class="ahf-hint">Loading clients…</p>
-            <p v-else-if="!groupClientOptions.length" class="ahf-hint">No other assigned clients to add.</p>
-          </div>
-        </div>
+    <!-- Additional clients (own section for Book Session / clinical) -->
+    <section v-if="showGroupClients" id="ahf-group-clients" class="ahf-section">
+      <header class="ahf-section-head">
+        <span class="ahf-section-icon" aria-hidden="true">➕</span>
+        <h4 class="ahf-section-title">Additional clients</h4>
+      </header>
+      <p class="ahf-hint ahf-hint--section">Optional — add more clients to make this a group session.</p>
+      <div class="ahf-group-toolbar">
+        <button
+          type="button"
+          class="ahf-action-btn ahf-action-btn--inline"
+          :disabled="disabled"
+          @click="groupExpanded = !groupExpanded"
+        >
+          {{ groupExpanded ? 'Hide list' : '+ Add clients' }}
+        </button>
+        <span v-if="extraClientCount" class="ahf-hint">{{ extraClientCount }} selected</span>
+      </div>
+      <div v-if="groupExpanded" class="ahf-group-list ahf-group-list--section">
+        <label
+          v-for="c in groupClientOptions"
+          :key="`ahf-gc-${c.id}`"
+          class="ahf-check"
+        >
+          <input
+            type="checkbox"
+            :checked="selectedClientIdSet.has(Number(c.id))"
+            :disabled="disabled || groupClientsLoading"
+            @change="toggleGroupClient(Number(c.id))"
+          />
+          <span>{{ c.displayName || c.fullName || `Client #${c.id}` }}</span>
+        </label>
+        <p v-if="groupClientsLoading" class="ahf-hint">Loading clients…</p>
+        <p v-else-if="!groupClientOptions.length" class="ahf-hint">No other clients available to add for this provider.</p>
       </div>
     </section>
 
@@ -729,6 +743,10 @@ const addonCodeSet = computed(
 const selectedClientIdSet = computed(
   () => new Set((props.selectedClientIds || []).map((n) => Number(n)).filter((n) => n > 0))
 );
+const extraClientCount = computed(() => {
+  const primary = Number(props.primaryClientId || 0);
+  return Array.from(selectedClientIdSet.value).filter((id) => id !== primary).length;
+});
 
 function formatCodeLabel(opt) {
   const code = String(opt?.code || '').trim().toUpperCase();
@@ -928,6 +946,8 @@ function nudgeEnd(deltaMin) {
 }
 .ahf-field--full {
   flex: 1 1 100%;
+  max-width: none;
+  width: 100%;
 }
 .ahf-req { color: #b91c1c; }
 .ahf-modality {
@@ -1133,13 +1153,23 @@ function nudgeEnd(deltaMin) {
 }
 .ahf-office {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 10px;
   padding: 12px 14px;
   border: 1px dashed #cbd5e1;
   border-radius: 12px;
   background: #fff;
+}
+.ahf-office:not(.ahf-office--active) {
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+}
+.ahf-office-btn {
+  flex: 0 0 auto;
+  margin-left: auto;
 }
 .ahf-office--active {
   flex-direction: column;
@@ -1316,6 +1346,66 @@ function nudgeEnd(deltaMin) {
   border: 1px solid #e2e8f0;
   border-radius: 12px;
   background: #f8fafc;
+}
+.ahf-agency-strip--book {
+  order: -1;
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: #f1f5f9;
+  border-color: #cbd5e1;
+  box-shadow: 0 1px 0 rgba(15, 23, 42, 0.04);
+}
+.ahf-agency-strip--book .ahf-field {
+  flex: 1 1 180px;
+  max-width: none;
+}
+.ahf-location-stack {
+  flex: 1 1 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+}
+.ahf-field--attendance {
+  flex: 0 1 200px;
+  max-width: 240px;
+}
+.ahf-field--client {
+  min-width: 200px;
+}
+.ahf-addons {
+  margin-top: 4px;
+  padding: 10px 12px;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  background: #f8fafc;
+}
+.ahf-check--addon {
+  padding: 4px 0;
+}
+.ahf-hint--section {
+  margin: 0;
+}
+.ahf-group-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.ahf-action-btn--inline {
+  width: auto;
+  min-width: 140px;
+  padding: 0 12px;
+}
+.ahf-group-list--section {
+  margin-top: 8px;
+  padding: 10px 12px;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  background: #fff;
+  max-height: 220px;
+  overflow: auto;
 }
 .ahf-section {
   border: 1px solid #e2e8f0;

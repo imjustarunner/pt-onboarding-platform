@@ -3986,9 +3986,12 @@ async function loadHostDisplayNamesByUserIds(userIds = []) {
   return out;
 }
 
-/** Always false: schedule client pickers use the target provider's caseload only
- *  (including when admin/support/superadmin book on behalf of someone else). */
-const canListAllAgencyClientsForSchedule = (_role) => false;
+/** Admins/support booking on behalf of a provider can pick any active client at the agency.
+ *  Providers (and anyone else) still see only that provider's caseload. */
+const canListAllAgencyClientsForSchedule = (role) => {
+  const r = String(role || '').toLowerCase();
+  return r === 'super_admin' || r === 'superadmin' || r === 'admin' || r === 'support';
+};
 
 function toDisplayStatus({ status, slotState }) {
   const st = String(status || '').trim().toUpperCase();

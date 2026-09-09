@@ -46,6 +46,9 @@
       <template #participant>
         <slot name="participant" />
       </template>
+      <template #attendance>
+        <slot name="attendance" />
+      </template>
       <template #participant-tray>
         <slot name="participant-tray" />
       </template>

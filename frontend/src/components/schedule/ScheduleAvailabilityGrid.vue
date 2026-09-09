@@ -2105,13 +2105,13 @@
           </template>
 
           <template #participant>
-            <div v-if="editorIsClinical && isScheduleEventEditMode" class="aes-clinical-participant">
+            <div v-if="editorIsClinical && isScheduleEventEditMode" class="aes-clinical-participant" :class="{ 'aes-clinical-participant--book': editorUseBookSessionLayout }">
               <select
                 v-model.number="scheduleEventEditForm.clientId"
                 class="ahf-input"
                 :disabled="virtualSessionClientsLoading"
               >
-                <option :value="0">— None —</option>
+                <option :value="0">{{ virtualSessionClientsLoading ? 'Loading clients…' : 'Select a client…' }}</option>
                 <option
                   v-for="c in scheduleEventEditClientOptions"
                   :key="`aes-client-${c.id}`"
@@ -2120,27 +2120,35 @@
                   {{ c.displayName || c.fullName || `Client #${c.id}` }}
                 </option>
               </select>
-              <select v-model="editorClinicalParticipantsMode" class="ahf-input aes-participants-mode">
-                <option value="Client Only">Client Only</option>
-                <option value="Client and Others">Client and Others</option>
-                <option value="Others (client not present)">Others (client not present)</option>
-              </select>
-              <input
-                v-if="editorClinicalParticipantsMode !== 'Client Only'"
-                v-model="editorClinicalParticipantsDetail"
-                class="ahf-input"
-                type="text"
-                placeholder="Who attended? (e.g. mother, guardian)"
-              />
+              <template v-if="!editorUseBookSessionLayout">
+                <select v-model="editorClinicalParticipantsMode" class="ahf-input aes-participants-mode">
+                  <option value="Client Only">Client Only</option>
+                  <option value="Client and Others">Client and Others</option>
+                  <option value="Others (client not present)">Others (client not present)</option>
+                </select>
+                <input
+                  v-if="editorClinicalParticipantsMode !== 'Client Only'"
+                  v-model="editorOthersPresentNames"
+                  class="ahf-input"
+                  type="text"
+                  placeholder="Who attended? (e.g. mother, guardian)"
+                />
+              </template>
             </div>
-            <div v-else-if="editorIsClinical && !isAppointmentEditMode" class="aes-clinical-participant">
+            <div v-else-if="editorIsClinical && !isAppointmentEditMode" class="aes-clinical-participant" :class="{ 'aes-clinical-participant--book': editorUseBookSessionLayout }">
               <select
                 class="ahf-input"
                 :value="primarySessionClientId || 0"
                 :disabled="virtualSessionClientsLoading"
                 @change="onEditorClinicalClientChange"
               >
-                <option :value="0">Select a client…</option>
+                <option :value="0">
+                  {{ virtualSessionClientsLoading
+                    ? 'Loading clients…'
+                    : ((scheduleEventEditClientOptions.length || (virtualSessionClients || []).length)
+                      ? 'Select a client…'
+                      : 'No clients found for this provider') }}
+                </option>
                 <option
                   v-for="c in scheduleEventEditClientOptions.length ? scheduleEventEditClientOptions : (virtualSessionClients || [])"
                   :key="`aes-create-client-${c.id}`"
@@ -2149,18 +2157,20 @@
                   {{ c.displayName || c.fullName || `Client #${c.id}` }}
                 </option>
               </select>
-              <select v-model="editorClinicalParticipantsMode" class="ahf-input aes-participants-mode">
-                <option value="Client Only">Client Only</option>
-                <option value="Client and Others">Client and Others</option>
-                <option value="Others (client not present)">Others (client not present)</option>
-              </select>
-              <input
-                v-if="editorClinicalParticipantsMode !== 'Client Only'"
-                v-model="editorClinicalParticipantsDetail"
-                class="ahf-input"
-                type="text"
-                placeholder="Who attended? (e.g. mother, guardian)"
-              />
+              <template v-if="!editorUseBookSessionLayout">
+                <select v-model="editorClinicalParticipantsMode" class="ahf-input aes-participants-mode">
+                  <option value="Client Only">Client Only</option>
+                  <option value="Client and Others">Client and Others</option>
+                  <option value="Others (client not present)">Others (client not present)</option>
+                </select>
+                <input
+                  v-if="editorClinicalParticipantsMode !== 'Client Only'"
+                  v-model="editorOthersPresentNames"
+                  class="ahf-input"
+                  type="text"
+                  placeholder="Who attended? (e.g. mother, guardian)"
+                />
+              </template>
             </div>
             <button
               v-else-if="editorIsMeeting"
@@ -2218,6 +2228,18 @@
               <span class="aes-participant-chevron" aria-hidden="true">{{ supervisionParticipantsExpanded ? '▴' : '▾' }}</span>
             </button>
             <span v-else class="nr-info-value">{{ editorParticipantSummary }}</span>
+          </template>
+
+          <template #attendance>
+            <select
+              v-model="editorClinicalParticipantsMode"
+              class="ahf-input aes-participants-mode"
+              :disabled="submitting || scheduleEventSaving"
+            >
+              <option value="Client Only">Client Only</option>
+              <option value="Client and Others">Client and Others</option>
+              <option value="Others (client not present)">Others (client not present)</option>
+            </select>
           </template>
 
           <template #participant-tray>
@@ -13452,10 +13474,16 @@ const editorQuickNote = ref('');
 
 watch(editorClinicalParticipantsMode, (mode) => {
   if (!editorIsClinical.value) return;
+  // Attendance "others" is a names field — do not auto-expand Additional clients.
   if (mode && mode !== 'Client Only') {
-    editorForceExpandGroupClients.value = true;
     virtualSessionIncludeGuardians.value = true;
+  } else {
+    editorOthersPresentNames.value = '';
+    editorClinicalParticipantsDetail.value = '';
   }
+});
+watch(editorOthersPresentNames, (v) => {
+  editorClinicalParticipantsDetail.value = String(v || '');
 });
 const editorClinicalSessionId = ref(0);
 const editorClinicalNoteId = ref(0);
@@ -17671,7 +17699,13 @@ const refreshScheduleSummaryInBackground = () => {
 
 const loadVirtualSessionClients = async (agencyIdOverride = null) => {
   const uid = Number(scheduleActorUserId.value || props.userId || authStore.user?.id || 0);
-  const agencyId = Number(agencyIdOverride || effectiveAgencyId.value || 0);
+  const agencyId = Number(
+    agencyIdOverride
+    || editorAgencyId.value
+    || selectedActionAgencyId.value
+    || effectiveAgencyId.value
+    || 0
+  );
   if (!uid || !agencyId) {
     virtualSessionClients.value = [];
     virtualSessionGuardians.value = [];
@@ -20771,8 +20805,8 @@ const completePlatformVirtualSessionBooking = async ({
   const participantsModeNote = editorClinicalParticipantsMode.value
     && editorClinicalParticipantsMode.value !== 'Client Only'
     ? `Participants: ${editorClinicalParticipantsMode.value}${
-      editorClinicalParticipantsDetail.value
-        ? ` (${String(editorClinicalParticipantsDetail.value).trim()})`
+      (editorOthersPresentNames.value || editorClinicalParticipantsDetail.value)
+        ? ` (${String(editorOthersPresentNames.value || editorClinicalParticipantsDetail.value).trim()})`
         : ''
     }`
     : (editorClinicalParticipantsMode.value === 'Client Only' ? 'Participants: Client Only' : '');
@@ -20780,8 +20814,8 @@ const completePlatformVirtualSessionBooking = async ({
   const addonNote = (editorAddonServiceCodes.value || []).length
     ? `Add-on codes: ${editorAddonServiceCodes.value.join(', ')}`
     : '';
-  const othersNote = String(editorOthersPresentNames.value || '').trim()
-    ? `Others present: ${String(editorOthersPresentNames.value).trim()}`
+  const othersNote = String(editorOthersPresentNames.value || editorClinicalParticipantsDetail.value || '').trim()
+    ? `Others present: ${String(editorOthersPresentNames.value || editorClinicalParticipantsDetail.value).trim()}`
     : '';
   const descriptionParts = [
     String(requestNotes.value || '').trim() || 'Platform counseling video session.',
@@ -22434,17 +22468,21 @@ watch([bookingModality, linkPlatformVideoRoom, virtualSessionIncludeGuardians], 
   void loadVirtualSessionClients();
 });
 
-watch([showRequestModal, requestType, effectiveAgencyId], ([isOpen, type, agencyId], [prevOpen, prevType, prevAgencyId]) => {
+watch([showRequestModal, requestType, effectiveAgencyId, scheduleActorUserId], ([isOpen, type, agencyId], [prevOpen, prevType, prevAgencyId]) => {
   if (!isOpen) return;
   if (String(type || '') === 'individual_session') {
-    const currentAgencyId = Number(agencyId || 0);
+    const currentAgencyId = Number(agencyId || editorAgencyId.value || selectedActionAgencyId.value || 0);
     const previousAgencyId = Number(prevAgencyId || 0);
-    if (currentAgencyId > 0 && currentAgencyId !== previousAgencyId) {
-      virtualSessionSelectedClientIds.value = [];
-      virtualSessionSelectedGuardianKeys.value = [];
-      virtualSessionParticipantSearch.value = '';
-      resetVirtualSessionShareState();
-      void loadVirtualSessionClients();
+    const openedOrTypeChanged = !prevOpen || String(prevType || '') !== 'individual_session';
+    const agencyChanged = currentAgencyId > 0 && currentAgencyId !== previousAgencyId;
+    if (currentAgencyId > 0 && (openedOrTypeChanged || agencyChanged)) {
+      if (agencyChanged) {
+        virtualSessionSelectedClientIds.value = [];
+        virtualSessionSelectedGuardianKeys.value = [];
+        virtualSessionParticipantSearch.value = '';
+        resetVirtualSessionShareState();
+      }
+      void loadVirtualSessionClients(currentAgencyId);
     }
     return;
   }
@@ -29518,6 +29556,9 @@ defineExpose({ resetToOpenFinder, openQuickBook });
   flex-direction: column;
   gap: 6px;
   width: 100%;
+}
+.aes-clinical-participant--book {
+  gap: 0;
 }
 .aes-participants-mode {
   font-size: 0.82rem;
