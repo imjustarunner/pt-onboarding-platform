@@ -167,6 +167,39 @@ export async function ensureTenantMessageMailboxes(agencyId, domainOverride = nu
 }
 
 /**
+ * Real tenant messages@ mailbox for manual compose/reply.
+ * Personal App-inbox aliases (haleyi@…) are not Google addresses and bounce.
+ */
+export async function resolveMessagesSendMailbox(agencyId) {
+  const aid = Number(agencyId || 0);
+  if (!aid) {
+    const err = new Error('agencyId is required to send email');
+    err.status = 400;
+    throw err;
+  }
+  const mailboxes = await ensureTenantMessageMailboxes(aid);
+  const fromEmail = String(mailboxes.messages?.from_email || '').trim();
+  const lower = fromEmail.toLowerCase();
+  if (!mailboxes.messages?.id || !fromEmail.includes('@')) {
+    const err = new Error('Could not provision messages@ mailbox for this agency');
+    err.status = 400;
+    throw err;
+  }
+  if (lower === 'ai@plottwistco.com' || lower.startsWith('ai@')) {
+    const err = new Error('This tenant needs a real messages@ address (cannot send as ai@plottwistco.com).');
+    err.status = 400;
+    throw err;
+  }
+  return {
+    identity: mailboxes.messages,
+    inbox: mailboxes.messagesInbox,
+    fromEmail: mailboxes.messages.from_email,
+    replyTo: mailboxes.messages.reply_to || mailboxes.messages.from_email,
+    displayName: mailboxes.messages.display_name || 'Messages'
+  };
+}
+
+/**
  * Ensure notifications@{domain} sender identity for an agency.
  */
 export async function ensureTenantNotificationsMailbox(agencyId, domainOverride = null) {

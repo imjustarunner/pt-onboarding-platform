@@ -458,7 +458,7 @@ defineExpose({ refreshAll });
       v-if="showCompose"
       :agency-id="resolvedAgencyId"
       :inboxes="inboxes.filter((i) => i.kind === 'shared' || i.kind === 'personal')"
-      :default-inbox-id="typeof selectedInboxId === 'number' ? selectedInboxId : inboxes.find((i) => i.kind === 'personal' || i.kind === 'shared')?.id"
+      :default-inbox-id="inboxes.find((i) => String(i.identity_key || '').toLowerCase() === 'messages')?.id || (typeof selectedInboxId === 'number' ? selectedInboxId : inboxes.find((i) => i.kind === 'shared')?.id)"
       @close="showCompose = false"
       @sent="onComposeSent"
     />

@@ -90,6 +90,12 @@ function snoozeUntilPreset(preset) {
 
 export async function listInboxes({ agencyId, userId, includeShared = true }) {
   await CommunicationInbox.ensureFromSenderIdentities(agencyId);
+  try {
+    const { ensureTenantMessageMailboxes } = await import('./tenantMessageMailboxes.service.js');
+    await ensureTenantMessageMailboxes(agencyId);
+  } catch (e) {
+    console.warn('[unifiedInbox] messages@ mailbox:', e?.message || e);
+  }
   const rows = await CommunicationInbox.listForAgency({ agencyId, userId });
   const personal = rows.find((r) => r.kind === 'personal' && Number(r.owner_user_id) === Number(userId));
   const shared = includeShared ? rows.filter((r) => r.kind === 'shared') : [];
@@ -517,25 +523,41 @@ async function deliverOutboundEmail({
   attachments,
   inReplyTo
 }) {
+  const { resolveMessagesSendMailbox } = await import('./tenantMessageMailboxes.service.js');
+  const mailbox = await resolveMessagesSendMailbox(conv.agency_id || inbox?.agency_id);
+  let fromDisplayName = mailbox.displayName;
+  try {
+    const [senderRows] = await pool.execute(
+      `SELECT first_name, last_name FROM users WHERE id = ? LIMIT 1`,
+      [userId]
+    );
+    const name = [senderRows?.[0]?.first_name, senderRows?.[0]?.last_name].filter(Boolean).join(' ').trim();
+    if (name) fromDisplayName = name;
+  } catch {
+    /* keep mailbox name */
+  }
+  const bodyHtml = html || (text ? plainTextToHtml(text) : null);
   return assertOutboundEmailDelivered(
     await sendEmailFromIdentity({
-    senderIdentityId,
-    to: to.map((t) => t.email).join(', '),
-    cc: cc.length ? cc.map((c) => c.email).join(', ') : null,
-    bcc: bcc.length ? bcc.map((b) => b.email).join(', ') : null,
-    subject,
-    text: text || null,
-    html: html || null,
-    attachments: attachments || null,
-    inReplyTo: inReplyTo || null,
-    references: inReplyTo || null,
-    threadId: conv.external_thread_id || null,
-    source: 'manual',
-    generatedByUserId: userId,
-    userId: null,
-    clientId: null,
-    templateType: 'hub_email'
-  })
+      senderIdentityId: mailbox.identity.id,
+      to: to.map((t) => t.email).join(', '),
+      cc: cc.length ? cc.map((c) => c.email).join(', ') : null,
+      bcc: bcc.length ? bcc.map((b) => b.email).join(', ') : null,
+      subject,
+      text: text || null,
+      html: bodyHtml,
+      attachments: attachments || null,
+      inReplyTo: inReplyTo || null,
+      references: inReplyTo || null,
+      threadId: conv.external_thread_id || null,
+      source: 'manual',
+      generatedByUserId: userId,
+      userId: null,
+      clientId: null,
+      templateType: 'hub_email',
+      replyToOverride: mailbox.replyTo,
+      fromDisplayNameOverride: fromDisplayName
+    })
   );
 }
 
@@ -796,9 +818,20 @@ function escapeHtml(s) {
     .replace(/"/g, '&quot;');
 }
 
+function plainTextToHtml(text) {
+  const body = String(text || '')
+    .split('\n')
+    .map((line) => `<p>${escapeHtml(line || '').trim() || '&nbsp;'}</p>`)
+    .join('');
+  return `<div style="font-family:Arial,sans-serif;line-height:1.5;color:#111;">${body}</div>`;
+}
+
 export async function composeNewEmail({ agencyId, inboxId, userId, payload }) {
-  const inbox = inboxId ? await CommunicationInbox.findById(inboxId) : null;
-  if (!inbox?.sender_identity_id) {
+  const requestedInbox = inboxId ? await CommunicationInbox.findById(inboxId) : null;
+  const { resolveMessagesSendMailbox } = await import('./tenantMessageMailboxes.service.js');
+  const mailbox = await resolveMessagesSendMailbox(agencyId);
+  const inbox = mailbox.inbox || requestedInbox;
+  if (!inbox?.id || !mailbox.identity?.id) {
     throw new Error('Select an inbox with a configured From address');
   }
   const to = dedupeAddressList(normalizeAddressList(payload.to));
@@ -834,6 +867,23 @@ export async function composeNewEmail({ agencyId, inboxId, userId, payload }) {
     console.warn('[unifiedInbox] contact upsert failed:', e?.message || e);
   }
 
+  const fromEmail = mailbox.fromEmail;
+  const replyTo = mailbox.replyTo;
+  let fromDisplayName = mailbox.displayName;
+  try {
+    const [senderRows] = await pool.execute(
+      `SELECT first_name, last_name FROM users WHERE id = ? LIMIT 1`,
+      [userId]
+    );
+    const su = senderRows?.[0] || {};
+    const name = [su.first_name, su.last_name].filter(Boolean).join(' ').trim();
+    if (name) fromDisplayName = name;
+  } catch {
+    /* keep mailbox display name */
+  }
+
+  const bodyHtml = payload.html || (payload.text ? plainTextToHtml(payload.text) : null);
+
   const conv = await CommunicationConversation.create({
     agencyId,
     inboxId: inbox.id,
@@ -862,13 +912,13 @@ export async function composeNewEmail({ agencyId, inboxId, userId, payload }) {
       channel: 'email',
       direction: 'outbound',
       authorUserId: userId,
-      from: { email: inbox.from_email, name: inbox.display_name },
+      from: { email: fromEmail, name: fromDisplayName },
       to,
       cc,
       bcc,
       subject,
       bodyText: payload.text || '',
-      bodyHtml: payload.html || null,
+      bodyHtml: bodyHtml || null,
       sendStatus: 'scheduled',
       scheduledSendAt: when,
       undoExpiresAt: when,
@@ -887,16 +937,16 @@ export async function composeNewEmail({ agencyId, inboxId, userId, payload }) {
   }
 
   const sendResult = await sendEmailFromIdentity({
-    senderIdentityId: inbox.sender_identity_id,
+    senderIdentityId: mailbox.identity.id,
     to: to.map((t) => t.email).join(', '),
     cc: cc.length ? cc.map((c) => c.email).join(', ') : null,
     bcc: bcc.length ? bcc.map((c) => c.email).join(', ') : null,
     subject,
     text: payload.text || null,
-    html: payload.html || null,
+    html: bodyHtml,
     attachments: payload.attachments || null,
-    replyToOverride: payload.replyTo || null,
-    fromDisplayNameOverride: payload.fromDisplayName || null,
+    replyToOverride: replyTo,
+    fromDisplayNameOverride: fromDisplayName,
     source: 'manual',
     generatedByUserId: userId,
     clientId: payload.clientId || null,
@@ -909,13 +959,13 @@ export async function composeNewEmail({ agencyId, inboxId, userId, payload }) {
     channel: 'email',
     direction: 'outbound',
     authorUserId: userId,
-    from: { email: inbox.from_email, name: inbox.display_name },
+    from: { email: fromEmail, name: fromDisplayName },
     to,
     cc,
     bcc,
     subject,
     bodyText: payload.text || '',
-    bodyHtml: payload.html || null,
+    bodyHtml: bodyHtml || null,
     internetMessageId: sendResult?.id || null,
     sentAt: new Date()
   });

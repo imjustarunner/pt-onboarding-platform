@@ -204,6 +204,15 @@ export async function ensureStaffTenantSendAlias({ agencyId, userId } = {}) {
   const preferred = await resolvePreferredTenantFromEmail({ agencyId: aid, user });
   if (!preferred || !preferred.includes('@')) return null;
 
+  let replyTo = preferred;
+  try {
+    const { ensureTenantMessageMailboxes } = await import('./tenantMessageMailboxes.service.js');
+    const mailboxes = await ensureTenantMessageMailboxes(aid);
+    if (mailboxes.messages?.from_email) replyTo = mailboxes.messages.from_email;
+  } catch {
+    /* keep preferred */
+  }
+
   const displayName =
     [user.first_name, user.last_name].filter(Boolean).join(' ') || preferred;
   const identityKey = `personal_${uid}`;
@@ -215,7 +224,7 @@ export async function ensureStaffTenantSendAlias({ agencyId, userId } = {}) {
       identityKey,
       displayName,
       fromEmail: preferred,
-      replyTo: preferred,
+      replyTo,
       inboundAddresses: [preferred],
       isActive: true
     });
@@ -223,10 +232,17 @@ export async function ensureStaffTenantSendAlias({ agencyId, userId } = {}) {
     const current = String(identity.from_email || '')
       .trim()
       .toLowerCase();
-    if (current !== preferred || Number(identity.is_active) === 0) {
+    const currentReply = String(identity.reply_to || '')
+      .trim()
+      .toLowerCase();
+    if (
+      current !== preferred ||
+      currentReply !== String(replyTo).toLowerCase() ||
+      Number(identity.is_active) === 0
+    ) {
       identity = await EmailSenderIdentity.update(identity.id, {
         fromEmail: preferred,
-        replyTo: preferred,
+        replyTo,
         inboundAddresses: [preferred],
         displayName,
         isActive: true
@@ -296,6 +312,14 @@ export async function ensurePersonalMailbox({ agencyId, userId, actorUserId = nu
   const fromEmail = await uniqueAliasEmail({ agencyId: aid, user, domain, format });
   const displayName = [user.first_name, user.last_name].filter(Boolean).join(' ') || fromEmail;
   const identityKey = `personal_${uid}`;
+  let replyTo = fromEmail;
+  try {
+    const { ensureTenantMessageMailboxes } = await import('./tenantMessageMailboxes.service.js');
+    const mailboxes = await ensureTenantMessageMailboxes(aid);
+    if (mailboxes.messages?.from_email) replyTo = mailboxes.messages.from_email;
+  } catch {
+    /* keep alias */
+  }
 
   let identity = await EmailSenderIdentity.findByAgencyAndIdentityKey(aid, identityKey);
 
@@ -305,7 +329,7 @@ export async function ensurePersonalMailbox({ agencyId, userId, actorUserId = nu
       identityKey,
       displayName,
       fromEmail,
-      replyTo: fromEmail,
+      replyTo,
       inboundAddresses: [fromEmail],
       isActive: true
     });
@@ -384,6 +408,14 @@ export async function ensurePersonalMailboxForAddress({
     [user.first_name, user.last_name].filter(Boolean).join(' ') ||
     email;
   const identityKey = `personal_${uid}`;
+  let replyTo = email;
+  try {
+    const { ensureTenantMessageMailboxes } = await import('./tenantMessageMailboxes.service.js');
+    const mailboxes = await ensureTenantMessageMailboxes(aid);
+    if (mailboxes.messages?.from_email) replyTo = mailboxes.messages.from_email;
+  } catch {
+    /* keep address */
+  }
 
   let identity = await EmailSenderIdentity.findByAgencyAndIdentityKey(aid, identityKey);
   if (!identity) {
@@ -392,7 +424,7 @@ export async function ensurePersonalMailboxForAddress({
       identityKey,
       displayName: name,
       fromEmail: email,
-      replyTo: email,
+      replyTo,
       inboundAddresses: [email],
       isActive: true
     });
@@ -400,7 +432,7 @@ export async function ensurePersonalMailboxForAddress({
     identity = await EmailSenderIdentity.update(identity.id, {
       displayName: name,
       fromEmail: email,
-      replyTo: email,
+      replyTo,
       inboundAddresses: [email],
       isActive: true
     });

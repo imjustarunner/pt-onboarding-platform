@@ -257,7 +257,33 @@ export async function evaluateSendPreflight({ agencyId, payload = {}, fromEmail 
     }
   }
 
+  const knownUsers = new Set();
+  if (emails.length) {
+    try {
+      const ph = emails.map(() => '?').join(',');
+      const [userRows] = await pool.execute(
+        `SELECT LOWER(email) AS email,
+                LOWER(COALESCE(work_email, '')) AS work_email,
+                LOWER(COALESCE(personal_email, '')) AS personal_email
+         FROM users
+         WHERE LOWER(email) IN (${ph})
+            OR LOWER(COALESCE(work_email, '')) IN (${ph})
+            OR LOWER(COALESCE(personal_email, '')) IN (${ph})
+         LIMIT 50`,
+        [...emails, ...emails, ...emails]
+      );
+      for (const u of userRows || []) {
+        if (u.email) knownUsers.add(u.email);
+        if (u.work_email) knownUsers.add(u.work_email);
+        if (u.personal_email) knownUsers.add(u.personal_email);
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+
   const external = emails.filter((e) => {
+    if (knownUsers.has(e)) return false;
     const d = domainOf(e);
     if (!d) return false;
     if (agencyDomains.has(d)) return false;

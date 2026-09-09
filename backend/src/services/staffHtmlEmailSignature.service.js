@@ -717,9 +717,13 @@ export async function appendStaffHtmlSignature({
     return { text, html, appended: false, ctx };
   }
 
-  const htmlOut = html
-    ? `${String(html)}\n${marker}\n<div data-pt-staff-signature="1" style="margin:0;padding:8px 24px 20px;background:#ffffff;">${block}</div>`
-    : `${marker}\n<div data-pt-staff-signature="1" style="margin:0;padding:8px 24px 20px;background:#ffffff;">${block}</div>`;
+  const bodyHtml =
+    html ||
+    `<div style="font-family:Arial,sans-serif;line-height:1.5;color:#111;">${String(text || '')
+      .split('\n')
+      .map((line) => `<p>${escapeHtml(line || '').trim() || '&nbsp;'}</p>`)
+      .join('')}</div>`;
+  const htmlOut = `${String(bodyHtml)}\n${marker}\n<div data-pt-staff-signature="1" style="margin:0;padding:8px 24px 20px;background:#ffffff;">${block}</div>`;
   const textOut = `${String(text || '').trim()}\n\n--\n${textBlock}`.trim();
   return { text: textOut, html: htmlOut, appended: true, ctx };
 }

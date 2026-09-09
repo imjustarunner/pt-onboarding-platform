@@ -10,7 +10,7 @@ const props = defineProps({
 });
 const emit = defineEmits(['close', 'sent']);
 
-const inboxId = ref(props.defaultInboxId || props.inboxes[0]?.id || null);
+const inboxId = ref(null);
 const channelMode = ref('email'); // email | secure | dm
 const to = ref('');
 const cc = ref('');
@@ -24,14 +24,25 @@ const pendingWarnings = ref([]);
 const confirmOpen = ref(false);
 const schoolStaffSecurePrompt = ref(null);
 
-watch(
-  () => props.defaultInboxId,
-  (v) => {
-    if (v) inboxId.value = v;
-  }
-);
+const sendableInboxes = computed(() => {
+  const boxes = (props.inboxes || []).filter((i) => i && i.id && i.from_email);
+  const messages = boxes.filter((i) => String(i.identity_key || '').toLowerCase() === 'messages');
+  if (messages.length) return messages;
+  return boxes.filter((i) => i.kind === 'shared');
+});
+const selectedInbox = computed(() => sendableInboxes.value.find((i) => Number(i.id) === Number(inboxId.value)));
 
-const selectedInbox = computed(() => props.inboxes.find((i) => Number(i.id) === Number(inboxId.value)));
+watch(
+  () => [props.defaultInboxId, props.inboxes],
+  () => {
+    const preferred =
+      sendableInboxes.value.find((i) => String(i.identity_key || '').toLowerCase() === 'messages') ||
+      sendableInboxes.value.find((i) => Number(i.id) === Number(props.defaultInboxId)) ||
+      sendableInboxes.value[0];
+    if (preferred?.id) inboxId.value = preferred.id;
+  },
+  { immediate: true }
+);
 const isEmailMode = computed(() => channelMode.value === 'email');
 const isSecureMode = computed(() => channelMode.value === 'secure');
 const isDmMode = computed(() => channelMode.value === 'dm');
@@ -178,12 +189,14 @@ async function send({ skipConfirm = false } = {}) {
       <label v-if="isEmailMode" class="uc-row">
         <span>Send as</span>
         <select v-model="inboxId">
-          <option v-for="box in inboxes" :key="box.id" :value="box.id">
+          <option v-for="box in sendableInboxes" :key="box.id" :value="box.id">
             {{ box.display_name }} ({{ box.from_email }})
           </option>
         </select>
       </label>
-      <p v-if="isEmailMode && selectedInbox?.from_email" class="uc-hint">From {{ selectedInbox.from_email }}</p>
+      <p v-if="isEmailMode && selectedInbox?.from_email" class="uc-hint">
+        From {{ selectedInbox.from_email }} — replies come back to this mailbox in the app.
+      </p>
 
       <label class="uc-row">
         <span>To</span>
