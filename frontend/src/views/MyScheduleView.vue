@@ -8,12 +8,13 @@
         active-title="My schedule"
         :views="scheduleHubViews"
         :skill-builders-active="false"
+        :meta-only-header="true"
         @select-view="onSelectHubView"
       >
         <template #header-actions>
           <router-link
             v-if="canApproveOfficeRequests"
-            class="btn btn-primary btn-sm"
+            class="btn btn-secondary btn-sm"
             :to="officeApprovalsTo"
             title="Approve office requests and review reported Therapy Notes coverage conflicts"
             data-testid="my-schedule-header-approve-office-requests"
@@ -48,10 +49,14 @@
           :user-id="Number(authStore.user.id)"
           :mode="'self'"
           :compact-page-chrome="true"
+          :hub-views="scheduleHubViews"
+          :active-hub-view="'self'"
+          schedule-title="My Schedule"
           :week-start-ymd="weekStartYmd || null"
           :show-skill-builders-programs-button="true"
           :show-company-events-calendar-button="true"
           @update:weekStartYmd="onWeekStartUpdate"
+          @select-hub-view="onSelectHubView"
         />
       </ScheduleHubPanel>
     </div>

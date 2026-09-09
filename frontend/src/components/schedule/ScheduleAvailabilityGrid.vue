@@ -9,25 +9,214 @@
     data-tour="my-schedule-grid"
   >
     <div class="sched-toolbar" data-tour="my-schedule-toolbar">
-      <div class="sched-chrome-top" data-tour="my-schedule-week-nav">
-        <div class="sched-chrome-title-block">
-          <template v-if="!compactPageChrome">
-            <h2
-              class="sched-page-title"
-              :class="{
-                'sched-page-title--mine': viewMode === 'open_finder',
-                'sched-page-title--office': viewMode === 'office_layout'
-              }"
+      <!-- Compact command bar (dashboard + /my-schedule) -->
+      <div v-if="compactPageChrome" class="sched-command" data-testid="schedule-command-bar">
+        <div class="sched-command__bar">
+          <div class="sched-command__brand">
+            <div class="sched-command__title-switch" ref="hubTitleSwitchRef">
+              <button
+                type="button"
+                class="sched-command__title-btn"
+                :class="{ 'sched-command__title-btn--menu': compactHubViews.length > 1 }"
+                :aria-expanded="compactHubViews.length > 1 ? hubViewMenuOpen : undefined"
+                :aria-haspopup="compactHubViews.length > 1 ? 'listbox' : undefined"
+                data-testid="schedule-command-title-switch"
+                @click="onHubTitleClick"
+              >
+                <span class="sched-command__title-icon" aria-hidden="true">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                </span>
+                <span class="sched-command__title-text">{{ compactScheduleTitle }}</span>
+                <span v-if="compactHubViews.length > 1" class="sched-command__viewing">Viewing</span>
+                <span v-if="compactHubViews.length > 1" class="sched-command__title-chev" aria-hidden="true">▾</span>
+              </button>
+              <div
+                v-if="hubViewMenuOpen && compactHubViews.length > 1"
+                class="sched-command__view-menu"
+                role="listbox"
+                aria-label="Schedule views"
+              >
+                <button
+                  v-for="view in compactHubViews"
+                  :key="`hub-view-${view.id}`"
+                  type="button"
+                  class="sched-command__view-menu-item"
+                  :class="{ on: view.id === activeHubView }"
+                  role="option"
+                  :aria-selected="view.id === activeHubView"
+                  @click="selectHubView(view.id)"
+                >
+                  {{ view.navLabel || view.title }}
+                </button>
+              </div>
+            </div>
+            <span class="sched-command__rule" aria-hidden="true" />
+            <div class="sched-command__dates">
+              <span class="sched-command__range">{{ weekRangePrimaryLabel }}</span>
+              <span class="sched-command__today-label">Today {{ todayMmdd }}</span>
+            </div>
+          </div>
+
+          <div class="sched-command__nav" role="group" aria-label="Week navigation" data-tour="my-schedule-week-nav">
+            <button
+              class="sched-nav-btn"
+              type="button"
+              :title="isDayOrAgendaSpan ? 'Jump to today' : 'Jump the grid to the week that contains today'"
+              @click="goToTodayWeek"
+              :disabled="loading"
+              data-tour="my-schedule-today-btn"
             >
-              {{ viewMode === 'office_layout' ? 'Office & Room Booking' : 'My Schedule' }}
-            </h2>
-            <p class="sched-page-sub">
-              {{ viewMode === 'office_layout'
-                ? 'Request or assign rooms in a building.'
-                : 'Your personal week — sessions, meetings, and holds.' }}
-            </p>
-          </template>
-          <p class="sched-week-range" :class="{ 'sched-week-range--hero': compactPageChrome }">
+              Today
+            </button>
+            <div class="sched-nav-arrows">
+              <button class="sched-nav-icon-btn" type="button" :aria-label="isDayOrAgendaSpan ? 'Previous day' : 'Previous week'" @click="prevWeek" :disabled="loading">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M15 18l-6-6 6-6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              </button>
+              <button class="sched-nav-icon-btn" type="button" :aria-label="isDayOrAgendaSpan ? 'Next day' : 'Next week'" @click="nextWeek" :disabled="loading">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M9 18l6-6-6-6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              </button>
+            </div>
+            <label class="sched-nav-date-wrap" title="Jump to a week (pick any date)">
+              <span class="sr-only">Jump to date</span>
+              <svg class="sched-nav-date-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                <rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 11h18" stroke-linecap="round"/>
+              </svg>
+              <input
+                class="sched-nav-date-input"
+                type="date"
+                :value="weekJumpDateValue"
+                :disabled="loading"
+                aria-label="Jump to week"
+                data-tour="my-schedule-week-jump"
+                @change="onWeekJumpDateChange"
+              />
+            </label>
+            <button
+              class="sched-nav-icon-btn"
+              type="button"
+              aria-label="Refresh schedule"
+              title="Reload this week’s schedule from the server"
+              @click="load({ forceRefresh: true })"
+              :disabled="loading"
+            >
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                <path d="M21 12a9 9 0 1 1-2.64-6.36" stroke-linecap="round"/><path d="M21 3v6h-6" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+            </button>
+          </div>
+
+          <div class="sched-command__actions">
+            <button
+              v-if="Number(effectiveAgencyId || 0) > 0"
+              class="sched-command__book"
+              type="button"
+              title="Book a session with a client"
+              :disabled="loading || !effectiveAgencyId"
+              @click="openUnifiedBookingPanel()"
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" aria-hidden="true"><path d="M12 5v14M5 12h14" stroke-linecap="round"/></svg>
+              Book session
+            </button>
+            <button
+              v-if="!hideOfficeAndCalendarIntegration"
+              type="button"
+              class="sched-command__outline"
+              :class="{ on: viewMode === 'office_layout' }"
+              :disabled="loading || officeGridLoading"
+              data-tour="my-schedule-request-office-cta"
+              title="Request or book an office room for approval"
+              @click="viewMode === 'office_layout' ? viewMode = 'open_finder' : viewMode = 'office_layout'"
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                <path d="M3 21h18" /><path d="M5 21V7l8-4v18" /><path d="M19 21V11l-6-4" />
+              </svg>
+              {{ viewMode === 'office_layout' ? 'My Schedule' : 'Request office or room' }}
+              <span class="sched-command__chev" aria-hidden="true">▾</span>
+            </button>
+            <button
+              v-if="!hideOfficeAndCalendarIntegration"
+              type="button"
+              class="sched-command__outline"
+              :class="{ on: showAvailabilityEditor }"
+              data-tour="my-schedule-availability-btn"
+              title="Edit Availability Hours, split days, and Planned Out"
+              @click="showAvailabilityEditor = !showAvailabilityEditor"
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                <circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2" stroke-linecap="round"/>
+              </svg>
+              Availability
+            </button>
+            <div class="sched-span-switch" role="group" aria-label="Schedule view">
+              <button type="button" class="sched-span-btn" :class="{ on: scheduleSpanMode === 'day' }" title="One-day timeline grid" @click="setScheduleSpanMode('day')">Day</button>
+              <button type="button" class="sched-span-btn" :class="{ on: scheduleSpanMode === 'agenda' }" title="List of appointments for one day" @click="setScheduleSpanMode('agenda')">Agenda</button>
+              <button type="button" class="sched-span-btn" :class="{ on: scheduleSpanMode === 'week' }" title="Show the full week grid" @click="setScheduleSpanMode('week')">Week</button>
+            </div>
+            <button
+              type="button"
+              class="sched-command__settings"
+              :class="{ on: calendarSettingsOpen }"
+              aria-label="Calendar settings"
+              :aria-expanded="calendarSettingsOpen"
+              title="People, office, feeds, layout, and more tools"
+              data-testid="schedule-command-settings"
+              @click="toggleCalendarSettings"
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                <circle cx="12" cy="12" r="3"/>
+                <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+              </svg>
+              <span class="sched-command__chev" aria-hidden="true">▾</span>
+            </button>
+          </div>
+        </div>
+
+        <div v-if="calendarSettingsOpen" class="sched-command__filters" role="tablist" aria-label="Calendar settings sections">
+          <button type="button" class="sched-command__filter" @click="scrollToSettingsSection('people')">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+            People
+            <span aria-hidden="true">▾</span>
+          </button>
+          <button type="button" class="sched-command__filter" @click="scrollToSettingsSection('office')">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M3 21h18"/><path d="M5 21V7l8-4v18"/><path d="M19 21V11l-6-4"/></svg>
+            Office
+            <span aria-hidden="true">▾</span>
+          </button>
+          <button type="button" class="sched-command__filter" @click="scrollToSettingsSection('feeds')">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+            Feeds
+            <span aria-hidden="true">▾</span>
+          </button>
+          <button type="button" class="sched-command__filter" @click="scrollToSettingsSection('layout')">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
+            Layout
+            <span aria-hidden="true">▾</span>
+          </button>
+          <button type="button" class="sched-command__filter" @click="scrollToSettingsSection('more')">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="5" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="19" cy="12" r="1.5"/></svg>
+            More
+            <span aria-hidden="true">▾</span>
+          </button>
+        </div>
+      </div>
+
+      <div v-else class="sched-chrome-top" data-tour="my-schedule-week-nav">
+        <div class="sched-chrome-title-block">
+          <h2
+            class="sched-page-title"
+            :class="{
+              'sched-page-title--mine': viewMode === 'open_finder',
+              'sched-page-title--office': viewMode === 'office_layout'
+            }"
+          >
+            {{ viewMode === 'office_layout' ? 'Office & Room Booking' : 'My Schedule' }}
+          </h2>
+          <p class="sched-page-sub">
+            {{ viewMode === 'office_layout'
+              ? 'Request or assign rooms in a building.'
+              : 'Your personal week — sessions, meetings, and holds.' }}
+          </p>
+          <p class="sched-week-range">
             <span class="sched-week-range__primary">{{ weekRangePrimaryLabel }}</span>
             <span class="sched-week-range__today">Today {{ todayMmdd }}</span>
           </p>
@@ -44,24 +233,10 @@
             Today
           </button>
           <div class="sched-nav-arrows">
-            <button
-              class="sched-nav-icon-btn"
-              type="button"
-              :aria-label="isDayOrAgendaSpan ? 'Previous day' : 'Previous week'"
-              :title="isDayOrAgendaSpan ? 'Previous day' : 'Previous week'"
-              @click="prevWeek"
-              :disabled="loading"
-            >
+            <button class="sched-nav-icon-btn" type="button" :aria-label="isDayOrAgendaSpan ? 'Previous day' : 'Previous week'" @click="prevWeek" :disabled="loading">
               <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M15 18l-6-6 6-6" stroke-linecap="round" stroke-linejoin="round"/></svg>
             </button>
-            <button
-              class="sched-nav-icon-btn"
-              type="button"
-              :aria-label="isDayOrAgendaSpan ? 'Next day' : 'Next week'"
-              :title="isDayOrAgendaSpan ? 'Next day' : 'Next week'"
-              @click="nextWeek"
-              :disabled="loading"
-            >
+            <button class="sched-nav-icon-btn" type="button" :aria-label="isDayOrAgendaSpan ? 'Next day' : 'Next week'" @click="nextWeek" :disabled="loading">
               <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M9 18l6-6-6-6" stroke-linecap="round" stroke-linejoin="round"/></svg>
             </button>
           </div>
@@ -70,24 +245,9 @@
             <svg class="sched-nav-date-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
               <rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 11h18" stroke-linecap="round"/>
             </svg>
-            <input
-              class="sched-nav-date-input"
-              type="date"
-              :value="weekJumpDateValue"
-              :disabled="loading"
-              aria-label="Jump to week"
-              data-tour="my-schedule-week-jump"
-              @change="onWeekJumpDateChange"
-            />
+            <input class="sched-nav-date-input" type="date" :value="weekJumpDateValue" :disabled="loading" aria-label="Jump to week" data-tour="my-schedule-week-jump" @change="onWeekJumpDateChange" />
           </label>
-          <button
-            class="sched-nav-icon-btn"
-            type="button"
-            aria-label="Refresh schedule"
-            title="Reload this week’s schedule from the server"
-            @click="load({ forceRefresh: true })"
-            :disabled="loading"
-          >
+          <button class="sched-nav-icon-btn" type="button" aria-label="Refresh schedule" title="Reload this week’s schedule from the server" @click="load({ forceRefresh: true })" :disabled="loading">
             <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
               <path d="M21 12a9 9 0 1 1-2.64-6.36" stroke-linecap="round"/><path d="M21 3v6h-6" stroke-linecap="round" stroke-linejoin="round"/>
             </svg>
@@ -103,27 +263,9 @@
             Book session
           </button>
           <div class="sched-span-switch" role="group" aria-label="Schedule view">
-            <button
-              type="button"
-              class="sched-span-btn"
-              :class="{ on: scheduleSpanMode === 'day' }"
-              title="One-day timeline grid"
-              @click="setScheduleSpanMode('day')"
-            >Day</button>
-            <button
-              type="button"
-              class="sched-span-btn"
-              :class="{ on: scheduleSpanMode === 'agenda' }"
-              title="List of appointments for one day"
-              @click="setScheduleSpanMode('agenda')"
-            >Agenda</button>
-            <button
-              type="button"
-              class="sched-span-btn"
-              :class="{ on: scheduleSpanMode === 'week' }"
-              title="Show the full week grid"
-              @click="setScheduleSpanMode('week')"
-            >Week</button>
+            <button type="button" class="sched-span-btn" :class="{ on: scheduleSpanMode === 'day' }" title="One-day timeline grid" @click="setScheduleSpanMode('day')">Day</button>
+            <button type="button" class="sched-span-btn" :class="{ on: scheduleSpanMode === 'agenda' }" title="List of appointments for one day" @click="setScheduleSpanMode('agenda')">Agenda</button>
+            <button type="button" class="sched-span-btn" :class="{ on: scheduleSpanMode === 'week' }" title="Show the full week grid" @click="setScheduleSpanMode('week')">Week</button>
           </div>
           <button
             v-if="!calendarSettingsOpen && isDayOrAgendaSpan"
@@ -139,7 +281,11 @@
       </div>
 
       <div class="sched-toolbar-main">
-        <div class="sched-toolbar-left" :class="{ 'sched-office-pulse': showOfficeReminderPulse && !hideOfficeAndCalendarIntegration }">
+        <div
+          v-if="!compactPageChrome"
+          class="sched-toolbar-left"
+          :class="{ 'sched-office-pulse': showOfficeReminderPulse && !hideOfficeAndCalendarIntegration }"
+        >
           <div v-if="!hideOfficeAndCalendarIntegration" class="sched-office-toolbar-group">
             <button
               type="button"
@@ -241,15 +387,24 @@
         </div>
       </div>
 
-      <details class="sched-calendar-settings" data-testid="my-schedule-calendar-settings" @toggle="onCalendarSettingsToggle">
-        <summary class="sched-calendar-settings__summary">
+      <details
+        class="sched-calendar-settings"
+        :class="{ 'sched-calendar-settings--command': compactPageChrome, 'sched-calendar-settings--open': calendarSettingsOpen }"
+        data-testid="my-schedule-calendar-settings"
+        :open="calendarSettingsOpen"
+        @toggle="onCalendarSettingsToggle"
+      >
+        <summary
+          class="sched-calendar-settings__summary"
+          :class="{ 'sr-only': compactPageChrome }"
+        >
           <span class="sched-calendar-settings__title">Calendar settings</span>
           <span class="sched-calendar-settings__hint muted">people · office · feeds · layout · more tools</span>
           <span class="sched-calendar-settings__chev" aria-hidden="true">▾</span>
         </summary>
         <div class="sched-calendar-settings__body">
       <div class="sched-tool-bar" data-tour="my-schedule-tool-groups">
-        <div v-if="!hideOfficeAndCalendarIntegration" class="sched-tool-cluster" title="Ways to see other people’s calendars">
+        <div v-if="!hideOfficeAndCalendarIntegration" id="sched-settings-people" class="sched-tool-cluster" title="Ways to see other people’s calendars">
           <span class="sched-tool-cluster__label">People</span>
           <button
             type="button"
@@ -274,7 +429,7 @@
           </router-link>
         </div>
 
-        <div v-if="!hideOfficeAndCalendarIntegration" class="sched-tool-cluster" title="Office bookings for this person — All buildings, one building, or Off">
+        <div v-if="!hideOfficeAndCalendarIntegration" id="sched-settings-office" class="sched-tool-cluster" title="Office bookings for this person — All buildings, one building, or Off">
           <span class="sched-tool-cluster__label">Office</span>
           <select
             v-model.number="selectedOfficeLocationId"
@@ -313,6 +468,7 @@
 
         <div
           v-if="!hideOfficeAndCalendarIntegration"
+          id="sched-settings-feeds"
           class="sched-tool-cluster"
           title="Google / Therapy Notes for this calendar only. Peer ICS overlays come with Peers (busy)."
         >
@@ -379,7 +535,7 @@
           </button>
         </div>
 
-        <div class="sched-tool-cluster" title="How the week grid is laid out">
+        <div id="sched-settings-layout" class="sched-tool-cluster" title="How the week grid is laid out">
           <span class="sched-tool-cluster__label">Display</span>
           <button
             type="button"
@@ -473,7 +629,7 @@
         </button>
       </div>
 
-      <div class="sched-more-tools sched-more-tools--flat" data-tour="my-schedule-more-tools">
+      <div id="sched-settings-more" class="sched-more-tools sched-more-tools--flat" data-tour="my-schedule-more-tools">
         <div class="sched-more-tools__heading">More tools</div>
         <div class="sched-more-tools__body">
           <div class="sched-tool-cluster sched-tool-cluster--wrap">
@@ -5666,6 +5822,10 @@ const props = defineProps({
   showCompanyEventsCalendarButton: { type: Boolean, default: true },
   /** Hide the large duplicate “Schedule” heading when the parent page already has a title. */
   compactPageChrome: { type: Boolean, default: false },
+  /** Optional hub views for the compact title switcher (My schedule / Supervisees / …). */
+  hubViews: { type: Array, default: () => [] },
+  activeHubView: { type: String, default: 'self' },
+  scheduleTitle: { type: String, default: 'My Schedule' },
   /** Plot Twist HQ embed: dark platform chrome instead of default light schedule page. */
   platformTheme: { type: Boolean, default: false }
 });
@@ -5673,7 +5833,8 @@ const emit = defineEmits([
   'update:weekStartYmd',
   'open-skill-builders-programs',
   'open-company-events-calendar',
-  'change-schedule-user'
+  'change-schedule-user',
+  'select-hub-view'
 ]);
 
 const route = useRoute();
@@ -5956,6 +6117,39 @@ const showPeerBusyOverlay = ref(false);
 const showAvailabilityEditor = ref(false);
 const showAvailHoursLegend = ref(false);
 const calendarSettingsOpen = ref(false);
+const hubTitleSwitchRef = ref(null);
+const hubViewMenuOpen = ref(false);
+const compactHubViews = computed(() =>
+  (props.hubViews || []).filter((v) => v && !v.isUtility)
+);
+const compactScheduleTitle = computed(() => {
+  const active = compactHubViews.value.find((v) => v.id === props.activeHubView);
+  return active?.navLabel || active?.title || props.scheduleTitle || 'My Schedule';
+});
+function onHubTitleClick() {
+  if (compactHubViews.value.length <= 1) return;
+  hubViewMenuOpen.value = !hubViewMenuOpen.value;
+}
+function selectHubView(id) {
+  hubViewMenuOpen.value = false;
+  emit('select-hub-view', id);
+}
+function onHubTitleDocClick(e) {
+  if (!hubViewMenuOpen.value) return;
+  if (hubTitleSwitchRef.value && !hubTitleSwitchRef.value.contains(e.target)) {
+    hubViewMenuOpen.value = false;
+  }
+}
+function toggleCalendarSettings() {
+  calendarSettingsOpen.value = !calendarSettingsOpen.value;
+}
+function scrollToSettingsSection(id) {
+  calendarSettingsOpen.value = true;
+  requestAnimationFrame(() => {
+    const el = document.getElementById(`sched-settings-${id}`);
+    if (el?.scrollIntoView) el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  });
+}
 function onCalendarSettingsToggle(ev) {
   calendarSettingsOpen.value = !!(ev?.target?.open);
 }
@@ -7339,6 +7533,7 @@ onMounted(() => {
   }, 15000);
   // Deep-link from dashboard overview Book / Book virtual CTAs.
   void consumeScheduleActionQuery();
+  document.addEventListener('click', onHubTitleDocClick, true);
   if (typeof document !== 'undefined') {
     darkThemeObserver = new MutationObserver(() => {
       isDocumentDark.value = document.documentElement.getAttribute('data-theme') === 'dark';
@@ -7380,6 +7575,7 @@ watch(
 );
 
 onUnmounted(() => {
+  document.removeEventListener('click', onHubTitleDocClick, true);
   clearSupvMeetPolling();
   clearGevtClickTimer();
   clearDeferredLoad();
@@ -25835,6 +26031,230 @@ defineExpose({ resetToOpenFinder, openQuickBook });
   border-radius: 12px;
   background: #f8fafc;
   padding: 0;
+}
+.sched-calendar-settings--command {
+  border: none;
+  background: transparent;
+  margin-top: 4px;
+}
+.sched-calendar-settings--command:not([open]) {
+  margin: 0;
+  height: 0;
+  overflow: hidden;
+  border: none;
+}
+.sched-calendar-settings--command > .sched-calendar-settings__summary {
+  display: none;
+}
+.sched-command {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.sched-command__bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 12px;
+  padding: 10px 12px;
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 16px;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+}
+.sched-command__brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  flex: 1 1 220px;
+}
+.sched-command__title-switch { position: relative; }
+.sched-command__title-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  padding: 2px 4px 2px 2px;
+  border: none;
+  background: transparent;
+  font: inherit;
+  color: inherit;
+  cursor: default;
+  border-radius: 10px;
+}
+.sched-command__title-btn--menu { cursor: pointer; }
+.sched-command__title-btn--menu:hover { background: #f3f4f6; }
+.sched-command__title-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  background: #dcfce7;
+  color: #166534;
+}
+.sched-command__title-text {
+  font-size: 1.05rem;
+  font-weight: 800;
+  color: #111827;
+  letter-spacing: -0.02em;
+  white-space: nowrap;
+}
+.sched-command__viewing {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: #14532d;
+  color: #fff;
+  font-size: 0.65rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.sched-command__title-chev { font-size: 0.75rem; color: #6b7280; }
+.sched-command__view-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 50;
+  min-width: 200px;
+  padding: 6px;
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  box-shadow: 0 10px 28px rgba(15, 23, 42, 0.12);
+}
+.sched-command__view-menu-item {
+  display: block;
+  width: 100%;
+  padding: 9px 12px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  font: inherit;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #1f2937;
+  text-align: left;
+  cursor: pointer;
+}
+.sched-command__view-menu-item:hover { background: #f3f4f6; }
+.sched-command__view-menu-item.on { background: #ecfdf5; color: #14532d; }
+.sched-command__rule {
+  width: 1px;
+  height: 22px;
+  background: #e5e7eb;
+  flex-shrink: 0;
+}
+.sched-command__dates {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+.sched-command__range {
+  font-size: 0.92rem;
+  font-weight: 700;
+  color: #111827;
+  letter-spacing: -0.02em;
+  white-space: nowrap;
+}
+.sched-command__today-label {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: #6b7280;
+}
+.sched-command__nav {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.sched-command__actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-left: auto;
+}
+.sched-command__book {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border: none;
+  border-radius: 10px;
+  background: #166534;
+  color: #fff;
+  font-weight: 700;
+  font-size: 13px;
+  cursor: pointer;
+  box-shadow: 0 1px 2px rgba(22, 101, 52, 0.25);
+}
+.sched-command__book:hover:not(:disabled) { background: #14532d; }
+.sched-command__book:disabled { opacity: 0.55; cursor: not-allowed; }
+.sched-command__outline {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 12px;
+  border: 1px solid #bbf7d0;
+  border-radius: 10px;
+  background: #fff;
+  color: #166534;
+  font-weight: 700;
+  font-size: 13px;
+  cursor: pointer;
+}
+.sched-command__outline:hover:not(:disabled) { background: #f0fdf4; }
+.sched-command__outline.on {
+  background: #ecfdf5;
+  border-color: #86efac;
+}
+.sched-command__settings {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 7px 10px;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  background: #fff;
+  color: #334155;
+  cursor: pointer;
+}
+.sched-command__settings:hover,
+.sched-command__settings.on {
+  background: #f8fafc;
+  border-color: #cbd5e1;
+}
+.sched-command__chev { font-size: 0.7rem; opacity: 0.7; }
+.sched-command__filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  padding: 2px 4px 4px;
+}
+.sched-command__filter {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border: none;
+  background: transparent;
+  color: #334155;
+  font-weight: 650;
+  font-size: 13px;
+  cursor: pointer;
+  border-radius: 8px;
+}
+.sched-command__filter:hover { background: #f3f4f6; }
+@media (max-width: 1100px) {
+  .sched-command__actions { margin-left: 0; }
 }
 .sched-calendar-settings__summary {
   list-style: none;

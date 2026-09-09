@@ -1,8 +1,15 @@
 <template>
-  <div class="sched-hub" :class="{ 'sched-hub--platform': platformTheme }">
+  <div class="sched-hub" :class="{ 'sched-hub--platform': platformTheme, 'sched-hub--meta': metaOnlyHeader }">
     <header class="sched-hub__header">
       <div class="sched-hub__header-left">
-        <div class="sched-hub__title-row">
+        <p class="sched-hub__meta-line">Your calendar · your account</p>
+        <p
+          v-if="metaOnlyHeader && contextIsOther && contextLine"
+          class="sched-hub__context sched-hub__context--other"
+        >
+          {{ contextLine }}
+        </p>
+        <div v-if="!metaOnlyHeader" class="sched-hub__title-row">
           <div class="sched-hub__title-switch" ref="titleSwitchRef">
             <button
               type="button"
@@ -88,6 +95,8 @@ const props = defineProps({
   views: { type: Array, default: () => [] },
   skillBuildersActive: { type: Boolean, default: false },
   platformTheme: { type: Boolean, default: false },
+  /** Thin meta row only — title lives in the schedule command bar. */
+  metaOnlyHeader: { type: Boolean, default: false },
 });
 
 const emit = defineEmits(['select-view']);
@@ -319,6 +328,39 @@ const viewIcon = (name) => ICONS[name] || ICONS.calendar;
   flex-wrap: wrap;
   gap: 8px;
   justify-content: flex-end;
+}
+
+.sched-hub--meta .sched-hub__header {
+  align-items: center;
+  margin-bottom: 6px;
+}
+
+.sched-hub__meta-line {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--hub-muted);
+}
+
+.sched-hub--meta .sched-hub__header-actions :deep(.btn),
+.sched-hub--meta .sched-hub__header-actions :deep(a) {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border: none;
+  background: transparent;
+  box-shadow: none;
+  color: #166534;
+  font-size: 13px;
+  font-weight: 650;
+  text-decoration: none;
+}
+
+.sched-hub--meta .sched-hub__header-actions :deep(.btn:hover),
+.sched-hub--meta .sched-hub__header-actions :deep(a:hover) {
+  background: #ecfdf5;
+  color: #14532d;
 }
 
 .sched-hub__stage {

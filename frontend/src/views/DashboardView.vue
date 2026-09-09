@@ -605,17 +605,18 @@
               :views="scheduleHubViews"
               :skill-builders-active="!skillBuildersSeriesCollapsed && seriesCompanyEvents.length > 0"
               :platform-theme="usePlatformShell"
+              :meta-only-header="true"
               @select-view="onScheduleHubSelectView"
             >
               <template #header-actions>
-                <button type="button" class="btn btn-primary btn-sm" @click="openTasksHubFromSchedule">
+                <button type="button" class="btn btn-secondary btn-sm" @click="openTasksHubFromSchedule">
                   Tasks
                 </button>
                 <button type="button" class="btn btn-secondary btn-sm" @click="toggleScheduleFullscreen">
-                  {{ scheduleFullscreenActive ? 'Exit full screen' : 'Show full screen' }}
+                  {{ scheduleFullscreenActive ? 'Exit full screen' : 'Full screen' }}
                 </button>
                 <button type="button" class="btn btn-secondary btn-sm" @click="openScheduleInNewWindow">
-                  Show full screen in new window
+                  Open in new window
                 </button>
                 <button
                   v-if="SKILL_BUILDERS_AVAILABILITY_ENABLED && isSkillBuilderEligible"
@@ -895,10 +896,15 @@
                 :show-skill-builders-programs-button="skillBuildersProgramsPickerRoleOk"
                 :show-company-events-calendar-button="!isClubContext"
                 :platform-theme="usePlatformShell"
+                :compact-page-chrome="true"
+                :hub-views="scheduleHubViews"
+                :active-hub-view="scheduleViewMode"
+                :schedule-title="scheduleViewHeadline"
                 @update:weekStartYmd="onScheduleWeekStartUpdate"
                 @open-skill-builders-programs="goSkillBuildersProgramsPage"
                 @open-company-events-calendar="openCompanyEventsCalendar"
                 @change-schedule-user="onScheduleModalChangeUser"
+                @select-hub-view="onScheduleHubSelectView"
               />
               </div>
             </ScheduleHubPanel>
