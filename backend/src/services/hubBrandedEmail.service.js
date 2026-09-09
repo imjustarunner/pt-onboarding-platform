@@ -200,7 +200,7 @@ export function buildNormalOutboundEmailHtml(opts = {}) {
     .filter(Boolean)
     .join('');
 
-  return `<div data-hub-email-body="1" style="padding:18px 22px 10px;background:#ffffff;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+  return `<div data-hub-email-body="1" style="padding:4px 0 6px;background:#ffffff;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
   <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;margin:0 0 14px;">
     <tr>
       <td style="vertical-align:middle;">

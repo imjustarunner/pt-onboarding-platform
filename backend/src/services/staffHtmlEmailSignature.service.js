@@ -460,12 +460,12 @@ export function buildStaffSignatureHtml(ctx) {
   const tagR = escapeHtml(ctx.taglineRight || ITSCO_SIGNATURE_DEFAULTS.taglineRight);
 
   const titleLine = title
-    ? `<div style="font-family:Arial,Helvetica,sans-serif;font-size:13px;line-height:1.3;margin:1px 0 0;">
+    ? `<div style="font-family:Arial,Helvetica,sans-serif;font-size:10px;line-height:1.25;margin:1px 0 0;">
         <span style="color:${c.green};font-weight:700;">${org}</span>
         <span style="color:${c.muted};"> | </span>
         <span style="color:${c.navy};font-weight:400;">${title}</span>
       </div>`
-    : `<div style="font-family:Arial,Helvetica,sans-serif;font-size:13px;line-height:1.3;margin:1px 0 0;">
+    : `<div style="font-family:Arial,Helvetica,sans-serif;font-size:10px;line-height:1.25;margin:1px 0 0;">
         <span style="color:${c.green};font-weight:700;">${org}</span>
       </div>`;
 
@@ -473,20 +473,20 @@ export function buildStaffSignatureHtml(ctx) {
     if (!valueHtml) return '';
     return `
     <tr>
-      <td style="padding:1px 0;vertical-align:middle;width:20px;">
-        <img src="${icon}" width="16" height="16" alt="" style="display:block;border:0;width:16px;height:16px;" />
+      <td style="padding:0;vertical-align:middle;width:14px;">
+        <img src="${icon}" width="12" height="12" alt="" style="display:block;border:0;width:12px;height:12px;" />
       </td>
-      <td style="padding:1px 0 1px 6px;font-family:Arial,Helvetica,sans-serif;font-size:12px;line-height:1.25;color:${c.navy};">
+      <td style="padding:0 0 0 4px;font-family:Arial,Helvetica,sans-serif;font-size:10px;line-height:1.25;color:${c.navy};">
         <span style="color:${c.green};font-weight:700;">${label}:</span>&nbsp;${valueHtml}
       </td>
     </tr>`;
   };
 
-  // Compact right rail — logo sized to contact block so we don’t leave a tall empty gap under the photo.
-  const rightRailWidth = 148;
-  const rightRailPad = `padding:0 2px 0 6px;`;
-  const photoSize = 104;
-  const logoWidth = 108;
+  // Compact bottom-left card — not a full-width “from” banner.
+  const rightRailWidth = 96;
+  const rightRailPad = `padding:0 0 0 6px;`;
+  const photoSize = 64;
+  const logoWidth = 72;
 
   const socialIconSrc = (platform) => {
     const a = ctx.assets || {};
@@ -512,11 +512,11 @@ export function buildStaffSignatureHtml(ctx) {
                   const title = escapeHtml(link.label || platformLabel(link.platform));
                   const icon = escapeHtml(socialIconSrc(link.platform));
                   if (!icon) return '';
-                  return `<td align="center" style="padding:0 2px;vertical-align:middle;text-align:center;">
+                  return `<td align="center" style="padding:0 1px;vertical-align:middle;text-align:center;">
                     <a href="${href}" title="${title}" target="_blank" rel="noopener noreferrer"
-                      style="display:inline-block;background:${c.green};border-radius:5px;padding:2px;line-height:0;text-decoration:none !important;border:0;">
-                      <img src="${icon}" width="16" height="16" alt="${title}"
-                        style="display:block;border:0;width:16px;height:16px;margin:0 auto;" />
+                      style="display:inline-block;background:${c.green};border-radius:4px;padding:1px;line-height:0;text-decoration:none !important;border:0;">
+                      <img src="${icon}" width="12" height="12" alt="${title}"
+                        style="display:block;border:0;width:12px;height:12px;margin:0 auto;" />
                     </a>
                   </td>`;
                 })
@@ -552,43 +552,46 @@ export function buildStaffSignatureHtml(ctx) {
       : '';
 
   const confidentialHtml = `
-    <tr>
-      <td colspan="3" style="padding:6px 0 0;margin:0;" data-pt-signature-confidential="1">
-        <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="border-collapse:collapse;margin:0;">
-          <tr><td style="border-top:1px solid ${c.line};font-size:0;line-height:0;height:1px;padding:0;mso-line-height-rule:exactly;">&nbsp;</td></tr>
-        </table>
-        <div style="margin:5px 0 0;padding:0;font-family:Arial,Helvetica,sans-serif;font-size:9px;line-height:1.3;color:#6B7280;">
-          <div style="font-weight:700;color:${c.navy};text-transform:uppercase;letter-spacing:0.02em;margin:0 0 2px;padding:0;">
-            CONFIDENTIAL AND POTENTIALLY SENSITIVE INFORMATION!
-          </div>
-          <div style="margin:0;padding:0;">
-            The information enclosed in this email may contain privileged and confidential materials intended solely for the individual indicated.
-            If you are not the intended recipient, any review, dissemination, distribution, or duplication of this email is strictly prohibited.
-            ${
-              ctx.misdirectedReportUrl
-                ? `If this email was sent to you by mistake,
-            <a href="${escapeHtml(ctx.misdirectedReportUrl)}" style="color:#ffffff;background:#1d4ed8;text-decoration:none;padding:4px 10px;border-radius:4px;font-weight:700;display:inline-block;margin:3px 0;font-size:10px;line-height:1.3;" target="_blank" rel="noopener noreferrer">Report misdirected email</a>
-            so our support team can escalate and investigate — then destroy all copies of the original message.`
-                : `If this email was sent to you by mistake, please report it to the sending organization so they can escalate and investigate — then destroy all copies of the original message.`
-            }
-          </div>
-        </div>
-      </td>
-    </tr>`;
-
-  return `
-<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;max-width:520px;width:100%;background:#ffffff;">
+<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="border-collapse:collapse;margin:8px 0 0;clear:both;" data-pt-signature-confidential="1">
   <tr>
-    <td style="padding:0;vertical-align:top;width:${photoSize + 8}px;">
-      <img src="${photo}" width="${photoSize}" height="${photoSize}" alt="${name}"
-        style="display:block;border:2px solid ${c.green};border-radius:12px;width:${photoSize}px;height:${photoSize}px;object-fit:cover;object-position:center 18%;" />
+    <td style="padding:0;margin:0;">
+      <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="border-collapse:collapse;margin:0;">
+        <tr><td style="border-top:1px solid ${c.line};font-size:0;line-height:0;height:1px;padding:0;mso-line-height-rule:exactly;">&nbsp;</td></tr>
+      </table>
+      <div style="margin:4px 0 0;padding:0;font-family:Arial,Helvetica,sans-serif;font-size:8px;line-height:1.3;color:#6B7280;">
+        <div style="font-weight:700;color:${c.navy};text-transform:uppercase;letter-spacing:0.02em;margin:0 0 2px;padding:0;">
+          CONFIDENTIAL AND POTENTIALLY SENSITIVE INFORMATION!
+        </div>
+        <div style="margin:0;padding:0;">
+          The information enclosed in this email may contain privileged and confidential materials intended solely for the individual indicated.
+          If you are not the intended recipient, any review, dissemination, distribution, or duplication of this email is strictly prohibited.
+          ${
+            ctx.misdirectedReportUrl
+              ? `If this email was sent to you by mistake,
+          <a href="${escapeHtml(ctx.misdirectedReportUrl)}" style="color:#ffffff;background:#1d4ed8;text-decoration:none;padding:3px 8px;border-radius:4px;font-weight:700;display:inline-block;margin:2px 0;font-size:9px;line-height:1.3;" target="_blank" rel="noopener noreferrer">Report misdirected email</a>
+          so our support team can escalate and investigate — then destroy all copies of the original message.`
+              : `If this email was sent to you by mistake, please report it to the sending organization so they can escalate and investigate — then destroy all copies of the original message.`
+          }
+        </div>
+      </div>
     </td>
-    <td style="padding:2px 4px 0 6px;vertical-align:top;">
-      <div style="font-family:Arial,Helvetica,sans-serif;font-size:18px;line-height:1.2;font-weight:700;color:${c.navy};">
+  </tr>
+</table>`;
+
+  // Fixed-width left card so it reads as a signature, not a full-width from-banner.
+  return `
+<table role="presentation" cellpadding="0" cellspacing="0" border="0" align="left" width="360" style="border-collapse:collapse;width:360px;max-width:360px;background:#ffffff;margin:0;">
+  <tr>
+    <td style="padding:0;vertical-align:top;width:${photoSize + 6}px;">
+      <img src="${photo}" width="${photoSize}" height="${photoSize}" alt="${name}"
+        style="display:block;border:1px solid ${c.green};border-radius:8px;width:${photoSize}px;height:${photoSize}px;object-fit:cover;object-position:center 18%;" />
+    </td>
+    <td style="padding:0 2px 0 6px;vertical-align:top;">
+      <div style="font-family:Arial,Helvetica,sans-serif;font-size:13px;line-height:1.2;font-weight:700;color:${c.navy};">
         ${name}
       </div>
       ${titleLine}
-      <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;margin:4px 0 2px;">
+      <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;margin:3px 0 1px;">
         <tr><td style="border-top:1px solid ${c.divider};font-size:0;line-height:0;height:1px;">&nbsp;</td></tr>
       </table>
       <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;">
@@ -602,40 +605,40 @@ export function buildStaffSignatureHtml(ctx) {
     </td>
   </tr>
   <tr>
-    <td colspan="3" style="padding:3px 0 0;">
+    <td colspan="3" style="padding:2px 0 0;">
       <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="border-collapse:collapse;">
         <tr><td style="border-top:1px solid ${c.line};font-size:0;line-height:0;height:1px;padding:0;">&nbsp;</td></tr>
       </table>
     </td>
   </tr>
   <tr>
-    <td colspan="2" style="padding:3px 6px 0 0;vertical-align:middle;">
+    <td colspan="2" style="padding:2px 4px 0 0;vertical-align:middle;">
       <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;">
         <tr>
-          <td style="vertical-align:middle;width:24px;">
-            <img src="${leaf}" width="20" height="26" alt="" style="display:block;border:0;width:20px;height:auto;" />
+          <td style="vertical-align:middle;width:16px;">
+            <img src="${leaf}" width="14" height="18" alt="" style="display:block;border:0;width:14px;height:auto;" />
           </td>
-          <td style="vertical-align:middle;padding-left:6px;font-family:Arial,Helvetica,sans-serif;font-size:10px;letter-spacing:0.02em;line-height:1.25;">
+          <td style="vertical-align:middle;padding-left:4px;font-family:Arial,Helvetica,sans-serif;font-size:8px;letter-spacing:0.02em;line-height:1.2;">
             <span style="color:${c.navy};font-weight:700;">${tagL}</span>
             ${tagR ? `<span style="color:${c.greenDark};font-weight:700;"> ${tagR}</span>` : ''}
           </td>
         </tr>
       </table>
     </td>
-    <td width="${rightRailWidth}" align="center" style="width:${rightRailWidth}px;padding:3px 2px 0 6px;vertical-align:middle;border-left:1px solid ${c.line};text-align:center;">
+    <td width="${rightRailWidth}" align="center" style="width:${rightRailWidth}px;padding:2px 0 0 6px;vertical-align:middle;border-left:1px solid ${c.line};text-align:center;">
       <table role="presentation" cellpadding="0" cellspacing="0" border="0" align="center" width="${logoWidth}" style="border-collapse:collapse;margin:0 auto;width:${logoWidth}px;">
         <tr>
           <td align="center" style="text-align:center;white-space:nowrap;font-size:0;line-height:0;">
-            <span style="font-family:Arial,Helvetica,sans-serif;font-size:10px;color:${c.muted};vertical-align:middle;line-height:normal;">powered by</span>
-            <img src="${phoenix}" width="28" height="22" alt="PlotTwistCo" style="display:inline-block;border:0;width:28px;height:auto;vertical-align:middle;margin:0 2px 0 4px;" />
-            <span style="font-family:Arial,Helvetica,sans-serif;font-size:10px;color:${c.muted};vertical-align:middle;font-weight:600;line-height:normal;">PlotTwistCo</span>
+            <span style="font-family:Arial,Helvetica,sans-serif;font-size:8px;color:${c.muted};vertical-align:middle;line-height:normal;">powered by</span>
+            <img src="${phoenix}" width="20" height="16" alt="PlotTwistCo" style="display:inline-block;border:0;width:20px;height:auto;vertical-align:middle;margin:0 1px 0 2px;" />
+            <span style="font-family:Arial,Helvetica,sans-serif;font-size:8px;color:${c.muted};vertical-align:middle;font-weight:600;line-height:normal;">PlotTwistCo</span>
           </td>
         </tr>
       </table>
     </td>
   </tr>
-  ${confidentialHtml}
-</table>`.trim();
+</table>
+${confidentialHtml}`.trim();
 }
 
 export function buildStaffSignatureText(ctx) {
@@ -719,11 +722,12 @@ export async function appendStaffHtmlSignature({
 
   const bodyHtml =
     html ||
-    `<div style="font-family:Arial,sans-serif;line-height:1.5;color:#111;">${String(text || '')
+    `<div style="font-family:Arial,sans-serif;font-size:15px;line-height:1.55;color:#111;">${String(text || '')
       .split('\n')
-      .map((line) => `<p>${escapeHtml(line || '').trim() || '&nbsp;'}</p>`)
+      .map((line) => `<p style="margin:0 0 10px;">${escapeHtml(line || '').trim() || '&nbsp;'}</p>`)
       .join('')}</div>`;
-  const htmlOut = `${String(bodyHtml)}\n${marker}\n<div data-pt-staff-signature="1" style="margin:0;padding:8px 24px 20px;background:#ffffff;">${block}</div>`;
+  // Space above pulls the card down toward the green footer; keep left, not full-bleed.
+  const htmlOut = `${String(bodyHtml)}\n${marker}\n<div data-pt-staff-signature="1" style="margin:36px 0 0;padding:0 0 2px;background:#ffffff;text-align:left;">${block}</div><div style="clear:both;height:0;font-size:0;line-height:0;">&nbsp;</div>`;
   const textOut = `${String(text || '').trim()}\n\n--\n${textBlock}`.trim();
   return { text: textOut, html: htmlOut, appended: true, ctx };
 }

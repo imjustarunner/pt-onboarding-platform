@@ -203,25 +203,20 @@ export function applyTenantEmailChromeHtml(html, chrome = {}, opts = {}) {
   const footerLinks = `
     <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;">
       <tr>
-        <td align="center" style="padding:10px 12px 4px;font-size:12px;line-height:1.55;">
-          <a href="${supportUrl}" style="color:#ffffff;text-decoration:underline;margin:0 8px;">Need help? Contact Support</a>
+        <td align="center" style="padding:0;font-size:11px;line-height:1.45;font-family:Arial,Helvetica,sans-serif;">
+          <a href="${supportUrl}" style="color:#ffffff;text-decoration:underline;margin:0 6px;">Need help? Contact Support</a>
           ${
             replyMailto
-              ? `<span style="color:rgba(255,255,255,0.4);">·</span>
-          <a href="mailto:${replyMailto}" style="color:#ffffff;text-decoration:underline;margin:0 8px;">Reply to ${replyMailto}</a>`
+              ? `<span style="color:rgba(255,255,255,0.45);">·</span>
+          <a href="mailto:${replyMailto}" style="color:#ffffff;text-decoration:underline;margin:0 6px;">Reply to ${replyMailto}</a>`
               : ''
           }
           ${
             unsubscribeUrl
-              ? `<span style="color:rgba(255,255,255,0.4);">·</span>
-          <a href="${unsubscribeUrl}" style="color:#ffffff;text-decoration:underline;margin:0 8px;">Unsubscribe</a>`
+              ? `<span style="color:rgba(255,255,255,0.45);">·</span>
+          <a href="${unsubscribeUrl}" style="color:#ffffff;text-decoration:underline;margin:0 6px;">Unsubscribe</a>`
               : ''
           }
-        </td>
-      </tr>
-      <tr>
-        <td align="center" style="padding:2px 12px 14px;color:rgba(255,255,255,0.85);font-size:12px;">
-          ${website || agencyName}${phone ? ` · ${phone}` : ''}
         </td>
       </tr>
     </table>`;
@@ -230,12 +225,31 @@ export function applyTenantEmailChromeHtml(html, chrome = {}, opts = {}) {
     ? `<img src="${escapeHtml(headerUrl)}" alt="${agencyName}" width="600" style="display:block;width:100%;max-width:600px;height:auto;border:0;margin:0;padding:0;line-height:0;" />`
     : '';
 
+  // Background-image footer so Support/Reply sit in the art’s center safe zone.
+  // Avoid <img> + negative margin (Gmail ignores it and paints a second dark bar).
+  const footerEsc = escapeHtml(footerUrl);
   const footerBlock = footerUrl
-    ? `<td style="padding:0;margin:0;background:#0b3d2e;line-height:0;" data-tenant-email-footer="1">
-        <img src="${escapeHtml(footerUrl)}" alt="" width="600" style="display:block;width:100%;max-width:600px;height:auto;border:0;margin:0;padding:0;" />
-        <div style="padding:0 12px 8px;margin-top:-92px;position:relative;line-height:normal;">${footerLinks}</div>
+    ? `<td background="${footerEsc}" bgcolor="#0b3d2e" width="600" height="110" valign="middle" align="center"
+        style="width:600px;height:110px;padding:0;margin:0;background-color:#0b3d2e;background-image:url('${footerEsc}');background-repeat:no-repeat;background-position:center center;background-size:100% 110px;vertical-align:middle;text-align:center;"
+        data-tenant-email-footer="1">
+        <!--[if gte mso 9]>
+        <v:rect xmlns:v="urn:schemas-microsoft-com:vml" fill="true" stroke="false" style="width:600px;height:110px;">
+          <v:fill type="frame" src="${footerEsc}" color="#0b3d2e" />
+          <v:textbox inset="0,0,0,0">
+        <![endif]-->
+        <div style="padding:34px 88px 22px;line-height:normal;">${footerLinks}</div>
+        <!--[if gte mso 9]>
+          </v:textbox>
+        </v:rect>
+        <![endif]-->
       </td>`
-    : `<td style="padding:16px 12px;background:#0b3d2e;">${footerLinks}</td>`;
+    : `<td style="padding:14px 12px;background:#0b3d2e;text-align:center;">${footerLinks}
+        ${
+          website || agencyName || phone
+            ? `<div style="padding:6px 12px 0;color:rgba(255,255,255,0.85);font-size:11px;font-family:Arial,Helvetica,sans-serif;">${website || agencyName}${phone ? ` · ${phone}` : ''}</div>`
+            : ''
+        }
+      </td>`;
 
   return `<!DOCTYPE html>
 <html><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/></head>
@@ -243,10 +257,10 @@ export function applyTenantEmailChromeHtml(html, chrome = {}, opts = {}) {
   <!-- tenant-email-chrome -->
   <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="border-collapse:collapse;background:#eef2f6;margin:0;padding:0;">
     <tr>
-      <td align="center" style="padding:16px 8px;">
-        <table role="presentation" width="600" cellspacing="0" cellpadding="0" border="0" style="border-collapse:collapse;width:100%;max-width:600px;background:#ffffff;margin:0;padding:0;">
+      <td align="center" style="padding:20px 16px;">
+        <table role="presentation" width="600" cellspacing="0" cellpadding="0" border="0" style="border-collapse:collapse;width:100%;max-width:600px;background:#ffffff;margin:0 auto;padding:0;">
           ${headerBlock ? `<tr><td style="padding:0;margin:0;line-height:0;font-size:0;">${headerBlock}</td></tr>` : ''}
-          <tr><td style="padding:0;margin:0;background:#ffffff;vertical-align:top;">${raw}</td></tr>
+          <tr><td style="padding:22px 28px 10px;margin:0;background:#ffffff;vertical-align:top;">${raw}</td></tr>
           <tr>${footerBlock}</tr>
         </table>
       </td>
