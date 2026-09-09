@@ -33,6 +33,15 @@
         <div class="view-toggle">
           <button type="button" class="view-btn" :class="{ active: layout === 'list' }" @click="layout = 'list'">List</button>
           <button type="button" class="view-btn" :class="{ active: layout === 'board' }" @click="layout = 'board'">Board</button>
+          <button
+            type="button"
+            class="view-btn"
+            :class="{ active: notesTodoOpen }"
+            title="Show pending Note Aid todos"
+            @click="notesTodoOpen = !notesTodoOpen"
+          >
+            Todo<span v-if="pendingSessionNoteCount"> ({{ pendingSessionNoteCount }})</span>
+          </button>
         </div>
         <button type="button" class="hub-chip-btn hub-chip-btn--accent" @click="showNewPicker = true">New</button>
       </div>
@@ -429,6 +438,23 @@
         </template>
       </div>
 
+      <aside v-if="notesTodoOpen" class="notes-todo-rail" aria-label="Note Aid todos">
+        <header class="notes-todo-rail__head">
+          <h2>Note Aid to-do</h2>
+          <button type="button" class="btn-close" @click="notesTodoOpen = false">Close</button>
+        </header>
+        <p class="notes-todo-rail__hint">Click a note to open it in Note Aid.</p>
+        <ul v-if="pendingSessionNoteTasks.length" class="notes-todo-list">
+          <li v-for="t in pendingSessionNoteTasks" :key="t.id">
+            <button type="button" class="notes-todo-item" @click="openNotesTasksInNoteAid([t])">
+              <strong>{{ t.title || 'Session note' }}</strong>
+              <span>{{ typeLabel(t) }}</span>
+            </button>
+          </li>
+        </ul>
+        <p v-else class="hub-state">No pending notes.</p>
+      </aside>
+
       <TaskDetailSidePanel
         v-if="detailTask"
         :item="detailTask"
@@ -460,6 +486,8 @@
           :can-edit-docs="false"
           @close="closeLifecycleChecklist"
           @updated="onLifecycleChecklistUpdated"
+          @assign-day="onChecklistAssignDay"
+          @fall-action="onChecklistFallAction"
         />
       </div>
 
@@ -856,7 +884,7 @@
 </template>
 
 <script setup>
-import { ref, computed, watch, onMounted, onUnmounted, reactive } from 'vue';
+import { ref, computed, watch, onMounted, onUnmounted, reactive, nextTick } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useTasksStore } from '../../store/tasks';
 import { useAuthStore } from '../../store/auth';
@@ -922,6 +950,7 @@ const HIDDEN_AGENCIES_KEY = 'tasksHub.hiddenAgencyIds';
 
 const activeTab = ref('assigned');
 const layout = ref('list');
+const notesTodoOpen = ref(false);
 const statusChip = ref('all');
 const searchQ = ref('');
 const notesScope = ref('all'); // all | notes | cosign
@@ -949,9 +978,17 @@ const lifecycleModalLabel = ref('');
 const assignDayClient = ref(null);
 const assignDayOrgId = ref(null);
 
+function parseTaskMetadata(task) {
+  let meta = task?.metadata;
+  if (typeof meta === 'string') {
+    try { meta = JSON.parse(meta); } catch { meta = {}; }
+  }
+  return meta && typeof meta === 'object' ? meta : {};
+}
+
 function clientLifecycleMeta(task) {
-  const meta = task?.metadata && typeof task.metadata === 'object' ? task.metadata : {};
-  const clientId = Number(meta.clientId || 0);
+  const meta = parseTaskMetadata(task);
+  const clientId = Number(meta.clientId || meta.client_id || 0);
   if (!clientId) return null;
   const source = String(meta.source || '');
   const actionKey = String(meta.actionKey || '').trim();
@@ -959,7 +996,8 @@ function clientLifecycleMeta(task) {
     || source === 'client_lifecycle'
     || !!actionKey
     || /^New client on your caseload/i.test(String(task?.title || ''))
-    || /^Fall confirmation/i.test(String(task?.title || ''));
+    || /^Fall confirmation/i.test(String(task?.title || ''))
+    || /^Assign day/i.test(String(task?.title || ''));
   if (!isLifecycle) return null;
   return {
     clientId,
@@ -990,7 +1028,11 @@ async function openClientLifecycleAction(task) {
   if (!info) return;
   const { clientId, actionKey, actionLabel, labelFromTitle } = info;
 
-  if (actionKey === 'provider_intake') {
+  if (actionKey === 'provider_intake' || actionKey === 'fall_confirmation') {
+    if (Number(lifecycleChecklistClientId.value) === Number(clientId)) {
+      lifecycleChecklistClientId.value = null;
+      await nextTick();
+    }
     lifecycleChecklistClientId.value = clientId;
     lifecycleChecklistLabel.value = labelFromTitle;
     return;
@@ -1010,6 +1052,29 @@ async function openClientLifecycleAction(task) {
     lifecycleModalLabel.value = actionLabel || actionKey;
   } catch (err) {
     console.warn('[TasksHub] open client lifecycle action failed', err?.message || err);
+  }
+}
+
+function onChecklistAssignDay(payload) {
+  const client = payload?.client || payload;
+  const clientId = Number(client?.id || payload?.clientId || 0);
+  if (!clientId) return;
+  assignDayClient.value = { id: clientId, ...client };
+  assignDayOrgId.value = Number(client?.organization_id || payload?.organizationId || 0) || null;
+}
+
+async function onChecklistFallAction(payload) {
+  const clientId = Number(payload?.clientId || payload?.client?.id || 0);
+  if (!clientId) return;
+  try {
+    const { data } = await api.get(`/clients/${clientId}`, { skipGlobalLoading: true });
+    const client = data?.client || data;
+    if (!client?.id) return;
+    lifecycleModalClient.value = client;
+    lifecycleModalKey.value = 'fall_confirmation';
+    lifecycleModalLabel.value = 'Fall confirmation';
+  } catch (err) {
+    console.warn('[TasksHub] open fall confirmation failed', err?.message || err);
   }
 }
 
@@ -1413,13 +1478,15 @@ const displayTasks = computed(() => {
   return list;
 });
 
-const pendingSessionNoteCount = computed(() =>
+const pendingSessionNoteCount = computed(() => pendingSessionNoteTasks.value.length);
+
+const pendingSessionNoteTasks = computed(() =>
   (tasksStore.tasks || []).filter(
     (t) =>
       String(t.task_type || '').toLowerCase() === 'session_note'
       && t.status !== 'completed'
       && t.status !== 'overridden'
-  ).length
+  )
 );
 
 const cosignNotesCount = computed(() => (cosignNotes.value || []).length);
@@ -2184,7 +2251,7 @@ async function refresh() {
 async function loadDepartments() {
   if (!agencyId.value) return;
   try {
-    const { data } = await api.get(`/agencies/${agencyId.value}/departments`);
+    const { data } = await api.get(`/agencies/${agencyId.value}/departments`, { skipGlobalLoading: true });
     departments.value = Array.isArray(data) ? data : (data?.departments || []);
   } catch {
     departments.value = [];
@@ -2194,9 +2261,6 @@ async function loadDepartments() {
 function openTask(task) {
   detailTask.value = task;
   loadAgencyUsers(task?.assigned_to_agency_id || task?.agency_id);
-  if (clientLifecycleMeta(task)) {
-    openClientLifecycleAction(task);
-  }
 }
 
 function openActionItem(task) {
@@ -2819,6 +2883,56 @@ watch(
   gap: 14px;
   align-items: flex-start;
 }
+.notes-todo-rail {
+  width: 260px;
+  flex: 0 0 260px;
+  border: 1px solid #bbf7d0;
+  border-radius: 12px;
+  background: #f0fdf4;
+  padding: 12px;
+  min-height: 240px;
+}
+.notes-todo-rail__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.notes-todo-rail__head h2 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 800;
+  color: #14532d;
+}
+.notes-todo-rail__hint {
+  margin: 0 0 10px;
+  font-size: 12px;
+  color: #64748b;
+}
+.notes-todo-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.notes-todo-item {
+  width: 100%;
+  text-align: left;
+  border: 1px solid #bbf7d0;
+  background: #fff;
+  border-radius: 10px;
+  padding: 8px 10px;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.notes-todo-item:hover { border-color: #16a34a; }
+.notes-todo-item strong { font-size: 13px; color: #14532d; }
+.notes-todo-item span { font-size: 11px; color: #64748b; }
 .tasks-hub__body--no-timeline {
   display: block;
 }

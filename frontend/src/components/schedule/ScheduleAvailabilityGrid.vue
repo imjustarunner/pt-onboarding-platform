@@ -118,6 +118,15 @@
               Book session
             </button>
             <button
+              v-if="Number(effectiveAgencyId || 0) > 0"
+              type="button"
+              class="sched-command__outline"
+              title="Open Note Aid"
+              @click="openScheduleNoteAid"
+            >
+              Note Aid
+            </button>
+            <button
               v-if="!hideOfficeAndCalendarIntegration"
               type="button"
               class="sched-command__outline"
@@ -261,6 +270,15 @@
             @click="openUnifiedBookingPanel()"
           >
             Book session
+          </button>
+          <button
+            v-if="Number(effectiveAgencyId || 0) > 0"
+            class="sched-nav-btn"
+            type="button"
+            title="Open Note Aid"
+            @click="openScheduleNoteAid"
+          >
+            Note Aid
           </button>
           <div class="sched-span-switch" role="group" aria-label="Schedule view">
             <button type="button" class="sched-span-btn" :class="{ on: scheduleSpanMode === 'day' }" title="One-day timeline grid" @click="setScheduleSpanMode('day')">Day</button>
@@ -432,6 +450,7 @@
         <div v-if="!hideOfficeAndCalendarIntegration" id="sched-settings-office" class="sched-tool-cluster" title="Office bookings for this person — All buildings, one building, or Off">
           <span class="sched-tool-cluster__label">Office</span>
           <select
+            v-if="showOfficeLocationSelect"
             v-model.number="selectedOfficeLocationId"
             class="sched-select sched-select--compact"
             :disabled="loading || officeGridLoading"
@@ -442,6 +461,7 @@
             <option :value="OFFICE_SCOPE_OFF">Off</option>
             <option v-for="o in officeLocations" :key="`sched-office-${o.id}`" :value="Number(o.id)">{{ o.name }}</option>
           </select>
+          <span v-else class="sched-office-fixed-label">{{ singleAssignedOfficeName }}</span>
           <button
             v-if="isOfficeScopeSpecific"
             type="button"
@@ -950,7 +970,7 @@
 
     <!-- Office layout view (room-by-room weekly board) -->
     <div v-if="!hideOfficeAndCalendarIntegration && viewMode === 'office_layout'" class="sched-grid-wrap" data-tour="my-schedule-office-layout-panel">
-      <div v-if="!isOfficeScopeSpecific" class="hint" style="margin-top: 10px;">
+      <div v-if="!isOfficeScopeSpecific && showOfficeLocationSelect" class="hint" style="margin-top: 10px;">
         Choose a specific office (not All / Off) to view the room-by-room weekly layout.
       </div>
       <div v-else-if="officeGridError" class="error" style="margin-top: 10px;">{{ officeGridError }}</div>
@@ -1877,7 +1897,7 @@
           :title="modalEditorTitle"
           :subtitle="modalScheduleSubtitle"
           :hide-chrome="true"
-          :disabled="submitting || scheduleEventSaving || !canSaveSelectedSupvSession"
+          :disabled="submitting || scheduleEventSaving || (editorIsSupervision && !canSaveSelectedSupvSession)"
           :show-virtual="editorShowVirtual || editorIsMeeting"
           :show-virtual-options="editorIsMeeting"
           v-model:virtual-is-virtual="editorMeetingIsVirtual"
@@ -1920,7 +1940,7 @@
           :status-options="APPOINTMENT_EDITOR_STATUS_OPTIONS"
           :show-occurrence-count="editorShowOccurrenceCount"
           :occurrence-count-label="editorOccurrenceCountLabel"
-          :show-type="!editorIsOpenSlot && editorIsClinical"
+          :show-type="!editorIsOpenSlot && editorIsClinical && editorTypeOptions.length > 1"
           :show-status="!editorIsOpenSlot"
           :show-location="editorShowLocation"
           :location-address="editorLocationAddress"
@@ -1948,10 +1968,10 @@
           :service-options="editorHeaderServiceOptions"
           :services-loading="editorServicesLoading"
           :show-group-clients-button="false"
-          :show-primary-service-code="editorIsClinical && String(editorPracticeCategory || '') === 'mental_health'"
+          :show-primary-service-code="editorIsClinical && (String(editorPracticeCategory || '') === 'mental_health' || !editorPracticeCategory)"
           :primary-service-code="bookingServiceCode"
           :primary-service-code-options="bookingPrimaryServiceCodeOptions"
-          :show-addon-service-codes="editorIsClinical && String(editorPracticeCategory || '') === 'mental_health'"
+          :show-addon-service-codes="editorIsClinical && (String(editorPracticeCategory || '') === 'mental_health' || !editorPracticeCategory)"
           :addon-service-codes="editorAddonServiceCodes"
           :addon-service-code-options="bookingPreSessionAddonOptions"
           :show-modality="editorIsClinical"
@@ -5738,7 +5758,7 @@ import { useBrandingStore } from '../../store/branding';
 import { toUploadsUrl } from '../../utils/uploadsUrl';
 import { useUserPreferencesStore } from '../../store/userPreferences';
 import { isMedicalBillingEnabled } from '../../config/medicalBillingAccess.js';
-import { buildNoteAidQuery, toDateOfService } from '../../utils/noteAidLaunch.js';
+import { buildNoteAidQuery, navigateToNoteAid, toDateOfService } from '../../utils/noteAidLaunch.js';
 import {
   PRACTICE_CATEGORY_LABELS,
   businessTypesForPracticeCategory,
@@ -5869,18 +5889,33 @@ const buildUnifiedBookingWallTime = (dayName, hour, minute = 0) => {
 };
 
 const openUnifiedBookingPanel = (dayName = null, hour = null) => {
-  const dn = dayName || modalDay.value || visibleDays.value?.[0] || 'Monday';
-  const h = hour != null ? Number(hour) : Number(modalHour.value || 9);
-  const endH = Number(modalEndHour.value || (h + 1));
-  unifiedBookingDayLabel.value = `${dn} ${hourLabel(h)}`;
-  unifiedBookingStartAt.value = buildUnifiedBookingWallTime(dn, h, Number(modalStartMinute.value || 0));
-  unifiedBookingEndAt.value = buildUnifiedBookingWallTime(dn, endH, Number(modalEndMinute.value || 0));
-  showUnifiedBookingPanel.value = true;
+  const today = String(todayLocalYmd.value || '').slice(0, 10);
+  const dn = dayName
+    || (today ? dayNameForDateYmd(today) : null)
+    || modalDay.value
+    || visibleDays.value?.[0]
+    || 'Monday';
+  const h = hour != null ? Number(hour) : Math.max(7, Math.min(20, new Date().getHours() || 9));
+  const ymd = today && dayNameForDateYmd(today) === dn
+    ? today
+    : addDaysYmd(weekStart.value, dayIdxFromWeekStartMonday(dn));
+  openSlotActionModal({
+    dayName: dn,
+    hour: h,
+    dateYmd: ymd,
+    initialRequestType: 'individual_session',
+    actionSource: 'book_session',
+    preserveSelectionRange: false
+  });
 };
 
 const onUnifiedBookingBooked = async () => {
   invalidateScheduleSummaryCacheForUser(props.userId);
   await load({ forceRefresh: true });
+};
+
+const openScheduleNoteAid = () => {
+  navigateToNoteAid(router, {});
 };
 
 const supvAppVideoOrgSlug = computed(() => String(route.params?.organizationSlug || '').trim());
@@ -14366,15 +14401,16 @@ function onEditorDateYmd(ymd) {
     supvEndIsoLocal.value = `${value}T${endT}`;
     return;
   }
-  // Map YMD back to weekday in the visible week when possible.
-  for (const d of (orderedDays.value || ALL_DAYS)) {
-    try {
-      if (addDaysYmd(weekStart.value, dayIdxFromWeekStartMonday(d)) === value) {
-        modalDay.value = d;
-        onChooserWhenChanged?.();
-        return;
-      }
-    } catch { /* ignore */ }
+  const weekAnchor = startOfWeekForPreference(value);
+  if (weekAnchor && weekAnchor !== weekStart.value) {
+    weekStart.value = weekAnchor;
+    emit('update:weekStartYmd', weekStart.value);
+    load();
+  }
+  const dayName = dayNameForDateYmd(value);
+  if (dayName) {
+    modalDay.value = dayName;
+    onChooserWhenChanged?.();
   }
 }
 function onEditorStartTime(t) {
@@ -14872,7 +14908,7 @@ async function loadEditorPracticeCategories() {
     return;
   }
   try {
-    const r = await api.get(`/users/${providerId}/agencies/${aid}/practice-categories`);
+    const r = await api.get(`/users/${providerId}/agencies/${aid}/practice-categories`, { skipGlobalLoading: true });
     // API returns resolved effective categories (defaults ∪ grants − revokes ∩ allowed).
     const selected = Array.isArray(r.data?.categories) ? r.data.categories : [];
     const allowed = Array.isArray(r.data?.allowedCategories) ? r.data.allowedCategories : [];
@@ -14902,7 +14938,7 @@ async function loadEditorTenantServices() {
     const params = {};
     const providerId = Number(bookingTargetUserId.value || props.userId || 0);
     if (providerId) params.providerId = providerId;
-    const r = await api.get(`/tenant-booking/agencies/${aid}/booking-options`, { params });
+    const r = await api.get(`/tenant-booking/agencies/${aid}/booking-options`, { params, skipGlobalLoading: true });
     let services = Array.isArray(r.data?.services) ? r.data.services : [];
     editorPackageEntitlements.value = r.data?.packagePreview?.entitlements || [];
     // Fallback: booking-options can be empty before suites are seeded; services list ensures defaults.
@@ -17812,7 +17848,7 @@ const loadSupervisionProviders = async () => {
       supervisorUserId: supervisionGroupSupervisorUserId.value
     };
     if (!supervisionUsingAllAgencies.value) facParams.agencyId = agencyId;
-    const facRes = await api.get('/supervision/providers', { params: facParams });
+    const facRes = await api.get('/supervision/providers', { params: facParams, skipGlobalLoading: true });
     supervisionFacilitators.value = Array.isArray(facRes?.data?.facilitators) ? facRes.data.facilitators : [];
     supervisionLockedGroups.value = Array.isArray(facRes?.data?.supervisorGroups)
       ? facRes.data.supervisorGroups.map((g) => ({
@@ -18258,9 +18294,7 @@ const openSlotActionModal = async ({
     || 0
   );
   const isOfficeModal = String(modalActionSource.value || '') === 'office_block'
-    || String(modalActionSource.value || '') === 'plus_or_blank'
-    || viewMode.value === 'office_layout'
-    || officeLocIdForTenant > 0;
+    || viewMode.value === 'office_layout';
   if (isOfficeModal) {
     selectedActionAgencyId.value = pickDefaultOfficeTenantId({
       officeLocationId: officeLocIdForTenant,
@@ -18640,10 +18674,34 @@ const fetchMyAssignedOffices = async () => {
 };
 
 const shouldApplySelfDefaultOffice = () => (
-  props.mode === 'self' && Number(selectedOfficeLocationId.value) === OFFICE_SCOPE_ALL
+  props.mode === 'self'
+  && (
+    Number(selectedOfficeLocationId.value) === OFFICE_SCOPE_ALL
+    || viewMode.value === 'office_layout'
+  )
 );
 
+const assignedOfficeChoices = computed(() => {
+  const rows = officeLocations.value || [];
+  const officeIds = new Set(rows.map((o) => Number(o?.id || 0)).filter((id) => id > 0));
+  const assigned = (myAssignedOffices.value || []).filter((o) => officeIds.has(Number(o?.id || 0)));
+  if (assigned.length) return assigned;
+  if (rows.length === 1) return rows;
+  return [];
+});
+const hasSingleAssignedOffice = computed(() => assignedOfficeChoices.value.length === 1);
+const showOfficeLocationSelect = computed(() => !hasSingleAssignedOffice.value && (officeLocations.value || []).length > 1);
+const singleAssignedOfficeName = computed(() => {
+  const row = assignedOfficeChoices.value[0];
+  return String(row?.name || row?.label || 'Your office').trim() || 'Your office';
+});
+
 const applySelfDefaultOfficeSelection = async (officeRows) => {
+  if (hasSingleAssignedOffice.value) {
+    const picked = Number(assignedOfficeChoices.value[0]?.id || 0);
+    if (picked > 0) selectedOfficeLocationId.value = picked;
+    return;
+  }
   if (!shouldApplySelfDefaultOffice()) return;
   const assigned = myAssignedOffices.value.length
     ? myAssignedOffices.value
@@ -18651,6 +18709,22 @@ const applySelfDefaultOfficeSelection = async (officeRows) => {
   const picked = pickDefaultOfficeLocationId(officeRows, assigned);
   if (picked > 0) selectedOfficeLocationId.value = picked;
 };
+
+watch(viewMode, async (mode) => {
+  if (mode !== 'office_layout') return;
+  if (isOfficeScopeSpecific.value) return;
+  await applySelfDefaultOfficeSelection(officeLocations.value);
+  if (!isOfficeScopeSpecific.value) {
+    const specific = resolveSpecificOfficeId();
+    if (specific) selectedOfficeLocationId.value = specific;
+  }
+});
+
+watch(hasSingleAssignedOffice, (single) => {
+  if (!single) return;
+  const picked = Number(assignedOfficeChoices.value[0]?.id || 0);
+  if (picked > 0) selectedOfficeLocationId.value = picked;
+});
 
 /** IANA timezone for the selected (or first) office — schedule wall clock source of truth. */
 const bookingTimezoneIana = computed(() => {
@@ -26152,8 +26226,10 @@ defineExpose({ resetToOpenFinder, openQuickBook });
 }
 .sched-command__dates {
   display: flex;
-  flex-direction: column;
-  gap: 1px;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
   min-width: 0;
 }
 .sched-command__range {
@@ -26164,9 +26240,10 @@ defineExpose({ resetToOpenFinder, openQuickBook });
   white-space: nowrap;
 }
 .sched-command__today-label {
-  font-size: 0.72rem;
+  font-size: 0.78rem;
   font-weight: 600;
   color: #6b7280;
+  white-space: nowrap;
 }
 .sched-command__nav {
   display: inline-flex;
@@ -27019,6 +27096,19 @@ defineExpose({ resetToOpenFinder, openQuickBook });
   min-width: 0;
 }
 
+.sched-office-fixed-label {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 0 8px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #14532d;
+  background: #ecfdf5;
+  border: 1px solid #bbf7d0;
+  border-radius: 8px;
+  white-space: nowrap;
+}
 .sched-office-cta-title {
   font-size: 15px;
   font-weight: 800;

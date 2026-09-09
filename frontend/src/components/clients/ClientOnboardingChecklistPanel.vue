@@ -104,6 +104,14 @@
               <div class="ob-task-body">
                 <div class="ob-task-label">{{ item.label }}</div>
                 <div v-if="item.detail" class="ob-task-detail muted">{{ item.detail }}</div>
+                <div v-if="!item.done" class="ob-task-actions">
+                  <button type="button" class="btn btn-primary btn-sm" @click="openAssignDay">
+                    Assign weekday
+                  </button>
+                  <button type="button" class="btn btn-secondary btn-sm" @click="openFallConfirmation">
+                    Confirm returning
+                  </button>
+                </div>
               </div>
             </li>
           </ul>
@@ -235,6 +243,23 @@
         <span v-if="completeMsg" class="ob-action-success">{{ completeMsg }}</span>
       </div>
     </template>
+
+    <AssignDayModal
+      v-if="assignDayClient && assignDayOrgId"
+      :organization-id="assignDayOrgId"
+      :client="assignDayClient"
+      client-label-mode="initials"
+      @close="closeAssignDay"
+      @updated="onAssignDaySaved"
+    />
+    <LifecycleActionModal
+      v-if="fallActionClient"
+      :client="fallActionClient"
+      action-key="fall_confirmation"
+      action-label="Fall confirmation"
+      @close="fallActionClient = null"
+      @saved="onFallActionSaved"
+    />
   </div>
 </template>
 
@@ -245,6 +270,8 @@ import { useAuthStore } from '../../store/auth';
 import ClientOnboardingRoiStaffPanel from './ClientOnboardingRoiStaffPanel.vue';
 import ClientOnboardingStaffSetupPanel from './ClientOnboardingStaffSetupPanel.vue';
 import ClientOnboardingDocumentsPanel from './ClientOnboardingDocumentsPanel.vue';
+import AssignDayModal from '../school/AssignDayModal.vue';
+import LifecycleActionModal from '../school/LifecycleActionModal.vue';
 
 const props = defineProps({
   clientId: { type: [Number, String], required: true },
@@ -257,7 +284,7 @@ const props = defineProps({
   hideProviderSection: { type: Boolean, default: false },
   hideStaffCompleteAction: { type: Boolean, default: false }
 });
-const emit = defineEmits(['close', 'updated']);
+const emit = defineEmits(['close', 'updated', 'assign-day', 'fall-action']);
 
 const authStore = useAuthStore();
 const loading = ref(false);
@@ -265,11 +292,14 @@ const error = ref('');
 const checklist = ref(null);
 const completing = ref(false);
 const completeMsg = ref('');
-const staffOpen = ref(true);
-const roiOpen = ref(true);
-const docsOpen = ref(true);
-const providerOpen = ref(true);
+const staffOpen = ref(false);
+const roiOpen = ref(false);
+const docsOpen = ref(false);
+const providerOpen = ref(false);
 const fallOpen = ref(true);
+const assignDayClient = ref(null);
+const assignDayOrgId = ref(null);
+const fallActionClient = ref(null);
 
 const role = computed(() => String(authStore.user?.role || '').toLowerCase());
 const effectiveCanEditDocs = computed(() => props.canEditDocs && !props.readonly);
@@ -351,6 +381,7 @@ const load = async () => {
   try {
     const r = await api.get(`/clients/${id}/onboarding-checklist`, { skipGlobalLoading: true });
     checklist.value = r.data || null;
+    applySectionDefaults(checklist.value);
   } catch (e) {
     error.value = e.response?.data?.error?.message || 'Failed to load readiness checklist';
     checklist.value = null;
@@ -358,6 +389,67 @@ const load = async () => {
     loading.value = false;
   }
 };
+
+function applySectionDefaults(c) {
+  if (!c) return;
+  if (c.fall_pending) {
+    fallOpen.value = true;
+    staffOpen.value = false;
+    roiOpen.value = false;
+    docsOpen.value = false;
+    providerOpen.value = false;
+    return;
+  }
+  const staffDone = (c.staff_items || []).every((i) => i.done);
+  staffOpen.value = !staffDone;
+  roiOpen.value = !c.roi_staff_item?.done;
+  docsOpen.value = !(c.documents_item?.done);
+  providerOpen.value = true;
+  fallOpen.value = true;
+}
+
+async function openAssignDay() {
+  const id = Number(props.clientId || 0);
+  const orgId = Number(checklist.value?.client?.organization_id || 0);
+  if (!id || !orgId) {
+    emit('assign-day', { clientId: id, client: checklist.value?.client || null, organizationId: orgId });
+    return;
+  }
+  assignDayClient.value = { id, ...(checklist.value?.client || {}) };
+  assignDayOrgId.value = orgId;
+  emit('assign-day', { clientId: id, client: assignDayClient.value, organizationId: orgId });
+}
+
+function closeAssignDay() {
+  assignDayClient.value = null;
+  assignDayOrgId.value = null;
+}
+
+async function onAssignDaySaved() {
+  closeAssignDay();
+  await load();
+  emit('updated', checklist.value);
+}
+
+async function openFallConfirmation() {
+  const id = Number(props.clientId || 0);
+  if (!id) return;
+  try {
+    const { data } = await api.get(`/clients/${id}`, { skipGlobalLoading: true });
+    const client = data?.client || data;
+    if (!client?.id) return;
+    fallActionClient.value = client;
+    emit('fall-action', { clientId: id, client });
+  } catch (e) {
+    error.value = e.response?.data?.error?.message || 'Could not open fall confirmation';
+  }
+}
+
+async function onFallActionSaved() {
+  fallActionClient.value = null;
+  await load();
+  emit('updated', checklist.value);
+}
 
 const onDocsUpdated = (payload) => {
   if (payload?.checklist) {
@@ -483,6 +575,12 @@ watch(() => props.clientId, load, { immediate: true });
 }
 .is-fall-section { border-color: #fdba74; }
 .ob-task-detail { font-size: 12px; margin-top: 2px; }
+.ob-task-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
 
 .ob-progress-ring {
   --pct: 0;

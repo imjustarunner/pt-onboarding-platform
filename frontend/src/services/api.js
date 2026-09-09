@@ -160,7 +160,17 @@ api.interceptors.request.use(
         url.includes('/school-portal/') || url.startsWith('school-portal/');
       const isPublicIntakeApi =
         url.includes('/public-intake/') || url.startsWith('public-intake/');
-      if (!config?.skipGlobalLoading && (isSchoolPortalShellActive.value || isSchoolPortalApi || isPublicIntakeApi)) {
+      const isBackgroundWidgetApi =
+        /\/notifications(\?|$|\/)/.test(url)
+        || /\/kudos\//.test(url)
+        || url.includes('club-employer-share-prompts')
+        || url.includes('dashboard-banner')
+        || url.includes('announcements/banner')
+        || url.includes('/clinical-notes/recent')
+        || /\/agencies\/\d+\/(users|departments)(\?|$)/.test(url)
+        || url.includes('/supervision/providers')
+        || /\/availability\//.test(url);
+      if (!config?.skipGlobalLoading && (isSchoolPortalShellActive.value || isSchoolPortalApi || isPublicIntakeApi || isBackgroundWidgetApi)) {
         config.skipGlobalLoading = true;
       }
       if (!config?.skipGlobalLoading) {

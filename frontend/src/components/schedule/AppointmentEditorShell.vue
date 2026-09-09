@@ -26,6 +26,10 @@
       @update:officeLocationId="emit('update:officeLocationId', $event)"
       @update:preferredRoomId="emit('update:preferredRoomId', $event)"
       @update:tenantServiceId="emit('update:tenantServiceId', $event)"
+      @update:primaryServiceCode="emit('update:primaryServiceCode', $event)"
+      @update:addonServiceCodes="emit('update:addonServiceCodes', $event)"
+      @update:modality="emit('update:modality', $event)"
+      @update:selectedClientIds="emit('update:selectedClientIds', $event)"
       @request-office="emit('request-office')"
       @cancel-office-request="emit('cancel-office-request')"
       @scroll-to-group-clients="emit('scroll-to-group-clients')"
@@ -181,7 +185,21 @@ const props = defineProps({
   serviceOptions: { type: Array, default: () => [] },
   servicesLoading: { type: Boolean, default: false },
   showGroupClientsButton: { type: Boolean, default: false },
-  modalityPosWarning: { type: String, default: '' }
+  modalityPosWarning: { type: String, default: '' },
+  showPrimaryServiceCode: { type: Boolean, default: false },
+  primaryServiceCode: { type: String, default: '' },
+  primaryServiceCodeOptions: { type: Array, default: () => [] },
+  showAddonServiceCodes: { type: Boolean, default: false },
+  addonServiceCodes: { type: Array, default: () => [] },
+  addonServiceCodeOptions: { type: Array, default: () => [] },
+  showModality: { type: Boolean, default: false },
+  modality: { type: String, default: 'TELEHEALTH' },
+  showGroupClients: { type: Boolean, default: false },
+  groupClientOptions: { type: Array, default: () => [] },
+  selectedClientIds: { type: Array, default: () => [] },
+  primaryClientId: { type: Number, default: 0 },
+  groupClientsLoading: { type: Boolean, default: false },
+  forceExpandGroupClients: { type: Boolean, default: false }
 });
 
 const emit = defineEmits([
@@ -198,6 +216,10 @@ const emit = defineEmits([
   'update:officeLocationId',
   'update:preferredRoomId',
   'update:tenantServiceId',
+  'update:primaryServiceCode',
+  'update:addonServiceCodes',
+  'update:modality',
+  'update:selectedClientIds',
   'update:recurrenceFrequency',
   'update:recurrenceEndMode',
   'update:recurrenceOccurrenceCount',
@@ -268,7 +290,21 @@ const headerProps = computed(() => ({
   serviceOptions: props.serviceOptions,
   servicesLoading: props.servicesLoading,
   showGroupClientsButton: props.showGroupClientsButton,
-  modalityPosWarning: props.modalityPosWarning
+  modalityPosWarning: props.modalityPosWarning,
+  showPrimaryServiceCode: props.showPrimaryServiceCode,
+  primaryServiceCode: props.primaryServiceCode,
+  primaryServiceCodeOptions: props.primaryServiceCodeOptions,
+  showAddonServiceCodes: props.showAddonServiceCodes,
+  addonServiceCodes: props.addonServiceCodes,
+  addonServiceCodeOptions: props.addonServiceCodeOptions,
+  showModality: props.showModality,
+  modality: props.modality,
+  showGroupClients: props.showGroupClients,
+  groupClientOptions: props.groupClientOptions,
+  selectedClientIds: props.selectedClientIds,
+  primaryClientId: props.primaryClientId,
+  groupClientsLoading: props.groupClientsLoading,
+  forceExpandGroupClients: props.forceExpandGroupClients
 }));
 </script>
 

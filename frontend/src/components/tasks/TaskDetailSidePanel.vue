@@ -403,9 +403,17 @@ const draftCategories = ref(['general']);
 
 const isActionItem = computed(() => !!props.item?._isActionItem);
 
+function parseTaskMetadata(item) {
+  let meta = item?.metadata;
+  if (typeof meta === 'string') {
+    try { meta = JSON.parse(meta); } catch { meta = {}; }
+  }
+  return meta && typeof meta === 'object' ? meta : {};
+}
+
 const clientLifecycleAction = computed(() => {
-  const meta = props.item?.metadata && typeof props.item.metadata === 'object' ? props.item.metadata : {};
-  const clientId = Number(meta.clientId || 0);
+  const meta = parseTaskMetadata(props.item);
+  const clientId = Number(meta.clientId || meta.client_id || 0);
   if (!clientId) return null;
   const source = String(meta.source || '');
   const actionKey = String(meta.actionKey || '').trim();
@@ -414,7 +422,8 @@ const clientLifecycleAction = computed(() => {
     || source === 'client_lifecycle'
     || !!actionKey
     || /^New client on your caseload/i.test(title)
-    || /^Fall confirmation/i.test(title);
+    || /^Fall confirmation/i.test(title)
+    || /^Assign day/i.test(title);
   if (!isLifecycle) return null;
   const key = actionKey || 'provider_intake';
   const labels = {

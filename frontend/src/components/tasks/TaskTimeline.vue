@@ -129,19 +129,25 @@
     <div v-if="loading" class="task-timeline__state">Loading…</div>
 
     <div v-if="showCreateSheet" class="create-sheet">
-      <h3>New schedule block</h3>
-      <p class="muted">{{ createLabel }}</p>
+      <div class="create-sheet__row">
+        <div>
+          <h3>New schedule block</h3>
+          <p class="muted">{{ createLabel }}</p>
+        </div>
+        <label class="check check--inline">
+          <input v-model="createFocus" type="checkbox" />
+          Focus Session
+        </label>
+      </div>
       <HoldReasonField v-model="createTitle" label="Block reason" />
-      <label class="check">
-        <input v-model="createFocus" type="checkbox" />
-        Enable Focus Session
-      </label>
       <div v-if="openTasks.length" class="assign-pick">
         <span class="assign-pick__label">Assign open tasks (optional)</span>
-        <label v-for="t in openTasks.slice(0, 8)" :key="t.id" class="check">
-          <input v-model="createAssignIds" type="checkbox" :value="t.id" />
-          {{ t.title }}
-        </label>
+        <div class="assign-pick__grid">
+          <label v-for="t in openTasks.slice(0, 8)" :key="t.id" class="check">
+            <input v-model="createAssignIds" type="checkbox" :value="t.id" />
+            {{ t.title }}
+          </label>
+        </div>
       </div>
       <div class="create-sheet__actions">
         <button type="button" class="btn btn-primary btn-sm" :disabled="creating" @click="confirmCreate">
@@ -1247,13 +1253,35 @@ defineExpose({ refresh: fetchBlocks, dayYmd, startBooking: addBlockAtNow, assign
   border-radius: 4px;
 }
 .create-sheet {
-  border-top: 1px solid #e2e8f0;
-  padding: 12px;
-  background: #fafafa;
+  border-top: 1px solid #dcfce7;
+  padding: 14px;
+  background: linear-gradient(180deg, #f0fdf4 0%, #f8fafc 100%);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
 }
 .create-sheet h3 {
-  margin: 0 0 4px;
+  margin: 0 0 2px;
   font-size: 14px;
+  font-weight: 800;
+  color: #14532d;
+}
+.create-sheet__row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+.check--inline {
+  margin: 0;
+  white-space: nowrap;
+  font-weight: 700;
+  color: #166534;
+}
+.assign-pick__grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 4px;
 }
 .muted { color: #64748b; font-size: 12px; margin: 0 0 10px; }
 .field { display: block; margin-bottom: 8px; }

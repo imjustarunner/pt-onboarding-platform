@@ -4653,16 +4653,29 @@ const syncFromQuery = () => {
       activeTab.value = qTab;
       previousContentTab.value = qTab;
       selectedRailCardId.value = qTab;
-    } else if (portalsNestCard.value?.children?.some((c) => String(c.id) === qTab)) {
-      // Nested hub opened via query — expand nest and activate child
-      portalsNestExpanded.value = true;
-      const child = portalsNestCard.value.children.find((c) => String(c.id) === qTab);
-      if (child?.kind === 'content') {
-        activeTab.value = qTab;
-        previousContentTab.value = qTab;
-        selectedRailCardId.value = qTab;
-      } else if (child) {
-        selectedRailCardId.value = qTab;
+    } else {
+      const momentumNest = (railCards.value || []).find((c) => String(c?.id) === 'momentum_nest');
+      const momentumChild = momentumNest?.children?.find((c) => String(c.id) === qTab);
+      if (momentumChild) {
+        momentumNestExpanded.value = true;
+        if (momentumChild.kind === 'content') {
+          activeTab.value = qTab;
+          previousContentTab.value = qTab;
+          selectedRailCardId.value = qTab;
+        } else {
+          selectedRailCardId.value = qTab;
+        }
+      } else if (portalsNestCard.value?.children?.some((c) => String(c.id) === qTab)) {
+        // Nested hub opened via query — expand nest and activate child
+        portalsNestExpanded.value = true;
+        const child = portalsNestCard.value.children.find((c) => String(c.id) === qTab);
+        if (child?.kind === 'content') {
+          activeTab.value = qTab;
+          previousContentTab.value = qTab;
+          selectedRailCardId.value = qTab;
+        } else if (child) {
+          selectedRailCardId.value = qTab;
+        }
       }
     }
   } else if (!qTab) {

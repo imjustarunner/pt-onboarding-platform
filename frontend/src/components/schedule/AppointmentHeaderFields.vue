@@ -5,13 +5,17 @@
         <div class="ahf-when-block">
           <span class="ahf-label">When</span>
           <div class="ahf-when-row">
-            <input
-              class="ahf-input ahf-input--date"
-              type="date"
-              :value="dateYmd"
-              :disabled="disabled"
-              @change="emit('update:dateYmd', String($event.target.value || ''))"
-            />
+            <label class="ahf-date-picker" :class="{ disabled }">
+              <span class="ahf-date-display">{{ formattedDateLabel }}</span>
+              <input
+                class="ahf-input ahf-input--date"
+                type="date"
+                :value="dateYmd"
+                :disabled="disabled"
+                aria-label="Appointment date"
+                @change="emit('update:dateYmd', String($event.target.value || ''))"
+              />
+            </label>
             <div class="ahf-time-group">
               <input
                 class="ahf-input ahf-input--time"
@@ -45,7 +49,7 @@
 
         <div class="ahf-side-fields">
           <div class="ahf-field ahf-field--tenant">
-            <span class="ahf-label">Tenant</span>
+            <span class="ahf-label">Provider · Tenant</span>
             <div class="ahf-tenant-row">
               <img
                 v-if="tenantIconUrl"
@@ -77,10 +81,9 @@
       </div>
 
       <div v-if="showType || showStatus || showLocation || showRoom || showService || showPrimaryServiceCode || showModality || showParticipant || showGroupClientsButton || showGroupClients || showOccurrenceCount || showBookedUntil" class="ahf-details">
-        <div v-if="showType" class="ahf-field">
+        <div v-if="showType && typeOptions.length > 1" class="ahf-field">
           <span class="ahf-label">Type</span>
           <select
-            v-if="typeOptions.length > 1"
             class="ahf-input"
             :value="appointmentType"
             :disabled="disabled || !canEditType"
@@ -90,7 +93,6 @@
               {{ opt.label }}
             </option>
           </select>
-          <span v-else class="ahf-value">{{ singleTypeLabel || appointmentTypeLabel || appointmentType || '—' }}</span>
         </div>
 
         <div v-if="showService" class="ahf-field ahf-field--grow">
@@ -557,6 +559,14 @@ watch(
   }
 );
 
+const formattedDateLabel = computed(() => {
+  const ymd = String(props.dateYmd || '').slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(ymd)) return 'Pick a date';
+  const [y, m, d] = ymd.split('-').map((n) => Number(n));
+  const dt = new Date(y, (m || 1) - 1, d || 1);
+  if (Number.isNaN(dt.getTime())) return ymd;
+  return dt.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
+});
 const singleTypeLabel = computed(() => {
   if ((props.typeOptions || []).length === 1) return props.typeOptions[0].label;
   return '';
@@ -684,25 +694,55 @@ function nudgeEnd(deltaMin) {
   border-bottom: 1px solid #dbe5f0;
   background: #e8f0f8;
 }
-.ahf-when-block {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  flex: 1 1 auto;
-  min-width: 0;
-}
 .ahf-when-row {
   display: flex;
   flex-wrap: nowrap;
   align-items: center;
   gap: 6px 8px;
 }
+.ahf-date-picker {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  min-width: 168px;
+  cursor: pointer;
+}
+.ahf-date-picker.disabled { cursor: not-allowed; opacity: 0.65; }
+.ahf-date-display {
+  display: inline-flex;
+  align-items: center;
+  min-height: 36px;
+  padding: 0 10px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  background: #fff;
+  font-size: 0.86rem;
+  font-weight: 700;
+  color: #0f172a;
+  white-space: nowrap;
+  pointer-events: none;
+}
+.ahf-date-picker .ahf-input--date {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+  width: 100%;
+  height: 100%;
+}
+.ahf-when-block {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1.4 1 280px;
+  min-width: 0;
+}
 .ahf-side-fields {
   display: flex;
-  flex-wrap: nowrap;
-  gap: 10px 14px;
+  flex-wrap: wrap;
+  gap: 8px 12px;
   align-items: flex-end;
-  flex: 0 1 auto;
+  flex: 0.8 1 220px;
   min-width: 0;
 }
 .ahf-tenant-row {

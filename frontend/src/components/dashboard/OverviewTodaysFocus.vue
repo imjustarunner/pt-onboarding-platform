@@ -123,7 +123,7 @@ const props = defineProps({
 defineEmits(['view-momentum', 'add-sticky']);
 
 const authStore = useAuthStore();
-const collapsed = ref(sessionStorage.getItem(COLLAPSED_KEY) === '1');
+const collapsed = ref(sessionStorage.getItem(COLLAPSED_KEY) !== '0');
 const dismissed = ref(sessionStorage.getItem(DISMISSED_KEY) === '1');
 
 const {

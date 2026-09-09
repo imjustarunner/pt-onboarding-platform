@@ -93,13 +93,27 @@
           <button type="button" class="pill active">This block · {{ tasks.length }}</button>
         </div>
         <ul class="task-list">
-          <li v-for="t in tasks" :key="t.id" class="task-item">
-            <input
-              type="checkbox"
-              :checked="t.status === 'completed'"
-              @change="toggleTask(t)"
-            />
-            <span :class="{ done: t.status === 'completed' }">{{ t.title }}</span>
+          <li v-for="t in tasks" :key="t.id" class="task-item" :class="{ open: expandedTaskId === t.id }">
+            <div class="task-item__row">
+              <input
+                type="checkbox"
+                :checked="t.status === 'completed'"
+                @change="toggleTask(t)"
+              />
+              <button type="button" class="task-item__toggle" @click="toggleTaskExpand(t)">
+                <span :class="{ done: t.status === 'completed' }">{{ t.title }}</span>
+                <span class="task-item__chev" aria-hidden="true">{{ expandedTaskId === t.id ? '▾' : '›' }}</span>
+              </button>
+            </div>
+            <div v-if="expandedTaskId === t.id" class="task-item__detail">
+              <p v-if="t._loadingDetail" class="fs-empty">Loading details…</p>
+              <template v-else>
+                <p v-if="t.description" class="task-item__desc">{{ t.description }}</p>
+                <p v-else class="fs-empty">No additional description.</p>
+                <p v-if="t.due_date" class="task-item__meta">Due {{ formatTaskDate(t.due_date) }}</p>
+                <p v-if="t.urgency" class="task-item__meta">Priority: {{ t.urgency }}</p>
+              </template>
+            </div>
           </li>
           <li v-if="tasksError" class="fs-empty fs-empty--error">
             Couldn't load tasks — open the block panel to verify assignments.
@@ -152,11 +166,22 @@ const props = defineProps({
 const emit = defineEmits(['close', 'task-changed']);
 
 const focusMusic = inject('focusMusic', null);
+const FOCUS_QUOTE_FALLBACKS = [
+  { title: 'Discipline', quote_text: 'Discipline is choosing between what you want now and what you want most.', imageUrl: '/focus-quotes/discipline.png' },
+  { title: 'Focus', quote_text: 'Where focus goes, energy flows.', imageUrl: '/focus-quotes/focus.png' },
+  { title: 'Progress', quote_text: 'Small steps every day lead to big results.', imageUrl: '/focus-quotes/progress.png' },
+  { title: 'Clarity', quote_text: 'Clarity comes from engagement, not thought.', imageUrl: '/focus-quotes/clarity.png' },
+  { title: 'Presence', quote_text: 'Be where your feet are.', imageUrl: '/focus-quotes/presence.png' },
+  { title: 'Intention', quote_text: 'Begin with the end in mind.', imageUrl: '/focus-quotes/intention.png' },
+  { title: 'Steady', quote_text: 'Consistency compounds.', imageUrl: '/focus-quotes/steady.png' }
+];
+
 const minimized = ref(false);
-const quote = ref(null);
+const quote = ref(FOCUS_QUOTE_FALLBACKS[0]);
 const intention = ref('');
 const tasks = ref([]);
 const tasksError = ref(false);
+const expandedTaskId = ref(null);
 const nowTick = ref(Date.now());
 let quoteTimer = null;
 let tickTimer = null;
@@ -188,8 +213,8 @@ const timelineHours = computed(() => {
 
 const quoteImageUrl = computed(() => {
   const url = quote.value?.imageUrl;
-  if (!url) return null;
-  if (String(url).startsWith('http')) return url;
+  if (!url) return FOCUS_QUOTE_FALLBACKS[0].imageUrl;
+  if (String(url).startsWith('http') || String(url).startsWith('/focus-quotes/')) return url;
   const base = String(api.defaults?.baseURL || '/api').replace(/\/$/, '');
   const origin = base.replace(/\/api$/, '');
   return String(url).startsWith('/api') ? `${origin}${url}` : `${base}/${String(url).replace(/^\//, '')}`;
@@ -293,14 +318,53 @@ function selectBlock(b) {
 }
 
 async function loadQuote() {
+  const fallback = FOCUS_QUOTE_FALLBACKS[Math.floor(Math.random() * FOCUS_QUOTE_FALLBACKS.length)];
   try {
     const { data } = await api.get('/focus-quotes/random', {
       params: { agencyId: props.agencyId || undefined },
       skipGlobalLoading: true
     });
-    quote.value = data;
+    if (data?.quote_text || data?.imageUrl) {
+      quote.value = {
+        ...fallback,
+        ...data,
+        imageUrl: data.imageUrl || fallback.imageUrl
+      };
+      return;
+    }
   } catch {
-    quote.value = null;
+    /* use fallback art */
+  }
+  quote.value = fallback;
+}
+
+async function toggleTaskExpand(t) {
+  if (expandedTaskId.value === t.id) {
+    expandedTaskId.value = null;
+    return;
+  }
+  expandedTaskId.value = t.id;
+  if (t.description != null || t._type === 'action_item') return;
+  t._loadingDetail = true;
+  try {
+    const { data } = await api.get(`/tasks/${t.id}`, { skipGlobalLoading: true });
+    const row = data?.task || data;
+    t.description = String(row?.description || '').trim();
+    t.due_date = row?.due_date || row?.dueDate || null;
+    t.urgency = row?.urgency || null;
+  } catch {
+    t.description = '';
+  } finally {
+    t._loadingDetail = false;
+  }
+}
+
+function formatTaskDate(v) {
+  if (!v) return '';
+  try {
+    return new Date(v).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+  } catch {
+    return String(v);
   }
 }
 
@@ -344,10 +408,21 @@ async function toggleTask(t) {
   }
 }
 
-function toggleMusic() {
+async function toggleMusic() {
   if (!focusMusic) return;
-  if (focusMusic.playing?.value) focusMusic.pause?.();
-  else focusMusic.startLooping?.();
+  try {
+    if (!focusMusic.tracks?.value?.length) {
+      await focusMusic.fetchCatalog?.();
+    }
+    if (typeof focusMusic.togglePlay === 'function') {
+      await focusMusic.togglePlay();
+      return;
+    }
+    if (focusMusic.playing?.value) focusMusic.pause?.();
+    else await focusMusic.startLooping?.();
+  } catch (e) {
+    console.warn('[FocusSession] play failed:', e);
+  }
 }
 
 function endMusic() {
@@ -369,7 +444,14 @@ onMounted(async () => {
   } catch { /* ignore */ }
   try {
     if (focusMusic && !focusMusic.playing?.value) {
-      await focusMusic.startLooping?.();
+      if (!focusMusic.tracks?.value?.length) {
+        await focusMusic.fetchCatalog?.();
+      }
+      if (typeof focusMusic.togglePlay === 'function') {
+        await focusMusic.togglePlay();
+      } else {
+        await focusMusic.startLooping?.();
+      }
     }
   } catch (e) {
     console.warn('[FocusSession] focus music start failed:', e);
@@ -667,14 +749,43 @@ onUnmounted(() => {
 .task-list { list-style: none; margin: 0; padding: 0; }
 .task-item {
   display: flex;
-  gap: 10px;
-  align-items: flex-start;
+  flex-direction: column;
+  gap: 6px;
   padding: 10px 0;
   border-bottom: 1px solid #f1f5f9;
   font-size: 14px;
   line-height: 1.35;
 }
+.task-item__row {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+}
 .task-item input { margin-top: 3px; accent-color: #16a34a; }
+.task-item__toggle {
+  flex: 1;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  border: 0;
+  background: transparent;
+  padding: 0;
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+  color: inherit;
+}
+.task-item__chev { color: #16a34a; font-weight: 800; }
+.task-item__detail {
+  margin-left: 26px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+}
+.task-item__desc { margin: 0; font-size: 13px; color: #334155; white-space: pre-wrap; }
+.task-item__meta { margin: 6px 0 0; font-size: 12px; color: #64748b; }
 .task-item .done { text-decoration: line-through; color: #94a3b8; }
 .pill {
   border: 1px solid #bbf7d0;
