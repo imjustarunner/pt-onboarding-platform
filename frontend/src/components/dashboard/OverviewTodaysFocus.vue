@@ -6,21 +6,26 @@
           type="button"
           class="todays-focus__head-toggle"
           :aria-expanded="!collapsed"
-          @click="collapsed = !collapsed"
+          @click="toggleCollapsed"
         >
-          <svg
-            class="todays-focus__chevron"
-            :class="{ 'todays-focus__chevron--open': !collapsed }"
-            viewBox="0 0 24 24"
-            width="16"
-            height="16"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2.5"
+          <span
+            class="todays-focus__expand"
+            :class="{ 'todays-focus__expand--pulse': collapsed }"
             aria-hidden="true"
           >
-            <path d="M6 9l6 6 6-6"/>
-          </svg>
+            <svg
+              class="todays-focus__chevron"
+              :class="{ 'todays-focus__chevron--open': !collapsed }"
+              viewBox="0 0 24 24"
+              width="16"
+              height="16"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2.5"
+            >
+              <path d="M6 9l6 6 6-6"/>
+            </svg>
+          </span>
           <div>
             <h3 class="todays-focus__title">
               Today’s Focus
@@ -61,25 +66,25 @@
                 type="button"
                 class="btn btn-primary btn-xs"
                 :disabled="actingKey === item.label"
-                @click="act(item)"
+                @click="onAct(item)"
               >
                 {{ actingKey === item.label ? '…' : 'Done' }}
               </button>
-              <button type="button" class="btn btn-secondary btn-xs" @click="snooze(item.label)">Snooze</button>
+              <button type="button" class="btn btn-secondary btn-xs" @click="onSnooze(item)">Snooze</button>
             </div>
           </li>
         </ul>
         <p v-else class="todays-focus__empty">All clear for now.</p>
 
         <div v-if="moreCount > 0" class="todays-focus__more">
-          <button type="button" class="link-btn" @click="$emit('view-momentum')">
+          <button type="button" class="link-btn" @click="onViewMomentum('more')">
             {{ moreCount }} more item{{ moreCount === 1 ? '' : 's' }} in My Work ↗
           </button>
         </div>
 
         <div class="todays-focus__footer">
-          <button type="button" class="link-btn" @click="$emit('add-sticky')">+ Add Sticky</button>
-          <button type="button" class="btn btn-secondary btn-sm" @click="$emit('view-momentum')">
+          <button type="button" class="link-btn" @click="onAddSticky">+ Add Sticky</button>
+          <button type="button" class="btn btn-secondary btn-sm" @click="onViewMomentum('view_all')">
             View All My Work ↗
           </button>
         </div>
@@ -112,6 +117,7 @@
 import { onMounted, ref, toRef, watch } from 'vue';
 import { useAuthStore } from '../../store/auth';
 import { useMomentumDigestFocus } from '../../composables/useMomentumDigestFocus';
+import api from '../../services/api';
 
 const COLLAPSED_KEY = 'overview_focus_collapsed';
 const DISMISSED_KEY = 'overview_focus_dismissed';
@@ -120,7 +126,7 @@ const props = defineProps({
   agencyId: { type: [Number, String], default: null }
 });
 
-defineEmits(['view-momentum', 'add-sticky']);
+const emit = defineEmits(['view-momentum', 'add-sticky']);
 
 const authStore = useAuthStore();
 const collapsed = ref(sessionStorage.getItem(COLLAPSED_KEY) !== '0');
@@ -142,7 +148,31 @@ const {
   agencyId: toRef(props, 'agencyId')
 });
 
+function trackFocusClick(action, extra = {}) {
+  api.post(
+    '/auth/activity-log',
+    {
+      actionType: 'todays_focus_click',
+      agencyId: Number(props.agencyId || 0) || undefined,
+      metadata: {
+        action,
+        itemCount: visibleItems.value.length,
+        collapsed: collapsed.value,
+        ...extra
+      }
+    },
+    { skipGlobalLoading: true }
+  ).catch(() => {});
+}
+
+function toggleCollapsed() {
+  const next = !collapsed.value;
+  collapsed.value = next;
+  trackFocusClick(next ? 'collapse' : 'expand');
+}
+
 function dismiss() {
+  trackFocusClick('dismiss');
   dismissed.value = true;
   sessionStorage.setItem(DISMISSED_KEY, '1');
 }
@@ -150,6 +180,27 @@ function dismiss() {
 function restore() {
   dismissed.value = false;
   sessionStorage.removeItem(DISMISSED_KEY);
+  trackFocusClick('restore');
+}
+
+function onAct(item) {
+  trackFocusClick('done', { label: item?.label, source: item?.source || null });
+  act(item);
+}
+
+function onSnooze(item) {
+  trackFocusClick('snooze', { label: item?.label, source: item?.source || null });
+  snooze(item.label);
+}
+
+function onViewMomentum(from) {
+  trackFocusClick('view_all_my_work', { from });
+  emit('view-momentum');
+}
+
+function onAddSticky() {
+  trackFocusClick('add_sticky');
+  emit('add-sticky');
 }
 
 watch(collapsed, (val) => {
@@ -194,14 +245,46 @@ watch(() => props.agencyId, fetch);
   flex: 1;
   min-width: 0;
 }
-.todays-focus__chevron {
+.todays-focus__expand {
   flex-shrink: 0;
-  margin-top: 3px;
-  color: rgba(0, 0, 0, 0.45);
+  margin-top: 1px;
+  width: 26px;
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.55);
+  color: #166534;
+}
+.todays-focus__expand--pulse {
+  animation: todays-focus-expand-pulse 1.6s ease-in-out infinite;
+}
+.todays-focus__chevron {
+  color: currentColor;
   transition: transform 0.15s ease;
 }
 .todays-focus__chevron--open {
   transform: rotate(180deg);
+}
+@keyframes todays-focus-expand-pulse {
+  0% {
+    transform: scale(1);
+    box-shadow: 0 0 0 0 rgba(22, 101, 52, 0.45);
+  }
+  70% {
+    transform: scale(1.08);
+    box-shadow: 0 0 0 8px rgba(22, 101, 52, 0);
+  }
+  100% {
+    transform: scale(1);
+    box-shadow: 0 0 0 0 rgba(22, 101, 52, 0);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .todays-focus__expand--pulse {
+    animation: none;
+  }
 }
 .todays-focus__head-actions {
   display: flex;
@@ -336,11 +419,29 @@ watch(() => props.agencyId, fetch);
   background: linear-gradient(135deg, #3f3a1a 0%, #2a2614 50%, #1f1c12 100%);
   border-color: rgba(253, 230, 138, 0.22);
 }
-:global([data-theme="dark"]) .todays-focus__chevron,
-:global([data-theme="dark"]) .todays-focus__icon-btn {
-  color: #fde68a;
+:global([data-theme="dark"]) .todays-focus__expand {
+  background: rgba(0, 0, 0, 0.35);
+  color: #86efac;
+}
+:global([data-theme="dark"]) .todays-focus__expand--pulse {
+  animation-name: todays-focus-expand-pulse-dark;
+}
+@keyframes todays-focus-expand-pulse-dark {
+  0% {
+    transform: scale(1);
+    box-shadow: 0 0 0 0 rgba(134, 239, 172, 0.45);
+  }
+  70% {
+    transform: scale(1.08);
+    box-shadow: 0 0 0 8px rgba(134, 239, 172, 0);
+  }
+  100% {
+    transform: scale(1);
+    box-shadow: 0 0 0 0 rgba(134, 239, 172, 0);
+  }
 }
 :global([data-theme="dark"]) .todays-focus__icon-btn {
+  color: #fde68a;
   background: rgba(0, 0, 0, 0.28);
 }
 :global([data-theme="dark"]) .todays-focus__icon-btn:hover {
