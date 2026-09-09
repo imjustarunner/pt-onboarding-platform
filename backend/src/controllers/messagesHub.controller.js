@@ -371,7 +371,7 @@ export const getMessagesHubAliases = async (req, res, next) => {
 
 /**
  * GET /api/messages/hub/send-agencies
- * Tenants the current user may send Hub email as (memberships, or all for super_admin).
+ * Tenant agencies the current user may send Hub email as (not schools/programs).
  */
 export const getMessagesHubSendAgencies = async (req, res, next) => {
   try {

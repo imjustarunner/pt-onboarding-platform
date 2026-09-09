@@ -29,6 +29,59 @@ function likeParam(q) {
   return `%${String(q || '').trim().replace(/[%_]/g, '')}%`;
 }
 
+/** Full tenants only — never schools, programs, Hogwarts houses, or other nested orgs. */
+const HUB_SEND_AGENCY_TYPES = new Set(['agency', 'life_coach', 'consultant']);
+
+export function isHubSendAgencyType(organizationType) {
+  const t = String(organizationType || '').trim().toLowerCase();
+  return !t || HUB_SEND_AGENCY_TYPES.has(t);
+}
+
+function mapHubSendAgency(a) {
+  return {
+    id: Number(a.id),
+    name: a.name || a.official_name || `Agency ${a.id}`,
+    portalUrl: a.portal_url || a.portalUrl || null,
+    customDomain: a.custom_domain || a.customDomain || null
+  };
+}
+
+/** Conversations this user actually sent or received — not the shared mailbox dump. */
+const HUB_EMAIL_ACTOR_SCOPE_SQL = `(
+  c.owner_user_id = ?
+  OR m.author_user_id = ?
+  OR EXISTS (
+    SELECT 1 FROM communication_inboxes pi
+    WHERE pi.id = c.inbox_id
+      AND pi.kind = 'personal'
+      AND pi.owner_user_id = ?
+  )
+)`;
+
+const HUB_EMAIL_CONV_ACTOR_SCOPE_SQL = `(
+  c.owner_user_id = ?
+  OR EXISTS (
+    SELECT 1 FROM communication_inboxes pi
+    WHERE pi.id = c.inbox_id
+      AND pi.kind = 'personal'
+      AND pi.owner_user_id = ?
+  )
+)`;
+
+function compactEmailPreview(text, max = 400) {
+  const raw = String(text || '').replace(/<[^>]+>/g, ' ');
+  const lines = raw
+    .split(/\n/)
+    .map((l) => l.trim())
+    .filter(Boolean);
+  const short = lines.filter((l) => l.split(/\s+/).length <= 2).length;
+  const collapsed =
+    lines.length > 8 && lines.length && short / lines.length > 0.5
+      ? raw.replace(/\s+/g, ' ')
+      : raw.replace(/[ \t]+/g, ' ').replace(/\n{3,}/g, '\n\n');
+  return collapsed.trim().slice(0, max);
+}
+
 function normalizeSearchText(s) {
   return String(s || '')
     .toLowerCase()
@@ -1081,7 +1134,7 @@ export async function browseHubPeople({
            AND m.direction = 'outbound'
            AND m.author_user_id = ?
            AND COALESCE(m.is_internal_note, 0) = 0
-           AND COALESCE(m.send_status, 'sent') IN ('sent', 'scheduled')
+           AND COALESCE(m.send_status, 'sent') IN ('sent', 'scheduled', 'failed')
            AND COALESCE(p.email, '') <> ''
          GROUP BY c.agency_id, LOWER(COALESCE(p.email, '')), COALESCE(p.display_name, p.email)
          ORDER BY last_at DESC
@@ -2151,7 +2204,6 @@ async function loadHubEmailHistoryForPerson({
               u.first_name AS author_first_name, u.last_name AS author_last_name
        FROM communication_messages m
        JOIN communication_conversations c ON c.id = m.conversation_id
-       LEFT JOIN communication_inboxes i ON i.id = c.inbox_id
        LEFT JOIN users u ON u.id = m.author_user_id
        WHERE c.agency_id = ?
          AND c.channel = 'email'
@@ -2160,16 +2212,12 @@ async function loadHubEmailHistoryForPerson({
            WHERE p.conversation_id = c.id
              AND LOWER(COALESCE(p.email, '')) = ?
          )
-         AND (
-           c.owner_user_id = ?
-           OR i.identity_key IN ('messages', 'secure_message')
-           OR i.kind = 'shared'
-         )
+         AND ${HUB_EMAIL_ACTOR_SCOPE_SQL}
          AND COALESCE(m.is_internal_note, 0) = 0
          AND COALESCE(m.send_status, 'sent') = 'sent'
        ORDER BY COALESCE(m.sent_at, m.created_at) DESC, m.id DESC
        LIMIT 80`,
-      [agencyId, normalized, actorUserId]
+      [agencyId, normalized, actorUserId, actorUserId, actorUserId]
     );
 
     const parseFrom = (raw) => {
@@ -2226,7 +2274,8 @@ async function findHubEmailConversationForSubject({
   inboxId,
   email,
   subject,
-  explicitConversationId = null
+  explicitConversationId = null,
+  actorUserId = null
 } = {}) {
   const cid = Number(explicitConversationId || 0);
   if (cid > 0) return cid;
@@ -2235,6 +2284,8 @@ async function findHubEmailConversationForSubject({
     .toLowerCase();
   const subjectKey = normalizeHubEmailSubjectKey(subject);
   if (!normalized || !subjectKey || subjectKey === '(no subject)' || !inboxId) return null;
+  const uid = Number(actorUserId || 0);
+  if (!uid) return null;
   try {
     const [rows] = await pool.execute(
       `SELECT c.id, c.subject
@@ -2247,9 +2298,10 @@ async function findHubEmailConversationForSubject({
            WHERE p.conversation_id = c.id
              AND LOWER(COALESCE(p.email, '')) = ?
          )
+         AND ${HUB_EMAIL_CONV_ACTOR_SCOPE_SQL}
        ORDER BY COALESCE(c.last_message_at, c.updated_at, c.created_at) DESC, c.id DESC
        LIMIT 40`,
-      [agencyId, inboxId, normalized]
+      [agencyId, inboxId, normalized, uid, uid]
     );
     const match = (rows || []).find(
       (r) => normalizeHubEmailSubjectKey(r.subject) === subjectKey
@@ -2264,8 +2316,10 @@ async function findHubEmailConversationForSubject({
 async function loadEmailTimeline({ agencyId, actorUserId, email, limit = 40 }) {
   if (!email) return [];
   const normalized = String(email).trim().toLowerCase();
+  const uid = Number(actorUserId || 0);
+  if (!uid) return [];
   try {
-    // Hub sends via shared messages@ inbox (not personal App inbox). Include both.
+    // Only this user's own mail to/from this address — never the shared mailbox dump.
     const [rows] = await pool.execute(
       `SELECT m.id AS message_id, m.conversation_id, m.direction, m.body_text, m.subject,
               m.sent_at, m.created_at, m.send_status, m.scheduled_send_at, m.undo_expires_at,
@@ -2293,27 +2347,22 @@ async function loadEmailTimeline({ agencyId, actorUserId, email, limit = 40 }) {
        FROM communication_messages m
        JOIN communication_conversations c ON c.id = m.conversation_id
        LEFT JOIN communication_inboxes i ON i.id = c.inbox_id
-       WHERE c.agency_id = ?
-         AND c.channel = 'email'
+       WHERE c.channel = 'email'
          AND EXISTS (
            SELECT 1 FROM communication_participants p
            WHERE p.conversation_id = c.id
              AND LOWER(COALESCE(p.email, '')) = ?
          )
-         AND (
-           c.owner_user_id = ?
-           OR i.identity_key IN ('messages', 'secure_message')
-           OR i.kind = 'shared'
-         )
+         AND ${HUB_EMAIL_ACTOR_SCOPE_SQL}
          AND COALESCE(m.is_internal_note, 0) = 0
          AND COALESCE(m.send_status, 'sent') <> 'cancelled'
        ORDER BY COALESCE(m.sent_at, m.scheduled_send_at, m.created_at) DESC, m.id DESC
        LIMIT ${Math.min(limit, 80)}`,
-      [agencyId, normalized, actorUserId]
+      [normalized, uid, uid, uid]
     );
     return (rows || []).map((r) => {
       const dir = String(r.direction || '').toLowerCase() === 'inbound' ? 'inbound' : 'outbound';
-      const preview = String(r.body_text || r.subject || r.conv_subject || '').slice(0, 400);
+      const preview = compactEmailPreview(r.body_text || r.subject || r.conv_subject || '', 400);
       const sendStatus = String(r.send_status || 'sent').toLowerCase();
       return {
         id: `email-msg-${r.message_id}`,
@@ -2403,13 +2452,12 @@ export async function markHubPersonRead({ agencyId, userId, person } = {}) {
     try {
       const CommunicationConversation = (await import('../models/CommunicationConversation.model.js'))
         .default;
-      const params = [addr, uid];
+      const params = [addr, uid, uid];
       const agencyClause = aid ? 'AND c.agency_id = ?' : '';
       if (aid) params.push(aid);
       const [convs] = await pool.execute(
         `SELECT DISTINCT c.id
          FROM communication_conversations c
-         LEFT JOIN communication_inboxes i ON i.id = c.inbox_id
          WHERE c.channel = 'email'
            AND c.archived_at IS NULL
            AND EXISTS (
@@ -2417,11 +2465,7 @@ export async function markHubPersonRead({ agencyId, userId, person } = {}) {
              WHERE p.conversation_id = c.id
                AND LOWER(COALESCE(p.email, '')) = ?
            )
-           AND (
-             c.owner_user_id = ?
-             OR i.identity_key IN ('messages', 'secure_message')
-             OR i.kind IN ('personal', 'shared')
-           )
+           AND ${HUB_EMAIL_CONV_ACTOR_SCOPE_SQL}
            ${agencyClause}`,
         params
       );
@@ -2501,13 +2545,12 @@ export async function markHubPersonUnread({ agencyId, userId, person } = {}) {
     try {
       const CommunicationConversation = (await import('../models/CommunicationConversation.model.js'))
         .default;
-      const params = [addr, uid];
+      const params = [addr, uid, uid];
       const agencyClause = aid ? 'AND c.agency_id = ?' : '';
       if (aid) params.push(aid);
       const [convs] = await pool.execute(
         `SELECT DISTINCT c.id
          FROM communication_conversations c
-         LEFT JOIN communication_inboxes i ON i.id = c.inbox_id
          WHERE c.channel = 'email'
            AND c.archived_at IS NULL
            AND EXISTS (
@@ -2515,11 +2558,7 @@ export async function markHubPersonUnread({ agencyId, userId, person } = {}) {
              WHERE p.conversation_id = c.id
                AND LOWER(COALESCE(p.email, '')) = ?
            )
-           AND (
-             c.owner_user_id = ?
-             OR i.identity_key IN ('messages', 'secure_message')
-             OR i.kind IN ('personal', 'shared')
-           )
+           AND ${HUB_EMAIL_CONV_ACTOR_SCOPE_SQL}
            ${agencyClause}`,
         params
       );
@@ -2616,27 +2655,28 @@ export async function getHubPersonFiles({ agencyId, userId, personKey, limit = 2
   if (!person) return { person: null, files: [] };
   const lim = Math.min(Math.max(Number(limit) || 20, 1), 50);
   const files = [];
-  const aid = person.agencyId || agencyId;
 
   // Pull attachments from communication_attachments for this person's email threads
   if (person.email) {
     try {
       const email = String(person.email).trim().toLowerCase();
-      const [rows] = await pool.execute(
+      const uid = Number(userId || 0);
+      if (uid) {
+        const [rows] = await pool.execute(
         `SELECT a.id, a.filename, a.storage_url, a.content_type, a.created_at, m.id AS message_id, m.subject
          FROM communication_attachments a
          JOIN communication_messages m ON m.id = a.message_id
          JOIN communication_conversations c ON c.id = m.conversation_id
-         WHERE c.agency_id = ?
-           AND c.channel = 'email'
+         WHERE c.channel = 'email'
            AND EXISTS (
              SELECT 1 FROM communication_participants p
              WHERE p.conversation_id = c.id
                AND LOWER(COALESCE(p.email, '')) = ?
            )
+           AND ${HUB_EMAIL_ACTOR_SCOPE_SQL}
          ORDER BY COALESCE(a.created_at, m.created_at) DESC, a.id DESC
          LIMIT 40`,
-        [aid, email]
+        [email, uid, uid, uid]
       );
       for (const r of rows || []) {
         files.push({
@@ -2647,6 +2687,7 @@ export async function getHubPersonFiles({ agencyId, userId, personKey, limit = 2
           createdAt: r.created_at,
           subject: r.subject || null
         });
+      }
       }
     } catch (e) {
       console.warn('[getHubPersonFiles] attachments:', e?.message || e);
@@ -2895,7 +2936,8 @@ export async function sendHubEmail({
     inboxId: inbox.id,
     email: person.email,
     subject: effectiveSubject,
-    explicitConversationId: conversationId
+    explicitConversationId: conversationId,
+    actorUserId: userId
   });
 
   let history = [];
@@ -3185,36 +3227,33 @@ export async function listHubMessageAliases({ agencyId, userId = null }) {
 
 /**
  * Agencies the sender may choose as "Send as / From tenant" in Hub compose.
- * Super-admins: all active agencies. Everyone else: memberships (user_agencies + inheritance).
+ * Tenant agencies only (not schools, programs, or other nested orgs).
+ * Super-admins: all active tenant agencies. Everyone else: memberships.
  */
 export async function listHubSendAgencies({ userId, role = null } = {}) {
   const uid = Number(userId || 0);
   if (!uid) return [];
   const roleNorm = String(role || '').toLowerCase();
+  const tenantTypeSql = `(
+    organization_type IS NULL
+    OR TRIM(organization_type) = ''
+    OR LOWER(organization_type) IN ('agency', 'life_coach', 'consultant')
+  )`;
   try {
     if (roleNorm === 'super_admin') {
       const [rows] = await pool.execute(
         `SELECT id, name, official_name, portal_url, custom_domain, logo_url, logo_path
          FROM agencies
          WHERE COALESCE(is_active, 1) = 1
+           AND ${tenantTypeSql}
          ORDER BY name ASC
          LIMIT 500`
       );
-      return (rows || []).map((a) => ({
-        id: Number(a.id),
-        name: a.name || a.official_name || `Agency ${a.id}`,
-        portalUrl: a.portal_url || null,
-        customDomain: a.custom_domain || null
-      }));
+      return (rows || []).map(mapHubSendAgency);
     }
     const User = (await import('../models/User.model.js')).default;
     const agencies = await User.getAgencies(uid);
-    return (agencies || []).map((a) => ({
-      id: Number(a.id),
-      name: a.name || a.official_name || `Agency ${a.id}`,
-      portalUrl: a.portal_url || a.portalUrl || null,
-      customDomain: a.custom_domain || a.customDomain || null
-    }));
+    return (agencies || []).filter((a) => isHubSendAgencyType(a.organization_type || a.organizationType)).map(mapHubSendAgency);
   } catch (e) {
     console.warn('[listHubSendAgencies]', e?.message || e);
     return [];

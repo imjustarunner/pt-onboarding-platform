@@ -170,7 +170,7 @@
 
           <ul v-else-if="personFocus && isSubjectChannel" class="msg-hub-list">
             <li
-              class="msg-hub-row"
+              class="msg-hub-row msg-hub-row--compact"
               :class="{ active: !activePersonThreadKey }"
               @click="startNewSubjectCompose"
             >
@@ -184,7 +184,7 @@
             <li
               v-for="thread in filteredPersonThreads"
               :key="thread.key"
-              class="msg-hub-row"
+              class="msg-hub-row msg-hub-row--compact"
               :class="{ active: activePersonThreadKey === thread.key }"
               @click="openPersonSubjectThread(thread)"
             >
@@ -193,7 +193,7 @@
                   <strong>{{ thread.subject }}</strong>
                   <span class="msg-hub-time">{{ formatTime(thread.messages[thread.messages.length - 1]?.createdAt) }}</span>
                 </div>
-                <p class="msg-hub-snippet">{{ thread.messages[thread.messages.length - 1]?.bodyPreview || '' }}</p>
+                <p class="msg-hub-snippet">{{ personThreadSnippet(thread) }}</p>
               </div>
               <span class="msg-hub-kind" :class="'kind-' + sendMethod">{{ thread.messages.length }}</span>
             </li>
@@ -479,9 +479,7 @@
                   >
                     <span class="msg-hub-email-thread-sub">{{ thread.subject }}</span>
                     <span class="msg-hub-email-thread-meta">
-                      <span class="msg-hub-email-thread-preview">{{
-                        thread.messages[thread.messages.length - 1]?.bodyPreview || ''
-                      }}</span>
+                      <span class="msg-hub-email-thread-preview">{{ personThreadSnippet(thread) }}</span>
                       <span class="msg-hub-email-thread-count">{{ thread.messages.length }}</span>
                       <time>{{ formatTime(thread.messages[thread.messages.length - 1]?.createdAt) }}</time>
                     </span>
@@ -1483,6 +1481,7 @@ import api from '../../services/api';
 import { useAgencyStore } from '../../store/agency';
 import { useAuthStore } from '../../store/auth';
 import { toUploadsUrl } from '../../utils/uploadsUrl';
+import { isTenantOrganizationType } from '../../utils/organizationTypes';
 import StartConversationModal from './StartConversationModal.vue';
 import ResolveUnknownSenderModal from './ResolveUnknownSenderModal.vue';
 import HubEmailBodyEditor from './HubEmailBodyEditor.vue';
@@ -2326,6 +2325,18 @@ function normalizeEmailSubjectKey(subject) {
   return s || '(no subject)';
 }
 
+function personThreadSnippet(thread) {
+  const last = thread?.messages?.[thread.messages.length - 1];
+  if (!last) return '';
+  const dir = String(last.direction || '').toLowerCase() === 'outbound' ? 'You' : 'Them';
+  const text = String(last.bodyPreview || '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!text) return dir;
+  const clip = text.length > 88 ? `${text.slice(0, 88)}…` : text;
+  return `${dir}: ${clip}`;
+}
+
 const emailSubjectThreads = computed(() => {
   const map = new Map();
   for (const msg of timeline.value || []) {
@@ -2426,6 +2437,7 @@ function startNewSubjectCompose() {
   forwardToEmails.value = '';
   composeSubject.value = '';
   composeBody.value = '';
+  mobileShowThread.value = true;
 }
 
 function openPersonSubjectThread(thread) {
@@ -2437,6 +2449,7 @@ function openEmailSubjectThread(thread) {
   activeEmailThreadKey.value = thread.key;
   emailComposeMode.value = 'reply';
   forwardToEmails.value = '';
+  mobileShowThread.value = true;
   const sub = String(thread.subject || '').trim();
   if (sub && sub !== '(No subject)') {
     const bare = sub.replace(/^(re|fw|fwd)\s*:\s*/gi, '').trim();
@@ -3301,15 +3314,17 @@ function scrollTimelineToBottom({ smooth = false } = {}) {
 function selectMethod(id) {
   sendMethod.value = id;
   if (id === 'email' || id === 'secure') {
-    const threads = id === 'secure' ? secureSubjectThreads.value : emailSubjectThreads.value;
-    activeEmailThreadKey.value = threads[0]?.key || null;
-    if (threads[0]?.subject && threads[0].subject !== '(No subject)') {
-      const bare = String(threads[0].subject || '').replace(/^(re|fw|fwd)\s*:\s*/gi, '').trim();
-      composeSubject.value = bare.startsWith('Re:') ? bare : `Re: ${bare}`;
-      emailComposeMode.value = 'reply';
-    } else {
-      composeSubject.value = '';
-      emailComposeMode.value = 'new';
+    if (!personFocus.value) {
+      const threads = id === 'secure' ? secureSubjectThreads.value : emailSubjectThreads.value;
+      activeEmailThreadKey.value = threads[0]?.key || null;
+      if (threads[0]?.subject && threads[0].subject !== '(No subject)') {
+        const bare = String(threads[0].subject || '').replace(/^(re|fw|fwd)\s*:\s*/gi, '').trim();
+        composeSubject.value = bare.startsWith('Re:') ? bare : `Re: ${bare}`;
+        emailComposeMode.value = 'reply';
+      } else {
+        composeSubject.value = '';
+        emailComposeMode.value = 'new';
+      }
     }
     if (id === 'email') {
       const aid = composeAgencyId.value || selected.value?.agencyId || agencyId.value;
@@ -3949,7 +3964,7 @@ async function pickPerson(person, opts = {}) {
   selected.value = person;
   selectedConversation.value = fromConversation || null;
   conversationPreview.value = null;
-  mobileShowThread.value = true;
+  activeEmailThreadKey.value = null;
   const kinds = person.kinds || [];
   const isClientish = kinds.includes('client') || kinds.includes('guardian');
   const available = (person.methods || []).find((m) => m.available);
@@ -3959,6 +3974,7 @@ async function pickPerson(person, opts = {}) {
       ? (person.methods || []).find((m) => m.available && (m.id === 'secure' || m.id === 'email'))?.id
       : available?.id) ||
     (isClientish ? 'secure' : 'internal');
+  mobileShowThread.value = !['email', 'secure'].includes(String(sendMethod.value || ''));
   suppressDraftAutosave = true;
   composeBody.value = '';
   composeSubject.value = '';
@@ -3966,7 +3982,7 @@ async function pickPerson(person, opts = {}) {
   composeBcc.value = '';
   composeAttachments.value = [];
   chatStagedAttachments.value = [];
-  emailComposeMode.value = 'reply';
+  emailComposeMode.value = ['email', 'secure'].includes(String(sendMethod.value)) ? 'new' : 'reply';
   forwardToEmails.value = '';
   chatThreadId.value = null;
   emojiPickerOpen.value = false;
@@ -4104,16 +4120,7 @@ async function loadTimeline(personKey, { quiet = false } = {}) {
       }
     }
     await nextTick();
-    if (
-      (String(sendMethod.value) === 'email' || String(sendMethod.value) === 'secure') &&
-      !activeEmailThreadKey.value
-    ) {
-      const threads =
-        String(sendMethod.value) === 'secure' ? secureSubjectThreads.value : emailSubjectThreads.value;
-      if (threads.length >= 1) {
-        activeEmailThreadKey.value = threads[0].key;
-      }
-    }
+    // Person-focus email/secure: stay on the summary list until they click a thread.
   } catch (e) {
     timeline.value = [];
     error.value = e?.response?.data?.error?.message || 'Could not load timeline';
@@ -4129,7 +4136,7 @@ async function loadSendAgencies() {
     const { data } = await api.get('/messages/hub/send-agencies', { skipGlobalLoading: true });
     sendAgencies.value = Array.isArray(data?.agencies) ? data.agencies : [];
   } catch {
-    // Fallback to store memberships / catalog
+    // Fallback to store memberships / catalog — tenant agencies only.
     const role = String(authStore.user?.role || '').toLowerCase();
     const list =
       role === 'super_admin'
@@ -4137,14 +4144,21 @@ async function loadSendAgencies() {
         : agencyStore.userAgencies?.length
           ? agencyStore.userAgencies
           : agencyStore.agencies || [];
-    sendAgencies.value = (list || []).map((a) => ({
-      id: Number(a.id),
-      name: a.name || a.official_name || `Agency ${a.id}`
-    }));
+    sendAgencies.value = (list || [])
+      .filter((a) => isTenantOrganizationType(a))
+      .map((a) => ({
+        id: Number(a.id),
+        name: a.name || a.official_name || `Agency ${a.id}`
+      }));
   }
-  if (!composeAgencyId.value && sendAgencies.value.length) {
-    const preferred = selected.value?.agencyId || agencyId.value || sendAgencies.value[0].id;
-    composeAgencyId.value = Number(preferred);
+  const ids = new Set((sendAgencies.value || []).map((a) => Number(a.id)));
+  const preferred = Number(selected.value?.agencyId || agencyId.value || sendAgencies.value[0]?.id || 0);
+  if (!composeAgencyId.value || !ids.has(Number(composeAgencyId.value))) {
+    composeAgencyId.value = ids.has(preferred)
+      ? preferred
+      : sendAgencies.value[0]?.id
+        ? Number(sendAgencies.value[0].id)
+        : null;
   }
 }
 
@@ -4667,6 +4681,7 @@ defineExpose({
   border: 1px solid var(--mh-line);
   border-radius: 14px;
   min-height: 0;
+  min-width: 0;
   height: 100%;
   display: flex;
   flex-direction: column;
@@ -4721,6 +4736,13 @@ defineExpose({
   cursor: pointer;
   border-top: 1px solid #f1f5f9;
   align-items: center;
+}
+.msg-hub-row--compact {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+}
+.msg-hub-row-body {
+  min-width: 0;
 }
 .msg-hub-row:hover,
 .msg-hub-row.active { background: color-mix(in srgb, var(--mh-primary) 6%, #fff); }
@@ -4829,7 +4851,7 @@ defineExpose({
 .msg-hub-time,
 .msg-hub-muted,
 .msg-hub-snippet { margin: 0; font-size: 12px; color: var(--mh-muted); }
-.msg-hub-snippet { margin-top: 4px; color: #475569; }
+.msg-hub-snippet { margin-top: 4px; color: #475569; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .msg-hub-agency {
   font-weight: 700;
   color: var(--mh-muted);
@@ -5311,9 +5333,12 @@ defineExpose({
 .msg-hub-bubble-body {
   margin: 2px 0 0;
   white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
   font-size: 14px;
   line-height: 1.4;
   font-weight: 500;
+  min-width: 0;
 }
 .msg-hub-bubble p { margin: 4px 0; white-space: pre-wrap; font-size: 14px; }
 .msg-hub-bubble time { font-size: 11px; color: var(--mh-muted); }
@@ -5974,6 +5999,9 @@ defineExpose({
   .msg-hub-grid { grid-template-columns: minmax(260px, 340px) minmax(0, 1fr); }
   .msg-hub-grid.list-collapsed { grid-template-columns: 52px minmax(0, 1fr); }
   .msg-hub-context { display: none; }
+  .msg-hub.person-focus .msg-hub-grid {
+    grid-template-columns: minmax(240px, 300px) minmax(0, 1fr);
+  }
 }
 @media (max-width: 800px) {
   .msg-hub:not(.msg-hub--drawer) .msg-hub-rail-toggle { display: inline-flex; }
@@ -5996,6 +6024,7 @@ defineExpose({
     z-index: 4;
   }
   .msg-hub-grid { grid-template-columns: 1fr; }
+  .msg-hub.person-focus .msg-hub-grid { grid-template-columns: 1fr; }
   .msg-hub-list-col { display: flex; }
   .msg-hub-thread-col { display: none; }
   .msg-hub--mobile-thread .msg-hub-list-col { display: none; }
@@ -6041,8 +6070,10 @@ defineExpose({
 .msg-hub.person-focus .msg-hub-body {
   gap: 8px;
 }
-.msg-hub.person-focus .msg-hub-grid {
-  grid-template-columns: minmax(220px, 280px) minmax(0, 1fr) minmax(180px, 220px);
+@media (min-width: 1101px) {
+  .msg-hub.person-focus .msg-hub-grid {
+    grid-template-columns: minmax(240px, 300px) minmax(0, 1fr) minmax(180px, 220px);
+  }
 }
 .msg-hub.person-focus.chat-like .msg-hub-grid {
   grid-template-columns: minmax(0, 1fr) minmax(180px, 220px);

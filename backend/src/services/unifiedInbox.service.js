@@ -16,6 +16,20 @@ import { sendClinicalSms, parseSmsConversationTarget } from './clinicalSmsSend.s
 const UNDO_WINDOW_MS = 20 * 1000;
 const MAX_UNDO_DELAY_MS = 10 * 60 * 1000;
 
+function assertOutboundEmailDelivered(sendResult) {
+  if (!sendResult?.blocked && !sendResult?.skipped) return sendResult;
+  const reason = String(sendResult.reason || '');
+  const err = new Error(
+    reason === 'missing_sender_alias_blocked'
+      ? 'Email was not sent. This tenant needs a real From alias (sending as ai@plottwistco.com is blocked).'
+      : reason.includes('opt')
+        ? 'Email was not sent. This recipient has opted out of email.'
+        : 'Email was not sent.'
+  );
+  err.status = 400;
+  throw err;
+}
+
 function dedupeAddressList(list, exclude = null) {
   const seen = exclude instanceof Set ? new Set(exclude) : new Set();
   const out = [];
@@ -503,7 +517,8 @@ async function deliverOutboundEmail({
   attachments,
   inReplyTo
 }) {
-  return sendEmailFromIdentity({
+  return assertOutboundEmailDelivered(
+    await sendEmailFromIdentity({
     senderIdentityId,
     to: to.map((t) => t.email).join(', '),
     cc: cc.length ? cc.map((c) => c.email).join(', ') : null,
@@ -520,7 +535,8 @@ async function deliverOutboundEmail({
     userId: null,
     clientId: null,
     templateType: 'hub_email'
-  });
+  })
+  );
 }
 
 export async function undoOutboundMessage(conversationId, messageId, { userId } = {}) {
@@ -886,6 +902,7 @@ export async function composeNewEmail({ agencyId, inboxId, userId, payload }) {
     clientId: payload.clientId || null,
     templateType: payload.templateType || 'hub_email'
   });
+  assertOutboundEmailDelivered(sendResult);
 
   const msgId = await CommunicationConversation.addMessage({
     conversationId: conv.id,
