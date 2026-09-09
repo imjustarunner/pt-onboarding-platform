@@ -385,11 +385,16 @@ export const getClaimBillingMode = async (req, res, next) => {
     if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
     await ClinicalEligibilityService.ensureAgencyAccess({ reqUser: req.user, agencyId });
     const { getProviderClaimBillingMode } = await import('../services/resolveClaimProviders.service.js');
-    const mode = await getProviderClaimBillingMode({
+    const data = await getProviderClaimBillingMode({
       agencyId,
-      providerUserId: req.user.id
+      providerUserId: Number(req.query.userId || req.user.id)
     });
-    return res.json({ mode });
+    return res.json({
+      mode: data.mode,
+      billingSupervisorUserId: data.billingSupervisorUserId,
+      preferredSupervisorUserId: data.preferredSupervisorUserId,
+      supervisors: data.supervisors || []
+    });
   } catch (e) {
     next(e);
   }
@@ -401,12 +406,20 @@ export const updateClaimBillingMode = async (req, res, next) => {
     if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
     await ClinicalEligibilityService.ensureAgencyAccess({ reqUser: req.user, agencyId });
     const { setProviderClaimBillingMode } = await import('../services/resolveClaimProviders.service.js');
-    const mode = await setProviderClaimBillingMode({
+    const data = await setProviderClaimBillingMode({
       agencyId,
       providerUserId: Number(req.body.userId || req.user.id),
-      mode: req.body.mode
+      mode: req.body.mode,
+      billingSupervisorUserId: req.body.billingSupervisorUserId !== undefined
+        ? req.body.billingSupervisorUserId
+        : req.body.preferredSupervisorUserId
     });
-    return res.json({ mode });
+    return res.json({
+      mode: data.mode,
+      billingSupervisorUserId: data.billingSupervisorUserId,
+      preferredSupervisorUserId: data.preferredSupervisorUserId,
+      supervisors: data.supervisors || []
+    });
   } catch (e) {
     if (e?.status) return res.status(e.status).json({ error: { message: e.message } });
     next(e);

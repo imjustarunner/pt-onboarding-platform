@@ -34,7 +34,7 @@
         >
           <option value="">Select primary code…</option>
           <option v-for="opt in primaryCodeOptions" :key="`abp-pri-${opt.code}`" :value="opt.code">
-            {{ opt.label || opt.code }}
+            {{ formatServiceCodeLabel(opt) }}
           </option>
         </select>
       </div>
@@ -48,7 +48,7 @@
               :disabled="disabled"
               @change="toggleAddon(opt.code)"
             />
-            <span>{{ opt.label || opt.code }}</span>
+            <span>{{ formatServiceCodeLabel(opt) }}</span>
           </label>
           <p v-if="!addonCodeOptions.length" class="abp-muted">No add-on codes for this tenant.</p>
         </div>
@@ -134,6 +134,18 @@ const primaryCodeOptions = computed(() =>
 const addonCodeOptions = computed(() =>
   (props.serviceCodeOptions || []).filter((row) => isAddonServiceCode(row.code, row))
 );
+
+function formatServiceCodeLabel(opt) {
+  const code = String(opt?.code || '').trim().toUpperCase();
+  let label = String(opt?.label || '').trim();
+  if (!code) return label || '';
+  if (!label) return code;
+  const upper = label.toUpperCase();
+  if (upper === code || upper.startsWith(`${code} `) || upper.startsWith(`${code}—`) || upper.startsWith(`${code} -`)) {
+    return label;
+  }
+  return `${code} — ${label}`;
+}
 const addonSet = computed(
   () => new Set((props.addonServiceCodes || []).map((c) => String(c || '').toUpperCase()).filter(Boolean))
 );

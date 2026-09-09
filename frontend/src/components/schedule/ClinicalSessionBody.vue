@@ -119,30 +119,12 @@
         >
           <option value="">Select primary code…</option>
           <option v-for="opt in primaryCodeOptions" :key="`pri-${opt.code}`" :value="opt.code">
-            {{ opt.label || opt.code }}
+            {{ formatServiceCodeLabel(opt) }}
           </option>
         </select>
       </div>
       <div class="csb-row">
         <label class="csb-label">Add-on service codes</label>
-        <div class="csb-addon-toolbar">
-          <select
-            class="csb-input csb-addon-select"
-            :disabled="disabled || !addonCodeOptions.length"
-            value=""
-            @change="onAddonSelect"
-          >
-            <option value="" disabled>+ Add on Code…</option>
-            <option
-              v-for="opt in addonCodeOptions"
-              :key="`addon-add-${opt.code}`"
-              :value="opt.code"
-              :disabled="addonCodeSet.has(opt.code)"
-            >
-              {{ opt.label || opt.code }}{{ addonCodeSet.has(opt.code) ? ' (added)' : '' }}
-            </option>
-          </select>
-        </div>
         <div class="csb-addon-list">
           <label
             v-for="opt in addonCodeOptions"
@@ -155,10 +137,12 @@
               :disabled="disabled"
               @change="toggleAddon(opt.code)"
             />
-            <span>{{ opt.label || opt.code }}</span>
+            <span>{{ formatServiceCodeLabel(opt) }}</span>
           </label>
           <p v-if="!addonCodeOptions.length" class="csb-hint muted">
-            No add-on codes configured for this tenant (e.g. 99051, 90875).
+            {{ preSessionAddonsOnly
+              ? 'Before booking, only after-hours add-on 99051 can be selected.'
+              : 'No add-on codes configured for this tenant (e.g. 99051).' }}
           </p>
         </div>
       </div>
@@ -172,6 +156,7 @@
         {{ claimId ? 'View billing claim' : 'Billing / claim' }}
       </button>
       <button
+        v-if="sessionBooked"
         type="button"
         class="btn btn-secondary btn-sm"
         :disabled="disabled"
@@ -236,7 +221,9 @@ const props = defineProps({
   packageEntitlements: { type: Array, default: () => [] },
   disabled: { type: Boolean, default: false },
   /** When true, expand the additional-clients panel (e.g. after scroll-to button). */
-  forceExpandClients: { type: Boolean, default: false }
+  forceExpandClients: { type: Boolean, default: false },
+  /** Before the session exists, only after-hours 99051 may be selected as an add-on. */
+  preSessionAddonsOnly: { type: Boolean, default: true }
 });
 
 const emit = defineEmits([
@@ -252,6 +239,8 @@ const emit = defineEmits([
   'open-claim',
   'open-quick-note'
 ]);
+
+const PRE_SESSION_ADDON_CODES = new Set(['99051']);
 
 const expanded = ref(false);
 
@@ -271,6 +260,10 @@ const addonCodeSet = computed(
 
 const primaryId = computed(() => Number(props.primaryClientId || 0)
   || Number((props.selectedClientIds || [])[0] || 0));
+
+const sessionBooked = computed(() =>
+  Number(props.clinicalSessionId || 0) > 0 || Number(props.clinicalNoteId || 0) > 0
+);
 
 const additionalClientOptions = computed(() =>
   (props.clientOptions || []).filter((c) => Number(c.id) !== primaryId.value)
@@ -293,12 +286,26 @@ const showMedicalBillingCodes = computed(() => {
   return (props.serviceCodeOptions || []).length > 0 || showClinicalTools.value;
 });
 
+function formatServiceCodeLabel(opt) {
+  const code = String(opt?.code || '').trim().toUpperCase();
+  let label = String(opt?.label || '').trim();
+  if (!code) return label || '';
+  if (!label) return code;
+  const upper = label.toUpperCase();
+  if (upper === code || upper.startsWith(`${code} `) || upper.startsWith(`${code}—`) || upper.startsWith(`${code} -`)) {
+    return label;
+  }
+  return `${code} — ${label}`;
+}
+
 const primaryCodeOptions = computed(() =>
   (props.serviceCodeOptions || []).filter((row) => !isAddonServiceCode(row.code, row))
 );
-const addonCodeOptions = computed(() =>
-  (props.serviceCodeOptions || []).filter((row) => isAddonServiceCode(row.code, row))
-);
+const addonCodeOptions = computed(() => {
+  const rows = (props.serviceCodeOptions || []).filter((row) => isAddonServiceCode(row.code, row));
+  if (!props.preSessionAddonsOnly || sessionBooked.value) return rows;
+  return rows.filter((row) => PRE_SESSION_ADDON_CODES.has(String(row.code || '').toUpperCase()));
+});
 
 function toggleClient(id) {
   const n = Number(id || 0);
@@ -314,18 +321,11 @@ function toggleClient(id) {
 function toggleAddon(code) {
   const c = String(code || '').toUpperCase();
   if (!c) return;
+  if (props.preSessionAddonsOnly && !sessionBooked.value && !PRE_SESSION_ADDON_CODES.has(c)) return;
   const next = new Set(addonCodeSet.value);
   if (next.has(c)) next.delete(c);
   else next.add(c);
   emit('update:addonServiceCodes', Array.from(next.values()));
-}
-
-function onAddonSelect(event) {
-  const code = String(event?.target?.value || '').trim().toUpperCase();
-  if (event?.target) event.target.value = '';
-  if (!code) return;
-  if (!addonCodeOptions.value.some((o) => o.code === code)) return;
-  if (!addonCodeSet.value.has(code)) toggleAddon(code);
 }
 </script>
 

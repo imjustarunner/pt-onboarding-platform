@@ -18,6 +18,8 @@ import {
   listSchoolOnboarding,
   sendSchoolOnboarding,
   addSchoolNote,
+  patchSchoolNote,
+  removeSchoolNote,
   addSchoolContact,
   patchSchoolContact,
   removeSchoolContact,
@@ -62,6 +64,8 @@ router.post('/schools/:id/tasks', createSchoolTask);
 router.get('/schools/:id/onboarding', listSchoolOnboarding);
 router.post('/schools/:id/onboarding', sendSchoolOnboarding);
 router.post('/schools/:id/notes', addSchoolNote);
+router.patch('/schools/:id/notes/:noteId', patchSchoolNote);
+router.delete('/schools/:id/notes/:noteId', removeSchoolNote);
 router.post('/schools/:id/contacts', addSchoolContact);
 router.patch('/schools/:id/contacts/:contactId', patchSchoolContact);
 router.delete('/schools/:id/contacts/:contactId', removeSchoolContact);

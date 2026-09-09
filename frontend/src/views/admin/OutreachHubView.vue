@@ -566,6 +566,8 @@
           @update-contact="onTripEditorUpdateContact"
           @delete-contact="onTripEditorDeleteContact"
           @save-note="onTripEditorSaveNote"
+          @update-note="onTripEditorUpdateNote"
+          @delete-note="onTripEditorDeleteNote"
           @create-task="onTripEditorCreateTask"
         />
 
@@ -2550,6 +2552,40 @@ const onTripEditorSaveNote = async (payload) => {
   }
 };
 
+const onTripEditorUpdateNote = async ({ noteId, body }) => {
+  if (!selectedId.value || !noteId) return;
+  tripEditorSaving.value = true;
+  error.value = '';
+  try {
+    const res = await api.patch(
+      `/outreach/schools/${selectedId.value}/notes/${noteId}`,
+      { body },
+      { skipGlobalLoading: true }
+    );
+    selected.value = res.data?.school || selected.value;
+  } catch (err) {
+    error.value = err.response?.data?.error?.message || err.message || 'Could not update note.';
+  } finally {
+    tripEditorSaving.value = false;
+  }
+};
+
+const onTripEditorDeleteNote = async ({ noteId }) => {
+  if (!selectedId.value || !noteId) return;
+  tripEditorSaving.value = true;
+  error.value = '';
+  try {
+    const res = await api.delete(`/outreach/schools/${selectedId.value}/notes/${noteId}`, {
+      skipGlobalLoading: true
+    });
+    selected.value = res.data?.school || selected.value;
+  } catch (err) {
+    error.value = err.response?.data?.error?.message || err.message || 'Could not delete note.';
+  } finally {
+    tripEditorSaving.value = false;
+  }
+};
+
 const onTripEditorCreateTask = async (payload) => {
   if (!selectedId.value) return;
   tripEditorSaving.value = true;
@@ -2773,6 +2809,7 @@ const loadTrips = async () => {
 const openTrips = async () => {
   closeSchoolPanel();
   tripRouteEditing.value = false;
+  openedTripId.value = null;
   viewMode.value = 'trips';
   try {
     await Promise.all([loadTripPreview(), loadTrips(), reloadSummary()]);

@@ -195,10 +195,14 @@ async function loadWaitlistCountMap(agencyId, userIds = []) {
 const ROLE_CLAUSE = `
   (
     LOWER(COALESCE(u.role, '')) IN (
-      'provider', 'provider_plus', 'intern', 'supervisor', 'counselor',
-      'therapist', 'coach', 'employee', 'admin', 'super_admin'
+      'provider', 'provider_plus', 'intern', 'intern_plus', 'supervisor',
+      'clinical_practice_assistant', 'counselor', 'therapist', 'coach',
+      'employee', 'admin', 'super_admin'
     )
-    OR LOWER(COALESCE(ua.role, '')) IN ('provider', 'counselor', 'coach', 'therapist', 'intern')
+    OR LOWER(COALESCE(ua.role, '')) IN (
+      'provider', 'provider_plus', 'counselor', 'coach', 'therapist',
+      'intern', 'intern_plus', 'clinical_practice_assistant'
+    )
   )
 `;
 

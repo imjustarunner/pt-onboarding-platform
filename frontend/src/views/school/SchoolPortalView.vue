@@ -2232,8 +2232,8 @@
         </div>
         <div class="modal-body">
           <div class="muted" style="margin-bottom: 10px;">
-            This sends a request to admin/staff for review and application.
-            Requests show in Provider Availability under School Requests.
+            <strong>Change school day</strong> (move/add) still goes to admin for approval.
+            <strong>Slots and hours</strong> on an existing day apply immediately; admins are notified to acknowledge.
           </div>
           <div v-if="availabilityContextLoading" class="muted" style="margin-bottom: 8px;">Loading your availability…</div>
           <div v-if="availabilityContextError" class="error" style="margin-bottom: 10px;">
@@ -2317,10 +2317,12 @@
               :disabled="availabilitySubmitting || !availabilitySelectedDay || !availabilityHasScheduleChanges"
               @click="submitAvailabilityRequest"
             >
-              {{ availabilitySubmitting ? 'Sending…' : 'Send request' }}
+              {{ availabilitySubmitting
+                ? 'Saving…'
+                : (availabilityMoveToDay ? 'Send day-change request' : 'Apply slots / hours') }}
             </button>
             <div v-if="!availabilityHasScheduleChanges" class="muted" style="font-size: 13px;">
-              Change hours, slot count, or the school day to send a request. If your schedule is correct, use Confirm current availability.
+              Change hours, slot count, or the school day. If your schedule is correct, use Confirm current availability.
             </div>
             <a class="btn btn-secondary btn-sm" :href="additionalAvailabilityHref">
               Submit for additional availability
@@ -4813,12 +4815,51 @@ const submitAvailabilityRequest = async () => {
     const delta = Number(availabilityDeltaSlots.value || 0);
     const requestedSlots = availabilityRequestedSlotsTotal.value;
     const currentHours = availabilityCurrentHoursText.value;
+    const fromStart = String(selected.start_time || '').slice(0, 5);
+    const fromEnd = String(selected.end_time || '').slice(0, 5);
+    const toStart = String(availabilityNewStart.value || fromStart || '').slice(0, 5);
+    const toEnd = String(availabilityNewEnd.value || fromEnd || '').slice(0, 5);
     const requestedHours =
       availabilityNewStart.value || availabilityNewEnd.value
         ? formatSchoolPortalTimeRange(availabilityNewStart.value || '—', availabilityNewEnd.value || '—')
         : '—';
 
     const moveTo = String(availabilityMoveToDay.value || '').trim();
+
+    // Slots/hours on an existing day: apply live + admin acknowledgement (not blocking approval).
+    if (!moveTo || moveTo === weekday) {
+      await api.post(`/school-portal/${organizationId.value}/provider-availability/apply`, {
+        dayOfWeek: weekday,
+        slotsTotal: Number(requestedSlots),
+        fromSlotsTotal: Number(currentSlots || 0),
+        fromStartTime: fromStart,
+        fromEndTime: fromEnd,
+        startTime: toStart,
+        endTime: toEnd,
+        allowOverAssigned: Number(requestedSlots) < Number(currentUsed || 0),
+        note: availabilityNote.value.trim() || undefined
+      });
+
+      if (slotVerificationPending.value && isProviderRoleForAvailability.value) {
+        try {
+          await slotVerification.respondPending({
+            kind: 'changes_requested',
+            summary: `Applied availability update for ${weekday}: ${requestedSlots} slot(s) (${formatSchoolPortalTimeRange(toStart, toEnd)}).`
+          });
+          slotVerificationPending.value = null;
+          wasOpenedByPendingVerification.value = false;
+        } catch {
+          /* non-blocking */
+        }
+      }
+
+      availabilityConfirmSuccess.value = `Updated ${weekday} immediately. Admins were notified to acknowledge.`;
+      closeAvailabilityRequest();
+      await ensureAvailabilityContext({ force: true }).catch(() => {});
+      return;
+    }
+
+    // Day move / change: still requires approval.
     const requestNotes = [
       `School: ${organizationDisplayName.value || organizationName.value || ''}`.trim(),
       `Provider: ${providerName} (user_id=${providerUserId})`,
@@ -4846,23 +4887,21 @@ const submitAvailabilityRequest = async () => {
       ]
     });
 
-    // If a slot-verification was pushed to this provider, mark it as "changes_requested" so
-    // it disappears from the admin/staff view and notifies them that the provider responded.
     if (slotVerificationPending.value && isProviderRoleForAvailability.value) {
       try {
         await slotVerification.respondPending({
           kind: 'changes_requested',
-          summary: `Submitted change request for ${weekday}: requested ${requestedSlots} slot(s) (${requestedHours}).`
+          summary: `Submitted day-change request for ${weekday} → ${moveTo}.`
         });
         slotVerificationPending.value = null;
         wasOpenedByPendingVerification.value = false;
       } catch {
-        // Non-blocking: change request was still recorded server-side via /availability.
+        // Non-blocking
       }
     }
 
     const submittedDay = weekday || 'this day';
-    const submitAnother = window.confirm(`Request sent for ${submittedDay}. Submit another day update now?`);
+    const submitAnother = window.confirm(`Day-change request sent for ${submittedDay}. Submit another day update now?`);
     if (submitAnother) {
       await ensureAvailabilityContext({ force: true });
       resetAvailabilityDraftFromSelectedDay();
@@ -4870,7 +4909,7 @@ const submitAvailabilityRequest = async () => {
       closeAvailabilityRequest();
     }
   } catch (e) {
-    availabilityError.value = e.response?.data?.error?.message || 'Failed to send request';
+    availabilityError.value = e?.response?.data?.error?.message || e?.message || 'Could not submit availability update.';
   } finally {
     availabilitySubmitting.value = false;
   }

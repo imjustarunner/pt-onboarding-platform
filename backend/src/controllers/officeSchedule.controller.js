@@ -3486,7 +3486,12 @@ export const getBookingMetadata = async (req, res, next) => {
           const merged = {
             ...existing,
             code,
-            label: row.description || existing.label || code,
+            label: (() => {
+              const code = String(row.service_code || '').toUpperCase();
+              const desc = String(row.description || existing.label || '').trim();
+              if (code && desc && desc.toUpperCase() !== code) return `${code} — ${desc}`;
+              return desc || code || existing.label || code;
+            })(),
             minDurationMinutes: row.min_minutes ?? existing.minDurationMinutes ?? null,
             unitMinutes: row.unit_minutes ?? existing.unitMinutes ?? null,
             maxUnitsPerDay: row.max_units_per_day ?? existing.maxUnitsPerDay ?? null,

@@ -761,6 +761,7 @@ function buildSchoolActivityFeed({ activities = [], notes = [], tasks = [] } = {
     const kind = String(n.note_kind || 'general');
     items.push({
       id: `note-${n.id}`,
+      note_id: Number(n.id),
       entry_type: kind === 'conversation' ? 'conversation' : kind === 'follow_up' ? 'follow_up' : 'note',
       note_kind: kind,
       title: kind === 'follow_up'
@@ -1548,6 +1549,83 @@ export async function addOutreachSchoolNote(agencyId, schoolId, bodyOrPayload, u
     );
   }
 
+  return getOutreachSchool(agencyId, schoolId);
+}
+
+export async function updateOutreachSchoolNote(agencyId, schoolId, noteId, bodyOrPayload, userId) {
+  const nid = Number(noteId || 0);
+  if (!nid) throw new Error('noteId is required');
+  const school = await getOutreachSchool(agencyId, schoolId);
+  if (!school) throw new Error('School not found');
+
+  const payload = bodyOrPayload && typeof bodyOrPayload === 'object' && !Array.isArray(bodyOrPayload)
+    ? bodyOrPayload
+    : { body: bodyOrPayload };
+  const text = String(payload.body || payload.notes || '').trim();
+  if (!text) throw new Error('Note text is required');
+
+  const [rows] = await pool.execute(
+    `SELECT id FROM outreach_school_notes
+     WHERE id = ? AND outreach_school_id = ? AND agency_id = ?
+     LIMIT 1`,
+    [nid, schoolId, agencyId]
+  );
+  if (!rows?.[0]) throw Object.assign(new Error('Note not found'), { status: 404 });
+
+  const spokenWith = payload.spoken_with_name !== undefined || payload.spokenWithName !== undefined
+    ? (String(payload.spoken_with_name || payload.spokenWithName || '').trim() || null)
+    : undefined;
+  const followUpAt = payload.follow_up_at !== undefined || payload.followUpAt !== undefined
+    ? (payload.follow_up_at || payload.followUpAt
+      ? String(payload.follow_up_at || payload.followUpAt).slice(0, 10)
+      : null)
+    : undefined;
+
+  try {
+    const sets = ['body = ?'];
+    const params = [text.slice(0, 8000)];
+    if (spokenWith !== undefined) {
+      sets.push('spoken_with_name = ?');
+      params.push(spokenWith);
+    }
+    if (followUpAt !== undefined) {
+      sets.push('follow_up_at = ?');
+      params.push(followUpAt);
+    }
+    params.push(nid, schoolId, agencyId);
+    await pool.execute(
+      `UPDATE outreach_school_notes
+       SET ${sets.join(', ')}
+       WHERE id = ? AND outreach_school_id = ? AND agency_id = ?`,
+      params
+    );
+  } catch (e) {
+    if (e?.code !== 'ER_BAD_FIELD_ERROR') throw e;
+    await pool.execute(
+      `UPDATE outreach_school_notes
+       SET body = ?
+       WHERE id = ? AND outreach_school_id = ? AND agency_id = ?`,
+      [text.slice(0, 8000), nid, schoolId, agencyId]
+    );
+  }
+
+  return getOutreachSchool(agencyId, schoolId);
+}
+
+export async function deleteOutreachSchoolNote(agencyId, schoolId, noteId, _userId) {
+  const nid = Number(noteId || 0);
+  if (!nid) throw new Error('noteId is required');
+  const school = await getOutreachSchool(agencyId, schoolId);
+  if (!school) throw new Error('School not found');
+
+  const [result] = await pool.execute(
+    `DELETE FROM outreach_school_notes
+     WHERE id = ? AND outreach_school_id = ? AND agency_id = ?`,
+    [nid, schoolId, agencyId]
+  );
+  if (!Number(result?.affectedRows || 0)) {
+    throw Object.assign(new Error('Note not found'), { status: 404 });
+  }
   return getOutreachSchool(agencyId, schoolId);
 }
 

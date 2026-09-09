@@ -3013,7 +3013,14 @@ export const updateUser = async (req, res, next) => {
       const targetUser = await User.findById(id);
       if (!targetUser) return res.status(404).json({ error: { message: 'User not found' } });
       const targetRole = String(role || targetUser.role || '').toLowerCase();
-      const providerLike = targetRole === 'provider' || Boolean(targetUser.has_provider_access);
+      const providerLike = [
+        'provider',
+        'provider_plus',
+        'intern',
+        'intern_plus',
+        'supervisor',
+        'clinical_practice_assistant'
+      ].includes(targetRole) || Boolean(targetUser.has_provider_access);
       if (providerLike) {
         updateData.providerAcceptingNewClients = Boolean(providerAcceptingNewClients);
       }
@@ -3979,10 +3986,9 @@ async function loadHostDisplayNamesByUserIds(userIds = []) {
   return out;
 }
 
-const canListAllAgencyClientsForSchedule = (role) => {
-  const r = String(role || '').toLowerCase();
-  return ['super_admin', 'superadmin', 'admin', 'support', 'staff', 'clinical_practice_assistant'].includes(r);
-};
+/** Always false: schedule client pickers use the target provider's caseload only
+ *  (including when admin/support/superadmin book on behalf of someone else). */
+const canListAllAgencyClientsForSchedule = (_role) => false;
 
 function toDisplayStatus({ status, slotState }) {
   const st = String(status || '').trim().toUpperCase();

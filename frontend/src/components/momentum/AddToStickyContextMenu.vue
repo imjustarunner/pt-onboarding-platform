@@ -22,6 +22,13 @@
       <button
         type="button"
         class="menu-item"
+        @click="copyPendingText"
+      >
+        Copy
+      </button>
+      <button
+        type="button"
+        class="menu-item"
         @click="addToSticky(null)"
       >
         {{ stickies.length > 0 ? '+ New sticky' : 'Add to Momentum Sticky' }}
@@ -86,6 +93,32 @@ const hide = () => {
 const addToSticky = (stickyId) => {
   if (pendingText) {
     momentumStore.triggerAddToSticky(pendingText, stickyId);
+  }
+  hide();
+};
+
+const copyPendingText = async () => {
+  const text = String(pendingText || '').trim();
+  if (!text) {
+    hide();
+    return;
+  }
+  try {
+    if (navigator?.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+    } else {
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      ta.setAttribute('readonly', '');
+      ta.style.position = 'fixed';
+      ta.style.left = '-9999px';
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+    }
+  } catch (err) {
+    console.warn('Copy failed', err);
   }
   hide();
 };

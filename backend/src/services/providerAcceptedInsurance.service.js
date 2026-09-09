@@ -54,7 +54,7 @@ export async function listProviderAcceptedInsurances({ userId, agencyId }) {
       });
     }
 
-    const billingSupervisorId = await SupervisorAssignment.getBillingSupervisorId(uid, aid);
+    const billingSupervisorId = await SupervisorAssignment.resolveClaimBillingSupervisorId(uid, aid);
     if (billingSupervisorId && billingSupervisorId !== uid) {
       const inherited = await listDirectAcceptedInsurances(billingSupervisorId, aid);
       let billingSupervisorName = '';

@@ -69,7 +69,14 @@
               </td>
               <td>{{ c.title || '—' }}</td>
               <td>{{ c.phone || '—' }}</td>
-              <td class="otse-email">{{ c.email || '—' }}</td>
+              <td class="otse-email">
+                <span
+                  v-if="c.email"
+                  :data-add-to-sticky="c.email"
+                  title="Right-click to Copy or add to Sticky"
+                >{{ c.email }}</span>
+                <template v-else>—</template>
+              </td>
               <td class="otse-contact-actions">
                 <button type="button" class="btn-link" :disabled="disabled || saving" @click="startEditContact(c)">Edit</button>
                 <button type="button" class="btn-link otse-danger" :disabled="disabled || saving" @click="$emit('delete-contact', c.id)">Delete</button>
@@ -184,18 +191,39 @@
             :class="item.entry_type"
             :style="item.stop_color ? { borderColor: item.stop_color } : undefined"
           >{{ feedLabel(item) }}</span>
-          <div>
-            <strong>{{ item.title }}</strong>
-            <p v-if="item.body">{{ item.body }}</p>
-            <div class="ohub-muted">
-              {{ formatDateTime(item.occurred_at) }}
-              <template v-if="item.created_by_name"> · {{ item.created_by_name }}</template>
-              <span
-                v-if="tripTagLabel"
-                class="otse-trip-tag"
-                :style="stopColor ? { background: stopColor + '22', color: stopColor, borderColor: stopColor } : undefined"
-              >{{ tripTagLabel }}</span>
-            </div>
+          <div class="otse-feed-body">
+            <template v-if="editingNoteId && Number(editingNoteId) === Number(item.note_id)">
+              <textarea v-model="editingNoteBody" rows="3" class="otse-edit-note" />
+              <div class="otse-feed-actions">
+                <button type="button" class="btn btn-primary btn-sm" :disabled="saving" @click="saveEditedNote(item)">
+                  Save
+                </button>
+                <button type="button" class="btn btn-secondary btn-sm" :disabled="saving" @click="cancelEditNote">
+                  Cancel
+                </button>
+              </div>
+            </template>
+            <template v-else>
+              <strong>{{ item.title }}</strong>
+              <p v-if="item.body">{{ item.body }}</p>
+              <div class="ohub-muted">
+                {{ formatDateTime(item.occurred_at) }}
+                <template v-if="item.created_by_name"> · {{ item.created_by_name }}</template>
+                <span
+                  v-if="tripTagLabel"
+                  class="otse-trip-tag"
+                  :style="stopColor ? { background: stopColor + '22', color: stopColor, borderColor: stopColor } : undefined"
+                >{{ tripTagLabel }}</span>
+              </div>
+              <div v-if="item.note_id" class="otse-feed-actions">
+                <button type="button" class="otse-link" :disabled="saving || disabled" @click="startEditNote(item)">
+                  Edit
+                </button>
+                <button type="button" class="otse-link otse-link--danger" :disabled="saving || disabled" @click="deleteNote(item)">
+                  Delete
+                </button>
+              </div>
+            </template>
           </div>
         </li>
         <li v-if="!tripFeed.length" class="ohub-muted">Nothing logged for this trip yet.</li>
@@ -234,6 +262,8 @@ const emit = defineEmits([
   'update-contact',
   'delete-contact',
   'save-note',
+  'update-note',
+  'delete-note',
   'create-task'
 ]);
 
@@ -243,6 +273,33 @@ const convForm = reactive({ spoken_with_name: '', summary: '', details: '' });
 const followForm = reactive({ needed: true, follow_up_at: '', body: '' });
 const taskForm = reactive({ title: '', description: '', dueDate: '', assignedToUserId: '' });
 const noteForm = reactive({ body: '' });
+const editingNoteId = ref(null);
+const editingNoteBody = ref('');
+
+function startEditNote(item) {
+  editingNoteId.value = Number(item?.note_id || 0) || null;
+  editingNoteBody.value = String(item?.body || '');
+}
+
+function cancelEditNote() {
+  editingNoteId.value = null;
+  editingNoteBody.value = '';
+}
+
+function saveEditedNote(item) {
+  const noteId = Number(item?.note_id || editingNoteId.value || 0);
+  const body = String(editingNoteBody.value || '').trim();
+  if (!noteId || !body) return;
+  emit('update-note', { noteId, body });
+  cancelEditNote();
+}
+
+function deleteNote(item) {
+  const noteId = Number(item?.note_id || 0);
+  if (!noteId) return;
+  if (!window.confirm('Delete this note?')) return;
+  emit('delete-note', { noteId });
+}
 
 watch(
   () => props.school?.id,
@@ -496,6 +553,30 @@ const submitGeneralNote = () => {
   grid-template-columns: auto minmax(0, 1fr);
   gap: 8px;
   align-items: start;
+}
+.otse-feed-body { min-width: 0; }
+.otse-feed-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 6px;
+}
+.otse-link {
+  border: none;
+  background: none;
+  padding: 0;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  color: #166534;
+  cursor: pointer;
+}
+.otse-link--danger { color: #b91c1c; }
+.otse-edit-note {
+  width: 100%;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  padding: 8px;
+  font: inherit;
 }
 .otse-type-pill {
   display: inline-flex;

@@ -37,6 +37,61 @@ class SupervisorAssignment {
     return Number.isInteger(id) && id > 0 ? id : null;
   }
 
+  /**
+   * Clinical (+ optional billing-type) supervisors eligible as Claim.MD billing NPI
+   * when the supervisee bills under a supervisor.
+   */
+  static async listClaimBillingSupervisorOptions(superviseeId, agencyId) {
+    const sv = Number(superviseeId || 0);
+    const aid = Number(agencyId || 0);
+    if (!sv || !aid) return [];
+    const rows = await this.findBySupervisee(sv, aid);
+    const out = [];
+    const seen = new Set();
+    for (const row of rows || []) {
+      const type = String(row.supervisor_type || 'clinical').toLowerCase();
+      if (type === 'manager') continue;
+      const id = Number(row.supervisor_id || 0);
+      if (!id || seen.has(id)) continue;
+      seen.add(id);
+      const first = String(row.supervisor_first_name || '').trim();
+      const last = String(row.supervisor_last_name || '').trim();
+      const name = `${last}${last && first ? ', ' : ''}${first}`.trim()
+        || String(row.supervisor_email || '').trim()
+        || `User #${id}`;
+      out.push({
+        id,
+        name,
+        supervisorType: type,
+        isPrimary: Number(row.is_primary || 0) === 1
+      });
+    }
+    out.sort((a, b) => {
+      if (a.isPrimary !== b.isPrimary) return a.isPrimary ? -1 : 1;
+      if (a.supervisorType === 'billing' && b.supervisorType !== 'billing') return -1;
+      if (b.supervisorType === 'billing' && a.supervisorType !== 'billing') return 1;
+      return String(a.name).localeCompare(String(b.name));
+    });
+    return out;
+  }
+
+  /**
+   * Resolve which supervisor NPI to use for claims.
+   * Prefer explicit preferredUserId when they are an assigned clinical/billing supervisor;
+   * else billing-type assignment; else primary clinical; else first clinical.
+   */
+  static async resolveClaimBillingSupervisorId(superviseeId, agencyId, preferredUserId = null) {
+    const options = await this.listClaimBillingSupervisorOptions(superviseeId, agencyId);
+    if (!options.length) return null;
+    const preferred = Number(preferredUserId || 0);
+    if (preferred > 0 && options.some((o) => o.id === preferred)) return preferred;
+    const billingTyped = options.find((o) => o.supervisorType === 'billing');
+    if (billingTyped) return billingTyped.id;
+    const primary = options.find((o) => o.isPrimary);
+    if (primary) return primary.id;
+    return options[0].id;
+  }
+
   static async updateSupervisorForAssignment(id, supervisorId, createdByUserId = null) {
     await pool.execute(
       `UPDATE supervisor_assignments

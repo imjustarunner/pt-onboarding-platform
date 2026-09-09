@@ -1603,7 +1603,7 @@
               </button>
             </div>
             <button
-              v-if="editorShowClinicalTab && editorIsClinical"
+              v-if="editorShowClinicalTab && editorIsClinical && Number(editorAppointmentId || editorClinicalSessionId || 0) > 0"
               type="button"
               class="appt-workspace-quicknote-btn"
               data-testid="appointment-quick-note-btn"
@@ -1787,11 +1787,11 @@
           :preferred-room-id="Number(editorPreferredRoomId || 0)"
           :preferred-room-options="editorPreferredOpenRoomOptions"
           :preferred-rooms-hint="editorPreferredRoomsHint"
-          :show-service="editorIsClinical && !!editorPracticeCategory"
+          :show-service="editorIsClinical && !!editorPracticeCategory && String(editorPracticeCategory || '') !== 'mental_health'"
           :tenant-service-id="Number(editorTenantServiceId || 0)"
           :service-options="editorHeaderServiceOptions"
           :services-loading="editorServicesLoading"
-          :show-group-clients-button="editorIsClinical"
+          :show-group-clients-button="false"
           :modality-pos-warning="editorModalityPosWarning"
           @update:dateYmd="onEditorDateYmd"
           @update:startTime="onEditorStartTime"
@@ -2071,6 +2071,7 @@
             :clinical-note-id="editorClinicalNoteId"
             :claim-id="editorClaimId"
             :package-entitlements="editorPackageEntitlements"
+            :pre-session-addons-only="Number(editorAppointmentId || editorClinicalSessionId || 0) <= 0"
             :disabled="submitting"
             @open-note="openEditorClinicalNote"
             @open-claim="openEditorClinicalClaim"
@@ -4096,7 +4097,7 @@
             </div>
 
             <div v-if="modalError" class="error" style="margin-top: 10px;">{{ modalError }}</div>
-            <div v-else-if="requestSubmitBlockedReason && requestType" class="nr-blocked-reason">
+            <div v-else-if="showRequestSubmitBlockedBanner" class="nr-blocked-reason">
               {{ requestSubmitBlockedReason }}
             </div>
           </template>
@@ -4463,7 +4464,7 @@
           </button>
         </div>
         <div v-else-if="!showActionChooser && !isAppointmentEditMode && !intakeConfirmStep && requestType !== 'admin_assign' && requestType !== 'cancel_booking' && requestType !== 'slot_details'" class="nr-footer">
-          <div v-if="requestSubmitBlockedReason && requestType" class="nr-blocked-reason" style="flex: 1 1 100%; margin-bottom: 8px;">
+          <div v-if="showRequestSubmitBlockedBanner" class="nr-blocked-reason" style="flex: 1 1 100%; margin-bottom: 8px;">
             {{ requestSubmitBlockedReason }}
           </div>
           <button class="btn btn-secondary nr-btn-cancel" type="button" @click="requestCloseModal">
@@ -9050,11 +9051,23 @@ const availabilityClass = (dayName, hour, minute = 0) => {
   return '';
 };
 
-// If Google busy is enabled but the backend reports an auth/impersonation failure (invalid_grant),
+// If Google busy is enabled but the backend reports an auth/impersonation failure
+// (invalid_grant, unauthorized_client, etc. — common for app-only / non-SSO aliases),
 // auto-disable it so the schedule does not feel “broken” on load.
 const googleBusyDisabledHint = ref('');
 const autoDisabledGoogleBusy = ref(false);
-const isGoogleInvalidGrant = (msg) => String(msg || '').toLowerCase().includes('invalid_grant');
+const isGoogleAuthOverlayError = (msg) => {
+  const m = String(msg || '').toLowerCase();
+  return (
+    m.includes('invalid_grant')
+    || m.includes('unauthorized_client')
+    || m.includes('invalid_client')
+    || m.includes('access_denied')
+    || m.includes('not authorized')
+    || m.includes('client is unauthorized')
+  );
+};
+const isGoogleInvalidGrant = (msg) => isGoogleAuthOverlayError(msg);
 
 const filterSummaryByActiveAgencies = (data) => {
   if (!data || typeof data !== 'object') return data;
@@ -9338,18 +9351,32 @@ const load = async ({ forceRefresh = false } = {}) => {
       setScheduleSummary(cacheKey, summary.value);
     }
 
-    // Fail-soft Google busy: if the user’s email cannot be impersonated (invalid_grant),
-    // turn off Google busy and persist the preference.
-    if (props.mode === 'self' && showGoogleBusy.value && !autoDisabledGoogleBusy.value) {
+    // Fail-soft Google busy: if the user’s email cannot be impersonated / authorized
+    // (invalid_grant, unauthorized_client — e.g. app account without Google SSO),
+    // turn off Google busy so no error banner appears.
+    if (showGoogleBusy.value && !autoDisabledGoogleBusy.value) {
       const errMsg = String(summary.value?.googleBusyError || '').trim();
-      if (errMsg && isGoogleInvalidGrant(errMsg)) {
+      if (errMsg && isGoogleAuthOverlayError(errMsg)) {
         autoDisabledGoogleBusy.value = true;
         googleBusyDisabledHint.value =
-          'Google busy is unavailable for your account (Google Workspace could not validate your email). We turned it off for now.';
-        // Hide immediately, then the watcher will reload without Google busy.
+          'Google Calendar overlay is unavailable for this account (not linked or not authorized). It stays off until Google is connected.';
         showGoogleBusy.value = false;
         try {
-          if (summary.value && typeof summary.value === 'object') summary.value.googleBusyError = null;
+          if (summary.value && typeof summary.value === 'object') {
+            summary.value.googleBusyError = null;
+            summary.value.googleEventsError = null;
+          }
+        } catch {
+          // ignore
+        }
+      }
+    }
+    if (showGoogleEvents.value && !autoDisabledGoogleBusy.value) {
+      const evErr = String(summary.value?.googleEventsError || '').trim();
+      if (evErr && isGoogleAuthOverlayError(evErr)) {
+        showGoogleEvents.value = false;
+        try {
+          if (summary.value && typeof summary.value === 'object') summary.value.googleEventsError = null;
         } catch {
           // ignore
         }
@@ -11491,8 +11518,11 @@ const isCellVisuallyBlank = (dayName, hour) => cellBlocks(dayName, hour).length 
 const overlayErrorText = computed(() => {
   const s = summary.value;
   if (!s) return '';
-  const googleErr = showGoogleBusy.value ? String(s?.googleBusyError || '').trim() : '';
-  const googleEventsErr = showGoogleEvents.value ? String(s?.googleEventsError || '').trim() : '';
+  let googleErr = showGoogleBusy.value ? String(s?.googleBusyError || '').trim() : '';
+  let googleEventsErr = showGoogleEvents.value ? String(s?.googleEventsError || '').trim() : '';
+  // Auth failures are fail-soft (overlay disabled); never surface as a banner.
+  if (googleErr && isGoogleAuthOverlayError(googleErr)) googleErr = '';
+  if (googleEventsErr && isGoogleAuthOverlayError(googleEventsErr)) googleEventsErr = '';
   const cals = Array.isArray(s.externalCalendars) ? s.externalCalendars : [];
   const errors = (cals || [])
     .map((c) => ({ label: String(c?.label || '').trim(), err: String(c?.error || '').trim() }))
@@ -13591,7 +13621,9 @@ const editorHeaderServiceOptions = computed(() => {
       const code = String(s.serviceCode || s.service_code || '').trim();
       const mins = Number(s.defaultDurationMinutes || s.default_duration_minutes || 0);
       const name = String(s.name || '').trim() || `Service #${s.id}`;
-      const label = `${name}${mins ? ` (${mins}m)` : ''}${code ? ` · ${code}` : ''}`;
+      const label = code
+        ? `${code} — ${name}${mins ? ` (${mins}m)` : ''}`
+        : `${name}${mins ? ` (${mins}m)` : ''}`;
       return { id: Number(s.id), label, name };
     })
     .filter((s) => s.id > 0);
@@ -15023,6 +15055,8 @@ async function loadEditorOfficeLocations() {
 watch(editorModality, (v) => {
   if (!editorIsClinical.value) return;
   bookingModality.value = String(v || 'TELEHEALTH');
+  // Match Place of Service to modality (telehealth ↔ in-person) when the user toggles.
+  preferDefaultServiceLocation({ force: true });
 });
 
 watch(editorTenantServiceId, (id) => {
@@ -15049,6 +15083,8 @@ const requestSummaryEndTimeLabel = computed(() => {
   return hourLabel(modalEndHour.value);
 });
 const requestNotesCount = computed(() => String(requestNotes.value || '').length);
+/** Soft-gate: missing client still disables Schedule, but the red banner only appears after a submit attempt so other fields stay editable without feeling blocked. */
+const bookingSubmitAttempted = ref(false);
 const requestSubmitBlockedReason = computed(() => {
   if (submitting.value) return submitBusyLabel.value;
   if (!String(requestType.value || '').trim()) return 'Select an action to continue.';
@@ -15146,6 +15182,12 @@ const requestSubmitBlockedReason = computed(() => {
   }
   return '';
 });
+const showRequestSubmitBlockedBanner = computed(() => {
+  const reason = String(requestSubmitBlockedReason.value || '').trim();
+  if (!reason || !requestType.value) return false;
+  if (/select a client/i.test(reason) && !bookingSubmitAttempted.value) return false;
+  return true;
+});
 const requestSubmitDisabled = computed(() => !!requestSubmitBlockedReason.value);
 
 const isVirtualGroupFromClients = computed(() => (
@@ -15231,20 +15273,32 @@ const bookingSubtypeOptions = computed(() => {
 
 const bookingServiceCodeOptions = computed(() => {
   const rows = Array.isArray(bookingMetadata.value?.serviceCodes) ? bookingMetadata.value.serviceCodes : [];
-  const out = rows.map((row) => ({
-    code: normalizeCodeValue(row?.code),
-    label: String(row?.label || row?.code || '').trim(),
-    minDurationMinutes: Number(row?.minDurationMinutes || 0) || null,
-    unitMinutes: Number(row?.unitMinutes || 0) || null,
-    maxUnitsPerDay: Number(row?.maxUnitsPerDay || 0) || null,
-    maxUnitsPerSession: Number(row?.maxUnitsPerSession || 0) || null,
-    overflowServiceCode: row?.overflowServiceCode || null,
-    allowedCredentialTiers: Array.isArray(row?.allowedCredentialTiers) ? row.allowedCredentialTiers : null,
-    allowedPlaceOfService: Array.isArray(row?.allowedPlaceOfService) ? row.allowedPlaceOfService : [],
-    defaultPlaceOfService: row?.defaultPlaceOfService || null,
-    medical: !!row?.medical,
-    isAddon: isAddonServiceCode(row?.code, row)
-  })).filter((row) => row.code);
+  const out = rows.map((row) => {
+    const code = normalizeCodeValue(row?.code);
+    let label = String(row?.label || '').trim();
+    if (code && label) {
+      const upper = label.toUpperCase();
+      if (upper !== code && !upper.startsWith(`${code} `) && !upper.startsWith(`${code}—`) && !upper.startsWith(`${code} -`)) {
+        label = `${code} — ${label}`;
+      }
+    } else if (code) {
+      label = code;
+    }
+    return {
+      code,
+      label,
+      minDurationMinutes: Number(row?.minDurationMinutes || 0) || null,
+      unitMinutes: Number(row?.unitMinutes || 0) || null,
+      maxUnitsPerDay: Number(row?.maxUnitsPerDay || 0) || null,
+      maxUnitsPerSession: Number(row?.maxUnitsPerSession || 0) || null,
+      overflowServiceCode: row?.overflowServiceCode || null,
+      allowedCredentialTiers: Array.isArray(row?.allowedCredentialTiers) ? row.allowedCredentialTiers : null,
+      allowedPlaceOfService: Array.isArray(row?.allowedPlaceOfService) ? row.allowedPlaceOfService : [],
+      defaultPlaceOfService: row?.defaultPlaceOfService || null,
+      medical: !!row?.medical,
+      isAddon: isAddonServiceCode(row?.code, row)
+    };
+  }).filter((row) => row.code);
   const selected = normalizeCodeValue(bookingServiceCode.value);
   if (selected && !out.some((row) => row.code === selected)) {
     out.push({
@@ -15344,9 +15398,11 @@ const normalizeBookingSelectionPayload = () => {
   const clientId = String(requestType.value || '') === 'individual_session'
     ? (Number(primarySessionClientId.value || 0) || null)
     : null;
+  const isNewSession = Number(editorAppointmentId.value || editorClinicalSessionId.value || 0) <= 0;
   const addonServiceCodes = (editorAddonServiceCodes.value || [])
     .map((c) => String(c || '').toUpperCase().trim())
-    .filter(Boolean);
+    .filter(Boolean)
+    .filter((c) => !isNewSession || c === '99051');
   return {
     appointmentTypeCode,
     appointmentSubtypeCode: null,
@@ -15367,16 +15423,23 @@ const normalizeBookingSelectionPayload = () => {
   };
 };
 
-const preferDefaultServiceLocation = () => {
-  if (Number(bookingServiceLocationId.value || 0) > 0) return;
-  const locs = bookingServiceLocationOptions.value || [];
+const preferDefaultServiceLocation = ({ force = false } = {}) => {
+  if (!force && Number(bookingServiceLocationId.value || editorServiceLocationId.value || 0) > 0) return;
+  const locs = (editorServiceLocationOptions.value?.length
+    ? editorServiceLocationOptions.value
+    : bookingServiceLocationOptions.value) || [];
   if (!locs.length) return;
-  const modality = String(bookingModality.value || '').toUpperCase();
+  const modality = String(editorModality.value || bookingModality.value || '').toUpperCase();
   const preferPos = modality === 'IN_PERSON' ? '11' : '02';
-  const hit = locs.find((l) => l.placeOfService === preferPos)
+  const hit = locs.find((l) => String(l.placeOfService) === preferPos)
+    || locs.find((l) => modality === 'IN_PERSON'
+      && !['02', '10'].includes(String(l.placeOfService || '')))
     || locs.find((l) => modality !== 'IN_PERSON' && (l.placeOfService === '10' || l.placeOfService === '02'))
     || locs[0];
-  if (hit?.id) bookingServiceLocationId.value = hit.id;
+  if (hit?.id) {
+    bookingServiceLocationId.value = hit.id;
+    editorServiceLocationId.value = hit.id;
+  }
 };
 
 const refreshBookingUnitPreview = async () => {
@@ -17851,6 +17914,7 @@ const openSlotActionModal = async ({
   requestType.value = normalizedInitialRequestType || '';
   requestTypeChosenByUser.value = Boolean(normalizedInitialRequestType);
   requestNotes.value = '';
+  bookingSubmitAttempted.value = false;
   scheduleEventTitle.value = '';
   scheduleEventAllDay.value = false;
   scheduleEventPrivate.value = false;
@@ -20394,6 +20458,7 @@ const completePlatformVirtualSessionBooking = async ({
 };
 
 const submitRequest = async () => {
+  bookingSubmitAttempted.value = true;
   if (actionRequiresAgency.value && !effectiveAgencyId.value) {
     modalError.value = 'Select an agency for this action.';
     return;

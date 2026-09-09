@@ -1,61 +1,62 @@
 <template>
   <div class="sched-hub" :class="{ 'sched-hub--platform': platformTheme }">
-    <header
-      v-if="(activeTitle && activeTitle !== 'My schedule') || contextLine || $slots['header-actions']"
-      class="sched-hub__header"
-    >
+    <header class="sched-hub__header">
       <div class="sched-hub__header-left">
         <div class="sched-hub__title-row">
-          <div>
-            <p v-if="activeTitle && activeTitle !== 'My schedule'" class="sched-hub__view-label">{{ activeTitle }}</p>
-            <p
-              v-if="contextLine"
-              class="sched-hub__context"
-              :class="{ 'sched-hub__context--other': contextIsOther }"
+          <div class="sched-hub__title-switch" ref="titleSwitchRef">
+            <button
+              type="button"
+              class="sched-hub__title-btn"
+              :class="{ 'sched-hub__title-btn--menu': switchableViews.length > 1 }"
+              :aria-expanded="switchableViews.length > 1 ? viewMenuOpen : undefined"
+              :aria-haspopup="switchableViews.length > 1 ? 'listbox' : undefined"
+              data-testid="schedule-hub-title-switch"
+              @click="onTitleClick"
             >
-              {{ contextLine }}
-            </p>
+              <span class="sched-hub__title-icon" aria-hidden="true" v-html="activeViewIcon" />
+              <span class="sched-hub__title-text">{{ displayTitle }}</span>
+              <span v-if="switchableViews.length > 1" class="sched-hub__viewing-badge">Viewing</span>
+              <span
+                v-if="switchableViews.length > 1"
+                class="sched-hub__title-chev"
+                aria-hidden="true"
+              >▾</span>
+            </button>
+            <div
+              v-if="viewMenuOpen && switchableViews.length > 1"
+              class="sched-hub__view-menu"
+              role="listbox"
+              aria-label="Schedule views"
+            >
+              <button
+                v-for="view in switchableViews"
+                :key="view.id"
+                type="button"
+                class="sched-hub__view-menu-item"
+                :class="{ on: isViewActive(view) }"
+                role="option"
+                :aria-selected="isViewActive(view)"
+                @click="selectView(view.id)"
+              >
+                <span class="sched-hub__view-menu-ico" v-html="viewIcon(view.icon)" />
+                <span class="sched-hub__view-menu-label">{{ view.navLabel || view.title }}</span>
+                <span v-if="isViewActive(view)" class="sched-hub__view-menu-check">✓</span>
+              </button>
+            </div>
           </div>
+          <p
+            v-if="contextLine"
+            class="sched-hub__context"
+            :class="{ 'sched-hub__context--other': contextIsOther }"
+          >
+            {{ contextLine }}
+          </p>
         </div>
       </div>
       <div v-if="$slots['header-actions']" class="sched-hub__header-actions">
         <slot name="header-actions" />
       </div>
     </header>
-
-    <div v-if="views.length" class="sched-hub__stats">
-      <button
-        v-for="view in views"
-        :key="view.id"
-        type="button"
-        class="sched-hub__stat"
-        :class="{ 'sched-hub__stat--active': isViewActive(view) }"
-        :style="isViewActive(view) ? getScheduleViewThemeStyle(view.id) : undefined"
-        :aria-current="isViewActive(view) ? 'true' : undefined"
-        @click="$emit('select-view', view.id)"
-      >
-        <span v-if="isViewActive(view)" class="sched-hub__stat-badge">Viewing</span>
-        <div class="sched-hub__stat-icon" :style="{ background: view.theme.iconBg, color: view.theme.icon }">
-          <span v-html="viewIcon(view.icon)" />
-        </div>
-        <div class="sched-hub__stat-text">
-          <div class="sched-hub__stat-value">
-            {{ view.statValue != null ? view.statValue : view.navLabel }}
-          </div>
-          <div class="sched-hub__stat-hint">{{ view.statHint }}</div>
-        </div>
-      </button>
-    </div>
-
-    <div v-if="showInfoBanner" class="sched-hub__banner">
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-        <circle cx="12" cy="12" r="10" /><line x1="12" y1="16" x2="12" y2="12" /><line x1="12" y1="8" x2="12.01" y2="8" />
-      </svg>
-      <p>
-        The highlighted card is your current view. Click another card to switch — no second menu needed.
-      </p>
-      <button type="button" class="sched-hub__banner-close" aria-label="Dismiss" @click="showInfoBanner = false">×</button>
-    </div>
 
     <slot name="skill-builders" />
 
@@ -69,10 +70,12 @@
 </template>
 
 <script setup>
-import { ref } from 'vue';
-import { getScheduleViewThemeStyle } from '../../config/scheduleDisplayViews';
+import { computed, onMounted, onUnmounted, ref } from 'vue';
 
 const stageRef = ref(null);
+const titleSwitchRef = ref(null);
+const viewMenuOpen = ref(false);
+
 defineExpose({
   getStageElement: () => stageRef.value,
 });
@@ -87,9 +90,22 @@ const props = defineProps({
   platformTheme: { type: Boolean, default: false },
 });
 
-defineEmits(['select-view']);
+const emit = defineEmits(['select-view']);
 
-const showInfoBanner = ref(true);
+/** Non-utility views that can be switched (My schedule / Supervisees / Employees / Schedule list). */
+const switchableViews = computed(() =>
+  (props.views || []).filter((v) => !v.isUtility)
+);
+
+const displayTitle = computed(() => {
+  const active = switchableViews.value.find((v) => isViewActive(v));
+  return active?.navLabel || active?.title || props.activeTitle || 'My schedule';
+});
+
+const activeViewIcon = computed(() => {
+  const active = switchableViews.value.find((v) => isViewActive(v));
+  return viewIcon(active?.icon || 'calendar');
+});
 
 const isViewActive = (view) => {
   if (view.isUtility) {
@@ -97,6 +113,26 @@ const isViewActive = (view) => {
   }
   return view.id === props.activeView;
 };
+
+const onTitleClick = () => {
+  if (switchableViews.value.length <= 1) return;
+  viewMenuOpen.value = !viewMenuOpen.value;
+};
+
+const selectView = (id) => {
+  viewMenuOpen.value = false;
+  emit('select-view', id);
+};
+
+const onDocClick = (e) => {
+  if (!viewMenuOpen.value) return;
+  if (titleSwitchRef.value && !titleSwitchRef.value.contains(e.target)) {
+    viewMenuOpen.value = false;
+  }
+};
+
+onMounted(() => document.addEventListener('click', onDocClick, true));
+onUnmounted(() => document.removeEventListener('click', onDocClick, true));
 
 const ICONS = {
   calendar: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>',
@@ -124,24 +160,144 @@ const viewIcon = (name) => ICONS[name] || ICONS.calendar;
   justify-content: space-between;
   align-items: flex-start;
   gap: 12px;
-  margin-bottom: 12px;
+  margin-bottom: 8px;
 }
 
 .sched-hub__title-row {
   display: flex;
+  flex-direction: column;
   align-items: flex-start;
-  gap: 10px;
+  gap: 6px;
 }
 
-.sched-hub__view-label {
+.sched-hub__title-switch {
+  position: relative;
+}
+
+.sched-hub__title-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
   margin: 0;
-  font-size: 14px;
-  font-weight: 700;
-  color: #374151;
+  padding: 4px 6px 4px 4px;
+  border: none;
+  background: transparent;
+  font: inherit;
+  color: inherit;
+  cursor: default;
+  border-radius: 10px;
+}
+
+.sched-hub__title-btn--menu {
+  cursor: pointer;
+}
+
+.sched-hub__title-btn--menu:hover {
+  background: #f3f4f6;
+}
+
+.sched-hub__title-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  background: #ecfdf5;
+  color: #166534;
+}
+
+.sched-hub__title-icon :deep(svg) {
+  width: 18px;
+  height: 18px;
+}
+
+.sched-hub__title-text {
+  font-size: 1.15rem;
+  font-weight: 800;
+  color: #111827;
+  letter-spacing: -0.01em;
+}
+
+.sched-hub__viewing-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: #14532d;
+  color: #fff;
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.sched-hub__title-chev {
+  font-size: 0.75rem;
+  color: #6b7280;
+  margin-left: 2px;
+}
+
+.sched-hub__view-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 40;
+  min-width: 220px;
+  padding: 6px;
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  box-shadow: 0 10px 28px rgba(15, 23, 42, 0.12);
+}
+
+.sched-hub__view-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 12px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  font: inherit;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #1f2937;
+  text-align: left;
+  cursor: pointer;
+}
+
+.sched-hub__view-menu-item:hover {
+  background: #f3f4f6;
+}
+
+.sched-hub__view-menu-item.on {
+  background: #ecfdf5;
+  color: #14532d;
+}
+
+.sched-hub__view-menu-ico {
+  display: inline-flex;
+  color: #166534;
+}
+
+.sched-hub__view-menu-ico :deep(svg) {
+  width: 16px;
+  height: 16px;
+}
+
+.sched-hub__view-menu-label {
+  flex: 1;
+}
+
+.sched-hub__view-menu-check {
+  font-weight: 800;
+  color: #166534;
 }
 
 .sched-hub__context {
-  margin: 4px 0 0;
+  margin: 0;
   font-size: 13px;
   line-height: 1.45;
   color: var(--hub-muted);
@@ -165,129 +321,7 @@ const viewIcon = (name) => ICONS[name] || ICONS.calendar;
   justify-content: flex-end;
 }
 
-.sched-hub__stats {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-  gap: 16px;
-  margin-bottom: 16px;
-}
-
-.sched-hub__stat {
-  position: relative;
-  display: flex;
-  gap: 14px;
-  align-items: flex-start;
-  width: 100%;
-  padding: 18px 20px;
-  text-align: left;
-  background: #fff;
-  border: 1px solid #d1d5db;
-  border-radius: 10px;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
-  cursor: pointer;
-  transition: border-color 0.15s, box-shadow 0.15s, background 0.15s, transform 0.12s;
-  font: inherit;
-  color: inherit;
-  opacity: 0.88;
-}
-
-.sched-hub__stat:hover {
-  opacity: 1;
-  border-color: #9ca3af;
-  background: #fff;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
-  transform: translateY(-1px);
-}
-
-.sched-hub__stat:focus-visible {
-  outline: 2px solid #166534;
-  outline-offset: 2px;
-  opacity: 1;
-}
-
-.sched-hub__stat--active {
-  opacity: 1;
-  border: 2px solid var(--cat-accent, #166534);
-  border-left-width: 4px;
-  background: color-mix(in srgb, var(--cat-icon-bg, #ecfdf5) 55%, #fff);
-  box-shadow: 0 4px 14px color-mix(in srgb, var(--cat-accent, #166534) 18%, transparent);
-  transform: none;
-}
-
-.sched-hub__stat--active:hover {
-  border-color: var(--cat-accent, #166534);
-  background: color-mix(in srgb, var(--cat-icon-bg, #ecfdf5) 62%, #fff);
-}
-
-.sched-hub__stat-badge {
-  position: absolute;
-  top: 10px;
-  right: 12px;
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  padding: 3px 8px;
-  border-radius: 999px;
-  background: var(--cat-accent, #166534);
-  color: #fff;
-}
-
-.sched-hub__stat-icon {
-  width: 44px;
-  height: 44px;
-  border-radius: 10px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-}
-
-.sched-hub__stat-value {
-  font-size: 18px;
-  font-weight: 700;
-  line-height: 1.2;
-}
-
-.sched-hub__stat-hint {
-  font-size: 12px;
-  color: var(--hub-muted);
-  margin-top: 2px;
-}
-
-.sched-hub__banner {
-  display: flex;
-  align-items: flex-start;
-  gap: 12px;
-  padding: 14px 16px;
-  margin-bottom: 16px;
-  background: #ecfdf5;
-  border: 1px solid #a7f3d0;
-  border-radius: 10px;
-  color: #166534;
-  font-size: 14px;
-  line-height: 1.5;
-}
-
-.sched-hub__banner p {
-  margin: 0;
-  flex: 1;
-}
-
-.sched-hub__banner-close {
-  background: none;
-  border: none;
-  font-size: 20px;
-  color: #6b7280;
-  cursor: pointer;
-}
-
 .sched-hub__stage {
-  background: #fff;
-  border: 1px solid #e8eef5;
-  border-radius: 14px;
-  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.03);
-  padding: 18px 18px 20px;
   min-width: 0;
 }
 
@@ -295,73 +329,7 @@ const viewIcon = (name) => ICONS[name] || ICONS.calendar;
   min-width: 0;
 }
 
-/* Plot Twist HQ — dark platform shell (super admin, no tenant) */
-.sched-hub--platform {
-  --hub-green: #8b5cf6;
-  --hub-border: rgba(148, 163, 184, 0.18);
-  --hub-muted: #94a3b8;
-  color: #e5e7eb;
-  font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
-}
-
-.sched-hub--platform .sched-hub__view-label {
-  color: #cbd5e1;
-}
-
-.sched-hub--platform .sched-hub__context--other {
-  color: #fcd34d;
-  background: rgba(245, 158, 11, 0.12);
-  border-color: rgba(245, 158, 11, 0.35);
-}
-
-.sched-hub--platform .sched-hub__stat {
-  background: rgba(17, 24, 39, 0.88);
-  border-color: var(--hub-border);
-  color: #e5e7eb;
-  box-shadow: none;
-}
-
-.sched-hub--platform .sched-hub__stat:hover {
-  background: rgba(30, 41, 59, 0.92);
-  border-color: rgba(148, 163, 184, 0.35);
-}
-
-.sched-hub--platform .sched-hub__stat:focus-visible {
-  outline-color: #8b5cf6;
-}
-
-.sched-hub--platform .sched-hub__stat--active {
-  border-color: #8b5cf6;
-  background: rgba(139, 92, 246, 0.14);
-  box-shadow: 0 4px 14px rgba(139, 92, 246, 0.18);
-}
-
-.sched-hub--platform .sched-hub__stat--active:hover {
-  border-color: #a78bfa;
-  background: rgba(139, 92, 246, 0.2);
-}
-
-.sched-hub--platform .sched-hub__stat-badge {
-  background: #8b5cf6;
-}
-
-.sched-hub--platform .sched-hub__stat-value {
-  color: #f3f4f6;
-}
-
-.sched-hub--platform .sched-hub__banner {
-  background: rgba(139, 92, 246, 0.12);
-  border-color: rgba(167, 139, 250, 0.35);
-  color: #c4b5fd;
-}
-
-.sched-hub--platform .sched-hub__banner-close {
-  color: #94a3b8;
-}
-
-.sched-hub--platform .sched-hub__stage {
-  background: rgba(17, 24, 39, 0.55);
-  border-color: var(--hub-border);
-  box-shadow: none;
+.sched-hub--platform .sched-hub__title-text {
+  color: #0f172a;
 }
 </style>

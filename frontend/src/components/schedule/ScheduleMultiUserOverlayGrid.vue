@@ -682,17 +682,28 @@ const cellBlocks = (dayName, hour) => {
 const overlayErrorText = computed(() => {
   if (props.hideGoogleAndTherapyNotes) return '';
   const ids = (props.userIds || []).map((x) => Number(x)).filter(Boolean);
+  const isGoogleAuthOverlayError = (msg) => {
+    const m = String(msg || '').toLowerCase();
+    return (
+      m.includes('invalid_grant')
+      || m.includes('unauthorized_client')
+      || m.includes('invalid_client')
+      || m.includes('access_denied')
+      || m.includes('not authorized')
+      || m.includes('client is unauthorized')
+    );
+  };
   const msgs = [];
   for (const uid of ids) {
     const s = summariesByUserId.value?.[uid];
     const parts = [];
     if (showGoogleBusy.value) {
       const e1 = String(s?.googleBusyError || '').trim();
-      if (e1) parts.push(`busy: ${e1}`);
+      if (e1 && !isGoogleAuthOverlayError(e1)) parts.push(`busy: ${e1}`);
     }
     if (showGoogleEvents.value) {
       const e2 = String(s?.googleEventsError || '').trim();
-      if (e2) parts.push(`events: ${e2}`);
+      if (e2 && !isGoogleAuthOverlayError(e2)) parts.push(`events: ${e2}`);
     }
     if (parts.length) msgs.push(`${props.userLabelById?.[uid] || `User ${uid}`}: ${parts.join(', ')}`);
     if (msgs.length >= 2) break;

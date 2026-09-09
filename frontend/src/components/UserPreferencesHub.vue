@@ -489,11 +489,34 @@
               <span>Bill claims under</span>
               <select v-model="prefs.claim_billing_mode" :disabled="viewOnly" @change="saveClaimBillingMode">
                 <option value="self">My NPI (rendering provider)</option>
-                <option value="billing_supervisor">Billing supervisor NPI</option>
+                <option value="billing_supervisor">Supervisor NPI</option>
+              </select>
+            </label>
+            <label
+              v-if="prefs.claim_billing_mode === 'billing_supervisor'"
+              class="field"
+              style="margin-top: 10px;"
+            >
+              <span>Which supervisor</span>
+              <select
+                v-model="prefs.claim_billing_supervisor_user_id"
+                :disabled="viewOnly || !claimBillingSupervisors.length"
+                @change="saveClaimBillingMode"
+              >
+                <option :value="0" disabled>
+                  {{ claimBillingSupervisors.length ? 'Select supervisor…' : 'No clinical supervisors assigned' }}
+                </option>
+                <option
+                  v-for="s in claimBillingSupervisors"
+                  :key="`claim-sup-${s.id}`"
+                  :value="Number(s.id)"
+                >
+                  {{ s.name }}{{ s.isPrimary ? ' (primary)' : '' }}{{ s.supervisorType === 'billing' ? ' · billing' : '' }}
+                </option>
               </select>
             </label>
             <div class="field-help">
-              Applies to ClaimMD submissions for this tenant. Rendering provider is still listed on the claim when available. Rule changes requiring every rendering provider on the claim are tracked separately.
+              Applies to ClaimMD submissions for this tenant. When you have multiple clinical supervisors, any of them can be the billing provider NPI. Rendering provider is still listed on the claim when available.
             </div>
             <p v-if="claimBillingModeMessage" class="field-help">{{ claimBillingModeMessage }}</p>
           </div>
@@ -937,6 +960,7 @@ const agencyNotificationSettings = ref({
 const sessionLockMaxMinutes = ref({ platformMax: 30, agencyMax: 30 });
 const vapidPublicKey = ref('');
 const claimBillingModeMessage = ref('');
+const claimBillingSupervisors = ref([]);
 
 const dayOptions = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 
@@ -1016,6 +1040,7 @@ const prefs = ref({
   note_aid_allow_manual_write: true,
   note_aid_autosign_after_review: false,
   claim_billing_mode: 'self',
+  claim_billing_supervisor_user_id: 0,
 
   // Session Lock (HIPAA-style)
   session_lock_enabled: false,
@@ -1676,6 +1701,7 @@ const loadClubSummitContext = async () => {
 
 const loadClaimBillingMode = async () => {
   claimBillingModeMessage.value = '';
+  claimBillingSupervisors.value = [];
   const agencyId = Number(agencyStore.currentAgency?.id || 0);
   if (!agencyId) return;
   try {
@@ -1684,6 +1710,9 @@ const loadClaimBillingMode = async () => {
       skipGlobalLoading: true
     });
     prefs.value.claim_billing_mode = data?.mode === 'billing_supervisor' ? 'billing_supervisor' : 'self';
+    claimBillingSupervisors.value = Array.isArray(data?.supervisors) ? data.supervisors : [];
+    const preferred = Number(data?.preferredSupervisorUserId || data?.billingSupervisorUserId || 0);
+    prefs.value.claim_billing_supervisor_user_id = preferred > 0 ? preferred : 0;
   } catch {
     /* column or access may be missing until migration */
   }
@@ -1697,12 +1726,22 @@ const saveClaimBillingMode = async () => {
     return;
   }
   try {
+    const payload = {
+      agencyId,
+      mode: prefs.value.claim_billing_mode
+    };
+    if (prefs.value.claim_billing_mode === 'billing_supervisor') {
+      payload.billingSupervisorUserId = Number(prefs.value.claim_billing_supervisor_user_id || 0) || null;
+    }
     const { data } = await api.patch(
       '/medical-billing/claim-billing-mode',
-      { agencyId, mode: prefs.value.claim_billing_mode },
+      payload,
       { skipGlobalLoading: true }
     );
     prefs.value.claim_billing_mode = data?.mode === 'billing_supervisor' ? 'billing_supervisor' : 'self';
+    claimBillingSupervisors.value = Array.isArray(data?.supervisors) ? data.supervisors : claimBillingSupervisors.value;
+    const preferred = Number(data?.preferredSupervisorUserId || data?.billingSupervisorUserId || 0);
+    prefs.value.claim_billing_supervisor_user_id = preferred > 0 ? preferred : 0;
     claimBillingModeMessage.value = 'Claim billing default saved.';
   } catch (e) {
     claimBillingModeMessage.value = e?.response?.data?.error?.message || 'Could not save claim billing default.';

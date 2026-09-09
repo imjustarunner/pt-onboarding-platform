@@ -10,6 +10,8 @@ import {
   listOutreachSchoolOnboarding,
   sendOutreachSchoolOnboarding,
   addOutreachSchoolNote,
+  updateOutreachSchoolNote,
+  deleteOutreachSchoolNote,
   addOutreachSchoolContact,
   updateOutreachSchoolContact,
   deleteOutreachSchoolContact,
@@ -305,6 +307,42 @@ export const addSchoolNote = async (req, res, next) => {
     const school = await addOutreachSchoolNote(agencyId, schoolId, payload, req.user?.id);
     res.status(201).json({ school });
   } catch (err) {
+    handleServiceError(res, err);
+  }
+};
+
+export const patchSchoolNote = async (req, res, next) => {
+  try {
+    const agencyId = agencyIdFrom(req);
+    const schoolId = Number(req.params.id || 0);
+    const noteId = Number(req.params.noteId || 0);
+    if (!agencyId || !schoolId || !noteId) {
+      return res.status(400).json({ error: { message: 'agencyId, school id, and noteId are required' } });
+    }
+    const payload = {
+      ...(req.body || {}),
+      body: req.body?.body || req.body?.notes
+    };
+    const school = await updateOutreachSchoolNote(agencyId, schoolId, noteId, payload, req.user?.id);
+    res.json({ school });
+  } catch (err) {
+    if (err?.status) return res.status(err.status).json({ error: { message: err.message } });
+    handleServiceError(res, err);
+  }
+};
+
+export const removeSchoolNote = async (req, res, next) => {
+  try {
+    const agencyId = agencyIdFrom(req);
+    const schoolId = Number(req.params.id || 0);
+    const noteId = Number(req.params.noteId || 0);
+    if (!agencyId || !schoolId || !noteId) {
+      return res.status(400).json({ error: { message: 'agencyId, school id, and noteId are required' } });
+    }
+    const school = await deleteOutreachSchoolNote(agencyId, schoolId, noteId, req.user?.id);
+    res.json({ school });
+  } catch (err) {
+    if (err?.status) return res.status(err.status).json({ error: { message: err.message } });
     handleServiceError(res, err);
   }
 };

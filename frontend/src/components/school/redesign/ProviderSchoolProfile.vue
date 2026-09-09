@@ -205,7 +205,45 @@
           </div>
 
           <div class="panel compact" data-tour="school-provider-caseload-summary">
-            <div class="panel-title">Slot-based caseload (summary)</div>
+            <div class="panel-title-row">
+              <div class="panel-title">Slot-based caseload (summary)</div>
+              <button
+                v-if="canSelfEditAvailability"
+                type="button"
+                class="btn btn-secondary btn-sm"
+                data-tour="school-provider-edit-availability"
+                @click="toggleSelfEdit"
+              >
+                {{ selfEditOpen ? 'Close editor' : 'Edit my days / slots' }}
+              </button>
+            </div>
+            <p v-if="canSelfEditAvailability" class="muted-small self-edit-hint">
+              Slots and hours apply immediately (admins are notified). Request another school day via additional availability (approval).
+            </p>
+            <div v-if="selfEditOpen && canSelfEditAvailability" class="self-edit-box">
+              <label class="self-edit-label">Day</label>
+              <select v-model="selfEditDay" class="self-edit-input" @change="hydrateSelfEditFromDay">
+                <option v-for="a in displayedCaseloadAssignments" :key="`edit-${a.day_of_week}`" :value="a.day_of_week">
+                  {{ a.day_of_week }}
+                </option>
+              </select>
+              <label class="self-edit-label">Slots total</label>
+              <input v-model.number="selfEditSlots" type="number" min="0" class="self-edit-input" />
+              <div class="self-edit-hours">
+                <label class="self-edit-label">Hours</label>
+                <input v-model="selfEditStart" type="time" class="self-edit-input" />
+                <span>to</span>
+                <input v-model="selfEditEnd" type="time" class="self-edit-input" />
+              </div>
+              <div class="self-edit-actions">
+                <button type="button" class="btn btn-primary btn-sm" :disabled="selfEditSaving" @click="applySelfSlotsHours">
+                  {{ selfEditSaving ? 'Saving…' : 'Apply slots / hours' }}
+                </button>
+                <a class="btn btn-secondary btn-sm" :href="additionalAvailabilityHref">Request another day</a>
+              </div>
+              <p v-if="selfEditMessage" class="muted-small">{{ selfEditMessage }}</p>
+              <p v-if="selfEditError" class="error">{{ selfEditError }}</p>
+            </div>
             <div class="summary-grid">
               <div
                 v-for="a in displayedCaseloadAssignments"
@@ -404,6 +442,81 @@ const route = useRoute();
 const router = useRouter();
 const meUserId = computed(() => authStore.user?.id || null);
 const roleNorm = computed(() => String(authStore.user?.role || '').toLowerCase());
+const isSelfProfile = computed(() => Number(props.providerUserId || 0) === Number(meUserId.value || 0));
+const canSelfEditAvailability = computed(() => {
+  if (!isSelfProfile.value || props.publicDemoMode) return false;
+  return ['provider', 'provider_plus', 'intern', 'intern_plus', 'clinical_practice_assistant'].includes(roleNorm.value);
+});
+const additionalAvailabilityHref = computed(() => {
+  const slug = String(route.params.organizationSlug || '').trim();
+  return slug ? `/${slug}/dashboard?sp=additional-availability` : '#';
+});
+
+const selfEditOpen = ref(false);
+const selfEditSaving = ref(false);
+const selfEditDay = ref('');
+const selfEditSlots = ref(0);
+const selfEditStart = ref('');
+const selfEditEnd = ref('');
+const selfEditMessage = ref('');
+const selfEditError = ref('');
+const selfEditBaseline = ref({ slots: 0, start: '', end: '' });
+
+function hydrateSelfEditFromDay() {
+  const day = String(selfEditDay.value || '');
+  const a = (displayedCaseloadAssignments.value || []).find((x) => String(x.day_of_week) === day);
+  selfEditSlots.value = Number(a?.slots_total || 0);
+  selfEditStart.value = String(a?.start_time || '').slice(0, 5);
+  selfEditEnd.value = String(a?.end_time || '').slice(0, 5);
+  selfEditBaseline.value = {
+    slots: Number(a?.slots_total || 0),
+    start: String(a?.start_time || '').slice(0, 5),
+    end: String(a?.end_time || '').slice(0, 5)
+  };
+  selfEditMessage.value = '';
+  selfEditError.value = '';
+}
+
+function toggleSelfEdit() {
+  selfEditOpen.value = !selfEditOpen.value;
+  if (selfEditOpen.value) {
+    const first = displayedCaseloadAssignments.value?.[0];
+    selfEditDay.value = String(first?.day_of_week || selectedWeekday.value || '');
+    hydrateSelfEditFromDay();
+  }
+}
+
+async function applySelfSlotsHours() {
+  if (!canSelfEditAvailability.value || !props.schoolOrganizationId) return;
+  const day = String(selfEditDay.value || '').trim();
+  if (!day) return;
+  selfEditSaving.value = true;
+  selfEditError.value = '';
+  selfEditMessage.value = '';
+  try {
+    await api.post(`/school-portal/${props.schoolOrganizationId}/provider-availability/apply`, {
+      dayOfWeek: day,
+      slotsTotal: Number(selfEditSlots.value || 0),
+      fromSlotsTotal: Number(selfEditBaseline.value.slots || 0),
+      fromStartTime: selfEditBaseline.value.start,
+      fromEndTime: selfEditBaseline.value.end,
+      startTime: String(selfEditStart.value || '').slice(0, 5),
+      endTime: String(selfEditEnd.value || '').slice(0, 5)
+    });
+    selfEditMessage.value = 'Saved. Admins were notified to acknowledge.';
+    selfEditBaseline.value = {
+      slots: Number(selfEditSlots.value || 0),
+      start: String(selfEditStart.value || '').slice(0, 5),
+      end: String(selfEditEnd.value || '').slice(0, 5)
+    };
+    await load();
+  } catch (e) {
+    selfEditError.value = e?.response?.data?.error?.message || e?.message || 'Could not save availability.';
+  } finally {
+    selfEditSaving.value = false;
+  }
+}
+
 const canViewPsychotherapyPanel = computed(() => (
   roleNorm.value === 'provider' ||
   roleNorm.value === 'admin' ||
@@ -1448,6 +1561,50 @@ label {
   font-weight: 900;
   color: var(--text-primary);
   margin-bottom: 10px;
+}
+.panel-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 6px;
+}
+.panel-title-row .panel-title { margin-bottom: 0; }
+.self-edit-hint { margin: 0 0 10px; }
+.self-edit-box {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: #f8fafc;
+}
+.self-edit-label {
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-secondary);
+}
+.self-edit-input {
+  width: 100%;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  padding: 6px 8px;
+  font: inherit;
+}
+.self-edit-hours {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.self-edit-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
 }
 .skills-meetings {
   margin-top: 10px;
