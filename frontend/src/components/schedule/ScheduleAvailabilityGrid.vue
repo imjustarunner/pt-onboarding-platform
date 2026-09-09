@@ -1764,7 +1764,7 @@
           :status-options="APPOINTMENT_EDITOR_STATUS_OPTIONS"
           :show-occurrence-count="editorShowOccurrenceCount"
           :occurrence-count-label="editorOccurrenceCountLabel"
-          :show-type="!editorIsOpenSlot"
+          :show-type="!editorIsOpenSlot && editorIsClinical"
           :show-status="!editorIsOpenSlot"
           :show-location="editorShowLocation"
           :location-address="editorLocationAddress"
@@ -1792,6 +1792,20 @@
           :service-options="editorHeaderServiceOptions"
           :services-loading="editorServicesLoading"
           :show-group-clients-button="false"
+          :show-primary-service-code="editorIsClinical && String(editorPracticeCategory || '') === 'mental_health'"
+          :primary-service-code="bookingServiceCode"
+          :primary-service-code-options="bookingPrimaryServiceCodeOptions"
+          :show-addon-service-codes="editorIsClinical && String(editorPracticeCategory || '') === 'mental_health'"
+          :addon-service-codes="editorAddonServiceCodes"
+          :addon-service-code-options="bookingPreSessionAddonOptions"
+          :show-modality="editorIsClinical"
+          :modality="editorModality"
+          :show-group-clients="editorIsClinical"
+          :group-client-options="(scheduleEventEditClientOptions.length ? scheduleEventEditClientOptions : (virtualSessionClients || [])).filter((c) => Number(c.id) !== Number(primarySessionClientId || 0))"
+          :selected-client-ids="virtualSessionSelectedClientIds"
+          :primary-client-id="Number(primarySessionClientId || 0)"
+          :group-clients-loading="virtualSessionClientsLoading"
+          :force-expand-group-clients="editorForceExpandGroupClients"
           :modality-pos-warning="editorModalityPosWarning"
           @update:dateYmd="onEditorDateYmd"
           @update:startTime="onEditorStartTime"
@@ -1806,6 +1820,10 @@
           @update:officeLocationId="onEditorOfficeLocationId"
           @update:preferredRoomId="editorPreferredRoomId = $event"
           @update:tenantServiceId="onEditorTenantServiceId"
+          @update:primaryServiceCode="bookingServiceCode = $event"
+          @update:addonServiceCodes="editorAddonServiceCodes = $event"
+          @update:modality="editorModality = $event"
+          @update:selectedClientIds="virtualSessionSelectedClientIds = $event"
           @update:recurrenceFrequency="onEditorRecurrenceFrequency"
           @update:recurrenceEndMode="onEditorRecurrenceEndMode"
           @update:recurrenceOccurrenceCount="onEditorRecurrenceOccurrenceCount"
@@ -2072,6 +2090,7 @@
             :claim-id="editorClaimId"
             :package-entitlements="editorPackageEntitlements"
             :pre-session-addons-only="Number(editorAppointmentId || editorClinicalSessionId || 0) <= 0"
+            :booking-basics-in-header="true"
             :disabled="submitting"
             @open-note="openEditorClinicalNote"
             @open-claim="openEditorClinicalClaim"
@@ -13400,17 +13419,22 @@ const editorTypeOptions = computed(() => {
   }
   if (!editorIsClinical.value) return [];
   // Overarching practice categories (Coaching, Consulting, Mental health, Tutoring).
+  // Only categories assigned to this provider (or tenant-allowed defaults) — never invent all four.
   const codes = editorPracticeCategories.value || [];
-  if (codes.length) {
-    return codes.map((code) => ({
-      value: String(code),
-      label: practiceCategoryLabel(code)
-    }));
-  }
-  return Object.keys(PRACTICE_CATEGORY_LABELS).map((code) => ({
-    value: code,
-    label: PRACTICE_CATEGORY_LABELS[code]
+  return codes.map((code) => ({
+    value: String(code),
+    label: practiceCategoryLabel(code)
   }));
+});
+
+const bookingPrimaryServiceCodeOptions = computed(() =>
+  (bookingServiceCodeOptions.value || []).filter((row) => !isAddonServiceCode(row.code, row))
+);
+const bookingPreSessionAddonOptions = computed(() => {
+  const rows = (bookingServiceCodeOptions.value || []).filter((row) => isAddonServiceCode(row.code, row));
+  const booked = Number(editorAppointmentId.value || editorClinicalSessionId.value || 0) > 0;
+  if (booked) return rows;
+  return rows.filter((row) => String(row.code || '').toUpperCase() === '99051');
 });
 
 const editorShowBillingTab = computed(() => {
@@ -13647,7 +13671,8 @@ function onScrollToGroupClients() {
   editorForceExpandGroupClients.value = true;
   editorWorkspaceTab.value = 'edit';
   requestAnimationFrame(() => {
-    const el = document.getElementById('csb-additional-clients');
+    const el = document.getElementById('ahf-group-clients')
+      || document.getElementById('csb-additional-clients');
     if (el?.scrollIntoView) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
     setTimeout(() => { editorForceExpandGroupClients.value = false; }, 400);
   });
@@ -14647,22 +14672,28 @@ async function loadEditorPracticeCategories() {
   const aid = Number(editorAgencyId.value || effectiveAgencyId.value || 0);
   const providerId = Number(bookingTargetUserId.value || props.userId || authStore.user?.id || 0);
   if (!aid || !providerId || !editorIsClinical.value) {
-    editorPracticeCategories.value = Object.keys(PRACTICE_CATEGORY_LABELS);
+    editorPracticeCategories.value = [];
     return;
   }
   try {
     const r = await api.get(`/users/${providerId}/agencies/${aid}/practice-categories`);
+    // API returns resolved effective categories (defaults ∪ grants − revokes ∩ allowed).
     const selected = Array.isArray(r.data?.categories) ? r.data.categories : [];
     const allowed = Array.isArray(r.data?.allowedCategories) ? r.data.allowedCategories : [];
-    const codes = (selected.length ? selected : allowed)
+    let codes = selected
       .map((c) => String(c || '').trim().toLowerCase())
       .filter((c) => PRACTICE_CATEGORY_LABELS[c]);
-    editorPracticeCategories.value = codes.length ? codes : Object.keys(PRACTICE_CATEGORY_LABELS);
+    if (!codes.length) {
+      // Soft fallback only when nothing resolved yet (pre-defaults tenants / misconfig).
+      if (allowed.includes('mental_health')) codes = ['mental_health'];
+      else if (allowed.length === 1) codes = [String(allowed[0])];
+    }
+    editorPracticeCategories.value = codes;
     if (!editorPracticeCategory.value || !editorPracticeCategories.value.includes(editorPracticeCategory.value)) {
       editorPracticeCategory.value = editorPracticeCategories.value[0] || '';
     }
   } catch {
-    editorPracticeCategories.value = Object.keys(PRACTICE_CATEGORY_LABELS);
+    editorPracticeCategories.value = ['mental_health'];
     if (!editorPracticeCategory.value) editorPracticeCategory.value = 'mental_health';
   }
 }

@@ -13,6 +13,12 @@ import {
   getBookingOptions
 } from '../controllers/tenantServices.controller.js';
 import {
+  getAgencyPracticeCategoryDefaults,
+  putAgencyPracticeCategoryDefaults,
+  postBulkAssignPracticeCategory,
+  postEnsurePracticeCategoryDefaults
+} from '../controllers/practiceCategories.controller.js';
+import {
   listPackages,
   createPackage,
   updatePackage,
@@ -53,6 +59,10 @@ router.use(authenticate, requireActiveStatus);
 router.get('/business-type-catalog', listBusinessTypeCatalog);
 router.get('/agencies/:agencyId/business-types', listAgencyBusinessTypes);
 router.put('/agencies/:agencyId/business-types', putAgencyBusinessTypes);
+router.get('/agencies/:agencyId/practice-category-defaults', getAgencyPracticeCategoryDefaults);
+router.put('/agencies/:agencyId/practice-category-defaults', putAgencyPracticeCategoryDefaults);
+router.post('/agencies/:agencyId/practice-category-defaults/ensure', postEnsurePracticeCategoryDefaults);
+router.post('/agencies/:agencyId/practice-categories/:category/assign-bulk', postBulkAssignPracticeCategory);
 router.get('/agencies/:agencyId/capabilities', getAgencyCapabilities);
 router.get('/agencies/:agencyId/tenant-services', listTenantServices);
 router.post('/agencies/:agencyId/tenant-services', createTenantService);

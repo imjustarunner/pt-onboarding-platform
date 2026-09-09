@@ -4704,7 +4704,9 @@ const syncFromQuery = () => {
       }
     }
 
-    const qScheduleMode = String(route.query?.scheduleMode || '').toLowerCase();
+    // /my-schedule hub dropdown uses ?scheduleView=…; dashboard also uses ?scheduleMode=…
+    const qScheduleView = String(route.query?.scheduleView || '').toLowerCase();
+    const qScheduleMode = String(route.query?.scheduleMode || qScheduleView || '').toLowerCase();
     if (qScheduleMode === 'employees' && canPickEmployeeSchedule.value) {
       scheduleViewMode.value = 'employees';
       myScheduleViewAsUserId.value = 0;
@@ -4713,6 +4715,11 @@ const syncFromQuery = () => {
       if (Number.isFinite(qEmp) && qEmp > 0) {
         selectedEmployeeDirectoryId.value = qEmp;
       }
+      return;
+    }
+    if (qScheduleMode === 'schedule_list' && canPickEmployeeSchedule.value) {
+      scheduleViewMode.value = 'schedule_list';
+      myScheduleViewAsUserId.value = 0;
       return;
     }
     if (qScheduleMode === 'supervisee') {
@@ -5197,7 +5204,7 @@ watch(() => [props.previewStatus, props.previewData], () => {
   }
 }, { deep: true });
 
-watch(() => [route.query?.tab, route.query?.my, route.query?.scheduleMode, route.query?.superviseeId, route.query?.employeeId, route.query?.scheduleViewAs], () => {
+watch(() => [route.query?.tab, route.query?.my, route.query?.scheduleMode, route.query?.scheduleView, route.query?.superviseeId, route.query?.employeeId, route.query?.scheduleViewAs], () => {
   syncFromQuery();
 });
 
@@ -5304,6 +5311,7 @@ watch([activeTab, scheduleViewMode, selectedSuperviseeId, selectedEmployeeDirect
   if (props.previewMode) return;
   if (activeTab.value !== 'my_schedule') return;
   const nextQuery = { ...route.query, tab: 'my_schedule' };
+  delete nextQuery.scheduleView; // prefer scheduleMode once on dashboard
   if (scheduleViewMode.value === 'employees') {
     nextQuery.scheduleMode = 'employees';
     const eid = Number(selectedEmployeeDirectoryId.value || 0);
@@ -5318,6 +5326,11 @@ watch([activeTab, scheduleViewMode, selectedSuperviseeId, selectedEmployeeDirect
       : 'all';
     delete nextQuery.scheduleViewAs;
     delete nextQuery.employeeId;
+  } else if (scheduleViewMode.value === 'schedule_list') {
+    nextQuery.scheduleMode = 'schedule_list';
+    delete nextQuery.superviseeId;
+    delete nextQuery.employeeId;
+    delete nextQuery.scheduleViewAs;
   } else {
     delete nextQuery.scheduleMode;
     delete nextQuery.superviseeId;

@@ -28,6 +28,49 @@
         </button>
       </section>
 
+      <section v-if="allowedPracticeCategories.length" class="tsa-section">
+        <h4>Practice category defaults</h4>
+        <p class="hint">
+          Set who gets each booking type by default (providers, supervisors, CPA, etc.).
+          You can still add or remove types per person on their Account Dashboard — without replacing their whole set.
+        </p>
+        <div v-for="cat in allowedPracticeCategories" :key="`pcd-${cat}`" class="tsa-pcd-row">
+          <div class="tsa-pcd-cat">{{ labelPracticeCategory(cat) }}</div>
+          <div class="tsa-pcd-audiences">
+            <label
+              v-for="aud in practiceAudienceKeys"
+              :key="`pcd-${cat}-${aud}`"
+              class="tsa-chip"
+            >
+              <input
+                type="checkbox"
+                :checked="hasPracticeDefault(cat, aud)"
+                @change="togglePracticeDefault(cat, aud, $event.target.checked)"
+              />
+              <span>{{ practiceAudienceLabels[aud] || aud }}</span>
+            </label>
+          </div>
+          <button
+            type="button"
+            class="btn btn-secondary btn-sm"
+            :disabled="bulkAssigningCategory === cat"
+            title="Materialize grants for everyone matching the checked audiences"
+            @click="bulkAssignCategory(cat)"
+          >
+            {{ bulkAssigningCategory === cat ? 'Assigning…' : 'Assign to checked groups now' }}
+          </button>
+        </div>
+        <div class="tsa-actions" style="justify-content: flex-start; margin-top: 10px;">
+          <button type="button" class="btn btn-secondary btn-sm" :disabled="savingPracticeDefaults" @click="savePracticeDefaults">
+            {{ savingPracticeDefaults ? 'Saving…' : 'Save practice defaults' }}
+          </button>
+          <button type="button" class="btn btn-secondary btn-sm" :disabled="savingPracticeDefaults" @click="seedPracticeDefaults">
+            Seed providers for enabled types
+          </button>
+          <span v-if="practiceDefaultsSaved" class="muted" style="align-self: center;">Saved.</span>
+        </div>
+      </section>
+
       <section class="tsa-section">
         <div class="tsa-row">
           <h4>Services by business type</h4>
@@ -287,6 +330,29 @@ const editing = ref(false);
 const editingPackage = ref(false);
 const editingPolicy = ref(false);
 const savingTypes = ref(false);
+const practiceDefaults = ref([]);
+const practiceAudienceKeys = ref([
+  'providers',
+  'provider',
+  'provider_plus',
+  'supervisors',
+  'clinical_practice_assistant',
+  'all_clinical'
+]);
+const practiceAudienceLabels = ref({
+  providers: 'All providers',
+  provider: 'Provider',
+  provider_plus: 'Provider+',
+  supervisors: 'Supervisors',
+  clinical_practice_assistant: 'CPA',
+  all_clinical: 'All clinical'
+});
+const allowedPracticeCategories = ref([]);
+const savingPracticeDefaults = ref(false);
+const practiceDefaultsSaved = ref(false);
+const bulkAssigningCategory = ref('');
+const draftPracticeDefaults = ref([]); // [{ category, audienceKey, isEnabled }]
+
 const savingService = ref(false);
 const savingStaff = ref(false);
 const savingPackage = ref(false);
@@ -352,6 +418,137 @@ const enabledTypesOrAll = computed(() => {
 
 const labelType = (code) => String(code || '').replace(/_/g, ' ');
 
+const labelPracticeCategory = (code) => {
+  const map = {
+    mental_health: 'Mental health',
+    tutoring: 'Tutoring',
+    coaching: 'Coaching',
+    consulting: 'Consulting'
+  };
+  return map[code] || labelType(code);
+};
+
+const practiceDefaultKeySet = computed(() => new Set(
+  (draftPracticeDefaults.value || [])
+    .filter((d) => d.isEnabled !== false)
+    .map((d) => `${d.category}::${d.audienceKey}`)
+));
+
+const hasPracticeDefault = (cat, aud) => practiceDefaultKeySet.value.has(`${cat}::${aud}`);
+
+const togglePracticeDefault = (cat, aud, on) => {
+  const list = [...(draftPracticeDefaults.value || [])];
+  const idx = list.findIndex((d) => d.category === cat && d.audienceKey === aud);
+  if (on) {
+    if (idx >= 0) list[idx] = { ...list[idx], isEnabled: true };
+    else list.push({ category: cat, audienceKey: aud, isEnabled: true });
+  } else if (idx >= 0) {
+    list[idx] = { ...list[idx], isEnabled: false };
+  }
+  draftPracticeDefaults.value = list;
+  practiceDefaultsSaved.value = false;
+};
+
+const applyPracticeDefaultsPayload = (data) => {
+  practiceDefaults.value = data?.defaults || [];
+  allowedPracticeCategories.value = Array.isArray(data?.allowedCategories) ? data.allowedCategories : [];
+  if (Array.isArray(data?.audienceKeys) && data.audienceKeys.length) {
+    practiceAudienceKeys.value = data.audienceKeys;
+  }
+  if (data?.audienceLabels && typeof data.audienceLabels === 'object') {
+    practiceAudienceLabels.value = { ...practiceAudienceLabels.value, ...data.audienceLabels };
+  }
+  draftPracticeDefaults.value = (data?.defaults || [])
+    .filter((d) => d.isEnabled !== false)
+    .map((d) => ({
+      category: d.category,
+      audienceKey: d.audienceKey,
+      isEnabled: true
+    }));
+};
+
+const loadPracticeDefaults = async (aid) => {
+  try {
+    const r = await api.get(`/tenant-booking/agencies/${aid}/practice-category-defaults`, {
+      skipGlobalLoading: true
+    });
+    applyPracticeDefaultsPayload(r.data || {});
+  } catch {
+    practiceDefaults.value = [];
+    allowedPracticeCategories.value = Array.from(enabledTypeSet.value).filter((c) =>
+      ['mental_health', 'tutoring', 'coaching', 'consulting'].includes(c)
+    );
+    draftPracticeDefaults.value = [];
+  }
+};
+
+const savePracticeDefaults = async () => {
+  const aid = Number(props.agencyId || 0);
+  if (!aid) return;
+  savingPracticeDefaults.value = true;
+  practiceDefaultsSaved.value = false;
+  error.value = '';
+  try {
+    const defaults = (draftPracticeDefaults.value || [])
+      .filter((d) => d.isEnabled !== false)
+      .map((d) => ({ category: d.category, audienceKey: d.audienceKey, isEnabled: true }));
+    const r = await api.put(`/tenant-booking/agencies/${aid}/practice-category-defaults`, { defaults });
+    applyPracticeDefaultsPayload(r.data || {});
+    practiceDefaultsSaved.value = true;
+  } catch (e) {
+    error.value = e?.response?.data?.error?.message || e?.message || 'Failed to save practice defaults';
+  } finally {
+    savingPracticeDefaults.value = false;
+  }
+};
+
+const seedPracticeDefaults = async () => {
+  const aid = Number(props.agencyId || 0);
+  if (!aid) return;
+  savingPracticeDefaults.value = true;
+  error.value = '';
+  try {
+    const defaults = (draftPracticeDefaults.value || [])
+      .filter((d) => d.isEnabled !== false)
+      .map((d) => ({ category: d.category, audienceKey: d.audienceKey, isEnabled: true }));
+    const r = await api.put(`/tenant-booking/agencies/${aid}/practice-category-defaults`, {
+      defaults,
+      seedMissing: true
+    });
+    applyPracticeDefaultsPayload(r.data || {});
+    practiceDefaultsSaved.value = true;
+  } catch (e) {
+    error.value = e?.response?.data?.error?.message || e?.message || 'Failed to seed practice defaults';
+  } finally {
+    savingPracticeDefaults.value = false;
+  }
+};
+
+const bulkAssignCategory = async (cat) => {
+  const aid = Number(props.agencyId || 0);
+  if (!aid || !cat) return;
+  const audiences = (draftPracticeDefaults.value || [])
+    .filter((d) => d.category === cat && d.isEnabled !== false)
+    .map((d) => d.audienceKey);
+  if (!audiences.length) {
+    error.value = `Check at least one audience for ${labelPracticeCategory(cat)} before assigning.`;
+    return;
+  }
+  bulkAssigningCategory.value = cat;
+  error.value = '';
+  try {
+    for (const aud of audiences) {
+      await api.post(`/tenant-booking/agencies/${aid}/practice-categories/${cat}/assign-bulk`, {
+        audienceKey: aud
+      });
+    }
+  } catch (e) {
+    error.value = e?.response?.data?.error?.message || e?.message || 'Bulk assign failed';
+  } finally {
+    bulkAssigningCategory.value = '';
+  }
+};
+
 const servicesForType = (code) =>
   (services.value || []).filter((s) => String(s.businessType) === String(code));
 
@@ -409,6 +606,7 @@ const load = async () => {
     packages.value = pkg.data?.packages || [];
     policies.value = pol.data?.policies || [];
     medicaidStrikeEnabled.value = !!strike.data?.medicaidStrikePolicyEnabled;
+    await loadPracticeDefaults(aid);
   } catch (e) {
     error.value = e?.response?.data?.error?.message || e?.message || 'Failed to load catalog';
   } finally {
@@ -686,6 +884,27 @@ onMounted(() => { void load(); });
 }
 .hint { color: #64748b; font-size: 0.85rem; margin: 0; }
 .hint.audit { margin-top: 6px; }
+.tsa-pcd-row {
+  display: grid;
+  grid-template-columns: 140px 1fr auto;
+  gap: 10px;
+  align-items: start;
+  padding: 10px 0;
+  border-top: 1px solid #eef2f7;
+}
+.tsa-pcd-cat {
+  font-weight: 700;
+  font-size: 0.9rem;
+  padding-top: 4px;
+}
+.tsa-pcd-audiences {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+@media (max-width: 900px) {
+  .tsa-pcd-row { grid-template-columns: 1fr; }
+}
 .muted { color: #64748b; }
 .error { color: #b91c1c; }
 .input { border: 1px solid #d1d5db; border-radius: 6px; padding: 6px 8px; }

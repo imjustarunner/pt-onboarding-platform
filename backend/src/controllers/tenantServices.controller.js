@@ -9,6 +9,7 @@ import {
   getCapabilitiesForAgency
 } from '../services/businessTypeCapabilities.service.js';
 import { ensureTenantServiceSuitesForAgency } from '../services/tenantServiceSuiteDefaults.service.js';
+import { ensureDefaultsForEnabledBusinessTypes } from '../services/practiceCategories.service.js';
 
 async function assertAgencyAccess(req, agencyId) {
   const aid = Number(agencyId || 0);
@@ -80,11 +81,13 @@ export const putAgencyBusinessTypes = async (req, res, next) => {
     const suites = await ensureTenantServiceSuitesForAgency(agencyId, {
       businessTypes: enabled.map((t) => t.businessType)
     });
+    const practiceCategoryDefaults = await ensureDefaultsForEnabledBusinessTypes(agencyId).catch(() => null);
     res.json({
       ok: true,
       businessTypes: rows,
       capabilities: buildCapabilitiesPayload(enabled),
-      suites
+      suites,
+      practiceCategoryDefaults
     });
   } catch (e) {
     next(e);

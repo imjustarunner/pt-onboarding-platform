@@ -14,6 +14,11 @@ class UserAgencyPracticeCategory {
     return PRACTICE_CATEGORY_CODES.includes(t) ? t : null;
   }
 
+  static normalizeEffect(raw) {
+    const t = String(raw || '').trim().toLowerCase();
+    return t === 'revoke' ? 'revoke' : 'grant';
+  }
+
   static mapRow(r) {
     if (!r) return null;
     return {
@@ -21,7 +26,8 @@ class UserAgencyPracticeCategory {
       agencyId: Number(r.agency_id),
       userId: Number(r.user_id),
       category: String(r.category),
-      isActive: Number(r.is_active) === 1
+      isActive: Number(r.is_active) === 1,
+      effect: this.normalizeEffect(r.effect)
     };
   }
 
@@ -30,7 +36,7 @@ class UserAgencyPracticeCategory {
     const uid = Number(userId || 0);
     if (!aid || !uid) return [];
     const [rows] = await pool.execute(
-      `SELECT id, agency_id, user_id, category, is_active
+      `SELECT id, agency_id, user_id, category, is_active, effect
        FROM user_agency_practice_categories
        WHERE agency_id = ? AND user_id = ?
          ${includeInactive ? '' : 'AND is_active = 1'}
@@ -38,6 +44,60 @@ class UserAgencyPracticeCategory {
       [aid, uid]
     );
     return (rows || []).map((r) => this.mapRow(r));
+  }
+
+  /** Active grant category codes only (legacy-compatible list). */
+  static async listGrantedCategories(agencyId, userId) {
+    const rows = await this.listForUserAgency(agencyId, userId);
+    return rows
+      .filter((r) => r.effect === 'grant')
+      .map((r) => r.category);
+  }
+
+  static async listRevokedCategories(agencyId, userId) {
+    const rows = await this.listForUserAgency(agencyId, userId);
+    return rows
+      .filter((r) => r.effect === 'revoke')
+      .map((r) => r.category);
+  }
+
+  /**
+   * Incremental upsert — does not deactivate other categories.
+   * @param {{ agencyId: number, userId: number, category: string, effect?: 'grant'|'revoke', isActive?: boolean }}
+   */
+  static async upsertSingle({ agencyId, userId, category, effect = 'grant', isActive = true }) {
+    const aid = Number(agencyId || 0);
+    const uid = Number(userId || 0);
+    const code = this.normalizeCategory(category);
+    const eff = this.normalizeEffect(effect);
+    if (!aid || !uid || !code) throw new Error('Invalid agencyId, userId, or category');
+
+    await pool.execute(
+      `INSERT INTO user_agency_practice_categories
+         (agency_id, user_id, category, is_active, effect)
+       VALUES (?, ?, ?, ?, ?)
+       ON DUPLICATE KEY UPDATE
+         is_active = VALUES(is_active),
+         effect = VALUES(effect),
+         updated_at = CURRENT_TIMESTAMP`,
+      [aid, uid, code, isActive ? 1 : 0, eff]
+    );
+    return this.listForUserAgency(aid, uid);
+  }
+
+  /** Soft-remove a single override row (deactivate). */
+  static async removeSingle({ agencyId, userId, category }) {
+    const aid = Number(agencyId || 0);
+    const uid = Number(userId || 0);
+    const code = this.normalizeCategory(category);
+    if (!aid || !uid || !code) throw new Error('Invalid agencyId, userId, or category');
+    await pool.execute(
+      `UPDATE user_agency_practice_categories
+       SET is_active = 0, updated_at = CURRENT_TIMESTAMP
+       WHERE agency_id = ? AND user_id = ? AND category = ?`,
+      [aid, uid, code]
+    );
+    return this.listForUserAgency(aid, uid);
   }
 
   static async replaceForUserAgency(agencyId, userId, categories = []) {
@@ -65,9 +125,13 @@ class UserAgencyPracticeCategory {
       );
       for (const category of wanted) {
         await conn.execute(
-          `INSERT INTO user_agency_practice_categories (agency_id, user_id, category, is_active)
-           VALUES (?, ?, ?, 1)
-           ON DUPLICATE KEY UPDATE is_active = 1, updated_at = CURRENT_TIMESTAMP`,
+          `INSERT INTO user_agency_practice_categories
+             (agency_id, user_id, category, is_active, effect)
+           VALUES (?, ?, ?, 1, 'grant')
+           ON DUPLICATE KEY UPDATE
+             is_active = 1,
+             effect = 'grant',
+             updated_at = CURRENT_TIMESTAMP`,
           [aid, uid, category]
         );
       }

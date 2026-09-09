@@ -76,11 +76,11 @@
         </div>
       </div>
 
-      <div v-if="showType || showStatus || showLocation || showRoom || showService || showParticipant || showGroupClientsButton || showOccurrenceCount || showBookedUntil" class="ahf-details">
+      <div v-if="showType || showStatus || showLocation || showRoom || showService || showPrimaryServiceCode || showModality || showParticipant || showGroupClientsButton || showGroupClients || showOccurrenceCount || showBookedUntil" class="ahf-details">
         <div v-if="showType" class="ahf-field">
           <span class="ahf-label">Type</span>
           <select
-            v-if="typeOptions.length"
+            v-if="typeOptions.length > 1"
             class="ahf-input"
             :value="appointmentType"
             :disabled="disabled || !canEditType"
@@ -90,7 +90,7 @@
               {{ opt.label }}
             </option>
           </select>
-          <span v-else class="ahf-value">{{ appointmentTypeLabel || appointmentType || '—' }}</span>
+          <span v-else class="ahf-value">{{ singleTypeLabel || appointmentTypeLabel || appointmentType || '—' }}</span>
         </div>
 
         <div v-if="showService" class="ahf-field ahf-field--grow">
@@ -112,6 +112,49 @@
           </select>
         </div>
 
+        <div v-if="showPrimaryServiceCode" class="ahf-field ahf-field--grow">
+          <span class="ahf-label">Service code <span class="ahf-req">*</span></span>
+          <select
+            class="ahf-input"
+            :value="primaryServiceCode"
+            :disabled="disabled || !primaryServiceCodeOptions.length"
+            @change="emit('update:primaryServiceCode', String($event.target.value || ''))"
+          >
+            <option value="">Select service code…</option>
+            <option
+              v-for="opt in primaryServiceCodeOptions"
+              :key="`ahf-psc-${opt.code}`"
+              :value="opt.code"
+            >
+              {{ formatCodeLabel(opt) }}
+            </option>
+          </select>
+        </div>
+
+        <div v-if="showModality" class="ahf-field">
+          <span class="ahf-label">Modality</span>
+          <div class="ahf-modality">
+            <button
+              type="button"
+              class="ahf-mod-chip"
+              :class="{ on: modality === 'TELEHEALTH' }"
+              :disabled="disabled"
+              @click="emit('update:modality', 'TELEHEALTH')"
+            >
+              Virtual
+            </button>
+            <button
+              type="button"
+              class="ahf-mod-chip"
+              :class="{ on: modality === 'IN_PERSON' }"
+              :disabled="disabled"
+              @click="emit('update:modality', 'IN_PERSON')"
+            >
+              In-person
+            </button>
+          </div>
+        </div>
+
         <div
           v-if="showParticipant"
           class="ahf-field"
@@ -123,7 +166,7 @@
           </slot>
         </div>
 
-        <div v-if="showGroupClientsButton" class="ahf-field ahf-field--action">
+        <div v-if="showGroupClientsButton && !showGroupClients" class="ahf-field ahf-field--action">
           <span class="ahf-label">Group</span>
           <button
             type="button"
@@ -213,6 +256,57 @@
             @change="emit('update:bookedUntil', String($event.target.value || ''))"
           />
           <span v-else class="ahf-value">{{ bookedUntilLabel || bookedUntil || '—' }}</span>
+        </div>
+
+        <div v-if="showAddonServiceCodes && addonServiceCodeOptions.length" class="ahf-field ahf-field--full">
+          <span class="ahf-label">Add-ons</span>
+          <div class="ahf-addon-list">
+            <label
+              v-for="opt in addonServiceCodeOptions"
+              :key="`ahf-addon-${opt.code}`"
+              class="ahf-check"
+            >
+              <input
+                type="checkbox"
+                :checked="addonCodeSet.has(String(opt.code || '').toUpperCase())"
+                :disabled="disabled"
+                @change="toggleAddon(opt.code)"
+              />
+              <span>{{ formatCodeLabel(opt) }}</span>
+            </label>
+          </div>
+        </div>
+
+        <div v-if="showGroupClients" class="ahf-field ahf-field--full" id="ahf-group-clients">
+          <div class="ahf-group-head">
+            <span class="ahf-label">Group clients</span>
+            <button
+              type="button"
+              class="ahf-action-btn"
+              :disabled="disabled"
+              @click="groupExpanded = !groupExpanded"
+            >
+              {{ groupExpanded ? 'Hide' : 'Add clients' }}
+            </button>
+          </div>
+          <p class="ahf-hint">Primary client is above. Add more for a group session.</p>
+          <div v-if="groupExpanded" class="ahf-group-list">
+            <label
+              v-for="c in groupClientOptions"
+              :key="`ahf-gc-${c.id}`"
+              class="ahf-check"
+            >
+              <input
+                type="checkbox"
+                :checked="selectedClientIdSet.has(Number(c.id))"
+                :disabled="disabled || groupClientsLoading"
+                @change="toggleGroupClient(Number(c.id))"
+              />
+              <span>{{ c.displayName || c.fullName || `Client #${c.id}` }}</span>
+            </label>
+            <p v-if="groupClientsLoading" class="ahf-hint">Loading clients…</p>
+            <p v-else-if="!groupClientOptions.length" class="ahf-hint">No other assigned clients to add.</p>
+          </div>
         </div>
       </div>
 
@@ -347,7 +441,7 @@
 </template>
 
 <script setup>
-import { ref } from 'vue';
+import { computed, ref, watch } from 'vue';
 
 const props = defineProps({
   dateYmd: { type: String, default: '' },
@@ -407,7 +501,21 @@ const props = defineProps({
   servicesLoading: { type: Boolean, default: false },
   showGroupClientsButton: { type: Boolean, default: false },
   /** Soft warning (e.g. in-person + telehealth POS) — does not block save. */
-  modalityPosWarning: { type: String, default: '' }
+  modalityPosWarning: { type: String, default: '' },
+  showPrimaryServiceCode: { type: Boolean, default: false },
+  primaryServiceCode: { type: String, default: '' },
+  primaryServiceCodeOptions: { type: Array, default: () => [] },
+  showAddonServiceCodes: { type: Boolean, default: false },
+  addonServiceCodes: { type: Array, default: () => [] },
+  addonServiceCodeOptions: { type: Array, default: () => [] },
+  showModality: { type: Boolean, default: false },
+  modality: { type: String, default: 'TELEHEALTH' },
+  showGroupClients: { type: Boolean, default: false },
+  groupClientOptions: { type: Array, default: () => [] },
+  selectedClientIds: { type: Array, default: () => [] },
+  primaryClientId: { type: Number, default: 0 },
+  groupClientsLoading: { type: Boolean, default: false },
+  forceExpandGroupClients: { type: Boolean, default: false }
 });
 
 const emit = defineEmits([
@@ -424,11 +532,74 @@ const emit = defineEmits([
   'update:officeLocationId',
   'update:preferredRoomId',
   'update:tenantServiceId',
+  'update:primaryServiceCode',
+  'update:addonServiceCodes',
+  'update:modality',
+  'update:selectedClientIds',
   'request-office',
   'cancel-office-request',
   'scroll-to-group-clients',
   'open-room-photos'
 ]);
+
+const groupExpanded = ref(false);
+
+watch(
+  () => props.forceExpandGroupClients,
+  (v) => {
+    if (v) groupExpanded.value = true;
+  }
+);
+watch(
+  () => (props.selectedClientIds || []).length,
+  (n) => {
+    if (n > 1) groupExpanded.value = true;
+  }
+);
+
+const singleTypeLabel = computed(() => {
+  if ((props.typeOptions || []).length === 1) return props.typeOptions[0].label;
+  return '';
+});
+
+const addonCodeSet = computed(
+  () => new Set((props.addonServiceCodes || []).map((c) => String(c || '').toUpperCase()).filter(Boolean))
+);
+const selectedClientIdSet = computed(
+  () => new Set((props.selectedClientIds || []).map((n) => Number(n)).filter((n) => n > 0))
+);
+
+function formatCodeLabel(opt) {
+  const code = String(opt?.code || '').trim().toUpperCase();
+  let label = String(opt?.label || '').trim();
+  if (!code) return label || '';
+  if (!label) return code;
+  const upper = label.toUpperCase();
+  if (upper === code || upper.startsWith(`${code} `) || upper.startsWith(`${code}—`) || upper.startsWith(`${code} -`)) {
+    return label;
+  }
+  return `${code} — ${label}`;
+}
+
+function toggleAddon(code) {
+  const c = String(code || '').toUpperCase();
+  if (!c) return;
+  const next = new Set(addonCodeSet.value);
+  if (next.has(c)) next.delete(c);
+  else next.add(c);
+  emit('update:addonServiceCodes', Array.from(next.values()));
+}
+
+function toggleGroupClient(id) {
+  const n = Number(id || 0);
+  if (!n) return;
+  const primary = Number(props.primaryClientId || 0);
+  const next = new Set(selectedClientIdSet.value);
+  if (primary > 0) next.add(primary);
+  if (next.has(n) && n !== primary) next.delete(n);
+  else next.add(n);
+  emit('update:selectedClientIds', Array.from(next.values()));
+}
 
 const roomPhotoPreviewUrl = ref('');
 
@@ -555,6 +726,53 @@ function nudgeEnd(deltaMin) {
   gap: 12px 14px;
   padding: 14px 16px 16px;
   background: #eef4fa;
+}
+.ahf-field--full {
+  flex: 1 1 100%;
+}
+.ahf-req { color: #b91c1c; }
+.ahf-modality {
+  display: flex;
+  gap: 6px;
+}
+.ahf-mod-chip {
+  border: 1px solid #cbd5e1;
+  background: #fff;
+  border-radius: 999px;
+  padding: 6px 12px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.ahf-mod-chip.on {
+  background: #0f172a;
+  border-color: #0f172a;
+  color: #fff;
+}
+.ahf-addon-list,
+.ahf-group-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 4px;
+}
+.ahf-check {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 0.86rem;
+  color: #0f172a;
+}
+.ahf-group-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.ahf-hint {
+  margin: 4px 0 0;
+  font-size: 0.78rem;
+  color: #64748b;
 }
 .ahf-field {
   display: flex;

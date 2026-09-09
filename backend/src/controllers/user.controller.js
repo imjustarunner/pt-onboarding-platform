@@ -7861,6 +7861,8 @@ export const listUserVirtualSessionClients = async (req, res, next) => {
         );
         clientRows = rows || [];
       } else {
+        // All clients assigned to this provider (primary provider_id or active CPA),
+        // school or clinical — tenant access is already gated above.
         const [rows] = await pool.execute(
           `SELECT DISTINCT
              c.id,
@@ -7874,19 +7876,17 @@ export const listUserVirtualSessionClients = async (req, res, next) => {
            LEFT JOIN client_statuses cs ON cs.id = c.client_status_id
            WHERE UPPER(COALESCE(c.status, '')) <> 'ARCHIVED'
              AND (
-               (c.agency_id = ? AND c.provider_id = ?)
+               c.provider_id = ?
                OR EXISTS (
                  SELECT 1
                  FROM client_provider_assignments cpa
-                 JOIN clients cx ON cx.id = cpa.client_id
                  WHERE cpa.client_id = c.id
                    AND cpa.provider_user_id = ?
                    AND cpa.is_active = TRUE
-                   AND cx.agency_id = ?
                )
              )
            ORDER BY COALESCE(NULLIF(TRIM(c.full_name), ''), c.initials, c.identifier_code) ASC, c.id ASC`,
-          [agencyId, userId, userId, agencyId]
+          [userId, userId]
         );
         clientRows = rows || [];
       }
@@ -7926,10 +7926,9 @@ export const listUserVirtualSessionClients = async (req, res, next) => {
              NULL AS client_status_label
            FROM clients c
            WHERE UPPER(COALESCE(c.status, '')) <> 'ARCHIVED'
-             AND c.agency_id = ?
              AND c.provider_id = ?
            ORDER BY COALESCE(NULLIF(TRIM(c.full_name), ''), c.initials, c.identifier_code) ASC, c.id ASC`,
-          [agencyId, userId]
+          [userId]
         );
         clientRows = rows || [];
       }

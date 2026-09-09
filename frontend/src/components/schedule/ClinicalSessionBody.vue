@@ -1,6 +1,6 @@
 <template>
   <div class="csb" data-testid="clinical-session-body">
-    <div class="csb-row">
+    <div v-if="!bookingBasicsInHeader" class="csb-row">
       <label class="csb-label">Modality</label>
       <div class="csb-toggles">
         <button
@@ -25,6 +25,7 @@
     </div>
 
     <div
+      v-if="!bookingBasicsInHeader"
       id="csb-additional-clients"
       class="csb-group"
       data-testid="csb-additional-clients"
@@ -86,7 +87,7 @@
       </div>
     </div>
 
-    <div v-if="selectedClientIds.length > 1" class="csb-row">
+    <div v-if="!bookingBasicsInHeader && selectedClientIds.length > 1" class="csb-row">
       <label class="csb-label">Co-provider (optional)</label>
       <select
         class="csb-input"
@@ -108,7 +109,7 @@
       </p>
     </div>
 
-    <div v-if="showMedicalBillingCodes" class="csb-billing">
+    <div v-if="!bookingBasicsInHeader && showMedicalBillingCodes" class="csb-billing">
       <div class="csb-row">
         <label class="csb-label">Primary service code <span class="req">*</span></label>
         <select
@@ -146,6 +147,25 @@
           </p>
         </div>
       </div>
+    </div>
+
+    <div v-if="bookingBasicsInHeader && selectedClientIds.length > 1" class="csb-row">
+      <label class="csb-label">Co-provider (optional)</label>
+      <select
+        class="csb-input"
+        :value="coProviderUserId"
+        :disabled="disabled || coProvidersLoading"
+        @change="emit('update:coProviderUserId', Number($event.target.value || 0))"
+      >
+        <option :value="0">None — primary provider only</option>
+        <option
+          v-for="p in coProviderOptions"
+          :key="`csb-coprov-h-${p.id}`"
+          :value="Number(p.id)"
+        >
+          {{ p.label }}
+        </option>
+      </select>
     </div>
 
     <div v-if="showClinicalTools" class="csb-tools">
@@ -223,7 +243,9 @@ const props = defineProps({
   /** When true, expand the additional-clients panel (e.g. after scroll-to button). */
   forceExpandClients: { type: Boolean, default: false },
   /** Before the session exists, only after-hours 99051 may be selected as an add-on. */
-  preSessionAddonsOnly: { type: Boolean, default: true }
+  preSessionAddonsOnly: { type: Boolean, default: true },
+  /** When true, modality / service codes / group clients live in the appointment header. */
+  bookingBasicsInHeader: { type: Boolean, default: false }
 });
 
 const emit = defineEmits([

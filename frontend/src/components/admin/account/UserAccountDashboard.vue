@@ -203,7 +203,7 @@
                 >
                   <label>Practice categories</label>
                   <p v-if="practiceCategoryAgencyOptions.length <= 1" class="acct-field-hint acct-field-hint--tight">
-                    For {{ practiceCategoryAgencyName }} — choose what this provider delivers.
+                    For {{ practiceCategoryAgencyName }} — add or remove types for this person (tenant defaults still apply unless revoked).
                   </p>
                   <div class="acct-practice-cats">
                     <label
@@ -218,6 +218,21 @@
                         @change="togglePracticeCategory(opt.code, $event.target.checked)"
                       />
                       <span>{{ opt.label }}</span>
+                      <span
+                        v-if="practiceCategorySources[opt.code] === 'default'"
+                        class="acct-practice-cat-src"
+                        title="From tenant audience default"
+                      >default</span>
+                      <span
+                        v-else-if="practiceCategorySources[opt.code] === 'grant'"
+                        class="acct-practice-cat-src"
+                        title="Explicitly assigned"
+                      >assigned</span>
+                      <span
+                        v-else-if="practiceCategorySources[opt.code] === 'revoked'"
+                        class="acct-practice-cat-src acct-practice-cat-src--revoked"
+                        title="Removed for this user (overrides default)"
+                      >removed</span>
                     </label>
                   </div>
                   <p v-if="practiceCategoriesError" class="acct-field-error">{{ practiceCategoriesError }}</p>
@@ -683,6 +698,7 @@ const isProviderRole = computed(() => {
 
 const selectedPracticeCategories = ref([]);
 const allowedPracticeCategories = ref([]);
+const practiceCategorySources = ref({});
 const practiceCategoriesSaving = ref(false);
 const practiceCategoriesError = ref('');
 const practiceCategoriesSaved = ref(false);
@@ -709,6 +725,7 @@ async function loadPracticeCategories() {
   if (!uid || !aid || !api.value || !isProviderRole.value) {
     selectedPracticeCategories.value = [];
     allowedPracticeCategories.value = [];
+    practiceCategorySources.value = {};
     return;
   }
   try {
@@ -719,9 +736,12 @@ async function loadPracticeCategories() {
     allowedPracticeCategories.value = Array.isArray(res?.data?.allowedCategories)
       ? [...res.data.allowedCategories]
       : [];
+    practiceCategorySources.value =
+      res?.data?.sources && typeof res.data.sources === 'object' ? { ...res.data.sources } : {};
   } catch (e) {
     selectedPracticeCategories.value = [];
     allowedPracticeCategories.value = [];
+    practiceCategorySources.value = {};
     practiceCategoriesError.value = e?.response?.data?.error?.message || 'Could not load practice categories';
   }
 }
@@ -743,6 +763,9 @@ async function persistPracticeCategories(next) {
     if (Array.isArray(res?.data?.allowedCategories)) {
       allowedPracticeCategories.value = [...res.data.allowedCategories];
     }
+    if (res?.data?.sources && typeof res.data.sources === 'object') {
+      practiceCategorySources.value = { ...res.data.sources };
+    }
     practiceCategoriesSaved.value = true;
   } catch (e) {
     practiceCategoriesError.value = e?.response?.data?.error?.message || 'Could not save practice categories';
@@ -752,13 +775,47 @@ async function persistPracticeCategories(next) {
   }
 }
 
-function togglePracticeCategory(code, checked) {
+async function togglePracticeCategory(code, checked) {
+  const uid = userId.value;
+  const aid = Number(practiceCategoryAgencyId.value || resolvePracticeCategoryAgencyId() || 0);
+  if (!uid || !aid || !api.value || !code) return;
+
+  // Optimistic UI
   const set = new Set(selectedPracticeCategories.value);
   if (checked) set.add(code);
   else set.delete(code);
-  const next = Array.from(set);
-  selectedPracticeCategories.value = next;
-  persistPracticeCategories(next);
+  selectedPracticeCategories.value = Array.from(set);
+
+  practiceCategoriesSaving.value = true;
+  practiceCategoriesError.value = '';
+  practiceCategoriesSaved.value = false;
+  try {
+    const path = `/users/${uid}/agencies/${aid}/practice-categories/${encodeURIComponent(code)}`;
+    const res = checked
+      ? await api.value.post(path, {}, { skipGlobalLoading: true })
+      : await api.value.delete(path, { skipGlobalLoading: true });
+    selectedPracticeCategories.value = Array.isArray(res?.data?.categories)
+      ? [...res.data.categories]
+      : selectedPracticeCategories.value;
+    if (Array.isArray(res?.data?.allowedCategories)) {
+      allowedPracticeCategories.value = [...res.data.allowedCategories];
+    }
+    if (res?.data?.sources && typeof res.data.sources === 'object') {
+      practiceCategorySources.value = { ...res.data.sources };
+    }
+    practiceCategoriesSaved.value = true;
+  } catch (e) {
+    // Fall back to wholesale PUT if incremental routes are unavailable.
+    const status = Number(e?.response?.status || 0);
+    if (status === 404 || status === 405) {
+      await persistPracticeCategories(Array.from(set));
+      return;
+    }
+    practiceCategoriesError.value = e?.response?.data?.error?.message || 'Could not save practice categories';
+    await loadPracticeCategories();
+  } finally {
+    practiceCategoriesSaving.value = false;
+  }
 }
 
 const credentialLabel = computed(() => form.value.credential || user.value?.credential || '');
@@ -1306,6 +1363,20 @@ watch([compUserId, compAgencyId, isSchoolStaffProfile], ([uid, aid, schoolStaff]
   cursor: pointer;
 }
 .acct-practice-cat input { margin: 0; }
+.acct-practice-cat-src {
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: #047857;
+  background: #ecfdf5;
+  border-radius: 4px;
+  padding: 1px 5px;
+}
+.acct-practice-cat-src--revoked {
+  color: #9a3412;
+  background: #ffedd5;
+}
 .acct-field--edit input,
 .acct-field--edit select {
   width: 100%;

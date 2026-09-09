@@ -2,11 +2,13 @@ import { describe, it, expect } from 'vitest';
 import {
   enrollmentServiceTypesForCategories,
   serviceBusinessTypesForCategories,
-  TENANT_GATE_BY_CATEGORY
+  TENANT_GATE_BY_CATEGORY,
+  PRACTICE_CATEGORY_AUDIENCE_KEYS
 } from '../practiceCategories.service.js';
 import UserAgencyPracticeCategory, {
   PRACTICE_CATEGORY_CODES
 } from '../../models/UserAgencyPracticeCategory.model.js';
+import AgencyPracticeCategoryDefault from '../../models/AgencyPracticeCategoryDefault.model.js';
 
 describe('practiceCategories', () => {
   it('maps categories to public enrollment service types', () => {
@@ -36,5 +38,13 @@ describe('practiceCategories', () => {
     expect(TENANT_GATE_BY_CATEGORY.tutoring).toBe('tutoring');
     expect(TENANT_GATE_BY_CATEGORY.coaching).toBe('coaching');
     expect(TENANT_GATE_BY_CATEGORY.consulting).toBe('consulting');
+  });
+
+  it('normalizes audience keys and effects', () => {
+    expect(AgencyPracticeCategoryDefault.normalizeAudience('providers')).toBe('providers');
+    expect(AgencyPracticeCategoryDefault.normalizeAudience('nope')).toBe(null);
+    expect(PRACTICE_CATEGORY_AUDIENCE_KEYS).toContain('all_clinical');
+    expect(UserAgencyPracticeCategory.normalizeEffect('revoke')).toBe('revoke');
+    expect(UserAgencyPracticeCategory.normalizeEffect('weird')).toBe('grant');
   });
 });

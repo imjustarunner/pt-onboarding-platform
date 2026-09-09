@@ -30,7 +30,9 @@ import {
 } from '../controllers/providerPublicProfile.controller.js';
 import {
   getUserAgencyPracticeCategories,
-  putUserAgencyPracticeCategories
+  putUserAgencyPracticeCategories,
+  postUserAgencyPracticeCategory,
+  deleteUserAgencyPracticeCategory
 } from '../controllers/practiceCategories.controller.js';
 import { authenticate, requireAdmin, requireBackofficeAdmin, requireBackofficeAdminOrCpa } from '../middleware/auth.middleware.js';
 import { getUserWorkSchedule, putUserWorkSchedule } from '../controllers/userWorkSchedule.controller.js';
@@ -122,6 +124,8 @@ router.get('/:id/provider-public-profile', authenticate, getUserProviderPublicPr
 router.put('/:id/provider-public-profile', authenticate, upsertUserProviderPublicProfile);
 router.get('/:userId/agencies/:agencyId/practice-categories', authenticate, getUserAgencyPracticeCategories);
 router.put('/:userId/agencies/:agencyId/practice-categories', authenticate, putUserAgencyPracticeCategories);
+router.post('/:userId/agencies/:agencyId/practice-categories/:category', authenticate, postUserAgencyPracticeCategory);
+router.delete('/:userId/agencies/:agencyId/practice-categories/:category', authenticate, deleteUserAgencyPracticeCategory);
 router.get('/agency-provider-portal/:agencyId', authenticate, getAgencyProviderPortalSettings);
 router.put('/agency-provider-portal/:agencyId', authenticate, upsertAgencyProviderPortalSettings);
 router.get('/:id/affiliated-portals', authenticate, getAffiliatedPortals);
