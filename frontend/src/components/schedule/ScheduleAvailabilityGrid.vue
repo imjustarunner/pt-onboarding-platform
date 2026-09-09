@@ -5810,7 +5810,7 @@ import { useRoute, useRouter } from 'vue-router';
 import { createCounselingSession, openCounselingFromAppointment } from '../../services/counselingApi.js';
 import { isSupervisor, canScheduleGroupSupervision } from '../../utils/helpers.js';
 import api from '../../services/api';
-import { getScheduleSummaryStale, setScheduleSummary, invalidateScheduleSummaryCacheForUser } from '../../utils/scheduleSummaryCache';
+import { getScheduleSummary, getScheduleSummaryStale, setScheduleSummary, invalidateScheduleSummaryCacheForUser } from '../../utils/scheduleSummaryCache';
 import { timezoneLabelFor, isoToZonedDatetimeLocal, zonedDatetimeLocalToIso, timezoneAbbrevAt } from '../../utils/timezones.js';
 import {
   parseScheduleUtcInstant as parseScheduleInstant,
@@ -13745,28 +13745,6 @@ const editorTypeOptions = computed(() => {
   }));
 });
 
-const bookingPrimaryServiceCodeOptions = computed(() => {
-  const rows = (bookingServiceCodeOptions.value || []).filter((row) => !isAddonServiceCode(row.code, row));
-  const clientCount = Math.max(
-    1,
-    (virtualSessionSelectedClientIds.value || []).filter((id) => Number(id) > 0).length
-      || (Number(primarySessionClientId.value || 0) > 0 ? 1 : 0)
-  );
-  const isGroup = clientCount > 1;
-  return rows.filter((row) => {
-    const mode = String(row.sessionMode || row.session_mode || 'either').toLowerCase();
-    if (mode === 'either' || !mode) return true;
-    if (isGroup) return mode === 'group';
-    return mode === 'individual';
-  });
-});
-watch(bookingPrimaryServiceCodeOptions, (opts) => {
-  const code = String(bookingServiceCode.value || '').trim().toUpperCase();
-  if (!code) return;
-  if (!(opts || []).some((o) => String(o.code || '').toUpperCase() === code)) {
-    bookingServiceCode.value = '';
-  }
-});
 const bookingPreSessionAddonOptions = computed(() => {
   const rows = (bookingServiceCodeOptions.value || []).filter((row) => isAddonServiceCode(row.code, row));
   const booked = Number(editorAppointmentId.value || editorClinicalSessionId.value || 0) > 0;
@@ -17371,6 +17349,29 @@ const virtualSessionIsGroup = computed(() => virtualSessionSelectedClientIdSet.v
 const primarySessionClientId = computed(() => {
   const ids = Array.from(virtualSessionSelectedClientIdSet.value.values());
   return ids.length ? Number(ids[0]) : null;
+});
+// After primarySessionClientId — avoid TDZ in setup computeds (blank dashboard calendar).
+const bookingPrimaryServiceCodeOptions = computed(() => {
+  const rows = (bookingServiceCodeOptions.value || []).filter((row) => !isAddonServiceCode(row.code, row));
+  const clientCount = Math.max(
+    1,
+    (virtualSessionSelectedClientIds.value || []).filter((id) => Number(id) > 0).length
+      || (Number(primarySessionClientId.value || 0) > 0 ? 1 : 0)
+  );
+  const isGroup = clientCount > 1;
+  return rows.filter((row) => {
+    const mode = String(row.sessionMode || row.session_mode || 'either').toLowerCase();
+    if (mode === 'either' || !mode) return true;
+    if (isGroup) return mode === 'group';
+    return mode === 'individual';
+  });
+});
+watch(bookingPrimaryServiceCodeOptions, (opts) => {
+  const code = String(bookingServiceCode.value || '').trim().toUpperCase();
+  if (!code) return;
+  if (!(opts || []).some((o) => String(o.code || '').toUpperCase() === code)) {
+    bookingServiceCode.value = '';
+  }
 });
 const primarySessionClientLabel = computed(() => {
   const id = Number(primarySessionClientId.value || 0);
