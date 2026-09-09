@@ -54,18 +54,14 @@
       :agency-id="agencyId"
       @view-momentum="navigate('checklist')"
       @add-sticky="navigate('checklist')"
-    />
-
-    <OverviewAvailabilityCard
-      v-if="showSchedule"
-      @open-schedule="navigate('my_schedule')"
+      @open-item="onOpenFocusItem"
     />
 
     <div v-if="error" class="ov-error">{{ error }}</div>
 
     <OverviewMetricCards
-      :show-schedule="showSchedule"
-      :show-payroll="showPayroll"
+      :show-schedule="false"
+      :show-payroll="false"
       :show-notes="showNotes"
       :show-supervision="showSupervisionMetric"
       :show-claims="showClaims"
@@ -79,10 +75,13 @@
       :notes-incomplete="notesStats.incomplete"
       :notes-completed-pct="notesStats.completedPct"
       :notes-period-label="notesStats.periodLabel"
+      :note-aid-queue-count="noteAidQueueCount"
+      :note-aid-in-progress-count="noteAidInProgressCount"
       :supervision-hours="supervisionHours"
       :notes-to-sign-count="notesToSignCount"
       :task-count="taskCount"
       @navigate="navigate"
+      @open-note-aid="openNoteAid"
     />
 
     <div class="ov-mid">
@@ -96,6 +95,7 @@
         @book="onBookSchedule"
         @book-virtual="onBookVirtual"
         @join="onJoinEvent"
+        @open-focus="openFocusFromSchedule"
       />
       <OverviewPayPeriodCard
         v-if="showPayroll"
@@ -153,11 +153,19 @@
       <span class="ov-tip-text">Pro Tip: Keep your notes up to date to ensure accurate tracking and reporting.</span>
       <button type="button" class="ov-tip-dismiss" aria-label="Dismiss tip" @click="showTip = false">×</button>
     </div>
+
+    <FocusSessionModal
+      v-if="focusBlock"
+      :block="focusBlock"
+      :day-blocks="focusDayBlocks"
+      :agency-id="Number(agencyId) || null"
+      @close="focusBlock = null"
+    />
   </div>
 </template>
 
 <script setup>
-import { computed, ref, toRef } from 'vue';
+import { computed, onMounted, ref, toRef, watch } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import { useAuthStore } from '../../store/auth';
 import { useDashboardOverview } from '../../composables/useDashboardOverview';
@@ -170,7 +178,16 @@ import OverviewRecentActivity from './OverviewRecentActivity.vue';
 import OverviewQuickActions from './OverviewQuickActions.vue';
 import OverviewQuickNav from './OverviewQuickNav.vue';
 import OverviewTodaysFocus from './OverviewTodaysFocus.vue';
-import OverviewAvailabilityCard from './OverviewAvailabilityCard.vue';
+import FocusSessionModal from '../tasks/FocusSessionModal.vue';
+import api from '../../services/api';
+import { navigateToNoteAid } from '../../utils/noteAidLaunch.js';
+import { fetchWorkQueueFromApi } from '../../utils/noteAidWorkQueue.js';
+import {
+  DOC_STATUS,
+  deriveWorkQueueDocStatus,
+  normalizeDocStatus,
+  deriveDraftDocStatus
+} from '../../utils/noteAidDocumentationStatus.js';
 
 const props = defineProps({
   agencyId: { type: [Number, String], default: null },
@@ -207,6 +224,10 @@ const emit = defineEmits([
 
 const authStore = useAuthStore();
 const showTip = ref(true);
+const focusBlock = ref(null);
+const focusDayBlocks = ref([]);
+const noteAidQueueCount = ref(0);
+const noteAidInProgressCount = ref(0);
 
 const userId = computed(() => authStore.user?.id || null);
 const agencyIdRef = toRef(props, 'agencyId');
@@ -403,6 +424,123 @@ const onJoinEvent = (ev) => {
   }
   emit('navigate', props.isSupervisor ? 'supervision' : 'my_supervision');
 };
+
+function toDayYmd(ms) {
+  const d = ms != null ? new Date(ms) : new Date();
+  if (Number.isNaN(d.getTime())) return new Date().toISOString().slice(0, 10);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+async function openFocusFromSchedule(item) {
+  const eventId = Number(item?.eventId || 0);
+  if (!eventId) return;
+  const day = toDayYmd(item?.startMs);
+  let blocks = [];
+  try {
+    const { data } = await api.get('/schedule-block-assignments/day', {
+      params: { day },
+      skipGlobalLoading: true
+    });
+    blocks = Array.isArray(data) ? data : [];
+  } catch {
+    blocks = [];
+  }
+  let block = blocks.find((b) => Number(b.id) === eventId) || null;
+  if (!block) {
+    try {
+      const { data } = await api.get(`/schedule-block-assignments/${eventId}`, {
+        skipGlobalLoading: true
+      });
+      if (data?.event) {
+        block = {
+          ...data.event,
+          assignments: data.assignments || [],
+          assignment_count: (data.assignments || []).length,
+          focus_session_enabled: !!data.event.focus_session_enabled
+        };
+        if (!blocks.some((b) => Number(b.id) === eventId)) blocks = [...blocks, block];
+      }
+    } catch {
+      block = null;
+    }
+  }
+  if (!block) {
+    block = {
+      id: eventId,
+      title: item.title || 'Focus Time',
+      reason_code: item.reasonCode || 'FOCUS_TIME',
+      start_at: item.startMs ? new Date(item.startMs).toISOString() : null,
+      end_at: item.endMs ? new Date(item.endMs).toISOString() : null,
+      focus_session_enabled: true,
+      assignment_count: 0,
+      assignments: []
+    };
+    blocks = [...blocks, block];
+  }
+  blocks.sort((a, b) => {
+    const as = new Date(a.start_at || a.startAt || 0).getTime();
+    const bs = new Date(b.start_at || b.startAt || 0).getTime();
+    return as - bs;
+  });
+  focusDayBlocks.value = blocks;
+  focusBlock.value = blocks.find((b) => Number(b.id) === eventId) || block;
+}
+
+function onOpenFocusItem(item) {
+  if (item?.source === 'task' && item?.task_id) {
+    emit('navigate', 'tasks_hub');
+    return;
+  }
+  emit('navigate', 'checklist');
+}
+
+function openNoteAid() {
+  const slug = route.params.organizationSlug || authStore.user?.organization?.slug || '';
+  navigateToNoteAid(router, {}, { organizationSlug: slug });
+}
+
+async function loadNoteAidCounts() {
+  if (!props.showNotes || !props.enabled) return;
+  const uid = userId.value;
+  if (!uid) return;
+  try {
+    const [queue, recentRes] = await Promise.all([
+      fetchWorkQueueFromApi(uid).catch(() => []),
+      api.get('/clinical-notes/recent', {
+        params: { allAccessible: 1, limit: 100, archiveStatus: 'active', days: 30 },
+        skipGlobalLoading: true
+      }).catch(() => ({ data: null }))
+    ]);
+    const queueItems = Array.isArray(queue) ? queue : [];
+    noteAidQueueCount.value = queueItems.filter(
+      (i) => deriveWorkQueueDocStatus(i) === DOC_STATUS.NOT_STARTED
+    ).length;
+    const startedQueue = queueItems.filter(
+      (i) => deriveWorkQueueDocStatus(i) === DOC_STATUS.STARTED
+    ).length;
+    const drafts = Array.isArray(recentRes?.data)
+      ? recentRes.data
+      : (Array.isArray(recentRes?.data?.drafts) ? recentRes.data.drafts : []);
+    const startedDrafts = drafts.filter((d) => {
+      const s = normalizeDocStatus(deriveDraftDocStatus(d));
+      return s === DOC_STATUS.STARTED;
+    }).length;
+    noteAidInProgressCount.value = startedQueue + startedDrafts;
+  } catch {
+    noteAidQueueCount.value = 0;
+    noteAidInProgressCount.value = 0;
+  }
+}
+
+onMounted(() => {
+  void loadNoteAidCounts();
+});
+watch([() => props.enabled, () => props.showNotes, userId, () => props.agencyId], () => {
+  void loadNoteAidCounts();
+});
 
 const onQuickAction = (action) => {
   if (action.type === 'submit') {

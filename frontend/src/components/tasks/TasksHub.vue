@@ -2554,11 +2554,6 @@ async function quickAssignToBlock() {
 }
 
 async function openFocusSession(block) {
-  const count = Number(block?.assignment_count || (block?.assignments || []).length || 0);
-  if (count < 1) {
-    await onSelectBlock(block);
-    return;
-  }
   selectedBlock.value = null;
   const dayRef = timelineRef.value?.dayYmd;
   const day = dayRef?.value ?? dayRef ?? null;
@@ -2652,16 +2647,25 @@ onMounted(async () => {
         skipGlobalLoading: true
       });
       if (data?.event) {
-        selectedBlock.value = {
+        const block = {
           ...data.event,
           assignments: data.assignments || [],
+          assignment_count: (data.assignments || []).length,
           title: data.event.title,
           focus_session_enabled: data.event.focus_session_enabled
         };
+        const wantFocus = String(route.query.openFocus || '') === '1'
+          || !!data.event.focus_session_enabled;
+        if (wantFocus) {
+          await openFocusSession(block);
+        } else {
+          selectedBlock.value = block;
+        }
       }
       // Drop the query so refresh/back doesn't re-open Join prematurely.
       const q = { ...route.query };
       delete q.blockEventId;
+      delete q.openFocus;
       router.replace({ query: q }).catch(() => {});
     } catch { /* ignore */ }
   }

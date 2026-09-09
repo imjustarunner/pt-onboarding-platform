@@ -1,58 +1,22 @@
 <template>
   <div class="ov-metrics" data-tour="dash-overview-metrics">
     <button
-      v-if="showSchedule"
-      type="button"
-      class="ov-metric ov-metric--purple"
-      @click="$emit('navigate', 'my_schedule')"
-    >
-      <div class="ov-metric-icon" aria-hidden="true">
-        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>
-      </div>
-      <div class="ov-metric-body">
-        <div class="ov-metric-label">Today's Schedule</div>
-        <div class="ov-metric-value">{{ scheduleCount }} Appointment{{ scheduleCount === 1 ? '' : 's' }}</div>
-        <div class="ov-metric-hint">{{ nextHint }}</div>
-      </div>
-      <span class="ov-metric-chevron" aria-hidden="true">›</span>
-    </button>
-
-    <button
-      v-if="showPayroll"
-      type="button"
-      class="ov-metric ov-metric--green"
-      @click="$emit('navigate', 'payroll')"
-    >
-      <div class="ov-metric-icon" aria-hidden="true">
-        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
-      </div>
-      <div class="ov-metric-body">
-        <div class="ov-metric-label">Last Pay Period</div>
-        <div class="ov-metric-value">{{ payCompareLabel }}</div>
-        <div class="ov-metric-hint">
-          <span v-if="tierLabel" class="ov-metric-tier">{{ tierLabel }}</span>
-          <span v-else>{{ periodRange }}</span>
-        </div>
-      </div>
-      <span class="ov-metric-chevron" aria-hidden="true">›</span>
-    </button>
-
-    <button
       v-if="showNotes"
       type="button"
       class="ov-metric ov-metric--blue"
-      @click="$emit('navigate', 'checklist')"
+      @click="$emit('open-note-aid')"
     >
       <div class="ov-metric-icon" aria-hidden="true">
         <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M16 13H8M16 17H8M10 9H8"/></svg>
       </div>
       <div class="ov-metric-body">
-        <div class="ov-metric-label">Notes</div>
-        <div class="ov-metric-value">
-          {{ notesIncomplete }} incomplete
+        <div class="ov-metric-label">AI Note Aid</div>
+        <div class="ov-metric-value">Open Note Aid</div>
+        <div class="ov-metric-hint">
+          {{ noteAidQueueCount }} queue · {{ noteAidInProgressCount }} in progress
         </div>
-        <div class="ov-metric-hint">{{ notesPeriodLabel || 'Last Pay Period' }}</div>
       </div>
+      <span class="ov-metric-chevron" aria-hidden="true">›</span>
     </button>
 
     <button
@@ -126,35 +90,16 @@ const props = defineProps({
   notesIncomplete: { type: Number, default: 0 },
   notesCompletedPct: { type: Number, default: null },
   notesPeriodLabel: { type: String, default: '' },
+  noteAidQueueCount: { type: Number, default: 0 },
+  noteAidInProgressCount: { type: Number, default: 0 },
   supervisionHours: { type: Object, default: null },
   notesToSignCount: { type: Number, default: 0 },
   taskCount: { type: Number, default: 0 }
 });
 
-defineEmits(['navigate']);
+defineEmits(['navigate', 'open-note-aid']);
 
 const supervisionTab = computed(() => (props.isSupervisor ? 'supervision' : 'my_supervision'));
-
-const nextHint = computed(() => {
-  const n = props.nextScheduleItem;
-  if (!n) return 'No appointments today';
-  if (n.status === 'in_progress') return `Now: ${n.title}`;
-  return `Next: ${n.timeLabel} ${n.title}`;
-});
-
-const periodRange = computed(() => {
-  if (props.periodStart && props.periodEnd) return `${props.periodStart} – ${props.periodEnd}`;
-  return 'No posted payroll yet';
-});
-
-const payCompareLabel = computed(() => {
-  const r = Number(props.paycheckCompare?.ratio);
-  if (!Number.isFinite(r)) return periodRange.value;
-  if (r > 1) return 'Above average';
-  if (r >= 0.9) return `${Math.round(r * 10)}/10 of avg`;
-  if (r >= 0.7) return 'Below average';
-  return 'Well below average';
-});
 
 const supervisionValue = computed(() => {
   if (props.isSupervisor && props.notesToSignCount > 0) {

@@ -16,6 +16,11 @@
       </div>
       <p class="na-tagline">Spend less time on notes. <em>More time with your clients.</em></p>
       <div class="na-topbar-actions">
+      <div class="na-topbar-counts" aria-live="polite">
+        <span><strong>{{ workQueueTodoCount }}</strong> queue</span>
+        <span class="na-topbar-counts__sep" aria-hidden="true">·</span>
+        <span><strong>{{ inProgressDraftCount }}</strong> in progress</span>
+      </div>
       <button
         type="button"
         class="na-archive-btn"
@@ -4302,6 +4307,23 @@ const sortedWorkQueueItems = computed(() =>
     workQueueSortDir.value
   )
 );
+
+const workQueueTodoCount = computed(
+  () => (workQueueItems.value || []).filter(
+    (i) => deriveWorkQueueDocStatus(i) === DOC_STATUS.NOT_STARTED
+  ).length
+);
+
+const inProgressDraftCount = computed(() => {
+  const startedQueue = (workQueueItems.value || []).filter(
+    (i) => deriveWorkQueueDocStatus(i) === DOC_STATUS.STARTED
+  ).length;
+  const startedDrafts = buildLeftLibraryRows({
+    drafts: recentDrafts.value,
+    workQueueItems: []
+  }).filter((r) => normalizeDocStatus(r.docStatus) === DOC_STATUS.STARTED).length;
+  return startedQueue + startedDrafts;
+});
 
 const nextInQueueItem = computed(() =>
   sortedWorkQueueItems.value.find(
@@ -8951,6 +8973,34 @@ onBeforeUnmount(() => {
   justify-content: flex-end;
   gap: 8px;
   grid-column: 3;
+}
+
+.na-topbar-counts {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-right: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #64748b;
+  white-space: nowrap;
+}
+
+.na-topbar-counts strong {
+  color: #0f172a;
+  font-weight: 800;
+}
+
+.na-topbar-counts__sep {
+  opacity: 0.55;
+}
+
+:global([data-theme="dark"]) .na-topbar-counts {
+  color: #94a3b8;
+}
+
+:global([data-theme="dark"]) .na-topbar-counts strong {
+  color: #e2e8f0;
 }
 
 .na-brand {

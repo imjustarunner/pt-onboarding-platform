@@ -276,7 +276,18 @@ class ClinicalNoteDraft {
     } else if (status === 'archived') {
       where.push('archived_at IS NOT NULL');
     }
-    const whereSql = where.map((clause) => `d.${clause}`).join(' AND ');
+    // Parenthesized clauses must not get a bare `d.` prefix (`d.(agency_id IN …)` is invalid SQL).
+    const whereSql = where.map((clause) => {
+      const c = String(clause || '').trim();
+      if (c.startsWith('(')) {
+        return c
+          .replace(/\bagency_id\b/g, 'd.agency_id')
+          .replace(/\barchived_at\b/g, 'd.archived_at')
+          .replace(/\buser_id\b/g, 'd.user_id')
+          .replace(/\bcreated_at\b/g, 'd.created_at');
+      }
+      return `d.${c}`;
+    }).join(' AND ');
     const [rows] = await pool.execute(
       `SELECT
          d.*,

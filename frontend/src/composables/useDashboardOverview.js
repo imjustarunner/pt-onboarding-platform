@@ -153,8 +153,11 @@ export function useDashboardOverview(opts = {}) {
       }
       items.push({
         id: `sched-${e.kind || 'evt'}-${e.id || startMs}`,
+        eventId: Number(e.id || 0) || null,
         kind: String(e.kind || 'event').toLowerCase(),
         eventKind,
+        reasonCode: String(e.reasonCode || '').trim().toUpperCase() || null,
+        focusSessionEnabled: e.focusSessionEnabled === true || Number(e.focus_session_enabled || 0) === 1,
         title,
         subtitle,
         startMs,

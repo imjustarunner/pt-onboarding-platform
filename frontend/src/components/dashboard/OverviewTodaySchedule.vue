@@ -43,8 +43,15 @@
         :class="[
           `is-${item.status}`,
           item.featured ? 'is-featured-visit' : '',
-          item.preslot ? 'is-preslot' : ''
+          item.preslot ? 'is-preslot' : '',
+          isFocusTimeItem(item) ? 'is-focus-time' : ''
         ]"
+        :role="isFocusTimeItem(item) ? 'button' : undefined"
+        :tabindex="isFocusTimeItem(item) ? 0 : undefined"
+        :title="isFocusTimeItem(item) ? 'Open Focus Session' : undefined"
+        @click="onRowClick(item)"
+        @keydown.enter.prevent="onRowClick(item)"
+        @keydown.space.prevent="onRowClick(item)"
       >
         <div class="ov-timeline-rail" aria-hidden="true">
           <span class="ov-timeline-dot" />
@@ -79,7 +86,15 @@
         </div>
         <div class="ov-timeline-actions">
           <button
-            v-if="canJoinItem(item)"
+            v-if="isFocusTimeItem(item)"
+            type="button"
+            class="ov-join-btn ov-join-btn--focus"
+            @click.stop="$emit('open-focus', item)"
+          >
+            Focus
+          </button>
+          <button
+            v-else-if="canJoinItem(item)"
             type="button"
             class="ov-join-btn"
             @click.stop="$emit('join', item)"
@@ -120,7 +135,7 @@ defineProps({
   /** When true, show Book virtual (calendar telehealth booking) CTA. */
   showVirtualBook: { type: Boolean, default: false }
 });
-defineEmits(['navigate', 'book', 'book-virtual', 'join']);
+const emit = defineEmits(['navigate', 'book', 'book-virtual', 'join', 'open-focus']);
 
 const brandingStore = useBrandingStore();
 
@@ -138,6 +153,21 @@ const itemLogo = (item) => {
 const canJoinItem = (item) => {
   if (!String(item?.joinUrl || '').trim()) return false;
   return String(item?.status || '').toLowerCase() !== 'completed';
+};
+
+const isFocusTimeItem = (item) => {
+  if (!item) return false;
+  if (item.focusSessionEnabled === true) return true;
+  const kind = String(item.eventKind || item.kind || '').toUpperCase();
+  if (kind !== 'SCHEDULE_HOLD') return false;
+  const reason = String(item.reasonCode || '').toUpperCase();
+  if (reason === 'FOCUS_TIME' || reason === 'DEEP_WORK') return true;
+  const title = String(item.title || '').trim().toLowerCase();
+  return title === 'focus time' || title.includes('focus time');
+};
+
+const onRowClick = (item) => {
+  if (isFocusTimeItem(item)) emit('open-focus', item);
 };
 
 const statusLabel = (s) => {
@@ -292,6 +322,16 @@ const statusLabel = (s) => {
   border-radius: 8px;
   border-bottom-color: transparent;
 }
+.ov-timeline-row.is-focus-time {
+  cursor: pointer;
+}
+.ov-timeline-row.is-focus-time:hover {
+  background: #f5f3ff;
+}
+.ov-join-btn--focus {
+  background: #6d28d9;
+}
+.ov-join-btn--focus:hover { background: #5b21b6; }
 .ov-timeline-row.is-featured-visit {
   background: linear-gradient(90deg, rgba(16, 185, 129, 0.14), rgba(16, 185, 129, 0.04));
   border: 1px solid rgba(5, 150, 105, 0.28);

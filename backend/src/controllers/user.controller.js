@@ -4907,6 +4907,7 @@ export const getUserScheduleSummary = async (req, res, next) => {
           startDate: r.start_date ? String(r.start_date).slice(0, 10) : null,
           endDate: r.end_date ? String(r.end_date).slice(0, 10) : null,
           reasonCode: String(r.reason_code || '').trim().toUpperCase() || null,
+          focusSessionEnabled: Number(r.focus_session_enabled || 0) === 1,
           recurrenceSeriesId: String(r.recurrence_series_id || '').trim() || null,
           recurrenceFrequency: String(r.recurrence_frequency || '').trim().toUpperCase() || null,
           recurrencePolicy: String(r.recurrence_policy || '').trim().toUpperCase() || null,
