@@ -208,13 +208,22 @@ export function useSupervisionLiveSession(props, emit, { enablePresentation = fa
       if (authStore.isAuthenticated && sid) {
         await api.post(
           `/supervision/sessions/${encodeURIComponent(sid)}/client-transcript`,
-          { transcript, speakerLabel: speakerLabelForTranscript(), replace: false },
+          {
+            transcript,
+            speakerLabel: speakerLabelForTranscript(),
+            replace: false,
+            final: !!final
+          },
           { skipGlobalLoading: true, skipAuthRedirect: true }
         );
       } else if (joinToken) {
         await api.post(
           `/supervision/guest-transcript/${encodeURIComponent(joinToken)}`,
-          { transcript, speakerLabel: speakerLabelForTranscript() },
+          {
+            transcript,
+            speakerLabel: speakerLabelForTranscript(),
+            final: !!final
+          },
           { skipGlobalLoading: true, skipAuthRedirect: true }
         );
       }
@@ -305,22 +314,25 @@ export function useSupervisionLiveSession(props, emit, { enablePresentation = fa
     transcriptHint.value = `Transcription stopped by ${who} at ${when}`;
   }
 
+  function scheduleLiveTranscriptCapture(settleMs = null) {
+    if (props.isInLobby || transcriptPaused.value || transcriptRoomStopped.value) return;
+    if (transcriptStartTimer) clearTimeout(transcriptStartTimer);
+    const delay = settleMs == null
+      ? (props.isSupervisor ? 1600 : 2800)
+      : settleMs;
+    transcriptStartTimer = setTimeout(() => {
+      transcriptStartTimer = null;
+      startLiveTranscriptCapture();
+    }, Math.max(400, Number(delay) || 1600));
+  }
+
   function onVideoConnected() {
     if (!lifecyclePosted.value) {
       lifecyclePosted.value = true;
       postLifecycle('joined');
     }
-    // The lobby already has a live Vonage publisher. Starting Web Speech there opens a
-    // second microphone pipeline and can lock up Chrome/iPad during admission handoff.
-    // Wait longer for supervisees — their mic often loses the speech-recognition race.
-    if (!props.isInLobby) {
-      if (transcriptStartTimer) clearTimeout(transcriptStartTimer);
-      const settleMs = props.isSupervisor ? 1400 : 3200;
-      transcriptStartTimer = setTimeout(() => {
-        transcriptStartTimer = null;
-        startLiveTranscriptCapture();
-      }, settleMs);
-    }
+    // Lobby has a live Vonage publisher; wait for main-room mic settle before Web Speech.
+    scheduleLiveTranscriptCapture();
     emit('connected');
   }
 
@@ -572,13 +584,16 @@ export function useSupervisionLiveSession(props, emit, { enablePresentation = fa
 
   watch(() => props.isInLobby, (inLobby) => {
     if (!inLobby) prioritizeSelfView.value = false;
-    if (inLobby) stopLiveTranscriptCapture();
-    refreshActivity();
-    loadSessionTranscript();
-    if (!inLobby) {
+    if (inLobby) {
+      stopLiveTranscriptCapture();
+    } else {
+      // Do not rely only on @connected — admission remounts can skip it.
+      scheduleLiveTranscriptCapture(props.isSupervisor ? 1800 : 3000);
       refreshPresentation();
       refreshMyPresentation();
     }
+    refreshActivity();
+    loadSessionTranscript();
   });
 
   onMounted(async () => {

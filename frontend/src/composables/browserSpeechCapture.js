@@ -6,11 +6,13 @@
 
 const FATAL_ERRORS = new Set(['not-allowed', 'service-not-allowed']);
 const RETRY_DELAY_MS = {
-  'audio-capture': 2800,
+  'audio-capture': 3200,
   network: 1500,
   aborted: 600,
   'no-speech': 250
 };
+/** Keep retrying through Vonage mic contention for the whole meeting. */
+const AUDIO_CAPTURE_SOFT_CAP = 8;
 
 export function createBrowserSpeechCapture({
   onTranscript,
@@ -82,7 +84,10 @@ export function createBrowserSpeechCapture({
         try {
           const result = event?.results?.[event.resultIndex];
           const text = String(result?.[0]?.transcript || '').trim();
-          if (text) onTranscript?.(text);
+          if (text) {
+            audioCaptureAttempts = 0;
+            onTranscript?.(text);
+          }
         } catch { /* ignore */ }
       };
       rec.onerror = (event) => {
@@ -97,11 +102,17 @@ export function createBrowserSpeechCapture({
         setCapturing(false);
         if (code === 'audio-capture') {
           audioCaptureAttempts += 1;
-          if (audioCaptureAttempts >= 12) {
-            setHint('Speech capture keeps failing on this device (often Vonage mic conflict). Reload once audio is stable, or use Chrome on a computer so your lines appear in the transcript.');
-            return;
+          const delay = Math.min(
+            12000,
+            (RETRY_DELAY_MS['audio-capture'] || 3200) + (audioCaptureAttempts * 400)
+          );
+          if (audioCaptureAttempts >= AUDIO_CAPTURE_SOFT_CAP) {
+            setHint('Still retrying your mic for the transcript (Chrome desktop is most reliable)…');
+          } else {
+            setHint('Retrying speech capture for your mic…');
           }
-          setHint('Retrying speech capture for your mic…');
+          scheduleRestart(delay);
+          return;
         }
         const delay = RETRY_DELAY_MS[code] ?? 800;
         scheduleRestart(delay);

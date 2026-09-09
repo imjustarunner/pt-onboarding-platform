@@ -11,6 +11,8 @@ function buildSupervisionSummaryPrompt(transcriptText) {
   return [
     'You are generating a supervision meeting summary for internal documentation.',
     'Cover every topic discussed in the transcript (and any agenda/goals mentioned). Do not omit substantive threads.',
+    'The transcript may include labeled speakers such as [Supervisor · Name] and [Supervisee · Name]. Attribute statements to the correct person.',
+    'If only one speaker is labeled, summarize what that person said and mark the other party as "Not captured in transcript" rather than inventing their words.',
     'Return concise markdown with these sections only:',
     '- Key updates',
     '- Clinical/operational decisions',

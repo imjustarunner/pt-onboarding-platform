@@ -849,12 +849,11 @@ export async function createSuperviseeSupervisionTimeClaim({
   };
 }
 
-export async function maybePullTranscriptAndSummarize({ session, actorUserId = null } = {}) {
+export async function maybePullTranscriptAndSummarize({ session, actorUserId = null, force = true } = {}) {
   const sid = Number(session?.id || 0);
   if (!sid) return { ok: false, skipped: true };
 
   let artifact = await SupervisionSessionArtifact.findBySessionId(sid);
-  const hasSummary = !!String(artifact?.summary_text || '').trim();
   let hasTranscript =
     !!String(artifact?.transcript_text || '').trim() ||
     !!String(artifact?.transcript_url || '').trim();
@@ -890,15 +889,15 @@ export async function maybePullTranscriptAndSummarize({ session, actorUserId = n
   if (!hasTranscript) {
     return { ok: true, skipped: true, reason: 'no_transcript' };
   }
-  if (hasSummary) {
-    return { ok: true, skipped: true, reason: 'summary_exists' };
-  }
 
+  // Always regenerate at finalize so the summary matches the completed transcript
+  // (mid-session drafts often only had the supervisor's mic).
+  void force;
   const summary = await triggerSupervisionSummaryFromTranscript(sid).catch((e) => {
     console.warn('[supervisionFinalize] AI summary failed', e?.message || e);
     return { ok: false };
   });
-  return { ok: !!summary?.ok, summarized: !!summary?.ok };
+  return { ok: !!summary?.ok, summarized: !!summary?.ok, regenerated: true };
 }
 
 export async function reverseSupervisionFinalizeSideEffects({ session } = {}) {

@@ -774,7 +774,7 @@
 
 <script setup>
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
-import { useRoute } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 import { useAuthStore } from '../../store/auth';
 import { useAgencyStore } from '../../store/agency';
 import api from '../../services/api';
@@ -790,6 +790,7 @@ import SupervisionVideoLobbyPanel from './SupervisionVideoLobbyPanel.vue';
 import { suspendInactivityTimeout, resumeInactivityTimeout } from '../../utils/activityTracker';
 
 const route = useRoute();
+const router = useRouter();
 
 const authStore = useAuthStore();
 const canBookGroupSupervision = computed(() => canScheduleGroupSupervision(authStore.user));
@@ -1263,6 +1264,18 @@ async function endTrackedMeeting() {
 async function startAppVideoMeeting(session) {
   const sid = Number(session?.id || 0);
   if (!sid) return;
+  // Full join route owns transcript capture, lobby, and workspace. The in-modal
+  // video-only path never started SpeechRecognition for the supervisee.
+  const slug = String(
+    organizationSlug.value
+    || agencyStore.currentAgency?.slug
+    || agencyStore.currentAgency?.portal_url
+    || ''
+  ).trim();
+  if (slug) {
+    router.push(`/${slug}/join/supervision/${sid}`).catch(() => {});
+    return;
+  }
   appVideoLoading.value = true;
   appVideoSessionId.value = sid;
   appVideoError.value = '';

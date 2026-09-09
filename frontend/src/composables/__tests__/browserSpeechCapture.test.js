@@ -38,7 +38,7 @@ describe('createBrowserSpeechCapture', () => {
     expect(capture.start()).toBe(true);
     expect(instances).toHaveLength(1);
     instances[0].onerror?.({ error: 'audio-capture' });
-    vi.advanceTimersByTime(2100);
+    vi.advanceTimersByTime(3600);
     expect(instances).toHaveLength(2);
     capture.stop();
   });

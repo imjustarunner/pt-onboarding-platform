@@ -2123,6 +2123,15 @@ export const endSupervisionLiveSession = async (req, res, next) => {
         console.warn('[supervision] end-live completeRoom failed', e?.message || e);
       }
     }
+
+    // Give each client a moment to flush final speech chunks, then rebuild the summary
+    // from the completed transcript (mid-session drafts are often supervisor-only).
+    setTimeout(() => {
+      import('../services/supervisionTranscriptSummary.service.js')
+        .then(({ triggerSupervisionSummaryFromTranscript }) => triggerSupervisionSummaryFromTranscript(id))
+        .catch((e) => console.warn('[supervision] end-live summary refresh failed', e?.message || e));
+    }, 5500);
+
     res.json({
       ok: true,
       sessionId: id,
@@ -3312,7 +3321,8 @@ async function upsertSessionTranscriptText({
   transcript,
   speakerLabel = null,
   updatedByUserId = null,
-  replace = false
+  replace = false,
+  final = false
 }) {
   const sid = Number(sessionId || 0);
   const chunk = String(transcript || '').trim();
@@ -3341,11 +3351,12 @@ async function upsertSessionTranscriptText({
     }
   }
 
+  // Re-read immediately before write to reduce lost updates when both parties flush.
+  const fresh = await SupervisionSessionArtifact.findBySessionId(sid);
   let nextText = stamped;
   if (!replace) {
-    const prev = String(existing?.transcript_text || '').trim();
+    const prev = String(fresh?.transcript_text || existing?.transcript_text || '').trim();
     if (prev) {
-      // Avoid duplicating the exact same chunk on repeated flush.
       if (prev.includes(stamped)) nextText = prev;
       else nextText = `${prev}\n${stamped}`;
     }
@@ -3357,11 +3368,33 @@ async function upsertSessionTranscriptText({
     updatedByUserId: updatedByUserId ? Number(updatedByUserId) : null
   });
 
-  const { triggerSupervisionSummaryFromTranscript } = await import('../services/supervisionTranscriptSummary.service.js');
-  await triggerSupervisionSummaryFromTranscript(sid).catch((e) => {
-    console.error('[Supervision] AI summary from client transcript:', e?.message);
+  // Mid-session: do not block the flush on Gemini (was locking in one-sided summaries).
+  // Final flush / finalize: regenerate after a short delay so peer chunks can land.
+  scheduleSupervisionTranscriptSummary(sid, {
+    force: !!final,
+    delayMs: final ? 4000 : 90000
   });
   return { sessionId: sid, chars: nextText.length };
+}
+
+const supervisionSummaryTimers = new Map();
+function scheduleSupervisionTranscriptSummary(sessionId, { force = false, delayMs = 90000 } = {}) {
+  const sid = Number(sessionId || 0);
+  if (!sid) return;
+  const existing = supervisionSummaryTimers.get(sid);
+  if (existing) clearTimeout(existing.timer);
+  // A final request should not be postponed by a long mid-session debounce.
+  if (existing && !force && existing.force) return;
+  const wait = Math.max(500, Number(delayMs) || 90000);
+  const timer = setTimeout(() => {
+    supervisionSummaryTimers.delete(sid);
+    import('../services/supervisionTranscriptSummary.service.js')
+      .then(({ triggerSupervisionSummaryFromTranscript }) => triggerSupervisionSummaryFromTranscript(sid))
+      .catch((e) => {
+        console.error('[Supervision] AI summary from client transcript:', e?.message || e);
+      });
+  }, wait);
+  supervisionSummaryTimers.set(sid, { timer, force: !!force });
 }
 
 export const saveClientTranscript = async (req, res, next) => {
@@ -3388,7 +3421,8 @@ export const saveClientTranscript = async (req, res, next) => {
       transcript,
       speakerLabel: req.body?.speakerLabel || req.body?.displayName || null,
       updatedByUserId: Number(req.user?.id || 0) || null,
-      replace: req.body?.replace === true
+      replace: req.body?.replace === true,
+      final: req.body?.final === true
     });
 
     res.json({ ok: true, sessionId: id, chars: out?.chars || 0 });
@@ -3522,7 +3556,8 @@ export const saveGuestTranscript = async (req, res, next) => {
       transcript,
       speakerLabel: req.body?.speakerLabel || req.body?.displayName || 'Guest',
       updatedByUserId: null,
-      replace: false
+      replace: false,
+      final: req.body?.final === true
     });
     res.json({ ok: true, sessionId: Number(row.id), chars: out?.chars || 0 });
   } catch (e) {
