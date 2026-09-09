@@ -127,6 +127,15 @@
               Note Aid
             </button>
             <button
+              v-if="canOpenMyRoomLobby"
+              type="button"
+              class="sched-command__outline"
+              title="Admit guests waiting in your My Room lobby"
+              @click="showMyRoomLobbyModal = true"
+            >
+              My Room
+            </button>
+            <button
               v-if="!hideOfficeAndCalendarIntegration"
               type="button"
               class="sched-command__outline"
@@ -1152,11 +1161,20 @@
                   alt=""
                 />
                 <div class="sched-agenda__title">
+                  <span
+                    v-if="item.confirmationState === 'confirmed'"
+                    class="cell-block-confirm-chip cell-block-confirm-chip--ok"
+                  >Confirmed</span>
+                  <span
+                    v-else-if="item.confirmationState === 'unconfirmed'"
+                    class="cell-block-confirm-chip cell-block-confirm-chip--pending"
+                  >Unconfirmed</span>
                   {{ agendaItemTitle(item) }}
                 </div>
               </div>
               <div v-if="item.isOfficeBlock" class="sched-agenda__meta">{{ item.officeStatusLabel }}</div>
               <div v-else-if="item.kind === 'peerbusy'" class="sched-agenda__meta muted">Peer busy</div>
+              <div v-else-if="item.schedulingNoteSnippet" class="sched-agenda__meta muted">{{ item.schedulingNoteSnippet }}</div>
               <template v-else-if="isFallCheckinBookedBlock(item)">
                 <div v-if="item.locationAddress" class="sched-agenda__meta">{{ item.locationAddress }}</div>
                 <a
@@ -1544,7 +1562,22 @@
                 </span>
                 <span v-else-if="b.shortLabel && b.kind !== 'peerbusy'" class="cell-block-text">
                   <span v-if="b.viewerIsPresenter" class="cell-block-presenter-badge">PRESENTER</span>
+                  <span
+                    v-if="b.confirmationState === 'confirmed'"
+                    class="cell-block-confirm-chip cell-block-confirm-chip--ok"
+                    title="Client confirmed"
+                  >Confirmed</span>
+                  <span
+                    v-else-if="b.confirmationState === 'unconfirmed'"
+                    class="cell-block-confirm-chip cell-block-confirm-chip--pending"
+                    title="Awaiting client confirmation"
+                  >Unconfirmed</span>
                   <span>{{ b.shortLabel }}</span>
+                  <span
+                    v-if="b.schedulingNoteSnippet"
+                    class="cell-block-note-snip"
+                    :title="b.schedulingNoteSnippet"
+                  >{{ b.schedulingNoteSnippet }}</span>
                 </span>
                 <span v-else-if="b.kind === 'peerbusy' && b.shortLabel" class="cell-block-text">{{ peerActivityShortFromBlock(b) }}</span>
                 <span
@@ -1590,6 +1623,25 @@
       </div>
       </div>
     </template>
+
+    <div
+      v-if="showMyRoomLobbyModal"
+      class="modal-backdrop"
+      @click.self="showMyRoomLobbyModal = false"
+    >
+      <div class="modal" style="max-width: 480px; width: calc(100% - 24px);">
+        <div class="nr-head" style="display:flex;align-items:center;justify-content:space-between;gap:12px;">
+          <div class="nr-head-copy">
+            <div class="nr-title">My Room lobby</div>
+            <div class="nr-subtitle muted">Guests wait here until you admit them. Photo required.</div>
+          </div>
+          <button type="button" class="btn btn-secondary btn-sm" @click="showMyRoomLobbyModal = false">Close</button>
+        </div>
+        <div style="padding: 12px 16px 18px;">
+          <MyRoomLobbyPanel />
+        </div>
+      </div>
+    </div>
 
     <!-- Read-only slot info modal for non-admin users viewing someone else's booked slot -->
     <div v-if="showSlotInfoModal" class="modal-backdrop modal-backdrop--request" @click.self="showSlotInfoModal = false">
@@ -1941,7 +1993,7 @@
           :show-occurrence-count="editorShowOccurrenceCount"
           :occurrence-count-label="editorOccurrenceCountLabel"
           :show-type="!editorIsOpenSlot && editorIsClinical && editorTypeOptions.length > 1"
-          :show-status="!editorIsOpenSlot"
+          :show-status="!editorIsOpenSlot && (isAppointmentEditMode || isScheduleEventEditMode)"
           :show-location="editorShowLocation"
           :location-address="editorLocationAddress"
           :location-options="editorServiceLocationOptions"
@@ -1983,6 +2035,16 @@
           :group-clients-loading="virtualSessionClientsLoading"
           :force-expand-group-clients="editorForceExpandGroupClients"
           :modality-pos-warning="editorModalityPosWarning"
+          :book-session-layout="editorUseBookSessionLayout"
+          :video-room-mode="editorVideoRoomMode"
+          :show-notifications="editorUseBookSessionLayout"
+          :notification-mode="editorNotificationMode"
+          :show-scheduling-notes="editorUseBookSessionLayout"
+          :scheduling-notes="requestNotes"
+          :show-others-present="editorShowOthersPresent"
+          :others-present-names="editorOthersPresentNames"
+          :admin-catalog-links="editorAdminCatalogLinks"
+          :recurrence-frequency-options="RECURRENCE_OPTIONS"
           @update:dateYmd="onEditorDateYmd"
           @update:startTime="onEditorStartTime"
           @update:endTime="onEditorEndTime"
@@ -2005,6 +2067,10 @@
           @update:recurrenceOccurrenceCount="onEditorRecurrenceOccurrenceCount"
           @update:recurrenceUntilDate="editorRecurrenceUntilDate = $event"
           @update:recurrenceWeekdays="editorRecurrenceWeekdays = $event"
+          @update:videoRoomMode="editorVideoRoomMode = $event"
+          @update:notificationMode="editorNotificationMode = $event"
+          @update:schedulingNotes="requestNotes = $event"
+          @update:othersPresentNames="editorOthersPresentNames = $event"
           @request-office="onEditorRequestOffice"
           @cancel-office-request="onEditorCancelOfficeRequest"
           @scroll-to-group-clients="onScrollToGroupClients"
@@ -2267,6 +2333,8 @@
             :package-entitlements="editorPackageEntitlements"
             :pre-session-addons-only="Number(editorAppointmentId || editorClinicalSessionId || 0) <= 0"
             :booking-basics-in-header="true"
+            :hide-clinical-tools="editorUseBookSessionLayout && Number(editorAppointmentId || editorClinicalSessionId || 0) <= 0"
+            :hide-scheduling-notes="editorUseBookSessionLayout"
             :disabled="submitting"
             @open-note="openEditorClinicalNote"
             @open-claim="openEditorClinicalClaim"
@@ -2704,7 +2772,7 @@
               </template>
             </div>
             <div class="nr-info-cell nr-info-cell--tenant">
-              <span class="nr-info-label">Tenant</span>
+              <span class="nr-info-label">Agency</span>
               <div class="nr-tenant-stack">
                 <div class="nr-tenant-row">
                   <img
@@ -3170,7 +3238,7 @@
             </p>
             <div class="nr-context-card-grid">
               <div v-if="headerTenantOptions.length" class="nr-field nr-field--tenant">
-                <label class="lbl">Tenant</label>
+                <label class="lbl">Agency</label>
                 <select
                   v-model.number="selectedActionAgencyId"
                   class="input"
@@ -5804,6 +5872,7 @@ import OpenSlotPlusOfficeRequestBody from './OpenSlotPlusOfficeRequestBody.vue';
 import { useAppointmentChange } from '../../composables/useAppointmentChange.js';
 import AppointmentRemindersPanel from './AppointmentRemindersPanel.vue';
 import PushSessionUpdatePanel from './PushSessionUpdatePanel.vue';
+import MyRoomLobbyPanel from './MyRoomLobbyPanel.vue';
 import {
   APPOINTMENT_EDITOR_STATUS_OPTIONS,
   appointmentEditorTitleForKind,
@@ -8792,6 +8861,13 @@ const scheduleActorUserId = computed(() => {
   return Number(props.userId || authStore.user?.id || 0) || 0;
 });
 
+const showMyRoomLobbyModal = ref(false);
+const canOpenMyRoomLobby = computed(() => {
+  const me = Number(authStore.user?.id || 0);
+  const actor = Number(scheduleActorUserId.value || 0);
+  return me > 0 && actor > 0 && me === actor;
+});
+
 const bookingProviderPickerOptions = computed(() => {
   const me = Number(authStore.user?.id || 0);
   const aid = Number(selectedActionAgencyId.value || effectiveAgencyId.value || 0);
@@ -10666,8 +10742,12 @@ const scheduleEventBlockTitle = (ev, dayName, hour) => {
   const raw = String(ev?.title || '').trim() || 'Schedule event';
   const privateTag = ev?.isPrivate ? ' • Private' : '';
   const cancelledTag = isScheduleEventCancelled(ev) ? ' • Cancelled' : '';
+  const conf = sessionConfirmationState(ev);
+  const confTag = conf === 'confirmed' ? ' • Confirmed' : (conf === 'unconfirmed' ? ' • Unconfirmed' : '');
+  const note = sessionSchedulingNoteSnippet(ev);
+  const noteTag = note ? ` • ${note}` : '';
   const timeText = clockRangeLabel(ev?.startAt, ev?.endAt) || hourLabel(hour);
-  return `${raw}${privateTag}${cancelledTag} — ${dayName} ${timeText}`;
+  return `${raw}${privateTag}${cancelledTag}${confTag}${noteTag} — ${dayName} ${timeText}`;
 };
 
 const hasSchool = (dayName, hour) => {
@@ -11450,6 +11530,10 @@ const cellBlocks = (dayName, hour, minute = 0) => {
       locationAddress: String(ev?.locationAddress || '').trim() || null,
       mapsUrl: String(ev?.mapsUrl || '').trim() || null,
       isCancelled: isScheduleEventCancelled(ev),
+      appointmentId: Number(ev?.appointmentId || 0) || null,
+      appointmentStatus: String(ev?.appointmentStatus || '').trim().toLowerCase() || null,
+      confirmationState: sessionConfirmationState(ev),
+      schedulingNoteSnippet: sessionSchedulingNoteSnippet(ev),
       meetingCompleted: isScheduleMeetingCompleted(ev),
       meetingCompletedAt: ev?.meetingCompletedAt || null,
       segmentClass: 'single',
@@ -13380,7 +13464,10 @@ const editorAppointmentId = ref(0);
 const editorLocationAddress = ref('');
 const editorRoomId = ref(0);
 const editorBookedUntil = ref('');
-const editorStatus = ref('confirmed');
+const editorStatus = ref('scheduled');
+const editorVideoRoomMode = ref('unique_session');
+const editorNotificationMode = ref('default');
+const editorOthersPresentNames = ref('');
 const editorMeetingIsVirtual = ref(true);
 const editorSupervisionIsVirtual = ref(true);
 const editorSupervisionWaitingRoomEnabled = ref(true);
@@ -13658,9 +13745,28 @@ const editorTypeOptions = computed(() => {
   }));
 });
 
-const bookingPrimaryServiceCodeOptions = computed(() =>
-  (bookingServiceCodeOptions.value || []).filter((row) => !isAddonServiceCode(row.code, row))
-);
+const bookingPrimaryServiceCodeOptions = computed(() => {
+  const rows = (bookingServiceCodeOptions.value || []).filter((row) => !isAddonServiceCode(row.code, row));
+  const clientCount = Math.max(
+    1,
+    (virtualSessionSelectedClientIds.value || []).filter((id) => Number(id) > 0).length
+      || (Number(primarySessionClientId.value || 0) > 0 ? 1 : 0)
+  );
+  const isGroup = clientCount > 1;
+  return rows.filter((row) => {
+    const mode = String(row.sessionMode || row.session_mode || 'either').toLowerCase();
+    if (mode === 'either' || !mode) return true;
+    if (isGroup) return mode === 'group';
+    return mode === 'individual';
+  });
+});
+watch(bookingPrimaryServiceCodeOptions, (opts) => {
+  const code = String(bookingServiceCode.value || '').trim().toUpperCase();
+  if (!code) return;
+  if (!(opts || []).some((o) => String(o.code || '').toUpperCase() === code)) {
+    bookingServiceCode.value = '';
+  }
+});
 const bookingPreSessionAddonOptions = computed(() => {
   const rows = (bookingServiceCodeOptions.value || []).filter((row) => isAddonServiceCode(row.code, row));
   const booked = Number(editorAppointmentId.value || editorClinicalSessionId.value || 0) > 0;
@@ -14288,11 +14394,31 @@ const editorSuperviseeDisplayName = computed(() => {
 const editorShowLocation = computed(() => {
   // Open-slot modal: location/room live in the Office request panel when attached.
   if (editorIsOpenSlot.value) return false;
+  // Book Session always shows location (virtual workspace or in-person place).
+  if (editorIsClinical.value) return true;
   return !editorShowVirtual.value;
 });
 const editorShowRoom = computed(() => {
   if (editorIsOpenSlot.value) return false;
+  if (editorIsClinical.value) return false; // room via Request room CTA
   return editorShowLocation.value;
+});
+const editorUseBookSessionLayout = computed(() => (
+  editorIsClinical.value && !editorIsOpenSlot.value
+));
+const editorShowOthersPresent = computed(() => {
+  if (!editorUseBookSessionLayout.value) return false;
+  const mode = String(editorClinicalParticipantsMode.value || '').trim();
+  if (mode === 'Client and Others' || mode === 'Others (client not present)') return true;
+  return (virtualSessionSelectedClientIds.value || []).length > 1;
+});
+const editorAdminCatalogLinks = computed(() => {
+  const role = String(authStore.user?.role || authStore.user?.effectiveRole || '').toLowerCase();
+  if (!['admin', 'super_admin'].includes(role)) return null;
+  const slug = String(route.params.organizationSlug || authStore.user?.organization?.slug || '').trim();
+  if (!slug) return null;
+  const base = `/${slug}/admin/medical-billing`;
+  return { serviceCodes: base, addons: base, locations: base };
 });
 const editorCanEditRoom = computed(() => !!editorIsOpenSlot.value);
 const editorOpenSlotRecurrenceHint = computed(() => {
@@ -15180,7 +15306,10 @@ function openAppointmentEditor({ mode = 'create', kind = '', id = 0, defaults = 
   editorLocationAddress.value = String(defaults.locationAddress || '');
   editorRoomId.value = Number(defaults.roomId || 0) || 0;
   editorBookedUntil.value = String(defaults.bookedUntil || '');
-  editorStatus.value = String(defaults.status || 'confirmed');
+  editorStatus.value = String(defaults.status || 'scheduled');
+  editorVideoRoomMode.value = String(defaults.videoRoomMode || 'unique_session');
+  editorNotificationMode.value = String(defaults.notificationMode || 'default');
+  editorOthersPresentNames.value = String(defaults.othersPresentNames || '');
   const modality = String(defaults.modality || '').trim().toUpperCase()
     || String(bookingModality.value || '').trim().toUpperCase()
     || 'TELEHEALTH';
@@ -15631,7 +15760,9 @@ const bookingClassificationInvalidReason = computed(() => {
   const locId = Number(bookingServiceLocationId.value || editorServiceLocationId.value || 0);
   const isSchoolSynthetic = locId < 0
     || !!(editorClientSchoolLocationOptions.value || []).find((s) => Number(s.id) === locId);
-  if (!locId && !isSchoolSynthetic) {
+  const modality = String(bookingModality.value || editorModality.value || '').toUpperCase();
+  // Virtual sessions do not require a service location (office room is optional workspace).
+  if (modality !== 'TELEHEALTH' && !locId && !isSchoolSynthetic) {
     return 'Select a service location for this session.';
   }
   return '';
@@ -15682,7 +15813,12 @@ const normalizeBookingSelectionPayload = () => {
       })()
       : null,
     agencyId: Number(effectiveAgencyId.value || 0) || null,
-    ...(clientId ? { clientId } : {})
+    ...(clientId ? { clientId } : {}),
+    status: 'scheduled',
+    videoRoomMode: String(editorVideoRoomMode.value || 'unique_session'),
+    notificationMode: String(editorNotificationMode.value || 'default'),
+    othersPresentNames: String(editorOthersPresentNames.value || '').trim() || null,
+    notes: String(requestNotes.value || '').trim() || null
   };
 };
 
@@ -15693,15 +15829,28 @@ const preferDefaultServiceLocation = ({ force = false } = {}) => {
     : bookingServiceLocationOptions.value) || [];
   if (!locs.length) return;
   const modality = String(editorModality.value || bookingModality.value || '').toUpperCase();
-  const preferPos = modality === 'IN_PERSON' ? '11' : '02';
+  // Virtual + office room is still telehealth for billing — do not force POS 11 from room.
+  if (modality === 'TELEHEALTH') {
+    const hit = locs.find((l) => ['02', '10'].includes(String(l.placeOfService || '')))
+      || locs.find((l) => String(l.placeOfService) === '02')
+      || locs[0];
+    if (hit?.id) {
+      bookingServiceLocationId.value = Number(hit.id);
+      editorServiceLocationId.value = Number(hit.id);
+    }
+    return;
+  }
+  // In-person + booked office room → prefer office POS 11
+  const hasOfficeRoom = editorAttachOfficeRequest.value
+    || Number(editorPreferredRoomId.value || editorRoomId.value || 0) > 0
+    || Number(editorOfficeLocationId.value || 0) > 0;
+  const preferPos = hasOfficeRoom ? '11' : '11';
   const hit = locs.find((l) => String(l.placeOfService) === preferPos)
-    || locs.find((l) => modality === 'IN_PERSON'
-      && !['02', '10'].includes(String(l.placeOfService || '')))
-    || locs.find((l) => modality !== 'IN_PERSON' && (l.placeOfService === '10' || l.placeOfService === '02'))
+    || locs.find((l) => !['02', '10'].includes(String(l.placeOfService || '')))
     || locs[0];
   if (hit?.id) {
-    bookingServiceLocationId.value = hit.id;
-    editorServiceLocationId.value = hit.id;
+    bookingServiceLocationId.value = Number(hit.id);
+    editorServiceLocationId.value = Number(hit.id);
   }
 };
 
@@ -20630,14 +20779,24 @@ const completePlatformVirtualSessionBooking = async ({
   const addonNote = (editorAddonServiceCodes.value || []).length
     ? `Add-on codes: ${editorAddonServiceCodes.value.join(', ')}`
     : '';
+  const othersNote = String(editorOthersPresentNames.value || '').trim()
+    ? `Others present: ${String(editorOthersPresentNames.value).trim()}`
+    : '';
   const descriptionParts = [
     String(requestNotes.value || '').trim() || 'Platform counseling video session.',
     isGroup ? 'Group Participants' : `Client id: ${clientId}`,
     participantsModeNote,
+    othersNote,
     attendeeNote,
     addonNote
   ].filter(Boolean);
   const description = descriptionParts.join('\n\n');
+  const titleWithNotes = (() => {
+    const note = String(requestNotes.value || '').trim();
+    if (!note) return baseTitle;
+    const short = note.length > 40 ? `${note.slice(0, 37)}…` : note;
+    return `${baseTitle} · ${short}`;
+  })();
   const firstGuardianUserId = Array.from(virtualSessionSelectedGuardianKeySet.value.values())
     .map((key) => Number(String(key || '').split(':')[0] || 0))
     .find((n) => n > 0) || null;
@@ -20675,7 +20834,11 @@ const completePlatformVirtualSessionBooking = async ({
       packageEntitlementId: Number(editorPackageEntitlementId.value || 0) || undefined,
       serviceCode: normalizeCodeValue(bookingServiceCode.value) || undefined,
       addonServiceCodes: (editorAddonServiceCodes.value || []).map((c) => String(c).toUpperCase()).filter(Boolean),
-      participants
+      participants,
+      status: 'scheduled',
+      videoRoomMode: String(editorVideoRoomMode.value || 'unique_session'),
+      notificationMode: String(editorNotificationMode.value || 'default'),
+      othersPresentNames: String(editorOthersPresentNames.value || '').trim() || undefined
     });
     appointmentId = Number(apptRes?.data?.appointment?.id || apptRes?.data?.appointment?.appointment?.id || 0) || null;
     if (appointmentId) {
@@ -20720,7 +20883,7 @@ const completePlatformVirtualSessionBooking = async ({
   const scheduleResp = await api.post(`/users/${uid}/schedule-events`, {
     agencyId,
     kind: 'PERSONAL_EVENT',
-    title: baseTitle,
+    title: titleWithNotes,
     description,
     allDay: false,
     startAt,
@@ -20728,21 +20891,39 @@ const completePlatformVirtualSessionBooking = async ({
     timeZone: scheduleMeetingTimeZone(),
     isPrivate: false,
     clientId,
+    othersPresentNames: String(editorOthersPresentNames.value || '').trim() || undefined,
+    videoRoomMode: String(editorVideoRoomMode.value || 'unique_session'),
     // Platform video room does not depend on Google Calendar.
     allowLocalOnly: true
   });
 
-  const data = await createCounselingSession({
-    agencyId,
-    title: baseTitle,
-    clientUserId: firstGuardianUserId,
-    ...(appointmentId ? { appointmentId } : {})
-  });
-  const sessionKey = data?.session?.publicId || data?.session?.id;
-  if (!sessionKey) throw new Error('Session was scheduled, but the platform video room could not be created.');
+  const useMyRoom = String(editorVideoRoomMode.value || '') === 'my_room';
+  let data = null;
+  if (useMyRoom) {
+    try {
+      const roomRes = await api.get('/my-room/me', { skipGlobalLoading: true });
+      const slug = roomRes?.data?.room?.slug || roomRes?.data?.slug;
+      if (slug) {
+        virtualSessionShareUrl.value = `${window.location.origin}/join/my-room/${encodeURIComponent(slug)}`;
+        virtualSessionScheduledSessionKey.value = `my-room:${slug}`;
+      }
+    } catch {
+      /* fall through to unique session */
+    }
+  }
+  if (!virtualSessionShareUrl.value) {
+    data = await createCounselingSession({
+      agencyId,
+      title: titleWithNotes,
+      clientUserId: firstGuardianUserId,
+      ...(appointmentId ? { appointmentId } : {})
+    });
+    const sessionKey = data?.session?.publicId || data?.session?.id;
+    if (!sessionKey) throw new Error('Session was scheduled, but the platform video room could not be created.');
 
-  virtualSessionScheduledSessionKey.value = String(sessionKey);
-  virtualSessionShareUrl.value = buildVirtualSessionShareUrl(data?.sharePath || '');
+    virtualSessionScheduledSessionKey.value = String(sessionKey);
+    virtualSessionShareUrl.value = buildVirtualSessionShareUrl(data?.sharePath || '');
+  }
   virtualSessionShareCopied.value = false;
   virtualSessionGoogleWarning.value = String(scheduleResp?.data?.googleCalendarWarning || '').trim();
   clearSelectedActionSlots();
@@ -24424,6 +24605,41 @@ function parseClientIdFromScheduleEvent(evOrItem) {
   const desc = String(evOrItem?.description || '').trim();
   const m = /Client\s*id:\s*(\d+)/i.exec(desc);
   return m ? Number(m[1]) : 0;
+}
+
+
+function sessionConfirmationState(ev = null) {
+  if (!ev || !isClientSessionScheduleEvent(ev)) return null;
+  if (isScheduleEventCancelled(ev)) return null;
+  const st = String(ev?.appointmentStatus || ev?.appointment_status || '').trim().toLowerCase();
+  if (st === 'client_confirmed') return 'confirmed';
+  if (['completed', 'canceled_by_provider', 'canceled_by_client', 'canceled_by_guardian',
+    'canceled_by_organization', 'late_canceled', 'no_show', 'voided', 'rescheduled'].includes(st)) {
+    return null;
+  }
+  // scheduled, confirmed, draft, missing, or any other live pre-confirm status
+  return 'unconfirmed';
+}
+
+function sessionSchedulingNoteSnippet(ev = null) {
+  if (!ev) return '';
+  const fromAppt = String(ev?.appointmentNotes || ev?.appointment_notes || '').trim();
+  const fromDesc = String(ev?.description || '').trim();
+  let note = fromAppt || '';
+  if (!note && fromDesc) {
+    const firstLine = fromDesc.split(/\r?\n/).map((s) => s.trim()).find(Boolean) || '';
+    // Skip structured metadata lines
+    if (firstLine && !/^client\s*id:/i.test(firstLine) && !/^platform counseling/i.test(firstLine)) {
+      note = firstLine;
+    }
+  }
+  if (!note) {
+    const title = String(ev?.title || '').trim();
+    const parts = title.split('·').map((s) => s.trim()).filter(Boolean);
+    if (parts.length > 1) note = parts.slice(1).join(' · ');
+  }
+  if (!note) return '';
+  return note.length > 42 ? `${note.slice(0, 42)}…` : note;
 }
 
 /** True when a PERSONAL_EVENT row is actually a client session (not a personal time block). */
@@ -28656,6 +28872,40 @@ defineExpose({ resetToOpenFinder, openQuickBook });
   vertical-align: middle;
   white-space: nowrap;
 }
+.cell-block-confirm-chip {
+  display: inline-block;
+  margin-right: 4px;
+  padding: 1px 5px;
+  border-radius: 999px;
+  font-size: 8px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  line-height: 1.25;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+.cell-block-confirm-chip--ok {
+  color: #065f46;
+  background: rgba(167, 243, 208, 0.95);
+  border: 1px solid rgba(16, 185, 129, 0.45);
+}
+.cell-block-confirm-chip--pending {
+  color: #92400e;
+  background: rgba(253, 230, 138, 0.95);
+  border: 1px solid rgba(245, 158, 11, 0.5);
+}
+.cell-block-note-snip {
+  display: block;
+  margin-top: 1px;
+  font-size: 9px;
+  font-weight: 550;
+  opacity: 0.88;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+
 .cell-block-supv {
   background: var(--blockFill, rgba(216, 180, 254, 0.42));
   border-color: var(--blockBorder, rgba(147, 51, 234, 0.22));

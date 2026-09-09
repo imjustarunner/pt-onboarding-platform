@@ -109,13 +109,16 @@ export const createAppointmentHandler = async (req, res, next) => {
       modality: req.body?.modality || null,
       officeLocationId: req.body?.officeLocationId || null,
       roomId: req.body?.roomId || null,
-      status: req.body?.status || 'confirmed',
+      status: req.body?.status || 'scheduled',
       officeEventId: req.body?.officeEventId || null,
       officeBookingRequestId: req.body?.officeBookingRequestId || req.body?.office_booking_request_id || null,
       packageEntitlementId: req.body?.packageEntitlementId || req.body?.package_entitlement_id || null,
       source: req.body?.source || 'staff_grid',
       title: req.body?.title || null,
       notes,
+      othersPresentNames: req.body?.othersPresentNames || req.body?.others_present_names || null,
+      videoRoomMode: req.body?.videoRoomMode || req.body?.video_room_mode || 'unique_session',
+      notificationMode: req.body?.notificationMode || req.body?.notification_mode || 'default',
       serviceCode: req.body?.serviceCode || req.body?.service_code || null,
       addonServiceCodes: Array.isArray(req.body?.addonServiceCodes)
         ? req.body.addonServiceCodes

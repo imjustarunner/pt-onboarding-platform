@@ -2749,6 +2749,7 @@ export const upsertMedicalServiceCode = async (req, res, next) => {
       allowedPlaceOfService,
       allowedCredentialTiers,
       isActive,
+      sessionMode: req.body.sessionMode || req.body.session_mode || 'either',
       createdByUserId: req.user.id
     });
 

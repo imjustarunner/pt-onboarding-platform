@@ -3479,7 +3479,7 @@ export const getBookingMetadata = async (req, res, next) => {
           serviceCodes.map((row) => [String(row?.code || row?.service_code || '').toUpperCase(), row])
         );
         for (const row of medicalCodes) {
-          const code = String(row.service_code || '').toUpperCase();
+          const code = String(row.service_code || row.serviceCode || '').toUpperCase();
           if (!code) continue;
           const existing = byCode.get(code) || {};
           const tiers = parseAllowedCredentialTiers(row.allowed_credential_tiers_json);
@@ -3487,19 +3487,19 @@ export const getBookingMetadata = async (req, res, next) => {
             ...existing,
             code,
             label: (() => {
-              const code = String(row.service_code || '').toUpperCase();
+              const code = String(row.service_code || row.serviceCode || '').toUpperCase();
               const desc = String(row.description || existing.label || '').trim();
               if (code && desc && desc.toUpperCase() !== code) return `${code} — ${desc}`;
               return desc || code || existing.label || code;
             })(),
-            minDurationMinutes: row.min_minutes ?? existing.minDurationMinutes ?? null,
-            unitMinutes: row.unit_minutes ?? existing.unitMinutes ?? null,
-            maxUnitsPerDay: row.max_units_per_day ?? existing.maxUnitsPerDay ?? null,
-            maxUnitsPerSession: row.max_units_per_session ?? null,
-            unitCalcMode: row.unit_calc_mode || null,
-            maxMinutes: row.max_minutes ?? null,
-            overflowServiceCode: row.overflow_service_code || null,
-            overflowAtMinutes: row.overflow_at_minutes ?? null,
+            minDurationMinutes: row.min_minutes ?? row.minMinutes ?? existing.minDurationMinutes ?? null,
+            unitMinutes: row.unit_minutes ?? row.unitMinutes ?? existing.unitMinutes ?? null,
+            maxUnitsPerDay: row.max_units_per_day ?? row.maxUnitsPerDay ?? existing.maxUnitsPerDay ?? null,
+            maxUnitsPerSession: row.max_units_per_session ?? row.maxUnitsPerSession ?? null,
+            unitCalcMode: row.unit_calc_mode || row.unitCalcMode || null,
+            maxMinutes: row.max_minutes ?? row.maxMinutes ?? null,
+            overflowServiceCode: row.overflow_service_code || row.overflowServiceCode || null,
+            overflowAtMinutes: row.overflow_at_minutes ?? row.overflowAtMinutes ?? null,
             allowedCredentialTiers: tiers,
             allowedPlaceOfService: (() => {
               const raw = row.allowed_place_of_service_json;
@@ -3516,8 +3516,9 @@ export const getBookingMetadata = async (req, res, next) => {
               }
               return [];
             })(),
-            defaultPlaceOfService: row.default_place_of_service || null,
-            isAddon: Number(row.is_addon || 0) === 1,
+            defaultPlaceOfService: row.default_place_of_service || row.defaultPlaceOfService || null,
+            isAddon: Number(row.is_addon || row.isAddon || 0) === 1,
+            sessionMode: String(row.session_mode || row.sessionMode || 'either').toLowerCase(),
             medical: true
           };
           byCode.set(code, merged);

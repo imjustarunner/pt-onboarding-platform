@@ -18,8 +18,16 @@ import {
   buildConfirmationMessage,
   interpretAppointmentReply as interpretReplyIntent
 } from './appointmentReply.service.js';
+import { sendNotificationEmail } from './unifiedEmail/unifiedEmailSender.service.js';
 
 const CHANNELS = ['in_app', 'email', 'sms', 'phone'];
+
+/** Default Book Session reminder cadence: 7d always; 24h/4h gated by interaction. */
+export const DEFAULT_CADENCE_OFFSETS = Object.freeze({
+  sevenDay: 7 * 24 * 60,
+  twentyFourHour: 24 * 60,
+  fourHour: 4 * 60
+});
 
 const DEFAULT_PLATFORM = {
   channels: {
@@ -589,6 +597,266 @@ export async function scheduleSessionNotifications(appointmentId, { replace = tr
   return created;
 }
 
+/**
+ * Book Session default cadence foundation (7d → conditional 24h → conditional 4h).
+ * Always schedules the 7-day reminder. 24h/4h are scheduled when:
+ *  - includeFollowUps is true, OR
+ *  - existing interaction_json shows the client opened/confirmed/chose cadence.
+ * Confirm replies set appointment status to client_confirmed (see applyConfirmReply).
+ * SMS remains TBD / unchanged elsewhere.
+ */
+export async function scheduleDefaultCadenceReminders(appointmentId, {
+  replace = false,
+  channel = 'email',
+  includeFollowUps = null,
+  interaction = null
+} = {}) {
+  const appt = await Appointment.findById(appointmentId);
+  if (!appt) throw Object.assign(new Error('Appointment not found'), { status: 404 });
+  const start = parseStartAt(appt.startAt);
+  if (!start) return [];
+
+  let interactionJson = interaction;
+  if (!interactionJson) {
+    try {
+      const [rows] = await pool.execute(
+        `SELECT interaction_json FROM appointment_reminders
+         WHERE appointment_id = ? AND interaction_json IS NOT NULL
+         ORDER BY id DESC LIMIT 1`,
+        [Number(appointmentId)]
+      );
+      interactionJson = parseJson(rows?.[0]?.interaction_json, null);
+    } catch {
+      interactionJson = null;
+    }
+  }
+
+  const opened = !!(interactionJson?.opened_at || interactionJson?.confirmed_at || interactionJson?.chosen_cadence);
+  const followUps = includeFollowUps === true
+    || (includeFollowUps == null && opened);
+
+  if (replace) {
+    try {
+      await pool.execute(
+        `UPDATE appointment_reminders
+         SET status = 'canceled', skip_reason = 'cadence_reschedule'
+         WHERE appointment_id = ?
+           AND status = 'pending'
+           AND (
+             rule_key IN ('cadence_7d', 'cadence_24h', 'cadence_4h')
+             OR offset_minutes IN (?, ?, ?)
+           )`,
+        [
+          Number(appointmentId),
+          DEFAULT_CADENCE_OFFSETS.sevenDay,
+          DEFAULT_CADENCE_OFFSETS.twentyFourHour,
+          DEFAULT_CADENCE_OFFSETS.fourHour
+        ]
+      );
+    } catch {
+      /* best-effort */
+    }
+  }
+
+  const specs = [
+    {
+      offsetMinutes: DEFAULT_CADENCE_OFFSETS.sevenDay,
+      kind: 'standard_reminder',
+      ruleKey: 'cadence_7d',
+      requiresConfirmation: true,
+      always: true
+    },
+    {
+      offsetMinutes: DEFAULT_CADENCE_OFFSETS.twentyFourHour,
+      kind: 'additional_reminder',
+      ruleKey: 'cadence_24h',
+      requiresConfirmation: true,
+      always: false
+    },
+    {
+      offsetMinutes: DEFAULT_CADENCE_OFFSETS.fourHour,
+      kind: 'additional_reminder',
+      ruleKey: 'cadence_4h',
+      requiresConfirmation: true,
+      always: false
+    }
+  ];
+
+  const created = [];
+  const ch = channel === 'sms' ? 'sms' : 'email';
+  for (const spec of specs) {
+    if (!spec.always && !followUps) continue;
+    const when = new Date(start.getTime() - spec.offsetMinutes * 60 * 1000);
+    if (when.getTime() <= Date.now() - 60 * 1000) continue;
+    const scheduledFor = toMysqlDateTime(when);
+    const messageBody = buildReminderMessage({
+      title: appt.title,
+      when: appt.startAt,
+      askConfirmation: true
+    });
+    try {
+      const [result] = await pool.execute(
+        `INSERT INTO appointment_reminders
+          (appointment_id, agency_id, channel, kind, rule_key, recipient_role,
+           requires_confirmation, template_key, is_required, message_body,
+           offset_minutes, scheduled_for, status, interaction_json)
+         VALUES (?, ?, ?, ?, ?, 'client', ?, ?, 0, ?, ?, ?, 'pending', ?)`,
+        [
+          appt.id,
+          appt.agencyId,
+          ch,
+          spec.kind,
+          spec.ruleKey,
+          spec.requiresConfirmation ? 1 : 0,
+          spec.ruleKey,
+          messageBody,
+          spec.offsetMinutes,
+          scheduledFor,
+          interactionJson ? JSON.stringify(interactionJson) : null
+        ]
+      );
+      created.push({
+        id: Number(result.insertId),
+        ...spec,
+        channel: ch,
+        scheduledFor
+      });
+    } catch (e) {
+      if (String(e?.message || '').includes('Unknown column') || e?.code === 'ER_BAD_FIELD_ERROR') {
+        const [result] = await pool.execute(
+          `INSERT INTO appointment_reminders
+            (appointment_id, agency_id, channel, offset_minutes, scheduled_for, status)
+           VALUES (?, ?, ?, ?, ?, 'pending')`,
+          [appt.id, appt.agencyId, ch, spec.offsetMinutes, scheduledFor]
+        );
+        created.push({
+          id: Number(result.insertId),
+          ...spec,
+          channel: ch,
+          scheduledFor
+        });
+      } else {
+        throw e;
+      }
+    }
+  }
+
+  if (created.length) {
+    await logCommunication({
+      appointmentId: appt.id,
+      agencyId: appt.agencyId,
+      direction: 'system',
+      channel: 'in_app',
+      kind: 'reminder',
+      bodyPreview: `Scheduled default cadence (${created.map((c) => c.ruleKey).join(', ')})`,
+      metadata: { cadence: created.map((c) => c.ruleKey), followUps }
+    });
+  }
+  return created;
+}
+
+/**
+ * Apply a confirm reply: sets appointment to client_confirmed and stamps interaction_json.
+ */
+export async function applyConfirmReply(appointmentId, {
+  channel = 'email',
+  reminderId = null,
+  interactionPatch = null
+} = {}) {
+  const appt = await Appointment.findById(appointmentId);
+  if (!appt) throw Object.assign(new Error('Appointment not found'), { status: 404 });
+
+  await Appointment.update(appointmentId, {
+    status: 'client_confirmed',
+    updatedByUserId: null
+  });
+
+  const interaction = {
+    ...(interactionPatch && typeof interactionPatch === 'object' ? interactionPatch : {}),
+    confirmed_at: new Date().toISOString(),
+    chosen_cadence: interactionPatch?.chosen_cadence || 'confirmed'
+  };
+
+  if (reminderId) {
+    try {
+      await pool.execute(
+        `UPDATE appointment_reminders
+         SET interaction_json = ?
+         WHERE id = ?`,
+        [JSON.stringify(interaction), Number(reminderId)]
+      );
+    } catch {
+      /* column may not exist yet */
+    }
+  }
+
+  await logCommunication({
+    appointmentId: appt.id,
+    agencyId: appt.agencyId,
+    direction: 'inbound',
+    channel: channel === 'sms' ? 'sms' : 'email',
+    kind: 'confirm_reply',
+    bodyPreview: 'Client confirmed session',
+    reminderId: reminderId || null,
+    metadata: { status: 'client_confirmed', interaction }
+  });
+
+  // After confirm, schedule conditional 24h/4h follow-ups if still upcoming
+  try {
+    await scheduleDefaultCadenceReminders(appointmentId, {
+      replace: false,
+      includeFollowUps: true,
+      interaction
+    });
+  } catch {
+    /* best-effort */
+  }
+
+  return Appointment.findById(appointmentId);
+}
+
+async function sendSessionEmail({
+  to,
+  subject,
+  text,
+  html,
+  agencyId = null,
+  clientId = null,
+  kind = 'reminder'
+}) {
+  const htmlBody = html || `<p>${String(text || '').replace(/\n/g, '<br/>')}</p>`;
+  // Prefer branded unified sender (tenant chrome via finalizeOutboundContent)
+  try {
+    const result = await sendNotificationEmail({
+      agencyId,
+      triggerKey: kind.startsWith('confirmation') ? 'session_confirmation' : 'session_reminder',
+      to,
+      subject,
+      text,
+      html: htmlBody,
+      clientId,
+      templateType: kind.startsWith('confirmation') ? 'session_confirmation' : 'session_reminder',
+      source: 'auto'
+    });
+    if (result && !result.skipped) return result;
+  } catch (e) {
+    console.warn('[sessionNotification] unified email failed, falling back:', e?.message || e);
+  }
+  // Keep EmailService fallback so SMS/email drains stay resilient
+  if (EmailService.isConfigured?.()) {
+    return EmailService.sendEmail({
+      to,
+      subject,
+      text,
+      html: htmlBody,
+      agencyId: agencyId || null,
+      clientId: clientId || null,
+      templateType: 'session_reminder'
+    });
+  }
+  return null;
+}
+
 function defaultMessage(appt, kind, requiresConfirmation) {
   if (kind === 'confirmation' || String(kind).startsWith('confirmation')) {
     return buildConfirmationMessage({ title: appt.title, when: appt.startAt });
@@ -777,15 +1045,15 @@ export async function processDueSessionNotifications({ limit = 50 } = {}) {
       continue;
     }
     try {
-      if (EmailService.isConfigured?.() && consent.emailAddress) {
-        await EmailService.sendEmail({
+      if (consent.emailAddress) {
+        await sendSessionEmail({
           to: consent.emailAddress,
           subject: kind.startsWith('confirmation') ? 'Please confirm your session' : 'Session reminder',
           text: body,
           html: `<p>${body.replace(/\n/g, '<br/>')}</p>`,
           agencyId: appt.agencyId || null,
           clientId: clientId || null,
-          templateType: 'session_reminder'
+          kind
         });
       }
       await pool.execute(
@@ -807,17 +1075,15 @@ export async function processDueSessionNotifications({ limit = 50 } = {}) {
           : [];
         for (const c of contacts || []) {
           if (!c.email_reminders_enabled || !c.contact_email) continue;
-          if (EmailService.isConfigured?.()) {
-            await EmailService.sendEmail({
-              to: c.contact_email,
-              subject: kind.startsWith('confirmation') ? 'Please confirm your session' : 'Session reminder',
-              text: body,
-              html: `<p>${body.replace(/\n/g, '<br/>')}</p>`,
-              agencyId: appt.agencyId || null,
-              clientId: clientId || null,
-              templateType: 'session_reminder'
-            });
-          }
+          await sendSessionEmail({
+            to: c.contact_email,
+            subject: kind.startsWith('confirmation') ? 'Please confirm your session' : 'Session reminder',
+            text: body,
+            html: `<p>${body.replace(/\n/g, '<br/>')}</p>`,
+            agencyId: appt.agencyId || null,
+            clientId: clientId || null,
+            kind
+          });
           await logCommunication({
             appointmentId: appt.id,
             agencyId: appt.agencyId,
@@ -1115,13 +1381,16 @@ async function processChangeNotificationRow(queueId) {
   }
 
   for (const ch of channels) {
-    if (ch === 'email' && consent.emailAddress && EmailService.isConfigured?.()) {
+    if (ch === 'email' && consent.emailAddress) {
       try {
-        await EmailService.sendEmail({
+        await sendSessionEmail({
           to: consent.emailAddress,
           subject: 'Session update',
           text: body,
-          html: `<p>${body.replace(/\n/g, '<br/>')}</p>`
+          html: `<p>${body.replace(/\n/g, '<br/>')}</p>`,
+          agencyId: appt.agencyId || null,
+          clientId: clientId || null,
+          kind: 'change_update'
         });
       } catch { /* continue */ }
     }

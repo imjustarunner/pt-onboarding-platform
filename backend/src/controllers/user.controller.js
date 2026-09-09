@@ -5906,8 +5906,20 @@ export const getUserScheduleSummary = async (req, res, next) => {
       }
       if (pseApptMap.size) {
         scheduleEvents = (scheduleEvents || []).map((e) => {
-          const aid = pseApptMap.get(Number(e?.id || 0));
-          return aid ? { ...e, appointmentId: aid } : e;
+          const meta = pseApptMap.get(Number(e?.id || 0));
+          if (!meta) return e;
+          const appointmentId = typeof meta === 'object' ? Number(meta.id || 0) : Number(meta || 0);
+          if (!appointmentId) return e;
+          return {
+            ...e,
+            appointmentId,
+            appointmentStatus: typeof meta === 'object'
+              ? String(meta.status || 'scheduled').toLowerCase()
+              : null,
+            appointmentNotes: typeof meta === 'object' && meta.notes != null
+              ? String(meta.notes)
+              : null
+          };
         });
       }
     } catch {

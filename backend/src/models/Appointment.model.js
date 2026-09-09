@@ -2,6 +2,7 @@ import pool from '../config/database.js';
 
 const LIVE_STATUSES = new Set([
   'draft',
+  'scheduled',
   'confirmed',
   'client_confirmed',
   'completed',
@@ -17,6 +18,9 @@ const LIVE_STATUSES = new Set([
   'voided'
 ]);
 
+const VIDEO_ROOM_MODES = new Set(['unique_session', 'my_room']);
+const NOTIFICATION_MODES = new Set(['default', 'customizable']);
+
 function parseJsonSafe(raw, fallback = null) {
   if (raw == null) return fallback;
   if (typeof raw === 'object') return raw;
@@ -27,8 +31,18 @@ function parseJsonSafe(raw, fallback = null) {
   }
 }
 
+function normalizeVideoRoomMode(raw, fallback = 'unique_session') {
+  const s = String(raw || fallback).trim().toLowerCase();
+  return VIDEO_ROOM_MODES.has(s) ? s : fallback;
+}
+
+function normalizeNotificationMode(raw, fallback = 'default') {
+  const s = String(raw || fallback).trim().toLowerCase();
+  return NOTIFICATION_MODES.has(s) ? s : fallback;
+}
+
 class Appointment {
-  static normalizeStatus(raw, fallback = 'confirmed') {
+  static normalizeStatus(raw, fallback = 'scheduled') {
     const s = String(raw || fallback).trim().toLowerCase();
     return LIVE_STATUSES.has(s) ? s : fallback;
   }
@@ -47,7 +61,7 @@ class Appointment {
       modality: r.modality ? String(r.modality).toUpperCase() : null,
       officeLocationId: r.office_location_id == null ? null : Number(r.office_location_id),
       roomId: r.room_id == null ? null : Number(r.room_id),
-      status: String(r.status || 'confirmed'),
+      status: String(r.status || 'scheduled'),
       participantMode: String(r.participant_mode || 'individual'),
       officeEventId: r.office_event_id == null ? null : Number(r.office_event_id),
       officeBookingRequestId: r.office_booking_request_id == null ? null : Number(r.office_booking_request_id),
@@ -64,6 +78,9 @@ class Appointment {
       source: String(r.source || 'staff_grid'),
       title: r.title != null ? String(r.title) : null,
       notes: r.notes != null ? String(r.notes) : null,
+      othersPresentNames: r.others_present_names != null ? String(r.others_present_names) : null,
+      videoRoomMode: normalizeVideoRoomMode(r.video_room_mode, 'unique_session'),
+      notificationMode: normalizeNotificationMode(r.notification_mode, 'default'),
       serviceCode: r.service_code ? String(r.service_code).toUpperCase() : null,
       addonServiceCodes: (() => {
         const raw = parseJsonSafe(r.addon_service_codes_json, []);
@@ -161,55 +178,90 @@ class Appointment {
     if (!ids.length) return new Map();
     const placeholders = ids.map(() => '?').join(',');
     const [rows] = await pool.execute(
-      `SELECT id, provider_schedule_event_id FROM appointments
+      `SELECT id, provider_schedule_event_id, status, notes FROM appointments
        WHERE provider_schedule_event_id IN (${placeholders})`,
       ids
     );
     const map = new Map();
     for (const r of rows || []) {
       const pid = Number(r.provider_schedule_event_id || 0);
-      if (pid) map.set(pid, Number(r.id));
+      if (pid) {
+        map.set(pid, {
+          id: Number(r.id),
+          status: String(r.status || 'scheduled').toLowerCase(),
+          notes: r.notes != null ? String(r.notes) : null
+        });
+      }
     }
     return map;
   }
 
   static async create(row) {
-    const [result] = await pool.execute(
-      `INSERT INTO appointments (
-         agency_id, parent_agency_id, business_type, tenant_service_id, provider_user_id,
-         start_at, end_at, modality, office_location_id, room_id, status, participant_mode,
-         office_event_id, office_booking_request_id, provider_schedule_event_id, clinical_session_id, package_entitlement_id,
-         cancellation_policy_id, cancel_deadline_at,
-         source, title, notes, created_by_user_id, updated_by_user_id
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [
-        Number(row.agencyId),
-        row.parentAgencyId || null,
-        row.businessType || null,
-        row.tenantServiceId || null,
-        row.providerUserId || null,
-        row.startAt,
-        row.endAt,
-        row.modality || null,
-        row.officeLocationId || null,
-        row.roomId || null,
-        this.normalizeStatus(row.status),
-        row.participantMode === 'multi' ? 'multi' : 'individual',
-        row.officeEventId || null,
-        row.officeBookingRequestId || null,
-        row.providerScheduleEventId || null,
-        row.clinicalSessionId || null,
-        row.packageEntitlementId || null,
-        row.cancellationPolicyId || null,
-        row.cancelDeadlineAt || null,
-        String(row.source || 'staff_grid').slice(0, 64),
-        row.title || null,
-        row.notes || null,
-        row.createdByUserId || null,
-        row.updatedByUserId || row.createdByUserId || null
-      ]
-    );
-    return this.findById(result.insertId);
+    const othersPresentNames = row.othersPresentNames != null
+      ? String(row.othersPresentNames).trim().slice(0, 500) || null
+      : null;
+    const videoRoomMode = normalizeVideoRoomMode(row.videoRoomMode, 'unique_session');
+    const notificationMode = normalizeNotificationMode(row.notificationMode, 'default');
+    const baseParams = [
+      Number(row.agencyId),
+      row.parentAgencyId || null,
+      row.businessType || null,
+      row.tenantServiceId || null,
+      row.providerUserId || null,
+      row.startAt,
+      row.endAt,
+      row.modality || null,
+      row.officeLocationId || null,
+      row.roomId || null,
+      this.normalizeStatus(row.status),
+      row.participantMode === 'multi' ? 'multi' : 'individual',
+      row.officeEventId || null,
+      row.officeBookingRequestId || null,
+      row.providerScheduleEventId || null,
+      row.clinicalSessionId || null,
+      row.packageEntitlementId || null,
+      row.cancellationPolicyId || null,
+      row.cancelDeadlineAt || null,
+      String(row.source || 'staff_grid').slice(0, 64),
+      row.title || null,
+      row.notes || null,
+      row.createdByUserId || null,
+      row.updatedByUserId || row.createdByUserId || null
+    ];
+    try {
+      const [result] = await pool.execute(
+        `INSERT INTO appointments (
+           agency_id, parent_agency_id, business_type, tenant_service_id, provider_user_id,
+           start_at, end_at, modality, office_location_id, room_id, status, participant_mode,
+           office_event_id, office_booking_request_id, provider_schedule_event_id, clinical_session_id, package_entitlement_id,
+           cancellation_policy_id, cancel_deadline_at,
+           source, title, notes, others_present_names, video_room_mode, notification_mode,
+           created_by_user_id, updated_by_user_id
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          ...baseParams.slice(0, 22),
+          othersPresentNames,
+          videoRoomMode,
+          notificationMode,
+          baseParams[22],
+          baseParams[23]
+        ]
+      );
+      return this.findById(result.insertId);
+    } catch (e) {
+      if (e?.code !== 'ER_BAD_FIELD_ERROR') throw e;
+      const [result] = await pool.execute(
+        `INSERT INTO appointments (
+           agency_id, parent_agency_id, business_type, tenant_service_id, provider_user_id,
+           start_at, end_at, modality, office_location_id, room_id, status, participant_mode,
+           office_event_id, office_booking_request_id, provider_schedule_event_id, clinical_session_id, package_entitlement_id,
+           cancellation_policy_id, cancel_deadline_at,
+           source, title, notes, created_by_user_id, updated_by_user_id
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        baseParams
+      );
+      return this.findById(result.insertId);
+    }
   }
 
   static async setServiceCodes(id, { serviceCode = null, addonServiceCodes = [] } = {}) {
@@ -243,46 +295,99 @@ class Appointment {
     const recJson = next.cancellationRecommendationJson != null
       ? JSON.stringify(next.cancellationRecommendationJson)
       : null;
-    await pool.execute(
-      `UPDATE appointments SET
-         business_type = ?, tenant_service_id = ?, provider_user_id = ?,
-         start_at = ?, end_at = ?, modality = ?, office_location_id = ?, room_id = ?,
-         status = ?, participant_mode = ?, office_event_id = ?, provider_schedule_event_id = ?,
-         clinical_session_id = ?, package_entitlement_id = ?,
-         cancellation_policy_id = ?, cancel_deadline_at = ?, cancellation_reason = ?,
-         cancellation_fee_cents = ?, cancellation_recommendation_json = ?,
-         canceled_at = ?, canceled_by_user_id = ?,
-         title = ?, notes = ?,
-         updated_by_user_id = ?, updated_at = CURRENT_TIMESTAMP
-       WHERE id = ?`,
-      [
-        next.businessType || null,
-        next.tenantServiceId || null,
-        next.providerUserId || null,
-        next.startAt,
-        next.endAt,
-        next.modality || null,
-        next.officeLocationId || null,
-        next.roomId || null,
-        this.normalizeStatus(next.status),
-        next.participantMode === 'multi' ? 'multi' : 'individual',
-        next.officeEventId || null,
-        next.providerScheduleEventId || null,
-        next.clinicalSessionId || null,
-        next.packageEntitlementId || null,
-        next.cancellationPolicyId || null,
-        next.cancelDeadlineAt || null,
-        next.cancellationReason || null,
-        next.cancellationFeeCents == null ? null : Number(next.cancellationFeeCents),
-        recJson,
-        next.canceledAt || null,
-        next.canceledByUserId || null,
-        next.title || null,
-        next.notes || null,
-        next.updatedByUserId || null,
-        Number(id)
-      ]
-    );
+    const othersPresentNames = next.othersPresentNames != null
+      ? String(next.othersPresentNames).trim().slice(0, 500) || null
+      : null;
+    const videoRoomMode = normalizeVideoRoomMode(next.videoRoomMode, existing.videoRoomMode || 'unique_session');
+    const notificationMode = normalizeNotificationMode(next.notificationMode, existing.notificationMode || 'default');
+    try {
+      await pool.execute(
+        `UPDATE appointments SET
+           business_type = ?, tenant_service_id = ?, provider_user_id = ?,
+           start_at = ?, end_at = ?, modality = ?, office_location_id = ?, room_id = ?,
+           status = ?, participant_mode = ?, office_event_id = ?, provider_schedule_event_id = ?,
+           clinical_session_id = ?, package_entitlement_id = ?,
+           cancellation_policy_id = ?, cancel_deadline_at = ?, cancellation_reason = ?,
+           cancellation_fee_cents = ?, cancellation_recommendation_json = ?,
+           canceled_at = ?, canceled_by_user_id = ?,
+           title = ?, notes = ?,
+           others_present_names = ?, video_room_mode = ?, notification_mode = ?,
+           updated_by_user_id = ?, updated_at = CURRENT_TIMESTAMP
+         WHERE id = ?`,
+        [
+          next.businessType || null,
+          next.tenantServiceId || null,
+          next.providerUserId || null,
+          next.startAt,
+          next.endAt,
+          next.modality || null,
+          next.officeLocationId || null,
+          next.roomId || null,
+          this.normalizeStatus(next.status),
+          next.participantMode === 'multi' ? 'multi' : 'individual',
+          next.officeEventId || null,
+          next.providerScheduleEventId || null,
+          next.clinicalSessionId || null,
+          next.packageEntitlementId || null,
+          next.cancellationPolicyId || null,
+          next.cancelDeadlineAt || null,
+          next.cancellationReason || null,
+          next.cancellationFeeCents == null ? null : Number(next.cancellationFeeCents),
+          recJson,
+          next.canceledAt || null,
+          next.canceledByUserId || null,
+          next.title || null,
+          next.notes || null,
+          othersPresentNames,
+          videoRoomMode,
+          notificationMode,
+          next.updatedByUserId || null,
+          Number(id)
+        ]
+      );
+    } catch (e) {
+      if (e?.code !== 'ER_BAD_FIELD_ERROR') throw e;
+      await pool.execute(
+        `UPDATE appointments SET
+           business_type = ?, tenant_service_id = ?, provider_user_id = ?,
+           start_at = ?, end_at = ?, modality = ?, office_location_id = ?, room_id = ?,
+           status = ?, participant_mode = ?, office_event_id = ?, provider_schedule_event_id = ?,
+           clinical_session_id = ?, package_entitlement_id = ?,
+           cancellation_policy_id = ?, cancel_deadline_at = ?, cancellation_reason = ?,
+           cancellation_fee_cents = ?, cancellation_recommendation_json = ?,
+           canceled_at = ?, canceled_by_user_id = ?,
+           title = ?, notes = ?,
+           updated_by_user_id = ?, updated_at = CURRENT_TIMESTAMP
+         WHERE id = ?`,
+        [
+          next.businessType || null,
+          next.tenantServiceId || null,
+          next.providerUserId || null,
+          next.startAt,
+          next.endAt,
+          next.modality || null,
+          next.officeLocationId || null,
+          next.roomId || null,
+          this.normalizeStatus(next.status),
+          next.participantMode === 'multi' ? 'multi' : 'individual',
+          next.officeEventId || null,
+          next.providerScheduleEventId || null,
+          next.clinicalSessionId || null,
+          next.packageEntitlementId || null,
+          next.cancellationPolicyId || null,
+          next.cancelDeadlineAt || null,
+          next.cancellationReason || null,
+          next.cancellationFeeCents == null ? null : Number(next.cancellationFeeCents),
+          recJson,
+          next.canceledAt || null,
+          next.canceledByUserId || null,
+          next.title || null,
+          next.notes || null,
+          next.updatedByUserId || null,
+          Number(id)
+        ]
+      );
+    }
     return this.findById(id);
   }
 

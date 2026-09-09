@@ -13,6 +13,8 @@ export {
 } from '../../utils/scheduleRecurrence.js';
 
 export const APPOINTMENT_EDITOR_STATUS_OPTIONS = [
+  { value: 'scheduled', label: 'Scheduled' },
+  { value: 'client_confirmed', label: 'Client confirmed' },
   { value: 'confirmed', label: 'Confirmed' },
   { value: 'draft', label: 'Draft' },
   { value: 'completed', label: 'Completed' },
@@ -20,8 +22,7 @@ export const APPOINTMENT_EDITOR_STATUS_OPTIONS = [
   { value: 'no_show', label: 'No-show' },
   { value: 'BOOKED', label: 'Booked' },
   { value: 'ASSIGNED', label: 'Assigned' },
-  { value: 'TEMPORARY', label: 'Temporary' },
-  { value: 'Scheduled', label: 'Scheduled' }
+  { value: 'TEMPORARY', label: 'Temporary' }
 ];
 
 const KIND_TITLES = {

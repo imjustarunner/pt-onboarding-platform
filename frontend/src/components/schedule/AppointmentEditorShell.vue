@@ -30,6 +30,11 @@
       @update:addonServiceCodes="emit('update:addonServiceCodes', $event)"
       @update:modality="emit('update:modality', $event)"
       @update:selectedClientIds="emit('update:selectedClientIds', $event)"
+      @update:recurrenceFrequency="emit('update:recurrenceFrequency', $event)"
+      @update:videoRoomMode="emit('update:videoRoomMode', $event)"
+      @update:notificationMode="emit('update:notificationMode', $event)"
+      @update:schedulingNotes="emit('update:schedulingNotes', $event)"
+      @update:othersPresentNames="emit('update:othersPresentNames', $event)"
       @request-office="emit('request-office')"
       @cancel-office-request="emit('cancel-office-request')"
       @scroll-to-group-clients="emit('scroll-to-group-clients')"
@@ -44,10 +49,28 @@
       <template #participant-tray>
         <slot name="participant-tray" />
       </template>
+      <template #recurrence-extra>
+        <RecurrenceControls
+          v-if="bookSessionLayout && showRecurrence && recurrenceFrequency !== 'ONCE'"
+          :frequency="recurrenceFrequency"
+          :end-mode="recurrenceEndMode"
+          :occurrence-count="recurrenceOccurrenceCount"
+          :until-date="recurrenceUntilDate"
+          :weekdays="recurrenceWeekdays"
+          :occurrence-label="recurrenceOccurrenceLabel"
+          :open-slot-hint="openSlotRecurrenceHint"
+          :disabled="disabled"
+          @update:frequency="emit('update:recurrenceFrequency', $event)"
+          @update:endMode="emit('update:recurrenceEndMode', $event)"
+          @update:occurrenceCount="emit('update:recurrenceOccurrenceCount', $event)"
+          @update:untilDate="emit('update:recurrenceUntilDate', $event)"
+          @update:weekdays="emit('update:recurrenceWeekdays', $event)"
+        />
+      </template>
     </AppointmentHeaderFields>
 
     <VirtualLinkControls
-      v-if="(showVirtual || showVirtualOptions) && !hideVirtualControls"
+      v-if="(showVirtual || showVirtualOptions) && !hideVirtualControls && !bookSessionLayout"
       :is-virtual="virtualIsVirtual"
       :link="virtualLink"
       :meet-link="meetLink"
@@ -71,7 +94,7 @@
     <slot name="before-recurrence" />
 
     <RecurrenceControls
-      v-if="showRecurrence"
+      v-if="showRecurrence && !bookSessionLayout"
       :frequency="recurrenceFrequency"
       :end-mode="recurrenceEndMode"
       :occurrence-count="recurrenceOccurrenceCount"
@@ -199,7 +222,17 @@ const props = defineProps({
   selectedClientIds: { type: Array, default: () => [] },
   primaryClientId: { type: Number, default: 0 },
   groupClientsLoading: { type: Boolean, default: false },
-  forceExpandGroupClients: { type: Boolean, default: false }
+  forceExpandGroupClients: { type: Boolean, default: false },
+  bookSessionLayout: { type: Boolean, default: false },
+  videoRoomMode: { type: String, default: 'unique_session' },
+  showNotifications: { type: Boolean, default: false },
+  notificationMode: { type: String, default: 'default' },
+  showSchedulingNotes: { type: Boolean, default: false },
+  schedulingNotes: { type: String, default: '' },
+  showOthersPresent: { type: Boolean, default: false },
+  othersPresentNames: { type: String, default: '' },
+  adminCatalogLinks: { type: Object, default: null },
+  recurrenceFrequencyOptions: { type: Array, default: () => [] }
 });
 
 const emit = defineEmits([
@@ -233,7 +266,11 @@ const emit = defineEmits([
   'update:virtualIsVirtual',
   'update:virtualUsePlatformVideo',
   'update:virtualWaitingRoomEnabled',
-  'update:virtualCreateMeetLink'
+  'update:virtualCreateMeetLink',
+  'update:videoRoomMode',
+  'update:notificationMode',
+  'update:schedulingNotes',
+  'update:othersPresentNames'
 ]);
 
 const headerProps = computed(() => ({
@@ -304,7 +341,21 @@ const headerProps = computed(() => ({
   selectedClientIds: props.selectedClientIds,
   primaryClientId: props.primaryClientId,
   groupClientsLoading: props.groupClientsLoading,
-  forceExpandGroupClients: props.forceExpandGroupClients
+  forceExpandGroupClients: props.forceExpandGroupClients,
+  bookSessionLayout: props.bookSessionLayout,
+  showInlineRecurrence: props.bookSessionLayout && props.showRecurrence,
+  recurrenceFrequency: props.recurrenceFrequency,
+  recurrenceFrequencyOptions: props.recurrenceFrequencyOptions?.length
+    ? props.recurrenceFrequencyOptions
+    : undefined,
+  videoRoomMode: props.videoRoomMode,
+  showNotifications: props.showNotifications,
+  notificationMode: props.notificationMode,
+  showSchedulingNotes: props.showSchedulingNotes,
+  schedulingNotes: props.schedulingNotes,
+  showOthersPresent: props.showOthersPresent,
+  othersPresentNames: props.othersPresentNames,
+  adminCatalogLinks: props.adminCatalogLinks
 }));
 </script>
 

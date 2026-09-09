@@ -912,6 +912,13 @@ const routes = [
     component: () => import('../views/teamMeeting/JoinTeamMeetingView.vue'),
     meta: { requiresGuest: false }
   },
+  // Provider My Room public lobby join (photo required; never auto-admits)
+  {
+    path: '/join/my-room/:slug',
+    name: 'JoinMyRoom',
+    component: () => import('../views/JoinMyRoomView.vue'),
+    meta: { requiresGuest: false }
+  },
   // Public upcoming event listings (no auth; agency slug must match agencies.slug)
   {
     path: '/open-events/:agencySlug',

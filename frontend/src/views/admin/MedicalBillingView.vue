@@ -127,6 +127,11 @@
           <input v-model="svcForm.overflowServiceCode" class="mb-input" placeholder="Overflow code" />
           <input v-model.number="svcForm.overflowAtMinutes" class="mb-input" type="number" placeholder="Overflow at (min)" />
           <input v-model="svcForm.defaultPlaceOfService" class="mb-input" placeholder="Default POS" maxlength="2" />
+          <select v-model="svcForm.sessionMode" class="mb-input" title="Session mode for Book Session primary codes">
+            <option value="individual">Session mode: Individual</option>
+            <option value="group">Session mode: Group</option>
+            <option value="either">Session mode: Either</option>
+          </select>
           <select v-model="svcForm.missedBillingMode" class="mb-input mb-input--wide" title="Missed / no-show billing override">
             <option value="none">Missed event billing: none (default — no insurance claim)</option>
             <option value="fee_ledger_only">Missed event: fee ledger only (no claim)</option>
@@ -164,6 +169,16 @@
         <ul class="mb-list">
           <li v-for="c in serviceCodes" :key="c.id">
             <strong>{{ c.service_code }}</strong>
+            <span
+              v-if="serviceCodeSessionMode(c) === 'group'"
+              class="mb-ready mb-ready--group"
+              title="Group session code"
+            >Group</span>
+            <span
+              v-else-if="serviceCodeSessionMode(c) === 'individual'"
+              class="mb-ready"
+              title="Individual session code"
+            >Indiv</span>
             <span class="muted">{{ c.description || '' }}</span>
             <span>{{ c.unit_calc_mode }}</span>
             <span v-if="c.min_minutes != null">min {{ c.min_minutes }}m</span>
@@ -415,6 +430,7 @@ const svcForm = ref({
   overflowServiceCode: '',
   overflowAtMinutes: null,
   defaultPlaceOfService: '',
+  sessionMode: 'either',
   missedBillingMode: 'none',
   missedBillingServiceCode: '',
   missedBillingTriggers: 'no_show,late_cancel',
@@ -423,6 +439,12 @@ const svcForm = ref({
   tierBachelors: true,
   tierInternPlus: true
 });
+
+const serviceCodeSessionMode = (row) => {
+  const raw = String(row?.sessionMode || row?.session_mode || 'either').trim().toLowerCase();
+  if (raw === 'group' || raw === 'individual') return raw;
+  return 'either';
+};
 
 const parseAllowedPos = (raw) => {
   let arr = raw;
@@ -514,6 +536,7 @@ const editServiceCode = (row) => {
     overflowServiceCode: row.overflow_service_code || '',
     overflowAtMinutes: row.overflow_at_minutes,
     defaultPlaceOfService: row.default_place_of_service || '',
+    sessionMode: serviceCodeSessionMode(row),
     missedBillingMode: row.missed_billing_mode || 'none',
     missedBillingServiceCode: row.missed_billing_service_code || '',
     missedBillingTriggers: row.missed_billing_triggers || 'no_show,late_cancel',
@@ -544,6 +567,7 @@ const saveServiceCode = async () => {
       overflowAtMinutes: svcForm.value.overflowAtMinutes,
       defaultPlaceOfService: svcForm.value.defaultPlaceOfService || null,
       allowedPlaceOfService: Array.isArray(svcForm.value.allowedPos) ? svcForm.value.allowedPos : [],
+      sessionMode: svcForm.value.sessionMode || 'either',
       missedBillingMode: svcForm.value.missedBillingMode || 'none',
       missedBillingServiceCode: svcForm.value.missedBillingServiceCode || null,
       missedBillingTriggers: svcForm.value.missedBillingTriggers || 'no_show,late_cancel',
@@ -878,6 +902,7 @@ onMounted(async () => {
 }
 .mb-ready--ok { background: #d1fae5; color: #065f46; }
 .mb-ready--bad { background: #fee2e2; color: #991b1b; }
+.mb-ready--group { background: #ede9fe; color: #5b21b6; }
 .mb-log {
   margin-top: 0.75rem; background: #f6f8fa; padding: 0.75rem; border-radius: 6px;
   max-height: 280px; overflow: auto; font-size: 0.8rem;

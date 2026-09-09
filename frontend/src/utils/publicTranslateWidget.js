@@ -42,6 +42,7 @@ const PUBLIC_TRANSLATION_ROUTE_NAMES = new Set([
   'SchoolFinder',
   'JoinSupervision',
   'JoinTeamMeeting',
+  'JoinMyRoom',
   'OrganizationSplash',
   'OrganizationParticipantSignup',
   'OrganizationClubSearch',

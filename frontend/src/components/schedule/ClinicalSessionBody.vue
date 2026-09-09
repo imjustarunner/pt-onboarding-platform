@@ -168,7 +168,7 @@
       </select>
     </div>
 
-    <div v-if="showClinicalTools" class="csb-tools">
+    <div v-if="showClinicalTools && !hideClinicalTools" class="csb-tools">
       <button type="button" class="btn btn-secondary btn-sm" :disabled="!clinicalNoteId && !clinicalSessionId" @click="emit('open-note')">
         Open clinical note
       </button>
@@ -201,15 +201,17 @@
       </select>
     </div>
 
-    <label class="csb-label">Notes</label>
-    <textarea
-      class="csb-input"
-      rows="2"
-      :value="notes"
-      :disabled="disabled"
-      placeholder="Optional scheduling notes…"
-      @input="emit('update:notes', $event.target.value)"
-    />
+    <template v-if="!hideSchedulingNotes">
+      <label class="csb-label">Notes</label>
+      <textarea
+        class="csb-input"
+        rows="2"
+        :value="notes"
+        :disabled="disabled"
+        placeholder="Optional scheduling notes…"
+        @input="emit('update:notes', $event.target.value)"
+      />
+    </template>
   </div>
 </template>
 
@@ -245,7 +247,11 @@ const props = defineProps({
   /** Before the session exists, only after-hours 99051 may be selected as an add-on. */
   preSessionAddonsOnly: { type: Boolean, default: true },
   /** When true, modality / service codes / group clients live in the appointment header. */
-  bookingBasicsInHeader: { type: Boolean, default: false }
+  bookingBasicsInHeader: { type: Boolean, default: false },
+  /** Hide Open clinical note / Billing claim (create Book Session). */
+  hideClinicalTools: { type: Boolean, default: false },
+  /** Notes moved into header mockup sections. */
+  hideSchedulingNotes: { type: Boolean, default: false }
 });
 
 const emit = defineEmits([

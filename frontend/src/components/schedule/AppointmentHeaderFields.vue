@@ -1,86 +1,336 @@
 <template>
-  <div class="ahf" data-testid="appointment-header-fields">
-    <div class="ahf-card">
-      <div class="ahf-top">
-        <div class="ahf-when-block">
-          <span class="ahf-label">When</span>
-          <div class="ahf-when-row">
-            <label class="ahf-date-picker" :class="{ disabled }">
-              <span class="ahf-date-display">{{ formattedDateLabel }}</span>
-              <input
-                class="ahf-input ahf-input--date"
-                type="date"
-                :value="dateYmd"
-                :disabled="disabled"
-                aria-label="Appointment date"
-                @change="emit('update:dateYmd', String($event.target.value || ''))"
-              />
-            </label>
-            <div class="ahf-time-group">
-              <input
-                class="ahf-input ahf-input--time"
-                type="time"
-                :value="startTime"
-                :disabled="disabled"
-                @change="emit('update:startTime', String($event.target.value || ''))"
-              />
-              <div v-if="!disabled" class="ahf-nudge" aria-label="Adjust start by 15 minutes">
-                <button type="button" class="ahf-nudge-btn" title="Start +15 min (keeps duration)" @click="nudgeStart(15)">+15</button>
-                <button type="button" class="ahf-nudge-btn" title="Start −15 min (keeps duration)" @click="nudgeStart(-15)">−15</button>
-              </div>
+  <div class="ahf" :class="{ 'ahf--book': bookSessionLayout }" data-testid="appointment-header-fields">
+    <!-- Agency + Provider strip -->
+    <div class="ahf-agency-strip">
+      <div class="ahf-field ahf-field--tenant">
+        <span class="ahf-label">Provider · Agency</span>
+        <div class="ahf-tenant-row">
+          <img v-if="tenantIconUrl" class="ahf-tenant-logo" :src="tenantIconUrl" alt="" />
+          <select
+            v-if="tenantOptions.length > 1"
+            class="ahf-input"
+            :value="agencyId"
+            :disabled="disabled || !canEditTenant"
+            @change="emit('update:agencyId', Number($event.target.value || 0))"
+          >
+            <option v-for="opt in tenantOptions" :key="`ahf-t-${opt.id}`" :value="Number(opt.id)">
+              {{ opt.label }}
+            </option>
+          </select>
+          <span v-else class="ahf-value">{{ tenantLabel || '—' }}</span>
+        </div>
+      </div>
+      <div class="ahf-field">
+        <span class="ahf-label">{{ providerLabel }}</span>
+        <slot name="provider">
+          <span class="ahf-value">{{ providerName || '—' }}</span>
+        </slot>
+      </div>
+    </div>
+
+    <!-- Section 1: Date & Time (+ Repeats when book layout) -->
+    <section class="ahf-section">
+      <header class="ahf-section-head">
+        <span class="ahf-section-icon" aria-hidden="true">📅</span>
+        <h4 class="ahf-section-title">Date &amp; Time</h4>
+      </header>
+      <div class="ahf-when-row ahf-when-row--section">
+        <label class="ahf-date-picker" :class="{ disabled }">
+          <span class="ahf-label">Date</span>
+          <span class="ahf-date-display">{{ formattedDateLabel }}</span>
+          <input
+            class="ahf-input ahf-input--date"
+            type="date"
+            :value="dateYmd"
+            :disabled="disabled"
+            aria-label="Appointment date"
+            @change="emit('update:dateYmd', String($event.target.value || ''))"
+          />
+        </label>
+        <div class="ahf-time-group">
+          <span class="ahf-label">Start time</span>
+          <div class="ahf-time-inline">
+            <input
+              class="ahf-input ahf-input--time"
+              type="time"
+              :value="startTime"
+              :disabled="disabled"
+              @change="emit('update:startTime', String($event.target.value || ''))"
+            />
+            <div v-if="!disabled" class="ahf-nudge" aria-label="Adjust start by 15 minutes">
+              <button type="button" class="ahf-nudge-btn" title="Start +15 min (keeps duration)" @click="nudgeStart(15)">+15</button>
+              <button type="button" class="ahf-nudge-btn" title="Start −15 min (keeps duration)" @click="nudgeStart(-15)">−15</button>
             </div>
-            <span class="ahf-sep" aria-hidden="true">–</span>
-            <div class="ahf-time-group">
-              <input
-                class="ahf-input ahf-input--time"
-                type="time"
-                :value="endTime"
-                :disabled="disabled"
-                @change="emit('update:endTime', String($event.target.value || ''))"
-              />
-              <div v-if="!disabled" class="ahf-nudge" aria-label="Adjust end by 15 minutes">
-                <button type="button" class="ahf-nudge-btn" title="End +15 min" @click="nudgeEnd(15)">+15</button>
-                <button type="button" class="ahf-nudge-btn" title="End −15 min" @click="nudgeEnd(-15)">−15</button>
-              </div>
+          </div>
+        </div>
+        <div class="ahf-time-group">
+          <span class="ahf-label">End time</span>
+          <div class="ahf-time-inline">
+            <input
+              class="ahf-input ahf-input--time"
+              type="time"
+              :value="endTime"
+              :disabled="disabled"
+              @change="emit('update:endTime', String($event.target.value || ''))"
+            />
+            <div v-if="!disabled" class="ahf-nudge" aria-label="Adjust end by 15 minutes">
+              <button type="button" class="ahf-nudge-btn" title="End +15 min" @click="nudgeEnd(15)">+15</button>
+              <button type="button" class="ahf-nudge-btn" title="End −15 min" @click="nudgeEnd(-15)">−15</button>
             </div>
-            <span v-if="timezoneLabel" class="ahf-tz">{{ timezoneLabel }}</span>
+          </div>
+        </div>
+        <div v-if="bookSessionLayout && showInlineRecurrence" class="ahf-field ahf-field--repeats">
+          <span class="ahf-label">Repeats</span>
+          <select
+            class="ahf-input"
+            :value="recurrenceFrequency"
+            :disabled="disabled"
+            @change="emit('update:recurrenceFrequency', String($event.target.value || 'ONCE'))"
+          >
+            <option v-for="opt in recurrenceFrequencyOptions" :key="`ahf-rf-${opt.value}`" :value="opt.value">
+              {{ opt.label }}
+            </option>
+          </select>
+        </div>
+        <span v-if="timezoneLabel" class="ahf-tz">{{ timezoneLabel }}</span>
+      </div>
+      <div v-if="bookSessionLayout && showInlineRecurrence && recurrenceFrequency !== 'ONCE'" class="ahf-recurrence-extra">
+        <slot name="recurrence-extra" />
+      </div>
+    </section>
+
+    <!-- Section 2: Session type & location -->
+    <section v-if="showModality || showLocation || showOfficeRequestCta || officeRequestActive" class="ahf-section">
+      <header class="ahf-section-head">
+        <span class="ahf-section-icon" aria-hidden="true">📍</span>
+        <h4 class="ahf-section-title">Session type &amp; location</h4>
+      </header>
+      <div class="ahf-details ahf-details--section">
+        <div v-if="showModality" class="ahf-field ahf-field--modality">
+          <span class="ahf-label">Session modality</span>
+          <div class="ahf-modality">
+            <button
+              type="button"
+              class="ahf-mod-chip"
+              :class="{ on: modality === 'TELEHEALTH' }"
+              :disabled="disabled"
+              @click="emit('update:modality', 'TELEHEALTH')"
+            >
+              Virtual
+            </button>
+            <button
+              type="button"
+              class="ahf-mod-chip"
+              :class="{ on: modality === 'IN_PERSON' }"
+              :disabled="disabled"
+              @click="emit('update:modality', 'IN_PERSON')"
+            >
+              In-person
+            </button>
           </div>
         </div>
 
-        <div class="ahf-side-fields">
-          <div class="ahf-field ahf-field--tenant">
-            <span class="ahf-label">Provider · Tenant</span>
-            <div class="ahf-tenant-row">
-              <img
-                v-if="tenantIconUrl"
-                class="ahf-tenant-logo"
-                :src="tenantIconUrl"
-                alt=""
-              />
-              <select
-                v-if="tenantOptions.length > 1"
-                class="ahf-input"
-                :value="agencyId"
-                :disabled="disabled || !canEditTenant"
-                @change="emit('update:agencyId', Number($event.target.value || 0))"
+        <div v-if="showModality && modality === 'TELEHEALTH'" class="ahf-field ahf-field--grow">
+          <span class="ahf-label">Virtual meeting option</span>
+          <select
+            class="ahf-input"
+            :value="videoRoomMode"
+            :disabled="disabled"
+            @change="emit('update:videoRoomMode', String($event.target.value || 'unique_session'))"
+          >
+            <option value="unique_session">Unique link for this session</option>
+            <option value="my_room">Use my room (personal link)</option>
+          </select>
+        </div>
+
+        <p
+          v-if="showModality && modality === 'TELEHEALTH' && videoRoomMode !== 'my_room'"
+          class="ahf-info-banner"
+          role="status"
+        >
+          A virtual meeting link will be available after booking.
+        </p>
+
+        <div v-if="showLocation" class="ahf-field ahf-field--grow">
+          <span class="ahf-label">{{ modality === 'TELEHEALTH' ? 'Office location / room (optional)' : 'Location' }}</span>
+          <select
+            v-if="locationOptions.length"
+            class="ahf-input"
+            :value="serviceLocationId"
+            :disabled="disabled || !canEditLocation"
+            @change="emit('update:serviceLocationId', Number($event.target.value || 0))"
+          >
+            <option :value="0">{{ modality === 'TELEHEALTH' ? 'No office location' : 'Select location…' }}</option>
+            <option
+              v-for="loc in locationOptions"
+              :key="`ahf-loc-${loc.id}`"
+              :value="Number(loc.id)"
+            >
+              {{ loc.label }}
+            </option>
+          </select>
+          <input
+            v-else
+            class="ahf-input"
+            type="text"
+            :value="locationAddress"
+            :disabled="disabled || !canEditLocation"
+            :placeholder="modality === 'IN_PERSON' ? 'Address or place (e.g. park, school)' : 'Optional'"
+            @change="emit('update:locationAddress', String($event.target.value || ''))"
+          />
+          <p v-if="adminCatalogLinks" class="ahf-admin-link-wrap">
+            <a class="ahf-admin-link" :href="adminCatalogLinks.locations" target="_blank" rel="noopener">Update locations ↗</a>
+          </p>
+        </div>
+
+        <div v-if="showRoom && roomOptions.length" class="ahf-field">
+          <span class="ahf-label">Room</span>
+          <select
+            class="ahf-input"
+            :value="roomId"
+            :disabled="disabled || !canEditRoom"
+            @change="emit('update:roomId', Number($event.target.value || 0))"
+          >
+            <option :value="0">— None —</option>
+            <option v-for="r in roomOptions" :key="`ahf-room-${r.id}`" :value="Number(r.id)">
+              {{ r.label }}
+            </option>
+          </select>
+        </div>
+
+        <div v-if="showOfficeRequestCta || officeRequestActive" class="ahf-field ahf-field--full">
+          <div
+            class="ahf-office"
+            :class="{ 'ahf-office--active': officeRequestActive }"
+            data-testid="appointment-office-request"
+          >
+            <template v-if="!officeRequestActive">
+              <div class="ahf-office-copy">
+                <strong>No office room assigned</strong>
+                <span class="muted">{{ officeRoomHelpText }}</span>
+              </div>
+              <button
+                type="button"
+                class="btn btn-secondary btn-sm"
+                :disabled="disabled"
+                @click="emit('request-office')"
               >
-                <option v-for="opt in tenantOptions" :key="`ahf-t-${opt.id}`" :value="Number(opt.id)">
-                  {{ opt.label }}
-                </option>
-              </select>
-              <span v-else class="ahf-value">{{ tenantLabel || '—' }}</span>
-            </div>
-          </div>
-          <div class="ahf-field">
-            <span class="ahf-label">{{ providerLabel }}</span>
-            <slot name="provider">
-              <span class="ahf-value">{{ providerName || '—' }}</span>
-            </slot>
+                Request room
+              </button>
+            </template>
+            <template v-else>
+              <div class="ahf-office-head">
+                <div class="ahf-office-copy">
+                  <strong>Office request</strong>
+                  <span class="muted">{{ officeRoomHelpText }}</span>
+                </div>
+                <button
+                  type="button"
+                  class="ahf-link-btn"
+                  :disabled="disabled"
+                  @click="emit('cancel-office-request')"
+                >
+                  Remove
+                </button>
+              </div>
+              <div class="ahf-office-fields">
+                <div class="ahf-field">
+                  <span class="ahf-label">Office / location</span>
+                  <select
+                    class="ahf-input"
+                    :value="officeLocationId"
+                    :disabled="disabled"
+                    @change="emit('update:officeLocationId', Number($event.target.value || 0))"
+                  >
+                    <option :value="0">Any available / admin assigns</option>
+                    <option
+                      v-for="loc in officeLocations"
+                      :key="`ahf-ol-${loc.id}`"
+                      :value="Number(loc.id)"
+                    >
+                      {{ loc.name || loc.label || `Office #${loc.id}` }}
+                    </option>
+                  </select>
+                </div>
+                <div class="ahf-field ahf-field--rooms">
+                  <span class="ahf-label">Open rooms for this series</span>
+                  <div v-if="preferredRoomOptions.length" class="ahf-room-list">
+                    <button
+                      type="button"
+                      class="ahf-room-chip"
+                      :class="{ on: !Number(preferredRoomId) }"
+                      :disabled="disabled"
+                      @click="emit('update:preferredRoomId', 0)"
+                    >
+                      Any open room
+                    </button>
+                    <div
+                      v-for="r in preferredRoomOptions"
+                      :key="`ahf-pr-${r.id || r.roomId}`"
+                      class="ahf-room-row"
+                      :class="{ on: Number(preferredRoomId) === Number(r.id || r.roomId), off: r.requestable === false }"
+                    >
+                      <button
+                        type="button"
+                        class="ahf-room-chip"
+                        :disabled="disabled || r.requestable === false"
+                        @click="emit('update:preferredRoomId', Number(r.id || r.roomId))"
+                      >
+                        <span v-if="roomNumberOf(r)" class="ahf-room-num">#{{ roomNumberOf(r) }}</span>
+                        <span>{{ roomNameOf(r) }}</span>
+                        <span v-if="r.stateLabel" class="ahf-room-state">{{ r.stateLabel }}</span>
+                      </button>
+                      <button
+                        type="button"
+                        class="ahf-room-photo-btn"
+                        :title="roomPhotoOf(r) ? 'View room photos' : 'Room photos'"
+                        @click="openRoomPhotos(r)"
+                      >
+                        <img v-if="roomPhotoOf(r)" :src="roomPhotoOf(r)" alt="" class="ahf-room-thumb" />
+                        <svg v-else viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                          <rect x="3" y="5" width="18" height="14" rx="2" />
+                          <circle cx="8.5" cy="10" r="1.5" />
+                          <path d="M21 16l-5.5-5.5L9 17" />
+                        </svg>
+                      </button>
+                    </div>
+                  </div>
+                  <select
+                    v-else
+                    class="ahf-input"
+                    :value="preferredRoomId"
+                    :disabled="disabled"
+                    @change="emit('update:preferredRoomId', Number($event.target.value || 0))"
+                  >
+                    <option :value="0">Any open room</option>
+                  </select>
+                </div>
+              </div>
+              <p v-if="preferredRoomsHint" class="ahf-office-hint muted">{{ preferredRoomsHint }}</p>
+              <div v-if="roomPhotoPreviewUrl" class="ahf-photo-lightbox" @click="roomPhotoPreviewUrl = ''">
+                <img :src="roomPhotoPreviewUrl" alt="Room photo" @click.stop />
+                <button type="button" class="ahf-photo-close" @click="roomPhotoPreviewUrl = ''">Close</button>
+              </div>
+              <p v-else-if="!officeLocations.length" class="ahf-office-hint muted">
+                {{ officeLocationsLoading ? 'Loading offices…' : 'No office locations found for this agency.' }}
+              </p>
+            </template>
           </div>
         </div>
       </div>
+      <p v-if="modalityPosWarning" class="ahf-soft-warn" role="status">{{ modalityPosWarning }}</p>
+    </section>
 
-      <div v-if="showType || showStatus || showLocation || showRoom || showService || showPrimaryServiceCode || showModality || showParticipant || showGroupClientsButton || showGroupClients || showOccurrenceCount || showBookedUntil" class="ahf-details">
+    <!-- Section 3: Service & clients -->
+    <section
+      v-if="showType || showService || showPrimaryServiceCode || showParticipant || showGroupClients || showAddonServiceCodes || showStatus || showOccurrenceCount || showBookedUntil"
+      class="ahf-section"
+    >
+      <header class="ahf-section-head">
+        <span class="ahf-section-icon" aria-hidden="true">👥</span>
+        <h4 class="ahf-section-title">Service &amp; clients</h4>
+      </header>
+      <div class="ahf-details ahf-details--section">
         <div v-if="showType && typeOptions.length > 1" class="ahf-field">
           <span class="ahf-label">Type</span>
           <select
@@ -131,30 +381,9 @@
               {{ formatCodeLabel(opt) }}
             </option>
           </select>
-        </div>
-
-        <div v-if="showModality" class="ahf-field">
-          <span class="ahf-label">Modality</span>
-          <div class="ahf-modality">
-            <button
-              type="button"
-              class="ahf-mod-chip"
-              :class="{ on: modality === 'TELEHEALTH' }"
-              :disabled="disabled"
-              @click="emit('update:modality', 'TELEHEALTH')"
-            >
-              Virtual
-            </button>
-            <button
-              type="button"
-              class="ahf-mod-chip"
-              :class="{ on: modality === 'IN_PERSON' }"
-              :disabled="disabled"
-              @click="emit('update:modality', 'IN_PERSON')"
-            >
-              In-person
-            </button>
-          </div>
+          <p v-if="adminCatalogLinks" class="ahf-admin-link-wrap">
+            <a class="ahf-admin-link" :href="adminCatalogLinks.serviceCodes" target="_blank" rel="noopener">Update service codes ↗</a>
+          </p>
         </div>
 
         <div
@@ -162,21 +391,34 @@
           class="ahf-field"
           :class="{ 'ahf-field--participant-open': participantTrayOpen }"
         >
-          <span class="ahf-label">{{ participantLabel }}</span>
+          <span class="ahf-label">{{ participantLabel }} <span v-if="bookSessionLayout" class="ahf-req">*</span></span>
           <slot name="participant">
             <span class="ahf-value">{{ participantSummary || '—' }}</span>
           </slot>
         </div>
 
+        <div v-if="showOthersPresent" class="ahf-field ahf-field--grow">
+          <span class="ahf-label">Others present (name)</span>
+          <input
+            class="ahf-input"
+            type="text"
+            maxlength="500"
+            :value="othersPresentNames"
+            :disabled="disabled"
+            placeholder="Type names of others attending…"
+            @input="emit('update:othersPresentNames', String($event.target.value || ''))"
+          />
+        </div>
+
         <div v-if="showGroupClientsButton && !showGroupClients" class="ahf-field ahf-field--action">
-          <span class="ahf-label">Group</span>
+          <span class="ahf-label">Additional clients</span>
           <button
             type="button"
             class="ahf-action-btn"
             :disabled="disabled"
             @click="emit('scroll-to-group-clients')"
           >
-            Add additional clients for a group
+            + Add clients
           </button>
         </div>
 
@@ -193,58 +435,12 @@
               {{ opt.label }}
             </option>
           </select>
-          <span v-else class="ahf-value">{{ status || '—' }}</span>
+          <span v-else class="ahf-value">{{ status || 'Scheduled' }}</span>
         </div>
 
         <div v-if="showOccurrenceCount" class="ahf-field">
           <span class="ahf-label">Booked</span>
           <span class="ahf-value">{{ occurrenceCountLabel }}</span>
-        </div>
-
-        <div v-if="showLocation" class="ahf-field ahf-field--grow">
-          <span class="ahf-label">Location</span>
-          <select
-            v-if="locationOptions.length"
-            class="ahf-input"
-            :value="serviceLocationId"
-            :disabled="disabled || !canEditLocation"
-            @change="emit('update:serviceLocationId', Number($event.target.value || 0))"
-          >
-            <option :value="0">Select location…</option>
-            <option
-              v-for="loc in locationOptions"
-              :key="`ahf-loc-${loc.id}`"
-              :value="Number(loc.id)"
-            >
-              {{ loc.label }}
-            </option>
-          </select>
-          <input
-            v-else
-            class="ahf-input"
-            type="text"
-            :value="locationAddress"
-            :disabled="disabled || !canEditLocation"
-            placeholder="Address"
-            @change="emit('update:locationAddress', String($event.target.value || ''))"
-          />
-        </div>
-
-        <div v-if="showRoom" class="ahf-field">
-          <span class="ahf-label">Room</span>
-          <select
-            v-if="roomOptions.length"
-            class="ahf-input"
-            :value="roomId"
-            :disabled="disabled || !canEditRoom"
-            @change="emit('update:roomId', Number($event.target.value || 0))"
-          >
-            <option :value="0">— None —</option>
-            <option v-for="r in roomOptions" :key="`ahf-room-${r.id}`" :value="Number(r.id)">
-              {{ r.label }}
-            </option>
-          </select>
-          <span v-else class="ahf-value">{{ roomLabel || '—' }}</span>
         </div>
 
         <div v-if="showBookedUntil" class="ahf-field">
@@ -277,21 +473,24 @@
               <span>{{ formatCodeLabel(opt) }}</span>
             </label>
           </div>
+          <p v-if="adminCatalogLinks" class="ahf-admin-link-wrap">
+            <a class="ahf-admin-link" :href="adminCatalogLinks.addons" target="_blank" rel="noopener">Update add-ons ↗</a>
+          </p>
         </div>
 
         <div v-if="showGroupClients" class="ahf-field ahf-field--full" id="ahf-group-clients">
           <div class="ahf-group-head">
-            <span class="ahf-label">Group clients</span>
+            <span class="ahf-label">Additional clients (optional)</span>
             <button
               type="button"
               class="ahf-action-btn"
               :disabled="disabled"
               @click="groupExpanded = !groupExpanded"
             >
-              {{ groupExpanded ? 'Hide' : 'Add clients' }}
+              {{ groupExpanded ? 'Hide' : '+ Add clients' }}
             </button>
           </div>
-          <p class="ahf-hint">Primary client is above. Add more for a group session.</p>
+          <p class="ahf-hint">Add additional clients for a group session.</p>
           <div v-if="groupExpanded" class="ahf-group-list">
             <label
               v-for="c in groupClientOptions"
@@ -311,134 +510,65 @@
           </div>
         </div>
       </div>
-
-      <p v-if="modalityPosWarning" class="ahf-soft-warn" role="status">
-        {{ modalityPosWarning }}
-      </p>
-    </div>
+    </section>
 
     <div v-if="showParticipant && participantTrayOpen && $slots['participant-tray']" class="ahf-participant-tray">
       <slot name="participant-tray" />
     </div>
 
-    <div
-      v-if="showOfficeRequestCta || officeRequestActive"
-      class="ahf-office"
-      :class="{ 'ahf-office--active': officeRequestActive }"
-      data-testid="appointment-office-request"
-    >
-      <template v-if="!officeRequestActive">
-        <div class="ahf-office-copy">
-          <strong>No office room assigned</strong>
-          <span class="muted">Request a room for this appointment or series.</span>
-        </div>
+    <!-- Section 4: Notifications -->
+    <section v-if="showNotifications" class="ahf-section">
+      <header class="ahf-section-head">
+        <span class="ahf-section-icon" aria-hidden="true">🔔</span>
+        <h4 class="ahf-section-title">Notifications</h4>
+      </header>
+      <div class="ahf-notif-toggles">
         <button
           type="button"
-          class="btn btn-secondary btn-sm"
+          class="ahf-mod-chip"
+          :class="{ on: notificationMode === 'default' }"
           :disabled="disabled"
-          @click="emit('request-office')"
+          @click="emit('update:notificationMode', 'default')"
         >
-          Request room
+          Default
         </button>
-      </template>
-      <template v-else>
-        <div class="ahf-office-head">
-          <div class="ahf-office-copy">
-            <strong>Office request</strong>
-            <span class="muted">Pick a location, then a room open for every occurrence in this series (conflicts are hidden).</span>
-          </div>
-          <button
-            type="button"
-            class="ahf-link-btn"
-            :disabled="disabled"
-            @click="emit('cancel-office-request')"
-          >
-            Remove
-          </button>
-        </div>
-        <div class="ahf-office-fields">
-          <div class="ahf-field">
-            <span class="ahf-label">Office / location</span>
-            <select
-              class="ahf-input"
-              :value="officeLocationId"
-              :disabled="disabled"
-              @change="emit('update:officeLocationId', Number($event.target.value || 0))"
-            >
-              <option :value="0">Any available / admin assigns</option>
-              <option
-                v-for="loc in officeLocations"
-                :key="`ahf-ol-${loc.id}`"
-                :value="Number(loc.id)"
-              >
-                {{ loc.name || loc.label || `Office #${loc.id}` }}
-              </option>
-            </select>
-          </div>
-          <div class="ahf-field ahf-field--rooms">
-            <span class="ahf-label">Open rooms for this series</span>
-            <div v-if="preferredRoomOptions.length" class="ahf-room-list">
-              <button
-                type="button"
-                class="ahf-room-chip"
-                :class="{ on: !Number(preferredRoomId) }"
-                :disabled="disabled"
-                @click="emit('update:preferredRoomId', 0)"
-              >
-                Any open room
-              </button>
-              <div
-                v-for="r in preferredRoomOptions"
-                :key="`ahf-pr-${r.id || r.roomId}`"
-                class="ahf-room-row"
-                :class="{ on: Number(preferredRoomId) === Number(r.id || r.roomId), off: r.requestable === false }"
-              >
-                <button
-                  type="button"
-                  class="ahf-room-chip"
-                  :disabled="disabled || r.requestable === false"
-                  @click="emit('update:preferredRoomId', Number(r.id || r.roomId))"
-                >
-                  <span v-if="roomNumberOf(r)" class="ahf-room-num">#{{ roomNumberOf(r) }}</span>
-                  <span>{{ roomNameOf(r) }}</span>
-                  <span v-if="r.stateLabel" class="ahf-room-state">{{ r.stateLabel }}</span>
-                </button>
-                <button
-                  type="button"
-                  class="ahf-room-photo-btn"
-                  :title="roomPhotoOf(r) ? 'View room photos' : 'Room photos'"
-                  @click="openRoomPhotos(r)"
-                >
-                  <img v-if="roomPhotoOf(r)" :src="roomPhotoOf(r)" alt="" class="ahf-room-thumb" />
-                  <svg v-else viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-                    <rect x="3" y="5" width="18" height="14" rx="2" />
-                    <circle cx="8.5" cy="10" r="1.5" />
-                    <path d="M21 16l-5.5-5.5L9 17" />
-                  </svg>
-                </button>
-              </div>
-            </div>
-            <select
-              v-else
-              class="ahf-input"
-              :value="preferredRoomId"
-              :disabled="disabled"
-              @change="emit('update:preferredRoomId', Number($event.target.value || 0))"
-            >
-              <option :value="0">Any open room</option>
-            </select>
-          </div>
-        </div>
-        <p v-if="preferredRoomsHint" class="ahf-office-hint muted">{{ preferredRoomsHint }}</p>
-        <div v-if="roomPhotoPreviewUrl" class="ahf-photo-lightbox" @click="roomPhotoPreviewUrl = ''">
-          <img :src="roomPhotoPreviewUrl" alt="Room photo" @click.stop />
-          <button type="button" class="ahf-photo-close" @click="roomPhotoPreviewUrl = ''">Close</button>
-        </div>
-        <p v-else-if="!officeLocations.length" class="ahf-office-hint muted">
-          {{ officeLocationsLoading ? 'Loading offices…' : 'No office locations found for this tenant.' }}
-        </p>
-      </template>
-    </div>
+        <button
+          type="button"
+          class="ahf-mod-chip"
+          :class="{ on: notificationMode === 'customizable' }"
+          :disabled="disabled"
+          @click="emit('update:notificationMode', 'customizable')"
+        >
+          Customizable
+        </button>
+      </div>
+      <p v-if="notificationMode === 'default'" class="ahf-info-banner ahf-info-banner--ok" role="status">
+        Uses organization default reminders. Clients and providers will be notified per your organization's settings. Client preferences override the default.
+      </p>
+      <p v-else class="ahf-hint">
+        You can add an extra reminder for this session. Client opt-outs and channel preferences still apply. Texting is TBD — email and in-app are standard.
+      </p>
+    </section>
+
+    <!-- Section 5: Notes -->
+    <section v-if="showSchedulingNotes" class="ahf-section">
+      <header class="ahf-section-head">
+        <span class="ahf-section-icon" aria-hidden="true">📝</span>
+        <h4 class="ahf-section-title">Notes</h4>
+      </header>
+      <div class="ahf-notes-wrap">
+        <textarea
+          class="ahf-input ahf-notes"
+          rows="2"
+          maxlength="500"
+          :value="schedulingNotes"
+          :disabled="disabled"
+          placeholder="Optional scheduling notes…"
+          @input="emit('update:schedulingNotes', String($event.target.value || '').slice(0, 500))"
+        />
+        <span class="ahf-notes-count">{{ String(schedulingNotes || '').length }}/500</span>
+      </div>
+    </section>
   </div>
 </template>
 
@@ -517,8 +647,23 @@ const props = defineProps({
   selectedClientIds: { type: Array, default: () => [] },
   primaryClientId: { type: Number, default: 0 },
   groupClientsLoading: { type: Boolean, default: false },
-  forceExpandGroupClients: { type: Boolean, default: false }
+  forceExpandGroupClients: { type: Boolean, default: false },
+  /** Mockup sectioned Book Session layout */
+  bookSessionLayout: { type: Boolean, default: false },
+  showInlineRecurrence: { type: Boolean, default: false },
+  recurrenceFrequency: { type: String, default: 'ONCE' },
+  recurrenceFrequencyOptions: { type: Array, default: () => [{ value: 'ONCE', label: 'Does not repeat' }] },
+  videoRoomMode: { type: String, default: 'unique_session' },
+  showNotifications: { type: Boolean, default: false },
+  notificationMode: { type: String, default: 'default' },
+  showSchedulingNotes: { type: Boolean, default: false },
+  schedulingNotes: { type: String, default: '' },
+  showOthersPresent: { type: Boolean, default: false },
+  othersPresentNames: { type: String, default: '' },
+  /** { serviceCodes, addons, locations } admin medical-billing URLs */
+  adminCatalogLinks: { type: Object, default: null }
 });
+
 
 const emit = defineEmits([
   'update:dateYmd',
@@ -538,7 +683,13 @@ const emit = defineEmits([
   'update:addonServiceCodes',
   'update:modality',
   'update:selectedClientIds',
+  'update:recurrenceFrequency',
+  'update:videoRoomMode',
+  'update:notificationMode',
+  'update:schedulingNotes',
+  'update:othersPresentNames',
   'request-office',
+
   'cancel-office-request',
   'scroll-to-group-clients',
   'open-room-photos'
@@ -643,6 +794,14 @@ function roomOptionLabel(r) {
   if (r?.requestable === false) return `${base} — ${state} (unavailable)`;
   return `${base} — ${state}`;
 }
+
+
+const officeRoomHelpText = computed(() => {
+  if (String(props.modality || '') === 'TELEHEALTH') {
+    return 'Use this if you want to work from the office or need a room. This does not change the session modality — the client stays virtual.';
+  }
+  return 'Request a room for this appointment or series. In-person sessions use the booked room as the session location.';
+});
 
 const pad2 = (n) => String(Math.max(0, Number(n) || 0)).padStart(2, '0');
 
@@ -1147,4 +1306,92 @@ function nudgeEnd(deltaMin) {
     flex-wrap: wrap;
   }
 }
+
+.ahf--book { gap: 14px; }
+.ahf-agency-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 18px;
+  padding: 10px 12px;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  background: #f8fafc;
+}
+.ahf-section {
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  background: #fff;
+  padding: 12px 14px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.ahf-section-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.ahf-section-icon { font-size: 14px; line-height: 1; }
+.ahf-section-title {
+  margin: 0;
+  font-size: 0.82rem;
+  font-weight: 800;
+  color: #0f172a;
+  letter-spacing: -0.01em;
+}
+.ahf-when-row--section {
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 10px 12px;
+}
+.ahf-time-inline {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.ahf-details--section {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 12px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+.ahf-info-banner {
+  flex: 1 1 100%;
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  color: #1e3a8a;
+  font-size: 0.82rem;
+  line-height: 1.4;
+}
+.ahf-info-banner--ok {
+  background: #ecfdf5;
+  border-color: #a7f3d0;
+  color: #065f46;
+}
+.ahf-admin-link-wrap { margin: 4px 0 0; }
+.ahf-admin-link {
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: #1d4ed8;
+  text-decoration: none;
+}
+.ahf-admin-link:hover { text-decoration: underline; }
+.ahf-notif-toggles { display: flex; gap: 8px; flex-wrap: wrap; }
+.ahf-notes-wrap { position: relative; }
+.ahf-notes { width: 100%; min-height: 64px; resize: vertical; }
+.ahf-notes-count {
+  position: absolute;
+  right: 10px;
+  bottom: 8px;
+  font-size: 0.7rem;
+  color: #94a3b8;
+  font-weight: 600;
+}
+.ahf-field--repeats { min-width: 160px; }
+.ahf-recurrence-extra { margin-top: 4px; }
 </style>

@@ -36,7 +36,7 @@
       <div class="aip-card">
         <span class="aip-ico aip-ico--purple" aria-hidden="true">⌂</span>
         <div>
-          <div class="aip-k">Tenant</div>
+          <div class="aip-k">Agency</div>
           <div class="aip-v aip-tenant">
             <img v-if="tenantIconUrl" class="aip-tenant-logo" :src="tenantIconUrl" alt="" />
             <span>{{ tenantLabel || '—' }}</span>
