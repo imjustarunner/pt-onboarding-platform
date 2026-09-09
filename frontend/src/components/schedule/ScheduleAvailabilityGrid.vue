@@ -13443,6 +13443,12 @@ const editorIsMeeting = computed(() => (
   ['agency_meeting', 'huddle'].includes(String(requestType.value || ''))
   || (isScheduleEventEditMode.value && isMeetingStackItem(editingScheduleStackItem.value))
 ));
+// Refs used by editor computeds — declare before those computeds to avoid TDZ (blank calendar).
+const editorClinicalSessionId = ref(0);
+const editorClinicalNoteId = ref(0);
+const editorClaimId = ref(0);
+const editorAppointmentId = ref(0);
+const editorOthersPresentNames = ref('');
 const editorNotificationsScheduleEventId = computed(() => {
   if (Number(editorAppointmentId.value || 0) > 0) return 0;
   if (!editorIsMeeting.value) return 0;
@@ -13472,6 +13478,12 @@ const editorPackageEntitlementId = ref(0);
 const editorPackageEntitlements = ref([]);
 const editorQuickNote = ref('');
 
+const editorLocationAddress = ref('');
+const editorRoomId = ref(0);
+const editorBookedUntil = ref('');
+const editorStatus = ref('scheduled');
+const editorVideoRoomMode = ref('unique_session');
+const editorNotificationMode = ref('default');
 watch(editorClinicalParticipantsMode, (mode) => {
   if (!editorIsClinical.value) return;
   // Attendance "others" is a names field — do not auto-expand Additional clients.
@@ -13485,17 +13497,6 @@ watch(editorClinicalParticipantsMode, (mode) => {
 watch(editorOthersPresentNames, (v) => {
   editorClinicalParticipantsDetail.value = String(v || '');
 });
-const editorClinicalSessionId = ref(0);
-const editorClinicalNoteId = ref(0);
-const editorClaimId = ref(0);
-const editorAppointmentId = ref(0);
-const editorLocationAddress = ref('');
-const editorRoomId = ref(0);
-const editorBookedUntil = ref('');
-const editorStatus = ref('scheduled');
-const editorVideoRoomMode = ref('unique_session');
-const editorNotificationMode = ref('default');
-const editorOthersPresentNames = ref('');
 const editorMeetingIsVirtual = ref(true);
 const editorSupervisionIsVirtual = ref(true);
 const editorSupervisionWaitingRoomEnabled = ref(true);

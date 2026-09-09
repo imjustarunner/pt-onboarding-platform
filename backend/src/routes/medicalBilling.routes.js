@@ -62,6 +62,9 @@ import {
   ensureSchoolServiceLocation,
   updateServiceLocation,
   applyEncounterBilling,
+  listClinicalInterventions,
+  addClinicalInterventions,
+  createClinicalNoteAddendum,
   listMedicalBillingReportCatalog,
   runMedicalBillingReport,
   exportMedicalBillingReportCsv
@@ -370,6 +373,17 @@ router.get(
   getClinicalNoteById
 );
 
+router.post(
+  '/notes/:noteId/addenda',
+  requireClinicalChart,
+  [
+    param('noteId').isInt({ min: 1 }),
+    body('body').optional().isString().isLength({ min: 1, max: 20000 }),
+    body('addendum').optional().isString().isLength({ min: 1, max: 20000 })
+  ],
+  createClinicalNoteAddendum
+);
+
 router.get(
   '/notes/:noteId/treatment-summary-pdf',
   requireClinicalChart,
@@ -637,6 +651,25 @@ router.post(
     body('agencyId').isInt({ min: 1 })
   ],
   applyEncounterBilling
+);
+
+router.get(
+  '/interventions',
+  requireClinicalChart,
+  [query('agencyId').isInt({ min: 1 })],
+  listClinicalInterventions
+);
+
+router.post(
+  '/interventions',
+  requireClinicalChart,
+  [
+    body('agencyId').isInt({ min: 1 }),
+    body('scope').optional().isString(),
+    body('name').optional().isString(),
+    body('names').optional()
+  ],
+  addClinicalInterventions
 );
 
 export default router;

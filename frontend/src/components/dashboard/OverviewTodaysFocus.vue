@@ -3,16 +3,14 @@
     <div class="todays-focus__main">
       <header class="todays-focus__head">
         <div class="todays-focus__head-main">
-          <button
-            type="button"
-            class="todays-focus__head-toggle"
-            :aria-expanded="!collapsed"
-            @click="toggleCollapsed"
-          >
-            <span
+          <div class="todays-focus__head-toggle">
+            <button
+              type="button"
               class="todays-focus__expand"
               :class="{ 'todays-focus__expand--pulse': collapsed }"
-              aria-hidden="true"
+              :aria-expanded="!collapsed"
+              :aria-label="collapsed ? 'Expand Today\'s Focus' : 'Collapse Today\'s Focus'"
+              @click="toggleCollapsed"
             >
               <svg
                 class="todays-focus__chevron"
@@ -26,15 +24,15 @@
               >
                 <path d="M6 9l6 6 6-6"/>
               </svg>
-            </span>
-            <div>
+            </button>
+            <button type="button" class="todays-focus__title-btn" @click="onTitleClick">
               <h3 class="todays-focus__title">
                 Today’s Focus
                 <span v-if="visibleItems.length" class="todays-focus__count">{{ visibleItems.length }} items</span>
               </h3>
               <p v-if="!collapsed" class="todays-focus__sub">Your personalized momentum for the day.</p>
-            </div>
-          </button>
+            </button>
+          </div>
           <button
             v-if="collapsed && rotateItem"
             type="button"
@@ -161,7 +159,7 @@ const props = defineProps({
   agencyId: { type: [Number, String], default: null }
 });
 
-const emit = defineEmits(['view-momentum', 'add-sticky', 'open-item']);
+const emit = defineEmits(['view-momentum', 'add-sticky', 'open-item', 'update:collapsed']);
 
 const authStore = useAuthStore();
 const collapsed = ref(sessionStorage.getItem(COLLAPSED_KEY) !== '0');
@@ -244,7 +242,16 @@ function trackFocusClick(action, extra = {}) {
 function toggleCollapsed() {
   const next = !collapsed.value;
   collapsed.value = next;
+  emit('update:collapsed', next);
   trackFocusClick(next ? 'collapse' : 'expand');
+}
+
+function onTitleClick() {
+  if (collapsed.value) {
+    toggleCollapsed();
+    return;
+  }
+  onViewMomentum('title');
 }
 
 function dismiss() {
@@ -289,6 +296,7 @@ function onAddSticky() {
 
 watch(collapsed, (val) => {
   sessionStorage.setItem(COLLAPSED_KEY, val ? '1' : '0');
+  emit('update:collapsed', val);
 });
 
 watch(displayItems, (list) => {
@@ -302,6 +310,7 @@ watch(displayItems, (list) => {
 });
 
 onMounted(async () => {
+  emit('update:collapsed', collapsed.value);
   await fetch();
   restartRotateTimer();
 });
@@ -321,11 +330,16 @@ onUnmounted(stopRotateTimer);
   border: 1px solid rgba(0, 0, 0, 0.08);
   border-radius: 12px;
   padding: 12px 14px;
-  margin-bottom: 14px;
+  margin-bottom: 0;
+  min-width: 0;
+  height: 100%;
 }
 .todays-focus--collapsed {
   grid-template-columns: 1fr;
-  padding: 10px 14px;
+  padding: 14px 12px;
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
 }
 .todays-focus__head {
   display: flex;
@@ -345,6 +359,14 @@ onUnmounted(stopRotateTimer);
   display: flex;
   align-items: flex-start;
   gap: 6px;
+  min-width: 0;
+  flex: 1;
+}
+.todays-focus__title-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
   border: 0;
   background: transparent;
   cursor: pointer;
@@ -361,6 +383,8 @@ onUnmounted(stopRotateTimer);
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  border: 0;
+  cursor: pointer;
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.55);
   color: #166534;

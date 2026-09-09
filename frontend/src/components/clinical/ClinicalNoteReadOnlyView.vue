@@ -310,11 +310,41 @@
         </div>
       </dl>
     </section>
+
+    <section v-if="!compact" class="ccn-block" aria-label="Addenda">
+      <h4 class="ccn-block-title">Addenda</h4>
+      <p class="ccn-field-hint">Additional information attached to this signed note. The original narrative stays unchanged.</p>
+      <article v-for="item in addenda" :key="item.id" class="ccn-addendum">
+        <p>{{ item.body }}</p>
+        <small>{{ formatTimestamp(item.createdAt) }} · user #{{ item.createdByUserId }}</small>
+      </article>
+      <p v-if="!addenda.length" class="ccn-muted">No addenda yet.</p>
+      <textarea v-model="addendumDraft" class="ccn-addendum-input" rows="3" placeholder="Add addendum text…" />
+      <button type="button" class="ccn-copy-btn ccn-copy-btn--primary" :disabled="savingAddendum || !addendumDraft.trim()" @click="saveAddendum">
+        {{ savingAddendum ? 'Saving…' : 'Attach addendum' }}
+      </button>
+      <p v-if="addendumError" class="ccn-error">{{ addendumError }}</p>
+    </section>
+
+    <section v-if="!compact && canAmendBilling && note.clinicalSessionId" class="ccn-block" aria-label="Billing amendment">
+      <h4 class="ccn-block-title">Billing amendment</h4>
+      <p class="ccn-field-hint">Change service code, POS, or location after sign. Who, what, and when are logged on the note.</p>
+      <div class="ccn-facts-grid">
+        <label>Service code <input v-model="billingDraft.serviceCode" class="ccn-addendum-input" /></label>
+        <label>Place of service <input v-model="billingDraft.placeOfService" class="ccn-addendum-input" maxlength="2" /></label>
+      </div>
+      <label>Reason <input v-model="billingDraft.reason" class="ccn-addendum-input" placeholder="Why this billing field is changing" /></label>
+      <button type="button" class="ccn-copy-btn" :disabled="savingBilling" @click="saveBillingAmendment">
+        {{ savingBilling ? 'Saving…' : 'Save billing change' }}
+      </button>
+      <p v-if="billingError" class="ccn-error">{{ billingError }}</p>
+    </section>
   </div>
 </template>
 
 <script setup>
 import { computed, ref } from 'vue';
+import api from '../../services/api.js';
 import { MSE_DOMAINS } from '../../utils/noteAidSessionQueue.js';
 import {
   buildDisplaySections,
@@ -340,13 +370,32 @@ const copiedKey = ref('');
 const copiedFull = ref(false);
 const showProviderSigMeta = ref(false);
 const showSupervisorSigMeta = ref(false);
+const addendumDraft = ref('');
+const savingAddendum = ref(false);
+const addendumError = ref('');
+const localAddenda = ref([]);
+const billingDraft = ref({
+  serviceCode: '',
+  placeOfService: '',
+  reason: ''
+});
+const savingBilling = ref(false);
+const billingError = ref('');
 let copiedTimer = null;
+
+const addenda = computed(() => {
+  const fromNote = Array.isArray(props.note?.addenda) ? props.note.addenda : [];
+  return localAddenda.value.length ? localAddenda.value : fromNote;
+});
 
 const structuredChart = computed(() =>
   props.note?.structuredChart || props.note?.metadata?.structuredChart || {}
 );
 
 const roleNorm = computed(() => String(authStore.user?.role || '').toLowerCase());
+const canAmendBilling = computed(() =>
+  ['admin', 'super_admin', 'support', 'billing'].includes(roleNorm.value)
+);
 const canOpenClaim = computed(() =>
   ['super_admin', 'admin', 'support', 'billing'].includes(roleNorm.value)
 );
@@ -570,6 +619,53 @@ const signStatusLabel = computed(() => {
   if (props.note?.providerSignedAt) return 'Provider signed';
   return 'Unsigned';
 });
+
+async function saveAddendum() {
+  const body = String(addendumDraft.value || '').trim();
+  const noteId = Number(props.note?.id || 0);
+  if (!body || !noteId || savingAddendum.value) return;
+  savingAddendum.value = true;
+  addendumError.value = '';
+  try {
+    const res = await api.post(`/medical-billing/notes/${noteId}/addenda`, {
+      agencyId: props.note?.agencyId || undefined,
+      body
+    });
+    const rows = Array.isArray(res?.data?.addenda) ? res.data.addenda : [];
+    localAddenda.value = rows.map((a) => ({
+      id: a.id,
+      body: a.body,
+      createdByUserId: a.created_by_user_id || a.createdByUserId,
+      createdAt: a.created_at || a.createdAt
+    }));
+    addendumDraft.value = '';
+  } catch (e) {
+    addendumError.value = e.response?.data?.error?.message || e.message || 'Could not save addendum';
+  } finally {
+    savingAddendum.value = false;
+  }
+}
+
+async function saveBillingAmendment() {
+  const sessionId = Number(props.note?.clinicalSessionId || 0);
+  if (!sessionId || savingBilling.value) return;
+  savingBilling.value = true;
+  billingError.value = '';
+  try {
+    await api.post(`/medical-billing/sessions/${sessionId}/apply-billing`, {
+      agencyId: props.note?.agencyId,
+      clinicalNoteId: props.note?.id,
+      serviceCode: billingDraft.value.serviceCode || undefined,
+      placeOfService: billingDraft.value.placeOfService || undefined,
+      reason: billingDraft.value.reason || 'Billing correction'
+    });
+    billingDraft.value.reason = '';
+  } catch (e) {
+    billingError.value = e.response?.data?.error?.message || e.message || 'Could not save billing change';
+  } finally {
+    savingBilling.value = false;
+  }
+}
 
 function formatDos(raw) {
   return String(raw || '').slice(0, 10);
@@ -818,4 +914,24 @@ async function copyFullNote() {
 .ccn-copy-btn:hover { border-color: #0f766e; color: #0f766e; }
 .ccn-copy-btn--primary { background: #0f766e; border-color: #0f766e; color: #fff; }
 .ccn-copy-btn--primary:hover { background: #0d9488; border-color: #0d9488; color: #fff; }
+.ccn-addendum {
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 8px 10px;
+  margin: 6px 0;
+  background: #fff;
+}
+.ccn-addendum p { margin: 0 0 4px; white-space: pre-wrap; font-size: 0.84rem; }
+.ccn-addendum small { color: #64748b; }
+.ccn-addendum-input {
+  width: 100%;
+  margin-top: 8px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  padding: 8px;
+  font: inherit;
+}
+.ccn-field-hint { font-size: 0.75rem; color: #64748b; margin: 0 0 8px; }
+.ccn-muted { font-size: 0.8rem; color: #64748b; }
+.ccn-error { color: #b91c1c; font-size: 0.8rem; }
 </style>

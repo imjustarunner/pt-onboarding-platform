@@ -90,3 +90,35 @@ Twice a Week`;
   assert.match(String(parsed.dischargePlan || ''), /Discharged when/i);
   assert.match(String(parsed.prescribedFrequency || ''), /Twice a Week/i);
 });
+
+test('parseTreatmentPlanText attaches interventions per numbered objective', () => {
+  const text = `Treatment Goal
+1) Improve Emotional Stability and Self-Worth
+2) Establish Healthy Social Boundaries and Risk Mitigation
+3) Enhance Interpersonal Regulation and Conflict Resolution
+Objective 1
+The client will utilize her strengths of being helpful and cooperative to engage in cognitive restructuring.
+Estimated Completion: 6 months (12/30/2026)
+Treatment Strategy / Intervention
+CBT; Modality: Individual Therapy; Frequency: Once Per Week; Estimated Completion: 6 months (12/30/2026).
+Cognitive Challenging; Modality: Individual Therapy; Frequency: Once Per Week; Estimated Completion: 6 months (12/30/2026).
+Objective 2
+The client will implement 1-5 coping skills and preventative strategies to manage social pressure.
+Estimated Completion: 6 months (12/30/2026)
+Treatment Strategy / Intervention
+DBT; Modality: Individual Therapy; Frequency: Once Per Week; Estimated Completion: 6 months (12/30/2026).
+Mindfulness Training; Modality: Individual Therapy; Frequency: Once Per Week; Estimated Completion: 6 months (12/30/2026).
+Objective 3
+The client will develop and implement effective communication and regulation skills.
+Treatment Strategy / Intervention
+Communication Skills; Modality: Individual Therapy; Frequency: Once Per Week; Estimated Completion: 6 months (12/30/2026).`;
+  const parsed = parseTreatmentPlanText(text);
+  assert.equal(parsed.goals.length, 3);
+  assert.match(String(parsed.goals[0].goalText || ''), /Emotional Stability/i);
+  assert.match(String(parsed.goals[1].goalText || ''), /Social Boundaries/i);
+  assert.ok((parsed.goals[0].objectives[0].interventions || []).includes('CBT'));
+  assert.ok((parsed.goals[0].objectives[0].interventions || []).includes('Cognitive Challenging'));
+  assert.equal((parsed.goals[0].objectives[0].objectiveText || '').includes('CBT; Modality'), false);
+  assert.ok((parsed.goals[1].objectives[0].interventions || []).includes('DBT'));
+  assert.ok((parsed.goals[2].objectives[0].interventions || []).includes('Communication Skills'));
+});

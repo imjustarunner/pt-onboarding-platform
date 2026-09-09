@@ -47,6 +47,8 @@ const AUDIT_ACTION_REGISTRY = {
   clinical_note_restored: { label: 'Clinical note restored', category: 'Documents' },
   clinical_note_legal_hold_set: { label: 'Legal hold placed on clinical note', category: 'Documents' },
   clinical_note_legal_hold_released: { label: 'Legal hold removed from clinical note', category: 'Documents' },
+  clinical_note_addendum_added: { label: 'Clinical note addendum added', category: 'Documents' },
+  clinical_note_billing_amended: { label: 'Clinical note billing amended', category: 'Documents' },
   clinical_claim_created: { label: 'Clinical claim created', category: 'Documents' },
   clinical_document_created: { label: 'Clinical document created', category: 'Documents' },
   clinical_artifacts_viewed: { label: 'Clinical notes, claims, or documents viewed', category: 'Documents' },

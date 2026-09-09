@@ -649,7 +649,21 @@
                   </li>
                   <li>
                     <span>Treatment plan / goals</span>
-                    <em :class="planOnFile ? 'ok' : 'warn'">{{ planOnFile ? 'Complete' : (effectiveClientId ? 'Missing' : '—') }}</em>
+                    <em :class="planOnFile && (!isProgressAid || progressPlanIsCurrent) ? 'ok' : 'warn'">
+                      {{
+                        !effectiveClientId
+                          ? '—'
+                          : !planOnFile
+                            ? 'Required before progress notes'
+                            : (isProgressAid && !progressPlanIsCurrent)
+                              ? `Older than ${treatmentPlanMaxAgeDays} days`
+                              : 'Complete'
+                      }}
+                    </em>
+                  </li>
+                  <li v-if="isProgressAid && effectiveClientId && !primaryChartDiagnosis">
+                    <span>Diagnosis on note</span>
+                    <em class="warn">Missing — will be flagged</em>
                   </li>
                 </ul>
               </section>
@@ -784,6 +798,7 @@
           v-model="csNoteBuildState"
           :goals="activeTreatmentGoals"
           :proposed-interventions="csProposedInterventions"
+          :agency-id="noteAidAgencyId || currentAgencyId"
           :is-telehealth="csIsTelehealth"
           :proposing-plan="csProposingPlan"
           :skip-mse="skipMentalStatusExam"
@@ -1013,7 +1028,8 @@
             </button>
           </div>
           <p class="na-field-hint">
-            Original stays on file. An amendment saves a new signed copy linked to this note.
+            The original signed note stays on file. Attach an addendum below for additional session information,
+            or create an amendment copy if the narrative itself must be rewritten.
           </p>
           <p v-if="approvalError" class="na-delete-err">{{ approvalError }}</p>
           <ClinicalNoteDetailFetcher
@@ -1556,6 +1572,7 @@ import {
   buildIntakeInformedPlanText,
   buildTreatmentSummaryContextDocument,
   isTreatmentPlanOnFileForSetup,
+  isTreatmentPlanCurrentForProgressNotes,
   clientDisplayInitials,
   clientDisplayName,
   clientTenantLabel,
@@ -1819,6 +1836,15 @@ const planOnFile = computed(() =>
     planImportedOnce: planImportedOnce.value,
     latestPlan: latestTreatmentPlan.value,
     activeGoals: activeTreatmentGoals.value
+  })
+);
+const treatmentPlanMaxAgeDays = ref(90);
+const progressPlanIsCurrent = computed(() =>
+  isTreatmentPlanCurrentForProgressNotes({
+    planImportedOnce: planImportedOnce.value,
+    latestPlan: latestTreatmentPlan.value,
+    activeGoals: activeTreatmentGoals.value,
+    maxAgeDays: treatmentPlanMaxAgeDays.value
   })
 );
 const showObjectiveRatings = computed(() => {
@@ -2388,11 +2414,14 @@ const csProposedInterventions = computed(() => {
   const fromGoals = [];
   for (const g of activeTreatmentGoals.value || []) {
     for (const o of g.objectives || []) {
-      const t = String(o.objective_text || '').trim();
-      if (t && t.length < 80) fromGoals.push(t);
+      const listed = Array.isArray(o.interventions) ? o.interventions : [];
+      for (const name of listed) {
+        const t = String(name || '').trim();
+        if (t) fromGoals.push(t);
+      }
     }
   }
-  return fromGoals.slice(0, 8);
+  return [...new Set(fromGoals)];
 });
 
 const csGenerateDisabled = computed(() => {
@@ -2428,9 +2457,12 @@ const hasScheduledSessionContext = computed(() =>
   )
 );
 const noteWizardStep = ref(1);
-const canContinueToWriteStep = computed(() =>
-  !!(String(dateOfService.value || '').trim() && (effectiveClientId.value || String(initials.value || '').trim()))
-);
+const canContinueToWriteStep = computed(() => {
+  const basics = !!(String(dateOfService.value || '').trim() && (effectiveClientId.value || String(initials.value || '').trim()));
+  if (!basics) return false;
+  if (!isProgressAid.value) return true;
+  return progressPlanIsCurrent.value;
+});
 
 /** After choosing a note tool, require client or initials before writing. */
 const needsClientAttachStep = computed(() => {
@@ -2451,6 +2483,7 @@ function dismissClientAttachStep() {
 
 function goToWriteStep() {
   if (!canContinueToWriteStep.value) return;
+  if (effectiveClientId.value) void loadClientTreatmentPlan(effectiveClientId.value);
   noteWizardStep.value = 2;
 }
 const skipMentalStatusExam = computed(() =>
@@ -4064,6 +4097,7 @@ const generateDisabled = computed(() => {
   if (generating.value) return true;
   if (recording.value || recordingBusy.value) return true;
   if (noteAidAgencyNeedsChoice.value && !noteAidAgencyId.value) return true;
+  if (isProgressAid.value && !progressPlanIsCurrent.value) return true;
   if (familyAttendeesRequired.value && !String(sessionParticipantsDetail.value || '').trim()) return true;
   const hasText = !!String(inputText.value || '').trim();
   const hasAudio = !!audioBlob.value;
@@ -4082,6 +4116,11 @@ const generateBlockedReason = computed(() => {
   if (generating.value) return 'Generating…';
   if (recording.value) return 'Stop recording before generating.';
   if (recordingBusy.value) return 'Finishing recording…';
+  if (isProgressAid.value && !progressPlanIsCurrent.value) {
+    return planOnFile.value
+      ? `Treatment plan is older than ${treatmentPlanMaxAgeDays.value} days — update it first.`
+      : 'Complete a treatment plan before writing this progress note.';
+  }
   if (noteAidAgencyNeedsChoice.value && !noteAidAgencyId.value) {
     return 'Choose which agency this note belongs to (above).';
   }
@@ -5337,6 +5376,12 @@ const stopTranscription = () => {
 };
 
 const generateNote = async () => {
+  if (isProgressAid.value && !progressPlanIsCurrent.value) {
+    generateError.value = planOnFile.value
+      ? `Update the treatment plan (older than ${treatmentPlanMaxAgeDays.value} days) before writing this progress note.`
+      : 'A treatment plan must be on file before writing a progress note.';
+    return;
+  }
   const isRevisionPass = !!outputObj.value && (
     !!String(revisionInstruction.value || '').trim()
     || !!String(inputText.value || '').trim()
@@ -6412,6 +6457,9 @@ const loadClientTreatmentPlan = async (clientId) => {
         if (score > bestScore) {
           bestScore = score;
           bestPlan = plan;
+          if (res?.data?.treatmentPlanMaxAgeDays) {
+            treatmentPlanMaxAgeDays.value = Number(res.data.treatmentPlanMaxAgeDays) || 90;
+          }
           bestDiagnoses = Array.isArray(res?.data?.diagnoses) ? res.data.diagnoses : [];
           bestRatings = Array.isArray(res?.data?.objectiveRatings)
             ? res.data.objectiveRatings

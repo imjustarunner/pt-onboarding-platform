@@ -204,8 +204,16 @@
           <input v-model="locForm.name" class="mb-input mb-input--wide" placeholder="Location name" />
           <input v-model="locForm.placeOfService" class="mb-input" placeholder="POS (11, 02, 12…)" maxlength="2" />
           <select v-model.number="locForm.billingOfficeLocationId" class="mb-input mb-input--wide">
-            <option :value="0">Billing office (optional)</option>
+            <option :value="0">Billing office (credentialed) — optional</option>
             <option v-for="o in billingOffices" :key="o.id" :value="o.id">{{ o.name || `Office #${o.id}` }}</option>
+          </select>
+          <select
+            v-model.number="locForm.schoolOrganizationId"
+            class="mb-input mb-input--wide"
+            @change="onSchoolSitePicked"
+          >
+            <option :value="0">School / service site (optional)</option>
+            <option v-for="s in affiliatedSchools" :key="s.id" :value="s.id">{{ s.name }}</option>
           </select>
           <input v-model="locForm.streetAddress" class="mb-input mb-input--wide" placeholder="Street (optional)" />
           <input v-model="locForm.city" class="mb-input" placeholder="City" />
@@ -223,6 +231,17 @@
             <span>POS {{ l.place_of_service }}</span>
             <span v-if="l.billing_office_name" class="muted">bills under {{ l.billing_office_name }}</span>
             <span v-else class="muted">no billing office linked</span>
+            <span v-if="schoolNameForLocation(l)" class="muted"> · {{ schoolNameForLocation(l) }}</span>
+            <select
+              class="mb-input"
+              :value="Number(l.billing_office_location_id || 0)"
+              @change="linkLocationOffice(l, $event)"
+            >
+              <option :value="0">Office…</option>
+              <option v-for="o in billingOffices" :key="`loc-${l.id}-off-${o.id}`" :value="o.id">
+                {{ o.name || `Office #${o.id}` }}
+              </option>
+            </select>
           </li>
         </ul>
         <p v-if="!serviceLocations.length" class="muted">No service locations yet.</p>
@@ -488,12 +507,14 @@ const locForm = ref({
   name: '',
   placeOfService: '11',
   billingOfficeLocationId: 0,
+  schoolOrganizationId: 0,
   streetAddress: '',
   city: '',
   state: '',
   postalCode: '',
   requiresCredentialing: false
 });
+const affiliatedSchools = ref([]);
 
 const formatCents = (c) => `$${((Number(c) || 0) / 100).toFixed(2)}`;
 
@@ -517,6 +538,7 @@ const loadServiceLocations = async () => {
     });
     serviceLocations.value = res?.data?.items || [];
     billingOffices.value = res?.data?.billingOffices || [];
+    affiliatedSchools.value = res?.data?.schools || [];
   } catch (e) {
     error.value = e.response?.data?.error?.message || 'Failed to load service locations';
   }
@@ -609,6 +631,37 @@ const previewUnits = async () => {
   }
 };
 
+const schoolNameForLocation = (loc) => {
+  const sid = Number(loc?.school_organization_id || 0);
+  if (!sid) return '';
+  const hit = affiliatedSchools.value.find((s) => Number(s.id) === sid);
+  return hit?.name || '';
+};
+
+const onSchoolSitePicked = () => {
+  const sid = Number(locForm.value.schoolOrganizationId || 0);
+  const school = affiliatedSchools.value.find((s) => Number(s.id) === sid);
+  if (!school) return;
+  if (!String(locForm.value.name || '').trim()) locForm.value.name = school.name;
+  if (!String(locForm.value.placeOfService || '').trim() || locForm.value.placeOfService === '11') {
+    locForm.value.placeOfService = '03';
+  }
+};
+
+const linkLocationOffice = async (loc, event) => {
+  const officeId = Number(event?.target?.value || 0) || null;
+  if (!agencyId.value || !loc?.id) return;
+  try {
+    await api.patch(`/medical-billing/service-locations/${loc.id}`, {
+      agencyId: agencyId.value,
+      billingOfficeLocationId: officeId
+    });
+    await loadServiceLocations();
+  } catch (e) {
+    error.value = e.response?.data?.error?.message || 'Could not link office';
+  }
+};
+
 const saveServiceLocation = async () => {
   if (!agencyId.value || !locForm.value.name || !locForm.value.placeOfService) return;
   locSaving.value = true;
@@ -619,6 +672,7 @@ const saveServiceLocation = async () => {
       name: locForm.value.name,
       placeOfService: locForm.value.placeOfService,
       billingOfficeLocationId: Number(locForm.value.billingOfficeLocationId || 0) || null,
+      schoolOrganizationId: Number(locForm.value.schoolOrganizationId || 0) || null,
       streetAddress: locForm.value.streetAddress || null,
       city: locForm.value.city || null,
       state: locForm.value.state || null,
@@ -629,6 +683,7 @@ const saveServiceLocation = async () => {
       name: '',
       placeOfService: '11',
       billingOfficeLocationId: 0,
+      schoolOrganizationId: 0,
       streetAddress: '',
       city: '',
       state: '',

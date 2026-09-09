@@ -17,6 +17,36 @@ function stripObjectiveHeader(text) {
     .trim();
 }
 
+export function parseInterventionNameFromStrategyLine(line) {
+  const t = String(line || '').trim().replace(/\.+$/, '');
+  if (!t) return '';
+  if (/^treatment\s+strategy/i.test(t)) return '';
+  if (/^estimated\s+completion\b/i.test(t)) return '';
+  const before = t.split(/;\s*Modality\s*:/i)[0].trim();
+  if (!before || before.length > 80) return '';
+  return before;
+}
+
+export function isTreatmentStrategyHeader(line) {
+  return /^treatment\s+strategy(?:\s*\/\s*intervention)?s?\b/i.test(String(line || '').trim());
+}
+
+function looksLikeInterventionCatalogLine(line) {
+  const t = String(line || '').trim();
+  if (!t) return false;
+  if (isTreatmentStrategyHeader(t)) return true;
+  return /;\s*Modality\s*:/i.test(t);
+}
+
+function pushObjectiveIntervention(currentGoal, name) {
+  const label = String(name || '').trim();
+  if (!label || !currentGoal) return;
+  const lastObj = currentGoal.objectives?.[currentGoal.objectives.length - 1];
+  if (!lastObj) return;
+  if (!Array.isArray(lastObj.interventions)) lastObj.interventions = [];
+  if (!lastObj.interventions.includes(label)) lastObj.interventions.push(label);
+}
+
 /** Strip boilerplate labels that often leak into pasted plan text. */
 export function stripPlanBoilerplateLabels(text) {
   return String(text || '')
@@ -293,6 +323,7 @@ function finalizeObjective(obj) {
   if (valid) {
     obj.scaleDirection = inferScaleDirection(obj.scaleCurrent, obj.scaleTarget, obj.scaleDirection);
   }
+  if (!Array.isArray(obj.interventions)) obj.interventions = [];
   return obj;
 }
 
@@ -566,6 +597,33 @@ export function parseTreatmentPlanText(rawText) {
       continue;
     }
 
+    // Numbered goal titles after a "Treatment Goal" header, e.g. "1) Improve …"
+    if (
+      mode === 'goals'
+      && currentGoal
+      && !(currentGoal.objectives || []).length
+      && /^\d+\)\s+\S/.test(trimmed)
+    ) {
+      const numberedText = stripPlanBoilerplateLabels(trimmed.replace(/^\d+\)\s+/, '').trim());
+      if (numberedText) {
+        if (!String(currentGoal.goalText || '').trim()) {
+          currentGoal.goalText = numberedText;
+        } else {
+          currentGoal = emptyGoalShell(numberedText);
+          goals.push(currentGoal);
+        }
+        applyGoalDuration(currentGoal, trimmed);
+        continue;
+      }
+    }
+
+    if (isTreatmentStrategyHeader(trimmed)) {
+      flushJustification();
+      flushPresenting();
+      mode = 'interventions';
+      continue;
+    }
+
     if (
       /^(?:objective|obj)\s*\d*(?:\.\d+)?\b/i.test(trimmed)
       || /^o\d+(?:\.\d+)?\b/i.test(trimmed)
@@ -601,7 +659,8 @@ export function parseTreatmentPlanText(rawText) {
           scaleTarget: scales.scaleTarget,
           scaleDirection: inferScaleDirection(scales.scaleCurrent, scales.scaleTarget, directionHint),
           measurementMethod: null,
-          projectedCompletion: null
+          projectedCompletion: null,
+          interventions: []
         })
       );
       continue;
@@ -625,6 +684,15 @@ export function parseTreatmentPlanText(rawText) {
       if (currentGoal && dateHit) {
         currentGoal.parsedDateHint = dateHit;
       }
+      continue;
+    }
+
+    if (mode === 'interventions' || looksLikeInterventionCatalogLine(trimmed)) {
+      flushJustification();
+      flushPresenting();
+      const name = parseInterventionNameFromStrategyLine(trimmed);
+      if (name) pushObjectiveIntervention(currentGoal, name);
+      mode = 'interventions';
       continue;
     }
 
@@ -675,6 +743,12 @@ export function parseTreatmentPlanText(rawText) {
     if (mode === 'goals' && currentGoal) {
       // Continuation lines for long objectives / goals
       if (isBoilerplateOnlyLine(trimmed)) continue;
+      if (looksLikeInterventionCatalogLine(trimmed) || isTreatmentStrategyHeader(trimmed)) {
+        const name = parseInterventionNameFromStrategyLine(trimmed);
+        if (name) pushObjectiveIntervention(currentGoal, name);
+        mode = 'interventions';
+        continue;
+      }
       const cleaned = stripPlanBoilerplateLabels(trimmed);
       if (!cleaned) continue;
       const lastObj = currentGoal.objectives[currentGoal.objectives.length - 1];

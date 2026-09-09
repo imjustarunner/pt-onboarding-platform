@@ -3,16 +3,14 @@
  * Serializes structured answers into clinician input for Gemini narrative generation.
  */
 
+import { CLINICAL_INTERVENTION_SEED } from '../config/clinicalInterventionSeed.js';
+
 export const CS_DEFAULT_INTERVENTIONS = [
-  'Cognitive Restructuring',
+  ...CLINICAL_INTERVENTION_SEED,
   'Anxiety Management',
   'Emotional Regulation',
-  'Psychoeducation',
   'Behavioral Activation',
-  'Problem Solving',
-  'Mindfulness / Grounding',
   'Motivational Interviewing',
-  'Social Skills Practice',
   'Caregiver Coaching'
 ];
 

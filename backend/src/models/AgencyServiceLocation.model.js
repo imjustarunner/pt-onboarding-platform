@@ -140,6 +140,7 @@ class AgencyServiceLocation {
       notes: 'notes',
       requiresCredentialing: 'requires_credentialing',
       billingOfficeLocationId: 'billing_office_location_id',
+      schoolOrganizationId: 'school_organization_id',
       isActive: 'is_active'
     };
     const fields = [];
@@ -149,6 +150,9 @@ class AgencyServiceLocation {
       fields.push(`${col} = ?`);
       if (k === 'requiresCredentialing' || k === 'isActive') vals.push(updates[k] ? 1 : 0);
       else if (k === 'placeOfService') vals.push(String(updates[k] || '').slice(0, 2));
+      else if (k === 'schoolOrganizationId' || k === 'billingOfficeLocationId') {
+        vals.push(Number(updates[k] || 0) || null);
+      }
       else vals.push(updates[k]);
     }
     if (!fields.length) return this.findById(id);

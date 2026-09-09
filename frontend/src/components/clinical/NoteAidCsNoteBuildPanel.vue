@@ -92,17 +92,43 @@
     <!-- 5 Interventions -->
     <article class="csnb-step" :class="{ done: (model.interventionsSelected || []).length > 0 || !!model.interventionsCustom }">
       <h3><span>5</span> What did you do today? (Select interventions used)</h3>
-      <p class="csnb-hint">Proposed from treatment plan / common modalities</p>
+      <p class="csnb-hint">From this client’s treatment plan objectives, plus your list and agency defaults</p>
       <div class="csnb-checks">
         <label v-for="item in interventionChoices" :key="item" class="csnb-check">
           <input type="checkbox" :value="item" v-model="model.interventionsSelected" />
           <span>{{ item }}</span>
         </label>
+        <button type="button" class="csnb-plus" title="Add an intervention to my list" @click="startAddIntervention">+</button>
+      </div>
+      <div v-if="addingIntervention" class="csnb-add-row">
+        <input v-model="newInterventionName" class="csnb-input" placeholder="New intervention name" @keydown.enter.prevent="saveNewIntervention('user')" />
+        <button type="button" class="csnb-btn" @click="saveNewIntervention('user')">Save to me</button>
+        <button
+          v-if="canEditAgencyDefaults"
+          type="button"
+          class="csnb-btn"
+          @click="saveNewIntervention('agency')"
+        >
+          Save as agency default
+        </button>
       </div>
       <label class="csnb-block">
         Additional / custom interventions
-        <input v-model="model.interventionsCustom" class="csnb-input" placeholder="+ Add custom (comma separated)" />
+        <input
+          v-model="model.interventionsCustom"
+          class="csnb-input"
+          placeholder="+ Add custom (comma separated)"
+          @blur="harvestCustomInterventions"
+        />
       </label>
+      <button
+        v-if="canEditAgencyDefaults && model.interventionsCustom"
+        type="button"
+        class="csnb-btn"
+        @click="saveCustomToAgency"
+      >
+        Add typed items to agency defaults
+      </button>
     </article>
 
     <!-- 6 How used -->
@@ -295,7 +321,9 @@
 </template>
 
 <script setup>
-import { computed, reactive, watch } from 'vue';
+import { computed, onMounted, reactive, ref, watch } from 'vue';
+import api from '../../services/api.js';
+import { useAuthStore } from '../../store/auth.js';
 import {
   CS_AFFECT_AREAS,
   CS_CLIENT_RESPONSE_OPTIONS,
@@ -316,7 +344,8 @@ const props = defineProps({
   symptomSuggestions: { type: Array, default: () => [] },
   isTelehealth: { type: Boolean, default: false },
   proposingPlan: { type: Boolean, default: false },
-  skipMse: { type: Boolean, default: false }
+  skipMse: { type: Boolean, default: false },
+  agencyId: { type: [Number, String], default: null }
 });
 
 const emit = defineEmits(['update:modelValue', 'propose-plan']);
@@ -358,11 +387,105 @@ const responseOptions = CS_CLIENT_RESPONSE_OPTIONS;
 const affectAreas = CS_AFFECT_AREAS;
 const progressRatings = CS_PROGRESS_RATINGS;
 const mseFields = CS_MSE_FIELDS;
+const authStore = useAuthStore();
+const catalogNames = ref([]);
+const addingIntervention = ref(false);
+const newInterventionName = ref('');
+
+const canEditAgencyDefaults = computed(() =>
+  ['admin', 'super_admin', 'support'].includes(String(authStore.user?.role || '').toLowerCase())
+);
 
 const interventionChoices = computed(() => {
   const fromPlan = [...(props.proposedInterventions || []), ...(model.interventionsProposed || [])];
-  return [...new Set([...fromPlan, ...CS_DEFAULT_INTERVENTIONS].filter(Boolean))];
+  return [...new Set([...fromPlan, ...catalogNames.value, ...CS_DEFAULT_INTERVENTIONS].filter(Boolean))];
 });
+
+async function loadInterventionCatalog() {
+  const aid = Number(props.agencyId || 0);
+  if (!aid) {
+    catalogNames.value = [...CS_DEFAULT_INTERVENTIONS];
+    return;
+  }
+  try {
+    const res = await api.get('/medical-billing/interventions', {
+      params: { agencyId: aid },
+      skipGlobalLoading: true
+    });
+    catalogNames.value = Array.isArray(res?.data?.all) ? res.data.all : [...CS_DEFAULT_INTERVENTIONS];
+  } catch {
+    catalogNames.value = [...CS_DEFAULT_INTERVENTIONS];
+  }
+}
+
+function splitInterventionNames(raw) {
+  return String(raw || '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+function startAddIntervention() {
+  addingIntervention.value = true;
+  newInterventionName.value = '';
+}
+
+async function saveNewIntervention(scope) {
+  const names = splitInterventionNames(newInterventionName.value);
+  if (!names.length) return;
+  const aid = Number(props.agencyId || 0);
+  if (aid) {
+    try {
+      const res = await api.post('/medical-billing/interventions', {
+        agencyId: aid,
+        scope,
+        names
+      }, { skipGlobalLoading: true });
+      catalogNames.value = Array.isArray(res?.data?.all) ? res.data.all : catalogNames.value;
+    } catch {
+      catalogNames.value = [...new Set([...catalogNames.value, ...names])];
+    }
+  } else {
+    catalogNames.value = [...new Set([...catalogNames.value, ...names])];
+  }
+  for (const n of names) {
+    if (!model.interventionsSelected.includes(n)) model.interventionsSelected.push(n);
+  }
+  addingIntervention.value = false;
+  newInterventionName.value = '';
+}
+
+async function harvestCustomInterventions() {
+  const names = splitInterventionNames(model.interventionsCustom);
+  const existing = new Set(interventionChoices.value.map((s) => s.toLowerCase()));
+  const novel = names.filter((n) => !existing.has(n.toLowerCase()));
+  if (!novel.length) return;
+  const aid = Number(props.agencyId || 0);
+  if (!aid) {
+    catalogNames.value = [...new Set([...catalogNames.value, ...novel])];
+    return;
+  }
+  try {
+    const res = await api.post('/medical-billing/interventions', {
+      agencyId: aid,
+      scope: 'user',
+      names: novel
+    }, { skipGlobalLoading: true });
+    catalogNames.value = Array.isArray(res?.data?.all) ? res.data.all : [...catalogNames.value, ...novel];
+  } catch {
+    catalogNames.value = [...new Set([...catalogNames.value, ...novel])];
+  }
+}
+
+async function saveCustomToAgency() {
+  const names = splitInterventionNames(model.interventionsCustom);
+  if (!names.length) return;
+  newInterventionName.value = names.join(', ');
+  await saveNewIntervention('agency');
+}
+
+onMounted(loadInterventionCatalog);
+watch(() => props.agencyId, loadInterventionCatalog);
 
 const symptomChoices = computed(() =>
   [...new Set([...(props.symptomSuggestions || []), ...CS_DEFAULT_SYMPTOMS].filter(Boolean))]
@@ -597,6 +720,25 @@ defineExpose({
   align-items: flex-start;
   font-size: 0.84rem;
   font-weight: 500;
+}
+.csnb-plus {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  border: 1px dashed #94a3b8;
+  background: #fff;
+  color: #0f766e;
+  font-size: 1.1rem;
+  font-weight: 700;
+  cursor: pointer;
+  line-height: 1;
+}
+.csnb-add-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin-top: 8px;
 }
 .csnb-grid3 {
   display: grid;

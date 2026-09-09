@@ -38,6 +38,9 @@ import pool from '../config/database.js';
 import AgencyMedicalServiceCode from '../models/AgencyMedicalServiceCode.model.js';
 import AgencyServiceLocation from '../models/AgencyServiceLocation.model.js';
 import OfficeLocation from '../models/OfficeLocation.model.js';
+import OrganizationAffiliation from '../models/OrganizationAffiliation.model.js';
+import ClinicalInterventionCatalog from '../models/ClinicalInterventionCatalog.model.js';
+import ActivityLogService from '../services/activityLog.service.js';
 import {
   buildMedicaid8MinuteBands,
   resolveWithOverflowChain,
@@ -68,6 +71,90 @@ function formatAttestationClock(iso) {
     return `${date} at ${time}`;
   } catch {
     return String(iso || '');
+  }
+}
+
+function isProgressClinicalNote(note, meta = {}) {
+  const blob = [
+    note?.note_type,
+    note?.title,
+    meta?.noteType,
+    meta?.toolId,
+    meta?.aidId,
+    meta?.selectedAidId
+  ].map((v) => String(v || '').toLowerCase()).join(' ');
+  if (/treatment\s*plan/.test(blob)) return false;
+  return /progress/.test(blob) || /soap/.test(blob) || /cs.?note/.test(blob);
+}
+
+function treatmentPlanAgeDays(plan) {
+  const raw = plan?.effective_date || plan?.effectiveDate || plan?.updated_at || plan?.created_at;
+  if (!raw) return null;
+  const t = new Date(raw).getTime();
+  if (!Number.isFinite(t)) return null;
+  return Math.floor((Date.now() - t) / 86400000);
+}
+
+async function loadTreatmentPlanMaxAgeDays(agencyId) {
+  const aid = Number(agencyId || 0);
+  if (!aid) return 90;
+  try {
+    const [rows] = await pool.execute(
+      `SELECT treatment_plan_max_age_days FROM agencies WHERE id = ? LIMIT 1`,
+      [aid]
+    );
+    const n = Number(rows?.[0]?.treatment_plan_max_age_days);
+    return Number.isFinite(n) && n > 0 ? n : 90;
+  } catch (e) {
+    if (e?.code === 'ER_BAD_FIELD_ERROR') return 90;
+    throw e;
+  }
+}
+
+async function listNoteAddenda(noteId) {
+  try {
+    const [rows] = await clinicalPool.execute(
+      `SELECT id, clinical_note_id, agency_id, client_id, body, created_by_user_id, created_at
+       FROM clinical_note_addenda
+       WHERE clinical_note_id = ?
+       ORDER BY created_at ASC, id ASC`,
+      [noteId]
+    );
+    return rows || [];
+  } catch (e) {
+    if (e?.code === 'ER_NO_SUCH_TABLE') return [];
+    throw e;
+  }
+}
+
+async function insertBillingAmendment({
+  sessionId = null,
+  noteId = null,
+  agencyId,
+  userId,
+  fieldKey,
+  fromValue,
+  toValue,
+  reason = null
+}) {
+  try {
+    await clinicalPool.execute(
+      `INSERT INTO clinical_billing_amendments
+         (clinical_session_id, clinical_note_id, agency_id, changed_by_user_id, field_key, from_value, to_value, reason)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        sessionId || null,
+        noteId || null,
+        agencyId,
+        userId,
+        String(fieldKey || '').slice(0, 64),
+        fromValue != null ? String(fromValue).slice(0, 500) : null,
+        toValue != null ? String(toValue).slice(0, 500) : null,
+        reason ? String(reason).slice(0, 500) : null
+      ]
+    );
+  } catch (e) {
+    if (e?.code !== 'ER_NO_SUCH_TABLE') throw e;
   }
 }
 
@@ -784,7 +871,8 @@ export const listClientChart = async (req, res, next) => {
       objectiveRatings,
       noteAidDrafts,
       intakeNotes,
-      contactNotes
+      contactNotes,
+      treatmentPlanMaxAgeDays: await loadTreatmentPlanMaxAgeDays(agencyId)
     });
   } catch (e) {
     next(e);
@@ -1432,7 +1520,14 @@ export const getClinicalNoteById = async (req, res, next) => {
           raterLabel: r.rater_label || null,
           dateOfService: r.date_of_service,
           ratedAt: r.rated_at
-        }))
+        })),
+        addenda: (await listNoteAddenda(note.id)).map((a) => ({
+          id: a.id,
+          body: a.body,
+          createdByUserId: a.created_by_user_id,
+          createdAt: a.created_at
+        })),
+        billingAmendments: []
       }
     });
   } catch (e) {
@@ -1585,6 +1680,38 @@ export const signClinicalNote = async (req, res, next) => {
           : note.metadata_json || {};
     } catch {
       meta = {};
+    }
+
+    if (isProgressClinicalNote(note, meta)) {
+      const plans = await ClinicalTreatmentPlan.listByClient({
+        agencyId: note.agency_id,
+        clientId: note.client_id
+      }).catch(() => []);
+      const active = (plans || []).find((p) => {
+        const st = String(p.status || '').toLowerCase();
+        return st === 'active' || st === 'final';
+      });
+      if (!active) {
+        return res.status(400).json({
+          error: {
+            message: 'A treatment plan must be on file before a progress note can be signed.',
+            code: 'treatment_plan_required'
+          }
+        });
+      }
+      const maxAge = await loadTreatmentPlanMaxAgeDays(note.agency_id);
+      const age = treatmentPlanAgeDays(active);
+      if (age != null && age > maxAge) {
+        return res.status(400).json({
+          error: {
+            message: `The treatment plan on file is ${age} days old (limit ${maxAge}). Update the plan before signing this progress note.`,
+            code: 'treatment_plan_expired'
+          }
+        });
+      }
+      if (!note.primary_diagnosis_id && !meta.primaryDiagnosisId) {
+        meta.flags = { ...(meta.flags || {}), missingDiagnosis: true };
+      }
     }
 
     let signerLabel = null;
@@ -2854,7 +2981,12 @@ export const listServiceLocations = async (req, res, next) => {
     const offices = await OfficeLocation.findByAgencyMembership(agencyId, { includeInactive: false }).catch(() =>
       OfficeLocation.findByAgency(agencyId, { includeInactive: false })
     );
-    return res.json({ items, billingOffices: offices || [] });
+    const affiliated = await OrganizationAffiliation.listActiveOrganizationsForAgency(agencyId).catch(() => []);
+    const schools = (affiliated || []).filter((org) => {
+      const t = String(org.organization_type || '').toLowerCase();
+      return !t || t === 'school' || t === 'program';
+    }).map((org) => ({ id: org.id, name: org.name || `School #${org.id}` }));
+    return res.json({ items, billingOffices: offices || [], schools });
   } catch (e) {
     next(e);
   }
@@ -2963,6 +3095,9 @@ export const updateServiceLocation = async (req, res, next) => {
       billingOfficeLocationId: req.body.billingOfficeLocationId === null
         ? null
         : parseIntValue(req.body.billingOfficeLocationId),
+      schoolOrganizationId: req.body.schoolOrganizationId === null
+        ? null
+        : parseIntValue(req.body.schoolOrganizationId),
       isActive: req.body.isActive
     });
     return res.json({ item });
@@ -2989,6 +3124,10 @@ export const applyEncounterBilling = async (req, res, next) => {
     let billingOfficeLocationId =
       parseIntValue(req.body.billingOfficeLocationId) || session.billing_office_location_id || null;
     let placeOfService = req.body.placeOfService || session.place_of_service || null;
+    const modifiers = req.body.modifiers != null
+      ? String(req.body.modifiers || '').trim()
+      : (session.modifiers || null);
+    const reason = String(req.body.reason || req.body.amendmentReason || '').trim() || null;
 
     let location = null;
     if (serviceLocationId) {
@@ -3048,6 +3187,92 @@ export const applyEncounterBilling = async (req, res, next) => {
       });
     }
 
+    const diffs = [];
+    const track = (fieldKey, fromValue, toValue) => {
+      const from = fromValue == null ? '' : String(fromValue);
+      const to = toValue == null ? '' : String(toValue);
+      if (from === to) return;
+      diffs.push({ fieldKey, fromValue: from || null, toValue: to || null });
+    };
+    track('service_code', session.service_code, serviceCode);
+    track('service_location_id', session.service_location_id, serviceLocationId);
+    track('place_of_service', session.place_of_service, placeOfService);
+    track('billing_office_location_id', session.billing_office_location_id, billingOfficeLocationId);
+    track('duration_minutes', session.duration_minutes, minutes);
+
+    let linkedNoteId = parseIntValue(req.body.clinicalNoteId) || null;
+    if (!linkedNoteId) {
+      try {
+        const [nRows] = await clinicalPool.execute(
+          `SELECT id FROM clinical_notes
+           WHERE clinical_session_id = ? AND is_deleted = 0
+           ORDER BY provider_signed_at IS NULL, id DESC
+           LIMIT 1`,
+          [sessionId]
+        );
+        linkedNoteId = nRows?.[0]?.id || null;
+      } catch {
+        linkedNoteId = null;
+      }
+    }
+
+    for (const d of diffs) {
+      await insertBillingAmendment({
+        sessionId,
+        noteId: linkedNoteId,
+        agencyId: aid,
+        userId: req.user.id,
+        fieldKey: d.fieldKey,
+        fromValue: d.fromValue,
+        toValue: d.toValue,
+        reason
+      });
+    }
+
+    if (diffs.length) {
+      ActivityLogService.logActivity({
+        userId: req.user.id,
+        agencyId: aid,
+        actionType: 'clinical_note_billing_amended',
+        metadata: {
+          sessionId,
+          noteId: linkedNoteId,
+          changes: diffs,
+          reason
+        }
+      }, req);
+      if (linkedNoteId) {
+        try {
+          const [noteRows] = await clinicalPool.execute(
+            `SELECT metadata_json FROM clinical_notes WHERE id = ? LIMIT 1`,
+            [linkedNoteId]
+          );
+          let noteMeta = {};
+          try {
+            const raw = noteRows?.[0]?.metadata_json;
+            noteMeta = typeof raw === 'string' ? JSON.parse(raw || '{}') : (raw || {});
+          } catch {
+            noteMeta = {};
+          }
+          noteMeta.billingAmendments = [
+            ...(Array.isArray(noteMeta.billingAmendments) ? noteMeta.billingAmendments : []),
+            {
+              at: new Date().toISOString(),
+              byUserId: req.user.id,
+              reason,
+              changes: diffs
+            }
+          ];
+          await clinicalPool.execute(
+            `UPDATE clinical_notes SET metadata_json = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+            [JSON.stringify(noteMeta), linkedNoteId]
+          );
+        } catch {
+          // metadata is best-effort
+        }
+      }
+    }
+
     const updated = await ClinicalSession.findById(sessionId);
     return res.json({
       session: updated,
@@ -3056,6 +3281,82 @@ export const applyEncounterBilling = async (req, res, next) => {
       billingAddressNote:
         'Claims bill under the linked office address (billing_office_location_id); service location POS is stored on the encounter/note.'
     });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const listClinicalInterventions = async (req, res, next) => {
+  try {
+    const agencyId = parseIntValue(req.query.agencyId);
+    if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
+    await ClinicalEligibilityService.ensureAgencyAccess({ reqUser: req.user, agencyId });
+    const catalog = await ClinicalInterventionCatalog.listMerged({
+      agencyId,
+      userId: req.user.id
+    });
+    return res.json(catalog);
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const addClinicalInterventions = async (req, res, next) => {
+  try {
+    const agencyId = parseIntValue(req.body.agencyId);
+    if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
+    await ClinicalEligibilityService.ensureAgencyAccess({ reqUser: req.user, agencyId });
+    const scope = String(req.body.scope || 'user').toLowerCase() === 'agency' ? 'agency' : 'user';
+    const role = String(req.user?.role || '').toLowerCase();
+    if (scope === 'agency' && !['admin', 'super_admin', 'support'].includes(role)) {
+      return res.status(403).json({
+        error: { message: 'Only admin, super admin, or support can add agency default interventions.' }
+      });
+    }
+    const names = Array.isArray(req.body.names)
+      ? req.body.names
+      : String(req.body.name || req.body.names || '')
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean);
+    const catalog = await ClinicalInterventionCatalog.addMany({
+      agencyId,
+      userId: scope === 'agency' ? 0 : req.user.id,
+      names,
+      createdByUserId: req.user.id
+    });
+    return res.json(catalog);
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const createClinicalNoteAddendum = async (req, res, next) => {
+  try {
+    const noteId = parseIntValue(req.params.noteId);
+    const bodyText = String(req.body.body || req.body.addendum || '').trim();
+    if (!noteId || !bodyText) {
+      return res.status(400).json({ error: { message: 'Note id and addendum text are required.' } });
+    }
+    const note = await ClinicalNote.findById(noteId);
+    if (!note || note.is_deleted) return res.status(404).json({ error: { message: 'Note not found' } });
+    await ClinicalEligibilityService.ensureAgencyAccess({ reqUser: req.user, agencyId: note.agency_id });
+    if (!note.provider_signed_at) {
+      return res.status(400).json({ error: { message: 'Addenda can be attached after the note is signed.' } });
+    }
+    await clinicalPool.execute(
+      `INSERT INTO clinical_note_addenda
+         (clinical_note_id, agency_id, client_id, body, created_by_user_id)
+       VALUES (?, ?, ?, ?, ?)`,
+      [noteId, note.agency_id, note.client_id, bodyText, req.user.id]
+    );
+    ActivityLogService.logActivity({
+      userId: req.user.id,
+      agencyId: note.agency_id,
+      actionType: 'clinical_note_addendum_added',
+      metadata: { noteId, clientId: note.client_id }
+    }, req);
+    return res.status(201).json({ addenda: await listNoteAddenda(noteId) });
   } catch (e) {
     next(e);
   }

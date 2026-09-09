@@ -1,5 +1,5 @@
 <template>
-  <div class="ov-metrics" data-tour="dash-overview-metrics">
+  <div class="ov-metrics" :class="{ 'ov-metrics--contents': flattenGrid }" data-tour="dash-overview-metrics">
     <button
       v-if="showNotes"
       type="button"
@@ -94,7 +94,8 @@ const props = defineProps({
   noteAidInProgressCount: { type: Number, default: 0 },
   supervisionHours: { type: Object, default: null },
   notesToSignCount: { type: Number, default: 0 },
-  taskCount: { type: Number, default: 0 }
+  taskCount: { type: Number, default: 0 },
+  flattenGrid: { type: Boolean, default: false }
 });
 
 defineEmits(['navigate', 'open-note-aid']);
@@ -134,6 +135,9 @@ const supervisionHint = computed(() => {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   gap: 12px;
+}
+.ov-metrics--contents {
+  display: contents;
 }
 .ov-metric {
   display: flex;

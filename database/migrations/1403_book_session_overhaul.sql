@@ -1,9 +1,11 @@
 -- Migration 1403: Book Session overhaul — group codes, scheduled status, others present, my room
+-- CHARACTER SET / COLLATE must sit on the type, before NULL/DEFAULT/COMMENT (MySQL 8).
 
 ALTER TABLE agency_medical_service_codes
-  ADD COLUMN session_mode VARCHAR(16) NOT NULL DEFAULT 'either'
-  COMMENT 'individual | group | either — filters Book Session primary codes'
-  CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+  ADD COLUMN session_mode VARCHAR(16)
+  CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci
+  NOT NULL DEFAULT 'either'
+  COMMENT 'individual | group | either — filters Book Session primary codes';
 
 -- Table column is service_code (not code)
 UPDATE agency_medical_service_codes
@@ -21,19 +23,22 @@ WHERE UPPER(service_code) IN ('90846','90847','H2014','H2015','H2016','H2017','H
 
 -- appointments: others present free-text names, video room mode, notification mode
 ALTER TABLE appointments
-  ADD COLUMN others_present_names VARCHAR(500) NULL DEFAULT NULL
-  COMMENT 'Free-text names when Client and Others attendance'
-  CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+  ADD COLUMN others_present_names VARCHAR(500)
+  CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci
+  NULL DEFAULT NULL
+  COMMENT 'Free-text names when Client and Others attendance';
 
 ALTER TABLE appointments
-  ADD COLUMN video_room_mode VARCHAR(32) NULL DEFAULT 'unique_session'
-  COMMENT 'unique_session | my_room — virtual join strategy'
-  CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+  ADD COLUMN video_room_mode VARCHAR(32)
+  CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci
+  NULL DEFAULT 'unique_session'
+  COMMENT 'unique_session | my_room — virtual join strategy';
 
 ALTER TABLE appointments
-  ADD COLUMN notification_mode VARCHAR(32) NULL DEFAULT 'default'
-  COMMENT 'default | customizable'
-  CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+  ADD COLUMN notification_mode VARCHAR(32)
+  CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci
+  NULL DEFAULT 'default'
+  COMMENT 'default | customizable';
 
 -- Provider My Room (persistent public lobby — never auto-admits)
 CREATE TABLE IF NOT EXISTS provider_my_rooms (
@@ -59,9 +64,10 @@ CREATE TABLE IF NOT EXISTS provider_my_room_lobby (
   guest_photo_url VARCHAR(1024) NULL,
   client_id INT NULL,
   appointment_id INT NULL,
-  status VARCHAR(32) NOT NULL DEFAULT 'waiting'
-    COMMENT 'waiting | admitted | dismissed | left'
-    CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
+  status VARCHAR(32)
+    CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci
+    NOT NULL DEFAULT 'waiting'
+    COMMENT 'waiting | admitted | dismissed | left',
   photo_required_ack TINYINT(1) NOT NULL DEFAULT 0,
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   admitted_at DATETIME NULL,
@@ -77,9 +83,11 @@ ALTER TABLE appointment_reminders
 
 -- Booking metadata also lives on schedule events for non-appointment facets
 ALTER TABLE provider_schedule_events
-  ADD COLUMN others_present_names VARCHAR(500) NULL DEFAULT NULL
-  CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+  ADD COLUMN others_present_names VARCHAR(500)
+  CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci
+  NULL DEFAULT NULL;
 
 ALTER TABLE provider_schedule_events
-  ADD COLUMN video_room_mode VARCHAR(32) NULL DEFAULT NULL
-  CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+  ADD COLUMN video_room_mode VARCHAR(32)
+  CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci
+  NULL DEFAULT NULL;

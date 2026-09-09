@@ -50,39 +50,44 @@
       :show-chats="showChats"
     />
 
-    <OverviewTodaysFocus
-      :agency-id="agencyId"
-      @view-momentum="navigate('checklist')"
-      @add-sticky="navigate('checklist')"
-      @open-item="onOpenFocusItem"
-    />
+    <div class="ov-metric-row" :class="{ 'ov-metric-row--focus-open': !focusCollapsed }">
+      <OverviewTodaysFocus
+        class="ov-focus-slot"
+        :agency-id="agencyId"
+        @update:collapsed="focusCollapsed = $event"
+        @view-momentum="navigate('checklist')"
+        @add-sticky="navigate('checklist')"
+        @open-item="onOpenFocusItem"
+      />
+
+      <OverviewMetricCards
+        flatten-grid
+        :show-schedule="false"
+        :show-payroll="false"
+        :show-notes="showNotes"
+        :show-supervision="showSupervisionMetric"
+        :show-claims="showClaims"
+        :is-supervisor="isSupervisor"
+        :schedule-count="todayScheduleItems.length"
+        :next-schedule-item="nextScheduleItem"
+        :period-start="payPeriod.periodStart || ''"
+        :period-end="payPeriod.periodEnd || ''"
+        :tier-label="payPeriod.tierLabel || ''"
+        :paycheck-compare="paycheckCompare"
+        :notes-incomplete="notesStats.incomplete"
+        :notes-completed-pct="notesStats.completedPct"
+        :notes-period-label="notesStats.periodLabel"
+        :note-aid-queue-count="noteAidQueueCount"
+        :note-aid-in-progress-count="noteAidInProgressCount"
+        :supervision-hours="supervisionHours"
+        :notes-to-sign-count="notesToSignCount"
+        :task-count="taskCount"
+        @navigate="navigate"
+        @open-note-aid="openNoteAid"
+      />
+    </div>
 
     <div v-if="error" class="ov-error">{{ error }}</div>
-
-    <OverviewMetricCards
-      :show-schedule="false"
-      :show-payroll="false"
-      :show-notes="showNotes"
-      :show-supervision="showSupervisionMetric"
-      :show-claims="showClaims"
-      :is-supervisor="isSupervisor"
-      :schedule-count="todayScheduleItems.length"
-      :next-schedule-item="nextScheduleItem"
-      :period-start="payPeriod.periodStart || ''"
-      :period-end="payPeriod.periodEnd || ''"
-      :tier-label="payPeriod.tierLabel || ''"
-      :paycheck-compare="paycheckCompare"
-      :notes-incomplete="notesStats.incomplete"
-      :notes-completed-pct="notesStats.completedPct"
-      :notes-period-label="notesStats.periodLabel"
-      :note-aid-queue-count="noteAidQueueCount"
-      :note-aid-in-progress-count="noteAidInProgressCount"
-      :supervision-hours="supervisionHours"
-      :notes-to-sign-count="notesToSignCount"
-      :task-count="taskCount"
-      @navigate="navigate"
-      @open-note-aid="openNoteAid"
-    />
 
     <div class="ov-mid">
       <OverviewTodaySchedule
@@ -224,6 +229,7 @@ const emit = defineEmits([
 
 const authStore = useAuthStore();
 const showTip = ref(true);
+const focusCollapsed = ref(true);
 const focusBlock = ref(null);
 const focusDayBlocks = ref([]);
 const noteAidQueueCount = ref(0);
@@ -652,6 +658,18 @@ const onQuickAction = (action) => {
   border-radius: 8px;
   padding: 8px 12px;
   font-size: 13px;
+}
+.ov-metric-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+  margin-bottom: 14px;
+}
+.ov-metric-row--focus-open .ov-focus-slot {
+  grid-column: 1 / -1;
+}
+.ov-focus-slot {
+  min-width: 0;
 }
 .ov-mid {
   display: grid;

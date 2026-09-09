@@ -199,6 +199,18 @@
                   <option value="increase">Increase</option>
                   <option value="decrease">Decrease</option>
                 </select>
+              </div>
+              <label class="na-label">
+                Interventions for this objective
+                <textarea
+                  :value="(o.interventions || []).join('\n')"
+                  class="na-textarea"
+                  rows="3"
+                  placeholder="One intervention per line (copied from the plan)"
+                  @input="setObjectiveInterventions(o, $event.target.value)"
+                />
+              </label>
+              <div class="na-import-obj-actions">
                 <span class="muted tiny na-scale-hint">{{ directionHint(o) }}</span>
                 <button type="button" class="na-link-btn" @click="g.objectives.splice(oi, 1)">Remove</button>
               </div>
@@ -466,6 +478,9 @@ function mapGoal(g) {
         scaleDirection,
         measurementMethod: o.measurementMethod || o.measurement_method || DEFAULT_MEASUREMENT_METHOD,
         scaleNeedsRewrite: !isObjectiveScaleValid(scaleCurrent, scaleTarget),
+        interventions: Array.isArray(o.interventions)
+          ? o.interventions.filter(Boolean)
+          : [],
         pendingSuggestion: null,
         showParamEditor: false,
         paramInstructions: '',
@@ -546,6 +561,14 @@ function addGoal() {
   });
 }
 
+function setObjectiveInterventions(o, raw) {
+  if (!o) return;
+  o.interventions = String(raw || '')
+    .split(/\n|,/)
+    .map((s) => s.replace(/;\s*Modality\s*:.*$/i, '').trim())
+    .filter(Boolean);
+}
+
 function addObjective(gi) {
   model.value.goals[gi].objectives.push({
     objectiveText: '',
@@ -554,6 +577,7 @@ function addObjective(gi) {
     scaleDirection: null,
     measurementMethod: DEFAULT_MEASUREMENT_METHOD,
     scaleNeedsRewrite: true,
+    interventions: [],
     pendingSuggestion: null,
     showParamEditor: false,
     paramInstructions: '',
@@ -912,7 +936,8 @@ async function save({ finalize = true } = {}) {
           scaleCurrent: o.scaleCurrent,
           scaleTarget: o.scaleTarget,
           scaleDirection: o.scaleDirection,
-          measurementMethod: DEFAULT_MEASUREMENT_METHOD
+          measurementMethod: DEFAULT_MEASUREMENT_METHOD,
+          interventions: Array.isArray(o.interventions) ? o.interventions : []
         }))
       }))
     });

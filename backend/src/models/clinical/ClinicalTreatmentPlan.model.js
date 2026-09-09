@@ -1,6 +1,33 @@
 import clinicalPool from '../../config/clinicalDatabase.js';
 import { fingerprintPlanText } from './ClinicalTreatmentObjectiveRating.model.js';
 
+function parseInterventionsField(raw) {
+  if (Array.isArray(raw)) {
+    return [...new Set(raw.map((s) => String(s || '').trim()).filter(Boolean))];
+  }
+  if (!raw) return [];
+  try {
+    const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
+    if (!Array.isArray(parsed)) return [];
+    return [...new Set(parsed.map((s) => String(s || '').trim()).filter(Boolean))];
+  } catch {
+    return [];
+  }
+}
+
+async function persistObjectiveInterventions(conn, objectiveId, interventions) {
+  const id = Number(objectiveId || 0);
+  if (!id) return;
+  try {
+    await conn.execute(
+      `UPDATE clinical_treatment_plan_objectives SET interventions_json = ? WHERE id = ?`,
+      [JSON.stringify(parseInterventionsField(interventions)), id]
+    );
+  } catch (e) {
+    if (e?.code !== 'ER_BAD_FIELD_ERROR') throw e;
+  }
+}
+
 class ClinicalTreatmentPlan {
   static async create({
     agencyId,
@@ -166,6 +193,7 @@ class ClinicalTreatmentPlan {
               // scale_start from clinical migration 010 may not exist yet
             }
           }
+          await persistObjectiveInterventions(conn, oRes.insertId, o.interventions);
         }
       }
       await conn.commit();
@@ -199,7 +227,13 @@ class ClinicalTreatmentPlan {
          ORDER BY objective_index ASC`,
         [g.id]
       );
-      outGoals.push({ ...g, objectives: objs || [] });
+      outGoals.push({
+        ...g,
+        objectives: (objs || []).map((o) => ({
+          ...o,
+          interventions: parseInterventionsField(o.interventions_json)
+        }))
+      });
     }
     let planDiagnoses = [];
     try {
@@ -513,7 +547,7 @@ class ClinicalTreatmentPlan {
           const newGoalId = gRes.insertId;
           for (const o of incoming.objectives || []) {
             const objectiveText = o.objectiveText || '';
-            await conn.execute(
+            const [oRes] = await conn.execute(
               `INSERT INTO clinical_treatment_plan_objectives
                (goal_id, objective_index, objective_text, scale_current, scale_target, measurement_method, content_fingerprint, status)
                VALUES (?, ?, ?, ?, ?, ?, ?, 'active')`,
@@ -527,6 +561,7 @@ class ClinicalTreatmentPlan {
                 fingerprintPlanText(objectiveText)
               ]
             );
+            await persistObjectiveInterventions(conn, oRes.insertId, o.interventions);
           }
           continue;
         }
@@ -568,7 +603,7 @@ class ClinicalTreatmentPlan {
           }
           for (const o of objs) {
             const objectiveText = o.objectiveText || '';
-            await conn.execute(
+            const [oRes] = await conn.execute(
               `INSERT INTO clinical_treatment_plan_objectives
                (goal_id, objective_index, objective_text, scale_current, scale_target, measurement_method, content_fingerprint, status)
                VALUES (?, ?, ?, ?, ?, ?, ?, 'active')`,
@@ -582,6 +617,7 @@ class ClinicalTreatmentPlan {
                 fingerprintPlanText(objectiveText)
               ]
             );
+            await persistObjectiveInterventions(conn, oRes.insertId, o.interventions);
           }
           continue;
         }
@@ -601,7 +637,7 @@ class ClinicalTreatmentPlan {
 
           if (!existingObj) {
             const objectiveText = o.objectiveText || '';
-            await conn.execute(
+            const [oRes] = await conn.execute(
               `INSERT INTO clinical_treatment_plan_objectives
                (goal_id, objective_index, objective_text, scale_current, scale_target, measurement_method, content_fingerprint, status)
                VALUES (?, ?, ?, ?, ?, ?, ?, 'active')`,
@@ -615,6 +651,7 @@ class ClinicalTreatmentPlan {
                 fingerprintPlanText(objectiveText)
               ]
             );
+            await persistObjectiveInterventions(conn, oRes.insertId, o.interventions);
             continue;
           }
 
@@ -644,7 +681,11 @@ class ClinicalTreatmentPlan {
                WHERE id = ?`,
               [oRes.insertId, existingObj.id]
             );
+            await persistObjectiveInterventions(conn, oRes.insertId, o.interventions);
           } else {
+            if (o.interventions) {
+              await persistObjectiveInterventions(conn, existingObj.id, o.interventions);
+            }
             if (o.scaleTarget !== undefined) {
               await conn.execute(
                 `UPDATE clinical_treatment_plan_objectives SET scale_target = ? WHERE id = ?`,

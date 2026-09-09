@@ -119,6 +119,27 @@ export function isTreatmentPlanOnFileForSetup({
   );
 }
 
+export function treatmentPlanAgeDays(plan) {
+  const raw = plan?.effective_date || plan?.effectiveDate || plan?.updated_at || plan?.created_at;
+  if (!raw) return null;
+  const t = new Date(raw).getTime();
+  if (!Number.isFinite(t)) return null;
+  return Math.floor((Date.now() - t) / 86400000);
+}
+
+export function isTreatmentPlanCurrentForProgressNotes({
+  planImportedOnce = false,
+  latestPlan = null,
+  activeGoals = null,
+  maxAgeDays = 90
+} = {}) {
+  if (!isTreatmentPlanOnFileForSetup({ planImportedOnce, latestPlan, activeGoals })) return false;
+  const age = treatmentPlanAgeDays(latestPlan);
+  if (age == null) return true;
+  const max = Number(maxAgeDays);
+  return !Number.isFinite(max) || max <= 0 || age <= max;
+}
+
 export function buildTreatmentPlanContextText(latestPlan, pastedPlanText = '') {
   const pasted = String(pastedPlanText || '').trim();
   if (pasted) return pasted.slice(0, 8000);
