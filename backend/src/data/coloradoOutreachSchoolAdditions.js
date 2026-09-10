@@ -8,6 +8,34 @@
 
 export const COLORADO_OUTREACH_SCHOOL_ALIASES = {
   "denver-public-schools-mcauliffe-manual-middle-school": ["Manual Middle School", "Manual MS", "Manual Middle"],
+  "denver-public-schools-dsst-montview-high-school": [
+    "Montview High School",
+    "DSST Montview High School",
+    "DSST Montview HS",
+    "Montview HS"
+  ],
+  "denver-public-schools-dsst-montview-middle-school": [
+    "Montview Middle School",
+    "DSST Montview Middle School",
+    "DSST Montview MS",
+    "Montview MS"
+  ],
+  "denver-public-schools-denver-green-school-southeast": [
+    "Denver Green Southeast",
+    "Denver Green School SE",
+    "DGS Southeast",
+    "DGS SE"
+  ],
+  "denver-public-schools-denver-school-of-the-arts-high-school": [
+    "Denver School of Arts",
+    "Denver School of the Arts",
+    "DSA"
+  ],
+  "denver-public-schools-dcis-at-montbello": [
+    "Montebello Middle School",
+    "Montbello Middle School",
+    "DCIS Montbello"
+  ],
 };
 
 export const COLORADO_OUTREACH_CHARTER_KEYS = new Set([

@@ -23,6 +23,7 @@ import {
   isUniquePrefixSchoolMatch,
   matchImportSchool,
   mapHistoricalRow,
+  noteContentFingerprint,
   parsePocInfo
 } from '../utils/outreachHistoricalImport.js';
 
@@ -2006,12 +2007,8 @@ export async function importHistoricalOutreachRows(agencyId, rows = [], userId, 
       continue;
     }
     const schoolId = match.school.id;
-    const [existingContacts] = await pool.execute(
-      'SELECT COUNT(*) AS n FROM outreach_school_contacts WHERE outreach_school_id = ?',
-      [schoolId]
-    );
-    const [existingNotes] = await pool.execute(
-      'SELECT COUNT(*) AS n FROM outreach_school_notes WHERE outreach_school_id = ?',
+    const [existingNoteRows] = await pool.execute(
+      'SELECT body FROM outreach_school_notes WHERE outreach_school_id = ?',
       [schoolId]
     );
     const [existingVisits] = await pool.execute(
@@ -2019,15 +2016,16 @@ export async function importHistoricalOutreachRows(agencyId, rows = [], userId, 
        WHERE outreach_school_id = ? AND contact_type = 'visit'`,
       [schoolId]
     );
-    const hasContacts = Number(existingContacts?.[0]?.n || 0) > 0;
-    const hasNotes = Number(existingNotes?.[0]?.n || 0) > 0;
+    const existingNoteFingerprints = new Set(
+      (existingNoteRows || []).map((r) => noteContentFingerprint(r.body)).filter(Boolean)
+    );
     const hasVisits = Number(existingVisits?.[0]?.n || 0) > 0;
 
     const parsedContacts = parsePocInfo(mapped.pocInfo);
     const actions = { contacts: 0, notes: 0, visits: 0, skipped_because: [] };
 
-    if (hasContacts) actions.skipped_because.push('contacts_already_in_app');
-    else if (!dryRun) {
+    // Always attempt per-contact upsert so re-imports fill POC gaps.
+    if (!dryRun) {
       for (const c of parsedContacts) {
         const ok = await insertOutreachContactIfMissing(id, schoolId, c, {
           source: 'historical_import',
@@ -2039,12 +2037,14 @@ export async function importHistoricalOutreachRows(agencyId, rows = [], userId, 
         }
       }
     } else {
-      actions.contacts = hasContacts ? 0 : parsedContacts.length;
+      actions.contacts = parsedContacts.length;
     }
 
     if (mapped.combinedNotes) {
-      if (hasNotes) actions.skipped_because.push('notes_already_in_app');
-      else if (!dryRun) {
+      const fp = noteContentFingerprint(mapped.combinedNotes);
+      if (fp && existingNoteFingerprints.has(fp)) {
+        actions.skipped_because.push('note_already_in_app');
+      } else if (!dryRun) {
         try {
           await pool.execute(
             `INSERT INTO outreach_school_notes (outreach_school_id, agency_id, body, created_by_user_id, source)
@@ -2061,6 +2061,7 @@ export async function importHistoricalOutreachRows(agencyId, rows = [], userId, 
         }
         actions.notes = 1;
         notesAdded += 1;
+        if (fp) existingNoteFingerprints.add(fp);
       } else actions.notes = 1;
     }
 

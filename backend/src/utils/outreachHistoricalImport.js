@@ -9,12 +9,19 @@ const PHONE_RE = /\b(?:\+?1[-.\s]?)?(?:\(?\d{3}\)?[-.\s]?)?\d{3}[-.\s]?\d{4}\b/;
 /** Spreadsheet school names we will not import (ambiguous campus or not a school row). */
 export const SKIP_IMPORT_SCHOOLS = new Set([
   'vive',
-  'montebello middle school',
-  'denver school of arts',
-  'denver school of the arts',
   'schools to visit for 2026 2027 school year',
   'schools to visit for 2026-2027 school year'
 ]);
+
+/** Normalize note text for duplicate detection across spreadsheet re-imports. */
+export function noteContentFingerprint(text) {
+  return String(text || '')
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .replace(/[^a-z0-9 ]+/g, '')
+    .trim()
+    .slice(0, 400);
+}
 
 /**
  * Explicit DPS spreadsheet → directory name. Only aliases that are unique in the hub.
@@ -47,6 +54,8 @@ export const DPS_IMPORT_ALIASES = {
   'escuela valdez elementary': 'Valdez Elementary School',
   'valdez elementary': 'Valdez Elementary School',
   'montview high school': 'DSST: Montview High School',
+  'dsst montview high school': 'DSST: Montview High School',
+  'dsst montview hs': 'DSST: Montview High School',
   'odyssey school of denver': 'Odyssey School of Denver',
   'carson elementary': 'Carson Elementary School',
   'hill campus of arts science': 'Hill Campus of Arts and Sciences',
@@ -55,6 +64,8 @@ export const DPS_IMPORT_ALIASES = {
   'bear valley middle school': 'Bear Valley International School',
   'steck elementary': 'Steck Elementary School',
   'denver green southeast': 'Denver Green School Southeast',
+  'denver green school southeast': 'Denver Green School Southeast',
+  'denver green school se': 'Denver Green School Southeast',
   'lake middle school': 'Lake International School',
   'grant beacon middle school': 'Grant Beacon Middle School',
   'skinner middle school': 'Skinner Middle School',
@@ -67,6 +78,13 @@ export const DPS_IMPORT_ALIASES = {
   'brown middle': 'Brown Elementary School',
   'montview middle school': 'DSST: Montview Middle School',
   'dsst montview middle school': 'DSST: Montview Middle School',
+  'dsst montview ms': 'DSST: Montview Middle School',
+  // Spreadsheet typo "Montebello" → DCIS at Montbello (middle campus on that site)
+  'montebello middle school': 'DCIS at Montbello',
+  'montbello middle school': 'DCIS at Montbello',
+  'denver school of arts': 'Denver School of the Arts High School',
+  'denver school of the arts': 'Denver School of the Arts High School',
+  'denver school of the arts high school': 'Denver School of the Arts High School',
   'swigert international': 'Swigert International School',
   'swigert international school': 'Swigert International School',
   'dora moore ece 8': 'Dora Moore ECE-8 School',

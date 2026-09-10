@@ -67,9 +67,12 @@ describe('DPS spreadsheet school matching', () => {
     assert.equal(hit('Palmer Elementary').school?.name, 'Palmer Elementary School');
     assert.equal(hit('Whittier Elementary').school?.name, 'Whittier Elementary School');
     assert.equal(hit('McKinley Elementary').school?.name, 'McKinley-Thatcher Elementary School');
-    assert.equal(hit('Montebello Middle School').status, 'skip');
-    assert.equal(hit('Denver School of Arts').status, 'skip');
+    assert.equal(hit('Montebello Middle School').school?.name, 'DCIS at Montbello');
+    assert.equal(hit('Denver School of Arts').school?.name, 'Denver School of the Arts High School');
+    assert.equal(hit('Denver Green Southeast').school?.name, 'Denver Green School Southeast');
+    assert.equal(hit('Montview High School').school?.name, 'DSST: Montview High School');
     assert.equal(hit('Abraham Lincoln High School').school?.name, 'Abraham Lincoln High School');
+    assert.equal(hit('Vive').status, 'skip');
   });
 });
 
