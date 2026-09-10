@@ -216,7 +216,7 @@
               <div class="msg-hub-avatar-wrap">
                 <div class="msg-hub-avatar" aria-hidden="true">
                   <img v-if="c.photoUrl" :src="photoSrc(c.photoUrl)" :alt="''" />
-                  <span v-else>{{ initials(c.primary_participant_name || c.subject || '?') }}</span>
+                  <span v-else>{{ initials(conversationThreadTitle(c)) }}</span>
                 </div>
                 <span
                   class="msg-hub-ch-badge"
@@ -235,7 +235,7 @@
               </div>
               <div class="msg-hub-row-body">
                 <div class="msg-hub-row-top">
-                  <strong>{{ c.primary_participant_name || c.subject || 'Conversation' }}</strong>
+                  <strong>{{ conversationThreadTitle(c) }}</strong>
                   <span v-if="c.hubChannelLabel" class="msg-hub-channel-pill">{{ c.hubChannelLabel }}</span>
                   <span v-if="c.is_unread" class="msg-hub-unread-pill">
                     {{ c.unreadCount > 1 ? `${c.unreadCount} unread` : 'Unread' }}
@@ -1076,7 +1076,7 @@
             <header class="msg-hub-thread-head">
               <button type="button" class="msg-hub-back-list" @click="backToList">← List</button>
               <div class="msg-hub-thread-head-main">
-                <h3>{{ selectedConversation?.primary_participant_name || selectedConversation?.subject || 'Conversation' }}</h3>
+                <h3>{{ conversationThreadTitle(selectedConversation) }}</h3>
                 <p class="msg-hub-muted">
                   {{ selectedConversation?.primary_participant_email || 'Inbox conversation' }}
                   <span v-if="isConversationSnoozed(selectedConversation)" class="msg-hub-snooze-until">
@@ -1781,6 +1781,19 @@ const isSubjectChannel = computed(() => {
   return m === 'email' || m === 'secure';
 });
 
+function conversationOwnerName(c) {
+  return [c?.owner_first_name, c?.owner_last_name].filter(Boolean).join(' ').trim();
+}
+
+function conversationThreadTitle(c) {
+  const owner = conversationOwnerName(c);
+  const other = String(c?.primary_participant_name || '').trim();
+  if (owner && other && owner.toLowerCase() !== other.toLowerCase()) {
+    return `${owner} → ${other}`;
+  }
+  return other || owner || c?.subject || 'Conversation';
+}
+
 const clientProfilePath = computed(() => {
   const id = selectedClientId.value;
   if (!id) return null;
@@ -1855,7 +1868,7 @@ const filteredConversations = computed(() => {
   const q = listSearch.value.trim().toLowerCase();
   if (!q) return list;
   return list.filter((c) => {
-    const hay = `${c.primary_participant_name || ''} ${c.primary_participant_email || ''} ${c.subject || ''} ${c.last_message_preview || ''} ${c.hubChannelLabel || ''}`.toLowerCase();
+    const hay = `${conversationThreadTitle(c)} ${c.primary_participant_name || ''} ${c.primary_participant_email || ''} ${c.subject || ''} ${c.last_message_preview || ''} ${c.hubChannelLabel || ''}`.toLowerCase();
     return hay.includes(q);
   });
 });

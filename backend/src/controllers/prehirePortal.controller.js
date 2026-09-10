@@ -12,6 +12,7 @@ import { syncLifecycleItems } from '../services/lifecycleSync.service.js';
 import { mergePrehireDocuments } from '../utils/prehireConfigSanitize.js';
 import { sanitizeJobDescriptionSections } from '../utils/jobDescriptionSectionsSanitize.js';
 import { buildBackgroundCheckLegalCopy } from '../utils/backgroundCheckLegalCopy.js';
+import { isCandidateSubmissionAdminDoc } from '../utils/employeeVisibleAdminDocs.js';
 
 function resolveBaseUrl(req) {
   const proto = (req.get('x-forwarded-proto') || req.protocol || 'https').split(',')[0].trim();
@@ -256,6 +257,9 @@ export const getPortal = async (req, res, next) => {
       }
     })();
     const portalSteps = [
+      ...(hireAccountMode === 'group_password'
+        ? [{ key: 'username', done: usernameChosen }]
+        : []),
       { key: 'background_check', done: !!backgroundCheck?.signed },
       { key: 'job_description_ack', done: !!extras.jdAcknowledged }
     ];
@@ -1361,21 +1365,23 @@ export const getPortalSubmissions = async (req, res, next) => {
     let adminDocs = [];
     try {
       const [docs] = await pool.execute(
-        `SELECT id, title, doc_type, storage_path, original_name, mime_type, created_at
+        `SELECT id, title, doc_type, storage_path, original_name, mime_type, created_at, created_by_user_id
          FROM user_admin_docs
          WHERE user_id = ?
          ORDER BY created_at DESC
          LIMIT 40`,
         [userId]
       );
-      adminDocs = (docs || []).map((d) => ({
-        id: d.id,
-        title: d.title || d.doc_type || 'Uploaded file',
-        category: d.doc_type || null,
-        createdAt: d.created_at,
-        hasFile: !!d.storage_path,
-        fileUrl: d.storage_path ? `/prehire-portal/${req.params.token}/submissions/files/${d.id}` : null
-      }));
+      adminDocs = (docs || [])
+        .filter((d) => isCandidateSubmissionAdminDoc(d, userId))
+        .map((d) => ({
+          id: d.id,
+          title: d.title || d.doc_type || 'Uploaded file',
+          category: d.doc_type || null,
+          createdAt: d.created_at,
+          hasFile: !!d.storage_path,
+          fileUrl: d.storage_path ? `/prehire-portal/${req.params.token}/submissions/files/${d.id}` : null
+        }));
     } catch { /* ignore */ }
 
     const [signedRows] = await pool.execute(
@@ -1675,7 +1681,7 @@ export const viewPortalSubmissionFile = async (req, res, next) => {
     const docId = parseInt(req.params.docId, 10);
     if (!docId) return res.status(400).json({ error: { message: 'Invalid document.' } });
     const [rows] = await pool.execute(
-      `SELECT id, storage_path, original_name, mime_type
+      `SELECT id, storage_path, original_name, mime_type, doc_type
        FROM user_admin_docs WHERE id = ? AND user_id = ? LIMIT 1`,
       [docId, userId]
     );
@@ -1683,8 +1689,10 @@ export const viewPortalSubmissionFile = async (req, res, next) => {
     if (!doc?.storage_path) {
       return res.status(404).json({ error: { message: 'Document file not found.' } });
     }
+    const { resolveOwnedAdminDocStoragePath } = await import('../utils/candidateApplicationFile.js');
+    const storagePath = await resolveOwnedAdminDocStoragePath(doc, userId);
     const StorageService = (await import('../services/storage.service.js')).default;
-    const buf = await StorageService.readObject(doc.storage_path);
+    const buf = await StorageService.readObject(storagePath);
     res.setHeader('Content-Type', doc.mime_type || 'application/pdf');
     res.setHeader(
       'Content-Disposition',
@@ -1904,11 +1912,55 @@ async function loadPortalPrehireExtras({ userId, agencyId, hiringProfile }) {
         .filter((i) => i.completedOn && String(i.itemKey || '').startsWith('prehire_doc_'))
         .map((i) => String(i.itemKey).replace(/^prehire_doc_/, ''))
     );
+    const docCompletedKeys = new Set(
+      extras.checklistItems
+        .filter((i) => i.completedOn && String(i.itemKey || '').startsWith('doc:'))
+        .map((i) => String(i.itemKey))
+    );
     extras.prehireDocs = (extras.prehireDocs || []).map((d) => ({
       ...d,
-      signed: signedDocKeys.has(String(d.id))
+      signed: signedDocKeys.has(String(d.id)) || docCompletedKeys.has(`doc:${d.id}`)
     }));
   } catch { /* table may not exist */ }
+
+  try {
+    const [staffFiles] = await pool.execute(
+      `SELECT id, title, storage_path, original_name, mime_type, created_by_user_id, created_at
+       FROM user_admin_docs
+       WHERE user_id = ?
+         AND doc_type = 'prehire_upload'
+         AND storage_path IS NOT NULL
+         AND (created_by_user_id IS NULL OR created_by_user_id != ?)
+       ORDER BY created_at ASC`,
+      [userId, userId]
+    );
+    const existingTitles = new Set(
+      (extras.prehireDocs || []).map((d) => String(d.title || '').trim().toLowerCase()).filter(Boolean)
+    );
+    const completedKeys = new Set(
+      (extras.checklistItems || [])
+        .filter((i) => i.completedOn)
+        .map((i) => String(i.itemKey || ''))
+    );
+    for (const d of staffFiles || []) {
+      const title = String(d.title || d.original_name || 'Pre-hire form').trim();
+      if (existingTitles.has(title.toLowerCase())) continue;
+      const extraId = `admin_doc_${d.id}`;
+      extras.prehireDocs.push({
+        id: extraId,
+        adminDocId: d.id,
+        title,
+        kind: 'upload',
+        instructions: 'Download this form, complete it, and upload your signed copy.',
+        filePath: d.storage_path,
+        fileName: d.original_name || null,
+        mimeType: d.mime_type || null,
+        signed: completedKeys.has(`doc:${extraId}`)
+      });
+      existingTitles.add(title.toLowerCase());
+    }
+  } catch { /* ignore */ }
+
   return extras;
 }
 

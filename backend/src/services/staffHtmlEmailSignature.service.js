@@ -558,29 +558,31 @@ export function buildStaffSignatureHtml(ctx) {
       <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="border-collapse:collapse;margin:0;">
         <tr><td style="border-top:1px solid ${c.line};font-size:0;line-height:0;height:1px;padding:0;mso-line-height-rule:exactly;">&nbsp;</td></tr>
       </table>
-      <div style="margin:4px 0 0;padding:0;font-family:Arial,Helvetica,sans-serif;font-size:8px;line-height:1.3;color:#6B7280;">
+      <div style="margin:4px 0 0;padding:0;font-family:Arial,Helvetica,sans-serif;font-size:8px;line-height:1.35;color:#6B7280;">
         <div style="font-weight:700;color:${c.navy};text-transform:uppercase;letter-spacing:0.02em;margin:0 0 2px;padding:0;">
           CONFIDENTIAL AND POTENTIALLY SENSITIVE INFORMATION!
         </div>
         <div style="margin:0;padding:0;">
           The information enclosed in this email may contain privileged and confidential materials intended solely for the individual indicated.
           If you are not the intended recipient, any review, dissemination, distribution, or duplication of this email is strictly prohibited.
-          ${
-            ctx.misdirectedReportUrl
-              ? `If this email was sent to you by mistake,
-          <a href="${escapeHtml(ctx.misdirectedReportUrl)}" style="color:#ffffff;background:#1d4ed8;text-decoration:none;padding:3px 8px;border-radius:4px;font-weight:700;display:inline-block;margin:2px 0;font-size:9px;line-height:1.3;" target="_blank" rel="noopener noreferrer">Report misdirected email</a>
-          so our support team can escalate and investigate — then destroy all copies of the original message.`
-              : `If this email was sent to you by mistake, please report it to the sending organization so they can escalate and investigate — then destroy all copies of the original message.`
-          }
+          If this email was sent to you by mistake, report it so our support team can escalate and investigate — then destroy all copies of the original message.
         </div>
+        ${
+          ctx.misdirectedReportUrl
+            ? `<div style="margin:8px 0 0;padding:0;">
+          <a href="${escapeHtml(ctx.misdirectedReportUrl)}" style="color:#ffffff;background:#1d4ed8;text-decoration:none;padding:6px 10px;border-radius:4px;font-weight:700;display:inline-block;font-size:10px;line-height:1.3;" target="_blank" rel="noopener noreferrer">Report misdirected email</a>
+        </div>`
+            : ''
+        }
       </div>
     </td>
   </tr>
 </table>`;
 
-  // Fixed-width left card so it reads as a signature, not a full-width from-banner.
+  // Full width of the 600px chrome column so the signature does not float left
+  // and leave a large empty band in Hub / Gmail previews.
   return `
-<table role="presentation" cellpadding="0" cellspacing="0" border="0" align="left" width="360" style="border-collapse:collapse;width:360px;max-width:360px;background:#ffffff;margin:0;">
+<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="border-collapse:collapse;width:100%;max-width:600px;background:#ffffff;margin:12px 0 0;">
   <tr>
     <td style="padding:0;vertical-align:top;width:${photoSize + 6}px;">
       <img src="${photo}" width="${photoSize}" height="${photoSize}" alt="${name}"

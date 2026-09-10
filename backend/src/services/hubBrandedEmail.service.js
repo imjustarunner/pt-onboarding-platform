@@ -200,11 +200,11 @@ export function buildNormalOutboundEmailHtml(opts = {}) {
     .filter(Boolean)
     .join('');
 
-  return `<div data-hub-email-body="1" style="padding:4px 0 6px;background:#ffffff;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
-  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;margin:0 0 14px;">
+  return `<div data-hub-email-body="1" style="padding:4px 0 8px;background:#ffffff;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;margin:0 0 12px;">
     <tr>
       <td style="vertical-align:middle;">
-        <div style="font-size:18px;font-weight:800;color:#0f172a;letter-spacing:-0.02em;">Conversation</div>
+        <div style="font-size:18px;font-weight:800;color:#0f172a;letter-spacing:-0.02em;">${sender}</div>
         <div style="font-size:12px;color:#64748b;margin-top:2px;">Replies return to ${agencyName || 'your care team'} — not a personal staff inbox.</div>
       </td>
       <td align="right" style="vertical-align:middle;font-size:10px;font-weight:800;letter-spacing:0.04em;color:${primary};text-transform:uppercase;white-space:nowrap;">

@@ -479,7 +479,7 @@
                         rel="noopener"
                       >{{ d.title }}</a>
                       <span v-else>{{ d.title }}</span>
-                      <span class="cred-muted"> {{ d.category || '' }}</span>
+                      <span class="cred-muted" v-if="d.category"> · {{ formatSubmissionCategory(d.category) }}</span>
                     </li>
                   </ul>
                 </div>
@@ -599,7 +599,7 @@
             </section>
 
             <section
-              v-if="activeSection === 'tasks' && portalPhase !== 'account_setup'"
+              v-if="activeSection === 'tasks'"
               class="portal-tasks-section"
             >
               <div class="portal-tasks-head">
@@ -1044,8 +1044,15 @@ const companyDocError = reactive({});
 const companyDocSigned = reactive({});
 
 const companyDocFileUrl = (doc) => {
-  if (!doc?.id || !token.value) return '';
+  if (!token.value) return '';
   const base = String(import.meta.env.VITE_API_URL || '/api').replace(/\/$/, '');
+  if (doc?.adminDocId) {
+    return `${base}/prehire-portal/${token.value}/submissions/files/${doc.adminDocId}`;
+  }
+  if (doc?.fileUrl) {
+    return doc.fileUrl.startsWith('http') ? doc.fileUrl : `${base}${doc.fileUrl.startsWith('/') ? '' : '/'}${doc.fileUrl}`;
+  }
+  if (!doc?.id) return '';
   return `${base}/prehire-portal/${token.value}/documents/${encodeURIComponent(doc.id)}/file`;
 };
 
@@ -1100,11 +1107,29 @@ const docKindLabel = (kind) => {
   switch (String(kind || '').toLowerCase()) {
     case 'print_only': return 'Printable';
     case 'reference': return 'External link';
-    case 'upload': return 'Your upload';
+    case 'upload': return 'Complete & upload';
     case 'company_document': return 'Review & sign';
     case 'acknowledgement': return 'Job description';
     default: return kind || 'Document';
   }
+};
+
+const formatSubmissionCategory = (category) => {
+  const t = String(category || '').trim().toLowerCase();
+  if (!t) return '';
+  const labels = {
+    resume: 'Resume',
+    cover_letter: 'Cover letter',
+    reference_release: 'Reference release',
+    application_receipt: 'Application receipt',
+    application_material: 'Application material',
+    job_description_ack: 'Job description',
+    job_description_acknowledgement: 'Job description',
+    background_check_authorization: 'Background check',
+    prehire_company_document_ack: 'Signed document',
+    prehire_upload: 'Uploaded copy'
+  };
+  return labels[t] || t.replace(/_/g, ' ');
 };
 
 const onPrehireDocUpload = async (doc, event) => {
@@ -1539,6 +1564,24 @@ const completedCount = computed(() => {
 });
 const allDone = computed(() => !!progress.value.allDone);
 const progressPct = computed(() => {
+  const steps = [];
+  if (portalPhase.value === 'account_setup') {
+    steps.push(!!(candidate.value.usernameChosen || candidate.value.workEmail));
+  }
+  steps.push(!!backgroundCheck.value?.signed);
+  steps.push(!!jdAcknowledged.value);
+  for (const d of prehireDocs.value || []) {
+    const kind = String(d.kind || '').toLowerCase();
+    if (['company_document', 'upload', 'acknowledgement'].includes(kind)) {
+      steps.push(!!(d.signed || companyDocSigned[d.id] || uploadDone.value[d.id]));
+    }
+  }
+  for (const t of tasks.value || []) {
+    steps.push(t.status === 'completed');
+  }
+  if (steps.length) {
+    return Math.round((steps.filter(Boolean).length / steps.length) * 100);
+  }
   if (totalCount.value > 0) return Math.round((completedCount.value / totalCount.value) * 100);
   return Number(progress.value.percent || 0);
 });
@@ -1576,13 +1619,17 @@ const cssVars = computed(() => {
     '--primary-light': `color-mix(in srgb, ${primary} 12%, white)`,
     '--primary-mid': `color-mix(in srgb, ${primary} 25%, white)`,
     '--primary-soft': `color-mix(in srgb, ${primary} 8%, white)`,
+    '--primary-dark': `color-mix(in srgb, ${primary} 55%, #0b192e)`,
     ...(a.fontFamily ? { fontFamily: a.fontFamily } : {})
   };
 });
 
 const sidebarStyle = computed(() => {
   const a = agency.value || {};
-  const bg = a.sidebarColor || '#0b192e';
+  const primary = a.primaryColor || '#1d4ed8';
+  const bg = a.sidebarColor
+    ? `linear-gradient(180deg, color-mix(in srgb, ${primary} 42%, ${a.sidebarColor}) 0%, ${a.sidebarColor} 100%)`
+    : `linear-gradient(180deg, color-mix(in srgb, ${primary} 70%, #0b192e) 0%, #0b192e 100%)`;
   return { background: bg };
 });
 
@@ -2013,12 +2060,14 @@ onMounted(async () => {
   flex-direction: column;
   min-height: 0;
   overflow-y: auto;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--primary) 10%, #f8fafc) 0%, #f3f4f6 220px);
 }
 
 .portal-topbar {
   height: 64px;
   background: #fff;
-  border-bottom: 1px solid #e5e7eb;
+  border-bottom: 3px solid var(--primary);
   display: flex;
   align-items: center;
   justify-content: flex-end;
@@ -2075,8 +2124,9 @@ onMounted(async () => {
   gap: 8px;
   padding: 6px 12px;
   border-radius: 999px;
-  background: color-mix(in srgb, var(--primary) 12%, #fff);
+  background: color-mix(in srgb, var(--primary) 16%, #fff);
   color: var(--primary);
+  border: 1px solid color-mix(in srgb, var(--primary) 28%, #fff);
   font-size: 12px;
   font-weight: 700;
   margin-bottom: 20px;
@@ -2379,10 +2429,11 @@ onMounted(async () => {
 }
 .cred-card {
   background: #fff;
-  border: 1px solid #e2e8f0;
+  border: 1px solid color-mix(in srgb, var(--primary) 18%, #e2e8f0);
   border-radius: 12px;
   padding: 16px 18px;
   margin-bottom: 12px;
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--primary) 8%, transparent);
 }
 .cred-card h3 {
   margin: 0 0 10px;

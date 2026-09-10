@@ -373,12 +373,16 @@
             </div>
 
             <!-- Countersign tasks -->
-            <div v-if="pendingCountersigns.length > 0" class="phr-countersign-section">
+            <div v-if="pendingCountersignGroups.length > 0" class="phr-countersign-section">
               <h4 class="phr-section-label phr-label-amber">Staff countersignatures needed</h4>
-              <div v-for="t in pendingCountersigns" :key="t.id" class="phr-countersign-item">
-                <span class="phr-countersign-title">{{ t.title }}</span>
-                <span v-if="t.countersign_role_label" class="phr-role-badge">{{ t.countersign_role_label }}</span>
-                <span class="phr-status-pill phr-pill-amber">Countersign</span>
+              <div v-for="group in pendingCountersignGroups" :key="group.key" class="phr-countersign-item phr-countersign-group">
+                <div class="phr-countersign-group-main">
+                  <span class="phr-countersign-title">{{ group.title }}</span>
+                  <div class="phr-countersign-signers">
+                    <span v-for="t in group.signers" :key="t.id" class="phr-role-badge">{{ t.countersign_role_label || 'Countersign' }}</span>
+                  </div>
+                </div>
+                <span class="phr-status-pill phr-pill-amber">{{ group.signers.length }} to countersign</span>
               </div>
             </div>
 
@@ -408,15 +412,27 @@
               <template v-if="adminDocs.length">
                 <div class="phr-doc-section-label">Reference Documents</div>
                 <div class="phr-doc-list">
-                  <div v-for="d in adminDocs" :key="'ad-' + d.id" class="phr-doc-item phr-doc-item-ref">
+                  <div
+                    v-for="d in adminDocs"
+                    :key="'ad-' + d.id"
+                    class="phr-doc-item phr-doc-item-ref"
+                    :class="{ 'phr-doc-item-clickable': d.hasFile || d.hasNote }"
+                    @click="openAdminDoc(d)"
+                  >
                     <div class="phr-doc-icon phr-doc-icon-ref">
                       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
                     </div>
                     <div class="phr-doc-body">
                       <div class="phr-doc-title">{{ d.title }}</div>
                       <div class="phr-doc-meta">
-                        <span class="phr-task-status-pill phr-pill-blue">Reference</span>
-                        <a v-if="d.storage_path" :href="`/api/users/${selectedUser.id}/admin-docs/${d.id}/view`" target="_blank" class="phr-doc-view-link">View ↗</a>
+                        <span class="phr-task-status-pill phr-pill-blue">{{ formatAdminDocType(d.docType || d.doc_type) }}</span>
+                        <button
+                          v-if="d.hasFile || d.hasNote"
+                          type="button"
+                          class="phr-doc-view-link"
+                          :disabled="openingDocId === d.id"
+                          @click.stop="openAdminDoc(d)"
+                        >{{ openingDocId === d.id ? 'Opening…' : 'View ↗' }}</button>
                       </div>
                     </div>
                   </div>
@@ -635,6 +651,7 @@ const emailingLink = ref(false);
 const copyLabel = ref('Copy');
 const tasks = ref([]);
 const adminDocs = ref([]);
+const openingDocId = ref(null);
 const tasksLoading = ref(false);
 const notes = ref([]);
 const notesLoading = ref(false);
@@ -729,6 +746,19 @@ const pendingCountersignCount = computed(() =>
 const pendingCountersigns = computed(() =>
   tasks.value.filter((t) => t.document_action_type === 'countersignature' && t.status !== 'completed')
 );
+const pendingCountersignGroups = computed(() => {
+  const map = new Map();
+  for (const t of pendingCountersigns.value) {
+    const key = String(t.reference_id || t.title || t.id);
+    if (!map.has(key)) {
+      const raw = String(t.title || 'Employment agreement');
+      const title = raw.replace(/^Countersign:\s*/i, '').trim() || raw;
+      map.set(key, { key, title, signers: [] });
+    }
+    map.get(key).signers.push(t);
+  }
+  return [...map.values()];
+});
 const candidateTasks = computed(() =>
   tasks.value.filter((t) => t.document_action_type !== 'countersignature')
 );
@@ -769,7 +799,7 @@ const loadTasks = async (userId) => {
 
     // Store admin-managed docs (job description snapshots, etc.)
     const rawDocs = Array.isArray(adminDocsRes.data) ? adminDocsRes.data : (adminDocsRes.data?.docs || adminDocsRes.data?.data || []);
-    adminDocs.value = rawDocs.filter((d) => !d.is_deleted);
+    adminDocs.value = rawDocs.filter((d) => !d.is_deleted && !d.isDeleted);
 
     // Refresh the candidate's task count from live data so the progress bar is accurate.
     const docTasks = candidateTaskData.filter(
@@ -787,6 +817,35 @@ const loadTasks = async (userId) => {
     }
   } catch { /* non-fatal */ }
   finally { tasksLoading.value = false; }
+};
+
+const formatAdminDocType = (type) => {
+  const t = String(type || '').trim().toLowerCase();
+  if (!t) return 'Reference';
+  return t.replace(/_/g, ' ');
+};
+
+const openAdminDoc = async (doc) => {
+  if (!doc?.id || !selectedUser.value?.id) return;
+  if (!doc.hasFile && !doc.hasNote) return;
+  openingDocId.value = doc.id;
+  try {
+    const resp = await api.get(`/users/${selectedUser.value.id}/admin-docs/${doc.id}/view`);
+    const data = resp.data || {};
+    if (data.type === 'file' && data.url) {
+      window.open(data.url, '_blank', 'noopener');
+      return;
+    }
+    if (data.type === 'note') {
+      window.alert(data.noteText || 'No file is attached to this entry.');
+      return;
+    }
+    window.alert('Could not open this document.');
+  } catch (e) {
+    window.alert(e.response?.data?.error?.message || 'Could not open this document.');
+  } finally {
+    openingDocId.value = null;
+  }
 };
 
 const loadNotes = async (userId) => {
@@ -1259,6 +1318,9 @@ onMounted(load);
 .phr-countersign-section { background: #fffbeb; border: 1px solid #fde68a; border-radius: 10px; padding: 12px 14px; }
 .phr-countersign-item { display: flex; align-items: center; gap: 8px; padding: 6px 0; border-bottom: 1px solid #fef3c7; font-size: 13px; }
 .phr-countersign-item:last-child { border-bottom: none; }
+.phr-countersign-group { align-items: flex-start; justify-content: space-between; }
+.phr-countersign-group-main { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.phr-countersign-signers { display: flex; flex-wrap: wrap; gap: 6px; }
 .phr-countersign-title { flex: 1; color: #111827; }
 .phr-role-badge { font-size: 11px; background: #fef3c7; color: #92400e; padding: 2px 7px; border-radius: 20px; }
 
@@ -1319,10 +1381,22 @@ onMounted(load);
 .phr-doc-section-label { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .05em; color: #9ca3af; padding: 10px 0 6px; }
 .phr-doc-section-label-mt { margin-top: 10px; }
 .phr-doc-item-ref { background: #f8fafc; border: 1px solid #e9f0fc; }
+.phr-doc-item-clickable { cursor: pointer; }
+.phr-doc-item-clickable:hover { border-color: #93c5fd; background: #f1f5ff; }
 .phr-doc-icon-ref { color: #6366f1; }
 .phr-pill-blue { background: #eff6ff; color: #2563eb; }
-.phr-doc-view-link { font-size: 12px; color: #3b82f6; text-decoration: none; }
+.phr-doc-view-link {
+  font-size: 12px;
+  color: #3b82f6;
+  text-decoration: none;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  font-weight: 600;
+}
 .phr-doc-view-link:hover { text-decoration: underline; }
+.phr-doc-view-link:disabled { opacity: 0.6; cursor: wait; }
 
 /* Assign document bar */
 .phr-assign-doc-bar { margin-top: 14px; padding-top: 14px; border-top: 1px solid #f3f4f6; }

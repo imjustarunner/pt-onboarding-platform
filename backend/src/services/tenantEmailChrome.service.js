@@ -228,16 +228,18 @@ export function applyTenantEmailChromeHtml(html, chrome = {}, opts = {}) {
   // Background-image footer so Support/Reply sit in the art’s center safe zone.
   // Avoid <img> + negative margin (Gmail ignores it and paints a second dark bar).
   const footerEsc = escapeHtml(footerUrl);
+  // Footer art is ~1200×220. At 600px wide that scales to ~110px; use a slightly
+  // taller cell and background-size auto so Gmail does not squash the wave.
   const footerBlock = footerUrl
-    ? `<td background="${footerEsc}" bgcolor="#0b3d2e" width="600" height="110" valign="middle" align="center"
-        style="width:600px;height:110px;padding:0;margin:0;background-color:#0b3d2e;background-image:url('${footerEsc}');background-repeat:no-repeat;background-position:center center;background-size:100% 110px;vertical-align:middle;text-align:center;"
+    ? `<td background="${footerEsc}" bgcolor="#0b3d2e" width="600" height="130" valign="middle" align="center"
+        style="width:600px;height:130px;padding:0;margin:0;background-color:#0b3d2e;background-image:url('${footerEsc}');background-repeat:no-repeat;background-position:center center;background-size:100% auto;vertical-align:middle;text-align:center;"
         data-tenant-email-footer="1">
         <!--[if gte mso 9]>
-        <v:rect xmlns:v="urn:schemas-microsoft-com:vml" fill="true" stroke="false" style="width:600px;height:110px;">
+        <v:rect xmlns:v="urn:schemas-microsoft-com:vml" fill="true" stroke="false" style="width:600px;height:130px;">
           <v:fill type="frame" src="${footerEsc}" color="#0b3d2e" />
           <v:textbox inset="0,0,0,0">
         <![endif]-->
-        <div style="padding:34px 88px 22px;line-height:normal;">${footerLinks}</div>
+        <div style="padding:42px 72px 28px;line-height:normal;">${footerLinks}</div>
         <!--[if gte mso 9]>
           </v:textbox>
         </v:rect>

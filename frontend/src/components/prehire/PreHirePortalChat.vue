@@ -194,8 +194,8 @@ defineExpose({ expand, collapse });
   justify-content: space-between;
   gap: 8px;
   padding: 16px 18px;
-  border-bottom: 1px solid #e5e7eb;
-  background: #fff;
+  border-bottom: 1px solid color-mix(in srgb, var(--primary, #166534) 22%, #e5e7eb);
+  background: color-mix(in srgb, var(--primary, #166534) 10%, #fff);
 }
 
 .ph-chat-title {

@@ -368,6 +368,33 @@ export async function generateAndAssignCandidateContract({
   documentDescription = 'Generated employment contract',
   taskMetadata = {}
 }) {
+  try {
+    const [existingRows] = await pool.execute(
+      `SELECT t.*
+       FROM tasks t
+       WHERE t.assigned_to_user_id = ?
+         AND t.task_type = 'document'
+         AND (t.document_action_type IS NULL OR t.document_action_type != 'countersignature')
+         AND t.status NOT IN ('overridden', 'archived', 'deleted')
+         AND (
+           t.title LIKE 'Employment Agreement%'
+           OR COALESCE(t.metadata, '') LIKE '%contractGeneration%'
+         )
+       ORDER BY t.id DESC
+       LIMIT 1`,
+      [candidateUserId]
+    );
+    if (existingRows?.[0]) {
+      return {
+        reused: true,
+        task: existingRows[0],
+        userSpecificDocumentId: existingRows[0].reference_id || null,
+        html: null,
+        unresolvedTokens: []
+      };
+    }
+  } catch { /* continue and generate */ }
+
   const preview = await previewCandidateContract({
     agencyId,
     candidateUserId,

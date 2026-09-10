@@ -310,7 +310,9 @@ export const viewUserAdminDoc = async (req, res, next) => {
     const hasNote = !!(doc.note_text && String(doc.note_text).trim().length > 0);
 
     if (hasFile) {
-      const url = await StorageService.getSignedUrl(doc.storage_path, DEFAULT_SIGNED_URL_MINUTES);
+      const { resolveOwnedAdminDocStoragePath } = await import('../utils/candidateApplicationFile.js');
+      const storagePath = await resolveOwnedAdminDocStoragePath(doc, userId);
+      const url = await StorageService.getSignedUrl(storagePath, DEFAULT_SIGNED_URL_MINUTES);
       return res.json({
         type: 'file',
         url,

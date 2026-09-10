@@ -944,7 +944,9 @@ class StorageService {
    */
   static async saveAdminDoc(fileBuffer, filename, contentType = 'application/pdf') {
     const sanitizedFilename = this.sanitizeFilename(filename);
-    const key = `admin_docs/${sanitizedFilename}`;
+    // Unique prefix so two candidates uploading "Cover Letter.pdf" cannot overwrite each other.
+    const unique = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+    const key = `admin_docs/${unique}-${sanitizedFilename}`;
     const bucket = await this.getGCSBucket();
     const file = bucket.file(key);
 

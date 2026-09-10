@@ -2763,7 +2763,9 @@ export const viewCandidateResume = async (req, res, next) => {
     if (!doc) return res.status(404).json({ error: { message: 'Document not found' } });
     if (!doc.storage_path) return res.status(404).json({ error: { message: 'No file for this document' } });
 
-    const url = await StorageService.getSignedUrl(doc.storage_path, 10);
+    const { resolveOwnedAdminDocStoragePath } = await import('../utils/candidateApplicationFile.js');
+    const storagePath = await resolveOwnedAdminDocStoragePath(doc, candidateUserId);
+    const url = await StorageService.getSignedUrl(storagePath, 10);
     res.json({
       url,
       expiresInMinutes: 10,
@@ -4331,6 +4333,18 @@ export const sendPreHire = async (req, res, next) => {
 
     const insertCountersignTask = async ({ candidateTaskId, docTitle, sa }) => {
       if (!sa?.userId) return;
+      try {
+        const [dup] = await pool.execute(
+          `SELECT id FROM tasks
+           WHERE reference_id = ?
+             AND document_action_type = 'countersignature'
+             AND countersign_signer_user_id = ?
+             AND status NOT IN ('overridden', 'archived', 'deleted')
+           LIMIT 1`,
+          [candidateTaskId, sa.userId]
+        );
+        if (dup?.length) return;
+      } catch { /* columns may be missing */ }
       const params = [
         'document',
         `Countersign: ${docTitle}`,
