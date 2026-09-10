@@ -33,6 +33,7 @@ const TYPES_BY_CATEGORY = {
   clients_documents: [
     'paperwork_received', 'new_packet_uploaded', 'new_prospective_inquiry', 'client_became_current',
     'client_checklist_updated', 'client_terminated', 'client_assigned',
+    'client_ready_to_schedule',
     'client_school_roi_link_generated', 'client_school_roi_link_copied',
     'client_school_roi_link_sent', 'client_school_roi_completed',
     'client_school_roi_provider_reminder', 'unassigned_document_submitted',
@@ -244,7 +245,8 @@ const MANAGER_RELEVANT = new Set([
   'onboarding_completed', 'pending_completed', 'new_job_application_submitted',
   'school_portal_onboarding_completed', 'provider_year_update_completed',
   'school_collaborative_year_update_completed', 'kudos_earned_admin_digest',
-  'school_group_subscription_changed', 'planned_out_admin_alert'
+  'school_group_subscription_changed', 'planned_out_admin_alert',
+  'client_ready_to_schedule'
 ]);
 
 const OPERATIONS_RELEVANT = new Set([
@@ -316,7 +318,7 @@ const MANAGER_ESSENTIAL = new Set([
   'new_job_application_submitted', 'school_portal_onboarding_completed',
   'provider_year_update_completed', 'school_collaborative_year_update_completed',
   'company_event_shift_requested', 'school_event_marketing_photo',
-  'school_group_subscription_changed'
+  'school_group_subscription_changed', 'client_ready_to_schedule'
 ]);
 
 const OPERATIONS_ESSENTIAL = new Set([
@@ -404,6 +406,7 @@ const LEGACY_CATEGORY_BY_TYPE = {
   client_note: 'messaging_client_notes',
   client_assigned: 'client_assignments',
   paperwork_received: 'clients_new_intakes',
+  client_ready_to_schedule: 'clients_new_intakes',
   new_packet_uploaded: 'clients_new_intakes',
   new_prospective_inquiry: 'clients_new_intakes',
   company_event_registration_submitted: 'clients_new_intakes',

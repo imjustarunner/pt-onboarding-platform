@@ -124,14 +124,36 @@
               </div>
             </div>
 
-            <p v-if="filterLabel" class="library-filter-label">{{ filterLabel }}</p>
+            <p v-if="filterLabel" class="library-filter-label">
+              <button
+                v-if="folderId != null && folderId !== undefined"
+                type="button"
+                class="lib-btn lib-btn--ghost lib-btn--sm library-back-lib"
+                @click="backToLibrary"
+              >
+                ← Back to Library
+              </button>
+              <span>{{ filterLabel }}</span>
+            </p>
 
             <div v-if="loading" class="library-empty">Loading…</div>
             <div v-else-if="error" class="library-empty library-empty--error">{{ error }}</div>
             <div v-else-if="!displayItems.length" class="library-empty">
-              No resources yet.
-              Use <strong>+ Add Resource</strong> to upload a file or paste a Google Doc link.
-              Admins can share with everyone; personal items stay yours until you share a folder.
+              <button
+                v-if="folderId != null && folderId !== undefined"
+                type="button"
+                class="lib-btn lib-btn--ghost lib-btn--sm"
+                style="margin-bottom: 0.75rem"
+                @click="backToLibrary"
+              >
+                ← Back to Library
+              </button>
+              <div>
+                No resources yet.
+                Use <strong>+ Add Resource</strong> to upload a file, upload a folder, create a branded document,
+                or paste a link.
+                Admins can share with everyone; personal items stay yours until you share a folder.
+              </div>
             </div>
             <LibraryResourceGrid
               v-else-if="viewMode === 'grid'"
@@ -170,6 +192,14 @@
               <button type="button" class="library-qa__btn" @click="openAdd('upload')">
                 <span class="library-qa__ico" aria-hidden="true">☁</span>
                 Upload New Resource
+              </button>
+              <button type="button" class="library-qa__btn" @click="openAdd('upload_folder')">
+                <span class="library-qa__ico" aria-hidden="true">📂</span>
+                Upload Folder
+              </button>
+              <button type="button" class="library-qa__btn" @click="openAdd('branded')">
+                <span class="library-qa__ico" aria-hidden="true">✎</span>
+                Create Branded Document
               </button>
               <button type="button" class="library-qa__btn" @click="openAdd('link')">
                 <span class="library-qa__ico" aria-hidden="true">🔗</span>
@@ -523,6 +553,7 @@ const displayItems = computed(() => {
 });
 
 function shortType(r) {
+  if (r.resourceType === 'branded_doc') return 'DOC';
   if (r.resourceType === 'google_doc') return 'GDOC';
   if (r.resourceType === 'link') return 'LINK';
   return String(r.fileType || 'FILE').slice(0, 4).toUpperCase();
@@ -649,6 +680,15 @@ function clearFilters() {
   search.value = '';
   searchActive.value = false;
   activeTab.value = 'recent';
+  refresh();
+}
+
+function backToLibrary() {
+  folderId.value = undefined;
+  activeCategoryId.value = null;
+  search.value = '';
+  searchActive.value = false;
+  activeTab.value = 'all';
   refresh();
 }
 
@@ -1108,6 +1148,14 @@ onUnmounted(() => {
   margin: 0 0 0.75rem;
   font-size: 0.85rem;
   color: #64748b;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.library-back-lib {
+  flex-shrink: 0;
 }
 
 .library-empty {

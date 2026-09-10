@@ -15,6 +15,15 @@
           Distribute…
         </button>
         <a
+          v-if="isBranded"
+          class="btn btn-secondary btn-sm"
+          :href="pdfUrl"
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          Print / PDF
+        </a>
+        <a
           v-if="openExternalUrl"
           class="btn btn-secondary btn-sm"
           :href="openExternalUrl"
@@ -38,8 +47,9 @@
     </header>
 
     <div class="lib-viewer__body">
+      <div v-if="isBranded" class="lib-viewer__branded" v-html="resource?.bodyHtml || ''" />
       <iframe
-        v-if="embedUrl"
+        v-else-if="embedUrl"
         class="lib-viewer__frame"
         :src="embedUrl"
         :title="resource?.name || 'Preview'"
@@ -71,6 +81,7 @@ import {
   getGoogleWorkspacePreviewUrl,
   detectGoogleResourceLabel
 } from '../../utils/googleWorkspacePreview.js';
+import { libraryBrandedDocPdfUrl } from '../../services/library.js';
 
 const props = defineProps({
   resource: { type: Object, required: true },
@@ -79,9 +90,17 @@ const props = defineProps({
 
 defineEmits(['close', 'distribute']);
 
+const isBranded = computed(
+  () => String(props.resource?.resourceType || '').toLowerCase() === 'branded_doc'
+);
+
+const pdfUrl = computed(() =>
+  isBranded.value && props.resource?.id ? libraryBrandedDocPdfUrl(props.resource.id) : null
+);
+
 const isGoogle = computed(() => {
   const r = props.resource;
-  if (!r) return false;
+  if (!r || isBranded.value) return false;
   if (r.resourceType === 'google_doc' || r.isGoogleWorkspace) return true;
   return isGoogleWorkspaceUrl(r.externalUrl || r.previewUrl);
 });
@@ -89,6 +108,7 @@ const isGoogle = computed(() => {
 const subtitle = computed(() => {
   const r = props.resource;
   if (!r) return '';
+  if (isBranded.value) return 'Branded document';
   if (isGoogle.value) return detectGoogleResourceLabel(r.externalUrl || '');
   if (r.fileType) return String(r.fileType).toUpperCase();
   if (r.resourceType === 'link') return 'External link';
@@ -97,7 +117,7 @@ const subtitle = computed(() => {
 
 const embedUrl = computed(() => {
   const r = props.resource;
-  if (!r) return null;
+  if (!r || isBranded.value) return null;
   if (isGoogle.value) {
     return r.previewUrl || getGoogleWorkspacePreviewUrl(r.externalUrl) || null;
   }
@@ -109,7 +129,7 @@ const embedUrl = computed(() => {
 
 const isImage = computed(() => {
   const r = props.resource;
-  if (!r || isGoogle.value) return false;
+  if (!r || isGoogle.value || isBranded.value) return false;
   return r.fileType === 'image' || String(r.mimeType || '').startsWith('image/');
 });
 
@@ -119,7 +139,7 @@ const downloadUrl = computed(() => props.resource?.fileUrl || null);
 
 const openExternalUrl = computed(() => {
   const r = props.resource;
-  if (!r) return null;
+  if (!r || isBranded.value) return null;
   if (r.externalUrl) return r.externalUrl;
   if (r.fileUrl) return r.fileUrl;
   return null;
@@ -157,7 +177,7 @@ const openExternalUrl = computed(() => {
 }
 
 .lib-viewer__sub {
-  margin: 0.2rem 0 0;
+  margin: 0.25rem 0 0;
   font-size: 0.8rem;
   color: #64748b;
 }
@@ -165,14 +185,15 @@ const openExternalUrl = computed(() => {
 .lib-viewer__actions {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.5rem;
-  flex-shrink: 0;
+  gap: 0.4rem;
+  justify-content: flex-end;
 }
 
 .lib-viewer__body {
   flex: 1;
   min-height: 0;
-  background: #0f172a0a;
+  overflow: auto;
+  background: #f1f5f9;
 }
 
 .lib-viewer__frame {
@@ -185,28 +206,30 @@ const openExternalUrl = computed(() => {
 
 .lib-viewer__image-wrap {
   display: flex;
-  align-items: center;
   justify-content: center;
   padding: 1.5rem;
-  min-height: 60vh;
 }
 
 .lib-viewer__image {
   max-width: 100%;
-  max-height: 75vh;
+  height: auto;
   border-radius: 8px;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.12);
+}
+
+.lib-viewer__branded {
+  margin: 1rem auto;
+  max-width: 816px;
+  min-height: 60vh;
+  padding: 1.5rem 1.75rem;
+  background: #fff;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.1);
+  line-height: 1.5;
 }
 
 .lib-viewer__fallback {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 1rem;
-  min-height: 50vh;
-  padding: 2rem;
-  color: #475569;
+  padding: 3rem 1.5rem;
   text-align: center;
+  color: #64748b;
 }
 </style>

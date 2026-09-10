@@ -21,6 +21,7 @@
           <small>Same document — they can see it, but cannot edit the master.</small>
         </button>
         <button
+          v-if="isEditable"
           type="button"
           class="lib-dist-mode"
           :class="{ 'is-active': mode === 'collaborate' }"
@@ -30,6 +31,7 @@
           <small>Same document — permitted users edit the shared master together.</small>
         </button>
         <button
+          v-if="isEditable"
           type="button"
           class="lib-dist-mode lib-dist-mode--personal"
           :class="{ 'is-active': mode === 'personal_copy' }"
@@ -42,6 +44,9 @@
           </small>
         </button>
       </div>
+      <p v-if="!isEditable" class="lib-dist-static-note">
+        This item is a file or link, so distribution is view-only. Create a branded document for editable copies or collaboration.
+      </p>
 
       <div class="lib-dist-audience">
         <span class="lib-dist-audience__label">Who should receive this?</span>
@@ -88,18 +93,26 @@ const props = defineProps({
   agencyId: { type: [Number, String], default: null },
   initialMode: {
     type: String,
-    default: 'personal_copy',
+    default: 'view_only',
     validator: (v) => ['view_only', 'collaborate', 'personal_copy'].includes(String(v || ''))
   }
 });
 
 const emit = defineEmits(['close', 'done']);
 
-const mode = ref(
-  ['view_only', 'collaborate', 'personal_copy'].includes(props.initialMode)
-    ? props.initialMode
-    : 'personal_copy'
+const isEditable = computed(
+  () => String(props.resource?.resourceType || '').toLowerCase() === 'branded_doc'
 );
+
+const defaultMode = () => {
+  if (!isEditable.value) return 'view_only';
+  if (['view_only', 'collaborate', 'personal_copy'].includes(props.initialMode)) {
+    return props.initialMode;
+  }
+  return 'personal_copy';
+};
+
+const mode = ref(defaultMode());
 const audience = ref('providers');
 const emails = ref('');
 const saving = ref(false);
@@ -243,6 +256,13 @@ async function submit() {
   border-color: #d97706;
   background: #fffbeb;
   box-shadow: 0 0 0 1px #d97706;
+}
+
+.lib-dist-static-note {
+  margin: 0 0 0.85rem;
+  font-size: 0.82rem;
+  color: #64748b;
+  line-height: 1.4;
 }
 
 .lib-dist-audience {

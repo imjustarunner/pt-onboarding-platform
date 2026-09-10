@@ -24,6 +24,37 @@ export async function uploadLibraryResource(formData) {
   return data;
 }
 
+export async function uploadLibraryBatch(formData) {
+  const { data } = await api.post(`${base}/resources/upload-batch`, formData, {
+    headers: { 'Content-Type': 'multipart/form-data' }
+  });
+  return data;
+}
+
+export async function suggestLibraryMetadata(formDataOrPayload) {
+  const isFd = typeof FormData !== 'undefined' && formDataOrPayload instanceof FormData;
+  const { data } = await api.post(
+    `${base}/resources/suggest-metadata`,
+    formDataOrPayload,
+    isFd ? { headers: { 'Content-Type': 'multipart/form-data' } } : undefined
+  );
+  return data;
+}
+
+export async function createLibraryBrandedDoc(payload) {
+  const { data } = await api.post(`${base}/resources/branded`, payload);
+  return data;
+}
+
+export async function fetchLibraryLetterheads(params = {}) {
+  const { data } = await api.get(`${base}/letterheads`, { params });
+  return data;
+}
+
+export function libraryBrandedDocPdfUrl(id) {
+  return `/api/library/resources/${id}/pdf`;
+}
+
 export async function addLibraryLink(payload) {
   const { data } = await api.post(`${base}/resources/link`, payload);
   return data;

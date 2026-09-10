@@ -47,6 +47,44 @@ export const uploadLibraryFile = multer({
   }
 });
 
+export const uploadLibraryFiles = uploadLibraryFile;
+
+function isEditableLibraryType(resourceType) {
+  return String(resourceType || '').toLowerCase() === 'branded_doc';
+}
+
+async function wrapBrandedDocHtml({ bodyHtml, letterheadTemplateId }) {
+  const LetterheadTemplate = (await import('../models/LetterheadTemplate.model.js')).default;
+  let header = '';
+  let footer = '';
+  let css = '';
+  const lid = Number(letterheadTemplateId || 0);
+  if (lid) {
+    const lh = await LetterheadTemplate.findById(lid).catch(() => null);
+    if (lh) {
+      css = lh.css_content || '';
+      footer = lh.footer_html || '';
+      if (lh.file_path) {
+        const url = publicUploadsUrlFromStoredPath(lh.file_path);
+        header = url
+          ? `<div class="lib-letterhead"><img src="${String(url).replace(/"/g, '')}" alt="" style="width:100%;max-width:800px;display:block;" /></div>`
+          : (lh.header_html || '');
+      } else {
+        header = lh.header_html || '';
+      }
+    }
+  }
+  return `<!DOCTYPE html><html><head><meta charset="utf-8"/><style>
+    @page { size: Letter; margin: 0.75in; }
+    body { font-family: Georgia, 'Times New Roman', serif; color: #111; line-height: 1.45; }
+    ${css || ''}
+  </style></head><body>
+    ${header || ''}
+    <div class="lib-branded-body">${bodyHtml || ''}</div>
+    ${footer || ''}
+  </body></html>`;
+}
+
 function resolveAgencyId(req) {
   const fromQuery = Number.parseInt(String(req.query?.agencyId || ''), 10);
   if (Number.isFinite(fromQuery) && fromQuery > 0) return fromQuery;
@@ -435,6 +473,214 @@ export const uploadResource = async (req, res, next) => {
   }
 };
 
+/**
+ * Bulk upload: multipart files[] with relativePath[] (webkitRelativePath).
+ * Creates nested folders under optional parent folderId, then file resources.
+ */
+export const uploadBatchResources = async (req, res, next) => {
+  try {
+    const agencyId = resolveAgencyId(req);
+    const caps = await assertLibraryAccess(req, agencyId);
+    const files = Array.isArray(req.files) ? req.files : [];
+    if (!files.length) {
+      return res.status(400).json({ error: { message: 'At least one file is required' } });
+    }
+
+    const scope = resolveScope(req, caps);
+    const parentFolderId = req.body.folderId ? Number(req.body.folderId) : null;
+    const relativePaths = Array.isArray(req.body.relativePath)
+      ? req.body.relativePath
+      : (req.body.relativePath != null ? [req.body.relativePath] : []);
+
+    const created = [];
+    const folderCache = new Map();
+
+    for (let i = 0; i < files.length; i += 1) {
+      const file = files[i];
+      const rel = String(relativePaths[i] || file.originalname || '').replace(/\\/g, '/');
+      const parts = rel.split('/').filter(Boolean);
+      const fileName = parts.pop() || file.originalname;
+      const folderParts = parts;
+
+      let folderId = parentFolderId;
+      if (folderParts.length) {
+        const cacheKey = `${parentFolderId || 'root'}::${folderParts.join('/')}`;
+        if (folderCache.has(cacheKey)) {
+          folderId = folderCache.get(cacheKey);
+        } else {
+          const folder = await Library.findOrCreateFolderPath({
+            agencyId,
+            parentFolderId,
+            pathParts: folderParts,
+            ownerUserId: req.user.id,
+            scope,
+            createdBy: req.user.id
+          });
+          folderId = folder?.id != null ? Number(folder.id) : parentFolderId;
+          folderCache.set(cacheKey, folderId);
+        }
+      }
+
+      const saved = await StorageService.saveLibraryResource({
+        agencyId,
+        uploadedByUserId: req.user.id,
+        fileBuffer: file.buffer,
+        filename: fileName,
+        contentType: file.mimetype
+      });
+
+      const name = String(fileName || 'Untitled').replace(/\.[^.]+$/, '').trim() || 'Untitled';
+      const resource = await Library.createResource({
+        agencyId,
+        name,
+        description: null,
+        resourceType: 'file',
+        fileType: inferFileTypeFromMime(file.mimetype, fileName),
+        mimeType: file.mimetype,
+        originalFilename: fileName,
+        filePath: saved.path,
+        fileSizeBytes: file.size,
+        categoryId: req.body.categoryId || null,
+        folderId,
+        ownerUserId: req.user.id,
+        scope,
+        visibility: 'internal',
+        featured: false,
+        clientShareable: false,
+        createdBy: req.user.id
+      });
+      created.push(enrichResource(resource, req.user.id));
+    }
+
+    res.status(201).json({ ok: true, count: created.length, resources: created });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const suggestResourceMetadata = async (req, res, next) => {
+  try {
+    const agencyId = resolveAgencyId(req);
+    await assertLibraryAccess(req, agencyId);
+
+    const {
+      extractTextFromUploadBuffer,
+      suggestLibraryMetadata
+    } = await import('../services/librarySuggestMetadata.service.js');
+
+    let textExcerpt = String(req.body.textExcerpt || '').trim();
+    if (!textExcerpt && req.file?.buffer) {
+      textExcerpt = await extractTextFromUploadBuffer({
+        buffer: req.file.buffer,
+        mimeType: req.file.mimetype,
+        filename: req.file.originalname
+      });
+    }
+
+    const suggestion = await suggestLibraryMetadata({
+      agencyId,
+      name: req.body.name || '',
+      filename: req.file?.originalname || req.body.filename || '',
+      mimeType: req.file?.mimetype || req.body.mimeType || '',
+      textExcerpt,
+      url: req.body.url || ''
+    });
+
+    res.json(suggestion);
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const createBrandedDoc = async (req, res, next) => {
+  try {
+    const agencyId = resolveAgencyId(req);
+    const caps = await assertLibraryAccess(req, agencyId);
+    const name = String(req.body.name || '').trim();
+    if (!name) return res.status(400).json({ error: { message: 'Resource name is required' } });
+
+    const bodyHtml = String(req.body.bodyHtml || req.body.html || '').trim();
+    if (!bodyHtml) {
+      return res.status(400).json({ error: { message: 'Document body is required' } });
+    }
+
+    const scope = resolveScope(req, caps);
+    const resource = await Library.createResource({
+      agencyId,
+      name,
+      description: req.body.description || null,
+      resourceType: 'branded_doc',
+      fileType: 'branded_doc',
+      mimeType: 'text/html',
+      bodyHtml,
+      letterheadTemplateId: req.body.letterheadTemplateId || null,
+      categoryId: req.body.categoryId || null,
+      folderId: req.body.folderId || null,
+      ownerUserId: req.user.id,
+      scope,
+      visibility: req.body.visibility || 'internal',
+      audience: parseAudience(req.body.audience),
+      featured: scope === 'organization' && !!req.body.featured,
+      clientShareable: !!req.body.clientShareable,
+      tags: parseTags(req.body.tags),
+      createdBy: req.user.id
+    });
+
+    res.status(201).json(enrichResource(resource, req.user.id));
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const renderBrandedDocPdf = async (req, res, next) => {
+  try {
+    const agencyId = resolveAgencyId(req);
+    await assertLibraryAccess(req, agencyId);
+    const resource = await Library.findResource(req.params.id, agencyId, { userId: req.user.id });
+    if (!resource || resource.resourceType !== 'branded_doc') {
+      return res.status(404).json({ error: { message: 'Branded document not found' } });
+    }
+
+    const html = await wrapBrandedDocHtml({
+      bodyHtml: resource.bodyHtml,
+      letterheadTemplateId: resource.letterheadTemplateId
+    });
+    const DocumentSigningService = (await import('../services/documentSigning.service.js')).default;
+    const pdf = await DocumentSigningService.convertHTMLToPDF(html, { format: 'Letter' });
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader(
+      'Content-Disposition',
+      `inline; filename="${String(resource.name || 'document').replace(/[^\w.-]+/g, '_')}.pdf"`
+    );
+    res.send(pdf);
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const listLetterheadsForLibrary = async (req, res, next) => {
+  try {
+    const agencyId = resolveAgencyId(req);
+    await assertLibraryAccess(req, agencyId);
+    const LetterheadTemplate = (await import('../models/LetterheadTemplate.model.js')).default;
+    const list = await LetterheadTemplate.list({
+      agencyId,
+      includePlatform: true,
+      includeInactive: false
+    });
+    res.json(
+      (list || []).map((lh) => ({
+        id: lh.id,
+        name: lh.name,
+        agencyId: lh.agency_id,
+        isPlatform: !lh.agency_id
+      }))
+    );
+  } catch (error) {
+    next(error);
+  }
+};
+
 export const addLinkResource = async (req, res, next) => {
   try {
     const agencyId = resolveAgencyId(req);
@@ -510,6 +756,8 @@ export const updateResource = async (req, res, next) => {
       status: req.body.status,
       reviewDate: req.body.reviewDate,
       externalUrl: req.body.externalUrl ?? req.body.url,
+      bodyHtml: req.body.bodyHtml,
+      letterheadTemplateId: req.body.letterheadTemplateId,
       audience: req.body.audience !== undefined ? parseAudience(req.body.audience) : undefined,
       tags: req.body.tags !== undefined ? parseTags(req.body.tags) : undefined,
       archived: req.body.archived,
@@ -772,6 +1020,15 @@ export const distributeResource = async (req, res, next) => {
       });
     }
 
+    if ((mode === 'collaborate' || mode === 'personal_copy') && !isEditableLibraryType(resource.resourceType)) {
+      return res.status(400).json({
+        error: {
+          message:
+            'Personal copy and Collaborate are only available for branded documents created in the app. Uploaded files and links are view-only.'
+        }
+      });
+    }
+
     const recipientIds = await resolveDistributeRecipients(agencyId, {
       emails: req.body.emails,
       userIds: req.body.userIds,
@@ -853,6 +1110,8 @@ export const distributeResource = async (req, res, next) => {
         originalFilename: resource.originalFilename,
         filePath,
         externalUrl: resource.externalUrl,
+        bodyHtml: resource.bodyHtml || null,
+        letterheadTemplateId: resource.letterheadTemplateId || null,
         fileSizeBytes,
         categoryId: resource.categoryId,
         folderId: null,

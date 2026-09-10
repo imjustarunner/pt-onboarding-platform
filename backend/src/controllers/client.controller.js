@@ -22,9 +22,6 @@ import {
 } from '../services/clientRecordAccess.service.js';
 import Notification from '../models/Notification.model.js';
 import NotificationDispatcherService from '../services/notificationDispatcher.service.js';
-import { sendNotificationEmail } from '../services/unifiedEmail/unifiedEmailSender.service.js';
-import NotificationGatekeeperService from '../services/notificationGatekeeper.service.js';
-import { isCategoryEnabledForUser } from '../services/notificationDispatcher.service.js';
 import crypto from 'crypto';
 import { getClientStatusIdByKey } from '../utils/clientStatusCatalog.js';
 import { isSkillsClientFlag } from '../utils/skillsClientFlag.js';
@@ -8579,7 +8576,7 @@ export const upsertClientProviderAssignment = async (req, res, next) => {
 
       await connection.commit();
 
-      // Best-effort: notify assigned provider (SMS/email) on new assignment.
+      // Best-effort: in-app notify assigned provider. Email follows after 24h if unread.
       if (shouldNotifyAssignment && providerUserId) {
         try {
           const org = await Agency.findById(orgId);
@@ -8596,6 +8593,11 @@ export const upsertClientProviderAssignment = async (req, res, next) => {
             severity: 'warning',
             title,
             message,
+            audienceJson: {
+              schoolName: orgName,
+              serviceDay: serviceDay || null,
+              deferEmailFollowup: true
+            },
             userId: providerUserId,
             agencyId: client?.agency_id || null,
             relatedEntityType: 'client',
@@ -8603,49 +8605,10 @@ export const upsertClientProviderAssignment = async (req, res, next) => {
             actorUserId: userId
           });
 
-          await NotificationDispatcherService.dispatchForNotification(notification, { context: { severity: 'warning' } }).catch(() => {});
-
-          const categoryOk = await isCategoryEnabledForUser({
-            userId: providerUserId,
-            agencyId: client?.agency_id || null,
-            categoryKey: 'client_assignments'
-          });
-          if (categoryOk) {
-            const decision = await NotificationGatekeeperService.decideChannels({
-              userId: providerUserId,
-              context: { severity: 'warning' }
-            });
-            if (decision?.email) {
-              const provider = await User.findById(providerUserId);
-              const to = provider?.work_email || provider?.email || null;
-              if (to) {
-                const { buildClientAssignedEmailHtml } = await import(
-                  '../services/brandedNotificationEmail.service.js'
-                );
-                const { publicAppBaseUrl } = await import('../services/contactReminderToken.service.js');
-                const base = String(publicAppBaseUrl() || '').replace(/\/+$/, '');
-                const html = buildClientAssignedEmailHtml({
-                  agencyName: orgName,
-                  clientName,
-                  serviceDay: serviceDay || '',
-                  colorPalette: org?.color_palette || org?.colorPalette || null,
-                  appUrl: base ? `${base}/admin/clients` : ''
-                });
-                await sendNotificationEmail({
-                  agencyId: client?.agency_id || null,
-                  triggerKey: 'client_assigned',
-                  to,
-                  subject: title,
-                  text: message,
-                  html,
-                  source: 'auto',
-                  userId: providerUserId,
-                  templateType: 'client_assigned',
-                  templateId: null
-                });
-              }
-            }
-          }
+          // In-app / SMS dispatch only — email is deferred 24h if unread.
+          await NotificationDispatcherService.dispatchForNotification(notification, {
+            context: { severity: 'warning' }
+          }).catch(() => {});
         } catch {
           // best effort; do not block assignment
         }

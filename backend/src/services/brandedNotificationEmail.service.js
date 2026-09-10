@@ -191,24 +191,24 @@ export function buildContactReminderPrefResultHtml(opts = {}) {
 }
 
 /**
- * HTML body for "New client assigned" provider emails.
+ * HTML body for deferred "new client on caseload" provider emails.
+ * Does not include client name or initials — school + service day only.
  * Tenant header/footer chrome is applied by unifiedEmail finalizeOutboundContent.
  */
 export function buildClientAssignedEmailHtml(opts = {}) {
-  const agencyName = String(opts.agencyName || 'Care team').trim();
-  const clientName = String(opts.clientName || 'a client').trim();
+  const agencyName = String(opts.agencyName || 'your school').trim();
   const serviceDay = String(opts.serviceDay || '').trim();
   const appUrl = String(opts.appUrl || '').trim();
   const primary = parsePrimaryColor(opts.colorPalette);
 
   const dayLine = serviceDay
-    ? `<p style="margin:0 0 18px;font-size:15px;line-height:1.55;color:#334155;">Service day: <strong>${escapeHtml(serviceDay)}</strong></p>`
+    ? `<p style="margin:0 0 18px;font-size:15px;line-height:1.55;color:#334155;">Added to your day: <strong>${escapeHtml(serviceDay)}</strong></p>`
     : '';
 
   const cta = appUrl
     ? `<p style="margin:0 0 8px;">
         <a href="${escapeHtml(appUrl)}" style="display:inline-block;background:${escapeHtml(primary)};color:#ffffff;text-decoration:none;font-weight:700;font-size:15px;padding:12px 18px;border-radius:10px;">
-          Open client list
+          Sign in
         </a>
       </p>`
     : '';
@@ -217,18 +217,19 @@ export function buildClientAssignedEmailHtml(opts = {}) {
 <table role="presentation" width="100%" cellspacing="0" cellpadding="0">
   <tr><td style="padding:28px 28px 8px;">
     <p style="margin:0 0 10px;font-size:18px;font-weight:700;color:${escapeHtml(primary)};">Hello,</p>
-    <h1 style="margin:0 0 14px;font-size:24px;line-height:1.25;font-weight:800;color:#0f172a;">New client assigned</h1>
+    <h1 style="margin:0 0 14px;font-size:22px;line-height:1.25;font-weight:800;color:#0f172a;">New client on your caseload</h1>
     <p style="margin:0 0 14px;font-size:15px;line-height:1.55;color:#334155;">
-      <strong>${escapeHtml(clientName)}</strong> was assigned to you at <strong>${escapeHtml(agencyName)}</strong>.
+      A new client has been added to your caseload at <strong>${escapeHtml(agencyName)}</strong>
+      and you have new tasks waiting in the app.
     </p>
     ${dayLine}
     <p style="margin:0 0 22px;font-size:15px;line-height:1.55;color:#475569;">
-      Please review their record and complete any required onboarding steps in the portal.
+      Please sign in to review and complete your new client tasks.
     </p>
     ${cta}
   </td></tr>
   <tr><td style="padding:8px 28px 28px;">
-    <p style="margin:0;font-size:15px;color:${escapeHtml(primary)};">Thank you,<br/><strong>The ${escapeHtml(agencyName)} Team</strong></p>
+    <p style="margin:0;font-size:13px;color:#94a3b8;">This is an automated message. Replies are not monitored.</p>
   </td></tr>
 </table>`;
 }

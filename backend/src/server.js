@@ -2015,6 +2015,25 @@ if (!isBootstrap) {
   scheduleInboxDigest();
   setInterval(scheduleInboxDigest, 30 * 60 * 1000);
 
+  // Client assignment: branded email 24h after in-app notify if still unread
+  const scheduleClientAssignmentFollowups = async () => {
+    try {
+      const { processClientAssignmentFollowupEmails } = await import(
+        './services/clientAssignmentFollowupEmail.service.js'
+      );
+      await processClientAssignmentFollowupEmails();
+    } catch (error) {
+      const msg = String(error?.message || '');
+      if (error?.code === 'ER_BAD_FIELD_ERROR' || msg.includes('email_followup_sent_at')) {
+        console.warn('Client assignment follow-up column missing. Run migration 1408_client_assigned_email_followup.sql');
+      } else {
+        console.error('Error in client assignment follow-up scheduler:', error);
+      }
+    }
+  };
+  scheduleClientAssignmentFollowups();
+  setInterval(scheduleClientAssignmentFollowups, 15 * 60 * 1000);
+
   // Release held school/staff conversations + escalate intent reviews
   const scheduleCommPolicyTicks = async () => {
     try {

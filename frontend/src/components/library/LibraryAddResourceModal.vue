@@ -13,14 +13,13 @@
           type="button"
           class="lib-modal__tab"
           :class="{ 'is-active': mode === t.id }"
-          @click="mode = t.id"
+          @click="setMode(t.id)"
         >
           {{ t.label }}
         </button>
       </div>
 
       <div class="lib-modal__body">
-        <!-- Upload -->
         <template v-if="mode === 'upload'">
           <label class="lib-field">
             <span>File</span>
@@ -32,7 +31,20 @@
           </label>
         </template>
 
-        <!-- Google / Link -->
+        <template v-else-if="mode === 'upload_folder'">
+          <label class="lib-field">
+            <span>Folder</span>
+            <input type="file" webkitdirectory multiple @change="onFolderFiles" />
+          </label>
+          <p class="lib-hint">
+            Uploads the selected folder as nested subfolders and files under the destination folder below.
+            All files are view-only.
+          </p>
+          <p v-if="folderFiles.length" class="lib-hint">
+            {{ folderFiles.length }} file{{ folderFiles.length === 1 ? '' : 's' }} selected
+          </p>
+        </template>
+
         <template v-else-if="mode === 'link'">
           <label class="lib-field">
             <span>Resource name</span>
@@ -47,8 +59,8 @@
             />
           </label>
           <p class="lib-hint">
-            For Google Docs, Sheets, Slides, or Drive files, set sharing to
-            <strong>Anyone with the link can view</strong> so staff can open them in the app viewer.
+            Links and Google Docs are view-only in the Library. For editable personal copies or collaboration,
+            use <strong>Create branded document</strong>.
           </p>
           <div v-if="googlePreview" class="lib-live-preview">
             <div class="lib-live-preview__label">In-app preview</div>
@@ -56,7 +68,25 @@
           </div>
         </template>
 
-        <!-- Folder -->
+        <template v-else-if="mode === 'branded'">
+          <label class="lib-field">
+            <span>Document name</span>
+            <input v-model="form.name" type="text" placeholder="e.g. Safety Plan" />
+          </label>
+          <label class="lib-field">
+            <span>Letterhead</span>
+            <select v-model="form.letterheadTemplateId">
+              <option value="">Default / none</option>
+              <option v-for="lh in letterheads" :key="lh.id" :value="String(lh.id)">
+                {{ lh.name }}{{ lh.isPlatform ? ' (platform)' : '' }}
+              </option>
+            </select>
+          </label>
+          <div class="lib-branded-editor">
+            <HtmlDocumentBuilder v-model="form.bodyHtml" :paper-mode="true" />
+          </div>
+        </template>
+
         <template v-else>
           <label class="lib-field">
             <span>Folder name</span>
@@ -92,13 +122,19 @@
           </div>
         </div>
 
-        <div v-if="mode !== 'folder'" class="lib-share-modes">
+        <div v-if="showsShareModes" class="lib-share-modes">
           <span class="lib-scope__label">When you share it, how should people receive it?</span>
           <p class="lib-hint lib-share-modes__hint">
-            Choose now so the next step can give personal copies or open collaboration — not only a view link.
+            <template v-if="isEditableMode">
+              Branded documents can be shared as personal copies, collaboration on the master, or view-only.
+            </template>
+            <template v-else>
+              Uploaded files and links are view-only (they are not editable in the app).
+            </template>
           </p>
           <div class="lib-share-modes__grid">
             <button
+              v-if="isEditableMode"
               type="button"
               class="lib-share-mode"
               :class="{ 'is-active': form.shareMode === 'personal_copy' }"
@@ -108,6 +144,7 @@
               <small>Each person gets their own editable copy. Their edits stay private.</small>
             </button>
             <button
+              v-if="isEditableMode"
               type="button"
               class="lib-share-mode"
               :class="{ 'is-active': form.shareMode === 'collaborate' }"
@@ -137,7 +174,25 @@
           </div>
         </div>
 
-        <template v-if="mode !== 'folder'">
+        <template v-if="showsMetadata">
+          <div class="lib-ai-row">
+            <button
+              type="button"
+              class="btn btn-secondary btn-sm"
+              :disabled="aiBusy"
+              @click="runAiSuggest"
+            >
+              {{ aiBusy ? 'Suggesting…' : 'Use AI suggestion' }}
+            </button>
+            <button
+              v-if="aiApplied"
+              type="button"
+              class="btn btn-ghost btn-sm"
+              @click="clearAiSuggest"
+            >
+              Clear AI suggestion
+            </button>
+          </div>
           <label class="lib-field">
             <span>Description</span>
             <textarea v-model="form.description" rows="2" placeholder="When should this be used?" />
@@ -178,7 +233,7 @@
           Cancel
         </button>
         <button type="button" class="btn btn-primary" :disabled="saving" @click="submit">
-          {{ saving ? 'Saving…' : mode === 'folder' ? 'Create folder' : 'Add resource' }}
+          {{ saving ? 'Saving…' : submitLabel }}
         </button>
       </footer>
     </div>
@@ -186,15 +241,20 @@
 </template>
 
 <script setup>
-import { computed, reactive, ref, watch } from 'vue';
+import { computed, onMounted, reactive, ref, watch } from 'vue';
 import {
   getGoogleWorkspacePreviewUrl,
   isGoogleWorkspaceUrl
 } from '../../utils/googleWorkspacePreview.js';
+import HtmlDocumentBuilder from '../documents/HtmlDocumentBuilder.vue';
 import {
   uploadLibraryResource,
+  uploadLibraryBatch,
   addLibraryLink,
-  createLibraryFolder
+  createLibraryFolder,
+  createLibraryBrandedDoc,
+  suggestLibraryMetadata,
+  fetchLibraryLetterheads
 } from '../../services/library.js';
 
 const props = defineProps({
@@ -209,14 +269,23 @@ const emit = defineEmits(['close', 'created']);
 
 const tabs = [
   { id: 'upload', label: 'Upload file' },
+  { id: 'upload_folder', label: 'Upload folder' },
   { id: 'link', label: 'Google Doc / Link' },
+  { id: 'branded', label: 'Create branded document' },
   { id: 'folder', label: 'Create folder' }
 ];
 
-const mode = ref(['upload', 'link', 'folder'].includes(props.initialMode) ? props.initialMode : 'link');
+const mode = ref(
+  tabs.some((t) => t.id === props.initialMode) ? props.initialMode : 'link'
+);
 const saving = ref(false);
+const aiBusy = ref(false);
+const aiApplied = ref(false);
 const error = ref('');
 const file = ref(null);
+const folderFiles = ref([]);
+const letterheads = ref([]);
+const aiSnapshot = ref(null);
 
 const form = reactive({
   name: '',
@@ -227,7 +296,19 @@ const form = reactive({
   tags: '',
   featured: false,
   scope: props.canManage ? 'organization' : 'personal',
-  shareMode: 'personal_copy'
+  shareMode: 'view_only',
+  bodyHtml: '<p></p>',
+  letterheadTemplateId: ''
+});
+
+const isEditableMode = computed(() => mode.value === 'branded');
+const showsShareModes = computed(() => !['folder', 'upload_folder'].includes(mode.value));
+const showsMetadata = computed(() => mode.value !== 'folder');
+const submitLabel = computed(() => {
+  if (mode.value === 'folder') return 'Create folder';
+  if (mode.value === 'upload_folder') return 'Upload folder';
+  if (mode.value === 'branded') return 'Save document';
+  return 'Add resource';
 });
 
 watch(
@@ -245,11 +326,33 @@ watch(
   { immediate: true }
 );
 
+watch(isEditableMode, (editable) => {
+  if (!editable && ['personal_copy', 'collaborate'].includes(form.shareMode)) {
+    form.shareMode = 'view_only';
+  }
+  if (editable && form.shareMode === 'view_only') {
+    form.shareMode = 'personal_copy';
+  }
+}, { immediate: true });
+
 const googlePreview = computed(() => {
   if (mode.value !== 'link') return null;
   if (!isGoogleWorkspaceUrl(form.url)) return null;
   return getGoogleWorkspacePreviewUrl(form.url);
 });
+
+onMounted(async () => {
+  try {
+    letterheads.value = await fetchLibraryLetterheads();
+  } catch {
+    letterheads.value = [];
+  }
+});
+
+function setMode(id) {
+  mode.value = id;
+  error.value = '';
+}
 
 function onFile(e) {
   const f = e.target?.files?.[0] || null;
@@ -257,6 +360,60 @@ function onFile(e) {
   if (f && !form.name) {
     form.name = String(f.name || '').replace(/\.[^.]+$/, '');
   }
+}
+
+function onFolderFiles(e) {
+  folderFiles.value = Array.from(e.target?.files || []);
+}
+
+async function runAiSuggest() {
+  error.value = '';
+  aiBusy.value = true;
+  try {
+    let suggestion;
+    if (mode.value === 'upload' && file.value) {
+      const fd = new FormData();
+      fd.append('file', file.value);
+      if (form.name) fd.append('name', form.name);
+      suggestion = await suggestLibraryMetadata(fd);
+    } else {
+      suggestion = await suggestLibraryMetadata({
+        name: form.name,
+        filename: file.value?.name || '',
+        url: form.url || '',
+        textExcerpt: mode.value === 'branded'
+          ? String(form.bodyHtml || '').replace(/<[^>]+>/g, ' ').slice(0, 6000)
+          : ''
+      });
+    }
+    if (!aiSnapshot.value) {
+      aiSnapshot.value = {
+        description: form.description,
+        categoryId: form.categoryId,
+        tags: form.tags
+      };
+    }
+    if (suggestion?.description) form.description = suggestion.description;
+    if (suggestion?.categoryId != null) form.categoryId = String(suggestion.categoryId);
+    if (Array.isArray(suggestion?.tags) && suggestion.tags.length) {
+      form.tags = suggestion.tags.join(', ');
+    }
+    aiApplied.value = true;
+  } catch (e) {
+    error.value = e?.response?.data?.error?.message || e?.message || 'AI suggestion failed';
+  } finally {
+    aiBusy.value = false;
+  }
+}
+
+function clearAiSuggest() {
+  if (aiSnapshot.value) {
+    form.description = aiSnapshot.value.description;
+    form.categoryId = aiSnapshot.value.categoryId;
+    form.tags = aiSnapshot.value.tags;
+  }
+  aiSnapshot.value = null;
+  aiApplied.value = false;
 }
 
 async function submit() {
@@ -280,6 +437,22 @@ async function submit() {
       return;
     }
 
+    if (mode.value === 'upload_folder') {
+      if (!folderFiles.value.length) throw new Error('Choose a folder to upload');
+      const fd = new FormData();
+      fd.append('scope', form.scope);
+      if (form.folderId) fd.append('folderId', form.folderId);
+      if (form.categoryId) fd.append('categoryId', form.categoryId);
+      for (const f of folderFiles.value) {
+        fd.append('files', f);
+        fd.append('relativePath', f.webkitRelativePath || f.name);
+      }
+      const result = await uploadLibraryBatch(fd);
+      emit('created', { kind: 'batch', item: result, shareMode: 'view_only' });
+      emit('close');
+      return;
+    }
+
     if (mode.value === 'upload') {
       if (!file.value) throw new Error('Choose a file to upload');
       const fd = new FormData();
@@ -292,6 +465,30 @@ async function submit() {
       if (form.tags) fd.append('tags', form.tags);
       if (form.featured && form.scope === 'organization') fd.append('featured', '1');
       const item = await uploadLibraryResource(fd);
+      emit('created', { kind: 'resource', item, shareMode: shareMode === 'view_only' ? shareMode : 'view_only' });
+      emit('close');
+      return;
+    }
+
+    if (mode.value === 'branded') {
+      if (!form.name.trim()) throw new Error('Document name is required');
+      if (!String(form.bodyHtml || '').replace(/<[^>]+>/g, '').trim()) {
+        throw new Error('Add some document content');
+      }
+      const item = await createLibraryBrandedDoc({
+        name: form.name.trim(),
+        bodyHtml: form.bodyHtml,
+        letterheadTemplateId: form.letterheadTemplateId || null,
+        description: form.description || null,
+        categoryId: form.categoryId || null,
+        folderId: form.folderId || null,
+        scope: form.scope,
+        tags: form.tags
+          .split(',')
+          .map((t) => t.trim())
+          .filter(Boolean),
+        featured: form.scope === 'organization' && form.featured
+      });
       emit('created', { kind: 'resource', item, shareMode });
       emit('close');
       return;
@@ -312,7 +509,7 @@ async function submit() {
         .filter(Boolean),
       featured: form.scope === 'organization' && form.featured
     });
-    emit('created', { kind: 'resource', item, shareMode });
+    emit('created', { kind: 'resource', item, shareMode: 'view_only' });
     emit('close');
   } catch (e) {
     error.value = e?.response?.data?.error?.message || e?.message || 'Could not save';
@@ -335,8 +532,8 @@ async function submit() {
 }
 
 .lib-modal {
-  width: min(640px, 100%);
-  max-height: min(90vh, 900px);
+  width: min(820px, 100%);
+  max-height: min(92vh, 960px);
   overflow: auto;
   background: #fff;
   border-radius: 12px;
@@ -368,6 +565,7 @@ async function submit() {
 
 .lib-modal__tabs {
   display: flex;
+  flex-wrap: wrap;
   gap: 0.35rem;
   padding: 0.75rem 1.15rem 0;
 }
@@ -424,6 +622,28 @@ async function submit() {
   font-size: 0.9rem;
 }
 
+.lib-hint {
+  margin: 0;
+  font-size: 0.8rem;
+  color: #64748b;
+  line-height: 1.4;
+}
+
+.lib-ai-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.lib-branded-editor {
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  overflow: hidden;
+  max-height: 360px;
+  overflow-y: auto;
+}
+
 .lib-scope {
   border: 1px solid #e5e7eb;
   border-radius: 10px;
@@ -448,45 +668,21 @@ async function submit() {
   display: flex;
   gap: 0.65rem;
   align-items: flex-start;
-  border: 1px solid #e2e8f0;
-  border-radius: 8px;
   padding: 0.55rem 0.65rem;
-  background: #fff;
+  border-radius: 8px;
+  border: 1px solid transparent;
   cursor: pointer;
 }
 
 .lib-scope__opt.is-active {
-  border-color: #166534;
-  background: #ecfdf5;
-}
-
-.lib-scope__opt--mine.is-active {
-  border-color: #d97706;
-  background: #fffbeb;
-}
-
-.lib-scope__opt strong {
-  display: block;
-  font-size: 0.875rem;
-  color: #0f172a;
+  border-color: #86efac;
+  background: #f0fdf4;
 }
 
 .lib-scope__opt small {
   display: block;
-  font-size: 0.75rem;
   color: #64748b;
-  margin-top: 0.1rem;
-}
-
-.lib-share-modes {
-  border: 1px solid #e5e7eb;
-  border-radius: 10px;
-  padding: 0.75rem;
-  background: #fff;
-}
-
-.lib-share-modes__hint {
-  margin: -0.25rem 0 0.65rem;
+  font-size: 0.75rem;
 }
 
 .lib-share-modes__grid {
@@ -498,93 +694,60 @@ async function submit() {
 .lib-share-mode {
   text-align: left;
   border: 1px solid #e2e8f0;
+  background: #fff;
   border-radius: 10px;
   padding: 0.65rem 0.75rem;
-  background: #f8fafc;
   cursor: pointer;
-  transition: border-color 0.15s, background 0.15s, box-shadow 0.15s;
-}
-
-.lib-share-mode:hover {
-  border-color: #94a3b8;
-  background: #fff;
-}
-
-.lib-share-mode.is-active {
-  border-color: #166534;
-  background: #ecfdf5;
-  box-shadow: 0 0 0 1px #16653433;
-}
-
-.lib-share-mode--later.is-active {
-  border-color: #64748b;
-  background: #f1f5f9;
-  box-shadow: none;
 }
 
 .lib-share-mode strong {
   display: block;
-  font-size: 0.82rem;
-  color: #0f172a;
-  margin-bottom: 0.2rem;
+  font-size: 0.85rem;
+  margin-bottom: 0.25rem;
 }
 
 .lib-share-mode small {
   display: block;
+  color: #64748b;
   font-size: 0.72rem;
-  color: #64748b;
   line-height: 1.35;
-  font-weight: 500;
 }
 
-@media (max-width: 560px) {
-  .lib-share-modes__grid {
-    grid-template-columns: 1fr;
-  }
-}
-
-.lib-hint {
-  margin: 0;
-  font-size: 0.8rem;
-  color: #64748b;
-  line-height: 1.4;
-}
-
-.lib-live-preview {
-  border: 1px solid #e2e8f0;
-  border-radius: 10px;
-  overflow: hidden;
+.lib-share-mode.is-active {
+  border-color: #16a34a;
+  background: #f0fdf4;
 }
 
 .lib-live-preview__label {
-  padding: 0.4rem 0.7rem;
   font-size: 0.75rem;
-  background: #f1f5f9;
-  color: #475569;
+  color: #64748b;
+  margin-bottom: 0.35rem;
 }
 
 .lib-live-preview__frame {
   width: 100%;
-  height: 280px;
-  border: 0;
+  height: 180px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
 }
 
 .lib-error {
-  margin: 0;
   color: #b91c1c;
-  font-size: 0.875rem;
+  font-size: 0.85rem;
+  margin: 0;
 }
 
 .lib-modal__foot {
   display: flex;
   justify-content: flex-end;
   gap: 0.5rem;
-  padding: 0.85rem 1.15rem 1.15rem;
+  padding: 0.85rem 1.15rem 1.1rem;
   border-top: 1px solid #e5e7eb;
 }
 
 @media (max-width: 640px) {
-  .lib-row {
+  .lib-row,
+  .lib-share-modes__grid {
     grid-template-columns: 1fr;
   }
 }

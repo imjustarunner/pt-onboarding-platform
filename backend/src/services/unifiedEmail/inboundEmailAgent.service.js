@@ -311,7 +311,17 @@ const EMPLOYEE_PROVIDER_ROLES = new Set([
 
 async function findKnownSender({ schoolOrganizationId, fromEmail }) {
   const email = String(fromEmail || '').trim().toLowerCase();
-  if (!email) return { isKnownContact: false, isKnownAccount: false, accountUserId: null, senderRole: null, isEmployeeOrProvider: false };
+  if (!email) {
+    return {
+      isKnownContact: false,
+      isKnownAccount: false,
+      accountUserId: null,
+      senderRole: null,
+      senderDisplayName: null,
+      isSchoolGroupMailbox: false,
+      isEmployeeOrProvider: false
+    };
+  }
 
   let isKnownContact = false;
   try {
@@ -330,11 +340,14 @@ async function findKnownSender({ schoolOrganizationId, fromEmail }) {
 
   let accountUserId = null;
   let senderRole = null;
+  let senderDisplayName = null;
+  let isSchoolGroupMailbox = false;
   try {
     const direct = await User.findByEmail(email);
     if (direct?.id) {
       accountUserId = Number(direct.id);
       senderRole = String(direct.role || '').toLowerCase();
+      senderDisplayName = [direct.first_name, direct.last_name].filter(Boolean).join(' ').trim() || null;
     }
   } catch {
     accountUserId = null;
@@ -342,19 +355,46 @@ async function findKnownSender({ schoolOrganizationId, fromEmail }) {
   if (!accountUserId) {
     try {
       const [rows] = await pool.execute(
-        `SELECT id, role
+        `SELECT id, role, first_name, last_name
          FROM users
          WHERE LOWER(COALESCE(email, '')) = ?
             OR LOWER(COALESCE(work_email, '')) = ?
+            OR LOWER(COALESCE(personal_email, '')) = ?
          LIMIT 1`,
-        [email, email]
+        [email, email, email]
       );
       if (rows?.[0]?.id) {
         accountUserId = Number(rows[0].id);
         senderRole = String(rows[0].role || '').toLowerCase();
+        senderDisplayName = [rows[0].first_name, rows[0].last_name].filter(Boolean).join(' ').trim() || null;
       }
     } catch {
       accountUserId = null;
+    }
+  }
+
+  // School site Google Groups (sabin@itsco.health, etc.) listed on school_profiles.itsco_email
+  if (!isKnownContact && !accountUserId) {
+    try {
+      const sid = Number(schoolOrganizationId || 0);
+      const [siteRows] = await pool.execute(
+        `SELECT sp.school_organization_id, a.name AS school_name
+         FROM school_profiles sp
+         LEFT JOIN agencies a ON a.id = sp.school_organization_id
+         WHERE LOWER(TRIM(COALESCE(sp.itsco_email, ''))) = ?
+           AND (? = 0 OR sp.school_organization_id = ?)
+         LIMIT 1`,
+        [email, sid, sid]
+      );
+      if (siteRows?.[0]) {
+        isKnownContact = true;
+        isSchoolGroupMailbox = true;
+        senderDisplayName = siteRows[0].school_name
+          ? `${siteRows[0].school_name} (site mailbox)`
+          : email;
+      }
+    } catch {
+      // ignore
     }
   }
 
@@ -365,6 +405,8 @@ async function findKnownSender({ schoolOrganizationId, fromEmail }) {
     isKnownAccount: !!accountUserId,
     accountUserId: accountUserId || null,
     senderRole: senderRole || null,
+    senderDisplayName: senderDisplayName || null,
+    isSchoolGroupMailbox,
     isEmployeeOrProvider
   };
 }
@@ -880,9 +922,16 @@ export async function runInboundEmailAgentOnce({ maxMessages = 10 } = {}) {
       fromEmail: rawFromEmail,
       ourFromEmails
     });
-    const fromDisplayName = extractDisplayNameFromFromHeader(fromHeader)
+    // When Google Groups rewrites From to sabin@ (etc.), prefer Reply-To display name
+    // so Ticket Desk shows the counselor, not the school group alias.
+    const fromWasUnwrapped = !!(fromEmail && rawFromEmail
+      && String(fromEmail).toLowerCase() !== String(rawFromEmail).toLowerCase());
+    let fromDisplayName = (
+      (fromWasUnwrapped ? extractDisplayNameFromFromHeader(hdrs.get('reply-to') || '') : null)
+      || extractDisplayNameFromFromHeader(fromHeader)
       || extractDisplayNameFromFromHeader(hdrs.get('reply-to') || '')
-      || null;
+      || null
+    );
     const subject = hdrs.get('subject') || '';
 
     // Loop protection: ignore our own sent mail (identities + school group addresses)
@@ -1076,6 +1125,9 @@ export async function runInboundEmailAgentOnce({ maxMessages = 10 } = {}) {
         schoolOrganizationId: schoolContext.schoolOrganizationId,
         fromEmail
       });
+      if (sender.senderDisplayName) {
+        fromDisplayName = sender.senderDisplayName;
+      }
 
       // Skip ticket creation if sender is an internal employee or provider.
       // School contacts and external senders (school accounts) should still create tickets.

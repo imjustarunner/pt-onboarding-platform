@@ -561,80 +561,29 @@ export async function enqueueReadyToScheduleDigest({
     items
   });
 
-  // Also send an immediate single-client notice so schools don't wait until the
-  // next Mon/Wed/Fri digest window. CC schools@itsco.health so the ops inbox sees it.
+  // In-app alert for admin/support: digest will include this client + when/where it sends
   if (itemCategory === DIGEST_CATEGORY_READY) {
-    await sendImmediateReadyToScheduleNotice({
-      agencyId: aid,
-      schoolOrganizationId: sid,
-      clientId: cid,
-      clientInitials,
-      clientLabel,
-      providerName: assignment.providerName,
-      serviceDay: assignment.serviceDay
-    }).catch((err) => {
-      console.warn('[ready-digest] immediate notice failed:', err?.message || err);
-    });
+    try {
+      const { notifyClientReadyToSchedule } = await import('./clientNotifications.service.js');
+      const window = getReadyScheduleDigestWindow(new Date());
+      const itscoEmail = await getSchoolItscoEmail(sid);
+      const schoolName = await getSchoolName(sid);
+      await notifyClientReadyToSchedule({
+        agencyId: aid,
+        schoolOrganizationId: sid,
+        clientId: cid,
+        clientLabel: clientLabel || clientInitials || `Client #${cid}`,
+        schoolName,
+        digestTo: itscoEmail,
+        sendLabel: window?.sendLabel || 'Mon/Wed/Fri',
+        sendYmd: window?.sendYmd || null
+      });
+    } catch (err) {
+      console.warn('[ready-digest] admin notify failed:', err?.message || err);
+    }
   }
 
   return draft;
-}
-
-/**
- * Immediate email when a client becomes Ready to Schedule (does not replace the digest).
- */
-async function sendImmediateReadyToScheduleNotice({
-  agencyId,
-  schoolOrganizationId,
-  clientId,
-  clientInitials = null,
-  clientLabel = null,
-  providerName = null,
-  serviceDay = null
-}) {
-  const to = await getSchoolItscoEmail(schoolOrganizationId);
-  if (!to) return { sent: false, reason: 'no_recipient' };
-
-  const sender = await resolveDigestSender({ agencyId });
-  if (!sender?.senderIdentityId) return { sent: false, reason: 'no_identity' };
-
-  let schoolName = 'your school';
-  try {
-    const [rows] = await pool.execute(`SELECT name FROM agencies WHERE id = ? LIMIT 1`, [schoolOrganizationId]);
-    schoolName = rows?.[0]?.name || schoolName;
-  } catch { /* ignore */ }
-
-  const label = clientLabel || clientInitials || `Client #${clientId}`;
-  const assignmentLine = [providerName, serviceDay].filter(Boolean).join(' · ') || 'assignment pending';
-  const subject = `${schoolName}: ${label} is Ready to Schedule`;
-  const text = [
-    `Hi ${schoolName} team,`,
-    '',
-    `${label} is complete and Ready to Schedule.`,
-    `Assignment: ${assignmentLine}.`,
-    '',
-    'You can open the school portal for next steps:',
-    'https://app.itsco.health/login',
-    '',
-    'A summary digest also goes out Mon/Wed/Fri at 10:00 AM MT.',
-    '',
-    '— ITSCO Schools'
-  ].join('\n');
-
-  return sendEmailFromIdentity({
-    senderIdentityId: sender.senderIdentityId,
-    to,
-    cc: SCHOOLS_REPLY_TO,
-    subject,
-    text,
-    html: null,
-    source: 'auto',
-    agencyId,
-    templateType: 'school_ready_to_schedule_notice',
-    fromDisplayNameOverride: `${schoolName} - Ready to Schedule`,
-    replyToOverride: SCHOOLS_REPLY_TO,
-    signatureIdentityId: sender.signatureIdentityId || null
-  });
 }
 
 /** Alias for waitlist enqueue — same Mon/Wed/Fri digest, Waitlist section. */

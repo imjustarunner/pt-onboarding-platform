@@ -99,6 +99,8 @@ function mapResource(row) {
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     archivedAt: row.archived_at || null,
+    bodyHtml: row.body_html || null,
+    letterheadTemplateId: row.letterhead_template_id != null ? Number(row.letterhead_template_id) : null,
     categoryName: row.category_name || null,
     categorySlug: row.category_slug || null,
     folderName: row.folder_name || null,
@@ -256,6 +258,64 @@ class Library {
       ]
     );
     return this.findFolder(result.insertId, data.agencyId, { userId: data.ownerUserId });
+  }
+
+  /** Find folder by name under a parent (or root) for the same owner/scope; used by bulk upload. */
+  static async findFolderByName({ agencyId, parentFolderId, name, ownerUserId, scope }) {
+    const params = [Number(agencyId), String(name || '').trim()];
+    let sql = `SELECT * FROM library_folders
+      WHERE agency_id = ?
+        AND name = ?
+        AND archived_at IS NULL`;
+    if (parentFolderId == null) {
+      sql += ' AND parent_folder_id IS NULL';
+    } else {
+      sql += ' AND parent_folder_id = ?';
+      params.push(Number(parentFolderId));
+    }
+    if (scope === 'personal' && ownerUserId) {
+      sql += ' AND scope = ? AND owner_user_id = ?';
+      params.push('personal', Number(ownerUserId));
+    } else {
+      sql += ' AND scope = ?';
+      params.push(scope === 'personal' ? 'personal' : 'organization');
+    }
+    sql += ' LIMIT 1';
+    const [rows] = await pool.execute(sql, params);
+    return mapFolder(rows[0]);
+  }
+
+  static async findOrCreateFolderPath({
+    agencyId,
+    parentFolderId = null,
+    pathParts = [],
+    ownerUserId,
+    scope,
+    createdBy
+  }) {
+    let currentParent = parentFolderId != null ? Number(parentFolderId) : null;
+    let last = null;
+    for (const raw of pathParts || []) {
+      const name = String(raw || '').trim();
+      if (!name || name === '.' || name === '..') continue;
+      const existing = await this.findFolderByName({
+        agencyId,
+        parentFolderId: currentParent,
+        name,
+        ownerUserId,
+        scope
+      });
+      last = existing || (await this.createFolder({
+        agencyId,
+        parentFolderId: currentParent,
+        name,
+        ownerUserId,
+        scope,
+        createdBy
+      }));
+      currentParent = last?.id != null ? Number(last.id) : currentParent;
+    }
+    return last;
   }
 
   static async updateFolder(id, agencyId, data) {
@@ -490,10 +550,10 @@ class Library {
     const [result] = await pool.execute(
       `INSERT INTO library_resources
         (agency_id, organization_id, name, description, resource_type, file_type, mime_type,
-         original_filename, file_path, external_url, file_size_bytes, category_id, folder_id,
+         original_filename, file_path, external_url, body_html, letterhead_template_id, file_size_bytes, category_id, folder_id,
          owner_user_id, source_resource_id, scope, visibility, audience_json, featured, client_shareable, status,
          review_date, created_by, updated_by)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         Number(data.agencyId),
         data.organizationId != null ? Number(data.organizationId) : null,
@@ -505,6 +565,8 @@ class Library {
         data.originalFilename || null,
         data.filePath || null,
         data.externalUrl || null,
+        data.bodyHtml || null,
+        data.letterheadTemplateId != null ? Number(data.letterheadTemplateId) : null,
         data.fileSizeBytes != null ? Number(data.fileSizeBytes) : null,
         data.categoryId != null ? Number(data.categoryId) : null,
         data.folderId != null ? Number(data.folderId) : null,
@@ -541,6 +603,8 @@ class Library {
       status: 'status',
       reviewDate: 'review_date',
       externalUrl: 'external_url',
+      bodyHtml: 'body_html',
+      letterheadTemplateId: 'letterhead_template_id',
       filePath: 'file_path',
       fileType: 'file_type',
       mimeType: 'mime_type',
@@ -557,7 +621,7 @@ class Library {
       if (key === 'featured' || key === 'clientShareable') {
         fields.push(`${col} = ?`);
         params.push(data[key] ? 1 : 0);
-      } else if (['categoryId', 'folderId', 'ownerUserId', 'organizationId', 'updatedBy', 'fileSizeBytes'].includes(key)) {
+      } else if (['categoryId', 'folderId', 'ownerUserId', 'organizationId', 'updatedBy', 'fileSizeBytes', 'letterheadTemplateId'].includes(key)) {
         fields.push(`${col} = ?`);
         params.push(data[key] != null && data[key] !== '' ? Number(data[key]) : null);
       } else if (key === 'name') {

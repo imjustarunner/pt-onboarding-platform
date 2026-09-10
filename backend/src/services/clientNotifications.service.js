@@ -797,6 +797,62 @@ export async function notifyPaperworkReceived({ agencyId, schoolOrganizationId, 
   }).catch(() => null);
 }
 
+/**
+ * Admin/support: client queued for school Ready-to-Schedule digest (Mon/Wed/Fri ~10 MT).
+ */
+export async function notifyClientReadyToSchedule({
+  agencyId,
+  schoolOrganizationId,
+  clientId,
+  clientLabel,
+  schoolName,
+  digestTo,
+  sendLabel,
+  sendYmd
+}) {
+  if (!agencyId || !clientId) return;
+
+  const [dup] = await pool.execute(
+    `SELECT id FROM notifications
+     WHERE agency_id = ?
+       AND type = 'client_ready_to_schedule'
+       AND related_entity_type = 'client'
+       AND related_entity_id = ?
+       AND created_at >= DATE_SUB(NOW(), INTERVAL 2 HOUR)
+     LIMIT 1`,
+    [agencyId, clientId]
+  ).catch(() => [[]]);
+  if (dup?.[0]?.id) return;
+
+  const school = schoolName || 'school';
+  const to = digestTo || '(no school group email configured)';
+  const when = sendYmd
+    ? `${sendLabel || 'next digest'} ${sendYmd} ~10:00 MT`
+    : `${sendLabel || 'Mon/Wed/Fri'} ~10:00 MT`;
+  const title = 'Client Ready to Schedule';
+  const message = `${clientLabel || `Client #${clientId}`} at ${school} is queued for the school digest to ${to} on ${when}.`;
+
+  await createNotificationAndDispatch({
+    type: 'client_ready_to_schedule',
+    severity: 'info',
+    title,
+    message,
+    audienceJson: {
+      admin: true,
+      support: true,
+      clinicalPracticeAssistant: true,
+      schoolStaff: false,
+      supervisor: false,
+      provider: false
+    },
+    userId: null,
+    agencyId,
+    relatedEntityType: 'client',
+    relatedEntityId: clientId,
+    actorSource: 'System'
+  }).catch(() => null);
+}
+
 export async function notifyClientBecameCurrent({
   agencyId,
   schoolOrganizationId,
