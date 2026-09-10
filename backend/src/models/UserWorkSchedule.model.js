@@ -67,7 +67,7 @@ class UserWorkSchedule {
       return {
         schedule: null,
         blocks: [],
-        timezone: 'America/New_York',
+        timezone: 'America/Denver',
         isActive: false
       };
     }
@@ -75,7 +75,7 @@ class UserWorkSchedule {
     return {
       schedule,
       blocks,
-      timezone: String(schedule.timezone || 'America/New_York'),
+      timezone: String(schedule.timezone || 'America/Denver'),
       isActive: Number(schedule.is_active) === 1
     };
   }
@@ -85,14 +85,14 @@ class UserWorkSchedule {
    */
   static async upsertForUser(userId, {
     agencyId = null,
-    timezone = 'America/New_York',
+    timezone = 'America/Denver',
     isActive = true,
     blocks = []
   } = {}) {
     const uid = Number(userId || 0);
     if (!uid) throw new Error('Invalid user id');
     const aid = agencyId == null || agencyId === '' ? null : Number(agencyId);
-    const tz = String(timezone || 'America/New_York').trim().slice(0, 64) || 'America/New_York';
+    const tz = String(timezone || 'America/Denver').trim().slice(0, 64) || 'America/Denver';
     const active = isActive === false || isActive === 0 || isActive === '0' ? 0 : 1;
 
     const normalizedBlocks = [];

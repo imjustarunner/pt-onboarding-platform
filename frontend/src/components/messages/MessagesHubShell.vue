@@ -1017,6 +1017,32 @@
                       <span class="msg-hub-menu-title">Next Monday 9am</span>
                       <span class="msg-hub-menu-sub">Schedule send</span>
                     </button>
+                    <button type="button" role="menuitem" @click="openSetTimePicker">
+                      <span class="msg-hub-menu-title">Set time</span>
+                      <span class="msg-hub-menu-sub">Pick a day and time</span>
+                    </button>
+                    <div v-if="showSetTimePicker" class="msg-hub-set-time" @click.stop>
+                      <label class="msg-hub-set-time-label">
+                        Send at
+                        <input v-model="customScheduleLocal" type="datetime-local" class="msg-hub-set-time-input" />
+                      </label>
+                      <p v-if="customSchedulePreviewLabel" class="msg-hub-menu-sub msg-hub-set-time-preview">
+                        {{ customScheduleSnapped ? 'Unavailable then — will send' : 'Will send' }}
+                        {{ customSchedulePreviewLabel }}
+                      </p>
+                      <p v-else-if="customSchedulePreviewLoading" class="msg-hub-menu-sub">Checking availability…</p>
+                      <div class="msg-hub-set-time-actions">
+                        <button type="button" class="btn btn-ghost" @click="showSetTimePicker = false">Cancel</button>
+                        <button
+                          type="button"
+                          class="btn btn-primary"
+                          :disabled="!customScheduleLocal || customSchedulePreviewLoading"
+                          @click="confirmSetTimeAndSend"
+                        >
+                          Queue send
+                        </button>
+                      </div>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -1572,6 +1598,13 @@ let peopleTimer = null;
 const undoDelaySeconds = ref(20);
 const schedulePreset = ref(null);
 const showSchedule = ref(false);
+const showSetTimePicker = ref(false);
+const customScheduleLocal = ref('');
+const customScheduleAt = ref(null);
+const customSchedulePreviewLabel = ref('');
+const customScheduleSnapped = ref(false);
+const customSchedulePreviewLoading = ref(false);
+let customSchedulePreviewTimer = null;
 const undoBanner = ref(null);
 const undoNow = ref(Date.now());
 let undoBannerTimer = null;
@@ -2106,7 +2139,7 @@ const myWorkSchedulePath = computed(() => {
 
 const sendButtonLabel = computed(() => {
   if (sending.value) return 'Sending…';
-  if (schedulePreset.value || deliveryNotice.value) return 'Queue send';
+  if (schedulePreset.value || deliveryNotice.value || customScheduleAt.value) return 'Queue send';
   const delay = Number(undoDelaySeconds.value) || 0;
   if (delay > 0) return `Send (${delay}s undo)`;
   return 'Send now';
@@ -2118,6 +2151,11 @@ const sendQueueReason = computed(() => {
   if (schedulePreset.value === 'in_1_hour') return 'Scheduled in 1 hour';
   if (schedulePreset.value === 'tomorrow_9am') return 'Scheduled tomorrow 9am';
   if (schedulePreset.value === 'monday_9am') return 'Scheduled next Monday 9am';
+  if (schedulePreset.value === 'set_time' || customScheduleAt.value) {
+    return customSchedulePreviewLabel.value
+      ? `Sends ${customSchedulePreviewLabel.value}`
+      : 'Scheduled for set time';
+  }
   if (schedulePreset.value) return scheduleLabel(schedulePreset.value);
   if (deliveryNotice.value) {
     const gate = selected.value?.deliveryGate;
@@ -2146,7 +2184,12 @@ function rowAvatarIcon(p) {
 
 const undoBannerLabel = computed(() => {
   if (!undoBanner.value) return '';
-  if (undoBanner.value.kind === 'scheduled') return 'Queued — you can recall it until it sends.';
+  if (undoBanner.value.kind === 'scheduled') {
+    const when = undoBanner.value.scheduledLabel;
+    return when
+      ? `Queued — sends ${when}. You can recall it until then.`
+      : 'Queued — you can recall it until it sends.';
+  }
   return 'Queued — undo to edit before it sends.';
 });
 
@@ -2497,15 +2540,102 @@ function scheduleLabel(preset) {
     next_available: 'During my availability hours',
     in_1_hour: 'In 1 hour',
     tomorrow_9am: 'Tomorrow 9am',
-    monday_9am: 'Next Monday 9am'
+    monday_9am: 'Next Monday 9am',
+    set_time: 'Set time'
   };
   return map[preset] || preset;
 }
 
+function defaultSetTimeLocalValue() {
+  const d = new Date();
+  d.setDate(d.getDate() + 1);
+  d.setHours(9, 0, 0, 0);
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function openSetTimePicker() {
+  showSetTimePicker.value = true;
+  if (!customScheduleLocal.value) customScheduleLocal.value = defaultSetTimeLocalValue();
+  previewCustomSchedule();
+}
+
 function pickSchedule(preset) {
   schedulePreset.value = preset;
+  if (preset !== 'set_time') {
+    customScheduleAt.value = null;
+    customSchedulePreviewLabel.value = '';
+    customScheduleSnapped.value = false;
+    showSetTimePicker.value = false;
+  }
   showSchedule.value = false;
 }
+
+async function previewCustomSchedule() {
+  const raw = String(customScheduleLocal.value || '').trim();
+  if (!raw || !selected.value?.personKey) {
+    customSchedulePreviewLabel.value = '';
+    customScheduleSnapped.value = false;
+    return;
+  }
+  const requested = new Date(raw);
+  if (Number.isNaN(requested.getTime())) return;
+  customSchedulePreviewLoading.value = true;
+  try {
+    const { data } = await api.post(
+      '/messages/hub/preview-schedule',
+      {
+        agencyId: agencyId.value || selected.value?.agencyId,
+        personKey: selected.value.personKey,
+        scheduledSendAt: requested.toISOString()
+      },
+      { skipGlobalLoading: true }
+    );
+    customScheduleAt.value = data?.scheduledSendAt || requested.toISOString();
+    customSchedulePreviewLabel.value = data?.scheduledSendAtLabel || formatScheduleLabel(customScheduleAt.value);
+    customScheduleSnapped.value = !!data?.snapped;
+  } catch {
+    customScheduleAt.value = requested.toISOString();
+    customSchedulePreviewLabel.value = formatScheduleLabel(requested);
+    customScheduleSnapped.value = false;
+  } finally {
+    customSchedulePreviewLoading.value = false;
+  }
+}
+
+function formatScheduleLabel(isoOrDate) {
+  try {
+    const d = isoOrDate instanceof Date ? isoOrDate : new Date(isoOrDate);
+    return new Intl.DateTimeFormat(undefined, {
+      timeZone: 'America/Denver',
+      weekday: 'short',
+      month: 'short',
+      day: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+      timeZoneName: 'short'
+    }).format(d);
+  } catch {
+    return String(isoOrDate || '');
+  }
+}
+
+async function confirmSetTimeAndSend() {
+  await previewCustomSchedule();
+  if (!customScheduleAt.value) return;
+  schedulePreset.value = 'set_time';
+  showSetTimePicker.value = false;
+  showSchedule.value = false;
+  send();
+}
+
+watch(customScheduleLocal, () => {
+  if (!showSetTimePicker.value) return;
+  if (customSchedulePreviewTimer) clearTimeout(customSchedulePreviewTimer);
+  customSchedulePreviewTimer = setTimeout(() => {
+    previewCustomSchedule();
+  }, 350);
+});
 
 function clearUndoBanner() {
   if (undoBannerTimer) {
@@ -2528,7 +2658,8 @@ function startUndoBanner({
   body,
   subject,
   method,
-  delaySeconds
+  delaySeconds,
+  scheduledLabel
 } = {}) {
   clearUndoBanner();
   const delayMs = Math.max(1000, Number(delaySeconds || undoDelaySeconds.value || 20) * 1000);
@@ -2541,7 +2672,8 @@ function startUndoBanner({
     kind: kind || 'undo',
     body: body != null ? String(body) : '',
     subject: subject != null ? String(subject) : '',
-    method: method || sendMethod.value
+    method: method || sendMethod.value,
+    scheduledLabel: scheduledLabel || null
   };
   undoNow.value = Date.now();
   let expiredHandled = false;
@@ -3281,7 +3413,14 @@ function initials(label) {
 function formatTime(v) {
   if (!v) return '';
   try {
-    return new Date(v).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+    return new Intl.DateTimeFormat(undefined, {
+      timeZone: 'America/Denver',
+      month: 'short',
+      day: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+      timeZoneName: 'short'
+    }).format(new Date(v));
   } catch {
     return '';
   }
@@ -4404,6 +4543,9 @@ async function executeSend({ sendToAllPortalGuardians = false, includeClient = f
       if (useNextAvailable) {
         payload.sendDuringNextAvailable = true;
         payload.schedulePreset = 'next_available';
+      } else if (schedulePreset.value === 'set_time' && customScheduleAt.value) {
+        payload.scheduledSendAt = customScheduleAt.value;
+        payload.schedulePreset = 'set_time';
       } else if (schedulePreset.value) {
         payload.schedulePreset = schedulePreset.value;
       } else {
@@ -4448,6 +4590,10 @@ async function executeSend({ sendToAllPortalGuardians = false, includeClient = f
     }
     if (data?.threadRef?.threadId) chatThreadId.value = data.threadRef.threadId;
     schedulePreset.value = null;
+    customScheduleAt.value = null;
+    customSchedulePreviewLabel.value = '';
+    customScheduleSnapped.value = false;
+    showSetTimePicker.value = false;
     showSchedule.value = false;
     emojiPickerOpen.value = false;
     const isQueuedSend = !!(data?.queued || data?.scheduled || data?.queueId);
@@ -4507,6 +4653,9 @@ async function executeSend({ sendToAllPortalGuardians = false, includeClient = f
         body: sentBody,
         subject: sentSubject,
         method: sentMethod,
+        scheduledLabel:
+          data?.scheduledSendAtLabel ||
+          (data?.scheduledSendAt ? formatScheduleLabel(data.scheduledSendAt) : null),
         kind:
           wasScheduledPreset ||
           data.queueReason === 'schedule' ||
@@ -5004,7 +5153,7 @@ defineExpose({
   font-size: 10px;
   font-weight: 600;
   opacity: 0.9;
-  max-width: 180px;
+  max-width: 220px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -5055,6 +5204,38 @@ defineExpose({
   font-size: 11px;
   color: var(--mh-muted, #64748b);
   font-weight: 550;
+}
+.msg-hub-set-time {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px 10px 10px;
+  border-top: 1px solid var(--mh-line, #e2e8f0);
+  margin-top: 4px;
+}
+.msg-hub-set-time-label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  font-weight: 650;
+  color: var(--mh-ink, #0b1f3a);
+}
+.msg-hub-set-time-input {
+  font: inherit;
+  font-weight: 500;
+  padding: 6px 8px;
+  border: 1px solid var(--mh-line, #cbd5e1);
+  border-radius: 8px;
+}
+.msg-hub-set-time-preview {
+  margin: 0;
+  line-height: 1.35;
+}
+.msg-hub-set-time-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
 }
 .msg-hub-compose-actions .btn-ghost {
   border: 1px solid var(--mh-line);

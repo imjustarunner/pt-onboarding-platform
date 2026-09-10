@@ -3055,27 +3055,12 @@ export async function sendHubEmail({
     }
   }
 
-  const resolvePresetDate = (preset) => {
-    const p = String(preset || '').toLowerCase();
-    if (!p) return null;
-    const d = new Date();
-    if (p === 'in_1_hour') {
-      d.setHours(d.getHours() + 1);
-      return d;
-    }
-    if (p === 'tomorrow_9am') {
-      d.setDate(d.getDate() + 1);
-      d.setHours(9, 0, 0, 0);
-      return d;
-    }
-    if (p === 'monday_9am') {
-      const day = d.getDay();
-      const add = day === 1 ? 7 : (8 - day) % 7 || 7;
-      d.setDate(d.getDate() + add);
-      d.setHours(9, 0, 0, 0);
-      return d;
-    }
-    return null;
+  const resolvePresetDate = async (preset) => {
+    const { resolveSchedulePresetAt } = await import('./availabilityWindow.service.js');
+    const { DEFAULT_SCHEDULE_TZ } = await import('../utils/zonedWallTime.util.js');
+    return resolveSchedulePresetAt(preset, {
+      timeZone: senderGate?.timezone || deliveryGate?.timezone || DEFAULT_SCHEDULE_TZ
+    });
   };
 
   // Explicit schedule vs undo delay (default 20s). Recipient hold / sender next-available win if later.
@@ -3086,8 +3071,27 @@ export async function sendHubEmail({
     if (!Number.isNaN(d.getTime()) && d.getTime() > Date.now() + 5000) effectiveScheduledAt = d;
   }
   if (!effectiveScheduledAt && schedulePreset) {
-    effectiveScheduledAt = resolvePresetDate(schedulePreset);
+    effectiveScheduledAt = await resolvePresetDate(schedulePreset);
   }
+
+  // Custom / preset times outside the recipient's hours snap to their next open window.
+  if (effectiveScheduledAt && person.userId) {
+    try {
+      const { resolveScheduledSendAgainstAvailability } = await import('./hubRecipientDelivery.service.js');
+      const snapped = await resolveScheduledSendAgainstAvailability({
+        agencyId: aid,
+        userId: person.userId,
+        requestedAt: effectiveScheduledAt
+      });
+      if (snapped?.sendAt) {
+        if (snapped.snapped) holdReason = 'recipient';
+        effectiveScheduledAt = snapped.sendAt;
+      }
+    } catch (e) {
+      console.warn('[sendHubEmail] schedule snap:', e?.message || e);
+    }
+  }
+
   if (deliveryGate?.receiveAt) {
     const hold = new Date(deliveryGate.receiveAt);
     if (!Number.isNaN(hold.getTime())) {
@@ -3206,12 +3210,27 @@ export async function sendHubEmail({
     }
   }
 
+  let scheduledSendAtLabel = null;
+  if (effectiveScheduledAt) {
+    try {
+      const { formatReturnAt } = await import('./availabilityWindow.service.js');
+      const { DEFAULT_SCHEDULE_TZ } = await import('../utils/zonedWallTime.util.js');
+      scheduledSendAtLabel = formatReturnAt(
+        effectiveScheduledAt,
+        deliveryGate?.timezone || senderGate?.timezone || DEFAULT_SCHEDULE_TZ
+      );
+    } catch {
+      scheduledSendAtLabel = null;
+    }
+  }
+
   return {
     channel: 'email',
     threadRef: { conversationId: outConversationId, messageId: result?.messageId || null },
     fromEmail: mailboxes.messages?.from_email || null,
     scheduled: !!result?.scheduled,
-    scheduledSendAt: result?.scheduledSendAt || null,
+    scheduledSendAt: result?.scheduledSendAt || effectiveScheduledAt?.toISOString() || null,
+    scheduledSendAtLabel,
     undoExpiresAt: result?.undoExpiresAt || null,
     messageId: result?.messageId || null,
     deliveryGate: deliveryGate || null,

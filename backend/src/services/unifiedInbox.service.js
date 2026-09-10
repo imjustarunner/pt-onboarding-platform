@@ -12,6 +12,8 @@ import {
 } from './channelInboxAdapter.service.js';
 import { computeResponseTimeMetrics } from './unifiedInboxAi.service.js';
 import { sendClinicalSms, parseSmsConversationTarget } from './clinicalSmsSend.service.js';
+import { resolveSchedulePresetAt } from './availabilityWindow.service.js';
+import { DEFAULT_SCHEDULE_TZ } from '../utils/zonedWallTime.util.js';
 
 const UNDO_WINDOW_MS = 20 * 1000;
 const MAX_UNDO_DELAY_MS = 10 * 60 * 1000;
@@ -423,24 +425,9 @@ export function resolveScheduleAt(payload) {
   }
   const preset = String(payload.schedulePreset || '').toLowerCase();
   if (!preset) return null;
-  const d = new Date();
-  if (preset === 'in_1_hour') {
-    d.setHours(d.getHours() + 1);
-    return d;
-  }
-  if (preset === 'tomorrow_9am') {
-    d.setDate(d.getDate() + 1);
-    d.setHours(9, 0, 0, 0);
-    return d;
-  }
-  if (preset === 'monday_9am') {
-    const day = d.getDay();
-    const add = day === 1 ? 7 : (8 - day) % 7 || 7;
-    d.setDate(d.getDate() + add);
-    d.setHours(9, 0, 0, 0);
-    return d;
-  }
-  return null;
+  return resolveSchedulePresetAt(preset, {
+    timeZone: payload.timeZone || payload.timezone || DEFAULT_SCHEDULE_TZ
+  });
 }
 
 async function persistScheduledAttachments(messageId, attachments) {

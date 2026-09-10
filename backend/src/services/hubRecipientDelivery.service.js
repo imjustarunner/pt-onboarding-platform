@@ -9,8 +9,11 @@ import PlannedOut, {
 import {
   resolveAvailabilitySchedule,
   isInsideSchedule,
-  nextAvailableAt
+  nextAvailableAt,
+  formatReturnAt,
+  snapToAvailableAt
 } from './availabilityWindow.service.js';
+import { DEFAULT_SCHEDULE_TZ } from '../utils/zonedWallTime.util.js';
 
 function plannedOutEndsAt(po) {
   if (!po) return null;
@@ -25,18 +28,8 @@ function plannedOutEndsAt(po) {
   return end && !Number.isNaN(end.getTime()) ? end : null;
 }
 
-function formatReceiveWhen(date) {
-  try {
-    return new Intl.DateTimeFormat(undefined, {
-      weekday: 'short',
-      month: 'short',
-      day: 'numeric',
-      hour: 'numeric',
-      minute: '2-digit'
-    }).format(date);
-  } catch {
-    return date.toISOString();
-  }
+function formatReceiveWhen(date, timeZone = DEFAULT_SCHEDULE_TZ) {
+  return formatReturnAt(date, timeZone || DEFAULT_SCHEDULE_TZ);
 }
 
 /**
@@ -46,7 +39,8 @@ function formatReceiveWhen(date) {
  *   reason: string|null,
  *   message: string|null,
  *   plannedOut: boolean,
- *   outsideAvailability: boolean
+ *   outsideAvailability: boolean,
+ *   timezone: string|null
  * }>}
  */
 export async function resolveRecipientDeliveryGate({
@@ -61,6 +55,7 @@ export async function resolveRecipientDeliveryGate({
   const name = String(displayName || 'They').trim() || 'They';
   const reasons = [];
   let holdUntil = null;
+  let scheduleTz = DEFAULT_SCHEDULE_TZ;
 
   try {
     if (await PlannedOut.tableExists()) {
@@ -82,8 +77,10 @@ export async function resolveRecipientDeliveryGate({
   }
 
   let outsideAvailability = false;
+  let schedule = null;
   try {
-    const schedule = await resolveAvailabilitySchedule(uid, { agencyId });
+    schedule = await resolveAvailabilitySchedule(uid, { agencyId });
+    scheduleTz = schedule?.timezone || DEFAULT_SCHEDULE_TZ;
     const probe = holdUntil && holdUntil > now ? holdUntil : now;
     if (schedule.enabled) {
       if (!isInsideSchedule(schedule, probe)) {
@@ -115,11 +112,12 @@ export async function resolveRecipientDeliveryGate({
       reason: null,
       message: null,
       plannedOut: false,
-      outsideAvailability: false
+      outsideAvailability: false,
+      timezone: scheduleTz
     };
   }
 
-  const whenLabel = formatReceiveWhen(holdUntil);
+  const whenLabel = formatReceiveWhen(holdUntil, scheduleTz);
   let message;
   if (reasons.includes('planned_out') && outsideAvailability) {
     message = `${name} is planned out and outside availability hours — they will receive this email ${whenLabel}.`;
@@ -135,7 +133,8 @@ export async function resolveRecipientDeliveryGate({
     reason: reasons.join('+') || 'held',
     message,
     plannedOut: reasons.includes('planned_out'),
-    outsideAvailability
+    outsideAvailability,
+    timezone: scheduleTz
   };
 }
 
@@ -150,28 +149,67 @@ export async function resolveSenderDeliveryGate({
 } = {}) {
   const uid = Number(userId || 0);
   if (!uid) {
-    return { availableNow: true, sendAt: null, message: null, outsideAvailability: false };
+    return { availableNow: true, sendAt: null, message: null, outsideAvailability: false, timezone: DEFAULT_SCHEDULE_TZ };
   }
   try {
     const schedule = await resolveAvailabilitySchedule(uid, { agencyId });
+    const tz = schedule?.timezone || DEFAULT_SCHEDULE_TZ;
     if (!schedule.enabled || isInsideSchedule(schedule, now)) {
-      return { availableNow: true, sendAt: null, message: null, outsideAvailability: false };
+      return { availableNow: true, sendAt: null, message: null, outsideAvailability: false, timezone: tz };
     }
     const next = nextAvailableAt(schedule, now);
     if (!next || next.getTime() <= now.getTime() + 2000) {
-      return { availableNow: true, sendAt: null, message: null, outsideAvailability: false };
+      return { availableNow: true, sendAt: null, message: null, outsideAvailability: false, timezone: tz };
     }
-    const whenLabel = formatReceiveWhen(next);
+    const whenLabel = formatReceiveWhen(next, tz);
     return {
       availableNow: false,
       sendAt: next.toISOString(),
       message: `You're outside your availability hours. This will send during your next available time (${whenLabel}).`,
-      outsideAvailability: true
+      outsideAvailability: true,
+      timezone: tz
     };
   } catch (e) {
     console.warn('[hubRecipientDelivery] sender gate:', e?.message || e);
-    return { availableNow: true, sendAt: null, message: null, outsideAvailability: false };
+    return { availableNow: true, sendAt: null, message: null, outsideAvailability: false, timezone: DEFAULT_SCHEDULE_TZ };
   }
+}
+
+/**
+ * Snap a requested send time into the recipient's next open availability window when needed.
+ */
+export async function resolveScheduledSendAgainstAvailability({
+  agencyId,
+  userId,
+  requestedAt,
+  now = new Date()
+} = {}) {
+  const requested = requestedAt instanceof Date ? requestedAt : new Date(requestedAt);
+  if (!userId || Number.isNaN(requested.getTime())) {
+    return {
+      sendAt: Number.isNaN(requested.getTime()) ? null : requested,
+      snapped: false,
+      timezone: DEFAULT_SCHEDULE_TZ,
+      label: null
+    };
+  }
+  const schedule = await resolveAvailabilitySchedule(userId, { agencyId });
+  const tz = schedule?.timezone || DEFAULT_SCHEDULE_TZ;
+  let sendAt = requested;
+  let snapped = false;
+  if (schedule.enabled) {
+    const adjusted = snapToAvailableAt(schedule, requested < now ? now : requested);
+    if (adjusted.getTime() !== requested.getTime()) {
+      sendAt = adjusted;
+      snapped = true;
+    }
+  }
+  return {
+    sendAt,
+    snapped,
+    timezone: tz,
+    label: formatReceiveWhen(sendAt, tz)
+  };
 }
 
 export async function findAgencyUserIdByEmail(agencyId, email) {

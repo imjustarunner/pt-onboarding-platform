@@ -6,6 +6,11 @@
  */
 import UserWorkSchedule from '../models/UserWorkSchedule.model.js';
 import pool from '../config/database.js';
+import {
+  DEFAULT_SCHEDULE_TZ,
+  zonedWallTimeToUtc,
+  isValidTimeZone
+} from '../utils/zonedWallTime.util.js';
 
 export const DEFAULT_AVAILABILITY = Object.freeze({
   days: [1, 2, 3, 4, 5], // Mon–Fri
@@ -20,8 +25,13 @@ function parseMinutes(t) {
   return parseInt(m[1], 10) * 60 + parseInt(m[2], 10);
 }
 
+function normalizeScheduleTz(timeZone) {
+  const tz = String(timeZone || '').trim();
+  return isValidTimeZone(tz) ? tz : DEFAULT_SCHEDULE_TZ;
+}
+
 function localParts(now, timeZone) {
-  const tz = String(timeZone || 'America/New_York').trim() || 'America/New_York';
+  const tz = normalizeScheduleTz(timeZone);
   try {
     const fmt = new Intl.DateTimeFormat('en-US', {
       timeZone: tz,
@@ -49,7 +59,7 @@ function localParts(now, timeZone) {
     };
   } catch {
     return {
-      timeZone: 'America/New_York',
+      timeZone: DEFAULT_SCHEDULE_TZ,
       dayOfWeek: now.getUTCDay(),
       year: now.getUTCFullYear(),
       month: now.getUTCMonth() + 1,
@@ -62,15 +72,17 @@ function localParts(now, timeZone) {
   }
 }
 
-/** Build a Date for local Y-M-D H:M in a timezone (best-effort via offset probe). */
+/** Build a Date for local Y-M-D H:M in a timezone (DST-safe). */
 function zonedDate({ year, month, day, hour = 0, minute = 0, second = 0 }, timeZone) {
-  const utcGuess = Date.UTC(year, month - 1, day, hour, minute, second);
-  const probe = new Date(utcGuess);
-  const loc = localParts(probe, timeZone);
-  const desiredAsUtcMin = Date.UTC(year, month - 1, day, hour, minute, second) / 60000;
-  const actualAsUtcMin = Date.UTC(loc.year, loc.month - 1, loc.day, loc.hour, loc.minute, loc.second) / 60000;
-  const deltaMin = desiredAsUtcMin - actualAsUtcMin;
-  return new Date(utcGuess + deltaMin * 60000);
+  return zonedWallTimeToUtc({
+    year,
+    month,
+    day,
+    hour,
+    minute,
+    second,
+    timeZone: normalizeScheduleTz(timeZone)
+  });
 }
 
 async function prefsAvailabilityEnabled(userId) {
@@ -102,7 +114,7 @@ export async function resolveAvailabilitySchedule(userId, { agencyId = null } = 
     return {
       enabled: true,
       source: 'default',
-      timezone: 'America/New_York',
+      timezone: DEFAULT_SCHEDULE_TZ,
       blocks: DEFAULT_AVAILABILITY.days.map((d) => ({
         dayOfWeek: d,
         startMinutes: DEFAULT_AVAILABILITY.startMinutes,
@@ -113,10 +125,18 @@ export async function resolveAvailabilitySchedule(userId, { agencyId = null } = 
 
   const enabled = await prefsAvailabilityEnabled(uid);
   if (!enabled) {
-    return { enabled: false, source: 'disabled', timezone: 'America/New_York', blocks: [] };
+    return { enabled: false, source: 'disabled', timezone: DEFAULT_SCHEDULE_TZ, blocks: [] };
   }
 
   const data = await UserWorkSchedule.getForUser(uid, { agencyId });
+  const tz = normalizeScheduleTz(data?.timezone);
+
+  // Saved schedule explicitly disabled ("Disabled for this user") = always available.
+  // Matches WorkHoursEditor / ScheduleAvailabilityGrid semantics.
+  if (data?.schedule && data.isActive === false) {
+    return { enabled: false, source: 'disabled', timezone: tz, blocks: [] };
+  }
+
   if (data?.isActive && data.blocks?.length) {
     const blocks = [];
     for (const b of data.blocks) {
@@ -133,7 +153,7 @@ export async function resolveAvailabilitySchedule(userId, { agencyId = null } = 
       return {
         enabled: true,
         source: 'override',
-        timezone: String(data.timezone || 'America/New_York'),
+        timezone: tz,
         blocks
       };
     }
@@ -142,7 +162,7 @@ export async function resolveAvailabilitySchedule(userId, { agencyId = null } = 
   return {
     enabled: true,
     source: 'default',
-    timezone: String(data?.timezone || 'America/New_York'),
+    timezone: tz,
     blocks: DEFAULT_AVAILABILITY.days.map((d) => ({
       dayOfWeek: d,
       startMinutes: DEFAULT_AVAILABILITY.startMinutes,
@@ -280,16 +300,53 @@ export function addBusinessHours(schedule, from, businessHours) {
 export function formatReturnAt(date, timeZone) {
   try {
     return new Intl.DateTimeFormat('en-US', {
-      timeZone: timeZone || 'America/New_York',
-      weekday: 'long',
+      timeZone: normalizeScheduleTz(timeZone),
+      weekday: 'short',
       month: 'short',
       day: 'numeric',
       hour: 'numeric',
-      minute: '2-digit'
+      minute: '2-digit',
+      timeZoneName: 'short'
     }).format(date);
   } catch {
     return date.toISOString();
   }
+}
+
+/**
+ * Resolve Hub / inbox schedule presets in an explicit IANA zone (default MST/MDT).
+ */
+export function resolveSchedulePresetAt(preset, { now = new Date(), timeZone = DEFAULT_SCHEDULE_TZ } = {}) {
+  const p = String(preset || '').toLowerCase().trim();
+  if (!p) return null;
+  const tz = normalizeScheduleTz(timeZone);
+  if (p === 'in_1_hour') return new Date(now.getTime() + 60 * 60 * 1000);
+
+  const loc = localParts(now, tz);
+  if (p === 'tomorrow_9am') {
+    return zonedDate(
+      { year: loc.year, month: loc.month, day: loc.day + 1, hour: 9, minute: 0, second: 0 },
+      tz
+    );
+  }
+  if (p === 'monday_9am') {
+    const add = loc.dayOfWeek === 1 ? 7 : (8 - loc.dayOfWeek) % 7 || 7;
+    return zonedDate(
+      { year: loc.year, month: loc.month, day: loc.day + add, hour: 9, minute: 0, second: 0 },
+      tz
+    );
+  }
+  return null;
+}
+
+/**
+ * If `when` falls outside availability, snap to the next open window.
+ */
+export function snapToAvailableAt(schedule, when = new Date()) {
+  const at = when instanceof Date ? when : new Date(when);
+  if (!schedule?.enabled || Number.isNaN(at.getTime())) return at;
+  if (isInsideSchedule(schedule, at)) return at;
+  return nextAvailableAt(schedule, at);
 }
 
 export default {
@@ -299,5 +356,7 @@ export default {
   isUserAvailable,
   nextAvailableAt,
   addBusinessHours,
-  formatReturnAt
+  formatReturnAt,
+  resolveSchedulePresetAt,
+  snapToAvailableAt
 };

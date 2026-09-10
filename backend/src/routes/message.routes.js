@@ -23,6 +23,7 @@ import {
   getMessagesHubPersonFiles,
   getMessagesHubPersonActivity,
   postMessagesHubSend,
+  postMessagesHubPreviewSchedule,
   postMessagesHubEnsureThread,
   getMessagesHubAliases,
   getMessagesHubSendAgencies,
@@ -68,6 +69,7 @@ router.get('/hub/people/:personKey', getMessagesHubPerson);
 router.get('/hub/aliases', getMessagesHubAliases);
 router.get('/hub/send-agencies', getMessagesHubSendAgencies);
 router.get('/hub/signature-preview', getMessagesHubSignaturePreview);
+router.post('/hub/preview-schedule', postMessagesHubPreviewSchedule);
 router.post('/hub/send', postMessagesHubSend);
 router.post('/hub/ensure-thread', postMessagesHubEnsureThread);
 router.post('/hub/react', postMessagesHubReact);

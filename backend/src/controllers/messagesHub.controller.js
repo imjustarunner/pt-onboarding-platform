@@ -475,6 +475,45 @@ export const postMessagesHubEnsureThread = async (req, res, next) => {
  * POST /api/messages/hub/send
  * body: { agencyId, personKey, method, body, subject?, cc?, bcc?, attachments?, fromAliasIdentityId? }
  */
+export const postMessagesHubPreviewSchedule = async (req, res, next) => {
+  try {
+    const agencyId = parseAgencyId(req);
+    const personKey = String(req.body?.personKey || '').trim();
+    const requestedRaw = req.body?.scheduledSendAt;
+    if (!personKey) return res.status(400).json({ error: { message: 'personKey is required' } });
+    if (!requestedRaw) return res.status(400).json({ error: { message: 'scheduledSendAt is required' } });
+
+    const person = await resolveHubPerson({
+      agencyId,
+      userId: req.user.id,
+      personKey,
+      role: req.user.role
+    });
+    if (!person) return res.status(404).json({ error: { message: 'Person not found' } });
+
+    const { resolveScheduledSendAgainstAvailability } = await import(
+      '../services/hubRecipientDelivery.service.js'
+    );
+    const snapped = await resolveScheduledSendAgainstAvailability({
+      agencyId: person.agencyId || agencyId,
+      userId: person.userId,
+      requestedAt: requestedRaw
+    });
+    return res.json({
+      ok: true,
+      requestedAt: new Date(requestedRaw).toISOString(),
+      scheduledSendAt: snapped.sendAt?.toISOString?.() || null,
+      scheduledSendAtLabel: snapped.label,
+      snapped: !!snapped.snapped,
+      timezone: snapped.timezone,
+      availableNow: person.deliveryGate?.availableNow !== false,
+      deliveryGate: person.deliveryGate || null
+    });
+  } catch (e) {
+    return next(e);
+  }
+};
+
 export const postMessagesHubSend = async (req, res, next) => {
   try {
     let agencyId = parseAgencyId(req);

@@ -297,7 +297,7 @@ const load = async () => {
     const data = resp.data || {};
     const suggested = String(data.suggestedTimezone || data.timezone || '').trim();
     const browserTz = detectLocalTimezone();
-    timezone.value = suggested || browserTz || 'America/New_York';
+    timezone.value = suggested || browserTz || 'America/Denver';
     homeState.value = String(data.homeState || '').trim();
     if (data.hasSavedSchedule) {
       timezoneSource.value = 'work_schedule';
@@ -318,7 +318,7 @@ const load = async () => {
     await loadOuts();
   } catch (e) {
     error.value = e?.response?.data?.error?.message || e?.message || 'Failed to load availability hours';
-    timezone.value = detectLocalTimezone() || 'America/New_York';
+    timezone.value = detectLocalTimezone() || 'America/Denver';
     timezoneSource.value = 'browser';
     isActive.value = true;
   } finally {

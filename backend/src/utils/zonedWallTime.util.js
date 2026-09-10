@@ -43,7 +43,7 @@ export function getTimeZoneOffsetMs(date, timeZone) {
 }
 
 export function zonedWallTimeToUtc({ year, month, day, hour, minute, second = 0, timeZone }) {
-  const tz = isValidTimeZone(timeZone) ? String(timeZone).trim() : 'America/New_York';
+  const tz = isValidTimeZone(timeZone) ? String(timeZone).trim() : 'America/Denver';
   let guess = new Date(Date.UTC(year, month - 1, day, hour, minute, second));
   for (let i = 0; i < 2; i += 1) {
     const offset = getTimeZoneOffsetMs(guess, tz);
@@ -62,7 +62,7 @@ export function utcDateToZonedYmd(date, timeZone) {
   if (date == null) return null;
   const d = date instanceof Date ? date : new Date(date);
   if (!Number.isFinite(d.getTime())) return null;
-  const tz = isValidTimeZone(timeZone) ? String(timeZone).trim() : 'America/New_York';
+  const tz = isValidTimeZone(timeZone) ? String(timeZone).trim() : 'America/Denver';
   try {
     const dtf = new Intl.DateTimeFormat('en-US', {
       timeZone: tz,
@@ -136,7 +136,7 @@ export function zonedDateHourToMysqlUtc(dateYmd, hour24, timeZone) {
 export function utcDateToZonedParts(date, timeZone) {
   const d = date instanceof Date ? date : new Date(date);
   if (!Number.isFinite(d.getTime())) return null;
-  const tz = isValidTimeZone(timeZone) ? String(timeZone).trim() : 'America/New_York';
+  const tz = isValidTimeZone(timeZone) ? String(timeZone).trim() : 'America/Denver';
   try {
     const dtf = new Intl.DateTimeFormat('en-US', {
       timeZone: tz,
