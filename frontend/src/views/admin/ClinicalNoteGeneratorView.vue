@@ -1028,8 +1028,8 @@
             </button>
           </div>
           <p class="na-field-hint">
-            The original signed note stays on file. Attach an addendum below for additional session information,
-            or create an amendment copy if the narrative itself must be rewritten.
+            Every signed copy is kept forever — nothing is overwritten. Attach an addendum to this note for extra
+            session information, or create an amendment to produce a new signed note while the original stays on file.
           </p>
           <p v-if="approvalError" class="na-delete-err">{{ approvalError }}</p>
           <ClinicalNoteDetailFetcher
@@ -3689,7 +3689,7 @@ async function beginAmendmentFromSignedNote() {
   viewingChartNote.value = null;
   noteWizardStep.value = 2;
   collapseSidebarsForNote();
-  approvalMessage.value = `Amendment draft — original note #${amendmentParentNoteId.value} stays on file. Save and sign to create the updated copy.`;
+  approvalMessage.value = `Amendment draft — original note #${amendmentParentNoteId.value} stays on file forever. Save and sign to create a new signed copy (both versions are retained).`;
   await saveDraftNow();
 }
 const showInteractiveComplexityOption = computed(() => {
@@ -4297,7 +4297,7 @@ const regenerateDisabled = computed(() => !canRegenerateFromDraft.value);
 
 const regenerateButtonLabel = computed(() => {
   if (generating.value) return 'Regenerating…';
-  if (amendmentParentNoteId.value) return 'Regenerate as addendum format';
+  if (amendmentParentNoteId.value) return 'Regenerate as amendment format';
   if (serviceCodeChangedAfterGenerate.value) return 'Regenerate with new service code format';
   if (hasRevisionAdditions.value) return 'Regenerate with new additions';
   return 'Regenerate note';
@@ -5623,7 +5623,7 @@ const generateNote = async () => {
     serviceCodeChangedAfterGenerate.value = false;
     if (amendmentParentNoteId.value) {
       approvalMessage.value =
-        `Regenerated with the new format — signing will save this as an addendum to note #${amendmentParentNoteId.value}.`;
+        `Regenerated with the new format — signing will save a new signed amendment copy of note #${amendmentParentNoteId.value} (original retained).`;
     }
     if (res?.data?.draftId) {
       draftId.value = res.data.draftId;

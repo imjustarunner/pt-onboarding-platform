@@ -313,7 +313,7 @@
 
     <section v-if="!compact" class="ccn-block" aria-label="Addenda">
       <h4 class="ccn-block-title">Addenda</h4>
-      <p class="ccn-field-hint">Additional information attached to this signed note. The original narrative stays unchanged.</p>
+      <p class="ccn-field-hint">Each addendum is saved on this signed note; the original narrative is never replaced. All addenda stay in the permanent record.</p>
       <article v-for="item in addenda" :key="item.id" class="ccn-addendum">
         <p>{{ item.body }}</p>
         <small>{{ formatTimestamp(item.createdAt) }} · user #{{ item.createdByUserId }}</small>

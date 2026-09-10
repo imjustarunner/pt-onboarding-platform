@@ -229,6 +229,8 @@
           <li v-for="l in serviceLocations" :key="l.id">
             <strong>{{ l.name }}</strong>
             <span>POS {{ l.place_of_service }}</span>
+            <span v-if="l.default_modifiers" class="muted">mods {{ l.default_modifiers }}</span>
+            <span v-if="l.location_kind" class="muted"> · {{ l.location_kind }}</span>
             <span v-if="l.billing_office_name" class="muted">bills under {{ l.billing_office_name }}</span>
             <span v-else class="muted">no billing office linked</span>
             <span v-if="schoolNameForLocation(l)" class="muted"> · {{ schoolNameForLocation(l) }}</span>
@@ -275,13 +277,22 @@
         </ul>
         <p v-else class="muted">No claims yet. Signed Note Aid notes draft claims here for billing review (no auto Claim.MD submit).</p>
 
-        <h3 style="margin-top: 1.25rem;">Billing overrides (claim-side POS)</h3>
-        <p class="muted">Remap place of service on claims only (e.g. payer requires 12 instead of 03). Providers still see the real service location on schedule/notes.</p>
+        <h3 style="margin-top: 1.25rem;">Billing overrides (claim-side)</h3>
+        <p class="muted">
+          Remap place of service, billing NPI, taxonomy, or modifiers on claims only
+          (e.g. Medicaid → NPI 1215615711). Providers still see the real service location on schedule/notes.
+        </p>
         <div class="mb-row">
           <select v-model="overrideForm.scope" class="mb-input">
             <option value="payer">Payer</option>
             <option value="client">Client</option>
             <option value="claim">Claim</option>
+          </select>
+          <select v-model="overrideForm.fieldKey" class="mb-input">
+            <option value="place_of_service">Place of service</option>
+            <option value="billing_npi">Billing NPI</option>
+            <option value="taxonomy_code">Taxonomy</option>
+            <option value="modifiers">Modifiers</option>
           </select>
           <input
             v-if="overrideForm.scope === 'payer'"
@@ -303,17 +314,27 @@
             type="number"
             placeholder="Claim ID"
           />
-          <input v-model="overrideForm.fromValue" class="mb-input" placeholder="From POS (e.g. 03)" maxlength="2" />
-          <input v-model="overrideForm.toValue" class="mb-input" placeholder="To POS (e.g. 12)" maxlength="2" />
+          <input
+            v-model="overrideForm.fromValue"
+            class="mb-input"
+            :placeholder="overrideForm.fieldKey === 'place_of_service' ? 'From POS (optional)' : 'From value (optional)'"
+            :maxlength="overrideForm.fieldKey === 'place_of_service' ? 2 : 32"
+          />
+          <input
+            v-model="overrideForm.toValue"
+            class="mb-input"
+            :placeholder="overrideForm.fieldKey === 'billing_npi' ? 'To NPI' : (overrideForm.fieldKey === 'place_of_service' ? 'To POS' : 'To value')"
+            :maxlength="overrideForm.fieldKey === 'place_of_service' ? 2 : 32"
+          />
           <button type="button" class="mb-btn" @click="saveOverride">Save override</button>
         </div>
         <ul class="mb-list">
           <li v-for="o in claimOverrides" :key="o.id">
-            #{{ o.id }} · {{ o.scope }}
+            #{{ o.id }} · {{ o.scope }} · {{ o.field_key || 'place_of_service' }}
             <template v-if="o.payer_name"> · {{ o.payer_name }}</template>
             <template v-if="o.client_id"> · client {{ o.client_id }}</template>
             <template v-if="o.claim_id"> · claim {{ o.claim_id }}</template>
-            · POS {{ o.from_value || '*' }} → {{ o.to_value }}
+            · {{ o.from_value || '*' }} → {{ o.to_value }}
             <span v-if="!o.is_active" class="muted"> (inactive)</span>
           </li>
         </ul>
@@ -380,6 +401,7 @@ const claimsLoading = ref(false);
 const claimOverrides = ref([]);
 const overrideForm = ref({
   scope: 'payer',
+  fieldKey: 'place_of_service',
   payerName: '',
   clientId: null,
   claimId: null,
@@ -815,7 +837,7 @@ const saveOverride = async () => {
       claimId: overrideForm.value.scope === 'claim' ? overrideForm.value.claimId : null,
       fromValue: overrideForm.value.fromValue || null,
       toValue: overrideForm.value.toValue,
-      fieldKey: 'place_of_service'
+      fieldKey: overrideForm.value.fieldKey || 'place_of_service'
     });
     await loadClaimOverrides();
   } catch (e) {
@@ -829,6 +851,7 @@ const quickClaimPosOverride = async (claim) => {
   if (!to) return;
   overrideForm.value = {
     scope: 'claim',
+    fieldKey: 'place_of_service',
     payerName: '',
     clientId: null,
     claimId: Number(claim.id),

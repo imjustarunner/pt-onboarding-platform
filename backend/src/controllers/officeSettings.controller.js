@@ -123,18 +123,46 @@ export const createOffice = async (req, res, next) => {
       timezone: timezone || 'America/New_York',
       svgMarkup: null
     });
-    // Store svg_url if provided (best-effort; column may not exist yet if migration not applied)
-    if (svgUrl) {
+    // Practice / address fields + svg_url (best-effort if columns missing)
+    const practicePatch = {
+      svg_url: svgUrl != null ? String(svgUrl).trim() : undefined,
+      street_address: req.body?.streetAddress ?? req.body?.street_address,
+      city: req.body?.city,
+      state: req.body?.state,
+      postal_code: req.body?.postalCode ?? req.body?.postal_code,
+      practice_name: req.body?.practiceName ?? req.body?.practice_name,
+      phone: req.body?.phone,
+      fax: req.body?.fax,
+      practice_npi: req.body?.practiceNpi ?? req.body?.practice_npi,
+      taxonomy_code: req.body?.taxonomyCode ?? req.body?.taxonomy_code,
+      default_modifiers: req.body?.defaultModifiers ?? req.body?.default_modifiers,
+      default_place_of_service: req.body?.defaultPlaceOfService ?? req.body?.default_place_of_service,
+      services_provided_at_address: req.body?.servicesProvidedAtAddress ?? req.body?.services_provided_at_address,
+      telehealth_default: req.body?.telehealthDefault ?? req.body?.telehealth_default,
+      use_as_billing_address: req.body?.useAsBillingAddress ?? req.body?.use_as_billing_address
+    };
+    const cleanedPatch = Object.fromEntries(
+      Object.entries(practicePatch).filter(([, v]) => v !== undefined)
+    );
+    if (Object.keys(cleanedPatch).length) {
       try {
-        await OfficeLocation.update(loc.id, { svg_url: String(svgUrl).trim() });
+        await OfficeLocation.update(loc.id, cleanedPatch);
       } catch {
-        // ignore
+        // ignore missing columns
       }
     }
     // Auto-assign creating agency (OfficeLocation.create already does best-effort too)
     await OfficeLocationAgency.add({ officeLocationId: loc.id, agencyId: aid });
 
-    res.status(201).json(loc);
+    try {
+      const { ensureOfficePosTemplates } = await import('../services/officeBillingSites.service.js');
+      await ensureOfficePosTemplates(aid, loc.id, { actorUserId: req.user.id });
+    } catch {
+      // POS templates require migration 1406 columns — best-effort
+    }
+
+    const refreshed = await OfficeLocation.findById(loc.id);
+    res.status(201).json(refreshed || loc);
   } catch (e) {
     next(e);
   }
@@ -169,16 +197,28 @@ export const updateOffice = async (req, res, next) => {
     const ok = await requireOfficeAccess(req, officeId);
     if (!ok) return res.status(403).json({ error: { message: 'Access denied' } });
 
-    const updated = await OfficeLocation.update(officeId, {
+    const raw = {
       name: req.body?.name,
       timezone: req.body?.timezone,
       svg_url: req.body?.svgUrl,
-      street_address: req.body?.streetAddress,
+      street_address: req.body?.streetAddress ?? req.body?.street_address,
       city: req.body?.city,
       state: req.body?.state,
-      postal_code: req.body?.postalCode,
-      is_active: req.body?.isActive
-    });
+      postal_code: req.body?.postalCode ?? req.body?.postal_code,
+      is_active: req.body?.isActive,
+      practice_name: req.body?.practiceName ?? req.body?.practice_name,
+      phone: req.body?.phone,
+      fax: req.body?.fax,
+      practice_npi: req.body?.practiceNpi ?? req.body?.practice_npi,
+      taxonomy_code: req.body?.taxonomyCode ?? req.body?.taxonomy_code,
+      default_modifiers: req.body?.defaultModifiers ?? req.body?.default_modifiers,
+      default_place_of_service: req.body?.defaultPlaceOfService ?? req.body?.default_place_of_service,
+      services_provided_at_address: req.body?.servicesProvidedAtAddress ?? req.body?.services_provided_at_address,
+      telehealth_default: req.body?.telehealthDefault ?? req.body?.telehealth_default,
+      use_as_billing_address: req.body?.useAsBillingAddress ?? req.body?.use_as_billing_address
+    };
+    const patch = Object.fromEntries(Object.entries(raw).filter(([, v]) => v !== undefined));
+    const updated = await OfficeLocation.update(officeId, patch);
     res.json(updated);
   } catch (e) {
     next(e);
@@ -196,8 +236,45 @@ export const archiveOffice = async (req, res, next) => {
     const loc = await OfficeLocation.findById(officeId);
     if (!loc) return res.status(404).json({ error: { message: 'Office location not found' } });
 
+    const replacementOfficeId = parseInt(req.body?.replacementOfficeId || req.body?.replacement_office_id || 0, 10) || 0;
+    let transition = null;
+    if (replacementOfficeId) {
+      const { transitionOfficeBillingSites } = await import('../services/officeBillingSites.service.js');
+      transition = await transitionOfficeBillingSites({
+        fromOfficeId: officeId,
+        toOfficeId: replacementOfficeId,
+        agencyId: loc.agency_id,
+        actorUserId: req.user.id,
+        req
+      });
+      // Ensure POS templates exist on the replacement office for this agency.
+      try {
+        const { ensureOfficePosTemplates } = await import('../services/officeBillingSites.service.js');
+        await ensureOfficePosTemplates(loc.agency_id, replacementOfficeId, { actorUserId: req.user.id });
+      } catch {
+        // best-effort
+      }
+    } else {
+      // Surface a warning payload so UI can prompt for a replacement DENVER/etc. office.
+      const [linked] = await pool.execute(
+        `SELECT COUNT(*) AS c FROM agency_service_locations
+         WHERE billing_office_location_id = ? AND is_active = 1`,
+        [officeId]
+      );
+      const linkedCount = Number(linked?.[0]?.c || 0);
+      if (linkedCount > 0) {
+        return res.status(409).json({
+          error: {
+            message: `${linkedCount} service location(s) still bill under this office. Pass replacementOfficeId to move them (e.g. a new Denver office) before archiving.`,
+            code: 'office_has_billing_sites',
+            linkedServiceLocationCount: linkedCount
+          }
+        });
+      }
+    }
+
     const updated = await OfficeLocation.update(officeId, { is_active: false });
-    res.json({ ok: true, office: updated });
+    res.json({ ok: true, office: updated, transition });
   } catch (e) {
     next(e);
   }

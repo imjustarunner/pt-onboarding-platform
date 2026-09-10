@@ -3570,7 +3570,7 @@
             >
               <option :value="0">{{ bookingServiceLocationOptions.length ? 'Select location…' : 'No locations yet…' }}</option>
               <option v-for="loc in bookingServiceLocationOptions" :key="`loc-main-${loc.id}`" :value="loc.id">
-                {{ loc.name }} (POS {{ loc.placeOfService }}){{ loc.billingOfficeName ? ` · bills under ${loc.billingOfficeName}` : '' }}
+                {{ loc.name }}{{ loc.locationKind === 'office_pos' ? '' : (loc.placeOfService ? ` (POS ${loc.placeOfService})` : '') }}
               </option>
             </select>
             <div v-if="bookingUnitPreview" class="muted nr-help" style="margin-top: 6px;">{{ bookingUnitPreview }}</div>
@@ -13958,15 +13958,17 @@ const editorServiceLocationOptions = computed(() => {
   const base = rows
     .filter((loc) => !allowed || !loc.placeOfService || allowed.has(String(loc.placeOfService)))
     .map((loc) => {
-      const pos = loc.placeOfService ? `POS ${loc.placeOfService}` : '';
-      const office = loc.billingOfficeName ? loc.billingOfficeName : '';
-      const bits = [loc.name, office || (loc.schoolOrganizationId ? 'School site' : ''), pos].filter(Boolean);
+      const isOfficePos = String(loc.locationKind || '') === 'office_pos';
+      const pos = !isOfficePos && loc.placeOfService ? `POS ${loc.placeOfService}` : '';
+      const office = isOfficePos ? '' : (loc.billingOfficeName || (loc.schoolOrganizationId ? 'School site' : ''));
+      const bits = [loc.name, office, pos].filter(Boolean);
       return {
         id: loc.id,
         label: bits.join(' · '),
         placeOfService: loc.placeOfService,
         isSchool: Number(loc.schoolOrganizationId || 0) > 0 || loc.placeOfService === '03',
         schoolOrganizationId: Number(loc.schoolOrganizationId || 0) || 0,
+        defaultModifiers: loc.defaultModifiers || '',
         name: loc.name
       };
     });
@@ -15721,6 +15723,8 @@ const bookingServiceLocationOptions = computed(() => {
     name: String(row?.name || '').trim() || `Location #${row?.id}`,
     placeOfService: String(row?.place_of_service || row?.placeOfService || '').trim(),
     billingOfficeName: String(row?.billing_office_name || row?.billingOfficeName || '').trim(),
+    locationKind: String(row?.location_kind || row?.locationKind || '').trim(),
+    defaultModifiers: String(row?.default_modifiers || row?.defaultModifiers || '').trim(),
     schoolOrganizationId: Number(row?.school_organization_id || row?.schoolOrganizationId || 0) || 0
   })).filter((row) => row.id > 0);
 });

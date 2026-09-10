@@ -12,19 +12,35 @@ function payerMatches(ruleName, clientPayer) {
   return a === b || b.includes(a) || a.includes(b);
 }
 
+function isMedicaidPayer(name) {
+  const n = String(name || '').toLowerCase();
+  return /\bmedicaid\b/.test(n) || /\bhcpf\b/.test(n) || /\bcobp\b/.test(n);
+}
+
 /**
  * Apply claim-side overrides (never mutates schedule/session POS).
  * Most specific wins: claim → client → payer.
+ * Supports field_key: place_of_service | billing_npi | taxonomy_code | modifiers
  */
 export async function applyBillingClaimOverrides({
   agencyId,
   clientId = null,
   claimId = null,
   placeOfService = null,
+  billingNpi = null,
+  taxonomyCode = null,
+  modifiers = null,
   payerName = null
 } = {}) {
   const aid = Number(agencyId || 0);
-  if (!aid) return { placeOfService: placeOfService || null, applied: [] };
+  const empty = {
+    placeOfService: placeOfService || null,
+    billingNpi: billingNpi || null,
+    taxonomyCode: taxonomyCode || null,
+    modifiers: modifiers || null,
+    applied: []
+  };
+  if (!aid) return empty;
 
   let resolvedPayer = payerName || null;
   if (!resolvedPayer && clientId) {
@@ -46,7 +62,6 @@ export async function applyBillingClaimOverrides({
        FROM billing_claim_overrides
        WHERE agency_id = ?
          AND is_active = 1
-         AND field_key = 'place_of_service'
        ORDER BY
          CASE scope WHEN 'claim' THEN 1 WHEN 'client' THEN 2 WHEN 'payer' THEN 3 ELSE 9 END,
          id DESC`,
@@ -55,45 +70,73 @@ export async function applyBillingClaimOverrides({
     rules = rows || [];
   } catch (e) {
     if (String(e?.code || '') === 'ER_NO_SUCH_TABLE' || String(e?.message || '').includes('billing_claim_overrides')) {
-      return { placeOfService: placeOfService || null, applied: [] };
+      return { ...empty, payerName: resolvedPayer };
     }
     throw e;
   }
 
   let pos = placeOfService || null;
+  let npi = billingNpi || null;
+  let taxonomy = taxonomyCode || null;
+  let mods = modifiers || null;
   const applied = [];
-  const current = normPos(pos);
+  const appliedFields = new Set();
 
   for (const rule of rules) {
     const scope = String(rule.scope || '').toLowerCase();
+    const field = String(rule.field_key || 'place_of_service').trim().toLowerCase() || 'place_of_service';
+    if (appliedFields.has(field)) continue;
+
     if (scope === 'claim') {
       if (!claimId || Number(rule.claim_id) !== Number(claimId)) continue;
     } else if (scope === 'client') {
       if (!clientId || Number(rule.client_id) !== Number(clientId)) continue;
     } else if (scope === 'payer') {
       if (!payerMatches(rule.payer_name, resolvedPayer)) continue;
+      // Medicaid NPI rules also match generic Medicaid payers even if rule says "Medicaid"
+      if (field === 'billing_npi' && /medicaid/i.test(String(rule.payer_name || '')) && !isMedicaidPayer(resolvedPayer)) {
+        continue;
+      }
     } else {
       continue;
     }
 
-    const from = normPos(rule.from_value);
-    const to = normPos(rule.to_value);
+    const to = rule.to_value != null ? String(rule.to_value).trim() : '';
     if (!to) continue;
-    if (from && current && from !== current) continue;
-    if (!from && !current) continue;
 
-    pos = to;
-    applied.push({
-      overrideId: Number(rule.id),
-      scope,
-      field: 'place_of_service',
-      from: from || current,
-      to
-    });
-    break;
+    if (field === 'place_of_service') {
+      const from = normPos(rule.from_value);
+      const current = normPos(pos);
+      if (from && current && from !== current) continue;
+      if (!from && !current) continue;
+      pos = to.length <= 2 ? normPos(to) : to;
+      applied.push({ overrideId: Number(rule.id), scope, field, from: from || current, to: pos });
+      appliedFields.add(field);
+    } else if (field === 'billing_npi') {
+      const from = rule.from_value != null ? String(rule.from_value).trim() : '';
+      if (from && npi && from !== String(npi)) continue;
+      npi = to;
+      applied.push({ overrideId: Number(rule.id), scope, field, from: from || billingNpi, to: npi });
+      appliedFields.add(field);
+    } else if (field === 'taxonomy_code') {
+      taxonomy = to;
+      applied.push({ overrideId: Number(rule.id), scope, field, from: taxonomyCode, to: taxonomy });
+      appliedFields.add(field);
+    } else if (field === 'modifiers') {
+      mods = to;
+      applied.push({ overrideId: Number(rule.id), scope, field, from: modifiers, to: mods });
+      appliedFields.add(field);
+    }
   }
 
-  return { placeOfService: pos, applied, payerName: resolvedPayer };
+  return {
+    placeOfService: pos,
+    billingNpi: npi,
+    taxonomyCode: taxonomy,
+    modifiers: mods,
+    applied,
+    payerName: resolvedPayer
+  };
 }
 
 export async function listBillingClaimOverrides(agencyId) {

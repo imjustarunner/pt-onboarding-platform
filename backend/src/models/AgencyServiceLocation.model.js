@@ -79,15 +79,20 @@ class AgencyServiceLocation {
       requiresCredentialing = false,
       billingOfficeLocationId = null,
       schoolOrganizationId = null,
-      createdByUserId = null
+      createdByUserId = null,
+      locationKind = 'custom',
+      defaultModifiers = null,
+      isProviderVisible = true
     } = payload;
     const schoolOrgId = Number(schoolOrganizationId || 0) || null;
+    const kind = String(locationKind || 'custom').trim().slice(0, 32) || 'custom';
     try {
       const [result] = await pool.execute(
         `INSERT INTO agency_service_locations
            (agency_id, name, place_of_service, street_address, city, state, postal_code, notes,
-            requires_credentialing, billing_office_location_id, school_organization_id, created_by_user_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            requires_credentialing, billing_office_location_id, school_organization_id, created_by_user_id,
+            location_kind, default_modifiers, is_provider_visible)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           agencyId,
           String(name || '').trim(),
@@ -100,32 +105,60 @@ class AgencyServiceLocation {
           requiresCredentialing ? 1 : 0,
           billingOfficeLocationId,
           schoolOrgId,
-          createdByUserId
+          createdByUserId,
+          kind,
+          defaultModifiers ? String(defaultModifiers).trim().slice(0, 64) : null,
+          isProviderVisible ? 1 : 0
         ]
       );
       return this.findById(result.insertId);
     } catch (e) {
       if (e?.code !== 'ER_BAD_FIELD_ERROR') throw e;
-      const [result] = await pool.execute(
-        `INSERT INTO agency_service_locations
-           (agency_id, name, place_of_service, street_address, city, state, postal_code, notes,
-            requires_credentialing, billing_office_location_id, created_by_user_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [
-          agencyId,
-          String(name || '').trim(),
-          String(placeOfService || '').trim().slice(0, 2),
-          streetAddress,
-          city,
-          state,
-          postalCode,
-          notes,
-          requiresCredentialing ? 1 : 0,
-          billingOfficeLocationId,
-          createdByUserId
-        ]
-      );
-      return this.findById(result.insertId);
+      try {
+        const [result] = await pool.execute(
+          `INSERT INTO agency_service_locations
+             (agency_id, name, place_of_service, street_address, city, state, postal_code, notes,
+              requires_credentialing, billing_office_location_id, school_organization_id, created_by_user_id)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [
+            agencyId,
+            String(name || '').trim(),
+            String(placeOfService || '').trim().slice(0, 2),
+            streetAddress,
+            city,
+            state,
+            postalCode,
+            notes,
+            requiresCredentialing ? 1 : 0,
+            billingOfficeLocationId,
+            schoolOrgId,
+            createdByUserId
+          ]
+        );
+        return this.findById(result.insertId);
+      } catch (e2) {
+        if (e2?.code !== 'ER_BAD_FIELD_ERROR') throw e2;
+        const [result] = await pool.execute(
+          `INSERT INTO agency_service_locations
+             (agency_id, name, place_of_service, street_address, city, state, postal_code, notes,
+              requires_credentialing, billing_office_location_id, created_by_user_id)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [
+            agencyId,
+            String(name || '').trim(),
+            String(placeOfService || '').trim().slice(0, 2),
+            streetAddress,
+            city,
+            state,
+            postalCode,
+            notes,
+            requiresCredentialing ? 1 : 0,
+            billingOfficeLocationId,
+            createdByUserId
+          ]
+        );
+        return this.findById(result.insertId);
+      }
     }
   }
 
@@ -141,6 +174,9 @@ class AgencyServiceLocation {
       requiresCredentialing: 'requires_credentialing',
       billingOfficeLocationId: 'billing_office_location_id',
       schoolOrganizationId: 'school_organization_id',
+      locationKind: 'location_kind',
+      defaultModifiers: 'default_modifiers',
+      isProviderVisible: 'is_provider_visible',
       isActive: 'is_active'
     };
     const fields = [];
@@ -148,8 +184,9 @@ class AgencyServiceLocation {
     for (const [k, col] of Object.entries(map)) {
       if (updates[k] === undefined) continue;
       fields.push(`${col} = ?`);
-      if (k === 'requiresCredentialing' || k === 'isActive') vals.push(updates[k] ? 1 : 0);
-      else if (k === 'placeOfService') vals.push(String(updates[k] || '').slice(0, 2));
+      if (k === 'requiresCredentialing' || k === 'isActive' || k === 'isProviderVisible') {
+        vals.push(updates[k] ? 1 : 0);
+      } else if (k === 'placeOfService') vals.push(String(updates[k] || '').slice(0, 2));
       else if (k === 'schoolOrganizationId' || k === 'billingOfficeLocationId') {
         vals.push(Number(updates[k] || 0) || null);
       }

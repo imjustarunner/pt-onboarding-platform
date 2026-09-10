@@ -3565,6 +3565,12 @@ export const getBookingMetadata = async (req, res, next) => {
       }
       try {
         serviceLocations = await AgencyServiceLocation.listByAgency(policyAgencyId);
+        const {
+          filterServiceLocationsForProvider,
+          listUserOfficeIds
+        } = await import('../services/officeBillingSites.service.js');
+        const officeIds = await listUserOfficeIds(requestedProviderId || req.user.id);
+        serviceLocations = filterServiceLocationsForProvider(serviceLocations, officeIds);
       } catch {
         serviceLocations = [];
       }

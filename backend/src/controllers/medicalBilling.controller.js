@@ -2170,6 +2170,26 @@ export const createMedicalClaim = async (req, res, next) => {
       }
     }
 
+    // Prefer credentialed office practice NPI when session bills under an office
+    if (!resolvedBillingNpi) {
+      try {
+        const [offRows] = await clinicalPool.execute(
+          `SELECT billing_office_location_id FROM clinical_sessions WHERE id = ? LIMIT 1`,
+          [sessionId]
+        );
+        const oid = Number(offRows?.[0]?.billing_office_location_id || 0);
+        if (oid) {
+          const [ol] = await pool.execute(
+            `SELECT practice_npi FROM office_locations WHERE id = ? LIMIT 1`,
+            [oid]
+          );
+          if (ol?.[0]?.practice_npi) resolvedBillingNpi = String(ol[0].practice_npi).trim();
+        }
+      } catch {
+        // practice_npi column may be missing until migration 1406
+      }
+    }
+
     let lines = Array.isArray(req.body.lines) ? req.body.lines : [];
     let sessionRow = null;
     try {
@@ -2310,7 +2330,6 @@ export const createMedicalClaim = async (req, res, next) => {
     let memberId = req.body.memberId || null;
     if (!payerName || !memberId) {
       try {
-        const pool = (await import('../config/database.js')).default;
         const [cRows] = await pool.execute(
           `SELECT primary_insurer_name, insurance_member_id FROM clients WHERE id = ? LIMIT 1`,
           [clientId]
@@ -2322,6 +2341,27 @@ export const createMedicalClaim = async (req, res, next) => {
       }
     }
 
+    // Seed line modifiers from office POS template (e.g. GT for Telehealth)
+    try {
+      const [sessLocRows] = await clinicalPool.execute(
+        `SELECT service_location_id FROM clinical_sessions WHERE id = ? LIMIT 1`,
+        [sessionId]
+      );
+      const slid = Number(sessLocRows?.[0]?.service_location_id || 0);
+      if (slid && lines.length) {
+        const loc = await AgencyServiceLocation.findById(slid);
+        const mods = String(loc?.default_modifiers || '').trim();
+        if (mods) {
+          const parsed = mods.split(/[,\s]+/).map((m) => m.trim().toUpperCase()).filter(Boolean);
+          if (parsed.length && !lines[0].modifiers) {
+            lines[0] = { ...lines[0], modifiers: parsed };
+          }
+        }
+      }
+    } catch {
+      // optional until migration 1406
+    }
+
     try {
       const { applyBillingClaimOverrides } = await import('../services/applyBillingClaimOverrides.service.js');
       const overrideResult = await applyBillingClaimOverrides({
@@ -2329,9 +2369,11 @@ export const createMedicalClaim = async (req, res, next) => {
         clientId,
         claimId: null,
         placeOfService,
+        billingNpi: resolvedBillingNpi,
         payerName
       });
       if (overrideResult?.placeOfService) placeOfService = overrideResult.placeOfService;
+      if (overrideResult?.billingNpi) resolvedBillingNpi = overrideResult.billingNpi;
     } catch (ovErr) {
       // Table may not exist until migration 1399 runs.
       if (!String(ovErr?.message || '').includes('billing_claim_overrides')) {
@@ -2586,13 +2628,26 @@ export const submitClaimToClaimMd = async (req, res, next) => {
         clientId: claim.client_id,
         claimId,
         placeOfService: claim.place_of_service,
+        billingNpi: claim.billing_npi,
         payerName: claim.payer_name
       });
+      const sets = [];
+      const vals = [];
       if (ov?.placeOfService && ov.placeOfService !== claim.place_of_service) {
         claim.place_of_service = ov.placeOfService;
+        sets.push('place_of_service = ?');
+        vals.push(ov.placeOfService);
+      }
+      if (ov?.billingNpi && ov.billingNpi !== claim.billing_npi) {
+        claim.billing_npi = ov.billingNpi;
+        sets.push('billing_npi = ?');
+        vals.push(ov.billingNpi);
+      }
+      if (sets.length) {
+        vals.push(claimId);
         await clinicalPool.execute(
-          `UPDATE clinical_claims SET place_of_service = ? WHERE id = ?`,
-          [ov.placeOfService, claimId]
+          `UPDATE clinical_claims SET ${sets.join(', ')} WHERE id = ?`,
+          vals
         );
       }
     } catch (ovErr) {
@@ -3047,9 +3102,34 @@ export const ensureSchoolServiceLocation = async (req, res, next) => {
     }
 
     let item = await AgencyServiceLocation.findByAgencyAndSchool(agencyId, schoolOrganizationId);
-    if (item) return res.json({ item, created: false });
+    if (item) {
+      // Keep district→office link fresh when the school already has a location.
+      try {
+        const { resolveBillingOfficeForSchool } = await import('../services/officeBillingSites.service.js');
+        const office = await resolveBillingOfficeForSchool({ agencyId, schoolOrganizationId });
+        const officeId = Number(office?.id || 0) || null;
+        if (officeId && Number(item.billing_office_location_id || 0) !== officeId) {
+          item = await AgencyServiceLocation.update(item.id, {
+            billingOfficeLocationId: officeId,
+            locationKind: 'school'
+          });
+        }
+      } catch {
+        // best-effort
+      }
+      return res.json({ item, created: false });
+    }
 
     let billingOfficeLocationId = parseIntValue(req.body.billingOfficeLocationId);
+    if (!billingOfficeLocationId) {
+      try {
+        const { resolveBillingOfficeForSchool } = await import('../services/officeBillingSites.service.js');
+        const office = await resolveBillingOfficeForSchool({ agencyId, schoolOrganizationId });
+        billingOfficeLocationId = Number(office?.id || 0) || null;
+      } catch {
+        billingOfficeLocationId = null;
+      }
+    }
     if (!billingOfficeLocationId) {
       const offices = await OfficeLocation.findByAgencyMembership(agencyId, { includeInactive: false }).catch(() =>
         OfficeLocation.findByAgency(agencyId, { includeInactive: false })
@@ -3061,11 +3141,13 @@ export const ensureSchoolServiceLocation = async (req, res, next) => {
       agencyId,
       name: String(school.name || '').trim() || `School #${schoolOrganizationId}`,
       placeOfService: '03',
-      notes: 'Auto-added school site. Claims bill under the tenant billing office + POS.',
+      notes: 'Auto-added school site. Claims bill under the linked district office.',
       requiresCredentialing: false,
       billingOfficeLocationId,
       schoolOrganizationId,
-      createdByUserId: req.user.id
+      createdByUserId: req.user.id,
+      locationKind: 'school',
+      isProviderVisible: true
     });
     return res.status(201).json({ item, created: true });
   } catch (e) {

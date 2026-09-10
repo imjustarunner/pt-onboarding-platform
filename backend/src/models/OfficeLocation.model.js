@@ -83,7 +83,15 @@ class OfficeLocation {
       'state',
       'postal_code',
       'default_place_of_service',
-      'use_as_billing_address'
+      'use_as_billing_address',
+      'practice_name',
+      'phone',
+      'fax',
+      'practice_npi',
+      'taxonomy_code',
+      'default_modifiers',
+      'services_provided_at_address',
+      'telehealth_default'
     ];
     const fields = [];
     const values = [];

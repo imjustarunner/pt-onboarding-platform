@@ -601,7 +601,26 @@ const archiveOffice = async () => {
     await api.post(`/offices/${officeId.value}/archive`, {});
     await router.replace({ query: { ...route.query, officeId: undefined } });
   } catch (e) {
-    error.value = e.response?.data?.error?.message || 'Failed to archive building';
+    const err = e.response?.data?.error;
+    if (err?.code === 'office_has_billing_sites') {
+      const replacement = window.prompt(
+        `${err.message}\n\nEnter the replacement office ID to move ${err.linkedServiceLocationCount || 'linked'} service location(s) (e.g. a new Denver office):`
+      );
+      const replacementOfficeId = Number(replacement || 0) || 0;
+      if (!replacementOfficeId) {
+        error.value = err.message || 'Replacement office required before archiving.';
+        return;
+      }
+      try {
+        await api.post(`/offices/${officeId.value}/archive`, { replacementOfficeId });
+        await router.replace({ query: { ...route.query, officeId: undefined } });
+        return;
+      } catch (e2) {
+        error.value = e2.response?.data?.error?.message || 'Failed to archive building';
+        return;
+      }
+    }
+    error.value = err?.message || 'Failed to archive building';
   } finally {
     saving.value = false;
   }
