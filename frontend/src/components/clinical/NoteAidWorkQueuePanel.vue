@@ -815,4 +815,36 @@ function removeQueueTitle(item) {
   padding: 2px 6px;
 }
 .na-wq-delete:hover { color: #b91c1c; }
+
+@media (max-width: 720px) {
+  .na-wq-modes {
+    flex-wrap: wrap;
+  }
+  .na-wq-mode {
+    min-height: 36px;
+  }
+  .na-wq-list {
+    gap: 10px;
+  }
+  .na-wq-item-btn {
+    min-height: 52px;
+    padding: 12px 28px 12px 12px;
+  }
+  .na-wq-item-top {
+    flex-wrap: wrap;
+    align-items: center;
+  }
+  .na-wq-item-top strong {
+    flex: 1 1 auto;
+  }
+  .na-wq-item-meta {
+    margin-top: 6px;
+    line-height: 1.4;
+  }
+  .na-wq-delete {
+    top: 8px;
+    right: 6px;
+    padding: 6px 8px;
+  }
+}
 </style>

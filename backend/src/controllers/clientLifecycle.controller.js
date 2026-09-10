@@ -3,6 +3,9 @@
  */
 import Client from '../models/Client.model.js';
 import User from '../models/User.model.js';
+import {
+  providerHasAssignedClientAccess
+} from '../services/clientRecordAccess.service.js';
 import { getAgencyIntake, saveAgencyIntake } from '../services/clientAgencyIntake.service.js';
 import {
   getDisposition,
@@ -56,8 +59,20 @@ function isProviderRole(role) {
 export async function getClientAgencyIntake(req, res, next) {
   try {
     const client = await loadClientOr404(req.params.id);
-    await assertAgencyAccess(req, client);
-    if (!isAgencyRole(req.user.role)) {
+    const role = String(req.user?.role || '').toLowerCase();
+    // Agency staff always have full access; assigned providers get read-only access.
+    if (isAgencyRole(role)) {
+      await assertAgencyAccess(req, client);
+    } else if (isProviderRole(role)) {
+      const hasAssignment = await providerHasAssignedClientAccess({
+        userId: req.user.id,
+        clientId: client.id,
+        client
+      });
+      if (!hasAssignment) {
+        return res.status(403).json({ error: { message: 'Agency access required' } });
+      }
+    } else {
       return res.status(403).json({ error: { message: 'Agency access required' } });
     }
     const data = await getAgencyIntake(client.id);

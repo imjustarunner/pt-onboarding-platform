@@ -100,6 +100,10 @@
         :embed-open-library="workspace.openLibrary !== false"
         :embed-initial-kind="workspace.initialKind || ''"
         :embed-launch-intent="workspace.launchIntent || ''"
+        :embed-office-event-id="workspace.officeEventId || null"
+        :embed-clinical-session-id="workspace.clinicalSessionId || null"
+        :embed-date-of-service="workspace.dateOfService || ''"
+        :embed-service-code="workspace.serviceCode || ''"
       />
     </div>
 
@@ -175,6 +179,7 @@ import ClientNoteTypePicker from './ClientNoteTypePicker.vue';
 import ClientManualNoteForm from './ClientManualNoteForm.vue';
 import AppointmentChangeWizard from '../../schedule/AppointmentChangeWizard.vue';
 import { useAppointmentChange } from '../../../composables/useAppointmentChange.js';
+import { buildNoteAidQuery, noteAidPath as launchNoteAidPath, toDateOfService } from '../../../utils/noteAidLaunch.js';
 
 const ClinicalNoteGeneratorView = defineAsyncComponent(() =>
   import('../../../views/admin/ClinicalNoteGeneratorView.vue')
@@ -249,9 +254,103 @@ function formatDate(raw) {
 
 function noteAidPath(query = {}) {
   const slug = String(props.organizationSlug || '').trim();
-  const base = slug ? `/${slug}/admin/note-aid` : '/admin/note-aid';
-  const qs = new URLSearchParams(query).toString();
+  const base = launchNoteAidPath({ organizationSlug: slug });
+  const qs = new URLSearchParams(
+    Object.fromEntries(
+      Object.entries(query || {}).filter(([, v]) => v != null && String(v).trim() !== '')
+    )
+  ).toString();
   return qs ? `${base}?${qs}` : base;
+}
+
+async function ensureSessionDraft({ kind = '', launchIntent = '' } = {}) {
+  const agencyId = Number(props.agencyId || 0);
+  const clientId = Number(props.clientId || 0);
+  if (!agencyId || !clientId) {
+    return { draftId: null, dateOfService: null, officeEventId: null, clinicalSessionId: null, serviceCode: null };
+  }
+  let officeEventId = null;
+  let clinicalSessionId = null;
+  let serviceCode = null;
+  let dateOfService = toDateOfService(new Date());
+  try {
+    if (!recentAppointments.value.length) await loadRecentAppointmentsForChange();
+    const today = toDateOfService(new Date());
+    const pick = (recentAppointments.value || []).find((a) => toDateOfService(a.startAt || a.when) === today)
+      || (recentAppointments.value || [])[0]
+      || null;
+    if (pick) {
+      officeEventId = Number(pick.officeEventId || pick.office_event_id || pick.id || 0) || null;
+      clinicalSessionId = Number(pick.clinicalSessionId || pick.clinical_session_id || 0) || null;
+      serviceCode = String(pick.serviceCode || pick.service_code || '').trim() || null;
+      dateOfService = toDateOfService(pick.startAt || pick.when) || today;
+    }
+  } catch {
+    /* best-effort */
+  }
+  let draftId = null;
+  try {
+    const res = await api.post('/clinical-notes/drafts', {
+      agencyId,
+      clientId,
+      officeEventId,
+      clinicalSessionId,
+      dateOfService,
+      serviceCode,
+      initials: null,
+      inputText: ''
+    }, { skipGlobalLoading: true });
+    draftId = res?.data?.draft?.id || null;
+    if (res?.data?.draft?.clinical_session_id) {
+      clinicalSessionId = Number(res.data.draft.clinical_session_id) || clinicalSessionId;
+    }
+  } catch {
+    /* open Note Aid without draft id */
+  }
+  return { draftId, dateOfService, officeEventId, clinicalSessionId, serviceCode, kind, launchIntent };
+}
+
+const fullNoteAidHref = computed(() => {
+  const ws = workspace.value;
+  const base = {
+    clientId: String(props.clientId),
+    agencyId: String(props.agencyId || '')
+  };
+  if (!ws) return noteAidPath(base);
+  if (ws.mode === 'view' && ws.clinicalNoteId) {
+    return noteAidPath({ ...base, clinicalNoteId: String(ws.clinicalNoteId) });
+  }
+  const q = buildNoteAidQuery({
+    clientId: props.clientId,
+    draftId: ws.draftId,
+    officeEventId: ws.officeEventId,
+    clinicalSessionId: ws.clinicalSessionId,
+    dateOfService: ws.dateOfService,
+    serviceCode: ws.serviceCode,
+    launchIntent: ws.launchIntent || 'progress_note'
+  });
+  return noteAidPath({ ...q, agencyId: String(props.agencyId || '') });
+});
+
+function startNewNoteInProfile() {
+  workspace.value = { mode: 'pick-type' };
+}
+
+async function openNoteAid({ kind = '', launchIntent = '' } = {}) {
+  const linked = await ensureSessionDraft({ kind, launchIntent });
+  workspace.value = {
+    mode: 'write',
+    draftId: linked.draftId,
+    clinicalNoteId: null,
+    isNew: !linked.draftId,
+    openLibrary: !linked.draftId,
+    initialKind: kind || '',
+    launchIntent: launchIntent || '',
+    officeEventId: linked.officeEventId,
+    clinicalSessionId: linked.clinicalSessionId,
+    dateOfService: linked.dateOfService,
+    serviceCode: linked.serviceCode
+  };
 }
 
 const claimNoteIds = computed(() => {
@@ -524,23 +623,6 @@ async function createSelfPayCharge(row) {
   }
 }
 
-const fullNoteAidHref = computed(() => {
-  const ws = workspace.value;
-  if (!ws) return noteAidPath({ clientId: String(props.clientId), agencyId: String(props.agencyId || '') });
-  if (ws.mode === 'view' && ws.clinicalNoteId) {
-    return noteAidPath({
-      clientId: String(props.clientId),
-      clinicalNoteId: String(ws.clinicalNoteId),
-      agencyId: String(props.agencyId || '')
-    });
-  }
-  return noteAidPath({
-    clientId: String(props.clientId),
-    draftId: String(ws.draftId || ''),
-    agencyId: String(props.agencyId || '')
-  });
-});
-
 const workspaceTitle = computed(() => {
   const ws = workspace.value;
   if (!ws) return '';
@@ -570,22 +652,6 @@ const workspaceKey = computed(() => {
 
 function closeWorkspace() {
   workspace.value = null;
-}
-
-function startNewNoteInProfile() {
-  workspace.value = { mode: 'pick-type' };
-}
-
-function openNoteAid({ kind = '', launchIntent = '' } = {}) {
-  workspace.value = {
-    mode: 'write',
-    draftId: null,
-    clinicalNoteId: null,
-    isNew: true,
-    openLibrary: true,
-    initialKind: kind || '',
-    launchIntent: launchIntent || ''
-  };
 }
 
 async function onNoteTypeSelected(opt) {
@@ -643,6 +709,9 @@ async function loadRecentAppointmentsForChange() {
         } catch { /* keep */ }
         return {
           id: Number(a.id),
+          officeEventId: Number(a.officeEventId || a.office_event_id || a.id || 0) || null,
+          clinicalSessionId: Number(a.clinicalSessionId || a.clinical_session_id || 0) || null,
+          serviceCode: String(a.serviceCode || a.service_code || '').trim() || null,
           label: `${label} · ${a.title || a.status || 'Appointment'}`,
           startAt: when,
           title: a.title || ''

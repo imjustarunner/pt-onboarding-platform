@@ -148,12 +148,16 @@ watch(
     ) {
       await agencyStore.fetchAgencies();
     }
-    form.agencyId = String(
-      props.defaultAgencyId
-      || agencyStore.currentAgency?.id
-      || tenantOptions.value[0]?.id
-      || ''
-    );
+    // Only use defaultAgencyId / currentAgency if that id is present in tenantOptions;
+    // fall back to the first available tenant to prevent selecting an inaccessible one.
+    const validTenantIds = new Set((tenantOptions.value || []).map((t) => String(t.id)));
+    const candidates = [
+      props.defaultAgencyId,
+      agencyStore.currentAgency?.id,
+      tenantOptions.value[0]?.id
+    ].filter(Boolean).map(String);
+    const chosen = candidates.find((id) => validTenantIds.has(id)) || tenantOptions.value[0]?.id || '';
+    form.agencyId = String(chosen || '');
     await loadProgramsForTenant(form.agencyId);
   }
 );

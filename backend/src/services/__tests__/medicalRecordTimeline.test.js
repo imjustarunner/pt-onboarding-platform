@@ -62,22 +62,49 @@ describe('mergeMedicalRecordSources', () => {
     assert.equal(rows[0].office_event_id, 88);
   });
 
-  it('includes signed notes that have no billing encounter or calendar session', () => {
-    const signedNotes = [
+  it('includes unified appointments and marks future dates as planned', () => {
+    const appointments = [
       {
-        id: 501,
-        client_id: 5,
-        agency_id: 2,
-        title: 'Progress note',
-        note_type: 'PROGRESS',
-        provider_signed_at: '2026-09-01 12:00:00',
-        created_at: '2026-09-01 11:00:00'
+        id: 6,
+        client_id: 2095,
+        agency_id: 419,
+        service_code: '90837',
+        start_at: '2099-01-15 15:00:00',
+        provider_user_id: 595,
+        provider_first_name: 'Robin',
+        provider_last_name: 'Williams'
       }
     ];
-    const rows = mergeMedicalRecordSources({ billing: [], sessions: [], officeEvents: [], signedNotes });
+    const rows = mergeMedicalRecordSources({ appointments });
     assert.equal(rows.length, 1);
-    assert.equal(rows[0].source, 'signed_note');
-    assert.equal(rows[0].note_status, 'signed');
-    assert.equal(rows[0].clinical_note_id, 501);
+    assert.equal(rows[0].source, 'appointment');
+    assert.equal(rows[0].service_code, '90837');
+    assert.equal(rows[0].display_state, 'planned');
+    assert.equal(rows[0].note_status, 'planned');
+  });
+
+  it('merges provider schedule events with appointments on same date+code', () => {
+    const appointments = [
+      {
+        id: 6,
+        client_id: 2095,
+        agency_id: 419,
+        service_code: '90837',
+        start_at: '2026-09-10 15:00:00'
+      }
+    ];
+    const scheduleEvents = [
+      {
+        id: 224,
+        client_id: 2095,
+        agency_id: 419,
+        start_at: '2026-09-10 13:00:00',
+        title: 'Virtual session'
+      }
+    ];
+    const rows = mergeMedicalRecordSources({ appointments, scheduleEvents });
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0].appointment_id, 6);
+    assert.equal(rows[0].provider_schedule_event_id, 224);
   });
 });

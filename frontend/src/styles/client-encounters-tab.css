@@ -392,6 +392,7 @@
 .cc-enc-note-pill--none { background: #f1f5f9; color: #64748b; }
 .cc-enc-note-pill--draft { background: #fef3c7; color: #92400e; }
 .cc-enc-note-pill--signed { background: #dcfce7; color: #166534; }
+.cc-enc-note-pill--planned { background: #e0f2fe; color: #075985; }
 
 .cc-enc-claim-pill--paid { background: #dcfce7; color: #166534; }
 .cc-enc-claim-pill--processed { background: #dbeafe; color: #1e40af; }

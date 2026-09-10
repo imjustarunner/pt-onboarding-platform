@@ -771,8 +771,8 @@ export const createClinicalNoteDraft = async (req, res, next) => {
 
     const serviceCode = req.body?.serviceCode ? normalizeServiceCode(req.body.serviceCode) : null;
     const programId = req.body?.programId ? safeInt(req.body.programId) : null;
-    const officeEventId = req.body?.officeEventId ? safeInt(req.body.officeEventId) : null;
-    const clinicalSessionId = req.body?.clinicalSessionId ? safeInt(req.body.clinicalSessionId) : null;
+    let officeEventId = req.body?.officeEventId ? safeInt(req.body.officeEventId) : null;
+    let clinicalSessionId = req.body?.clinicalSessionId ? safeInt(req.body.clinicalSessionId) : null;
     const dateOfService = req.body?.dateOfService ? normalizeDateOnly(req.body.dateOfService) : null;
     const initials = req.body?.initials ? String(req.body.initials).trim() : null;
     const inputText = req.body?.inputText === undefined ? null : String(req.body.inputText || '');
@@ -783,6 +783,70 @@ export const createClinicalNoteDraft = async (req, res, next) => {
         outputJson = maybeEncryptText(JSON.stringify(req.body.outputJson));
       } else {
         outputJson = maybeEncryptText(String(req.body.outputJson || ''));
+      }
+    }
+
+    // Past / chart-initiated notes: ensure a clinical_sessions row so Medical Record can list the DOS.
+    if (clientId && dateOfService && !clinicalSessionId) {
+      try {
+        const ClinicalSession = (await import('../models/clinical/ClinicalSession.model.js')).default;
+        const clinicalPool = (await import('../config/clinicalDatabase.js')).default;
+        let session = null;
+        if (officeEventId) {
+          session = await ClinicalSession.findByOfficeEventAndClient({ officeEventId, clientId });
+        }
+        if (!session && serviceCode) {
+          session = await ClinicalSession.findUnbilledByClientDateCode({
+            agencyId,
+            clientId,
+            serviceDate: dateOfService,
+            serviceCode
+          });
+        }
+        if (!session) {
+          const [existingRows] = await clinicalPool.execute(
+            `SELECT * FROM clinical_sessions
+             WHERE agency_id = ? AND client_id = ? AND DATE(scheduled_start_at) = ?
+             ORDER BY id DESC LIMIT 1`,
+            [agencyId, clientId, dateOfService]
+          );
+          session = existingRows?.[0] || null;
+        }
+        if (!session) {
+          const startAt = `${dateOfService} 12:00:00`;
+          if (officeEventId) {
+            session = await ClinicalSession.upsert({
+              agencyId,
+              clientId,
+              officeEventId,
+              providerUserId: req.user.id,
+              scheduledStartAt: startAt,
+              scheduledEndAt: null,
+              metadataJson: { source: 'note_aid_draft', serviceCode: serviceCode || null },
+              createdByUserId: req.user.id
+            });
+          } else {
+            const [ins] = await clinicalPool.execute(
+              `INSERT INTO clinical_sessions
+               (agency_id, client_id, office_event_id, provider_user_id, scheduled_start_at,
+                service_code, metadata_json, created_by_user_id)
+               VALUES (?, ?, NULL, ?, ?, ?, ?, ?)`,
+              [
+                agencyId,
+                clientId,
+                req.user.id,
+                startAt,
+                serviceCode || null,
+                JSON.stringify({ source: 'note_aid_draft' }),
+                req.user.id
+              ]
+            );
+            session = await ClinicalSession.findById(ins.insertId);
+          }
+        }
+        if (session?.id) clinicalSessionId = Number(session.id);
+      } catch (sessErr) {
+        console.warn('[createClinicalNoteDraft] ensure clinical session failed', sessErr?.message || sessErr);
       }
     }
 
@@ -804,7 +868,7 @@ export const createClinicalNoteDraft = async (req, res, next) => {
       clientId,
       agencyId,
       action: 'note_aid_draft_created',
-      metadata: { draftId: draft?.id, dateOfService, serviceCode }
+      metadata: { draftId: draft?.id, dateOfService, serviceCode, clinicalSessionId }
     });
   } catch (e) {
     next(e);

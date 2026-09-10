@@ -12050,6 +12050,8 @@ const clearSelectedActionSlots = () => {
 
 // ---- In-grid request creation (self mode) ----
 const showRequestModal = ref(false);
+/** Baseline state captured when modal opens — used by requestModalIsDirty to avoid false positives. */
+const modalOpenBaseline = ref(null);
 const showAdditionalParticipantsPicker = ref(false);
 // Keep modal “Schedule for” in sync when parent changes the viewed user (declared after showRequestModal to avoid TDZ).
 watch(() => props.userId, (uid) => {
@@ -13002,7 +13004,7 @@ const sortQuickActionsSmart = (rows) => {
 
 const visibleQuickActions = computed(() => {
   const rows = Array.isArray(availableQuickActions.value) ? availableQuickActions.value : [];
-  let filtered = rows.filter((row) => row?.visible !== false && row?.id !== 'booked_note' && row?.id !== 'booked_record');
+  let filtered = rows.filter((row) => row?.visible !== false && row?.id !== 'booked_record');
   if (props.hideOfficeAndCalendarIntegration) {
     filtered = filtered.filter((row) => row?.id && CLUB_SCHEDULING_ACTIONS.has(row.id));
   } else {
@@ -17128,11 +17130,21 @@ const isMeetingParticipantsMissing = computed(() => (
 ));
 const requestModalIsDirty = computed(() => {
   if (submitting.value) return true;
-  if (String(requestType.value || '').trim()) return true;
-  if (String(requestNotes.value || '').trim()) return true;
-  if (String(scheduleEventTitle.value || '').trim()) return true;
-  if ((selectedMeetingParticipantIds.value || []).length) return true;
-  if ((virtualSessionSelectedClientIds.value || []).length) return true;
+  const baseline = modalOpenBaseline.value;
+  if (!baseline) {
+    // Modal not yet tracked — fall back to conservative check (excludes bare requestType).
+    if (String(requestNotes.value || '').trim()) return true;
+    if (String(scheduleEventTitle.value || '').trim()) return true;
+    if ((selectedMeetingParticipantIds.value || []).length) return true;
+    if ((virtualSessionSelectedClientIds.value || []).length) return true;
+    return false;
+  }
+  // Dirty only when the user has changed something relative to when the modal opened.
+  if (String(requestType.value || '') !== baseline.requestType) return true;
+  if (String(requestNotes.value || '') !== baseline.requestNotes) return true;
+  if (String(scheduleEventTitle.value || '') !== baseline.scheduleEventTitle) return true;
+  if ((selectedMeetingParticipantIds.value || []).length !== baseline.participantCount) return true;
+  if ((virtualSessionSelectedClientIds.value || []).length !== baseline.clientCount) return true;
   return false;
 });
 const selectedMeetingParticipantChips = computed(() => {
@@ -20368,6 +20380,27 @@ const requestCloseModal = () => {
     void dismissMeetingCreatedShare();
     return;
   }
+  // Existing booked/past sessions: closing without booking-field edits should not prompt.
+  // Session-note typing lives in a child panel and autosaves to drafts.
+  const editingExisting = Number(scheduleEventEditId.value || 0) > 0
+    || Number(editorOfficeEventId.value || 0) > 0;
+  if (editingExisting && !submitting.value) {
+    const baseline = modalOpenBaseline.value;
+    if (baseline) {
+      const bookingChanged =
+        String(requestNotes.value || '') !== baseline.requestNotes
+        || String(scheduleEventTitle.value || '') !== baseline.scheduleEventTitle
+        || (selectedMeetingParticipantIds.value || []).length !== baseline.participantCount
+        || (virtualSessionSelectedClientIds.value || []).length !== baseline.clientCount;
+      if (!bookingChanged) {
+        closeModal();
+        return;
+      }
+    } else {
+      closeModal();
+      return;
+    }
+  }
   if (requestModalIsDirty.value) {
     const ok = window.confirm('Discard this schedule entry? Your unsaved changes will be lost.');
     if (!ok) return;
@@ -22586,6 +22619,26 @@ watch(() => summary.value?.supervisionSessions, (rows) => {
     .map((n) => Number(n || 0))
     .filter((n) => n > 0 && liveIds.has(n));
 }, { deep: true });
+
+// Capture baseline when modal opens so requestModalIsDirty can detect real edits.
+// Re-capture shortly after open so async-loaded title/notes don't look like user edits.
+watch(showRequestModal, (isOpen) => {
+  if (!isOpen) {
+    modalOpenBaseline.value = null;
+    return;
+  }
+  const capture = () => {
+    modalOpenBaseline.value = {
+      requestType: String(requestType.value || ''),
+      requestNotes: String(requestNotes.value || ''),
+      scheduleEventTitle: String(scheduleEventTitle.value || ''),
+      participantCount: (selectedMeetingParticipantIds.value || []).length,
+      clientCount: (virtualSessionSelectedClientIds.value || []).length
+    };
+  };
+  capture();
+  setTimeout(capture, 350);
+});
 
 watch([showRequestModal, visibleQuickActions], ([isOpen, actions]) => {
   if (!isOpen) return;

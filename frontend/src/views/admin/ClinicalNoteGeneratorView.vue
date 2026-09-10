@@ -1658,7 +1658,11 @@ const props = defineProps({
   /** Prefers Note Aid library filter to this kind (progress, intake, termination, …). */
   embedInitialKind: { type: String, default: '' },
   /** Optional launch intent (e.g. update_treatment_plan). */
-  embedLaunchIntent: { type: String, default: '' }
+  embedLaunchIntent: { type: String, default: '' },
+  embedOfficeEventId: { type: [Number, String], default: null },
+  embedClinicalSessionId: { type: [Number, String], default: null },
+  embedDateOfService: { type: String, default: '' },
+  embedServiceCode: { type: String, default: '' }
 });
 const isEmbedded = computed(() => !!props.embedded);
 
@@ -8664,7 +8668,32 @@ onMounted(async () => {
         await loadClinicalNoteIntoWorkspace(props.embedClinicalNoteId);
       } else if (props.embedDraftId) {
         const hit = recentDrafts.value.find((d) => String(d.id) === String(props.embedDraftId));
-        if (hit) await loadDraftIntoWorkspace(hit);
+        if (hit) {
+          await loadDraftIntoWorkspace(hit);
+        } else {
+          // Chart-created draft may not be in the recent list yet — seed session context.
+          draftId.value = Number(props.embedDraftId) || null;
+          if (props.embedDateOfService) dateOfService.value = String(props.embedDateOfService).slice(0, 10);
+          if (props.embedServiceCode) {
+            try { selectedServiceCode.value = String(props.embedServiceCode).trim().toUpperCase(); } catch { /* ignore */ }
+          }
+          if (props.embedOfficeEventId) sessionOfficeEventId.value = Number(props.embedOfficeEventId) || null;
+          if (props.embedClinicalSessionId) sessionClinicalSessionId.value = Number(props.embedClinicalSessionId) || null;
+          try {
+            const recentRes = await api.get('/clinical-notes/recent', {
+              params: { agencyId: qAgency, clientIds: embedCid || undefined, days: 120 },
+              skipGlobalLoading: true
+            });
+            const drafts = Array.isArray(recentRes.data?.drafts) ? recentRes.data.drafts : [];
+            recentDrafts.value = drafts;
+            const again = drafts.find((d) => String(d.id) === String(props.embedDraftId));
+            if (again) await loadDraftIntoWorkspace(again);
+          } catch {
+            /* keep seeded draftId / session ids */
+          }
+          noteWizardStep.value = 2;
+          showAidPicker.value = false;
+        }
       } else if (props.embedOpenLibrary !== false) {
         // New note from client profile — pick a tool with the client already attached.
         showAidPicker.value = true;

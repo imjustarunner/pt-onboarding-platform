@@ -4,9 +4,9 @@
       <div class="cc-enc-toolbar__meta">
         <h3>Medical Record</h3>
         <p>
-          Chronological clinical record from calendar sessions, signed notes, and imported billing.
-          Signed documentation appears here even without a claim. Sessions with a client, date, and
-          service code appear before a claim is imported.
+          Chronological clinical record from calendar sessions (including planned / recurring),
+          signed notes, and imported billing. Future booked sessions appear as Planned. Billing
+          attaches when imported. Start a note from any session even before a claim exists.
         </p>
       </div>
       <div class="cc-enc-toolbar__actions">
@@ -27,7 +27,8 @@
     <p v-if="error" class="cc-enc-error">{{ error }}</p>
     <p v-else-if="loading" class="muted">Loading sessions…</p>
     <p v-else-if="!sortedEncounters.length" class="cc-enc-empty">
-      No sessions or signed documentation on file for this client yet. Linked appointments and signed notes appear here even before a billing report is imported.
+      No sessions or signed documentation on file for this client yet. Past and future booked
+      appointments, recurring planned sessions, and signed notes appear here — billing attaches when imported.
     </p>
 
     <div v-else class="cc-enc-master-detail">
@@ -69,8 +70,13 @@
             <div class="cc-enc-list-item__meta">
               <span class="cc-enc-mono">{{ row.service_code || '—' }}</span>
               · {{ formatEncounterProvider(row) }}
+              <span v-if="row.is_recurring" class="muted"> · Recurring</span>
+              <span v-else-if="row.display_state === 'planned'" class="muted"> · Upcoming</span>
             </div>
-            <div v-if="canViewMissingClaimFlag && row.billing_attached === false" class="cc-enc-list-item__meta muted tiny">
+            <div v-if="row.billing_attached" class="cc-enc-list-item__meta muted tiny">
+              Billing attached
+            </div>
+            <div v-else-if="canViewMissingClaimFlag && row.billing_attached === false && row.display_state !== 'planned'" class="cc-enc-list-item__meta muted tiny">
               No claim / billing info attached
             </div>
           </button>
@@ -326,6 +332,7 @@ function printRecord() {
 const filterOptions = computed(() => {
   const base = [
     { id: 'all', label: 'All' },
+    { id: 'planned', label: 'Planned' },
     { id: 'notes_needed', label: 'Notes needed' },
     { id: 'signed', label: 'Signed' }
   ];
@@ -343,8 +350,13 @@ const detailTabs = [
 
 const filteredEncounters = computed(() => {
   let rows = sortedEncounters.value;
-  if (listFilter.value === 'notes_needed') {
-    rows = rows.filter((row) => String(row?.note_status || 'none') !== 'signed');
+  if (listFilter.value === 'planned') {
+    rows = rows.filter((row) => String(row?.display_state || row?.note_status || '') === 'planned');
+  } else if (listFilter.value === 'notes_needed') {
+    rows = rows.filter((row) => {
+      const s = String(row?.note_status || 'none');
+      return s !== 'signed';
+    });
   } else if (listFilter.value === 'signed') {
     rows = rows.filter((row) => String(row?.note_status || 'none') === 'signed');
   } else if (listFilter.value === 'missing_claim' && props.canViewMissingClaimFlag) {

@@ -29,16 +29,23 @@ export function noteStatusLabel(row) {
   const s = String(row?.note_status || 'none');
   if (s === 'signed') return 'Signed';
   if (s === 'draft') return 'Draft';
+  if (s === 'planned' || String(row?.display_state || '') === 'planned') return 'Planned';
   return 'No note';
 }
 
 export function noteActionLabel(row) {
   const s = String(row?.note_status || 'none');
   if (s === 'signed' || s === 'draft') return 'Open note';
+  if (s === 'planned' || String(row?.display_state || '') === 'planned') return 'Open draft';
   return 'Start note';
 }
 
 export function noteStatusClass(row) {
+  const planned = String(row?.note_status || '') === 'planned'
+    || String(row?.display_state || '') === 'planned';
+  if (planned && String(row?.note_status || '') !== 'signed' && String(row?.note_status || '') !== 'draft') {
+    return 'cc-enc-note-pill--planned';
+  }
   return `cc-enc-note-pill--${String(row?.note_status || 'none')}`;
 }
 

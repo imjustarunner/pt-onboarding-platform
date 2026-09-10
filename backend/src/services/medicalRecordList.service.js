@@ -62,27 +62,129 @@ export async function listClientMedicalRecordRows({ agencyId, clientId, limit = 
     }
   }
 
+  // Office events with client_id, plus booked slots linked through appointments.
   let officeEvents = [];
   try {
     const [rows] = await pool.execute(
-      `SELECT oe.id, oe.start_at, oe.end_at, oe.service_code, oe.client_id, oe.status,
-              oe.assigned_provider_id, oe.booked_provider_id, oe.clinical_session_id,
-              c.agency_id,
-              u.first_name AS provider_first_name, u.last_name AS provider_last_name
+      `SELECT DISTINCT
+              oe.id,
+              oe.start_at,
+              oe.end_at,
+              oe.service_code,
+              COALESCE(oe.client_id, ap.client_id) AS client_id,
+              oe.status,
+              oe.assigned_provider_id,
+              oe.booked_provider_id,
+              oe.clinical_session_id,
+              oe.recurrence_group_id,
+              oe.booking_plan_id,
+              oe.standing_assignment_id,
+              COALESCE(c.agency_id, a.agency_id) AS agency_id,
+              u.first_name AS provider_first_name,
+              u.last_name AS provider_last_name
        FROM office_events oe
-       INNER JOIN clients c ON c.id = oe.client_id
-       LEFT JOIN users u ON u.id = COALESCE(oe.booked_provider_id, oe.assigned_provider_id)
-       WHERE oe.client_id IN (${clientIn})
+       LEFT JOIN appointments a ON a.office_event_id = oe.id
+       LEFT JOIN appointment_participants ap ON ap.appointment_id = a.id
+       LEFT JOIN clients c ON c.id = COALESCE(oe.client_id, ap.client_id)
+       LEFT JOIN users u ON u.id = COALESCE(oe.booked_provider_id, oe.assigned_provider_id, a.provider_user_id)
+       WHERE (
+           oe.client_id IN (${clientIn})
+           OR ap.client_id IN (${clientIn})
+         )
          AND oe.start_at IS NOT NULL
          AND UPPER(COALESCE(oe.status, '')) NOT IN ('CANCELLED', 'CANCELED', 'RELEASED')
        ORDER BY oe.start_at DESC
        LIMIT ${lim}`,
-      [...clientIds]
+      [...clientIds, ...clientIds]
     );
     officeEvents = rows || [];
   } catch (e) {
-    console.warn('[medicalRecordTimeline] office_events query failed', e?.message || e);
-    officeEvents = [];
+    // Older schemas may lack recurrence/booking columns — fall back to client_id only.
+    try {
+      const [rows] = await pool.execute(
+        `SELECT oe.id, oe.start_at, oe.end_at, oe.service_code, oe.client_id, oe.status,
+                oe.assigned_provider_id, oe.booked_provider_id, oe.clinical_session_id,
+                c.agency_id,
+                u.first_name AS provider_first_name, u.last_name AS provider_last_name
+         FROM office_events oe
+         INNER JOIN clients c ON c.id = oe.client_id
+         LEFT JOIN users u ON u.id = COALESCE(oe.booked_provider_id, oe.assigned_provider_id)
+         WHERE oe.client_id IN (${clientIn})
+           AND oe.start_at IS NOT NULL
+           AND UPPER(COALESCE(oe.status, '')) NOT IN ('CANCELLED', 'CANCELED', 'RELEASED')
+         ORDER BY oe.start_at DESC
+         LIMIT ${lim}`,
+        [...clientIds]
+      );
+      officeEvents = rows || [];
+    } catch (e2) {
+      console.warn('[medicalRecordTimeline] office_events query failed', e2?.message || e?.message);
+      officeEvents = [];
+    }
+  }
+
+  // Unified appointments (covers telehealth / virtual sessions that never stamped office_events.client_id).
+  let appointments = [];
+  try {
+    const [rows] = await pool.execute(
+      `SELECT a.id,
+              a.start_at,
+              a.end_at,
+              a.service_code,
+              a.status,
+              a.agency_id,
+              a.office_event_id,
+              a.provider_schedule_event_id,
+              a.clinical_session_id,
+              a.provider_user_id,
+              ap.client_id,
+              u.first_name AS provider_first_name,
+              u.last_name AS provider_last_name
+       FROM appointments a
+       INNER JOIN appointment_participants ap ON ap.appointment_id = a.id
+       LEFT JOIN users u ON u.id = a.provider_user_id
+       WHERE ap.client_id IN (${clientIn})
+         AND a.agency_id IN (${inList})
+         AND a.start_at IS NOT NULL
+         AND UPPER(COALESCE(a.status, '')) NOT IN ('CANCELLED', 'CANCELED', 'VOID', 'VOIDED')
+       ORDER BY a.start_at DESC
+       LIMIT ${lim}`,
+      [...clientIds, ...agencyIds]
+    );
+    appointments = rows || [];
+  } catch (e) {
+    console.warn('[medicalRecordTimeline] appointments query failed', e?.message || e);
+    appointments = [];
+  }
+
+  // Provider calendar / virtual sessions booked directly on the clinician schedule.
+  let scheduleEvents = [];
+  try {
+    const [rows] = await pool.execute(
+      `SELECT pse.id,
+              pse.start_at,
+              pse.end_at,
+              pse.status,
+              pse.client_id,
+              pse.agency_id,
+              pse.title,
+              pse.provider_user_id,
+              u.first_name AS provider_first_name,
+              u.last_name AS provider_last_name
+       FROM provider_schedule_events pse
+       LEFT JOIN users u ON u.id = pse.provider_user_id
+       WHERE pse.client_id IN (${clientIn})
+         AND pse.agency_id IN (${inList})
+         AND pse.start_at IS NOT NULL
+         AND UPPER(COALESCE(pse.status, '')) NOT IN ('CANCELLED', 'CANCELED', 'DELETED', 'VOID')
+       ORDER BY pse.start_at DESC
+       LIMIT ${lim}`,
+      [...clientIds, ...agencyIds]
+    );
+    scheduleEvents = rows || [];
+  } catch (e) {
+    console.warn('[medicalRecordTimeline] provider_schedule_events query failed', e?.message || e);
+    scheduleEvents = [];
   }
 
   let signedNotes = [];
@@ -129,7 +231,15 @@ export async function listClientMedicalRecordRows({ agencyId, clientId, limit = 
     claims = [];
   }
 
-  return mergeMedicalRecordSources({ billing, sessions, officeEvents, signedNotes, claims }).slice(0, lim);
+  return mergeMedicalRecordSources({
+    billing,
+    sessions,
+    officeEvents,
+    appointments,
+    scheduleEvents,
+    signedNotes,
+    claims
+  }).slice(0, lim);
 }
 
 export default { listClientMedicalRecordRows };

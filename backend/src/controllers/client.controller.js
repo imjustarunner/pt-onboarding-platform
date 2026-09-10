@@ -1280,8 +1280,8 @@ export const createClient = async (req, res, next) => {
     // Verify user has access to the agency
     if (userRole !== 'super_admin') {
       const userAgencies = await User.getAgencies(userId);
-      const userAgencyIds = userAgencies.map(a => a.id);
-      if (!userAgencyIds.includes(parsedAgencyId)) {
+      const userAgencyIds = userAgencies.map(a => Number(a.id));
+      if (!userAgencyIds.includes(Number(parsedAgencyId))) {
         return res.status(403).json({ 
           error: { message: 'You do not have access to this agency' } 
         });

@@ -978,7 +978,7 @@ export const createObjectiveRating = async (req, res, next) => {
       clinicalNoteId: parseIntValue(req.body.clinicalNoteId),
       draftId: parseIntValue(req.body.draftId),
       dateOfService,
-      notes: req.body.notes ? String(req.body.notes).trim() : null,
+      notes: req.body.notes ? maybeEncryptNotePayload(String(req.body.notes).trim()) : null,
       raterKind,
       raterLabel: req.body.raterLabel || req.body.rater_label || null
     });
@@ -1006,7 +1006,19 @@ export const listClientObjectiveRatings = async (req, res, next) => {
       clientId,
       limit: parseIntValue(req.query.limit) || 200
     });
-    return res.json({ ratings });
+    const reveal = String(req.query.reveal || '') === '1';
+    const sanitized = (ratings || []).map((r) => {
+      const row = { ...r };
+      if (row.notes) {
+        row.notes = maybeDecryptNotePayload(row.notes);
+        if (!reveal) {
+          row.notes_present = !!String(row.notes || '').trim();
+          row.notes = null;
+        }
+      }
+      return row;
+    });
+    return res.json({ ratings: sanitized });
   } catch (e) {
     next(e);
   }
