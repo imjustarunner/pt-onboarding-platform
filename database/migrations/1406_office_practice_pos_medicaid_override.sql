@@ -453,7 +453,9 @@ SET
 WHERE ol.name LIKE '%Windchime%'
    OR ol.street_address LIKE '%Windchime%';
 
--- Deactivate legacy ITSCO custom POS rows superseded by per-office office_pos templates
+-- Deactivate legacy ITSCO custom POS rows superseded by per-office office_pos templates.
+-- MySQL forbids referencing the updated table in a subquery of the same UPDATE;
+-- use a derived table wrapper so the EXISTS check is allowed.
 UPDATE agency_service_locations l
 INNER JOIN agencies a ON a.id = l.agency_id AND a.slug = 'itsco'
 SET l.is_active = 0,
@@ -466,11 +468,14 @@ WHERE l.is_active = 1
   AND COALESCE(l.location_kind, 'custom') <> 'office_pos'
   AND l.place_of_service IN ('02', '10', '11', '12')
   AND EXISTS (
-    SELECT 1 FROM agency_service_locations n
+    SELECT 1 FROM (
+      SELECT n.agency_id, n.billing_office_location_id, n.place_of_service, n.id
+      FROM agency_service_locations n
+      WHERE n.location_kind = 'office_pos'
+        AND n.is_active = 1
+    ) n
     WHERE n.agency_id = l.agency_id
-      AND n.billing_office_location_id = l.billing_office_location_id
+      AND n.billing_office_location_id <=> l.billing_office_location_id
       AND n.place_of_service = l.place_of_service
-      AND n.location_kind = 'office_pos'
-      AND n.is_active = 1
       AND n.id <> l.id
   );

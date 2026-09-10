@@ -4079,7 +4079,7 @@ const PLACE_OF_SERVICE_OPTIONS = Object.freeze([
   { code: '03', label: 'School' },
   { code: '10', label: 'Telehealth provided in patient’s home' },
   { code: '11', label: 'Office' },
-  { code: '12', label: 'Home' },
+  { code: '12', label: "Patient's Residence" },
   { code: '49', label: 'Independent Clinic' },
   { code: '99', label: 'Other Place of Service' }
 ]);

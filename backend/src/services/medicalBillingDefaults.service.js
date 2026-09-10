@@ -146,7 +146,7 @@ const DEFAULT_LOCATIONS = [
   { name: 'Telehealth', placeOfService: '02', notes: 'Telehealth other than patient home' },
   { name: 'Telehealth — patient home', placeOfService: '10', notes: 'Patient at home' },
   { name: 'Office', placeOfService: '11', notes: 'In-person office visit' },
-  { name: 'Home', placeOfService: '12', notes: 'In-person at patient home' }
+  { name: "Patient's Residence", placeOfService: '12', notes: 'In-person at patient residence (POS 12)' }
 ];
 
 function tierAllows(allowedTiers, providerTier) {

@@ -449,8 +449,6 @@
               </ul>
             </section>
 
-            </section>
-
             <!-- Submissions -->
             <section v-if="activeSection === 'submissions'" class="portal-submissions" aria-label="My submissions">
               <div class="portal-tasks-head">

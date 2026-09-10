@@ -15,7 +15,7 @@ export const OFFICE_POS_TEMPLATES = [
   { name: 'Office', placeOfService: '11', modifiers: null },
   { name: 'Telehealth', placeOfService: '02', modifiers: 'GT' },
   { name: "Telehealth - In Patient's Home", placeOfService: '10', modifiers: null },
-  { name: 'Home', placeOfService: '12', modifiers: null }
+  { name: "Patient's Residence", placeOfService: '12', modifiers: null }
 ];
 
 export async function resolveBillingOfficeForSchool({ agencyId, schoolOrganizationId } = {}) {

@@ -20,7 +20,7 @@ export const SETTINGS_DISPLAY_LABELS = {
   'agency-platform': 'Tenant identity & locks',
   'audit-center': 'Audit center',
   'viewport-preview': 'Viewport preview',
-  'company-profile': 'Company profile',
+  'company-profile': 'Company / Practice profile',
   'team-roles': 'Team & roles',
   'tenant-ws-org-directory': 'Organizations / Affiliations / Programs / Schools',
   'tenant-ws-global-platform': 'Platform-wide defaults',

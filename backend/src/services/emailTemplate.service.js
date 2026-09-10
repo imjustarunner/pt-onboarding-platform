@@ -192,7 +192,19 @@ class EmailTemplateService {
     if (user) {
       parameters.FIRST_NAME = user.first_name || '';
       parameters.LAST_NAME = user.last_name || '';
-      parameters.USERNAME = user.email || '';
+      // Prefer work / group login address as USERNAME for auth-related templates.
+      const work = String(user.work_email || '').trim();
+      const email = String(user.email || '').trim();
+      const username = String(user.username || '').trim();
+      parameters.USERNAME = (work.includes('@') ? work : null)
+        || (email.includes('@') ? email : null)
+        || (username.includes('@') ? username : null)
+        || email
+        || username
+        || '';
+      parameters.LOGIN_EMAIL = parameters.USERNAME;
+      parameters.WORK_EMAIL = work.includes('@') ? work : parameters.USERNAME;
+      parameters.PERSONAL_EMAIL = String(user.personal_email || '').trim();
     }
 
     // Temporary password

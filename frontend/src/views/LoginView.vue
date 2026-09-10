@@ -615,12 +615,12 @@
             <p class="modal-subtitle">
               {{ isSchoolPortalOrg
                 ? 'Enter the email on your school staff account. If you have never logged in or your temporary password expired, we will email you a link to set your password.'
-                : 'Enter the email you use to sign in. We\'ll email you a reset link.' }}
+                : 'Enter your work login email or personal recovery email. We\'ll send a set/reset link and remind you of your login username (always your work email).' }}
             </p>
             <form @submit.prevent="submitForgotPassword" class="modal-form">
               <div class="form-group">
                 <label for="forgotEmail">Email</label>
-                <input id="forgotEmail" v-model="forgotPasswordEmail" type="email" required :placeholder="isSchoolPortalOrg ? 'name@yourschool.edu' : 'name@company.com'" />
+                <input id="forgotEmail" v-model="forgotPasswordEmail" type="email" required :placeholder="isSchoolPortalOrg ? 'name@yourschool.edu' : 'work or personal email'" />
               </div>
               <div v-if="canShowCurrentEmployeeRescue" class="employee-rescue">
                 <button

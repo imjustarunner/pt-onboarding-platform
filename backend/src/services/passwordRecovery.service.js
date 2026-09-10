@@ -9,6 +9,9 @@
  *    ops can see “archived person tried to recover.”
  * 4. Always write a user_communications row (sent or failed) — never silent.
  * 5. Captcha is not part of this flow (public login / local often have none).
+ * 6. Lookup accepts work/login email OR personal/recovery email (and aliases).
+ * 7. Delivery prefers personal_email as recovery inbox when present; login
+ *    username shown in the email is always the work / group login address.
  */
 
 import pool from '../config/database.js';
@@ -38,33 +41,67 @@ function normalizeOrgSlug(value) {
   return String(value || '').trim().toLowerCase() || null;
 }
 
-function pickRecipientEmail(user, requestedEmail = null) {
-  const requested = String(requestedEmail || '').trim().toLowerCase();
-  const personal = String(user?.personal_email || '').trim().toLowerCase();
-  const groupLogin =
+function normEmail(value) {
+  const v = String(value || '').trim().toLowerCase();
+  return v.includes('@') ? v : '';
+}
+
+function isGroupLoginUser(user) {
+  return (
     user?.login_is_group_email === 1 ||
     user?.login_is_group_email === true ||
     user?.login_is_group_email === '1' ||
     user?.sso_password_override === 1 ||
     user?.sso_password_override === true ||
-    user?.sso_password_override === '1';
+    user?.sso_password_override === '1'
+  );
+}
 
-  // Hire group-username accounts: password recovery ALWAYS goes to personal email
-  // (never the Google Group work/login address). Phone recovery comes later.
-  if (groupLogin && personal.includes('@')) {
-    return personal;
+/**
+ * Username / login email shown after reset — always the work / group alias when present.
+ */
+export function resolveLoginEmail(user) {
+  const work = normEmail(user?.work_email);
+  if (work) return work;
+  if (isGroupLoginUser(user)) {
+    const email = normEmail(user?.email);
+    if (email) return email;
+    const username = normEmail(user?.username);
+    if (username) return username;
   }
+  const email = normEmail(user?.email);
+  if (email) return email;
+  const username = normEmail(user?.username);
+  if (username) return username;
+  return null;
+}
 
-  const candidates = [
-    requested || null,
-    user?.email || null,
-    user?.username || null,
-    user?.work_email || null,
-    user?.personal_email || null
-  ]
-    .map((v) => (v ? String(v).trim().toLowerCase() : null))
-    .filter(Boolean);
-  return candidates.find((v) => v.includes('@')) || null;
+function accountEmails(user) {
+  return [
+    normEmail(user?.email),
+    normEmail(user?.username),
+    normEmail(user?.work_email),
+    normEmail(user?.personal_email)
+  ].filter(Boolean);
+}
+
+/**
+ * Where to deliver the reset link.
+ * Prefer personal_email as recovery inbox when set (applicants + hire group accounts).
+ * Otherwise deliver to the address they typed if it belongs to the account, else login email.
+ */
+export function pickRecipientEmail(user, requestedEmail = null) {
+  const requested = normEmail(requestedEmail);
+  const personal = normEmail(user?.personal_email);
+  const login = resolveLoginEmail(user);
+  const known = new Set(accountEmails(user));
+
+  // Prefer personal as recovery inbox whenever it is on file.
+  if (personal) return personal;
+
+  if (requested && known.has(requested)) return requested;
+  if (login) return login;
+  return requested || null;
 }
 
 function isArchivedUser(user) {
@@ -175,12 +212,28 @@ async function logDeniedArchived({ user, agencyId, to, requestedEmail, orgSlug, 
   return { outcome: 'archived', communicationId: comm?.id || null };
 }
 
-async function buildMessage({ user, agency, orgSlug, token }) {
+function loginReminderLines(loginEmail) {
+  if (!loginEmail) return { text: '', html: '' };
+  return {
+    text: [
+      '',
+      `Your login email / username is: ${loginEmail}`,
+      'Use that address on the sign-in screen after you set or reset your password (not your personal recovery address, unless they are the same).'
+    ].join('\n'),
+    html: [
+      `<p><strong>Your login email / username is:</strong> ${loginEmail}</p>`,
+      '<p>Use that address on the sign-in screen after you set or reset your password (not your personal recovery address, unless they are the same).</p>'
+    ].join('')
+  };
+}
+
+async function buildMessage({ user, agency, orgSlug, token, loginEmail }) {
   const resetLink = EmailTemplateService.buildResetTokenLink(
     agency || { portal_url: orgSlug, slug: orgSlug },
     token
   );
   const firstSet = userNeedsFirstPasswordSet(user);
+  const reminder = loginReminderLines(loginEmail);
   let subject = firstSet ? 'Set your password' : 'Reset your password';
   let body = [
     firstSet
@@ -189,16 +242,18 @@ async function buildMessage({ user, agency, orgSlug, token }) {
     '',
     `${firstSet ? 'Set your password' : 'Reset your password'} using this link (expires in ${RESET_HOURS} hours):`,
     resetLink,
+    reminder.text,
     '',
     JUNK_NOTICE,
     '',
     'If you did not request this, you can ignore this email.'
-  ].join('\n');
+  ].filter((line, idx, arr) => !(line === '' && arr[idx - 1] === '')).join('\n');
   let html = [
     `<p>${firstSet
       ? 'Use this link to set a password for your account so you can sign in.'
       : 'We received a request to reset your password.'}</p>`,
     `<p><a href="${resetLink}">${firstSet ? 'Set your password' : 'Reset your password'}</a> (expires in ${RESET_HOURS} hours)</p>`,
+    reminder.html,
     `<p><strong>${JUNK_NOTICE}</strong></p>`,
     '<p>If you did not request this, you can ignore this email.</p>'
   ].join('');
@@ -211,9 +266,18 @@ async function buildMessage({ user, agency, orgSlug, token }) {
         senderName: 'System',
         keepPortalLoginLink: true
       });
+      // Always expose login username as work/login email for templates.
+      if (loginEmail) {
+        params.USERNAME = loginEmail;
+        params.LOGIN_EMAIL = loginEmail;
+        params.WORK_EMAIL = loginEmail;
+      }
       const rendered = EmailTemplateService.renderTemplate(template, params);
       subject = rendered.subject || subject;
       body = rendered.body || body;
+      if (loginEmail && !String(body).toLowerCase().includes(String(loginEmail).toLowerCase())) {
+        body = `${body}\n\nYour login email / username is: ${loginEmail}`;
+      }
       if (!String(body).includes('Junk')) body = `${body}\n\n${JUNK_NOTICE}`;
       html = `<pre style="font-family:inherit;white-space:pre-wrap;">${String(body)
         .replace(/&/g, '&amp;')
@@ -224,7 +288,7 @@ async function buildMessage({ user, agency, orgSlug, token }) {
     /* keep defaults */
   }
 
-  return { subject, body, html, resetLink, firstSet };
+  return { subject, body, html, resetLink, firstSet, loginEmail };
 }
 
 async function sendResetEmail({
@@ -303,6 +367,7 @@ export async function requestPasswordRecoveryEmail({
 
   const user = (await User.findById(found.id).catch(() => null)) || found;
   const agency = await resolveContextAgency({ userId: user.id, orgSlug });
+  const loginEmail = resolveLoginEmail(user);
   const to = pickRecipientEmail(user, requestedEmail);
   // Attribute Automations row to ITSCO when possible so tenant ops always see it.
   const logAgencyId = ITSCO_AGENCY_ID || agency?.id || null;
@@ -328,7 +393,8 @@ export async function requestPasswordRecoveryEmail({
     user,
     agency,
     orgSlug,
-    token: tokenResult.token
+    token: tokenResult.token,
+    loginEmail
   });
 
   const isDemoRedirect =
@@ -351,6 +417,9 @@ export async function requestPasswordRecoveryEmail({
         orgSlug: orgSlug || null,
         contextAgencyId: agency?.id || null,
         firstSet,
+        loginEmail: loginEmail || null,
+        requestedEmail,
+        recoveryRecipient: to,
         ...(isDemoRedirect ? { demoOrFakeRecipient: true } : {})
       }
     });
@@ -421,6 +490,8 @@ export async function requestPasswordRecoveryEmail({
       userId: user.id,
       metadata: {
         email: to,
+        loginEmail: loginEmail || null,
+        requestedEmail,
         role: user.role || null,
         firstSet,
         orgSlug: orgSlug || null,
@@ -438,6 +509,9 @@ export async function requestPasswordRecoveryEmail({
     resetLink: includeDebug ? resetLink : null,
     sendResult: includeDebug ? sendResult : null,
     deliveryStatus: 'sent',
-    redirected: !!isDemoRedirect
+    redirected: !!isDemoRedirect,
+    ...(includeDebug
+      ? { loginEmail: loginEmail || null, recipientEmail: to, requestedEmail }
+      : {})
   };
 }

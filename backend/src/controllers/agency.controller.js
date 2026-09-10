@@ -338,7 +338,7 @@ export const createAgency = async (req, res, next) => {
       return res.status(400).json({ error: { message: `Validation failed: ${errorMessages}`, errors: errors.array() } });
     }
 
-    const { name, slug, officialName, logoUrl, logoPath, colorPalette, terminologySettings, intakeRetentionPolicy, sessionSettings, isActive, iconId, chatIconId, trainingFocusDefaultIconId, moduleDefaultIconId, userDefaultIconId, documentDefaultIconId, onboardingTeamEmail, supportTeamEmail, phoneNumber, phoneExtension, portalUrl, customDomain, themeSettings, customParameters, organizationType, affiliatedAgencyId, statusExpiredIconId, tempPasswordExpiredIconId, taskOverdueIconId, onboardingCompletedIconId, invitationExpiredIconId, firstLoginIconId, firstLoginPendingIconId, passwordChangedIconId, supportTicketCreatedIconId, ticketingNotificationOrgTypes, myDashboardChecklistIconId, myDashboardTrainingIconId, myDashboardDocumentsIconId, myDashboardMyAccountIconId, myDashboardMyScheduleIconId, myDashboardClientsIconId, myDashboardSupervisionIconId, myDashboardClinicalNoteGeneratorIconId, myDashboardOnDemandTrainingIconId, myDashboardPayrollIconId, myDashboardSubmitIconId, myDashboardCommunicationsIconId, myDashboardChatsIconId, myDashboardNotificationsIconId, schoolPortalProvidersIconId, schoolPortalDaysIconId, schoolPortalRosterIconId, schoolPortalSkillsGroupsIconId, schoolPortalContactAdminIconId, schoolPortalFaqIconId, schoolPortalSchoolStaffIconId, schoolPortalParentQrIconId, schoolPortalParentSignIconId, schoolPortalUploadPacketIconId, schoolPortalPublicDocumentsIconId, schoolPortalAnnouncementsIconId, schoolPortalEventsIconId, schoolPortalDigitalFormsIconId, schoolPortalCalendarIconId, tierSystemEnabled, tierThresholds } = req.body;
+    const { name, slug, officialName, logoUrl, logoPath, colorPalette, terminologySettings, intakeRetentionPolicy, sessionSettings, isActive, iconId, chatIconId, trainingFocusDefaultIconId, moduleDefaultIconId, userDefaultIconId, documentDefaultIconId, onboardingTeamEmail, supportTeamEmail, phoneNumber, phoneExtension, portalUrl, customDomain, themeSettings, customParameters, organizationType, affiliatedAgencyId, statusExpiredIconId, tempPasswordExpiredIconId, taskOverdueIconId, onboardingCompletedIconId, invitationExpiredIconId, firstLoginIconId, firstLoginPendingIconId, passwordChangedIconId, supportTicketCreatedIconId, ticketingNotificationOrgTypes, myDashboardChecklistIconId, myDashboardTrainingIconId, myDashboardDocumentsIconId, myDashboardMyAccountIconId, myDashboardMyScheduleIconId, myDashboardClientsIconId, myDashboardSupervisionIconId, myDashboardClinicalNoteGeneratorIconId, myDashboardOnDemandTrainingIconId, myDashboardPayrollIconId, myDashboardSubmitIconId, myDashboardCommunicationsIconId, myDashboardChatsIconId, myDashboardNotificationsIconId, schoolPortalProvidersIconId, schoolPortalDaysIconId, schoolPortalRosterIconId, schoolPortalSkillsGroupsIconId, schoolPortalContactAdminIconId, schoolPortalFaqIconId, schoolPortalSchoolStaffIconId, schoolPortalParentQrIconId, schoolPortalParentSignIconId, schoolPortalUploadPacketIconId, schoolPortalPublicDocumentsIconId, schoolPortalAnnouncementsIconId, schoolPortalEventsIconId, schoolPortalDigitalFormsIconId, schoolPortalCalendarIconId, tierSystemEnabled, tierThresholds, timezone, timeFormat, accountOwnerUserId, websiteUrl, taxIdType, taxId } = req.body;
 
     // Only super admins can create root tenant organizations (agency, life_coach, consultant).
     // Admins can create school/program/learning/clinical child orgs.
@@ -516,6 +516,22 @@ export const createAgency = async (req, res, next) => {
       tierSystemEnabled,
       tierThresholds
     });
+
+    // Practice profile fields (timezone / owner / website / tax id) — best-effort after create
+    if (agency?.id && (timezone != null || timeFormat != null || accountOwnerUserId != null || websiteUrl != null || taxIdType != null || taxId != null)) {
+      try {
+        await Agency.update(agency.id, {
+          timezone,
+          timeFormat,
+          accountOwnerUserId,
+          websiteUrl,
+          taxIdType,
+          taxId
+        });
+      } catch {
+        // columns may not exist until migration 1407
+      }
+    }
 
     // Persist affiliation for child org types (school/program/learning).
     if (isChildOrgType && resolvedAffiliatedAgencyId) {
@@ -722,7 +738,8 @@ export const updateAgency = async (req, res, next) => {
       clubAddMemberIconId, clubAddSeasonIconId, clubSettingsIconId,
       reviewPromptConfig, companyCarDefaultReason,
       tenantAvailableAgencyFeaturesJson,
-      hiringReferenceSenderIdentityId
+      hiringReferenceSenderIdentityId,
+      timezone, timeFormat, accountOwnerUserId, websiteUrl, taxIdType, taxId
     } = req.body;
     
     // Validate Google Docs URL if provided
@@ -977,7 +994,13 @@ export const updateAgency = async (req, res, next) => {
       ,...(String(organizationType || '').toLowerCase() === 'school' && companyCarDefaultReason !== undefined
         ? { companyCarDefaultReason: companyCarDefaultReason?.trim() || null }
         : {}),
-      hiringReferenceSenderIdentityId
+      hiringReferenceSenderIdentityId,
+      timezone,
+      timeFormat,
+      accountOwnerUserId,
+      websiteUrl,
+      taxIdType,
+      taxId
     });
     if (!agency) {
       return res.status(404).json({ error: { message: 'Agency not found' } });

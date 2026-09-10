@@ -242,7 +242,7 @@
 
     <div v-if="showCreateModal || editingAgency" class="detail-editor">
       <div class="detail-editor-card">
-        <h3>{{ editingAgency ? 'Edit Organization' : 'Create Organization' }}</h3>
+        <h3>{{ editingAgency ? (isPracticeTenant ? 'Edit Practice' : 'Edit Organization') : (isPracticeTenant ? 'Create Practice' : 'Create Organization') }}</h3>
         <div v-if="error" class="error-modal">
           <strong>Error:</strong> {{ error }}
         </div>
@@ -1551,6 +1551,62 @@
           </template>
 
           <template v-else>
+          <div class="form-section-divider" style="margin-top: 0; margin-bottom: 14px; padding-top: 0;">
+            <h4 style="margin: 0 0 6px 0; color: var(--text-primary); font-size: 16px; font-weight: 700;">
+              {{ isPracticeTenant ? 'Practice profile' : 'Organization profile' }}
+            </h4>
+            <small class="hint">
+              Timezone, account owner, public website, and EIN/SSN used across scheduling and billing.
+            </small>
+          </div>
+
+          <div class="form-group">
+            <label>Timezone</label>
+            <select v-model="agencyForm.timezone" class="select">
+              <option value="">Select timezone…</option>
+              <option v-for="tz in americaTimeZones" :key="`agency-tz-${tz}`" :value="tz">{{ tz }}</option>
+            </select>
+            <small>Canonical timezone for this {{ isPracticeTenant ? 'practice' : 'organization' }} (schedules, claims DOS labels, events).</small>
+          </div>
+
+          <div class="form-group">
+            <label>Account owner</label>
+            <select v-model.number="agencyForm.accountOwnerUserId" class="select" :disabled="!editingAgency?.id || practiceOwnerUsersLoading">
+              <option :value="0">{{ practiceOwnerUsersLoading ? 'Loading users…' : 'Select account owner…' }}</option>
+              <option v-for="u in practiceOwnerUsers" :key="`owner-${u.id}`" :value="u.id">
+                {{ u.first_name || u.firstName || '' }} {{ u.last_name || u.lastName || '' }}{{ u.email ? ` · ${u.email}` : '' }}
+              </option>
+            </select>
+            <small>Primary owner for this tenant{{ isPracticeTenant ? ' / practice' : '' }}.</small>
+          </div>
+
+          <div class="form-group">
+            <label>{{ isPracticeTenant ? 'Practice website' : 'Website' }}</label>
+            <input v-model="agencyForm.websiteUrl" type="url" placeholder="https://example.com" />
+            <small>Public web address for the {{ isPracticeTenant ? 'practice' : 'organization' }}.</small>
+          </div>
+
+          <div class="form-grid" style="margin-bottom: 12px;">
+            <div class="form-group">
+              <label>Tax ID type</label>
+              <select v-model="agencyForm.taxIdType" class="select">
+                <option value="">Select…</option>
+                <option value="ein">EIN (business)</option>
+                <option value="ssn">SSN (sole proprietor)</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>{{ agencyForm.taxIdType === 'ssn' ? 'SSN' : 'EIN' }}</label>
+              <input
+                v-model="agencyForm.taxId"
+                type="text"
+                autocomplete="off"
+                :placeholder="agencyForm.taxIdType === 'ssn' ? 'XXX-XX-XXXX' : 'XX-XXXXXXX'"
+              />
+              <small v-if="editingAgency?.tax_id_last4" class="hint">On file ending in {{ editingAgency.tax_id_last4 }}</small>
+            </div>
+          </div>
+
           <div class="form-group">
             <label>Onboarding Team Email</label>
             <input 
@@ -4571,6 +4627,36 @@ const isChildOrgEditor = computed(() =>
   ['school', 'program', 'learning', 'clinical', 'affiliation'].includes(currentTabOrgType.value)
 );
 
+/** Medical / counseling tenants surface Company Profile as "Practice". */
+const isPracticeTenant = computed(() => {
+  const t = currentTabOrgType.value;
+  if (['school', 'program', 'learning', 'club', 'clubwebapp', 'affiliation'].includes(t)) return false;
+  // agency + clinical + practitioner SaaS tenants
+  return ['agency', 'clinical', 'life_coach', 'consultant'].includes(t)
+    || !!agencyForm.value?.featureFlags?.medicalBillingEnabled
+    || !!agencyForm.value?.featureFlags?.clinicalChartEnabled;
+});
+
+const practiceOwnerUsers = ref([]);
+const practiceOwnerUsersLoading = ref(false);
+const loadPracticeOwnerUsers = async (agencyId) => {
+  const id = Number(agencyId || 0);
+  if (!id) {
+    practiceOwnerUsers.value = [];
+    return;
+  }
+  practiceOwnerUsersLoading.value = true;
+  try {
+    const res = await api.get(`/agencies/${id}/users`, { skipGlobalLoading: true });
+    const list = Array.isArray(res?.data) ? res.data : (res?.data?.users || res?.data?.items || []);
+    practiceOwnerUsers.value = list.filter((u) => Number(u?.id || 0) > 0);
+  } catch {
+    practiceOwnerUsers.value = [];
+  } finally {
+    practiceOwnerUsersLoading.value = false;
+  }
+};
+
 const EDITOR_TAB_DEFS = [
   { id: 'general', label: 'General' },
   { id: 'branding', label: 'Branding' },
@@ -6697,6 +6783,12 @@ const defaultAgencyForm = () => ({
     secondaryContactText: ''
   },
   companyCarDefaultReason: '',
+  timezone: 'America/Denver',
+  timeFormat: '12h',
+  accountOwnerUserId: 0,
+  websiteUrl: '',
+  taxIdType: '',
+  taxId: '',
   streetAddress: '',
   city: '',
   state: '',
@@ -8174,6 +8266,14 @@ const editAgency = async (agency) => {
     schoolIntakeSenderEmail: '',
     phoneNumber: agency.phone_number || '',
     phoneExtension: agency.phone_extension || '',
+    timezone: agency.timezone || 'America/Denver',
+    timeFormat: agency.time_format || '12h',
+    accountOwnerUserId: Number(agency.account_owner_user_id || 0) || 0,
+    websiteUrl: agency.website_url
+      || (typeof agency.theme_settings === 'object' ? agency.theme_settings?.publicWebsiteUrl : '')
+      || '',
+    taxIdType: agency.tax_id_type || '',
+    taxId: agency.tax_id || '',
     schoolProfile: {
       districtName: normalizeSchoolDistrictOption(agency?.school_profile?.district_name || ''),
       schoolNumber: agency?.school_profile?.school_number || '',
@@ -8331,6 +8431,7 @@ const editAgency = async (agency) => {
 
   await loadSenderIdentitiesForAgency(agency?.id || null);
   await loadSenderIdentityOptionsForAgency(agency?.id || null);
+  await loadPracticeOwnerUsers(agency?.id || null);
 
   // Load available uploaded font families for this org (includes platform + org fonts)
   fetchFontFamiliesForOrg(agency?.id || null);
@@ -9018,7 +9119,9 @@ const saveAgency = async () => {
     if (agencyForm.value.themeSettings?.loginBackground) {
       themeSettings.loginBackground = agencyForm.value.themeSettings.loginBackground;
     }
-    if (agencyForm.value.themeSettings?.publicWebsiteUrl?.trim()) {
+    if (agencyForm.value.websiteUrl?.trim()) {
+      themeSettings.publicWebsiteUrl = agencyForm.value.websiteUrl.trim();
+    } else if (agencyForm.value.themeSettings?.publicWebsiteUrl?.trim()) {
       themeSettings.publicWebsiteUrl = agencyForm.value.themeSettings.publicWebsiteUrl.trim();
     }
     if (['school', 'program', 'learning'].includes(String(agencyForm.value.organizationType || 'agency').toLowerCase())) {
@@ -9200,6 +9303,12 @@ const saveAgency = async () => {
         String(agencyForm.value.organizationType || '').toLowerCase() === 'school'
           ? null
           : normalizeNullableText(agencyForm.value.phoneExtension),
+      timezone: agencyForm.value.timezone?.trim() || null,
+      timeFormat: agencyForm.value.timeFormat === '24h' ? '24h' : '12h',
+      accountOwnerUserId: Number(agencyForm.value.accountOwnerUserId || 0) || null,
+      websiteUrl: agencyForm.value.websiteUrl?.trim() || null,
+      taxIdType: agencyForm.value.taxIdType || null,
+      taxId: agencyForm.value.taxId?.trim() || null,
       streetAddress: agencyForm.value.streetAddress?.trim() || null,
       city: agencyForm.value.city?.trim() || null,
       state: agencyForm.value.state?.trim() || null,

@@ -455,7 +455,7 @@ const POS_CHOICES = [
   { code: '10', label: 'Telehealth (patient home)' },
   { code: '11', label: 'Office' },
   { code: '03', label: 'School' },
-  { code: '12', label: 'Home' },
+  { code: '12', label: "Patient's Residence" },
   { code: '22', label: 'On Campus-Outpatient Hospital' }
 ];
 

@@ -475,6 +475,35 @@ class Agency {
         agency.school_contacts = [];
       }
     }
+
+    if (agency) {
+      try {
+        const { unpackAgencyTaxId } = await import('../services/agencyTaxId.service.js');
+        const plainTax = unpackAgencyTaxId(agency);
+        agency.tax_id = plainTax || null;
+        // Never expose ciphertext blobs to clients
+        delete agency.tax_id_ciphertext;
+        delete agency.tax_id_iv;
+        delete agency.tax_id_auth_tag;
+        delete agency.tax_id_key_id;
+      } catch {
+        // optional until migration 1407
+      }
+      if (agency.account_owner_user_id) {
+        try {
+          const [ownerRows] = await pool.execute(
+            `SELECT id, first_name, last_name, email
+             FROM users WHERE id = ? LIMIT 1`,
+            [agency.account_owner_user_id]
+          );
+          agency.account_owner = ownerRows?.[0] || null;
+        } catch {
+          agency.account_owner = null;
+        }
+      } else {
+        agency.account_owner = null;
+      }
+    }
     
     return agency;
   }
@@ -1542,6 +1571,82 @@ class Agency {
       updates.push('postal_code = ?');
       values.push(postalCode || null);
     }
+
+    // Practice profile (migration 1407) — timezone already on agencies since 642
+    let hasPracticeProfile = false;
+    try {
+      const [cols] = await pool.execute(
+        `SELECT COLUMN_NAME FROM information_schema.COLUMNS
+         WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'agencies'
+           AND COLUMN_NAME IN ('account_owner_user_id', 'website_url', 'tax_id_type')`
+      );
+      hasPracticeProfile = (cols || []).length >= 3;
+    } catch {
+      hasPracticeProfile = false;
+    }
+    let hasTimezoneCol = false;
+    try {
+      const [cols] = await pool.execute(
+        `SELECT COLUMN_NAME FROM information_schema.COLUMNS
+         WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'agencies' AND COLUMN_NAME = 'timezone'`
+      );
+      hasTimezoneCol = (cols || []).length > 0;
+    } catch {
+      hasTimezoneCol = false;
+    }
+    if (hasTimezoneCol) {
+      if (agencyData.timezone !== undefined) {
+        updates.push('timezone = ?');
+        values.push(agencyData.timezone ? String(agencyData.timezone).trim() : null);
+      }
+      if (agencyData.timeFormat !== undefined || agencyData.time_format !== undefined) {
+        const tf = agencyData.timeFormat ?? agencyData.time_format;
+        updates.push('time_format = ?');
+        values.push(String(tf) === '24h' ? '24h' : '12h');
+      }
+    }
+    if (hasPracticeProfile) {
+      if (agencyData.accountOwnerUserId !== undefined || agencyData.account_owner_user_id !== undefined) {
+        const oid = Number(agencyData.accountOwnerUserId ?? agencyData.account_owner_user_id ?? 0);
+        updates.push('account_owner_user_id = ?');
+        values.push(oid > 0 ? oid : null);
+      }
+      if (agencyData.websiteUrl !== undefined || agencyData.website_url !== undefined) {
+        const url = agencyData.websiteUrl ?? agencyData.website_url;
+        updates.push('website_url = ?');
+        values.push(url ? String(url).trim().slice(0, 512) : null);
+      }
+      if (agencyData.taxIdType !== undefined || agencyData.tax_id_type !== undefined) {
+        const t = String(agencyData.taxIdType ?? agencyData.tax_id_type ?? '').toLowerCase();
+        updates.push('tax_id_type = ?');
+        values.push(t === 'ein' || t === 'ssn' ? t : null);
+      }
+      if (agencyData.taxId !== undefined || agencyData.tax_id !== undefined) {
+        try {
+          const { packAgencyTaxId } = await import('../services/agencyTaxId.service.js');
+          const packed = packAgencyTaxId(agencyData.taxId ?? agencyData.tax_id);
+          updates.push(
+            'tax_id = ?',
+            'tax_id_ciphertext = ?',
+            'tax_id_iv = ?',
+            'tax_id_auth_tag = ?',
+            'tax_id_key_id = ?',
+            'tax_id_last4 = ?'
+          );
+          values.push(
+            packed.tax_id,
+            packed.tax_id_ciphertext,
+            packed.tax_id_iv,
+            packed.tax_id_auth_tag,
+            packed.tax_id_key_id,
+            packed.tax_id_last4
+          );
+        } catch {
+          // optional encryption path
+        }
+      }
+    }
+
     if (companyCarDefaultReason !== undefined) {
       updates.push('company_car_default_reason = ?');
       values.push(companyCarDefaultReason || null);
