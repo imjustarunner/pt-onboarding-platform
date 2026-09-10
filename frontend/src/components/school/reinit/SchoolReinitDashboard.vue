@@ -279,7 +279,7 @@
               <section v-if="activeSection === 'school_events'" class="cua__section-body">
                 <div class="cua__panel">
                   <div class="cua__event-card-head">
-                    <h4>First day of school <span class="cua__req" aria-hidden="true">*</span></h4>
+                    <h4>First day of school <span class="cua__muted">(optional)</span></h4>
                     <button
                       v-if="displayFirstDay"
                       type="button"
@@ -294,7 +294,9 @@
                     <p class="cua__muted">{{ formatSchoolEventWhen(displayFirstDay) }}</p>
                   </template>
                   <template v-else>
-                    <p class="cua__muted">Add this on your school portal calendar — same form as the school portal.</p>
+                    <p class="cua__muted">
+                      Optional — add this on your school portal calendar when you have it. You can complete this section without it.
+                    </p>
                     <button type="button" class="btn btn-secondary btn-sm" @click="openPostEventModal('first_day')">
                       Add first day of school
                     </button>
@@ -1859,15 +1861,8 @@ function showSectionMessage(sectionKey, title, message, whyText = '', variant = 
 }
 
 function validateSchoolEventsSection() {
-  if (!displayFirstDay.value?.startsAt && !String(formData.school_events.first_day_of_school || '').trim()) {
-    return {
-      sectionKey: 'school_events',
-      title: 'First Day of School Required',
-      message: 'Add your first day of school on the school portal calendar before marking this section complete.',
-      whyText: 'We use this date to align provider schedules, materials delivery, and fall outreach.',
-      variant: 'info',
-    };
-  }
+  // First day of school is optional — school staff were blocked completing collaborative
+  // updates when they could not post/enter that calendar date (esp. D12).
   if (!hasBackToSchoolEvent.value && !btsAlternativeChosen.value) {
     return {
       sectionKey: 'school_events',

@@ -205,9 +205,9 @@ export const DEFAULT_QUESTIONS = [
     question_key: 'first_day_of_school',
     section_key: 'school_events',
     label: 'First day of school',
-    help_text: 'Confirm or update the first day of school (YYYY-MM-DD).',
+    help_text: 'Confirm or update the first day of school (YYYY-MM-DD). Optional — leave blank if unknown.',
     input_type: 'text',
-    required: 1,
+    required: 0,
     sort_order: 5,
   },
   {
@@ -782,6 +782,16 @@ export async function ensureDefaultQuestions(agencyId, schoolYear) {
       ]
     );
   }
+  // Force-clear: first day of school must not block collaborative finalize (seeded rows were required=1).
+  await pool.execute(
+    `UPDATE school_reinit_question_configs
+     SET required = 0
+     WHERE agency_id = ?
+       AND ${yearEq()}
+       AND question_key = 'first_day_of_school'
+       AND required = 1`,
+    [agencyId, year]
+  );
 }
 
 export async function listQuestionConfigs(agencyId, schoolYear) {
@@ -1529,6 +1539,8 @@ export async function finalizeCycle({ cycleId, actor }) {
     if (!q.enabled || !q.required) continue;
     // Slot booking is enforced via booking row + invite step below
     if (['fall_checkin_slot_id', 'fall_checkin_modality'].includes(q.question_key)) continue;
+    // First day of school is optional — do not block finalize when missing.
+    if (q.question_key === 'first_day_of_school') continue;
     const val = bySection[q.section_key]?.[q.question_key];
     if (val === undefined || val === null || val === '') {
       throw new Error(`Required answer missing: ${q.label}`);
