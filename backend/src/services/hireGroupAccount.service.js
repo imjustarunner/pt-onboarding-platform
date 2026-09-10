@@ -76,20 +76,29 @@ function buildLocalParts({ first, last, format }) {
   const l = last || 'hire';
   const lastInitial = l[0] || '';
   const firstInitial = f[0] || '';
-  let candidates = [];
+  // Preferred order before any numbered fallbacks (e.g. michael1):
+  // first+lastInitial, firstInitial+last, first.last, last.firstInitial
+  const preferred = [
+    `${f}${lastInitial}`,
+    `${firstInitial}${l}`,
+    `${firstInitial}.${l}`,
+    `${l}.${firstInitial}`,
+    `${f}.${l}`,
+    `${l}${firstInitial}`,
+    `${f}.${lastInitial}`,
+    f
+  ];
+  let extras = [];
   if (format === 'first') {
-    candidates = [f, `${f}${lastInitial}`, `${f}.${l}`];
+    extras = [f, `${f}${lastInitial}`, `${f}.${l}`];
   } else if (format === 'first_last') {
-    candidates = [`${f}.${l}`, `${f}${l}`, `${f}${lastInitial}`];
-  } else if (format === 'first_last_initial') {
-    candidates = [`${f}${lastInitial}`, `${f}.${lastInitial}`, `${f}.${l}`, f];
+    extras = [`${f}.${l}`, `${f}${l}`, `${f}${lastInitial}`];
   } else if (format === 'last_first_initial') {
-    candidates = [`${l}${firstInitial}`, `${l}.${f}`, `${f}.${l}`];
-  } else {
-    // first_initial_last (legacy flast)
-    candidates = [`${firstInitial}${l}`, `${f}${lastInitial}`, `${f}.${l}`, `${f}${l}`];
+    extras = [`${l}${firstInitial}`, `${l}.${f}`, `${f}.${l}`];
+  } else if (format === 'first_initial_last') {
+    extras = [`${firstInitial}${l}`, `${f}${lastInitial}`];
   }
-  return [...new Set(candidates.filter(Boolean))];
+  return [...new Set([...preferred, ...extras].filter(Boolean))];
 }
 
 async function isAppEmailTaken(email, excludeUserId = null) {

@@ -5,7 +5,6 @@
  */
 import pool from '../config/database.js';
 import User from '../models/User.model.js';
-import EmailTemplateService from './emailTemplate.service.js';
 import { sendNotificationEmail } from './unifiedEmail/unifiedEmailSender.service.js';
 
 export const PREHIRE_PORTAL_ACCESS_TRIGGER = 'pre_hire_admin_review_access';
@@ -41,25 +40,23 @@ function buildDefaultInviteContent({ firstName, agencyName, jobTitle, portalLink
   if (details.minDays) extraLines.push(`Days per week: ${details.minDays}`);
   if (details.minHours) extraLines.push(`Minimum hours per week: ${details.minHours}`);
   const steps = Array.isArray(details.steps) ? details.steps.filter(Boolean) : [];
-  const subject = `Welcome to ${agencyName} — complete your pre-hire documents`;
+  const subject = `You are hired! Complete your pre-hire forms — ${agencyName}`;
   const text = [
     `Hi ${firstName},`,
     '',
-    `We're thrilled to welcome you to the ${agencyName} team${jobTitle ? ` as ${jobTitle}` : ''}!`,
+    `You are hired! We're thrilled to welcome you to the ${agencyName} team${jobTitle ? ` as ${jobTitle}` : ''}.`,
     '',
     extraLines.length ? extraLines.join('\n') : '',
     extraLines.length ? '' : '',
-    'To complete your pre-hire process, please click the link below to access your secure pre-hire portal. You\'ll find documents to review and sign, as well as any other items required before your start date.',
+    'Please fill out your pre-hire forms in the private portal linked below. Save this link — it is your private link. Do not share it.',
+    '',
+    'Once you complete the pre-hire process, you will continue onboarding at this same link. If we add additional documents later that are not yet available, we will email you again.',
     '',
     steps.length ? `Your pre-hire steps:\n${steps.map((s) => `• ${s}`).join('\n')}` : '',
     steps.length ? '' : '',
-    `Your pre-hire portal: ${portalLink}`,
+    `Your private pre-hire portal: ${portalLink}`,
     '',
-    'This link is valid for 7 days. If it expires, please contact your HR coordinator for a new one.',
-    '',
-    'Once all items are completed, a member of our People Operations team will review and reach out with next steps.',
-    '',
-    'We look forward to having you on the team!',
+    'This link is valid for 7 days. If it expires, please contact People Operations for a new one.',
     '',
     `— ${agencyName} People Operations`
   ].filter((line, idx, arr) => !(line === '' && arr[idx - 1] === '')).join('\n');
@@ -73,17 +70,16 @@ function buildDefaultInviteContent({ firstName, agencyName, jobTitle, portalLink
 
   const html = `<div style="font-family:Arial,sans-serif;line-height:1.6;color:#111;max-width:600px;">
     <p>Hi ${escHtml(firstName)},</p>
-    <p>We're thrilled to welcome you to the <strong>${escHtml(agencyName)}</strong> team${jobTitle ? ` as <strong>${escHtml(jobTitle)}</strong>` : ''}!</p>
+    <p><strong>You are hired!</strong> We're thrilled to welcome you to the <strong>${escHtml(agencyName)}</strong> team${jobTitle ? ` as <strong>${escHtml(jobTitle)}</strong>` : ''}.</p>
     ${extraHtml}
-    <p>To complete your pre-hire process, please click the button below to access your secure pre-hire portal. You'll find documents to review and sign, as well as any other items required before your start date.</p>
+    <p>Please fill out your pre-hire forms using the private portal below. <strong>Save this link — it is your private link. Do not share it.</strong></p>
+    <p>Once you complete the pre-hire process, you will continue onboarding at this same link. If we add additional documents later that are not yet available, we will email you again.</p>
     ${stepsHtml}
     <p style="margin:24px 0;">
-      <a href="${escHtml(portalLink)}" style="background:#1a5c38;color:white;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:bold;display:inline-block;">Access Your Pre-Hire Portal →</a>
+      <a href="${escHtml(portalLink)}" style="background:#1a5c38;color:white;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:bold;display:inline-block;">Open your pre-hire portal →</a>
     </p>
-    <p style="color:#555;font-size:13px;">Or copy this link: <a href="${escHtml(portalLink)}" style="color:#1a5c38;">${escHtml(portalLink)}</a></p>
-    <p style="color:#555;font-size:13px;">This link is valid for 7 days. If it expires, please contact your HR coordinator for a new one.</p>
-    <p>Once all items are completed, a member of our People Operations team will review and reach out with next steps.</p>
-    <p>We look forward to having you on the team!</p>
+    <p style="color:#555;font-size:13px;">Or copy this private link: <a href="${escHtml(portalLink)}" style="color:#1a5c38;">${escHtml(portalLink)}</a></p>
+    <p style="color:#555;font-size:13px;">This link is valid for 7 days. If it expires, please contact People Operations for a new one.</p>
     <p style="color:#6b7280;font-size:13px;">— ${escHtml(agencyName)} People Operations</p>
   </div>`;
 
@@ -140,31 +136,10 @@ export async function sendPrehirePortalInviteEmail({
   if (customSubjectTrim || customBodyTrim) {
     subject = customSubjectTrim
       || settings.invite_email_subject
-      || `Welcome to ${agencyName} — complete your pre-hire documents`;
+      || `You are hired! Complete your pre-hire forms — ${agencyName}`;
     const bodySource = customBodyTrim || settings.invite_email_body || '';
     text = applyCustomTokens(bodySource, { firstName, portalLink });
     html = textToHtml(text);
-  } else {
-    try {
-      const template = await EmailTemplateService.getTemplateForAgency(agencyId, PREHIRE_PORTAL_ACCESS_TRIGGER);
-      if (template?.body) {
-        const parameters = await EmailTemplateService.collectParameters(user, agencyRow, {
-          keepPortalLoginLink: true
-        });
-        parameters.PORTAL_LOGIN_LINK = portalLink;
-        parameters.PEOPLE_OPS_EMAIL = agencyRow.people_ops_email
-          || agencyRow.onboarding_team_email
-          || parameters.PEOPLE_OPS_EMAIL
-          || '';
-        const rendered = EmailTemplateService.renderTemplate(template, parameters);
-        subject = rendered.subject;
-        text = rendered.body;
-        html = textToHtml(text);
-        templateId = template.id || null;
-      }
-    } catch (templateErr) {
-      console.warn('[sendPrehirePortalInviteEmail] template render failed, using default:', templateErr?.message);
-    }
   }
 
   if (!text) {
@@ -209,7 +184,43 @@ export async function sendPrehirePortalInviteEmail({
   });
 
   if (result?.skipped) {
-    console.warn('[sendPrehirePortalInviteEmail] skipped for user', candidateUserId, ':', result.reason);
+    console.warn('[sendPrehirePortalInviteEmail] notification skipped for user', candidateUserId, ':', result.reason, '— sending hire email directly');
+    try {
+      const { resolveJobApplicationSenderIdentity } = await import('./hiringReferenceIdentity.service.js');
+      const { sendEmailFromIdentity } = await import('./unifiedEmail/unifiedEmailSender.service.js');
+      const identity = await resolveJobApplicationSenderIdentity(agencyId);
+      if (identity?.id) {
+        await sendEmailFromIdentity({
+          senderIdentityId: identity.id,
+          to: recipientEmail,
+          subject,
+          text,
+          html,
+          userId: candidateUserId,
+          agencyId,
+          source: 'auto'
+        });
+        return { ok: true, fallback: true };
+      }
+    } catch (fallbackErr) {
+      console.warn('[sendPrehirePortalInviteEmail] identity send failed:', fallbackErr?.message);
+    }
+    try {
+      const { default: EmailService } = await import('./email.service.js');
+      await EmailService.sendEmail({
+        to: recipientEmail,
+        subject,
+        text,
+        html,
+        userId: candidateUserId,
+        agencyId,
+        source: 'auto'
+      });
+      return { ok: true, fallback: true };
+    } catch (emailErr) {
+      console.error('[sendPrehirePortalInviteEmail] direct send failed:', emailErr?.message);
+      return result;
+    }
   }
 
   return result;

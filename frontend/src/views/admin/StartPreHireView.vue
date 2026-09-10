@@ -36,7 +36,11 @@
           <label>Start date <input v-model="contract.startDate" type="date" /></label>
           <label>Execution date <input v-model="contract.executionDate" type="date" /></label>
           <label>Expiration date <input v-model="contract.expirationDate" type="date" /></label>
-          <label>Supervisor(s) <input v-model="contract.supervisor" type="text" /></label>
+          <label class="sph-check">
+            <input v-model="includeSupervisor" type="checkbox" />
+            Include supervisor on the employment agreement
+          </label>
+          <label v-if="includeSupervisor">Supervisor(s) <input v-model="contract.supervisor" type="text" /></label>
           <label>License required by <input v-model="contract.licenseBy" type="date" /></label>
           <label>Min days / week <input v-model="contract.minDays" type="number" min="0" max="7" /></label>
           <label>Min hours / week <input v-model="contract.minHours" type="number" min="0" /></label>
@@ -172,6 +176,7 @@ const contractBuilderTemplateId = ref(null);
 const libraryContractTemplateId = ref(null);
 const contractConfigs = ref([]);
 const contractTaskId = ref(null);
+const includeSupervisor = ref(false);
 
 const contract = reactive({
   startDate: '',
@@ -349,7 +354,8 @@ const initiate = async () => {
       START_DATE: contract.startDate,
       EXECUTION_DATE: contract.executionDate,
       EXPIRATION_DATE: contract.expirationDate,
-      SUPERVISOR_NAME: contract.supervisor,
+      SUPERVISOR_NAME: includeSupervisor.value ? contract.supervisor : '',
+      INCLUDE_SUPERVISION: includeSupervisor.value ? '1' : '0',
       LICENSURE_DEADLINE: contract.licenseBy,
       MIN_DAYS_PER_WEEK: contract.minDays,
       MIN_HOURS: contract.minHours,
@@ -376,6 +382,7 @@ const initiate = async () => {
         contractConfigId: contractConfigId.value,
         contractBuilderTemplateId: contractBuilderTemplateId.value,
         libraryContractTemplateId: libraryContractTemplateId.value,
+        includeSupervisor: includeSupervisor.value,
         msgSubject: settings.value.invite_email_subject || null,
         msgBody: settings.value.invite_email_body || null
       },
@@ -413,6 +420,16 @@ onMounted(load);
   gap: 12px;
 }
 .sph-grid label, .sph-upload label { display: flex; flex-direction: column; gap: 4px; font-size: 0.82rem; font-weight: 650; }
+.sph-check {
+  display: flex;
+  flex-direction: row !important;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.9rem;
+  font-weight: 650;
+  grid-column: 1 / -1;
+}
+.sph-check input { width: auto; }
 .sph-grid input, .sph-grid select, .input {
   border: 1px solid #d1d5db;
   border-radius: 8px;

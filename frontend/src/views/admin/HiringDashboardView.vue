@@ -29,6 +29,11 @@
       </div>
     </div>
 
+    <PeopleOpsPipelineCard
+      class="hd-pipeline-board"
+      :hiring-path="orgPath('/admin/hiring')"
+    />
+
     <div v-if="error" class="hd-error">{{ error }}</div>
 
     <div class="hd-kpi-row">
@@ -199,6 +204,7 @@ import { useAuthStore } from '../../store/auth';
 import { useAgencyStore } from '../../store/agency';
 import api from '../../services/api';
 import HiringHubSwitcher from '../../components/hiring/HiringHubSwitcher.vue';
+import PeopleOpsPipelineCard from '../../components/admin/opsDashboard/PeopleOpsPipelineCard.vue';
 
 const authStore = useAuthStore();
 const agencyStore = useAgencyStore();
@@ -438,6 +444,9 @@ onMounted(() => {
 <style scoped>
 .hd-root {
   padding-bottom: 40px;
+}
+.hd-pipeline-board {
+  margin-bottom: 22px;
 }
 .hd-header {
   display: flex;

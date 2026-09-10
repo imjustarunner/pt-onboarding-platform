@@ -29,7 +29,7 @@ export const OPERATIONS_SECTION_VISIBILITY = Object.freeze({
   events: true,
   programs: true,
   communications: true,
-  peopleOps: false,
+  peopleOps: true,
   systemAlerts: false,
   todaysSchedule: true,
   momentum: true
@@ -61,7 +61,7 @@ export const SECTION_LABELS = Object.freeze([
   { key: 'events', label: 'Events' },
   { key: 'programs', label: 'Programs' },
   { key: 'communications', label: 'Communications Center' },
-  { key: 'peopleOps', label: 'People Ops Overview' },
+  { key: 'peopleOps', label: 'Hiring & Pre-Hire Pipeline' },
   { key: 'systemAlerts', label: 'System Alerts' },
   { key: 'todaysSchedule', label: "Today's Schedule" },
   { key: 'momentum', label: 'Momentum List / Checklist' }

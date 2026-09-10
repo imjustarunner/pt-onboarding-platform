@@ -81,7 +81,7 @@
         <div class="hps-section-header">
           <div class="hps-section-title">Workplace handbook links</div>
           <div class="hps-section-sub">
-            Shown in the candidate pre-hire portal Resources section. Opens are tracked.
+            Shown as a left-nav Workplace handbook link on the candidate portal. You can paste a URL or publish a handbook in Workplace Handbook admin — the portal will load it.
           </div>
         </div>
         <div class="hps-field-group">

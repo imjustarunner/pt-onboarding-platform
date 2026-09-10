@@ -132,6 +132,10 @@ function parseJsonBodyValue(value, fieldName) {
   }
 }
 
+function isEmploymentAgreementTitle(name) {
+  return /employment\s+(agreement|contract)|offer\s+letter/i.test(String(name || ''));
+}
+
 function compactText(value, max = 240) {
   const raw = String(value || '').replace(/\s+/g, ' ').trim();
   return raw ? raw.slice(0, max) : '';
@@ -1061,6 +1065,19 @@ export const getDashboardStats = async (req, res, next) => {
         }
       });
     }
+    next(e);
+  }
+};
+
+export const getPipelineBoard = async (req, res, next) => {
+  try {
+    const { loadPipelineBoard } = await import('../services/hiringPipelineBoard.service.js');
+    const board = await loadPipelineBoard({
+      userId: req.user?.id,
+      role: req.user?.role
+    });
+    res.json(board);
+  } catch (e) {
     next(e);
   }
 };
@@ -4299,10 +4316,64 @@ export const sendPreHire = async (req, res, next) => {
       if (!templateIds.includes(id)) templateIds.push(id);
     }
 
+    let likelyBuilderContractId = Number(req.body?.contractConfigId || 0)
+      || Number(prehireSettings?.default_contract_config_id || 0)
+      || 0;
+    if (!likelyBuilderContractId) {
+      try {
+        const profileForContract = await HiringProfile.findByCandidateUserId(candidateUserId);
+        if (profileForContract?.job_description_id) {
+          const jd = await HiringJobDescription.findById(profileForContract.job_description_id);
+          likelyBuilderContractId = Number(jd?.default_contract_config_id || 0) || 0;
+        }
+      } catch { /* ignore */ }
+    }
+
+    const insertCountersignTask = async ({ candidateTaskId, docTitle, sa }) => {
+      if (!sa?.userId) return;
+      const params = [
+        'document',
+        `Countersign: ${docTitle}`,
+        `Please countersign ${(user.first_name || '')} ${(user.last_name || '')} — ${docTitle}`.trim(),
+        sa.userId,
+        agencyId,
+        req.user.id,
+        candidateTaskId,
+        JSON.stringify({ prehire: true, candidateUserId, countersign: true }),
+        sa.userId,
+        sa.roleLabel || null,
+        sa.fieldKey || null
+      ];
+      try {
+        await pool.execute(
+          `INSERT INTO tasks (
+            task_type, document_action_type, title, description,
+            assigned_to_user_id, assigned_to_agency_id, assigned_by_user_id,
+            reference_id, metadata,
+            countersign_signer_user_id, countersign_role_label, countersign_field_key
+          ) VALUES (?, 'countersignature', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          params
+        );
+      } catch (csErr) {
+        const msg = String(csErr?.message || '');
+        if (!/truncated|document_action_type/i.test(msg)) throw csErr;
+        await pool.execute(
+          `INSERT INTO tasks (
+            task_type, document_action_type, title, description,
+            assigned_to_user_id, assigned_to_agency_id, assigned_by_user_id,
+            reference_id, metadata,
+            countersign_signer_user_id, countersign_role_label, countersign_field_key
+          ) VALUES (?, 'signature', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          params
+        );
+      }
+    };
+
     for (const templateId of templateIds) {
       try {
         const tmpl = await DocumentTemplate.findById(templateId);
         if (!tmpl) continue;
+        if (likelyBuilderContractId && isEmploymentAgreementTitle(tmpl.name)) continue;
         const task = await TaskAssignmentService.assignDocumentTask({
           title: tmpl.name,
           description: tmpl.description || '',
@@ -4320,30 +4391,8 @@ export const sendPreHire = async (req, res, next) => {
         });
         assignedTasks.push(task);
 
-        // 3. Create a countersign task for each internal signer on this document
         for (const sa of signerAssignments) {
-          if (!sa.userId) continue;
-          await pool.execute(
-            `INSERT INTO tasks (
-              task_type, document_action_type, title, description,
-              assigned_to_user_id, assigned_to_agency_id, assigned_by_user_id,
-              reference_id, metadata,
-              countersign_signer_user_id, countersign_role_label, countersign_field_key
-            ) VALUES (?, 'countersignature', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-            [
-              'document',
-              `Countersign: ${tmpl.name}`,
-              `Please countersign ${(user.first_name || '')} ${(user.last_name || '')} — ${tmpl.name}`.trim(),
-              sa.userId,
-              agencyId,
-              req.user.id,
-              task.id,
-              JSON.stringify({ prehire: true, candidateUserId, countersign: true }),
-              sa.userId,
-              sa.roleLabel || null,
-              sa.fieldKey || null
-            ]
-          );
+          await insertCountersignTask({ candidateTaskId: task.id, docTitle: tmpl.name, sa });
         }
       } catch (docErr) {
         console.error('sendPreHire: failed to assign document task', templateId, docErr);
@@ -4377,30 +4426,24 @@ export const sendPreHire = async (req, res, next) => {
     let contractCountersignCount = 0;
     const createCountersignTasksForDoc = async (candidateTask, docTitle) => {
       let n = 0;
+      const cosigners = [];
       for (const sa of signerAssignments) {
         if (!sa?.userId) continue;
-        await pool.execute(
-          `INSERT INTO tasks (
-            task_type, document_action_type, title, description,
-            assigned_to_user_id, assigned_to_agency_id, assigned_by_user_id,
-            reference_id, metadata,
-            countersign_signer_user_id, countersign_role_label, countersign_field_key
-          ) VALUES (?, 'countersignature', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-          [
-            'document',
-            `Countersign: ${docTitle}`,
-            `Please countersign ${(user.first_name || '')} ${(user.last_name || '')} — ${docTitle}`.trim(),
-            sa.userId,
-            agencyId,
-            req.user.id,
-            candidateTask.id,
-            JSON.stringify({ prehire: true, candidateUserId, countersign: true }),
-            sa.userId,
-            sa.roleLabel || null,
-            sa.fieldKey || null
-          ]
-        );
+        await insertCountersignTask({ candidateTaskId: candidateTask.id, docTitle, sa });
+        cosigners.push({
+          userId: sa.userId,
+          roleLabel: sa.roleLabel || 'Cosigner',
+          fieldKey: sa.fieldKey || null
+        });
         n += 1;
+      }
+      if (cosigners.length) {
+        try {
+          const [metaRows] = await pool.execute(`SELECT metadata FROM tasks WHERE id = ? LIMIT 1`, [candidateTask.id]);
+          const meta = parseMetadata(metaRows[0]?.metadata) || {};
+          meta.cosigners = cosigners;
+          await pool.execute(`UPDATE tasks SET metadata = ? WHERE id = ?`, [JSON.stringify(meta), candidateTask.id]);
+        } catch { /* ignore */ }
       }
       return n;
     };
@@ -4438,9 +4481,20 @@ export const sendPreHire = async (req, res, next) => {
           compensationCategory: req.body?.compensationCategory != null && req.body?.compensationCategory !== ''
             ? Number(req.body.compensationCategory)
             : null,
-          tokens: req.body?.contractTokens && typeof req.body.contractTokens === 'object'
-            ? req.body.contractTokens
-            : {},
+          tokens: (() => {
+            const incoming = req.body?.contractTokens && typeof req.body.contractTokens === 'object'
+              ? req.body.contractTokens
+              : {};
+            const include = req.body?.includeSupervisor != null
+              ? !!req.body.includeSupervisor
+              : ['1', 'true', 'yes'].includes(String(incoming.INCLUDE_SUPERVISION || '').toLowerCase())
+                || !!String(incoming.SUPERVISOR_NAME || '').trim();
+            return {
+              ...incoming,
+              INCLUDE_SUPERVISION: include ? '1' : '0',
+              SUPERVISOR_NAME: include ? (incoming.SUPERVISOR_NAME || '') : ''
+            };
+          })(),
           taskMetadata: { prehire: true, autoFromSendPreHire: true, contractGeneration: true }
         });
         if (contractResult?.task) {

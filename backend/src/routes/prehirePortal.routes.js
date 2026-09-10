@@ -36,6 +36,7 @@ import {
   acknowledgePortalJobDescription,
   uploadPortalPrehireDocument,
   viewPortalPrehireDocFile,
+  viewPortalSubmissionFile,
   signPortalCompanyDocument
 } from '../controllers/prehirePortal.controller.js';
 
@@ -105,6 +106,7 @@ router.post(
   acknowledgePortalJobDescription
 );
 router.get('/:token/documents/:docId/file', viewPortalPrehireDocFile);
+router.get('/:token/submissions/files/:docId', viewPortalSubmissionFile);
 router.post(
   '/:token/documents/:docId/sign',
   [body('signatureData').notEmpty().withMessage('Signature is required')],

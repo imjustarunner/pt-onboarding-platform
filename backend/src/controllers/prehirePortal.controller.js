@@ -150,7 +150,7 @@ export const getPortal = async (req, res, next) => {
     let hiringProfile = null;
     try {
       const [hRows] = await pool.execute(
-        `SELECT applied_role, stage, cover_letter, languages_json, references_json, job_description_id
+        `SELECT applied_role, stage, cover_letter_text, languages_json, references_json, job_description_id
          FROM hiring_profiles WHERE candidate_user_id = ? LIMIT 1`,
         [userId]
       );
@@ -246,6 +246,33 @@ export const getPortal = async (req, res, next) => {
       credentialPacket = null;
     }
 
+    const extras = await loadPortalPrehireExtras({ userId, agencyId: agencyRaw?.id, hiringProfile });
+    const backgroundCheck = await (async () => {
+      try {
+        const { getBackgroundCheckAuthorizationSummary } = await import('../services/backgroundCheckAuthorization.service.js');
+        return await getBackgroundCheckAuthorizationSummary(userId, agencyRaw?.id);
+      } catch {
+        return { signed: false };
+      }
+    })();
+    const portalSteps = [
+      { key: 'background_check', done: !!backgroundCheck?.signed },
+      { key: 'job_description_ack', done: !!extras.jdAcknowledged }
+    ];
+    for (const d of extras.prehireDocs || []) {
+      const kind = String(d.kind || '').toLowerCase();
+      if (['company_document', 'upload', 'acknowledgement'].includes(kind)) {
+        portalSteps.push({ key: `doc:${d.id}`, done: !!d.signed });
+      }
+    }
+    for (const t of tasks) {
+      portalSteps.push({ key: `task:${t.id}`, done: t.status === 'completed' });
+    }
+    const stepTotal = portalSteps.length;
+    const stepDone = portalSteps.filter((s) => s.done).length;
+    const combinedPercent = stepTotal ? Math.round((stepDone / stepTotal) * 100) : 0;
+    const combinedAllDone = stepTotal > 0 && stepDone === stepTotal;
+
     res.json({
       candidate: {
         id: user.id,
@@ -275,7 +302,7 @@ export const getPortal = async (req, res, next) => {
         ? {
             appliedRole: hiringProfile.applied_role || null,
             stage: hiringProfile.stage || null,
-            coverLetter: hiringProfile.cover_letter || null,
+            coverLetter: hiringProfile.cover_letter_text || hiringProfile.cover_letter || null,
             languages: (() => {
               try {
                 const raw = hiringProfile.languages_json;
@@ -287,23 +314,14 @@ export const getPortal = async (req, res, next) => {
           }
         : null,
       progress: {
-        total: totalTasks,
-        completed: completedTasks,
-        requiredTotal: requiredTasks.length,
-        requiredCompleted: completedRequired,
-        allDone,
-        percent: totalTasks
-          ? Math.round((completedTasks / totalTasks) * 100)
-          : 0
+        total: stepTotal,
+        completed: stepDone,
+        requiredTotal: requiredTasks.length || stepTotal,
+        requiredCompleted: requiredTasks.length ? completedRequired : stepDone,
+        allDone: combinedAllDone,
+        percent: combinedPercent
       },
-      backgroundCheck: await (async () => {
-        try {
-          const { getBackgroundCheckAuthorizationSummary } = await import('../services/backgroundCheckAuthorization.service.js');
-          return await getBackgroundCheckAuthorizationSummary(userId, agencyRaw?.id);
-        } catch {
-          return { signed: false };
-        }
-      })(),
+      backgroundCheck,
       backgroundCheckLegal: buildBackgroundCheckLegalCopy(agencyRaw || {}, {
         legalName: `${user.first_name || ''} ${user.last_name || ''}`.trim()
       }),
@@ -320,7 +338,7 @@ export const getPortal = async (req, res, next) => {
           return { acknowledgementUrl: null, fullUrl: null };
         }
       })(),
-      ...(await loadPortalPrehireExtras({ userId, agencyId: agencyRaw?.id, hiringProfile }))
+      ...extras
     });
   } catch (e) { next(e); }
 };
@@ -388,6 +406,81 @@ export const getPortalTask = async (req, res, next) => {
       } catch { /* ignore */ }
     }
 
+    if (htmlContent && /\{\{\s*[A-Za-z0-9_]+\s*\}\}/.test(htmlContent)) {
+      try {
+        const { applyContractTokens, autofillTokensForCandidate } = await import('../services/contractMerge.service.js');
+        let tokens = {};
+        try {
+          const [genRows] = await pool.execute(
+            `SELECT token_values_json FROM contract_generations WHERE task_id = ? ORDER BY id DESC LIMIT 1`,
+            [taskId]
+          );
+          if (genRows[0]?.token_values_json) {
+            tokens = typeof genRows[0].token_values_json === 'string'
+              ? JSON.parse(genRows[0].token_values_json)
+              : genRows[0].token_values_json;
+          }
+        } catch { /* table may not exist */ }
+        if (!Object.keys(tokens).length) {
+          tokens = await autofillTokensForCandidate({
+            agencyId: task.assigned_to_agency_id,
+            candidateUserId: userId,
+            credentialOverride: null
+          }).catch(() => ({}));
+        }
+        htmlContent = applyContractTokens(htmlContent, tokens);
+      } catch { /* keep original html */ }
+    }
+
+    const cosigners = [];
+    try {
+      const [csRows] = await pool.execute(
+        `SELECT t.id, t.status, t.audit_trail, t.countersign_role_label, t.countersign_signer_user_id,
+                u.first_name, u.last_name
+         FROM tasks t
+         LEFT JOIN users u ON u.id = COALESCE(t.countersign_signer_user_id, t.assigned_to_user_id)
+         WHERE t.reference_id = ?
+           AND (
+             t.document_action_type = 'countersignature'
+             OR t.countersign_signer_user_id IS NOT NULL
+           )
+         ORDER BY t.id ASC`,
+        [taskId]
+      );
+      for (const row of csRows || []) {
+        let trail = {};
+        try {
+          trail = typeof row.audit_trail === 'string' ? JSON.parse(row.audit_trail) : (row.audit_trail || {});
+        } catch { trail = {}; }
+        const name = `${row.first_name || ''} ${row.last_name || ''}`.trim();
+        cosigners.push({
+          taskId: row.id,
+          name,
+          roleLabel: row.countersign_role_label || 'Cosigner',
+          signed: row.status === 'completed',
+          signatureData: trail.signatureData || trail.portalSignature?.data || null,
+          signedAt: trail.signedAt || trail.completedAt || null
+        });
+      }
+      if (!cosigners.length && Array.isArray(metadata.cosigners)) {
+        for (const c of metadata.cosigners) {
+          let name = '';
+          try {
+            const u = await User.findById(c.userId);
+            name = `${u?.first_name || ''} ${u?.last_name || ''}`.trim();
+          } catch { /* ignore */ }
+          cosigners.push({
+            taskId: null,
+            name,
+            roleLabel: c.roleLabel || 'Cosigner',
+            signed: false,
+            signatureData: null,
+            signedAt: null
+          });
+        }
+      }
+    } catch { /* ignore */ }
+
     res.json({
       id: task.id,
       taskType: task.task_type,
@@ -408,7 +501,8 @@ export const getPortalTask = async (req, res, next) => {
       auditTrail: (() => {
         try { return typeof task.audit_trail === 'string' ? JSON.parse(task.audit_trail) : (task.audit_trail || {}); }
         catch { return {}; }
-      })()
+      })(),
+      cosigners
     });
   } catch (e) { next(e); }
 };
@@ -1267,7 +1361,7 @@ export const getPortalSubmissions = async (req, res, next) => {
     let adminDocs = [];
     try {
       const [docs] = await pool.execute(
-        `SELECT id, title, category, file_path, created_at
+        `SELECT id, title, doc_type, storage_path, original_name, mime_type, created_at
          FROM user_admin_docs
          WHERE user_id = ?
          ORDER BY created_at DESC
@@ -1276,9 +1370,11 @@ export const getPortalSubmissions = async (req, res, next) => {
       );
       adminDocs = (docs || []).map((d) => ({
         id: d.id,
-        title: d.title || d.category || 'Uploaded file',
-        category: d.category || null,
-        createdAt: d.created_at
+        title: d.title || d.doc_type || 'Uploaded file',
+        category: d.doc_type || null,
+        createdAt: d.created_at,
+        hasFile: !!d.storage_path,
+        fileUrl: d.storage_path ? `/prehire-portal/${req.params.token}/submissions/files/${d.id}` : null
       }));
     } catch { /* ignore */ }
 
@@ -1317,7 +1413,7 @@ export const getPortalSubmissions = async (req, res, next) => {
         ? {
             appliedRole: hiringProfile.applied_role,
             stage: hiringProfile.stage,
-            coverLetter: hiringProfile.cover_letter || null,
+            coverLetter: hiringProfile.cover_letter_text || hiringProfile.cover_letter || null,
             source: hiringProfile.source || null
           }
         : null,
@@ -1568,6 +1664,32 @@ export const viewPortalPrehireDocFile = async (req, res, next) => {
     const fileName = doc.fileName || 'document.pdf';
     res.setHeader('Content-Type', mime);
     res.setHeader('Content-Disposition', `inline; filename="${String(fileName).replace(/"/g, '')}"`);
+    res.setHeader('Cache-Control', 'private, max-age=60');
+    return res.send(buf);
+  } catch (e) { next(e); }
+};
+
+export const viewPortalSubmissionFile = async (req, res, next) => {
+  try {
+    const userId = req.portalUser.id;
+    const docId = parseInt(req.params.docId, 10);
+    if (!docId) return res.status(400).json({ error: { message: 'Invalid document.' } });
+    const [rows] = await pool.execute(
+      `SELECT id, storage_path, original_name, mime_type
+       FROM user_admin_docs WHERE id = ? AND user_id = ? LIMIT 1`,
+      [docId, userId]
+    );
+    const doc = rows[0];
+    if (!doc?.storage_path) {
+      return res.status(404).json({ error: { message: 'Document file not found.' } });
+    }
+    const StorageService = (await import('../services/storage.service.js')).default;
+    const buf = await StorageService.readObject(doc.storage_path);
+    res.setHeader('Content-Type', doc.mime_type || 'application/pdf');
+    res.setHeader(
+      'Content-Disposition',
+      `inline; filename="${String(doc.original_name || 'document').replace(/"/g, '')}"`
+    );
     res.setHeader('Cache-Control', 'private, max-age=60');
     return res.send(buf);
   } catch (e) { next(e); }

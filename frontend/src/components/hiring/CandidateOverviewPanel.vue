@@ -82,6 +82,24 @@
       </ul>
       <p v-else class="muted small">No recent activity.</p>
     </section>
+
+    <section v-if="coverLetterParagraphs.length || coverLetterDocuments.length" class="cov-card">
+      <h4>Cover letter</h4>
+      <div v-if="coverLetterParagraphs.length" class="cov-cover">
+        <p v-for="(para, i) in coverLetterParagraphs" :key="`cl-${i}`">{{ para }}</p>
+      </div>
+      <div v-if="coverLetterDocuments.length" class="cov-cover-docs">
+        <button
+          v-for="doc in coverLetterDocuments"
+          :key="`cl-doc-${doc.id}`"
+          type="button"
+          class="btn btn-secondary btn-sm"
+          @click="$emit('open-cover-letter', doc)"
+        >
+          Open {{ doc.originalName || doc.title || 'cover letter' }}
+        </button>
+      </div>
+    </section>
   </div>
 </template>
 
@@ -89,6 +107,7 @@
 import { computed } from 'vue';
 import { buildOverviewHighlights, buildOverviewFlags } from '../../utils/hiringPreScreenDigest.js';
 import BackgroundCheckAuthorizationCard from './BackgroundCheckAuthorizationCard.vue';
+import { coverLetterParagraphs as splitCoverLetter } from '../../utils/coverLetterDisplay.js';
 
 const props = defineProps({
   profile: { type: Object, default: null },
@@ -101,10 +120,11 @@ const props = defineProps({
   averageInterviewScore: { type: [Number, String], default: null },
   activityItems: { type: Array, default: () => [] },
   agencyId: { type: [Number, String], default: null },
-  backgroundCheck: { type: Object, default: null }
+  backgroundCheck: { type: Object, default: null },
+  coverLetterDocuments: { type: Array, default: () => [] }
 });
 
-defineEmits(['goto-tab', 'schedule-interview']);
+defineEmits(['goto-tab', 'schedule-interview', 'open-cover-letter']);
 
 const stageLabel = computed(() => {
   if (props.profile?.stage_label) return props.profile.stage_label;
@@ -207,6 +227,11 @@ const flags = computed(() => {
     extraFlags: extra
   });
 });
+
+const coverLetterParagraphs = computed(() =>
+  splitCoverLetter(props.profile?.cover_letter_text || props.profile?.coverLetterText || '')
+);
+const coverLetterDocuments = computed(() => props.coverLetterDocuments || []);
 </script>
 
 <style scoped>
@@ -255,6 +280,25 @@ const flags = computed(() => {
   font-size: 13px;
 }
 .cov-flags li { color: #9a3412; }
+.cov-cover {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 4px 8px 0 8px;
+}
+.cov-cover p {
+  margin: 0;
+  white-space: pre-wrap;
+  line-height: 1.55;
+  font-size: 14px;
+  color: #111827;
+}
+.cov-cover-docs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
 .linkish {
   border: 0;
   background: none;

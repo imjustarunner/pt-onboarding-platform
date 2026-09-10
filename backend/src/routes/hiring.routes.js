@@ -38,6 +38,7 @@ import {
   patchCandidateInterview,
   patchCandidateStage,
   getDashboardStats,
+  getPipelineBoard,
   listCandidateReferenceRequests,
   listCandidateReferenceActivity,
   postCandidateReferenceRequestsSend,
@@ -118,6 +119,7 @@ const upload = multer({
 });
 
 router.get('/dashboard', getDashboardStats);
+router.get('/pipeline-board', getPipelineBoard);
 router.get('/candidates', listCandidates);
 router.post('/candidates', createCandidate);
 router.patch('/candidates/:userId/stage', patchCandidateStage);

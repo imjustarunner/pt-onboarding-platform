@@ -66,24 +66,13 @@
               My Submissions
             </a>
             <a
-              v-if="handbookSideLink"
               class="portal-nav-link"
-              :href="handbookSideLink"
-              target="_blank"
-              rel="noopener noreferrer"
-              @click="trackHandbookOpen(handbookLinks.fullUrl ? 'full' : 'ack')"
+              :class="{ 'portal-nav-link--active': activeSection === 'handbook' }"
+              href="#"
+              @click.prevent="openHandbook"
             >
               <span class="portal-nav-icon">📖</span>
               Workplace handbook
-            </a>
-            <a
-              class="portal-nav-link"
-              :class="{ 'portal-nav-link--active': activeSection === 'resources' }"
-              href="#"
-              @click.prevent="openResources"
-            >
-              <span class="portal-nav-icon">📚</span>
-              Tools and Resources
             </a>
           </nav>
 
@@ -123,8 +112,8 @@
                   We're excited to have you join {{ agency?.name || 'the team' }}.
                 </template>
               </p>
-              <div v-if="progress.percent != null" class="portal-phase-pill">
-                {{ phaseLabel }} · {{ progress.percent || progressPct }}% complete
+              <div class="portal-phase-pill">
+                {{ phaseLabel }} · {{ progressPct }}% complete
               </div>
             </div>
 
@@ -222,7 +211,7 @@
             </section>
 
             <section
-              v-if="activeSection === 'dashboard' || activeSection === 'tasks'"
+              v-if="activeSection === 'dashboard'"
               class="portal-link-card"
               aria-label="Your personal portal link"
             >
@@ -240,7 +229,21 @@
             </section>
 
             <section
-              v-if="(activeSection === 'dashboard' || activeSection === 'tasks')"
+              v-if="activeSection === 'dashboard' && portalPhase !== 'account_setup' && portalPhase !== 'finalize_login'"
+              class="portal-link-card"
+            >
+              <div class="portal-link-card-head"><strong>Your steps</strong></div>
+              <p class="portal-link-help">
+                Background check, job description, documents, and signatures are on My Tasks.
+                This dashboard is just your work email and private portal link.
+              </p>
+              <button type="button" class="btn-primary" @click="activeSection = 'tasks'">
+                Go to My Tasks ({{ progressPct }}% complete)
+              </button>
+            </section>
+
+            <section
+              v-if="activeSection === 'tasks'"
               class="portal-link-card portal-bg-card"
               aria-label="Authorization for background check"
             >
@@ -300,7 +303,7 @@
             </section>
 
             <section
-              v-if="(activeSection === 'dashboard' || activeSection === 'tasks')"
+              v-if="activeSection === 'tasks'"
               class="portal-link-card portal-jd-card"
               aria-label="Job description acknowledgement"
             >
@@ -342,14 +345,34 @@
             </section>
 
             <section
-              v-if="(activeSection === 'dashboard' || activeSection === 'tasks') && prehireDocs.length"
+              v-if="activeSection === 'tasks' && prehireDocs.length"
               class="portal-link-card"
               aria-label="Pre-hire documents"
             >
               <div class="portal-link-card-head"><strong>Pre-hire documents</strong></div>
               <ul class="portal-simple-list">
                 <li v-for="doc in prehireDocs" :key="doc.id" class="portal-doc-row">
-                  <strong>{{ doc.title }}</strong>
+                  <a
+                    v-if="doc.kind === 'print_only'"
+                    class="portal-doc-title-link"
+                    :href="`/pre-hire/${token}/print/${encodeURIComponent(doc.id)}`"
+                  >{{ doc.title }}</a>
+                  <a
+                    v-else-if="doc.kind === 'reference' && doc.url"
+                    class="portal-doc-title-link"
+                    :href="doc.url"
+                    target="_blank"
+                    rel="noopener"
+                    @click="trackHandbookOpen(`ref:${doc.id}`)"
+                  >{{ doc.title }}</a>
+                  <a
+                    v-else-if="(doc.kind === 'company_document' || doc.kind === 'upload') && (doc.filePath || companyDocFileUrl(doc))"
+                    class="portal-doc-title-link"
+                    :href="companyDocFileUrl(doc)"
+                    target="_blank"
+                    rel="noopener"
+                  >{{ doc.title }}</a>
+                  <strong v-else>{{ doc.title }}</strong>
                   <span class="cred-muted"> · {{ docKindLabel(doc.kind) }}</span>
                   <p v-if="doc.instructions" class="portal-link-help">{{ doc.instructions }}</p>
                   <a
@@ -426,19 +449,6 @@
               </ul>
             </section>
 
-            <section
-              v-if="(activeSection === 'dashboard' || activeSection === 'tasks') && checklistItems.length"
-              class="portal-link-card"
-              aria-label="Pre-hire checklist"
-            >
-              <div class="portal-link-card-head"><strong>Checklist</strong></div>
-              <ul class="portal-simple-list">
-                <li v-for="item in checklistItems" :key="item.itemKey">
-                  <strong>{{ item.title }}</strong>
-                  <span v-if="item.scheduledOn" class="cred-muted"> · scheduled {{ formatChecklistDate(item.scheduledOn) }}</span>
-                  <span v-if="item.completedOn" class="cred-ok"> · completed {{ formatChecklistDate(item.completedOn) }}</span>
-                </li>
-              </ul>
             </section>
 
             <!-- Submissions -->
@@ -455,18 +465,34 @@
                   <h3>Application</h3>
                   <p v-if="submissions.hiringProfile.appliedRole"><strong>Role:</strong> {{ submissions.hiringProfile.appliedRole }}</p>
                   <p v-if="submissions.hiringProfile.stage"><strong>Stage:</strong> {{ submissions.hiringProfile.stage }}</p>
-                  <p v-if="submissions.hiringProfile.coverLetter" class="portal-cover-letter">{{ submissions.hiringProfile.coverLetter }}</p>
+                  <p v-if="coverLetterParagraphs.length" class="portal-cover-letter">
+                    <span v-for="(para, i) in coverLetterParagraphs" :key="`cl-${i}`">{{ para }}</span>
+                  </p>
                 </div>
                 <div v-if="submissions?.uploadedMaterials?.length" class="cred-card">
                   <h3>Uploaded materials</h3>
                   <ul class="portal-simple-list">
-                    <li v-for="d in submissions.uploadedMaterials" :key="d.id">{{ d.title }} <span class="cred-muted">{{ d.category || '' }}</span></li>
+                    <li v-for="d in submissions.uploadedMaterials" :key="d.id">
+                      <a
+                        v-if="d.fileUrl"
+                        class="portal-doc-title-link"
+                        :href="submissionFileHref(d)"
+                        target="_blank"
+                        rel="noopener"
+                      >{{ d.title }}</a>
+                      <span v-else>{{ d.title }}</span>
+                      <span class="cred-muted"> {{ d.category || '' }}</span>
+                    </li>
                   </ul>
                 </div>
                 <div v-if="submissions?.completedDocuments?.length" class="cred-card">
                   <h3>Completed documents</h3>
                   <ul class="portal-simple-list">
-                    <li v-for="d in submissions.completedDocuments" :key="d.id">{{ d.title }}</li>
+                    <li v-for="d in submissions.completedDocuments" :key="d.id">
+                      <button type="button" class="portal-doc-title-link portal-doc-title-btn" @click="viewCompletedDocument(d)">
+                        {{ d.title }}
+                      </button>
+                    </li>
                   </ul>
                 </div>
                 <div v-if="!submissions?.hiringProfile && !submissions?.uploadedMaterials?.length && !submissions?.completedDocuments?.length" class="empty-tasks">
@@ -476,11 +502,11 @@
             </section>
 
             <!-- Resources / handbook -->
-            <section v-if="activeSection === 'resources'" class="portal-resources" aria-label="Tools and Resources">
+            <section v-if="activeSection === 'handbook'" class="portal-resources" aria-label="Workplace handbook">
               <div class="portal-tasks-head">
                 <div>
-                  <h2>Tools and Resources</h2>
-                  <p>Limited agency information available during hire and onboarding.</p>
+                  <h2>Workplace handbook</h2>
+                  <p>Read your agency’s workplace handbook here.</p>
                 </div>
               </div>
               <div v-if="handbookLoading" class="empty-tasks">Loading handbook…</div>
@@ -523,7 +549,7 @@
 
             <!-- Onboarding credential packet (accounts & access) -->
             <section
-              v-if="(activeSection === 'dashboard' || activeSection === 'tasks') && showCredentialPacket && portalPhase !== 'account_setup'"
+              v-if="activeSection === 'tasks' && showCredentialPacket && portalPhase !== 'account_setup'"
               class="portal-credential-packet"
               aria-label="Accounts and access"
             >
@@ -575,7 +601,7 @@
             </section>
 
             <section
-              v-if="(activeSection === 'dashboard' || activeSection === 'tasks') && portalPhase !== 'account_setup'"
+              v-if="activeSection === 'tasks' && portalPhase !== 'account_setup'"
               class="portal-tasks-section"
             >
               <div class="portal-tasks-head">
@@ -674,19 +700,17 @@
                       </button>
                     </div>
                   </template>
-                  <!-- Standard document tasks -->
-                  <template v-else-if="task.status !== 'completed'">
+                  <template v-else>
                     <button
                       type="button"
                       class="task-card-v2-action"
                       :style="{ borderColor: taskAccentColor(idx), color: taskAccentColor(idx) }"
                       @click="selectTask(task)"
                     >
-                      {{ taskActionLabel(task) }}
+                      {{ task.status === 'completed' ? 'View' : taskActionLabel(task) }}
                       <span aria-hidden="true">›</span>
                     </button>
                   </template>
-                  <div v-else class="task-card-v2-done">Done</div>
                 </article>
               </div>
 
@@ -741,130 +765,132 @@
             </div>
 
             <div class="task-panel-body">
-              <!-- Already completed -->
               <div v-if="activeTask.status === 'completed'" class="task-done-msg">
                 <div class="task-done-check">✓</div>
-                <div>This item is complete.</div>
+                <div>This item is complete. You can still read the signed copy below.</div>
               </div>
 
-              <!-- HTML document content -->
-              <template v-else>
-                <!-- Consent step -->
-                <div v-if="panelStep === 'consent'" class="consent-block">
-                  <h3>Electronic Signature Disclosure</h3>
-                  <p>
-                    By checking the box below, you consent to sign this document electronically.
-                    Your electronic signature is legally binding and carries the same force as a handwritten signature.
-                  </p>
-                  <label class="consent-check-row">
-                    <input type="checkbox" v-model="consentChecked" />
-                    <span>I consent to sign this document electronically.</span>
-                  </label>
-                  <button class="btn-primary" :disabled="!consentChecked || panelLoading" @click="submitConsent">
-                    {{ panelLoading ? '…' : 'Continue' }}
-                  </button>
-                </div>
+              <div v-if="panelStep === 'consent' && activeTask.status !== 'completed'" class="consent-block">
+                <h3>Electronic Signature Disclosure</h3>
+                <p>
+                  By continuing, you consent to sign this document electronically.
+                  Your electronic signature is legally binding and carries the same force as a handwritten signature.
+                </p>
+                <button class="btn-primary" :disabled="panelLoading" @click="submitConsent">
+                  {{ panelLoading ? '…' : 'I consent — continue to the document' }}
+                </button>
+              </div>
 
-                <!-- Document / review step -->
-                <div v-else-if="panelStep === 'review'" class="review-block">
-                  <div v-if="activeTaskDetail?.document?.htmlContent" class="doc-preview" v-html="sanitizedHtml"></div>
-                  <div v-if="fillableFields.length" class="doc-form-fields">
-                    <div v-if="!activeTaskDetail?.document?.htmlContent" class="doc-form-intro">
-                      <div class="doc-form-title">{{ activeTask.title }}</div>
-                      <p v-if="activeTask.description" class="doc-form-desc">{{ activeTask.description }}</p>
-                      <p class="doc-form-hint">Complete the fields below, then proceed to sign.</p>
-                    </div>
-                    <div
-                      v-for="field in fillableFields"
-                      :key="field.id"
-                      class="doc-field"
-                      :data-field-id="field.id"
-                    >
-                      <label class="doc-field-label">
-                        {{ formatFieldLabel(field) }}
-                        <span v-if="field.required" class="doc-field-req">*</span>
-                      </label>
-                      <input
-                        v-if="field.type !== 'date' && field.type !== 'checkbox' && field.type !== 'select' && field.type !== 'radio' && field.type !== 'textarea'"
-                        v-model="fieldValues[field.id]"
-                        :type="field.type === 'ssn' ? 'password' : 'text'"
-                        :placeholder="field.type === 'ssn' ? 'Enter SSN' : ''"
-                        class="doc-field-input"
-                      />
-                      <textarea
-                        v-else-if="field.type === 'textarea'"
-                        v-model="fieldValues[field.id]"
-                        class="doc-field-input doc-field-textarea"
-                        rows="3"
-                      />
-                      <label v-else-if="field.type === 'checkbox'" class="doc-field-check">
-                        <input v-model="fieldValues[field.id]" type="checkbox" />
-                        <span>{{ formatFieldLabel(field) }}</span>
-                      </label>
-                      <select
-                        v-else-if="field.type === 'select'"
-                        v-model="fieldValues[field.id]"
-                        class="doc-field-input"
-                      >
-                        <option value="">Select an option</option>
-                        <option
-                          v-for="opt in field.options || []"
-                          :key="opt.value || opt.label"
-                          :value="opt.value || opt.label"
-                        >
-                          {{ opt.label || opt.value }}
-                        </option>
-                      </select>
-                      <div v-else-if="field.type === 'radio'" class="doc-field-radio-group">
-                        <label v-for="opt in field.options || []" :key="opt.value || opt.label" class="doc-field-radio">
-                          <input
-                            type="radio"
-                            :name="`field_${field.id}`"
-                            :value="opt.value || opt.label"
-                            v-model="fieldValues[field.id]"
-                          />
-                          <span>{{ opt.label || opt.value }}</span>
-                        </label>
+              <div v-if="panelStep !== 'consent' || activeTask.status === 'completed'" class="review-block">
+                <div v-if="activeTaskDetail?.document?.htmlContent" class="doc-paper">
+                  <div class="doc-preview" v-html="sanitizedHtml"></div>
+                  <div v-if="cosigners.length" class="cosign-block">
+                    <h4>Internal signatures</h4>
+                    <p class="cosign-help">These signatures are attached to the full copy of this agreement.</p>
+                    <div v-for="(cs, i) in cosigners" :key="cs.taskId || i" class="cosign-row">
+                      <div>
+                        <strong>{{ cs.name || 'Signer' }}</strong>
+                        <span class="cred-muted"> · {{ cs.roleLabel }}</span>
                       </div>
-                      <input
-                        v-else-if="field.autoToday"
-                        v-model="fieldValues[field.id]"
-                        type="text"
-                        disabled
-                        class="doc-field-input"
-                      />
-                      <input
-                        v-else
-                        v-model="fieldValues[field.id]"
-                        type="date"
-                        class="doc-field-input"
-                      />
-                    </div>
-                  </div>
-                  <div v-else-if="!activeTaskDetail?.document?.htmlContent" class="doc-placeholder">
-                    <div class="doc-placeholder-icon">📄</div>
-                    <div>{{ activeTask.title }}</div>
-                    <div class="doc-placeholder-sub">{{ activeTask.description }}</div>
-                  </div>
-
-                  <div class="review-actions">
-                    <div v-if="activeTask.actionType === 'review'">
-                      <!-- Review only — just acknowledge -->
-                      <button class="btn-primary" :disabled="panelLoading" @click="submitAcknowledge">
-                        {{ panelLoading ? 'Saving…' : 'I have read and acknowledge this document' }}
-                      </button>
-                    </div>
-                    <div v-else>
-                      <button class="btn-primary" @click="goToSignStep">
-                        Proceed to sign →
-                      </button>
-                      <div v-if="fieldValidationError" class="panel-error">{{ fieldValidationError }}</div>
+                      <img v-if="cs.signatureData" :src="cs.signatureData" alt="Signature" class="cosign-img" />
+                      <div v-else class="cosign-line">{{ cs.signed ? 'Signed' : 'Signature pending' }}</div>
                     </div>
                   </div>
                 </div>
+                <div v-if="fillableFields.length && activeTask.status !== 'completed'" class="doc-form-fields">
+                  <div v-if="!activeTaskDetail?.document?.htmlContent" class="doc-form-intro">
+                    <div class="doc-form-title">{{ activeTask.title }}</div>
+                    <p v-if="activeTask.description" class="doc-form-desc">{{ activeTask.description }}</p>
+                    <p class="doc-form-hint">Complete the fields below, then proceed to sign.</p>
+                  </div>
+                  <div
+                    v-for="field in fillableFields"
+                    :key="field.id"
+                    class="doc-field"
+                    :data-field-id="field.id"
+                  >
+                    <label class="doc-field-label">
+                      {{ formatFieldLabel(field) }}
+                      <span v-if="field.required" class="doc-field-req">*</span>
+                    </label>
+                    <input
+                      v-if="field.type !== 'date' && field.type !== 'checkbox' && field.type !== 'select' && field.type !== 'radio' && field.type !== 'textarea'"
+                      v-model="fieldValues[field.id]"
+                      :type="field.type === 'ssn' ? 'password' : 'text'"
+                      :placeholder="field.type === 'ssn' ? 'Enter SSN' : ''"
+                      class="doc-field-input"
+                    />
+                    <textarea
+                      v-else-if="field.type === 'textarea'"
+                      v-model="fieldValues[field.id]"
+                      class="doc-field-input doc-field-textarea"
+                      rows="3"
+                    />
+                    <label v-else-if="field.type === 'checkbox'" class="doc-field-check">
+                      <input v-model="fieldValues[field.id]" type="checkbox" />
+                      <span>{{ formatFieldLabel(field) }}</span>
+                    </label>
+                    <select
+                      v-else-if="field.type === 'select'"
+                      v-model="fieldValues[field.id]"
+                      class="doc-field-input"
+                    >
+                      <option value="">Select an option</option>
+                      <option
+                        v-for="opt in field.options || []"
+                        :key="opt.value || opt.label"
+                        :value="opt.value || opt.label"
+                      >
+                        {{ opt.label || opt.value }}
+                      </option>
+                    </select>
+                    <div v-else-if="field.type === 'radio'" class="doc-field-radio-group">
+                      <label v-for="opt in field.options || []" :key="opt.value || opt.label" class="doc-field-radio">
+                        <input
+                          type="radio"
+                          :name="`field_${field.id}`"
+                          :value="opt.value || opt.label"
+                          v-model="fieldValues[field.id]"
+                        />
+                        <span>{{ opt.label || opt.value }}</span>
+                      </label>
+                    </div>
+                    <input
+                      v-else-if="field.autoToday"
+                      v-model="fieldValues[field.id]"
+                      type="text"
+                      disabled
+                      class="doc-field-input"
+                    />
+                    <input
+                      v-else
+                      v-model="fieldValues[field.id]"
+                      type="date"
+                      class="doc-field-input"
+                    />
+                  </div>
+                </div>
+                <div v-else-if="!activeTaskDetail?.document?.htmlContent" class="doc-placeholder">
+                  <div class="doc-placeholder-icon">📄</div>
+                  <div>{{ activeTask.title }}</div>
+                  <div class="doc-placeholder-sub">{{ activeTask.description }}</div>
+                </div>
 
-                <!-- Signature step -->
-                <div v-else-if="panelStep === 'sign'" class="sign-block">
+                <div v-if="activeTask.status !== 'completed'" class="review-actions">
+                  <div v-if="activeTask.actionType === 'review'">
+                    <button class="btn-primary" :disabled="panelLoading" @click="submitAcknowledge">
+                      {{ panelLoading ? 'Saving…' : 'I have read and acknowledge this document' }}
+                    </button>
+                  </div>
+                  <div v-else-if="panelStep !== 'sign'">
+                    <button class="btn-primary" @click="goToSignStep">
+                      Continue to signature →
+                    </button>
+                    <div v-if="fieldValidationError" class="panel-error">{{ fieldValidationError }}</div>
+                  </div>
+                </div>
+
+                <div v-if="panelStep === 'sign' && activeTask.status !== 'completed'" class="sign-block">
                   <div class="sign-instructions">
                     Draw your signature below using your mouse or finger.
                   </div>
@@ -883,8 +909,9 @@
                   </div>
                   <div v-if="panelError" class="panel-error">{{ panelError }}</div>
                 </div>
-              </template>
+              </div>
             </div>
+
           </div>
         </div>
       </transition>
@@ -922,6 +949,7 @@ import AdaptiveSignatureCapture from '../components/adaptive-intake/AdaptiveSign
 import JobDescriptionSections from '../components/careers/JobDescriptionSections.vue';
 import { buildFormUrl } from '../utils/publicIntakeUrl.js';
 import { learnerFillableFields } from '../utils/documentFieldLayout.js';
+import { coverLetterParagraphs as splitCoverLetter } from '../utils/coverLetterDisplay.js';
 import '../styles/adaptive-intake.css';
 import '../styles/digital-form.css';
 
@@ -1313,8 +1341,8 @@ const openSubmissions = async () => {
   }
 };
 
-const openResources = async () => {
-  activeSection.value = 'resources';
+const openHandbook = async () => {
+  activeSection.value = 'handbook';
   handbookLoading.value = true;
   try {
     const { data } = await portalApi.get(`/prehire-portal/${token.value}/resources/handbook`);
@@ -1325,6 +1353,25 @@ const openResources = async () => {
     handbookLoading.value = false;
   }
 };
+
+const openResources = openHandbook;
+
+const submissionFileHref = (doc) => {
+  if (!doc?.fileUrl) return '';
+  const base = String(import.meta.env.VITE_API_URL || '/api').replace(/\/$/, '');
+  return doc.fileUrl.startsWith('http') ? doc.fileUrl : `${base}${doc.fileUrl.startsWith('/') ? '' : '/'}${doc.fileUrl}`;
+};
+
+const viewCompletedDocument = async (doc) => {
+  if (!doc?.id) return;
+  await selectTask({ id: doc.id, status: 'completed', title: doc.title, actionType: doc.actionType });
+};
+
+const coverLetterParagraphs = computed(() =>
+  splitCoverLetter(submissions.value?.hiringProfile?.coverLetter || '')
+);
+
+const cosigners = computed(() => activeTaskDetail.value?.cosigners || []);
 
 const identityForm = ref({ firstName: '', lastName: '', phone: '' });
 const confirmingIdentity = ref(false);
@@ -1484,11 +1531,19 @@ const focusChat = () => {
   chatRef.value?.$el?.scrollIntoView?.({ behavior: 'smooth', block: 'nearest' });
 };
 
-// Use required-only progress when any tasks are flagged required; otherwise all tasks
-const totalCount = computed(() => progress.value.requiredTotal || progress.value.total);
-const completedCount = computed(() => progress.value.requiredCompleted ?? progress.value.completed);
-const allDone = computed(() => progress.value.allDone);
-const progressPct = computed(() => totalCount.value > 0 ? Math.round((completedCount.value / totalCount.value) * 100) : 0);
+const totalCount = computed(() => {
+  const p = progress.value || {};
+  return Number(p.total || 0);
+});
+const completedCount = computed(() => {
+  const p = progress.value || {};
+  return Number(p.completed || 0);
+});
+const allDone = computed(() => !!progress.value.allDone);
+const progressPct = computed(() => {
+  if (totalCount.value > 0) return Math.round((completedCount.value / totalCount.value) * 100);
+  return Number(progress.value.percent || 0);
+});
 
 const isPrehire = computed(() => ['PENDING_SETUP', 'PREHIRE_OPEN', 'PREHIRE_REVIEW'].includes(candidate.value.status));
 const isOnboardingPortal = computed(() => candidate.value.status === 'ONBOARDING');
@@ -1609,9 +1664,8 @@ const pillLabel = (t) => {
 };
 
 const selectTask = async (task) => {
-  if (task.status === 'completed') return;
   activeTaskId.value = task.id;
-  panelStep.value = 'consent';
+  panelStep.value = task.status === 'completed' ? 'review' : 'consent';
   panelError.value = '';
   consentChecked.value = false;
   activeTaskDetail.value = null;
@@ -1621,7 +1675,7 @@ const selectTask = async (task) => {
     const res = await portalApi.get(`/prehire-portal/${token.value}/tasks/${task.id}`);
     activeTaskDetail.value = res.data;
     initFieldValues(activeTaskDetail.value);
-    if (activeTaskDetail.value?.auditTrail?.portalConsent?.given) {
+    if (task.status === 'completed' || activeTaskDetail.value?.auditTrail?.portalConsent?.given) {
       panelStep.value = 'review';
     }
   } catch { /* show panel anyway */ }
@@ -2662,15 +2716,17 @@ onMounted(async () => {
 .pill-sign { background: var(--primary-light); color: var(--primary); }
 .pill-review { background: #f1f5f9; color: #475569; }
 
-/* ─── Task panel (slide-in) ─────────────────────────────────────────────────── */
+/* ─── Task panel (centered contract) ────────────────────────────────────────── */
 .task-panel-overlay {
-  position: fixed; inset: 0; background: rgba(0,0,0,0.4);
-  display: flex; align-items: stretch; justify-content: flex-end; z-index: 70;
+  position: fixed; inset: 0; background: rgba(15, 23, 42, 0.55);
+  display: flex; align-items: center; justify-content: center; z-index: 70;
+  padding: 20px 12px;
 }
 
 .task-panel {
-  width: 560px; max-width: 95vw; background: white;
-  display: flex; flex-direction: column; box-shadow: -4px 0 24px rgba(0,0,0,0.15);
+  width: min(920px, 96vw); max-height: 92vh; background: white;
+  display: flex; flex-direction: column; border-radius: 16px;
+  box-shadow: 0 24px 64px rgba(0,0,0,0.28);
 }
 
 .task-panel-header {
@@ -2687,14 +2743,43 @@ onMounted(async () => {
 .task-done-msg { display: flex; align-items: center; gap: 14px; font-size: 15px; color: #16a34a; font-weight: 600; padding: 20px 0; }
 .task-done-check { font-size: 28px; }
 
-.consent-block { display: flex; flex-direction: column; gap: 16px; }
+.consent-block { display: flex; flex-direction: column; gap: 16px; max-width: 720px; margin: 0 auto 8px; }
 .consent-block h3 { font-size: 16px; font-weight: 700; margin: 0; color: #0f172a; }
 .consent-block p { font-size: 14px; color: #475569; line-height: 1.65; margin: 0; }
 .consent-check-row { display: flex; align-items: flex-start; gap: 10px; font-size: 14px; cursor: pointer; }
 .consent-check-row input { margin-top: 3px; cursor: pointer; }
 
 .review-block { display: flex; flex-direction: column; gap: 16px; }
-.doc-preview { font-size: 14px; color: #0f172a; line-height: 1.7; max-height: 55vh; overflow-y: auto; border: 1px solid #e2e8f0; border-radius: 10px; padding: 16px; background: #fafafa; }
+.doc-paper {
+  max-width: 800px;
+  margin: 0 auto;
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  box-shadow: 0 12px 40px rgba(15, 23, 42, 0.08);
+  padding: 28px 32px 20px;
+}
+.doc-preview { font-size: 14px; color: #0f172a; line-height: 1.7; max-height: none; overflow: visible; border: 0; border-radius: 0; padding: 0; background: transparent; }
+.cosign-block { margin-top: 28px; padding-top: 18px; border-top: 1px solid #e5e7eb; }
+.cosign-block h4 { margin: 0 0 6px; font-size: 15px; }
+.cosign-help { margin: 0 0 12px; font-size: 13px; color: #64748b; }
+.cosign-row { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 10px 0; border-bottom: 1px dashed #e5e7eb; }
+.cosign-img { height: 48px; max-width: 220px; object-fit: contain; }
+.cosign-line { min-width: 180px; border-bottom: 1px solid #0f172a; text-align: center; font-size: 12px; color: #64748b; padding-bottom: 4px; }
+.portal-doc-title-link {
+  color: var(--primary);
+  font-weight: 700;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.portal-doc-title-btn {
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+}
+.portal-cover-letter span { display: block; margin-bottom: 10px; white-space: pre-wrap; line-height: 1.55; }
 .doc-form-fields { display: flex; flex-direction: column; gap: 14px; margin-top: 4px; }
 .doc-form-intro { margin-bottom: 4px; }
 .doc-form-title { font-size: 16px; font-weight: 700; color: #0f172a; margin-bottom: 4px; }
@@ -2748,9 +2833,9 @@ onMounted(async () => {
 .confirm-actions { display: flex; gap: 10px; justify-content: flex-end; }
 
 .panel-slide-enter-active,
-.panel-slide-leave-active { transition: transform 0.25s ease; }
+.panel-slide-leave-active { transition: opacity 0.2s ease, transform 0.2s ease; }
 .panel-slide-enter-from,
-.panel-slide-leave-to { transform: translateX(100%); }
+.panel-slide-leave-to { opacity: 0; transform: translateY(12px); }
 
 @keyframes spin { to { transform: rotate(360deg); } }
 
@@ -2782,6 +2867,6 @@ onMounted(async () => {
     grid-column: 1 / -1;
     justify-self: start;
   }
-  .task-panel { width: 100vw; }
+  .task-panel { width: min(920px, 100vw); max-height: 100vh; border-radius: 0; }
 }
 </style>

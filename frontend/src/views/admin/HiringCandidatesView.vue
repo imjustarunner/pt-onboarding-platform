@@ -205,8 +205,10 @@
                 :activity-items="candidateActivityItems"
                 :agency-id="effectiveAgencyId"
                 :background-check="detail.backgroundCheck"
+                :cover-letter-documents="detail.coverLetterDocuments || []"
                 @goto-tab="onDetailGotoTab"
                 @schedule-interview="openInterviewSchedule"
+                @open-cover-letter="openCoverLetterDoc"
               />
             </div>
 
@@ -267,27 +269,6 @@
               <div class="kv">
                 <div class="k">Phone</div>
                 <div class="v">{{ detail.user?.phone_number || '—' }}</div>
-              </div>
-              <div class="kv">
-                <div class="k">Cover letter</div>
-                <div class="v">
-                  <pre v-if="detail.profile?.cover_letter_text" class="pre light-pre">{{ detail.profile.cover_letter_text }}</pre>
-                  <div v-if="(detail.coverLetterDocuments || []).length" class="cover-letter-docs">
-                    <button
-                      v-for="doc in detail.coverLetterDocuments"
-                      :key="`cl-${doc.id}`"
-                      type="button"
-                      class="btn btn-secondary btn-sm"
-                      @click="openCoverLetterDoc(doc)"
-                    >
-                      Open {{ doc.originalName || doc.title || 'cover letter' }}
-                    </button>
-                  </div>
-                  <span
-                    v-if="!detail.profile?.cover_letter_text && !(detail.coverLetterDocuments || []).length"
-                    class="muted"
-                  >—</span>
-                </div>
               </div>
               <div class="kv">
                 <div class="k">Fluent languages</div>
@@ -3087,13 +3068,13 @@ onUnmounted(() => {
   border-color: #111827;
 }
 .tab-body {
-  padding-top: 6px;
+  padding: 10px 22px 18px;
 }
 .kv {
   display: grid;
-  grid-template-columns: 140px 1fr;
+  grid-template-columns: 160px 1fr;
   gap: 10px;
-  padding: 8px 0;
+  padding: 8px 12px 8px 16px;
   border-bottom: 1px dashed #e5e7eb;
 }
 .application-history-list {
@@ -3129,6 +3110,7 @@ onUnmounted(() => {
 .k {
   color: #6b7280;
   font-size: 13px;
+  padding-left: 4px;
 }
 .v {
   font-size: 14px;

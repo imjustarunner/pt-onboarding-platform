@@ -5,6 +5,7 @@ import pool from '../config/database.js';
 import PayrollCompensationLevel from '../models/PayrollCompensationLevel.model.js';
 import HiringResumeParse from '../models/HiringResumeParse.model.js';
 import OfficeLocation from '../models/OfficeLocation.model.js';
+import config from '../config/config.js';
 import {
   classifyPayCategory,
   determineLicenseStatus
@@ -27,11 +28,26 @@ const TOKEN_ALIASES = {
   CANDIDATE_NAME: 'EMPLOYEE_FULL_NAME',
   Direct_Rate: 'DIRECT_RATE',
   EFFECTIVE_DATE: 'EXECUTION_DATE',
-  UNIVERSITY_NAME: 'UNIVERSITY'
+  UNIVERSITY_NAME: 'UNIVERSITY',
+  JOBTITLE: 'JOB_TITLE',
+  SUPERVISOR: 'SUPERVISOR_NAME',
+  STARTDATE: 'START_DATE'
 };
 
-function normalizeTokens(tokens = {}) {
+function expandCompactTokenKeys(tokens = {}) {
   const out = { ...tokens };
+  for (const [k, v] of Object.entries(tokens || {})) {
+    if (v == null || v === '') continue;
+    const compact = String(k).replace(/_/g, '');
+    if (compact && compact !== k && (out[compact] == null || out[compact] === '')) {
+      out[compact] = v;
+    }
+  }
+  return out;
+}
+
+function normalizeTokens(tokens = {}) {
+  const out = expandCompactTokenKeys(tokens);
   for (const [alias, canonical] of Object.entries(TOKEN_ALIASES)) {
     if (out[alias] != null && out[alias] !== '' && (out[canonical] == null || out[canonical] === '')) {
       out[canonical] = out[alias];
@@ -47,10 +63,28 @@ function replaceTokens(html, tokens = {}) {
   let out = String(html || '');
   const merged = normalizeTokens(tokens);
   for (const [key, value] of Object.entries(merged)) {
-    const re = new RegExp(`\\{\\{\\s*${key}\\s*\\}\\}`, 'gi');
+    const safeKey = String(key).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const re = new RegExp(`\\{\\{\\s*${safeKey}\\s*\\}\\}`, 'gi');
     out = out.replace(re, value == null ? '' : String(value));
   }
   return out;
+}
+
+export function applyContractTokens(html, tokens = {}) {
+  return replaceTokens(html, tokens);
+}
+
+function includeSupervisorFromTokens(tokens = {}) {
+  const flag = String(tokens.INCLUDE_SUPERVISION || tokens.includeSupervisor || '').trim().toLowerCase();
+  if (['0', 'false', 'no', 'off'].includes(flag)) return false;
+  if (['1', 'true', 'yes', 'on'].includes(flag)) return true;
+  return String(tokens.SUPERVISOR_NAME || '').trim().length > 0;
+}
+
+function isSupervisorClause(clause) {
+  const key = String(clause?.clause_key || clause?.clauseKey || '').toUpperCase();
+  const title = String(clause?.title || '');
+  return /SUPERVIS/.test(key) || /supervis/i.test(title);
 }
 
 function findUnresolvedTokens(html) {
@@ -507,8 +541,16 @@ export async function renderContractHtml({
     payMode: config.pay_mode
   });
   mergedTokens.INSERT_PAY_TABLE = payTable;
+  const includeSupervisor = includeSupervisorFromTokens(mergedTokens);
+  if (!includeSupervisor) {
+    mergedTokens.SUPERVISOR_NAME = '';
+    mergedTokens.SUPERVISOR = '';
+  }
+  const visibleClauses = includeSupervisor
+    ? clauses
+    : (clauses || []).filter((c) => !isSupervisorClause(c));
 
-  const bodyParts = clauses.map((c) => {
+  const bodyParts = visibleClauses.map((c) => {
     const body = replaceTokens(c.body_html, mergedTokens);
     if (/^\s*<h[1-3]/i.test(c.body_html || '') || /^\s*<p/i.test(body)) return body;
     const heading = c.title ? `<h2 style="margin-top:1.4em;">${escapeHtml(c.title)}</h2>` : '';
@@ -519,21 +561,45 @@ export async function renderContractHtml({
   const css = template?.css_extras || '';
   const companyName = escapeHtml(mergedTokens.COMPANY_NAME || '');
   const companyAddress = escapeHtml(mergedTokens.COMPANY_ADDRESS || '');
-  const brandHeader = companyName
-    ? `<header class="contract-brand" style="border-bottom:2px solid #0f172a;padding-bottom:12px;margin-bottom:24px;">
+  let letterheadHeader = '';
+  let letterheadFooter = '';
+  let letterheadCss = '';
+  const letterheadId = Number(template?.letterhead_template_id || 0);
+  if (letterheadId) {
+    try {
+      const LetterheadTemplate = (await import('../models/LetterheadTemplate.model.js')).default;
+      const lh = await LetterheadTemplate.findById(letterheadId);
+      if (lh && lh.is_active !== 0 && lh.is_active !== false) {
+        letterheadCss = lh.css_content || '';
+        letterheadFooter = lh.footer_html || '';
+        if (['svg', 'png'].includes(String(lh.template_type || '')) && lh.file_path) {
+          const path = String(lh.file_path).replace(/^\/+/, '').replace(/^uploads\//, '');
+          const url = `${String(config.frontendUrl || '').replace(/\/$/, '')}/uploads/${path}`;
+          letterheadHeader = `<div class="contract-letterhead"><img src="${escapeHtml(url)}" alt="" style="width:100%;max-width:800px;display:block;" /></div>`;
+        } else {
+          letterheadHeader = lh.header_html || '';
+        }
+      }
+    } catch { /* keep company-name header */ }
+  }
+  const brandHeader = letterheadHeader
+    || (companyName
+      ? `<header class="contract-brand" style="border-bottom:2px solid #0f172a;padding-bottom:12px;margin-bottom:24px;">
   <div style="font-size:1.35rem;font-weight:700;letter-spacing:0.02em;">${companyName}</div>
   ${companyAddress ? `<div style="font-size:0.85rem;color:#475569;margin-top:4px;">${companyAddress}</div>` : ''}
 </header>`
-    : '';
+      : '');
   const html = `<!DOCTYPE html>
 <html><head><meta charset="utf-8"/><style>
   body { font-family: ${font}; color: #111; line-height: 1.45; max-width: 800px; margin: 0 auto; padding: 24px; }
   h1,h2,h3 { color: #0f172a; }
   table { width: 100%; }
   ${css}
+  ${letterheadCss}
 </style></head><body>
 ${brandHeader}
 ${bodyParts.join('\n')}
+${letterheadFooter || ''}
 </body></html>`;
 
   return {
@@ -550,5 +616,6 @@ export default {
   renderContractHtml,
   getAgencyBuilderDefaults,
   inferCompensationFromCredential,
-  formatLicenseTypeDisplay
+  formatLicenseTypeDisplay,
+  applyContractTokens
 };

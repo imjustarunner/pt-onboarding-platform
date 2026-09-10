@@ -316,11 +316,22 @@
             @navigate="go"
           />
 
+          <div
+            v-if="showPeopleOpsPipeline"
+            class="dash-block dash-block--full"
+            :style="sectionStyle('peopleOps')"
+          >
+            <PeopleOpsPipelineCard
+              :hiring-path="summaryPaths.hiring"
+              @navigate="go"
+            />
+          </div>
+
           <OpsSummaryCards
             use-contents
             :show-programs="isVisible('programs') && hasAffiliatedPrograms"
             :show-communications="isVisible('communications')"
-            :show-people-ops="isVisible('peopleOps')"
+            :show-people-ops="false"
             :show-system-alerts="isVisible('systemAlerts')"
             :show-todays-schedule="isVisible('todaysSchedule') && !showInlineDaySchedule"
             :program-stats="programStats"
@@ -477,6 +488,7 @@ import OpsDaySchedulePanel from '../../components/admin/opsDashboard/OpsDaySched
 import AtAGlanceRow from '../../components/admin/opsDashboard/AtAGlanceRow.vue';
 import DocumentationAlertsCard from '../../components/admin/opsDashboard/DocumentationAlertsCard.vue';
 import OpsSummaryCards from '../../components/admin/opsDashboard/OpsSummaryCards.vue';
+import PeopleOpsPipelineCard from '../../components/admin/opsDashboard/PeopleOpsPipelineCard.vue';
 import TenantContextCards from '../../components/admin/opsDashboard/TenantContextCards.vue';
 import MomentumListTab from '../../components/dashboard/MomentumListTab.vue';
 import UnifiedChecklistTab from '../../components/dashboard/UnifiedChecklistTab.vue';
@@ -707,6 +719,17 @@ const plannedOutsPath = computed(() => `${prefix.value}/admin/planned-outs`);
 
 const agencyFlags = computed(() =>
   parseFeatureFlags(agencyStore.currentAgency?.feature_flags || agencyStore.currentAgency?.featureFlags)
+);
+const peopleOpsFeatureEnabled = computed(() => {
+  const current = agencyStore.currentAgency;
+  const list = Array.isArray(agencyStore.userAgencies) ? agencyStore.userAgencies : [];
+  const agencies = current ? [current, ...list] : list;
+  return agencies.some((a) =>
+    isTruthyFeatureFlag(parseFeatureFlags(a?.feature_flags || a?.featureFlags)?.peopleOpsEnabled)
+  );
+});
+const showPeopleOpsPipeline = computed(() =>
+  peopleOpsFeatureEnabled.value && isVisible('peopleOps')
 );
 const presenceEnabled = computed(() => agencyFlags.value?.presenceEnabled === true);
 const canAccessTeamBoardRole = computed(() =>

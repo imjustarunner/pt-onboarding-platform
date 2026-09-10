@@ -18,7 +18,7 @@ import pool from '../config/database.js';
 import config from '../config/config.js';
 import User from '../models/User.model.js';
 
-const DELAY_MINUTES = 15;
+const DELAY_MINUTES = 2;
 
 // ── Public API ───────────────────────────────────────────────────────────────
 
@@ -125,27 +125,27 @@ async function sendBatchedEmail(row) {
   const agencyName = row.agency_name || 'People Operations';
   const items      = safeParseJson(row.items_json, []);
 
-  const subject = `New tasks added to your pre-hire account — ${agencyName}`;
+  const subject = `New items added to your hire portal — ${agencyName}`;
 
   // ── Plain text ─────────────────────────────────────────────────────────────
   const itemLines = items.length
     ? items.map((it) => `• ${it.title || it.type || 'New item'}`).join('\n')
-    : '• New tasks have been added to your account.';
+    : '• New documents have been added to your portal.';
 
   const text = [
     `Hi ${firstName},`,
     '',
-    'The following has been added to your pre-hire account:',
+    'Additional documents were added to your pre-hire / onboarding portal:',
     '',
     itemLines,
     '',
     portalLink
-      ? `Log in to view and complete these items:\n${portalLink}`
-      : 'Log in to your pre-hire portal to view your tasks.',
+      ? `Use your private portal link (do not share it):\n${portalLink}`
+      : 'Open your private pre-hire portal to view your tasks.',
     '',
-    'This link is valid for 7 days.',
+    'This is the same link you already saved. New items appear there as soon as they are assigned.',
     '',
-    `— ${agencyName}`,
+    `— ${agencyName} People Operations`,
   ].join('\n');
 
   // ── HTML ───────────────────────────────────────────────────────────────────
