@@ -70,11 +70,33 @@ const STOP_NAME_PHRASES = new Set([
   'hi team'
 ]);
 
+function stripEmailSignature(rawBody) {
+  let body = String(rawBody || '');
+  // Common signature delimiters
+  body = body.split(/\n--\s*\n/)[0];
+  body = body.split(/\n_{3,}\s*\n/)[0];
+  body = body.replace(/\nSent from my .+$/is, '');
+  body = body.replace(/\nGet Outlook for .+$/is, '');
+  // Cut at counselor/title signature blocks
+  body = body.replace(
+    /\n(?:Best(?: regards)?|Thanks|Thank you|Sincerely|Regards|Warm regards)[,!]?\s*\n[\s\S]*$/i,
+    '\n'
+  );
+  // Cut at phone/title lines that look like signatures
+  body = body.replace(
+    /\n(?:Mrs?\.|Ms\.|Miss|Dr\.)\s+[A-Z][^\n]*(?:\n[^\n]*){0,8}(?:Phone|Tel|Email|@|Counselor|LPCC|LCSW|MA,)/i,
+    '\n'
+  );
+  return body.trim();
+}
+
 function cleanExtractedName(raw) {
   let s = normalizeSpace(String(raw || '').replace(/[*_]+/g, ' ').replace(/\s+/g, ' '));
   // Strip trailing em-dash school tags: "request — Russell"
   s = s.replace(/\s+[—–-]\s+.*$/, '').trim();
   s = s.replace(/[?.!,;:]+$/g, '').trim();
+  // Strip honorifics so "Mrs. Gio Franco-Diaz" is not treated as a client name
+  s = s.replace(/^(?:mrs?|ms|miss|mr|dr|prof)\.?\s+/i, '').trim();
   if (!s) return null;
   if (STOP_NAME_PHRASES.has(s.toLowerCase())) return null;
   // Require at least a first + last token (or a compact initials-like token).
@@ -91,6 +113,9 @@ function cleanExtractedName(raw) {
   if (/^(re|fw|fwd|status|update|regarding|need|please)$/i.test(parts[0])) return null;
   // Each name token should start with a letter and look name-like
   if (!parts.every((p) => /^[A-Za-z][A-Za-z'.\-]*$/.test(p))) return null;
+  // Reject title-heavy strings that slipped through
+  if (/\b(counselor|therapist|lpcc|lcsw|principal|teacher|middle school|elementary|high school)\b/i.test(s)) return null;
+  if (/\b(school|academy|district)\b/i.test(s) && parts.length >= 2) return null;
   return s;
 }
 
@@ -99,10 +124,10 @@ function cleanExtractedName(raw) {
  * Supports:
  *  - "status on Destiny Roberts"
  *  - Bullet / starred privacy-truncated lists: "* Jazmine Sant*" / "• Aedan Raymo"
- *  - Capitalized First Last phrases
+ *  - Capitalized First Last phrases (signature-stripped)
  */
 export function extractClientReferencesHeuristic({ subject, bodyText }) {
-  const rawBody = String(bodyText || '');
+  const rawBody = stripEmailSignature(String(bodyText || ''));
   const rawSubject = String(subject || '');
   const found = [];
   const seen = new Set();
@@ -122,7 +147,9 @@ export function extractClientReferencesHeuristic({ subject, bodyText }) {
     /status(?:\s+update)?\s+(?:on|for)\s+([A-Za-z][A-Za-z0-9'.\- ]{1,40})\??/gi,
     /when is\s+([A-Za-z][A-Za-z0-9'.\- ]{1,40})\s+going to be ready\??/gi,
     /where are we at with\s+([A-Za-z][A-Za-z0-9'.\- ]{1,40})\??/gi,
-    /(?:update)\s+(?:for|on)\s+([A-Za-z][A-Za-z0-9'.\- ]{1,40})\??/gi
+    /(?:update)\s+(?:for|on)\s+([A-Za-z][A-Za-z0-9'.\- ]{1,40})\??/gi,
+    /\b(?:kiddo|student|client)\s+([A-Z][a-z]{1,}(?:\s+[A-Z][a-z]{1,}){0,2})\b/g,
+    /\b([A-Z][a-z]{2,}[A-Z][a-z]{2,})\b/g // KorDre-style compact initials/names
   ];
   for (const pattern of patterns) {
     let m;
@@ -146,17 +173,14 @@ export function extractClientReferencesHeuristic({ subject, bodyText }) {
     if (starred?.[1]) push(starred[1]);
   }
 
-  // 3) Fallback: capitalized First Last phrases (require 2+ tokens)
-  if (!found.length) {
+  // 3) Fallback: capitalized First Last phrases (require 2+ tokens) — only if
+  //    we already found status intent cues; avoid signature-only names.
+  if (!found.length && /\b(status|kiddo|student|therapy|packet|referral|ready)\b/i.test(text)) {
     const caps = text.match(/\b[A-Z][a-z]{2,}(?:\s+[A-Z][a-z]{2,}){1,2}\b/g) || [];
     for (const cap of caps) push(cap);
   }
 
-  // 4) Last resort: last two tokens of the whole text if they look like a name
-  if (!found.length) {
-    const tokens = tokenize(text);
-    if (tokens.length >= 2) push(tokens.slice(-2).join(' '));
-  }
+  // 4) Do NOT use "last two tokens" — that almost always grabs the sign-off name.
 
   return found;
 }

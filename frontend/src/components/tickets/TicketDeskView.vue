@@ -500,6 +500,59 @@
                           </div>
                         </div>
                       </div>
+                      <div
+                        v-else-if="step.type === 'match_client' && step.status === 'blocked'"
+                        class="response-plan-step-actions match-manual"
+                      >
+                        <div class="match-manual-label">Search clients to link manually</div>
+                        <div class="match-manual-row">
+                          <input
+                            v-model="manualMatchQuery"
+                            type="search"
+                            class="match-manual-input"
+                            placeholder="Initials or name (e.g. KorDre)"
+                            @keyup.enter="searchManualMatchClients"
+                          />
+                          <button
+                            type="button"
+                            class="btn btn-secondary btn-xs"
+                            :disabled="manualMatchSearching || !manualMatchQuery.trim()"
+                            @click="searchManualMatchClients"
+                          >
+                            {{ manualMatchSearching ? 'Searching…' : 'Search' }}
+                          </button>
+                        </div>
+                        <div v-if="manualMatchError" class="error tiny">{{ manualMatchError }}</div>
+                        <div
+                          v-for="cand in manualMatchResults"
+                          :key="`manual-cand-${cand.clientId}`"
+                          class="match-candidate-row"
+                        >
+                          <div class="match-candidate-info">
+                            <strong>{{ cand.fullName || cand.initials || `Client #${cand.clientId}` }}</strong>
+                            <span v-if="cand.initials" class="muted"> · {{ cand.initials }}</span>
+                            <span v-if="cand.priorSchoolName" class="match-prior"> · {{ cand.priorSchoolName }}</span>
+                          </div>
+                          <div class="match-candidate-btns">
+                            <button
+                              type="button"
+                              class="btn btn-primary btn-xs"
+                              :disabled="linkingClientId === cand.clientId"
+                              @click="linkTicketClient(cand, { addToSchool: true })"
+                            >
+                              {{ linkingClientId === cand.clientId ? 'Linking…' : `Add to ${step.targetSchoolName || selected?.school_name || 'school'} & link` }}
+                            </button>
+                            <button
+                              type="button"
+                              class="btn btn-secondary btn-xs"
+                              :disabled="linkingClientId === cand.clientId"
+                              @click="linkTicketClient(cand, { addToSchool: false })"
+                            >
+                              Link only
+                            </button>
+                          </div>
+                        </div>
+                      </div>
                       <div v-else-if="step.type === 'draft_reply' && step.status === 'ready'" class="response-plan-step-actions">
                         <button
                           v-if="selected.ai_draft_response"
@@ -623,7 +676,7 @@
               <div v-if="showAutoDraftBanner" class="ai-draft-banner">
                 <div class="ai-draft-head">
                   <strong>{{ generatingDraft ? 'Preparing AI draft…' : 'AI draft ready' }}</strong>
-                  <span v-if="!generatingDraft" class="muted"> · review, edit if needed, then send as Official answer</span>
+                  <span v-if="!generatingDraft" class="muted"> · edit below, then send as Official answer</span>
                   <span v-if="selected.ai_draft_review_state" class="muted">
                     · {{ selected.ai_draft_review_state }}
                   </span>
@@ -639,7 +692,6 @@
                     </li>
                   </ul>
                 </div>
-                <div v-if="!generatingDraft" class="ai-draft-body">{{ prominentDraftText }}</div>
                 <div v-if="!generatingDraft && (selected.ai_draft_response || draft.trim())" class="ai-draft-actions">
                   <button type="button" class="btn btn-secondary btn-xs" @click="copyAiDraft">Copy</button>
                   <button
@@ -750,7 +802,7 @@
                   :rows="composerTextRows"
                   :placeholder="composerPlaceholder"
                 />
-                <div v-if="visibleDraftSources.length && composerMode !== 'internal'" class="draft-sources composer-draft-sources">
+                <div v-if="visibleDraftSources.length && composerMode !== 'internal' && !showAutoDraftBanner" class="draft-sources composer-draft-sources">
                   <div class="draft-sources-label">Draft based on:</div>
                   <ul class="draft-sources-list">
                     <li v-for="(src, idx) in visibleDraftSources" :key="`composer-${src.type}-${src.id || idx}`">
@@ -1206,10 +1258,37 @@ const responsePlanLoading = ref(false);
 const responsePlanCollapsed = ref(false);
 const responsePlanDismissed = ref(false);
 const linkingClientId = ref(null);
+const manualMatchQuery = ref('');
+const manualMatchResults = ref([]);
+const manualMatchSearching = ref(false);
+const manualMatchError = ref('');
 
 function matchStepCandidates(step) {
   const list = Array.isArray(step?.candidates) ? step.candidates : [];
   return list.filter((c) => Number(c?.clientId || 0) > 0).slice(0, 5);
+}
+
+async function searchManualMatchClients() {
+  const ticketId = Number(selected.value?.id || 0);
+  const q = String(manualMatchQuery.value || '').trim();
+  if (!ticketId || !q) return;
+  manualMatchSearching.value = true;
+  manualMatchError.value = '';
+  try {
+    const r = await api.get(`/support-tickets/${ticketId}/client-search`, {
+      params: { q },
+      skipGlobalLoading: true
+    });
+    manualMatchResults.value = Array.isArray(r.data?.clients) ? r.data.clients : [];
+    if (!manualMatchResults.value.length) {
+      manualMatchError.value = 'No clients found for that search.';
+    }
+  } catch (e) {
+    manualMatchResults.value = [];
+    manualMatchError.value = e?.response?.data?.error?.message || 'Search failed.';
+  } finally {
+    manualMatchSearching.value = false;
+  }
 }
 
 async function linkTicketClient(cand, { addToSchool = false } = {}) {
@@ -1238,6 +1317,9 @@ async function linkTicketClient(cand, { addToSchool = false } = {}) {
     } else {
       await refreshResponsePlan();
     }
+    manualMatchResults.value = [];
+    manualMatchQuery.value = '';
+    manualMatchError.value = '';
   } catch (e) {
     actionError.value = e?.response?.data?.error?.message || e?.message || 'Failed to link client';
   } finally {
@@ -1335,6 +1417,21 @@ const metricCards = computed(() => [
 const createdByName = computed(() => {
   const t = selected.value;
   if (!t) return '';
+  // Inbound email tickets: show the real sender, not a fallback admin user.
+  if (String(t.source_channel || '').toLowerCase() === 'email' || String(t.created_by_source_key || '') === 'inbound_email') {
+    const meta = (() => {
+      try {
+        const raw = t.ai_draft_metadata_json;
+        if (!raw) return null;
+        return typeof raw === 'string' ? JSON.parse(raw) : raw;
+      } catch { return null; }
+    })();
+    const display = meta?.fromDisplayName || null;
+    const email = t.source_email_from || meta?.fromEmail || null;
+    if (display && email) return `${display} <${email}>`;
+    if (email) return email;
+    if (display) return display;
+  }
   return [t.created_by_first_name, t.created_by_last_name].filter(Boolean).join(' ') || t.created_by_email || '';
 });
 
@@ -1431,6 +1528,20 @@ function assigneeOptionTitle(u) {
 }
 
 function messageAuthor(m) {
+  if (String(m?.author_role || '').toLowerCase() === 'system_email') {
+    const t = selected.value;
+    const meta = (() => {
+      try {
+        const raw = t?.ai_draft_metadata_json;
+        if (!raw) return null;
+        return typeof raw === 'string' ? JSON.parse(raw) : raw;
+      } catch { return null; }
+    })();
+    return meta?.fromDisplayName
+      || t?.source_email_from
+      || meta?.fromEmail
+      || 'Inbound email';
+  }
   return [m.author_first_name, m.author_last_name].filter(Boolean).join(' ') || m.author_role || 'User';
 }
 
@@ -3108,6 +3219,29 @@ defineExpose({ loadAll, clearSelection });
   flex-direction: column;
   gap: 8px;
   align-items: stretch;
+}
+.match-manual {
+  flex-direction: column;
+  gap: 8px;
+  align-items: stretch;
+}
+.match-manual-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: #334155;
+}
+.match-manual-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.match-manual-input {
+  flex: 1;
+  min-width: 140px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  padding: 5px 8px;
+  font-size: 12px;
 }
 .match-candidate-row {
   display: flex;

@@ -84,7 +84,70 @@ async function listOurFromEmailsLower() {
   const identities = await EmailSenderIdentity.list({ agencyId: null, includePlatformDefaults: true, onlyActive: true });
   const froms = (identities || []).map((i) => String(i?.from_email || '').toLowerCase()).filter(Boolean);
   froms.push(String(getImpersonatedUser() || '').toLowerCase());
+  // School group addresses (e.g. sabin@itsco.health) are our mailboxes — mail "From"
+  // those addresses is usually staff send-as / group posts and must not create tickets
+  // attributed to a fallback admin.
+  try {
+    const [rows] = await pool.execute(
+      `SELECT LOWER(TRIM(itsco_email)) AS email
+       FROM school_profiles
+       WHERE itsco_email IS NOT NULL AND TRIM(itsco_email) <> ''`
+    );
+    for (const r of rows || []) {
+      if (r?.email) froms.push(String(r.email).toLowerCase());
+    }
+  } catch { /* ignore */ }
+  try {
+    const [routes] = await pool.execute(
+      `SELECT LOWER(TRIM(address)) AS email
+       FROM email_inbound_routes
+       WHERE is_active = TRUE AND address IS NOT NULL AND TRIM(address) <> ''`
+    );
+    for (const r of routes || []) {
+      if (r?.email) froms.push(String(r.email).toLowerCase());
+    }
+  } catch { /* ignore */ }
   return Array.from(new Set(froms)).filter(Boolean);
+}
+
+/**
+ * When From is a school group / our identity, prefer Reply-To / Sender /
+ * X-Original-Sender so counselor mail isn't stored as sabin@itsco.health.
+ */
+function resolveInboundSenderEmail({ hdrs, fromEmail, ourFromEmails = [] }) {
+  const from = String(fromEmail || '').trim().toLowerCase();
+  const ours = new Set((ourFromEmails || []).map((e) => String(e || '').toLowerCase()).filter(Boolean));
+  const candidates = [];
+  const pushHeader = (name) => {
+    const raw = hdrs?.get?.(name) || '';
+    for (const e of extractEmails(raw)) {
+      const lower = String(e || '').trim().toLowerCase();
+      if (lower) candidates.push(lower);
+    }
+  };
+  pushHeader('reply-to');
+  pushHeader('x-original-sender');
+  pushHeader('sender');
+  pushHeader('x-google-original-from');
+
+  if (from && ours.has(from)) {
+    const external = candidates.find((e) => e && !ours.has(e));
+    if (external) return external;
+  }
+  // Even when From is external, prefer Reply-To if From looks like a noreply group alias
+  if (from && /noreply|no-reply|donotreply/i.test(from)) {
+    const external = candidates.find((e) => e && !ours.has(e));
+    if (external) return external;
+  }
+  return from || candidates[0] || '';
+}
+
+function extractDisplayNameFromFromHeader(fromHeader) {
+  const raw = String(fromHeader || '').trim();
+  if (!raw) return null;
+  const angle = raw.match(/^"?([^"<]+)"?\s*<[^>]+>/);
+  if (angle?.[1]) return String(angle[1]).trim().replace(/^["']|["']$/g, '') || null;
+  return null;
 }
 
 function subjectForReply(originalSubject) {
@@ -610,10 +673,11 @@ function truncate(value, max = 1000) {
 async function createEmailDraftSupportTicket({
   schoolOrganizationId,
   agencyId,
-  createdByUserId,
+  createdByUserId = null,
   subject,
   bodyText,
   fromEmail,
+  fromDisplayName = null,
   messageId,
   threadId,
   receivedAt,
@@ -639,23 +703,29 @@ async function createEmailDraftSupportTicket({
     : null;
   const metadataWithGmail = {
     ...(metadata && typeof metadata === 'object' ? metadata : {}),
-    ...(gmailMessageId ? { gmailMessageId: String(gmailMessageId) } : {})
+    ...(gmailMessageId ? { gmailMessageId: String(gmailMessageId) } : {}),
+    ...(fromDisplayName ? { fromDisplayName: String(fromDisplayName).trim() } : {}),
+    ...(fromEmail ? { fromEmail: String(fromEmail).trim().toLowerCase() } : {})
   };
+
+  const creatorId = Number(createdByUserId || 0) || null;
+  const sourceKey = creatorId ? null : 'inbound_email';
 
   let result;
   try {
     [result] = await pool.execute(
       `INSERT INTO support_tickets
-        (school_organization_id, client_id, created_by_user_id, agency_id, source_channel,
+        (school_organization_id, client_id, created_by_user_id, created_by_source_key, agency_id, source_channel,
          source_email_from, source_email_subject, source_email_message_id, source_email_thread_id, source_email_received_at,
          email_ingested_at, source_email_recipients,
          subject, question, status, ai_draft_response, ai_draft_confidence, ai_draft_status, ai_draft_metadata_json,
          ai_draft_generated_at, draft_generated_at, ai_draft_review_state, escalation_reason)
-       VALUES (?, ?, ?, ?, 'email', ?, ?, ?, ?, ?, ?, ?, ?, ?, 'open', ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 'pending', ?)`,
+       VALUES (?, ?, ?, ?, ?, 'email', ?, ?, ?, ?, ?, ?, ?, ?, ?, 'open', ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 'pending', ?)`,
       [
         Number(schoolOrganizationId),
         matchedClient?.id ? Number(matchedClient.id) : null,
-        Number(createdByUserId),
+        creatorId,
+        sourceKey,
         agencyId ? Number(agencyId) : null,
         String(fromEmail || '').trim() || null,
         truncate(subject, 255) || null,
@@ -674,19 +744,51 @@ async function createEmailDraftSupportTicket({
       ]
     );
   } catch (err) {
-    // Duplicate entry for unique index on source_email_message_id — already processed.
-    if (err?.code === 'ER_DUP_ENTRY') {
+    // Older schema without created_by_source_key — retry without it.
+    if (err?.code === 'ER_BAD_FIELD_ERROR' || /created_by_source_key/i.test(String(err?.message || ''))) {
+      [result] = await pool.execute(
+        `INSERT INTO support_tickets
+          (school_organization_id, client_id, created_by_user_id, agency_id, source_channel,
+           source_email_from, source_email_subject, source_email_message_id, source_email_thread_id, source_email_received_at,
+           email_ingested_at, source_email_recipients,
+           subject, question, status, ai_draft_response, ai_draft_confidence, ai_draft_status, ai_draft_metadata_json,
+           ai_draft_generated_at, draft_generated_at, ai_draft_review_state, escalation_reason)
+         VALUES (?, ?, ?, ?, 'email', ?, ?, ?, ?, ?, ?, ?, ?, ?, 'open', ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 'pending', ?)`,
+        [
+          Number(schoolOrganizationId),
+          matchedClient?.id ? Number(matchedClient.id) : null,
+          creatorId,
+          agencyId ? Number(agencyId) : null,
+          String(fromEmail || '').trim() || null,
+          truncate(subject, 255) || null,
+          String(messageId || '').trim() || null,
+          String(threadId || '').trim() || null,
+          receivedAt || null,
+          receivedAt || null,
+          recipientsJson,
+          truncate(subject || 'Inbound school status request', 255) || 'Inbound school status request',
+          truncate(bodyText, 4000),
+          draftResponse ? truncate(draftResponse, 6000) : null,
+          Number.isFinite(Number(draftConfidence)) ? Number(draftConfidence) : null,
+          draftStatus || null,
+          Object.keys(metadataWithGmail).length ? JSON.stringify(metadataWithGmail) : null,
+          escalationReason || null
+        ]
+      );
+    } else if (err?.code === 'ER_DUP_ENTRY') {
       console.log(`[EmailAgent] Duplicate key — ticket already exists for message-id: ${messageId}`);
       return 0;
+    } else {
+      throw err;
     }
-    throw err;
   }
   const ticketId = Number(result?.insertId || 0);
   if (ticketId && (await hasSupportTicketMessagesTable())) {
+    // Do not attribute inbound email bodies to a fallback admin user.
     await pool.execute(
       `INSERT INTO support_ticket_messages (ticket_id, parent_message_id, author_user_id, author_role, body)
        VALUES (?, NULL, ?, 'system_email', ?)`,
-      [ticketId, Number(createdByUserId), truncate(bodyText, 8000)]
+      [ticketId, creatorId, truncate(bodyText, 8000)]
     );
   }
 
@@ -772,10 +874,18 @@ export async function runInboundEmailAgentOnce({ maxMessages = 10 } = {}) {
     const payload = full.data?.payload || null;
     const hdrs = headerMap(payload?.headers || []);
     const fromHeader = hdrs.get('from') || '';
-    const fromEmail = extractEmails(fromHeader)[0] || '';
+    const rawFromEmail = extractEmails(fromHeader)[0] || '';
+    const fromEmail = resolveInboundSenderEmail({
+      hdrs,
+      fromEmail: rawFromEmail,
+      ourFromEmails
+    });
+    const fromDisplayName = extractDisplayNameFromFromHeader(fromHeader)
+      || extractDisplayNameFromFromHeader(hdrs.get('reply-to') || '')
+      || null;
     const subject = hdrs.get('subject') || '';
 
-    // Loop protection: ignore our own sent mail
+    // Loop protection: ignore our own sent mail (identities + school group addresses)
     if (fromEmail && ourFromEmails.includes(fromEmail.toLowerCase())) {
       results.ignored += 1;
       await gmail.users.messages.modify({
@@ -986,14 +1096,16 @@ export async function runInboundEmailAgentOnce({ maxMessages = 10 } = {}) {
         isKnownAccount: sender.isKnownAccount
       });
 
-      const creatorUserId = sender.accountUserId || (await findFallbackCreatorUserId(agencyId));
+      const creatorUserId = sender.accountUserId || null;
+      // Actor for mutations that require a user id (reinit patches) — not used for ticket attribution.
+      const actorUserId = sender.accountUserId || (await findFallbackCreatorUserId(agencyId));
 
       // Unknown / not-yet-allowed senders still become support tickets so staff
       // can review (e.g. "please add our new social worker") instead of silently
       // dropping with only a Gmail label.
       if (!senderAllowed) {
         results.needsHuman += 1;
-        if (creatorUserId) {
+        {
           const ticketId = await createEmailDraftSupportTicket({
             schoolOrganizationId: schoolContext.schoolOrganizationId,
             agencyId,
@@ -1001,6 +1113,7 @@ export async function runInboundEmailAgentOnce({ maxMessages = 10 } = {}) {
             subject,
             bodyText,
             fromEmail,
+            fromDisplayName,
             messageId: hdrs.get('message-id') || null,
             gmailClient: gmail,
             gmailMessageId: id,
@@ -1039,7 +1152,7 @@ export async function runInboundEmailAgentOnce({ maxMessages = 10 } = {}) {
         const identityKeyNorm = String(identity?.identity_key || '').trim().toLowerCase();
         if (!allowedSenderIdentityKeys.includes(identityKeyNorm)) {
           results.needsHuman += 1;
-          if (creatorUserId) {
+          {
             const ticketId = await createEmailDraftSupportTicket({
               schoolOrganizationId: schoolContext.schoolOrganizationId,
               agencyId,
@@ -1047,10 +1160,11 @@ export async function runInboundEmailAgentOnce({ maxMessages = 10 } = {}) {
               subject,
               bodyText,
               fromEmail,
+              fromDisplayName,
               messageId: hdrs.get('message-id') || null,
-            gmailClient: gmail,
-            gmailMessageId: id,
-            payload,
+              gmailClient: gmail,
+              gmailMessageId: id,
+              payload,
               threadId: full.data?.threadId || null,
               receivedAt: new Date(full.data?.internalDate ? Number(full.data.internalDate) : Date.now()),
               recipients: Array.from(new Set([...(routed.to || []), ...(routed.cc || [])])),
@@ -1081,15 +1195,8 @@ export async function runInboundEmailAgentOnce({ maxMessages = 10 } = {}) {
         }
       }
 
-      if (!creatorUserId) {
-        results.needsHuman += 1;
-        await gmail.users.messages.modify({
-          userId: 'me',
-          id,
-          requestBody: { removeLabelIds: ['UNREAD'], addLabelIds: [processedLabelId, needsHumanLabelId] }
-        });
-        continue;
-      }
+      // External senders (no users-table account) still create tickets with
+      // created_by_user_id NULL + created_by_source_key = inbound_email.
 
       const intent = await classifyStatusIntent({ subject, bodyText });
       const reinitIntent = reinitIntakeEnabled
@@ -1115,6 +1222,7 @@ export async function runInboundEmailAgentOnce({ maxMessages = 10 } = {}) {
           subject,
           bodyText,
           fromEmail,
+          fromDisplayName,
           messageId: hdrs.get('message-id') || null,
           gmailClient: gmail,
           gmailMessageId: id,
@@ -1150,7 +1258,7 @@ export async function runInboundEmailAgentOnce({ maxMessages = 10 } = {}) {
           subject,
           bodyText,
           schoolName: schoolContext.schoolName,
-          actorUserId: creatorUserId
+          actorUserId
         }).catch((e) => ({
           applied: false,
           reason: `error:${e?.message || 'unknown'}`,
@@ -1304,6 +1412,7 @@ export async function runInboundEmailAgentOnce({ maxMessages = 10 } = {}) {
         subject,
         bodyText,
         fromEmail,
+        fromDisplayName,
         messageId: hdrs.get('message-id') || null,
         gmailClient: gmail,
         gmailMessageId: id,

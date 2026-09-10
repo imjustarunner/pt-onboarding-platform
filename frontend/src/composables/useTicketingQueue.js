@@ -306,6 +306,9 @@ export function useTicketingQueue() {
     return v.charAt(0).toUpperCase() + v.slice(1);
   };
   const formatCreatedBy = (t) => {
+    if (String(t?.source_channel || '').toLowerCase() === 'email' || String(t?.created_by_source_key || '') === 'inbound_email') {
+      return t?.source_email_from || 'Inbound email';
+    }
     const fn = String(t?.created_by_first_name || '').trim();
     const ln = String(t?.created_by_last_name || '').trim();
     const name = [fn, ln].filter(Boolean).join(' ').trim();
@@ -313,6 +316,9 @@ export function useTicketingQueue() {
     return t?.created_by_email || `User #${t?.created_by_user_id || '—'}`;
   };
   const formatThreadAuthor = (m) => {
+    if (String(m?.author_role || '').toLowerCase() === 'system_email') {
+      return 'Inbound email';
+    }
     const fn = String(m?.author_first_name || '').trim();
     const ln = String(m?.author_last_name || '').trim();
     const name = [fn, ln].filter(Boolean).join(' ').trim();

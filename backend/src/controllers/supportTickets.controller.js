@@ -805,7 +805,8 @@ function buildSupportTicketResponsePrompt({
   notes,
   recentTickets,
   recentAnswers = [],
-  regenerationGuidance = ''
+  regenerationGuidance = '',
+  intentKey = null
 }) {
   const lines = [
     'You are a support agent writing a reply to a help ticket.',
@@ -822,12 +823,27 @@ function buildSupportTicketResponsePrompt({
       ticket?.created_by_name ||
       ticket?.created_by_email ||
       (ticket?.created_by_source_key ? `${supportTicketSourceLabel(ticket.created_by_source_key)} (external request)` : null) ||
+      (String(ticket?.source_channel || '').toLowerCase() === 'email' ? (ticket?.source_email_from || 'Inbound email') : null) ||
       `User #${ticket?.created_by_user_id || '—'}`,
       160
     )}`,
     `- School: ${truncateText(ticket?.school_name || `Org #${ticket?.school_organization_id || '—'}`, 160)}`,
     `- Created at: ${formatPromptDate(ticket?.created_at)}`
   ];
+
+  const intent = String(intentKey || '').toLowerCase();
+  if (intent === 'school_portal_packet_upload' || intent === 'packet_received') {
+    lines.push(
+      '',
+      'IMPORTANT — school portal packet upload guidance (include this in the reply):',
+      '- Remind the counselor they can upload referral/intake packets directly in the school portal.',
+      '- Portal URL: https://app.itsco.health',
+      '- Username = the email address they used to send this message (their school/work email).',
+      '- If they do not know their password, tell them to use Forgot password on the login page.',
+      '- After login, upload the packet for the student rather than emailing it.',
+      '- Keep the reply short and actionable; do not ask for the student name/ID if the ask is only about starting services / sending a packet.'
+    );
+  }
 
   if (client) {
     lines.push(
@@ -2801,7 +2817,8 @@ export const generateSupportTicketResponse = async (req, res, next) => {
       notes,
       recentTickets,
       recentAnswers,
-      regenerationGuidance
+      regenerationGuidance,
+      intentKey
     })
       + buildReplyLibraryPromptBlock(libraryMatches)
       + await buildAgencyPromptGuardrailsBlock(ticket.agency_id);
@@ -3953,6 +3970,90 @@ export const dismissSupportTicketResponsePlan = async (req, res, next) => {
 
     const plan = await dismissResponsePlanForTicket(ticketId);
     res.json({ responsePlan: plan });
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
+ * GET /api/support-tickets/:id/client-search?q=
+ * Agency-wide client search for manual Match linking.
+ */
+export const searchSupportTicketClients = async (req, res, next) => {
+  try {
+    if (!isAgencyAdminUser(req) && String(req.user?.role || '').toLowerCase() !== 'super_admin') {
+      return res.status(403).json({ error: { message: 'Only admin/support can search clients' } });
+    }
+    const ticketId = parseInt(req.params.id, 10);
+    const q = String(req.query?.q || '').trim();
+    if (!ticketId) return res.status(400).json({ error: { message: 'Invalid ticket id' } });
+    if (!q || q.length < 2) return res.status(400).json({ error: { message: 'Enter at least 2 characters' } });
+
+    const loaded = await loadTicketForActionAccess(req, ticketId);
+    if (!loaded.ok) return res.status(loaded.status).json({ error: { message: loaded.message } });
+    const ticket = loaded.ticket;
+    const agencyId = Number(ticket.agency_id || 0);
+    const schoolId = Number(ticket.school_organization_id || 0);
+    if (!agencyId) return res.json({ clients: [] });
+
+    const { rematchTicketClientsAcrossSchools } = await import(
+      '../services/unifiedEmail/crossSchoolClientMatch.service.js'
+    );
+    const rematch = await rematchTicketClientsAcrossSchools({
+      agencyId,
+      schoolOrganizationId: schoolId || null,
+      schoolName: ticket.school_name || null,
+      subject: q,
+      bodyText: q,
+      existingExtracted: q
+    });
+
+    // Also do a direct LIKE search so initials/partial codes always surface.
+    const like = `%${q.replace(/[%_]/g, '')}%`;
+    const [rows] = await pool.execute(
+      `SELECT c.id, c.full_name, c.initials, c.identifier_code, c.organization_id,
+              org.name AS organization_name,
+              CASE
+                WHEN ? > 0 AND EXISTS (
+                  SELECT 1 FROM client_organization_assignments coa
+                  WHERE coa.client_id = c.id AND coa.organization_id = ? AND coa.is_active = TRUE
+                ) THEN 1 ELSE 0
+              END AS at_target_school
+       FROM clients c
+       LEFT JOIN agencies org ON org.id = c.organization_id
+       WHERE c.agency_id = ?
+         AND (c.status IS NULL OR UPPER(c.status) <> 'ARCHIVED')
+         AND (
+           c.initials LIKE ? OR c.identifier_code LIKE ? OR c.full_name LIKE ?
+           OR c.first_name LIKE ? OR c.last_name LIKE ?
+         )
+       ORDER BY c.id DESC
+       LIMIT 20`,
+      [schoolId, schoolId, agencyId, like, like, like, like, like]
+    );
+
+    const byId = new Map();
+    for (const c of rematch.candidates || []) {
+      if (c.clientId) byId.set(c.clientId, c);
+    }
+    for (const r of rows || []) {
+      const id = Number(r.id);
+      if (!id || byId.has(id)) continue;
+      byId.set(id, {
+        clientId: id,
+        fullName: r.full_name,
+        initials: r.initials,
+        identifierCode: r.identifier_code,
+        priorSchoolName: Number(r.at_target_school) === 1 ? null : (r.organization_name || null),
+        atTargetSchool: Number(r.at_target_school) === 1,
+        needsSchoolTransfer: Number(r.at_target_school) !== 1,
+        organizationId: Number(r.organization_id) || null,
+        score: 0.7,
+        targetSchoolName: ticket.school_name || null
+      });
+    }
+
+    res.json({ clients: Array.from(byId.values()).slice(0, 20) });
   } catch (e) {
     next(e);
   }

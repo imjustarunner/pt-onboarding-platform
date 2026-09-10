@@ -10,7 +10,8 @@ export const SUPPORT_TICKET_SOURCE_KEYS = Object.freeze({
   PUBLIC_AGENCY_SUPPORT: 'public_agency_support',
   PREHIRE_PORTAL_CHAT: 'prehire_portal_chat',
   CLIENT_RENEWAL: 'client_renewal',
-  MISDIRECTED_EMAIL: 'misdirected_email'
+  MISDIRECTED_EMAIL: 'misdirected_email',
+  INBOUND_EMAIL: 'inbound_email'
 });
 
 export function normalizeSupportTicketSourceKey(value) {
@@ -33,7 +34,8 @@ export function supportTicketSourceLabel(value) {
     [SUPPORT_TICKET_SOURCE_KEYS.PUBLIC_AGENCY_SUPPORT]: 'Public agency support',
     [SUPPORT_TICKET_SOURCE_KEYS.PREHIRE_PORTAL_CHAT]: 'Pre-hire portal chat',
     [SUPPORT_TICKET_SOURCE_KEYS.CLIENT_RENEWAL]: 'Client renewal hub',
-    [SUPPORT_TICKET_SOURCE_KEYS.MISDIRECTED_EMAIL]: 'Misdirected email report'
+    [SUPPORT_TICKET_SOURCE_KEYS.MISDIRECTED_EMAIL]: 'Misdirected email report',
+    [SUPPORT_TICKET_SOURCE_KEYS.INBOUND_EMAIL]: 'Inbound school email'
   };
   return labels[key] || key;
 }

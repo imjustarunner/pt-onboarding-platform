@@ -1,8 +1,9 @@
 export const SCHOOL_REPLY_INTENT_KEYS = Object.freeze([
   'school_status_request',
   'school_reinit_update',
-  'new_staff_contact',
   'packet_received',
+  'school_portal_packet_upload',
+  'new_staff_contact',
   'scheduling',
   'general'
 ]);
@@ -10,8 +11,9 @@ export const SCHOOL_REPLY_INTENT_KEYS = Object.freeze([
 export const SCHOOL_REPLY_INTENT_LABELS = Object.freeze({
   school_status_request: 'Client status update',
   school_reinit_update: 'Year reinit / roster update',
-  new_staff_contact: 'New school staff / contact',
   packet_received: 'Packet / referral received',
+  school_portal_packet_upload: 'Upload packet in school portal',
+  new_staff_contact: 'New school staff / contact',
   scheduling: 'Scheduling / service day',
   general: 'General'
 });
@@ -19,8 +21,13 @@ export const SCHOOL_REPLY_INTENT_LABELS = Object.freeze({
 const INTENT_KEYWORDS = Object.freeze({
   school_status_request: ['status', 'update', 'progress', 'where', 'checklist', 'paperwork', 'roi', 'intake'],
   school_reinit_update: ['reinit', 're-init', 'returning', 'fall', 'roster', 'continuation', 'year update'],
-  new_staff_contact: ['add', 'contact', 'staff', 'listserv', 'portal', 'account', 'password', 'counselor'],
   packet_received: ['packet', 'referral', 'pdf', 'attachment', 'enrollment', 'intake form'],
+  school_portal_packet_upload: [
+    'therapy', 'services', 'support', 'upload', 'packet', 'referral', 'forgot password',
+    'app.itsco', 'portal', 'login', 'start this week', 'needs some support', 'kiddo'
+  ],
+  // Avoid lone "counselor" — that matches signature titles and mis-routes therapy asks.
+  new_staff_contact: ['add', 'contact', 'staff', 'listserv', 'new account', 'create account', 'temp password'],
   scheduling: ['schedule', 'day', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'provider', 'assigned'],
   general: []
 });

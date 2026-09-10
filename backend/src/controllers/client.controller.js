@@ -8617,7 +8617,7 @@ export const upsertClientProviderAssignment = async (req, res, next) => {
             });
             if (decision?.email) {
               const provider = await User.findById(providerUserId);
-              const to = provider?.email || provider?.work_email || null;
+              const to = provider?.work_email || provider?.email || null;
               if (to) {
                 const { buildClientAssignedEmailHtml } = await import(
                   '../services/brandedNotificationEmail.service.js'
