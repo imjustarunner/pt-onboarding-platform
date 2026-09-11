@@ -1180,6 +1180,11 @@ const TENANT_LOGIN_BG_VIDEOS = Object.freeze({
     posterNarrow: '/branding/nlu-login-bg-mobile.png',
     fallbackBg: '#070b1a',
   },
+  tisi: {
+    wide: '/branding/tisi-login-bg.mp4',
+    narrow: '/branding/tisi-login-bg-mobile.mp4',
+    fallbackBg: '#13304E',
+  },
 });
 
 const tenantLoginVideoWideRef = ref(null);
