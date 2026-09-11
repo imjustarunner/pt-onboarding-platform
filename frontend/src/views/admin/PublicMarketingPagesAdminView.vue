@@ -54,6 +54,7 @@
         <select v-model="form.pageType">
           <option value="event_hub">event_hub</option>
           <option value="provider_booking">provider_booking</option>
+          <option value="marketing_landing">marketing_landing</option>
         </select>
       </label>
       <label class="field">
@@ -132,6 +133,158 @@
           />
         </div>
         <div v-if="form.heroImageUrl" class="pmp-thumb pmp-thumb-wide"><img :src="form.heroImageUrl" alt="Hero preview" /></div>
+      </div>
+
+      <div v-if="showMarketingLandingEditor" class="field pmp-tisi-editor">
+        <span>Marketing landing (editable mockup)</span>
+        <p class="muted small">
+          Shown for <code>marketing_landing</code> pages (e.g. <code>/p/tisi</code>). Every section below maps to the public page —
+          upload images, change copy, pick icons, or paste an icon image URL. Subpages still use the Subpages list further down.
+        </p>
+
+        <div class="pmp-tisi-grid">
+          <label class="pmp-inline">Site name <input v-model="landingForm.siteName" type="text" /></label>
+          <label class="pmp-inline">Tagline <input v-model="landingForm.tagline" type="text" /></label>
+          <label class="pmp-inline">Hero eyebrow <input v-model="landingForm.heroEyebrow" type="text" /></label>
+          <label class="pmp-inline">Hero script (use line breaks) <textarea v-model="landingForm.heroScript" rows="2" /></label>
+          <label class="pmp-inline">Pillars bar <input v-model="landingForm.pillarsText" type="text" placeholder="HEAL | GROW | …" /></label>
+          <label class="pmp-inline">Header / hero CTA label <input v-model="landingForm.ctaButtonLabel" type="text" /></label>
+          <label class="pmp-inline">CTA href <input v-model="landingForm.ctaHref" type="text" class="mono" /></label>
+          <label class="pmp-inline">Learn more href <input v-model="landingForm.learnMoreHref" type="text" class="mono" /></label>
+        </div>
+
+        <div class="field pmp-assets" style="margin-top: 12px">
+          <span>Final CTA band image</span>
+          <div class="pmp-upload-row">
+            <input v-model="landingForm.ctaImageUrl" type="text" placeholder="/uploads/… or https://…" class="flex-grow" />
+            <button type="button" class="btn btn-secondary btn-sm" :disabled="!!saving || !!uploadingTarget" @click="triggerCtaImageUpload">
+              {{ uploadingTarget === 'ctaImage' ? '…' : 'Upload' }}
+            </button>
+            <input
+              ref="ctaImageFileInput"
+              type="file"
+              accept="image/*"
+              class="pmp-hidden-file"
+              tabindex="-1"
+              aria-hidden="true"
+              @change="onUploadCtaImage"
+            />
+          </div>
+          <div v-if="landingForm.ctaImageUrl" class="pmp-thumb pmp-thumb-wide"><img :src="landingForm.ctaImageUrl" alt="CTA preview" /></div>
+        </div>
+
+        <h3 class="pmp-tisi-h3">Who we support</h3>
+        <div class="pmp-tisi-grid">
+          <label class="pmp-inline">Kicker <input v-model="landingForm.supportKicker" type="text" /></label>
+          <label class="pmp-inline">Title <input v-model="landingForm.supportTitle" type="text" /></label>
+          <label class="pmp-inline full">Body <textarea v-model="landingForm.supportBody" rows="2" /></label>
+        </div>
+        <div v-for="(card, i) in landingForm.supportCards" :key="`sc-${i}`" class="pmp-subpage-card">
+          <div class="pmp-tisi-grid">
+            <label class="pmp-inline">Title <input v-model="card.title" type="text" /></label>
+            <label class="pmp-inline">Slug <input v-model="card.slug" type="text" class="mono" /></label>
+            <label class="pmp-inline">Link href <input v-model="card.href" type="text" class="mono" /></label>
+            <label class="pmp-inline"
+              >Icon
+              <select v-model="card.iconKey">
+                <option v-for="opt in iconOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
+              </select>
+            </label>
+            <label class="pmp-inline">Custom icon URL <input v-model="card.iconUrl" type="text" class="mono" placeholder="optional image" /></label>
+            <label class="pmp-inline full">Body <textarea v-model="card.body" rows="2" /></label>
+          </div>
+          <button type="button" class="btn btn-danger btn-sm" @click="landingForm.supportCards.splice(i, 1)">Remove card</button>
+        </div>
+        <button type="button" class="btn btn-secondary btn-sm" @click="addSupportCard">Add audience card</button>
+
+        <h3 class="pmp-tisi-h3">Services</h3>
+        <div class="pmp-tisi-grid">
+          <label class="pmp-inline">Section title <input v-model="landingForm.servicesTitle" type="text" /></label>
+          <label class="pmp-inline">View-all label <input v-model="landingForm.servicesViewAllLabel" type="text" /></label>
+          <label class="pmp-inline">View-all href <input v-model="landingForm.servicesViewAllHref" type="text" class="mono" /></label>
+        </div>
+        <div v-for="(svc, i) in landingForm.services" :key="`sv-${i}`" class="pmp-subpage-card">
+          <div class="pmp-tisi-grid">
+            <label class="pmp-inline">Title <input v-model="svc.title" type="text" /></label>
+            <label class="pmp-inline">Slug <input v-model="svc.slug" type="text" class="mono" /></label>
+            <label class="pmp-inline">Link href <input v-model="svc.href" type="text" class="mono" /></label>
+            <label class="pmp-inline"
+              >Icon
+              <select v-model="svc.iconKey">
+                <option v-for="opt in iconOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
+              </select>
+            </label>
+            <label class="pmp-inline">Custom icon URL <input v-model="svc.iconUrl" type="text" class="mono" /></label>
+            <label class="pmp-inline full">Body <textarea v-model="svc.body" rows="2" /></label>
+          </div>
+          <button type="button" class="btn btn-danger btn-sm" @click="landingForm.services.splice(i, 1)">Remove service</button>
+        </div>
+        <button type="button" class="btn btn-secondary btn-sm" @click="addServiceCard">Add service</button>
+
+        <h3 class="pmp-tisi-h3">Why choose us</h3>
+        <label class="pmp-inline full">Section title <input v-model="landingForm.whyTitle" type="text" /></label>
+        <div v-for="(item, i) in landingForm.whyItems" :key="`why-${i}`" class="pmp-subpage-card">
+          <div class="pmp-tisi-grid">
+            <label class="pmp-inline">Title <input v-model="item.title" type="text" /></label>
+            <label class="pmp-inline"
+              >Icon
+              <select v-model="item.iconKey">
+                <option v-for="opt in iconOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
+              </select>
+            </label>
+            <label class="pmp-inline">Custom icon URL <input v-model="item.iconUrl" type="text" class="mono" /></label>
+            <label class="pmp-inline full">Body <textarea v-model="item.body" rows="2" /></label>
+          </div>
+          <button type="button" class="btn btn-danger btn-sm" @click="landingForm.whyItems.splice(i, 1)">Remove</button>
+        </div>
+        <button type="button" class="btn btn-secondary btn-sm" @click="addWhyItem">Add reason</button>
+
+        <h3 class="pmp-tisi-h3">How it works</h3>
+        <div class="pmp-tisi-grid">
+          <label class="pmp-inline">Kicker <input v-model="landingForm.processKicker" type="text" /></label>
+          <label class="pmp-inline">Title <input v-model="landingForm.processTitle" type="text" /></label>
+        </div>
+        <div v-for="(step, i) in landingForm.processSteps" :key="`st-${i}`" class="pmp-subpage-card">
+          <div class="pmp-tisi-grid">
+            <label class="pmp-inline">Title <input v-model="step.title" type="text" /></label>
+            <label class="pmp-inline">Optional link <input v-model="step.href" type="text" class="mono" /></label>
+            <label class="pmp-inline full">Body <textarea v-model="step.body" rows="2" /></label>
+          </div>
+          <button type="button" class="btn btn-danger btn-sm" @click="landingForm.processSteps.splice(i, 1)">Remove step</button>
+        </div>
+        <button type="button" class="btn btn-secondary btn-sm" @click="addProcessStep">Add step</button>
+
+        <h3 class="pmp-tisi-h3">Testimonials</h3>
+        <label class="pmp-inline full">Section title <input v-model="landingForm.testimonialsTitle" type="text" /></label>
+        <div v-for="(q, i) in landingForm.testimonials" :key="`q-${i}`" class="pmp-subpage-card">
+          <label class="pmp-inline full">Quote <textarea v-model="q.text" rows="3" /></label>
+          <label class="pmp-inline">Attribution <input v-model="q.attribution" type="text" /></label>
+          <button type="button" class="btn btn-danger btn-sm" @click="landingForm.testimonials.splice(i, 1)">Remove</button>
+        </div>
+        <button type="button" class="btn btn-secondary btn-sm" @click="addTestimonial">Add testimonial</button>
+
+        <h3 class="pmp-tisi-h3">Final CTA + contact + social</h3>
+        <div class="pmp-tisi-grid">
+          <label class="pmp-inline">CTA title <input v-model="landingForm.ctaTitle" type="text" /></label>
+          <label class="pmp-inline">CTA button label <input v-model="landingForm.ctaFinalButtonLabel" type="text" /></label>
+          <label class="pmp-inline full">CTA body <textarea v-model="landingForm.ctaBody" rows="2" /></label>
+          <label class="pmp-inline">CTA note <input v-model="landingForm.ctaNote" type="text" /></label>
+          <label class="pmp-inline">Phone <input v-model="landingForm.contactPhone" type="text" /></label>
+          <label class="pmp-inline">Email <input v-model="landingForm.contactEmail" type="text" /></label>
+          <label class="pmp-inline full">Address <input v-model="landingForm.contactAddress" type="text" /></label>
+        </div>
+        <div v-for="(s, i) in landingForm.socialLinks" :key="`soc-${i}`" class="pmp-row-grid">
+          <input v-model="s.label" type="text" placeholder="Label" />
+          <input v-model="s.short" type="text" placeholder="Short" />
+          <input v-model="s.href" type="text" placeholder="URL / path" class="mono" />
+          <button type="button" class="btn btn-danger btn-sm" @click="landingForm.socialLinks.splice(i, 1)">×</button>
+        </div>
+        <button type="button" class="btn btn-secondary btn-sm" @click="landingForm.socialLinks.push({ label: '', short: '', href: '' })">
+          Add social link
+        </button>
+        <button type="button" class="btn btn-secondary btn-sm" style="margin-left: 8px" @click="resetLandingFormToDefaults">
+          Reset landing fields to defaults
+        </button>
       </div>
 
       <div class="field pmp-assets">
@@ -453,10 +606,17 @@
 </template>
 
 <script setup>
-import { onMounted, onUnmounted, ref, watch } from 'vue';
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import api from '../../services/api';
 import { toUploadsUrl } from '../../utils/uploadsUrl';
 import { parseHubGalleryFromBranding } from '../../utils/publicMarketingHubGallery';
+import {
+  TISI_LANDING_ICON_OPTIONS,
+  adminFormToTisiLandingBranding,
+  defaultTisiLandingConfig,
+  resolveTisiLandingConfig,
+  tisiLandingToAdminForm
+} from '../../constants/tisiMarketingLanding';
 
 const pages = ref([]);
 const agencyOptions = ref([]);
@@ -474,6 +634,16 @@ const logoFileInput = ref(null);
 const heroFileInput = ref(null);
 const galleryFileInput = ref(null);
 const heroVideoFileInput = ref(null);
+const ctaImageFileInput = ref(null);
+const iconOptions = TISI_LANDING_ICON_OPTIONS;
+
+const landingForm = ref(tisiLandingToAdminForm(defaultTisiLandingConfig()));
+
+const showMarketingLandingEditor = computed(
+  () =>
+    String(form.value.pageType || '') === 'marketing_landing' ||
+    String(form.value.slug || '').trim().toLowerCase() === 'tisi'
+);
 
 function triggerLogoUpload() {
   logoFileInput.value?.click();
@@ -485,6 +655,48 @@ function triggerHeroUpload() {
 
 function triggerHeroVideoUpload() {
   heroVideoFileInput.value?.click();
+}
+
+function triggerCtaImageUpload() {
+  ctaImageFileInput.value?.click();
+}
+
+function resetLandingFormToDefaults() {
+  landingForm.value = tisiLandingToAdminForm(defaultTisiLandingConfig());
+}
+
+function addSupportCard() {
+  landingForm.value.supportCards.push({
+    slug: '',
+    title: '',
+    body: '',
+    iconKey: 'person',
+    iconUrl: '',
+    href: ''
+  });
+}
+
+function addServiceCard() {
+  landingForm.value.services.push({
+    slug: '',
+    title: '',
+    body: '',
+    iconKey: 'chat',
+    iconUrl: '',
+    href: ''
+  });
+}
+
+function addWhyItem() {
+  landingForm.value.whyItems.push({ title: '', body: '', iconKey: 'shield', iconUrl: '' });
+}
+
+function addProcessStep() {
+  landingForm.value.processSteps.push({ title: '', body: '', href: '' });
+}
+
+function addTestimonial() {
+  landingForm.value.testimonials.push({ text: '', attribution: '' });
 }
 
 function isLikelyDirectVideoUrl(u) {
@@ -684,6 +896,20 @@ function mergeBrandingPayload() {
     };
   }
 
+  if (showMarketingLandingEditor.value) {
+    const lf = {
+      ...landingForm.value,
+      heroTitle: String(form.value.heroTitle || '').trim(),
+      heroSubtitle: String(form.value.heroSubtitle || '').trim()
+    };
+    const packed = adminFormToTisiLandingBranding(lf);
+    Object.assign(out, packed);
+    // Avoid event-hub defaults leaking onto marketing landings.
+    out.whatWeOfferSection = false;
+    out.ctaSection = false;
+    out.processSection = false;
+  }
+
   return out;
 }
 
@@ -718,6 +944,17 @@ function hydrateStructuredFromBranding(b) {
   offerExpandedLinkRows.value = oe.length
     ? oe.map((r) => ({ title: String(r.title || ''), href: String(r.href || '') }))
     : [{ title: '', href: '' }];
+
+  const resolved = resolveTisiLandingConfig({
+    pageMeta: {
+      title: form.value.title,
+      heroTitle: form.value.heroTitle,
+      heroSubtitle: form.value.heroSubtitle,
+      heroImageUrl: form.value.heroImageUrl
+    },
+    branding
+  });
+  landingForm.value = tisiLandingToAdminForm(resolved);
 }
 
 async function postMarketingUpload(file) {
@@ -775,6 +1012,20 @@ async function onUploadHeroVideo(e) {
     form.value.heroVideoUrl = await postMarketingVideoUpload(f);
   } catch (err) {
     saveError.value = err.response?.data?.error?.message || err.message || 'Video upload failed';
+  } finally {
+    uploadingTarget.value = '';
+  }
+}
+
+async function onUploadCtaImage(e) {
+  const f = e.target.files?.[0];
+  e.target.value = '';
+  if (!f) return;
+  uploadingTarget.value = 'ctaImage';
+  try {
+    landingForm.value.ctaImageUrl = await postMarketingUpload(f);
+  } catch (err) {
+    saveError.value = err.response?.data?.error?.message || err.message || 'Upload failed';
   } finally {
     uploadingTarget.value = '';
   }
@@ -862,6 +1113,7 @@ function resetForm() {
   ctaEmbedInOfferExpanded.value = true;
   ctaHideStandaloneBand.value = true;
   offerExpandedLinkRows.value = [{ title: '', href: '' }];
+  landingForm.value = tisiLandingToAdminForm(defaultTisiLandingConfig());
   pickAgencyId.value = null;
   pickSourceType.value = 'agency';
 }
@@ -917,6 +1169,15 @@ function edit(p) {
   delete advanced.parentIntro;
   delete advanced.heroVideoUrl;
   delete advanced.offerExpandedExternalLinks;
+  delete advanced.landing;
+  delete advanced.landingTemplate;
+  delete advanced.siteName;
+  delete advanced.tagline;
+  delete advanced.ctaHref;
+  delete advanced.ctaImageUrl;
+  delete advanced.contactPhone;
+  delete advanced.contactEmail;
+  delete advanced.contactAddress;
 
   if (advanced.ctaSection === false) {
     ctaEmbedInOfferExpanded.value = true;
@@ -1416,5 +1677,28 @@ onMounted(async () => {
 .pmp-offer-block-select {
   max-width: 100%;
   width: 100%;
+}
+
+.pmp-tisi-editor {
+  border: 1px solid #c7d7e8;
+  border-radius: 12px;
+  padding: 16px;
+  background: #f4f8fc;
+}
+.pmp-tisi-h3 {
+  margin: 20px 0 10px;
+  font-size: 1rem;
+  color: #0b1f3a;
+}
+.pmp-tisi-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px 12px;
+  margin-bottom: 10px;
+}
+@media (max-width: 720px) {
+  .pmp-tisi-grid {
+    grid-template-columns: 1fr;
+  }
 }
 </style>

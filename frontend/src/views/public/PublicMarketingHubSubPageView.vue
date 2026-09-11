@@ -1,11 +1,20 @@
 <template>
-  <div class="pmh-sub">
+  <div class="pmh-sub" :class="{ 'pmh-sub--tisi': isTisiHub }">
+    <header v-if="isTisiHub && !error" class="pmh-tisi-top">
+      <router-link class="pmh-tisi-brand" :to="{ path: '/p/tisi' }">
+        <img class="pmh-tisi-mark" src="/assets/branding/innerstrength-mark.png" alt="" />
+        <span>Inner Strength Institute</span>
+      </router-link>
+      <router-link class="pmh-tisi-cta" to="/p/tisi/get-started">Get Started →</router-link>
+    </header>
+
     <div v-if="error" class="pmh-fatal">{{ error }}</div>
     <div v-else-if="loading" class="pmh-loading">Loading…</div>
     <article v-else-if="subPage" class="pmh-sub-inner">
       <nav class="pmh-sub-breadcrumb">
         <router-link class="pmh-sub-crumb" :to="{ path: `/p/${hubSlug}` }">← {{ hubTitle }}</router-link>
       </nav>
+      <p v-if="isComingSoonPage" class="pmh-coming-soon-badge">Coming soon</p>
       <h1 class="pmh-sub-title">{{ subPage.title }}</h1>
       <div class="pmh-sub-body" v-html="renderedBody" />
     </article>
@@ -44,6 +53,7 @@ const error = ref('');
 const pageMeta = ref(null);
 
 const hubTitle = computed(() => pageMeta.value?.heroTitle || pageMeta.value?.title || 'Hub');
+const isTisiHub = computed(() => hubSlug.value === 'tisi');
 const hubLegalTitle = computed(() => String(pageMeta.value?.branding?.legalFooterTitle || '').trim());
 const hubLegalLinksOverride = computed(() => {
   const raw = pageMeta.value?.branding?.legalFooterLinks;
@@ -58,6 +68,11 @@ const subPage = computed(() => {
   const pages = pageMeta.value?.branding?.contentPages;
   if (!Array.isArray(pages)) return null;
   return pages.find((p) => String(p.slug || '').trim().toLowerCase() === subPageSlug.value) || null;
+});
+
+const isComingSoonPage = computed(() => {
+  const body = String(subPage.value?.body || '');
+  return /coming soon/i.test(body) || /coming soon/i.test(String(subPage.value?.title || ''));
 });
 
 const renderedBody = computed(() => {
@@ -220,5 +235,68 @@ watch([hubSlug, subPageSlug], () => loadPage());
 .pmh-sub-foot :deep(.powered-by-name),
 .pmh-sub-foot :deep(.legal-link) {
   color: var(--hub-text-muted);
+}
+
+.pmh-sub--tisi {
+  --hub-font-display: 'Outfit', 'Plus Jakarta Sans', system-ui, sans-serif;
+  --hub-font-body: 'Outfit', 'Plus Jakarta Sans', system-ui, sans-serif;
+  --hub-text: #12233a;
+  --hub-text-muted: #5b6b7c;
+  --hub-link: #2f6b3a;
+  --hub-surface: #ffffff;
+  --hub-border: rgba(11, 31, 58, 0.1);
+  background: linear-gradient(180deg, #f7f8fa 0%, #eef1f5 100%);
+  padding-top: 0;
+}
+
+.pmh-tisi-top {
+  max-width: 44rem;
+  margin: 0 auto 18px;
+  padding: 16px 16px 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.pmh-tisi-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  text-decoration: none;
+  color: #0b1f3a;
+  font-weight: 800;
+  font-size: 13px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.pmh-tisi-mark {
+  width: 36px;
+  height: 36px;
+  object-fit: contain;
+}
+
+.pmh-tisi-cta {
+  text-decoration: none;
+  background: #2f6b3a;
+  color: #fff;
+  font-weight: 700;
+  font-size: 13px;
+  padding: 10px 14px;
+  border-radius: 999px;
+}
+
+.pmh-coming-soon-badge {
+  display: inline-block;
+  margin: 0 0 10px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: rgba(47, 107, 58, 0.12);
+  color: #2f6b3a;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
 </style>

@@ -333,10 +333,11 @@ const routes = [
     meta: { requiresGuest: false, publicMarketingHub: true }
   },
   // Public marketing hub — namespace /p/:hubSlug (multi-agency events + hub branding). Must stay before /:organizationSlug.
+  // Router picks TISI marketing landing vs event-hub layout by slug.
   {
     path: '/p/:hubSlug',
     name: 'PublicMarketingHub',
-    component: () => import('../views/public/PublicMarketingHubView.vue'),
+    component: () => import('../views/public/PublicMarketingPageRouter.vue'),
     meta: { requiresGuest: false, publicMarketingHub: true }
   },
   {
