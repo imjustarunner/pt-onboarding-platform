@@ -3021,6 +3021,7 @@ import {
   buildSchoolReferralFinderPath,
   resolveHostImpliedPortalSlug
 } from '../utils/orgScopedPath';
+import { buildPublicPortalLoginUrl } from '../utils/publicPortalUrl.js';
 import { useBrandingStore } from '../store/branding';
 import {
   spanishQuestionLabelsEnabledFromLink,
@@ -9733,10 +9734,9 @@ async function downloadOfficeSummaryPdf() {
   }
 }
 
-const officePortalHref = computed(() => {
-  const slug = String(agencyInfo.value?.portal_url || agencyInfo.value?.slug || '').trim();
-  return slug ? `/${encodeURIComponent(slug)}/login` : '/login';
-});
+const officePortalHref = computed(() =>
+  buildPublicPortalLoginUrl(agencyInfo.value || {})
+);
 
 async function ensureOfficePortalCredentials() {
   if (!isOfficeInDepthIntake.value || !submissionId.value || !guardianEmail.value) return;

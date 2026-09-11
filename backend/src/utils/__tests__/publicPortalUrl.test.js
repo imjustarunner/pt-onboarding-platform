@@ -74,6 +74,21 @@ describe('publicPortalUrl', () => {
     assert.equal(buildPublicPortalLoginUrl(nlu, { platformBaseUrl: PLATFORM }), 'https://app.nextleveluplcc.com/login');
   });
 
+  it('maps The Inner Strength Institute to its dedicated app host', () => {
+    const tisi = {
+      name: 'The Inner Strength Institute',
+      slug: 'tisi',
+      portal_url: 'tisi',
+      organization_type: 'agency'
+    };
+    assert.equal(dedicatedAppHostForSlug('tisi'), 'app.theinnerstrengthinstitute.com');
+    assert.equal(buildPublicPortalBaseUrl(tisi, { platformBaseUrl: PLATFORM }), 'https://app.theinnerstrengthinstitute.com');
+    assert.equal(
+      buildPublicPortalLoginUrl(tisi, { platformBaseUrl: PLATFORM }),
+      'https://app.theinnerstrengthinstitute.com/login'
+    );
+  });
+
   it('builds tenant Quick View hosts as qv.{tenant}', () => {
     const itsco = { slug: 'itsco', portal_url: 'itsco', organization_type: 'agency' };
     assert.equal(

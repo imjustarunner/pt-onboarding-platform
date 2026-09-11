@@ -66,6 +66,7 @@
       v-else-if="submitted"
       :agency-slug="agencySlug"
       :agency-name="config?.agency?.name || ''"
+      :agency-custom-domain="config?.agency?.customDomain || config?.agency?.custom_domain || ''"
       :confirmation="confirmation"
       :support-contact="config?.supportContact"
       :logo-url="thankYouLogoUrl"

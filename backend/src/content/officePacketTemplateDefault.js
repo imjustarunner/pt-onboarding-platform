@@ -193,7 +193,10 @@ export function tokenizeOfficeDisclosureEntity(html) {
       '<p><strong>Phone Number:</strong> {{AGENCY_PHONE}}</p>'
     )
     .replace(/The direct entity, ITSCO LLC,/gi, 'The direct entity, {{AGENCY_NAME}},')
-    .replace(/employees of ITSCO LLC/gi, 'employees of {{AGENCY_NAME}}');
+    .replace(/employees of ITSCO LLC/gi, 'employees of {{AGENCY_NAME}}')
+    // Seeded ITSCO packet copy often hardcodes the agency name in body bullets.
+    .replace(/\bITSCO LLC\b/gi, '{{AGENCY_NAME}}')
+    .replace(/\bITSCO\b/g, '{{AGENCY_NAME}}');
 }
 
 function buildOfficeDisclosure(source, locale) {

@@ -182,10 +182,12 @@ import { computed, reactive, ref, watch } from 'vue';
 import api from '../../services/api';
 import { DigitalFormField } from '../digital-form';
 import PhiDownloadNotice from './PhiDownloadNotice.vue';
+import { buildPublicPortalLoginUrl } from '../../utils/publicPortalUrl.js';
 
 const props = defineProps({
   agencySlug: { type: String, required: true },
   agencyName: { type: String, default: '' },
+  agencyCustomDomain: { type: String, default: '' },
   confirmation: { type: Object, default: null },
   supportContact: { type: Object, default: null },
   logoUrl: { type: String, default: '' }
@@ -228,8 +230,18 @@ const portalPassword = computed(() =>
   String(portalAccess.value?.password || portalAccess.value?.temporaryPassword || '').trim()
 );
 const portalHref = computed(() => {
-  const slug = String(props.agencySlug || '').trim();
-  return slug ? `/${encodeURIComponent(slug)}/login` : '/login';
+  const fromAccess = String(
+    portalAccess.value?.portalLoginUrl
+    || portalAccess.value?.loginUrl
+    || props.confirmation?.portalLoginUrl
+    || ''
+  ).trim();
+  if (fromAccess) return fromAccess;
+  return buildPublicPortalLoginUrl({
+    slug: props.agencySlug,
+    portal_url: props.agencySlug,
+    custom_domain: props.agencyCustomDomain
+  });
 });
 const supportEmail = computed(
   () => props.supportContact?.email || props.confirmation?.supportContact?.email || ''

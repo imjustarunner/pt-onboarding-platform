@@ -1394,6 +1394,12 @@ onMounted(async () => {
     }
     // Initialize portal theme if on subdomain/custom domain (separate from slug-based org logins)
     await brandingStore.initializePortalTheme();
+    const hostSlug = String(
+      brandingStore.portalHostPortalUrl || resolveHostImpliedPortalSlug(brandingStore) || ''
+    ).trim().toLowerCase();
+    if (hostSlug) {
+      await fetchLoginTheme(hostSlug);
+    }
   }
 
   // Restore username across redirects (and optionally auto-verify).

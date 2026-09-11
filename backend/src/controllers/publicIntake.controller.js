@@ -152,6 +152,10 @@ import {
 } from '../services/smartDisclosure.service.js';
 import { listOfficeIntakeProviders } from '../services/officeIntakeProviders.service.js';
 import {
+  buildPublicPasswordlessLoginUrl,
+  buildPublicPortalLoginUrl
+} from '../utils/publicPortalUrl.js';
+import {
   PACKET_SECTION_KEYS,
   buildPacketSectionContext,
   hasProgrammedPacketSectionStep,
@@ -4790,6 +4794,7 @@ const toOrgPayload = (org) => {
     logo_path: org.logo_path || null,
     slug: org.slug || null,
     portal_url: org.portal_url || null,
+    custom_domain: org.custom_domain || null,
     phone_number: org.phone_number || null,
     phone_extension: org.phone_extension || null,
     support_team_email: org.support_team_email || null,
@@ -12393,13 +12398,11 @@ export const issuePublicIntakePortalCredentials = async (req, res, next) => {
     }
     let guardianUser = await User.findByEmail(email);
     if (guardianUser && String(guardianUser.role || '').toLowerCase() !== 'client_guardian') {
-      const slug = String(agency?.portal_url || agency?.slug || '').trim();
-      const portalPath = slug ? `/${encodeURIComponent(slug)}/login` : '/login';
       return res.json({
         username: email,
         temporaryPassword: null,
         expiresAt: null,
-        portalLoginUrl: portalPath,
+        portalLoginUrl: buildPublicPortalLoginUrl(agency),
         setPasswordUrl: null,
         note: 'An account already exists for this email. Use password recovery if you need a new temporary password.'
       });
@@ -12438,18 +12441,13 @@ export const issuePublicIntakePortalCredentials = async (req, res, next) => {
     const temporaryPassword = await User.generateTemporaryPassword();
     const pwResult = await User.setTemporaryPassword(Number(guardianUser.id), temporaryPassword, 24 * 7);
     const tokenResult = await User.generatePasswordlessToken(Number(guardianUser.id), 24 * 7, 'setup');
-    const slug = String(agency?.portal_url || agency?.slug || '').trim();
-    const portalPath = slug ? `/${encodeURIComponent(slug)}/login` : '/login';
-    const setPasswordPath = slug
-      ? `/${encodeURIComponent(slug)}/passwordless-login/${encodeURIComponent(tokenResult.token)}`
-      : `/passwordless-login/${encodeURIComponent(tokenResult.token)}`;
 
     return res.json({
       username: email,
       temporaryPassword,
       expiresAt: pwResult?.expiresAt ? new Date(pwResult.expiresAt).toISOString() : null,
-      portalLoginUrl: portalPath,
-      setPasswordUrl: setPasswordPath
+      portalLoginUrl: buildPublicPortalLoginUrl(agency),
+      setPasswordUrl: buildPublicPasswordlessLoginUrl(agency, tokenResult.token)
     });
   } catch (error) {
     next(error);

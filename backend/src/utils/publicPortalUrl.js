@@ -12,7 +12,8 @@ export const DEDICATED_APP_HOSTS = Object.freeze({
   itsco: 'app.itsco.health',
   nextlevelup: 'app.nextleveluplcc.com',
   nextleveluplcc: 'app.nextleveluplcc.com',
-  nlu: 'app.nextleveluplcc.com'
+  nlu: 'app.nextleveluplcc.com',
+  tisi: 'app.theinnerstrengthinstitute.com'
 });
 
 function norm(value) {

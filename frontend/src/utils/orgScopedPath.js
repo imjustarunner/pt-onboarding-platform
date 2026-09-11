@@ -45,10 +45,22 @@ function cachePortalSlugForHost(portalSlug) {
 
 /**
  * Best-effort portal slug from app.{portal}.{tld} custom domains (e.g. app.ltsco.health → ltsco).
+ * Known dedicated hosts (app.theinnerstrengthinstitute.com → tisi) win over hostname guessing.
  */
 export function guessPortalSlugFromHostname(hostname = null) {
   const h = norm(hostname ?? (typeof window !== 'undefined' ? window.location.hostname : '')).replace(/:\d+$/, '');
   if (!h || h === 'localhost' || h === '127.0.0.1') return '';
+  try {
+    // Lazy import avoided: keep map inline to prevent circular deps with publicPortalUrl.
+    const dedicated = {
+      'app.itsco.health': 'itsco',
+      'app.nextleveluplcc.com': 'nextleveluplcc',
+      'app.theinnerstrengthinstitute.com': 'tisi'
+    };
+    if (dedicated[h]) return dedicated[h];
+  } catch {
+    /* ignore */
+  }
   const parts = h.split('.').filter(Boolean);
   // qv.{portal}.app.{base}
   if (parts.length >= 5 && parts[0] === 'qv' && parts[2] === 'app') {

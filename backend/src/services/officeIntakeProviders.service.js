@@ -21,7 +21,9 @@ function mapProviderRow(row = {}, { ageYears = null, slots = [], waitlistCount =
   const ageGroups = parseAgeGroups(row.age_specialty);
   const bucket = bucketFromYears(ageYears);
   const servesAge = bucket ? providerServesAgeBucket(ageGroups, bucket) : true;
-  const onWaitlist = !accepting || openSlots <= 0;
+  // Global accepting (profile OPEN) drives eligibility. Missing open slots still
+  // allows preference selection — openings are first-come preference, not a gate.
+  const onWaitlist = !accepting;
   const nextSlot = slots[0] || null;
   const frequencies = [...new Set(slots.map((s) => s.frequency).filter(Boolean))];
   return {
@@ -37,6 +39,8 @@ function mapProviderRow(row = {}, { ageYears = null, slots = [], waitlistCount =
     acceptingNewClients: accepting,
     inOfficeAvailable: Number(row.in_office_available || 0) === 1,
     openSlots,
+    openOfficeSlots: Number(row.open_office_slots != null ? row.open_office_slots : openSlots) || 0,
+    openVirtualSlots: Number(row.open_virtual_slots || 0) || 0,
     waitlist: onWaitlist,
     waitlistCount: Number(waitlistCount || 0),
     ageSpecialty: ageGroups,
@@ -199,16 +203,26 @@ const ROLE_CLAUSE = `
       'clinical_practice_assistant', 'counselor', 'therapist', 'coach',
       'employee', 'admin', 'super_admin'
     )
-    OR LOWER(COALESCE(ua.role, '')) IN (
+    OR LOWER(COALESCE(ua.agency_role, '')) IN (
       'provider', 'provider_plus', 'counselor', 'coach', 'therapist',
-      'intern', 'intern_plus', 'clinical_practice_assistant'
+      'intern', 'intern_plus', 'clinical_practice_assistant',
+      'supervisor', 'employee', 'admin', 'super_admin'
     )
+    OR COALESCE(u.has_provider_access, 0) = 1
+    OR COALESCE(ua.include_on_disclosure, 0) = 1
+  )
+  AND LOWER(COALESCE(u.role, '')) NOT IN (
+    'client', 'client_guardian', 'guardian', 'parent', 'participant'
   )
 `;
 
 const ACTIVE_CLAUSE = `
   COALESCE(u.is_active, 1) = 1
   AND (u.is_archived IS NULL OR u.is_archived = FALSE)
+  AND UPPER(COALESCE(u.status, 'ACTIVE_EMPLOYEE')) NOT IN (
+    'ARCHIVED', 'PROSPECTIVE', 'INACTIVE_EMPLOYEE', 'TERMINATED_PENDING',
+    'PREHIRE_OPEN', 'PREHIRE_CLOSED', 'DENIED', 'WITHDRAWN'
+  )
 `;
 
 async function loadPopulationFocusMap(userIds = []) {
@@ -292,7 +306,60 @@ export async function listOfficeIntakeProviders(agencyId, { ages = [], includeNo
             u.psychology_today_url,
             COALESCE(u.provider_accepting_new_clients, 1) AS accepting,
             COALESCE(u.in_office_available, 0) AS in_office_available,
-            COALESCE(slot.open_slots, 0) AS open_slots
+            (
+              COALESCE(slot.open_slots, 0)
+              + COALESCE(ipslot.open_slots, 0)
+              + COALESCE(vslot.open_slots, 0)
+              + COALESCE(vhours.open_slots, 0)
+            ) AS open_slots,
+            COALESCE(slot.open_slots, 0) + COALESCE(ipslot.open_slots, 0) AS open_office_slots,
+            COALESCE(vslot.open_slots, 0) + COALESCE(vhours.open_slots, 0) AS open_virtual_slots
+       FROM users u
+       INNER JOIN user_agencies ua ON ua.user_id = u.id AND ua.agency_id = ?
+       LEFT JOIN (
+         SELECT provider_id, COUNT(*) AS open_slots
+           FROM provider_in_office_availability
+          WHERE is_available = 1
+          GROUP BY provider_id
+       ) slot ON slot.provider_id = u.id
+       LEFT JOIN (
+         SELECT provider_id, COUNT(*) AS open_slots
+           FROM provider_in_person_slot_availability
+          WHERE is_active = 1
+            AND available_for_intake = 1
+            AND agency_id = ?
+            AND start_at >= NOW()
+          GROUP BY provider_id
+       ) ipslot ON ipslot.provider_id = u.id
+       LEFT JOIN (
+         SELECT provider_id, COUNT(*) AS open_slots
+           FROM provider_virtual_slot_availability
+          WHERE is_active = 1
+            AND available_for_intake = 1
+            AND agency_id = ?
+            AND start_at >= NOW()
+          GROUP BY provider_id
+       ) vslot ON vslot.provider_id = u.id
+       LEFT JOIN (
+         SELECT provider_id, COUNT(*) AS open_slots
+           FROM provider_virtual_working_hours
+          WHERE available_for_intake = 1
+            AND agency_id = ?
+          GROUP BY provider_id
+       ) vhours ON vhours.provider_id = u.id
+      WHERE ${ACTIVE_CLAUSE}
+        AND COALESCE(ua.is_active, 1) = 1
+        AND (${acceptingClause})
+        AND ${ROLE_CLAUSE}
+      ORDER BY open_slots DESC, u.last_name ASC, u.first_name ASC`,
+    // Fallback without virtual / in-person tables
+    `SELECT u.id, u.first_name, u.last_name, u.title, u.credential,
+            u.psychology_today_url,
+            COALESCE(u.provider_accepting_new_clients, 1) AS accepting,
+            COALESCE(u.in_office_available, 0) AS in_office_available,
+            COALESCE(slot.open_slots, 0) AS open_slots,
+            COALESCE(slot.open_slots, 0) AS open_office_slots,
+            0 AS open_virtual_slots
        FROM users u
        INNER JOIN user_agencies ua ON ua.user_id = u.id AND ua.agency_id = ?
        LEFT JOIN (
@@ -310,7 +377,9 @@ export async function listOfficeIntakeProviders(agencyId, { ages = [], includeNo
             u.psychology_today_url,
             COALESCE(u.provider_accepting_new_clients, 1) AS accepting,
             0 AS in_office_available,
-            0 AS open_slots
+            0 AS open_slots,
+            0 AS open_office_slots,
+            0 AS open_virtual_slots
        FROM users u
        INNER JOIN user_agencies ua ON ua.user_id = u.id AND ua.agency_id = ?
       WHERE ${ACTIVE_CLAUSE}
@@ -321,19 +390,21 @@ export async function listOfficeIntakeProviders(agencyId, { ages = [], includeNo
   ];
 
   let rows = [];
-  for (const sql of queries) {
+  for (let qi = 0; qi < queries.length; qi += 1) {
+    const sql = queries[qi];
+    const params = qi === 0 ? [aid, aid, aid, aid] : [aid];
     try {
-      const [found] = await pool.execute(sql, [aid]);
+      const [found] = await pool.execute(sql, params);
       rows = found || [];
-      if (rows.length) break;
+      if (rows.length || qi === queries.length - 1) break;
     } catch (err) {
       // psychology_today_url may be missing on older DBs — retry without it
       if (String(err?.message || '').includes('psychology_today_url')) {
         try {
           const fallbackSql = sql.replace(/u\.psychology_today_url,?\s*/g, '');
-          const [found] = await pool.execute(fallbackSql, [aid]);
+          const [found] = await pool.execute(fallbackSql, params);
           rows = (found || []).map((r) => ({ ...r, psychology_today_url: null }));
-          if (rows.length) break;
+          if (rows.length || qi === queries.length - 1) break;
         } catch (err2) {
           console.warn('[officeIntakeProviders] query failed', err2?.message || err2);
         }

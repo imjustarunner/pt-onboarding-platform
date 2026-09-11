@@ -53,7 +53,15 @@
         <p v-if="p.nextAvailable" class="cpd-meta">
           First available: <strong>{{ p.nextAvailable }}</strong>
         </p>
-        <p v-if="p.openSlots" class="cpd-meta">{{ p.openSlots }} open office slot{{ p.openSlots === 1 ? '' : 's' }}</p>
+        <p v-if="p.openSlots" class="cpd-meta">
+          {{ p.openSlots }} open slot{{ p.openSlots === 1 ? '' : 's' }}
+          <template v-if="p.openOfficeSlots || p.openVirtualSlots">
+            ({{ [
+              p.openOfficeSlots ? `${p.openOfficeSlots} office` : null,
+              p.openVirtualSlots ? `${p.openVirtualSlots} virtual` : null
+            ].filter(Boolean).join(' · ') }})
+          </template>
+        </p>
         <p v-if="p.waitlistCount" class="cpd-meta">{{ p.waitlistCount }} on their office waitlist</p>
 
         <ul v-if="p.slots?.length" class="cpd-slots">

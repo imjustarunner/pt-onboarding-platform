@@ -6,9 +6,33 @@ import { DEFAULT_SCHOOL_PACKET_TEMPLATE_HTML_ES } from '../content/schoolPacketT
 import { buildSchoolPrintablePacketContext } from './schoolPrintablePacket.service.js';
 import OfficePacketTemplate from '../models/OfficePacketTemplate.model.js';
 import Agency from '../models/Agency.model.js';
-import { defaultOfficePacketHtml, applyNluOfficeLegalIfNeeded } from '../content/officePacketTemplateDefault.js';
+import {
+  defaultOfficePacketHtml,
+  applyNluOfficeLegalIfNeeded,
+  tokenizeOfficeDisclosureEntity
+} from '../content/officePacketTemplateDefault.js';
 import { normalizeOfficePacketVariant } from '../constants/officePrintablePacket.js';
 import { isNluPacketChromeAgency } from './packetBrandChrome.service.js';
+
+function escapeHtml(value) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function buildAgencyAddressLine(agency = {}) {
+  const direct = String(agency?.street_address || '').trim();
+  if (direct) return direct;
+  return [
+    agency?.street_address,
+    agency?.city,
+    agency?.state,
+    agency?.postal_code
+  ].map((part) => String(part || '').trim()).filter(Boolean).join(', ');
+}
 
 export const PACKET_SECTION_KEYS = Object.freeze({
   INFORMED_GROUP_CONSENT: 'informed_group_consent',
@@ -235,7 +259,21 @@ export async function buildPacketSectionContext({
       const agency = await Agency.findById(resolvedAgencyId);
       if (isNluPacketChromeAgency(agency)) {
         templateHtml = applyNluOfficeLegalIfNeeded(templateHtml);
+      } else {
+        templateHtml = tokenizeOfficeDisclosureEntity(templateHtml);
       }
+      const agencyName = String(agency?.official_name || agency?.name || 'Agency').trim();
+      const agencyAddress = buildAgencyAddressLine(agency);
+      const agencyPhone = String(agency?.phone_number || agency?.phone || '').trim();
+      templateHtml = substituteTokens(templateHtml, {
+        AGENCY_NAME: escapeHtml(agencyName),
+        AGENCY_ADDRESS: escapeHtml(agencyAddress),
+        AGENCY_PHONE: escapeHtml(agencyPhone),
+        SCHOOL_NAME: escapeHtml(agencyName),
+        SCHOOL_ADDRESS: escapeHtml(agencyAddress),
+        SCHOOL_STAFF_TABLE: '',
+        DISCLOSURE_CARE_TEAM: ''
+      });
     } catch {
       /* keep seeded office HTML */
     }
