@@ -769,17 +769,30 @@
                   <div class="ov-row-label">Insurance</div>
                   <div class="ov-row-value">
                     <template v-if="editingOverview">
+                      <div
+                        v-if="client.primary_insurer_name"
+                        class="hint"
+                        style="margin-bottom: 6px;"
+                      >
+                        Carrier on file: <strong>{{ client.primary_insurer_name }}</strong>
+                        <span v-if="client.insurance_member_id" class="muted"> · Member {{ client.insurance_member_id }}</span>
+                      </div>
                       <select v-model="overviewForm.insurance_type_id" class="inline-select">
                         <option :value="''">—</option>
                         <option v-for="i in overviewInsuranceTypes" :key="i.id" :value="String(i.id)">{{ i.label }}</option>
                       </select>
                     </template>
                     <template v-else>
-                      <span v-if="client.primary_insurer_name">
-                        {{ client.primary_insurer_name }}
-                        <span v-if="client.insurance_type_label && client.insurance_type_label !== client.primary_insurer_name" class="muted" style="font-size: 12px; margin-left: 4px;">({{ client.insurance_type_label }})</span>
+                      <span v-if="client.primary_insurer_name || client.insurance_type_label">
+                        {{ client.primary_insurer_name || client.insurance_type_label }}
+                        <span v-if="client.insurance_member_id" class="muted" style="font-size: 12px; margin-left: 4px;">Member {{ client.insurance_member_id }}</span>
+                        <span
+                          v-if="client.primary_insurer_name && client.insurance_type_label && client.insurance_type_label !== client.primary_insurer_name"
+                          class="muted"
+                          style="font-size: 12px; margin-left: 4px;"
+                        >({{ client.insurance_type_label }})</span>
                       </span>
-                      <span v-else>{{ client.insurance_type_label || '-' }}</span>
+                      <span v-else>-</span>
                     </template>
                   </div>
                 </div>
@@ -5045,6 +5058,18 @@ const hydrateOverviewForm = () => {
   overviewForm.value.termination_reason = String(props.client?.termination_reason || '');
   overviewForm.value.submission_date = props.client?.submission_date ? String(props.client.submission_date).slice(0, 10) : '';
   overviewForm.value.insurance_type_id = props.client?.insurance_type_id ? String(props.client.insurance_type_id) : '';
+  if (!overviewForm.value.insurance_type_id && props.client?.primary_insurer_name) {
+    const carrier = String(props.client.primary_insurer_name).trim().toLowerCase();
+    const types = overviewInsuranceTypes.value || [];
+    const exact = types.find((t) => String(t.label || '').trim().toLowerCase() === carrier);
+    const commercial = types.find((t) => /commercial/i.test(String(t.label || '')) || String(t.insurance_key || '') === 'commercial_other');
+    const selfPay = types.find((t) => /self\s*pay/i.test(String(t.label || '')) || String(t.insurance_key || '') === 'self_pay');
+    const pick = exact
+      || (/\bself[-\s]?pay\b/.test(carrier) ? selfPay : null)
+      || commercial
+      || null;
+    if (pick?.id) overviewForm.value.insurance_type_id = String(pick.id);
+  }
   overviewForm.value.doc_date = props.client?.doc_date ? String(props.client.doc_date).slice(0, 10) : '';
   overviewForm.value.school_year = String(props.client?.school_year || '');
   overviewForm.value.grade = (() => {

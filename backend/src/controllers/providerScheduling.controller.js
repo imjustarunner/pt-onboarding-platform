@@ -39,7 +39,11 @@ export const listProvidersForScheduling = async (req, res, next) => {
            AND (u.is_archived IS NULL OR u.is_archived = FALSE)
            AND (u.status IS NULL OR UPPER(u.status) NOT IN ('ARCHIVED','PROSPECTIVE','INACTIVE_EMPLOYEE','TERMINATED_PENDING'))
            AND (
-             u.role IN ('provider')
+             LOWER(COALESCE(u.role, '')) IN (
+               'provider', 'provider_plus', 'intern', 'intern_plus', 'supervisor',
+               'clinical_practice_assistant', 'counselor', 'therapist', 'coach',
+               'employee', 'admin', 'super_admin'
+             )
              OR (u.has_provider_access = TRUE)
            )
          ORDER BY u.last_name ASC, u.first_name ASC`,
@@ -58,7 +62,11 @@ export const listProvidersForScheduling = async (req, res, next) => {
            AND (u.is_archived IS NULL OR u.is_archived = FALSE)
            AND (u.status IS NULL OR UPPER(u.status) NOT IN ('ARCHIVED','PROSPECTIVE','INACTIVE_EMPLOYEE','TERMINATED_PENDING'))
            AND (
-             u.role IN ('provider')
+             LOWER(COALESCE(u.role, '')) IN (
+               'provider', 'provider_plus', 'intern', 'intern_plus', 'supervisor',
+               'clinical_practice_assistant', 'counselor', 'therapist', 'coach',
+               'employee', 'admin', 'super_admin'
+             )
              OR (u.has_provider_access = TRUE)
            )
          ORDER BY u.last_name ASC, u.first_name ASC`,
@@ -134,26 +142,49 @@ export const listProvidersAffiliatedWithSchool = async (req, res, next) => {
       return res.status(403).json({ error: { message: 'School is not linked to this agency' } });
     }
 
-    // Provider-like users who belong to the agency AND are affiliated with the school org via user_agencies.
-    // Backward compatible: some user fields may not exist yet.
+    const PROVIDER_ROLE_SQL = `
+      (
+        LOWER(COALESCE(u.role, '')) IN (
+          'provider', 'provider_plus', 'intern', 'intern_plus', 'supervisor',
+          'clinical_practice_assistant', 'counselor', 'therapist', 'coach',
+          'employee', 'admin', 'super_admin'
+        )
+        OR COALESCE(u.has_provider_access, 0) = 1
+      )
+    `;
+    const ACTIVE_USER_SQL = `
+      (u.is_active IS NULL OR u.is_active = TRUE)
+      AND (u.is_archived IS NULL OR u.is_archived = FALSE)
+      AND (u.status IS NULL OR UPPER(u.status) NOT IN ('ARCHIVED','PROSPECTIVE','INACTIVE_EMPLOYEE','TERMINATED_PENDING'))
+    `;
+
+    const mapRows = (rows) => (rows || []).map((r) => ({
+      id: r.id,
+      first_name: r.first_name,
+      last_name: r.last_name,
+      email: r.email,
+      role: r.role,
+      has_provider_access: r.has_provider_access
+    }));
+
+    // 1) Prefer dual membership (agency + school/clinical org) — school roster pattern.
+    let rows = [];
     try {
-      const [rows] = await pool.execute(
+      const [found] = await pool.execute(
         `SELECT DISTINCT u.id, u.first_name, u.last_name, u.email, u.role, u.has_provider_access
          FROM users u
          JOIN user_agencies ua_agency ON ua_agency.user_id = u.id AND ua_agency.agency_id = ?
          JOIN user_agencies ua_school ON ua_school.user_id = u.id AND ua_school.agency_id = ?
-         WHERE (u.is_active IS NULL OR u.is_active = TRUE)
-           AND (u.is_archived IS NULL OR u.is_archived = FALSE)
-           AND (u.status IS NULL OR UPPER(u.status) NOT IN ('ARCHIVED','PROSPECTIVE','INACTIVE_EMPLOYEE','TERMINATED_PENDING'))
-           AND (u.role IN ('provider') OR (u.has_provider_access = TRUE))
+         WHERE ${ACTIVE_USER_SQL}
+           AND ${PROVIDER_ROLE_SQL}
          ORDER BY u.last_name ASC, u.first_name ASC`,
         [agencyId, schoolOrganizationId]
       );
-      return res.json(rows || []);
+      rows = found || [];
     } catch (e) {
       const msg = String(e?.message || '');
       if (!msg.includes('Unknown column')) throw e;
-      const [rows] = await pool.execute(
+      const [found] = await pool.execute(
         `SELECT DISTINCT u.id, u.first_name, u.last_name, u.email, u.role, u.has_provider_access
          FROM users u
          JOIN user_agencies ua_agency ON ua_agency.user_id = u.id AND ua_agency.agency_id = ?
@@ -162,8 +193,41 @@ export const listProvidersAffiliatedWithSchool = async (req, res, next) => {
          ORDER BY u.last_name ASC, u.first_name ASC`,
         [agencyId, schoolOrganizationId]
       );
-      return res.json(rows || []);
+      rows = found || [];
     }
+
+    // 2) Clinical / program affiliations often do not duplicate every clinician onto the
+    // child org roster. Fall back to parent-agency membership (matches assignment upsert).
+    if (!rows.length) {
+      try {
+        const [found] = await pool.execute(
+          `SELECT DISTINCT u.id, u.first_name, u.last_name, u.email, u.role, u.has_provider_access
+           FROM users u
+           JOIN user_agencies ua ON ua.user_id = u.id AND ua.agency_id = ?
+           WHERE ${ACTIVE_USER_SQL}
+             AND ${PROVIDER_ROLE_SQL}
+             AND COALESCE(ua.is_active, 1) = 1
+           ORDER BY u.last_name ASC, u.first_name ASC`,
+          [agencyId]
+        );
+        rows = found || [];
+      } catch (e) {
+        const msg = String(e?.message || '');
+        if (!msg.includes('Unknown column')) throw e;
+        const [found] = await pool.execute(
+          `SELECT DISTINCT u.id, u.first_name, u.last_name, u.email, u.role, u.has_provider_access
+           FROM users u
+           JOIN user_agencies ua ON ua.user_id = u.id AND ua.agency_id = ?
+           WHERE (u.role IN ('provider','provider_plus','admin','super_admin','counselor','therapist')
+             OR (u.has_provider_access = TRUE))
+           ORDER BY u.last_name ASC, u.first_name ASC`,
+          [agencyId]
+        );
+        rows = found || [];
+      }
+    }
+
+    return res.json(mapRows(rows));
   } catch (e) {
     next(e);
   }

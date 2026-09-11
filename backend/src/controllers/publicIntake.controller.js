@@ -1602,7 +1602,12 @@ const persistChildIntakeData = async ({
 
   // 3) Primary insurer + charge fields from the insurance step.
   try {
-    const insuranceInfo = intakeData?.responses?.submission?.insuranceInfo;
+    const normalizedForInsurance = normalizeIntakeDataShape(intakeData);
+    const insuranceInfo =
+      normalizedForInsurance?.responses?.submission?.insuranceInfo
+      || intakeData?.responses?.submission?.insuranceInfo
+      || intakeData?.submission?.insuranceInfo
+      || null;
     const primaryInsurerName = String(insuranceInfo?.primary?.insurerName || '').trim();
     const memberId = String(insuranceInfo?.primary?.memberId || '').trim();
     const groupNumber = String(insuranceInfo?.primary?.groupNumber || '').trim();
@@ -1626,6 +1631,30 @@ const persistChildIntakeData = async ({
         cols.push('insurance_subscriber_name = ?');
         vals.push(subscriberName.slice(0, 255));
       }
+      if (primaryInsurerName) {
+        try {
+          let agencyForMatch = Number(
+            normalizedForInsurance?.agencyId
+            || intakeData?.agencyId
+            || normalizedForInsurance?.responses?.submission?.agencyId
+            || 0
+          );
+          if (!agencyForMatch) {
+            const [crow] = await pool.execute(`SELECT agency_id FROM clients WHERE id = ? LIMIT 1`, [cid]);
+            agencyForMatch = Number(crow?.[0]?.agency_id || 0);
+          }
+          if (agencyForMatch) {
+            const { resolveInsuranceTypeIdForAgency } = await import('../utils/resolveInsuranceTypeId.js');
+            const typeId = await resolveInsuranceTypeIdForAgency(agencyForMatch, primaryInsurerName);
+            if (typeId) {
+              cols.push('insurance_type_id = COALESCE(insurance_type_id, ?)');
+              vals.push(typeId);
+            }
+          }
+        } catch {
+          /* insurance_types / agency lookup optional */
+        }
+      }
       if (cols.length) {
         vals.push(cid);
         await pool.execute(`UPDATE clients SET ${cols.join(', ')} WHERE id = ?`, vals);
@@ -1647,16 +1676,42 @@ const persistChildIntakeData = async ({
         [status, status, cid]
       );
     }
-    const agencyId = Number(
-      intakeData?.agencyId
+    let agencyId = Number(
+      normalizedForInsurance?.agencyId
+      || intakeData?.agencyId
+      || normalizedForInsurance?.responses?.submission?.agencyId
       || intakeData?.responses?.submission?.agencyId
       || 0
     );
-    const guardianUserId = Number(
-      intakeData?.guardianUserId
+    let guardianUserId = Number(
+      normalizedForInsurance?.guardianUserId
+      || intakeData?.guardianUserId
+      || normalizedForInsurance?.responses?.submission?.guardianUserId
       || intakeData?.responses?.submission?.guardianUserId
       || 0
     );
+    if (!agencyId || !guardianUserId) {
+      try {
+        const [crow] = await pool.execute(
+          `SELECT agency_id FROM clients WHERE id = ? LIMIT 1`,
+          [cid]
+        );
+        if (!agencyId) agencyId = Number(crow?.[0]?.agency_id || 0);
+      } catch {
+        /* optional */
+      }
+    }
+    if (!guardianUserId) {
+      try {
+        const [grows] = await pool.execute(
+          `SELECT guardian_user_id FROM client_guardians WHERE client_id = ? ORDER BY id ASC LIMIT 1`,
+          [cid]
+        );
+        guardianUserId = Number(grows?.[0]?.guardian_user_id || 0);
+      } catch {
+        /* optional */
+      }
+    }
     if (agencyId && guardianUserId && insuranceInfo?.primary) {
       try {
         await GuardianInsuranceProfile.upsert({
