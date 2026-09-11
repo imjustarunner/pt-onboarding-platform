@@ -4207,6 +4207,62 @@ const handleLogoError = (event) => {
   color: var(--va-muted);
 }
 
+/* Tenant video hubs (TISI / ITSCO / NLU): keep the form under the welcome copy
+   and lighten glass fields so they read against bright mid-video art. */
+.login-page--tenant-video {
+  --va-field-bg: rgba(255, 255, 255, 0.2);
+  --va-border: rgba(255, 255, 255, 0.34);
+  --va-subtle: rgba(255, 255, 255, 0.55);
+}
+
+.login-page--tenant-video .video-auth-hero {
+  padding-top: clamp(28px, 5vh, 56px);
+  padding-bottom: clamp(8px, 1.5vh, 16px);
+}
+
+.login-page--tenant-video .login-card {
+  margin-top: clamp(36px, 8vh, 88px);
+}
+
+.login-page--tenant-video .login-form .form-group input,
+.login-page--tenant-video .login-form .form-group select,
+.login-page--tenant-video .login-form .form-group textarea {
+  background: rgba(255, 255, 255, 0.22);
+  border-color: rgba(255, 255, 255, 0.4);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+}
+
+.login-page--tenant-video .login-form .form-group input:focus,
+.login-page--tenant-video .login-form .form-group select:focus,
+.login-page--tenant-video .login-form .form-group textarea:focus {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+.login-page--tenant-video .login-credentials-username input {
+  background-color: rgba(255, 255, 255, 0.22);
+}
+
+.login-page--tenant-video .login-form .btn-primary {
+  background: linear-gradient(
+    135deg,
+    rgba(255, 255, 255, 0.38) 0%,
+    color-mix(in srgb, var(--va-primary) 72%, white) 55%,
+    var(--va-primary) 100%
+  );
+  color: var(--va-white);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.28);
+}
+
+.login-page--tenant-video .login-form .btn-primary:hover:not(:disabled) {
+  filter: brightness(1.06);
+}
+
+.login-page--tenant-video .btn-secondary {
+  background: rgba(255, 255, 255, 0.16);
+  border-color: rgba(255, 255, 255, 0.34);
+}
+
 /* ── Platform footer ── */
 .login-page--platform .platform-footer {
   display: flex;
@@ -4241,6 +4297,10 @@ const handleLogoError = (event) => {
   .platform-hero,
   .video-auth-hero {
     padding-top: clamp(40px, 7vh, 72px);
+  }
+
+  .login-page--tenant-video .login-card {
+    margin-top: clamp(28px, 6vh, 64px);
   }
 }
 
