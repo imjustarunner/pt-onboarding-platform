@@ -577,7 +577,7 @@ function pickJoinLandingScoped(saved, serviceKey) {
   return {};
 }
 
-function mergeJoinLandingCopy(vertical, agencyRow, activeService) {
+export function mergeJoinLandingCopy(vertical, agencyRow, activeService) {
   const defaults = defaultJoinLanding(vertical, agencyRow?.name);
   const theme = parseJson(agencyRow?.theme_settings, {}) || {};
   const saved = theme.joinLanding && typeof theme.joinLanding === 'object' ? theme.joinLanding : {};
@@ -586,7 +586,7 @@ function mergeJoinLandingCopy(vertical, agencyRow, activeService) {
   const merged = { ...defaults };
   for (const [key, value] of Object.entries(scoped)) {
     if (key === 'quickBullets' || key === 'fullBullets') {
-      if (Array.isArray(value) && value.length) merged[key] = value.map((v) => String(v || '').trim()).filter(Boolean);
+      if (Array.isArray(value)) merged[key] = value.map((v) => String(v || '').trim()).filter(Boolean);
       continue;
     }
     if (key === 'layout' && value && typeof value === 'object') {
@@ -616,8 +616,6 @@ function mergeJoinLandingCopy(vertical, agencyRow, activeService) {
     }
     if (typeof value === 'string') {
       const trimmed = value.trim();
-      // Empty welcome lines mean "use the original copy", not a permanent delete.
-      if (!trimmed && ['welcomeTitle', 'welcomeGlad', 'welcomeLead'].includes(key)) continue;
       merged[key] = trimmed;
     }
   }

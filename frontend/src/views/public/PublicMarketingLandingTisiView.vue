@@ -3,20 +3,20 @@
     <div v-if="isSuperAdmin" class="tisi-editor-bar" :class="{ 'tisi-editor-bar--active': editing }">
       <template v-if="!editing">
         <button type="button" class="tisi-ed-btn tisi-ed-btn--primary" @click="startEdit">Edit page</button>
-        <router-link class="tisi-ed-link" to="/admin/public-marketing-pages">Full editor</router-link>
+        <router-link class="tisi-ed-link" :to="`/admin/public-marketing-pages?page=${hubSlug}`">Full editor</router-link>
       </template>
       <template v-else>
-        <span class="tisi-ed-hint">Editing live page</span>
-        <button type="button" class="tisi-ed-btn" :disabled="saving" @click="pickFile('logo')">Change logo</button>
-        <button type="button" class="tisi-ed-btn" :disabled="saving" @click="pickFile('hero')">Change hero photo</button>
-        <button type="button" class="tisi-ed-btn" :disabled="saving" @click="pickFile('cta')">Change CTA photo</button>
-        <button type="button" class="tisi-ed-btn tisi-ed-btn--primary" :disabled="saving" @click="saveEdit">
-          {{ saving ? 'Saving…' : 'Save' }}
+        <span class="tisi-ed-hint">Unsaved changes</span>
+        <button type="button" class="tisi-ed-btn" :disabled="saving || uploading" @click="pickFile('logo')">Change logo</button>
+        <button type="button" class="tisi-ed-btn" :disabled="saving || uploading" @click="pickFile('hero')">Change hero photo</button>
+        <button type="button" class="tisi-ed-btn" :disabled="saving || uploading" @click="pickFile('cta')">Change CTA photo</button>
+        <button type="button" class="tisi-ed-btn tisi-ed-btn--primary" :disabled="saving || uploading" @click="saveEdit">
+          {{ saving ? 'Saving…' : 'Save changes' }}
         </button>
-        <button type="button" class="tisi-ed-btn" :disabled="saving" @click="cancelEdit">Cancel</button>
-        <router-link class="tisi-ed-link" to="/admin/public-marketing-pages">Full editor</router-link>
+        <button type="button" class="tisi-ed-btn" :disabled="saving || uploading" @click="cancelEdit">Cancel</button>
+        <router-link class="tisi-ed-link" :to="`/admin/public-marketing-pages?page=${hubSlug}`">Full editor</router-link>
       </template>
-      <p v-if="editError" class="tisi-ed-error">{{ editError }}</p>
+      <p v-if="editError" class="tisi-ed-error" role="alert">{{ editError }}</p>
       <p v-if="editSavedFlash" class="tisi-ed-ok">Saved</p>
       <input
         ref="fileInput"
@@ -41,10 +41,10 @@
               title="Change logo"
               @click="pickFile('logo')"
             >
-              <img class="tisi-brand-mark" :src="v.logoUrl" alt="" />
+              <img v-if="v.logoUrl" class="tisi-brand-mark" :src="v.logoUrl" alt="" />
             </button>
-            <router-link v-else class="tisi-brand-link" :to="{ path: '/p/tisi' }">
-              <img class="tisi-brand-mark" :src="v.logoUrl" alt="" />
+            <router-link v-else class="tisi-brand-link" :to="`/p/${hubSlug}`" aria-label="Home">
+              <img v-if="v.logoUrl" class="tisi-brand-mark" :src="v.logoUrl" alt="" />
             </router-link>
             <span class="tisi-brand-text">
               <template v-if="editing">
@@ -62,13 +62,13 @@
             type="button"
             class="tisi-nav-toggle"
             :aria-expanded="mobileNavOpen ? 'true' : 'false'"
-            aria-label="Menu"
+            aria-label="Menu" aria-controls="tisi-primary-nav" @keydown.esc="mobileNavOpen = false"
             @click="mobileNavOpen = !mobileNavOpen"
           >
             <span /><span /><span />
           </button>
 
-          <nav class="tisi-nav" :class="{ 'tisi-nav--open': mobileNavOpen }" aria-label="Primary">
+          <nav id="tisi-primary-nav" class="tisi-nav" @keydown.esc="mobileNavOpen = false" :class="{ 'tisi-nav--open': mobileNavOpen }" aria-label="Primary">
             <template v-if="editing">
               <div v-for="(item, i) in v.primaryNav" :key="`nav-${i}`" class="tisi-nav-edit">
                 <input v-model="item.label" class="tisi-inline tisi-inline--nav" type="text" :aria-label="`Nav label ${i + 1}`" />
@@ -84,6 +84,7 @@
                 :key="item.href + item.label"
                 class="tisi-nav-link"
                 :class="{ 'tisi-nav-link--active': isNavActive(item.href) }"
+                :aria-current="isNavActive(item.href) ? 'page' : undefined"
                 v-bind="navBind(item.href)"
                 @click="mobileNavOpen = false"
               >
@@ -99,7 +100,7 @@
             </div>
           </template>
           <component
-            v-else
+            v-else-if="landingDestination(v.ctaHref, destinationContext)"
             :is="navTag(v.ctaHref)"
             class="tisi-btn tisi-btn--primary tisi-header-cta"
             v-bind="navBind(v.ctaHref)"
@@ -110,8 +111,9 @@
         </div>
       </header>
 
-      <main>
-        <section class="tisi-hero" :style="{ backgroundImage: `url(${v.heroImageUrl})` }">
+      <a class="tisi-skip" href="#main">Skip to content</a>
+      <main id="main" tabindex="-1">
+        <section class="tisi-hero" :style="{ backgroundImage: `url(${JSON.stringify(v.heroImageUrl)})`, '--hero-position': v.heroPosition, '--hero-mobile-position': v.heroMobilePosition }">
           <div class="tisi-hero-scrim" />
           <button
             v-if="editing"
@@ -135,14 +137,14 @@
             </template>
             <template v-else>
               <p class="tisi-hero-eyebrow">{{ v.heroEyebrow }}</p>
-              <h1 class="tisi-hero-title">{{ v.heroTitle }}</h1>
+              <h1 class="tisi-hero-title">{{ heroHeading.start }}<span v-if="heroHeading.accent">{{ heroHeading.accent }}</span></h1>
               <p class="tisi-hero-sub">{{ v.heroSubtitle }}</p>
               <div class="tisi-hero-actions">
-                <component :is="navTag(v.ctaHref)" class="tisi-btn tisi-btn--primary" v-bind="navBind(v.ctaHref)">
+                <component v-if="landingDestination(v.ctaHref, destinationContext)" :is="navTag(v.ctaHref)" class="tisi-btn tisi-btn--primary" v-bind="navBind(v.ctaHref)">
                   {{ v.ctaButtonLabel }} <span aria-hidden="true">→</span>
                 </component>
                 <component
-                  :is="navTag(v.learnMoreHref)"
+                  v-if="landingDestination(v.learnMoreHref, destinationContext)" :is="navTag(v.learnMoreHref)"
                   class="tisi-btn tisi-btn--ghost"
                   v-bind="navBind(v.learnMoreHref)"
                 >
@@ -192,7 +194,7 @@
                     <span v-else v-html="iconSvg(card.iconKey)" />
                   </span>
                   <span class="tisi-audience-title">{{ card.title }}</span>
-                  <span class="tisi-audience-body">{{ card.body }} <span class="tisi-arrow">→</span></span>
+                  <span class="tisi-audience-body">{{ card.body }} <span v-if="landingDestination(card.href, destinationContext)" class="tisi-arrow" aria-hidden="true">→</span></span>
                 </component>
               </div>
               <button v-if="editing" type="button" class="tisi-mini-add tisi-mini-add--card" @click="addSupportCard">+ Audience card</button>
@@ -211,9 +213,9 @@
                 </div>
               </template>
               <template v-else>
-                <h2 class="tisi-h2">{{ v.servicesTitle }}</h2>
+                <div><p class="tisi-kicker">Comprehensive, personalized care</p><h2 class="tisi-h2">{{ v.servicesTitle }}</h2></div>
                 <component
-                  :is="navTag(v.servicesViewAllHref)"
+                  v-if="landingDestination(v.servicesViewAllHref, destinationContext)" :is="navTag(v.servicesViewAllHref)"
                   class="tisi-text-link"
                   v-bind="navBind(v.servicesViewAllHref)"
                 >
@@ -245,7 +247,7 @@
                   </span>
                   <span class="tisi-service-title">{{ svc.title }}</span>
                   <span class="tisi-service-body">{{ svc.body }}</span>
-                  <span class="tisi-service-go" aria-hidden="true">→</span>
+                  <span v-if="landingDestination(svc.href, destinationContext)" class="tisi-service-go" aria-hidden="true">→</span>
                 </component>
               </div>
               <button v-if="editing" type="button" class="tisi-mini-add tisi-mini-add--card" @click="addService">+ Service</button>
@@ -309,10 +311,10 @@
                     <p class="tisi-step-body">
                       {{ step.body }}
                       <component
-                        v-if="step.href"
+                        v-if="landingDestination(step.href, destinationContext)"
                         :is="navTag(step.href)"
                         class="tisi-inline-arrow"
-                        v-bind="navBind(step.href)"
+                        v-bind="navBind(step.href)" :aria-label="step.title"
                       >→</component>
                     </p>
                   </template>
@@ -323,7 +325,7 @@
           </div>
         </section>
 
-        <section class="tisi-section tisi-quotes">
+        <section v-if="editing || v.testimonials.length" class="tisi-section tisi-quotes">
           <div class="tisi-section-inner">
             <input v-if="editing" v-model="v.testimonialsTitle" class="tisi-inline tisi-inline--h2 tisi-inline--center" type="text" />
             <h2 v-else class="tisi-h2 tisi-h2--center">{{ v.testimonialsTitle }}</h2>
@@ -336,12 +338,13 @@
               >
                 <template v-if="editing">
                   <textarea v-model="q.text" class="tisi-inline tisi-inline--area" rows="4" />
+                  <label><input v-model="q.verified" type="checkbox" /> Authentic quote approved for publication</label>
                   <input v-model="q.attribution" class="tisi-inline" type="text" placeholder="Attribution" />
                   <button type="button" class="tisi-mini-x" @click="v.testimonials.splice(i, 1)">Remove</button>
                 </template>
                 <template v-else>
                   <p class="tisi-quote-text">“{{ q.text }}”</p>
-                  <p class="tisi-quote-stars" aria-label="5 out of 5 stars">★★★★★</p>
+
                   <footer class="tisi-quote-attr">— {{ q.attribution }}</footer>
                 </template>
               </blockquote>
@@ -350,7 +353,7 @@
           </div>
         </section>
 
-        <section class="tisi-cta" :style="{ backgroundImage: `url(${v.ctaImageUrl})` }">
+        <section class="tisi-cta" :style="{ backgroundImage: `url(${JSON.stringify(v.ctaImageUrl)})`, backgroundPosition: v.ctaPosition }">
           <div class="tisi-cta-scrim" />
           <button v-if="editing" type="button" class="tisi-photo-fab" @click="pickFile('cta')">Change CTA photo</button>
           <div class="tisi-cta-inner">
@@ -365,7 +368,7 @@
               <h2 class="tisi-cta-title">{{ v.ctaTitle }}</h2>
               <p class="tisi-cta-sub">{{ v.ctaBody }}</p>
               <component
-                :is="navTag(v.ctaHref)"
+                v-if="landingDestination(v.ctaHref, destinationContext)" :is="navTag(v.ctaHref)"
                 class="tisi-btn tisi-btn--primary tisi-btn--lg"
                 v-bind="navBind(v.ctaHref)"
               >
@@ -377,10 +380,10 @@
         </section>
       </main>
 
-      <footer class="tisi-footer">
+      <footer id="contact" class="tisi-footer">
         <div class="tisi-footer-inner">
           <div class="tisi-footer-brand">
-            <img class="tisi-footer-mark" :src="v.logoUrl" alt="" />
+            <img v-if="v.logoUrl" class="tisi-footer-mark" :src="v.logoUrl" alt="" />
             <p class="tisi-footer-name">{{ v.siteName }}</p>
             <p class="tisi-footer-tag">{{ v.tagline }}</p>
             <template v-if="editing">
@@ -408,10 +411,11 @@
 
           <div class="tisi-footer-col">
             <h3 class="tisi-footer-heading">Contact</h3>
+            <component v-if="!editing && landingDestination(v.ctaHref, destinationContext)" :is="navTag(v.ctaHref)" class="tisi-footer-link" v-bind="navBind(v.ctaHref)">{{ v.ctaButtonLabel }} →</component>
             <template v-if="!editing">
-              <p class="tisi-footer-meta">{{ v.contactPhone }}</p>
-              <a class="tisi-footer-link" :href="`mailto:${v.contactEmail}`">{{ v.contactEmail }}</a>
-              <p class="tisi-footer-meta">{{ v.contactAddress }}</p>
+              <a v-if="v.contactPhone" class="tisi-footer-link" :href="`tel:${v.contactPhone.replace(/[^+\d]/g, '')}`">{{ v.contactPhone }}</a>
+              <a v-if="v.contactEmail" class="tisi-footer-link" :href="`mailto:${v.contactEmail}`">{{ v.contactEmail }}</a>
+              <p v-if="v.contactAddress" class="tisi-footer-meta">{{ v.contactAddress }}</p>
             </template>
             <div class="tisi-social" aria-label="Social links">
               <template v-if="editing">
@@ -467,11 +471,12 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import { useAuthStore } from '../../store/auth';
 import { useBrandingStore } from '../../store/branding';
 import api from '../../services/api';
+import { landingDestination, isPlaceholderCopy, safeMarketingHref, marketingPageIssues } from '../../utils/marketingPageQuality';
 import {
   TISI_LANDING_ICON_OPTIONS,
   adminFormToTisiLandingBranding,
@@ -479,7 +484,9 @@ import {
   tisiIconSvg
 } from '../../constants/tisiMarketingLanding';
 
+const props = defineProps({ previewPage: { type: Object, default: null } });
 const route = useRoute();
+const hubSlug = computed(() => props.previewPage?.slug || route.params.hubSlug || 'tisi');
 const authStore = useAuthStore();
 const brandingStore = useBrandingStore();
 
@@ -492,6 +499,7 @@ const mobileNavOpen = ref(false);
 const editing = ref(false);
 const editDraft = ref(null);
 const saving = ref(false);
+const uploading = ref(false);
 const editError = ref('');
 const editSavedFlash = ref(false);
 const fileInput = ref(null);
@@ -500,19 +508,33 @@ const iconOptions = TISI_LANDING_ICON_OPTIONS;
 
 const isSuperAdmin = computed(() => {
   const role = String(authStore.user?.role || '').toLowerCase();
-  return role === 'super_admin' || role === 'superadmin';
+  return !props.previewPage && (role === 'super_admin' || role === 'superadmin');
 });
 
 const cfg = computed(() => {
-  if (!pageMeta.value) return null;
-  return resolveTisiLandingConfig({
-    pageMeta: pageMeta.value,
-    branding: pageMeta.value.branding || {}
-  });
+  const page = props.previewPage || pageMeta.value;
+  if (!page) return null;
+  return resolveTisiLandingConfig({ pageMeta: page, branding: page.branding || {} });
 });
 
 /** Live view model: draft while editing, otherwise resolved config. */
-const v = computed(() => (editing.value && editDraft.value ? editDraft.value : cfg.value));
+const destinationContext = computed(() => ({ slug: hubSlug.value, contentPages: (props.previewPage || pageMeta.value)?.branding?.contentPages || [] }));
+const v = computed(() => {
+  if (editing.value && editDraft.value) return editDraft.value;
+  if (!cfg.value) return null;
+  const result = { ...cfg.value };
+  result.testimonials = result.testimonials.filter(q => q.verified === true && q.text);
+  result.primaryNav = result.primaryNav.filter(l => landingDestination(l.href, destinationContext.value));
+  result.legalFooterLinks = result.legalFooterLinks.filter(l => landingDestination(l.href, destinationContext.value));
+  result.socialLinks = result.socialLinks.filter(l => /^https?:\/\//i.test(safeMarketingHref(l.href)));
+  for (const field of ['contactPhone', 'contactEmail', 'contactAddress']) if (isPlaceholderCopy(result[field])) result[field] = '';
+  return result;
+});
+const heroHeading = computed(() => {
+  const title = String(v.value?.heroTitle || '');
+  const match = title.match(/^(.*) (Strength)$/i);
+  return match ? { start: match[1], accent: match[2] } : { start: title, accent: '' };
+});
 
 const year = computed(() => new Date().getFullYear());
 
@@ -533,15 +555,15 @@ function isHash(href) {
 }
 
 function navTag(href) {
-  if (isExternal(href) || isHash(href)) return 'a';
-  return 'router-link';
+  const h = landingDestination(href, destinationContext.value);
+  if (!h) return 'span';
+  return h.startsWith('/') ? 'router-link' : 'a';
 }
-
 function navBind(href) {
-  const h = String(href || '').trim() || '/p/tisi';
+  const h = landingDestination(href, destinationContext.value);
+  if (!h) return {};
   if (isExternal(h)) return { href: h, target: '_blank', rel: 'noopener noreferrer' };
-  if (isHash(h)) return { href: h };
-  return { to: h };
+  return h.startsWith('/') ? { to: h } : { href: h };
 }
 
 function isNavActive(href) {
@@ -590,7 +612,7 @@ async function ensurePageRecord() {
   if (pageRecord.value?.id) return pageRecord.value;
   const res = await api.get('/platform/public-marketing-pages', { skipGlobalLoading: true });
   const pages = Array.isArray(res.data?.pages) ? res.data.pages : [];
-  const match = pages.find((p) => String(p.slug || '').toLowerCase() === 'tisi');
+  const match = pages.find((p) => String(p.slug || '').toLowerCase() === hubSlug.value);
   if (!match) throw new Error('Could not find the tisi marketing page record to save.');
   pageRecord.value = match;
   return match;
@@ -615,6 +637,7 @@ function cancelEdit() {
 }
 
 function pickFile(kind) {
+  if (saving.value || uploading.value) return;
   pendingUploadKind.value = kind;
   fileInput.value?.click();
 }
@@ -626,6 +649,7 @@ async function onFilePicked(e) {
   pendingUploadKind.value = '';
   if (!f || !editDraft.value) return;
   editError.value = '';
+  uploading.value = true;
   try {
     const fd = new FormData();
     fd.append('file', f);
@@ -637,11 +661,13 @@ async function onFilePicked(e) {
     else if (kind === 'cta') editDraft.value.ctaImageUrl = url;
   } catch (err) {
     editError.value = err.response?.data?.error?.message || err.message || 'Upload failed';
-  }
+  } finally { uploading.value = false; }
 }
 
 async function saveEdit() {
-  if (!editDraft.value) return;
+  if (!editDraft.value || uploading.value) return;
+  const issues = marketingPageIssues(editDraft.value, destinationContext.value);
+  if (issues.length) { editError.value = issues.map(i => `${i.field}: ${i.message}`).join(' '); return; }
   saving.value = true;
   editError.value = '';
   editSavedFlash.value = false;
@@ -653,6 +679,7 @@ async function saveEdit() {
     const brandingJson = {
       ...existing,
       ...packed,
+      landing: { ...existing.landing, ...packed.landing },
       logoUrl: editDraft.value.logoUrl,
       primaryNav: (editDraft.value.primaryNav || [])
         .map((r) => ({ label: String(r.label || '').trim(), href: String(r.href || '').trim() }))
@@ -677,8 +704,7 @@ async function saveEdit() {
         heroSubtitle: editDraft.value.heroSubtitle,
         heroImageUrl: editDraft.value.heroImageUrl,
         brandingJson,
-        pageType: 'marketing_landing',
-        isActive: true
+        pageType: 'marketing_landing'
       },
       { skipGlobalLoading: true }
     );
@@ -703,7 +729,7 @@ async function loadPage() {
   error.value = '';
   try {
     const [res] = await Promise.all([
-      api.get('/public/marketing-pages/tisi', {
+      api.get(`/public/marketing-pages/${hubSlug.value}`, {
         skipGlobalLoading: true,
         skipAuthRedirect: true
       }),
@@ -719,7 +745,9 @@ async function loadPage() {
   }
 }
 
-onMounted(loadPage);
+watch(() => props.previewPage, (page) => { if (page) loading.value = false; }, { immediate: true });
+onMounted(() => { if (!props.previewPage) loadPage(); });
+watch(() => route.params.hubSlug, () => { if (!props.previewPage) { cancelEdit(); pageRecord.value = null; loadPage(); } });
 </script>
 
 <style scoped>
@@ -1282,26 +1310,124 @@ onMounted(loadPage);
 .tisi-legal { display: flex; flex-wrap: wrap; gap: 14px; align-items: center; }
 .tisi-legal-edit { display: flex; gap: 4px; flex-wrap: wrap; }
 
-@media (max-width: 960px) {
-  .tisi-header-inner { grid-template-columns: 1fr auto auto; }
-  .tisi-nav-toggle { display: flex; order: 2; }
-  .tisi-header-cta,
-  .tisi-header-cta-edit { order: 3; }
-  .tisi-nav {
-    display: none;
-    grid-column: 1 / -1;
-    flex-direction: column;
-    align-items: stretch;
-  }
+/* Match the reference's compact horizontal bands; keep content-driven heights. */
+.tisi-site { --tisi-navy: #12364b; --tisi-navy-deep: #0b2636; --tisi-ink: #112433; --tisi-paper: #f5f9fb; }
+.tisi-site :is(a, button, input, textarea, select):focus-visible { outline: 3px solid #72bce6; outline-offset: 4px; }
+.tisi-site :is(section, footer, main)[id] { scroll-margin-top: 110px; }
+.tisi-site :is(p, h1, h2, h3, span, a) { overflow-wrap: anywhere; }
+.tisi-skip { position: fixed; top: -100px; left: 20px; z-index: 100; padding: 12px; background: white; color: #12364b; }
+.tisi-skip:focus { top: 10px; }
+.tisi-header-inner, .tisi-section-inner, .tisi-hero-inner, .tisi-footer-inner, .tisi-footer-bar { max-width: 1260px; }
+.tisi-header-inner { min-height: 94px; box-sizing: border-box; }
+.tisi-brand-mark { width: 72px; height: 72px; }
+.tisi-brand-name { max-width: 255px; font-size: 20px; letter-spacing: .16em; text-align: center; }
+.tisi-brand-tag { font-size: 8px; margin-top: 5px; }
+.tisi-btn { border-radius: 5px; padding: 11px 28px; min-height: 44px; box-sizing: border-box; }
+.tisi-btn--primary { background: linear-gradient(130deg, #3e8548, #245d3d); box-shadow: inset 0 1px 2px #ffffff55, 0 3px 12px #12364b18; }
+.tisi-hero { min-height: 395px; align-items: center; background-color: #12364b; background-position: var(--hero-position, 50% 35%); }
+.tisi-hero-inner { padding: 32px 20px 18px; box-sizing: border-box; }
+.tisi-hero-title { color: #fff; font-size: clamp(42px, 5vw, 68px); max-width: 10ch; margin-bottom: 16px; }
+.tisi-hero-title span { display: block; color: #86d1f2; }
+.tisi-hero-title::after { content: ''; display: block; width: 66px; height: 4px; background: #9bd487; margin-top: 12px; }
+.tisi-hero-sub { max-width: 410px; font-size: 19px; line-height: 1.3; margin-bottom: 18px; }
+.tisi-hero-eyebrow { font-size: 10px; letter-spacing: .2em; }
+.tisi-hero-actions { margin-bottom: 12px; }
+.tisi-hero-pillars { border: 0; background: transparent; padding: 0; font-size: 10px; letter-spacing: .23em; }
+.tisi-hero-script { max-width: 155px; font-size: 30px; bottom: 20%; }
+.tisi-section { padding: 24px 24px; }
+.tisi-h2 { line-height: 1.1; margin-bottom: 10px; }
+.tisi-kicker { color: #4b5c6d; font-size: 10px; letter-spacing: .14em; }
+.tisi-support { background: #f5f9fb; }
+.tisi-support-grid { grid-template-columns: minmax(0, .9fr) minmax(0, 2fr); gap: 24px; align-items: center; }
+.tisi-lead { font-size: 15px; line-height: 1.4; }
+.tisi-audience-card, .tisi-service-card { border-radius: 6px; padding: 16px 18px; box-shadow: 0 3px 18px #153d5c08; }
+.tisi-audience-card:has(a:hover), .tisi-service-card:has(a:hover) { border-color: #2f6b3a; box-shadow: 0 6px 20px #153d5c18; }
+.tisi-card-hit { gap: 5px; }
+.tisi-card-hit:focus-visible { outline-offset: 8px; }
+.tisi-audience-ico, .tisi-service-ico { width: 43px; height: 43px; margin-bottom: 5px; }
+.tisi-audience-body, .tisi-service-body { font-size: 14px; line-height: 1.35; }
+.tisi-services { background: #fff; }
+.tisi-services-grid { grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 12px; }
+.tisi-service-title { font-size: 15px; line-height: 1.25; }
+.tisi-service-card { min-height: 165px; padding-bottom: 30px; }
+.tisi-section-head { margin-bottom: 12px; }
+.tisi-why { padding: 32px 24px; background: linear-gradient(110deg, #0b293c, #1c4158); }
+.tisi-why > .tisi-section-inner { display: grid; grid-template-columns: .9fr 2fr; gap: 24px; align-items: center; }
+.tisi-h2--light { text-align: left; font-size: 29px; margin: 0; }
+.tisi-why-grid { gap: 0; }
+.tisi-why-item { text-align: center; padding: 0 18px; border-left: 1px solid #ffffff20; }
+.tisi-why-ico { margin: 0 auto 8px; color: #a4d887; }
+.tisi-why-title { font-size: 14px; margin-bottom: 5px; }
+.tisi-why-body { font-size: 13px; line-height: 1.35; }
+#how-it-works { background: #f5f9fb; }
+#how-it-works > .tisi-section-inner { display: grid; grid-template-columns: .7fr 2fr; column-gap: 24px; align-items: center; }
+#how-it-works .tisi-kicker { grid-column: 1; text-align: left; align-self: end; }
+#how-it-works .tisi-h2 { grid-column: 1; text-align: left; align-self: start; }
+.tisi-steps { grid-column: 2; grid-row: 1 / 3; margin: 0; gap: 16px; }
+.tisi-step { border-left: 1px solid #12364b15; }
+.tisi-step-num { background: #e2eef5; color: #12364b; width: 42px; height: 42px; }
+.tisi-step-title { margin: 0 0 4px; }
+.tisi-step-body { font-size: 13px; }
+.tisi-quotes > .tisi-section-inner { display: grid; grid-template-columns: .7fr 2fr; gap: 24px; }
+.tisi-quotes .tisi-h2 { text-align: left; font-size: 28px; }
+.tisi-quotes-grid { margin: 0; }
+.tisi-quote { border-radius: 6px; padding: 16px; }
+.tisi-quote-text { font: inherit; font-size: 14px; }
+.tisi-cta { min-height: 130px; text-align: left; background-color: #12364b; }
+.tisi-cta-inner { max-width: 1260px; padding: 24px 20px; box-sizing: border-box; display: grid; grid-template-columns: 1fr auto; column-gap: 35px; }
+.tisi-cta-title { color: #fff; font-size: 32px; margin: 0 0 5px; grid-column: 1; }
+.tisi-cta-sub { grid-column: 1; margin: 0; }
+.tisi-cta .tisi-btn { grid-column: 2; grid-row: 1; }
+.tisi-cta-note { grid-column: 2; grid-row: 2; text-align: center; font-size: 12px; margin: 6px 0 0; }
+.tisi-footer { padding: 28px 24px 20px; }
+.tisi-footer-inner { grid-template-columns: 1.2fr .8fr 1.5fr .6fr; }
+.tisi-footer-col { border-left: 1px solid #ffffff15; padding-left: 30px; gap: 3px; }
+.tisi-footer-brand { text-align: center; }
+.tisi-footer-heading { color: #d1dfe8; text-transform: none; letter-spacing: 0; margin-bottom: 8px; }
+.tisi-footer-link, .tisi-footer-meta, .tisi-legal a, .tisi-staff { font-size: 13px; }
+.tisi-footer-link:hover, .tisi-legal a:hover { text-decoration: underline; }
+.tisi-footer-vertical { writing-mode: horizontal-tb; transform: none; max-width: 140px; line-height: 2; letter-spacing: .3em; align-self: center; }
+@media (max-width: 1100px) {
+  .tisi-brand-name { font-size: 15px; max-width: 200px; }
+  .tisi-brand-mark { width: 54px; height: 54px; }
+  .tisi-nav { gap: 10px; }
+  .tisi-btn { padding-inline: 18px; }
+  .tisi-services-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .tisi-why > .tisi-section-inner { grid-template-columns: 1fr; }
+}
+@media (max-width: 800px) {
+  .tisi-header-inner { grid-template-columns: 1fr auto; min-height: 80px; padding: 10px 20px; }
+  .tisi-nav-toggle { display: flex; }
+  .tisi-header-cta, .tisi-header-cta-edit { display: none; }
+  .tisi-nav { display: none; grid-column: 1 / -1; flex-direction: column; align-items: stretch; padding: 8px 0; }
   .tisi-nav--open { display: flex; }
-  .tisi-support-grid,
-  .tisi-card-row,
-  .tisi-services-grid,
-  .tisi-why-grid,
-  .tisi-steps,
-  .tisi-quotes-grid,
-  .tisi-footer-inner { grid-template-columns: 1fr; }
-  .tisi-hero-script,
-  .tisi-footer-vertical { display: none; }
+  .tisi-nav-link { padding: 12px; }
+  .tisi-hero { background-position: var(--hero-mobile-position, 65% 35%); }
+  .tisi-hero-scrim { background: linear-gradient(90deg, #071e30ee, #071e3077); }
+  .tisi-hero-inner { padding: 40px 24px 30px; }
+  .tisi-hero-sub { max-width: 370px; font-size: 17px; }
+  .tisi-hero-script, .tisi-footer-vertical { display: none; }
+  .tisi-support-grid { grid-template-columns: 1fr; }
+  .tisi-why-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px 0; }
+  #how-it-works > .tisi-section-inner, .tisi-quotes > .tisi-section-inner { display: block; }
+  .tisi-steps { margin-top: 20px; }
+  .tisi-footer-inner { grid-template-columns: 1fr 1fr; }
+  .tisi-footer-col { padding-left: 15px; }
+  .tisi-cta-inner { display: block; padding: 28px 24px; }
+  .tisi-cta-sub { margin-bottom: 18px; }
+  .tisi-cta-note { text-align: left; }
+}
+@media (max-width: 540px) {
+  .tisi-section { padding: 28px 20px; }
+  .tisi-card-row, .tisi-services-grid { grid-template-columns: 1fr; }
+  .tisi-service-card { min-height: 0; }
+  .tisi-audience-card .tisi-card-hit, .tisi-service-card .tisi-card-hit { display: grid; grid-template-columns: 46px 1fr; column-gap: 14px; }
+  .tisi-audience-ico, .tisi-service-ico { grid-row: 1 / 3; }
+  .tisi-audience-body, .tisi-service-body { grid-column: 2; }
+  .tisi-steps, .tisi-quotes-grid, .tisi-footer-inner { grid-template-columns: 1fr; }
+  .tisi-footer-col { border-left: 0; padding-left: 0; }
+  .tisi-section-head { align-items: start; flex-direction: column; }
+  .tisi-brand-tag { font-size: 7px; letter-spacing: .025em; }
+  .tisi-brand-name { font-size: 14px; }
 }
 </style>

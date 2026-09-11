@@ -4181,7 +4181,7 @@ const hideGlobalNavForSchoolStaff = computed(() => {
 
 /** Team-meeting / supervision join rooms + Quick View — hide app chrome that squeezes mobile layout. */
 const isImmersiveJoinRoute = computed(() => {
-  if (route.meta?.publicQuickView === true) return true;
+  if (route.meta?.publicQuickView === true || route.meta?.publicMarketingHub === true || route.meta?.publicPageDesignPreview === true) return true;
   const path = String(route.path || '');
   return (
     path.startsWith('/quick-view/')

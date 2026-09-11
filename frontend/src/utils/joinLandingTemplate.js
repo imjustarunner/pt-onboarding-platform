@@ -266,9 +266,9 @@ export function mergePublicSupportLayout(saved) {
 export function restoreJoinWelcomeCopy(copy, agencyName) {
   const org = String(agencyName || 'our team').trim() || 'our team';
   const c = copy && typeof copy === 'object' ? { ...copy } : {};
-  if (!String(c.welcomeTitle || '').trim()) c.welcomeTitle = `Welcome to ${org}!`;
-  if (!String(c.welcomeGlad || '').trim()) c.welcomeGlad = "We're so glad you're here.";
-  if (!String(c.welcomeLead || '').trim()) {
+  if (c.welcomeTitle == null) c.welcomeTitle = `Welcome to ${org}!`;
+  if (c.welcomeGlad == null) c.welcomeGlad = "We're so glad you're here.";
+  if (c.welcomeLead == null) {
     c.welcomeLead = `Let's find the right place to start. Choose the type of intake that works best for you with ${org}. You can always add more details later or reach out if you need help.`;
   }
   return c;
@@ -507,6 +507,7 @@ export function mergeJoinLayout(saved) {
       glad: hiddenSrc.glad === true,
       lead: hiddenSrc.lead === true
     },
+    ...(saved.design && typeof saved.design === 'object' ? { design: saved.design } : {}),
     positions: sanitizeJoinPositions(
       {
         ...Object.fromEntries(

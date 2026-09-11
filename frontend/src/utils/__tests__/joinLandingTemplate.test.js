@@ -10,11 +10,11 @@ import {
 } from '../joinLandingTemplate.js';
 
 describe('restoreJoinWelcomeCopy', () => {
-  it('fills blank welcome lines with the original ITSCO wording', () => {
+  it('fills missing welcome lines with the original ITSCO wording', () => {
     const out = restoreJoinWelcomeCopy({
-      welcomeTitle: '',
-      welcomeGlad: '   ',
-      welcomeLead: ''
+      welcomeTitle: undefined,
+      welcomeGlad: undefined,
+      welcomeLead: undefined
     }, 'ITSCO');
     expect(out.welcomeTitle).toBe('Welcome to ITSCO!');
     expect(out.welcomeGlad).toBe("We're so glad you're here.");

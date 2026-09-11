@@ -37,6 +37,7 @@
     <div v-if="editorOpen" class="pmp-editor card">
       <h2>{{ editingId ? `Edit page #${editingId}` : 'New page' }}</h2>
 
+      <MarketingDesignWorkspace v-if="showMarketingLandingEditor" :key="editingId || 'new'" :page="designPreviewPage" :reference-url="designReferenceUrl" @asset="applyDesignAsset" @reference="designReferenceUrl = $event" @busy="designBusy = $event" />
       <label class="field">
         <span>Slug (URL: /p/slug)</span>
         <input v-model="form.slug" type="text" placeholder="d11-summer-2025" :disabled="!!editingId" />
@@ -47,7 +48,7 @@
       </label>
       <label class="field inline">
         <input v-model="form.isActive" type="checkbox" />
-        <span>Active</span>
+        <span>Published (visible to everyone). Uncheck and save to hide this public page.</span>
       </label>
       <label class="field">
         <span>Page type</span>
@@ -136,7 +137,7 @@
       </div>
 
       <div v-if="showMarketingLandingEditor" class="field pmp-tisi-editor">
-        <span>Marketing landing (editable mockup)</span>
+        <span>Marketing landing content</span>
         <p class="muted small">
           Shown for <code>marketing_landing</code> pages (e.g. <code>/p/tisi</code>). Every section below maps to the public page —
           upload images, change copy, pick icons, or paste an icon image URL. Subpages still use the Subpages list further down.
@@ -145,6 +146,9 @@
         <div class="pmp-tisi-grid">
           <label class="pmp-inline">Site name <input v-model="landingForm.siteName" type="text" /></label>
           <label class="pmp-inline">Tagline <input v-model="landingForm.tagline" type="text" /></label>
+          <label class="pmp-inline">Desktop hero focal position <input v-model="landingForm.heroPosition" type="text" placeholder="50% 35%" /></label>
+          <label class="pmp-inline">Mobile hero focal position <input v-model="landingForm.heroMobilePosition" type="text" placeholder="65% 35%" /></label>
+          <label class="pmp-inline">Banner focal position <input v-model="landingForm.ctaPosition" type="text" placeholder="50% 50%" /></label>
           <label class="pmp-inline">Hero eyebrow <input v-model="landingForm.heroEyebrow" type="text" /></label>
           <label class="pmp-inline">Hero script (use line breaks) <textarea v-model="landingForm.heroScript" rows="2" /></label>
           <label class="pmp-inline">Pillars bar <input v-model="landingForm.pillarsText" type="text" placeholder="HEAL | GROW | …" /></label>
@@ -259,6 +263,7 @@
         <div v-for="(q, i) in landingForm.testimonials" :key="`q-${i}`" class="pmp-subpage-card">
           <label class="pmp-inline full">Quote <textarea v-model="q.text" rows="3" /></label>
           <label class="pmp-inline">Attribution <input v-model="q.attribution" type="text" /></label>
+          <label><input v-model="q.verified" type="checkbox" /> This quote is authentic and approved for public use</label>
           <button type="button" class="btn btn-danger btn-sm" @click="landingForm.testimonials.splice(i, 1)">Remove</button>
         </div>
         <button type="button" class="btn btn-secondary btn-sm" @click="addTestimonial">Add testimonial</button>
@@ -566,12 +571,19 @@
         </ul>
       </div>
 
-      <p v-if="saveError" class="error-banner">{{ saveError }}</p>
+      <div v-if="showMarketingLandingEditor" class="pmp-quality" aria-live="polite">
+        <h3>Page readiness</h3>
+        <p v-if="!designIssues.length">Content and destination checks passed. Use the preview to inspect desktop and mobile layouts and test external destinations.</p>
+        <template v-else><p>{{ designIssues.length }} items need attention before publishing. Saving as unpublished hides this public URL while you complete it.</p>
+          <ul><li v-for="(issue, i) in designIssues" :key="i"><strong>{{ issue.field }}:</strong> {{ issue.message }}</li></ul>
+        </template>
+      </div>
+      <p v-if="saveError" class="error-banner" role="alert">{{ saveError }}</p>
       <div class="pmp-save-row">
-        <button type="button" class="btn btn-primary" :disabled="saving" @click="save">
+        <button type="button" class="btn btn-primary" :disabled="saving || designBusy || !!uploadingTarget" @click="save">
           {{ saving ? 'Saving…' : 'Save' }}
         </button>
-        <button type="button" class="btn btn-secondary" :disabled="saving" @click="cancelEdit">Cancel</button>
+        <button type="button" class="btn btn-secondary" :disabled="saving || designBusy || !!uploadingTarget" @click="cancelEdit">Cancel</button>
       </div>
     </div>
 
@@ -608,6 +620,10 @@
 <script setup>
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import api from '../../services/api';
+import { useRoute } from 'vue-router';
+import MarketingDesignWorkspace from '../../components/marketing/MarketingDesignWorkspace.vue';
+import { marketingPageIssues } from '../../utils/marketingPageQuality';
+const route = useRoute();
 import { toUploadsUrl } from '../../utils/uploadsUrl';
 import { parseHubGalleryFromBranding } from '../../utils/publicMarketingHubGallery';
 import {
@@ -644,6 +660,21 @@ const showMarketingLandingEditor = computed(
     String(form.value.pageType || '') === 'marketing_landing' ||
     String(form.value.slug || '').trim().toLowerCase() === 'tisi'
 );
+
+const designBusy = ref(false);
+const designReferenceUrl = ref('');
+const originalLanding = ref({});
+const designPreviewPage = computed(() => ({
+  slug: form.value.slug || 'preview', title: form.value.title, pageType: form.value.pageType,
+  heroTitle: form.value.heroTitle, heroSubtitle: form.value.heroSubtitle, heroImageUrl: form.value.heroImageUrl,
+  branding: mergeBrandingPayload()
+}));
+const designIssues = computed(() => marketingPageIssues(resolveTisiLandingConfig({ pageMeta: designPreviewPage.value, branding: designPreviewPage.value.branding }), { slug: form.value.slug, contentPages: contentPages.value }));
+function applyDesignAsset({ target, url }) {
+  if (target === 'hero') form.value.heroImageUrl = url;
+  else if (target === 'logo') form.value.logoUrl = url;
+  else if (target === 'cta') landingForm.value.ctaImageUrl = url;
+}
 
 function triggerLogoUpload() {
   logoFileInput.value?.click();
@@ -904,6 +935,11 @@ function mergeBrandingPayload() {
     };
     const packed = adminFormToTisiLandingBranding(lf);
     Object.assign(out, packed);
+    out.landing = { ...originalLanding.value, ...packed.landing };
+    out.logoUrl = logo;
+    out.primaryNav = nav;
+    out.legalFooterLinks = legalLinks;
+    out.designReferenceUrl = designReferenceUrl.value;
     // Avoid event-hub defaults leaking onto marketing landings.
     out.whatWeOfferSection = false;
     out.ctaSection = false;
@@ -914,6 +950,8 @@ function mergeBrandingPayload() {
 }
 
 function hydrateStructuredFromBranding(b) {
+  designReferenceUrl.value = b?.designReferenceUrl || "";
+  originalLanding.value = b?.landing || {};
   const branding = b && typeof b === 'object' ? b : {};
   form.value.partnerLine = String(branding.partnerLine || '').trim();
   form.value.parentIntro = String(branding.parentIntro || '').trim();
@@ -1149,6 +1187,8 @@ async function loadPages() {
 }
 
 function startCreate() {
+  designReferenceUrl.value = '';
+  originalLanding.value = {};
   editingId.value = null;
   resetForm();
   editorOpen.value = true;
@@ -1258,6 +1298,14 @@ function sourceLabel(s) {
 
 async function save() {
   saveError.value = '';
+  try {
+    const parsed = JSON.parse(form.value.brandingJsonText || '{}');
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error();
+  } catch { saveError.value = 'Advanced branding must be a valid JSON object. Your edits have been preserved.'; return; }
+  if (uploadingTarget.value || designBusy.value) { saveError.value = 'Wait for the image upload to finish.'; return; }
+  if (showMarketingLandingEditor.value && form.value.isActive && designIssues.value.length) {
+    saveError.value = 'Resolve the page readiness items, or uncheck Published to save and hide this public page.'; return;
+  }
   const brandingJson = mergeBrandingPayload();
 
   const payload = {
@@ -1301,6 +1349,8 @@ async function removePage(p) {
 
 onMounted(async () => {
   await Promise.all([loadAgencies(), loadPages()]);
+  const requested = pages.value.find(p => p.slug === route.query.page);
+  if (requested) edit(requested);
 });
 </script>
 
@@ -1380,6 +1430,8 @@ onMounted(async () => {
   margin: 8px 0 0;
   padding-left: 1.2rem;
 }
+.pmp-quality { padding: 18px; background: #f3f7f9; border: 1px solid #cbdbe3; border-radius: 8px; margin: 20px 0; }
+.pmp-quality li { margin: 6px 0; font-size: 13px; }
 .pmp-save-row {
   display: flex;
   gap: 8px;

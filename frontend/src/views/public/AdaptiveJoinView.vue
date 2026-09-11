@@ -1093,27 +1093,27 @@ function formatBirthdate(value) {
 const quickCard = computed(() => {
   const c = config.value?.copy || {};
   return {
-    title: c.quickTitle || 'Initial Interest Form',
-    tagline: c.quickTagline || 'A short form to get you started.',
-    description: c.quickDescription || 'Perfect if you are exploring services and want our team to follow up.',
-    duration: c.quickDuration || '1–5 min',
-    bullets: c.quickBullets || ['Basic contact information', 'Reason for seeking support', 'Preferred communication'],
-    cta: c.quickCta || 'Start Form →',
-    footer: c.quickFooter || 'You will complete the full client enrollment packet at a later time.'
+    title: c.quickTitle ?? 'Initial Interest Form',
+    tagline: c.quickTagline ?? 'A short form to get you started.',
+    description: c.quickDescription ?? 'Perfect if you are exploring services and want our team to follow up.',
+    duration: c.quickDuration ?? '1–5 min',
+    bullets: c.quickBullets ?? ['Basic contact information', 'Reason for seeking support', 'Preferred communication'],
+    cta: c.quickCta ?? 'Start Form →',
+    footer: c.quickFooter ?? 'You will complete the full client enrollment packet at a later time.'
   };
 });
 
 const fullCard = computed(() => {
   const c = config.value?.copy || {};
   return {
-    title: c.fullTitle || 'Client Enrollment Packet',
-    tagline: c.fullTagline || 'A comprehensive intake experience.',
-    description: c.fullDescription || 'Best when you are ready to provide full information for personalized care.',
-    duration: c.fullDuration || '10–20 min',
-    bullets: c.fullBullets || ['All basic information', 'Detailed history & concerns', 'Documents & signatures'],
-    cta: c.fullCta || 'Start Full Enrollment Packet →',
-    footer: c.fullFooter || 'Following the completion, you will be ready to begin services with a provider.',
-    enabled: !!config.value?.pathways?.full?.enabled,
+    title: c.fullTitle ?? 'Client Enrollment Packet',
+    tagline: c.fullTagline ?? 'A comprehensive intake experience.',
+    description: c.fullDescription ?? 'Best when you are ready to provide full information for personalized care.',
+    duration: c.fullDuration ?? '10–20 min',
+    bullets: c.fullBullets ?? ['All basic information', 'Detailed history & concerns', 'Documents & signatures'],
+    cta: c.fullCta ?? 'Start Full Enrollment Packet →',
+    footer: c.fullFooter ?? 'Following the completion, you will be ready to begin services with a provider.',
+    enabled: !!(config.value?.pathways?.full?.enabled && config.value?.pathways?.full?.publicKey),
     disabledReason: config.value?.pathways?.full?.disabledReason
   };
 });

@@ -19,6 +19,10 @@ A comprehensive People Operations training and enablement platform built with Vu
 - **Training Tracks**: Organize modules into logical tracks
 - **Agency Branding**: Configurable branding per agency
 
+## Public website development
+
+Follow the [public page design and verification workflow](docs/public-marketing/design-quality.md) for mockup comparisons, real asset crops, working destinations, and browser checks. The [Join page designer guide](docs/public-marketing/join-page-designer.md) covers element editing, independent mobile layouts, and save behavior.
+
 ## Tech Stack
 
 ### Frontend

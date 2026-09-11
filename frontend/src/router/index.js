@@ -3687,6 +3687,12 @@ const routes = [
     meta: { requiresGuest: false }
   },
   {
+    path: '/join-design-preview',
+    name: 'JoinDesignPreview',
+    component: () => import('../views/public/JoinDesignPreviewView.vue'),
+    meta: { requiresGuest: false, publicPageDesignPreview: true, hideNav: true }
+  },
+  {
     path: '/join/:agencySlug',
     name: 'AdaptiveJoinHub',
     component: () => import('../views/public/AdaptiveJoinHubView.vue'),

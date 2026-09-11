@@ -2,10 +2,10 @@
   <div class="pmh-sub" :class="{ 'pmh-sub--tisi': isTisiHub }">
     <header v-if="isTisiHub && !error" class="pmh-tisi-top">
       <router-link class="pmh-tisi-brand" :to="{ path: '/p/tisi' }">
-        <img class="pmh-tisi-mark" src="/assets/branding/innerstrength-mark.png" alt="" />
-        <span>Inner Strength Institute</span>
+        <img v-if="tisiConfig.logoUrl" class="pmh-tisi-mark" :src="tisiConfig.logoUrl" alt="" />
+        <span>{{ tisiConfig.siteName }}</span>
       </router-link>
-      <router-link class="pmh-tisi-cta" to="/p/tisi/get-started">Get Started →</router-link>
+      <a v-if="tisiCtaHref" class="pmh-tisi-cta" :href="tisiCtaHref">{{ tisiConfig.ctaButtonLabel }} →</a>
     </header>
 
     <div v-if="error" class="pmh-fatal">{{ error }}</div>
@@ -39,6 +39,8 @@ import { marked } from 'marked';
 import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import api from '../../services/api';
+import { resolveTisiLandingConfig } from '../../constants/tisiMarketingLanding';
+import { safeMarketingHref } from '../../utils/marketingPageQuality';
 import { useBrandingStore } from '../../store/branding';
 import PoweredByFooter from '../../components/PoweredByFooter.vue';
 
@@ -54,6 +56,8 @@ const pageMeta = ref(null);
 
 const hubTitle = computed(() => pageMeta.value?.heroTitle || pageMeta.value?.title || 'Hub');
 const isTisiHub = computed(() => hubSlug.value === 'tisi');
+const tisiConfig = computed(() => resolveTisiLandingConfig({ pageMeta: pageMeta.value, branding: pageMeta.value?.branding }));
+const tisiCtaHref = computed(() => safeMarketingHref(tisiConfig.value.ctaHref));
 const hubLegalTitle = computed(() => String(pageMeta.value?.branding?.legalFooterTitle || '').trim());
 const hubLegalLinksOverride = computed(() => {
   const raw = pageMeta.value?.branding?.legalFooterLinks;
@@ -76,7 +80,8 @@ const isComingSoonPage = computed(() => {
 });
 
 const renderedBody = computed(() => {
-  const raw = String(subPage.value?.body || '').trim();
+  let raw = String(subPage.value?.body || '').trim();
+  if (isTisiHub.value && tisiCtaHref.value) raw = raw.replaceAll('](/p/tisi/get-started)', `](${tisiCtaHref.value})`);
   if (!raw) return '';
   try {
     const html = marked.parse(raw, { async: false });
