@@ -1,7 +1,7 @@
 <template>
   <div
     class="login-page"
-    :class="{ 'login-page--sstc': isSSTCLogin, 'login-page--app-like': isAppLike, 'login-page--platform': isPlatformLogin, 'login-page--tenant-video': showTenantLoginVideo, 'login-page--video-auth': useVideoAuthLayout }"
+    :class="{ 'login-page--sstc': isSSTCLogin, 'login-page--app-like': isAppLike, 'login-page--platform': isPlatformLogin, 'login-page--tenant-video': showTenantLoginVideo, 'login-page--tisi-video': showTisiLoginVideo, 'login-page--nlu-video': showNluLoginVideo, 'login-page--video-auth': useVideoAuthLayout }"
     :style="tenantLoginPageStyle"
   >
     <video
@@ -930,14 +930,31 @@ const parentOrgSlug = computed(() => {
 });
 const isOrgLogin = computed(() => !!loginSlug.value);
 
+/** Top-level agency hubs that must never be nested under another agency path. */
+const TOP_LEVEL_AGENCY_LOGIN_SLUGS = new Set([
+  'itsco',
+  'tisi',
+  'nlu',
+  'nextlevelup',
+  'nextleveluplcc',
+  'plottwistco',
+  'sstc',
+  'summit-stats'
+]);
+
 function resolveParentForNestedLogin(resolvedChildSlug) {
+  // Nested parent/child paths are for schools (and similar) under an agency —
+  // not for bouncing between peer agency hubs (e.g. /tisi → /itsco).
   if (parentOrgSlug.value) return parentOrgSlug.value;
+  const rs = String(resolvedChildSlug || '').trim().toLowerCase();
+  if (!rs || TOP_LEVEL_AGENCY_LOGIN_SLUGS.has(rs)) return null;
   if (isOrgLogin.value && loginSlug.value) {
     const cur = String(loginSlug.value).trim().toLowerCase();
-    const rs = String(resolvedChildSlug || '').trim().toLowerCase();
-    if (cur && rs && cur !== rs) return cur;
+    if (cur && cur !== rs) return cur;
   }
-  return resolveHostImpliedPortalSlug(brandingStore) || null;
+  const host = resolveHostImpliedPortalSlug(brandingStore);
+  if (host && host !== rs) return host;
+  return null;
 }
 
 const clubManagerSignupPath = computed(() =>
@@ -1180,6 +1197,20 @@ const TENANT_LOGIN_BG_VIDEOS = Object.freeze({
     posterNarrow: '/branding/nlu-login-bg-mobile.png',
     fallbackBg: '#070b1a',
   },
+  nextlevelup: {
+    wide: '/branding/nlu-login-bg.mp4',
+    narrow: '/branding/nlu-login-bg-mobile.mp4',
+    posterWide: '/branding/nlu-login-bg.png',
+    posterNarrow: '/branding/nlu-login-bg-mobile.png',
+    fallbackBg: '#070b1a',
+  },
+  nextleveluplcc: {
+    wide: '/branding/nlu-login-bg.mp4',
+    narrow: '/branding/nlu-login-bg-mobile.mp4',
+    posterWide: '/branding/nlu-login-bg.png',
+    posterNarrow: '/branding/nlu-login-bg-mobile.png',
+    fallbackBg: '#070b1a',
+  },
   tisi: {
     wide: '/branding/tisi-login-bg.mp4',
     narrow: '/branding/tisi-login-bg-mobile.mp4',
@@ -1221,6 +1252,13 @@ const tenantLoginVideoNarrowSrc = computed(() => {
 
 const showTenantLoginVideo = computed(
   () => !!(tenantLoginVideoWideSrc.value || tenantLoginVideoNarrowSrc.value)
+);
+
+const showTisiLoginVideo = computed(() => isMainTenantHubLogin('tisi') && showTenantLoginVideo.value);
+const showNluLoginVideo = computed(
+  () =>
+    showTenantLoginVideo.value
+    && (isMainTenantHubLogin('nlu') || isMainTenantHubLogin('nextlevelup') || isMainTenantHubLogin('nextleveluplcc'))
 );
 
 const tenantLoginPosterWide = computed(() => activeTenantLoginVideos.value?.posterWide || '');
@@ -1371,7 +1409,15 @@ onMounted(async () => {
     const uMem = String(rememberedPortal?.username || '').trim();
     const schoolSlug = String(rememberedPortal?.orgSlug || '').trim().toLowerCase();
     const parentMem = String(rememberedPortal?.parentOrgSlug || '').trim().toLowerCase() || null;
-    if (uMem && schoolSlug && parentMem && parentMem === hubSlug && schoolSlug !== hubSlug) {
+    // Never nest a top-level agency under another (bad remember: parent=tisi, org=itsco → /tisi/itsco/login).
+    if (
+      uMem
+      && schoolSlug
+      && parentMem
+      && parentMem === hubSlug
+      && schoolSlug !== hubSlug
+      && !TOP_LEVEL_AGENCY_LOGIN_SLUGS.has(schoolSlug)
+    ) {
       const hostImplied = String(brandingStore.portalHostPortalUrl || '').trim().toLowerCase() || null;
       try {
         sessionStorage.setItem('__pt_login_pending_username__', uMem);
@@ -1385,6 +1431,19 @@ onMounted(async () => {
         query: { ...route.query, u: uMem }
       });
       return;
+    }
+    // Repair stale peer-agency remember payloads left from the old parent heuristic.
+    if (
+      rememberedPortal
+      && parentMem
+      && TOP_LEVEL_AGENCY_LOGIN_SLUGS.has(schoolSlug)
+      && parentMem !== schoolSlug
+    ) {
+      setRememberedLogin({
+        username: uMem,
+        orgSlug: schoolSlug,
+        parentOrgSlug: null
+      });
     }
   }
 
@@ -1410,6 +1469,25 @@ onMounted(async () => {
   // Restore username across redirects (and optionally auto-verify).
   try {
     const fromQuery = String(route.query?.u || '').trim();
+    const hubSlugNow = effectiveLoginSlug.value;
+    const remNow = getRememberedLogin();
+    // Don't resurrect another agency's pending username on this hub (e.g. williams@itsco on /tisi/login).
+    if (
+      !fromQuery
+      && hubSlugNow
+      && remNow?.orgSlug
+      && remNow.orgSlug !== hubSlugNow
+      && TOP_LEVEL_AGENCY_LOGIN_SLUGS.has(remNow.orgSlug)
+    ) {
+      try {
+        sessionStorage.removeItem('__pt_login_pending_username__');
+        sessionStorage.removeItem('__pt_login_pending_verify__');
+        sessionStorage.removeItem('__pt_login_pending_remember__');
+      } catch {
+        /* ignore */
+      }
+    }
+
     const pendingUsername = String(sessionStorage.getItem('__pt_login_pending_username__') || '').trim();
     const restored = fromQuery || pendingUsername;
     if (restored) username.value = restored;
@@ -1860,6 +1938,16 @@ const resetToUsernameStep = () => {
   sstcClubBranding.value = null;
   rememberedGoogleLogin.value = null;
   error.value = '';
+  if (!rememberLogin.value) {
+    clearRememberedLogin();
+    try {
+      sessionStorage.removeItem('__pt_login_pending_username__');
+      sessionStorage.removeItem('__pt_login_pending_verify__');
+      sessionStorage.removeItem('__pt_login_pending_remember__');
+    } catch {
+      /* ignore */
+    }
+  }
 };
 
 const verifyUsername = async ({ orgSlugOverride = null, reason = 'user' } = {}) => {
@@ -2023,8 +2111,15 @@ const verifyUsername = async ({ orgSlugOverride = null, reason = 'user' } = {}) 
         orgSlug: slugToStore,
         parentOrgSlug: resolveParentForNestedLogin(slugToStore)
       });
-    } else if (!rememberLogin.value && reason === 'remembered') {
+    } else if (!rememberLogin.value) {
       clearRememberedLogin();
+      try {
+        sessionStorage.removeItem('__pt_login_pending_username__');
+        sessionStorage.removeItem('__pt_login_pending_verify__');
+        sessionStorage.removeItem('__pt_login_pending_remember__');
+      } catch {
+        /* ignore */
+      }
     }
 
     // Capture SSTC club branding for the dual-brand split panel
@@ -4207,60 +4302,163 @@ const handleLogoError = (event) => {
   color: var(--va-muted);
 }
 
-/* Tenant video hubs (TISI / ITSCO / NLU): keep the form under the welcome copy
-   and lighten glass fields so they read against bright mid-video art. */
-.login-page--tenant-video {
-  --va-field-bg: rgba(255, 255, 255, 0.2);
-  --va-border: rgba(255, 255, 255, 0.34);
-  --va-subtle: rgba(255, 255, 255, 0.55);
+/* NLU hub: drop the logo/welcome block a bit so it isn’t stuck to the top edge. */
+.login-page--nlu-video .login-container {
+  justify-content: center;
+  padding-top: clamp(24px, 6vh, 72px);
+  padding-bottom: clamp(24px, 6vh, 72px);
 }
 
-.login-page--tenant-video .video-auth-hero {
-  padding-top: clamp(28px, 5vh, 56px);
-  padding-bottom: clamp(8px, 1.5vh, 16px);
+.login-page--nlu-video .video-auth-hero {
+  padding-top: clamp(48px, 10vh, 120px);
+  margin-bottom: clamp(8px, 2vh, 20px);
 }
 
-.login-page--tenant-video .login-card {
-  margin-top: clamp(36px, 8vh, 88px);
+.login-page--nlu-video.login-page--video-auth .login-card {
+  margin-top: clamp(12px, 2.5vh, 28px);
 }
 
-.login-page--tenant-video .login-form .form-group input,
-.login-page--tenant-video .login-form .form-group select,
-.login-page--tenant-video .login-form .form-group textarea {
-  background: rgba(255, 255, 255, 0.22);
-  border-color: rgba(255, 255, 255, 0.4);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+/* TISI-only: compact login window under the institute wordmark in the video.
+   Other tenant video hubs keep the shared video-auth layout. */
+.login-page--tisi-video {
+  --va-field-bg: rgba(255, 255, 255, 0.28);
+  --va-border: rgba(255, 255, 255, 0.4);
+  --va-subtle: rgba(255, 255, 255, 0.58);
 }
 
-.login-page--tenant-video .login-form .form-group input:focus,
-.login-page--tenant-video .login-form .form-group select:focus,
-.login-page--tenant-video .login-form .form-group textarea:focus {
+.login-page--tisi-video .login-container {
+  position: relative;
+  min-height: 100vh;
+  min-height: 100dvh;
+  justify-content: flex-start;
+  padding: 0 clamp(16px, 4vw, 28px) max(18px, env(safe-area-inset-bottom, 0px));
+}
+
+.login-page--tisi-video .video-auth-hero {
+  padding-top: clamp(20px, 4vh, 40px);
+  padding-bottom: 0;
+  flex: 0 0 auto;
+}
+
+.login-page--tisi-video .video-auth-hero__logo {
+  height: clamp(52px, 9vw, 88px);
+}
+
+.login-page--tisi-video .video-auth-hero__title {
+  font-size: clamp(26px, 3.8vw, 36px);
+}
+
+.login-page--tisi-video .video-auth-hero__subtitle {
+  font-size: clamp(13px, 1.8vw, 15px);
+  max-width: 360px;
+}
+
+/* Pin the card top under the video wordmark so verify→password grows downward. */
+.login-page--tisi-video.login-page--video-auth .login-card {
+  position: absolute;
+  top: clamp(54%, 58vh, 62%);
+  left: 50%;
+  transform: translateX(-50%);
+  margin: 0;
+  width: min(320px, calc(100% - 8px));
+  max-width: 320px;
+  max-height: calc(100dvh - clamp(54%, 58vh, 62%) - 12px);
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 14px 14px 12px !important;
+  background: rgba(255, 255, 255, 0.16) !important;
+  border: 1px solid rgba(255, 255, 255, 0.32) !important;
+  border-radius: 16px !important;
+  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.38) !important;
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+}
+
+.login-page--tisi-video .login-form .form-group {
+  margin-bottom: 8px;
+}
+
+.login-page--tisi-video .login-form .form-group label {
+  font-size: 12px;
+  margin-bottom: 4px;
+  letter-spacing: 0.01em;
+}
+
+.login-page--tisi-video .login-form .form-group input,
+.login-page--tisi-video .login-form .form-group select,
+.login-page--tisi-video .login-form .form-group textarea {
+  padding: 10px 12px;
+  font-size: 15px;
+  border-radius: 10px;
   background: rgba(255, 255, 255, 0.3);
+  border-color: rgba(255, 255, 255, 0.45);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18);
 }
 
-.login-page--tenant-video .login-credentials-username input {
-  background-color: rgba(255, 255, 255, 0.22);
+.login-page--tisi-video .login-form .form-group input::placeholder,
+.login-page--tisi-video .login-form .form-group textarea::placeholder {
+  font-size: 14px;
 }
 
-.login-page--tenant-video .login-form .btn-primary {
+.login-page--tisi-video .login-form .form-group input:focus,
+.login-page--tisi-video .login-form .form-group select:focus,
+.login-page--tisi-video .login-form .form-group textarea:focus {
+  background: rgba(255, 255, 255, 0.4);
+}
+
+.login-page--tisi-video .login-credentials-username input {
+  padding-left: 38px;
+  background-color: rgba(255, 255, 255, 0.3);
+  background-size: 15px 15px;
+  background-position: 12px center;
+}
+
+.login-page--tisi-video .remember-me {
+  margin: 2px 0 8px;
+  font-size: 12px;
+}
+
+.login-page--tisi-video .login-form .btn-primary {
+  min-height: 42px;
+  font-size: 15px;
+  border-radius: 10px;
   background: linear-gradient(
     135deg,
-    rgba(255, 255, 255, 0.38) 0%,
-    color-mix(in srgb, var(--va-primary) 72%, white) 55%,
+    rgba(255, 255, 255, 0.42) 0%,
+    color-mix(in srgb, var(--va-primary) 70%, white) 55%,
     var(--va-primary) 100%
   );
   color: var(--va-white);
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
-  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.28);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.28);
 }
 
-.login-page--tenant-video .login-form .btn-primary:hover:not(:disabled) {
+.login-page--tisi-video .login-form .btn-primary::after {
+  right: 14px;
+  font-size: 15px;
+}
+
+.login-page--tisi-video .login-form .btn-primary:hover:not(:disabled) {
   filter: brightness(1.06);
 }
 
-.login-page--tenant-video .btn-secondary {
-  background: rgba(255, 255, 255, 0.16);
+.login-page--tisi-video .btn-secondary {
+  min-height: 40px;
+  font-size: 14px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.18);
   border-color: rgba(255, 255, 255, 0.34);
+}
+
+.login-page--tisi-video .login-help {
+  margin-top: 8px;
+  text-align: center;
+}
+
+.login-page--tisi-video .help-link,
+.login-page--tisi-video .help-link-button {
+  font-size: 12px;
 }
 
 /* ── Platform footer ── */
@@ -4299,8 +4497,9 @@ const handleLogoError = (event) => {
     padding-top: clamp(40px, 7vh, 72px);
   }
 
-  .login-page--tenant-video .login-card {
-    margin-top: clamp(28px, 6vh, 64px);
+  .login-page--tisi-video.login-page--video-auth .login-card {
+    top: clamp(52%, 56vh, 60%);
+    max-height: calc(100dvh - clamp(52%, 56vh, 60%) - 10px);
   }
 }
 
