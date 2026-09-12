@@ -12,7 +12,7 @@
       </button>
     </div>
     <p class="hint" style="margin: 6px 0 10px;">
-      Read-only progress on {{ isLearning ? 'learning' : 'treatment' }} plan goals for this child.
+      Goals and recorded progress shared with your account.
     </p>
     <div v-if="error" class="error" style="font-size: 13px;">{{ error }}</div>
     <div v-else-if="loading" class="hint">Loading plan progress…</div>
@@ -22,6 +22,7 @@
         <strong>{{ planTitle }}</strong>
         <span v-if="plan?.status" class="muted small"> · {{ plan.status }}</span>
       </div>
+      <div class="gpp-overview"><span class="gpp-goal-count">{{ goals.length }}<small>{{ goals.length === 1 ? 'goal' : 'goals' }}</small></span><div><h3>Your goals, one step at a time</h3><p>These scales show recorded ratings and targets. A higher score is not always the goal.</p><p v-if="plan?.effectiveDate">Plan started {{ formatDate(plan.effectiveDate) }}</p></div></div>
       <article v-for="g in goals" :key="g.id" class="gpp-goal">
         <header>
           <span class="gpp-pill">G{{ g.goalIndex }}</span>
@@ -37,7 +38,9 @@
             <span aria-hidden="true">→</span>
             <span>Goal <strong>{{ o.scaleTarget ?? '—' }}</strong></span>
           </div>
-          <div v-if="sparklinePoints(o).length" class="gpp-spark">
+          <div v-if="!compact" class="gpp-scale" :aria-label="`Current rating ${o.scaleCurrent ?? 'not recorded'}, target ${o.scaleTarget ?? 'not recorded'}`"><span v-for="n in 10" :key="n" :class="{current:Number(o.scaleCurrent)===n,target:Number(o.scaleTarget)===n}"><small>{{ n }}</small><i /><b v-if="Number(o.scaleCurrent)===n">Current</b><b v-else-if="Number(o.scaleTarget)===n">Target</b></span></div>
+          <p v-if="o.scaleDirection" class="gpp-direction">Direction: {{ o.scaleDirection === 'decrease' ? 'Lower toward target' : o.scaleDirection === 'increase' ? 'Higher toward target' : o.scaleDirection }}</p>
+          <div v-if="!compact && sparklinePoints(o).length" class="gpp-spark">
             <svg
               viewBox="0 0 100 28"
               preserveAspectRatio="none"
@@ -77,9 +80,11 @@ const props = defineProps({
   clientId: { type: [Number, String], default: null },
   agencyId: { type: [Number, String], default: null },
   clientType: { type: String, default: '' },
-  visible: { type: Boolean, default: true }
+  visible: { type: Boolean, default: true },
+  compact: { type: Boolean, default: false }
 });
 
+const formatDate = value => new Date(String(value).length === 10 ? `${value}T12:00:00` : value).toLocaleDateString();
 const loading = ref(false);
 const error = ref('');
 const hasActivePlan = ref(false);
@@ -124,10 +129,7 @@ function sparklinePoints(objective) {
     (r) => (r.disposition == null || r.disposition === 'rated') && (r.scaleValue ?? r.scale_value) != null
   );
   const values = rated.map((r) => Number(r.scaleValue ?? r.scale_value));
-  if (!values.length && objective?.scaleCurrent != null) {
-    values.push(Number(objective.scaleCurrent));
-  }
-  if (!values.length) return '';
+  if (values.length < 2) return '';
   if (values.length === 1) {
     const y = scaleY(values[0]);
     return `2,${y} 98,${y}`;
@@ -140,10 +142,13 @@ function sparklinePoints(objective) {
     .join(' ');
 }
 
+let loadSequence = 0;
 async function load() {
+  const request = ++loadSequence;
+  hasActivePlan.value=false;plan.value=null;goals.value=[];ratings.value=[];error.value='';loading.value=false;
   const clientId = Number(props.clientId || 0);
   const agencyId = Number(props.agencyId || 0);
-  if (!clientId || !props.value) {
+  if (!clientId || !props.visible) {
     hasActivePlan.value = false;
     plan.value = null;
     goals.value = [];
@@ -161,26 +166,28 @@ async function load() {
       params: { agencyId },
       skipGlobalLoading: true
     });
+    if(request !== loadSequence)return;
     hasActivePlan.value = !!res.data?.hasActivePlan;
     plan.value = res.data?.plan || null;
     goals.value = Array.isArray(res.data?.goals) ? res.data.goals : [];
     ratings.value = Array.isArray(res.data?.ratings) ? res.data.ratings : [];
     resolvedClientType.value = res.data?.clientType || props.clientType || '';
   } catch (e) {
+    if(request !== loadSequence)return;
     hasActivePlan.value = false;
     plan.value = null;
     goals.value = [];
     ratings.value = [];
     error.value = e?.response?.data?.error?.message || 'Could not load plan progress';
   } finally {
-    loading.value = false;
+    if(request === loadSequence)loading.value = false;
   }
 }
 
 watch(
   () => [props.clientId, props.agencyId, props.visible],
   () => {
-    if (props.visible) load();
+    load();
   },
   { immediate: true }
 );
@@ -189,6 +196,9 @@ defineExpose({ load });
 </script>
 
 <style scoped>
+.gpp-overview{display:flex;align-items:center;gap:24px;padding:24px 0;margin-bottom:15px}.gpp-goal-count{display:flex;flex-direction:column;align-items:center;justify-content:center;width:105px;height:105px;border:10px solid var(--portal-tint,#e8f2f1);border-radius:50%;font-size:30px;font-weight:700;flex-shrink:0}.gpp-goal-count small{font-size:12px;font-weight:400}.gpp-overview h3{margin:0 0 8px;font-size:18px}.gpp-overview p{margin:5px 0;color:#536680;font-size:13px;line-height:1.6}.gpp-scale{display:flex;justify-content:space-between;gap:0;padding:12px 0 28px}.gpp-scale>span{position:relative;display:grid;gap:6px;justify-items:center;flex:1;font-size:10px}.gpp-scale>span::after{content:'';position:absolute;top:24px;left:50%;width:100%;height:3px;background:#e0e6f0}.gpp-scale>span:last-child::after{display:none}.gpp-scale i{width:10px;height:10px;background:#d6deeb;border-radius:50%;z-index:1}.gpp-scale .current i{background:var(--portal-accent,#2459ad);outline:3px solid var(--portal-tint,#e7efff)}.gpp-scale .target i{background:#218269}.gpp-scale b{position:absolute;top:36px;font-size:9px;font-weight:500;color:#526784}.gpp-direction{font-size:12px;color:#526784;margin:2px 0 6px}
+@media(max-width:450px){.gpp-overview{gap:16px}.gpp-goal-count{width:80px;height:80px;border-width:7px;font-size:24px}.gpp-overview h3{font-size:16px}}
+
 .gpp {
   margin-top: 14px;
   padding-top: 12px;

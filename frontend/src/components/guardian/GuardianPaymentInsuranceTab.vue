@@ -1,6 +1,6 @@
 <template>
   <div class="family-billing">
-    <header><h3>Billing for your family</h3><p>Each client has a responsible payer. Your cards and insurance records remain private to your account, including when another guardian also pays.</p></header>
+    <header><h3>Insurance &amp; payment methods</h3><p>Each client has a responsible payer. Your cards and insurance records remain private to your account, including when another guardian also pays.</p></header>
     <p v-if="loading" role="status">Loading billing…</p>
     <p v-if="error" role="alert" class="error">{{ error }}</p>
     <p v-if="notice" role="status" class="notice">{{ notice }}</p>
@@ -30,7 +30,7 @@
         <div class="actions"><button class="btn btn-primary" :disabled="busy || !accepted">Sign authorization</button><button class="btn btn-secondary" type="button" :disabled="busy" @click="authorization = null">Cancel</button></div>
       </form>
       <template v-if="manageableClients.length">
-        <section class="billing-card">
+        <section class="billing-card wallet-section">
           <div class="section-head"><h4>Your saved cards</h4><button v-if="data.stripe.enabled" class="btn btn-secondary" type="button" @click="showCard = !showCard">{{ showCard ? 'Close card form' : 'Add a card' }}</button></div>
           <p v-if="!data.stripe.enabled">Card collection is not enabled for this organization yet. The office will need to arrange payment before paid services.</p>
           <p v-if="!data.cards.length">No payment method on file.</p>
@@ -38,7 +38,7 @@
           <div v-if="removingCard" class="notice"><p>Remove your card ending in {{ removingCard.card_last4 }}? This also revokes its recurring authorizations for all your clients.</p><button class="btn btn-secondary" :disabled="busy" @click="removeCard">Remove card</button> <button class="btn btn-secondary" @click="removingCard = null">Keep card</button></div>
           <SecureCardSetup v-if="showCard" :key="agencyId" :agency-id="agencyId" @saved="cardSaved" />
         </section>
-        <section class="billing-card">
+        <section class="billing-card insurance-section">
           <div class="section-head"><h4>Your insurance policies</h4><button class="btn btn-secondary" type="button" @click="editInsurance()">Add insurance</button></div>
           <p v-if="!data.profiles.length">No insurance policy has been assigned from your account.</p>
           <article v-for="profile in data.profiles" :key="profile.id" class="policy-summary">
@@ -100,5 +100,8 @@ function saveInsurance() { const payload={...insuranceDraft.value,agencyId:props
 watch(()=>[props.agencyId,props.guardianUserId],()=>{showCard.value=false;authorization.value=null;insuranceDraft.value=null;removingCard.value=null;notice.value='';void load();},{immediate:true});
 </script>
 <style scoped>
+.family-billing{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}.family-billing>header,.family-billing>.client-grid,.family-billing>p,.family-billing>form{grid-column:1/-1}.family-billing>header p{font-size:14px;color:#566b84;margin-top:6px}.family-billing .section-head h4{font-size:18px;color:#1d3554}.family-billing .saved-row{background:var(--portal-tint,#f2f6fb);padding:18px;border:1px solid #e0e8f3}.family-billing .policy-summary{border-color:#dfe8f1;padding:20px}.family-billing .policy-summary h5{color:var(--portal-accent,#2459ad);font-size:20px}.family-billing .billing-card{box-shadow:0 3px 14px #193e7310}.family-billing input,.family-billing select{font:inherit}.family-billing :deep(.btn-primary){background:var(--portal-accent,#2459ad);color:var(--portal-on-accent,#fff)}
+@media(max-width:1100px){.family-billing{grid-template-columns:minmax(0,1fr)}}
+
 .family-billing { display:grid; gap:20px; color:var(--text-primary,#0f172a); } header p { max-width:850px; } h3,h4,h5 { margin:0 0 10px; } h5 {font-size:16px} p {line-height:1.5} .client-grid {display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr));gap:16px} .billing-card {padding:22px;border:1px solid var(--border,#cbd5e1);border-radius:14px;background:white;display:grid;gap:12px;align-content:start} .billing-card p {margin:0} .section-head,.saved-row,.actions {display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap} .saved-row {padding:12px;background:#f8fafc;border-radius:8px} label {display:grid;gap:6px} input:not([type=checkbox]),select {padding:10px;border:1px solid #94a3b8;border-radius:7px;max-width:100%;color:#0f172a;background:white} .check {display:flex;align-items:flex-start;gap:10px}.check input {margin-top:4px}.authorization {border-color:#2563eb}.notice {padding:14px;background:#eff6ff;border-radius:8px}.error {color:#b91c1c}.status {color:#334155;font-weight:600}.policy-summary {padding:16px;border:1px solid #cbd5e1;border-radius:10px;display:grid;gap:10px} fieldset {border:1px solid #cbd5e1;border-radius:8px;display:grid;gap:10px}button {white-space:normal;text-align:left}
 </style>

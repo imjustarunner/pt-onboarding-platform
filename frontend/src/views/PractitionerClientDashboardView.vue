@@ -1,14 +1,12 @@
 <template>
-  <LifeCoachClientDashboardView v-if="isLifeCoach" />
-  <ConsultantClientDashboardView v-else-if="isConsultant" />
+  <LifeCoachClientDashboardView v-if="isLifeCoach" :key="`${billingAgencyId}-${route.params.organizationSlug}`" />
+  <ConsultantClientDashboardView v-else-if="isConsultant" :key="`${billingAgencyId}-${route.params.organizationSlug}`" />
   <div v-else class="client-dashboard-fallback">
     <p>This organization does not use the practitioner client dashboard.</p>
   </div>
-  <FamilyLedgerPanel v-if="billingAgencyId" :agency-id="billingAgencyId" class="practitioner-family-billing" />
 </template>
 
 <script setup>
-import FamilyLedgerPanel from '../components/billing/FamilyLedgerPanel.vue';
 import {useAgencyStore} from '../store/agency';
 import { computed, onMounted, watch } from 'vue';
 import { useRoute } from 'vue-router';

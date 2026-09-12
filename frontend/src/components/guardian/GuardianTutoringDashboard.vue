@@ -1,6 +1,6 @@
 <template>
   <div class="gtd">
-    <header class="gtd-hero">
+    <header v-if="!embedded" class="gtd-hero">
       <div>
         <p class="gtd-kicker">Tutoring journey</p>
         <h2 class="gtd-title">Welcome{{ guardianFirstName ? `, ${guardianFirstName}` : '' }}</h2>
@@ -13,12 +13,12 @@
 
     <p v-if="error" class="gtd-error">{{ error }}</p>
 
-    <section class="gtd-student-bar">
-      <div class="gtd-avatar">{{ initials }}</div>
-      <div class="gtd-student-copy">
+    <section class="gtd-student-bar" :class="{embedded}">
+      <div v-if="!embedded" class="gtd-avatar">{{ initials }}</div>
+      <div v-if="!embedded" class="gtd-student-copy">
         <strong>{{ studentName }}</strong>
         <span>{{ gradeSubjectsLine }}</span>
-        <span class="gtd-badge">Active</span>
+        <span v-if="packageTotals.activePackages" class="gtd-badge">Active package</span>
       </div>
       <div class="gtd-student-meta">
         <div>
@@ -37,7 +37,7 @@
     </section>
 
     <div class="gtd-grid">
-      <section class="gtd-card">
+      <section class="gtd-card gtd-packages">
         <h3>Your packages</h3>
         <div v-if="packageTotals.activePackages">
           <p>
@@ -60,13 +60,13 @@
         <button type="button" class="gtd-btn" @click="openBuyDrawer">Buy a package</button>
       </section>
 
-      <section class="gtd-card">
+      <section class="gtd-card gtd-progress">
         <h3>Progress overview</h3>
-        <div class="gtd-progress-ring">
-          <strong>{{ dashboard.overallProgress || 0 }}%</strong>
+        <div v-if="(dashboard.skillBars || []).length" class="gtd-progress-ring" :style="{'--progress':`${Math.max(0,Math.min(100,Number(dashboard.overallProgress)||0))}%`}">
+          <strong>{{ Math.round(Number(dashboard.overallProgress) || 0) }}%</strong>
           <span>Overall progress</span>
         </div>
-        <p class="gtd-muted">
+        <p v-if="(dashboard.skillBars || []).length" class="gtd-muted">
           {{ encouragement }}
         </p>
         <div v-for="bar in (dashboard.skillBars || []).slice(0, 4)" :key="`${bar.subjectLabel}-${bar.title}`" class="gtd-skill">
@@ -74,7 +74,7 @@
             <span>{{ bar.title }}</span>
             <span>{{ bar.progressPct }}%</span>
           </div>
-          <div class="gtd-bar"><div class="gtd-bar-fill" :style="{ width: `${bar.progressPct}%` }" /></div>
+          <div class="gtd-bar"><div class="gtd-bar-fill" :style="{ width: `${Math.max(0,Math.min(100,Number(bar.progressPct)||0))}%` }" /></div>
           <div v-if="bar.standardCode || bar.subjectLabel" class="gtd-muted small">
             {{ bar.subjectLabel }}<template v-if="bar.standardCode"> · Colorado {{ bar.standardCode }}</template>
           </div>
@@ -82,7 +82,7 @@
         <p v-if="!(dashboard.skillBars || []).length" class="gtd-muted">Skill progress will appear after tutoring sessions are recorded.</p>
       </section>
 
-      <section class="gtd-card">
+      <section class="gtd-card gtd-sessions">
         <h3>Upcoming sessions</h3>
         <ul class="gtd-list">
           <li v-for="s in (dashboard.upcomingSessions || [])" :key="s.id">
@@ -99,7 +99,7 @@
         <p v-if="!(dashboard.upcomingSessions || []).length" class="gtd-muted">No upcoming sessions yet.</p>
       </section>
 
-      <section class="gtd-card">
+      <section class="gtd-card gtd-assignments">
         <h3>Assignments</h3>
         <ul class="gtd-list">
           <li v-for="a in openPractice" :key="a.id" class="gtd-assign">
@@ -128,7 +128,7 @@
         <p v-if="!openPractice.length" class="gtd-muted">No practice assignments yet. After tutoring sessions, home practice will appear here.</p>
       </section>
 
-      <section class="gtd-card">
+      <section class="gtd-card gtd-summary">
         <h3>Recent session summary</h3>
         <div v-if="latestUpdate">
           <div class="gtd-muted">{{ formatWhen(latestUpdate.at) }} · {{ latestUpdate.subjectLabel }}</div>
@@ -198,6 +198,7 @@ import * as los from '@/services/tutoringLearningOs';
 import * as unifiedPackages from '@/services/unifiedPackages';
 
 const props = defineProps({
+  embedded: {type:Boolean,default:false},
   clientId: { type: [Number, String], required: true },
   studentName: { type: String, default: 'your student' },
   guardianFirstName: { type: String, default: '' },
@@ -271,12 +272,12 @@ const programLabel = computed(() => {
 });
 
 const nextSessionLabel = computed(() => {
-  const s = dashboard.value.nextSession;
+  const s = dashboard.value.nextSession || dashboard.value.upcomingSessions?.[0];
   if (!s?.starts_at) return 'Not scheduled';
   return formatWhen(s.starts_at);
 });
 
-const nextTutorLabel = computed(() => dashboard.value.nextSession?.provider_name || 'Your tutor');
+const nextTutorLabel = computed(() => dashboard.value.nextSession?.provider_name || dashboard.value.upcomingSessions?.[0]?.provider_name || 'Not assigned');
 
 const encouragement = computed(() => {
   const pct = Number(dashboard.value.overallProgress) || 0;
@@ -512,6 +513,11 @@ onBeforeUnmount(destroyCard);
 </script>
 
 <style scoped>
+.gtd .gtd-grid{grid-template-areas:'progress sessions' 'progress summary' 'assignments packages';align-items:start}.gtd-progress{grid-area:progress}.gtd-packages{grid-area:packages}.gtd-sessions{grid-area:sessions}.gtd-assignments{grid-area:assignments}.gtd-summary{grid-area:summary}.gtd .gtd-student-bar.embedded{padding:22px;margin-bottom:20px}.gtd .embedded .gtd-student-meta{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));width:100%;margin:0;gap:25px}.gtd .embedded .gtd-student-meta>div+div{border-left:1px solid #e2eaf4;padding-left:22px}.gtd .embedded .gtd-label{font-size:12px;margin-bottom:7px}
+@media(max-width:1000px){.gtd .gtd-grid{grid-template-columns:1fr;grid-template-areas:'sessions' 'progress' 'assignments' 'summary' 'packages'}}@media(max-width:500px){.gtd .embedded .gtd-student-meta{grid-template-columns:1fr;gap:16px}.gtd .embedded .gtd-student-meta>div+div{padding:14px 0 0;border-left:0;border-top:1px solid #e2eaf4}}
+
+.gtd{color:#223956}.gtd :deep(.gtd-btn){color:var(--portal-accent,#2459ad);border-color:#dbe5f1;background:#fff}.gtd :deep(.gtd-card){border:1px solid #e2eaf4;border-radius:12px;padding:22px;box-shadow:0 3px 14px #193e7310}.gtd :deep(.gtd-avatar){background:var(--portal-tint,#edf3fc);color:var(--portal-accent,#2459ad)}.gtd :deep(.gtd-student-bar){border-color:#e2eaf4}.gtd .gtd-progress-ring{width:150px;height:150px;border:0;border-radius:50%;background:conic-gradient(var(--portal-accent,#218269) var(--progress),#e8edf4 0);position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;isolation:isolate;margin:24px auto}.gtd .gtd-progress-ring::before{content:'';position:absolute;inset:12px;background:white;border-radius:50%;z-index:-1}.gtd .gtd-progress-ring strong{font-size:32px}.gtd .gtd-bar-fill{background:var(--portal-accent,#218269)}.gtd .gtd-grid{gap:20px}.gtd .gtd-card h3{font-size:18px;color:#18304f}.gtd .gtd-title{font-size:23px}.gtd .gtd-hero{padding-top:0}
+
 .gtd { display: flex; flex-direction: column; gap: 1rem; }
 .gtd-hero { display: flex; justify-content: space-between; gap: 1rem; align-items: flex-start; flex-wrap: wrap; }
 .gtd-kicker { margin: 0; font-size: 0.75rem; letter-spacing: 0.06em; text-transform: uppercase; color: #64748b; }

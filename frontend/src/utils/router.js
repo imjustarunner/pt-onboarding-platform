@@ -203,7 +203,7 @@ export function getDashboardRoute() {
 
   // Guardian portal accounts go to the guardian portal (prefer branded slug if available).
   // Life coach / consultant clients land on the practitioner client dashboard shell.
-  if (String(user.role || '').toLowerCase() === 'client_guardian') {
+  if (['client_guardian', 'client'].includes(String(user.role || '').toLowerCase())) {
     const practitioner = resolvePractitionerOrg(user, agencyStore, organizationStore);
     if (practitioner?.slug) {
       return `/${practitioner.slug}/client-dashboard`;

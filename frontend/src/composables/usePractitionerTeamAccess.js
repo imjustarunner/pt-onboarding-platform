@@ -45,7 +45,7 @@ export function usePractitionerTeamAccess() {
     }
     const role = String(authStore.user?.role || '').toLowerCase();
     // Client / non-employee surfaces should not hit the team API.
-    if (['client_guardian', 'kiosk'].includes(role) || !role) {
+    if (['client_guardian', 'client', 'guardian', 'kiosk'].includes(role) || !role) {
       isOwner.value = false;
       permissions.value = { ...DEFAULT_PERMS };
       return;

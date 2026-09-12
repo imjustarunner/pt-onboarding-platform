@@ -1,5 +1,6 @@
 <template>
-  <div class="practitioner-shell" :class="[theme.cssClass, { 'is-client': isClient }]">
+  <FamilyPortalShell v-if="isClient" :brand-name="brandTitle" :logo-url="brandingStore.displayLogoUrl" :primary-color="brandingStore.primaryColor" :title="greeting" :subtitle="tagline" :user-name="clientUserName" :navigation="clientNavigation" :active="String(route.hash || '').slice(1) || 'dashboard'" :account-key="isConsultantOrgType(orgType) ? 'settings' : 'account'" @navigate="navigateClient"><div class="client-portal-content"><slot /></div></FamilyPortalShell>
+  <div v-else class="practitioner-shell" :class="[theme.cssClass, { 'is-client': isClient }]">
     <aside class="ps-sidebar" aria-label="Primary">
       <div class="ps-brand">
         <div class="ps-brand-mark" aria-hidden="true">{{ brandMark }}</div>
@@ -56,6 +57,11 @@
 
 <script setup>
 import { computed } from 'vue';
+import FamilyPortalShell from '../components/portal/FamilyPortalShell.vue';
+import {useBrandingStore} from '../store/branding';
+import {useAuthStore} from '../store/auth';
+const brandingStore=useBrandingStore(),authStore=useAuthStore();
+const clientUserName=computed(()=>[authStore.user?.first_name,authStore.user?.last_name].filter(Boolean).join(' '));
 import { useRouter, useRoute } from 'vue-router';
 import {
   getPractitionerTheme,
@@ -114,6 +120,9 @@ const navItems = computed(() => {
   });
 });
 
+const clientNavigation = computed(() => navItems.value.map(item => ({key:item.id,label:({payments:'Invoices & receipts','assessment-docs':'Shared documents',settings:'My account',account:'My account',goals:isConsultantOrgType(props.orgType)?'Growth plan':'Goals & reflection',messages:'Secure messages'}[item.id] || item.label),icon:({payments:'billing',packages:'documents',goals:'plan','assessment-docs':'documents',settings:'account'}[item.id] || item.id),count:item.badge?Number(item.badge):0})));
+function navigateClient(key){const item=navItems.value.find(item=>item.id===key);if(item)onNav(item);}
+
 const profileInitials = computed(() => {
   const parts = String(props.profileName || '')
     .trim()
@@ -150,6 +159,9 @@ function onNav(item) {
 </script>
 
 <style scoped>
+.client-portal-content{--ps-accent:var(--portal-accent);--ps-card:#fff;--ps-muted:#566b88;--ps-ink:#192d4b;--ps-success:#238264;--ps-surface:var(--portal-tint)}.client-portal-content :deep(.card){border:1px solid #e2eaf4;box-shadow:0 3px 14px #193e7310;border-radius:12px;padding:22px}.client-portal-content :deep(.grid-2){gap:20px}.client-portal-content :deep(.card-head h2){font-size:18px}.client-portal-content :deep(.muted){font-size:14px}.client-portal-content :deep(.ps-btn.primary){background:var(--portal-accent);color:var(--portal-on-accent);border-color:var(--portal-accent)}.client-portal-content :deep(.session-list li){padding:16px 0;border-bottom:1px solid #e5ecf5}.client-portal-content :deep(.session-list .meta){font-size:13px;line-height:1.6;color:#586c87}.client-portal-content :deep(.session-list .title){font-size:15px}.client-portal-content :deep(.session-list){margin:0;padding:0;list-style:none}
+@media(max-width:950px){.client-portal-content :deep(.grid-2){grid-template-columns:1fr}}@media(max-width:500px){.client-portal-content :deep(.card){padding:18px}}
+
 .practitioner-shell {
   --ps-accent: #c4a574;
   --ps-accent-2: #d4af37;

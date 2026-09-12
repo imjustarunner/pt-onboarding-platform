@@ -1365,7 +1365,7 @@ const routes = [
     path: '/:organizationSlug/client-dashboard',
     name: 'OrganizationPractitionerClientDashboard',
     component: () => import('../views/PractitionerClientDashboardView.vue'),
-    meta: { requiresAuth: true, organizationSlug: true, requiresRole: ['client_guardian', 'admin', 'super_admin', 'support'] }
+    meta: { requiresAuth: true, organizationSlug: true, requiresRole: ['client_guardian', 'client', 'admin', 'super_admin', 'support'] }
   },
   {
     path: '/:organizationSlug/my_club_dashboard',
@@ -1591,7 +1591,7 @@ const routes = [
     path: '/:organizationSlug/guardian',
     name: 'OrganizationGuardianPortal',
     component: () => import('../views/guardian/GuardianPortalView.vue'),
-    meta: { requiresAuth: true, requiresRole: 'client_guardian', organizationSlug: true }
+    meta: { requiresAuth: true, requiresRole: ['client_guardian', 'client'], organizationSlug: true }
   },
   {
     path: '/:organizationSlug/guardian/skill-builders/event/:eventId',
@@ -3195,7 +3195,7 @@ const routes = [
     path: '/guardian',
     name: 'GuardianPortal',
     component: () => import('../views/guardian/GuardianPortalView.vue'),
-    meta: { requiresAuth: true, requiresRole: 'client_guardian' }
+    meta: { requiresAuth: true, requiresRole: ['client_guardian', 'client'] }
   },
   {
     path: '/guardian/skill-builders/event/:eventId',

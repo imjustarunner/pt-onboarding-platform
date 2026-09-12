@@ -1,252 +1,31 @@
 <template>
-  <div class="guardian-dashboard">
+  <FamilyPortalShell :brand-name="currentAgencyName || tenantAgencyName" :brand-subtitle="dualBranding ? tenantAgencyName : ''" :logo-url="programLogoUrl || tenantAgencyLogoUrl || brandingStore.displayLogoUrl" :primary-color="brandingStore.primaryColor" :title="portalTitle" :subtitle="portalSubtitle" :user-name="userName" :navigation="portalNavigation" :active="activePanel" @navigate="navigatePortal">
     <PlatformPreviewBanner
       v-if="isSuperadminPreview"
       :title="`Previewing ${currentAgencyName || 'tenant'} guardian portal`"
       subtitle="This platform preview keeps guardian-linked private data hidden while preserving the tenant portal shell."
     />
-    <div class="header">
-      <div class="title">
-        <div class="name">{{ isSuperadminPreview ? 'Guardian portal preview' : 'Guardian portal' }}</div>
-        <div class="subtitle">
-          {{ isSuperadminPreview
-            ? 'Superadmin preview for the guardian experience. Family-linked data is intentionally hidden.'
-            : 'A family-facing space for registrations, paperwork, billing, and day-to-day program updates.' }}
-        </div>
-      </div>
-
-      <div v-if="currentAgencyName || tenantAgencyName" class="header-actions">
-        <div class="guardian-brand-cluster" aria-label="Program and agency branding">
-          <template v-if="dualBranding">
-            <div class="guardian-brand-unit" :title="tenantAgencyName || 'Agency'">
-              <img
-                v-if="tenantAgencyLogoUrl"
-                :src="tenantAgencyLogoUrl"
-                class="guardian-brand-logo"
-                alt=""
-              />
-              <span v-else class="guardian-brand-fallback">{{ tenantAgencyInitials }}</span>
-              <span class="guardian-brand-label">{{ tenantAgencyName }}</span>
-            </div>
-            <span class="guardian-brand-sep" aria-hidden="true" />
-            <div class="guardian-brand-unit" :title="currentAgencyName || 'Program'">
-              <img
-                v-if="programLogoUrl"
-                :src="programLogoUrl"
-                class="guardian-brand-logo"
-                alt=""
-              />
-              <span v-else class="guardian-brand-fallback">{{ programAgencyInitials }}</span>
-              <span class="guardian-brand-label">{{ currentAgencyName }}</span>
-            </div>
-          </template>
-          <template v-else>
-            <div class="guardian-brand-unit" :title="currentAgencyName || tenantAgencyName || 'Program'">
-              <img
-                v-if="programLogoUrl || tenantAgencyLogoUrl"
-                :src="programLogoUrl || tenantAgencyLogoUrl"
-                class="guardian-brand-logo"
-                alt=""
-              />
-              <span v-else class="guardian-brand-fallback">{{ programAgencyInitials || tenantAgencyInitials }}</span>
-              <span class="guardian-brand-label">{{ currentAgencyName || tenantAgencyName }}</span>
-            </div>
-          </template>
-        </div>
-      </div>
-    </div>
-
     <div v-if="error" class="error">{{ error }}</div>
     <div v-else-if="loading" class="loading">Loading your dashboard…</div>
 
     <div v-else class="layout guardian-layout">
-      <section class="guardian-hero">
-        <div class="guardian-hero-copy">
-          <div class="guardian-eyebrow">Guardian Portal</div>
-          <h1 class="guardian-hero-title">Family dashboard</h1>
-          <p class="guardian-hero-subtitle">
-            Keep registrations, child details, billing, paperwork, and program updates in one clear place.
-          </p>
-
-          <div class="guardian-stat-grid">
-            <div class="guardian-stat-card">
-              <div class="guardian-stat-value">{{ children.length }}</div>
-              <div class="guardian-stat-label">Dependents</div>
-            </div>
-            <div class="guardian-stat-card">
-              <div class="guardian-stat-value">{{ programs.length }}</div>
-              <div class="guardian-stat-label">Programs</div>
-            </div>
-            <div class="guardian-stat-card">
-              <div class="guardian-stat-value">{{ totalEnrolledEventCount }}</div>
-              <div class="guardian-stat-label">Enrolled events</div>
-            </div>
-            <div class="guardian-stat-card guardian-stat-card--accent">
-              <div class="guardian-stat-value">{{ upcomingRegistrationCount }}</div>
-              <div class="guardian-stat-label">Open registrations</div>
-            </div>
-          </div>
-        </div>
-
-        <div class="guardian-hero-side">
-          <div class="guardian-toolbar">
-            <GuardianProgramSelector :programs="programs" />
-            <button class="btn btn-secondary btn-sm" type="button" @click="refreshAll" :disabled="loading">
-              Refresh
-            </button>
-            <span v-if="isSuperadminPreview" class="guardian-preview-pill">Platform preview</span>
-          </div>
-
-          <div class="guardian-spotlight-card">
-            <div class="guardian-spotlight-head">
-              <div>
-                <div class="guardian-spotlight-kicker">Selected child</div>
-                <div class="guardian-spotlight-title">
-                  {{ selectedChild ? childDisplayName(selectedChild) : 'Choose a child to get started' }}
-                </div>
-              </div>
-              <span v-if="selectedChild" :class="['guardian-tone-pill', docStatusTone(selectedChild.document_status)]">
-                {{ formatDocStatus(selectedChild.document_status) }}
-              </span>
-            </div>
-            <p class="guardian-spotlight-copy">
-              <template v-if="selectedChild">
-                {{ selectedChild.organization_name }} · {{ selectedChild.relationship_title || 'Guardian' }}
-              </template>
-              <template v-else>
-                Your dashboard is ready. Pick a dependent to jump into waivers, notes, and documents.
-              </template>
-            </p>
-            <div class="guardian-hero-actions">
-              <button
-                v-if="selectedChild"
-                type="button"
-                class="btn btn-primary btn-sm"
-                @click="activePanel = 'child'"
-              >
-                Open child details
-              </button>
-              <button
-                type="button"
-                class="btn btn-secondary btn-sm"
-                @click="activePanel = 'registrations'"
-              >
-                View registrations
-              </button>
-              <router-link
-                v-if="selectedChild && !selectedChild.guardian_portal_locked && !isSuperadminPreview"
-                class="btn btn-secondary btn-sm"
-                :to="guardianWaiversLink"
-              >
-                Waivers &amp; safety
-              </router-link>
-              <button
-                v-if="isSuperadminPreview || (learningBillingVisible && (!selectedChild || !selectedChild.guardian_portal_locked))"
-                type="button"
-                class="btn btn-secondary btn-sm"
-                @click="activePanel = 'billing'"
-              >
-                Billing
-              </button>
-              <button type="button" class="btn btn-secondary btn-sm" @click="activePanel = 'payment_methods'">
-                Payment &amp; insurance
-              </button>
-            </div>
-          </div>
-        </div>
+      <section class="portal-client-summary">
+        <div class="portal-client-identity"><span class="client-portrait">{{ selectedChild ? initialsFromLabel(childDisplayName(selectedChild)) : '—' }}</span><div><h2>{{ selectedChild ? childDisplayName(selectedChild) : 'Your family' }}</h2><p>{{ selectedChild?.organization_name || currentAgencyName }}</p><span v-if="selectedChild" class="client-status">{{ formatClientStatus(selectedChild.status) }} · {{ selectedChild.relationship_title || 'Linked client' }}</span></div></div>
+        <label class="portal-client-picker">Viewing client<select v-model="selectedChildId"><option :value="null" disabled>Select a client</option><option v-for="child in children" :key="child.client_id" :value="child.client_id">{{ childDisplayName(child) }}</option></select></label>
+        <div class="portal-program-picker"><GuardianProgramSelector :programs="programs" /><button class="btn btn-secondary btn-sm" @click="refreshAll" :disabled="loading">Refresh</button></div>
       </section>
 
-      <section class="guardian-alert-grid">
-        <button type="button" class="guardian-alert-card guardian-alert-card--warm" @click="activePanel = 'registrations'">
-          <div class="guardian-alert-label">Action center</div>
-          <div class="guardian-alert-title">
-            {{ upcomingRegistrationCount ? `${upcomingRegistrationCount} registration${upcomingRegistrationCount === 1 ? '' : 's'} open now` : 'No open registrations right now' }}
-          </div>
-          <div class="guardian-alert-copy">
-            Review available enrollments and claim spots directly from your dashboard.
-          </div>
-        </button>
-
-        <button
-          type="button"
-          class="guardian-alert-card guardian-alert-card--cool"
-          :disabled="!selectedChild"
-          @click="selectedChild ? activePanel = 'child' : null"
-        >
-          <div class="guardian-alert-label">Child snapshot</div>
-          <div class="guardian-alert-title">
-            {{ selectedChild ? formatClientStatus(selectedChild.status) : 'Select a child' }}
-          </div>
-          <div class="guardian-alert-copy">
-            {{ selectedChild
-              ? `${childDisplayName(selectedChild)} · ${formatDocStatus(selectedChild.document_status)} documents`
-              : 'Choose a dependent to review notes, paperwork, and progress.' }}
-          </div>
-        </button>
-
-        <button
-          type="button"
-          class="guardian-alert-card guardian-alert-card--ink"
-          :disabled="!totalEnrolledEventCount"
-          @click="activePanel = 'overview'"
-        >
-          <div class="guardian-alert-label">Enrolled programs</div>
-          <div class="guardian-alert-title">
-            {{ totalEnrolledEventCount ? `${totalEnrolledEventCount} active event${totalEnrolledEventCount === 1 ? '' : 's'}` : 'No active events yet' }}
-          </div>
-          <div class="guardian-alert-copy">
-            Open schedules, event details, and program workspaces from the overview below.
-          </div>
-        </button>
-      </section>
-
-      <div v-if="programs.length === 0 && children.length === 0" class="empty-state">
+      <div v-if="programs.length === 0 && children.length === 0 && !['account','messages','payment_methods','billing'].includes(activePanel)" class="empty-state">
         <p>No children or programs are linked to this guardian account yet.</p>
         <p class="hint">Ask your organization to add you as a guardian on the child’s record.</p>
       </div>
 
       <template v-else>
-        <div class="guardian-workspace-tabs">
-          <button
-            v-for="tab in dashboardTabs"
-            :key="tab.key"
-            type="button"
-            class="guardian-tab"
-            :class="{ active: activePanel === tab.key }"
-            @click="activePanel = tab.key"
-          >
-            <span class="guardian-tab-label">{{ tab.label }}</span>
-            <span class="guardian-tab-meta">{{ tab.meta }}</span>
-          </button>
-
-          <router-link
-            v-if="selectedChild && !selectedChild.guardian_portal_locked && !isSuperadminPreview"
-            class="guardian-tab guardian-tab-link"
-            :to="guardianWaiversLink"
-          >
-            <span class="guardian-tab-label">Waivers &amp; safety</span>
-            <span class="guardian-tab-meta">Forms and pickup details</span>
-          </router-link>
-
-          <button
-            type="button"
-            class="guardian-tab"
-            :class="{ active: activePanel === 'contact' }"
-            @click="activePanel = 'contact'"
-          >
-            <span class="guardian-tab-label">Contacts</span>
-            <span class="guardian-tab-meta">Appointment reminders</span>
-          </button>
-        </div>
-
         <div class="detail guardian-detail">
           <div class="panel guardian-panel">
             <template v-if="activePanel === 'tutoring'">
-              <div class="panel-head">
-                <div class="panel-title">Tutoring dashboard</div>
-                <div class="panel-subtitle">Progress, sessions, and practice for your student</div>
-              </div>
-              <GuardianTutoringDashboard
+              <GuardianTutoringDashboard embedded
+                :key="`${currentAgencyId}-${selectedChildId}`"
                 v-if="selectedChildId"
                 :client-id="selectedChildId"
                 :student-name="selectedChild ? childDisplayName(selectedChild) : 'your student'"
@@ -256,199 +35,12 @@
               <p v-else class="hint">Select a child to view their tutoring dashboard.</p>
             </template>
             <template v-else-if="activePanel === 'overview'">
-              <div class="panel-head">
-                <div class="panel-title">Family overview</div>
-                <div class="panel-subtitle">{{ currentProgramSummary }}</div>
-              </div>
-
-              <template v-if="selectedInlineEvent">
-                <div class="panel-inline-actions">
-                  <button type="button" class="btn btn-secondary btn-sm" @click="selectedInlineEvent = null">
-                    Back to dashboard
-                  </button>
-                </div>
-                <GuardianSkillBuildersEventView
-                  :event-id-prop="selectedInlineEvent.eventId"
-                  :program-event-mode="selectedInlineEvent.programMode"
-                  :inline="true"
-                  :hide-actions="true"
-                />
-              </template>
-
-              <template v-else>
-                <div class="overview-grid">
-                  <section class="overview-card overview-card--feature">
-                    <div class="overview-card-head">
-                      <div>
-                        <div class="overview-card-kicker">Quick actions</div>
-                        <h3>Everything a guardian needs, right here</h3>
-                      </div>
-                    </div>
-                    <div class="quick-actions-grid">
-                      <button type="button" class="quick-action-card" @click="activePanel = 'registrations'">
-                        <div class="quick-action-title">Register for programs</div>
-                        <div class="quick-action-copy">{{ upcomingRegistrationRailSubtitle }}</div>
-                      </button>
-                      <button type="button" class="quick-action-card" @click="activePanel = 'documents'">
-                        <div class="quick-action-title">Documents</div>
-                        <div class="quick-action-copy">Forms, signatures, and required paperwork.</div>
-                      </button>
-                      <button type="button" class="quick-action-card" @click="activePanel = 'dependents'">
-                        <div class="quick-action-title">Dependents</div>
-                        <div class="quick-action-copy">Emergency contacts, allergies, and health info.</div>
-                      </button>
-                      <button type="button" class="quick-action-card" @click="activePanel = 'payment_methods'">
-                        <div class="quick-action-title">Payment &amp; insurance</div>
-                        <div class="quick-action-copy">Saved cards and insurance details on file.</div>
-                      </button>
-                      <button v-if="isSuperadminPreview" type="button" class="quick-action-card" @click="activePanel = 'account'">
-                        <div class="quick-action-title">Preview notes</div>
-                        <div class="quick-action-copy">Family-linked rows stay hidden; tabs above still show where billing and coverage live.</div>
-                      </button>
-                    </div>
-                  </section>
-
-                  <section class="overview-card">
-                    <div class="overview-card-kicker">At a glance</div>
-                    <h3>What needs attention</h3>
-                    <ul class="guardian-insight-list">
-                      <li>
-                        <strong>{{ pendingDocumentCount }}</strong>
-                        <span>dependent{{ pendingDocumentCount === 1 ? '' : 's' }} not fully approved</span>
-                      </li>
-                      <li>
-                        <strong>{{ sbUpcomingGrouped.length }}</strong>
-                        <span>Skill Builders event{{ sbUpcomingGrouped.length === 1 ? '' : 's' }} upcoming</span>
-                      </li>
-                      <li>
-                        <strong>{{ genCurrentEvents.length }}</strong>
-                        <span>general program event{{ genCurrentEvents.length === 1 ? '' : 's' }} active</span>
-                      </li>
-                    </ul>
-                  </section>
-                </div>
-
-                <section class="overview-section">
-                  <div class="overview-section-head">
-                    <div>
-                      <div class="overview-card-kicker">Dependents</div>
-                      <h3>Your family roster</h3>
-                    </div>
-                  </div>
-                  <div class="family-card-grid">
-                    <button
-                      v-for="c in children"
-                      :key="`family-${c.client_id}`"
-                      type="button"
-                      class="family-card"
-                      :class="{ 'family-card--selected': Number(selectedChildId) === Number(c.client_id) }"
-                      @click="openChild(c)"
-                    >
-                      <div class="family-card-head">
-                        <div>
-                          <div class="family-card-title">{{ childDisplayName(c) }}</div>
-                          <div class="family-card-sub">{{ c.organization_name }}</div>
-                        </div>
-                        <span :class="['guardian-tone-pill', c.guardian_portal_locked ? 'tone-muted' : docStatusTone(c.document_status)]">
-                          {{ c.guardian_portal_locked ? '18+ locked' : formatDocStatus(c.document_status) }}
-                        </span>
-                      </div>
-                      <div class="family-card-meta">
-                        <span class="guardian-chip">{{ c.relationship_title || 'Guardian' }}</span>
-                        <span class="guardian-chip guardian-chip-muted">{{ formatClientStatus(c.status) }}</span>
-                        <span v-if="c.initials" class="guardian-chip guardian-chip-muted">{{ c.initials }}</span>
-                      </div>
-                      <div class="family-card-actions">
-                        <span class="family-card-link">Open details</span>
-                        <span v-if="!c.guardian_portal_locked" class="family-card-link family-card-link-muted">Waivers available</span>
-                      </div>
-                    </button>
-                  </div>
-                </section>
-
-                <section class="overview-section">
-                  <div class="overview-section-head">
-                    <div>
-                      <div class="overview-card-kicker">Programs</div>
-                      <h3>Current programs</h3>
-                    </div>
-                  </div>
-                  <div class="program-card-grid">
-                    <button
-                      v-for="p in programs"
-                      :key="`program-${p.id}`"
-                      type="button"
-                      class="program-card"
-                      :class="{ 'program-card--active': isActiveProgram(p) }"
-                      @click="openProgramWorkspace(p)"
-                    >
-                      <div class="program-card-head">
-                        <div class="program-card-title">{{ p.name || 'Program' }}</div>
-                        <span class="guardian-chip">{{ formatOrgType(p.organization_type) }}</span>
-                      </div>
-                      <div class="program-card-copy">
-                        {{ programChildrenLine(p) || 'Select this program to focus your dashboard.' }}
-                      </div>
-                    </button>
-                  </div>
-                </section>
-
-                <section class="overview-section">
-                  <div class="overview-section-head">
-                    <div>
-                      <div class="overview-card-kicker">Enrolled events</div>
-                      <h3>Programs and sessions you can open</h3>
-                    </div>
-                  </div>
-                  <div v-if="programOverviewEvents.length" class="event-card-grid">
-                    <button
-                      v-for="evt in programOverviewEvents"
-                      :key="evt.key"
-                      type="button"
-                      class="event-overview-card"
-                      @click="openInlineEventFromWorkspace(evt)"
-                    >
-                      <div class="event-overview-card-head">
-                        <div class="event-overview-title">{{ evt.title }}</div>
-                        <span class="guardian-chip guardian-chip-muted">
-                          {{ evt.programMode ? 'Program event' : 'Skill Builders' }}
-                        </span>
-                      </div>
-                      <div class="event-overview-meta">{{ evt.metaPrimary }}</div>
-                      <div class="event-overview-meta muted">{{ evt.metaSecondary }}</div>
-                    </button>
-                  </div>
-                  <p v-else class="hint">No active or upcoming enrolled events right now.</p>
-                </section>
-
-                <section v-if="currentAgencyId" class="overview-section overview-section--catalog">
-                  <div class="overview-section-head">
-                    <div>
-                      <div class="overview-card-kicker">Registration spotlight</div>
-                      <h3>Register for upcoming programs</h3>
-                    </div>
-                    <button type="button" class="btn btn-secondary btn-sm" :disabled="regCatalogLoading" @click="fetchRegistrationCatalog">
-                      {{ regCatalogLoading ? 'Loading…' : 'Refresh' }}
-                    </button>
-                  </div>
-                  <div v-if="regCatalogError" class="error" style="font-size: 13px;">{{ regCatalogError }}</div>
-                  <ul v-else-if="registrationPreviewItems.length" class="reg-catalog-list">
-                    <li v-for="item in registrationPreviewItems" :key="`${item.kind}-${item.id}`" class="reg-catalog-row">
-                      <div class="reg-catalog-meta">
-                        <div class="reg-catalog-item-title">{{ item.title }}</div>
-                        <div class="muted small">{{ registrationKindLabel(item.kind) }} · {{ formatRegistrationWhen(item) }}</div>
-                        <div v-if="item.medicaidEligible || item.cashEligible" class="muted small">
-                          {{ registrationPayerLine(item) }}
-                        </div>
-                      </div>
-                      <div class="reg-catalog-actions">
-                        <button type="button" class="btn btn-primary btn-sm" @click="openRegistrationEnroll(item)">Register</button>
-                      </div>
-                    </li>
-                  </ul>
-                  <div v-else class="hint">Nothing is open for registration right now.</div>
-                </section>
-              </template>
+              <template v-if="selectedInlineEvent"><button class="btn btn-secondary" @click="selectedInlineEvent = null">Back to dashboard</button><GuardianSkillBuildersEventView :event-id-prop="selectedInlineEvent.eventId" :program-event-mode="selectedInlineEvent.programMode" :inline="true" :hide-actions="true" /></template>
+              <FamilyPortalHome v-else :agency-id="currentAgencyId" :client-id="selectedChildId" :show-plan="portalPlanAllowed" :learning="standardsLearningVisible" :preview="isSuperadminPreview" :events="programOverviewEvents" :programs="programs" @navigate="navigatePortal" @event="openInlineEventFromWorkspace" @program="openProgramWorkspace" />
+            </template>
+            <template v-else-if="activePanel === 'plan'">
+              <GuardianPlanProgressPanel v-if="portalPlanAllowed" :client-id="selectedChildId" :agency-id="selectedChildAgencyId" :client-type="selectedChildClientType" />
+              <p v-else class="hint">Plan access is not available for this relationship. Contact your care team to review permissions.</p>
             </template>
             <template v-else-if="activePanel === 'registrations'">
               <div class="panel-head">
@@ -762,7 +354,7 @@
                 </div>
 
                 <GuardianPlanProgressPanel
-                  :visible="planProgressVisible"
+                  :visible="planProgressVisible && portalPlanAllowed"
                   :client-id="selectedChildId"
                   :agency-id="selectedChildAgencyId"
                   :client-type="selectedChildClientType"
@@ -843,16 +435,14 @@
                   <div class="label">Password</div>
                   <div class="value">
                     <router-link class="link" :to="changePasswordTo">Change password</router-link>
+                    <button class="btn btn-secondary" type="button" @click="authStore.logout()">Sign out</button>
                   </div>
                 </div>
               </div>
+              <ClinicalDisclosurePanel v-if="!isSuperadminPreview" :agency-id="currentAgencyId" />
             </template>
 
             <template v-else-if="activePanel === 'billing'">
-              <div class="panel-head">
-                <div class="panel-title">Billing</div>
-                <div class="panel-subtitle">Responsible payers, private payment methods, and insurance for each client.</div>
-              </div>
               <div v-if="isSuperadminPreview" class="guardian-preview-surface">
                 <p class="hint" style="margin: 0;">
                   Guardians with a selected child see session charges, balances, and learning billing here when the program has
@@ -860,9 +450,7 @@
                 </p>
               </div>
               <template v-else>
-                <GuardianPaymentInsuranceTab :agency-id="currentAgencyId" :guardian-user-id="authStore.user?.id" />
                 <FamilyLedgerPanel :agency-id="currentAgencyId" :client-id="selectedChildId" />
-                <ClinicalDisclosurePanel :agency-id="currentAgencyId" />
                 <GuardianBillingTab v-if="learningBillingVisible" :agency-id="currentAgencyId" :client-id="selectedChildId" />
               </template>
             </template>
@@ -886,10 +474,6 @@
             </template>
 
             <template v-else-if="activePanel === 'payment_methods'">
-              <div class="panel-head">
-                <div class="panel-title">Payment &amp; Insurance</div>
-                <div class="panel-subtitle">Saved payment methods and insurance information on file.</div>
-              </div>
               <div v-if="isSuperadminPreview" class="guardian-preview-surface">
                 <p class="hint" style="margin: 0;">
                   Saved cards (processor tokens) and insurance profiles from enrollment appear here for guardians. Preview does
@@ -999,7 +583,7 @@
         </div>
       </div>
     </div>
-  </div>
+  </FamilyPortalShell>
 
   <!-- Booking drawer (teleports to body) -->
   <GuardianSessionBookingDrawer
@@ -1020,6 +604,10 @@
 
 <script setup>
 import { computed, onMounted, ref, watch } from 'vue';
+import FamilyPortalShell from '../../components/portal/FamilyPortalShell.vue';
+import FamilyPortalHome from '../../components/portal/FamilyPortalHome.vue';
+import { useBrandingStore } from '../../store/branding';
+const brandingStore = useBrandingStore();
 import { useAuthStore } from '../../store/auth';
 import { useAgencyStore } from '../../store/agency';
 import { useGuardianStore } from '../../store/guardian';
@@ -1086,7 +674,7 @@ const registrationEnrollPayerType = ref('');
 const registrationEnrollSaving = ref(false);
 const registrationEnrollError = ref('');
 
-const activePanel = ref(route.query.panel === 'billing' ? 'billing' : 'overview');
+const activePanel = ref(['overview','tutoring','registrations','documents','child','billing','payment_methods','messages','account','dependents','contact','plan'].includes(route.query.panel) ? route.query.panel : 'overview');
 const selectedChildId = computed({
   get: () => guardianStore.selectedChildId,
   set: (v) => guardianStore.setSelectedChild(v)
@@ -1277,6 +865,28 @@ const dashboardTabs = computed(() => {
   );
   return tabs;
 });
+
+const portalGrants = ref([]);
+let portalGrantRequest = 0;
+const portalPlanAllowed = computed(() => !isSuperadminPreview.value && !!selectedChildId.value && (standardsLearningVisible.value || selectedChild.value?.relationship_type === 'self' || portalGrants.value.some(g => Number(g.clientId) === Number(selectedChildId.value) && Number(g.guardianUserId) === Number(authStore.user?.id) && g.scopes?.includes('treatment_plan'))));
+const portalNavigation = computed(() => {
+  const icons = {overview:'dashboard',tutoring:'dashboard',registrations:'sessions',documents:'tasks',child:'child',dependents:'child',billing:'billing',payment_methods:'shield',account:'account',messages:'messages'};
+  const labels = {overview:standardsLearningVisible.value ? 'Family overview' : 'Dashboard',documents:'Tasks & documents',billing:'Invoices & receipts',payment_methods:'Insurance & payments',child:selectedChild.value?.relationship_type === 'self' ? 'My profile' : 'My client'};
+  const items = dashboardTabs.value.map(t => ({...t,label:labels[t.key] || t.label,icon:icons[t.key]}));
+  if (portalPlanAllowed.value) items.splice(3,0,{key:'plan',label:standardsLearningVisible.value?'Learning plan':'Treatment plan',icon:'plan'});
+  if(selectedChild.value && !selectedChild.value.guardian_portal_locked && !isSuperadminPreview.value && authStore.user?.role==='client_guardian')items.push({key:'waivers',label:'Waivers & safety',icon:'documents'});
+  items.push({key:'contact',label:'Reminder contacts',icon:'support'});
+  return items;
+});
+const portalTitle = computed(() => ['overview','tutoring'].includes(activePanel.value) ? `Welcome${authStore.user?.first_name ? ', ' + authStore.user.first_name : ''}!` : portalNavigation.value.find(t => t.key === activePanel.value)?.label || 'Your portal');
+const portalSubtitle = computed(() => ['overview','tutoring'].includes(activePanel.value) ? `Your ${standardsLearningVisible.value ? 'learning' : 'care'} journey, appointments, and next steps in one place.` : ({billing:'Your assigned balances, payment plans, and downloadable receipts.',payment_methods:'Manage your private insurance coverage and payment methods.',plan:'Review the goals and progress shared with your account.',documents:'Complete forms, review documents, and stay up to date.',messages:'A private connection with your team.'}[activePanel.value] || 'Manage the information shared with your account.'));
+function navigatePortal(key) { if(!portalNavigation.value.some(item => item.key === key))return;if(key==='waivers'){router.push(guardianWaiversLink.value);return;}activePanel.value=key;selectedInlineEvent.value=null;router.replace({query:{...route.query,panel:key}}); }
+watch(() => route.query.panel, key => { if(portalNavigation.value.some(item => item.key === key))activePanel.value=key; });
+watch(() => [currentAgencyId.value,selectedChildId.value,isSuperadminPreview.value], async () => {
+  const request=++portalGrantRequest;portalGrants.value=[];
+  if(!currentAgencyId.value||isSuperadminPreview.value)return;
+  try {const {data}=await api.get('/family-billing/clinical-access',{params:{agencyId:currentAgencyId.value}});if(request===portalGrantRequest)portalGrants.value=data.grants||[];}catch{/* Clinical panels stay hidden until access is confirmed. */}
+},{immediate:true});
 
 const registrationPayerChoiceNeeded = computed(() => {
   const t = registrationEnrollTarget.value;
@@ -2178,6 +1788,9 @@ watch(
 </script>
 
 <style scoped>
+.portal-client-summary{display:flex;align-items:center;gap:28px;padding:26px;background:white;border:1px solid #e2eaf4;border-radius:12px;margin-bottom:24px;box-shadow:0 3px 14px #193e7310;flex-wrap:wrap}.portal-client-identity{display:flex;align-items:center;gap:20px;flex:1;min-width:220px}.client-portrait{width:78px;height:78px;border-radius:50%;background:var(--portal-tint);color:var(--portal-accent);display:grid;place-items:center;font-size:27px;font-weight:700;flex-shrink:0}.portal-client-identity h2{font-size:23px;letter-spacing:-.5px;margin:0}.portal-client-identity p{color:#596d87;margin:5px 0 10px}.client-status{font-size:12px;padding:5px 10px;background:#edf5f2;color:#24614e;border-radius:20px}.portal-client-picker{font-size:12px;color:#526784;display:grid;gap:7px}.portal-client-picker select{padding:10px 12px;border:1px solid #d7e2ee;border-radius:7px;max-width:250px;color:#233957;background:white;font:inherit;font-size:14px}.portal-program-picker{display:grid;gap:10px;max-width:220px;min-width:0}.portal-program-picker :deep(.program-selector){min-width:0;width:100%}.portal-program-picker :deep(.selector-group){min-width:0;width:100%}.portal-program-picker :deep(select){min-width:0;max-width:100%;width:100%}.guardian-layout{display:block!important}.guardian-detail{display:block!important}.guardian-panel{border:0!important;background:transparent!important;padding:0!important;box-shadow:none!important}.guardian-panel :deep(.family-billing),.guardian-panel :deep(.family-ledger){color:#233653}.guardian-panel :deep(h3){color:#162b4b}.guardian-panel :deep(.billing-card){border-color:#e2eaf4;border-radius:12px;box-shadow:0 3px 14px #193e7310}.guardian-panel :deep(button){border-radius:8px}.guardian-panel :deep(.btn-primary){background:var(--portal-accent);color:var(--portal-on-accent);border-color:var(--portal-accent)}
+@media(max-width:760px){.portal-client-summary{padding:18px;gap:18px}.portal-client-identity{min-width:0;flex-basis:100%}.client-portrait{width:60px;height:60px;font-size:22px}.portal-client-identity h2{font-size:21px}.portal-client-picker{flex:1;min-width:0}.portal-client-picker select{width:100%;max-width:100%}.portal-program-picker{max-width:100%;flex:1;min-width:130px}}
+
 .guardian-dashboard {
   padding: 20px;
 }
