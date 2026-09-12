@@ -2,7 +2,7 @@ import test, { after, beforeEach, mock } from 'node:test';
 import assert from 'node:assert/strict';
 import pool from '../../config/database.js';
 import { hasMedicaidCoverage, shouldSuppressInsurancePayment } from '../../utils/insurancePaymentPolicy.js';
-import * as browserPolicy from '../../../../frontend/src/utils/insurancePaymentPolicy.js';
+import * as browserPolicy from '../../../../frontend/src/navigation/insurancePaymentPolicy.js';
 import { validateIntakeBilling } from '../intakeBillingValidation.service.js';
 import { payFamilyCharge } from '../familyBillingPayment.service.js';
 import { encryptFamilyBilling } from '../familyBillingEncryption.service.js';
