@@ -202,6 +202,9 @@ export function defaultTisiLandingConfig() {
       { label: 'Home', href: '/p/tisi' },
       { label: 'Services', href: '/p/tisi/services' },
       { label: 'Who We Help', href: '/p/tisi/who-we-help' },
+      { label: 'Men', href: '/p/tisi/men' },
+      { label: 'Boys', href: '/p/tisi/boys' },
+      { label: 'Athletes', href: '/p/tisi/athletes' },
       { label: 'About', href: '/p/tisi/about' },
       { label: 'Resources', href: '/p/tisi/resources' },
       { label: 'Contact', href: '/p/tisi/contact' }
@@ -282,6 +285,15 @@ export function resolveTisiLandingConfig({ pageMeta, branding } = {}) {
   const primaryNav = primaryNavRaw
     .map((r) => ({ label: String(r?.label || '').trim(), href: String(r?.href || '').trim() }))
     .filter((r) => r.label && r.href);
+
+  // Existing pages can have a saved menu predating the audience pages.
+  // Keep those links and labels while making each audience directly reachable.
+  const missingAudiences = d.primaryNav.filter(item =>
+    ['/p/tisi/men', '/p/tisi/boys', '/p/tisi/athletes'].includes(item.href)
+    && !primaryNav.some(link => link.href.replace(/\/$/, '') === item.href));
+  const audienceIndex = primaryNav.findIndex(item => item.href === '/p/tisi/who-we-help');
+  const contactIndex = primaryNav.findIndex(item => item.href === '/p/tisi/contact');
+  primaryNav.splice(audienceIndex >= 0 ? audienceIndex + 1 : contactIndex >= 0 ? contactIndex : primaryNav.length, 0, ...missingAudiences);
 
   const legalRaw =
     Array.isArray(b.legalFooterLinks) ? b.legalFooterLinks : d.legalFooterLinks;
