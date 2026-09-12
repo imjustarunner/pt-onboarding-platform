@@ -51,6 +51,8 @@ class OfficeEvent {
          e.slot_state,
          e.assigned_provider_id,
          e.booked_provider_id,
+         e.client_id,
+         e.session_context_json,
          CONCAT(COALESCE(u.first_name, ''), ' ', COALESCE(u.last_name, '')) AS provider_name
        FROM office_events e
        LEFT JOIN users u ON u.id = COALESCE(e.booked_provider_id, e.assigned_provider_id)
@@ -210,7 +212,7 @@ class OfficeEvent {
         if (reusable) {
           await conn.execute(
             `UPDATE office_events
-             SET status = ?,
+             SET start_at = ?, end_at = ?, status = ?,
                  slot_state = COALESCE(?, slot_state),
                  booked_provider_id = ?,
                  client_id = COALESCE(?, client_id),
@@ -223,6 +225,8 @@ class OfficeEvent {
                  updated_at = CURRENT_TIMESTAMP
              WHERE id = ?`,
             [
+              normalizedStartAt,
+              normalizedEndAt,
               args.status,
               args.slotState || 'ASSIGNED_BOOKED',
               requestedProviderId,
@@ -236,6 +240,7 @@ class OfficeEvent {
               conflicts[0].id
             ]
           );
+          if (args.sessionContext) await conn.execute('UPDATE office_events SET session_context_json = ? WHERE id = ?', [JSON.stringify(args.sessionContext), conflicts[0].id]);
           return conflicts[0].id;
         }
         throw this.duplicateSlotError(conflicts[0]);
@@ -297,6 +302,7 @@ class OfficeEvent {
           ]
         );
       }
+      if (args.sessionContext) await conn.execute('UPDATE office_events SET session_context_json = ? WHERE id = ?', [JSON.stringify(args.sessionContext), result.insertId]);
       return result.insertId;
     }).then((id) => this.findById(id));
   }
@@ -777,4 +783,3 @@ class OfficeEvent {
 }
 
 export default OfficeEvent;
-

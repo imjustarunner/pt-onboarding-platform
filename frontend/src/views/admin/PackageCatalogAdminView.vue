@@ -61,6 +61,8 @@
         <p v-if="pkg.description" class="desc">{{ pkg.description }}</p>
         <div class="chips">
           <span>{{ pkg.learningProgramClassId ? (pkg.programName || `Program #${pkg.learningProgramClassId}`) : 'Tenant-wide' }}</span>
+          <span v-if="pkg.policies?.bonusSessions">{{ pkg.policies.bonusSessions }} bonus sessions</span>
+          <span v-if="pkg.policies?.freeMisses">{{ pkg.policies.freeMisses }} free misses</span>
           <span>Consume: {{ pkg.consumeOn }}</span>
           <span v-if="pkg.allowedTenantServiceIds?.length">
             {{ pkg.allowedTenantServiceIds.length }} service{{ pkg.allowedTenantServiceIds.length === 1 ? '' : 's' }}
@@ -119,6 +121,11 @@
           <label>List price ($)<input v-model.number="form.priceDollars" type="number" min="0" step="0.01" /></label>
         </div>
 
+        <div class="row2">
+          <label>Included free misses<input v-model.number="form.freeMisses" type="number" min="0" max="10000" /></label>
+          <label>Bonus sessions<input v-model.number="form.bonusSessions" type="number" min="0" max="10000" /></label>
+        </div>
+        <p class="muted">These allowances apply to new purchases. Missed sessions use a free miss, then an available bonus credit, then a paid credit.</p>
         <fieldset class="svc-fieldset">
           <legend>Attach to services <span v-if="form.isPublic">(required for public)</span></legend>
           <p class="muted">Public pages show packages only after the visitor picks a service.</p>
@@ -168,12 +175,13 @@
         </div>
         <label>Late cancel / no-show
           <select v-model="form.latePolicy">
-            <option value="forfeit">Forfeit 1 session</option>
-            <option value="free_rebook">Free rebook</option>
-            <option value="fee">Fee (manual)</option>
+            <option value="forfeit">Use free miss, then bonus, then paid credit</option>
+            <option value="free_rebook">Retain session credit</option>
+            <option value="fee">Charge a missed-appointment fee; retain credit</option>
           </select>
         </label>
 
+        <label v-if="form.latePolicy === 'fee'">Missed-appointment fee ($)<input v-model.number="form.missedFeeDollars" type="number" min="0.01" step="0.01" /></label>
         <div class="toggles">
           <label><input v-model="form.isPublic" type="checkbox" /> Show in guardian / public catalog</label>
           <label><input v-model="form.autoEnrollSubject" type="checkbox" /> Auto-enroll tutoring subject on purchase</label>
@@ -233,6 +241,9 @@ const blankForm = () => ({
   scope: 'tenant',
   learningProgramClassId: '',
   sessionCount: 4,
+  freeMisses: 0,
+  bonusSessions: 0,
+  missedFeeDollars: 0,
   priceDollars: 0,
   consumeOn: 'reserve',
   deliveryMode: '1:1',
@@ -354,6 +365,9 @@ function edit(pkg) {
     scope: pkg.learningProgramClassId ? 'program' : 'tenant',
     learningProgramClassId: pkg.learningProgramClassId ? String(pkg.learningProgramClassId) : '',
     sessionCount: pkg.sessionCount,
+    freeMisses: pkg.policies?.freeMisses || 0,
+    bonusSessions: pkg.policies?.bonusSessions || 0,
+    missedFeeDollars: Number(pkg.policies?.missedFeeCents || 0) / 100,
     priceDollars: (pkg.priceCents || 0) / 100,
     consumeOn: pkg.consumeOn || 'reserve',
     deliveryMode: pkg.domainConfig?.deliveryMode || '1:1',
@@ -407,7 +421,9 @@ function buildPayload() {
       subscriptionInterval: null
     },
     policies: {
-      cancellationNoticeHours: Number(f.cancelHours) || 24,
+      freeMisses: Number(f.freeMisses || 0), bonusSessions: Number(f.bonusSessions || 0),
+      cancellationNoticeHours: Number(f.cancelHours ?? 24),
+      missedFeeCents: Math.round(Number(f.missedFeeDollars || 0) * 100),
       lateCancelPolicy: f.latePolicy,
       noShowPolicy: f.latePolicy,
       expirationDays: f.expirationDays ? Number(f.expirationDays) : null,

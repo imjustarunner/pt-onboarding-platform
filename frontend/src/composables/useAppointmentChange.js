@@ -30,8 +30,13 @@ export function useAppointmentChange() {
     additionalComments: ''
   });
   const preview = ref(null);
+  const workflow = ref(null);
+  const signatureConfirmed = ref(false);
+  const draftLoaded = ref(false);
+  const replacements = ref([]);
 
   const localNarrative = computed(() => {
+    if (workflow.value?.status === 'completed') return workflow.value.narrative;
     if (preview.value?.narrative) return preview.value.narrative;
     return assembleLocalNarrative({
       eventType: facts.eventType,
@@ -59,11 +64,15 @@ export function useAppointmentChange() {
     facts.waiver = { action: 'no', reason: '', comment: '' };
     facts.additionalComments = '';
     preview.value = null;
+    workflow.value = null;
+    signatureConfirmed.value = false;
+    draftLoaded.value = false;
+    replacements.value = [];
     error.value = '';
     step.value = 1;
   }
 
-  function openWizard({ appointmentId: id, context: ctx = {} } = {}) {
+  async function openWizard({ appointmentId: id, context: ctx = {} } = {}) {
     appointmentId.value = Number(id || 0) || null;
     Object.assign(context, {
       clientName: ctx.clientName || '',
@@ -76,6 +85,21 @@ export function useAppointmentChange() {
     });
     resetFacts();
     open.value = true;
+    loading.value = true;
+    try {
+      const r = await api.get(`/appointments/${appointmentId.value}/change`, { skipGlobalLoading: true });
+      workflow.value = r.data?.workflow || null;
+      draftLoaded.value = true;
+      if (workflow.value) {
+        Object.assign(facts, workflow.value.facts);
+        if (!facts.waiver) facts.waiver = { action: 'no', reason: '', comment: '' };
+        if (workflow.value.facts?.clientId) context.clientId = workflow.value.facts.clientId;
+        preview.value = workflow.value.preview;
+        step.value = workflow.value.status === 'draft' ? 1 : 4;
+      }
+    } catch (e) {
+      error.value = e.response?.data?.error?.message || 'Could not load the saved appointment change. Reopen to try again.';
+    } finally { loading.value = false; }
   }
 
   function closeWizard() {
@@ -116,6 +140,7 @@ export function useAppointmentChange() {
       reasons: [...facts.reasons],
       reasonOther: facts.reasonOther || null,
       outreach: [...facts.outreach],
+      reasonKnown: facts.reasonKnown,
       clientId: context.clientId || null,
       replacementAppointmentId: facts.replacementAppointmentId || null,
       waiver,
@@ -158,9 +183,11 @@ export function useAppointmentChange() {
   }
 
   function canContinueFromStep(n) {
+    if (!draftLoaded.value) return false;
     if (n === 1) return !!facts.eventType;
     if (n === 2) {
-      if (facts.eventType === 'void') return true;
+      if (facts.eventType === 'void') return !!String(facts.reasonOther || '').trim();
+      if (facts.eventType === 'rescheduled' && !Number(facts.replacementAppointmentId)) return false;
       if (facts.eventType === 'no_show') {
         if (!facts.outreach.length) return false;
         if (facts.reasonKnown === true && !facts.reasons.length) return false;
@@ -188,16 +215,9 @@ export function useAppointmentChange() {
       return;
     }
     error.value = '';
-    if (step.value === 1 || step.value === 2) {
-      await refreshPreview();
-    }
-    if (step.value === 2) {
-      await refreshPreview();
-    }
+    if (!(await refreshPreview())) return;
     if (step.value < 4) step.value += 1;
-    if (step.value === 3 || step.value === 4) {
-      await refreshPreview();
-    }
+    if (step.value === 2) await loadReplacements();
   }
 
   function goBack() {
@@ -206,26 +226,71 @@ export function useAppointmentChange() {
   }
 
   async function complete() {
-    if (!appointmentId.value) return null;
+    if (!appointmentId.value || !draftLoaded.value || !signatureConfirmed.value) return null;
     saving.value = true;
     error.value = '';
     try {
       const r = await api.post(
         `/appointments/${appointmentId.value}/change/complete`,
-        buildPayload(),
+        { ...buildPayload(), signatureConfirmed: signatureConfirmed.value },
         { skipGlobalLoading: true }
       );
       return r.data;
     } catch (e) {
       error.value = e.response?.data?.error?.message || e.message || 'Failed to complete';
+      // A failed response may follow a persisted signature. Resume those exact facts.
+      try {
+        const saved = await api.get(`/appointments/${appointmentId.value}/change`, { skipGlobalLoading: true });
+        if (saved.data?.workflow && saved.data.workflow.status !== 'draft') {
+          workflow.value = saved.data.workflow;
+          Object.assign(facts, workflow.value.facts);
+          if (!facts.waiver) facts.waiver = { action: 'no', reason: '', comment: '' };
+          preview.value = workflow.value.preview;
+          signatureConfirmed.value = false;
+        }
+      } catch { /* Keep the original completion error visible. */ }
       return null;
     } finally {
       saving.value = false;
     }
   }
 
+  async function loadReplacements() {
+    const appointment = preview.value?.appointment;
+    if (!appointment?.agencyId || !context.clientId || !['canceled', 'rescheduled'].includes(facts.eventType)) return;
+    try {
+      const start = new Date().toISOString().slice(0, 10);
+      const end = new Date(); end.setUTCFullYear(end.getUTCFullYear() + 1);
+      const response = await api.get('/appointments', { params: { agencyId: appointment.agencyId, clientId: context.clientId,
+        windowStart: start, windowEnd: end.toISOString().slice(0, 10) }, skipGlobalLoading: true });
+      replacements.value = (response.data?.appointments || []).filter((a) => Number(a.id) !== appointmentId.value
+        && ['scheduled', 'confirmed', 'client_confirmed', 'draft'].includes(a.status)).map((a) => {
+        const raw = String(a.startAt || '');
+        const date = new Date(/(?:Z|[+-]\d{2}:?\d{2})$/.test(raw) ? raw : raw.replace(' ', 'T') + 'Z');
+        return { id: a.id, label: `${date.toLocaleString([], { timeZone: a.sourceTimezone || 'America/Denver', dateStyle: 'medium', timeStyle: 'short' })} — ${a.title || 'Session'}` };
+      });
+    } catch (e) { error.value = e.response?.data?.error?.message || 'Could not load replacement appointments.'; }
+  }
+
+  async function saveDraft() {
+    if (!appointmentId.value || !draftLoaded.value) return false;
+    saving.value = true;
+    error.value = '';
+    try {
+      await api.put(`/appointments/${appointmentId.value}/change/draft`, buildPayload(), { skipGlobalLoading: true });
+      return true;
+    } catch (e) {
+      error.value = e.response?.data?.error?.message || 'Could not save the draft';
+      return false;
+    } finally { saving.value = false; }
+  }
+
   return {
     open,
+    workflow,
+    replacements,
+    signatureConfirmed,
+    saveDraft,
     step,
     loading,
     saving,

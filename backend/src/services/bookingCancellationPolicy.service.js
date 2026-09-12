@@ -23,7 +23,7 @@ function parseStartAt(startAt) {
   if (!startAt) return null;
   if (startAt instanceof Date) return startAt;
   const s = String(startAt).trim();
-  const d = new Date(s.includes('T') ? s : s.replace(' ', 'T'));
+  const d = new Date(/(?:Z|[+-]\d{2}:?\d{2})$/.test(s) ? s : s.replace(' ', 'T') + 'Z');
   return Number.isNaN(d.getTime()) ? null : d;
 }
 
@@ -98,12 +98,14 @@ export async function resolvePolicyForAppointmentContext({
   cancellationPolicyId = null
 } = {}) {
   let bookingPackageId = null;
+  let catalogPackage = null;
   if (packageEntitlementId) {
     try {
       const ent = await BookingPackage.findEntitlementById(packageEntitlementId, agencyId);
       bookingPackageId = ent?.packageId || null;
+      if (bookingPackageId) catalogPackage = await BookingPackage.findById(bookingPackageId, agencyId);
       if (!businessType && ent?.businessType) businessType = ent.businessType;
-    } catch { /* ignore */ }
+    } catch (error) { throw error; }
   }
   if (!businessType && tenantServiceId) {
     const svc = await TenantService.findById(tenantServiceId, agencyId);
@@ -120,7 +122,17 @@ export async function resolvePolicyForAppointmentContext({
     bookingPackageId,
     appointmentPolicyId: cancellationPolicyId
   });
-  const policy = pickWinningPolicy(candidates, { appointmentPolicyId: cancellationPolicyId });
+  let policy = pickWinningPolicy(candidates, { appointmentPolicyId: cancellationPolicyId });
+  const terms = catalogPackage?.policies;
+  if (terms && (!policy || (!cancellationPolicyId && (SCOPE_RANK[policy.scopeLevel] || 0) < SCOPE_RANK.package))) {
+    const fee = Number(terms.missedFeeCents || 0);
+    const action = (v) => ['release', 'free_rebook'].includes(v) ? 'release' : v === 'fee' ? (fee > 0 ? 'release' : 'review') : v === 'review' ? 'review' : 'forfeit';
+    policy = { id: null, name: `${catalogPackage.name} package policy`, scopeLevel: 'package',
+      noticeHours: Number(terms.cancellationNoticeHours ?? 24), lateFeeCents: terms.lateCancelPolicy === 'fee' ? fee : 0,
+      noShowFeeCents: terms.noShowPolicy === 'fee' ? fee : 0,
+      latePackageAction: action(terms.lateCancelPolicy), noShowPackageAction: action(terms.noShowPolicy),
+      complimentaryCancelsPerPeriod: 0, periodDays: 90, allowClientCancel: true, requireReason: true };
+  }
   return { policy, candidates, bookingPackageId, businessType };
 }
 

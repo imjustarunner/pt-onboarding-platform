@@ -139,12 +139,15 @@ export async function evaluateClaimReadiness({
   }
 
   const [sessions] = await clinicalPool.execute(
-    `SELECT id, claim_blocked_reason FROM clinical_sessions WHERE id = ? AND agency_id = ? AND client_id = ? LIMIT 1`,
+    `SELECT id, encounter_status, claim_blocked_reason FROM clinical_sessions WHERE id = ? AND agency_id = ? AND client_id = ? LIMIT 1`,
     [sessionId, agency, client]
   );
   checks.hasSession = !!sessions?.[0];
   if (!checks.hasSession) {
     return { ready: false, checks, blockers: ['Session does not belong to this client and agency'], warnings, diagnosisCodes: [], noteId: null, planId: null };
+  }
+  if (['no_show', 'cancelled', 'canceled', 'voided', 'rescheduled'].includes(sessions[0].encounter_status)) {
+    blockers.push('Appointment did not occur; insurance claims are blocked');
   }
   if (sessions[0].claim_blocked_reason) blockers.push(sessions[0].claim_blocked_reason);
 

@@ -127,6 +127,9 @@ export const createTenantService = async (req, res, next) => {
     if (!canManageCatalog(req.user?.role)) {
       return res.status(403).json({ error: { message: 'Only admins can create services' } });
     }
+    if (!['admin', 'super_admin'].includes(req.user?.role) && (req.body?.priceCents != null || req.body?.price_cents != null)) {
+      return res.status(403).json({ error: { message: 'Only admin or superadmin can set service rates' } });
+    }
     const agency = await Agency.findById(agencyId);
     const caps = await getCapabilitiesForAgency(agencyId, {
       ensureDefaults: true,
@@ -166,6 +169,9 @@ export const updateTenantService = async (req, res, next) => {
     }
     if (!canManageCatalog(req.user?.role)) {
       return res.status(403).json({ error: { message: 'Only admins can update services' } });
+    }
+    if (!['admin', 'super_admin'].includes(req.user?.role) && ['priceCents', 'price_cents'].some(key => Object.hasOwn(req.body || {}, key))) {
+      return res.status(403).json({ error: { message: 'Only admin or superadmin can set service rates' } });
     }
     const before = await TenantService.findById(serviceId, agencyId);
     const service = await TenantService.update(serviceId, agencyId, req.body || {});

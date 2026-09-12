@@ -54,6 +54,22 @@ function toJsonOrNull(value, fallback = null) {
   return JSON.stringify(value);
 }
 
+function creditAllowance(value) {
+  const n = Number(value ?? 0);
+  if (!Number.isSafeInteger(n) || n < 0 || n > 10000) throw Object.assign(new Error('Credit allowances must be whole numbers from 0 to 10000'), { status: 400 });
+  return n;
+}
+function validateCreditPolicy(policy) {
+  const p = parseJson(policy, {}) || {};
+  creditAllowance(p.freeMisses); creditAllowance(p.bonusSessions);
+  if (!Number.isFinite(Number(p.cancellationNoticeHours ?? 24)) || Number(p.cancellationNoticeHours ?? 24) < 0) {
+    throw Object.assign(new Error('Cancellation notice must be a nonnegative number of hours'), { status: 400 });
+  }
+  if ([p.lateCancelPolicy, p.noShowPolicy].includes('fee') && (!Number.isSafeInteger(Number(p.missedFeeCents)) || Number(p.missedFeeCents) < 1)) {
+    throw Object.assign(new Error('Configure a positive missed-appointment fee for the fee policy'), { status: 400 });
+  }
+}
+
 function mapPackage(r) {
   if (!r) return null;
   return {
@@ -95,6 +111,9 @@ function mapEntitlement(r) {
     sessionsPurchased: Number(r.sessions_purchased || 0),
     sessionsRemaining: Number(r.sessions_remaining || 0),
     sessionsReserved: Number(r.sessions_reserved || 0),
+    freeMissesRemaining: Number(r.free_misses_remaining || 0),
+    bonusSessionsRemaining: Number(r.bonus_sessions_remaining || 0),
+    bonusSessionsReserved: Number(r.bonus_sessions_reserved || 0),
     paymentStatus: String(r.payment_status || 'PENDING'),
     status: String(r.status || 'ACTIVE'),
     practitionerEntitlementId: r.practitioner_entitlement_id == null ? null : Number(r.practitioner_entitlement_id),
@@ -206,6 +225,7 @@ class BookingPackage {
     const packageType = normalizePackageType(data.packageType || data.package_type);
     const billingOptions = data.billingOptions ?? data.billing_options_json ?? DEFAULT_BILLING_OPTIONS;
     const policies = data.policies ?? data.policies_json ?? DEFAULT_POLICIES;
+    validateCreditPolicy(policies);
     const domainConfig = data.domainConfig ?? data.domain_config_json ?? null;
     const isPublic = data.isPublic === true || data.is_public === 1 || data.is_public === true;
     const [result] = await pool.execute(
@@ -277,6 +297,7 @@ class BookingPackage {
     const policies = data.policies !== undefined || data.policies_json !== undefined
       ? (data.policies ?? data.policies_json)
       : existing.policies;
+    validateCreditPolicy(policies);
     const domainConfig = data.domainConfig !== undefined || data.domain_config_json !== undefined
       ? (data.domainConfig ?? data.domain_config_json)
       : existing.domainConfig;
@@ -468,6 +489,8 @@ class BookingPackage {
     }
     const cid = Number(clientId || 0);
     if (!cid) throw Object.assign(new Error('clientId is required'), { status: 400 });
+    const bonus = creditAllowance(pkg.policies?.bonusSessions);
+    const free = creditAllowance(pkg.policies?.freeMisses);
     const conn = await pool.getConnection();
     try {
       await conn.beginTransaction();
@@ -493,14 +516,15 @@ class BookingPackage {
         if (String(row.status) !== 'PENDING') throw Object.assign(new Error('Entitlement is not pending activation'), { status: 409 });
         await conn.execute(
           `UPDATE booking_package_entitlements
-           SET sessions_purchased = ?, sessions_remaining = ?, payment_status = ?, status = 'ACTIVE',
+           SET sessions_purchased = ?, sessions_remaining = ?, bonus_sessions_remaining = ?, free_misses_remaining = ?, payment_status = ?, status = 'ACTIVE',
                learning_program_class_id = ?, purchaser_user_id = COALESCE(?, purchaser_user_id),
                stripe_payment_intent_id = COALESCE(?, stripe_payment_intent_id),
                activated_at = NOW()
            WHERE id = ?`,
           [
             pkg.sessionCount,
-            pkg.sessionCount,
+            pkg.sessionCount + bonus,
+            bonus, free,
             String(paymentStatus || 'PAID'),
             pkg.learningProgramClassId,
             purchaserUserId || null,
@@ -512,10 +536,10 @@ class BookingPackage {
         const [result] = await conn.execute(
           `INSERT INTO booking_package_entitlements
             (agency_id, client_id, package_id, learning_program_class_id, business_type,
-             sessions_purchased, sessions_remaining, sessions_reserved, payment_status, status,
+             sessions_purchased, sessions_remaining, bonus_sessions_remaining, free_misses_remaining, sessions_reserved, payment_status, status,
              practitioner_entitlement_id, purchaser_user_id, stripe_payment_intent_id,
              activated_at, created_by_user_id)
-           VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, 'ACTIVE', ?, ?, ?, NOW(), ?)`,
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, 'ACTIVE', ?, ?, ?, NOW(), ?)`,
           [
             pkg.agencyId,
             cid,
@@ -523,7 +547,8 @@ class BookingPackage {
             pkg.learningProgramClassId,
             pkg.businessType,
             pkg.sessionCount,
-            pkg.sessionCount,
+            pkg.sessionCount + bonus,
+            bonus, free,
             String(paymentStatus || 'PAID'),
             practitionerEntitlementId || null,
             purchaserUserId || null,
@@ -538,6 +563,11 @@ class BookingPackage {
           (agency_id, entitlement_id, client_id, appointment_id, direction, quantity, reason_code, created_by_user_id)
          VALUES (?, ?, ?, NULL, 'CREDIT', ?, 'PACKAGE_PURCHASE', ?)`,
         [pkg.agencyId, entitlementIdNum, cid, pkg.sessionCount, createdByUserId || null]
+      );
+      if (bonus || free) await conn.execute(
+        `INSERT INTO booking_package_ledger (agency_id, entitlement_id, client_id, direction, quantity, reason_code, metadata_json, created_by_user_id)
+         VALUES (?, ?, ?, 'CREDIT', ?, 'PACKAGE_ALLOWANCES', ?, ?)`,
+        [pkg.agencyId, entitlementIdNum, cid, bonus, JSON.stringify({ bonusSessions: bonus, freeMisses: free }), createdByUserId || null]
       );
       await conn.commit();
       return this.findEntitlementById(entitlementIdNum, pkg.agencyId);
@@ -554,57 +584,45 @@ class BookingPackage {
    * Booking reserves capacity for either policy; completion consumes that reservation.
    * Existing consume-on-complete appointments without a reservation are handled by the ledger planner.
    */
-  static async applyAppointmentUsage({
-    entitlementId,
-    agencyId,
-    appointmentId,
-    mode = 'reserve',
-    actorUserId = null
-  } = {}) {
+  static async applyAppointmentUsage({ entitlementId, agencyId, appointmentId, mode = 'reserve', actorUserId = null, connection = null } = {}) {
     if (!Number.isSafeInteger(Number(appointmentId)) || Number(appointmentId) < 1) {
       throw Object.assign(new Error('appointmentId is required for package usage'), { status: 400 });
     }
-    const ent = await this.findEntitlementById(entitlementId, agencyId);
-    if (!ent) throw Object.assign(new Error('Entitlement not available'), { status: 400 });
-    const conn = await pool.getConnection();
+    const conn = connection || await pool.getConnection();
     try {
-      await conn.beginTransaction();
+      if (!connection) await conn.beginTransaction();
       const [rows] = await conn.execute(
-        `SELECT * FROM booking_package_entitlements WHERE id = ? AND agency_id = ? FOR UPDATE`,
-        [ent.id, ent.agencyId]
-      );
-      const row = rows?.[0];
+        `SELECT e.*, p.consume_on FROM booking_package_entitlements e JOIN booking_packages p ON p.id = e.package_id
+         WHERE e.id = ? AND e.agency_id = ? FOR UPDATE`, [entitlementId, agencyId]);
+      const row = rows[0];
       if (!row) throw Object.assign(new Error('Entitlement not available'), { status: 400 });
       const [history] = await conn.execute(
-        `SELECT direction, reason_code FROM booking_package_ledger
+        `SELECT id, direction, reason_code, metadata_json FROM booking_package_ledger
          WHERE entitlement_id = ? AND agency_id = ? AND appointment_id = ? ORDER BY id ASC`,
-        [ent.id, ent.agencyId, Number(appointmentId)]
-      );
-      const change = planPackageUsage({
-        mode, remaining: row.sessions_remaining, reserved: row.sessions_reserved,
-        status: row.status, consumeOn: ent.consumeOn, history
-      });
+        [row.id, agencyId, Number(appointmentId)]);
+      const change = planPackageUsage({ mode, remaining: row.sessions_remaining, reserved: row.sessions_reserved,
+        freeMisses: row.free_misses_remaining, bonusRemaining: row.bonus_sessions_remaining, bonusReserved: row.bonus_sessions_reserved,
+        status: row.status, consumeOn: row.consume_on, history });
       if (change) {
         await conn.execute(
-          `UPDATE booking_package_entitlements
-           SET sessions_remaining = ?, sessions_reserved = ?, status = ? WHERE id = ?`,
-          [change.remaining, change.reserved, change.status, ent.id]
-        );
+          `UPDATE booking_package_entitlements SET sessions_remaining = ?, sessions_reserved = ?, free_misses_remaining = ?,
+           bonus_sessions_remaining = ?, bonus_sessions_reserved = ?, status = ? WHERE id = ?`,
+          [change.remaining, change.reserved, change.freeMisses, change.bonusRemaining, change.bonusReserved, change.status, row.id]);
         await conn.execute(
           `INSERT INTO booking_package_ledger
-           (agency_id, entitlement_id, client_id, appointment_id, direction, quantity, reason_code, created_by_user_id)
-           VALUES (?, ?, ?, ?, ?, 1, ?, ?)`,
-          [ent.agencyId, ent.id, ent.clientId, Number(appointmentId), change.direction, change.reason, actorUserId || null]
-        );
+           (agency_id, entitlement_id, client_id, appointment_id, direction, quantity, reason_code, metadata_json, created_by_user_id)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [agencyId, row.id, row.client_id, Number(appointmentId), change.direction, change.quantity, change.reason, JSON.stringify(change.metadata), actorUserId || null]);
       }
-      await conn.commit();
-      return this.findEntitlementById(ent.id, ent.agencyId);
+      const [updated] = await conn.execute('SELECT * FROM booking_package_entitlements WHERE id = ?', [row.id]);
+      if (!connection) await conn.commit();
+      const applied = change ? { reason: change.reason, ...change.metadata } : null;
+      const prior = history.find((h) => ['SESSION_NOSHOW_FORFEIT', 'MISSED_FREE_MISS'].includes(h.reason_code));
+      return { ...mapEntitlement(updated[0]), appliedUsage: applied || (prior ? { reason: prior.reason_code, ...parseJson(prior.metadata_json, {}) } : null) };
     } catch (e) {
-      try { await conn.rollback(); } catch { /* ignore */ }
+      if (!connection) await conn.rollback();
       throw e;
-    } finally {
-      conn.release();
-    }
+    } finally { if (!connection) conn.release(); }
   }
 }
 

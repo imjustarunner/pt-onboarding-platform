@@ -584,7 +584,7 @@
                       />
                     </div>
                   </div>
-                  <div class="form-group">
+                  <div v-if="canManageSelfPayRates" class="form-group">
                     <label>Provider self-pay override (USD)</label>
                     <input
                       v-model.number="providerSelfPayRateUsd"
@@ -595,7 +595,7 @@
                       :disabled="!canEditUser || providerPublicProfileSaving || !editingProviderPublicProfile"
                     />
                   </div>
-                  <div class="form-group">
+                  <div v-if="canManageSelfPayRates" class="form-group">
                     <label>Provider self-pay note</label>
                     <input
                       v-model="providerSelfPayRateNote"
@@ -604,7 +604,7 @@
                       :disabled="!canEditUser || providerPublicProfileSaving || !editingProviderPublicProfile"
                     />
                   </div>
-                  <div class="form-group">
+                  <div v-if="canManageSelfPayRates" class="form-group">
                     <label>Agency default self-pay (USD)</label>
                     <input
                       v-model.number="agencyDefaultSelfPayRateUsd"
@@ -1538,6 +1538,7 @@
           />
         </div>
 
+        <ProviderBillingSettings v-if="activeTab === 'billing' && canManageSelfPayRates" :provider-id="userId" :agency-id="selectedProviderProfileAgencyId" :agencies="userAgencies.filter(a => !a.organization_type || a.organization_type === 'agency')" />
         <div v-if="activeTab === 'credentialing'" class="tab-panel">
           <CredentialingTab :userId="userId" />
         </div>
@@ -2919,6 +2920,7 @@ import ClinicalInformationTab from '../../components/admin/clinical/ClinicalInfo
 import ProviderClientsTab from '../../components/dashboard/ProviderClientsTab.vue';
 import TasksHub from '../../components/tasks/TasksHub.vue';
 import UserAccountDashboard from '../../components/admin/account/UserAccountDashboard.vue';
+import ProviderBillingSettings from '../../components/admin/ProviderBillingSettings.vue';
 import AccountDashboardCard from '../../components/admin/account/AccountDashboardCard.vue';
 import { USER_ACCOUNT_CONTEXT_KEY } from '../../composables/userAccountContext.js';
 import CredentialingTab from '../../components/admin/CredentialingTab.vue';
@@ -4085,6 +4087,7 @@ const isProviderLikeUser = computed(() => {
   );
 });
 
+const canManageSelfPayRates = computed(() => ['admin', 'super_admin'].includes(authStore.user?.role));
 const tabs = computed(() => {
   // Guardian accounts are portal-only (non-employee): show only basic account info.
   if (isViewingGuardian.value) {
@@ -4126,6 +4129,7 @@ const tabs = computed(() => {
     { id: 'tasks', label: 'Tasks' },
     { id: 'account', label: 'Account' },
     { id: 'benefits', label: 'Benefits' },
+    ...(canManageSelfPayRates.value && isProviderLikeUser.value ? [{ id: 'billing', label: 'Billing' }] : []),
     ...(canViewLifecycleTab.value ? [{ id: 'lifecycle', label: 'Lifecycle' }] : []),
     ...(canViewProviderInfo.value ? [{ id: 'provider_info', label: 'Clinical Information' }] : []),
     ...(canViewCredentialingTab.value ? [{ id: 'credentialing', label: 'Credentialing' }] : []),
@@ -6276,12 +6280,11 @@ const saveProviderPublicProfile = async () => {
       agencyId,
       publicBlurb: providerPublicBlurb.value,
       insurances,
-      selfPayRateCents,
-      selfPayRateNote: providerSelfPayRateNote.value
+      ...(canManageSelfPayRates.value ? { selfPayRateCents, selfPayRateNote: providerSelfPayRateNote.value } : {})
     });
     await api.put(`/users/agency-provider-portal/${agencyId}`, {
       finderIntroBlurb: agencyFinderIntroBlurb.value,
-      defaultSelfPayRateCents: agencyDefaultSelfPayRateCents
+      ...(canManageSelfPayRates.value ? { defaultSelfPayRateCents: agencyDefaultSelfPayRateCents } : {})
     });
     await loadProviderPublicProfile();
     editingProviderPublicProfile.value = false;

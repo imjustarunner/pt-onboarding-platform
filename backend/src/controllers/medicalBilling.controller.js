@@ -3279,7 +3279,9 @@ export const applyEncounterBilling = async (req, res, next) => {
            place_of_service = ?,
            duration_minutes = ?,
            billed_units = ?,
-           claim_blocked_reason = ?,
+           claim_blocked_reason = CASE WHEN claim_blocked_reason LIKE 'SELF_PAY_ONLY:%'
+             OR encounter_status IN ('no_show', 'cancelled', 'canceled', 'voided', 'rescheduled')
+             THEN claim_blocked_reason ELSE ? END,
            updated_at = CURRENT_TIMESTAMP
          WHERE id = ?`,
         [

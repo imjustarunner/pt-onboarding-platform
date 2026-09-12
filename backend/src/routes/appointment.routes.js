@@ -11,7 +11,11 @@ import {
   cancelAppointmentHandler,
   settleAppointmentHandler,
   previewAppointmentChangeHandler,
-  completeAppointmentChangeHandler
+  completeAppointmentChangeHandler,
+  getAppointmentChangeHandler,
+  saveAppointmentChangeDraftHandler,
+  listAppointmentWaiversHandler,
+  decideAppointmentWaiverHandler
 } from '../controllers/appointment.controller.js';
 import {
   evaluateAppointmentCancel,
@@ -31,6 +35,7 @@ import {
 const router = express.Router();
 
 router.use(authenticate, requireActiveStatus);
+router.get('/waiver-reviews', listAppointmentWaiversHandler);
 
 // Timeline, reminders and change previews share the same financial boundary as the appointment.
 router.use('/:id', async (req, res, next) => {
@@ -51,6 +56,9 @@ router.post('/:id/context', getAppointmentContext);
 router.patch('/:id', updateAppointmentHandler);
 router.post('/:id/cancel', cancelAppointmentHandler);
 router.post('/:id/settle', settleAppointmentHandler);
+router.post('/:id/change/waiver-decision', decideAppointmentWaiverHandler);
+router.get('/:id/change', getAppointmentChangeHandler);
+router.put('/:id/change/draft', saveAppointmentChangeDraftHandler);
 router.post('/:id/change/preview', previewAppointmentChangeHandler);
 router.post('/:id/change/complete', completeAppointmentChangeHandler);
 router.post('/:id/evaluate-cancel', evaluateAppointmentCancel);

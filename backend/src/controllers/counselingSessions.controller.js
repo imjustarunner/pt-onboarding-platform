@@ -1,5 +1,6 @@
 import pool from '../config/database.js';
 import User from '../models/User.model.js';
+import Appointment from '../models/Appointment.model.js';
 import CounselingSession from '../models/CounselingSession.model.js';
 import CounselingSessionNotes from '../models/CounselingSessionNotes.model.js';
 import CounselingSessionChat from '../models/CounselingSessionChat.model.js';
@@ -369,11 +370,14 @@ export async function createSession(req, res) {
 
 /** Create or reopen a counseling video room linked to an office booking (client optional). */
 export async function findOrCreateFromAppointment(req, res) {
+  let bookingLock;
+  let locked = false;
+  let bookingLockName;
   try {
     const appointmentId = Number(req.body?.appointmentId || req.params?.appointmentId || 0);
     const agencyId = Number(req.body?.agencyId || req.user?.agencyId || req.headers['x-agency-id'] || 0);
     // Never trust a spoofed providerUserId from the body — the authenticated caller is the provider.
-    const providerUserId = Number(req.user?.id || 0);
+    let providerUserId = Number(req.user?.id || 0);
     const title = req.body?.title || 'Telehealth Session';
     if (!appointmentId || !agencyId || !providerUserId) {
       return res.status(400).json({
@@ -383,6 +387,17 @@ export async function findOrCreateFromAppointment(req, res) {
 
     await assertCanCreateCounselingSession(req, agencyId);
 
+    const appointment = await Appointment.findById(appointmentId);
+    if (!appointment || Number(appointment.agencyId) !== agencyId) return res.status(404).json({ error: { message: 'Appointment not found in this agency' } });
+    const managesSchedule = ['super_admin', 'admin', 'staff', 'support', 'clinical_practice_assistant'].includes(String(req.user.role));
+    if (Number(appointment.providerUserId) !== providerUserId && !managesSchedule) return res.status(403).json({ error: { message: 'Only the appointment provider or a schedule manager can open this video session' } });
+    providerUserId = Number(appointment.providerUserId);
+
+    bookingLock = await pool.getConnection();
+    bookingLockName = `counseling_appointment:${appointmentId}`;
+    const [[lock]] = await bookingLock.execute('SELECT GET_LOCK(?, 8) AS acquired', [bookingLockName]);
+    locked = Number(lock?.acquired) === 1;
+    if (!locked) return res.status(409).json({ error: { message: 'This video room is being created; retry the same appointment' } });
     let session = await CounselingSession.findByAppointmentId(appointmentId);
     if (!session) {
       const roomUniqueName = `counseling-appt-${appointmentId}-${Date.now()}`;
@@ -427,6 +442,9 @@ export async function findOrCreateFromAppointment(req, res) {
     if (err.status) return res.status(err.status).json({ error: { message: err.message } });
     console.error('[counseling.fromAppointment]', err);
     return res.status(500).json({ error: { message: 'Failed to open video for booking' } });
+  } finally {
+    try { if (locked) await bookingLock.execute('SELECT RELEASE_LOCK(?)', [bookingLockName]); }
+    finally { bookingLock?.release(); }
   }
 }
 

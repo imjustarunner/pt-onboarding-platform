@@ -1,4 +1,6 @@
-import { moveOfficeSessionSeries } from '../services/officeSessionMove.service.js';
+import { moveOfficeSessionSeries, moveOfficeSessionOccurrence } from '../services/officeSessionMove.service.js';
+import { wallMysqlToUtcMysql, normalizeWallMysqlDatetime, utcDateToZonedParts } from '../utils/zonedWallTime.util.js';
+import { scheduleSessionNotifications } from '../services/sessionNotification.service.js';
 import Appointment from '../models/Appointment.model.js';
 import { settleAppointment, cancelAppointment } from '../services/appointment.service.js';
 import { assertAppointmentClients } from '../services/appointmentClinicalLink.service.js';
@@ -235,10 +237,14 @@ async function resolveAgencyForProviderOffice({ providerId, officeLocationId, pr
   return match || officeAgencyIds[0] || null;
 }
 
-async function cancelGoogleForOfficeEventIds(eventIds = []) {
+async function cancelGoogleForOfficeEventIds(eventIds = [], actorUserId = null) {
   for (const id of eventIds) {
     const eid = Number(id || 0);
     if (!eid) continue;
+    const appointment = await Appointment.findByOfficeEventId(eid);
+    if (appointment && ['scheduled', 'confirmed'].includes(appointment.status)) {
+      await cancelAppointment(appointment.id, { actorUserId, actorRole: 'provider', reason: 'Office session canceled' });
+    }
     try {
       // eslint-disable-next-line no-await-in-loop
       await GoogleCalendarService.cancelBookedOfficeEvent({ officeEventId: eid });
@@ -616,7 +622,7 @@ async function resolveStandingAssignmentIdsForEvent(ev, officeLocationId, { appl
   };
 }
 
-async function cancelFutureEventsForStandingAssignment(standingAssignmentId, fromDateYmd) {
+async function cancelFutureEventsForStandingAssignment(standingAssignmentId, fromDateYmd, actorUserId = null) {
   const sid = Number(standingAssignmentId || 0);
   if (!sid) return [];
   const tz = await resolveTimezoneForStandingAssignment(sid);
@@ -638,7 +644,7 @@ async function cancelFutureEventsForStandingAssignment(standingAssignmentId, fro
      WHERE id IN (${eventIds.map(() => '?').join(',')})`,
     eventIds
   );
-  await cancelGoogleForOfficeEventIds(eventIds);
+  await cancelGoogleForOfficeEventIds(eventIds, actorUserId);
   return eventIds;
 }
 
@@ -2103,7 +2109,7 @@ export const cancelEvent = async (req, res, next) => {
         updated = await OfficeEvent.cancelOccurrence({ eventId: eid });
       }
       await ProviderVirtualSlotAvailability.deactivateBySourceEventId(eid);
-      await cancelGoogleForOfficeEventIds([eid]);
+      await cancelGoogleForOfficeEventIds([eid], req.user.id);
       const legacyAssignmentRowsRemoved = await removeLegacyAssignmentOverlap();
       const resolved = await resolveStandingAssignmentIdsForEvent(ev, officeLocationId, { applyToSet: false });
       const releasedStandingAssignmentIds = [];
@@ -2154,7 +2160,7 @@ export const cancelEvent = async (req, res, next) => {
     if (!targetAssignmentIds.length && !recurrenceGroupId) {
       const updated = await OfficeEvent.cancelOccurrence({ eventId: eid });
       await ProviderVirtualSlotAvailability.deactivateBySourceEventId(eid);
-      await cancelGoogleForOfficeEventIds([eid]);
+      await cancelGoogleForOfficeEventIds([eid], req.user.id);
       const legacyAssignmentRowsRemoved = await removeLegacyAssignmentOverlap();
       const releasedStandingAssignmentIds = [];
       for (const sid of resolved.targetAssignmentIds) {
@@ -2257,7 +2263,7 @@ export const cancelEvent = async (req, res, next) => {
       // eslint-disable-next-line no-await-in-loop
       await ProviderVirtualSlotAvailability.deactivateBySourceEventId(id);
     }
-    await cancelGoogleForOfficeEventIds(eventIds);
+    await cancelGoogleForOfficeEventIds(eventIds, req.user.id);
     await logDeleteAuditAction({
       officeLocationId,
       actorUserId: req.user?.id,
@@ -2450,7 +2456,7 @@ export const superAdminPurgeFutureBookedSlot = async (req, res, next) => {
     } catch (e) {
       if (e?.code !== 'ER_NO_SUCH_TABLE') throw e;
     }
-    await cancelGoogleForOfficeEventIds(eventIds);
+    await cancelGoogleForOfficeEventIds(eventIds, req.user.id);
 
     return res.json({
       ok: true,
@@ -2566,7 +2572,7 @@ export const cancelAssignment = async (req, res, next) => {
         eventIds
       );
     }
-    await cancelGoogleForOfficeEventIds(eventIds);
+    await cancelGoogleForOfficeEventIds(eventIds, req.user.id);
 
     if ((scope === 'week' || scope === 'until') && targetAssignmentIds.length) {
       const pauseUntilDate = scope === 'week'
@@ -2712,7 +2718,7 @@ export const forfeitEvent = async (req, res, next) => {
     if (scope === 'occurrence') {
       const updated = await OfficeEvent.cancelOccurrence({ eventId: eid });
       await ProviderVirtualSlotAvailability.deactivateBySourceEventId(eid);
-      await cancelGoogleForOfficeEventIds([eid]);
+      await cancelGoogleForOfficeEventIds([eid], req.user.id);
       const legacyAssignmentRowsRemoved = await removeLegacyAssignmentOverlap({ rangeStart: startAt, rangeEndExclusive: endAt });
       return res.json({
         ok: true,
@@ -2930,13 +2936,13 @@ export const forfeitEvent = async (req, res, next) => {
           } catch (e) {
             if (e?.code !== 'ER_NO_SUCH_TABLE') throw e;
           }
-          await cancelGoogleForOfficeEventIds(strictEventIds);
+          await cancelGoogleForOfficeEventIds(strictEventIds, req.user.id);
         }
       }
     } catch (strictCleanupError) {
       // Do not fail core forfeit if strict cleanup best-effort pass fails.
     }
-    await cancelGoogleForOfficeEventIds(eventIds);
+    await cancelGoogleForOfficeEventIds(eventIds, req.user.id);
 
     return res.json({
       ok: true,
@@ -2960,6 +2966,60 @@ export const forfeitEvent = async (req, res, next) => {
   }
 };
 
+export const rescheduleOfficeEvent = async (req, res, next) => {
+  try {
+    const officeLocationId = Number(req.params.officeId);
+    const event = await OfficeEvent.findById(Number(req.params.eventId));
+    if (!event || Number(event.office_location_id) !== officeLocationId) return res.status(404).json({ error: { message: 'Office session not found' } });
+    if (!(await requireOfficeAccess(req, officeLocationId))) return res.status(403).json({ error: { message: 'Access denied' } });
+    const providerId = Number(event.booked_provider_id || event.assigned_provider_id);
+    if (!canManageSchedule(req.user.role) && providerId !== Number(req.user.id)) return res.status(403).json({ error: { message: 'Only the session provider or a schedule manager can move this session' } });
+    const timeZone = await resolveOfficeTimezone(officeLocationId);
+    const newRoomId = Number(req.body.roomId || event.room_id);
+    const room = await OfficeRoom.findById(newRoomId);
+    if (!room || Number(room.location_id) !== officeLocationId) return res.status(400).json({ error: { message: 'Choose a room in this office' } });
+    const startWall = normalizeWallMysqlDatetime(req.body.startAt);
+    const endWall = normalizeWallMysqlDatetime(req.body.endAt);
+    if (!startWall || !endWall) return res.status(400).json({ error: { message: 'Valid local start and end times are required' } });
+    const startAt = wallMysqlToUtcMysql(startWall, timeZone);
+    const endAt = wallMysqlToUtcMysql(endWall, timeZone);
+    if (req.body.scope === 'future') {
+      if (!event.standing_assignment_id) return res.status(409).json({ error: { message: 'This occurrence is independent of an office series; move only this session' } });
+      const oldStart = event.start_at instanceof Date ? event.start_at : new Date(`${String(event.start_at).replace(' ', 'T')}Z`);
+      const oldEnd = event.end_at instanceof Date ? event.end_at : new Date(`${String(event.end_at).replace(' ', 'T')}Z`);
+      const oldParts = utcDateToZonedParts(oldStart, timeZone);
+      if (Number(startWall.slice(14, 16)) !== Number(oldParts.minute)
+          || Date.parse(`${endAt.replace(' ', 'T')}Z`) - Date.parse(`${startAt.replace(' ', 'T')}Z`) !== oldEnd - oldStart) {
+        return res.status(400).json({ error: { message: 'A series move must preserve session duration and start minute; adjust one occurrence separately' } });
+      }
+      req.params.assignmentId = String(event.standing_assignment_id);
+      req.body = { ...req.body, newRoomId, newWeekday: new Date(`${startWall.slice(0, 10)}T12:00:00Z`).getUTCDay(), newHour: Number(startWall.slice(11, 13)) };
+      return rescheduleStandingAssignment(req, res, next);
+    }
+    if (req.body.scope && req.body.scope !== 'single' && req.body.scope !== 'occurrence') return res.status(400).json({ error: { message: 'Choose one occurrence or all upcoming sessions' } });
+    await OfficeScheduleMaterializer.materializeWeek({ officeLocationId, weekStartRaw: startWall.slice(0, 10), createdByUserId: req.user.id, force: true });
+    const movedEventIds = await moveOfficeSessionOccurrence({ eventId: event.id, newRoomId, startAt, endAt, timeZone, actorUserId: req.user.id });
+    OfficeScheduleMaterializer.invalidateOffice(officeLocationId);
+    const warnings = await refreshMovedOfficeNotifications(movedEventIds);
+    return res.json({ ok: true, movedEventIds, warnings });
+  } catch (error) {
+    if (error.movedEventIds) return res.status(409).json({ error: { message: error.message, code: error.code }, movedEventIds: error.movedEventIds });
+    next(error);
+  }
+};
+
+async function refreshMovedOfficeNotifications(eventIds) {
+  const warnings = [];
+  for (const id of eventIds) {
+    try {
+      await GoogleCalendarService.upsertBookedOfficeEvent({ officeEventId: id });
+      const appointment = await Appointment.findByOfficeEventId(id);
+      if (appointment) await scheduleSessionNotifications(appointment.id, { replace: true });
+    } catch { warnings.push(`Session ${id} moved; calendar or reminder synchronization needs a retry.`); }
+  }
+  return warnings;
+}
+
 export const rescheduleStandingAssignment = async (req, res, next) => {
   try {
     const { officeId, assignmentId } = req.params;
@@ -2967,16 +3027,15 @@ export const rescheduleStandingAssignment = async (req, res, next) => {
     const sid = parseInt(assignmentId, 10);
     if (!officeLocationId || !sid) return res.status(400).json({ error: { message: 'Invalid ids' } });
 
-    if (!canManageSchedule(req.user.role)) {
-      return res.status(403).json({ error: { message: 'Only staff/admin can reschedule office slots' } });
-    }
-
     const ok = await requireOfficeAccess(req, officeLocationId);
     if (!ok) return res.status(403).json({ error: { message: 'Access denied' } });
 
     const assignment = await OfficeStandingAssignment.findById(sid);
     if (!assignment || Number(assignment.office_location_id) !== Number(officeLocationId)) {
       return res.status(404).json({ error: { message: 'Standing assignment not found' } });
+    }
+    if (!canManageSchedule(req.user.role) && Number(assignment.provider_id) !== Number(req.user.id)) {
+      return res.status(403).json({ error: { message: 'Only the assigned provider or a schedule manager can move this office series' } });
     }
     if (!assignment.is_active) {
       return res.status(409).json({ error: { message: 'That standing assignment is no longer active.' } });
@@ -3039,10 +3098,7 @@ export const rescheduleStandingAssignment = async (req, res, next) => {
     const cancelledEventIds = [];
     const updated = await OfficeStandingAssignment.findById(sid);
     OfficeScheduleMaterializer.invalidateOffice(officeLocationId);
-    for (const officeEventId of movedEventIds) {
-      try { await GoogleCalendarService.upsertBookedOfficeEvent({ officeEventId }); }
-      catch { /* existing calendar retry process handles remote failures */ }
-    }
+    const warnings = await refreshMovedOfficeNotifications(movedEventIds);
 
     await materializeOfficeWeeks({
       officeLocationId,
@@ -3086,6 +3142,7 @@ export const rescheduleStandingAssignment = async (req, res, next) => {
       ok: true,
       assignment: updated,
       movedEventIds,
+      warnings,
       cancelledEventCount: cancelledEventIds.length,
       notificationSent,
       from: { roomId: oldRoomId, weekday: oldWeekday, hour: oldHour, label: oldSlotLabel },

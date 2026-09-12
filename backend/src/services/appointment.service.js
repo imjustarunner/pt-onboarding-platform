@@ -1,3 +1,4 @@
+import { getAgencySelfPayOnly, resolveSelfPayQuote } from './selfPayRates.service.js';
 import pool from '../config/database.js';
 import AgencyServiceLocation from '../models/AgencyServiceLocation.model.js';
 import { ensureAppointmentClinicalLink, assertAppointmentClients } from './appointmentClinicalLink.service.js';
@@ -192,8 +193,13 @@ export async function createAppointment({
     throw Object.assign(new Error('endAt must be after startAt'), { status: 400 });
   }
 
+  const selfPayOnly = await getAgencySelfPayOnly(aid);
   let businessType = null;
   let service = null;
+  if (!tenantServiceId && serviceCode) {
+    const matching = (await TenantService.listForAgency(aid)).filter(s => s.serviceCode === serviceCode);
+    if (matching.length === 1) tenantServiceId = matching[0].id;
+  }
   if (tenantServiceId) {
     service = await TenantService.findById(tenantServiceId, aid);
     if (!service || !service.isActive) {
@@ -218,11 +224,11 @@ export async function createAppointment({
   serviceCode = serviceCode || service?.serviceCode || null;
   const clinicalBooking = !packageEntitlementId && (['mental_health', 'healthcare'].includes(businessType)
     || (!businessType && bookingClients.some((client) => ['clinical', 'school'].includes(client.client_type))));
-  if (clinicalBooking && !serviceCode) throw Object.assign(new Error('A service code is required for a clinical session'), { status: 400 });
+  if (clinicalBooking && !selfPayOnly && !serviceCode) throw Object.assign(new Error('A service code is required for a clinical session'), { status: 400 });
   if (providerUserId) {
     const memberships = await User.getAgencies(providerUserId);
     if (!memberships.some((a) => Number(a.id) === aid)) throw Object.assign(new Error('Provider is not assigned to this agency'), { status: 403 });
-    if (clinicalBooking) {
+    if (clinicalBooking && !selfPayOnly) {
       const provider = await User.findById(providerUserId);
       await validateSchedulingSelection({ agencyId: aid, userRole: provider.role, providerCredentialText: provider.credential,
         appointmentTypeCode: 'SESSION', serviceCode, modality, scheduledStartAt: start, scheduledEndAt: end });
@@ -269,6 +275,10 @@ export async function createAppointment({
     /* defaults ok */
   }
 
+  const settlementMode = packageEntitlementId ? 'package' : selfPayOnly ? 'self_pay_only' : (billing?.settlementMode || service?.billingMethod || 'self_pay');
+  const selfPayQuote = !packageEntitlementId && ['self_pay', 'self_pay_only'].includes(settlementMode)
+    ? await resolveSelfPayQuote({ agencyId: aid, providerId: providerUserId, service,
+      durationMinutes: (new Date(end.replace(' ', 'T') + 'Z') - new Date(start.replace(' ', 'T') + 'Z')) / 60000 }) : null;
   const appt = await Appointment.create({
     agencyId: aid,
     parentAgencyId,
@@ -314,13 +324,15 @@ export async function createAppointment({
   } catch {
     /* columns may not exist yet */
   }
-  if (billing || service || packageEntitlementId) {
-    await Appointment.upsertBilling(appt.id, billing || {
-      settlementMode: packageEntitlementId ? 'package' : (service?.billingMethod || 'self_pay'),
-      amountCents: service?.priceCents ?? null,
+  if (billing || service || packageEntitlementId || selfPayOnly) {
+    await Appointment.upsertBilling(appt.id, {
+      ...billing,
+      settlementMode,
+      amountCents: packageEntitlementId ? null : (billing?.amountCents ?? selfPayQuote?.amountCents ?? service?.priceCents ?? null),
+      notes: [billing?.notes, selfPayQuote ? `Self-pay rate at booking: ${JSON.stringify(selfPayQuote)}` : null].filter(Boolean).join('\n') || null,
       packageEntitlementId: packageEntitlementId || null,
-      responsibleClientId: participants?.[0]?.clientId || null,
-      responsiblePartyType: 'client'
+      responsibleClientId: billing?.responsibleClientId || participants?.[0]?.clientId || participants?.[0]?.client_id || null,
+      responsiblePartyType: billing?.responsiblePartyType || 'client'
     });
   }
 
@@ -355,9 +367,10 @@ export async function createAppointment({
   return getAppointmentBundle(appt.id);
 }
 
-export async function updateAppointment(appointmentId, patch = {}, { actorUserId = null } = {}) {
+export async function updateAppointment(appointmentId, patch = {}, { actorUserId = null, settleOutcome = true } = {}) {
   const existing = await Appointment.findById(appointmentId);
   if (!existing) return null;
+  let moved = false;
 
   if (patch.packageEntitlementId !== undefined && Number(patch.packageEntitlementId || 0) !== Number(existing.packageEntitlementId || 0)) {
     throw Object.assign(new Error('Cancel and rebook to change the package so the original reservation is released correctly'), { status: 409 });
@@ -374,19 +387,28 @@ export async function updateAppointment(appointmentId, patch = {}, { actorUserId
   if (patch.startAt != null || patch.endAt != null) {
     const { assertAppointmentCanMove } = await import('./appointmentScheduleSync.service.js');
     // Office adapter repeats existing times during linkage refresh; this is not a move.
-    const start = patch.startAt != null ? toMysqlDateTime(patch.startAt) : existing.startAt;
-    const end = patch.endAt != null ? toMysqlDateTime(patch.endAt) : existing.endAt;
+    const start = patch.startAt != null ? toMysqlDateTime(patch.startAt, patch.timeZone || existing.sourceTimezone) : existing.startAt;
+    const end = patch.endAt != null ? toMysqlDateTime(patch.endAt, patch.timeZone || existing.sourceTimezone) : existing.endAt;
     const sameInstant = (a, b) => new Date(a instanceof Date ? a : String(a).replace(' ', 'T').replace(/Z?$/, 'Z')).getTime()
       === new Date(b instanceof Date ? b : String(b).replace(' ', 'T').replace(/Z?$/, 'Z')).getTime();
     if (!start || !end || new Date(start).getTime() >= new Date(end).getTime()) throw Object.assign(new Error('endAt must be after startAt'), { status: 400 });
-    if (!sameInstant(start, existing.startAt) || !sameInstant(end, existing.endAt)) await assertAppointmentCanMove(existing);
+    moved = !sameInstant(start, existing.startAt) || !sameInstant(end, existing.endAt);
+    if (moved) await assertAppointmentCanMove(existing);
   }
-  if (patch.serviceCode !== undefined || patch.addonServiceCodes !== undefined || patch.providerUserId !== undefined) {
+  const currentBilling = (patch.billing || patch.serviceCode !== undefined || patch.addonServiceCodes !== undefined || patch.providerUserId !== undefined)
+    ? await Appointment.getBilling(appointmentId) : null;
+  if (currentBilling?.settlementMode !== 'self_pay_only' && (patch.serviceCode !== undefined || patch.addonServiceCodes !== undefined || patch.providerUserId !== undefined)) {
     const provider = await User.findById(patch.providerUserId || existing.providerUserId);
     const codes = [patch.serviceCode ?? existing.serviceCode, ...(patch.addonServiceCodes ?? existing.addonServiceCodes ?? [])].filter(Boolean);
     for (const code of codes) await validateSchedulingSelection({ agencyId: existing.agencyId, userRole: provider.role,
       providerCredentialText: provider.credential, appointmentTypeCode: 'SESSION', serviceCode: code,
       modality: patch.modality || existing.modality });
+  }
+  if (moved && existing.officeEventId) {
+    const { moveAppointmentOffice } = await import('./appointmentCalendarMaintenance.service.js');
+    await moveAppointmentOffice(existing,
+      patch.startAt != null ? toMysqlDateTime(patch.startAt, patch.timeZone || existing.sourceTimezone) : existing.startAt,
+      patch.endAt != null ? toMysqlDateTime(patch.endAt, patch.timeZone || existing.sourceTimezone) : existing.endAt, actorUserId);
   }
   if (patch.participants) {
     const mode = participantModeFromList(patch.participants);
@@ -394,11 +416,14 @@ export async function updateAppointment(appointmentId, patch = {}, { actorUserId
     await Appointment.replaceParticipants(appointmentId, patch.participants);
   }
   if (patch.billing) {
-    await Appointment.upsertBilling(appointmentId, patch.billing);
+    if (currentBilling?.settlementMode === 'self_pay_only' && patch.billing.settlementMode && patch.billing.settlementMode !== 'self_pay_only') {
+      throw Object.assign(new Error('Cancel and rebook to change a self-pay-only appointment to insurance billing'), { status: 409 });
+    }
+    await Appointment.upsertBilling(appointmentId, { ...currentBilling, ...patch.billing });
   }
 
-  const startAt = patch.startAt != null ? toMysqlDateTime(patch.startAt) : existing.startAt;
-  const endAt = patch.endAt != null ? toMysqlDateTime(patch.endAt) : existing.endAt;
+  const startAt = patch.startAt != null ? toMysqlDateTime(patch.startAt, patch.timeZone || existing.sourceTimezone) : existing.startAt;
+  const endAt = patch.endAt != null ? toMysqlDateTime(patch.endAt, patch.timeZone || existing.sourceTimezone) : existing.endAt;
   const prevStatus = String(existing.status || '').toLowerCase();
   const updatePatch = {
     ...patch,
@@ -426,15 +451,16 @@ export async function updateAppointment(appointmentId, patch = {}, { actorUserId
   const nextStatus = updatePatch.status != null
     ? String(updatePatch.status).toLowerCase()
     : prevStatus;
-  if (nextStatus !== prevStatus && (nextStatus === 'completed' || nextStatus === 'no_show')) {
-    try {
+  if (settleOutcome && (nextStatus === 'completed' || nextStatus === 'no_show')) {
       settlement = await settleAppointmentOutcome(appointmentId, {
         outcome: nextStatus,
         actorUserId
       });
-    } catch (e) {
-      settlement = { settled: false, reason: 'SETTLE_ERROR', error: e.message };
-    }
+  }
+
+  if (moved) {
+    const { refreshAppointmentCalendar } = await import('./appointmentCalendarMaintenance.service.js');
+    await refreshAppointmentCalendar(await Appointment.findById(appointmentId), actorUserId);
   }
 
   const bundle = await getAppointmentBundle(appointmentId);
@@ -547,6 +573,8 @@ export async function cancelAppointment(appointmentId, {
     } catch (error) { throw error; }
   }
   // review: leave reservation as-is for staff resolution
+  const { releaseAppointmentCalendar } = await import('./appointmentCalendarMaintenance.service.js');
+  await releaseAppointmentCalendar(existing, actorUserId);
 
   return { ...bundle, cancellationEvaluation: evaluation };
 }
@@ -572,12 +600,21 @@ export async function upsertAppointmentForOfficeBook({
   serviceCode = null,
   clinicalSessionId = null,
   packageEntitlementId = null,
-  strict = false
+  strict = false,
+  preserveParticipants = false
 } = {}) {
+  let linkageLock;
+  let linkageLockName;
+  let linkageLocked = false;
   try {
     const aid = Number(agencyId || 0);
     const oid = Number(officeEventId || 0);
     if (!aid || !oid) return null;
+    linkageLock = await pool.getConnection();
+    linkageLockName = `office_appointment:${oid}`;
+    const [[lock]] = await linkageLock.execute('SELECT GET_LOCK(?, 8) AS acquired', [linkageLockName]);
+    linkageLocked = Number(lock?.acquired) === 1;
+    if (!linkageLocked) throw Object.assign(new Error('This office session is being linked; retry the same booking'), { status: 409 });
 
     const asUtc = (value) => value instanceof Date ? value.toISOString()
       : value ? String(value).replace(' ', 'T').replace(/Z?$/, 'Z') : null;
@@ -601,9 +638,9 @@ export async function upsertAppointmentForOfficeBook({
         status: ['scheduled', 'confirmed'].includes(existing.status) ? 'confirmed' : existing.status,
         clinicalSessionId: clinicalSessionId || existing.clinicalSessionId,
         serviceCode: serviceCode || existing.serviceCode,
-        participants: participants.length ? participants : undefined,
+        participants: !preserveParticipants && participants.length ? participants : undefined,
         source: 'office_book'
-      }, { actorUserId });
+      }, { actorUserId, settleOutcome: false });
     }
 
     return createAppointment({
@@ -629,6 +666,9 @@ export async function upsertAppointmentForOfficeBook({
     if (strict) throw e;
     console.warn('[upsertAppointmentForOfficeBook]', e?.message || e);
     return null;
+  } finally {
+    try { if (linkageLocked) await linkageLock.execute('SELECT RELEASE_LOCK(?)', [linkageLockName]); }
+    finally { linkageLock?.release(); }
   }
 }
 

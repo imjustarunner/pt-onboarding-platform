@@ -5,27 +5,27 @@
 import pool from '../config/database.js';
 import Appointment from '../models/Appointment.model.js';
 import ClientMedicaidAttendanceStrike from '../models/ClientMedicaidAttendanceStrike.model.js';
-import ClientNotes from '../models/ClientNotes.model.js';
-import AgencyMedicalServiceCode from '../models/AgencyMedicalServiceCode.model.js';
 import User from '../models/User.model.js';
+import BookingPackage from '../models/BookingPackage.model.js';
+import { runSignedAppointmentChange } from './appointmentChangeWorkflow.service.js';
+import { releaseAppointmentCalendar } from './appointmentCalendarMaintenance.service.js';
+import { cancelPendingReminders } from './appointmentReminder.service.js';
 import { evaluateCancel } from './bookingCancellationPolicy.service.js';
 import {
-  cancelAppointment,
   getAppointmentBundle,
-  settleAppointment,
   updateAppointment
 } from './appointment.service.js';
 import { applyMissedSessionPolicy } from './practitionerPackage.service.js';
 
 /**
  * Hard rule: not-occurring appointments never create a primary session insurance claim.
- * Secondary / missed-fee claim drafts are opt-in only via agency_medical_service_codes override.
+ * Signing this documentation never creates a claim, including missed-fee drafts.
  */
 const DEFAULT_INSURANCE_CLAIM_POLICY = Object.freeze({
   willCreatePrimarySessionClaim: false,
   willCreateSecondaryClaim: false,
   willAutoSubmit: false,
-  reason: 'Not-occurring appointments do not create insurance claims by default.'
+  reason: 'This appointment change creates a nonbillable session note and does not create an insurance claim.'
 });
 
 const INITIATOR_LABELS = {
@@ -73,11 +73,14 @@ function safeInt(v) {
   return Number.isInteger(n) && n > 0 ? n : null;
 }
 
-function formatApptWhen(isoOrMysql) {
+function formatApptWhen(isoOrMysql, timeZone = 'America/Denver') {
   if (!isoOrMysql) return null;
-  const d = new Date(String(isoOrMysql).includes('T') ? isoOrMysql : String(isoOrMysql).replace(' ', 'T'));
+  const raw = String(isoOrMysql);
+  const d = isoOrMysql instanceof Date ? isoOrMysql : new Date(/(?:Z|[+-]\d{2}:?\d{2})$/.test(raw) ? raw : raw.replace(' ', 'T') + 'Z');
   if (Number.isNaN(d.getTime())) return null;
   return d.toLocaleString('en-US', {
+    timeZone,
+    timeZoneName: 'short',
     month: 'long',
     day: 'numeric',
     year: 'numeric',
@@ -139,183 +142,6 @@ async function loadAgencyStrikePolicyEnabled(agencyId) {
   } catch {
     return false;
   }
-}
-
-function triggerKeyForClassification(classification, eventType) {
-  const c = String(classification || '').toLowerCase();
-  const et = String(eventType || '').toLowerCase();
-  if (et === 'no_show' || c === 'no_show') return 'no_show';
-  if (c.includes('late_cancel') || c === 'late_cancel') return 'late_cancel';
-  return null;
-}
-
-async function resolveSessionServiceCode(appointment) {
-  const clinicalSessionId = safeInt(appointment?.clinicalSessionId);
-  if (clinicalSessionId) {
-    try {
-      const { default: ClinicalSession } = await import('../models/clinical/ClinicalSession.model.js');
-      const session = await ClinicalSession.findById(clinicalSessionId);
-      const code = session?.service_code || session?.effective_service_code;
-      if (code) return String(code).trim().toUpperCase();
-    } catch { /* optional */ }
-  }
-  if (appointment?.tenantServiceId) {
-    try {
-      const [rows] = await pool.execute(
-        `SELECT service_code FROM tenant_services WHERE id = ? LIMIT 1`,
-        [Number(appointment.tenantServiceId)]
-      );
-      const code = rows?.[0]?.service_code;
-      if (code) return String(code).trim().toUpperCase();
-    } catch { /* optional */ }
-  }
-  return null;
-}
-
-async function resolveMissedBillingOverride({ agencyId, appointment, classification, eventType }) {
-  const trigger = triggerKeyForClassification(classification, eventType);
-  const base = {
-    ...DEFAULT_INSURANCE_CLAIM_POLICY,
-    mode: 'none',
-    sourceServiceCode: null,
-    claimServiceCode: null,
-    trigger,
-    applies: false
-  };
-  if (!trigger || ['void', 'advance_cancel', 'advance_reschedule'].includes(String(classification || ''))) {
-    return base;
-  }
-  const sourceCode = await resolveSessionServiceCode(appointment);
-  if (!sourceCode || !agencyId) return { ...base, sourceServiceCode: sourceCode };
-  let row = null;
-  try {
-    row = await AgencyMedicalServiceCode.findByAgencyAndCode(agencyId, sourceCode);
-  } catch {
-    return { ...base, sourceServiceCode: sourceCode };
-  }
-  if (!row) return { ...base, sourceServiceCode: sourceCode };
-
-  const mode = String(row.missed_billing_mode || 'none').toLowerCase();
-  const triggers = String(row.missed_billing_triggers || 'no_show,late_cancel')
-    .split(',')
-    .map((t) => t.trim().toLowerCase())
-    .filter(Boolean);
-  const applies = mode !== 'none' && triggers.includes(trigger);
-  const claimCode = row.missed_billing_service_code
-    ? String(row.missed_billing_service_code).toUpperCase()
-    : null;
-
-  return {
-    willCreatePrimarySessionClaim: false,
-    willCreateSecondaryClaim: applies && mode === 'secondary_claim_draft',
-    willAutoSubmit: false,
-    reason: applies
-      ? (mode === 'secondary_claim_draft'
-        ? `Opt-in override on ${sourceCode}: draft secondary claim${claimCode ? ` using ${claimCode}` : ''} for billing review (not auto-submitted).`
-        : `Opt-in override on ${sourceCode}: record missed fee on appointment ledger only (no insurance claim).`)
-      : DEFAULT_INSURANCE_CLAIM_POLICY.reason,
-    mode: applies ? mode : 'none',
-    sourceServiceCode: sourceCode,
-    claimServiceCode: claimCode,
-    trigger,
-    applies
-  };
-}
-
-/**
- * Block primary session claim; optionally queue fee or draft secondary claim per override.
- * Never auto-submits to a clearinghouse.
- */
-async function applyMissedBillingArtifacts({
-  appointment,
-  clientId,
-  classification,
-  eventType,
-  feeCents = 0,
-  override = null,
-  actorUserId = null,
-  waiveDirect = false
-}) {
-  const out = {
-    primarySessionClaimBlocked: true,
-    feeLedger: null,
-    secondaryClaimDraft: null
-  };
-
-  const clinicalSessionId = safeInt(appointment?.clinicalSessionId);
-  if (clinicalSessionId) {
-    try {
-      const clinicalPool = (await import('../config/clinicalDatabase.js')).default;
-      const encounterStatus = String(eventType) === 'no_show' ? 'no_show' : 'canceled';
-      await clinicalPool.execute(
-        `UPDATE clinical_sessions
-         SET encounter_status = ?,
-             claim_blocked_reason = ?,
-             updated_at = CURRENT_TIMESTAMP
-         WHERE id = ?`,
-        [
-          encounterStatus,
-          'Appointment did not occur — primary session claim blocked by appointment change workflow',
-          clinicalSessionId
-        ]
-      );
-    } catch (e) {
-      console.warn('[appointmentChange] claim block on session failed', e?.message || e);
-    }
-  }
-
-  if (waiveDirect || !override?.applies) {
-    // Still block primary claim even when no override.
-    return out;
-  }
-
-  if (override.mode === 'fee_ledger_only') {
-    const amount = feeCents > 0 ? feeCents : Number(appointment?.cancellationFeeCents || 0);
-    if (amount > 0) {
-      try {
-        await Appointment.upsertBilling(appointment.id, {
-          amountCents: amount,
-          paymentStatus: 'fee_pending',
-          notes: `Missed-appointment fee (${override.trigger || eventType}); not an insurance claim`
-        });
-        out.feeLedger = { amountCents: amount, paymentStatus: 'fee_pending' };
-      } catch (e) {
-        console.warn('[appointmentChange] fee ledger failed', e?.message || e);
-      }
-    }
-  }
-
-  if (override.mode === 'secondary_claim_draft' && clinicalSessionId && clientId) {
-    try {
-      const ClinicalClaim = (await import('../models/clinical/ClinicalClaim.model.js')).default;
-      const claim = await ClinicalClaim.create({
-        clinicalSessionId,
-        agencyId: appointment.agencyId,
-        clientId,
-        claimStatus: 'PENDING',
-        amountCents: feeCents || 0,
-        metadataJson: {
-          kind: 'missed_appointment_secondary',
-          sourceServiceCode: override.sourceServiceCode,
-          claimServiceCode: override.claimServiceCode || override.sourceServiceCode,
-          trigger: override.trigger,
-          appointmentId: appointment.id,
-          autoSubmit: false,
-          note: 'Draft only — billing team must review before submit. Primary session code was not billed.'
-        },
-        createdByUserId: actorUserId
-      });
-      out.secondaryClaimDraft = {
-        id: claim?.id || null,
-        status: 'PENDING',
-        claimServiceCode: override.claimServiceCode || override.sourceServiceCode
-      };
-    } catch (e) {
-      console.warn('[appointmentChange] secondary claim draft failed', e?.message || e);
-    }
-  }
-
-  return out;
 }
 
 /**
@@ -416,51 +242,29 @@ async function notifyThirdStrikeWaived({
   return { notifiedUserIds: [...recipientIds] };
 }
 
-async function findNextAppointment({ agencyId, clientId, afterStartAt, excludeId }) {
-  const aid = safeInt(agencyId);
-  const cid = safeInt(clientId);
-  if (!aid || !cid || !afterStartAt) return null;
-  const [rows] = await pool.execute(
-    `SELECT a.id, a.start_at, a.end_at, a.status, a.title
-     FROM appointments a
-     INNER JOIN appointment_participants ap ON ap.appointment_id = a.id AND ap.client_id = ?
-     WHERE a.agency_id = ?
-       AND a.id <> ?
-       AND a.start_at > ?
-       AND a.status IN ('draft','confirmed','client_confirmed','reschedule_requested')
-     ORDER BY a.start_at ASC
-     LIMIT 1`,
-    [cid, aid, Number(excludeId || 0), afterStartAt]
-  );
-  const r = rows?.[0];
-  if (!r) return null;
-  return {
-    id: Number(r.id),
-    startAt: r.start_at,
-    endAt: r.end_at,
-    status: r.status,
-    title: r.title,
-    displayWhen: formatApptWhen(r.start_at)
-  };
-}
-
-async function loadPackageBalanceHint({ agencyId, clientId, packageEntitlementId, providerUserId }) {
+async function loadPackageBalanceHint({ agencyId, clientId, packageEntitlementId, providerUserId, appointmentId }) {
   if (!packageEntitlementId && !(agencyId && clientId)) {
     return null;
   }
   try {
     if (packageEntitlementId) {
       const [rows] = await pool.execute(
-        `SELECT e.id, e.sessions_remaining, e.free_rebooks_remaining, e.status,
+        `SELECT e.id, e.sessions_remaining + e.sessions_reserved AS sessions_remaining, e.free_misses_remaining AS free_rebooks_remaining, e.bonus_sessions_remaining, e.bonus_sessions_reserved, e.status,
                 p.name AS package_name
          FROM booking_package_entitlements e
-         LEFT JOIN booking_packages p ON p.id = e.booking_package_id
-         WHERE e.id = ? LIMIT 1`,
-        [Number(packageEntitlementId)]
+         LEFT JOIN booking_packages p ON p.id = e.package_id
+         WHERE e.id = ? AND e.agency_id = ? AND e.client_id = ? LIMIT 1`,
+        [Number(packageEntitlementId), Number(agencyId), Number(clientId)]
       );
       const r = rows?.[0];
       if (r) {
+        const [history] = await pool.execute(`SELECT direction, metadata_json FROM booking_package_ledger WHERE entitlement_id = ? AND appointment_id = ? ORDER BY id DESC LIMIT 1`, [r.id, appointmentId]);
+        const last = history[0];
+        const meta = typeof last?.metadata_json === 'string' ? JSON.parse(last.metadata_json) : last?.metadata_json;
+        const ownsBonusReservation = last?.direction === 'RESERVE' && meta?.creditBucket === 'bonus';
         return {
+          bonusSessionsRemaining: Number(r.bonus_sessions_remaining || 0) + Number(r.bonus_sessions_reserved || 0),
+          bonusAvailableForMiss: Number(r.bonus_sessions_remaining || 0) + (ownsBonusReservation ? 1 : 0),
           entitlementId: Number(r.id),
           sessionsRemaining: Number(r.sessions_remaining || 0),
           freeMissesRemaining: Number(r.free_rebooks_remaining || 0),
@@ -469,12 +273,13 @@ async function loadPackageBalanceHint({ agencyId, clientId, packageEntitlementId
         };
       }
     }
-  } catch { /* table may differ */ }
+    if (packageEntitlementId) throw Object.assign(new Error('Selected package entitlement was not found'), { status: 409 });
+  } catch (error) { if (packageEntitlementId) throw error; }
 
   try {
     const [rows] = await pool.execute(
       `SELECT e.id, e.sessions_remaining, e.free_rebooks_remaining, e.status,
-              p.name AS package_name
+              p.name AS package_name, p.missed_session_policy_json
        FROM practitioner_client_package_entitlements e
        LEFT JOIN practitioner_session_packages p ON p.id = e.package_id
        WHERE e.agency_id = ? AND e.client_id = ? AND e.status = 'ACTIVE'
@@ -488,6 +293,7 @@ async function loadPackageBalanceHint({ agencyId, clientId, packageEntitlementId
         sessionsRemaining: Number(r.sessions_remaining || 0),
         freeMissesRemaining: Number(r.free_rebooks_remaining || 0),
         packageName: r.package_name || 'Package',
+        policy: typeof r.missed_session_policy_json === 'string' ? JSON.parse(r.missed_session_policy_json) : r.missed_session_policy_json,
         source: 'practitioner_package'
       };
     }
@@ -558,17 +364,32 @@ function determineConsequenceModel({
     };
   }
 
+  if (isMedicaid && qualifying) return { model: 'none', label: 'No missed-appointment fee', feeCents: 0, packageAction: 'release' };
+
+  if (packageBalance?.source === 'booking_package' && qualifying
+      && !['forfeit', 'late_forfeit'].includes(evaluation.recommendedPackageAction)) {
+    if (Number(evaluation.recommendedFeeCents) > 0) return { model: 'fee', label: 'Package missed-appointment fee', feeCents: Number(evaluation.recommendedFeeCents), packageAction: 'release', summary: 'A missed-appointment fee applies; the session credit is retained.' };
+    return { model: 'none', label: 'Package session retained', feeCents: 0, packageAction: 'release',
+      summary: 'The appointment reservation will be released; no session credit is consumed.' };
+  }
   if (packageBalance && qualifying) {
-    const free = Number(packageBalance.freeMissesRemaining || 0);
+    const policy = packageBalance.policy || { type: 'forfeit' };
+    if (packageBalance.source === 'practitioner_package' && policy.type === 'fee') {
+      return { model: 'fee', label: 'Package missed-session fee', feeCents: Number(policy.feeCents || 0),
+        summary: 'A missed-session fee applies under the package policy.' };
+    }
+    const free = packageBalance.source === 'practitioner_package' && policy.type !== 'free_rebook' ? 0 : Number(packageBalance.freeMissesRemaining || 0);
     const sessions = Number(packageBalance.sessionsRemaining || 0);
+    const bonus = Number(packageBalance.bonusSessionsRemaining || 0);
+    const useBonus = Number(packageBalance.bonusAvailableForMiss || 0) > 0;
     if (free > 0) {
       return {
         model: 'package',
         label: 'Plan / Package-Based',
         feeCents: 0,
         packageAction: 'free_miss',
-        before: { sessionsRemaining: sessions, freeMissesRemaining: free },
-        after: { sessionsRemaining: sessions, freeMissesRemaining: free - 1 },
+        before: { sessionsRemaining: sessions, freeMissesRemaining: free, bonusSessionsRemaining: bonus },
+        after: { sessionsRemaining: sessions, freeMissesRemaining: free - 1, bonusSessionsRemaining: bonus },
         summary: 'Free miss used. No session credit deducted.'
       };
     }
@@ -576,13 +397,13 @@ function determineConsequenceModel({
       model: 'package',
       label: 'Plan / Package-Based',
       feeCents: 0,
-      packageAction: 'session_credit',
-      before: { sessionsRemaining: sessions, freeMissesRemaining: free },
+      packageAction: useBonus ? 'bonus_credit' : 'session_credit',
+      before: { sessionsRemaining: sessions, freeMissesRemaining: free, bonusSessionsRemaining: bonus },
       after: {
         sessionsRemaining: Math.max(0, sessions - 1),
-        freeMissesRemaining: free
+        freeMissesRemaining: free, bonusSessionsRemaining: Math.max(0, bonus - (useBonus ? 1 : 0))
       },
-      summary: 'One session credit applies to the missed appointment.'
+      summary: useBonus ? 'One bonus session credit applies to the missed appointment.' : 'One paid session credit applies to the missed appointment.'
     };
   }
 
@@ -593,7 +414,7 @@ function determineConsequenceModel({
       label: 'Eligible non-Medicaid — missed-appointment fee',
       feeCents,
       packageAction: evaluation?.recommendedPackageAction || 'forfeit',
-      summary: `A $${(feeCents / 100).toFixed(2)} missed-appointment fee applies per agency policy.`
+      summary: 'A missed-appointment fee applies per agency policy.'
     };
   }
 
@@ -685,7 +506,7 @@ export function assembleAppointmentChangeNarrative({
     } else if (waiver?.action === 'recommend') {
       sentences.push(
         consequence.summary
-          || `A $${((consequence.feeCents || 0) / 100).toFixed(2)} missed-appointment fee will be assessed in accordance with agency policy.`
+          || 'A missed-appointment fee will be assessed in accordance with agency policy.'
       );
       sentences.push(
         `${actorTitle} recommends that the fee consequence be waived${waiver.reason ? ` due to ${String(waiver.reason).replace(/_/g, ' ')}` : ''}. The recommendation is pending administrative review.`
@@ -701,9 +522,9 @@ export function assembleAppointmentChangeNarrative({
             ? `, and ${consequence.after.sessionsRemaining} session credit${consequence.after.sessionsRemaining === 1 ? '' : 's'} remain.`
             : '.')
       );
-    } else if (consequence.packageAction === 'session_credit') {
+    } else if (['session_credit', 'bonus_credit'].includes(consequence.packageAction)) {
       sentences.push(
-        'The client\'s included free miss had previously been used; therefore, one session credit was applied to the missed appointment in accordance with the client\'s package terms'
+        `No free miss was available; one ${consequence.packageAction === 'bonus_credit' ? 'bonus' : 'paid'} session credit was applied to the missed appointment in accordance with the client's package terms`
           + (consequence.after?.sessionsRemaining != null
             ? `. ${consequence.after.sessionsRemaining} session credit${consequence.after.sessionsRemaining === 1 ? '' : 's'} remain.`
             : '.')
@@ -711,7 +532,7 @@ export function assembleAppointmentChangeNarrative({
     }
     if (waiver?.action === 'recommend') {
       sentences.push(
-        `${actorTitle} recommends that the session-credit consequence be waived${waiver.reason ? ` due to ${String(waiver.reason).replace(/_/g, ' ')}` : ''}. The recommendation is pending administrative review.`
+        `${actorTitle} recommends that the ${consequence.packageAction === 'free_miss' ? 'free-miss usage' : 'session-credit consequence'} be waived${waiver.reason ? ` due to ${String(waiver.reason).replace(/_/g, ' ')}` : ''}. The recommendation is pending administrative review.`
       );
     } else if (waiver?.action === 'waive' || waiver?.action === 'waived') {
       sentences.push(
@@ -760,7 +581,11 @@ export async function previewAppointmentChange(appointmentId, facts = {}, { acto
   const bundle = await getAppointmentBundle(appointmentId, { includeTimeline: false });
   if (!bundle) throw Object.assign(new Error('Appointment not found'), { status: 404 });
 
+  const participants = await Appointment.listParticipants(appointmentId);
   const clientId = safeInt(facts.clientId) || (await resolveBillingClientId(appointmentId));
+  if (!clientId || !participants.some((p) => Number(p.clientId) === clientId)) {
+    throw Object.assign(new Error('Select a client attached to this appointment'), { status: 400 });
+  }
   const eventType = String(facts.eventType || '').toLowerCase();
   if (!['canceled', 'no_show', 'rescheduled', 'void'].includes(eventType)) {
     throw Object.assign(new Error('eventType is required'), { status: 400 });
@@ -771,7 +596,7 @@ export async function previewAppointmentChange(appointmentId, facts = {}, { acto
         appointment: bundle,
         actorRole,
         clientId,
-        waive: !!facts.waive
+        waive: false
       })
     : {
         isLate: eventType === 'no_show',
@@ -790,8 +615,8 @@ export async function previewAppointmentChange(appointmentId, facts = {}, { acto
       waive: false
     }).catch(() => null);
     if (fullEval) {
-      evaluation.recommendedFeeCents = fullEval.recommendedFeeCents;
-      evaluation.recommendedPackageAction = fullEval.recommendedPackageAction;
+      evaluation.recommendedFeeCents = fullEval.policy?.noShowFeeCents ?? fullEval.recommendedFeeCents;
+      evaluation.recommendedPackageAction = fullEval.policy?.noShowPackageAction || 'forfeit';
       evaluation.policy = fullEval.policy;
       evaluation.cancelDeadlineAt = fullEval.cancelDeadlineAt;
       evaluation.noticeHours = fullEval.policy?.noticeHours;
@@ -799,6 +624,8 @@ export async function previewAppointmentChange(appointmentId, facts = {}, { acto
     evaluation.isLate = true;
     evaluation.withinNotice = false;
   }
+
+  if (!evaluation.allowed) throw Object.assign(new Error(evaluation.blockReason || 'This cancellation is not allowed'), { status: 403 });
 
   const { classification, isLate, isMissed, providerCaused } = classifyEvent({
     eventType,
@@ -808,11 +635,11 @@ export async function previewAppointmentChange(appointmentId, facts = {}, { acto
 
   const payer = await loadClientPayerHint(clientId);
   const strikePolicyEnabled = await loadAgencyStrikePolicyEnabled(bundle.agencyId);
-  const packageBalance = await loadPackageBalanceHint({
+  const packageBalance = bundle.clinicalSessionId && !bundle.packageEntitlementId ? null : await loadPackageBalanceHint({
     agencyId: bundle.agencyId,
     clientId,
     packageEntitlementId: bundle.packageEntitlementId,
-    providerUserId: bundle.providerUserId
+    providerUserId: bundle.providerUserId, appointmentId: bundle.id
   });
 
   let consequence = determineConsequenceModel({
@@ -847,28 +674,24 @@ export async function previewAppointmentChange(appointmentId, facts = {}, { acto
     };
   }
 
-  const nextAppointment =
-    safeInt(facts.replacementAppointmentId)
-      ? await Appointment.findById(facts.replacementAppointmentId).then((a) =>
-          a
-            ? {
-                id: a.id,
-                startAt: a.startAt,
-                endAt: a.endAt,
-                status: a.status,
-                title: a.title,
-                displayWhen: formatApptWhen(a.startAt)
-              }
-            : null
-        )
-      : await findNextAppointment({
-          agencyId: bundle.agencyId,
-          clientId,
-          afterStartAt: bundle.startAt,
-          excludeId: bundle.id
-        });
+  let nextAppointment = null;
+  if (safeInt(facts.replacementAppointmentId)) {
+    const replacement = await Appointment.findById(facts.replacementAppointmentId);
+    const replacementParticipants = replacement ? await Appointment.listParticipants(replacement.id) : [];
+    if (!replacement || replacement.id === bundle.id || Number(replacement.agencyId) !== Number(bundle.agencyId)
+      || !replacementParticipants.some((p) => Number(p.clientId) === clientId)
+      || !['scheduled', 'confirmed', 'client_confirmed', 'draft'].includes(replacement.status)) {
+      throw Object.assign(new Error('Replacement must be another active appointment for this client in this agency'), { status: 400 });
+    }
+    nextAppointment = { id: replacement.id, startAt: replacement.startAt, displayWhen: formatApptWhen(replacement.startAt) };
+  }
 
   const canWaive = isAdminRole(actorRole);
+  if (canWaive && ['waive', 'waived'].includes(facts.waiver?.action) && ['fee', 'package'].includes(consequence.model)) {
+    consequence = { ...consequence, feeCents: 0, packageAction: consequence.model === 'package' ? 'waived' : 'release',
+      after: consequence.before ? { ...consequence.before } : undefined,
+      summary: 'The consequence is waived. No fee or package allowance will be used.' };
+  }
   const waiverOptions = {
     canWaiveDirectly: canWaive && ['fee', 'package'].includes(consequence.model),
     canRecommendWaiver: !canWaive && ['fee', 'package'].includes(consequence.model),
@@ -880,12 +703,7 @@ export async function previewAppointmentChange(appointmentId, facts = {}, { acto
     showStrikeActions: consequence.model === 'medicaid_strike'
   };
 
-  const insuranceClaim = await resolveMissedBillingOverride({
-    agencyId: bundle.agencyId,
-    appointment: bundle,
-    classification,
-    eventType
-  });
+  const insuranceClaim = DEFAULT_INSURANCE_CLAIM_POLICY;
 
   const narrative = assembleAppointmentChangeNarrative({
     eventType,
@@ -923,7 +741,7 @@ export async function previewAppointmentChange(appointmentId, facts = {}, { acto
       clientId,
       packageEntitlementId: bundle.packageEntitlementId,
       clinicalSessionId: bundle.clinicalSessionId || null,
-      displayWhen: formatApptWhen(bundle.startAt)
+      displayWhen: formatApptWhen(bundle.startAt, bundle.sourceTimezone)
     },
     eventType,
     classification,
@@ -944,20 +762,21 @@ export async function previewAppointmentChange(appointmentId, facts = {}, { acto
     consequence,
     strike: strikePreview,
     nextAppointment,
+    waiverRequested: facts.waiver?.action === 'recommend',
     waiverOptions,
     insuranceClaim,
-    narrative,
+    narrative: `Scheduled ${bundle.title || 'session'}: ${formatApptWhen(bundle.startAt, bundle.sourceTimezone)}${providerName ? ` with ${providerName}` : ''}. ${narrative} No service was rendered. This note is nonbillable.`,
     actorRole,
     canWaive
   };
 }
 
-export async function completeAppointmentChange(
+async function applyAppointmentChange(
   appointmentId,
   facts = {},
-  { actorUserId = null, actorRole = 'staff' } = {}
+  { actorUserId = null, actorRole = 'staff' } = {},
+  preview
 ) {
-  const preview = await previewAppointmentChange(appointmentId, facts, { actorUserId, actorRole });
   const eventType = preview.eventType;
   const clientId = preview.appointment.clientId;
   const waiveDirect =
@@ -971,109 +790,42 @@ export async function completeAppointmentChange(
   let strikeNotify = null;
   let billingArtifacts = null;
 
-  if (eventType === 'void') {
-    resultBundle = await updateAppointment(
-      appointmentId,
-      {
-        status: 'voided',
-        cancellationReason: facts.reasonOther || (facts.reasons || []).join(', ') || 'Voided',
-        canceledAt: new Date().toISOString().slice(0, 19).replace('T', ' '),
-        canceledByUserId: actorUserId,
-        updatedByUserId: actorUserId,
-        cancellationRecommendationJson: {
-          workflow: 'appointment_change',
-          eventType: 'void',
-          facts
-        }
-      },
-      { actorUserId }
-    );
-  } else if (eventType === 'no_show') {
-    resultBundle = await updateAppointment(
-      appointmentId,
-      {
-        status: 'no_show',
-        cancellationReason: (facts.reasons || []).join(', ') || facts.reasonOther || 'No-show',
-        cancellationFeeCents: waiveDirect ? 0 : preview.consequence.feeCents || 0,
-        canceledAt: new Date().toISOString().slice(0, 19).replace('T', ' '),
-        canceledByUserId: actorUserId,
-        updatedByUserId: actorUserId,
-        cancellationRecommendationJson: {
-          workflow: 'appointment_change',
-          preview,
-          facts
-        }
-      },
-      { actorUserId }
-    );
-    try {
-      settlement = await settleAppointment(appointmentId, {
-        outcome: 'no_show',
-        actorUserId
-      });
-    } catch { /* best-effort */ }
+  const appointment = await Appointment.findById(appointmentId);
+  const noConsequence = waiveDirect || preview.providerCaused || ['none', 'medicaid_strike'].includes(preview.consequence.model);
+  const status = eventType === 'void' ? 'voided' : eventType === 'no_show' ? 'no_show'
+    : preview.isLate ? 'late_canceled' : eventType === 'rescheduled' ? 'rescheduled'
+      : facts.initiator === 'parent_guardian' ? 'canceled_by_guardian'
+        : ['client', 'caregiver'].includes(facts.initiator) ? 'canceled_by_client'
+          : ['agency', 'facility_school'].includes(facts.initiator) ? 'canceled_by_organization' : 'canceled_by_provider';
+  resultBundle = await updateAppointment(appointmentId, {
+    status, cancellationReason: facts.reasonOther || (facts.reasons || []).join(', ') || eventType,
+    cancellationFeeCents: noConsequence ? 0 : Number(preview.consequence.feeCents || 0),
+    canceledAt: new Date().toISOString().slice(0, 19).replace('T', ' '), canceledByUserId: actorUserId,
+    cancellationRecommendationJson: { workflow: 'appointment_change', preview, facts }
+  }, { actorUserId, settleOutcome: false });
+  if (appointment.packageEntitlementId) {
+    settlement = await BookingPackage.applyAppointmentUsage({ entitlementId: appointment.packageEntitlementId,
+      agencyId: appointment.agencyId, appointmentId, mode: noConsequence || preview.consequence.packageAction === 'release' ? 'release' : 'forfeit', actorUserId });
+    const applied = settlement?.appliedUsage;
+    if (!noConsequence && applied) preview.consequence = { ...preview.consequence,
+      packageAction: applied.creditBucket === 'free_miss' ? 'free_miss' : applied.creditBucket === 'bonus' ? 'bonus_credit' : 'session_credit',
+      before: applied.before || preview.consequence.before, after: applied.after || preview.consequence.after };
 
-    if (
-      preview.consequence.model === 'package'
-      && preview.consequence.packageAction === 'free_miss'
-      && !waiveDirect
-    ) {
-      try {
-        await applyMissedSessionPolicy({
-          agencyId: preview.appointment.agencyId,
-          clientId,
-          createdByUserId: actorUserId,
-          providerScheduleEventId: preview.appointment.providerUserId
-            ? (await Appointment.findById(appointmentId))?.providerScheduleEventId
-            : null
-        });
-      } catch { /* best-effort */ }
-    }
-  } else if (eventType === 'rescheduled') {
-    const status = preview.classification === 'late_cancel_reschedule'
-      ? 'late_canceled'
-      : 'rescheduled';
-    resultBundle = await updateAppointment(
-      appointmentId,
-      {
-        status,
-        cancellationReason: (facts.reasons || []).join(', ') || 'Rescheduled',
-        cancellationFeeCents: waiveDirect ? 0 : (preview.isLate ? preview.consequence.feeCents : 0),
-        canceledAt: new Date().toISOString().slice(0, 19).replace('T', ' '),
-        canceledByUserId: actorUserId,
-        updatedByUserId: actorUserId,
-        cancellationRecommendationJson: {
-          workflow: 'appointment_change',
-          preview,
-          facts,
-          replacementAppointmentId: facts.replacementAppointmentId || preview.nextAppointment?.id || null
-        }
-      },
-      { actorUserId }
-    );
-  } else {
-    // canceled
-    const status = preview.classification === 'late_cancel'
-      ? 'late_canceled'
-      : facts.initiator === 'client'
-        ? 'canceled_by_client'
-        : facts.initiator === 'parent_guardian'
-          ? 'canceled_by_guardian'
-          : facts.initiator === 'agency' || facts.initiator === 'facility_school'
-            ? 'canceled_by_organization'
-            : 'canceled_by_provider';
-
-    resultBundle = await cancelAppointment(appointmentId, {
-      status,
-      actorUserId,
-      actorRole,
-      reason: (facts.reasons || []).map((r) => String(r)).join(', ') || facts.reasonOther || 'Canceled',
-      notes: facts.additionalComments || null,
-      clientId,
-      waive: waiveDirect,
-      waiverReason: facts.waiver?.reason || facts.waiver?.comment || null
+  } else if (!noConsequence && preview.packageBalance?.source === 'practitioner_package') {
+    if (!appointment.providerScheduleEventId) throw Object.assign(new Error('Link this package session to the provider calendar before applying its missed-session policy'), { status: 409 });
+    settlement = await applyMissedSessionPolicy({ agencyId: appointment.agencyId, clientId,
+      entitlementId: preview.packageBalance.entitlementId, createdByUserId: actorUserId, providerScheduleEventId: appointment.providerScheduleEventId });
+  }
+  if (preview.consequence.model === 'fee' || waiveDirect) {
+    await Appointment.upsertBilling(appointmentId, {
+      ...(await Appointment.getBilling(appointmentId) || {}),
+      amountCents: noConsequence ? 0 : Number(preview.consequence.feeCents || 0),
+      paymentStatus: noConsequence ? 'waived' : 'fee_pending',
+      notes: 'Appointment-change consequence; not an insurance claim'
     });
   }
+  await cancelPendingReminders(appointmentId);
+  await releaseAppointmentCalendar(appointment, actorUserId);
 
   if (preview.consequence.model === 'medicaid_strike' && clientId && preview.isMissed) {
     const existing = await ClientMedicaidAttendanceStrike.findByAppointmentId(appointmentId);
@@ -1131,23 +883,7 @@ export async function completeAppointmentChange(
     }
   }
 
-  // Never bill the primary session code for a non-occurring appointment.
-  // Fee ledger / secondary claim draft only when an explicit service-code override applies.
-  try {
-    const apptRow = await Appointment.findById(appointmentId);
-    billingArtifacts = await applyMissedBillingArtifacts({
-      appointment: apptRow || preview.appointment,
-      clientId,
-      classification: preview.classification,
-      eventType,
-      feeCents: waiveDirect ? 0 : Number(preview.consequence?.feeCents || preview.evaluation?.recommendedFeeCents || 0),
-      override: preview.insuranceClaim,
-      actorUserId,
-      waiveDirect
-    });
-  } catch (e) {
-    console.warn('[appointmentChange] billing artifacts failed', e?.message || e);
-  }
+  billingArtifacts = { primarySessionClaimBlocked: true, secondaryClaimDraft: null };
 
   const narrative = assembleAppointmentChangeNarrative({
     eventType,
@@ -1166,24 +902,6 @@ export async function completeAppointmentChange(
     additionalComments: facts.additionalComments
   });
 
-  let note = null;
-  if (clientId && narrative) {
-    try {
-      note = await ClientNotes.create(
-        {
-          client_id: clientId,
-          author_id: actorUserId,
-          category: 'clinical',
-          urgency: 'normal',
-          message: `[Missed appointment note]\n\n${narrative}`,
-          is_internal_only: true
-        },
-        { hasAgencyAccess: true, canViewInternalNotes: true }
-      );
-    } catch (e) {
-      console.warn('[appointmentChange] note create failed', e?.message || e);
-    }
-  }
 
   return {
     ok: true,
@@ -1195,9 +913,57 @@ export async function completeAppointmentChange(
     billingArtifacts,
     insuranceClaim: preview.insuranceClaim || DEFAULT_INSURANCE_CLAIM_POLICY,
     preview,
-    narrative,
-    noteId: note?.id || null
+    narrative: `Scheduled ${preview.appointment.title || 'session'}: ${preview.appointment.displayWhen}${preview.appointment.providerName ? ` with ${preview.appointment.providerName}` : ''}. ${narrative} No service was rendered. This note is nonbillable.`,
+    noteId: null
   };
+}
+
+export async function completeAppointmentChange(appointmentId, facts = {}, actor = {}) {
+  if (!['canceled', 'rescheduled', 'no_show', 'void'].includes(facts.eventType)) {
+    throw Object.assign(new Error('Choose an appointment change event'), { status: 400 });
+  }
+  if (facts.eventType !== 'void' && facts.eventType !== 'no_show' && (!facts.initiator || !facts.reasons?.length)) {
+    throw Object.assign(new Error('Initiator and cancellation reason are required'), { status: 400 });
+  }
+  if (facts.reasons?.includes('other') && !String(facts.reasonOther || '').trim()) {
+    throw Object.assign(new Error('Specify the other reason'), { status: 400 });
+  }
+  if (facts.eventType === 'no_show' && (!facts.outreach?.length || typeof facts.reasonKnown !== 'boolean')) {
+    throw Object.assign(new Error('Document outreach and whether the no-show reason is known'), { status: 400 });
+  }
+  if (facts.eventType === 'no_show' && facts.reasonKnown === true && !facts.reasons?.length) {
+    throw Object.assign(new Error('Document the known reason for the no-show'), { status: 400 });
+  }
+  if (facts.eventType === 'void' && !String(facts.reasonOther || facts.additionalComments || '').trim()) {
+    throw Object.assign(new Error('A reason is required to void an appointment'), { status: 400 });
+  }
+  if (facts.eventType === 'rescheduled' && !safeInt(facts.replacementAppointmentId)) {
+    throw Object.assign(new Error('Book the replacement appointment and link it before signing'), { status: 400 });
+  }
+  if (['waive', 'waived'].includes(facts.waiver?.action) && !isAdminRole(actor.actorRole)) {
+    throw Object.assign(new Error('Administrator access is required to approve a waiver'), { status: 403 });
+  }
+  if (facts.waiver?.action && !String(facts.waiver.reason || '').trim()) {
+    throw Object.assign(new Error('A waiver reason is required'), { status: 400 });
+  }
+  return runSignedAppointmentChange(appointmentId, facts, actor, {
+    previewChange: async (...args) => {
+      const preview = await previewAppointmentChange(...args);
+      if (facts.waiver?.action === 'recommend' && !['fee', 'package'].includes(preview.consequence.model)) {
+        throw Object.assign(new Error('There is no fee or package consequence to send for waiver review'), { status: 400 });
+      }
+      if (facts.eventType === 'no_show') {
+        const start = preview.appointment.startAt;
+        const instant = start instanceof Date ? start : new Date(String(start).replace(' ', 'T').replace(/Z?$/, 'Z'));
+        if (instant > new Date()) throw Object.assign(new Error('A future appointment cannot be marked no-show'), { status: 400 });
+      }
+      if (preview.appointment.packageEntitlementId && preview.evaluation.recommendedPackageAction === 'review'
+        && preview.isLate && !['waive', 'waived'].includes(facts.waiver?.action)) {
+        throw Object.assign(new Error('This package consequence requires administrative review before completion'), { status: 409 });
+      }
+      return preview;
+    }, applyChange: applyAppointmentChange
+  });
 }
 
 export async function setAgencyMedicaidStrikePolicy(agencyId, enabled) {

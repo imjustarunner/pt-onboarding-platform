@@ -1,4 +1,5 @@
 import express from 'express';
+import { readSelfPayRates, writeSelfPayRates } from '../controllers/selfPayRates.controller.js';
 import { authenticate, requireActiveStatus } from '../middleware/auth.middleware.js';
 import {
   listBusinessTypeCatalog,
@@ -55,6 +56,11 @@ router.post('/cron/reminders', runReminderCron);
 router.post('/cron/session-notifications', runSessionNotificationCron);
 
 router.use(authenticate, requireActiveStatus);
+
+router.get('/agencies/:agencyId/self-pay-rates', readSelfPayRates);
+router.put('/agencies/:agencyId/self-pay-rates', writeSelfPayRates);
+router.get('/agencies/:agencyId/providers/:providerId/self-pay-rates', readSelfPayRates);
+router.put('/agencies/:agencyId/providers/:providerId/self-pay-rates', writeSelfPayRates);
 
 router.get('/business-type-catalog', listBusinessTypeCatalog);
 router.get('/agencies/:agencyId/business-types', listAgencyBusinessTypes);

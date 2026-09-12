@@ -47,6 +47,10 @@ describe('clinical claim readiness', () => {
     note.is_billable = 0;
     expect((await evaluate()).blockers).toContain('Note requires supervisor approval or is non-billable');
   });
+  it('blocks a non-occurring session even if another refresh cleared its block reason', async () => {
+    session.encounter_status = 'no_show';
+    expect((await evaluate()).blockers).toContain('Appointment did not occur; insurance claims are blocked');
+  });
   it('preserves a session billing block', async () => {
     session.claim_blocked_reason = 'Duration is below the minimum';
     expect((await evaluate()).blockers).toContain('Duration is below the minimum');

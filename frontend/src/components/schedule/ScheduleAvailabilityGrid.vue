@@ -8,6 +8,7 @@
     :style="scheduleWrapVars"
     data-tour="my-schedule-grid"
   >
+    <AppointmentWaiverReviewQueue :agency-ids="effectiveAgencyIds" @reviewed="onAppointmentWaiverReviewed" />
     <div class="sched-toolbar" data-tour="my-schedule-toolbar">
       <!-- Compact command bar (dashboard + /my-schedule) -->
       <div v-if="compactPageChrome" class="sched-command" data-testid="schedule-command-bar">
@@ -5451,6 +5452,14 @@
             Move to <strong>{{ appointmentMoveDraft?.targetLabel || '—' }}</strong>?
           </p>
           <div v-if="appointmentMoveError" class="error" style="margin-bottom: 12px;">{{ appointmentMoveError }}</div>
+          <label v-if="appointmentMoveDraft?.kind === 'ob'" class="form-group">
+            Office room
+            <select v-model.number="appointmentMoveDraft.roomId" :disabled="appointmentMoveBusy">
+              <option v-for="room in appointmentMoveRooms" :key="room.id" :value="Number(room.id)">
+                {{ room.label || room.name || `Room ${room.room_number || room.roomNumber || room.id}` }}
+              </option>
+            </select>
+          </label>
           <div style="display: flex; flex-direction: column; gap: 8px;">
             <button type="button" class="btn btn-primary" :disabled="appointmentMoveBusy" @click="confirmAppointmentMove">
               {{ appointmentMoveBusy ? 'Saving…' : 'Confirm move' }}
@@ -5474,7 +5483,7 @@
         <div class="modal-body">
           <p class="cancel-meeting-lead"><strong>{{ seriesEditScopeTitle }}</strong></p>
           <p class="cancel-meeting-copy">
-            This is part of a series. Apply the new time to just this session, or this and all following?
+            {{ appointmentMoveDraft?.kind === 'ob' ? 'Move just this session, or move the recurring office slot and all its upcoming sessions?' : 'This is part of a series. Apply the new time to just this session, or this and all following?' }}
           </p>
           <div v-if="seriesEditScopeError" class="error" style="margin-bottom: 12px;">{{ seriesEditScopeError }}</div>
           <div style="display: flex; flex-direction: column; gap: 8px;">
@@ -5482,7 +5491,7 @@
               {{ seriesEditScopeBusy && seriesEditScopeChoice === 'single' ? 'Saving…' : 'Just this session' }}
             </button>
             <button type="button" class="btn btn-secondary cancel-meeting-btn-secondary" :disabled="seriesEditScopeBusy" @click="confirmSeriesEditScope('future')">
-              {{ seriesEditScopeBusy && seriesEditScopeChoice === 'future' ? 'Saving…' : 'This and all following' }}
+              {{ seriesEditScopeBusy && seriesEditScopeChoice === 'future' ? 'Saving…' : (appointmentMoveDraft?.kind === 'ob' ? 'All upcoming office sessions' : 'This and all following') }}
             </button>
             <button type="button" class="btn btn-secondary cancel-meeting-btn-secondary" :disabled="seriesEditScopeBusy" style="margin-top: 4px;" @click="closeSeriesEditScopeModal">
               Never mind
@@ -5870,6 +5879,7 @@ import WorkHoursEditor from './WorkHoursEditor.vue';
 import PersonSearchSelect from './PersonSearchSelect.vue';
 import AppointmentEditorShell from './AppointmentEditorShell.vue';
 import AppointmentChangeWizard from './AppointmentChangeWizard.vue';
+import AppointmentWaiverReviewQueue from './AppointmentWaiverReviewQueue.vue';
 import AppointmentInfoPanel from './AppointmentInfoPanel.vue';
 import AppointmentBillingPanel from './AppointmentBillingPanel.vue';
 import AppointmentPackageSettlement from './AppointmentPackageSettlement.vue';
@@ -11338,6 +11348,13 @@ const cellBlocks = (dayName, hour, minute = 0) => {
         blocks.push({
           key: `office-booked-${blockKeySuffix}`,
           kind: 'ob',
+          eventId: Number(top?.id || top?.eventId || 0),
+          officeLocationId: buildingId,
+          providerId: Number(top?.bookedProviderId || top?.assignedProviderId || 0),
+          startAt: top?.startAt,
+          endAt: top?.endAt,
+          recurrenceSeriesId: top?.standingAssignmentId ? `office:${top.standingAssignmentId}` : null,
+          canReschedule: canManageOffices.value || Number(top?.bookedProviderId || top?.assignedProviderId || 0) === Number(authStore.user?.id),
           isOfficeBlock: true,
           officeStatus: 'booked',
           officeStatusLabel: 'Office reserved',
@@ -15314,8 +15331,19 @@ function openAppointmentChangeWizard() {
   });
 }
 
-function onAppointmentChangeCompleted() {
-  window.alert('Appointment change saved and note signed.');
+function onAppointmentWaiverReviewed(appointmentId) {
+  if (appointmentChange.open.value && Number(appointmentChange.appointmentId.value) === Number(appointmentId)) {
+    void appointmentChange.openWizard({ appointmentId, context: { ...appointmentChange.context } });
+  }
+}
+
+function onAppointmentChangeCompleted(result) {
+  editorClinicalNoteId.value = Number(result?.noteId || 0);
+  editorStatus.value = result?.appointment?.status || editorStatus.value;
+  window.dispatchEvent(new Event('pt-schedule-refresh'));
+  window.alert(result?.preview?.waiverRequested
+    ? 'The signed session note is saved and the waiver request is in the review queue. No insurance claim was created.'
+    : 'Appointment change saved. The signed, nonbillable note is attached to this session. No insurance claim was created.');
 }
 
 /**
@@ -20925,9 +20953,9 @@ const completePlatformVirtualSessionBooking = async ({
       notes: description,
       quickNote: quickNote || undefined,
       source: 'staff_grid',
-      createProviderScheduleEvent: !alsoBookOffice,
-      ...(!alsoBookOffice ? { recurrence: editorOfficeSeriesParams().recurrence,
-        occurrenceCount: editorOfficeSeriesParams().occurrenceCount || 12 } : {}),
+      createProviderScheduleEvent: true,
+      recurrence: editorOfficeSeriesParams().recurrence,
+      occurrenceCount: editorOfficeSeriesParams().occurrenceCount || 12,
       packageEntitlementId: Number(editorPackageEntitlementId.value || 0) || undefined,
       serviceCode: normalizeCodeValue(bookingServiceCode.value) || undefined,
       addonServiceCodes: (editorAddonServiceCodes.value || []).map((c) => String(c).toUpperCase()).filter(Boolean),
@@ -20960,6 +20988,9 @@ const completePlatformVirtualSessionBooking = async ({
     await withdrawEditorPriorOfficeRequests();
     const series = editorOfficeSeriesParams();
     const r = await api.post('/office-schedule/booking-requests', {
+      agencyId,
+      appointmentId: canonicalBooking.recurrenceSeriesId ? undefined : appointmentId,
+      appointmentSeriesId: canonicalBooking.recurrenceSeriesId || undefined,
       officeLocationId: officeId,
       roomId: Number(editorPreferredRoomId.value || roomId || 0) || roomId,
       startAt,
@@ -20973,34 +21004,14 @@ const completePlatformVirtualSessionBooking = async ({
       ...requestedProviderPayload()
     });
     const officeEventId = Number(r?.data?.event?.id || r?.data?.officeEventId || 0);
-    if (appointmentId && officeEventId) await api.patch(`/appointments/${appointmentId}`, { officeEventId });
+    if (appointmentId && officeEventId) await loadEditorReminders();
     const bookingReqId = Number(r?.data?.request?.id || 0);
     if (bookingReqId) editorLastOfficeBookingRequestId.value = bookingReqId;
     if (r?.data?.kind === 'auto_booked') await loadSelectedOfficeGrid();
   }
 
-  const scheduleResp = !alsoBookOffice ? { data: { event: { id: canonicalBooking?.appointment?.providerScheduleEventId },
-    googleCalendarWarning: canonicalBooking?.googleCalendarWarning } } : await api.post(`/users/${uid}/schedule-events`, {
-    agencyId,
-    kind: 'PERSONAL_EVENT',
-    title: titleWithNotes,
-    description,
-    allDay: false,
-    startAt,
-    endAt,
-    timeZone: scheduleMeetingTimeZone(),
-    isPrivate: false,
-    clientId,
-    othersPresentNames: String(editorOthersPresentNames.value || '').trim() || undefined,
-    videoRoomMode: String(editorVideoRoomMode.value || 'unique_session'),
-    // Platform video room does not depend on Google Calendar.
-    allowLocalOnly: true
-  });
-
-  const providerScheduleEventId = Number(scheduleResp?.data?.event?.providerScheduleEventId || scheduleResp?.data?.event?.id || 0);
-  if (appointmentId && providerScheduleEventId) {
-    await api.patch(`/appointments/${appointmentId}`, { providerScheduleEventId });
-  }
+  const scheduleResp = { data: { event: { id: canonicalBooking?.appointment?.providerScheduleEventId },
+    googleCalendarWarning: canonicalBooking?.googleCalendarWarning } };
 
   const useMyRoom = String(editorVideoRoomMode.value || '') === 'my_room';
   let data = null;
@@ -21017,12 +21028,11 @@ const completePlatformVirtualSessionBooking = async ({
     }
   }
   if (!virtualSessionShareUrl.value) {
-    data = await createCounselingSession({
-      agencyId,
-      title: titleWithNotes,
-      clientUserId: firstGuardianUserId,
-      ...(appointmentId ? { appointmentId } : {})
-    });
+    for (const appointment of canonicalBooking.appointments || [canonicalBooking.appointment]) {
+      const roomData = await openCounselingFromAppointment({ agencyId, appointmentId: appointment.id,
+        title: titleWithNotes, clientUserId: firstGuardianUserId });
+      if (Number(appointment.id) === appointmentId) data = roomData;
+    }
     const sessionKey = data?.session?.publicId || data?.session?.id;
     if (!sessionKey) throw new Error('Session was scheduled, but the platform video room could not be created.');
 
@@ -23951,6 +23961,15 @@ const showAppointmentMoveModal = ref(false);
 const appointmentMoveBusy = ref(false);
 const appointmentMoveError = ref('');
 const appointmentMoveDraft = ref(null);
+const appointmentMoveRooms = ref([]);
+watch(() => appointmentMoveDraft.value?.officeLocationId, async (officeId) => {
+  appointmentMoveRooms.value = [];
+  if (!officeId) return;
+  try {
+    const { data } = await api.get(`/office-schedule/locations/${officeId}/rooms`, { skipGlobalLoading: true });
+    if (Number(appointmentMoveDraft.value?.officeLocationId) === Number(officeId)) appointmentMoveRooms.value = Array.isArray(data) ? data : [];
+  } catch { appointmentMoveError.value = 'Unable to load office rooms. Refresh before moving this session.'; }
+});
 const appointmentDragState = ref(null);
 const appointmentDragTarget = ref(null);
 const appointmentDragClientPos = ref(null);
@@ -23996,6 +24015,7 @@ const isAppointmentBlockDraggable = (block) => {
       && !!block?.startAt
       && !!block?.endAt;
   }
+  if (kind === 'ob') return !!block.canReschedule && Number(block.eventId) > 0 && !!block.startAt && !!block.endAt;
   if (!['supv', 'sevt'].includes(kind)) return false;
   // Allow the drag gesture for everyone who can book; permission is enforced on drop (snap-back).
   return Number(block?.eventId || 0) > 0 && !!block?.startAt && !!block?.endAt;
@@ -24102,6 +24122,8 @@ const onCellBlockResizePointerDown = (e, b, dayName, hour, minute, edge) => {
   e?.preventDefault?.();
   schedResizeState.value = {
     eventId: Number(b.eventId || 0),
+    officeLocationId: Number(b.officeLocationId || b.buildingId || 0),
+    roomId: Number(b.roomId || 0),
     virtualHoursId: Number(b.virtualHoursId || 0),
     agencyId: Number(b.agencyId || 0),
     kind: String(b.kind),
@@ -24179,6 +24201,8 @@ const onCellBlockResizePointerUp = () => {
   appointmentMoveDraft.value = {
     kind: rs.kind,
     eventId: rs.eventId,
+    officeLocationId: rs.officeLocationId,
+    roomId: rs.roomId,
     virtualHoursId: Number(rs.virtualHoursId || 0),
     agencyId: Number(rs.agencyId || 0),
     providerId: rs.providerId,
@@ -24208,6 +24232,8 @@ const onAppointmentPointerDown = (e, block, dayName, hour, minute = 0) => {
     moved: false,
     kind: String(block.kind || ''),
     eventId: Number(block.eventId || 0),
+    officeLocationId: Number(block.officeLocationId || block.buildingId || 0),
+    roomId: Number(block.roomId || 0),
     virtualHoursId: Number(block.virtualHoursId || 0),
     agencyId: Number(block.agencyId || 0),
     providerId: Number(block.providerId || resolveBookedProviderIdForEvent(block) || props.userId || 0),
@@ -24301,6 +24327,8 @@ const openAppointmentMoveConfirm = (st, target) => {
   appointmentMoveDraft.value = {
     kind: st.kind,
     eventId: st.eventId,
+    officeLocationId: st.officeLocationId,
+    roomId: st.roomId,
     virtualHoursId: Number(st.virtualHoursId || 0),
     agencyId: Number(st.agencyId || 0),
     providerId: st.providerId,
@@ -24363,6 +24391,12 @@ const applyAppointmentMove = async (scope = null, { pastConfirmed = false } = {}
         endTime: `${pad2(newEnd.getHours())}:${pad2(newEnd.getMinutes())}`,
         ...(Number(draft.agencyId || 0) > 0 ? { agencyId: Number(draft.agencyId) } : {})
       }, { skipGlobalLoading: true });
+    } else if (draft.kind === 'ob') {
+      const { data } = await api.post(`/office-slots/${draft.officeLocationId}/events/${draft.eventId}/reschedule`, {
+        startAt: draft.newStartAt, endAt: draft.newEndAt, roomId: draft.roomId, scope: scope || 'single'
+      }, { skipGlobalLoading: true });
+      if (data.warnings?.length) flashScheduleToast(data.warnings.join(' '));
+      await loadSelectedOfficeGrid();
     } else if (draft.kind === 'supv') {
       await api.patch(`/supervision/sessions/${draft.eventId}`, {
         startAt: draft.newStartAt,

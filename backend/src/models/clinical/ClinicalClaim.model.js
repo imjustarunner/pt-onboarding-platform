@@ -16,7 +16,10 @@ class ClinicalClaim {
     const [result] = await clinicalPool.execute(
       `INSERT INTO clinical_claims
        (clinical_session_id, agency_id, client_id, claim_number, claim_status, amount_cents, currency_code, claim_payload, metadata_json, created_by_user_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ? FROM clinical_sessions s
+       WHERE s.id = ? AND s.agency_id = ? AND s.client_id = ?
+         AND s.encounter_status NOT IN ('no_show', 'cancelled', 'canceled', 'voided', 'rescheduled')
+         AND (s.claim_blocked_reason IS NULL OR s.claim_blocked_reason = '')`,
       [
         clinicalSessionId,
         agencyId,
@@ -27,9 +30,10 @@ class ClinicalClaim {
         currencyCode,
         claimPayload,
         metadataJson ? JSON.stringify(metadataJson) : null,
-        createdByUserId
+        createdByUserId, clinicalSessionId, agencyId, clientId
       ]
     );
+    if (!result.affectedRows) throw Object.assign(new Error('Claim creation is blocked for this session or client'), { status: 409 });
     return this.findById(result.insertId);
   }
 

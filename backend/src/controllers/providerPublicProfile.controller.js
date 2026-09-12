@@ -75,12 +75,17 @@ export const upsertUserProviderPublicProfile = async (req, res, next) => {
     }
     if (!(await requireAgencyMembership(req, res, agencyId))) return;
 
+    const prior = await ProviderPublicProfile.getForProvider({ providerUserId: userId });
+    const rateAdmin = ['admin', 'super_admin'].includes(req.user?.role);
+    if (!rateAdmin && ['selfPayRateCents', 'selfPayRateNote'].some(key => Object.hasOwn(req.body || {}, key))) {
+      return res.status(403).json({ error: { message: 'Only admin or superadmin can manage self-pay rates' } });
+    }
     const saved = await ProviderPublicProfile.upsertForProvider({
       providerUserId: userId,
       publicBlurb: req.body?.publicBlurb ?? null,
       insurances: Array.isArray(req.body?.insurances) ? req.body.insurances : [],
-      selfPayRateCents: req.body?.selfPayRateCents ?? null,
-      selfPayRateNote: req.body?.selfPayRateNote ?? null,
+      selfPayRateCents: Object.hasOwn(req.body || {}, 'selfPayRateCents') ? req.body.selfPayRateCents : prior?.selfPayRateCents ?? null,
+      selfPayRateNote: Object.hasOwn(req.body || {}, 'selfPayRateNote') ? req.body.selfPayRateNote : prior?.selfPayRateNote ?? null,
       acceptingNewClientsOverride: req.body?.acceptingNewClientsOverride
     });
     res.json({ ok: true, userId, agencyId, profile: saved });
@@ -115,11 +120,15 @@ export const upsertAgencyProviderPortalSettings = async (req, res, next) => {
       return res.status(403).json({ error: { message: 'Admin/staff access required' } });
     }
     if (!(await requireAgencyMembership(req, res, agencyId))) return;
+    const prior = await ProviderPublicProfile.getAgencySettings({ agencyId });
+    if (!['admin', 'super_admin'].includes(req.user?.role) && ['defaultSelfPayRateCents', 'defaultSelfPayRateNote'].some(key => Object.hasOwn(req.body || {}, key))) {
+      return res.status(403).json({ error: { message: 'Only admin or superadmin can manage self-pay rates' } });
+    }
     const saved = await ProviderPublicProfile.upsertAgencySettings({
       agencyId,
       finderIntroBlurb: req.body?.finderIntroBlurb ?? null,
-      defaultSelfPayRateCents: req.body?.defaultSelfPayRateCents ?? null,
-      defaultSelfPayRateNote: req.body?.defaultSelfPayRateNote ?? null,
+      defaultSelfPayRateCents: Object.hasOwn(req.body || {}, 'defaultSelfPayRateCents') ? req.body.defaultSelfPayRateCents : prior?.defaultSelfPayRateCents ?? null,
+      defaultSelfPayRateNote: Object.hasOwn(req.body || {}, 'defaultSelfPayRateNote') ? req.body.defaultSelfPayRateNote : prior?.defaultSelfPayRateNote ?? null,
       updatedByUserId: req.user?.id
     });
     res.json({

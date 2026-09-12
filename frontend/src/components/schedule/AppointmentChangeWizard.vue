@@ -82,7 +82,7 @@
               <h3 class="acw-h">Step 2 of 4: Appointment details</h3>
 
               <template v-if="change.facts.eventType === 'void'">
-                <p class="muted">Optional note about why this appointment is being voided.</p>
+                <p class="muted">Document why this appointment is being voided (required).</p>
                 <textarea v-model="change.facts.reasonOther" class="acw-textarea" rows="3" placeholder="Completed in error, duplicate…" />
               </template>
 
@@ -143,6 +143,14 @@
                 </div>
               </template>
 
+              <label v-if="['canceled', 'rescheduled'].includes(change.facts.eventType)" class="acw-field">
+                <span>Replacement appointment {{ change.facts.eventType === 'rescheduled' ? '(required)' : '(optional)' }}</span>
+                <select v-model="change.facts.replacementAppointmentId" class="acw-input">
+                  <option :value="null">Select a booked appointment</option>
+                  <option v-for="appointment in change.replacements.value" :key="appointment.id" :value="appointment.id">{{ appointment.label }}</option>
+                </select>
+                <span class="muted">Choose the replacement session for this client. If it is not booked yet, save this draft and book it in the schedule.</span>
+              </label>
               <label v-if="change.facts.reasons.includes('other')" class="acw-field">
                 <span>Please specify (required)</span>
                 <input v-model="change.facts.reasonOther" type="text" class="acw-input" />
@@ -203,13 +211,7 @@
               <div class="acw-info" style="margin-top:0;">
                 <strong>Insurance claim:</strong>
                 {{ change.preview.value?.insuranceClaim?.reason || 'Not-occurring appointments do not create insurance claims by default.' }}
-                <template v-if="change.preview.value?.insuranceClaim?.applies">
-                  <br />Override mode: {{ change.preview.value.insuranceClaim.mode }}
-                  <template v-if="change.preview.value.insuranceClaim.claimServiceCode">
-                    · code {{ change.preview.value.insuranceClaim.claimServiceCode }}
-                  </template>
-                  (draft/review only — never auto-submitted).
-                </template>
+
               </div>
 
               <table
@@ -221,12 +223,17 @@
                 </thead>
                 <tbody>
                   <tr>
-                    <td>Sessions available</td>
+                    <td>Session credits (including reserved)</td>
                     <td>{{ change.preview.value.consequence.before.sessionsRemaining }}</td>
                     <td>
                       {{ change.preview.value.consequence.after.sessionsRemaining }}
-                      <span class="badge">{{ change.preview.value.consequence.packageAction === 'free_miss' ? 'No change' : '1 used' }}</span>
+                      <span class="badge">{{ ['free_miss', 'waived'].includes(change.preview.value.consequence.packageAction) ? 'No change' : '1 used' }}</span>
                     </td>
+                  </tr>
+                  <tr v-if="change.preview.value.consequence.before.bonusSessionsRemaining != null">
+                    <td>Bonus credits</td>
+                    <td>{{ change.preview.value.consequence.before.bonusSessionsRemaining }}</td>
+                    <td>{{ change.preview.value.consequence.after.bonusSessionsRemaining }}</td>
                   </tr>
                   <tr>
                     <td>Free misses available</td>
@@ -296,7 +303,7 @@
               <ul class="acw-bullets">
                 <li><strong>Medicaid:</strong> Missed-appointment fee is not applicable. Strike policy applies when enabled.</li>
                 <li><strong>Eligible non-Medicaid:</strong> Assess or waive fee per policy.</li>
-                <li><strong>Plan / Package:</strong> Free miss first, then session credit.</li>
+                <li><strong>Plan / Package:</strong> Free miss first, then an available bonus credit, then a paid credit.</li>
               </ul>
             </aside>
           </section>
@@ -306,16 +313,21 @@
             <div>
               <div class="acw-note-head">
                 <h3 class="acw-h">System-generated note</h3>
-                <span class="badge ok">Ready for review</span>
+                <span class="badge ok">{{ change.workflow.value?.status === 'completed' ? 'Signed · Nonbillable' : 'Ready for review' }}</span>
               </div>
-              <p class="muted">Automatically generated from workflow rules and your selections. Review, add optional comments, then approve &amp; sign.</p>
+              <p class="muted">This note is attached to the session and is nonbillable. Signing does not create an insurance claim.</p>
               <div class="acw-narrative">{{ change.localNarrative.value || 'Complete prior steps to generate the note.' }}</div>
-              <label class="acw-field">
+              <label v-if="!change.workflow.value || change.workflow.value.status === 'draft'" class="acw-field">
                 <span>Additional comments (optional)</span>
                 <textarea v-model="change.facts.additionalComments" class="acw-textarea" rows="3" @change="onCommentsChange" />
               </label>
             </div>
             <aside class="acw-side">
+              <div v-if="change.workflow.value?.waiver" class="acw-consequence-card">
+                <h4 class="acw-h4">Waiver review</h4>
+                <strong>{{ change.workflow.value.waiver.status === 'pending' ? 'Awaiting billing review' : change.workflow.value.waiver.status === 'documenting' ? 'Decision recorded — documentation pending' : change.workflow.value.waiver.status }}</strong>
+                <p>{{ change.workflow.value.waiver.addendum || 'The recommendation is in the appointment waiver review queue. The original consequence remains until approval.' }}</p>
+              </div>
               <h4 class="acw-h4">Workflow summary</h4>
               <ul class="acw-check">
                 <li>Event type: {{ eventLabel }}</li>
@@ -331,9 +343,10 @@
         <p v-if="change.error.value" class="acw-error">{{ change.error.value }}</p>
 
         <footer class="acw-footer">
-          <button type="button" class="acw-btn ghost" @click="onClose">Save Draft</button>
+          <button v-if="!change.workflow.value || change.workflow.value.status === 'draft'" type="button" class="acw-btn ghost" :disabled="change.saving.value || change.loading.value" @click="onSaveDraft">Save Draft</button>
+          <span v-else class="muted">{{ change.workflow.value.status === 'completed' ? 'Signed note preserved on this session.' : 'Finish the saved signing request.' }}</span>
           <div class="acw-footer-right">
-            <button v-if="change.step.value > 1" type="button" class="acw-btn" :disabled="change.saving.value" @click="change.goBack()">Back</button>
+            <button v-if="change.step.value > 1 && (!change.workflow.value || change.workflow.value.status === 'draft')" type="button" class="acw-btn" :disabled="change.saving.value" @click="change.goBack()">Back</button>
             <button
               v-if="change.step.value < 4"
               type="button"
@@ -341,13 +354,16 @@
               :disabled="change.loading.value || !change.canContinueFromStep(change.step.value)"
               @click="change.goNext()"
             >Continue →</button>
+            <template v-else-if="change.workflow.value?.status !== 'completed'">
+            <label><input v-model="change.signatureConfirmed.value" type="checkbox" /> I reviewed this note and confirm my signature.</label>
             <button
-              v-else
               type="button"
               class="acw-btn primary"
-              :disabled="change.saving.value || change.loading.value"
+              :disabled="change.saving.value || change.loading.value || !change.signatureConfirmed.value"
               @click="onSign"
-            >{{ change.saving.value ? 'Signing…' : 'Approve & Sign →' }}</button>
+            >{{ change.saving.value ? 'Signing…' : change.facts.waiver?.action === 'recommend' ? 'Sign & Send for Review →' : 'Sign & Complete →' }}</button>
+            </template>
+            <button v-else type="button" class="acw-btn primary" @click="onClose">Back to appointment</button>
           </div>
         </footer>
       </div>
@@ -434,6 +450,10 @@ async function onCommentsChange() {
 function onClose() {
   props.change.closeWizard();
   emit('closed');
+}
+
+async function onSaveDraft() {
+  if (await props.change.saveDraft()) onClose();
 }
 
 async function onSign() {

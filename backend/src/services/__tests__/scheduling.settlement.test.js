@@ -28,6 +28,13 @@ describe('session settlement', () => {
     await expect(settleAppointmentOutcome(1, { outcome: 'completed' })).rejects.toThrow('ledger unavailable');
     expect(Appointment.upsertBilling).not.toHaveBeenCalled();
   });
+  it('self-pay-only clinical sessions use the booked charge without consuming tutoring packages', async () => {
+    Appointment.findById.mockResolvedValue({ id: 1, agencyId: 1, clinicalSessionId: 4, providerScheduleEventId: 8 });
+    Appointment.getBilling.mockResolvedValue({ paymentStatus: 'none', settlementMode: 'self_pay_only', amountCents: 12500 });
+    expect(await settleAppointmentOutcome(1, { outcome: 'completed' })).toMatchObject({ paymentStatus: 'fee_pending', feeCents: 12500 });
+    expect(debitSessionOnComplete).not.toHaveBeenCalled();
+    expect(BookingPackage.applyAppointmentUsage).not.toHaveBeenCalled();
+  });
   it('medical sessions cannot debit unrelated tutoring packages', async () => {
     Appointment.findById.mockResolvedValue({ id: 1, agencyId: 1, clinicalSessionId: 4, providerScheduleEventId: 8 });
     expect(await settleAppointmentOutcome(1, { outcome: 'completed' })).toMatchObject({ reason: 'CLINICAL_BILLING' });

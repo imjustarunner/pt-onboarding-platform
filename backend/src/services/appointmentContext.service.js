@@ -1,11 +1,13 @@
 import pool from '../config/database.js';
 import clinicalPool from '../config/clinicalDatabase.js';
 import Client from '../models/Client.model.js';
+import TenantService from '../models/TenantService.model.js';
 import OfficeEvent from '../models/OfficeEvent.model.js';
 import ClinicalSession from '../models/clinical/ClinicalSession.model.js';
 import AgencyMedicalServiceCode from '../models/AgencyMedicalServiceCode.model.js';
 import AgencyServiceLocation from '../models/AgencyServiceLocation.model.js';
 import OfficeLocation from '../models/OfficeLocation.model.js';
+import { bindOfficeEventToAppointment } from './officeAppointmentBinding.service.js';
 import {
   resolveWithOverflowChain,
   ruleFromMedicalServiceCodeRow
@@ -91,17 +93,25 @@ export async function ensureAppointmentContext({
     bookingContext = { ...bookingContext, ...sessionContext };
     await pool.execute('UPDATE office_events SET session_context_json = ? WHERE id = ?', [JSON.stringify(bookingContext), eid]);
   }
+  const boundAppointment = await bindOfficeEventToAppointment({ event, context: bookingContext,
+    agencyId: resolvedAgencyId, clientId: resolvedClientId });
   const syncCanonicalAppointment = async (clinicalSessionId = null) => {
     if (!syncAppointment) return;
     const { upsertAppointmentForOfficeBook } = await import('./appointment.service.js');
-    await upsertAppointmentForOfficeBook({ agencyId: resolvedAgencyId, officeEventId: eid,
+    const canonical = await upsertAppointmentForOfficeBook({ agencyId: resolvedAgencyId, officeEventId: eid,
       providerUserId: parseIntId(event.booked_provider_id) || parseIntId(event.assigned_provider_id),
       clientId: resolvedClientId, startAt: event.start_at, endAt: event.end_at,
       modality: event.modality, officeLocationId: event.office_location_id, roomId: event.room_id,
       tenantServiceId: parseIntId(bookingContext.tenantServiceId), packageEntitlementId: parseIntId(bookingContext.packageEntitlementId),
-      serviceCode: event.service_code, clinicalSessionId, actorUserId, strict: true });
+      serviceCode: event.service_code, clinicalSessionId, actorUserId, strict: true, preserveParticipants: !!boundAppointment });
+    if (clinicalSessionId && ['self_pay_only', 'package'].includes(canonical?.billing?.settlementMode)) {
+      await clinicalPool.execute("UPDATE clinical_sessions SET claim_blocked_reason = 'SELF_PAY_ONLY: Insurance claims are disabled for this appointment' WHERE id = ? AND agency_id = ?", [clinicalSessionId, resolvedAgencyId]);
+    }
   };
-  if (bookingContext.packageEntitlementId || !['clinical', 'school'].includes(String(client.client_type || '').trim().toLowerCase())) {
+  const packageService = bookingContext.packageEntitlementId && bookingContext.tenantServiceId
+    ? await TenantService.findById(bookingContext.tenantServiceId, resolvedAgencyId) : null;
+  const clinicalPackage = ['mental_health', 'healthcare'].includes(packageService?.businessType);
+  if ((bookingContext.packageEntitlementId && !clinicalPackage) || !['clinical', 'school'].includes(String(client.client_type || '').trim().toLowerCase())) {
     const billingContextId = await lookupBillingContextIdByOfficeEvent({ officeEventId: eid });
     const updatedEvent = await OfficeEvent.setContextLinkage({
       eventId: eid,
@@ -255,7 +265,8 @@ export async function ensureAppointmentContext({
            place_of_service = COALESCE(?, place_of_service),
            duration_minutes = COALESCE(?, duration_minutes),
            billed_units = COALESCE(?, billed_units),
-           claim_blocked_reason = ?,
+           claim_blocked_reason = CASE WHEN encounter_status IN ('no_show', 'cancelled', 'canceled', 'voided', 'rescheduled')
+             OR claim_blocked_reason LIKE 'SELF_PAY_ONLY:%' THEN claim_blocked_reason ELSE ? END,
            updated_at = CURRENT_TIMESTAMP
          WHERE id = ?`,
         [
@@ -276,7 +287,8 @@ export async function ensureAppointmentContext({
       { status: 409, code: 'CLINICAL_CONTEXT_SYNC_REQUIRED', officeEventId: eid, cause: e });
   }
 
-  const updatedEvent = await OfficeEvent.setContextLinkage({
+  const secondaryGroupClient = !syncAppointment && event.client_id && Number(event.client_id) !== Number(resolvedClientId);
+  const updatedEvent = secondaryGroupClient ? event : await OfficeEvent.setContextLinkage({
     eventId: eid,
     clientId: resolvedClientId,
     clinicalSessionId,

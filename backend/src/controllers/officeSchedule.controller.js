@@ -1,3 +1,4 @@
+import { bookOfficeForAppointmentRequest } from '../services/officeAppointmentBinding.service.js';
 import pool from '../config/database.js';
 import OfficeLocation from '../models/OfficeLocation.model.js';
 import OfficeLocationAgency from '../models/OfficeLocationAgency.model.js';
@@ -62,7 +63,7 @@ import {
   mysqlDateTimeForDateHour as mysqlDateTimeForDateHourZoned,
   parseUtcDate
 } from '../utils/officeEventDateTime.util.js';
-import { utcDateToZonedParts } from '../utils/zonedWallTime.util.js';
+import { utcDateToZonedParts, wallMysqlToUtcMysql, normalizeWallMysqlDatetime, dateToMysqlUtcDateTime } from '../utils/zonedWallTime.util.js';
 
 const canManageSchedule = (role) =>
   role === 'clinical_practice_assistant' || role === 'provider_plus' || role === 'admin' || role === 'super_admin' || role === 'superadmin' || role === 'support' || role === 'staff';
@@ -433,7 +434,7 @@ async function isRoomOpenAt({ officeLocationId, roomId, startAt, endAt, officeTi
   // Standing assignment: only hard-block when this occurrence is already booked.
   // ASSIGNED_AVAILABLE (assigned but not booked for the day) may be borrowed by another provider.
   // When assignment is weekly + booking is biweekly, off-weeks stay open for others.
-  const wh = weekdayHourFromSqlDateTime(startAt) || weekdayHourInTz(startAt, officeTimeZone || 'America/New_York');
+  const wh = weekdayHourInTz(startAt, officeTimeZone || 'America/New_York') || weekdayHourFromSqlDateTime(startAt);
   if (wh) {
     const st = await OfficeStandingAssignment.findActiveBySlot({
       officeLocationId,
@@ -2574,8 +2575,8 @@ export const createOfficeBookingRequest = async (req, res, next) => {
     const officeLocationId = req.body?.officeLocationId ? parseInt(req.body.officeLocationId, 10) : null;
     const roomId = req.body?.roomId ? parseInt(req.body.roomId, 10) : null;
     const clientId = req.body?.clientId ? parseInt(req.body.clientId, 10) : null;
-    const startAt = req.body?.startAt || null;
-    const endAt = req.body?.endAt || null;
+    let startAt = req.body?.startAt || null;
+    let endAt = req.body?.endAt || null;
     const recurrence = String(req.body?.recurrence || 'ONCE').trim().toUpperCase();
     const openToAlternativeRoom = req.body?.openToAlternativeRoom === true || req.body?.open_to_alternative_room === true;
     const notes = String(req.body?.notes || req.body?.requesterNotes || '').trim().slice(0, 2000) || null;
@@ -2595,6 +2596,13 @@ export const createOfficeBookingRequest = async (req, res, next) => {
 
     const loc = await OfficeLocation.findById(parseInt(officeLocationId));
     if (!loc) return res.status(404).json({ error: { message: 'Office location not found' } });
+    const toUtc = (value) => /[zZ]|[+-]\d{2}:?\d{2}$/.test(String(value))
+      ? dateToMysqlUtcDateTime(new Date(value))
+      : wallMysqlToUtcMysql(normalizeWallMysqlDatetime(value), loc.timezone || 'America/Denver');
+    startAt = toUtc(startAt);
+    endAt = toUtc(endAt);
+    if (!startAt || !endAt || endAt <= startAt) return res.status(400).json({ error: { message: 'Choose a valid session time' } });
+
 
     // Must belong to an agency assigned to the office (unless super_admin)
     if (req.user.role !== 'super_admin') {
@@ -2656,7 +2664,7 @@ export const createOfficeBookingRequest = async (req, res, next) => {
     const todayYmd = localYmdInTz(new Date(), tz);
     const isSameDay = !!(startYmd && todayYmd && startYmd === todayYmd);
 
-    if (normalizedRecurrence === 'ONCE') {
+    if (normalizedRecurrence === 'ONCE' && !req.body?.appointmentId && !req.body?.appointmentSeriesId) {
       // Materialize the containing week so standing assignments appear as occupied.
       try {
         const ws = OfficeScheduleMaterializer.startOfWeekMonday(startYmd);
@@ -2742,7 +2750,7 @@ export const createOfficeBookingRequest = async (req, res, next) => {
                 await ensureAppointmentContext({
                   officeEventId: borrowedEvent.id,
                   agencyId: Number(req.body?.agencyId || 0) || null,
-                  sessionContext: { tenantServiceId: Number(req.body?.tenantServiceId || 0) || null,
+                  sessionContext: { appointmentId: Number(req.body?.appointmentId || 0) || null, appointmentSeriesId: req.body?.appointmentSeriesId || null, tenantServiceId: Number(req.body?.tenantServiceId || 0) || null,
                     packageEntitlementId: Number(req.body?.packageEntitlementId || 0) || null },
                   clientId,
                   sourceTimezone: tz,
@@ -2770,7 +2778,7 @@ export const createOfficeBookingRequest = async (req, res, next) => {
           chosen = r;
           break;
         }
-        const wh = weekdayHourFromSqlDateTime(startAt) || weekdayHourInTz(startAt, tz);
+        const wh = weekdayHourInTz(startAt, tz) || weekdayHourFromSqlDateTime(startAt);
         if (wh) {
           // eslint-disable-next-line no-await-in-loop
           const softHeld = await hasPendingSoftHoldAt({
@@ -2849,7 +2857,7 @@ export const createOfficeBookingRequest = async (req, res, next) => {
             await ensureAppointmentContext({
               officeEventId: ev?.id,
               agencyId: Number(req.body?.agencyId || 0) || null,
-              sessionContext: { tenantServiceId: Number(req.body?.tenantServiceId || 0) || null,
+              sessionContext: { appointmentId: Number(req.body?.appointmentId || 0) || null, appointmentSeriesId: req.body?.appointmentSeriesId || null, tenantServiceId: Number(req.body?.tenantServiceId || 0) || null,
                 packageEntitlementId: Number(req.body?.packageEntitlementId || 0) || null },
               clientId,
               sourceTimezone: tz,
@@ -2864,7 +2872,7 @@ export const createOfficeBookingRequest = async (req, res, next) => {
     }
 
     const created = await OfficeBookingRequest.create({
-      sessionContext: { agencyId: Number(req.body?.agencyId || 0) || null,
+      sessionContext: { appointmentId: Number(req.body?.appointmentId || 0) || null, appointmentSeriesId: req.body?.appointmentSeriesId || null, timestampsUtc: true, agencyId: Number(req.body?.agencyId || 0) || null,
         tenantServiceId: Number(req.body?.tenantServiceId || 0) || null, packageEntitlementId: Number(req.body?.packageEntitlementId || 0) || null },
       requestType: 'PROVIDER_REQUEST',
       officeLocationId: loc.id,
@@ -3295,6 +3303,14 @@ export const approveOfficeBookingRequest = async (req, res, next) => {
       // ignore
     }
 
+    const linkedContext = typeof reqRow.session_context_json === 'string' ? JSON.parse(reqRow.session_context_json) : (reqRow.session_context_json || {});
+    if (linkedContext.appointmentId || linkedContext.appointmentSeriesId) {
+      const linkedEventIds = await bookOfficeForAppointmentRequest({ request: reqRow, context: linkedContext,
+        rooms: candidates, office: loc, selection: validatedSelection, actorUserId: req.user.id });
+      const updatedRequest = await OfficeBookingRequest.markDecided({ requestId: reqRow.id, status: 'APPROVED', decidedByUserId: req.user.id,
+        approverComment: req.body?.approverComment || null });
+      return res.json({ ok: true, request: updatedRequest, linkedEventIds, event: await OfficeEvent.findById(linkedEventIds[0]) });
+    }
     const tz = loc.timezone || 'America/New_York';
     let chosen = null;
     for (const r of candidates) {
@@ -3315,7 +3331,7 @@ export const approveOfficeBookingRequest = async (req, res, next) => {
       return res.status(409).json({ error: { message: 'No open room is available for that time.' } });
     }
 
-    const wh = weekdayHourFromSqlDateTime(reqRow.start_at) || weekdayHourInTz(reqRow.start_at, tz);
+    const wh = weekdayHourInTz(reqRow.start_at, tz) || weekdayHourFromSqlDateTime(reqRow.start_at);
     if (!wh) return res.status(400).json({ error: { message: 'Invalid start time' } });
 
     let createdEvent = null;
@@ -3398,13 +3414,14 @@ export const approveOfficeBookingRequest = async (req, res, next) => {
         : null;
       // Normalize DATE objects from mysql2 — String(date).slice(0,10) yields "Sat Jun 27".
       const bookingStartDate = (() => {
+        if (wh.date) return wh.date;
         const v = reqRow.start_at;
         if (v instanceof Date && !Number.isNaN(v.getTime())) return v.toISOString().slice(0, 10);
         const m = String(v || '').match(/^(\d{4}-\d{2}-\d{2})/);
         return m ? m[1] : new Date().toISOString().slice(0, 10);
       })();
       // Open-ended weekly: do not pass occurrence caps that recreate the Gini fall-off.
-      const openEndedWeekly = String(normalizedRecurrence || '').toUpperCase() === 'WEEKLY';
+      const openEndedWeekly = String(normalizedRecurrence || '').toUpperCase() === 'WEEKLY' && !reqRow.client_id;
       await upsertBookingPlanAndMaterialize({
         standingAssignmentId: createdStandingAssignment.id,
         officeLocationId: loc.id,

@@ -15,6 +15,7 @@
     <div v-if="loading" class="muted">Loading…</div>
 
     <template v-else>
+      <ProviderBillingSettings :agency-id="agencyId" />
       <section class="tsa-section">
         <h4>Business types</h4>
         <div class="tsa-chips">
@@ -308,6 +309,7 @@
 </template>
 
 <script setup>
+import ProviderBillingSettings from './ProviderBillingSettings.vue';
 import { computed, onMounted, ref, watch } from 'vue';
 import api from '../../services/api.js';
 import { buildCapabilitiesPayload } from '../../config/businessTypeCapabilities.js';

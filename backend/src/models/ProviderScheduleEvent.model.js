@@ -1,4 +1,4 @@
-import { assertProviderEventCanMove, syncAppointmentFromProviderEvent } from '../services/appointmentScheduleSync.service.js';
+import { assertProviderEventCanMove, syncAppointmentFromProviderEvent, moveOfficeFromProviderEvent, cancelAppointmentsFromCalendar } from '../services/appointmentScheduleSync.service.js';
 import pool from '../config/database.js';
 import { generateJoinToken } from '../utils/joinToken.js';
 
@@ -380,6 +380,7 @@ class ProviderScheduleEvent {
     const pid = Number(providerId || 0);
     if (!eid || !pid) return null;
     if (startAt !== undefined || endAt !== undefined) await assertProviderEventCanMove(eid, startAt, endAt);
+    if (startAt !== undefined || endAt !== undefined) await moveOfficeFromProviderEvent(eid, startAt, endAt, updatedByUserId);
     const sets = [];
     const params = [];
     if (title !== undefined) {
@@ -584,6 +585,7 @@ class ProviderScheduleEvent {
   static async cancelByIds({ eventIds = [], updatedByUserId = null }) {
     const ids = Array.from(new Set((eventIds || []).map((n) => Number(n || 0)).filter((n) => n > 0)));
     if (!ids.length) return 0;
+    await cancelAppointmentsFromCalendar(ids, updatedByUserId);
     const placeholders = ids.map(() => '?').join(',');
     const [result] = await pool.execute(
       `UPDATE provider_schedule_events

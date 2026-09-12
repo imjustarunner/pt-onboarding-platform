@@ -269,7 +269,20 @@ export async function debitSessionOnComplete({
   };
 }
 
-export async function applyMissedSessionPolicy({
+export async function applyMissedSessionPolicy(options) {
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+    const result = await applyMissedSessionPolicyLocked(conn, options);
+    await conn.commit();
+    return result;
+  } catch (error) {
+    await conn.rollback();
+    throw error;
+  } finally { conn.release(); }
+}
+
+async function applyMissedSessionPolicyLocked(db, {
   agencyId,
   clientId,
   entitlementId = null,
@@ -278,16 +291,16 @@ export async function applyMissedSessionPolicy({
 }) {
   let entitlement = null;
   if (entitlementId) {
-    const [rows] = await pool.execute(
-      `SELECT * FROM practitioner_client_package_entitlements WHERE id = ? LIMIT 1`,
-      [Number(entitlementId)]
+    const [rows] = await db.execute(
+      `SELECT * FROM practitioner_client_package_entitlements WHERE id = ? AND agency_id = ? AND client_id = ? LIMIT 1 FOR UPDATE`,
+      [Number(entitlementId), Number(agencyId), Number(clientId)]
     );
     entitlement = rows?.[0] || null;
   } else {
-    const [rows] = await pool.execute(
+    const [rows] = await db.execute(
       `SELECT * FROM practitioner_client_package_entitlements
        WHERE agency_id = ? AND client_id = ? AND status = 'ACTIVE'
-       ORDER BY id DESC LIMIT 1`,
+       ORDER BY id DESC LIMIT 1 FOR UPDATE`,
       [Number(agencyId), Number(clientId)]
     );
     entitlement = rows?.[0] || null;
@@ -296,7 +309,7 @@ export async function applyMissedSessionPolicy({
 
   // Idempotent when tied to a schedule event
   if (providerScheduleEventId) {
-    const [existing] = await pool.execute(
+    const [existing] = await db.execute(
       `SELECT id FROM practitioner_session_credit_ledger
        WHERE agency_id = ? AND client_id = ? AND provider_schedule_event_id = ?
          AND reason_code IN ('MISSED_FORFEIT', 'FREE_REBOOK', 'MISSED_FEE')
@@ -314,13 +327,13 @@ export async function applyMissedSessionPolicy({
   const policy = pkg?.missed_session_policy || { type: 'forfeit', freeRebooks: 0 };
 
   if (policy.type === 'free_rebook' && Number(entitlement.free_rebooks_remaining || 0) > 0) {
-    await pool.execute(
+    await db.execute(
       `UPDATE practitioner_client_package_entitlements
        SET free_rebooks_remaining = GREATEST(0, free_rebooks_remaining - 1), updated_at = CURRENT_TIMESTAMP
        WHERE id = ?`,
       [entitlement.id]
     );
-    await pool.execute(
+    await db.execute(
       `INSERT INTO practitioner_session_credit_ledger
         (agency_id, client_id, package_id, packet_id, entitlement_id, provider_schedule_event_id,
          direction, quantity, reason_code, metadata_json, created_by_user_id)
@@ -341,7 +354,7 @@ export async function applyMissedSessionPolicy({
 
   if (policy.type === 'fee') {
     const feeCents = Number(policy.feeCents || 0);
-    await pool.execute(
+    await db.execute(
       `INSERT INTO practitioner_session_credit_ledger
         (agency_id, client_id, package_id, packet_id, entitlement_id, provider_schedule_event_id,
          direction, quantity, reason_code, metadata_json, created_by_user_id)
@@ -367,7 +380,7 @@ export async function applyMissedSessionPolicy({
   }
 
   // forfeit (default): debit one session
-  await pool.execute(
+  await db.execute(
     `INSERT INTO practitioner_session_credit_ledger
       (agency_id, client_id, package_id, packet_id, entitlement_id, provider_schedule_event_id,
        direction, quantity, reason_code, created_by_user_id)
@@ -382,7 +395,7 @@ export async function applyMissedSessionPolicy({
       createdByUserId ? Number(createdByUserId) : null
     ]
   );
-  await pool.execute(
+  await db.execute(
     `UPDATE practitioner_client_package_entitlements
      SET sessions_remaining = GREATEST(0, sessions_remaining - 1),
          status = CASE WHEN sessions_remaining - 1 <= 0 THEN 'EXHAUSTED' ELSE status END,

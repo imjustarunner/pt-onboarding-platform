@@ -154,7 +154,8 @@ export function shouldBookOnDate(plan, assignment, dateStr) {
   // active_until_date values left by the old "weekly × 6" intake approval path.
   const openEndedWeekly =
     String(plan.booked_frequency || '').toUpperCase() === 'WEEKLY'
-    && String(assignment?.availability_mode || '').toUpperCase() !== 'TEMPORARY';
+    && String(assignment?.availability_mode || '').toUpperCase() !== 'TEMPORARY'
+    && !plan.session_context_json;
   const configuredUntil = openEndedWeekly ? null : normalizeYmd(plan.active_until_date);
   if (configuredUntil && dateStr > configuredUntil) return false;
 
@@ -203,7 +204,8 @@ function bookingOccurrenceNumberForDate(plan, assignment, dateStr) {
   for (let d = start; d && d <= upperBound; d = addDays(d, 1)) {
     const weekday = weekdayIndexFromYmd(d);
     if (!Number.isInteger(weekday) || Number(weekday) !== Number(assignment?.weekday)) continue;
-    if (!shouldBookOnDate(plan, assignment, d)) continue;
+    // A cancellation/move consumes its original position; it must not append a replacement session.
+    if (!shouldBookOnDate({ ...plan, skipped_dates_json: [] }, assignment, d)) continue;
     count += 1;
   }
   return count;
@@ -213,7 +215,8 @@ export function shouldBookByCount(plan, assignment, dateStr) {
   // Open-ended weekly AVAILABLE slots ignore occurrence caps from the old intake path.
   const openEndedWeekly =
     String(plan?.booked_frequency || '').toUpperCase() === 'WEEKLY'
-    && String(assignment?.availability_mode || '').toUpperCase() !== 'TEMPORARY';
+    && String(assignment?.availability_mode || '').toUpperCase() !== 'TEMPORARY'
+    && !plan?.session_context_json;
   if (openEndedWeekly) return true;
   const maxCountRaw = Number(plan?.booked_occurrence_count || 0);
   if (!Number.isInteger(maxCountRaw) || maxCountRaw <= 0) return true;
@@ -313,8 +316,19 @@ export class OfficeScheduleMaterializer {
           if (!isAssignmentActiveOnDate(a, date)) continue;
           const startAt = mysqlDateTimeForDateHour(date, a.hour, officeTz);
           const endAt = mysqlDateTimeForDateHour(date, Number(a.hour) + 1, officeTz);
+          if ((existingEvents || []).some((ev) => {
+            let context = ev.session_context_json || {};
+            if (typeof context === 'string') { try { context = JSON.parse(context); } catch { context = {}; } }
+            return ev.client_id && String(ev.status).toUpperCase() === 'BOOKED'
+              && (context.appointmentId || context.appointmentSeriesId || !ev.standing_assignment_id)
+              && Number(ev.room_id) === Number(a.room_id)
+              && normalizeDateTime(ev.start_at) < endAt && normalizeDateTime(ev.end_at) > startAt;
+          })) continue;
           const slotKey = `${Number(a.room_id || 0)}|${startAt}|${endAt}`;
           const existingRows = existingBySlot.get(slotKey) || [];
+          // Patient bookings are changed by explicit booking/cancellation actions.
+          // A plan refresh must never cancel clinical history or bypass package policy.
+          if (existingRows.some((ev) => ev.client_id && String(ev.status).toUpperCase() === 'BOOKED')) continue;
 
           const extCount = Number(a.temporary_extension_count || 0);
           const untilStr = normalizeYmd(a.temporary_until_date);
@@ -363,6 +377,8 @@ export class OfficeScheduleMaterializer {
             && Number(ev?.assigned_provider_id || 0) === Number(a.provider_id || 0)
             && Number(ev?.booked_provider_id || 0) === desiredBookedProviderId
             && (!sessionContext?.clientId || Number(ev?.client_id || 0) === Number(sessionContext.clientId))
+            && (!sessionContext?.serviceCode || String(ev?.service_code || '') === String(sessionContext.serviceCode))
+            && (!sessionContext?.packageEntitlementId || !!ev?.session_context_json)
           );
           if (hasMatchingRow) continue;
 
@@ -426,4 +442,3 @@ export class OfficeScheduleMaterializer {
 }
 
 export default OfficeScheduleMaterializer;
-

@@ -313,14 +313,52 @@ export const settleAppointmentHandler = async (req, res, next) => {
   }
 };
 
+async function assertAppointmentChangeAccess(req, appointment) {
+  if (!(await assertAgencyAccess(req, appointment.agencyId))) {
+    throw Object.assign(new Error('Access denied'), { status: 403 });
+  }
+  const role = String(req.user?.role || '').toLowerCase();
+  if (!['admin', 'super_admin', 'superadmin', 'agency_admin', 'backoffice_admin', 'staff', 'support', 'scheduler', 'front_desk'].includes(role)
+      && Number(appointment.providerUserId) !== Number(req.user?.id)
+      && !(await hasSchedulingBillingAccess(req.user, appointment.agencyId))) {
+    throw Object.assign(new Error('Only the assigned provider or scheduling staff may change this appointment'), { status: 403 });
+  }
+}
+
+export const getAppointmentChangeHandler = async (req, res, next) => {
+  try {
+    const appointment = await Appointment.findById(Number(req.params.id));
+    if (!appointment) return res.status(404).json({ error: { message: 'Appointment not found' } });
+    await assertAppointmentChangeAccess(req, appointment);
+    const { getAppointmentChangeWorkflow } = await import('../services/appointmentChangeWorkflow.service.js');
+    const { getAppointmentWaiver } = await import('../services/appointmentWaiver.service.js');
+    const workflow = await getAppointmentChangeWorkflow(appointment.id);
+    res.json(await schedulingResponseForUser(req.user, appointment.agencyId,
+      { ok: true, workflow: workflow ? { ...workflow, waiver: await getAppointmentWaiver(appointment.id) } : null }));
+  } catch (error) { next(error); }
+};
+
+export const saveAppointmentChangeDraftHandler = async (req, res, next) => {
+  try {
+    const appointment = await Appointment.findById(Number(req.params.id));
+    if (!appointment) return res.status(404).json({ error: { message: 'Appointment not found' } });
+    await assertAppointmentChangeAccess(req, appointment);
+    const { saveAppointmentChangeDraft } = await import('../services/appointmentChangeWorkflow.service.js');
+    // Only workflow facts are stored; discard client-supplied results, amounts and signatures.
+    const keys = ['eventType', 'initiator', 'reasons', 'reasonOther', 'outreach', 'reasonKnown', 'clientId',
+      'replacementAppointmentId', 'waiver', 'additionalComments'];
+    const facts = Object.fromEntries(keys.filter((k) => req.body?.[k] !== undefined).map((k) => [k, req.body[k]]));
+    res.json(await schedulingResponseForUser(req.user, appointment.agencyId,
+      { ok: true, workflow: await saveAppointmentChangeDraft(appointment.id, facts, req.user.id) }));
+  } catch (error) { next(error); }
+};
+
 export const previewAppointmentChangeHandler = async (req, res, next) => {
   try {
     const id = parseInt(req.params.id, 10);
     const existing = await Appointment.findById(id);
     if (!existing) return res.status(404).json({ error: { message: 'Appointment not found' } });
-    if (!(await assertAgencyAccess(req, existing.agencyId))) {
-      return res.status(403).json({ error: { message: 'Access denied' } });
-    }
+    await assertAppointmentChangeAccess(req, existing);
     const {
       previewAppointmentChange
     } = await import('../services/appointmentChange.service.js');
@@ -340,9 +378,7 @@ export const completeAppointmentChangeHandler = async (req, res, next) => {
     const id = parseInt(req.params.id, 10);
     const existing = await Appointment.findById(id);
     if (!existing) return res.status(404).json({ error: { message: 'Appointment not found' } });
-    if (!(await assertAgencyAccess(req, existing.agencyId))) {
-      return res.status(403).json({ error: { message: 'Access denied' } });
-    }
+    await assertAppointmentChangeAccess(req, existing);
     const {
       completeAppointmentChange
     } = await import('../services/appointmentChange.service.js');
@@ -355,4 +391,20 @@ export const completeAppointmentChangeHandler = async (req, res, next) => {
     if (e?.status) return res.status(e.status).json({ error: { message: e.message, code: e.code } });
     next(e);
   }
+};
+
+export const listAppointmentWaiversHandler = async (req, res, next) => {
+  try {
+    const { listAppointmentWaivers } = await import('../services/appointmentWaiver.service.js');
+    res.json({ ok: true, ...await listAppointmentWaivers({ agencyId: Number(req.query.agencyId), user: req.user, offset: req.query.offset }) });
+  } catch (error) { next(error); }
+};
+export const decideAppointmentWaiverHandler = async (req, res, next) => {
+  try {
+    if (req.body?.signatureConfirmed !== true) return res.status(400).json({ error: { message: 'Confirm your review signature' } });
+    const { decideAppointmentWaiver } = await import('../services/appointmentWaiver.service.js');
+    const waiver = await decideAppointmentWaiver({ appointmentId: Number(req.params.id), user: req.user,
+      decision: req.body?.decision, reason: req.body?.reason });
+    res.json({ ok: true, waiver });
+  } catch (error) { next(error); }
 };

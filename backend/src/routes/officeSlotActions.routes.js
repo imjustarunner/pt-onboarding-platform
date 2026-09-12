@@ -22,6 +22,7 @@ import {
   superAdminPurgeFutureBookedSlot,
   cancelAssignment,
   rescheduleStandingAssignment,
+  rescheduleOfficeEvent,
   staffAssignOpenSlot
 } from '../controllers/officeSlotActions.controller.js';
 
@@ -40,6 +41,7 @@ router.post('/:officeId/assignments/:assignmentId/temporary', setTemporary);
 router.post('/:officeId/assignments/:assignmentId/extend-temporary', extendTemporary);
 router.post('/:officeId/assignments/:assignmentId/forfeit', forfeitAssignment);
 router.post('/:officeId/events/:eventId/book', staffBookEvent);
+router.post('/:officeId/events/:eventId/reschedule', rescheduleOfficeEvent);
 router.get('/:officeId/events/:eventId/context', getEventContext);
 router.post('/:officeId/events/:eventId/virtual-intake', setEventVirtualIntakeAvailability);
 router.post('/:officeId/events/:eventId/in-person-intake', setEventInPersonIntakeAvailability);
@@ -53,4 +55,3 @@ router.post('/:officeId/assignments/:assignmentId/reschedule', rescheduleStandin
 router.post('/:officeId/open-slots/assign', staffAssignOpenSlot);
 
 export default router;
-

@@ -56,7 +56,7 @@ export async function settleAppointmentOutcome(appointmentId, {
   if (!appointment) return { settled: false, reason: 'NOT_FOUND' };
 
   const billing = await Appointment.getBilling(id);
-  if (!force && billing?.paymentStatus && ['package_consumed', 'forfeited', 'fee_pending', 'paid', 'invoiced', 'free_rebook'].includes(
+  if (!force && billing?.paymentStatus && ['package_consumed', 'forfeited', 'fee_pending', 'paid', 'invoiced', 'free_rebook', 'waived'].includes(
     String(billing.paymentStatus)
   )) {
     return {
@@ -71,7 +71,7 @@ export async function settleAppointmentOutcome(appointmentId, {
   const packageEntitlementId = safeInt(
     appointment.packageEntitlementId || billing?.packageEntitlementId
   );
-  if (appointment.clinicalSessionId && !packageEntitlementId) {
+  if (appointment.clinicalSessionId && !packageEntitlementId && billing?.settlementMode !== 'self_pay_only') {
     return { settled: true, outcome: status, reason: 'CLINICAL_BILLING', paymentStatus: billing?.paymentStatus || 'none' };
   }
   const providerScheduleEventId = safeInt(appointment.providerScheduleEventId);
@@ -100,7 +100,7 @@ export async function settleAppointmentOutcome(appointmentId, {
       }
     }
 
-    if (!packageEntitlementId && clientId && agencyId && providerScheduleEventId) {
+    if (!packageEntitlementId && !appointment.clinicalSessionId && clientId && agencyId && providerScheduleEventId) {
       try {
         results.practitionerPackage = await debitSessionOnComplete({
           agencyId,
@@ -133,13 +133,13 @@ export async function settleAppointmentOutcome(appointmentId, {
           appointmentId: id,
           actorUserId
         });
-        results.paymentStatus = 'forfeited';
+        results.paymentStatus = results.bookingPackage?.appliedUsage?.creditBucket === 'free_miss' ? 'free_rebook' : 'forfeited';
       } catch (e) {
         throw e;
       }
     }
 
-    if (!packageEntitlementId && clientId && agencyId && providerScheduleEventId) {
+    if (!packageEntitlementId && !appointment.clinicalSessionId && clientId && agencyId && providerScheduleEventId) {
       try {
         results.practitionerPackage = await applyMissedSessionPolicy({
           agencyId,

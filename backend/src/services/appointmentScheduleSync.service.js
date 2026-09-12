@@ -1,6 +1,8 @@
 import Appointment from '../models/Appointment.model.js';
 import clinicalPool from '../config/clinicalDatabase.js';
 import { ensureAppointmentClinicalLink } from './appointmentClinicalLink.service.js';
+import OfficeLocation from '../models/OfficeLocation.model.js';
+import { moveOfficeSessionOccurrence } from './officeSessionMove.service.js';
 
 export async function assertAppointmentCanMove(appointment) {
   if (!appointment) return;
@@ -25,6 +27,18 @@ export async function assertProviderEventCanMove(providerScheduleEventId, startA
   await assertAppointmentCanMove(appointment);
 }
 
+export async function moveOfficeFromProviderEvent(providerScheduleEventId, startAt, endAt, actorUserId) {
+  const appointment = await Appointment.findByProviderScheduleEventId(providerScheduleEventId);
+  if (!appointment?.officeEventId) return;
+  const instant = (v) => v instanceof Date ? v.getTime() : Date.parse(String(v).replace(' ', 'T').replace(/Z?$/, 'Z'));
+  if ((startAt === undefined || instant(startAt) === instant(appointment.startAt))
+      && (endAt === undefined || instant(endAt) === instant(appointment.endAt))) return;
+  const office = await OfficeLocation.findById(appointment.officeLocationId);
+  await moveOfficeSessionOccurrence({ eventId: appointment.officeEventId, newRoomId: appointment.roomId,
+    startAt: startAt ?? appointment.startAt, endAt: endAt ?? appointment.endAt, timeZone: office?.timezone || appointment.sourceTimezone,
+    actorUserId });
+}
+
 // Calendar series edits call updateForProvider for every affected occurrence.
 // Keep each appointment and its clinical service time aligned with that occurrence.
 export async function syncAppointmentFromProviderEvent(event, actorUserId = null) {
@@ -34,4 +48,15 @@ export async function syncAppointmentFromProviderEvent(event, actorUserId = null
     startAt: event.start_at, endAt: event.end_at, updatedByUserId: actorUserId
   });
   await ensureAppointmentClinicalLink(appointment.id, actorUserId);
+  const { scheduleSessionNotifications } = await import('./sessionNotification.service.js');
+  await scheduleSessionNotifications(appointment.id, { replace: true });
+}
+
+export async function cancelAppointmentsFromCalendar(eventIds, actorUserId) {
+  const { cancelAppointment } = await import('./appointment.service.js');
+  for (const eventId of eventIds) {
+    const appointment = await Appointment.findByProviderScheduleEventId(eventId);
+    if (!appointment || !['scheduled', 'confirmed'].includes(appointment.status)) continue;
+    await cancelAppointment(appointment.id, { actorUserId, actorRole: 'provider', reason: 'Provider calendar session canceled' });
+  }
 }
