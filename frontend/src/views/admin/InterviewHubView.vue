@@ -235,12 +235,7 @@
           <input v-model.number="scheduleForm.durationMinutes" class="input" type="number" min="15" max="240" step="15" />
 
           <label class="ih-label">Interviewers</label>
-          <select v-model="scheduleForm.interviewerUserIds" class="input ih-multi" multiple>
-            <option v-for="a in assignees" :key="a.id || a.user_id" :value="String(a.id || a.user_id)">
-              {{ formatAssigneeOption(a) }}
-            </option>
-          </select>
-          <p class="ih-hint">Hold Ctrl/Cmd to select multiple.</p>
+          <div class="ih-interviewer-list"><label v-for="a in assignees" :key="a.id || a.user_id" class="ih-checkbox"><input v-model="scheduleForm.interviewerUserIds" type="checkbox" :value="String(a.id || a.user_id)" />{{ formatAssigneeOption(a) }}</label></div>
 
           <label class="ih-label">Job question set</label>
           <select v-model="scheduleForm.jobQuestionSetId" class="input">
@@ -250,13 +245,14 @@
 
           <label class="ih-checkbox">
             <input v-model="scheduleForm.sendInvites" type="checkbox" />
-            Send calendar invites
+            Send calendar and branded email invitations
           </label>
         </div>
+        <InterviewInvitePreview :agency-id="effectiveAgencyId" :candidate-user-id="scheduleForm.candidateUserId" :title="scheduleTitlePreview" :starts-at="scheduleForm.startsAt" :timezone="scheduleForm.timezone" :interviewer-user-ids="scheduleForm.interviewerUserIds" />
         <div class="ih-modal-footer">
           <button type="button" class="btn btn-secondary" @click="showScheduleModal = false">Cancel</button>
           <button type="button" class="btn btn-primary" :disabled="scheduling || !canSubmitSchedule" @click="submitSchedule">
-            {{ scheduling ? 'Scheduling…' : 'Submit' }}
+            {{ scheduling ? 'Scheduling…' : (scheduleForm.sendInvites ? 'Schedule & send' : 'Save without sending') }}
           </button>
         </div>
       </div>
@@ -265,6 +261,7 @@
 </template>
 
 <script setup>
+import InterviewInvitePreview from '../../components/hiring/InterviewInvitePreview.vue';
 import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import api from '../../services/api';
@@ -772,7 +769,9 @@ async function submitSchedule() {
     showScheduleModal.value = false;
     await loadInterviews();
     if (created?.id) selectedInterviewId.value = created.id;
-    flashSuccess('Interview scheduled');
+    const outcome = r.data?.data || {};
+    flashSuccess(outcome.delivery?.sent ? 'Interview scheduled and candidate invitation sent.' : 'Interview scheduled.');
+    if (outcome.calendarWarning || (body.sendInvites && !outcome.delivery?.sent)) error.value = [outcome.delivery?.sent ? '' : outcome.delivery?.reason, outcome.calendarWarning].filter(Boolean).join(' ');
   } catch (e) {
     error.value = e?.response?.data?.message || e?.message || 'Failed to schedule interview';
   } finally {

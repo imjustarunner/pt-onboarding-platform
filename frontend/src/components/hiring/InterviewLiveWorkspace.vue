@@ -1,6 +1,8 @@
 <template>
   <div class="ilw" :class="{ dark: dark }">
-    <div class="ilw-brief">
+    <Teleport :to="briefTeleportTarget || 'body'" :disabled="!briefTeleportTarget">
+    <div class="ilw-brief" :class="{ dark }">
+      <h3>{{ candidateName || 'Candidate brief' }}</h3><p class="muted small">{{ candidateRole }} · Interviewers only</p>
       <div class="ilw-brief-nav">
         <button type="button" class="ilw-brief-tab" :class="{ active: briefPage === 0 }" @click="briefPage = 0">
           Resume
@@ -19,6 +21,18 @@
             <li v-for="(b, idx) in resumeBullets" :key="`rs_${idx}`">{{ b }}</li>
           </ul>
           <p v-else class="muted small">No resume summary yet.</p>
+          <article v-for="(job, idx) in workHistory" :key="idx" class="ilw-source-card">
+            <strong>{{ job.title }} · {{ job.employer }}</strong><p class="small">{{ job.startDate }} – {{ job.endDate || 'Present' }}</p>
+            <p v-if="job.summary">{{ job.summary }}</p>
+            <ul><li v-for="(item, i) in (job.highlights || job.responsibilities || [])" :key="i">{{ item }}</li></ul>
+            <p class="ilw-prompt">Explore: What did you learn in your role at {{ job.employer || 'this organization' }}, and how would it apply here?</p>
+          </article>
+          <article v-if="education.length" class="ilw-source-card"><strong>Education</strong><p v-for="(item, i) in education" :key="i">{{ item.school }} · {{ item.degree }} {{ item.field }}</p></article>
+          <article v-if="certifications.length" class="ilw-source-card"><strong>Certifications</strong><p v-for="(item, i) in certifications" :key="i">{{ item.name }}</p></article>
+          <div class="ilw-skills"><span v-for="skill in skills" :key="skill">{{ skill }}</span></div>
+          <details v-if="coverLetter"><summary>Cover letter</summary><p style="white-space:pre-wrap">{{ coverLetter }}</p></details>
+          <div v-if="documents.length" class="ilw-source-card"><strong>Original documents</strong><button v-for="doc in documents" :key="doc.id" class="ilw-btn" @click="openDocument(doc)">{{ doc.title || doc.original_name || 'Open document' }}</button></div>
+          <p v-if="documentError" role="alert">{{ documentError }}</p>
         </div>
         <div v-show="briefPage === 1">
           <div class="ilw-brief-title">Candidate research (condensed)</div>
@@ -42,6 +56,8 @@
       </div>
     </div>
 
+    </Teleport>
+    <p class="ilw-save-status" role="status">{{ saving ? 'Saving…' : saveStatus }} · Interviewers only</p>
     <div class="ilw-tabs">
       <button
         v-for="t in tabs"
@@ -57,12 +73,12 @@
     </div>
 
     <div v-if="loading" class="ilw-empty">Loading interview workspace…</div>
-    <div v-else-if="error" class="ilw-error">{{ error }}</div>
-    <template v-else>
+    <div v-if="error" class="ilw-error" role="alert">{{ error }} <button class="ilw-btn" @click="saveArtifacts">Retry save</button></div>
+    <template v-if="!loading && interviewId">
       <!-- Flow -->
       <div v-show="activeTab === 'flow'" class="ilw-panel">
         <div class="ilw-section-head">
-          <h4>Interview flow</h4>
+          <h4>Interview guide</h4><span class="small">{{ completedCount }} / {{ questionCount }} asked</span>
           <button type="button" class="ilw-link" :disabled="saving" @click="saveArtifacts">
             {{ saving ? 'Saving…' : 'Save' }}
           </button>
@@ -93,7 +109,7 @@
             class="ilw-q"
             :class="{ done: isComplete(section.key, q.key || qIdx) }"
           >
-            <button type="button" class="ilw-check" @click="toggleComplete(section.key, q.key || qIdx)">
+            <button type="button" :aria-label="`Mark question ${isComplete(section.key, q.key || qIdx) ? 'unasked' : 'asked'}`" :aria-pressed="isComplete(section.key, q.key || qIdx)" class="ilw-check" @click="toggleComplete(section.key, q.key || qIdx)">
               {{ isComplete(section.key, q.key || qIdx) ? '✓' : '' }}
             </button>
             <div class="ilw-q-text">{{ q.text || q.prompt || q }}</div>
@@ -104,6 +120,7 @@
         </div>
       </div>
 
+      <form v-if="activeTab === 'flow'" class="ilw-chat-form" @submit.prevent="addQuestion"><input v-model="questionDraft" class="ilw-input" placeholder="Add an interview question…" aria-label="Additional interview question" /><button class="ilw-btn" :disabled="saving || !questionDraft.trim()">Add</button></form>
       <!-- Notes -->
       <div v-show="activeTab === 'notes'" class="ilw-panel">
         <div class="ilw-section-head">
@@ -112,13 +129,13 @@
             {{ saving ? 'Saving…' : 'Save' }}
           </button>
         </div>
-        <textarea v-model="myNotes" class="ilw-textarea" rows="12" placeholder="Notes only visible to the hiring team…" @blur="saveArtifacts" />
+        <textarea v-model="myNotes" class="ilw-textarea" rows="12" placeholder="Your private notes — only visible to you…" @input="notesDirty = true; queueSave()" @blur="saveArtifacts" />
       </div>
 
       <!-- Scorecard -->
       <div v-show="activeTab === 'scorecard'" class="ilw-panel">
         <div class="ilw-section-head">
-          <h4>Scorecard (out of 4)</h4>
+          <h4>Your scorecard (out of 4)</h4>
           <button type="button" class="ilw-link" :disabled="saving" @click="saveArtifacts">
             {{ saving ? 'Saving…' : 'Save' }}
           </button>
@@ -132,6 +149,7 @@
               type="button"
               class="ilw-star"
               :class="{ on: (ratings[c.key] || 0) >= n }"
+              :aria-label="`${c.label}: ${n} out of 4`"
               @click="setRating(c.key, n)"
             >★</button>
           </div>
@@ -208,7 +226,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue';
+import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue';
 import api from '../../services/api';
 import { useAuthStore } from '../../store/auth';
 import { buildQuickResumeBullets } from '../../utils/hiringResumeSummaryBullets.js';
@@ -217,14 +235,18 @@ import { digestPreScreenReport } from '../../utils/hiringPreScreenDigest.js';
 const props = defineProps({
   eventId: { type: [Number, String], required: true },
   agencyId: { type: [Number, String], default: null },
-  dark: { type: Boolean, default: true }
+  dark: { type: Boolean, default: true },
+  briefTarget: { type: String, default: null }
 });
 
 const emit = defineEmits(['finalized', 'loaded', 'guest-access-ended']);
 
 const authStore = useAuthStore();
+const briefTeleportTarget = ref(null);
+const salutationPool = ref([]);
+const icebreakerPool = ref([]);
 const tabs = [
-  { id: 'flow', label: 'Flow' },
+  { id: 'flow', label: 'Interview guide' },
   { id: 'notes', label: 'Notes' },
   { id: 'scorecard', label: 'Scorecard' },
   { id: 'transcript', label: 'Transcript' },
@@ -258,6 +280,26 @@ const meetingSummary = ref('');
 const meetingActionItems = ref([]);
 const transcriptLoading = ref(false);
 let autosaveTimer = null;
+let pollTimer = null;
+let saveChain = Promise.resolve(true);
+const pendingCompleted = reactive({});
+const notesDirty = ref(false);
+const ratingsDirty = ref(false);
+const saveStatus = ref('Progress saved');
+const candidateName = ref('');
+const candidateRole = ref('');
+const documents = ref([]);
+const coverLetter = ref('');
+const resumeSummary = ref({});
+const documentError = ref('');
+const questionDraft = ref('');
+const completedCount = computed(() => Object.values(completed).filter(Boolean).length);
+const questionCount = computed(() => flowSections.value.reduce((n, sec) => n + sectionQuestions(sec).length, 0));
+const workHistory = computed(() => resumeSummary.value.workHistory || []);
+const education = computed(() => resumeSummary.value.education || []);
+const certifications = computed(() => resumeSummary.value.licensesAndCertifications || []);
+const skills = computed(() => resumeSummary.value.skills || []);
+
 
 const averageDisplay = computed(() => {
   const vals = criteria.value.map((c) => Number(ratings[c.key] || 0)).filter((n) => n > 0);
@@ -267,11 +309,18 @@ const averageDisplay = computed(() => {
 
 const agencyParam = computed(() => (props.agencyId ? { agencyId: props.agencyId } : {}));
 
-onMounted(load);
+onMounted(async () => {
+  await nextTick();
+  briefTeleportTarget.value = props.briefTarget ? document.querySelector(props.briefTarget) : null;
+  await load();
+  pollTimer = setInterval(refreshShared, 5000);
+});
 watch(() => props.eventId, load);
 
 onUnmounted(() => {
   if (autosaveTimer) clearTimeout(autosaveTimer);
+  if (pollTimer) clearInterval(pollTimer);
+  saveArtifacts();
 });
 
 async function load() {
@@ -283,6 +332,8 @@ async function load() {
       params: agencyParam.value
     });
     const data = r.data?.data || r.data || {};
+    salutationPool.value = data.template?.salutation_pool_json || [];
+    icebreakerPool.value = data.template?.icebreaker_pool_json || [];
     interviewId.value = data.interview?.id || null;
     candidateUserId.value = data.interview?.candidate_user_id || data.interview?.candidateUserId || null;
     const flow = data.flow || data.artifact?.flow_state_json || {};
@@ -302,7 +353,7 @@ async function load() {
       ];
     criteria.value = Array.isArray(crit) ? crit : [];
     Object.keys(ratings).forEach((k) => delete ratings[k]);
-    const savedRatings = data.artifact?.scorecard_json?.ratings || {};
+    const savedRatings = data.artifact?.my_scorecard || {};
     Object.assign(ratings, savedRatings);
 
     const notesMap = data.artifact?.private_notes_json || {};
@@ -350,35 +401,47 @@ async function loadMeetingNotes() {
 }
 
 async function loadResumeSummary() {
-  const uid = candidateUserId.value;
-  if (!uid || !props.agencyId) {
-    resumeBullets.value = [];
-    researchBrief.value = [];
-    strengthItems.value = [];
-    weaknessItems.value = [];
-    return;
-  }
+  if (!interviewId.value) return;
   try {
-    const [summaryR, candidateR] = await Promise.all([
-      api.get(`/hiring/candidates/${uid}/resume-summary`, {
-        params: { agencyId: props.agencyId }
-      }),
-      api.get(`/hiring/candidates/${uid}`, {
-        params: { agencyId: props.agencyId }
-      })
-    ]);
-    resumeBullets.value = buildQuickResumeBullets(summaryR.data?.summary || null);
-    const reportText = candidateR.data?.latestPreScreen?.report_text || '';
-    const digest = digestPreScreenReport(reportText);
+    const response = await api.get(`/hiring/interview-hub/interviews/${interviewId.value}/brief`);
+    const brief = response.data?.data || {};
+    candidateName.value = brief.candidateName || '';
+    candidateRole.value = brief.role || '';
+    documents.value = brief.documents || [];
+    coverLetter.value = brief.coverLetter || '';
+    resumeSummary.value = brief.summary?.summary || brief.summary || {};
+    resumeBullets.value = buildQuickResumeBullets(brief.summary);
+    const digest = digestPreScreenReport(brief.reportText || '');
     researchBrief.value = digest.researchBrief;
     strengthItems.value = digest.strengths;
     weaknessItems.value = digest.weaknesses;
-  } catch {
-    resumeBullets.value = [];
-    researchBrief.value = [];
-    strengthItems.value = [];
-    weaknessItems.value = [];
-  }
+  } catch { documentError.value = 'Candidate materials could not be loaded. Reopen the workspace to retry.'; }
+}
+
+async function openDocument(doc) {
+  documentError.value = '';
+  const tab = window.open('', '_blank');
+  if (tab) tab.opener = null;
+  try {
+    const r = await api.get(`/hiring/interview-hub/interviews/${interviewId.value}/documents/${doc.id}`);
+    if (tab && r.data?.url) tab.location = r.data.url;
+    else { tab?.close(); documentError.value = 'Allow popups to open the original document.'; }
+  } catch { tab?.close(); documentError.value = 'Unable to open this document.'; }
+}
+
+async function refreshShared() {
+  if (!interviewId.value || saving.value || !document.hasFocus()) return;
+  try {
+    const r = await api.get(`/hiring/interview-hub/interviews/${interviewId.value}/artifacts`, { skipGlobalLoading: true });
+    const art = r.data?.data || {};
+    for (const [key, value] of Object.entries(art.flow_state_json?.completed || {})) {
+      if (!(key in pendingCompleted)) completed[key] = value;
+    }
+    if (art.flow_state_json?.sections) flowSections.value = art.flow_state_json.sections;
+    const incoming = art.team_chat_json || [];
+    if (activeTab.value !== 'chat' && incoming.length > teamChat.value.length) unreadChat.value += incoming.length - teamChat.value.length;
+    teamChat.value = incoming;
+  } catch { saveStatus.value = 'Team sync interrupted — retrying'; }
 }
 
 function normalizeFlow(flow) {
@@ -410,111 +473,95 @@ function isComplete(sectionKey, qKey) {
 function toggleComplete(sectionKey, qKey) {
   const id = `${sectionKey}:${qKey}`;
   completed[id] = !completed[id];
+  pendingCompleted[id] = completed[id];
   queueSave();
 }
 
 function setRating(key, n) {
   ratings[key] = ratings[key] === n ? 0 : n;
+  ratingsDirty.value = true;
   queueSave();
 }
 
 async function regenIcebreaker() {
   try {
-    const r = await api.post('/hiring/interview-hub/icebreaker/random', {}, { params: agencyParam.value });
-    const text = r.data?.data?.icebreaker || r.data?.icebreaker;
+    const pool = icebreakerPool.value;
+    const text = pool[Math.floor(Math.random() * pool.length)];
     if (!text) return;
     const sec = flowSections.value.find((s) => s.key === 'icebreaker');
     if (sec) {
       sec.item = text;
       sec.questions = [{ key: 'icebreaker_1', text }];
     }
-    queueSave();
-  } catch {
-    /* ignore */
-  }
+    if (sec) await saveArtifacts({ sectionPatch: { ...sec } });
+  } catch { error.value = 'Unable to update the interview guide.'; }
 }
 
 async function regenSalutation() {
   try {
-    const r = await api.post('/hiring/interview-hub/salutation/random', {}, { params: agencyParam.value });
-    const text = r.data?.data?.salutation || r.data?.salutation;
+    const pool = salutationPool.value;
+    const text = pool[Math.floor(Math.random() * pool.length)];
     if (!text) return;
     const sec = flowSections.value.find((s) => s.key === 'salutation');
     if (sec) {
       sec.item = text;
       sec.questions = [{ key: 'salutation_1', text }];
     }
-    queueSave();
-  } catch {
-    /* ignore */
-  }
+    if (sec) await saveArtifacts({ sectionPatch: { ...sec } });
+  } catch { error.value = 'Unable to update the interview guide.'; }
 }
 
 function queueSave() {
   if (autosaveTimer) clearTimeout(autosaveTimer);
+  saveStatus.value = 'Unsaved changes';
   autosaveTimer = setTimeout(() => saveArtifacts(), 800);
 }
 
-function buildPayload() {
-  const uid = String(authStore.user?.id || 'unknown');
-  const name = [authStore.user?.first_name, authStore.user?.last_name].filter(Boolean).join(' ') || 'Interviewer';
-  return {
-    agencyId: props.agencyId,
-    flowStateJson: {
-      sections: flowSections.value,
-      completed: { ...completed }
-    },
-    scorecardJson: {
-      criteria: criteria.value,
-      ratings: { ...ratings },
-      maxStars: 4
-    },
-    privateNotesJson: {
-      [uid]: myNotes.value
-    },
-    teamChatJson: teamChat.value,
-    _authorName: name,
-    _authorId: uid
-  };
+function saveArtifacts(extra = {}) {
+  if (extra instanceof Event) extra = {};
+  if (autosaveTimer) clearTimeout(autosaveTimer);
+  saveChain = saveChain.catch(() => false).then(async () => {
+    if (!interviewId.value) return false;
+    const delta = { ...pendingCompleted };
+    const notes = myNotes.value;
+    const currentRatings = { ...ratings };
+    const payload = { ...extra, completedPatch: delta,
+      ...(notesDirty.value ? { myNotes: notes } : {}),
+      ...(ratingsDirty.value ? { myRatings: currentRatings } : {}) };
+    if (!Object.keys(delta).length && payload.myNotes === undefined && payload.myRatings === undefined && !payload.sectionPatch && !payload.teamMessage) return true;
+    saving.value = true;
+    try {
+      const r = await api.put(`/hiring/interview-hub/interviews/${interviewId.value}/artifacts`, payload);
+      for (const [key, value] of Object.entries(delta)) if (pendingCompleted[key] === value) delete pendingCompleted[key];
+      if (myNotes.value === notes) notesDirty.value = false;
+      if (JSON.stringify(ratings) === JSON.stringify(currentRatings)) ratingsDirty.value = false;
+      teamChat.value = r.data?.data?.team_chat_json || teamChat.value;
+      error.value = '';
+      saveStatus.value = 'Progress saved';
+      return true;
+    } catch (e) {
+      error.value = e.response?.data?.error?.message || e.response?.data?.message || 'Your changes have not saved. Retry before leaving.';
+      saveStatus.value = 'Unsaved changes';
+      return false;
+    } finally { saving.value = false; }
+  });
+  return saveChain;
 }
 
-async function saveArtifacts() {
-  if (!interviewId.value) return;
-  saving.value = true;
-  try {
-    const payload = buildPayload();
-    // Merge notes with server map so we don't wipe other interviewers' notes
-    const existing = await api.get(`/hiring/interview-hub/interviews/${interviewId.value}/artifacts`, {
-      params: agencyParam.value
-    });
-    const prevNotes = existing.data?.data?.private_notes_json || {};
-    payload.privateNotesJson = { ...prevNotes, ...payload.privateNotesJson };
-    await api.put(`/hiring/interview-hub/interviews/${interviewId.value}/artifacts`, payload, {
-      params: agencyParam.value
-    });
-  } catch (e) {
-    error.value = e.response?.data?.error?.message || e.response?.data?.message || 'Failed to save';
-  } finally {
-    saving.value = false;
-  }
-}
-
+let pendingMessage = null;
 async function sendChat() {
   const text = chatDraft.value.trim();
   if (!text) return;
-  const payload = buildPayload();
-  teamChat.value = [
-    ...teamChat.value,
-    {
-      text,
-      at: new Date().toISOString(),
-      authorId: payload._authorId,
-      authorName: payload._authorName
-    }
-  ];
-  chatDraft.value = '';
-  if (activeTab.value !== 'chat') unreadChat.value += 1;
-  await saveArtifacts();
+  if (!pendingMessage || pendingMessage.text !== text) pendingMessage = { id: crypto.randomUUID(), text };
+  if (await saveArtifacts({ teamMessage: pendingMessage })) { chatDraft.value = ''; pendingMessage = null; }
+}
+
+async function addQuestion() {
+  const text = questionDraft.value.trim();
+  if (!text) return;
+  const section = flowSections.value.find(s => s.key === 'additional') || { key: 'additional', label: 'Additional questions', questions: [] };
+  const updated = { ...section, questions: [...section.questions, { key: crypto.randomUUID(), text }] };
+  if (await saveArtifacts({ sectionPatch: updated })) { questionDraft.value = ''; await refreshShared(); }
 }
 
 watch(activeTab, (t) => {
@@ -526,7 +573,7 @@ async function finalize() {
   if (!interviewId.value) return;
   finalizing.value = true;
   try {
-    await saveArtifacts();
+    if (!await saveArtifacts()) return;
     await api.post(`/hiring/interview-hub/interviews/${interviewId.value}/finalize`, {
       agencyId: props.agencyId
     }, { params: agencyParam.value });
@@ -548,7 +595,7 @@ async function endGuestAccess() {
   endingGuest.value = true;
   error.value = '';
   try {
-    await saveArtifacts();
+    if (!await saveArtifacts()) return;
     const r = await api.post(
       `/hiring/interview-hub/interviews/${interviewId.value}/end-guest-access`,
       { agencyId: props.agencyId },
@@ -696,6 +743,7 @@ function formatWhen(v) {
 .ilw-chat-form { display: flex; gap: 6px; }
 .ilw-footer {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
   justify-content: flex-end;
 }
@@ -743,7 +791,7 @@ function formatWhen(v) {
   letter-spacing: 0.03em;
 }
 .ilw-brief-body {
-  max-height: 200px;
+  max-height: calc(100vh - 220px);
   overflow: auto;
 }
 .ilw-resume-list {
@@ -805,4 +853,16 @@ function formatWhen(v) {
 .ilw-error { color: #fca5a5; }
 .muted { opacity: 0.7; }
 .small { font-size: 11px; }
+</style>
+
+<style scoped>
+.ilw-brief h3 { margin: 0 0 8px; }
+.ilw-brief.dark { color: #e5e7eb; background: #192331; }
+.ilw-source-card { border: 1px solid #64748b55; border-radius: 10px; padding: 12px; margin-top: 12px; font-size: 13px; }
+.ilw-source-card p { margin: 8px 0; }
+.ilw-source-card .ilw-btn { display: block; margin-top: 8px; text-align: left; }
+.ilw-prompt { padding: 8px; background: #8b5cf622; border-radius: 6px; line-height: 1.5; }
+.ilw-skills { display: flex; flex-wrap: wrap; gap: 5px; margin: 12px 0; }
+.ilw-skills span { background: #64748b33; padding: 4px 8px; border-radius: 6px; font-size: 12px; }
+.ilw-save-status { margin: 0; font-size: 12px; color: #86efac; }
 </style>

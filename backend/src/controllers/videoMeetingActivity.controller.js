@@ -4,6 +4,8 @@
  */
 
 import pool from '../config/database.js';
+import HiringInterview from '../models/HiringInterview.model.js';
+import { canAccessHiringInterview } from '../services/hiringInterviewAccess.service.js';
 import User from '../models/User.model.js';
 import SupervisionSession from '../models/SupervisionSession.model.js';
 import ProviderScheduleEvent from '../models/ProviderScheduleEvent.model.js';
@@ -60,6 +62,9 @@ async function canAccessSupervisionActivity(req, session) {
 }
 
 async function canAccessTeamMeetingActivity(req, event) {
+  if (String(event?.meeting_subtype) === 'interview') {
+    return canAccessHiringInterview(req.user, await HiringInterview.findByScheduleEventId(event.id));
+  }
   const actorId = Number(req.user?.id || 0);
   if (!actorId) return false;
   const providerId = Number(event?.provider_id || 0);

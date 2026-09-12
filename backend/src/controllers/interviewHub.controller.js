@@ -1,3 +1,10 @@
+import { deliverExistingInterview } from '../services/hiringInterviewDelivery.service.js';
+import { sendHiringInterviewInviteEmail } from '../services/hiringInterviewInviteEmail.service.js';
+import { requireHiringInterviewAccess } from '../services/hiringInterviewAccess.service.js';
+import { interviewArtifactForViewer, saveInterviewWorkspace } from '../services/hiringInterviewWorkspace.service.js';
+import HiringResumeParse from '../models/HiringResumeParse.model.js';
+import HiringResearchReport from '../models/HiringResearchReport.model.js';
+import HiringProfile from '../models/HiringProfile.model.js';
 import pool from '../config/database.js';
 import User from '../models/User.model.js';
 import Agency from '../models/Agency.model.js';
@@ -232,7 +239,7 @@ export const getInterview = async (req, res, next) => {
     if (!interview) {
       return res.status(404).json({ success: false, message: 'Interview not found' });
     }
-    await ensureAgencyAccess(req, interview.agency_id);
+    await requireHiringInterviewAccess(req.user, interview);
 
     let template = interview.template_id
       ? await InterviewHubTemplate.findById(interview.template_id)
@@ -243,7 +250,7 @@ export const getInterview = async (req, res, next) => {
     const jobQuestionSet = interview.job_question_set_id
       ? await InterviewHubJobQuestionSet.findById(interview.job_question_set_id)
       : null;
-    const artifact = await HiringInterviewArtifact.findByInterviewId(id);
+    const artifact = interviewArtifactForViewer(await HiringInterviewArtifact.findByInterviewId(id), req.user.id);
     const flow = buildInterviewFlow({
       template,
       jobQuestionSet,
@@ -287,36 +294,7 @@ export const createInterview = async (req, res, next) => {
         ? body.interviewer_user_ids
         : [];
 
-    // If an existing schedule event id is provided, keep lightweight row-only create.
-    const existingEventId = parseIntParam(body.providerScheduleEventId ?? body.provider_schedule_event_id);
-    if (existingEventId) {
-      let templateId = parseIntParam(body.templateId ?? body.template_id);
-      if (!templateId) {
-        const template = await ensureDefaultTemplate(agencyId, req.user?.id);
-        templateId = template.id;
-      }
-      const jobQuestionSetId = parseIntParam(body.jobQuestionSetId ?? body.job_question_set_id);
-      const interview = await HiringInterview.create({
-        agencyId,
-        candidateUserId,
-        hiringProfileId: body.hiringProfileId ?? body.hiring_profile_id ?? null,
-        providerScheduleEventId: existingEventId,
-        templateId,
-        jobQuestionSetId: jobQuestionSetId || null,
-        status: 'scheduled',
-        interviewStartsAt: startsAt,
-        interviewTimezone: body.timezone ?? body.interviewTimezone ?? body.interview_timezone ?? null,
-        interviewerUserIds,
-        createdByUserId: req.user?.id
-      });
-      const template = await InterviewHubTemplate.findById(templateId);
-      const jobQuestionSet = jobQuestionSetId
-        ? await InterviewHubJobQuestionSet.findById(jobQuestionSetId)
-        : null;
-      const flow = buildInterviewFlow({ template, jobQuestionSet, regenerateSalutation: true, regenerateIcebreaker: true });
-      const artifact = await HiringInterviewArtifact.upsertByInterviewId(interview.id, { flowStateJson: flow });
-      return res.status(201).json({ success: true, data: { interview, artifact, flow } });
-    }
+    if (body.providerScheduleEventId || body.provider_schedule_event_id) return res.status(400).json({ error: { message: 'Create the interview through the interview scheduler.' } });
 
     const { scheduleHiringInterview } = await import('../services/hiringInterviewSchedule.service.js');
     const result = await scheduleHiringInterview({
@@ -355,37 +333,9 @@ export const patchInterview = async (req, res, next) => {
     }
     await ensureAgencyAccess(req, existing.agency_id);
 
-    const body = req.body || {};
-    const updated = await HiringInterview.updateById(id, {
-      hiringProfileId: body.hiringProfileId ?? body.hiring_profile_id,
-      providerScheduleEventId: body.providerScheduleEventId ?? body.provider_schedule_event_id,
-      templateId: body.templateId ?? body.template_id,
-      jobQuestionSetId: body.jobQuestionSetId ?? body.job_question_set_id,
-      status: body.status,
-      interviewStartsAt: body.startsAt ?? body.interviewStartsAt ?? body.interview_starts_at,
-      interviewTimezone: body.timezone ?? body.interviewTimezone ?? body.interview_timezone,
-      interviewerUserIds: body.interviewerUserIds ?? body.interviewer_user_ids,
-      inviteSentAt: body.inviteSentAt ?? body.invite_sent_at,
-      publicJoinUrl: body.publicJoinUrl ?? body.public_join_url
-    });
-
-    const interviewerIds = body.interviewerUserIds ?? body.interviewer_user_ids;
-    const eventId = Number(updated?.provider_schedule_event_id || existing.provider_schedule_event_id || 0);
-    if (eventId > 0 && interviewerIds !== undefined && Array.isArray(interviewerIds)) {
-      try {
-        const event = await ProviderScheduleEvent.findById(eventId);
-        const hostId = Number(event?.provider_id || 0);
-        const ids = interviewerIds.map((x) => Number(x)).filter((n) => Number.isFinite(n) && n > 0);
-        await ProviderScheduleEventAttendee.upsertForEvent(
-          eventId,
-          ids.filter((uid) => uid !== hostId)
-        );
-      } catch (e) {
-        console.warn('[patchInterview] attendee sync failed:', e?.message || e);
-      }
-    }
-
-    return res.json({ success: true, data: enrichInterviewRow(updated) });
+    const { rescheduleHiringInterview } = await import('../services/hiringInterviewReschedule.service.js');
+    const result = await rescheduleHiringInterview(existing, req.body || {});
+    return res.json({ success: true, data: { ...enrichInterviewRow(result.interview), delivery: result.delivery, calendarWarning: result.calendarWarning } });
   } catch (err) {
     return next(err);
   }
@@ -401,8 +351,8 @@ export const getInterviewArtifacts = async (req, res, next) => {
     if (!interview) {
       return res.status(404).json({ success: false, message: 'Interview not found' });
     }
-    await ensureAgencyAccess(req, interview.agency_id);
-    const artifact = await HiringInterviewArtifact.findByInterviewId(id);
+    await requireHiringInterviewAccess(req.user, interview);
+    const artifact = interviewArtifactForViewer(await HiringInterviewArtifact.findByInterviewId(id), req.user.id);
     return res.json({ success: true, data: artifact });
   } catch (err) {
     return next(err);
@@ -419,16 +369,11 @@ export const upsertInterviewArtifacts = async (req, res, next) => {
     if (!interview) {
       return res.status(404).json({ success: false, message: 'Interview not found' });
     }
-    await ensureAgencyAccess(req, interview.agency_id);
+    await requireHiringInterviewAccess(req.user, interview);
 
     const body = req.body || {};
-    const artifact = await HiringInterviewArtifact.upsertByInterviewId(id, {
-      flowStateJson: body.flowStateJson ?? body.flow_state_json,
-      scorecardJson: body.scorecardJson ?? body.scorecard_json,
-      privateNotesJson: body.privateNotesJson ?? body.private_notes_json,
-      teamChatJson: body.teamChatJson ?? body.team_chat_json,
-      transcriptSummary: body.transcriptSummary ?? body.transcript_summary
-    });
+    const actor = await User.findById(req.user.id);
+    const artifact = await saveInterviewWorkspace(id, body, actor);
 
     // Move scheduled → in_progress on first artifact write if still scheduled
     if (interview.status === 'scheduled') {
@@ -451,12 +396,12 @@ export const finalizeInterviewHandler = async (req, res, next) => {
     if (!interview) {
       return res.status(404).json({ success: false, message: 'Interview not found' });
     }
-    await ensureAgencyAccess(req, interview.agency_id);
+    await requireHiringInterviewAccess(req.user, interview);
 
     const result = await finalizeInterview(id, {
       transcriptSummary: req.body?.transcriptSummary ?? req.body?.transcript_summary
     });
-    return res.json({ success: true, data: result });
+    return res.json({ success: true, data: { ...result, artifact: interviewArtifactForViewer(result?.artifact, req.user.id) } });
   } catch (err) {
     return next(err);
   }
@@ -476,7 +421,7 @@ export const endInterviewGuestAccess = async (req, res, next) => {
     if (!interview) {
       return res.status(404).json({ success: false, message: 'Interview not found' });
     }
-    await ensureAgencyAccess(req, interview.agency_id);
+    await requireHiringInterviewAccess(req.user, interview);
 
     const endedAt = interview.guest_access_ended_at ? new Date(interview.guest_access_ended_at) : new Date();
     const updated = interview.guest_access_ended_at
@@ -562,7 +507,7 @@ export const getInterviewByScheduleEvent = async (req, res, next) => {
     if (!interview) {
       return res.status(404).json({ success: false, message: 'No interview linked to this schedule event' });
     }
-    await ensureAgencyAccess(req, interview.agency_id);
+    await requireHiringInterviewAccess(req.user, interview);
 
     let template = interview.template_id
       ? await InterviewHubTemplate.findById(interview.template_id)
@@ -573,7 +518,7 @@ export const getInterviewByScheduleEvent = async (req, res, next) => {
     const jobQuestionSet = interview.job_question_set_id
       ? await InterviewHubJobQuestionSet.findById(interview.job_question_set_id)
       : null;
-    const artifact = await HiringInterviewArtifact.findByInterviewId(interview.id);
+    const artifact = interviewArtifactForViewer(await HiringInterviewArtifact.findByInterviewId(interview.id), req.user.id);
     const flow = buildInterviewFlow({
       template,
       jobQuestionSet,
@@ -676,4 +621,66 @@ export const randomSalutation = async (req, res, next) => {
   } catch (err) {
     return next(err);
   }
+};
+
+export const getInterviewBrief = async (req, res, next) => {
+  try {
+    const interview = await HiringInterview.findById(parseIntParam(req.params.id));
+    if (!interview) return res.status(404).json({ error: { message: 'Interview not found' } });
+    await requireHiringInterviewAccess(req.user, interview);
+    const uid = interview.candidate_user_id;
+    const [summary, report, profile, candidate, docsResult] = await Promise.all([
+      HiringResumeParse.findLatestStructuredByCandidateUserId(uid),
+      HiringResearchReport.findLatestAiByCandidateUserId(uid),
+      HiringProfile.findByCandidateUserId(uid), User.findById(uid),
+      pool.execute("SELECT id, title, original_name, note_text FROM user_admin_docs WHERE user_id = ? AND doc_type IN ('resume', 'cover_letter') ORDER BY created_at DESC", [uid])
+    ]);
+    res.json({ data: { candidateName: [candidate?.first_name, candidate?.last_name].filter(Boolean).join(' '),
+      role: profile?.applied_role || '', coverLetter: profile?.cover_letter_text || '',
+      summary: summary?.extracted_json || null, reportText: report?.report_text || '', documents: docsResult[0] || [] } });
+  } catch(e) { next(e); }
+};
+
+export const viewInterviewDocument = async (req, res, next) => {
+  try {
+    const interview = await HiringInterview.findById(parseIntParam(req.params.id));
+    if (!interview) return res.status(404).json({ error: { message: 'Interview not found' } });
+    await requireHiringInterviewAccess(req.user, interview);
+    const { viewCandidateResume } = await import('./hiring.controller.js');
+    req.params.userId = String(interview.candidate_user_id);
+    req.query.agencyId = String(interview.agency_id);
+    return viewCandidateResume(req, res, next);
+  } catch(e) { next(e); }
+};
+
+export const previewInterviewInvite = async (req, res, next) => {
+  try {
+    const agencyId = agencyIdFromReq(req);
+    await ensureAgencyAccess(req, agencyId);
+    const candidateId = Number(req.body.candidateUserId);
+    const agencies = await User.getAgencies(candidateId);
+    if (!agencies.some(a => Number(a.id) === agencyId)) return res.status(404).json({ error: { message: 'Candidate not found' } });
+    const candidate = await User.findById(candidateId);
+    const profile = await HiringProfile.findByCandidateUserId(candidateId);
+    const interviewerRows = [];
+    for (const id of [...new Set([req.user.id, ...(req.body.interviewerUserIds || [])].map(Number))]) {
+      const memberships = await User.getAgencies(id);
+      if (memberships.some(a => Number(a.id) === agencyId)) interviewerRows.push(await User.findById(id));
+    }
+    const preview = await sendHiringInterviewInviteEmail({ agencyId, candidate,
+      title: String(req.body.title || 'Interview invitation').slice(0, 255),
+      whenLabel: `${String(req.body.startsAt || 'Choose a date and time')} (${String(req.body.timezone || 'America/Denver')})`,
+      publicJoinUrl: '#interview-link-added-when-scheduled', interviewerRows: interviewerRows.filter(Boolean),
+      jobDescriptionId: profile?.job_description_id, jobTitle: profile?.applied_role, preview: true });
+    res.json({ data: preview });
+  } catch(e) { next(e); }
+};
+
+export const resendInterviewInvite = async (req, res, next) => {
+  try {
+    const interview = await HiringInterview.findById(parseIntParam(req.params.id));
+    if (!interview) return res.status(404).json({ error: { message: 'Interview not found' } });
+    await ensureAgencyAccess(req, interview.agency_id);
+    res.json({ data: { delivery: await deliverExistingInterview(interview) } });
+  } catch(e) { next(e); }
 };

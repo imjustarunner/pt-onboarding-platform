@@ -1,3 +1,4 @@
+import { getInterviewBrief, viewInterviewDocument, previewInterviewInvite, resendInterviewInvite } from '../controllers/interviewHub.controller.js';
 import express from 'express';
 import multer from 'multer';
 import { authenticate, requireCapability } from '../middleware/auth.middleware.js';
@@ -95,8 +96,16 @@ import {
 
 const router = express.Router();
 
-// All hiring endpoints require hiring capability
-router.use(authenticate, requireCapability('canManageHiring'));
+// Assigned interviewers can use only the scoped room endpoints. Management stays capability-gated.
+router.use(authenticate);
+router.get('/interview-hub/by-schedule-event/:eventId', getInterviewByScheduleEvent);
+router.get('/interview-hub/interviews/:id/brief', getInterviewBrief);
+router.get('/interview-hub/interviews/:id/documents/:docId', viewInterviewDocument);
+router.get('/interview-hub/interviews/:id/artifacts', getInterviewArtifacts);
+router.put('/interview-hub/interviews/:id/artifacts', upsertInterviewArtifacts);
+router.post('/interview-hub/interviews/:id/finalize', finalizeInterviewHandler);
+router.post('/interview-hub/interviews/:id/end-guest-access', endInterviewGuestAccess);
+router.use(requireCapability('canManageHiring'));
 
 const storage = multer.memoryStorage();
 const upload = multer({
@@ -200,14 +209,11 @@ router.post('/interview-hub/job-question-sets', createJobQuestionSet);
 router.put('/interview-hub/job-question-sets/:id', updateJobQuestionSet);
 router.delete('/interview-hub/job-question-sets/:id', deleteJobQuestionSet);
 router.get('/interview-hub/interviews', listInterviews);
-router.get('/interview-hub/by-schedule-event/:eventId', getInterviewByScheduleEvent);
 router.get('/interview-hub/interviews/:id', getInterview);
+router.post('/interview-hub/invite-preview', previewInterviewInvite);
+router.post('/interview-hub/interviews/:id/send-invite', resendInterviewInvite);
 router.post('/interview-hub/interviews', createInterview);
 router.patch('/interview-hub/interviews/:id', patchInterview);
-router.get('/interview-hub/interviews/:id/artifacts', getInterviewArtifacts);
-router.put('/interview-hub/interviews/:id/artifacts', upsertInterviewArtifacts);
-router.post('/interview-hub/interviews/:id/finalize', finalizeInterviewHandler);
-router.post('/interview-hub/interviews/:id/end-guest-access', endInterviewGuestAccess);
 router.get('/interview-hub/candidates/:userId/interviews', listCandidateInterviews);
 router.post('/interview-hub/icebreaker/random', randomIcebreaker);
 router.post('/interview-hub/salutation/random', randomSalutation);

@@ -1,0 +1,20 @@
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+const m = vi.hoisted(() => ({ sender: vi.fn(), send: vi.fn(), wrap: vi.fn(), agency: vi.fn() }));
+vi.mock('../../config/database.js', () => ({ default: { execute: async () => [[]] } }));
+vi.mock('../../models/Agency.model.js', () => ({ default: { findById: m.agency } }));
+vi.mock('../../models/IntakeSubmission.model.js', () => ({ default: {} }));
+vi.mock('../../models/IntakeLink.model.js', () => ({ default: {} }));
+vi.mock('../../models/HiringJobDescription.model.js', () => ({ default: {} }));
+vi.mock('../storage.service.js', () => ({ default: {} }));
+vi.mock('../hiringInterviewSender.service.js', () => ({ resolveInterviewSender: m.sender }));
+vi.mock('../tenantEmailChrome.service.js', () => ({ wrapOutboundHtmlWithTenantChrome: m.wrap }));
+vi.mock('../unifiedEmail/unifiedEmailSender.service.js', () => ({ sendEmailFromIdentity: m.send }));
+vi.mock('../publicJobDescription.service.js', () => ({ buildJobDescriptionAttachmentForEmail: async () => null, buildPublicJobDescriptionUrl: () => '', peopleOperationsFromDisplayName: a => `${a.name} People Operations` }));
+import { sendHiringInterviewInviteEmail } from '../hiringInterviewInviteEmail.service.js';
+const args = { agencyId: 4, candidate: { id: 30, email: 'candidate@example.org', first_name: 'A & B' }, title: 'Interview invitation', whenLabel: 'October 2, 1 pm MDT', publicJoinUrl: 'https://tenant.org/join/guest', interviewerRows: [{ first_name: 'Elena', last_name: 'Cruz' }, { first_name: 'Alex', last_name: 'Rivera' }] };
+beforeEach(() => { vi.clearAllMocks(); m.agency.mockResolvedValue({ name: 'Tenant' }); m.sender.mockResolvedValue({ id: 7, from_email: 'po@tenant.org', reply_to: 'unrelated@tenant.org' }); m.wrap.mockImplementation(async ({ html }) => `<header>Tenant header</header>${html}<footer>Tenant footer</footer>`); m.send.mockResolvedValue({ id: 'provider-message' }); });
+describe('branded interview invitation', () => {
+  it('previews sender, branding, and all interviewers without sending', async () => { const preview = await sendHiringInterviewInviteEmail({ ...args, preview: true }); expect(preview.from).toBe('po@tenant.org'); expect(preview.html).toContain('Tenant header'); expect(preview.html).toContain('Tenant footer'); expect(preview.html).toContain('Elena Cruz, Alex Rivera'); expect(preview.html).toContain('A &amp; B'); expect(m.send).not.toHaveBeenCalled(); });
+  it('uses PO From and Reply-To with the normal signature and tenant branding pipeline', async () => { await sendHiringInterviewInviteEmail(args); expect(m.send.mock.calls[0][0]).toMatchObject({ senderIdentityId: 7, replyToOverride: 'po@tenant.org', fromDisplayNameOverride: 'Tenant People Operations', templateType: 'hiring_interview_invite' }); expect(m.send.mock.calls[0][0].html).toContain('Join your interview'); expect(m.send.mock.calls[0][0].html).not.toContain('<header>'); });
+  it('does not fall back to a platform sender if PO is unavailable', async () => { m.sender.mockRejectedValue(new Error('Configure PO')); await expect(sendHiringInterviewInviteEmail(args)).rejects.toThrow('Configure PO'); expect(m.send).not.toHaveBeenCalled(); });
+});

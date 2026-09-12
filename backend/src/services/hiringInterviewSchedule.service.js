@@ -1,3 +1,5 @@
+import { resolveInterviewSender, interviewDeliveryStatus } from './hiringInterviewSender.service.js';
+import { canAccessHiringInterview } from './hiringInterviewAccess.service.js';
 import pool from '../config/database.js';
 import config from '../config/config.js';
 import ProviderScheduleEvent from '../models/ProviderScheduleEvent.model.js';
@@ -118,8 +120,14 @@ export async function scheduleHiringInterview({
     throw err;
   }
 
+  const candidateAgencies = await User.getAgencies(candidateId);
+  if (!candidateAgencies.some(a => Number(a.id) === agency)) throw Object.assign(new Error('Candidate is not in this agency'), { status: 400 });
+  const sender = sendInvites ? await resolveInterviewSender(agency) : null;
+  const calendarSender = sender?.from_email || host.email;
+
   let resolvedTemplateId = templateId ? Number(templateId) : null;
   let template = resolvedTemplateId ? await InterviewHubTemplate.findById(resolvedTemplateId) : null;
+  if (template && Number(template.agency_id) !== agency) throw Object.assign(new Error('Template is not in this agency'), { status: 400 });
   if (!template) {
     template = await ensureDefaultTemplate(agency, hostId);
     resolvedTemplateId = template.id;
@@ -143,6 +151,8 @@ export async function scheduleHiringInterview({
   } catch {
     profileRow = null;
   }
+
+  if (profileId && Number(profileRow?.id) !== profileId) throw Object.assign(new Error('Hiring profile does not belong to the candidate'), { status: 400 });
 
   let jobTitle = String(jobTitleOverride || '').trim();
   let resolvedJobDescriptionId = null;
@@ -172,6 +182,7 @@ export async function scheduleHiringInterview({
   }
 
   const tz = String(timezone || 'America/Denver').trim() || 'America/Denver';
+  if (!isValidTimeZone(tz)) throw Object.assign(new Error('Choose a valid timezone'), { status: 400 });
   const parsed = parseInterviewStart(startsAt, tz);
   if (!parsed?.startDate) {
     const err = new Error('Invalid startsAt');
@@ -190,6 +201,13 @@ export async function scheduleHiringInterview({
       .filter((id) => id > 0)
   ));
   if (!interviewerIds.includes(hostId)) interviewerIds.unshift(hostId);
+
+  if (interviewerIds.includes(candidateId)) throw Object.assign(new Error('The candidate cannot be an interviewer'), { status: 400 });
+  for (const id of interviewerIds) {
+    if (!await canAccessHiringInterview({ id }, { candidate_user_id: candidateId, agency_id: agency, interviewer_user_ids: interviewerIds })) {
+      throw Object.assign(new Error('Every interviewer must be active staff in this agency'), { status: 400 });
+    }
+  }
 
   const candidateName = [candidate.first_name, candidate.last_name].filter(Boolean).join(' ').trim()
     || candidate.email
@@ -218,6 +236,7 @@ export async function scheduleHiringInterview({
     allUserIds.map((id) => emailById.get(id)).filter(Boolean)
   ));
 
+  let calendarWarning = null;
   let googleEventId = null;
   let googleHtmlLink = null;
   const descriptionParts = [
@@ -227,7 +246,7 @@ export async function scheduleHiringInterview({
 
   try {
     const gcal = await GoogleCalendarService.createProviderScheduleEvent({
-      subjectEmail: host.email,
+      subjectEmail: calendarSender,
       startAt: wallStart.includes('T') ? wallStart : wallStart.replace(' ', 'T'),
       endAt: wallEnd.includes('T') ? wallEnd : wallEnd.replace(' ', 'T'),
       timeZone: tz,
@@ -236,14 +255,15 @@ export async function scheduleHiringInterview({
       kind: 'TEAM_MEETING',
       attendeeEmails,
       createMeetLink: false,
-      sendUpdates: sendInvites ? 'all' : 'none',
+      sendUpdates: 'none',
       colorId: INTERVIEW_GOOGLE_COLOR_ID
     });
     if (gcal?.ok) {
       googleEventId = gcal.eventId || null;
       googleHtmlLink = gcal.htmlLink || null;
-    }
+    } else calendarWarning = 'Calendar invitation was not created. Check the People Operations calendar connection.';
   } catch (e) {
+    calendarWarning = 'Calendar invitation was not created. Check the People Operations calendar connection.';
     console.warn('[scheduleHiringInterview] Google Calendar create failed:', e?.message || e);
   }
 
@@ -256,6 +276,7 @@ export async function scheduleHiringInterview({
     allDay: false,
     startAt: toSqlDatetimeUtc(startDate),
     endAt: toSqlDatetimeUtc(endDate),
+    eventTimezone: tz,
     googleEventId,
     googleHtmlLink,
     googleMeetLink: null,
@@ -288,13 +309,15 @@ export async function scheduleHiringInterview({
 
   if (publicJoinUrl && googleEventId) {
     try {
-      await GoogleCalendarService.appendToEventDescription({
-        subjectEmail: host.email,
+      const linkUpdate = await GoogleCalendarService.appendToEventDescription({
+        subjectEmail: calendarSender,
         googleEventId,
-        appendText: `\n\nJoin interview (candidate):\n${publicJoinUrl}\n\nJoin interview (host):\n${hostJoinUrl || publicJoinUrl}`,
+        appendText: `\n\nJoin interview:\n${publicJoinUrl}\n\nInterviewers: sign in with your staff account to open the private workspace.`,
         sendUpdates: sendInvites ? 'all' : 'none'
       });
+      if (!linkUpdate?.ok) calendarWarning = 'Calendar join-link update failed. Use the emailed interview link.';
     } catch (e) {
+      calendarWarning = 'Calendar join-link update failed. Use the emailed interview link.';
       console.warn('[scheduleHiringInterview] append join URL failed:', e?.message || e);
     }
   }
@@ -307,7 +330,7 @@ export async function scheduleHiringInterview({
         WHERE id = ?
         LIMIT 1`,
       [
-        `${descriptionParts.join('\n\n')}\n\nJoin interview (candidate):\n${publicJoinUrl || ''}\n\nJoin interview (host):\n${hostJoinUrl || publicJoinUrl || ''}`,
+        `${descriptionParts.join('\n\n')}\n\nJoin interview:\n${publicJoinUrl || ''}`,
         saved.id
       ]
     );
@@ -323,17 +346,19 @@ export async function scheduleHiringInterview({
     templateId: resolvedTemplateId,
     jobQuestionSetId: jobQuestionSet ? Number(jobQuestionSet.id) : null,
     status: 'scheduled',
-    interviewStartsAt: toSqlDatetimeUtc(startDate),
+    interviewStartsAt: startDate,
     interviewTimezone: tz,
     interviewerUserIds: interviewerIds,
     guestJoinToken: guestToken,
     hostJoinToken: hostToken,
-    inviteSentAt: sendInvites ? new Date() : null,
+    inviteSentAt: null,
     publicJoinUrl,
     interviewRound: roundKey,
     displayTitle: title,
     createdByUserId: hostId
   });
+
+  await pool.execute('UPDATE hiring_interviews SET calendar_sender_email = ? WHERE id = ?', [calendarSender, interview.id]);
 
   // Mirror onto hiring_profiles interview fields for Applicants compatibility
   try {
@@ -345,7 +370,7 @@ export async function scheduleHiringInterview({
                 interview_interviewer_user_ids = ?,
                 interview_status = 'scheduled',
                 interview_scheduled_by_user_id = ?
-          WHERE user_id = ?
+          WHERE candidate_user_id = ?
           LIMIT 1`,
         [
           toSqlDatetimeUtc(startDate),
@@ -370,11 +395,12 @@ export async function scheduleHiringInterview({
     flowStateJson: flow
   });
 
+  let delivery = { sent: false, reason: sendInvites ? 'Candidate email or join link is missing.' : 'Invitations have not been sent.' };
   if (sendInvites && candidate.email && publicJoinUrl) {
     try {
       const whenLabel = `${wallStart.replace('T', ' ')} (${tz})`;
       const interviewerRows = (attendeeRows || []).filter((r) => interviewerIds.includes(Number(r.id)));
-      await sendHiringInterviewInviteEmail({
+      const sent = await sendHiringInterviewInviteEmail({
         agencyId: agency,
         candidate,
         title,
@@ -384,17 +410,25 @@ export async function scheduleHiringInterview({
         jobDescriptionId: resolvedJobDescriptionId,
         jobTitle
       });
+      delivery = interviewDeliveryStatus(sent);
+      if (delivery.sent) {
+        const updated = await HiringInterview.updateById(interview.id, { inviteSentAt: new Date() });
+        interview.invite_sent_at = updated.invite_sent_at;
+      }
     } catch (e) {
+      delivery = { sent: false, reason: e?.message || 'Invitation delivery failed.' };
       console.warn('[scheduleHiringInterview] candidate invite email failed:', e?.message || e);
     }
   }
 
+  await pool.execute('UPDATE hiring_interviews SET invite_error = ? WHERE id = ?', [delivery.sent ? null : delivery.reason, interview.id]);
+  interview.invite_error = delivery.sent ? null : delivery.reason;
   return {
     interview,
     artifact,
     flow,
     scheduleEvent: saved,
     publicJoinUrl,
-    hostJoinUrl
+    hostJoinUrl, delivery, calendarWarning
   };
 }

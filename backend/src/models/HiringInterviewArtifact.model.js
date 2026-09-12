@@ -64,6 +64,23 @@ class HiringInterviewArtifact {
     return this.hydrate(rows[0] || null);
   }
 
+  static async finalizeCurrent(hiringInterviewId, patch, computeAverage) {
+    const conn = await pool.getConnection();
+    try {
+      await conn.beginTransaction();
+      const [rows] = await conn.execute('SELECT * FROM hiring_interview_artifacts WHERE hiring_interview_id = ? FOR UPDATE', [hiringInterviewId]);
+      const latest = this.hydrate(rows[0]);
+      if (!latest) throw new Error('Interview artifacts not found');
+      const averageScore = computeAverage(latest.scorecard_json);
+      const summary = patch.transcriptSummary !== undefined ? patch.transcriptSummary : latest.transcript_summary;
+      const items = patch.actionItemsJson !== undefined ? patch.actionItemsJson : latest.action_items_json;
+      await conn.execute('UPDATE hiring_interview_artifacts SET average_score = ?, finalized_at = ?, transcript_summary = ?, action_items_json = ? WHERE hiring_interview_id = ?',
+        [averageScore, toSqlDatetime(patch.finalizedAt), summary || null, toJsonParam(items || []), hiringInterviewId]);
+      await conn.commit();
+      return { ...latest, average_score: averageScore, finalized_at: patch.finalizedAt, transcript_summary: summary, action_items_json: items };
+    } catch (e) { await conn.rollback(); throw e; } finally { conn.release(); }
+  }
+
   static async upsertByInterviewId(hiringInterviewId, patch = {}) {
     const existing = await this.findByInterviewId(hiringInterviewId);
     if (!existing) {

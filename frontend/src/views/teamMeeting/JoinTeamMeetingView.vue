@@ -211,12 +211,14 @@
       <div
         class="join-session-layout"
         :class="{
+          'join-session-layout--interview': isInterviewMeeting && canSeeFullWorkspace && !isInLobby && !videoFullscreen,
           'join-session-layout--chat-only': !canSeeFullWorkspace,
           'join-session-layout--lobby': isInLobby && !videoFullscreen,
           'join-session-layout--video-focus': !chatPanelOpen || videoFullscreen,
           'join-session-layout--video-fs': videoFullscreen
         }"
       >
+        <aside v-if="isInterviewMeeting && canSeeFullWorkspace && !isInLobby && !videoFullscreen" id="interview-candidate-brief" class="interview-candidate-brief" aria-label="Candidate materials" />
         <div class="join-video" :class="{ 'join-video--lobby': isInLobby && !videoFullscreen }">
           <!-- Host admit controls stay above the video so flex layout cannot squeeze them away. -->
           <SupervisionVideoLobbyPanel
@@ -319,6 +321,7 @@
 
           <div v-if="isInterviewMeeting" class="join-workspace__body join-workspace__body--stack">
             <InterviewLiveWorkspace
+              brief-target="#interview-candidate-brief"
               :event-id="resolvedEventId"
               :agency-id="agencyStore.currentAgency?.id || authStore.user?.agencyId || null"
               :dark="true"
@@ -1038,12 +1041,7 @@ const canManageMeetingLive = computed(() => (
 /** Host + admin-side roles see the full right-rail workspace. Providers see chat/polls only. */
 const canSeeFullWorkspace = computed(() => {
   if (isHost.value) return true;
-  // Interview meetings: hiring-capable staff see the interviewer workspace; guests do not.
-  if (isInterviewMeeting.value) {
-    if (authStore.user?.capabilities?.canManageHiring === true) return true;
-    if (FULL_WORKSPACE_ROLES.has(actorRole.value)) return true;
-    return false;
-  }
+  if (isInterviewMeeting.value) return false;
   // Evaluation meetings: host, reviewers, and the evaluated employee all need the sidebar.
   if (isEvaluationMeeting.value) {
     if (authStore.user?.capabilities?.canManageHiring === true) return true;
@@ -1252,7 +1250,7 @@ function startCompletionPolling() {
 }
 
 async function sendPresence(action = 'heartbeat') {
-  const eid = resolvedEventId.value || eventId.value;
+  const eid = isInterviewMeeting.value ? eventId.value : (resolvedEventId.value || eventId.value);
   const identity = joinIdentity.value;
   if (!eid || !identity) return;
   try {
@@ -2830,5 +2828,21 @@ onUnmounted(() => {
   background: rgba(59,130,246,0.18);
   border-color: #3b82f6;
   color: #93c5fd;
+}
+</style>
+
+<style scoped>
+.join-session-layout--interview { grid-template-columns: minmax(230px, 290px) minmax(0, 1fr) minmax(330px, 410px); }
+.interview-candidate-brief { min-width: 0; overflow: auto; border-radius: 12px; }
+@media (min-width: 901px) and (max-width: 1250px) {
+  .join-session-layout--interview { grid-template-columns: minmax(0, 1fr) minmax(330px, 390px); overflow: auto; }
+  .interview-candidate-brief { grid-column: 1; grid-row: 2; max-height: 340px; }
+  .join-session-layout--interview .join-workspace { grid-column: 2; grid-row: 1 / 3; }
+}
+@media (max-width: 900px) {
+  .join-session-layout--interview { display: flex; flex-direction: column; overflow: auto; }
+  .join-session-layout--interview .join-video { order: 0; min-height: 45vh; flex: 0 0 45vh; }
+  .interview-candidate-brief { order: 1; max-height: 40vh; flex: 0 0 auto; }
+  .join-session-layout--interview .join-workspace { order: 2; min-height: 60vh; max-height: none; flex: 0 0 auto; }
 }
 </style>

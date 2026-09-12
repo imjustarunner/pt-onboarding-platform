@@ -7,7 +7,7 @@
       </div>
       <div class="cip-actions">
         <router-link class="btn btn-secondary btn-sm" :to="hubPath">Open Interview Hub</router-link>
-        <button type="button" class="btn btn-primary btn-sm" @click="openScheduleForm">
+        <button type="button" class="btn btn-primary btn-sm" @click="showSchedule ? (showSchedule = false) : openScheduleForm()">
           {{ showSchedule ? 'Hide schedule' : 'Schedule interview' }}
         </button>
       </div>
@@ -32,7 +32,7 @@
           <p class="muted small">Used on the calendar invite and Interview Hub list.</p>
         </div>
         <div class="cip-field">
-          <label for="cip-starts">Start (local)</label>
+          <label for="cip-starts">Start (selected timezone)</label>
           <input id="cip-starts" v-model="startsLocal" class="cip-input" type="datetime-local" />
         </div>
         <div class="cip-field">
@@ -70,14 +70,16 @@
           <span>Send calendar + email invites</span>
         </label>
       </div>
+      <InterviewInvitePreview :agency-id="agencyId" :candidate-user-id="candidateUserId" :title="scheduleTitlePreview" :starts-at="startsLocal" :timezone="timezone" :interviewer-user-ids="interviewerIds" />
       <div class="row-actions">
         <button type="button" class="btn btn-primary" :disabled="scheduling || !startsLocal || !canSubmitSchedule" @click="scheduleInterview">
-          {{ scheduling ? 'Scheduling…' : 'Create interview meeting' }}
+          {{ scheduling ? 'Scheduling…' : (sendInvites ? 'Schedule & send invitations' : 'Save without sending') }}
         </button>
       </div>
       <div v-if="scheduleError" class="error-banner">{{ scheduleError }}</div>
     </div>
 
+    <div v-if="deliveryNotice" role="status" class="cip-delivery">{{ deliveryNotice }}</div>
     <div v-if="loading" class="loading">Loading interviews…</div>
     <div v-else-if="!interviews.length" class="empty">No Interview Hub interviews yet. Schedule one above.</div>
     <div v-else class="cip-list">
@@ -102,7 +104,7 @@
             target="_blank"
             rel="noopener"
           >
-            Open join link
+            Join as interviewer
           </a>
           <button
             v-if="canEditSelected"
@@ -119,7 +121,7 @@
         <div class="cip-schedule-title">Edit scheduled interview</div>
         <div class="cip-schedule-form">
           <div class="cip-field">
-            <label for="cip-edit-starts">Start (local)</label>
+            <label for="cip-edit-starts">Start (selected timezone)</label>
             <input id="cip-edit-starts" v-model="editStartsLocal" class="cip-input" type="datetime-local" />
           </div>
           <div class="cip-field">
@@ -162,13 +164,18 @@
         <div class="v">{{ selectedInterviewerLabels.join(', ') }}</div>
       </div>
       <div class="kv" v-if="selected.public_join_url">
-        <div class="k">Join link</div>
+        <div class="k">Candidate link</div>
         <div class="v">
           <a :href="selected.public_join_url" target="_blank" rel="noopener">{{ selected.public_join_url }}</a>
           <button type="button" class="btn btn-secondary btn-sm" @click="copy(selected.public_join_url)">Copy</button>
-          <p class="muted small" style="margin:6px 0 0;">Candidates join as guests. Signed-in staff join as hosts on the same link.</p>
+          <p class="muted small" style="margin:6px 0 0;">Candidates join as guests. Assigned interviewers sign in with their staff account on the same link.</p>
         </div>
       </div>
+      <div class="kv"><div class="k">Invitation</div><div class="v">
+        <span>{{ selected.invite_sent_at ? `Sent ${formatWhen(selected.invite_sent_at)}` : 'Not sent' }}</span>
+        <p v-if="selected.invite_error" role="alert">{{ selected.invite_error }}</p>
+        <button v-if="!selected.guest_access_ended_at && ['scheduled', 'in_progress'].includes(selected.status)" type="button" class="btn btn-secondary btn-sm" :disabled="resending" @click="resendInvite">{{ resending ? 'Sending…' : 'Send / resend candidate invitation' }}</button>
+      </div></div>
       <div class="kv" v-if="selected.provider_schedule_event_id">
         <div class="k">Schedule event</div>
         <div class="v">#{{ selected.provider_schedule_event_id }}</div>
@@ -268,6 +275,7 @@
 </template>
 
 <script setup>
+import InterviewInvitePreview from './InterviewInvitePreview.vue';
 import { computed, nextTick, onMounted, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import api from '../../services/api';
@@ -299,6 +307,8 @@ const showSchedule = ref(false);
 const emit = defineEmits(['interviews-updated']);
 const scheduling = ref(false);
 const scheduleError = ref('');
+const deliveryNotice = ref('');
+const resending = ref(false);
 const startsLocal = ref('');
 const timezone = ref(Intl.DateTimeFormat().resolvedOptions().timeZone || 'America/Denver');
 const durationMinutes = ref(60);
@@ -431,7 +441,11 @@ async function loadInterviews() {
       params: { agencyId: props.agencyId }
     });
     interviews.value = r.data?.data || r.data || [];
-    if (!interviews.value.length) showSchedule.value = true;
+    if (!interviews.value.length) {
+      showSchedule.value = true;
+      ensureDefaultInterviewer();
+      if (!startsLocal.value) startsLocal.value = suggestDefaultStartLocal();
+    }
     if (showSchedule.value) suggestRoundFromExisting();
     if (interviews.value.length && !selectedId.value) {
       await selectInterview(interviews.value[0]);
@@ -507,7 +521,7 @@ function removeInterviewer(id) {
 function populateEditForm(iv = selected.value) {
   if (!iv) return;
   editTimezone.value = iv.interview_timezone || timezone.value;
-  editStartsLocal.value = iv.interview_starts_at ? toDatetimeLocalValue(new Date(iv.interview_starts_at)) : '';
+  editStartsLocal.value = iv.interview_starts_at ? localInputInZone(iv.interview_starts_at, editTimezone.value) : '';
   const ids = iv.interviewer_user_ids_json || iv.interviewerUserIds || [];
   editInterviewerIds.value = Array.isArray(ids) ? ids.map((x) => Number(x)).filter((n) => n > 0) : [];
   const me = Number(authStore.user?.id || 0);
@@ -547,12 +561,14 @@ async function saveInterviewEdit() {
       editError.value = 'Pick a valid start date and time.';
       return;
     }
-    await api.patch(`/hiring/interview-hub/interviews/${selected.value.id}`, {
+    const response = await api.patch(`/hiring/interview-hub/interviews/${selected.value.id}`, {
       agencyId: props.agencyId,
       startsAt,
       timezone: editTimezone.value,
       interviewerUserIds: editInterviewerIds.value
     });
+    const outcome = response.data?.data || {};
+    deliveryNotice.value = ['Interview updated.', outcome.delivery?.sent ? 'Updated invitation sent.' : outcome.delivery?.reason, outcome.calendarWarning].filter(Boolean).join(' ');
     showEdit.value = false;
     await loadInterviews();
     const refreshed = interviews.value.find((i) => Number(i.id) === Number(selectedId.value));
@@ -575,7 +591,7 @@ async function scheduleInterview() {
       scheduleError.value = 'Pick a valid start date and time.';
       return;
     }
-    await api.post('/hiring/interview-hub/interviews', {
+    const response = await api.post('/hiring/interview-hub/interviews', {
       agencyId: props.agencyId,
       candidateUserId: props.candidateUserId,
       startsAt,
@@ -588,6 +604,9 @@ async function scheduleInterview() {
       interviewRound: interviewRound.value,
       roundLabelCustom: interviewRound.value === 'other' ? roundLabelCustom.value.trim() : null
     });
+    const outcome = response.data?.data || {};
+    deliveryNotice.value = ['Interview scheduled.', outcome.delivery?.sent ? (outcome.delivery.redirected ? 'Email sent to the configured test recipient.' : 'Candidate invitation sent.') : outcome.delivery?.reason, outcome.calendarWarning].filter(Boolean).join(' ');
+    selectedId.value = outcome.interview?.id || null;
     showSchedule.value = false;
     await loadInterviews();
   } catch (e) {
@@ -617,10 +636,29 @@ function labelForCriterion(key) {
 function formatWhen(v) {
   if (!v) return '—';
   try {
-    return new Date(v).toLocaleString();
+    return new Intl.DateTimeFormat('en-US', { dateStyle: 'medium', timeStyle: 'short', timeZone: selected.value?.interview_timezone || timezone.value }).format(utcDate(v));
   } catch {
     return String(v);
   }
+}
+
+function utcDate(value) {
+  const raw = String(value).replace(' ', 'T');
+  return new Date(/[zZ]|[+-]\d{2}:?\d{2}$/.test(raw) ? raw : raw + 'Z');
+}
+function localInputInZone(value, zone) {
+  const parts = Object.fromEntries(new Intl.DateTimeFormat('en-CA', { timeZone: zone, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).formatToParts(utcDate(value)).map(p => [p.type, p.value]));
+  return `${parts.year}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}`;
+}
+async function resendInvite() {
+  resending.value = true;
+  try {
+    const r = await api.post(`/hiring/interview-hub/interviews/${selected.value.id}/send-invite`, { agencyId: props.agencyId });
+    const delivery = r.data?.data?.delivery;
+    deliveryNotice.value = delivery?.sent ? (delivery.redirected ? 'Invitation sent to the configured test recipient.' : 'Candidate invitation sent.') : delivery?.reason || 'Invitation was not sent.';
+    await loadInterviews();
+  } catch (e) { deliveryNotice.value = e.response?.data?.error?.message || 'Invitation was not sent. Try again.'; }
+  finally { resending.value = false; }
 }
 
 async function copy(text) {
@@ -840,4 +878,8 @@ async function openCapsule(c) {
 @media (max-width: 720px) {
   .cip-schedule-form { grid-template-columns: 1fr; }
 }
+</style>
+
+<style scoped>
+.cip-delivery { padding: 14px; border: 1px solid #b6cec1; background: #f1f8f4; border-radius: 10px; font-size: 14px; }
 </style>

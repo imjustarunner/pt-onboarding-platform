@@ -28,7 +28,7 @@ import { getTeamMeetingActivity, postTeamMeetingActivity } from '../controllers/
 const router = express.Router();
 
 // Public: resolve event to org slug for join redirect (no auth)
-router.get('/join-info/:eventId', getTeamMeetingJoinInfo);
+router.get('/join-info/:eventId', authenticateOptional, getTeamMeetingJoinInfo);
 // Presence heartbeat (guest-safe; auth optional so we can normalize user-{id})
 router.post('/:eventId/join-presence', authenticateOptional, postTeamMeetingJoinPresence);
 // Interview candidate join links work without an account (opaque participant token only).

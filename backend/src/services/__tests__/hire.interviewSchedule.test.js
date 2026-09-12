@@ -1,0 +1,40 @@
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+const m = vi.hoisted(() => ({ execute: vi.fn(), candidate: vi.fn(), agencies: vi.fn(), sender: vi.fn(), access: vi.fn(), template: vi.fn(), questions: vi.fn(), profile: vi.fn(), calendar: vi.fn(), append: vi.fn(), event: vi.fn(), attendees: vi.fn(), interview: vi.fn(), update: vi.fn(), artifact: vi.fn(), invite: vi.fn() }));
+vi.mock('../../config/database.js', () => ({ default: { execute: m.execute } }));
+vi.mock('../../config/config.js', () => ({ default: { frontendUrl: 'https://tenant.example' } }));
+vi.mock('../../models/User.model.js', () => ({ default: { findById: m.candidate, getAgencies: m.agencies } }));
+vi.mock('../../models/ProviderScheduleEvent.model.js', () => ({ default: { create: m.event } }));
+vi.mock('../../models/ProviderScheduleEventAttendee.model.js', () => ({ default: { upsertForEvent: m.attendees } }));
+vi.mock('../../models/HiringInterview.model.js', () => ({ default: { create: m.interview, updateById: m.update } }));
+vi.mock('../../models/HiringInterviewArtifact.model.js', () => ({ default: { upsertByInterviewId: m.artifact } }));
+vi.mock('../../models/HiringProfile.model.js', () => ({ default: { findByCandidateUserId: m.profile } }));
+vi.mock('../../models/InterviewHubTemplate.model.js', () => ({ default: { findById: m.template } }));
+vi.mock('../../models/InterviewHubJobQuestionSet.model.js', () => ({ default: { findById: m.questions } }));
+vi.mock('../googleCalendar.service.js', () => ({ default: { createProviderScheduleEvent: m.calendar, appendToEventDescription: m.append } }));
+vi.mock('../interviewHub.service.js', () => ({ ensureDefaultTemplate: m.template, buildInterviewFlow: () => ({ sections: [] }) }));
+vi.mock('../hiringInterviewSender.service.js', async importOriginal => ({ ...await importOriginal(), resolveInterviewSender: m.sender }));
+vi.mock('../hiringInterviewAccess.service.js', () => ({ canAccessHiringInterview: m.access }));
+vi.mock('../hiringInterviewInviteEmail.service.js', () => ({ sendHiringInterviewInviteEmail: m.invite }));
+import { scheduleHiringInterview } from '../hiringInterviewSchedule.service.js';
+const args = { agencyId: 4, candidateUserId: 30, hostUserId: 11, startsAt: '2026-10-02T13:00', timezone: 'America/Denver', interviewerUserIds: [11, 22] };
+beforeEach(() => {
+  vi.clearAllMocks();
+  m.candidate.mockImplementation(async id => ({ id, email: `${id}@tenant.org`, first_name: 'Person' })); m.agencies.mockResolvedValue([{ id: 4 }]); m.sender.mockResolvedValue({ id: 1, from_email: 'po@tenant.org' }); m.access.mockResolvedValue(true); m.template.mockResolvedValue({ id: 1, agency_id: 4 }); m.profile.mockResolvedValue({ id: 8 }); m.calendar.mockResolvedValue({ ok: true, eventId: 'calendar-1' }); m.append.mockResolvedValue({ ok: true }); m.event.mockResolvedValue({ id: 2, participant_join_token: 'guest-only-token', host_join_token: 'secret-host-token' }); m.interview.mockResolvedValue({ id: 5 }); m.update.mockResolvedValue({ id: 5, invite_sent_at: 'confirmed' }); m.artifact.mockResolvedValue({}); m.invite.mockResolvedValue({ id: 'email-1' }); m.execute.mockImplementation(async sql => sql.includes('FROM users') ? [[{ id: 11, email: '11@tenant.org' }, { id: 22, email: '22@tenant.org' }, { id: 30, email: '30@tenant.org' }]] : [[]]);
+});
+describe('interview scheduling delivery', () => {
+  it('creates calendar mail from PO and shares only the candidate link with attendees', async () => {
+    const result = await scheduleHiringInterview(args);
+    expect(m.calendar.mock.calls[0][0]).toMatchObject({ subjectEmail: 'po@tenant.org', sendUpdates: 'none' });
+    expect(m.append.mock.calls[0][0]).toMatchObject({ subjectEmail: 'po@tenant.org', sendUpdates: 'all' });
+    expect(m.append.mock.calls[0][0].appendText).toContain('guest-only-token');
+    expect(JSON.stringify(m.calendar.mock.calls) + JSON.stringify(m.append.mock.calls)).not.toContain('secret-host-token');
+    expect(m.interview.mock.calls[0][0].inviteSentAt).toBeNull();
+    expect(result.delivery.sent).toBe(true);
+    expect(m.update).toHaveBeenCalledWith(5, { inviteSentAt: expect.any(Date) });
+  });
+  it('does not mark skipped email as sent or hide failure', async () => { m.invite.mockResolvedValue({ skipped: true, reason: 'sender blocked' }); const result = await scheduleHiringInterview(args); expect(result.delivery).toMatchObject({ sent: false, reason: 'sender blocked' }); expect(m.update).not.toHaveBeenCalled(); });
+  it('reports calendar failures while retaining a usable emailed interview', async () => { m.calendar.mockResolvedValue({ ok: false }); const result = await scheduleHiringInterview(args); expect(result.calendarWarning).toContain('Calendar invitation was not created'); expect(result.delivery.sent).toBe(true); });
+  it('fails before any meeting or delivery if PO is missing', async () => { m.sender.mockRejectedValue(new Error('PO missing')); await expect(scheduleHiringInterview(args)).rejects.toThrow('PO missing'); expect(m.calendar).not.toHaveBeenCalled(); expect(m.event).not.toHaveBeenCalled(); });
+  it('validates candidate tenancy and rejects candidates as interviewers', async () => { m.agencies.mockResolvedValue([{ id: 9 }]); await expect(scheduleHiringInterview(args)).rejects.toThrow('Candidate is not'); m.agencies.mockResolvedValue([{ id: 4 }]); await expect(scheduleHiringInterview({ ...args, interviewerUserIds: [30] })).rejects.toThrow('candidate cannot'); expect(m.event).not.toHaveBeenCalled(); });
+  it('saves without sending invitations when requested', async () => { const result = await scheduleHiringInterview({ ...args, sendInvites: false }); expect(m.invite).not.toHaveBeenCalled(); expect(m.calendar.mock.calls[0][0].sendUpdates).toBe('none'); expect(m.append.mock.calls[0][0].sendUpdates).toBe('none'); expect(result.delivery.sent).toBe(false); });
+});

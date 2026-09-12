@@ -113,6 +113,7 @@ export function buildInterviewFlow({
   regenerateIcebreaker = true,
   previousFlow = null
 } = {}) {
+  if (previousFlow?.sections && !regenerateSalutation && !regenerateIcebreaker) return previousFlow;
   const sections = Array.isArray(template?.flow_sections_json) && template.flow_sections_json.length
     ? template.flow_sections_json
     : DEFAULT_FLOW_SECTIONS;
@@ -240,7 +241,7 @@ export async function finalizeInterview(interviewId, { transcriptSummary = undef
     }
   }
 
-  const updatedArtifact = await HiringInterviewArtifact.upsertByInterviewId(interviewId, patch);
+  const updatedArtifact = await HiringInterviewArtifact.finalizeCurrent(interviewId, patch, computeAverageScore);
 
   const updatedInterview = await HiringInterview.updateById(interviewId, {
     status: 'completed'

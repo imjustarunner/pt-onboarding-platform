@@ -1,3 +1,4 @@
+import { canAccessHiringInterview } from '../services/hiringInterviewAccess.service.js';
 /**
  * Team meeting (TEAM_MEETING / HUDDLE provider_schedule_events) video token,
  * waiting room, and transcript.
@@ -91,15 +92,11 @@ async function resolveInterviewGuestJoin(row, ref, actorUserId) {
   return false;
 }
 
-/** Interviews only: any active member of the meeting agency may join as interviewer. */
+/** Interview staff access is tied to assignment or tenant hiring capability. */
 async function canAccessInterviewMeeting(req, event) {
-  if (await canAccessTeamMeeting(req, event)) return true;
-  if (!isInterviewMeeting(event)) return false;
-  const actorId = Number(req.user?.id || 0);
-  const agencyId = Number(event?.agency_id || 0);
-  if (!actorId || !agencyId) return false;
-  const actorAgencies = await User.getAgencies(actorId);
-  return (actorAgencies || []).some((a) => Number(a?.id) === agencyId);
+  if (!isInterviewMeeting(event)) return canAccessTeamMeeting(req, event);
+  const interview = await HiringInterview.findByScheduleEventId(event.id);
+  return canAccessHiringInterview(req.user, interview);
 }
 
 function interviewGuestIdentityFromRow(row) {
@@ -184,6 +181,7 @@ async function profilePhotoUrlForUserId(userId) {
 }
 
 async function canAccessTeamMeeting(req, event) {
+  if (isInterviewMeeting(event)) return canAccessInterviewMeeting(req, event);
   const actorId = Number(req.user?.id || 0);
   if (!actorId) return false;
 
@@ -630,6 +628,9 @@ export const getTeamMeetingJoinInfo = async (req, res, next) => {
     }
 
     const tokenRoleEarly = ProviderScheduleEvent.classifyJoinTokenRole(event, ref);
+    if (isInterviewMeeting(event) && /^\d+$/.test(ref) && !(await canAccessInterviewMeeting(req, event))) {
+      return res.status(403).json({ error: { message: 'Open the interview link from your invitation.' } });
+    }
     const guestBlock = await interviewGuestAccessBlock(event, {
       actorUserId: req.user?.id || null,
       tokenRole: tokenRoleEarly
@@ -653,7 +654,8 @@ export const getTeamMeetingJoinInfo = async (req, res, next) => {
 
     const frontendUrl = (process.env.FRONTEND_URL || '').replace(/\/$/, '');
     const participantKey = String(event.participant_join_token || event.join_token || event.id);
-    const hostKey = String(event.host_join_token || '').trim();
+    const maySeeHostLink = !isInterviewMeeting(event) || await canAccessInterviewMeeting(req, event);
+    const hostKey = maySeeHostLink ? String(event.host_join_token || '').trim() : '';
     const tokenRole = ProviderScheduleEvent.classifyJoinTokenRole(event, ref);
     // Preserve the token the user opened so host links are not rewritten to participant links.
     const redirectKey = tokenRole === 'host' && hostKey
@@ -890,7 +892,7 @@ export const getTeamMeetingVideoToken = async (req, res, next) => {
       isGuest: guestJoin || String(identity).startsWith('guest-'),
       eventId,
       joinToken: row.participant_join_token || row.join_token || null,
-      hostJoinUrl: row.host_join_token
+      hostJoinUrl: isHost && row.host_join_token
         ? joinUrlForTeamMeeting((process.env.FRONTEND_URL || '').replace(/\/$/, ''), row.host_join_token)
         : null,
       joinUrl: joinUrlForTeamMeeting(
@@ -915,7 +917,7 @@ export const postTeamMeetingJoinPresence = async (req, res, next) => {
   try {
     const ref = String(req.params.eventId || '').trim();
     const actorUserId = Number(req.user?.id || 0) || null;
-    const identity = normalizeJoinIdentity(
+    let identity = normalizeJoinIdentity(
       req.body?.identity || req.body?.joinIdentity,
       { userId: actorUserId }
     );
@@ -925,6 +927,11 @@ export const postTeamMeetingJoinPresence = async (req, res, next) => {
     }
     const row = await ProviderScheduleEvent.resolveByJoinRef(ref);
     if (!row?.id) return res.status(404).json({ error: { message: 'Event not found' } });
+    if (isInterviewMeeting(row)) {
+      const guestJoin = await resolveInterviewGuestJoin(row, ref, actorUserId);
+      if (!guestJoin && !(await canAccessInterviewMeeting(req, row))) return res.status(403).json({ error: { message: 'Access denied' } });
+      identity = guestJoin ? interviewGuestIdentityFromRow(row) : `user-${actorUserId}`;
+    }
 
     const {
       openAttendanceSegment,
@@ -1105,6 +1112,7 @@ export const addTeamMeetingAttendee = async (req, res, next) => {
     if (!isHost && !isPrivileged) {
       return res.status(403).json({ error: { message: 'Only the host, admin, support, or super admin can add attendees.' } });
     }
+    if (isInterviewMeeting(row) && !(await canAccessInterviewMeeting(req, row))) return res.status(403).json({ error: { message: 'Access denied' } });
 
     const userId = parseInt(req.body?.userId, 10);
     if (!userId) return res.status(400).json({ error: { message: 'userId is required' } });
@@ -1120,6 +1128,13 @@ export const addTeamMeetingAttendee = async (req, res, next) => {
       }
     }
 
+    if (isInterviewMeeting(row)) {
+      const interview = await HiringInterview.findByScheduleEventId(row.id);
+      const assigned = [...(interview?.interviewer_user_ids_json || []), userId];
+      if (!await canAccessHiringInterview({ id: userId }, { ...interview, interviewer_user_ids_json: assigned })) return res.status(400).json({ error: { message: 'Only active staff can be added as interviewers.' } });
+      await pool.execute(`UPDATE hiring_interviews SET interviewer_user_ids_json = JSON_ARRAY_APPEND(COALESCE(interviewer_user_ids_json, JSON_ARRAY()), '$', ?)
+        WHERE id = ? AND NOT JSON_CONTAINS(COALESCE(interviewer_user_ids_json, JSON_ARRAY()), JSON_ARRAY(?))`, [userId, interview.id, userId]);
+    }
     await ProviderScheduleEventAttendee.upsertForEvent(row.id, [userId]);
 
     try {

@@ -7,14 +7,14 @@ import IntakeSubmission from '../models/IntakeSubmission.model.js';
 import IntakeLink from '../models/IntakeLink.model.js';
 import HiringJobDescription from '../models/HiringJobDescription.model.js';
 import StorageService from './storage.service.js';
-import { resolveJobApplicationSenderIdentity } from './hiringReferenceIdentity.service.js';
+import { resolveInterviewSender } from './hiringInterviewSender.service.js';
+import { wrapOutboundHtmlWithTenantChrome } from './tenantEmailChrome.service.js';
 import { sendEmailFromIdentity } from './unifiedEmail/unifiedEmailSender.service.js';
 import {
   buildJobDescriptionAttachmentForEmail,
   buildPublicJobDescriptionUrl,
   peopleOperationsFromDisplayName
 } from './publicJobDescription.service.js';
-import EmailService from './email.service.js';
 
 function formatPersonName(row) {
   const name = [row?.first_name, row?.last_name].map((s) => String(s || '').trim()).filter(Boolean).join(' ').trim();
@@ -75,22 +75,20 @@ export async function sendHiringInterviewInviteEmail({
   publicJoinUrl,
   interviewerRows = [],
   jobDescriptionId = null,
-  jobTitle = ''
+  jobTitle = '',
+  preview = false
 }) {
   const to = String(candidate?.email || '').trim();
   if (!to || !publicJoinUrl) return { skipped: true, reason: 'missing_to_or_url' };
 
   const agency = await Agency.findById(agencyId).catch(() => null);
-  const identity = await resolveJobApplicationSenderIdentity(agencyId);
-  if (!identity?.id && !EmailService.isConfigured()) {
-    console.warn('[sendHiringInterviewInviteEmail] no People Operations / job applications sender identity');
-    return { skipped: true, reason: 'no_identity' };
-  }
+  const identity = await resolveInterviewSender(agencyId);
 
   let job = null;
   const jid = Number(jobDescriptionId || 0);
   if (jid) {
     job = await HiringJobDescription.findById(jid).catch(() => null);
+    if (job && Number(job.agency_id) !== Number(agencyId)) job = null;
   }
 
   const attachments = [];
@@ -172,7 +170,7 @@ export async function sendHiringInterviewInviteEmail({
 
   const firstName = String(candidate.first_name || '').trim() || formatPersonName(candidate);
   const fromDisplay = peopleOperationsFromDisplayName(agency || {});
-  const replyTo = String(identity?.reply_to || identity?.from_email || '').trim() || null;
+  const replyTo = String(identity.from_email).trim();
 
   const subject = String(title || 'Interview invitation').trim();
   const text = [
@@ -188,31 +186,33 @@ export async function sendHiringInterviewInviteEmail({
     'Please join a few minutes early. You will wait in a lobby until admitted.',
     jdUrl ? `Job description: ${jdUrl}` : '',
     attachments.length
-      ? 'Your job application and application receipt are attached again for your reference.'
+      ? `Attached for your reference: ${attachments.map(a => a.filename).join(', ')}.`
       : ''
   ]
     .filter(Boolean)
     .join('\n');
 
-  const html = `<div style="font-family: Arial, sans-serif; line-height: 1.5; color:#111;">
+  const bodyHtml = `<div style="font-family: Arial, sans-serif; line-height: 1.5; color:#111;">
     <p>Hi ${escapeHtml(firstName)},</p>
     <p>You are invited to an interview.</p>
     ${roleLabel ? `<p><strong>Role:</strong> ${escapeHtml(roleLabel)}</p>` : ''}
     <p><strong>When:</strong> ${escapeHtml(whenLabel)}</p>
     <p><strong>Interviewers from ${escapeHtml(agencyBrandOrName(agency))}:</strong> ${escapeHtml(interviewerLine)}</p>
-    <p><strong>Join link:</strong> <a href="${escapeHtml(publicJoinUrl)}">${escapeHtml(publicJoinUrl)}</a></p>
+    <p style="margin:24px 0;"><a style="display:inline-block;background:#087b52;color:#fff;padding:13px 24px;border-radius:8px;text-decoration:none;font-weight:bold;" href="${escapeHtml(publicJoinUrl)}">Join your interview</a></p><p style="font-size:13px;">Or open: <a href="${escapeHtml(publicJoinUrl)}">${escapeHtml(publicJoinUrl)}</a></p>
     <p>Please join a few minutes early. You will wait in a lobby until admitted.</p>
     ${jdUrl ? `<p><strong>Job description:</strong> <a href="${escapeHtml(jdUrl)}">${escapeHtml(jdUrl)}</a></p>` : ''}
-    ${attachments.length ? '<p style="color:#555;font-size:14px;">Your job application and application receipt are attached again for your reference.</p>' : ''}
+    ${attachments.length ? `<p style="color:#555;font-size:14px;">Attached for your reference: ${escapeHtml(attachments.map(a => a.filename).join(', '))}.</p>` : ''}
   </div>`;
 
-  if (identity?.id) {
+  const html = await wrapOutboundHtmlWithTenantChrome({ html: bodyHtml, agencyId, opts: { replyMailto: replyTo } });
+  if (preview) return { to, from: identity.from_email, fromDisplay, subject, html, attachments: attachments.map(a => a.filename) };
+  {
     return sendEmailFromIdentity({
       senderIdentityId: identity.id,
       to,
       subject,
       text,
-      html,
+      html: bodyHtml,
       attachments: attachments.length ? attachments : null,
       source: 'auto',
       userId: candidate?.id || null,
@@ -225,23 +225,4 @@ export async function sendHiringInterviewInviteEmail({
     });
   }
 
-  // Demo/@example candidates: still deliver via EmailService so testing@itsco.health gets the invite.
-  return EmailService.sendEmail({
-    to,
-    subject,
-    text,
-    html,
-    fromName: fromDisplay,
-    fromAddress:
-      process.env.GOOGLE_WORKSPACE_FROM_ADDRESS
-      || process.env.GOOGLE_WORKSPACE_DEFAULT_FROM
-      || null,
-    replyTo: process.env.GOOGLE_WORKSPACE_REPLY_TO || null,
-    attachments: attachments.length ? attachments : null,
-    source: 'auto',
-    agencyId,
-    userId: candidate?.id || null,
-    templateType: 'hiring_interview_invite',
-    linkUrl: publicJoinUrl
-  });
 }
