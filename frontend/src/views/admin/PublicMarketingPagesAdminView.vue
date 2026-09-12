@@ -519,13 +519,13 @@
               >Page title <input v-model="pg.title" type="text" placeholder="Frequently asked questions"
             /></label>
           </div>
-          <template v-if="form.slug === 'tisi' && ['men', 'boys', 'athletes', 'mens-services', 'boys-services', 'athlete-services'].includes(pg.slug)">
+          <template v-if="form.slug === 'mh4kidz' || (form.slug === 'tisi' && ['men', 'boys', 'athletes', 'mens-services', 'boys-services', 'athlete-services'].includes(pg.slug))">
             <label class="pmp-inline full">Hero heading <input v-model="pg.heroTitle" placeholder="Use the designed page default" /></label>
             <label class="pmp-inline full">Hero description <textarea v-model="pg.heroSubtitle" rows="3" /></label>
-            <label v-for="field in ['heroImageUrl', 'portraitImageUrl', 'bannerImageUrl']" :key="field" class="pmp-inline full">{{ field }} <input v-model="pg[field]" placeholder="/assets/tisi/boys-hero.webp" /></label>
+            <label v-for="field in (form.slug === 'mh4kidz' ? ['heroImageUrl'] : ['heroImageUrl', 'portraitImageUrl', 'bannerImageUrl'])" :key="field" class="pmp-inline full">{{ field }} <input v-model="pg[field]" placeholder="/assets/tisi/boys-hero.webp" /></label>
             <label class="pmp-inline full">Desktop image position <input v-model="pg.heroPosition" placeholder="50% 50%" /></label>
             <label class="pmp-inline full">Mobile image position <input v-model="pg.heroMobilePosition" placeholder="60% 50%" /></label>
-            <a :href="`/p/tisi/${pg.slug}`" target="_blank" rel="noopener">Open published page</a>
+            <a :href="`/p/${form.slug}/${pg.slug}`" target="_blank" rel="noopener">Open published page</a>
           </template>
           <label class="pmp-inline full"
             >Body (Markdown)
@@ -684,7 +684,7 @@ const showRiseEditor = computed(() => String(form.value.slug || '').trim().toLow
 const showCollectiveEditor = computed(() => ['range','mh4kidz'].includes(String(form.value.slug || '').trim().toLowerCase()));
 const collectiveForm = ref({});
 const collectiveFields = computed(() => [
-  ...(form.value.slug === 'mh4kidz' ? [['donationUrl','Published donation URL'],['enrollmentUrl','Published enrollment URL']] : [['footerLogoUrl','Footer logo URL']]),
+  ...(form.value.slug === 'mh4kidz' ? [['donationUrl','Published donation URL'],['enrollmentUrl','Published enrollment URL'],['homeMobileImageUrl','Mobile home hero image URL'],['footerLogoUrl','Footer logo URL']] : [['footerLogoUrl','Footer logo URL']]),
   ['partnerUrl','Partnership / volunteer URL'],['contactUrl','Public contact URL'],['ctaImageUrl','Bottom banner image URL']
 ]);
 const riseForm = ref({ ...riseConnectionDefaults });

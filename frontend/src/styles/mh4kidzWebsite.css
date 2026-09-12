@@ -8,3 +8,13 @@
 .mh-site h2,.mh-site h3{color:var(--mh-ink)}
 
 .mh-impact{background:linear-gradient(#f1faffbb,#eaf8fd77),url('/assets/mh4kidz/mountains.webp') center 65%/cover #f3fafb}
+
+.mh-search-button{border:0;background:transparent;color:var(--mh-ink);padding:8px;min-width:42px;min-height:42px;border-radius:50%;display:grid;place-items:center}.mh-search-button svg{width:23px;height:23px}
+.mh-site-search{position:absolute;right:3%;top:100%;width:min(480px,94%);border:1px solid #d6e4d4;border-radius:0 0 16px 16px;box-shadow:0 16px 30px #08263e20;padding:22px;background:white;z-index:10}.mh-site-search label{display:block;font-weight:650;margin-bottom:10px}.mh-site-search input{width:100%;padding:12px;border:1px solid #a7c2ae;border-radius:8px}.mh-site-search ul{list-style:none;padding:0;margin:15px 0 0}.mh-site-search li a{display:flex;justify-content:space-between;gap:20px;padding:10px 0;border-bottom:1px solid #e5eee6;text-decoration:none;font-size:15px}
+.mh-unplugged-experiences{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:24px;margin:28px 0}.mh-unplugged-experiences article{border:1px solid #dce7d7;border-radius:16px;overflow:hidden}.mh-unplugged-experiences img{width:100%;aspect-ratio:1.5;height:auto;object-fit:cover;display:block}.mh-unplugged-experiences article>div{padding:22px}
+.mh-editor-content{max-width:1100px}.mh-editor-content img{max-width:100%;height:auto}.mh-editor-content h2,.mh-editor-content h3{margin-top:24px}.mh-editor-content a{color:var(--mh-green);text-decoration:underline}.mh-editor-content pre{overflow:auto}.mh-editor-content table{display:block;overflow:auto}
+@media(max-width:850px){.mh-header{gap:8px}.mh-header img{width:200px}.mh-search-button{margin-left:0}.mh-unplugged-experiences{grid-template-columns:1fr}}
+@media(max-width:580px){.mh-header>a:first-child{flex:1;min-width:0}.mh-header img{width:100%;max-width:185px}.mh-menu{margin-left:0}.mh-hero{background-image:linear-gradient(180deg,#f6f4edff,#f6f4edef 48%,#f6f4ed00 76%),var(--mh-mobile-hero,var(--mh-hero))}}
+
+.mh-hero{background-position:var(--mh-desktop-position,center 55%)}
+@media(max-width:580px){.mh-hero{background-position:var(--mh-mobile-position,65% center)}.mh-home-hero{background-position:var(--mh-mobile-position,66% bottom)}}

@@ -660,6 +660,9 @@ export const useBrandingStore = defineStore('branding', () => {
 
   // Initialize portal theme on app load
   const initializePortalTheme = async () => {
+    // /p sites own their branding and may exist before (or without) a tenant.
+    // Do not infer an agency from their hostname or reuse a cached tenant theme.
+    if (/^\/p\/[^/]+(?:\/|$)/.test(window.location.pathname)) return;
     if (portalThemeInitPromise) return portalThemeInitPromise;
 
     portalThemeInitPromise = (async () => {

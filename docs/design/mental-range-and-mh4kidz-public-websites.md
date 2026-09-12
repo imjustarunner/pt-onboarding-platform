@@ -44,3 +44,11 @@ Validation:
 - `node database/tests/collective-public-websites.cjs` against a **disposable** local MySQL 8.4 container on port 33320, root password `synthetic-only`. It creates/drops only the synthetic `collective_check` database. Never run against application databases.
 - Production frontend build, with the repository's existing large-bundle warnings.
 - Full-app browser checks with mocked public API responses: 18 pages at 320, 390, 580, 768, 1024, 1440, 2048, 2560, and 3440 pixels; mobile navigation/Escape; search; actual image loading; provider opening interaction. Live tenant/provider records and production DNS were not used in those checks.
+
+## MH4Kidz completion pass (September 12, 2026)
+
+The deployed MH4Kidz website and marketing-page API were confirmed live at the dedicated hostname. A redundant request for the not-yet-created tenant's theme returned 404; public `/p/` pages now skip hostname-based tenant theme initialization.
+
+MH4Kidz now renders editor-supplied subpage headings, descriptions, artwork positions, and sanitized Markdown, including additional custom subpages. The header searches actual pages and program anchors. The Unplugged page includes dedicated experience cards and enrollment preparation information. Privacy and Terms destinations have explicit pending states until real content is supplied through the subpage editor. Mobile home artwork, the footer logo, and a configured home CTA banner are connected to editor settings.
+
+Completion validation: 26 targeted frontend tests; production build; 13 MH4Kidz pages across seven viewport sizes (91 combinations), search/Escape/focus behavior, and zero tenant-theme lookups on a simulated `app.mh4kidz.com` hostname. These fixes require frontend deployment only; no additional migration.
