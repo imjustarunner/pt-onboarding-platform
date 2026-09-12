@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 vi.mock('../../config/database.js', () => ({ default: { execute: vi.fn(async () => [[]]) } }));
 vi.mock('../../models/CommunicationConversation.model.js', () => ({ default: {
-  findById: vi.fn(), listParticipants: vi.fn(), listMessages: vi.fn(), addMessage: vi.fn(async () => 50), update: vi.fn(), updateMessage: vi.fn(), upsertParticipant: vi.fn(), create: vi.fn()
+  findById: vi.fn(), findMessageById: vi.fn(), listParticipants: vi.fn(), listMessages: vi.fn(), addMessage: vi.fn(async () => 50), update: vi.fn(), updateMessage: vi.fn(), upsertParticipant: vi.fn(), create: vi.fn()
 } }));
 vi.mock('../../models/CommunicationInbox.model.js', () => ({ default: { findById: vi.fn() } }));
 vi.mock('../communicationAttachments.service.js', () => ({ persistOutboundAttachments: vi.fn(), loadOutboundAttachments: vi.fn(async () => []) }));
@@ -12,14 +12,15 @@ vi.mock('../channelInboxAdapter.service.js', () => ({}));
 vi.mock('../unifiedInboxAi.service.js', () => ({}));
 vi.mock('../clinicalSmsSend.service.js', () => ({}));
 vi.mock('../availabilityWindow.service.js', () => ({ resolveSchedulePresetAt: vi.fn() }));
-vi.mock('../tenantMessageMailboxes.service.js', () => ({ resolveMessagesSendMailbox: vi.fn(async () => ({
+vi.mock('../emailSendMailbox.service.js', () => ({ resolveEmailSendMailbox: vi.fn(async () => ({
   identity: { id: 7 }, inbox: { id: 3 }, fromEmail: 'messages@itsco.health', replyTo: 'messages@itsco.health', displayName: 'Messages'
 })) }));
 vi.mock('../../models/UserCommunicationContact.model.js', () => ({ default: { upsertSafe: vi.fn() } }));
 import Conversation from '../../models/CommunicationConversation.model.js';
 import Inbox from '../../models/CommunicationInbox.model.js';
 import { sendEmailFromIdentity } from '../unifiedEmail/unifiedEmailSender.service.js';
-import { replyToConversation, composeNewEmail } from '../unifiedInbox.service.js';
+import pool from '../../config/database.js';
+import { replyToConversation, composeNewEmail, undoOutboundMessage } from '../unifiedInbox.service.js';
 const parent = { direction: 'outbound', internet_message_id: '<outbound@itsco.health>', to: [{ email: 'alice@example.org' }], cc: [], references_header: '<root@example.org>' };
 beforeEach(() => {
   vi.clearAllMocks();
@@ -84,4 +85,14 @@ describe('email sending', () => {
     expect(persistOutboundAttachments).toHaveBeenCalledWith(50, [source]);
   });
 
+});
+
+it('does not report undo success after the delivery worker has claimed a message', async () => {
+  Conversation.findMessageById.mockResolvedValue({ id: 50, conversation_id: 1, author_user_id: 5, direction: 'outbound', send_status: 'scheduled' });
+  pool.execute.mockResolvedValueOnce([{ affectedRows: 0 }]);
+  await expect(undoOutboundMessage(1, 50, { userId: 5 })).rejects.toThrow('Delivery has started');
+});
+it('does not let another mailbox member undo someone else’s send', async () => {
+  Conversation.findMessageById.mockResolvedValue({ id: 50, conversation_id: 1, author_user_id: 6, direction: 'outbound', send_status: 'scheduled' });
+  await expect(undoOutboundMessage(1, 50, { userId: 5 })).rejects.toThrow('Only the sender');
 });

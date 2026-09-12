@@ -69,3 +69,10 @@ describe('Messages hub thread interactions', () => {
     expect(state.timeline[0].meta.conversationId).toBe(30);
   });
 });
+
+it('defaults new email to the staff Group and displays the stored mailbox for replies', async () => {
+  api.get.mockResolvedValue({ data: { aliases: [{ id: 7, kind: 'messages', email: 'messages@itsco.health' }, { id: 9, kind: 'personal', email: 'staff@itsco.health' }] } });
+  await state.loadEmailAliases(2); expect(state.composeFromAliasId).toBe(9);
+  state.openEmailSubjectThread(state.emailSubjectThreads.find((t) => t.conversationId === 10));
+  expect(state.replyMailboxEmail).toBe('messages@itsco.health');
+});

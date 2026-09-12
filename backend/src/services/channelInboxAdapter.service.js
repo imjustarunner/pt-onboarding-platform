@@ -69,7 +69,7 @@ async function upsertShell({
   return { created: false, conv: await CommunicationConversation.findById(conv.id) };
 }
 
-async function syncSmsThreads({ agencyId, limit }) {
+export async function syncSmsThreads({ agencyId, limit = 100 }) {
   const [rows] = await pool.execute(
     `SELECT ml.client_id, ml.agency_contact_id, ml.sms_thread_key, ml.assigned_user_id, ml.user_id,
        ml.created_at AS last_message_at, ml.body AS last_body,

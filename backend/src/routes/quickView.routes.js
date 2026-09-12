@@ -1,4 +1,7 @@
+import { getQuickConversation, postQuickReply, postQuickCompose, getQuickAttachment, postQuickReaction, postQuickUndo } from '../controllers/quickViewMessaging.controller.js';
 import express from 'express';
+import multer from 'multer';
+import { getQuickMeetingLink } from '../controllers/quickViewMeeting.controller.js';
 import { authenticate } from '../middleware/auth.middleware.js';
 import {
   getMyQuickViewStatus,
@@ -19,10 +22,7 @@ import {
   getQuickTasks,
   getQuickDayCalendar,
   getQuickOfficeAvailability,
-  getQuickConversation,
   getQuickContacts,
-  postQuickReply,
-  postQuickCompose,
   postQuickContact,
   postQuickTask,
   postQuickTaskStatus,
@@ -38,6 +38,7 @@ import {
   qvListChatMessages,
   qvSendChatMessage,
   qvMarkChatRead,
+  qvUploadChatAttachment, qvAddChatReaction, qvRemoveChatReaction,
   qvCreateDirectThread,
   qvFocusMusicCatalog,
   qvFocusMusicStream,
@@ -54,6 +55,10 @@ import {
 } from '../controllers/quickViewSurfaces.controller.js';
 
 const router = express.Router();
+const chatUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 15 * 1024 * 1024 }, fileFilter: (_req, file, cb) => {
+  const allowed = ['image/gif','image/png','image/jpeg','image/jpg','image/webp','video/mp4','video/webm','video/quicktime'];
+  cb(allowed.includes(String(file.mimetype || '').toLowerCase()) ? null : Object.assign(new Error('Choose a supported photo or video'), { status: 400 }), allowed.includes(String(file.mimetype || '').toLowerCase()));
+} });
 
 // Authenticated: Account Info → Privacy credential management
 router.get('/me/status', authenticate, getMyQuickViewStatus);
@@ -92,9 +97,13 @@ router.get('/task-lists/:id/tasks', requireQuickViewSession, getQuickListTasks);
 router.get('/task-projects', requireQuickViewSession, getQuickTaskProjects);
 router.get('/task-projects/:id', requireQuickViewSession, getQuickProjectDetail);
 router.get('/calendar/day', requireQuickViewSession, getQuickDayCalendar);
+router.get('/meetings/:type/:ref/link', requireQuickViewSession, getQuickMeetingLink);
 router.get('/office', requireQuickViewSession, getQuickOfficeAvailability);
 router.get('/conversations/:id', requireQuickViewSession, getQuickConversation);
 router.post('/conversations/:id/reply', requireQuickViewSession, postQuickReply);
+router.get('/conversations/:id/attachments/:attachmentId', requireQuickViewSession, getQuickAttachment);
+router.post('/conversations/:id/messages/:messageId/reaction', requireQuickViewSession, postQuickReaction);
+router.post('/conversations/:id/messages/:messageId/undo', requireQuickViewSession, postQuickUndo);
 router.post('/compose', requireQuickViewSession, postQuickCompose);
 router.get('/contacts', requireQuickViewSession, getQuickContacts);
 router.post('/contacts', requireQuickViewSession, postQuickContact);
@@ -110,6 +119,9 @@ router.get('/chat/inbox/mentions', requireQuickViewSession, qvListMentions);
 router.get('/chat/inbox/files', requireQuickViewSession, qvListFiles);
 router.get('/chat/threads/:threadId/messages', requireQuickViewSession, qvListChatMessages);
 router.post('/chat/threads/:threadId/messages', requireQuickViewSession, qvSendChatMessage);
+router.post('/chat/threads/:threadId/attachments', requireQuickViewSession, chatUpload.single('file'), qvUploadChatAttachment);
+router.post('/chat/messages/:messageId/reactions', requireQuickViewSession, qvAddChatReaction);
+router.delete('/chat/messages/:messageId/reactions/:code', requireQuickViewSession, qvRemoveChatReaction);
 router.post('/chat/threads/:threadId/read', requireQuickViewSession, qvMarkChatRead);
 
 // Focus music (session cookie works for <audio src>)

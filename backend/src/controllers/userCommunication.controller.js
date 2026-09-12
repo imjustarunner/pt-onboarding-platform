@@ -159,7 +159,9 @@ async function sendCommunicationRecord(comm, meta, userId) {
       templateId: comm.template_id || null,
       generatedByUserId: userId || null,
       linkUrl,
-      existingCommunicationId: comm.id
+      existingCommunicationId: comm.id,
+      internetMessageIdOverride: meta.internetMessageIdOverride || null,
+      replyToOverride: meta.replyTo || null
     });
   }
   return EmailService.sendEmail({
@@ -977,7 +979,9 @@ export const approveCommunication = async (req, res, next) => {
         templateId: comm.template_id || null,
         generatedByUserId: req.user?.id || null,
         linkUrl: meta.linkUrl || null,
-        existingCommunicationId: comm.id
+        existingCommunicationId: comm.id,
+        internetMessageIdOverride: meta.internetMessageIdOverride || null,
+        replyToOverride: meta.replyTo || null
       });
       if (result?.pendingApproval) {
         return res.status(409).json({ error: { message: 'Approval send was blocked by email settings' } });

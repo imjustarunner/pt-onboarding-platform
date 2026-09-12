@@ -6,7 +6,11 @@
 
 ---
 
-## Communications & Quick View Expansion (post Phase 5)
+## Current email acceptance criteria
+
+The [September 11 clarification](MESSAGES_AND_COMMUNICATIONS_CENTER.md#email-acceptance-criteria--clarified-september-11-2026) supersedes the older shared-messages@ and notification-only digest assumptions below. Staff use their own tenant Google Group as their work mailbox. Ordinary external email supports direct replies and Reply all. An unread conversation produces a branded personal reminder after the default 24-hour delay, with both a direct reply path into that same conversation and a normal-login link to the exact message. Existing Availability Hours timing requires clarification; aggregate Quick View digests alone do not satisfy this experience. The QV follow-up implements staff Group sending, conversation-specific branded reminders, a receipt-backed personal-reply bridge, and exact normal-login destinations; see [validation and remaining live acceptance](MESSAGING_RELIABILITY_REVIEW.md#qv-and-staff-group-mailbox-follow-up--september-11-2026).
+
+## Communications & Quick View Expansion (post Phase 5; existing implementation)
 
 Security-first expansion layered on the Unified Inbox. Tenant toggles live on **Communications Center → Email settings** (`agency_email_settings`): digest, hold/release, Unknown Sender box, client OOO, intent review, Quick View, secure-message notify.
 

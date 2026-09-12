@@ -70,6 +70,7 @@
     </section>
 
     <template v-if="session">
+      <div v-if="sendNotice" class="qv-pad" role="status">{{ sendNotice }} <button v-if="undoSend" type="button" class="qv-btn ghost sm" @click="undoEmail">Undo send</button></div>
       <nav class="qv-tabs">
         <button type="button" :class="{ on: tab === 'home' }" @click="tab = 'home'; loadHome()">Messages</button>
         <button type="button" :class="{ on: tab === 'tasks' }" @click="switchTasks">Tasks</button>
@@ -89,16 +90,19 @@
           <button type="button" :class="{ on: msgSuite === 'sms' }" @click="switchMsgSuite('sms')">SMS</button>
         </div>
 
-        <template v-if="msgSuite === 'email'">
+        <template v-if="msgSuite === 'email' || msgSuite === 'sms'">
           <div class="qv-toolbar">
             <div class="qv-sorters">
               <button type="button" :class="{ on: sort === 'all' }" @click="sort = 'all'">All</button>
               <button type="button" :class="{ on: sort === 'unread' }" @click="sort = 'unread'">Unread</button>
               <button type="button" :class="{ on: sort === 'needs' }" @click="sort = 'needs'">Needs reply</button>
-              <button type="button" :class="{ on: sort === 'secure' }" @click="sort = 'secure'">Secure</button>
+
             </div>
-            <button type="button" class="qv-btn primary sm" @click="showCompose = true">New</button>
+            <button v-if="msgSuite === 'email'" type="button" class="qv-btn primary sm" @click="showCompose = true">New email</button>
           </div>
+          <p v-if="msgSuite === 'email' && mailboxEmail" class="qv-pad muted">{{ mailboxEmail }}</p>
+          <p v-if="msgSuite === 'sms'" class="qv-pad muted">Texts use your assigned care number. Existing phone conversations appear here; availability depends on your organization’s texting setup.</p>
+          <p v-if="msgLoading" class="qv-pad muted" role="status">Loading conversations…</p>
           <button
             v-for="c in filteredConversations"
             :key="c.id"
@@ -110,17 +114,13 @@
             <span class="ch">{{ channelIcon(c.channel) }}</span>
             <div class="meta">
               <strong>{{ c.subject || '(no subject)' }}</strong>
-              <small>{{ c.last_message_preview || '' }}</small>
+              <small>{{ c.last_message_preview || '' }}</small><small>{{ formatTime(c.last_message_at) }}</small>
             </div>
             <span v-if="c.has_auto_reply" class="badge">Auto</span>
           </button>
-          <div v-if="!filteredConversations.length" class="qv-pad muted">
-            No email yet. Integrate a mailbox in Settings to see mail here.
+          <div v-if="!msgLoading && !error && !filteredConversations.length" class="qv-pad muted">
+            {{ sort === 'unread' ? 'You’re caught up — no unread conversations.' : (msgSuite === 'sms' ? 'No text conversations yet.' : 'No conversations match this view.') }}
           </div>
-        </template>
-
-        <template v-else-if="msgSuite === 'sms'">
-          <div class="qv-pad muted">SMS will appear here once messaging is connected. Ready for that channel.</div>
         </template>
 
         <template v-else-if="msgSuite === 'direct' || msgSuite === 'channels'">
@@ -165,35 +165,62 @@
           <div v-if="!inboxItems.length && !msgLoading" class="qv-pad muted">Nothing here yet.</div>
           <div v-if="msgLoading" class="qv-pad muted">Loading…</div>
         </template>
+        <button v-if="['email','sms'].includes(msgSuite) && homeCursor" type="button" class="qv-btn ghost" :disabled="homeOlderLoading" @click="loadOlderConversations">{{ homeOlderLoading ? 'Loading…' : 'Load older conversations' }}</button>
       </div>
 
       <div v-else-if="tab === 'thread'" class="qv-pane thread">
-        <button type="button" class="qv-btn ghost" @click="tab = 'home'">← Back</button>
+        <button type="button" class="qv-btn ghost" @click="rememberReply(); tab = 'home'">← Conversations</button>
         <h2>{{ activeConv?.subject || 'Conversation' }}</h2>
+        <p v-if="threadLoading" role="status">Loading conversation…</p>
+        <button v-if="nextBeforeId" type="button" class="qv-btn ghost" :disabled="olderLoading" @click="loadOlderEmail">{{ olderLoading ? 'Loading…' : 'Load older messages' }}</button>
         <div v-for="m in threadMessages" :key="m.id" class="qv-bubble" :class="m.direction">
-          <div class="when">{{ formatTime(m.sent_at || m.created_at) }}
+          <div class="when"><strong>{{ m.from?.name || m.from?.email || (m.direction === 'outbound' ? 'You' : 'Sender') }}</strong> · {{ formatTime(m.sent_at || m.scheduled_send_at || m.created_at) }}
             <span v-if="m.is_auto_reply" class="badge">Auto-reply</span>
+            <span v-if="m.send_status && m.send_status !== 'sent'" class="badge">{{ m.send_status === 'scheduled' ? 'Queued' : m.send_status }}</span>
           </div>
+          <p v-if="m.to?.length" class="when">To: {{ m.to.map((a) => a.email || a).join(', ') }}<template v-if="m.cc?.length"> · CC: {{ m.cc.map((a) => a.email || a).join(', ') }}</template></p>
           <div class="body">{{ m.body_text || stripHtml(m.body_html) }}</div>
+          <button v-for="a in m.attachments || []" :key="a.id" type="button" class="qv-btn ghost sm" @click="downloadEmailFile(a)">📎 {{ a.filename }}</button>
+          <button v-if="activeConv?.channel === 'email' && !m.is_internal_note && (!m.send_status || m.send_status === 'sent')" type="button" class="qv-btn ghost sm" :aria-pressed="m.reactions?.some((r) => r.emoji === '❤️' && r.reactedByMe) || false" @click="likeEmail(m)">♥ {{ m.reactions?.find((r) => r.emoji === '❤️')?.count || '' }} Like</button>
         </div>
-        <form class="qv-reply" @submit.prevent="sendQuickReply">
-          <textarea v-model="replyText" rows="3" placeholder="Reply…" />
-          <button type="submit" class="qv-btn primary" :disabled="replyBusy || !replyText.trim()">
-            {{ replyBusy ? 'Sending…' : 'Send' }}
-          </button>
+        <form v-if="!threadLoading && threadMessages.length" class="qv-reply" @submit.prevent="sendQuickReply">
+          <template v-if="activeConv?.channel === 'email'">
+            <div class="qv-suite">
+              <button v-for="action in [{ id: 'reply', label: 'Reply' }, { id: 'reply_all', label: 'Reply all' }, { id: 'forward', label: 'Forward' }]" :key="action.id" type="button" :class="{ on: replyMode === action.id }" @click="changeReplyMode(action.id)">{{ action.label }}</button>
+            </div>
+            <p class="muted">From: {{ activeConv?.inbox_from_email || mailboxEmail }}</p>
+            <label>To <input v-model="replyTo" type="text" inputmode="email" required /></label>
+            <label>CC <input v-model="replyCc" type="text" inputmode="email" /></label>
+            <label>BCC <input v-model="replyBcc" type="text" inputmode="email" /></label>
+          </template>
+          <textarea v-model="replyText" rows="4" placeholder="Write your reply…" aria-label="Reply message" />
+          <template v-if="activeConv?.channel === 'email'">
+            <label>Attachments <input type="file" multiple @change="selectEmailFiles($event)" /></label>
+            <p v-if="replyAttachments.length">{{ replyAttachments.map((a) => a.filename).join(', ') }} <button type="button" class="qv-btn ghost sm" @click="replyAttachments = []">Remove</button></p>
+          </template>
+          <button type="submit" class="qv-btn primary" :disabled="replyBusy || (!replyText.trim() && !replyAttachments.length)">{{ replyBusy ? 'Sending…' : (replyMode === 'forward' ? 'Forward' : 'Send reply') }}</button>
         </form>
       </div>
 
       <div v-else-if="tab === 'chat'" class="qv-pane thread">
         <button type="button" class="qv-btn ghost" @click="closeChat">← Back</button>
         <h2>{{ activeChatTitle }}</h2>
+        <button v-if="chatParentId" type="button" class="qv-btn ghost" @click="openChatReplies()">← All messages</button>
+        <p v-if="chatLoading" role="status">Loading messages…</p>
+        <button v-if="chatOlderId" type="button" class="qv-btn ghost" :disabled="chatLoading" @click="loadChatMessages({ older: true })">Load older messages</button>
         <div v-for="m in chatMessages" :key="m.id" class="qv-bubble" :class="chatBubbleClass(m)">
           <div class="when">{{ formatTime(m.created_at) }} · {{ m.sender_first_name || m.sender_name || '' }}</div>
           <div class="body">{{ m.body || '' }}</div>
+          <a v-for="a in m.attachments || []" :key="a.id" :href="a.file_url" target="_blank" rel="noopener noreferrer">📎 {{ a.original_filename || 'Attachment' }}</a>
+          <button type="button" class="qv-btn ghost sm" :aria-pressed="(m.reactions || []).some((r) => r.code === '❤️' && r.mineActive)" @click="likeChat(m)">❤️ {{ (m.reactions || []).find((r) => r.code === '❤️')?.count || '' }}</button>
+          <button v-if="!chatParentId" type="button" class="qv-btn ghost sm" @click="openChatReplies(m.id)">{{ m.reply_count ? `${m.reply_count} replies` : 'Reply in thread' }}</button>
         </div>
         <form class="qv-reply" @submit.prevent="sendChatMessage">
-          <textarea v-model="chatReply" rows="3" placeholder="Message…" />
-          <button type="submit" class="qv-btn primary" :disabled="chatBusy || !chatReply.trim()">
+          <textarea v-model="chatReply" rows="3" :placeholder="chatParentId ? 'Reply to this thread…' : 'New message…'" aria-label="Chat message" />
+          <label>Photo or video <input type="file" accept="image/gif,image/png,image/jpeg,image/webp,video/mp4,video/webm,video/quicktime" :disabled="chatUploadBusy" @change="uploadChatFile" /></label>
+          <p v-if="chatUploadBusy">Uploading…</p>
+          <p v-if="chatAttachments.length">{{ chatAttachments.map((a) => a.originalFilename).join(', ') }} <button type="button" class="qv-btn ghost sm" @click="chatAttachments = []">Remove</button></p>
+          <button type="submit" class="qv-btn primary" :disabled="chatBusy || chatUploadBusy || (!chatReply.trim() && !chatAttachments.length)">
             {{ chatBusy ? 'Sending…' : 'Send' }}
           </button>
         </form>
@@ -432,6 +459,7 @@
       <div v-else-if="tab === 'calendar'" class="qv-pane">
         <div class="qv-day-nav">
           <button type="button" class="qv-btn ghost" @click="shiftDay(-1)">‹</button>
+          <button type="button" class="qv-btn ghost" @click="day = localDay(); loadCalendar()">Today</button>
           <input v-model="day" type="date" class="qv-date" @change="loadCalendar" />
           <button type="button" class="qv-btn ghost" @click="shiftDay(1)">›</button>
           <button type="button" class="qv-btn ghost" :class="{ on: showOffice }" @click="toggleOffice">
@@ -439,37 +467,13 @@
           </button>
         </div>
         <template v-if="!showOffice">
-          <div class="qv-day-grid">
-            <div
-              v-for="hour in dayHours"
-              :key="hour"
-              class="qv-hour-row"
-            >
-              <div class="qv-hour-label">{{ formatHourLabel(hour) }}</div>
-              <div class="qv-hour-lane">
-                <div
-                  v-for="item in itemsForHour(hour)"
-                  :key="item.id"
-                  class="qv-cal-block"
-                  :style="blockStyle(item, hour)"
-                  role="button"
-                  tabindex="0"
-                  @click="openCalEvent(item)"
-                  @keydown.enter="openCalEvent(item)"
-                >
-                  <strong>{{ item.title || item.kind }}</strong>
-                  <small>{{ formatClock(item.startAt) }}–{{ formatClock(item.endAt) }}</small>
-                  <a
-                    v-if="item.canJoin"
-                    class="qv-btn primary sm"
-                    :href="joinHref(item)"
-                    @click.stop="extendForMeeting(item)"
-                  >Join</a>
-                </div>
-              </div>
-            </div>
+          <p class="qv-pad muted">Times shown in {{ calendarTimeZone }}.</p>
+          <p v-if="calendarLoading" class="qv-pad muted" role="status">Loading your schedule…</p>
+          <div v-for="item in dayItems" :key="item.id" class="qv-agenda-item" role="button" tabindex="0" @click="openCalEvent(item)" @keydown.enter="openCalEvent(item)">
+            <div><strong>{{ item.title }}</strong><p>{{ item.allDay ? 'All day' : `${formatClock(item.startAt)}–${formatClock(item.endAt)}` }}<template v-if="item.location"> · {{ item.location }}</template></p><small v-if="item.status === 'CANCELLED'">Cancelled</small></div>
+            <a v-if="item.canJoin" class="qv-btn primary sm" :href="joinHref(item)" target="_blank" rel="noopener noreferrer" @click.stop="extendForMeeting(item)">Join meeting ↗</a>
           </div>
-          <div v-if="!dayItems.length" class="qv-pad muted">Nothing scheduled this day.</div>
+          <div v-if="!calendarLoading && !error && !dayItems.length" class="qv-pad muted">Nothing scheduled this day.</div>
         </template>
         <template v-else>
           <div class="qv-suite">
@@ -579,13 +583,18 @@
 
     <div v-if="showCompose" class="qv-modal" @click.self="showCompose = false">
       <form class="qv-sheet" @submit.prevent="sendCompose">
-        <h3>New message</h3>
+        <h3>New email</h3>
+        <p class="muted">From: {{ mailboxEmail || 'Your work mailbox' }}</p>
         <label>To</label>
-        <input v-model="composeToEmail" type="email" required placeholder="email@example.com" />
+        <input v-model="composeToEmail" type="email" multiple required placeholder="email@example.com, colleague@example.com" />
+        <label>CC</label><input v-model="composeCc" type="text" inputmode="email" />
+        <label>BCC</label><input v-model="composeBcc" type="text" inputmode="email" />
         <label>Subject</label>
         <input v-model="composeSubject" type="text" placeholder="Subject" />
         <label>Message</label>
-        <textarea v-model="composeText" rows="4" required placeholder="Write your message…" />
+        <textarea v-model="composeText" rows="4" placeholder="Write your message…" />
+        <label>Attachments <input type="file" multiple @change="selectEmailFiles($event, true)" /></label>
+        <p v-if="composeAttachments.length">{{ composeAttachments.map((a) => a.filename).join(', ') }} <button type="button" @click="composeAttachments = []">Remove</button></p>
         <div class="qv-sheet-actions">
           <button type="button" class="qv-btn ghost" @click="showCompose = false">Cancel</button>
           <button type="submit" class="qv-btn primary" :disabled="composeBusy">{{ composeBusy ? 'Sending…' : 'Send' }}</button>
@@ -720,6 +729,7 @@
             v-if="calEvent.canJoin"
             class="qv-btn primary"
             :href="joinHref(calEvent)"
+            target="_blank" rel="noopener noreferrer"
             @click="extendForMeeting(calEvent)"
           >Join</a>
           <p v-else class="muted" style="margin:0;font-size:13px;">
@@ -732,9 +742,12 @@
 </template>
 
 <script setup>
+import { quickViewDeepLink } from '../utils/quickViewDeepLink';
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import axios from 'axios';
+import { emailReplyRecipients } from '../utils/messageThreads';
+import { encodeEmailFiles } from '../utils/communicationAttachments';
 import QuickViewMusicDock from '../components/quickView/QuickViewMusicDock.vue';
 import { buildDisplaySections, extractSections, formatFullNoteCopy } from '../utils/noteAidUiHelpers.js';
 
@@ -816,7 +829,10 @@ const speechSupported = computed(() => {
 const canRunNoteAid = computed(() =>
   !!(noteAidDos.value && noteAidInitials.value.trim() && noteAidInput.value.trim())
 );
-const day = ref(new Date().toISOString().slice(0, 10));
+const localDay = (d = new Date()) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+const day = ref(localDay());
+const calendarLoading = ref(false);
+const calendarTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'America/Denver';
 const dayItems = ref([]);
 const showOffice = ref(false);
 const officeSlots = ref([]);
@@ -831,6 +847,8 @@ const dmBusyId = ref(null);
 const sessionAgencyId = ref(null);
 const homeScreenTip = ref(false);
 let heartbeatTimer = null;
+let refreshTimer = null;
+let undoTimer = null;
 
 const showCompose = ref(false);
 const composeToEmail = ref('');
@@ -846,11 +864,88 @@ const newContactName = ref('');
 const newContactEmail = ref('');
 const newContactPhone = ref('');
 const contactBusy = ref(false);
+const mailboxEmail = ref('');
+const homeCursor = ref(null);
+const homeOlderLoading = ref(false);
+const replyMode = ref('reply');
+const replyTo = ref('');
+const replyCc = ref('');
+const replyBcc = ref('');
+const replyAttachments = ref([]);
+const composeCc = ref('');
+const composeBcc = ref('');
+const composeAttachments = ref([]);
+const threadLoading = ref(false);
+const nextBeforeId = ref(null);
+const olderLoading = ref(false);
+const sendNotice = ref('');
+const undoSend = ref(null);
+const emailDrafts = new Map();
+const chatDrafts = new Map();
+const chatAttachments = ref([]);
+const chatParentId = ref(null);
+const chatLoading = ref(false);
+const chatOlderId = ref(null);
+const chatUploadBusy = ref(false);
+const chatDraftKey = () => `${activeChatId.value}:${chatParentId.value || 'root'}`;
+function rememberChatDraft() { if (activeChatId.value) chatDrafts.set(chatDraftKey(), { body: chatReply.value, attachments: chatAttachments.value }); }
+function restoreChatDraft() { const draft = chatDrafts.get(chatDraftKey()); chatReply.value = draft?.body || ''; chatAttachments.value = draft?.attachments || []; }
+
+let conversationRequest = 0;
+let homeRequest = 0;
+let chatRequest = 0;
+let calendarRequest = 0;
+function rememberReply() {
+  if (activeConv.value?.id) emailDrafts.set(activeConv.value.id, { text: replyText.value, mode: replyMode.value, to: replyTo.value, cc: replyCc.value, bcc: replyBcc.value, attachments: replyAttachments.value });
+}
+function changeReplyMode(mode) {
+  replyMode.value = mode;
+  const addresses = emailReplyRecipients(threadMessages.value, { mode, inboxEmail: activeConv.value?.inbox_from_email || mailboxEmail.value });
+  replyTo.value = addresses.to.join(', '); replyCc.value = addresses.cc.join(', '); replyBcc.value = '';
+}
+async function selectEmailFiles(event, composer = false) {
+  try { const files = await encodeEmailFiles(event.target.files || []); if (composer) composeAttachments.value = files; else replyAttachments.value = files; }
+  catch (e) { error.value = e.message; }
+}
+async function downloadEmailFile(a) {
+  try {
+    const { data } = await axios.get(`${apiBase}/conversations/${activeConv.value.id}/attachments/${a.id}`, { headers: authHeaders(), withCredentials: true, responseType: 'blob' });
+    const url = URL.createObjectURL(data); const link = document.createElement('a'); link.href = url; link.download = a.filename || 'attachment'; link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
+  } catch { error.value = 'Could not download attachment'; }
+}
+async function likeEmail(m) {
+  const id = activeConv.value?.id;
+  try {
+    const active = !(m.reactions || []).some((r) => r.emoji === '❤️' && r.reactedByMe);
+    const { data } = await axios.post(`${apiBase}/conversations/${id}/messages/${m.id}/reaction`, { active }, { headers: authHeaders(), withCredentials: true });
+    if (activeConv.value?.id === id) m.reactions = data.reactions || [];
+  } catch { error.value = 'Could not update like'; }
+}
+function offerUndo(conversationId, messageId, draft) {
+  clearTimeout(undoTimer);
+  undoSend.value = { conversationId, messageId, draft };
+  undoTimer = setTimeout(() => { undoSend.value = null; sendNotice.value = 'Email queued for delivery. Check the conversation for delivery status.'; }, 20000);
+}
+async function undoEmail() {
+  const target = undoSend.value;
+  if (!target) return;
+  try {
+    const { data } = await axios.post(`${apiBase}/conversations/${target.conversationId}/messages/${target.messageId}/undo`, {}, { headers: authHeaders(), withCredentials: true });
+    rememberReply();
+    const draft = target.draft || { text: data.body || '', mode: 'reply', attachments: [] };
+    if (draft.mode === 'forward') { draft.mode = 'reply'; draft.text = data.body || draft.text; }
+    if (data.attachments?.length) draft.attachments = data.attachments;
+    emailDrafts.set(target.conversationId, draft);
+    undoSend.value = null; sendNotice.value = 'Send cancelled. Your message is available to edit.';
+    await openConversation({ id: target.conversationId }, { preserveCurrent: false });
+    if (data.attachmentRestoreFailed) error.value = 'Send cancelled. Some attachments could not be restored; reattach them before sending.';
+  } catch (e) { error.value = e?.response?.data?.error?.message || 'The undo window has ended'; }
+}
 const replyText = ref('');
 const replyBusy = ref(false);
 
-const DAY_START = 6;
-const DAY_END = 22;
+const DAY_START = 0;
+const DAY_END = 24;
 const dayHours = computed(() => {
   const hours = [];
   for (let h = DAY_START; h < DAY_END; h += 1) hours.push(h);
@@ -972,11 +1067,12 @@ async function resumeSession() {
       installQuickViewManifest();
     } catch { /* ignore */ }
     await loadHome();
+    await openDeepLink();
   } catch {
-    session.value = null;
+    clearSession();
     try { sessionStorage.removeItem('plottwist.quickViewSession'); } catch { /* ignore */ }
     // Back to PIN launcher
-    window.location.replace('/qv');
+    window.location.replace(`/qv?${new URLSearchParams(quickViewDeepLink(route.query))}`);
   } finally {
     loading.value = false;
   }
@@ -1083,6 +1179,7 @@ async function unlock() {
       : `/t/${encodeURIComponent(token)}/unlock`;
     const { data } = await axios.post(`${apiBase}${path}`, body, { withCredentials: true });
     session.value = data.sessionToken;
+    if (data.deepLinkPath) tokenInfo.value = { ...(tokenInfo.value || {}), deepLinkPath: data.deepLinkPath };
     expiresAt.value = data.expiresAt;
     if (data.userId) sessionUserId.value = data.userId;
     if (data.agencyId) sessionAgencyId.value = data.agencyId;
@@ -1090,14 +1187,7 @@ async function unlock() {
     rememberBookmark();
     startHeartbeat();
     await loadHome();
-    if (route.query.join && route.query.id) {
-      const joinType = String(route.query.join);
-      const id = String(route.query.id);
-      const pathJoin = joinType === 'supervision'
-        ? `/join/supervision/${encodeURIComponent(id)}`
-        : `/join/team-meeting/${encodeURIComponent(id)}`;
-      window.location.href = pathJoin;
-    }
+    await openDeepLink();
   } catch (e) {
     const err = e?.response?.data?.error || {};
     error.value = err.message || 'Unlock failed';
@@ -1112,6 +1202,7 @@ async function unlock() {
 
 function startHeartbeat() {
   stopHeartbeat();
+  refreshTimer = setInterval(() => refreshMessages(), 15000);
   heartbeatTimer = setInterval(async () => {
     try {
       const { data } = await axios.post(
@@ -1121,29 +1212,64 @@ function startHeartbeat() {
       );
       expiresAt.value = data.expiresAt;
     } catch {
-      session.value = null;
-      stopHeartbeat();
+      clearSession();
     }
   }, 60000);
 }
 function stopHeartbeat() {
   if (heartbeatTimer) clearInterval(heartbeatTimer);
   heartbeatTimer = null;
+  if (refreshTimer) clearInterval(refreshTimer);
+  refreshTimer = null;
 }
 
-async function loadHome() {
-  error.value = '';
-  msgSuite.value = 'email';
+async function refreshMessages() {
+  if (!session.value || document.visibilityState === 'hidden' || threadLoading.value || replyBusy.value || chatBusy.value) return;
   try {
-    const { data } = await axios.get(`${apiBase}/home`, {
-      headers: authHeaders(),
-      withCredentials: true
-    });
+    if (tab.value === 'chat') { await loadChatMessages({ quiet: true }); return; }
+    if (tab.value === 'thread' && activeConv.value?.id) {
+      const id = activeConv.value.id; const request = conversationRequest;
+      const { data } = await axios.get(`${apiBase}/conversations/${id}`, { headers: authHeaders(), withCredentials: true });
+      if (request !== conversationRequest || tab.value !== 'thread' || activeConv.value?.id !== id) return;
+      const merged = new Map(threadMessages.value.map((m) => [m.id, m])); (data.messages || []).forEach((m) => merged.set(m.id, m));
+      threadMessages.value = [...merged.values()].sort((a, b) => new Date(a.sent_at || a.created_at) - new Date(b.sent_at || b.created_at) || Number(a.id) - Number(b.id));
+    } else if (tab.value === 'home' && ['email', 'sms'].includes(msgSuite.value)) {
+      const request = homeRequest; const channel = msgSuite.value;
+      const { data } = await axios.get(`${apiBase}/home`, { params: { channel }, headers: authHeaders(), withCredentials: true });
+      if (request === homeRequest && tab.value === 'home' && channel === msgSuite.value) {
+        const merged = new Map(conversations.value.map((c) => [c.id, c])); (data.conversations || []).forEach((c) => merged.set(c.id, c));
+        conversations.value = [...merged.values()].sort((a, b) => new Date(b.last_message_at) - new Date(a.last_message_at));
+      }
+    }
+  } catch { /* Keep the current view through temporary network failures; heartbeat enforces expiry. */ }
+}
+
+async function loadHome(channel = 'email') {
+  const request = ++homeRequest;
+  error.value = ''; msgLoading.value = true;
+  msgSuite.value = channel; tab.value = 'home';
+  try {
+    const { data } = await axios.get(`${apiBase}/home`, { params: { channel }, headers: authHeaders(), withCredentials: true });
+    if (request !== homeRequest || msgSuite.value !== channel) return;
     conversations.value = data.conversations || [];
-    tab.value = 'home';
+    homeCursor.value = data.nextCursor || null;
+    mailboxEmail.value = data.mailboxEmail || '';
   } catch (e) {
-    error.value = e?.response?.data?.error?.message || 'Could not load messages';
-  }
+    if (request === homeRequest) error.value = e?.response?.data?.error?.message || 'Could not load messages';
+  } finally { if (request === homeRequest) msgLoading.value = false; }
+}
+
+async function loadOlderConversations() {
+  if (!homeCursor.value || homeOlderLoading.value) return;
+  const channel = msgSuite.value; const request = homeRequest;
+  homeOlderLoading.value = true;
+  try {
+    const { data } = await axios.get(`${apiBase}/home`, { params: { channel, ...homeCursor.value }, headers: authHeaders(), withCredentials: true });
+    if (request !== homeRequest) return;
+    const merged = new Map(conversations.value.map((c) => [c.id, c])); (data.conversations || []).forEach((c) => merged.set(c.id, c));
+    conversations.value = [...merged.values()]; homeCursor.value = data.nextCursor || null;
+  } catch { error.value = 'Could not load older conversations'; }
+  finally { homeOlderLoading.value = false; }
 }
 
 async function retryHome() {
@@ -1155,11 +1281,12 @@ async function switchMsgSuite(suite) {
   tab.value = 'home';
   chatList.value = [];
   inboxItems.value = [];
+  const request = ++homeRequest;
   if (suite === 'email') {
     await loadHome();
     return;
   }
-  if (suite === 'sms') return;
+  if (suite === 'sms') { await loadHome('sms'); return; }
   msgLoading.value = true;
   error.value = '';
   try {
@@ -1169,6 +1296,7 @@ async function switchMsgSuite(suite) {
         withCredentials: true,
         params: { agencyId: 'all' }
       });
+      if (request !== homeRequest) return;
       const rows = Array.isArray(data) ? data : (data.threads || []);
       chatList.value = rows.filter((t) => String(t.thread_type || 'direct').toLowerCase() === 'direct');
     } else if (suite === 'channels') {
@@ -1176,30 +1304,34 @@ async function switchMsgSuite(suite) {
         headers: authHeaders(),
         withCredentials: true
       });
+      if (request !== homeRequest) return;
       chatList.value = data.channels || [];
     } else if (suite === 'threads') {
       const { data } = await axios.get(`${apiBase}/chat/inbox/threads`, {
         headers: authHeaders(),
         withCredentials: true
       });
+      if (request !== homeRequest) return;
       inboxItems.value = data.items || [];
     } else if (suite === 'mentions') {
       const { data } = await axios.get(`${apiBase}/chat/inbox/mentions`, {
         headers: authHeaders(),
         withCredentials: true
       });
+      if (request !== homeRequest) return;
       inboxItems.value = data.items || [];
     } else if (suite === 'files') {
       const { data } = await axios.get(`${apiBase}/chat/inbox/files`, {
         headers: authHeaders(),
         withCredentials: true
       });
+      if (request !== homeRequest) return;
       inboxItems.value = data.files || data.items || [];
     }
   } catch (e) {
-    error.value = e?.response?.data?.error?.message || 'Could not load messages';
+    if (request === homeRequest) error.value = e?.response?.data?.error?.message || 'Could not load messages';
   } finally {
-    msgLoading.value = false;
+    if (request === homeRequest) msgLoading.value = false;
   }
 }
 
@@ -1247,7 +1379,8 @@ async function openChatThread(t) {
       return;
     }
   }
-  activeChatId.value = threadId;
+  rememberChatDraft();
+  activeChatId.value = threadId; chatParentId.value = null; restoreChatDraft();
   activeChatTitle.value = chatTitle(t);
   tab.value = 'chat';
   await loadChatMessages();
@@ -1256,35 +1389,64 @@ async function openChatThread(t) {
 async function openInboxItem(item) {
   const threadId = Number(item.thread_id || item.threadId);
   if (!threadId) return;
-  activeChatId.value = threadId;
+  rememberChatDraft();
+  activeChatId.value = threadId; chatParentId.value = Number(item.root_message_id || item.parent_message_id) || null; restoreChatDraft();
   activeChatTitle.value = inboxTitle(item);
   tab.value = 'chat';
   await loadChatMessages();
 }
 
-async function loadChatMessages() {
-  if (!activeChatId.value) return;
-  const { data } = await axios.get(`${apiBase}/chat/threads/${activeChatId.value}/messages`, {
-    headers: authHeaders(),
-    withCredentials: true
-  });
-  chatMessages.value = Array.isArray(data) ? data : (data.messages || []);
-  const lastId = chatMessages.value.length
-    ? chatMessages.value[chatMessages.value.length - 1]?.id
-    : null;
-  if (lastId) {
-    axios.post(
-      `${apiBase}/chat/threads/${activeChatId.value}/read`,
-      { lastReadMessageId: lastId },
-      { headers: authHeaders(), withCredentials: true }
-    ).catch(() => {});
-  }
+async function loadChatMessages({ older = false, quiet = false } = {}) {
+  const id = activeChatId.value; const parentId = chatParentId.value;
+  if (!id) return;
+  const request = ++chatRequest;
+  const cursor = older ? chatOlderId.value : null;
+  if (!quiet && !older) chatMessages.value = [];
+  chatLoading.value = !quiet;
+  try {
+    const { data } = await axios.get(`${apiBase}/chat/threads/${id}/messages`, { headers: authHeaders(), withCredentials: true, params: { parentMessageId: parentId || undefined, beforeId: cursor || undefined } });
+    if (request !== chatRequest || activeChatId.value !== id || chatParentId.value !== parentId) return;
+    const messages = Array.isArray(data) ? data : (data.messages || []);
+    if (quiet) {
+      const merged = new Map(chatMessages.value.map((m) => [m.id, m])); messages.forEach((m) => merged.set(m.id, m));
+      chatMessages.value = [...merged.values()].sort((a, b) => a.id - b.id);
+    } else { chatMessages.value = older ? [...messages, ...chatMessages.value] : messages; chatOlderId.value = messages.length === 60 ? messages[0].id : null; }
+    const lastId = messages.at(-1)?.id;
+    if (lastId && !older && !parentId) axios.post(`${apiBase}/chat/threads/${id}/read`, { lastReadMessageId: lastId }, { headers: authHeaders(), withCredentials: true }).catch(() => {});
+  } catch (e) { if (request === chatRequest && !quiet) error.value = e?.response?.data?.error?.message || 'Could not load chat'; }
+  finally { if (request === chatRequest) chatLoading.value = false; }
 }
-
 function closeChat() {
-  tab.value = 'home';
-  activeChatId.value = null;
-  chatMessages.value = [];
+  rememberChatDraft(); ++chatRequest;
+  tab.value = 'home'; activeChatId.value = null; chatMessages.value = [];
+}
+async function openChatReplies(messageId = null) {
+  rememberChatDraft(); chatParentId.value = messageId; restoreChatDraft();
+  await loadChatMessages();
+}
+async function likeChat(m) {
+  const id = activeChatId.value; const parentId = chatParentId.value;
+  try {
+    const base = `${apiBase}/chat/messages/${m.id}/reactions`;
+    const config = { headers: authHeaders(), withCredentials: true };
+    if ((m.reactions || []).some((r) => r.code === '❤️' && r.mineActive)) await axios.delete(`${base}/${encodeURIComponent('❤️')}`, config);
+    else await axios.post(base, { code: '❤️' }, config);
+    if (id === activeChatId.value && parentId === chatParentId.value) await loadChatMessages({ quiet: true });
+  } catch { error.value = 'Could not update like'; }
+}
+async function uploadChatFile(event) {
+  const file = event.target.files?.[0]; if (!file) return;
+  if (file.size > 15 * 1024 * 1024) { error.value = 'Attachments must be 15 MB or smaller'; return; }
+  const id = activeChatId.value; const key = chatDraftKey();
+  chatUploadBusy.value = true;
+  try {
+    const form = new FormData(); form.append('file', file);
+    const { data } = await axios.post(`${apiBase}/chat/threads/${id}/attachments`, form, { headers: authHeaders(), withCredentials: true });
+    if (!session.value) return;
+    if (key === chatDraftKey()) chatAttachments.value.push(data);
+    else { const draft = chatDrafts.get(key) || { body: '', attachments: [] }; draft.attachments.push(data); chatDrafts.set(key, draft); }
+  } catch { error.value = 'Could not upload attachment'; }
+  finally { chatUploadBusy.value = false; event.target.value = ''; }
 }
 
 function chatBubbleClass(m) {
@@ -1293,32 +1455,47 @@ function chatBubbleClass(m) {
 }
 
 async function sendChatMessage() {
-  if (!activeChatId.value || !chatReply.value.trim()) return;
+  const id = activeChatId.value; const parentId = chatParentId.value; const key = chatDraftKey();
+  if (!id || chatBusy.value || chatUploadBusy.value || (!chatReply.value.trim() && !chatAttachments.value.length)) return;
   chatBusy.value = true;
+  const sessionAtSend = session.value;
   try {
-    await axios.post(
-      `${apiBase}/chat/threads/${activeChatId.value}/messages`,
-      { body: chatReply.value.trim() },
-      { headers: authHeaders(), withCredentials: true }
-    );
-    chatReply.value = '';
-    await loadChatMessages();
-  } catch (e) {
-    error.value = e?.response?.data?.error?.message || 'Send failed';
-  } finally {
-    chatBusy.value = false;
-  }
+    await axios.post(`${apiBase}/chat/threads/${id}/messages`, { body: chatReply.value.trim(), parentMessageId: parentId, attachments: chatAttachments.value }, { headers: authHeaders(), withCredentials: true });
+    if (session.value !== sessionAtSend) return;
+    chatDrafts.delete(key);
+    if (key === chatDraftKey()) { chatReply.value = ''; chatAttachments.value = []; await loadChatMessages({ quiet: true }); }
+  } catch (e) { error.value = e?.response?.data?.error?.message || 'Send failed'; }
+  finally { chatBusy.value = false; }
 }
 
-async function openConversation(c) {
-  activeConv.value = c;
-  const { data } = await axios.get(`${apiBase}/conversations/${c.id}`, {
-    headers: authHeaders(),
-    withCredentials: true
-  });
-  threadMessages.value = data.messages || [];
-  tab.value = 'thread';
-  c.is_unread = 0;
+async function openConversation(c, { refresh = false, preserveCurrent = true } = {}) {
+  if (preserveCurrent) rememberReply();
+  const request = ++conversationRequest;
+  activeConv.value = c; threadMessages.value = []; threadLoading.value = true; tab.value = 'thread';
+  error.value = ''; nextBeforeId.value = null;
+  replyText.value = ''; replyAttachments.value = [];
+  try {
+    const { data } = await axios.get(`${apiBase}/conversations/${c.id}`, { headers: authHeaders(), withCredentials: true });
+    if (request !== conversationRequest || activeConv.value?.id !== c.id) return;
+    activeConv.value = data.conversation || c;
+    threadMessages.value = data.messages || []; nextBeforeId.value = data.nextBeforeId || null;
+    changeReplyMode('reply');
+    const draft = emailDrafts.get(c.id);
+    if (draft && !refresh) { replyText.value = draft.text || ''; replyMode.value = draft.mode || 'reply'; replyTo.value = draft.to ?? replyTo.value; replyCc.value = draft.cc || ''; replyBcc.value = draft.bcc || ''; replyAttachments.value = draft.attachments || []; }
+    c.is_unread = 0;
+  } catch (e) { if (request === conversationRequest) error.value = e?.response?.data?.error?.message || 'Could not open conversation'; }
+  finally { if (request === conversationRequest) threadLoading.value = false; }
+}
+async function loadOlderEmail() {
+  const id = activeConv.value?.id; const cursor = nextBeforeId.value;
+  if (!id || !cursor) return;
+  olderLoading.value = true;
+  try {
+    const { data } = await axios.get(`${apiBase}/conversations/${id}`, { params: { beforeId: cursor }, headers: authHeaders(), withCredentials: true });
+    if (activeConv.value?.id !== id) return;
+    threadMessages.value = [...(data.messages || []), ...threadMessages.value]; nextBeforeId.value = data.nextBeforeId || null;
+  } catch { error.value = 'Could not load older messages'; }
+  finally { olderLoading.value = false; }
 }
 
 async function loadTasks(view = 'assigned') {
@@ -1810,19 +1987,19 @@ async function postTaskComment() {
 }
 
 async function loadCalendar() {
-  tab.value = 'calendar';
-  const { data } = await axios.get(`${apiBase}/calendar/day`, {
-    headers: authHeaders(),
-    withCredentials: true,
-    params: { day: day.value }
-  });
-  dayItems.value = data.items || [];
+  const request = ++calendarRequest; const date = day.value;
+  tab.value = 'calendar'; calendarLoading.value = true; error.value = ''; dayItems.value = [];
+  try {
+    const { data } = await axios.get(`${apiBase}/calendar/day`, { headers: authHeaders(), withCredentials: true, params: { day: date, timeZone: calendarTimeZone } });
+    if (request === calendarRequest && day.value === date) dayItems.value = data.items || [];
+  } catch (e) { if (request === calendarRequest) error.value = e?.response?.data?.error?.message || 'Could not load your schedule. Try again.'; }
+  finally { if (request === calendarRequest) calendarLoading.value = false; }
 }
 function switchCalendar() { loadCalendar(); }
 function shiftDay(delta) {
   const d = new Date(`${day.value}T12:00:00`);
   d.setDate(d.getDate() + delta);
-  day.value = d.toISOString().slice(0, 10);
+  day.value = localDay(d);
   if (showOffice.value) loadOffice();
   else loadCalendar();
 }
@@ -1958,24 +2135,29 @@ function composeTo(c) {
 }
 
 async function sendCompose() {
-  if (!composeToEmail.value.trim() || !composeText.value.trim()) return;
+  if (composeBusy.value || !composeToEmail.value.trim() || (!composeText.value.trim() && !composeAttachments.value.length)) return;
   composeBusy.value = true;
   error.value = '';
+  const draft = { text: composeText.value, to: composeToEmail.value, cc: composeCc.value, bcc: composeBcc.value, attachments: composeAttachments.value, mode: 'reply' };
+  const sessionAtSend = session.value;
   try {
-    await axios.post(
+    const { data } = await axios.post(
       `${apiBase}/compose`,
       {
         to: composeToEmail.value.trim(),
         subject: composeSubject.value.trim(),
-        text: composeText.value.trim()
+        text: composeText.value.trim(), cc: composeCc.value, bcc: composeBcc.value, attachments: composeAttachments.value
       },
       { headers: authHeaders(), withCredentials: true }
     );
+    if (session.value !== sessionAtSend) return;
     showCompose.value = false;
     composeToEmail.value = '';
     composeSubject.value = '';
-    composeText.value = '';
-    await loadHome();
+    composeText.value = ''; composeCc.value = ''; composeBcc.value = ''; composeAttachments.value = [];
+    if (data.conversation?.scheduled) offerUndo(data.conversation.id, data.conversation.messageId, draft);
+    sendNotice.value = data.conversation?.scheduled ? 'Email queued. You have 20 seconds to undo.' : 'Email sent';
+    await openConversation({ id: data.conversation.id });
   } catch (e) {
     error.value = e?.response?.data?.error?.message || 'Could not send message';
   } finally {
@@ -2031,28 +2213,28 @@ async function createContact() {
 }
 
 async function sendQuickReply() {
-  if (!activeConv.value?.id || !replyText.value.trim()) return;
-  replyBusy.value = true;
+  const id = activeConv.value?.id;
+  if (!id || replyBusy.value || (!replyText.value.trim() && !replyAttachments.value.length)) return;
+  const draft = { text: replyText.value, to: replyTo.value, cc: replyCc.value, bcc: replyBcc.value, attachments: replyAttachments.value, mode: replyMode.value };
+  replyBusy.value = true; error.value = '';
+  const sessionAtSend = session.value;
   try {
-    await axios.post(
-      `${apiBase}/conversations/${activeConv.value.id}/reply`,
-      { text: replyText.value.trim() },
-      { headers: authHeaders(), withCredentials: true }
-    );
-    replyText.value = '';
-    await openConversation(activeConv.value);
-  } catch (e) {
-    error.value = e?.response?.data?.error?.message || 'Reply failed';
-  } finally {
-    replyBusy.value = false;
-  }
+    const { data } = await axios.post(`${apiBase}/conversations/${id}/reply`, {
+      text: replyText.value.trim(), mode: replyMode.value, to: replyTo.value, cc: replyCc.value, bcc: replyBcc.value, attachments: replyAttachments.value
+    }, { headers: authHeaders(), withCredentials: true });
+    if (session.value !== sessionAtSend) return;
+    emailDrafts.delete(id);
+    if (activeConv.value?.id !== id) { sendNotice.value = 'Message submitted'; return; }
+    replyText.value = ''; replyAttachments.value = [];
+    sendNotice.value = data.scheduled ? 'Email queued. You have 20 seconds to undo.' : 'Message sent';
+    const destination = data.forwardedConversationId || id;
+    if (data.scheduled) offerUndo(destination, data.messageId, draft);
+    await openConversation({ id: destination }, { refresh: true });
+  } catch (e) { error.value = e?.response?.data?.error?.message || 'Reply failed'; }
+  finally { replyBusy.value = false; }
 }
 
-function joinHref(item) {
-  const kind = String(item.kind || '').toUpperCase();
-  if (kind.includes('SUPERVISION')) return `/join/supervision/${encodeURIComponent(item.joinKey)}`;
-  return `/join/team-meeting/${encodeURIComponent(item.joinKey)}`;
-}
+function joinHref(item) { return item.joinUrl || null; }
 function extendForMeeting(item) {
   axios
     .post(
@@ -2063,14 +2245,35 @@ function extendForMeeting(item) {
     .catch(() => {});
 }
 
+function clearSession() {
+  session.value = null; sessionUserId.value = null; sessionAgencyId.value = null;
+  stopHeartbeat(); clearTimeout(undoTimer);
+  ++conversationRequest; ++homeRequest; ++chatRequest; ++calendarRequest;
+  emailDrafts.clear(); chatDrafts.clear();
+  activeConv.value = null; threadMessages.value = []; conversations.value = [];
+  chatMessages.value = []; chatList.value = []; inboxItems.value = []; activeChatId.value = null;
+  replyText.value = ''; replyAttachments.value = []; chatReply.value = ''; chatAttachments.value = [];
+  composeToEmail.value = ''; composeSubject.value = ''; composeText.value = ''; composeAttachments.value = [];
+  tasks.value = []; dayItems.value = []; undoSend.value = null; sendNotice.value = ''; showCompose.value = false;
+  passcode.value = ''; tab.value = 'home';
+  try { sessionStorage.removeItem('plottwist.quickViewSession'); } catch { /* ignore */ }
+}
 async function logout() {
-  await axios
-    .post(`${apiBase}/session/logout`, {}, { headers: authHeaders(), withCredentials: true })
-    .catch(() => {});
-  session.value = null;
-  stopHeartbeat();
-  passcode.value = '';
+  const headers = authHeaders();
+  clearSession();
+  await axios.post(`${apiBase}/session/logout`, {}, { headers, withCredentials: true }).catch(() => {});
   error.value = '';
+}
+async function openDeepLink() {
+  const target = quickViewDeepLink(route.query, tokenInfo.value?.deepLinkPath);
+  if (target.conversationId) await openConversation({ id: Number(target.conversationId) });
+  else if (target.threadId) await openChatThread({ id: Number(target.threadId) });
+  else if (target.join) {
+    try {
+      const { data } = await axios.get(`${apiBase}/meetings/${target.join}/${encodeURIComponent(target.id)}/link`, { headers: authHeaders(), withCredentials: true });
+      window.location.assign(data.joinUrl);
+    } catch (e) { error.value = e?.response?.data?.error?.message || 'Could not open meeting'; }
+  }
 }
 
 function channelIcon(ch) {
@@ -2117,12 +2320,19 @@ onMounted(() => {
   }
 });
 onUnmounted(() => {
-  stopHeartbeat();
+  stopHeartbeat(); clearTimeout(undoTimer);
   stopNoteAidSpeak();
 });
 </script>
 
 <style scoped>
+.qv-agenda-item { display:flex; justify-content:space-between; align-items:center; gap:12px; padding:16px; border-bottom:1px solid var(--qv-border); cursor:pointer; }
+.qv-agenda-item p { margin:6px 0; font-size:13px; color:var(--qv-muted); }
+.qv-reply label { display:block; font-size:13px; }
+.qv-reply input { box-sizing:border-box; width:100%; padding:9px; margin:4px 0 8px; border:1px solid var(--qv-border); border-radius:8px; background:var(--qv-surface); color:var(--qv-text); }
+.qv-suite { overflow-x:auto; }
+.qv-bubble .body { overflow-wrap:anywhere; }
+@media (max-width:520px) { .qv-agenda-item { align-items:flex-start; flex-direction:column; } }
 .qv {
   box-sizing: border-box;
   width: 100%;
@@ -2422,7 +2632,10 @@ onUnmounted(() => {
   white-space: nowrap;
 }
 .qv-suite button.on { background: var(--qv-secondary, #334155); color: #fff; }
-.qv-pane { padding-bottom: 72px; }
+.qv-pane { padding-bottom: 72px; max-width: 960px; margin: 0 auto; }
+.qv-pane > h2 { margin: 16px; }
+.qv-reply .qv-btn { min-height: 40px; }
+.qv-reply input, .qv-reply textarea { font-size: 16px; }
 .qv-section-title { margin: 8px 16px; font-size: 1.1rem; }
 .qv-office-section { margin-bottom: 8px; }
 .qv-office-card {

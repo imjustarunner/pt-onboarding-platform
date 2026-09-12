@@ -2816,34 +2816,19 @@ export async function sendHubEmail({
   const { buildNormalOutboundEmailHtml } = await import('./hubBrandedEmail.service.js');
   const EmailSenderIdentity = (await import('../models/EmailSenderIdentity.model.js')).default;
   const mailboxes = await ensureTenantMessageMailboxes(aid);
-  let inbox = mailboxes.messagesInbox;
+  let inbox = await findPersonalInbox({ agencyId: aid, userId }) || mailboxes.messagesInbox;
   let selectedIdentity = null;
   const aliasId = fromAliasIdentityId != null ? Number(fromAliasIdentityId) : null;
   if (aliasId) {
     selectedIdentity = await EmailSenderIdentity.findById(aliasId).catch(() => null);
-    if (selectedIdentity && Number(selectedIdentity.agency_id) !== aid) {
-      selectedIdentity = null;
+    if (!selectedIdentity || selectedIdentity.is_active === 0 || Number(selectedIdentity.agency_id) !== aid || (/^personal_/.test(selectedIdentity.identity_key || '') && selectedIdentity.identity_key !== `personal_${userId}`)) {
+      throw Object.assign(new Error('You cannot send from this mailbox'), { status: 403 });
     }
   }
   if (selectedIdentity) {
-    const key = String(selectedIdentity.identity_key || '').toLowerCase();
-    if (key === 'secure_message' || Number(selectedIdentity.id) === Number(mailboxes.secure?.id)) {
-      inbox = mailboxes.secureInbox;
-    } else if (key.startsWith('personal_')) {
-      const { ensureStaffTenantSendAlias, findPersonalInbox } = await import(
-        './personalMailbox.service.js'
-      );
-      await ensureStaffTenantSendAlias({ agencyId: aid, userId });
-      const personalInbox = await findPersonalInbox({ agencyId: aid, userId });
-      if (personalInbox?.id) {
-        inbox = personalInbox;
-      } else {
-        // Still send via messages@ mailbox but use personal From identity below.
-        inbox = mailboxes.messagesInbox;
-      }
-    } else {
-      inbox = mailboxes.messagesInbox;
-    }
+    const [selectedInboxes] = await pool.execute('SELECT * FROM communication_inboxes WHERE agency_id = ? AND sender_identity_id = ? AND is_active = 1 LIMIT 1', [aid, selectedIdentity.id]);
+    if (!selectedInboxes[0] || (selectedInboxes[0].kind === 'personal' && Number(selectedInboxes[0].owner_user_id) !== Number(userId))) throw Object.assign(new Error('Selected work mailbox is not available'), { status: 400 });
+    inbox = selectedInboxes[0];
   }
   if (!inbox?.id && mailboxes.messages?.id) {
     // Fallback: create minimal inbox row if ensure missed columns
@@ -2870,24 +2855,7 @@ export async function sendHubEmail({
     throw err;
   }
 
-  // Hub replies should return to messages@ even when From is a personal tenant alias.
-  const replyTo = String(mailboxes.messages?.from_email || '').trim() || null;
-
-  // If sending as personal while using messages inbox, use personal From identity for delivery.
-  if (
-    selectedIdentity?.id &&
-    Number(inbox.sender_identity_id) !== Number(selectedIdentity.id) &&
-    String(selectedIdentity.identity_key || '')
-      .toLowerCase()
-      .startsWith('personal_')
-  ) {
-    inbox = {
-      ...inbox,
-      sender_identity_id: selectedIdentity.id,
-      from_email: selectedIdentity.from_email,
-      display_name: selectedIdentity.display_name || inbox.display_name
-    };
-  }
+  const replyTo = String(inbox.from_email || '').trim() || null;
 
   const [agencyRows] = await pool.execute(
     `SELECT name, logo_url, logo_path, color_palette FROM agencies WHERE id = ? LIMIT 1`,

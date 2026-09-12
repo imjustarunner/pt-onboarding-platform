@@ -1280,6 +1280,9 @@ export const listMessages = async (req, res, next) => {
         parentClause = 'AND m.parent_message_id IS NULL';
       }
     }
+    const beforeId = req.query.beforeId == null ? null : Number(req.query.beforeId);
+    if (beforeId != null && (!Number.isSafeInteger(beforeId) || beforeId <= 0)) return res.status(400).json({ error: { message: 'Invalid history cursor' } });
+    if (beforeId) { parentClause += ' AND m.id < ?'; sqlParams.push(beforeId); }
     const [rows] = await pool.execute(
       `SELECT m.id, m.thread_id, m.sender_user_id, m.body${encCols}${annCol}${parentCol}, m.created_at,
               u.first_name AS sender_first_name, u.last_name AS sender_last_name,

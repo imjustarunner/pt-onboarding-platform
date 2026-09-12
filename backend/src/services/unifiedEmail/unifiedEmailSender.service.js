@@ -899,7 +899,8 @@ export async function sendEmailFromIdentity({
   fallbackReason = null,
   replyToOverride = null,
   /** Optional identity whose signature image is used when the From mailbox has none. */
-  signatureIdentityId = null
+  signatureIdentityId = null,
+  internetMessageIdOverride = null
 }) {
   const identity = await EmailSenderIdentity.findById(senderIdentityId);
   if (!identity) throw new Error('Sender identity not found');
@@ -1143,7 +1144,8 @@ export async function sendEmailFromIdentity({
         metadata: {
           senderIdentityId: identity.id,
           fromEmail: identity.from_email,
-          replyTo: identity.reply_to || null,
+          replyTo: replyToOverride || identity.reply_to || null,
+          ...(internetMessageIdOverride ? { internetMessageIdOverride } : {}),
           source,
           threadId,
           ...(linkUrl ? { linkUrl } : {}),
@@ -1200,7 +1202,8 @@ export async function sendEmailFromIdentity({
   }
 
   const gmail = await getGmailClient();
-  const internetMessageId = `<${randomUUID()}@${String(identity.from_email).split('@').pop()}>`;
+  if (internetMessageIdOverride && !/^<[^<>\s]+@[^<>\s]+>$/.test(internetMessageIdOverride)) throw new Error('Invalid RFC Message-ID');
+  const internetMessageId = internetMessageIdOverride || `<${randomUUID()}@${String(identity.from_email).split('@').pop()}>`;
   const mime = buildMimeMessage({
     messageId: internetMessageId,
     to: redirected.to,

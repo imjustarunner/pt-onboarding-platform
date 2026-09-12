@@ -1,3 +1,4 @@
+import { quickDayWindow, quickMeetingLink } from '../utils/quickViewCalendar.js';
 import crypto from 'crypto';
 import {
   getCredentialStatus,
@@ -79,7 +80,7 @@ async function resolveQuickViewBranding(agency, req = null) {
   };
 }
 
-function sanitizeQuickViewCalendarItem(e, { clientInitials = null, attendees = [] } = {}) {
+function sanitizeQuickViewCalendarItem(e, { clientInitials = null, attendees = [], source = 'schedule', viewerId, portalBase } = {}) {
   const kind = String(e.kind || 'SCHEDULE').toUpperCase();
   const hasClient = !!(e.client_id || e.clientId);
   const rawTitle = String(e.title || '').trim();
@@ -95,15 +96,17 @@ function sanitizeQuickViewCalendarItem(e, { clientInitials = null, attendees = [
     title = rawTitle || kind.replace(/_/g, ' ') || 'Event';
   }
   return {
-    id: `pse-${e.id}`,
+    id: `${source === 'supervision' ? 'supervision' : 'pse'}-${e.id}`,
     eventId: e.id,
     title,
     kind: e.kind || 'SCHEDULE',
-    startAt: e.start_at || e.startAt,
-    endAt: e.end_at || e.endAt,
+    startAt: e.start_at || e.startAt || e.start_date,
+    endAt: e.end_at || e.endAt || e.end_date,
+    allDay: !!e.all_day,
+    status: e.status || null,
     location: e.location || e.office_name || null,
-    joinKey: e.participant_join_token || e.join_token || e.id,
-    canJoin: !!(e.platform_video_link == null || Number(e.platform_video_link) === 1 || e.google_meet_link),
+    joinUrl: quickMeetingLink(e, { source, viewerId, portalBase }),
+    canJoin: !!quickMeetingLink(e, { source, viewerId, portalBase }),
     hasClient,
     clientInitials: hasClient ? (clientInitials || null) : null,
     attendees: attendees || [],
@@ -629,23 +632,22 @@ async function resolvePersonalInbox(userId, agencyId) {
   return inbox;
 }
 
-async function assertQuickViewConversationAccess(userId, agencyId, conv) {
-  if (!conv) return false;
-  if (Number(conv.owner_user_id) === Number(userId)) return true;
-  const inbox = await resolvePersonalInbox(userId, agencyId);
-  if (inbox?.id && Number(conv.inbox_id) === Number(inbox.id)) return true;
-  return false;
-}
-
 export const getQuickHome = async (req, res, next) => {
   try {
     const userId = req.quickView.userId;
     const agencyId = req.quickView.agencyId;
     const inbox = await resolvePersonalInbox(userId, agencyId);
     const inboxId = inbox?.id || null;
+    if (req.query.channel === 'sms' && agencyId) {
+      const { syncSmsThreads } = await import('../services/channelInboxAdapter.service.js');
+      await syncSmsThreads({ agencyId, limit: 100 });
+    }
+    const beforeAt = req.query.beforeAt ? new Date(req.query.beforeAt) : null;
+    const beforeId = req.query.beforeId ? Number(req.query.beforeId) : null;
+    if ((beforeAt || beforeId) && (!beforeAt || !Number.isFinite(beforeAt.getTime()) || !Number.isSafeInteger(beforeId) || beforeId <= 0)) return res.status(400).json({ error: { message: 'Invalid conversation cursor' } });
     // Personal mailbox / owned threads across all tenants (user-scoped, not agency ticket queues)
     const [convs] = await pool.execute(
-      `SELECT c.id, c.channel, c.subject, c.status, c.last_message_at, c.last_message_preview,
+      `SELECT c.id, c.agency_id, c.channel, c.subject, c.status, c.last_message_at, c.last_message_preview, COALESCE(c.last_message_at,c.created_at) AS sort_at,
               c.sender_trust, COALESCE(c.is_unknown_sender,0) AS is_unknown_sender,
               EXISTS(
                 SELECT 1 FROM communication_messages m
@@ -657,20 +659,25 @@ export const getQuickHome = async (req, res, next) => {
        LEFT JOIN communication_conversation_reads r
          ON r.conversation_id = c.id AND r.user_id = ?
        WHERE c.archived_at IS NULL
+         AND c.channel = ?
+         ${beforeAt ? 'AND (COALESCE(c.last_message_at,c.created_at) < ? OR (COALESCE(c.last_message_at,c.created_at)=? AND c.id<?))' : ''}
+         AND EXISTS (SELECT 1 FROM user_agencies member WHERE member.user_id = ? AND member.agency_id = c.agency_id AND COALESCE(member.is_active,1)=1)
          AND COALESCE(c.is_spam,0) = 0
          AND COALESCE(c.is_unknown_sender,0) = 0
          AND (c.visible_after IS NULL OR c.visible_after <= NOW())
          AND (
-           c.owner_user_id = ?
-           OR (? IS NOT NULL AND c.inbox_id = ?)
+           (c.owner_user_id = ? AND NOT EXISTS (SELECT 1 FROM communication_inboxes private_box WHERE private_box.id=c.inbox_id AND private_box.kind='personal' AND private_box.owner_user_id<>c.owner_user_id))
+           OR EXISTS (SELECT 1 FROM communication_inboxes mine WHERE mine.id=c.inbox_id AND mine.kind='personal' AND mine.owner_user_id=?)
+           OR (c.channel='sms' AND EXISTS (SELECT 1 FROM message_logs sms WHERE sms.agency_id=c.agency_id AND sms.sms_thread_key=c.external_thread_id AND (sms.user_id=? OR sms.assigned_user_id=? OR sms.number_id IN (SELECT number_id FROM twilio_number_assignments WHERE user_id=? AND is_active=1 AND sms_access_enabled=1))))
          )
-       ORDER BY COALESCE(c.last_message_at, c.created_at) DESC
+       ORDER BY COALESCE(c.last_message_at, c.created_at) DESC, c.id DESC
        LIMIT 50`,
-      [userId, userId, inboxId, inboxId]
+      [userId, req.query.channel === 'sms' ? 'sms' : 'email', ...(beforeAt ? [beforeAt, beforeAt, beforeId] : []), userId, userId, userId, userId, userId, userId]
     );
     res.json({
       ok: true,
       conversations: convs || [],
+      nextCursor: convs.length === 50 ? { beforeAt: convs.at(-1).sort_at, beforeId: convs.at(-1).id } : null,
       inboxId,
       mailboxEmail: inbox?.from_email || null,
       expiresAt: req.quickView.expiresAt
@@ -710,12 +717,9 @@ export const getQuickTasks = async (req, res, next) => {
 export const getQuickDayCalendar = async (req, res, next) => {
   try {
     const userId = req.quickView.userId;
-    const day = String(req.query.day || new Date().toISOString().slice(0, 10)).slice(0, 10);
-    const windowStart = `${day} 00:00:00`;
-    const dayEnd = new Date(`${day}T12:00:00`);
-    dayEnd.setDate(dayEnd.getDate() + 1);
-    const windowEnd = `${dayEnd.toISOString().slice(0, 10)} 00:00:00`;
-
+    const day = String(req.query.day || new Date().toISOString().slice(0, 10));
+    const timeZone = String(req.query.timeZone || 'America/Denver');
+    const { windowStart, windowEnd } = quickDayWindow(day, timeZone);
     const ProviderScheduleEvent = (await import('../models/ProviderScheduleEvent.model.js')).default;
     // All tenants: meetings/sessions tied to this user
     const events = await ProviderScheduleEvent.listForUserInWindow({
@@ -723,8 +727,14 @@ export const getQuickDayCalendar = async (req, res, next) => {
       providerId: userId,
       windowStart,
       windowEnd
-    }).catch(() => []);
+    });
 
+    const SupervisionSession = (await import('../models/SupervisionSession.model.js')).default;
+    const supervision = await SupervisionSession.listForUserInWindow({ allAgencies: true, userId, windowStart, windowEnd });
+    const Agency = (await import('../models/Agency.model.js')).default;
+    const { buildPublicPortalBaseUrl } = await import('../utils/publicPortalUrl.js');
+    const agencyIds = [...new Set([...events, ...supervision].map((e) => Number(e.agency_id)).filter(Boolean))];
+    const portalByAgency = new Map(await Promise.all(agencyIds.map(async (id) => [id, buildPublicPortalBaseUrl(await Agency.findById(id))])));
     const clientIds = [...new Set(
       (events || []).map((e) => Number(e.client_id || e.clientId || 0)).filter(Boolean)
     )];
@@ -783,9 +793,11 @@ export const getQuickDayCalendar = async (req, res, next) => {
 
     const items = [
       ...(events || []).map((e) => sanitizeQuickViewCalendarItem(e, {
+        viewerId: userId, portalBase: portalByAgency.get(Number(e.agency_id)),
         clientInitials: initialsByClient.get(Number(e.client_id || e.clientId || 0)) || null,
         attendees: attendeesByEvent.get(Number(e.id)) || []
       })),
+      ...supervision.map((e) => sanitizeQuickViewCalendarItem({ ...e, kind: 'SUPERVISION', title: 'Supervision', location: e.location_text }, { source: 'supervision', viewerId: userId, portalBase: portalByAgency.get(Number(e.agency_id)) })),
       ...(officeRows || []).map((o) => {
         const officeName = o.office_name || 'Office';
         const availability = humanizeOfficeAvailability(o.status, o.slot_state);
@@ -813,7 +825,7 @@ export const getQuickDayCalendar = async (req, res, next) => {
       })
     ].sort((a, b) => new Date(a.startAt) - new Date(b.startAt));
 
-    res.json({ ok: true, day, items });
+    res.json({ ok: true, day, timeZone, items });
   } catch (e) {
     next(e);
   }
@@ -993,60 +1005,6 @@ export const getQuickOfficeAvailability = async (req, res, next) => {
   }
 };
 
-export const getQuickConversation = async (req, res, next) => {
-  try {
-    const userId = req.quickView.userId;
-    const id = Number(req.params.id);
-    const [convs] = await pool.execute(
-      `SELECT * FROM communication_conversations WHERE id = ? LIMIT 1`,
-      [id]
-    );
-    const conv = convs?.[0];
-    if (!conv) return res.status(404).json({ error: { message: 'Not found' } });
-    const allowed = await assertQuickViewConversationAccess(userId, req.quickView.agencyId, conv);
-    if (!allowed) {
-      return res.status(403).json({ error: { message: 'Access denied' } });
-    }
-    const [messages] = await pool.execute(
-      `SELECT id, channel, direction, subject, body_text, body_html, sent_at, created_at,
-              is_auto_reply, auto_reply_kind, from_json, to_json
-       FROM communication_messages
-       WHERE conversation_id = ?
-         AND (send_status IS NULL OR send_status <> 'cancelled')
-       ORDER BY COALESCE(sent_at, created_at) ASC
-       LIMIT 200`,
-      [id]
-    );
-    await pool.execute(
-      `INSERT INTO communication_conversation_reads (conversation_id, user_id, last_read_at)
-       VALUES (?, ?, NOW())
-       ON DUPLICATE KEY UPDATE last_read_at = NOW()`,
-      [id, userId]
-    );
-    await logAccessEvent({
-      userId,
-      agencyId: req.quickView.agencyId,
-      eventType: 'message_open',
-      resourceType: 'conversation',
-      resourceId: id
-    });
-    // Mark messages first-read via Quick View when unset
-    await pool.execute(
-      `UPDATE communication_messages
-       SET first_read_at = COALESCE(first_read_at, NOW()),
-           first_read_by_user_id = COALESCE(first_read_by_user_id, ?),
-           read_via = COALESCE(read_via, 'quick_view')
-       WHERE conversation_id = ?
-         AND direction = 'inbound'
-         AND first_read_at IS NULL`,
-      [userId, id]
-    ).catch(() => {});
-    res.json({ ok: true, conversation: conv, messages: messages || [] });
-  } catch (e) {
-    next(e);
-  }
-};
-
 export const getQuickContacts = async (req, res, next) => {
   try {
     // User-scoped across tenants (no agency filter)
@@ -1091,80 +1049,6 @@ export const getQuickViewPwaManifest = async (req, res, next) => {
       ]
     });
   } catch (e) {
-    next(e);
-  }
-};
-
-export const postQuickReply = async (req, res, next) => {
-  try {
-    const conversationId = Number(req.params.id);
-    const text = String(req.body?.text || req.body?.body || '').trim();
-    if (!text) return res.status(400).json({ error: { message: 'Reply text required' } });
-    const [convs] = await pool.execute(
-      `SELECT * FROM communication_conversations WHERE id = ? LIMIT 1`,
-      [conversationId]
-    );
-    const conv = convs?.[0];
-    if (!conv) return res.status(404).json({ error: { message: 'Not found' } });
-    const allowed = await assertQuickViewConversationAccess(
-      req.quickView.userId,
-      req.quickView.agencyId,
-      conv
-    );
-    if (!allowed) return res.status(403).json({ error: { message: 'Access denied' } });
-    const { replyToConversation } = await import('../services/unifiedInbox.service.js');
-    const result = await replyToConversation(conversationId, {
-      text,
-      mode: 'reply',
-      skipUndo: true
-    }, { userId: req.quickView.userId });
-    await logAccessEvent({
-      userId: req.quickView.userId,
-      agencyId: req.quickView.agencyId,
-      eventType: 'message_reply',
-      resourceType: 'conversation',
-      resourceId: conversationId
-    });
-    res.json({ ok: true, ...result });
-  } catch (e) {
-    next(e);
-  }
-};
-
-export const postQuickCompose = async (req, res, next) => {
-  try {
-    const userId = req.quickView.userId;
-    const agencyId = req.quickView.agencyId;
-    const to = String(req.body?.to || '').trim();
-    const subject = String(req.body?.subject || '').trim() || '(no subject)';
-    const text = String(req.body?.text || req.body?.body || '').trim();
-    if (!to || !text) {
-      return res.status(400).json({ error: { message: 'Recipient and message text are required' } });
-    }
-    const inbox = await resolvePersonalInbox(userId, agencyId);
-    if (!inbox?.id) {
-      return res.status(400).json({ error: { message: 'Personal mailbox is not set up yet' } });
-    }
-    const { composeNewEmail } = await import('../services/unifiedInbox.service.js');
-    const conversation = await composeNewEmail({
-      agencyId,
-      inboxId: inbox.id,
-      userId,
-      payload: { to, subject, text, skipUndo: true }
-    });
-    await logAccessEvent({
-      userId,
-      agencyId,
-      eventType: 'message_compose',
-      resourceType: 'conversation',
-      resourceId: conversation?.id || null
-    });
-    res.json({ ok: true, conversation });
-  } catch (e) {
-    const msg = e?.message || 'Could not send message';
-    if (/required|blocked|inbox|recipient/i.test(msg)) {
-      return res.status(400).json({ error: { message: msg } });
-    }
     next(e);
   }
 };

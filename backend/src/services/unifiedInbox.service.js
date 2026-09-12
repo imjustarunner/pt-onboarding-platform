@@ -1,3 +1,4 @@
+import { resolveEmailSendMailbox } from './emailSendMailbox.service.js';
 import { persistOutboundAttachments, loadOutboundAttachments } from './communicationAttachments.service.js';
 import { emailReplyHeaders } from '../utils/emailThreading.js';
 import CommunicationConversation from '../models/CommunicationConversation.model.js';
@@ -501,8 +502,7 @@ async function deliverOutboundEmail({
   inReplyTo,
   referencesHeader = null
 }) {
-  const { resolveMessagesSendMailbox } = await import('./tenantMessageMailboxes.service.js');
-  const mailbox = await resolveMessagesSendMailbox(conv.agency_id || inbox?.agency_id);
+  const mailbox = await resolveEmailSendMailbox({ agencyId: conv.agency_id || inbox?.agency_id, userId, inbox });
   let fromDisplayName = mailbox.displayName;
   try {
     const [senderRows] = await pool.execute(
@@ -547,10 +547,15 @@ export async function undoOutboundMessage(conversationId, messageId, { userId } 
   if (msg.direction !== 'outbound' || msg.is_internal_note) {
     throw new Error('Only outbound messages can be undone');
   }
+  if (Number(msg.author_user_id) !== Number(userId)) throw Object.assign(new Error('Only the sender can undo this message'), { status: 403 });
   if (msg.send_status === 'scheduled') {
-    await CommunicationConversation.updateMessage(messageId, { sendStatus: 'cancelled' });
+    const [cancelled] = await pool.execute(`UPDATE communication_messages SET send_status = 'cancelled' WHERE id = ? AND send_status = 'scheduled' AND author_user_id = ?`, [messageId, userId]);
+    if (cancelled.affectedRows !== 1) throw Object.assign(new Error('Delivery has started; this message can no longer be undone'), { status: 409 });
     await cleanupScheduledAttachments(messageId);
+    let attachments = []; let attachmentRestoreFailed = false;
+    try { attachments = await loadOutboundAttachments(messageId); } catch { attachmentRestoreFailed = true; }
     return {
+      attachments, attachmentRestoreFailed,
       cancelled: true,
       scheduled: true,
       body: msg.body_text || '',
@@ -808,9 +813,8 @@ function plainTextToHtml(text) {
 
 export async function composeNewEmail({ agencyId, inboxId, userId, payload }) {
   const requestedInbox = inboxId ? await CommunicationInbox.findById(inboxId) : null;
-  const { resolveMessagesSendMailbox } = await import('./tenantMessageMailboxes.service.js');
-  const mailbox = await resolveMessagesSendMailbox(agencyId);
-  const inbox = mailbox.inbox || requestedInbox;
+  const mailbox = await resolveEmailSendMailbox({ agencyId, userId, inbox: requestedInbox });
+  const inbox = mailbox.inbox;
   if (!inbox?.id || !mailbox.identity?.id) {
     throw new Error('Select an inbox with a configured From address');
   }

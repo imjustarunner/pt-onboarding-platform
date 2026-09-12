@@ -845,11 +845,12 @@
                 </div>
                 <div class="msg-hub-email-row">
                   <label>From</label>
-                  <select v-model="composeFromAliasId" class="msg-hub-alias">
+                  <span v-if="replyMailboxEmail">{{ replyMailboxEmail }}</span>
+                  <select v-else v-model="composeFromAliasId" class="msg-hub-alias">
                     <option v-for="a in emailAliases" :key="a.id || a.email" :value="a.id">
                       {{ a.email }} ({{ a.kind === 'personal' ? 'You' : a.displayName }})
                     </option>
-                    <option v-if="!emailAliases.length" :value="null">messages@ (default)</option>
+                    <option v-if="!emailAliases.length" :value="null">Configure a work mailbox</option>
                   </select>
                 </div>
                 <input
@@ -2436,6 +2437,12 @@ const activePersonThreadKey = computed({
   set: (v) => {
     activeEmailThreadKey.value = v;
   }
+});
+
+const replyMailboxEmail = computed(() => {
+  if (!['reply', 'reply_all'].includes(emailComposeMode.value)) return '';
+  const thread = emailSubjectThreads.value.find((t) => t.key === activeEmailThreadKey.value);
+  return thread?.messages?.at(-1)?.meta?.inboxEmail || (selectedConversation.value?.id && !activeEmailThreadKey.value ? selectedConversation.value.inbox_from_email : '') || '';
 });
 
 const activeEmailThreadSubject = computed(() => {
@@ -4393,10 +4400,10 @@ async function loadEmailAliases(aid) {
       skipGlobalLoading: true
     });
     emailAliases.value = Array.isArray(data?.aliases) ? data.aliases : [];
-    // Delivery From stays messages@ by default; signature uses the Send-as tenant alias.
+    // New mail defaults to the staff work Group. Replies retain their original mailbox.
     const messages = emailAliases.value.find((a) => a.kind === 'messages');
     const personal = emailAliases.value.find((a) => a.kind === 'personal');
-    composeFromAliasId.value = messages?.id || personal?.id || emailAliases.value[0]?.id || null;
+    composeFromAliasId.value = emailAliases.value.find((a) => a.email?.toLowerCase() === replyMailboxEmail.value?.toLowerCase())?.id || personal?.id || messages?.id || emailAliases.value[0]?.id || null;
   } catch {
     emailAliases.value = [];
   }
@@ -4606,7 +4613,7 @@ async function executeSend({ sendToAllPortalGuardians = false, includeClient = f
         if (cc) payload.cc = cc;
         if (composeBcc.value.trim()) payload.bcc = composeBcc.value.trim();
         if (composeAttachments.value.length) payload.attachments = composeAttachments.value;
-        if (composeFromAliasId.value) payload.fromAliasIdentityId = composeFromAliasId.value;
+        if (composeFromAliasId.value && !replyMailboxEmail.value) payload.fromAliasIdentityId = composeFromAliasId.value;
         Object.assign(payload, emailComposeTarget({
           mode: emailComposeMode.value,
           activeThread: emailSubjectThreads.value.find((t) => t.key === activeEmailThreadKey.value)
@@ -4825,8 +4832,19 @@ watch(listSearch, () => {
   listSearchTimer = setTimeout(() => loadList(), 280);
 });
 
+async function openLinkedConversation() {
+  const id = Number(route.query.conversationId);
+  if (!Number.isSafeInteger(id) || id <= 0) return;
+  try {
+    const { data } = await api.get(`/communications/conversations/${id}`, { params: { markRead: '0' }, skipGlobalLoading: true });
+    if (data?.conversation) await pickConversation(data.conversation);
+  } catch (e) { error.value = e?.response?.data?.error?.message || 'This conversation is unavailable to your account'; }
+}
+watch(() => route.query.conversationId, () => openLinkedConversation());
+
 onMounted(() => {
   selectNav('inbox', 'unread');
+  openLinkedConversation();
   document.addEventListener('click', onDocClickClosePickers);
   loadInboxCounts();
   loadSendDelayPrefs();

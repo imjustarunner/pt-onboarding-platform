@@ -80,10 +80,26 @@ The audit examined 268 stored email messages. It found 11 duplicate-delivery gro
 
 These records were preserved. Combining the ticket-linked duplicates would also change ticket workflows. The duplicate copies within conversation 143 are harmless to new receipt-based ingestion but remain visible historically. No subject-based historical splitting was attempted.
 
+## QV and staff Group-mailbox follow-up — September 11, 2026
+
+Implemented in this follow-up:
+
+- QV email uses the same authorized delivery service as the main app: latest messages, older history and conversations, full bodies, Reply all, Forward, CC/BCC, attachments, likes, per-thread drafts, 20-second undo, and periodic refresh. Email is sent using the selected work mailbox, including a staff member’s own Google Group, instead of silently forcing messages@.
+- QV SMS displays actual authorized phone-pair conversations and replies through the existing SMS service. Existing provider/number rollout controls remain in force. QV chat now exposes replies to a specific root, older history, likes, photo/video attachments, and separate drafts. New chat roots and replies are distinct actions.
+- QV schedule displays a compact local-time agenda, includes supervision sessions, handles daylight-saving day boundaries, and links meetings to their configured video destination or the tenant portal’s opaque join token. Calendar blocks do not receive invented meeting URLs. Invitation links verify participation and preserve their target across PIN sign-in.
+- QV clears cached messaging data and drafts when locked; delayed responses cannot replace a subsequently selected email or chat. The shared undo service atomically cancels a scheduled message only before the delivery worker claims it, and only for its author.
+- Personal email reminders now identify one unread work-mail conversation. They use tenant branding, the work Group Reply-To, and a normal-login link to the exact conversation. A reply from the owner’s personal address referencing that reminder is queued from the work Group to the original sender with the original RFC reply ancestry. Quoted personal notification headers are removed, HTML replies are converted to text, and attachments remain attached to the queued reply. Reply all remains an explicit in-app action.
+- Reminder selection requires an active employee, active tenant membership, ownership of the personal work mailbox, and unread eligible inbound mail. Unassigned mail from another tenant cannot enter this notification. The obsolete employee-status check and mixed SQL collation comparison were corrected.
+- Reminder claims prevent duplicate notification attempts; receipt/message/attachment transactions prevent duplicate personal replies. Ambiguous provider delivery errors retain a `review` claim instead of automatically sending another copy. Admin-approved reminder sends preserve the preallocated RFC ID and Reply-To.
+
+Migration **1422_communication_thread_reminders.sql** adds reminder tracking and defaults new communication preferences to notifications enabled and 24 hours. Existing explicit opt-outs and saved delays are preserved. Existing Availability Hours timing is retained unless the user disables that setting; elapsed versus Availability Hours still awaits product clarification.
+
+Verification for this follow-up: 74 focused backend tests and 36 frontend tests pass. A disposable real-MySQL schema verifies the migration, reminder query, work identity, original reply ancestry, six concurrent duplicate reply deliveries producing one queued message, undo, and QV tenant isolation. No email or SMS is sent by these tests. The isolated production build passes with an 8 GB Node heap; the default 4 GB heap runs out of memory. Synthetic browser checks at 390 px and 1440 px pass with no page errors or horizontal overflow. A broader utility test run also found three unrelated existing failures in branding/marketing/navigation tests; they are outside this change.
+
 ## Acceptance still required
 
-Actual Gmail/Google Group delivery needs approved test-only mailbox and group addresses. Verify new group email, two independent same-subject threads, inbound reply, Reply all, forwarding with attachments, and delayed send/undo. Authentication and storage checks alone do not prove provider delivery or Google Group routing.
+Actual Gmail/Google Group delivery needs approved test-only mailbox and group addresses. Verify new group email, two independent same-subject threads, inbound reply, Reply all, forwarding with attachments, delayed send/undo, and a branded personal reminder answered from Gmail/Outlook. Inspect received From/Reply-To and confirm the personal address is absent from the work conversation. Authentication and storage checks alone do not prove provider delivery or Google Group routing.
 
-Live SMS delivery remains untested; texting should retain its existing rollout controls until an assigned test number and recipient are available. Legacy SMS records without verified numbers remain read-only. Historical duplicate support tickets need a separate workflow decision before consolidation.
+Live SMS delivery remains untested; texting should retain its existing rollout controls until an assigned test number and recipient are available. Legacy SMS records without verified numbers remain read-only. Verify a meeting with two actual participants and camera/microphone permissions on a supported mobile browser. Historical duplicate support tickets need a separate workflow decision before consolidation.
 
 Do not label messaging fully production-ready until the live acceptance checks pass.

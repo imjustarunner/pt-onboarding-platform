@@ -2,6 +2,20 @@
 
 ## Product model
 
+### Email acceptance criteria — clarified September 11, 2026
+
+The app is the staff member’s email client. Their tenant Google Group address is their work email address; the app has permission to send and receive through that Group. An external recipient should experience ordinary email, without needing to know the sender used this app or needing an app account to reply.
+
+- New mail defaults to the staff member’s own authorized Group address. Explicitly choosing a shared team address remains a separate action. The address shown in the composer, the actual From/Reply-To headers, and the stored conversation must agree.
+- Reply, Reply all, Forward, visible To/CC, attachments, and independent same-subject conversations must behave as users expect from email. Group recipients must not collapse every conversation involving that Group into one thread.
+- The default personal-email notification delay is 24 hours for unread mail. The existing implementation counts Availability Hours; elapsed versus Availability Hours needs clarification before changing that timing policy.
+- The delayed notification is tenant-branded and identifies one specific conversation. A recipient can reply directly to that notification and continue that conversation as their work Group address, without exposing their personal address to the other participants.
+- The alternative “Open conversation” link takes the staff member through normal login when necessary, then opens that exact authorized conversation/message. Landing only on the general inbox or requiring separate Quick View setup does not meet this flow.
+- Reply routing must distinguish a staff member answering their personal reminder from an external correspondent answering ordinary mail. A reminder reply must not become a new ticket, an unrelated thread, or an inbound message that never reaches the original correspondents.
+- Aggregate unread digests may exist as an additional feature. They do not satisfy the directly replyable, conversation-specific notification requirement.
+
+These criteria are now implemented across the main inbox and QV, including the staff Group sender identity, conversation-specific personal reminder, direct-reply bridge, and normal-login conversation link. Existing opt-outs and Availability Hours preferences remain intact. Live Google Group, personal-mail reply, SMS, and two-party meeting acceptance still need verification; see [the reliability review](MESSAGING_RELIABILITY_REVIEW.md).
+
 ### Messages (everyone who can message)
 
 **One Messages experience**, reached from:
@@ -26,7 +40,7 @@ Admins/support use this same Messages UI when they select **Messages** in the Co
 | `POST /api/messages/hub/send` | Dispatch send (`method`: secure \| sms \| email \| internal). Email supports `cc`, `bcc`, `attachments`, `fromAliasIdentityId` |
 | `POST /api/messages/hub/react` | Like/react on a communication message (+ optional messages@ ping) |
 
-**Hub Email** sends as `messages@{recipientAgencyDomain}` as a **normal-looking email** (reply as usual). Branded digests are only for unread reminders — not every outbound message. Secure notify continues from `securemessage@{domain}` with noreply Reply-To for **active** clinical/school clients (providers can switch to Email instead).
+**Hub Email target:** ordinary email from the staff member’s authorized tenant Group address (reply as usual). Branded personal reminders are delayed unread notifications, not the wrapper for every outbound email. The current shared `messages@` override is an implementation gap against the acceptance criteria above. Secure notify continues from `securemessage@{domain}` with noreply Reply-To for **active** clinical/school clients (providers can switch to Email instead).
 
 **Secure vs email rules**
 - Active clinical/school clients (and their guardians): **Secure is default**; provider can turn it off by choosing Email.
@@ -36,7 +50,7 @@ Admins/support use this same Messages UI when they select **Messages** in the Co
 
 **Tenant domains** (Groups + Send-as; not plottwisthq.com): `plottwistco.com`, `itsco.health`, `innerstrengthin.com`, `nextleveluplcc.com`, `mh4kidz.com`, `risereviveco.com`. Provision via `backend/src/scripts/provisionTenantMessageGroups.js` after DWD includes `gmail.settings.sharing`.
 
-Communications Center remains the admin shared-inbox tool; Hub Email uses the shared **messages@** mailbox (not personal App inbox From).
+Communications Center remains the admin shared-inbox tool. Hub Email should default to the staff member’s personal App inbox Group identity; shared **messages@** remains an explicitly selected team address.
 
 ### Communications Center (admin, support, super_admin + eligible staff mailbox roles)
 
@@ -62,7 +76,7 @@ Provisioning: `POST /communications/inboxes/personal/ensure` → `ensurePersonal
 
 ## Roadmap
 
-**Reliability review and conversation rules:** [Messaging reliability review](MESSAGING_RELIABILITY_REVIEW.md) records the email/thread/reaction corrections and the remaining SMS and secure-topic work. A shared inbox or a repeated subject is not a conversation identity.
+**Reliability review and conversation rules:** [Messaging reliability review](MESSAGING_RELIABILITY_REVIEW.md) records the email/thread/reaction corrections and the remaining live acceptance and personal-reminder work. A shared inbox or a repeated subject is not a conversation identity.
 
 Full product plan:
 

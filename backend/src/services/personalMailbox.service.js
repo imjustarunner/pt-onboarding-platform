@@ -511,6 +511,9 @@ export async function ingestPersonalMailboxInbound({
   if (!inbox) return { ingested: false, reason: 'no_inbox' };
 
   const attachments = await prepareInboundAttachments({ gmail, gmailMessageId, payload: gmailPayload, inboxId: inbox.id });
+  const { queuePersonalReminderReply } = await import('./personalThreadReminder.service.js');
+  const reminderReply = await queuePersonalReminderReply({ inbox, fromEmail, bodyText, gmailPayload, inReplyTo, referencesHeader, attachments, deliveryId: messageIdHeader || (gmailMessageId ? `gmail:${gmailMessageId}` : null) });
+  if (reminderReply) return reminderReply;
   const result = await persistInboundEmail({
     inboxId: inbox.id, agencyId: aid, ownerUserId: Number(inbox.owner_user_id || ownerUserId) || null,
     deliveryId: messageIdHeader || (gmailMessageId ? `gmail:${gmailMessageId}` : null),

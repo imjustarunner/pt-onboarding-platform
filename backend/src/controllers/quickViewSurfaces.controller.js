@@ -12,6 +12,8 @@ import {
   listFilesInbox,
   createOrGetDirectThread
 } from './chat.controller.js';
+import { uploadChatAttachment } from './chatAttachments.controller.js';
+import { addReaction, removeReaction } from './chatReactions.controller.js';
 import { listChannels, openChannel } from './chatChannels.controller.js';
 import Task from '../models/Task.model.js';
 import TaskList from '../models/TaskList.model.js';
@@ -71,6 +73,9 @@ export const qvListFiles = wrap(listFilesInbox);
 export const qvListChatMessages = wrap(listMessages);
 export const qvSendChatMessage = wrap(sendMessage);
 export const qvMarkChatRead = wrap(markRead);
+export const qvUploadChatAttachment = wrap(uploadChatAttachment);
+export const qvAddChatReaction = wrap(addReaction);
+export const qvRemoveChatReaction = wrap(removeReaction);
 
 export const qvCreateDirectThread = wrap(async (req, res, next) => {
   if (!req.body) req.body = {};

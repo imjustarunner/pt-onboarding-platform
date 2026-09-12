@@ -1,6 +1,5 @@
-import api from '../services/api';
-
 export async function downloadAttachment(path, filename) {
+  const { default: api } = await import('../services/api');
   const { data } = await api.get(path, { responseType: 'blob', skipGlobalLoading: true });
   const url = URL.createObjectURL(data);
   const link = document.createElement('a');

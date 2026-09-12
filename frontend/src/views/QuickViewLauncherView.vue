@@ -39,7 +39,8 @@
 
 <script setup>
 import { computed, onMounted, ref } from 'vue';
-import { useRouter } from 'vue-router';
+import { quickViewDeepLink } from '../utils/quickViewDeepLink';
+import { useRoute, useRouter } from 'vue-router';
 import axios from 'axios';
 import { getSubdomain, isQuickViewHost, resolveHostForAgencyLookup } from '../utils/subdomain';
 import { useBrandingStore } from '../store/branding';
@@ -47,6 +48,7 @@ import { useBrandingStore } from '../store/branding';
 const SESSION_KEY = 'plottwist.quickViewSession';
 const apiBase = '/api/quick-view';
 const router = useRouter();
+const route = useRoute();
 const branding = useBrandingStore();
 
 const ready = ref(false);
@@ -154,7 +156,7 @@ async function unlock() {
       sessionStorage.setItem(SESSION_KEY, data.sessionToken || '');
     } catch { /* ignore */ }
     // Land in the full Quick View shell (session via cookie + stored token)
-    router.replace({ name: 'QuickViewApp' });
+    router.replace({ name: 'QuickViewApp', query: quickViewDeepLink(route.query) });
   } catch (e) {
     const err = e?.response?.data?.error || {};
     error.value = err.message || 'Unlock failed';
@@ -175,7 +177,7 @@ onMounted(async () => {
       const dest = isQuickViewHost()
         ? `/t/${encodeURIComponent(token)}`
         : `/quick-view/${encodeURIComponent(token)}`;
-      router.replace(dest);
+      router.replace({ path: dest, query: quickViewDeepLink(route.query) });
       return;
     }
   } catch { /* ignore */ }
