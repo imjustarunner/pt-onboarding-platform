@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import { assertFamilyBillingEncryption, decryptFamilyBilling, encryptFamilyBilling } from '../services/familyBillingEncryption.service.js';
 import { isIntakeResponsesEncryptionConfigured, decryptIntakePayload } from '../services/intakeResponsesEncryption.service.js';
+import DocumentEncryptionService from '../services/documentEncryption.service.js';
 dotenv.config({ path: fileURLToPath(new URL('../../.env', import.meta.url)) });
 class RolloutConfigurationError extends Error {}
 const args = process.argv.slice(2);
@@ -64,7 +65,7 @@ try {
   const probe = encryptFamilyBilling({ check: true }, 'rollout-preflight');
   if (!decryptFamilyBilling(probe, 'rollout-preflight').check) throw new RolloutConfigurationError('Family encryption self-check failed.');
   if (!isIntakeResponsesEncryptionConfigured()) throw new RolloutConfigurationError('The existing intake encryption key is required. Preserve it; do not replace it with the family billing key.');
-  console.log(process.env.DOCUMENTS_KMS_KEY ? 'Document KMS resource configured; live access not checked.' : 'Document KMS resource is absent in this process. Database backfill can proceed; encrypted file uploads require separate KMS configuration.');
+  console.log(DocumentEncryptionService.isConfigured() ? 'Document KMS resource configured (REFERRAL_KMS_KEY or DOCUMENTS_KMS_KEY); live access not checked by this command.' : 'Document KMS resource is absent in this process (REFERRAL_KMS_KEY and DOCUMENTS_KMS_KEY). Database backfill can proceed; encrypted file uploads require separate KMS configuration.');
   if (process.env.FAMILY_BILLING_AUTOMATION_ENABLED === 'true') throw new RolloutConfigurationError('Disable family billing automation during the rollout.');
   if (apply && (!args.includes('--backup-confirmed') || !args.includes('--writes-paused') || !args.includes(`--confirm-databases=${process.env.DB_NAME},${process.env.CLINICAL_DB_NAME}`))) throw new RolloutConfigurationError('Apply requires --backup-confirmed --writes-paused and --confirm-databases=MAIN_NAME,CLINICAL_NAME matching the environment.');
   // Disable module startup connectivity probes; explicit queries below handle errors safely.
