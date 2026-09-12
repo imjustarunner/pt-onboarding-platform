@@ -116,13 +116,13 @@ export async function cancelHubQueuedMessage({ id, userId }) {
 
 export async function listDueHubQueue({ limit = 40 } = {}) {
   const lim = Math.min(Math.max(Number(limit) || 40, 1), 100);
-  // Reclaim abandoned "sending" rows (crashed worker) after 2 minutes
+  // An interrupted delivery may already have reached its recipient. Require review rather than resending.
   await pool
     .execute(
       `UPDATE hub_message_queue
-       SET status = 'queued', updated_at = CURRENT_TIMESTAMP
+       SET status = 'failed', error_message = 'Delivery interrupted; verify before resending', updated_at = CURRENT_TIMESTAMP
        WHERE status = 'sending'
-         AND updated_at < (NOW() - INTERVAL 2 MINUTE)`
+         AND updated_at < (NOW() - INTERVAL 15 MINUTE)`
     )
     .catch(() => null);
   const [rows] = await pool.execute(

@@ -453,6 +453,10 @@
             <p v-if="methodUnavailableHint" class="msg-hub-method-hint">{{ methodUnavailableHint }}</p>
             <p v-if="secureHint" class="msg-hub-secure-hint">{{ secureHint }}</p>
 
+            <div v-if="sendMethod === 'sms'" class="msg-hub-email-thread-head">
+              <label>Text conversation <select v-model="selectedSmsThreadKey"><option :value="null">New text to current contact number</option><option v-for="key in smsThreads" :key="key" :value="key">{{ key.split(':').slice(-2).join(' → ') }}</option></select></label>
+            </div>
+            <button v-if="historyAvailable" class="btn btn-secondary btn-xs" :disabled="historyLoading" @click="loadOlderHistory">{{ historyLoading ? 'Loading…' : 'Load older messages' }}</button>
             <div ref="timelineEl" class="msg-hub-timeline">
               <div v-if="loadingTimeline" class="msg-hub-muted">Loading conversation…</div>
               <template v-else-if="sendMethod === 'email'">
@@ -492,6 +496,8 @@
                 </template>
                 <template v-else-if="visibleTimeline.length">
                   <div class="msg-hub-email-thread-head">
+                    <button type="button" class="msg-hub-btn secondary sm" :aria-pressed="emailComposeMode === 'reply'" @click="setEmailReplyMode('reply')">Reply</button>
+                    <button type="button" class="msg-hub-btn secondary sm" :aria-pressed="emailComposeMode === 'reply_all'" @click="setEmailReplyMode('reply_all')">Reply all</button>
                     <strong>{{ activeEmailThreadSubject }}</strong>
                     <button
                       type="button"
@@ -540,18 +546,20 @@
                         >Not opened</span>
                       </div>
                     </div>
+                    <p v-if="msg.to?.length" class="msg-hub-email-recipients">To: {{ msg.to.map((a) => a.email || a).join(', ') }}<template v-if="msg.cc?.length"> · CC: {{ msg.cc.map((a) => a.email || a).join(', ') }}</template></p>
                     <p v-if="msg.bodyPreview" class="msg-hub-bubble-body">{{ msg.bodyPreview }}</p>
                     <div v-if="msg.attachments?.length" class="msg-hub-bubble-atts">
                       <a
                         v-for="att in msg.attachments"
                         :key="att.id || att.file_path"
                         class="msg-hub-att-link"
-                        :href="att.file_url"
+                        :href="att.downloadPath ? '#' : att.file_url"
+                        @click="downloadHubAttachment($event, att)"
                         target="_blank"
                         rel="noopener noreferrer"
                       >
                         <img
-                          v-if="isImageAttachment(att)"
+                          v-if="!att.downloadPath && isImageAttachment(att)"
                           :src="att.file_url"
                           :alt="att.original_filename || 'attachment'"
                           class="msg-hub-att-img"
@@ -583,11 +591,12 @@
                         v-else-if="msg.meta?.conversationId"
                         type="button"
                         class="msg-hub-like"
-                        title="Like"
+                        :title="msg.reactions?.some((r) => r.reactedByMe) ? 'Remove like' : 'Like'"
+                        :aria-pressed="!!msg.reactions?.some((r) => r.reactedByMe)"
                         :disabled="reactingId === msg.id"
                         @click="reactToMessage(msg)"
                       >
-                        {{ reactingId === msg.id ? '…' : '❤️' }}
+                        {{ reactingId === msg.id ? '…' : '❤️' }} {{ msg.reactions?.find((r) => r.emoji === '❤️')?.count || '' }}
                       </button>
                     </div>
                   </div>
@@ -670,12 +679,13 @@
                       v-for="att in msg.attachments"
                       :key="att.id || att.file_path"
                       class="msg-hub-att-link"
-                      :href="att.file_url"
+                      :href="att.downloadPath ? '#' : att.file_url"
+                        @click="downloadHubAttachment($event, att)"
                       target="_blank"
                       rel="noopener noreferrer"
                     >
                       <img
-                        v-if="isImageAttachment(att)"
+                        v-if="!att.downloadPath && isImageAttachment(att)"
                         :src="att.file_url"
                         :alt="att.original_filename || 'attachment'"
                         class="msg-hub-att-img"
@@ -744,11 +754,12 @@
                       v-else
                       type="button"
                       class="msg-hub-like"
-                      title="Like"
+                      :title="msg.reactions?.some((r) => r.reactedByMe) ? 'Remove like' : 'Like'"
+                        :aria-pressed="!!msg.reactions?.some((r) => r.reactedByMe)"
                       :disabled="reactingId === msg.id"
                       @click="reactToMessage(msg)"
                     >
-                      {{ reactingId === msg.id ? '…' : '❤️' }}
+                      {{ reactingId === msg.id ? '…' : '❤️' }} {{ msg.reactions?.find((r) => r.emoji === '❤️')?.count || '' }}
                     </button>
                   </div>
                 </div>
@@ -1351,7 +1362,8 @@
               <div v-if="loadingContext" class="msg-hub-muted">Loading…</div>
               <ul v-else-if="recentFiles.length" class="msg-hub-side-list">
                 <li v-for="f in recentFiles" :key="f.id">
-                  <a v-if="f.url" :href="f.url" target="_blank" rel="noopener">{{ f.name }}</a>
+                  <button v-if="f.downloadPath" class="btn btn-link" @click="downloadHubAttachment($event, f)">{{ f.name }}</button>
+                  <a v-else-if="f.url" :href="f.url" target="_blank" rel="noopener">{{ f.name }}</a>
                   <span v-else>{{ f.name }}</span>
                   <time>{{ formatTime(f.createdAt) }}</time>
                 </li>
@@ -1501,6 +1513,8 @@
 </template>
 
 <script setup>
+import { downloadAttachment } from '../../utils/communicationAttachments';
+import { groupEmailThreads, groupSecureTopics, emailComposeTarget, emailReplyRecipients } from '../../utils/messageThreads';
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import api from '../../services/api';
@@ -2275,13 +2289,15 @@ function buildStoredDraft() {
 
 function scheduleDraftAutosave() {
   if (suppressDraftAutosave) return;
-  const convId = selectedConversation.value?.id;
+  const convId = emailComposeMode.value === 'new' ? null :
+    emailSubjectThreads.value.find((t) => t.key === activeEmailThreadKey.value)?.conversationId ||
+    selectedConversation.value?.conversationId || selectedConversation.value?.id;
   if (!convId) return;
   const body = String(composeBody.value || '').trim();
   const subject = String(composeSubject.value || '').trim();
   clearTimeout(draftSaveTimer);
+  const payload = body || subject ? buildStoredDraft() : '';
   draftSaveTimer = setTimeout(() => {
-    const payload = body || subject ? buildStoredDraft() : '';
     api
       .patch(
         `/communications/conversations/${convId}`,
@@ -2309,6 +2325,7 @@ function scheduleDraftAutosave() {
 
 async function hydrateComposeFromConversation(conv) {
   if (!conv?.id) return;
+  const personKey = selected.value?.personKey;
   let raw = conv.draft_body;
   if (raw == null) {
     try {
@@ -2316,6 +2333,7 @@ async function hydrateComposeFromConversation(conv) {
         params: { agencyId: agencyId.value, markRead: '0' },
         skipGlobalLoading: true
       });
+      if (selected.value?.personKey !== personKey) return;
       raw = data?.conversation?.draft_body;
       if (data?.conversation) {
         selectedConversation.value = {
@@ -2354,7 +2372,9 @@ async function hydrateComposeFromConversation(conv) {
 }
 
 async function clearConversationDraft() {
-  const convId = selectedConversation.value?.id;
+  const convId = emailComposeMode.value === 'new' ? null :
+    emailSubjectThreads.value.find((t) => t.key === activeEmailThreadKey.value)?.conversationId ||
+    selectedConversation.value?.conversationId || selectedConversation.value?.id;
   clearTimeout(draftSaveTimer);
   draftSaveHint.value = '';
   if (!convId) return;
@@ -2393,55 +2413,9 @@ function personThreadSnippet(thread) {
   return `${dir}: ${clip}`;
 }
 
-const emailSubjectThreads = computed(() => {
-  const map = new Map();
-  for (const msg of timeline.value || []) {
-    if (String(msg.channel || '').toLowerCase() !== 'email') continue;
-    const subject = String(msg.meta?.subject || '').trim() || '(No subject)';
-    const key = normalizeEmailSubjectKey(subject);
-    if (!map.has(key)) {
-      map.set(key, { key, subject, messages: [] });
-    }
-    map.get(key).messages.push(msg);
-  }
-  return [...map.values()]
-    .map((t) => ({
-      ...t,
-      messages: [...t.messages].sort(
-        (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
-      )
-    }))
-    .sort((a, b) => {
-      const aLast = a.messages[a.messages.length - 1]?.createdAt || 0;
-      const bLast = b.messages[b.messages.length - 1]?.createdAt || 0;
-      return new Date(bLast).getTime() - new Date(aLast).getTime();
-    });
-});
+const emailSubjectThreads = computed(() => groupEmailThreads(timeline.value || []));
 
-const secureSubjectThreads = computed(() => {
-  const map = new Map();
-  for (const msg of timeline.value || []) {
-    if (String(msg.channel || '').toLowerCase() !== 'secure') continue;
-    const subject = String(msg.meta?.subject || '').trim() || '(No subject)';
-    const key = normalizeEmailSubjectKey(subject);
-    if (!map.has(key)) {
-      map.set(key, { key, subject, messages: [] });
-    }
-    map.get(key).messages.push(msg);
-  }
-  return [...map.values()]
-    .map((t) => ({
-      ...t,
-      messages: [...t.messages].sort(
-        (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
-      )
-    }))
-    .sort((a, b) => {
-      const aLast = a.messages[a.messages.length - 1]?.createdAt || 0;
-      const bLast = b.messages[b.messages.length - 1]?.createdAt || 0;
-      return new Date(bLast).getTime() - new Date(aLast).getTime();
-    });
-});
+const secureSubjectThreads = computed(() => groupSecureTopics(timeline.value || []));
 
 const personSubjectThreads = computed(() =>
   sendMethod.value === 'secure' ? secureSubjectThreads.value : emailSubjectThreads.value
@@ -2469,6 +2443,15 @@ const activeEmailThreadSubject = computed(() => {
   return t?.subject || '';
 });
 
+async function downloadHubAttachment(event, attachment) {
+  if (!attachment.downloadPath) return;
+  event.preventDefault();
+  try { await downloadAttachment(attachment.downloadPath, attachment.original_filename || attachment.name); }
+  catch (e) { sendError.value = e?.response?.data?.error?.message || 'Could not download attachment'; }
+}
+const selectedSmsThreadKey = ref(null);
+const smsThreads = computed(() => [...new Set((timeline.value || []).filter((m) => m.channel === 'sms').map((m) => m.meta?.smsThreadKey).filter(Boolean))]);
+watch(() => selected.value?.personKey, () => { selectedSmsThreadKey.value = null; });
 const visibleTimeline = computed(() => {
   const method = String(sendMethod.value || '').toLowerCase();
   const items = Array.isArray(timeline.value) ? timeline.value : [];
@@ -2477,22 +2460,37 @@ const visibleTimeline = computed(() => {
     const thread = personSubjectThreads.value.find((t) => t.key === activeEmailThreadKey.value);
     return thread?.messages || [];
   }
-  if (method === 'internal' || method === 'sms') {
+  if (method === 'sms') {
+    return selectedSmsThreadKey.value ? items.filter((m) => m.channel === 'sms' && m.meta?.smsThreadKey === selectedSmsThreadKey.value) : [];
+  }
+  if (method === 'internal') {
     return items.filter((m) => String(m.channel || '').toLowerCase() === method);
   }
   return items;
 });
+
+const emailDrafts = new Map();
+function rememberEmailDraft() {
+  if (sendMethod.value !== 'email') return;
+  const key = activeEmailThreadKey.value || `new:${selected.value?.personKey}`;
+  emailDrafts.set(key, { body: composeBody.value, subject: composeSubject.value, cc: composeCc.value, bcc: composeBcc.value });
+}
 
 function startNewEmailCompose() {
   startNewSubjectCompose();
 }
 
 function startNewSubjectCompose() {
+  rememberEmailDraft();
   activeEmailThreadKey.value = null;
+  selectedConversation.value = null;
   emailComposeMode.value = 'new';
   forwardToEmails.value = '';
-  composeSubject.value = '';
-  composeBody.value = '';
+  const draft = sendMethod.value === 'email' ? emailDrafts.get(`new:${selected.value?.personKey}`) : null;
+  composeSubject.value = draft?.subject || '';
+  composeBody.value = draft?.body || '';
+  composeCc.value = draft?.cc || '';
+  composeBcc.value = draft?.bcc || '';
   mobileShowThread.value = true;
 }
 
@@ -2502,15 +2500,43 @@ function openPersonSubjectThread(thread) {
 
 function openEmailSubjectThread(thread) {
   if (!thread?.key) return;
+  if (thread.key !== activeEmailThreadKey.value) {
+    rememberEmailDraft();
+    if (sendMethod.value === 'email') {
+      const storedId = Number(selectedConversation.value?.conversationId || selectedConversation.value?.id);
+      const draft = emailDrafts.get(thread.key) || (storedId === thread.conversationId ? parseStoredDraft(selectedConversation.value?.draft_body) : null);
+      composeBody.value = draft?.body || '';
+    }
+  }
   activeEmailThreadKey.value = thread.key;
+  const threadAgencyId = thread.messages.at(-1)?.meta?.agencyId;
+  if (sendMethod.value === 'email' && threadAgencyId) composeAgencyId.value = Number(threadAgencyId);
   emailComposeMode.value = 'reply';
+  composeCc.value = emailDrafts.get(thread.key)?.cc || '';
+  composeBcc.value = emailDrafts.get(thread.key)?.bcc || '';
   forwardToEmails.value = '';
   mobileShowThread.value = true;
+  if (thread.conversationId) {
+    api.get(`/communications/conversations/${thread.conversationId}`, { skipGlobalLoading: true })
+      .then(() => {
+        dropOpenedFromUnread({ conversationId: thread.conversationId });
+        refreshUnreadAfterOpen();
+      }).catch(() => {});
+  }
   const sub = String(thread.subject || '').trim();
   if (sub && sub !== '(No subject)') {
     const bare = sub.replace(/^(re|fw|fwd)\s*:\s*/gi, '').trim();
     composeSubject.value = bare.startsWith('Re:') ? bare : `Re: ${bare}`;
   }
+}
+
+function setEmailReplyMode(mode) {
+  const thread = emailSubjectThreads.value.find((t) => t.key === activeEmailThreadKey.value);
+  if (!thread) return;
+  emailComposeMode.value = mode;
+  const recipients = emailReplyRecipients(thread.messages, { mode, inboxEmail: thread.messages.at(-1)?.meta?.inboxEmail, fallbackEmail: selected.value?.email });
+  composeCc.value = recipients.cc.join(', ');
+  composeBcc.value = '';
 }
 
 function startForwardFromActiveThread() {
@@ -3284,7 +3310,7 @@ function photoSrc(url) {
 }
 
 function hubMsgName(msg) {
-  const fromSender = String(msg?.sender?.displayName || '').trim();
+  const fromSender = String(msg?.sender?.displayName || msg?.from?.name || (msg?.direction === 'inbound' ? msg?.from?.email : '') || '').trim();
   if (fromSender) return fromSender;
   if (msg?.direction === 'outbound') {
     const u = authStore.user;
@@ -3921,6 +3947,7 @@ async function loadPersonContext(personKey) {
       api.get(`/messages/hub/people/${encodeURIComponent(personKey)}/files`, { params, skipGlobalLoading: true }),
       api.get(`/messages/hub/people/${encodeURIComponent(personKey)}/activity`, { params, skipGlobalLoading: true })
     ]);
+    if (selected.value?.personKey !== personKey) return;
     recentFiles.value = Array.isArray(filesRes.data?.files) ? filesRes.data.files : [];
     recentActivity.value = Array.isArray(actRes.data?.activity) ? actRes.data.activity : [];
   } catch {
@@ -3932,6 +3959,7 @@ async function loadPersonContext(personKey) {
 }
 
 function closePerson() {
+  rememberEmailDraft();
   selected.value = null;
   selectedConversation.value = null;
   conversationPreview.value = null;
@@ -4088,7 +4116,7 @@ function dropOpenedFromUnread(match = {}) {
   const conversationId = match.conversationId != null ? Number(match.conversationId) : null;
   const rowId = match.id != null ? String(match.id) : null;
   conversations.value = conversations.value.filter((c) => {
-    if (personKey && c.personKey && c.personKey === personKey) return false;
+    if (!conversationId && !threadId && personKey && c.personKey === personKey) return false;
     if (threadId && Number(c.threadId) === threadId) return false;
     if (conversationId && Number(c.conversationId || c.id) === conversationId) return false;
     if (rowId && String(c.id) === rowId) return false;
@@ -4111,8 +4139,10 @@ async function refreshUnreadAfterOpen() {
 }
 
 async function pickPerson(person, opts = {}) {
+  rememberEmailDraft();
   const fromConversation = opts?.fromConversation || null;
   showNew.value = false;
+  if (selected.value?.personKey !== person.personKey) timeline.value = [];
   selected.value = person;
   selectedConversation.value = fromConversation || null;
   conversationPreview.value = null;
@@ -4149,10 +4179,12 @@ async function pickPerson(person, opts = {}) {
     person?.userId ||
     null;
   await loadSendAgencies();
+  if (selected.value?.personKey !== person.personKey) return;
   const defaultAid = person?.agencyId || agencyId.value || sendAgencies.value[0]?.id || null;
   composeAgencyId.value = defaultAid ? Number(defaultAid) : null;
   await loadEmailAliases(composeAgencyId.value);
   await loadSignaturePreview(composeAgencyId.value);
+  if (selected.value?.personKey !== person.personKey) return;
   sendError.value = '';
   if (!people.value.some((p) => p.personKey === person.personKey)) {
     people.value = [person, ...people.value];
@@ -4161,6 +4193,7 @@ async function pickPerson(person, opts = {}) {
     loadTimeline(person.personKey),
     loadPersonContext(person.personKey)
   ]);
+  if (selected.value?.personKey !== person.personKey) return;
   dropOpenedFromUnread({
     personKey: person.personKey,
     conversationId: fromConversation?.conversationId || fromConversation?.id,
@@ -4198,24 +4231,13 @@ async function pickPerson(person, opts = {}) {
     await loadSignaturePreview(person?.agencyId || agencyId.value);
     await nextTick();
     const sub = String(fromConversation.subject || '').trim();
-    const key = normalizeEmailSubjectKey(sub);
-    let thread =
-      (key && emailSubjectThreads.value.find((t) => t.key === key)) ||
-      (fromConversation.conversationId &&
-        emailSubjectThreads.value.find((t) =>
-          t.messages.some(
-            (m) => Number(m.meta?.conversationId) === Number(fromConversation.conversationId)
-          )
-        )) ||
-      emailSubjectThreads.value[0] ||
-      null;
+    const conversationId = Number(fromConversation.conversationId || fromConversation.id);
+    const thread = emailSubjectThreads.value.find((t) => t.conversationId === conversationId);
     if (thread) {
       openEmailSubjectThread(thread);
-    } else if (sub) {
-      activeEmailThreadKey.value = key;
-      emailComposeMode.value = 'reply';
-      const bare = sub.replace(/^(re|fw|fwd)\s*:\s*/gi, '').trim();
-      composeSubject.value = bare.startsWith('Re:') ? bare : `Re: ${bare}`;
+    } else {
+      activeEmailThreadKey.value = null;
+      sendError.value = 'Could not load this conversation. Reopen it to try again.';
     }
     await nextTick();
     scrollTimelineToBottom({ smooth: true });
@@ -4226,21 +4248,50 @@ async function pickPerson(person, opts = {}) {
   await focusComposer();
 }
 
+const historyLoading = ref(false);
+const exhaustedHistory = ref(new Set());
+const historyKey = computed(() => `${selected.value?.personKey}:${sendMethod.value}:${sendMethod.value === 'email' ? activeEmailThreadKey.value || 'all' : ''}`);
+const historyAvailable = computed(() => !exhaustedHistory.value.has(historyKey.value) && timeline.value.some((m) => m.channel === sendMethod.value && !m.meta?.queueId));
+async function loadOlderHistory() {
+  const personKey = selected.value?.personKey;
+  const key = historyKey.value;
+  const channel = sendMethod.value;
+  const cid = channel === 'email' ? emailSubjectThreads.value.find((t) => t.key === activeEmailThreadKey.value)?.conversationId : null;
+  const items = timeline.value.filter((m) => m.channel === channel && !m.meta?.queueId && (!cid || Number(m.meta?.conversationId) === Number(cid)));
+  const ids = items.map((m) => Number(m.meta?.messageId || m.meta?.messageLogId)).filter((n) => n > 0);
+  if (!ids.length) return;
+  historyLoading.value = true;
+  try {
+    const { data } = await api.get(`/messages/hub/people/${encodeURIComponent(personKey)}/timeline`, {
+      params: { agencyId: selected.value?.agencyId || agencyId.value, channel, conversationId: cid || undefined, beforeId: Math.min(...ids), markRead: '0' }, skipGlobalLoading: true
+    });
+    if (historyKey.value !== key) return;
+    timeline.value = [...new Map([...(data.items || []), ...timeline.value].map((m) => [m.id, m])).values()].sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+    if (!data.hasMore) exhaustedHistory.value = new Set([...exhaustedHistory.value, key]);
+  } catch (e) { sendError.value = 'Could not load older messages'; }
+  finally { historyLoading.value = false; }
+}
+let timelineRequestId = 0;
+let loadedTimelinePersonKey = null;
 async function loadTimeline(personKey, { quiet = false } = {}) {
+  const requestId = ++timelineRequestId;
   if (!personKey) {
     timeline.value = [];
     return;
   }
-  const samePerson = selected.value?.personKey === personKey && (timeline.value || []).length > 0;
+  const samePerson = loadedTimelinePersonKey === personKey && (timeline.value || []).length > 0;
   if (!quiet && !samePerson) loadingTimeline.value = true;
   try {
     const aid = selected.value?.agencyId || agencyId.value;
-    const reqParams = {};
+    const reqParams = { markRead: '0' };
+    const conversationId = Number(selectedConversation.value?.conversationId || selectedConversation.value?.id);
+    if (conversationId > 0) reqParams.conversationId = conversationId;
     if (aid) reqParams.agencyId = aid;
     const { data } = await api.get(`/messages/hub/people/${encodeURIComponent(personKey)}/timeline`, {
       params: reqParams,
       skipGlobalLoading: true
     });
+    if (requestId !== timelineRequestId || selected.value?.personKey !== personKey) return;
     if (data?.person) {
       const priorMessaging = selected.value?.clientMessaging;
       selected.value = {
@@ -4248,7 +4299,15 @@ async function loadTimeline(personKey, { quiet = false } = {}) {
         clientMessaging: data.person.clientMessaging || priorMessaging || null
       };
     }
-    timeline.value = Array.isArray(data?.items) ? data.items : [];
+    const incoming = Array.isArray(data?.items) ? data.items : [];
+    const older = samePerson ? timeline.value.filter((m) => {
+      if (m.meta?.queueId || m.meta?.sendStatus === 'scheduled') return false;
+      const batch = incoming.filter((n) => n.channel === m.channel);
+      return batch.length && new Date(m.createdAt) < Math.min(...batch.map((n) => new Date(n.createdAt).getTime()));
+    }) : [];
+    timeline.value = [...new Map([...older, ...incoming].map((m) => [m.id, m])).values()].sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+    loadedTimelinePersonKey = personKey;
+    if (!selectedSmsThreadKey.value && sendMethod.value === 'sms') selectedSmsThreadKey.value = [...incoming].reverse().find((m) => m.channel === 'sms')?.meta?.smsThreadKey || null;
     const chatMsg = [...timeline.value].reverse().find((m) => m?.meta?.threadId);
     if (chatMsg?.meta?.threadId) chatThreadId.value = chatMsg.meta.threadId;
 
@@ -4272,11 +4331,16 @@ async function loadTimeline(personKey, { quiet = false } = {}) {
       }
     }
     await nextTick();
+    if (['internal', 'secure'].includes(sendMethod.value) && chatThreadId.value) {
+      await markChatThreadOpened(chatThreadId.value);
+    }
     // Person-focus email/secure: stay on the summary list until they click a thread.
   } catch (e) {
+    if (requestId !== timelineRequestId || selected.value?.personKey !== personKey) return;
     timeline.value = [];
     error.value = e?.response?.data?.error?.message || 'Could not load timeline';
   } finally {
+    if (requestId !== timelineRequestId) return;
     loadingTimeline.value = false;
     await nextTick();
     scrollTimelineToBottom();
@@ -4388,14 +4452,17 @@ async function onAttachFiles(ev) {
 
 async function reactToMessage(msg) {
   const conversationId = msg?.meta?.conversationId;
-  if (!conversationId) return;
+  if (!conversationId || !msg?.meta?.messageId || reactingId.value) return;
   reactingId.value = msg.id;
   try {
-    await api.post('/messages/hub/react', {
-      agencyId: selected.value?.agencyId || agencyId.value,
+    const { data } = await api.post('/messages/hub/react', {
+      agencyId: msg.meta?.agencyId || selected.value?.agencyId || agencyId.value,
       conversationId,
+      messageId: msg.meta.messageId,
+      active: !(msg.reactions || []).some((r) => r.emoji === '❤️' && r.reactedByMe),
       emoji: '❤️'
     });
+    msg.reactions = data?.reactions || [];
   } catch (e) {
     sendError.value = e?.response?.data?.error?.message || 'Could not react';
   } finally {
@@ -4454,6 +4521,8 @@ function cancelSendConfirm() {
 }
 
 async function executeSend({ sendToAllPortalGuardians = false, includeClient = false } = {}) {
+  if (sending.value) return;
+  const sendingPersonKey = selected.value?.personKey;
   const sendAgencyId =
     (sendMethod.value === 'email' && composeAgencyId.value
       ? Number(composeAgencyId.value)
@@ -4501,6 +4570,16 @@ async function executeSend({ sendToAllPortalGuardians = false, includeClient = f
       }
     }
 
+    // One group email keeps every selected guardian on the same conversation.
+    if (sendMethod.value === 'email' && targets.length > 1) {
+      const extraEmails = targets.slice(1).map((key) => {
+        const guardian = [...(ctx?.guardians || []), ...(ctx?.portalGuardians || [])].find((g) => g.personKey === key);
+        if (!guardian?.email) throw new Error('A selected recipient has no email address. Update their contact before sending.');
+        return guardian.email;
+      });
+      emailCcExtra = [...extraEmails, emailCcExtra].filter(Boolean).join(', ');
+      targets.splice(1);
+    }
     const primaryKey = targets[0];
     let lastData = null;
     for (const personKey of targets) {
@@ -4528,12 +4607,20 @@ async function executeSend({ sendToAllPortalGuardians = false, includeClient = f
         if (composeBcc.value.trim()) payload.bcc = composeBcc.value.trim();
         if (composeAttachments.value.length) payload.attachments = composeAttachments.value;
         if (composeFromAliasId.value) payload.fromAliasIdentityId = composeFromAliasId.value;
-        const convId =
-          selectedConversation.value?.conversationId ||
-          selectedConversation.value?.id ||
-          visibleTimeline.value?.[visibleTimeline.value.length - 1]?.meta?.conversationId ||
-          null;
-        if (convId) payload.conversationId = Number(convId);
+        Object.assign(payload, emailComposeTarget({
+          mode: emailComposeMode.value,
+          activeThread: emailSubjectThreads.value.find((t) => t.key === activeEmailThreadKey.value)
+        }));
+        if (payload.mode === 'reply' || payload.mode === 'reply_all') {
+          const thread = emailSubjectThreads.value.find((t) => t.key === activeEmailThreadKey.value);
+          const recipients = emailReplyRecipients(thread?.messages, {
+            mode: payload.mode, inboxEmail: thread?.messages.at(-1)?.meta?.inboxEmail,
+            fallbackEmail: selected.value?.email
+          });
+          payload.to = recipients.to.join(', ');
+          // The visible CC field is authoritative, including when cleared.
+          payload.cc = cc;
+        }
         if (emailComposeMode.value === 'forward') {
           payload.mode = 'forward';
           const fwd = String(forwardToEmails.value || '').trim();
@@ -4543,10 +4630,14 @@ async function executeSend({ sendToAllPortalGuardians = false, includeClient = f
             });
           }
           payload.to = fwd;
-        } else {
-          payload.mode = 'reply';
         }
       }
+      if (sendMethod.value === 'secure') {
+        const topic = secureSubjectThreads.value.find((t) => t.key === activeEmailThreadKey.value);
+        payload.newTopic = emailComposeMode.value === 'new' || !topic || personKey !== primaryKey;
+        if (!payload.newTopic) { payload.topicId = topic.topicId; payload.legacyRootMessageId = topic.legacyRootMessageId; }
+      }
+      if (sendMethod.value === 'sms' && selectedSmsThreadKey.value) payload.smsThreadKey = selectedSmsThreadKey.value;
       if (sendMethod.value === 'internal' || sendMethod.value === 'secure') {
         if (chatStagedAttachments.value.length) {
           payload.attachments = [...chatStagedAttachments.value];
@@ -4569,13 +4660,19 @@ async function executeSend({ sendToAllPortalGuardians = false, includeClient = f
         throw Object.assign(new Error(data.error.message), { response: { data } });
       }
       if (personKey === primaryKey) lastData = data;
+      if (selected.value?.personKey !== sendingPersonKey) {
+        await loadInboxCounts();
+        return;
+      }
     }
     const data = lastData || {};
     const wasScheduledPreset = !!schedulePreset.value;
     const sentBody = composeBody.value.trim();
     const sentSubject = composeSubject.value.trim();
     const sentMethod = sendMethod.value;
+    emailDrafts.delete(activeEmailThreadKey.value || `new:${sendingPersonKey}`);
     await clearConversationDraft();
+    if (selected.value?.personKey !== sendingPersonKey) return;
     suppressDraftAutosave = true;
     composeBody.value = '';
     composeSubject.value = '';
@@ -4587,16 +4684,19 @@ async function executeSend({ sendToAllPortalGuardians = false, includeClient = f
     forwardToEmails.value = '';
     await nextTick();
     suppressDraftAutosave = false;
-    if (sentMethod === 'email' && sentSubject) {
-      activeEmailThreadKey.value = normalizeEmailSubjectKey(sentSubject);
+    if (sentMethod === 'email' && data?.threadRef?.conversationId) {
+      selectedConversation.value = { conversationId: data.threadRef.conversationId };
+    }
+    if (sentMethod === 'email' && data?.threadRef?.conversationId) {
+      activeEmailThreadKey.value = data?.threadRef?.conversationId ? `email:${data.threadRef.conversationId}` : null;
       composeSubject.value = /^fwd:/i.test(sentSubject)
         ? sentSubject
         : sentSubject.startsWith('Re:')
           ? sentSubject
           : `Re: ${sentSubject}`;
       emailComposeMode.value = 'reply';
-    } else if (sentMethod === 'secure' && sentSubject) {
-      activeEmailThreadKey.value = normalizeEmailSubjectKey(sentSubject);
+    } else if (sentMethod === 'secure') {
+      activeEmailThreadKey.value = data?.threadRef?.topicId ? `topic:${data.threadRef.topicId}` : null;
       composeSubject.value = sentSubject;
     } else if (sentMethod === 'email') {
       activeEmailThreadKey.value = null;
@@ -4640,6 +4740,7 @@ async function executeSend({ sendToAllPortalGuardians = false, includeClient = f
             readBy: [],
             meta: {
               threadId: data?.threadRef?.threadId || chatThreadId.value,
+              topicId: data?.threadRef?.topicId || null,
               messageId: data?.chat?.id || null,
               subject: sentSubject || null
             }
@@ -4683,7 +4784,7 @@ async function executeSend({ sendToAllPortalGuardians = false, includeClient = f
     }
     await loadTimeline(selected.value.personKey);
     await loadPersonContext(selected.value.personKey);
-    dropOpenedFromUnread({ personKey: selected.value.personKey });
+    dropOpenedFromUnread({ personKey: selected.value.personKey, conversationId: data?.threadRef?.conversationId || null });
     await refreshUnreadAfterOpen();
     scrollTimelineToBottom();
     scheduleSmartReply();
@@ -4776,6 +4877,7 @@ defineExpose({
 </script>
 
 <style scoped>
+.msg-hub-email-recipients { margin: 4px 0 8px; font-size: 0.75rem; color: #64748b; overflow-wrap: anywhere; }
 .msg-hub {
   --mh-primary: var(--primary, var(--agency-primary-color, #1f6b4a));
   --mh-ink: #0f172a;

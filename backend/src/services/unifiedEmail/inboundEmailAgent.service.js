@@ -1042,12 +1042,15 @@ export async function runInboundEmailAgentOnce({ maxMessages = 10 } = {}) {
       if (isMessagesIdentity(identity)) {
         try {
           const hubResult = await ingestHubEmailReply({
+            gmail, gmailMessageId: id, gmailPayload: full.data?.payload,
             agencyId,
             identity,
             fromEmail,
             subject,
             bodyText,
-            toAddresses: [...(routed.to || []), ...(routed.deliveredTo || []), ...(routed.cc || [])],
+            toAddresses: routed.to || [],
+            ccAddresses: routed.cc || [],
+            threadId: full.data?.threadId || null,
             messageIdHeader: hdrs.get('message-id') || null,
             inReplyTo: hdrs.get('in-reply-to') || null,
             referencesHeader: hdrs.get('references') || null,
@@ -1064,6 +1067,8 @@ export async function runInboundEmailAgentOnce({ maxMessages = 10 } = {}) {
           }
         } catch (hubErr) {
           console.error('[EmailAgent] Hub email reply ingest failed:', hubErr);
+          results.needsHuman += 1;
+          continue; // Keep unread for retry; never turn a failed reply into an unrelated ticket.
         }
       }
     }
@@ -1072,6 +1077,7 @@ export async function runInboundEmailAgentOnce({ maxMessages = 10 } = {}) {
     if (isPersonalMailboxIdentity(identity)) {
       try {
         const ingested = await ingestPersonalMailboxInbound({
+          gmail, gmailMessageId: id, gmailPayload: full.data?.payload,
           agencyId,
           identity,
           fromEmail,
@@ -1079,6 +1085,8 @@ export async function runInboundEmailAgentOnce({ maxMessages = 10 } = {}) {
           bodyText,
           messageIdHeader: hdrs.get('message-id') || null,
           threadId: full.data?.threadId || null,
+          inReplyTo: hdrs.get('in-reply-to') || null,
+          referencesHeader: hdrs.get('references') || null,
           receivedAt: new Date(full.data?.internalDate ? Number(full.data.internalDate) : Date.now()),
           to: routed.to || [],
           cc: routed.cc || []
@@ -1091,13 +1099,9 @@ export async function runInboundEmailAgentOnce({ maxMessages = 10 } = {}) {
           requestBody: { removeLabelIds: ['UNREAD'], addLabelIds: [processedLabelId] }
         });
       } catch (personalErr) {
-        console.error('[EmailAgent] Personal mailbox ingest failed:', personalErr);
+        console.error('[EmailAgent] Personal mailbox ingest failed:', personalErr?.message || personalErr);
         results.needsHuman += 1;
-        await gmail.users.messages.modify({
-          userId: 'me',
-          id,
-          requestBody: { removeLabelIds: ['UNREAD'], addLabelIds: [processedLabelId, needsHumanLabelId] }
-        });
+        // Preserve UNREAD so transient storage/database failures are retried.
       }
       continue;
     }
@@ -1280,6 +1284,8 @@ export async function runInboundEmailAgentOnce({ maxMessages = 10 } = {}) {
           gmailMessageId: id,
           payload,
           threadId: full.data?.threadId || null,
+          inReplyTo: hdrs.get('in-reply-to') || null,
+          referencesHeader: hdrs.get('references') || null,
           receivedAt: new Date(full.data?.internalDate ? Number(full.data.internalDate) : Date.now()),
           recipients: Array.from(new Set([...(routed.to || []), ...(routed.cc || [])])),
           matchedClient: null,

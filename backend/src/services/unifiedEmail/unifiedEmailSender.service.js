@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { getGmailClient, getImpersonatedUser } from './gmailClient.js';
 import { base64UrlEncode, buildMimeMessage } from './mime.js';
 import pool from '../../config/database.js';
@@ -1199,7 +1200,9 @@ export async function sendEmailFromIdentity({
   }
 
   const gmail = await getGmailClient();
+  const internetMessageId = `<${randomUUID()}@${String(identity.from_email).split('@').pop()}>`;
   const mime = buildMimeMessage({
+    messageId: internetMessageId,
     to: redirected.to,
     subject: redirected.subject,
     text: signedContent.text,
@@ -1249,6 +1252,7 @@ export async function sendEmailFromIdentity({
   if (comm?.id && messageId) {
     await CommunicationLoggingService.markAsSent(comm.id, messageId, {
       threadId: finalThreadId,
+      internetMessageId,
       impersonatedUser: getImpersonatedUser(),
       senderIdentityId: identity.id,
       fromEmail: identity.from_email,
@@ -1272,6 +1276,7 @@ export async function sendEmailFromIdentity({
 
   return {
     id: messageId,
+    internetMessageId,
     threadId: finalThreadId,
     communicationId: comm?.id || null,
     redirected: !!redirected.redirected,

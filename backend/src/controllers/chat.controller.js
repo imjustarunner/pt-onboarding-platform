@@ -1386,6 +1386,17 @@ export const sendMessage = async (req, res, next) => {
       );
     }
 
+    let topicId = req.body?.topicId || null;
+    if (rootParentId) {
+      const [parentTopic] = await pool.execute('SELECT topic_id FROM chat_messages WHERE id = ? AND thread_id = ?', [rootParentId, threadId]);
+      if (topicId && parentTopic[0]?.topic_id && topicId !== parentTopic[0].topic_id) return res.status(400).json({ error: { message: 'Reply belongs to a different topic' } });
+      topicId = topicId || parentTopic[0]?.topic_id || null;
+    }
+    if (topicId) {
+      const [topics] = await pool.execute('SELECT id FROM chat_topics WHERE id = ? AND thread_id = ?', [topicId, threadId]);
+      if (!topics.length) return res.status(404).json({ error: { message: 'Chat topic not found' } });
+    }
+
     let bodyPlain = body;
     let bodyCipher = null;
     let bodyIv = null;
@@ -1437,32 +1448,14 @@ export const sendMessage = async (req, res, next) => {
       });
     }
 
-    let ins;
-    if (hasParentCol && hasEncCols && bodyCipher) {
-      [ins] = await pool.execute(
-        `INSERT INTO chat_messages
-           (thread_id, sender_user_id, body, body_ciphertext, body_iv, body_auth_tag, encryption_key_id, parent_message_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-        [threadId, req.user.id, bodyPlain, bodyCipher, bodyIv, bodyTag, bodyKeyId, rootParentId]
-      );
-    } else if (hasParentCol) {
-      [ins] = await pool.execute(
-        `INSERT INTO chat_messages (thread_id, sender_user_id, body, parent_message_id)
-         VALUES (?, ?, ?, ?)`,
-        [threadId, req.user.id, body || '', rootParentId]
-      );
-    } else if (hasEncCols && bodyCipher) {
-      [ins] = await pool.execute(
-        `INSERT INTO chat_messages (thread_id, sender_user_id, body, body_ciphertext, body_iv, body_auth_tag, encryption_key_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`,
-        [threadId, req.user.id, bodyPlain, bodyCipher, bodyIv, bodyTag, bodyKeyId]
-      );
-    } else {
-      [ins] = await pool.execute(
-        'INSERT INTO chat_messages (thread_id, sender_user_id, body) VALUES (?, ?, ?)',
-        [threadId, req.user.id, body || '']
-      );
+    const columns = ['thread_id', 'sender_user_id', 'body', 'topic_id'];
+    const values = [threadId, req.user.id, bodyCipher ? bodyPlain : body || '', topicId];
+    if (hasParentCol) { columns.push('parent_message_id'); values.push(rootParentId); }
+    if (hasEncCols && bodyCipher) {
+      columns.push('body_ciphertext', 'body_iv', 'body_auth_tag', 'encryption_key_id');
+      values.push(bodyCipher, bodyIv, bodyTag, bodyKeyId);
     }
+    const [ins] = await pool.execute(`INSERT INTO chat_messages (${columns.join(', ')}) VALUES (${values.map(() => '?').join(', ')})`, values);
     const insertedMessageId = Number(ins.insertId);
     const subjectRaw = String(req.body?.subject || '').trim();
     if (subjectRaw) {

@@ -473,7 +473,7 @@ In parallel track (policy + infra): **non-SSO group mailbox + personal digest de
 | Personal alias format | `first.last@agency…` vs opaque | Human-readable for external trust |
 | Who gets app mailboxes | All non-SSO · role allowlist · opt-in | Role allowlist first (school support, ops) |
 | Medical record attach | Always vs clinical roles only | Clinical roles + audit |
-| Mixed threads | One conversation spanning email+SMS vs separate | Prefer **one conversation** when same linked client/school; show per-message channel icons |
+| Mixed threads | Person history spanning email+SMS vs delivery threads | Show related conversations together under the person; preserve explicit conversation identity and channel-specific recipients. See [conversation rules](MESSAGING_RELIABILITY_REVIEW.md). |
 
 ---
 

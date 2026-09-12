@@ -1,6 +1,7 @@
 <script setup>
 import { computed, ref, watch } from 'vue';
 import api from '../../services/api';
+import { encodeEmailFiles } from '../../utils/communicationAttachments';
 import DirectoryRecipientInput from './DirectoryRecipientInput.vue';
 
 const props = defineProps({
@@ -10,6 +11,11 @@ const props = defineProps({
 });
 const emit = defineEmits(['close', 'sent']);
 
+const attachments = ref([]);
+async function selectAttachments(event) {
+  try { attachments.value = await encodeEmailFiles(event.target.files || []); }
+  catch (e) { error.value = e.message; }
+}
 const inboxId = ref(null);
 const channelMode = ref('email'); // email | secure | dm
 const to = ref('');
@@ -153,7 +159,8 @@ async function send({ skipConfirm = false } = {}) {
       cc: cc.value || undefined,
       bcc: bcc.value || undefined,
       subject: subject.value,
-      text: body.value
+      text: body.value,
+      attachments: attachments.value
     });
     confirmOpen.value = false;
     emit('sent');
@@ -213,6 +220,8 @@ async function send({ skipConfirm = false } = {}) {
       </label>
       <textarea v-model="body" rows="8" :placeholder="isSecureMode ? 'Optional note for your records (not emailed)…' : 'Message…'" />
 
+      <label v-if="isEmailMode">Attachments <input type="file" multiple @change="selectAttachments" /></label>
+      <p v-if="attachments.length">{{ attachments.map((a) => a.filename).join(', ') }} <button type="button" @click="attachments = []">Remove attachments</button></p>
       <p v-if="error" class="uc-err">{{ error }}</p>
 
       <footer>

@@ -1,3 +1,5 @@
+import { persistOutboundAttachments, loadOutboundAttachments } from './communicationAttachments.service.js';
+import { emailReplyHeaders } from '../utils/emailThreading.js';
 import CommunicationConversation from '../models/CommunicationConversation.model.js';
 import CommunicationInbox from '../models/CommunicationInbox.model.js';
 import pool from '../config/database.js';
@@ -19,10 +21,12 @@ const UNDO_WINDOW_MS = 20 * 1000;
 const MAX_UNDO_DELAY_MS = 10 * 60 * 1000;
 
 function assertOutboundEmailDelivered(sendResult) {
-  if (!sendResult?.blocked && !sendResult?.skipped) return sendResult;
-  const reason = String(sendResult.reason || '');
+  if (!sendResult?.blocked && !sendResult?.skipped && !sendResult?.pendingApproval && !sendResult?.queued && sendResult?.id) return sendResult;
+  const reason = String(sendResult?.reason || '');
   const err = new Error(
-    reason === 'missing_sender_alias_blocked'
+    sendResult?.pendingApproval
+      ? 'Email is awaiting approval and has not been delivered.'
+      : reason === 'missing_sender_alias_blocked'
       ? 'Email was not sent. This tenant needs a real From alias (sending as ai@plottwistco.com is blocked).'
       : reason.includes('opt')
         ? 'Email was not sent. This recipient has opted out of email.'
@@ -298,15 +302,18 @@ export async function replyToConversation(conversationId, payload, { userId } = 
   const primary = participants.find((p) => p.is_primary) || participants[0];
   const messages = await CommunicationConversation.listMessages(conversationId);
   const lastInbound = [...messages].reverse().find((m) => m.direction === 'inbound' && !m.is_internal_note);
+  const replyHeaders = emailReplyHeaders(messages, mode);
 
   let to = normalizeAddressList(payload.to);
   let cc = normalizeAddressList(payload.cc);
   const bcc = normalizeAddressList(payload.bcc);
 
-  if (!to.length && mode !== 'forward' && primary?.email) {
-    to = [{ email: primary.email, name: primary.display_name }];
+  if (!to.length && mode !== 'forward') {
+    const lastSent = [...messages].reverse().find((m) => m.direction === 'outbound' && !m.is_internal_note && (m.send_status || 'sent') === 'sent');
+    to = normalizeAddressList(lastInbound?.from ? [lastInbound.from] : lastSent?.to);
+    if (!to.length && primary?.email) to = [{ email: primary.email, name: primary.display_name }];
   }
-  if (mode === 'reply_all' && lastInbound) {
+  if (mode === 'reply_all' && lastInbound && payload.cc == null) {
     const extra = [
       ...(Array.isArray(lastInbound.to) ? lastInbound.to : []),
       ...(Array.isArray(lastInbound.cc) ? lastInbound.cc : [])
@@ -336,6 +343,30 @@ export async function replyToConversation(conversationId, payload, { userId } = 
     if (blocked) throw new Error(`Blocked address: ${addr.email}`);
   }
 
+  if (mode === 'forward') {
+    const original = [...messages].reverse().find((m) => !m.is_internal_note && (m.send_status || 'sent') === 'sent');
+    const quoted = original ? `\n\n---------- Forwarded message ----------\nFrom: ${original.from?.email || ''}\nSubject: ${original.subject || conv.subject || ''}\n\n${original.body_text || ''}` : '';
+    const subject = payload.subject || conv.subject || '(no subject)';
+    const originalAttachments = original ? await loadOutboundAttachments(original.id) : [];
+    const forwarded = await composeNewEmail({
+      agencyId: conv.agency_id, inboxId: conv.inbox_id, userId,
+      payload: {
+        ...payload, to, cc, bcc: bccFinal, attachments: [...originalAttachments, ...(payload.attachments || [])],
+        subject: /^fwd:/i.test(subject) ? subject : `Fwd: ${subject}`,
+        text: `${payload.text || ''}${quoted}`,
+        html: payload.html ? `${payload.html}${plainTextToHtml(quoted)}` : null
+      }
+    });
+    return { ...forwarded, forwardedConversationId: forwarded.id };
+  }
+
+  for (const recipient of [...to, ...cc]) {
+    if (participants.some((p) => String(p.email || '').toLowerCase() === recipient.email.toLowerCase())) continue;
+    await CommunicationConversation.upsertParticipant(conversationId, {
+      kind: 'email', email: recipient.email, displayName: recipient.name || recipient.email, isPrimary: false
+    });
+  }
+
   const subjectBase = payload.subject || conv.subject || '';
   let subject = subjectBase;
   if (mode === 'forward' && !/^fwd:/i.test(subject)) subject = `Fwd: ${subjectBase}`;
@@ -359,13 +390,15 @@ export async function replyToConversation(conversationId, payload, { userId } = 
       subject,
       bodyText: payload.text || '',
       bodyHtml: payload.html || null,
-      inReplyTo: lastInbound?.internet_message_id || null,
-      sendStatus: 'scheduled',
+      inReplyTo: replyHeaders.inReplyTo,
+      referencesHeader: replyHeaders.referencesHeader,
+      sendStatus: 'preparing',
       scheduledSendAt: when,
       undoExpiresAt: when,
       sentAt: null
     });
-    await persistScheduledAttachments(msgId, payload.attachments);
+    await prepareMessageAttachments(msgId, payload.attachments);
+    await CommunicationConversation.updateMessage(msgId, { sendStatus: 'scheduled' });
     const nextStatus = payload.setStatus || 'waiting_on_them';
     await CommunicationConversation.update(conversationId, { status: nextStatus });
     return {
@@ -377,22 +410,6 @@ export async function replyToConversation(conversationId, payload, { userId } = 
     };
   }
 
-  const sendResult = await deliverOutboundEmail({
-    conv,
-    inbox,
-    senderIdentityId,
-    userId,
-    to,
-    cc,
-    bcc: bccFinal,
-    subject,
-    text: payload.text,
-    html: payload.html,
-    attachments: payload.attachments,
-    inReplyTo: lastInbound?.internet_message_id || null
-  });
-
-  const undoExpiresAt = new Date(Date.now() + UNDO_WINDOW_MS);
   const msgId = await CommunicationConversation.addMessage({
     conversationId,
     channel: 'email',
@@ -405,13 +422,32 @@ export async function replyToConversation(conversationId, payload, { userId } = 
     subject,
     bodyText: payload.text || '',
     bodyHtml: payload.html || null,
-    internetMessageId: sendResult?.id || null,
-    inReplyTo: lastInbound?.internet_message_id || null,
-    sendStatus: 'sent',
-    undoExpiresAt,
-    sentAt: new Date()
+    inReplyTo: replyHeaders.inReplyTo,
+    referencesHeader: replyHeaders.referencesHeader,
+    sendStatus: 'preparing',
+    sentAt: null
   });
 
+  await prepareMessageAttachments(msgId, payload.attachments);
+  const sendResult = await deliverPreparedMessage(msgId, () => deliverOutboundEmail({
+    conv,
+    inbox,
+    senderIdentityId,
+    userId,
+    to,
+    cc,
+    bcc: bccFinal,
+    subject,
+    text: payload.text,
+    html: payload.html,
+    attachments: payload.attachments,
+    inReplyTo: replyHeaders.inReplyTo,
+    referencesHeader: replyHeaders.referencesHeader
+  }));
+
+  if (sendResult?.threadId) await CommunicationConversation.update(conv.id, { externalThreadId: sendResult.threadId });
+  const undoExpiresAt = new Date(Date.now() + UNDO_WINDOW_MS);
+  await CommunicationConversation.updateMessage(msgId, { sendStatus: 'sent', sentAt: new Date(), internetMessageId: sendResult.internetMessageId || sendResult.id });
   const nextStatus = payload.setStatus || 'waiting_on_them';
   await CommunicationConversation.update(conversationId, { status: nextStatus });
 
@@ -430,71 +466,25 @@ export function resolveScheduleAt(payload) {
   });
 }
 
-async function persistScheduledAttachments(messageId, attachments) {
-  if (!messageId || !Array.isArray(attachments) || !attachments.length) return;
-  const fs = await import('fs/promises');
-  const path = await import('path');
-  const root = path.join(process.cwd(), 'uploads', 'scheduled-email', String(messageId));
-  await fs.mkdir(root, { recursive: true });
-  for (const att of attachments) {
-    const filename = String(att.filename || att.name || 'file')
-      .replace(/[/\\]/g, '_')
-      .slice(0, 180);
-    const b64 = String(att.contentBase64 || att.content || '').replace(/^data:[^;]+;base64,/, '');
-    if (!b64) continue;
-    const buf = Buffer.from(b64, 'base64');
-    await fs.writeFile(path.join(root, filename), buf);
-    await CommunicationConversation.addAttachment(messageId, {
-      filename,
-      contentType: att.contentType || att.content_type || null,
-      sizeBytes: buf.length,
-      storageKey: `scheduled-email/${messageId}/${filename}`,
-      storageUrl: null
-    });
+async function prepareMessageAttachments(messageId, attachments) {
+  try { await persistOutboundAttachments(messageId, attachments); }
+  catch (e) {
+    await CommunicationConversation.updateMessage(messageId, { sendStatus: 'failed' });
+    throw e;
   }
 }
 
-async function loadScheduledAttachments(messageId) {
-  if (!messageId) return null;
-  try {
-    const [rows] = await (
-      await import('../config/database.js')
-    ).default.execute(
-      `SELECT filename, content_type, storage_key FROM communication_attachments WHERE message_id = ?`,
-      [messageId]
-    );
-    if (!rows?.length) return null;
-    const fs = await import('fs/promises');
-    const path = await import('path');
-    const out = [];
-    for (const r of rows) {
-      const key = String(r.storage_key || '');
-      if (!key.startsWith('scheduled-email/')) continue;
-      const filePath = path.join(process.cwd(), 'uploads', key);
-      const buf = await fs.readFile(filePath);
-      out.push({
-        filename: r.filename,
-        contentType: r.content_type || 'application/octet-stream',
-        contentBase64: buf.toString('base64')
-      });
-    }
-    return out.length ? out : null;
-  } catch (e) {
-    console.warn('[unifiedInbox] load scheduled attachments:', e?.message || e);
-    return null;
+async function deliverPreparedMessage(messageId, deliver) {
+  await CommunicationConversation.updateMessage(messageId, { sendStatus: 'sending' });
+  try { return assertOutboundEmailDelivered(await deliver()); }
+  catch (e) {
+    await CommunicationConversation.updateMessage(messageId, { sendStatus: 'failed' });
+    throw e;
   }
 }
-
-async function cleanupScheduledAttachments(messageId) {
-  try {
-    const fs = await import('fs/promises');
-    const path = await import('path');
-    const dir = path.join(process.cwd(), 'uploads', 'scheduled-email', String(messageId));
-    await fs.rm(dir, { recursive: true, force: true });
-  } catch {
-    /* ignore */
-  }
-}
+const loadScheduledAttachments = loadOutboundAttachments;
+// Sent attachments remain available for downloads and forwarding.
+async function cleanupScheduledAttachments() {}
 
 async function deliverOutboundEmail({
   conv,
@@ -508,7 +498,8 @@ async function deliverOutboundEmail({
   text,
   html,
   attachments,
-  inReplyTo
+  inReplyTo,
+  referencesHeader = null
 }) {
   const { resolveMessagesSendMailbox } = await import('./tenantMessageMailboxes.service.js');
   const mailbox = await resolveMessagesSendMailbox(conv.agency_id || inbox?.agency_id);
@@ -535,7 +526,7 @@ async function deliverOutboundEmail({
       html: bodyHtml,
       attachments: attachments || null,
       inReplyTo: inReplyTo || null,
-      references: inReplyTo || null,
+      references: referencesHeader || inReplyTo || null,
       threadId: conv.external_thread_id || null,
       source: 'manual',
       generatedByUserId: userId,
@@ -662,14 +653,16 @@ export async function processScheduledOutboundSends({ limit = 40 } = {}) {
         text: row.body_text,
         html: row.body_html,
         attachments,
-        inReplyTo: row.in_reply_to
+        inReplyTo: row.in_reply_to,
+        referencesHeader: row.references_header
       });
+      if (sendResult?.threadId) await CommunicationConversation.update(conv.id, { externalThreadId: sendResult.threadId });
       await CommunicationConversation.updateMessage(row.id, {
         sendStatus: 'sent',
         sentAt: new Date(),
         scheduledSendAt: null,
         undoExpiresAt: null,
-        internetMessageId: sendResult?.id || null
+        internetMessageId: sendResult?.internetMessageId || sendResult?.id || null
       });
       await pool
         .execute(`UPDATE communication_messages SET send_claimed_at = NULL WHERE id = ?`, [row.id])
@@ -882,12 +875,12 @@ export async function composeNewEmail({ agencyId, inboxId, userId, payload }) {
     lastMessagePreview: previewText(payload.text || payload.html)
   });
 
-  await CommunicationConversation.upsertParticipant(conv.id, {
-    kind: 'email',
-    email: to[0].email,
-    displayName: to[0].name || to[0].email,
-    isPrimary: true
-  });
+  for (const [index, recipient] of [...to, ...cc].entries()) {
+    await CommunicationConversation.upsertParticipant(conv.id, {
+      kind: 'email', email: recipient.email,
+      displayName: recipient.name || recipient.email, isPrimary: index === 0
+    });
+  }
 
   const scheduleAt = resolveScheduleAt(payload);
   const undoMs = scheduleAt ? 0 : resolveUndoDelayMs(payload);
@@ -906,12 +899,13 @@ export async function composeNewEmail({ agencyId, inboxId, userId, payload }) {
       subject,
       bodyText: payload.text || '',
       bodyHtml: bodyHtml || null,
-      sendStatus: 'scheduled',
+      sendStatus: 'preparing',
       scheduledSendAt: when,
       undoExpiresAt: when,
       sentAt: null
     });
-    await persistScheduledAttachments(msgId, payload.attachments);
+    await prepareMessageAttachments(msgId, payload.attachments);
+    await CommunicationConversation.updateMessage(msgId, { sendStatus: 'scheduled' });
     return {
       ...conv,
       id: conv.id,
@@ -923,7 +917,24 @@ export async function composeNewEmail({ agencyId, inboxId, userId, payload }) {
     };
   }
 
-  const sendResult = await sendEmailFromIdentity({
+  const msgId = await CommunicationConversation.addMessage({
+    conversationId: conv.id,
+    channel: 'email',
+    direction: 'outbound',
+    authorUserId: userId,
+    from: { email: fromEmail, name: fromDisplayName },
+    to,
+    cc,
+    bcc,
+    subject,
+    bodyText: payload.text || '',
+    bodyHtml: bodyHtml || null,
+    sendStatus: 'preparing',
+    sentAt: null
+  });
+
+  await prepareMessageAttachments(msgId, payload.attachments);
+  const sendResult = await deliverPreparedMessage(msgId, () => sendEmailFromIdentity({
     senderIdentityId: mailbox.identity.id,
     to: to.map((t) => t.email).join(', '),
     cc: cc.length ? cc.map((c) => c.email).join(', ') : null,
@@ -938,25 +949,11 @@ export async function composeNewEmail({ agencyId, inboxId, userId, payload }) {
     generatedByUserId: userId,
     clientId: payload.clientId || null,
     templateType: payload.templateType || 'hub_email'
-  });
+  }));
   assertOutboundEmailDelivered(sendResult);
+  if (sendResult?.threadId) await CommunicationConversation.update(conv.id, { externalThreadId: sendResult.threadId });
 
-  const msgId = await CommunicationConversation.addMessage({
-    conversationId: conv.id,
-    channel: 'email',
-    direction: 'outbound',
-    authorUserId: userId,
-    from: { email: fromEmail, name: fromDisplayName },
-    to,
-    cc,
-    bcc,
-    subject,
-    bodyText: payload.text || '',
-    bodyHtml: bodyHtml || null,
-    internetMessageId: sendResult?.id || null,
-    sentAt: new Date()
-  });
-
+  await CommunicationConversation.updateMessage(msgId, { sendStatus: 'sent', sentAt: new Date(), internetMessageId: sendResult.internetMessageId || sendResult.id });
   return {
     ...conv,
     id: conv.id,
@@ -978,7 +975,8 @@ async function replySmsConversation(conversationId, conv, payload, { userId } = 
   const text = String(payload.text || '').trim();
   if (!text) throw new Error('Message text is required');
 
-  let { clientId, contactId } = parseSmsConversationTarget(conv);
+  let { clientId, contactId, threadKey } = parseSmsConversationTarget(conv);
+  if (!threadKey) throw Object.assign(new Error('This legacy SMS history has no verified phone pair. Start a new conversation.'), { status: 409 });
   if (!clientId && !contactId) {
     const links = await CommunicationConversation.listLinks(conversationId);
     const clientLink = links.find((l) => l.entity_type === 'client');
@@ -993,7 +991,8 @@ async function replySmsConversation(conversationId, conv, payload, { userId } = 
     clientId,
     contactId,
     body: text,
-    numberId: payload.numberId
+    numberId: payload.numberId,
+    threadKey
   });
 
   const preview = previewText(text);

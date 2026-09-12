@@ -2,6 +2,7 @@
  * People-first Messaging Hub: search, method availability, timeline merge, send dispatch helpers.
  */
 import pool from '../config/database.js';
+import { listMessageReactions } from './hubMessageReactions.service.js';
 import { searchCommunicationDirectory, listCommunicationDirectoryByKind } from './communicationDirectory.service.js';
 import { findPersonalInbox, ensurePersonalMailbox } from './personalMailbox.service.js';
 import {
@@ -1904,7 +1905,7 @@ async function loadClientMessagingContext({ clientId, agencyId, selectedUserId =
   };
 }
 
-async function loadChatTimeline({ agencyId, actorUserId, otherUserId, limit = 40 }) {
+async function loadChatTimeline({ agencyId, actorUserId, otherUserId, limit = 40, beforeId = null }) {
   if (!otherUserId) return [];
   try {
     // Merge across all direct threads between these two users. Hub send may create a
@@ -1944,35 +1945,17 @@ async function loadChatTimeline({ agencyId, actorUserId, otherUserId, limit = 40
     if (!threadIds.length) return [];
 
     const ph = threadIds.map(() => '?').join(',');
-    let rows;
-    try {
-      const [withSubject] = await pool.execute(
-        `SELECT m.id, m.thread_id, m.body, m.body_ciphertext, m.body_iv, m.body_auth_tag, m.created_at, m.sender_user_id,
-                m.subject,
-                u.first_name AS sender_first_name, u.last_name AS sender_last_name,
-                u.profile_photo_path AS sender_profile_photo_path
-         FROM chat_messages m
-         LEFT JOIN users u ON u.id = m.sender_user_id
-         WHERE m.thread_id IN (${ph})
-         ORDER BY m.created_at DESC, m.id DESC
-         LIMIT ${Math.min(limit, 80)}`,
-        threadIds
-      );
-      rows = withSubject;
-    } catch {
-      const [withoutSubject] = await pool.execute(
-        `SELECT m.id, m.thread_id, m.body, m.body_ciphertext, m.body_iv, m.body_auth_tag, m.created_at, m.sender_user_id,
-                u.first_name AS sender_first_name, u.last_name AS sender_last_name,
-                u.profile_photo_path AS sender_profile_photo_path
-         FROM chat_messages m
-         LEFT JOIN users u ON u.id = m.sender_user_id
-         WHERE m.thread_id IN (${ph})
-         ORDER BY m.created_at DESC, m.id DESC
-         LIMIT ${Math.min(limit, 80)}`,
-        threadIds
-      );
-      rows = withoutSubject;
-    }
+    const [rows] = await pool.execute(
+      `SELECT m.id, m.thread_id, m.body, m.body_ciphertext, m.body_iv, m.body_auth_tag, m.created_at, m.sender_user_id,
+              m.subject, m.topic_id, m.parent_message_id,
+              u.first_name AS sender_first_name, u.last_name AS sender_last_name,
+              u.profile_photo_path AS sender_profile_photo_path
+       FROM chat_messages m LEFT JOIN users u ON u.id = m.sender_user_id
+       WHERE m.thread_id IN (${ph})
+         ${Number.isSafeInteger(Number(beforeId)) && Number(beforeId) > 0 ? 'AND m.id < ' + Number(beforeId) : ''}
+         AND NOT EXISTS (SELECT 1 FROM chat_message_deletes d WHERE d.message_id = m.id AND d.user_id = ?)
+       ORDER BY m.id DESC LIMIT ${Math.min(Math.max(Number(limit) || 40, 1), 200)}`, [...threadIds, actorUserId]
+    );
     const messageIds = (rows || []).map((m) => Number(m.id)).filter(Boolean);
 
     // Other participants' read watermarks (for face-style read receipts on outbound).
@@ -2100,7 +2083,7 @@ async function loadChatTimeline({ agencyId, actorUserId, otherUserId, limit = 40
       items.push({
         id: `chat-${m.id}`,
         channel: 'secure',
-        bodyPreview: String(body || '').slice(0, 400),
+        bodyPreview: String(body || ''),
         createdAt: m.created_at,
         direction,
         attachments: attachmentsByMessage.get(mid) || [],
@@ -2115,7 +2098,7 @@ async function loadChatTimeline({ agencyId, actorUserId, otherUserId, limit = 40
             }
           : null,
         readBy,
-        meta: { threadId: Number(m.thread_id), messageId: mid, subject: m.subject || null }
+        meta: { threadId: Number(m.thread_id), messageId: mid, topicId: m.topic_id || null, legacyRootMessageId: Number(m.parent_message_id || m.id), subject: m.subject || null }
       });
     }
     return items;
@@ -2124,36 +2107,40 @@ async function loadChatTimeline({ agencyId, actorUserId, otherUserId, limit = 40
   }
 }
 
-async function loadSmsTimeline({ agencyId, actorUserId, clientId, contactId, limit = 40 }) {
+async function loadSmsTimeline({ agencyId, actorUserId, clientId, contactId, limit = 40, beforeId = null }) {
   if (!clientId && !contactId) return [];
   try {
     let sql;
     let params;
     if (clientId) {
-      sql = `SELECT id, body, direction, created_at
+      sql = `SELECT id, body, direction, created_at, sms_thread_key, from_number, to_number
              FROM message_logs
              WHERE client_id = ?
-               AND (agency_id = ? OR agency_id IS NULL)
-             ORDER BY created_at DESC, id DESC
-             LIMIT ${Math.min(limit, 80)}`;
-      params = [clientId, agencyId];
+               AND agency_id = ?
+               AND (user_id = ? OR assigned_user_id = ? OR number_id IN (SELECT number_id FROM twilio_number_assignments WHERE user_id = ? AND is_active = 1 AND sms_access_enabled = 1))
+             ${Number.isSafeInteger(Number(beforeId)) && Number(beforeId) > 0 ? 'AND id < ' + Number(beforeId) : ''}
+             ORDER BY id DESC
+             LIMIT ${Math.min(Math.max(Number(limit) || 40, 1), 200)}`;
+      params = [clientId, agencyId, actorUserId, actorUserId, actorUserId];
     } else {
-      sql = `SELECT id, body, direction, created_at
+      sql = `SELECT id, body, direction, created_at, sms_thread_key, from_number, to_number
              FROM message_logs
              WHERE agency_contact_id = ?
-               AND (agency_id = ? OR agency_id IS NULL)
-             ORDER BY created_at DESC, id DESC
-             LIMIT ${Math.min(limit, 80)}`;
-      params = [contactId, agencyId];
+               AND agency_id = ?
+               AND (user_id = ? OR assigned_user_id = ? OR number_id IN (SELECT number_id FROM twilio_number_assignments WHERE user_id = ? AND is_active = 1 AND sms_access_enabled = 1))
+             ${Number.isSafeInteger(Number(beforeId)) && Number(beforeId) > 0 ? 'AND id < ' + Number(beforeId) : ''}
+             ORDER BY id DESC
+             LIMIT ${Math.min(Math.max(Number(limit) || 40, 1), 200)}`;
+      params = [contactId, agencyId, actorUserId, actorUserId, actorUserId];
     }
     const [rows] = await pool.execute(sql, params);
     return (rows || []).map((r) => ({
       id: `sms-${r.id}`,
       channel: 'sms',
-      bodyPreview: String(r.body || '').slice(0, 400),
+      bodyPreview: String(r.body || ''),
       createdAt: r.created_at,
       direction: String(r.direction || '').toLowerCase().includes('in') ? 'inbound' : 'outbound',
-      meta: { messageLogId: r.id, clientId, contactId }
+      meta: { messageLogId: r.id, smsThreadKey: r.sms_thread_key, fromNumber: r.from_number, toNumber: r.to_number, clientId, contactId }
     }));
   } catch {
     return [];
@@ -2179,7 +2166,7 @@ export function normalizeHubEmailSubjectKey(subject) {
  * for the participant (that mixed unrelated tickets into the quote).
  * Newest prior first; oldest last (marked original by the email HTML builder).
  */
-async function loadHubEmailHistoryForPerson({
+export async function loadHubEmailHistoryForPerson({
   agencyId,
   actorUserId,
   email,
@@ -2190,11 +2177,9 @@ async function loadHubEmailHistoryForPerson({
 } = {}) {
   if (!email) return [];
   const normalized = String(email).trim().toLowerCase();
-  const subjectKey = normalizeHubEmailSubjectKey(subject);
-  const hasSubject = subjectKey && subjectKey !== '(no subject)';
   const cid = Number(conversationId || 0) || null;
-  // New compose with no subject / conversation → no history (avoid unrelated threads).
-  if (!hasSubject && !cid) return [];
+  // No explicit conversation means new compose: never include earlier mail.
+  if (!cid) return [];
   try {
     const { stripEmailHistoryBody } = await import('./hubBrandedEmail.service.js');
     const [rows] = await pool.execute(
@@ -2207,6 +2192,7 @@ async function loadHubEmailHistoryForPerson({
        LEFT JOIN users u ON u.id = m.author_user_id
        WHERE c.agency_id = ?
          AND c.channel = 'email'
+         AND c.id = ?
          AND EXISTS (
            SELECT 1 FROM communication_participants p
            WHERE p.conversation_id = c.id
@@ -2217,7 +2203,7 @@ async function loadHubEmailHistoryForPerson({
          AND COALESCE(m.send_status, 'sent') = 'sent'
        ORDER BY COALESCE(m.sent_at, m.created_at) DESC, m.id DESC
        LIMIT 80`,
-      [agencyId, normalized, actorUserId, actorUserId, actorUserId]
+      [agencyId, cid, normalized, actorUserId, actorUserId, actorUserId]
     );
 
     const parseFrom = (raw) => {
@@ -2230,18 +2216,7 @@ async function loadHubEmailHistoryForPerson({
       }
     };
 
-    let seedKey = hasSubject ? subjectKey : null;
-    if (!seedKey && cid) {
-      const seed = (rows || []).find((r) => Number(r.conversation_id) === cid);
-      seedKey = normalizeHubEmailSubjectKey(seed?.subject || seed?.conv_subject || '');
-    }
-
-    const filtered = (rows || []).filter((r) => {
-      if (cid && Number(r.conversation_id) === cid) return true;
-      if (!seedKey || seedKey === '(no subject)') return false;
-      const key = normalizeHubEmailSubjectKey(r.subject || r.conv_subject || '');
-      return key === seedKey;
-    });
+    const filtered = (rows || []).filter((r) => Number(r.conversation_id) === cid);
 
     const sliced = filtered.slice(0, Math.min(Math.max(Number(limit) || 8, 1), 12));
     return sliced.map((r, idx, arr) => {
@@ -2267,53 +2242,31 @@ async function loadHubEmailHistoryForPerson({
 }
 
 /**
- * Prefer an existing Hub messages@ conversation with the same participant + subject thread.
+ * Resolve an explicit Hub reply after checking recipient, tenant, and ownership.
  */
-async function findHubEmailConversationForSubject({
-  agencyId,
-  inboxId,
-  email,
-  subject,
-  explicitConversationId = null,
-  actorUserId = null
+export async function resolveHubEmailReplyConversation({
+  agencyId, email, explicitConversationId = null, actorUserId = null
 } = {}) {
+  // Only an explicit Reply continues a thread. New compose always creates one,
+  // including when a previous conversation has the same subject and recipients.
   const cid = Number(explicitConversationId || 0);
-  if (cid > 0) return cid;
-  const normalized = String(email || '')
-    .trim()
-    .toLowerCase();
-  const subjectKey = normalizeHubEmailSubjectKey(subject);
-  if (!normalized || !subjectKey || subjectKey === '(no subject)' || !inboxId) return null;
-  const uid = Number(actorUserId || 0);
-  if (!uid) return null;
-  try {
-    const [rows] = await pool.execute(
-      `SELECT c.id, c.subject
-       FROM communication_conversations c
-       WHERE c.agency_id = ?
-         AND c.inbox_id = ?
-         AND c.channel = 'email'
-         AND EXISTS (
-           SELECT 1 FROM communication_participants p
-           WHERE p.conversation_id = c.id
-             AND LOWER(COALESCE(p.email, '')) = ?
-         )
-         AND ${HUB_EMAIL_CONV_ACTOR_SCOPE_SQL}
-       ORDER BY COALESCE(c.last_message_at, c.updated_at, c.created_at) DESC, c.id DESC
-       LIMIT 40`,
-      [agencyId, inboxId, normalized, uid, uid]
-    );
-    const match = (rows || []).find(
-      (r) => normalizeHubEmailSubjectKey(r.subject) === subjectKey
-    );
-    return match?.id ? Number(match.id) : null;
-  } catch (e) {
-    console.warn('[findHubEmailConversationForSubject]', e?.message || e);
-    return null;
+  if (!cid) return null;
+  const [rows] = await pool.execute(
+    `SELECT c.id FROM communication_conversations c
+     WHERE c.id = ? AND c.agency_id = ? AND c.channel = 'email'
+       AND EXISTS (SELECT 1 FROM communication_participants p
+         WHERE p.conversation_id = c.id AND LOWER(p.email) = ?)
+       AND ${HUB_EMAIL_CONV_ACTOR_SCOPE_SQL}
+     LIMIT 1`,
+    [cid, agencyId, String(email || '').trim().toLowerCase(), actorUserId, actorUserId]
+  );
+  if (!rows?.length) {
+    throw Object.assign(new Error('Conversation not found for this recipient'), { status: 404 });
   }
+  return Number(rows[0].id);
 }
 
-async function loadEmailTimeline({ agencyId, actorUserId, email, limit = 40 }) {
+export async function loadEmailTimeline({ agencyId, actorUserId, email, limit = 40, conversationId = null, beforeId = null }) {
   if (!email) return [];
   const normalized = String(email).trim().toLowerCase();
   const uid = Number(actorUserId || 0);
@@ -2322,25 +2275,29 @@ async function loadEmailTimeline({ agencyId, actorUserId, email, limit = 40 }) {
     // Only this user's own mail to/from this address — never the shared mailbox dump.
     const [rows] = await pool.execute(
       `SELECT m.id AS message_id, m.conversation_id, m.direction, m.body_text, m.subject,
+              m.from_json, m.to_json, m.cc_json, i.from_email AS inbox_from_email,
               m.sent_at, m.created_at, m.send_status, m.scheduled_send_at, m.undo_expires_at,
-              c.subject AS conv_subject,
+              c.subject AS conv_subject, c.agency_id AS conversation_agency_id,
               c.starred AS conversation_starred,
               i.identity_key AS inbox_key,
               (
                 SELECT uc.opened_at FROM user_communications uc
-                WHERE uc.external_message_id = m.internet_message_id
+                WHERE (uc.external_message_id = m.internet_message_id
+                  OR JSON_UNQUOTE(JSON_EXTRACT(uc.metadata, '$.internetMessageId')) = m.internet_message_id)
                   AND m.internet_message_id IS NOT NULL
                 ORDER BY uc.id DESC LIMIT 1
               ) AS opened_at,
               (
                 SELECT uc.delivered_at FROM user_communications uc
-                WHERE uc.external_message_id = m.internet_message_id
+                WHERE (uc.external_message_id = m.internet_message_id
+                  OR JSON_UNQUOTE(JSON_EXTRACT(uc.metadata, '$.internetMessageId')) = m.internet_message_id)
                   AND m.internet_message_id IS NOT NULL
                 ORDER BY uc.id DESC LIMIT 1
               ) AS delivered_at,
               (
                 SELECT uc.id FROM user_communications uc
-                WHERE uc.external_message_id = m.internet_message_id
+                WHERE (uc.external_message_id = m.internet_message_id
+                  OR JSON_UNQUOTE(JSON_EXTRACT(uc.metadata, '$.internetMessageId')) = m.internet_message_id)
                   AND m.internet_message_id IS NOT NULL
                 ORDER BY uc.id DESC LIMIT 1
               ) AS user_communication_id
@@ -2348,6 +2305,7 @@ async function loadEmailTimeline({ agencyId, actorUserId, email, limit = 40 }) {
        JOIN communication_conversations c ON c.id = m.conversation_id
        LEFT JOIN communication_inboxes i ON i.id = c.inbox_id
        WHERE c.channel = 'email'
+         ${Number(conversationId) > 0 ? 'AND c.id = ' + Number(conversationId) : ''}
          AND EXISTS (
            SELECT 1 FROM communication_participants p
            WHERE p.conversation_id = c.id
@@ -2356,28 +2314,46 @@ async function loadEmailTimeline({ agencyId, actorUserId, email, limit = 40 }) {
          AND ${HUB_EMAIL_ACTOR_SCOPE_SQL}
          AND COALESCE(m.is_internal_note, 0) = 0
          AND COALESCE(m.send_status, 'sent') <> 'cancelled'
-       ORDER BY COALESCE(m.sent_at, m.scheduled_send_at, m.created_at) DESC, m.id DESC
-       LIMIT ${Math.min(limit, 80)}`,
+       ${Number.isSafeInteger(Number(beforeId)) && Number(beforeId) > 0 ? 'AND m.id < ' + Number(beforeId) : ''}
+       ORDER BY m.id DESC
+       LIMIT ${Math.min(Math.max(Number(limit) || 40, 1), 200)}`,
       [normalized, uid, uid, uid]
     );
+    const parseAddressJson = (raw, fallback) => {
+      if (typeof raw !== 'string') return raw || fallback;
+      try { return JSON.parse(raw); } catch { return fallback; }
+    };
+    const reactions = await listMessageReactions((rows || []).map((r) => r.message_id), uid);
+    const attachments = new Map();
+    if (rows.length) {
+      const [atts] = await pool.execute(`SELECT a.*, m.conversation_id FROM communication_attachments a JOIN communication_messages m ON m.id = a.message_id WHERE a.message_id IN (${rows.map(() => '?').join(',')})`, rows.map((r) => r.message_id));
+      for (const a of atts) { const list = attachments.get(Number(a.message_id)) || []; list.push({ id: a.id, original_filename: a.filename, mime_type: a.content_type, downloadPath: `/communications/conversations/${a.conversation_id}/attachments/${a.id}` }); attachments.set(Number(a.message_id), list); }
+    }
     return (rows || []).map((r) => {
       const dir = String(r.direction || '').toLowerCase() === 'inbound' ? 'inbound' : 'outbound';
-      const preview = compactEmailPreview(r.body_text || r.subject || r.conv_subject || '', 400);
+      const preview = compactEmailPreview(r.body_text || r.subject || r.conv_subject || '', Number.MAX_SAFE_INTEGER);
       const sendStatus = String(r.send_status || 'sent').toLowerCase();
       return {
         id: `email-msg-${r.message_id}`,
         channel: 'email',
+        attachments: attachments.get(Number(r.message_id)) || [],
+        reactions: reactions.get(Number(r.message_id)) || [],
+        from: parseAddressJson(r.from_json, null),
+        to: parseAddressJson(r.to_json, []),
+        cc: parseAddressJson(r.cc_json, []),
         bodyPreview: preview,
         createdAt: r.sent_at || r.scheduled_send_at || r.created_at,
         direction: dir,
         meta: {
           conversationId: r.conversation_id,
+          agencyId: r.conversation_agency_id,
           messageId: r.message_id,
           subject: r.subject || r.conv_subject,
           openedAt: r.opened_at || null,
           deliveredAt: r.delivered_at || null,
           userCommunicationId: r.user_communication_id || null,
           inboxKey: r.inbox_key || null,
+          inboxEmail: r.inbox_from_email || null,
           sendStatus,
           scheduledSendAt: r.scheduled_send_at || null,
           undoExpiresAt: r.undo_expires_at || null,
@@ -2419,7 +2395,7 @@ export async function markChatThreadReadToLatest({ threadId, userId } = {}) {
  * Opening or sending in Hub means you saw the thread.
  * Marks direct chat with this person + email conversations with their address as read.
  */
-export async function markHubPersonRead({ agencyId, userId, person } = {}) {
+export async function markHubPersonRead({ agencyId, userId, person, includeEmail = true } = {}) {
   const uid = Number(userId || 0);
   if (!uid || !person) return { chat: 0, email: 0 };
   const aid = Number(person.agencyId || agencyId || 0) || null;
@@ -2448,7 +2424,7 @@ export async function markHubPersonRead({ agencyId, userId, person } = {}) {
   }
 
   const addr = String(person.email || '').trim().toLowerCase();
-  if (addr) {
+  if (addr && includeEmail) {
     try {
       const CommunicationConversation = (await import('../models/CommunicationConversation.model.js'))
         .default;
@@ -2577,12 +2553,21 @@ export async function markHubPersonUnread({ agencyId, userId, person } = {}) {
 /**
  * Merge-on-read timeline for a person.
  */
-export async function getHubPersonTimeline({ agencyId, userId, personKey, limit = 60 }) {
+export async function getHubPersonTimeline({ agencyId, userId, personKey, limit = 60, conversationId = null, beforeId = null, channel = null }) {
   const person = await resolveHubPerson({ agencyId, userId, personKey });
   if (!person) return { person: null, items: [] };
   const aid = person.agencyId || agencyId;
 
-  const [chat, sms, email, pendingQueue] = await Promise.all([
+  if (Number.isSafeInteger(Number(beforeId)) && Number(beforeId) > 0) {
+    let items = [];
+    const args = { agencyId: aid, actorUserId: userId, beforeId, limit: 200 };
+    if (channel === 'email') items = await loadEmailTimeline({ ...args, email: person.email, conversationId });
+    else if (channel === 'sms') items = await loadSmsTimeline({ ...args, clientId: person.clientId, contactId: person.contactId });
+    else if (['internal', 'secure'].includes(channel)) items = (await loadChatTimeline({ ...args, otherUserId: person.userId })).map((m) => ({ ...m, channel: person.kinds.includes('guardian') || person.kinds.includes('client') ? 'secure' : 'internal' }));
+    else throw Object.assign(new Error('Invalid history channel'), { status: 400 });
+    return { person, items, hasMore: items.length === 200 };
+  }
+  const [chat, sms, email, pendingQueue, selectedEmail] = await Promise.all([
     loadChatTimeline({
       agencyId: aid,
       actorUserId: userId,
@@ -2607,7 +2592,10 @@ export async function getHubPersonTimeline({ agencyId, userId, personKey, limit 
       personKey,
       agencyId: aid,
       limit: 20
-    }).catch(() => [])
+    }).catch(() => []),
+    Number(conversationId) > 0
+      ? loadEmailTimeline({ agencyId: aid, actorUserId: userId, email: person.email, conversationId, limit: 200 })
+      : []
   ]);
 
   const isClientFacing = person.kinds.includes('guardian') || person.kinds.includes('client');
@@ -2632,6 +2620,8 @@ export async function getHubPersonTimeline({ agencyId, userId, personKey, limit 
       sender: null,
       readBy: [],
       meta: {
+        topicId: (typeof r.payload_json === 'string' ? JSON.parse(r.payload_json || '{}') : r.payload_json)?.topicId || null,
+        subject: r.subject || null,
         queueId: Number(r.id),
         queueReason: r.queue_reason || 'undo_delay',
         scheduledSendAt: r.scheduled_send_at,
@@ -2640,7 +2630,8 @@ export async function getHubPersonTimeline({ agencyId, userId, personKey, limit 
     };
   });
 
-  const items = [...normalizedChat, ...sms, ...email, ...pendingItems].sort(
+  const emailItems = [...new Map([...email, ...selectedEmail].map((m) => [m.id, m])).values()];
+  const items = [...normalizedChat, ...sms, ...emailItems, ...pendingItems].sort(
     (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
   );
 
@@ -2663,7 +2654,7 @@ export async function getHubPersonFiles({ agencyId, userId, personKey, limit = 2
       const uid = Number(userId || 0);
       if (uid) {
         const [rows] = await pool.execute(
-        `SELECT a.id, a.filename, a.storage_url, a.content_type, a.created_at, m.id AS message_id, m.subject
+        `SELECT a.id, a.filename, m.conversation_id, a.content_type, a.created_at, m.id AS message_id, m.subject
          FROM communication_attachments a
          JOIN communication_messages m ON m.id = a.message_id
          JOIN communication_conversations c ON c.id = m.conversation_id
@@ -2682,7 +2673,7 @@ export async function getHubPersonFiles({ agencyId, userId, personKey, limit = 2
         files.push({
           id: `att-${r.id}`,
           name: r.filename || 'Attachment',
-          url: r.storage_url || null,
+          downloadPath: `/communications/conversations/${r.conversation_id}/attachments/${r.id}`,
           channel: 'email',
           createdAt: r.created_at,
           subject: r.subject || null
@@ -2708,6 +2699,7 @@ export async function getHubPersonFiles({ agencyId, userId, personKey, limit = 2
         id: `chat-att-${a.id || `${item.id}-${name}`}`,
         name,
         url: a.file_url || a.url || null,
+        downloadPath: a.downloadPath || null,
         channel,
         createdAt: item.createdAt,
         mimeType: a.mime_type || a.content_type || null
@@ -2819,7 +2811,7 @@ export async function sendHubEmail({
     err.status = 400;
     throw err;
   }
-  const sendMode = String(mode || 'reply').toLowerCase() === 'forward' ? 'forward' : 'reply';
+  const sendMode = ['new', 'reply', 'reply_all', 'forward'].includes(mode) ? mode : 'reply';
   const { ensureTenantMessageMailboxes } = await import('./tenantMessageMailboxes.service.js');
   const { buildNormalOutboundEmailHtml } = await import('./hubBrandedEmail.service.js');
   const EmailSenderIdentity = (await import('../models/EmailSenderIdentity.model.js')).default;
@@ -2931,12 +2923,12 @@ export async function sendHubEmail({
   }
 
   const effectiveSubject = subject || `Message from ${agencyName}`;
-  const replyConversationId = await findHubEmailConversationForSubject({
+  const replyConversationId = await resolveHubEmailReplyConversation({
     agencyId: aid,
     inboxId: inbox.id,
     email: person.email,
     subject: effectiveSubject,
-    explicitConversationId: conversationId,
+    explicitConversationId: sendMode === 'new' ? null : conversationId,
     actorUserId: userId
   });
 
@@ -2948,7 +2940,7 @@ export async function sendHubEmail({
       email: person.email,
       agencyName,
       subject: effectiveSubject,
-      conversationId: replyConversationId,
+      conversationId: sendMode === 'new' ? null : replyConversationId,
       limit: 8
     });
   } catch (e) {
@@ -2988,10 +2980,11 @@ export async function sendHubEmail({
   };
 
   const toListEarly = (() => {
-    if (sendMode === 'forward' && toOverride) {
+    if (toOverride) {
       const list = normalizeList(toOverride);
       if (list.length) return list;
     }
+    if (sendMode === 'forward') throw Object.assign(new Error('Forward recipient is required'), { status: 400 });
     return [{ email: person.email, name: person.displayName }];
   })();
   const primaryToEmailEarly = String(toListEarly[0]?.email || person.email || '')
@@ -3021,7 +3014,7 @@ export async function sendHubEmail({
   });
 
   // Stable Reply-To (messages@) — Google Groups often mishandle plus-addresses.
-  // Token still stored so we can match; inbound also falls back by participant email.
+  // Inbound routing uses RFC reply headers or an unambiguous provider thread ID.
   const crypto = await import('crypto');
   const replyRaw = crypto.randomBytes(24).toString('hex');
   const replyHash = crypto.createHash('sha256').update(replyRaw).digest('hex');
@@ -3115,10 +3108,11 @@ export async function sendHubEmail({
   }
 
   const toList = (() => {
-    if (sendMode === 'forward' && toOverride) {
+    if (toOverride) {
       const list = normalizeList(toOverride);
       if (list.length) return list;
     }
+    if (sendMode === 'forward') throw Object.assign(new Error('Forward recipient is required'), { status: 400 });
     return [{ email: person.email, name: person.displayName }];
   })();
   const primaryToEmail = String(toList[0]?.email || person.email || '')
@@ -3132,6 +3126,11 @@ export async function sendHubEmail({
     return e !== primaryToEmail && !ccList.some((x) => String(x.email || '').toLowerCase() === e);
   });
 
+  let forwardedAttachments = [];
+  if (sendMode === 'forward' && replyConversationId) {
+    const [source] = await pool.execute("SELECT id FROM communication_messages WHERE conversation_id = ? AND COALESCE(is_internal_note, 0) = 0 AND send_status = 'sent' ORDER BY id DESC LIMIT 1", [replyConversationId]);
+    if (source[0]) { const { loadOutboundAttachments } = await import('./communicationAttachments.service.js'); forwardedAttachments = await loadOutboundAttachments(source[0].id); }
+  }
   const payload = {
     to: toList,
     cc: ccList,
@@ -3139,7 +3138,7 @@ export async function sendHubEmail({
     subject: effectiveSubject,
     text: body,
     html,
-    attachments: Array.isArray(attachments) ? attachments : null,
+    attachments: [...forwardedAttachments, ...(Array.isArray(attachments) ? attachments : [])],
     fromDisplayName: senderDisplayName,
     replyTo,
     clientId: person.clientId || null,
@@ -3159,7 +3158,7 @@ export async function sendHubEmail({
 
   const { composeNewEmail, replyToConversation } = await import('./unifiedInbox.service.js');
   let result;
-  if (replyConversationId) {
+  if (replyConversationId && sendMode !== 'forward') {
     result = await replyToConversation(replyConversationId, payload, { userId });
     result = { ...result, id: replyConversationId, conversation: { id: replyConversationId } };
   } else {
@@ -3282,117 +3281,7 @@ export async function listHubSendAgencies({ userId, role = null } = {}) {
 /**
  * Emoji/like on a communication message; notify other party in-app + optional messages@ ping.
  */
-export async function reactToHubMessage({
-  agencyId,
-  userId,
-  conversationId,
-  messageId = null,
-  emoji = '❤️',
-  notifyEmail = true
-}) {
-  const cid = Number(conversationId);
-  if (!cid) {
-    const err = new Error('conversationId is required');
-    err.status = 400;
-    throw err;
-  }
-  let mid = messageId ? Number(messageId) : null;
-  if (!mid) {
-    const [rows] = await pool.execute(
-      `SELECT id FROM communication_messages WHERE conversation_id = ? ORDER BY id DESC LIMIT 1`,
-      [cid]
-    );
-    mid = rows?.[0]?.id ? Number(rows[0].id) : null;
-  }
-  if (!mid) {
-    const err = new Error('No message found to react to');
-    err.status = 404;
-    throw err;
-  }
-
-  const emojiSafe = String(emoji || '❤️').slice(0, 32);
-  await pool.execute(
-    `INSERT INTO communication_message_reactions (message_id, conversation_id, user_id, emoji)
-     VALUES (?, ?, ?, ?)
-     ON DUPLICATE KEY UPDATE created_at = CURRENT_TIMESTAMP`,
-    [mid, cid, userId, emojiSafe]
-  );
-
-  const [msgRows] = await pool.execute(
-    `SELECT m.*, c.agency_id, c.subject, c.client_id
-     FROM communication_messages m
-     JOIN communication_conversations c ON c.id = m.conversation_id
-     WHERE m.id = ? AND m.conversation_id = ?
-     LIMIT 1`,
-    [mid, cid]
-  );
-  const msg = msgRows?.[0];
-  if (!msg) return { ok: true, messageId: mid, conversationId: cid, emoji: emojiSafe };
-
-  const aid = Number(msg.agency_id || agencyId);
-  const [reactorRows] = await pool.execute(
-    `SELECT first_name, last_name FROM users WHERE id = ? LIMIT 1`,
-    [userId]
-  );
-  const reactorName =
-    [reactorRows?.[0]?.first_name, reactorRows?.[0]?.last_name].filter(Boolean).join(' ') || 'Someone';
-
-  // Skip notify while conversation is actively snoozed / availability-held.
-  let activelySnoozed = false;
-  try {
-    const [snoozeRows] = await pool.execute(
-      `SELECT snoozed_until FROM communication_conversations WHERE id = ? LIMIT 1`,
-      [cid]
-    );
-    const until = snoozeRows?.[0]?.snoozed_until ? new Date(snoozeRows[0].snoozed_until) : null;
-    activelySnoozed = !!(until && until.getTime() > Date.now());
-  } catch {
-    activelySnoozed = false;
-  }
-
-  // Email ping is the primary notify channel for reactions (in-app table types are constrained).
-  if (notifyEmail && !activelySnoozed) {
-    try {
-      const { ensureTenantMessageMailboxes } = await import('./tenantMessageMailboxes.service.js');
-      const { buildLikedMessageEmailHtml } = await import('./hubBrandedEmail.service.js');
-      const mailboxes = await ensureTenantMessageMailboxes(aid);
-      const [partRows] = await pool.execute(
-        `SELECT email FROM communication_participants
-         WHERE conversation_id = ? AND email IS NOT NULL AND TRIM(email) <> ''
-         ORDER BY is_primary DESC, id ASC LIMIT 1`,
-        [cid]
-      );
-      const toEmail = String(partRows?.[0]?.email || '').trim();
-      if (toEmail && mailboxes.messages?.id) {
-        const [agencyRows] = await pool.execute(`SELECT name FROM agencies WHERE id = ? LIMIT 1`, [aid]);
-        const agencyName = agencyRows?.[0]?.name || 'Your care team';
-        const html = buildLikedMessageEmailHtml({
-          agencyName,
-          actorName: reactorName,
-          preview: msg.body_text || msg.subject || '',
-          appUrl: process.env.APP_PUBLIC_URL ? `${process.env.APP_PUBLIC_URL}/messages` : null
-        });
-        const { sendEmailFromIdentity } = await import('./unifiedEmail/unifiedEmailSender.service.js');
-        await sendEmailFromIdentity({
-          senderIdentityId: mailboxes.messages.id,
-          to: toEmail,
-          subject: `${reactorName} liked your message`,
-          html,
-          text: `${reactorName} liked your message (${emojiSafe}). Open Messages in the app to reply.`,
-          replyToOverride: mailboxes.messages.from_email,
-          source: 'auto',
-          generatedByUserId: userId,
-          templateType: 'hub_message_reaction',
-          clientId: msg.client_id || null
-        });
-      }
-    } catch (e) {
-      console.warn('[reactToHubMessage] email ping:', e?.message || e);
-    }
-  }
-
-  return { ok: true, messageId: mid, conversationId: cid, emoji: emojiSafe };
-}
+export { reactToHubMessage } from './hubMessageReactions.service.js';
 
 export async function ensureHubChatThread({ agencyId, userId, otherUserId }) {
   if (!otherUserId) {
@@ -4511,7 +4400,7 @@ export async function listHubConversationFeed({
     console.warn('[listHubConversationFeed] chat:', e?.message || e);
   }
 
-  // One row per person for direct chat; one row per email subject thread (same participant + subject).
+  // Person browsing for direct chat; each email conversation keeps its own identity.
   const byPerson = new Map();
   const byEmailThread = new Map();
   const collapsed = [];
@@ -4536,9 +4425,7 @@ export async function listHubConversationFeed({
       continue;
     }
     if (item.kind === 'email' && item.primaryEmail) {
-      const emailKey = String(item.primaryEmail).trim().toLowerCase();
-      const subjectKey = normalizeHubEmailSubjectKey(item.subject);
-      const threadKey = `${emailKey}::${subjectKey}`;
+      const threadKey = String(item.conversationId || item.id);
       const prev = byEmailThread.get(threadKey);
       if (prev) {
         prev.unreadCount = Number(prev.unreadCount || 0) + Number(item.unreadCount || 0);

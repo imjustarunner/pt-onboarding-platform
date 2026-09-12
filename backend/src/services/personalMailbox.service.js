@@ -1,3 +1,5 @@
+import { persistInboundEmail } from './inboundEmailPersistence.service.js';
+import { prepareInboundAttachments } from './communicationAttachments.service.js';
 import pool from '../config/database.js';
 import Agency from '../models/Agency.model.js';
 import User from '../models/User.model.js';
@@ -481,9 +483,11 @@ export async function ingestPersonalMailboxInbound({
   bodyText,
   messageIdHeader = null,
   threadId = null,
+  inReplyTo = null,
+  referencesHeader = null,
   receivedAt = null,
   to = [],
-  cc = []
+  cc = [], gmail = null, gmailMessageId = null, gmailPayload = null
 } = {}) {
   const aid = Number(agencyId || identity?.agency_id || 0);
   const key = String(identity?.identity_key || '').trim().toLowerCase();
@@ -506,73 +510,16 @@ export async function ingestPersonalMailboxInbound({
   }
   if (!inbox) return { ingested: false, reason: 'no_inbox' };
 
-  const ownerId = Number(inbox.owner_user_id || ownerUserId || 0) || null;
-  const msgId = String(messageIdHeader || '').trim() || null;
-  if (msgId) {
-    const [dup] = await pool.execute(
-      `SELECT id FROM communication_messages WHERE internet_message_id = ? LIMIT 1`,
-      [msgId]
-    );
-    if (dup[0]) return { ingested: false, reason: 'duplicate', conversationId: null };
-  }
-
-  let conv = threadId
-    ? await CommunicationConversation.findByExternalThreadId(aid, String(threadId))
-    : null;
-  if (conv && inbox.id && Number(conv.inbox_id) !== Number(inbox.id)) {
-    conv = null;
-  }
-
-  const preview = String(bodyText || '')
-    .replace(/<[^>]+>/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .slice(0, 240);
-  const when = receivedAt || new Date();
-
-  if (!conv) {
-    conv = await CommunicationConversation.create({
-      agencyId: aid,
-      inboxId: inbox.id,
-      channel: 'email',
-      subject: subject || '(no subject)',
-      status: 'needs_reply',
-      priority: 'normal',
-      ownerUserId: ownerId,
-      lastMessageAt: when,
-      lastMessagePreview: preview || null,
-      externalThreadId: threadId ? String(threadId) : null
-    });
-  } else {
-    await CommunicationConversation.update(conv.id, {
-      status: conv.status === 'resolved' ? 'needs_reply' : conv.status || 'needs_reply',
-      lastMessageAt: when,
-      lastMessagePreview: preview || conv.last_message_preview
-    });
-  }
-
-  if (fromEmail) {
-    await CommunicationConversation.upsertParticipant(conv.id, {
-      kind: 'external',
-      email: String(fromEmail).trim().toLowerCase(),
-      displayName: String(fromEmail).trim(),
-      isPrimary: true
-    });
-  }
-
-  const messageDbId = await CommunicationConversation.addMessage({
-    conversationId: conv.id,
-    channel: 'email',
-    direction: 'inbound',
-    from: fromEmail ? { email: fromEmail, name: fromEmail } : null,
-    to: (to || []).map((e) => ({ email: e })),
-    cc: (cc || []).map((e) => ({ email: e })),
-    subject: subject || null,
-    bodyText: bodyText || '',
-    internetMessageId: msgId,
-    sentAt: when
+  const attachments = await prepareInboundAttachments({ gmail, gmailMessageId, payload: gmailPayload, inboxId: inbox.id });
+  const result = await persistInboundEmail({
+    inboxId: inbox.id, agencyId: aid, ownerUserId: Number(inbox.owner_user_id || ownerUserId) || null,
+    deliveryId: messageIdHeader || (gmailMessageId ? `gmail:${gmailMessageId}` : null),
+    threadId, fromEmail, subject, bodyText, to: to.map((email) => ({ email })), cc: cc.map((email) => ({ email })),
+    inReplyTo, referencesHeader, receivedAt: receivedAt || new Date(), attachments
   });
-
+  if (result.duplicate) return result;
+  const conv = { id: result.conversationId };
+  const messageDbId = result.messageId;
   try {
     const { processInboundCommunicationEvent } = await import('./inboundCommunication.service.js');
     await processInboundCommunicationEvent({

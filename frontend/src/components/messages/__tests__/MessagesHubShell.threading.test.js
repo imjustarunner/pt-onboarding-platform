@@ -1,0 +1,71 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { flushPromises, shallowMount } from '@vue/test-utils';
+import { nextTick } from 'vue';
+import Hub from '../MessagesHubShell.vue';
+import api from '../../../services/api';
+vi.mock('../../../services/api', () => ({ default: { post: vi.fn(), get: vi.fn(), patch: vi.fn() } }));
+vi.mock('../../../store/agency', () => ({ useAgencyStore: () => ({ currentAgency: { id: 2 }, userAgencies: [{ id: 2 }] }) }));
+vi.mock('../../../store/auth', () => ({ useAuthStore: () => ({ user: { id: 5, role: 'provider' } }) }));
+vi.mock('vue-router', () => ({ useRoute: () => ({ params: {}, query: {} }), useRouter: () => ({ push: vi.fn(), replace: vi.fn() }) }));
+const person = { personKey: 'email:alice@example.org@2', email: 'alice@example.org', displayName: 'Alice', agencyId: 2, kinds: ['external'], methods: [{ id: 'email', available: true }], preferredMethod: 'email' };
+const msg = (cid, subject = 'Same subject') => ({ id: `email-msg-${cid}`, bodyPreview: 'Hello', channel: 'email', direction: 'inbound', from: { email: 'alice@example.org' }, createdAt: '2026-09-01', meta: { conversationId: cid, messageId: cid, subject, inboxEmail: 'messages@itsco.health' } });
+let wrapper;
+let state;
+beforeEach(async () => {
+  vi.clearAllMocks();
+  api.get.mockResolvedValue({ data: {} });
+  api.patch.mockResolvedValue({ data: {} });
+  api.post.mockResolvedValue({ data: { threadRef: { conversationId: 20 } } });
+  wrapper = shallowMount(Hub, { global: { stubs: { RouterLink: true } } });
+  state = wrapper.vm.$.setupState;
+  await flushPromises();
+  state.selected = person;
+  state.sendMethod = 'email';
+  state.timeline = [msg(10), msg(20)];
+  await nextTick();
+});
+afterEach(() => wrapper?.unmount());
+describe('Messages hub thread interactions', () => {
+  it('sends New email without the previously selected conversation ID', async () => {
+    state.selectedConversation = { id: 10 };
+    state.activeEmailThreadKey = 'email:10';
+    state.startNewSubjectCompose();
+    state.composeSubject = 'Same subject';
+    state.composeBody = '<p>A fresh email</p>';
+    await state.executeSend();
+    const send = api.post.mock.calls.find(([url]) => url === '/messages/hub/send');
+    expect(send?.[1]).toMatchObject({ mode: 'new', subject: 'Same subject' });
+    expect(send[1].conversationId).toBeUndefined();
+  });
+  it('replies to the visible thread when the inbox selection still references another conversation', async () => {
+    state.selectedConversation = { id: 10 };
+    state.openEmailSubjectThread(state.emailSubjectThreads.find((t) => t.conversationId === 20));
+    state.composeBody = '<p>Reply to twenty</p>';
+    await state.executeSend();
+    const send = api.post.mock.calls.find(([url]) => url === '/messages/hub/send');
+    expect(send?.[1]).toMatchObject({ mode: 'reply', conversationId: 20, to: 'alice@example.org' });
+  });
+  it('keeps unsent reply drafts separate when switching threads', () => {
+    state.openEmailSubjectThread(state.emailSubjectThreads.find((t) => t.conversationId === 10));
+    state.composeBody = 'Draft for ten';
+    state.openEmailSubjectThread(state.emailSubjectThreads.find((t) => t.conversationId === 20));
+    expect(state.composeBody).toBe('');
+    state.composeBody = 'Draft for twenty';
+    state.openEmailSubjectThread(state.emailSubjectThreads.find((t) => t.conversationId === 10));
+    expect(state.composeBody).toBe('Draft for ten');
+  });
+  it('ignores a timeline response belonging to the previously selected person', async () => {
+    const pending = new Map();
+    api.get.mockImplementation((url) => new Promise((resolve) => pending.set(url, resolve)));
+    const first = state.loadTimeline(person.personKey);
+    const other = { ...person, personKey: 'email:bob@example.org@2', displayName: 'Bob' };
+    state.selected = other;
+    const second = state.loadTimeline(other.personKey);
+    pending.get(`/messages/hub/people/${encodeURIComponent(other.personKey)}/timeline`)({ data: { person: other, items: [msg(30)] } });
+    await second;
+    pending.get(`/messages/hub/people/${encodeURIComponent(person.personKey)}/timeline`)({ data: { person, items: [msg(10)] } });
+    await first;
+    expect(state.selected.displayName).toBe('Bob');
+    expect(state.timeline[0].meta.conversationId).toBe(30);
+  });
+});

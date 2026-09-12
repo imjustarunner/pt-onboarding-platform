@@ -1,3 +1,5 @@
+import { parseSmsThreadKey, normalizeSmsPhone } from '../utils/smsThreadIdentity.js';
+import pool from '../config/database.js';
 import User from '../models/User.model.js';
 import Client from '../models/Client.model.js';
 import Agency from '../models/Agency.model.js';
@@ -55,7 +57,7 @@ export async function sendClinicalSms({
   body,
   numberId = null,
   mediaUrls = null,
-  auditUserId = null
+  auditUserId = null, threadKey = null
 } = {}) {
   const uid = parseIntOrNull(userId);
   const cid = parseIntOrNull(clientId);
@@ -82,6 +84,8 @@ export async function sendClinicalSms({
   } else if (aid) {
     const contact = await AgencyContact.findById(aid);
     if (!contact) throw Object.assign(new Error('Contact not found'), { status: 404 });
+    const agencyIds = await getAgencyIdsForUser(uid);
+    if (!agencyIds.includes(Number(contact.agency_id))) throw Object.assign(new Error('Access denied to this contact'), { status: 403 });
     targetPhone = contact.phone;
     targetAgencyId = contact.agency_id;
   }
@@ -90,6 +94,14 @@ export async function sendClinicalSms({
     throw Object.assign(new Error('Recipient does not have a contact phone assigned'), { status: 400 });
   }
 
+  const phoneThread = threadKey ? parseSmsThreadKey(threadKey) : null;
+  if (threadKey && (!phoneThread || phoneThread.clientId !== cid || phoneThread.contactId !== aid)) throw Object.assign(new Error('SMS conversation does not match recipient'), { status: 400 });
+  if (phoneThread) {
+    if (normalizeSmsPhone(targetPhone) !== phoneThread.toNumber) throw Object.assign(new Error('This contact’s number has changed. Start a new conversation to use their current number.'), { status: 409 });
+    const [numbers] = await pool.execute('SELECT id FROM twilio_numbers WHERE agency_id = ? AND phone_number = ? LIMIT 1', [targetAgencyId, phoneThread.fromNumber]);
+    if (!numbers.length) throw Object.assign(new Error('The sending number for this conversation is unavailable'), { status: 409 });
+    numberId = numbers[0].id;
+  }
   const resolved = await resolveOutboundNumber({
     userId: uid,
     clientId: cid,
@@ -130,6 +142,7 @@ export async function sendClinicalSms({
   }
 
   const fromNumber = resolved.number.phone_number;
+  if (phoneThread && normalizeSmsPhone(fromNumber) !== phoneThread.fromNumber) throw Object.assign(new Error('The sending number for this conversation has changed'), { status: 409 });
   const resolvedNumberId = resolved?.number?.id || null;
   const ownerType = resolved?.ownerType || (resolved?.number ? 'agency' : 'staff');
   const assignedUserId = resolved?.assignment?.user_id || uid;
@@ -240,6 +253,8 @@ export async function sendClinicalSms({
 
 export function parseSmsConversationTarget(conversation) {
   const ext = String(conversation?.external_thread_id || '');
+  const keyed = parseSmsThreadKey(ext);
+  if (keyed) return keyed;
   let clientId = null;
   let contactId = null;
   const clientMatch = ext.match(/^sms:client:(\d+)$/);

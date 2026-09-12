@@ -1,4 +1,7 @@
+import { conversationAccessMiddleware } from '../services/communicationAccess.service.js';
+import { downloadCommunicationAttachment } from '../services/communicationAttachments.service.js';
 import express from 'express';
+import CommunicationConversation from '../models/CommunicationConversation.model.js';
 import { authenticate } from '../middleware/auth.middleware.js';
 import {
   getCallsAnalytics,
@@ -79,6 +82,16 @@ router.post('/contacts/block', postBlockCommunicationContact);
 router.delete('/contacts/:id', deleteMyCommunicationContact);
 router.get('/conversations', getUnifiedConversations);
 router.post('/conversations', postUnifiedCompose);
+router.use('/conversations/:id', conversationAccessMiddleware);
+router.get('/conversations/:id/attachments/:attachmentId', downloadCommunicationAttachment);
+router.get('/conversations/:id/messages', async (req, res, next) => {
+  try {
+    const beforeId = Number(req.query.beforeId);
+    if (!Number.isSafeInteger(beforeId) || beforeId <= 0) return res.status(400).json({ error: { message: 'Invalid message cursor' } });
+    const messages = await CommunicationConversation.listMessages(req.params.id, { beforeId, limit: 200 });
+    res.json({ messages, nextBeforeId: messages.length === 200 ? Math.min(...messages.map((m) => Number(m.id))) : null });
+  } catch (e) { next(e); }
+});
 router.get('/conversations/:id', getUnifiedConversation);
 router.patch('/conversations/:id', patchUnifiedConversation);
 router.post('/conversations/:id/reply', postUnifiedReply);

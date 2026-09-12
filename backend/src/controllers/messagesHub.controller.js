@@ -1,3 +1,4 @@
+import { resolveChatTopic, findExistingTopicThread } from '../services/chatTopics.service.js';
 import {
   searchHubPeople,
   browseHubPeople,
@@ -296,7 +297,9 @@ export const getMessagesHubTimeline = async (req, res, next) => {
     const data = await getHubPersonTimeline({
       agencyId,
       userId: req.user.id,
-      personKey
+      personKey,
+      conversationId: Number(req.query?.conversationId) || null,
+      beforeId: Number(req.query?.beforeId) || null, channel: req.query?.channel || null
     });
     if (!data.person) return res.status(404).json({ error: { message: 'Person not found' } });
     const skipRead =
@@ -424,7 +427,8 @@ export const postMessagesHubReact = async (req, res, next) => {
       conversationId,
       messageId,
       emoji,
-      notifyEmail: req.body?.notifyEmail !== false
+      notifyEmail: req.body?.notifyEmail !== false,
+      active: req.body?.active !== false
     });
     res.json(out);
   } catch (e) {
@@ -458,9 +462,7 @@ export const postMessagesHubEnsureThread = async (req, res, next) => {
       });
     }
     const threadId = await ensureHubChatThread({
-      agencyId,
-      userId: req.user.id,
-      otherUserId: person.userId
+      agencyId, userId: req.user.id, otherUserId: person.userId
     });
     return res.json({ ok: true, threadId, person });
   } catch (e) {
@@ -567,7 +569,8 @@ export const postMessagesHubSend = async (req, res, next) => {
     await markHubPersonRead({
       agencyId: person.agencyId || agencyId,
       userId: req.user.id,
-      person
+      person,
+      includeEmail: false
     }).catch((e) => console.warn('[hub send] markRead:', e?.message || e));
 
     // Per-channel undo delay / schedule → queue (email keeps communication_messages path)
@@ -604,11 +607,8 @@ export const postMessagesHubSend = async (req, res, next) => {
         schedulePreset: req.body?.schedulePreset || null,
         scheduledSendAt: req.body?.scheduledSendAt || null,
         conversationId: req.body?.conversationId != null ? Number(req.body.conversationId) : null,
-        mode: String(req.body?.mode || 'reply').toLowerCase() === 'forward' ? 'forward' : 'reply',
-        toOverride:
-          String(req.body?.mode || '').toLowerCase() === 'forward'
-            ? req.body?.to || req.body?.forwardTo || null
-            : null,
+        mode: ['new', 'reply', 'reply_all', 'forward'].includes(req.body?.mode) ? req.body.mode : 'reply',
+        toOverride: req.body?.to || req.body?.forwardTo || null,
         undoDelaySeconds:
           explicitDelay != null ? explicitDelay : hasSchedule ? null : prefDelay,
         sendDuringNextAvailable: !!(
@@ -619,6 +619,22 @@ export const postMessagesHubSend = async (req, res, next) => {
         )
       });
       return res.json({ ok: true, ...out, person });
+    }
+
+    let chatThreadId = null;
+    let chatTopicId = null;
+    if (method === 'secure' || method === 'internal') {
+      if (method === 'secure' && !person.userId) {
+        const invited = await sendHubPortalInvitation({ agencyId, actorUserId: req.user.id, personKey, clientId: person.clientId, skipEmail: true });
+        person = await prepareHubSend({ agencyId, userId: req.user.id, personKey: invited?.personKey || personKey, method });
+      }
+      if (!person.userId) return res.status(400).json({ error: { message: 'Messaging requires a recipient account' } });
+      chatThreadId = (!req.body?.newTopic && await findExistingTopicThread({ userId: req.user.id, otherUserId: person.userId, topicId: req.body?.topicId, legacyRootMessageId: req.body?.legacyRootMessageId })) || await ensureHubChatThread({ agencyId, userId: req.user.id, otherUserId: person.userId });
+      if (method === 'secure' || req.body?.topicId || req.body?.newTopic || req.body?.legacyRootMessageId) {
+        chatTopicId = await resolveChatTopic({ threadId: chatThreadId, userId: req.user.id,
+          topicId: req.body?.newTopic ? null : req.body?.topicId,
+          legacyRootMessageId: req.body?.newTopic ? null : req.body?.legacyRootMessageId, subject });
+      }
     }
 
     // Queue delayed secure / internal / SMS (unless skipUndo)
@@ -663,6 +679,8 @@ export const postMessagesHubSend = async (req, res, next) => {
           body,
           subject: subject || null,
           payload: {
+            topicId: chatTopicId, threadId: chatThreadId, smsThreadKey: req.body?.smsThreadKey || null,
+            numberId: req.body?.numberId || null,
             attachments: attachments.length ? attachments : null,
             cc: req.body?.cc || null,
             bcc: req.body?.bcc || null
@@ -680,7 +698,7 @@ export const postMessagesHubSend = async (req, res, next) => {
           queueReason: reason,
           channel: method,
           person,
-          threadRef: { queueId: queued.id }
+          threadRef: { queueId: queued.id, threadId: chatThreadId, topicId: chatTopicId }
         });
       }
     }
@@ -736,10 +754,8 @@ export const postMessagesHubSend = async (req, res, next) => {
         error: { message: 'Secure/internal messaging requires a user account on the recipient' }
       });
     }
-    const threadId = await ensureHubChatThread({
-      agencyId,
-      userId: req.user.id,
-      otherUserId: person.userId
+    const threadId = chatThreadId || await ensureHubChatThread({
+      agencyId, userId: req.user.id, otherUserId: person.userId
     });
     req.params = { ...(req.params || {}), threadId: String(threadId) };
     // Chat attachments use filePath from prior upload; strip email-style base64 payloads.
@@ -750,7 +766,7 @@ export const postMessagesHubSend = async (req, res, next) => {
         return null;
       })
       .filter(Boolean);
-    req.body = { ...req.body, body, attachments: chatAttachments, subject: subject || req.body?.subject || null };
+    req.body = { ...req.body, topicId: chatTopicId, body, attachments: chatAttachments, subject: subject || req.body?.subject || null };
 
     const originalJson = res.json.bind(res);
     res.json = (payload) => {
@@ -761,7 +777,7 @@ export const postMessagesHubSend = async (req, res, next) => {
       return originalJson({
         ok: true,
         channel: method,
-        threadRef: { threadId },
+        threadRef: { threadId, topicId: chatTopicId },
         person,
         chat: payload
       });
@@ -1188,7 +1204,7 @@ export async function processHubMessageQueue({ limit = 40 } = {}) {
           body: {
             clientId: person.clientId || undefined,
             contactId: person.contactId || undefined,
-            body: row.body
+            body: row.body, smsThreadKey: payload.smsThreadKey || null, numberId: payload.numberId || null
           }
         });
       } else if (row.channel === 'secure' || row.channel === 'internal') {
@@ -1207,7 +1223,7 @@ export async function processHubMessageQueue({ limit = 40 } = {}) {
           });
         }
         if (!person.userId) throw new Error('Recipient has no user account');
-        const threadId = await ensureHubChatThread({
+        const threadId = await findExistingTopicThread({ userId: row.user_id, otherUserId: person.userId, topicId: payload.topicId, threadId: payload.threadId }) || await ensureHubChatThread({
           agencyId: row.agency_id,
           userId: row.user_id,
           otherUserId: person.userId
@@ -1218,7 +1234,7 @@ export async function processHubMessageQueue({ limit = 40 } = {}) {
         await runWithMockRes(sendChatMessage, {
           user,
           params: { threadId: String(threadId) },
-          body: { body: row.body || '', attachments: chatAttachments, subject: row.subject || null }
+          body: { body: row.body || '', attachments: chatAttachments, subject: row.subject || null, topicId: payload.topicId || null }
         });
       } else {
         throw new Error(`Unsupported queue channel: ${row.channel}`);

@@ -1,7 +1,10 @@
+import { persistInboundEmail } from './inboundEmailPersistence.service.js';
+import { prepareInboundAttachments } from './communicationAttachments.service.js';
 /**
  * Route inbound replies to messages@ into the hub communication thread.
  */
 import crypto from 'crypto';
+import { replyMessageIds } from '../utils/emailThreading.js';
 import pool from '../config/database.js';
 import CommunicationConversation from '../models/CommunicationConversation.model.js';
 
@@ -51,30 +54,45 @@ export async function resolveHubReplyToken(rawToken) {
   return rows?.[0] || null;
 }
 
-async function findConversationByParticipantEmail({ agencyId, identity, fromEmail }) {
-  const email = String(fromEmail || '').trim().toLowerCase();
-  if (!email || !identity?.id) return null;
-  const aid = Number(agencyId || identity.agency_id) || null;
-  const [rows] = await pool.execute(
-    `SELECT c.id, c.agency_id
-     FROM communication_conversations c
-     JOIN communication_inboxes i ON i.id = c.inbox_id
-     JOIN communication_participants p ON p.conversation_id = c.id
-     WHERE c.channel = 'email'
-       AND i.sender_identity_id = ?
-       ${aid ? 'AND c.agency_id = ?' : ''}
-       AND LOWER(COALESCE(p.email, '')) = ?
-       AND c.archived_at IS NULL
-     ORDER BY COALESCE(c.last_message_at, c.created_at) DESC
-     LIMIT 1`,
-    aid ? [identity.id, aid, email] : [identity.id, email]
-  );
-  return rows?.[0] || null;
+async function findConversationByReplyHeaders({ agencyId, identity, inReplyTo, referencesHeader, threadId }) {
+  const ids = replyMessageIds(inReplyTo, referencesHeader);
+  for (const id of ids) {
+    const [rows] = await pool.execute(
+      `SELECT DISTINCT c.id, c.agency_id
+       FROM communication_conversations c
+       JOIN communication_inboxes i ON i.id = c.inbox_id
+       JOIN communication_messages m ON m.conversation_id = c.id
+       WHERE c.channel = 'email' AND c.agency_id = ?
+         AND i.sender_identity_id = ? AND m.internet_message_id = ?
+       LIMIT 2`,
+      [agencyId, identity.id, id]
+    );
+    if (rows?.length === 1) return rows[0];
+    if (rows?.length > 1) return null;
+  }
+  // Gmail's thread ID is useful for older sends whose RFC Message-ID was not stored.
+  if (threadId) {
+    const [rows] = await pool.execute(
+      `SELECT DISTINCT c.id, c.agency_id FROM communication_conversations c
+       JOIN communication_inboxes i ON i.id = c.inbox_id
+       WHERE c.channel = 'email' AND c.agency_id = ?
+         AND i.sender_identity_id = ?
+         AND (c.external_thread_id = ? OR EXISTS (
+           SELECT 1 FROM communication_messages m
+           JOIN user_communications uc ON uc.external_message_id = m.internet_message_id
+           WHERE m.conversation_id = c.id
+             AND JSON_UNQUOTE(JSON_EXTRACT(uc.metadata, '$.threadId')) = ?
+         )) LIMIT 2`,
+      [agencyId, identity.id, threadId, threadId]
+    );
+    if (rows?.length === 1) return rows[0];
+  }
+  return null;
 }
 
 /**
  * Ingest an email reply into an existing hub conversation.
- * Prefer plus-token; fall back to matching From address on the messages@ inbox thread.
+ * Match a scoped reply token or email reply headers; never guess from sender or subject.
  */
 export async function ingestHubEmailReply({
   agencyId,
@@ -83,19 +101,30 @@ export async function ingestHubEmailReply({
   subject,
   bodyText,
   toAddresses = [],
+  ccAddresses = [],
+  threadId = null,
   messageIdHeader = null,
   inReplyTo = null,
   referencesHeader = null,
-  receivedAt = null
+  receivedAt = null, gmail = null, gmailMessageId = null, gmailPayload = null
 } = {}) {
   if (!isMessagesIdentity(identity)) return { ingested: false, reason: 'not_messages_identity' };
 
+  const inboundAgencyId = Number(agencyId || identity.agency_id);
+  if (!inboundAgencyId || Number(identity.agency_id) !== inboundAgencyId) {
+    return { ingested: false, reason: 'identity_agency_mismatch' };
+  }
   let tokenRow = null;
   for (const addr of toAddresses || []) {
+    if (stripPlusAddress(addr) !== stripPlusAddress(identity.from_email)) continue;
     const tag = extractPlusTag(addr);
     if (!tag) continue;
     tokenRow = await resolveHubReplyToken(tag);
-    if (tokenRow) break;
+    if (tokenRow && Number(tokenRow.agency_id) === inboundAgencyId) {
+      const conv = await CommunicationConversation.findById(tokenRow.conversation_id);
+      if (Number(conv?.agency_id) === inboundAgencyId && Number(conv?.sender_identity_id) === Number(identity.id)) break;
+    }
+    tokenRow = null;
   }
 
   let conversationId = tokenRow ? Number(tokenRow.conversation_id) : null;
@@ -103,54 +132,25 @@ export async function ingestHubEmailReply({
   let aid = Number(tokenRow?.agency_id || agencyId || identity?.agency_id) || null;
 
   if (!conversationId) {
-    const hit = await findConversationByParticipantEmail({
+    const hit = await findConversationByReplyHeaders({
       agencyId: aid,
       identity,
-      fromEmail
+      inReplyTo, referencesHeader, threadId
     });
     if (!hit?.id) return { ingested: false, reason: 'no_matching_conversation' };
     conversationId = Number(hit.id);
     aid = Number(hit.agency_id || aid);
   }
 
-  await CommunicationConversation.addMessage({
-    conversationId,
-    channel: 'email',
-    direction: 'inbound',
-    authorUserId: null,
-    from: { email: fromEmail },
-    to: [{ email: identity?.from_email }],
-    subject: subject || null,
-    bodyText: bodyText || '',
-    bodyHtml: null,
-    internetMessageId: messageIdHeader || null,
-    inReplyTo: inReplyTo || null,
-    referencesHeader: referencesHeader || null,
-    sentAt: receivedAt || new Date()
+  const conversation = await CommunicationConversation.findById(conversationId);
+  if (!conversation?.inbox_id) throw new Error('Reply inbox not found');
+  const attachments = await prepareInboundAttachments({ gmail, gmailMessageId, payload: gmailPayload, inboxId: conversation.inbox_id });
+  const result = await persistInboundEmail({
+    inboxId: conversation.inbox_id, agencyId: aid, conversationId,
+    deliveryId: messageIdHeader || (gmailMessageId ? `gmail:${gmailMessageId}` : null),
+    threadId, fromEmail, subject, bodyText,
+    to: toAddresses.map((email) => ({ email })), cc: ccAddresses.map((email) => ({ email })),
+    inReplyTo, referencesHeader, receivedAt: receivedAt || new Date(), attachments
   });
-
-  await pool
-    .execute(
-      `UPDATE communication_conversations
-       SET status = 'needs_reply',
-           last_message_at = COALESCE(?, last_message_at, NOW()),
-           last_message_preview = ?
-       WHERE id = ?`,
-      [
-        receivedAt || new Date(),
-        String(bodyText || subject || '')
-          .replace(/\s+/g, ' ')
-          .trim()
-          .slice(0, 240),
-        conversationId
-      ]
-    )
-    .catch(() => {});
-
-  return {
-    ingested: true,
-    conversationId,
-    agencyId: aid,
-    personKey
-  };
+  return { ...result, personKey };
 }

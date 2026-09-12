@@ -1,3 +1,4 @@
+import { parseSmsThreadKey } from '../utils/smsThreadIdentity.js';
 import pool from '../config/database.js';
 import CommunicationConversation from '../models/CommunicationConversation.model.js';
 
@@ -33,6 +34,7 @@ async function upsertShell({
   preview,
   lastAt,
   status = 'new',
+  ownerUserId = null,
   participant
 }) {
   let conv = await CommunicationConversation.findByExternalThreadId(agencyId, externalThreadId);
@@ -45,7 +47,7 @@ async function upsertShell({
       status,
       lastMessageAt: lastAt || new Date(),
       lastMessagePreview: preview,
-      externalThreadId
+      externalThreadId, ownerUserId
     });
     if (participant) {
       await CommunicationConversation.upsertParticipant(conv.id, {
@@ -69,45 +71,29 @@ async function upsertShell({
 
 async function syncSmsThreads({ agencyId, limit }) {
   const [rows] = await pool.execute(
-    `SELECT
-       ml.client_id,
-       ml.agency_contact_id,
-       MAX(ml.created_at) AS last_message_at,
-       SUBSTRING(
-         (SELECT m2.body FROM message_logs m2
-          WHERE m2.agency_id = ?
-            AND ((ml.client_id IS NOT NULL AND m2.client_id = ml.client_id)
-                 OR (ml.client_id IS NULL AND m2.agency_contact_id = ml.agency_contact_id))
-          ORDER BY m2.created_at DESC LIMIT 1),
-         1, 240
-       ) AS last_body,
-       COALESCE(c.full_name, c.initials, ac.full_name, 'SMS') AS party_name,
-       COALESCE(c.contact_phone, ac.phone) AS party_phone
+    `SELECT ml.client_id, ml.agency_contact_id, ml.sms_thread_key, ml.assigned_user_id, ml.user_id,
+       ml.created_at AS last_message_at, ml.body AS last_body,
+       COALESCE(c.full_name, c.initials, ac.full_name, 'SMS') AS party_name
      FROM message_logs ml
+     JOIN (SELECT MAX(id) AS id FROM message_logs WHERE agency_id = ? AND sms_thread_key IS NOT NULL GROUP BY sms_thread_key) latest ON latest.id = ml.id
      LEFT JOIN clients c ON c.id = ml.client_id
      LEFT JOIN agency_contacts ac ON ac.id = ml.agency_contact_id
-     WHERE ml.agency_id = ?
-       AND (ml.client_id IS NOT NULL OR ml.agency_contact_id IS NOT NULL)
-     GROUP BY ml.client_id, ml.agency_contact_id
-     ORDER BY last_message_at DESC
-     LIMIT ${limit}`,
-    [agencyId, agencyId]
-  ).catch(() => [[]]);
+     ORDER BY ml.created_at DESC, ml.id DESC LIMIT ${limit}`, [agencyId]
+  );
 
   let synced = 0;
   for (const row of rows || []) {
-    const externalThreadId = row.client_id
-      ? `sms:client:${row.client_id}`
-      : `sms:contact:${row.agency_contact_id}`;
+    const externalThreadId = row.sms_thread_key;
     const name = row.party_name || 'SMS';
     const { created, conv } = await upsertShell({
       agencyId,
       externalThreadId,
       channel: 'sms',
-      subject: `SMS · ${name}`,
+      subject: `SMS · ${name} · ${parseSmsThreadKey(externalThreadId)?.toNumber || ''}`,
       preview: previewFrom(row.last_body),
       lastAt: row.last_message_at,
       status: 'needs_reply',
+      ownerUserId: row.assigned_user_id || row.user_id || null,
       participant: {
         kind: row.client_id ? 'client' : 'other',
         displayName: name,
@@ -197,6 +183,7 @@ async function syncVoicemails({ agencyId, limit }) {
       preview,
       lastAt: row.created_at,
       status: 'needs_reply',
+      ownerUserId: row.assigned_user_id || row.user_id || null,
       participant: {
         kind: row.client_id ? 'client' : 'other',
         displayName: party,
@@ -235,12 +222,16 @@ async function hydrateSmsMessages(conversation) {
   const clientMatch = ext.match(/^sms:client:(\d+)$/);
   const contactMatch = ext.match(/^sms:contact:(\d+)$/);
   let rows = [];
-  if (clientMatch) {
+  const phoneThread = parseSmsThreadKey(ext);
+  if (phoneThread) {
+    const [r] = await pool.execute(`SELECT id, direction, body, created_at, user_id FROM message_logs WHERE agency_id = ? AND sms_thread_key = ? ORDER BY id DESC LIMIT 200`, [conversation.agency_id, ext]);
+    rows = r || [];
+  } else   if (clientMatch) {
     const [r] = await pool.execute(
       `SELECT id, direction, body, created_at, user_id
        FROM message_logs
-       WHERE client_id = ? AND (agency_id = ? OR agency_id IS NULL)
-       ORDER BY created_at ASC
+       WHERE client_id = ? AND agency_id = ?
+       ORDER BY created_at DESC
        LIMIT 200`,
       [Number(clientMatch[1]), conversation.agency_id]
     );
@@ -249,8 +240,8 @@ async function hydrateSmsMessages(conversation) {
     const [r] = await pool.execute(
       `SELECT id, direction, body, created_at, user_id
        FROM message_logs
-       WHERE agency_contact_id = ? AND (agency_id = ? OR agency_id IS NULL)
-       ORDER BY created_at ASC
+       WHERE agency_contact_id = ? AND agency_id = ?
+       ORDER BY created_at DESC
        LIMIT 200`,
       [Number(contactMatch[1]), conversation.agency_id]
     );

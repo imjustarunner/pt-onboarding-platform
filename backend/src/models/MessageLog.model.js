@@ -1,3 +1,4 @@
+import { smsThreadKey } from '../utils/smsThreadIdentity.js';
 import pool from '../config/database.js';
 
 class MessageLog {
@@ -27,8 +28,8 @@ class MessageLog {
   }) {
     const [result] = await pool.execute(
       `INSERT INTO message_logs
-       (agency_id, number_id, user_id, assigned_user_id, owner_type, client_id, agency_contact_id, direction, body, from_number, to_number, twilio_message_sid, delivery_status, metadata)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 'INBOUND', ?, ?, ?, ?, 'received', ?)`,
+       (agency_id, number_id, user_id, assigned_user_id, owner_type, client_id, agency_contact_id, direction, body, from_number, to_number, twilio_message_sid, delivery_status, metadata, sms_thread_key)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'INBOUND', ?, ?, ?, ?, 'received', ?, ?)`,
       [
         agencyId,
         numberId,
@@ -41,7 +42,8 @@ class MessageLog {
         this.normalizePhone(fromNumber) || fromNumber,
         this.normalizePhone(toNumber) || toNumber,
         providerMessageSid,
-        metadata ? JSON.stringify(metadata) : null
+        metadata ? JSON.stringify(metadata) : null,
+        smsThreadKey({ clientId, contactId: agencyContactId, fromNumber, toNumber, direction: 'INBOUND' })
       ]
     );
     return this.findById(result.insertId);
@@ -64,8 +66,8 @@ class MessageLog {
   }) {
     const [result] = await pool.execute(
       `INSERT INTO message_logs
-       (agency_id, number_id, user_id, assigned_user_id, owner_type, client_id, agency_contact_id, direction, body, from_number, to_number, twilio_message_sid, delivery_status, metadata)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 'OUTBOUND', ?, ?, ?, ?, ?, ?)`,
+       (agency_id, number_id, user_id, assigned_user_id, owner_type, client_id, agency_contact_id, direction, body, from_number, to_number, twilio_message_sid, delivery_status, metadata, sms_thread_key)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'OUTBOUND', ?, ?, ?, ?, ?, ?, ?)`,
       [
         agencyId,
         numberId,
@@ -79,7 +81,8 @@ class MessageLog {
         this.normalizePhone(toNumber) || toNumber,
         providerMessageSid,
         deliveryStatus,
-        metadata ? JSON.stringify(metadata) : null
+        metadata ? JSON.stringify(metadata) : null,
+        smsThreadKey({ clientId, contactId: agencyContactId, fromNumber, toNumber, direction: 'OUTBOUND' })
       ]
     );
     return this.findById(result.insertId);

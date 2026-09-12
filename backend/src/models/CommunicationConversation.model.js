@@ -54,13 +54,14 @@ class CommunicationConversation {
     return rows[0] || null;
   }
 
-  static async findByExternalThreadId(agencyId, externalThreadId) {
+  static async findByExternalThreadId(agencyId, externalThreadId, inboxId = null) {
     if (!externalThreadId) return null;
     const [rows] = await pool.execute(
       `SELECT * FROM communication_conversations
        WHERE agency_id = ? AND external_thread_id = ?
+         ${inboxId ? 'AND inbox_id = ?' : ''}
        LIMIT 1`,
-      [agencyId, externalThreadId]
+      inboxId ? [agencyId, externalThreadId, inboxId] : [agencyId, externalThreadId]
     );
     return rows[0] || null;
   }
@@ -178,7 +179,8 @@ class CommunicationConversation {
             AND pi.owner_user_id = ?
         )
       )`);
-      params.push(scopeToUserId, scopeToUserId);
+      where.push(`(c.inbox_id IS NULL OR NOT EXISTS (SELECT 1 FROM communication_inboxes private_box WHERE private_box.id=c.inbox_id AND private_box.kind='personal' AND private_box.owner_user_id <> ?))`);
+      params.push(scopeToUserId, scopeToUserId, scopeToUserId);
     }
     if (inboxId) {
       // Email is inbox-scoped; SMS/calls are agency-wide (no mailbox) and still appear in All.
@@ -665,6 +667,14 @@ class CommunicationConversation {
   }
 
   static async upsertParticipant(conversationId, data) {
+    if (data.email) {
+      const [existing] = await pool.execute(
+        `SELECT id FROM communication_participants
+         WHERE conversation_id = ? AND LOWER(email) = ? ORDER BY id ASC LIMIT 1`,
+        [conversationId, String(data.email).trim().toLowerCase()]
+      );
+      if (existing[0]) return existing[0].id;
+    }
     const [result] = await pool.execute(
       `INSERT INTO communication_participants
        (conversation_id, kind, email, display_name, linked_entity_type, linked_entity_id, is_primary)
@@ -707,7 +717,7 @@ class CommunicationConversation {
     );
   }
 
-  static async listMessages(conversationId, { limit = 200 } = {}) {
+  static async listMessages(conversationId, { limit = 200, beforeId = null } = {}) {
     const lim = Math.min(Math.max(Number(limit) || 200, 1), 500);
     const [rows] = await pool.execute(
       `SELECT m.*,
@@ -716,12 +726,13 @@ class CommunicationConversation {
        FROM communication_messages m
        LEFT JOIN users u ON u.id = m.author_user_id
        WHERE m.conversation_id = ?
-         AND (m.send_status IS NULL OR m.send_status <> 'cancelled')
-       ORDER BY COALESCE(m.sent_at, m.scheduled_send_at, m.created_at) ASC
+         AND (m.send_status IS NULL OR m.send_status NOT IN ('cancelled', 'preparing'))
+         ${Number.isSafeInteger(Number(beforeId)) && Number(beforeId) > 0 ? 'AND m.id < ' + Number(beforeId) : ''}
+       ORDER BY m.id DESC
        LIMIT ${lim}`,
       [conversationId]
     );
-    const messages = rows.map(mapMessage);
+    const messages = rows.reverse().map(mapMessage);
     if (!messages.length) return messages;
     const ids = messages.map((m) => m.id);
     const [atts] = await pool.execute(
@@ -765,7 +776,7 @@ class CommunicationConversation {
         data.scheduledSendAt ?? null,
         data.undoExpiresAt ?? null,
         data.supportTicketMessageId ?? null,
-        data.sentAt ?? (sendStatus === 'scheduled' ? null : new Date()),
+        data.sentAt ?? (sendStatus === 'sent' ? new Date() : null),
         data.isAutoReply ? 1 : 0,
         data.autoReplyKind || null
       ]
@@ -775,13 +786,12 @@ class CommunicationConversation {
       .replace(/\s+/g, ' ')
       .trim()
       .slice(0, 240);
-    if (sendStatus !== 'cancelled') {
+    if (!['cancelled', 'preparing'].includes(sendStatus)) {
       await pool.execute(
         `UPDATE communication_conversations
          SET last_message_at = COALESCE(?, last_message_at, NOW()),
-             last_message_preview = COALESCE(?, last_message_preview),
-             draft_body = NULL,
-             draft_updated_at = NULL
+             last_message_preview = COALESCE(?, last_message_preview)
+             ${data.direction === 'outbound' || data.isInternalNote ? ', draft_body = NULL, draft_updated_at = NULL' : ''}
          WHERE id = ?`,
         [
           sendStatus === 'scheduled' ? data.scheduledSendAt || new Date() : data.sentAt || new Date(),
@@ -822,19 +832,26 @@ class CommunicationConversation {
     if (!fields.length) return this.findMessageById(messageId);
     values.push(messageId);
     await pool.execute(`UPDATE communication_messages SET ${fields.join(', ')} WHERE id = ?`, values);
+    if (['scheduled', 'sent'].includes(updates.sendStatus)) {
+      await pool.execute(`UPDATE communication_conversations c JOIN communication_messages m ON m.conversation_id = c.id
+        SET c.draft_body = NULL, c.draft_updated_at = NULL,
+            c.last_message_at = COALESCE(m.sent_at, m.scheduled_send_at, m.created_at),
+            c.last_message_preview = LEFT(COALESCE(m.body_text, m.subject, ''), 240)
+        WHERE m.id = ? AND m.direction = 'outbound'`, [messageId]);
+    }
     return this.findMessageById(messageId);
   }
 
   static async listDueScheduledMessages({ limit = 50 } = {}) {
     const lim = Math.min(Math.max(Number(limit) || 50, 1), 200);
-    // Reclaim abandoned "sending" rows (crashed worker) after 2 minutes
+    // A worker may have delivered before crashing. Never automatically resend an uncertain delivery.
     await pool
       .execute(
         `UPDATE communication_messages
-         SET send_status = 'scheduled', send_claimed_at = NULL
+         SET send_status = 'failed', send_claimed_at = NULL
          WHERE send_status = 'sending'
            AND send_claimed_at IS NOT NULL
-           AND send_claimed_at < (NOW() - INTERVAL 2 MINUTE)`
+           AND send_claimed_at < (NOW() - INTERVAL 15 MINUTE)`
       )
       .catch(() => null);
     const [rows] = await pool.execute(

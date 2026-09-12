@@ -1,6 +1,9 @@
 <script setup>
 import { computed, onUnmounted, ref, watch } from 'vue';
 import api from '../../services/api';
+import { downloadAttachment, encodeEmailFiles } from '../../utils/communicationAttachments';
+import DOMPurify from 'dompurify';
+import { emailReplyRecipients } from '../../utils/messageThreads';
 import DirectoryRecipientInput from './DirectoryRecipientInput.vue';
 
 const props = defineProps({
@@ -12,6 +15,7 @@ const props = defineProps({
 
 const emit = defineEmits(['reply', 'patch', 'draft', 'spam', 'insight', 'open-sms-tools', 'refresh']);
 
+const attachments = ref([]);
 const composerMode = ref('reply'); // reply | reply_all | forward | internal
 const showCcBcc = ref(false);
 const to = ref('');
@@ -32,9 +36,35 @@ const insightBusy = ref(false);
 const aiBusy = ref(false);
 const trustBusy = ref(false);
 let undoTimer = null;
+let initializingDraft = false;
 
 const conv = computed(() => props.detail?.conversation || null);
-const messages = computed(() => props.detail?.messages || []);
+const olderMessages = ref([]);
+const olderCursor = ref(null);
+const loadingOlder = ref(false);
+const messages = computed(() => [...olderMessages.value, ...(props.detail?.messages || [])]);
+watch(() => props.detail?.conversation?.id, () => { olderMessages.value = []; olderCursor.value = null; attachments.value = []; });
+const canLoadOlder = computed(() => olderCursor.value !== false && !isTelephony.value && (olderMessages.value.length || (props.detail?.messages?.length || 0) >= 200));
+async function loadOlder() {
+  const id = conv.value?.id;
+  const beforeId = olderCursor.value || Math.min(...messages.value.map((m) => Number(m.id)));
+  loadingOlder.value = true;
+  try {
+    const { data } = await api.get(`/communications/conversations/${id}/messages`, { params: { beforeId }, skipGlobalLoading: true });
+    if (conv.value?.id !== id) return;
+    olderMessages.value = [...data.messages, ...olderMessages.value];
+    olderCursor.value = data.nextBeforeId || false;
+  } catch (e) { sendError.value = 'Could not load older messages'; }
+  finally { loadingOlder.value = false; }
+}
+async function downloadMessageAttachment(attachment) {
+  try { await downloadAttachment(`/communications/conversations/${conv.value.id}/attachments/${attachment.id}`, attachment.filename); }
+  catch (e) { sendError.value = 'Could not download attachment'; }
+}
+async function selectAttachments(event) {
+  try { attachments.value = await encodeEmailFiles(event.target.files || []); }
+  catch (e) { sendError.value = e.message; }
+}
 const isSms = computed(() => String(conv.value?.channel || '') === 'sms');
 const isCallLike = computed(() => ['call', 'voicemail'].includes(String(conv.value?.channel || '')));
 const isTelephony = computed(() => isSms.value || isCallLike.value);
@@ -130,7 +160,7 @@ watch(
     confirmOpen.value = false;
     showSchedule.value = false;
     schedulePreset.value = null;
-    clearUndoBanner();
+    if (undoBanner.value?.conversationId !== conv.value?.id) clearUndoBanner();
     insight.value = props.detail?.conversation?.ai_summary
       ? {
           summary: props.detail.conversation.ai_summary,
@@ -138,17 +168,21 @@ watch(
           cached: true
         }
       : null;
+    initializingDraft = true;
     body.value = props.detail?.conversation?.draft_body || '';
+    initializingDraft = false;
     subject.value = props.detail?.conversation?.subject || '';
     const primary = props.detail?.context?.participants?.find((p) => p.is_primary)
       || props.detail?.context?.participants?.[0];
-    to.value = primary?.email || '';
+    const recipients = emailReplyRecipients(messages.value, { inboxEmail: conv.value?.inbox_from_email, fallbackEmail: primary?.email });
+    to.value = recipients.to.join(', ');
     cc.value = '';
     bcc.value = '';
-  }
+  },
+  { immediate: true }
 );
 
-watch(body, (v) => emit('draft', v));
+watch(body, (v) => { if (!initializingDraft) emit('draft', v, conv.value?.id); }, { flush: 'sync' });
 onUnmounted(() => clearUndoBanner());
 
 function clearUndoBanner() {
@@ -181,7 +215,8 @@ function fromLabel(msg) {
 }
 
 async function send({ skipConfirm = false } = {}) {
-  if (!conv.value) return;
+  if (!conv.value || sending.value) return;
+  const conversationId = conv.value.id;
   sending.value = true;
   sendError.value = '';
   try {
@@ -207,10 +242,12 @@ async function send({ skipConfirm = false } = {}) {
         return;
       }
     }
+    if (conv.value?.id !== conversationId) return;
     const payload = {
       mode: composerMode.value,
       isInternalNote: composerMode.value === 'internal',
       text: body.value,
+      attachments: attachments.value,
       to: to.value,
       cc: cc.value,
       bcc: bcc.value,
@@ -218,14 +255,17 @@ async function send({ skipConfirm = false } = {}) {
       setStatus: composerMode.value === 'internal' ? undefined : 'waiting_on_them'
     };
     if (schedulePreset.value) payload.schedulePreset = schedulePreset.value;
-    const { data } = await api.post(`/communications/conversations/${conv.value.id}/reply`, payload);
+    const { data } = await api.post(`/communications/conversations/${conversationId}/reply`, payload);
+    if (conv.value?.id !== conversationId) { emit('refresh'); return; }
     body.value = '';
+    attachments.value = [];
     confirmOpen.value = false;
     schedulePreset.value = null;
     showSchedule.value = false;
     if (data?.scheduled && data?.messageId) {
       const expires = data.undoExpiresAt || data.scheduledSendAt;
       undoBanner.value = {
+        conversationId: data.conversation?.id || conversationId,
         messageId: data.messageId,
         expiresAt: expires ? new Date(expires).getTime() : Date.now() + 20000
       };
@@ -246,7 +286,7 @@ async function undoSend() {
   if (!conv.value || !undoBanner.value?.messageId) return;
   try {
     const { data } = await api.post(
-      `/communications/conversations/${conv.value.id}/messages/${undoBanner.value.messageId}/undo`,
+      `/communications/conversations/${undoBanner.value.conversationId || conv.value.id}/messages/${undoBanner.value.messageId}/undo`,
       {},
       { skipGlobalLoading: true }
     );
@@ -261,6 +301,10 @@ async function undoSend() {
 function setMode(mode) {
   if (isCallLike.value && mode !== 'internal') return;
   composerMode.value = mode;
+  const recipients = emailReplyRecipients(messages.value, { mode, inboxEmail: conv.value?.inbox_from_email, fallbackEmail: primaryEmail.value });
+  to.value = recipients.to.join(', ');
+  cc.value = recipients.cc.join(', ');
+  bcc.value = '';
   if (mode === 'reply_all' || mode === 'forward') showCcBcc.value = true;
 }
 
@@ -451,6 +495,7 @@ function applySuggestedStatus() {
       </div>
 
       <div class="uc-messages">
+        <button v-if="canLoadOlder" class="btn btn-secondary" :disabled="loadingOlder" @click="loadOlder">{{ loadingOlder ? 'Loading…' : 'Load older messages' }}</button>
         <article
           v-for="msg in messages"
           :key="msg.id"
@@ -467,13 +512,16 @@ function applySuggestedStatus() {
             <time>{{ formatWhen(msg.sent_at || msg.scheduled_send_at || msg.created_at) }}</time>
             <span v-if="msg.is_internal_note" class="uc-tag">Internal</span>
             <span v-else-if="msg.is_auto_reply" class="uc-tag auto">Auto-reply</span>
+            <span v-else-if="msg.send_status === 'failed'" class="uc-tag">Delivery failed — verify before resending</span>
+            <span v-else-if="msg.send_status === 'sending'" class="uc-tag">Sending…</span>
             <span v-else-if="msg.send_status === 'scheduled'" class="uc-tag sched">Scheduled</span>
             <span v-else-if="msg.direction === 'inbound'" class="uc-tag ext">External</span>
           </div>
-          <div v-if="msg.body_html" class="uc-msg-body" v-html="msg.body_html" />
+          <p v-if="!msg.is_internal_note && msg.to?.length" class="uc-meta">To: {{ msg.to.map((a) => a.email || a).join(', ') }}<template v-if="msg.cc?.length"> · CC: {{ msg.cc.map((a) => a.email || a).join(', ') }}</template></p>
+          <div v-if="msg.body_html" class="uc-msg-body" v-html="DOMPurify.sanitize(msg.body_html)" />
           <div v-else class="uc-msg-body pre">{{ msg.body_text }}</div>
           <ul v-if="msg.attachments?.length" class="uc-atts">
-            <li v-for="a in msg.attachments" :key="a.id">📎 {{ a.filename }}</li>
+            <li v-for="a in msg.attachments" :key="a.id"><button class="btn btn-link" @click="downloadMessageAttachment(a)">📎 {{ a.filename }}</button></li>
           </ul>
         </article>
       </div>
@@ -524,6 +572,8 @@ function applySuggestedStatus() {
           rows="5"
         />
 
+        <label v-if="!isTelephony && composerMode !== 'internal'">Attachments <input type="file" multiple @change="selectAttachments" /></label>
+        <p v-if="attachments.length">{{ attachments.map((a) => a.filename).join(', ') }} <button type="button" @click="attachments = []">Remove attachments</button></p>
         <div v-if="sendError" class="uc-send-err">{{ sendError }}</div>
         <div v-if="confirmOpen" class="uc-confirm-inline">
           <strong>Review before sending</strong>

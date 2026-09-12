@@ -116,7 +116,10 @@ async function refreshAll() {
   await Promise.all([loadAttention(), loadInboxes(), loadConversations(), loadPrefs()]);
 }
 
+let listRequestId = 0;
+let detailRequestId = 0;
 async function loadConversations() {
+  const requestId = ++listRequestId;
   if (!resolvedAgencyId.value) return;
   loading.value = true;
   error.value = '';
@@ -143,34 +146,40 @@ async function loadConversations() {
       params,
       skipGlobalLoading: true
     });
+    if (requestId !== listRequestId) return;
     conversations.value = data?.conversations || [];
   } catch (e) {
+    if (requestId !== listRequestId) return;
     error.value = e?.response?.data?.error?.message || e?.message || 'Failed to load conversations';
   } finally {
-    loading.value = false;
+    if (requestId === listRequestId) loading.value = false;
   }
 }
 
 async function openConversation(id) {
+  const requestId = ++detailRequestId;
   if (!id) {
     selectedId.value = null;
     detail.value = null;
     return;
   }
   selectedId.value = id;
+  detail.value = null;
   detailLoading.value = true;
   try {
     const { data } = await api.get(`/communications/conversations/${id}`, {
       params: { agencyId: resolvedAgencyId.value },
       skipGlobalLoading: true
     });
+    if (requestId !== detailRequestId) return;
     detail.value = data;
     const row = conversations.value.find((c) => c.id === id);
     if (row) row.is_unread = false;
   } catch (e) {
+    if (requestId !== detailRequestId) return;
     error.value = e?.response?.data?.error?.message || e?.message || 'Failed to open conversation';
   } finally {
-    detailLoading.value = false;
+    if (requestId === detailRequestId) detailLoading.value = false;
   }
 }
 
@@ -188,11 +197,12 @@ async function patchConversation(patch) {
   await Promise.all([loadConversations(), loadAttention()]);
 }
 
-function onDraftInput(text) {
-  if (!selectedId.value) return;
+function onDraftInput(text, conversationId) {
+  const id = conversationId || selectedId.value;
+  if (!id) return;
   clearTimeout(draftTimer);
   draftTimer = setTimeout(() => {
-    api.patch(`/communications/conversations/${selectedId.value}`, { draftBody: text }, {
+    api.patch(`/communications/conversations/${id}`, { draftBody: text }, {
       skipGlobalLoading: true
     }).catch(() => {});
   }, 800);
@@ -200,6 +210,7 @@ function onDraftInput(text) {
 
 async function sendReply(data) {
   if (data?.conversation || data?.messages) {
+    if (data?.conversation?.id) selectedId.value = data.conversation.id;
     detail.value = data;
   } else if (selectedId.value) {
     await openConversation(selectedId.value);
@@ -290,6 +301,7 @@ watch(
 );
 
 watch(resolvedAgencyId, () => {
+  detailRequestId += 1;
   selectedId.value = null;
   detail.value = null;
   refreshAll();
@@ -435,7 +447,7 @@ defineExpose({ refreshAll });
       <UnifiedConversationThread
         :detail="detail"
         :loading="detailLoading"
-        :inbox="selectedInbox"
+        :inbox="inboxes.find((i) => Number(i.id) === Number(detail?.conversation?.inbox_id)) || null"
         :agency-id="resolvedAgencyId"
         @reply="sendReply"
         @patch="patchConversation"

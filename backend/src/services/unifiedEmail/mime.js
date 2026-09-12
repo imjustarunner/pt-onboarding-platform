@@ -73,6 +73,7 @@ function buildMimeMessage({
   replyTo = null,
   cc = null,
   bcc = null,
+  messageId = null,
   inReplyTo = null,
   references = null,
   attachments = null
@@ -88,6 +89,7 @@ function buildMimeMessage({
     `To: ${normalizeHeaderValue(to)}`,
     `Subject: ${encodeRfc2047Subject(subject)}`,
     `From: ${normalizeHeaderValue(from)}`,
+    ...(messageId ? [`Message-ID: ${normalizeHeaderValue(messageId)}`] : []),
     ...(ccHeader ? [`Cc: ${ccHeader}`] : []),
     ...(bccHeader ? [`Bcc: ${bccHeader}`] : []),
     ...(replyTo ? [`Reply-To: ${normalizeHeaderValue(replyTo)}`] : []),

@@ -62,6 +62,8 @@ Provisioning: `POST /communications/inboxes/personal/ensure` → `ensurePersonal
 
 ## Roadmap
 
+**Reliability review and conversation rules:** [Messaging reliability review](MESSAGING_RELIABILITY_REVIEW.md) records the email/thread/reaction corrections and the remaining SMS and secure-topic work. A shared inbox or a repeated subject is not a conversation identity.
+
 Full product plan:
 
 → [`UNIFIED_COMMUNICATIONS_CENTER_PLAN.md`](./UNIFIED_COMMUNICATIONS_CENTER_PLAN.md)

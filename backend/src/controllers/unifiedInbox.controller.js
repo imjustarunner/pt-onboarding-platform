@@ -231,23 +231,6 @@ export async function getUnifiedConversation(req, res, next) {
     });
     if (!detail) return res.status(404).json({ error: { message: 'Conversation not found' } });
 
-    if (!isBackofficeRole(req.user)) {
-      const conv = detail.conversation;
-      const ownerOk = Number(conv?.owner_user_id) === Number(req.user.id);
-      let personalOk = false;
-      if (conv?.inbox_id) {
-        const CommunicationInbox = (await import('../models/CommunicationInbox.model.js')).default;
-        const box = await CommunicationInbox.findById(conv.inbox_id);
-        personalOk =
-          box &&
-          String(box.kind || '') === 'personal' &&
-          Number(box.owner_user_id) === Number(req.user.id);
-      }
-      if (!ownerOk && !personalOk) {
-        return res.status(404).json({ error: { message: 'Conversation not found' } });
-      }
-    }
-
     res.json(detail);
   } catch (e) {
     next(e);
@@ -279,7 +262,7 @@ export async function postUnifiedReply(req, res, next) {
     const id = parseInt(req.params.id, 10);
     if (!id) return res.status(400).json({ error: { message: 'Invalid id' } });
     const result = await replyToConversation(id, req.body || {}, { userId: req.user.id });
-    const detail = await getConversationDetail(id, { userId: req.user.id, markRead: true });
+    const detail = await getConversationDetail(result.forwardedConversationId || id, { userId: req.user.id, markRead: true });
     res.json({ ...result, ...detail });
   } catch (e) {
     const msg = e?.message || 'Reply failed';
