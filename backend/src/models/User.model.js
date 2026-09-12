@@ -2677,6 +2677,15 @@ class User {
     const expiresAt = new Date();
     expiresAt.setHours(expiresAt.getHours() + expiresInHours);
     
+    if (purpose === 'prehire_portal') {
+      await pool.execute(
+        `UPDATE users SET passwordless_token = CASE WHEN passwordless_token_purpose = 'reset' THEN ? ELSE COALESCE(passwordless_token, ?) END,
+         passwordless_token_expires_at = ?, passwordless_token_purpose = 'prehire_portal' WHERE id = ?`,
+        [token, token, expiresAt, userId]);
+      const [[stored]] = await pool.execute('SELECT passwordless_token FROM users WHERE id = ?', [userId]);
+      return { token: stored.passwordless_token, expiresAt };
+    }
+
     // Try to store purpose if the column exists (backward compatible)
     try {
       await pool.execute(
@@ -2961,11 +2970,26 @@ class User {
   }
 
   static async updateStatus(userId, status, actorUserId = null) {
+    let completedHire = false;
+    if (status === 'ACTIVE_EMPLOYEE') {
+      const current = await this.findById(userId);
+      if (['PREHIRE_OPEN', 'PREHIRE_REVIEW'].includes(current?.status)) {
+        throw Object.assign(new Error('Complete onboarding before activating this employee.'), { status: 409 });
+      }
+      if (current?.status === 'ONBOARDING') {
+        const { requireOnboardingSubmitted } = await import('../services/hireJourney.service.js');
+        await requireOnboardingSubmitted(userId);
+        completedHire = true;
+      }
+    }
+
     const now = new Date();
     const expiresAt = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000); // 7 days from now
 
     let updates = [];
     let values = [];
+
+    if (completedHire) updates.push('passwordless_token = NULL', 'passwordless_token_expires_at = NULL', 'passwordless_token_purpose = NULL');
 
     // Handle new status lifecycle values
     if (status === 'ACTIVE_EMPLOYEE') {

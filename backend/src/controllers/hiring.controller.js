@@ -2257,7 +2257,7 @@ export const emailPrehirePortalLink = async (req, res, next) => {
       });
     }
 
-    const tokenResult = await User.generatePasswordlessToken(candidateUserId, 7 * 24);
+    const tokenResult = await User.generatePasswordlessToken(candidateUserId, 7 * 24, 'prehire_portal');
     const tokenLink = `${config.frontendUrl}/pre-hire/${tokenResult.token}`;
 
     const { sendPrehirePortalInviteEmail } = await import('../services/prehireInviteEmail.service.js');
@@ -2314,8 +2314,8 @@ export const promoteCandidateToPendingSetup = async (req, res, next) => {
       // ignore (older DBs or missing table)
     }
 
-    // Generate a fresh token — always links to the pre-hire portal (not the regular login).
-    const tokenResult = await User.generatePasswordlessToken(candidateUserId, 7 * 24);
+    // Create or extend the personal pre-hire portal token.
+    const tokenResult = await User.generatePasswordlessToken(candidateUserId, 7 * 24, 'prehire_portal');
     const tokenLink = `${config.frontendUrl}/pre-hire/${tokenResult.token}`;
 
     // Preserve the exact job-description version this person was hired against.
@@ -4260,11 +4260,11 @@ export const sendPreHire = async (req, res, next) => {
           coverLetterText: existing?.cover_letter_text || existing?.coverLetterText || null
         });
       } catch { /* ignore */ }
-      tokenResult = await User.generatePasswordlessToken(candidateUserId, 7 * 24);
+      tokenResult = await User.generatePasswordlessToken(candidateUserId, 7 * 24, 'prehire_portal');
       await ensureAssignedJobDescriptionDocument(candidateUserId, req.user.id);
     } else {
-      // Already promoted — just regenerate token so modal always surfaces a fresh link
-      try { tokenResult = await User.generatePasswordlessToken(candidateUserId, 7 * 24); } catch { /* ignore */ }
+      // Already promoted — extend the existing personal portal token
+      try { tokenResult = await User.generatePasswordlessToken(candidateUserId, 7 * 24, 'prehire_portal'); } catch { /* ignore */ }
     }
 
     // Link goes directly to the pre-hire portal, not the regular passwordless login
@@ -4551,6 +4551,8 @@ export const sendPreHire = async (req, res, next) => {
       contractWarning = contractErr?.message || 'Failed to generate employment contract.';
     }
 
+    if (contractWarning) return res.status(400).json({ error: { message: contractWarning, code: 'CONTRACT_REQUIRED' } });
+
     const checklistTitles = [];
     try {
       const tokens = req.body?.contractTokens && typeof req.body.contractTokens === 'object'
@@ -4677,40 +4679,15 @@ export const sendOnboardingInvite = async (req, res, next) => {
       return res.status(400).json({ error: { message: 'User is not in ONBOARDING status' } });
     }
 
-    const { sendMethod = 'token' } = req.body || {};
-    const agency = agencyId ? await Agency.findById(agencyId) : null;
-
-    if (sendMethod === 'token') {
-      const tokenResult = await User.generatePasswordlessToken(candidateUserId, 7 * 24);
-      const tokenLink = buildPublicAppUrl(agency, `passwordless-login/${tokenResult.token}`);
-      if (user.personal_email) {
-        setImmediate(async () => {
-          try {
-            await EmailService.sendEmail({
-              to: user.personal_email,
-              subject: 'Your onboarding access — action required',
-              text: `Hi ${user.first_name || 'there'},\n\nHere is your onboarding access link:\n\n${tokenLink}\n\nThis link is valid for 7 days. Log in to view your onboarding checklist and complete any assigned tasks.`
-            });
-          } catch (e) { console.error('[sendOnboardingInvite] Email failed:', e); }
-        });
-      }
-      return res.json({ ok: true, sendMethod, tokenLink });
-    } else if (sendMethod === 'login') {
-      const loginEmail = user.work_email || user.personal_email;
-      if (!loginEmail) return res.status(400).json({ error: { message: 'No email address found for this user' } });
-      setImmediate(async () => {
-        try {
-          await EmailService.sendEmail({
-            to: loginEmail,
-            subject: 'Your workspace account is ready',
-            text: `Hi ${user.first_name || 'there'},\n\nYour onboarding account is now active. Log in at:\n\n${buildPublicAppUrl(agency, 'login')}\n\nEmail: ${loginEmail}\n\nIf you need to reset your password, use the "Forgot password" link on the login page.`
-          });
-        } catch (e) { console.error('[sendOnboardingInvite] Login email failed:', e); }
-      });
-      return res.json({ ok: true, sendMethod });
-    }
-
-    return res.status(400).json({ error: { message: 'Invalid sendMethod. Must be "token" or "login".' } });
+    if (!agencyId) return res.status(400).json({ error: { message: 'Organization is required.' } });
+    const agencies = await User.getAgencies(candidateUserId);
+    if (!agencies.some((a) => Number(a.id) === Number(agencyId))) return res.status(403).json({ error: { message: 'Candidate does not belong to this organization.' } });
+    const agency = await Agency.findById(agencyId);
+    const { token } = await User.generatePasswordlessToken(candidateUserId, 14 * 24, 'prehire_portal');
+    const tokenLink = buildPublicAppUrl(agency, `pre-hire/${token}`);
+    await EmailService.sendEmail({ to: user.personal_email || user.email, subject: 'Your onboarding portal',
+      text: `Hi ${user.first_name || 'there'},\n\nContinue with your personal portal link:\n\n${tokenLink}\n\nYour completed pre-hire package remains available. Complete onboarding and submit it for People Operations to review. This link is valid for 14 days.` });
+    return res.json({ ok: true, sendMethod: 'token', tokenLink });
   } catch (e) { next(e); }
 };
 
@@ -4823,23 +4800,32 @@ export const listOnboardingCandidates = async (req, res, next) => {
     const [rows] = await pool.execute(
       `SELECT
          u.id, u.first_name, u.last_name, u.email, u.personal_email, u.work_email,
-         u.status, u.hired_at, u.created_at,
+         u.status, u.hired_at, u.created_at, hj.onboarding_started_at, hj.onboarding_completed_at,
          hp.applied_role AS job_title,
          (
            SELECT COUNT(*) FROM tasks t
            WHERE t.assigned_to_user_id = u.id
+             AND COALESCE(JSON_UNQUOTE(JSON_EXTRACT(t.metadata, '$.portalPhase')), 'onboarding') = 'onboarding'
+             AND t.task_type IN ('document', 'training', 'intake_form', 'custom')
+             AND t.status NOT IN ('archived', 'overridden', 'deleted')
              AND (t.document_action_type IS NULL OR t.document_action_type != 'countersignature')
              AND t.status != 'deleted'
          ) AS task_total,
          (
            SELECT COUNT(*) FROM tasks t
            WHERE t.assigned_to_user_id = u.id
+             AND COALESCE(JSON_UNQUOTE(JSON_EXTRACT(t.metadata, '$.portalPhase')), 'onboarding') = 'onboarding'
+             AND t.task_type IN ('document', 'training', 'intake_form', 'custom')
+             AND t.status NOT IN ('archived', 'overridden', 'deleted')
              AND (t.document_action_type IS NULL OR t.document_action_type != 'countersignature')
              AND t.status = 'completed'
          ) AS task_completed,
          (
            SELECT COUNT(*) FROM tasks t
            WHERE t.assigned_to_user_id = u.id
+             AND COALESCE(JSON_UNQUOTE(JSON_EXTRACT(t.metadata, '$.portalPhase')), 'onboarding') = 'onboarding'
+             AND t.task_type IN ('document', 'training', 'intake_form', 'custom')
+             AND t.status NOT IN ('archived', 'overridden', 'deleted')
              AND t.due_date IS NOT NULL
              AND t.due_date < NOW()
              AND t.status != 'completed'
@@ -4847,6 +4833,7 @@ export const listOnboardingCandidates = async (req, res, next) => {
          ) AS overdue_count
        FROM users u
        INNER JOIN user_agencies ua ON u.id = ua.user_id
+       LEFT JOIN hire_journeys hj ON hj.user_id = u.id
        LEFT JOIN hiring_profiles hp ON hp.candidate_user_id = u.id
        WHERE u.status = 'ONBOARDING'
          AND u.is_active = TRUE

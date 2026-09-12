@@ -89,7 +89,7 @@ const props = defineProps({
   agencyName: { type: String, default: '' }
 });
 
-const collapsed = ref(false);
+const collapsed = ref(typeof window !== 'undefined' && window.innerWidth <= 1100);
 const loading = ref(true);
 const sending = ref(false);
 const draft = ref('');
@@ -418,6 +418,7 @@ defineExpose({ expand, collapse });
 }
 
 @media (max-width: 1100px) {
+  .ph-chat-wrap { height: 0; flex: 0 0 0; }
   .ph-chat {
     position: fixed;
     right: 0;

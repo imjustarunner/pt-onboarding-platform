@@ -562,7 +562,7 @@ async function generate() {
       buildPayload()
     );
     previewHtml.value = data.html || previewHtml.value;
-    wizardMsg.value = `Assigned as task #${data.task?.id || data.taskId}. Generation #${data.generationId}.`;
+    wizardMsg.value = `${data.reused ? 'Existing identical agreement retained' : 'Agreement assigned'} as task #${data.task?.id || data.taskId}. Generation #${data.generationId}.${data.replacedCount ? ' The previous unsigned version was superseded.' : ''}`;
   } catch (e) {
     wizardErr.value = e?.response?.data?.error?.message || e.message;
   } finally {

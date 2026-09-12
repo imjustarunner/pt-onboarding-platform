@@ -5,6 +5,8 @@
  * no full login required. `req.portalUser` is the validated candidate.
  */
 import pool from '../config/database.js';
+import { savePrehireSignedReceipt } from '../services/prehireSignedReceipt.service.js';
+import { journeyTasks, getJourney, taskProgress, closePrehire, completeOnboarding, recordOnboardingActivity } from '../services/hireJourney.service.js';
 import User from '../models/User.model.js';
 import HiringNote from '../models/HiringNote.model.js';
 import EmailService from '../services/email.service.js';
@@ -184,29 +186,10 @@ export const getPortal = async (req, res, next) => {
     );
     const accountSetupComplete = usernameChosen;
 
-    // Tasks assigned to the candidate (exclude countersign tasks, which are for staff)
-    const [taskRows] = await pool.execute(
-      `SELECT id, task_type, document_action_type, title, description, status, due_date, reference_id, metadata, is_required
-       FROM tasks
-       WHERE assigned_to_user_id = ?
-         AND (document_action_type IS NULL OR document_action_type != 'countersignature')
-         AND status NOT IN ('overridden', 'archived')
-       ORDER BY is_required DESC, created_at ASC`,
-      [userId]
-    );
-
-    const tasks = (taskRows || []).map(t => ({
-      id: t.id,
-      taskType: t.task_type,
-      actionType: t.document_action_type,
-      title: t.title,
-      description: t.description,
-      status: t.status,
-      dueDate: t.due_date,
-      referenceId: t.reference_id,
-      isRequired: t.is_required === 1 || t.is_required === true,
-      metadata: (() => { try { return typeof t.metadata === 'string' ? JSON.parse(t.metadata) : (t.metadata || {}); } catch { return {}; } })()
-    }));
+    const allTasks = await journeyTasks(userId, user.status);
+    const currentPhase = user.status === 'ONBOARDING' ? 'onboarding' : 'pre_hire';
+    const tasks = allTasks.filter((t) => t.phase === currentPhase);
+    const journey = await getJourney(userId);
 
     const totalTasks = tasks.length;
     const completedTasks = tasks.filter(t => t.status === 'completed').length;
@@ -227,6 +210,7 @@ export const getPortal = async (req, res, next) => {
         && usernameChosen
         && !passwordFinalized
         && requiredComplete
+        && tasks.length > 0
       )
         ? 'finalize_login'
         : 'onboarding';
@@ -256,26 +240,30 @@ export const getPortal = async (req, res, next) => {
         return { signed: false };
       }
     })();
-    const portalSteps = [
+    const portalSteps = currentPhase === 'onboarding' ? [] : [
       ...(hireAccountMode === 'group_password'
         ? [{ key: 'username', done: usernameChosen }]
         : []),
       { key: 'background_check', done: !!backgroundCheck?.signed },
       { key: 'job_description_ack', done: !!extras.jdAcknowledged }
     ];
-    for (const d of extras.prehireDocs || []) {
+    for (const d of currentPhase === 'pre_hire' ? extras.prehireDocs || [] : []) {
       const kind = String(d.kind || '').toLowerCase();
       if (['company_document', 'upload', 'acknowledgement'].includes(kind)) {
         portalSteps.push({ key: `doc:${d.id}`, done: !!d.signed });
       }
     }
     for (const t of tasks) {
-      portalSteps.push({ key: `task:${t.id}`, done: t.status === 'completed' });
+      portalSteps.push({ key: `task:${t.id}`, done: t.status === 'completed', required: t.isRequired });
+    }
+    if (currentPhase === 'pre_hire' && !tasks.some((t) => t.metadata.contractGeneration || t.metadata.employmentContract)) {
+      portalSteps.push({ key: 'employment_contract', done: false });
     }
     const stepTotal = portalSteps.length;
     const stepDone = portalSteps.filter((s) => s.done).length;
     const combinedPercent = stepTotal ? Math.round((stepDone / stepTotal) * 100) : 0;
-    const combinedAllDone = stepTotal > 0 && stepDone === stepTotal;
+    const combinedAllDone = stepTotal > 0 && portalSteps.filter((s) => s.required !== false).every((s) => s.done);
+    if (journey?.onboardingCompletedAt && status === 'ONBOARDING') portalPhase = 'onboarding_review';
 
     res.json({
       candidate: {
@@ -296,6 +284,8 @@ export const getPortal = async (req, res, next) => {
       agency,
       supportTeam,
       tasks,
+      journey,
+      prehireTasks: allTasks.filter((t) => t.phase === 'pre_hire'),
       portalLink,
       portalPath,
       tokenExpiresAt: user.passwordless_token_expires_at || null,
@@ -317,6 +307,7 @@ export const getPortal = async (req, res, next) => {
             })()
           }
         : null,
+      missingContract: currentPhase === 'pre_hire' && !tasks.some((t) => t.metadata.contractGeneration || t.metadata.employmentContract),
       progress: {
         total: stepTotal,
         completed: stepDone,
@@ -388,12 +379,12 @@ export const getPortalTask = async (req, res, next) => {
       catch { return null; }
     })();
 
-    if (!htmlContent || metadata.contractGeneration || metadata.autoFromSendPreHire) {
+    { // Prefer the task's retained document over a mutable library template.
       try {
         const UserSpecificDocument = (await import('../models/UserSpecificDocument.model.js')).default;
         const usd = await UserSpecificDocument.findByTask(taskId)
-          || (task.reference_id ? await UserSpecificDocument.findById(task.reference_id) : null);
-        if (usd) {
+          || ((metadata.contractGeneration || metadata.autoFromSendPreHire) && task.reference_id ? await UserSpecificDocument.findById(task.reference_id) : null);
+        if (usd && Number(usd.user_id) === Number(userId)) {
           docName = usd.name || docName || task.title;
           htmlContent = usd.html_content || htmlContent;
           filePath = usd.file_path || filePath;
@@ -410,7 +401,7 @@ export const getPortalTask = async (req, res, next) => {
       } catch { /* ignore */ }
     }
 
-    if (htmlContent && /\{\{\s*[A-Za-z0-9_]+\s*\}\}/.test(htmlContent)) {
+    if (task.status !== 'completed' && htmlContent && /\{\{\s*[A-Za-z0-9_]+\s*\}\}/.test(htmlContent)) {
       try {
         const { applyContractTokens, autofillTokensForCandidate } = await import('../services/contractMerge.service.js');
         let tokens = {};
@@ -485,6 +476,7 @@ export const getPortalTask = async (req, res, next) => {
       }
     } catch { /* ignore */ }
 
+    const [[signedFile]] = await pool.execute('SELECT signed_pdf_path FROM signed_documents WHERE task_id = ? AND user_id = ? LIMIT 1', [taskId, userId]);
     res.json({
       id: task.id,
       taskType: task.task_type,
@@ -494,6 +486,7 @@ export const getPortalTask = async (req, res, next) => {
       status: task.status,
       referenceId: task.reference_id,
       metadata,
+      signedFileUrl: task.status === 'completed' && signedFile?.signed_pdf_path ? (req.hireLibraryContext ? `/onboarding-packages/my-record/tasks/${taskId}/signed-file` : `/prehire-portal/${req.params.token}/tasks/${taskId}/signed-file`) : null,
       document: (htmlContent || filePath || task.reference_id) ? {
         name: docName || task.title,
         htmlContent: htmlContent || null,
@@ -653,10 +646,33 @@ export const portalAcknowledge = async (req, res, next) => {
     );
     if (!existing.length) return res.status(404).json({ error: { message: 'Task not found.' } });
 
-    await pool.execute(
-      `UPDATE tasks SET status = 'completed', completed_at = NOW() WHERE id = ?`,
-      [taskId]
-    );
+    if (existing[0].document_action_type !== 'review') return res.status(400).json({ error: { message: 'This document requires a signature.' } });
+    const db = await pool.getConnection();
+    try {
+      await db.beginTransaction();
+      const [[task]] = await db.execute('SELECT * FROM tasks WHERE id = ? AND assigned_to_user_id = ? FOR UPDATE', [taskId, userId]);
+      const [[retained]] = await db.execute('SELECT id FROM user_specific_documents WHERE task_id = ? AND user_id = ?', [taskId, userId]);
+      if (!retained) {
+        const [[template]] = await db.execute('SELECT * FROM document_templates WHERE id = ?', [task.reference_id]);
+        if (!template) throw Object.assign(new Error('The assigned document is unavailable.'), { status: 400 });
+        let filePath = template.file_path || null;
+        if (filePath) {
+          const StorageService = (await import('../services/storage.service.js')).default;
+          const { randomUUID } = await import('node:crypto');
+          const bytes = await StorageService.readObject(filePath);
+          const saved = await StorageService.saveAdminDoc(bytes, `acknowledged-${userId}-${randomUUID()}.pdf`, 'application/pdf');
+          filePath = saved.relativePath;
+        }
+        await db.execute(
+          `INSERT INTO user_specific_documents (user_id, task_id, name, description, template_type, html_content, file_path, document_action_type, created_by_user_id)
+           VALUES (?, ?, ?, ?, ?, ?, ?, 'review', ?)`,
+          [userId, taskId, task.title, 'Retained document acknowledged by employee', template.template_type,
+            template.html_content || null, filePath, userId]);
+      }
+      await db.execute("UPDATE tasks SET status = 'completed', completed_at = COALESCE(completed_at, NOW()) WHERE id = ?", [taskId]);
+      await db.commit();
+    } catch (e) { await db.rollback(); throw e; }
+    finally { db.release(); }
 
     // Sync lifecycle checklist so the staff-facing lifecycle tab reflects the acknowledged document
     setImmediate(() => syncLifecycleItems(userId).catch(() => {}));
@@ -668,44 +684,41 @@ export const portalAcknowledge = async (req, res, next) => {
 };
 
 // ─── POST /api/prehire-portal/:token/complete ────────────────────────────────
-// Explicit "I'm done" button — advances status even if not all tasks completed,
-// but warns the candidate if any are still pending.
+// A candidate closes the current process; staff controls the next lifecycle transition.
+export async function portalStateForUser(userId) {
+  const user = await User.findById(userId);
+  let state;
+  let failure;
+  await getPortal({ portalUser: user, params: {}, protocol: 'https', get: () => 'localhost' },
+    { json: (value) => { state = value; } }, (e) => { failure = e; });
+  if (failure) throw failure;
+  return state;
+}
 
 export const portalComplete = async (req, res, next) => {
   try {
-    const { id: userId } = req.portalUser;
-
-    const [taskRows] = await pool.execute(
-      `SELECT id, status FROM tasks
-       WHERE assigned_to_user_id = ?
-         AND (document_action_type IS NULL OR document_action_type != 'countersignature')
-         AND status NOT IN ('overridden', 'archived')`,
-      [userId]
-    );
-
-    const total = taskRows.length;
-    const completed = taskRows.filter(t => t.status === 'completed').length;
-    const hasIncomplete = completed < total;
-
-    if (hasIncomplete && !req.body.force) {
-      return res.status(400).json({
-        error: {
-          code: 'TASKS_INCOMPLETE',
-          message: `You have ${total - completed} item(s) still pending. Please complete all items or submit with force=true to proceed anyway.`,
-          total,
-          completed
-        }
-      });
+    const state = await portalStateForUser(req.portalUser.id);
+    if (state.candidate.status === 'ONBOARDING') {
+      if (state.hireAccountMode === 'group_password' && !state.candidate.passwordFinalized) {
+        return res.status(400).json({ error: { message: 'Set your password before submitting onboarding.' } });
+      }
+      const journey = await completeOnboarding(req.portalUser.id);
+      return res.json({ ok: true, journey, advancedTo: 'ONBOARDING', message: 'Onboarding submitted. People Operations will review and activate your account. Recorded time was submitted to payroll.' });
     }
-
-    await advanceCandidateStatus(userId);
-
-    res.json({
-      ok: true,
-      message: 'Your pre-hire documents have been submitted for review. Your hiring team will be in touch shortly.',
-      advancedTo: 'PREHIRE_REVIEW'
-    });
+    if (state.candidate.status === 'PREHIRE_REVIEW') return res.json({ ok: true, advancedTo: 'PREHIRE_REVIEW' });
+    if (!state.progress.allDone) return res.status(400).json({ error: {
+      code: 'TASKS_INCOMPLETE', message: 'Complete the required documents, background authorization, and job description before submitting.'
+    } });
+    await closePrehire(req.portalUser.id, { tasks: state.tasks, backgroundCheck: state.backgroundCheck,
+      jdAcknowledged: state.jdAcknowledged, checklist: state.checklist, prehireDocs: state.prehireDocs });
+    await advanceCandidateStatus(req.portalUser.id);
+    res.json({ ok: true, advancedTo: 'PREHIRE_REVIEW', message: 'Pre-hire submitted for review.' });
   } catch (e) { next(e); }
+};
+
+export const portalActivity = async (req, res, next) => {
+  try { res.json(await recordOnboardingActivity(req.portalUser.id, req.body || {})); }
+  catch (e) { next(e); }
 };
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -729,22 +742,8 @@ function parseJson(v) {
 }
 
 async function maybeAdvanceCandidateStatus(userId) {
-  try {
-    const [taskRows] = await pool.execute(
-      `SELECT id, status FROM tasks
-       WHERE assigned_to_user_id = ?
-         AND (document_action_type IS NULL OR document_action_type != 'countersignature')
-         AND status NOT IN ('overridden', 'archived')`,
-      [userId]
-    );
-
-    const allDone = taskRows.length > 0 && taskRows.every(t => t.status === 'completed');
-    if (allDone) {
-      await advanceCandidateStatus(userId);
-    }
-  } catch (e) {
-    console.error('[prehirePortal] maybeAdvanceCandidateStatus error:', e);
-  }
+  // Individual saves update progress. Only the explicit submission closes the process.
+  setImmediate(() => syncLifecycleItems(userId).catch(() => {}));
 }
 
 async function advanceCandidateStatus(userId) {
@@ -831,14 +830,14 @@ export const completeIntakeFormTask = async (req, res, next) => {
     if (!taskId) return res.status(400).json({ error: { message: 'Invalid task ID.' } });
 
     const [rows] = await pool.execute(
-      `SELECT id, task_type, assigned_to_user_id, status
+      `SELECT id, task_type, assigned_to_user_id, status, metadata
        FROM tasks WHERE id = ? AND assigned_to_user_id = ? LIMIT 1`,
       [taskId, userId]
     );
     const task = rows[0];
     if (!task) return res.status(404).json({ error: { message: 'Task not found.' } });
-    if (!['intake_form', 'training'].includes(task.task_type)) {
-      return res.status(400).json({ error: { message: 'Task is not a form or training task.' } });
+    if (!['intake_form', 'custom'].includes(task.task_type)) {
+      return res.status(400).json({ error: { message: 'Complete training inside the assigned module.' } });
     }
     if (task.status === 'completed') {
       return res.json({ ok: true, already: true });
@@ -848,6 +847,12 @@ export const completeIntakeFormTask = async (req, res, next) => {
       `UPDATE tasks SET status = 'completed', completed_at = NOW() WHERE id = ?`,
       [taskId]
     );
+
+    const checklistItemId = parseJson(task.metadata).checklistItemId;
+    if (task.task_type === 'custom' && checklistItemId) {
+      const UserChecklistAssignment = (await import('../models/UserChecklistAssignment.model.js')).default;
+      await UserChecklistAssignment.markComplete(userId, checklistItemId);
+    }
 
     await maybeAdvanceCandidateStatus(userId);
 
@@ -929,40 +934,30 @@ export const sendPortalMessage = async (req, res, next) => {
 
 // ─── Token-scoped module / employee-info form ────────────────────────────────
 
-async function assertPortalModuleAssigned(userId, moduleId) {
+export async function assertPortalModuleAssigned(userId, moduleId) {
   const mid = Number(moduleId);
   if (!Number.isInteger(mid) || mid < 1) {
     const err = new Error('Invalid module ID.');
     err.status = 400;
     throw err;
   }
-  const [rows] = await pool.execute(
-    `SELECT id, status
-     FROM tasks
-     WHERE assigned_to_user_id = ?
-       AND task_type = 'training'
-       AND reference_id = ?
-       AND status NOT IN ('overridden', 'archived')
-     ORDER BY id DESC
-     LIMIT 1`,
-    [userId, mid]
-  );
-  if (!rows?.[0]) {
-    const err = new Error('This form is not assigned to you.');
-    err.status = 403;
-    throw err;
-  }
-  return { moduleId: mid, taskId: Number(rows[0].id), taskStatus: rows[0].status };
+  const user = await User.findById(userId);
+  const tasks = (await journeyTasks(userId, user?.status)).filter((t) => t.taskType === 'training' && Number(t.referenceId) === mid);
+  const currentPhase = user?.status === 'ONBOARDING' ? 'onboarding' : 'pre_hire';
+  const task = tasks.find((t) => t.phase === currentPhase) || tasks.find((t) => t.status === 'completed');
+  if (!task) throw Object.assign(new Error('This training is not assigned to your current process.'), { status: 403 });
+  return { moduleId: mid, taskId: Number(task.id), taskStatus: task.status };
 }
 
 export const getPortalModule = async (req, res, next) => {
   try {
     const { id: userId } = req.portalUser;
-    const { moduleId } = await assertPortalModuleAssigned(userId, req.params.moduleId);
+    const { moduleId, taskStatus } = await assertPortalModuleAssigned(userId, req.params.moduleId);
     const Module = (await import('../models/Module.model.js')).default;
     const module = await Module.findById(moduleId);
     if (!module) return res.status(404).json({ error: { message: 'Module not found.' } });
-    res.json(module);
+    const UserProgress = (await import('../models/UserProgress.model.js')).default;
+    res.json({ ...module, portalTaskStatus: taskStatus, progress: await UserProgress.findByUserAndModule(userId, moduleId) });
   } catch (e) {
     if (e?.status) return res.status(e.status).json({ error: { message: e.message } });
     next(e);
@@ -1003,6 +998,12 @@ export const submitPortalModuleForm = async (req, res, next) => {
     const { moduleId } = await assertPortalModuleAssigned(userId, req.params.moduleId);
     req.user = { id: userId, role: req.portalUser.role };
     req.params.moduleId = String(moduleId);
+    const { portalModuleForms } = await import('../services/portalTraining.service.js');
+    const { fields } = await portalModuleForms(userId, moduleId);
+    const allowed = new Set(fields.map((f) => Number(f.id)));
+    if (!Array.isArray(req.body?.values) || req.body.values.some((v) => !allowed.has(Number(v?.fieldDefinitionId)))) {
+      return res.status(400).json({ error: { message: 'Submit only fields belonging to this questionnaire.' } });
+    }
     const { submitModuleForm } = await import('./moduleForm.controller.js');
     return submitModuleForm(req, res, next);
   } catch (e) {
@@ -1062,6 +1063,8 @@ export const completePortalModule = async (req, res, next) => {
     const UserProgress = (await import('../models/UserProgress.model.js')).default;
     const Task = (await import('../models/Task.model.js')).default;
 
+    const { validatePortalModuleCompletion } = await import('../services/portalTraining.service.js');
+    await validatePortalModuleCompletion(userId, moduleId);
     const progress = await UserProgress.createOrUpdate(userId, moduleId, { status: 'completed' });
     try {
       await Task.markComplete(taskId, userId);
@@ -1228,7 +1231,7 @@ export const provisionPortalAccount = async (req, res, next) => {
 };
 
 /**
- * End of onboarding: set password, activate employee, expire portal token.
+ * Prepare login credentials; staff activates the employee after onboarding submission.
  */
 export const setPortalAccountPassword = async (req, res, next) => {
   try {
@@ -1284,57 +1287,11 @@ export const setPortalAccountPassword = async (req, res, next) => {
 
     const result = await finalizeHireGroupPassword({ user, agency, password });
 
-    await User.updateStatus(user.id, 'ACTIVE_EMPLOYEE', user.id);
-
-    try {
-      await pool.execute(
-        `UPDATE users
-         SET passwordless_token = NULL,
-             passwordless_token_expires_at = NULL
-         WHERE id = ?`,
-        [user.id]
-      );
-    } catch {
-      /* ignore */
-    }
-
-    try {
-      const { enableWorkspaceLoginForUser } = await import('../services/workspaceLoginTransition.service.js');
-      const refreshed = await User.findById(user.id);
-      await enableWorkspaceLoginForUser(refreshed || user);
-    } catch (e) {
-      console.warn('[setPortalAccountPassword] workspace login transition failed:', e?.message || e);
-    }
-
-    let loginUrl = null;
-    try {
-      const { buildPublicAppUrl } = await import('../utils/publicPortalUrl.js');
-      loginUrl = buildPublicAppUrl(agency, 'login');
-      const to = result.personalEmail || user.personal_email;
-      if (to && loginUrl) {
-        const EmailService = (await import('../services/email.service.js')).default;
-        await EmailService.sendEmail({
-          to,
-          subject: 'Your account is ready — sign in',
-          text:
-            `Hi ${user.first_name || 'there'},\n\n` +
-            `Your onboarding is complete. Sign in to the app with:\n\n` +
-            `Username: ${result.workEmail}\n` +
-            `Password: the password you just created\n\n` +
-            `${loginUrl}\n\n` +
-            `Your personal portal link has expired. Use Forgot password on the login page if you need a reset — recovery goes to this personal email.`
-        }).catch(() => {});
-      }
-    } catch (mailErr) {
-      console.warn('[setPortalAccountPassword] welcome email failed:', mailErr?.message || mailErr);
-    }
-
     res.json({
       ok: true,
       ...result,
-      status: 'ACTIVE_EMPLOYEE',
-      portalTokenExpired: true,
-      loginUrl
+      status: 'ONBOARDING',
+      portalTokenExpired: false
     });
   } catch (e) {
     if (e?.code === 'PASSWORD_ALREADY_SET' || e?.code === 'USERNAME_REQUIRED' || e?.code === 'PERSONAL_EMAIL_REQUIRED') {
@@ -1369,7 +1326,7 @@ export const getPortalSubmissions = async (req, res, next) => {
          FROM user_admin_docs
          WHERE user_id = ?
          ORDER BY created_at DESC
-         LIMIT 40`,
+         `,
         [userId]
       );
       adminDocs = (docs || [])
@@ -1380,7 +1337,7 @@ export const getPortalSubmissions = async (req, res, next) => {
           category: d.doc_type || null,
           createdAt: d.created_at,
           hasFile: !!d.storage_path,
-          fileUrl: d.storage_path ? `/prehire-portal/${req.params.token}/submissions/files/${d.id}` : null
+          fileUrl: d.storage_path ? (req.hireLibraryContext ? `/onboarding-packages/my-record/files/${d.id}` : `/prehire-portal/${req.params.token}/submissions/files/${d.id}`) : null
         }));
     } catch { /* ignore */ }
 
@@ -1389,9 +1346,10 @@ export const getPortalSubmissions = async (req, res, next) => {
        FROM tasks
        WHERE assigned_to_user_id = ?
          AND task_type = 'document'
+         AND (document_action_type IS NULL OR document_action_type != 'countersignature')
          AND status = 'completed'
        ORDER BY COALESCE(completed_at, created_at) DESC
-       LIMIT 40`,
+       `,
       [userId]
     ).catch(() => [[]]);
 
@@ -1430,6 +1388,7 @@ export const getPortalSubmissions = async (req, res, next) => {
         actionType: t.document_action_type,
         completedAt: t.completed_at || t.created_at
       })),
+      journey: await getJourney(userId),
       applications: applications.map((a) => ({
         id: a.id,
         formType: a.form_type,
@@ -1453,31 +1412,10 @@ export const submitPortalBackgroundCheck = async (req, res, next) => {
       payload: req.body || {},
       signerName
     });
-    try {
-      const note = `Authorization signed. SSN ${summary.ssnMasked}. DL ${summary.dlMasked}. Data is encrypted at rest.`;
-      await pool.execute(
-        `INSERT INTO user_admin_docs (user_id, title, doc_type, note_text, created_by_user_id, is_legal_hold)
-         VALUES (?, ?, 'background_check_authorization', ?, ?, 1)`,
-        [userId, 'Authorization for Background Check', note, userId]
-      );
-    } catch {
-      try {
-        const note = `Authorization signed. SSN ${summary.ssnMasked}. DL ${summary.dlMasked}. Data is encrypted at rest.`;
-        await pool.execute(
-          `INSERT INTO user_admin_docs (user_id, title, doc_type, note_text, created_by_user_id)
-           VALUES (?, ?, 'background_check_authorization', ?, ?)`,
-          [userId, 'Authorization for Background Check', note, userId]
-        );
-      } catch { /* ignore */ }
-    }
-    try {
-      await pool.execute(
-        `UPDATE hiring_prehire_checklist_items
-         SET completed_on = COALESCE(completed_on, CURDATE())
-         WHERE user_id = ? AND item_key = 'background_check'`,
-        [userId]
-      );
-    } catch { /* ignore */ }
+    await savePrehireSignedReceipt({ userId, agencyId: agency.id, itemKey: 'background_check',
+      title: 'Authorization for Background Check', docType: 'background_check_authorization',
+      body: `Authorization signed. SSN ${summary.ssnMasked}. DL ${summary.dlMasked}.\n${buildBackgroundCheckLegalCopy(agency, { legalName: signerName }).paragraphs.join('\n\n')}`,
+      signerName, signatureData: req.body.signatureData });
     res.json({ ok: true, ...summary });
   } catch (e) {
     if (e?.status) return res.status(e.status).json({ error: { message: e.message } });
@@ -1601,24 +1539,10 @@ export const acknowledgePortalJobDescription = async (req, res, next) => {
       snapshotBody || '(No job description text was available at signing time.)'
     ].join('\n').slice(0, 600000);
 
-    try {
-      await pool.execute(
-        `INSERT INTO hiring_prehire_checklist_items
-          (user_id, agency_id, item_key, title, instructions, completed_on)
-         VALUES (?, ?, 'job_description_ack', 'Acknowledge job description', ?, CURDATE())
-         ON DUPLICATE KEY UPDATE completed_on = COALESCE(completed_on, CURDATE()), instructions = VALUES(instructions)`,
-        [userId, agency.id, `Signed by ${signerName}`]
-      );
-    } catch (e) {
-      if (e?.code !== 'ER_NO_SUCH_TABLE') throw e;
-    }
-    try {
-      await pool.execute(
-        `INSERT INTO user_admin_docs (user_id, title, doc_type, note_text, created_by_user_id, is_legal_hold)
-         VALUES (?, ?, 'job_description_acknowledgement', ?, ?, 1)`,
-        [userId, `Job description acknowledgement — ${snapshotTitle}`, noteText, userId]
-      );
-    } catch { /* ignore */ }
+    if (!snapshotBody) return res.status(400).json({ error: { message: 'People Operations must attach the job description before you can sign it.' } });
+    await savePrehireSignedReceipt({ userId, agencyId: agency.id, itemKey: 'job_description_ack',
+      title: `Job description acknowledgement — ${snapshotTitle}`, docType: 'job_description_acknowledgement',
+      body: noteText, signerName, signatureData: signature });
     res.json({ ok: true, signed: true, signerName });
   } catch (e) { next(e); }
 };
@@ -1681,12 +1605,12 @@ export const viewPortalSubmissionFile = async (req, res, next) => {
     const docId = parseInt(req.params.docId, 10);
     if (!docId) return res.status(400).json({ error: { message: 'Invalid document.' } });
     const [rows] = await pool.execute(
-      `SELECT id, storage_path, original_name, mime_type, doc_type
+      `SELECT id, storage_path, original_name, mime_type, doc_type, created_by_user_id
        FROM user_admin_docs WHERE id = ? AND user_id = ? LIMIT 1`,
       [docId, userId]
     );
     const doc = rows[0];
-    if (!doc?.storage_path) {
+    if (!doc?.storage_path || !isCandidateSubmissionAdminDoc(doc, userId)) {
       return res.status(404).json({ error: { message: 'Document file not found.' } });
     }
     const { resolveOwnedAdminDocStoragePath } = await import('../utils/candidateApplicationFile.js');
@@ -1717,40 +1641,11 @@ export const signPortalCompanyDocument = async (req, res, next) => {
     const user = await User.findById(userId);
     const signerName = String(req.body?.signerName || `${user?.first_name || ''} ${user?.last_name || ''}`).trim();
     const itemKey = `prehire_doc_${doc.id}`.slice(0, 120);
-    try {
-      await pool.execute(
-        `INSERT INTO hiring_prehire_checklist_items
-          (user_id, agency_id, item_key, title, instructions, completed_on)
-         VALUES (?, ?, ?, ?, ?, CURDATE())
-         ON DUPLICATE KEY UPDATE completed_on = COALESCE(completed_on, CURDATE())`,
-        [userId, agency.id, itemKey, doc.title || 'Company document', `Signed by ${signerName}`]
-      );
-    } catch (e) {
-      if (e?.code !== 'ER_NO_SUCH_TABLE') throw e;
-    }
-    try {
-      await pool.execute(
-        `INSERT INTO user_admin_docs (
-          user_id, title, doc_type, note_text,
-          storage_path, original_name, mime_type,
-          created_by_user_id, is_legal_hold
-        ) VALUES (?, ?, 'prehire_company_document_ack', ?, ?, ?, ?, ?, 1)`,
-        [
-          userId,
-          `${doc.title || 'Company document'} — signed acknowledgement`,
-          [
-            `Signed by ${signerName}.`,
-            `Signed at ${new Date().toISOString()}.`,
-            `Pre-hire document id: ${doc.id}`,
-            doc.instructions ? `Instructions: ${doc.instructions}` : ''
-          ].filter(Boolean).join('\n'),
-          doc.filePath || null,
-          doc.fileName || null,
-          doc.mimeType || null,
-          userId
-        ]
-      );
-    } catch { /* ignore */ }
+    if (!doc.filePath) return res.status(400).json({ error: { message: 'People Operations must attach the document before you can sign it.' } });
+    await savePrehireSignedReceipt({ userId, agencyId: agency.id, itemKey,
+      title: `${doc.title || 'Company document'} — signed acknowledgement`, docType: 'prehire_company_document_ack',
+      body: `Pre-hire document: ${doc.title}. ${doc.instructions || ''}`, signerName, signatureData: signature,
+      sourcePath: doc.filePath, sourceName: doc.fileName });
     res.json({ ok: true, signed: true, signerName, itemKey });
   } catch (e) { next(e); }
 };
@@ -1991,5 +1886,22 @@ export const getPortalHandbook = async (req, res, next) => {
         }))
       }
     });
+  } catch (e) { next(e); }
+};
+
+export const viewPortalSignedFile = async (req, res, next) => {
+  try {
+    const [[doc]] = await pool.execute(
+      `SELECT sd.signed_pdf_path FROM signed_documents sd JOIN tasks t ON t.id = sd.task_id
+       WHERE t.id = ? AND t.assigned_to_user_id = ? AND t.status = 'completed'
+       AND (t.document_action_type IS NULL OR t.document_action_type != 'countersignature') LIMIT 1`,
+      [Number(req.params.taskId), req.portalUser.id]);
+    if (!doc?.signed_pdf_path) return res.status(404).json({ error: { message: 'A signed PDF is not available for this item.' } });
+    const StorageService = (await import('../services/storage.service.js')).default;
+    const bytes = await StorageService.readObject(doc.signed_pdf_path);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', 'inline; filename="signed-document.pdf"');
+    res.setHeader('Cache-Control', 'private, no-store');
+    res.send(bytes);
   } catch (e) { next(e); }
 };

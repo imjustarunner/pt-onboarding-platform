@@ -23,6 +23,25 @@ import { authenticate, requireBackofficeAdmin } from '../middleware/auth.middlew
 
 const router = express.Router();
 
+// Personal library records are always scoped to the authenticated employee.
+const ownHireRecord = async (req, res, next) => {
+  try {
+    const User = (await import('../models/User.model.js')).default;
+    req.portalUser = await User.findById(req.user.id);
+    req.hireLibraryContext = true;
+    next();
+  } catch (e) { next(e); }
+};
+const hireHandler = (name) => async (req, res, next) => {
+  try { const handlers = await import('../controllers/prehirePortal.controller.js'); return handlers[name](req, res, next); }
+  catch (e) { next(e); }
+};
+router.get('/my-record', authenticate, ownHireRecord, hireHandler('getPortalSubmissions'));
+router.get('/my-record/tasks/:taskId', authenticate, ownHireRecord, hireHandler('getPortalTask'));
+router.get('/my-record/tasks/:taskId/signed-file', authenticate, ownHireRecord, hireHandler('viewPortalSignedFile'));
+router.get('/my-record/files/:docId', authenticate, ownHireRecord, hireHandler('viewPortalSubmissionFile'));
+
+
 const validatePackage = [
   body('name').trim().notEmpty().withMessage('Package name is required'),
   body('name').isLength({ min: 1, max: 255 }).withMessage('Package name must be between 1 and 255 characters'),

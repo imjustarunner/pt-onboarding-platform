@@ -1,9 +1,13 @@
 import express from 'express';
+import { portalTrainingAction } from '../controllers/portalTraining.controller.js';
 import multer from 'multer';
 import { body } from 'express-validator';
+import { enforcePortalWritePhase } from '../middleware/portalWritePhase.middleware.js';
 import { authenticatePrehireToken } from '../middleware/prehirePortalAuth.middleware.js';
 import {
   getPortal,
+  portalActivity,
+  viewPortalSignedFile,
   getPortalTask,
   portalConsent,
   portalIntent,
@@ -54,7 +58,7 @@ const prehireDocUpload = multer({
 });
 
 // All routes validated by the pre-hire token — token is the :token route param
-router.use('/:token', authenticatePrehireToken);
+router.use('/:token', authenticatePrehireToken, enforcePortalWritePhase);
 
 router.get('/:token', getPortal);
 router.get('/:token/messages', listPortalMessages);
@@ -64,7 +68,9 @@ router.post(
   sendPortalMessage
 );
 router.post('/:token/complete', portalComplete);
+router.post('/:token/activity', portalActivity);
 router.get('/:token/tasks/:taskId', getPortalTask);
+router.get('/:token/tasks/:taskId/signed-file', viewPortalSignedFile);
 router.post('/:token/tasks/:taskId/consent', portalConsent);
 router.post('/:token/tasks/:taskId/intent', portalIntent);
 router.post(
@@ -132,4 +138,11 @@ router.post('/:token/modules/:moduleId/form-upload', uploadPortalModuleFormFile)
 router.post('/:token/modules/:moduleId/complete', completePortalModule);
 router.post('/:token/modules/:moduleId/progress/start', startPortalModule);
 
+router.get('/:token/modules/:moduleId/acknowledgment', portalTrainingAction('checkAcknowledgment'));
+router.get('/:token/modules/:moduleId/acknowledgment/details', portalTrainingAction('getAcknowledgment'));
+router.post('/:token/modules/:moduleId/acknowledgment', portalTrainingAction('acknowledgeModule'));
+router.post('/:token/modules/:moduleId/quiz', [body('answers').isArray()], portalTrainingAction('submitQuiz'));
+router.get('/:token/modules/:moduleId/responses', portalTrainingAction('getResponses'));
+router.post('/:token/modules/:moduleId/responses', portalTrainingAction('saveResponse'));
+router.post('/:token/modules/:moduleId/knowledge-check', portalTrainingAction('knowledgeCheck'));
 export default router;

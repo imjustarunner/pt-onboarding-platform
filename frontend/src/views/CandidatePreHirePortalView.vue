@@ -96,11 +96,12 @@
             <div class="portal-welcome">
               <h1>Welcome, {{ candidate.firstName }}!</h1>
               <p>
-                <template v-if="portalPhase === 'account_setup'">
+                <template v-if="viewingPrehire && candidate.status === 'ONBOARDING'">Your pre-hire package is complete. View your retained submissions or switch to onboarding.</template>
+                <template v-else-if="portalPhase === 'account_setup'">
                   Choose your work username to continue joining {{ agency?.name || 'the team' }}.
                 </template>
                 <template v-else-if="portalPhase === 'finalize_login'">
-                  Onboarding is complete — set your password to activate your account and sign in.
+                  Your required steps are complete. Set your password, then submit onboarding for review.
                 </template>
                 <template v-else-if="portalPhase === 'review'">
                   Your pre-hire packet is with People Operations for review. You can still view submissions and resources.
@@ -116,6 +117,29 @@
                 {{ phaseLabel }} · {{ progressPct }}% complete
               </div>
             </div>
+
+            <nav class="journey-switch" aria-label="Hire process">
+              <button type="button" :class="{ selected: viewingPrehire }" @click="selectedProcess = 'pre_hire'; activeSection = 'dashboard'">
+                <strong>1. Pre-hire</strong>
+                <span>{{ candidate.status === 'ONBOARDING' ? 'Completed · view package' : candidate.status === 'PREHIRE_REVIEW' ? 'Submitted · under review' : 'Documents & signatures' }}</span>
+              </button>
+              <button type="button" :disabled="candidate.status !== 'ONBOARDING'" :class="{ selected: !viewingPrehire }" @click="selectedProcess = 'onboarding'; activeSection = 'dashboard'">
+                <strong>2. Onboarding</strong>
+                <span>{{ portalData?.journey?.onboardingCompletedAt ? 'Completed · awaiting activation' : candidate.status === 'ONBOARDING' ? 'Profile, forms & training' : 'People Operations will start this' }}</span>
+              </button>
+              <div><strong>3. Active</strong><span>After People Operations review</span></div>
+            </nav>
+            <section v-if="processClosed" class="journey-review" role="status">
+              <strong>{{ viewingPrehire ? 'Your pre-hire package is closed' : 'Your onboarding package is submitted' }}</strong>
+              <p>{{ viewingPrehire ? 'Your submissions remain available here. People Operations controls when onboarding starts.' : 'People Operations will review your package and mark you active. Your recorded time has been submitted for payroll review.' }}</p>
+              <button type="button" class="portal-link-copy" @click="openSubmissions">View my submissions</button>
+            </section>
+            <section v-if="candidate.status === 'ONBOARDING' && !viewingPrehire" class="journey-time" role="status">
+              <strong>{{ processClosed ? 'Onboarding time submitted' : activity.tracking.value ? 'Recording active onboarding time' : 'Time tracking paused' }}</strong>
+              <span>{{ Math.floor((portalData?.journey?.time?.seconds || 0) / 60) }} minutes saved</span>
+              <p v-if="activity.error.value" class="cred-warn">{{ activity.error.value }}</p>
+              <p v-else>Time is recorded while you work in this portal and its training pages. It pauses when you leave or are idle. Tell People Operations about any work completed outside the portal or missing time.</p>
+            </section>
 
             <!-- Group password: pick work username only (pre-hire) -->
             <section
@@ -163,7 +187,7 @@
 
             <!-- End of onboarding: set password + activate login -->
             <section
-              v-if="activeSection === 'dashboard' && portalPhase === 'finalize_login'"
+              v-if="activeSection === 'dashboard' && !viewingPrehire && portalPhase === 'finalize_login'"
               class="portal-account-setup"
               aria-label="Set password and activate account"
             >
@@ -172,7 +196,7 @@
                   <h2>Set your password</h2>
                   <p>
                     Your username is <strong>{{ candidate.workEmail }}</strong>.
-                    Create a password to activate your employee account. Google SSO stays off for this login.
+                    Create your password so your login is ready when People Operations activates your employee account.
                     Password recovery goes to {{ candidate.personalEmail || 'your personal email' }}.
                   </p>
                 </div>
@@ -192,7 +216,7 @@
                   :disabled="finalizingPassword || !canFinalizePassword"
                   @click="finalizePassword"
                 >
-                  {{ finalizingPassword ? 'Activating…' : 'Activate my account' }}
+                  {{ finalizingPassword ? 'Saving…' : 'Save my password' }}
                 </button>
                 <p v-if="accountError" class="cred-warn">{{ accountError }}</p>
                 <p v-if="finalizeSuccess" class="cred-ok">{{ finalizeSuccess }}</p>
@@ -234,14 +258,15 @@
             >
               <div class="portal-link-card-head"><strong>Your steps</strong></div>
               <p class="portal-link-help">
-                Background check, job description, documents, and signatures are on My Tasks.
-                This dashboard is just your work email and private portal link.
+                {{ viewingPrehire ? 'Background check, job description, documents, and signatures are on My Tasks.' : 'Your profile questionnaires, required forms, and training are on My Tasks.' }}
+                Completed pre-hire and onboarding materials are retained in My Submissions and your employee library.
               </p>
               <button type="button" class="btn-primary" @click="activeSection = 'tasks'">
                 Go to My Tasks ({{ progressPct }}% complete)
               </button>
             </section>
 
+            <fieldset v-if="viewingPrehire" :disabled="processClosed" class="journey-prehire">
             <section
               v-if="activeSection === 'tasks'"
               class="portal-link-card portal-bg-card"
@@ -449,6 +474,8 @@
               </ul>
             </section>
 
+            </fieldset>
+
             <!-- Submissions -->
             <section v-if="activeSection === 'submissions'" class="portal-submissions" aria-label="My submissions">
               <div class="portal-tasks-head">
@@ -459,6 +486,16 @@
               </div>
               <div v-if="submissionsLoading" class="empty-tasks">Loading…</div>
               <template v-else>
+                <div v-for="phase in ['prehire', 'onboarding']" :key="phase" class="cred-card">
+                  <h3>{{ phase === 'prehire' ? 'Pre-hire package' : 'Onboarding package' }}</h3>
+                  <p>{{ submissions?.journey?.[phase === 'prehire' ? 'prehireCompletedAt' : 'onboardingCompletedAt'] ? 'Completed and retained' : 'In progress or awaiting People Operations' }}</p>
+                  <ul class="portal-simple-list">
+                    <li v-for="item in submissions?.journey?.[phase]?.tasks || []" :key="item.id">
+                      <button v-if="item.taskType === 'document' && item.status === 'completed'" class="portal-doc-title-link portal-doc-title-btn" @click="viewCompletedDocument(item)">{{ item.title }}</button>
+                      <span v-else>{{ item.title }}</span> · {{ item.status }}
+                    </li>
+                  </ul>
+                </div>
                 <div v-if="submissions?.hiringProfile" class="cred-card">
                   <h3>Application</h3>
                   <p v-if="submissions.hiringProfile.appliedRole"><strong>Role:</strong> {{ submissions.hiringProfile.appliedRole }}</p>
@@ -547,7 +584,7 @@
 
             <!-- Onboarding credential packet (accounts & access) -->
             <section
-              v-if="activeSection === 'tasks' && showCredentialPacket && portalPhase !== 'account_setup'"
+              v-if="activeSection === 'tasks' && !viewingPrehire && !processClosed && showCredentialPacket && portalPhase !== 'account_setup'"
               class="portal-credential-packet"
               aria-label="Accounts and access"
             >
@@ -620,8 +657,7 @@
                 <div>
                   <strong>All items complete!</strong>
                   <div class="all-done-sub">
-                    Your documents are under review. Save your personal link above so you can return anytime
-                    for verification or to add another copy of a task — no login required.
+                    Your required items are complete. Submit your package when you are ready for People Operations to review it.
                   </div>
                 </div>
               </div>
@@ -630,6 +666,7 @@
                 No items have been assigned yet. Your hiring team will send them shortly.
               </div>
 
+              <p v-if="portalData?.missingContract && !processClosed" class="cred-warn">People Operations needs to assign your employment agreement before you can submit pre-hire.</p>
               <div class="task-list">
                 <article
                   v-for="(task, idx) in tasks"
@@ -655,13 +692,16 @@
                     </div>
                   </div>
                   <!-- Intake form tasks: open form + mark done -->
-                  <template v-if="task.taskType === 'intake_form' && task.status !== 'completed'">
+                  <template v-if="task.taskType === 'custom' && task.status !== 'completed'">
+                    <button type="button" class="task-card-v2-action" :disabled="processClosed" @click="markIntakeFormDone(task)">Mark complete</button>
+                  </template>
+                  <template v-else-if="task.taskType === 'intake_form' && task.status !== 'completed'">
                     <div class="intake-form-actions">
                       <button
                         type="button"
                         class="task-card-v2-action"
                         :style="{ borderColor: taskAccentColor(idx), color: taskAccentColor(idx) }"
-                        @click="openIntakeForm(task)"
+                        :disabled="processClosed" @click="openIntakeForm(task)"
                       >
                         Fill Out Form <span aria-hidden="true">↗</span>
                       </button>
@@ -685,17 +725,9 @@
                         :style="{ borderColor: taskAccentColor(idx), color: taskAccentColor(idx) }"
                         @click="openModuleTask(task)"
                       >
-                        Open Form <span aria-hidden="true">↗</span>
+                        Open training / questionnaire <span aria-hidden="true">↗</span>
                       </button>
-                      <button
-                        v-if="moduleTaskOpened === task.id"
-                        type="button"
-                        class="task-card-v2-action task-card-v2-action--confirm"
-                        :disabled="moduleTaskSubmitting"
-                        @click="markModuleTaskDone(task)"
-                      >
-                        {{ moduleTaskSubmitting ? 'Saving…' : "I've completed this form ✓" }}
-                      </button>
+
                     </div>
                   </template>
                   <template v-else>
@@ -703,7 +735,7 @@
                       type="button"
                       class="task-card-v2-action"
                       :style="{ borderColor: taskAccentColor(idx), color: taskAccentColor(idx) }"
-                      @click="selectTask(task)"
+                      :disabled="processClosed && task.status !== 'completed'" @click="task.taskType === 'training' ? openModuleTask(task) : selectTask(task)"
                     >
                       {{ task.status === 'completed' ? 'View' : taskActionLabel(task) }}
                       <span aria-hidden="true">›</span>
@@ -712,12 +744,12 @@
                 </article>
               </div>
 
-              <div v-if="tasks.length > 0 && !allDone" class="cta-wrap">
-                <button class="btn-complete" :disabled="submitting" @click="confirmSubmit">
+              <div v-if="!processClosed" class="cta-wrap">
+                <button class="btn-complete" :disabled="submitting || !allDone" @click="confirmSubmit">
                   {{ submitting ? 'Submitting…' : 'I\'ve completed everything — submit for review' }}
                 </button>
                 <div class="cta-help">
-                  You can also submit before all items are done if you need assistance.
+                  Complete all required items before submitting. Contact People Operations if you need help.
                 </div>
               </div>
             </section>
@@ -765,7 +797,10 @@
             <div class="task-panel-body">
               <div v-if="activeTask.status === 'completed'" class="task-done-msg">
                 <div class="task-done-check">✓</div>
-                <div>This item is complete. You can still read the signed copy below.</div>
+                <div>This item is complete.
+                  <a v-if="activeTaskDetail?.signedFileUrl" :href="submissionFileHref({ fileUrl: activeTaskDetail.signedFileUrl })" target="_blank" rel="noopener">Open retained signed PDF</a>
+                  <p>The document preview and signing receipt are below.</p>
+                </div>
               </div>
 
               <div v-if="panelStep === 'consent' && activeTask.status !== 'completed'" class="consent-block">
@@ -920,12 +955,13 @@
           <h3>Submit for review?</h3>
           <p v-if="completedCount < totalCount">
             You have <strong>{{ totalCount - completedCount }}</strong> item(s) still pending.
-            You can still submit, but your team may reach out to complete remaining items.
+            Complete the required items before submitting your package.
           </p>
           <p v-else>All items are complete. Your documents will be submitted for review.</p>
+          <p v-if="submissionError" class="cred-warn">{{ submissionError }}</p>
           <div class="confirm-actions">
             <button class="btn-secondary-sm" @click="showSubmitConfirm = false">Go back</button>
-            <button class="btn-primary" :disabled="submitting" @click="submitPortal(true)">
+            <button class="btn-primary" :disabled="submitting" @click="submitPortal()">
               {{ submitting ? 'Submitting…' : 'Submit' }}
             </button>
           </div>
@@ -938,6 +974,7 @@
 </template>
 
 <script setup>
+import { useOnboardingActivity } from '../composables/useOnboardingActivity.js';
 import { ref, computed, onMounted, nextTick, watch, reactive } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import DOMPurify from 'dompurify';
@@ -996,7 +1033,12 @@ const copyPortalLink = async () => {
   }
 };
 const supportTeam = computed(() => portalData.value?.supportTeam || { label: 'People Operations', members: [] });
-const tasks = computed(() => portalData.value?.tasks || []);
+const selectedProcess = ref('');
+const viewingPrehire = computed(() => selectedProcess.value === 'pre_hire' || candidate.value.status !== 'ONBOARDING');
+const processClosed = computed(() => viewingPrehire.value ? ['PREHIRE_REVIEW', 'ONBOARDING'].includes(candidate.value.status) : !!portalData.value?.journey?.onboardingCompletedAt);
+const tasks = computed(() => viewingPrehire.value && candidate.value.status === 'ONBOARDING' ? portalData.value?.prehireTasks || [] : portalData.value?.tasks || []);
+const activityEnabled = computed(() => candidate.value.status === 'ONBOARDING' && !viewingPrehire.value && !processClosed.value && ['dashboard', 'tasks', 'handbook'].includes(activeSection.value));
+const activity = useOnboardingActivity({ enabled: activityEnabled, token, http: portalApi });
 const progress = computed(() => portalData.value?.progress || { total: 0, completed: 0, allDone: false });
 const portalPhase = computed(() => portalData.value?.portalPhase || 'pre_hire');
 const hireAccountMode = computed(() => portalData.value?.hireAccountMode || null);
@@ -1072,6 +1114,7 @@ const signCompanyDocument = async (doc) => {
       signerName: candidateDisplayName.value
     });
     companyDocSigned[id] = true;
+    await reloadPortal();
   } catch (e) {
     companyDocError[id] = e?.response?.data?.error?.message || 'Could not save acknowledgement.';
   } finally {
@@ -1147,6 +1190,7 @@ const onPrehireDocUpload = async (doc, event) => {
       headers: { 'Content-Type': 'multipart/form-data' }
     });
     uploadDone.value = { ...uploadDone.value, [docId]: true };
+    await reloadPortal();
   } catch (e) {
     uploadError.value = {
       ...uploadError.value,
@@ -1239,6 +1283,7 @@ const submitBackgroundCheck = async () => {
   } catch (e) {
     bgError.value = e?.response?.data?.error?.message || 'Could not save authorization.';
   } finally {
+    await reloadPortal();
     bgSaving.value = false;
   }
 };
@@ -1256,6 +1301,7 @@ const acknowledgeJobDescription = async () => {
       signerName: candidateDisplayName.value
     });
     jdAcknowledgedLocal.value = true;
+    await reloadPortal();
   } catch (e) {
     jdError.value = e?.response?.data?.error?.message || 'Could not save acknowledgement.';
   } finally {
@@ -1339,9 +1385,8 @@ const finalizePassword = async () => {
       password: accountForm.value.password,
       confirmPassword: accountForm.value.confirmPassword
     });
-    finalizeSuccess.value = data?.loginUrl
-      ? `Account activated. Sign in at ${data.loginUrl} — this portal link has expired.`
-      : 'Account activated. You can sign in with your work username and password. This portal link has expired.';
+    finalizeSuccess.value = 'Password saved. Submit your onboarding package for People Operations to review.';
+    await reloadPortal();
     accountForm.value.password = '';
     accountForm.value.confirmPassword = '';
   } catch (e) {
@@ -1387,7 +1432,8 @@ const submissionFileHref = (doc) => {
 
 const viewCompletedDocument = async (doc) => {
   if (!doc?.id) return;
-  await selectTask({ id: doc.id, status: 'completed', title: doc.title, actionType: doc.actionType });
+  selectedDocument.value = { id: doc.id, status: 'completed', title: doc.title, actionType: doc.actionType };
+  await selectTask(selectedDocument.value);
 };
 
 const coverLetterParagraphs = computed(() =>
@@ -1563,39 +1609,20 @@ const completedCount = computed(() => {
   return Number(p.completed || 0);
 });
 const allDone = computed(() => !!progress.value.allDone);
-const progressPct = computed(() => {
-  const steps = [];
-  if (portalPhase.value === 'account_setup') {
-    steps.push(!!(candidate.value.usernameChosen || candidate.value.workEmail));
-  }
-  steps.push(!!backgroundCheck.value?.signed);
-  steps.push(!!jdAcknowledged.value);
-  for (const d of prehireDocs.value || []) {
-    const kind = String(d.kind || '').toLowerCase();
-    if (['company_document', 'upload', 'acknowledgement'].includes(kind)) {
-      steps.push(!!(d.signed || companyDocSigned[d.id] || uploadDone.value[d.id]));
-    }
-  }
-  for (const t of tasks.value || []) {
-    steps.push(t.status === 'completed');
-  }
-  if (steps.length) {
-    return Math.round((steps.filter(Boolean).length / steps.length) * 100);
-  }
-  if (totalCount.value > 0) return Math.round((completedCount.value / totalCount.value) * 100);
-  return Number(progress.value.percent || 0);
-});
+const progressPct = computed(() => viewingPrehire.value && candidate.value.status === 'ONBOARDING' ? 100 : Number(progress.value.percent || 0));
 
 const isPrehire = computed(() => ['PENDING_SETUP', 'PREHIRE_OPEN', 'PREHIRE_REVIEW'].includes(candidate.value.status));
 const isOnboardingPortal = computed(() => candidate.value.status === 'ONBOARDING');
 const phaseLabel = computed(() => {
+  if (viewingPrehire.value && candidate.value.status === 'ONBOARDING') return 'Pre-hire completed';
   if (portalPhase.value === 'account_setup') return 'Choose username';
-  if (portalPhase.value === 'finalize_login') return 'Activate account';
+  if (portalPhase.value === 'onboarding_review') return 'Onboarding submitted';
+  if (portalPhase.value === 'finalize_login') return 'Set password';
   if (portalPhase.value === 'review') return 'Under review';
   if (portalPhase.value === 'onboarding' || isOnboardingPortal.value) return 'Onboarding';
   return 'Pre-Hire';
 });
-const sectionLabel = computed(() => isOnboardingPortal.value ? 'ONBOARDING CHECKLIST' : 'PRE-HIRE ITEMS');
+const sectionLabel = computed(() => viewingPrehire.value ? 'PRE-HIRE ITEMS' : 'ONBOARDING CHECKLIST');
 const statusLabel = computed(() => {
   const map = {
     PENDING_SETUP: 'Awaiting setup',
@@ -1635,7 +1662,8 @@ const sidebarStyle = computed(() => {
 
 // ─── Task panel ───────────────────────────────────────────────────────────────
 const activeTaskId = ref(null);
-const activeTask = computed(() => tasks.value.find(t => t.id === activeTaskId.value) || null);
+const selectedDocument = ref(null);
+const activeTask = computed(() => tasks.value.find(t => t.id === activeTaskId.value) || selectedDocument.value);
 const activeTaskDetail = ref(null);
 const panelStep = ref('consent');
 const panelLoading = ref(false);
@@ -1727,7 +1755,7 @@ const selectTask = async (task) => {
 };
 
 const closePanel = () => {
-  activeTaskId.value = null;
+  activeTaskId.value = null; selectedDocument.value = null;
   clearCanvas();
 };
 
@@ -1860,14 +1888,18 @@ const showSubmitConfirm = ref(false);
 
 const confirmSubmit = () => { showSubmitConfirm.value = true; };
 
-const submitPortal = async (force = false) => {
+const submissionError = ref('');
+const submitPortal = async () => {
   submitting.value = true;
   try {
-    await portalApi.post(`/prehire-portal/${token.value}/complete`, { force });
+    submissionError.value = '';
+    await activity.flush();
+    await portalApi.post(`/prehire-portal/${token.value}/complete`);
     showSubmitConfirm.value = false;
     // Reload — will hit STATUS_ADVANCED state
     await loadPortal();
   } catch (e) {
+    submissionError.value = e.response?.data?.error?.message || 'Could not submit. Please try again.';
     const errCode = e.response?.data?.error?.code;
     if (errCode === 'TASKS_INCOMPLETE') {
       showSubmitConfirm.value = true;
@@ -1884,6 +1916,7 @@ const loadPortal = async () => {
   try {
     const res = await portalApi.get(`/prehire-portal/${token.value}`);
     portalData.value = res.data;
+    if (!selectedProcess.value) selectedProcess.value = res.data?.candidate?.status === 'ONBOARDING' ? 'onboarding' : 'pre_hire';
     if (!bgForm.value.legalName) {
       bgForm.value.legalName = `${res.data?.candidate?.firstName || ''} ${res.data?.candidate?.lastName || ''}`.trim();
     }
@@ -1915,6 +1948,18 @@ onMounted(async () => {
 </script>
 
 <style scoped>
+.journey-switch { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin: 20px 0; }
+.journey-switch button, .journey-switch > div { text-align: left; border: 1px solid #dbe5e1; border-radius: 12px; padding: 16px; background: white; color: #203d35; }
+.journey-switch span { display: block; font-size: 12px; margin-top: 7px; }
+.journey-switch button.selected { border: 2px solid var(--primary); background: var(--primary-soft); }
+.journey-switch button:disabled { opacity: .6; }
+.journey-review, .journey-time { padding: 18px; border-radius: 12px; margin: 16px 0; background: #fff8e8; border: 1px solid #f4dfb2; }
+.journey-review p, .journey-time p { font-size: 13px; line-height: 1.5; margin: 8px 0; }
+.journey-time { background: #ecf7f1; border-color: #cbe8d8; }
+.journey-time > span { display: block; margin-top: 6px; }
+.journey-prehire { border: 0; padding: 0; margin: 0; min-width: 0; }
+@media (max-width: 640px) { .journey-switch { grid-template-columns: 1fr; } }
+
 .portal-root {
   --primary: #2563eb;
   --secondary: #2563eb;
@@ -2206,8 +2251,8 @@ onMounted(async () => {
   margin: 0 0 18px;
   padding: 14px 16px;
   border-radius: 12px;
-  border: 1px solid rgba(37, 99, 235, 0.22);
-  background: rgba(37, 99, 235, 0.06);
+  border: 1px solid #dce6e1;
+  background: #fff;
 }
 
 .portal-link-card-head {
@@ -2904,7 +2949,8 @@ onMounted(async () => {
     margin-bottom: 0;
     padding-bottom: 0;
   }
-  .portal-nav-links,
+  .portal-nav-links { display: flex; flex-direction: row; width: 100%; overflow-x: auto; gap: 4px; margin-top: 10px; }
+  .portal-nav-link { flex-shrink: 0; white-space: nowrap; padding: 9px 10px; font-size: 12px; }
   .portal-nav-footer { display: none; }
   .portal-content { padding: 20px 16px; }
   .portal-help-card { flex-direction: column; align-items: flex-start; }

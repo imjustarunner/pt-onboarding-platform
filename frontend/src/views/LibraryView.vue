@@ -40,6 +40,8 @@
         />
       </header>
 
+      <HireJourneyLibrary />
+
       <div class="library-search-row">
         <div class="library-search">
           <span class="library-search__icon" aria-hidden="true">⌕</span>
@@ -354,6 +356,7 @@
 </template>
 
 <script setup>
+import HireJourneyLibrary from '../components/prehire/HireJourneyLibrary.vue';
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useAuthStore } from '../store/auth';

@@ -10689,56 +10689,10 @@ export const markUserComplete = async (req, res, next) => {
       });
     }
     
-    // Admins can mark PREHIRE_OPEN, PREHIRE_REVIEW, ONBOARDING, or ACTIVE_EMPLOYEE users as ACTIVE_EMPLOYEE
-    // If in earlier statuses, we'll move them through the flow automatically
-    if (user.status === 'PREHIRE_OPEN' || user.status === 'PREHIRE_REVIEW') {
-      // For PREHIRE_OPEN users, first move to PREHIRE_REVIEW, then to ONBOARDING, then to ACTIVE_EMPLOYEE
-      // For PREHIRE_REVIEW users, move to ONBOARDING, then to ACTIVE_EMPLOYEE
-      
-      // If PREHIRE_OPEN, we need to complete the pre-hire process first
-      if (user.status === 'PREHIRE_OPEN') {
-        // Check if all items are complete
-        const PendingCompletionService = (await import('../services/pendingCompletion.service.js')).default;
-        const completionCheck = await PendingCompletionService.checkAllChecklistItemsComplete(parseInt(id));
-        if (!completionCheck.allComplete) {
-          return res.status(400).json({ 
-            error: { 
-              message: 'Cannot mark as completed: Not all pre-hire checklist items are completed.',
-              incompleteCount: completionCheck.incompleteCount
-            } 
-          });
-        }
-        
-        // Mark pre-hire as complete (sets to PREHIRE_REVIEW)
-        await PendingCompletionService.processPendingCompletion(parseInt(id), false);
-      }
-      
-      // Now move PREHIRE_REVIEW to ONBOARDING (requires onboarding package assignment)
-      // For admin-initiated completion, we'll skip to ACTIVE_EMPLOYEE if work email is set
-      const workEmail = user.work_email || user.email;
-      if (!workEmail) {
-        return res.status(400).json({ 
-          error: { 
-            message: 'Work email is required. Please set the work email first.',
-            requiresWorkEmail: true
-          } 
-        });
-      }
-      
-      // Set work email if not already set
-      if (!user.work_email) {
-        await User.setWorkEmail(parseInt(id), workEmail);
-        const pool = (await import('../config/database.js')).default;
-        await pool.execute('UPDATE users SET email = ? WHERE id = ?', [workEmail, parseInt(id)]);
-      }
-      
-      // Move through ONBOARDING to ACTIVE_EMPLOYEE
-      // First set to ONBOARDING if in PREHIRE_REVIEW
-      if (user.status === 'PREHIRE_REVIEW') {
-        await User.updateStatus(parseInt(id), 'ONBOARDING', req.user.id);
-      }
+    if (['PREHIRE_OPEN', 'PREHIRE_REVIEW'].includes(user.status)) {
+      return res.status(409).json({ error: { message: 'Promote this employee to onboarding and complete that process before activation.' } });
     }
-    
+
     // Now mark as ACTIVE_EMPLOYEE (user should be in ONBOARDING or ACTIVE_EMPLOYEE at this point)
     const currentUser = await User.findById(id);
     if (currentUser.status !== 'ONBOARDING' && currentUser.status !== 'ACTIVE_EMPLOYEE') {
@@ -10798,204 +10752,60 @@ export const markUserComplete = async (req, res, next) => {
 };
 
 export const promoteToOnboarding = async (req, res, next) => {
+  let db;
   try {
-    const { id } = req.params;
-    
-    // Only admins/super_admins can promote users
-    if (req.user.role !== 'admin' && req.user.role !== 'super_admin' && req.user.role !== 'support') {
-      return res.status(403).json({ error: { message: 'Admin access required' } });
-    }
-    
-    // Verify user exists
+    db = await pool.getConnection();
+    const id = Number(req.params.id);
+    if (!['admin', 'super_admin', 'support'].includes(req.user.role)) return res.status(403).json({ error: { message: 'Admin access required.' } });
     const user = await User.findById(id);
-    if (!user) {
-      return res.status(404).json({ error: { message: 'User not found' } });
+    if (!user || user.status !== 'PREHIRE_REVIEW') return res.status(409).json({ error: { message: 'Complete pre-hire review before starting onboarding.' } });
+    const [[agencyRow]] = await pool.execute(
+      'SELECT a.* FROM agencies a JOIN user_agencies ua ON ua.agency_id = a.id WHERE ua.user_id = ? ORDER BY a.id LIMIT 1', [id]);
+    if (!agencyRow || !user.work_email) return res.status(400).json({ error: { message: 'Organization and work email are required.' } });
+    if (req.user.role !== 'super_admin') {
+      const agencies = await User.getAgencies(req.user.id);
+      if (!agencies.some((a) => Number(a.id) === Number(agencyRow.id))) return res.status(403).json({ error: { message: 'Organization access required.' } });
     }
-    
-    // Validate user is in PREHIRE_REVIEW status
-    if (user.status !== 'PREHIRE_REVIEW') {
-      return res.status(400).json({ 
-        error: { 
-          message: `User is in ${user.status} status. Can only promote users from PREHIRE_REVIEW status.`,
-          currentStatus: user.status
-        } 
-      });
-    }
-
-    if (!user.work_email) {
-      return res.status(400).json({
-        error: {
-          message: 'Work email is required before enabling onboarding access.',
-          requiresWorkEmail: true
-        }
-      });
-    }
-    
-    // Update status to ONBOARDING
-    const updatedUser = await User.updateStatus(id, 'ONBOARDING', req.user.id);
-    if (!updatedUser) {
-      return res.status(404).json({ error: { message: 'User not found' } });
-    }
-
+    const settings = typeof agencyRow.prehire_settings === 'string' ? JSON.parse(agencyRow.prehire_settings) : (agencyRow.prehire_settings || {});
+    const [[profile]] = await pool.execute('SELECT applied_role FROM hiring_profiles WHERE candidate_user_id = ? ORDER BY id DESC LIMIT 1', [id]);
+    const mapping = (settings.role_package_mappings || []).find((m) => String(m.role || '').toLowerCase() === String(profile?.applied_role || '').toLowerCase());
+    const packageId = Number(req.body?.packageId || mapping?.packageId || settings.default_onboarding_package_id);
+    if (!packageId) return res.status(400).json({ error: { message: 'Select an onboarding package before promoting this employee.' } });
+    const OnboardingPackage = (await import('../models/OnboardingPackage.model.js')).default;
+    const pkg = await OnboardingPackage.findById(packageId);
+    if (pkg?.package_type !== 'onboarding') return res.status(400).json({ error: { message: 'Select a package of type onboarding.' } });
+    const { portalStateForUser } = await import('./prehirePortal.controller.js');
+    const state = await portalStateForUser(id);
+    if (!state.progress.allDone) return res.status(409).json({ error: { message: 'Required pre-hire items are incomplete. Reopen pre-hire and finish them before promotion.' } });
+    const { closePrehire, startOnboarding } = await import('../services/hireJourney.service.js');
+    const { assignPackageToUser } = await import('../services/packageAssignment.service.js');
+    await db.beginTransaction();
+    const [[locked]] = await db.execute('SELECT status, passwordless_token, passwordless_token_purpose FROM users WHERE id = ? FOR UPDATE', [id]);
+    if (locked.status !== 'PREHIRE_REVIEW') throw Object.assign(new Error('This employee has already moved to another process. Refresh and try again.'), { status: 409 });
+    await closePrehire(id, { tasks: state.tasks, backgroundCheck: state.backgroundCheck,
+      jdAcknowledged: state.jdAcknowledged, prehireDocs: state.prehireDocs }, db);
+    const assigned = await assignPackageToUser({ packageId, userId: id, agencyId: agencyRow.id, assignedByUserId: req.user.id, connection: db });
+    await startOnboarding(id, db);
+    const crypto = await import('node:crypto');
+    const portalToken = (locked.passwordless_token_purpose !== 'reset' && locked.passwordless_token) || crypto.randomBytes(32).toString('hex');
+    await db.execute(
+      `UPDATE users SET status = 'ONBOARDING', completed_at = NULL, status_expires_at = NULL,
+       pending_access_locked = FALSE, pending_auto_complete_at = NULL,
+       passwordless_token = ?, passwordless_token_expires_at = DATE_ADD(UTC_TIMESTAMP(), INTERVAL 14 DAY), passwordless_token_purpose = 'prehire_portal'
+       WHERE id = ?`, [portalToken, id]);
+    await db.commit();
+    let inviteSent = false;
     try {
-      const { enableWorkspaceLoginForUser } = await import('../services/workspaceLoginTransition.service.js');
-      await enableWorkspaceLoginForUser(user);
-    } catch (e) {
-      console.warn('Workspace login enable failed:', e?.message || e);
-    }
-
-    // Resolve the package to assign:
-    // 1. Explicit packageId from request body (staff override)
-    // 2. Role-based default from prehire_settings.role_package_mappings
-    // 3. Agency-wide default from prehire_settings.default_onboarding_package_id
-    const { packageId: bodyPackageId, sendMethod = 'token' } = req.body || {};
-    let autoPackageResult = null;
-    try {
-      const [agencyRows] = await pool.execute(
-        'SELECT agency_id FROM user_agencies WHERE user_id = ? LIMIT 1',
-        [id]
-      );
-      const agencyId = agencyRows[0]?.agency_id;
-
-      if (agencyId) {
-        const [settingsRows] = await pool.execute(
-          'SELECT prehire_settings FROM agencies WHERE id = ? LIMIT 1',
-          [agencyId]
-        );
-        const rawSettings = settingsRows[0]?.prehire_settings;
-        const settings = typeof rawSettings === 'string' ? JSON.parse(rawSettings) : (rawSettings || {});
-
-        // Resolve package: explicit > role-mapped > global default
-        let resolvedPackageId = bodyPackageId ? parseInt(bodyPackageId, 10) : null;
-        if (!resolvedPackageId) {
-          // Look up the candidate's applied_role and check role mappings
-          try {
-            const [hpRows] = await pool.execute(
-              'SELECT applied_role FROM hiring_profiles WHERE candidate_user_id = ? LIMIT 1',
-              [id]
-            );
-            const appliedRole = hpRows[0]?.applied_role || null;
-            if (appliedRole && Array.isArray(settings.role_package_mappings)) {
-              const match = settings.role_package_mappings.find(
-                (m) => m.role && m.role.toLowerCase() === appliedRole.toLowerCase()
-              );
-              if (match?.packageId) resolvedPackageId = parseInt(match.packageId, 10);
-            }
-          } catch { /* non-fatal */ }
-        }
-        if (!resolvedPackageId && settings.default_onboarding_package_id) {
-          resolvedPackageId = parseInt(settings.default_onboarding_package_id, 10);
-        }
-
-        if (resolvedPackageId) {
-          const { assignPackageToUser } = await import('../services/packageAssignment.service.js');
-          autoPackageResult = await assignPackageToUser({
-            packageId: resolvedPackageId,
-            userId: parseInt(id),
-            agencyId,
-            assignedByUserId: req.user.id,
-            ensureAccountSetup: true
-          });
-          console.log(`[promoteToOnboarding] Assigned onboarding package ${resolvedPackageId} to user ${id}`);
-        }
-
-        // Send credentials based on sendMethod
-        if (sendMethod === 'token') {
-          // Keep one portal token: extend / regenerate and email /pre-hire/:token
-          // (same URL as pre-hire), not a separate passwordless-login link.
-          try {
-            let portalToken = user.passwordless_token || null;
-            let expiresAt = user.passwordless_token_expires_at
-              ? new Date(user.passwordless_token_expires_at)
-              : null;
-            const needsNew =
-              !portalToken ||
-              !expiresAt ||
-              expiresAt.getTime() < Date.now() + 24 * 60 * 60 * 1000;
-            if (needsNew) {
-              const tokenResult = await User.generatePasswordlessToken(parseInt(id, 10), 14 * 24, 'prehire_portal');
-              portalToken = tokenResult.token;
-              expiresAt = tokenResult.expiresAt;
-            } else {
-              const bump = new Date();
-              bump.setDate(bump.getDate() + 14);
-              await pool.execute(
-                `UPDATE users SET passwordless_token_expires_at = ? WHERE id = ? AND passwordless_token IS NOT NULL`,
-                [bump, id]
-              );
-              expiresAt = bump;
-            }
-            const Agency = (await import('../models/Agency.model.js')).default;
-            const agency = agencyId ? await Agency.findById(agencyId) : null;
-            const tokenLink = buildPublicAppUrl(agency, `pre-hire/${portalToken}`);
-            const to = user.personal_email || user.email;
-            if (to) {
-              const EmailService = (await import('../services/email.service.js')).default;
-              await EmailService.sendEmail({
-                to,
-                subject: 'Your onboarding portal is ready',
-                text: `Hi ${user.first_name || 'there'},\n\nYou've been promoted to onboarding! Continue with the same personal portal link (bookmark it):\n\n${tokenLink}\n\nThis link is valid until ${expiresAt ? new Date(expiresAt).toLocaleString() : 'further notice'}.\n\nComplete your onboarding steps there. When everything required is done, you will set your password on that same link to activate your login.`
-              }).catch(() => {});
-            }
-          } catch (te) { console.warn('[promoteToOnboarding] Token send failed:', te?.message); }
-        } else if (sendMethod === 'login') {
-          // Send portal continuation (group-password hires set password at end of onboarding)
-          try {
-            const to = user.personal_email || user.email;
-            if (to) {
-              const EmailService = (await import('../services/email.service.js')).default;
-              const Agency = (await import('../models/Agency.model.js')).default;
-              const agency = agencyId ? await Agency.findById(agencyId) : null;
-              let portalToken = user.passwordless_token || null;
-              if (!portalToken) {
-                const tokenResult = await User.generatePasswordlessToken(parseInt(id, 10), 14 * 24, 'prehire_portal');
-                portalToken = tokenResult.token;
-              }
-              const tokenLink = buildPublicAppUrl(agency, `pre-hire/${portalToken}`);
-              await EmailService.sendEmail({
-                to,
-                subject: 'Your onboarding portal is ready',
-                text: `Hi ${user.first_name || 'there'},\n\nYour onboarding portal is ready. Continue here:\n\n${tokenLink}\n\nWork username: ${user.work_email || 'set during pre-hire'}\n\nYou will set your password at the end of onboarding on this link.`
-              }).catch(() => {});
-            }
-          } catch (le) { console.warn('[promoteToOnboarding] Login email send failed:', le?.message); }
-        }
-      }
-    } catch (pkgErr) {
-      console.warn('[promoteToOnboarding] Package/send step failed (non-fatal):', pkgErr?.message);
-    }
-
-    try {
-      const [agencyRows2] = await pool.execute(
-        'SELECT agency_id FROM user_agencies WHERE user_id = ? LIMIT 1',
-        [id]
-      );
-      const comfortAgencyId = agencyRows2[0]?.agency_id;
-      if (comfortAgencyId) {
-        const StaffClientComfortPreference = (await import('../models/StaffClientComfortPreference.model.js')).default;
-        await StaffClientComfortPreference.promoteDraftToUser(
-          { userId: Number(id), agencyId: comfortAgencyId, hiringProfileId: null },
-          req.user?.id
-        );
-      }
-    } catch (comfortErr) {
-      console.warn('[promoteToOnboarding] comfort prefs promote failed:', comfortErr?.message);
-    }
-
-    res.json({
-      message: 'User promoted to onboarding status',
-      user: updatedUser,
-      autoPackageAssigned: autoPackageResult ? {
-        packageId: autoPackageResult.packageId,
-        packageName: autoPackageResult.packageName,
-        documentsAssigned: autoPackageResult.documents?.length || 0,
-        trainingAssigned: autoPackageResult.trainingFocuses?.length || 0
-      } : null,
-      sendMethod
-    });
-  } catch (error) {
-    next(error);
-  }
+      const EmailService = (await import('../services/email.service.js')).default;
+      if (req.body?.sendMethod !== 'none') await EmailService.sendEmail({ to: user.personal_email || user.email, subject: 'Your onboarding portal is ready',
+        text: `Hi ${user.first_name || 'there'},\n\nYour pre-hire package is complete and remains available in My Submissions. Continue onboarding using your same personal link:\n\n${buildPublicAppUrl(agencyRow, `pre-hire/${portalToken}`)}\n\nSubmit your completed onboarding package for People Operations to review and activate your account.` });
+      inviteSent = req.body?.sendMethod !== 'none';
+    } catch (e) { console.warn('[promoteToOnboarding] Invitation delivery failed:', e?.message); }
+    res.json({ message: 'Onboarding started. Pre-hire is retained as a completed package.', user: await User.findById(id),
+      autoPackageAssigned: { packageId, packageName: assigned.packageName, documentsAssigned: assigned.documents.length,
+        trainingAssigned: assigned.trainingFocuses.length }, inviteSent });
+  } catch (error) { if (db) await db.rollback(); next(error); }
+  finally { db?.release(); }
 };
 
 const VALID_EMPLOYEE_STATUSES = [

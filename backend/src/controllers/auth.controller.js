@@ -1,4 +1,5 @@
 import bcrypt from 'bcrypt';
+import { isHirePortalOnly } from '../utils/hirePortalToken.js';
 import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
 import { validationResult } from 'express-validator';
@@ -2201,6 +2202,10 @@ export const passwordlessTokenLogin = async (req, res, next) => {
 
     // If this token is for password reset, do NOT allow direct login.
     // Reset flows must force the user to set a new password first.
+    if (isHirePortalOnly(user)) {
+      return res.status(403).json({ error: { code: 'HIRE_PORTAL_ONLY', message: 'Continue pre-hire and onboarding using your personal portal link. This link cannot be exchanged for a staff login.' } });
+    }
+
     if (user.passwordless_token_purpose === 'reset') {
       const userAgencies = await User.getAgencies(user.id);
       const portalSlug = userAgencies?.[0]?.portal_url || userAgencies?.[0]?.slug || null;
@@ -2457,6 +2462,10 @@ export const passwordlessTokenLoginFromBody = async (req, res, next) => {
     }
     
     console.log('[passwordlessTokenLoginFromBody] Token validated, user:', user.id, 'status:', user.status);
+
+    if (isHirePortalOnly(user)) {
+      return res.status(403).json({ error: { code: 'HIRE_PORTAL_ONLY', message: 'Continue pre-hire and onboarding using your personal portal link. This link cannot be exchanged for a staff login.' } });
+    }
 
     if (user.passwordless_token_purpose === 'reset') {
       const userAgencies = await User.getAgencies(user.id);

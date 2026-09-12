@@ -31,9 +31,10 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue';
+import { ref, onMounted, inject } from 'vue';
 import api from '../services/api';
 
+const portalTraining = inject('portalTraining', null);
 const props = defineProps({
   moduleId: {
     type: [String, Number],
@@ -54,11 +55,11 @@ const acknowledgmentDate = ref(null);
 
 const checkAcknowledgment = async () => {
   try {
-    const response = await api.get(`/acknowledgments/${props.moduleId}`);
+    const response = await (portalTraining?.enabled.value ? portalTraining.get('/acknowledgment') : api.get(`/acknowledgments/${props.moduleId}`));
     if (response.data.acknowledged) {
       acknowledged.value = true;
       // Get full details
-      const detailsResponse = await api.get(`/acknowledgments/${props.moduleId}/details`);
+      const detailsResponse = await (portalTraining?.enabled.value ? portalTraining.get('/acknowledgment/details') : api.get(`/acknowledgments/${props.moduleId}/details`));
       acknowledgmentDate.value = detailsResponse.data.acknowledged_at;
       emit('acknowledged');
     }
@@ -72,9 +73,7 @@ const submitAcknowledgment = async () => {
   
   try {
     saving.value = true;
-    await api.post('/acknowledgments', {
-      moduleId: parseInt(props.moduleId)
-    });
+    await (portalTraining?.enabled.value ? portalTraining.post('/acknowledgment') : api.post('/acknowledgments', { moduleId: parseInt(props.moduleId) }));
     acknowledged.value = true;
     acknowledgmentDate.value = new Date().toISOString();
     emit('acknowledged');

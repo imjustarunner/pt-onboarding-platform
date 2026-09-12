@@ -38,7 +38,7 @@
             <div v-if="packagesLoading" class="pto-loading">Loading packages…</div>
             <div v-else>
               <select v-model="selectedPackageId" class="pto-select">
-                <option value="">— No package (assign later) —</option>
+                <option value="">— Select an onboarding package —</option>
                 <option v-for="pkg in packages" :key="pkg.id" :value="pkg.id">
                   {{ pkg.name }}
                   <template v-if="roleMatchedPackageId === pkg.id"> (suggested for {{ candidate.applied_role }})</template>
@@ -68,26 +68,15 @@
                 <input type="radio" v-model="sendMethod" value="token" />
                 <div class="pto-radio-body">
                   <div class="pto-radio-title">
-                    <span>Send a magic link</span>
+                    <span>Continue with their personal link</span>
                     <span class="pto-radio-badge pto-badge-blue">Passwordless</span>
                   </div>
-                  <p class="pto-radio-desc">Email the candidate a one-click access link (7-day expiry) to their personal email. They can set a password later.</p>
+                  <p class="pto-radio-desc">Email the candidate a existing personal portal link (extended for 14 days) to their personal email. They can set a password later.</p>
                   <p class="pto-radio-email">→ {{ candidate.personal_email || candidate.email }}</p>
                 </div>
               </label>
 
-              <label class="pto-radio-card" :class="{ active: sendMethod === 'login', disabled: !candidate.work_email }">
-                <input type="radio" v-model="sendMethod" value="login" :disabled="!candidate.work_email" />
-                <div class="pto-radio-body">
-                  <div class="pto-radio-title">
-                    <span>Send workspace login</span>
-                    <span class="pto-radio-badge pto-badge-green">Full access</span>
-                  </div>
-                  <p class="pto-radio-desc">Email login instructions using their work email. Use this when the workspace account is already provisioned.</p>
-                  <p class="pto-radio-email" v-if="candidate.work_email">→ {{ candidate.work_email }}</p>
-                  <p class="pto-radio-email pto-radio-email-warn" v-else>Work email required</p>
-                </div>
-              </label>
+
 
               <label class="pto-radio-card" :class="{ active: sendMethod === 'none' }">
                 <input type="radio" v-model="sendMethod" value="none" />

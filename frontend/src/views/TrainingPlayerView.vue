@@ -33,6 +33,8 @@
           <button type="button" class="btn btn-secondary btn-sm" @click="exitCourse">Exit Course</button>
         </header>
 
+        <p v-if="activity.error.value" role="alert">{{ activity.error.value }}</p>
+        <p v-else-if="portalTrackingEnabled" role="status">{{ activity.tracking.value ? 'Recording active onboarding time' : 'Onboarding time paused' }}</p>
         <div v-if="isPrehireMode && portalReturnLink" class="prehire-banner">
           <div>
             <strong>Save your personal link</strong>
@@ -289,7 +291,8 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref, watch } from 'vue';
+import { useOnboardingActivity } from '../composables/useOnboardingActivity.js';
+import { computed, onMounted, ref, watch, provide } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import axios from 'axios';
 import api from '../services/api';
@@ -356,6 +359,13 @@ const portalReturnLink = computed(() =>
 const portalApi = axios.create({
   baseURL: import.meta.env.VITE_API_URL || '/api',
   withCredentials: false
+});
+const portalTrackingEnabled = ref(false);
+const activity = useOnboardingActivity({ enabled: portalTrackingEnabled, token: prehireToken, http: portalApi });
+provide('portalTraining', {
+  enabled: isPrehireMode,
+  get: (suffix) => portalApi.get(`/prehire-portal/${prehireToken.value}/modules/${route.params.id}${suffix}`),
+  post: (suffix, body) => portalApi.post(`/prehire-portal/${prehireToken.value}/modules/${route.params.id}${suffix}`, body)
 });
 const moduleHttp = () => (isPrehireMode.value ? portalApi : api);
 const modulePath = (suffix = '') =>
@@ -603,8 +613,19 @@ async function load() {
           if (ack.data?.acknowledged) acknowledgmentSaved.value = true;
         } catch { /* none */ }
       } else if (isPrehireMode.value) {
-        hasStarted.value = false;
-        acknowledgmentSaved.value = true;
+        progress.value = module.value.progress || { status: module.value.portalTaskStatus };
+        hasStarted.value = ['in_progress', 'completed'].includes(progress.value?.status);
+        const responseData = (await moduleHttp().get(modulePath('/responses'))).data || [];
+        for (const row of responseData) {
+          if (row.content_type !== 'knowledge_check') continue;
+          try {
+            const answer = JSON.parse(row.response_text);
+            const block = parseModuleContentData(row.content_data);
+            if (answer.selected != null && Number(answer.selected) === Number(block.correctAnswer)) kcPassed.value[row.content_id] = true;
+          } catch { /* leave unanswered */ }
+        }
+        const { data } = await portalApi.get(`/prehire-portal/${prehireToken.value}`);
+        portalTrackingEnabled.value = data.candidate?.status === 'ONBOARDING' && !data.journey?.onboardingCompletedAt && module.value.portalTaskStatus !== 'completed';
       } else {
         hasStarted.value = true;
       }
@@ -701,7 +722,9 @@ async function completeModule() {
       if (!ok) return;
     }
     if (isPrehireMode.value) {
+      await activity.flush();
       await moduleHttp().post(modulePath('/complete'));
+      portalTrackingEnabled.value = false;
     } else {
       await api.post('/progress/complete', {
         moduleId: module.value.id,
@@ -755,20 +778,25 @@ function handleQuizCompleted(data) {
   if (data) quizResults.value = data;
 }
 
-function onKnowledgeCheck({ blockId, correct }) {
-  if (correct) kcPassed.value = { ...kcPassed.value, [blockId]: true };
+async function onKnowledgeCheck({ blockId, correct, selected }) {
+  if (isPrehireMode.value) {
+    try {
+      const { data } = await moduleHttp().post(modulePath('/knowledge-check'), { contentId: blockId, selected });
+      if (data.correct) kcPassed.value = { ...kcPassed.value, [blockId]: true };
+    } catch (e) { error.value = e?.response?.data?.error?.message || 'Could not save answer'; }
+  } else if (correct) kcPassed.value = { ...kcPassed.value, [blockId]: true };
 }
 
 async function onSaveResponse({ blockId, text }) {
   try {
-    await api.post(`/modules/${module.value.id}/responses`, { contentId: blockId, responseText: text });
+    await moduleHttp().post(modulePath('/responses'), { contentId: blockId, responseText: text });
   } catch (err) {
     alert(err?.response?.data?.error?.message || 'Failed to save response');
   }
 }
 
 async function loadNotes() {
-  if (!module.value?.id || readOnly.value || isPreview.value) {
+  if (!module.value?.id || readOnly.value || isPreview.value || isPrehireMode.value) {
     notes.value = localStorage.getItem(`notes:${module.value?.id}`) || '';
     return;
   }

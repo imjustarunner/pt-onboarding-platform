@@ -34,6 +34,9 @@ export async function saveBackgroundCheckAuthorization({
     err.status = 503;
     throw err;
   }
+  if (!/^data:image\/(png|jpeg);base64,/.test(String(payload?.signatureData || ''))) {
+    throw Object.assign(new Error('A captured signature is required for authorization.'), { status: 400 });
+  }
   const ssn = String(payload?.ssn || '').replace(/\D/g, '');
   const dl = String(payload?.driversLicense || payload?.dlNumber || '').trim();
   const toStore = {
@@ -44,7 +47,8 @@ export async function saveBackgroundCheckAuthorization({
     currentAddress: String(payload?.currentAddress || '').trim(),
     previousAddresses: String(payload?.previousAddresses || '').trim(),
     aliases: String(payload?.aliases || '').trim(),
-    otherNames: String(payload?.otherNames || '').trim()
+    otherNames: String(payload?.otherNames || '').trim(),
+    signatureData: String(payload?.signatureData || '').trim()
   };
   const enc = encryptGuardianIntake(JSON.stringify(toStore));
   const ssnLast4 = last4(ssn);

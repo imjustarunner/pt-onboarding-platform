@@ -8,8 +8,6 @@ import {
   getAgencyBuilderDefaults,
   inferCompensationFromCredential
 } from './contractMerge.service.js';
-import UserSpecificDocument from '../models/UserSpecificDocument.model.js';
-import TaskAssignmentService from './taskAssignment.service.js';
 import PayrollCompensationLevel, { COMPENSATION_CATEGORIES } from '../models/PayrollCompensationLevel.model.js';
 
 function parseJsonArray(value, fallback = []) {
@@ -368,114 +366,69 @@ export async function generateAndAssignCandidateContract({
   documentDescription = 'Generated employment contract',
   taskMetadata = {}
 }) {
-  try {
-    const [existingRows] = await pool.execute(
-      `SELECT t.*
-       FROM tasks t
-       WHERE t.assigned_to_user_id = ?
-         AND t.task_type = 'document'
-         AND (t.document_action_type IS NULL OR t.document_action_type != 'countersignature')
-         AND t.status NOT IN ('overridden', 'archived', 'deleted')
-         AND (
-           t.title LIKE 'Employment Agreement%'
-           OR COALESCE(t.metadata, '') LIKE '%contractGeneration%'
-         )
-       ORDER BY t.id DESC
-       LIMIT 1`,
-      [candidateUserId]
-    );
-    if (existingRows?.[0]) {
-      return {
-        reused: true,
-        task: existingRows[0],
-        userSpecificDocumentId: existingRows[0].reference_id || null,
-        html: null,
-        unresolvedTokens: []
-      };
-    }
-  } catch { /* continue and generate */ }
-
-  const preview = await previewCandidateContract({
-    agencyId,
-    candidateUserId,
-    configId,
-    templateId,
-    tokens,
-    compensationCategory,
-    compensationLevel,
-    jobDescClauseKey,
-    credentialOverride,
-    officeLocationId
-  });
-
-  const docName = title || `Employment Agreement — ${preview.tokens.EMPLOYEE_FULL_NAME || 'Candidate'}`;
-  const usd = await UserSpecificDocument.create({
-    userId: candidateUserId,
-    taskId: null,
-    name: docName,
-    description: documentDescription,
-    templateType: 'html',
-    htmlContent: preview.html,
-    documentActionType: 'signature',
-    fieldDefinitions: [
-      { type: 'signature', label: 'Employee signature', required: true }
-    ],
-    createdByUserId
-  });
-
-  const baseMetadata = {
-    contractGeneration: true,
-    contractConfigId: configId,
-    jobDescClauseKey: jobDescClauseKey || preview.tokens?.JOB_DESC_CLAUSE_KEY || null,
-    jobDescriptionId: preview.tokens?.JOB_DESCRIPTION_ID || null
-  };
-  const task = await TaskAssignmentService.assignDocumentTask({
-    title: docName,
-    description: taskDescription,
-    userSpecificDocumentId: usd.id,
-    assignedByUserId: createdByUserId,
-    assignedToUserId: candidateUserId,
-    assignedToAgencyId: agencyId,
-    documentActionType: 'signature',
-    isRequired: true,
-    metadata: { ...baseMetadata, ...taskMetadata }
-  });
-
-  // Link task onto the user-specific document
-  try {
-    await pool.execute(
-      `UPDATE user_specific_documents SET task_id = ? WHERE id = ?`,
-      [task.id, usd.id]
-    );
-  } catch {
-    /* ignore */
+  const preview = await previewCandidateContract({ agencyId, candidateUserId, configId, templateId,
+    tokens, compensationCategory, compensationLevel, jobDescClauseKey, credentialOverride, officeLocationId });
+  if (preview.unresolvedTokens?.length) {
+    throw Object.assign(new Error(`Complete these contract fields before assigning: ${preview.unresolvedTokens.join(', ')}`), { status: 400 });
   }
-
-  const [gen] = await pool.execute(
-    `INSERT INTO contract_generations
-      (agency_id, candidate_user_id, config_id, template_id, token_values_json, rendered_html,
-       user_specific_document_id, task_id, created_by_user_id)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [
-      agencyId,
-      candidateUserId,
-      configId,
-      templateId || preview.template?.id || null,
-      JSON.stringify(preview.tokens),
-      preview.html,
-      usd.id,
-      task.id,
-      createdByUserId || null
-    ]
-  );
-
-  return {
-    generationId: gen.insertId,
-    task,
-    userSpecificDocumentId: usd.id,
-    html: preview.html,
-    unresolvedTokens: preview.unresolvedTokens
-  };
+  const db = await pool.getConnection();
+  try {
+    await db.beginTransaction();
+    const [[user]] = await db.execute('SELECT status FROM users WHERE id = ? FOR UPDATE', [candidateUserId]);
+    const [[membership]] = await db.execute('SELECT user_id FROM user_agencies WHERE user_id = ? AND agency_id = ?', [candidateUserId, agencyId]);
+    if (!membership) throw Object.assign(new Error('Candidate does not belong to this organization.'), { status: 403 });
+    const [existingRows] = await db.execute(
+      `SELECT g.*, t.status AS task_status, t.metadata AS task_metadata FROM contract_generations g JOIN tasks t ON t.id = g.task_id
+       WHERE g.candidate_user_id = ? AND g.agency_id = ? AND t.status NOT IN ('archived', 'overridden', 'deleted')
+       ORDER BY g.id DESC`, [candidateUserId, agencyId]);
+    const isAmendment = taskMetadata.source === 'provider_update';
+    const existing = existingRows.filter((g) => {
+      let meta = g.task_metadata || {};
+      try { if (typeof meta === 'string') meta = JSON.parse(meta); } catch { meta = {}; }
+      return isAmendment ? meta.source === 'provider_update' && meta.pushId === (taskMetadata.pushId || null)
+        : meta.source !== 'provider_update';
+    });
+    const identical = existing.find((g) => g.rendered_html === preview.html);
+    if (identical) {
+      const [[task]] = await db.execute('SELECT * FROM tasks WHERE id = ?', [identical.task_id]);
+      await db.commit();
+      return { reused: true, generationId: identical.id, task, html: identical.rendered_html,
+        userSpecificDocumentId: identical.user_specific_document_id, unresolvedTokens: [] };
+    }
+    if (existing.some((g) => g.task_status === 'completed')) {
+      throw Object.assign(new Error('An agreement is already signed. Preserve that agreement and issue a separate amendment through Documents.'), { status: 409 });
+    }
+    if (!isAmendment && !['PROSPECTIVE', 'PENDING_SETUP', 'PREHIRE_OPEN'].includes(user?.status)) {
+      throw Object.assign(new Error('Reopen pre-hire before changing the employment agreement.'), { status: 409 });
+    }
+    const name = title || `Employment Agreement — ${preview.tokens.EMPLOYEE_FULL_NAME || 'Candidate'}`;
+    const [document] = await db.execute(
+      `INSERT INTO user_specific_documents (user_id, name, description, template_type, html_content,
+       document_action_type, field_definitions, created_by_user_id) VALUES (?, ?, ?, 'html', ?, 'signature', ?, ?)`,
+      [candidateUserId, name, documentDescription, preview.html,
+        JSON.stringify([{ type: 'signature', label: 'Employee signature', required: true }]), createdByUserId || null]);
+    const metadata = { ...taskMetadata, contractGeneration: true, portalPhase: isAmendment ? 'ongoing' : 'pre_hire',
+      contractConfigId: configId, jobDescClauseKey: jobDescClauseKey || preview.tokens.JOB_DESC_CLAUSE_KEY || null,
+      jobDescriptionId: preview.tokens.JOB_DESCRIPTION_ID || null };
+    const [assignment] = await db.execute(
+      `INSERT INTO tasks (task_type, document_action_type, title, description, assigned_to_user_id,
+       assigned_to_agency_id, assigned_by_user_id, reference_id, metadata, status, is_required)
+       VALUES ('document', 'signature', ?, ?, ?, ?, ?, ?, ?, 'pending', 1)`,
+      [name, taskDescription, candidateUserId, agencyId, createdByUserId || null, document.insertId, JSON.stringify(metadata)]);
+    await db.execute('UPDATE user_specific_documents SET task_id = ? WHERE id = ?', [assignment.insertId, document.insertId]);
+    const [generation] = await db.execute(
+      `INSERT INTO contract_generations (agency_id, candidate_user_id, config_id, template_id, token_values_json,
+       rendered_html, user_specific_document_id, task_id, created_by_user_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [agencyId, candidateUserId, configId, templateId || preview.template?.id || null, JSON.stringify(preview.tokens),
+        preview.html, document.insertId, assignment.insertId, createdByUserId || null]);
+    // Supersede only unsigned agreements, retaining all generations for staff audit.
+    for (const old of existing) await db.execute("UPDATE tasks SET status = 'overridden' WHERE id = ? AND status != 'completed'", [old.task_id]);
+    const [[task]] = await db.execute('SELECT * FROM tasks WHERE id = ?', [assignment.insertId]);
+    await db.commit();
+    return { generationId: generation.insertId, task, userSpecificDocumentId: document.insertId,
+      html: preview.html, unresolvedTokens: [], replacedCount: existing.length };
+  } catch (e) { await db.rollback(); throw e; }
+  finally { db.release(); }
 }
 
 export default {

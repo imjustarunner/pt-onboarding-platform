@@ -5,7 +5,7 @@ import pool from '../config/database.js';
 import PayrollCompensationLevel from '../models/PayrollCompensationLevel.model.js';
 import HiringResumeParse from '../models/HiringResumeParse.model.js';
 import OfficeLocation from '../models/OfficeLocation.model.js';
-import config from '../config/config.js';
+import appConfig from '../config/config.js';
 import {
   classifyPayCategory,
   determineLicenseStatus
@@ -65,7 +65,7 @@ function replaceTokens(html, tokens = {}) {
   for (const [key, value] of Object.entries(merged)) {
     const safeKey = String(key).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     const re = new RegExp(`\\{\\{\\s*${safeKey}\\s*\\}\\}`, 'gi');
-    out = out.replace(re, value == null ? '' : String(value));
+    out = out.replace(re, () => value == null ? '' : String(value));
   }
   return out;
 }
@@ -88,7 +88,7 @@ function isSupervisorClause(clause) {
 }
 
 function findUnresolvedTokens(html) {
-  const matches = String(html || '').match(/\{\{\s*[A-Z0-9_]+\s*\}\}/g) || [];
+  const matches = String(html || '').match(/\{\{\s*[A-Za-z0-9_]+\s*\}\}/g) || [];
   return [...new Set(matches.map((m) => m.replace(/[{}\s]/g, '')))];
 }
 
@@ -269,7 +269,7 @@ export async function loadContractBundle({ agencyId, configId, templateId, jobDe
     [configId, agencyId]
   );
   const config = cfgRows?.[0] || null;
-  if (!config) throw Object.assign(new Error('Contract config not found'), { status: 404 });
+  if (!config || !config.is_active) throw Object.assign(new Error('Contract config not found'), { status: 404 });
 
   const tplId = templateId || config.contract_template_id;
   let template = null;
@@ -279,6 +279,7 @@ export async function loadContractBundle({ agencyId, configId, templateId, jobDe
       [tplId, agencyId]
     );
     template = tRows?.[0] || null;
+    if (!template || !template.is_active) throw Object.assign(new Error('Contract template is unavailable for this organization.'), { status: 400 });
   }
 
   let clauseKeys = [];
@@ -301,7 +302,9 @@ export async function loadContractBundle({ agencyId, configId, templateId, jobDe
     [agencyId, ...clauseKeys]
   );
   const byKey = new Map((clauseRows || []).map((c) => [c.clause_key, c]));
-  const ordered = clauseKeys.map((k) => byKey.get(k)).filter(Boolean);
+  const missing = clauseKeys.filter((key) => !byKey.has(key));
+  if (missing.length) throw Object.assign(new Error(`Contract clauses are missing or inactive: ${missing.join(', ')}`), { status: 400 });
+  const ordered = clauseKeys.map((k) => byKey.get(k));
 
   return { config, template, clauses: ordered, clauseKeys };
 }
@@ -342,6 +345,8 @@ export async function autofillTokensForCandidate({
   credentialOverride = null,
   officeLocationId = null
 } = {}) {
+  const [[membership]] = await pool.execute('SELECT user_id FROM user_agencies WHERE user_id = ? AND agency_id = ?', [candidateUserId, agencyId]);
+  if (!membership) throw Object.assign(new Error('Candidate does not belong to this organization.'), { status: 403 });
   const [userRows] = await pool.execute(
     `SELECT id, first_name, last_name, email, work_email, personal_email, title, credential, service_focus, role
      FROM users WHERE id = ? LIMIT 1`,
@@ -550,6 +555,8 @@ export async function renderContractHtml({
     ? clauses
     : (clauses || []).filter((c) => !isSupervisorClause(c));
 
+  const requiredFields = new Set(['EMPLOYEE_FULL_NAME', 'COMPANY_NAME', 'JOB_TITLE', 'START_DATE', 'EXECUTION_DATE', 'EFFECTIVE_DATE', 'DIRECT_RATE', 'INDIRECT_RATE']);
+  const missingFields = [...new Set(visibleClauses.flatMap((c) => findUnresolvedTokens(c.body_html)))].filter((key) => requiredFields.has(key.toUpperCase()) && !String(mergedTokens[key] ?? mergedTokens[key.toUpperCase()] ?? '').trim());
   const bodyParts = visibleClauses.map((c) => {
     const body = replaceTokens(c.body_html, mergedTokens);
     if (/^\s*<h[1-3]/i.test(c.body_html || '') || /^\s*<p/i.test(body)) return body;
@@ -574,7 +581,7 @@ export async function renderContractHtml({
         letterheadFooter = lh.footer_html || '';
         if (['svg', 'png'].includes(String(lh.template_type || '')) && lh.file_path) {
           const path = String(lh.file_path).replace(/^\/+/, '').replace(/^uploads\//, '');
-          const url = `${String(config.frontendUrl || '').replace(/\/$/, '')}/uploads/${path}`;
+          const url = `${String(appConfig.frontendUrl || '').replace(/\/$/, '')}/uploads/${path}`;
           letterheadHeader = `<div class="contract-letterhead"><img src="${escapeHtml(url)}" alt="" style="width:100%;max-width:800px;display:block;" /></div>`;
         } else {
           letterheadHeader = lh.header_html || '';
@@ -604,7 +611,7 @@ ${letterheadFooter || ''}
 
   return {
     html,
-    unresolvedTokens: findUnresolvedTokens(html.replace(/\{\{\s*INSERT_PAY_TABLE\s*\}\}/gi, '')),
+    unresolvedTokens: [...new Set([...missingFields, ...findUnresolvedTokens(html.replace(/\{\{\s*INSERT_PAY_TABLE\s*\}\}/gi, ''))])],
     config,
     template
   };

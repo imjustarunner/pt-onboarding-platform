@@ -103,10 +103,11 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue';
+import { ref, computed, onMounted, inject } from 'vue';
 import api from '../services/api';
 import { optionDisplayText } from '../utils/trainingContentNormalize.js';
 
+const portalTraining = inject('portalTraining', null);
 const props = defineProps({
   moduleId: {
     type: [String, Number],
@@ -206,9 +207,9 @@ const submitQuiz = async () => {
       answersInOrder[originalIndex] = answers.value[displayIndex];
     });
 
-    const res = await api.post(`/quizzes/${props.moduleId}/submit`, {
-      answers: answersInOrder
-    });
+    const res = portalTraining?.enabled.value
+      ? await portalTraining.post('/quiz', { answers: answersInOrder })
+      : await api.post(`/quizzes/${props.moduleId}/submit`, { answers: answersInOrder });
     const data = res.data || {};
     const score = data.attempt?.score ?? data.score ?? 0;
     const passedValue = Boolean(data.passed);

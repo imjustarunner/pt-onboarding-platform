@@ -5,7 +5,7 @@
       <div>
         <h2 class="ona-title">Onboarding</h2>
         <p class="ona-subtitle">
-          Hired employees completing their onboarding checklist. Use <strong>Send Invite</strong> on a row to resend the portal magic link or workspace login email.
+          Review completed onboarding packages, then mark employees active. Send Invite resends their existing personal portal link.
         </p>
       </div>
       <div class="ona-header-right">
@@ -150,7 +150,7 @@
                 <span class="ona-complete-badge">Completed</span>
               </div>
               <div v-else class="ona-progress-cell">
-                <span class="ona-progress-pct">{{ e.progress_pct }}%</span>
+                <span class="ona-progress-pct">{{ e.onboarding_completed_at ? 'Submitted · ready for review' : `${e.progress_pct}%` }}</span>
                 <div class="ona-progress-bar-wrap">
                   <div class="ona-progress-bar-fill" :style="{ width: e.progress_pct + '%' }"></div>
                 </div>
@@ -165,16 +165,14 @@
             </td>
             <td class="ona-td" @click.stop>
               <div class="ona-row-actions">
+                <button v-if="e.onboarding_completed_at" class="ona-invite-btn" @click.stop="activate(e)">Mark active</button>
                 <button class="ona-invite-btn" @click.stop="openInviteMenu(e.id)">Send Invite ▾</button>
                 <div v-if="inviteMenu === e.id" class="ona-invite-dropdown" @mouseleave="inviteMenu = null">
                   <button class="ona-action-item" @click="sendInvite(e, 'token'); inviteMenu = null">
                     <span>✉ Magic link (passwordless)</span>
                     <span class="ona-action-sub">→ {{ e.personal_email || e.email }}</span>
                   </button>
-                  <button class="ona-action-item" :disabled="!e.work_email" @click="sendInvite(e, 'login'); inviteMenu = null">
-                    <span>🔑 Workspace login</span>
-                    <span class="ona-action-sub">{{ e.work_email || '(no work email)' }}</span>
-                  </button>
+
                 </div>
                 <div class="ona-actions-wrap">
                   <button class="ona-action-btn" @click.stop="toggleMenu(e.id)">⋮</button>
@@ -290,7 +288,14 @@ const load = async () => {
 };
 
 // ── Computed ──────────────────────────────────────────────────────────────────
-const completedCount = computed(() => employees.value.filter((e) => e.progress_pct === 100).length);
+async function activate(employee) {
+  try {
+    await api.post(`/users/${employee.id}/mark-complete`);
+    await load();
+  } catch (e) { error.value = e?.response?.data?.error?.message || 'Could not activate employee.'; }
+}
+
+const completedCount = computed(() => employees.value.filter((e) => e.onboarding_completed_at).length);
 const totalOverdue = computed(() => employees.value.reduce((sum, e) => sum + (e.overdue_count || 0), 0));
 
 const filteredEmployees = computed(() => {
@@ -303,8 +308,8 @@ const filteredEmployees = computed(() => {
       (e.job_title || '').toLowerCase().includes(lq)
     );
   }
-  if (progressFilter.value === 'completed') list = list.filter((e) => e.progress_pct === 100);
-  else if (progressFilter.value === 'in_progress') list = list.filter((e) => e.progress_pct < 100);
+  if (progressFilter.value === 'completed') list = list.filter((e) => e.onboarding_completed_at);
+  else if (progressFilter.value === 'in_progress') list = list.filter((e) => !e.onboarding_completed_at);
   else if (progressFilter.value === 'overdue') list = list.filter((e) => e.overdue_count > 0);
   return list;
 });
