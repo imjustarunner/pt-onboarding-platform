@@ -55,6 +55,23 @@ describe('marketing editor save workflow', () => {
     await wrapper.find('.pmp-save-row .btn-primary').trigger('click');
     expect(api.put).not.toHaveBeenCalled(); wrapper.unmount();
   });
+  it('preserves Rise settings and previews banner and enrollment edits without a tenant', async () => {
+    record = { id: 3, slug: 'rise', title: 'Rise Revive', pageType: 'marketing_hub', isActive: true, brandingJson: { landingTemplate: 'rise', riseWebsite: { enrollmentUrl: '', futureOption: 'preserved' } } };
+    const wrapper = await openEditor();
+    const component = wrapper.findComponent(workspace);
+    await wrapper.find('[data-rise-field="enrollmentUrl"]').setValue('/join/actual-rise');
+    component.vm.$emit('asset', { target: 'cta', url: '/uploads/rise-banner.webp' });
+    await flushPromises();
+    expect(component.props('page').branding.riseWebsite.enrollmentUrl).toBe('/join/actual-rise');
+    expect(component.props('page').branding.riseWebsite.ctaImageUrl).toBe('/uploads/rise-banner.webp');
+    await wrapper.find('.pmp-save-row .btn-primary').trigger('click'); await flushPromises();
+    const payload = api.put.mock.calls[0][1];
+    expect(payload.brandingJson.landingTemplate).toBe('rise');
+    expect(payload.brandingJson.riseWebsite.futureOption).toBe('preserved');
+    expect(payload.brandingJson.landing).toBeUndefined();
+    expect(payload.isActive).toBe(true);
+    wrapper.unmount();
+  });
   it('keeps invalid JSON and unfinished published content from being silently saved', async () => {
     record.isActive = true;
     const wrapper = await openEditor();
@@ -66,5 +83,14 @@ describe('marketing editor save workflow', () => {
     await wrapper.find('.pmp-save-row .btn-primary').trigger('click'); await flushPromises();
     expect(wrapper.text()).toContain('must be a valid JSON object');
     expect(api.put).not.toHaveBeenCalled(); wrapper.unmount();
+  });
+  it('rejects unsafe Rise enrollment destinations before publishing', async () => {
+    record = { id: 3, slug: 'rise', title: 'Rise Revive', pageType: 'marketing_hub', isActive: true, brandingJson: {} };
+    const wrapper = await openEditor();
+    await wrapper.find('[data-rise-field="enrollmentUrl"]').setValue('javascript:alert(1)');
+    await wrapper.find('.pmp-save-row .btn-primary').trigger('click'); await flushPromises();
+    expect(api.put).not.toHaveBeenCalled();
+    expect(wrapper.text()).toContain('must use an HTTPS URL');
+    wrapper.unmount();
   });
 });

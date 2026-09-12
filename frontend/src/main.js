@@ -208,6 +208,11 @@ async function bootstrap() {
   // - For slug routes (/:organizationSlug/...) we can also infer the slug from the route.
   const setTitle = () => {
     try {
+      const publicTitle = router.currentRoute.value?.meta?.publicMarketingTitle;
+      if (typeof publicTitle === 'string' && publicTitle.trim()) {
+        document.title = publicTitle;
+        return;
+      }
       const portalName = String(brandingStore.portalAgency?.name || '').trim();
       const platformName = String(brandingStore.platformBranding?.organization_name || '').trim();
       const slug =

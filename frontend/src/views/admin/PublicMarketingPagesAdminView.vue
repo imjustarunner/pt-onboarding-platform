@@ -37,7 +37,15 @@
     <div v-if="editorOpen" class="pmp-editor card">
       <h2>{{ editingId ? `Edit page #${editingId}` : 'New page' }}</h2>
 
-      <MarketingDesignWorkspace v-if="showMarketingLandingEditor || showPtcoEditor" :key="editingId || 'new'" :page="designPreviewPage" :reference-url="designReferenceUrl" @asset="applyDesignAsset" @reference="designReferenceUrl = $event" @busy="designBusy = $event" />
+      <MarketingDesignWorkspace v-if="showMarketingLandingEditor || showPtcoEditor || showRiseEditor" :key="editingId || 'new'" :page="designPreviewPage" :reference-url="designReferenceUrl" @asset="applyDesignAsset" @reference="designReferenceUrl = $event" @busy="designBusy = $event" />
+      <fieldset v-if="showRiseEditor" class="card" style="padding: 20px; margin-bottom: 20px">
+        <legend>Rise Revive — enrollment and contact</legend>
+        <p class="muted">The public website can launch before the tenant. After onboarding, paste the tenant’s published enrollment URL here. Blank destinations show an honest opening status; they never route to a guessed tenant.</p>
+        <label v-for="[key, label] in riseFields" :key="key" class="field">
+          <span>{{ label }}</span><input v-model="riseForm[key]" type="text" :data-rise-field="key" />
+        </label>
+        <label class="field"><span>Message before enrollment opens</span><textarea v-model="riseForm.openingMessage" rows="3" /></label>
+      </fieldset>
       <label class="field">
         <span>Slug (URL: /p/slug)</span>
         <input v-model="form.slug" type="text" placeholder="d11-summer-2025" :disabled="!!editingId" />
@@ -631,6 +639,7 @@ import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import api from '../../services/api';
 import { useRoute } from 'vue-router';
 import MarketingDesignWorkspace from '../../components/marketing/MarketingDesignWorkspace.vue';
+import { riseConnectionDefaults, riseDestination, resolveRiseConnections } from '../../constants/riseWebsite';
 import { marketingPageIssues } from '../../utils/marketingPageQuality';
 const route = useRoute();
 import { toUploadsUrl } from '../../utils/uploadsUrl';
@@ -665,9 +674,18 @@ const iconOptions = TISI_LANDING_ICON_OPTIONS;
 const landingForm = ref(tisiLandingToAdminForm(defaultTisiLandingConfig()));
 
 const showPtcoEditor = computed(() => String(form.value.slug || '').trim().toLowerCase() === 'ptco');
+const showRiseEditor = computed(() => String(form.value.slug || '').trim().toLowerCase() === 'rise');
+const riseForm = ref({ ...riseConnectionDefaults });
+const riseFields = [
+  ['enrollmentUrl', 'Published enrollment URL (after tenant setup)'],
+  ['careersUrl', 'Careers / provider application URL'], ['partnerUrl', 'Community partnership URL'],
+  ['contactUrl', 'Contact form URL'], ['contactEmail', 'Confirmed contact email'],
+  ['contactPhone', 'Confirmed phone number'], ['contactAddress', 'Confirmed location'],
+  ['ctaImageUrl', 'Bottom banner image URL'], ['homeMobileImageUrl', 'Optional mobile home hero image URL']
+];
 const showMarketingLandingEditor = computed(
   () =>
-    (!showPtcoEditor.value && String(form.value.pageType || '') === 'marketing_landing') ||
+    (!showPtcoEditor.value && !showRiseEditor.value && String(form.value.pageType || '') === 'marketing_landing') ||
     String(form.value.slug || '').trim().toLowerCase() === 'tisi'
 );
 
@@ -683,6 +701,7 @@ const designIssues = computed(() => marketingPageIssues(resolveTisiLandingConfig
 function applyDesignAsset({ target, url }) {
   if (target === 'hero') form.value.heroImageUrl = url;
   else if (target === 'logo') form.value.logoUrl = url;
+  else if (target === 'cta' && showRiseEditor.value) riseForm.value.ctaImageUrl = url;
   else if (target === 'cta') landingForm.value.ctaImageUrl = url;
 }
 
@@ -958,10 +977,17 @@ function mergeBrandingPayload() {
   }
 
   if (showPtcoEditor.value) { out.landingTemplate = 'ptco'; out.designReferenceUrl = designReferenceUrl.value; }
+  if (showRiseEditor.value) {
+    out.landingTemplate = 'rise';
+    out.siteName = form.value.title;
+    out.riseWebsite = { ...riseForm.value };
+    out.designReferenceUrl = designReferenceUrl.value;
+  }
   return out;
 }
 
 function hydrateStructuredFromBranding(b) {
+  riseForm.value = { ...riseConnectionDefaults, ...(b?.riseWebsite || {}) };
   designReferenceUrl.value = b?.designReferenceUrl || "";
   originalLanding.value = b?.landing || {};
   const branding = b && typeof b === 'object' ? b : {};
@@ -1199,6 +1225,7 @@ async function loadPages() {
 }
 
 function startCreate() {
+  riseForm.value = { ...riseConnectionDefaults };
   designReferenceUrl.value = '';
   originalLanding.value = {};
   editingId.value = null;
@@ -1222,7 +1249,7 @@ function edit(p) {
   delete advanced.heroVideoUrl;
   delete advanced.offerExpandedExternalLinks;
   delete advanced.landing;
-  if (p.slug !== 'ptco') delete advanced.landingTemplate;
+  if (!['ptco', 'rise'].includes(p.slug)) delete advanced.landingTemplate;
   delete advanced.siteName;
   delete advanced.tagline;
   delete advanced.ctaHref;
@@ -1315,6 +1342,17 @@ async function save() {
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error();
   } catch { saveError.value = 'Advanced branding must be a valid JSON object. Your edits have been preserved.'; return; }
   if (uploadingTarget.value || designBusy.value) { saveError.value = 'Wait for the image upload to finish.'; return; }
+  if (showRiseEditor.value) {
+    for (const [key, label] of riseFields.filter(([key]) => key.endsWith('Url'))) {
+      if (riseForm.value[key]?.trim() && !riseDestination(riseForm.value[key])) {
+        saveError.value = `${label} must use an HTTPS URL or a path beginning with a single /. Your edits have been preserved.`;
+        return;
+      }
+    }
+    const resolved = resolveRiseConnections({ riseWebsite: riseForm.value });
+    if (riseForm.value.contactEmail && !resolved.emailHref) { saveError.value = 'Enter a valid contact email or leave it blank.'; return; }
+    if (riseForm.value.contactPhone && !resolved.phoneHref) { saveError.value = 'Enter a valid phone number or leave it blank.'; return; }
+  }
   if (showMarketingLandingEditor.value && form.value.isActive && designIssues.value.length) {
     saveError.value = 'Resolve the page readiness items, or uncheck Published to save and hide this public page.'; return;
   }

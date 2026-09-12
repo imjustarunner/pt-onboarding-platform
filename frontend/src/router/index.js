@@ -328,6 +328,12 @@ const routes = [
     meta: { requiresGuest: false, organizationSlug: true, publicDistrictSchedule: true }
   },
   {
+    path: '/p/rise/:section?',
+    name: 'RisePublicWebsite',
+    component: () => import('../views/public/RisePublicWebsite.vue'),
+    meta: { requiresGuest: false, publicMarketingHub: true, publicMarketingTitle: 'Rise Revive | Counseling and Coaching' }
+  },
+  {
     path: '/p/ptco/:section?',
     name: 'PtcoPublicWebsite',
     component: () => import('../views/public/PtcoPublicWebsite.vue'),
