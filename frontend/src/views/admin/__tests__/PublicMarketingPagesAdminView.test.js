@@ -93,4 +93,27 @@ describe('marketing editor save workflow', () => {
     expect(wrapper.text()).toContain('must use an HTTPS URL');
     wrapper.unmount();
   });
+  for (const slug of ['range','mh4kidz']) {
+    it(`previews and saves ${slug} connections while preserving configuration`, async () => {
+      record = { id: 4, slug, title: slug, pageType: 'marketing_hub', isActive: true, brandingJson: { [`${slug}Website`]: { futureOption: 'keep' } } };
+      const wrapper = await openEditor();
+      const component = wrapper.findComponent(workspace);
+      await wrapper.find('[data-collective-field="partnerUrl"]').setValue('/intake/partner');
+      component.vm.$emit('asset', { target: 'cta', url: '/uploads/banner.webp' });
+      await flushPromises();
+      expect(component.props('page').branding[`${slug}Website`].ctaImageUrl).toBe('/uploads/banner.webp');
+      await wrapper.find('.pmp-save-row .btn-primary').trigger('click'); await flushPromises();
+      expect(api.put.mock.calls[0][1].brandingJson[`${slug}Website`]).toMatchObject({ futureOption: 'keep', partnerUrl: '/intake/partner' });
+      expect(api.put.mock.calls[0][1].brandingJson.landingTemplate).toBe(slug);
+      wrapper.unmount();
+    });
+    it(`rejects unsafe ${slug} destination edits`, async () => {
+      record = { id: 4, slug, title: slug, pageType: 'marketing_hub', isActive: true, brandingJson: {} };
+      const wrapper = await openEditor();
+      await wrapper.find('[data-collective-field="contactUrl"]').setValue('//evil.test');
+      await wrapper.find('.pmp-save-row .btn-primary').trigger('click'); await flushPromises();
+      expect(api.put).not.toHaveBeenCalled(); wrapper.unmount();
+    });
+  }
+
 });

@@ -221,6 +221,7 @@ import rewardRegulationRoutes from './routes/rewardRegulation.routes.js';
 import assessmentDeliverablesRoutes from './routes/assessmentDeliverables.routes.js';
 import communicationTrackingRoutes from './routes/communicationTracking.routes.js';
 import publicMarketingPagesRoutes from './routes/publicMarketingPages.routes.js';
+import { rangePublicRouter, rangeAdminRouter } from './routes/mentalRange.routes.js';
 import { adminBusinessOnboardingRouter } from './routes/businessOnboarding.routes.js';
 import publicMarketingPagesAdminRoutes from './routes/publicMarketingPagesAdmin.routes.js';
 import agentsRoutes from './routes/agents.routes.js';
@@ -741,6 +742,8 @@ app.use('/api/public/misdirected-email-report', publicMisdirectedEmailReportRout
 app.use('/api/public/contact-reminders', publicContactRemindersRoutes);
 app.use('/api/public/admin-updates', publicAdminUpdateRoutes);
 app.use('/api/admin-updates', adminUpdateMeRoutes);
+app.use('/api/public/mental-range', rangePublicRouter);
+app.use('/api/platform/mental-range', rangeAdminRouter);
 app.use('/api/public/marketing-pages', publicMarketingPagesRoutes);
 app.use('/api/public/translations', publicTranslationsRoutes);
 app.use('/api/public/hiring/reference', publicHiringReferenceRoutes);

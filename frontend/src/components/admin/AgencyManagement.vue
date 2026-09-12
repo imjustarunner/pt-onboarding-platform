@@ -329,6 +329,7 @@
           <fieldset class="settings-main-fieldset" :disabled="!canEditActiveTab">
           <div v-show="activeTab !== 'icons' && activeTab !== 'payroll'" class="tab-content">
           <div v-if="activeTab === 'general'" class="tab-section">
+          <MentalRangeMembership v-if="userRole === 'super_admin' && editingAgency && !isChildOrgEditor" :key="editingAgency.id" :agency-id="Number(editingAgency.id)" />
           <div v-if="editingAgency" class="org-general-header">
             <div class="org-general-title">
               <div class="org-name">{{ editingAgency.name }}</div>
@@ -4226,6 +4227,7 @@ import SplashPagePreviewModal from './SplashPagePreviewModal.vue';
 import ToggleSwitch from '../ui/ToggleSwitch.vue';
 import SocialFeedsAdmin from './SocialFeedsAdmin.vue';
 import AgencySocialLinksAdmin from './AgencySocialLinksAdmin.vue';
+import MentalRangeMembership from './MentalRangeMembership.vue';
 import CompanyEventsManager from './CompanyEventsManager.vue';
 import KudosTiersAdmin from './KudosTiersAdmin.vue';
 

@@ -37,7 +37,12 @@
     <div v-if="editorOpen" class="pmp-editor card">
       <h2>{{ editingId ? `Edit page #${editingId}` : 'New page' }}</h2>
 
-      <MarketingDesignWorkspace v-if="showMarketingLandingEditor || showPtcoEditor || showRiseEditor" :key="editingId || 'new'" :page="designPreviewPage" :reference-url="designReferenceUrl" @asset="applyDesignAsset" @reference="designReferenceUrl = $event" @busy="designBusy = $event" />
+      <MarketingDesignWorkspace v-if="showMarketingLandingEditor || showPtcoEditor || showRiseEditor || showCollectiveEditor" :key="editingId || 'new'" :page="designPreviewPage" :reference-url="designReferenceUrl" @asset="applyDesignAsset" @reference="designReferenceUrl = $event" @busy="designBusy = $event" />
+      <fieldset v-if="showCollectiveEditor" class="card" style="padding:20px;margin-bottom:20px">
+        <h3>{{ form.slug === 'range' ? 'Mental Range Collective' : 'MH4Kidz' }} website connections</h3>
+        <p>Leave unavailable destinations blank to show Coming soon. These public pages do not create a tenant. Network membership is managed in each tenant’s settings by a superadmin.</p>
+        <label v-for="[key,label] in collectiveFields" :key="key" class="field"><span>{{label}}</span><input v-model="collectiveForm[key]" :data-collective-field="key" type="text" /></label>
+      </fieldset>
       <fieldset v-if="showRiseEditor" class="card" style="padding: 20px; margin-bottom: 20px">
         <legend>Rise Revive — enrollment and contact</legend>
         <p class="muted">The public website can launch before the tenant. After onboarding, paste the tenant’s published enrollment URL here. Blank destinations show an honest opening status; they never route to a guessed tenant.</p>
@@ -639,6 +644,7 @@ import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import api from '../../services/api';
 import { useRoute } from 'vue-router';
 import MarketingDesignWorkspace from '../../components/marketing/MarketingDesignWorkspace.vue';
+import { publicWebsiteUrl } from '../../composables/useStandalonePublicWebsite';
 import { riseConnectionDefaults, riseDestination, resolveRiseConnections } from '../../constants/riseWebsite';
 import { marketingPageIssues } from '../../utils/marketingPageQuality';
 const route = useRoute();
@@ -675,6 +681,12 @@ const landingForm = ref(tisiLandingToAdminForm(defaultTisiLandingConfig()));
 
 const showPtcoEditor = computed(() => String(form.value.slug || '').trim().toLowerCase() === 'ptco');
 const showRiseEditor = computed(() => String(form.value.slug || '').trim().toLowerCase() === 'rise');
+const showCollectiveEditor = computed(() => ['range','mh4kidz'].includes(String(form.value.slug || '').trim().toLowerCase()));
+const collectiveForm = ref({});
+const collectiveFields = computed(() => [
+  ...(form.value.slug === 'mh4kidz' ? [['donationUrl','Published donation URL'],['enrollmentUrl','Published enrollment URL']] : [['footerLogoUrl','Footer logo URL']]),
+  ['partnerUrl','Partnership / volunteer URL'],['contactUrl','Public contact URL'],['ctaImageUrl','Bottom banner image URL']
+]);
 const riseForm = ref({ ...riseConnectionDefaults });
 const riseFields = [
   ['enrollmentUrl', 'Published enrollment URL (after tenant setup)'],
@@ -685,7 +697,7 @@ const riseFields = [
 ];
 const showMarketingLandingEditor = computed(
   () =>
-    (!showPtcoEditor.value && !showRiseEditor.value && String(form.value.pageType || '') === 'marketing_landing') ||
+    (!showPtcoEditor.value && !showRiseEditor.value && !showCollectiveEditor.value && String(form.value.pageType || '') === 'marketing_landing') ||
     String(form.value.slug || '').trim().toLowerCase() === 'tisi'
 );
 
@@ -701,6 +713,7 @@ const designIssues = computed(() => marketingPageIssues(resolveTisiLandingConfig
 function applyDesignAsset({ target, url }) {
   if (target === 'hero') form.value.heroImageUrl = url;
   else if (target === 'logo') form.value.logoUrl = url;
+  else if (target === 'cta' && showCollectiveEditor.value) collectiveForm.value.ctaImageUrl = url;
   else if (target === 'cta' && showRiseEditor.value) riseForm.value.ctaImageUrl = url;
   else if (target === 'cta') landingForm.value.ctaImageUrl = url;
 }
@@ -983,10 +996,16 @@ function mergeBrandingPayload() {
     out.riseWebsite = { ...riseForm.value };
     out.designReferenceUrl = designReferenceUrl.value;
   }
+  if (showCollectiveEditor.value) {
+    out.landingTemplate = form.value.slug;
+    out[`${form.value.slug}Website`] = { ...collectiveForm.value };
+    out.designReferenceUrl = designReferenceUrl.value;
+  }
   return out;
 }
 
 function hydrateStructuredFromBranding(b) {
+  collectiveForm.value = { ...(b?.[`${form.value.slug}Website`] || {}) };
   riseForm.value = { ...riseConnectionDefaults, ...(b?.riseWebsite || {}) };
   designReferenceUrl.value = b?.designReferenceUrl || "";
   originalLanding.value = b?.landing || {};
@@ -1225,6 +1244,7 @@ async function loadPages() {
 }
 
 function startCreate() {
+  collectiveForm.value = {};
   riseForm.value = { ...riseConnectionDefaults };
   designReferenceUrl.value = '';
   originalLanding.value = {};
@@ -1249,7 +1269,7 @@ function edit(p) {
   delete advanced.heroVideoUrl;
   delete advanced.offerExpandedExternalLinks;
   delete advanced.landing;
-  if (!['ptco', 'rise'].includes(p.slug)) delete advanced.landingTemplate;
+  if (!['ptco', 'rise', 'range', 'mh4kidz'].includes(p.slug)) delete advanced.landingTemplate;
   delete advanced.siteName;
   delete advanced.tagline;
   delete advanced.ctaHref;
@@ -1342,6 +1362,11 @@ async function save() {
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error();
   } catch { saveError.value = 'Advanced branding must be a valid JSON object. Your edits have been preserved.'; return; }
   if (uploadingTarget.value || designBusy.value) { saveError.value = 'Wait for the image upload to finish.'; return; }
+  if (showCollectiveEditor.value) {
+    for (const [key,label] of collectiveFields.value) {
+      if (collectiveForm.value[key]?.trim() && !publicWebsiteUrl(collectiveForm.value[key])) { saveError.value = `${label} must use an HTTPS URL or a local path.`; return; }
+    }
+  }
   if (showRiseEditor.value) {
     for (const [key, label] of riseFields.filter(([key]) => key.endsWith('Url'))) {
       if (riseForm.value[key]?.trim() && !riseDestination(riseForm.value[key])) {

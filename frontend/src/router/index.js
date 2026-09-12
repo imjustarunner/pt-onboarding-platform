@@ -328,6 +328,14 @@ const routes = [
     meta: { requiresGuest: false, organizationSlug: true, publicDistrictSchedule: true }
   },
   {
+    path: '/p/range/:section?', name: 'MentalRangePublicWebsite', component: () => import('../views/public/MentalRangePublicWebsite.vue'),
+    meta: { requiresGuest: false, publicMarketingHub: true, publicMarketingTitle: 'Mental Range Collective | Stronger Together' }
+  },
+  {
+    path: '/p/mh4kidz/:section?', name: 'Mh4kidzPublicWebsite', component: () => import('../views/public/Mh4kidzPublicWebsite.vue'),
+    meta: { requiresGuest: false, publicMarketingHub: true, publicMarketingTitle: 'MH4Kidz | Stronger kids. Brighter tomorrows.' }
+  },
+  {
     path: '/p/rise/:section?',
     name: 'RisePublicWebsite',
     component: () => import('../views/public/RisePublicWebsite.vue'),

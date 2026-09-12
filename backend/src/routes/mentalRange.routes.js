@@ -1,0 +1,13 @@
+import express from 'express';
+import { authenticate, requireSuperAdmin } from '../middleware/auth.middleware.js';
+import { publicMarketingPageMetricsLimiter } from '../middleware/rateLimiter.middleware.js';
+import { rangePartners, rangeProviders, rangeAvailability, getRangeMembership, saveRangeMembership } from '../controllers/mentalRange.controller.js';
+export const rangePublicRouter = express.Router();
+rangePublicRouter.use(publicMarketingPageMetricsLimiter);
+rangePublicRouter.get('/partners', rangePartners);
+rangePublicRouter.get('/providers', rangeProviders);
+rangePublicRouter.get('/providers/:agencyId/:providerId/availability', rangeAvailability);
+export const rangeAdminRouter = express.Router();
+rangeAdminRouter.use(authenticate, requireSuperAdmin);
+rangeAdminRouter.get('/:agencyId', getRangeMembership);
+rangeAdminRouter.put('/:agencyId', saveRangeMembership);
