@@ -3,11 +3,15 @@
  * Apply:   node src/scripts/backfillFamilyBillingEncryption.js --apply
  * Does not grant payer access or enable automatic payments. No PHI is logged.
  */
-import pool from '../config/database.js';
-import clinicalPool from '../config/clinicalDatabase.js';
+import dotenv from 'dotenv';
+import { fileURLToPath } from 'node:url';
+dotenv.config({ path: fileURLToPath(new URL('../../.env', import.meta.url)) });
+// Standalone scripts own their connection lifecycle; do not start server retries.
+process.env.SKIP_DB_CONNECT = '1';
+let pool, clinicalPool, PRIVATE_INSURANCE_COLUMNS, insurancePayload, PRIVATE_CARD_COLUMNS;
+let phase = 'configuration';
 import { assertFamilyBillingEncryption, encryptFamilyBilling } from '../services/familyBillingEncryption.service.js';
-import { PRIVATE_INSURANCE_COLUMNS, insurancePayload } from '../models/GuardianInsuranceProfile.model.js';
-import { PRIVATE_CARD_COLUMNS } from '../models/GuardianPaymentCard.model.js';
+
 const apply = process.argv.includes('--apply');
 const batchSize = 100;
 async function batches(db, sql, handle) {
@@ -16,8 +20,18 @@ async function batches(db, sql, handle) {
   return count;
 }
 async function run() {
+  if (apply) {
+    phase = 'encryption key';
+    assertFamilyBillingEncryption();
+  }
+  phase = 'database connection/schema';
+  pool = (await import('../config/database.js')).default;
+  clinicalPool = (await import('../config/clinicalDatabase.js')).default;
+  ({ PRIVATE_INSURANCE_COLUMNS, insurancePayload } = await import('../models/GuardianInsuranceProfile.model.js'));
+  ({ PRIVATE_CARD_COLUMNS } = await import('../models/GuardianPaymentCard.model.js'));
+
   const specifications=[['guardian_insurance_profiles','private_payload'],['guardian_payment_cards','private_payload'],['clients','billing_insurance_payload']];
-  if(!apply){for(const [table,column] of specifications){const [rows]=await pool.execute(`SELECT COUNT(*) AS pending FROM ${table} WHERE ${column} IS NULL`);console.log(`${table}: ${rows[0].pending} rows without encrypted payload`);}const [rows]=await clinicalPool.execute('SELECT COUNT(*) AS pending FROM clinical_claims WHERE member_id IS NOT NULL AND insurance_payload IS NULL');console.log(`clinical_claims: ${rows[0].pending} legacy identifiers`);console.log('Dry run only. No records changed.');return;}
+  if(!apply){for(const [table,column] of specifications){const [rows]=await pool.execute(`SELECT COUNT(*) AS pending FROM ${table} WHERE ${column} IS NULL${table === 'clients' ? ' AND (insurance_member_id IS NOT NULL OR insurance_group_number IS NOT NULL OR insurance_subscriber_name IS NOT NULL)' : ''}`);console.log(`${table}: ${rows[0].pending} rows without encrypted payload`);}const [rows]=await clinicalPool.execute('SELECT COUNT(*) AS pending FROM clinical_claims WHERE member_id IS NOT NULL AND insurance_payload IS NULL');console.log(`clinical_claims: ${rows[0].pending} legacy identifiers`);console.log('Dry run only. No records changed.');return;}
   assertFamilyBillingEncryption();
   let count=await batches(pool,'SELECT * FROM guardian_insurance_profiles WHERE private_payload IS NULL',async row=>{
     const policy = prefix=>({insurerName:row[`${prefix}_insurer_name`],memberId:row[`${prefix}_member_id`],groupNumber:row[`${prefix}_group_number`],subscriberName:row[`${prefix}_subscriber_name`],isMedicaid:!!row[`${prefix}_is_medicaid`]});
@@ -37,4 +51,9 @@ async function run() {
     await clinicalPool.execute('UPDATE clinical_claims SET insurance_payload = ?, member_id = NULL WHERE id = ? AND insurance_payload IS NULL',[encryptFamilyBilling({primary:{memberId:row.member_id,insurerName:row.payer_name},legacyRequiresReview:true},`claim-insurance:${row.agency_id}:${row.id}`),row.id]);
   });console.log(`Claim insurance identifiers encrypted: ${count}`);
 }
-try{await run();}catch(e){console.error('Family billing backfill failed. No payer permissions were granted. Check migration/key configuration.');process.exitCode=1;}finally{await pool.end();await clinicalPool.end();}
+try { await run(); }
+catch (e) {
+  if (phase === 'encryption key') console.error('Family billing key is missing or invalid in this process. Set FAMILY_BILLING_ENCRYPTION_KEY_BASE64 to the same 32-byte base64 key used in GitHub/Cloud Run, and FAMILY_BILLING_ENCRYPTION_KEY_ID=v1. GitHub secrets do not populate your local terminal. Never print or paste the key into chat.');
+  else console.error('Family billing backfill stopped during database/schema access or encryption. Check the proxy connection and both migration sets with npm run billing:check. Raw errors are suppressed to protect patient data. Completed batches may have been saved; use the same keys when resuming.');
+  process.exitCode = 1;
+} finally { await Promise.allSettled([pool?.end(), clinicalPool?.end()]); }

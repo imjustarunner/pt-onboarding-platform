@@ -46,6 +46,8 @@ References: [Claim.MD API](https://api.claim.md/), [professional claim JSON exam
 
 ## Encryption and rollout
 
+**Already ran the migrations? Start with the [short, executable rollout guide](family-billing-rollout.md).** It covers key creation without printing secrets and one read-only command followed by one guarded backfill command.
+
 Configuration template: [family-billing.env.example](family-billing.env.example).
 
 Family billing uses AES-256-GCM with randomized IVs, authenticated agency/owner or agency/client context, and key IDs for rotation. Consent evidence includes the fixed terms and hash, typed signature, time, request provenance, purpose, card/client linkage and recurring limit. Audit rows record identifiers and actions without insurance or card contents. Billing responses use no-store where private data is returned.

@@ -1,0 +1,82 @@
+{
+  "home-hero": {
+    "source": "ChatGPT Image Sep 11, 2026, 07_50_39 PM.png",
+    "url": "/assets/tisi/home-hero.webp"
+  },
+  "men-hero": {
+    "source": "ChatGPT Image Sep 11, 2026, 07_50_42 PM.png",
+    "url": "/assets/tisi/men-hero.webp"
+  },
+  "boys-hero": {
+    "source": "ChatGPT Image Sep 11, 2026, 07_50_44 PM.png",
+    "url": "/assets/tisi/boys-hero.webp"
+  },
+  "boys-portrait": {
+    "source": "ChatGPT Image Sep 11, 2026, 07_50_47 PM.png",
+    "url": "/assets/tisi/boys-portrait.webp"
+  },
+  "athlete-portrait": {
+    "source": "ChatGPT Image Sep 11, 2026, 07_50_49 PM.png",
+    "url": "/assets/tisi/athlete-portrait.webp"
+  },
+  "athletes-hero": {
+    "source": "ChatGPT Image Sep 11, 2026, 07_50_51 PM.png",
+    "url": "/assets/tisi/athletes-hero.webp"
+  },
+  "boys-banner": {
+    "source": "ChatGPT Image Sep 11, 2026, 07_50_58 PM (1).png",
+    "url": "/assets/tisi/boys-banner.webp"
+  },
+  "athlete-banner": {
+    "source": "ChatGPT Image Sep 11, 2026, 07_50_58 PM (2).png",
+    "url": "/assets/tisi/athlete-banner.webp"
+  },
+  "men-support": {
+    "source": "ChatGPT Image Sep 11, 2026, 07_51_04 PM.png",
+    "url": "/assets/tisi/men-support.webp"
+  },
+  "athlete-running": {
+    "source": "ChatGPT Image Sep 11, 2026, 07_51_07 PM.png",
+    "url": "/assets/tisi/athlete-running.webp"
+  },
+  "team-support": {
+    "source": "ChatGPT Image Sep 11, 2026, 07_51_10 PM.png",
+    "url": "/assets/tisi/team-support.webp"
+  },
+  "athlete-services": {
+    "source": "ChatGPT Image Sep 11, 2026, 07_51_18 PM.png",
+    "url": "/assets/tisi/athlete-services.webp"
+  },
+  "soccer": {
+    "source": "ChatGPT Image Sep 11, 2026, 07_51_21 PM (1).png",
+    "url": "/assets/tisi/soccer.webp"
+  },
+  "basketball": {
+    "source": "ChatGPT Image Sep 11, 2026, 07_51_21 PM (2).png",
+    "url": "/assets/tisi/basketball.webp"
+  },
+  "volleyball": {
+    "source": "ChatGPT Image Sep 11, 2026, 07_51_21 PM (3).png",
+    "url": "/assets/tisi/volleyball.webp"
+  },
+  "track-field": {
+    "source": "ChatGPT Image Sep 11, 2026, 07_51_21 PM (4).png",
+    "url": "/assets/tisi/track-field.webp"
+  },
+  "football": {
+    "source": "ChatGPT Image Sep 11, 2026, 07_51_21 PM (5).png",
+    "url": "/assets/tisi/football.webp"
+  },
+  "swimming": {
+    "source": "ChatGPT Image Sep 11, 2026, 07_51_21 PM (6).png",
+    "url": "/assets/tisi/swimming.webp"
+  },
+  "climbing": {
+    "source": "ChatGPT Image Sep 11, 2026, 07_51_21 PM (7).png",
+    "url": "/assets/tisi/climbing.webp"
+  },
+  "mountain-banner": {
+    "source": "ChatGPT Image Sep 11, 2026, 07_51_30 PM.png",
+    "url": "/assets/tisi/mountain-banner.webp"
+  }
+}

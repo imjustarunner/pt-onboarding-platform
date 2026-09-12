@@ -1,5 +1,6 @@
 <template>
-  <div class="pmh-sub" :class="{ 'pmh-sub--tisi': isTisiHub }">
+  <TisiAudiencePage v-if="!loading && !error && isTisiHub && isTisiAudiencePage(subPageSlug)" :slug="subPageSlug" :config="tisiConfig" :content-page="subPage || {}" :content-pages="pageMeta?.branding?.contentPages || []" />
+  <div v-else class="pmh-sub" :class="{ 'pmh-sub--tisi': isTisiHub }">
     <header v-if="isTisiHub && !error" class="pmh-tisi-top">
       <router-link class="pmh-tisi-brand" :to="{ path: '/p/tisi' }">
         <img v-if="tisiConfig.logoUrl" class="pmh-tisi-mark" :src="tisiConfig.logoUrl" alt="" />
@@ -34,6 +35,8 @@
 </template>
 
 <script setup>
+import TisiAudiencePage from './TisiAudiencePage.vue';
+import { isTisiAudiencePage } from '../../constants/tisiAudiencePages';
 import DOMPurify from 'dompurify';
 import { marked } from 'marked';
 import { computed, onMounted, ref, watch } from 'vue';

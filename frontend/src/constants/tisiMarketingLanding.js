@@ -45,11 +45,11 @@ export function defaultTisiLandingConfig() {
     siteName: 'Inner Strength Institute',
     tagline: 'Stronger People. Brighter Tomorrows.',
     logoUrl: '/assets/branding/innerstrength-mark.png',
-    heroImageUrl: '/assets/careers/heroes/colorado-photo.png',
-    ctaImageUrl: '/assets/careers/heroes/colorado-photo.png',
+    heroImageUrl: '/assets/tisi/home-hero.webp',
+    ctaImageUrl: '/assets/tisi/mountain-banner.webp',
     ctaPosition: '50% 50%',
     heroMobilePosition: '65% 35%',
-    heroPosition: '50% 35%',
+    heroPosition: '50% 52%',
     ctaHref: '/join/tisi',
     ctaButtonLabel: 'Get Started',
     ctaFinalButtonLabel: 'Schedule a Consultation',
@@ -296,8 +296,8 @@ export function resolveTisiLandingConfig({ pageMeta, branding } = {}) {
     siteName: pick(b.siteName, landing.siteName, page.title, d.siteName),
     tagline: pick(b.tagline, landing.tagline, d.tagline),
     logoUrl: pick(b.logoUrl, b.logoPath, landing.logoUrl, d.logoUrl),
-    heroImageUrl: pick(page.heroImageUrl, b.heroImageUrl, landing.heroImageUrl, d.heroImageUrl),
-    ctaImageUrl: pick(b.ctaImageUrl, landing.ctaImageUrl, d.ctaImageUrl),
+    heroImageUrl: currentTisiImage(pick(page.heroImageUrl, b.heroImageUrl, landing.heroImageUrl, d.heroImageUrl), d.heroImageUrl),
+    ctaImageUrl: currentTisiImage(pick(b.ctaImageUrl, landing.ctaImageUrl, d.ctaImageUrl), d.ctaImageUrl),
     ctaHref: pick(b.ctaHref, landing.ctaHref, d.ctaHref) === '/p/tisi/get-started' ? '/join/tisi' : pick(b.ctaHref, landing.ctaHref, d.ctaHref),
     ctaButtonLabel: pick(landing.ctaButtonLabel, d.ctaButtonLabel),
     ctaFinalButtonLabel: pick(landing.ctaFinalButtonLabel, d.ctaFinalButtonLabel),
@@ -479,4 +479,9 @@ export function adminFormToTisiLandingBranding(form) {
     contactAddress: landing.contactAddress,
     landing
   };
+}
+
+// Replace only the previous bundled placeholder, preserving uploaded/editor-selected images.
+function currentTisiImage(url, fallback) {
+  return url === '/assets/careers/heroes/colorado-photo.png' ? fallback : url;
 }

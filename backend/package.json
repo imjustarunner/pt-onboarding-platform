@@ -42,7 +42,10 @@
     "backfill:school-intake-review-tasks": "node src/scripts/backfillSchoolIntakeReviewTasks.js",
     "smoke:intake": "node src/scripts/verifyMultiChildIntake.js --latest --count 3",
     "smoke:intake:submission": "node src/scripts/verifyMultiChildIntake.js --submissionId",
-    "test:assistant-deterministic": "node --test --test-force-exit src/services/agents/__tests__/assistantCapabilityCatalog.service.test.js src/services/agents/__tests__/assistantResearch.service.test.js src/services/agents/__tests__/assistantCapabilitySemanticRouter.service.test.js src/services/agents/__tests__/assistantCapabilityGeminiRouter.service.test.js src/services/agents/__tests__/assistantRouteFeedback.service.test.js"
+    "test:assistant-deterministic": "node --test --test-force-exit src/services/agents/__tests__/assistantCapabilityCatalog.service.test.js src/services/agents/__tests__/assistantResearch.service.test.js src/services/agents/__tests__/assistantCapabilitySemanticRouter.service.test.js src/services/agents/__tests__/assistantCapabilityGeminiRouter.service.test.js src/services/agents/__tests__/assistantRouteFeedback.service.test.js",
+    "billing:check": "node src/scripts/familyBillingRollout.js",
+    "billing:backfill": "node src/scripts/familyBillingRollout.js --apply",
+    "billing:generate-key": "node src/scripts/generateFamilyBillingKey.js"
   },
   "keywords": [],
   "author": "",

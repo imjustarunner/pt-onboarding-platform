@@ -505,6 +505,14 @@
               >Page title <input v-model="pg.title" type="text" placeholder="Frequently asked questions"
             /></label>
           </div>
+          <template v-if="form.slug === 'tisi' && ['men', 'boys', 'athletes', 'mens-services', 'boys-services', 'athlete-services'].includes(pg.slug)">
+            <label class="pmp-inline full">Hero heading <input v-model="pg.heroTitle" placeholder="Use the designed page default" /></label>
+            <label class="pmp-inline full">Hero description <textarea v-model="pg.heroSubtitle" rows="3" /></label>
+            <label v-for="field in ['heroImageUrl', 'portraitImageUrl', 'bannerImageUrl']" :key="field" class="pmp-inline full">{{ field }} <input v-model="pg[field]" placeholder="/assets/tisi/boys-hero.webp" /></label>
+            <label class="pmp-inline full">Desktop image position <input v-model="pg.heroPosition" placeholder="50% 50%" /></label>
+            <label class="pmp-inline full">Mobile image position <input v-model="pg.heroMobilePosition" placeholder="60% 50%" /></label>
+            <a :href="`/p/tisi/${pg.slug}`" target="_blank" rel="noopener">Open published page</a>
+          </template>
           <label class="pmp-inline full"
             >Body (Markdown)
             <textarea v-model="pg.body" rows="6" class="mono" placeholder="## Heading&#10;&#10;Your content…" />
@@ -868,7 +876,8 @@ function mergeBrandingPayload() {
     .map((p) => ({
       slug: slugifySegment(p.slug),
       title: String(p.title || '').trim(),
-      body: String(p.body || '')
+      body: String(p.body || ''),
+      ...Object.fromEntries(['heroTitle', 'heroSubtitle', 'heroImageUrl', 'portraitImageUrl', 'bannerImageUrl', 'heroPosition', 'heroMobilePosition'].map(key => [key, String(p[key] || '')]))
     }))
     .filter((p) => p.slug && p.title);
   if (subs.length) out.contentPages = subs;
@@ -975,7 +984,7 @@ function hydrateStructuredFromBranding(b) {
 
   const cp = Array.isArray(branding.contentPages) ? branding.contentPages : [];
   contentPages.value = cp.length
-    ? cp.map((p) => ({ slug: String(p.slug || ''), title: String(p.title || ''), body: String(p.body || '') }))
+    ? cp.map((p) => ({ slug: String(p.slug || ''), title: String(p.title || ''), body: String(p.body || ''), ...Object.fromEntries(['heroTitle', 'heroSubtitle', 'heroImageUrl', 'portraitImageUrl', 'bannerImageUrl', 'heroPosition', 'heroMobilePosition'].map(key => [key, String(p[key] || '')])) }))
     : [{ slug: '', title: '', body: '' }];
 
   const oe = Array.isArray(branding.offerExpandedExternalLinks) ? branding.offerExpandedExternalLinks : [];

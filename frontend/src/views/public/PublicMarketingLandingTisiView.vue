@@ -1222,7 +1222,7 @@ watch(() => route.params.hubSlug, () => { if (!props.previewPage) { cancelEdit()
   place-items: center;
   text-align: center;
 }
-.tisi-cta-scrim { position: absolute; inset: 0; background: rgba(7, 22, 40, 0.62); }
+.tisi-cta-scrim { position: absolute; inset: 0; background: linear-gradient(90deg, #071628 0%, rgba(7, 22, 40, .94) 28%, rgba(7, 22, 40, .55) 65%); }
 .tisi-cta-inner { position: relative; z-index: 1; padding: 64px 20px; max-width: 640px; width: 100%; }
 .tisi-cta-title { margin: 0 0 12px; font-size: clamp(1.8rem, 3vw, 2.4rem); font-weight: 800; }
 .tisi-cta-sub { margin: 0 0 22px; color: rgba(255, 255, 255, 0.9); }
