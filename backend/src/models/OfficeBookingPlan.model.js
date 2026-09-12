@@ -37,6 +37,11 @@ function normalizeActiveUntilDate({ bookingStartDate, activeUntilDate }) {
 }
 
 class OfficeBookingPlan {
+  static async setSessionContext(planId, context) {
+    await pool.execute('UPDATE office_booking_plans SET session_context_json = ? WHERE id = ?',
+      [JSON.stringify(context), planId]);
+  }
+
   static async listActiveByAssignmentIds(assignmentIds) {
     const ids = (assignmentIds || [])
       .map((n) => parseInt(n, 10))

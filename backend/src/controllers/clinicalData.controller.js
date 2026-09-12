@@ -1,3 +1,4 @@
+import { hasSchedulingBillingAccess, schedulingResponseForUser } from '../services/schedulingBillingAccess.service.js';
 import { validationResult } from 'express-validator';
 import AdminAuditLog from '../models/AdminAuditLog.model.js';
 import User from '../models/User.model.js';
@@ -257,12 +258,12 @@ export const listSessionArtifacts = async (req, res, next) => {
 
     logClientAccess(req, session.client_id, 'clinical_artifacts_viewed').catch(() => {});
 
-    res.json({
+    res.json(await schedulingResponseForUser(req.user, session.agency_id, {
       ok: true,
       session,
       artifacts: { notes, claims, documents },
       refs
-    });
+    }));
   } catch (error) {
     if (handleSchemaError(error, res)) return;
     next(error);
@@ -471,7 +472,7 @@ export const createSessionNote = async (req, res, next) => {
         try {
           await pool.execute(
             `INSERT INTO clinical_note_signoffs (agency_id, clinical_note_id, provider_user_id, supervisor_user_id, provider_signed_at, status)
-             VALUES (?, ?, ?, ?, NOW(), 'awaiting_supervisor')`,
+             VALUES (?, ?, ?, ?, NULL, 'awaiting_provider')`,
             [session.agency_id, note.id, providerUserId, primarySupervisor.supervisor_id]
           );
         } catch (e) {
@@ -528,6 +529,9 @@ export const createSessionClaim = async (req, res, next) => {
     await ClinicalEligibilityService.assertAgencyHasClinicalOrg(session.agency_id);
     await ClinicalEligibilityService.assertSessionNoteEligible(session);
 
+    if (!(await hasSchedulingBillingAccess(req.user, session.agency_id))) {
+      return res.status(403).json({ error: { message: 'Billing access required. Prepare a claim through the medical billing workflow.' } });
+    }
     const claim = await ClinicalClaim.create({
       clinicalSessionId: session.id,
       agencyId: session.agency_id,

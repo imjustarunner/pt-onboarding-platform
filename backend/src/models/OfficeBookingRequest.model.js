@@ -21,7 +21,8 @@ class OfficeBookingRequest {
     appointmentTypeCode = null,
     appointmentSubtypeCode = null,
     serviceCode = null,
-    modality = null
+    modality = null,
+    sessionContext = null
   }) {
     const occurrenceCount = Number.isInteger(Number(bookedOccurrenceCount)) && Number(bookedOccurrenceCount) > 0
       ? Number(bookedOccurrenceCount)
@@ -69,6 +70,7 @@ class OfficeBookingRequest {
         ]
       );
     }
+    if (sessionContext) await pool.execute('UPDATE office_booking_requests SET session_context_json = ? WHERE id = ?', [JSON.stringify(sessionContext), result.insertId]);
     return this.findById(result.insertId);
   }
 

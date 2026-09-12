@@ -119,6 +119,16 @@ class ClinicalEligibilityService {
     if (Number(session.billing_encounter_id || 0) > 0) {
       return { client, event: null, billingBacked: true };
     }
+    if (session.appointment_id) {
+      const { default: Appointment } = await import('../models/Appointment.model.js');
+      const appointment = await Appointment.findById(session.appointment_id);
+      const participants = appointment ? await Appointment.listParticipants(appointment.id) : [];
+      if (!appointment || Number(appointment.agencyId) !== Number(session.agency_id)
+        || !participants.some((p) => Number(p.clientId) === Number(session.client_id))) {
+        throw Object.assign(new Error('Session is not linked to this client appointment'), { status: 409 });
+      }
+      return { client, event: null, appointment };
+    }
     if (!session.office_event_id) {
       let meta = session.metadata_json;
       if (typeof meta === 'string') {
@@ -137,11 +147,12 @@ class ClinicalEligibilityService {
       err.status = 409;
       throw err;
     }
-    return this.assertBookedClinicalSession({
-      agencyId: session.agency_id,
-      clientId: session.client_id,
-      officeEventId: session.office_event_id
-    });
+    const event = await OfficeEvent.findById(session.office_event_id);
+    if (!event || (event.client_id && Number(event.client_id) !== Number(session.client_id))) {
+      throw Object.assign(new Error('Office event no longer matches this clinical session'), { status: 409 });
+    }
+    return { client, event };
+
   }
 }
 

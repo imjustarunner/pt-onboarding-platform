@@ -66,6 +66,8 @@ class Appointment {
       officeEventId: r.office_event_id == null ? null : Number(r.office_event_id),
       officeBookingRequestId: r.office_booking_request_id == null ? null : Number(r.office_booking_request_id),
       providerScheduleEventId: r.provider_schedule_event_id == null ? null : Number(r.provider_schedule_event_id),
+      serviceLocationId: r.service_location_id == null ? null : Number(r.service_location_id),
+      sourceTimezone: r.source_timezone || 'America/Denver',
       clinicalSessionId: r.clinical_session_id == null ? null : Number(r.clinical_session_id),
       packageEntitlementId: r.package_entitlement_id == null ? null : Number(r.package_entitlement_id),
       cancellationPolicyId: r.cancellation_policy_id == null ? null : Number(r.cancellation_policy_id),

@@ -5992,13 +5992,14 @@ const approveNoteOutput = async ({ silent = false, afterSign = 'queue' } = {}) =
         await api.post(
           `/medical-billing/notes/${noteId}/sign`,
           {
+            agencyId: Number(noteAidAgencyId.value || currentAgencyId.value || 0),
             accurateAndComplete: true,
             medicalNecessityAttested: !isReviewOnlyAid.value && !isTreatmentSummaryAid.value
           },
           { skipGlobalLoading: true }
         );
       } catch (signErr) {
-        console.warn('[NoteAid] provider sign after approve failed', signErr?.message || signErr);
+        throw new Error(signErr?.response?.data?.error?.message || 'The note was saved, but signing failed. Review and retry the signature.');
       }
     }
 

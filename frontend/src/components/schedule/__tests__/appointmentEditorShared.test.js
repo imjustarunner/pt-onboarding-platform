@@ -6,7 +6,7 @@ import {
 
 describe('appointmentEditorShared', () => {
   it('titles clinical and meeting kinds', () => {
-    expect(appointmentEditorTitleForKind('individual_session')).toBe('Clinical Session');
+    expect(appointmentEditorTitleForKind('individual_session')).toBe('Book Session');
     expect(appointmentEditorTitleForKind('agency_meeting', { hideOfficeAndCalendarIntegration: true }))
       .toBe('Team Meeting');
     expect(appointmentEditorTitleForKind('supervision')).toBe('Supervision');

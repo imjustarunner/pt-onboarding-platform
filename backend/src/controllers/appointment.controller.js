@@ -1,3 +1,11 @@
+import { randomUUID } from 'node:crypto';
+import pool from '../config/database.js';
+import GoogleCalendarService from '../services/googleCalendar.service.js';
+import { expandAppointmentRecurrence } from '../utils/appointmentRecurrence.js';
+import BookingPackage from '../models/BookingPackage.model.js';
+import { ensureAppointmentClinicalLink } from '../services/appointmentClinicalLink.service.js';
+import { dateToMysqlUtcDateTime } from '../utils/zonedWallTime.util.js';
+import { hasSchedulingBillingAccess, schedulingResponseForUser } from '../services/schedulingBillingAccess.service.js';
 import Appointment from '../models/Appointment.model.js';
 import ProviderScheduleEvent from '../models/ProviderScheduleEvent.model.js';
 import User from '../models/User.model.js';
@@ -23,15 +31,30 @@ async function assertAgencyAccess(req, agencyId) {
   }
 }
 
-function toMysqlDateTimeWall(v) {
-  if (!v) return null;
-  const s = String(v).trim();
-  if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}/.test(s)) return s.slice(0, 19);
-  const d = new Date(s.includes('T') ? s : s.replace(' ', 'T'));
-  if (Number.isNaN(d.getTime())) return null;
-  const pad = (n) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+async function assertBillingMutationAccess(req, agencyId) {
+  if ((req.body?.billing || req.body?.waive || req.body?.force || req.body?.cancellationFeeCents != null)
+      && !(await hasSchedulingBillingAccess(req.user, agencyId))) {
+    throw Object.assign(new Error('Billing access required to change charges or override settlement'), { status: 403 });
+  }
 }
+
+function toMysqlDateTimeWall(value) {
+  if (value instanceof Date) return dateToMysqlUtcDateTime(value);
+  const raw = String(value || '').trim();
+  return /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}/.test(raw) ? raw.slice(0, 19) : dateToMysqlUtcDateTime(new Date(raw));
+}
+
+export const getAppointmentContext = async (req, res, next) => {
+  try {
+    const appointment = await Appointment.findById(Number(req.params.id));
+    if (!appointment) return res.status(404).json({ error: { message: 'Appointment not found' } });
+    if (!(await assertAgencyAccess(req, appointment.agencyId))) return res.status(403).json({ error: { message: 'Access denied' } });
+    const sessions = await ensureAppointmentClinicalLink(appointment.id, req.user.id);
+    const bundle = await getAppointmentBundle(appointment.id);
+    return res.json(await schedulingResponseForUser(req.user, appointment.agencyId, { ok: true, appointment: bundle,
+      sessions: sessions.map((session) => ({ id: session.id, clientId: session.client_id, serviceCode: session.service_code })) }));
+  } catch (error) { next(error); }
+};
 
 export const listAppointments = async (req, res, next) => {
   try {
@@ -59,7 +82,7 @@ export const listAppointments = async (req, res, next) => {
       providerUserId: req.query.providerId ? Number(req.query.providerId) : null,
       clientId: req.query.clientId ? Number(req.query.clientId) : null
     });
-    res.json({ ok: true, appointments: rows });
+    res.json(await schedulingResponseForUser(req.user, agencyId, { ok: true, appointments: rows }));
   } catch (e) {
     next(e);
   }
@@ -73,7 +96,7 @@ export const getAppointment = async (req, res, next) => {
     if (!(await assertAgencyAccess(req, bundle.agencyId))) {
       return res.status(403).json({ error: { message: 'Access denied' } });
     }
-    res.json({ ok: true, appointment: bundle });
+    res.json(await schedulingResponseForUser(req.user, bundle.agencyId, { ok: true, appointment: bundle }));
   } catch (e) {
     next(e);
   }
@@ -86,6 +109,7 @@ export const createAppointmentHandler = async (req, res, next) => {
       return res.status(403).json({ error: { message: 'Access denied' } });
     }
 
+    await assertBillingMutationAccess(req, agencyId);
     const createPse = req.body?.createProviderScheduleEvent !== false;
     const providerUserId = Number(req.body?.providerUserId || req.user?.id || 0) || null;
     let notes = req.body?.notes || null;
@@ -99,65 +123,115 @@ export const createAppointmentHandler = async (req, res, next) => {
         notes = [notes, `Quick note:\n${quickNote}`].filter(Boolean).join('\n\n');
       }
     }
-    const appointment = await createAppointment({
-      agencyId,
-      parentAgencyId: req.body?.parentAgencyId || null,
-      tenantServiceId: req.body?.tenantServiceId || null,
-      providerUserId,
-      startAt: req.body?.startAt,
-      endAt: req.body?.endAt,
-      modality: req.body?.modality || null,
-      officeLocationId: req.body?.officeLocationId || null,
-      roomId: req.body?.roomId || null,
-      status: req.body?.status || 'scheduled',
-      officeEventId: req.body?.officeEventId || null,
-      officeBookingRequestId: req.body?.officeBookingRequestId || req.body?.office_booking_request_id || null,
-      packageEntitlementId: req.body?.packageEntitlementId || req.body?.package_entitlement_id || null,
-      source: req.body?.source || 'staff_grid',
-      title: req.body?.title || null,
-      notes,
-      othersPresentNames: req.body?.othersPresentNames || req.body?.others_present_names || null,
-      videoRoomMode: req.body?.videoRoomMode || req.body?.video_room_mode || 'unique_session',
-      notificationMode: req.body?.notificationMode || req.body?.notification_mode || 'default',
-      serviceCode: req.body?.serviceCode || req.body?.service_code || null,
-      addonServiceCodes: Array.isArray(req.body?.addonServiceCodes)
-        ? req.body.addonServiceCodes
-        : (Array.isArray(req.body?.addon_service_codes) ? req.body.addon_service_codes : []),
-      createdByUserId: req.user?.id || null,
-      participants: Array.isArray(req.body?.participants) ? req.body.participants : [],
-      billing: req.body?.billing || null
-    });
-
-    // Session adapter: create a calendar facet (PSE) for non-office bookings.
-    if (createPse && !appointment.officeEventId && providerUserId) {
-      try {
-        const startAt = toMysqlDateTimeWall(appointment.startAt);
-        const endAt = toMysqlDateTimeWall(appointment.endAt);
-        const saved = await ProviderScheduleEvent.create({
-          agencyId,
-          providerId: providerUserId,
-          kind: 'PERSONAL_EVENT',
-          title: appointment.title || 'Session',
-          description: appointment.notes || null,
-          isPrivate: false,
-          allDay: false,
-          startAt,
-          endAt,
-          startDate: null,
-          endDate: null,
-          createdByUserId: req.user?.id || null
-        });
-        if (saved?.id) {
-          await linkProviderScheduleEvent(appointment.id, saved.id);
-          appointment.providerScheduleEventId = Number(saved.id);
-        }
-      } catch (pseErr) {
-        console.warn('[createAppointment] PSE facet failed:', pseErr?.message || pseErr);
+    const occurrences = expandAppointmentRecurrence({ ...req.body, timeZone: req.body?.timeZone || 'America/Denver' });
+    if (occurrences.length > 1 && (!createPse || req.body?.officeEventId || req.body?.officeBookingRequestId)) {
+      return res.status(400).json({ error: { message: 'Use office booking plans for recurring room bookings; calendar session series require calendar events' } });
+    }
+    const packageId = Number(req.body?.packageEntitlementId || req.body?.package_entitlement_id || 0);
+    if (packageId && occurrences.length > 1) {
+      const entitlement = await BookingPackage.findEntitlementById(packageId, agencyId);
+      if (!entitlement || entitlement.sessionsRemaining < occurrences.length) {
+        return res.status(409).json({ error: { message: 'The package does not have enough sessions for this recurring booking' } });
       }
     }
+    const recurrenceSeriesId = occurrences.length > 1 ? randomUUID() : null;
+    const createdAppointments = [];
+    const calendarWarnings = [];
+    const provider = providerUserId ? await User.findById(providerUserId) : null;
+    try {
+      for (const [recurrenceIndex, occurrence] of occurrences.entries()) {
+        const appointment = await createAppointment({
+          agencyId,
+          parentAgencyId: req.body?.parentAgencyId || null,
+          tenantServiceId: req.body?.tenantServiceId || null,
+          providerUserId,
+          startAt: occurrence.startAt,
+          endAt: occurrence.endAt,
+          modality: req.body?.modality || null,
+          officeLocationId: req.body?.officeLocationId || null,
+          roomId: req.body?.roomId || null,
+          status: req.body?.status || 'scheduled',
+          officeEventId: req.body?.officeEventId || null,
+          officeBookingRequestId: req.body?.officeBookingRequestId || req.body?.office_booking_request_id || null,
+          packageEntitlementId: req.body?.packageEntitlementId || req.body?.package_entitlement_id || null,
+          source: req.body?.source || 'staff_grid',
+          title: req.body?.title || null,
+          notes,
+          othersPresentNames: req.body?.othersPresentNames || req.body?.others_present_names || null,
+          videoRoomMode: req.body?.videoRoomMode || req.body?.video_room_mode || 'unique_session',
+          notificationMode: req.body?.notificationMode || req.body?.notification_mode || 'default',
+          serviceCode: req.body?.serviceCode || req.body?.service_code || null,
+          timeZone: req.body?.timeZone,
+          serviceLocationId: req.body?.serviceLocationId || null,
+          addonServiceCodes: Array.isArray(req.body?.addonServiceCodes)
+            ? req.body.addonServiceCodes
+            : (Array.isArray(req.body?.addon_service_codes) ? req.body.addon_service_codes : []),
+          createdByUserId: req.user?.id || null,
+          participants: Array.isArray(req.body?.participants) ? req.body.participants : [],
+          billing: req.body?.billing || null
+        });
 
-    const bundle = await getAppointmentBundle(appointment.id);
-    res.status(201).json({ ok: true, appointment: bundle });
+        // Session adapter: create a calendar facet (PSE) for non-office bookings.
+        if (createPse && !appointment.officeEventId && providerUserId) {
+          try {
+            const startAt = toMysqlDateTimeWall(appointment.startAt);
+            const endAt = toMysqlDateTimeWall(appointment.endAt);
+            const saved = await ProviderScheduleEvent.create({
+              agencyId,
+              providerId: providerUserId,
+              clientId: appointment.participants?.find((p) => p.role === 'client')?.clientId || null,
+              eventTimezone: req.body?.timeZone || 'America/Denver',
+              recurrenceSeriesId,
+              recurrenceFrequency: recurrenceSeriesId ? req.body.recurrence : null,
+              recurrencePolicy: recurrenceSeriesId ? 'future_only' : null,
+              recurrenceIndex,
+              kind: 'PERSONAL_EVENT',
+              title: appointment.title || 'Session',
+              description: appointment.notes || null,
+              isPrivate: false,
+              allDay: false,
+              startAt,
+              endAt,
+              startDate: null,
+              endDate: null,
+              createdByUserId: req.user?.id || null
+            });
+            if (saved?.id) {
+              await linkProviderScheduleEvent(appointment.id, saved.id);
+              appointment.providerScheduleEventId = Number(saved.id);
+              // Calendar mirroring is optional; the local appointment remains authoritative.
+              try {
+                const mirrored = await GoogleCalendarService.upsertProviderPrimaryCalendarEvent({
+                  subjectEmail: provider?.email, summary: appointment.title || 'Session',
+                  description: req.body?.notes || null, startAt: occurrence.startAt, endAt: occurrence.endAt,
+                  timeZone: req.body?.timeZone || 'America/Denver'
+                });
+                if (mirrored.ok && mirrored.googleEventId) {
+                  await pool.execute('UPDATE provider_schedule_events SET google_event_id = ?, google_html_link = ? WHERE id = ?',
+                    [mirrored.googleEventId, mirrored.htmlLink || null, saved.id]);
+                } else {
+                  calendarWarnings.push(`Session ${appointment.id} saved locally; Google Calendar was not synchronized.`);
+                }
+              } catch {
+                calendarWarnings.push(`Session ${appointment.id} saved locally; Google Calendar was not synchronized.`);
+              }
+            }
+          } catch (pseErr) {
+            pseErr.appointmentId = appointment.id;
+            throw pseErr;
+          }
+        }
+
+        createdAppointments.push(await getAppointmentBundle(appointment.id));
+      }
+    } catch (error) {
+      return res.status(error.status || 500).json({ error: { message: error.message,
+        code: 'BOOKING_INCOMPLETE' }, createdAppointmentIds: [...new Set([...createdAppointments.map((a) => a.id), error.appointmentId].filter(Boolean))] });
+    }
+    res.status(201).json(await schedulingResponseForUser(req.user, agencyId, {
+      ok: true, appointment: createdAppointments[0], appointments: createdAppointments, recurrenceSeriesId,
+      googleCalendarWarning: calendarWarnings.join(' ')
+    }));
   } catch (e) {
     if (e?.status) return res.status(e.status).json({ error: { message: e.message, code: e.code } });
     next(e);
@@ -172,8 +246,9 @@ export const updateAppointmentHandler = async (req, res, next) => {
     if (!(await assertAgencyAccess(req, existing.agencyId))) {
       return res.status(403).json({ error: { message: 'Access denied' } });
     }
+    await assertBillingMutationAccess(req, existing.agencyId);
     const bundle = await updateAppointment(id, req.body || {}, { actorUserId: req.user?.id || null });
-    res.json({ ok: true, appointment: bundle });
+    res.json(await schedulingResponseForUser(req.user, bundle.agencyId, { ok: true, appointment: bundle }));
   } catch (e) {
     if (e?.status) return res.status(e.status).json({ error: { message: e.message } });
     next(e);
@@ -188,17 +263,18 @@ export const cancelAppointmentHandler = async (req, res, next) => {
     if (!(await assertAgencyAccess(req, existing.agencyId))) {
       return res.status(403).json({ error: { message: 'Access denied' } });
     }
+    await assertBillingMutationAccess(req, existing.agencyId);
     const bundle = await cancelAppointment(id, {
       status: req.body?.status || null,
       actorUserId: req.user?.id || null,
-      actorRole: req.body?.actorRole || req.user?.role || 'staff',
+      actorRole: req.user?.role || 'staff',
       notes: req.body?.notes ?? null,
       reason: req.body?.reason || req.body?.cancellationReason || null,
       clientId: req.body?.clientId || null,
       waive: req.body?.waive === true,
       waiverReason: req.body?.waiverReason || null
     });
-    res.json({ ok: true, appointment: bundle });
+    res.json(await schedulingResponseForUser(req.user, bundle.agencyId, { ok: true, appointment: bundle }));
   } catch (e) {
     if (e?.status) {
       return res.status(e.status).json({
@@ -218,6 +294,7 @@ export const settleAppointmentHandler = async (req, res, next) => {
     if (!(await assertAgencyAccess(req, existing.agencyId))) {
       return res.status(403).json({ error: { message: 'Access denied' } });
     }
+    await assertBillingMutationAccess(req, existing.agencyId);
     const outcome = String(req.body?.outcome || existing.status || '').toLowerCase();
     if (!['completed', 'no_show'].includes(outcome)) {
       return res.status(400).json({
@@ -229,7 +306,7 @@ export const settleAppointmentHandler = async (req, res, next) => {
       actorUserId: req.user?.id || null,
       force: req.body?.force === true
     });
-    res.json({ ok: true, appointment: bundle });
+    res.json(await schedulingResponseForUser(req.user, bundle.agencyId, { ok: true, appointment: bundle }));
   } catch (e) {
     if (e?.status) return res.status(e.status).json({ error: { message: e.message } });
     next(e);
@@ -251,7 +328,7 @@ export const previewAppointmentChangeHandler = async (req, res, next) => {
       actorUserId: req.user?.id || null,
       actorRole: req.user?.role || 'staff'
     });
-    res.json({ ok: true, preview });
+    res.json(await schedulingResponseForUser(req.user, existing.agencyId, { ok: true, preview }));
   } catch (e) {
     if (e?.status) return res.status(e.status).json({ error: { message: e.message } });
     next(e);
@@ -273,7 +350,7 @@ export const completeAppointmentChangeHandler = async (req, res, next) => {
       actorUserId: req.user?.id || null,
       actorRole: req.user?.role || 'staff'
     });
-    res.json(result);
+    res.json(await schedulingResponseForUser(req.user, existing.agencyId, result));
   } catch (e) {
     if (e?.status) return res.status(e.status).json({ error: { message: e.message, code: e.code } });
     next(e);

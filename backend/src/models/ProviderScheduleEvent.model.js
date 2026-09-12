@@ -1,3 +1,4 @@
+import { assertProviderEventCanMove, syncAppointmentFromProviderEvent } from '../services/appointmentScheduleSync.service.js';
 import pool from '../config/database.js';
 import { generateJoinToken } from '../utils/joinToken.js';
 
@@ -378,6 +379,7 @@ class ProviderScheduleEvent {
     const eid = Number(eventId || 0);
     const pid = Number(providerId || 0);
     if (!eid || !pid) return null;
+    if (startAt !== undefined || endAt !== undefined) await assertProviderEventCanMove(eid, startAt, endAt);
     const sets = [];
     const params = [];
     if (title !== undefined) {
@@ -520,7 +522,9 @@ class ProviderScheduleEvent {
       }
       throw e;
     }
-    return this.findByIdForProvider({ eventId: eid, providerId: pid });
+    const updatedEvent = await this.findByIdForProvider({ eventId: eid, providerId: pid });
+    if (updatedEvent && (startAt !== undefined || endAt !== undefined)) await syncAppointmentFromProviderEvent(updatedEvent, updatedByUserId);
+    return updatedEvent;
   }
 
   static async listActiveSeriesFromPoint({

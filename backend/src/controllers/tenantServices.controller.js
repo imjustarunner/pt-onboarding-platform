@@ -1,3 +1,4 @@
+import { schedulingResponseForUser } from '../services/schedulingBillingAccess.service.js';
 import AgencyBusinessType, { BUSINESS_TYPE_CODES } from '../models/AgencyBusinessType.model.js';
 import TenantService from '../models/TenantService.model.js';
 import StaffServiceAssignment from '../models/StaffServiceAssignment.model.js';
@@ -111,7 +112,7 @@ export const listTenantServices = async (req, res, next) => {
       }
     }
     const services = await TenantService.listForAgency(agencyId, { includeInactive });
-    res.json({ ok: true, services });
+    res.json(await schedulingResponseForUser(req.user, agencyId, { ok: true, services }));
   } catch (e) {
     next(e);
   }
@@ -282,7 +283,7 @@ export const getBookingOptions = async (req, res, next) => {
       providerId: req.query.providerId ? Number(req.query.providerId) : null,
       clientId: req.query.clientId ? Number(req.query.clientId) : null
     });
-    res.json({ ok: true, ...options });
+    res.json(await schedulingResponseForUser(req.user, agencyId, { ok: true, ...options }));
   } catch (e) {
     if (e?.status) return res.status(e.status).json({ error: { message: e.message } });
     next(e);

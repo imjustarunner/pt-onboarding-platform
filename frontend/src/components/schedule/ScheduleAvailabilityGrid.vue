@@ -15118,10 +15118,19 @@ async function loadEditorReminders() {
   editorShowReminders.value = true;
   try {
     if (apptId) {
-      const [planRes, timelineRes] = await Promise.all([
+      const [planRes, timelineRes, appointmentRes] = await Promise.all([
         api.get(`/appointments/${apptId}/notification-plan`).catch(() => null),
-        api.get(`/appointments/${apptId}/timeline`).catch(() => null)
+        api.get(`/appointments/${apptId}/timeline`).catch(() => null),
+        api.get(`/appointments/${apptId}`).catch(() => null)
       ]);
+      if (Number(editorAppointmentId.value || 0) !== apptId) return;
+      const appointment = appointmentRes?.data?.appointment;
+      if (appointment) {
+        editorClinicalSessionId.value = Number(appointment.clinicalSessionId || 0);
+        editorPackageEntitlementId.value = Number(appointment.packageEntitlementId || 0);
+        editorBillingPaymentStatus.value = String(appointment.billing?.paymentStatus || '');
+        if (appointment.businessType) editorPracticeCategory.value = practiceCategoryForBusinessType(appointment.businessType) || editorPracticeCategory.value;
+      }
       const plan = planRes?.data?.plan || planRes?.data || {};
       editorReminderPlan.value = Array.isArray(plan?.items)
         ? plan.items
@@ -15221,26 +15230,28 @@ function openPushSessionUpdateFromEditor() {
   showPushSessionUpdatePanel.value = true;
 }
 
-function openEditorClinicalNote() {
+async function openEditorClinicalNote() {
+  const appointmentId = Number(editorAppointmentId.value || 0);
+  if (appointmentId) {
+    try {
+      const { data } = await api.post(`/appointments/${appointmentId}/context`);
+      const clientId = Number(editorInfoClientId.value || 0);
+      const session = (data.sessions || []).find((item) => Number(item.clientId) === clientId);
+      editorClinicalSessionId.value = Number(session?.id || data.appointment?.clinicalSessionId || 0);
+    } catch (error) {
+      modalError.value = error?.response?.data?.error?.message || 'Unable to link this session to its clinical note.';
+      return;
+    }
+  }
   const noteId = Number(editorClinicalNoteId.value || 0);
   const sessionId = Number(editorClinicalSessionId.value || 0);
   const clientId = Number(editorInfoClientId.value || 0);
-  const officeEventId = Number(
-    editorAppointmentId.value
-      ? 0
-      : (modalContext.value?.officeEventId || scheduleEventEditForm.value?.officeEventId || 0)
-  );
-  // Prefer booked office event id when editing a schedule office booking.
-  const eventId = Number(
-    scheduleEventEditForm.value?.id
-    || modalContext.value?.officeEventId
-    || 0
-  );
+  const officeEventId = Number(modalContext.value?.officeEventId || scheduleEventEditForm.value?.officeEventId || 0);
   const query = buildNoteAidQuery({
     clientId: clientId || undefined,
     clinicalSessionId: sessionId || undefined,
     noteId: noteId || undefined,
-    officeEventId: officeEventId || eventId || undefined,
+    officeEventId: officeEventId || undefined,
     noteType: 'PROGRESS_NOTE',
     templateVersion: 'v1',
     launchIntent: 'progress_note',
@@ -15249,7 +15260,7 @@ function openEditorClinicalNote() {
       || editorBookedUntil.value
       || null
     ),
-    serviceCode: String(editorAddonServiceCodes.value?.[0] || scheduleEventEditForm.value?.serviceCode || '').trim() || undefined
+    serviceCode: String(bookingServiceCode.value || scheduleEventEditForm.value?.serviceCode || '').trim() || undefined
   });
   if (!Object.keys(query).length) return;
   router.push({ name: 'ClinicalNoteGenerator', query }).catch(() => {
@@ -15258,6 +15269,12 @@ function openEditorClinicalNote() {
 }
 
 function openEditorClinicalClaim() {
+  const role = String(authStore.user?.role || '').toLowerCase();
+  const aid = Number(editorAgencyId.value || effectiveAgencyId.value || 0);
+  if (!['admin', 'super_admin'].includes(role) && !(authStore.user?.billingAgencyIds || []).map(Number).includes(aid)) {
+    modalError.value = 'Billing access is required to open the billing desk. You can sign the note and prepare its claim in Note Aid.';
+    return;
+  }
   const claimId = Number(editorClaimId.value || 0);
   const sessionId = Number(editorClinicalSessionId.value || 0);
   const query = claimId
@@ -15827,6 +15844,8 @@ const normalizeBookingSelectionPayload = () => {
       : null,
     agencyId: Number(effectiveAgencyId.value || 0) || null,
     ...(clientId ? { clientId } : {}),
+    tenantServiceId: Number(editorTenantServiceId.value || 0) || null,
+    packageEntitlementId: Number(editorPackageEntitlementId.value || 0) || null,
     status: 'scheduled',
     videoRoomMode: String(editorVideoRoomMode.value || 'unique_session'),
     notificationMode: String(editorNotificationMode.value || 'default'),
@@ -20891,19 +20910,24 @@ const completePlatformVirtualSessionBooking = async ({
   }
 
   let appointmentId = null;
+  let canonicalBooking = null;
   // Canonical appointment so reminders / service / clinical tools attach.
   try {
     const apptRes = await api.post('/appointments', {
       agencyId,
       tenantServiceId: Number(editorTenantServiceId.value || 0) || undefined,
       providerUserId: uid,
+      timeZone: scheduleMeetingTimeZone(),
       startAt,
       endAt,
       modality: 'TELEHEALTH',
+      title: titleWithNotes,
       notes: description,
       quickNote: quickNote || undefined,
       source: 'staff_grid',
-      createProviderScheduleEvent: false,
+      createProviderScheduleEvent: !alsoBookOffice,
+      ...(!alsoBookOffice ? { recurrence: editorOfficeSeriesParams().recurrence,
+        occurrenceCount: editorOfficeSeriesParams().occurrenceCount || 12 } : {}),
       packageEntitlementId: Number(editorPackageEntitlementId.value || 0) || undefined,
       serviceCode: normalizeCodeValue(bookingServiceCode.value) || undefined,
       addonServiceCodes: (editorAddonServiceCodes.value || []).map((c) => String(c).toUpperCase()).filter(Boolean),
@@ -20914,13 +20938,14 @@ const completePlatformVirtualSessionBooking = async ({
       othersPresentNames: String(editorOthersPresentNames.value || '').trim() || undefined
     });
     appointmentId = Number(apptRes?.data?.appointment?.id || apptRes?.data?.appointment?.appointment?.id || 0) || null;
+    canonicalBooking = apptRes.data;
     if (appointmentId) {
       editorAppointmentId.value = appointmentId;
       editorShowReminders.value = true;
       void loadEditorReminders();
     }
-  } catch {
-    /* schedule-event path below still books the session */
+  } catch (error) {
+    throw new Error(error?.response?.data?.error?.message || 'Could not create the session appointment.');
   }
 
   if (alsoBookOffice && officeId) {
@@ -20947,13 +20972,15 @@ const completePlatformVirtualSessionBooking = async ({
       ...normalizeBookingSelectionPayload(),
       ...requestedProviderPayload()
     });
-    appointmentId = Number(r?.data?.appointmentId || r?.data?.eventId || r?.data?.officeEventId || 0) || null;
+    const officeEventId = Number(r?.data?.event?.id || r?.data?.officeEventId || 0);
+    if (appointmentId && officeEventId) await api.patch(`/appointments/${appointmentId}`, { officeEventId });
     const bookingReqId = Number(r?.data?.request?.id || 0);
     if (bookingReqId) editorLastOfficeBookingRequestId.value = bookingReqId;
     if (r?.data?.kind === 'auto_booked') await loadSelectedOfficeGrid();
   }
 
-  const scheduleResp = await api.post(`/users/${uid}/schedule-events`, {
+  const scheduleResp = !alsoBookOffice ? { data: { event: { id: canonicalBooking?.appointment?.providerScheduleEventId },
+    googleCalendarWarning: canonicalBooking?.googleCalendarWarning } } : await api.post(`/users/${uid}/schedule-events`, {
     agencyId,
     kind: 'PERSONAL_EVENT',
     title: titleWithNotes,
@@ -20969,6 +20996,11 @@ const completePlatformVirtualSessionBooking = async ({
     // Platform video room does not depend on Google Calendar.
     allowLocalOnly: true
   });
+
+  const providerScheduleEventId = Number(scheduleResp?.data?.event?.providerScheduleEventId || scheduleResp?.data?.event?.id || 0);
+  if (appointmentId && providerScheduleEventId) {
+    await api.patch(`/appointments/${appointmentId}`, { providerScheduleEventId });
+  }
 
   const useMyRoom = String(editorVideoRoomMode.value || '') === 'my_room';
   let data = null;
@@ -21549,7 +21581,13 @@ const submitRequest = async () => {
         const titleParts = ['School session'];
         if (primarySessionClientLabel.value) titleParts.push(primarySessionClientLabel.value);
         if (bookingSelection.serviceCode) titleParts.push(bookingSelection.serviceCode);
-        const scheduleResp = await api.post(`/users/${Number(scheduleActorUserId.value || props.userId || authStore.user?.id || 0)}/schedule-events`, {
+        const scheduleResp = await api.post('/appointments', {
+          recurrence: String(scheduleEventRecurrence.value || 'ONCE'),
+          occurrenceCount: Number(scheduleEventOccurrenceCount.value || 12),
+          providerUserId: Number(scheduleActorUserId.value || props.userId || authStore.user?.id || 0),
+          tenantServiceId: Number(editorTenantServiceId.value || 0) || undefined,
+          packageEntitlementId: Number(editorPackageEntitlementId.value || 0) || undefined,
+          participants: [{ role: 'client', clientId: Number(primarySessionClientId.value), isBillingResponsible: true }],
           agencyId,
           kind: 'PERSONAL_EVENT',
           title: titleParts.join(' · '),
@@ -21573,7 +21611,7 @@ const submitRequest = async () => {
         clearSelectedActionSlots();
         ensureScheduleAgencyVisible(agencyId);
         patchScheduleSummaryWithBookedEvent({
-          eventId: scheduleResp?.data?.event?.providerScheduleEventId || scheduleResp?.data?.event?.id,
+          eventId: scheduleResp?.data?.appointment?.providerScheduleEventId,
           agencyId,
           title: titleParts.join(' · '),
           startAt,
@@ -21623,7 +21661,13 @@ const submitRequest = async () => {
         const titleParts = ['Virtual session'];
         if (primarySessionClientLabel.value) titleParts.push(primarySessionClientLabel.value);
         if (bookingSelection.serviceCode) titleParts.push(bookingSelection.serviceCode);
-        const scheduleResp = await api.post(`/users/${Number(scheduleActorUserId.value || props.userId || authStore.user?.id || 0)}/schedule-events`, {
+        const scheduleResp = await api.post('/appointments', {
+          recurrence: String(scheduleEventRecurrence.value || 'ONCE'),
+          occurrenceCount: Number(scheduleEventOccurrenceCount.value || 12),
+          providerUserId: Number(scheduleActorUserId.value || props.userId || authStore.user?.id || 0),
+          tenantServiceId: Number(editorTenantServiceId.value || 0) || undefined,
+          packageEntitlementId: Number(editorPackageEntitlementId.value || 0) || undefined,
+          participants: [{ role: 'client', clientId: Number(primarySessionClientId.value), isBillingResponsible: true }],
           agencyId,
           kind: 'PERSONAL_EVENT',
           title: titleParts.join(' · '),
@@ -21646,7 +21690,7 @@ const submitRequest = async () => {
         clearSelectedActionSlots();
         ensureScheduleAgencyVisible(agencyId);
         patchScheduleSummaryWithBookedEvent({
-          eventId: scheduleResp?.data?.event?.providerScheduleEventId || scheduleResp?.data?.event?.id,
+          eventId: scheduleResp?.data?.appointment?.providerScheduleEventId,
           agencyId,
           title: titleParts.join(' · '),
           startAt,

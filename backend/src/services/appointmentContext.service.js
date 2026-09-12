@@ -44,8 +44,10 @@ export async function ensureAppointmentContext({
   officeEventId,
   agencyId = null,
   clientId = null,
-  sourceTimezone = 'America/New_York',
-  actorUserId = null
+  sourceTimezone = null,
+  actorUserId = null,
+  syncAppointment = true,
+  sessionContext = null
 }) {
   const eid = parseIntId(officeEventId);
   if (!eid) {
@@ -69,12 +71,37 @@ export async function ensureAppointmentContext({
     return { ok: false, reason: 'client_not_found', ensured: false, event };
   }
 
-  const resolvedAgencyId = parseIntId(agencyId) || parseIntId(client.agency_id);
+  const savedContext = typeof event.session_context_json === 'string' ? JSON.parse(event.session_context_json) : (event.session_context_json || {});
+  const resolvedAgencyId = parseIntId(agencyId) || parseIntId(sessionContext?.agencyId)
+    || parseIntId(savedContext.agencyId) || parseIntId(client.agency_id);
   if (!resolvedAgencyId) {
     return { ok: false, reason: 'missing_agency', ensured: false, event };
   }
 
-  if (!['clinical', 'school'].includes(String(client.client_type || '').trim().toLowerCase())) {
+  if (Number(client.agency_id) !== resolvedAgencyId) {
+    const [memberships] = await pool.execute(
+      'SELECT 1 FROM client_agency_assignments WHERE client_id = ? AND agency_id = ? AND is_active = TRUE LIMIT 1',
+      [resolvedClientId, resolvedAgencyId]
+    );
+    if (!memberships.length) throw Object.assign(new Error('Client is not assigned to the booking agency'), { status: 403 });
+  }
+  let bookingContext = event.session_context_json || {};
+  if (typeof bookingContext === 'string') bookingContext = JSON.parse(bookingContext);
+  if (sessionContext) {
+    bookingContext = { ...bookingContext, ...sessionContext };
+    await pool.execute('UPDATE office_events SET session_context_json = ? WHERE id = ?', [JSON.stringify(bookingContext), eid]);
+  }
+  const syncCanonicalAppointment = async (clinicalSessionId = null) => {
+    if (!syncAppointment) return;
+    const { upsertAppointmentForOfficeBook } = await import('./appointment.service.js');
+    await upsertAppointmentForOfficeBook({ agencyId: resolvedAgencyId, officeEventId: eid,
+      providerUserId: parseIntId(event.booked_provider_id) || parseIntId(event.assigned_provider_id),
+      clientId: resolvedClientId, startAt: event.start_at, endAt: event.end_at,
+      modality: event.modality, officeLocationId: event.office_location_id, roomId: event.room_id,
+      tenantServiceId: parseIntId(bookingContext.tenantServiceId), packageEntitlementId: parseIntId(bookingContext.packageEntitlementId),
+      serviceCode: event.service_code, clinicalSessionId, actorUserId, strict: true });
+  };
+  if (bookingContext.packageEntitlementId || !['clinical', 'school'].includes(String(client.client_type || '').trim().toLowerCase())) {
     const billingContextId = await lookupBillingContextIdByOfficeEvent({ officeEventId: eid });
     const updatedEvent = await OfficeEvent.setContextLinkage({
       eventId: eid,
@@ -83,6 +110,7 @@ export async function ensureAppointmentContext({
       noteContextId: null,
       billingContextId: billingContextId || parseIntId(event.billing_context_id) || null
     });
+    await syncCanonicalAppointment();
     return {
       ok: true,
       reason: 'non_clinical_client',
@@ -97,13 +125,14 @@ export async function ensureAppointmentContext({
   }
 
   let session = null;
+  const office = event.office_location_id ? await OfficeLocation.findById(event.office_location_id) : null;
   try {
     session = await ClinicalSession.upsert({
       agencyId: resolvedAgencyId,
       clientId: resolvedClientId,
       officeEventId: eid,
       providerUserId: parseIntId(event.booked_provider_id) || parseIntId(event.assigned_provider_id) || null,
-      sourceTimezone: normalizeTimezone(sourceTimezone),
+      sourceTimezone: normalizeTimezone(office?.timezone || sourceTimezone),
       scheduledStartAt: event.start_at || null,
       scheduledEndAt: event.end_at || null,
       metadataJson: null,
@@ -111,7 +140,7 @@ export async function ensureAppointmentContext({
     });
   } catch (e) {
     if (e?.code === 'ER_NO_SUCH_TABLE') {
-      return { ok: true, reason: 'clinical_schema_missing', ensured: false, event };
+      throw Object.assign(new Error('Clinical database migrations are required before this booking can be linked.'), { status: 409, officeEventId: eid });
     }
     throw e;
   }
@@ -243,10 +272,8 @@ export async function ensureAppointmentContext({
       );
     }
   } catch (e) {
-    // Best-effort: older schemas / missing medical tables should not block booking
-    if (e?.code !== 'ER_BAD_FIELD_ERROR' && e?.code !== 'ER_NO_SUCH_TABLE') {
-      console.warn('[appointmentContext] encounter billing apply failed:', e?.message);
-    }
+    throw Object.assign(new Error('The office is booked, but its clinical billing context could not be synchronized.'),
+      { status: 409, code: 'CLINICAL_CONTEXT_SYNC_REQUIRED', officeEventId: eid, cause: e });
   }
 
   const updatedEvent = await OfficeEvent.setContextLinkage({
@@ -256,6 +283,8 @@ export async function ensureAppointmentContext({
     noteContextId,
     billingContextId
   });
+
+  await syncCanonicalAppointment(clinicalSessionId);
 
   return {
     ok: true,
@@ -269,4 +298,3 @@ export async function ensureAppointmentContext({
     }
   };
 }
-

@@ -170,7 +170,7 @@ class ClinicalSession {
              source_timezone = ?,
              scheduled_start_at = ?,
              scheduled_end_at = ?,
-             metadata_json = ?,
+             metadata_json = COALESCE(?, metadata_json),
              updated_at = CURRENT_TIMESTAMP
          WHERE id = ?`,
         [

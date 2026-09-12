@@ -1,3 +1,4 @@
+import pool from '../config/database.js';
 import OfficeStandingAssignment from '../models/OfficeStandingAssignment.model.js';
 import OfficeBookingPlan from '../models/OfficeBookingPlan.model.js';
 import OfficeEvent from '../models/OfficeEvent.model.js';
@@ -350,6 +351,10 @@ export class OfficeScheduleMaterializer {
 
           const desiredBookedProviderId = slotState === 'ASSIGNED_BOOKED' ? Number(a.provider_id || 0) : 0;
           const desiredPlanId = slotState === 'ASSIGNED_BOOKED' ? Number(plan?.id || 0) : 0;
+          let sessionContext = null;
+          if (desiredPlanId && plan?.session_context_json) {
+            sessionContext = typeof plan.session_context_json === 'string' ? JSON.parse(plan.session_context_json) : plan.session_context_json;
+          }
           const hasMatchingRow = existingRows.some((ev) =>
             String(ev?.status || '').toUpperCase() !== 'CANCELLED'
             && String(ev?.slot_state || '').toUpperCase() === String(slotState || '').toUpperCase()
@@ -357,10 +362,11 @@ export class OfficeScheduleMaterializer {
             && Number(ev?.booking_plan_id || 0) === desiredPlanId
             && Number(ev?.assigned_provider_id || 0) === Number(a.provider_id || 0)
             && Number(ev?.booked_provider_id || 0) === desiredBookedProviderId
+            && (!sessionContext?.clientId || Number(ev?.client_id || 0) === Number(sessionContext.clientId))
           );
           if (hasMatchingRow) continue;
 
-          await OfficeEvent.upsertSlotState({
+          const sessionEvent = await OfficeEvent.upsertSlotState({
             officeLocationId: officeId,
             roomId: a.room_id,
             startAt,
@@ -376,6 +382,16 @@ export class OfficeScheduleMaterializer {
             // Never resurrect explicit cancellations — occurrence cancels + forfeits must stick.
             replaceCancelled: false
           });
+          if (sessionEvent?.id && sessionContext?.clientId) {
+            await pool.execute(
+              `UPDATE office_events SET client_id = ?, appointment_type_code = ?, appointment_subtype_code = ?,
+               service_code = ?, modality = ?, service_location_id = ?, session_context_json = ?
+               WHERE id = ? AND clinical_session_id IS NULL AND (client_id IS NULL OR client_id = ?)`,
+              [sessionContext.clientId, sessionContext.appointmentTypeCode || 'SESSION', sessionContext.appointmentSubtypeCode || null,
+                sessionContext.serviceCode || null, sessionContext.modality || null, sessionContext.serviceLocationId || null, JSON.stringify(sessionContext),
+                sessionEvent.id, sessionContext.clientId]
+            );
+          }
           upsertedCount += 1;
         }
       }

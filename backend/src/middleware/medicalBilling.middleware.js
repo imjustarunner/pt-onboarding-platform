@@ -1,3 +1,4 @@
+import { hasSchedulingBillingAccess } from '../services/schedulingBillingAccess.service.js';
 import pool from '../config/database.js';
 import User from '../models/User.model.js';
 import { getMedicalBillingFlags } from '../services/medicalBillingFlags.service.js';
@@ -92,9 +93,13 @@ export async function requireMedicalBillingActorAccess(req, res, next) {
   }
 }
 
-/** Agency-wide reporting is limited to administrators and delegated billing staff. */
-export function requireMedicalBillingReportAccess(req, res, next) {
-  const role = String(req.user?.role || req.user?.effectiveRole || '').toLowerCase();
-  if (['super_admin', 'admin', 'support', 'staff'].includes(role)) return next();
-  return res.status(403).json({ error: { message: 'Billing report administrator access required' } });
+/** Pricing, claim transmission, and reporting require delegated billing access. */
+export async function requireMedicalBillingFinancialAccess(req, res, next) {
+  try {
+    const agencyId = Number(req.medicalBillingAgencyId || resolveAgencyId(req));
+    if (await hasSchedulingBillingAccess(req.user, agencyId)) return next();
+    return res.status(403).json({ error: { message: 'Billing access required for this agency' } });
+  } catch (error) { next(error); }
 }
+
+export const requireMedicalBillingReportAccess = requireMedicalBillingFinancialAccess;

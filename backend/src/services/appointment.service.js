@@ -1,3 +1,8 @@
+import pool from '../config/database.js';
+import AgencyServiceLocation from '../models/AgencyServiceLocation.model.js';
+import { ensureAppointmentClinicalLink, assertAppointmentClients } from './appointmentClinicalLink.service.js';
+import User from '../models/User.model.js';
+import { validateSchedulingSelection } from './schedulingTaxonomy.service.js';
 import Appointment from '../models/Appointment.model.js';
 import TenantService from '../models/TenantService.model.js';
 import StaffServiceAssignment from '../models/StaffServiceAssignment.model.js';
@@ -172,13 +177,16 @@ export async function createAppointment({
   participants = [],
   billing = null,
   serviceCode = null,
-  addonServiceCodes = []
+  addonServiceCodes = [],
+  ensureContext = true,
+  timeZone = DEFAULT_SCHEDULE_TZ,
+  serviceLocationId = null
 } = {}) {
   const aid = Number(agencyId || 0);
   if (!aid) throw Object.assign(new Error('agencyId is required'), { status: 400 });
 
-  const start = toMysqlDateTime(startAt);
-  const end = toMysqlDateTime(endAt);
+  const start = toMysqlDateTime(startAt, timeZone);
+  const end = toMysqlDateTime(endAt, timeZone);
   if (!start || !end) throw Object.assign(new Error('startAt and endAt are required'), { status: 400 });
   if (!(new Date(start).getTime() < new Date(end).getTime())) {
     throw Object.assign(new Error('endAt must be after startAt'), { status: 400 });
@@ -200,6 +208,38 @@ export async function createAppointment({
     }
   }
 
+  const bookingClients = await assertAppointmentClients(aid, participants);
+  if (serviceLocationId) {
+    const location = await AgencyServiceLocation.findById(serviceLocationId);
+    if (!location || Number(location.agency_id) !== aid) {
+      throw Object.assign(new Error('Service location does not belong to this agency'), { status: 403 });
+    }
+  }
+  serviceCode = serviceCode || service?.serviceCode || null;
+  const clinicalBooking = !packageEntitlementId && (['mental_health', 'healthcare'].includes(businessType)
+    || (!businessType && bookingClients.some((client) => ['clinical', 'school'].includes(client.client_type))));
+  if (clinicalBooking && !serviceCode) throw Object.assign(new Error('A service code is required for a clinical session'), { status: 400 });
+  if (providerUserId) {
+    const memberships = await User.getAgencies(providerUserId);
+    if (!memberships.some((a) => Number(a.id) === aid)) throw Object.assign(new Error('Provider is not assigned to this agency'), { status: 403 });
+    if (clinicalBooking) {
+      const provider = await User.findById(providerUserId);
+      await validateSchedulingSelection({ agencyId: aid, userRole: provider.role, providerCredentialText: provider.credential,
+        appointmentTypeCode: 'SESSION', serviceCode, modality, scheduledStartAt: start, scheduledEndAt: end });
+    }
+  }
+  if (packageEntitlementId) {
+    const entitlement = await BookingPackage.findEntitlementById(packageEntitlementId, aid);
+    const clientIds = participants.map((p) => Number(p.clientId || p.client_id));
+    if (!entitlement || !clientIds.includes(Number(entitlement.clientId)) || entitlement.status !== 'ACTIVE') {
+      throw Object.assign(new Error('Select an active package belonging to a participant in this agency'), { status: 400 });
+    }
+    if (Number(entitlement.sessionsRemaining) < 1) throw Object.assign(new Error('No sessions remaining on package'), { status: 409 });
+    if (service && (service.packageEligible === false || (entitlement.businessType && entitlement.businessType !== businessType)
+      || (entitlement.allowedTenantServiceIds?.length && !entitlement.allowedTenantServiceIds.map(Number).includes(Number(tenantServiceId))))) {
+      throw Object.assign(new Error('Package does not cover this service'), { status: 400 });
+    }
+  }
   const mode = participantModeFromList(participants);
   if (service && mode === 'multi' && !service.allowsGroup) {
     throw Object.assign(new Error('Selected service does not allow group/multi participants'), { status: 400 });
@@ -260,6 +300,8 @@ export async function createAppointment({
     addonServiceCodes
   });
 
+  await pool.execute('UPDATE appointments SET service_location_id = ?, source_timezone = ? WHERE id = ?',
+    [serviceLocationId || null, timeZone, appt.id]);
   if (participants?.length) {
     await Appointment.replaceParticipants(appt.id, participants);
   }
@@ -292,7 +334,11 @@ export async function createAppointment({
         actorUserId: createdByUserId
       });
     } catch (e) {
-      if (e?.status === 400) throw e;
+      // A failed reservation must not leave a bookable appointment behind.
+      await pool.execute('DELETE FROM appointment_billing WHERE appointment_id = ?', [appt.id]);
+      await pool.execute('DELETE FROM appointment_participants WHERE appointment_id = ?', [appt.id]);
+      await pool.execute('DELETE FROM appointments WHERE id = ?', [appt.id]);
+      throw e;
     }
   }
 
@@ -302,6 +348,10 @@ export async function createAppointment({
     /* session notifications are best-effort */
   }
 
+  if (ensureContext) {
+    try { await ensureAppointmentClinicalLink(appt.id, createdByUserId); }
+    catch (error) { error.appointmentId = appt.id; throw error; }
+  }
   return getAppointmentBundle(appt.id);
 }
 
@@ -309,6 +359,35 @@ export async function updateAppointment(appointmentId, patch = {}, { actorUserId
   const existing = await Appointment.findById(appointmentId);
   if (!existing) return null;
 
+  if (patch.packageEntitlementId !== undefined && Number(patch.packageEntitlementId || 0) !== Number(existing.packageEntitlementId || 0)) {
+    throw Object.assign(new Error('Cancel and rebook to change the package so the original reservation is released correctly'), { status: 409 });
+  }
+  if (patch.participants) {
+    await assertAppointmentClients(existing.agencyId, patch.participants);
+    if (existing.packageEntitlementId) {
+      const entitlement = await BookingPackage.findEntitlementById(existing.packageEntitlementId, existing.agencyId);
+      if (!patch.participants.some((p) => Number(p.clientId || p.client_id) === Number(entitlement?.clientId))) {
+        throw Object.assign(new Error('The package owner must remain a participant'), { status: 409 });
+      }
+    }
+  }
+  if (patch.startAt != null || patch.endAt != null) {
+    const { assertAppointmentCanMove } = await import('./appointmentScheduleSync.service.js');
+    // Office adapter repeats existing times during linkage refresh; this is not a move.
+    const start = patch.startAt != null ? toMysqlDateTime(patch.startAt) : existing.startAt;
+    const end = patch.endAt != null ? toMysqlDateTime(patch.endAt) : existing.endAt;
+    const sameInstant = (a, b) => new Date(a instanceof Date ? a : String(a).replace(' ', 'T').replace(/Z?$/, 'Z')).getTime()
+      === new Date(b instanceof Date ? b : String(b).replace(' ', 'T').replace(/Z?$/, 'Z')).getTime();
+    if (!start || !end || new Date(start).getTime() >= new Date(end).getTime()) throw Object.assign(new Error('endAt must be after startAt'), { status: 400 });
+    if (!sameInstant(start, existing.startAt) || !sameInstant(end, existing.endAt)) await assertAppointmentCanMove(existing);
+  }
+  if (patch.serviceCode !== undefined || patch.addonServiceCodes !== undefined || patch.providerUserId !== undefined) {
+    const provider = await User.findById(patch.providerUserId || existing.providerUserId);
+    const codes = [patch.serviceCode ?? existing.serviceCode, ...(patch.addonServiceCodes ?? existing.addonServiceCodes ?? [])].filter(Boolean);
+    for (const code of codes) await validateSchedulingSelection({ agencyId: existing.agencyId, userRole: provider.role,
+      providerCredentialText: provider.credential, appointmentTypeCode: 'SESSION', serviceCode: code,
+      modality: patch.modality || existing.modality });
+  }
   if (patch.participants) {
     const mode = participantModeFromList(patch.participants);
     patch.participantMode = mode;
@@ -332,7 +411,16 @@ export async function updateAppointment(appointmentId, patch = {}, { actorUserId
   } else {
     delete updatePatch.status;
   }
+  if (!startAt || !endAt || new Date(startAt).getTime() >= new Date(endAt).getTime()) {
+    throw Object.assign(new Error('endAt must be after startAt'), { status: 400 });
+  }
   await Appointment.update(appointmentId, updatePatch);
+  if (patch.serviceCode !== undefined || patch.addonServiceCodes !== undefined) {
+    await Appointment.setServiceCodes(appointmentId, {
+      serviceCode: patch.serviceCode ?? existing.serviceCode,
+      addonServiceCodes: patch.addonServiceCodes ?? existing.addonServiceCodes
+    });
+  }
 
   let settlement = null;
   const nextStatus = updatePatch.status != null
@@ -366,6 +454,10 @@ export async function cancelAppointment(appointmentId, {
   const existing = await Appointment.findById(appointmentId);
   if (!existing) return null;
 
+  if (!String(reason || notes || '').trim()) throw Object.assign(new Error('Cancellation reason is required'), { status: 400 });
+  if (status && !['canceled_by_provider', 'canceled_by_client', 'canceled_by_guardian', 'canceled_by_organization', 'late_canceled', 'rescheduled'].includes(status)) {
+    throw Object.assign(new Error('Invalid cancellation status'), { status: 400 });
+  }
   const participants = await Appointment.listParticipants(appointmentId);
   const billingClientId = clientId
     || participants.find((p) => p.isBillingResponsible)?.clientId
@@ -442,7 +534,7 @@ export async function cancelAppointment(appointmentId, {
         mode: 'release',
         actorUserId
       });
-    } catch { /* best-effort */ }
+    } catch (error) { throw error; }
   } else if (existing.packageEntitlementId && (packageAction === 'forfeit' || packageAction === 'late_forfeit')) {
     try {
       await BookingPackage.applyAppointmentUsage({
@@ -452,7 +544,7 @@ export async function cancelAppointment(appointmentId, {
         mode: 'forfeit',
         actorUserId
       });
-    } catch { /* best-effort */ }
+    } catch (error) { throw error; }
   }
   // review: leave reservation as-is for staff resolution
 
@@ -476,13 +568,21 @@ export async function upsertAppointmentForOfficeBook({
   tenantServiceId = null,
   title = null,
   actorUserId = null,
-  appointmentTypeCode = null
+  appointmentTypeCode = null,
+  serviceCode = null,
+  clinicalSessionId = null,
+  packageEntitlementId = null,
+  strict = false
 } = {}) {
   try {
     const aid = Number(agencyId || 0);
     const oid = Number(officeEventId || 0);
     if (!aid || !oid) return null;
 
+    const asUtc = (value) => value instanceof Date ? value.toISOString()
+      : value ? String(value).replace(' ', 'T').replace(/Z?$/, 'Z') : null;
+    startAt = asUtc(startAt);
+    endAt = asUtc(endAt);
     const existing = await Appointment.findByOfficeEventId(oid);
     const participants = clientId
       ? [{ role: 'client', clientId: Number(clientId), isBillingResponsible: true }]
@@ -498,7 +598,9 @@ export async function upsertAppointmentForOfficeBook({
         roomId: roomId || existing.roomId,
         tenantServiceId: tenantServiceId || existing.tenantServiceId,
         title: title || existing.title,
-        status: 'confirmed',
+        status: ['scheduled', 'confirmed'].includes(existing.status) ? 'confirmed' : existing.status,
+        clinicalSessionId: clinicalSessionId || existing.clinicalSessionId,
+        serviceCode: serviceCode || existing.serviceCode,
         participants: participants.length ? participants : undefined,
         source: 'office_book'
       }, { actorUserId });
@@ -514,12 +616,17 @@ export async function upsertAppointmentForOfficeBook({
       officeLocationId,
       roomId,
       officeEventId: oid,
+      clinicalSessionId,
+      serviceCode,
+      packageEntitlementId,
+      ensureContext: false,
       source: 'office_book',
       title: title || (appointmentTypeCode ? String(appointmentTypeCode) : 'Office session'),
       createdByUserId: actorUserId,
       participants
     });
   } catch (e) {
+    if (strict) throw e;
     console.warn('[upsertAppointmentForOfficeBook]', e?.message || e);
     return null;
   }

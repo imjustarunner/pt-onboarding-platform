@@ -1,8 +1,11 @@
+import Appointment from '../models/Appointment.model.js';
+import { hasSchedulingBillingAccess, stripSchedulingFinancials } from '../services/schedulingBillingAccess.service.js';
 import express from 'express';
 import { authenticate, requireActiveStatus } from '../middleware/auth.middleware.js';
 import {
   listAppointments,
   getAppointment,
+  getAppointmentContext,
   createAppointmentHandler,
   updateAppointmentHandler,
   cancelAppointmentHandler,
@@ -29,9 +32,22 @@ const router = express.Router();
 
 router.use(authenticate, requireActiveStatus);
 
+// Timeline, reminders and change previews share the same financial boundary as the appointment.
+router.use('/:id', async (req, res, next) => {
+  try {
+    const appointment = await Appointment.findById(Number(req.params.id));
+    if (appointment && !(await hasSchedulingBillingAccess(req.user, appointment.agencyId))) {
+      const json = res.json.bind(res);
+      res.json = (body) => json(stripSchedulingFinancials(body));
+    }
+    next();
+  } catch (error) { next(error); }
+});
+
 router.get('/', listAppointments);
 router.post('/', createAppointmentHandler);
 router.get('/:id', getAppointment);
+router.post('/:id/context', getAppointmentContext);
 router.patch('/:id', updateAppointmentHandler);
 router.post('/:id/cancel', cancelAppointmentHandler);
 router.post('/:id/settle', settleAppointmentHandler);

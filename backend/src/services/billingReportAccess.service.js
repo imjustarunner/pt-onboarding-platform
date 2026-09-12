@@ -1,7 +1,8 @@
+import { hasSchedulingBillingAccess } from './schedulingBillingAccess.service.js';
 import pool from '../config/database.js';
 import { getSupervisorSuperviseeIds } from '../utils/supervisorSchoolAccess.js';
 
-const FINANCIAL_ROLES = new Set(['super_admin', 'admin', 'support']);
+const FINANCIAL_ROLES = new Set(['super_admin', 'admin']);
 
 const MEDICAL_RECORD_ROLES = new Set([
   'super_admin',
@@ -75,8 +76,8 @@ export async function supervisorHasClientViaSupervisee({ supervisorUserId, agenc
  */
 export async function ensureBillingFinancialAccess(req, res, { agencyId }) {
   const role = String(req.user?.role || '').toLowerCase();
-  if (!canAccessBillingFinancials(role)) {
-    res.status(403).json({ error: { message: 'Billing import access requires admin, super admin, or support role' } });
+  if (!(await hasSchedulingBillingAccess(req.user, agencyId))) {
+    res.status(403).json({ error: { message: 'Billing access required for this agency' } });
     return false;
   }
   if (role === 'super_admin') return true;

@@ -1,3 +1,4 @@
+import { schedulingResponseForUser } from '../services/schedulingBillingAccess.service.js';
 import BookingPackage from '../models/BookingPackage.model.js';
 import User from '../models/User.model.js';
 import Agency from '../models/Agency.model.js';
@@ -62,7 +63,7 @@ export const listPackages = async (req, res, next) => {
       includeTenantWideWithProgram: String(req.query.includeTenantWide || '') === 'true',
       tenantServiceId: req.query.tenantServiceId || req.query.serviceId || null
     });
-    res.json({ ok: true, packages });
+    res.json(await schedulingResponseForUser(req.user, agencyId, { ok: true, packages }));
   } catch (e) {
     next(e);
   }

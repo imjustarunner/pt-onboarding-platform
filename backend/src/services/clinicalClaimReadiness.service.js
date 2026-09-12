@@ -1,3 +1,4 @@
+import { utcDateToZonedYmd } from '../utils/zonedWallTime.util.js';
 import clinicalPool from '../config/clinicalDatabase.js';
 import { getPrimaryClinicalDiagnosis } from './clinicalDiagnosisAttach.service.js';
 
@@ -94,10 +95,12 @@ export async function resolveClaimDateOfService({
   const sessionId = safeInt(clinicalSessionId);
   if (sessionId) {
     const [rows] = await clinicalPool.execute(
-      `SELECT scheduled_start_at, created_at FROM clinical_sessions WHERE id = ? LIMIT 1`,
+      `SELECT scheduled_start_at, source_timezone, created_at FROM clinical_sessions WHERE id = ? LIMIT 1`,
       [sessionId]
     );
-    const fromSession = isoDate(rows?.[0]?.scheduled_start_at || rows?.[0]?.created_at);
+    const raw = rows?.[0]?.scheduled_start_at || rows?.[0]?.created_at;
+    const instant = raw instanceof Date ? raw : new Date(String(raw || '').replace(' ', 'T').replace(/Z?$/, 'Z'));
+    const fromSession = utcDateToZonedYmd(instant, rows?.[0]?.source_timezone || 'America/Denver');
     if (fromSession) return fromSession;
   }
   return null;
@@ -135,6 +138,16 @@ export async function evaluateClaimReadiness({
     return { ready: false, checks, blockers, warnings, diagnosisCodes: [], noteId: null, planId: null };
   }
 
+  const [sessions] = await clinicalPool.execute(
+    `SELECT id, claim_blocked_reason FROM clinical_sessions WHERE id = ? AND agency_id = ? AND client_id = ? LIMIT 1`,
+    [sessionId, agency, client]
+  );
+  checks.hasSession = !!sessions?.[0];
+  if (!checks.hasSession) {
+    return { ready: false, checks, blockers: ['Session does not belong to this client and agency'], warnings, diagnosisCodes: [], noteId: null, planId: null };
+  }
+  if (sessions[0].claim_blocked_reason) blockers.push(sessions[0].claim_blocked_reason);
+
   let noteId = safeInt(clinicalNoteId);
   let note = null;
   const selectNoteFull = `SELECT id, clinical_session_id, provider_signed_at, supervisor_cosigned_at, is_billable,
@@ -146,11 +159,11 @@ export async function evaluateClaimReadiness({
 
   async function loadNoteById(id) {
     try {
-      const [rows] = await clinicalPool.execute(`${selectNoteFull} WHERE id = ? LIMIT 1`, [id]);
+      const [rows] = await clinicalPool.execute(`${selectNoteFull} WHERE id = ? AND clinical_session_id = ? AND agency_id = ? AND client_id = ? AND is_deleted = 0 LIMIT 1`, [id, sessionId, agency, client]);
       return rows?.[0] || null;
     } catch (e) {
       if (e.code !== 'ER_BAD_FIELD_ERROR') throw e;
-      const [rows] = await clinicalPool.execute(`${selectNoteLegacy} WHERE id = ? LIMIT 1`, [id]);
+      const [rows] = await clinicalPool.execute(`${selectNoteLegacy} WHERE id = ? AND clinical_session_id = ? AND agency_id = ? AND client_id = ? AND is_deleted = 0 LIMIT 1`, [id, sessionId, agency, client]);
       return rows?.[0] || null;
     }
   }
@@ -159,20 +172,20 @@ export async function evaluateClaimReadiness({
     try {
       const [rows] = await clinicalPool.execute(
         `${selectNoteFull}
-         WHERE clinical_session_id = ?
+         WHERE clinical_session_id = ? AND agency_id = ? AND client_id = ? AND is_deleted = 0
          ORDER BY COALESCE(provider_signed_at, created_at) DESC, id DESC
          LIMIT 1`,
-        [sid]
+        [sid, agency, client]
       );
       return rows?.[0] || null;
     } catch (e) {
       if (e.code !== 'ER_BAD_FIELD_ERROR') throw e;
       const [rows] = await clinicalPool.execute(
         `${selectNoteLegacy}
-           WHERE clinical_session_id = ?
+           WHERE clinical_session_id = ? AND agency_id = ? AND client_id = ? AND is_deleted = 0
            ORDER BY COALESCE(provider_signed_at, created_at) DESC, id DESC
            LIMIT 1`,
-        [sid]
+        [sid, agency, client]
       );
       return rows?.[0] || null;
     }
@@ -181,7 +194,10 @@ export async function evaluateClaimReadiness({
   if (noteId) {
     note = await loadNoteById(noteId);
   }
-  if (!note) {
+  if (noteId && !note) {
+    blockers.push('Selected note does not belong to this session or was deleted');
+    noteId = null;
+  } else if (!note) {
     note = await loadLatestNoteForSession(sessionId);
     noteId = note?.id || null;
   }
@@ -190,7 +206,10 @@ export async function evaluateClaimReadiness({
   if (!noteId) blockers.push('No clinical note on this session');
   if (note) {
     checks.noteSigned = !!note.provider_signed_at;
-    checks.noteBillable = !!(note.is_billable || note.supervisor_cosigned_at);
+    checks.noteBillable = Number(note.is_billable) === 1;
+    if (requireSignedNote && note.provider_signed_at && !checks.noteBillable) {
+      blockers.push('Note requires supervisor approval or is non-billable');
+    }
     if (requireSignedNote && !note.provider_signed_at) {
       blockers.push('Note must be provider-signed');
     } else if (!note.provider_signed_at) {

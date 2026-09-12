@@ -1,3 +1,7 @@
+import { moveOfficeSessionSeries } from '../services/officeSessionMove.service.js';
+import Appointment from '../models/Appointment.model.js';
+import { settleAppointment, cancelAppointment } from '../services/appointment.service.js';
+import { assertAppointmentClients } from '../services/appointmentClinicalLink.service.js';
 import OfficeLocation from '../models/OfficeLocation.model.js';
 import OfficeLocationAgency from '../models/OfficeLocationAgency.model.js';
 import OfficeStandingAssignment from '../models/OfficeStandingAssignment.model.js';
@@ -82,6 +86,8 @@ async function bestEffortUnifiedOfficeAppointment({
       modality: modality || event.modality || null,
       officeLocationId,
       roomId: Number(event.room_id || 0) || null,
+      serviceCode: event.service_code || null,
+      clinicalSessionId: Number(event.clinical_session_id || 0) || null,
       title: appointmentTypeCode || event.appointment_type_code || 'Office session',
       appointmentTypeCode: appointmentTypeCode || event.appointment_type_code || null,
       actorUserId: req.user?.id || null
@@ -666,6 +672,14 @@ export const setBookingPlan = async (req, res, next) => {
       return res.status(403).json({ error: { message: 'Access denied' } });
     }
 
+    const selection = bookingSelectionFromBody(req.body);
+    const provider = await User.findById(assignment.provider_id);
+    const agencyId = await resolveAgencyForProviderOffice({ providerId: assignment.provider_id, officeLocationId,
+      preferredAgencyId: Number(req.body?.agencyId || 0) || null });
+    const clientId = Number(req.body?.clientId || 0) || null;
+    if (clientId) await assertAppointmentClients(agencyId, [{ clientId }]);
+    const validated = await validateSchedulingSelection({ agencyId, userRole: provider.role,
+      providerCredentialText: provider.credential, ...selection });
     const recurringUntilDate = normalizeRecurringUntilDate(bookingStartDate, req.body?.recurringUntilDate);
     const bookedOccurrenceCount = normalizeBookedOccurrenceCount(req.body?.bookedOccurrenceCount);
     const plan = await OfficeBookingPlan.upsertActive({
@@ -676,6 +690,8 @@ export const setBookingPlan = async (req, res, next) => {
       bookedOccurrenceCount,
       createdByUserId: req.user.id
     });
+    if (clientId) await OfficeBookingPlan.setSessionContext(plan.id, { agencyId, clientId, ...validated,
+      serviceLocationId: selection.serviceLocationId || null, tenantServiceId: Number(req.body?.tenantServiceId || 0) || null, packageEntitlementId: Number(req.body?.packageEntitlementId || 0) || null });
     try {
       const sel = bookingSelectionFromBody(req.body);
       if (plan?.id && (sel.serviceCode || (sel.addonServiceCodes || []).length)) {
@@ -1245,12 +1261,14 @@ export const staffBookEvent = async (req, res, next) => {
         try {
           await ensureAppointmentContext({
             officeEventId: updated?.id || eid,
+            sessionContext: req.body?.tenantServiceId || req.body?.packageEntitlementId
+              ? { tenantServiceId: Number(req.body?.tenantServiceId || 0) || null, packageEntitlementId: Number(req.body?.packageEntitlementId || 0) || null } : null,
             clientId,
             sourceTimezone: String(req.body?.sourceTimezone || 'America/New_York'),
             actorUserId: req.user.id
           });
-        } catch {
-          // best-effort context ensure on booking status toggle
+        } catch (error) {
+          return res.status(409).json({ error: { code: 'BOOKING_INCOMPLETE', message: error.message }, officeEventId: updated?.id || eid });
         }
       }
       const bookedEv = updated || (await OfficeEvent.findById(eid));
@@ -1389,6 +1407,13 @@ export const setEventOutcome = async (req, res, next) => {
       cancellationReason: rawReason
     });
 
+    const appointment = await Appointment.findByOfficeEventId(eid);
+    const outcome = String(rawOutcome || '').toUpperCase();
+    if (appointment && ['COMPLETED', 'NO_SHOW'].includes(outcome)) {
+      await settleAppointment(appointment.id, { outcome: outcome.toLowerCase(), actorUserId: req.user.id });
+    } else if (appointment && outcome === 'CANCELED') {
+      await cancelAppointment(appointment.id, { actorUserId: req.user.id, actorRole: req.user.role, reason: rawReason });
+    }
     return res.json({
       ok: true,
       event: updated
@@ -1715,6 +1740,12 @@ export const setEventBookingPlan = async (req, res, next) => {
       scheduledStartAt: ev.start_at || null,
       scheduledEndAt: ev.end_at || null
     });
+    const planClientId = Number(req.body?.clientId || ev.client_id || 0) || null;
+    if (planClientId) {
+      await assertAppointmentClients(policyAgencyId, [{ clientId: planClientId }]);
+      await OfficeBookingPlan.setSessionContext(plan.id, { agencyId: policyAgencyId, clientId: planClientId,
+        ...validatedSelection, serviceLocationId: rawSelection.serviceLocationId || null, tenantServiceId: Number(req.body?.tenantServiceId || 0) || null, packageEntitlementId: Number(req.body?.packageEntitlementId || 0) || null });
+    }
     const bookedEvent = await OfficeEvent.markBooked({
       eventId: eid,
       bookedProviderId: providerId,
@@ -1747,8 +1778,8 @@ export const setEventBookingPlan = async (req, res, next) => {
           sourceTimezone: String(req.body?.sourceTimezone || 'America/New_York'),
           actorUserId: req.user.id
         });
-      } catch {
-        // best-effort context ensure on booking-plan promotion
+      } catch (error) {
+        return res.status(409).json({ error: { code: 'BOOKING_INCOMPLETE', message: error.message }, officeEventId: bookedEvent?.id || eid });
       }
     }
     await bestEffortUnifiedOfficeAppointment({
@@ -3003,14 +3034,15 @@ export const rescheduleStandingAssignment = async (req, res, next) => {
     const providerId = Number(assignment.provider_id);
     const todayYmd = new Date().toISOString().slice(0, 10);
 
-    const cancelledEventIds = await cancelFutureEventsForStandingAssignment(sid, todayYmd);
-
-    const updated = await OfficeStandingAssignment.update(sid, {
-      room_id: newRoomId,
-      weekday: newWeekday,
-      hour: newHour,
-      last_two_week_confirmed_at: new Date()
-    });
+    const movedEventIds = await moveOfficeSessionSeries({ assignment, newRoomId, newWeekday, newHour,
+      timeZone: await resolveTimezoneForStandingAssignment(sid), actorUserId: req.user.id });
+    const cancelledEventIds = [];
+    const updated = await OfficeStandingAssignment.findById(sid);
+    OfficeScheduleMaterializer.invalidateOffice(officeLocationId);
+    for (const officeEventId of movedEventIds) {
+      try { await GoogleCalendarService.upsertBookedOfficeEvent({ officeEventId }); }
+      catch { /* existing calendar retry process handles remote failures */ }
+    }
 
     await materializeOfficeWeeks({
       officeLocationId,
@@ -3053,6 +3085,7 @@ export const rescheduleStandingAssignment = async (req, res, next) => {
     return res.json({
       ok: true,
       assignment: updated,
+      movedEventIds,
       cancelledEventCount: cancelledEventIds.length,
       notificationSent,
       from: { roomId: oldRoomId, weekday: oldWeekday, hour: oldHour, label: oldSlotLabel },

@@ -1,3 +1,4 @@
+import { planPackageUsage } from '../utils/bookingPackageUsage.js';
 import pool from '../config/database.js';
 import AgencyBusinessType from './AgencyBusinessType.model.js';
 
@@ -550,8 +551,8 @@ class BookingPackage {
 
   /**
    * Reserve or consume one session for an appointment.
-   * consumeOn=reserve: remaining--, reserved++
-   * consumeOn=complete: no-op at book time (caller should pass mode='complete' later)
+   * Booking reserves capacity for either policy; completion consumes that reservation.
+   * Existing consume-on-complete appointments without a reservation are handled by the ledger planner.
    */
   static async applyAppointmentUsage({
     entitlementId,
@@ -560,14 +561,11 @@ class BookingPackage {
     mode = 'reserve',
     actorUserId = null
   } = {}) {
+    if (!Number.isSafeInteger(Number(appointmentId)) || Number(appointmentId) < 1) {
+      throw Object.assign(new Error('appointmentId is required for package usage'), { status: 400 });
+    }
     const ent = await this.findEntitlementById(entitlementId, agencyId);
-    if (!ent || ent.status !== 'ACTIVE') {
-      throw Object.assign(new Error('Entitlement not available'), { status: 400 });
-    }
-    const consumeOn = String(ent.consumeOn || 'reserve');
-    if (mode === 'reserve' && consumeOn === 'complete') {
-      return ent; // defer debit until complete
-    }
+    if (!ent) throw Object.assign(new Error('Entitlement not available'), { status: 400 });
     const conn = await pool.getConnection();
     try {
       await conn.beginTransaction();
@@ -576,108 +574,27 @@ class BookingPackage {
         [ent.id, ent.agencyId]
       );
       const row = rows?.[0];
-      if (!row || String(row.status) !== 'ACTIVE') {
-        throw Object.assign(new Error('Entitlement not available'), { status: 400 });
-      }
-      const remaining = Number(row.sessions_remaining || 0);
-      const reserved = Number(row.sessions_reserved || 0);
-      if (mode === 'reserve') {
-        if (remaining < 1) throw Object.assign(new Error('No sessions remaining on package'), { status: 400 });
-        const nextRemaining = remaining - 1;
-        const nextReserved = reserved + 1;
-        const nextStatus = nextRemaining <= 0 && nextReserved <= 0 ? 'EXHAUSTED' : 'ACTIVE';
+      if (!row) throw Object.assign(new Error('Entitlement not available'), { status: 400 });
+      const [history] = await conn.execute(
+        `SELECT direction, reason_code FROM booking_package_ledger
+         WHERE entitlement_id = ? AND agency_id = ? AND appointment_id = ? ORDER BY id ASC`,
+        [ent.id, ent.agencyId, Number(appointmentId)]
+      );
+      const change = planPackageUsage({
+        mode, remaining: row.sessions_remaining, reserved: row.sessions_reserved,
+        status: row.status, consumeOn: ent.consumeOn, history
+      });
+      if (change) {
         await conn.execute(
           `UPDATE booking_package_entitlements
-           SET sessions_remaining = ?, sessions_reserved = ?, status = ?
-           WHERE id = ?`,
-          [nextRemaining, nextReserved, nextStatus, ent.id]
+           SET sessions_remaining = ?, sessions_reserved = ?, status = ? WHERE id = ?`,
+          [change.remaining, change.reserved, change.status, ent.id]
         );
         await conn.execute(
           `INSERT INTO booking_package_ledger
-            (agency_id, entitlement_id, client_id, appointment_id, direction, quantity, reason_code, created_by_user_id)
-           VALUES (?, ?, ?, ?, 'RESERVE', 1, 'BOOKING_RESERVE', ?)`,
-          [ent.agencyId, ent.id, ent.clientId, appointmentId || null, actorUserId || null]
-        );
-      } else if (mode === 'complete') {
-        if (consumeOn === 'reserve') {
-          if (reserved < 1) throw Object.assign(new Error('No reserved session to complete'), { status: 400 });
-          const nextReserved = reserved - 1;
-          const nextStatus = Number(row.sessions_remaining || 0) <= 0 && nextReserved <= 0 ? 'EXHAUSTED' : 'ACTIVE';
-          await conn.execute(
-            `UPDATE booking_package_entitlements
-             SET sessions_reserved = ?, status = ?
-             WHERE id = ?`,
-            [nextReserved, nextStatus, ent.id]
-          );
-        } else {
-          if (remaining < 1) throw Object.assign(new Error('No sessions remaining on package'), { status: 400 });
-          const nextRemaining = remaining - 1;
-          const nextStatus = nextRemaining <= 0 ? 'EXHAUSTED' : 'ACTIVE';
-          await conn.execute(
-            `UPDATE booking_package_entitlements
-             SET sessions_remaining = ?, status = ?
-             WHERE id = ?`,
-            [nextRemaining, nextStatus, ent.id]
-          );
-        }
-        await conn.execute(
-          `INSERT INTO booking_package_ledger
-            (agency_id, entitlement_id, client_id, appointment_id, direction, quantity, reason_code, created_by_user_id)
-           VALUES (?, ?, ?, ?, 'CONSUME', 1, 'SESSION_COMPLETE', ?)`,
-          [ent.agencyId, ent.id, ent.clientId, appointmentId || null, actorUserId || null]
-        );
-      } else if (mode === 'forfeit') {
-        if (consumeOn === 'reserve' || reserved >= 1) {
-          if (reserved < 1) {
-            await conn.commit();
-            return this.findEntitlementById(ent.id, ent.agencyId);
-          }
-          const nextReserved = reserved - 1;
-          const nextStatus = Number(row.sessions_remaining || 0) <= 0 && nextReserved <= 0 ? 'EXHAUSTED' : 'ACTIVE';
-          await conn.execute(
-            `UPDATE booking_package_entitlements
-             SET sessions_reserved = ?, status = ?
-             WHERE id = ?`,
-            [nextReserved, nextStatus, ent.id]
-          );
-        } else {
-          if (remaining < 1) {
-            await conn.commit();
-            return this.findEntitlementById(ent.id, ent.agencyId);
-          }
-          const nextRemaining = remaining - 1;
-          const nextStatus = nextRemaining <= 0 ? 'EXHAUSTED' : 'ACTIVE';
-          await conn.execute(
-            `UPDATE booking_package_entitlements
-             SET sessions_remaining = ?, status = ?
-             WHERE id = ?`,
-            [nextRemaining, nextStatus, ent.id]
-          );
-        }
-        await conn.execute(
-          `INSERT INTO booking_package_ledger
-            (agency_id, entitlement_id, client_id, appointment_id, direction, quantity, reason_code, created_by_user_id)
-           VALUES (?, ?, ?, ?, 'CONSUME', 1, 'SESSION_NOSHOW_FORFEIT', ?)`,
-          [ent.agencyId, ent.id, ent.clientId, appointmentId || null, actorUserId || null]
-        );
-      } else if (mode === 'release') {
-        if (reserved < 1) {
-          await conn.commit();
-          return this.findEntitlementById(ent.id, ent.agencyId);
-        }
-        const nextReserved = reserved - 1;
-        const nextRemaining = remaining + 1;
-        await conn.execute(
-          `UPDATE booking_package_entitlements
-           SET sessions_remaining = ?, sessions_reserved = ?, status = 'ACTIVE'
-           WHERE id = ?`,
-          [nextRemaining, nextReserved, ent.id]
-        );
-        await conn.execute(
-          `INSERT INTO booking_package_ledger
-            (agency_id, entitlement_id, client_id, appointment_id, direction, quantity, reason_code, created_by_user_id)
-           VALUES (?, ?, ?, ?, 'RELEASE', 1, 'BOOKING_RELEASE', ?)`,
-          [ent.agencyId, ent.id, ent.clientId, appointmentId || null, actorUserId || null]
+           (agency_id, entitlement_id, client_id, appointment_id, direction, quantity, reason_code, created_by_user_id)
+           VALUES (?, ?, ?, ?, ?, 1, ?, ?)`,
+          [ent.agencyId, ent.id, ent.clientId, Number(appointmentId), change.direction, change.reason, actorUserId || null]
         );
       }
       await conn.commit();

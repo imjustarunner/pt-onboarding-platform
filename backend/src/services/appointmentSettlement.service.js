@@ -56,7 +56,7 @@ export async function settleAppointmentOutcome(appointmentId, {
   if (!appointment) return { settled: false, reason: 'NOT_FOUND' };
 
   const billing = await Appointment.getBilling(id);
-  if (!force && billing?.paymentStatus && ['package_consumed', 'forfeited', 'fee_pending', 'paid', 'invoiced'].includes(
+  if (!force && billing?.paymentStatus && ['package_consumed', 'forfeited', 'fee_pending', 'paid', 'invoiced', 'free_rebook'].includes(
     String(billing.paymentStatus)
   )) {
     return {
@@ -71,6 +71,9 @@ export async function settleAppointmentOutcome(appointmentId, {
   const packageEntitlementId = safeInt(
     appointment.packageEntitlementId || billing?.packageEntitlementId
   );
+  if (appointment.clinicalSessionId && !packageEntitlementId) {
+    return { settled: true, outcome: status, reason: 'CLINICAL_BILLING', paymentStatus: billing?.paymentStatus || 'none' };
+  }
   const providerScheduleEventId = safeInt(appointment.providerScheduleEventId);
   const results = {
     settled: true,
@@ -93,11 +96,11 @@ export async function settleAppointmentOutcome(appointmentId, {
         });
         results.paymentStatus = 'package_consumed';
       } catch (e) {
-        results.bookingPackage = { error: e.message, status: e.status || 500 };
+        throw e;
       }
     }
 
-    if (clientId && agencyId) {
+    if (!packageEntitlementId && clientId && agencyId && providerScheduleEventId) {
       try {
         results.practitionerPackage = await debitSessionOnComplete({
           agencyId,
@@ -109,7 +112,7 @@ export async function settleAppointmentOutcome(appointmentId, {
           results.paymentStatus = 'package_consumed';
         }
       } catch (e) {
-        results.practitionerPackage = { error: e.message };
+        throw e;
       }
     }
 
@@ -132,11 +135,11 @@ export async function settleAppointmentOutcome(appointmentId, {
         });
         results.paymentStatus = 'forfeited';
       } catch (e) {
-        results.bookingPackage = { error: e.message, status: e.status || 500 };
+        throw e;
       }
     }
 
-    if (clientId && agencyId) {
+    if (!packageEntitlementId && clientId && agencyId && providerScheduleEventId) {
       try {
         results.practitionerPackage = await applyMissedSessionPolicy({
           agencyId,
@@ -153,7 +156,7 @@ export async function settleAppointmentOutcome(appointmentId, {
           results.feeCents = Number(results.practitionerPackage.feeCents || 0);
         }
       } catch (e) {
-        results.practitionerPackage = { error: e.message };
+        throw e;
       }
     }
 
@@ -184,7 +187,7 @@ export async function settleAppointmentOutcome(appointmentId, {
       ].filter(Boolean).join(' | ').slice(0, 500)
     });
   } catch (e) {
-    results.billingError = e.message;
+    throw e;
   }
 
   return results;

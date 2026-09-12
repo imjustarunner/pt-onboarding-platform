@@ -2741,12 +2741,15 @@ export const createOfficeBookingRequest = async (req, res, next) => {
                 // eslint-disable-next-line no-await-in-loop
                 await ensureAppointmentContext({
                   officeEventId: borrowedEvent.id,
+                  agencyId: Number(req.body?.agencyId || 0) || null,
+                  sessionContext: { tenantServiceId: Number(req.body?.tenantServiceId || 0) || null,
+                    packageEntitlementId: Number(req.body?.packageEntitlementId || 0) || null },
                   clientId,
                   sourceTimezone: tz,
                   actorUserId: req.user.id
                 });
-              } catch {
-                // best-effort
+              } catch (error) {
+                return res.status(409).json({ error: { code: 'BOOKING_INCOMPLETE', message: error.message }, officeEventId: borrowedEvent.id });
               }
             }
             break;
@@ -2845,12 +2848,15 @@ export const createOfficeBookingRequest = async (req, res, next) => {
           try {
             await ensureAppointmentContext({
               officeEventId: ev?.id,
+              agencyId: Number(req.body?.agencyId || 0) || null,
+              sessionContext: { tenantServiceId: Number(req.body?.tenantServiceId || 0) || null,
+                packageEntitlementId: Number(req.body?.packageEntitlementId || 0) || null },
               clientId,
               sourceTimezone: tz,
               actorUserId: req.user.id
             });
-          } catch {
-            // best-effort context ensure on booking
+          } catch (error) {
+            return res.status(409).json({ error: { code: 'BOOKING_INCOMPLETE', message: error.message }, officeEventId: ev?.id });
           }
         }
         return res.status(201).json({ ok: true, kind: 'auto_booked', event: ev });
@@ -2858,6 +2864,8 @@ export const createOfficeBookingRequest = async (req, res, next) => {
     }
 
     const created = await OfficeBookingRequest.create({
+      sessionContext: { agencyId: Number(req.body?.agencyId || 0) || null,
+        tenantServiceId: Number(req.body?.tenantServiceId || 0) || null, packageEntitlementId: Number(req.body?.packageEntitlementId || 0) || null },
       requestType: 'PROVIDER_REQUEST',
       officeLocationId: loc.id,
       roomId: room?.id || null,
@@ -3363,12 +3371,13 @@ export const approveOfficeBookingRequest = async (req, res, next) => {
         try {
           await ensureAppointmentContext({
             officeEventId: createdEvent.id,
+            sessionContext: typeof reqRow.session_context_json === 'string' ? JSON.parse(reqRow.session_context_json) : reqRow.session_context_json,
             clientId: Number(reqRow.client_id),
             sourceTimezone: String(loc.timezone || 'America/New_York'),
             actorUserId: req.user.id
           });
-        } catch {
-          // best-effort context ensure on booking request approval
+        } catch (error) {
+          return res.status(409).json({ error: { code: 'BOOKING_INCOMPLETE', message: error.message }, officeEventId: createdEvent.id });
         }
       }
     } else {
@@ -3409,6 +3418,16 @@ export const approveOfficeBookingRequest = async (req, res, next) => {
         materializeWeeks: 12
       });
       createdBookingPlan = await OfficeBookingPlan.findActiveByAssignmentId(createdStandingAssignment.id);
+      if (createdBookingPlan?.id && reqRow.client_id) {
+        const context = typeof reqRow.session_context_json === 'string' ? JSON.parse(reqRow.session_context_json) : (reqRow.session_context_json || {});
+        await OfficeBookingPlan.setSessionContext(createdBookingPlan.id, { ...context, agencyId: policyAgencyId,
+          clientId: Number(reqRow.client_id), ...validatedSelection, serviceLocationId: reqRow.service_location_id || null });
+        OfficeScheduleMaterializer.invalidateOffice(loc.id);
+        for (let week = 0; week < 12; week += 1) {
+          await OfficeScheduleMaterializer.materializeWeek({ officeLocationId: loc.id,
+            weekStartRaw: OfficeScheduleMaterializer.addDays(bookingStartDate, week * 7), createdByUserId: req.user.id });
+        }
+      }
     }
 
     const updatedReq = await OfficeBookingRequest.markDecided({

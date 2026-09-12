@@ -9,11 +9,12 @@ import {
   requireMedicalClaims,
   requireClaimMd,
   requireMedicalBillingActorAccess,
-  requireMedicalBillingReportAccess
+  requireMedicalBillingReportAccess,
+  requireMedicalBillingFinancialAccess
 } from '../middleware/medicalBilling.middleware.js';
 
 const claimsGate = [requireMedicalClaims, requireMedicalBillingActorAccess];
-const claimMdGate = [requireClaimMd, requireMedicalBillingActorAccess];
+const claimMdGate = [requireClaimMd, requireMedicalBillingActorAccess, requireMedicalBillingFinancialAccess];
 const masterGate = [requireMedicalBillingMaster, requireMedicalBillingActorAccess];
 const reportsGate = [...masterGate, requireMedicalBillingReportAccess];
 import {
@@ -441,6 +442,7 @@ router.post(
 router.get(
   '/fee-schedule',
   ...claimsGate,
+  requireMedicalBillingFinancialAccess,
   [query('agencyId').isInt({ min: 1 })],
   listFeeSchedule
 );
@@ -448,6 +450,7 @@ router.get(
 router.post(
   '/fee-schedule',
   ...claimsGate,
+  requireMedicalBillingFinancialAccess,
   [
     body('agencyId').isInt({ min: 1 }),
     body('procedureCode').isString().isLength({ min: 1, max: 16 })
@@ -458,6 +461,7 @@ router.post(
 router.get(
   '/claims',
   ...claimsGate,
+  requireMedicalBillingFinancialAccess,
   [query('agencyId').isInt({ min: 1 })],
   listMedicalClaims
 );
@@ -465,6 +469,7 @@ router.get(
 router.get(
   '/claim-overrides',
   ...claimsGate,
+  requireMedicalBillingFinancialAccess,
   [query('agencyId').isInt({ min: 1 })],
   listBillingClaimOverrides
 );
@@ -472,6 +477,7 @@ router.get(
 router.post(
   '/claim-overrides',
   ...claimsGate,
+  requireMedicalBillingFinancialAccess,
   [
     body('agencyId').isInt({ min: 1 }),
     body('scope').isString().isIn(['payer', 'client', 'claim']),

@@ -2,7 +2,7 @@
   <div class="mb-page">
     <header class="mb-header">
       <h1>Medical Billing</h1>
-      <router-link :to="{name: 'FamilyBillingDesk',params:{organizationSlug:agencyStore.currentAgency?.slug},query:{agencyId}}">Family balances, payment setup & collections →</router-link>
+      <router-link v-if="canRunBillingReports" :to="{name: 'FamilyBillingDesk',params:{organizationSlug:agencyStore.currentAgency?.slug},query:{agencyId}}">Family balances, payment setup & collections →</router-link>
       <p class="muted">
         Chart, signing, claims, and Claim.MD — only available when Medical Billing flags are enabled for this organization.
       </p>
@@ -250,7 +250,7 @@
         <p v-if="!serviceLocations.length" class="muted">No service locations yet.</p>
       </section>
 
-      <section class="mb-card">
+      <section v-if="canRunBillingReports" class="mb-card">
         <h2>Claims queue</h2>
         <button type="button" class="mb-btn" :disabled="claimsLoading" @click="loadClaims">Refresh claims</button>
         <ul v-if="claims.length" class="mb-list">
@@ -353,7 +353,7 @@
         </ul>
       </section>
 
-      <section class="mb-card">
+      <section v-if="canRunBillingReports" class="mb-card">
         <h2>Claim.MD credentials</h2>
         <p class="muted">AccountKey is encrypted at rest. BAA required before production use.</p>
         <div class="mb-row">
@@ -382,9 +382,9 @@ import MedicalBillingReportsPanel from '../../components/admin/MedicalBillingRep
 const agencyStore = useAgencyStore();
 const authStore = useAuthStore();
 const agencyId = computed(() => Number(agencyStore.currentAgency?.id || 0));
-const canRunBillingReports = computed(() => ['admin', 'super_admin', 'support', 'staff'].includes(
+const canRunBillingReports = computed(() => ['admin', 'super_admin'].includes(
   String(authStore.user?.role || '').toLowerCase()
-));
+) || (authStore.user?.billingAgencyIds || []).map(Number).includes(agencyId.value));
 
 const loading = ref(true);
 const error = ref('');
@@ -927,7 +927,7 @@ const loadEras = async () => {
 
 onMounted(async () => {
   await loadStatus();
-  await Promise.all([loadSigningNotes(), loadClaims(), loadServiceCodes(), loadServiceLocations()]);
+  await Promise.all([loadSigningNotes(), ...(canRunBillingReports.value ? [loadClaims()] : []), loadServiceCodes(), loadServiceLocations()]);
 });
 </script>
 
