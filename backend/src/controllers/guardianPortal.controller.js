@@ -150,9 +150,8 @@ export const getGuardianPortalOverview = async (req, res, next) => {
     const dependents = (linkedClients || [])
       .filter((c) => String(c?.relationship_type || '').toLowerCase() !== 'self')
       .map(enrichGuardianClientRow);
-    const linkedClientIds = (linkedClients || [])
-      .map((c) => Number(c?.client_id))
-      .filter((n) => n > 0);
+    const eventVisibleClients = await ClientGuardian.listClientsForGuardian({guardianUserId:uid,requiredClinicalScope:'session_frequency'});
+    const linkedClientIds = eventVisibleClients.map(c=>Number(c.client_id)).filter(n=>n>0);
 
     const clientMetaById = new Map(
       (linkedClients || []).map((row) => [Number(row?.client_id), row])
@@ -355,7 +354,7 @@ async function assertGuardianSkillBuilderEventAccess(guardianUserId, eventId) {
   const gid = Number(guardianUserId);
   const eid = Number(eventId);
   if (!gid || !eid) return { ok: false };
-  const linked = await ClientGuardian.listClientsForGuardian({ guardianUserId: gid });
+  const linked = await ClientGuardian.listClientsForGuardian({ guardianUserId: gid, requiredClinicalScope: 'session_frequency' });
   const allowedClientIds = new Set((linked || []).map((c) => Number(c.client_id)).filter((n) => n > 0));
   if (!allowedClientIds.size) return { ok: false };
 
@@ -449,7 +448,7 @@ export const listGuardianSkillBuilderEvents = async (req, res, next) => {
     }
     const agencyId = parsePositiveInt(req.query.agencyId);
 
-    const linked = await ClientGuardian.listClientsForGuardian({ guardianUserId: uid });
+    const linked = await ClientGuardian.listClientsForGuardian({ guardianUserId: uid, requiredClinicalScope: 'session_frequency' });
     const ids = (linked || []).map((c) => Number(c.client_id)).filter((n) => n > 0);
     if (!ids.length) return res.json({ ok: true, events: [] });
 
@@ -1087,7 +1086,7 @@ export const listGuardianRegistrationCatalog = async (req, res, next) => {
       }
       agencyIds = [agencyId];
     } else {
-      const linked = await ClientGuardian.listClientsForGuardian({ guardianUserId: uid });
+      const linked = await ClientGuardian.listClientsForGuardian({ guardianUserId: uid, requiredClinicalScope: 'session_frequency' });
       agencyIds = [...new Set((linked || []).map((c) => Number(c?.agency_id)).filter((n) => n > 0))];
       if (!agencyIds.length) return res.json({ ok: true, items: [] });
     }
@@ -1119,7 +1118,7 @@ export const listGuardianRegistrationCatalog = async (req, res, next) => {
 };
 
 async function assertGuardianLinkedToClients(guardianUserId, clientIds) {
-  const linked = await ClientGuardian.listClientsForGuardian({ guardianUserId });
+  const linked = await ClientGuardian.listClientsForGuardian({ guardianUserId, requiredClinicalScope: 'session_frequency' });
   const allowed = new Set((linked || []).map((c) => Number(c.client_id)));
   for (const id of clientIds) {
     if (!allowed.has(Number(id))) return false;
@@ -1339,7 +1338,7 @@ async function assertGuardianCompanyEventAccess(guardianUserId, eventId) {
   const eid = Number(eventId);
   if (!gid || !eid) return { ok: false };
 
-  const linked = await ClientGuardian.listClientsForGuardian({ guardianUserId: gid });
+  const linked = await ClientGuardian.listClientsForGuardian({ guardianUserId: gid, requiredClinicalScope: 'session_frequency' });
   const allowedClientIds = new Set((linked || []).map((c) => Number(c.client_id)).filter((n) => n > 0));
   if (!allowedClientIds.size) return { ok: false };
 
@@ -1398,7 +1397,7 @@ export const listGuardianCompanyEvents = async (req, res, next) => {
       return res.json({ ok: true, previewMode: 'superadmin', events: [] });
     }
 
-    const linked = await ClientGuardian.listClientsForGuardian({ guardianUserId: uid });
+    const linked = await ClientGuardian.listClientsForGuardian({ guardianUserId: uid, requiredClinicalScope: 'session_frequency' });
     const ids = (linked || []).map((c) => Number(c.client_id)).filter((n) => n > 0);
     if (!ids.length) return res.json({ ok: true, events: [] });
 
@@ -1597,7 +1596,7 @@ export const getGuardianDependentPlanProgress = async (req, res, next) => {
       return res.json({ plan: null, goals: [], ratings: [], hasActivePlan: false, preview: true });
     }
 
-    const linked = await ClientGuardian.listClientsForGuardian({ guardianUserId: uid });
+    const linked = await ClientGuardian.listClientsForGuardian({ guardianUserId: uid, requiredClinicalScope: 'session_frequency' });
     const row = (linked || []).find((c) => Number(c.client_id) === clientId);
     if (!row) {
       return res.status(403).json({ error: { message: 'Child is not linked to your account' } });
@@ -1629,6 +1628,9 @@ export const getGuardianDependentPlanProgress = async (req, res, next) => {
       return res.json({ plan: null, goals: [], ratings: [], hasActivePlan: false });
     }
 
+    const { requireClinicalScope } = await import('../services/guardianClinicalAccess.service.js');
+    await requireClinicalScope({agencyId:row.agency_id,clientId,userId:uid,scope:'treatment_plan'});
+    if(Number(agencyId)!==Number(row.agency_id))return res.status(403).json({error:{message:'Organization mismatch'}});
     const plans = await ClinicalTreatmentPlan.listByClient({ agencyId, clientId });
     const active =
       (plans || []).find((p) => /active|final/i.test(String(p.status || '')))

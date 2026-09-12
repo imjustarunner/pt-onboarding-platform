@@ -20,7 +20,7 @@
           {{
             paymentOnly
               ? tx('We use this information to process payments securely. You can save a card now or add one later in your portal.')
-              : tx('We use this information to verify benefits, bill insurance when applicable, and collect payments. You can choose Self-Pay or provide insurance details — our office will follow up if we need more information.')
+              : tx('We use this information to verify benefits and bill your insurance for eligible services. Our office will follow up if anything is missing.')
           }}
         </p>
       </div>
@@ -33,6 +33,7 @@
             type="button"
             class="pi-ip-choice"
             :class="{ 'pi-ip-choice--active': !isSelfPay }"
+            :aria-pressed="!isSelfPay"
             @click="setSelfPay(false)"
           >
             <span class="pi-ip-choice-radio" aria-hidden="true" />
@@ -45,6 +46,7 @@
             type="button"
             class="pi-ip-choice"
             :class="{ 'pi-ip-choice--active': isSelfPay }"
+            :aria-pressed="isSelfPay"
             @click="setSelfPay(true)"
           >
             <span class="pi-ip-choice-radio" aria-hidden="true" />
@@ -86,7 +88,7 @@
       <section v-if="showPaymentSection" class="pi-ip-section">
         <h3 class="pi-ip-section-title">{{ tx('Payment Method') }}</h3>
         <p class="pi-ip-section-lead">
-          {{ tx('Your card will be saved securely with Stripe. You can skip this step and add it later.') }}
+          {{ tx('Save your card securely with Stripe. Payment information is required before paid services; contact the office if you need another arrangement.') }}
         </p>
 
         <div class="pi-ip-choice-row pi-ip-choice-row--3">
@@ -94,24 +96,29 @@
             type="button"
             class="pi-ip-choice"
             :class="{ 'pi-ip-choice--active': paymentChoice === 'add_card' }"
+            :aria-pressed="paymentChoice === 'add_card'"
             @click="paymentChoice = 'add_card'"
           >
             <strong>{{ tx('Add Card') }}</strong>
             <span class="pi-ip-choice-sub">{{ tx('Save card for payments.') }}</span>
           </button>
           <button
+            v-if="stepConfig.paymentRequired === false"
             type="button"
             class="pi-ip-choice"
             :class="{ 'pi-ip-choice--active': paymentChoice === 'later' }"
+            :aria-pressed="paymentChoice === 'later'"
             @click="paymentChoice = 'later'"
           >
             <strong>{{ tx("I'll Add Card Later") }}</strong>
             <span class="pi-ip-choice-sub">{{ tx('You can add a card anytime.') }}</span>
           </button>
           <button
+            v-if="stepConfig.paymentRequired === false"
             type="button"
             class="pi-ip-choice"
             :class="{ 'pi-ip-choice--active': paymentChoice === 'na' }"
+            :aria-pressed="paymentChoice === 'na'"
             @click="paymentChoice = 'na'"
           >
             <strong>{{ tx('N/A — Not Paying Now') }}</strong>
@@ -133,7 +140,7 @@
           />
         </div>
         <p v-else-if="paymentChoice === 'later'" class="pi-ip-hint">
-          {{ tx('We will remind you to add a payment method in your portal before services begin.') }}
+          {{ tx('Add a payment method in your portal before paid services begin.') }}
         </p>
         <p v-else class="pi-ip-hint">
           {{ tx('No card will be saved now. Our office may contact you about payment arrangements.') }}
@@ -154,9 +161,8 @@
           <li v-if="!paymentOnly && !isSelfPay">
             {{ tx('I authorize this organization to release information necessary to verify benefits and bill my insurance.') }}
           </li>
-          <li>{{ tx('I understand I am financially responsible for services not covered by insurance or for self-pay balances.') }}</li>
-          <li>{{ tx('I understand the office may follow up for missing insurance cards, ID, or payment details.') }}</li>
-          <li>{{ tx('I agree to the payment terms described for any selected package or services.') }}</li>
+          <li v-if="!isMedicaid">{{ tx('I understand the office will explain any patient responsibility and applicable payment terms before collecting payment.') }}</li>
+          <li>{{ tx('I understand the office may follow up for missing information.') }}</li>
         </ul>
 
         <label class="pi-ip-auth-check" :class="{ 'pi-ip-auth-check--error': !!authError }">
@@ -190,7 +196,7 @@
     </div>
 
     <aside v-if="showSidebar" class="pi-ip-sidebar">
-      <div v-if="selectedPackage" class="pi-ip-side-card">
+      <div v-if="selectedPackage && !isMedicaid" class="pi-ip-side-card">
         <div class="pi-ip-side-kicker">{{ tx('Selected Package') }}</div>
         <strong class="pi-ip-side-name">{{ selectedPackage.name }}</strong>
         <div v-if="selectedPackage.sessionCount" class="pi-ip-side-meta">
@@ -201,25 +207,25 @@
 
       <div class="pi-ip-side-card">
         <div class="pi-ip-side-kicker">{{ tx('Payment Summary') }}</div>
-        <div class="pi-ip-side-row">
+        <div v-if="selectedPackage && !isMedicaid" class="pi-ip-side-row">
           <span>{{ tx('Package fee') }}</span>
-          <strong>{{ formatPrice(selectedPackage?.priceCents || 0) }}</strong>
+          <strong>{{ formatPrice(selectedPackage.priceCents) }}</strong>
         </div>
         <div v-if="!paymentOnly && !isSelfPay" class="pi-ip-side-row">
           <span>{{ tx('Est. insurance coverage') }}</span>
           <strong>{{ isMedicaid ? tx('Medicaid') : tx('Pending') }}</strong>
         </div>
         <div class="pi-ip-side-total">
-          <span>{{ tx('Your estimated cost') }}</span>
+          <span>{{ isMedicaid ? tx('Payment during enrollment') : tx('Your estimated cost') }}</span>
           <strong>{{ estimatedCostLabel }}</strong>
         </div>
-        <p class="pi-ip-side-fine">{{ tx('Estimated cost may change after insurance verification.') }}</p>
+        <p class="pi-ip-side-fine">{{ isMedicaid ? tx('No card is requested for this enrollment. Our office will verify coverage for your services.') : tx('This is not a bill. Insurance benefits and any patient responsibility still need verification.') }}</p>
       </div>
 
       <div class="pi-ip-side-card">
         <div class="pi-ip-side-kicker">{{ tx('What happens next?') }}</div>
         <ul class="pi-ip-side-list">
-          <li v-if="!paymentOnly">{{ tx('We will verify your insurance within 1–3 business days.') }}</li>
+          <li v-if="!paymentOnly">{{ tx('Our office will review your insurance and confirm benefits.') }}</li>
           <li>{{ tx('We will contact you if we need more information.') }}</li>
           <li>{{ tx("You'll receive a benefits or payment summary as applicable.") }}</li>
         </ul>
@@ -227,7 +233,7 @@
 
       <div class="pi-ip-side-card pi-ip-side-card--secure">
         <strong>{{ tx('Secure & private') }}</strong>
-        <p>{{ tx('Your information is encrypted and stored securely. We will never share your information without consent.') }}</p>
+        <p>{{ isMedicaid ? tx('Your insurance information is encrypted and available only through authorized access.') : tx('Card details are collected by Stripe. Insurance details are available to authorized billing staff and your own payer account.') }}</p>
       </div>
     </aside>
   </div>
@@ -237,7 +243,7 @@
 import { computed, ref, watch } from 'vue';
 import PublicIntakeInsuranceStep from './PublicIntakeInsuranceStep.vue';
 import PublicIntakePaymentStep from './PublicIntakePaymentStep.vue';
-import { isMedicaidInsurer } from '../../utils/coloradoInsurances.js';
+import { hasMedicaidCoverage } from '../../utils/insurancePaymentPolicy.js';
 
 const props = defineProps({
   insuranceInfo: { type: Object, default: () => ({}) },
@@ -280,8 +286,7 @@ const authSignature = ref(props.insuranceInfo?.authorizationSignature || '');
 const authSignatureData = ref(props.insuranceInfo?.authorizationSignatureData || '');
 const authError = ref('');
 const paymentChoice = ref(
-  props.paymentInfo?.paymentChoice
-  || (props.paymentInfo?.cardSaved ? 'add_card' : 'later')
+  props.stepConfig.paymentRequired === false ? (props.paymentInfo?.paymentChoice || 'add_card') : 'add_card'
 );
 
 const isSelfPay = computed(() => {
@@ -294,19 +299,17 @@ const isSelfPay = computed(() => {
 });
 
 const isMedicaid = computed(() => {
-  if (isSelfPay.value || props.paymentOnly) return false;
-  if (props.insuranceInfo?.primaryIsMedicaid) return true;
-  return isMedicaidInsurer(props.insuranceInfo?.primary?.insurerName);
+  return !props.paymentOnly && hasMedicaidCoverage(props.insuranceInfo);
 });
 
 const showPaymentSection = computed(() => {
   if (props.paymentOnly) return true;
-  if (isSelfPay.value) return true;
   if (isMedicaid.value) return false;
+  if (isSelfPay.value) return true;
   return true; // commercial insurance
 });
 
-const showSidebar = computed(() => !!props.selectedPackage);
+const showSidebar = computed(() => true);
 
 const insuranceStepConfig = computed(() => ({
   ...(props.stepConfig || {}),
@@ -316,15 +319,16 @@ const insuranceStepConfig = computed(() => ({
 const paymentStepConfig = computed(() => props.stepConfig || {});
 
 const estimatedCostLabel = computed(() => {
+  if (isMedicaid.value) return tx('Not required');
   if (props.paymentOnly || isSelfPay.value) {
-    return formatPrice(props.selectedPackage?.priceCents || 0);
+    return props.selectedPackage ? formatPrice(props.selectedPackage.priceCents) : tx('Pending service selection');
   }
-  if (isMedicaid.value) return formatPrice(0);
   return tx('Pending verification');
 });
 
 function formatPrice(cents) {
-  const n = Number(cents || 0) / 100;
+  if (cents == null || !Number.isSafeInteger(Number(cents)) || Number(cents) < 0) return tx('Pending confirmation');
+  const n = Number(cents) / 100;
   return n.toLocaleString(undefined, { style: 'currency', currency: 'USD' });
 }
 
@@ -340,17 +344,8 @@ function patchInsurance(patch) {
 }
 
 function setSelfPay(next) {
-  const primary = {
-    ...(props.insuranceInfo?.primary || {}),
-    insurerName: next ? 'Self-Pay' : (props.insuranceInfo?.primary?.insurerName === 'Self-Pay' ? '' : (props.insuranceInfo?.primary?.insurerName || '')),
-    isMedicaid: false
-  };
-  patchInsurance({
-    isSelfPay: next,
-    primary,
-    primaryIsMedicaid: false
-  });
-  emit('medicaid-change', false);
+  // Preserve declared coverage when changing payment preferences.
+  patchInsurance({ isSelfPay: next });
 }
 
 function onInsuranceUpdate(v) {
@@ -433,33 +428,33 @@ defineExpose({
 
 <style scoped>
 .pi-ip {
+  --intake-accent: var(--df-primary, var(--primary, #1558d6));
+  color: #17213c;
   display: grid;
   gap: 1.25rem;
 }
 .pi-ip--with-sidebar {
   grid-template-columns: minmax(0, 1fr) minmax(240px, 300px);
   align-items: start;
-  gap: 1.5rem;
+  gap: clamp(20px, 3vw, 36px);
 }
 @media (max-width: 960px) {
   .pi-ip--with-sidebar { grid-template-columns: 1fr; }
 }
-.pi-ip-main { display: grid; gap: 1.1rem; min-width: 0; }
+.pi-ip-main { display: grid; gap: 1.7rem; min-width: 0; }
 .pi-ip-title { margin: 0; font-size: 1.45rem; font-weight: 800; color: #0f172a; }
 .pi-ip-subtitle { margin: 6px 0 0; color: #64748b; font-size: 0.95rem; }
 .pi-ip-why {
   background: #fffbeb;
   border: 1px solid #fde68a;
-  border-radius: 12px;
+  border-radius: 8px;
   padding: 12px 14px;
 }
 .pi-ip-why p { margin: 6px 0 0; color: #78350f; font-size: 0.88rem; line-height: 1.45; }
 .pi-ip-section {
-  border: 1px solid #e2e8f0;
-  border-radius: 14px;
-  padding: 16px;
-  background: #fff;
+  min-width: 0;
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 12px;
 }
 .pi-ip-section-title { margin: 0; font-size: 1.05rem; font-weight: 800; }
@@ -469,7 +464,8 @@ defineExpose({
   grid-template-columns: 1fr 1fr;
   gap: 10px;
 }
-.pi-ip-choice-row--3 { grid-template-columns: repeat(3, 1fr); }
+.pi-ip-choice-row--3 { grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); }
+.pi-ip-choice-row--3 .pi-ip-choice { flex-direction: column; gap: 4px; }
 @media (max-width: 720px) {
   .pi-ip-choice-row,
   .pi-ip-choice-row--3 { grid-template-columns: 1fr; }
@@ -479,15 +475,15 @@ defineExpose({
   gap: 10px;
   align-items: flex-start;
   text-align: left;
-  border: 2px solid #e2e8f0;
-  border-radius: 12px;
+  border: 1px solid #d9e0ed;
+  border-radius: 8px;
   background: #fff;
   padding: 12px 14px;
   cursor: pointer;
 }
 .pi-ip-choice--active {
-  border-color: #2563eb;
-  background: #eff6ff;
+  border-color: var(--intake-accent);
+  background: color-mix(in srgb, var(--intake-accent) 4%, white);
 }
 .pi-ip-choice-radio {
   width: 16px;
@@ -498,8 +494,8 @@ defineExpose({
   flex-shrink: 0;
 }
 .pi-ip-choice--active .pi-ip-choice-radio {
-  border-color: #2563eb;
-  box-shadow: inset 0 0 0 4px #2563eb;
+  border-color: var(--intake-accent);
+  box-shadow: inset 0 0 0 4px var(--intake-accent);
 }
 .pi-ip-choice-sub {
   display: block;
@@ -541,19 +537,21 @@ defineExpose({
 .pi-ip-linkbtn {
   background: none;
   border: none;
-  color: #1d4ed8;
+  color: var(--intake-accent);
   font-weight: 700;
   cursor: pointer;
   padding: 0;
   text-align: left;
   width: fit-content;
 }
-.pi-ip-sidebar { display: grid; gap: 12px; }
+.pi-ip-sidebar { display: grid; gap: 20px; min-width: 0; padding-top: 72px; }
+@media (max-width: 960px) { .pi-ip-sidebar { padding-top: 0; } }
 .pi-ip-side-card {
   border: 1px solid #e2e8f0;
-  border-radius: 14px;
+  border-radius: 10px;
   background: #fff;
-  padding: 14px;
+  padding: 22px;
+  box-shadow: 0 2px 10px #17213c05;
   display: grid;
   gap: 8px;
 }
@@ -565,7 +563,7 @@ defineExpose({
   color: #64748b;
 }
 .pi-ip-side-name { font-size: 1.05rem; }
-.pi-ip-side-price { font-size: 1.2rem; font-weight: 800; color: #1d4ed8; }
+.pi-ip-side-price { font-size: 1.2rem; font-weight: 800; color: var(--intake-accent); }
 .pi-ip-side-row,
 .pi-ip-side-total {
   display: flex;
@@ -578,7 +576,7 @@ defineExpose({
   padding-top: 8px;
   font-size: 1rem;
 }
-.pi-ip-side-fine { margin: 0; font-size: 0.75rem; color: #94a3b8; }
+.pi-ip-side-fine { margin: 0; font-size: 0.78rem; color: #64748b; line-height: 1.5; }
 .pi-ip-side-list {
   margin: 0;
   padding-left: 1rem;
@@ -595,4 +593,11 @@ defineExpose({
   color: #64748b;
   line-height: 1.4;
 }
+.pi-ip-auth { padding: 20px; border: 1px solid #e2e8f0; border-radius: 8px; background: white; }
+.pi-ip-medicaid-note { padding: 16px; border-radius: 8px; }
+.pi-ip-choice { font: inherit; color: inherit; min-width: 0; }
+.pi-ip-choice:focus-visible, .pi-ip-input:focus-visible { outline: 2px solid var(--intake-accent); outline-offset: 3px; }
+.pi-ip input[type="checkbox"] { accent-color: var(--intake-accent); }
+.pi-ip-side-total strong { text-align: right; }
+.pi-ip-sign input { min-width: 0; width: 100%; box-sizing: border-box; }
 </style>

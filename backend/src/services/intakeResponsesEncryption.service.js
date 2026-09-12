@@ -181,25 +181,15 @@ export function decryptIntakePayload({ ciphertext, ivB64, authTagB64, keyId = nu
  * values that are already populated (legacy rows) are left untouched.
  *
  * Safe to call on rows without the encrypted columns selected — it no-ops.
- * Safe to call when the key is not configured — it logs once and no-ops.
+ * Fails closed if an encrypted row cannot be decrypted.
  */
-let _missingKeyWarned = false;
 export function decryptIntakeSubmissionRow(row) {
   if (!row || typeof row !== 'object') return row;
   const ct = row.payload_encrypted;
   const iv = row.payload_iv_b64;
   const tag = row.payload_auth_tag_b64;
-  if (!ct || !iv || !tag) return row;
-  if (!isIntakeResponsesEncryptionConfigured()) {
-    if (!_missingKeyWarned) {
-      _missingKeyWarned = true;
-      console.warn(
-        '[intakeResponsesEncryption] payload_encrypted present but no decryption key configured — '
-        + 'intake_data and signer_* fields will appear blank.'
-      );
-    }
-    return row;
-  }
+  if (!ct) return row;
+  if (!iv || !tag) throw Object.assign(new Error('Intake encryption metadata is incomplete'),{status:503});
   try {
     const env = decryptIntakePayload({
       ciphertext: ct,
@@ -220,8 +210,8 @@ export function decryptIntakeSubmissionRow(row) {
     console.error('[intakeResponsesEncryption] decrypt failed for submission row', {
       submissionId: row.id || null,
       keyId: row.payload_key_id || null,
-      message: e?.message || String(e)
     });
+    throw Object.assign(new Error('Encrypted intake data is temporarily unavailable'),{status:503});
   }
   return row;
 }

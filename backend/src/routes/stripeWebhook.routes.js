@@ -1,3 +1,6 @@
+import { reconcileLedgerPayment } from '../services/familyLedger/payments.js';
+import { reconcileLedgerRefund } from '../services/familyLedger/refunds.js';
+import { reconcileFamilyPayment } from '../services/familyBillingPayment.service.js';
 /**
  * stripeWebhook.routes.js
  *
@@ -25,31 +28,10 @@ async function handleStripeEvent(event) {
   const connectedAccountId = event.account || null;
 
   switch (event.type) {
-    case 'setup_intent.succeeded': {
-      const si = event.data.object;
-      const pmId = si.payment_method;
-      if (pmId && connectedAccountId) {
-        // Mark the card as active in our DB for the matching agency
-        await pool.query(
-          `UPDATE guardian_payment_cards
-           SET is_active = 1, updated_at = CURRENT_TIMESTAMP
-           WHERE stripe_payment_method_id = ?
-             AND agency_id = (
-               SELECT agency_id FROM agency_billing_accounts
-               WHERE stripe_connect_account_id = ? LIMIT 1
-             )`,
-          [pmId, connectedAccountId]
-        );
-      } else if (pmId) {
-        await pool.query(
-          `UPDATE guardian_payment_cards
-           SET is_active = 1, updated_at = CURRENT_TIMESTAMP
-           WHERE stripe_payment_method_id = ?`,
-          [pmId]
-        );
-      }
+    case 'setup_intent.succeeded':
+      // Card activation is performed only by the owner-bound setup completion
+      // endpoint. Replayed/out-of-order events must never undo card removal.
       break;
-    }
 
     case 'account.updated': {
       // Fired when the connected agency's account details change (e.g. completes onboarding)
@@ -67,8 +49,15 @@ async function handleStripeEvent(event) {
       break;
     }
 
+    case 'refund.created':
+    case 'refund.updated': {
+      await reconcileLedgerRefund(event.data.object, connectedAccountId);
+      break;
+    }
     case 'payment_intent.succeeded': {
       const pi = event.data.object;
+      if(await reconcileLedgerPayment(pi, connectedAccountId)){const {fulfillPaidBalances}=await import('../services/familyLedger/sources.js');await fulfillPaidBalances({agencyId:Number(pi.metadata.agency_id)});}
+      await reconcileFamilyPayment(pi, connectedAccountId);
       console.info(
         `[stripe webhook] PaymentIntent ${pi.id} succeeded — amount: ${pi.amount_received}` +
         (connectedAccountId ? ` (acct: ${connectedAccountId})` : '')
@@ -81,7 +70,8 @@ async function handleStripeEvent(event) {
           await completeCheckoutFromPaymentIntent(pi);
           console.info(`[stripe webhook] unified booking package activated for PI ${pi.id}`);
         } catch (err) {
-          console.error(`[stripe webhook] unified package activation failed for PI ${pi.id}:`, err?.message || err);
+          console.error(`[stripe webhook] unified package activation failed for PI ${pi.id}`);
+          throw err;
         }
       }
       break;
@@ -122,6 +112,7 @@ router.post(
       await handleStripeEvent(event);
     } catch (handlerErr) {
       console.error('[stripe webhook] Handler error:', handlerErr.message);
+      return res.status(500).json({ error: 'Webhook processing failed' });
     }
 
     res.json({ received: true });
@@ -149,6 +140,7 @@ router.post(
       await handleStripeEvent(event);
     } catch (handlerErr) {
       console.error('[stripe connect-webhook] Handler error:', handlerErr.message);
+      return res.status(500).json({ error: 'Webhook processing failed' });
     }
 
     res.json({ received: true });

@@ -151,7 +151,7 @@ class ClientGuardian {
     return (r?.affectedRows || 0) > 0;
   }
 
-  static async listClientsForGuardian({ guardianUserId }) {
+  static async listClientsForGuardian({ guardianUserId, requiredClinicalScope = null }) {
     const uid = Number(guardianUserId);
     if (!uid) return [];
     const hasRelationshipType = await this.hasRelationshipTypeColumn();
@@ -189,10 +189,16 @@ class ClientGuardian {
        ORDER BY o.name, c.initials`,
       [uid]
     );
-    return (rows || []).map((r) => ({
-      ...r,
-      permissions_json: this.parsePermissions(r.permissions_json)
-    }));
+    const visible=[];
+    for (const r of rows || []) {
+      if (requiredClinicalScope && ['clinical','mental_health'].includes(String(r.client_type||r.organization_type||'').toLowerCase())) {
+        const { clinicalAccess } = await import('../services/guardianClinicalAccess.service.js');
+        const access = await clinicalAccess({agencyId:r.agency_id,clientId:r.client_id,userId:uid});
+        if (!access.scopes.includes(requiredClinicalScope)) continue;
+      }
+      visible.push({...r,permissions_json:this.parsePermissions(r.permissions_json)});
+    }
+    return visible;
   }
 
   static parsePermissions(raw) {

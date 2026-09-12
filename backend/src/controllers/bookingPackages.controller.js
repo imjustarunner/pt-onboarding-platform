@@ -1,6 +1,18 @@
 import BookingPackage from '../models/BookingPackage.model.js';
 import User from '../models/User.model.js';
 import Agency from '../models/Agency.model.js';
+import { requireResponsiblePayer } from '../services/familyBillingPolicy.service.js';
+import pool from '../config/database.js';
+
+async function assertClientBillingAccess(req, agencyId, clientId) {
+  if (!canManage(req.user?.role)) {
+    await requireResponsiblePayer(req.user?.id, clientId, agencyId);
+    return;
+  }
+  const [rows] = await pool.execute('SELECT id FROM clients WHERE id = ? AND agency_id = ?', [clientId, agencyId]);
+  if (!rows.length) throw Object.assign(new Error('Client not found'), { status: 404 });
+}
+
 import {
   getCapabilitiesForAgency,
   isFeatureAllowedForBusinessTypes
@@ -136,6 +148,7 @@ export const listClientEntitlements = async (req, res, next) => {
     if (!(await assertAgencyAccess(req, agencyId))) {
       return res.status(403).json({ error: { message: 'Access denied' } });
     }
+    await assertClientBillingAccess(req, agencyId, clientId);
     const summary = await unifiedPackages.summarizeClientPackageBalance(agencyId, clientId, {
       businessType: req.query.businessType || null
     });
@@ -191,11 +204,12 @@ export const checkoutPackage = async (req, res, next) => {
     if (!clientId) {
       return res.status(400).json({ error: { message: 'clientId is required' } });
     }
+    await assertClientBillingAccess(req, agencyId, clientId);
     const result = await unifiedPackages.startPackageCheckout({
       agencyId,
       packageId,
       clientId,
-      purchaserUserId: req.body?.purchaserUserId || req.body?.purchaser_user_id || req.user?.id || null,
+      purchaserUserId: req.user.id,
       actorUserId: req.user?.id || null,
       paymentMode: req.body?.paymentMode || 'PAY_IN_FULL'
     });
@@ -217,12 +231,13 @@ export const confirmPackageCheckout = async (req, res, next) => {
     if (!clientId) {
       return res.status(400).json({ error: { message: 'clientId is required' } });
     }
+    await assertClientBillingAccess(req, agencyId, clientId);
     const result = await unifiedPackages.confirmPackageCheckout({
       agencyId,
       packageId,
       clientId,
       paymentIntentId: req.body?.paymentIntentId || req.body?.payment_intent_id || null,
-      purchaserUserId: req.body?.purchaserUserId || req.user?.id || null,
+      purchaserUserId: req.user.id,
       actorUserId: req.user?.id || null
     });
     res.json(result);

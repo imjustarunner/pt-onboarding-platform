@@ -1,3 +1,4 @@
+import { requireIntakeBillingSession } from '../middleware/intakeBillingSession.middleware.js';
 import express from 'express';
 import multer from 'multer';
 import { body } from 'express-validator';
@@ -144,6 +145,7 @@ router.post(
 
 router.post(
   '/:publicKey/:submissionId/upload',
+  requireIntakeBillingSession,
   upload.array('files', 10),
   uploadIntakeFiles
 );
@@ -185,6 +187,7 @@ router.post(
 
 router.post(
   '/:publicKey/:submissionId/insurance-card-photos',
+  requireIntakeBillingSession,
   upload.fields([
     { name: 'primary_front', maxCount: 1 },
     { name: 'primary_back', maxCount: 1 },
@@ -196,12 +199,14 @@ router.post(
 
 router.post(
   '/:publicKey/:submissionId/identity-verify',
+  requireIntakeBillingSession,
   upload.single('file'),
   verifyIntakeIdentity
 );
 
 router.post(
   '/:publicKey/:submissionId/portal-credentials',
+  requireIntakeBillingSession,
   issuePublicIntakePortalCredentials
 );
 
@@ -210,21 +215,8 @@ router.put('/:publicKey/preferences/save', savePreferencesUser);
 
 // Stripe card collection endpoints
 router.get('/:publicKey/stripe-config', getStripeConfig);
-router.post('/:publicKey/:submissionId/stripe-setup-intent', createStripeSetupIntent);
+router.post('/:publicKey/:submissionId/stripe-setup-intent', requireIntakeBillingSession, createStripeSetupIntent);
 
-router.post(
-  '/:publicKey/:submissionId/payment-card',
-  [
-    // Stripe path: stripePaymentMethodId replaces raw card fields
-    body('stripePaymentMethodId').optional().isString(),
-    body('stripeCustomerId').optional().isString(),
-    // QB Payments fallback: card fields required only when no stripe PM
-    body('card.number').optional().isString(),
-    body('card.expMonth').optional().isString(),
-    body('card.expYear').optional().isString(),
-    body('card.cvc').optional().isString()
-  ],
-  saveGuardianPaymentCard
-);
+router.post('/:publicKey/:submissionId/payment-card', requireIntakeBillingSession, saveGuardianPaymentCard);
 
 export default router;

@@ -69,6 +69,18 @@ router.use((req, res, next) => {
   next();
 });
 
+
+// Sensitive client documents use the clinical disclosure grant, independently of billing.
+router.use('/clients/:clientId/intake-documents', async(req,res,next)=>{try{
+  const {default:pool}=await import('../config/database.js');
+  const [rows]=await pool.execute('SELECT agency_id,client_type FROM clients WHERE id=?',[Number(req.params.clientId)]);
+  if(!rows.length)return res.status(404).json({error:{message:'Client not found'}});
+  if(['clinical','mental_health'].includes(String(rows[0].client_type||'').toLowerCase())){
+    const {requireClinicalScope}=await import('../services/guardianClinicalAccess.service.js');
+    await requireClinicalScope({agencyId:rows[0].agency_id,clientId:Number(req.params.clientId),userId:req.user.id,scope:'clinical_documents'});
+  }next();
+}catch(e){next(e);}});
+
 router.get('/clients', listMyGuardianClients);
 router.get('/messages', listGuardianMessageThreads);
 router.post('/messages/open', openGuardianClientThread);

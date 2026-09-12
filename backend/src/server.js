@@ -1,3 +1,5 @@
+import {redactPrivateBillingUrl} from './utils/sanitizeRequest.js';
+import familyLedgerRoutes from './routes/familyLedger.routes.js';
 import express from 'express';
 import cors from 'cors';
 import cookieParser from 'cookie-parser';
@@ -356,7 +358,7 @@ if (process.env.TIMING_DEBUG === '1') {
       if (ms < thresholdMs) return;
       const kb = Number(res.getHeader('content-length') || 0) / 1024;
       console.warn(
-        `[timing] ${ms.toFixed(0)}ms ${req.method} ${req.originalUrl} ` +
+        `[timing] ${ms.toFixed(0)}ms ${req.method} ${redactPrivateBillingUrl(req.originalUrl)} ` +
           `status=${res.statusCode}${kb ? ` size=${kb.toFixed(1)}kB` : ''}`
       );
     });
@@ -900,6 +902,7 @@ app.use('/api/bulk-import', bulkImportRoutes); // Bulk import routes (legacy mig
 app.use('/api/office-schedule', officeScheduleRoutes);
 app.use('/api/learning-billing', learningBillingRoutes);
 app.use('/api/guardian-billing', guardianBillingRoutes);
+app.use('/api/family-billing', familyLedgerRoutes);
 app.use('/api/learning-program-classes', learningProgramClassesRoutes);
 app.use('/api/learning-standards', learningStandardsRoutes);
 app.use('/api/learning-goals', learningGoalsRoutes);
@@ -2244,3 +2247,20 @@ if (!isBootstrap) {
     scheduleSkillBuildersSessionCloseout();
     setInterval(scheduleSkillBuildersSessionCloseout, 24 * 60 * 60 * 1000);
   }, getMsUntilMidnight());
+
+// Automatic billing is tenant opt-in. This worker never sends collection emails.
+if (process.env.FAMILY_BILLING_AUTOMATION_ENABLED === 'true') {
+  let familyBillingTickRunning = false;
+  const tickFamilyBilling = async () => {
+    if (familyBillingTickRunning) return;
+    familyBillingTickRunning = true;
+    try {
+      const {runFamilyBillingAutomation}=await import('./services/familyLedger/automation.js');
+      const results=await runFamilyBillingAutomation();
+      for(const result of results)if(result.error)console.warn('[familyBilling] Agency',result.agencyId,'needs billing review');
+    } catch { console.warn('[familyBilling] Automation failed; check migration and encryption configuration'); }
+    finally { familyBillingTickRunning = false; }
+  };
+  const familyBillingTimer=setInterval(tickFamilyBilling,15*60*1000);
+  familyBillingTimer.unref();
+}

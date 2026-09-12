@@ -1,3 +1,6 @@
+import { getFamilyBillingSummary } from '../services/familyBilling.service.js';
+import { requireResponsiblePayer } from '../services/familyBillingPolicy.service.js';
+import { payFamilyCharge } from '../services/familyBillingPayment.service.js';
 import pool from '../config/database.js';
 import User from '../models/User.model.js';
 import Client from '../models/Client.model.js';
@@ -5,7 +8,6 @@ import OfficeEvent from '../models/OfficeEvent.model.js';
 import LearningSessionCharge from '../models/LearningSessionCharge.model.js';
 import LearningProgramSession from '../models/LearningProgramSession.model.js';
 import LearningService from '../models/LearningService.model.js';
-import LearningPaymentMethod from '../models/LearningPaymentMethod.model.js';
 import LearningTokenLedger from '../models/LearningTokenLedger.model.js';
 import LearningSubscription from '../models/LearningSubscription.model.js';
 import LearningSubscriptionPlan from '../models/LearningSubscriptionPlan.model.js';
@@ -35,21 +37,18 @@ const canManageLearningBilling = (role) => {
 
 async function userHasAgencyAccess(userId, agencyId, role) {
   if (String(role || '').toLowerCase() === 'super_admin') return true;
+  if (['staff','support'].includes(String(role || '').toLowerCase()) && !(await User.listBillingAgencyIds(userId)).map(Number).includes(Number(agencyId))) return false;
   const agencies = await User.getAgencies(userId);
   return (agencies || []).some((a) => Number(a.id) === Number(agencyId));
 }
 
-async function isGuardianLinkedToClient({ guardianUserId, clientId }) {
-  const [rows] = await pool.execute(
-    `SELECT id
-     FROM client_guardians
-     WHERE guardian_user_id = ?
-       AND client_id = ?
-       AND (access_enabled IS NULL OR access_enabled = TRUE)
-     LIMIT 1`,
-    [guardianUserId, clientId]
-  );
-  return Boolean(rows?.[0]);
+async function isGuardianLinkedToClient({ guardianUserId, clientId, agencyId }) {
+  if (!agencyId) {
+    const [rows] = await pool.execute('SELECT agency_id FROM clients WHERE id = ?', [clientId]);
+    agencyId = rows[0]?.agency_id;
+  }
+  try { await requireResponsiblePayer(guardianUserId, clientId, agencyId); return true; }
+  catch (e) { if (e.status === 403 || e.status === 400) return false; throw e; }
 }
 
 async function requireLearningBillingEnabled({ agencyId, res }) {
@@ -80,13 +79,14 @@ export const getGuardianBillingSummary = async (req, res, next) => {
     let clients = [];
     if (clientId > 0) {
       if (role === 'client_guardian') {
-        const linked = await isGuardianLinkedToClient({ guardianUserId: req.user.id, clientId });
+        const linked = await isGuardianLinkedToClient({ guardianUserId: req.user.id, clientId, agencyId });
         if (!linked) return res.status(403).json({ error: { message: 'Access denied for this client' } });
       } else {
         const access = await userHasAgencyAccess(req.user.id, agencyId, req.user.role);
         if (!access) return res.status(403).json({ error: { message: 'Access denied' } });
       }
       const c = await Client.findById(clientId);
+      if (c && Number(c.agency_id) !== agencyId) return res.status(404).json({ error: { message: 'Client not found for agency' } });
       clients = c ? [c] : [];
     } else if (role === 'client_guardian') {
       const [rows] = await pool.execute(
@@ -105,6 +105,7 @@ export const getGuardianBillingSummary = async (req, res, next) => {
 
     const items = [];
     for (const c of clients) {
+      if (role === 'client_guardian' && !(await isGuardianLinkedToClient({ guardianUserId: req.user.id, clientId: c.id, agencyId }))) continue;
       const ledger = await LearningSessionCharge.listLedgerForClient({
         agencyId,
         clientId: c.id,
@@ -161,7 +162,7 @@ export const getClientBillingLedger = async (req, res, next) => {
 
     const role = String(req.user?.role || '').toLowerCase();
     if (role === 'client_guardian') {
-      const linked = await isGuardianLinkedToClient({ guardianUserId: req.user.id, clientId });
+      const linked = await isGuardianLinkedToClient({ guardianUserId: req.user.id, clientId, agencyId });
       if (!linked) return res.status(403).json({ error: { message: 'Access denied for this client' } });
     } else if (!canManageLearningBilling(role)) {
       return res.status(403).json({ error: { message: 'Access denied' } });
@@ -171,7 +172,7 @@ export const getClientBillingLedger = async (req, res, next) => {
     }
 
     const ledger = await LearningSessionCharge.listLedgerForClient({ agencyId, clientId, limit: 300 });
-    return res.json({ ok: true, agencyId, clientId, ledger });
+    return res.json({ ok: true, agencyId, clientId, ledger: role === 'client_guardian' ? ledger.map(row => Object.fromEntries(['id','total_cents','currency','charge_status','charge_type','created_at','scheduled_start_at','captured_at'].map(key => [key, row[key]]))) : ledger });
   } catch (e) {
     next(e);
   }
@@ -368,7 +369,7 @@ export const getBookingEligibility = async (req, res, next) => {
 
     const role = String(req.user?.role || '').toLowerCase();
     if (role === 'client_guardian') {
-      const linked = await isGuardianLinkedToClient({ guardianUserId: req.user.id, clientId });
+      const linked = await isGuardianLinkedToClient({ guardianUserId: req.user.id, clientId, agencyId });
       if (!linked) return res.status(403).json({ error: { message: 'Access denied for this client' } });
     } else if (!canManageLearningBilling(role)) {
       return res.status(403).json({ error: { message: 'Access denied' } });
@@ -404,115 +405,9 @@ export const listLearningServices = async (req, res, next) => {
 
 export const createPaymentIntentPlaceholder = async (req, res, next) => {
   try {
-    const agencyId = Number(req.body?.agencyId || 0);
-    const chargeId = Number(req.body?.chargeId || 0);
-    if (!agencyId || !chargeId) return res.status(400).json({ error: { message: 'agencyId and chargeId are required' } });
-    const gate = await requireLearningBillingEnabled({ agencyId, res });
-    if (!gate) return;
-
-    const access = canManageLearningBilling(req.user?.role) || String(req.user?.role || '').toLowerCase() === 'client_guardian';
-    if (!access) return res.status(403).json({ error: { message: 'Access denied' } });
-
-    const [chargeRows] = await pool.execute(
-      `SELECT id, agency_id, client_id, total_cents, currency
-       FROM learning_session_charges
-       WHERE id = ? AND agency_id = ?
-       LIMIT 1`,
-      [chargeId, agencyId]
-    );
-    const charge = chargeRows?.[0] || null;
-    if (!charge) {
-      return res.status(404).json({ error: { message: 'Charge not found for agency' } });
-    }
-    let paymentMethodId = Number(req.body?.paymentMethodId || 0) || null;
-    if (String(req.user?.role || '').toLowerCase() === 'client_guardian') {
-      const methods = await LearningPaymentMethod.listForOwner({
-        agencyId,
-        ownerUserId: req.user.id,
-        ownerClientId: Number(charge.client_id || 0)
-      });
-      const defaultMethod = (methods || []).find((m) => Boolean(m.is_default)) || methods?.[0] || null;
-      if (!defaultMethod) {
-        return res.status(409).json({ error: { message: 'No card on file. Add a payment method first.' } });
-      }
-      paymentMethodId = Number(defaultMethod.id);
-    }
-    if (String(req.user?.role || '').toLowerCase() === 'client_guardian') {
-      const linked = await isGuardianLinkedToClient({
-        guardianUserId: req.user.id,
-        clientId: Number(charge.client_id || 0)
-      });
-      if (!linked) return res.status(403).json({ error: { message: 'Access denied for this charge' } });
-    }
-    const idempotencyKey = `learning_payment_intent:${agencyId}:${chargeId}`;
-
-    // Attempt real Stripe charge when the agency has a connected account configured
-    let processorIntentId = `pi_placeholder_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
-    let processor = 'PLACEHOLDER';
-    let paymentStatus = 'REQUIRES_ACTION';
-    let clientSecret = null;
-
-    if (isStripeConfigured() && paymentMethodId) {
-      try {
-        const ctx = await BillingMerchantContextService.getAgencyClientPaymentsContext(agencyId);
-        const connectedAccountId = ctx?.stripeConnectedAccountId || null;
-        // Look up customer ID from payment method row
-        const [pmRows] = await pool.execute(
-          `SELECT stripe_customer_id FROM learning_payment_methods WHERE id = ? AND agency_id = ? LIMIT 1`,
-          [paymentMethodId, agencyId]
-        );
-        const customerId = pmRows?.[0]?.stripe_customer_id || null;
-        const pmRow = await pool.execute(
-          `SELECT stripe_payment_method_id FROM learning_payment_methods WHERE id = ? LIMIT 1`,
-          [paymentMethodId]
-        );
-        const stripePaymentMethodId = pmRow?.[0]?.[0]?.stripe_payment_method_id || null;
-        if (customerId && stripePaymentMethodId) {
-          const intent = await StripePaymentsService.chargePaymentMethod({
-            customerId,
-            paymentMethodId: stripePaymentMethodId,
-            amountCents: Number(charge.total_cents || 0),
-            currency: (charge.currency || 'USD').toLowerCase(),
-            description: `Learning session charge #${chargeId}`,
-            metadata: { agency_id: String(agencyId), charge_id: String(chargeId) },
-            connectedAccountId
-          });
-          processorIntentId = intent.id;
-          processor = 'STRIPE';
-          paymentStatus = intent.status === 'succeeded' ? 'SUCCEEDED' : 'REQUIRES_ACTION';
-          clientSecret = intent.client_secret || null;
-        }
-      } catch (stripeErr) {
-        // fall through to placeholder if Stripe is misconfigured for this agency
-        console.warn('[learningBilling] Stripe charge attempt failed, using placeholder:', stripeErr?.message);
-      }
-    }
-
-    const [ins] = await pool.execute(
-      `INSERT INTO learning_payments
-         (agency_id, learning_session_charge_id, payment_method_id, amount_cents, currency, payment_status, processor, processor_intent_id, idempotency_key, created_by_user_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-       ON DUPLICATE KEY UPDATE
-         id = LAST_INSERT_ID(id),
-         updated_at = CURRENT_TIMESTAMP`,
-      [
-        agencyId,
-        chargeId,
-        paymentMethodId,
-        Number(charge.total_cents || 0),
-        charge.currency || 'USD',
-        paymentStatus,
-        processor,
-        processorIntentId,
-        idempotencyKey,
-        req.user.id
-      ]
-    );
-    const paymentId = Number(ins?.insertId || 0);
-    return res.json({ ok: true, paymentIntentCreated: true, paymentId, clientSecret, processor });
-  } catch (e) {
-    next(e);
-  }
+    const result = await payFamilyCharge({ agencyId: Number(req.body?.agencyId), userId: req.user.id, chargeId: Number(req.body?.chargeId), expectedAmountCents: req.body?.expectedAmountCents });
+    res.json({ ok: true, ...result });
+  } catch (e) { next(e); }
 };
 
 export const listPaymentMethods = async (req, res, next) => {
@@ -526,174 +421,19 @@ export const listPaymentMethods = async (req, res, next) => {
     if (!canManageLearningBilling(role) && role !== 'client_guardian') {
       return res.status(403).json({ error: { message: 'Access denied' } });
     }
-    let ownerUserId = req.user.id;
-    if (role !== 'client_guardian') {
-      ownerUserId = Number(req.query.ownerUserId || req.user.id || 0);
-      const access = await userHasAgencyAccess(req.user.id, agencyId, req.user.role);
-      if (!access) return res.status(403).json({ error: { message: 'Access denied' } });
-    }
-    const methods = await LearningPaymentMethod.listForOwner({
-      agencyId,
-      ownerUserId,
-      ownerClientId: clientId
-    });
-    return res.json({ ok: true, methods });
+    if (clientId) await requireResponsiblePayer(req.user.id,clientId,agencyId);
+    const summary = await getFamilyBillingSummary(req.user.id,agencyId);
+    return res.json({ok:true,methods:summary.cards.map(card=>({id:card.id,card_brand:card.card_brand,last4:card.card_last4,exp_month:card.card_exp_month,exp_year:card.card_exp_year}))});
   } catch (e) {
     next(e);
   }
 };
 
-export const createPlaceholderPaymentMethod = async (req, res, next) => {
-  try {
-    const agencyId = Number(req.body?.agencyId || 0);
-    if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
-    const gate = await requireLearningBillingEnabled({ agencyId, res });
-    if (!gate) return;
-    const role = String(req.user?.role || '').toLowerCase();
-    if (!canManageLearningBilling(role) && role !== 'client_guardian') {
-      return res.status(403).json({ error: { message: 'Access denied' } });
-    }
-    const ownerUserId = role === 'client_guardian'
-      ? Number(req.user.id || 0)
-      : Number(req.body?.ownerUserId || req.user.id || 0);
-    const ownerClientId = Number(req.body?.ownerClientId || 0) || null;
-    const cardBrand = String(req.body?.cardBrand || '').trim().slice(0, 40) || null;
-    const last4 = String(req.body?.last4 || '').replace(/[^\d]/g, '').slice(-4) || null;
-    const expMonth = Number(req.body?.expMonth || 0) || null;
-    const expYear = Number(req.body?.expYear || 0) || null;
-    if (!last4 || last4.length !== 4) {
-      return res.status(400).json({ error: { message: 'last4 is required (4 digits).' } });
-    }
-    const tokenPayload = {
-      provider: 'PLACEHOLDER',
-      createdByUserId: req.user.id,
-      createdAt: new Date().toISOString()
-    };
-    const enc = encryptBillingSecret(JSON.stringify(tokenPayload));
-    const tokenEncrypted = JSON.stringify(enc);
-    const created = await LearningPaymentMethod.createPlaceholder({
-      agencyId,
-      ownerUserId,
-      ownerClientId,
-      cardBrand,
-      last4,
-      expMonth,
-      expYear,
-      tokenEncrypted,
-      isDefault: req.body?.isDefault !== false
-    });
-    return res.json({ ok: true, method: created });
-  } catch (e) {
-    next(e);
-  }
-};
+export const createPlaceholderPaymentMethod = (req, res) => res.status(410).json({ error: { message: 'Placeholder cards are no longer supported. Add a card through secure Billing.' } });
 
-export const setDefaultPaymentMethod = async (req, res, next) => {
-  try {
-    const paymentMethodId = Number(req.params.paymentMethodId || 0);
-    const agencyId = Number(req.body?.agencyId || req.query?.agencyId || 0);
-    if (!paymentMethodId || !agencyId) {
-      return res.status(400).json({ error: { message: 'paymentMethodId and agencyId are required' } });
-    }
-    const gate = await requireLearningBillingEnabled({ agencyId, res });
-    if (!gate) return;
-    const row = await LearningPaymentMethod.findById(paymentMethodId);
-    if (!row || Number(row.agency_id || 0) !== agencyId) {
-      return res.status(404).json({ error: { message: 'Payment method not found for agency' } });
-    }
-    const role = String(req.user?.role || '').toLowerCase();
-    const isGuardian = role === 'client_guardian';
-    if (!isGuardian && !canManageLearningBilling(role)) {
-      return res.status(403).json({ error: { message: 'Access denied' } });
-    }
-    const ownerUserId = Number(row.owner_user_id || 0);
-    if (isGuardian && ownerUserId !== Number(req.user.id || 0)) {
-      return res.status(403).json({ error: { message: 'Access denied' } });
-    }
-    if (!isGuardian) {
-      const access = await userHasAgencyAccess(req.user.id, agencyId, req.user.role);
-      if (!access) return res.status(403).json({ error: { message: 'Access denied' } });
-    }
-    await LearningPaymentMethod.setDefault({ agencyId, ownerUserId, paymentMethodId });
-    return res.json({ ok: true });
-  } catch (e) {
-    next(e);
-  }
-};
+export const setDefaultPaymentMethod = (req,res) => res.status(410).json({error:{message:'Assign your payment method to specific clients in Billing.'}});
 
-export const recordPaymentAttemptPlaceholder = async (req, res, next) => {
-  try {
-    const paymentId = Number(req.params.paymentId || 0);
-    if (!paymentId) return res.status(400).json({ error: { message: 'Invalid paymentId' } });
-    const status = String(req.body?.status || 'PENDING').toUpperCase();
-    if (!['SUCCESS', 'FAILED', 'PENDING'].includes(status)) {
-      return res.status(400).json({ error: { message: 'status must be SUCCESS, FAILED, or PENDING' } });
-    }
-    const [rows] = await pool.execute(
-      `SELECT p.id,
-              p.agency_id,
-              p.learning_session_charge_id,
-              c.client_id
-       FROM learning_payments p
-       LEFT JOIN learning_session_charges c ON c.id = p.learning_session_charge_id
-       WHERE p.id = ?
-       LIMIT 1`,
-      [paymentId]
-    );
-    const payment = rows?.[0] || null;
-    if (!payment) return res.status(404).json({ error: { message: 'Payment not found' } });
-    const gate = await requireLearningBillingEnabled({ agencyId: payment.agency_id, res });
-    if (!gate) return;
-    if (String(req.user?.role || '').toLowerCase() === 'client_guardian') {
-      const linked = await isGuardianLinkedToClient({
-        guardianUserId: req.user.id,
-        clientId: Number(payment.client_id || 0)
-      });
-      if (!linked) return res.status(403).json({ error: { message: 'Access denied for this payment' } });
-    }
-
-    const [attemptRows] = await pool.execute(`SELECT COALESCE(MAX(attempt_no), 0) AS n FROM learning_payment_attempts WHERE payment_id = ?`, [paymentId]);
-    const nextAttempt = Number(attemptRows?.[0]?.n || 0) + 1;
-    await pool.execute(
-      `INSERT INTO learning_payment_attempts
-         (payment_id, attempt_no, request_payload_json, response_payload_json, result_status, error_message)
-       VALUES (?, ?, ?, ?, ?, ?)`,
-      [
-        paymentId,
-        nextAttempt,
-        req.body?.requestPayload ? JSON.stringify(req.body.requestPayload) : null,
-        req.body?.responsePayload ? JSON.stringify(req.body.responsePayload) : null,
-        status,
-        req.body?.errorMessage ? String(req.body.errorMessage).slice(0, 255) : null
-      ]
-    );
-    if (status === 'SUCCESS') {
-      await pool.execute(
-        `UPDATE learning_payments
-         SET payment_status = 'CAPTURED',
-             captured_at = CURRENT_TIMESTAMP
-         WHERE id = ?`,
-        [paymentId]
-      );
-      await LearningQuickbooksQueueService.enqueueCapturedPayment({
-        agencyId: Number(payment.agency_id),
-        paymentId
-      });
-      if (Number(payment.learning_session_charge_id || 0) > 0) {
-        await pool.execute(
-          `UPDATE learning_session_charges
-           SET charge_status = 'CAPTURED',
-               captured_at = CURRENT_TIMESTAMP
-           WHERE id = ?`,
-          [payment.learning_session_charge_id]
-        );
-      }
-    }
-    return res.json({ ok: true, paymentId, attemptNo: nextAttempt, status });
-  } catch (e) {
-    next(e);
-  }
-};
+export const recordPaymentAttemptPlaceholder = (req, res) => res.status(410).json({ error: { message: 'Payment outcomes are verified with the processor and cannot be set by a browser.' } });
 
 export const listFrontDeskParticipants = async (req, res, next) => {
   try {
@@ -738,7 +478,7 @@ export const getClientTokenBalance = async (req, res, next) => {
 
     const role = String(req.user?.role || '').toLowerCase();
     if (role === 'client_guardian') {
-      const linked = await isGuardianLinkedToClient({ guardianUserId: req.user.id, clientId });
+      const linked = await isGuardianLinkedToClient({ guardianUserId: req.user.id, clientId, agencyId });
       if (!linked) return res.status(403).json({ error: { message: 'Access denied for this client' } });
     } else if (!canManageLearningBilling(role)) {
       return res.status(403).json({ error: { message: 'Access denied' } });
@@ -763,7 +503,7 @@ export const listClientTokenLedger = async (req, res, next) => {
     if (!gate) return;
     const role = String(req.user?.role || '').toLowerCase();
     if (role === 'client_guardian') {
-      const linked = await isGuardianLinkedToClient({ guardianUserId: req.user.id, clientId });
+      const linked = await isGuardianLinkedToClient({ guardianUserId: req.user.id, clientId, agencyId });
       if (!linked) return res.status(403).json({ error: { message: 'Access denied for this client' } });
     } else if (!canManageLearningBilling(role)) {
       return res.status(403).json({ error: { message: 'Access denied' } });
@@ -772,7 +512,7 @@ export const listClientTokenLedger = async (req, res, next) => {
       if (!access) return res.status(403).json({ error: { message: 'Access denied' } });
     }
     const entries = await LearningTokenLedger.listForClient({ agencyId, clientId, limit: 300 });
-    return res.json({ ok: true, entries });
+    return res.json({ ok: true, entries: role === 'client_guardian' ? entries.map(row => Object.fromEntries(['id','token_type','direction','quantity','reason_code','effective_at','created_at'].map(key=>[key,row[key]]))) : entries });
   } catch (e) {
     next(e);
   }
@@ -836,7 +576,7 @@ export const listClientSubscriptions = async (req, res, next) => {
     if (!gate) return;
     const role = String(req.user?.role || '').toLowerCase();
     if (role === 'client_guardian') {
-      const linked = await isGuardianLinkedToClient({ guardianUserId: req.user.id, clientId });
+      const linked = await isGuardianLinkedToClient({ guardianUserId: req.user.id, clientId, agencyId });
       if (!linked) return res.status(403).json({ error: { message: 'Access denied for this client' } });
     } else if (!canManageLearningBilling(role)) {
       return res.status(403).json({ error: { message: 'Access denied' } });
@@ -845,11 +585,13 @@ export const listClientSubscriptions = async (req, res, next) => {
       if (!access) return res.status(403).json({ error: { message: 'Access denied' } });
     }
     const subscriptions = await LearningSubscription.listForClient({ agencyId, clientId, limit: 100 });
-    return res.json({ ok: true, subscriptions });
+    return res.json({ ok: true, subscriptions: role === 'client_guardian' ? subscriptions.filter(row=>Number(row.guardian_user_id)===Number(req.user.id)).map(publicSubscription) : subscriptions });
   } catch (e) {
     next(e);
   }
 };
+
+function publicSubscription(row) {return Object.fromEntries(['id','plan_name','status','current_period_start','current_period_end','included_individual_tokens','included_group_tokens'].map(key=>[key,row?.[key]]));}
 
 function addDaysUtc(ymdhms, days) {
   const d = new Date(String(ymdhms || '').replace(' ', 'T') + 'Z');
@@ -912,7 +654,8 @@ export const updateSubscriptionStatus = async (req, res, next) => {
     const gate = await requireLearningBillingEnabled({ agencyId: Number(row.agency_id), res });
     if (!gate) return;
     if (isGuardian) {
-      const linked = await isGuardianLinkedToClient({ guardianUserId: req.user.id, clientId: Number(row.client_id || 0) });
+      if (Number(row.guardian_user_id) !== Number(req.user.id)) return res.status(403).json({error:{message:'This subscription belongs to another payer'}});
+      const linked = await isGuardianLinkedToClient({ guardianUserId: req.user.id, clientId: Number(row.client_id || 0), agencyId: Number(row.agency_id) });
       if (!linked) return res.status(403).json({ error: { message: 'Access denied for this subscription' } });
       if (!['PAUSED', 'CANCELLED'].includes(status)) {
         return res.status(403).json({ error: { message: 'Guardians can only pause or cancel subscriptions.' } });
@@ -922,7 +665,7 @@ export const updateSubscriptionStatus = async (req, res, next) => {
       if (!access) return res.status(403).json({ error: { message: 'Access denied' } });
     }
     const updated = await LearningSubscription.updateStatus({ subscriptionId, status });
-    return res.json({ ok: true, subscription: updated });
+    return res.json({ ok: true, subscription: isGuardian ? publicSubscription(updated) : updated });
   } catch (e) {
     next(e);
   }
@@ -1015,101 +758,4 @@ export const runSubscriptionRenewalsInternal = async (req, res, next) => {
  *
  * Body: { agencyId, clientId, sessionCount, stripePaymentMethodId, agencySlug? }
  */
-export const buySessionPackage = async (req, res, next) => {
-  try {
-    const agencyId = Number(req.body?.agencyId || 0);
-    const clientId = Number(req.body?.clientId || 0);
-    const sessionCount = Math.max(1, Number(req.body?.sessionCount || 1));
-    const stripePaymentMethodId = String(req.body?.stripePaymentMethodId || '').trim();
-    if (!agencyId || !clientId) {
-      return res.status(400).json({ error: { message: 'agencyId and clientId are required' } });
-    }
-    const gate = await requireLearningBillingEnabled({ agencyId, res });
-    if (!gate) return;
-
-    const role = String(req.user?.role || '').toLowerCase();
-    if (role !== 'client_guardian' && !canManageLearningBilling(role)) {
-      return res.status(403).json({ error: { message: 'Access denied' } });
-    }
-
-    if (role === 'client_guardian') {
-      const linked = await isGuardianLinkedToClient({ guardianUserId: req.user.id, clientId });
-      if (!linked) return res.status(403).json({ error: { message: 'Access denied for this client' } });
-    }
-
-    // Resolve session rate for this client's tutor
-    const [rateRows] = await pool.execute(
-      `SELECT p.session_rate_cents, p.payment_policy, p.user_id AS provider_user_id
-       FROM learning_class_sessions lcs
-       JOIN provider_tutoring_profiles p ON p.user_id = lcs.provider_user_id AND p.agency_id = lcs.agency_id
-       WHERE lcs.client_id = ? AND lcs.agency_id = ?
-         AND lcs.status IN ('scheduled','pending')
-       ORDER BY lcs.starts_at DESC
-       LIMIT 1`,
-      [clientId, agencyId]
-    );
-    const rateCents = Number(rateRows?.[0]?.session_rate_cents || 0);
-    if (!rateCents) {
-      return res.status(409).json({ error: { message: 'Could not determine session rate for this client' } });
-    }
-
-    const totalCents = rateCents * sessionCount;
-    let processorIntentId = `pi_placeholder_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
-    let processor = 'PLACEHOLDER';
-
-    if (isStripeConfigured() && stripePaymentMethodId) {
-      try {
-        const ctx = await BillingMerchantContextService.getAgencyClientPaymentsContext(agencyId);
-        const connectedAccountId = ctx?.stripeConnectedAccountId || null;
-        // Look up the guardian's Stripe customer ID for this agency
-        const [custRows] = await pool.execute(
-          `SELECT stripe_customer_id FROM learning_payment_methods
-           WHERE owner_user_id = ? AND agency_id = ? AND stripe_payment_method_id = ? LIMIT 1`,
-          [req.user.id, agencyId, stripePaymentMethodId]
-        );
-        const customerId = custRows?.[0]?.stripe_customer_id || null;
-        if (customerId) {
-          const intent = await StripePaymentsService.chargePaymentMethod({
-            customerId,
-            paymentMethodId: stripePaymentMethodId,
-            amountCents: totalCents,
-            currency: 'usd',
-            description: `Tutoring package: ${sessionCount} session(s) for client #${clientId}`,
-            metadata: { agency_id: String(agencyId), client_id: String(clientId), session_count: String(sessionCount) },
-            connectedAccountId
-          });
-          processorIntentId = intent.id;
-          processor = 'STRIPE';
-        }
-      } catch (stripeErr) {
-        console.warn('[learningBilling] buySessionPackage Stripe charge failed:', stripeErr?.message);
-      }
-    }
-
-    // Record the charge
-    const [chargeIns] = await pool.execute(
-      `INSERT INTO learning_session_charges
-         (agency_id, client_id, total_cents, currency, charge_status, payment_mode, created_by_user_id)
-       VALUES (?, ?, ?, 'USD', 'CAPTURED', 'PACKAGE', ?)`,
-      [agencyId, clientId, totalCents, req.user.id]
-    );
-    const chargeId = Number(chargeIns.insertId);
-
-    // Credit N tokens to the client
-    await LearningTokenLedger.addEntry({
-      agencyId,
-      clientId,
-      guardianUserId: role === 'client_guardian' ? req.user.id : null,
-      tokenType: 'INDIVIDUAL',
-      direction: 'CREDIT',
-      quantity: sessionCount,
-      reasonCode: 'PACKAGE_PURCHASE',
-      metadataJson: { chargeId, processorIntentId, processor, sessionCount },
-      createdByUserId: req.user.id
-    });
-
-    return res.json({ ok: true, chargeId, processor, totalCents, tokensGranted: sessionCount });
-  } catch (e) {
-    next(e);
-  }
-};
+export const buySessionPackage = (req, res) => res.status(410).json({ error: { message: 'Use the program package checkout. This legacy endpoint cannot verify package payment.' } });

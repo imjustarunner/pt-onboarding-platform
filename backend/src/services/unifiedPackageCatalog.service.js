@@ -7,6 +7,17 @@ import StripePaymentsService, {
   getStripePublishableKey
 } from './stripePayments.service.js';
 import AgencyBusinessType from '../models/AgencyBusinessType.model.js';
+import { assertPackagePaymentBinding, assertPackageStripeResult } from './packagePaymentPolicy.service.js';
+import { readClientInsurance } from './clientInsurance.service.js';
+import { shouldSuppressInsurancePayment } from '../utils/insurancePaymentPolicy.js';
+
+async function assertClientPackageCollection(agencyId, clientId, pkg, amountCents) {
+  const [clients] = await pool.execute('SELECT id FROM clients WHERE id = ? AND agency_id = ?', [Number(clientId), Number(agencyId)]);
+  if (!clients.length) throw Object.assign(new Error('Client not found in this organization'), { status: 404 });
+  if (amountCents > 0 && shouldSuppressInsurancePayment(await readClientInsurance(clientId, agencyId), pkg.businessType)) {
+    throw Object.assign(new Error('Medicaid coverage is recorded. Billing must review this service before collecting a patient payment.'), { status: 409 });
+  }
+}
 
 async function getAgencyStripeConnectAccountId(agencyId) {
   const [rows] = await pool.execute(
@@ -217,6 +228,8 @@ export async function startPackageCheckout({
     throw Object.assign(new Error('Package not found'), { status: 404 });
   }
   const amountCents = Math.max(0, Number(pkg.priceCents) || 0);
+  if (paymentMode !== 'PAY_IN_FULL') throw Object.assign(new Error('This checkout currently supports payment in full only'), { status: 400 });
+  await assertClientPackageCollection(agencyId, clientId, pkg, amountCents);
   if (amountCents < 1) {
     // Free package — activate immediately
     const entitlement = await BookingPackage.activateEntitlement({
@@ -298,7 +311,7 @@ export async function startPackageCheckout({
     processor: 'STRIPE',
     processorIntentId: intent.id,
     createdByUserId: actorUserId,
-    metadata: { source: 'unified_booking_package' }
+    metadata: { source: 'unified_booking_package', connectedAccountId }
   });
 
   return {
@@ -332,43 +345,23 @@ export async function confirmPackageCheckout({
     throw Object.assign(new Error('Package not found'), { status: 404 });
   }
 
-  let entitlement = paymentIntentId
+  const entitlement = paymentIntentId
     ? await BookingPackage.findEntitlementByPaymentIntent(paymentIntentId, agencyId)
     : null;
-
-  if (entitlement?.status === 'ACTIVE' && entitlement?.paymentStatus === 'PAID') {
+  const existingPayment = paymentIntentId ? await BookingPackagePayment.findByIntentId(paymentIntentId) : null;
+  assertPackagePaymentBinding({ entitlement, payment: existingPayment, agencyId, clientId, packageId, paymentIntentId, purchaserUserId });
+  const connectedAccountId = await getAgencyStripeConnectAccountId(agencyId);
+  if (!isStripeConfigured() || !connectedAccountId) throw Object.assign(new Error('Payment account is not available for verification'), { status: 409 });
+  const intent = await StripePaymentsService.retrievePaymentIntent(paymentIntentId, connectedAccountId);
+  assertPackageStripeResult(intent, { entitlement, payment: existingPayment, connectedAccountId });
+  // Verify ownership even on replay. Consumed or cancelled paid packages must
+  // never regain credits just because the original payment succeeds again.
+  if (entitlement.paymentStatus === 'PAID') {
+    if (existingPayment.paymentStatus !== 'SUCCEEDED') await BookingPackagePayment.update(existingPayment.id, { paymentStatus: 'SUCCEEDED', paidAt: new Date() });
     return { ok: true, entitlement, alreadyActivated: true };
   }
-
-  const connectedAccountId = await getAgencyStripeConnectAccountId(agencyId);
-  const stripeReady = isStripeConfigured();
-  let amountChargedCents = Number(pkg.priceCents || 0);
-
-  if (paymentIntentId && stripeReady) {
-    const intent = await StripePaymentsService.retrievePaymentIntent(paymentIntentId, connectedAccountId);
-    if (!intent || intent.status !== 'succeeded') {
-      throw Object.assign(new Error('Payment has not succeeded yet'), { status: 402 });
-    }
-    const metaPkg = String(intent.metadata?.package_id || '');
-    if (metaPkg && metaPkg !== String(pkg.id)) {
-      throw Object.assign(new Error('Payment does not match this package'), { status: 400 });
-    }
-    amountChargedCents = Number(intent.amount || amountChargedCents);
-  } else if (Number(pkg.priceCents || 0) > 0) {
-    throw Object.assign(new Error('paymentIntentId is required'), { status: 400 });
-  }
-
-  if (!entitlement) {
-    entitlement = await BookingPackage.createPendingEntitlement({
-      agencyId,
-      clientId,
-      packageId: pkg.id,
-      purchaserUserId,
-      stripePaymentIntentId: paymentIntentId || null,
-      createdByUserId: actorUserId
-    });
-  }
-
+  const {recordVerifiedPackageSettlement}=await import('./familyLedger/payments.js');
+  await recordVerifiedPackageSettlement({agencyId,clientId,payerUserId:entitlement.purchaserUserId,packageId:pkg.id,entitlementId:entitlement.id,amountCents:Number(existingPayment.amountCents),paymentIntentId:intent.id,actorUserId});
   const activated = await BookingPackage.activateEntitlement({
     agencyId,
     clientId,
@@ -380,31 +373,11 @@ export async function confirmPackageCheckout({
     entitlementId: entitlement.id
   });
 
-  const existingPayment = paymentIntentId
-    ? await BookingPackagePayment.findByIntentId(paymentIntentId)
-    : null;
-  if (existingPayment) {
-    await BookingPackagePayment.update(existingPayment.id, {
-      entitlementId: activated.id,
-      paymentStatus: 'SUCCEEDED',
-      paidAt: new Date()
-    });
-  } else {
-    await BookingPackagePayment.create({
-      agencyId,
-      clientId,
-      entitlementId: activated.id,
-      packageId: pkg.id,
-      amountCents: amountChargedCents,
-      paymentMode: 'PAY_IN_FULL',
-      paymentStatus: 'SUCCEEDED',
-      processor: paymentIntentId ? 'STRIPE' : 'MANUAL',
-      processorIntentId: paymentIntentId || null,
-      paidAt: new Date(),
-      createdByUserId: actorUserId,
-      metadata: { source: 'unified_booking_package' }
-    });
-  }
+  await BookingPackagePayment.update(existingPayment.id, {
+    entitlementId: activated.id,
+    paymentStatus: 'SUCCEEDED',
+    paidAt: new Date()
+  });
 
   await runTutoringPostPurchaseHooks({ entitlement: activated, package: pkg, actorUserId });
 
@@ -425,10 +398,15 @@ export async function activatePackageManually({
   purchaserUserId = null,
   note = null
 } = {}) {
+
   const pkg = await BookingPackage.findById(packageId, agencyId);
   if (!pkg) {
     throw Object.assign(new Error('Package not found'), { status: 404 });
   }
+  const collectedAmount = amountCents == null ? Number(pkg.priceCents || 0) : Number(amountCents);
+  if (!Number.isSafeInteger(collectedAmount) || collectedAmount < 0) throw Object.assign(new Error('Enter a valid amount in cents'), { status: 400 });
+  if(collectedAmount>0||Number(pkg.priceCents)>0)throw Object.assign(new Error('Use Family Billing to create the package balance and record cash against its responsible payer. Credits activate after payment is recorded.'),{status:409});
+  await assertClientPackageCollection(agencyId, clientId, pkg, collectedAmount);
   const entitlement = await BookingPackage.activateEntitlement({
     agencyId,
     clientId,
@@ -464,11 +442,6 @@ export async function completeCheckoutFromPaymentIntent(paymentIntent) {
   const packageId = Number(meta.package_id || 0);
   const clientId = Number(meta.client_id || 0);
   if (!agencyId || !packageId || !clientId) return null;
-
-  const existing = await BookingPackage.findEntitlementByPaymentIntent(paymentIntent.id, agencyId);
-  if (existing?.status === 'ACTIVE' && existing?.paymentStatus === 'PAID') {
-    return existing;
-  }
 
   return confirmPackageCheckout({
     agencyId,

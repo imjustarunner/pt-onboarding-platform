@@ -1,3 +1,5 @@
+import pool from '../config/database.js';
+import { requireClinicalScope } from './guardianClinicalAccess.service.js';
 /**
  * Treatment plan client/guardian acknowledgment:
  * dashboard share, provider-witnessed session, email token link, print+upload.
@@ -6,6 +8,14 @@ import crypto from 'crypto';
 import ClinicalTreatmentPlan from '../models/clinical/ClinicalTreatmentPlan.model.js';
 import { TreatmentPlanAckLink, TreatmentPlanAckEvent } from '../models/TreatmentPlanAckLink.model.js';
 import ClinicalEligibilityService from './clinicalEligibility.service.js';
+
+async function requireAckRecipient(link) {
+  if(link.recipient_kind!=='guardian')return;
+  let userId=link.recipient_user_id;
+  if(!userId&&link.recipient_email){const [rows]=await pool.execute('SELECT id FROM users WHERE LOWER(email)=LOWER(?)',[link.recipient_email]);if(rows.length===1)userId=rows[0].id;}
+  if(!userId)throw Object.assign(new Error('An identified guardian with a current clinical disclosure grant is required'),{status:403});
+  await requireClinicalScope({agencyId:link.agency_id,clientId:link.client_id,userId,scope:'approve_goals'});
+}
 
 function safeInt(v) {
   const n = Number(v);
@@ -93,6 +103,7 @@ export async function createDashboardShare({
   recipientUserId = null,
   recipientName = null
 }) {
+  await requireAckRecipient({agency_id:agencyId,client_id:clientId,recipient_kind:recipientKind,recipient_user_id:recipientUserId});
   const link = await TreatmentPlanAckLink.create({
     agencyId,
     clientId,
@@ -129,6 +140,7 @@ export async function createEmailLink({
     err.status = 400;
     throw err;
   }
+  await requireAckRecipient({agency_id:agencyId,client_id:clientId,recipient_kind:recipientKind,recipient_email:email});
   const link = await TreatmentPlanAckLink.create({
     agencyId,
     clientId,
@@ -248,6 +260,7 @@ export async function openPublicLink(publicKey, { ip = null, userAgent = null } 
     err.status = 404;
     throw err;
   }
+  await requireAckRecipient(link);
   if (link.status === 'cancelled' || link.status === 'expired') {
     const err = new Error('This signing link is no longer valid');
     err.status = 410;
@@ -316,9 +329,11 @@ export async function signAcknowledgment({
     err.status = 404;
     throw err;
   }
+  await requireAckRecipient(link);
   if (link.status === 'signed') {
     return link;
   }
+  await requireAckRecipient(link);
   if (link.status === 'cancelled' || link.status === 'expired') {
     const err = new Error('This acknowledgment request is no longer valid');
     err.status = 410;

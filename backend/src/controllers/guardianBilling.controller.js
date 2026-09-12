@@ -1,45 +1,31 @@
-import GuardianPaymentCard from '../models/GuardianPaymentCard.model.js';
-import GuardianInsuranceProfile from '../models/GuardianInsuranceProfile.model.js';
 import pool from '../config/database.js';
+import GuardianPaymentCard from '../models/GuardianPaymentCard.model.js';
+import { getFamilyBillingSummary, acceptPayer, assignCard, revokeRecurring, saveFamilyInsurance } from '../services/familyBilling.service.js';
+import { positiveId, billingError } from '../services/familyBillingPolicy.service.js';
+import { createFamilyCardSetup, completeFamilyCardSetup } from '../services/familyCardSetup.service.js';
 
-export const listGuardianPaymentCards = async (req, res, next) => {
-  try {
-    const guardianUserId = req.user?.id;
-    const agencyId = parseInt(req.query.agencyId, 10) || null;
-    if (!guardianUserId) return res.status(401).json({ error: { message: 'Unauthorized' } });
-    if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
-    const cards = await GuardianPaymentCard.findActiveByGuardian(guardianUserId, agencyId);
-    res.json({ cards });
-  } catch (error) {
-    next(error);
-  }
-};
-
-export const removeGuardianPaymentCard = async (req, res, next) => {
-  try {
-    const guardianUserId = req.user?.id;
-    const cardId = parseInt(req.params.cardId, 10);
-    if (!guardianUserId) return res.status(401).json({ error: { message: 'Unauthorized' } });
-    if (!cardId) return res.status(400).json({ error: { message: 'cardId is required' } });
-    await GuardianPaymentCard.deactivate(cardId, guardianUserId);
-    res.json({ success: true });
-  } catch (error) {
-    next(error);
-  }
-};
-
-export const listGuardianInsurance = async (req, res, next) => {
-  try {
-    const guardianUserId = req.user?.id;
-    const agencyId = parseInt(req.query.agencyId, 10) || null;
-    if (!guardianUserId) return res.status(401).json({ error: { message: 'Unauthorized' } });
-    if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
-    const profiles = await GuardianInsuranceProfile.findByGuardian(guardianUserId, agencyId);
-    res.json({ profiles });
-  } catch (error) {
-    next(error);
-  }
-};
+const context = req => ({ userId: positiveId(req.user?.id), agencyId: positiveId(req.query?.agencyId || req.body?.agencyId), ip: req.ip, userAgent: req.get('user-agent') });
+const run = fn => async (req, res, next) => { try { res.set('Cache-Control', 'no-store'); await fn(req, res); } catch (e) { next(e); } };
+export const getBillingOverview = run(async (req, res) => { const c = context(req); res.json(await getFamilyBillingSummary(c.userId, c.agencyId)); });
+export const listGuardianPaymentCards = run(async (req, res) => { const c = context(req); const data = await getFamilyBillingSummary(c.userId, c.agencyId); res.json({ cards: data.cards }); });
+export const listGuardianInsurance = run(async (req, res) => { const c = context(req); const data = await getFamilyBillingSummary(c.userId, c.agencyId); res.json({ profiles: data.profiles }); });
+export const removeGuardianPaymentCard = run(async (req, res) => { const c = context(req); await GuardianPaymentCard.deactivate(positiveId(req.params.cardId), c.userId, c.agencyId); res.json({ success: true }); });
+export const acceptBillingResponsibility = run(async (req, res) => { await acceptPayer({ ...context(req), clientId: positiveId(req.params.clientId), consent: req.body?.consent }); res.json({ success: true }); });
+export const assignBillingCard = run(async (req, res) => { await assignCard({ ...context(req), clientId: positiveId(req.params.clientId), cardId: req.body?.cardId, recurring: req.body?.recurring === true, limitCents: Number(req.body?.limitCents), consent: req.body?.consent }); res.json({ success: true }); });
+export const revokeBillingRecurring = run(async (req, res) => { await revokeRecurring({ ...context(req), clientId: positiveId(req.params.clientId) }); res.json({ success: true }); });
+export const saveBillingInsurance = run(async (req, res) => { const id = await saveFamilyInsurance({ ...req.body, ...context(req) }); res.json({ success: true, profileId: id }); });
+export const createPortalCardSetup = run(async (req, res) => {
+  const c = context(req), summary = await getFamilyBillingSummary(c.userId, c.agencyId);
+  if (!summary.clients.some(row => row.canManageBilling)) throw billingError(403, 'Accept financial responsibility for a linked client first');
+  const setup = await createFamilyCardSetup({ ...c, connectedAccountId: summary.stripe.connectedAccountId });
+  res.json({ ...setup, terms: summary.terms, termsVersion: summary.termsVersion });
+});
+export const completePortalCardSetup = run(async (req, res) => {
+  const c = context(req), summary = await getFamilyBillingSummary(c.userId, c.agencyId);
+  if (!summary.clients.some(row => row.canManageBilling)) throw billingError(403, 'Responsible payer access is required');
+  const card = await completeFamilyCardSetup({ ...c, setupIntentId: req.body?.setupIntentId, consent: req.body?.consent });
+  res.json({ card });
+});
 
 /**
  * GET /api/guardian-billing/dependents-summary?agencyId=X

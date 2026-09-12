@@ -1,7 +1,8 @@
 <template>
   <div class="pi-ins">
+    <p v-if="fileError" class="pi-ins-inline-error" role="alert">{{ fileError }}</p>
     <!-- Step description + non-Medicaid disclaimer -->
-    <p v-if="stepConfig.nonMedicaidDisclaimerText && !allMedicaid" class="pi-ins-disclaimer">
+    <p v-if="stepConfig.nonMedicaidDisclaimerText && !hasAnyMedicaid" class="pi-ins-disclaimer">
       {{ tx(stepConfig.nonMedicaidDisclaimerText) }}
     </p>
 
@@ -30,7 +31,7 @@
     <div v-if="!isSelfPay" class="pi-ins-card">
       <h4 class="pi-ins-card-title">{{ tx('Primary Insurance') }}</h4>
       <p class="pi-ins-card-tip">
-        {{ tx('Start by uploading your insurance card images. We will auto-fill what we can, and you can edit anything below.') }}
+        {{ tx('Enter the policy details below and upload both sides of your insurance card. Our office will review your coverage.') }}
       </p>
 
       <div class="form-group">
@@ -60,7 +61,7 @@
           </div>
         </div>
         <div v-if="primaryIsMedicaid" class="pi-ins-medicaid-notice">
-          {{ tx('✓ Medicaid detected — no self-pay cost applies for this program.') }}
+          {{ tx('Medicaid recorded — our office will verify coverage for your services.') }}
         </div>
         <div v-if="primaryIsMedicaid" class="pi-ins-field-note">
           {{ tx('If the child has other primary insurance, list that other plan as Primary and add Medicaid under Secondary.') }}
@@ -83,65 +84,6 @@
         >
           {{ tx('Use Client 1 Name') }}
         </button>
-      </div>
-
-      <!-- Insurance card photos -->
-      <div
-        class="pi-ins-photos"
-        data-pi-ins-anchor="card"
-        :class="{ 'pi-ins-photos--err': !!validationErrorFor('card') }"
-      >
-        <div class="pi-ins-photo-slot">
-          <label class="pi-ins-lbl">{{ tx('Insurance card – front') }}</label>
-          <div class="pi-ins-photo-area" @click="triggerUpload('primary_front')">
-            <img v-if="primaryFrontPreview" :src="primaryFrontPreview" alt="Front of card" class="pi-ins-photo-img" />
-            <div v-else class="pi-ins-photo-placeholder">
-              <span>📷</span>
-              <span>{{ tx('Tap to take photo or upload') }}</span>
-            </div>
-          </div>
-          <input
-            ref="primaryFrontInput"
-            type="file"
-            accept="image/*"
-            capture="environment"
-            style="display:none"
-            @change="(e) => onPhotoSelected(e, 'primary_front')"
-          />
-          <button v-if="primaryFrontPreview" type="button" class="pi-ins-remove-btn" @click.stop="clearPhoto('primary_front')">
-            {{ tx('Remove') }}
-          </button>
-        </div>
-        <div class="pi-ins-photo-slot">
-          <label class="pi-ins-lbl">{{ tx('Insurance card – back') }}</label>
-          <div class="pi-ins-photo-area" @click="triggerUpload('primary_back')">
-            <img v-if="primaryBackPreview" :src="primaryBackPreview" alt="Back of card" class="pi-ins-photo-img" />
-            <div v-else class="pi-ins-photo-placeholder">
-              <span>📷</span>
-              <span>{{ tx('Tap to take photo or upload') }}</span>
-            </div>
-          </div>
-          <input
-            ref="primaryBackInput"
-            type="file"
-            accept="image/*"
-            capture="environment"
-            style="display:none"
-            @change="(e) => onPhotoSelected(e, 'primary_back')"
-          />
-          <button v-if="primaryBackPreview" type="button" class="pi-ins-remove-btn" @click.stop="clearPhoto('primary_back')">
-            {{ tx('Remove') }}
-          </button>
-        </div>
-      </div>
-      <div class="pi-ins-no-card">
-        <label class="checkbox-row">
-          <input v-model="noPrimaryCardAvailable" type="checkbox" @change="onNoPrimaryCardToggle" />
-          <span>{{ tx('I do not have my primary insurance card right now') }}</span>
-        </label>
-      </div>
-      <div v-if="validationErrorFor('card')" class="pi-ins-inline-error">
-        {{ validationErrorFor('card') }}
       </div>
 
       <div class="pi-ins-grid">
@@ -186,6 +128,74 @@
             {{ tx('Common on private/commercial plans.') }}
           </div>
         </div>
+      </div>
+
+      <div class="claim-fields">
+        <h4>Primary subscriber</h4>
+        <label>Client’s relationship to subscriber<select v-model="local.primary.relationshipToSubscriber" @change="push"><option value="">Select</option><option value="self">Self (client is the subscriber)</option><option value="child">Child</option><option value="spouse">Spouse</option><option value="other">Other</option></select></label>
+        <label>Subscriber date of birth<input v-model="local.primary.subscriberDob" type="date" @change="push" /></label>
+        <label>Subscriber sex on policy<select v-model="local.primary.subscriberSex" @change="push"><option value="">Select</option><option>M</option><option>F</option><option>U</option></select></label>
+        <label v-for="field in [{key:'subscriberFirstName',label:'Subscriber legal first name'},{key:'subscriberLastName',label:'Subscriber legal last name'},{key:'subscriberAddressLine1',label:'Subscriber address'},{key:'subscriberCity',label:'City'},{key:'subscriberState',label:'State'},{key:'subscriberPostalCode',label:'ZIP code'},{key:'payerId',label:'Electronic payer ID (if known)'},{key:'planType',label:'Plan type (if known)'}]" :key="field.key">{{ field.label }}<input v-model="local.primary[field.key]" maxlength="255" @input="push" /></label>
+      </div>
+      <!-- Insurance card photos -->
+      <div
+        class="pi-ins-photos"
+        data-pi-ins-anchor="card"
+        :class="{ 'pi-ins-photos--err': !!validationErrorFor('card') }"
+      >
+        <div class="pi-ins-photo-slot">
+          <label class="pi-ins-lbl">{{ tx('Insurance card – front') }}</label>
+          <div class="pi-ins-photo-area" role="button" tabindex="0" aria-label="Upload primary front of insurance card" @keydown.enter.prevent="triggerUpload('primary_front')" @keydown.space.prevent="triggerUpload('primary_front')" @dragover.prevent @drop.prevent="onPhotoSelected({ target: { files: $event.dataTransfer.files } }, 'primary_front')" @click="triggerUpload('primary_front')">
+            <span v-if="photoFiles.primary_front?.type === 'application/pdf'" class="pi-ins-file-name">{{ photoFiles.primary_front.name }}</span>
+            <img v-else-if="primaryFrontPreview" :src="primaryFrontPreview" alt="Front of card" class="pi-ins-photo-img" />
+            <div v-else class="pi-ins-photo-placeholder">
+              <span aria-hidden="true">↑</span>
+              <span>{{ tx('Choose file or drop here') }}</span>
+            </div>
+          </div>
+          <input
+            ref="primaryFrontInput"
+            type="file"
+            accept="image/jpeg,image/png,application/pdf"
+
+            style="display:none"
+            @change="(e) => onPhotoSelected(e, 'primary_front')"
+          />
+          <button v-if="primaryFrontPreview" type="button" class="pi-ins-remove-btn" @click.stop="clearPhoto('primary_front')">
+            {{ tx('Remove') }}
+          </button>
+        </div>
+        <div class="pi-ins-photo-slot">
+          <label class="pi-ins-lbl">{{ tx('Insurance card – back') }}</label>
+          <div class="pi-ins-photo-area" role="button" tabindex="0" aria-label="Upload primary back of insurance card" @keydown.enter.prevent="triggerUpload('primary_back')" @keydown.space.prevent="triggerUpload('primary_back')" @dragover.prevent @drop.prevent="onPhotoSelected({ target: { files: $event.dataTransfer.files } }, 'primary_back')" @click="triggerUpload('primary_back')">
+            <span v-if="photoFiles.primary_back?.type === 'application/pdf'" class="pi-ins-file-name">{{ photoFiles.primary_back.name }}</span>
+            <img v-else-if="primaryBackPreview" :src="primaryBackPreview" alt="Back of card" class="pi-ins-photo-img" />
+            <div v-else class="pi-ins-photo-placeholder">
+              <span aria-hidden="true">↑</span>
+              <span>{{ tx('Choose file or drop here') }}</span>
+            </div>
+          </div>
+          <input
+            ref="primaryBackInput"
+            type="file"
+            accept="image/jpeg,image/png,application/pdf"
+
+            style="display:none"
+            @change="(e) => onPhotoSelected(e, 'primary_back')"
+          />
+          <button v-if="primaryBackPreview" type="button" class="pi-ins-remove-btn" @click.stop="clearPhoto('primary_back')">
+            {{ tx('Remove') }}
+          </button>
+        </div>
+      </div>
+      <div class="pi-ins-no-card">
+        <label class="checkbox-row">
+          <input v-model="noPrimaryCardAvailable" type="checkbox" @change="onNoPrimaryCardToggle" />
+          <span>{{ tx('I do not have my primary insurance card right now') }}</span>
+        </label>
+      </div>
+      <div v-if="validationErrorFor('card')" class="pi-ins-inline-error">
+        {{ validationErrorFor('card') }}
       </div>
 
       <div v-if="showMultiClientMedicaidSection" class="pi-ins-multi-client">
@@ -268,31 +278,40 @@
         </div>
       </div>
 
+      <div class="claim-fields">
+        <h4>Secondary subscriber</h4>
+        <label>Client’s relationship to subscriber<select v-model="local.secondary.relationshipToSubscriber" @change="push"><option value="">Select</option><option value="self">Self (client is the subscriber)</option><option value="child">Child</option><option value="spouse">Spouse</option><option value="other">Other</option></select></label>
+        <label>Subscriber date of birth<input v-model="local.secondary.subscriberDob" type="date" @change="push" /></label>
+        <label>Subscriber sex on policy<select v-model="local.secondary.subscriberSex" @change="push"><option value="">Select</option><option>M</option><option>F</option><option>U</option></select></label>
+        <label v-for="field in [{key:'subscriberFirstName',label:'Subscriber legal first name'},{key:'subscriberLastName',label:'Subscriber legal last name'},{key:'subscriberAddressLine1',label:'Subscriber address'},{key:'subscriberCity',label:'City'},{key:'subscriberState',label:'State'},{key:'subscriberPostalCode',label:'ZIP code'},{key:'payerId',label:'Electronic payer ID (if known)'},{key:'planType',label:'Plan type (if known)'}]" :key="field.key">{{ field.label }}<input v-model="local.secondary[field.key]" maxlength="255" @input="push" /></label>
+      </div>
       <div class="pi-ins-photos">
         <div class="pi-ins-photo-slot">
           <label class="pi-ins-lbl">{{ tx('Secondary card – front') }}</label>
-          <div class="pi-ins-photo-area" @click="triggerUpload('secondary_front')">
-            <img v-if="secondaryFrontPreview" :src="secondaryFrontPreview" alt="Front of secondary card" class="pi-ins-photo-img" />
-            <div v-else class="pi-ins-photo-placeholder"><span>📷</span><span>{{ tx('Tap to upload') }}</span></div>
+          <div class="pi-ins-photo-area" role="button" tabindex="0" aria-label="Upload secondary front of insurance card" @keydown.enter.prevent="triggerUpload('secondary_front')" @keydown.space.prevent="triggerUpload('secondary_front')" @dragover.prevent @drop.prevent="onPhotoSelected({ target: { files: $event.dataTransfer.files } }, 'secondary_front')" @click="triggerUpload('secondary_front')">
+            <span v-if="photoFiles.secondary_front?.type === 'application/pdf'" class="pi-ins-file-name">{{ photoFiles.secondary_front.name }}</span>
+            <img v-else-if="secondaryFrontPreview" :src="secondaryFrontPreview" alt="Front of secondary card" class="pi-ins-photo-img" />
+            <div v-else class="pi-ins-photo-placeholder"><span aria-hidden="true">↑</span><span>{{ tx('Choose file or drop here') }}</span></div>
           </div>
-          <input ref="secondaryFrontInput" type="file" accept="image/*" capture="environment" style="display:none"
+          <input ref="secondaryFrontInput" type="file" accept="image/jpeg,image/png,application/pdf"  style="display:none"
             @change="(e) => onPhotoSelected(e, 'secondary_front')" />
           <button v-if="secondaryFrontPreview" type="button" class="pi-ins-remove-btn" @click.stop="clearPhoto('secondary_front')">{{ tx('Remove') }}</button>
         </div>
         <div class="pi-ins-photo-slot">
           <label class="pi-ins-lbl">{{ tx('Secondary card – back') }}</label>
-          <div class="pi-ins-photo-area" @click="triggerUpload('secondary_back')">
-            <img v-if="secondaryBackPreview" :src="secondaryBackPreview" alt="Back of secondary card" class="pi-ins-photo-img" />
-            <div v-else class="pi-ins-photo-placeholder"><span>📷</span><span>{{ tx('Tap to upload') }}</span></div>
+          <div class="pi-ins-photo-area" role="button" tabindex="0" aria-label="Upload secondary back of insurance card" @keydown.enter.prevent="triggerUpload('secondary_back')" @keydown.space.prevent="triggerUpload('secondary_back')" @dragover.prevent @drop.prevent="onPhotoSelected({ target: { files: $event.dataTransfer.files } }, 'secondary_back')" @click="triggerUpload('secondary_back')">
+            <span v-if="photoFiles.secondary_back?.type === 'application/pdf'" class="pi-ins-file-name">{{ photoFiles.secondary_back.name }}</span>
+            <img v-else-if="secondaryBackPreview" :src="secondaryBackPreview" alt="Back of secondary card" class="pi-ins-photo-img" />
+            <div v-else class="pi-ins-photo-placeholder"><span aria-hidden="true">↑</span><span>{{ tx('Choose file or drop here') }}</span></div>
           </div>
-          <input ref="secondaryBackInput" type="file" accept="image/*" capture="environment" style="display:none"
+          <input ref="secondaryBackInput" type="file" accept="image/jpeg,image/png,application/pdf"  style="display:none"
             @change="(e) => onPhotoSelected(e, 'secondary_back')" />
           <button v-if="secondaryBackPreview" type="button" class="pi-ins-remove-btn" @click.stop="clearPhoto('secondary_back')">{{ tx('Remove') }}</button>
         </div>
       </div>
     </div>
 
-    <div v-if="!isSelfPay" class="pi-ins-card pi-ins-guarantor-card">
+    <div v-if="!isSelfPay && !hasAnyMedicaid" class="pi-ins-card pi-ins-guarantor-card">
       <h4 class="pi-ins-card-title">{{ tx('Responsible Party (Guarantor)') }}</h4>
       <template v-if="props.intakeForSelf">
         <div class="pi-ins-guarantor-choices">
@@ -329,6 +348,24 @@
       </template>
     </div>
 
+    <section v-if="!isSelfPay" class="pi-ins-claim-details">
+      <h4>Coverage and subscriber details</h4>
+      <p>The subscriber may be the parent or the child. Check the policy details and confirm who is covered. A matching name alone does not verify coverage.</p>
+      <label>Policy applies to
+        <select v-model="coverageScope" @change="push"><option value="client">One client</option><option value="account_holder">Account holder with covered dependents</option></select>
+      </label>
+      <label v-for="(clientName, index) in clientDisplayNames" :key="index" class="checkbox-row"><input v-model="coverageClientIndexes" :value="index" type="checkbox" @change="push" /> I confirm {{ clientName }} is covered by this policy.</label>
+      <div v-for="index in coverageClientIndexes" :key="`separate-${index}`">
+        <label class="checkbox-row"><input :checked="!!separatePolicies[index]" type="checkbox" @change="toggleSeparatePolicy(index,$event.target.checked)" /> {{ clientDisplayNames[index] }} has a different policy</label>
+        <div v-if="separatePolicies[index]" class="pi-ins-claim-details">
+          <h4>Policy for {{ clientDisplayNames[index] }}</h4>
+          <InsurancePolicyFields v-model="separatePolicies[index].primary" @update:model-value="push" />
+          <label v-for="slot in ['primary_front','primary_back']" :key="slot">{{ slot === 'primary_front' ? 'Card front' : 'Card back' }}<input type="file" accept="image/png,image/jpeg,application/pdf" :disabled="coverageUploadBusy" @change="uploadSeparateCard(index,slot,$event)" /><span v-if="separatePolicies[index][`${slot}_url`]">Uploaded securely</span></label>
+        </div>
+      </div>
+      <p v-if="coverageUploadError" role="alert">{{ coverageUploadError }}</p>
+
+    </section>
     <div class="pi-ins-card pi-ins-identity-card">
       <h4 class="pi-ins-card-title">{{ tx('Identity verification') }}</h4>
       <p class="pi-ins-field-note">
@@ -337,11 +374,12 @@
       <div class="pi-ins-photos" style="grid-template-columns: 1fr;">
         <div class="pi-ins-photo-slot">
           <label class="pi-ins-lbl">{{ tx('Driver’s license or government ID (optional)') }}</label>
-          <div class="pi-ins-photo-area" @click="triggerIdUpload">
-            <img v-if="idPreview" :src="idPreview" alt="ID" class="pi-ins-photo-img" />
-            <div v-else class="pi-ins-photo-placeholder"><span>🪪</span><span>{{ tx('Tap to upload') }}</span></div>
+          <div class="pi-ins-photo-area" role="button" tabindex="0" aria-label="Upload identification" @keydown.enter.prevent="triggerIdUpload" @keydown.space.prevent="triggerIdUpload" @dragover.prevent @drop.prevent="onIdSelected({ target: { files: $event.dataTransfer.files } })" @click="triggerIdUpload">
+            <span v-if="idFile?.type === 'application/pdf'" class="pi-ins-file-name">{{ idFile.name }}</span>
+            <img v-else-if="idPreview" :src="idPreview" alt="ID" class="pi-ins-photo-img" />
+            <div v-else class="pi-ins-photo-placeholder"><span aria-hidden="true">↑</span><span>{{ tx('Choose file or drop here') }}</span></div>
           </div>
-          <input ref="idInput" type="file" accept="image/*" capture="environment" style="display:none" @change="onIdSelected" />
+          <input ref="idInput" type="file" accept="image/jpeg,image/png,application/pdf"  style="display:none" @change="onIdSelected" />
           <button v-if="idPreview" type="button" class="pi-ins-remove-btn" @click.stop="clearId">{{ tx('Remove') }}</button>
         </div>
       </div>
@@ -352,12 +390,13 @@
         <input v-model="identitySkipped" type="checkbox" @change="onIdentitySkip" />
         <span>{{ tx('Skip identity verification for now') }}</span>
       </label>
+
     </div>
 
     <!-- Insurance disclaimer -->
     <div v-if="!isSelfPay" class="pi-ins-footer-notice">
       <p>
-        {{ tx('Please note: Not all insurances are accepted by all providers. If this program or class is not covered by your insurance, we may still submit a claim to your insurer in the event coverage has changed. All payments collected via our web application will be listed as collected outside of our EHR platform and applied to billing claims as necessary. Medicaid (Health First Colorado) clients are enrolled at no cost to the family for eligible programs.') }}
+        {{ tx('Our office will verify whether your plan covers the selected services. Insurance information is not a guarantee of coverage. We will explain any permitted patient responsibility after review.') }}
       </p>
     </div>
 
@@ -380,7 +419,7 @@
         <p>
           {{ tx('In consideration of the services provided to me, I assign all benefits to') }} <strong>{{ props.agencyName || 'the provider' }}</strong> if accepted, and authorize my insurance companies, Medicare, or other third-party payers to make payments directly to <strong>{{ props.agencyName || 'the provider' }}</strong> and its affiliates.
         </p>
-        <p>
+        <p v-if="!hasAnyMedicaid">
           {{ tx('I understand that I remain responsible for all amounts due by me, including (but not limited to) copays, coinsurance, deductible amounts, and all services not covered by my insurance plan (including those for which I fail to obtain prior authorization), and mutually agreed-upon services or fees that are deemed not medically necessary.') }}
         </p>
         <p class="pi-ins-auth-esign-notice">
@@ -456,16 +495,20 @@
         </div>
       </div>
     </div>
+
   </div>
 </template>
 
 <script setup>
-import { ref, reactive, computed, watch } from 'vue';
+import { ref, reactive, computed, watch, inject } from 'vue';
+import { hasMedicaidCoverage, policyIsMedicaid } from '../../utils/insurancePaymentPolicy.js';
 import { filterInsurances, isMedicaidInsurer } from '../../utils/coloradoInsurances.js';
 import { useIntakeStepTx } from '../../composables/useIntakeStepTx.js';
 import api from '../../services/api.js';
+import InsurancePolicyFields from '../billing/InsurancePolicyFields.vue';
 
 const { tx } = useIntakeStepTx();
+const intakeSessionToken = inject('intakeSessionToken', ref(''));
 
 const DEFAULT_SECONDARY_INSURANCE_NOTICE =
   'If your household carries secondary (supplemental) insurance in addition to the primary plan above, please add it using the option below or contact us promptly with complete policy information. Failure to provide complete and accurate coverage details—including applicable secondary insurance when it exists—may delay authorizations or benefit verification and could result in interruptions or delays in services.';
@@ -516,6 +559,7 @@ const local = reactive({
     groupNumber: props.modelValue?.primary?.groupNumber || '',
     patientSuffix: props.modelValue?.primary?.patientSuffix || '',
     subscriberName: props.modelValue?.primary?.subscriberName || '',
+    ...Object.fromEntries(['subscriberFirstName','subscriberLastName','payerId','subscriberDob','subscriberSex','relationshipToSubscriber','subscriberAddressLine1','subscriberAddressLine2','subscriberCity','subscriberState','subscriberPostalCode','planType','effectiveDate','terminationDate','claimsPhone'].map(key => [key, props.modelValue?.primary?.[key] || ''])),
     isMedicaid: props.modelValue?.primary?.isMedicaid || false
   },
   secondary: {
@@ -523,11 +567,17 @@ const local = reactive({
     memberId: props.modelValue?.secondary?.memberId || '',
     groupNumber: props.modelValue?.secondary?.groupNumber || '',
     subscriberName: props.modelValue?.secondary?.subscriberName || '',
+    ...Object.fromEntries(['subscriberFirstName','subscriberLastName','payerId','subscriberDob','subscriberSex','relationshipToSubscriber','subscriberAddressLine1','subscriberAddressLine2','subscriberCity','subscriberState','subscriberPostalCode','planType','effectiveDate','terminationDate','claimsPhone'].map(key => [key, props.modelValue?.secondary?.[key] || ''])),
     isMedicaid: props.modelValue?.secondary?.isMedicaid || false
   }
 });
 
-const hasSecondary = ref(!!(props.modelValue?.secondary?.insurerName));
+const coverageScope = ref(props.modelValue?.coverageScope || 'client');
+const separatePolicies = reactive(Object.fromEntries((props.modelValue?.clientCoverages || []).filter(row => row.primary).map(row => [row.clientIndex, { ...row }])));
+const coverageUploadError = ref('');
+const coverageUploadBusy = ref(false);
+const coverageClientIndexes = ref((props.modelValue?.clientCoverages || []).filter(row => row.confirmed).map(row => Number(row.clientIndex)));
+const hasSecondary = ref(props.modelValue?.hasSecondary === true || !!(props.modelValue?.secondary?.insurerName || props.modelValue?.secondary?.isMedicaid));
 const noPrimaryCardAvailable = ref(!!props.modelValue?.noPrimaryCardAvailable);
 // Self-pay toggle — persisted alongside the rest of the insurance info so the
 // flag survives save/resume and downstream consumers (billing, reports) can
@@ -595,9 +645,9 @@ const secondaryQuery = ref(local.secondary.insurerName);
 const secondaryOpen = ref(false);
 const secondarySuggestions = computed(() => filterInsurances(secondaryQuery.value));
 
-const primaryIsMedicaid = computed(() => isMedicaidInsurer(local.primary.insurerName));
-const secondaryIsMedicaid = computed(() => isMedicaidInsurer(local.secondary.insurerName));
-const allMedicaid = computed(() => primaryIsMedicaid.value && (!hasSecondary.value || isMedicaidInsurer(local.secondary.insurerName)));
+const primaryIsMedicaid = computed(() => policyIsMedicaid(local.primary));
+const secondaryIsMedicaid = computed(() => policyIsMedicaid(local.secondary));
+const hasAnyMedicaid = computed(() => hasMedicaidCoverage({ primary: local.primary, secondary: hasSecondary.value ? local.secondary : null }));
 const guardianDisplayName = computed(() => String(props.guardianName || '').trim());
 const guarantorSelfName = computed(() => {
   const fromLegal = `${props.legalFirstName || ''} ${props.legalLastName || ''}`.trim();
@@ -668,9 +718,19 @@ function triggerUpload(slot) {
   };
   map[slot]?.value?.click();
 }
+const fileError = ref('');
+function validUpload(file) {
+  fileError.value = '';
+  if (!['image/jpeg', 'image/png', 'application/pdf'].includes(file.type) || file.size > 5 * 1024 * 1024) {
+    fileError.value = 'Choose a JPG, PNG, or PDF file no larger than 5 MB.';
+    return false;
+  }
+  return true;
+}
 function onPhotoSelected(event, slot) {
   const file = event.target.files?.[0];
   if (!file) return;
+  if (!validUpload(file)) return;
   photoFiles[slot] = file;
   if (slot === 'primary_front' || slot === 'primary_back') noPrimaryCardAvailable.value = false;
   const reader = new FileReader();
@@ -681,6 +741,7 @@ function onPhotoSelected(event, slot) {
     else if (slot === 'secondary_back') secondaryBackPreview.value = e.target.result;
     push();
   };
+  reader.onerror = () => { fileError.value = 'This file could not be read. Choose it again.'; };
   reader.readAsDataURL(file);
 }
 function clearPhoto(slot) {
@@ -718,30 +779,10 @@ function fillPrimarySubscriberFromFirstClient() {
 
 function toggleSelfPay(checked) {
   isSelfPay.value = !!checked;
-  if (isSelfPay.value) {
-    // Stamp an explicit "Self-Pay" carrier so back-office reports can filter
-    // on insurer_name and so the typeahead renders a clear value if the
-    // guardian comes back to this step. Clear any Medicaid state so billing
-    // downstream doesn't try to route the file as a Medicaid claim.
-    local.primary.insurerName = 'Self-Pay';
-    local.primary.isMedicaid = false;
-    primaryQuery.value = 'Self-Pay';
-    hasSecondary.value = false;
-    local.secondary.insurerName = '';
-    local.secondary.memberId = '';
-    local.secondary.groupNumber = '';
-    local.secondary.subscriberName = '';
-    local.secondary.isMedicaid = false;
-    noPrimaryCardAvailable.value = true;
-  } else {
-    // Un-toggling clears the "Self-Pay" stamp but leaves every other field
-    // alone so if a guardian re-opens the card form they don't have to
-    // rebuild what they had.
-    if (String(local.primary.insurerName || '').trim().toLowerCase() === 'self-pay') {
-      local.primary.insurerName = '';
-      primaryQuery.value = '';
-    }
-    noPrimaryCardAvailable.value = false;
+  // A payment preference must not erase insurance or suppress Medicaid review.
+  if (!checked && String(local.primary.insurerName || '').trim().toLowerCase() === 'self-pay') {
+    local.primary.insurerName = '';
+    primaryQuery.value = '';
   }
   push();
 }
@@ -755,6 +796,23 @@ watch(
   }
 );
 
+function toggleSeparatePolicy(index, enabled) {
+  if (enabled) separatePolicies[index] = { clientIndex: index, primary: {} };
+  else delete separatePolicies[index];
+  push();
+}
+async function uploadSeparateCard(index, slot, event) {
+  const file = event.target.files?.[0]; if (!file) return;
+  coverageUploadBusy.value = true; coverageUploadError.value = '';
+  try {
+    const form = new FormData(); form.append(slot,file); form.append('clientIndex',String(index));
+    const result = await api.post(`/public-intake/${props.publicKey}/${props.submissionId}/insurance-card-photos`,form,{headers:{'x-intake-session':intakeSessionToken.value}});
+    if (separatePolicies[index]) Object.assign(separatePolicies[index],result.data.urls);
+    push();
+  } catch(e) { coverageUploadError.value = e.response?.data?.error?.message || 'Card upload failed. Please retry.'; }
+  finally { coverageUploadBusy.value = false; }
+}
+
 // ── Emit helpers ─────────────────────────────────────────────────────────────
 function push() {
   const medicaidRows = showMultiClientMedicaidSection.value
@@ -765,8 +823,11 @@ function push() {
       }))
     : [];
   const out = {
-    primary: { ...local.primary },
-    secondary: hasSecondary.value ? { ...local.secondary } : null,
+    ...props.modelValue,
+    coverageScope: coverageScope.value,
+    clientCoverages: coverageClientIndexes.value.map(clientIndex => ({ ...separatePolicies[clientIndex], clientIndex, confirmed: true })),
+    primary: { ...local.primary, isMedicaid: primaryIsMedicaid.value },
+    secondary: hasSecondary.value ? { ...local.secondary, isMedicaid: secondaryIsMedicaid.value } : null,
     photos: {
       primary_front_preview: primaryFrontPreview.value,
       primary_back_preview: primaryBackPreview.value,
@@ -798,7 +859,10 @@ function push() {
       imageUrl: identityImageUrl.value || ''
     }
   };
-  emit('update:modelValue', out);
+  // Inline client-name arrays and restored parent models may refresh while
+  // carrying identical values. Do not create another parent render for an
+  // unchanged snapshot (which would trigger the same watcher again).
+  if (JSON.stringify(out) !== JSON.stringify(props.modelValue)) emit('update:modelValue', out);
   emit('medicaid-change', primaryIsMedicaid.value);
 }
 
@@ -837,6 +901,7 @@ async function onIdSelected(event) {
   const file = event.target?.files?.[0];
   event.target.value = '';
   if (!file) return;
+  if (!validUpload(file)) return;
   idFile.value = file;
   identitySkipped.value = false;
   try {
@@ -865,6 +930,7 @@ async function onIdSelected(event) {
     form.append('legalFirstName', props.legalFirstName || '');
     form.append('legalLastName', props.legalLastName || '');
     const res = await api.post(`/public-intake/${encodeURIComponent(pk)}/${sid}/identity-verify`, form, {
+      headers: { 'x-intake-session': intakeSessionToken.value },
       skipGlobalLoading: true
     });
     identityVerified.value = !!res.data?.verified;
@@ -895,6 +961,20 @@ function getInsuranceEntryState() {
   };
 }
 
+// Restored/OCR-updated policies must reach local controls before another child
+// watcher emits its snapshot. Otherwise a parent refresh can erase secondary
+// coverage with a stale local value.
+watch(() => [props.modelValue?.primary, props.modelValue?.secondary], ([primary, secondary]) => {
+  for (const [tier, incoming] of [['primary', primary], ['secondary', secondary]]) {
+    for (const key of new Set([...Object.keys(local[tier]), ...Object.keys(incoming || {})])) {
+      const value = incoming?.[key] ?? (key === 'isMedicaid' ? false : '');
+      if (local[tier][key] !== value) local[tier][key] = value;
+    }
+  }
+  primaryQuery.value = local.primary.insurerName;
+  secondaryQuery.value = local.secondary.insurerName;
+  hasSecondary.value = props.modelValue?.hasSecondary === true || !!(secondary?.insurerName || secondary?.isMedicaid);
+}, { deep: true, flush: 'sync' });
 watch([() => local.primary, () => local.secondary, hasSecondary], push, { deep: true });
 watch(
   [primaryIsMedicaid, guardianDisplayName, firstClientDisplayName],
@@ -1057,6 +1137,9 @@ defineExpose({
 .pi-ins {
   display: flex;
   flex-direction: column;
+  min-width: 0;
+  max-width: 100%;
+  width: 100%;
   gap: 16px;
 }
 .pi-ins-disclaimer {
@@ -1232,7 +1315,7 @@ defineExpose({
 .pi-ins-photo-img {
   width: 100%;
   height: 100%;
-  object-fit: cover;
+  object-fit: contain;
 }
 .pi-ins-photo-placeholder {
   display: flex;
@@ -1401,4 +1484,20 @@ defineExpose({
   align-self: flex-start;
   font-size: 12px;
 }
+.pi-ins-photo-area:focus-visible { outline: 2px solid var(--df-primary, #1558d6); outline-offset: 3px; }
+.pi-ins-file-name { padding: 12px; font-size: 13px; overflow-wrap: anywhere; }
+.pi-ins-card { background: transparent; border: 0; padding: 0; }
+.pi-ins .btn { font: inherit; font-size: 13px; padding: 8px 12px; min-height: 36px; border: 1px solid #d9e0ed; border-radius: 6px; cursor: pointer; }
+.pi-ins > * { min-width: 0; max-width: 100%; }
+.pi-ins-claim-details > label:not(.checkbox-row) { display: grid; gap: 6px; }
+.pi-ins-claim-details select { width: 100%; max-width: 100%; min-width: 0; }
+.pi-ins-claim-details { margin: 0; padding: 18px; background: #f8fafc; }
+.pi-ins-grid, .claim-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.pi-ins-grid > *, .claim-fields > *, .pi-ins-photos > * { min-width: 0; }
+.claim-fields input, .claim-fields select { width: 100%; min-width: 0; box-sizing: border-box; }
+.pi-ins :is(input, select):focus-visible { outline: 2px solid var(--df-primary, #1558d6); outline-offset: 2px; }
+.pi-ins :is(input[type="checkbox"], input[type="radio"]) { accent-color: var(--df-primary, #1558d6); }
+@media (max-width: 640px) { .pi-ins-grid, .claim-fields { grid-template-columns: minmax(0, 1fr); } }
 </style>
+
+<style scoped>.pi-ins-claim-details { margin-top:20px; padding:18px; border:1px solid #cbd5e1; border-radius:10px; } .claim-fields { display:grid;  gap:12px; } .claim-fields h4 { grid-column:1/-1; } .claim-fields label { display:grid; gap:6px; } .claim-fields input,.claim-fields select { padding:9px; border:1px solid #94a3b8; border-radius:6px; }</style>

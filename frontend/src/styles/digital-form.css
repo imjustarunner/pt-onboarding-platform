@@ -1539,3 +1539,50 @@ main .df-page--full-bleed .df-shell {
     width: 100%;
   }
 }
+
+/* Insurance enrollment uses the same real progress and navigation with a
+   compact rail, leaving room for policy fields and the payment summary. */
+.df-page.df-page--billing {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+  padding: 0;
+  background: #fbfcff;
+  --df-sidebar-w: 220px;
+}
+.df-page--billing .df-billing-header {
+  min-height: 76px;
+  padding: 16px 28px;
+  display: grid;
+  grid-template-columns: 220px minmax(160px, 280px) auto;
+  justify-content: space-between;
+  gap: 24px;
+  align-items: center;
+  border-bottom: 1px solid #e3e7ef;
+  background: #fff;
+}
+.df-page--billing .df-billing-brand { min-width: 0; font-size: 15px; color: var(--df-primary); }
+.df-page--billing .df-billing-brand img { display: block; max-width: min(210px, 100%); width: auto; height: 42px; object-fit: contain; }
+.df-page--billing .df-billing-progress { display: grid; gap: 8px; font-size: 12px; color: #475569; }
+.df-page--billing .df-billing-progress progress { width: 100%; height: 5px; appearance: none; border: 0; border-radius: 4px; overflow: hidden; background: #e8edf5; accent-color: var(--df-primary); }
+.df-page--billing .df-billing-progress progress::-webkit-progress-bar { background: #e8edf5; }
+.df-page--billing .df-billing-progress progress::-webkit-progress-value { background: var(--df-primary); }
+.df-page--billing .df-billing-progress progress::-moz-progress-bar { background: var(--df-primary); }
+.df-page--billing .df-billing-actions { justify-self: end; }
+.df-page--billing .df-billing-actions .df-btn { min-height: 40px; padding: 8px 12px; font-size: 12px; }
+.df-page--billing .df-shell { max-width: none; min-height: calc(100dvh - 76px); border-radius: 0; box-shadow: none; background: #fbfcff; }
+.df-page--billing .df-shell .df-sidebar { width: 220px; min-width: 220px; padding: 28px 16px; background: #f9fbff; border-right: 1px solid #e3e7ef; color: #17213c; }
+.df-page--billing .df-sidebar-bg, .df-page--billing .df-sidebar-wave, .df-page--billing .df-main::before, .df-page--billing .df-main-decor { display: none; }
+.df-page--billing .df-sidebar-inner { min-height: 0; }
+.df-page--billing .df-sidebar-contact, .df-page--billing .ai-security-badge--sidebar { color: #475569; background: white; border: 1px solid #e3e7ef; }
+.df-page--billing .df-sidebar-contact-line, .df-page--billing .df-sidebar-contact-title { color: inherit; }
+.df-page--billing .df-sidebar-contact-btn { color: var(--df-primary); background: white; border-color: #e3e7ef; }
+.df-page--billing .df-main { min-width: 0; background: transparent; }
+.df-page--billing .df-shell .df-main-body { max-width: 1220px; width: 100%; padding: 36px clamp(20px, 3vw, 44px); margin-inline: auto; }
+@media (max-width: 860px) {
+  .df-page--billing .df-billing-header { grid-template-columns: minmax(0, 1fr) auto; padding: 16px; gap: 14px; }
+  .df-page--billing .df-billing-progress { grid-column: 1 / -1; grid-row: 2; }
+  .df-page--billing .df-billing-brand img { max-width: min(150px, 100%); }
+  .df-page--billing .df-shell .df-sidebar { display: none; }
+  .df-page--billing .df-shell .df-main-body { padding: 24px 16px; }
+}

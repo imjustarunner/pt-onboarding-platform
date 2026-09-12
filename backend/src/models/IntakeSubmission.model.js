@@ -4,8 +4,7 @@ import {
   decryptIntakeSubmissionRow,
   decryptIntakeSubmissionRows,
   encryptIntakePayload,
-  getIntakeResponsesSensitiveKeys,
-  isIntakeResponsesEncryptionConfigured
+  getIntakeResponsesSensitiveKeys
 } from '../services/intakeResponsesEncryption.service.js';
 
 const SENSITIVE_KEYS = getIntakeResponsesSensitiveKeys();
@@ -66,7 +65,7 @@ class IntakeSubmission {
     let payloadAuthTag = null;
     let payloadKeyId = null;
 
-    if (isIntakeResponsesEncryptionConfigured()) {
+    { // Intake may contain insurance identifiers; plaintext storage is never an option.
       const enc = buildEncryptedColumns({
         intake_data: intakeData,
         signer_name: signerName,
@@ -174,7 +173,7 @@ class IntakeSubmission {
 
     let effectiveUpdates = { ...updates };
 
-    if (isIntakeResponsesEncryptionConfigured() && hasAnySensitive(effectiveUpdates)) {
+    if (hasAnySensitive(effectiveUpdates)) {
       // Re-encrypt: merge the incoming sensitive fields with whatever the row
       // already holds (whether encrypted or legacy plaintext) so partial
       // updates don't accidentally null other sensitive fields.

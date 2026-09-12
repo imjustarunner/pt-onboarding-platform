@@ -61,9 +61,10 @@
       <section v-else-if="wizardStep === 'payment'" class="panel">
         <h2>2. Payment</h2>
         <p v-if="selectedPkg" class="hint">{{ selectedPkg.name }} · {{ paymentHint }}</p>
+        <p class="hint">For installments or per-session billing, the office can send a secure payment authorization and a schedule to approve in your portal.</p>
         <div class="mode-row">
           <button
-            v-for="m in selectedPkg?.allowed_payment_modes || []"
+            v-for="m in (selectedPkg?.allowed_payment_modes || []).filter(m => m === 'PAY_IN_FULL')"
             :key="m"
             type="button"
             :class="{ on: paymentMode === m }"
@@ -409,7 +410,7 @@ async function prepareCheckout() {
 
 function onSelectPkg(pkg) {
   selectedId.value = pkg.id;
-  paymentMode.value = pkg.allowed_payment_modes?.[0] || pkg.payment_mode_default || 'PAY_IN_FULL';
+  paymentMode.value = 'PAY_IN_FULL';
 }
 
 watch([selectedId, paymentMode, wizardStep], ([, , step]) => {
@@ -434,7 +435,7 @@ async function load() {
       paymentMode.value = packet.value.selectedPaymentMode || 'PAY_IN_FULL';
     } else if (packages.value[0]) {
       selectedId.value = packages.value[0].id;
-      paymentMode.value = packages.value[0].allowed_payment_modes?.[0] || packages.value[0].payment_mode_default || 'PAY_IN_FULL';
+      paymentMode.value = 'PAY_IN_FULL';
     }
     wizardStep.value = resolveInitialStep();
   } catch (e) {

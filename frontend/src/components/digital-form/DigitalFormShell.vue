@@ -6,10 +6,22 @@
       'df-page--embedded': embedded,
       'df-page--full-bleed': isFullBleed,
       'df-page--form-mode': isFormMode,
-      'df-page--scenic-side': !!scenicSidebarUrl
+      'df-page--scenic-side': !!scenicSidebarUrl,
+      'df-page--billing': billingLayout
     }"
     :style="mergedShellVars"
   >
+    <header v-if="billingLayout" class="df-billing-header">
+      <div class="df-billing-brand">
+        <img v-if="resolvedLogo" :src="resolvedLogo" :alt="programTitle" />
+        <strong v-else>{{ programTitle }}</strong>
+      </div>
+      <div v-if="progressSteps.length" class="df-billing-progress">
+        <label for="billing-enrollment-progress">{{ language.startsWith('es') ? 'Progreso de inscripción' : 'Enrollment progress' }} · {{ Math.min(progressIndex + 1, progressSteps.length) }} / {{ progressSteps.length }}</label>
+        <progress id="billing-enrollment-progress" :value="Math.max(0, progressIndex)" :max="progressSteps.length" />
+      </div>
+      <div class="df-billing-actions"><slot name="billing-actions" /></div>
+    </header>
     <div
       class="df-shell"
       :class="{
@@ -29,7 +41,7 @@
         <div class="df-sidebar-inner" :class="{ 'df-sidebar-inner--rail': isFormMode, 'df-sidebar-inner--intake': hasIntakeSidebarStepper }">
           <slot name="sidebar">
           <template v-if="hasIntakeSidebarStepper">
-            <div class="df-sidebar-intake-header">
+            <div v-if="!billingLayout" class="df-sidebar-intake-header">
               <img
                 v-if="resolvedLogo"
                 class="df-sidebar-logo df-sidebar-logo--intake"
@@ -41,7 +53,7 @@
             <div class="df-sidebar-intake-stack">
               <div class="df-sidebar-intake-steps">
                 <AdaptiveIntakeSidebarSteps
-                  :variant="scenicSidebarUrl ? 'light' : 'dark'"
+                  :variant="billingLayout || scenicSidebarUrl ? 'light' : 'dark'"
                   :steps="intakeSidebarSteps"
                   :active-index="intakeSidebarStepIndex"
                   :max-reachable-index="intakeSidebarMaxReachable"
@@ -83,7 +95,7 @@
                   {{ contactSupportLabel }}
                 </button>
               </div>
-              <div v-if="showIntakeSidebarSecurity" class="ai-security-badge ai-security-badge--sidebar">
+              <div v-if="showIntakeSidebarSecurity && !billingLayout" class="ai-security-badge ai-security-badge--sidebar">
                 <span class="ai-security-badge-icon" aria-hidden="true">
                   <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.75">
                     <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
@@ -188,7 +200,7 @@
             :style="decorHeroImageStyle"
           />
         </div>
-        <header v-if="showHeader" class="df-main-header">
+        <header v-if="showHeader && !billingLayout" class="df-main-header">
           <div class="df-main-header-left">
             <slot name="header-left" />
           </div>
@@ -208,7 +220,7 @@
         </header>
 
         <DigitalFormProgress
-          v-if="progressSteps.length && !coverMode && progressIndex < progressSteps.length - 1"
+          v-if="!billingLayout && progressSteps.length && !coverMode && progressIndex < progressSteps.length - 1"
           :steps="progressSteps"
           :active-index="progressIndex"
           :class="{ 'df-progress--intake-sidebar-companion': hasIntakeSidebarStepper }"
@@ -244,6 +256,7 @@ import '../../styles/adaptive-intake.css';
 
 const props = defineProps({
   branding: { type: Object, default: null },
+  billingLayout: { type: Boolean, default: false },
   programTitleOverride: { type: String, default: '' },
   /** Intake link / document title shown in the thin rail during form fill */
   formTitleOverride: { type: String, default: '' },

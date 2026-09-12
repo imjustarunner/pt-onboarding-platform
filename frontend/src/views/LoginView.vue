@@ -1895,7 +1895,7 @@ watch(
 /** Same-origin post-login destination (e.g. a meeting join link) to carry through Google SSO. */
 function ssoNextParam() {
   const redirectPath = route.query?.redirect;
-  const safe = typeof redirectPath === 'string' && redirectPath.startsWith('/') && !redirectPath.startsWith('//');
+  const safe = typeof redirectPath === 'string' && redirectPath.startsWith('/') && !redirectPath.startsWith('//') && !redirectPath.includes('\\') && !redirectPath.startsWith('//');
   return safe ? `&next=${encodeURIComponent(redirectPath)}` : '';
 }
 
@@ -2278,7 +2278,7 @@ const handleLogin = async () => {
     }
 
     const redirectPath = route.query?.redirect;
-    if (redirectPath && typeof redirectPath === 'string' && redirectPath.startsWith('/')) {
+    if (redirectPath && typeof redirectPath === 'string' && redirectPath.startsWith('/') && !redirectPath.startsWith('//') && !redirectPath.includes('\\')) {
       router.replace(redirectPath);
       loading.value = false;
       return;

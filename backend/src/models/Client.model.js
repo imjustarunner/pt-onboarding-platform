@@ -213,6 +213,7 @@ class Client {
     if (rows.length === 0) return null;
 
     const client = rows[0];
+    delete client.billing_insurance_payload;
     
     // Format provider name
     if (client.provider_first_name && client.provider_last_name) {
@@ -467,6 +468,7 @@ class Client {
 
     // Format provider names
     return rows.map(row => {
+      delete row.billing_insurance_payload;
       if (row.provider_first_name && row.provider_last_name) {
         row.provider_name = `${row.provider_first_name} ${row.provider_last_name}`;
       } else {

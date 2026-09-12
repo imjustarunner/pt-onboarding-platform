@@ -1,3 +1,7 @@
+import Agency from '../models/Agency.model.js';
+import { readClientInsurance } from '../services/clientInsurance.service.js';
+import { encryptFamilyBilling } from '../services/familyBillingEncryption.service.js';
+import { auditBilling } from '../services/familyBillingPolicy.service.js';
 import crypto from 'crypto';
 import { validationResult } from 'express-validator';
 import clinicalPool from '../config/clinicalDatabase.js';
@@ -1454,23 +1458,8 @@ export const getClinicalNoteById = async (req, res, next) => {
 
     let clientPayer = null;
     if (note.client_id) {
-      try {
-        const pool = (await import('../config/database.js')).default;
-        const [cRows] = await pool.execute(
-          `SELECT primary_insurer_name, insurance_type_label, insurance_member_id
-           FROM clients WHERE id = ? LIMIT 1`,
-          [note.client_id]
-        );
-        const c = cRows?.[0];
-        if (c) {
-          clientPayer = {
-            name: c.primary_insurer_name || c.insurance_type_label || null,
-            memberId: c.insurance_member_id || null
-          };
-        }
-      } catch {
-        clientPayer = null;
-      }
+      const insurance = await readClientInsurance(note.client_id, note.agency_id);
+      if (insurance) clientPayer = { name: insurance.primary?.insurerName || null, memberId: insurance.primary?.memberId || null };
     }
 
     return res.json({
@@ -2338,20 +2327,8 @@ export const createMedicalClaim = async (req, res, next) => {
     }
 
     let placeOfService = req.body.placeOfService || sessionRow?.place_of_service || null;
-    let payerName = req.body.payerName || null;
-    let memberId = req.body.memberId || null;
-    if (!payerName || !memberId) {
-      try {
-        const [cRows] = await pool.execute(
-          `SELECT primary_insurer_name, insurance_member_id FROM clients WHERE id = ? LIMIT 1`,
-          [clientId]
-        );
-        if (!payerName) payerName = cRows?.[0]?.primary_insurer_name || null;
-        if (!memberId) memberId = cRows?.[0]?.insurance_member_id || null;
-      } catch {
-        // optional
-      }
-    }
+    const insuranceSnapshot = await readClientInsurance(clientId, agencyId);
+    const payerName = insuranceSnapshot?.primary?.insurerName || null;
 
     // Seed line modifiers from office POS template (e.g. GT for Telehealth)
     try {
@@ -2431,7 +2408,8 @@ export const createMedicalClaim = async (req, res, next) => {
         `UPDATE clinical_claims SET
            clinical_note_id = ?,
            payer_name = ?,
-           member_id = ?,
+           member_id = NULL,
+           insurance_payload = ?,
            billing_npi = ?,
            rendering_npi = ?,
            taxonomy_code = ?,
@@ -2443,7 +2421,7 @@ export const createMedicalClaim = async (req, res, next) => {
         [
           noteId,
           payerName,
-          memberId,
+          insuranceSnapshot ? encryptFamilyBilling(insuranceSnapshot, `claim-insurance:${agencyId}:${claim.id}`) : null,
           resolvedBillingNpi,
           resolvedRenderingNpi,
           req.body.taxonomyCode || null,
@@ -2527,7 +2505,9 @@ export const listMedicalClaims = async (req, res, next) => {
        LIMIT 200`,
       [agencyId]
     );
-    return res.json({ claims: rows || [] });
+    const [responsibilities]=await pool.execute("SELECT r.source_key,r.id,r.amount_cents,r.status,COALESCE(SUM(a.paid_cents),0) AS paid_cents FROM family_receivables r LEFT JOIN family_receivable_allocations a ON a.receivable_id=r.id WHERE r.agency_id=? AND r.source_type='claim_responsibility' GROUP BY r.id",[agencyId]);
+    const byClaim=new Map(responsibilities.map(r=>[String(r.source_key),r]));
+    return res.json({ claims: (rows||[]).map(claim=>({...claim,familyResponsibility:byClaim.get(String(claim.id))||null})) });
   } catch (e) {
     next(e);
   }
@@ -2670,33 +2650,27 @@ export const submitClaimToClaimMd = async (req, res, next) => {
       `SELECT * FROM clinical_claim_lines WHERE clinical_claim_id = ? ORDER BY line_number ASC`,
       [claimId]
     );
-    const payload = buildClaimMdJsonClaim(claim, lines || []);
-    const result = await uploadClaims({
-      accountKey,
-      fileContents: JSON.stringify({ claims: [payload] }),
-      filename: `claim-${claimId}.json`
-    });
-
-    await clinicalPool.execute(
-      `UPDATE clinical_claims SET
-         claim_lifecycle = 'submitted',
-         claim_status = 'SUBMITTED',
-         claimmd_last_status = ?,
-         claimmd_submitted_at = NOW(),
-         claimmd_claim_id = COALESCE(?, claimmd_claim_id),
-         updated_at = CURRENT_TIMESTAMP
-       WHERE id = ?`,
-      [
-        typeof result === 'object' ? JSON.stringify(result).slice(0, 120) : String(result).slice(0, 120),
-        result?.claimid || result?.ClaimID || result?.claims?.[0]?.claimid || null,
-        claimId
-      ]
-    );
+    if (!['ready', 'draft'].includes(String(claim.claim_lifecycle || ''))) return res.status(409).json({ error: { message: 'This claim is already submitted, in progress, or needs reconciliation' } });
+    const readiness = await evaluateClaimReadiness({agencyId,clientId:claim.client_id,clinicalSessionId:claim.clinical_session_id,clinicalNoteId:claim.clinical_note_id,requireSignedNote:!!getMedicalBillingFlags(await loadAgencyFlags(agencyId)).clinicalNoteSigningEnabled});
+    if(!readiness.ready)return res.status(409).json({error:{message:'Clinical documentation is not ready for claim submission'},readiness});
+    const insurance = await readClientInsurance(claim.client_id, agencyId);
+    const practice = await Agency.findById(agencyId);
+    const payload = buildClaimMdJsonClaim(claim, lines || [], { insurance, practice });
+    const [queued] = await clinicalPool.execute(`UPDATE clinical_claims SET claim_lifecycle = 'queued', member_id = NULL, insurance_payload = ? WHERE id = ? AND agency_id = ? AND claim_lifecycle IN ('ready','draft')`, [encryptFamilyBilling(insurance, `claim-insurance:${agencyId}:${claimId}`), claimId, agencyId]);
+    if (!queued.affectedRows) return res.status(409).json({ error: { message: 'This claim is already being submitted' } });
+    // Queued remains non-retryable on ambiguous transport failure. Reconcile
+    // with Claim.MD instead of risking a second submission.
+    const result = await uploadClaims({ accountKey, fileContents: JSON.stringify({ claim: [payload] }), filename: `claim-${claimId}.json` });
+    const acknowledgement = (Array.isArray(result?.claim) ? result.claim : [result?.claim]).find(row => String(row?.remote_claimid || row?.pcn || '') === String(claimId) || String(row?.pcn || '') === String(payload.pcn));
+    if (!acknowledgement?.claimid && !acknowledgement?.claimmd_id) return res.status(502).json({ error: { message: 'Claim.MD did not acknowledge this claim. Review the clearinghouse before retrying.' } });
+    const accepted = acknowledgement.status === 'A';
+    await clinicalPool.execute(`UPDATE clinical_claims SET claim_lifecycle = ?, claim_status = ?, claimmd_last_status = ?, claimmd_submitted_at = NOW(), claimmd_claim_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND agency_id = ?`, [accepted ? 'submitted' : 'rejected', accepted ? 'SUBMITTED' : 'PENDING', String(acknowledgement.status || 'unknown'), String(acknowledgement.claimmd_id || acknowledgement.claimid), claimId, agencyId]);
+    await auditBilling({ agencyId, userId: req.user.id, clientId: claim.client_id, action: 'claimmd_submission', objectId: claimId });
 
     return res.json({
       ok: true,
-      message: 'Submitted to Claim.MD (may require portal approval before payer transmit)',
-      result
+      message: accepted ? 'Acknowledged by Claim.MD; payer transmission may require portal approval' : 'Claim.MD rejected the claim; review it in the clearinghouse',
+      accepted
     });
   } catch (e) {
     next(e);

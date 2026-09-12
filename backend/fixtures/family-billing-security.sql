@@ -1,0 +1,17 @@
+CREATE USER IF NOT EXISTS 'family_billing_test'@'%' IDENTIFIED BY 'synthetic-only';
+GRANT ALL ON family_billing_test.* TO 'family_billing_test'@'%';
+USE family_billing_test;
+CREATE TABLE agencies(id INT PRIMARY KEY,name VARCHAR(255));
+CREATE TABLE users(id INT PRIMARY KEY,first_name VARCHAR(100),last_name VARCHAR(100),role VARCHAR(50));
+CREATE TABLE clients(id INT PRIMARY KEY,agency_id INT,full_name VARCHAR(255),initials VARCHAR(20),primary_insurer_name VARCHAR(255),insurance_member_id VARCHAR(128),insurance_group_number VARCHAR(128),insurance_subscriber_name VARCHAR(255));
+CREATE TABLE client_guardians(id INT AUTO_INCREMENT PRIMARY KEY,client_id INT,guardian_user_id INT,relationship_type VARCHAR(30),access_enabled TINYINT,permissions_json JSON);
+CREATE TABLE agency_billing_accounts(agency_id INT PRIMARY KEY,stripe_connect_account_id VARCHAR(255),stripe_connect_status VARCHAR(50));
+CREATE TABLE clinical_claims(id BIGINT PRIMARY KEY,agency_id INT,member_id VARCHAR(80),payer_name VARCHAR(255));
+CREATE TABLE learning_class_sessions(id BIGINT PRIMARY KEY);
+CREATE TABLE learning_session_charges(id BIGINT AUTO_INCREMENT PRIMARY KEY,agency_id INT,client_id INT,learning_program_session_id BIGINT NOT NULL,guardian_user_id INT,amount_cents INT,total_cents INT,currency CHAR(3),charge_status ENUM('PENDING','AUTHORIZED','CAPTURED','VOIDED','REFUNDED','FAILED') DEFAULT 'PENDING',charge_type ENUM('SESSION_FEE','GROUP_FEE','LATE_CANCEL_FEE','NO_SHOW_FEE','ADJUSTMENT') DEFAULT 'SESSION_FEE',captured_at DATETIME,idempotency_key VARCHAR(255) UNIQUE);
+CREATE TABLE learning_payments(id BIGINT AUTO_INCREMENT PRIMARY KEY,agency_id INT,learning_session_charge_id BIGINT,amount_cents INT,currency CHAR(3),payment_status ENUM('REQUIRES_ACTION','AUTHORIZED','CAPTURED','VOIDED','REFUNDED','FAILED'),processor VARCHAR(40),processor_intent_id VARCHAR(128),idempotency_key VARCHAR(128) UNIQUE,metadata_json JSON,created_by_user_id INT,captured_at DATETIME,created_at DATETIME DEFAULT CURRENT_TIMESTAMP);
+INSERT INTO agencies VALUES(1,'Synthetic clinic'),(2,'Other synthetic clinic');
+INSERT INTO users VALUES(10,'First','Parent','client_guardian'),(20,'Second','Parent','client_guardian'),(30,'Child','One','client_guardian');
+INSERT INTO clients(id,agency_id,full_name,initials) VALUES(101,1,'Child One','CO'),(102,1,'Child Two','CT'),(201,2,'Other child','OC');
+INSERT INTO client_guardians(client_id,guardian_user_id,relationship_type,access_enabled) VALUES(101,10,'guardian',1),(102,10,'guardian',1),(101,20,'guardian',1),(102,20,'guardian',1),(101,30,'self',1);
+INSERT INTO agency_billing_accounts VALUES(1,'acct_fixture','active');

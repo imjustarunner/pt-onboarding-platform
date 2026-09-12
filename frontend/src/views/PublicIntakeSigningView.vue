@@ -3,6 +3,7 @@
     class="public-intake ai-shell-host"
     :class="{ 'public-intake--office-start': isOfficeInDepthIntake && step === 0.5 }"
     :branding="formBranding"
+    :billing-layout="step === 2 && currentFlowStep?.type === 'insurance_info' && (isOfficeInDepthIntake || isPaymentOnlyEnrollmentChannel)"
     :program-title-override="shellProgramTitle"
     :form-title-override="shellFormDocumentTitle"
     :form-subtitle="shellFormSubtitle"
@@ -33,6 +34,9 @@
     @contact-support="openSplashSupportModal"
     @select-step="jumpToProgressStep"
   >
+    <template #billing-actions>
+      <button type="button" class="df-btn df-btn-secondary" @click="saveAndComeBackLater">{{ t('saveAndComeBackLater') }}</button>
+    </template>
     <template v-if="isOfficeInDepthIntake && step === 0.5" #sidebar>
       <OfficeIntakeStartPage
         part="rail"
@@ -2483,12 +2487,7 @@
                     <span>Username</span>
                     <strong>{{ officePortalCreds?.username || guardianEmail }}</strong>
                   </div>
-                  <div v-if="officePortalCreds?.temporaryPassword">
-                    <span>Temporary password</span>
-                    <strong class="office-temp-pw">{{ officePortalCreds.temporaryPassword }}</strong>
-                    <p class="muted small">Valid for up to 7 days. After that, request a new temporary password from the login page.</p>
-                  </div>
-                  <p v-else-if="officePortalCredsLoading" class="muted">Generating your temporary password…</p>
+                  <p v-if="officePortalCredsLoading" class="muted">Preparing your portal sign-in link…</p>
                   <p v-else-if="officePortalCreds?.note" class="muted">{{ officePortalCreds.note }}</p>
                 </div>
                 <div class="office-complete-portal-actions">
@@ -2979,6 +2978,7 @@ import {
 } from '../utils/intakeSameAsMe.js';
 import { getHeroPresetByUrl } from '../utils/careersAssets.js';
 import { isMedicaidInsurer } from '../utils/coloradoInsurances';
+import { shouldSuppressInsurancePayment } from '../utils/insurancePaymentPolicy.js';
 import {
   EMPTY_SPANISH_CLARIFICATION_RESPONSE,
   firstMissingSpanishClarificationField,
@@ -5666,7 +5666,8 @@ const officePackageCatalogEmpty = ref(null);
 
 const shouldSkipPaymentCollectionStep = () => {
   const insInfo = intakeResponses.submission?.insuranceInfo;
-  if (insInfo?.primaryIsMedicaid) return true;
+  if (shouldSuppressInsurancePayment(insInfo, link.value?.master_channel)) return true;
+  if (isPaymentOnlyEnrollmentChannel.value) return false;
 
   const selections = Array.isArray(intakeResponses.submission?.registrationSelections)
     ? intakeResponses.submission.registrationSelections
@@ -6590,6 +6591,7 @@ const registeredEventSummary = computed(() => {
 });
 const fieldValuesByTemplate = reactive({});
 const sessionToken = ref(String(route.query?.session || '').trim());
+provide('intakeSessionToken', sessionToken);
 const submissionStorageKey = computed(() =>
   sessionToken.value ? `public_intake_submission_${publicKey}_${sessionToken.value}` : `public_intake_submission_${publicKey}`
 );
@@ -6882,6 +6884,7 @@ async function uploadOtherGuardianCourtFiles() {
   files.forEach((f) => formData.append('files', f));
   try {
     await api.post(`/public-intake/${publicKey}/${submissionId.value}/upload`, formData, {
+      headers:{'x-intake-session':sessionToken.value},
       skipGlobalLoading: true
     });
     otherGuardian.courtFiles = [];
@@ -9740,7 +9743,7 @@ const officePortalHref = computed(() =>
 
 async function ensureOfficePortalCredentials() {
   if (!isOfficeInDepthIntake.value || !submissionId.value || !guardianEmail.value) return;
-  if (officePortalCreds.value?.temporaryPassword || officePortalCredsLoading.value) return;
+  if (officePortalCreds.value?.portalLoginUrl || officePortalCredsLoading.value) return;
   officePortalCredsLoading.value = true;
   try {
     const resp = await api.post(
@@ -9756,7 +9759,7 @@ async function ensureOfficePortalCredentials() {
     officePortalCreds.value = {
       username: guardianEmail.value,
       portalLoginUrl: officePortalHref.value,
-      note: err?.response?.data?.error?.message || 'Unable to generate a temporary password right now.'
+      note: err?.response?.data?.error?.message || 'Unable to prepare the portal sign-in link right now.'
     };
   } finally {
     officePortalCredsLoading.value = false;
@@ -9769,13 +9772,12 @@ async function emailOfficeLoginDetails() {
   try {
     const slug = String(agencyInfo.value?.portal_url || agencyInfo.value?.slug || '').trim();
     if (!slug || !guardianEmail.value) return;
-    if (!officePortalCreds.value?.temporaryPassword) {
+    if (!officePortalCreds.value?.portalLoginUrl) {
       await ensureOfficePortalCredentials();
     }
     await api.post(`/public/adaptive-intake/${encodeURIComponent(slug)}/portal-login-email`, {
       email: guardianEmail.value,
       username: officePortalCreds.value?.username || guardianEmail.value,
-      temporaryPassword: officePortalCreds.value?.temporaryPassword || null,
       portalPath: officePortalCreds.value?.portalLoginUrl || officePortalHref.value
     });
     officeLoginEmailStatus.value = t('loginDetailsSent');
@@ -10931,7 +10933,7 @@ const completeInsuranceStep = async () => {
         const resp = await api.post(
           `/public-intake/${publicKey}/${submissionId.value}/insurance-card-photos`,
           fd,
-          { headers: { 'Content-Type': 'multipart/form-data' } }
+          { headers: { 'Content-Type': 'multipart/form-data', 'x-intake-session': sessionToken.value } }
         );
         const urls = resp.data?.urls || {};
         if (!intakeResponses.submission.insuranceInfo) intakeResponses.submission.insuranceInfo = {};
@@ -10955,8 +10957,9 @@ const completeInsuranceStep = async () => {
           primary.isMedicaid = isMedicaidInsurer(primary.insurerName);
           intakeResponses.submission.insuranceInfo.primaryIsMedicaid = primary.isMedicaid;
         }
-      } catch {
-        // Non-blocking: continue even if photo upload fails
+      } catch (uploadError) {
+        stepError.value = uploadError.response?.data?.error?.message || 'Insurance card upload failed. Retry before continuing.';
+        return;
       }
     }
   }
@@ -12586,7 +12589,7 @@ const uploadJobApplicationFile = async (stepObj, file, fallbackId, fallbackLabel
   formData.append('label', label);
   formData.append('replace', '1');
   formData.append('files', file);
-  await api.post(`/public-intake/${publicKey}/${submissionId.value}/upload`, formData);
+  await api.post(`/public-intake/${publicKey}/${submissionId.value}/upload`, formData, {headers:{'x-intake-session':sessionToken.value}});
   uploadStatus[stepId] = true;
 };
 
@@ -12744,7 +12747,7 @@ const completeUploadStep = async () => {
       uploadStepFiles.value.forEach((f) => {
         formData.append('files', f);
       });
-      await api.post(`/public-intake/${publicKey}/${submissionId.value}/upload`, formData);
+      await api.post(`/public-intake/${publicKey}/${submissionId.value}/upload`, formData, {headers:{'x-intake-session':sessionToken.value}});
       uploadStatus[s.id] = true;
     } else {
       uploadStatus[s.id] = true;

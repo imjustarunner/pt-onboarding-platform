@@ -1,3 +1,4 @@
+import {transaction as familyBillingTransaction} from './familyLedger/policy.js';
 import crypto from 'crypto';
 import pool from '../config/database.js';
 import PractitionerSessionPackage from '../models/PractitionerSessionPackage.model.js';
@@ -48,7 +49,7 @@ export function resolveChargeAmountCents(pkg, paymentMode) {
       return Math.max(0, Number(plan.amountsCents[0] || 0));
     }
     const chunks = Math.max(2, Number(plan.chunks || 4));
-    return Math.max(0, Math.ceil(list / chunks));
+    return Math.max(0, Math.floor(list / chunks) + (list % chunks > 0 ? 1 : 0));
   }
   return Math.max(0, list);
 }
@@ -63,7 +64,7 @@ export function buildInstallmentState(pkg, paymentMode) {
     ? plan.amountsCents.map((n) => Math.max(0, Number(n || 0)))
     : Array.from({ length: chunks }, (_, i) => {
         const base = Math.floor(list / chunks);
-        return i === chunks - 1 ? list - base * (chunks - 1) : base;
+        return base + (i < list % chunks ? 1 : 0);
       });
   return {
     chunks,
@@ -115,9 +116,9 @@ export async function creditPackageSessions({
   reasonCode = 'PACKAGE_PURCHASE',
   metadata = null,
   createdByUserId = null
-}) {
+}, db = pool) {
   const qty = Math.max(1, Number(quantity || 1));
-  const [result] = await pool.execute(
+  const [result] = await db.execute(
     `INSERT INTO practitioner_session_credit_ledger
       (agency_id, client_id, package_id, packet_id, direction, quantity, reason_code, metadata_json, created_by_user_id)
      VALUES (?, ?, ?, ?, 'CREDIT', ?, ?, ?, ?)`,
@@ -512,9 +513,13 @@ export async function activatePackageSelection({
   createdByUserId = null,
   paymentStatus = 'PAID',
   stripePaymentIntentId = null,
-  amountChargedCents = null
+  amountChargedCents = null,
+  purchasedSessions = null
 }) {
-  const packet = await findPacketById(packetId);
+ return familyBillingTransaction(async db=>{
+
+  const [packetRows]=await db.execute('SELECT * FROM practitioner_client_packets WHERE id=? FOR UPDATE',[packetId]);
+  const packet=hydratePacket(packetRows[0]);
   if (!packet) throw Object.assign(new Error('Packet not found'), { status: 404 });
   if (String(packet.status || '').toUpperCase() === 'COMPLETED') {
     throw Object.assign(new Error('This packet is already completed'), { status: 409 });
@@ -535,6 +540,10 @@ export async function activatePackageSelection({
   const pkg = await PractitionerSessionPackage.findById(packageId);
   if (!pkg) throw Object.assign(new Error('Package not found'), { status: 404 });
 
+  if(Number(pkg.agency_id)!==Number(packet.agency_id))throw Object.assign(new Error('Package belongs to another organization'),{status:403});
+  if(paymentStatus!=='PAID')throw Object.assign(new Error('Record a confirmed payment before granting credits'),{status:409});
+  const sessionCount=purchasedSessions??Number(pkg.session_count);
+  if(!Number.isSafeInteger(sessionCount)||sessionCount<1)throw Object.assign(new Error('Invalid purchased session count'),{status:400});
   const mode = String(paymentMode || pkg.payment_mode_default || 'PAY_IN_FULL').toUpperCase();
   const freeRebooks = Number(pkg.missed_session_policy?.freeRebooks || 0);
   const installmentState = buildInstallmentState(pkg, mode);
@@ -543,7 +552,7 @@ export async function activatePackageSelection({
     status = 'PARTIAL';
   }
 
-  await pool.execute(
+  await db.execute(
     `UPDATE practitioner_client_packets
      SET selected_package_id = ?, selected_payment_mode = ?, status = 'IN_PROGRESS',
          updated_at = CURRENT_TIMESTAMP
@@ -551,7 +560,7 @@ export async function activatePackageSelection({
     [Number(packageId), mode, Number(packetId)]
   );
 
-  const [ent] = await pool.execute(
+  const [ent] = await db.execute(
     `INSERT INTO practitioner_client_package_entitlements
       (agency_id, client_id, package_id, packet_id, sessions_purchased, sessions_remaining,
        free_rebooks_remaining, payment_mode, payment_status, installment_state_json, status, activated_at)
@@ -561,8 +570,8 @@ export async function activatePackageSelection({
       packet.client_id,
       Number(packageId),
       Number(packetId),
-      pkg.session_count,
-      pkg.session_count,
+      sessionCount,
+      sessionCount,
       freeRebooks,
       mode,
       status,
@@ -576,7 +585,7 @@ export async function activatePackageSelection({
     clientId: packet.client_id,
     packageId,
     packetId,
-    quantity: pkg.session_count,
+    quantity: sessionCount,
     reasonCode: 'PACKAGE_PURCHASE',
     metadata: {
       paymentMode: mode,
@@ -586,9 +595,9 @@ export async function activatePackageSelection({
       entitlementId
     },
     createdByUserId
-  });
+  }, db);
 
-  await pool.execute(
+  await db.execute(
     `UPDATE practitioner_session_credit_ledger SET entitlement_id = ? WHERE id = ?`,
     [entitlementId, creditLedgerId]
   ).catch(() => {});
@@ -599,7 +608,7 @@ export async function activatePackageSelection({
       ? Number(amountChargedCents)
       : resolveChargeAmountCents(pkg, mode);
     const payStatus = status === 'PENDING' ? 'PENDING' : 'SUCCEEDED';
-    const [pay] = await pool.execute(
+    const [pay] = await db.execute(
       `INSERT INTO practitioner_package_payments
         (agency_id, client_id, entitlement_id, packet_id, package_id, ledger_id,
          amount_cents, currency, payment_mode, installment_index, sessions_covered,
@@ -615,7 +624,7 @@ export async function activatePackageSelection({
         Math.max(0, amount),
         mode,
         mode === 'INSTALLMENTS' ? 1 : null,
-        mode === 'PER_SESSION' ? 1 : pkg.session_count,
+        mode === 'PER_SESSION' ? 1 : sessionCount,
         payStatus,
         stripePaymentIntentId || null,
         payStatus === 'SUCCEEDED' ? new Date() : null,
@@ -627,20 +636,21 @@ export async function activatePackageSelection({
       ]
     );
     paymentId = pay.insertId;
-    await pool.execute(
+    await db.execute(
       `UPDATE practitioner_session_credit_ledger SET package_payment_id = ? WHERE id = ?`,
       [paymentId, creditLedgerId]
     ).catch(() => {});
   }
 
   return {
-    packet: await findPacketById(packetId),
+    packet: {...packet,selected_package_id:Number(packageId),selected_payment_mode:mode,status:'IN_PROGRESS'},
     entitlementId,
     paymentId,
-    sessionsCredited: pkg.session_count,
+    sessionsCredited: sessionCount,
     paymentStatus: status,
     alreadyActivated: false
   };
+ });
 }
 
 export async function markPacketIntakeLinkComplete({ packetId, intakeLinkId }) {

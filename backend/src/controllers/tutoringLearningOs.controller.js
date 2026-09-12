@@ -1,3 +1,4 @@
+import { requireResponsiblePayer } from '../services/familyBillingPolicy.service.js';
 import { comfortTaxonomyPayload } from '../constants/tutoringLearningOs.js';
 import { assertLearningClientAccess } from '../utils/learningAccess.js';
 import * as los from '../services/tutoringLearningOs.service.js';
@@ -918,6 +919,7 @@ export async function checkoutClientPackage(req, res, next) {
     const { clientId } = await assertLearningClientAccess(req, req.params.clientId);
     const { agencyId } = await resolveClientAgencyId(clientId);
     if (!agencyId) return res.status(400).json({ error: { message: 'Client has no agency' } });
+    if (!['super_admin', 'superadmin', 'admin', 'agency_admin', 'backoffice_admin'].includes(String(req.user?.role || '').toLowerCase())) await requireResponsiblePayer(req.user.id, clientId, agencyId);
     const packageId = parseInt(req.params.packageId, 10);
     const unifiedPackages = await import('../services/unifiedPackageCatalog.service.js');
     const result = await unifiedPackages.startPackageCheckout({
@@ -940,6 +942,7 @@ export async function confirmClientPackageCheckout(req, res, next) {
     const { clientId } = await assertLearningClientAccess(req, req.params.clientId);
     const { agencyId } = await resolveClientAgencyId(clientId);
     if (!agencyId) return res.status(400).json({ error: { message: 'Client has no agency' } });
+    if (!['super_admin', 'superadmin', 'admin', 'agency_admin', 'backoffice_admin'].includes(String(req.user?.role || '').toLowerCase())) await requireResponsiblePayer(req.user.id, clientId, agencyId);
     const packageId = parseInt(req.params.packageId, 10);
     const unifiedPackages = await import('../services/unifiedPackageCatalog.service.js');
     const result = await unifiedPackages.confirmPackageCheckout({

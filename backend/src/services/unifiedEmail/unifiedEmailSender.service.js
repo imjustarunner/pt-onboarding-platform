@@ -78,7 +78,7 @@ function resolveAbsoluteSignatureImageUrl(identity) {
 
 function applySenderSignatureBlock({ identity, text = null, html = null }) {
   const imageUrl = resolveAbsoluteSignatureImageUrl(identity);
-  if (!imageUrl) return { text, html };
+  if (!imageUrl) { const label=[identity?.display_name,identity?.from_email].filter(Boolean).join(' · '); return {text:`${text||''}\n\n${label}`,html:html?`${html}<p style="font-family:Arial;color:#334155">${escapeHtml(label)}</p>`:html}; }
 
   const alt = String(identity?.signature_alt_text || identity?.display_name || 'Signature').trim() || 'Signature';
   const label = String(identity?.display_name || '').trim();
@@ -152,7 +152,7 @@ async function applyUserEmailSignatureBlock({
     signature_image_path: path,
     signature_image_url: path.startsWith('http') || path.startsWith('/') ? path : null
   });
-  if (!imageUrl) return { text, html };
+  if (!imageUrl) { const label=[identity?.display_name,identity?.from_email].filter(Boolean).join(' · '); return {text:`${text||''}\n\n${label}`,html:html?`${html}<p style="font-family:Arial;color:#334155">${escapeHtml(label)}</p>`:html}; }
   if (html && String(html).includes(imageUrl)) return { text, html };
 
   return applySenderSignatureBlock({
@@ -190,11 +190,15 @@ async function finalizeOutboundContent({
     console.warn('[unifiedEmail] misdirected report link:', e?.message || e);
   }
 
+  if (!identity?.signature_image_url && !identity?.signature_image_path && identity?.agency_id) {
+    const { ensureDepartmentSignature } = await import('../departmentSignature.service.js');
+    try { identity = await ensureDepartmentSignature(identity); } catch { console.warn('[unifiedEmail] Department signature PNG unavailable; using a text signature.'); }
+  }
   let signed = applySenderSignatureBlock({ identity, text, html });
   const src = String(source || '').toLowerCase();
   const tt = String(templateType || '').toLowerCase();
   const appendUser =
-    generatedByUserId &&
+    generatedByUserId && !['billing', 'collections'].includes(identity?.identity_key) &&
     (src === 'manual' || tt === 'hub_email');
   if (appendUser) {
     signed = await applyUserEmailSignatureBlock({
@@ -510,7 +514,8 @@ export async function sendNotificationEmail({
   clientId = null,
   templateType = null,
   templateId = null,
-  source = 'auto'
+  source = 'auto',
+  senderIdentityId = null
 }) {
   const gate = await canSendEmail({ source, agencyId });
   if (!gate.allowed) {
@@ -563,6 +568,10 @@ export async function sendNotificationEmail({
     templateType: templateType || triggerKey
   });
   let identity = delivery.identity;
+  if (senderIdentityId) {
+    identity = await EmailSenderIdentity.findById(senderIdentityId);
+    if (!identity || Number(identity.agency_id) !== Number(agencyId) || !identity.is_active) throw new Error('Sender identity is not active for this organization');
+  }
   if (!identity) {
     const block = await createMissingAliasTaskAndBlock({
       to,

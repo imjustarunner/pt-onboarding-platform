@@ -1,436 +1,83 @@
 <template>
-  <div class="guardian-billing">
-    <div class="billing-head">
-      <div>
-        <div class="billing-title">Learning Program Billing</div>
-        <div class="billing-sub">Session charges, balances, and payment status for this child.</div>
-      </div>
-      <button class="btn btn-secondary btn-sm" type="button" @click="load" :disabled="loading || !agencyId || !clientId">
-        Refresh
-      </button>
-    </div>
-
-    <div v-if="!clientId" class="hint">Select a child to view billing.</div>
-    <div v-else-if="loading" class="hint">Loading billing…</div>
-    <div v-else-if="error" class="error">{{ error }}</div>
-    <template v-else>
-      <div v-if="merchantSetup" class="card">
-        <div class="payment-title">Payment Setup</div>
-        <div class="hint">
-          {{ merchantSetup.paymentsMode === 'agency_managed'
-            ? 'This learning program is being prepared for agency-owned parent/guardian payments.'
-            : merchantSetup.paymentsMode === 'platform_managed'
-              ? 'This learning program is being prepared for platform-assisted parent/guardian payments.'
-              : 'Parent/guardian payment setup has not been configured yet for this learning program.' }}
-        </div>
-      </div>
-
-      <div class="payment-methods card">
-        <div class="payment-head">
-          <div class="payment-title">Card on file</div>
-          <button class="btn btn-secondary btn-sm" type="button" @click="showAddMethod = !showAddMethod">
-            {{ showAddMethod ? 'Close' : 'Add card' }}
-          </button>
-        </div>
-        <div v-if="paymentMethods.length === 0" class="hint">No payment method on file.</div>
-        <div v-else class="payment-list">
-          <div v-for="m in paymentMethods" :key="`pm-${m.id}`" class="pm-item">
-            <div>
-              <strong>{{ m.card_brand || 'Card' }} •••• {{ m.last4 || '----' }}</strong>
-              <div class="hint">Exp {{ m.exp_month || '--' }}/{{ m.exp_year || '----' }}</div>
-            </div>
-            <div class="pm-actions">
-              <span v-if="m.is_default" class="pill-default">Default</span>
-              <button
-                v-else
-                class="btn btn-secondary btn-sm"
-                type="button"
-                :disabled="settingDefaultMethodId === Number(m.id)"
-                @click="setDefaultMethod(m.id)"
-              >
-                {{ settingDefaultMethodId === Number(m.id) ? 'Setting…' : 'Set default' }}
-              </button>
-            </div>
+  <section class="guardian-ledger">
+    <h4>Charges for the selected client</h4>
+    <p v-if="loading" role="status">Loading charges…</p>
+    <p v-if="error" role="alert">{{ error }}</p>
+    <p v-if="notice" role="status">{{ notice }}</p>
+    <template v-if="!loading && access">
+      <p v-if="!ledger.length">No charges on file.</p>
+      <article v-for="charge in ledger" :key="charge.id" class="charge">
+        <div><strong>{{ money(charge.total_cents) }}</strong><p>{{ charge.charge_type?.replaceAll('_',' ') || 'Session charge' }} · {{ charge.charge_status }}</p><small v-if="charge.created_at">{{ new Date(charge.created_at).toLocaleDateString() }}</small></div>
+        <button v-if="['PENDING','AUTHORIZED','FAILED'].includes(charge.charge_status)" class="btn btn-primary" :disabled="!!paying" @click="pay(charge)">{{ paying === charge.id ? 'Processing…' : `Pay ${money(charge.total_cents)} with my assigned card` }}</button>
+      </article>
+      <section aria-label="Session credits and subscriptions">
+        <h4>Session credits</h4>
+        <p v-if="accountError" role="alert">{{ accountError }}</p>
+        <p v-if="credits">Individual: {{ credits.individualTokens }} · Group: {{ credits.groupTokens }}</p>
+        <details v-if="creditHistory.length"><summary>Credit history</summary><p v-for="entry in creditHistory" :key="entry.id">{{ entry.token_type }} · {{ entry.direction === 'DEBIT' ? '−' : '+' }}{{ entry.quantity }} · {{ entry.reason_code?.replaceAll('_',' ') }}</p></details>
+        <h4>Your subscriptions</h4>
+        <p v-if="!accountError && !subscriptions.length">No subscriptions on file for your payer account.</p>
+        <article v-for="subscription in subscriptions" :key="subscription.id" class="charge">
+          <div><strong>{{ subscription.plan_name }}</strong><p>{{ subscription.status }}</p></div>
+          <div class="subscription-actions" v-if="['ACTIVE','PAUSED'].includes(subscription.status)">
+            <button v-if="subscription.status === 'ACTIVE'" class="btn btn-secondary" :disabled="!!updatingSubscription" @click="updateSubscription(subscription, 'PAUSED')">Pause subscription</button>
+            <button class="btn btn-secondary" :disabled="!!updatingSubscription" @click="updateSubscription(subscription, 'CANCELLED')">Cancel subscription</button>
           </div>
-        </div>
-        <div v-if="showAddMethod" class="add-method-form">
-          <input v-model="addMethod.brand" class="input" placeholder="Card brand (e.g. Visa)" />
-          <input v-model="addMethod.last4" class="input" placeholder="Last 4 digits" maxlength="4" />
-          <input v-model.number="addMethod.expMonth" type="number" class="input" min="1" max="12" placeholder="MM" />
-          <input v-model.number="addMethod.expYear" type="number" class="input" min="2024" max="2100" placeholder="YYYY" />
-          <button class="btn btn-primary btn-sm" type="button" :disabled="addingMethod" @click="addPlaceholderMethod">
-            {{ addingMethod ? 'Adding…' : 'Save card' }}
-          </button>
-        </div>
-      </div>
-
-      <div class="summary">
-        <div class="summary-item">
-          <div class="k">Outstanding</div>
-          <div class="v">{{ formatMoney(outstandingCents) }}</div>
-        </div>
-        <div class="summary-item">
-          <div class="k">Total charges</div>
-          <div class="v">{{ ledger.length }}</div>
-        </div>
-        <div class="summary-item">
-          <div class="k">Individual tokens</div>
-          <div class="v">{{ tokenBalance.individualTokens }}</div>
-        </div>
-        <div class="summary-item">
-          <div class="k">Group tokens</div>
-          <div class="v">{{ tokenBalance.groupTokens }}</div>
-        </div>
-      </div>
-
-      <div class="card">
-        <div class="payment-head">
-          <div class="payment-title">Subscriptions</div>
-        </div>
-        <div v-if="subscriptions.length === 0" class="hint">No active or historical subscriptions.</div>
-        <div v-else class="subscription-list">
-          <div v-for="s in subscriptions" :key="`sub-${s.id}`" class="pm-item">
-            <div>
-              <strong>{{ s.plan_name || `Plan ${s.plan_id}` }}</strong>
-              <div class="hint">Status: {{ s.status }} • {{ fmtDateTime(s.current_period_start) }} - {{ fmtDateTime(s.current_period_end) }}</div>
-            </div>
-            <div class="pm-actions">
-              <button
-                v-if="String(s.status).toUpperCase() === 'ACTIVE'"
-                class="btn btn-secondary btn-sm"
-                type="button"
-                :disabled="updatingSubscriptionId === Number(s.id)"
-                @click="updateSubscriptionStatus(s.id, 'PAUSED')"
-              >
-                {{ updatingSubscriptionId === Number(s.id) ? 'Updating…' : 'Pause' }}
-              </button>
-              <button
-                v-if="String(s.status).toUpperCase() !== 'CANCELLED'"
-                class="btn btn-secondary btn-sm"
-                type="button"
-                :disabled="updatingSubscriptionId === Number(s.id)"
-                @click="updateSubscriptionStatus(s.id, 'CANCELLED')"
-              >
-                {{ updatingSubscriptionId === Number(s.id) ? 'Updating…' : 'Cancel' }}
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div class="card">
-        <div class="payment-head">
-          <div class="payment-title">Token history</div>
-        </div>
-        <div v-if="tokenLedgerEntries.length === 0" class="hint">No token activity yet.</div>
-        <table v-else class="ledger-table">
-          <thead>
-            <tr>
-              <th>When</th>
-              <th>Type</th>
-              <th>Direction</th>
-              <th>Qty</th>
-              <th>Reason</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="t in tokenLedgerEntries" :key="`tle-${t.id}`">
-              <td>{{ fmtDateTime(t.effective_at || t.created_at) }}</td>
-              <td>{{ t.token_type || 'INDIVIDUAL' }}</td>
-              <td>{{ t.direction || '-' }}</td>
-              <td>{{ t.quantity || 0 }}</td>
-              <td>{{ t.reason_code || '-' }}</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-
-      <div v-if="!ledger.length" class="hint">No charges yet.</div>
-      <table v-else class="ledger-table">
-        <thead>
-          <tr>
-            <th>When</th>
-            <th>Type</th>
-            <th>Status</th>
-            <th>Amount</th>
-            <th>Action</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for="x in ledger" :key="`chg-${x.id}`">
-            <td>{{ fmtDateTime(x.scheduled_start_at || x.created_at) }}</td>
-            <td>{{ String(x.charge_type || 'SESSION_FEE').replaceAll('_', ' ') }}</td>
-            <td>{{ x.charge_status || 'PENDING' }}</td>
-            <td>{{ formatMoney(x.total_cents) }}</td>
-            <td>
-              <button
-                v-if="isPayableStatus(x.charge_status)"
-                class="btn btn-primary btn-sm"
-                type="button"
-                :disabled="payingChargeId === Number(x.id)"
-                @click="payNow(x)"
-              >
-                {{ payingChargeId === Number(x.id) ? 'Processing…' : 'Pay now' }}
-              </button>
-              <span v-else class="hint">—</span>
-            </td>
-          </tr>
-        </tbody>
-      </table>
+        </article>
+      </section>
     </template>
-  </div>
+    <p v-else-if="!loading && !error">Responsible payer: {{ payerNames || 'Not yet designated' }}</p>
+  </section>
 </template>
-
 <script setup>
 import { ref, watch } from 'vue';
 import api from '../../services/api';
-
-const props = defineProps({
-  agencyId: { type: [Number, String], default: null },
-  clientId: { type: [Number, String], default: null }
-});
-
-const loading = ref(false);
-const error = ref('');
-const ledger = ref([]);
-const outstandingCents = ref(0);
-const payingChargeId = ref(0);
-const paymentMethods = ref([]);
-const tokenBalance = ref({ individualTokens: 0, groupTokens: 0 });
-const tokenLedgerEntries = ref([]);
-const subscriptions = ref([]);
-const merchantSetup = ref(null);
-const updatingSubscriptionId = ref(0);
-const showAddMethod = ref(false);
-const addingMethod = ref(false);
-const settingDefaultMethodId = ref(0);
-const addMethod = ref({
-  brand: '',
-  last4: '',
-  expMonth: null,
-  expYear: null
-});
-
-const fmtDateTime = (v) => {
-  if (!v) return '-';
-  const d = new Date(String(v).replace(' ', 'T'));
-  if (Number.isNaN(d.getTime())) return String(v);
-  return d.toLocaleString();
-};
-const formatMoney = (cents) => {
-  const value = Number(cents || 0) / 100;
-  return new Intl.NumberFormat(undefined, { style: 'currency', currency: 'USD' }).format(value);
-};
-const isPayableStatus = (status) => ['PENDING', 'AUTHORIZED', 'FAILED'].includes(String(status || '').toUpperCase());
-
-const payNow = async (charge) => {
-  const aid = Number(props.agencyId || 0);
-  const chargeId = Number(charge?.id || 0);
-  if (!aid || !chargeId) return;
+import { loadStripe } from '@stripe/stripe-js';
+const props = defineProps({agencyId:[Number,String],clientId:[Number,String]});
+const loading=ref(false),error=ref(''),notice=ref(''),access=ref(false),payerNames=ref(''),ledger=ref([]),paying=ref(null);
+const credits=ref(null),creditHistory=ref([]),subscriptions=ref([]),accountError=ref(''),updatingSubscription=ref(null);
+let sequence=0;
+const money=cents=>new Intl.NumberFormat(undefined,{style:'currency',currency:'USD'}).format(Number(cents)/100);
+async function load() {
+  const seq=++sequence;credits.value=null;creditHistory.value=[];subscriptions.value=[];accountError.value='';ledger.value=[];access.value=false;error.value='';payerNames.value='';
+  if(!props.agencyId || !props.clientId)return;
+  loading.value=true;
   try {
-    payingChargeId.value = chargeId;
-    const intent = await api.post('/learning-billing/payments/intent', {
-      agencyId: aid,
-      chargeId
-    });
-    const paymentId = Number(intent?.data?.paymentId || 0);
-    if (!paymentId) throw new Error('Missing payment id');
-    await api.post(`/learning-billing/payments/${paymentId}/attempts`, {
-      status: 'SUCCESS',
-      requestPayload: { source: 'guardian_billing_tab' },
-      responsePayload: { processor: 'PLACEHOLDER' }
-    });
-    await load();
-  } catch (e) {
-    error.value = e.response?.data?.error?.message || 'Payment attempt failed';
-  } finally {
-    payingChargeId.value = 0;
-  }
-};
-
-const loadPaymentMethods = async () => {
-  const aid = Number(props.agencyId || 0);
-  const cid = Number(props.clientId || 0);
-  if (!aid) {
-    paymentMethods.value = [];
-    return;
-  }
+    const overview=await api.get('/guardian-billing/overview',{params:{agencyId:props.agencyId}});
+    if(seq!==sequence)return;
+    const client=overview.data.clients.find(c=>Number(c.clientId)===Number(props.clientId));
+    payerNames.value=(client?.responsiblePayers || []).map(p=>p.name).join(', ');
+    if(!client?.canManageBilling)return;
+    const res=await api.get(`/learning-billing/clients/${props.clientId}/ledger`,{params:{agencyId:props.agencyId}});
+    if(seq!==sequence)return;access.value=true;ledger.value=res.data.ledger || [];
+    const extra=await Promise.allSettled(['tokens','token-ledger','subscriptions'].map(path=>api.get(`/learning-billing/clients/${props.clientId}/${path}`,{params:{agencyId:props.agencyId}})));
+    if(seq!==sequence)return;
+    if(extra[0].status==='fulfilled' && extra[0].value.data.individualTokens !== undefined)credits.value=extra[0].value.data;
+    if(extra[1].status==='fulfilled')creditHistory.value=extra[1].value.data.entries || [];
+    if(extra[2].status==='fulfilled')subscriptions.value=extra[2].value.data.subscriptions || [];
+    if(extra.some(result=>result.status==='rejected'))accountError.value='Some credit or subscription details could not be loaded. Refresh to try again.';
+  } catch(e) {if(seq===sequence)error.value=e.response?.data?.error?.message || 'Charges could not be loaded';}
+  finally {if(seq===sequence)loading.value=false;}
+}
+async function updateSubscription(subscription,status) {
+  if(updatingSubscription.value)return;
+  updatingSubscription.value=subscription.id;const seq=sequence;error.value='';
+  try {await api.post(`/learning-billing/subscriptions/${subscription.id}/status`,{status});if(seq===sequence)await load();}
+  catch(e){if(seq===sequence)error.value=e.response?.data?.error?.message || 'Subscription could not be updated';}
+  finally{updatingSubscription.value=null;}
+}
+async function pay(charge) {
+  if(paying.value)return;paying.value=charge.id;error.value='';notice.value='';const seq=sequence;
   try {
-    const resp = await api.get('/learning-billing/payment-methods', {
-      params: { agencyId: aid, clientId: cid || undefined }
-    });
-    paymentMethods.value = Array.isArray(resp.data?.methods) ? resp.data.methods : [];
-  } catch {
-    paymentMethods.value = [];
+    const payload={agencyId:props.agencyId,chargeId:charge.id,expectedAmountCents:Number(charge.total_cents)};
+    let result=await api.post('/learning-billing/payments/intent',payload);
+    if(seq!==sequence)return;
+    if(result.data.requiresAction){const stripe=await loadStripe(result.data.publishableKey,{stripeAccount:result.data.connectedAccountId});const confirmation=await stripe.confirmCardPayment(result.data.clientSecret,result.data.paymentMethodId ? {payment_method:result.data.paymentMethodId} : {});if(confirmation.error)throw new Error(confirmation.error.message);if(seq!==sequence)return;result=await api.post('/learning-billing/payments/intent',payload);}
+    if(seq!==sequence)return;if(result.data.paid!==true)throw new Error('Payment is not yet confirmed');notice.value='Payment confirmed by Stripe.';await load();
   }
-};
-
-const loadTokenBalance = async () => {
-  const aid = Number(props.agencyId || 0);
-  const cid = Number(props.clientId || 0);
-  if (!aid || !cid) {
-    tokenBalance.value = { individualTokens: 0, groupTokens: 0 };
-    return;
-  }
-  try {
-    const resp = await api.get(`/learning-billing/clients/${cid}/tokens`, { params: { agencyId: aid } });
-    tokenBalance.value = {
-      individualTokens: Number(resp.data?.individualTokens || 0),
-      groupTokens: Number(resp.data?.groupTokens || 0)
-    };
-  } catch {
-    tokenBalance.value = { individualTokens: 0, groupTokens: 0 };
-  }
-};
-
-const loadTokenLedger = async () => {
-  const aid = Number(props.agencyId || 0);
-  const cid = Number(props.clientId || 0);
-  if (!aid || !cid) {
-    tokenLedgerEntries.value = [];
-    return;
-  }
-  try {
-    const resp = await api.get(`/learning-billing/clients/${cid}/token-ledger`, { params: { agencyId: aid } });
-    tokenLedgerEntries.value = Array.isArray(resp.data?.entries) ? resp.data.entries : [];
-  } catch {
-    tokenLedgerEntries.value = [];
-  }
-};
-
-const loadSubscriptions = async () => {
-  const aid = Number(props.agencyId || 0);
-  const cid = Number(props.clientId || 0);
-  if (!aid || !cid) {
-    subscriptions.value = [];
-    return;
-  }
-  try {
-    const resp = await api.get(`/learning-billing/clients/${cid}/subscriptions`, { params: { agencyId: aid } });
-    subscriptions.value = Array.isArray(resp.data?.subscriptions) ? resp.data.subscriptions : [];
-  } catch {
-    subscriptions.value = [];
-  }
-};
-
-const updateSubscriptionStatus = async (subscriptionId, status) => {
-  const sid = Number(subscriptionId || 0);
-  const st = String(status || '').toUpperCase();
-  if (!sid || !st) return;
-  try {
-    updatingSubscriptionId.value = sid;
-    await api.post(`/learning-billing/subscriptions/${sid}/status`, { status: st });
-    await loadSubscriptions();
-  } catch (e) {
-    error.value = e.response?.data?.error?.message || 'Failed to update subscription';
-  } finally {
-    updatingSubscriptionId.value = 0;
-  }
-};
-
-const addPlaceholderMethod = async () => {
-  const aid = Number(props.agencyId || 0);
-  const cid = Number(props.clientId || 0);
-  if (!aid) return;
-  try {
-    addingMethod.value = true;
-    error.value = '';
-    await api.post('/learning-billing/payment-methods/placeholder', {
-      agencyId: aid,
-      ownerClientId: cid || undefined,
-      cardBrand: String(addMethod.value.brand || '').trim(),
-      last4: String(addMethod.value.last4 || '').trim(),
-      expMonth: Number(addMethod.value.expMonth || 0) || undefined,
-      expYear: Number(addMethod.value.expYear || 0) || undefined,
-      isDefault: true
-    });
-    addMethod.value = { brand: '', last4: '', expMonth: null, expYear: null };
-    showAddMethod.value = false;
-    await loadPaymentMethods();
-  } catch (e) {
-    error.value = e.response?.data?.error?.message || 'Failed to save card';
-  } finally {
-    addingMethod.value = false;
-  }
-};
-
-const setDefaultMethod = async (methodId) => {
-  const aid = Number(props.agencyId || 0);
-  const mid = Number(methodId || 0);
-  if (!aid || !mid) return;
-  try {
-    settingDefaultMethodId.value = mid;
-    await api.post(`/learning-billing/payment-methods/${mid}/default`, { agencyId: aid });
-    await loadPaymentMethods();
-  } catch (e) {
-    error.value = e.response?.data?.error?.message || 'Failed to set default card';
-  } finally {
-    settingDefaultMethodId.value = 0;
-  }
-};
-
-const load = async () => {
-  const aid = Number(props.agencyId || 0);
-  const cid = Number(props.clientId || 0);
-  if (!aid || !cid) {
-    ledger.value = [];
-    outstandingCents.value = 0;
-    return;
-  }
-  try {
-    loading.value = true;
-    error.value = '';
-    await loadPaymentMethods();
-    await loadTokenBalance();
-    await loadTokenLedger();
-    await loadSubscriptions();
-    const summary = await api.get('/learning-billing/guardian/summary', {
-      params: { agencyId: aid, clientId: cid }
-    });
-    merchantSetup.value = summary.data?.merchantSetup || null;
-    const r = await api.get(`/learning-billing/clients/${cid}/ledger`, {
-      params: { agencyId: aid }
-    });
-    ledger.value = Array.isArray(r.data?.ledger) ? r.data.ledger : [];
-    outstandingCents.value = ledger.value
-      .filter((x) => ['PENDING', 'AUTHORIZED', 'FAILED'].includes(String(x.charge_status || '').toUpperCase()))
-      .reduce((sum, x) => sum + Number(x.total_cents || 0), 0);
-  } catch (e) {
-    error.value = e.response?.data?.error?.message || 'Failed to load billing';
-    ledger.value = [];
-    outstandingCents.value = 0;
-    merchantSetup.value = null;
-  } finally {
-    loading.value = false;
-  }
-};
-
-watch(() => [props.agencyId, props.clientId], () => {
-  void load();
-}, { immediate: true });
+  catch(e){if(seq===sequence)error.value=e.response?.data?.error?.message || e.message || 'Payment failed';}
+  finally{paying.value=null;}
+}
+watch(()=>[props.agencyId,props.clientId],()=>{notice.value='';void load();},{immediate:true});
 </script>
-
-<style scoped>
-.guardian-billing { display: flex; flex-direction: column; gap: 12px; }
-.card { border: 1px solid var(--border); border-radius: 10px; background: white; padding: 10px; }
-.payment-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
-.payment-title { font-weight: 800; color: var(--text-primary); }
-.payment-list { display: flex; flex-direction: column; gap: 8px; }
-.pm-item { border: 1px solid var(--border); border-radius: 8px; padding: 8px; display: flex; justify-content: space-between; align-items: center; gap: 8px; }
-.pm-actions { display: flex; align-items: center; gap: 8px; }
-.pill-default { display: inline-flex; align-items: center; border: 1px solid rgba(16,185,129,0.4); color: #047857; background: rgba(16,185,129,0.12); border-radius: 999px; padding: 2px 8px; font-size: 11px; font-weight: 700; }
-.add-method-form { display: grid; grid-template-columns: 1.3fr 1fr 0.6fr 0.8fr auto; gap: 8px; margin-top: 8px; }
-.input { border: 1px solid var(--border); border-radius: 8px; padding: 8px; font-size: 13px; }
-.billing-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
-.billing-title { font-weight: 800; color: var(--text-primary); }
-.billing-sub { color: var(--text-secondary); font-size: 13px; }
-.hint { color: var(--text-secondary); }
-.error { color: #b91c1c; }
-.summary { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
-.summary-item { border: 1px solid var(--border); border-radius: 10px; padding: 10px; background: white; }
-.k { color: var(--text-secondary); font-size: 12px; }
-.v { font-weight: 800; color: var(--text-primary); margin-top: 4px; }
-.ledger-table { width: 100%; border-collapse: collapse; background: white; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
-.ledger-table th, .ledger-table td { padding: 8px; border-bottom: 1px solid var(--border); text-align: left; font-size: 13px; }
-.ledger-table th { background: var(--bg-alt); font-weight: 800; color: var(--text-primary); }
-</style>
+<style scoped>.guardian-ledger{display:grid;gap:14px}.charge{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:14px;padding:18px;border:1px solid #cbd5e1;border-radius:10px;background:white}p[role=alert]{color:#b91c1c}.charge p{margin:6px 0}.subscription-actions{display:flex;flex-wrap:wrap;gap:8px}</style>

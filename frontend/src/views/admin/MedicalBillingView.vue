@@ -2,6 +2,7 @@
   <div class="mb-page">
     <header class="mb-header">
       <h1>Medical Billing</h1>
+      <router-link :to="{name: 'FamilyBillingDesk',params:{organizationSlug:agencyStore.currentAgency?.slug},query:{agencyId}}">Family balances, payment setup & collections →</router-link>
       <p class="muted">
         Chart, signing, claims, and Claim.MD — only available when Medical Billing flags are enabled for this organization.
       </p>
@@ -256,6 +257,7 @@
           <li v-for="c in claims" :key="c.id">
             #{{ c.id }}
             <span class="mb-ready" :class="claimLifecycleClass(c)">{{ c.claim_lifecycle || c.claim_status }}</span>
+            <span v-if="c.familyResponsibility" class="muted">Family balance #{{ c.familyResponsibility.id }}: ${{ ((c.familyResponsibility.amount_cents-c.familyResponsibility.paid_cents)/100).toFixed(2) }} remaining · {{ c.familyResponsibility.status }}</span>
             — {{ formatCents(c.amount_cents) }}
             <span v-if="c.date_of_service"> · DOS {{ String(c.date_of_service).slice(0, 10) }}</span>
             <span v-if="c.place_of_service"> · POS {{ c.place_of_service }}</span>

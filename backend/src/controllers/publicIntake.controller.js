@@ -1,3 +1,8 @@
+import { validateIntakeBilling } from '../services/intakeBillingValidation.service.js';
+import { matchesIntakeSession } from '../middleware/intakeBillingSession.middleware.js';
+import { createFamilyCardSetup, completeFamilyCardSetup } from '../services/familyCardSetup.service.js';
+import { BILLING_TERMS, BILLING_TERMS_VERSION } from '../services/familyBillingPolicy.service.js';
+import { insuranceForIntakeClient, applySubmittedClientInsurance } from '../services/clientInsurance.service.js';
 import { validationResult } from 'express-validator';
 import crypto from 'crypto';
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
@@ -1608,126 +1613,30 @@ const persistChildIntakeData = async ({
       || intakeData?.responses?.submission?.insuranceInfo
       || intakeData?.submission?.insuranceInfo
       || null;
-    const primaryInsurerName = String(insuranceInfo?.primary?.insurerName || '').trim();
-    const memberId = String(insuranceInfo?.primary?.memberId || '').trim();
-    const groupNumber = String(insuranceInfo?.primary?.groupNumber || '').trim();
-    const subscriberName = String(insuranceInfo?.primary?.subscriberName || '').trim();
-    if (primaryInsurerName || memberId || groupNumber || subscriberName) {
-      const cols = [];
-      const vals = [];
-      if (primaryInsurerName) {
-        cols.push('primary_insurer_name = ?');
-        vals.push(primaryInsurerName.slice(0, 255));
+    const [clientRows] = await pool.execute('SELECT agency_id, date_of_birth, gender, address_street, address_apt, address_city, address_state, address_zip FROM clients WHERE id = ?', [cid]);
+    const agencyId = Number(clientRows[0]?.agency_id || 0);
+    const sourceSubmission = submissionId ? await IntakeSubmission.findById(submissionId) : null;
+    const guardianUserId = Number(sourceSubmission?.guardian_user_id || 0);
+    const clientCount = Math.max(1, normalizedForInsurance?.responses?.clients?.length || normalizedForInsurance?.clients?.length || 1);
+    const coverage = insuranceForIntakeClient(insuranceInfo, clientIndex, clientCount);
+    if (coverage && agencyId) {
+      let profileId = null;
+      if (guardianUserId) {
+        profileId = await GuardianInsuranceProfile.upsert({ guardianUserId, clientId: cid, agencyId,
+          intakeSubmissionId: submissionId, ...coverage });
+        await pool.execute('INSERT IGNORE INTO guardian_insurance_clients (profile_id, client_id, agency_id, confirmed_by_user_id) VALUES (?, ?, ?, ?)', [profileId, cid, agencyId, guardianUserId]);
       }
-      if (memberId) {
-        cols.push('insurance_member_id = ?');
-        vals.push(memberId.slice(0, 128));
-      }
-      if (groupNumber) {
-        cols.push('insurance_group_number = ?');
-        vals.push(groupNumber.slice(0, 128));
-      }
-      if (subscriberName) {
-        cols.push('insurance_subscriber_name = ?');
-        vals.push(subscriberName.slice(0, 255));
-      }
-      if (primaryInsurerName) {
-        try {
-          let agencyForMatch = Number(
-            normalizedForInsurance?.agencyId
-            || intakeData?.agencyId
-            || normalizedForInsurance?.responses?.submission?.agencyId
-            || 0
-          );
-          if (!agencyForMatch) {
-            const [crow] = await pool.execute(`SELECT agency_id FROM clients WHERE id = ? LIMIT 1`, [cid]);
-            agencyForMatch = Number(crow?.[0]?.agency_id || 0);
-          }
-          if (agencyForMatch) {
-            const { resolveInsuranceTypeIdForAgency } = await import('../utils/resolveInsuranceTypeId.js');
-            const typeId = await resolveInsuranceTypeIdForAgency(agencyForMatch, primaryInsurerName);
-            if (typeId) {
-              cols.push('insurance_type_id = COALESCE(insurance_type_id, ?)');
-              vals.push(typeId);
-            }
-          }
-        } catch {
-          /* insurance_types / agency lookup optional */
-        }
-      }
-      if (cols.length) {
-        vals.push(cid);
-        await pool.execute(`UPDATE clients SET ${cols.join(', ')} WHERE id = ?`, vals);
-        result.insurerPersisted = true;
-      }
-    }
-    const identity = insuranceInfo?.identity;
-    if (identity && typeof identity === 'object') {
-      const status = identity.verified === true
-        ? 'verified'
-        : identity.skipped
-          ? 'skipped'
-          : 'submitted';
-      await pool.execute(
-        `UPDATE clients
-            SET identity_verification_status = ?,
-                identity_verified_at = CASE WHEN ? = 'verified' THEN NOW() ELSE identity_verified_at END
-          WHERE id = ?`,
-        [status, status, cid]
-      );
-    }
-    let agencyId = Number(
-      normalizedForInsurance?.agencyId
-      || intakeData?.agencyId
-      || normalizedForInsurance?.responses?.submission?.agencyId
-      || intakeData?.responses?.submission?.agencyId
-      || 0
-    );
-    let guardianUserId = Number(
-      normalizedForInsurance?.guardianUserId
-      || intakeData?.guardianUserId
-      || normalizedForInsurance?.responses?.submission?.guardianUserId
-      || intakeData?.responses?.submission?.guardianUserId
-      || 0
-    );
-    if (!agencyId || !guardianUserId) {
-      try {
-        const [crow] = await pool.execute(
-          `SELECT agency_id FROM clients WHERE id = ? LIMIT 1`,
-          [cid]
-        );
-        if (!agencyId) agencyId = Number(crow?.[0]?.agency_id || 0);
-      } catch {
-        /* optional */
-      }
-    }
-    if (!guardianUserId) {
-      try {
-        const [grows] = await pool.execute(
-          `SELECT guardian_user_id FROM client_guardians WHERE client_id = ? ORDER BY id ASC LIMIT 1`,
-          [cid]
-        );
-        guardianUserId = Number(grows?.[0]?.guardian_user_id || 0);
-      } catch {
-        /* optional */
-      }
-    }
-    if (agencyId && guardianUserId && insuranceInfo?.primary) {
-      try {
-        await GuardianInsuranceProfile.upsert({
-          guardianUserId,
-          clientId: cid,
-          agencyId,
-          intakeSubmissionId: submissionId || null,
-          primary: insuranceInfo.primary || {},
-          secondary: insuranceInfo.secondary || null,
-          primaryCardFrontUrl: insuranceInfo.primary_front_url || null,
-          primaryCardBackUrl: insuranceInfo.primary_back_url || null,
-          secondaryCardFrontUrl: insuranceInfo.secondary_front_url || null,
-          secondaryCardBackUrl: insuranceInfo.secondary_back_url || null
-        });
-      } catch (profileErr) {
-        console.warn('[publicIntake] GuardianInsuranceProfile upsert failed', profileErr?.message || profileErr);
+      const person = normalizedForInsurance?.responses?.clients?.[clientIndex] || normalizedForInsurance?.clients?.[clientIndex] || {};
+      const demographics = clientRows[0] || {};
+      await applySubmittedClientInsurance({ clientId: cid, agencyId, ...coverage, profileId, confirmedBy: guardianUserId || null,
+        patient: { firstName: person.firstName || person.legalFirstName || '', lastName: person.lastName || person.legalLastName || '',
+          dateOfBirth: normalizeDateOnly(demographics.date_of_birth) || '', sex: ['M','F','U'].includes(demographics.gender) ? demographics.gender : '',
+          addressLine1: demographics.address_street, addressLine2: demographics.address_apt, city: demographics.address_city, state: demographics.address_state, postalCode: demographics.address_zip } });
+      result.insurerPersisted = true;
+      if (coverage.primary.insurerName) {
+        const { resolveInsuranceTypeIdForAgency } = await import('../utils/resolveInsuranceTypeId.js');
+        const typeId = await resolveInsuranceTypeIdForAgency(agencyId, coverage.primary.insurerName);
+        if (typeId) await pool.execute('UPDATE clients SET insurance_type_id = COALESCE(insurance_type_id, ?) WHERE id = ?', [typeId, cid]);
       }
     }
 
@@ -1777,8 +1686,9 @@ const persistChildIntakeData = async ({
     } catch (pkgErr) {
       console.warn('[publicIntake] package entitlement from intake failed', pkgErr?.message || pkgErr);
     }
-  } catch {
-    // insurance columns may not exist yet (migration pending) — non-fatal.
+  } catch (error) {
+    console.error('[publicIntake] insurance persistence failed', {clientId:cid,submissionId});
+    throw error;
   }
 
   // 4) Auto-mark the Document Status checklist as RECEIVED. Intake completion
@@ -7539,6 +7449,12 @@ export const finalizePublicIntake = async (req, res, next) => {
     if (!submission || submission.intake_link_id !== link.id) {
       return res.status(404).json({ error: { message: 'Submission not found' } });
     }
+    const billingSteps = (Array.isArray(link.intake_steps) ? link.intake_steps : []).some(step => ['insurance_info','payment_collection'].includes(step.type));
+    if (billingSteps) {
+      if (!matchesIntakeSession(String(req.body?.sessionToken || req.headers['x-intake-session'] || ''), submission.session_token)) return res.status(403).json({ error: { message: 'A valid intake session is required' } });
+      if (String(submission.status) !== 'submitted') await validateIntakeBilling({ link, submission, intakeData: req.body?.intakeData || submission.intake_data, agencyId: await resolveAgencyIdForLink(link) });
+    }
+
     const allAllowedTemplates = await loadAllowedTemplates(link);
     const isEmbeddedSmartRoiFinalize = Boolean(
       hasProgrammedSchoolRoiStep(link)
@@ -10461,6 +10377,12 @@ export const submitPublicIntake = async (req, res, next) => {
     if (!submission || submission.intake_link_id !== link.id) {
       return res.status(404).json({ error: { message: 'Submission not found' } });
     }
+    const billingSteps = (Array.isArray(link.intake_steps) ? link.intake_steps : []).some(step => ['insurance_info','payment_collection'].includes(step.type));
+    if (billingSteps) {
+      if (!matchesIntakeSession(String(req.body?.sessionToken || req.headers['x-intake-session'] || ''), submission.session_token)) return res.status(403).json({ error: { message: 'A valid intake session is required' } });
+      if (String(submission.status) !== 'submitted') await validateIntakeBilling({ link, submission, intakeData: req.body?.intakeData || submission.intake_data, agencyId: await resolveAgencyIdForLink(link) });
+    }
+
 
     // Idempotent retry: if already submitted, return existing result (no duplicate work, no data loss).
     // Multi-child submissions intentionally have no combined bundle (each child gets a fully isolated
@@ -12126,6 +12048,7 @@ export const uploadIntakeFiles = async (req, res, next) => {
       return res.status(400).json({ error: { message: 'No files uploaded' } });
     }
 
+    if (!DocumentEncryptionService.isConfigured()) return res.status(503).json({error:{message:'Encrypted document storage is not available. Please contact the office.'}});
     const pool = (await import('../config/database.js')).default;
     try {
       const [existing] = await pool.execute(
@@ -12151,9 +12074,6 @@ export const uploadIntakeFiles = async (req, res, next) => {
 
     const saved = [];
     const useEncryption = DocumentEncryptionService.isConfigured();
-    if (!useEncryption && process.env.NODE_ENV === 'production') {
-      console.warn('Intake uploads stored unencrypted: REFERRAL_KMS_KEY or DOCUMENTS_KMS_KEY not configured');
-    }
 
     for (const f of files) {
       if (!f?.buffer) continue;
@@ -12342,18 +12262,18 @@ export const verifyIntakeIdentity = async (req, res, next) => {
 
     const bucket = await StorageService.getGCSBucket();
     const useEncryption = DocumentEncryptionService.isConfigured();
-    const objectPath = `intake-identity/${submissionId}/id-${Date.now()}.jpg`;
+    if (!bucket || !useEncryption) return res.status(503).json({ error: { message: 'Encrypted document storage is unavailable' } });
+    const objectPath = `intake-identity/${submissionId}/id-${crypto.randomUUID()}.enc`;
     let imageUrl = null;
     if (bucket) {
       const gcsFile = bucket.file(objectPath);
       let fileBuffer = file.buffer;
       let saveMimeType = file.mimetype || 'image/jpeg';
-      let metadata = { intakeSubmissionId: String(submissionId), kind: 'identity_id' };
+      let metadata = { intakeSubmissionId: String(submissionId), kind: 'identity_id', originalMimeType:file.mimetype };
       if (useEncryption) {
         const aad = JSON.stringify({
           intakeSubmissionId: submissionId,
-          kind: 'identity_id',
-          filename: String(file.originalname || 'identity-id').slice(0, 255)
+          kind: 'identity_id'
         });
         const encResult = await DocumentEncryptionService.encryptBuffer(file.buffer, { aad });
         fileBuffer = encResult.encryptedBuffer;
@@ -12369,7 +12289,7 @@ export const verifyIntakeIdentity = async (req, res, next) => {
           encryptionAad: aad
         };
       }
-      await gcsFile.save(fileBuffer, { contentType: saveMimeType, metadata });
+      await gcsFile.save(fileBuffer, { contentType: saveMimeType, metadata: { metadata } });
       imageUrl = `gs://${bucket.name}/${objectPath}`;
     }
 
@@ -12434,75 +12354,12 @@ export const issuePublicIntakePortalCredentials = async (req, res, next) => {
       return res.status(400).json({ error: { message: 'Guardian email is required to create portal login details.' } });
     }
 
-    const profile = {
-      email,
-      firstName: String(guardian.firstName || submission.signer_name || 'Guardian').trim() || 'Guardian',
-      lastName: String(guardian.lastName || '').trim(),
-      phone: String(guardian.phone || '').trim() || null,
-      relationship: String(guardian.relationship || 'Guardian').trim() || 'Guardian'
-    };
-
-    let clientId = Number(boundClient?.id || 0);
-    if (!clientId) {
-      try {
-        const rows = await IntakeSubmissionClient.listBySubmissionId(submissionId);
-        clientId = Number(rows?.[0]?.client_id || 0);
-      } catch {
-        clientId = 0;
-      }
-    }
-    let guardianUser = await User.findByEmail(email);
-    if (guardianUser && String(guardianUser.role || '').toLowerCase() !== 'client_guardian') {
-      return res.json({
-        username: email,
-        temporaryPassword: null,
-        expiresAt: null,
-        portalLoginUrl: buildPublicPortalLoginUrl(agency),
-        setPasswordUrl: null,
-        note: 'An account already exists for this email. Use password recovery if you need a new temporary password.'
-      });
-    }
-    if (!guardianUser) {
-      guardianUser = await User.create({
-        email,
-        passwordHash: null,
-        firstName: profile.firstName,
-        lastName: profile.lastName,
-        phoneNumber: profile.phone,
-        personalEmail: email,
-        role: 'client_guardian',
-        status: 'PENDING_SETUP'
-      });
-    }
-    if (clientId) {
-      await ensureGuardianAccountLinkedForClient({
-        clientId,
-        profile,
-        accessEnabled: true
-      });
-    } else if (agency?.id) {
-      try {
-        await pool.execute(
-          `INSERT INTO user_agencies (user_id, agency_id)
-           VALUES (?, ?)
-           ON DUPLICATE KEY UPDATE user_id = user_id`,
-          [Number(guardianUser.id), Number(agency.id)]
-        );
-      } catch {
-        /* best effort */
-      }
-    }
-
-    const temporaryPassword = await User.generateTemporaryPassword();
-    const pwResult = await User.setTemporaryPassword(Number(guardianUser.id), temporaryPassword, 24 * 7);
-    const tokenResult = await User.generatePasswordlessToken(Number(guardianUser.id), 24 * 7, 'setup');
-
+    // Possession of an intake session is not proof of ownership of the email
+    // entered on it. Never reset a guardian password or return login tokens here.
     return res.json({
-      username: email,
-      temporaryPassword,
-      expiresAt: pwResult?.expiresAt ? new Date(pwResult.expiresAt).toISOString() : null,
-      portalLoginUrl: buildPublicPortalLoginUrl(agency),
-      setPasswordUrl: buildPublicPasswordlessLoginUrl(agency, tokenResult.token)
+      username: email, temporaryPassword: null, expiresAt: null,
+      portalLoginUrl: buildPublicPortalLoginUrl(agency), setPasswordUrl: null,
+      note: 'Sign in to your guardian account or use the verified email recovery flow to set your password.'
     });
   } catch (error) {
     next(error);
@@ -12523,30 +12380,31 @@ export const saveInsuranceCardPhotos = async (req, res, next) => {
       return res.status(404).json({ error: { message: 'Submission not found' } });
     }
 
-    const files = Array.isArray(req.files) ? req.files : (req.file ? [req.file] : []);
+    const files = Array.isArray(req.files) ? req.files : Object.values(req.files || {}).flat();
     const ALLOWED_SLOTS = new Set(['primary_front', 'primary_back', 'secondary_front', 'secondary_back']);
+    const clientIndex = req.body?.clientIndex == null ? null : Number(req.body.clientIndex);
+    if (clientIndex !== null && (!Number.isInteger(clientIndex) || clientIndex < 0 || clientIndex > 29)) return res.status(400).json({ error: { message: 'Invalid client index' } });
     const urls = {};
     const extracted = { primary: null, secondary: null };
     const bucket = await StorageService.getGCSBucket();
     const useEncryption = DocumentEncryptionService.isConfigured();
-    if (!useEncryption && process.env.NODE_ENV === 'production') {
-      console.warn('Insurance card uploads stored unencrypted: REFERRAL_KMS_KEY or DOCUMENTS_KMS_KEY not configured');
-    }
+    if (!bucket || !useEncryption) return res.status(503).json({ error: { message: 'Encrypted document storage is unavailable. Please try again later.' } });
+    if (!files.length) return res.status(400).json({ error: { message: 'Select an insurance card image' } });
 
     for (const f of files) {
       const slot = f.fieldname;
       if (!ALLOWED_SLOTS.has(slot) || !f?.buffer) continue;
-      const ext = (f.originalname || '').split('.').pop().toLowerCase() || 'jpg';
-      const key = `intake-insurance/${submissionId}/${slot}.${ext}`;
+      if (!['image/jpeg', 'image/png', 'application/pdf'].includes(f.mimetype)) return res.status(400).json({ error: { message: 'Use a JPEG, PNG, or PDF insurance card' } });
+      const key = `intake-insurance/${submissionId}/${clientIndex === null ? "" : `client-${clientIndex}/`}${slot}-${crypto.randomUUID()}.enc`;
       const gcsFile = bucket.file(key);
       let fileBuffer = f.buffer;
       let saveMimeType = f.mimetype || 'image/jpeg';
-      let metadata = { intakeSubmissionId: String(submissionId), slot };
+      let metadata = { intakeSubmissionId: String(submissionId), slot, originalMimeType: f.mimetype };
       if (useEncryption) {
         const aad = JSON.stringify({
           intakeSubmissionId: submissionId,
           slot,
-          filename: String(f.originalname || f.name || `insurance-${slot}`).slice(0, 255)
+          clientIndex
         });
         const encResult = await DocumentEncryptionService.encryptBuffer(f.buffer, { aad });
         fileBuffer = encResult.encryptedBuffer;
@@ -12564,10 +12422,9 @@ export const saveInsuranceCardPhotos = async (req, res, next) => {
       }
       await gcsFile.save(fileBuffer, {
         contentType: saveMimeType,
-        metadata
+        metadata: { metadata }
       });
-      // Build a public-accessible signed URL valid for 7 years (or use bucket-level public access).
-      // For now, return the GCS path; the app can generate signed URLs on read.
+      // Private object reference only; never a public or long-lived signed URL.
       urls[`${slot}_url`] = `gs://${bucket.name}/${key}`;
 
       // OCR best-effort: parse card text to prefill insurer/member/group/subscriber fields.
@@ -12614,189 +12471,27 @@ const resolveAgencyIdForLink = async (link) => {
   return agencyId;
 };
 
-/**
- * Ensure a guardian `users` row exists for this in-progress submission so the
- * payment-collection step can attach a Stripe customer / QuickBooks profile
- * BEFORE the user has completed the final intake submit.
- *
- * Previously the payment step required `submission.guardian_user_id` (only
- * populated at final submit) or `User.findByEmail(signer_email)`. For brand
- * new families signing up for the first time, neither was true, so the user
- * always saw "Guardian account not yet established" — which was accurate but
- * a UX dead end.
- *
- * This helper is safe to call repeatedly; it is a no-op when the guardian
- * already exists. It also affiliates the guardian to the correct tenant
- * (user_agencies) so Guardians admin view can see them immediately.
- */
+/** Bind a submission-scoped card owner without granting access to an existing
+ * account, wallet, or client based on the email entered on a public form. */
 const ensureEarlyGuardianForPayment = async (submission, link, agencyId) => {
-  if (!submission) return { guardianUserId: null, guardianEmail: null, guardianName: null };
-
-  const intakeData = (() => {
-    const raw = submission.intake_data;
-    if (!raw) return {};
-    if (typeof raw === 'string') { try { return JSON.parse(raw); } catch { return {}; } }
-    return (raw && typeof raw === 'object') ? raw : {};
-  })();
-
-  const guardianBlock = (intakeData && typeof intakeData === 'object' && intakeData.guardian && typeof intakeData.guardian === 'object')
-    ? intakeData.guardian
-    : {};
-  const email = String(
-    guardianBlock.email
-      || intakeData?.signerInfo?.email
-      || submission.signer_email
-      || ''
-  ).trim().toLowerCase();
-
-  // Existing guardian path
-  let guardianUserId = Number(submission.guardian_user_id || 0) || null;
-  let guardianName = null;
-  if (!guardianUserId && email) {
-    const userRow = await User.findByEmail(email);
-    if (userRow?.id) {
-      guardianUserId = userRow.id;
-      guardianName = `${userRow.first_name || ''} ${userRow.last_name || ''}`.trim() || null;
-    }
+  if (!submission) return { guardianUserId:null };
+  const raw=submission.intake_data;
+  const data=typeof raw==='string' ? JSON.parse(raw) : (raw || {});
+  const guardian=data.guardian || {};
+  const email=String(guardian.email || data.signerInfo?.email || submission.signer_email || '').trim().toLowerCase();
+  if(!email)return {guardianUserId:null};
+  let user=submission.guardian_user_id ? await User.findById(submission.guardian_user_id) : await User.findByEmail(email);
+  const firstName=String(guardian.firstName || submission.signer_name || 'Guardian').trim().split(/\s+/)[0];
+  const lastName=String(guardian.lastName || '').trim();
+  if(!user){
+    try {user=await User.create({email,passwordHash:null,firstName,lastName,phoneNumber:guardian.phone || submission.signer_phone || null,personalEmail:email,role:'client_guardian',status:'ACTIVE_EMPLOYEE'});}
+    catch(e){user=await User.findByEmail(email);if(!user)throw e;}
   }
-
-  // Fall through: auto-provision when we have enough to identify them
-  if (!guardianUserId && email) {
-    const firstName = String(guardianBlock.firstName || submission.signer_name || '').split(/\s+/)[0]?.trim() || 'Guardian';
-    const lastParts = String(guardianBlock.lastName || submission.signer_name || '').trim().split(/\s+/);
-    const lastName = guardianBlock.lastName ? String(guardianBlock.lastName).trim() : (lastParts.length > 1 ? lastParts.slice(1).join(' ') : '');
-    const phoneNumber = String(guardianBlock.phone || submission.signer_phone || '').trim() || null;
-    try {
-      const created = await User.create({
-        email,
-        passwordHash: null,
-        firstName,
-        lastName,
-        phoneNumber,
-        personalEmail: email,
-        role: 'client_guardian',
-        status: 'ACTIVE_EMPLOYEE'
-      });
-      guardianUserId = created?.id || null;
-      guardianName = `${firstName} ${lastName}`.trim() || null;
-    } catch (err) {
-      console.warn('[publicIntake.payment] early guardian provisioning failed', {
-        submissionId: submission.id,
-        email,
-        message: err?.message || err
-      });
-      // Race condition — someone just created this email. Re-read.
-      const again = await User.findByEmail(email);
-      guardianUserId = again?.id || null;
-      guardianName = again ? `${again.first_name || ''} ${again.last_name || ''}`.trim() || null : null;
-    }
-  }
-
-  if (guardianUserId) {
-    // Persist the link so subsequent payment-card calls skip this provisioning.
-    if (!submission.guardian_user_id) {
-      try {
-        await IntakeSubmission.updateById(submission.id, { guardian_user_id: guardianUserId });
-      } catch (err) {
-        console.warn('[publicIntake.payment] submission guardian link persist failed', {
-          submissionId: submission.id,
-          guardianUserId,
-          message: err?.message || err
-        });
-      }
-    }
-    // Tenant scoping so Guardians admin sees them even if they abandon intake.
-    if (agencyId) {
-      try {
-        await pool.execute(
-          `INSERT INTO user_agencies (user_id, agency_id)
-           VALUES (?, ?)
-           ON DUPLICATE KEY UPDATE user_id = user_id`,
-          [guardianUserId, agencyId]
-        );
-      } catch (err) {
-        console.warn('[publicIntake.payment] user_agencies affiliation failed', {
-          guardianUserId,
-          agencyId,
-          message: err?.message || err
-        });
-      }
-    }
-
-    // Parent feedback: "it creates a guardian account, but maybe not until the
-    // end… therefore it should be adding to the guardian's account info in
-    // the process and then post to their profile when created." Persist
-    // whatever guardian fields we have so far (signer name + email + phone,
-    // plus any guardian-block data already typed) onto every client attached
-    // to this submission. The Overview tab's "Guardian (latest intake)" card
-    // then fills in as the user progresses, instead of only after final
-    // submit. Runs best-effort so a profile write failure never blocks the
-    // payment step.
-    try {
-      const subClients = await IntakeSubmissionClient.listBySubmissionId(submission.id);
-      for (const sc of subClients || []) {
-        const cidCandidate = Number(sc?.client_id || 0) || null;
-        if (!cidCandidate) continue;
-        try {
-          await persistGuardianProfileForClient({
-            clientId: cidCandidate,
-            payload: {
-              // Let extractGuardianProfileFromPayload pull from the signer_*
-              // submission columns via the `submission` arg — no need to
-              // synthesize a guardian object here.
-            },
-            intakeData,
-            submission,
-            source: 'payment_step_early_provision'
-          });
-        } catch (profileErr) {
-          console.warn('[publicIntake.payment] mid-flow guardian profile persist failed', {
-            submissionId: submission.id,
-            clientId: cidCandidate,
-            message: profileErr?.message || profileErr
-          });
-        }
-      }
-
-      // Keep the users row in sync with whatever guardian info we've now
-      // seen. For the first-time-payment race the phone and last name may
-      // have been blank when the user was created; fill them in lazily.
-      try {
-        // Only overwrite fields that are currently blank on the users row so
-        // we never clobber data a guardian typed directly into their account
-        // after the fact. We write via raw SQL (instead of User.update) to
-        // avoid the role-change / audit plumbing in the model layer — this
-        // is a passive data sync, not an admin mutation.
-        const phoneNumber = String(guardianBlock?.phone || submission.signer_phone || '').trim() || null;
-        const nameParts = guardianName ? guardianName.split(/\s+/) : [];
-        const firstCandidate = nameParts[0] || null;
-        const lastCandidate = nameParts.length > 1 ? nameParts.slice(1).join(' ') : null;
-        if (phoneNumber || firstCandidate || lastCandidate) {
-          await pool.execute(
-            `UPDATE users
-             SET
-               phone_number = COALESCE(NULLIF(TRIM(phone_number), ''), ?),
-               first_name  = COALESCE(NULLIF(TRIM(first_name), ''),  ?),
-               last_name   = COALESCE(NULLIF(TRIM(last_name), ''),   ?)
-             WHERE id = ?`,
-            [phoneNumber, firstCandidate, lastCandidate, guardianUserId]
-          );
-        }
-      } catch (userSyncErr) {
-        console.warn('[publicIntake.payment] user row sync skipped', {
-          guardianUserId,
-          message: userSyncErr?.message || userSyncErr
-        });
-      }
-    } catch (listErr) {
-      console.warn('[publicIntake.payment] mid-flow profile sync — submission clients lookup failed', {
-        submissionId: submission.id,
-        message: listErr?.message || listErr
-      });
-    }
-  }
-
-  return { guardianUserId, guardianEmail: email || null, guardianName };
+  if(!user?.id || String(user.role).toLowerCase()!=='client_guardian') throw Object.assign(new Error('Use your guardian account to continue payment setup'),{status:403});
+  // A public email match may bind this submission's new card, but never edits
+  // the existing user's identity, password, agency access, or family links.
+  if(!submission.guardian_user_id)await IntakeSubmission.updateById(submission.id,{guardian_user_id:user.id});
+  return {guardianUserId:user.id,guardianEmail:email,guardianName:[firstName,lastName].filter(Boolean).join(' ')};
 };
 
 /**
@@ -12953,24 +12648,9 @@ export const createStripeSetupIntent = async (req, res, next) => {
       });
     }
 
-    const customer = await StripePaymentsService.ensureCustomer({
-      guardianUserId,
-      agencyId,
-      email: guardianEmail,
-      name: guardianName,
-      connectedAccountId
-    });
-
-    const setupIntent = await StripePaymentsService.createSetupIntent({
-      customerId: customer.id,
-      connectedAccountId
-    });
-
-    res.json({
-      clientSecret: setupIntent.client_secret,
-      customerId: customer.id,
-      connectedAccountId
-    });
+    const setup = await createFamilyCardSetup({ agencyId, userId: guardianUserId, submissionId,
+      email: guardianEmail, name: guardianName, connectedAccountId });
+    res.json({ ...setup, terms: BILLING_TERMS, termsVersion: BILLING_TERMS_VERSION });
   } catch (error) {
     next(error);
   }
@@ -12978,17 +12658,12 @@ export const createStripeSetupIntent = async (req, res, next) => {
 
 /**
  * POST /:publicKey/:submissionId/payment-card
- * Attach a confirmed Stripe PaymentMethod (or fall back to QuickBooks Payments).
- *
- * Stripe flow (preferred):
- *   Frontend sends { stripePaymentMethodId, stripeCustomerId, autoCharge }
- *   — raw card numbers never reach this server.
- *
- * QB Payments fallback (legacy):
- *   Frontend sends { card: { number, expMonth, expYear, cvc }, autoCharge }
+ * Save only an owner-bound, confirmed Stripe SetupIntent.
+ * The browser cannot select a Stripe customer or enable recurring charges here.
  */
 export const saveGuardianPaymentCard = async (req, res, next) => {
   try {
+    if (req.body?.card) return res.status(400).json({ error: { message: 'Raw card data is not accepted. Use the secure Stripe form.' } });
     const publicKey = String(req.params.publicKey || '').trim();
     const submissionId = parseInt(req.params.submissionId, 10);
     if (!submissionId) {
@@ -13021,100 +12696,9 @@ export const saveGuardianPaymentCard = async (req, res, next) => {
       });
     }
 
-    const autoCharge = req.body?.autoCharge === true || req.body?.autoCharge === 'true';
-    const stripePaymentMethodId = String(req.body?.stripePaymentMethodId || '').trim() || null;
-    const stripeCustomerId = String(req.body?.stripeCustomerId || '').trim() || null;
-
-    // ── Stripe path ────────────────────────────────────────────────────────────
-    if (stripePaymentMethodId && stripeCustomerId) {
-      const connectedAccountId = await getAgencyStripeConnectAccountId(agencyId);
-      let pm;
-      try {
-        pm = await StripePaymentsService.attachPaymentMethod({
-          customerId: stripeCustomerId,
-          paymentMethodId: stripePaymentMethodId,
-          connectedAccountId
-        });
-      } catch (stripeErr) {
-        const msg = stripeErr?.message || 'Card could not be saved';
-        return res.status(422).json({ error: { message: `Card declined or invalid: ${msg}` } });
-      }
-
-      const cardDetails = pm.card || {};
-      const last4 = String(cardDetails.last4 || '');
-      const brand = String(cardDetails.brand || 'Card');
-      const expMonth = cardDetails.exp_month ? String(cardDetails.exp_month).padStart(2, '0') : null;
-      const expYear = cardDetails.exp_year ? String(cardDetails.exp_year) : null;
-
-      await GuardianPaymentCard.create({
-        guardianUserId,
-        agencyId,
-        paymentProvider: 'STRIPE',
-        stripeCustomerId,
-        stripePaymentMethodId: stripePaymentMethodId,
-        qbPaymentCustomerId: null,
-        qbCardId: null,
-        cardBrand: brand,
-        cardLast4: last4,
-        cardExpMonth: expMonth,
-        cardExpYear: expYear,
-        cardholderName: pm.billing_details?.name || null,
-        autoCharge,
-        isDefault: true,
-        intakeSubmissionId: submissionId
-      });
-
-      return res.json({ success: true, last4, brand, stripePaymentMethodId, autoCharge });
-    }
-
-    // ── QuickBooks Payments fallback ───────────────────────────────────────────
-    const cardPayload = req.body?.card;
-    if (!cardPayload?.number || !cardPayload?.expMonth || !cardPayload?.expYear || !cardPayload?.cvc) {
-      return res.status(400).json({ error: { message: 'Complete card details are required' } });
-    }
-
-    let qbResult;
-    try {
-      qbResult = await QuickBooksPaymentsService.createCard({
-        agencyId,
-        card: {
-          name: cardPayload.name || null,
-          number: String(cardPayload.number).replace(/[^\d]/g, ''),
-          expMonth: String(cardPayload.expMonth),
-          expYear: String(cardPayload.expYear),
-          cvc: String(cardPayload.cvc),
-          address: cardPayload.address || null
-        }
-      });
-    } catch (qbErr) {
-      const msg = qbErr?.response?.data?.Errors?.[0]?.Message
-        || qbErr?.response?.data?.error?.message
-        || qbErr.message
-        || 'Payment processing error';
-      return res.status(422).json({ error: { message: `Card declined or invalid: ${msg}` } });
-    }
-
-    const cardObj = qbResult.card || {};
-    const last4 = String(cardObj.last4 || cardPayload.number.replace(/[^\d]/g, '').slice(-4) || '');
-    const brand = String(cardObj.cardType || cardObj.brand || 'Card');
-
-    await GuardianPaymentCard.create({
-      guardianUserId,
-      agencyId,
-      paymentProvider: 'QUICKBOOKS_PAYMENTS',
-      qbPaymentCustomerId: qbResult.customerId || null,
-      qbCardId: cardObj.id,
-      cardBrand: brand,
-      cardLast4: last4,
-      cardExpMonth: cardPayload.expMonth,
-      cardExpYear: cardPayload.expYear,
-      cardholderName: cardPayload.name || null,
-      autoCharge,
-      isDefault: true,
-      intakeSubmissionId: submissionId
-    });
-
-    res.json({ success: true, last4, brand, qbCardId: cardObj.id, autoCharge });
+    const card = await completeFamilyCardSetup({ agencyId, userId: guardianUserId, submissionId,
+      setupIntentId: req.body?.setupIntentId, consent: req.body?.consent, ip: req.ip, userAgent: req.get('user-agent') });
+    res.json({ success: true, last4: card.card_last4, brand: card.card_brand, cardId: card.id, autoCharge: false });
   } catch (error) {
     next(error);
   }

@@ -1,5 +1,5 @@
 import express from 'express';
-import { authenticate } from '../middleware/auth.middleware.js';
+import { authenticate, requireActiveStatus } from '../middleware/auth.middleware.js';
 import {
   getGuardianBillingSummary,
   getLearningBillingMerchantSetup,
@@ -44,7 +44,7 @@ const requireInternalRenewalSecret = (req, res, next) => {
 
 router.post('/internal/run-renewals', requireInternalRenewalSecret, runSubscriptionRenewalsInternal);
 
-router.use(authenticate);
+router.use(authenticate, requireActiveStatus, (req,res,next)=>{res.set('Cache-Control','no-store');next();});
 
 router.get('/guardian/summary', getGuardianBillingSummary);
 router.get('/merchant-setup', getLearningBillingMerchantSetup);

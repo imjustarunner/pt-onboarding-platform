@@ -1,3 +1,4 @@
+import {redactPrivateBillingUrl} from '../utils/sanitizeRequest.js';
 import pool from '../config/database.js';
 import User from '../models/User.model.js';
 
@@ -92,7 +93,7 @@ async function safeAgencyMembershipFacts({ userId, agencyId }) {
 export function accessDebugMiddleware(req, res, next) {
   if (!shouldDebug()) return next();
 
-  const requestPath = String(req.originalUrl || req.path || '');
+  const requestPath = redactPrivateBillingUrl(req.originalUrl || req.path || '');
   if (!shouldInspectPath(requestPath)) return next();
 
   install403Tracer(req, res);

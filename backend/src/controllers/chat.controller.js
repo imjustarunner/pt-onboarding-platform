@@ -1220,6 +1220,8 @@ export const deleteThreadForMe = async (req, res, next) => {
 
 export const listMessages = async (req, res, next) => {
   try {
+    if (['client_guardian','client'].includes(String(req.user?.role))) { const {requireGuardianThreadDisclosure}=await import('../services/guardianClinicalAccess.service.js'); await requireGuardianThreadDisclosure(req.user.id,Number(req.params.threadId)); }
+
     const threadId = parseInt(req.params.threadId, 10);
     if (!threadId) return res.status(400).json({ error: { message: 'threadId is required' } });
     await assertThreadAccess(req.user.id, threadId);
@@ -1342,6 +1344,8 @@ export const listMessages = async (req, res, next) => {
 
 export const sendMessage = async (req, res, next) => {
   try {
+    if (['client_guardian','client'].includes(String(req.user?.role))) { const {requireGuardianThreadDisclosure}=await import('../services/guardianClinicalAccess.service.js'); await requireGuardianThreadDisclosure(req.user.id,Number(req.params.threadId)); }
+
     const threadId = parseInt(req.params.threadId, 10);
     const body = (req.body?.body || '').trim();
     const incomingAttachments = Array.isArray(req.body?.attachments)

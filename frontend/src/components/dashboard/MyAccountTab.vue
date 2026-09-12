@@ -9,6 +9,7 @@
   >
     <div v-show="activeSection === 'account'" class="acct-hub__pane">
       <AccountInfoView />
+      <FamilyLedgerPanel v-if="agencyId && ['client','client_guardian'].includes(authStore.user?.role)" :agency-id="agencyId" />
     </div>
     <div v-if="flags.workforce" v-show="activeSection === 'credentials'" class="acct-hub__pane">
       <CredentialsView />
@@ -55,6 +56,7 @@
 
 <script setup>
 import { computed } from 'vue';
+import FamilyLedgerPanel from '../billing/FamilyLedgerPanel.vue';
 import AccountHubPanel from './AccountHubPanel.vue';
 import AccountInfoView from '../../views/AccountInfoView.vue';
 import CredentialsView from '../../views/CredentialsView.vue';

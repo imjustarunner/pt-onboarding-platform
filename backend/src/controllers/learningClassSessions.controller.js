@@ -1,3 +1,4 @@
+import { payFamilyCharge } from '../services/familyBillingPayment.service.js';
 import pool from '../config/database.js';
 import multer from 'multer';
 import LearningClassSession from '../models/LearningClassSession.model.js';
@@ -336,49 +337,20 @@ async function triggerPostSessionCharge(session) {
     const rateCents = Number(profile.session_rate_cents || 0);
     if (!rateCents) return;
 
-    // Find the guardian's auto_charge card for this agency+client
-    const [cardRows] = await pool.execute(
-      `SELECT gpc.stripe_payment_method_id, gpc.stripe_customer_id
-       FROM guardian_payment_cards gpc
-       JOIN client_guardians cg ON cg.guardian_user_id = gpc.guardian_user_id
-       WHERE cg.client_id = ? AND gpc.agency_id = ? AND gpc.auto_charge = 1
-       LIMIT 1`,
-      [clientId, agencyId]
-    );
-    const card = cardRows?.[0];
-    if (!card?.stripe_payment_method_id || !card?.stripe_customer_id) return;
-
-    const ctx = await BillingMerchantContextService.getAgencyClientPaymentsContext(agencyId);
-    const connectedAccountId = ctx?.stripeConnectedAccountId || null;
-
-    const intent = await StripePaymentsService.chargePaymentMethod({
-      customerId: card.stripe_customer_id,
-      paymentMethodId: card.stripe_payment_method_id,
-      amountCents: rateCents,
-      currency: 'usd',
-      description: `Tutoring session #${sessionId} — post-session charge`,
-      metadata: { agency_id: String(agencyId), client_id: String(clientId), session_id: String(sessionId) },
-      connectedAccountId
-    });
-
-    await pool.execute(
-      `INSERT INTO learning_session_charges
-         (agency_id, client_id, learning_class_session_id, total_cents, currency, charge_status, payment_mode, created_by_user_id)
-       VALUES (?, ?, ?, ?, 'USD', 'CAPTURED', 'PAY_PER_EVENT', 0)`,
-      [agencyId, clientId, sessionId, rateCents]
-    );
-    const [[chargeRow]] = await pool.execute(
-      `SELECT LAST_INSERT_ID() AS id`
-    );
-    const chargeId = Number(chargeRow?.id || 0);
-    if (chargeId) {
-      await pool.execute(
-        `INSERT INTO learning_payments
-           (agency_id, learning_session_charge_id, amount_cents, currency, payment_status, processor, processor_intent_id)
-         VALUES (?, ?, ?, 'USD', 'SUCCEEDED', 'STRIPE', ?)`,
-        [agencyId, chargeId, rateCents, intent.id]
-      );
-    }
+    // Only a specific, active payer/card authorization can trigger a charge.
+    const [payers] = await pool.execute(`SELECT p.guardian_user_id FROM client_billing_payers p
+      JOIN client_guardians cg ON cg.client_id = p.client_id AND cg.guardian_user_id = p.guardian_user_id
+      JOIN guardian_payment_cards card ON card.id = p.payment_card_id AND card.guardian_user_id = p.guardian_user_id AND card.agency_id = p.agency_id
+      JOIN guardian_billing_consents consent ON consent.id = p.consent_id AND consent.revoked_at IS NULL
+      WHERE p.client_id = ? AND p.agency_id = ? AND p.status = 'active' AND cg.access_enabled = 1
+        AND card.is_active = 1 AND consent.purpose = 'recurring'`, [clientId, agencyId]);
+    if (payers.length !== 1) return;
+    const key = `post_session:${agencyId}:${sessionId}`;
+    const [created] = await pool.execute(`INSERT INTO learning_session_charges
+      (agency_id, client_id, guardian_user_id, amount_cents, total_cents, currency, charge_status, idempotency_key, learning_class_session_id)
+      VALUES (?, ?, ?, ?, ?, 'USD', 'PENDING', ?, ?)
+      ON DUPLICATE KEY UPDATE id = LAST_INSERT_ID(id)`, [agencyId, clientId, payers[0].guardian_user_id, rateCents, rateCents, key, sessionId]);
+    await payFamilyCharge({ agencyId, userId: payers[0].guardian_user_id, chargeId: created.insertId, automatic: true });
   } catch (err) {
     // Non-fatal: log but do not disrupt the session-end flow
     console.error('[learningClassSessions] Post-session charge failed:', err?.message);

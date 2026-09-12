@@ -43,11 +43,13 @@ async function resolveAssignedProvider(clientId, organizationId) {
 }
 
 async function assertGuardianClientAccess(guardianUserId, clientId) {
-  const clients = await ClientGuardian.listClientsForGuardian({ guardianUserId });
+  const clients = await ClientGuardian.listClientsForGuardian({ guardianUserId, requiredClinicalScope: 'clinical_messages' });
   return (clients || []).find((c) => Number(c.client_id) === Number(clientId)) || null;
 }
 
 async function hasThreadAccess(userId, threadId) {
+  const { requireGuardianThreadDisclosure } = await import('../services/guardianClinicalAccess.service.js');
+  await requireGuardianThreadDisclosure(userId,threadId);
   const [rows] = await pool.execute(
     `SELECT 1 FROM chat_thread_participants WHERE thread_id = ? AND user_id = ? LIMIT 1`,
     [threadId, userId]
@@ -95,7 +97,7 @@ export const listGuardianMessageThreads = async (req, res, next) => {
     if (req.guardianPreviewMode) {
       return res.json({ threads: [] });
     }
-    const clients = await ClientGuardian.listClientsForGuardian({ guardianUserId: req.user.id });
+    const clients = await ClientGuardian.listClientsForGuardian({ guardianUserId: req.user.id, requiredClinicalScope: 'clinical_messages' });
     const threads = [];
     for (const c of clients || []) {
       const provider = await resolveAssignedProvider(c.client_id, c.organization_id);

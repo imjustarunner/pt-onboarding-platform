@@ -305,6 +305,8 @@ const flattenPathForHostPortal = (targetPath, brandingStore) => {
 };
 
 const routes = [
+  {path:'/billing/complete/:token?',name:'PaymentTask',component:()=>import('../views/PaymentTaskView.vue'),meta:{requiresAuth:true}},
+  {path:'/:organizationSlug/admin/family-billing',name:'FamilyBillingDesk',component:()=>import('../views/admin/FamilyBillingDesk.vue'),meta:{requiresAuth:true,requiresRole:['admin','agency_admin','super_admin','support','staff','backoffice_admin']}},
   // Public school finder (no auth). Must be before "/:organizationSlug".
   {
     path: '/schools',
@@ -5831,7 +5833,7 @@ router.beforeEach(async (to, from, next) => {
       const p = String(to.path || '');
       const isGuardianPath = p === '/guardian' || p.endsWith('/guardian') || p.includes('/guardian/');
       const isPractitionerClientDashboard = p.endsWith('/client-dashboard') || p.includes('/client-dashboard');
-      const GUARDIAN_ALLOWED_EXTERNAL = ['/tutoring-session/', '/in-person-tutoring-session/'];
+      const GUARDIAN_ALLOWED_EXTERNAL = ['/tutoring-session/', '/in-person-tutoring-session/', '/billing/complete'];
       const pathOk =
         isGuardianPath ||
         isPractitionerClientDashboard ||

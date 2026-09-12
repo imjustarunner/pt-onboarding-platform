@@ -851,7 +851,7 @@
             <template v-else-if="activePanel === 'billing'">
               <div class="panel-head">
                 <div class="panel-title">Billing</div>
-                <div class="panel-subtitle">Learning-program-only billing for the selected child.</div>
+                <div class="panel-subtitle">Responsible payers, private payment methods, and insurance for each client.</div>
               </div>
               <div v-if="isSuperadminPreview" class="guardian-preview-surface">
                 <p class="hint" style="margin: 0;">
@@ -859,11 +859,12 @@
                   billing enabled. This preview does not load ledger data.
                 </p>
               </div>
-              <GuardianBillingTab
-                v-else
-                :agency-id="currentAgencyId"
-                :client-id="selectedChildId"
-              />
+              <template v-else>
+                <GuardianPaymentInsuranceTab :agency-id="currentAgencyId" :guardian-user-id="authStore.user?.id" />
+                <FamilyLedgerPanel :agency-id="currentAgencyId" :client-id="selectedChildId" />
+                <ClinicalDisclosurePanel :agency-id="currentAgencyId" />
+                <GuardianBillingTab v-if="learningBillingVisible" :agency-id="currentAgencyId" :client-id="selectedChildId" />
+              </template>
             </template>
 
             <template v-else-if="activePanel === 'dependents'">
@@ -1028,6 +1029,8 @@ import { buildPublicIntakeUrl } from '../../utils/publicIntakeUrl';
 import DocumentsTab from '../../components/dashboard/DocumentsTab.vue';
 import GuardianProgramSelector from '../../components/GuardianProgramSelector.vue';
 import PlatformPreviewBanner from '../../components/admin/PlatformPreviewBanner.vue';
+import ClinicalDisclosurePanel from '../../components/billing/ClinicalDisclosurePanel.vue';
+import FamilyLedgerPanel from '../../components/billing/FamilyLedgerPanel.vue';
 import GuardianBillingTab from '../../components/guardian/GuardianBillingTab.vue';
 import GuardianPaymentInsuranceTab from '../../components/guardian/GuardianPaymentInsuranceTab.vue';
 import GuardianDependentsTab from '../../components/guardian/GuardianDependentsTab.vue';
@@ -1083,7 +1086,7 @@ const registrationEnrollPayerType = ref('');
 const registrationEnrollSaving = ref(false);
 const registrationEnrollError = ref('');
 
-const activePanel = ref('overview');
+const activePanel = ref(route.query.panel === 'billing' ? 'billing' : 'overview');
 const selectedChildId = computed({
   get: () => guardianStore.selectedChildId,
   set: (v) => guardianStore.setSelectedChild(v)
@@ -1255,11 +1258,11 @@ const dashboardTabs = computed(() => {
   } else if (preview) {
     tabs.push({ key: 'child', label: 'Child details', meta: 'Hidden in preview' });
   }
-  if (learningBillingVisible.value || preview) {
+  {
     tabs.push({
       key: 'billing',
-      label: 'Invoices',
-      meta: pm('Learning program charges', 'Learning charges (live data)')
+      label: 'Billing',
+      meta: pm('Payers, payments and coverage', 'Billing shell')
     });
   }
   tabs.push(

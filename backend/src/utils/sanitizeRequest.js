@@ -109,3 +109,7 @@ export function sanitizeRequestBody(body) {
 
   return sanitized;
 }
+
+export function redactPrivateBillingUrl(value) {
+  return String(value||'').replace(/(\/family-billing\/task-link\/|\/billing\/complete\/)[^/?#]+/g,'$1[REDACTED]');
+}

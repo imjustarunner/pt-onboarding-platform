@@ -1,3 +1,6 @@
+import { readClientInsurance } from '../services/clientInsurance.service.js';
+import { decodeInsuranceProfile } from '../models/GuardianInsuranceProfile.model.js';
+import { auditBilling } from '../services/familyBillingPolicy.service.js';
 import Client from '../models/Client.model.js';
 import ClientStatusHistory from '../models/ClientStatusHistory.model.js';
 import ClientNotes from '../models/ClientNotes.model.js';
@@ -109,50 +112,20 @@ export const getClientInsuranceCard = async (req, res, next) => {
     const access = await ensureAgencyAccessToClient({ userId: req.user.id, role: userRole, clientId });
     if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
 
-    let submRows = [];
-    try {
-      [submRows] = await pool.execute(
-        `SELECT DISTINCT s.id, s.intake_data, s.intake_link_id, s.submitted_at, s.status,
-                s.payload_encrypted, s.payload_iv_b64, s.payload_auth_tag_b64, s.payload_key_id
-         FROM intake_submissions s
-         LEFT JOIN intake_submission_clients isc ON isc.intake_submission_id = s.id
-         WHERE (s.client_id = ? OR isc.client_id = ?)
-         ORDER BY s.submitted_at DESC, s.id DESC
-         LIMIT 10`,
-        [clientId, clientId]
-      );
-      decryptIntakeSubmissionRows(submRows);
-    } catch (tableErr) {
-      if (String(tableErr?.message || '').includes("doesn't exist") || tableErr?.errno === 1146) {
-        submRows = [];
-      } else {
-        throw tableErr;
-      }
-    }
-
-    const desiredKeyName = `${slot}_url`; // e.g. primary_front_url
-    let gsPath = null;
-    for (const row of submRows || []) {
-      const submissionData = parseIntakeData(row.intake_data);
-      const bag = getSubmissionBag(submissionData);
-      const insuranceInfo = bag?.insuranceInfo && typeof bag.insuranceInfo === 'object' ? bag.insuranceInfo : null;
-      const candidate = insuranceInfo ? String(insuranceInfo?.[desiredKeyName] || '').trim() : '';
-      if (candidate.startsWith('gs://')) {
-        gsPath = candidate;
-        break;
-      }
-    }
-
-    if (!gsPath) {
-      return res.status(404).json({ error: { message: 'No insurance card on file for this slot' } });
-    }
-
-    const key = parseGcsPathToKey(gsPath);
-    if (!key || !key.startsWith('intake-insurance/')) {
-      return res.status(404).json({ error: { message: 'Insurance card path is invalid' } });
-    }
-
+    const [clientRows] = await pool.execute('SELECT agency_id FROM clients WHERE id = ?', [clientId]);
+    const agencyId = Number(clientRows[0]?.agency_id);
+    if (userRole === 'support' && !(await User.listBillingAgencyIds(req.user.id)).map(Number).includes(agencyId)) return res.status(403).json({ error: { message: 'Billing access is required' } });
+    const coverage = await readClientInsurance(clientId, agencyId);
+    const profileId = Number(req.query.profileId || coverage?.profileId || 0);
+    if (!profileId) return res.status(404).json({ error: { message: 'No assigned insurance card evidence for this client' } });
+    const [profiles] = await pool.execute('SELECT DISTINCT p.* FROM guardian_insurance_profiles p LEFT JOIN guardian_insurance_clients gic ON gic.profile_id=p.id AND gic.agency_id=p.agency_id WHERE p.id=? AND p.agency_id=? AND (p.client_id=? OR gic.client_id=?)', [profileId, agencyId, clientId, clientId]);
+    const profile = decodeInsuranceProfile(profiles[0]);
+    const gsPath = profile?.[`${slot}_url`];
     const bucket = await StorageService.getGCSBucket();
+    const expectedPrefix = `gs://${bucket?.name}/intake-insurance/${profile?.intake_submission_id}/`;
+    if (!bucket || !profile?.intake_submission_id || !String(gsPath || '').startsWith(expectedPrefix)) return res.status(404).json({ error: { message: 'No insurance card on file for this slot' } });
+    const key = parseGcsPathToKey(gsPath);
+    if (!key || key.includes('..')) return res.status(404).json({ error: { message: 'Invalid insurance evidence reference' } });
     const file = bucket.file(key);
     const [exists] = await file.exists();
     if (!exists) return res.status(404).json({ error: { message: 'Insurance card file not found' } });
@@ -174,7 +147,9 @@ export const getClientInsuranceCard = async (req, res, next) => {
       });
     }
 
-    const contentType = inferImageContentTypeFromKey(key);
+    const contentType = ['image/jpeg','image/png','application/pdf'].includes(custom.originalMimeType) ? custom.originalMimeType : inferImageContentTypeFromKey(key);
+    await auditBilling({ agencyId, userId: req.user.id, clientId, action:'staff_view_insurance_card', objectId:profile.id });
+    res.setHeader('X-Content-Type-Options','nosniff');
     res.setHeader('Content-Type', contentType);
     res.setHeader('Cache-Control', 'no-store');
     res.setHeader('Content-Disposition', `inline; filename=\"insurance-${slot}${key.includes('.') ? key.substring(key.lastIndexOf('.')) : ''}\"`);
@@ -5644,134 +5619,9 @@ const getSubmissionBag = (submissionData) => {
  * copy primary carrier fields onto clients.* so Account → Documents & Insurance
  * and glance pills can show them. Never overwrites non-empty client columns.
  */
-const backfillClientInsuranceFromIntake = async (clientId) => {
-  const cid = Number(clientId || 0);
-  if (!cid) return false;
-  try {
-    const [crow] = await pool.execute(
-      `SELECT agency_id, primary_insurer_name, insurance_member_id, insurance_group_number,
-              insurance_subscriber_name, insurance_type_id
-         FROM clients WHERE id = ? LIMIT 1`,
-      [cid]
-    );
-    const row = crow?.[0];
-    if (!row) return false;
-    const needsName = !String(row.primary_insurer_name || '').trim();
-    const needsMember = !String(row.insurance_member_id || '').trim();
-    const needsGroup = !String(row.insurance_group_number || '').trim();
-    const needsSubscriber = !String(row.insurance_subscriber_name || '').trim();
-    const needsType = !row.insurance_type_id;
-    if (!needsName && !needsMember && !needsGroup && !needsSubscriber && !needsType) return false;
-
-    let submRows = [];
-    try {
-      const [rows] = await pool.execute(
-        `SELECT s.intake_data,
-                s.payload_encrypted, s.payload_iv_b64, s.payload_auth_tag_b64, s.payload_key_id
-           FROM intake_submission_clients isc
-           JOIN intake_submissions s ON s.id = isc.intake_submission_id
-          WHERE isc.client_id = ?
-          ORDER BY s.id DESC
-          LIMIT 3`,
-        [cid]
-      );
-      submRows = rows || [];
-    } catch {
-      return false;
-    }
-    if (!submRows.length) return false;
-    decryptIntakeSubmissionRows(submRows);
-
-    let primary = null;
-    for (const sub of submRows) {
-      const bag = getSubmissionBag(parseIntakeData(sub.intake_data));
-      const p = bag?.insuranceInfo?.primary;
-      if (p && (p.insurerName || p.memberId || p.groupNumber || p.subscriberName)) {
-        primary = p;
-        break;
-      }
-    }
-    // Type-only backfill when carrier already on the client row (e.g. prior name write).
-    if (!primary && needsType && String(row.primary_insurer_name || '').trim()) {
-      primary = { insurerName: String(row.primary_insurer_name).trim() };
-    }
-    if (!primary) return false;
-
-    const insurerName = String(primary.insurerName || row.primary_insurer_name || '').trim();
-    const memberId = String(primary.memberId || '').trim();
-    const groupNumber = String(primary.groupNumber || '').trim();
-    const subscriberName = String(primary.subscriberName || '').trim();
-    const sets = [];
-    const vals = [];
-    if (needsName && insurerName) {
-      sets.push('primary_insurer_name = ?');
-      vals.push(insurerName.slice(0, 255));
-    }
-    if (needsMember && memberId) {
-      sets.push('insurance_member_id = ?');
-      vals.push(memberId.slice(0, 128));
-    }
-    if (needsGroup && groupNumber) {
-      sets.push('insurance_group_number = ?');
-      vals.push(groupNumber.slice(0, 128));
-    }
-    if (needsSubscriber && subscriberName) {
-      sets.push('insurance_subscriber_name = ?');
-      vals.push(subscriberName.slice(0, 255));
-    }
-    if (needsType && insurerName) {
-      const aid = Number(row.agency_id || 0);
-      if (aid) {
-        try {
-          const { resolveInsuranceTypeIdForAgency } = await import('../utils/resolveInsuranceTypeId.js');
-          const typeId = await resolveInsuranceTypeIdForAgency(aid, insurerName);
-          if (typeId) {
-            sets.push('insurance_type_id = ?');
-            vals.push(typeId);
-          }
-        } catch { /* optional */ }
-      }
-    }
-    if (!sets.length) return false;
-    vals.push(cid);
-    await pool.execute(`UPDATE clients SET ${sets.join(', ')} WHERE id = ?`, vals);
-
-    // Secure profile row for guardian portal / billing (best-effort).
-    try {
-      const aid = Number(row.agency_id || 0);
-      const [grows] = await pool.execute(
-        `SELECT guardian_user_id FROM client_guardians WHERE client_id = ? ORDER BY id ASC LIMIT 1`,
-        [cid]
-      );
-      const gid = Number(grows?.[0]?.guardian_user_id || 0);
-      if (aid && gid && primary) {
-        const GuardianInsuranceProfile = (await import('../models/GuardianInsuranceProfile.model.js')).default;
-        await GuardianInsuranceProfile.upsert({
-          guardianUserId: gid,
-          clientId: cid,
-          agencyId: aid,
-          primary: {
-            insurerName: insurerName || primary.insurerName,
-            memberId: memberId || primary.memberId,
-            groupNumber: groupNumber || primary.groupNumber,
-            subscriberName: subscriberName || primary.subscriberName,
-            isMedicaid: !!primary.isMedicaid
-          },
-          secondary: null
-        });
-      }
-    } catch (profileErr) {
-      console.warn('[backfillClientInsuranceFromIntake] profile upsert failed', profileErr?.message || profileErr);
-    }
-    return true;
-  } catch (e) {
-    console.warn('[backfillClientInsuranceFromIntake] failed', {
-      clientId: cid,
-      message: e?.message || String(e || '')
-    });
-    return false;
-  }
-};
+// Insurance migration is explicit and encrypted; reading a client must never
+// copy one submission’s policy to every sibling or assign it to the first guardian.
+const backfillClientInsuranceFromIntake = async () => false;
 const getGuardianBag = (submissionData) => {
   const nested = submissionData?.responses?.guardian;
   const flat = submissionData?.guardian;
@@ -7169,68 +7019,6 @@ export const getClientDemographics = async (req, res, next) => {
           guardianKeys: Object.keys(guardianBag || {}).slice(0, 40),
           clientKeys: Object.keys(clientResponses || {}).slice(0, 80)
         });
-      }
-    }
-
-    // ── 3. Backfill insurance columns from intake when still empty ───────────
-    if (submRows.length) {
-      const sub = submRows[0];
-      const submissionData = parseIntakeData(sub.intake_data);
-      const bag = getSubmissionBag(submissionData) || {};
-      const primary = bag?.insuranceInfo?.primary || {};
-      const insurerName = String(primary?.insurerName || '').trim();
-      const memberId = String(primary?.memberId || '').trim();
-      const groupNumber = String(primary?.groupNumber || '').trim();
-      const subscriberName = String(primary?.subscriberName || '').trim();
-      if (insurerName || memberId || groupNumber || subscriberName) {
-        try {
-          const sets = [];
-          const vals = [];
-          if (insurerName) {
-            sets.push(`primary_insurer_name = COALESCE(NULLIF(TRIM(primary_insurer_name), ''), ?)`);
-            vals.push(insurerName.slice(0, 255));
-          }
-          if (memberId) {
-            sets.push(`insurance_member_id = COALESCE(NULLIF(TRIM(insurance_member_id), ''), ?)`);
-            vals.push(memberId.slice(0, 128));
-          }
-          if (groupNumber) {
-            sets.push(`insurance_group_number = COALESCE(NULLIF(TRIM(insurance_group_number), ''), ?)`);
-            vals.push(groupNumber.slice(0, 128));
-          }
-          if (subscriberName) {
-            sets.push(`insurance_subscriber_name = COALESCE(NULLIF(TRIM(insurance_subscriber_name), ''), ?)`);
-            vals.push(subscriberName.slice(0, 255));
-          }
-          if (sets.length) {
-            vals.push(clientId);
-            await pool.execute(`UPDATE clients SET ${sets.join(', ')} WHERE id = ?`, vals);
-          }
-          if (insurerName) {
-            try {
-              const [crow] = await pool.execute(`SELECT agency_id, insurance_type_id FROM clients WHERE id = ? LIMIT 1`, [clientId]);
-              const aid = Number(crow?.[0]?.agency_id || 0);
-              if (aid && !crow?.[0]?.insurance_type_id) {
-                const { resolveInsuranceTypeIdForAgency } = await import('../utils/resolveInsuranceTypeId.js');
-                const typeId = await resolveInsuranceTypeIdForAgency(aid, insurerName);
-                if (typeId) {
-                  await pool.execute(
-                    `UPDATE clients SET insurance_type_id = ? WHERE id = ? AND insurance_type_id IS NULL`,
-                    [typeId, clientId]
-                  );
-                }
-              }
-            } catch { /* optional */ }
-          }
-        } catch { /* columns may not exist yet */ }
-        if (insurerName && !profileFields.some((f) => f.key === 'primary_insurer_name')) {
-          profileFields.push(tagField({
-            key: 'primary_insurer_name',
-            label: 'Primary Insurance (from intake)',
-            value: insurerName,
-            section: 'Administrative'
-          }));
-        }
       }
     }
 

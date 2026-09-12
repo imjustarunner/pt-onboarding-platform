@@ -1,3 +1,4 @@
+import { getClientInsurance, saveClientInsurance } from '../controllers/clientInsurance.controller.js';
 import express from 'express';
 import { body, param, query } from 'express-validator';
 import { authenticate, requireActiveStatus } from '../middleware/auth.middleware.js';
@@ -80,7 +81,9 @@ import {
 
 const router = express.Router();
 
-router.use(authenticate, requireActiveStatus);
+router.use(authenticate, requireActiveStatus, (req,res,next)=>{res.set('Cache-Control','no-store');next();});
+router.get('/clients/:clientId/insurance', ...masterGate, getClientInsurance);
+router.put('/clients/:clientId/insurance', ...masterGate, saveClientInsurance);
 
 router.get(
   '/status',

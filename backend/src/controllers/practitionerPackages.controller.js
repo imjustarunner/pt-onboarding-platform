@@ -1,3 +1,8 @@
+import {preparePractitionerCheckout,savedPractitionerCheckout} from '../services/practitionerCheckoutAttempt.service.js';
+import {assertPractitionerPacketOpen,assertPractitionerPayment} from '../services/practitionerPaymentPolicy.service.js';
+import Client from '../models/Client.model.js';
+import {requireBillingStaff} from '../services/familyLedger/policy.js';
+import {requireResponsiblePayer,billingError} from '../services/familyBillingPolicy.service.js';
 import pool from '../config/database.js';
 import PractitionerSessionPackage from '../models/PractitionerSessionPackage.model.js';
 import {
@@ -226,11 +231,13 @@ export const postPublicPacketCheckout = async (req, res, next) => {
   try {
     const packet = await findPacketByToken(req.params.token);
     if (!packet) return res.status(404).json({ error: { message: 'Packet not found' } });
-    if (String(packet.status || '').toUpperCase() === 'COMPLETED' && packet.selected_package_id) {
+    assertPractitionerPacketOpen(packet);
+    if (packet.selected_package_id) {
       return res.status(409).json({ error: { message: 'Package already selected for this packet' } });
     }
     const packageId = Number(req.body?.packageId || 0);
     const paymentMode = String(req.body?.paymentMode || 'PAY_IN_FULL').toUpperCase();
+    if(paymentMode!=='PAY_IN_FULL')throw billingError(409,'Use the signed payment-plan workflow in Family Billing for installments or pay-per-session arrangements.');
     const pkg = await assertOfferedPackage(packet, packageId);
     const allowed = (pkg.allowed_payment_modes || []).map((m) => String(m).toUpperCase());
     if (allowed.length && !allowed.includes(paymentMode)) {
@@ -242,20 +249,7 @@ export const postPublicPacketCheckout = async (req, res, next) => {
     const publishableKey = getStripePublishableKey();
     const stripeReady = !!(isStripeConfigured() && publishableKey && connectedAccountId);
 
-    if (!stripeReady) {
-      return res.json({
-        ok: true,
-        stripeEnabled: false,
-        amountCents,
-        currency: 'usd',
-        packageId,
-        paymentMode,
-        clientSecret: null,
-        publishableKey: null,
-        connectedAccountId: null,
-        message: 'Stripe is not connected for this practice. You can still reserve the package; your coach will follow up on payment.'
-      });
-    }
+    if (!stripeReady && amountCents > 0) throw billingError(402,'Card collection is not configured. Contact the office to arrange a recorded cash payment.');
 
     if (amountCents < 1) {
       return res.json({
@@ -272,25 +266,13 @@ export const postPublicPacketCheckout = async (req, res, next) => {
       });
     }
 
-    const intent = await StripePaymentsService.createPaymentIntent({
-      amountCents,
-      currency: 'usd',
-      description: `${pkg.name} (${paymentMode})`,
-      metadata: {
-        packet_id: String(packet.id),
-        package_id: String(packageId),
-        payment_mode: paymentMode,
-        agency_id: String(packet.agency_id),
-        client_id: String(packet.client_id),
-        source: 'practitioner_packet'
-      },
-      connectedAccountId
-    });
+    const prepared=await preparePractitionerCheckout({packet,pkg,paymentMode,amountCents,connectedAccountId});
+    const intent=prepared.intent;
 
     res.json({
       ok: true,
       stripeEnabled: true,
-      amountCents,
+      amountCents:prepared.amountCents,
       currency: 'usd',
       packageId,
       paymentMode,
@@ -312,29 +294,25 @@ export const postPublicPacketConfirm = async (req, res, next) => {
   try {
     const packet = await findPacketByToken(req.params.token);
     if (!packet) return res.status(404).json({ error: { message: 'Packet not found' } });
+    assertPractitionerPacketOpen(packet);
     const packageId = Number(req.body?.packageId || 0);
     const paymentMode = String(req.body?.paymentMode || 'PAY_IN_FULL').toUpperCase();
+    if(paymentMode!=='PAY_IN_FULL')throw billingError(409,'Use the signed payment-plan workflow in Family Billing for installments or pay-per-session arrangements.');
     const paymentIntentId = String(req.body?.paymentIntentId || '').trim();
     const pkg = await assertOfferedPackage(packet, packageId);
 
     const connectedAccountId = await getAgencyStripeConnectAccountId(packet.agency_id);
     const stripeReady = !!(isStripeConfigured() && connectedAccountId);
-    const expectedAmount = resolveChargeAmountCents(pkg, paymentMode);
+    const savedAttempt=paymentIntentId?await savedPractitionerCheckout(packet,paymentIntentId):null;
+    if(savedAttempt&&(Number(savedAttempt.package_id)!==packageId||savedAttempt.payment_mode!==paymentMode||savedAttempt.connected_account_id!==connectedAccountId))throw billingError(409,'Checkout binding changed');
+    const expectedAmount = savedAttempt?Number(savedAttempt.amount_cents):resolveChargeAmountCents(pkg, paymentMode);
 
     let paymentStatus = 'PENDING';
     let amountChargedCents = null;
 
     if (paymentIntentId && stripeReady) {
       const intent = await StripePaymentsService.retrievePaymentIntent(paymentIntentId, connectedAccountId);
-      if (!intent || intent.status !== 'succeeded') {
-        return res.status(402).json({ error: { message: 'Payment has not succeeded yet' } });
-      }
-      if (String(intent.metadata?.packet_id || '') !== String(packet.id)) {
-        return res.status(400).json({ error: { message: 'Payment does not match this packet' } });
-      }
-      if (String(intent.metadata?.package_id || '') !== String(packageId)) {
-        return res.status(400).json({ error: { message: 'Payment does not match this package' } });
-      }
+      assertPractitionerPayment(intent,{packet,packageId,paymentMode,amountCents:expectedAmount});
       paymentStatus = 'PAID';
       amountChargedCents = Number(intent.amount || expectedAmount);
     } else if (expectedAmount < 1) {
@@ -345,8 +323,7 @@ export const postPublicPacketConfirm = async (req, res, next) => {
         error: { message: 'Payment required. Complete checkout before activating this package.' }
       });
     } else {
-      // Dev / pre-Stripe: allow pending activation so flow can be tested
-      paymentStatus = 'PENDING';
+      throw billingError(402,'A recorded payment is required. The office can create a cash balance in Family Billing.');
     }
 
     const result = await activatePackageSelection({
@@ -356,7 +333,8 @@ export const postPublicPacketConfirm = async (req, res, next) => {
       createdByUserId: null,
       paymentStatus,
       stripePaymentIntentId: paymentIntentId || null,
-      amountChargedCents
+      amountChargedCents,
+      purchasedSessions:savedAttempt?Number(savedAttempt.sessions_purchased):null
     });
     res.json({ ok: true, ...result });
   } catch (e) {
@@ -366,30 +344,7 @@ export const postPublicPacketConfirm = async (req, res, next) => {
 };
 
 /** @deprecated Prefer checkout + confirm; kept for backwards compatibility. */
-export const postPublicPacketSelect = async (req, res, next) => {
-  try {
-    const packet = await findPacketByToken(req.params.token);
-    if (!packet) return res.status(404).json({ error: { message: 'Packet not found' } });
-    const connectedAccountId = await getAgencyStripeConnectAccountId(packet.agency_id);
-    if (isStripeConfigured() && connectedAccountId && !req.body?.paymentIntentId) {
-      return res.status(400).json({
-        error: { message: 'Use checkout + confirm endpoints when Stripe is enabled' }
-      });
-    }
-    const result = await activatePackageSelection({
-      packetId: packet.id,
-      packageId: Number(req.body?.packageId),
-      paymentMode: req.body?.paymentMode,
-      createdByUserId: null,
-      paymentStatus: req.body?.paymentStatus || 'PENDING',
-      stripePaymentIntentId: req.body?.paymentIntentId || null
-    });
-    res.json({ ok: true, ...result });
-  } catch (e) {
-    if (e.status) return res.status(e.status).json({ error: { message: e.message } });
-    next(e);
-  }
-};
+export const postPublicPacketSelect = async (req,res) => res.status(410).json({error:{message:'Use verified checkout. Payment status cannot be supplied by the browser.'}});
 
 export const getClientBalance = async (req, res, next) => {
   try {
@@ -398,6 +353,11 @@ export const getClientBalance = async (req, res, next) => {
     if (!agencyId || !clientId) {
       return res.status(400).json({ error: { message: 'agencyId and clientId required' } });
     }
+    const clientRecord=await Client.findById(clientId,{includeSensitive:false});
+    if(!clientRecord||Number(clientRecord.agency_id)!==agencyId)throw billingError(404,'Client not found');
+    let billingStaff=false;
+    try{await requireBillingStaff(req.user,agencyId);billingStaff=true;}catch(e){if(e.status!==403)throw e;}
+    if(!billingStaff&&Number(clientRecord.user_id)!==Number(req.user.id))await requireResponsiblePayer(req.user.id,clientId,agencyId);
     const balance = await getClientSessionBalance(agencyId, clientId);
     res.json({ ok: true, balance });
   } catch (e) {
@@ -519,8 +479,14 @@ export const getClientPackageOverview = async (req, res, next) => {
     if (!agencyId || !clientId) {
       return res.status(400).json({ error: { message: 'agencyId and clientId required' } });
     }
+    const clientRecord=await Client.findById(clientId,{includeSensitive:false});
+    if(!clientRecord||Number(clientRecord.agency_id)!==agencyId)throw billingError(404,'Client not found');
+    let billingStaff=false;
+    try{await requireBillingStaff(req.user,agencyId);billingStaff=true;}catch(e){if(e.status!==403)throw e;}
+    if(!billingStaff&&Number(clientRecord.user_id)!==Number(req.user.id))await requireResponsiblePayer(req.user.id,clientId,agencyId);
     const overview = await buildClientPackageOverview({ agencyId, clientId });
-    res.json({ ok: true, ...overview });
+    if(!billingStaff){overview.payments=[];for(const session of overview.sessions||[])delete session.payment;for(const entitlement of overview.entitlements||[]){delete entitlement.paymentMode;delete entitlement.installments;delete entitlement.amountPaidCents;delete entitlement.priceCents;}}
+    res.set('Cache-Control','no-store');res.json({ ok: true, ...overview });
   } catch (e) {
     next(e);
   }

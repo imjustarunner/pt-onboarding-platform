@@ -480,10 +480,16 @@ class BookingPackage {
         if (!row) {
           throw Object.assign(new Error('Entitlement not found'), { status: 404 });
         }
-        if (String(row.status) === 'ACTIVE' && String(row.payment_status) === 'PAID') {
+        if (Number(row.client_id) !== cid || Number(row.package_id) !== Number(pkg.id)
+          || (stripePaymentIntentId && row.stripe_payment_intent_id !== stripePaymentIntentId)
+          || (purchaserUserId && Number(row.purchaser_user_id) !== Number(purchaserUserId))) {
+          throw Object.assign(new Error('Entitlement ownership mismatch'), { status: 409 });
+        }
+        if (String(row.payment_status) === 'PAID') {
           await conn.commit();
           return this.findEntitlementById(entitlementIdNum, pkg.agencyId);
         }
+        if (String(row.status) !== 'PENDING') throw Object.assign(new Error('Entitlement is not pending activation'), { status: 409 });
         await conn.execute(
           `UPDATE booking_package_entitlements
            SET sessions_purchased = ?, sessions_remaining = ?, payment_status = ?, status = 'ACTIVE',

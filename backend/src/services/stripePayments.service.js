@@ -220,6 +220,10 @@ class StripePaymentsService {
     return intent;
   }
 
+  static async retrieveSetupIntent(setupIntentId, connectedAccountId) {
+    return getStripe().setupIntents.retrieve(setupIntentId, {}, connectOpts(connectedAccountId));
+  }
+
   // ─────────────────────────────────────────────────────────────────────────
   // Charging (scoped to connected account)
   // ─────────────────────────────────────────────────────────────────────────
@@ -239,10 +243,11 @@ class StripePaymentsService {
     description = null,
     metadata = {},
     connectedAccountId = null,
-    applicationFeeAmountCents = 0
+    applicationFeeAmountCents = 0,
+    idempotencyKey = null
   }) {
     const stripe = getStripe();
-    const opts = connectOpts(connectedAccountId);
+    const opts = { ...connectOpts(connectedAccountId), ...(idempotencyKey ? { idempotencyKey } : {}) };
 
     const intentParams = {
       amount: amountCents,
@@ -273,10 +278,11 @@ class StripePaymentsService {
     description = null,
     metadata = {},
     connectedAccountId = null,
-    applicationFeeAmountCents = 0
+    applicationFeeAmountCents = 0,
+    idempotencyKey = null
   }) {
     const stripe = getStripe();
-    const opts = connectOpts(connectedAccountId);
+    const opts = { ...connectOpts(connectedAccountId), ...(idempotencyKey ? { idempotencyKey } : {}) };
     const amount = Math.max(0, Math.round(Number(amountCents || 0)));
     if (amount < 1) throw new Error('amountCents must be at least 1');
 
@@ -298,6 +304,18 @@ class StripePaymentsService {
   static async retrievePaymentIntent(paymentIntentId, connectedAccountId = null) {
     const stripe = getStripe();
     return stripe.paymentIntents.retrieve(paymentIntentId, {}, connectOpts(connectedAccountId));
+  }
+
+  static async refundPaymentIntent({ paymentIntentId, amountCents, connectedAccountId, idempotencyKey, metadata }) {
+    return getStripe().refunds.create({ payment_intent: paymentIntentId, amount: amountCents, metadata }, { stripeAccount: connectedAccountId, idempotencyKey });
+  }
+
+  static async retrieveRefund(refundId, connectedAccountId) {
+    return getStripe().refunds.retrieve(refundId, {}, { stripeAccount: connectedAccountId });
+  }
+
+  static async cancelPaymentIntent(paymentIntentId, connectedAccountId) {
+    return getStripe().paymentIntents.cancel(paymentIntentId, {}, connectOpts(connectedAccountId));
   }
 
   // ─────────────────────────────────────────────────────────────────────────

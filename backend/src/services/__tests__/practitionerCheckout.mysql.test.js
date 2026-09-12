@@ -1,0 +1,11 @@
+import test from 'node:test';import assert from 'node:assert/strict';
+test('practitioner checkout retries keep one processor key and activation credits are atomic',{skip:process.env.FAMILY_BILLING_MYSQL_TEST!=='1'},async()=>{
+ assert.equal(process.env.DB_NAME,'family_billing_test');assert.equal(process.env.DB_PORT,'33316');const {default:pool}=await import('../../config/database.js');const {default:Stripe}=await import('../stripePayments.service.js');const {preparePractitionerCheckout,savedPractitionerCheckout}=await import('../practitionerCheckoutAttempt.service.js');const {activatePackageSelection}=await import('../practitionerPackage.service.js');
+ const keys=[],intent={id:'pi_practitioner_fixture',status:'succeeded'};Stripe.createPaymentIntent=async args=>{keys.push(args.idempotencyKey);return intent;};Stripe.retrievePaymentIntent=async()=>intent;
+ const args={packet:{id:900,agency_id:1,client_id:102},pkg:{id:901,session_count:5},paymentMode:'PAY_IN_FULL',amountCents:10001,connectedAccountId:'acct_fixture'};
+ try{const [a,b]=await Promise.all([preparePractitionerCheckout(args),preparePractitionerCheckout(args)]);assert.equal(a.intent.id,b.intent.id);assert.equal(new Set(keys).size,1);const frozen=await preparePractitionerCheckout({...args,amountCents:20000});assert.equal(frozen.amountCents,10001);await assert.rejects(savedPractitionerCheckout(args.packet,'pi_other'),e=>e.status===409);
+ await assert.rejects(activatePackageSelection({packetId:900,packageId:901,paymentMode:'PAY_IN_FULL',paymentStatus:'PENDING'}),e=>e.status===409);
+ const results=await Promise.all([1,2].map(()=>activatePackageSelection({packetId:900,packageId:901,paymentMode:'PAY_IN_FULL',paymentStatus:'PAID',stripePaymentIntentId:intent.id,amountChargedCents:10001,purchasedSessions:5})));assert.equal(results.filter(r=>r.alreadyActivated).length,1);
+ const [[credits]]=await pool.execute('SELECT COUNT(*) AS n,SUM(quantity) AS qty FROM practitioner_session_credit_ledger WHERE packet_id=900');assert.equal(credits.n,1);assert.equal(Number(credits.qty),5);const [[payments]]=await pool.execute('SELECT COUNT(*) AS n FROM practitioner_package_payments WHERE packet_id=900');assert.equal(payments.n,1);
+ }finally{await pool.end();}
+});

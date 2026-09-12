@@ -1,4 +1,4 @@
-import { sanitizeRequestBody } from '../utils/sanitizeRequest.js';
+import { sanitizeRequestBody, redactPrivateBillingUrl } from '../utils/sanitizeRequest.js';
 import config from '../config/config.js';
 
 /**
@@ -40,6 +40,7 @@ import config from '../config/config.js';
  * // because the middleware ensures sensitive fields are never in req.sanitizedBody.
  */
 export const requestLoggingMiddleware = (req, res, next) => {
+  if (/\/(family-billing|guardian-billing)(\/|$)/.test(req.path)) { req.sanitizedBody = '[PRIVATE BILLING REQUEST]'; next(); return; }
   // Only sanitize if body exists and is an object
   if (req.body && typeof req.body === 'object') {
     // Create sanitized copy and attach to request
@@ -58,7 +59,7 @@ export const requestLoggingMiddleware = (req, res, next) => {
     Object.keys(req.body).length > 0 &&
     !skipLogPaths.has(req.path)
   ) {
-    console.log(`[Request] ${req.method} ${req.path}`, {
+    console.log(`[Request] ${req.method} ${redactPrivateBillingUrl(req.path)}`, {
       body: req.sanitizedBody,
       query: req.query,
       params: req.params
