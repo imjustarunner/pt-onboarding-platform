@@ -1,0 +1,6 @@
+<template><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path :d="paths[name] || paths.rocket" /></svg></template>
+<script setup>
+defineProps({name:String});
+const paths={rocket:'M14 4c3-2 6-2 6-2s0 3-2 6l-6 6-4-4 6-6ZM8 10l-4 1-2 5 6-2m4 0-1 6-5 2 1-6m-2 1-3 3M15 6h.01',document:'M6 2h8l4 4v16H6V2Zm8 0v5h4M9 11h6m-6 4h6m-6 4h4',wallet:'M3 7h18v14H3V7Zm0 0V4l14-2v5m-1 6h5v4h-5v-4Z',people:'M9 10a4 4 0 1 0 0-8 4 4 0 0 0 0 8Zm6-6a3 3 0 0 1 0 6M2 22v-5a6 6 0 0 1 12 0v5H2Zm14-9a5 5 0 0 1 6 5v4h-4',megaphone:'M3 9h5l12-6v18L8 15H3V9Zm5 6 2 7H6l-2-7M20 9l3 1v4l-3 1',screen:'M3 3h18v14H3V3Zm-2 18h22M9 17v4m6-4v4',settings:'M9 3h6l1 3 3 1 2 5-2 5-3 1-1 3H9l-1-3-3-1-2-5 2-5 3-1 1-3Zm7 9a4 4 0 1 0-8 0 4 4 0 0 0 8 0Z',chart:'M3 21V11h4v10H3Zm7 0V6h4v15h-4Zm7 0V2h4v19h-4',heart:'M12 21 3 12C-3 4 7-1 12 6c5-7 15-2 9 6l-9 9Z',shield:'m12 2 9 4v6c0 5-9 10-9 10S3 17 3 12V6l9-4Zm-5 9 3 3 7-7',calendar:'M3 5h18v17H3V5Zm0 5h18M7 2v6m10-6v6M7 14h3m4 0h3m-10 4h3',check:'m4 12 5 5L20 6',arrow:'M4 12h16m-6-6 6 6-6 6',bulb:'M8 17c0-4-4-4-4-9a8 8 0 0 1 16 0c0 5-4 5-4 9H8Zm0 3h8m-6 3h4',clock:'M22 12a10 10 0 1 0-20 0 10 10 0 0 0 20 0ZM12 6v6l4 2'};
+</script>
+<style scoped>svg{width:32px;height:32px;flex-shrink:0}</style>

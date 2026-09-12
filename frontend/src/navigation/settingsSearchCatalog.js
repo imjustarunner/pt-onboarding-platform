@@ -20,7 +20,7 @@ export const SETTINGS_DISPLAY_LABELS = {
   'agency-platform': 'Tenant identity & locks',
   'audit-center': 'Audit center',
   'viewport-preview': 'Viewport preview',
-  'company-profile': 'Company / Practice profile',
+  'company-profile': 'Company workspace & setup',
   'team-roles': 'Team & roles',
   'tenant-ws-org-directory': 'Organizations / Affiliations / Programs / Schools',
   'tenant-ws-global-platform': 'Platform-wide defaults',
@@ -722,7 +722,7 @@ export function buildSettingsSearchTargets({
       push(
         enrichSettingsSearchTarget({
           id: 'company-profile',
-          label: 'Company Profile',
+          label: 'Company workspace',
           categoryId: 'general',
           categoryLabel: 'GENERAL'
         })

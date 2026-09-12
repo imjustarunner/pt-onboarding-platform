@@ -1,5 +1,5 @@
 <template>
-  <div class="agency-management">
+  <div class="agency-management" :class="{ 'company-workspace-editor': workspaceMode }">
     <div
       class="master-detail"
       :class="{
@@ -242,13 +242,18 @@
 
     <div v-if="showCreateModal || editingAgency" class="detail-editor">
       <div class="detail-editor-card">
-        <h3>{{ editingAgency ? (isPracticeTenant ? 'Edit Practice' : 'Edit Organization') : (isPracticeTenant ? 'Create Practice' : 'Create Organization') }}</h3>
+        <h3>{{ workspaceMode ? (visibleEditorTabs.find(t => t.id === activeTab)?.label || 'Business details') : editingAgency ? (isPracticeTenant ? 'Edit Practice' : 'Edit Organization') : (isPracticeTenant ? 'Create Practice' : 'Create Organization') }}</h3>
         <div v-if="error" class="error-modal">
           <strong>Error:</strong> {{ error }}
         </div>
         
         <!-- Tab Navigation -->
-        <div class="modal-tabs">
+        <nav v-if="workspaceMode" class="workspace-settings-navigation" aria-label="Business settings">
+          <label>Find a business setting<input v-model="workspaceSearch" type="search" placeholder="Contact, branding, notifications…"></label>
+          <div class="workspace-settings-groups"><section v-for="group in workspaceTabGroups" :key="group.title"><h4>{{ group.title }}</h4><div><button v-for="tab in group.tabs" :key="tab.id" type="button" :aria-pressed="activeTab === tab.id" @click="goToAgencyTab(tab.id)">{{ tab.label }}</button></div></section></div>
+          <p v-if="!workspaceTabGroups.length">No business settings match your search.</p>
+        </nav>
+        <div v-else class="modal-tabs">
           <button
             v-for="t in visibleEditorTabs"
             :key="`tab-${t.id}`"
@@ -264,7 +269,7 @@
           Schools and other sub-organizations inherit tenant branding, features, and platform settings.
           Edit name, address, and school staff here.
         </p>
-        <div v-if="editingAgency && !isChildOrgEditor" class="controls-map">
+        <div v-if="editingAgency && !isChildOrgEditor && !workspaceMode" class="controls-map">
           <div class="controls-map-col">
             <div class="controls-map-title">Platform / Superadmin controls</div>
             <div class="controls-map-sub">Tenant setup and platform-governed controls.</div>
@@ -4203,6 +4208,7 @@
 </template>
 
 <script setup>
+import { isRootTenant } from '../../navigation/organizationKinds';
 import { ref, onMounted, computed, watch, nextTick } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import api from '../../services/api';
@@ -4275,6 +4281,7 @@ const organizationSlug = computed(() => {
 });
 
 const props = defineProps({
+  workspaceMode: { type: Boolean, default: false },
   // Embedded single-organization mode (used by School Portal settings).
   // When set, the UI loads and opens ONLY this organization (no left list).
   embeddedOrgId: { type: [Number, String], default: null },
@@ -4703,7 +4710,14 @@ const tabAvailable = (tabId) => {
   return false;
 };
 
+const workspaceSearch = ref('');
 const visibleEditorTabs = computed(() => EDITOR_TAB_DEFS.filter((x) => tabAvailable(x.id)));
+
+const workspaceTabGroups = computed(() => [
+  { title: 'Business identity', ids: ['general','contact','address','sites'] },
+  { title: 'Brand & experience', ids: ['branding','theme','terminology','icons','features'] },
+  { title: 'Team & communication', ids: ['notifications','announcements','company_events','social_links','social_feeds','kudos','payroll','school_providers','school_staff'] }
+].map(group => ({title:group.title,tabs:visibleEditorTabs.value.filter(tab => group.ids.includes(tab.id) && `${group.title} ${tab.label}`.toLowerCase().includes(workspaceSearch.value.toLowerCase().trim()))})).filter(group => group.tabs.length));
 
 const superadminQuickTabs = computed(() => {
   const base = [
@@ -7326,7 +7340,7 @@ const parentAgenciesOverride = ref(null); // array | null
 
 const parentAgencies = computed(() => {
   const src = Array.isArray(parentAgenciesOverride.value) ? parentAgenciesOverride.value : (agencies.value || []);
-  return sortByNameAsc((src || []).filter(a => String(a.organization_type || 'agency').toLowerCase() === 'agency'));
+  return sortByNameAsc((src || []).filter(isRootTenant));
 });
 
 const organizationDirectoryLocked = computed(() => {
@@ -7423,13 +7437,12 @@ const organizationsToRender = computed(() => {
   const selectedAgencyId = selectedAgencyIdForList.value;
 
   if (view === 'agencies') {
-    // If an agency is selected, pin it at the top and show its affiliated orgs below as full rows.
+    // Tenant view contains only companies. Affiliated schools/programs belong in their own views.
     if (!selectedAgencyId) {
       return sortOrganizations(applyFilters(parentAgencies.value));
     }
     const pinned = selectedAgencyForList.value ? [selectedAgencyForList.value] : [];
-    const children = sortOrganizations(applyFilters(affiliatesForSelectedAgency.value));
-    return [...pinned, ...children];
+    return sortOrganizations(applyFilters(pinned));
   }
 
   const base = selectedAgencyId ? (affiliatedOrganizations.value || []) : (agencies.value || []);
@@ -7458,7 +7471,7 @@ const organizationsToRender = computed(() => {
   }
 
   // organizations view (all non-agency)
-  const nonAgencies = (base || []).filter((o) => typeOf(o) !== 'agency');
+  const nonAgencies = (base || []).filter((o) => !isRootTenant(o));
   return sortOrganizations(applyFilters([...(nonAgencies || []), ...(buildingsBase || [])]));
 });
 
@@ -11512,4 +11525,15 @@ small {
 .tab-content {
   min-height: 400px;
 }
+
+.company-workspace-editor .detail-editor-card{border-radius:12px;padding:24px;box-shadow:none}
+.workspace-settings-navigation{padding:20px;margin:18px 0 28px;border:1px solid var(--border,#ddd);border-radius:12px;background:var(--bg-secondary,#f8f9fb)}
+.workspace-settings-navigation>label{display:block;font-size:12px;font-weight:650;max-width:400px;margin-bottom:20px}
+.workspace-settings-navigation input{display:block;width:100%;padding:11px 12px;margin-top:7px;border:1px solid var(--border,#ddd);border-radius:7px;background:var(--bg,#fff);color:var(--text-primary,#222)}
+.workspace-settings-groups{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:24px}
+.workspace-settings-groups h4{margin:0 0 12px;font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--text-secondary,#647084)}
+.workspace-settings-groups section>div{display:flex;flex-wrap:wrap;gap:8px}
+.workspace-settings-groups button{padding:9px 12px;border:1px solid var(--border,#ddd);border-radius:7px;background:var(--bg,#fff);color:var(--text-primary,#222);cursor:pointer}
+.workspace-settings-groups button[aria-pressed=true]{background:var(--primary,#8c1020);color:white;border-color:var(--primary,#8c1020)}
+@media(max-width:800px){.workspace-settings-groups{grid-template-columns:1fr;gap:18px}.company-workspace-editor .detail-editor-card{padding:14px}}
 </style>

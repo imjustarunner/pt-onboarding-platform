@@ -378,6 +378,9 @@ import {
 
 // Import all existing components
 import AgencyManagement from './AgencyManagement.vue';
+import CompanyWorkspace from './CompanyWorkspace.vue';
+import BusinessOnboardingReview from './BusinessOnboardingReview.vue';
+import { isRootTenant } from '../../navigation/organizationKinds';
 import AgencyManagementTeamConfig from './AgencyManagementTeamConfig.vue';
 import TenantBookingSettings from './TenantBookingSettings.vue';
 import BrandingConfig from './BrandingConfig.vue';
@@ -503,6 +506,7 @@ const allCategories = [
     id: 'platform',
     label: 'PLATFORM',
     items: [
+      { id: 'business-onboarding', label: 'New company requests', icon: '🚀', component: 'BusinessOnboardingReview', roles: ['super_admin'], excludeRoles: ['support', 'clinical_practice_assistant'], excludeSupervisor: true },
       {
         id: 'platform-ws-home',
         label: 'Platform home',
@@ -612,9 +616,9 @@ const allCategories = [
     items: [
       {
         id: 'company-profile',
-        label: 'Company Profile',
+        label: 'Company workspace',
         icon: '🏢',
-        component: 'AgencyManagement',
+        component: 'CompanyWorkspace',
         roles: ['super_admin', 'admin'],
         excludeRoles: ['support', 'clinical_practice_assistant'],
         excludeSupervisor: true
@@ -1475,6 +1479,8 @@ const platformHubDrillInActive = computed(() => {
 // Component mapping
 const componentMap = {
   AgencyManagement,
+  CompanyWorkspace,
+  BusinessOnboardingReview,
   AgencyPlatformManagement,
   SuperadminTenantHub,
   TenantSettingsCardHub,
@@ -1533,7 +1539,7 @@ const selectedComponent = computed(() => {
   return componentMap[item.component] || null;
 });
 
-const isAgencyOrg = (o) => String(o?.organization_type || 'agency').toLowerCase() === 'agency';
+const isAgencyOrg = isRootTenant;
 
 const selectableAgencies = computed(() => {
   const list = isSuperAdmin.value ? (agencyStore.agencies || []) : (agencyStore.userAgencies || agencyStore.agencies || []);
@@ -1612,7 +1618,7 @@ const componentProps = computed(() => {
     const agencyId =
       tenantSettingsCardHubActive.value && agencyStore.currentAgency?.id
         ? String(agencyStore.currentAgency.id)
-        : route.query.agencyId;
+        : route.query.agencyId || agencyStore.currentAgency?.id;
     const agencyTab = route.query.agencyTab || 'general';
     if (agencyId) {
       return withScoped({ ...base, embeddedOrgId: agencyId, embeddedTab: agencyTab });

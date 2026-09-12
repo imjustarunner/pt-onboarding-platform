@@ -133,9 +133,9 @@ const primarySections = computed(() => {
         setupStep: 1,
         category: 'general',
         item: 'company-profile',
-        label: 'Company profile',
+        label: 'Company workspace',
         fallbackIcon: '🏢',
-        description: `Name, contact, address, sites, notifications, and other day-to-day ${noun} identity settings still managed here.`
+        description: `A guided setup workspace for business identity, services, team access, billing, and affiliated organizations.`
       },
       {
         setupStep: 2,

@@ -96,6 +96,7 @@ const primarySections = [
         superadminOnly: true,
         description: SETTINGS_SEARCH_DESCRIPTIONS['platform-feature-audit']
       },
+      { category: 'platform', item: 'business-onboarding', label: 'New company requests', fallbackIcon: '🚀', superadminOnly: true, description: 'Review business intake, approve company workspaces, and send owner invitations.' },
       {
         category: 'platform',
         item: 'platform-all-agencies',

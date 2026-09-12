@@ -8,7 +8,7 @@ const workspace = { name: 'MarketingDesignWorkspace', props: ['page'], emits: ['
 let record;
 async function openEditor() {
   const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/admin/public-marketing-pages', component: Admin }] });
-  await router.push('/admin/public-marketing-pages?page=tisi');
+  await router.push(`/admin/public-marketing-pages?page=${record.slug}`);
   const wrapper = mount(Admin, { global: { plugins: [router], stubs: { MarketingDesignWorkspace: workspace } } });
   await flushPromises();
   return wrapper;
@@ -33,6 +33,19 @@ describe('marketing editor save workflow', () => {
     expect(payload.heroImageUrl).toBe('/uploads/real-crop.png');
     expect(payload.brandingJson.landing.customFutureOption).toBe('keep me');
     expect(payload.isActive).toBe(false);
+    wrapper.unmount();
+  });
+  it('previews PTCO and preserves its template when saving hero artwork', async () => {
+    record = { id: 2, slug: 'ptco', title: 'Plot Twist Co.', pageType: 'marketing_hub', heroTitle: 'Your next chapter', isActive: false, brandingJson: { landingTemplate: 'ptco', logoUrl: '/assets/ptco/logo-flat.webp' } };
+    const wrapper = await openEditor();
+    const component = wrapper.findComponent(workspace);
+    expect(component.props('page').slug).toBe('ptco');
+    component.vm.$emit('asset', { target: 'hero', url: '/uploads/ptco-hero.webp' });
+    await flushPromises();
+    await wrapper.find('.pmp-save-row .btn-primary').trigger('click'); await flushPromises();
+    expect(api.put.mock.calls[0][1].brandingJson.landingTemplate).toBe('ptco');
+    expect(api.put.mock.calls[0][1].heroImageUrl).toBe('/uploads/ptco-hero.webp');
+    expect(api.put.mock.calls[0][1].brandingJson.landing).toBeUndefined();
     wrapper.unmount();
   });
   it('does not save during a crop upload', async () => {

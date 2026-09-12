@@ -37,7 +37,7 @@
     <div v-if="editorOpen" class="pmp-editor card">
       <h2>{{ editingId ? `Edit page #${editingId}` : 'New page' }}</h2>
 
-      <MarketingDesignWorkspace v-if="showMarketingLandingEditor" :key="editingId || 'new'" :page="designPreviewPage" :reference-url="designReferenceUrl" @asset="applyDesignAsset" @reference="designReferenceUrl = $event" @busy="designBusy = $event" />
+      <MarketingDesignWorkspace v-if="showMarketingLandingEditor || showPtcoEditor" :key="editingId || 'new'" :page="designPreviewPage" :reference-url="designReferenceUrl" @asset="applyDesignAsset" @reference="designReferenceUrl = $event" @busy="designBusy = $event" />
       <label class="field">
         <span>Slug (URL: /p/slug)</span>
         <input v-model="form.slug" type="text" placeholder="d11-summer-2025" :disabled="!!editingId" />
@@ -56,6 +56,7 @@
           <option value="event_hub">event_hub</option>
           <option value="provider_booking">provider_booking</option>
           <option value="marketing_landing">marketing_landing</option>
+          <option value="marketing_hub">Company website</option>
         </select>
       </label>
       <label class="field">
@@ -663,9 +664,10 @@ const iconOptions = TISI_LANDING_ICON_OPTIONS;
 
 const landingForm = ref(tisiLandingToAdminForm(defaultTisiLandingConfig()));
 
+const showPtcoEditor = computed(() => String(form.value.slug || '').trim().toLowerCase() === 'ptco');
 const showMarketingLandingEditor = computed(
   () =>
-    String(form.value.pageType || '') === 'marketing_landing' ||
+    (!showPtcoEditor.value && String(form.value.pageType || '') === 'marketing_landing') ||
     String(form.value.slug || '').trim().toLowerCase() === 'tisi'
 );
 
@@ -955,6 +957,7 @@ function mergeBrandingPayload() {
     out.processSection = false;
   }
 
+  if (showPtcoEditor.value) { out.landingTemplate = 'ptco'; out.designReferenceUrl = designReferenceUrl.value; }
   return out;
 }
 
@@ -1219,7 +1222,7 @@ function edit(p) {
   delete advanced.heroVideoUrl;
   delete advanced.offerExpandedExternalLinks;
   delete advanced.landing;
-  delete advanced.landingTemplate;
+  if (p.slug !== 'ptco') delete advanced.landingTemplate;
   delete advanced.siteName;
   delete advanced.tagline;
   delete advanced.ctaHref;

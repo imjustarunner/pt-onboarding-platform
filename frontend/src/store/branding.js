@@ -39,8 +39,8 @@ export const useBrandingStore = defineStore('branding', () => {
   
   // PlotTwistCo logo URL (for super admin)
   const plotTwistCoLogoUrl = computed(() => {
-    // Use SVG logo (PNG can be added later if needed)
-    return '/logos/plottwistco-logo.svg';
+    // Plot Twist Co. flat mark stays clear at navigation sizes.
+    return '/assets/ptco/logo-flat.webp';
   });
   
   // Branding mode: 'plotTwistCo', 'agency', or 'default'

@@ -327,6 +327,12 @@ const routes = [
     component: () => import('../views/school/PublicDistrictScheduleView.vue'),
     meta: { requiresGuest: false, organizationSlug: true, publicDistrictSchedule: true }
   },
+  {
+    path: '/p/ptco/:section?',
+    name: 'PtcoPublicWebsite',
+    component: () => import('../views/public/PtcoPublicWebsite.vue'),
+    meta: { requiresGuest: false, publicMarketingHub: true }
+  },
   // Public marketing hub — optional markdown subpages (must be before single-segment /p/:hubSlug).
   {
     path: '/p/:hubSlug/:subPageSlug',

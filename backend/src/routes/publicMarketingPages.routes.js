@@ -1,4 +1,5 @@
 import express from 'express';
+import { publicBusinessOnboardingRouter } from './businessOnboarding.routes.js';
 import { publicGeocodeLimiter, publicMarketingPageMetricsLimiter } from '../middleware/rateLimiter.middleware.js';
 import {
   getPublicMarketingPage,
@@ -10,6 +11,7 @@ import {
 } from '../controllers/publicMarketingPages.controller.js';
 
 const router = express.Router();
+router.use('/ptco/business', publicBusinessOnboardingRouter);
 
 router.get('/:slug', getPublicMarketingPage);
 router.get('/:slug/theme', getPublicMarketingPageTheme);
