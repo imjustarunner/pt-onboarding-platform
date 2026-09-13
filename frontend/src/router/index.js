@@ -1,4 +1,6 @@
 import { createRouter, createWebHistory } from 'vue-router';
+import { publicDomainHistory } from '../utils/publicDomainRouting.js';
+import { updateItscoDocumentMeta } from '../utils/itscoPublicSeo.js';
 import { Capacitor } from '@capacitor/core';
 import { useAuthStore } from '../store/auth';
 import { useBrandingStore } from '../store/branding';
@@ -4621,7 +4623,7 @@ const routes = [
 ];
 
 const router = createRouter({
-  history: createWebHistory(),
+  history: publicDomainHistory(createWebHistory(), window.location.hostname),
   routes,
   scrollBehavior(to, from, savedPosition) {
     if (savedPosition) return savedPosition;
@@ -5893,6 +5895,7 @@ router.beforeEach(async (to, from, next) => {
 });
 
 router.afterEach((to) => {
+  updateItscoDocumentMeta(document, window.location.hostname, to.fullPath);
   const authStore = useAuthStore();
   if (!authStore.isAuthenticated) return;
   const path = String(to?.path || '');

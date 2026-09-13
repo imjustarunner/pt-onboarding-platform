@@ -71,6 +71,8 @@ COPY --from=builder /app/frontend/dist /usr/share/nginx/html
 
 # Copy nginx configuration
 COPY nginx.conf /etc/nginx/conf.d/default.conf
+COPY --from=builder /app/frontend/dist/itsco-public.nginx.conf /etc/nginx/conf.d/itsco-public.conf
+RUN rm /usr/share/nginx/html/itsco-public.nginx.conf
 
 # Expose port 8080 (Cloud Run requirement)
 EXPOSE 8080

@@ -4,6 +4,9 @@ import { dirname, join } from 'path';
 import { existsSync, readdirSync, statSync, readFileSync } from 'fs';
 import { buildShareMeta, injectShareMetaIntoHtml } from './src/utils/sharePreview.js';
 
+import { isItscoPublicHost } from './src/utils/publicDomainRouting.js';
+import { itscoPublicResponse, itscoSitemap, ITSCO_ORIGIN } from './src/utils/itscoPublicSeo.js';
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
@@ -71,6 +74,22 @@ if (existsSync(distPath)) {
   console.error('ERROR: dist directory does not exist! Build may have failed.');
 }
 
+// Exact public hosts only: never apply website redirects to app or Quick View.
+app.use((req, res, next) => {
+  if (!isItscoPublicHost(req.headers.host)) return next();
+  if (req.path === '/sitemap.xml') return res.type('application/xml').send(itscoSitemap());
+  if (req.path === '/robots.txt') return res.type('text/plain').send(`User-agent: *\nAllow: /\nSitemap: ${ITSCO_ORIGIN}/sitemap.xml\n`);
+  if (/^\/(assets|api|uploads)(\/|$)/.test(req.path) || /\.[^/]+$/.test(req.path)) return next();
+  const page = itscoPublicResponse(req.headers.host, req.originalUrl);
+  if (page.redirect) return res.redirect(page.status, page.redirect);
+  if (page.status === 404) return res.status(404).set('X-Robots-Tag', 'noindex').type('html').send(
+    '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Page not found | ITSCO</title></head><body><main><h1>Page not found</h1><p>This address is unavailable.</p><a href="/">Return to ITSCO</a></main></body></html>'
+  );
+  res.locals.itscoPublicPage = page;
+  if (page.noindex) res.setHeader('X-Robots-Tag', 'noindex');
+  next();
+});
+
 // Serve static files from dist directory
 // This handles all static assets including /assets/* files
 app.use(express.static(distPath, {
@@ -122,7 +141,17 @@ app.get('*', (req, res) => {
       path: req.originalUrl || req.path,
       proto
     });
-    res.type('html').send(injectShareMetaIntoHtml(html, meta));
+    const page = res.locals.itscoPublicPage;
+    let rendered;
+    if (page) {
+      Object.assign(meta, { title: page.title, description: page.description, url: page.canonical,
+        name: 'ITSCO', image: `${ITSCO_ORIGIN}/assets/itsco/students-hero.png` });
+      rendered = injectShareMetaIntoHtml(html, meta);
+      rendered = rendered.replace('</head>', `<link rel="canonical" href="${page.canonical.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;')}"></head>`);
+      if (page.status === 404) rendered = rendered.replace(/<div id="app"><\/div>/, '<div id="app"><h1>Page not found</h1><a href="/">Return to ITSCO</a></div>');
+      res.status(page.status);
+    } else rendered = injectShareMetaIntoHtml(html, meta);
+    res.type('html').send(rendered);
   } else {
     console.error(`[ERROR] index.html not found at: ${indexPath}`);
     res.status(500).send('index.html not found');

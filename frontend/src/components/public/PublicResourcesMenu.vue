@@ -2,7 +2,7 @@
  <div ref="root" class="public-resources" @mouseleave="leave" @keydown.esc.stop.prevent="close(true)" @focusout="focusOut">
   <button ref="trigger" type="button" :aria-expanded="open" @mouseenter="hoverMenu" @click="open=!open">Resources <span aria-hidden="true">⌄</span></button>
   <div v-if="open" class="public-resources-panel">
-   <a v-if="safe(resourcesPath)" :href="safe(resourcesPath)">Helpful resources →</a>
+   <a v-if="safe(resourcesPath)" :href="resourceHref(resourcesPath)">Helpful resources →</a>
    <div class="public-partners" @mouseenter="hoverPartners">
     <button ref="partnerTrigger" type="button" :aria-expanded="partnersOpen" @click="partnersOpen=!partnersOpen" @keydown.right.prevent="partnersOpen=true">Partners <span aria-hidden="true">›</span></button>
     <div v-if="partnersOpen" class="public-partners-panel" @keydown.left.stop.prevent="partnersOpen=false;partnerTrigger?.focus()">
@@ -18,6 +18,8 @@
 </template>
 <script setup>
 import { ref, onMounted, onUnmounted } from 'vue';
+import { isItscoPublicHost, cleanItscoPath } from '../../utils/publicDomainRouting.js';
+const resourceHref = value => { const href = safe(value); return isItscoPublicHost(window.location.hostname) ? cleanItscoPath(href) : href; };
 import api from '../../services/api';
 import { publicWebsiteUrl as safe } from '../../composables/useStandalonePublicWebsite';
 defineProps({resourcesPath:{type:String,default:''}});
