@@ -62,7 +62,7 @@ const TENANTS = {
   }
 };
 
-const PUBLIC_WEBSITES = {"tisi": {"name": "The Inner Strength Institute", "image": "/assets/SMSAssets/innerstrengthwebsite.png"}, "range": {"name": "Mental Range Collective", "image": "/assets/SMSAssets/mentalrangewebsite.png"}, "mh4kidz": {"name": "MH4Kidz", "image": "/assets/SMSAssets/mh4kizqwebsite.png"}, "ptco": {"name": "Plot Twist Co.", "image": "/assets/SMSAssets/plottwistcowebsite.png"}, "rise": {"name": "Rise Revive", "image": "/assets/SMSAssets/riserevivewebsite.png"}};
+const PUBLIC_WEBSITES = {"itsco": {"name": "ITSCO | In The School Counselors", "image": "/assets/itsco/counseling-hero.png"}, "tisi": {"name": "The Inner Strength Institute", "image": "/assets/SMSAssets/innerstrengthwebsite.png"}, "range": {"name": "Mental Range Collective", "image": "/assets/SMSAssets/mentalrangewebsite.png"}, "mh4kidz": {"name": "MH4Kidz", "image": "/assets/SMSAssets/mh4kizqwebsite.png"}, "ptco": {"name": "Plot Twist Co.", "image": "/assets/SMSAssets/plottwistcowebsite.png"}, "rise": {"name": "Rise Revive", "image": "/assets/SMSAssets/riserevivewebsite.png"}};
 
 const DEFAULT_IMAGE = '/branding/plottwisthq-platform-bg.png';
 const DEFAULT_DESC = 'Care, scheduling, billing, and support.';

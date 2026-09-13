@@ -1,0 +1,42 @@
+// Run only against the disposable localhost container documented in docs/public-websites/itsco.md.
+import {createRequire} from 'node:module';
+import {readFile} from 'node:fs/promises';
+import assert from 'node:assert/strict';
+import {readItscoImpact,writeItscoImpactBaseline} from '../../backend/src/services/itscoPublicImpact.service.js';
+const require=createRequire(new URL('../../backend/package.json',import.meta.url));
+const mysql=require('mysql2/promise');
+const config={host:'127.0.0.1',port:33322,user:'root',password:'synthetic-itsco-test',multipleStatements:true,timezone:'Z',connectionLimit:5};
+const setup=await mysql.createConnection(config);
+await setup.query('CREATE DATABASE IF NOT EXISTS itsco_public_test');await setup.end();
+const db=mysql.createPool({...config,database:'itsco_public_test'});
+try{
+ await db.query(`CREATE TABLE agencies(id INT PRIMARY KEY,name VARCHAR(100),slug VARCHAR(100),organization_type VARCHAR(50));
+ CREATE TABLE users(id INT PRIMARY KEY);
+ CREATE TABLE clients(id INT PRIMARY KEY,agency_id INT,is_demo BOOLEAN DEFAULT 0);
+ CREATE TABLE client_organization_assignments(client_id INT,organization_id INT,created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,PRIMARY KEY(client_id,organization_id));
+ INSERT INTO agencies VALUES(1,'ITSCO','itsco','agency'),(2,'Another tenant','other','agency'),(11,'Example School','school','school');
+ INSERT INTO users VALUES(1);
+ INSERT INTO clients VALUES(1,1,0),(2,1,0),(3,2,0),(4,1,1),(5,1,0);
+ INSERT INTO client_organization_assignments(client_id,organization_id) VALUES(1,11),(1,12),(2,11),(3,11),(4,11),(5,99);`);
+ await db.query(await readFile(new URL('../migrations/598_public_marketing_pages.sql',import.meta.url),'utf8'));
+ const migration=await readFile(new URL('../migrations/1432_itsco_public_website.sql',import.meta.url),'utf8');
+ await db.query(migration);await db.query(migration);
+ const [[pages]]=await db.query("SELECT COUNT(*) n FROM public_marketing_pages WHERE slug='itsco'");assert.equal(pages.n,1,'Migration is idempotent');
+ const [[sources]]=await db.query('SELECT source_id FROM public_marketing_page_sources');assert.equal(sources.source_id,1);
+ const input={agencyId:1,schoolIds:[11,12]};
+ assert.equal(await readItscoImpact(db,input),null,'No fabricated historical total');
+ await writeItscoImpactBaseline(db,{...input,total:100,actorId:1});
+ assert.equal((await readItscoImpact(db,input)).total,100,'Existing students are included in the entered total');
+ const [[snapshot]]=await db.query('SELECT COUNT(*) n FROM agency_public_impact_baseline_clients');assert.equal(snapshot.n,2,'Deduplicates, excludes another tenant, demos and unlisted schools');
+ await db.query('INSERT INTO clients VALUES(6,1,0); INSERT INTO client_organization_assignments(client_id,organization_id) VALUES(6,11),(6,12),(5,11)');
+ assert.equal((await readItscoImpact(db,input)).total,102,'New students and an existing client newly linked to a school each count once, including same-second changes');
+ await db.query('INSERT INTO client_organization_assignments(client_id,organization_id) VALUES(2,12)');
+ assert.equal((await readItscoImpact(db,input)).total,102,'A second school for a baseline student does not add a person');
+ await writeItscoImpactBaseline(db,{...input,total:500,actorId:1});
+ assert.equal((await readItscoImpact(db,input)).total,500,'A new baseline includes all current students without double counting');
+ await assert.rejects(()=>writeItscoImpactBaseline(db,{...input,total:999,actorId:999}),/foreign key/i);
+ assert.equal((await readItscoImpact(db,input)).total,500,'Failed baseline save rolls back entirely');
+ assert.equal((await readItscoImpact(db,{agencyId:1,schoolIds:[]})).total,500,'Empty school set returns the approved baseline');
+ assert.equal(await readItscoImpact(db,{agencyId:2,schoolIds:[11]}),null,'Another tenant cannot inherit ITSCO totals');
+ console.log('PASS: migration idempotency, actual tenant linkage, baseline resets, no double-counting, same-second additions, newly linked clients, demo/tenant/school exclusions, empty directory, and rollback.');
+}finally{await db.end();}

@@ -37,6 +37,7 @@
     <div v-if="editorOpen" class="pmp-editor card">
       <h2>{{ editingId ? `Edit page #${editingId}` : 'New page' }}</h2>
 
+      <ItscoWebsiteSettings v-if="form.slug === 'itsco'" v-model="form.brandingJsonText" :key="editingId" />
       <MarketingDesignWorkspace v-if="showMarketingLandingEditor || showPtcoEditor || showRiseEditor || showCollectiveEditor" :key="editingId || 'new'" :page="designPreviewPage" :reference-url="designReferenceUrl" @asset="applyDesignAsset" @reference="designReferenceUrl = $event" @busy="designBusy = $event" />
       <fieldset v-if="showCollectiveEditor" class="card" style="padding:20px;margin-bottom:20px">
         <h3>{{ form.slug === 'range' ? 'Mental Range Collective' : 'MH4Kidz' }} website connections</h3>
@@ -643,6 +644,7 @@
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import api from '../../services/api';
 import { useRoute } from 'vue-router';
+import ItscoWebsiteSettings from '../../components/itsco/ItscoWebsiteSettings.vue';
 import MarketingDesignWorkspace from '../../components/marketing/MarketingDesignWorkspace.vue';
 import { publicWebsiteUrl } from '../../composables/useStandalonePublicWebsite';
 import { riseConnectionDefaults, riseDestination, resolveRiseConnections } from '../../constants/riseWebsite';

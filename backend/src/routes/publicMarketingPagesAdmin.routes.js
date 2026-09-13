@@ -10,9 +10,12 @@ import {
   uploadPublicMarketingPageVideoMiddleware
 } from '../controllers/publicMarketingPages.controller.js';
 
+import { saveItscoImpactBaseline } from '../services/itscoPublicWebsite.service.js';
+
 const router = express.Router();
 
 router.use(authenticate, requireSuperAdmin);
+router.post('/itsco/impact-baseline', saveItscoImpactBaseline);
 router.post('/upload', uploadPublicMarketingPageAssetMiddleware, uploadPublicMarketingPageAsset);
 router.post('/upload-video', uploadPublicMarketingPageVideoMiddleware, uploadPublicMarketingPageAsset);
 router.get('/', listMarketingPagesAdmin);

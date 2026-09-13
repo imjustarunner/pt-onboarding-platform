@@ -836,6 +836,8 @@ export const listCounselors = async (req, res, next) => {
           programType,
           weekStart,
           thisWeekCount: filteredThisWeek.length,
+          // A schedule opening is distinct from permission to accept a new client.
+          hasPublishedOpenings: Boolean(summary.nextAvailableAt),
           nextAvailableAt: (profileData?.acceptingNewClientsOverride ?? row.provider_accepting_new_clients) ? summary.nextAvailableAt || null : null,
           bookedThroughDate: summary.bookedThroughYmd || null,
           slots: filteredThisWeek.map((s) => ({ ...s, bookingMode, programType }))

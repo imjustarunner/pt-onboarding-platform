@@ -1,0 +1,31 @@
+<template>
+ <section id="school-partners" class="its-school-partners">
+  <p class="its-eyebrow">Our school partnerships</p><h2>Investing in students. Supporting schools.</h2>
+  <p>Explore the schools with ITSCO portal accounts and meet their assigned providers.</p>
+  <div v-if="!districts.length" class="its-soft"><p>Our school directory is being updated. Our team can help you find your school.</p><router-link class="its-button" to="/p/itsco/contact">Contact our team →</router-link></div>
+  <template v-else>
+   <div class="its-district-tabs" role="group" aria-label="Choose a school district"><button v-for="district in districts" :key="district.slug" :aria-pressed="active?.slug===district.slug" @click="choose(district.slug)"><Icon name="school"/><span>{{ district.name }}<small>{{district.schools.length}} {{district.schools.length===1?'school':'schools'}}</small></span></button></div>
+   <div v-if="active" class="its-district-body">
+    <aside class="its-district-story"><img v-if="safe(active.logoUrl)" :src="safe(active.logoUrl)" :alt="active.name" class="its-district-logo"/><strong v-else class="its-district-wordmark" :class="{'its-d11':active.slug==='d11'}">{{active.name}}</strong><h3>{{active.name}} Schools</h3><p>{{ active.description || 'We work alongside school teams and families to help students access mental health support where they learn and grow.' }}</p><a v-if="safe(active.websiteUrl)" :href="safe(active.websiteUrl)" class="its-button its-outline">Learn about {{active.name}} ↗</a><router-link v-else class="its-button its-outline" to="/p/itsco/contact">Ask about school services →</router-link></aside>
+    <div class="its-school-directory"><div class="its-section-heading"><h3>Find your school</h3><label><span class="its-sr-only">Search schools in {{active.name}}</span><input v-model="search" type="search" placeholder="Search schools…" /></label></div>
+     <div class="its-school-columns"><section v-for="level in levels" :key="level"><h4>{{level}}</h4><ul><li v-for="school in list(level).slice(0,expanded[level]?undefined:8)" :key="school.id"><router-link :to="{path:'/p/itsco/providers',query:{school:String(school.id)}}"><img v-if="school.logoUrl" :src="school.logoUrl" alt="" loading="lazy"/><Icon v-else name="school"/><span>{{school.name}}</span><span class="its-school-arrow" aria-hidden="true">→</span></router-link></li></ul><p v-if="!list(level).length" class="its-small">{{ search ? 'No matching schools.' : 'No schools listed in this group yet.' }}</p><button v-if="list(level).length>8" class="its-text-button" @click="expanded[level]=!expanded[level]">{{expanded[level]?'Show fewer':`View all ${list(level).length}`}} →</button><span v-else-if="list(level).length" class="its-small">{{list(level).length}} {{list(level).length===1?'school':'schools'}}</span></section></div>
+    </div>
+   </div>
+  </template>
+  <div class="its-soft its-section-heading"><div><h3>Don’t see your school?</h3><p>Let’s talk about bringing support to your school community.</p></div><router-link class="its-button its-outline" to="/p/itsco/contact">Contact us →</router-link></div>
+ </section>
+</template>
+<script setup>
+import {computed,ref,reactive} from 'vue';
+import Icon from '../rise/RiseIcon.vue';
+import {publicWebsiteUrl as safe} from '../../composables/useStandalonePublicWebsite';
+const props=defineProps({districts:{type:Array,default:()=>[]}});
+const slug=ref(''),search=ref(''),expanded=reactive({});
+const active=computed(()=>props.districts.find(d=>d.slug===slug.value)||props.districts[0]);
+const levels=computed(()=>['Elementary Schools','Middle Schools','High Schools',...(active.value?.schools.some(s=>s.level==='Other Schools')?['Other Schools']:[])]);
+function choose(value){slug.value=value;search.value='';for(const k of Object.keys(expanded))delete expanded[k];}
+function list(level){return (active.value?.schools||[]).filter(s=>s.level===level&&s.name.toLowerCase().includes(search.value.toLowerCase()));}
+</script>
+<style scoped>
+.its-district-tabs{display:flex;flex-wrap:wrap;gap:14px;margin:26px 0}.its-district-tabs button{display:flex;align-items:center;justify-content:center;gap:20px;flex:1 1 220px;border:1px solid #d3dfdb;border-radius:12px;padding:19px;background:#fff;color:#174b40;text-align:left;font-weight:700}.its-district-tabs button[aria-pressed=true]{background:linear-gradient(115deg,#07513e,#226e55);color:white}.its-district-tabs svg{width:36px;height:36px}.its-district-tabs small{display:block;font-weight:400;margin-top:5px}.its-district-body{display:grid;grid-template-columns:minmax(220px,1fr) 2.4fr;border:1px solid #dce7e2;border-radius:15px;overflow:hidden;margin-bottom:24px}.its-district-story{padding:28px;border-right:1px solid #e2eae6;background:linear-gradient(#fff,#f4f9f6)}.its-district-logo{width:100%;height:95px;object-fit:contain;object-position:left}.its-district-wordmark{font-size:40px;display:block;line-height:1.15;overflow-wrap:anywhere;margin:16px 0}.its-d11{color:#c91837;font-size:68px;letter-spacing:-4px}.its-school-directory{padding:24px}.its-school-directory input{max-width:230px}.its-school-columns{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:20px}.its-school-columns section+section{border-left:1px solid #e2eae6;padding-left:16px}.its-school-columns ul{list-style:none;padding:0}.its-school-columns li a{display:flex;align-items:center;gap:7px;padding:9px 0;text-decoration:none;color:#34534c;font-size:14px}.its-school-columns li a:hover{text-decoration:underline;color:#006348}.its-school-columns img,.its-school-columns svg{width:23px;height:23px;object-fit:contain;flex-shrink:0}.its-school-arrow{margin-left:auto}.its-school-columns h4{color:#145b45}.its-district-story h3{margin-top:20px}@media(max-width:1000px){.its-district-body{grid-template-columns:1fr}.its-district-story{border-right:0;display:flex;flex-wrap:wrap;align-items:center;gap:12px 25px}.its-district-story p{flex:1 1 300px}.its-district-logo{max-width:230px}.its-district-story h3{margin:0}}@media(max-width:620px){.its-school-columns{grid-template-columns:1fr}.its-school-columns section+section{padding-left:0;border-left:0;border-top:1px solid #e2eae6}.its-school-directory{padding:18px}.its-district-tabs button{flex-basis:100%;justify-content:flex-start}}
+</style>

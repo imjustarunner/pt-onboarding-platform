@@ -1,0 +1,10 @@
+import {test} from 'node:test';
+import assert from 'node:assert/strict';
+import {assembleSchoolDistricts,publicPerson,schoolLevel} from '../../backend/src/utils/itscoPublicWebsite.js';
+import {resolveCanonicalDistrict} from '../../backend/src/utils/districtSlug.shared.js';
+test('real schools are deduplicated, demo districts excluded, district aliases merged, and new districts appear',()=>{
+ const rows=[{id:1,name:'Example Elementary',district_name:'District 11'},{id:2,name:'Example Middle',district_name:'D11'},{id:1,name:'Example Elementary',district_name:'D11'},{id:3,name:'Hogwarts',district_name:'D11'},{id:4,name:'Other High',district_name:'Demo District'},{id:5,name:'New School',district_name:'A New District'}];
+ const out=assembleSchoolDistricts(rows,{},resolveCanonicalDistrict,()=>null);assert.equal(out.length,2);assert.equal(out.find(d=>d.slug==='d11').schools.length,2);assert.equal(out.find(d=>d.slug==='a-new-district').schools[0].level,'Other Schools');
+});
+test('district settings use real logos and allow school level corrections without inventing a classification',()=>{assert.equal(schoolLevel('A K-12 Academy'),'Other Schools');assert.equal(schoolLevel('A K-12 Academy','Middle Schools'),'Middle Schools');const out=assembleSchoolDistricts([{id:7,name:'Academy',district_name:'D11'}],{d11:{name:'District 11',logoUrl:'/uploads/d11.png',schoolLevels:{7:'High Schools'}}},resolveCanonicalDistrict,()=>'/uploads/school.png');assert.equal(out[0].logoUrl,'/uploads/d11.png');assert.equal(out[0].schools[0].level,'High Schools');});
+test('public people allowlist omits personal contact, roles, and private compliance data',()=>{const out=publicPerson({id:9,first_name:'Example',last_name:'Person',title:'Care Coordinator',credential:'LPC',role:'cpa',email:'private@example.test',federal_background:'private',provider_accepting_new_clients:1},{publicBlurb:'Published bio',acceptingNewClientsOverride:false},()=>null);assert.equal(out.acceptingNewClients,false);assert.equal(out.title,'Care Coordinator');assert.equal(out.email,undefined);assert.equal(out.role,undefined);assert.equal(out.federal_background,undefined);});

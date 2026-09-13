@@ -328,6 +328,10 @@ const routes = [
     meta: { requiresGuest: false, organizationSlug: true, publicDistrictSchedule: true }
   },
   {
+    path: '/p/itsco/:section?', name: 'ItscoPublicWebsite', component: () => import('../views/public/ItscoPublicWebsite.vue'),
+    meta: { requiresGuest: false, publicMarketingHub: true, publicMarketingTitle: 'ITSCO | In The School Counselors' }
+  },
+  {
     path: '/p/range/:section?', name: 'MentalRangePublicWebsite', component: () => import('../views/public/MentalRangePublicWebsite.vue'),
     meta: { requiresGuest: false, publicMarketingHub: true, publicMarketingTitle: 'Mental Range Collective | Stronger Together' }
   },

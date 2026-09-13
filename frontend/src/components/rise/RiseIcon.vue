@@ -4,6 +4,7 @@
 <script setup>
 defineProps({ name: String });
 const paths = {
+  school: 'M3 22V9l9-7 9 7v13H3Zm7 0v-6h4v6M7 11h2m6 0h2M7 15h1m8 0h1M12 2v6',
   leaf: 'M4 20C0 7 11 2 22 2c0 12-5 20-15 17M2 22 17 7',
   people: 'M9 10a4 4 0 1 0 0-8 4 4 0 0 0 0 8Zm6-6a3 3 0 0 1 0 6M2 22v-5a6 6 0 0 1 12 0v5H2Zm14-9a5 5 0 0 1 6 5v4h-4',
   mountain: 'M1 21 9 8l4 6 3-10 7 17H1Zm6-10 2 4 2-3m3-3 2 4 2-3',

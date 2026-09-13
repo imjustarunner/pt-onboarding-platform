@@ -10,7 +10,13 @@ import {
   postPublicMarketingPageEventsNearest
 } from '../controllers/publicMarketingPages.controller.js';
 
+import { getItscoWebsiteData } from '../services/itscoPublicWebsite.service.js';
+
 const router = express.Router();
+router.get('/itsco/website-data', publicMarketingPageMetricsLimiter, async (req, res, next) => {
+  try { res.set('Cache-Control', 'no-store').json(await getItscoWebsiteData(req)); }
+  catch (error) { if (error.status === 404) return res.status(404).json({ error: { message: error.message } }); next(error); }
+});
 router.use('/ptco/business', publicBusinessOnboardingRouter);
 
 router.get('/:slug', getPublicMarketingPage);

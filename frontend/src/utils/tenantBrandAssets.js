@@ -146,7 +146,7 @@ const RISE_SMS = {
 };
 
 export const TENANT_SMS_IMAGES = {
-  itsco: ITSCO_SMS,
+  itsco: { ...ITSCO_SMS, home: '/assets/itsco/counseling-hero.png' },
   nlu: NLU_SMS,
   innerstrength: { ...INNER_SMS, home: sms('', 'innerstrengthwebsite.png') },
   mh4kidz: { ...MH4_SMS, home: sms('', 'mh4kizqwebsite.png') },
