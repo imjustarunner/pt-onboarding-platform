@@ -1,5 +1,5 @@
 // Only public marketing DOM is observed. Form/search values and destination queries are never recorded.
-export const ANALYTICS_ROOTS='.itsco-site,.tisi-site,.rise-site,.mh-site,.ptco-site,.range-site,.pmh-page,.pmh-sub,.pmh-sub-page';
+export const ANALYTICS_ROOTS='.audience-site,.nlu-site,.itsco-site,.tisi-site,.rise-site,.mh-site,.ptco-site,.range-site,.pmh-page,.pmh-sub,.pmh-sub-page';
 const EXCLUDED='[data-analytics-ignore], [translate="no"], .public-profile-editor, .pmh-admin-pill, .public-website-analytics';
 const compact=s=>String(s||'').replace(/\s+/g,' ').trim().slice(0,100);
 const slug=s=>String(s||'').toLowerCase().replace(/[^a-z0-9_.:-]+/g,'-').slice(0,65)||'area';

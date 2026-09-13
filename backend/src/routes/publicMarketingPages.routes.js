@@ -1,4 +1,6 @@
 import express from 'express';
+import pool from '../config/database.js';
+import { publicPartnerSites } from '../content/publicPartnerSites.js';
 import { publicBusinessOnboardingRouter } from './businessOnboarding.routes.js';
 import { publicGeocodeLimiter, publicMarketingPageMetricsLimiter } from '../middleware/rateLimiter.middleware.js';
 import {
@@ -15,6 +17,14 @@ import { getItscoWebsiteData } from '../services/itscoPublicWebsite.service.js';
 import { ingestPublicWebsiteAnalytics, publicAnalyticsIngestLimiter } from './publicWebsiteAnalytics.routes.js';
 
 const router = express.Router();
+// Only published company websites are exposed; event hubs and private tenants are excluded.
+router.get('/partners', publicMarketingPageMetricsLimiter, async (req, res, next) => {
+  try {
+    const [rows] = await pool.execute("SELECT slug FROM public_marketing_pages WHERE is_active = 1 AND page_type IN ('marketing_hub','marketing_landing')");
+    const published = new Set(rows.map(row => row.slug));
+    res.set('Cache-Control', 'public, max-age=60').json({ partners: publicPartnerSites.filter(site => published.has(site.slug)) });
+  } catch (error) { next(error); }
+});
 router.post('/:slug/analytics/events', publicAnalyticsIngestLimiter, ingestPublicWebsiteAnalytics);
 router.get('/itsco/website-data', publicMarketingPageMetricsLimiter, async (req, res, next) => {
   try { res.set('Cache-Control', 'no-store').json(await getItscoWebsiteData(req)); }

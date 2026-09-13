@@ -37,8 +37,9 @@
     <div v-if="editorOpen" class="pmp-editor card">
       <h2>{{ editingId ? `Edit page #${editingId}` : 'New page' }}</h2>
 
+      <NluWebsiteSettings v-if="form.slug === 'nlu'" v-model="form.brandingJsonText" :key="editingId" />
       <ItscoWebsiteSettings v-if="form.slug === 'itsco'" v-model="form.brandingJsonText" :key="editingId" />
-      <MarketingDesignWorkspace v-if="showMarketingLandingEditor || showPtcoEditor || showRiseEditor || showCollectiveEditor" :key="editingId || 'new'" :page="designPreviewPage" :reference-url="designReferenceUrl" @asset="applyDesignAsset" @reference="designReferenceUrl = $event" @busy="designBusy = $event" />
+      <MarketingDesignWorkspace v-if="showMarketingLandingEditor || showPtcoEditor || showRiseEditor || showCollectiveEditor || form.slug === 'nlu'" :key="editingId || 'new'" :page="designPreviewPage" :reference-url="designReferenceUrl" @asset="applyDesignAsset" @reference="designReferenceUrl = $event" @busy="designBusy = $event" />
       <fieldset v-if="showCollectiveEditor" class="card" style="padding:20px;margin-bottom:20px">
         <h3>{{ form.slug === 'range' ? 'Mental Range Collective' : 'MH4Kidz' }} website connections</h3>
         <p>Leave unavailable destinations blank to show Coming soon. These public pages do not create a tenant. Network membership is managed in each tenant’s settings by a superadmin.</p>
@@ -644,6 +645,7 @@
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import api from '../../services/api';
 import { useRoute } from 'vue-router';
+import NluWebsiteSettings from '../../components/public/NluWebsiteSettings.vue';
 import ItscoWebsiteSettings from '../../components/itsco/ItscoWebsiteSettings.vue';
 import MarketingDesignWorkspace from '../../components/marketing/MarketingDesignWorkspace.vue';
 import { publicWebsiteUrl } from '../../composables/useStandalonePublicWebsite';
@@ -717,6 +719,7 @@ function applyDesignAsset({ target, url }) {
   else if (target === 'logo') form.value.logoUrl = url;
   else if (target === 'cta' && showCollectiveEditor.value) collectiveForm.value.ctaImageUrl = url;
   else if (target === 'cta' && showRiseEditor.value) riseForm.value.ctaImageUrl = url;
+  else if (target === 'cta' && form.value.slug === 'nlu') { const b=JSON.parse(form.value.brandingJsonText||'{}'); b.nluWebsite={...b.nluWebsite,ctaImageUrl:url}; form.value.brandingJsonText=JSON.stringify(b,null,2); }
   else if (target === 'cta') landingForm.value.ctaImageUrl = url;
 }
 
@@ -1271,7 +1274,7 @@ function edit(p) {
   delete advanced.heroVideoUrl;
   delete advanced.offerExpandedExternalLinks;
   delete advanced.landing;
-  if (!['ptco', 'rise', 'range', 'mh4kidz'].includes(p.slug)) delete advanced.landingTemplate;
+  if (!['ptco', 'rise', 'range', 'mh4kidz', 'nlu'].includes(p.slug)) delete advanced.landingTemplate;
   delete advanced.siteName;
   delete advanced.tagline;
   delete advanced.ctaHref;

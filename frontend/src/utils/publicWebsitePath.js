@@ -1,5 +1,5 @@
 const sites = {
- itsco:'itsco',tisi:'tisi',innerstrength:'tisi',theinnerstrengthinstitute:'tisi',
+ nlu:'nlu',nextlevelup:'nlu',nextleveluplcc:'nlu',itsco:'itsco',tisi:'tisi',innerstrength:'tisi',theinnerstrengthinstitute:'tisi',
  rise:'rise',riserevive:'rise',risereviveco:'rise',ptco:'ptco',plottwistco:'ptco',
  mh4kidz:'mh4kidz',range:'range',mentalrange:'range',mentalrangecollective:'range'
 };

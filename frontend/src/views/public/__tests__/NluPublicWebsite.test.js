@@ -1,0 +1,19 @@
+import{afterEach,beforeEach,describe,expect,it,vi}from'vitest';
+import{mount,flushPromises}from'@vue/test-utils';
+import{createMemoryHistory,createRouter}from'vue-router';
+import Website from'../NluPublicWebsite.vue';
+import api from'../../../services/api';
+vi.mock('../../../services/api',()=>({default:{get:vi.fn(),post:vi.fn()}}));
+let wrapper,branding,fail=false;
+const provider={id:27,displayName:'Real Provider',title:'Counselor',specialties:['Learning','Learning'],profile:{publicBlurb:'The saved profile biography.'}};
+async function render(section=''){const router=createRouter({history:createMemoryHistory(),routes:[{path:'/p/nlu/:section?',component:Website},{path:'/:pathMatch(.*)*',component:{template:'<div />'}}]});await router.push('/p/nlu'+(section?'/'+section:''));wrapper=mount(Website,{global:{plugins:[router]}});await flushPromises();return router;}
+beforeEach(()=>{branding={};fail=false;vi.clearAllMocks();api.get.mockImplementation(async url=>{if(url==='/public/marketing-pages/partners')return{data:{partners:[]}};if(url==='/public/marketing-pages/nlu'){if(fail)throw{response:{status:404}};return{data:{page:{slug:'nlu',branding}}};}return{data:{providers:[provider]}};});});
+afterEach(()=>wrapper?.unmount());
+describe('Next Level Up website',()=>{
+ it('renders each requested page with one heading and its own content',async()=>{const router=await render();for(const page of ['','tutoring','counseling','therapy-tutoring','how-it-works','get-started','about','academic-acceleration','learning-center']){await router.push('/p/nlu'+(page?'/'+page:''));await flushPromises();expect(wrapper.findAll('h1')).toHaveLength(1);expect(wrapper.find('.nlu-hero').exists()).toBe(true);}expect(wrapper.text()).toContain('K–12 individual tutoring is available now');});
+ it('keeps future programs pending and routes active tutoring to enrollment',async()=>{const router=await render('academic-acceleration');expect(wrapper.find('.nlu-hero').text()).toContain('Coming soon');expect(wrapper.find('.nlu-hero a').attributes('href')).toBe('/p/nlu/contact');await router.push('/p/nlu/get-started');await flushPromises();expect(wrapper.find('a[href="/join/nlu/tutoring"]').exists()).toBe(true);expect(wrapper.find('a[href="/join/nlu/counseling"]').exists()).toBe(true);});
+ it('uses actual profiles, deduplicates tags, and filters by name',async()=>{await render('providers');expect(wrapper.find('.nlu-provider-bio').text()).toBe(provider.profile.publicBlurb);expect(wrapper.findAll('.nlu-tags span')).toHaveLength(1);expect(wrapper.find('.nlu-provider a').attributes('href')).toBe('/nlu/provider/27?serviceType=counseling');await wrapper.find('input[type="search"]').setValue('missing');expect(wrapper.findAll('.nlu-provider')).toHaveLength(0);});
+ it('opens family navigation and closes it on Escape',async()=>{await render();await wrapper.find('.nlu-families>button').trigger('click');expect(wrapper.findAll('.nlu-mega-column')).toHaveLength(4);expect(wrapper.find('.nlu-mega a[href="/nlu/login"]').exists()).toBe(true);await wrapper.find('.nlu-header').trigger('keydown',{key:'Escape'});expect(wrapper.find('.nlu-mega').exists()).toBe(false);});
+ it('applies saved page copy and rejects unsafe image overrides',async()=>{branding={nluWebsite:{pages:{tutoring:{title:'Our edited tutoring page',body:'Saved introduction',imageUrl:'javascript:alert(1)'}}}};await render('tutoring');expect(wrapper.find('h1').text()).toBe('Our edited tutoring page');expect(wrapper.find('.nlu-hero').attributes('style')).toContain('/assets/nlu/learning.png');expect(wrapper.text()).toContain('Saved introduction');});
+ it('respects unpublished pages and unknown sections',async()=>{fail=true;await render();expect(wrapper.text()).toContain('not published');expect(wrapper.find('.nlu-hero').exists()).toBe(false);wrapper.unmount();fail=false;await render('unknown-page');expect(wrapper.find('h1').text()).toBe('Page not found');});
+});

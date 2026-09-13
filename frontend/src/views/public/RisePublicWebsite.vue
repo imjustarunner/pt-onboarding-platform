@@ -5,8 +5,8 @@
       <RiseBrand :logo="logo" />
       <button ref="menuButton" type="button" class="rise-menu-button" :aria-expanded="menuOpen" aria-controls="rise-navigation" @click="menuOpen = !menuOpen">{{ menuOpen ? 'Close' : 'Menu' }} <span aria-hidden="true">{{ menuOpen ? '×' : '☰' }}</span></button>
       <nav id="rise-navigation" :class="{ 'is-open': menuOpen }" aria-label="Primary">
-        <router-link v-for="[label, slug] in riseNav" :key="slug" :to="path(slug)" :aria-current="section === slug ? 'page' : undefined" @click="menuOpen = false">{{ label }}</router-link>
-      <PublicWebsiteProviderLinks :directories="page?.providerDirectories || []" hub-slug="rise" /></nav>
+        <router-link v-for="[label, slug] in riseNav.filter(item => item[1] !== 'resources')" :key="slug" :to="path(slug)" :aria-current="section === slug ? 'page' : undefined" @click="menuOpen = false">{{ label }}</router-link>
+      <PublicWebsiteProviderLinks :directories="page?.providerDirectories || []" hub-slug="rise" /><PublicResourcesMenu resources-path="/p/rise/resources" /></nav>
       <router-link class="rise-button rise-header-cta" to="/p/rise/join">Get started <RiseIcon name="arrow" /></router-link>
     </header>
 
@@ -106,6 +106,7 @@
 </template>
 
 <script setup>
+import PublicResourcesMenu from "../../components/public/PublicResourcesMenu.vue";
 import PublicWebsiteProviderLinks from "../../components/public/PublicWebsiteProviderLinks.vue";
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';

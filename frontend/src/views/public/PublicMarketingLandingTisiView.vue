@@ -80,7 +80,7 @@
             <template v-else>
               <component
                 :is="navTag(item.href)"
-                v-for="item in v.primaryNav"
+                v-for="item in v.primaryNav.filter(item => !/^resources$/i.test(item.label))"
                 :key="item.href + item.label"
                 class="tisi-nav-link"
                 :class="{ 'tisi-nav-link--active': isNavActive(item.href) }"
@@ -91,7 +91,7 @@
                 {{ item.label }}
               </component>
             </template>
-          <PublicWebsiteProviderLinks :directories="pageRecord?.providerDirectories || []" :hub-slug="hubSlug" /></nav>
+          <PublicResourcesMenu :resources-path="v.primaryNav.find(item => /^resources$/i.test(item.label))?.href || ''" /><PublicWebsiteProviderLinks :directories="pageRecord?.providerDirectories || []" :hub-slug="hubSlug" /></nav>
 
           <template v-if="editing">
             <div class="tisi-header-cta-edit">
@@ -471,6 +471,7 @@
 </template>
 
 <script setup>
+import PublicResourcesMenu from "../../components/public/PublicResourcesMenu.vue";
 import PublicWebsiteProviderLinks from "../../components/public/PublicWebsiteProviderLinks.vue";
 import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';

@@ -20,7 +20,7 @@ describe('Rise public website', () => {
     await render('join');
     expect(wrapper.text()).toContain('Enrollment opening soon');
     expect(wrapper.findAll('a[href^="/join/"]')).toHaveLength(0);
-    expect(api.get).toHaveBeenCalledExactlyOnceWith('/public/marketing-pages/rise', expect.any(Object));
+    expect(api.get).toHaveBeenCalledWith('/public/marketing-pages/rise', expect.any(Object));
   });
   it('uses the explicitly configured enrollment URL and contact details', async () => {
     const { router } = await render('join', { riseWebsite: { enrollmentUrl: '/join/actual-rise', contactEmail: 'office@example.test' } });

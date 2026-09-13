@@ -1,7 +1,7 @@
 <template>
  <div class="itsco-site">
   <a class="its-skip" href="#its-main">Skip to content</a>
-  <header class="its-header"><router-link class="its-brand" to="/p/itsco" aria-label="ITSCO home"><img :src="safe(data?.agency?.logoUrl)||asset('logo.png')" alt=""/><span class="its-wordmark"><strong>ITSCO</strong><span>In The School Counselors</span><small>Mental health. Brighter tomorrows.</small></span></router-link><button class="its-menu-button" :aria-expanded="menu" aria-controls="its-nav" @click="menu=!menu">{{menu?'Close ×':'Menu ☰'}}</button><nav id="its-nav" :class="{'is-open':menu}" aria-label="Main navigation" @keydown.esc="menu=false"><router-link v-for="[label,slug] in nav" :key="slug" :to="path(slug)" :aria-current="section===slug?'page':undefined">{{label}}</router-link><router-link to="/careers/itsco">Careers</router-link></nav><router-link class="its-button its-portal" to="/itsco/login"><Icon name="people"/>Client Portal</router-link></header>
+  <header class="its-header"><router-link class="its-brand" to="/p/itsco" aria-label="ITSCO home"><img :src="safe(data?.agency?.logoUrl)||asset('logo.png')" alt=""/><span class="its-wordmark"><strong>ITSCO</strong><span>In The School Counselors</span><small>Mental health. Brighter tomorrows.</small></span></router-link><button class="its-menu-button" :aria-expanded="menu" aria-controls="its-nav" @click="menu=!menu">{{menu?'Close ×':'Menu ☰'}}</button><nav id="its-nav" :class="{'is-open':menu}" aria-label="Main navigation" @keydown.esc="menu=false"><router-link v-for="[label,slug] in nav.filter(item => item[1] !== 'resources')" :key="slug" :to="path(slug)" :aria-current="section===slug?'page':undefined">{{label}}</router-link><router-link to="/careers/itsco">Careers</router-link><PublicResourcesMenu resources-path="/p/itsco/resources" /></nav><router-link class="its-button its-portal" to="/itsco/login"><Icon name="people"/>Client Portal</router-link></header>
   <main id="its-main" tabindex="-1">
    <section v-if="loading" class="its-wrap its-section" role="status">Loading ITSCO…</section>
    <section v-else-if="error" class="its-wrap its-section"><h1>Let’s reconnect.</h1><p role="alert">{{error}}</p><button class="its-button" @click="load">Try again</button><router-link class="its-text-button" to="/itsco/login">Open the client portal →</router-link></section>
@@ -43,6 +43,7 @@
  </div>
 </template>
 <script setup>
+import PublicResourcesMenu from "../../components/public/PublicResourcesMenu.vue";
 import {computed,ref,watch,onMounted,onUnmounted} from 'vue';
 import {useRoute} from 'vue-router';
 import api from '../../services/api';

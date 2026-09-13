@@ -1,7 +1,7 @@
 <template>
  <div class="range-site">
   <a class="range-skip" href="#range-main">Skip to content</a>
-  <header class="range-header" @keydown.esc="closeMenu"><Brand :logo="safe(page?.branding?.logoUrl)"/><button class="range-menu" :aria-expanded="menuOpen" aria-controls="range-nav" @click="menuOpen=!menuOpen">{{menuOpen?'Close ×':'Menu ☰'}}</button><nav id="range-nav" :class="{'is-open':menuOpen}" aria-label="Primary"><router-link v-for="[label,slug] in nav" :key="slug" :to="path(slug)" :aria-current="section===slug?'page':undefined">{{label}}</router-link></nav><router-link class="range-button range-header-cta" :to="path('involved')">Partner with us →</router-link></header>
+  <header class="range-header" @keydown.esc="closeMenu"><Brand :logo="safe(page?.branding?.logoUrl)"/><button class="range-menu" :aria-expanded="menuOpen" aria-controls="range-nav" @click="menuOpen=!menuOpen">{{menuOpen?'Close ×':'Menu ☰'}}</button><nav id="range-nav" :class="{'is-open':menuOpen}" aria-label="Primary"><router-link v-for="[label,slug] in nav.filter(item => item[1] !== 'resources')" :key="slug" :to="path(slug)" :aria-current="section===slug?'page':undefined">{{label}}</router-link><PublicResourcesMenu resources-path="/p/range/resources" /></nav><router-link class="range-button range-header-cta" :to="path('involved')">Partner with us →</router-link></header>
   <main id="range-main" tabindex="-1">
    <div v-if="loading" class="range-state" role="status">Loading Mental Range Collective…</div>
    <div v-else-if="error" class="range-state"><h1>Let’s try that again.</h1><p role="alert">{{error}}</p><button class="range-button" @click="load">Retry</button></div>
@@ -31,6 +31,7 @@
  </div>
 </template>
 <script setup>
+import PublicResourcesMenu from "../../components/public/PublicResourcesMenu.vue";
 import {computed,ref,watch} from 'vue';
 import api from '../../services/api';
 import Brand from '../../components/range/RangeBrand.vue';

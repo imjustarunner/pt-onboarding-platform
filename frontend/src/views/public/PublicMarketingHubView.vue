@@ -23,6 +23,7 @@
     <div v-if="error" class="pmh-fatal">{{ error }}</div>
 
     <div v-else class="pmh-shell">
+      <div class="pmh-resources-toolbar"><PublicResourcesMenu /></div>
       <section
         v-if="skillbuildersAudienceGateVisible"
         class="pmh-splash-overlay sb-audience-overlay"
@@ -1131,6 +1132,7 @@
 </template>
 
 <script setup>
+import PublicResourcesMenu from "../../components/public/PublicResourcesMenu.vue";
 import PublicWebsiteProviderLinks from "../../components/public/PublicWebsiteProviderLinks.vue";
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
@@ -6219,3 +6221,5 @@ watch(hubSlug, () => {
   }
 }
 </style>
+
+<style scoped>.pmh-resources-toolbar{position:relative;z-index:50;display:flex;justify-content:flex-end;padding:12px 22px;background:var(--bg-primary,#fff);color:var(--text-primary,#143c4a)}</style>
