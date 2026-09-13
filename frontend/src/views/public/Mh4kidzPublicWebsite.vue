@@ -1,7 +1,7 @@
 <template>
  <div class="mh-site">
   <a class="mh-skip" href="#mh-main">Skip to content</a>
-  <header class="mh-header" @keydown.esc="closeHeader"><router-link :to="path('')" aria-label="MH4Kidz home"><img :src="safe(page?.branding?.logoUrl)||asset('logo')" alt="MH4Kidz — Stronger kids. Brighter tomorrows."/></router-link><button class="mh-menu" :aria-expanded="menuOpen" aria-controls="mh-nav" @click="menuOpen=!menuOpen">{{menuOpen?'Close ×':'Menu ☰'}}</button><nav id="mh-nav" :class="{'is-open':menuOpen}" aria-label="Primary"><router-link v-for="[label,slug] in nav" :key="slug" :to="path(slug)" :aria-current="section===slug?'page':undefined">{{label}}</router-link></nav><button ref="searchButton" class="mh-search-button" aria-label="Search MH4Kidz" :aria-expanded="searchOpen" aria-controls="mh-site-search" @click="toggleSearch"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="10" cy="10" r="6"/><path d="m15 15 6 6"/></svg></button><router-link aria-label="Donate" class="mh-button mh-header-donate" :to="path('donate')">♥ <span>Donate</span></router-link>
+  <header class="mh-header" @keydown.esc="closeHeader"><router-link :to="path('')" aria-label="MH4Kidz home"><img :src="safe(page?.branding?.logoUrl)||asset('logo')" alt="MH4Kidz — Stronger kids. Brighter tomorrows."/></router-link><button class="mh-menu" :aria-expanded="menuOpen" aria-controls="mh-nav" @click="menuOpen=!menuOpen">{{menuOpen?'Close ×':'Menu ☰'}}</button><nav id="mh-nav" :class="{'is-open':menuOpen}" aria-label="Primary"><router-link v-for="[label,slug] in nav" :key="slug" :to="path(slug)" :aria-current="section===slug?'page':undefined">{{label}}</router-link><PublicWebsiteProviderLinks :directories="page?.providerDirectories || []" hub-slug="mh4kidz" /></nav><button ref="searchButton" class="mh-search-button" aria-label="Search MH4Kidz" :aria-expanded="searchOpen" aria-controls="mh-site-search" @click="toggleSearch"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="10" cy="10" r="6"/><path d="m15 15 6 6"/></svg></button><router-link aria-label="Donate" class="mh-button mh-header-donate" :to="path('donate')">♥ <span>Donate</span></router-link>
     <section v-if="searchOpen" id="mh-site-search" class="mh-site-search" aria-label="Website search">
       <label for="mh-search-input">Find a program or page</label><input id="mh-search-input" ref="searchInput" v-model="searchQuery" type="search" placeholder="Try Unplugged, programs, or volunteering"/>
       <ul v-if="searchResults.length"><li v-for="result in searchResults" :key="result.href"><router-link :to="result.href" @click="searchOpen=false">{{result.title}} <span aria-hidden="true">→</span></router-link></li></ul>
@@ -30,6 +30,7 @@
  </div>
 </template>
 <script setup>
+import PublicWebsiteProviderLinks from "../../components/public/PublicWebsiteProviderLinks.vue";
 import DOMPurify from 'dompurify';
 import {marked} from 'marked';
 import {computed,ref,nextTick,watch} from 'vue';

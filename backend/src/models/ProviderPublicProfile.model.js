@@ -9,13 +9,15 @@ class ProviderPublicProfile {
   static async getForProvider({ providerUserId }) {
     const userId = toInt(providerUserId);
     if (!userId) return null;
-    const [rows] = await pool.execute(
-      `SELECT user_id, public_blurb, insurances_json, self_pay_rate_cents, self_pay_rate_note, accepting_new_clients_override
-       FROM provider_public_profiles
-       WHERE user_id = ?
-       LIMIT 1`,
-      [userId]
-    );
+    const columns = 'user_id, public_blurb, insurances_json, public_details_json, self_pay_rate_cents, self_pay_rate_note, accepting_new_clients_override';
+    let rows;
+    try {
+      [rows] = await pool.execute(`SELECT ${columns} FROM provider_public_profiles WHERE user_id = ? LIMIT 1`, [userId]);
+    } catch (error) {
+      if (error.code !== 'ER_BAD_FIELD_ERROR' || !String(error.message).includes('public_details_json')) throw error;
+      // Rolling deployment: existing profiles continue loading until migration 1430 runs.
+      [rows] = await pool.execute(`SELECT ${columns.replace('public_details_json, ', '')} FROM provider_public_profiles WHERE user_id = ? LIMIT 1`, [userId]);
+    }
     const row = rows?.[0] || null;
     if (!row) return null;
     let insurances = [];
@@ -26,7 +28,10 @@ class ProviderPublicProfile {
     } catch {
       insurances = [];
     }
+    let details = row.public_details_json || {};
+    if (typeof details === 'string') { try { details = JSON.parse(details); } catch { details = {}; } }
     return {
+      details,
       userId,
       publicBlurb: row.public_blurb || '',
       insurances: Array.isArray(insurances) ? insurances : [],
@@ -41,6 +46,7 @@ class ProviderPublicProfile {
   static async upsertForProvider({
     providerUserId,
     publicBlurb = null,
+    details = undefined,
     insurances = [],
     selfPayRateCents = null,
     selfPayRateNote = null,
@@ -48,6 +54,12 @@ class ProviderPublicProfile {
   }) {
     const userId = toInt(providerUserId);
     if (!userId) throw new Error('Invalid providerUserId');
+    const previous = details === undefined ? await this.getForProvider({ providerUserId: userId }) : null;
+    const publicDetails = {};
+    for (const key of ['languages', 'locations', 'sessionFormats']) {
+      const values = (details ?? previous?.details)?.[key];
+      publicDetails[key] = Array.isArray(values) ? [...new Set(values.map(v => String(v).trim().slice(0, 160)).filter(Boolean))].slice(0, 30) : [];
+    }
     const cleanInsurances = Array.isArray(insurances)
       ? insurances
           .map((x) => String(x || '').trim())
@@ -63,9 +75,10 @@ class ProviderPublicProfile {
 
     await pool.execute(
       `INSERT INTO provider_public_profiles
-        (user_id, public_blurb, insurances_json, self_pay_rate_cents, self_pay_rate_note, accepting_new_clients_override)
-       VALUES (?, ?, ?, ?, ?, ?)
+        (user_id, public_blurb, insurances_json, self_pay_rate_cents, self_pay_rate_note, accepting_new_clients_override, public_details_json)
+       VALUES (?, ?, ?, ?, ?, ?, ?)
        ON DUPLICATE KEY UPDATE
+         public_details_json = VALUES(public_details_json),
          public_blurb = VALUES(public_blurb),
          insurances_json = VALUES(insurances_json),
          self_pay_rate_cents = VALUES(self_pay_rate_cents),
@@ -74,11 +87,12 @@ class ProviderPublicProfile {
          updated_at = CURRENT_TIMESTAMP`,
       [
         userId,
-        publicBlurb === null || publicBlurb === undefined ? null : String(publicBlurb).trim(),
+        publicBlurb === null || publicBlurb === undefined ? null : String(publicBlurb).trim().slice(0, 4000),
         JSON.stringify(cleanInsurances),
         normalizedRate,
         selfPayRateNote === null || selfPayRateNote === undefined ? null : String(selfPayRateNote).trim(),
-        normalizedOverride
+        normalizedOverride,
+        JSON.stringify(publicDetails)
       ]
     );
     return this.getForProvider({ providerUserId: userId });

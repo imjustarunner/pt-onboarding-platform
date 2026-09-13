@@ -559,11 +559,15 @@
                       <textarea
                         v-model="providerPublicBlurb"
                         rows="4"
-                        maxlength="500"
-                        placeholder="Shown on public Find a Provider card details."
+                        maxlength="4000"
+                        placeholder="Tell clients about your approach, experience, and who you work with."
                         :disabled="!canEditUser || providerPublicProfileSaving || !editingProviderPublicProfile"
                       />
-                      <span class="acct-blurb-count">{{ (providerPublicBlurb || '').length }} / 500 characters</span>
+                      <span class="acct-blurb-count">{{ (providerPublicBlurb || '').length }} / 4,000 characters</span>
+                      <div v-for="(label, key) in {languages:'Languages spoken',locations:'Public service locations (city or practice name)',sessionFormats:'Session formats (In person / Telehealth)'}" :key="key" style="margin-top:16px">
+                        <label :for="`public-detail-${key}`">{{ label }}</label><input :id="`public-detail-${key}`" v-model="providerPublicDetails[key]" :disabled="!editingProviderPublicProfile" placeholder="Separate entries with commas" style="width:100%;padding:10px" />
+                      </div>
+
                     </div>
                   </div>
                   <div class="form-group form-group-full">
@@ -5111,6 +5115,7 @@ const editingProviderPublicProfile = ref(false);
 const providerPublicProfileError = ref('');
 const providerPublicProfileSnapshot = ref(null);
 const providerPublicBlurb = ref('');
+const providerPublicDetails = reactive({ languages: '', locations: '', sessionFormats: '' });
 const providerPublicInsurancesCsv = ref('');
 const providerSelfPayRateUsd = ref(null);
 const providerSelfPayRateNote = ref('');
@@ -6228,6 +6233,7 @@ const loadProviderPublicProfile = async () => {
     });
     const profile = data?.profile || {};
     const defaults = data?.agencyDefaults || {};
+    for (const key of Object.keys(providerPublicDetails)) providerPublicDetails[key] = (profile.details?.[key] || []).join(', ');
     providerPublicBlurb.value = String(profile.publicBlurb || '');
     providerPublicInsurancesCsv.value = Array.isArray(profile.insurances) ? profile.insurances.join(', ') : '';
     providerSelfPayRateUsd.value = profile.selfPayRateCents === null || profile.selfPayRateCents === undefined
@@ -6279,6 +6285,7 @@ const saveProviderPublicProfile = async () => {
     await api.put(`/users/${userId.value}/provider-public-profile`, {
       agencyId,
       publicBlurb: providerPublicBlurb.value,
+      details: Object.fromEntries(Object.entries(providerPublicDetails).map(([key, value]) => [key, value.split(',').map(s=>s.trim()).filter(Boolean)])),
       insurances,
       ...(canManageSelfPayRates.value ? { selfPayRateCents, selfPayRateNote: providerSelfPayRateNote.value } : {})
     });
@@ -6297,6 +6304,7 @@ const saveProviderPublicProfile = async () => {
 
 const captureProviderPublicProfileSnapshot = () => {
   providerPublicProfileSnapshot.value = {
+    providerPublicDetails: { ...providerPublicDetails },
     providerPublicBlurb: providerPublicBlurb.value,
     providerPublicInsurancesCsv: providerPublicInsurancesCsv.value,
     providerSelfPayRateUsd: providerSelfPayRateUsd.value,
@@ -6318,6 +6326,7 @@ const saveProviderPublicProfileAndClose = async () => {
 const cancelProviderPublicProfileEdit = () => {
   const snap = providerPublicProfileSnapshot.value;
   if (snap) {
+    Object.assign(providerPublicDetails, snap.providerPublicDetails || {});
     providerPublicBlurb.value = snap.providerPublicBlurb;
     providerPublicInsurancesCsv.value = snap.providerPublicInsurancesCsv;
     providerSelfPayRateUsd.value = snap.providerSelfPayRateUsd;

@@ -3,7 +3,7 @@
     <a class="ptco-skip" href="#ptco-main">Skip to content</a>
     <header class="ptco-header" @keydown.esc="menuOpen=false"><router-link class="ptco-brand" to="/p/ptco"><img :src="logo" alt=""><span>Plot Twist Co.<small>Businesses for a brighter tomorrow</small></span></router-link>
       <button class="ptco-menu" type="button" :aria-expanded="menuOpen" aria-controls="ptco-nav" @click="menuOpen=!menuOpen">Menu <span aria-hidden="true">☰</span></button>
-      <nav id="ptco-nav" :class="{'is-open':menuOpen}" aria-label="Primary" @keydown.esc="menuOpen=false"><router-link v-for="[label,slug] in ptcoNav" :key="slug" :to="`/p/ptco${slug?'/'+slug:''}`" :aria-current="section===slug?'page':undefined" @click="menuOpen=false">{{ label }}</router-link></nav>
+      <nav id="ptco-nav" :class="{'is-open':menuOpen}" aria-label="Primary" @keydown.esc="menuOpen=false"><router-link v-for="[label,slug] in ptcoNav" :key="slug" :to="`/p/ptco${slug?'/'+slug:''}`" :aria-current="section===slug?'page':undefined" @click="menuOpen=false">{{ label }}</router-link><PublicWebsiteProviderLinks :directories="page?.providerDirectories || []" hub-slug="ptco" /></nav>
       <router-link class="ptco-button ptco-header-cta" to="/p/ptco/start">Let’s talk <PtcoIcon name="arrow"/></router-link>
     </header>
     <main id="ptco-main" tabindex="-1">
@@ -51,6 +51,7 @@
   </div>
 </template>
 <script setup>
+import PublicWebsiteProviderLinks from "../../components/public/PublicWebsiteProviderLinks.vue";
 import {computed,onMounted,onUnmounted,ref,watch,nextTick} from 'vue';
 import {useRoute} from 'vue-router';
 import api from '../../services/api';

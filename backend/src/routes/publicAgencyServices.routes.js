@@ -1,5 +1,8 @@
+import rateLimit from 'express-rate-limit';
 import express from 'express';
 import {
+  createProviderSlotHold,
+  releaseProviderSlotHold,
   getAgencyServicesHub,
   listChooseProviders,
   listCounselors,
@@ -19,6 +22,7 @@ import {
 } from '../controllers/publicAgencyServices.controller.js';
 
 const router = express.Router();
+router.use((_req, res, next) => { res.setHeader('Cache-Control', 'no-store'); next(); });
 
 // Public — no auth
 router.get('/:agencySlug', getAgencyServicesHub);
@@ -30,6 +34,9 @@ router.get('/:agencySlug/tutors', listTutors);
 router.get('/:agencySlug/evaluators', listEvaluators);
 router.get('/:agencySlug/providers/:providerId', getProviderDetail);
 router.get('/:agencySlug/providers/:providerId/slots', getProviderSlots);
+const selectionLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 20, standardHeaders: true, legacyHeaders: false });
+router.post('/:agencySlug/providers/:providerId/holds', selectionLimiter, createProviderSlotHold);
+router.post('/:agencySlug/release-hold', selectionLimiter, releaseProviderSlotHold);
 router.post('/:agencySlug/requests', createBookingRequest);
 
 // Admin/provider-facing endpoints — auth is enforced by the server.js mount

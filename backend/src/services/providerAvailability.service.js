@@ -569,8 +569,30 @@ export class ProviderAvailabilityService {
       }
     }
 
+    // Anonymous intake selections expire automatically. They do not create office events.
+    let publicHolds;
+    try {
+    [publicHolds] = await pool.execute(
+      `SELECT DATE_FORMAT(start_at, '%Y-%m-%dT%H:%i:%s.%fZ') AS start_at, DATE_FORMAT(end_at, '%Y-%m-%dT%H:%i:%s.%fZ') AS end_at FROM public_provider_slot_holds
+       WHERE provider_id = ? AND expires_at > UTC_TIMESTAMP(3)
+         `, [pid]);
+    } catch (error) {
+      if (error.code !== 'ER_NO_SUCH_TABLE') throw error;
+      publicHolds = []; // No holds can be created before migration 1430.
+    }
+    const selectionBusy = publicHolds.map((h) => ({ start: new Date(h.start_at), end: new Date(h.end_at) }));
+
+    const [publicRequests] = await pool.execute(
+      `SELECT DATE_FORMAT(requested_start_at, '%Y-%m-%dT%H:%i:%s.%fZ') AS start_at,
+              DATE_FORMAT(requested_end_at, '%Y-%m-%dT%H:%i:%s.%fZ') AS end_at
+       FROM public_appointment_requests WHERE provider_id = ? AND requested_end_at > UTC_TIMESTAMP(3)
+         AND UPPER(COALESCE(status, 'PENDING')) NOT IN ('DECLINED', 'CANCELLED')`, [pid]);
+    const requestBusy = publicRequests.map(r => ({ start: new Date(r.start_at), end: new Date(r.end_at) }));
+
     // Busy unions
     const busyAll = mergeIntervals([
+      ...selectionBusy,
+      ...requestBusy,
       ...schoolBusy,
       ...externalBusyIntervals,
       ...googleBusyIntervals

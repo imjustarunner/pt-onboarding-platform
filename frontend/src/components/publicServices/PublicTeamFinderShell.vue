@@ -45,7 +45,7 @@
       </div>
     </header>
 
-    <section v-if="editing || heroImageUrl || displayTitle !== pageTitle || introBlurb" class="tf-hero">
+    <section class="tf-hero">
       <div
         class="tf-hero-inner"
         :style="heroImageUrl ? { backgroundImage: `linear-gradient(rgba(15,23,42,0.55), rgba(15,23,42,0.72)), url(${heroImageUrl})` } : null"
@@ -65,14 +65,19 @@
           </label>
         </template>
         <template v-else>
-          <h1 class="tf-hero-title">{{ displayTitle }}</h1>
-          <p v-if="introBlurb" class="tf-hero-blurb">{{ introBlurb }}</p>
+          <p class="tf-eyebrow">Real people. A personal connection.</p><h1 class="tf-hero-title">{{ displayTitle }}</h1>
+          <p class="tf-hero-blurb">{{ introBlurb || "Find support that fits your needs, then explore current openings and get to know your provider." }}</p>
         </template>
       </div>
     </section>
 
     <div class="tf-shell">
       <aside class="tf-rail">
+        <fieldset class="tf-avail"><legend>Start your search</legend><button class="tf-avail-btn" :class="{active:searchMode==='needs'}" @click="searchMode='needs'">Find the right fit</button><button class="tf-avail-btn" :class="{active:searchMode==='availability'}" @click="searchMode='availability';sortBy='soonest'">Find the earliest time</button></fieldset>
+        <label class="tf-field"><span>Insurance</span><select v-model="insurance"><option value="">All published insurance</option><option v-for="value in insuranceOptions" :key="value">{{value}}</option></select></label>
+
+        <label v-if="locations.length" class="tf-field"><span>Location</span><select v-model="location"><option value="">All locations</option><option v-for="value in locations" :key="value">{{value}}</option></select></label>
+        <label v-if="languages.length" class="tf-field"><span>Language</span><select v-model="language"><option value="">All languages</option><option v-for="value in languages" :key="value">{{value}}</option></select></label>
         <h2 class="tf-rail-title">Refine results</h2>
 
         <label class="tf-field">
@@ -139,6 +144,7 @@
           </button>
         </fieldset>
 
+        <label v-if="searchMode === 'availability'" class="tf-field"><span>Time of day (your timezone)</span><select v-model="timeOfDay"><option value="">Any time</option><option value="morning">Morning (before noon)</option><option value="afternoon">Afternoon (noon–5pm)</option><option value="evening">Evening (5pm onward)</option></select></label>
         <label class="tf-field">
           <span>Week starting</span>
           <input v-model="filters.weekStart" type="date" @change="load" />
@@ -148,12 +154,11 @@
           Clear filters
         </button>
 
-        <button class="tf-match" type="button" disabled title="Coming soon">
-          Find my match
-        </button>
+
       </aside>
 
       <main class="tf-main">
+        <p v-if="selectionNotice" role="status">{{ selectionNotice }}</p>
         <div class="tf-results-head">
           <div>
             <h1 class="tf-count">{{ displayedProviders.length }} {{ providerNoun }} found</h1>
@@ -184,8 +189,8 @@
             v-for="(provider, idx) in displayedProviders"
             :key="provider.id || provider.providerId"
             :provider="provider"
-            :is-best-match="sortBy === 'soonest' && idx === 0"
-            :is-fastest="sortBy === 'soonest' && idx === 1"
+
+
             @book="goBook"
             @view-profile="goProfile"
           />
@@ -196,7 +201,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from 'vue';
+import { computed, onMounted, onUnmounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import api from '../../services/api';
 import PublicProviderCard from './PublicProviderCard.vue';
@@ -205,8 +210,7 @@ import { useBrandingStore } from '../../store/branding.js';
 import { useAuthStore } from '../../store/auth';
 import {
   listPathForServiceType,
-  normalizePublicProviders,
-  providerBookPath
+  normalizePublicProviders
 } from '../../utils/publicAgencyServices.js';
 import { isPractitionerOrgType } from '../../utils/practitionerVertical.js';
 
@@ -232,9 +236,9 @@ const slug = computed(() =>
 );
 
 const availTabs = [
-  { id: 'first', label: 'First available' },
+  { id: 'first', label: 'Any upcoming availability' },
   { id: 'week', label: 'This week' },
-  { id: 'two_weeks', label: 'Next 2 weeks' }
+  { id: 'two_weeks', label: 'Next week' }
 ];
 
 const agencyId = ref(null);
@@ -250,6 +254,13 @@ const error = ref('');
 const providers = ref([]);
 const activeTab = ref('first');
 const sortBy = ref('soonest');
+const searchMode = ref('needs');
+const insurance = ref('');
+const location = ref(''), language = ref(''), timeOfDay = ref('');
+const locations = computed(() => [...new Set(providers.value.flatMap(p=>p.profile?.details?.locations||[]))].sort());
+const languages = computed(() => [...new Set(providers.value.flatMap(p=>p.profile?.details?.languages||[]))].sort());
+const enabledServices = ref([]);
+const insuranceOptions = computed(() => [...new Set(providers.value.flatMap(p => p.profile?.insurancesAccepted || []))].sort());
 const canEditPage = ref(false);
 const editing = ref(false);
 const savingEdit = ref(false);
@@ -285,12 +296,12 @@ const navLinks = computed(() => {
     { label: 'Counselors', to: `/${s}/find-counselor`, serviceType: 'counseling' },
     { label: 'Tutors', to: `/${s}/find-tutor`, serviceType: 'tutoring' },
     { label: 'Coaches', to: `/${s}/find-coach`, serviceType: 'coaching' }
-  ];
+  ].filter(link => enabledServices.value.includes(link.serviceType));
 });
 
 const hasActiveFilters = computed(() =>
   !!(
-    filters.value.search ||
+    insurance.value || location.value || language.value || timeOfDay.value || filters.value.search ||
     filters.value.specialty ||
     filters.value.ageGroup ||
     filters.value.subject ||
@@ -299,7 +310,16 @@ const hasActiveFilters = computed(() =>
 );
 
 const displayedProviders = computed(() => {
-  const list = [...providers.value];
+  const list = providers.value.filter(p => {
+    if (location.value && !(p.profile?.details?.locations||[]).includes(location.value)) return false;
+    if (language.value && !(p.profile?.details?.languages||[]).includes(language.value)) return false;
+    if (insurance.value && !(p.profile?.insurancesAccepted || []).includes(insurance.value)) return false;
+    if (searchMode.value === 'availability' && timeOfDay.value && !(p.availability?.slots||[]).some(s => {const hour = new Date(s.startAt).getHours();return timeOfDay.value==='morning'?hour<12:timeOfDay.value==='afternoon'?hour>=12&&hour<17:hour>=17;})) return false;
+    const next = new Date(p.availability?.nextAvailableAt).getTime();
+    if (searchMode.value === 'availability' && !(next > Date.now())) return false;
+    if (activeTab.value !== 'first' && !p.availability?.slots?.length) return false;
+    return true;
+  });
   if (sortBy.value === 'name') {
     list.sort((a, b) => String(a.displayName || '').localeCompare(String(b.displayName || '')));
   } else {
@@ -332,6 +352,7 @@ function setTab(tabId) {
 }
 
 function clearFilters() {
+  insurance.value = ''; location.value = ''; language.value = ''; timeOfDay.value = '';
   filters.value.search = '';
   filters.value.specialty = '';
   filters.value.ageGroup = '';
@@ -344,18 +365,25 @@ function providerIdOf(provider) {
   return Number(provider?.id || provider?.providerId || 0) || 0;
 }
 
-function goBook(provider, slot) {
-  const id = providerIdOf(provider);
-  const path = providerBookPath(slug.value, id, {
-    serviceType: props.serviceType,
-    slotStart: slot?.startAt || '',
-    programType: filters.value.programType || slot?.programType || ''
-  });
-  if (path) router.push(path);
+const selecting = ref(false);
+const selectionNotice = ref('');
+async function goBook(provider, slot) {
+  if (selecting.value) return;
+  if (!slot) return goProfile(provider);
+  selecting.value = true; selectionNotice.value = 'Checking and holding this opening…';
+  try {
+    const base = `/public/agency-services/${encodeURIComponent(slug.value)}`;
+    const key = `provider-hold:${slug.value}`;
+    let previous; try { previous = JSON.parse(sessionStorage.getItem(key) || 'null'); } catch {}
+    if (previous?.token) await api.post(`${base}/release-hold`, { token: previous.token }, { skipAuthRedirect: true });
+    const { data } = await api.post(`${base}/providers/${providerIdOf(provider)}/holds`, { startAt: slot.startAt, endAt: slot.endAt, serviceType: props.serviceType, modality: filters.value.programType }, { skipAuthRedirect: true });
+    sessionStorage.setItem(key, JSON.stringify(data.hold));
+    goProfile(provider);
+  } catch (e) { selectionNotice.value = e.response?.data?.error?.message || 'Could not hold this opening. Please try again.'; }
+  finally { selecting.value = false; }
 }
-
 function goProfile(provider) {
-  goBook(provider, null);
+  router.push({ path: `/${encodeURIComponent(slug.value)}/provider/${providerIdOf(provider)}`, query: { serviceType: props.serviceType } });
 }
 
 function goBack() {
@@ -447,6 +475,7 @@ async function loadHubMeta() {
     const hubRes = await api.get(`/public/agency-services/${encodeURIComponent(slug.value)}`, {
       skipAuthRedirect: true
     });
+    enabledServices.value = (hubRes.data?.serviceTypes || []).map(s => s.serviceType);
     agencyId.value = hubRes.data?.agency?.id || null;
     agencyName.value = hubRes.data?.agency?.name || agencyName.value;
     orgType.value = hubRes.data?.agency?.organizationType || 'agency';
@@ -464,7 +493,9 @@ async function loadHubMeta() {
   }
 }
 
+let loadGeneration = 0;
 async function load() {
+  const generation = ++loadGeneration;
   if (!slug.value) return;
   loading.value = true;
   error.value = '';
@@ -484,15 +515,17 @@ async function load() {
       `/public/agency-services/${encodeURIComponent(slug.value)}/${listPath.value}`,
       { params, skipAuthRedirect: true }
     );
+    if (generation !== loadGeneration) return;
     providers.value = normalizePublicProviders(res.data?.providers);
     if (res.data?.introBlurb && !introBlurb.value) introBlurb.value = res.data.introBlurb;
     agencyName.value = res.data?.agencyName || res.data?.agencySlug || agencyName.value;
     if (res.data?.agencyId) agencyId.value = res.data.agencyId;
   } catch (e) {
+    if (generation !== loadGeneration) return;
     error.value = e.response?.data?.error?.message || e.message || 'Failed to load providers.';
     providers.value = [];
   } finally {
-    loading.value = false;
+    if (generation === loadGeneration) loading.value = false;
   }
 }
 
@@ -500,6 +533,7 @@ onMounted(async () => {
   await loadHubMeta();
   await load();
 });
+onUnmounted(() => { clearTimeout(debounceTimer); loadGeneration++; });
 </script>
 
 <style scoped>
@@ -810,4 +844,6 @@ onMounted(async () => {
   .tf-rail { position: static; }
   .tf-care-nav { margin-left: 0; width: 100%; }
 }
+
+.tf-hero{max-width:1600px;padding:2.5rem 4vw 0}.tf-hero-inner{padding:2rem;background:linear-gradient(120deg,color-mix(in srgb,var(--tf-p) 9%,white),#fff);color:var(--tf-p);border-radius:18px}.tf-hero-title{font-size:clamp(2.2rem,4vw,3.8rem);letter-spacing:-.04em}.tf-eyebrow{text-transform:uppercase;letter-spacing:.17em;font-size:.75rem}.tf-hero-blurb{color:#3d5660;opacity:.85;font-size:1.05rem;max-width:70ch}.tf-shell,.tf-nav-inner{max-width:1600px;padding-left:4vw;padding-right:4vw}.tf-cards{gap:20px}.tf-count{font-size:1.15rem}.tf-rail{background:#f8fbf9;border-color:#dce7e2;padding:22px}.tf-hero-inner[style]{color:#fff}.team-finder :focus-visible{outline:3px solid var(--tf-p);outline-offset:3px}
 </style>

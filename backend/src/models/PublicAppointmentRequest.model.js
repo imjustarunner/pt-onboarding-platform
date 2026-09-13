@@ -1,3 +1,4 @@
+import { withProviderSelectionLock, assertNoSelectionConflict } from '../services/publicProviderHold.service.js';
 import pool from '../config/database.js';
 
 class PublicAppointmentRequest {
@@ -43,7 +44,9 @@ class PublicAppointmentRequest {
     const createdClient = createdClientId ? Number(createdClientId) : null;
     const createdGuardian = createdGuardianUserId ? Number(createdGuardianUserId) : null;
 
-    const [r] = await pool.execute(
+    return withProviderSelectionLock(pool, pid, async (connection) => {
+    await assertNoSelectionConflict(connection, { agencyId: aid, providerId: pid, startAt: start, endAt: end });
+    const [r] = await connection.execute(
       `INSERT INTO public_appointment_requests
         (agency_id, provider_id, modality, booking_mode, program_type, requested_start_at, requested_end_at, client_name, client_email, client_phone, client_initials, matched_client_id, created_client_id, created_guardian_user_id, notes, status)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING')`,
@@ -67,7 +70,7 @@ class PublicAppointmentRequest {
     );
 
     const id = Number(r?.insertId || 0);
-    const [rows] = await pool.execute(
+    const [rows] = await connection.execute(
       `SELECT *
        FROM public_appointment_requests
        WHERE id = ?
@@ -75,6 +78,7 @@ class PublicAppointmentRequest {
       [id]
     );
     return rows?.[0] || null;
+    });
   }
 
   static async listPending({ agencyId, limit = 200 }) {

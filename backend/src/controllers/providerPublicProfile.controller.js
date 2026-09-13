@@ -47,6 +47,7 @@ export const getUserProviderPublicProfile = async (req, res, next) => {
       userId,
       agencyId,
       profile: {
+        details: profile?.details || {},
         publicBlurb: profile?.publicBlurb || '',
         insurances: Array.isArray(profile?.insurances) ? profile.insurances : [],
         selfPayRateCents: profile?.selfPayRateCents ?? null,
@@ -75,6 +76,8 @@ export const upsertUserProviderPublicProfile = async (req, res, next) => {
     }
     if (!(await requireAgencyMembership(req, res, agencyId))) return;
 
+    const targetAgencies = await User.getAgencies(userId);
+    if (!(targetAgencies || []).some(a => Number(a.id) === agencyId)) return res.status(404).json({ error: { message: 'Provider not found in this agency' } });
     const prior = await ProviderPublicProfile.getForProvider({ providerUserId: userId });
     const rateAdmin = ['admin', 'super_admin'].includes(req.user?.role);
     if (!rateAdmin && ['selfPayRateCents', 'selfPayRateNote'].some(key => Object.hasOwn(req.body || {}, key))) {
@@ -82,11 +85,12 @@ export const upsertUserProviderPublicProfile = async (req, res, next) => {
     }
     const saved = await ProviderPublicProfile.upsertForProvider({
       providerUserId: userId,
+      details: req.body?.details,
       publicBlurb: req.body?.publicBlurb ?? null,
       insurances: Array.isArray(req.body?.insurances) ? req.body.insurances : [],
       selfPayRateCents: Object.hasOwn(req.body || {}, 'selfPayRateCents') ? req.body.selfPayRateCents : prior?.selfPayRateCents ?? null,
       selfPayRateNote: Object.hasOwn(req.body || {}, 'selfPayRateNote') ? req.body.selfPayRateNote : prior?.selfPayRateNote ?? null,
-      acceptingNewClientsOverride: req.body?.acceptingNewClientsOverride
+      acceptingNewClientsOverride: Object.hasOwn(req.body || {}, 'acceptingNewClientsOverride') ? req.body.acceptingNewClientsOverride : prior?.acceptingNewClientsOverride ?? null
     });
     res.json({ ok: true, userId, agencyId, profile: saved });
   } catch (e) {

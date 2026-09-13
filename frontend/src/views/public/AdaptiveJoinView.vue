@@ -514,6 +514,7 @@
         <div v-else class="df-banner">
           Choose a provider is turned off for this join. Continue to consent, or turn it back on above.
         </div>
+        <PublicProviderSlotPicker v-if="showChooseProvider && form.preferredProviderUserId" :agency-slug="agencySlug" :provider-id="Number(form.preferredProviderUserId)" :service-type="serviceType || 'counseling'" />
       </div>
 
       <!-- Step: consent / contact permission -->
@@ -670,6 +671,7 @@ import {
   AdaptiveIntakeThankYou
 } from '../../components/adaptive-intake';
 import ChooseProviderDirectory from '../../components/public/ChooseProviderDirectory.vue';
+import PublicProviderSlotPicker from '../../components/publicServices/PublicProviderSlotPicker.vue';
 import { mergeCareersPageWithDefaults } from '../../utils/careersAssets.js';
 import {
   resolveSchoolOnboardingSupportEmail,
@@ -1061,6 +1063,9 @@ const formattedHomeAddress = computed(() => {
   return [line1, line2].filter(Boolean).join(', ');
 });
 
+function readProviderHoldToken() {
+  try { const hold = JSON.parse(sessionStorage.getItem(`provider-hold:${agencySlug.value}`) || 'null'); return hold?.providerId === Number(form.preferredProviderUserId) ? hold.token : null; } catch { return null; }
+}
 const preferredProviderLabel = computed(() => {
   if (!form.preferredProviderUserId) return 'Let the team choose / first available';
   const match = (providers.value || []).find((p) => Number(p.id) === Number(form.preferredProviderUserId));
@@ -1712,6 +1717,7 @@ async function submitQuick() {
       accomplishGoal: form.accomplishGoal.trim() || null,
       notes: form.notes,
       preferredProviderUserId: form.preferredProviderUserId,
+      providerHoldToken: readProviderHoldToken(),
       preferences: {
         preferredModality: form.preferences.preferredModality || null,
         preferredTimeOfDay: form.preferences.preferredTimeOfDay || null,

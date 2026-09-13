@@ -1879,6 +1879,7 @@
             :selected-ids="selectedOfficeProviderIds"
             @update:selected-ids="setSelectedOfficeProviderIds"
           />
+          <PublicProviderSlotPicker v-if="!providerMatchOnClinicalHold && selectedOfficeProviderIds.length === 1" :agency-slug="referralAgencySlug || agencyInfo?.portal_url || agencyInfo?.slug || ''" :provider-id="Number(selectedOfficeProviderIds[0])" service-type="counseling" @hold="saveOpeningPreference" />
         </div>
 
         <div v-if="currentFlowStep?.type === 'family_roster'" class="family-roster-step intake-interview-page">
@@ -2946,6 +2947,7 @@ import SmartSchoolRoiFlow from '../components/public/SmartSchoolRoiFlow.vue';
 import SmartDisclosureFlow from '../components/public/SmartDisclosureFlow.vue';
 import PacketSectionConsentFlow from '../components/public/PacketSectionConsentFlow.vue';
 import ChooseProviderDirectory from '../components/public/ChooseProviderDirectory.vue';
+import PublicProviderSlotPicker from '../components/publicServices/PublicProviderSlotPicker.vue';
 import OfficeIntakeStartPage from '../components/office/OfficeIntakeStartPage.vue';
 import PDFPreview from '../components/documents/PDFPreview.vue';
 import PublicIntakeGuardianWaiverStep from '../components/public-intake/PublicIntakeGuardianWaiverStep.vue';
@@ -4691,6 +4693,13 @@ const selectedOfficeProviderIds = computed(() => {
   const raw = intakeResponses.submission?.preferred_office_provider_ids;
   return Array.isArray(raw) ? raw.map((id) => String(id)) : [];
 });
+function saveOpeningPreference(hold) {
+  if (!intakeResponses.submission) intakeResponses.submission = {};
+  intakeResponses.submission.requested_opening_preference = hold ? {
+    providerId: hold.providerId, startAt: hold.startAt, endAt: hold.endAt, modality: hold.modality,
+    expiresAt: hold.expiresAt, status: 'PREFERENCE_ONLY_REQUIRES_STAFF_CONFIRMATION'
+  } : null;
+}
 function setSelectedOfficeProviderIds(ids) {
   if (!intakeResponses.submission) intakeResponses.submission = {};
   const cur = (Array.isArray(ids) ? ids : []).map((id) => String(id));

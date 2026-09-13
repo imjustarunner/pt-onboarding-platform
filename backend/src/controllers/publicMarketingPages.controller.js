@@ -104,6 +104,20 @@ export const getPublicMarketingPage = async (req, res, next) => {
       return res.status(404).json({ error: { message: 'Page not found' } });
     }
     const sources = await listSourcesForPage(page.id);
+    const agencyIds = sources.filter(s => s.isActive && s.sourceType === 'agency').map(s => Number(s.sourceId));
+    let providerDirectories = [];
+    if (agencyIds.length) {
+      const [directories] = await pool.execute(
+        `SELECT DISTINCT a.slug, a.name, st.service_type AS serviceType
+         FROM agencies a JOIN agency_public_service_types st ON st.agency_id = a.id AND st.is_enabled = 1
+         JOIN provider_public_service_enrollments e ON e.agency_id = a.id AND e.service_type = st.service_type AND e.is_active = 1
+         WHERE a.id IN (${agencyIds.map(() => '?').join(',')}) AND a.public_availability_enabled = 1
+           AND COALESCE(a.is_archived, 0) = 0 AND COALESCE(a.is_active, 1) = 1
+           AND LOWER(a.organization_type) IN ('agency', 'life_coach', 'consultant', 'clubwebapp')
+           AND st.service_type IN ('counseling', 'tutoring', 'coaching')`, agencyIds);
+      providerDirectories = directories;
+    }
+
     res.json({
       ok: true,
       page: {
@@ -113,6 +127,7 @@ export const getPublicMarketingPage = async (req, res, next) => {
         heroTitle: page.heroTitle || null,
         heroSubtitle: page.heroSubtitle || null,
         heroImageUrl: page.heroImageUrl || null,
+        providerDirectories,
         metricsEnabled: !!(page.metricsProfile && String(page.metricsProfile).trim()),
         seo: parseJsonObject(page.seoJson),
         /** Public-safe hub customization (logo, gallery, nav, optional subpages — see admin). */

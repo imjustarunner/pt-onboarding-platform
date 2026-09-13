@@ -1,3 +1,4 @@
+import { createPublicProviderHoldService, holdError } from '../services/publicProviderHold.service.js';
 import pool from '../config/database.js';
 import ProviderAvailabilityService from '../services/providerAvailability.service.js';
 import PublicAppointmentRequest from '../models/PublicAppointmentRequest.model.js';
@@ -393,7 +394,7 @@ function dedupeSlots(slots) {
       String(s?.sessionType || ''),
       String(s?.frequency || '')
     ].join('|');
-    if (!String(s?.startAt || '').trim() || !String(s?.endAt || '').trim()) continue;
+    if (!String(s?.startAt || '').trim() || !String(s?.endAt || '').trim() || +new Date(s.startAt) <= Date.now()) continue;
     if (seen.has(key)) continue;
     seen.add(key);
     out.push(s);
@@ -416,6 +417,8 @@ async function requireAgencyBySlug(res, agencySlug) {
               organization_type, public_booking_settings
        FROM agencies
        WHERE slug = ?
+         AND COALESCE(is_active, 1) = 1
+         AND LOWER(organization_type) IN ('agency','clubwebapp','life_coach','consultant')
          AND (is_archived IS NULL OR is_archived = FALSE)
        LIMIT 1`,
       [slug]
@@ -427,6 +430,8 @@ async function requireAgencyBySlug(res, agencySlug) {
               organization_type
        FROM agencies
        WHERE slug = ?
+         AND COALESCE(is_active, 1) = 1
+         AND LOWER(organization_type) IN ('agency','clubwebapp','life_coach','consultant')
          AND (is_archived IS NULL OR is_archived = FALSE)
        LIMIT 1`,
       [slug]
@@ -463,43 +468,18 @@ async function getAgencyServiceTypes(agencyId) {
 }
 
 async function getEnrolledProviderIds(agencyId, serviceType) {
-  const [rows] = await pool.execute(
-    `SELECT user_id
-     FROM provider_public_service_enrollments
-     WHERE agency_id = ? AND service_type = ? AND is_active = 1`,
-    [Number(agencyId), String(serviceType)]
-  );
-  const ids = new Set((rows || []).map((r) => Number(r.user_id)));
-  if (ids.size > 0) return ids;
-
-  // Solo practitioner tenants: if no explicit enrollments yet, treat active staff as bookable.
-  const st = String(serviceType || '').toLowerCase();
-  if (st === 'coaching' || st === 'consulting') {
-    const [fallback] = await pool.execute(
-      `SELECT u.id
-       FROM users u
-       JOIN user_agencies ua ON ua.user_id = u.id
-       JOIN agencies a ON a.id = ua.agency_id
-       WHERE ua.agency_id = ?
-         AND LOWER(COALESCE(a.organization_type, '')) IN ('life_coach', 'consultant')
-         AND (u.is_active IS NULL OR u.is_active = TRUE)
-         AND (u.is_archived IS NULL OR u.is_archived = FALSE)
-         AND UPPER(COALESCE(u.status, '')) = 'ACTIVE_EMPLOYEE'
-         AND LOWER(COALESCE(u.role, '')) IN ('admin', 'provider', 'provider_plus', 'super_admin', 'staff')`,
-      [Number(agencyId)]
-    );
-    for (const r of fallback || []) ids.add(Number(r.id));
-  }
-  return ids;
+  return new Set((await listEnrolledProviders(agencyId, serviceType)).map(row => Number(row.id)));
 }
 
 async function listEnrolledProviders(agencyId, serviceType) {
+  if (!(await getAgencyServiceTypes(agencyId)).some((s) => s.service_type === serviceType)) return [];
   const [rows] = await pool.execute(
     `SELECT u.id, u.first_name, u.last_name, u.role, u.profile_photo_path,
             u.service_focus, u.provider_accepting_new_clients, u.title
      FROM users u
      JOIN provider_public_service_enrollments e
        ON e.user_id = u.id AND e.agency_id = ? AND e.service_type = ? AND e.is_active = 1
+     JOIN user_agencies membership ON membership.user_id = u.id AND membership.agency_id = e.agency_id
      WHERE (u.is_active IS NULL OR u.is_active = TRUE)
        AND (u.is_archived IS NULL OR u.is_archived = FALSE)
        AND (u.status IS NULL OR UPPER(u.status) NOT IN ('ARCHIVED', 'PROSPECTIVE'))
@@ -558,9 +538,9 @@ async function getTutoringProfile(userId, agencyId) {
   };
 }
 
-async function getCounselingSpecialties(userId) {
+async function getCounselingSpecialties(userId, agencyId) {
   const { listClinicalFacetsForUser } = await import('../services/providerClinicalFacets.service.js');
-  const facets = await listClinicalFacetsForUser(Number(userId));
+  const facets = await listClinicalFacetsForUser(Number(userId), { agencyId });
   return {
     specialties: facets.specialties || [],
     modalities: facets.modalities || [],
@@ -587,6 +567,7 @@ async function resolveProviderProfileSummary({ agencyId, providerUserId }) {
     acceptedInsurances = [];
   }
   return {
+    details: profile?.details || {},
     publicBlurb: String(profile?.publicBlurb || '').trim(),
     insurances: Array.isArray(profile?.insurances) ? profile.insurances : [],
     acceptedInsurances,
@@ -650,13 +631,13 @@ function normalizeSlots({ result, bookingMode, providerAcceptingNewClients, prof
     ? !!providerAcceptingNewClients
     : !!profileAcceptingNewClientsOverride;
   if (intakeOnly && !accepting) return { virtual: [], inPerson: [], all: [] };
-  const inPerson = (result?.inPersonSlots || []).map((s) => ({
+  const inPerson = (result?.inPersonSlots || []).filter((s) => new Date(s.startAt).getTime() > Date.now()).map((s) => ({
     ...s,
     modality: 'IN_PERSON',
     programType: 'IN_PERSON',
     recurrence: { isRecurring: true, frequency: String(s.frequency || 'WEEKLY').toUpperCase() }
   }));
-  const virtual = (result?.virtualSlots || []).map((s) => ({
+  const virtual = (result?.virtualSlots || []).filter((s) => new Date(s.startAt).getTime() > Date.now()).map((s) => ({
     ...s,
     modality: 'VIRTUAL',
     programType: 'VIRTUAL',
@@ -799,9 +780,8 @@ export const listCounselors = async (req, res, next) => {
         profileAcceptingNewClientsOverride: profileData?.acceptingNewClientsOverride ?? null
       });
       const filteredThisWeek = programType === 'VIRTUAL' ? slotSet.virtual : slotSet.inPerson;
-      if (!filteredThisWeek.length && !summary.nextAvailableAt) return null;
 
-      const { specialties, modalities, ageGroups, focus } = await getCounselingSpecialties(Number(row.id));
+      const { specialties, modalities, ageGroups, focus } = await getCounselingSpecialties(Number(row.id), agency.id);
 
       // Apply client-side filters
       const displayName = `${row.first_name || ''} ${row.last_name || ''}`.trim();
@@ -828,6 +808,7 @@ export const listCounselors = async (req, res, next) => {
       if (effectiveAgeFilter && !providerServesAgeBucket(ageGroups, effectiveAgeFilter)) return null;
 
       return {
+        acceptingNewClients: !!(profileData?.acceptingNewClientsOverride ?? row.provider_accepting_new_clients),
         providerId: Number(row.id),
         id: Number(row.id),
         firstName: row.first_name || '',
@@ -842,6 +823,7 @@ export const listCounselors = async (req, res, next) => {
         ageGroups,
         focus,
         profile: {
+          details: profile.details || {},
           publicBlurb: profile.publicBlurb || '',
           insurancesAccepted: Array.isArray(profile.insurances) ? profile.insurances : [],
           acceptedInsurances: Array.isArray(profile.acceptedInsurances) ? profile.acceptedInsurances : [],
@@ -854,7 +836,7 @@ export const listCounselors = async (req, res, next) => {
           programType,
           weekStart,
           thisWeekCount: filteredThisWeek.length,
-          nextAvailableAt: summary.nextAvailableAt || null,
+          nextAvailableAt: (profileData?.acceptingNewClientsOverride ?? row.provider_accepting_new_clients) ? summary.nextAvailableAt || null : null,
           bookedThroughDate: summary.bookedThroughYmd || null,
           slots: filteredThisWeek.map((s) => ({ ...s, bookingMode, programType }))
         }
@@ -957,16 +939,13 @@ export const listTutors = async (req, res, next) => {
         heldSlots
       });
       const profileData = await ProviderPublicProfile.getForProvider({ providerUserId: Number(row.id) });
-      // Tutors are shown as bookable based on open availability, not the accepting_new_students flag.
-      // The flag is advisory — shown in the profile but does not gate slot visibility.
       const slotSet = normalizeSlots({
         result: summary.thisWeek,
         bookingMode,
-        providerAcceptingNewClients: 1,
-        profileAcceptingNewClientsOverride: null
+        providerAcceptingNewClients: row.provider_accepting_new_clients,
+        profileAcceptingNewClientsOverride: profileData?.acceptingNewClientsOverride ?? null
       });
       const filteredThisWeek = programType === 'VIRTUAL' ? slotSet.virtual : slotSet.inPerson;
-      if (!filteredThisWeek.length && !summary.nextAvailableAt) return null;
 
       const displayName = `${row.first_name || ''} ${row.last_name || ''}`.trim();
       if (searchQ && !displayName.toLowerCase().includes(searchQ)) return null;
@@ -974,6 +953,7 @@ export const listTutors = async (req, res, next) => {
       if (filterGradeLevel && !tutoringProfile.gradeLevels.map((s) => s.toLowerCase()).some((s) => s.includes(filterGradeLevel))) return null;
 
       return {
+        acceptingNewClients: !!(profileData?.acceptingNewClientsOverride ?? row.provider_accepting_new_clients),
         providerId: Number(row.id),
         id: Number(row.id),
         firstName: row.first_name || '',
@@ -987,7 +967,7 @@ export const listTutors = async (req, res, next) => {
           programType,
           weekStart,
           thisWeekCount: filteredThisWeek.length,
-          nextAvailableAt: summary.nextAvailableAt || null,
+          nextAvailableAt: (profileData?.acceptingNewClientsOverride ?? row.provider_accepting_new_clients) ? summary.nextAvailableAt || null : null,
           bookedThroughDate: summary.bookedThroughYmd || null,
           slots: filteredThisWeek.map((s) => ({ ...s, bookingMode, programType }))
         }
@@ -1065,7 +1045,6 @@ export const listEvaluators = async (req, res, next) => {
         profileAcceptingNewClientsOverride: null
       });
       const filteredThisWeek = programType === 'VIRTUAL' ? slotSet.virtual : slotSet.inPerson;
-      if (!filteredThisWeek.length && !summary.nextAvailableAt) return null;
 
       const displayName = `${row.first_name || ''} ${row.last_name || ''}`.trim();
       if (searchQ && !displayName.toLowerCase().includes(searchQ)) return null;
@@ -1167,7 +1146,7 @@ export const getProviderDetail = async (req, res, next) => {
     let specialtyData = null;
     let tutoringProfile = null;
     if (serviceType === 'counseling') {
-      specialtyData = await getCounselingSpecialties(providerId);
+      specialtyData = await getCounselingSpecialties(providerId, agency.id);
     } else if (serviceType === 'tutoring') {
       tutoringProfile = await getTutoringProfile(providerId, agency.id);
     }
@@ -1175,7 +1154,9 @@ export const getProviderDetail = async (req, res, next) => {
     res.json({
       ok: true,
       serviceType,
+      agency: { id: agency.id, slug: agency.slug, name: agency.name },
       provider: {
+        acceptingNewClients: !!(profileData?.acceptingNewClientsOverride ?? user.provider_accepting_new_clients),
         providerId,
         id: providerId,
         firstName: user.first_name || '',
@@ -1188,7 +1169,8 @@ export const getProviderDetail = async (req, res, next) => {
         tutoringProfile: tutoringProfile || undefined
       },
       profile: {
-        publicBlurb: profile.publicBlurb || '',
+        details: profile.details || {},
+          publicBlurb: profile.publicBlurb || '',
         insurancesAccepted: Array.isArray(profile.insurances) ? profile.insurances : [],
         acceptedInsurances: Array.isArray(profile.acceptedInsurances) ? profile.acceptedInsurances : [],
         selfPayRateCents: profile.selfPayRateCents ?? null,
@@ -1200,7 +1182,7 @@ export const getProviderDetail = async (req, res, next) => {
         programType,
         weekStart,
         thisWeekCount: filteredThisWeek.length,
-        nextAvailableAt: summary.nextAvailableAt || null,
+        nextAvailableAt: (profileData?.acceptingNewClientsOverride ?? user.provider_accepting_new_clients) ? summary.nextAvailableAt || null : null,
         slots: filteredThisWeek.map((s) => ({ ...s, bookingMode, programType }))
       }
     });
@@ -1337,6 +1319,9 @@ async function sendNewBookingNotification({ agencyId, agencyName, created, servi
 
 export const getProviderSlots = async (req, res, next) => {
   try {
+    if (normalizeBookingMode(req.query.bookingMode || req.query.mode) === 'NEW_CLIENT') {
+      return getProviderDetail(req, { status: (code) => res.status(code), json: (data) => res.json({ ok: true, weekStart: data.availability.weekStart, slots: data.availability.slots }) }, next);
+    }
     const agency = await requireAgencyBySlug(res, req.params.agencySlug);
     if (!agency) return;
 
@@ -1963,4 +1948,43 @@ export const upsertTutoringProfile = async (req, res, next) => {
   } catch (e) {
     next(e);
   }
+};
+
+// Explicit time selection: no client creation, request, email, or appointment side effects.
+export const createProviderSlotHold = async (req, res, next) => {
+  try {
+    const agency = await requireAgencyBySlug(res, req.params.agencySlug);
+    if (!agency) return;
+    const providerId = Number(req.params.providerId);
+    if (!Number.isSafeInteger(providerId) || providerId <= 0) throw holdError('Invalid provider.', 400);
+    const serviceType = normalizeServiceType(req.body?.serviceType);
+    const modality = String(req.body?.modality || '').toUpperCase();
+    if (!['VIRTUAL', 'IN_PERSON'].includes(modality)) throw holdError('Choose a session format.', 400);
+    const hold = await createPublicProviderHoldService(pool).create({
+      agencyId: agency.id, providerId, serviceType, modality,
+      startAt: req.body?.startAt, endAt: req.body?.endAt,
+      validateAvailability: async () => {
+        let data, status = 200;
+        await getProviderDetail({ params: req.params, query: { serviceType, programType: modality, bookingMode: 'NEW_CLIENT', weekStart: req.body.startAt.slice(0, 10) } },
+          { status(code) { status = code; return this; }, json(value) { data = value; } }, (error) => { throw error; });
+        const valid = status === 200 && data?.availability?.slots?.some((s) =>
+          +new Date(s.startAt) === +new Date(req.body.startAt) && +new Date(s.endAt) === +new Date(req.body.endAt));
+        if (!valid) throw holdError('This opening is no longer available. Please refresh and choose another time.');
+      }
+    });
+    res.setHeader('Cache-Control', 'no-store');
+    res.status(201).json({ hold, message: 'Held for 15 minutes. This is not an appointment or booking.' });
+  } catch (error) {
+    if (error.code === 'ER_NO_SUCH_TABLE') return res.status(503).json({ error: { message: 'Temporary time selection is being prepared. You can continue enrollment with a provider preference.' } });
+    if (error.status) return res.status(error.status).json({ error: { message: error.message } });
+    next(error);
+  }
+};
+export const releaseProviderSlotHold = async (req, res, next) => {
+  try {
+    const agency = await requireAgencyBySlug(res, req.params.agencySlug);
+    if (!agency) return;
+    await createPublicProviderHoldService(pool).release({ agencyId: agency.id, token: req.body?.token });
+    res.json({ ok: true });
+  } catch (error) { next(error); }
 };

@@ -3,20 +3,22 @@
     <!-- Left: Avatar + name -->
     <div class="card-identity">
       <button class="avatar-btn" type="button" @click="$emit('view-profile', provider)">
-        <img v-if="provider.profilePhotoUrl" :src="provider.profilePhotoUrl" :alt="provider.displayName" class="avatar" />
+        <img v-if="provider.profilePhotoUrl && !photoFailed" @error="photoFailed = true" loading="lazy" :src="provider.profilePhotoUrl" :alt="provider.displayName" class="avatar" />
         <div v-else class="avatar avatar-fallback">{{ initials(provider.displayName) }}</div>
-        <span v-if="isBestMatch" class="badge-overlay badge-best">Best Match</span>
-        <span v-else-if="isFastest" class="badge-overlay badge-fastest">Fastest Opening</span>
       </button>
       <div class="card-name-wrap">
         <h3 class="card-name">
           {{ provider.displayName }}
-          <svg class="verified-icon" viewBox="0 0 24 24" fill="currentColor"><path fill-rule="evenodd" d="M8.603 3.799A4.49 4.49 0 0112 2.25c1.357 0 2.573.6 3.397 1.549a4.49 4.49 0 013.498 1.307 4.491 4.491 0 011.307 3.497A4.49 4.49 0 0121.75 12a4.49 4.49 0 01-1.549 3.397 4.491 4.491 0 01-1.307 3.497 4.491 4.491 0 01-3.497 1.307A4.49 4.49 0 0112 21.75a4.49 4.49 0 01-3.397-1.549 4.491 4.491 0 01-3.497-1.307 4.491 4.491 0 01-1.307-3.497A4.49 4.49 0 012.25 12c0-1.357.6-2.573 1.549-3.397a4.49 4.49 0 011.307-3.497 4.49 4.49 0 013.497-1.307zm7.007 6.387a.75.75 0 10-1.22-.872l-3.236 4.53L9.53 12.22a.75.75 0 00-1.06 1.06l2.25 2.25a.75.75 0 001.14-.094l3.75-5.25z" clip-rule="evenodd" /></svg>
+
         </h3>
         <p v-if="titleLabel" class="card-title-label">{{ titleLabel }}</p>
+        <p v-if="provider.profile?.publicBlurb" class="card-bio">{{ provider.profile.publicBlurb }}</p>
+        <p v-if="provider.acceptingNewClients !== undefined" class="card-accepting">{{ provider.acceptingNewClients ? 'Accepting new clients' : 'Ask the team about availability' }}</p>
         <div class="card-tags">
           <span v-for="tag in visibleTags" :key="tag" class="tag">{{ tag }}</span>
         </div>
+        <p v-if="provider.ageGroups?.length" class="card-detail">{{ provider.ageGroups.join(' · ') }}</p>
+        <p v-if="provider.profile?.insurancesAccepted?.length" class="card-detail">{{ provider.profile.insurancesAccepted.join(' · ') }}</p>
         <div class="card-location-row">
           <span v-if="hasInPerson" class="loc-dot loc-dot--inperson" title="In-Person" />
           <span v-if="hasVirtual" class="loc-dot loc-dot--virtual" title="Virtual" />
@@ -32,7 +34,8 @@
         <span class="next-label">Next available</span>
         <span class="next-time">{{ formatNextAvailable(provider.availability.nextAvailableAt) }}</span>
       </p>
-      <p v-else class="next-available next-available--none">No openings in next 4 months</p>
+      <p v-else class="next-available next-available--none">No published openings for this search</p>
+      <p v-if="hasSlots" class="card-detail">Select a time for a 15-minute hold. No appointment is booked.</p>
       <div class="week-slots">
         <div
           v-for="(daySlots, day) in groupedSlots"
@@ -47,6 +50,7 @@
               class="slot-chip"
               :class="slot.programType === 'VIRTUAL' ? 'slot-chip--virtual' : 'slot-chip--inperson'"
               type="button"
+              :aria-label="`Hold ${formatNextAvailable(slot.startAt)} for 15 minutes`"
               @click="$emit('book', provider, slot)"
             >
               {{ timeLabel(slot.startAt) }}
@@ -62,16 +66,17 @@
       <button
         class="btn-book"
         type="button"
-        @click="hasSlots ? bookFirst() : $emit('view-profile', provider)"
+        @click="$emit('view-profile', provider)"
       >
-        {{ hasSlots ? 'Book' : 'See availability' }}
+        View availability
       </button>
     </div>
   </article>
 </template>
 
 <script setup>
-import { computed } from 'vue';
+import { computed, ref } from 'vue';
+const photoFailed = ref(false);
 
 const props = defineProps({
   provider: { type: Object, required: true },
@@ -114,7 +119,7 @@ const groupedSlots = computed(() => {
   const map = {};
   for (const s of slots.value) {
     const d = new Date(s.startAt);
-    const key = DAYS[d.getDay()];
+    const key = d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
     if (!map[key]) map[key] = [];
     map[key].push(s);
   }
@@ -319,4 +324,6 @@ function bookFirst() {
   .card-actions { flex-direction: row; width: 100%; }
   .btn-outline, .btn-book { flex: 1; }
 }
+
+.provider-card{display:grid;grid-template-columns:minmax(0,1fr) 220px;gap:24px;padding:26px;border-color:#dfe9e4;box-shadow:0 5px 20px #123f3510}.card-identity{min-width:0;max-width:none;gap:22px}.avatar,.avatar-fallback{width:120px;height:120px}.avatar-fallback{font-size:2rem}.card-name{font-size:1.3rem;line-height:1.3;color:color-mix(in srgb,var(--pc-p) 50%,#123841)}.card-title-label{font-size:.85rem}.card-bio{font-size:.9rem;line-height:1.65;color:#506570;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}.card-accepting{color:#176245;font-size:.8rem}.card-detail{font-size:.8rem;color:#506570;line-height:1.6}.tag{border-radius:20px;background:#eff5f2;color:#385951;font-size:.75rem;padding:5px 9px}.card-slots{background:#f3f8f5;border-radius:12px;padding:16px}.card-actions{grid-column:2;flex-direction:row}.card-actions button{white-space:normal;min-height:44px;flex:1}.slot-chip{min-height:40px}.day-label{font-size:.65rem}.day-col{max-width:80px}.provider-card :focus-visible{outline:3px solid var(--pc-p);outline-offset:3px}@media(max-width:1150px){.provider-card{grid-template-columns:1fr}.card-actions{grid-column:1}.card-slots{display:block}}@media(max-width:520px){.provider-card{padding:18px}.card-identity{flex-direction:column}.avatar,.avatar-fallback{width:100px;height:100px}.card-name{font-size:1.25rem}}
 </style>

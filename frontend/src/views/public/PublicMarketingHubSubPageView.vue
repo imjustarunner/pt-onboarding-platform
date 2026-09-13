@@ -14,7 +14,7 @@
     <article v-else-if="subPage" class="pmh-sub-inner">
       <nav class="pmh-sub-breadcrumb">
         <router-link class="pmh-sub-crumb" :to="{ path: `/p/${hubSlug}` }">← {{ hubTitle }}</router-link>
-      </nav>
+      <PublicWebsiteProviderLinks :hub-slug="String($route.params.hubSlug || '')" /></nav>
       <p v-if="isComingSoonPage" class="pmh-coming-soon-badge">Coming soon</p>
       <h1 class="pmh-sub-title">{{ subPage.title }}</h1>
       <div class="pmh-sub-body" v-html="renderedBody" />
@@ -35,6 +35,7 @@
 </template>
 
 <script setup>
+import PublicWebsiteProviderLinks from "../../components/public/PublicWebsiteProviderLinks.vue";
 import TisiAudiencePage from './TisiAudiencePage.vue';
 import { isTisiAudiencePage } from '../../constants/tisiAudiencePages';
 import DOMPurify from 'dompurify';

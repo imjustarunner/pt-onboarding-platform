@@ -1158,6 +1158,12 @@ const routes = [
     meta: { requiresGuest: false, organizationSlug: true, serviceType: 'consulting' }
   },
   {
+    path: '/:organizationSlug/provider/:providerId',
+    name: 'PublicProviderProfile',
+    component: () => import('../views/public/PublicProviderProfileView.vue'),
+    meta: { requiresGuest: false, organizationSlug: true }
+  },
+  {
     path: '/:organizationSlug/book/:providerId',
     name: 'PublicProviderBook',
     component: () => import('../views/public/PublicPractitionerBookingView.vue'),

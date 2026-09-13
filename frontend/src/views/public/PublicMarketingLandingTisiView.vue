@@ -91,7 +91,7 @@
                 {{ item.label }}
               </component>
             </template>
-          </nav>
+          <PublicWebsiteProviderLinks :directories="pageRecord?.providerDirectories || []" :hub-slug="hubSlug" /></nav>
 
           <template v-if="editing">
             <div class="tisi-header-cta-edit">
@@ -471,6 +471,7 @@
 </template>
 
 <script setup>
+import PublicWebsiteProviderLinks from "../../components/public/PublicWebsiteProviderLinks.vue";
 import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import { useAuthStore } from '../../store/auth';

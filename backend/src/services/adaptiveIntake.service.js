@@ -1,3 +1,4 @@
+import { hashHoldToken } from './publicProviderHold.service.js';
 import pool from '../config/database.js';
 import * as ClientExchange from './clientExchange.service.js';
 import {
@@ -910,6 +911,19 @@ export async function submitQuickProspective({ agencySlugOrId, payload = {}, req
   const agencyRow = await loadAgencyRow(agencySlugOrId);
   if (!agencyRow) throw new Error('Organization not found');
 
+  let requestedOpening = null;
+  if (payload.providerHoldToken) {
+    const [held] = await pool.execute(
+      `SELECT provider_id, service_type, modality, start_at, end_at, expires_at,
+              expires_at > UTC_TIMESTAMP(3) AS active
+       FROM public_provider_slot_holds WHERE agency_id = ? AND provider_id = ? AND token_hash = ? LIMIT 1`,
+      [agencyRow.id, Number(payload.preferredProviderUserId || 0), hashHoldToken(payload.providerHoldToken)]);
+    if (held[0]) requestedOpening = { providerId: held[0].provider_id, serviceType: held[0].service_type,
+      modality: held[0].modality, startAt: held[0].start_at, endAt: held[0].end_at,
+      holdExpiresAt: held[0].expires_at, holdWasActiveAtSubmission: !!held[0].active,
+      status: 'PREFERENCE_ONLY_REQUIRES_STAFF_CONFIRMATION' };
+  }
+
   const intakeServices = await listIntakeServices(agencyRow);
   const requestedServiceType = String(payload.serviceType || '').trim().toLowerCase();
   const activeService =
@@ -988,6 +1002,7 @@ export async function submitQuickProspective({ agencySlugOrId, payload = {}, req
   });
 
   const meta = {
+    requestedOpening,
     pathway: 'quick_prospective',
     vertical,
     serviceType: activeService?.serviceType || null,
@@ -1051,6 +1066,7 @@ export async function submitQuickProspective({ agencySlugOrId, payload = {}, req
     const prefs = parseJson(rows[0]?.intake_preferences_json, {}) || {};
     const nextPrefs = {
       ...prefs,
+      requestedOpening,
       pathway: 'quick_prospective',
       whoFor,
       concerns,

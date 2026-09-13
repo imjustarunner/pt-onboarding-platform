@@ -1072,7 +1072,7 @@
                 <span>Staff login</span>
               </span>
             </router-link>
-          </nav>
+          <PublicWebsiteProviderLinks :hub-slug="String($route.params.hubSlug || '')" /></nav>
 
           <div v-if="footerPartners.length" class="pmh-footer-partners-block">
             <h2 class="pmh-footer-heading">Participating agencies</h2>
@@ -1131,6 +1131,7 @@
 </template>
 
 <script setup>
+import PublicWebsiteProviderLinks from "../../components/public/PublicWebsiteProviderLinks.vue";
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import { useAuthStore } from '../../store/auth';
