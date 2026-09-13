@@ -12,7 +12,10 @@ import {
 
 import { getItscoWebsiteData } from '../services/itscoPublicWebsite.service.js';
 
+import { ingestPublicWebsiteAnalytics, publicAnalyticsIngestLimiter } from './publicWebsiteAnalytics.routes.js';
+
 const router = express.Router();
+router.post('/:slug/analytics/events', publicAnalyticsIngestLimiter, ingestPublicWebsiteAnalytics);
 router.get('/itsco/website-data', publicMarketingPageMetricsLimiter, async (req, res, next) => {
   try { res.set('Cache-Control', 'no-store').json(await getItscoWebsiteData(req)); }
   catch (error) { if (error.status === 404) return res.status(404).json({ error: { message: error.message } }); next(error); }

@@ -1993,6 +1993,7 @@
         <router-view :key="route.path" />
       </main>
       <PublicTranslateWidget v-if="showPublicTranslateWidget" />
+      <PublicWebsiteAnalytics v-if="route.meta?.publicMarketingHub" />
       <MomentumStickiesOverlay v-if="showMomentumStickiesShell" />
       <AddStickyFab v-if="showMomentumStickiesShell" />
       <AddToStickyContextMenu v-if="showMomentumStickiesShell" />
@@ -2403,6 +2404,7 @@ import { getStatusPromptMode, subscribeStatusPrompt } from './utils/statusPrompt
 import RegistrationPromoToastRail from './components/RegistrationPromoToastRail.vue';
 import TimeCapsuleRevealSplashModal from './components/hiring/TimeCapsuleRevealSplashModal.vue';
 import PublicTranslateWidget from './components/public/PublicTranslateWidget.vue';
+import PublicWebsiteAnalytics from './components/public/PublicWebsiteAnalytics.vue';
 import {
   shouldShowPublicTranslate,
   clearLegacyGoogleTranslateCookie

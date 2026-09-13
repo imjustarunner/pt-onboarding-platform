@@ -1,0 +1,22 @@
+import {describe,it,expect,vi,beforeEach,afterEach} from 'vitest';
+import {mount,flushPromises} from '@vue/test-utils';
+import {reactive} from 'vue';
+import Analytics from '../PublicWebsiteAnalytics.vue';
+import api from '../../../services/api';
+const state=vi.hoisted(()=>({auth:null,route:null}));
+vi.mock('vue-router',()=>({useRoute:()=>state.route}));
+vi.mock('../../../store/auth',()=>({useAuthStore:()=>state.auth}));
+vi.mock('../../../services/api',()=>({default:{get:vi.fn(),defaults:{baseURL:'/api'}}}));
+vi.mock('../../../utils/publicWebsiteAnalytics',async()=>{const original=await vi.importActual('../../../utils/publicWebsiteAnalytics');return{...original,createWebsiteTracker:vi.fn(()=>({stop:vi.fn()}))};});
+const result={site:{title:'ITSCO'},totals:{views:10,visitors:7},rows:[{pagePath:'/p/itsco',targetKey:'page/hero/button',label:'Join our team',kind:'click',count:4,visitors:3,lastSeen:'2026-09-12T12:00:00Z'},{pagePath:'/p/itsco',targetKey:'page/hero',label:'Hero',kind:'section_view',count:9,visitors:7,lastSeen:'2026-09-12T12:00:00Z'}],pages:['/p/itsco'],daily:[],breakdown:[]};
+let wrapper;
+beforeEach(()=>{vi.clearAllMocks();state.auth=reactive({user:null});state.route=reactive({path:'/p/itsco',query:{}});vi.stubGlobal('ResizeObserver',class{observe(){}disconnect(){}});api.get.mockImplementation(url=>Promise.resolve({data:url.endsWith('/access')?{allowed:true}:result}));});
+afterEach(()=>{wrapper?.unmount();document.body.innerHTML='';vi.unstubAllGlobals();});
+const mountIt=()=>wrapper=mount(Analytics,{attachTo:document.body,global:{stubs:{Teleport:true}}});
+describe('authorized public analytics reports',()=>{
+ it('never offers analytics to guests or makes a report-access call',async()=>{mountIt();await flushPromises();expect(wrapper.find('.wa-toolbar').exists()).toBe(false);expect(api.get).not.toHaveBeenCalled();});
+ it('hides reports when the server denies a logged-in user',async()=>{state.auth.user={id:4,role:'client'};api.get.mockRejectedValue({response:{status:403}});mountIt();await flushPromises();expect(wrapper.find('.wa-toolbar').exists()).toBe(false);expect(wrapper.find('.wa-panel').exists()).toBe(false);});
+ it('shows real metrics, supports search and sort, and closes with Escape',async()=>{state.auth.user={id:1,role:'super_admin'};mountIt();await flushPromises();await wrapper.find('.wa-toolbar button').trigger('click');await flushPromises();await wrapper.findAll('.wa-toolbar button')[1].trigger('click');await flushPromises();expect(wrapper.find('.wa-metrics').text()).toContain('10Page views');expect(wrapper.findAll('tbody tr')).toHaveLength(2);await wrapper.find('input[type=search]').setValue('Join');expect(wrapper.findAll('tbody tr')).toHaveLength(1);await wrapper.find('input[type=search]').setValue('');await wrapper.find('[aria-label="Sort by"]').setValue('count');expect(wrapper.find('tbody tr').text()).toContain('Hero');await wrapper.find('[aria-label="Activity type"]').setValue('click');expect(wrapper.findAll('tbody tr')).toHaveLength(1);await wrapper.find('.wa-panel').trigger('keydown',{key:'Escape'});expect(wrapper.find('.wa-panel').exists()).toBe(false);});
+ it('reports load failures without inventing zero traffic',async()=>{state.auth.user={id:1,role:'super_admin'};api.get.mockImplementation(url=>url.endsWith('/access')?Promise.resolve({data:{allowed:true}}):Promise.reject(new Error('offline')));mountIt();await flushPromises();await wrapper.find('.wa-toolbar button').trigger('click');await flushPromises();await wrapper.findAll('.wa-toolbar button')[1].trigger('click');await flushPromises();expect(wrapper.find('[role=alert]').text()).toContain('Unable to load');expect(wrapper.find('.wa-metrics').exists()).toBe(false);});
+ it('removes a previously authorized report immediately when the user signs out',async()=>{state.auth.user={id:1,role:'super_admin'};mountIt();await flushPromises();await wrapper.find('.wa-toolbar button').trigger('click');await flushPromises();expect(wrapper.find('.wa-toolbar').exists()).toBe(true);state.auth.user=null;await flushPromises();expect(wrapper.find('.wa-toolbar').exists()).toBe(false);});
+});
