@@ -1,3 +1,4 @@
+import { resolveClientProviderHolds } from '../services/publicProviderHold.service.js';
 import pool from '../config/database.js';
 
 const LIVE_STATUSES = new Set([
@@ -436,6 +437,12 @@ class Appointment {
         ]
       );
       i += 1;
+    }
+    const [scheduled]=await pool.execute("SELECT created_by_user_id FROM appointments WHERE id=? AND status IN ('scheduled','confirmed') AND end_at>UTC_TIMESTAMP()",[aid]);
+    if(scheduled.length) {
+      for(const clientId of new Set(participants.map(p=>Number(p.clientId || p.client_id || 0)).filter(Boolean))) {
+        await resolveClientProviderHolds(pool,{clientId,userId:scheduled[0].created_by_user_id,reason:'PLACED_ON_SCHEDULE'});
+      }
     }
     return this.listParticipants(aid);
   }

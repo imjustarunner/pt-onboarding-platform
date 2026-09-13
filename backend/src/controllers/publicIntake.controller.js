@@ -1,3 +1,4 @@
+import { createPublicProviderHoldService } from '../services/publicProviderHold.service.js';
 import { validateIntakeBilling } from '../services/intakeBillingValidation.service.js';
 import { matchesIntakeSession } from '../middleware/intakeBillingSession.middleware.js';
 import { createFamilyCardSetup, completeFamilyCardSetup } from '../services/familyCardSetup.service.js';
@@ -8799,6 +8800,8 @@ export const finalizePublicIntake = async (req, res, next) => {
       } // end if (!createdClients.length)
     }
 
+    await attachSubmittedProviderHold(link,intakeData,createdClients,updatedSubmission,req.body?.providerHoldToken);
+
     // After clients exist, persist packet-derived consent sections captured earlier in the flow.
     if (
       (intakeData?.packetSections
@@ -10643,6 +10646,8 @@ export const submitPublicIntake = async (req, res, next) => {
       }
     }
 
+    await attachSubmittedProviderHold(link,intakeData,createdClients,updatedSubmission,req.body?.providerHoldToken);
+
     const allAllowedTemplates = await loadAllowedTemplates(link);
     if (!allAllowedTemplates.length) {
       return res.status(400).json({ error: { message: 'No documents are configured for this intake link.' } });
@@ -12454,6 +12459,15 @@ export const saveInsuranceCardPhotos = async (req, res, next) => {
  * Used by the Stripe/QB payment flow which runs BEFORE final intake submit,
  * before `link.agency_id` is always available (e.g. school-scoped links).
  */
+async function attachSubmittedProviderHold(link,intakeData,clients,submission,token) {
+  const preference=intakeData?.responses?.submission?.requested_opening_preference;
+  if(!token || !preference?.providerId || (clients || []).length > 1) return;
+  const clientId=clients?.[0]?.id || submission?.client_id;
+  if(!clientId) return;
+  const agencyId=await resolveAgencyIdForLink(link);
+  await createPublicProviderHoldService(pool).attach({agencyId,providerId:Number(preference.providerId),token,clientId});
+}
+
 const resolveAgencyIdForLink = async (link) => {
   let agencyId = Number(link?.agency_id || 0) || null;
   if (!agencyId && link?.organization_id) {

@@ -1,7 +1,7 @@
 <template>
   <section class="opening-picker" aria-label="Available times">
     <h2>Find a time that works</h2>
-    <p>Choose a published opening to hold it for 15 minutes while you continue. An appointment is only confirmed by the team.</p>
+    <p>Choose an opening to hold this recurring weekly time until the team resolves your placement. This is not a confirmed appointment.</p>
     <div class="opening-controls">
       <label>Session format<select v-model="format" @change="load"><option value="IN_PERSON">In person</option><option value="VIRTUAL">Telehealth</option></select></label>
       <label>Week of<input v-model="week" type="date" :min="today" @change="load" /></label>
@@ -10,9 +10,9 @@
     <p v-if="loading" role="status">Checking current openings…</p>
     <p v-if="error" role="alert">{{ error }} <button type="button" @click="load">Try again</button></p>
     <div v-if="hold" class="opening-held" role="status">
-      <strong>{{ active ? 'Temporarily held' : 'Your hold has expired' }}</strong>
-      <p>{{ dateTime(hold.startAt) }}</p>
-      <p>{{ active ? `Expires at ${time(hold.expiresAt)}. This is not a booking.` : 'This time is no longer held. Check availability to choose again.' }}</p>
+      <strong>{{ active ? 'Weekly time held for your intake' : 'This hold has been resolved' }}</strong>
+      <p>Every {{ weeklyTime(hold) }}</p><p>First opening: {{ dateTime(hold.startAt) }}</p>
+      <p>{{ active ? `Repeats weekly in ${hold.timeZone || timezone} until placement is resolved or the hold is released. This is not a booking.` : 'This time is no longer held. Check availability to choose again.' }}</p>
       <button v-if="active" type="button" :disabled="busy" @click="release">Release this time</button>
     </div>
     <div v-if="!loading" class="opening-days">
@@ -31,7 +31,7 @@ const emit = defineEmits(['hold']);
 const today = new Date().toLocaleDateString('en-CA');
 const week = ref(today), format = ref('IN_PERSON'), loading = ref(false), busy = ref(false), error = ref(''), slots = ref([]), hold = ref(null), clock = ref(Date.now());
 const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-const active = computed(() => !!hold.value && +new Date(hold.value.expiresAt) > clock.value);
+const active = computed(() => !!hold.value && !hold.value.resolved && (!hold.value.expiresAt || +new Date(hold.value.expiresAt) > clock.value));
 const key = computed(() => `provider-hold:${props.agencySlug}`);
 const base = computed(() => `/public/agency-services/${encodeURIComponent(props.agencySlug)}`);
 const days = computed(() => {
@@ -44,6 +44,7 @@ const days = computed(() => {
   return [...groups];
 });
 const time = value => new Date(value).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+const weeklyTime = value => new Intl.DateTimeFormat(undefined, { weekday: 'long', hour: 'numeric', minute: '2-digit', timeZone: value.timeZone || timezone }).format(new Date(value.startAt));
 const dateTime = value => new Date(value).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
 let generation = 0;
 async function load() {
@@ -58,7 +59,7 @@ function save(value) { hold.value = value; try { if (value) sessionStorage.setIt
 async function release() {
   busy.value = true; error.value = '';
   try { await api.post(`${base.value}/release-hold`, { token: hold.value?.token }, { skipAuthRedirect: true }); save(null); await load(); }
-  catch { error.value = 'Could not release the hold. It will still expire automatically.'; }
+  catch { error.value = 'Could not release the hold. Please try again or contact the team.'; }
   finally { busy.value = false; }
 }
 async function select(slot) {
@@ -72,14 +73,23 @@ async function select(slot) {
   } catch (e) { error.value = e.response?.data?.error?.message || 'Could not hold this opening. Please refresh availability.'; }
   finally { busy.value = false; }
 }
+async function verifyHold() {
+  const token=hold.value?.token;
+  if(!token) return;
+  try {
+    const {data}=await api.post(`${base.value}/hold-status`,{token},{skipAuthRedirect:true});
+    if(hold.value?.token===token && !data.active) { save(null); await load(); }
+  } catch { error.value='Could not verify your pending hold. Please contact the team before relying on this time.'; }
+}
 watch(() => [props.agencySlug, props.providerId, props.serviceType], () => {
   hold.value = null;
   try { const saved = JSON.parse(sessionStorage.getItem(key.value) || 'null'); if (saved?.providerId === props.providerId && saved?.serviceType === props.serviceType) { hold.value = saved; format.value = saved.modality || 'IN_PERSON'; } } catch {}
-  emit('hold', active.value ? hold.value : null); load();
+  emit('hold', active.value ? hold.value : null); verifyHold(); load();
 }, { immediate: true });
+const statusTimer = setInterval(verifyHold, 60000);
 const timer = setInterval(() => { clock.value = Date.now(); }, 1000);
 watch(active, (value, before) => { if (!value && before) { emit('hold', null); load(); } });
-onUnmounted(() => { clearInterval(timer); generation++; });
+onUnmounted(() => { clearInterval(timer); clearInterval(statusTimer); generation++; });
 </script>
 <style scoped>
 .opening-picker{color:#193d42}.opening-picker h2{font-size:1.45rem;margin:0 0 12px}.opening-picker p{line-height:1.6;color:#506570}.opening-controls{display:grid;grid-template-columns:1fr 1fr;gap:12px}.opening-controls label{display:grid;gap:8px;font-weight:600;font-size:.85rem}.opening-controls input,.opening-controls select{min-width:0;width:100%;box-sizing:border-box;padding:12px;border:1px solid #d6e2de;border-radius:8px;background:#fff;color:inherit}.opening-timezone{font-size:.8rem}.opening-days{display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:10px}.opening-day{border:1px solid #dbe5e0;padding:10px;border-radius:10px}.opening-day h3{font-size:.8rem;text-align:center}.opening-picker button{min-height:42px;border:1px solid #b9d5cb;border-radius:7px;color:var(--agency-primary-color,#125c49);background:#eff7f2;padding:8px 12px;cursor:pointer}.opening-day button{display:block;width:100%;margin-top:8px}.opening-picker button:disabled{opacity:.5;cursor:default}.opening-held{background:#e8f5ed;border:1px solid #99c7ab;border-radius:10px;padding:16px;margin:16px 0}.opening-picker :focus-visible{outline:3px solid #247969;outline-offset:3px}@media(max-width:420px){.opening-controls{grid-template-columns:1fr}}

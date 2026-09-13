@@ -62,6 +62,8 @@ const TENANTS = {
   }
 };
 
+const PUBLIC_WEBSITES = {"tisi": {"name": "The Inner Strength Institute", "image": "/assets/SMSAssets/innerstrengthwebsite.png"}, "range": {"name": "Mental Range Collective", "image": "/assets/SMSAssets/mentalrangewebsite.png"}, "mh4kidz": {"name": "MH4Kidz", "image": "/assets/SMSAssets/mh4kizqwebsite.png"}, "ptco": {"name": "Plot Twist Co.", "image": "/assets/SMSAssets/plottwistcowebsite.png"}, "rise": {"name": "Rise Revive", "image": "/assets/SMSAssets/riserevivewebsite.png"}};
+
 const DEFAULT_IMAGE = '/branding/plottwisthq-platform-bg.png';
 const DEFAULT_DESC = 'Care, scheduling, billing, and support.';
 
@@ -157,25 +159,27 @@ function guessTenantName(host) {
 }
 
 export function buildShareMeta({ host, path, proto = 'https' } = {}) {
+  const website = PUBLIC_WEBSITES[String(path || '').split('?')[0].split('/')[2]];
+  const isWebsite = /^\/p\//.test(path || '') && website;
   const hostname = normHost(host);
   const pathSlug = resolvePathTenantSlug(path);
   const pathTenant = PATH_TENANTS[pathSlug] || null;
   const hostTenant = TENANTS[hostname] || null;
   const isPlatformHost = hostname === 'plottwisthq.com' || hostname === 'www.plottwisthq.com' || !hostname;
-  const tenant = (isPlatformHost && pathTenant)
+  const tenant = isWebsite ? website : (isPlatformHost && pathTenant)
     ? pathTenant
     : (hostTenant || {
       name: guessTenantName(hostname),
       image: DEFAULT_IMAGE,
       description: DEFAULT_DESC
     });
-  const page = pageCopy(path);
+  const page = isWebsite ? { page: '', description: 'Learn about our mission, services, and community.' } : pageCopy(path);
   const name = tenant.name;
   const title = page.page ? `${name} · ${page.page}` : name;
   const description = page.description || tenant.description || DEFAULT_DESC;
   const scheme = proto === 'http' ? 'http' : 'https';
   const origin = hostname ? `${scheme}://${hostname}` : '';
-  const imagePath = `/api/public/share-preview/image?path=${encodeURIComponent(path || '/')}`;
+  const imagePath = isWebsite ? website.image : `/api/public/share-preview/image?path=${encodeURIComponent(path || '/')}`;
   const image = origin ? `${origin}${imagePath}` : imagePath;
   const url = origin ? `${origin}${path || '/'}` : (path || '/');
   return { name, title, description, image, url, imagePath };
@@ -187,19 +191,19 @@ export function injectShareMetaIntoHtml(html, meta) {
     .replace(/"/g, '&quot;')
     .replace(/</g, '&lt;');
   let out = String(html || '');
-  out = out.replace(/<title>Portal<\/title>/i, `<title>${safe(meta.title)}</title>`);
-  out = out.replace(/content="Portal"/g, `content="${safe(meta.title)}"`);
-  out = out.replace(
-    /content="Care, scheduling, billing, and support\."/g,
-    `content="${safe(meta.description)}"`
-  );
-  out = out.replaceAll(DEFAULT_OG_IMAGE_PLACEHOLDER, meta.image);
-  const extra = [
-    `<meta property="og:url" content="${safe(meta.url)}">`,
-    `<meta property="og:site_name" content="${safe(meta.name)}">`
-  ].join('');
-  if (!out.includes('property="og:url"')) {
-    out = out.replace('</title>', `</title>\n    ${extra}`);
+  const title = `<title>${safe(meta.title)}</title>`;
+  out = /<title>.*?<\/title>/is.test(out) ? out.replace(/<title>.*?<\/title>/is,title) : out.replace('</head>',`${title}</head>`);
+  const tags = [
+    ['name','description',meta.description],['property','og:title',meta.title],
+    ['property','og:description',meta.description],['property','og:image',meta.image],
+    ['property','og:url',meta.url],['property','og:site_name',meta.name],
+    ['name','twitter:card','summary_large_image'],['name','twitter:title',meta.title],
+    ['name','twitter:description',meta.description],['name','twitter:image',meta.image]
+  ];
+  for (const [attr,key,value] of tags) {
+    const pattern = new RegExp(`<meta\\b[^>]*${attr}=["']${key}["'][^>]*>`, 'gi');
+    out = out.replace(pattern, '');
+    out = out.replace('</head>', `<meta ${attr}="${key}" content="${safe(value)}"></head>`);
   }
   return out;
 }

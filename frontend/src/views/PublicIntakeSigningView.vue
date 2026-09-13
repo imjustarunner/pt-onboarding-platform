@@ -1879,6 +1879,7 @@
             :selected-ids="selectedOfficeProviderIds"
             @update:selected-ids="setSelectedOfficeProviderIds"
           />
+          <p v-if="providerHoldChangeError" role="alert">{{ providerHoldChangeError }}</p>
           <PublicProviderSlotPicker v-if="!providerMatchOnClinicalHold && selectedOfficeProviderIds.length === 1" :agency-slug="referralAgencySlug || agencyInfo?.portal_url || agencyInfo?.slug || ''" :provider-id="Number(selectedOfficeProviderIds[0])" service-type="counseling" @hold="saveOpeningPreference" />
         </div>
 
@@ -4693,16 +4694,32 @@ const selectedOfficeProviderIds = computed(() => {
   const raw = intakeResponses.submission?.preferred_office_provider_ids;
   return Array.isArray(raw) ? raw.map((id) => String(id)) : [];
 });
+const providerHoldToken = ref(null);
 function saveOpeningPreference(hold) {
+  providerHoldToken.value = hold?.token || null;
   if (!intakeResponses.submission) intakeResponses.submission = {};
   intakeResponses.submission.requested_opening_preference = hold ? {
     providerId: hold.providerId, startAt: hold.startAt, endAt: hold.endAt, modality: hold.modality,
-    expiresAt: hold.expiresAt, status: 'PREFERENCE_ONLY_REQUIRES_STAFF_CONFIRMATION'
+    recurring: true, timeZone: hold.timeZone, status: 'PREFERENCE_ONLY_REQUIRES_STAFF_CONFIRMATION'
   } : null;
 }
-function setSelectedOfficeProviderIds(ids) {
+const providerHoldChangeError=ref('');
+let changingOfficeProvider=false;
+async function setSelectedOfficeProviderIds(ids) {
+  if(changingOfficeProvider)return;
   if (!intakeResponses.submission) intakeResponses.submission = {};
   const cur = (Array.isArray(ids) ? ids : []).map((id) => String(id));
+  changingOfficeProvider=true;providerHoldChangeError.value='';
+  try {
+    const slug=referralAgencySlug.value || agencyInfo.value?.portal_url || agencyInfo.value?.slug || '';
+    const key=`provider-hold:${slug}`;
+    let held;try{held=JSON.parse(sessionStorage.getItem(key)||'null');}catch{}
+    if(held?.token && !cur.includes(String(held.providerId))) {
+      await api.post(`/public/agency-services/${encodeURIComponent(slug)}/release-hold`,{token:held.token},{skipAuthRedirect:true});
+      sessionStorage.removeItem(key);saveOpeningPreference(null);
+    }
+  }catch{providerHoldChangeError.value='Could not release the previous weekly hold. Please try again before changing providers.';return;}
+  finally{changingOfficeProvider=false;}
   intakeResponses.submission.preferred_office_provider_ids = cur;
   const selected = (officeProviders.value || []).filter((p) => cur.includes(String(p.id)));
   const ranked = cur
@@ -10120,6 +10137,7 @@ const submitConsent = async () => {
       ...otherGuardianFieldBag()
     };
     const payload = {
+      providerHoldToken: providerHoldToken.value,
       sessionToken: sessionToken.value || null,
       signerName: `${guardianFirstName.value} ${guardianLastName.value}`.trim(),
       signerInitials: clientPayloads?.[0]?.initials || null,
@@ -11427,6 +11445,7 @@ const finalizePacket = async () => {
       }
     }
     const resp = await api.post(`/public-intake/${publicKey}/${submissionId.value}/finalize`, {
+      providerHoldToken: providerHoldToken.value,
       submissionId: submissionId.value,
       sessionToken: activeSessionToken || null,
       organizationId: organizationId.value,

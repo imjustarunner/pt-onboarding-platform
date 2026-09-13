@@ -1,3 +1,4 @@
+import { resolveClientProviderHolds } from '../services/publicProviderHold.service.js';
 import pool from '../config/database.js';
 
 function normalizeMySqlDateTime(value) {
@@ -185,6 +186,7 @@ class OfficeEvent {
         ]
       );
     }
+    if(clientId && String(status).toUpperCase()==='BOOKED') await resolveClientProviderHolds(pool,{clientId,userId:createdByUserId,reason:'PLACED_ON_SCHEDULE'});
     return this.findById(result.insertId);
   }
 
@@ -241,6 +243,7 @@ class OfficeEvent {
             ]
           );
           if (args.sessionContext) await conn.execute('UPDATE office_events SET session_context_json = ? WHERE id = ?', [JSON.stringify(args.sessionContext), conflicts[0].id]);
+          if(args.clientId && String(args.status).toUpperCase()==='BOOKED') await resolveClientProviderHolds(conn,{clientId:args.clientId,userId:args.createdByUserId,reason:'PLACED_ON_SCHEDULE'});
           return conflicts[0].id;
         }
         throw this.duplicateSlotError(conflicts[0]);
@@ -303,6 +306,7 @@ class OfficeEvent {
         );
       }
       if (args.sessionContext) await conn.execute('UPDATE office_events SET session_context_json = ? WHERE id = ?', [JSON.stringify(args.sessionContext), result.insertId]);
+      if(args.clientId && String(args.status).toUpperCase()==='BOOKED') await resolveClientProviderHolds(conn,{clientId:args.clientId,userId:args.createdByUserId,reason:'PLACED_ON_SCHEDULE'});
       return result.insertId;
     }).then((id) => this.findById(id));
   }
@@ -639,6 +643,10 @@ class OfficeEvent {
     } catch (e) {
       if (e?.code !== 'ER_BAD_FIELD_ERROR') throw e;
       // Pre-migration fallback: keep existing row untouched.
+    }
+    if(clientId){
+      const [events]=await pool.execute("SELECT status FROM office_events WHERE id=?",[eventId]);
+      if(String(events[0]?.status).toUpperCase()==='BOOKED') await resolveClientProviderHolds(pool,{clientId,reason:'PLACED_ON_SCHEDULE'});
     }
     // Keep unified appointments aligned with office_events clinical session linkage.
     try {

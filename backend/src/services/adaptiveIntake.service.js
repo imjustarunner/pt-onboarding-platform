@@ -1,4 +1,4 @@
-import { hashHoldToken } from './publicProviderHold.service.js';
+import { hashHoldToken, createPublicProviderHoldService } from './publicProviderHold.service.js';
 import pool from '../config/database.js';
 import * as ClientExchange from './clientExchange.service.js';
 import {
@@ -915,7 +915,7 @@ export async function submitQuickProspective({ agencySlugOrId, payload = {}, req
   if (payload.providerHoldToken) {
     const [held] = await pool.execute(
       `SELECT provider_id, service_type, modality, start_at, end_at, expires_at,
-              expires_at > UTC_TIMESTAMP(3) AS active
+              released_at IS NULL AS active
        FROM public_provider_slot_holds WHERE agency_id = ? AND provider_id = ? AND token_hash = ? LIMIT 1`,
       [agencyRow.id, Number(payload.preferredProviderUserId || 0), hashHoldToken(payload.providerHoldToken)]);
     if (held[0]) requestedOpening = { providerId: held[0].provider_id, serviceType: held[0].service_type,
@@ -1056,6 +1056,11 @@ export async function submitQuickProspective({ agencySlugOrId, payload = {}, req
     if (!/Unknown column|adaptive_intake_meta/i.test(String(err?.message || ''))) {
       throw err;
     }
+  }
+
+  if (payload.providerHoldToken && requestedOpening?.holdWasActiveAtSubmission) {
+    await createPublicProviderHoldService(pool).attach({agencyId: agencyRow.id,
+      providerId: requestedOpening.providerId, token: payload.providerHoldToken, clientId: client.id});
   }
 
   // Enrich preferences JSON with adaptive fields

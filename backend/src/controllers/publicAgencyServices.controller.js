@@ -1962,6 +1962,7 @@ export const createProviderSlotHold = async (req, res, next) => {
     if (!['VIRTUAL', 'IN_PERSON'].includes(modality)) throw holdError('Choose a session format.', 400);
     const hold = await createPublicProviderHoldService(pool).create({
       agencyId: agency.id, providerId, serviceType, modality,
+      timeZone: await ProviderAvailabilityService.resolveAgencyTimeZone({agencyId: agency.id}),
       startAt: req.body?.startAt, endAt: req.body?.endAt,
       validateAvailability: async () => {
         let data, status = 200;
@@ -1973,7 +1974,7 @@ export const createProviderSlotHold = async (req, res, next) => {
       }
     });
     res.setHeader('Cache-Control', 'no-store');
-    res.status(201).json({ hold, message: 'Held for 15 minutes. This is not an appointment or booking.' });
+    res.status(201).json({ hold, message: 'Weekly opening held until placement is resolved. This is not a confirmed appointment.' });
   } catch (error) {
     if (error.code === 'ER_NO_SUCH_TABLE') return res.status(503).json({ error: { message: 'Temporary time selection is being prepared. You can continue enrollment with a provider preference.' } });
     if (error.status) return res.status(error.status).json({ error: { message: error.message } });
@@ -1982,9 +1983,8 @@ export const createProviderSlotHold = async (req, res, next) => {
 };
 export const releaseProviderSlotHold = async (req, res, next) => {
   try {
-    const agency = await requireAgencyBySlug(res, req.params.agencySlug);
-    if (!agency) return;
-    await createPublicProviderHoldService(pool).release({ agencyId: agency.id, token: req.body?.token });
+    const [rows] = await pool.execute('SELECT id FROM agencies WHERE slug=? LIMIT 1',[req.params.agencySlug]);
+    if(rows[0]) await createPublicProviderHoldService(pool).release({ agencyId: rows[0].id, token: req.body?.token });
     res.json({ ok: true });
   } catch (error) { next(error); }
 };

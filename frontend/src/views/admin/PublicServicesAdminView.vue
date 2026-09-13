@@ -18,6 +18,7 @@
     <div v-else-if="error" class="card error">{{ error }}</div>
 
     <template v-else>
+      <PendingProviderHolds v-if="agencySlug" :agency-slug="agencySlug" />
       <!-- Status bar -->
       <div class="card status-bar">
         <div class="status-item">
@@ -352,6 +353,7 @@
 </template>
 
 <script setup>
+import PendingProviderHolds from '../../components/publicServices/PendingProviderHolds.vue';
 import { ref, computed, onMounted } from 'vue';
 import { useRoute } from 'vue-router';
 import api from '../../services/api';

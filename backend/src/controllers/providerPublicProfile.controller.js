@@ -40,6 +40,8 @@ export const getUserProviderPublicProfile = async (req, res, next) => {
     }
     if (!(await requireAgencyMembership(req, res, agencyId))) return;
 
+    const targetAgencies = await User.getAgencies(userId);
+    if (!(targetAgencies || []).some(a => Number(a.id) === agencyId)) return res.status(404).json({error:{message:'Provider not found in this agency'}});
     const profile = await ProviderPublicProfile.getForProvider({ providerUserId: userId });
     const agencySettings = await ProviderPublicProfile.getAgencySettings({ agencyId });
     res.json({
@@ -83,6 +85,11 @@ export const upsertUserProviderPublicProfile = async (req, res, next) => {
     if (!rateAdmin && ['selfPayRateCents', 'selfPayRateNote'].some(key => Object.hasOwn(req.body || {}, key))) {
       return res.status(403).json({ error: { message: 'Only admin or superadmin can manage self-pay rates' } });
     }
+    let identity;
+    if (req.body?.identity) {
+      identity=Object.fromEntries(['firstName','lastName','title'].map(k=>[k,String(req.body.identity[k] || '').trim()]));
+      if(!identity.firstName || !identity.lastName || identity.firstName.length>100 || identity.lastName.length>100 || identity.title.length>160) return res.status(400).json({error:{message:'Provide valid names and a title of no more than 160 characters'}});
+    }
     const saved = await ProviderPublicProfile.upsertForProvider({
       providerUserId: userId,
       details: req.body?.details,
@@ -92,6 +99,7 @@ export const upsertUserProviderPublicProfile = async (req, res, next) => {
       selfPayRateNote: Object.hasOwn(req.body || {}, 'selfPayRateNote') ? req.body.selfPayRateNote : prior?.selfPayRateNote ?? null,
       acceptingNewClientsOverride: Object.hasOwn(req.body || {}, 'acceptingNewClientsOverride') ? req.body.acceptingNewClientsOverride : prior?.acceptingNewClientsOverride ?? null
     });
+    if(identity) await User.update(userId,identity);
     res.json({ ok: true, userId, agencyId, profile: saved });
   } catch (e) {
     next(e);

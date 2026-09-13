@@ -4,6 +4,7 @@
     role="region"
     aria-label="Page language"
   >
+    <span v-if="translationState" class="public-translate-status notranslate" translate="no" role="status">{{ translationState === 'loading' ? 'Traduciendo…' : 'Parte del contenido sigue en inglés.' }} <button v-if="translationState === 'unavailable'" type="button" @click="translator?.retry()">Reintentar</button></span>
     <span class="public-translate-label notranslate" translate="no">{{ t('common.language') }}</span>
     <div class="public-translate-buttons notranslate" translate="no">
       <button
@@ -29,9 +30,19 @@
 </template>
 
 <script setup>
+import { ref, onMounted, onUnmounted, watch } from 'vue';
+import { useRoute } from 'vue-router';
+import api from '../../services/api';
+import { createWebsiteTranslator } from '../../utils/publicWebsiteTranslation';
 import { useLocale } from '../../composables/useLocale.js';
 
 const { t, locale, setLocale } = useLocale();
+const route=useRoute(),translationState=ref('');
+let translator;
+function applyLanguage(){translator?.setSpanish(locale.value === 'es' && route.path.startsWith('/p/'));}
+onMounted(()=>{translator=createWebsiteTranslator({document,translate:async(strings)=>(await api.post('/public/translations/translate-strings',{strings,lang:'es'},{skipAuthRedirect:true,skipGlobalLoading:true})).data,onState:state=>translationState.value=state});applyLanguage();});
+watch(()=>[locale.value,route.path],applyLanguage);
+onUnmounted(()=>translator?.stop());
 
 /**
  * On public pages we now use a proper i18n layer (static strings) plus an
@@ -65,6 +76,7 @@ function choose(next) {
   max-width: calc(100vw - 24px);
 }
 
+.public-translate-status{flex-basis:100%;font-size:12px;color:#475569}.public-translate-status button{background:none;border:0;text-decoration:underline;cursor:pointer;color:#154f86}
 .public-translate-label {
   font-weight: 600;
   color: #334155;

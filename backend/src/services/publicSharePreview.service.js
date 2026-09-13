@@ -142,6 +142,12 @@ export function absoluteShareImageUrl(req, pathname = '/') {
 
 export async function getSharePreviewState({ host, agencySlug, page, pathname } = {}) {
   const pathSlug = resolvePortalSlugFromSharePath(pathname);
+  // Standalone public websites do not require a tenant, including Mental Range.
+  if (/^\/p\//.test(String(pathname || ''))) {
+    const image = tenantSmsImage(normalizeTenantBrandKey(pathSlug), 'home');
+    if (image) return { page: 'home', imageUrl: image, custom: false, updatedAt: null, agencySlug: null, spec: SHARE_IMAGE_SPEC };
+  }
+
   const agency = await resolveAgencyFromHostOrSlug({
     host,
     agencySlug: agencySlug || pathSlug || undefined,

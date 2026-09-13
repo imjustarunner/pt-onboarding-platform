@@ -8,6 +8,10 @@ const WELCOME_ROOT = '/assets/WelcomeImages';
 const NLU_WELCOME_DIR = 'NLU and InnerStrength';
 
 export const TENANT_BRAND_ALIASES = {
+  range: 'mentalrange',
+  mentalrange: 'mentalrange',
+  rise: 'riserevive',
+  ptco: 'plottwistco',
   itsco: 'itsco',
   nlu: 'nlu',
   nextlevelup: 'nlu',
@@ -144,10 +148,11 @@ const RISE_SMS = {
 export const TENANT_SMS_IMAGES = {
   itsco: ITSCO_SMS,
   nlu: NLU_SMS,
-  innerstrength: INNER_SMS,
-  mh4kidz: MH4_SMS,
-  plottwistco: PTC_SMS,
-  riserevive: RISE_SMS
+  innerstrength: { ...INNER_SMS, home: sms('', 'innerstrengthwebsite.png') },
+  mh4kidz: { ...MH4_SMS, home: sms('', 'mh4kizqwebsite.png') },
+  plottwistco: { ...PTC_SMS, home: sms('', 'plottwistcowebsite.png') },
+  mentalrange: { home: sms('', 'mentalrangewebsite.png') },
+  riserevive: { ...RISE_SMS, home: sms('', 'riserevivewebsite.png') }
 };
 
 const itscoW = (file) => welcome('ITSCO', file);
@@ -336,6 +341,7 @@ export function resolvePortalSlugFromSharePath(pathname = '') {
     .map((p) => String(p).trim().toLowerCase());
   if (!parts.length) return '';
   const [a, b] = parts;
+  if (a === 'p') return b || '';
   if (a === 'join' || a === 'office-intake' || a === 'careers' || a === 'support') {
     if (b && !SHARE_PATH_RESERVED.has(b) && !/^\d+$/.test(b)) return b;
     return '';
@@ -348,6 +354,7 @@ const JOIN_SERVICE_RE = /(?:^|\/)join\/(?:[^/]+\/)?(counseling|tutoring|coaching
 
 export function pathToSharePageKey(pathname = '', serviceType = '') {
   const p = String(pathname || '/').split('?')[0].toLowerCase();
+  if (p.startsWith('/p/')) return 'home';
   const pathJoinService = p.match(JOIN_SERVICE_RE)?.[1]
     || (p.includes('join_tutoring') ? 'tutoring' : '')
     || (p.includes('join_counseling') ? 'counseling' : '');

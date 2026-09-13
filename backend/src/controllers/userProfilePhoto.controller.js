@@ -47,6 +47,11 @@ export const uploadUserProfilePhoto = async (req, res, next) => {
       return res.status(403).json({ error: { message: 'Access denied' } });
     }
 
+    if (Number(req.user.id) !== targetUserId && req.user.role !== 'super_admin') {
+      const [actorAgencies,targetAgencies]=await Promise.all([User.getAgencies(req.user.id),User.getAgencies(targetUserId)]);
+      if(!targetAgencies.some(a=>actorAgencies.some(b=>Number(a.id)===Number(b.id)))) return res.status(403).json({error:{message:'Access denied for this provider'}});
+    }
+
     const user = await User.findById(targetUserId);
     if (!user) return res.status(404).json({ error: { message: 'User not found' } });
 

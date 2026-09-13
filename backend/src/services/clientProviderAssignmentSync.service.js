@@ -1,3 +1,4 @@
+import { resolveClientProviderHolds } from './publicProviderHold.service.js';
 import pool from '../config/database.js';
 
 /**
@@ -192,6 +193,7 @@ export async function afterLegacyProviderFieldsChanged(
       : false;
 
   if (cleared) {
+    await resolveClientProviderHolds(connection,{clientId:cid,userId});
     await deactivateClientProviderAssignments(connection, { clientId: cid, userId });
     return;
   }
@@ -199,6 +201,7 @@ export async function afterLegacyProviderFieldsChanged(
   const pid = parseInt(providerUserId, 10);
   if (!pid) return;
 
+  await resolveClientProviderHolds(connection,{clientId:cid,userId});
   await syncLegacyProviderToAffiliatedOrgs(connection, {
     clientId: cid,
     userId,
@@ -213,6 +216,7 @@ export async function afterLegacyProviderFieldsChanged(
 export async function afterScopedProviderAssignmentChanged(connection, { clientId, userId = null, forceLegacy = false }) {
   const cid = parseInt(clientId, 10);
   if (!cid) return;
+  await resolveClientProviderHolds(connection,{clientId:cid,userId});
   if (forceLegacy) {
     await syncPrimaryLegacyFromClientAssignments(connection, { clientId: cid, userId });
     return;

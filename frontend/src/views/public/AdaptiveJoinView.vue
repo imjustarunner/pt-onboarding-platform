@@ -508,12 +508,13 @@
           :loading="providersLoading"
           :error="providersError"
           :selected-id="form.preferredProviderUserId"
-          @update:selected-id="form.preferredProviderUserId = $event"
-          @skip="form.preferredProviderUserId = null; quickStep = 4"
+          @update:selected-id="selectPreferredProvider($event)"
+          @skip="selectPreferredProvider(null, true)"
         />
         <div v-else class="df-banner">
           Choose a provider is turned off for this join. Continue to consent, or turn it back on above.
         </div>
+        <p v-if="providerSelectionError" role="alert">{{ providerSelectionError }}</p>
         <PublicProviderSlotPicker v-if="showChooseProvider && form.preferredProviderUserId" :agency-slug="agencySlug" :provider-id="Number(form.preferredProviderUserId)" :service-type="serviceType || 'counseling'" />
       </div>
 
@@ -1062,6 +1063,24 @@ const formattedHomeAddress = computed(() => {
   const line2 = [a.city, a.state, a.zip].map((v) => String(v || '').trim()).filter(Boolean).join(', ');
   return [line1, line2].filter(Boolean).join(', ');
 });
+
+const providerSelectionError=ref('');
+let changingProvider=false;
+async function selectPreferredProvider(id,skip=false) {
+  if(changingProvider)return;
+  changingProvider=true;providerSelectionError.value='';
+  try {
+    const key=`provider-hold:${agencySlug.value}`;
+    let held;try{held=JSON.parse(sessionStorage.getItem(key)||'null');}catch{}
+    if(held?.token && Number(held.providerId)!==Number(id)) {
+      await api.post(`/public/agency-services/${encodeURIComponent(agencySlug.value)}/release-hold`,{token:held.token},{skipAuthRedirect:true});
+      sessionStorage.removeItem(key);
+    }
+    form.preferredProviderUserId=id;
+    if(skip)quickStep.value=4;
+  }catch{providerSelectionError.value='Could not release the previous weekly hold. Please try again before changing providers.';}
+  finally{changingProvider=false;}
+}
 
 function readProviderHoldToken() {
   try { const hold = JSON.parse(sessionStorage.getItem(`provider-hold:${agencySlug.value}`) || 'null'); return hold?.providerId === Number(form.preferredProviderUserId) ? hold.token : null; } catch { return null; }

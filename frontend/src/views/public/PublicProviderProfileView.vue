@@ -5,6 +5,7 @@
   <main v-else-if="error" class="profile-container" role="alert"><h1>Profile unavailable</h1><p>{{ error }}</p><button @click="load">Try again</button></main>
   <main v-else-if="provider" class="profile-container">
    <nav class="profile-crumb" aria-label="Breadcrumb"><router-link :to="finderPath">Find a provider</router-link><span aria-hidden="true"> / </span>{{ provider.displayName }}</nav>
+   <PublicProviderProfileEditor :provider="provider" :agency-id="agencyId" @saved="load" />
    <section class="profile-intro">
     <img v-if="provider.profilePhotoUrl && !photoFailed" :src="provider.profilePhotoUrl" :alt="provider.displayName" @error="photoFailed=true"/>
     <div v-else class="profile-initials" aria-label="Photo not provided">{{ initials }}</div>
@@ -19,7 +20,7 @@
     <aside class="profile-panel profile-availability">
      <PublicProviderSlotPicker :agency-slug="slug" :provider-id="provider.id" :service-type="service" @hold="hold=$event"/>
      <router-link class="profile-continue" :to="joinPath">{{ hold ? 'Continue enrollment with this preference' : 'Continue to enrollment' }} →</router-link>
-     <p class="profile-note">A selected time is temporary. Enrollment and clinical review do not guarantee an appointment.</p>
+     <p class="profile-note">A selected weekly time stays on hold until placement is resolved. The team must confirm appointments.</p>
     </aside>
    </div>
   </main>
@@ -30,6 +31,7 @@ import { computed, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import api from '../../services/api';
 import BrandingLogo from '../../components/BrandingLogo.vue';
+import PublicProviderProfileEditor from '../../components/publicServices/PublicProviderProfileEditor.vue';
 import PublicProviderSlotPicker from '../../components/publicServices/PublicProviderSlotPicker.vue';
 import { useBrandingStore } from '../../store/branding';
 const route=useRoute(), branding=useBrandingStore();
@@ -38,7 +40,7 @@ const service=computed(()=>['counseling','tutoring','coaching','consulting'].inc
 const serviceLabel=computed(()=>({counseling:'Counseling',tutoring:'Tutoring',coaching:'Life coaching',consulting:'Consulting'})[service.value]);
 const finderPath=computed(()=>`/${encodeURIComponent(slug.value)}/find-${({counseling:'counselor',tutoring:'tutor',coaching:'coach',consulting:'consultant'})[service.value]}`);
 const joinPath=computed(()=>({path:`/join/${encodeURIComponent(slug.value)}/${service.value}`,query:{providerId:provider.value?.id,serviceType:service.value}}));
-const provider=ref(null),profile=ref({}),agencyName=ref(''),loading=ref(false),error=ref(''),photoFailed=ref(false),hold=ref(null);
+const provider=ref(null),profile=ref({}),agencyName=ref(''),agencyId=ref(0),loading=ref(false),error=ref(''),photoFailed=ref(false),hold=ref(null);
 const initials=computed(()=>String(provider.value?.displayName||'').split(' ').map(s=>s[0]).slice(0,2).join(''));
 const groups=computed(()=>[
  {title:service.value==='tutoring'?'Subjects':'Specialties',values:provider.value?.tutoringProfile?.subjectAreas||provider.value?.specialties||[]},
@@ -51,7 +53,7 @@ const groups=computed(()=>[
 ]);
 let generation=0;
 async function load(){const id=++generation;loading.value=true;error.value='';photoFailed.value=false;provider.value=null;
- try{const {data}=await api.get(`/public/agency-services/${encodeURIComponent(slug.value)}/providers/${Number(route.params.providerId)}`,{params:{serviceType:service.value,bookingMode:'NEW_CLIENT'},skipAuthRedirect:true});if(id!==generation)return;provider.value=data.provider;profile.value=data.profile;agencyName.value=data.agency?.name||slug.value;document.title=`${data.provider.displayName} | ${agencyName.value}`;}
+ try{const {data}=await api.get(`/public/agency-services/${encodeURIComponent(slug.value)}/providers/${Number(route.params.providerId)}`,{params:{serviceType:service.value,bookingMode:'NEW_CLIENT'},skipAuthRedirect:true});if(id!==generation)return;provider.value=data.provider;profile.value=data.profile;agencyId.value=Number(data.agency?.id)||0;agencyName.value=data.agency?.name||slug.value;document.title=`${data.provider.displayName} | ${agencyName.value}`;}
  catch(e){if(id===generation)error.value=e.response?.data?.error?.message||'This profile could not be loaded.';}finally{if(id===generation)loading.value=false;}}
 watch(()=>[slug.value,route.params.providerId,service.value],load,{immediate:true});
 </script>

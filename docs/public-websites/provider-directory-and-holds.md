@@ -1,4 +1,4 @@
-# Public provider pages and temporary selections
+# Public provider pages and weekly intake holds
 
 ## URLs and publishing
 
@@ -8,49 +8,44 @@ Replace `agency-slug` with the root tenant's actual slug and `provider-id` with 
 - Tutors: `/agency-slug/find-tutor`
 - Coaches: `/agency-slug/find-coach`
 - Individual profile: `/agency-slug/provider/provider-id?serviceType=counseling`
-- Service enrollment: `/join/agency-slug/counseling?providerId=provider-id`
+- Enrollment: `/join/agency-slug/counseling?providerId=provider-id`
 - Collective: `/p/range/providers`; each affiliation links to its agency's individual profile.
 
-Use `tutoring` or `coaching` in the profile/enrollment URLs for those services. The existing `/agency-slug/book/provider-id` remains the separate appointment-request workflow.
+Use `tutoring` or `coaching` for those services. `/agency-slug/book/provider-id` remains a separate appointment-request workflow.
 
-At `/agency-slug/admin/public-services`, enable the service and enroll its published providers. The tenant's public availability switch must also be on. Configure the public biography, photo and clinical facets from the staff user profile. Its public-profile editor now includes languages, public practice locations and session formats; the biography supports 4,000 characters. Unpublished information is identified as such, and no verification or algorithmic-match badge is fabricated.
+At `/agency-slug/admin/public-services`, enable the service and enroll its published providers. Public availability must also be enabled. In Public Marketing Pages, associate root agencies under **agency sources** so `/p/` headers link their enabled directories. Schools remain affiliations, not tenants. New organizations gain provider links when their tenants and published services exist.
 
-In the superadmin Public Marketing Pages editor, associate the root agency under the page's **agency sources**. `/p/` headers automatically link enabled counseling, tutoring and coaching directories for those agencies. Schools and other affiliated organizations are not treated as tenants. MH4Kidz and Rise will gain these links once their tenants and published services exist and are associated with their marketing pages.
+## Editing profiles
 
-## Where the openings come from
+Signed-in superadmins, admins, support and staff can use **Edit public profile** directly on an individual profile, after the protected API verifies agency access. Names, title, biography, insurance, languages, public locations, session formats and accepting status update the existing canonical user/public-profile record. Photo uploads update the actual profile photo. Self-pay rates remain restricted to the existing admin rate editor. Clinical specialties, populations and approaches still come from the clinical profile; authorized staff can follow the full profile link to edit those fields. Private clinical records are never published by this editor.
 
-The finder, profile and enrollment picker use `ProviderAvailabilityService.computeWeekAvailability`, including its schedule, busy-calendar and booked-office checks. A schedule opening must be eligible for **intake/new clients**, not merely existing-client sessions. In-person intake toggles and virtual `available_for_intake` settings remain authoritative. The provider's accepting-new-clients setting (or its public-profile override) gates new-client openings. Direct profile and slot requests recheck agency/service publication and provider membership.
+## Schedule and hold lifecycle
 
-The existing enabled Choose a Provider step now offers an opening picker after selecting a provider. The full intake flow also offers it when exactly one provider is selected and clinical review has not paused matching. With provider selection disabled, the picker is not shown.
+The finder, profile and enabled enrollment picker use `ProviderAvailabilityService.computeWeekAvailability`, with schedule, busy calendar, office-booking and intake eligibility checks. Openings must be enabled for **new clients/intake**. Direct profile and slot requests recheck publication and provider membership. The full intake picker appears when exactly one provider is selected and clinical review has not paused matching.
 
-## Hold lifecycle
+Selecting a time protects that **recurring weekly local time**, including daylight-saving changes, until placement is resolved. There is no fifteen-minute timeout. It blocks overlapping public selections and public appointment requests across that provider's agency affiliations and session formats. A provider-wide advisory lock serializes public selection/request conflicts. Selecting a time never creates a client, booking, recurring schedule assignment, payment or message.
 
-Selecting an actual time from the agency finder or opening picker calls the temporary-hold endpoint. A hold:
+The bearer token is random; only its hash is stored in the hold table. The browser keeps it in same-tab session storage, never in a URL. Quick enrollment and single-client full intake bind the token to the created/matched client; replays cannot move a hold to a different client. Full-intake tokens travel separately from saved form responses and documents. Multi-client full intake does not guess which child owns a selection: staff can resolve those holds manually.
 
-- lasts 15 minutes according to the database clock;
-- blocks overlapping public selections across agency affiliations and session formats for that provider;
-- is created under a provider-wide database advisory lock, shared by public appointment-request insertion;
-- stores only a hash of its unpredictable bearer token;
-- persists across refresh in same-tab session storage, with no token in the URL;
-- can be released with its owning token, or expires automatically without a cleanup job;
-- never creates an appointment, recurring assignment, payment, client, or message.
+Explicit client/provider assignment changes and placement on booked office events or upcoming scheduled appointments resolve the attached holds. Changing the provider preference in enrollment releases the previous selection first. The public picker checks server status on restoration and every minute; selecting another time or choosing **Release this time** releases the previous hold.
 
-Quick enrollment stores a server-verified time preference, including whether its hold was active at submission. Full intake stores a clearly labeled time preference in its submission responses. Staff must review the preference and recheck availability before scheduling. Submission does not extend the hold. Existing submitted appointment requests remain separate reviewable requests and retain their existing lifecycle.
+Staff can review **Pending weekly intake holds** in Public Services & Booking, including selections not yet attached to a submitted intake. They can release a hold as placed, placed elsewhere, abandoned or duplicate. Resolution reason, timestamp and staff actor are retained. Staff scheduling remains authoritative; a hold is not a confirmed appointment. Staff should review unsubmitted/abandoned holds regularly because they intentionally do not expire.
 
-Staff scheduling is authoritative; a public hold is not a booking or a guarantee against a staff schedule change. Expired hold records are ignored immediately. They can be purged later under the application's operational retention policy.
+## Public websites: Spanish and SMS previews
 
-## Migration and validation
+The shared language widget translates navigation and common copy immediately. Remaining public marketing text, including published editor content, uses the existing `/api/public/translations/translate-strings` translation/cache service. Form values, editor controls, URLs and HTML are not sent or rewritten. English can be restored without reloading; navigation retains the language selection. Translation failures leave readable English with a retry notice. Artwork with text baked into its pixels remains unchanged. Dynamic translation requires the application's configured translation service; this change does not install provider credentials.
 
-Apply migration 1430 to each target main database using its normal backend environment:
+The supplied artwork in `assets/SMSAssets/*website.png` is copied to frontend public assets and used for Open Graph/Twitter previews on `/p/tisi`, `/p/rise`, `/p/ptco`, `/p/mh4kidz` and `/p/range`, including subpages. The HTML server injects those tags before JavaScript runs, without requiring an agency database record. This changes link previews; it does not send SMS messages. Messaging clients may cache previously shared previews.
+
+## Migration and verification
+
+Apply **1430 first if it has not already run**, then **1431**, to each target main database before deploying this backend version:
 
 ```sh
 npm --prefix backend run migrate -- --migration 1430
+npm --prefix backend run migrate -- --migration 1431
 ```
 
-This creates `public_provider_slot_holds` and adds `provider_public_profiles.public_details_json`. It does not publish providers, change payer permissions, or backfill client records. The migration has been tested on a disposable MySQL 8.4 database; it has not been applied to staging or production by this change. Until applied, existing directory/profile reads remain available, and creating a hold reports that temporary selection is being prepared.
+1430 creates the hold table and adds public-profile details. 1431 adds persistent recurring holds, timezone, client linkage and resolution tracking. Expired legacy holds remain released; still-active legacy holds adopt the scheduler's agency timezone. These migrations were tested on a disposable MySQL 8.4 database, not applied to staging or production by this change.
 
-Checks:
-
-- `node database/tests/public-provider-holds.mjs` against the disposable database documented in that script: simultaneous selections, overlapping ranges, cross-agency token isolation, expiration, request conflicts and lock cleanup.
-- `npm --prefix frontend test -- src/components/publicServices/__tests__/PublicProviderSlotPicker.test.js`: conflict/error behavior, expiry, refresh persistence and no booking request on selection.
-- Browser checks at 320, 390, 768, 1024, 1440 and 2048 pixels, using synthetic API fixtures; no real appointments or messages submitted.
+Verification includes concurrent cross-agency selections, weekly overlap, spring/fall daylight-saving transitions, hashed-token ownership, binding/replay protection, placement resolution, and no booking side effects (`node database/tests/public-provider-holds.mjs`, disposable credentials only). Frontend tests cover the picker, profile editor, translations, metadata and existing public pages. Browser checks use synthetic API responses at desktop/mobile widths; they do not certify production configuration or submit real appointments/messages.
