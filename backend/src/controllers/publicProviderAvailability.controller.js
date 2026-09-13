@@ -215,14 +215,8 @@ async function resolveProviderProfileSummary({ agencyId, providerUserId }) {
 }
 
 function normalizeAvailabilitySlots({ result, bookingMode, providerAcceptingNewClients, profileAcceptingNewClientsOverride }) {
-  const mode = String(bookingMode || 'NEW_CLIENT').toUpperCase();
-  const intakeOnly = mode === 'NEW_CLIENT';
-  const accepting = profileAcceptingNewClientsOverride === null || profileAcceptingNewClientsOverride === undefined
-    ? !!providerAcceptingNewClients
-    : !!profileAcceptingNewClientsOverride;
-  if (intakeOnly && !accepting) {
-    return { virtual: [], inPerson: [], all: [] };
-  }
+  // These slots already passed schedule, assignment, conflict, and intake-hold checks.
+  // A published opening overrides stale global/manual waitlist flags.
   const inPerson = (result?.inPersonSlots || []).map((s) => ({
     ...s,
     modality: 'IN_PERSON',
@@ -267,7 +261,7 @@ async function computeProviderWindowSummary({
   }
   const intakeOnly = String(bookingMode || 'NEW_CLIENT') === 'NEW_CLIENT';
   const program = normalizeProgramType(programType);
-  const pickProgramSlots = (result) => (program === 'VIRTUAL' ? (result?.virtualSlots || []) : (result?.inPersonSlots || []));
+  const pickProgramSlots = (result) => (program === 'VIRTUAL' ? (result?.virtualSlots || []) : (result?.inPersonSlots || [])).filter(s => Date.parse(s.startAt) > Date.now());
   const computeForWeek = async (candidateWeekStart) => {
     const perAgency = await Promise.all(
       scopedAgencyIds.map((aid) =>
@@ -279,7 +273,7 @@ async function computeProviderWindowSummary({
           externalCalendarIds: [],
           slotMinutes: 60,
           intakeOnly
-        }).catch(() => null)
+        })
       )
     );
     const valid = perAgency.filter(Boolean);

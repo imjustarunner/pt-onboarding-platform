@@ -10,6 +10,7 @@
     :wide="true"
     :cover-mode="loading || !!loadError || redirecting"
   >
+    <template #header-left><router-link v-if="publicWebsitePath(agencySlug)" :to="publicWebsitePath(agencySlug)">← Back to website</router-link></template>
     <div v-if="loading || redirecting" class="df-loading">
       {{ redirecting ? 'Taking you to intake…' : 'Loading…' }}
     </div>
@@ -42,6 +43,7 @@
 </template>
 
 <script setup>
+import {publicWebsitePath} from '../../utils/publicWebsitePath';
 import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import api from '../../services/api';

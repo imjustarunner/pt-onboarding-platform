@@ -308,6 +308,7 @@ export class ProviderAvailabilityService {
           if (status === 'BOOKED') slotState = 'ASSIGNED_BOOKED';
           else if (status === 'RELEASED') slotState = 'ASSIGNED_AVAILABLE';
         }
+        const inPersonIntakeEnabled = legacyNoToggle ? true : Number(r.in_person_intake_enabled || 0) === 1;
         const meta = {
           officeEventId: Number(r.id),
           buildingId: Number(r.office_location_id),
@@ -323,12 +324,11 @@ export class ProviderAvailabilityService {
         // Any office reservation means provider is not virtually available during that time.
         officeReservedBusy.push({ start: s, end: e });
 
-        const inPersonIntakeEnabled = legacyNoToggle ? true : Number(r.in_person_intake_enabled || 0) === 1;
         const isOpenAssignmentState = slotState === 'ASSIGNED_AVAILABLE' || slotState === 'ASSIGNED_TEMPORARY';
         const isBookedState = slotState === 'ASSIGNED_BOOKED' || status === 'BOOKED';
         // For intake availability, only advertise open in-person slots (not booked).
         const includeInPersonForIntake = intakeOnlyFlag && inPersonIntakeEnabled && isOpenAssignmentState;
-        if ((isOpenAssignmentState && !intakeOnlyFlag) || includeInPersonForIntake) {
+        if (!isBookedState && ((isOpenAssignmentState && !intakeOnlyFlag) || includeInPersonForIntake)) {
           officeBase.push({ start: s, end: e, meta });
         }
         if (isBookedState) {
@@ -599,14 +599,7 @@ export class ProviderAvailabilityService {
       ...busyAll,
       ...(intakeOnlyFlag ? officeBookedBusy : officeReservedBusyForVirtual)
     ]);
-    const busyInPerson = mergeIntervals(
-      intakeOnlyFlag
-        ? [...busyAll]
-        : [
-            ...busyAll,
-            ...officeBookedBusy
-          ]
-    );
+    const busyInPerson = mergeIntervals([...busyAll, ...officeBookedBusy]);
 
     // Virtual availability (preserve meta for each slot)
     const virtualSlots = [];

@@ -44,7 +44,7 @@ export const HOST_TO_TENANT = {
 function assetUrl(root, folder, file) {
   const parts = [root.replace(/^\//, ''), folder, file]
     .filter(Boolean)
-    .map((part) => String(part).split('/').map(encodeURIComponent).join('/'));
+    .map((part) => String(part).split('/').map(segment => encodeURIComponent(segment).replace(/%2C/gi, ',')).join('/'));
   return `/${parts.join('/')}`;
 }
 
@@ -146,7 +146,7 @@ const RISE_SMS = {
 };
 
 export const TENANT_SMS_IMAGES = {
-  itsco: { ...ITSCO_SMS, home: '/assets/itsco/counseling-hero.png' },
+  itsco: { ...ITSCO_SMS, home: '/assets/SMSAssets/itscosmsnew.png' },
   nlu: NLU_SMS,
   innerstrength: { ...INNER_SMS, home: sms('', 'innerstrengthwebsite.png') },
   mh4kidz: { ...MH4_SMS, home: sms('', 'mh4kizqwebsite.png') },

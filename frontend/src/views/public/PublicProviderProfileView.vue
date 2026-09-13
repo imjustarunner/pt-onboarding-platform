@@ -27,6 +27,7 @@
  </div>
 </template>
 <script setup>
+import {uniquePublicFacets} from '../../utils/publicProviderFacets';
 import { computed, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import api from '../../services/api';
@@ -44,7 +45,7 @@ const provider=ref(null),profile=ref({}),agencyName=ref(''),agencyId=ref(0),load
 const initials=computed(()=>String(provider.value?.displayName||'').split(' ').map(s=>s[0]).slice(0,2).join(''));
 const groups=computed(()=>[
  {title:service.value==='tutoring'?'Subjects':'Specialties',values:provider.value?.tutoringProfile?.subjectAreas||provider.value?.specialties||[]},
- {title:'Populations & ages',values:[...(provider.value?.ageGroups||[]),...(provider.value?.focus||[])]},
+ {title:'Populations & ages',values:uniquePublicFacets([...(provider.value?.ageGroups||[]),...(provider.value?.focus||[])])},
  {title:service.value==='tutoring'?'Grades':'Approaches',values:provider.value?.tutoringProfile?.gradeLevels||[...(provider.value?.modalities||[]),...(provider.value?.interventions||[])]},
  {title:'Insurance accepted',values:profile.value?.insurancesAccepted||[]},
  {title:'Languages',values:profile.value?.details?.languages||[]},

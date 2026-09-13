@@ -12,8 +12,10 @@
    <label>Public biography<textarea v-model="draft.publicBlurb" rows="7" maxlength="4000" /></label>
    <div class="editor-grid">
     <label v-for="field in fields" :key="field.key">{{ field.label }}<textarea v-model="draft[field.key]" rows="2" placeholder="Separate entries with commas" /></label>
-    <label>New client availability<select v-model="draft.accepting"><option value="default">Use schedule setting</option><option value="yes">Accepting new clients</option><option value="no">Contact team / waitlist</option></select></label>
+    <label>New client availability<select v-model="draft.accepting"><option value="default">Use global profile setting</option><option value="yes">Accepting new clients</option><option value="no">Contact team / waitlist</option></select></label>
+    <label v-for="[key,label] in availabilityFields" :key="key">{{label}}<select v-model="draft[key]"><option value="auto">Use global acceptance</option><option value="accepting">Accepting new clients</option><option value="waitlist">Waitlist</option><option value="unavailable">Not accepting</option></select></label>
    </div>
+   <p>Published schedule openings automatically show availability, even when a manual or global setting is on waitlist. Office and school settings apply to their assigned locations.</p>
    <p>Specialties, populations, and clinical approaches come from the provider’s clinical profile. <router-link v-if="auth.user?.role !== 'staff'" :to="{name:'UserProfile',params:{userId:provider.id}}">Open full staff profile</router-link></p>
    <p v-if="error" role="alert">{{ error }}</p><p v-if="notice" role="status">{{ notice }}</p>
    <div class="editor-actions"><button type="submit" :disabled="busy">{{ busy ? 'Saving…' : 'Save profile' }}</button><button type="button" :disabled="busy" @click="editing=false">Cancel</button></div>
@@ -30,6 +32,7 @@ const emit=defineEmits(['saved']);
 const auth=useAuthStore(),verified=ref(false),editing=ref(false),busy=ref(false),error=ref(''),notice=ref(''),photo=ref(null),draft=reactive({});
 const manager=computed(()=>['admin','super_admin','support','staff'].includes(auth.user?.role));
 const allowed=computed(()=>manager.value && verified.value);
+const availabilityFields=[['officeAvailability','Office acceptance'],['schoolAvailability','Assigned school acceptance']];
 const fields=[{key:'insurances',label:'Insurance accepted'},{key:'languages',label:'Languages'},{key:'locations',label:'Public locations'},{key:'sessionFormats',label:'Session formats'}];
 let savedProfile={},generation=0;
 watch(()=>[props.provider.id,props.agencyId,manager.value],async()=>{
@@ -37,11 +40,11 @@ watch(()=>[props.provider.id,props.agencyId,manager.value],async()=>{
  if(!manager.value || !props.agencyId)return;
  try{const {data}=await api.get(`/users/${props.provider.id}/provider-public-profile`,{params:{agencyId:props.agencyId},skipAuthRedirect:true});if(id===generation){savedProfile=data.profile||{};verified.value=true;}}catch{/* Authorization is decided by the protected API. */}
 },{immediate:true});
-function open(){Object.assign(draft,{firstName:props.provider.firstName||'',lastName:props.provider.lastName||'',title:props.provider.title||'',publicBlurb:savedProfile.publicBlurb||'',insurances:(savedProfile.insurances||[]).join(', '),accepting:savedProfile.acceptingNewClientsOverride===null?'default':savedProfile.acceptingNewClientsOverride?'yes':'no'});for(const k of ['languages','locations','sessionFormats'])draft[k]=(savedProfile.details?.[k]||[]).join(', ');photo.value=null;error.value='';notice.value='';editing.value=true;}
+function open(){Object.assign(draft,{firstName:props.provider.firstName||'',lastName:props.provider.lastName||'',title:props.provider.title||'',publicBlurb:savedProfile.publicBlurb||'',insurances:(savedProfile.insurances||[]).join(', '),accepting:savedProfile.acceptingNewClientsOverride===null?'default':savedProfile.acceptingNewClientsOverride?'yes':'no'});for(const k of ['languages','locations','sessionFormats'])draft[k]=(savedProfile.details?.[k]||[]).join(', ');for(const [k] of availabilityFields)draft[k]=savedProfile.details?.[k]||'auto';photo.value=null;error.value='';notice.value='';editing.value=true;}
 const list=value=>String(value||'').split(',').map(s=>s.trim()).filter(Boolean);
 async function save(){busy.value=true;error.value='';notice.value='';try{
  if(photo.value && (photo.value.size>8*1024*1024 || !['image/png','image/jpeg','image/webp'].includes(photo.value.type)))throw new Error('Choose a PNG, JPG or WebP photo no larger than 8 MB.');
- const {data}=await api.put(`/users/${props.provider.id}/provider-public-profile`,{agencyId:props.agencyId,identity:{firstName:draft.firstName,lastName:draft.lastName,title:draft.title},publicBlurb:draft.publicBlurb,insurances:list(draft.insurances),details:Object.fromEntries(['languages','locations','sessionFormats'].map(k=>[k,list(draft[k])])),acceptingNewClientsOverride:draft.accepting==='default'?null:draft.accepting==='yes'});
+ const {data}=await api.put(`/users/${props.provider.id}/provider-public-profile`,{agencyId:props.agencyId,identity:{firstName:draft.firstName,lastName:draft.lastName,title:draft.title},publicBlurb:draft.publicBlurb,insurances:list(draft.insurances),details:{...Object.fromEntries(['languages','locations','sessionFormats'].map(k=>[k,list(draft[k])])),...Object.fromEntries(availabilityFields.map(([k])=>[k,draft[k]]))},acceptingNewClientsOverride:draft.accepting==='default'?null:draft.accepting==='yes'});
  savedProfile=data.profile;notice.value='Profile details saved.';
  if(photo.value){const body=new FormData();body.append('photo',photo.value);await api.post(`/users/${props.provider.id}/profile-photo`,body);}
  editing.value=false;emit('saved');

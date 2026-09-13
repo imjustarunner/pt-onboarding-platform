@@ -46,8 +46,6 @@ const isGeminiConfigured = () =>
 
 const isConfigured = () => !!(isGeminiConfigured() || OPENAI_API_KEY || DEEPL_API_KEY);
 
-const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-
 const LANGUAGE_LABELS = {
   es: 'Spanish',
   en: 'English'
@@ -229,9 +227,13 @@ export async function getOrCreateTranslation(args) {
     console.warn('[aiTranslation] cache read failed', { message: err?.message });
   }
 
-  if (!isConfigured()) return original;
+  if (!isConfigured()) {
+    if (args.rejectFallback) throw new Error('Translation is not configured');
+    return original;
+  }
 
   const { translated, engine } = await callProviderTranslate(original, targetLang);
+  if (engine === 'fallback' && args.rejectFallback) throw new Error('Translation is temporarily unavailable');
   if (engine === 'fallback' || engine === 'noop') return translated || original;
 
   try {
@@ -253,30 +255,24 @@ export async function getOrCreateTranslation(args) {
 }
 
 /**
- * Batch form of `getOrCreateTranslation`. Calls the AI sequentially with a
- * small delay between misses to stay well under rate limits.
+ * Batch form of `getOrCreateTranslation`. Uses up to three concurrent lookups so public labels load promptly.
  *
  * @param {{ sourceType: string, sourceId: number, field: string, originalText: string }[]} items
  * @param {string} targetLang
  * @returns {Promise<Record<string,string>>} keyed by `${sourceId}:${field}`
  */
-export async function batchTranslate(items, targetLang = 'es') {
+export async function batchTranslate(items, targetLang = 'es', {rejectFallback = false} = {}) {
   const out = {};
   const list = Array.isArray(items) ? items : [];
-  for (const item of list) {
-    const key = `${Number(item?.sourceId) || 0}:${String(item?.field || '')}`;
-    try {
-      out[key] = await getOrCreateTranslation({
-        sourceType: item.sourceType,
-        sourceId: item.sourceId,
-        field: item.field,
-        originalText: item.originalText,
-        targetLang
-      });
-    } catch (err) {
-      out[key] = String(item?.originalText || '');
-    }
-    await sleep(50);
+  // Bound concurrency so a public page does not wait serially for every label.
+  for (let start = 0; start < list.length; start += 3) {
+    await Promise.all(list.slice(start, start + 3).map(async item => {
+      const key = `${Number(item?.sourceId) || 0}:${String(item?.field || '')}`;
+      try {
+        out[key] = await getOrCreateTranslation({sourceType:item.sourceType, sourceId:item.sourceId,
+          field:item.field, originalText:item.originalText, targetLang, rejectFallback});
+      } catch { if (!rejectFallback) out[key] = String(item?.originalText || ''); }
+    }));
   }
   return out;
 }

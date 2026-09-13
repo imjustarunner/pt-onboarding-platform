@@ -25,6 +25,8 @@ const LOGIN_PATH_SNIPPETS = [
  * redundant there and confuses users when no Spanish form is linked.
  */
 const PUBLIC_TRANSLATION_ROUTE_NAMES = new Set([
+  'AdaptiveJoinHub', 'AdaptiveJoinService', 'OrganizationAdaptiveJoinAlt', 'OrganizationAdaptiveJoinService',
+  'PublicCareers', 'PublicCareersHost', 'PublicProviderProfile', 'PublicCounselorFinder', 'PublicTutorFinder', 'PublicCoachFinder', 'PublicChooseProvider',
   'PublicMarketingHub',
   'PublicMarketingHubSubPage',
   'PublicProviderFinder',
@@ -62,7 +64,7 @@ export function shouldShowPublicTranslate(route) {
     if (p.includes(s)) return false;
   }
 
-  if (route.matched.some((r) => r.meta?.requiresAuth === true)) return false;
+  if ((route.matched || []).some((r) => r.meta?.requiresAuth === true)) return false;
 
   if (route.meta?.publicTranslation === true) return true;
 

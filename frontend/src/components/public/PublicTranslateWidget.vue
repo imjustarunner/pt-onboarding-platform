@@ -39,7 +39,7 @@ import { useLocale } from '../../composables/useLocale.js';
 const { t, locale, setLocale } = useLocale();
 const route=useRoute(),translationState=ref('');
 let translator;
-function applyLanguage(){translator?.setSpanish(locale.value === 'es' && route.path.startsWith('/p/'));}
+function applyLanguage(){translator?.setSpanish(locale.value === 'es');}
 onMounted(()=>{translator=createWebsiteTranslator({document,translate:async(strings)=>(await api.post('/public/translations/translate-strings',{strings,lang:'es'},{skipAuthRedirect:true,skipGlobalLoading:true})).data,onState:state=>translationState.value=state});applyLanguage();});
 watch(()=>[locale.value,route.path],applyLanguage);
 onUnmounted(()=>translator?.stop());

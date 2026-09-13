@@ -48,6 +48,7 @@
     @update-sidebar-label="onSidebarLabel"
   >
     <template #header-left>
+      <router-link v-if="publicWebsitePath(agencySlug)" :to="publicWebsitePath(agencySlug)" class="df-btn df-btn-secondary">← Back to website</router-link>
       <button
         v-if="phase !== 'pathway' && !submitted"
         type="button"
@@ -660,6 +661,7 @@
 </template>
 
 <script setup>
+import {publicWebsitePath} from '../../utils/publicWebsitePath';
 import { computed, onMounted, reactive, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import OtherGuardianIntakeFields from '../../components/public-intake/OtherGuardianIntakeFields.vue';

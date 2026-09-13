@@ -4183,6 +4183,7 @@ const hideGlobalNavForSchoolStaff = computed(() => {
 
 /** Team-meeting / supervision join rooms + Quick View — hide app chrome that squeezes mobile layout. */
 const isImmersiveJoinRoute = computed(() => {
+  if (['AdaptiveJoinHub','AdaptiveJoinService','OrganizationAdaptiveJoinAlt','OrganizationAdaptiveJoinService'].includes(route.name)) return true;
   if (route.meta?.publicQuickView === true || route.meta?.publicMarketingHub === true || route.meta?.publicPageDesignPreview === true) return true;
   const path = String(route.path || '');
   return (

@@ -9,6 +9,11 @@ import {
 } from '../tenantBrandAssets.js';
 
 describe('tenantBrandAssets', () => {
+  it('keeps comma filenames resolvable by the static asset server',()=>{
+    const url=pickTenantWelcomeUrl('itsco',new Date('2026-09-13T18:00:00Z'));
+    expect(url).toContain('Welcome,');expect(url).not.toContain('%2C');expect(url).not.toContain(' ');
+    expect(tenantSmsImage('itsco','home')).toBe('/assets/SMSAssets/itscosmsnew.png');
+  });
   it('maps SMS pages per tenant', () => {
     expect(tenantSmsImage('itsco', 'support')).toContain('/SMSAssets/ITSCO/ITSCOSupport.png');
     expect(tenantSmsImage('itsco', 'district_schedule')).toContain('/SMSAssets/ITSCO/District11.png');

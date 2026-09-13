@@ -14,7 +14,19 @@ const provider=(id,name,extra={})=>({id,displayName:name,firstName:name,lastName
 const providers=[provider(1,'First',{schools:[school],schoolOpenings:true,acceptingNewClients:false}),provider(2,'Second',{office:true,onlineScheduling:true})];
 beforeEach(()=>{route.query={};vi.clearAllMocks();});
 describe('ITSCO directory and real support',()=>{
- it('treats global waitlist status and schedule openings as separate filters',async()=>{const w=mount(Directory,{props:{providers,schools:[school],agencyId:1,availability:{2:{nextAvailableAt:'2027-01-01T16:00:00Z'}}},global});const select=w.findAll('select');await select[4].setValue('no');await select[5].setValue('yes');expect(w.findAll('.its-provider-card')).toHaveLength(1);expect(w.find('.its-provider-card').text()).toContain('First');expect(w.find('.its-provider-card').text()).toContain('School openings reported');expect(w.find('.its-provider-card').text()).not.toContain('View times');w.unmount();});
+ it('keeps school acceptance separate from office openings and overrides a stale office waitlist',async()=>{
+  const rows=[providers[0],provider(2,'Second',{office:true,onlineScheduling:true,acceptingNewClients:false,officeAcceptance:{status:'waitlist'}})];
+  const w=mount(Directory,{props:{providers:rows,schools:[school],agencyId:1,availability:{2:{nextAvailableAt:'2027-01-01T16:00:00Z',hasPublishedOpenings:true,inPerson:{hasPublishedOpenings:true,nextAvailableAt:'2027-01-01T16:00:00Z'}}}},global});
+  expect(w.findAll('.its-provider-card')[0].text()).toContain('Accepting · school');
+  expect(w.findAll('.its-provider-card')[0].text()).not.toContain('Accepting · office');
+  expect(w.findAll('.its-provider-card')[1].text()).toContain('Accepting · office');
+  await w.findAll('.its-provider-modes button')[1].trigger('click');await w.findAll('select')[4].setValue('yes');await w.findAll('select')[5].setValue('yes');
+  expect(w.findAll('.its-provider-card')).toHaveLength(1);expect(w.find('.its-provider-card').text()).toContain('Second');expect(w.find('.its-provider-card').text()).toContain('View times');w.unmount();
+ });
+ it('deduplicates age tags and exposes only the selected school enrollment link',()=>{
+  const w=mount(Directory,{props:{providers:[provider(3,'Third',{specialties:['Teen'],ageGroups:['Teen (14–18)','Teen']})],agencyId:1},global});expect(w.findAll('.its-tags span').map(s=>s.text())).toEqual(['Teen (14–18)']);w.unmount();
+  const schools=mount(Schools,{props:{districts:[{name:'D11',slug:'d11',schools:[{...school,intakePublicKey:'published-school-form'}]}]},global});expect(schools.find('.its-parent-link a').attributes('href')).toContain('/intake/published-school-form');expect(schools.findAll('.its-school-columns>section')).toHaveLength(1);schools.unmount();
+ });
  it('opens a school link with just its assigned providers and can clear the filter',async()=>{route.query={school:'11'};const w=mount(Directory,{props:{providers,schools:[school],agencyId:1},global});expect(w.findAll('.its-provider-card')).toHaveLength(1);expect(w.text()).toContain('at Example Elementary');await w.findAll('button').find(b=>b.text()==='Clear filters').trigger('click');expect(w.findAll('.its-provider-card')).toHaveLength(2);w.unmount();});
  it('does not call failed availability a confirmed lack of openings',async()=>{const w=mount(Directory,{props:{providers:[providers[1]],agencyId:1,availabilityError:'Unavailable'},global});await w.findAll('select')[5].setValue('no');expect(w.findAll('.its-provider-card')).toHaveLength(0);expect(w.text()).toContain('Unavailable');w.unmount();});
  it('provides school-only profiles without a broken scheduling link',()=>{route.query={provider:'1'};const w=mount(Directory,{props:{providers,schools:[school],agencyId:1},global});expect(w.find('.its-selected-profile').text()).toContain('Public profile');expect(w.findAll('a').some(a=>a.attributes('data-to')===JSON.stringify('/itsco/school-referral'))).toBe(true);expect(w.text()).not.toContain('View availability & full profile');w.unmount();});

@@ -210,7 +210,7 @@ export const translateStrings = async (req, res, next) => {
       originalText: text
     }));
 
-    const raw = await batchTranslate(items, lang);
+    const raw = await batchTranslate(items, lang, {rejectFallback:true});
 
     // Re-map from internal batchTranslate key (`${sourceId}:${field}`) back to original → translated.
     const translations = {};

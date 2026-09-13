@@ -1,3 +1,4 @@
+import {uniquePublicFacets,restrictPublicInsurances,publicAcceptance} from '../utils/publicProviderPresentation.js';
 import pool from '../config/database.js';
 import { readItscoImpact, writeItscoImpactBaseline } from './itscoPublicImpact.service.js';
 import { getMarketingPageRowBySlug } from './publicMarketingHub.service.js';
@@ -28,8 +29,11 @@ export async function getItscoWebsiteData(req) {
   const { agency, page, settings } = await resolveItscoWebsite();
   const baseUrl = requestBaseUrl(req);
   // A school must have a real portal account, not just an outreach/directory entry.
-  const [schoolRows] = await pool.execute(`SELECT org.id, org.name, org.slug, org.logo_url, org.logo_path, org.city, org.state,
-    COALESCE(NULLIF(sp.district_name, ''), ad.name) AS district_name
+  const [schoolRows] = await pool.execute(`SELECT org.id, org.name, org.official_name, org.slug, org.logo_url, org.logo_path, org.city, org.state,
+    COALESCE(NULLIF(sp.district_name, ''), ad.name) AS district_name,
+    (SELECT il.public_key FROM intake_links il WHERE il.scope_type = 'school' AND il.organization_id = org.id
+      AND il.is_active = 1 AND COALESCE(il.form_type, 'intake') IN ('intake', 'public_form')
+      ORDER BY (LOWER(COALESCE(il.language_code, 'en')) LIKE 'en%') DESC, il.updated_at DESC, il.id DESC LIMIT 1) AS intake_public_key
     FROM agencies org JOIN (${AFFILIATED}) aff ON aff.school_id = org.id
     LEFT JOIN school_profiles sp ON sp.school_organization_id = org.id
     LEFT JOIN agency_districts ad ON ad.id = sp.district_id AND ad.agency_id = ?
@@ -51,7 +55,7 @@ export async function getItscoWebsiteData(req) {
         AND h.school_organization_id = psa.school_organization_id AND h.provider_user_id = psa.provider_user_id)`, [...ids, agency.id]);
   }
   const [people] = await pool.execute(`SELECT u.id, u.first_name, u.last_name, COALESCE(NULLIF(u.title, ''), ua.agency_position) AS title, u.credential, u.department,
-      u.profile_photo_path, u.provider_accepting_new_clients, COALESCE(NULLIF(ua.agency_role, ''), u.role) AS role, u.in_office_available,
+      u.profile_photo_path, u.provider_school_info_blurb, u.languages_spoken, u.provider_accepting_new_clients, COALESCE(NULLIF(ua.agency_role, ''), u.role) AS role, u.in_office_available,
       EXISTS (SELECT 1 FROM provider_public_service_enrollments e JOIN agency_public_service_types st
         ON st.agency_id = e.agency_id AND st.service_type = e.service_type AND st.is_enabled = 1
         WHERE e.agency_id = ua.agency_id AND e.user_id = u.id AND e.is_active = 1 AND e.service_type = 'counseling') AS enrolled
@@ -75,11 +79,15 @@ export async function getItscoWebsiteData(req) {
         listClinicalFacetsForUser(Number(row.id), { agencyId: agency.id }),
         listProviderAcceptedInsurancesForDisplay({ userId: row.id, agencyId: agency.id })
       ]);
-      const insurances = accepted.map(i => ({ name: i.name, logoUrl: i.logo_url || null }));
+      let insurances = accepted.map(i => ({ name: i.name, logoUrl: i.logo_url || null }));
       for (const name of profile?.insurances || []) if (!insurances.some(i => i.name.toLowerCase() === name.toLowerCase())) insurances.push({ name });
-      providers.push({ ...person, specialties: facets.specialties || [], ageGroups: facets.ageGroups || [],
+      insurances = restrictPublicInsurances(insurances,row);
+      const schoolOpenings=assignments.some(a=>Number(a.providerId)===Number(row.id)&&Number(a.slots_available)>0);
+      providers.push({ ...person, specialties: uniquePublicFacets(facets.specialties), ageGroups: uniquePublicFacets(facets.ageGroups),
+        officeAcceptance:publicAcceptance({globalAccepting:person.acceptingNewClients,manual:profile?.details?.officeAvailability,assigned:Boolean(row.in_office_available)}),
+        schoolAcceptance:publicAcceptance({globalAccepting:person.acceptingNewClients,manual:profile?.details?.schoolAvailability,assigned:assignedSchools.length>0,hasOpenings:schoolOpenings}),
         modalities: facets.modalities || [], populations: facets.populations || [], insurances,
-        schools: assignedSchools.map(s => ({ id: s.id, name: s.name, logoUrl: s.logoUrl })),
+        schools: assignedSchools.map(s => ({ id: s.id, name: s.name, logoUrl: s.logoUrl, hasOpenings:assignments.some(a=>Number(a.providerId)===Number(row.id)&&Number(a.schoolId)===s.id&&Number(a.slots_available)>0) })),
         office: Boolean(row.in_office_available), schoolOpenings: assignments.some(a => Number(a.providerId) === Number(row.id) && Number(a.slots_available) > 0),
         onlineScheduling: Boolean(row.enrolled && agency.public_availability_enabled) });
     }));

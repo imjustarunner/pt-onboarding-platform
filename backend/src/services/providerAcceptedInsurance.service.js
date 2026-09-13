@@ -1,4 +1,5 @@
 import pool from '../config/database.js';
+import {restrictPublicInsurances} from '../utils/publicProviderPresentation.js';
 import { publicUploadsUrlFromStoredPath } from '../utils/uploads.js';
 import SupervisorAssignment from '../models/SupervisorAssignment.model.js';
 
@@ -107,7 +108,8 @@ export function mapAcceptedInsuranceForDisplay(row) {
 
 export async function listProviderAcceptedInsurancesForDisplay({ userId, agencyId }) {
   const rows = await listProviderAcceptedInsurances({ userId, agencyId });
-  return rows.map(mapAcceptedInsuranceForDisplay);
+  const [people] = await pool.execute('SELECT credential, title FROM users WHERE id = ? LIMIT 1', [Number(userId)]);
+  return restrictPublicInsurances(rows, people[0] || {}).map(mapAcceptedInsuranceForDisplay);
 }
 
 export default { listProviderAcceptedInsurances, listProviderAcceptedInsurancesForDisplay, mapAcceptedInsuranceForDisplay };

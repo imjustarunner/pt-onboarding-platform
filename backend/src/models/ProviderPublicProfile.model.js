@@ -1,4 +1,5 @@
 import pool from '../config/database.js';
+import {publicLanguages,restrictPublicInsurances} from '../utils/publicProviderPresentation.js';
 
 function toInt(v) {
   const n = Number(v);
@@ -18,8 +19,10 @@ class ProviderPublicProfile {
       // Rolling deployment: existing profiles continue loading until migration 1430 runs.
       [rows] = await pool.execute(`SELECT ${columns.replace('public_details_json, ', '')} FROM provider_public_profiles WHERE user_id = ? LIMIT 1`, [userId]);
     }
-    const row = rows?.[0] || null;
-    if (!row) return null;
+    const [people] = await pool.execute('SELECT provider_school_info_blurb, languages_spoken, credential, title FROM users WHERE id = ? LIMIT 1', [userId]);
+    if (!rows?.[0] && !people?.[0]) return null;
+    const person = people?.[0] || {};
+    const row = rows?.[0] || {};
     let insurances = [];
     try {
       const raw = row.insurances_json;
@@ -31,13 +34,13 @@ class ProviderPublicProfile {
     let details = row.public_details_json || {};
     if (typeof details === 'string') { try { details = JSON.parse(details); } catch { details = {}; } }
     return {
-      details,
+      details: {...details, languages: publicLanguages({details}, person.languages_spoken)},
       userId,
-      publicBlurb: row.public_blurb || '',
-      insurances: Array.isArray(insurances) ? insurances : [],
-      selfPayRateCents: row.self_pay_rate_cents === null ? null : Number(row.self_pay_rate_cents),
+      publicBlurb: row.public_blurb || person.provider_school_info_blurb || '',
+      insurances: restrictPublicInsurances(Array.isArray(insurances) ? insurances : [], person),
+      selfPayRateCents: row.self_pay_rate_cents == null ? null : Number(row.self_pay_rate_cents),
       selfPayRateNote: row.self_pay_rate_note || '',
-      acceptingNewClientsOverride: row.accepting_new_clients_override === null
+      acceptingNewClientsOverride: row.accepting_new_clients_override == null
         ? null
         : !!row.accepting_new_clients_override
     };
@@ -59,6 +62,10 @@ class ProviderPublicProfile {
     for (const key of ['languages', 'locations', 'sessionFormats']) {
       const values = (details ?? previous?.details)?.[key];
       publicDetails[key] = Array.isArray(values) ? [...new Set(values.map(v => String(v).trim().slice(0, 160)).filter(Boolean))].slice(0, 30) : [];
+    }
+    for (const key of ['officeAvailability', 'schoolAvailability']) {
+      const value = (details ?? previous?.details)?.[key];
+      publicDetails[key] = ['accepting', 'waitlist', 'unavailable'].includes(value) ? value : 'auto';
     }
     const cleanInsurances = Array.isArray(insurances)
       ? insurances

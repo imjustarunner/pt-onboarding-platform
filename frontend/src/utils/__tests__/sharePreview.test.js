@@ -54,7 +54,7 @@ describe('sharePreview', () => {
 });
 
 describe('public website SMS artwork',()=>{
- for(const [slug,file,name] of [['tisi','innerstrengthwebsite','Inner Strength'],['rise','riserevivewebsite','Rise'],['ptco','plottwistcowebsite','Plot Twist'],['mh4kidz','mh4kizqwebsite','MH4Kidz'],['range','mentalrangewebsite','Mental Range']]) {
+ for(const [slug,file,name] of [['itsco','itscosmsnew','ITSCO'],['tisi','innerstrengthwebsite','Inner Strength'],['rise','riserevivewebsite','Rise'],['ptco','plottwistcowebsite','Plot Twist'],['mh4kidz','mh4kizqwebsite','MH4Kidz'],['range','mentalrangewebsite','Mental Range']]) {
   it(`injects ${slug} artwork into crawler HTML without requiring a tenant or JavaScript`,()=>{
    const meta=buildShareMeta({host:'plottwisthq.com',path:`/p/${slug}/about`});
    expect(meta.name).toContain(name);expect(meta.image).toBe(`https://plottwisthq.com/assets/SMSAssets/${file}.png`);

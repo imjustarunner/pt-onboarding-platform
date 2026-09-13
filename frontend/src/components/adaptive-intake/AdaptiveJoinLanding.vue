@@ -3,6 +3,7 @@
     <link rel="stylesheet" :href="JOIN_FONT_HREF" />
     <div class="ajl-bg" :style="backgroundStyle" aria-hidden="true" />
     <aside class="ajl-rail" aria-label="Organization and support">
+      <router-link v-if="!designMode && publicWebsitePath(agencySlug)" class="ajl-back" :to="publicWebsitePath(agencySlug)">← Back to website</router-link>
       <template v-for="key in view.order.rail" :key="key">
         <section v-if="!view.hidden[key]" class="ajl-block" :class="[`ajl-block--${key}`, { 'ajl-block--selected': designMode && selectedElement === key }]" :style="blockStyle(key)" v-bind="elementAttrs(key)">
           <JoinCustomElement v-if="elementFor(key)?.type" :element="elementFor(key)" :copy="copy" />
@@ -52,6 +53,7 @@
   <JoinPageDesigner v-if="designerOpen && canEdit" :config="config" :agency-slug="agencySlug" :service-type="serviceType" :quick="quick" :full="full" :contact-phone="contactPhone" :contact-tel="contactTel" :contact-email="contactEmail" @close="closeDesigner" @saved="onSaved" />
 </template>
 <script setup>
+import {publicWebsitePath} from '../../utils/publicWebsitePath';
 import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, onMounted, ref } from 'vue';
 import { JOIN_FONT_HREF, fontFamilyById, writeJoinLandingCache } from '../../utils/joinLandingTemplate';
 import { joinDesignElements, joinCards, resolveJoinPresentation, safeJoinImage } from '../../utils/joinPageDesign';
@@ -120,14 +122,17 @@ function onSaved(data) {
 }
 </script>
 <style scoped>
-.ajl { min-height: 100vh; display: grid; grid-template-columns: clamp(230px, 24vw, 320px) minmax(0, 1fr); grid-template-rows: 1fr auto; position: relative; color: #16324a; font-family: var(--ajl-body-font), sans-serif; overflow-x: clip; }
+.ajl-back{font-size:14px;color:#12473f;font-weight:700;text-decoration:underline;align-self:flex-start;margin-bottom:12px}
+
+.ajl { width:100%; max-width:none; min-width:0; align-self:stretch; box-sizing:border-box; min-height: 100vh; display: grid; grid-template-columns: clamp(230px, 24vw, 320px) minmax(0, 1fr); grid-template-rows: 1fr auto; position: relative; color: #16324a; font-family: var(--ajl-body-font), sans-serif; overflow-x: clip; }
 .ajl *, .ajl *::before, .ajl *::after { box-sizing: border-box; }
 .ajl-bg { position: absolute; inset: 0; background-size: cover; background-repeat: no-repeat; background-color: #e9f2ef; z-index: 0; }
 .ajl-bg::after { content: ''; position: absolute; inset: 0; background: #fff; opacity: var(--ajl-background-wash); }
 .ajl-sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
 .ajl-rail, .ajl-main, .ajl-footer { position: relative; z-index: 1; min-width: 0; }
-.ajl-rail { container-type: inline-size; grid-column: 1; grid-row: 1; padding: var(--ajl-padding); display: flex; flex-direction: column; gap: 14px; }
-.ajl-main { container-type: inline-size; grid-column: 2; grid-row: 1; padding: var(--ajl-padding); display: flex; flex-direction: column; gap: var(--ajl-gap); }
+.ajl-rail { background:linear-gradient(180deg,rgba(237,247,245,.92),rgba(237,247,245,.72)); backdrop-filter:blur(12px); -webkit-backdrop-filter:blur(12px); container-type: inline-size; grid-column: 1; grid-row: 1; padding: var(--ajl-padding); display: flex; flex-direction: column; gap: 14px; }
+.ajl-main { isolation:isolate; container-type: inline-size; grid-column: 2; grid-row: 1; padding: var(--ajl-padding); display: flex; flex-direction: column; gap: var(--ajl-gap); }
+.ajl-main::before { content:''; position:absolute; inset:0; z-index:-1; pointer-events:none; background:rgba(249,251,248,.88); backdrop-filter:blur(8px); -webkit-backdrop-filter:blur(8px); mask-image:linear-gradient(#000 0,#000 220px,transparent 480px); -webkit-mask-image:linear-gradient(#000 0,#000 220px,transparent 480px); }
 .ajl-block { position: relative; max-width: 100%; min-width: 0; }
 .ajl-block--help { margin-top: auto; }
 .ajl-logo { display: block; width: 100%; height: auto; object-fit: contain; }

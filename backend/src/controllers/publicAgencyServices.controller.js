@@ -1,3 +1,4 @@
+import {publicAcceptance,uniquePublicFacets} from '../utils/publicProviderPresentation.js';
 import { createPublicProviderHoldService, holdError } from '../services/publicProviderHold.service.js';
 import pool from '../config/database.js';
 import ProviderAvailabilityService from '../services/providerAvailability.service.js';
@@ -475,7 +476,7 @@ async function listEnrolledProviders(agencyId, serviceType) {
   if (!(await getAgencyServiceTypes(agencyId)).some((s) => s.service_type === serviceType)) return [];
   const [rows] = await pool.execute(
     `SELECT u.id, u.first_name, u.last_name, u.role, u.profile_photo_path,
-            u.service_focus, u.provider_accepting_new_clients, u.title
+            u.service_focus, u.provider_accepting_new_clients, u.in_office_available, u.title
      FROM users u
      JOIN provider_public_service_enrollments e
        ON e.user_id = u.id AND e.agency_id = ? AND e.service_type = ? AND e.is_active = 1
@@ -493,7 +494,7 @@ async function listEnrolledProviders(agencyId, serviceType) {
 
   const [fallback] = await pool.execute(
     `SELECT u.id, u.first_name, u.last_name, u.role, u.profile_photo_path,
-            u.service_focus, u.provider_accepting_new_clients, u.title
+            u.service_focus, u.provider_accepting_new_clients, u.in_office_available, u.title
      FROM users u
      JOIN user_agencies ua ON ua.user_id = u.id
      JOIN agencies a ON a.id = ua.agency_id
@@ -542,9 +543,9 @@ async function getCounselingSpecialties(userId, agencyId) {
   const { listClinicalFacetsForUser } = await import('../services/providerClinicalFacets.service.js');
   const facets = await listClinicalFacetsForUser(Number(userId), { agencyId });
   return {
-    specialties: facets.specialties || [],
+    specialties: uniquePublicFacets(facets.specialties),
     modalities: facets.modalities || [],
-    ageGroups: facets.ageGroups || [],
+    ageGroups: uniquePublicFacets(facets.ageGroups),
     focus: facets.populations || [],
     interventions: facets.interventions || [],
     serviceSettings: facets.serviceSettings || []
@@ -581,7 +582,7 @@ async function resolveProviderProfileSummary({ agencyId, providerUserId }) {
 async function computeProviderWindowSummary({ agencyId, providerId, weekStart, bookingMode, programType, heldSlots = null }) {
   const intakeOnly = String(bookingMode || 'NEW_CLIENT') === 'NEW_CLIENT';
   const program = normalizeProgramType(programType);
-  const pickProgramSlots = (result) => (program === 'VIRTUAL' ? (result?.virtualSlots || []) : (result?.inPersonSlots || []));
+  const pickProgramSlots = (result) => (program === 'VIRTUAL' ? (result?.virtualSlots || []) : (result?.inPersonSlots || [])).filter(s => Date.parse(s.startAt) > Date.now());
 
   const computeForWeek = async (candidateWeekStart) => {
     const result = await ProviderAvailabilityService.computeWeekAvailability({
@@ -592,7 +593,7 @@ async function computeProviderWindowSummary({ agencyId, providerId, weekStart, b
       externalCalendarIds: [],
       slotMinutes: 60,
       intakeOnly
-    }).catch(() => null);
+    });
     if (!result) return { inPersonSlots: [], virtualSlots: [] };
     return {
       inPersonSlots: filterHeldSlots(dedupeSlots(result.inPersonSlots || []), heldSlots),
@@ -625,12 +626,8 @@ async function computeProviderWindowSummary({ agencyId, providerId, weekStart, b
 }
 
 function normalizeSlots({ result, bookingMode, providerAcceptingNewClients, profileAcceptingNewClientsOverride }) {
-  const mode = String(bookingMode || 'NEW_CLIENT').toUpperCase();
-  const intakeOnly = mode === 'NEW_CLIENT';
-  const accepting = profileAcceptingNewClientsOverride === null || profileAcceptingNewClientsOverride === undefined
-    ? !!providerAcceptingNewClients
-    : !!profileAcceptingNewClientsOverride;
-  if (intakeOnly && !accepting) return { virtual: [], inPerson: [], all: [] };
+  // These slots already passed schedule, assignment, conflict, and intake-hold checks.
+  // A published opening overrides stale global/manual waitlist flags.
   const inPerson = (result?.inPersonSlots || []).filter((s) => new Date(s.startAt).getTime() > Date.now()).map((s) => ({
     ...s,
     modality: 'IN_PERSON',
@@ -808,7 +805,7 @@ export const listCounselors = async (req, res, next) => {
       if (effectiveAgeFilter && !providerServesAgeBucket(ageGroups, effectiveAgeFilter)) return null;
 
       return {
-        acceptingNewClients: !!(profileData?.acceptingNewClientsOverride ?? row.provider_accepting_new_clients),
+        acceptingNewClients: publicAcceptance({globalAccepting:profileData?.acceptingNewClientsOverride ?? row.provider_accepting_new_clients,manual:programType==='IN_PERSON'?profileData?.details?.officeAvailability:'auto',assigned:programType!=='IN_PERSON'||Boolean(row.in_office_available)||Boolean(summary.nextAvailableAt),hasOpenings:Boolean(summary.nextAvailableAt)}).status === 'accepting',
         providerId: Number(row.id),
         id: Number(row.id),
         firstName: row.first_name || '',
@@ -838,7 +835,7 @@ export const listCounselors = async (req, res, next) => {
           thisWeekCount: filteredThisWeek.length,
           // A schedule opening is distinct from permission to accept a new client.
           hasPublishedOpenings: Boolean(summary.nextAvailableAt),
-          nextAvailableAt: (profileData?.acceptingNewClientsOverride ?? row.provider_accepting_new_clients) ? summary.nextAvailableAt || null : null,
+          nextAvailableAt: summary.nextAvailableAt || null,
           bookedThroughDate: summary.bookedThroughYmd || null,
           slots: filteredThisWeek.map((s) => ({ ...s, bookingMode, programType }))
         }
@@ -955,7 +952,7 @@ export const listTutors = async (req, res, next) => {
       if (filterGradeLevel && !tutoringProfile.gradeLevels.map((s) => s.toLowerCase()).some((s) => s.includes(filterGradeLevel))) return null;
 
       return {
-        acceptingNewClients: !!(profileData?.acceptingNewClientsOverride ?? row.provider_accepting_new_clients),
+        acceptingNewClients: publicAcceptance({globalAccepting:profileData?.acceptingNewClientsOverride ?? row.provider_accepting_new_clients,manual:programType==='IN_PERSON'?profileData?.details?.officeAvailability:'auto',assigned:programType!=='IN_PERSON'||Boolean(row.in_office_available)||Boolean(summary.nextAvailableAt),hasOpenings:Boolean(summary.nextAvailableAt)}).status === 'accepting',
         providerId: Number(row.id),
         id: Number(row.id),
         firstName: row.first_name || '',
@@ -969,7 +966,7 @@ export const listTutors = async (req, res, next) => {
           programType,
           weekStart,
           thisWeekCount: filteredThisWeek.length,
-          nextAvailableAt: (profileData?.acceptingNewClientsOverride ?? row.provider_accepting_new_clients) ? summary.nextAvailableAt || null : null,
+          nextAvailableAt: summary.nextAvailableAt || null,
           bookedThroughDate: summary.bookedThroughYmd || null,
           slots: filteredThisWeek.map((s) => ({ ...s, bookingMode, programType }))
         }
@@ -1117,7 +1114,7 @@ export const getProviderDetail = async (req, res, next) => {
 
     const [userRows] = await pool.execute(
       `SELECT id, first_name, last_name, role, profile_photo_path, service_focus, title,
-              provider_accepting_new_clients
+              provider_accepting_new_clients, in_office_available
        FROM users
        WHERE id = ?
          AND (is_active IS NULL OR is_active = TRUE)
@@ -1158,7 +1155,7 @@ export const getProviderDetail = async (req, res, next) => {
       serviceType,
       agency: { id: agency.id, slug: agency.slug, name: agency.name },
       provider: {
-        acceptingNewClients: !!(profileData?.acceptingNewClientsOverride ?? user.provider_accepting_new_clients),
+        acceptingNewClients: publicAcceptance({globalAccepting:profileData?.acceptingNewClientsOverride ?? user.provider_accepting_new_clients,manual:programType==='IN_PERSON'?profileData?.details?.officeAvailability:'auto',assigned:programType!=='IN_PERSON'||Boolean(user.in_office_available)||Boolean(summary.nextAvailableAt),hasOpenings:Boolean(summary.nextAvailableAt)}).status === 'accepting',
         providerId,
         id: providerId,
         firstName: user.first_name || '',
@@ -1184,7 +1181,7 @@ export const getProviderDetail = async (req, res, next) => {
         programType,
         weekStart,
         thisWeekCount: filteredThisWeek.length,
-        nextAvailableAt: (profileData?.acceptingNewClientsOverride ?? user.provider_accepting_new_clients) ? summary.nextAvailableAt || null : null,
+        nextAvailableAt: summary.nextAvailableAt || null,
         slots: filteredThisWeek.map((s) => ({ ...s, bookingMode, programType }))
       }
     });

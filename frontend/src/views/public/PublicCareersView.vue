@@ -100,6 +100,7 @@
           </span>
         </a>
         <div class="cr-nav-links">
+          <router-link v-if="publicWebsitePath(slug)" :to="publicWebsitePath(slug)">← Back to website</router-link>
           <template v-if="editing && editDraft">
             <div
               v-for="(item, i) in editDraft.navItems"
@@ -739,6 +740,7 @@
 </template>
 
 <script setup>
+import {publicWebsitePath} from '../../utils/publicWebsitePath';
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import api from '../../services/api';
