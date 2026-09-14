@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   PROGRESS_NOTE_OUTPUT_INSTRUCTIONS,
+  TREATMENT_PLAN_FOCUS_AND_INTERVENTIONS,
   TREATMENT_PLAN_OUTPUT_INSTRUCTIONS,
   applySharedNoteAidToolContracts,
   getOutputInstructionsForTool,
@@ -133,4 +134,13 @@ test('90791 preserves the full intake contract without the plan-only override', 
     assert.doesNotMatch(tool.systemPrompt, /Emit ONLY these headers \(each on its own line\): Goal/);
     assert.ok(tool.maxOutputTokens >= 12000);
   }
+});
+
+test('all generated plans prioritize the current formulation and request per-objective catalog interventions', () => {
+  for (const tool of CLINICAL_NOTE_AGENT_TOOLS.filter((tool) => isTreatmentPlanToolId(tool.id))) {
+    assert.ok(tool.outputInstructions.includes(TREATMENT_PLAN_FOCUS_AND_INTERVENTIONS), tool.id);
+  }
+  assert.match(TREATMENT_PLAN_FOCUS_AND_INTERVENTIONS, /historical context only/);
+  assert.match(TREATMENT_PLAN_FOCUS_AND_INTERVENTIONS, /Interventions N.M:/);
+  assert.match(TREATMENT_PLAN_FOCUS_AND_INTERVENTIONS, /Exposure Therapy/);
 });

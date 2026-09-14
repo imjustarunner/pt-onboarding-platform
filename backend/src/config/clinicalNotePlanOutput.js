@@ -1,3 +1,4 @@
+import { CLINICAL_INTERVENTION_SEED } from './clinicalInterventionSeed.js';
 import { TREATMENT_PLAN_TIMEFRAME_INSTRUCTIONS } from './treatmentPlanTimeframe.js';
 
 /**
@@ -93,12 +94,21 @@ export const INTAKE_OUTPUT_INSTRUCTIONS = [
   TRANSCRIPT_FIDELITY_INSTRUCTIONS
 ].join('\n');
 
+export const TREATMENT_PLAN_FOCUS_AND_INTERVENTIONS = [
+  'For a new intake or re-intake plan, use the CURRENT intake assessment, revised diagnosis, presenting problem and clinician corrections as the source of truth. Previous chart plans and diagnoses are historical context only; do not carry forward outdated goals, targets or interventions when the diagnosis or therapy focus has changed.',
+  'Reassess every goal and objective against the current formulation. Retain a prior objective only if it remains relevant and supported by current information. Never invent missing baseline ratings.',
+  'After EVERY Objective N.M, emit a separate Interventions N.M: heading followed by one intervention name per line. Recommend interventions appropriate to that objective, current assessment, service line and provider scope; these are proposed treatment interventions for provider review, not claims that they were performed.',
+  'Choose intervention names from this shared Note Aid catalog where applicable. Preserve clinician-specified additions. Do not copy the entire catalog or require the provider to paste a list:',
+  CLINICAL_INTERVENTION_SEED.join('; ')
+].join('\n');
+
 export const INTAKE_PLAN_OUTPUT_INSTRUCTIONS = [
   INTAKE_OUTPUT_INSTRUCTIONS,
   'Only if the clinician explicitly requests a treatment plan in this submission, append it AFTER all intake sections.',
-  'For that appended plan, use Goal 1:, Objective 1.1:, Projected Time to Completion 1: and additional numbered goals/objectives as clinically supported, ending with Discharge Plan:.',
+  'For that appended plan, use Goal 1:, Objective 1.1:, Interventions 1.1:, Projected Time to Completion 1: and additional numbered goals/objectives as clinically supported, ending with Discharge Plan:.',
   'Use SMART objectives with a 1–10 scale, baseline, target, anchor definitions, and measurement method when provided. Mark missing measurements for clinician assessment instead of inventing numbers.',
-  TREATMENT_PLAN_TIMEFRAME_INSTRUCTIONS
+  TREATMENT_PLAN_TIMEFRAME_INSTRUCTIONS,
+  TREATMENT_PLAN_FOCUS_AND_INTERVENTIONS
 ].join('\n');
 
 /**
@@ -134,16 +144,20 @@ export const SOIP_STRUCTURE_CONTRACT = [
  * Scale rules match paste-import review (1–10 current → target, measurement method).
  */
 export const TREATMENT_PLAN_OUTPUT_INSTRUCTIONS = [
+  TREATMENT_PLAN_FOCUS_AND_INTERVENTIONS,
   'Return the treatment plan only—no preamble, title block, or closing commentary.',
   'Use these headers exactly, each on its own line, then the body on the following lines:',
   'Goal 1:',
   'Objective 1.1:',
+  'Interventions 1.1:',
   'Projected Time to Completion 1:',
   'Goal 2:',
   'Objective 2.1:',
+  'Interventions 2.1:',
   'Projected Time to Completion 2:',
   'Goal 3:',
   'Objective 3.1:',
+  'Interventions 3.1:',
   'Discharge Plan:',
   'Number objectives as Goal#.Objective# (Objective 1.1 under Goal 1, Objective 2.1 under Goal 2).',
   'Objectives must be SMART and ratable on a 1–10 scale.',
@@ -160,9 +174,10 @@ export const TREATMENT_PLAN_OUTPUT_INSTRUCTIONS = [
  * keep unique writing directions but share form and scale rules with paste import.
  */
 export const TREATMENT_PLAN_STRUCTURE_CONTRACT = [
+  TREATMENT_PLAN_FOCUS_AND_INTERVENTIONS,
   TREATMENT_PLAN_TIMEFRAME_INSTRUCTIONS,
   'MACHINE OUTPUT CONTRACT (overrides conflicting outline headings in the style guide above):',
-  'Emit ONLY these headers (each on its own line): Goal 1:, Objective 1.1:, Projected Time to Completion 1:, Goal 2:, Objective 2.1:, Projected Time to Completion 2:, Goal 3:, Objective 3.1:, Projected Time to Completion 3:, Discharge Plan:.',
+  'Emit ONLY these headers (each on its own line): Goal 1:, Objective 1.1:, Interventions 1.1:, Projected Time to Completion 1:, Goal 2:, Objective 2.1:, Interventions 2.1:, Projected Time to Completion 2:, Goal 3:, Objective 3.1:, Interventions 3.1:, Projected Time to Completion 3:, Discharge Plan:.',
   'When updating, also include Diagnosis: and Diagnostic Justification: before Goal 1.',
   'Number objectives as Goal#.Objective# (Objective 1.1 under Goal 1, Objective 2.1 under Goal 2). Add Objective 1.2 only when a second objective is clinically needed under the same goal.',
   'Every Objective MUST include a 1–10 scale with current and target using phrasing like "from a current baseline level 7 to a level 3 or below" (or "to a level 8 or higher"), plus explicit definitions of what level 1 and level 10 look like for THAT objective, and measurement via self-report / family / school / clinical observation as applicable.',
@@ -181,7 +196,7 @@ export const H0004_PLAN_TONE_CONTRACT = [
   'Use clear, non-clinical, strengths-based language appropriate for bachelor’s-level facilitators.',
   'Do NOT write psychotherapy-sounding goals or objectives (no psychodynamic, CBT protocol, insight-oriented, or licensed-psychotherapy clinical framing unless the facilitator already provided that exact wording).',
   'Prefer coping skills, communication, behavioral support, environmental stressors, and daily-functioning language from the H0004 system directions.',
-  'Still emit ONLY the shared Goal / Objective / Projected Time / Discharge headers — never Presenting Concerns or alternate outlines as section headers.'
+  'Still emit ONLY the shared Goal / Objective / Interventions N.M / Projected Time / Discharge headers — never Presenting Concerns or alternate outlines as section headers.'
 ].join('\n');
 
 export const TREATMENT_PLAN_TOOL_IDS = new Set([

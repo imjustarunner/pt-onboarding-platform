@@ -72,9 +72,11 @@ function isBoilerplateOnlyLine(text) {
 export function parseScalePair(text) {
   const s = String(text || '');
 
-  // Explicit baseline/target labels take precedence over scale anchors (1 and 10).
-  const currentLabel = s.match(/\b(?:current(?:\s+baseline)?|baseline)(?:\s+(?:level|rating|score))?\s*(?:(?:is|of|at)\s*)?(?:a\s+)?[:=]?\s*(\d{1,2})\b/i);
-  const targetLabel = s.match(/\b(?:target|goal)(?:\s+(?:level|rating|score))?\s*(?:(?:is|of|at)\s*)?(?:a\s+)?[:=]?\s*(\d{1,2})\b/i);
+  // Bind numbers to rating language before considering durations, frequencies or scale anchors.
+  const currentLabel = s.match(/\b(?:current(?:\s+baseline)?|baseline)(?:\s+(?:self[- ]rated|level|rating|score))?\s*(?:(?:is|of|at)\s*)?(?:an?\s+)?[:=]?\s*(\d{1,2})\b/i)
+    || s.match(/\bcurrently\s+(?:self[- ]rates?|rates?)\b[^\d.!?]{0,180}?\b(?:as|at)\s+(?:an?\s+)?(\d{1,2})\b/i);
+  const targetLabel = s.match(/\b(?:target|goal)(?:\s+(?:level|rating|score))?\s*(?:(?:is|of|at)\s*)?(?:an?\s+)?[:=]?\s*(\d{1,2})\b/i)
+    || s.match(/\b(?:reduce|decrease|increase|improve|raise|lower)\s+(?:(?:this|the|their|his|her)\s+)?(?:self[- ]reported\s+)?(?:rating|score|level)\s+to\s+(?:an?\s+)?(\d{1,2})\b/i);
   if (currentLabel && targetLabel) {
     const current = Number(currentLabel[1]);
     const target = Number(targetLabel[1]);
@@ -627,6 +629,15 @@ export function parseTreatmentPlanText(rawText) {
       }
     }
 
+    const numberedInterventions = trimmed.match(/^Interventions?\s+\d+\.\d+\s*:?\s*(.*)$/i);
+    if (numberedInterventions) {
+      flushJustification();
+      flushPresenting();
+      mode = 'interventions';
+      for (const name of numberedInterventions[1].split(/[,;]/)) pushObjectiveIntervention(currentGoal, name);
+      continue;
+    }
+
     if (isTreatmentStrategyHeader(trimmed)) {
       flushJustification();
       flushPresenting();
@@ -682,6 +693,7 @@ export function parseTreatmentPlanText(rawText) {
       || /^timeframe\b/i.test(trimmed)
       || /^target\s+date\b/i.test(trimmed)
     ) {
+      mode = 'completion';
       const rest = trimmed
         .replace(/^estimated\s+completion\s*[:\-]?\s*/i, '')
         .replace(/^projected(?:\s+(?:time\s+to\s+)?completion)?\s*[:\-]?\s*/i, '')
@@ -693,6 +705,14 @@ export function parseTreatmentPlanText(rawText) {
       const dateHit = parseDateLoose(rest) || parseDateLoose(trimmed);
       if (currentGoal && dateHit) {
         currentGoal.parsedDateHint = dateHit;
+      }
+      continue;
+    }
+
+    if (mode === 'completion') {
+      if (!applyGoalDuration(currentGoal, trimmed)) {
+        const dateHit = parseDateLoose(trimmed);
+        if (currentGoal && dateHit) currentGoal.parsedDateHint = dateHit;
       }
       continue;
     }

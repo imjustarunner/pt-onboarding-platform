@@ -20,6 +20,8 @@ const titles = [...CANONICAL_INTAKE_SECTIONS, 'Subjective', 'Objective', 'Interv
   'Treatment Modality and Interventions', 'Treatment Goals and Outcome', 'Recommendations'];
 
 function sectionKey(title, { intake = false } = {}) {
+  const interventions = title.match(/^Interventions?\s+(\d+\.\d+)$/i);
+  if (interventions) return `Interventions ${interventions[1]}`;
   const goal = title.match(/^(Goal|Objective)\s*(\d+(?:\.\d+)?)$/i);
   if (goal) return `${goal[1].toLowerCase() === 'goal' ? 'Goal' : 'Objective'} ${goal[2]}`;
   const projected = title.match(/^Projected\s*Time(?:\s*to\s*Completion)?(?:\s*(\d+))?$/i);

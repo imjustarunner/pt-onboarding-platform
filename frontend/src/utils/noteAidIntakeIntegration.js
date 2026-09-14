@@ -97,7 +97,7 @@ export function generatedTreatmentPlan(sections, { effectiveDate, diagnoses = []
       objectiveIndex: Number(match[2] || 1), objectiveText: clean(value), ...scales,
       scaleDirection: inferScaleDirection(scales.scaleCurrent, scales.scaleTarget),
       measurementMethod: DEFAULT_MEASUREMENT_METHOD,
-      interventions: interventions.split(/\n|;/).map(clean).filter(Boolean)
+      interventions: interventions.split(/\n|;|,/).map((value) => clean(value).replace(/^[-•]\s*/, '')).filter(Boolean)
     });
   }
   for (const [index, goal] of goals) {

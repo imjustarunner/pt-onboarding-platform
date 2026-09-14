@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import {
   completionDateFromDurationMonths,
   durationLabel,
+  parseScalePair,
+  inferScaleDirection,
   isObjectiveScaleValid,
   DURATION_PRESETS,
   projectedDurationMonths,
@@ -31,4 +33,11 @@ describe('treatmentPlanDuration', () => {
     expect(isObjectiveScaleValid(9, 5)).toBe(true);
     expect(isObjectiveScaleValid(5, 5)).toBe(false);
   });
+});
+
+it('extracts stated ratings across anchors and competing time measurements', () => {
+  const pair = parseScalePair('Within 6 months, reduce time spent worrying from up to 2 hours daily to less than 30 minutes daily. The client currently rates their ability to manage worry as an 8 on a 10-point scale, where 10 represents constant, overwhelming worry and 1 represents full control over their thought process. The client will work to reduce this self-reported rating to a 3 or lower.');
+  expect(pair).toEqual({ scaleCurrent: 8, scaleTarget: 3 });
+  expect(inferScaleDirection(pair.scaleCurrent, pair.scaleTarget)).toBe('decrease');
+  expect(parseScalePair('Moving from a current self-rated 4 to a target of 8 on a 10-point scale.')).toEqual({ scaleCurrent: 4, scaleTarget: 8 });
 });

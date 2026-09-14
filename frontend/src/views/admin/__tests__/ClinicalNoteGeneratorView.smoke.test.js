@@ -84,13 +84,14 @@ describe('ClinicalNoteGeneratorView smoke', () => {
     await flushPromises();
     state.draftId = 42;
     state.chartDiagnoses = [{ id: 10, icd10_code: 'F41.1', is_primary: 1, justification: 'Old formulation.' }];
-    state.latestTreatmentPlan = { id: 4, primary_diagnosis_id: 10, diagnostic_justification: 'Old formulation.' };
+    state.latestTreatmentPlan = { id: 4, primary_diagnosis_id: 10, diagnostic_justification: 'Old formulation.', goals: [{ goal_text: 'Historical focus', objectives: [{ objective_text: 'Historical objective', interventions: ['Historical intervention'] }] }] };
     state.outputObj = { sections: {
       Diagnosis: 'F42.9 Updated synthetic diagnosis\nZ63.4 Synthetic context',
       'Diagnostic Justification': 'Updated formulation.',
       'Mental Status Examination': 'General Appearance: Appropriate\nMood: Euthymic\nOrientation: X3: Person, Place, and Time',
       'Risk Assessment': 'Patient denies all areas of risk. No contrary clinical indications present.',
       'Goal 1': 'Improve coping.', 'Objective 1.1': 'The current baseline is a 4, with a target of 8.',
+      'Interventions 1.1': 'Mindfulness Training\nCognitive Refocusing',
       'Projected Time 1': '6 months', 'Discharge Plan': 'Sustained independent coping.'
     }, meta: { toolId: 'clinical_90791_intake_plan' } };
     await nextTick();
@@ -104,7 +105,8 @@ describe('ClinicalNoteGeneratorView smoke', () => {
     await state.saveTreatmentPlanToChart();
     expect(state.showPlanImportReview).toBe(true);
     expect(state.planImportReviewMode).toBe('generated');
-    expect(state.planDraftInitialPlan.goals[0].objectives[0]).toMatchObject({ scaleCurrent: 4, scaleTarget: 8 });
+    expect(state.planDraftInitialPlan.goals[0].objectives[0]).toMatchObject({ scaleCurrent: 4, scaleTarget: 8, interventions: ['Mindfulness Training', 'Cognitive Refocusing'] });
+    expect(JSON.stringify(state.planDraftInitialPlan)).not.toContain('Historical');
     expect(state.planDraftInitialPlan.diagnoses[0].icd10Code).toBe('F42.9');
     expect(state.scoreChartPlan({ id: 12, status: 'active', source_tool_id: 'note_aid_intake_generated' })).toBeGreaterThan(state.scoreChartPlan({ id: 11, status: 'active', source_tool_id: 'note_aid_plan_import' }));
     expect(vi.mocked(api.post).mock.calls.some(([url]) => url === '/medical-billing/diagnoses')).toBe(false);

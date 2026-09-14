@@ -52,7 +52,7 @@ const SOAP_INLINE_HEADER_RE = new RegExp(
 
 /** Goal N / Objective N / Discharge / Projected Time — EHR paste + structured plan UI. */
 const TREATMENT_PLAN_HEADER_RE =
-  /^(?:\d+[\).\s-]*)?(?:\*\*)?(Treatment\s+Goal\s*(\d+)|Goal\s*(\d+)|Objective\s*(\d+(?:\.\d+)?)?|Projected\s*Time\s*(?:to\s*Completion)?(?:\s*\d+)?|Estimated\s*Completion|Discharge\s*Criteria(?:\s*\/\s*Planning)?|Discharge\s*Plan|Discharge|Prescribed\s*Frequency(?:\s+of\s+Treatment)?|Presenting\s*Problem|Diagnostic\s*Justification|Diagnos(?:is|es))(?:\*\*)?\s*(?::\s*(.*)|$)/i;
+  /^(?:\d+[\).\s-]*)?(?:\*\*)?(Treatment\s+Goal\s*(\d+)|Goal\s*(\d+)|Objective\s*(\d+(?:\.\d+)?)?|Interventions?\s*\d+\.\d+|Projected\s*Time\s*(?:to\s*Completion)?(?:\s*\d+)?|Estimated\s*Completion|Discharge\s*Criteria(?:\s*\/\s*Planning)?|Discharge\s*Plan|Discharge|Prescribed\s*Frequency(?:\s+of\s+Treatment)?|Presenting\s*Problem|Diagnostic\s*Justification|Diagnos(?:is|es))(?:\*\*)?\s*(?::\s*(.*)|$)/i;
 
 function normalizeSectionKey(title) {
   let t = String(title || '').trim().toLowerCase();
@@ -133,6 +133,12 @@ export function parseTreatmentPlanPanelsFromText(text) {
         index = Number(String(ref).split('.')[0]) || lastGoalIndex || 1;
         id = objRef ? `Objective ${objRef}` : `Objective ${index}`;
         title = id;
+      } else if (/^interventions?/i.test(lower)) {
+        kind = 'interventions';
+        const ref = label.match(/\d+\.\d+/)[0];
+        index = Number(ref.split('.')[0]);
+        id = `Interventions ${ref}`;
+        title = id;
       } else if (/^projected\s*time|^estimated\s+completion/i.test(lower)) {
         kind = 'projected_time';
         index = lastGoalIndex;
@@ -181,7 +187,7 @@ export function parseTreatmentPlanPanelsFromText(text) {
 export function buildTreatmentPlanPanels(sectionsObj) {
   const sections = sectionsObj && typeof sectionsObj === 'object' ? { ...sectionsObj } : {};
   const fromKeys = [];
-  const keyRe = /^(Goal|Objective|Projected\s*Time(?:\s*to\s*Completion)?|Discharge(?:\s*Plan)?)\s*(\d+(?:\.\d+)?)?$/i;
+  const keyRe = /^(Goal|Objective|Interventions?|Projected\s*Time(?:\s*to\s*Completion)?|Discharge(?:\s*Plan)?)\s*(\d+(?:\.\d+)?)?$/i;
   for (const [k, v] of Object.entries(sections)) {
     const m = String(k || '').trim().match(keyRe);
     if (!m) continue;
@@ -201,6 +207,10 @@ export function buildTreatmentPlanPanels(sectionsObj) {
       kind = 'objective';
       id = `Objective ${ref}`;
       title = id;
+    } else if (/^interventions?$/i.test(label) && ref?.includes('.')) {
+      kind = 'interventions';
+      id = `Interventions ${ref}`;
+      title = id;
     } else if (/^projected/i.test(label)) {
       kind = 'projected_time';
       id = num != null ? `Projected Time ${num}` : 'Projected Time';
@@ -218,7 +228,12 @@ export function buildTreatmentPlanPanels(sectionsObj) {
       const ai = a.index ?? (a.kind === 'discharge' ? 999 : 0);
       const bi = b.index ?? (b.kind === 'discharge' ? 999 : 0);
       if (ai !== bi) return ai - bi;
-      const order = { goal: 0, objective: 1, projected_time: 2, discharge: 3, intro: -1, other: 4 };
+      const objectiveKinds = ['objective', 'interventions'];
+      if (objectiveKinds.includes(a.kind) && objectiveKinds.includes(b.kind)) {
+        const objectiveNumber = (panel) => Number(panel.id.match(/\.(\d+)$/)?.[1] || 0);
+        return objectiveNumber(a) - objectiveNumber(b) || (a.kind === b.kind ? 0 : a.kind === 'objective' ? -1 : 1);
+      }
+      const order = { goal: 0, objective: 1, interventions: 1, projected_time: 2, discharge: 3, intro: -1, other: 4 };
       return (order[a.kind] ?? 9) - (order[b.kind] ?? 9);
     });
     return fromKeys;

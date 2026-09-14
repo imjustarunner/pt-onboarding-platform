@@ -1383,7 +1383,7 @@ export const generateClinicalNote = async (req, res, next) => {
       prompt = [
         prompt,
         '',
-        'Client treatment plan context (goals/objectives; use to inform challenges and focus — do not invent scales):',
+        'Previous chart treatment plan context (historical goals/objectives). For intake, re-intake or a revised treatment plan, the current assessment, revised diagnosis and clinician corrections take precedence. Reassess relevance before retaining prior goals or interventions; do not invent scales:',
         scrubbedTreatmentPlanContext
       ].join('\n');
     }

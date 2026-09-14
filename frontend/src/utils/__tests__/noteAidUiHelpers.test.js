@@ -197,3 +197,11 @@ describe('noteAidUiHelpers', () => {
   });
 
 });
+
+it('shows numbered interventions beside their own objectives in generated and pasted plans', () => {
+  const sections = { 'Goal 1': 'Coping', 'Objective 1.1': 'First objective', 'Objective 1.2': 'Second objective', 'Interventions 1.2': 'Active Listening', 'Interventions 1.1': 'Mindfulness Training', 'Projected Time 1': '6 months' };
+  expect(buildTreatmentPlanPanels(sections).map((p) => p.id)).toEqual(['Goal 1', 'Objective 1.1', 'Interventions 1.1', 'Objective 1.2', 'Interventions 1.2', 'Projected Time 1']);
+  const panels = parseTreatmentPlanPanelsFromText('Goal 1:\nCoping\nObjective 1.1:\nFirst objective\nInterventions 1.1:\nMindfulness Training\nProjected Time 1:\n6 months');
+  expect(panels.find((p) => p.id === 'Objective 1.1').text).toBe('First objective');
+  expect(panels.find((p) => p.id === 'Interventions 1.1').text).toBe('Mindfulness Training');
+});

@@ -207,16 +207,12 @@
                 <p v-if="o.suggestedInterventions.length">Suggested interventions: {{ o.suggestedInterventions.join(', ') }}</p>
                 <button type="button" class="na-btn-outline" @click="if (o.suggestedObjective) o.objectiveText = o.suggestedObjective; o.interventions = [...new Set([...o.interventions, ...o.suggestedInterventions])]; o.renewalRecommendation = ''">Accept suggested changes</button>
               </div>
-              <label class="na-label">
-                Interventions for this objective
-                <textarea
-                  :value="(o.interventions || []).join('\n')"
-                  class="na-textarea"
-                  rows="3"
-                  placeholder="One intervention per line (copied from the plan)"
-                  @input="setObjectiveInterventions(o, $event.target.value)"
-                />
-              </label>
+              <NoteAidInterventionPicker
+                v-model="o.interventions"
+                :agency-id="agencyId"
+                :options="interventionOptions"
+                @catalog-updated="catalogNames = $event"
+              />
               <div class="na-import-obj-actions">
                 <span class="muted tiny na-scale-hint">{{ directionHint(o) }}</span>
                 <button type="button" class="na-link-btn" @click="g.objectives.splice(oi, 1)">Remove</button>
@@ -341,6 +337,8 @@
 <script setup>
 import { computed, reactive, ref, watch } from 'vue';
 import api from '../../services/api';
+import NoteAidInterventionPicker from './NoteAidInterventionPicker.vue';
+import { CLINICAL_INTERVENTION_SEED } from '../../config/clinicalInterventionSeed.js';
 import {
   DURATION_PRESETS,
   DEFAULT_MEASUREMENT_METHOD,
@@ -387,6 +385,19 @@ const durationPresets = DURATION_PRESETS;
 const loadedPlanId = ref(null);
 const aiContentUsed = ref(false);
 const attestAiReviewed = ref(false);
+
+const catalogNames = ref([]);
+const interventionOptions = computed(() => [...new Set([...CLINICAL_INTERVENTION_SEED, ...catalogNames.value])]);
+let catalogLoadSequence = 0;
+watch(() => [props.open, props.agencyId], async ([open, agencyId]) => {
+  const sequence = ++catalogLoadSequence;
+  catalogNames.value = [];
+  if (!open || !Number(agencyId)) return;
+  try {
+    const result = await api.get('/medical-billing/interventions', { params: { agencyId: Number(agencyId) }, skipGlobalLoading: true });
+    if (sequence === catalogLoadSequence) catalogNames.value = Array.isArray(result?.data?.all) ? result.data.all : [];
+  } catch { /* Default catalog remains selectable when the catalog cannot be loaded. */ }
+}, { immediate: true });
 
 function todayIsoDate() {
   return new Date().toISOString().slice(0, 10);
@@ -580,14 +591,6 @@ function addGoal() {
     projectedCompletion: null,
     objectives: []
   });
-}
-
-function setObjectiveInterventions(o, raw) {
-  if (!o) return;
-  o.interventions = String(raw || '')
-    .split(/\n|,/)
-    .map((s) => s.replace(/;\s*Modality\s*:.*$/i, '').trim())
-    .filter(Boolean);
 }
 
 function addObjective(gi) {

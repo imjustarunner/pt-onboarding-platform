@@ -20,7 +20,7 @@ describe('generated intake integration', () => {
       'Goal 1': 'Improve coping.',
       'Objective 1.2': 'Current baseline is a 2, with a target of 7.',
       'Objective 1.1': 'Current baseline is a 4, with a target of 8.',
-      'Interventions 1.1': 'Skills rehearsal; Psychoeducation',
+      'Interventions 1.1': '- Skills rehearsal, Psychoeducation',
       'Projected Time 1': '6 months',
       'Discharge Plan': 'Sustained independent coping.'
     };
