@@ -53,6 +53,30 @@ describe('ClinicalNoteGeneratorView smoke', () => {
     return { wrapper, state };
   }
 
+  it('edits projected time with a dropdown and synchronizes only that goal’s objective deadlines', async () => {
+    const { wrapper, state } = await workspace('90791_intake_plan');
+    state.initials = 'TEST';
+    state.outputObj = { sections: {
+      'Goal 1': 'Improve coping.', 'Objective 1.1': 'Within 3 months, practice coping 4 days weekly.',
+      'Objective 1.2': 'Within 3 months, improve emotional regulation.', 'Projected Time 1': '4 months',
+      'Goal 2': 'Improve communication.', 'Objective 2.1': 'Within 6 months, practice communication.', 'Projected Time 2': '6 months'
+    }, meta: { toolId: 'clinical_90791_intake_plan' } };
+    await nextTick();
+    state.toggleSectionEdit('Projected Time 1');
+    await nextTick();
+    const select = wrapper.find('select[aria-label="Projected Time 1 completion timeframe"]');
+    expect(select.exists()).toBe(true);
+    expect(select.findAll('option').map((o) => o.text())).toContain('2 months');
+    expect(select.findAll('option').map((o) => o.text())).toContain('8 months');
+    await select.setValue('8');
+    expect(state.sectionOverrides['Projected Time 1']).toBe('8 months');
+    expect(state.sectionOverrides['Objective 1.1']).toBe('Within 8 months, practice coping 4 days weekly.');
+    expect(state.sectionOverrides['Objective 1.2']).toContain('Within 8 months');
+    expect(state.sectionOverrides['Objective 2.1']).toBeUndefined();
+    expect(Object.fromEntries(state.mergedSectionEntries)['Projected Time 1']).toBe('8 months');
+    wrapper.unmount();
+  });
+
   it('integrates regenerated intake fields, applies diagnoses, and restores reviewed assessments from a draft', async () => {
     const { wrapper, state } = await workspace('90791_intake_plan');
     state.selectedClientId = 202;

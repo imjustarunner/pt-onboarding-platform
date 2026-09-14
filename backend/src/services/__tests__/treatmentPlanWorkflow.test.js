@@ -44,6 +44,8 @@ test('AI renewal request preserves local plan and attaches reviewable recommenda
     assert.ok(!prompt.includes('SyntheticName'));
     assert.ok(!prompt.includes('77881'));
     assert.ok(prompt.includes('mentions lack of change'));
+    assert.ok(prompt.includes('TREATMENT-PLAN TIMEFRAME GUIDANCE'));
+    assert.ok(prompt.includes('preserve the existing deadline'));
     return { text: JSON.stringify({ recommendation: 'Review barriers and consider practicing communication in session.', suggestedObjective: 'Practice communication strategies.', interventions: ['Communication rehearsal'] }) };
   } });
   assert.equal(result.proposed.goals[0].objectives[0].objectiveText, privatePlan.goals[0].objectives[0].objective_text);

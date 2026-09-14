@@ -9,6 +9,15 @@ import {
   isTreatmentPlanToolId
 } from '../clinicalNotePlanOutput.js';
 import { CLINICAL_NOTE_AGENT_TOOLS } from '../clinicalNoteAgentTools.js';
+import { TREATMENT_PLAN_TIMEFRAME_INSTRUCTIONS } from '../treatmentPlanTimeframe.js';
+
+test('intake and standalone plan routes receive the same timeframe guidance', () => {
+  for (const tool of CLINICAL_NOTE_AGENT_TOOLS.filter((tool) =>
+    isTreatmentPlanToolId(tool.id)
+  )) {
+    assert.ok(tool.outputInstructions.includes(TREATMENT_PLAN_TIMEFRAME_INSTRUCTIONS), tool.id);
+  }
+});
 
 test('H0004 and 90837 share the same SOIP output instructions', () => {
   assert.equal(isSoipProgressNoteToolId('clinical_h0004_note'), true);

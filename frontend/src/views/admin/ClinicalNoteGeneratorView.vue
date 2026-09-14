@@ -1119,8 +1119,16 @@
                 </span>
               </div>
               <div v-show="!isPanelCollapsed(panel.id)" class="na-soap-body">
+                <label v-if="sectionEditing[panel.id] && panel.kind === 'projected_time'" class="na-label">
+                  Completion timeframe
+                  <select class="na-input" :aria-label="`${panel.title} completion timeframe`" :value="projectedDurationMonths(panelText(panel)) || ''" @change="setProjectedTime(panel, $event.target.value)">
+                    <option value="" disabled>Select timeframe…</option>
+                    <option v-for="months in DURATION_PRESETS" :key="months" :value="months">{{ durationLabel(months) }}</option>
+                  </select>
+                  <small>Updates this goal’s objective completion deadlines.</small>
+                </label>
                 <textarea
-                  v-if="sectionEditing[panel.id]"
+                  v-else-if="sectionEditing[panel.id]"
                   v-model="sectionOverrides[panel.id]"
                   class="na-textarea"
                   rows="6"
@@ -1550,6 +1558,7 @@
 </template>
 
 <script setup>
+import { DURATION_PRESETS, durationLabel, projectedDurationMonths, setObjectiveCompletionTime } from '../../utils/treatmentPlanDuration';
 import { intakeSection, intakeDiagnoses, intakeAssessments, mergeGeneratedAssessment, generatedTreatmentPlan, intakeSectionsForRecord } from '../../utils/noteAidIntakeIntegration';
 import { splitTreatmentPlanSections } from '../../utils/treatmentPlanSections.js';
 import { DEFAULT_RENEWAL_POLICY, treatmentPlanRenewalStatus } from '../../utils/treatmentPlanRenewal.js';
@@ -4821,6 +4830,20 @@ const panelText = (panel) => {
   }
   return panel?.text || '';
 };
+
+function setProjectedTime(panel, value) {
+  const months = Number(value);
+  if (!DURATION_PRESETS.includes(months) || chartNoteReadOnly.value) return;
+  const label = durationLabel(months);
+  sectionOverrides[panel.sourceKey || panel.id] = label;
+  sectionOverrides[panel.id] = label;
+  for (const objective of displayPanels.value.filter((p) => p.kind === 'objective' && p.index === panel.index)) {
+    const text = setObjectiveCompletionTime(panelText(objective), months);
+    sectionOverrides[objective.sourceKey || objective.id] = text;
+    sectionOverrides[objective.id] = text;
+  }
+  scheduleAutosave(600);
+}
 
 const isPanelCollapsed = (id) => {
   if (collapseAllSections.value) return true;

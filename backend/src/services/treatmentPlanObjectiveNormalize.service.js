@@ -1,3 +1,4 @@
+import { TREATMENT_PLAN_TIMEFRAME_INSTRUCTIONS } from '../config/treatmentPlanTimeframe.js';
 import { callGeminiText } from './geminiText.service.js';
 import {
   inferScaleDirection,
@@ -142,6 +143,8 @@ export async function suggestObjectiveScaleRewrite(objectiveText, { clinicianIns
   const instructions = String(clinicianInstructions || '').trim();
 
   const prompt = `You are a clinical treatment plan editor. Rewrite the treatment plan objective below so progress is measured on a 1–10 scale only, with explicit integer current and target ratings (each between 1 and 10, and they must differ).
+
+${TREATMENT_PLAN_TIMEFRAME_INSTRUCTIONS}
 
 Rules:
 - The rewritten objective should be one or two clear sentences.

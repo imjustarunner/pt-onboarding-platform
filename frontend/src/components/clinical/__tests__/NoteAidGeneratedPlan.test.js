@@ -16,6 +16,9 @@ it('reviews generated objective scores and persists an intake-generated plan wit
   await flushPromises();
   const state = wrapper.vm.$.setupState;
   expect(state.model.goals[0].objectives[0]).toMatchObject({ scaleCurrent: 4, scaleTarget: 8, scaleDirection: 'increase' });
+  state.model.goals[0].durationMonths = 8;
+  state.onGoalDurationChange(state.model.goals[0]);
+  expect(state.model.goals[0].objectives[0].objectiveText).toContain('Within 8 months');
   expect(state.aiContentUsed).toBe(true);
   await state.save({ finalize: true });
   expect(api.post).not.toHaveBeenCalled();
@@ -25,7 +28,7 @@ it('reviews generated objective scores and persists an intake-generated plan wit
   expect(api.post).toHaveBeenCalledWith('/medical-billing/treatment-plans', expect.objectContaining({
     title: 'Intake-generated Treatment Plan', sourceToolId: 'note_aid_intake_generated', effectiveDate: '2026-08-20',
     status: 'active', diagnoses: [expect.objectContaining({ icd10Code: 'F42.9', justification: 'Updated formulation.' })],
-    goals: [expect.objectContaining({ projectedCompletion: '2027-02-20', objectives: [expect.objectContaining({ scaleCurrent: 4, scaleTarget: 8, interventions: ['Skills rehearsal'] })] })]
+    goals: [expect.objectContaining({ projectedCompletion: '2027-04-20', objectives: [expect.objectContaining({ objectiveText: expect.stringContaining('Within 8 months'), scaleCurrent: 4, scaleTarget: 8, interventions: ['Skills rehearsal'] })] })]
   }));
   expect(wrapper.emitted('saved')[0][0].id).toBe(55);
   wrapper.unmount();

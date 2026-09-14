@@ -1,0 +1,11 @@
+/** Practice drafting preferences, not a universal treatment-duration standard. */
+export const TREATMENT_PLAN_TIMEFRAME_INSTRUCTIONS = [
+  'TREATMENT-PLAN TIMEFRAME GUIDANCE (practice drafting defaults):',
+  'Choose a proposed completion timeframe from the documented severity, functional impairment, persistence of difficulties, treatment response, supports, and barriers. Do not infer severity from a diagnosis or a raw 1–10 rating alone; interpret the stated scale anchors and functional evidence.',
+  'Most goals should use 3–6 months. For higher-functioning clients with limited impairment and focused needs, consider approximately 2 months. For more severe or persistent impairment and greater treatment needs, consider approximately 8 months.',
+  'These are planning estimates for provider review, not promises of recovery or rigid limits. Honor an explicit clinician-selected timeframe. When evidence is limited, propose a timeframe within the usual 3–6 month range and acknowledge uncertainty without inventing severity or history.',
+  'Select the timeframe before drafting the objective. The completion deadline in each objective and its associated Projected Time to Completion must agree. Never independently assign conflicting durations, such as Within 3 months in the objective and 4 months in its projected-time field.',
+  'For multiple objectives under one goal, use a consistent goal completion horizon; label any intentionally earlier intermediate milestones explicitly. Before returning the plan, cross-check every objective deadline against its projected timeframe and correct discrepancies.',
+  'For structured output, keep durationMonths and projectedCompletion consistent with the narrative, anchored to the plan effective date. Goal completion timeframes are separate from the agency’s treatment-plan renewal/review interval; a 90-day review requirement does not imply that all goals must be completed in 90 days.',
+  'When revising a single objective without its goal timeframe, preserve the existing deadline. If a different timeframe is warranted, explain it as a proposed coordinated change to the objective and goal in the recommendation, rather than silently changing only one field.'
+].join('\n');

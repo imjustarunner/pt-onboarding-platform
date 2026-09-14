@@ -1,8 +1,27 @@
 /** @typedef {{ months: number, label: string }} DurationParse */
 
-const DURATION_PRESETS = [1, 2, 3, 4, 6, 9, 12, 18, 24];
+const DURATION_PRESETS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 18, 24, 36];
 
 export { DURATION_PRESETS };
+
+export function projectedDurationMonths(text) {
+  const match = String(text || '').trim().match(/^(\d{1,2})\s*months?\.?$/i);
+  const months = Number(match?.[1]);
+  return months >= 1 && months <= 36 ? months : null;
+}
+
+/** Change the completion deadline, preserving measurement periods and later milestones. */
+export function setObjectiveCompletionTime(text, months) {
+  const duration = durationLabel(months);
+  const source = String(text || '').trim();
+  if (!duration || !source || source === 'Write this section…') return source;
+  const firstSentenceEnd = source.search(/[.!?](?:\s|$)/);
+  const first = firstSentenceEnd < 0 ? source : source.slice(0, firstSentenceEnd);
+  const rest = firstSentenceEnd < 0 ? '' : source.slice(firstSentenceEnd);
+  const deadline = /\b(?:within|over(?: the next)?|in(?: the next)?|by)\s+(?:\d+(?:\.\d+)?|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\s*(?:months?|weeks?|days?|years?)\b/i;
+  if (deadline.test(first)) return first.replace(deadline, `Within ${duration}`) + rest;
+  return `Within ${duration}, ${source}`;
+}
 
 /**
  * @param {number|null|undefined} months

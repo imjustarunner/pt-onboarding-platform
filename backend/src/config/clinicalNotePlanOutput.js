@@ -1,3 +1,5 @@
+import { TREATMENT_PLAN_TIMEFRAME_INSTRUCTIONS } from './treatmentPlanTimeframe.js';
+
 /**
  * Shared Note Aid output contracts.
  *
@@ -95,7 +97,8 @@ export const INTAKE_PLAN_OUTPUT_INSTRUCTIONS = [
   INTAKE_OUTPUT_INSTRUCTIONS,
   'Only if the clinician explicitly requests a treatment plan in this submission, append it AFTER all intake sections.',
   'For that appended plan, use Goal 1:, Objective 1.1:, Projected Time to Completion 1: and additional numbered goals/objectives as clinically supported, ending with Discharge Plan:.',
-  'Use SMART objectives with a 1–10 scale, baseline, target, anchor definitions, and measurement method when provided. Mark missing measurements for clinician assessment instead of inventing numbers.'
+  'Use SMART objectives with a 1–10 scale, baseline, target, anchor definitions, and measurement method when provided. Mark missing measurements for clinician assessment instead of inventing numbers.',
+  TREATMENT_PLAN_TIMEFRAME_INSTRUCTIONS
 ].join('\n');
 
 /**
@@ -147,6 +150,7 @@ export const TREATMENT_PLAN_OUTPUT_INSTRUCTIONS = [
   'Every Objective MUST include: current baseline level, target level, what level 1 and level 10 look like for that objective, and how progress is measured (self-report, family report, school report, and/or clinical observation as applicable).',
   'Preferred scale phrasing: "from a current baseline level 7 to a level 3 or below on a 1–10 scale. On this rating scale, a level 10 represents …, whereas a level 1 represents …".',
   'Projected Time to Completion should be a duration in months (e.g. "3 months") when possible.',
+  TREATMENT_PLAN_TIMEFRAME_INSTRUCTIONS,
   'Use the clinician transcript in full: include specific details, quotes, and functional examples rather than generic summaries.',
   'When updating an existing plan, also include Diagnosis: and Diagnostic Justification: before Goal 1.'
 ].join('\n');
@@ -156,6 +160,7 @@ export const TREATMENT_PLAN_OUTPUT_INSTRUCTIONS = [
  * keep unique writing directions but share form and scale rules with paste import.
  */
 export const TREATMENT_PLAN_STRUCTURE_CONTRACT = [
+  TREATMENT_PLAN_TIMEFRAME_INSTRUCTIONS,
   'MACHINE OUTPUT CONTRACT (overrides conflicting outline headings in the style guide above):',
   'Emit ONLY these headers (each on its own line): Goal 1:, Objective 1.1:, Projected Time to Completion 1:, Goal 2:, Objective 2.1:, Projected Time to Completion 2:, Goal 3:, Objective 3.1:, Projected Time to Completion 3:, Discharge Plan:.',
   'When updating, also include Diagnosis: and Diagnostic Justification: before Goal 1.',

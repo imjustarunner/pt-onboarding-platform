@@ -556,6 +556,12 @@ After completing the intake note, the AI will say:
 If you respond “Yes,” the AI will continue to Step 2.
 If you respond “No,” the AI will stop and await further input.
 STEP 2 — TREATMENT PLAN DEVELOPMENT
+Treatment-plan timeframe guidance (practice drafting defaults; applies to new plans and updates)
+Select a proposed completion timeframe from documented symptom severity, functional impairment, persistence, treatment response, supports, and barriers. A diagnosis or raw rating alone does not establish severity; interpret the scale anchors and functional evidence.
+Most goals should use 3–6 months. Consider approximately 2 months for higher-functioning clients with limited impairment and focused needs, and approximately 8 months for more severe or persistent impairment and greater treatment needs. These are planning estimates for provider review, not promises of recovery or rigid limits. Honor an explicit clinician-selected timeframe. With limited evidence, propose a timeframe in the usual 3–6 month range and acknowledge uncertainty without inventing clinical facts.
+Choose the timeframe before writing the objective. The objective's completion deadline and its Projected Time to Completion must agree. Cross-check every objective and projected timeframe before returning the plan and correct discrepancies automatically. Under a goal with multiple objectives, use a consistent completion horizon and explicitly label any intentionally earlier intermediate milestones.
+Keep structured durationMonths and projectedCompletion aligned with the narrative and anchored to the plan effective date. The agency's renewal/review interval is separate from goal completion; a 90-day review does not mean every goal must be completed in 90 days.
+When rewriting one objective without its goal timeframe, preserve the existing deadline. Explain any warranted change as a proposed coordinated update to both the objective and goal timeframe, rather than changing only one field.
 Purpose
 Create or update a treatment plan based on the intake findings.
 If no prior plan exists:

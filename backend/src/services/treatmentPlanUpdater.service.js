@@ -1,3 +1,4 @@
+import { TREATMENT_PLAN_TIMEFRAME_INSTRUCTIONS } from '../config/treatmentPlanTimeframe.js';
 import clinicalPool from '../config/clinicalDatabase.js';
 import { callGeminiText } from './geminiText.service.js';
 import { maybeDecryptNotePayload } from './clinicalNoteCrypto.service.js';
@@ -31,7 +32,9 @@ export async function proposeTreatmentPlanUpdate({ agencyId, clientId, currentPl
   const objectives = [];
   // Batch by objective so every objective and the full sequence of associated ratings is considered.
   for (const objective of context.objectives) {
-    const result = await generate({ prompt: `Recommend a treatment-plan renewal for this anonymous objective using the complete ordered rating history and session themes. Source text and identifying information are intentionally excluded. Compare distance to target over time. Suggest retaining effective work, revising interventions when progress stalls, or a new focus when supported. Distinguish lack of ratings from lack of progress. Session themes are keyword mentions, not verified facts or proof of causation; do not infer findings from them. Preserve unknown scores; never invent a baseline. Explain evidence and uncertainty. Return JSON {"recommendation":"...","suggestedObjective":"optional revised objective in general clinical language","interventions":["..."],"clientQuestion":"a natural 1–10 question","otherQuestion":"a third-person 1–10 question"}.\n${JSON.stringify({ objective, sessions: context.sessions, providerRequestedThemes: context.providerRequestedThemes })}`, temperature: 0.2, maxOutputTokens: 2000 });
+    const result = await generate({ prompt: `Recommend a treatment-plan renewal for this anonymous objective using the complete ordered rating history and session themes. Source text and identifying information are intentionally excluded. Compare distance to target over time. Suggest retaining effective work, revising interventions when progress stalls, or a new focus when supported. Distinguish lack of ratings from lack of progress. Session themes are keyword mentions, not verified facts or proof of causation; do not infer findings from them. Preserve unknown scores; never invent a baseline. Explain evidence and uncertainty.
+${TREATMENT_PLAN_TIMEFRAME_INSTRUCTIONS}
+Return JSON {"recommendation":"...","suggestedObjective":"optional revised objective in general clinical language","interventions":["..."],"clientQuestion":"a natural 1–10 question","otherQuestion":"a third-person 1–10 question"}.\n${JSON.stringify({ objective, sessions: context.sessions, providerRequestedThemes: context.providerRequestedThemes })}`, temperature: 0.2, maxOutputTokens: 2000 });
     const response = JSON.parse(String(result.text).replace(/^```(?:json)?\s*|\s*```$/g, ''));
     objectives.push({ ref: objective.ref, ...response });
   }

@@ -158,13 +158,13 @@
             <div class="na-import-row na-import-row--goal-meta">
               <label class="na-label na-label--inline">
                 Duration
-                <select v-model.number="g.durationMonths" class="na-input na-input--duration" @change="syncGoalCompletion(g)">
+                <select v-model.number="g.durationMonths" class="na-input na-input--duration" @change="onGoalDurationChange(g)">
                   <option :value="null">Select…</option>
                   <option v-for="m in durationPresets" :key="`g-${gi}-d-${m}`" :value="m">{{ durationLabel(m) }}</option>
                 </select>
               </label>
               <span v-if="g.durationMonths" class="na-duration-preview">
-                Target date: {{ formatDurationPreview(g.durationMonths) }}
+                Target date: {{ formatDurationPreview(g.durationMonths, model.effectiveDate) }}
               </span>
               <span v-else-if="g.parsedDateHint" class="na-duration-hint muted tiny">
                 Paste had date {{ g.parsedDateHint }} — pick a duration instead
@@ -349,7 +349,8 @@ import {
   formatDurationPreview,
   isObjectiveScaleValid,
   parseScalePair,
-  inferScaleDirection
+  inferScaleDirection,
+  setObjectiveCompletionTime
 } from '../../utils/treatmentPlanDuration.js';
 
 const props = defineProps({
@@ -448,12 +449,20 @@ function syncGoalCompletion(goal) {
   goal.durationLabel = months >= 1 ? durationLabel(months) : null;
 }
 
+function onGoalDurationChange(goal) {
+  syncGoalCompletion(goal);
+  if (!Number(goal.durationMonths)) return;
+  for (const objective of goal.objectives || []) {
+    objective.objectiveText = setObjectiveCompletionTime(objective.objectiveText, goal.durationMonths);
+  }
+}
+
 function applyDurationToAll() {
   const months = Number(bulkDurationMonths.value);
   if (!months || !model.value?.goals?.length) return;
   for (const g of model.value.goals) {
     g.durationMonths = months;
-    syncGoalCompletion(g);
+    onGoalDurationChange(g);
   }
 }
 
