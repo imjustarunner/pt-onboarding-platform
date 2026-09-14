@@ -48,7 +48,7 @@
           <div>
             <h3>{{ pkg.name }}</h3>
             <p class="meta">
-              {{ pkg.sessionCount }} sessions · {{ formatMoney(pkg.priceCents) }}
+              {{ pkg.sessionCount }} sessions · {{ pkg.domainConfig?.pricing?.mode==='provider-discount' ? `${pkg.domainConfig.pricing.discountPercent}% off provider hourly fee` : formatMoney(pkg.priceCents) }}
               · {{ pkg.businessType }}
               · {{ pkg.packageType }}
             </p>
@@ -74,7 +74,7 @@
         </div>
         <div v-if="pkg.isPublic" class="preview">
           <strong>Guardian preview:</strong>
-          {{ pkg.name }} — {{ pkg.sessionCount }} sessions for {{ formatMoney(pkg.priceCents) }}
+          {{ pkg.name }} — {{ pkg.sessionCount }} sessions for {{ pkg.domainConfig?.pricing?.mode==='provider-discount' ? `${pkg.domainConfig.pricing.discountPercent}% off provider hourly fee` : formatMoney(pkg.priceCents) }}
         </div>
       </div>
       <p v-if="!filteredPackages.length" class="muted">No packages yet. Create your first package.</p>
@@ -118,9 +118,11 @@
 
         <div class="row2">
           <label># of sessions<input v-model.number="form.sessionCount" type="number" min="1" /></label>
-          <label>List price ($)<input v-model.number="form.priceDollars" type="number" min="0" step="0.01" /></label>
+          <label v-if="form.pricingMode==='fixed'">List price ($)<input v-model.number="form.priceDollars" type="number" min="0" step="0.01" /></label>
         </div>
 
+        <label>Pricing<select v-model="form.pricingMode"><option value="fixed">Fixed package total</option><option value="provider-discount">Discount from provider hourly fee</option></select></label>
+        <div v-if="form.pricingMode==='provider-discount'" class="row2"><label>Discount (%)<input v-model.number="form.discountPercent" type="number" min="0" max="100" step="0.1" /></label><label>Minutes per session<input v-model.number="form.minutes" type="number" min="15" max="480" /></label><label>Format<select v-model="form.format"><option value="virtual">Virtual</option><option value="in-person">In person</option><option value="small-group">Small group</option></select></label><p>The selected provider’s hourly client fee determines the total. Employee pay stays unchanged. The purchase is tied to that provider, service and session duration.</p></div>
         <div class="row2">
           <label>Included free misses<input v-model.number="form.freeMisses" type="number" min="0" max="10000" /></label>
           <label>Bonus sessions<input v-model.number="form.bonusSessions" type="number" min="0" max="10000" /></label>
@@ -173,7 +175,7 @@
           <label>Cancel notice (hours)<input v-model.number="form.cancelHours" type="number" min="0" /></label>
           <label>Expire after (days)<input v-model.number="form.expirationDays" type="number" min="0" placeholder="optional" /></label>
         </div>
-        <label>Late cancel / no-show
+        <label>Late cancellation
           <select v-model="form.latePolicy">
             <option value="forfeit">Use free miss, then bonus, then paid credit</option>
             <option value="free_rebook">Retain session credit</option>
@@ -181,7 +183,8 @@
           </select>
         </label>
 
-        <label v-if="form.latePolicy === 'fee'">Missed-appointment fee ($)<input v-model.number="form.missedFeeDollars" type="number" min="0.01" step="0.01" /></label>
+        <label>No-show<select v-model="form.noShowPolicy"><option value="forfeit">Use free miss, then bonus, then paid credit</option><option value="free_rebook">Retain session credit</option><option value="fee">Charge fee; retain credit</option></select></label>
+        <label v-if="form.latePolicy === 'fee' || form.noShowPolicy === 'fee'">Missed-appointment fee ($)<input v-model.number="form.missedFeeDollars" type="number" min="0.01" step="0.01" /></label>
         <div class="toggles">
           <label><input v-model="form.isPublic" type="checkbox" /> Show in guardian / public catalog</label>
           <label><input v-model="form.autoEnrollSubject" type="checkbox" /> Auto-enroll tutoring subject on purchase</label>
@@ -191,7 +194,7 @@
         <div v-if="form.isPublic" class="preview-box">
           <strong>Guardian sees:</strong>
           <div>{{ form.name || 'Package name' }}</div>
-          <div class="muted">{{ form.sessionCount || 0 }} sessions · {{ formatMoney((form.priceDollars || 0) * 100) }}</div>
+          <div class="muted">{{ form.sessionCount || 0 }} sessions · {{ form.pricingMode==='provider-discount'?`${form.discountPercent}% off provider hourly fee`:formatMoney((form.priceDollars || 0) * 100) }}</div>
         </div>
 
         <p v-if="saveError" class="err">{{ saveError }}</p>
@@ -244,13 +247,13 @@ const blankForm = () => ({
   freeMisses: 0,
   bonusSessions: 0,
   missedFeeDollars: 0,
-  priceDollars: 0,
+  priceDollars: 0, pricingMode:'fixed', discountPercent:10, minutes:60, format:'virtual', existingDomainConfig:{}, existingPolicies:{},
   consumeOn: 'reserve',
   deliveryMode: '1:1',
   billingMode: 'pay_in_full',
   cancelHours: 24,
   expirationDays: null,
-  latePolicy: 'forfeit',
+  latePolicy: 'forfeit',noShowPolicy:'forfeit',
   isPublic: true,
   autoEnrollSubject: true,
   isActive: true,
@@ -368,13 +371,13 @@ function edit(pkg) {
     freeMisses: pkg.policies?.freeMisses || 0,
     bonusSessions: pkg.policies?.bonusSessions || 0,
     missedFeeDollars: Number(pkg.policies?.missedFeeCents || 0) / 100,
-    priceDollars: (pkg.priceCents || 0) / 100,
+    priceDollars: (pkg.priceCents || 0) / 100, pricingMode:pkg.domainConfig?.pricing?.mode||'fixed', discountPercent:pkg.domainConfig?.pricing?.discountPercent??10, minutes:pkg.domainConfig?.pricing?.minutes??60, format:pkg.domainConfig?.pricing?.format||'virtual', existingDomainConfig:pkg.domainConfig||{}, existingPolicies:pkg.policies||{},
     consumeOn: pkg.consumeOn || 'reserve',
     deliveryMode: pkg.domainConfig?.deliveryMode || '1:1',
     billingMode: (pkg.billingOptions?.modes || ['pay_in_full'])[0] || 'pay_in_full',
     cancelHours: pkg.policies?.cancellationNoticeHours ?? 24,
     expirationDays: pkg.policies?.expirationDays ?? null,
-    latePolicy: pkg.policies?.lateCancelPolicy || 'forfeit',
+    latePolicy: pkg.policies?.lateCancelPolicy || 'forfeit',noShowPolicy:pkg.policies?.noShowPolicy||'forfeit',
     isPublic: !!pkg.isPublic,
     autoEnrollSubject: pkg.domainConfig?.autoEnrollSubject !== false,
     isActive: !!pkg.isActive,
@@ -421,16 +424,19 @@ function buildPayload() {
       subscriptionInterval: null
     },
     policies: {
+      ...f.existingPolicies,
       freeMisses: Number(f.freeMisses || 0), bonusSessions: Number(f.bonusSessions || 0),
       cancellationNoticeHours: Number(f.cancelHours ?? 24),
       missedFeeCents: Math.round(Number(f.missedFeeDollars || 0) * 100),
       lateCancelPolicy: f.latePolicy,
-      noShowPolicy: f.latePolicy,
+      noShowPolicy: f.noShowPolicy,
       expirationDays: f.expirationDays ? Number(f.expirationDays) : null,
       rolloverAllowed: false
     },
     domainConfig: {
-      sessionMinutes: 60,
+      ...f.existingDomainConfig,
+      pricing:f.pricingMode==='provider-discount'?{mode:f.pricingMode,discountPercent:f.discountPercent,minutes:f.minutes,format:f.format}:{mode:'fixed'},
+      sessionMinutes: f.pricingMode==='provider-discount'?f.minutes:60,
       deliveryMode: f.deliveryMode,
       autoEnrollSubject: !!f.autoEnrollSubject,
       engagementType: f.businessType === 'coaching' ? 'coaching' : undefined

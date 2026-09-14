@@ -1,4 +1,4 @@
-import {normalizeLearningProfile, validateLearningCatalog, hourlyRate, pricePackage, matchesGrade, LEARNING_PROGRAMS} from '../services/learningCatalog.js';
+import {normalizeLearningProfile, validateLearningCatalog, hourlyRate, pricePackage, matchesGrade, publicLearningCatalog, LEARNING_PROGRAMS} from '../services/learningCatalog.js';
 import {publicAcceptance,uniquePublicFacets} from '../utils/publicProviderPresentation.js';
 import { createPublicProviderHoldService, holdError } from '../services/publicProviderHold.service.js';
 import pool from '../config/database.js';
@@ -2011,17 +2011,18 @@ async function readLearningCatalog(agencyId) {
 export async function getLearningCatalog(req,res,next) {
  try {const agency=await requireAgencyBySlug(res,req.params.agencySlug);if(!agency)return;
  const catalog=await readLearningCatalog(agency.id);
- if(req.route?.path?.endsWith('/manage')) return res.json({catalog});
+ if(req.route?.path?.endsWith('/manage')) {if(!['admin','super_admin'].includes(req.user?.role))return res.status(403).json({error:{message:'Administrator access is required for rates and compensation standards.'}});return res.json({catalog});}
  const providerId=Number(req.query.providerId||0);let tutoringProfile=null;
  if(req.query.providerId){
    if(!Number.isSafeInteger(providerId)||providerId<=0||!(await getEnrolledProviderIds(agency.id,'tutoring')).has(providerId))return res.status(404).json({error:{message:'Provider not found'}});
    tutoringProfile=await getTutoringProfile(providerId,agency.id);
  }
  const context=tutoringProfile?{tutoring:{providerId,profile:tutoringProfile.learning}}:{};
- res.json({catalog:{...catalog,packages:catalog.packages.filter(p=>p.published&&(!tutoringProfile||tutoringProfile.learning.programs.includes(p.program))).map(p=>pricePackage(catalog,p,context))}});
+ res.json({catalog:{...publicLearningCatalog(catalog),packages:catalog.packages.filter(p=>p.published&&(!tutoringProfile||tutoringProfile.learning.programs.includes(p.program))).map(p=>pricePackage(catalog,p,context))}});
  }catch(e){next(e);}
 }
 export async function saveLearningCatalog(req,res,next) {
+ if(!['admin','super_admin'].includes(req.user?.role))return res.status(403).json({error:{message:'Administrator access is required for rates and compensation standards.'}});
  try {const agency=await requireAgencyBySlug(res,req.params.agencySlug);if(!agency)return;
  const catalog=validateLearningCatalog(req.body);
  await pool.execute('INSERT INTO agency_learning_catalogs (agency_id,catalog_json) VALUES (?,?) ON DUPLICATE KEY UPDATE catalog_json=VALUES(catalog_json)',[agency.id,JSON.stringify(catalog)]);

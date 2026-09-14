@@ -1,3 +1,4 @@
+import {hourlyRate,normalizeLearningProfile} from './learningCatalog.js';
 import pool from '../config/database.js';
 import User from '../models/User.model.js';
 import TenantService from '../models/TenantService.model.js';
@@ -6,7 +7,11 @@ import { resolveEffectivePracticeCategories, serviceBusinessTypesForCategories }
 
 const fail = (message, status = 400) => Object.assign(new Error(message), { status });
 export async function assertSelfPayRateAccess(actor, agencyId, providerId = 0) {
-  if (!['admin', 'super_admin'].includes(actor?.role)) throw fail('Admin or superadmin access required', 403);
+  if (!['admin', 'super_admin'].includes(actor?.role)) {
+    const own=Number(providerId)>0&&Number(providerId)===Number(actor?.id);
+    const agencies=own?await User.getAgencies(actor.id):[];
+    if(!agencies.some(a=>Number(a.id)===Number(agencyId)&&['life_coach','consultant'].includes(a.organization_type||a.organizationType)))throw fail('Only administrators or the practitioner’s own coaching/consulting account can edit rates',403);
+  }
   if (!Number.isSafeInteger(Number(agencyId)) || Number(agencyId) < 1) throw fail('Invalid agency');
   if (actor.role !== 'super_admin' && !(await User.getAgencies(actor.id)).some(a => Number(a.id) === Number(agencyId))) {
     throw fail('Access denied for this agency', 403);
@@ -96,12 +101,19 @@ export function calculateSelfPayQuote({ rateCents, rateUnit = 'session', duratio
   return amount;
 }
 
-export async function resolveSelfPayQuote({ agencyId, providerId, service, durationMinutes }) {
+export async function resolveSelfPayQuote({ agencyId, providerId, service, durationMinutes, modality, learningFormat }) {
   if (!service) return null;
   const [rows] = await pool.execute(`SELECT rate_cents, rate_unit, provider_user_id FROM self_pay_service_rates
     WHERE agency_id = ? AND tenant_service_id = ? AND provider_user_id IN (0, ?) ORDER BY provider_user_id DESC`,
   [agencyId, service.id, providerId || 0]);
   const row = rows[0];
+  if(service.businessType==='tutoring'&&providerId&&!Number(row?.provider_user_id)){
+    const [profiles]=await pool.execute('SELECT t.learning_settings_json,c.catalog_json FROM provider_tutoring_profiles t LEFT JOIN agency_learning_catalogs c ON c.agency_id=t.agency_id WHERE t.agency_id=? AND t.user_id=?',[agencyId,providerId]);
+    const parse=v=>typeof v==='string'?JSON.parse(v):v||{};const entry=profiles[0];
+    const format=learningFormat||(String(modality||service.modality).toUpperCase()==='IN_PERSON'?'in-person':String(modality||service.modality).toUpperCase()==='TELEHEALTH'?'virtual':null);
+    const fee=entry&&format?hourlyRate(parse(entry.catalog_json),normalizeLearningProfile(parse(entry.learning_settings_json)),'tutoring',format):null;
+    if(fee!=null)return {amountCents:calculateSelfPayQuote({rateCents:fee,rateUnit:'hour',durationMinutes}),rateCents:fee,rateUnit:'hour',source:'learning-tier-or-override'};
+  }
   const rateCents = row ? Number(row.rate_cents) : service.priceCents;
   const rateUnit = row?.rate_unit || 'session';
   return { amountCents: calculateSelfPayQuote({ rateCents, rateUnit, durationMinutes }), rateCents, rateUnit,

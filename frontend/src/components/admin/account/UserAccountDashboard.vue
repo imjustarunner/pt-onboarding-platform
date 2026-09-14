@@ -374,11 +374,12 @@
             />
           </AccountDashboardCard>
 
+          <StaffLearningCompensation v-if="showAccountSection('compensation-level')" :agency-id="agencyId" :user-id="userId" />
           <!-- Compensation Level -->
           <AccountDashboardCard
             v-if="showAccountSection('compensation-level')"
             section-id="compensation-level"
-            title="Compensation Level"
+            title="Counseling compensation level"
             subtitle="Categorize this provider for payroll. Select Bypass to preserve their existing rates."
             :can-edit="false"
           >
@@ -564,6 +565,7 @@
 </template>
 
 <script setup>
+import StaffLearningCompensation from '../StaffLearningCompensation.vue';
 import { computed, inject, onMounted, ref, watch } from 'vue';
 import AccountDashboardCard from './AccountDashboardCard.vue';
 import UserPayHcbsClassificationPanel from '../UserPayHcbsClassificationPanel.vue';
@@ -693,7 +695,7 @@ function resolvePracticeCategoryAgencyId() {
 }
 const isProviderRole = computed(() => {
   const r = String(form.value.role || user.value?.role || '').trim().toLowerCase();
-  return r === 'provider' || r === 'provider_plus';
+  return ['provider','provider_plus','staff','admin','super_admin'].includes(r);
 });
 
 const selectedPracticeCategories = ref([]);
@@ -706,7 +708,7 @@ const practiceCategoriesSaved = ref(false);
 const practiceCategoryOptions = computed(() =>
   (allowedPracticeCategories.value || []).map((code) => ({
     code,
-    label: PRACTICE_CATEGORY_LABELS[code] || code.replace(/_/g, ' ')
+    label: ({mental_health:'Counseling / mental health',tutoring:'Learning / tutoring'})[code] || PRACTICE_CATEGORY_LABELS[code] || code.replace(/_/g, ' ')
   }))
 );
 

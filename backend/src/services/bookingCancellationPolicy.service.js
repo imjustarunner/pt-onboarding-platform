@@ -99,10 +99,12 @@ export async function resolvePolicyForAppointmentContext({
 } = {}) {
   let bookingPackageId = null;
   let catalogPackage = null;
+  let purchasedTerms = null;
   if (packageEntitlementId) {
     try {
       const ent = await BookingPackage.findEntitlementById(packageEntitlementId, agencyId);
       bookingPackageId = ent?.packageId || null;
+      purchasedTerms = ent?.pricingSnapshot?.policies || null;
       if (bookingPackageId) catalogPackage = await BookingPackage.findById(bookingPackageId, agencyId);
       if (!businessType && ent?.businessType) businessType = ent.businessType;
     } catch (error) { throw error; }
@@ -123,7 +125,7 @@ export async function resolvePolicyForAppointmentContext({
     appointmentPolicyId: cancellationPolicyId
   });
   let policy = pickWinningPolicy(candidates, { appointmentPolicyId: cancellationPolicyId });
-  const terms = catalogPackage?.policies;
+  const terms = purchasedTerms || catalogPackage?.policies;
   if (terms && (!policy || (!cancellationPolicyId && (SCOPE_RANK[policy.scopeLevel] || 0) < SCOPE_RANK.package))) {
     const fee = Number(terms.missedFeeCents || 0);
     const action = (v) => ['release', 'free_rebook'].includes(v) ? 'release' : v === 'fee' ? (fee > 0 ? 'release' : 'review') : v === 'review' ? 'review' : 'forfeit';

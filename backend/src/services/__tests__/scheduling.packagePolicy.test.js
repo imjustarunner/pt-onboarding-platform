@@ -30,3 +30,7 @@ describe('package cancellation policy configuration', () => {
     expect((await resolve()).policy).toMatchObject({ latePackageAction: 'release', lateFeeCents: 2500, noShowFeeCents: 2500 });
   });
 });
+it('retains cancellation terms from purchase when the catalog changes',async()=>{
+ BookingPackage.findEntitlementById.mockResolvedValue({packageId:3,businessType:'tutoring',pricingSnapshot:{policies:{cancellationNoticeHours:48,lateCancelPolicy:'free_rebook',noShowPolicy:'forfeit'}}});
+ expect((await resolve()).policy).toMatchObject({noticeHours:48,latePackageAction:'release',noShowPackageAction:'forfeit'});
+});

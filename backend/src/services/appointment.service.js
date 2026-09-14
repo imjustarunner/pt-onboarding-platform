@@ -1,3 +1,4 @@
+import {assertPackageProviderBinding,assertPackageExpiration} from './bookingPackagePricing.js';
 import { getAgencySelfPayOnly, resolveSelfPayQuote } from './selfPayRates.service.js';
 import pool from '../config/database.js';
 import AgencyServiceLocation from '../models/AgencyServiceLocation.model.js';
@@ -236,6 +237,8 @@ export async function createAppointment({
   }
   if (packageEntitlementId) {
     const entitlement = await BookingPackage.findEntitlementById(packageEntitlementId, aid);
+    assertPackageProviderBinding(entitlement?.pricingSnapshot,{providerUserId,tenantServiceId,startAt:start,endAt:end,modality,participantMode:participantModeFromList(participants)});
+    assertPackageExpiration(entitlement?.pricingSnapshot,entitlement?.activatedAt,start);
     const clientIds = participants.map((p) => Number(p.clientId || p.client_id));
     if (!entitlement || !clientIds.includes(Number(entitlement.clientId)) || entitlement.status !== 'ACTIVE') {
       throw Object.assign(new Error('Select an active package belonging to a participant in this agency'), { status: 400 });
@@ -278,7 +281,7 @@ export async function createAppointment({
   const settlementMode = packageEntitlementId ? 'package' : selfPayOnly ? 'self_pay_only' : (billing?.settlementMode || service?.billingMethod || 'self_pay');
   const selfPayQuote = !packageEntitlementId && ['self_pay', 'self_pay_only'].includes(settlementMode)
     ? await resolveSelfPayQuote({ agencyId: aid, providerId: providerUserId, service,
-      durationMinutes: (new Date(end.replace(' ', 'T') + 'Z') - new Date(start.replace(' ', 'T') + 'Z')) / 60000 }) : null;
+      modality: modality || service.modality, durationMinutes: (new Date(end.replace(' ', 'T') + 'Z') - new Date(start.replace(' ', 'T') + 'Z')) / 60000 }) : null;
   const appt = await Appointment.create({
     agencyId: aid,
     parentAgencyId,
@@ -438,6 +441,11 @@ export async function updateAppointment(appointmentId, patch = {}, { actorUserId
   }
   if (!startAt || !endAt || new Date(startAt).getTime() >= new Date(endAt).getTime()) {
     throw Object.assign(new Error('endAt must be after startAt'), { status: 400 });
+  }
+  if(existing.packageEntitlementId){
+    const ent=await BookingPackage.findEntitlementById(existing.packageEntitlementId,existing.agencyId);
+    assertPackageProviderBinding(ent?.pricingSnapshot,{...existing,...updatePatch});
+    assertPackageExpiration(ent?.pricingSnapshot,ent?.activatedAt,updatePatch.startAt||existing.startAt);
   }
   await Appointment.update(appointmentId, updatePatch);
   if (patch.serviceCode !== undefined || patch.addonServiceCodes !== undefined) {

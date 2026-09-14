@@ -1,4 +1,5 @@
 export const LEARNING_PROGRAMS = ['tutoring', 'academic-acceleration', 'bridge'];
+export const LEARNING_TIERS = ['L1','L2','L3','L4','L5'];
 export const EDUCATION_LEVELS = ['secondary-student', 'college-student', 'associate', 'bachelor', 'master', 'doctorate'];
 export const LEARNING_COMPONENTS = ['tutoring', 'skill-development', 'counseling'];
 export const LEARNING_FORMATS = ['virtual', 'in-person', 'small-group'];
@@ -9,6 +10,8 @@ export function normalizeLearningProfile(raw = {}) {
   if (!Array.isArray(programs) || programs.some(p => !LEARNING_PROGRAMS.includes(p))) fail('Choose valid learning programs.');
   const educationLevel = raw.educationLevel || '';
   if (educationLevel && !EDUCATION_LEVELS.includes(educationLevel)) fail('Choose a valid education level.');
+  const tierId=raw.tierId || '';
+  if(tierId&&!LEARNING_TIERS.includes(tierId))fail('Choose a valid learning staff tier.');
   const overrides = raw.rateOverrides || [];
   if (!Array.isArray(overrides) || overrides.length > 30) fail('Invalid rate overrides.');
   const rateOverrides = overrides.map(r => {
@@ -16,7 +19,7 @@ export function normalizeLearningProfile(raw = {}) {
     return {service:r.service,format:r.format,hourlyRateCents:r.hourlyRateCents};
   });
   if (new Set(rateOverrides.map(r=>`${r.service}:${r.format}`)).size !== rateOverrides.length) fail('Only one override per service and format.');
-  return {programs:[...new Set(programs)],educationLevel,rateOverrides};
+  return {programs:[...new Set(programs)],educationLevel,tierId,rateOverrides};
 }
 export function validateLearningCatalog(raw = {}) {
   if (!Array.isArray(raw.rates) || !Array.isArray(raw.packages) || raw.rates.length > 200 || raw.packages.length > 100) fail('Invalid learning catalog.');
@@ -35,10 +38,23 @@ export function validateLearningCatalog(raw = {}) {
     })};
   });
   if(new Set(packages.map(p=>p.id)).size!==packages.length) fail('Package IDs must be unique.');
-  return {version:1,rates,packages};
+  if(raw.tiers!=null&&!Array.isArray(raw.tiers))fail('Learning tiers must be a list.');
+  const tiers=(raw.tiers||[]).map(t=>{
+    if(!LEARNING_TIERS.includes(t.id)||!String(t.name||'').trim())fail('Choose a valid tier and name.');
+    const fees={},pay={};
+    for(const format of LEARNING_FORMATS){
+      for(const [target,source] of [[fees,t.fees],[pay,t.pay]]){
+        const value=source?.[format]??null;if(value!=null&&!cents(value))fail('Tier fees and pay must be nonnegative cents.');target[format]=value;
+      }
+    }
+    return {id:t.id,name:String(t.name).trim().slice(0,100),description:String(t.description||'').slice(0,1000),fees,pay};
+  });
+  if(new Set(tiers.map(t=>t.id)).size!==tiers.length)fail('Tier IDs must be unique.');
+  return {version:1,rates,packages,tiers};
 }
 export function hourlyRate(catalog, profile, service, format) {
   return profile.rateOverrides?.find(r=>r.service===service&&r.format===format)?.hourlyRateCents
+    ?? (service==='tutoring'&&profile.tierId?catalog.tiers?.find(t=>t.id===profile.tierId)?.fees?.[format]:null)
     ?? catalog.rates?.find(r=>r.educationLevel===profile.educationLevel&&r.service===service&&r.format===format)?.hourlyRateCents ?? null;
 }
 // Context is keyed by service: a tutor's rate must never price a counselor's work.
@@ -85,4 +101,12 @@ export function normalizeLearningInquiry(raw) {
   out.reflectionAnswers[key]=value;
  }
  return out;
+}
+
+// Pay standards are private compensation configuration, separate from client fees.
+export function learningStaffPay(catalog,profile,format){
+ return catalog.tiers?.find(t=>t.id===profile.tierId)?.pay?.[format]??null;
+}
+export function publicLearningCatalog(catalog){
+ return {...catalog,tiers:(catalog.tiers||[]).map(({id,name,description,fees})=>({id,name,description,fees}))};
 }

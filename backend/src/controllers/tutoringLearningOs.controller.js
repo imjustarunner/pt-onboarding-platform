@@ -923,6 +923,7 @@ export async function checkoutClientPackage(req, res, next) {
     const packageId = parseInt(req.params.packageId, 10);
     const unifiedPackages = await import('../services/unifiedPackageCatalog.service.js');
     const result = await unifiedPackages.startPackageCheckout({
+      providerId:req.body?.providerId,tenantServiceId:req.body?.tenantServiceId,
       agencyId,
       packageId,
       clientId,

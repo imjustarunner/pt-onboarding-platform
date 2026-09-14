@@ -1,3 +1,4 @@
+import {readStaffLearningCompensation,saveStaffLearningCompensation} from '../controllers/staffLearningCompensation.controller.js';
 import express from 'express';
 import { readSelfPayRates, writeSelfPayRates } from '../controllers/selfPayRates.controller.js';
 import { authenticate, requireActiveStatus } from '../middleware/auth.middleware.js';
@@ -20,6 +21,7 @@ import {
   postEnsurePracticeCategoryDefaults
 } from '../controllers/practiceCategories.controller.js';
 import {
+  packagePriceOptions,
   listPackages,
   createPackage,
   updatePackage,
@@ -57,6 +59,8 @@ router.post('/cron/session-notifications', runSessionNotificationCron);
 
 router.use(authenticate, requireActiveStatus);
 
+router.get('/agencies/:agencyId/providers/:providerId/learning-compensation',readStaffLearningCompensation);
+router.put('/agencies/:agencyId/providers/:providerId/learning-compensation',saveStaffLearningCompensation);
 router.get('/agencies/:agencyId/self-pay-rates', readSelfPayRates);
 router.put('/agencies/:agencyId/self-pay-rates', writeSelfPayRates);
 router.get('/agencies/:agencyId/providers/:providerId/self-pay-rates', readSelfPayRates);
@@ -81,6 +85,7 @@ router.get('/agencies/:agencyId/packages', listPackages);
 router.post('/agencies/:agencyId/packages', createPackage);
 router.patch('/agencies/:agencyId/packages/:packageId', updatePackage);
 router.post('/agencies/:agencyId/packages/:packageId/duplicate', duplicatePackage);
+router.get('/agencies/:agencyId/packages/:packageId/price-options', packagePriceOptions);
 router.post('/agencies/:agencyId/packages/:packageId/checkout', checkoutPackage);
 router.post('/agencies/:agencyId/packages/:packageId/confirm', confirmPackageCheckout);
 router.get('/agencies/:agencyId/clients/:clientId/entitlements', listClientEntitlements);

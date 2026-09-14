@@ -7,7 +7,7 @@
     <label v-if="agencies.length" class="agency-select">Agency
       <select v-model="selectedAgency" :disabled="saving"><option v-for="agency in agencies" :key="agency.id" :value="Number(agency.id)">{{ agency.name }}</option></select>
     </label>
-    <nav v-if="providerId" class="billing-tabs" aria-label="Rate settings">
+    <nav v-if="providerId && isAdmin" class="billing-tabs" aria-label="Rate settings">
       <button :class="{ active: scope === 'provider' }" :disabled="saving" @click="scope = 'provider'">Provider self-pay rates</button>
       <button :class="{ active: scope === 'agency' }" :disabled="saving" @click="scope = 'agency'">Agency default rates</button>
     </nav>
@@ -37,7 +37,7 @@
         <p class="billing-help">Hourly rates are prorated to the booked duration and rounded to the nearest cent. Rates are for the whole appointment; package bookings use their purchased credits.</p>
       </div>
       <div class="billing-card"><h3>Packages</h3><p>Purchased packages retain their price and credit balance. Service overrides do not change a purchased package.</p>
-        <router-link v-if="organizationSlug" :to="`/${organizationSlug}/admin/package-catalog`">Manage package catalog →</router-link>
+        <router-link v-if="organizationSlug && isAdmin" :to="`/${organizationSlug}/admin/package-catalog`">Manage package catalog →</router-link>
       </div>
     </template>
   </section>
@@ -52,7 +52,8 @@ const props = defineProps({ providerId: { type: [Number, String], default: 0 }, 
 const auth = useAuthStore();
 const route = useRoute();
 const organizationSlug = computed(() => route.params.organizationSlug);
-const canManage = computed(() => ['admin', 'super_admin'].includes(auth.user?.role));
+const isAdmin = computed(() => ['admin', 'super_admin'].includes(auth.user?.role));
+const canManage = computed(() => isAdmin.value || Number(props.providerId)===Number(auth.user?.id));
 const selectedAgency = ref(Number(props.agencyId || props.agencies[0]?.id || 0));
 const scope = ref(props.providerId ? 'provider' : 'agency');
 const rows = ref([]), selfPayOnly = ref(false), loading = ref(false), saving = ref(false), loaded = ref(false), error = ref(''), success = ref('');

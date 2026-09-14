@@ -64,6 +64,7 @@ const selectedPackage = computed(() =>
 );
 
 function formatPrice(cents) {
+  if(cents==null)return 'Provider price confirmed before purchase';
   const n = Number(cents || 0) / 100;
   return n.toLocaleString(undefined, { style: 'currency', currency: 'USD' });
 }

@@ -91,7 +91,8 @@ export async function confirmGuardianPackage(clientId, packageId, payload = {}) 
 }
 
 export function formatMoney(cents) {
-  const n = Number(cents || 0);
+  if(cents==null)return 'Select provider for price';
+  const n = Number(cents);
   return `$${(n / 100).toFixed(n % 100 === 0 ? 0 : 2)}`;
 }
 

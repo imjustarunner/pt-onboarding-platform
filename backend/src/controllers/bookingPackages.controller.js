@@ -212,6 +212,7 @@ export const checkoutPackage = async (req, res, next) => {
       clientId,
       purchaserUserId: req.user.id,
       actorUserId: req.user?.id || null,
+      providerId:req.body?.providerId,tenantServiceId:req.body?.tenantServiceId,
       paymentMode: req.body?.paymentMode || 'PAY_IN_FULL'
     });
     res.json(result);
@@ -304,4 +305,27 @@ export const listProgramPackages = async (req, res, next) => {
     if (e?.status) return res.status(e.status).json({ error: { message: e.message } });
     next(e);
   }
+};
+
+// Price only; this endpoint never creates a purchase or reserves credits.
+export const packagePriceOptions = async (req,res,next) => {
+ try {
+  const aid=Number(req.params.agencyId), id=Number(req.params.packageId);
+  if(canManage(req.user?.role)) { if(!(await assertAgencyAccess(req,aid)))return res.sendStatus(403); }
+  else { await requireResponsiblePayer(req.user.id,Number(req.query.clientId),aid); }
+  const pkg=await BookingPackage.findById(id,aid);
+  if(!pkg?.isActive||(!canManage(req.user?.role)&&!pkg.isPublic))return res.sendStatus(404);
+  const {default:TenantService}=await import('../models/TenantService.model.js');
+  const {quoteBookingPackage}=await import('../services/bookingPackagePricing.service.js');
+  const services=(await TenantService.listForAgency(aid)).filter(s=>s.isActive&&s.packageEligible&&s.businessType===pkg.businessType&&(!pkg.allowedTenantServiceIds?.length||pkg.allowedTenantServiceIds.includes(s.id)));
+  const sid=Number(req.query.tenantServiceId||(services.length===1?services[0].id:0));
+  let providers=[];
+  if(services.some(s=>s.id===sid)) {
+   const [rows]=await pool.execute(`SELECT DISTINCT u.id, u.first_name, u.last_name FROM staff_service_assignments s JOIN users u ON u.id=s.user_id JOIN user_agencies ua ON ua.user_id=u.id AND ua.agency_id=s.agency_id WHERE s.agency_id=? AND s.tenant_service_id=? AND s.is_active=1 AND u.is_active=1 AND COALESCE(u.is_archived,0)=0 AND u.status='ACTIVE_EMPLOYEE'`,[aid,sid]);
+   providers=rows.map(r=>({id:Number(r.id),name:[r.first_name,r.last_name].filter(Boolean).join(' ')}));
+  }
+  let quote=null;
+  if(req.query.providerId||pkg.domainConfig?.pricing?.mode!=='provider-discount')quote=await quoteBookingPackage({agencyId:aid,pkg,providerId:req.query.providerId,tenantServiceId:sid});
+  res.json({services:services.map(s=>({id:s.id,name:s.name})),providers,quote});
+ } catch(e){next(e);}
 };

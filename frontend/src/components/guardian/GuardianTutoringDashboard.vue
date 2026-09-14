@@ -171,6 +171,7 @@
         </ul>
         <p v-if="!catalogLoading && !catalog.length" class="gtd-muted">No public packages available yet.</p>
 
+        <PackagePriceChoice :agency-id="selectedPackage?.agencyId" :client-id="clientId" :pkg="selectedPackage" @change="choosePackagePrice"/>
         <div v-if="checkoutReady && stripeEnabled && amountDue > 0" class="gtd-pay">
           <label>Cardholder name<input v-model="cardholderName" type="text" /></label>
           <div ref="cardMountEl" class="gtd-card-mount" />
@@ -180,10 +181,10 @@
         <button
           type="button"
           class="gtd-btn primary"
-          :disabled="!selectedPackageId || buying"
+          :disabled="!selectedPackageId || buying || (selectedPackage?.domainConfig?.pricing?.mode==='provider-discount'&&!packageChoice)"
           @click="purchaseSelected"
         >
-          {{ buying ? 'Processing…' : (amountDue > 0 ? `Pay ${formatMoney(amountDue)}` : 'Activate package') }}
+          {{ buying ? 'Processing…' : (amountDue > 0 ? `Pay ${formatMoney(amountDue)}` : (selectedPackage?.domainConfig?.pricing?.mode==='provider-discount'?'Continue to payment':'Activate package')) }}
         </button>
       </div>
     </div>
@@ -191,6 +192,7 @@
 </template>
 
 <script setup>
+import PackagePriceChoice from '../learning/PackagePriceChoice.vue';
 import { computed, nextTick, onMounted, onBeforeUnmount, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { loadStripe } from '@stripe/stripe-js';
@@ -233,6 +235,9 @@ const buyOpen = ref(false);
 const catalog = ref([]);
 const catalogLoading = ref(false);
 const selectedPackageId = ref(null);
+const packageChoice=ref(null);
+const selectedPackage=computed(()=>catalog.value.find(p=>p.id===selectedPackageId.value));
+function choosePackagePrice(value){checkoutVersion++;packageChoice.value=value;checkoutReady.value=false;destroyCard();}
 const buyError = ref('');
 const buying = ref(false);
 const checkoutReady = ref(false);
@@ -246,6 +251,7 @@ const cardholderName = ref('');
 const stripeElementError = ref('');
 const cardMountEl = ref(null);
 
+let checkoutVersion=0;
 let stripeInstance = null;
 let stripeElements = null;
 let stripeCardElement = null;
@@ -403,12 +409,15 @@ async function openBuyDrawer() {
 
 function closeBuyDrawer() {
   buyOpen.value = false;
+  checkoutVersion++;
   destroyCard();
   checkoutReady.value = false;
 }
 
 async function prepareCheckout() {
+  const version=++checkoutVersion;
   if (!selectedPackageId.value || !buyOpen.value) return;
+  if(selectedPackage.value?.domainConfig?.pricing?.mode==='provider-discount'&&!packageChoice.value)return;
   buyError.value = '';
   checkoutReady.value = false;
   destroyCard();
@@ -417,8 +426,9 @@ async function prepareCheckout() {
   paymentIntentId.value = null;
   try {
     const res = await unifiedPackages.checkoutGuardianPackage(props.clientId, selectedPackageId.value, {
-      paymentMode: 'PAY_IN_FULL'
+      paymentMode: 'PAY_IN_FULL',providerId:packageChoice.value?.providerId,tenantServiceId:packageChoice.value?.tenantServiceId
     });
+    if(version!==checkoutVersion)return;
     if (res.free) {
       await loadPackages();
       closeBuyDrawer();
@@ -433,6 +443,7 @@ async function prepareCheckout() {
     checkoutReady.value = true;
     if (stripeEnabled.value && clientSecret.value) await mountCard();
   } catch (e) {
+    if(version!==checkoutVersion)return;
     buyError.value = e.response?.data?.error?.message || e.message || 'Checkout failed';
     checkoutReady.value = false;
   }

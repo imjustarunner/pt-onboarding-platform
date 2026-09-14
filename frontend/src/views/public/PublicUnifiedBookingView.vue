@@ -35,7 +35,7 @@
             @click="selectedPackageId = pkg.id"
           >
             <strong>{{ pkg.name }}</strong>
-            <span class="pkg-price">{{ formatMoney(pkg.priceCents) }}</span>
+            <span class="pkg-price">{{ pkg.priceCents==null?'Provider price confirmed before purchase':formatMoney(pkg.priceCents) }}</span>
             <span class="muted">{{ pkg.sessionCount }} sessions</span>
             <p v-if="pkg.description" class="muted">{{ pkg.description }}</p>
           </button>

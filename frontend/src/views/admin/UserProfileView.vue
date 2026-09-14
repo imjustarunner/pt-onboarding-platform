@@ -1542,7 +1542,7 @@
           />
         </div>
 
-        <ProviderBillingSettings v-if="activeTab === 'billing' && canManageSelfPayRates" :provider-id="userId" :agency-id="selectedProviderProfileAgencyId" :agencies="userAgencies.filter(a => !a.organization_type || a.organization_type === 'agency')" />
+        <ProviderBillingSettings v-if="activeTab === 'billing' && canOpenSelfPayRates" :provider-id="userId" :agency-id="selectedProviderProfileAgencyId" :agencies="userAgencies.filter(a => !a.organization_type || ['agency','life_coach','consultant'].includes(a.organization_type))" />
         <div v-if="activeTab === 'credentialing'" class="tab-panel">
           <CredentialingTab :userId="userId" />
         </div>
@@ -4091,6 +4091,7 @@ const isProviderLikeUser = computed(() => {
   );
 });
 
+const canOpenSelfPayRates = computed(() => canManageSelfPayRates.value || (Number(userId.value)===Number(authStore.user?.id) && userAgencies.value.some(a=>['life_coach','consultant'].includes(a.organization_type||a.organizationType))));
 const canManageSelfPayRates = computed(() => ['admin', 'super_admin'].includes(authStore.user?.role));
 const tabs = computed(() => {
   // Guardian accounts are portal-only (non-employee): show only basic account info.
@@ -4133,7 +4134,7 @@ const tabs = computed(() => {
     { id: 'tasks', label: 'Tasks' },
     { id: 'account', label: 'Account' },
     { id: 'benefits', label: 'Benefits' },
-    ...(canManageSelfPayRates.value && isProviderLikeUser.value ? [{ id: 'billing', label: 'Billing' }] : []),
+    ...(canOpenSelfPayRates.value && isProviderLikeUser.value ? [{ id: 'billing', label: 'Billing' }] : []),
     ...(canViewLifecycleTab.value ? [{ id: 'lifecycle', label: 'Lifecycle' }] : []),
     ...(canViewProviderInfo.value ? [{ id: 'provider_info', label: 'Clinical Information' }] : []),
     ...(canViewCredentialingTab.value ? [{ id: 'credentialing', label: 'Credentialing' }] : []),

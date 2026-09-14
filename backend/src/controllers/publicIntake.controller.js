@@ -1665,7 +1665,7 @@ const persistChildIntakeData = async ({
         const pkg = await BookingPackage.findById(packageId, pkgAgencyId);
         if (pkg?.isActive) {
           const amountCents = Math.max(0, Number(pkg.priceCents) || 0);
-          if (amountCents < 1 || String(pkg.paymentMode || '').toUpperCase() === 'FREE') {
+          if (pkg.domainConfig?.pricing?.mode!=='provider-discount' && (amountCents < 1 || String(pkg.paymentMode || '').toUpperCase() === 'FREE')) {
             await BookingPackage.activateEntitlement({
               agencyId: pkgAgencyId,
               clientId: cid,

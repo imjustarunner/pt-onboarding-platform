@@ -45,7 +45,7 @@
               <div class="peh-enroll-main">
                 <h3 class="peh-enroll-title">{{ pkg.name }}</h3>
                 <p class="peh-enroll-desc">
-                  {{ pkg.sessionCount }} sessions · {{ formatMoney(pkg.priceCents) }}
+                  {{ pkg.sessionCount }} sessions · {{ pkg.priceCents==null?'Provider price confirmed before purchase':formatMoney(pkg.priceCents) }}
                   <template v-if="pkg.programName"> · {{ pkg.programName }}</template>
                 </p>
                 <p v-if="pkg.description" class="peh-enroll-desc">{{ pkg.description }}</p>

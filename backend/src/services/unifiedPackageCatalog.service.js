@@ -1,3 +1,4 @@
+import {quoteBookingPackage} from './bookingPackagePricing.service.js';
 import pool from '../config/database.js';
 import BookingPackage from '../models/BookingPackage.model.js';
 import BookingPackagePayment from '../models/BookingPackagePayment.model.js';
@@ -221,18 +222,22 @@ export async function startPackageCheckout({
   clientId,
   purchaserUserId = null,
   actorUserId = null,
-  paymentMode = 'PAY_IN_FULL'
+  paymentMode = 'PAY_IN_FULL',
+  providerId=null,tenantServiceId=null
 } = {}) {
   const pkg = await BookingPackage.findById(packageId, agencyId);
   if (!pkg || !pkg.isActive) {
     throw Object.assign(new Error('Package not found'), { status: 404 });
   }
-  const amountCents = Math.max(0, Number(pkg.priceCents) || 0);
+  const pricingSnapshot=await quoteBookingPackage({agencyId,pkg,providerId,tenantServiceId});
+  const amountCents=pricingSnapshot.amountCents;
   if (paymentMode !== 'PAY_IN_FULL') throw Object.assign(new Error('This checkout currently supports payment in full only'), { status: 400 });
   await assertClientPackageCollection(agencyId, clientId, pkg, amountCents);
   if (amountCents < 1) {
     // Free package — activate immediately
+    const pending=await BookingPackage.createPendingEntitlement({agencyId,clientId,packageId:pkg.id,purchaserUserId,createdByUserId:actorUserId,pricingSnapshot});
     const entitlement = await BookingPackage.activateEntitlement({
+      entitlementId:pending.id,
       agencyId,
       clientId,
       packageId: pkg.id,
@@ -273,6 +278,7 @@ export async function startPackageCheckout({
   }
 
   const pending = await BookingPackage.createPendingEntitlement({
+    pricingSnapshot,
     agencyId,
     clientId,
     packageId: pkg.id,
@@ -311,7 +317,7 @@ export async function startPackageCheckout({
     processor: 'STRIPE',
     processorIntentId: intent.id,
     createdByUserId: actorUserId,
-    metadata: { source: 'unified_booking_package', connectedAccountId }
+    metadata: { source: 'unified_booking_package', connectedAccountId, pricingSnapshot }
   });
 
   return {
@@ -403,6 +409,7 @@ export async function activatePackageManually({
   if (!pkg) {
     throw Object.assign(new Error('Package not found'), { status: 404 });
   }
+  if(pkg.domainConfig?.pricing?.mode==='provider-discount')throw Object.assign(new Error('Use a provider-priced package order in Family Billing.'),{status:409});
   const collectedAmount = amountCents == null ? Number(pkg.priceCents || 0) : Number(amountCents);
   if (!Number.isSafeInteger(collectedAmount) || collectedAmount < 0) throw Object.assign(new Error('Enter a valid amount in cents'), { status: 400 });
   if(collectedAmount>0||Number(pkg.priceCents)>0)throw Object.assign(new Error('Use Family Billing to create the package balance and record cash against its responsible payer. Credits activate after payment is recorded.'),{status:409});

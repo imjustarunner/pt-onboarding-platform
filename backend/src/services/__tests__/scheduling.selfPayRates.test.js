@@ -69,3 +69,11 @@ describe('self-pay rate configuration and quoting', () => {
     expect(pool.getConnection).not.toHaveBeenCalled();
   });
 });
+it('allows a coach to edit only their own organization rates',async()=>{
+ User.getAgencies.mockResolvedValue([{id:1,organization_type:'life_coach'}]);
+ await expect(assertSelfPayRateAccess({id:9,role:'provider'},1,9)).resolves.toBeUndefined();
+ await expect(assertSelfPayRateAccess({id:9,role:'provider'},1,8)).rejects.toMatchObject({status:403});
+ await expect(assertSelfPayRateAccess({id:9,role:'provider'},1,0)).rejects.toMatchObject({status:403});
+ User.getAgencies.mockResolvedValue([{id:1,organization_type:'agency'}]);
+ await expect(assertSelfPayRateAccess({id:9,role:'provider'},1,9)).rejects.toMatchObject({status:403});
+});

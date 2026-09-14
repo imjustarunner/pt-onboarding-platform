@@ -1,3 +1,4 @@
+import {normalizePackagePricing,assertPackageProviderBinding,assertPackageExpiration} from '../services/bookingPackagePricing.js';
 import { planPackageUsage } from '../utils/bookingPackageUsage.js';
 import pool from '../config/database.js';
 import AgencyBusinessType from './AgencyBusinessType.model.js';
@@ -62,6 +63,7 @@ function creditAllowance(value) {
 function validateCreditPolicy(policy) {
   const p = parseJson(policy, {}) || {};
   creditAllowance(p.freeMisses); creditAllowance(p.bonusSessions);
+  if(p.expirationDays!=null&&(!Number.isInteger(p.expirationDays)||p.expirationDays<1||p.expirationDays>36500))throw Object.assign(new Error('Expiration must be 1–36500 days or blank'),{status:400});
   if (!Number.isFinite(Number(p.cancellationNoticeHours ?? 24)) || Number(p.cancellationNoticeHours ?? 24) < 0) {
     throw Object.assign(new Error('Cancellation notice must be a nonnegative number of hours'), { status: 400 });
   }
@@ -81,7 +83,7 @@ function mapPackage(r) {
     description: r.description || null,
     packageType: normalizePackageType(r.package_type),
     sessionCount: Number(r.session_count || 0),
-    priceCents: Number(r.price_cents || 0),
+    priceCents: parseJson(r.domain_config_json)?.pricing?.mode==='provider-discount'?null:Number(r.price_cents || 0),
     billingOptions: parseJson(r.billing_options_json, { ...DEFAULT_BILLING_OPTIONS }),
     policies: parseJson(r.policies_json, { ...DEFAULT_POLICIES }),
     domainConfig: parseJson(r.domain_config_json, null),
@@ -108,6 +110,7 @@ function mapEntitlement(r) {
     packageId: Number(r.package_id),
     learningProgramClassId: r.learning_program_class_id == null ? null : Number(r.learning_program_class_id),
     businessType: String(r.business_type),
+    pricingSnapshot: parseJson(r.pricing_snapshot_json,null),
     sessionsPurchased: Number(r.sessions_purchased || 0),
     sessionsRemaining: Number(r.sessions_remaining || 0),
     sessionsReserved: Number(r.sessions_reserved || 0),
@@ -123,7 +126,7 @@ function mapEntitlement(r) {
     stripePaymentIntentId: r.stripe_payment_intent_id || null,
     packageName: r.package_name != null ? String(r.package_name) : undefined,
     packageType: r.package_type != null ? normalizePackageType(r.package_type) : undefined,
-    priceCents: r.price_cents != null ? Number(r.price_cents) : undefined,
+    priceCents: parseJson(r.pricing_snapshot_json)?.amountCents ?? (parseJson(r.domain_config_json)?.pricing?.mode==='provider-discount'?null:r.price_cents != null ? Number(r.price_cents) : undefined),
     consumeOn: r.consume_on != null ? String(r.consume_on) : undefined,
     allowedTenantServiceIds: r.allowed_tenant_service_ids_json != null
       ? parseJson(r.allowed_tenant_service_ids_json, null)
@@ -226,7 +229,8 @@ class BookingPackage {
     const billingOptions = data.billingOptions ?? data.billing_options_json ?? DEFAULT_BILLING_OPTIONS;
     const policies = data.policies ?? data.policies_json ?? DEFAULT_POLICIES;
     validateCreditPolicy(policies);
-    const domainConfig = data.domainConfig ?? data.domain_config_json ?? null;
+    const domainConfig = parseJson(data.domainConfig ?? data.domain_config_json,null);
+    normalizePackagePricing(domainConfig?.pricing);
     const isPublic = data.isPublic === true || data.is_public === 1 || data.is_public === true;
     const [result] = await pool.execute(
       `INSERT INTO booking_packages
@@ -301,6 +305,7 @@ class BookingPackage {
     const domainConfig = data.domainConfig !== undefined || data.domain_config_json !== undefined
       ? (data.domainConfig ?? data.domain_config_json)
       : existing.domainConfig;
+    normalizePackagePricing(parseJson(domainConfig)?.pricing);
     await pool.execute(
       `UPDATE booking_packages
        SET business_type = ?, learning_program_class_id = ?, name = ?, description = ?,
@@ -440,7 +445,8 @@ class BookingPackage {
     packageId,
     purchaserUserId = null,
     stripePaymentIntentId = null,
-    createdByUserId = null
+    createdByUserId = null,
+    pricingSnapshot = null
   } = {}) {
     const pkg = await this.findById(packageId, agencyId);
     if (!pkg || !pkg.isActive) {
@@ -452,8 +458,8 @@ class BookingPackage {
       `INSERT INTO booking_package_entitlements
         (agency_id, client_id, package_id, learning_program_class_id, business_type,
          sessions_purchased, sessions_remaining, sessions_reserved,
-         payment_status, status, purchaser_user_id, stripe_payment_intent_id, created_by_user_id)
-       VALUES (?, ?, ?, ?, ?, ?, 0, 0, 'PENDING', 'PENDING', ?, ?, ?)`,
+         payment_status, status, purchaser_user_id, stripe_payment_intent_id, created_by_user_id, pricing_snapshot_json)
+       VALUES (?, ?, ?, ?, ?, ?, 0, 0, 'PENDING', 'PENDING', ?, ?, ?, ?)`,
       [
         pkg.agencyId,
         cid,
@@ -463,7 +469,8 @@ class BookingPackage {
         pkg.sessionCount,
         purchaserUserId || null,
         stripePaymentIntentId || null,
-        createdByUserId || null
+        createdByUserId || null,
+        pricingSnapshot?JSON.stringify(pricingSnapshot):null
       ]
     );
     return this.findEntitlementById(result.insertId, pkg.agencyId);
@@ -489,8 +496,10 @@ class BookingPackage {
     }
     const cid = Number(clientId || 0);
     if (!cid) throw Object.assign(new Error('clientId is required'), { status: 400 });
-    const bonus = creditAllowance(pkg.policies?.bonusSessions);
-    const free = creditAllowance(pkg.policies?.freeMisses);
+    if(pkg.domainConfig?.pricing?.mode==='provider-discount'&&!entitlementId)throw Object.assign(new Error('Provider-priced packages require a quoted purchase before activation.'),{status:409});
+    let bonus = creditAllowance(pkg.policies?.bonusSessions);
+    let purchasedCount = pkg.sessionCount;
+    let free = creditAllowance(pkg.policies?.freeMisses);
     const conn = await pool.getConnection();
     try {
       await conn.beginTransaction();
@@ -514,6 +523,10 @@ class BookingPackage {
           return this.findEntitlementById(entitlementIdNum, pkg.agencyId);
         }
         if (String(row.status) !== 'PENDING') throw Object.assign(new Error('Entitlement is not pending activation'), { status: 409 });
+        const purchased=parseJson(row.pricing_snapshot_json);
+        if(pkg.domainConfig?.pricing?.mode==='provider-discount'&&!purchased)throw Object.assign(new Error('Package price requires staff review.'),{status:409});
+        purchasedCount=purchased?.sessionCount??pkg.sessionCount;
+        bonus=creditAllowance(purchased?.policies?.bonusSessions??bonus); free=creditAllowance(purchased?.policies?.freeMisses??free);
         await conn.execute(
           `UPDATE booking_package_entitlements
            SET sessions_purchased = ?, sessions_remaining = ?, bonus_sessions_remaining = ?, free_misses_remaining = ?, payment_status = ?, status = 'ACTIVE',
@@ -522,8 +535,8 @@ class BookingPackage {
                activated_at = NOW()
            WHERE id = ?`,
           [
-            pkg.sessionCount,
-            pkg.sessionCount + bonus,
+            purchasedCount,
+            purchasedCount + bonus,
             bonus, free,
             String(paymentStatus || 'PAID'),
             pkg.learningProgramClassId,
@@ -562,7 +575,7 @@ class BookingPackage {
         `INSERT INTO booking_package_ledger
           (agency_id, entitlement_id, client_id, appointment_id, direction, quantity, reason_code, created_by_user_id)
          VALUES (?, ?, ?, NULL, 'CREDIT', ?, 'PACKAGE_PURCHASE', ?)`,
-        [pkg.agencyId, entitlementIdNum, cid, pkg.sessionCount, createdByUserId || null]
+        [pkg.agencyId, entitlementIdNum, cid, purchasedCount, createdByUserId || null]
       );
       if (bonus || free) await conn.execute(
         `INSERT INTO booking_package_ledger (agency_id, entitlement_id, client_id, direction, quantity, reason_code, metadata_json, created_by_user_id)
@@ -596,6 +609,8 @@ class BookingPackage {
          WHERE e.id = ? AND e.agency_id = ? FOR UPDATE`, [entitlementId, agencyId]);
       const row = rows[0];
       if (!row) throw Object.assign(new Error('Entitlement not available'), { status: 400 });
+      const pricing=parseJson(row.pricing_snapshot_json);
+      if(pricing&&['reserve','consume','complete'].includes(mode)){const [appointments]=await conn.execute('SELECT provider_user_id,tenant_service_id,start_at,end_at,modality,participant_mode FROM appointments WHERE id=? AND agency_id=?',[appointmentId,agencyId]);if(!appointments[0])throw Object.assign(new Error('Appointment not found'),{status:400});assertPackageProviderBinding(pricing,appointments[0]);assertPackageExpiration(pricing,row.activated_at,appointments[0].start_at);}
       const [history] = await conn.execute(
         `SELECT id, direction, reason_code, metadata_json FROM booking_package_ledger
          WHERE entitlement_id = ? AND agency_id = ? AND appointment_id = ? ORDER BY id ASC`,
