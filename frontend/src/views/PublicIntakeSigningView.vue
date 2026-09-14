@@ -1354,6 +1354,7 @@
           v-if="showInterviewPageLead"
           class="ai-page-lead"
         >{{ currentFlowStepHelperText }}</p>
+        <LearningEnrollmentQuestions v-if="currentFlowStep?.sourceId==='learning-enrollment'||currentFlowStep?.id==='learning-enrollment'" :model-value="learningForCurrentClient" @update:model-value="setCurrentLearning($event)" :program="['bridge','academic-acceleration'].includes(route.query.program)?route.query.program:'tutoring'" :agency-slug="agencyInfo?.slug||referralAgencySlug||''" full/>
         <DigitalFormNotice
           v-if="showClinicalSafetyBanner"
           variant="warn"
@@ -1880,7 +1881,7 @@
             @update:selected-ids="setSelectedOfficeProviderIds"
           />
           <p v-if="providerHoldChangeError" role="alert">{{ providerHoldChangeError }}</p>
-          <PublicProviderSlotPicker v-if="!providerMatchOnClinicalHold && selectedOfficeProviderIds.length === 1" :agency-slug="referralAgencySlug || agencyInfo?.portal_url || agencyInfo?.slug || ''" :provider-id="Number(selectedOfficeProviderIds[0])" service-type="counseling" @hold="saveOpeningPreference" />
+          <PublicProviderSlotPicker v-if="!providerMatchOnClinicalHold && selectedOfficeProviderIds.length === 1 && !hasBridgeLearning()" :agency-slug="referralAgencySlug || agencyInfo?.portal_url || agencyInfo?.slug || ''" :provider-id="Number(selectedOfficeProviderIds[0])" :service-type="link?.master_channel==='tutoring'?'tutoring':'counseling'" @hold="saveOpeningPreference" />
         </div>
 
         <div v-if="currentFlowStep?.type === 'family_roster'" class="family-roster-step intake-interview-page">
@@ -2938,6 +2939,7 @@
 </template>
 
 <script setup>
+import LearningEnrollmentQuestions from '../components/learning/LearningEnrollmentQuestions.vue';
 import { computed, h, nextTick, onBeforeUnmount, onMounted, provide, reactive, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import api from '../services/api';
@@ -4043,6 +4045,10 @@ const intakeSteps = computed(() => {
       return nextFields.length === fields.length ? step : { ...step, fields: nextFields };
     });
   }
+  if(String(link.value?.master_channel||'').toLowerCase()==='tutoring'&&!steps.some(s=>s.id==='learning-enrollment')){
+    steps=[{id:'learning-enrollment',type:'questions',label:'Learning goals & program',repeatPerClient:true,fields:[]},...steps];
+  }
+  if (link.value?.master_channel === 'tutoring' && hasBridgeLearning()) steps = steps.map(step => step.type === 'insurance_info' ? {...step, paymentOnly:false, paymentRequired:false, label:'Insurance & funding review'} : step);
   return steps;
 });
 const hasDocumentTranslationMap = computed(() => {
@@ -4502,7 +4508,7 @@ const clients = ref([
 ]);
 const intakeResponses = reactive({
   guardian: {},
-  submission: {},
+  submission: {learning: ['bridge','academic-acceleration','tutoring'].includes(route.query.program)?{version:1,program:route.query.program,packageId:String(route.query.packageId||'')}:undefined},
   clients: [{}]
 });
 
@@ -4748,11 +4754,14 @@ async function loadOfficeIntakeProviders() {
     const ages = (clients.value || [])
       .map((c) => ageYearsFromDob(c?.dateOfBirth || c?.dob))
       .filter((n) => Number.isFinite(n) && n >= 0);
-    const resp = await api.get(`/public-intake/${encodeURIComponent(publicKey)}/available-providers`, {
-      params: ages.length ? { ages: ages.join(',') } : {},
+    const clientLearning = intakeResponses.clients.map(client => client?.learning).filter(Boolean);
+    const requests = link.value?.master_channel === 'tutoring' && clientLearning.length ? clientLearning : [intakeResponses.submission.learning || {}];
+    const results = await Promise.all(requests.map(learning => api.get(`/public-intake/${encodeURIComponent(publicKey)}/available-providers`, {
+      params: {...(ages.length ? {ages: ages.join(',')} : {}), learningProgram: learning.program || route.query.program, learningFormat: learning.format, gradeLevel: learning.grade, subject: learning.subject, programType: learning.format === 'in-person' ? 'IN_PERSON' : 'VIRTUAL'},
       skipGlobalLoading: true
-    });
-    officeProviders.value = Array.isArray(resp.data?.providers) ? resp.data.providers : [];
+    })));
+    // The shared preference must fit every student in a multi-student packet.
+    officeProviders.value = (results[0]?.data?.providers || []).filter(provider => results.every(result => (result.data?.providers || []).some(other => String(other.id) === String(provider.id))));
     applyProviderPrefillFromQuery();
   } catch {
     officeProviders.value = [];
@@ -4764,7 +4773,7 @@ function applyProviderPrefillFromQuery() {
   const qid = String(route.query.providerId || route.query.preferredProviderId || '').trim();
   if (!qid) return;
   const exists = (officeProviders.value || []).some((p) => String(p.id) === qid);
-  if (!exists && !(officeProviders.value || []).length) return;
+  if (!exists) return;
   const cur = selectedOfficeProviderIds.value;
   if (cur.includes(qid)) return;
   setSelectedOfficeProviderIds([qid, ...cur.filter((id) => id !== qid)]);
@@ -5222,7 +5231,7 @@ function applyJoinChrome(data) {
 async function loadOfficeJoinChrome() {
   const slug = referralAgencySlug.value;
   if (!slug) return;
-  const serviceType = 'counseling';
+  const serviceType = link.value?.master_channel==='tutoring'?'tutoring':'counseling';
   const cached = readJoinLandingCache(slug, serviceType);
   if (cached) applyJoinChrome(cached);
   try {
@@ -5440,6 +5449,9 @@ function childDisplayName(idx) {
   ).trim();
   return name || 'this child';
 }
+
+const learningForCurrentClient=computed(()=>Number.isInteger(currentFlowStep.value?.clientIndex)?intakeResponses.clients[currentFlowStep.value.clientIndex]?.learning||((currentFlowStep.value.clientIndex===0)?intakeResponses.submission.learning:undefined):intakeResponses.submission.learning);
+function setCurrentLearning(value){const i=currentFlowStep.value?.clientIndex;if(Number.isInteger(i)){if(!intakeResponses.clients[i])intakeResponses.clients[i]={};intakeResponses.clients[i].learning=value;}else intakeResponses.submission.learning=value;}
 
 function isRepeatPerClientStep(s) {
   const audience = String(s?.audience || '').trim().toLowerCase();
@@ -5681,16 +5693,21 @@ const DEFAULT_GUARDIAN_WAIVER_SECTION_KEYS = [
 
 const FLOW_STEP_VISIBILITY = new Set(['always', 'new_client_only', 'existing_client_only']);
 
-/** Tutoring / coaching / consulting channels: payment only (no insurance). */
+function hasBridgeLearning() {
+  return [intakeResponses.submission?.learning, ...intakeResponses.clients.map(client => client?.learning)].some(learning => learning?.program === 'bridge');
+}
+
+/** Bridge funding is reviewed before collecting payment. */
 const isPaymentOnlyEnrollmentChannel = computed(() => {
   const channel = String(link.value?.master_channel || '').toLowerCase();
-  return ['tutoring', 'coaching', 'consulting', 'mentorship'].includes(channel);
+  return ['tutoring', 'coaching', 'consulting', 'mentorship'].includes(channel) && !(channel === 'tutoring' && hasBridgeLearning());
 });
 
 /** null = unknown, true = empty catalog (skip step), false = has packages */
 const officePackageCatalogEmpty = ref(null);
 
 const shouldSkipPaymentCollectionStep = () => {
+  if (link.value?.master_channel === 'tutoring' && hasBridgeLearning()) return true;
   const insInfo = intakeResponses.submission?.insuranceInfo;
   if (shouldSuppressInsurancePayment(insInfo, link.value?.master_channel)) return true;
   if (isPaymentOnlyEnrollmentChannel.value) return false;
@@ -7200,6 +7217,7 @@ function chooseWhoFor(isSelf) {
 }
 
 function isEnrollmentOptionEnabled(subject) {
+  if (link.value?.master_channel === 'tutoring' && ['couple', 'family'].includes(subject)) return false;
   return isEnrollmentSubjectEnabled(
     officeStart.enrollmentSubjects?.value ?? joinLandingCopy.value?.enrollmentSubjects,
     subject
@@ -9158,6 +9176,7 @@ async function applyConvertPrefillFromQuery() {
     });
     const prefill = data?.prefill;
     if (!prefill || typeof prefill !== 'object') return;
+    if(prefill.learning)intakeResponses.submission.learning=prefill.learning;
 
     if (typeof prefill.intakeForSelf === 'boolean') {
       intakeForSelf.value = prefill.intakeForSelf;
@@ -12907,7 +12926,7 @@ watch(
     if (skippingEmptyFlowStep) return;
     const type = String(currentFlowStep.value?.type || '');
     if (isQuestionnaireFlowStep(currentFlowStep.value)) return;
-    const emptyQuestions = type === 'questions' && !visibleQuestionFields.value.length;
+    const emptyQuestions = type === 'questions' && currentFlowStep.value?.sourceId!=='learning-enrollment' && currentFlowStep.value?.id!=='learning-enrollment' && !visibleQuestionFields.value.length;
     const emptyClinical = type === 'clinical_questions' && !visibleClinicalFields.value.length;
     if (!emptyQuestions && !emptyClinical) return;
     skippingEmptyFlowStep = true;

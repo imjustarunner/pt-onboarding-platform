@@ -50,7 +50,7 @@
           </span>
         </div>
 
-        <p v-if="p.nextAvailable" class="cpd-meta">
+        <p v-if="p.tutoringProfile" class="cpd-meta">{{p.tutoringProfile.hourlyRateCents!=null?new Intl.NumberFormat('en-US',{style:'currency',currency:'USD'}).format(p.tutoringProfile.hourlyRateCents/100)+' / hour':'Contact us for pricing'}} · Grades {{p.tutoringProfile.gradeLevels?.join(', ')}}</p><p v-if="p.availability?.nextAvailableAt" class="cpd-meta">Next opening: {{new Date(p.availability.nextAvailableAt).toLocaleString()}}</p><p v-if="p.nextAvailable" class="cpd-meta">
           First available: <strong>{{ p.nextAvailable }}</strong>
         </p>
         <p v-if="p.openSlots" class="cpd-meta">

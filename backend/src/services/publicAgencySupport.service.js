@@ -18,6 +18,9 @@ import {
 } from '../content/officeCommunicationsCopy.js';
 
 export const PUBLIC_SUPPORT_CATEGORIES = [
+  { id: 'tutoring', label: 'Tutoring and learning services' },
+  { id: 'academic_acceleration', label: 'Next Level Academic Acceleration Program' },
+  { id: 'bridge_program', label: 'Cognitive & Emotional Enrichment / Bridge Program' },
   { id: 'parent_access', label: 'Help with parent or guardian login' },
   { id: 'intake_join', label: 'Questions about joining or intake' },
   { id: 'scheduling', label: 'Scheduling or appointments' },
@@ -237,7 +240,7 @@ function buildPublicConfig(agency, requestSlug = '') {
       es: resolveIntakeLegalFromTheme(agency.theme_settings, 'es')
     },
     officeCommunications: resolveOfficeCommunicationsFromTheme(agency.theme_settings),
-    categories: PUBLIC_SUPPORT_CATEGORIES,
+    categories: PUBLIC_SUPPORT_CATEGORIES.filter(category => slug === 'nlu' || !['academic_acceleration', 'bridge_program'].includes(category.id)),
     phiWarning: PHI_WARNING,
     recaptchaSiteKey: String(config.recaptcha?.siteKey || process.env.RECAPTCHA_SITE_KEY || '').trim() || null,
     recaptchaRequired: recaptchaConfigured && config.nodeEnv === 'production'

@@ -5,20 +5,20 @@
       class="df-lang-btn"
       :class="{ 'df-lang-btn--active': modelValue === 'en' }"
       :disabled="disabled"
+      aria-label="English" title="Language: English"
       @click="$emit('update:modelValue', 'en')"
     >
       <span class="df-lang-flag" aria-hidden="true">🇺🇸</span>
-      English
     </button>
     <button
       type="button"
       class="df-lang-btn"
       :class="{ 'df-lang-btn--active': modelValue === 'es' }"
       :disabled="disabled"
+      aria-label="Español" title="Idioma: Español"
       @click="$emit('update:modelValue', 'es')"
     >
-      <span class="df-lang-flag" aria-hidden="true">🇲🇽</span>
-      Español
+      <span class="df-lang-flag" aria-hidden="true">🇪🇸</span>
     </button>
     <span v-if="switching" class="df-lang-status" aria-live="polite">…</span>
   </div>

@@ -282,6 +282,7 @@
           </div>
           <div v-if="tutoringSaveSuccess" class="success" style="margin-bottom: 10px;">{{ tutoringSaveSuccess }}</div>
           <div v-if="tutoringSaveError" class="error" style="margin-bottom: 10px;">{{ tutoringSaveError }}</div>
+          <fieldset><legend>Approved learning programs</legend><p>Confirm qualifications before enabling a program. Hiring comfort preferences are not clinical authorization.</p><label v-for="program in ['tutoring','academic-acceleration','bridge']" :key="program"><input v-model="tutoringForm.learning.programs" type="checkbox" :value="program"/>{{program}}</label><label>Education level for hourly pricing<select v-model="tutoringForm.learning.educationLevel"><option value="">Not set</option><option v-for="level in ['secondary-student','college-student','associate','bachelor','master','doctorate']" :key="level">{{level}}</option></select></label><h4>Hourly rate overrides</h4><div v-for="(rate,i) in tutoringForm.learning.rateOverrides" :key="i"><select v-model="rate.service" aria-label="Override service"><option>tutoring</option><option>skill-development</option><option>counseling</option></select><select v-model="rate.format" aria-label="Override format"><option>virtual</option><option>in-person</option><option>small-group</option></select><label>Dollars/hour<input type="number" min="0" step="0.01" :value="rate.hourlyRateCents==null?'':rate.hourlyRateCents/100" @input="rate.hourlyRateCents=Math.round(Number($event.target.value)*100)"/></label><button type="button" @click="tutoringForm.learning.rateOverrides.splice(i,1)">Remove</button></div><button type="button" @click="tutoringForm.learning.rateOverrides.push({service:'tutoring',format:'virtual',hourlyRateCents:null})">Add rate override</button></fieldset>
           <div class="fields-grid">
             <div class="field-item">
               <label>Subject Areas</label>
@@ -302,7 +303,7 @@
               </div>
             </div>
             <div class="field-item">
-              <label>Session Rate (per session)</label>
+              <label>Legacy per-session rate override</label>
               <input type="number" v-model="tutoringForm.sessionRateDollars" placeholder="e.g. 60" min="0" step="1" />
               <span style="font-size: 11px; color: var(--text-secondary);">Enter dollar amount; leave empty to show "Contact office"</span>
             </div>
@@ -1336,6 +1337,7 @@ const enrollments = ref({ counseling: false, tutoring: false, evaluation: false 
 
 // tutoring profile form
 const tutoringForm = ref({
+  learning: {programs:['tutoring'],educationLevel:'',rateOverrides:[]},
   subjectAreas: [],
   gradeLevels: [],
   sessionRateDollars: '',
@@ -1381,6 +1383,7 @@ async function loadListings() {
       const profileRes = await api.get(`/public/agency-services/${encodeURIComponent(slug)}/tutoring-profiles/${props.userId}`, { skipAuthRedirect: true }).catch(() => null);
       const p = profileRes?.data?.profile;
       if (p) {
+        tutoringForm.value.learning = p.learning || {programs:['tutoring'],educationLevel:'',rateOverrides:[]};
         tutoringForm.value.subjectAreas = Array.isArray(p.subjectAreas) ? p.subjectAreas : [];
         tutoringForm.value.gradeLevels = Array.isArray(p.gradeLevels) ? p.gradeLevels : [];
         tutoringForm.value.sessionRateDollars = p.sessionRateCents ? String(Math.round(p.sessionRateCents / 100)) : '';
@@ -1440,6 +1443,7 @@ async function saveTutoringProfile() {
   try {
     const rateDollars = parseFloat(tutoringForm.value.sessionRateDollars);
     await api.put(`/public/agency-services/${encodeURIComponent(slug)}/tutoring-profiles/${props.userId}`, {
+      learning: tutoringForm.value.learning,
       subjectAreas: tutoringForm.value.subjectAreas,
       gradeLevels: tutoringForm.value.gradeLevels,
       sessionRateCents: Number.isFinite(rateDollars) && rateDollars > 0 ? Math.round(rateDollars * 100) : null,

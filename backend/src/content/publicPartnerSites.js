@@ -1,6 +1,6 @@
 // Public website destinations, independent of tenant provisioning and network membership.
 export const publicPartnerSites = [
- ['itsco','ITSCO — In The School Counselors','app.itsco.health'],
+ ['itsco','ITSCO','app.itsco.health'],
  ['nlu','Next Level Up','app.nextleveluplcc.com'],
  ['tisi','The Inner Strength Institute','app.theinnerstrengthinstitute.com'],
  ['rise','Rise Revive','app.risereviveco.com'],

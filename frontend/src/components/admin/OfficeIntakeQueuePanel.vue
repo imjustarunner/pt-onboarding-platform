@@ -236,6 +236,7 @@
           </div>
         </section>
 
+        <LearningEnrollmentSummary :value="selected.adaptiveMeta?.learning||selected.intakePreferences?.learning"/>
         <!-- Interests & goals -->
         <section class="oiq-section" v-if="selected.adaptiveMeta?.concerns?.length || selected.adaptiveMeta?.accomplishGoal || selected.intakePreferences?.presentingConcern">
           <div class="oiq-section-title">Interests & Goals</div>
@@ -403,6 +404,7 @@
 </template>
 
 <script setup>
+import LearningEnrollmentSummary from '../learning/LearningEnrollmentSummary.vue';
 import { computed, onMounted, reactive, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import { useAgencyStore } from '../../store/agency';

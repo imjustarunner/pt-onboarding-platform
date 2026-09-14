@@ -347,12 +347,14 @@
           <input type="text" :value="hubUrl" readonly class="share-input" @click="copyHubUrl" />
           <button class="btn btn-secondary" @click="copyHubUrl">{{ copied ? 'Copied!' : 'Copy link' }}</button>
         </div>
-      </div>
+      <LearningCatalogEditor v-if="agencySlug" :agency-slug="agencySlug"/>
+</div>
     </template>
   </div>
 </template>
 
 <script setup>
+import LearningCatalogEditor from '../../components/learning/LearningCatalogEditor.vue';
 import PendingProviderHolds from '../../components/publicServices/PendingProviderHolds.vue';
 import { ref, computed, onMounted } from 'vue';
 import { useRoute } from 'vue-router';

@@ -29,5 +29,5 @@ const SUBJECT_OPTIONS = [
   'Other'
 ];
 
-const GRADE_OPTIONS = ['K–2', '3–5', '6–8', '9–12', 'College'];
+const GRADE_OPTIONS = ['Pre-K', 'K', ...Array.from({length:12},(_,i)=>String(i+1)), 'College'];
 </script>

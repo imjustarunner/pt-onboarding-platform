@@ -1,3 +1,5 @@
+import learningReflections from '../../../frontend/src/navigation/learningReflection.js';
+import {prepareLearningPacket} from '../services/learningEnrollment.service.js';
 import { createPublicProviderHoldService } from '../services/publicProviderHold.service.js';
 import { validateIntakeBilling } from '../services/intakeBillingValidation.service.js';
 import { matchesIntakeSession } from '../middleware/intakeBillingSession.middleware.js';
@@ -3608,6 +3610,20 @@ export const buildIntakeAnswersText = ({ link, intakeData, clientIndex = 0 }) =>
     output.push(`${label}: ${normalizeAnswerValue(value)}`);
   };
 
+  const learning = clientResponses.learning || (clientIndex === 0 ? submissionResponses.learning : null);
+  if (learning) {
+    pushHeader('Learning enrollment');
+    for (const [key, label] of Object.entries({program:'Program',grade:'Grade',subject:'Subject',format:'Format',strengths:'Strengths',goals:'Goals',schoolSupports:'School supports',emotionalNeeds:'Emotional and learning needs',funding:'Funding to discuss'})) pushLine(label, learning[key]);
+    if (learning.packageSnapshot) {
+      pushLine('Requested package', learning.packageSnapshot.name);
+      pushLine('Package quote (USD)', learning.packageSnapshot.totalCents == null ? 'Contact us for pricing' : (learning.packageSnapshot.totalCents / 100).toFixed(2));
+      for (const component of learning.packageSnapshot.components || []) pushLine('Package component', `${component.sessions} x ${component.minutes} minutes; ${component.service}; ${component.format}; ${component.educationLevel}`);
+    }
+    pushLine('Reflection version', learning.reflectionVersion);
+    const reflectionLabels = new Map((learningReflections[learning.reflectionVersion || 'parent'] || []).flatMap(group => group.items.map(item => [item.id, item.text])));
+    for (const [question, rating] of Object.entries(learning.reflectionAnswers || {})) if (rating != null) pushLine(reflectionLabels.get(question) || question, `${rating}/4`);
+  }
+
   // Keys that duplicate the built-in name lines — skip them in scope-based sections.
   const builtInNameKeys = new Set([
     'client_first', 'clientFirst', 'client_last', 'clientLast',
@@ -5902,6 +5918,7 @@ export const getPublicIntakeLink = async (req, res, next) => {
         document_translation_map: link.has_spanish_master ? null : (link.document_translation_map || null),
         inherits_school_master: Number(link.inherits_school_master || 0) === 1 ? 1 : 0,
         inherits_office_master: Number(link.inherits_office_master || 0) === 1 ? 1 : 0,
+        master_channel: link.master_channel || null,
         master_form_id: link.master_form_id || null,
         master_form_version: link.master_form_version || null,
         master_language_code: link.master_language_code || null,
@@ -6214,6 +6231,10 @@ export const listPublicOfficeIntakeProviders = async (req, res, next) => {
       return res.status(404).json({ error: { message: 'Intake link not found' } });
     }
     const { agency } = await resolveIntakeOrgContext(link, { issuedRoiLink, boundClient });
+    if(String(link.master_channel||'').toLowerCase()==='tutoring') {
+      const {listTutors}=await import('./publicAgencyServices.controller.js');
+      return listTutors({params:{agencySlug:agency?.slug},query:{...req.query,learningProgram:req.query.learningProgram||'tutoring'}},{status(code){res.status(code);return this;},json(data){return res.json({...data,providers:(data.providers||[]).map(p=>({...p,name:p.displayName,waitlist:!p.acceptingNewClients}))});}},next);
+    }
     const ages = String(req.query.ages || '')
       .split(',')
       .map((v) => Number(v))
@@ -7590,6 +7611,7 @@ export const finalizePublicIntake = async (req, res, next) => {
 
     const now = new Date();
     let intakeData = req.body?.intakeData || null;
+    await prepareLearningPacket(intakeData,link);
     // Inject the link-bound company_event_id as a synthetic registration
     // selection BEFORE we hash + persist intakeData. This way the saved
     // intake_data row is the same one downstream (ticket PDF, event
@@ -10469,6 +10491,7 @@ export const submitPublicIntake = async (req, res, next) => {
 
     const now = new Date();
     let intakeData = req.body?.intakeData || null;
+    await prepareLearningPacket(intakeData,link);
     // Mirror the school-roi flow: inject the link-bound company_event_id
     // as a synthetic registration selection so downstream ticket PDF +
     // event placeholder + completion email + frontend success card all

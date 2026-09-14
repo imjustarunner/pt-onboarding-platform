@@ -3,6 +3,7 @@ import { requireHoldManager, listPendingHolds, resolvePendingHold, checkPublicHo
 import rateLimit from 'express-rate-limit';
 import express from 'express';
 import {
+  getLearningCatalog, saveLearningCatalog,
   createProviderSlotHold,
   releaseProviderSlotHold,
   getAgencyServicesHub,
@@ -25,6 +26,10 @@ import {
 
 const router = express.Router();
 router.use((_req, res, next) => { res.setHeader('Cache-Control', 'no-store'); next(); });
+
+router.get('/:agencySlug/learning-catalog', getLearningCatalog);
+router.get('/:agencySlug/learning-catalog/manage', authenticate, requireHoldManager, getLearningCatalog);
+router.put('/:agencySlug/learning-catalog', authenticate, requireHoldManager, saveLearningCatalog);
 
 // Public — no auth
 router.get('/:agencySlug', getAgencyServicesHub);

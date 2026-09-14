@@ -15,7 +15,7 @@
     <div class="profile-content">
      <section class="profile-panel"><h2>About {{ provider.firstName || provider.displayName }}</h2><p class="profile-bio">{{ profile.publicBlurb || 'The provider has not published a biography yet.' }}</p></section>
      <div class="profile-facets"><section v-for="group in groups" :key="group.title" class="profile-panel"><h2>{{ group.title }}</h2><div class="profile-tags"><span v-for="value in group.values" :key="value">{{ value }}</span></div><p v-if="!group.values.length">Not yet published</p></section></div>
-     <section v-if="profile.selfPayRateLabel" class="profile-panel"><h2>Self-pay</h2><strong>{{ profile.selfPayRateLabel }}</strong><p v-if="profile.selfPayRateNote">{{ profile.selfPayRateNote }}</p><p>Confirm coverage and any applicable costs with the team before starting services.</p></section>
+     <section v-if="provider.tutoringProfile" class="profile-panel"><h2>Learning rates & packages</h2><p v-for="(rate,format) in provider.tutoringProfile.hourlyRates||{}" :key="format">{{format}}: {{rate==null?'Contact us for pricing':new Intl.NumberFormat('en-US',{style:'currency',currency:'USD'}).format(rate/100)+' / hour'}}</p><article v-for="pkg in provider.tutoringProfile.packages||[]" :key="pkg.id"><h3>{{pkg.name}}</h3><ul><li v-for="(c,i) in pkg.components" :key="i">{{c.sessions}} × {{c.minutes}} minutes · {{c.service}} · {{c.format}} · {{c.educationLevel}}</li></ul><p>{{pkg.totalCents==null?'Contact us for pricing':new Intl.NumberFormat('en-US',{style:'currency',currency:'USD'}).format(pkg.totalCents/100)}} · Confirm the participating providers with our team.</p><router-link :to="{path:joinPath.path,query:{...joinPath.query,program:pkg.program,packageId:pkg.id}}">Request this package →</router-link></article></section><section v-if="profile.selfPayRateLabel" class="profile-panel"><h2>Self-pay</h2><strong>{{ profile.selfPayRateLabel }}</strong><p v-if="profile.selfPayRateNote">{{ profile.selfPayRateNote }}</p><p>Confirm coverage and any applicable costs with the team before starting services.</p></section>
     </div>
     <aside class="profile-panel profile-availability">
      <PublicProviderSlotPicker :agency-slug="slug" :provider-id="provider.id" :service-type="service" @hold="hold=$event"/>
@@ -39,8 +39,8 @@ const route=useRoute(), branding=useBrandingStore();
 const slug=computed(()=>String(route.params.organizationSlug||''));
 const service=computed(()=>['counseling','tutoring','coaching','consulting'].includes(route.query.serviceType)?route.query.serviceType:'counseling');
 const serviceLabel=computed(()=>({counseling:'Counseling',tutoring:'Tutoring',coaching:'Life coaching',consulting:'Consulting'})[service.value]);
-const finderPath=computed(()=>`/${encodeURIComponent(slug.value)}/find-${({counseling:'counselor',tutoring:'tutor',coaching:'coach',consulting:'consultant'})[service.value]}`);
-const joinPath=computed(()=>({path:`/join/${encodeURIComponent(slug.value)}/${service.value}`,query:{providerId:provider.value?.id,serviceType:service.value}}));
+const finderPath=computed(()=>({path:`/${encodeURIComponent(slug.value)}/find-${({counseling:'counselor',tutoring:'tutor',coaching:'coach',consulting:'consultant'})[service.value]}`,query:{program:route.query.program}}));
+const joinPath=computed(()=>({path:`/join/${encodeURIComponent(slug.value)}/${slug.value==='nlu'&&service.value==='tutoring'?'learning':service.value}`,query:{providerId:provider.value?.id,serviceType:service.value,program:route.query.program}}));
 const provider=ref(null),profile=ref({}),agencyName=ref(''),agencyId=ref(0),loading=ref(false),error=ref(''),photoFailed=ref(false),hold=ref(null);
 const initials=computed(()=>String(provider.value?.displayName||'').split(' ').map(s=>s[0]).slice(0,2).join(''));
 const groups=computed(()=>[

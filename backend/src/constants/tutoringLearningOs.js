@@ -45,8 +45,8 @@ export const AGE_RANGE_OPTIONS = Object.freeze([
 ]);
 
 export const GRADE_LEVEL_OPTIONS = Object.freeze([
-  { key: 'pre_k_k', label: 'Pre-K–K', publicGrade: 'K-2' },
-  { key: '1_2', label: '1st–2nd', publicGrade: 'K-2' },
+  { key: 'pre_k_k', label: 'Pre-K–K', publicGrade: 'Pre-K–K' },
+  { key: '1_2', label: '1st–2nd', publicGrade: '1-2' },
   { key: '3_5', label: '3rd–5th', publicGrade: '3-5' },
   { key: '6_8', label: '6th–8th', publicGrade: '6-8' },
   { key: '9_12', label: '9th–12th', publicGrade: '9-12' }

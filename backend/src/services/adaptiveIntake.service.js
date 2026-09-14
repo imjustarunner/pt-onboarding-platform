@@ -1,3 +1,4 @@
+import {resolveLearningInquiry,validateLearningProviderSelection} from './learningEnrollment.service.js';
 import { hashHoldToken, createPublicProviderHoldService } from './publicProviderHold.service.js';
 import pool from '../config/database.js';
 import * as ClientExchange from './clientExchange.service.js';
@@ -242,6 +243,7 @@ export async function findFullIntakePublicKey(agencyId, { serviceType = '' } = {
           };
         }
       }
+      return null; // A learning inquiry must never fall through to a counseling packet.
     }
 
     // Prefer (and lazily create) the Master Office published shell for Join In-Depth.
@@ -945,6 +947,11 @@ export async function submitQuickProspective({ agencySlugOrId, payload = {}, req
   const clientInfo = payload.client || {};
   const concerns = Array.isArray(payload.concerns) ? payload.concerns : [];
   const preferences = payload.preferences || {};
+  const learning = activeService?.serviceType==='tutoring' ? await resolveLearningInquiry(agencyRow.id,preferences.learning || {program:'tutoring'}) : null;
+  const extraLearning = new Map();
+  if (learning) for (const person of (Array.isArray(payload.additionalDependents) ? payload.additionalDependents : [])) extraLearning.set(person, await resolveLearningInquiry(agencyRow.id, person.learning || {program: learning.program}));
+  const learningProviderId = payload.preferredProviderUserId || preferences.preferredProviderUserId;
+  if (learning && learningProviderId) await validateLearningProviderSelection(agencyRow.id,learningProviderId,learning);
   const accomplishGoal = String(payload.accomplishGoal || payload.goals || '').trim() || null;
   const addressInfo = formatStructuredAddress(
     payload.address,
@@ -1038,6 +1045,7 @@ export async function submitQuickProspective({ agencySlugOrId, payload = {}, req
     birthdate,
     notes: payload.notes || null,
     preferredProviderUserId: payload.preferredProviderUserId || preferences.preferredProviderUserId || null,
+    learning,
     source: 'ADAPTIVE_QUICK_PROSPECTIVE',
     conversionStatus: 'not_converted',
     linkedIntakePublicKey: null,
@@ -1072,6 +1080,7 @@ export async function submitQuickProspective({ agencySlugOrId, payload = {}, req
     const nextPrefs = {
       ...prefs,
       requestedOpening,
+      learning,
       pathway: 'quick_prospective',
       whoFor,
       concerns,
@@ -1168,6 +1177,8 @@ export async function submitQuickProspective({ agencySlugOrId, payload = {}, req
     extraCreated.push(row);
     const extraMeta = {
       ...meta,
+      learning: learning ? extraLearning.get(person) || {version:1,program:learning.program} : null,
+      preferredProviderUserId: learning ? null : meta.preferredProviderUserId,
       therapyUnitRole: role,
       linkedPrimaryClientId: client.id,
       birthdate: extraDob,
@@ -1472,7 +1483,7 @@ export async function convertProspectiveToFullIntake({
 
   let publicKey = intakePublicKey;
   if (!publicKey) {
-    const found = await findFullIntakePublicKey(client.agency_id);
+    const found = await findFullIntakePublicKey(client.agency_id,{serviceType:parseJson(client.adaptive_intake_meta_json,{})?.serviceType||''});
     publicKey = found?.publicKey || null;
   }
   if (!publicKey) throw new Error('No active full intake link is available for conversion');
@@ -1501,6 +1512,7 @@ export async function convertProspectiveToFullIntake({
   const respondent = meta.respondent || {};
   const clientBag = meta.client || {};
   const prefill = {
+    learning: meta.learning || prefs.learning || null,
     whoFor,
     intakeForSelf: isSelf,
     guardianFirstName: respondent.firstName || null,

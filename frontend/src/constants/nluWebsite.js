@@ -1,5 +1,6 @@
 export const nluPath = section => `/p/nlu${section ? '/'+section : ''}`;
 export const nluHeroes = {
+ 'new-families':['Welcome to Next Level Up','New Family Information','A clear start. Support along the way.','Learn what to prepare, how enrollment works, and how we build a plan with your family.','family.png'],
  home:['Academic support. Emotional support.','Academic Support.\nEmotional Support.','A Program That Bridges Both.','Every student has potential. We connect individualized tutoring, counseling, and cognitive and emotional enrichment — because learning and well-being work best together.','family.png'],
  tutoring:['Academic support for a brighter tomorrow','Tutoring','Build skills. Close gaps. Gain confidence.','Personalized tutoring meets your student where they are. From homework help to foundational skill building, we help make learning feel possible and progress measurable.','learning.png'],
  counseling:['Counseling','Counseling That Supports','Growth, Resilience, and Brighter Tomorrows.','Individualized support for children and teens navigating anxiety, stress, emotional regulation, behavior concerns, and school-related challenges. A place to feel heard and build skills for everyday life.','family.png'],
@@ -41,14 +42,14 @@ export const nluSkills=[
 ];
 export const nluFaqs=[
  ['How do we choose between tutoring and counseling?','Tutoring focuses on academic skills and learning strategies. Counseling focuses on emotional and behavioral needs. If both affect your student, ask our team about coordinated support.'],
- ['What does the combined program include?','The plan may include academic support, skill development, and counseling, based on your student’s needs. Clinical services are provided only by appropriately qualified providers within their training and scope.'],
+ ['What does the combined program include?','The starting model is weekly small-group skill development, coordinated with tutoring and counseling or therapy based on your student’s individualized plan. Format, frequency, and funding are reviewed case by case. Clinical services are provided only by appropriately qualified providers within their training and scope.'],
  ['Can we use insurance?','Coverage depends on the service, provider, and your specific plan. Ask our team to confirm benefits and costs before starting. Tutoring and academic services may require self-pay.'],
  ['Are in-person and virtual options available?','Options vary by provider and service. Use the provider directory to explore current formats and appointment availability.'],
  ['What should we have ready?','Your goals and questions are a good starting point. Relevant school information can help with academic planning. Complete personal and clinical information through the enrollment forms.'],
  ['Are all Learning Center programs open?','K–12 individual tutoring is available now. The additional Learning Center programs shown as Coming soon are being developed. Contact us to learn about updates.']
 ];
 export const nluFamilies=[
- ['Getting started','Everything you need to take the next step.','people',[['New families','get-started'],['How it works','how-it-works'],['Schedule an assessment','get-started#start'],['Get matched with a provider','providers']]],
+ ['Getting started','Everything you need to take the next step.','people',[['New families','new-families'],['How it works','how-it-works'],['Schedule an assessment','get-started#start'],['Get matched with a provider','providers']]],
  ['Services for your student','Support designed for the whole student.','school',[['Tutoring','tutoring'],['Counseling','counseling'],['Therapy + Tutoring','therapy-tutoring'],['Learning Center','learning-center']]],
  ['Helpful resources','Practical guidance at every step.','target',[['Parent FAQs','resources#faqs'],['Insurance & billing','resources#insurance'],['Forms & enrollment','get-started#start'],['Academic acceleration','academic-acceleration']]],
  ['Stay connected','We’re in this together.','heart',[['Client portal','/nlu/login'],['Contact us','contact'],['School-year support','tutoring'],['Virtual & in-person options','providers']]]

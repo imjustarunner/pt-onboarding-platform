@@ -122,7 +122,7 @@ function applyConfig(data) {
   if (data.phiWarning) phiWarning.value = data.phiWarning;
   recaptchaSiteKey.value = data.recaptchaSiteKey || '';
   recaptchaRequired.value = !!data.recaptchaRequired;
-  if (!form.category && categories.value[0]) form.category = categories.value[0].id;
+
 }
 
 watch(

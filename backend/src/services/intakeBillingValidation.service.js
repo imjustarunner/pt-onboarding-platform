@@ -23,6 +23,10 @@ export async function validateIntakeBilling({ link, submission, intakeData, agen
       }
     }
   }
+  // Bridge enrollment requests need a case-by-case funding review; submitting an
+  // inquiry does not authorize a charge or grant paid service credits.
+  const learningResponses = data.responses || data;
+  if (link.master_channel === 'tutoring' && [learningResponses.submission?.learning, ...(learningResponses.clients || []).map(client => client?.learning)].some(learning => learning?.program === 'bridge')) return;
   const paymentStep = steps.find(s => s.type === 'payment_collection' || (s.type === 'insurance_info' && (s.paymentOnly || Number(link.inherits_office_master) === 1)));
   if (!paymentStep || paymentStep.paymentRequired === false || shouldSuppressInsurancePayment(info, link.master_channel)) return;
   const [merchant] = await pool.execute("SELECT stripe_connect_account_id FROM agency_billing_accounts WHERE agency_id = ? AND stripe_connect_status = 'active'",[agencyId]);

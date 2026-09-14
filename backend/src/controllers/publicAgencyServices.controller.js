@@ -1,3 +1,4 @@
+import {normalizeLearningProfile, validateLearningCatalog, hourlyRate, pricePackage, matchesGrade, LEARNING_PROGRAMS} from '../services/learningCatalog.js';
 import {publicAcceptance,uniquePublicFacets} from '../utils/publicProviderPresentation.js';
 import { createPublicProviderHoldService, holdError } from '../services/publicProviderHold.service.js';
 import pool from '../config/database.js';
@@ -512,7 +513,7 @@ async function listEnrolledProviders(agencyId, serviceType) {
 
 async function getTutoringProfile(userId, agencyId) {
   const [rows] = await pool.execute(
-    `SELECT subject_areas_json, grade_levels_json, session_rate_cents, session_rate_note, bio, accepting_new_students,
+    `SELECT learning_settings_json, subject_areas_json, grade_levels_json, session_rate_cents, session_rate_note, bio, accepting_new_students,
             COALESCE(min_session_package, 1) AS min_session_package,
             COALESCE(payment_policy, 'POST_SESSION') AS payment_policy
      FROM provider_tutoring_profiles
@@ -524,9 +525,10 @@ async function getTutoringProfile(userId, agencyId) {
   if (!r) return null;
   let subjectAreas = [];
   let gradeLevels = [];
-  try { subjectAreas = JSON.parse(r.subject_areas_json || '[]'); } catch { subjectAreas = []; }
-  try { gradeLevels = JSON.parse(r.grade_levels_json || '[]'); } catch { gradeLevels = []; }
+  try { subjectAreas = Array.isArray(r.subject_areas_json)?r.subject_areas_json:JSON.parse(r.subject_areas_json || '[]'); } catch { subjectAreas = []; }
+  try { gradeLevels = Array.isArray(r.grade_levels_json)?r.grade_levels_json:JSON.parse(r.grade_levels_json || '[]'); } catch { gradeLevels = []; }
   return {
+    learning: normalizeLearningProfile(typeof r.learning_settings_json === 'string' ? JSON.parse(r.learning_settings_json) : r.learning_settings_json || {}),
     subjectAreas,
     gradeLevels,
     sessionRateCents: r.session_rate_cents ?? null,
@@ -919,6 +921,9 @@ export const listTutors = async (req, res, next) => {
     const weekStart = startOfWeekMondayYmd(isValidYmd(weekStartRaw) ? weekStartRaw : new Date().toISOString().slice(0, 10));
     const searchQ = String(req.query.search || '').trim().toLowerCase();
     const filterSubject = String(req.query.subject || '').trim().toLowerCase();
+    const learningProgram = String(req.query.learningProgram || '').trim();
+    if (learningProgram && !LEARNING_PROGRAMS.includes(learningProgram)) return res.status(400).json({error:{message:'Unknown learning program.'}});
+    const catalog = await readLearningCatalog(agency.id);
     const filterGradeLevel = String(req.query.gradeLevel || '').trim().toLowerCase();
 
     const serviceTypeRow = (await getAgencyServiceTypes(agency.id)).find((st) => st.service_type === 'tutoring');
@@ -927,6 +932,10 @@ export const listTutors = async (req, res, next) => {
     const providers = await runWithConcurrency(providerRows, 6, async (row) => {
       const tutoringProfile = await getTutoringProfile(Number(row.id), agency.id);
       if (!tutoringProfile) return null;
+      if (learningProgram && !tutoringProfile.learning.programs.includes(learningProgram)) return null;
+      if (!matchesGrade(tutoringProfile.gradeLevels, filterGradeLevel)) return null;
+      tutoringProfile.hourlyRateCents = hourlyRate(catalog, tutoringProfile.learning, 'tutoring', req.query.learningFormat === 'small-group' ? 'small-group' : programType==='IN_PERSON'?'in-person':'virtual');
+      tutoringProfile.packages = catalog.packages.filter(p=>p.published && p.program===(learningProgram||'tutoring')).map(p=>pricePackage(catalog,p));
 
       const heldSlots = await getHeldSlotStartsForProvider(agency.id, Number(row.id));
       const summary = await computeProviderWindowSummary({
@@ -944,15 +953,14 @@ export const listTutors = async (req, res, next) => {
         providerAcceptingNewClients: row.provider_accepting_new_clients,
         profileAcceptingNewClientsOverride: profileData?.acceptingNewClientsOverride ?? null
       });
-      const filteredThisWeek = programType === 'VIRTUAL' ? slotSet.virtual : slotSet.inPerson;
+      const filteredThisWeek = tutoringProfile.acceptingNewStudents && req.query.learningFormat !== 'small-group' ? (programType === 'VIRTUAL' ? slotSet.virtual : slotSet.inPerson) : [];
 
       const displayName = `${row.first_name || ''} ${row.last_name || ''}`.trim();
       if (searchQ && !displayName.toLowerCase().includes(searchQ)) return null;
       if (filterSubject && !tutoringProfile.subjectAreas.map((s) => s.toLowerCase()).some((s) => s.includes(filterSubject))) return null;
-      if (filterGradeLevel && !tutoringProfile.gradeLevels.map((s) => s.toLowerCase()).some((s) => s.includes(filterGradeLevel))) return null;
 
       return {
-        acceptingNewClients: publicAcceptance({globalAccepting:profileData?.acceptingNewClientsOverride ?? row.provider_accepting_new_clients,manual:programType==='IN_PERSON'?profileData?.details?.officeAvailability:'auto',assigned:programType!=='IN_PERSON'||Boolean(row.in_office_available)||Boolean(summary.nextAvailableAt),hasOpenings:Boolean(summary.nextAvailableAt)}).status === 'accepting',
+        acceptingNewClients: tutoringProfile.acceptingNewStudents && publicAcceptance({globalAccepting:profileData?.acceptingNewClientsOverride ?? row.provider_accepting_new_clients,manual:programType==='IN_PERSON'?profileData?.details?.officeAvailability:'auto',assigned:programType!=='IN_PERSON'||Boolean(row.in_office_available)||Boolean(summary.nextAvailableAt),hasOpenings:Boolean(summary.nextAvailableAt)}).status === 'accepting',
         providerId: Number(row.id),
         id: Number(row.id),
         firstName: row.first_name || '',
@@ -966,7 +974,7 @@ export const listTutors = async (req, res, next) => {
           programType,
           weekStart,
           thisWeekCount: filteredThisWeek.length,
-          nextAvailableAt: summary.nextAvailableAt || null,
+          nextAvailableAt: tutoringProfile.acceptingNewStudents && req.query.learningFormat !== 'small-group' ? summary.nextAvailableAt || null : null,
           bookedThroughDate: summary.bookedThroughYmd || null,
           slots: filteredThisWeek.map((s) => ({ ...s, bookingMode, programType }))
         }
@@ -1140,7 +1148,7 @@ export const getProviderDetail = async (req, res, next) => {
       providerAcceptingNewClients: user.provider_accepting_new_clients,
       profileAcceptingNewClientsOverride: profileData?.acceptingNewClientsOverride ?? null
     });
-    const filteredThisWeek = programType === 'VIRTUAL' ? slotSet.virtual : slotSet.inPerson;
+    let filteredThisWeek = programType === 'VIRTUAL' ? slotSet.virtual : slotSet.inPerson;
 
     let specialtyData = null;
     let tutoringProfile = null;
@@ -1148,14 +1156,17 @@ export const getProviderDetail = async (req, res, next) => {
       specialtyData = await getCounselingSpecialties(providerId, agency.id);
     } else if (serviceType === 'tutoring') {
       tutoringProfile = await getTutoringProfile(providerId, agency.id);
+      if(tutoringProfile){const catalog=await readLearningCatalog(agency.id);tutoringProfile.hourlyRates=Object.fromEntries(['virtual','in-person','small-group'].map(format=>[format,hourlyRate(catalog,tutoringProfile.learning,'tutoring',format)]));tutoringProfile.packages=catalog.packages.filter(p=>p.published&&tutoringProfile.learning.programs.includes(p.program)).map(p=>pricePackage(catalog,p));}
     }
+
+    if (tutoringProfile?.acceptingNewStudents === false) filteredThisWeek = [];
 
     res.json({
       ok: true,
       serviceType,
       agency: { id: agency.id, slug: agency.slug, name: agency.name },
       provider: {
-        acceptingNewClients: publicAcceptance({globalAccepting:profileData?.acceptingNewClientsOverride ?? user.provider_accepting_new_clients,manual:programType==='IN_PERSON'?profileData?.details?.officeAvailability:'auto',assigned:programType!=='IN_PERSON'||Boolean(user.in_office_available)||Boolean(summary.nextAvailableAt),hasOpenings:Boolean(summary.nextAvailableAt)}).status === 'accepting',
+        acceptingNewClients: tutoringProfile?.acceptingNewStudents !== false && publicAcceptance({globalAccepting:profileData?.acceptingNewClientsOverride ?? user.provider_accepting_new_clients,manual:programType==='IN_PERSON'?profileData?.details?.officeAvailability:'auto',assigned:programType!=='IN_PERSON'||Boolean(user.in_office_available)||Boolean(summary.nextAvailableAt),hasOpenings:Boolean(summary.nextAvailableAt)}).status === 'accepting',
         providerId,
         id: providerId,
         firstName: user.first_name || '',
@@ -1181,7 +1192,7 @@ export const getProviderDetail = async (req, res, next) => {
         programType,
         weekStart,
         thisWeekCount: filteredThisWeek.length,
-        nextAvailableAt: summary.nextAvailableAt || null,
+        nextAvailableAt: tutoringProfile?.acceptingNewStudents === false ? null : summary.nextAvailableAt || null,
         slots: filteredThisWeek.map((s) => ({ ...s, bookingMode, programType }))
       }
     });
@@ -1904,6 +1915,8 @@ export const upsertTutoringProfile = async (req, res, next) => {
     const userId = parseIntSafe(req.params.userId);
     if (!userId) return res.status(400).json({ error: { message: 'Invalid userId' } });
 
+    const existingProfile = req.body?.learning === undefined ? await getTutoringProfile(userId, agency.id) : null;
+    const learning = normalizeLearningProfile(req.body?.learning ?? existingProfile?.learning ?? {});
     const subjectAreas = Array.isArray(req.body?.subjectAreas) ? req.body.subjectAreas : [];
     const gradeLevels = Array.isArray(req.body?.gradeLevels) ? req.body.gradeLevels : [];
     const sessionRateCents = req.body?.sessionRateCents !== undefined ? parseIntSafe(req.body.sessionRateCents) : null;
@@ -1917,8 +1930,8 @@ export const upsertTutoringProfile = async (req, res, next) => {
 
     await pool.execute(
       `INSERT INTO provider_tutoring_profiles
-         (user_id, agency_id, subject_areas_json, grade_levels_json, session_rate_cents, session_rate_note, bio, accepting_new_students, min_session_package, payment_policy)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         (user_id, agency_id, subject_areas_json, grade_levels_json, session_rate_cents, session_rate_note, bio, accepting_new_students, min_session_package, payment_policy, learning_settings_json)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON DUPLICATE KEY UPDATE
          subject_areas_json = VALUES(subject_areas_json),
          grade_levels_json = VALUES(grade_levels_json),
@@ -1928,6 +1941,7 @@ export const upsertTutoringProfile = async (req, res, next) => {
          accepting_new_students = VALUES(accepting_new_students),
          min_session_package = VALUES(min_session_package),
          payment_policy = VALUES(payment_policy),
+         learning_settings_json = VALUES(learning_settings_json),
          updated_at = CURRENT_TIMESTAMP`,
       [
         userId, Number(agency.id),
@@ -1938,7 +1952,8 @@ export const upsertTutoringProfile = async (req, res, next) => {
         bio || null,
         acceptingNewStudents,
         minSessionPackage,
-        paymentPolicy
+        paymentPolicy,
+        JSON.stringify(learning)
       ]
     );
 
@@ -1987,3 +2002,22 @@ export const releaseProviderSlotHold = async (req, res, next) => {
     res.json({ ok: true });
   } catch (error) { next(error); }
 };
+
+async function readLearningCatalog(agencyId) {
+ const [rows]=await pool.execute('SELECT catalog_json FROM agency_learning_catalogs WHERE agency_id=?',[agencyId]);
+ const raw=rows[0]?.catalog_json;
+ return raw ? (typeof raw==='string'?JSON.parse(raw):raw) : {version:1,rates:[],packages:[]};
+}
+export async function getLearningCatalog(req,res,next) {
+ try {const agency=await requireAgencyBySlug(res,req.params.agencySlug);if(!agency)return;
+ const catalog=await readLearningCatalog(agency.id);
+ res.json({catalog:req.route?.path?.endsWith('/manage')?catalog:{...catalog,packages:catalog.packages.filter(p=>p.published).map(p=>pricePackage(catalog,p))}});
+ }catch(e){next(e);}
+}
+export async function saveLearningCatalog(req,res,next) {
+ try {const agency=await requireAgencyBySlug(res,req.params.agencySlug);if(!agency)return;
+ const catalog=validateLearningCatalog(req.body);
+ await pool.execute('INSERT INTO agency_learning_catalogs (agency_id,catalog_json) VALUES (?,?) ON DUPLICATE KEY UPDATE catalog_json=VALUES(catalog_json)',[agency.id,JSON.stringify(catalog)]);
+ res.json({catalog});
+ }catch(e){if(e.status===400)return res.status(400).json({error:{message:e.message}});next(e);}
+}

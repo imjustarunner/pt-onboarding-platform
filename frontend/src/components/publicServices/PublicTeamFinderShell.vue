@@ -78,7 +78,7 @@
 
         <label v-if="locations.length" class="tf-field"><span>Location</span><select v-model="location"><option value="">All locations</option><option v-for="value in locations" :key="value">{{value}}</option></select></label>
         <label v-if="languages.length" class="tf-field"><span>Language</span><select v-model="language"><option value="">All languages</option><option v-for="value in languages" :key="value">{{value}}</option></select></label>
-        <h2 class="tf-rail-title">Refine results</h2>
+        <label v-if="serviceType==='tutoring'" class="tf-field"><span>Learning program</span><select v-model="filters.learningProgram" @change="load"><option value="tutoring">Tutoring</option><option value="academic-acceleration">Academic Acceleration</option><option value="bridge">Cognitive & Emotional Enrichment / Bridge</option></select></label><h2 class="tf-rail-title">Refine results</h2>
 
         <label class="tf-field">
           <span>Search</span>
@@ -272,7 +272,8 @@ const filters = ref({
   specialty: '',
   ageGroup: '',
   subject: '',
-  gradeLevel: '',
+  gradeLevel: String(route.query.grade||''),
+  learningProgram: ['bridge','academic-acceleration'].includes(route.query.program)?route.query.program:'tutoring',
   programType: 'VIRTUAL',
   weekStart: new Date().toISOString().slice(0, 10)
 });
@@ -383,11 +384,12 @@ async function goBook(provider, slot) {
   finally { selecting.value = false; }
 }
 function goProfile(provider) {
-  router.push({ path: `/${encodeURIComponent(slug.value)}/provider/${providerIdOf(provider)}`, query: { serviceType: props.serviceType } });
+  router.push({ path: `/${encodeURIComponent(slug.value)}/provider/${providerIdOf(provider)}`, query: { serviceType: props.serviceType, program: props.serviceType==='tutoring'?filters.value.learningProgram:undefined } });
 }
 
 function goBack() {
-  if (slug.value) router.push(`/${slug.value}/services`);
+  if (slug.value==='nlu') router.push({path:'/p/nlu/providers',query:{service:props.serviceType,program:props.serviceType==='tutoring'?filters.value.learningProgram:undefined}});
+  else if (slug.value) router.push(`/${slug.value}/services`);
   else router.back();
 }
 
@@ -505,6 +507,7 @@ async function load() {
       weekStart: filters.value.weekStart,
       bookingMode: 'NEW_CLIENT'
     };
+    if (props.serviceType==='tutoring') params.learningProgram=filters.value.learningProgram;
     if (filters.value.search) params.search = filters.value.search;
     if (filters.value.specialty) params.specialty = filters.value.specialty;
     if (filters.value.ageGroup) params.ageGroup = filters.value.ageGroup;

@@ -1,3 +1,4 @@
+import { learningIntakeSteps } from '../services/learningIntakeSteps.js';
 import pool from '../config/database.js';
 import crypto from 'crypto';
 import IntakeLink from './IntakeLink.model.js';
@@ -417,10 +418,10 @@ class AgencyChannelIntakeMaster {
     const master = await this.getOrCreateForAgency(aid, { channel: 'tutoring', languageCode: link.language_code || 'en' });
     if (!master) return link;
     const lang = normalizeLang(link.language_code || 'en');
-    const intakeSteps = lang === 'en'
+    const intakeSteps = learningIntakeSteps(lang === 'en'
       ? mergeCounselingOfficeEnIntoSteps(master.intake_steps || [], { paymentOnly: true })
-      : (master.intake_steps || []);
-    const intakeFields = lang === 'en' ? flattenIntakeFields(intakeSteps) : master.intake_fields;
+      : (master.intake_steps || []));
+    const intakeFields = flattenIntakeFields(intakeSteps);
     return {
       ...link,
       intake_steps: intakeSteps,

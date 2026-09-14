@@ -3737,13 +3737,13 @@ const routes = [
     meta: { requiresGuest: false, hideNav: true }
   },
   {
-    path: '/join/:agencySlug/:serviceType(counseling|tutoring|coaching|consulting)/co-guardian/:token',
+    path: '/join/:agencySlug/:serviceType(counseling|tutoring|learning|coaching|consulting)/co-guardian/:token',
     name: 'CoGuardianInvite',
     component: () => import('../views/public/CoGuardianInviteView.vue'),
     meta: { requiresGuest: false, hideNav: true }
   },
   {
-    path: '/join/:agencySlug/:serviceType(counseling|tutoring|coaching|consulting)',
+    path: '/join/:agencySlug/:serviceType(counseling|tutoring|learning|coaching|consulting)',
     name: 'AdaptiveJoinService',
     component: () => import('../views/public/AdaptiveJoinView.vue'),
     meta: { requiresGuest: false, hideNav: true }
@@ -3773,13 +3773,13 @@ const routes = [
     })
   },
   {
-    path: '/:organizationSlug/join/:serviceType(counseling|tutoring|coaching|consulting)/co-guardian/:token',
+    path: '/:organizationSlug/join/:serviceType(counseling|tutoring|learning|coaching|consulting)/co-guardian/:token',
     name: 'OrganizationCoGuardianInvite',
     component: () => import('../views/public/CoGuardianInviteView.vue'),
     meta: { requiresGuest: false, hideNav: true, organizationSlug: true }
   },
   {
-    path: '/:organizationSlug/join/:serviceType(counseling|tutoring|coaching|consulting)',
+    path: '/:organizationSlug/join/:serviceType(counseling|tutoring|learning|coaching|consulting)',
     name: 'OrganizationAdaptiveJoinService',
     component: () => import('../views/public/AdaptiveJoinView.vue'),
     meta: { requiresGuest: false, hideNav: true, organizationSlug: true }

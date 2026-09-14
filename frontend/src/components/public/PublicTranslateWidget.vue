@@ -5,25 +5,24 @@
     aria-label="Page language"
   >
     <span v-if="translationState" class="public-translate-status notranslate" translate="no" role="status">{{ translationState === 'loading' ? 'Traduciendo…' : 'Parte del contenido sigue en inglés.' }} <button v-if="translationState === 'unavailable'" type="button" @click="translator?.retry()">Reintentar</button></span>
-    <span class="public-translate-label notranslate" translate="no">{{ t('common.language') }}</span>
     <div class="public-translate-buttons notranslate" translate="no">
       <button
         type="button"
         class="public-translate-btn"
         :class="{ active: locale === 'en' }"
         :aria-pressed="locale === 'en' ? 'true' : 'false'"
-        @click="choose('en')"
+        title="Language: English" aria-label="Language: English" @click="choose('en')"
       >
-        English
+        🇺🇸
       </button>
       <button
         type="button"
         class="public-translate-btn"
         :class="{ active: locale === 'es' }"
         :aria-pressed="locale === 'es' ? 'true' : 'false'"
-        @click="choose('es')"
+        title="Idioma: Español" aria-label="Idioma: Español" @click="choose('es')"
       >
-        Español
+        🇪🇸
       </button>
     </div>
   </div>
@@ -129,3 +128,5 @@ function choose(next) {
   }
 }
 </style>
+
+<style scoped>.public-translate-btn{font-size:23px;line-height:1.2}.public-translate-btn.active{background:#e0f2f1;box-shadow:inset 0 -3px #087f8c}</style>

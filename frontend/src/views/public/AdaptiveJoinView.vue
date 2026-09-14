@@ -127,7 +127,7 @@
         <span v-if="sidebarSaveOk" class="ai-join-sidebar-ok">{{ sidebarSaveOk }}</span>
       </div>
       <div class="ai-join-sheet ai-join-panel">
-      <p v-if="pathwayBadge" class="ai-join-eyebrow">{{ pathwayBadge }}</p>
+      <p v-if="resolvedServiceType==='tutoring'" class="ai-join-eyebrow">Learning enrollment · {{learningForm.program==='bridge'?'Cognitive & Emotional Enrichment / Bridge':learningForm.program==='academic-acceleration'?'Academic Acceleration':'Tutoring'}}</p><p v-if="pathwayBadge" class="ai-join-eyebrow">{{ pathwayBadge }}</p>
       <!-- Step: who for + basics -->
       <div v-if="quickStep === 0" class="ai-join-form">
         <header class="ai-join-header">
@@ -468,7 +468,7 @@
       </div>
 
       <!-- Step: preferences -->
-      <div v-else-if="quickStep === 2" class="ai-join-form">
+      <div v-else-if="quickStep === 2" class="ai-join-form"><LearningEnrollmentQuestions v-if="resolvedServiceType==='tutoring'" v-model="learningForm" :agency-slug="agencySlug"/>
         <h1 class="ai-page-title">Preferences & availability</h1>
         <p class="ai-page-lead">Optional — helps us match format and timing.</p>
         <div class="field-row">
@@ -516,7 +516,7 @@
           Choose a provider is turned off for this join. Continue to consent, or turn it back on above.
         </div>
         <p v-if="providerSelectionError" role="alert">{{ providerSelectionError }}</p>
-        <PublicProviderSlotPicker v-if="showChooseProvider && form.preferredProviderUserId" :agency-slug="agencySlug" :provider-id="Number(form.preferredProviderUserId)" :service-type="serviceType || 'counseling'" />
+        <PublicProviderSlotPicker v-if="showChooseProvider && form.preferredProviderUserId && !(resolvedServiceType==='tutoring' && learningForm.format==='small-group')" :agency-slug="agencySlug" :provider-id="Number(form.preferredProviderUserId)" :service-type="serviceType || 'counseling'" />
       </div>
 
       <!-- Step: consent / contact permission -->
@@ -631,6 +631,7 @@
               </div>
               <DigitalFormField v-model="form.additionalDependent.dateOfBirth" type="date" label="Date of birth" required size="xs" />
             </div>
+            <LearningEnrollmentQuestions v-if="resolvedServiceType==='tutoring'" v-model="additionalLearningForm" :agency-slug="agencySlug"/>
             <DigitalFormField
               v-model="form.additionalDependent.notes"
               type="textarea"
@@ -661,6 +662,7 @@
 </template>
 
 <script setup>
+import LearningEnrollmentQuestions from '../../components/learning/LearningEnrollmentQuestions.vue';
 import {publicWebsitePath} from '../../utils/publicWebsitePath';
 import { computed, onMounted, reactive, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
@@ -707,7 +709,9 @@ const agencySlug = computed(() =>
   String(route.params.organizationSlug || route.params.agencySlug || '').trim()
 );
 
-const serviceType = computed(() => String(route.params.serviceType || '').trim().toLowerCase());
+const serviceType = computed(() => String(route.params.serviceType || '').trim().toLowerCase()==='learning'?'tutoring':String(route.params.serviceType||'').trim().toLowerCase());
+const additionalLearningForm=ref({version:1,program:'tutoring'});
+const learningForm = ref({version:1,packageId:String(route.query.packageId||''),program:['bridge','academic-acceleration','tutoring'].includes(route.query.program)?route.query.program:'tutoring',format:route.query.program==='bridge'?'small-group':''});
 const resolvedServiceType = computed(() =>
   serviceType.value || String(config.value?.activeService?.serviceType || '').trim().toLowerCase()
 );
@@ -1119,7 +1123,7 @@ function formatBirthdate(value) {
 const quickCard = computed(() => {
   const c = config.value?.copy || {};
   return {
-    title: c.quickTitle ?? 'Initial Interest Form',
+    title: resolvedServiceType.value === 'tutoring' ? 'Learning Interest Form' : c.quickTitle ?? 'Initial Interest Form',
     tagline: c.quickTagline ?? 'A short form to get you started.',
     description: c.quickDescription ?? 'Perfect if you are exploring services and want our team to follow up.',
     duration: c.quickDuration ?? '1–5 min',
@@ -1132,7 +1136,7 @@ const quickCard = computed(() => {
 const fullCard = computed(() => {
   const c = config.value?.copy || {};
   return {
-    title: c.fullTitle ?? 'Client Enrollment Packet',
+    title: resolvedServiceType.value === 'tutoring' ? 'Full Learning Enrollment' : c.fullTitle ?? 'Client Enrollment Packet',
     tagline: c.fullTagline ?? 'A comprehensive intake experience.',
     description: c.fullDescription ?? 'Best when you are ready to provide full information for personalized care.',
     duration: c.fullDuration ?? '10–20 min',
@@ -1560,7 +1564,7 @@ function onPathwayContinue(pathway) {
   if (pathway === 'full') {
     const key = config.value?.pathways?.full?.publicKey;
     if (!key) return;
-    router.push(`/intake/${key}`);
+    router.push({path:`/intake/${key}`,query:{...route.query,program:serviceType.value==='tutoring'?learningForm.value.program:undefined}});
     return;
   }
   phase.value = 'quick';
@@ -1568,7 +1572,11 @@ function onPathwayContinue(pathway) {
   loadProviders();
 }
 
+watch(()=>[learningForm.value.program,learningForm.value.grade,learningForm.value.subject,learningForm.value.format],()=>{form.preferredProviderUserId=null;if(phase.value==='quick')loadProviders();});
+let learningProviderGeneration=0;
+
 async function loadProviders() {
+  const generation=++learningProviderGeneration;
   providersLoading.value = true;
   providersError.value = '';
   try {
@@ -1581,11 +1589,14 @@ async function loadProviders() {
             ? 'child'
             : 'individual';
     const { data } = await api.get(
-      `/public/agency-services/${encodeURIComponent(agencySlug.value)}/choose-providers`,
-      { params: { serviceMode } }
+      `/public/agency-services/${encodeURIComponent(agencySlug.value)}/${resolvedServiceType.value==='tutoring'?'tutors':'choose-providers'}`,
+      { params: resolvedServiceType.value==='tutoring'?{learningProgram:learningForm.value.program,learningFormat:learningForm.value.format,gradeLevel:learningForm.value.grade,subject:learningForm.value.subject,programType:learningForm.value.format==='in-person'?'IN_PERSON':'VIRTUAL'}:{ serviceMode } }
     );
-    providers.value = Array.isArray(data?.providers) ? data.providers : (config.value?.providerPreview || []);
+    if(generation!==learningProviderGeneration)return;
+    providers.value = Array.isArray(data?.providers) ? data.providers.map(p=>({...p,...(resolvedServiceType.value==='tutoring'?{waitlist:!p.acceptingNewClients}: {})})) : (resolvedServiceType.value==='tutoring'?[]:config.value?.providerPreview || []);
   } catch (e) {
+    if(generation!==learningProviderGeneration)return;
+    if(resolvedServiceType.value==='tutoring'){providers.value=[];providersError.value=e?.response?.data?.error?.message||'We can help match your learner after reviewing the inquiry.';return;}
     try {
       const fallback = await api.get(`/public/adaptive-intake/${agencySlug.value}/providers`);
       providers.value = fallback.data?.providers || config.value?.providerPreview || [];
@@ -1596,7 +1607,7 @@ async function loadProviders() {
       providersError.value = e?.response?.data?.error?.message || '';
     }
   } finally {
-    providersLoading.value = false;
+    if(generation===learningProviderGeneration)providersLoading.value = false;
   }
 }
 
@@ -1692,6 +1703,7 @@ async function submitQuick() {
             middleName: form.additionalDependent.middleName,
             lastName: form.additionalDependent.lastName,
             dateOfBirth: form.additionalDependent.dateOfBirth,
+            learning: resolvedServiceType.value==='tutoring'?additionalLearningForm.value:undefined,
             notes: form.additionalDependent.notes
           }]
         : [];
@@ -1740,6 +1752,7 @@ async function submitQuick() {
       preferredProviderUserId: form.preferredProviderUserId,
       providerHoldToken: readProviderHoldToken(),
       preferences: {
+        learning: resolvedServiceType.value==='tutoring'?learningForm.value:undefined,
         preferredModality: form.preferences.preferredModality || null,
         preferredTimeOfDay: form.preferences.preferredTimeOfDay || null,
         preferredDays,
