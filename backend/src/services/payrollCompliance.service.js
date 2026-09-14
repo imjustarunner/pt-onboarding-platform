@@ -213,17 +213,32 @@ export async function listCurrentComplianceRows(payrollPeriodId) {
   if (!runs?.length) return PayrollImportRow.listForPeriod(payrollPeriodId);
   const snapshots = await PayrollPeriodRunSnapshot.listForRun(runs[0].id);
   return snapshots.filter((s) => Number(s.no_note_units) > 0 || Number(s.draft_units) > 0).map((s) => {
-    const payload = s.payload_ciphertext_b64 ? JSON.parse(decryptBillingSecret({
-      ciphertextB64: s.payload_ciphertext_b64,
-      ivB64: s.payload_iv_b64,
-      authTagB64: s.payload_auth_tag_b64
-    })) : {};
+    let payload = {};
+    let clientNameUnavailable = false;
+    if (s.payload_ciphertext_b64) {
+      try {
+        const decoded = JSON.parse(decryptBillingSecret({
+          ciphertextB64: s.payload_ciphertext_b64,
+          ivB64: s.payload_iv_b64,
+          authTagB64: s.payload_auth_tag_b64
+        }));
+        if (!decoded || typeof decoded !== 'object' || Array.isArray(decoded)) {
+          throw new Error('Invalid snapshot identity payload');
+        }
+        payload = decoded;
+      } catch {
+        // Older identity payloads may be unreadable with the current key. The
+        // snapshot's provider, date, code and outstanding status remain usable.
+        // Do not fall back to stale import statuses or drop the missing note.
+        clientNameUnavailable = true;
+      }
+    }
     return {
       // Negative snapshot IDs keep persisted deselections separate from import IDs.
       id: -Number(s.id),
       user_id: s.user_id,
       provider_name: payload.providerName || '',
-      patient_first_name: payload.patientFirstName || '',
+      patient_first_name: clientNameUnavailable ? 'Client name unavailable' : (payload.patientFirstName || ''),
       service_code: s.service_code,
       service_date: s.service_date,
       note_status: Number(s.no_note_units) > 0 ? 'NO_NOTE' : 'DRAFT',
