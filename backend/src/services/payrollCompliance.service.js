@@ -32,6 +32,7 @@ export function computeFiscalYearStartJulYmd(d) {
 }
 
 function ymd(v) {
+  if (v instanceof Date) return Number.isNaN(v.getTime()) ? '' : v.toISOString().slice(0, 10);
   return String(v || '').slice(0, 10);
 }
 
@@ -173,14 +174,18 @@ export async function maybeUnlockPayrollCompliance({ agencyId, period }) {
   return { unlocked: true, justUnlocked: true };
 }
 
-async function listPriorPeriodsWithImports({ agencyId, currentPeriod, limit = 8 }) {
-  const periods = await PayrollPeriod.listByAgency(Number(agencyId), { limit: 80, offset: 0 });
-  const currentStart = ymd(currentPeriod.period_start);
-  const list = (periods || [])
-    .filter((p) => ymd(p.period_start) <= currentStart)
-    .sort((a, b) => ymd(b.period_end).localeCompare(ymd(a.period_end)));
+async function listPriorPeriodsWithImports({ agencyId, currentPeriod }) {
+  // Compare DATE values in SQL, not weekday-prefixed JavaScript Date strings.
+  // Include all imported periods through this run so older missing notes remain actionable.
+  const [periods] = await pool.execute(
+    `SELECT pp.* FROM payroll_periods pp
+     WHERE pp.agency_id = ? AND pp.period_start <= ?
+       AND EXISTS (SELECT 1 FROM payroll_imports pi WHERE pi.payroll_period_id = pp.id)
+     ORDER BY pp.period_end DESC, pp.id DESC`,
+    [Number(agencyId), ymd(currentPeriod.period_start)]
+  );
   const out = [];
-  for (const p of list.slice(0, limit)) {
+  for (const p of periods || []) {
     const rows = await PayrollImportRow.listForPeriod(p.id);
     if (rows?.length) out.push({ period: p, rows });
   }
