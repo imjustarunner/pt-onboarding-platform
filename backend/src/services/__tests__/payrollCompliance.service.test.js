@@ -3,10 +3,12 @@ import assert from 'node:assert/strict';
 import pool from '../../config/database.js';
 import PayrollPeriod from '../../models/PayrollPeriod.model.js';
 import PayrollImportRow from '../../models/PayrollImportRow.model.js';
+import PayrollPeriodRunSnapshot from '../../models/PayrollPeriodRunSnapshot.model.js';
 import SupervisorAssignment from '../../models/SupervisorAssignment.model.js';
 import {
   buildComplianceDigest,
   buildComplianceEmailBody,
+  listCurrentComplianceRows,
   periodMatchesComplianceUnlock
 } from '../payrollCompliance.service.js';
 
@@ -37,6 +39,7 @@ test('digest includes current and older missing notes with normalized dates and 
   });
   t.mock.method(pool, 'execute', async (sql, params) => {
     if (sql.includes('payroll_compliance_unlocked_at')) return [[{ payroll_compliance_unlocked_at: '2026-08-15' }]];
+    if (sql.includes('FROM payroll_period_runs r')) return [[]];
     if (sql.includes('FROM payroll_periods pp')) {
       assert.deepEqual(params, [7, '2026-09-12']);
       assert.match(sql, /pp\.agency_id = \? AND pp\.period_start <= \?/);
@@ -62,4 +65,53 @@ test('digest includes current and older missing notes with normalized dates and 
   assert.ok(!selected.text.includes('9/12 - 90837'));
   const empty = buildComplianceEmailBody({ provider, excludedRowIds: queriedPeriods.map((id) => id * 10) });
   assert.equal(empty.hasContent, false);
+});
+
+test('newer catch-up snapshot replaces stale imports, removing completed and deleted notes but keeping old missing notes', async (t) => {
+  t.mock.method(pool, 'execute', async (sql, params) => {
+    assert.deepEqual(params, [42]);
+    assert.match(sql, /r\.payroll_import_id IS NULL/);
+    assert.match(sql, /pi\.created_at >= r\.ran_at/);
+    assert.match(sql, /ORDER BY r\.ran_at DESC, r\.id DESC LIMIT 1/);
+    return [[{ id: 91 }]];
+  });
+  t.mock.method(PayrollImportRow, 'listForPeriod', async () => {
+    assert.fail('Stale import must not be merged into the latest full report');
+  });
+  t.mock.method(PayrollPeriodRunSnapshot, 'listForRun', async (id) => {
+    assert.equal(id, 91);
+    return [
+      { id: 501, user_id: 5, service_date: '2026-07-29', service_code: '90837', no_note_units: 1, draft_units: 0 },
+      { id: 502, user_id: 5, service_date: '2026-07-06', service_code: 'H0004', no_note_units: 0, draft_units: 0, finalized_units: 1 },
+      { id: 503, user_id: 5, service_date: '2026-07-07', service_code: 'H0004', no_note_units: 0, draft_units: 1 }
+      // A deleted session is absent from the replacement snapshot.
+    ];
+  });
+  const rows = await listCurrentComplianceRows(42);
+  assert.deepEqual(rows.map((r) => [r.id, r.note_status]), [[-501, 'NO_NOTE'], [-503, 'DRAFT']]);
+  assert.equal(rows[0].service_date, '2026-07-29');
+  const body = buildComplianceEmailBody({
+    provider: { name: 'Test', lateNotesByPeriod: [{ periodLabel: 'July', rows: rows.map((r) => ({ ...r, label: r.service_date })) }] },
+    excludedRowIds: [-501, -503]
+  });
+  assert.equal(body.hasContent, false);
+});
+
+test('newer catch-up report with all notes completed stays empty instead of reviving baseline notes', async (t) => {
+  t.mock.method(pool, 'execute', async () => [[{ id: 92 }]]);
+  t.mock.method(PayrollPeriodRunSnapshot, 'listForRun', async () => [
+    { id: 504, no_note_units: 0, draft_units: 0, finalized_units: 1 }
+  ]);
+  t.mock.method(PayrollImportRow, 'listForPeriod', async () => assert.fail('No fallback to stale rows'));
+  assert.deepEqual(await listCurrentComplianceRows(42), []);
+});
+
+test('uses current import when no newer snapshot-only report exists', async (t) => {
+  t.mock.method(pool, 'execute', async () => [[]]);
+  const currentRows = [{ id: 12, note_status: 'NO_NOTE' }];
+  t.mock.method(PayrollImportRow, 'listForPeriod', async (id) => {
+    assert.equal(id, 42);
+    return currentRows;
+  });
+  assert.equal(await listCurrentComplianceRows(42), currentRows);
 });

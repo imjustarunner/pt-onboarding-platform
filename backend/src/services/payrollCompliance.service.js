@@ -5,6 +5,8 @@
 import pool from '../config/database.js';
 import PayrollPeriod from '../models/PayrollPeriod.model.js';
 import PayrollImportRow from '../models/PayrollImportRow.model.js';
+import PayrollPeriodRunSnapshot from '../models/PayrollPeriodRunSnapshot.model.js';
+import { decryptBillingSecret } from './billingEncryption.service.js';
 import SupervisorAssignment from '../models/SupervisorAssignment.model.js';
 import EmailSenderIdentity from '../models/EmailSenderIdentity.model.js';
 import NotificationEvent from '../models/NotificationEvent.model.js';
@@ -180,16 +182,54 @@ async function listPriorPeriodsWithImports({ agencyId, currentPeriod }) {
   const [periods] = await pool.execute(
     `SELECT pp.* FROM payroll_periods pp
      WHERE pp.agency_id = ? AND pp.period_start <= ?
-       AND EXISTS (SELECT 1 FROM payroll_imports pi WHERE pi.payroll_period_id = pp.id)
+       AND (EXISTS (SELECT 1 FROM payroll_imports pi WHERE pi.payroll_period_id = pp.id)
+         OR EXISTS (SELECT 1 FROM payroll_period_run_snapshots ps WHERE ps.payroll_period_id = pp.id))
      ORDER BY pp.period_end DESC, pp.id DESC`,
     [Number(agencyId), ymd(currentPeriod.period_start)]
   );
   const out = [];
   for (const p of periods || []) {
-    const rows = await PayrollImportRow.listForPeriod(p.id);
+    const rows = await listCurrentComplianceRows(p.id);
     if (rows?.length) out.push({ period: p, rows });
   }
   return out;
+}
+
+export async function listCurrentComplianceRows(payrollPeriodId) {
+  // Catch-up file uploads can create snapshot-only runs without replacing the
+  // original import. A newer full snapshot supersedes that import, including
+  // sessions removed from the report; merging would resurrect deleted notes.
+  const [runs] = await pool.execute(
+    `SELECT r.id FROM payroll_period_runs r
+     WHERE r.payroll_period_id = ? AND r.payroll_import_id IS NULL
+       AND EXISTS (SELECT 1 FROM payroll_period_run_snapshots ps WHERE ps.payroll_period_run_id = r.id)
+       AND NOT EXISTS (
+         SELECT 1 FROM payroll_imports pi
+         WHERE pi.payroll_period_id = r.payroll_period_id AND pi.created_at >= r.ran_at
+       )
+     ORDER BY r.ran_at DESC, r.id DESC LIMIT 1`,
+    [Number(payrollPeriodId)]
+  );
+  if (!runs?.length) return PayrollImportRow.listForPeriod(payrollPeriodId);
+  const snapshots = await PayrollPeriodRunSnapshot.listForRun(runs[0].id);
+  return snapshots.filter((s) => Number(s.no_note_units) > 0 || Number(s.draft_units) > 0).map((s) => {
+    const payload = s.payload_ciphertext_b64 ? JSON.parse(decryptBillingSecret({
+      ciphertextB64: s.payload_ciphertext_b64,
+      ivB64: s.payload_iv_b64,
+      authTagB64: s.payload_auth_tag_b64
+    })) : {};
+    return {
+      // Negative snapshot IDs keep persisted deselections separate from import IDs.
+      id: -Number(s.id),
+      user_id: s.user_id,
+      provider_name: payload.providerName || '',
+      patient_first_name: payload.patientFirstName || '',
+      service_code: s.service_code,
+      service_date: s.service_date,
+      note_status: Number(s.no_note_units) > 0 ? 'NO_NOTE' : 'DRAFT',
+      draft_payable: 0
+    };
+  });
 }
 
 async function listSessionLimitItems({ agencyId, mutedClientIds = new Set() }) {
@@ -692,7 +732,7 @@ export async function sendComplianceEmail({
     subject: preview.subject,
     text: preview.text,
     html: preview.html,
-    source: 'auto',
+    source: 'manual',
     generatedByUserId,
     userId: Number(userId),
     templateType: 'compliance_digest'
