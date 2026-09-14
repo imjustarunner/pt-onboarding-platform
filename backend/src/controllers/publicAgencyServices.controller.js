@@ -1,3 +1,4 @@
+import { getPublicCounselingHourlyRate } from '../services/publicCounselingRate.service.js';
 import {normalizeLearningProfile, validateLearningCatalog, hourlyRate, pricePackage, matchesGrade, publicLearningCatalog, LEARNING_PROGRAMS} from '../services/learningCatalog.js';
 import {publicAcceptance,uniquePublicFacets} from '../utils/publicProviderPresentation.js';
 import { createPublicProviderHoldService, holdError } from '../services/publicProviderHold.service.js';
@@ -554,11 +555,12 @@ async function getCounselingSpecialties(userId, agencyId) {
   };
 }
 
-async function resolveProviderProfileSummary({ agencyId, providerUserId }) {
+async function resolveProviderProfileSummary({ agencyId, providerUserId, serviceType = 'counseling' }) {
+  const counselingRate = await getPublicCounselingHourlyRate({ agencyId, providerUserId, serviceType });
   const profile = await ProviderPublicProfile.getForProvider({ providerUserId });
   const agencySettings = await ProviderPublicProfile.getAgencySettings({ agencyId });
-  const effectiveRateCents = profile?.selfPayRateCents ?? agencySettings?.defaultSelfPayRateCents ?? null;
-  const effectiveRateNote = String(profile?.selfPayRateNote || agencySettings?.defaultSelfPayRateNote || '').trim() || null;
+  const effectiveRateCents = counselingRate ?? profile?.selfPayRateCents ?? agencySettings?.defaultSelfPayRateCents ?? null;
+  const effectiveRateNote = counselingRate != null ? 'Per hour · cash / self-pay' : String(profile?.selfPayRateNote || agencySettings?.defaultSelfPayRateNote || '').trim() || null;
   let acceptedInsurances = [];
   try {
     const { listProviderAcceptedInsurancesForDisplay } = await import('../services/providerAcceptedInsurance.service.js');
@@ -1141,7 +1143,7 @@ export const getProviderDetail = async (req, res, next) => {
     const heldSlots = await getHeldSlotStartsForProvider(agency.id, providerId);
     const summary = await computeProviderWindowSummary({ agencyId: agency.id, providerId, weekStart, bookingMode, programType, heldSlots });
     const profileData = await ProviderPublicProfile.getForProvider({ providerUserId: providerId });
-    const profile = await resolveProviderProfileSummary({ agencyId: agency.id, providerUserId: providerId });
+    const profile = await resolveProviderProfileSummary({ agencyId: agency.id, providerUserId: providerId, serviceType });
     const slotSet = normalizeSlots({
       result: summary.thisWeek,
       bookingMode,

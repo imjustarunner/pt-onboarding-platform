@@ -62,3 +62,9 @@ describe('public website SMS artwork',()=>{
   });
  }
 });
+
+it('uses Kimi’s supplied SMS artwork in crawler metadata', () => {
+ const meta=buildShareMeta({host:'plottwisthq.com',path:'/p/kimi/packages'});
+ expect(meta.image).toBe('https://plottwisthq.com/assets/kimi/kimisms.png');
+ expect(meta.name).toBe('Kimi Cain Life Coaching');
+});

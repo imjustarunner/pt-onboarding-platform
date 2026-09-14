@@ -95,7 +95,7 @@ export async function listProviderAcceptedInsurances({ userId, agencyId }) {
 export function mapAcceptedInsuranceForDisplay(row) {
   return {
     insurance_definition_id: row.insurance_definition_id,
-    insurance_key: String(row.insurance_definition_id),
+    insurance_key: row.insurance_key || String(row.insurance_definition_id),
     name: row.name,
     label: row.label || row.name,
     logo_path: row.logo_path || null,
@@ -108,8 +108,41 @@ export function mapAcceptedInsuranceForDisplay(row) {
 
 export async function listProviderAcceptedInsurancesForDisplay({ userId, agencyId }) {
   const rows = await listProviderAcceptedInsurances({ userId, agencyId });
+  // Agency acceptance is distinct from payer credentialing. Never manufacture a
+  // credentialing record or effective date merely to publish accepted coverage.
+  let overrides = [];
+  try {
+    [overrides] = await pool.execute(
+      `SELECT i.id, i.label, o.is_allowed FROM provider_insurance_overrides o
+       JOIN insurance_types i ON i.id = o.insurance_type_id
+       WHERE o.provider_user_id = ? AND i.agency_id = ? AND i.is_active = 1
+         AND i.insurance_key NOT IN ('unknown', 'none', 'self_pay')`,
+      [Number(userId), Number(agencyId)]
+    );
+  } catch (error) {
+    if (!isMissingSchemaError(error)) throw error;
+  }
+  const merged = mergeAgencyInsuranceAcceptance(rows, overrides);
   const [people] = await pool.execute('SELECT credential, title FROM users WHERE id = ? LIMIT 1', [Number(userId)]);
-  return restrictPublicInsurances(rows, people[0] || {}).map(mapAcceptedInsuranceForDisplay);
+  return restrictPublicInsurances(merged, people[0] || {}).map(mapAcceptedInsuranceForDisplay);
+}
+
+export function mergeAgencyInsuranceAcceptance(rows, overrides) {
+  const key = value => String(value || '').trim().toLowerCase();
+  const byName = new Map(rows.map(row => [key(row.name), row]));
+  for (const override of overrides) {
+    const name = key(override.label);
+    if (!name) continue;
+    if (!Number(override.is_allowed)) byName.delete(name);
+    else if (!byName.has(name)) byName.set(name, {
+      insurance_definition_id: null,
+      insurance_key: `type:${override.id}`,
+      name: override.label,
+      label: override.label,
+      source: 'agency_acceptance'
+    });
+  }
+  return [...byName.values()].sort((a, b) => a.name.localeCompare(b.name));
 }
 
 export default { listProviderAcceptedInsurances, listProviderAcceptedInsurancesForDisplay, mapAcceptedInsuranceForDisplay };

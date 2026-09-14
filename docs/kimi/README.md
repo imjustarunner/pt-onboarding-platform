@@ -40,3 +40,11 @@ Crisis wording points to [SAMHSA’s crisis guidance](https://www.samhsa.gov/fin
 ## Deployment
 
 Migrations 1443–1445 seed the practice and revised NLU rates. `node backend/src/scripts/buildKimiSeed.js` reproduces 1443 from original content in `backend/src/seeds/kimiContent.js`; seed inserts preserve existing editable records. Future custom-domain hosting can map the same site without altering QV domains or the coaching/counseling tenant boundary. No DNS or QV changes are included.
+
+## SMS preview and NLU counseling payment
+
+`/p/kimi` and its pages use `/assets/kimi/kimisms.png` for SMS/social previews through both the server metadata and public share-image redirect. Existing messaging-app preview caches may retain an earlier preview.
+
+Migration 1446 publishes only Kimi’s NLU counseling listing, records Medicaid acceptance via the NLU insurance-type override (not a fabricated credentialing record), and configures a $100/hour cash/self-pay rate for her NLU individual counseling service. The public directory reads the same editable provider service rate sheet. No appointment openings, counseling payroll, tutoring prices, independent coaching rates, or other providers’ publication settings are changed. NLU administrators can edit the client fee in Kimi’s self-pay service rates.
+
+Migration 1447 enables NLU’s tutoring business category so previously assigned learning roles can use the existing learning services and rate editor. It does not publish additional providers.

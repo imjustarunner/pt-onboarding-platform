@@ -14,6 +14,7 @@ export const TENANT_BRAND_ALIASES = {
   ptco: 'plottwistco',
   itsco: 'itsco',
   nlu: 'nlu',
+  kimi: 'kimi',
   nextlevelup: 'nlu',
   nextleveluplcc: 'nlu',
   'next-level-up': 'nlu',
@@ -146,6 +147,7 @@ const RISE_SMS = {
 };
 
 export const TENANT_SMS_IMAGES = {
+  kimi: { home: '/assets/kimi/kimisms.png', join: '/assets/kimi/kimisms.png', support: '/assets/kimi/kimisms.png' },
   itsco: { ...ITSCO_SMS, home: '/assets/SMSAssets/itscosmsnew.png' },
   nlu: { ...NLU_SMS, home: '/assets/nlu/family.png' },
   innerstrength: { ...INNER_SMS, home: sms('', 'innerstrengthwebsite.png') },
