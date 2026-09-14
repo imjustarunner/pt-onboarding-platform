@@ -44,6 +44,7 @@
           </option>
         </select>
         <strong v-else>{{ serviceCodeLabel || serviceCode || '—' }}</strong>
+        <span v-if="editable && serviceCodeLabel.length > 16" class="detail">{{ serviceCodeLabel }}</span>
       </div>
       <div class="na-quick-session__cell na-quick-session__cell--participants">
         <span class="lbl">Participants</span>
@@ -58,6 +59,7 @@
           <option value="Others (client not present)">Others (client not present)</option>
         </select>
         <strong v-else>{{ participants || 'Client Only' }}</strong>
+        <span v-if="editable && participants.length > 16" class="detail">{{ participants }}</span>
         <input
           v-if="editable && needsAttendeeDetail"
           type="text"
@@ -108,6 +110,7 @@
           @input="$emit('update:locationLabel', $event.target.value)"
         />
         <strong v-else>{{ locationLabel || '—' }}</strong>
+        <span v-if="editable && locationLabel" class="detail">{{ locationChoices.find((loc) => loc.value === locationLabel)?.label || locationLabel }}</span>
       </div>
       <div class="na-quick-session__cell">
         <span class="lbl">Start</span>
@@ -385,7 +388,7 @@ function onCodeChange(raw) {
 
 .na-quick-session__grid {
   display: grid;
-  grid-template-columns: minmax(120px, 1.3fr) repeat(5, minmax(0, 1fr)) minmax(70px, 0.8fr) repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 175px), 1fr));
   gap: 10px 10px;
   align-items: start;
 }
@@ -400,8 +403,13 @@ function onCodeChange(raw) {
   margin-bottom: 2px;
 }
 
+.na-quick-session__cell {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
 .na-quick-session__cell strong {
-  font-size: 0.86rem;
+  font-size: 0.8rem;
   line-height: 1.3;
   word-break: break-word;
 }
@@ -441,11 +449,13 @@ function onCodeChange(raw) {
 .na-quick-session__input,
 .na-quick-session__select {
   width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
   border: 1px solid #cbd5e1;
   border-radius: 8px;
   padding: 5px 8px;
   font: inherit;
-  font-size: 0.84rem;
+  font-size: 0.78rem;
   background: #fff;
 }
 
@@ -582,9 +592,4 @@ function onCodeChange(raw) {
   padding: 6px 10px;
 }
 
-@media (max-width: 1100px) {
-  .na-quick-session__grid {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
-}
 </style>

@@ -148,7 +148,7 @@ export const NOTE_AID_CATEGORIES = [
         skipMse: true,
         diagnosisMode: 'none',
         guidance:
-          'Paste in the most recent treatment plan and progress note, write a blurb about their progress and why they are terminating. Attaches to the client chart like a contact note (not a billable session). Uses content Review (not supervisor cosign).'
+          'The full available chart history, treatment plans, and objective ratings are loaded for generation. Paste, type, or dictate any missing course of therapy, the reason for termination, and your recommendations. Review every goal and objective, including achieved and changed goals, before signing and completing the termination note.'
       },
       {
         id: 'treatment_summary',

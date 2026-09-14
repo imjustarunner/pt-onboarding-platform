@@ -242,14 +242,23 @@ const CLINICAL_NOTE_AGENT_TOOLS_RAW = [
   {
     id: 'clinical_termination',
     name: 'Termination Note',
-    description: 'Two-section termination note.',
+    description: 'Termination reason, full course of treatment, goals and outcomes, and provider recommendations.',
     category: baseCategory,
     systemPrompt: AGENT_PROMPTS.TERMINATION,
-    outputInstructions: 'Return the two titled sections only.',
+    outputInstructions: [
+      'This output contract overrides the earlier two-section outline: use exactly these headers: Reason for Termination:, Treatment Modality and Interventions:, Treatment Goals and Outcome:, Recommendations:.',
+      'Follow the Termination Note Writer instructions above for the two treatment sections, in clinical third-person language useful to the client and a future therapist.',
+      'Review the entire supplied course of therapy, all historical treatment plans and all objective ratings. Do not limit the account to the latest session or current goals.',
+      'Describe how each modality and intervention was applied and its documented benefit or lack of benefit.',
+      'Detail EACH goal and objective, including original baseline, changes over time, dated evidence of progress, regression or lack of progress, achieved goals, revised or replaced goals, and status at termination. Distinguish documented outcomes from missing evidence; never infer achievement from termination alone.',
+      'Use the provider-selected reason and provider recommendation. For goals achieved, suggest re-engaging if the presenting problem returns, unless the provider directs otherwise. Do not invent referrals or recommend ongoing treatment contrary to the provider decision.',
+      'Identify gaps in the available course of treatment explicitly; never fabricate missing history or silently omit objectives. Do not prescribe ongoing treatment frequency.'
+    ].join('\n'),
     includeKnowledgeBase: true,
     kbFolders: ['shared', 'termination'],
+    model: 'gemini-2.5-pro',
     temperature: 0.2,
-    maxOutputTokens: 1200
+    maxOutputTokens: 16000
   },
   {
     id: 'clinical_diagnosis_writer',

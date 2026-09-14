@@ -1281,6 +1281,7 @@
             </div>
             <small class="hint">Enables the “AI Generate Filters” box in Provider Directory. Requires GEMINI_API_KEY in backend.</small>
 
+            <TreatmentPlanRenewalSettings v-if="editingAgency?.id && ['agency', 'clinical'].includes(agencyForm.organizationType || editingAgency.organization_type || 'agency')" :agency-id="editingAgency.id" @saved="agencyForm.featureFlags.treatmentPlanRenewal = $event" />
             <div v-if="isFeatureAvailable('noteAidEnabled')" class="toggle-row" style="margin-top: 10px;">
               <span>Enable Note Aid (Gemini tools)</span>
               <ToggleSwitch v-model="agencyForm.featureFlags.noteAidEnabled" compact />
@@ -4209,6 +4210,7 @@
 </template>
 
 <script setup>
+import TreatmentPlanRenewalSettings from './TreatmentPlanRenewalSettings.vue';
 import { isRootTenant } from '../../navigation/organizationKinds';
 import { ref, onMounted, computed, watch, nextTick } from 'vue';
 import { useRoute, useRouter } from 'vue-router';

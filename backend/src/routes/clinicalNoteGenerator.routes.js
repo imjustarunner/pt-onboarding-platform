@@ -16,6 +16,8 @@ import {
   deleteClinicalNoteDrafts,
   transcribeClinicalNoteAudio,
   generateClinicalNote,
+  generateInteractiveComplexitySentence,
+  getTerminationOutcomeStats,
   recordNoteAidAudit
 } from '../controllers/clinicalNoteGenerator.controller.js';
 import {
@@ -48,6 +50,8 @@ const transcribeUpload = multer({
 });
 
 router.get('/context', apiLimiter, [query('agencyId').isInt({ min: 1 })], getClinicalNotesContext);
+router.get('/termination-outcomes', apiLimiter, getTerminationOutcomeStats);
+router.post('/interactive-complexity', apiLimiter, generateInteractiveComplexitySentence);
 
 router.get('/work-queue', apiLimiter, listNoteAidWorkQueue);
 
@@ -120,7 +124,7 @@ router.post(
     body('programLabel').optional({ nullable: true }).isString().isLength({ min: 1, max: 120 }),
     body('dateOfService').optional({ nullable: true }).isString().isLength({ min: 1, max: 32 }),
     body('initials').optional({ nullable: true }).isString().isLength({ min: 1, max: 16 }),
-    body('inputText').optional({ nullable: true }).isString().isLength({ min: 0, max: 12000 })
+    body('inputText').optional({ nullable: true }).isString().isLength({ min: 0, max: 1500000 })
   ],
   createClinicalNoteDraft
 );
@@ -136,7 +140,7 @@ router.patch(
     body('programLabel').optional({ nullable: true }).isString().isLength({ min: 1, max: 120 }),
     body('dateOfService').optional({ nullable: true }).isString().isLength({ min: 1, max: 32 }),
     body('initials').optional({ nullable: true }).isString().isLength({ min: 0, max: 16 }),
-    body('inputText').optional({ nullable: true }).isString().isLength({ min: 0, max: 12000 })
+    body('inputText').optional({ nullable: true }).isString().isLength({ min: 0, max: 1500000 })
   ],
   patchClinicalNoteDraft
 );
@@ -196,7 +200,7 @@ router.post(
     body('dateOfService').optional().isString().isLength({ min: 1, max: 32 }),
     body('initials').optional().isString().isLength({ min: 0, max: 16 }),
     body('revisionInstruction').optional().isString().isLength({ min: 1, max: 1500 }),
-    body('inputText').isString().isLength({ min: 1, max: 12000 }),
+    body('inputText').isString().isLength({ min: 0, max: 1500000 }),
     body('draftId').optional().isInt({ min: 1 }),
     body('includeInteractiveComplexity').optional(),
     body('dateWritten').optional().isString().isLength({ min: 1, max: 32 })
@@ -205,4 +209,3 @@ router.post(
 );
 
 export default router;
-

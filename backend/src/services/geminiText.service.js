@@ -101,7 +101,7 @@ async function performVertexCall({ modelName, projectId, location, token, prompt
     throw err;
   }
 
-  return { text: String(text), modelName, latencyMs, provider: 'vertex' };
+  return { text: String(text), modelName, latencyMs, provider: 'vertex', finishReason: data?.candidates?.[0]?.finishReason || null };
 }
 
 async function performApiKeyCall({ modelName, apiKey, prompt, temperature, maxOutputTokens }) {
@@ -144,7 +144,7 @@ async function performApiKeyCall({ modelName, apiKey, prompt, temperature, maxOu
     throw err;
   }
 
-  return { text: String(text), modelName, latencyMs, provider: 'api_key' };
+  return { text: String(text), modelName, latencyMs, provider: 'api_key', finishReason: data?.candidates?.[0]?.finishReason || null };
 }
 
 /**

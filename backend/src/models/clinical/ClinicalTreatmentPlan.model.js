@@ -1,3 +1,4 @@
+import { splitTreatmentPlanSections } from '../../services/treatmentPlanSections.service.js';
 import clinicalPool from '../../config/clinicalDatabase.js';
 import { fingerprintPlanText } from './ClinicalTreatmentObjectiveRating.model.js';
 
@@ -37,6 +38,8 @@ class ClinicalTreatmentPlan {
     title = 'Treatment Plan',
     status = 'active',
     dischargePlan = null,
+    presentingProblem = null,
+    prescribedFrequency = null,
     sourceToolId = null,
     createdByUserId,
     goals = [],
@@ -114,6 +117,8 @@ class ClinicalTreatmentPlan {
           planId = result.insertId;
         }
       }
+      const sections = splitTreatmentPlanSections({ dischargePlan, presentingProblem, prescribedFrequency });
+      await conn.execute('UPDATE clinical_treatment_plans SET presenting_problem = ?, prescribed_frequency = ?, discharge_plan = ? WHERE id = ?', [sections.presentingProblem || null, sections.prescribedFrequency || null, sections.dischargePlan || null, planId]);
       for (const g of goals || []) {
         const goalText = g.goalText || '';
         const [gRes] = await conn.execute(
@@ -250,7 +255,7 @@ class ClinicalTreatmentPlan {
     } catch (e) {
       if (e.code !== 'ER_NO_SUCH_TABLE' && e.code !== 'ER_BAD_FIELD_ERROR') throw e;
     }
-    return { ...plan, goals: outGoals, planDiagnoses };
+    return { ...plan, ...splitTreatmentPlanSections(plan), goals: outGoals, planDiagnoses };
   }
 
   static async setKioskShare(planId, enabled) {
@@ -280,25 +285,8 @@ class ClinicalTreatmentPlan {
       err.status = 404;
       throw err;
     }
-    const freq = String(prescribedFrequency || '').trim();
-    let discharge = String(plan.discharge_plan || plan.dischargePlan || '');
-    const blockRe =
-      /Prescribed Frequency of Treatment\n[\s\S]*?(?=\n\n(?:Discharge Criteria|Presenting Problem)|$)/i;
-    if (blockRe.test(discharge)) {
-      discharge = freq
-        ? discharge.replace(blockRe, `Prescribed Frequency of Treatment\n${freq}`)
-        : discharge.replace(blockRe, '').replace(/\n{3,}/g, '\n\n').trim();
-    } else if (freq) {
-      discharge = [discharge.trim(), `Prescribed Frequency of Treatment\n${freq}`]
-        .filter(Boolean)
-        .join('\n\n');
-    }
-    await clinicalPool.execute(
-      `UPDATE clinical_treatment_plans
-       SET discharge_plan = ?, updated_at = NOW()
-       WHERE id = ? AND agency_id = ? AND client_id = ?`,
-      [discharge || null, id, aid, cid]
-    );
+    const sections = splitTreatmentPlanSections(plan);
+    await clinicalPool.execute('UPDATE clinical_treatment_plans SET presenting_problem = ?, prescribed_frequency = ?, discharge_plan = ?, updated_at = NOW() WHERE id = ? AND agency_id = ? AND client_id = ?', [sections.presentingProblem || null, String(prescribedFrequency || '').trim() || null, sections.dischargePlan || null, id, aid, cid]);
     return this.findById(id);
   }
 
@@ -308,11 +296,11 @@ class ClinicalTreatmentPlan {
     const sets = [];
     const params = [];
     if (kioskPrompt !== undefined) {
-      sets.push('kiosk_prompt = ?');
+      sets.push('kiosk_prompt = ?', 'kiosk_prompt_verified_at = NULL', 'kiosk_prompt_verified_by = NULL');
       params.push(kioskPrompt ? String(kioskPrompt).slice(0, 500) : null);
     }
     if (kioskPromptOther !== undefined) {
-      sets.push('kiosk_prompt_other = ?');
+      sets.push('kiosk_prompt_other = ?', 'kiosk_prompt_other_verified_at = NULL', 'kiosk_prompt_other_verified_by = NULL');
       params.push(kioskPromptOther ? String(kioskPromptOther).slice(0, 500) : null);
     }
     if (!sets.length) return;

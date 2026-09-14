@@ -234,8 +234,11 @@ function ymdFromDateParts(mmRaw, ddRaw, yyRaw) {
 
 function classifyTodoAction(action) {
   const actionLower = String(action || '').toLowerCase();
-  const codeMatch = String(action || '').match(/\((\d{5}|[A-Z]\d{4})\)/i);
+  const codeMatch = String(action || '').match(/\b(\d{5}|[A-Z]\d{4})(?:\b|(?=_EXT|[×x]2\b))/i);
   let serviceCode = codeMatch ? codeMatch[1].toUpperCase() : null;
+  if (serviceCode === '90834' && /extended|90834_EXT|90834\s*[×x]\s*2|two\s+units|2\s+units/i.test(action)) {
+    serviceCode = '90834_EXT';
+  }
 
   // True skip: 99415 / supervision. H0031 "Consultation" is the additional-assessment
   // session type (not intake) and must be queued as a progress/additional note.

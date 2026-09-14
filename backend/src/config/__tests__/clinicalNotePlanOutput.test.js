@@ -110,3 +110,18 @@ test('exported CLINICAL_NOTE_AGENT_TOOLS already has shared contracts applied', 
   assert.match(plan.systemPrompt, /MACHINE OUTPUT CONTRACT/);
   assert.equal(h0023.sectionSchema, 'colorado_freeform');
 });
+
+
+test('90791 preserves the full intake contract without the plan-only override', () => {
+  for (const id of ['clinical_90791_intake_plan', 'clinical_90791_note_aid']) {
+    const tool = CLINICAL_NOTE_AGENT_TOOLS.find((tool) => tool.id === id);
+    assert.equal(tool.sectionSchema, 'intake');
+    assert.match(tool.systemPrompt, /INTAKE OUTPUT CONTRACT/);
+    assert.match(tool.outputInstructions, /Risk Assessment:/);
+    assert.match(tool.outputInstructions, /Diagnostic Justification:/);
+    assert.match(tool.outputInstructions, /Current Medications:/);
+    assert.match(tool.outputInstructions, /client declined/);
+    assert.doesNotMatch(tool.systemPrompt, /Emit ONLY these headers \(each on its own line\): Goal/);
+    assert.ok(tool.maxOutputTokens >= 12000);
+  }
+});

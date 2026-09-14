@@ -48,6 +48,7 @@ export function pickAuthoritativeTreatmentPlan(plans = []) {
 
 /** Extract Presenting Problem block from plan.discharge_plan text. */
 export function presentingProblemFromPlan(plan) {
+  if (plan?.presenting_problem || plan?.presentingProblem) return String(plan.presenting_problem || plan.presentingProblem).trim();
   const raw = String(plan?.discharge_plan || plan?.dischargePlan || '').trim();
   if (!raw) {
     return String(plan?.presenting_problem || plan?.presentingProblem || '').trim() || null;

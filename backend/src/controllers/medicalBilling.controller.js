@@ -1,3 +1,4 @@
+import { loadRenewalPolicy, renewalStatus } from '../services/treatmentPlanRenewal.service.js';
 import { hasSchedulingBillingAccess, schedulingResponseForUser } from '../services/schedulingBillingAccess.service.js';
 import Agency from '../models/Agency.model.js';
 import { readClientInsurance } from '../services/clientInsurance.service.js';
@@ -40,6 +41,9 @@ import {
   buildClaimMdJsonClaim
 } from '../services/claimMd.service.js';
 import pool from '../config/database.js';
+import { recordSignedTermination, validateTermination, validateTerminationContent } from '../services/noteAidTermination.service.js';
+import NoteAidWorkQueueItem from '../models/NoteAidWorkQueueItem.model.js';
+
 import AgencyMedicalServiceCode from '../models/AgencyMedicalServiceCode.model.js';
 import AgencyServiceLocation from '../models/AgencyServiceLocation.model.js';
 import OfficeLocation from '../models/OfficeLocation.model.js';
@@ -58,6 +62,28 @@ import {
 import { listBillingEncountersForClient } from '../services/billingReportIngest.service.js';
 import SupervisorAssignment from '../models/SupervisorAssignment.model.js';
 
+async function completeNoteAidSigningWorkflow(note) {
+  await recordSignedTermination(note);
+  const meta = typeof note.metadata_json === 'string' ? JSON.parse(note.metadata_json) : note.metadata_json || {};
+  if (String(note.note_type).toUpperCase() === 'TERMINATION' || meta.treatmentRecommendation !== 'terminate') return null;
+  if (!['now', 'after_progress', 'later'].includes(meta.terminationNextStep)) return null;
+  const key = String(meta.terminationTodoKey || `termination_after_note_${note.id}`);
+  const existing = await NoteAidWorkQueueItem.findByClientKeyForUser({ clientKey: key, userId: note.created_by_user_id });
+  if (existing) {
+    if (Number(existing.clientId) !== Number(note.client_id) || Number(existing.agencyId) !== Number(note.agency_id) || existing.noteKind !== 'termination') {
+      throw new Error('The termination to-do does not match this client and agency.');
+    }
+    return existing;
+  }
+  const [clients] = await pool.execute('SELECT full_name FROM clients WHERE id = ?', [note.client_id]);
+  const [items] = await NoteAidWorkQueueItem.appendForUser(note.created_by_user_id, [{
+    id: key, agencyId: note.agency_id, clientId: note.client_id,
+    clientName: clients[0]?.full_name || '',
+    noteKind: 'termination', action: 'Write and sign termination note',
+    date: meta.dateOfService || new Date().toISOString().slice(0, 10), status: 'not_started'
+  }]);
+  return items;
+}
 function parseIntValue(v) {
   const n = Number(v);
   return Number.isInteger(n) && n > 0 ? n : null;
@@ -345,7 +371,7 @@ export const saveTreatmentPlanToChart = async (req, res, next) => {
       });
     }
 
-    const plan = await ClinicalTreatmentPlan.create({
+    let plan = await ClinicalTreatmentPlan.create({
       agencyId,
       clientId,
       clinicalSessionId: clinicalSessionId || null,
@@ -354,6 +380,8 @@ export const saveTreatmentPlanToChart = async (req, res, next) => {
       status: requestedStatus === 'draft' ? 'draft' : 'active',
       effectiveDate: req.body.effectiveDate || req.body.effective_date || null,
       dischargePlan: req.body.dischargePlan ? String(req.body.dischargePlan) : null,
+      presentingProblem: req.body.presentingProblem || null,
+      prescribedFrequency: req.body.prescribedFrequency || null,
       sourceToolId: req.body.sourceToolId ? String(req.body.sourceToolId) : null,
       createdByUserId: req.user.id,
       primaryDiagnosisId,
@@ -371,10 +399,18 @@ export const saveTreatmentPlanToChart = async (req, res, next) => {
             o.scaleDirection === 'increase' || o.scaleDirection === 'decrease'
               ? o.scaleDirection
               : null,
-          measurementMethod: o.measurementMethod || null
+          measurementMethod: o.measurementMethod || null,
+          interventions: Array.isArray(o.interventions) ? o.interventions : []
         }))
       }))
     });
+
+    try {
+      const { fillEmptyKioskPrompts } = await import('../services/kioskObjectivePrompt.service.js');
+      const prompts = await fillEmptyKioskPrompts({ objectives: plan.goals.flatMap((g) => g.objectives || []) });
+      for (const row of prompts) await ClinicalTreatmentPlan.updateObjectiveKioskPrompts(row.id, { kioskPrompt: row.kiosk_prompt, kioskPromptOther: row.kiosk_prompt_other });
+      plan = await ClinicalTreatmentPlan.findById(plan.id);
+    } catch { /* A saved plan stays saved; questions can be retried from its chart panel. */ }
 
     // Client setup: importing/finalizing a plan replaces intake-packet bootstrap drafts.
     const sourceTool = String(req.body.sourceToolId || '').trim();
@@ -621,10 +657,17 @@ export const proposeTreatmentPlanUpdate = async (req, res, next) => {
     const { proposeTreatmentPlanUpdate: propose } = await import(
       '../services/treatmentPlanUpdater.service.js'
     );
+    const planId = Number(req.body.currentPlan?.id || req.body.planId || 0);
+    const plan = planId ? await ClinicalTreatmentPlan.findById(planId) : null;
+    if (!plan || Number(plan.agency_id) !== agencyId || Number(plan.client_id) !== clientId) return res.status(404).json({ error: { message: 'Treatment plan not found for this client and agency.' } });
+    const edits = req.body.currentPlan || {};
+    const knownObjectives = new Map((plan.goals || []).flatMap((g) => (g.objectives || []).map((o) => [Number(o.id), o])));
+    const currentPlan = { ...plan, ...edits, id: plan.id, client_id: plan.client_id, agency_id: plan.agency_id,
+      goals: Array.isArray(edits.goals) ? edits.goals.map((g) => ({ ...g, objectives: (g.objectives || []).map((o) => ({ ...knownObjectives.get(Number(o.id)), ...o, id: knownObjectives.has(Number(o.id)) ? Number(o.id) : null, content_fingerprint: knownObjectives.get(Number(o.id))?.content_fingerprint, scale_start: knownObjectives.get(Number(o.id))?.scale_start })) })) : plan.goals };
     const result = await propose({
       agencyId,
       clientId,
-      currentPlan: req.body.currentPlan || null,
+      currentPlan,
       providerNarrative: req.body.providerNarrative || req.body.narrative || '',
       pasteRewriteSource: req.body.pasteRewriteSource || req.body.pasteText || '',
       progressExcerpt: req.body.progressExcerpt || '',
@@ -879,7 +922,8 @@ export const listClientChart = async (req, res, next) => {
       noteAidDrafts,
       intakeNotes,
       contactNotes,
-      treatmentPlanMaxAgeDays: await loadTreatmentPlanMaxAgeDays(agencyId)
+      treatmentPlanMaxAgeDays: await loadTreatmentPlanMaxAgeDays(agencyId),
+      treatmentPlanRenewalPolicy: await loadRenewalPolicy(agencyId)
     }));
   } catch (e) {
     next(e);
@@ -1126,7 +1170,7 @@ export const updateObjectiveKioskPrompts = async (req, res, next) => {
     }
     await ClinicalEligibilityService.ensureAgencyAccess({ reqUser: req.user, agencyId });
     const [objRows] = await clinicalPool.execute(
-      `SELECT o.id, p.agency_id, p.client_id
+      `SELECT o.*, p.agency_id, p.client_id
        FROM clinical_treatment_plan_objectives o
        INNER JOIN clinical_treatment_plan_goals g ON g.id = o.goal_id
        INNER JOIN clinical_treatment_plans p ON p.id = g.treatment_plan_id
@@ -1137,6 +1181,23 @@ export const updateObjectiveKioskPrompts = async (req, res, next) => {
     const objective = objRows?.[0];
     if (!objective || Number(objective.agency_id) !== agencyId || Number(objective.client_id) !== clientId) {
       return res.status(404).json({ error: { message: 'Objective not found' } });
+    }
+    if (req.body.generate === true) {
+      const { fillEmptyKioskPrompts } = await import('../services/kioskObjectivePrompt.service.js');
+      const [row] = await fillEmptyKioskPrompts({ objectives: [{ ...objective, kiosk_prompt: null, kiosk_prompt_other: null }] });
+      await ClinicalTreatmentPlan.updateObjectiveKioskPrompts(objectiveId, { kioskPrompt: row.kiosk_prompt, kioskPromptOther: row.kiosk_prompt_other });
+      return res.json({ objective: { ...objective, ...row, kiosk_prompt_verified_at: null, kiosk_prompt_verified_by: null, kiosk_prompt_other_verified_at: null, kiosk_prompt_other_verified_by: null } });
+    }
+    if (req.body.verifyField) {
+      const field = req.body.verifyField;
+      if (!['kiosk_prompt', 'kiosk_prompt_other'].includes(field) || !String(req.body.expectedQuestion || '').trim() || req.body.expectedQuestion !== objective[field]) return res.status(409).json({ error: { message: 'The question changed. Reload and review it before verifying.' } });
+      const [result] = await clinicalPool.execute(`UPDATE clinical_treatment_plan_objectives SET ${field}_verified_at = NOW(), ${field}_verified_by = ? WHERE id = ? AND ${field} = ?`, [req.user.id, objectiveId, req.body.expectedQuestion]);
+      if (!result.affectedRows) return res.status(409).json({ error: { message: 'The question changed. Review it again.' } });
+      return res.json({ ok: true, verifiedAt: new Date().toISOString(), verifiedBy: req.user.id });
+    }
+    if (req.body.interventions !== undefined) {
+      if (!Array.isArray(req.body.interventions) || req.body.interventions.some((item) => typeof item !== 'string' || item.length > 160)) return res.status(400).json({ error: { message: 'Use an array of intervention names, each up to 160 characters.' } });
+      await clinicalPool.execute('UPDATE clinical_treatment_plan_objectives SET interventions_json = ? WHERE id = ?', [JSON.stringify([...new Set(req.body.interventions.map((v) => v.trim()).filter(Boolean))]), objectiveId]);
     }
     await ClinicalTreatmentPlan.updateObjectiveKioskPrompts(objectiveId, {
       kioskPrompt: req.body.kioskPrompt !== undefined ? req.body.kioskPrompt : undefined,
@@ -1668,13 +1729,18 @@ export const signClinicalNote = async (req, res, next) => {
     if (Number(note.created_by_user_id) !== Number(req.user.id)) {
       return res.status(403).json({ error: { message: 'Only the note author can apply the provider signature' } });
     }
-    if (note.provider_signed_at) return res.json({ ok: true, noteId, signedAt: note.provider_signed_at });
+    if (note.provider_signed_at) {
+      const terminationTodo = await completeNoteAidSigningWorkflow(note);
+      return res.json({ ok: true, noteId, signedAt: note.provider_signed_at, terminationTodo });
+    }
     const accurate = req.body?.accurateAndComplete === true || req.body?.accurateAndComplete === 'true';
     const necessary =
       req.body?.medicalNecessityAttested === true || req.body?.medicalNecessityAttested === 'true';
-    if (!accurate || !necessary) {
+    const terminationNote = String(note.note_type).toUpperCase() === 'TERMINATION';
+    const contentReviewed = req.body?.contentReviewConfirmed === true;
+    if (!accurate || (terminationNote ? !contentReviewed : !necessary)) {
       return res.status(400).json({
-        error: { message: 'Accuracy and medical necessity attestations are required to sign.' }
+        error: { message: terminationNote ? 'Accuracy and content review attestations are required to sign the termination note.' : 'Accuracy and medical necessity attestations are required to sign.' }
       });
     }
 
@@ -1688,6 +1754,15 @@ export const signClinicalNote = async (req, res, next) => {
           : note.metadata_json || {};
     } catch {
       meta = {};
+    }
+
+    if (terminationNote && meta.termination) {
+      validateTermination(meta.termination);
+      validateTerminationContent(plain);
+    }
+    if (meta.interactiveComplexityPending) return res.status(400).json({ error: { message: 'Complete the interactive complexity justification before signing.' } });
+    if (meta.treatmentRecommendation === 'terminate' && !terminationNote && !['now', 'after_progress', 'later'].includes(meta.terminationNextStep)) {
+      return res.status(400).json({ error: { message: 'Choose when to write the termination note before signing.' } });
     }
 
     if (isProgressClinicalNote(note, meta)) {
@@ -1709,7 +1784,8 @@ export const signClinicalNote = async (req, res, next) => {
       }
       const maxAge = await loadTreatmentPlanMaxAgeDays(note.agency_id);
       const age = treatmentPlanAgeDays(active);
-      if (age != null && age > maxAge) {
+      const policy = await loadRenewalPolicy(note.agency_id);
+      if (renewalStatus(active, policy).required) {
         return res.status(400).json({
           error: {
             message: `The treatment plan on file is ${age} days old (limit ${maxAge}). Update the plan before signing this progress note.`,
@@ -1769,14 +1845,17 @@ export const signClinicalNote = async (req, res, next) => {
     }
 
     const signedAtIso = new Date().toISOString();
-    const attestationStatement = signerLabel
+    const attestationStatement = terminationNote
+      ? `${signerLabel || 'Provider'} signed this termination note and confirmed that the reviewed content is accurate and complete on ${formatAttestationClock(signedAtIso)}.`
+      : signerLabel
       ? `${signerLabel}, signed this note and declared this information to be accurate and complete and marked the note as medically necessary on ${formatAttestationClock(signedAtIso)}.`
       : `Provider signed this note and declared this information to be accurate and complete and marked the note as medically necessary on ${formatAttestationClock(signedAtIso)}.`;
 
     meta.attestation = {
       ...(meta.attestation || {}),
       accurateAndComplete: true,
-      medicallyNecessary: true,
+      medicallyNecessary: !terminationNote,
+      contentReviewConfirmed: terminationNote ? true : meta.attestation?.contentReviewConfirmed,
       attestedAt: signedAtIso,
       attestedByUserId: req.user.id,
       signerLabel,
@@ -1859,7 +1938,8 @@ export const signClinicalNote = async (req, res, next) => {
     } catch (linkErr) {
       console.warn('[signClinicalNote] objective rating link failed', linkErr?.message || linkErr);
     }
-    return res.json({ ok: true, noteId, contentHash: hash, signedAt: new Date().toISOString() });
+    const terminationTodo = await completeNoteAidSigningWorkflow({ ...note, provider_signed_at: signedAtIso, metadata_json: meta });
+    return res.json({ ok: true, noteId, contentHash: hash, signedAt: signedAtIso, terminationTodo });
   } catch (e) {
     next(e);
   }
@@ -3478,4 +3558,26 @@ export const createClinicalNoteAddendum = async (req, res, next) => {
   } catch (e) {
     next(e);
   }
+};
+
+export const getTreatmentPlanRenewalPolicy = async (req, res, next) => {
+  try {
+    const agencyId = Number(req.params.agencyId);
+    await ClinicalEligibilityService.ensureAgencyAccess({ reqUser: req.user, agencyId });
+    res.json({ policy: await loadRenewalPolicy(agencyId) });
+  } catch (e) { next(e); }
+};
+export const saveTreatmentPlanRenewalPolicy = async (req, res, next) => {
+  try {
+    const agencyId = Number(req.params.agencyId);
+    await ClinicalEligibilityService.ensureAgencyAccess({ reqUser: req.user, agencyId });
+    if (!['admin', 'super_admin'].includes(req.user.role)) return res.status(403).json({ error: { message: 'Agency administrator access required.' } });
+    const p = req.body;
+    if (typeof p.flagEnabled !== 'boolean' || typeof p.forceUpdate !== 'boolean' || !Number.isInteger(p.flagAfterDays) || !Number.isInteger(p.renewAfterDays) || p.flagAfterDays < 1 || p.renewAfterDays < p.flagAfterDays || p.renewAfterDays > 3650 || (p.renewByDate && (!/^\d{4}-\d{2}-\d{2}$/.test(p.renewByDate) || !Number.isFinite(Date.parse(p.renewByDate))))) {
+      return res.status(400).json({ error: { message: 'Use valid renewal settings: flag days must be between 1 and the renewal interval (up to 3650 days).' } });
+    }
+    const policy = { flagEnabled: p.flagEnabled, forceUpdate: p.forceUpdate, flagAfterDays: p.flagAfterDays, renewAfterDays: p.renewAfterDays, renewByDate: p.renewByDate || null };
+    await pool.execute("UPDATE agencies SET treatment_plan_max_age_days = ?, feature_flags = JSON_SET(COALESCE(feature_flags, JSON_OBJECT()), '$.treatmentPlanRenewal', CAST(? AS JSON)) WHERE id = ?", [policy.renewAfterDays, JSON.stringify(policy), agencyId]);
+    res.json({ policy });
+  } catch (e) { next(e); }
 };

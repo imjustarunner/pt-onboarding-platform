@@ -24,7 +24,8 @@ class ClinicalNoteDraft {
     dateOfService = null,
     initials = null,
     inputText = null,
-    outputJson = null
+    outputJson = null,
+    allowReuse = true
   }) {
     const uid = safeInt(userId);
     if (!uid) throw new Error('Invalid userId');
@@ -41,14 +42,14 @@ class ClinicalNoteDraft {
     const input = inputText === null || inputText === undefined ? null : String(inputText);
     const out = outputJson === null || outputJson === undefined ? null : String(outputJson);
 
-    const reusable = await this.findReusableOpen({
+    const reusable = allowReuse ? await this.findReusableOpen({
       userId: uid,
       clientId: cid,
       officeEventId: oeid,
       clinicalSessionId: csid,
       dateOfService: dos,
       serviceCode: svc
-    });
+    }) : null;
     if (reusable?.id) {
       const patch = {};
       if (oeid && !reusable.office_event_id) patch.officeEventId = oeid;
@@ -445,4 +446,3 @@ class ClinicalNoteDraft {
 }
 
 export default ClinicalNoteDraft;
-

@@ -124,6 +124,11 @@ describe('clinicalNoteLibrary search/group', () => {
 });
 
 describe('parseNoteAidTodoList', () => {
+  it('preserves codes with extra text and extended encounter units', () => {
+    const { items } = parseNoteAidTodoList(`9/14/26 Taylor Client Create a Progress Note for Therapy Session (90834 extended session) on 9/14 at 12 PM.
+9/14/26 Another Client Create a Progress Note for Therapy Session (90834) on 9/14 at 1 PM.`);
+    expect(items.map((i) => i.serviceCode)).toEqual(['90834_EXT', '90834']);
+  });
   it('skips 99415 consultations and keeps progress/intake/plan', () => {
     const text = `4/9/26
 She Bar

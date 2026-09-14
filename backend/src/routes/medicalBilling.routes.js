@@ -1,3 +1,4 @@
+import { getTreatmentPlanRenewalPolicy, saveTreatmentPlanRenewalPolicy } from '../controllers/medicalBilling.controller.js';
 import { getClientInsurance, saveClientInsurance } from '../controllers/clientInsurance.controller.js';
 import express from 'express';
 import { body, param, query } from 'express-validator';
@@ -680,5 +681,8 @@ router.post(
   ],
   addClinicalInterventions
 );
+
+router.get('/agencies/:agencyId/treatment-plan-renewal', requireClinicalChart, getTreatmentPlanRenewalPolicy);
+router.put('/agencies/:agencyId/treatment-plan-renewal', requireClinicalChart, saveTreatmentPlanRenewalPolicy);
 
 export default router;

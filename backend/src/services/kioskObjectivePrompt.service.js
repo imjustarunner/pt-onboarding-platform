@@ -1,105 +1,31 @@
 import { callGeminiText } from './geminiText.service.js';
-
-function clampPrompt(text, fallback) {
-  const t = String(text || '').replace(/\s+/g, ' ').trim();
-  return (t || fallback).slice(0, 500);
-}
+import { anonymousObjective, clinicalThemes } from './treatmentPlanAiContext.service.js';
 
 export function defaultClientKioskPrompt(obj = {}) {
-  const text = String(obj.objective_text || obj.objectiveText || 'this treatment goal').trim().slice(0, 180);
-  const target = Number(obj.scale_target ?? obj.scaleTarget);
-  const highIsBetter = !Number.isFinite(target) || target >= 5.5;
-  const ten = highIsBetter ? 'at or closest to your goal' : 'farthest from your goal';
-  const one = highIsBetter ? 'farthest from your goal' : 'at or closest to your goal';
-  return `On a scale of 1–10, with 10 being ${ten} and 1 being ${one}, how would you rate yourself since the last session for: ${text}`;
+  const theme = clinicalThemes(obj.objective_text || obj.objectiveText)[0] || 'progress toward this goal';
+  return `How would you rate your ${theme} on a scale of 1–10 since your last session?`;
 }
-
-export function defaultOtherKioskPrompt(obj = {}, clientName = 'the client') {
-  const who = String(clientName || 'the client').trim() || 'the client';
-  const text = String(obj.objective_text || obj.objectiveText || 'this treatment goal').trim().slice(0, 180);
-  const target = Number(obj.scale_target ?? obj.scaleTarget);
-  const highIsBetter = !Number.isFinite(target) || target >= 5.5;
-  const ten = highIsBetter ? 'at or closest to their goal' : 'farthest from their goal';
-  const one = highIsBetter ? 'farthest from their goal' : 'at or closest to their goal';
-  return `On a scale of 1–10, with 10 being ${ten} and 1 being ${one}, how would you rate ${who} since the last session for: ${text}`;
+export function defaultOtherKioskPrompt(obj = {}) {
+  return defaultClientKioskPrompt(obj).replace('your ', 'the client’s ').replace('your last session', 'the last session');
 }
-
-function parseJsonObject(text) {
-  const raw = String(text || '').trim();
-  if (!raw) return null;
-  try {
-    return JSON.parse(raw);
-  } catch {
-    const start = raw.indexOf('{');
-    const end = raw.lastIndexOf('}');
-    if (start >= 0 && end > start) {
-      try {
-        return JSON.parse(raw.slice(start, end + 1));
-      } catch {
-        return null;
-      }
-    }
-    return null;
-  }
+export function verifiedObjectiveQuestion(objective, other = false) {
+  const field = other ? 'kiosk_prompt_other' : 'kiosk_prompt';
+  return objective?.[`${field}_verified_at`] && objective?.[`${field}_verified_by`] ? String(objective[field] || '').trim() : '';
 }
-
-/**
- * Fill empty kiosk prompts only. Existing saved questions are kept (re-enable must not regenerate).
- */
-export async function fillEmptyKioskPrompts({ clientName, objectives = [] }) {
-  const who = String(clientName || 'the client').trim() || 'the client';
-  const need = (objectives || []).filter((o) => {
-    const clientEmpty = !String(o.kiosk_prompt || '').trim();
-    const otherEmpty = !String(o.kiosk_prompt_other || '').trim();
-    return clientEmpty || otherEmpty;
-  });
-  if (!need.length) {
-    return (objectives || []).map((o) => ({
-      id: o.id,
-      kiosk_prompt: String(o.kiosk_prompt || '').trim() || null,
-      kiosk_prompt_other: String(o.kiosk_prompt_other || '').trim() || null
-    }));
+export async function fillEmptyKioskPrompts({ objectives = [], generate = callGeminiText }) {
+  const need = objectives.filter((o) => !o.kiosk_prompt || !o.kiosk_prompt_other);
+  let items = [];
+  if (need.length) {
+    const safe = need.map((o, index) => anonymousObjective(o, index + 1));
+    try {
+      const { text } = await generate({ prompt: `Write natural, short therapy check-in questions. Ask the person directly, without copying a clinical objective. Each question must ask for a 1–10 rating. Match the scale direction and explain anchors briefly when known. Never assume that high scores are better. For partner communication, for example: "How would you rate your communication with your partner on a scale of 1–10?" The other question asks a guardian about the client, without names. Return JSON {"items":[{"ref":"1","client":"...","other":"..."}]}. Anonymous objective categories and scales:\n${JSON.stringify(safe)}`, temperature: 0.2, maxOutputTokens: Math.max(1600, need.length * 220) });
+      const parsed = JSON.parse(String(text).replace(/^```(?:json)?\s*|\s*```$/g, ''));
+      items = Array.isArray(parsed.items) ? parsed.items : [];
+    } catch { /* Keep editable, unverified suggestions available if AI is unavailable. */ }
   }
-
-  let byId = new Map();
-  try {
-    const prompt = `Write short kiosk rating questions for a therapy session. Return JSON only:
-{"items":[{"id":123,"client":"...","other":"..."}]}
-Rules:
-- "client" is first person, asked of the client ("how would you rate yourself…").
-- "other" is third person about ${who} (guardian/teacher), never first person.
-- Each question is one sentence, under 280 characters, mentions the objective in plain language.
-- Scale is always 1–10.
-Objectives:
-${need.map((o) => `- id ${o.id}: ${String(o.objective_text || '').slice(0, 200)}`).join('\n')}`;
-
-    const gemini = await callGeminiText({
-      prompt,
-      temperature: 0.2,
-      maxOutputTokens: 1200
-    });
-    const parsed = parseJsonObject(gemini?.text);
-    const items = Array.isArray(parsed?.items) ? parsed.items : [];
-    for (const item of items) {
-      const id = Number(item?.id || 0);
-      if (!id) continue;
-      byId.set(id, {
-        client: String(item.client || '').trim(),
-        other: String(item.other || '').trim()
-      });
-    }
-  } catch {
-    byId = new Map();
-  }
-
-  return (objectives || []).map((o) => {
-    const existingClient = String(o.kiosk_prompt || '').trim();
-    const existingOther = String(o.kiosk_prompt_other || '').trim();
-    const ai = byId.get(Number(o.id)) || {};
-    return {
-      id: o.id,
-      kiosk_prompt: existingClient || clampPrompt(ai.client, defaultClientKioskPrompt(o)),
-      kiosk_prompt_other: existingOther || clampPrompt(ai.other, defaultOtherKioskPrompt(o, who))
-    };
+  return objectives.map((o) => {
+    const ref = String(need.indexOf(o) + 1);
+    const ai = items.find((item) => String(item.ref) === ref) || {};
+    return { id: o.id, kiosk_prompt: o.kiosk_prompt || String(ai.client || defaultClientKioskPrompt(o)).slice(0, 500), kiosk_prompt_other: o.kiosk_prompt_other || String(ai.other || defaultOtherKioskPrompt(o)).slice(0, 500) };
   });
 }

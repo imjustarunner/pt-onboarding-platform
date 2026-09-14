@@ -159,34 +159,12 @@
       </div>
     </template>
 
-    <div ref="printAreaRef" class="tp-ack-print-area" aria-hidden="true">
-      <h1>Treatment Plan Acknowledgment</h1>
-      <p v-if="clientName"><strong>Client:</strong> {{ clientName }}</p>
-      <p v-if="planSummary?.title"><strong>Plan:</strong> {{ planSummary.title }}</p>
-      <p v-if="planSummary?.effective_date"><strong>Effective:</strong> {{ planSummary.effective_date }}</p>
-      <section v-if="printGoals.length">
-        <h2>Goals &amp; objectives</h2>
-        <article v-for="g in printGoals" :key="g.goal_index" class="tp-ack-print-goal">
-          <h3>Goal {{ g.goal_index }}: {{ g.goal_text }}</h3>
-          <p v-if="g.projected_completion">Timeframe: {{ g.projected_completion }}</p>
-          <ul>
-            <li v-for="o in g.objectives || []" :key="o.objective_index">
-              Objective {{ o.objective_index }}: {{ o.objective_text }}
-              <span v-if="o.scale_target != null"> (target {{ o.scale_target }})</span>
-            </li>
-          </ul>
-        </article>
-      </section>
-      <p class="tp-ack-print-sign">
-        I have reviewed this treatment plan and agree to participate in the recommended services.
-      </p>
-      <p>Signature: _____________________________ &nbsp; Date: ______________</p>
-      <p>Printed name: ___________________________</p>
-    </div>
   </section>
 </template>
 
 <script setup>
+import { treatmentPlanPrintHtml, printTreatmentPlanDocument } from '../../../utils/treatmentPlanPrint.js';
+import { toUploadsUrl } from '../../../utils/uploadsUrl.js';
 import { computed, onMounted, ref, watch } from 'vue';
 import api from '../../../services/api';
 import SignaturePad from '../../SignaturePad.vue';
@@ -206,11 +184,9 @@ const success = ref('');
 const busyAction = ref('');
 const acknowledgments = ref([]);
 const planSummary = ref(null);
-const printGoals = ref([]);
 const lastSigningUrl = ref('');
 const lastEmailError = ref('');
 const sessionLinkId = ref(null);
-const printAreaRef = ref(null);
 
 const emailForm = ref({ email: '', recipientName: '' });
 const sessionForm = ref({ signedByName: '', signatureDataUrl: '' });
@@ -404,31 +380,19 @@ async function attachPrintUpload() {
   }
 }
 
-async function loadPrintGoals() {
-  try {
-    const res = await api.get(`/medical-billing/clients/${props.clientId}/chart`, {
-      params: { agencyId: props.agencyId },
-      skipGlobalLoading: true
-    });
-    const plans = res.data?.treatmentPlans || res.data?.treatment_plans || [];
-    const plan = plans.find((p) => Number(p.id) === Number(props.planId));
-    printGoals.value = plan?.goals || [];
-  } catch {
-    printGoals.value = [];
-  }
-}
-
 async function printPlan() {
-  emit('print');
-  await loadPrintGoals();
-  requestAnimationFrame(() => {
-    const prevTitle = document.title;
-    document.title = planSummary.value?.title
-      ? `Treatment Plan — ${planSummary.value.title}`
-      : 'Treatment Plan';
-    window.print();
-    document.title = prevTitle;
-  });
+  error.value = '';
+  try {
+    const [planRes, agencyRes] = await Promise.all([
+      api.get(`/medical-billing/treatment-plans/${props.planId}`, { params: { agencyId: props.agencyId, clientId: props.clientId } }),
+      api.get(`/agencies/${props.agencyId}`)
+    ]);
+    const plan = planRes.data?.plan;
+    if (!plan?.goals) throw new Error('The selected treatment plan could not be loaded for printing.');
+    const agency = agencyRes.data || {};
+    const logoUrl = agency.logo_path ? toUploadsUrl(agency.logo_path) : agency.logo_url || '';
+    await printTreatmentPlanDocument(treatmentPlanPrintHtml({ plan, agency, logoUrl }));
+  } catch (e) { error.value = e.message || 'Unable to print the treatment plan.'; }
 }
 
 watch(
@@ -621,27 +585,4 @@ onMounted(() => {
 .muted { color: var(--text-secondary, #64748b); }
 .tiny { font-size: 12px; }
 
-.tp-ack-print-area {
-  display: none;
-}
-@media print {
-  .tp-ack-panel > *:not(.tp-ack-print-area) {
-    display: none !important;
-  }
-  .tp-ack-print-area {
-    display: block !important;
-    position: static;
-    padding: 24px;
-    color: #000;
-    font-family: Georgia, 'Times New Roman', serif;
-  }
-  .tp-ack-print-goal {
-    margin-bottom: 16px;
-    page-break-inside: avoid;
-  }
-  .tp-ack-print-sign {
-    margin-top: 24px;
-    font-style: italic;
-  }
-}
 </style>

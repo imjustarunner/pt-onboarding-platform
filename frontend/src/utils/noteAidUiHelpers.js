@@ -2,6 +2,33 @@
  * Helpers for Note Aid workspace: SOAP mapping, treatment plans, interventions, copy text.
  */
 
+export const INTAKE_SECTION_TITLES = [
+  "Identification",
+  "Presenting Problem",
+  "History of Present Illness",
+  "Psychiatric History",
+  "Trauma History",
+  "Family Psychiatric History",
+  "Substance Use History",
+  "Medical History",
+  "Current Medications",
+  "Family History",
+  "Social History",
+  "Spiritual/Cultural Factors",
+  "Developmental History",
+  "Educational / Occupational History",
+  "Legal History",
+  "SNAP",
+  "Objective Content",
+  "Mental Status Examination",
+  "Risk Assessment",
+  "Diagnosis",
+  "Diagnostic Justification",
+  "Clinical Impressions",
+  "Plan",
+  "Treatment Recommendations"
+];
+
 export const SOAP_SECTION_DEFS = [
   { key: 'Subjective', letter: 'S', label: 'Subjective', aliases: ['Symptom Description and Subjective Report', 'S - Subjective'] },
   { key: 'Objective', letter: 'O', label: 'Objective', aliases: ['Objective Content', 'O - Objective'] },
@@ -19,13 +46,13 @@ const SOAP_HEADER_NAMES =
  *   **Objective Content**
  */
 const SOAP_INLINE_HEADER_RE = new RegExp(
-  `^(?:\\*\\*)?(?:\\d+[\\.\\)\\s-]*)?(?:\\*\\*)?(${SOAP_HEADER_NAMES})(?:\\*\\*)?\\s*:?\\s*(.*)$`,
+  `^(?:\\*\\*)?(?:\\d+[\\.\\)\\s-]*)?(?:\\*\\*)?(${SOAP_HEADER_NAMES})(?:\\*\\*)?\\s*(?::\\s*(.*)|$)`,
   'i'
 );
 
 /** Goal N / Objective N / Discharge / Projected Time — EHR paste + structured plan UI. */
 const TREATMENT_PLAN_HEADER_RE =
-  /^(?:\d+[\).\s-]*)?(?:\*\*)?(Treatment\s+Goal\s*(\d+)|Goal\s*(\d+)|Objective\s*(\d+(?:\.\d+)?)?|Projected\s*Time\s*(?:to\s*Completion)?(?:\s*\d+)?|Estimated\s*Completion|Discharge\s*Criteria(?:\s*\/\s*Planning)?|Discharge\s*Plan|Discharge|Prescribed\s*Frequency(?:\s+of\s+Treatment)?|Presenting\s*Problem|Diagnostic\s*Justification|Diagnos(?:is|es))(?:\*\*)?\s*:?\s*(.*)$/i;
+  /^(?:\d+[\).\s-]*)?(?:\*\*)?(Treatment\s+Goal\s*(\d+)|Goal\s*(\d+)|Objective\s*(\d+(?:\.\d+)?)?|Projected\s*Time\s*(?:to\s*Completion)?(?:\s*\d+)?|Estimated\s*Completion|Discharge\s*Criteria(?:\s*\/\s*Planning)?|Discharge\s*Plan|Discharge|Prescribed\s*Frequency(?:\s+of\s+Treatment)?|Presenting\s*Problem|Diagnostic\s*Justification|Diagnos(?:is|es))(?:\*\*)?\s*(?::\s*(.*)|$)/i;
 
 function normalizeSectionKey(title) {
   let t = String(title || '').trim().toLowerCase();
@@ -74,7 +101,7 @@ export function parseTreatmentPlanPanelsFromText(text) {
       if (current) current.buffer.push(line);
       continue;
     }
-    const match = trimmed.match(TREATMENT_PLAN_HEADER_RE);
+    const match = trimmed.replace(/^#{1,6}\s*/, '').replace(/\*\*/g, '').match(TREATMENT_PLAN_HEADER_RE);
     if (match) {
       flush();
       const label = String(match[1] || '').trim();
@@ -154,14 +181,15 @@ export function parseTreatmentPlanPanelsFromText(text) {
 export function buildTreatmentPlanPanels(sectionsObj) {
   const sections = sectionsObj && typeof sectionsObj === 'object' ? { ...sectionsObj } : {};
   const fromKeys = [];
-  const keyRe = /^(Goal|Objective|Projected\s*Time(?:\s*to\s*Completion)?|Discharge(?:\s*Plan)?)\s*(\d+)?$/i;
+  const keyRe = /^(Goal|Objective|Projected\s*Time(?:\s*to\s*Completion)?|Discharge(?:\s*Plan)?)\s*(\d+(?:\.\d+)?)?$/i;
   for (const [k, v] of Object.entries(sections)) {
     const m = String(k || '').trim().match(keyRe);
     if (!m) continue;
     const text = String(v || '').trim();
     if (!text) continue;
     const label = m[1];
-    const num = m[2] ? Number(m[2]) : null;
+    const ref = m[2] || null;
+    const num = ref ? Number(ref.split('.')[0]) : null;
     let kind = 'other';
     let id = String(k).trim();
     let title = id;
@@ -171,7 +199,7 @@ export function buildTreatmentPlanPanels(sectionsObj) {
       title = id;
     } else if (/^objective$/i.test(label) && num != null) {
       kind = 'objective';
-      id = `Objective ${num}`;
+      id = `Objective ${ref}`;
       title = id;
     } else if (/^projected/i.test(label)) {
       kind = 'projected_time';
@@ -182,7 +210,7 @@ export function buildTreatmentPlanPanels(sectionsObj) {
       id = 'Discharge Plan';
       title = id;
     }
-    fromKeys.push({ id, title, text, isTreatmentPlan: true, kind, index: num });
+    fromKeys.push({ sourceKey: k, id, title, text, isTreatmentPlan: true, kind, index: num });
   }
   if (fromKeys.filter((p) => p.kind === 'goal').length && fromKeys.filter((p) => p.kind === 'objective').length) {
     // Sort Goal1, Obj1, Time1, Goal2, ...
@@ -230,7 +258,7 @@ export function parseSoapSectionsFromText(text) {
       if (currentKey) buffer.push(line);
       continue;
     }
-    const match = trimmed.match(SOAP_INLINE_HEADER_RE);
+    const match = trimmed.replace(/^#{1,6}\s*/, '').replace(/\*\*/g, '').match(SOAP_INLINE_HEADER_RE);
     if (match) {
       const key = normalizeSectionKey(match[1]);
       if (key) {
@@ -258,6 +286,9 @@ export function expandSoapSections(sectionsObj) {
     (Object.keys(sections).length === 1 ? String(Object.values(sections)[0] || '').trim() : '');
   if (!blob) return sections;
 
+  // Mixed intake/plan blobs must remain whole rather than losing non-SOIP content.
+  const headings = blob.split(/\r?\n/).map((line) => line.trim().replace(/^#{1,6}\s*/, '').replace(/\*\*/g, '').replace(/^\d+[.)]\s*/, '').split(':')[0].trim());
+  if (INTAKE_SECTION_TITLES.filter((title) => !['Objective Content', 'Plan'].includes(title)).some((title) => headings.includes(title)) || /(?:^|\n)\s*(?:\*\*)?Goal\s+\d/i.test(blob)) return sections;
   const parsed = parseSoapSectionsFromText(blob);
   if (Object.keys(parsed).length < 2) return sections;
 
@@ -303,21 +334,26 @@ export function soapSectionTextFromDraft(draft, key) {
  * "Objective" would also match SOAP) — otherwise TP writers get mis-labeled as
  * "O - Objective" progress notes. Fall back to SOAP when ≥2 SOAP sections.
  */
-export function buildDisplaySections(sectionsObj, { preferTreatmentPlan = false } = {}) {
+export function buildDisplaySections(sectionsObj, { preferTreatmentPlan = false, preferIntake = false } = {}) {
   const sections = expandSoapSections(
     sectionsObj && typeof sectionsObj === 'object' ? sectionsObj : {}
   );
 
+  const intake = preferIntake || Object.keys(sections).some((key) => INTAKE_SECTION_TITLES.includes(key) && !['Objective Content', 'Plan', 'Diagnosis', 'Diagnostic Justification', 'Presenting Problem'].includes(key));
+  const plainPanel = ([key, text]) => ({ id: key, title: key, text: String(text || '').trim(), letter: '', isSoap: false, isTreatmentPlan: false });
   const planPanels = buildTreatmentPlanPanels(sections);
   const planHasStructure = planPanels.some((p) => p.kind === 'goal')
     && planPanels.some((p) => p.kind === 'objective');
   if ((preferTreatmentPlan || planHasStructure) && planPanels.length >= 2) {
-    return planPanels.map((p) => ({
+    const used = new Set(planPanels.map((p) => p.sourceKey || p.id));
+    const extras = Object.entries(sections).filter(([key]) => !used.has(key) && !['Output', 'Treatment Plan'].includes(key)).map(plainPanel).filter((p) => p.text);
+    return [...extras, ...planPanels.map((p) => ({
       ...p,
       letter: p.kind === 'goal' ? 'G' : p.kind === 'objective' ? 'O' : '',
       isSoap: false
-    }));
+    }))];
   }
+  if (intake) return Object.entries(sections).map(plainPanel).filter((p) => p.text);
 
   const usedKeys = new Set();
   const soapPanels = [];

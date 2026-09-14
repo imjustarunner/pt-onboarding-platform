@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  INTAKE_SECTION_TITLES,
   buildDisplaySections,
   buildTreatmentPlanPanels,
   formatFullNoteCopy,
@@ -171,4 +172,28 @@ describe('noteAidUiHelpers', () => {
     expect(text).toContain('Created: 2026-07-14');
     expect(text).not.toContain('Intervention Types:');
   });
+  it('keeps every intake section and each dotted objective in display and full-note copy', () => {
+    const sections = Object.fromEntries(INTAKE_SECTION_TITLES.map((title) => [title, `Recorded ${title}.`]));
+    Object.assign(sections, { 'Goal 1': 'Goal text.', 'Objective 1.1': 'First objective.', 'Objective 1.2': 'Second objective.', 'Projected Time to Completion 1': '3 months', 'Goal 2': 'Next goal.', 'Objective 2.1': 'Next objective.' });
+    const panels = buildDisplaySections(sections);
+    expect(panels).toHaveLength(Object.keys(sections).length);
+    for (const title of INTAKE_SECTION_TITLES) expect(panels.find((panel) => panel.id === title)?.title).toBe(title);
+    expect(panels.filter((panel) => panel.kind === 'objective').map((panel) => panel.id)).toEqual(['Objective 1.1', 'Objective 1.2', 'Objective 2.1']);
+    const copy = formatFullNoteCopy({ sections });
+    for (const body of Object.values(sections)) expect(copy).toContain(body);
+  });
+
+  it('does not leave markdown delimiters in goal bodies or parse numbered objectives as SOIP', () => {
+    const blob = '**Goal 1:**\nImprove routines.\n**Objective 1.1:**\nPractice routines.\n**Projected Time to Completion 1:**\n3 months';
+    const panels = buildDisplaySections({ Output: blob });
+    expect(panels.map((panel) => panel.text)).toEqual(['Improve routines.', 'Practice routines.', '3 months']);
+    expect(parseSoapSectionsFromText(blob)).toEqual({});
+    expect(parseSoapSectionsFromText('**Objective:**\nObserved behavior.\nObjective findings persisted.').Objective).toBe('Observed behavior.\nObjective findings persisted.');
+  });
+
+  it('preserves an older mixed intake blob whole when SOIP expansion cannot safely split it', () => {
+    const blob = 'Identification: Returning client.\nPresenting Problem: New concerns.\nObjective: Observed today.\nPlan: Follow up.';
+    expect(buildDisplaySections({ Output: blob })[0].text).toBe(blob);
+  });
+
 });

@@ -11,6 +11,33 @@
  * Recording, Quick View) because tools load through applySharedNoteAidToolContracts().
  */
 
+export const INTAKE_SECTION_TITLES = [
+  "Identification",
+  "Presenting Problem",
+  "History of Present Illness",
+  "Psychiatric History",
+  "Trauma History",
+  "Family Psychiatric History",
+  "Substance Use History",
+  "Medical History",
+  "Current Medications",
+  "Family History",
+  "Social History",
+  "Spiritual/Cultural Factors",
+  "Developmental History",
+  "Educational / Occupational History",
+  "Legal History",
+  "SNAP",
+  "Objective Content",
+  "Mental Status Examination",
+  "Risk Assessment",
+  "Diagnosis",
+  "Diagnostic Justification",
+  "Clinical Impressions",
+  "Plan",
+  "Treatment Recommendations"
+];
+
 export const TRANSCRIPT_FIDELITY_INSTRUCTIONS = [
   'The clinician transcript under "User input" is the source of truth.',
   'Retain the substance of what was said: names of topics, specific examples, quotes, sequence of discussion, affect, and interventions implied by the transcript.',
@@ -51,13 +78,33 @@ export const COLORADO_FREEFORM_PARAGRAPH_INSTRUCTIONS = [
   TRANSCRIPT_FIDELITY_INSTRUCTIONS
 ].join('\n');
 
+export const INTAKE_OUTPUT_INSTRUCTIONS = [
+  'INTAKE OUTPUT CONTRACT (overrides conflicting outlines and conversational instructions above):',
+  'Return the complete intake note first. Use every heading below exactly, each on its own line with a colon, followed by its narrative:',
+  ...INTAKE_SECTION_TITLES.map((title) => `${title}:`),
+  'Populate every section using all relevant clinician input and supplied history. Preserve the current mental status domains and risk findings when provided.',
+  'For returning clients, distinguish historical findings from the current assessment; the clinician’s latest information and corrections take precedence over older pasted notes.',
+  'Distinguish information not provided or not assessed from information the client declined to discuss. Never invent findings, denials, ratings, baseline scores, diagnoses, or consent.',
+  'Include the rationale for a clinician-requested diagnostic reassessment and explain changes from prior diagnoses using only supported evidence.',
+  'Do not replace the intake with SOAP sections or treatment-plan goals. Do not merge intake domains into Plan.',
+  'Do not simulate a conversation, ask a closing question, or invent a provider response such as Yes.',
+  TRANSCRIPT_FIDELITY_INSTRUCTIONS
+].join('\n');
+
+export const INTAKE_PLAN_OUTPUT_INSTRUCTIONS = [
+  INTAKE_OUTPUT_INSTRUCTIONS,
+  'Only if the clinician explicitly requests a treatment plan in this submission, append it AFTER all intake sections.',
+  'For that appended plan, use Goal 1:, Objective 1.1:, Projected Time to Completion 1: and additional numbered goals/objectives as clinically supported, ending with Discharge Plan:.',
+  'Use SMART objectives with a 1–10 scale, baseline, target, anchor definitions, and measurement method when provided. Mark missing measurements for clinician assessment instead of inventing numbers.'
+].join('\n');
+
 /**
  * H0031 initial intake — same sectioning spirit as 90791, without DSM diagnoses.
  */
 export const H0031_INTAKE_OUTPUT_INSTRUCTIONS = [
   'Return the H0031 intake note only—no preamble.',
   'Use the same titled narrative sections as a 90791 intake, exactly:',
-  'Identification, Presenting Problem, History of Present Illness, Psychiatric History, Substance Use History, Medical History, Family History, Social History, Developmental History, Educational / Occupational History, Objective Content, Mental Status Examination, Diagnosis, Clinical Impressions, Plan, Treatment Recommendations.',
+  INTAKE_OUTPUT_INSTRUCTIONS,
   'Fill every section from the clinician input when information is available; write "Not assessed / not provided" only when the source material truly lacks that domain.',
   'Diagnoses: include chart diagnoses when the clinician credential permits; otherwise prefer Z and R (social determinant) codes and do not invent DSM F-codes.',
   TRANSCRIPT_FIDELITY_INSTRUCTIONS
@@ -196,12 +243,8 @@ export function getOutputInstructionsForTool(toolId) {
   if (isSoipProgressNoteToolId(id)) return PROGRESS_NOTE_OUTPUT_INSTRUCTIONS;
   if (isColoradoFreeformToolId(id)) return COLORADO_FREEFORM_PARAGRAPH_INSTRUCTIONS;
   if (id === 'clinical_h0031_intake') return H0031_INTAKE_OUTPUT_INSTRUCTIONS;
-  if (id === 'clinical_90791_intake_plan') {
-    return [
-      'Return intake sections first with their titled headers, then the treatment plan.',
-      TREATMENT_PLAN_OUTPUT_INSTRUCTIONS
-    ].join('\n');
-  }
+  if (id === 'clinical_90791_intake_plan') return INTAKE_PLAN_OUTPUT_INSTRUCTIONS;
+  if (id === 'clinical_90791_note_aid') return INTAKE_OUTPUT_INSTRUCTIONS;
   if (isTreatmentPlanToolId(id)) return TREATMENT_PLAN_OUTPUT_INSTRUCTIONS;
   return null;
 }
@@ -239,7 +282,7 @@ export function applySharedNoteAidToolContracts(tools) {
 
     if (id === 'clinical_h0031_intake') {
       next.outputInstructions = H0031_INTAKE_OUTPUT_INSTRUCTIONS;
-      next.maxOutputTokens = Math.max(Number(tool.maxOutputTokens || 0), 3000);
+      next.maxOutputTokens = Math.max(Number(tool.maxOutputTokens || 0), 8000);
       next.model = tool.model || 'gemini-2.5-pro';
       next.sectionSchema = 'h0031_intake';
       const prompt = String(tool.systemPrompt || '');
@@ -248,7 +291,14 @@ export function applySharedNoteAidToolContracts(tools) {
       }
     }
 
-    if (isTreatmentPlanToolId(id)) {
+    if (id === 'clinical_90791_intake_plan' || id === 'clinical_90791_note_aid') {
+      next.outputInstructions = getOutputInstructionsForTool(id);
+      next.maxOutputTokens = Math.max(Number(tool.maxOutputTokens || 0), 12000);
+      next.sectionSchema = 'intake';
+      next.systemPrompt = `${String(tool.systemPrompt || '').trim()}\n\n${next.outputInstructions}`;
+    }
+
+    if (isTreatmentPlanToolId(id) && id !== 'clinical_90791_intake_plan') {
       next.outputInstructions = getOutputInstructionsForTool(id) || TREATMENT_PLAN_OUTPUT_INSTRUCTIONS;
       next.maxOutputTokens = Math.max(Number(tool.maxOutputTokens || 0), 4000);
       next.model = tool.model || 'gemini-2.5-pro';

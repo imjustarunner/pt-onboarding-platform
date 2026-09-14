@@ -200,6 +200,13 @@
                   <option value="decrease">Decrease</option>
                 </select>
               </div>
+              <div v-if="o.renewalRecommendation" class="na-rewrite-banner">
+                <strong>Renewal recommendation</strong>
+                <p>{{ o.renewalRecommendation }}</p>
+                <p v-if="o.suggestedObjective">Suggested objective: {{ o.suggestedObjective }}</p>
+                <p v-if="o.suggestedInterventions.length">Suggested interventions: {{ o.suggestedInterventions.join(', ') }}</p>
+                <button type="button" class="na-btn-outline" @click="if (o.suggestedObjective) o.objectiveText = o.suggestedObjective; o.interventions = [...new Set([...o.interventions, ...o.suggestedInterventions])]; o.renewalRecommendation = ''">Accept suggested changes</button>
+              </div>
               <label class="na-label">
                 Interventions for this objective
                 <textarea
@@ -453,6 +460,7 @@ function applyDurationToAll() {
 function mapGoal(g) {
   const months = g.durationMonths != null ? Number(g.durationMonths) : null;
   return {
+    id: g.id, status: g.status, superseded_at: g.superseded_at,
     goalText: g.goalText || g.goal_text || '',
     durationMonths: Number.isFinite(months) && months > 0 ? months : null,
     durationLabel: g.durationLabel || (months ? durationLabel(months) : null),
@@ -472,7 +480,11 @@ function mapGoal(g) {
         || o.scale_direction
         || inferScaleDirection(scaleCurrent, scaleTarget);
       return {
+        id: o.id, status: o.status, superseded_at: o.superseded_at,
         objectiveText: text,
+        renewalRecommendation: o.renewalRecommendation || '',
+        suggestedObjective: o.suggestedObjective || '',
+        suggestedInterventions: o.suggestedInterventions || [],
         scaleCurrent,
         scaleTarget,
         scaleDirection,
@@ -505,7 +517,7 @@ function applyPlanRecord(plan) {
     || discharge.match(/Discharge Plan\n([\s\S]*)$/i);
   model.value = reactive({
     effectiveDate: (plan.effective_date || plan.effectiveDate || '').toString().slice(0, 10) || todayIsoDate(),
-    presentingProblem: presentMatch?.[1]?.trim() || plan.presentingProblem || '',
+    presentingProblem: plan.presenting_problem || presentMatch?.[1]?.trim() || plan.presentingProblem || '',
     prescribedFrequency: freqMatch?.[1]?.trim() || plan.prescribedFrequency || plan.prescribed_frequency || '',
     dischargePlan: discMatch?.[1]?.trim()
       || plan.dischargePlan
@@ -779,7 +791,7 @@ async function runUpdaterPropose() {
       {
         agencyId: Number(props.agencyId),
         clientId: Number(props.clientId),
-        currentPlan,
+        currentPlan: { ...currentPlan, id: props.planId || loadedPlanId.value },
         providerNarrative: providerNarrative.value || addendum.value || '',
         pasteRewriteSource: pasteText.value || '',
         progressExcerpt: props.progressExcerpt || '',
@@ -913,7 +925,7 @@ async function save({ finalize = true } = {}) {
       status: asDraft ? 'draft' : 'active',
       finalize: !asDraft,
       effectiveDate: model.value.effectiveDate || null,
-      dischargePlan: dischargeParts.length ? dischargeParts.join('\n\n') : null,
+      dischargePlan: model.value.dischargePlan || null,
       presentingProblem: model.value.presentingProblem || null,
       prescribedFrequency: model.value.prescribedFrequency || null,
       sourceToolId: asDraft ? 'intake_packet_bootstrap' : 'note_aid_plan_import',

@@ -1,3 +1,4 @@
+import { verifiedObjectiveQuestion } from '../services/kioskObjectivePrompt.service.js';
 import OfficeLocation from '../models/OfficeLocation.model.js';
 import { listProvidersAtLocationOnDate } from '../services/officeProviderLocation.service.js';
 import User from '../models/User.model.js';
@@ -2104,16 +2105,7 @@ export const kioskSkillBuilderEventClockOut = async (req, res, next) => {
   }
 };
 
-function kioskPromptForObjective(obj = {}) {
-  const custom = String(obj.kiosk_prompt || '').trim();
-  if (custom) return custom;
-  const text = String(obj.objective_text || 'this treatment goal').trim().slice(0, 180);
-  const target = Number(obj.scale_target);
-  const highIsBetter = !Number.isFinite(target) || target >= 5.5;
-  const ten = highIsBetter ? 'at or closest to your goal' : 'farthest from your goal';
-  const one = highIsBetter ? 'farthest from your goal' : 'at or closest to your goal';
-  return `On a scale of 1–10, with 10 being ${ten} and 1 being ${one}, how would you rate yourself since the last session for: ${text}`;
-}
+function kioskPromptForObjective(obj = {}) { return verifiedObjectiveQuestion(obj); }
 
 export const listKioskTreatmentGoals = async (req, res, next) => {
   try {
@@ -2146,7 +2138,7 @@ export const listKioskTreatmentGoals = async (req, res, next) => {
       for (const o of g.objectives || []) {
         if (o.superseded_at) continue;
         const enabled = o.kiosk_self_rate_enabled == null || Number(o.kiosk_self_rate_enabled) === 1;
-        if (!enabled) continue;
+        if (!enabled || !verifiedObjectiveQuestion(o)) continue;
         if (o.scale_target == null && o.scale_current == null && o.scale_start == null) continue;
         objectives.push({
           id: o.id,
@@ -2183,12 +2175,14 @@ export const submitKioskTreatmentGoals = async (req, res, next) => {
     const ClinicalTreatmentPlan = (await import('../models/clinical/ClinicalTreatmentPlan.model.js')).default;
     const plans = await ClinicalTreatmentPlan.listByClient({ agencyId, clientId: ev.client_id });
     const planId = plans?.[0]?.id || null;
+    const full = planId ? await ClinicalTreatmentPlan.findById(planId) : null;
+    const allowedObjectives = new Set(Number(full?.kiosk_share_enabled) === 1 ? (full.goals || []).filter((g) => !g.superseded_at).flatMap((g) => (g.objectives || []).filter((o) => !o.superseded_at && Number(o.kiosk_self_rate_enabled ?? 1) === 1 && verifiedObjectiveQuestion(o)).map((o) => Number(o.id))) : []);
     const recordedBy = ev.booked_provider_id || req.user?.id;
     let saved = 0;
     for (const row of ratings.slice(0, 40)) {
       const oid = Number(row.objectiveId || row.id || 0);
       const scale = Number(row.scaleValue);
-      if (!oid || !Number.isInteger(scale) || scale < 1 || scale > 10) continue;
+      if (!allowedObjectives.has(oid) || !Number.isInteger(scale) || scale < 1 || scale > 10) continue;
       await ClinicalTreatmentObjectiveRating.create({
         agencyId,
         clientId: ev.client_id,

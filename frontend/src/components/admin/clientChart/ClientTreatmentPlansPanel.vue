@@ -119,6 +119,13 @@
             </button>
           </div>
 
+          <div v-if="renewalStatus.flagged || renewalStatus.required" class="ctp-renewal" role="alert">
+            <strong>{{ renewalStatus.required ? 'Treatment plan update required' : 'Treatment plan review due' }}</strong>
+            <p>This plan is {{ renewalStatus.ageDays }} days old. Renewal interval: {{ renewalPolicy.renewAfterDays }} days.</p>
+            <button type="button" @click="openNoteAidUpdater">Update treatment plan</button>
+          </div>
+          <section v-if="planSections.presentingProblem" class="ctp-goal ctp-plan-section"><h4>Presenting problem</h4><p>{{ planSections.presentingProblem }}</p></section>
+          <section v-if="planSections.prescribedFrequency" class="ctp-goal ctp-plan-section"><h4>Prescribed treatment frequency</h4><p>{{ planSections.prescribedFrequency }}</p></section>
           <div v-if="planDiagnosesDisplay.length" class="ctp-dx">
             <div class="ctp-dx__head">
               <strong>{{ isLearning ? 'Areas of concern' : 'Diagnosis summary' }}</strong>
@@ -157,7 +164,7 @@
               <header @click="toggleGoal(g.id)">
                 <span class="ctp-pill">G{{ g.goal_index }}</span>
                 <strong>{{ stripPlanHeadingPrefix(g.goal_text) || g.goal_text }}</strong>
-                <span class="ctp-badge ctp-badge--ok">On track</span>
+                <span class="ctp-badge ctp-badge--ok">Active</span>
                 <span class="ctp-chevron">{{ isGoalOpen(g.id) ? '▾' : '▸' }}</span>
               </header>
               <template v-if="isGoalOpen(g.id)">
@@ -221,9 +228,15 @@
                     </ol>
                   </div>
                   <p v-else class="muted tiny">No ratings logged yet for this objective.</p>
-                  <div class="ctp-kiosk-q" :class="{ faded: !Number(detailPlan.kiosk_share_enabled || 0) }">
+                  <label class="ctp-interventions">Associated interventions
+                    <textarea rows="3" :value="(o.interventions || []).join('\n')" :disabled="kioskBusy" placeholder="One intervention per line" @blur="saveObjectiveInterventions(o, $event.target.value)" />
+                  </label>
+                  <button type="button" :disabled="kioskBusy" @click="generateQuestions(o)">{{ kioskBusy ? 'Working…' : 'Generate questions with AI' }}</button>
+                  <div class="ctp-kiosk-q">
                     <label>
                       Client question
+                      <span v-if="o.kiosk_prompt_verified_at">Verified</span>
+                      <button v-else type="button" :disabled="kioskBusy || !o.kiosk_prompt" @click="verifyQuestion(o, 'kiosk_prompt')">Verify</button>
                       <textarea
                         rows="2"
                         :value="o.kiosk_prompt || ''"
@@ -233,6 +246,8 @@
                     </label>
                     <label>
                       Other (third person)
+                      <span v-if="o.kiosk_prompt_other_verified_at">Verified</span>
+                      <button v-else type="button" :disabled="kioskBusy || !o.kiosk_prompt_other" @click="verifyQuestion(o, 'kiosk_prompt_other')">Verify</button>
                       <textarea
                         rows="2"
                         :value="o.kiosk_prompt_other || ''"
@@ -249,10 +264,7 @@
             This plan has no structured goals on the chart yet. Use Note Aid to write or paste a plan, then save to chart.
           </p>
 
-          <details v-if="dischargePlan" class="ctp-discharge">
-            <summary>Discharge plan</summary>
-            <pre>{{ dischargePlan }}</pre>
-          </details>
+          <section v-if="planSections.dischargePlan" class="ctp-goal ctp-plan-section"><h4>Discharge plan</h4><p>{{ planSections.dischargePlan }}</p></section>
 
           <TreatmentPlanAckPanel
             v-if="!isLearning && detailPlan?.id"
@@ -287,6 +299,8 @@
 </template>
 
 <script setup>
+import { splitTreatmentPlanSections } from '../../../utils/treatmentPlanSections.js';
+import { DEFAULT_RENEWAL_POLICY, treatmentPlanRenewalStatus } from '../../../utils/treatmentPlanRenewal.js';
 import { computed, onMounted, reactive, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import api from '../../../services/api';
@@ -432,9 +446,9 @@ const planSharedJustification = computed(() => {
   return String(primary?.justification || rows.find((d) => d?.justification)?.justification || '').trim();
 });
 
-const dischargePlan = computed(() =>
-  String(detailPlan.value?.discharge_plan || detailPlan.value?.dischargePlan || '').trim()
-);
+const planSections = computed(() => splitTreatmentPlanSections(detailPlan.value || {}));
+const renewalPolicy = ref({ ...DEFAULT_RENEWAL_POLICY });
+const renewalStatus = computed(() => treatmentPlanRenewalStatus(detailPlan.value, renewalPolicy.value));
 
 const ratingsByObjective = computed(() => {
   const map = {};
@@ -654,7 +668,7 @@ async function saveKioskPrompt(objective, field, value) {
         goals: plan.goals.map((g) => ({
           ...g,
           objectives: (g.objectives || []).map((o) => (
-            Number(o.id) === oid ? { ...o, [col]: next || null } : o
+            Number(o.id) === oid ? { ...o, [col]: next || null, [`${col}_verified_at`]: null, [`${col}_verified_by`]: null } : o
           ))
         }))
       };
@@ -666,6 +680,34 @@ async function saveKioskPrompt(objective, field, value) {
   } finally {
     kioskBusy.value = false;
   }
+}
+
+async function generateQuestions(objective) {
+  kioskBusy.value = true; error.value = '';
+  try {
+    const { data } = await api.patch(`/medical-billing/objectives/${objective.id}/kiosk-prompts`, { agencyId: Number(props.agencyId), clientId: Number(props.clientId), generate: true });
+    Object.assign(objective, data.objective);
+  } catch (e) { error.value = e.response?.data?.error?.message || 'Unable to generate questions.'; }
+  finally { kioskBusy.value = false; }
+}
+async function verifyQuestion(objective, field) {
+  kioskBusy.value = true; error.value = '';
+  try {
+    const { data } = await api.patch(`/medical-billing/objectives/${objective.id}/kiosk-prompts`, { agencyId: Number(props.agencyId), clientId: Number(props.clientId), verifyField: field, expectedQuestion: objective[field] });
+    objective[`${field}_verified_at`] = data.verifiedAt;
+    objective[`${field}_verified_by`] = data.verifiedBy;
+  } catch (e) { error.value = e.response?.data?.error?.message || 'Unable to verify the question.'; }
+  finally { kioskBusy.value = false; }
+}
+async function saveObjectiveInterventions(objective, text) {
+  const interventions = [...new Set(String(text || '').split('\n').map((v) => v.trim()).filter(Boolean))];
+  if (JSON.stringify(interventions) === JSON.stringify(objective.interventions || [])) return;
+  kioskBusy.value = true; error.value = '';
+  try {
+    await api.patch(`/medical-billing/objectives/${objective.id}/kiosk-prompts`, { agencyId: Number(props.agencyId), clientId: Number(props.clientId), interventions });
+    objective.interventions = interventions;
+  } catch (e) { error.value = e.response?.data?.error?.message || 'Unable to save interventions.'; }
+  finally { kioskBusy.value = false; }
 }
 
 async function load() {
@@ -683,6 +725,7 @@ async function load() {
       params: { agencyId },
       skipGlobalLoading: true
     });
+    renewalPolicy.value = res.data?.treatmentPlanRenewalPolicy || { ...DEFAULT_RENEWAL_POLICY };
     plans.value = Array.isArray(res.data?.plans) ? res.data.plans : [];
     latestPlan.value = res.data?.latestPlan || null;
     diagnoses.value = Array.isArray(res.data?.diagnoses) ? res.data.diagnoses : [];
@@ -723,6 +766,11 @@ watch(() => [props.clientId, props.agencyId], load);
 </script>
 
 <style scoped>
+.ctp-plan-section { padding:14px; margin:12px 0; }
+.ctp-plan-section p { white-space:pre-wrap; margin:8px 0; }
+.ctp-renewal { border:2px solid #b45309; background:#fffbeb; padding:16px; margin:12px 0; }
+.ctp-interventions { display:block; margin:12px 0; }
+.ctp-interventions textarea { display:block; width:100%; box-sizing:border-box; }
 .ctp-head {
   display: flex;
   justify-content: space-between;
