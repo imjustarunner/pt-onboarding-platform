@@ -286,14 +286,14 @@
             :disabled="regenerating || !addendum.trim()"
             @click="regenerateFromAddendum"
           >
-            {{ regenerating ? 'Regenerating…' : 'Regenerate with addendum' }}
+            {{ regenerating ? 'Regenerating…' : 'Apply revisions with AI' }}
           </button>
         </div>
 
         <p v-if="error" class="error">{{ error }}</p>
-        <label v-if="aiContentUsed" class="na-sign-check" style="display:flex;gap:8px;align-items:flex-start;margin:8px 0;">
+        <label v-if="aiContentUsed" class="na-sign-check" :class="{ 'na-sign-check--reviewed': attestAiReviewed }">
           <input v-model="attestAiReviewed" type="checkbox" />
-          <span>I have reviewed this AI-generated treatment plan content and confirm it is accurate.</span>
+          <span><strong>{{ attestAiReviewed ? 'Review confirmed' : 'Confirm your review' }}</strong><span class="na-sign-check-description">I have reviewed this AI-generated treatment plan content and confirm it is accurate.</span></span>
         </label>
         <div class="na-modal-actions">
           <button type="button" class="na-btn-outline" @click="emit('close')">Cancel</button>
@@ -1148,12 +1148,26 @@ async function discardDraft() {
 .na-suggestion-text { margin: 0 0 6px; white-space: pre-wrap; }
 .na-suggestion-actions { display: flex; gap: 8px; }
 .na-revision-block {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 10px;
   margin-top: 12px;
   padding: 12px;
   border: 1px solid #e2e8f0;
   border-radius: 10px;
   background: #f8fafc;
 }
+.na-revision-block .na-label { margin-bottom: 0; }
+.na-revision-block .na-textarea { display: block; width: 100%; min-height: 120px; box-sizing: border-box; resize: vertical; }
+.na-revision-block .na-btn-outline { align-self: flex-end; }
+.na-sign-check { display: flex; align-items: flex-start; gap: 12px; padding: 16px; margin: 16px 0; border: 2px solid #cbd5e1; border-radius: 10px; background: #f8fafc; cursor: pointer; }
+.na-sign-check input { width: 24px; height: 24px; flex: 0 0 24px; margin: 2px 0 0; accent-color: #13766e; cursor: pointer; }
+.na-sign-check strong { display: block; margin-bottom: 4px; }
+.na-sign-check-description { display: block; line-height: 1.5; }
+.na-sign-check--reviewed { border-color: #13766e; background: #effcf8; }
+.na-sign-check:focus-within { outline: 3px solid #93c5fd; outline-offset: 2px; }
+@media (max-width: 600px) { .na-revision-block .na-btn-outline { align-self: stretch; } }
 .na-modal-actions {
   display: flex;
   flex-wrap: wrap;

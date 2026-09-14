@@ -1,3 +1,4 @@
+import { persistTreatmentPlanSections } from '../../services/treatmentPlanSectionStorage.service.js';
 import { splitTreatmentPlanSections } from '../../services/treatmentPlanSections.service.js';
 import clinicalPool from '../../config/clinicalDatabase.js';
 import { fingerprintPlanText } from './ClinicalTreatmentObjectiveRating.model.js';
@@ -118,7 +119,7 @@ class ClinicalTreatmentPlan {
         }
       }
       const sections = splitTreatmentPlanSections({ dischargePlan, presentingProblem, prescribedFrequency });
-      await conn.execute('UPDATE clinical_treatment_plans SET presenting_problem = ?, prescribed_frequency = ?, discharge_plan = ? WHERE id = ?', [sections.presentingProblem || null, sections.prescribedFrequency || null, sections.dischargePlan || null, planId]);
+      await persistTreatmentPlanSections(conn, { planId, agencyId, clientId, sections });
       for (const g of goals || []) {
         const goalText = g.goalText || '';
         const [gRes] = await conn.execute(
@@ -286,7 +287,7 @@ class ClinicalTreatmentPlan {
       throw err;
     }
     const sections = splitTreatmentPlanSections(plan);
-    await clinicalPool.execute('UPDATE clinical_treatment_plans SET presenting_problem = ?, prescribed_frequency = ?, discharge_plan = ?, updated_at = NOW() WHERE id = ? AND agency_id = ? AND client_id = ?', [sections.presentingProblem || null, String(prescribedFrequency || '').trim() || null, sections.dischargePlan || null, id, aid, cid]);
+    await persistTreatmentPlanSections(clinicalPool, { planId: id, agencyId: aid, clientId: cid, sections: { ...sections, prescribedFrequency: String(prescribedFrequency || '').trim() } });
     return this.findById(id);
   }
 
