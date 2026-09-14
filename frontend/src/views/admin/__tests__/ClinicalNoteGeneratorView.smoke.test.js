@@ -156,6 +156,45 @@ describe('ClinicalNoteGeneratorView smoke', () => {
     wrapper.unmount();
   });
 
+  it.each(['tpt_note', 'h2014_individual', 'psychotherapy'])('generates an unlinked %s note without requiring a chart treatment plan', async (aid) => {
+    const { wrapper, state } = await workspace(aid);
+    state.initials = 'TEST';
+    state.dateOfService = '2026-09-14';
+    state.inputText = 'Practiced emotional regulation and positive self-talk during learning activities.';
+    await nextTick();
+    expect(state.isProgressAid).toBe(true);
+    expect(state.effectiveClientId).toBeNull();
+    expect(state.planOnFile).toBe(false);
+    expect(state.canContinueToWriteStep).toBe(true);
+    expect(state.generateDisabled).toBe(false);
+    expect(state.generateBlockedReason).toBe('');
+    vi.mocked(api.post).mockImplementation(async (url) => ({ data: url === '/clinical-notes/generate' ? { outputJson: { sections: { Subjective: 'Synthetic note.' } } } : {} }));
+    await state.generateNote();
+    const request = vi.mocked(api.post).mock.calls.find(([url]) => url === '/clinical-notes/generate');
+    expect(request).toBeTruthy();
+    expect(request[1].get('clientId')).toBeNull();
+    expect(request[1].get('inputText')).toContain('emotional regulation');
+    expect(state.outputObj.sections.Subjective).toBe('Synthetic note.');
+    wrapper.unmount();
+  });
+
+  it('still blocks linked progress notes with a missing or expired treatment plan', async () => {
+    const { wrapper, state } = await workspace('tpt_note');
+    state.selectedClientId = 202;
+    state.selectedClient = { id: 202, agency_id: 7 };
+    state.inputText = 'Synthetic session notes.';
+    await flushPromises();
+    expect(state.generateDisabled).toBe(true);
+    expect(state.canContinueToWriteStep).toBe(false);
+    expect(state.generateBlockedReason).toContain('Complete a treatment plan');
+    await state.generateNote();
+    expect(vi.mocked(api.post).mock.calls.some(([url]) => url === '/clinical-notes/generate')).toBe(false);
+    state.latestTreatmentPlan = { id: 81, status: 'active', effective_date: '2020-01-01', goals: [{ goal_text: 'Coping', objectives: [{ objective_text: 'Practice coping' }] }] };
+    expect(state.generateDisabled).toBe(true);
+    expect(state.generateBlockedReason).toContain('older than');
+    wrapper.unmount();
+  });
+
   it('opens required renewal without changing the current progress note or session code', async () => {
     const { wrapper, state } = await workspace();
     state.selectedClientId = 202;

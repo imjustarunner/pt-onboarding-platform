@@ -1945,7 +1945,7 @@ let chartPlanLoadSeq = 0;
 let intakeLoadSeq = 0;
 let lastRenewalPrompt = '';
 async function openRequiredRenewal() {
-  if (!planRenewalStatus.value.required || aidKind(selectedAid.value) !== 'progress' || chartNoteReadOnly.value) return;
+  if (!effectiveClientId.value || !planRenewalStatus.value.required || aidKind(selectedAid.value) !== 'progress' || chartNoteReadOnly.value) return;
   const key = `${effectiveClientId.value}:${draftId.value || activeWorkQueueItemId.value}:${latestTreatmentPlan.value?.id}`;
   if (key === lastRenewalPrompt || showPlanImportReview.value) return;
   lastRenewalPrompt = key;
@@ -2548,6 +2548,8 @@ const agencyLookup = computed(() => {
   return map;
 });
 const isProgressAid = computed(() => aidKind(selectedAid.value) === 'progress');
+// Chart treatment-plan requirements apply only when this note is linked to a client.
+const progressPlanBlocksWriting = computed(() => !!effectiveClientId.value && isProgressAid.value && !progressPlanIsCurrent.value);
 const usesFreeformCsPathway = computed(() => aidUsesFreeformCsPathway(selectedAid.value));
 const pathwayStandardLabel = computed(() =>
   usesFreeformCsPathway.value ? 'Freeform' : 'SOAP / freeform'
@@ -2630,8 +2632,7 @@ const noteWizardStep = ref(1);
 const canContinueToWriteStep = computed(() => {
   const basics = !!(String(dateOfService.value || '').trim() && (effectiveClientId.value || String(initials.value || '').trim()));
   if (!basics) return false;
-  if (!isProgressAid.value) return true;
-  return progressPlanIsCurrent.value;
+  return !progressPlanBlocksWriting.value;
 });
 
 /** After choosing a note tool, require client or initials before writing. */
@@ -4327,7 +4328,7 @@ const generateDisabled = computed(() => {
   if (generating.value) return true;
   if (recording.value || recordingBusy.value) return true;
   if (noteAidAgencyNeedsChoice.value && !noteAidAgencyId.value) return true;
-  if (isProgressAid.value && !progressPlanIsCurrent.value) return true;
+  if (progressPlanBlocksWriting.value) return true;
   if (familyAttendeesRequired.value && !String(sessionParticipantsDetail.value || '').trim()) return true;
   const hasText = !!String(inputText.value || '').trim();
   const hasAudio = !!audioBlob.value;
@@ -4351,7 +4352,7 @@ const generateBlockedReason = computed(() => {
   if (generating.value) return 'Generating…';
   if (recording.value) return 'Stop recording before generating.';
   if (recordingBusy.value) return 'Finishing recording…';
-  if (isProgressAid.value && !progressPlanIsCurrent.value) {
+  if (progressPlanBlocksWriting.value) {
     return planOnFile.value
       ? `Treatment plan is older than ${treatmentPlanMaxAgeDays.value} days — update it first.`
       : 'Complete a treatment plan before writing this progress note.';
@@ -5679,7 +5680,7 @@ const stopTranscription = () => {
 };
 
 const generateNote = async () => {
-  if (isProgressAid.value && !progressPlanIsCurrent.value) {
+  if (progressPlanBlocksWriting.value) {
     generateError.value = planOnFile.value
       ? `Update the treatment plan (older than ${treatmentPlanMaxAgeDays.value} days) before writing this progress note.`
       : 'A treatment plan must be on file before writing a progress note.';
