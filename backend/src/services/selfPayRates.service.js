@@ -8,7 +8,7 @@ import { resolveEffectivePracticeCategories, serviceBusinessTypesForCategories }
 const fail = (message, status = 400) => Object.assign(new Error(message), { status });
 export async function assertSelfPayRateAccess(actor, agencyId, providerId = 0) {
   if (!['admin', 'super_admin'].includes(actor?.role)) {
-    const own=Number(providerId)>0&&Number(providerId)===Number(actor?.id);
+    const own=['provider','provider_plus','staff','clinical_practice_assistant'].includes(actor?.role)&&Number(providerId)>0&&Number(providerId)===Number(actor?.id);
     const agencies=own?await User.getAgencies(actor.id):[];
     if(!agencies.some(a=>Number(a.id)===Number(agencyId)&&['life_coach','consultant'].includes(a.organization_type||a.organizationType)))throw fail('Only administrators or the practitioner’s own coaching/consulting account can edit rates',403);
   }

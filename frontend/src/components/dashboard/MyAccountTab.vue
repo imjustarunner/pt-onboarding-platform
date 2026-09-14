@@ -9,6 +9,7 @@
   >
     <div v-show="activeSection === 'account'" class="acct-hub__pane">
       <AccountInfoView />
+      <ProviderBillingSettings v-if="canSetOwnRates" :agency-id="agencyId" :provider-id="userId" />
       <FamilyLedgerPanel v-if="agencyId && ['client','client_guardian'].includes(authStore.user?.role)" :agency-id="agencyId" />
     </div>
     <div v-if="flags.workforce" v-show="activeSection === 'credentials'" class="acct-hub__pane">
@@ -56,6 +57,8 @@
 
 <script setup>
 import { computed } from 'vue';
+import ProviderBillingSettings from '../admin/ProviderBillingSettings.vue';
+import {useAgencyStore} from '../../store/agency';
 import FamilyLedgerPanel from '../billing/FamilyLedgerPanel.vue';
 import AccountHubPanel from './AccountHubPanel.vue';
 import AccountInfoView from '../../views/AccountInfoView.vue';
@@ -83,6 +86,8 @@ const props = defineProps({
 defineEmits(['select-section', 'documents-count']);
 
 const authStore = useAuthStore();
+const agencyStore=useAgencyStore();
+const canSetOwnRates=computed(()=>Number(props.userId)===Number(authStore.user?.id)&&Number(props.agencyId)===Number(agencyStore.currentAgency?.id)&&['life_coach','consultant'].includes(agencyStore.currentAgency?.organization_type||agencyStore.currentAgency?.organizationType)&&!['client','client_guardian'].includes(authStore.user?.role));
 
 const flags = computed(() => ({
   workforce: !props.isClubContext,
