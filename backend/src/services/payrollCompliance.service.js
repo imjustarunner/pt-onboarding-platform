@@ -3,7 +3,9 @@
  * Used by the payroll wizard Compliance step.
  */
 import pool from '../config/database.js';
+import { createHash } from 'node:crypto';
 import PayrollPeriod from '../models/PayrollPeriod.model.js';
+import PayrollImport from '../models/PayrollImport.model.js';
 import PayrollImportRow from '../models/PayrollImportRow.model.js';
 import PayrollPeriodRunSnapshot from '../models/PayrollPeriodRunSnapshot.model.js';
 import { decryptBillingSecret } from './billingEncryption.service.js';
@@ -212,7 +214,35 @@ export async function listCurrentComplianceRows(payrollPeriodId) {
   );
   if (!runs?.length) return PayrollImportRow.listForPeriod(payrollPeriodId);
   const snapshots = await PayrollPeriodRunSnapshot.listForRun(runs[0].id);
-  return snapshots.filter((s) => Number(s.no_note_units) > 0 || Number(s.draft_units) > 0).map((s) => {
+  let recoveryRowsPromise;
+  const recoverIdentity = async (snapshot) => {
+    if (!snapshot.row_match_key || !snapshot.agency_id) return null;
+    recoveryRowsPromise ||= (async () => {
+      const imports = await PayrollImport.listForPeriod(payrollPeriodId);
+      const rows = [];
+      for (const imp of imports) {
+        rows.push(...await PayrollImportRow.listForImportId({ payrollPeriodId, payrollImportId: imp.id }));
+      }
+      return rows;
+    })();
+    const norm = (v) => String(v ?? '').trim().replace(/\s+/g, ' ').toLowerCase();
+    for (const row of await recoveryRowsPromise) {
+      if (Number(row.agency_id) !== Number(snapshot.agency_id) ||
+          Number(row.user_id) !== Number(snapshot.user_id) || !row.patient_first_name) continue;
+      // Same key as payroll's snapshot writer. Never guess by date/code alone:
+      // multiple clients can have the same provider, date and service code.
+      const key = createHash('sha256').update([
+        String(row.agency_id), ymd(row.service_date),
+        String(row.service_code || '').trim().toUpperCase(),
+        norm(row.provider_name), norm(row.patient_first_name)
+      ].join('|')).digest('hex');
+      if (key === snapshot.row_match_key) return {
+        providerName: row.provider_name, patientFirstName: row.patient_first_name
+      };
+    }
+    return null;
+  };
+  return Promise.all(snapshots.filter((s) => Number(s.no_note_units) > 0 || Number(s.draft_units) > 0).map(async (s) => {
     let payload = {};
     let clientNameUnavailable = false;
     if (s.payload_ciphertext_b64) {
@@ -233,6 +263,15 @@ export async function listCurrentComplianceRows(payrollPeriodId) {
         clientNameUnavailable = true;
       }
     }
+    if (!payload.patientFirstName) {
+      const recovered = await recoverIdentity(s);
+      if (recovered) {
+        payload = recovered;
+        clientNameUnavailable = false;
+      } else {
+        clientNameUnavailable = true;
+      }
+    }
     return {
       // Negative snapshot IDs keep persisted deselections separate from import IDs.
       id: -Number(s.id),
@@ -244,7 +283,7 @@ export async function listCurrentComplianceRows(payrollPeriodId) {
       note_status: Number(s.no_note_units) > 0 ? 'NO_NOTE' : 'DRAFT',
       draft_payable: 0
     };
-  });
+  }));
 }
 
 async function listSessionLimitItems({ agencyId, mutedClientIds = new Set() }) {
@@ -717,9 +756,7 @@ export async function sendComplianceEmail({
     throw err;
   }
 
-  const identity =
-    (await EmailSenderIdentity.findByAgencyAndIdentityKey(agencyId, 'compliance')) ||
-    (await EmailSenderIdentity.findByFromEmail('Compliance@ITSCO.health', { preferAgencyId: agencyId }));
+  const identity = await EmailSenderIdentity.findByAgencyAndIdentityKey(agencyId, 'compliance');
   if (!identity) {
     const err = new Error('Compliance sender identity is not configured for this agency');
     err.status = 409;

@@ -1,5 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
+import PayrollImport from '../../models/PayrollImport.model.js';
 import pool from '../../config/database.js';
 import PayrollPeriod from '../../models/PayrollPeriod.model.js';
 import PayrollImportRow from '../../models/PayrollImportRow.model.js';
@@ -58,6 +60,28 @@ test('compliance unlock accepts database Date objects', () => {
     period_start: new Date('2026-08-15T00:00:00Z'),
     period_end: new Date('2026-08-28T00:00:00Z')
   }), true);
+});
+
+test('recovers unreadable names only from exact snapshot matches without changing note status', async (t) => {
+  const key = createHash('sha256').update('7|2026-02-05|H2014|test provider|example').digest('hex');
+  t.mock.method(pool, 'execute', async () => [[{ id: 91 }]]);
+  t.mock.method(PayrollImport, 'listForPeriod', async () => [{ id: 12 }]);
+  const imports = t.mock.method(PayrollImportRow, 'listForImportId', async () => [
+    { agency_id: 7, user_id: 5, provider_name: 'Test Provider', patient_first_name: 'Wrong Client', service_date: '2026-02-05', service_code: 'H2014' },
+    { agency_id: 7, user_id: 5, provider_name: 'Test Provider', patient_first_name: 'Example', service_date: new Date('2026-02-05T00:00:00Z'), service_code: 'H2014', note_status: 'FINALIZED' }
+  ]);
+  t.mock.method(PayrollPeriodRunSnapshot, 'listForRun', async () => [
+    { id: 601, agency_id: 7, user_id: 5, row_match_key: key, service_date: '2026-02-05', service_code: 'H2014', no_note_units: 1, payload_ciphertext_b64: 'unreadable' },
+    { id: 602, agency_id: 7, user_id: 5, row_match_key: 'no-match', service_date: '2026-02-05', service_code: 'H2014', no_note_units: 1, payload_ciphertext_b64: 'unreadable' },
+    { id: 603, agency_id: 8, user_id: 5, row_match_key: key, no_note_units: 1 }
+  ]);
+  const rows = await listCurrentComplianceRows(42);
+  assert.equal(rows[0].patient_first_name, 'Example');
+  assert.equal(rows[0].note_status, 'NO_NOTE');
+  assert.equal(rows[0].id, -601);
+  assert.equal(rows[1].patient_first_name, 'Client name unavailable');
+  assert.equal(rows[2].patient_first_name, 'Client name unavailable');
+  assert.equal(imports.mock.callCount(), 1);
 });
 
 test('digest includes current and older missing notes with normalized dates and manual exclusions', async (t) => {
