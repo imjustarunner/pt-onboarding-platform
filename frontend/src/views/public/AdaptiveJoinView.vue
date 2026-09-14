@@ -468,7 +468,7 @@
       </div>
 
       <!-- Step: preferences -->
-      <div v-else-if="quickStep === 2" class="ai-join-form"><LearningEnrollmentQuestions v-if="resolvedServiceType==='tutoring'" v-model="learningForm" :agency-slug="agencySlug"/>
+      <div v-else-if="quickStep === 2" class="ai-join-form"><LearningEnrollmentQuestions v-if="resolvedServiceType==='tutoring'" v-model="learningForm" :agency-slug="agencySlug" :provider-id="form.preferredProviderUserId"/>
         <h1 class="ai-page-title">Preferences & availability</h1>
         <p class="ai-page-lead">Optional — helps us match format and timing.</p>
         <div class="field-row">
@@ -515,7 +515,7 @@
         <div v-else class="df-banner">
           Choose a provider is turned off for this join. Continue to consent, or turn it back on above.
         </div>
-        <p v-if="providerSelectionError" role="alert">{{ providerSelectionError }}</p>
+        <aside v-if="selectedLearningPackage" class="ai-help-card"><h3>{{selectedLearningPackage.name}}</h3><p>{{selectedLearningPackage.totalCents==null?'Contact our team to confirm package pricing.':new Intl.NumberFormat('en-US',{style:'currency',currency:'USD'}).format(selectedLearningPackage.totalCents/100)+' package total'}}</p><p>This is a package request. Our team confirms participating providers, availability, and payment before services begin.</p></aside><p v-if="providerSelectionError" role="alert">{{ providerSelectionError }}</p>
         <PublicProviderSlotPicker v-if="showChooseProvider && form.preferredProviderUserId && !(resolvedServiceType==='tutoring' && learningForm.format==='small-group')" :agency-slug="agencySlug" :provider-id="Number(form.preferredProviderUserId)" :service-type="serviceType || 'counseling'" />
       </div>
 
@@ -1091,6 +1091,7 @@ async function selectPreferredProvider(id,skip=false) {
 function readProviderHoldToken() {
   try { const hold = JSON.parse(sessionStorage.getItem(`provider-hold:${agencySlug.value}`) || 'null'); return hold?.providerId === Number(form.preferredProviderUserId) ? hold.token : null; } catch { return null; }
 }
+const selectedLearningPackage=computed(()=>providers.value.find(p=>Number(p.id)===Number(form.preferredProviderUserId))?.tutoringProfile?.packages?.find(p=>p.id===learningForm.value.packageId));
 const preferredProviderLabel = computed(() => {
   if (!form.preferredProviderUserId) return 'Let the team choose / first available';
   const match = (providers.value || []).find((p) => Number(p.id) === Number(form.preferredProviderUserId));

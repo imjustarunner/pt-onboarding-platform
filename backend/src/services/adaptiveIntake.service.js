@@ -947,10 +947,10 @@ export async function submitQuickProspective({ agencySlugOrId, payload = {}, req
   const clientInfo = payload.client || {};
   const concerns = Array.isArray(payload.concerns) ? payload.concerns : [];
   const preferences = payload.preferences || {};
-  const learning = activeService?.serviceType==='tutoring' ? await resolveLearningInquiry(agencyRow.id,preferences.learning || {program:'tutoring'}) : null;
+  const learningProviderId = payload.preferredProviderUserId || preferences.preferredProviderUserId;
+  const learning = activeService?.serviceType==='tutoring' ? await resolveLearningInquiry(agencyRow.id,preferences.learning || {program:'tutoring'},learningProviderId) : null;
   const extraLearning = new Map();
   if (learning) for (const person of (Array.isArray(payload.additionalDependents) ? payload.additionalDependents : [])) extraLearning.set(person, await resolveLearningInquiry(agencyRow.id, person.learning || {program: learning.program}));
-  const learningProviderId = payload.preferredProviderUserId || preferences.preferredProviderUserId;
   if (learning && learningProviderId) await validateLearningProviderSelection(agencyRow.id,learningProviderId,learning);
   const accomplishGoal = String(payload.accomplishGoal || payload.goals || '').trim() || null;
   const addressInfo = formatStructuredAddress(

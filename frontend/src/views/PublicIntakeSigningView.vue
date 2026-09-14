@@ -1354,7 +1354,7 @@
           v-if="showInterviewPageLead"
           class="ai-page-lead"
         >{{ currentFlowStepHelperText }}</p>
-        <LearningEnrollmentQuestions v-if="currentFlowStep?.sourceId==='learning-enrollment'||currentFlowStep?.id==='learning-enrollment'" :model-value="learningForCurrentClient" @update:model-value="setCurrentLearning($event)" :program="['bridge','academic-acceleration'].includes(route.query.program)?route.query.program:'tutoring'" :agency-slug="agencyInfo?.slug||referralAgencySlug||''" full/>
+        <LearningEnrollmentQuestions v-if="currentFlowStep?.sourceId==='learning-enrollment'||currentFlowStep?.id==='learning-enrollment'" :model-value="learningForCurrentClient" :provider-id="selectedOfficeProviderIds.length===1?selectedOfficeProviderIds[0]:undefined" @update:model-value="setCurrentLearning($event)" :program="['bridge','academic-acceleration'].includes(route.query.program)?route.query.program:'tutoring'" :agency-slug="agencyInfo?.slug||referralAgencySlug||''" full/>
         <DigitalFormNotice
           v-if="showClinicalSafetyBanner"
           variant="warn"

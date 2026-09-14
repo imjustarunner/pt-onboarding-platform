@@ -3,7 +3,7 @@ export const nluHeroes = {
  'new-families':['Welcome to Next Level Up','New Family Information','A clear start. Support along the way.','Learn what to prepare, how enrollment works, and how we build a plan with your family.','family.png'],
  home:['Academic support. Emotional support.','Academic Support.\nEmotional Support.','A Program That Bridges Both.','Every student has potential. We connect individualized tutoring, counseling, and cognitive and emotional enrichment — because learning and well-being work best together.','family.png'],
  tutoring:['Academic support for a brighter tomorrow','Tutoring','Build skills. Close gaps. Gain confidence.','Personalized tutoring meets your student where they are. From homework help to foundational skill building, we help make learning feel possible and progress measurable.','learning.png'],
- counseling:['Counseling','Counseling That Supports','Growth, Resilience, and Brighter Tomorrows.','Individualized support for children and teens navigating anxiety, stress, emotional regulation, behavior concerns, and school-related challenges. A place to feel heard and build skills for everyday life.','family.png'],
+ counseling:['Mental health counseling & psychotherapy','Mental Health Care','Personalized treatment. Support for lasting change.','Mental health counseling and psychotherapy for children, teens, adults, couples, and families. Care is provided by licensed mental health clinicians or qualified providers practicing under licensed clinical supervision, within their training and scope.','family.png'],
  'therapy-tutoring':['Cognitive & Emotional Enrichment Program','When the barrier to learning isn’t the lesson.','Therapy + Tutoring','Some students know the material, but attention, stress, confidence, or emotional challenges get in the way. We connect academic support with the right emotional and behavioral supports.','student.png'],
  'how-it-works':['Cognitive & Emotional Enrichment Program','How the Program Works','A simple path to meaningful progress.','A personalized, collaborative process connects academic support with emotional and behavioral support, helping students move forward with confidence.','student.png'],
  'get-started':['Your student’s next chapter','Getting Started','Is Simple.','Tell us about your student. We’ll help you understand the options, answer questions, and find the right starting point for your family.','family.png'],
@@ -17,7 +17,7 @@ export const nluHeroes = {
 export const nluServices=[
  {slug:'tutoring',icon:'school',title:'Tutoring',subtitle:'Build skills. Gain confidence.',body:'Personalized support in academics, study skills, and executive functioning.',items:['Reading, writing, and math','Homework and subject support','Study strategies and organization','Individualized learning goals']},
  {slug:'therapy-tutoring',icon:'target',title:'Cognitive & Emotional Enrichment Program',subtitle:'Therapy + Tutoring',body:'An integrated approach for students whose emotional or behavioral challenges affect learning.',items:['Academic and emotional support','Coping and regulation skills','Attention and persistence','A coordinated, individualized plan']},
- {slug:'counseling',icon:'heart',title:'Counseling',subtitle:'Support today. Brighter tomorrows.',body:'A compassionate space to work on stress, confidence, coping, and school or life challenges.',items:['Emotional support','Behavior and regulation','Social skills and life transitions','Family collaboration']}
+ {slug:'counseling',icon:'heart',title:'Counseling',subtitle:'Mental health counseling & psychotherapy.',body:'Personalized mental health treatment with licensed clinicians or qualified providers under licensed clinical supervision.',items:['Clinical assessment and treatment planning','Individual counseling and psychotherapy','Family, couples, and group therapy','Coping, relationships, and emotional well-being']}
 ];
 export const nluSteps=[
  ['Initial inquiry','Tell us about your student’s strengths, needs, goals, and current challenges. We’ll answer questions and explain next steps.','chat'],
@@ -53,4 +53,12 @@ export const nluFamilies=[
  ['Services for your student','Support designed for the whole student.','school',[['Tutoring','tutoring'],['Counseling','counseling'],['Therapy + Tutoring','therapy-tutoring'],['Learning Center','learning-center']]],
  ['Helpful resources','Practical guidance at every step.','target',[['Parent FAQs','resources#faqs'],['Insurance & billing','resources#insurance'],['Forms & enrollment','get-started#start'],['Academic acceleration','academic-acceleration']]],
  ['Stay connected','We’re in this together.','heart',[['Client portal','/nlu/login'],['Contact us','contact'],['School-year support','tutoring'],['Virtual & in-person options','providers']]]
+];
+
+export const nluCounselingSteps=[
+ ['Connect with our team','Tell us what brings you to counseling, your goals, and your preferences. We help you understand provider options, costs, and next steps.','chat'],
+ ['Clinical assessment','Your clinician learns about your mental health concerns, history, strengths, and daily functioning to understand your treatment needs.','people'],
+ ['Treatment planning','You and your clinician develop an individualized treatment plan with meaningful goals and an approach suited to your needs.','target'],
+ ['Counseling & psychotherapy','Meet with your provider for mental health treatment. Licensed clinicians provide care, and qualified supervised providers work with licensed clinical oversight.','heart'],
+ ['Review progress together','Review symptoms, functioning, and treatment goals with your clinician. Adjust care and plan ongoing support or completion of treatment together.','chart']
 ];

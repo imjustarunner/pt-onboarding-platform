@@ -14,3 +14,28 @@ test('learning packet removes the counseling seed while retaining custom questio
  assert.deepEqual(learningIntakeSteps(steps),[steps[0],steps[3],steps[5]]);
  assert.equal(steps.length,6);
 });
+
+const discountCatalog = () => validateLearningCatalog({rates:[{educationLevel:'master',service:'tutoring',format:'virtual',hourlyRateCents:6500}],packages:[{id:'six-discount',name:'Six sessions',program:'tutoring',published:true,components:[{service:'tutoring',format:'virtual',pricingMode:'provider-discount',discountPercent:10,sessions:6,minutes:60}]}]});
+test('provider discount uses that provider’s effective hourly rate and preserves quote source',()=>{
+ const c=discountCatalog(),p=c.packages[0];
+ const quote=pricePackage(c,p,{tutoring:{providerId:7,profile:{educationLevel:'master'}}});
+ assert.equal(quote.totalCents,35100);assert.equal(quote.components[0].hourlyRateCents,5850);assert.equal(quote.components[0].providerId,7);
+ const overridden=pricePackage(c,p,{tutoring:{providerId:8,profile:{educationLevel:'master',rateOverrides:[{service:'tutoring',format:'virtual',hourlyRateCents:7000}]}}});
+ assert.equal(overridden.totalCents,37800);
+});
+test('a provider is required for provider discounts, and a tutor cannot price counseling',()=>{
+ const c=discountCatalog(),p=c.packages[0];assert.equal(pricePackage(c,p).totalCents,null);
+ const mixed={...p,components:[...p.components,{...p.components[0],service:'counseling'}]};
+ const quote=pricePackage(c,mixed,{tutoring:{providerId:7,profile:{educationLevel:'master'}}});
+ assert.equal(quote.components[0].totalCents,35100);assert.equal(quote.components[1].totalCents,null);assert.equal(quote.totalCents,null);
+ assert.equal(pricePackage(c,p,{tutoring:{providerId:7,profile:{educationLevel:'bachelor'}}}).totalCents,null);
+});
+test('discount validation prevents negative, excessive, nonnumeric and competing fixed prices',()=>{
+ for(const discount of [-1,101,'10',NaN]){const c=discountCatalog();c.packages[0].components[0].discountPercent=discount;assert.throws(()=>validateLearningCatalog(c));}
+ const c=discountCatalog();c.packages[0].components[0].hourlyRateCents=100;assert.throws(()=>validateLearningCatalog(c));
+});
+test('discounted hourly prices round to cents before session-duration totals',()=>{
+ const c=discountCatalog();c.packages[0].components[0].minutes=45;
+ const quote=pricePackage(c,c.packages[0],{tutoring:{providerId:7,profile:{rateOverrides:[{service:'tutoring',format:'virtual',hourlyRateCents:6543}]}}});
+ assert.equal(quote.components[0].hourlyRateCents,5889);assert.equal(quote.totalCents,26501);
+});

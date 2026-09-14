@@ -38,6 +38,7 @@
             :to="link.to"
             class="tf-care-link"
             :class="{ active: link.serviceType === serviceType }"
+            :aria-current="link.serviceType === serviceType ? 'page' : undefined"
           >
             {{ link.label }}
           </router-link>
@@ -294,8 +295,8 @@ const navLinks = computed(() => {
   const s = slug.value;
   if (!s) return [];
   return [
-    { label: 'Counselors', to: `/${s}/find-counselor`, serviceType: 'counseling' },
-    { label: 'Tutors', to: `/${s}/find-tutor`, serviceType: 'tutoring' },
+    { label: 'Find a counselor', to: `/${s}/find-counselor`, serviceType: 'counseling' },
+    { label: 'Find a tutor', to: `/${s}/find-tutor`, serviceType: 'tutoring' },
     { label: 'Coaches', to: `/${s}/find-coach`, serviceType: 'coaching' }
   ].filter(link => enabledServices.value.includes(link.serviceType));
 });
@@ -673,16 +674,17 @@ onUnmounted(() => { clearTimeout(debounceTimer); loadGeneration++; });
 .tf-care-nav { display: flex; gap: 0.35rem; margin-left: auto; flex-wrap: wrap; }
 .tf-care-link {
   text-decoration: none;
-  color: #64748b;
-  font-size: 0.85rem;
+  color: #0b3157;
+  border: 1px solid #0b3157;
+  font-size: 0.9rem;
   font-weight: 600;
   padding: 0.35rem 0.7rem;
   border-radius: 999px;
 }
 .tf-care-link.active,
 .tf-care-link:hover {
-  background: color-mix(in srgb, var(--tf-a) 12%, white);
-  color: var(--tf-a);
+  background: #0b3157;
+  color: #fff;
 }
 
 .tf-shell {
@@ -761,8 +763,9 @@ onUnmounted(() => { clearTimeout(debounceTimer); loadGeneration++; });
   margin-bottom: 0.65rem;
   border: none;
   background: transparent;
-  color: #64748b;
-  font-size: 0.85rem;
+  color: #0b3157;
+  border: 1px solid #0b3157;
+  font-size: 0.9rem;
   cursor: pointer;
   text-decoration: underline;
 }
@@ -848,5 +851,5 @@ onUnmounted(() => { clearTimeout(debounceTimer); loadGeneration++; });
   .tf-care-nav { margin-left: 0; width: 100%; }
 }
 
-.tf-hero{max-width:1600px;padding:2.5rem 4vw 0}.tf-hero-inner{padding:2rem;background:linear-gradient(120deg,color-mix(in srgb,var(--tf-p) 9%,white),#fff);color:var(--tf-p);border-radius:18px}.tf-hero-title{font-size:clamp(2.2rem,4vw,3.8rem);letter-spacing:-.04em}.tf-eyebrow{text-transform:uppercase;letter-spacing:.17em;font-size:.75rem}.tf-hero-blurb{color:#3d5660;opacity:.85;font-size:1.05rem;max-width:70ch}.tf-shell,.tf-nav-inner{max-width:1600px;padding-left:4vw;padding-right:4vw}.tf-cards{gap:20px}.tf-count{font-size:1.15rem}.tf-rail{background:#f8fbf9;border-color:#dce7e2;padding:22px}.tf-hero-inner[style]{color:#fff}.team-finder :focus-visible{outline:3px solid var(--tf-p);outline-offset:3px}
+.tf-hero{max-width:none;padding:2.5rem 4vw 0}.tf-hero-inner{padding:2rem;background:linear-gradient(120deg,color-mix(in srgb,var(--tf-p) 9%,white),#fff);color:var(--tf-p);border-radius:18px}.tf-hero-title{font-size:clamp(2.2rem,4vw,3.8rem);letter-spacing:-.04em}.tf-eyebrow{text-transform:uppercase;letter-spacing:.17em;font-size:.75rem}.tf-hero-blurb{color:#3d5660;opacity:.85;font-size:1.05rem;max-width:70ch}.tf-shell,.tf-nav-inner{max-width:none;padding-left:4vw;padding-right:4vw}.tf-cards{gap:20px}.tf-count{font-size:1.15rem}.tf-rail{background:#f8fbf9;border-color:#dce7e2;padding:22px}.tf-hero-inner[style]{color:#fff}.team-finder :focus-visible{outline:3px solid var(--tf-p);outline-offset:3px}
 </style>

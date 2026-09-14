@@ -935,7 +935,7 @@ export const listTutors = async (req, res, next) => {
       if (learningProgram && !tutoringProfile.learning.programs.includes(learningProgram)) return null;
       if (!matchesGrade(tutoringProfile.gradeLevels, filterGradeLevel)) return null;
       tutoringProfile.hourlyRateCents = hourlyRate(catalog, tutoringProfile.learning, 'tutoring', req.query.learningFormat === 'small-group' ? 'small-group' : programType==='IN_PERSON'?'in-person':'virtual');
-      tutoringProfile.packages = catalog.packages.filter(p=>p.published && p.program===(learningProgram||'tutoring')).map(p=>pricePackage(catalog,p));
+      tutoringProfile.packages = catalog.packages.filter(p=>p.published && tutoringProfile.learning.programs.includes(p.program) && p.program===(learningProgram||'tutoring')).map(p=>pricePackage(catalog,p,{tutoring:{profile:tutoringProfile.learning,providerId:Number(row.id)}}));
 
       const heldSlots = await getHeldSlotStartsForProvider(agency.id, Number(row.id));
       const summary = await computeProviderWindowSummary({
@@ -1156,7 +1156,7 @@ export const getProviderDetail = async (req, res, next) => {
       specialtyData = await getCounselingSpecialties(providerId, agency.id);
     } else if (serviceType === 'tutoring') {
       tutoringProfile = await getTutoringProfile(providerId, agency.id);
-      if(tutoringProfile){const catalog=await readLearningCatalog(agency.id);tutoringProfile.hourlyRates=Object.fromEntries(['virtual','in-person','small-group'].map(format=>[format,hourlyRate(catalog,tutoringProfile.learning,'tutoring',format)]));tutoringProfile.packages=catalog.packages.filter(p=>p.published&&tutoringProfile.learning.programs.includes(p.program)).map(p=>pricePackage(catalog,p));}
+      if(tutoringProfile){const catalog=await readLearningCatalog(agency.id);tutoringProfile.hourlyRates=Object.fromEntries(['virtual','in-person','small-group'].map(format=>[format,hourlyRate(catalog,tutoringProfile.learning,'tutoring',format)]));tutoringProfile.packages=catalog.packages.filter(p=>p.published&&tutoringProfile.learning.programs.includes(p.program)).map(p=>pricePackage(catalog,p,{tutoring:{profile:tutoringProfile.learning,providerId}}));}
     }
 
     if (tutoringProfile?.acceptingNewStudents === false) filteredThisWeek = [];
@@ -2011,7 +2011,14 @@ async function readLearningCatalog(agencyId) {
 export async function getLearningCatalog(req,res,next) {
  try {const agency=await requireAgencyBySlug(res,req.params.agencySlug);if(!agency)return;
  const catalog=await readLearningCatalog(agency.id);
- res.json({catalog:req.route?.path?.endsWith('/manage')?catalog:{...catalog,packages:catalog.packages.filter(p=>p.published).map(p=>pricePackage(catalog,p))}});
+ if(req.route?.path?.endsWith('/manage')) return res.json({catalog});
+ const providerId=Number(req.query.providerId||0);let tutoringProfile=null;
+ if(req.query.providerId){
+   if(!Number.isSafeInteger(providerId)||providerId<=0||!(await getEnrolledProviderIds(agency.id,'tutoring')).has(providerId))return res.status(404).json({error:{message:'Provider not found'}});
+   tutoringProfile=await getTutoringProfile(providerId,agency.id);
+ }
+ const context=tutoringProfile?{tutoring:{providerId,profile:tutoringProfile.learning}}:{};
+ res.json({catalog:{...catalog,packages:catalog.packages.filter(p=>p.published&&(!tutoringProfile||tutoringProfile.learning.programs.includes(p.program))).map(p=>pricePackage(catalog,p,context))}});
  }catch(e){next(e);}
 }
 export async function saveLearningCatalog(req,res,next) {

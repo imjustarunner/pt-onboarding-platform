@@ -28,8 +28,10 @@ export function validateLearningCatalog(raw = {}) {
   const packages = raw.packages.map(p => {
     if (!/^[a-z0-9-]{1,64}$/.test(p.id) || !String(p.name||'').trim() || !LEARNING_PROGRAMS.includes(p.program) || !Array.isArray(p.components) || !p.components.length || p.components.length>20) fail('Each package needs a unique ID, name, program, and components.');
     return {id:p.id,name:String(p.name).trim().slice(0,160),program:p.program,published:p.published===true,components:p.components.map(c=>{
-      if (!LEARNING_COMPONENTS.includes(c.service) || !LEARNING_FORMATS.includes(c.format) || !EDUCATION_LEVELS.includes(c.educationLevel) || !Number.isInteger(c.sessions) || c.sessions<1 || c.sessions>100 || !Number.isInteger(c.minutes) || c.minutes<15 || c.minutes>240 || (c.hourlyRateCents!=null&&!cents(c.hourlyRateCents))) fail('Package components need service, format, education level, 1–100 sessions, duration, and an optional hourly discount rate.');
-      return {service:c.service,format:c.format,educationLevel:c.educationLevel,sessions:c.sessions,minutes:c.minutes,hourlyRateCents:c.hourlyRateCents??null};
+      const pricingMode=c.pricingMode || 'rate-rule';
+      if (!['rate-rule','provider-discount'].includes(pricingMode) || (pricingMode==='provider-discount' && (!Number.isFinite(c.discountPercent) || c.discountPercent<0 || c.discountPercent>100 || c.hourlyRateCents!=null))) fail('Provider discounts must be 0–100 percent, without a fixed hourly price.');
+      if (!LEARNING_COMPONENTS.includes(c.service) || !LEARNING_FORMATS.includes(c.format) || (pricingMode==='rate-rule' && !EDUCATION_LEVELS.includes(c.educationLevel)) || !Number.isInteger(c.sessions) || c.sessions<1 || c.sessions>100 || !Number.isInteger(c.minutes) || c.minutes<15 || c.minutes>240 || (c.hourlyRateCents!=null&&!cents(c.hourlyRateCents))) fail('Package components need service, format, education level, 1–100 sessions, duration, and an optional hourly discount rate.');
+      return {service:c.service,format:c.format,educationLevel:pricingMode==='provider-discount'?'':c.educationLevel,sessions:c.sessions,minutes:c.minutes,hourlyRateCents:c.hourlyRateCents??null,pricingMode,discountPercent:pricingMode==='provider-discount'?c.discountPercent:0};
     })};
   });
   if(new Set(packages.map(p=>p.id)).size!==packages.length) fail('Package IDs must be unique.');
@@ -39,10 +41,16 @@ export function hourlyRate(catalog, profile, service, format) {
   return profile.rateOverrides?.find(r=>r.service===service&&r.format===format)?.hourlyRateCents
     ?? catalog.rates?.find(r=>r.educationLevel===profile.educationLevel&&r.service===service&&r.format===format)?.hourlyRateCents ?? null;
 }
-export function pricePackage(catalog, pkg) {
+// Context is keyed by service: a tutor's rate must never price a counselor's work.
+export function pricePackage(catalog, pkg, providersByService = {}) {
   const components=pkg.components.map(c=>{
-    const hourlyRateCents=c.hourlyRateCents??hourlyRate(catalog,{educationLevel:c.educationLevel},c.service,c.format);
-    return {...c,hourlyRateCents,totalCents:hourlyRateCents==null?null:Math.round(hourlyRateCents*c.sessions*c.minutes/60)};
+    const context=providersByService[c.service];
+    const providerDiscount=c.pricingMode==='provider-discount';
+    const baseHourlyRateCents=providerDiscount
+      ? (context?.profile ? hourlyRate(catalog,context.profile,c.service,c.format) : null)
+      : c.hourlyRateCents??hourlyRate(catalog,{educationLevel:c.educationLevel},c.service,c.format);
+    const hourlyRateCents=baseHourlyRateCents==null?null:Math.round(baseHourlyRateCents*(providerDiscount?1-c.discountPercent/100:1));
+    return {...c,baseHourlyRateCents,hourlyRateCents,providerId:providerDiscount?(context?.providerId??null):null,totalCents:hourlyRateCents==null?null:Math.round(hourlyRateCents*c.sessions*c.minutes/60)};
   });
   return {...pkg,components,totalCents:components.some(c=>c.totalCents==null)?null:components.reduce((sum,c)=>sum+c.totalCents,0)};
 }
