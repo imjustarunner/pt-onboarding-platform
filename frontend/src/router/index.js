@@ -330,6 +330,10 @@ const routes = [
     meta: { requiresGuest: false, organizationSlug: true, publicDistrictSchedule: true }
   },
   {
+    path: '/p/kimi/:section?', name: 'KimiPublicWebsite', component: () => import('../views/public/KimiPublicWebsite.vue'),
+    meta: { requiresGuest: false, publicMarketingHub: true, publicMarketingTitle: 'Kimi Cain | Life Coaching' }
+  },
+  {
     path: '/p/nlu/:section?', name: 'NluPublicWebsite', component: () => import('../views/public/NluPublicWebsite.vue'),
     meta: { requiresGuest: false, publicMarketingHub: true, publicMarketingTitle: 'Next Level Up | Learning and Counseling Centers' }
   },
@@ -2367,7 +2371,7 @@ const routes = [
     path: '/:organizationSlug/admin/package-catalog',
     name: 'OrganizationPackageCatalog',
     component: () => import('../views/admin/PackageCatalogAdminView.vue'),
-    meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'super_admin'], organizationSlug: true }
+    meta: { allowIndependentPracticeOwner: true, requiresAuth: true, requiresRole: ['admin', 'support', 'super_admin'], organizationSlug: true }
   },
   {
     path: '/:organizationSlug/packet/:token',
@@ -5806,7 +5810,12 @@ router.beforeEach(async (to, from, next) => {
 
     const hasSubCoordinatorRoleBypass = to.meta.allowSubCoordinator === true && hasSubCoordinatorAccess(authStore.user);
 
-    if (clubManagerSscBypass || hasRequiredRole || hasSubCoordinatorRoleBypass) {
+    const ownerAgency = agencyStore.currentAgency?.value ?? agencyStore.currentAgency;
+    const hasPracticeOwnerAccess = to.meta.allowIndependentPracticeOwner === true
+      && Number(ownerAgency?.account_owner_user_id) === Number(authStore.user?.id)
+      && ['life_coach', 'consultant'].includes(ownerAgency?.organization_type)
+      && ownerAgency?.slug === orgSlugForRoute;
+    if (clubManagerSscBypass || hasRequiredRole || hasSubCoordinatorRoleBypass || hasPracticeOwnerAccess) {
       // Optional: capability gate (e.g., canViewTraining / canSignDocuments)
       const required = to.meta.requiresCapability
         ? (Array.isArray(to.meta.requiresCapability) ? to.meta.requiresCapability : [to.meta.requiresCapability])

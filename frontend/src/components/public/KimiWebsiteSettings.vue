@@ -1,0 +1,11 @@
+<template><fieldset class="kimi-settings"><legend>Kimi Cain website content</legend><p>These fields control the published website. Package names, counts, fees, and policies are edited in Kimi’s Package Catalog. Coaching documents are edited in Kimi’s Document Templates.</p><label>Page or content section<select v-model="selected"><option v-for="k in Object.keys(settings)" :key="k">{{k}}</option></select></label><template v-if="selected==='pages'"><details v-for="(page,slug) in settings.pages" :key="slug"><summary>{{slug}}</summary><label v-for="(value,key) in page" :key="key">{{key}}<textarea :value="value" rows="3" @input="updatePage(slug,key,$event.target.value)"/></label></details></template><label v-else-if="typeof settings[selected]==='string'">{{selected}}<textarea :value="settings[selected]" rows="4" @input="update(selected,$event.target.value)"/></label><template v-else><p>Edit the structured section below. Text and lists are stored as JSON.</p><textarea :value="JSON.stringify(settings[selected],null,2)" rows="14" @change="updateJson($event.target.value)"/><p v-if="error" role="alert">{{error}}</p></template></fieldset></template>
+<script setup>
+import{computed,ref}from'vue';
+const props=defineProps({modelValue:{type:String,default:'{}'}}),emit=defineEmits(['update:modelValue']);
+const selected=ref('pages'),error=ref('');
+const branding=computed(()=>{try{return JSON.parse(props.modelValue)}catch{return{}}}),settings=computed(()=>branding.value.kimiWebsite||{});
+function update(key,value){emit('update:modelValue',JSON.stringify({...branding.value,kimiWebsite:{...settings.value,[key]:value}},null,2));error.value='';}
+function updatePage(slug,key,value){update('pages',{...settings.value.pages,[slug]:{...settings.value.pages[slug],[key]:value}});}
+function updateJson(value){try{update(selected.value,JSON.parse(value))}catch{error.value='Check the JSON syntax before saving.'}}
+</script>
+<style scoped>.kimi-settings{background:#f4f5ed;padding:25px;border:1px solid #cbd3bd;border-radius:12px;margin:20px 0}.kimi-settings legend{font-size:23px}.kimi-settings label{display:grid;gap:8px;margin:14px 0}.kimi-settings textarea,.kimi-settings select{width:100%;padding:12px;box-sizing:border-box;font:inherit;border:1px solid #bac4b2;border-radius:6px}.kimi-settings summary{cursor:pointer;padding:12px 0}</style>

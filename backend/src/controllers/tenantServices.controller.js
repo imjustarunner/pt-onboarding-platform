@@ -1,3 +1,4 @@
+import { isIndependentPracticeOwner } from '../utils/independentPracticeOwner.js';
 import { schedulingResponseForUser } from '../services/schedulingBillingAccess.service.js';
 import AgencyBusinessType, { BUSINESS_TYPE_CODES } from '../models/AgencyBusinessType.model.js';
 import TenantService from '../models/TenantService.model.js';
@@ -74,7 +75,7 @@ export const putAgencyBusinessTypes = async (req, res, next) => {
     if (!(await assertAgencyAccess(req, agencyId))) {
       return res.status(403).json({ error: { message: 'Access denied' } });
     }
-    if (!canManageCatalog(req.user?.role)) {
+    if (!(canManageCatalog(req.user?.role) || await isIndependentPracticeOwner(req.user?.id, agencyId))) {
       return res.status(403).json({ error: { message: 'Only admins can edit business types' } });
     }
     const rows = await AgencyBusinessType.setForAgency(agencyId, req.body?.businessTypes || req.body?.types || []);
@@ -124,7 +125,7 @@ export const createTenantService = async (req, res, next) => {
     if (!(await assertAgencyAccess(req, agencyId))) {
       return res.status(403).json({ error: { message: 'Access denied' } });
     }
-    if (!canManageCatalog(req.user?.role)) {
+    if (!(canManageCatalog(req.user?.role) || await isIndependentPracticeOwner(req.user?.id, agencyId))) {
       return res.status(403).json({ error: { message: 'Only admins can create services' } });
     }
     if (!['admin', 'super_admin'].includes(req.user?.role) && (req.body?.priceCents != null || req.body?.price_cents != null)) {
@@ -167,7 +168,7 @@ export const updateTenantService = async (req, res, next) => {
     if (!(await assertAgencyAccess(req, agencyId))) {
       return res.status(403).json({ error: { message: 'Access denied' } });
     }
-    if (!canManageCatalog(req.user?.role)) {
+    if (!(canManageCatalog(req.user?.role) || await isIndependentPracticeOwner(req.user?.id, agencyId))) {
       return res.status(403).json({ error: { message: 'Only admins can update services' } });
     }
     if (!['admin', 'super_admin'].includes(req.user?.role) && ['priceCents', 'price_cents'].some(key => Object.hasOwn(req.body || {}, key))) {
@@ -209,7 +210,7 @@ export const deleteTenantService = async (req, res, next) => {
     if (!(await assertAgencyAccess(req, agencyId))) {
       return res.status(403).json({ error: { message: 'Access denied' } });
     }
-    if (!canManageCatalog(req.user?.role)) {
+    if (!(canManageCatalog(req.user?.role) || await isIndependentPracticeOwner(req.user?.id, agencyId))) {
       return res.status(403).json({ error: { message: 'Only admins can delete services' } });
     }
     const existing = await TenantService.findById(serviceId, agencyId);
@@ -253,7 +254,7 @@ export const putServiceStaff = async (req, res, next) => {
     if (!(await assertAgencyAccess(req, agencyId))) {
       return res.status(403).json({ error: { message: 'Access denied' } });
     }
-    if (!canManageCatalog(req.user?.role)) {
+    if (!(canManageCatalog(req.user?.role) || await isIndependentPracticeOwner(req.user?.id, agencyId))) {
       return res.status(403).json({ error: { message: 'Only admins can assign staff' } });
     }
     const service = await TenantService.findById(serviceId, agencyId);

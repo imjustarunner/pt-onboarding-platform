@@ -1,4 +1,5 @@
 import pool from '../config/database.js';
+import { isIndependentPracticeOwner } from './independentPracticeOwner.js';
 import Agency from '../models/Agency.model.js';
 
 export const PRACTITIONER_ORG_TYPES = Object.freeze(['life_coach', 'consultant']);
@@ -142,6 +143,8 @@ export async function requirePractitionerCapability(req, agencyId, capabilityKey
     err.status = 403;
     throw err;
   }
+
+  if (await isIndependentPracticeOwner(req.user?.id, aid)) return true;
 
   if (role !== 'staff') {
     const err = new Error('Access denied');

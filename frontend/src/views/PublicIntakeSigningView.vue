@@ -802,7 +802,7 @@
 
         <div class="intake-section" :class="{ 'intake-card-section': isOfficeInDepthIntake }">
         <div
-          v-if="!isOfficeInDepthIntake && !isMedicalRecordsRequest && !isJobApplication && !isClientBound"
+          v-if="!isCoachingIntake && !isOfficeInDepthIntake && !isMedicalRecordsRequest && !isJobApplication && !isClientBound"
         >
           <h3 class="df-section-title">{{ t('whoIsIntakeFor') }}</h3>
           <div class="df-choice-grid">
@@ -3036,6 +3036,7 @@ import {
 import { groupIntakeFieldsForAdaptiveShell } from '../utils/adaptiveIntakeFieldAdapter.js';
 import {
   linkLooksLikeOfficeIntake,
+  isCoachingIntakeLink,
   looksLikeOfficeIntakeFromRoute
 } from '../utils/officeIntakeLink.js';
 import {
@@ -4588,6 +4589,7 @@ const publicPacketBadge = computed(() => {
 
 const boundClient = ref(null);
 const asksWhoFor = computed(() => {
+  if (isCoachingIntakeLink(link.value)) return false;
   if (Number(link.value?.inherits_school_master || 0) === 1) return false;
   if (looksLikeOfficeIntake.value || linkLooksLikeOfficeIntake(link.value)) return !boundClient.value?.id;
   if (usesSchoolMaster.value) return false;
@@ -5113,6 +5115,7 @@ const templates = ref([]);
 const agencyInfo = ref(null);
 const organizationInfo = ref(null);
 const formBranding = ref(null);
+const isCoachingIntake = computed(() => isCoachingIntakeLink(link.value));
 
 const showSplashSupportModal = ref(false);
 const splashSupportSending = ref(false);
@@ -5191,6 +5194,7 @@ const officeStart = useOfficeIntakeStartEditor({
 provide('officeIntakeStart', officeStart);
 
 const officeScenicSidebarUrl = computed(() => {
+  if (isCoachingIntake.value) return '';
   // Do not paint the office mountain theme until we know this is office intake.
   // School packets were flashing that scenic layout while the link loaded.
   if (isSchoolScopedIntake.value) return '';
@@ -5247,6 +5251,10 @@ async function loadOfficeJoinChrome() {
 }
 
 const officeStartTrustItems = computed(() => {
+  if (isCoachingIntake.value) return [
+    { icon: 'shield', label: 'Your coaching, your choice', detail: 'Review the coaching agreement and privacy terms before signing.' },
+    { icon: 'check', label: 'No purchase required', detail: 'Enrollment does not authorize payment or confirm an appointment.' }
+  ];
   if (isOfficeInDepthIntake.value || officeScenicSidebarUrl.value) {
     return [
       { icon: 'lock', label: t('hipaaProtected'), detail: t('hipaaProtectedDetail') },
@@ -5292,7 +5300,7 @@ const showCompactSidebarContact = computed(
 );
 
 const splashContactPhoneInfo = computed(() => {
-  if (isJobApplication.value) return null;
+  if (isJobApplication.value || isCoachingIntake.value) return null;
   let phone = String(agencyInfo.value?.phone_number || agencyInfo.value?.phone || '').trim();
   const phoneExtension = String(agencyInfo.value?.phone_extension || '').trim();
   if (phoneExtension && /\s*(?:ext\.?|x)\s*\S+$/i.test(phone)) {
@@ -5309,7 +5317,7 @@ const splashContactPhoneInfo = computed(() => {
 const splashContactPhone = computed(() => splashContactPhoneInfo.value?.display || '');
 const splashContactTel = computed(() => String(splashContactPhoneInfo.value?.tel || '').replace(/^tel:/, ''));
 const splashContactEmail = computed(() => {
-  if (isJobApplication.value) return '';
+  if (isJobApplication.value || isCoachingIntake.value) return '';
   return resolveSchoolOnboardingSupportEmail({
     slug: referralAgencySlug.value || agencyInfo.value?.slug || agencyInfo.value?.portal_url,
     supportTeamEmail: agencyInfo.value?.support_team_email,
@@ -9053,6 +9061,15 @@ const loadLink = async () => {
       }
     );
     link.value = resp.data?.link || null;
+    if (isCoachingIntakeLink(link.value)) intakeForSelf.value = true;
+    // Prefill only a published option on Kimi's own coaching intake. Never consent or clinical answers.
+    if (['kimi-coaching-inquiry', 'kimi-coaching-enrollment'].includes(publicKey)) {
+      const packageField = (link.value?.intake_fields || []).find(f => f.key === 'package');
+      const choice = String(route.query.coachingPackage || '');
+      if (packageField?.options?.some(o => o.value === choice) && !intakeResponses.submission.package) {
+        intakeResponses.submission.package = choice;
+      }
+    }
     if (link.value?.organization_id && !organizationId.value) {
       organizationId.value = String(link.value.organization_id);
     }

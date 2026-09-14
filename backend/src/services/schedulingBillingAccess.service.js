@@ -1,4 +1,5 @@
 import User from '../models/User.model.js';
+import { isIndependentPracticeOwner } from '../utils/independentPracticeOwner.js';
 
 // Billing is an agency permission in addition to the user's clinical role.
 export async function hasSchedulingBillingAccess(user, agencyId) {
@@ -7,7 +8,7 @@ export async function hasSchedulingBillingAccess(user, agencyId) {
   if (role === 'super_admin') return true;
   const agencies = await User.getAgencies(user.id);
   if (!(agencies || []).some((a) => Number(a.id) === Number(agencyId))) return false;
-  if (role === 'admin') return true;
+  if (role === 'admin' || await isIndependentPracticeOwner(user.id, agencyId)) return true;
   const ids = await User.listBillingAgencyIds(user.id);
   return ids.some((id) => Number(id) === Number(agencyId));
 }

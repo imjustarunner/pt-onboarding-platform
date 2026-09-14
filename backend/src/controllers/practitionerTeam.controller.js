@@ -1,4 +1,5 @@
 import pool from '../config/database.js';
+import { isIndependentPracticeOwner } from '../utils/independentPracticeOwner.js';
 import User from '../models/User.model.js';
 import config from '../config/config.js';
 import {
@@ -87,7 +88,7 @@ export const getMyTeamAccess = async (req, res, next) => {
     await assertCallerOnAgency(req, agencyId);
 
     const role = String(req.user?.role || '').toLowerCase();
-    const isOwner = isPractitionerOwnerRole(role) || role === 'support' || role === 'super_admin';
+    const isOwner = isPractitionerOwnerRole(role) || role === 'support' || await isIndependentPracticeOwner(req.user.id, agencyId);
     const permissions = isOwner
       ? { ...DEFAULT_PRACTITIONER_ASSISTANT_PERMISSIONS }
       : await getPractitionerAssistantPermissions(req.user.id, agencyId);

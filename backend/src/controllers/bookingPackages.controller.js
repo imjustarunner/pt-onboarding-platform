@@ -1,3 +1,4 @@
+import { isIndependentPracticeOwner } from '../utils/independentPracticeOwner.js';
 import { schedulingResponseForUser } from '../services/schedulingBillingAccess.service.js';
 import BookingPackage from '../models/BookingPackage.model.js';
 import User from '../models/User.model.js';
@@ -75,7 +76,7 @@ export const createPackage = async (req, res, next) => {
     if (!(await assertAgencyAccess(req, agencyId))) {
       return res.status(403).json({ error: { message: 'Access denied' } });
     }
-    if (!canManage(req.user?.role)) {
+    if (!(canManage(req.user?.role) || await isIndependentPracticeOwner(req.user?.id, agencyId))) {
       return res.status(403).json({ error: { message: 'Only admins can create packages' } });
     }
     const agency = await Agency.findById(agencyId);
@@ -104,7 +105,7 @@ export const updatePackage = async (req, res, next) => {
     if (!(await assertAgencyAccess(req, agencyId))) {
       return res.status(403).json({ error: { message: 'Access denied' } });
     }
-    if (!canManage(req.user?.role)) {
+    if (!(canManage(req.user?.role) || await isIndependentPracticeOwner(req.user?.id, agencyId))) {
       return res.status(403).json({ error: { message: 'Only admins can update packages' } });
     }
     const pkg = await unifiedPackages.updatePackageForAgency(packageId, agencyId, req.body || {});
@@ -123,7 +124,7 @@ export const duplicatePackage = async (req, res, next) => {
     if (!(await assertAgencyAccess(req, agencyId))) {
       return res.status(403).json({ error: { message: 'Access denied' } });
     }
-    if (!canManage(req.user?.role)) {
+    if (!(canManage(req.user?.role) || await isIndependentPracticeOwner(req.user?.id, agencyId))) {
       return res.status(403).json({ error: { message: 'Only admins can duplicate packages' } });
     }
     const targetProgramId = req.body?.learningProgramClassId ?? req.body?.learning_program_class_id;

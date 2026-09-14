@@ -37,6 +37,7 @@
     <div v-if="editorOpen" class="pmp-editor card">
       <h2>{{ editingId ? `Edit page #${editingId}` : 'New page' }}</h2>
 
+      <KimiWebsiteSettings v-if="form.slug === 'kimi'" v-model="form.brandingJsonText" :key="editingId" />
       <NluWebsiteSettings v-if="form.slug === 'nlu'" v-model="form.brandingJsonText" :key="editingId" />
       <ItscoWebsiteSettings v-if="form.slug === 'itsco'" v-model="form.brandingJsonText" :key="editingId" />
       <MarketingDesignWorkspace v-if="showMarketingLandingEditor || showPtcoEditor || showRiseEditor || showCollectiveEditor || form.slug === 'nlu'" :key="editingId || 'new'" :page="designPreviewPage" :reference-url="designReferenceUrl" @asset="applyDesignAsset" @reference="designReferenceUrl = $event" @busy="designBusy = $event" />
@@ -642,6 +643,7 @@
 </template>
 
 <script setup>
+import KimiWebsiteSettings from '../../components/public/KimiWebsiteSettings.vue';
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import api from '../../services/api';
 import { useRoute } from 'vue-router';

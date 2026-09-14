@@ -62,7 +62,7 @@ const TENANTS = {
   }
 };
 
-const PUBLIC_WEBSITES = {"nlu": {"name":"Next Level Up | Learning and Counseling Centers","image":"/assets/nlu/family.png"},"itsco": {"name": "ITSCO | In The School Counselors", "image": "/assets/SMSAssets/itscosmsnew.png"}, "tisi": {"name": "The Inner Strength Institute", "image": "/assets/SMSAssets/innerstrengthwebsite.png"}, "range": {"name": "Mental Range Collective", "image": "/assets/SMSAssets/mentalrangewebsite.png"}, "mh4kidz": {"name": "MH4Kidz", "image": "/assets/SMSAssets/mh4kizqwebsite.png"}, "ptco": {"name": "Plot Twist Co.", "image": "/assets/SMSAssets/plottwistcowebsite.png"}, "rise": {"name": "Rise Revive", "image": "/assets/SMSAssets/riserevivewebsite.png"}};
+const PUBLIC_WEBSITES = {"kimi": {"name":"Kimi Cain Life Coaching","image":"/assets/kimi/portrait.png","description":"Certified life coaching for clarity, goals, life transitions, and personal growth. Explore coaching packages or book a free consultation."},"nlu": {"name":"Next Level Up | Learning and Counseling Centers","image":"/assets/nlu/family.png"},"itsco": {"name": "ITSCO | In The School Counselors", "image": "/assets/SMSAssets/itscosmsnew.png"}, "tisi": {"name": "The Inner Strength Institute", "image": "/assets/SMSAssets/innerstrengthwebsite.png"}, "range": {"name": "Mental Range Collective", "image": "/assets/SMSAssets/mentalrangewebsite.png"}, "mh4kidz": {"name": "MH4Kidz", "image": "/assets/SMSAssets/mh4kizqwebsite.png"}, "ptco": {"name": "Plot Twist Co.", "image": "/assets/SMSAssets/plottwistcowebsite.png"}, "rise": {"name": "Rise Revive", "image": "/assets/SMSAssets/riserevivewebsite.png"}};
 
 const DEFAULT_IMAGE = '/branding/plottwisthq-platform-bg.png';
 const DEFAULT_DESC = 'Care, scheduling, billing, and support.';
@@ -173,7 +173,7 @@ export function buildShareMeta({ host, path, proto = 'https' } = {}) {
       image: DEFAULT_IMAGE,
       description: DEFAULT_DESC
     });
-  const page = isWebsite ? { page: '', description: 'Learn about our mission, services, and community.' } : pageCopy(path);
+  const page = isWebsite ? { page: '', description: website?.description || 'Learn about our mission, services, and community.' } : pageCopy(path);
   const name = tenant.name;
   const title = page.page ? `${name} · ${page.page}` : name;
   const description = page.description || tenant.description || DEFAULT_DESC;

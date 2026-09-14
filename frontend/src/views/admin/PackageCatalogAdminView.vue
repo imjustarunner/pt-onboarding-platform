@@ -128,6 +128,8 @@
           <label>Bonus sessions<input v-model.number="form.bonusSessions" type="number" min="0" max="10000" /></label>
         </div>
         <p class="muted">These allowances apply to new purchases. Missed sessions use a free miss, then an available bonus credit, then a paid credit.</p>
+        <label v-if="form.businessType === 'coaching'">Website subtitle<input v-model="form.websiteSubtitle" /></label>
+        <label v-if="form.businessType === 'coaching'">What’s included (one item per line)<textarea v-model="form.websiteItems" rows="4" /></label>
         <fieldset class="svc-fieldset">
           <legend>Attach to services <span v-if="form.isPublic">(required for public)</span></legend>
           <p class="muted">Public pages show packages only after the visitor picks a service.</p>
@@ -238,7 +240,7 @@ const saveError = ref('');
 
 const blankForm = () => ({
   name: '',
-  description: '',
+  description: '', websiteSubtitle: '', websiteItems: '',
   businessType: 'tutoring',
   packageType: 'prepaid_bundle',
   scope: 'tenant',
@@ -363,6 +365,8 @@ function edit(pkg) {
   form.value = {
     name: pkg.name,
     description: pkg.description || '',
+    websiteSubtitle: pkg.domainConfig?.website?.subtitle || '',
+    websiteItems: (pkg.domainConfig?.website?.items || []).join('\n'),
     businessType: pkg.businessType,
     packageType: pkg.packageType || 'prepaid_bundle',
     scope: pkg.learningProgramClassId ? 'program' : 'tenant',
@@ -435,6 +439,7 @@ function buildPayload() {
     },
     domainConfig: {
       ...f.existingDomainConfig,
+      website: {...f.existingDomainConfig?.website, subtitle: f.websiteSubtitle, items: String(f.websiteItems || '').split('\n').map(s => s.trim()).filter(Boolean)},
       pricing:f.pricingMode==='provider-discount'?{mode:f.pricingMode,discountPercent:f.discountPercent,minutes:f.minutes,format:f.format}:{mode:'fixed'},
       sessionMinutes: f.pricingMode==='provider-discount'?f.minutes:60,
       deliveryMode: f.deliveryMode,

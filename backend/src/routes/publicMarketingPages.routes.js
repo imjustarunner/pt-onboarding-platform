@@ -1,3 +1,4 @@
+import { publicCoachingCatalog } from '../services/publicCoachingCatalog.service.js';
 import express from 'express';
 import pool from '../config/database.js';
 import { publicPartnerSites } from '../content/publicPartnerSites.js';
@@ -17,6 +18,12 @@ import { getItscoWebsiteData } from '../services/itscoPublicWebsite.service.js';
 import { ingestPublicWebsiteAnalytics, publicAnalyticsIngestLimiter } from './publicWebsiteAnalytics.routes.js';
 
 const router = express.Router();
+router.get('/:slug/coaching-catalog', async (req,res,next)=>{try{
+ const catalog=await publicCoachingCatalog(String(req.params.slug||'').toLowerCase());
+ if(!catalog)return res.status(404).json({error:{message:'Coaching catalog not found'}});
+ res.setHeader('Cache-Control','no-store');return res.json(catalog);
+}catch(e){next(e);}});
+
 // Only published company websites are exposed; event hubs and private tenants are excluded.
 router.get('/partners', publicMarketingPageMetricsLimiter, async (req, res, next) => {
   try {

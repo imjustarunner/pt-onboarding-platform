@@ -10,6 +10,7 @@
     <div v-show="activeSection === 'account'" class="acct-hub__pane">
       <AccountInfoView />
       <ProviderBillingSettings v-if="canSetOwnRates" :agency-id="agencyId" :provider-id="userId" />
+      <router-link v-if="canSetOwnRates && Number(agencyStore.currentAgency?.account_owner_user_id) === Number(userId)" class="btn btn-secondary" :to="`/${agencyStore.currentAgency.slug}/admin/package-catalog`">Manage coaching packages and cancellation policies</router-link>
       <FamilyLedgerPanel v-if="agencyId && ['client','client_guardian'].includes(authStore.user?.role)" :agency-id="agencyId" />
     </div>
     <div v-if="flags.workforce" v-show="activeSection === 'credentials'" class="acct-hub__pane">

@@ -24,8 +24,14 @@ export function isNonClientIntakeFormType(formType) {
   return NON_CLIENT_INTAKE_FORM_TYPES.has(String(formType || '').trim().toLowerCase());
 }
 
+export function isCoachingIntakeLink(link) {
+  let messages = link?.custom_messages || link?.customMessages || {};
+  if (typeof messages === 'string') { try { messages = JSON.parse(messages); } catch { return false; } }
+  return messages?.serviceScope === 'coaching';
+}
+
 export function linkLooksLikeOfficeIntake(link) {
-  if (!link) return false;
+  if (!link || isCoachingIntakeLink(link)) return false;
   if (isNonClientIntakeFormType(formTypeOf(link))) return false;
   if (Number(link.inherits_school_master || link.inheritsSchoolMaster || 0) === 1) return false;
   const scope = String(link.scope_type || link.scopeType || '').toLowerCase();
