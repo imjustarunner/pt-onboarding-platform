@@ -62,7 +62,7 @@ it('selects shared and custom interventions and saves corrected decreasing score
   expect(objective.interventions).toEqual(['Previously selected custom intervention', 'Active Listening']);
   await picker.find('input[placeholder="Intervention name"]').setValue('New personal technique');
   vi.mocked(api.post).mockResolvedValueOnce({ data: { all: ['New personal technique'] } });
-  await picker.find('button').trigger('click');
+  await picker.findAll('button').find((button) => button.text() === 'Add and select').trigger('click');
   await flushPromises();
   expect(api.post).toHaveBeenCalledWith('/medical-billing/interventions', { agencyId: 7, scope: 'user', names: ['New personal technique'] }, { skipGlobalLoading: true });
   expect(objective.interventions).toContain('New personal technique');

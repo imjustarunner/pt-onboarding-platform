@@ -1,3 +1,4 @@
+import { listTreatmentFrequencies, addTreatmentFrequency, suggestObjectiveInterventions } from '../controllers/treatmentPlanOptions.controller.js';
 import { getTreatmentPlanRenewalPolicy, saveTreatmentPlanRenewalPolicy } from '../controllers/medicalBilling.controller.js';
 import { getClientInsurance, saveClientInsurance } from '../controllers/clientInsurance.controller.js';
 import express from 'express';
@@ -662,6 +663,13 @@ router.post(
   ],
   applyEncounterBilling
 );
+
+router.get('/treatment-frequencies', requireClinicalChart,
+  [query('agencyId').isInt({ min: 1 })], listTreatmentFrequencies);
+router.post('/treatment-frequencies', requireClinicalChart,
+  [body('agencyId').isInt({ min: 1 }), body('name').isString().trim().isLength({ min: 1, max: 160 })], addTreatmentFrequency);
+router.post('/treatment-plans/recommend-interventions', requireClinicalChart,
+  [body('agencyId').isInt({ min: 1 }), body('goalText').isString().trim().isLength({ min: 1, max: 10000 }), body('objectiveText').isString().trim().isLength({ min: 1, max: 10000 })], suggestObjectiveInterventions);
 
 router.get(
   '/interventions',

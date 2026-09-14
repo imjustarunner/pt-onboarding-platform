@@ -101,10 +101,7 @@
           <textarea v-model="model.presentingProblem" class="na-textarea" rows="4" />
         </label>
 
-        <label class="na-label">
-          Prescribed frequency
-          <input v-model="model.prescribedFrequency" class="na-input" placeholder="e.g. Twice a Week" />
-        </label>
+        <NoteAidFrequencySelect v-model="model.prescribedFrequency" :agency-id="agencyId" />
 
         <label class="na-label">
           Discharge criteria / planning
@@ -211,6 +208,9 @@
                 v-model="o.interventions"
                 :agency-id="agencyId"
                 :options="interventionOptions"
+                :goal-text="g.goalText"
+                :objective-text="o.objectiveText"
+                @ai-used="aiContentUsed = true; attestAiReviewed = false"
                 @catalog-updated="catalogNames = $event"
               />
               <div class="na-import-obj-actions">
@@ -338,6 +338,7 @@
 import { computed, reactive, ref, watch } from 'vue';
 import api from '../../services/api';
 import NoteAidInterventionPicker from './NoteAidInterventionPicker.vue';
+import NoteAidFrequencySelect from './NoteAidFrequencySelect.vue';
 import { CLINICAL_INTERVENTION_SEED } from '../../config/clinicalInterventionSeed.js';
 import {
   DURATION_PRESETS,
