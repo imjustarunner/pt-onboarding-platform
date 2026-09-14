@@ -307,7 +307,8 @@ export const saveTreatmentPlanToChart = async (req, res, next) => {
     // Draft bootstrap saves skip this gate; activating any plan (including bootstrap) requires final intake.
     if (finalizeRequested) {
       const ClientIntakeNoteDraft = (await import('../models/ClientIntakeNoteDraft.model.js')).default;
-      const hasFinalIntake = await ClientIntakeNoteDraft.hasFinalizedForClient({ clientId, agencyId });
+      const hasFinalIntake = await ClientIntakeNoteDraft.hasFinalizedForClient({ clientId, agencyId })
+        || await ClinicalNote.hasSignedIntakeForClient({ clientId, agencyId });
       if (!hasFinalIntake) {
         return res.status(409).json({
           error: {

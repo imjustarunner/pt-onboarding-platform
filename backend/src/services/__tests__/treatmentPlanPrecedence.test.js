@@ -17,6 +17,13 @@ test('pickAuthoritativeTreatmentPlan prefers note_aid_plan_import over intake dr
   assert.equal(isNoteAidPlanImport(picked), true);
 });
 
+test('a reviewed intake-generated plan takes precedence over an older imported plan', () => {
+  const generated = { id: 12, status: 'active', title: 'Intake-generated Treatment Plan', source_tool_id: 'note_aid_intake_generated' };
+  const imported = { id: 11, status: 'active', source_tool_id: 'note_aid_plan_import' };
+  assert.equal(pickAuthoritativeTreatmentPlan([generated, imported]).id, 12);
+  assert.equal(pickAuthoritativeTreatmentPlan([{ ...generated, status: 'draft' }, imported]).id, 11);
+});
+
 test('pickAuthoritativeTreatmentPlan returns null when only intake auto-drafts exist', () => {
   const plans = [
     { id: 2, title: 'Intake Treatment Plan — 90791', source_tool_id: 'clinical_90791_intake_plan' }

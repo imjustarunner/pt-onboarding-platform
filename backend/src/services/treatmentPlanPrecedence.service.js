@@ -34,7 +34,7 @@ export function pickAuthoritativeTreatmentPlan(plans = []) {
       return status !== 'superseded' && status !== 'inactive' && status !== 'discarded';
     });
   if (!list.length) return null;
-  const imported = list.find((p) => isNoteAidPlanImport(p) && String(p.status || '').toLowerCase() === 'active');
+  const imported = list.find((p) => (isNoteAidPlanImport(p) || ['note_aid_intake_generated', 'note_aid_generated_plan'].includes(p.source_tool_id || p.sourceToolId)) && String(p.status || '').toLowerCase() === 'active');
   if (imported) return imported;
   const active = list.find((p) => String(p.status || '').toLowerCase() === 'active' && !isIntakeAutoTreatmentPlan(p));
   if (active) return active;

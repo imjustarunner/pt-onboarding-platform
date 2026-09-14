@@ -20,7 +20,7 @@ vi.mock('../../../store/agency', () => ({
     currentAgency: { id: 7, name: 'ITSCO', feature_flags: { noteAidEnabled: true, clinicalNoteGeneratorEnabled: true } },
     currentAgencyId: 7,
     selectedAgencyId: 7,
-    userAgencies: [{ id: 7, name: 'ITSCO', feature_flags: { noteAidEnabled: true } }],
+    userAgencies: [{ id: 7, name: 'ITSCO', feature_flags: { noteAidEnabled: true, medicalBillingEnabled: true } }],
     agencies: [{ id: 7, name: 'ITSCO' }]
   })
 }));
@@ -52,6 +52,60 @@ describe('ClinicalNoteGeneratorView smoke', () => {
     await nextTick();
     return { wrapper, state };
   }
+
+  it('integrates regenerated intake fields, applies diagnoses, and restores reviewed assessments from a draft', async () => {
+    const { wrapper, state } = await workspace('90791_intake_plan');
+    state.selectedClientId = 202;
+    state.selectedClient = { id: 202, agency_id: 7 };
+    await flushPromises();
+    state.draftId = 42;
+    state.chartDiagnoses = [{ id: 10, icd10_code: 'F41.1', is_primary: 1, justification: 'Old formulation.' }];
+    state.latestTreatmentPlan = { id: 4, primary_diagnosis_id: 10, diagnostic_justification: 'Old formulation.' };
+    state.outputObj = { sections: {
+      Diagnosis: 'F42.9 Updated synthetic diagnosis\nZ63.4 Synthetic context',
+      'Diagnostic Justification': 'Updated formulation.',
+      'Mental Status Examination': 'General Appearance: Appropriate\nMood: Euthymic\nOrientation: X3: Person, Place, and Time',
+      'Risk Assessment': 'Patient denies all areas of risk. No contrary clinical indications present.',
+      'Goal 1': 'Improve coping.', 'Objective 1.1': 'The current baseline is a 4, with a target of 8.',
+      'Projected Time 1': '6 months', 'Discharge Plan': 'Sustained independent coping.'
+    }, meta: { toolId: 'clinical_90791_intake_plan' } };
+    await nextTick();
+    expect(state.structuredChartDiagnoses.map((d) => d.icd10_code)).toEqual(['F42.9', 'Z63.4']);
+    expect(state.chartDiagnosticJustification).toBe('Updated formulation.');
+    expect(state.primaryChartDiagnosis.icd10_code).toBe('F42.9');
+    expect(state.chartMentalStatus.domains.Appearance.option).toBe('Appropriate');
+    expect(state.chartRiskAssessment.patientDeniesAll).toBe(true);
+    expect(state.intakeDiagnosesPending).toBe(true);
+    state.dateOfService = '2026-08-20';
+    await state.saveTreatmentPlanToChart();
+    expect(state.showPlanImportReview).toBe(true);
+    expect(state.planImportReviewMode).toBe('generated');
+    expect(state.planDraftInitialPlan.goals[0].objectives[0]).toMatchObject({ scaleCurrent: 4, scaleTarget: 8 });
+    expect(state.planDraftInitialPlan.diagnoses[0].icd10Code).toBe('F42.9');
+    expect(state.scoreChartPlan({ id: 12, status: 'active', source_tool_id: 'note_aid_intake_generated' })).toBeGreaterThan(state.scoreChartPlan({ id: 11, status: 'active', source_tool_id: 'note_aid_plan_import' }));
+    expect(vi.mocked(api.post).mock.calls.some(([url]) => url === '/medical-billing/diagnoses')).toBe(false);
+    vi.mocked(api.post).mockImplementation(async (url, body) => ({ data: url === '/medical-billing/diagnoses' ? { id: body.icd10Code === 'F42.9' ? 11 : 12 } : {} }));
+    await state.applyIntakeDiagnosesToChart();
+    expect(state.primaryChartDiagnosis.id).toBe(11);
+    expect(state.intakeDiagnosesPending).toBe(false);
+    const savedDx = vi.mocked(api.post).mock.calls.filter(([url]) => url === '/medical-billing/diagnoses');
+    expect(savedDx[0][1]).toMatchObject({ clientId: 202, agencyId: 7, icd10Code: 'F42.9', isPrimary: true, justification: 'Updated formulation.' });
+    state.chartMentalStatus.domains.Mood = { status: 'selected', option: 'Anxious', detail: '' };
+    const persisted = JSON.parse(JSON.stringify({ ...state.outputObj, meta: { ...state.outputObj.meta, structuredChart: state.draftStructuredChart() } }));
+    const signed = JSON.parse(state.buildApprovedPayloadText());
+    expect(signed.sections['Mental Status Examination']).toContain('Mood: Anxious');
+    vi.mocked(api.get).mockImplementation(async (url) => ({ data: url === '/clients/202' ? { id: 202, agency_id: 7 } : {} }));
+    await state.loadDraftIntoWorkspace({ id: 42, client_id: 202, agency_id: 7, service_code: '90791', output_json: persisted });
+    expect(state.chartMentalStatus.domains.Mood.option).toBe('Anxious');
+    expect(state.chartRiskAssessment.patientDeniesAll).toBe(true);
+    expect(state.primaryChartDiagnosis.id).toBe(11);
+    await state.loadDraftIntoWorkspace({ id: 43, client_id: 202, agency_id: 7, service_code: '90791', output_json: null });
+    expect(state.chartMentalStatus.domains.Mood.option).toBe('');
+    expect(state.intakeDiagnosisRecommendations).toEqual([]);
+    expect(state.showPlanImportReview).toBe(false);
+    expect(state.planDraftInitialPlan).toBeNull();
+    wrapper.unmount();
+  });
 
 
 

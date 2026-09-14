@@ -1,6 +1,20 @@
 import clinicalPool from '../../config/clinicalDatabase.js';
 
 class ClinicalNote {
+  static async hasSignedIntakeForClient({ agencyId, clientId }) {
+    const [rows] = await clinicalPool.execute(
+      `SELECT n.id FROM clinical_notes n
+       JOIN clinical_sessions s ON s.id = n.clinical_session_id
+       WHERE n.agency_id = ? AND n.client_id = ? AND n.is_deleted = 0
+         AND n.provider_signed_at IS NOT NULL
+         AND (COALESCE(JSON_UNQUOTE(JSON_EXTRACT(n.metadata_json, '$.serviceCode')), s.service_code) = '90791'
+           OR (JSON_UNQUOTE(JSON_EXTRACT(n.metadata_json, '$.toolId')) = 'clinical_h0031_intake'
+             AND COALESCE(JSON_UNQUOTE(JSON_EXTRACT(n.metadata_json, '$.serviceCode')), s.service_code) = 'H0031'))
+       LIMIT 1`, [agencyId, clientId]
+    );
+    return !!rows?.length;
+  }
+
   static async create({
     clinicalSessionId,
     agencyId,

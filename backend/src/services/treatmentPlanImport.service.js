@@ -72,6 +72,16 @@ function isBoilerplateOnlyLine(text) {
 export function parseScalePair(text) {
   const s = String(text || '');
 
+  // Explicit baseline/target labels take precedence over scale anchors (1 and 10).
+  const currentLabel = s.match(/\b(?:current(?:\s+baseline)?|baseline)(?:\s+(?:level|rating|score))?\s*(?:(?:is|of|at)\s*)?(?:a\s+)?[:=]?\s*(\d{1,2})\b/i);
+  const targetLabel = s.match(/\b(?:target|goal)(?:\s+(?:level|rating|score))?\s*(?:(?:is|of|at)\s*)?(?:a\s+)?[:=]?\s*(\d{1,2})\b/i);
+  if (currentLabel && targetLabel) {
+    const current = Number(currentLabel[1]);
+    const target = Number(targetLabel[1]);
+    return { scaleCurrent: current >= 1 && current <= 10 ? current : null, scaleTarget: target >= 1 && target <= 10 ? target : null };
+  }
+
+
   // "7/10 or higher (currently 3/10)" — target stated first, current in parentheses
   const targetThenCurrent = s.match(
     /(\d{1,2})\s*\/\s*10(?:\s+or\s+higher)?[^0-9]{0,48}?\(\s*currently\s+(\d{1,2})\s*\/\s*10\s*\)/i

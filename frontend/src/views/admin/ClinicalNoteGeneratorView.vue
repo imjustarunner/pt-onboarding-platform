@@ -1175,6 +1175,12 @@
             </div>
           </div>
 
+          <div v-if="intakeDiagnosesPending && !chartNoteReadOnly && !signedNoteViewerId" class="na-plan-fields" role="status">
+            <p>Diagnosis recommendations are filled below. Review the Diagnosis and Diagnostic Justification sections before applying them to the chart. Signing also applies the reviewed diagnoses.</p>
+            <button type="button" class="na-btn-outline" :disabled="applyingIntakeDiagnoses || !effectiveClientId" @click="reviewAndApplyIntakeDiagnoses">
+              {{ applyingIntakeDiagnoses ? 'Saving diagnoses…' : 'Apply reviewed diagnoses to chart' }}
+            </button>
+          </div>
           <NoteAidStructuredChartPanel
             v-if="showStructuredChartPanel && !chartNoteReadOnly && !signedNoteViewerId"
             :diagnoses="structuredChartDiagnoses"
@@ -1322,10 +1328,10 @@
               v-if="canSaveTreatmentPlanToChart"
               type="button"
               class="na-btn-outline"
-              :disabled="!displayPanels.length || savingTreatmentPlan"
+              :disabled="!displayPanels.length"
               @click="saveTreatmentPlanToChart"
             >
-              {{ savingTreatmentPlan ? 'Saving plan…' : 'Save treatment plan to chart' }}
+              Review &amp; save generated treatment plan
             </button>
             <template v-if="canApproveToClinicalRecord && bothAttestationsChecked">
               <button
@@ -1544,6 +1550,7 @@
 </template>
 
 <script setup>
+import { intakeSection, intakeDiagnoses, intakeAssessments, mergeGeneratedAssessment, generatedTreatmentPlan, intakeSectionsForRecord } from '../../utils/noteAidIntakeIntegration';
 import { splitTreatmentPlanSections } from '../../utils/treatmentPlanSections.js';
 import { DEFAULT_RENEWAL_POLICY, treatmentPlanRenewalStatus } from '../../utils/treatmentPlanRenewal.js';
 import NoteAidTerminationOutcomes from '../../components/clinical/NoteAidTerminationOutcomes.vue';
@@ -1679,13 +1686,6 @@ import {
   mergeScheduleSeededAddons,
   resolveNoteAidBillingCodes
 } from '../../utils/noteAidBillingAddons.js';
-import {
-  DEFAULT_MEASUREMENT_METHOD,
-  inferScaleDirection,
-  isObjectiveScaleValid,
-  parsePrescribedFrequencyFromDischarge,
-  parseScalePair
-} from '../../utils/treatmentPlanDuration.js';
 import { rememberRecentAid, saveNoteLibraryUiPrefs } from '../../utils/noteAidLibraryPrefs.js';
 import { isClinicalChartEnabled, parseAgencyFeatureFlags } from '../../config/medicalBillingAccess.js';
 import { useAgencyStore } from '../../store/agency';
@@ -1784,6 +1784,7 @@ const effectiveClientId = computed(
 );
 const activeTreatmentGoals = computed(() => activePlanGoals(latestTreatmentPlan.value));
 const primaryChartDiagnosis = computed(() => {
+  if (isIntakeOutput.value && intakeDiagnosisRecommendations.value.length) return intakeDiagnosisRecommendations.value[0];
   const plan = latestTreatmentPlan.value;
   const list = chartDiagnoses.value || [];
   const planDxId = Number(plan?.primary_diagnosis_id || plan?.primaryDiagnosisId || 0);
@@ -2041,6 +2042,7 @@ const planDraftInitialPlan = ref(null);
 const planUpdaterRenewalReason = ref('');
 const planUpdaterProgressExcerpt = ref('');
 const planImportReviewMode = computed(() => {
+  if (planDraftEditorMode.value === 'generated') return 'generated';
   if (planDraftEditorMode.value === 'update') return 'update';
   if (planDraftEditorId.value || planDraftEditorMode.value === 'draft') return 'draft';
   return 'import';
@@ -2347,6 +2349,75 @@ const showInitialsCreateActions = computed(() => {
 });
 const latestTreatmentPlan = ref(null);
 const chartDiagnoses = ref([]);
+const intakeDiagnosisRecommendations = ref([]);
+const intakeDiagnosisAppliedFingerprint = ref('');
+const intakeAssessmentSnapshot = ref(null);
+const applyingIntakeDiagnoses = ref(false);
+const isIntakeOutput = computed(() => aidKind(selectedAid.value) === 'intake');
+const intakeDiagnosisFingerprint = computed(() => JSON.stringify([intakeDiagnosisRecommendations.value.map((d) => [d.icd10_code, d.description]), chartDiagnosticJustification.value]));
+const intakeDiagnosesPending = computed(() => isIntakeOutput.value && intakeDiagnosisRecommendations.value.length > 0 && intakeDiagnosisAppliedFingerprint.value !== intakeDiagnosisFingerprint.value);
+
+function synchronizeIntakeFields() {
+  if (!isIntakeOutput.value || !outputObj.value || chartNoteReadOnly.value || signedNoteViewerId.value) return;
+  const sections = Object.fromEntries(mergedSectionEntries.value || []);
+  const diagnoses = intakeDiagnoses(sections).filter((d) => chartDiagnosisMode.value !== 'none' && (chartDiagnosisMode.value !== 'zr_only' || isSocialDeterminantCode(d.icd10_code)));
+  intakeDiagnosisRecommendations.value = diagnoses.map((d) => ({ ...d, id: intakeDiagnosisRecommendations.value.find((old) => old.icd10_code === d.icd10_code)?.id }));
+  if (diagnoses.length) chartDiagnosticJustification.value = intakeSection(sections, 'Diagnostic Justification');
+  const next = intakeAssessments(sections);
+  chartMentalStatus.value = mergeGeneratedAssessment(chartMentalStatus.value, intakeAssessmentSnapshot.value?.mentalStatusExam, next.mentalStatusExam);
+  chartRiskAssessment.value = mergeGeneratedAssessment(chartRiskAssessment.value, intakeAssessmentSnapshot.value?.riskAssessment, next.riskAssessment);
+  intakeAssessmentSnapshot.value = next;
+}
+
+function draftStructuredChart() {
+  return {
+    clientId: effectiveClientId.value,
+    mentalStatusExam: chartMentalStatus.value,
+    riskAssessment: chartRiskAssessment.value,
+    medications: chartMedications.value,
+    diagnosticJustification: chartDiagnosticJustification.value,
+    intakeDiagnoses: intakeDiagnosisRecommendations.value,
+    intakeDiagnosisAppliedFingerprint: intakeDiagnosisAppliedFingerprint.value,
+    intakeAssessmentSnapshot: intakeAssessmentSnapshot.value
+  };
+}
+
+async function applyIntakeDiagnosesToChart() {
+  if (applyingIntakeDiagnoses.value) throw new Error('The diagnoses are still saving. Please wait before signing.');
+  if (!intakeDiagnosesPending.value) return;
+  const clientId = Number(effectiveClientId.value);
+  const agencyId = Number(chartAgencyIdForSave.value || noteAidAgencyId.value);
+  if (!clientId || !agencyId) throw new Error('Link a client before applying diagnoses.');
+  const fingerprint = intakeDiagnosisFingerprint.value;
+  const recommendations = intakeDiagnosisRecommendations.value.map((d) => ({ ...d }));
+  const justification = chartDiagnosticJustification.value;
+  applyingIntakeDiagnoses.value = true;
+  try {
+    for (const d of recommendations) {
+      const res = await api.post('/medical-billing/diagnoses', {
+        agencyId, clientId, icd10Code: d.icd10_code, description: d.description,
+        justification, isPrimary: !!d.is_primary, clinicalSessionId: sessionClinicalSessionId.value || null
+      });
+      if (!res?.data?.id) throw new Error('The chart did not confirm that the diagnosis was saved. Please retry.');
+      d.id = res.data.id;
+    }
+    if (clientId !== Number(effectiveClientId.value) || fingerprint !== intakeDiagnosisFingerprint.value) throw new Error('The intake changed while diagnoses were saving. Review the current note before signing.');
+    intakeDiagnosisRecommendations.value = recommendations;
+    intakeDiagnosisAppliedFingerprint.value = fingerprint;
+    const codes = new Set(recommendations.map((d) => d.icd10_code));
+    chartDiagnoses.value = [...recommendations, ...chartDiagnoses.value.filter((d) => !codes.has(d.icd10_code)).map((d) => ({ ...d, is_primary: 0 }))];
+    approvalMessage.value = 'Reviewed diagnoses and justification saved to the chart.';
+    await autosave();
+  } finally {
+    applyingIntakeDiagnoses.value = false;
+  }
+}
+
+async function reviewAndApplyIntakeDiagnoses() {
+  approvalError.value = '';
+  try { await applyIntakeDiagnosesToChart(); }
+  catch (e) { approvalError.value = e.response?.data?.error?.message || e.message || 'Could not save diagnoses.'; }
+}
 const clientGuardianNames = ref([]);
 const dismissPhiNameWarn = ref(false);
 const phiPrivacyBanner = PHI_PRIVACY_BANNER;
@@ -2450,7 +2521,7 @@ function scoreChartPlan(plan) {
   if (status === 'superseded' || status === 'inactive' || status === 'discarded') return -1;
   const goals = activePlanGoals(plan);
   const recency = Number(plan.id || 0);
-  const imported = String(plan.source_tool_id || plan.sourceToolId || '') === 'note_aid_plan_import';
+  const imported = ['note_aid_plan_import', 'note_aid_intake_generated', 'note_aid_generated_plan'].includes(String(plan.source_tool_id || plan.sourceToolId || ''));
   const intakeAuto = /^Intake Treatment Plan/i.test(String(plan.title || ''));
   // Imported treatment plans always outrank intake auto-drafts for chart display.
   if (imported && status === 'active') return 50_000 + recency;
@@ -2601,7 +2672,9 @@ const mseSkipLabel = computed(() => {
   return 'Mental status exam skipped for this service.';
 });
 const structuredChartDiagnoses = computed(() => {
-  const list = Array.isArray(chartDiagnoses.value) ? chartDiagnoses.value : [];
+  const list = isIntakeOutput.value && intakeDiagnosisRecommendations.value.length
+    ? intakeDiagnosisRecommendations.value
+    : (Array.isArray(chartDiagnoses.value) ? chartDiagnoses.value : []);
   const mode = chartDiagnosisMode.value;
   if (mode === 'none') return [];
   if (mode === 'zr_only') {
@@ -2730,6 +2803,7 @@ const showProgressPlanFields = computed(() => {
 });
 
 const canConfirmAndSign = computed(() => {
+  if (applyingIntakeDiagnoses.value) return false;
   if (interactiveComplexityPromptOpen.value || addingInteractiveComplexity.value) return false;
   if (isTerminationAid.value) return !!terminationReason.value && !!terminationRecommendation.value.trim()
     && (terminationReason.value !== 'other' || !!terminationDetails.value.trim())
@@ -3295,7 +3369,6 @@ const initialsInputEl = ref(null);
 const approvalMessage = ref('');
 const approvalError = ref('');
 const approvingNote = ref(false);
-const savingTreatmentPlan = ref(false);
 const medicalBillingFlags = computed(() => {
   const aid = Number(noteAidAgencyId.value || 0);
   const list = [
@@ -4395,6 +4468,10 @@ const displayPanels = computed(() => {
   return buildDisplaySections(sections, { preferTreatmentPlan, preferIntake: aidKind(selectedAid.value) === 'intake' });
 });
 
+watch(mergedSectionEntries, () => {
+  if (!isWorkspaceHydrating()) synchronizeIntakeFields();
+}, { flush: 'post' });
+
 const canSaveTreatmentPlanToChart = computed(() => {
   if (!isClinicalChartEnabled(medicalBillingFlags.value)) return false;
   if (!effectiveClientId.value) return false;
@@ -4912,6 +4989,7 @@ const autosave = async () => {
         ...(outputObj.value?.meta && typeof outputObj.value.meta === 'object' ? outputObj.value.meta : {}),
         toolId: selectedAid.value?.toolId || outputObj.value?.meta?.toolId || null,
         sessionContext,
+        structuredChart: draftStructuredChart(),
         termination: isTerminationAid.value ? terminationMetadata() : null,
         terminationNextStep: terminationNextStep.value,
         terminationTodoKey: terminationTodoKey.value || null,
@@ -4927,7 +5005,7 @@ const autosave = async () => {
   } else if (sessionLocationLabel.value || sessionDurationMinutes.value != null) {
     payload.outputJson = {
       sections: {},
-      meta: { sessionContext, toolId: selectedAid.value?.toolId || null }
+      meta: { sessionContext, structuredChart: draftStructuredChart(), toolId: selectedAid.value?.toolId || null }
     };
   }
   if (linkedClientId) {
@@ -5660,6 +5738,9 @@ const generateNote = async () => {
     generating.value = true;
     generateError.value = '';
     const completingQueueItemId = activeWorkQueueItemId.value;
+    const generationClientId = effectiveClientId.value;
+    const generationDraftSeq = draftLoadSeq;
+    const generationQueueSeq = workQueueActivateSeq;
 
     const fd = new FormData();
     fd.append('agencyId', String(noteAidAgencyId.value || currentAgencyId.value));
@@ -5820,6 +5901,7 @@ const generateNote = async () => {
     }
 
     const res = await api.post('/clinical-notes/generate', fd, { skipGlobalLoading: true });
+    if (generationClientId !== effectiveClientId.value || generationDraftSeq !== draftLoadSeq || generationQueueSeq !== workQueueActivateSeq) return;
     outputObj.value = res?.data?.outputJson || null;
     aiContentGenerated.value = true;
     attestAiContentReviewed.value = false;
@@ -5861,6 +5943,7 @@ const generateNote = async () => {
       }
     }
 
+    await nextTick();
     await persistSessionObjectiveRatings();
     await autosave();
     const needsSignature = !!(effectiveClientId.value && canApproveToClinicalRecord.value);
@@ -5968,7 +6051,11 @@ watch(
 );
 
 const buildApprovedPayloadText = () => {
-  const sections = Object.fromEntries(mergedSectionEntries.value || []);
+  let sections = Object.fromEntries(mergedSectionEntries.value || []);
+  if (isIntakeOutput.value) sections = intakeSectionsForRecord(sections, {
+    mentalStatusExam: chartMentalStatus.value, riskAssessment: chartRiskAssessment.value,
+    diagnoses: structuredChartDiagnoses.value, diagnosticJustification: chartDiagnosticJustification.value
+  });
   if (isTerminationAid.value) {
     const labels = { goals_achieved: 'Treatment goals achieved', client_choice: 'Client elected to end treatment', lost_contact: 'Lost contact / discontinued attendance', transfer: 'Transfer to another provider or level of care', lack_of_progress: 'Lack of progress', other: 'Other' };
     sections['Reason for Termination'] = [labels[terminationReason.value], terminationDetails.value].filter(Boolean).join('. ');
@@ -5978,7 +6065,7 @@ const buildApprovedPayloadText = () => {
   return JSON.stringify(
     {
       sections,
-      meta: { ...(outputObj.value?.meta || {}), ...(isTerminationAid.value ? { termination: terminationMetadata() } : {}) }
+      meta: { ...(outputObj.value?.meta || {}), structuredChart: draftStructuredChart(), ...(isTerminationAid.value ? { termination: terminationMetadata() } : {}) }
     },
     null,
     2
@@ -6093,6 +6180,7 @@ const approveNoteOutput = async ({ silent = false, afterSign = 'queue' } = {}) =
       }
     }
     const sessionId = await ensureClinicalSessionForApproval();
+    await applyIntakeDiagnosesToChart();
     const approvedPayload = buildApprovedPayloadText();
     if (!approvedPayload) throw new Error('No approved note content available to persist.');
     const serviceCodeForMetadata = isClientChartAid.value ? null : (actualServiceCode.value || null);
@@ -6100,7 +6188,7 @@ const approveNoteOutput = async ({ silent = false, afterSign = 'queue' } = {}) =
       ? 'TERMINATION'
       : (isTreatmentSummaryAid.value
         ? 'TREATMENT_SUMMARY'
-        : (bookingContext.value?.noteType || 'PROGRESS_NOTE'));
+        : (isIntakeOutput.value ? 'INTAKE' : (bookingContext.value?.noteType || 'PROGRESS_NOTE')));
     const dos = dateOfService.value ? String(dateOfService.value).slice(0, 10) : new Date().toISOString().slice(0, 10);
     const title = isReviewOnlyAid.value
       ? `Termination note ${dos}`.trim()
@@ -6108,6 +6196,7 @@ const approveNoteOutput = async ({ silent = false, afterSign = 'queue' } = {}) =
         ? `Treatment Summary ${dos}`.trim()
         : `${String(noteType).replace(/_/g, ' ')} ${serviceCodeForMetadata ? `(${serviceCodeForMetadata}) ` : ''}${dos}`.trim());
     const structuredChart = {
+      diagnoses: structuredChartDiagnoses.value,
       diagnosticJustification: chartDiagnosticJustification.value || null,
       mentalStatusExam: skipMentalStatusExam.value ? null : chartMentalStatus.value,
       riskAssessment: chartRiskAssessment.value,
@@ -6368,82 +6457,23 @@ const approveNoteOutput = async ({ silent = false, afterSign = 'queue' } = {}) =
 };
 
 const saveTreatmentPlanToChart = async () => {
-  if (!canSaveTreatmentPlanToChart.value || savingTreatmentPlan.value) return;
-  const clientId = Number(effectiveClientId.value || bookingContext.value?.clientId || route.query?.clientId || 0) || null;
-  if (!clientId) {
-    approvalError.value = 'Select an active client to save a treatment plan to the chart.';
-    return;
-  }
-  try {
-    savingTreatmentPlan.value = true;
-    approvalError.value = '';
-    approvalMessage.value = '';
-    const panels = displayPanels.value || [];
-    const goals = [];
-    let current = null;
-    let dischargePlan = null;
-    for (const p of panels) {
-      if (p.kind === 'goal' || /^Goal\s*\d+/i.test(p.id || '')) {
-        current = {
-          goalIndex: p.index || goals.length + 1,
-          goalText: p.text || '',
-          projectedCompletion: null,
-          objectives: []
-        };
-        goals.push(current);
-      } else if (current && (p.kind === 'objective' || /^Objective\s*\d+/i.test(p.id || ''))) {
-        const objectiveText = p.text || '';
-        const scales = parseScalePair(objectiveText);
-        const scaleCurrent = scales.scaleCurrent;
-        const scaleTarget = scales.scaleTarget;
-        current.objectives.push({
-          objectiveIndex: p.index || current.objectives.length + 1,
-          objectiveText,
-          scaleCurrent,
-          scaleTarget,
-          scaleDirection: inferScaleDirection(scaleCurrent, scaleTarget),
-          measurementMethod: isObjectiveScaleValid(scaleCurrent, scaleTarget)
-            ? DEFAULT_MEASUREMENT_METHOD
-            : null
-        });
-      } else if (current && (p.kind === 'projected_time' || /^Projected/i.test(p.id || ''))) {
-        current.projectedCompletion = p.text || '';
-      } else if (p.kind === 'discharge' || /Discharge/i.test(p.id || '')) {
-        dischargePlan = p.text || '';
-      }
-    }
-    if (!goals.length) {
-      throw new Error('No Goal/Objective panels found to save.');
-    }
-    const missingScale = goals.some((g) =>
-      (g.objectives || []).some((o) => !isObjectiveScaleValid(o.scaleCurrent, o.scaleTarget))
-    );
-    if (missingScale) {
-      throw new Error(
-        'Each objective needs a clear 1–10 current and target scale (same as treatment plan paste import) before saving to the chart.'
-      );
-    }
-    await api.post('/medical-billing/treatment-plans', {
-      agencyId: chartAgencyIdForSave.value || currentAgencyId.value,
-      clientId,
-      officeEventId: bookingContext.value?.officeEventId || null,
-      clinicalSessionId: bookingContext.value?.clinicalSessionId || null,
-      title: 'Treatment Plan',
-      dischargePlan,
-      sourceToolId: selectedToolId.value || outputObj.value?.meta?.toolId || null,
-      primaryDiagnosisId: primaryChartDiagnosis.value?.id || null,
-      diagnosticJustification: primaryChartDiagnosis.value?.justification || null,
-      icd10Code: primaryChartDiagnosis.value?.icd10_code || null,
-      diagnosisDescription: primaryChartDiagnosis.value?.description || null,
-      goals
-    });
-    approvalMessage.value = 'Treatment plan saved to clinical chart (with primary diagnosis when on file).';
-    await loadClientTreatmentPlan(clientId);
-  } catch (e) {
-    approvalError.value = e.response?.data?.error?.message || e.message || 'Failed to save treatment plan';
-  } finally {
-    savingTreatmentPlan.value = false;
-  }
+  if (!canSaveTreatmentPlanToChart.value) return;
+  const sections = Object.fromEntries(mergedSectionEntries.value || []);
+  const plan = generatedTreatmentPlan(sections, {
+    effectiveDate: dateOfService.value || new Date().toISOString().slice(0, 10),
+    diagnoses: structuredChartDiagnoses.value,
+    diagnosticJustification: chartDiagnosticJustification.value
+  });
+  if (!plan.goals.length) { approvalError.value = 'No goals were found in the generated plan.'; return; }
+  plan.title = isIntakeOutput.value ? 'Intake-generated Treatment Plan' : 'Updated Treatment Plan';
+  plan.sourceToolId = isIntakeOutput.value ? 'note_aid_intake_generated' : 'note_aid_generated_plan';
+  plan.aiGenerated = aiContentGenerated.value || (!!outputObj.value && !outputObj.value?.meta?.manualSections);
+  planDraftEditorId.value = null;
+  planDraftEditorMode.value = 'generated';
+  planDraftInitialPlan.value = plan;
+  planUpdaterRenewalReason.value = '';
+  planUpdaterProgressExcerpt.value = '';
+  showPlanImportReview.value = true;
 };
 
 const formatDateTime = (raw) => {
@@ -6636,6 +6666,13 @@ const resetClientClinicalContext = () => {
   treatmentPlanRenewalPolicy.value = { ...DEFAULT_RENEWAL_POLICY };
   latestTreatmentPlan.value = null;
   chartDiagnoses.value = [];
+  intakeDiagnosisRecommendations.value = [];
+  intakeDiagnosisAppliedFingerprint.value = '';
+  intakeAssessmentSnapshot.value = null;
+  showPlanImportReview.value = false;
+  planDraftInitialPlan.value = null;
+  planDraftEditorId.value = null;
+  planDraftEditorMode.value = 'import';
   chartObjectiveRatings.value = [];
   chartIntakeNotes.value = [];
   chartDiagnosticJustification.value = '';
@@ -6757,7 +6794,9 @@ const loadClientTreatmentPlan = async (clientId) => {
     const planJust = String(
       bestPlan?.diagnostic_justification || bestPlan?.diagnosticJustification || ''
     ).trim();
-    if (planJust) {
+    if (isIntakeOutput.value && intakeDiagnosisRecommendations.value.length) {
+      // Current intake recommendations take precedence while this note is being reviewed.
+    } else if (planJust) {
       chartDiagnosticJustification.value = planJust;
     } else if (primaryChartDiagnosis.value?.justification) {
       chartDiagnosticJustification.value = String(primaryChartDiagnosis.value.justification);
@@ -8499,6 +8538,7 @@ const loadDraftIntoWorkspace = async (d, options = {}) => {
   outputObj.value = null;
   beginWorkspaceHydration();
   try {
+  resetClientClinicalContext();
   viewingChartNote.value = null;
   clearSignedNoteViewer();
   draftId.value = d.id || null;
@@ -8640,6 +8680,20 @@ const loadDraftIntoWorkspace = async (d, options = {}) => {
   if (outputObj.value?.meta?.includeInteractiveComplexity != null) {
     includeInteractiveComplexity.value =
       !!outputObj.value.meta.includeInteractiveComplexity && aidAllowsInteractiveComplexity(aidHit?.aid || selectedAid.value);
+  }
+  const savedChart = savedMeta.structuredChart;
+  if (savedChart && Number(savedChart.clientId) === Number(effectiveClientId.value)) {
+    chartMentalStatus.value = savedChart.mentalStatusExam || defaultMentalStatusExam();
+    chartRiskAssessment.value = savedChart.riskAssessment || defaultRiskAssessment();
+    chartMedications.value = savedChart.medications || defaultMedicationsBlock();
+    chartDiagnosticJustification.value = savedChart.diagnosticJustification || '';
+    intakeDiagnosisRecommendations.value = savedChart.intakeDiagnoses || [];
+    intakeDiagnosisAppliedFingerprint.value = savedChart.intakeDiagnosisAppliedFingerprint || '';
+    intakeAssessmentSnapshot.value = savedChart.intakeAssessmentSnapshot || null;
+  } else {
+    await nextTick();
+    if (!isCurrentLoad()) return;
+    synchronizeIntakeFields();
   }
   // Restore session context (location / duration / times) persisted on the draft.
   const savedCtx = outputObj.value?.meta?.sessionContext;
@@ -9304,6 +9358,10 @@ watch(
     scheduleAutosave(600);
   }
 );
+
+watch([chartMentalStatus, chartRiskAssessment, chartMedications, chartDiagnosticJustification], () => {
+  if (!isWorkspaceHydrating()) scheduleAutosave(600);
+}, { deep: true });
 
 watch(
   [effectiveClientId, noteAidAgencyId, () => clientAgencyMembershipIds.value.join(',')],

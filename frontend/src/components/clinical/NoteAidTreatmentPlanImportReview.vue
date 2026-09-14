@@ -3,7 +3,7 @@
     <div class="na-modal na-modal--wide" role="dialog" aria-labelledby="na-plan-import-title">
       <header class="na-modal-head">
         <h3 id="na-plan-import-title">
-          {{ isUpdaterMode ? 'Update treatment plan' : (isDraftEditor ? 'Edit treatment plan draft' : 'Review imported treatment plan') }}
+          {{ props.mode === 'generated' ? 'Review generated treatment plan' : (isUpdaterMode ? 'Update treatment plan' : (isDraftEditor ? 'Edit treatment plan draft' : 'Review imported treatment plan')) }}
         </h3>
         <button type="button" class="na-link-btn" @click="emit('close')">Close</button>
       </header>
@@ -444,7 +444,7 @@ function reparseObjectiveScales(o) {
 
 function syncGoalCompletion(goal) {
   const months = Number(goal.durationMonths);
-  goal.projectedCompletion = completionDateFromDurationMonths(months) || null;
+  if (months > 0) goal.projectedCompletion = completionDateFromDurationMonths(months, model.value?.effectiveDate || todayIsoDate()) || null;
   goal.durationLabel = months >= 1 ? durationLabel(months) : null;
 }
 
@@ -868,7 +868,7 @@ watch(
     bulkDurationMonths.value = 0;
     rewriteKey.value = '';
     loadedPlanId.value = null;
-    aiContentUsed.value = false;
+    aiContentUsed.value = !!props.initialPlan?.aiGenerated;
     attestAiReviewed.value = false;
     if (isUpdaterMode.value || isDraftEditor.value) {
       void loadPlan().then(() => {
@@ -889,6 +889,7 @@ async function save({ finalize = true } = {}) {
   finalizing.value = !!finalize;
   error.value = '';
   try {
+    if (finalize && aiContentUsed.value && !attestAiReviewed.value) throw new Error('Review and confirm the generated plan before finalizing.');
     if (!String(model.value.effectiveDate || '').trim()) {
       model.value.effectiveDate = todayIsoDate();
     }
@@ -921,14 +922,14 @@ async function save({ finalize = true } = {}) {
     const res = await api.post('/medical-billing/treatment-plans', {
       agencyId: Number(props.agencyId),
       clientId: Number(props.clientId),
-      title: asDraft ? 'Treatment Plan Draft' : (isDraftEditor.value ? 'Treatment Plan' : 'Imported Treatment Plan'),
+      title: props.mode === 'generated' ? `${props.initialPlan?.title || 'Generated Treatment Plan'}${asDraft ? ' Draft' : ''}` : (asDraft ? 'Treatment Plan Draft' : (isDraftEditor.value ? 'Treatment Plan' : 'Imported Treatment Plan')),
       status: asDraft ? 'draft' : 'active',
       finalize: !asDraft,
       effectiveDate: model.value.effectiveDate || null,
       dischargePlan: model.value.dischargePlan || null,
       presentingProblem: model.value.presentingProblem || null,
       prescribedFrequency: model.value.prescribedFrequency || null,
-      sourceToolId: asDraft ? 'intake_packet_bootstrap' : 'note_aid_plan_import',
+      sourceToolId: props.mode === 'generated' ? (props.initialPlan?.sourceToolId || 'note_aid_generated_plan') : (asDraft ? 'intake_packet_bootstrap' : 'note_aid_plan_import'),
       icd10Code: primary?.icd10Code || null,
       diagnosisDescription: primary?.description || null,
       diagnosticJustification: String(model.value.diagnosticJustification || '').trim() || null,

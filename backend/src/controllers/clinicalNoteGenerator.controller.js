@@ -1,3 +1,4 @@
+import { ageAtServiceDate, intakeAgeInstruction, applyIntakeIdentifyingAge } from '../services/noteAidAge.service.js';
 import { parseNoteSections, intakeOutputError } from '../services/clinicalNoteSections.service.js';
 import pool from '../config/database.js';
 import User from '../models/User.model.js';
@@ -1271,9 +1272,11 @@ export const generateClinicalNote = async (req, res, next) => {
 
     // Scrub PHI (names, phones, DOB, etc.) before any Gemini prompt is built.
     let scrubExtraNames = [];
+    let encounterAge = null;
     if (clientId) {
       try {
         const clientRow = await Client.findById(clientId, { includeSensitive: false });
+        encounterAge = ageAtServiceDate(clientRow?.date_of_birth, dateOfService);
         scrubExtraNames = await collectClientPhiNames(clientRow || { id: clientId });
       } catch {
         scrubExtraNames = [];
@@ -1403,6 +1406,9 @@ export const generateClinicalNote = async (req, res, next) => {
       ].join('\n');
     }
 
+    const intakeTool = ['clinical_90791_intake_plan', 'clinical_90791_note_aid', 'clinical_h0031_intake'].includes(toolId);
+    if (intakeTool && encounterAge != null) prompt = [prompt, '', intakeAgeInstruction(encounterAge)].join('\n');
+
     const ATTACH_QUESTIONNAIRE_TOOLS = new Set([
       'clinical_90791_intake_plan',
       'clinical_h0031_intake',
@@ -1516,7 +1522,7 @@ export const generateClinicalNote = async (req, res, next) => {
       }
     }
     const sections = Object.keys(parsedSections).length
-      ? parsedSections
+      ? (intakeTool ? applyIntakeIdentifyingAge(parsedSections, encounterAge) : parsedSections)
       : { Output: String(text || '').trim() };
 
     const outputObj = {
@@ -1525,6 +1531,7 @@ export const generateClinicalNote = async (req, res, next) => {
         toolId,
         termination,
         terminationHistory: terminationHistory?.counts || null,
+        encounterAge: intakeTool ? encounterAge : null,
         sessionContext: { durationMinutes: Number(req.body?.durationMinutes) || null },
         billingPrimaryUnits: serviceCode === '90834' && Number(req.body?.durationMinutes) >= 75 ? 2 : 1,
         model: modelName,
