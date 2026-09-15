@@ -14,16 +14,52 @@ export function internalItscoPath(value) {
   if (ITSCO_PUBLIC_SECTIONS.some(s => pathname === (s ? `/${s}` : ''))) return `/p/itsco${path === '/' ? '' : path}`;
   return path;
 }
+export const PUBLIC_SITE_DOMAINS = {
+ 'nextleveluplcc.com': 'nlu',
+ 'plottwistco.com': 'ptco',
+ 'mentalrange.org': 'range',
+ 'mh4kidz.org': 'mh4kidz',
+ 'theinnerstrengthinstitute.com': 'tisi',
+ 'kimicain.com': 'kimi',
+ 'risereviveco.com': 'rise'
+};
+export function publicSiteSlug(host = '') {
+ const normalized = String(host).toLowerCase().split(':')[0].replace(/^www\./, '');
+ return PUBLIC_SITE_DOMAINS[normalized] || null;
+}
+export function publicSitePaths(host) {
+ if (isItscoPublicHost(host)) return {clean: cleanItscoPath, internal: internalItscoPath};
+ const slug = publicSiteSlug(host);
+ if (!slug) return null;
+ const prefix = `/p/${slug}`;
+ return {
+  clean(value) {
+   const path = String(value);
+   return path === prefix || path.startsWith(prefix + '/') || path.startsWith(prefix + '?') || path.startsWith(prefix + '#')
+    ? (path.slice(prefix.length).replace(/^([?#]|$)/, '/$1')) : path;
+  },
+  internal(value) {
+   const path = String(value);
+   const pathname = path.split(/[?#]/)[0];
+   // Only root and single-segment marketing pages are adapted. Enrollment,
+   // provider directories, API and cross-site /p links retain their routes.
+   if (pathname === '/' || pathname === '') return prefix + path.replace(/^\//, '');
+   if (/^\/[^/]+\/?$/.test(pathname) && !/^\/(login|app|logout|dashboard|support|join|intake|careers|api|uploads)(\/|$)/.test(pathname)) return prefix + path;
+   return path;
+  }
+ };
+}
 /** Keep route identity/params and analytics stable; expose clean URLs in browser and links. */
 export function publicDomainHistory(history, host) {
-  if (!isItscoPublicHost(host)) return history;
-  return {
-    ...history,
-    get location() { return internalItscoPath(history.location); },
-    get state() { return history.state; },
-    push(to, data) { history.push(cleanItscoPath(to), data); },
-    replace(to, data) { history.replace(cleanItscoPath(to), data); },
-    createHref(to) { return history.createHref(cleanItscoPath(to)); },
-    listen(callback) { return history.listen((to, from, info) => callback(internalItscoPath(to), internalItscoPath(from), info)); }
-  };
+ const paths = publicSitePaths(host);
+ if (!paths) return history;
+ return {
+  ...history,
+  get location() { return paths.internal(history.location); },
+  get state() { return history.state; },
+  push(to, data) { history.push(paths.clean(to), data); },
+  replace(to, data) { history.replace(paths.clean(to), data); },
+  createHref(to) { return history.createHref(paths.clean(to)); },
+  listen(callback) { return history.listen((to, from, info) => callback(paths.internal(to), paths.internal(from), info)); }
+ };
 }

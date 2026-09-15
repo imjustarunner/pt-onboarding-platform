@@ -77,3 +77,24 @@ server {
 }
 `);
 console.log('Prepared ITSCO public-domain HTML metadata, sitemap, and Nginx host configuration.');
+
+// Exact website hosts share the built app, with the public history adapter
+// selecting the existing marketing page before the login guard runs.
+const { PUBLIC_SITE_DOMAINS } = await import('../src/utils/publicDomainRouting.js');
+const publicServers = Object.entries(PUBLIC_SITE_DOMAINS).map(([domain, slug]) => `
+server {
+ listen 8080;
+ server_name ${domain} www.${domain};
+ root /usr/share/nginx/html;
+ location = /login { return 302 https://app.${domain}/login$is_args$args; }
+ location = /app { return 302 https://app.${domain}/login$is_args$args; }
+ location ~ ^/[^/]+/login$ { return 302 https://app.${domain}/login$is_args$args; }
+ location = /p/${slug} { return 301 /$is_args$args; }
+ location ~ ^/p/${slug}/(.*)$ { return 301 /$1$is_args$args; }
+ location ^~ /_public-sites/ { return 404; }
+ location ~ \\.nginx\\.conf$ { return 404; }
+ location ~* \\.(js|css|png|jpg|jpeg|gif|ico|svg|webp|woff|woff2|ttf|eot)$ { try_files $uri =404; }
+ location / { add_header Cache-Control "no-cache"; try_files $uri /index.html; }
+}
+`).join('\n');
+writeFileSync(`${dist}/itsco-public.nginx.conf`, readFileSync(`${dist}/itsco-public.nginx.conf`, 'utf8') + publicServers);

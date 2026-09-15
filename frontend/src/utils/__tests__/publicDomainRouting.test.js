@@ -61,3 +61,19 @@ describe('ITSCO public domain routing', () => {
   expect(itscoSitemap()).not.toContain('/p/');
  });
 });
+
+describe('organization website custom domains', () => {
+ it.each([['plottwistco.com','ptco'],['www.nextleveluplcc.com','nlu'],['mentalrange.org','range'],['mh4kidz.org','mh4kidz'],['kimicain.com','kimi'],['risereviveco.com','rise'],['theinnerstrengthinstitute.com','tisi']])('opens %s as its public page', async(host,slug)=>{
+  window.history.replaceState(null,'','/');
+  const history=publicDomainHistory(createWebHistory(),host);
+  const router=createRouter({history,routes:[{path:`/p/${slug}/:section?`,component:{}},{path:'/login',component:{}},{path:'/join/:agency/:service',component:{}}]});
+  await router.push(history.location);
+  expect(router.currentRoute.value.path).toBe(`/p/${slug}`);
+  expect(router.resolve(`/p/${slug}/about`).href).toBe('/about');
+  await router.push(`/p/${slug}/about?ref=test`);
+  expect(window.location.pathname).toBe('/about');
+  expect(history.location).toBe(`/p/${slug}/about?ref=test`);
+  expect(router.resolve('/join/nlu/counseling').href).toBe('/join/nlu/counseling');
+  history.destroy();
+ });
+});
