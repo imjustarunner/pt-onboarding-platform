@@ -1,3 +1,5 @@
+import {getPublicWebsiteIdentity} from './publicWebsiteIdentity.service.js';
+import { routePublicWebsiteTicket } from './publicWebsiteTicketRouting.service.js';
 import pool from '../config/database.js';
 import config from '../config/config.js';
 import Agency from '../models/Agency.model.js';
@@ -22,6 +24,8 @@ export const PUBLIC_SUPPORT_CATEGORIES = [
   { id: 'academic_acceleration', label: 'Next Level Academic Acceleration Program' },
   { id: 'bridge_program', label: 'Cognitive & Emotional Enrichment / Bridge Program' },
   { id: 'parent_access', label: 'Help with parent or guardian login' },
+  { id: 'school_partnership', label: 'School partnership' },
+  { id: 'provider', label: 'Finding a provider' },
   { id: 'intake_join', label: 'Questions about joining or intake' },
   { id: 'scheduling', label: 'Scheduling or appointments' },
   { id: 'billing', label: 'Billing or insurance questions' },
@@ -140,7 +144,10 @@ async function resolveAgency(slugOrId) {
   const slug = String(slugOrId || '').trim();
   if (!slug) return null;
   if (/^\d+$/.test(slug)) return Agency.findById(Number(slug));
-  return (await Agency.findByPortalUrl(slug)) || (await Agency.findBySlug(slug));
+  const direct = (await Agency.findByPortalUrl(slug)) || (await Agency.findBySlug(slug));
+  if (direct) return direct;
+  const site = await getPublicWebsiteIdentity(slug);
+  return site ? Agency.findById(site.support_agency_id) : null;
 }
 
 export function canEditPublicAgencySupport(user) {
@@ -240,7 +247,11 @@ function buildPublicConfig(agency, requestSlug = '') {
       es: resolveIntakeLegalFromTheme(agency.theme_settings, 'es')
     },
     officeCommunications: resolveOfficeCommunicationsFromTheme(agency.theme_settings),
-    categories: PUBLIC_SUPPORT_CATEGORIES.filter(category => slug === 'nlu' || !['academic_acceleration', 'bridge_program'].includes(category.id)),
+    categories: slug === 'itsco' ? [
+      {id:'intake_join',label:'Getting started with ITSCO'}, {id:'school_partnership',label:'School partnership'},
+      {id:'provider',label:'Finding a provider'}, {id:'billing',label:'Insurance and billing'},
+      {id:'careers',label:'Careers and our team'}, {id:'technical',label:'Website help'}
+    ] : PUBLIC_SUPPORT_CATEGORIES.filter(category => slug === 'nlu' || !['academic_acceleration', 'bridge_program'].includes(category.id)),
     phiWarning: PHI_WARNING,
     recaptchaSiteKey: String(config.recaptcha?.siteKey || process.env.RECAPTCHA_SITE_KEY || '').trim() || null,
     recaptchaRequired: recaptchaConfigured && config.nodeEnv === 'production'
@@ -254,7 +265,14 @@ export async function getPublicAgencySupportConfig(agencySlug) {
     err.status = 404;
     throw err;
   }
-  return buildPublicConfig(agency, agencySlug);
+  const result = buildPublicConfig(agency, agencySlug);
+  const site = await getPublicWebsiteIdentity(String(agencySlug));
+  if (site) result.agency = {...result.agency,name:site.name,logoUrl:site.logoUrl};
+  if (['ptco','range','mh4kidz','kimi','rise'].includes(agencySlug)) result.categories = [
+    {id:'intake_join',label:'Getting started'}, {id:'billing',label:'Billing question'},
+    {id:'school_partnership',label:'Partnership inquiry'}, {id:'technical',label:'Website help'}, {id:'other',label:'Something else'}
+  ];
+  return result;
 }
 
 export async function updatePublicAgencySupportSettings(agencySlug, payload = {}, user = null) {
@@ -399,7 +417,7 @@ export async function createPublicAgencySupportTicket(agencySlug, payload = {}, 
     err.status = 400;
     throw err;
   }
-  if (digitsOnly(phone).length < 7) {
+  if (phone && digitsOnly(phone).length < 7) {
     const err = new Error('Please leave a callback number.');
     err.status = 400;
     throw err;
@@ -495,6 +513,10 @@ export async function createPublicAgencySupportTicket(agencySlug, payload = {}, 
       throw e;
     }
   }
+
+  const site = await getPublicWebsiteIdentity(String(agencySlug));
+  if (site) await pool.execute('UPDATE support_tickets SET source_website_slug=? WHERE id=? AND agency_id=?',[site.slug,insertId,agency.id]);
+  await routePublicWebsiteTicket({agency,ticketId:insertId,subject,category});
 
   try {
     await notifyPublicSupportTicket({ agency, topic, subject, question, ticketId: insertId });

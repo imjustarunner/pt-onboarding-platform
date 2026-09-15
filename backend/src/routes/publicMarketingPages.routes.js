@@ -1,7 +1,7 @@
 import { publicCoachingCatalog } from '../services/publicCoachingCatalog.service.js';
 import express from 'express';
 import pool from '../config/database.js';
-import { publicPartnerSites } from '../content/publicPartnerSites.js';
+import { listPublicWebsiteIdentities } from '../services/publicWebsiteIdentity.service.js';
 import { publicBusinessOnboardingRouter } from './businessOnboarding.routes.js';
 import { publicGeocodeLimiter, publicMarketingPageMetricsLimiter } from '../middleware/rateLimiter.middleware.js';
 import {
@@ -27,9 +27,7 @@ router.get('/:slug/coaching-catalog', async (req,res,next)=>{try{
 // Only published company websites are exposed; event hubs and private tenants are excluded.
 router.get('/partners', publicMarketingPageMetricsLimiter, async (req, res, next) => {
   try {
-    const [rows] = await pool.execute("SELECT slug FROM public_marketing_pages WHERE is_active = 1 AND page_type IN ('marketing_hub','marketing_landing')");
-    const published = new Set(rows.map(row => row.slug));
-    res.set('Cache-Control', 'public, max-age=60').json({ partners: publicPartnerSites.filter(site => published.has(site.slug)) });
+    res.set('Cache-Control', 'public, max-age=60').json({partners:await listPublicWebsiteIdentities()});
   } catch (error) { next(error); }
 });
 router.post('/:slug/analytics/events', publicAnalyticsIngestLimiter, ingestPublicWebsiteAnalytics);

@@ -90,10 +90,11 @@
 
         <section v-if="section === 'contact'" class="rise-section"><div class="rise-wrap rise-contact-grid"><div><p class="rise-eyebrow">We’re here for your next chapter</p><h2>Connect with Us</h2><p>Use an available contact option below or visit the getting-started page for enrollment updates.</p>
           <div class="rise-contact-options"><a v-if="connections.contactUrl" class="rise-button" :href="connections.contactUrl" @click="guardPreview">Contact the team <RiseIcon name="arrow" /></a><a v-if="connections.emailHref" :href="connections.emailHref"><RiseIcon name="mail" />{{ connections.contactEmail }}</a><a v-if="connections.phoneHref" :href="connections.phoneHref"><RiseIcon name="chat" />{{ connections.contactPhone }}</a><p v-if="connections.contactAddress"><RiseIcon name="pin" />{{ connections.contactAddress }}</p></div>
-          <div v-if="!hasContact" class="rise-opening"><p>Our contact options will be published here as we prepare to open.</p></div><router-link class="rise-text-link" to="/p/rise/join">View enrollment information →</router-link><p v-if="previewNotice" role="status">{{ previewNotice }}</p></div><img class="rise-story-image" :src="riseAssets + 'in-person.webp'" alt="A welcoming path through a sunlit forest" width="1448" height="1086" loading="lazy" /></div></section>
+          <div v-if="!hasContact" class="rise-opening"><p>Send our support team a message using the form below.</p></div><router-link class="rise-text-link" to="/p/rise/join">View enrollment information →</router-link><p v-if="previewNotice" role="status">{{ previewNotice }}</p></div><img class="rise-story-image" :src="riseAssets + 'in-person.webp'" alt="A welcoming path through a sunlit forest" width="1448" height="1086" loading="lazy" /></div></section>
 
         <section v-if="['services', 'join', 'contact'].includes(section)" class="rise-section rise-soft"><div class="rise-wrap rise-faq-layout"><div><p class="rise-eyebrow">A clearer beginning</p><h2>A Few Common Questions</h2><p>Start with the information you need to feel prepared.</p></div><div class="rise-faq"><details v-for="[question, answer] in faqs" :key="question"><summary>{{ question }} <span aria-hidden="true">+</span></summary><p>{{ answer }}</p></details></div></div></section>
 
+<PublicWebsiteContactForm v-if="section==='contact'" agency-slug="rise" />
         <section class="rise-final" :style="finalStyle"><div class="rise-wrap"><p class="rise-eyebrow">Ready to take the next step?</p><h2>{{ section === 'about' ? 'Be Part of Something Meaningful' : 'Let’s Take the Next Step Together.' }}</h2><p>A healthier, more purposeful chapter starts with a little possibility.</p><div class="rise-actions"><router-link class="rise-button rise-button-light" to="/p/rise/join">Join us <RiseIcon name="arrow" /></router-link><router-link class="rise-button rise-button-white-outline" to="/p/rise/contact">Connect with us</router-link></div><div class="rise-final-values"><span><RiseIcon name="leaf" />Your goals</span><span><RiseIcon name="calendar" />Your pace</span><span><RiseIcon name="pin" />Your next chapter</span><span><RiseIcon name="screen" />In-person & virtual options</span></div></div></section>
       </template>
     </main>
@@ -106,6 +107,7 @@
 </template>
 
 <script setup>
+import PublicWebsiteContactForm from "../../components/public/PublicWebsiteContactForm.vue";
 import PublicResourcesMenu from "../../components/public/PublicResourcesMenu.vue";
 import PublicWebsiteProviderLinks from "../../components/public/PublicWebsiteProviderLinks.vue";
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';

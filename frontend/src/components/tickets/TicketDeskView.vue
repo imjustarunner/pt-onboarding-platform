@@ -142,6 +142,7 @@
             v-for="t in tickets"
             :key="t.id"
             class="ticket-row"
+            :style="websiteTicket(t) ? {borderLeft: `5px solid ${ticketAgencyColor(t)}`} : {}"
             :class="{ active: selectedId === t.id, 'ticket-row--billing': String(t.topic || '') === 'billing' }"
             @click="selectTicket(t)"
           >
@@ -152,6 +153,7 @@
                 {{ statusLabel(t) }}
               </span>
             </div>
+            <div v-if="websiteTicket(t)" class="website-ticket-brand"><img v-if="ticketAgencyLogo(t)" :src="ticketAgencyLogo(t)" alt="" />{{ t.website_name || t.agency_name || 'Website inquiry' }} · Website</div>
             <div class="subject">{{ t.subject || 'Support ticket' }}</div>
             <div class="preview">{{ previewText(t) }}</div>
             <div class="row-meta">
@@ -193,6 +195,7 @@
               ×
             </button>
             <div class="detail-title-block">
+              <div v-if="websiteTicket(selected)" class="website-ticket-brand" :style="{borderLeft: `5px solid ${ticketAgencyColor(selected)}`}"><img v-if="ticketAgencyLogo(selected)" :src="ticketAgencyLogo(selected)" alt="" />{{ selected.website_name || selected.agency_name }} · Website inquiry</div>
               <div class="detail-id">Ticket #{{ selected.id }}</div>
               <h3 class="detail-subject">{{ selected.subject || 'Client message' }}</h3>
               <div class="breadcrumb">
@@ -326,6 +329,10 @@
                 <div v-if="messagesLoading" class="muted pad">Loading conversation…</div>
                 <div v-else-if="messagesError" class="error pad">{{ messagesError }}</div>
                 <div v-else class="thread" ref="threadEl">
+                  <div v-if="originalInquiry" class="bubble">
+                    <div class="bubble-meta"><strong>{{ selected.source_email_from || 'Original inquiry' }}</strong><span>{{ formatDateTime(selected.created_at) }}</span></div>
+                    <div class="bubble-body">{{ originalInquiry }}</div>
+                  </div>
                   <div
                     v-for="m in messages"
                     :key="m.id"
@@ -355,7 +362,7 @@
                       <span class="attachment-name">{{ att.file_name || 'Attachment' }}</span>
                     </button>
                   </div>
-                  <div v-if="!messages.length && !ticketAttachments.length" class="muted pad">No messages yet.</div>
+                  <div v-if="!originalInquiry && !messages.length && !ticketAttachments.length" class="muted pad">No messages yet.</div>
                 </div>
               </template>
 
@@ -383,7 +390,12 @@
                     <span class="detail-value">{{ formatDateTime(selected.sent_at) }}</span>
                   </div>
                 </div>
-                <div v-else class="muted pad">No email details available for portal tickets.</div>
+                <div v-else class="detail-section">
+                  <div class="detail-row"><span class="detail-label">Source</span><span>{{ websiteTicket(selected) ? 'Public website' : sourceLabel(selected) }}</span></div>
+                  <div class="detail-row"><span class="detail-label">Organization</span><span>{{ selected.website_name || selected.agency_name || selected.school_name }}</span></div><div v-if="selected.source_website_url" class="detail-row"><span class="detail-label">Website</span><span>{{ selected.source_website_url }}</span></div>
+                  <div v-if="selected.source_email_from" class="detail-row"><span class="detail-label">Reply email</span><span>{{ selected.source_email_from }}</span></div>
+                  <div v-if="selected.question" class="bubble-body"><strong>Original inquiry</strong><p>{{ selected.question }}</p></div>
+                </div>
 
                 <div class="detail-section mt-12">
                   <div class="detail-row">
@@ -682,6 +694,7 @@
                   </span>
                   <span v-if="selected.sent_at" class="muted"> · sent {{ formatDateTime(selected.sent_at) }}</span>
                 </div>
+                <p v-if="websiteTicket(selected) && composerMode !== 'internal'" class="muted">Replies are emailed to {{ selected.source_email_from }}.</p>
                 <div v-if="visibleDraftSources.length && !generatingDraft" class="draft-sources">
                   <div class="draft-sources-label">Draft based on:</div>
                   <ul class="draft-sources-list">
@@ -1028,6 +1041,7 @@
 </template>
 
 <script setup>
+import { publicTicketOriginalInquiry, websiteTicket, ticketAgencyColor, ticketAgencyLogo } from '../../utils/publicTicketPresentation';
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import api from '../../services/api';
@@ -1545,6 +1559,7 @@ function messageAuthor(m) {
   return [m.author_first_name, m.author_last_name].filter(Boolean).join(' ') || m.author_role || 'User';
 }
 
+const originalInquiry = computed(() => publicTicketOriginalInquiry(selected.value, messages.value));
 function sourceLabel(t) {
   if (t?.source_channel) return String(t.source_channel);
   if (t?.created_by_source_key) return 'External';
@@ -2139,7 +2154,7 @@ async function sendMessage() {
   sending.value = true;
   try {
     const ticketId = selected.value.id;
-    await api.post(`/support-tickets/${selected.value.id}/messages`, {
+    const replyResult = await api.post(`/support-tickets/${selected.value.id}/messages`, {
       body: draft.value.trim(),
       isInternal: composerMode.value === 'internal'
     });
@@ -2148,6 +2163,7 @@ async function sendMessage() {
     await loadMessages(selected.value.id);
     await loadTickets();
     await loadMetrics();
+    if (replyResult.data?.emailReply?.sent === false) actionError.value = replyResult.data.emailReply.reason;
   } catch (e) {
     messagesError.value = e?.response?.data?.error?.message || e?.message || 'Send failed';
   } finally {
@@ -2424,7 +2440,7 @@ async function submitOfficialAnswer() {
     const answerFinal = draft.value.trim();
     let aiDraftDecision = null;
     if (draftText) aiDraftDecision = draftText === answerFinal ? 'accepted' : 'edited';
-    await api.post(`/support-tickets/${selected.value.id}/answer`, {
+    const replyResult = await api.post(`/support-tickets/${selected.value.id}/answer`, {
       answer: answerFinal,
       status: 'answered',
       aiDraftDecision,
@@ -2444,6 +2460,7 @@ async function submitOfficialAnswer() {
     await loadAll();
     await loadMessages(selected.value.id);
     await loadResponsePlan(selected.value.id);
+    if (replyResult.data?.emailReply?.sent === false) actionError.value = replyResult.data.emailReply.reason;
   } catch (e) {
     actionError.value = e?.response?.data?.error?.message || e?.message || 'Failed to submit answer';
   } finally {
@@ -2591,6 +2608,8 @@ defineExpose({ loadAll, clearSelection });
 </script>
 
 <style scoped>
+.website-ticket-brand{display:flex;align-items:center;gap:8px;font-size:13px;padding:5px 8px}.website-ticket-brand img{width:36px;height:30px;object-fit:contain;background:white;border-radius:4px}
+
 .ticket-desk {
   display: flex;
   flex-direction: column;

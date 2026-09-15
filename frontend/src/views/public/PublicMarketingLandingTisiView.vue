@@ -380,7 +380,8 @@
         </section>
       </main>
 
-      <footer id="contact" class="tisi-footer">
+      <PublicWebsiteContactForm v-if="hubSlug === 'tisi' && !previewPage" id="contact" agency-slug="tisi" />
+      <footer id="tisi-footer" class="tisi-footer">
         <div class="tisi-footer-inner">
           <div class="tisi-footer-brand">
             <img v-if="v.logoUrl" class="tisi-footer-mark" :src="v.logoUrl" alt="" />
@@ -471,6 +472,7 @@
 </template>
 
 <script setup>
+import PublicWebsiteContactForm from "../../components/public/PublicWebsiteContactForm.vue";
 import PublicResourcesMenu from "../../components/public/PublicResourcesMenu.vue";
 import PublicWebsiteProviderLinks from "../../components/public/PublicWebsiteProviderLinks.vue";
 import { computed, onMounted, ref, watch } from 'vue';

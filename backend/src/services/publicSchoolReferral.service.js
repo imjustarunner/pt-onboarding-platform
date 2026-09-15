@@ -1,3 +1,4 @@
+import { routePublicWebsiteTicket } from './publicWebsiteTicketRouting.service.js';
 import pool from '../config/database.js';
 import Agency from '../models/Agency.model.js';
 import OrganizationAffiliation from '../models/OrganizationAffiliation.model.js';
@@ -415,6 +416,8 @@ export async function createPublicSchoolReferralSupportTicket(agencySlug, payloa
       throw e;
     }
   }
+
+  await routePublicWebsiteTicket({agency,ticketId:insertId,subject});
 
   // Best-effort notify agency admins
   try {

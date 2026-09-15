@@ -56,6 +56,8 @@ export async function getItscoWebsiteData(req) {
   }
   const [people] = await pool.execute(`SELECT u.id, u.first_name, u.last_name, COALESCE(NULLIF(u.title, ''), ua.agency_position) AS title, u.credential, u.department,
       u.profile_photo_path, u.provider_school_info_blurb, u.languages_spoken, u.provider_accepting_new_clients, COALESCE(NULLIF(ua.agency_role, ''), u.role) AS role, u.in_office_available,
+      EXISTS (SELECT 1 FROM office_standing_assignments osa JOIN office_location_agencies ola ON ola.office_location_id=osa.office_location_id
+        WHERE osa.provider_id=u.id AND osa.is_active=1 AND ola.agency_id=ua.agency_id) AS has_office_assignment,
       EXISTS (SELECT 1 FROM provider_public_service_enrollments e JOIN agency_public_service_types st
         ON st.agency_id = e.agency_id AND st.service_type = e.service_type AND st.is_enabled = 1
         WHERE e.agency_id = ua.agency_id AND e.user_id = u.id AND e.is_active = 1 AND e.service_type = 'counseling') AS enrolled
@@ -68,7 +70,7 @@ export async function getItscoWebsiteData(req) {
     await Promise.all(people.slice(start, start + 5).map(async row => {
       const assignedIds = new Set(assignments.filter(a => Number(a.providerId) === Number(row.id)).map(a => Number(a.schoolId)));
       const assignedSchools = schools.filter(s => assignedIds.has(s.id));
-      const isProvider = assignedSchools.length > 0 || (row.enrolled && agency.public_availability_enabled);
+      const isProvider = assignedSchools.length > 0 || Boolean(row.enrolled);
       const isTeam = ['admin', 'super_admin', 'support', 'staff', 'cpa', 'clinical_practice_assistant', 'provider_plus'].includes(row.role);
       if (!isProvider && !isTeam) return;
       const profile = await ProviderPublicProfile.getForProvider({ providerUserId: row.id });
@@ -82,13 +84,14 @@ export async function getItscoWebsiteData(req) {
       let insurances = accepted.map(i => ({ name: i.name, logoUrl: i.logo_url || null }));
       for (const name of profile?.insurances || []) if (!insurances.some(i => i.name.toLowerCase() === name.toLowerCase())) insurances.push({ name });
       insurances = restrictPublicInsurances(insurances,row);
+      const office = Number(row.in_office_available) === 1 || Boolean(row.has_office_assignment) || (profile?.details?.sessionFormats || []).some(format => /in[ -]?person|in[ -]?office|office/i.test(format));
       const schoolOpenings=assignments.some(a=>Number(a.providerId)===Number(row.id)&&Number(a.slots_available)>0);
       providers.push({ ...person, specialties: uniquePublicFacets(facets.specialties), ageGroups: uniquePublicFacets(facets.ageGroups),
-        officeAcceptance:publicAcceptance({globalAccepting:person.acceptingNewClients,manual:profile?.details?.officeAvailability,assigned:Boolean(row.in_office_available)}),
+        officeAcceptance:publicAcceptance({globalAccepting:person.acceptingNewClients,manual:profile?.details?.officeAvailability,assigned:office}),
         schoolAcceptance:publicAcceptance({globalAccepting:person.acceptingNewClients,manual:profile?.details?.schoolAvailability,assigned:assignedSchools.length>0,hasOpenings:schoolOpenings}),
         modalities: facets.modalities || [], populations: facets.populations || [], insurances,
         schools: assignedSchools.map(s => ({ id: s.id, name: s.name, logoUrl: s.logoUrl, hasOpenings:assignments.some(a=>Number(a.providerId)===Number(row.id)&&Number(a.schoolId)===s.id&&Number(a.slots_available)>0) })),
-        office: Boolean(row.in_office_available), schoolOpenings: assignments.some(a => Number(a.providerId) === Number(row.id) && Number(a.slots_available) > 0),
+        office, schoolOpenings: assignments.some(a => Number(a.providerId) === Number(row.id) && Number(a.slots_available) > 0),
         onlineScheduling: Boolean(row.enrolled && agency.public_availability_enabled) });
     }));
   }

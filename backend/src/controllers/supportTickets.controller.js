@@ -1,3 +1,4 @@
+import {sendWebsiteTicketReply} from '../services/publicWebsiteTicketReply.service.js';
 import pool from '../config/database.js';
 import User from '../models/User.model.js';
 import Agency from '../models/Agency.model.js';
@@ -1211,7 +1212,8 @@ export const listSupportTicketsQueue = async (req, res, next) => {
              cl.first_name AS claimed_by_first_name,
              cl.last_name AS claimed_by_last_name,
              s.name AS school_name,
-             a.name AS agency_name,
+             a.name AS agency_name, a.logo_url AS agency_logo_url, a.logo_path AS agency_logo_path, a.color_palette AS agency_color_palette, a.slug AS agency_slug,
+             ws.name AS website_name, ws.website_url AS source_website_url, ws.logo_url AS website_logo_url, ws.accent_color AS website_color,
              c.initials AS client_initials,
              c.identifier_code AS client_identifier_code
       FROM support_tickets t
@@ -1221,6 +1223,7 @@ export const listSupportTicketsQueue = async (req, res, next) => {
       LEFT JOIN users cl ON cl.id = t.claimed_by_user_id
       LEFT JOIN agencies s ON s.id = t.school_organization_id
       LEFT JOIN agencies a ON a.id = t.agency_id
+      LEFT JOIN public_website_support_sites ws ON ws.slug = t.source_website_slug
       LEFT JOIN clients c ON c.id = t.client_id
       ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
       ORDER BY
@@ -2291,6 +2294,7 @@ export const listSupportTicketMessages = async (req, res, next) => {
     res.json({
       ticket: enrichTicketForClient(ticket),
       messages: normalized,
+      emailReply: res.locals.websiteEmailReply || null,
       attachments
     });
   } catch (e) {
@@ -2439,6 +2443,11 @@ export const createSupportTicketMessage = async (req, res, next) => {
       } catch {
         // ignore
       }
+    }
+
+    if (ticket.source_channel === 'public_web') {
+      if (!wantInternal) res.locals.websiteEmailReply = await sendWebsiteTicketReply(ticket, body);
+      return await listSupportTicketMessages(req, res, next);
     }
 
     // Best-effort: email other side of the thread (school staff <-> agency team).
@@ -3140,6 +3149,7 @@ export const answerSupportTicket = async (req, res, next) => {
     // For inbound email tickets, send the approved answer from schoolreply@ (or proposedReplyFrom).
     let emailReply = null;
     const sendEmailReply = req.body?.sendEmailReply !== false && req.body?.sendEmailReply !== 0 && req.body?.sendEmailReply !== '0';
+    if (sendEmailReply && ticket.source_channel === 'public_web') emailReply = await sendWebsiteTicketReply(ticket, answer);
     if (sendEmailReply && String(ticket.source_channel || '').toLowerCase() === 'email' && ticket.source_email_from) {
       try {
         let meta = null;

@@ -1994,6 +1994,8 @@
       </main>
       <PublicTranslateWidget v-if="showPublicTranslateWidget" />
       <PublicWebsiteAnalytics v-if="route.meta?.publicMarketingHub" />
+      <PublicWebsiteChat v-if="route.meta?.publicMarketingHub && !isAuthenticated" />
+      <WebsiteChatDesk v-if="isAuthenticated && ['admin','support','super_admin'].includes(String(user?.role||'').toLowerCase()) && !route.meta?.publicMarketingHub && !hideGlobalNavForSchoolStaff" />
       <MomentumStickiesOverlay v-if="showMomentumStickiesShell" />
       <AddStickyFab v-if="showMomentumStickiesShell" />
       <AddToStickyContextMenu v-if="showMomentumStickiesShell" />
@@ -2404,6 +2406,8 @@ import { getStatusPromptMode, subscribeStatusPrompt } from './utils/statusPrompt
 import RegistrationPromoToastRail from './components/RegistrationPromoToastRail.vue';
 import TimeCapsuleRevealSplashModal from './components/hiring/TimeCapsuleRevealSplashModal.vue';
 import PublicTranslateWidget from './components/public/PublicTranslateWidget.vue';
+import PublicWebsiteChat from './components/public/PublicWebsiteChat.vue';
+import WebsiteChatDesk from './components/tickets/WebsiteChatDesk.vue';
 import PublicWebsiteAnalytics from './components/public/PublicWebsiteAnalytics.vue';
 import {
   shouldShowPublicTranslate,

@@ -25,11 +25,13 @@
     <section v-if="!['donate','join','contact'].includes(section)" class="mh-section"><div class="mh-wrap mh-two"><article class="mh-involvement" :style="{'--mh-image':`url(${asset('impact')})`}"><div><h2>Be part of<br/>something bigger.</h2><p>Help create more opportunities for kids to connect and grow.</p><router-link class="mh-button" :to="path('donate')">Support our mission →</router-link></div></article><article class="mh-involvement" :style="{'--mh-image':`url(${asset('teamwork')})`}"><div><h2>Join the movement.</h2><p>Volunteer, partner, or help share the mission.</p><router-link class="mh-button mh-outline" :to="path('involved')">Get involved →</router-link></div></article></div></section>
     <section v-if="section||safe(settings.ctaImageUrl)" class="mh-final" :style="{'--mh-banner':`url(${JSON.stringify(safe(settings.ctaImageUrl)||asset('about'))})`}"><div class="mh-wrap"><h2>Stronger kids. Brighter tomorrows.</h2><p>More connection. More opportunity. A place to belong.</p><router-link class="mh-button" :to="path('programs')">Explore our programs →</router-link></div></section>
    </template>
-  </main>
+  <PublicWebsiteContactForm v-if="section==='contact'" agency-slug="mh4kidz" />
+</main>
   <footer class="mh-footer"><div class="mh-wrap"><div class="mh-footer-top"><router-link :to="path('')"><img :src="safe(settings.footerLogoUrl)||asset('logo-white')" alt="MH4Kidz"/></router-link><nav aria-label="Footer"><router-link v-for="[label,slug] in nav" :key="slug" :to="path(slug)">{{label}}</router-link></nav><p class="mh-scribble">Kids today.<br/>Brighter tomorrows.</p></div><div class="mh-footer-bottom"><small>© {{new Date().getFullYear()}} MH4Kidz.</small><nav aria-label="Legal"><router-link :to="path('privacy')">Privacy</router-link><router-link :to="path('terms')">Terms</router-link><router-link :to="path('contact')">Contact</router-link></nav></div></div></footer>
  </div>
 </template>
 <script setup>
+import PublicWebsiteContactForm from "../../components/public/PublicWebsiteContactForm.vue";
 import PublicResourcesMenu from "../../components/public/PublicResourcesMenu.vue";
 import PublicWebsiteProviderLinks from "../../components/public/PublicWebsiteProviderLinks.vue";
 import DOMPurify from 'dompurify';

@@ -1,3 +1,4 @@
+import {publicRouter as publicWebsiteChatRoutes,staffRouter as websiteChatStaffRoutes} from './routes/publicWebsiteChat.routes.js';
 import {redactPrivateBillingUrl} from './utils/sanitizeRequest.js';
 import familyLedgerRoutes from './routes/familyLedger.routes.js';
 import express from 'express';
@@ -746,6 +747,8 @@ app.use('/api/admin-updates', adminUpdateMeRoutes);
 app.use('/api/public/mental-range', rangePublicRouter);
 app.use('/api/platform/mental-range', rangeAdminRouter);
 app.use('/api/public/marketing-pages', publicMarketingPagesRoutes);
+app.use('/api/public/website-chat', publicWebsiteChatRoutes);
+app.use('/api/website-chat', websiteChatStaffRoutes);
 app.use('/api/website-analytics', publicWebsiteAnalyticsRoutes);
 app.use('/api/public/translations', publicTranslationsRoutes);
 app.use('/api/public/hiring/reference', publicHiringReferenceRoutes);
