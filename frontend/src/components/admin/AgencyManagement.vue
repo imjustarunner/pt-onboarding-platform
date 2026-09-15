@@ -248,12 +248,12 @@
         </div>
         
         <!-- Tab Navigation -->
-        <nav v-if="workspaceMode" class="workspace-settings-navigation" aria-label="Business settings">
+        <nav v-if="workspaceMode && !singleSection" class="workspace-settings-navigation" aria-label="Business settings">
           <label>Find a business setting<input v-model="workspaceSearch" type="search" placeholder="Contact, branding, notifications…"></label>
           <div class="workspace-settings-groups"><section v-for="group in workspaceTabGroups" :key="group.title"><h4>{{ group.title }}</h4><div><button v-for="tab in group.tabs" :key="tab.id" type="button" :aria-pressed="activeTab === tab.id" @click="goToAgencyTab(tab.id)">{{ tab.label }}</button></div></section></div>
           <p v-if="!workspaceTabGroups.length">No business settings match your search.</p>
         </nav>
-        <div v-else class="modal-tabs">
+        <div v-else-if="!singleSection" class="modal-tabs">
           <button
             v-for="t in visibleEditorTabs"
             :key="`tab-${t.id}`"
@@ -1170,7 +1170,7 @@
             style="padding: 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg-alt);"
           >
             <template v-if="activeTab === 'features'">
-            <div class="settings-migration-banner" role="note">
+            <div v-if="!singleSection" class="settings-migration-banner" role="note">
               <p>
                 <strong>Preferred:</strong> Tenant home → <strong>Features</strong> for enablement, pricing, and
                 a-la-carte controls.
@@ -4294,6 +4294,7 @@ const organizationSlug = computed(() => {
 
 const props = defineProps({
   workspaceMode: { type: Boolean, default: false },
+  singleSection: { type: Boolean, default: false },
   // Embedded single-organization mode (used by School Portal settings).
   // When set, the UI loads and opens ONLY this organization (no left list).
   embeddedOrgId: { type: [Number, String], default: null },
@@ -4723,7 +4724,7 @@ const tabAvailable = (tabId) => {
 };
 
 const workspaceSearch = ref('');
-const visibleEditorTabs = computed(() => EDITOR_TAB_DEFS.filter((x) => tabAvailable(x.id)));
+const visibleEditorTabs = computed(() => EDITOR_TAB_DEFS.filter((x) => tabAvailable(x.id) && (!props.workspaceMode || props.singleSection || !['features', 'payroll'].includes(x.id))));
 
 const workspaceTabGroups = computed(() => [
   { title: 'Business identity', ids: ['general','contact','address','sites'] },

@@ -100,7 +100,7 @@
               Platform mode — tenant-scoped items will ask you to select a tenant first.
             </p>
             <p v-else-if="!agencyStore.currentAgency" class="tenant-picker-hint muted">
-              Select {{ isSuperAdmin ? 'a tenant' : 'an organization' }} below for Company Profile, billing, and other {{ contextNoun }} settings.
+              Select {{ isSuperAdmin ? 'a tenant' : 'an organization' }} below for its business journey, settings, and billing.
             </p>
           </div>
           <div v-if="showTenantPickerShell && isSuperAdmin && !platformSettingsCardHubActive" class="tenant-mode-toggle-row" role="group" aria-label="Workspace mode">
@@ -226,7 +226,7 @@
                   {{ hit.agencyTab ? hit.pathLabel : hit.description }}
                 </span>
               </span>
-              <span class="settings-search-option-cat">{{ hit.agencyTab ? 'Company profile' : hit.categoryLabel }}</span>
+              <span class="settings-search-option-cat">{{ hit.itemId === 'business-details' ? 'Business details' : hit.categoryLabel }}</span>
             </button>
           </div>
           <p
@@ -328,7 +328,7 @@
                   Super Admin accounts must select which tenant to manage for tenant-scoped settings.
                 </small>
                 <small v-else-if="isChallengeManagement && selectableAgencies.length === 0" class="agency-context-help">
-                  No Learning or Affiliation organizations found. Create one in Company Profile first.
+                  No Learning or Affiliation organizations found. Add one in Organizations first.
                 </small>
               </div>
             </div>
@@ -343,6 +343,7 @@
 
             <component
               v-else
+              ref="settingsContentRef"
               :is="selectedComponent"
               v-bind="componentProps"
               :key="`${selectedCategory}-${selectedItem}-${route.query.agencyTab || ''}`"
@@ -379,6 +380,8 @@ import {
 // Import all existing components
 import AgencyManagement from './AgencyManagement.vue';
 import CompanyWorkspace from './CompanyWorkspace.vue';
+import BusinessJourney from './BusinessJourney.vue';
+import { normalizeSettingsDestination } from '../../navigation/settingsDestinations';
 import BusinessOnboardingReview from './BusinessOnboardingReview.vue';
 import { isRootTenant } from '../../navigation/organizationKinds';
 import AgencyManagementTeamConfig from './AgencyManagementTeamConfig.vue';
@@ -476,6 +479,8 @@ const isTruthyFlag = (v) => {
 };
 
 const selectedCategory = ref(null);
+const settingsContentRef = ref(null);
+const prepareSettingsNavigation = async () => (await settingsContentRef.value?.beforeNavigate?.()) !== false;
 const selectedItem = ref(null);
 const selectedAgencyId = ref(agencyStore.currentAgency?.id ? String(agencyStore.currentAgency.id) : '');
 const tenantPickerSearch = ref('');
@@ -615,14 +620,16 @@ const allCategories = [
     label: 'GENERAL',
     items: [
       {
-        id: 'company-profile',
-        label: 'Company workspace',
+        id: 'business-details',
+        label: 'Business details',
         icon: '🏢',
         component: 'CompanyWorkspace',
         roles: ['super_admin', 'admin'],
         excludeRoles: ['support', 'clinical_practice_assistant'],
         excludeSupervisor: true
       },
+      { id: 'business-journey', label: 'Business journey', icon: '🧭', component: 'BusinessJourney', roles: ['super_admin', 'admin'], excludeSupervisor: true, requiresAgency: true },
+      { id: 'business-commercial', label: 'Agreement & pricing', icon: '🧾', component: 'BusinessJourney', roles: ['super_admin', 'admin'], excludeSupervisor: true, requiresAgency: true, props: { commercialOnly: true } },
       {
         id: 'booking-service-types',
         label: 'Booking & service types',
@@ -1259,7 +1266,7 @@ const HUB_CARD_DESC = computed(() => ({
   'provider-scheduling': `Scheduling templates and rules — ${contextNoun.value}-scoped.`,
   'availability-intake': `Provider availability and intake — agency ${contextPlural.value}.`,
   'shift-programs': `Shift programs and publishing — needs ${contextNoun.value} + feature flag.`,
-  'payroll-schedule': `Pay schedules and payroll policies (PTO, mileage, Med Cancel, holidays) — preferred over Company Profile → Payroll.`,
+  'payroll-schedule': `Pay schedules and payroll policies (PTO, mileage, Med Cancel, holidays).`,
   departments: `Org departments — ${contextNoun.value} with budget management.`,
   'hiring-prehire': `Hiring and pre-hire setup — requires Onboarding & Training.`,
   packages: `Onboarding packages — requires Onboarding & Training for this ${contextNoun.value}.`,
@@ -1441,8 +1448,8 @@ function jumpToSettingsHit(hit) {
   closeSettingsSearch();
   const agencyTab = hit.agencyTab || null;
   // Company Profile nested jumps need a tenant when possible.
-  if (hit.itemId === 'company-profile' && agencyStore.currentAgency?.id) {
-    openTenantHubArea({ category: 'general', item: 'company-profile', agencyTab });
+  if (hit.itemId === 'business-details' && agencyStore.currentAgency?.id) {
+    openTenantHubArea({ category: 'general', item: 'business-details', agencyTab });
     return;
   }
   if (platformSettingsCardHubActive.value) {
@@ -1480,6 +1487,7 @@ const platformHubDrillInActive = computed(() => {
 const componentMap = {
   AgencyManagement,
   CompanyWorkspace,
+  BusinessJourney,
   BusinessOnboardingReview,
   AgencyPlatformManagement,
   SuperadminTenantHub,
@@ -1614,7 +1622,7 @@ const componentProps = computed(() => {
       organizationDirectoryTenantId: tid != null && tid !== '' ? tid : null
     });
   }
-  if (selectedCategory.value === 'general' && selectedItem.value === 'company-profile') {
+  if (selectedCategory.value === 'general' && selectedItem.value === 'business-details') {
     const agencyId =
       tenantSettingsCardHubActive.value && agencyStore.currentAgency?.id
         ? String(agencyStore.currentAgency.id)
@@ -1890,6 +1898,7 @@ const navigateToTenantWorkspaceAfterPick = () => {
 
 const selectTenantFromPicker = async (a) => {
   if (!a?.id) return;
+  if (!(await prepareSettingsNavigation())) return;
   const pickId = Number(a.id);
   let org = a;
   if (isSuperAdmin.value) {
@@ -1956,7 +1965,8 @@ const selectTenantFromPicker = async (a) => {
   navigateToTenantWorkspaceAfterPick();
 };
 
-const enterPlatformToolsOnly = ({ item = 'platform-ws-home' } = {}) => {
+const enterPlatformToolsOnly = async ({ item = 'platform-ws-home' } = {}) => {
+  if (!(await prepareSettingsNavigation())) return;
   const shouldHardNavigate =
     showTenantContextUi.value &&
     !props.disableRouteSync &&
@@ -2007,6 +2017,7 @@ const applySelectedAgencyFromIdString = async (raw) => {
 };
 
 const handleAgencySelection = async () => {
+  if (!(await prepareSettingsNavigation())) { selectedAgencyId.value = String(agencyStore.currentAgency?.id || ''); return; }
   await applySelectedAgencyFromIdString(selectedAgencyId.value);
   if (!props.disableRouteSync && showTenantContextUi.value && (isSuperAdmin.value || showTenantPickerShell.value)) {
     syncAgencyIdToRoute();
@@ -2030,7 +2041,8 @@ const buildSettingsReplaceQuery = (categoryId, itemId, { agencyTab = null } = {}
   return q;
 };
 
-const selectItem = (categoryId, itemId, { agencyTab = null } = {}) => {
+const selectItem = async (categoryId, itemId, { agencyTab = null } = {}) => {
+  if (!(await prepareSettingsNavigation())) return;
   // Two-phase update: clear first, then set new selection on next tick.
   // Avoids Vue patch race (emitsOptions / __vnode errors when switching dynamic components).
   const prevCategory = selectedCategory.value;
@@ -2091,6 +2103,9 @@ const trySetSelection = (categoryId, itemId, { deepLink = false } = {}) => {
 
 const resolveSelection = (categoryId, itemId, { deepLink = false } = {}) => {
   if (!itemId) return false;
+  const destination = normalizeSettingsDestination({ category: categoryId, item: itemId, agencyTab: route.query.agencyTab });
+  categoryId = destination.category;
+  itemId = destination.item;
   const resolvedCategory = categoryId || findCategoryIdForItem(itemId);
   if (resolvedCategory && trySetSelection(resolvedCategory, itemId, { deepLink })) return true;
   return false;
@@ -2116,7 +2131,8 @@ const applyDefaultSelection = () => {
   }
 };
 
-const openTenantHubArea = ({ category, item, agencyTab }) => {
+const openTenantHubArea = async ({ category, item, agencyTab }) => {
+  if (!(await prepareSettingsNavigation())) return;
   const id = agencyStore.currentAgency?.id;
   if (!id) return;
   const q = { ...route.query, category, item, agencyId: String(id) };
@@ -2129,7 +2145,8 @@ const openTenantHubArea = ({ category, item, agencyTab }) => {
 };
 
 /** Platform hub navigation: no tenant in context — clear agencyId from the URL when jumping between areas. */
-const openPlatformHubArea = ({ category, item, agencyTab }) => {
+const openPlatformHubArea = async ({ category, item, agencyTab }) => {
+  if (!(await prepareSettingsNavigation())) return;
   const q = { ...route.query, category, item };
   delete q.agencyId;
   if (agencyTab) q.agencyTab = agencyTab;
@@ -2140,7 +2157,8 @@ const openPlatformHubArea = ({ category, item, agencyTab }) => {
   selectItem(category, item, { agencyTab: agencyTab || null });
 };
 
-const closeModal = () => {
+const closeModal = async () => {
+  if (!(await prepareSettingsNavigation())) return;
   router.push('/admin');
 };
 
@@ -2358,7 +2376,7 @@ watch(
 
 // Map settings item IDs to platform branding icon field names
 const settingsIconMap = {
-  'company-profile': { idField: 'company_profile_icon_id', pathField: 'company_profile_icon_path' },
+  'business-details': { idField: 'company_profile_icon_id', pathField: 'company_profile_icon_path' },
   'team-roles': { idField: 'team_roles_icon_id', pathField: 'team_roles_icon_path' },
   'billing': { idField: 'billing_icon_id', pathField: 'billing_icon_path' },
   'packages': { idField: 'packages_icon_id', pathField: 'packages_icon_path' },

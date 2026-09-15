@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import bcrypt from 'bcrypt';
 import { encryptIntakePayload, decryptIntakePayload } from './intakeResponsesEncryption.service.js';
+import { assertBusinessReadyForInvitation, BusinessLifecycleError } from './businessLifecyclePolicy.js';
 
 export class BusinessOnboardingError extends Error {
   constructor(status, message) { super(message); this.status = status; }
@@ -42,6 +43,11 @@ const payload = row => {
   return envelope.business;
 };
 const publicRow = row => ({id:row.id,status:row.status,createdAt:row.created_at,approvedSlug:row.approved_slug,agencyId:row.agency_id,...payload(row)});
+async function checkInvitationReadiness(db, requestId) {
+  const [[lifecycle]] = await db.execute('SELECT state_json FROM business_lifecycles WHERE request_id=?', [requestId]);
+  try { assertBusinessReadyForInvitation(typeof lifecycle?.state_json === 'string' ? JSON.parse(lifecycle.state_json) : lifecycle?.state_json); }
+  catch (error) { if (error instanceof BusinessLifecycleError) fail(error.status, error.message); throw error; }
+}
 
 // Dependencies are supplied by the route; tests can exercise transaction boundaries without live data.
 export function createBusinessOnboardingService({pool, resolveActiveStatus}) {
@@ -76,6 +82,7 @@ export function createBusinessOnboardingService({pool, resolveActiveStatus}) {
       return transaction(async db=>{
         const [[row]]=await db.execute('SELECT * FROM business_onboarding_requests WHERE id=? FOR UPDATE',[id]);
         if(!row || !['submitted','approved'].includes(row.status)) fail(409,'Only submitted or approved requests can receive an invitation.');
+        await checkInvitationReadiness(db, id);
         const business=payload(row);
         const [[existing]]=await db.execute('SELECT id FROM users WHERE LOWER(email)=? OR LOWER(username)=? LIMIT 1',[business.email,business.email]);
         if(existing) fail(409,'This owner already has an account. Use the existing account and tenant membership tools; no role will be changed here.');
@@ -100,6 +107,7 @@ export function createBusinessOnboardingService({pool, resolveActiveStatus}) {
       const passwordHash=await bcrypt.hash(password,12),status=await resolveActiveStatus();
       return transaction(async db=>{
         const row=await findInvite(db,token,true),b=payload(row);
+        await checkInvitationReadiness(db, row.id);
         const [[existing]]=await db.execute('SELECT id FROM users WHERE LOWER(email)=? OR LOWER(username)=? LIMIT 1',[b.email,b.email]);
         if(existing) fail(409,'An account already exists for this email. Contact Plot Twist Co. to connect your existing account.');
         const slug=validateBusinessSlug(row.approved_slug);
@@ -112,8 +120,9 @@ export function createBusinessOnboardingService({pool, resolveActiveStatus}) {
         await db.execute('INSERT INTO user_agencies (user_id,agency_id,is_active) VALUES (?,?,TRUE)',[owner.insertId,agency.insertId]);
         await db.execute('UPDATE agencies SET account_owner_user_id=? WHERE id=?',[owner.insertId,agency.insertId]);
         await db.execute("UPDATE business_onboarding_requests SET status='activated',agency_id=?,owner_user_id=?,invite_hash=NULL,invite_expires_at=NULL WHERE id=?",[agency.insertId,owner.insertId,row.id]);
+        await db.execute('UPDATE business_lifecycles SET agency_id=? WHERE request_id=?', [agency.insertId, row.id]);
         await event(db,row.id,'workspace_activated',owner.insertId);
-        return {slug,agencyId:agency.insertId,loginPath:`/${slug}/login`,setupPath:`/${slug}/admin/settings?category=general&item=company-profile&agencyId=${agency.insertId}`};
+        return {slug,agencyId:agency.insertId,loginPath:`/${slug}/login`,setupPath:`/${slug}/admin/settings?category=general&item=business-journey&agencyId=${agency.insertId}`};
       });
     }
   };

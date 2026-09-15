@@ -4,14 +4,15 @@
  *
  * Covers:
  * 1) Standalone settings screens (role-filtered catalog items)
- * 2) Company Profile tabs + inner sections still mid-migration out of AgencyManagement
- *
- * Prefer dedicated destinations when both a standalone screen and a Company Profile
- * tab match — migration is incomplete, so both stay discoverable.
+ * 2) Business details and organization preferences, including legacy search aliases.
+ * All destinations resolve into the unified Settings navigation.
  */
 
 /** Preferred hub/card labels when they differ from the sidebar item label. */
 export const SETTINGS_DISPLAY_LABELS = {
+  'business-journey': 'Business journey',
+  'business-commercial': 'Agreement & pricing',
+  'business-details': 'Business details',
   'platform-settings': 'Platform defaults',
   'platform-billing': 'Platform billing',
   'platform-feature-catalog': 'Feature Catalog & Pricing',
@@ -30,8 +31,11 @@ export const SETTINGS_DISPLAY_LABELS = {
 
 /** Short descriptions used for search + hub cards. */
 export const SETTINGS_SEARCH_DESCRIPTIONS = {
+  'business-journey': 'Step-by-step interview, agreement, setup, onboarding, training, launch, management, organizational interventions, and exit.',
+  'business-commercial': 'Signed management terms, services, à-la-carte prices, revenue share, revenue reconciliation, and final service month.',
+  'business-details': 'Business identity, contact information, address, sites, branding, notifications, and preferences.',
   'platform-settings':
-    'Feature visibility grid, school portal icons, and other settings that shape what tenants see in Company Profile.',
+    'Feature visibility, school portal icons, and organization settings available to companies.',
   'platform-billing':
     'Stripe and QuickBooks readiness for tenants that should pay the platform through your merchant account.',
   'platform-feature-catalog':
@@ -39,19 +43,19 @@ export const SETTINGS_SEARCH_DESCRIPTIONS = {
   'platform-feature-audit':
     'Every tenant- and user-level enable/disable event with actor, timestamp, and notes.',
   'platform-all-agencies':
-    'Full directory of tenants and orgs: search, create agencies, jump into any company profile.',
+    'Directory of companies and affiliated organizations: search, create, and open their settings.',
   'audit-center': 'Review activity and access trails across the platform where enabled.',
   'viewport-preview': 'Device framing and preview defaults for portal experiences.',
   'company-profile':
-    'Company setup step 1 — name, contact, address, sites, notifications, announcements, and other identity settings still managed here while we finish extracting dedicated screens.',
-  'team-roles': 'Company setup step 4 — who can access which areas inside a tenant.',
-  billing: 'Company setup step 5 — charges, invoices, receipts, payment methods, and billing history per tenant.',
+    'Business identity, contact information, addresses, sites, and communication preferences.',
+  'team-roles': 'Who can access which areas of the company workspace.',
+  billing: 'Charges, invoices, receipts, payment methods, and company billing history.',
   'tenant-features':
-    'Company setup step 3 — dedicated feature matrix for enablement, pricing, and a-la-carte controls (preferred over the legacy Company Profile → Features tab).',
+    'App capabilities, prices, à-la-carte selections, and organization feature preferences.',
   'tenant-overview': 'Feature matrix, visibility overrides, billing snapshot, invoices.',
   'agency-platform': 'Slug, active status, affiliation, superadmin-managed flags.',
   'booking-service-types':
-    'Company setup step 2 — which verticals this tenant sells (counseling, tutoring, coaching, consulting). Moved out of Company Profile Features.',
+    'Services the company sells, including counseling, tutoring, coaching, and consulting.',
   'tenant-ws-org-directory': 'Organizations, affiliations, programs, and schools for this tenant.',
   'tenant-ws-global-platform': 'Platform-wide defaults that apply until a tenant overrides them.',
   'client-settings': 'Programs, paths, and client catalog for this tenant.',
@@ -61,9 +65,9 @@ export const SETTINGS_SEARCH_DESCRIPTIONS = {
   'availability-intake': 'Provider availability and intake.',
   'shift-programs': 'Shift programs and publishing.',
   'payroll-schedule':
-    'Pay & workforce — pay schedules plus payroll policies (PTO, mileage, Med Cancel, holidays). Preferred over Company Profile → Payroll.',
+    'Pay schedules and payroll policies: PTO, mileage, Med Cancel, and holidays.',
   departments: 'Pay & workforce — org departments with budget management.',
-  'hiring-prehire': 'Pay & workforce — hiring and pre-hire setup (dedicated; not a Company Profile tab).',
+  'hiring-prehire': 'Hiring and pre-hire setup for the company workforce.',
   packages: 'Onboarding packages.',
   'digital-forms': 'Intake and digital form links.',
   'challenge-management': 'Seasons and challenges — Learning or Affiliation orgs.',
@@ -71,7 +75,7 @@ export const SETTINGS_SEARCH_DESCRIPTIONS = {
   'checklist-items-agency': 'Tenant checklist assignments.',
   'field-definitions': 'Platform-wide profile field catalog (superadmin).',
   'field-definitions-agency': 'Tenant profile field assignments.',
-  'branding-config': 'Dedicated branding configuration (colors, fonts, logos, dashboard icons, school portal card icons). Company Profile still has Branding / Theme / Icons tabs.',
+  'branding-config': 'Brand colors, fonts, logos, dashboard icons, and school portal card icons.',
   'branding-templates': 'Email and document templates.',
   assets: 'Icons, fonts, and shared creative assets.',
   'note-aid-kb': 'Note Aid knowledge base.',
@@ -86,6 +90,9 @@ export const SETTINGS_SEARCH_DESCRIPTIONS = {
 
 /** Extra search aliases beyond label / description / item id. */
 export const SETTINGS_SEARCH_ALIASES = {
+  'business-journey': ['company setup', 'onboarding a business', 'interview', 'discovery', 'contract', 'training', 'facilitation', 'management', 'exit', 'offboarding', 'transition', 'plottwistco', 'plottwisthq'],
+  'business-commercial': ['contract', 'agreement', 'pricing', 'revenue share', 'percentage', '10%', 'a la carte', 'à-la-carte', 'break even', 'monthly revenue', 'management fee', 'final billing'],
+  'business-details': ['company profile', 'ocmpany profile', 'company settings', 'business name', 'identity', 'contact', 'branding'],
   'platform-settings': [
     'platform defaults',
     'feature visibility',
@@ -283,7 +290,7 @@ export const COMPANY_PROFILE_SEARCH_TARGETS = [
     prefersStandaloneId: 'branding-config',
     label: 'Branding',
     pathLabel: 'Company profile → Branding',
-    description: 'Portal brand source, logo, colors, extended colors, portal configuration (still in Company Profile).',
+    description: 'Portal brand source, logo, colors, extended colors, and portal configuration.',
     aliases: [
       'branding tab',
       'logo',
@@ -678,16 +685,17 @@ export function enrichSettingsSearchTarget(item) {
 /** Normalize a Company Profile nested target for scoring / jump. */
 export function enrichCompanyProfileSearchTarget(target) {
   if (!target?.id) return null;
+  const standalone = target.agencyTab === 'features' ? { itemId: 'tenant-features', categoryId: 'general' } : target.agencyTab === 'payroll' ? { itemId: 'payroll-schedule', categoryId: 'workflow' } : null;
   return {
     id: target.id,
-    itemId: 'company-profile',
-    categoryId: 'general',
-    categoryLabel: 'COMPANY PROFILE',
-    pathLabel: target.pathLabel || `Company profile → ${target.label}`,
-    label: target.label,
-    description: target.description || '',
+    itemId: standalone?.itemId || 'business-details',
+    categoryId: standalone?.categoryId || 'general',
+    categoryLabel: 'SETTINGS',
+    pathLabel: standalone ? `Settings → ${standalone.itemId === 'tenant-features' ? 'Features' : 'Payroll'}` : (target.pathLabel || `Business details → ${target.label}`).replace(/Company profile/gi, 'Business details'),
+    label: target.label.replace(/ \(legacy tab\)/g, ''),
+    description: standalone ? SETTINGS_SEARCH_DESCRIPTIONS[standalone.itemId] : (target.description || '').replace(/Company Profile/gi, 'Business details'),
     aliases: target.aliases || [],
-    agencyTab: target.agencyTab || 'general',
+    agencyTab: standalone ? (target.agencyTab === 'features' ? 'features' : null) : target.agencyTab || 'general',
     kind: target.kind === 'section' ? 'company-profile-section' : 'company-profile-tab',
     prefersStandaloneId: target.prefersStandaloneId || null,
     superadminOnly: !!target.superadminOnly
@@ -718,11 +726,11 @@ export function buildSettingsSearchTargets({
 
   if (includeCompanyProfile) {
     // Ensure the top-level company-profile card is present even if filtered oddly.
-    if (![...byId.values()].some((t) => t.itemId === 'company-profile' && !t.agencyTab)) {
+    if (![...byId.values()].some((t) => t.itemId === 'business-details' && !t.agencyTab)) {
       push(
         enrichSettingsSearchTarget({
-          id: 'company-profile',
-          label: 'Company workspace',
+          id: 'business-details',
+          label: 'Business details',
           categoryId: 'general',
           categoryLabel: 'GENERAL'
         })
@@ -821,10 +829,10 @@ export function settingsCardMatchesQuery(query, card) {
   if (target && scoreSettingsSearchTarget(q, target) > 0) return true;
 
   // Keep Company Profile card visible when a nested tab/section matches.
-  if (itemId === 'company-profile') {
+  if (['company-profile', 'business-details', 'tenant-features', 'payroll-schedule'].includes(itemId)) {
     return COMPANY_PROFILE_SEARCH_TARGETS.some((raw) => {
       const nested = enrichCompanyProfileSearchTarget(raw);
-      return nested && scoreSettingsSearchTarget(q, nested) > 0;
+      return nested && (itemId === 'company-profile' || nested.itemId === itemId) && scoreSettingsSearchTarget(q, nested) > 0;
     });
   }
   return false;

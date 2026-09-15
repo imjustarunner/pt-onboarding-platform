@@ -141,6 +141,7 @@ import psychotherapyComplianceRoutes from './routes/psychotherapyCompliance.rout
 import platformRevenueRoutes from './routes/platformRevenue.routes.js';
 import billingReportsRoutes from './routes/billingReports.routes.js';
 import billingRoutes from './routes/billing.routes.js';
+import businessLifecycleRoutes from './routes/businessLifecycle.routes.js';
 import executiveReportRoutes from './routes/executiveReport.routes.js';
 import clientSettingsRoutes from './routes/clientSettings.routes.js';
 import providerSettingsRoutes from './routes/providerSettings.routes.js';
@@ -982,6 +983,7 @@ app.use('/api/platform-revenue', platformRevenueRoutes);
 app.use('/api/billing-reports', billingReportsRoutes);
 app.use('/api/executive-report', executiveReportRoutes);
 app.use('/api/billing', billingRoutes);
+app.use('/api/business-lifecycle', businessLifecycleRoutes);
 app.use('/api/client-settings', clientSettingsRoutes);
 app.use('/api/provider-settings', providerSettingsRoutes);
 app.use('/api/provider-search', providerSearchRoutes);

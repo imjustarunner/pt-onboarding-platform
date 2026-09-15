@@ -5,8 +5,8 @@
       <p class="hub-subtitle">
         {{
           isSuperAdmin
-            ? 'Set up and manage this tenant. Start with Company setup, then catalogs and ops. Use Hub home and the quick links above for directory and platform-wide defaults.'
-            : `Set up your ${contextNoun} in order below — identity first, then what you sell, features, team access, and billing.`
+            ? 'One place for the business journey, company details, features, and billing. Search above to find any setting.'
+            : `Follow your business journey, then return here to manage your ${contextNoun}. Search above to find any setting.`
         }}
       </p>
     </header>
@@ -126,19 +126,19 @@ const primarySections = computed(() => {
 
   sections.push({
     id: 'setup',
-    title: 'Company setup',
-    hint: `Work top to bottom when onboarding a new ${noun}. Identity and what you sell first; then features, who can admin, and billing.`,
+    title: 'Business journey & settings',
+    hint: 'PlotTwistCo manages your business. PlotTwistHQ connects the people, tools, and day-to-day work.',
     items: [
+      { category: 'general', item: 'business-journey', label: 'Business journey', fallbackIcon: '🧭', description: 'A step-by-step path from interview and agreement through setup, training, launch, management, and exit.' },
+      { category: 'general', item: 'business-commercial', label: 'Agreement & pricing', fallbackIcon: '🧾', description: 'Signed terms, à-la-carte services, contracted revenue share, monthly reconciliation, and the billing transition.' },
       {
-        setupStep: 1,
         category: 'general',
-        item: 'company-profile',
-        label: 'Company workspace',
+        item: 'business-details',
+        label: 'Business details',
         fallbackIcon: '🏢',
-        description: `A guided setup workspace for business identity, services, team access, billing, and affiliated organizations.`
+        description: 'Business identity, contact information, address, branding, notifications, and preferences.'
       },
       {
-        setupStep: 2,
         category: 'general',
         item: 'booking-service-types',
         label: 'Booking & service types',
@@ -146,15 +146,13 @@ const primarySections = computed(() => {
         description: `What this ${noun} sells (counseling, tutoring, coaching, consulting) — unlocks finders, packages, and matching notifications.`
       },
       {
-        setupStep: 3,
         category: 'general',
         item: 'tenant-features',
         label: 'Features',
         fallbackIcon: '🎛️',
-        description: `Turn capabilities on for this ${noun}, review pricing, and manage a-la-carte controls (preferred over the legacy Features tab).`
+        description: `Choose app capabilities, review pricing, and manage feature preferences for this ${noun}.`
       },
       {
-        setupStep: 4,
         category: 'general',
         item: 'team-roles',
         label: 'Team & roles',
@@ -162,7 +160,6 @@ const primarySections = computed(() => {
         description: `Who can access admin areas inside this ${noun}.`
       },
       {
-        setupStep: 5,
         category: 'general',
         item: 'billing',
         label: 'Billing',
@@ -181,7 +178,7 @@ const primarySections = computed(() => {
       fallbackIcon: row.icon || (id === 'payroll-schedule' ? '💰' : id === 'departments' ? '🏛️' : '🤝'),
       description:
         id === 'payroll-schedule'
-          ? `Pay schedules plus payroll policies (PTO, mileage, Med Cancel, holidays) — preferred over Company Profile → Payroll.`
+          ? `Pay schedules plus payroll policies (PTO, mileage, Med Cancel, holidays).`
           : row.description || SETTINGS_SEARCH_DESCRIPTIONS[id] || ''
     });
   }
@@ -194,7 +191,7 @@ const primarySections = computed(() => {
     });
   }
 
-  return sections;
+  return sections.sort((a, b) => (a.id === 'setup' ? -1 : b.id === 'setup' ? 1 : 0));
 });
 
 const remainingSecondaryBlocks = computed(() =>

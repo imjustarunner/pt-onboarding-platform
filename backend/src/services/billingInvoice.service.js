@@ -12,6 +12,9 @@ import AgencyCommunicationUsageLedger from '../models/AgencyCommunicationUsageLe
 import AgencyBillingPaymentService from './agencyBillingPayment.service.js';
 import BillingMerchantContextService from './billingMerchantContext.service.js';
 import { computeFeatureBillingForPeriod } from './featureBilling.service.js';
+import pool from '../config/database.js';
+import { createBusinessLifecycleService } from './businessLifecycle.service.js';
+import { applyBusinessAgreement } from './businessLifecyclePolicy.js';
 
 class BillingInvoiceService {
   static buildInvoiceStorageKey({ agencyId, periodStart }) {
@@ -49,6 +52,7 @@ class BillingInvoiceService {
       periodEnd
     });
     const account = await AgencyBillingAccount.getByAgencyId(parsedAgencyId);
+    const lifecycle = await createBusinessLifecycleService(pool).billingState(parsedAgencyId);
     let featureBilling = null;
     try {
       featureBilling = await computeFeatureBillingForPeriod(
@@ -58,41 +62,48 @@ class BillingInvoiceService {
         pricingBundle.effective
       );
     } catch (e) {
+      if (lifecycle.agreements.some(a => a.status === 'active')) throw e;
       // Event tables may not exist on legacy databases; fall back to legacy single-axis billing.
       console.warn('Feature billing computation failed, falling back to legacy:', e?.message || e);
     }
-    const estimate = buildEstimate(usage, pricingBundle.effective, {
+    const estimate = applyBusinessAgreement(buildEstimate(usage, pricingBundle.effective, {
       featureEntitlements: account?.feature_entitlements_json || null,
       featureBilling
-    });
+    }), lifecycle, periodStartStr.slice(0, 7), { requireRevenue: true });
     const merchantContext = await BillingMerchantContextService.getAgencySubscriptionContext(parsedAgencyId);
     const invoiceDeliveryMode = account?.autopay_enabled ? 'autopay' : 'manual';
 
-    const invoice = await AgencyBillingInvoice.create({
-      agencyId: parsedAgencyId,
-      billingDomain: 'agency_subscription',
-      merchantMode: merchantContext.merchantMode,
-      providerConnectionId: merchantContext.providerConnectionId,
-      periodStart: periodStartStr,
-      periodEnd: periodEndStr,
-      schoolsUsed: estimate.usage.schoolsUsed,
-      programsUsed: estimate.usage.programsUsed,
-      adminsUsed: estimate.usage.adminsUsed,
-      activeOnboardeesUsed: estimate.usage.activeOnboardeesUsed,
-      baseFeeCents: estimate.totals.baseFeeCents,
-      extraSchoolsCents: estimate.totals.extraSchoolsCents,
-      extraProgramsCents: estimate.totals.extraProgramsCents,
-      extraAdminsCents: estimate.totals.extraAdminsCents,
-      extraOnboardeesCents: estimate.totals.extraOnboardeesCents,
-      communicationActualCostCents: estimate.totals.communicationActualCostCents,
-      communicationMarkupCents: estimate.totals.communicationMarkupCents,
-      communicationSubtotalCents: estimate.totals.communicationSubtotalCents,
-      totalCents: estimate.totals.totalCents,
-      lineItemsJson: estimate,
-      status: 'draft',
-      paymentStatus: 'unpaid',
-      invoiceDeliveryMode
+    let alreadyCreated = false;
+    const invoice = await createBusinessLifecycleService(pool).withBillingLock(parsedAgencyId, lifecycle, async db => {
+      const concurrentInvoice = await AgencyBillingInvoice.findByAgencyAndPeriod(parsedAgencyId, { periodStart: periodStartStr, periodEnd: periodEndStr }, db);
+      if (concurrentInvoice) { alreadyCreated = true; return concurrentInvoice; }
+      return AgencyBillingInvoice.create({
+        agencyId: parsedAgencyId,
+        billingDomain: 'agency_subscription',
+        merchantMode: merchantContext.merchantMode,
+        providerConnectionId: merchantContext.providerConnectionId,
+        periodStart: periodStartStr,
+        periodEnd: periodEndStr,
+        schoolsUsed: estimate.usage.schoolsUsed,
+        programsUsed: estimate.usage.programsUsed,
+        adminsUsed: estimate.usage.adminsUsed,
+        activeOnboardeesUsed: estimate.usage.activeOnboardeesUsed,
+        baseFeeCents: estimate.totals.baseFeeCents,
+        extraSchoolsCents: estimate.totals.extraSchoolsCents,
+        extraProgramsCents: estimate.totals.extraProgramsCents,
+        extraAdminsCents: estimate.totals.extraAdminsCents,
+        extraOnboardeesCents: estimate.totals.extraOnboardeesCents,
+        communicationActualCostCents: estimate.totals.communicationActualCostCents,
+        communicationMarkupCents: estimate.totals.communicationMarkupCents,
+        communicationSubtotalCents: estimate.totals.communicationSubtotalCents,
+        totalCents: estimate.totals.totalCents,
+        lineItemsJson: estimate,
+        status: 'draft',
+        paymentStatus: 'unpaid',
+        invoiceDeliveryMode
+      }, db);
     });
+    if (alreadyCreated) return invoice;
     await AgencyCommunicationUsageLedger.attachInvoiceToPeriod(parsedAgencyId, {
       periodStart: periodStartStr,
       periodEnd: periodEndStr,

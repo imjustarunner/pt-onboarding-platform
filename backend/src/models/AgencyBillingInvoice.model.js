@@ -1,7 +1,7 @@
 import pool from '../config/database.js';
 
 class AgencyBillingInvoice {
-  static async create(invoice) {
+  static async create(invoice, db = pool) {
     const {
       agencyId,
       billingDomain = 'agency_subscription',
@@ -30,7 +30,7 @@ class AgencyBillingInvoice {
       pdfStoragePath = null
     } = invoice;
 
-    const [result] = await pool.execute(
+    const [result] = await db.execute(
       `INSERT INTO agency_billing_invoices
         (agency_id, billing_domain, merchant_mode, provider_connection_id, period_start, period_end,
          schools_used, programs_used, admins_used, active_onboardees_used,
@@ -67,19 +67,19 @@ class AgencyBillingInvoice {
       ]
     );
 
-    return this.findById(result.insertId);
+    return this.findById(result.insertId, db);
   }
 
-  static async findById(id) {
-    const [rows] = await pool.execute(
+  static async findById(id, db = pool) {
+    const [rows] = await db.execute(
       `SELECT * FROM agency_billing_invoices WHERE id = ? LIMIT 1`,
       [parseInt(id, 10)]
     );
     return rows[0] || null;
   }
 
-  static async findByAgencyAndPeriod(agencyId, { periodStart, periodEnd, billingDomain = 'agency_subscription' }) {
-    const [rows] = await pool.execute(
+  static async findByAgencyAndPeriod(agencyId, { periodStart, periodEnd, billingDomain = 'agency_subscription' }, db = pool) {
+    const [rows] = await db.execute(
       `SELECT * FROM agency_billing_invoices
        WHERE agency_id = ? AND billing_domain = ? AND period_start = ? AND period_end = ?
        ORDER BY id DESC LIMIT 1`,
@@ -210,4 +210,3 @@ class AgencyBillingInvoice {
 }
 
 export default AgencyBillingInvoice;
-

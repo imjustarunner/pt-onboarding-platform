@@ -82,12 +82,13 @@
           <p class="billing-toolbar-copy">Feature toggles and pricing now live in Features so billing can stay focused on charges, invoices, receipts, and payment collection.</p>
         </div>
         <div class="inline billing-toolbar-actions">
+          <button class="btn btn-secondary" type="button" @click="router.push({ path: route.path, query: { category: 'general', item: 'business-commercial', agencyId: currentAgencyId } })">Agreement & revenue</button>
           <button class="btn btn-secondary" type="button" @click="openFeaturesPage">Open features</button>
           <button
             v-if="isSuperAdmin"
             class="btn"
             type="button"
-            :disabled="generatingInvoice || !canUseLiveBilling"
+            :disabled="generatingInvoice || !canUseLiveBilling || estimate?.businessAgreement?.ready === false"
             @click="generateInvoice"
           >
             {{ generatingInvoice ? 'Generating…' : 'Generate invoice' }}
@@ -242,7 +243,10 @@
 
       <div class="card">
         <h3>Charges this cycle</h3>
-        <p class="muted">Only “Active Candidates” (users in ONBOARDING) count toward active onboardee billing.</p>
+        <p v-if="estimate?.businessAgreement?.ended" class="muted">The final service month has passed. Further management invoices are paused.</p>
+        <p v-else-if="estimate?.businessAgreement?.ready === false" class="error" role="status">This estimate is provisional. Confirm this month’s revenue in Agreement & pricing before generating an invoice.</p>
+        <p v-else-if="estimate?.businessAgreement" class="muted">{{ estimate.businessAgreement.basis === 'revenue_share' ? 'The contracted revenue share covers the monthly app and management services.' : 'Charges follow this company’s signed management terms.' }} One-time services are separate.</p>
+        <p v-else class="muted">Only “Active Candidates” (users in ONBOARDING) count toward active onboardee billing.</p>
 
         <table class="table">
           <thead>
@@ -264,7 +268,7 @@
               <td>{{ row.unitCost }}</td>
               <td>{{ row.extra }}</td>
             </tr>
-            <tr class="base-row">
+            <tr v-if="!estimate?.chargeLines" class="base-row">
               <td>Platform Base</td>
               <td>—</td>
               <td>—</td>
@@ -1207,6 +1211,7 @@ const buildPricingPayloadFromDraft = (draft) => {
 };
 
 const breakdownRows = computed(() => {
+  if (estimate.value?.chargeLines) return estimate.value.chargeLines.map((line, i) => ({ key: `${line.key}-${i}`, label: line.label, included: '—', used: '—', overage: '—', unitCost: '—', extra: money(line.amountCents) }));
   const items = estimate.value?.lineItems || [];
   return items.map(it => ({
     key: it.key,

@@ -209,30 +209,38 @@ class QuickBooksBillingSyncService {
     const breakdown = items?.lineItems || [];
 
     const lines = [];
-    lines.push({
-      Amount: dollars(invoice.base_fee_cents),
-      DetailType: 'SalesItemLineDetail',
-      Description: 'Platform Base Fee',
-      SalesItemLineDetail: {
-        ItemRef: { value: serviceItemId },
-        Qty: 1,
-        UnitPrice: dollars(invoice.base_fee_cents)
+    if (items?.chargeLines) {
+      for (const line of items.chargeLines) {
+        if (!line.amountCents) continue;
+        lines.push({ Amount: dollars(line.amountCents), DetailType: 'SalesItemLineDetail', Description: line.label,
+          SalesItemLineDetail: { ItemRef: { value: serviceItemId }, Qty: 1, UnitPrice: dollars(line.amountCents) } });
       }
-    });
-    for (const it of breakdown) {
-      if (!it || !it.extraCents || it.extraCents <= 0) continue;
+    } else {
       lines.push({
-        Amount: dollars(it.extraCents),
+        Amount: dollars(invoice.base_fee_cents),
         DetailType: 'SalesItemLineDetail',
-        Description: `${it.label} (${it.used} @ $${dollars(it.unitCostCents).toFixed(2)})`,
+        Description: 'Platform Base Fee',
         SalesItemLineDetail: {
           ItemRef: { value: serviceItemId },
-          Qty: Number(it.used || 0),
-          UnitPrice: dollars(it.unitCostCents)
+          Qty: 1,
+          UnitPrice: dollars(invoice.base_fee_cents)
         }
       });
-    }
+      for (const it of breakdown) {
+        if (!it || !it.extraCents || it.extraCents <= 0) continue;
+        lines.push({
+          Amount: dollars(it.extraCents),
+          DetailType: 'SalesItemLineDetail',
+          Description: `${it.label} (${it.used} @ $${dollars(it.unitCostCents).toFixed(2)})`,
+          SalesItemLineDetail: {
+            ItemRef: { value: serviceItemId },
+            Qty: Number(it.used || 0),
+            UnitPrice: dollars(it.unitCostCents)
+          }
+        });
+      }
 
+    }
     const periodStartStr = dateOnly(invoice.period_start);
     const periodEndStr = dateOnly(invoice.period_end);
     const docNumber = `PT-AR-${invoice.agency_id}-${String(periodStartStr || '').slice(0, 7)}`;
@@ -332,4 +340,3 @@ class QuickBooksBillingSyncService {
 }
 
 export default QuickBooksBillingSyncService;
-

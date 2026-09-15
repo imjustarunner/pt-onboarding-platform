@@ -4,6 +4,10 @@ import AgencyCommunicationBillingService from '../services/agencyCommunicationBi
 import BillingMerchantContextService from '../services/billingMerchantContext.service.js';
 import { formatPeriodLabel, getCurrentBillingPeriod } from '../utils/billingPeriod.js';
 import AgencyBillingAccount from '../models/AgencyBillingAccount.model.js';
+import pool from '../config/database.js';
+import { createBusinessLifecycleService } from '../services/businessLifecycle.service.js';
+import { applyBusinessAgreement } from '../services/businessLifecyclePolicy.js';
+import { computeFeatureBillingForPeriod } from '../services/featureBilling.service.js';
 
 export const getAgencyAddons = async (req, res, next) => {
   try {
@@ -53,6 +57,10 @@ export const getAgencyBillingEstimate = async (req, res, next) => {
       return res.status(400).json({ error: { message: 'Invalid agencyId' } });
     }
 
+    const lifecycle = await createBusinessLifecycleService(pool).billingState(parsedAgencyId);
+    if (lifecycle.agreements.length && !['super_admin', 'admin'].includes(req.user?.role)) {
+      return res.status(403).json({ error: { message: 'Company administrator access is required to review management billing.' } });
+    }
     const period = getCurrentBillingPeriod(new Date());
     const usage = await BillingUsageService.getUsage(parsedAgencyId, {
       periodStart: period.periodStart,
@@ -60,9 +68,16 @@ export const getAgencyBillingEstimate = async (req, res, next) => {
     });
     const pricingBundle = await getEffectiveBillingPricingForAgency(parsedAgencyId);
     const account = await AgencyBillingAccount.getByAgencyId(parsedAgencyId);
-    const estimate = buildEstimate(usage, pricingBundle.effective, {
-      featureEntitlements: account?.feature_entitlements_json || null
-    });
+    let featureBilling = null;
+    try {
+      featureBilling = await computeFeatureBillingForPeriod(parsedAgencyId, period.periodStart, period.periodEnd, pricingBundle.effective);
+    } catch (error) {
+      // An agreed management invoice must never silently omit feature charges.
+      if (lifecycle.agreements.some(a => a.status === 'active')) throw error;
+    }
+    const estimate = applyBusinessAgreement(buildEstimate(usage, pricingBundle.effective, {
+      featureEntitlements: account?.feature_entitlements_json || null, featureBilling
+    }), lifecycle, period.periodStart.toISOString().slice(0, 7));
     const merchantContext = await BillingMerchantContextService.getAgencySubscriptionContext(parsedAgencyId);
     const communicationSummary = await AgencyCommunicationBillingService.getAgencyPeriodSummary({
       agencyId: parsedAgencyId,

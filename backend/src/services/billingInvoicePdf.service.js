@@ -27,7 +27,7 @@ class BillingInvoicePdfService {
 
     let y = height - 72;
 
-    page.drawText('Platform Invoice', { x: 72, y, size: 22, font: helveticaBold, color: rgb(0, 0, 0) });
+    page.drawText('PlotTwistCo Invoice', { x: 72, y, size: 22, font: helveticaBold, color: rgb(0, 0, 0) });
     y -= 28;
     page.drawText(`Agency: ${agencyName}`, { x: 72, y, size: 12, font: helvetica, color: rgb(0, 0, 0) });
     y -= 18;
@@ -64,57 +64,62 @@ class BillingInvoicePdfService {
       y -= 14;
     };
 
-    drawRow('Platform Base Fee', invoice.base_fee_cents);
+    if (items?.chargeLines) {
+      for (const line of items.chargeLines) drawRow(line.label, line.amountCents);
+      if (items.businessAgreement?.contractReference) drawRow(`Agreement: ${items.businessAgreement.contractReference}`, null);
+    } else {
+      drawRow('Platform Base Fee', invoice.base_fee_cents);
 
-    const breakdown = items?.lineItems || [];
-    for (const it of breakdown) {
-      // Skip per-feature legacy lines when dual-axis featureBilling is present;
-      // we render them in the structured block below.
-      if (featureBilling && String(it?.key || '').startsWith('feature_')) continue;
-      if (!it || !it.extraCents || it.extraCents <= 0) continue;
-      drawRow(`${it.label} overage (${it.overage} @ $${dollars(it.unitCostCents)})`, it.extraCents);
-    }
-
-    if (featureBilling) {
-      const days = featureBilling.daysInPeriod || 0;
-      const tenantPortions = featureBilling.tenantPortions || [];
-      const userPortions = featureBilling.userPortions || [];
-      const featureKeys = Array.from(new Set([
-        ...tenantPortions.map((p) => p.featureKey),
-        ...userPortions.map((p) => p.featureKey)
-      ]));
-
-      if (featureKeys.length > 0) {
-        ensureSpace(20);
-        y -= 6;
-        page.drawText('Feature Charges', { x: 72, y, size: 11, font: helveticaBold });
-        y -= 14;
+      const breakdown = items?.lineItems || [];
+      for (const it of breakdown) {
+        // Skip per-feature legacy lines when dual-axis featureBilling is present;
+        // we render them in the structured block below.
+        if (featureBilling && String(it?.key || '').startsWith('feature_')) continue;
+        if (!it || !it.extraCents || it.extraCents <= 0) continue;
+        drawRow(`${it.label} overage (${it.overage} @ $${dollars(it.unitCostCents)})`, it.extraCents);
       }
 
-      for (const fk of featureKeys) {
-        const tp = tenantPortions.find((p) => p.featureKey === fk);
-        const up = userPortions.filter((p) => p.featureKey === fk);
-        const label = tp?.featureLabel || up[0]?.featureLabel || fk;
-        ensureSpace(20);
-        page.drawText(label, { x: 72, y, size: 10, font: helveticaBold });
-        y -= 14;
+      if (featureBilling) {
+        const days = featureBilling.daysInPeriod || 0;
+        const tenantPortions = featureBilling.tenantPortions || [];
+        const userPortions = featureBilling.userPortions || [];
+        const featureKeys = Array.from(new Set([
+          ...tenantPortions.map((p) => p.featureKey),
+          ...userPortions.map((p) => p.featureKey)
+        ]));
 
-        if (tp && (tp.chargeCents > 0 || tp.enabledDays > 0)) {
-          const desc = `Tenant fee — ${tp.billableDays}/${days} days @ $${dollars(tp.unitMonthlyCents)}/mo`;
-          drawRow(desc, tp.chargeCents, { indent: 12 });
-          const audit = actorLabel(tp);
-          if (audit) drawRow(audit, null, { indent: 12, italic: true, color: rgb(0.45, 0.45, 0.45) });
+        if (featureKeys.length > 0) {
+          ensureSpace(20);
+          y -= 6;
+          page.drawText('Feature Charges', { x: 72, y, size: 11, font: helveticaBold });
+          y -= 14;
         }
 
-        for (const u of up) {
-          const desc = `${u.userName} — ${u.billableDays}/${days} days @ $${dollars(u.unitMonthlyCents)}/mo`;
-          drawRow(desc, u.chargeCents, { indent: 12 });
-          const audit = actorLabel(u);
-          if (audit) drawRow(audit, null, { indent: 24, italic: true, color: rgb(0.45, 0.45, 0.45) });
+        for (const fk of featureKeys) {
+          const tp = tenantPortions.find((p) => p.featureKey === fk);
+          const up = userPortions.filter((p) => p.featureKey === fk);
+          const label = tp?.featureLabel || up[0]?.featureLabel || fk;
+          ensureSpace(20);
+          page.drawText(label, { x: 72, y, size: 10, font: helveticaBold });
+          y -= 14;
+
+          if (tp && (tp.chargeCents > 0 || tp.enabledDays > 0)) {
+            const desc = `Tenant fee — ${tp.billableDays}/${days} days @ $${dollars(tp.unitMonthlyCents)}/mo`;
+            drawRow(desc, tp.chargeCents, { indent: 12 });
+            const audit = actorLabel(tp);
+            if (audit) drawRow(audit, null, { indent: 12, italic: true, color: rgb(0.45, 0.45, 0.45) });
+          }
+
+          for (const u of up) {
+            const desc = `${u.userName} — ${u.billableDays}/${days} days @ $${dollars(u.unitMonthlyCents)}/mo`;
+            drawRow(desc, u.chargeCents, { indent: 12 });
+            const audit = actorLabel(u);
+            if (audit) drawRow(audit, null, { indent: 24, italic: true, color: rgb(0.45, 0.45, 0.45) });
+          }
         }
       }
-    }
 
+    }
     ensureSpace(40);
     y -= 4;
     page.drawLine({ start: { x: 72, y }, end: { x: width - 72, y }, thickness: 1, color: rgb(0.85, 0.85, 0.85) });

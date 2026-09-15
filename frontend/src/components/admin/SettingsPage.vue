@@ -23,16 +23,26 @@
 </template>
 
 <script setup>
-import { computed } from 'vue';
+import { computed, watch } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import SettingsModal from './SettingsModal.vue';
+import { normalizeSettingsDestination } from '../../navigation/settingsDestinations';
 
 const router = useRouter();
 const route = useRoute();
 
 // Allow deep-linking to a specific settings section via ?category=workflow&item=hiring-prehire
-const initialItemId = computed(() => route.query.item || null);
-const initialCategoryId = computed(() => route.query.category || null);
+const destination = computed(() => normalizeSettingsDestination(route.query));
+const initialItemId = computed(() => destination.value.item || null);
+const initialCategoryId = computed(() => destination.value.category || null);
+watch(() => route.query, query => {
+  const target = normalizeSettingsDestination(query);
+  if (query.item !== target.item || query.category !== target.category || query.agencyTab !== target.agencyTab) {
+    const next = { ...query, category: target.category, item: target.item };
+    if (target.agencyTab) next.agencyTab = target.agencyTab; else delete next.agencyTab;
+    router.replace({ query: next });
+  }
+}, { immediate: true });
 
 const goBack = () => {
   router.back();
@@ -74,4 +84,3 @@ const goBack = () => {
   box-shadow: var(--shadow);
 }
 </style>
-

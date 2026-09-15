@@ -19,8 +19,7 @@
           <div>
             <h3>{{ currentAgencyName }} feature controls</h3>
             <p class="muted">
-              This page is the focused replacement for the old giant Features tab. It keeps the same billing-backed
-              behavior, just in one dedicated workspace.
+              Review feature access and prices, then configure the organization’s feature preferences below.
             </p>
           </div>
           <div class="feature-summary-stats">
@@ -335,17 +334,30 @@
           Pay providers a percentage of Patient Amount Paid from billing imports.
         </small>
       </div>
+      <details ref="preferencesSection" class="card" :open="openPreferencesByLink" @toggle="featurePreferencesOpened ||= $event.target.open">
+        <summary>Organization feature preferences</summary>
+        <p class="muted">Configure how enabled capabilities work for this company. Billable selections and their prices are managed above.</p>
+        <AgencyManagement v-if="featurePreferencesOpened" :key="currentAgencyId" :embedded-org-id="currentAgencyId" embedded-tab="features" workspace-mode single-section />
+      </details>
     </template>
   </div>
 </template>
 
 <script setup>
-import { computed, ref, watch } from 'vue';
+import { computed, nextTick, onMounted, ref, watch } from 'vue';
+import { useRoute } from 'vue-router';
 import api from '../../services/api';
 import { clearAdminApiCache } from '../../utils/adminApiCache.js';
 import { useAgencyStore } from '../../store/agency';
+import AgencyManagement from './AgencyManagement.vue';
 import { useAuthStore } from '../../store/auth';
 import ToggleSwitch from '../ui/ToggleSwitch.vue';
+
+const route = useRoute();
+const openPreferencesByLink = computed(() => route.query.agencyTab === 'features');
+const featurePreferencesOpened = ref(openPreferencesByLink.value);
+const preferencesSection = ref(null);
+onMounted(async () => { if (openPreferencesByLink.value) { await nextTick(); preferencesSection.value?.scrollIntoView({ block: 'start' }); } });
 
 const agencyStore = useAgencyStore();
 const authStore = useAuthStore();

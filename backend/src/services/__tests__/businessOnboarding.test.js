@@ -4,6 +4,8 @@ import crypto from 'node:crypto';
 import {readFile} from 'node:fs/promises';
 import mysql from 'mysql2/promise';
 import {createBusinessOnboardingService,validateBusinessApplication,validateBusinessSlug,businessInvitationDeliveryStatus} from '../businessOnboarding.service.js';
+import { createBusinessLifecycleService } from '../businessLifecycle.service.js';
+import { BUSINESS_JOURNEY } from '../businessLifecyclePolicy.js';
 const application=()=>({businessName:'Synthetic Company',firstName:'Sample',lastName:'Owner',email:`sample-${crypto.randomUUID()}@example.test`,phone:'555-0100',path:'hq',businessType:'consulting',stage:'established',goals:'Organize our synthetic test business.',services:['hq','people'],consent:true,websiteTrap:''});
 test('business intake accepts only validated contact, business, and service fields',()=>{
  const data=validateBusinessApplication({...application(),role:'super_admin',agencyId:1,organizationType:'school'});
@@ -31,7 +33,16 @@ test('MySQL: encrypted intake, invitation lifecycle, isolation, races, and atomi
   INSERT INTO users(email,username,password_hash,role,status) VALUES('reviewer@example.test','reviewer@example.test','synthetic','super_admin','active');`);
   await pool.query(await readFile(new URL('../../../../database/migrations/598_public_marketing_pages.sql',import.meta.url),'utf8'));
   const migration=await readFile(new URL('../../../../database/migrations/1421_ptco_business_onboarding.sql',import.meta.url),'utf8');await pool.query(migration);await pool.query(migration);
+  await pool.query(await readFile(new URL('../../../../database/migrations/1453_business_lifecycle.sql', import.meta.url), 'utf8'));
   const svc=createBusinessOnboardingService({pool,resolveActiveStatus:async()=> 'active'});
+  const lifecycle = createBusinessLifecycleService(pool);
+  async function approveReady(id, slug, actor) {
+    const record = await lifecycle.get({ requestId: id });
+    for (const key of ['interview', 'agreement']) record.state.stages[key].completed = BUSINESS_JOURNEY.find(s => s.id === key).tasks.map(t => t.id);
+    record.state.agreements = [{ startMonth: '2026-09', endMonth: '', status: 'active', contractReference: 'Synthetic signed agreement', signedOn: '2026-09-01', revenueBasis: 'Collected revenue', mode: 'higher_of', revenueShareBps: 1000, thresholdCents: 0, services: [] }];
+    await lifecycle.save({ requestId: id }, record, { id: actor, role: 'super_admin' });
+    return svc.approve(id, slug, actor);
+  }
   await t.test('submissions are encrypted and retries are idempotent',async()=>{
    const id=crypto.randomUUID(),b=application();await svc.submit(b,id);await svc.submit(b,id);
    const [[row]]=await pool.execute('SELECT * FROM business_onboarding_requests WHERE id=?',[id]);
@@ -39,8 +50,17 @@ test('MySQL: encrypted intake, invitation lifecycle, isolation, races, and atomi
    await assert.rejects(svc.submit({...b,goals:'Changed'},id),e=>e.status===409);
    assert.equal((await pool.query("SELECT COUNT(*) n FROM public_marketing_pages WHERE slug='ptco'"))[0][0].n,1);
   });
+  await t.test('invitation and activation require the interview and signed agreement to remain ready', async () => {
+   const id=crypto.randomUUID(); await svc.submit(application(),id);
+   await assert.rejects(svc.approve(id,'not-ready-company',1),e=>e.status===409 && /interview/.test(e.message));
+   const {token}=await approveReady(id,'not-ready-company',1);
+   const record=await lifecycle.get({requestId:id});record.state.agreements[0].status='draft';
+   await lifecycle.save({requestId:id},record,{id:1,role:'super_admin'});
+   await assert.rejects(svc.activate(token,'synthetic-strong-password',true),e=>e.status===409);
+   assert.equal((await pool.execute('SELECT id FROM agencies WHERE slug=?',['not-ready-company']))[0].length,0);
+  });
   await t.test('approval and activation create only the approved root company and its owner',async()=>{
-   const id=crypto.randomUUID(),b=application();await svc.submit(b,id);const {token}=await svc.approve(id,'approved-company',1);
+   const id=crypto.randomUUID(),b=application();await svc.submit(b,id);const {token}=await approveReady(id,'approved-company',1);
    assert.equal((await svc.inspect(token)).email,b.email);
    const [[before]]=await pool.execute('SELECT invite_hash FROM business_onboarding_requests WHERE id=?',[id]);assert.notEqual(before.invite_hash,token);
    await assert.rejects(svc.activate(token,'short',true),e=>e.status===400);
@@ -49,22 +69,24 @@ test('MySQL: encrypted intake, invitation lifecycle, isolation, races, and atomi
    assert.equal(results.filter(r=>r.status==='fulfilled').length,1);
    const result=results.find(r=>r.status==='fulfilled').value;
    const [[agency]]=await pool.execute('SELECT * FROM agencies WHERE id=?',[result.agencyId]);assert.equal(agency.organization_type,'agency');assert.equal(agency.slug,'approved-company');
+   assert.match(result.setupPath, /business-journey/);
+   assert.equal((await lifecycle.get({agencyId: agency.id})).state.agreements[0].contractReference, 'Synthetic signed agreement');
    const [members]=await pool.execute('SELECT * FROM user_agencies WHERE user_id=?',[agency.account_owner_user_id]);assert.equal(members.length,1);assert.equal(members[0].agency_id,agency.id);
    const [[owner]]=await pool.execute('SELECT * FROM users WHERE id=?',[agency.account_owner_user_id]);assert.equal(owner.role,'admin');assert.equal(owner.email,b.email);assert.notEqual(owner.password_hash,'synthetic-strong-password');
    await assert.rejects(svc.inspect(token),e=>e.status===410);
   });
   await t.test('replaced, expired, and declined invitations cannot activate',async()=>{
-   const id=crypto.randomUUID();await svc.submit(application(),id);const first=await svc.approve(id,'replacement-company',1),second=await svc.approve(id,'replacement-company',1);
+   const id=crypto.randomUUID();await svc.submit(application(),id);const first=await approveReady(id,'replacement-company',1),second=await approveReady(id,'replacement-company',1);
    await assert.rejects(svc.inspect(first.token),e=>e.status===410);
    await pool.execute('UPDATE business_onboarding_requests SET invite_expires_at=DATE_SUB(UTC_TIMESTAMP(),INTERVAL 1 DAY) WHERE id=?',[id]);await assert.rejects(svc.inspect(second.token),e=>e.status===410);
-   const third=await svc.approve(id,'replacement-company',1);await svc.decline(id,1);await assert.rejects(svc.activate(third.token,'synthetic-strong-password',true),e=>e.status===410);
+   const third=await approveReady(id,'replacement-company',1);await svc.decline(id,1);await assert.rejects(svc.activate(third.token,'synthetic-strong-password',true),e=>e.status===410);
   });
   await t.test('existing owners and company URLs cannot be reassigned',async()=>{
-   const id=crypto.randomUUID();await svc.submit({...application(),email:'reviewer@example.test'},id);await assert.rejects(svc.approve(id,'takeover',1),e=>e.status===409);
-   const other=crypto.randomUUID();await svc.submit(application(),other);await assert.rejects(svc.approve(other,'approved-company',1),e=>e.status===409);
+   const id=crypto.randomUUID();await svc.submit({...application(),email:'reviewer@example.test'},id);await assert.rejects(approveReady(id,'takeover',1),e=>e.status===409);
+   const other=crypto.randomUUID();await svc.submit(application(),other);await assert.rejects(approveReady(other,'approved-company',1),e=>e.status===409);
   });
   await t.test('membership write failure rolls back company, user, invitation consumption, and audit',async()=>{
-   const id=crypto.randomUUID(),b=application();await svc.submit(b,id);const {token}=await svc.approve(id,'rollback-company',1);
+   const id=crypto.randomUUID(),b=application();await svc.submit(b,id);const {token}=await approveReady(id,'rollback-company',1);
    await pool.query("CREATE TRIGGER reject_test_membership BEFORE INSERT ON user_agencies FOR EACH ROW SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='synthetic failure'");
    try{await assert.rejects(svc.activate(token,'synthetic-strong-password',true));}finally{await pool.query('DROP TRIGGER reject_test_membership');}
    assert.equal((await pool.execute('SELECT id FROM agencies WHERE slug=?',['rollback-company']))[0].length,0);

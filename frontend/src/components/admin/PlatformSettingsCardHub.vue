@@ -128,10 +128,10 @@ const primarySections = [
     items: [
       {
         category: 'general',
-        item: 'company-profile',
-        label: 'Company profile',
+        item: 'business-details',
+        label: 'Business details',
         fallbackIcon: '🏢',
-        description: SETTINGS_SEARCH_DESCRIPTIONS['company-profile']
+        description: SETTINGS_SEARCH_DESCRIPTIONS['business-details']
       },
       {
         category: 'general',
