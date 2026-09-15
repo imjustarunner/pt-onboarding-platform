@@ -163,7 +163,7 @@ export async function regenerateToken({ userId, agencyId = null, actorUserId = n
 }
 
 export async function resetPasscode({ userId, agencyId = null, actorUserId = null, ipHash = null, userAgent = null }) {
-  const digits = String(Math.floor(100000 + Math.random() * 900000));
+  const digits = String(crypto.randomInt(0, 1000000)).padStart(6, '0');
   const hash = await bcrypt.hash(digits, BCRYPT_ROUNDS);
   await ensureRow(userId, agencyId);
   await pool.execute(

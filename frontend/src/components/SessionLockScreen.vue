@@ -8,8 +8,9 @@
           class="session-lock-logo"
         />
         <h1 id="session-lock-title" class="session-lock-title">Session Locked</h1>
-        <p class="session-lock-message">Enter your 4-digit PIN to continue</p>
-        <form @submit.prevent="submitPin" class="session-lock-form">
+        <p class="session-lock-message">{{ !sessionLockStore.lockConfig ? 'Checking your session. Please wait or sign in again.' : sessionLockStore.lockConfig.pinRequired ? 'Enter your 6-digit Quick View passcode to continue' : 'Enter your 4-digit session PIN to continue' }}</p>
+        <p class="session-lock-message" role="status">Automatic logout in {{ countdown }}.</p>
+        <form v-if="sessionLockStore.lockConfig?.useLockScreen" @submit.prevent="submitPin" class="session-lock-form">
           <input
             ref="pinInputRef"
             v-model="pinValue"
@@ -17,17 +18,17 @@
             name="sessionLockPin"
             inputmode="numeric"
             pattern="[0-9]*"
-            maxlength="4"
+            :maxlength="pinLength"
             autocomplete="one-time-code"
             autocorrect="off"
             spellcheck="false"
             class="session-lock-pin-input"
-            placeholder="••••"
-            aria-label="Enter 4-digit PIN"
+            :placeholder="'•'.repeat(pinLength)"
+            :aria-label="`Enter ${pinLength}-digit code`"
             @input="onPinInput"
           />
           <p v-if="error" class="session-lock-error">{{ error }}</p>
-          <button type="submit" class="btn btn-primary session-lock-submit" :disabled="pinValue.length !== 4 || verifying">
+          <button type="submit" class="btn btn-primary session-lock-submit" :disabled="pinValue.length !== pinLength || verifying">
             {{ verifying ? 'Verifying…' : 'Unlock' }}
           </button>
         </form>
@@ -43,8 +44,9 @@
 import { ref, computed, watch } from 'vue';
 import { useBrandingStore } from '../store/branding';
 import BrandingLogo from './BrandingLogo.vue';
-import api from '../services/api';
-import { toUploadsUrl } from '../utils/uploadsUrl';
+import { useSessionLockStore } from '../store/sessionLock';
+import { resumeSession } from '../utils/activityTracker';
+import { formatCountdownClock } from '../utils/sessionTimeoutBranding';
 
 const props = defineProps({
   isLocked: { type: Boolean, default: false }
@@ -53,6 +55,9 @@ const props = defineProps({
 const emit = defineEmits(['unlock', 'logout']);
 
 const brandingStore = useBrandingStore();
+const sessionLockStore = useSessionLockStore();
+const pinLength = computed(() => sessionLockStore.lockConfig?.pinLength || 4);
+const countdown = computed(() => formatCountdownClock(sessionLockStore.warningSecondsLeft));
 
 const pinValue = ref('');
 const error = ref('');
@@ -69,17 +74,17 @@ const cardStyle = computed(() => {
 });
 
 function onPinInput(e) {
-  const v = e.target.value.replace(/\D/g, '').slice(0, 4);
+  const v = e.target.value.replace(/\D/g, '').slice(0, pinLength.value);
   pinValue.value = v;
   error.value = '';
 }
 
 async function submitPin() {
-  if (pinValue.value.length !== 4 || verifying.value) return;
+  if (pinValue.value.length !== pinLength.value || verifying.value) return;
   try {
     verifying.value = true;
     error.value = '';
-    await api.post('/auth/verify-session-pin', { pin: pinValue.value });
+    if (!await resumeSession(pinValue.value)) return;
     pinValue.value = '';
     emit('unlock');
   } catch (e) {
@@ -108,8 +113,8 @@ watch(() => props.isLocked, (locked) => {
 .session-lock-overlay {
   position: fixed;
   inset: 0;
-  z-index: 2147482900;
-  background: rgba(0, 0, 0, 0.85);
+  z-index: 2147483000;
+  background: #101820;
   display: flex;
   align-items: center;
   justify-content: center;

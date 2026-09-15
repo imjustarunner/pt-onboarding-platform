@@ -2,13 +2,14 @@
   <Teleport to="body">
     <Transition name="iw-fade">
       <div
-        v-if="sessionLockStore.warningActive"
+        v-if="sessionLockStore.warningActive && !sessionLockStore.isLocked"
         class="iw-overlay"
         role="alertdialog"
         aria-modal="true"
         aria-labelledby="iw-title"
         aria-describedby="iw-desc"
       >
+        <p v-if="resumeError" class="iw-resume-error" role="alert">{{ resumeError }}</p>
         <div class="iw-stage" :class="{ 'iw-stage--clocked': isClockedIn }">
           <!-- Clocked-in: overt status banner (desktop + mobile) -->
           <div v-if="isClockedIn" class="iw-clocked-banner" role="status">
@@ -139,7 +140,7 @@ import { computed, ref, watch, nextTick, onMounted, onUnmounted } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import { useSessionLockStore } from '../store/sessionLock.js';
 import { useIndirectTimeSessionStore } from '../store/indirectTimeSession.js';
-import { resetActivityTimer, reportTimedownDismissed } from '../utils/activityTracker.js';
+import { resumeSession } from '../utils/activityTracker.js';
 import { useAgencyStore } from '../store/agency.js';
 import {
   resolveSessionTimeoutTenantKey,
@@ -224,10 +225,14 @@ const clock = computed(() => formatCountdownClock(sessionLockStore.warningSecond
 
 function onVideoError() { useVideo.value = false; }
 
-function stayLoggedIn() {
-  sessionLockStore.dismissWarning();
-  reportTimedownDismissed();
-  resetActivityTimer();
+const resumeError = ref('');
+async function stayLoggedIn() {
+  if (clockOutBusy.value) return;
+  clockOutBusy.value = true;
+  resumeError.value = '';
+  try {
+    if (!await resumeSession()) resumeError.value = 'Unable to resume. Check your connection or sign in again.';
+  } finally { clockOutBusy.value = false; }
 }
 
 function goToLogTime() {
@@ -238,10 +243,8 @@ async function clockOutAndContinue() {
   if (clockOutBusy.value) return;
   clockOutBusy.value = true;
   try {
+    if (!await resumeSession()) return;
     await indirectStore.clockOutFromTimedown();
-    sessionLockStore.dismissWarning();
-    reportTimedownDismissed();
-    resetActivityTimer();
     goToLogTime();
   } catch (e) {
     console.error('[InactivityWarningModal] clock out failed:', e);
@@ -279,6 +282,7 @@ watch(
 </script>
 
 <style scoped>
+.iw-resume-error { position: fixed; bottom: 24px; left: 24px; z-index: 2; background: #fff; color: #b91c1c; padding: 12px; border-radius: 8px; }
 .iw-overlay {
   position: fixed;
   inset: 0;

@@ -13,6 +13,7 @@ import {
   logout,
   logActivity,
   verifySessionPin,
+  sessionActivity,
   getSessionLockConfig,
   platformSessionHeartbeat,
   passwordlessTokenLogin,
@@ -195,9 +196,8 @@ router.post('/brand-switch/consume', authLimiter, [
 ], consumeBrandSwitchHandoff);
 router.get('/session-lock-config', authenticate, getSessionLockConfig);
 router.post('/platform-session/heartbeat', authenticate, platformSessionHeartbeat);
-router.post('/verify-session-pin', authenticate, [
-  body('pin').isString().trim().matches(/^\d{4}$/).withMessage('PIN must be exactly 4 digits')
-], verifySessionPin);
+router.post('/session-activity', authenticate, sessionActivity);
+router.post('/verify-session-pin', authenticate, verifySessionPin);
 router.post('/register', requireAdminOrFirstUser, validateRegister, register);
 
 // Club Manager signup (public, Summit Stats Team Challenge)

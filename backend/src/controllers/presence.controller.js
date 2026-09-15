@@ -356,7 +356,7 @@ export const heartbeat = async (req, res, next) => {
     const agencyId = rawAgencyId ? parseInt(rawAgencyId, 10) : null;
     const lastActivityAt = req.body?.lastActivityAt ? new Date(req.body.lastActivityAt) : null;
     const phaseRaw = String(req.body?.sessionPhase || req.body?.session_phase || '').toLowerCase();
-    const sessionPhase = ['timedown', 'away', 'active'].includes(phaseRaw) ? phaseRaw : 'active';
+    const sessionPhase = req.sessionSecurity?.state.phase === 'timedown' ? 'timedown' : (['timedown', 'away', 'active'].includes(phaseRaw) ? phaseRaw : 'active');
 
     if (agencyId) {
       await assertAgencyAccess(req.user, agencyId);

@@ -7,6 +7,7 @@ import { getUserCapabilities, buildAgencyAccessCaps } from '../utils/capabilitie
 import { isSupervisorActor, supervisorHasSuperviseeInSchool } from '../utils/supervisorSchoolAccess.js';
 import { canUserManageClub, getUserClubMembership, inferLegacyClubRole } from '../utils/sscClubAccess.js';
 import { hasTenantAccess } from '../utils/meDashboardTenantScope.js';
+import { getSessionSecurity, sessionRouteAllowed, invalidateSessionPolicyCache } from '../services/sessionSecurity.service.js';
 
 const PROVIDER_LIKE_ROLES_MIDDLEWARE = new Set([
   'provider', 'provider_plus', 'intern', 'intern_plus', 'clinical_practice_assistant'
@@ -221,6 +222,17 @@ export const authenticate = async (req, res, next) => {
     }
 
     const decoded = jwt.verify(token, config.jwt.secret);
+    res.set('Cache-Control', 'no-store');
+    if (['/api/auth/session-lock-config', '/api/auth/verify-session-pin'].includes(requestPath) || (requestPath === '/api/auth/session-activity' && req.body?.action === 'resume')) invalidateSessionPolicyCache();
+    // Validate deadlines even when no browser timer/heartbeat has run.
+    if (req.sessionSecurity === undefined) req.sessionSecurity = await getSessionSecurity(decoded, token);
+    if (!sessionRouteAllowed(req.sessionSecurity, req.method, requestPath)) {
+      const expired = req.sessionSecurity.state.phase === 'expired';
+      return res.status(expired ? 401 : 423).json({
+        error: { code: expired ? 'SESSION_EXPIRED' : 'SESSION_LOCKED', message: expired ? 'Your session ended. Sign in again.' : 'Unlock your session to continue.' },
+        session: req.sessionSecurity.state, policy: req.sessionSecurity.policy
+      });
+    }
     
     // Handle approved employee tokens — agency context already embedded in JWT claims.
     if (decoded.type === 'approved_employee') {
@@ -272,6 +284,8 @@ export const authenticate = async (req, res, next) => {
     await resolveEffectiveRole(req);
     next();
   } catch (error) {
+    if (error.code?.startsWith('SESSION_')) return res.status(error.status || 503).json({ error: { code: error.code, message: error.message } });
+    if (!['TokenExpiredError', 'JsonWebTokenError', 'NotBeforeError'].includes(error.name)) return next(error);
     if (error.name === 'TokenExpiredError') {
       return res.status(401).json({ error: { message: 'Token expired' } });
     }
@@ -341,7 +355,7 @@ function applyOptionalUserFromDecoded(req, decoded) {
 // Useful for endpoints that support alternative auth (ex: a one-time ops token).
 // When Authorization is a station/kiosk JWT, fall through to cookie / X-User-Authorization
 // so logged-in admins still get req.user (e.g. school-events kiosk agenda mode).
-export const authenticateOptional = (req, res, next) => {
+export const authenticateOptional = async (req, res, next) => {
   try {
     const bearer = req.headers.authorization?.startsWith('Bearer ')
       ? req.headers.authorization.substring(7)
@@ -354,8 +368,19 @@ export const authenticateOptional = (req, res, next) => {
     for (const token of candidates) {
       try {
         const decoded = jwt.verify(token, config.jwt.secret);
-        if (applyOptionalUserFromDecoded(req, decoded)) return next();
+        if (applyOptionalUserFromDecoded(req, decoded)) {
+          req.sessionSecurity = await getSessionSecurity(decoded, token);
+          if (req.sessionSecurity && req.sessionSecurity.state.phase !== 'active') {
+            delete req.user;
+            return res.status(req.sessionSecurity.state.phase === 'expired' ? 401 : 423).json({
+              error: { code: req.sessionSecurity.state.phase === 'expired' ? 'SESSION_EXPIRED' : 'SESSION_LOCKED', message: 'Unlock your session or sign in again.' },
+              session: req.sessionSecurity.state, policy: req.sessionSecurity.policy
+            });
+          }
+          return next();
+        }
       } catch {
+        delete req.user;
         // try next candidate
       }
     }

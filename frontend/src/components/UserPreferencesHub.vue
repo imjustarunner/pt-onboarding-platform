@@ -363,7 +363,7 @@
               <input v-model="prefs.session_lock_enabled" type="checkbox" :disabled="viewOnly" />
               Enable session lock on inactivity
             </label>
-            <div class="field-help">When enabled, after inactivity you'll see a lock screen instead of being logged out. Enter your PIN to continue.</div>
+            <div class="field-help">Require your session PIN after inactivity. The screen locks first, then the countdown ends with automatic logout. If your agency requires a Quick View passcode for your role, your existing 6-digit Quick View passcode is required even when this preference is off.</div>
 
             <div class="field" v-if="prefs.session_lock_enabled">
               <label>Inactivity timeout</label>

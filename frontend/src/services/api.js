@@ -244,6 +244,12 @@ api.interceptors.response.use(
     return response;
   },
   async (error) => {
+    const securityCode = error.response?.data?.error?.code;
+    if (securityCode === 'SESSION_LOCKED' || securityCode === 'SESSION_EXPIRED') {
+      window.dispatchEvent(new CustomEvent('pt:session-security', { detail: error.response.data }));
+      // Tracker owns the branded timeout redirect, including background requests.
+      error.config = { ...error.config, skipAuthRedirect: true };
+    }
     try {
       const id = error?.config?.__globalLoadingId;
       if (id) endGlobalLoading(id);

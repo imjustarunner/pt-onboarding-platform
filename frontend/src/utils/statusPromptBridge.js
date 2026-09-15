@@ -249,13 +249,13 @@ function renderPromptDom(mode) {
 
   const shortSection = document.createElement('div');
   shortSection.className = 'pt-sp-section';
-  shortSection.appendChild(sectionHeader('Short away (stay signed in)'));
+  shortSection.appendChild(sectionHeader('Short away'));
   const shortNote = document.createElement('p');
   shortNote.className = 'pt-sp-section-note';
   shortNote.textContent =
     mode === 'timedown'
-      ? 'Temporarily away but still signed in. Pick a reason and how long — up to 2 hours.'
-      : 'Temporarily away but will return soon. You stay signed in for up to 2 hours.';
+      ? 'Pick an Away reason and return time, up to 2 hours. Automatic screen locking and logout still apply.'
+      : 'Pick an Away reason and return time. Automatic screen locking and logout still apply.';
   shortSection.appendChild(shortNote);
 
   const chips = document.createElement('div');
@@ -467,7 +467,7 @@ function renderPromptDom(mode) {
     setStatus.textContent =
       b.timerMode === 'continue' ? 'Update status · keep timer' : 'Update status · reset timer';
   } else {
-    setStatus.textContent = 'Set status & stay signed in';
+    setStatus.textContent = 'Set Away status';
   }
   setStatus.disabled = !b.outReason;
   setStatus.addEventListener('click', async () => {

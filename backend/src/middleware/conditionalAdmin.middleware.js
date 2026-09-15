@@ -1,6 +1,7 @@
 import jwt from 'jsonwebtoken';
 import User from '../models/User.model.js';
 import config from '../config/config.js';
+import { getSessionSecurity, sessionRouteAllowed } from '../services/sessionSecurity.service.js';
 
 export const requireAdminOrFirstUser = async (req, res, next) => {
   try {
@@ -22,6 +23,10 @@ export const requireAdminOrFirstUser = async (req, res, next) => {
     }
     
     const decoded = jwt.verify(token, config.jwt.secret);
+    const security = await getSessionSecurity(decoded, token);
+    if (!sessionRouteAllowed(security, req.method, String(req.originalUrl || req.path || '').split('?')[0])) {
+      return res.status(security.state.phase === 'expired' ? 401 : 423).json({ error: { code: security.state.phase === 'expired' ? 'SESSION_EXPIRED' : 'SESSION_LOCKED', message: 'Unlock your session or sign in again.' }, session: security.state, policy: security.policy });
+    }
     
     if (decoded.role !== 'admin' && decoded.role !== 'super_admin' && decoded.role !== 'support') {
       return res.status(403).json({ error: { message: 'Admin access required' } });

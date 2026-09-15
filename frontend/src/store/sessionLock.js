@@ -1,9 +1,6 @@
 import { ref, computed } from 'vue';
 import { defineStore } from 'pinia';
 
-/** Extra seconds to stay signed in after returning to a tab whose Timedown already hit 0 while hidden. */
-export const TIMEDOWN_VISIBLE_GRACE_SECONDS = 90;
-
 export const useSessionLockStore = defineStore('sessionLock', () => {
   const isLocked = ref(false);
   const lockConfig = ref(null);
@@ -14,8 +11,6 @@ export const useSessionLockStore = defineStore('sessionLock', () => {
   let _warningInterval = null;
   let _warningOnExpire = null;
   let _warningEndsAt = null;
-  /** True when countdown hit 0 while the tab was hidden — wait until visible + grace. */
-  let _deferredExpire = false;
 
   const useLockScreen = computed(() => {
     const c = lockConfig.value;
@@ -49,7 +44,6 @@ export const useSessionLockStore = defineStore('sessionLock', () => {
 
   function _runExpire() {
     _clearWarningTimer();
-    _deferredExpire = false;
     _warningEndsAt = null;
     const cb = _warningOnExpire;
     _warningOnExpire = null;
@@ -59,54 +53,24 @@ export const useSessionLockStore = defineStore('sessionLock', () => {
     else warningActive.value = false;
   }
 
-  /**
-   * Show the Timedown warning with a wall-clock countdown.
-   * Uses endsAt so background-tab interval throttling cannot freeze the timer at 10:00.
-   * Does NOT logout while the document is hidden — defers until the tab is visible again
-   * (with a short grace period) so users are not dumped on Session Ended with no modal.
-   * @param {number} seconds  - seconds to count down before calling onExpire
-   * @param {Function} onExpire - called when countdown reaches 0 (should trigger logout)
-   */
-  function showWarning(seconds, onExpire) {
-    const total = Math.max(1, Math.floor(Number(seconds) || 0));
-    warningSecondsLeft.value = total;
+  /** Absolute deadline: hidden tabs, sleep and reload never grant extra time. */
+  function showWarning(seconds, onExpire, endsAt = Date.now() + seconds * 1000) {
     warningActive.value = true;
     _warningOnExpire = onExpire;
-    _deferredExpire = false;
-    _warningEndsAt = Date.now() + total * 1000;
+    _warningEndsAt = endsAt;
     _clearWarningTimer();
-    _warningInterval = setInterval(() => {
-      if (!_warningEndsAt) return;
-      const left = Math.max(0, Math.ceil((_warningEndsAt - Date.now()) / 1000));
-      warningSecondsLeft.value = left;
-      if (left > 0) return;
-
-      // Tab in background / minimized: do not hard-logout until they can see a warning.
-      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
-        _deferredExpire = true;
-        warningSecondsLeft.value = 0;
-        return;
-      }
-      _runExpire();
-    }, 250);
+    _warningInterval = setInterval(checkWarningDeadline, 250);
+    checkWarningDeadline();
   }
 
-  /**
-   * Call when the tab becomes visible. If Timedown already hit 0 while hidden
-   * (or the wall-clock end passed while timers were throttled), grant a short
-   * grace countdown so the modal is actually visible.
-   * @returns {boolean} true if grace was started
-   */
-  function onTabBecameVisible() {
-    if (!warningActive.value) return false;
-    const expiredByClock = !!( _warningEndsAt && Date.now() >= _warningEndsAt );
-    if (!_deferredExpire && !expiredByClock && warningSecondsLeft.value > 0) return false;
-
-    // Expired (or deferred) while away — give them a visible grace window.
-    const cb = _warningOnExpire;
-    showWarning(TIMEDOWN_VISIBLE_GRACE_SECONDS, cb);
-    return true;
+  function checkWarningDeadline() {
+    if (!warningActive.value || !_warningEndsAt) return false;
+    warningSecondsLeft.value = Math.max(0, Math.ceil((_warningEndsAt - Date.now()) / 1000));
+    if (Date.now() >= _warningEndsAt) { _runExpire(); return true; }
+    return false;
   }
+
+  function onTabBecameVisible() { return checkWarningDeadline(); }
 
   /** Dismiss the warning (user clicked "Stay Logged In"). */
   function dismissWarning() {
@@ -115,7 +79,6 @@ export const useSessionLockStore = defineStore('sessionLock', () => {
     warningSecondsLeft.value = 0;
     _warningOnExpire = null;
     _warningEndsAt = null;
-    _deferredExpire = false;
   }
 
   return {
@@ -130,6 +93,7 @@ export const useSessionLockStore = defineStore('sessionLock', () => {
     unlock,
     showWarning,
     dismissWarning,
-    onTabBecameVisible
+    onTabBecameVisible,
+    checkWarningDeadline
   };
 });

@@ -1,4 +1,5 @@
 import bcrypt from 'bcrypt';
+import { changeSessionSecurity, loadSessionPolicy, finalizeExpiredSession } from '../services/sessionSecurity.service.js';
 import { isHirePortalOnly } from '../utils/hirePortalToken.js';
 import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
@@ -1532,6 +1533,10 @@ export const identifyLogin = async (req, res, next) => {
 
 export const logout = async (req, res, next) => {
   try {
+    if (req.body?.reason === 'timeout') {
+      await finalizeExpiredSession(req.user, req.sessionSecurity?.state.expiresAt || Date.now());
+    }
+    if (req.sessionSecurity) await changeSessionSecurity(req.sessionSecurity, req.user.id, 'logout');
     // Get session ID from token if available
     const token = req.headers.authorization?.substring(7);
     let sessionId = null;
@@ -1550,12 +1555,8 @@ export const logout = async (req, res, next) => {
     }
     
     // Get session ID and reason from body if provided
-    const bodySessionId = req.body?.sessionId;
     const reason = req.body?.reason || 'user_logout';
     
-    if (bodySessionId) {
-      sessionId = bodySessionId;
-    }
     
     // Get IP address and user agent
     const ipAddress = req.ip || req.headers['x-forwarded-for'] || req.connection.remoteAddress || 'unknown';
@@ -1650,119 +1651,30 @@ export const logout = async (req, res, next) => {
   }
 };
 
-/**
- * Verify session lock PIN for unlock.
- * POST /auth/verify-session-pin
- * Body: { pin: string } (4 digits)
- */
-export const verifySessionPin = async (req, res, next) => {
+/** The signed JWT determines the session; caller-supplied session IDs are ignored. */
+export const sessionActivity = async (req, res, next) => {
   try {
-    const pin = String(req.body?.pin || '').trim();
-    if (!/^\d{4}$/.test(pin)) {
-      return res.status(400).json({ error: { message: 'PIN must be exactly 4 digits' } });
-    }
-    const UserPreferences = (await import('../models/UserPreferences.model.js')).default;
-    const prefs = await UserPreferences.findByUserId(req.user.id);
-    const hash = prefs?.session_lock_pin_hash;
-    if (!hash) {
-      return res.status(400).json({ error: { message: 'No session lock PIN set' } });
-    }
-    const valid = await bcrypt.compare(pin, hash);
-    if (!valid) {
-      return res.status(401).json({ error: { message: 'Invalid PIN' } });
-    }
-    res.json({ valid: true });
-  } catch (e) {
-    next(e);
+    const action = req.body?.action;
+    if (!['activity', 'lock', 'resume'].includes(action)) return res.status(400).json({ error: { message: 'Invalid session action' } });
+    const session = await changeSessionSecurity(req.sessionSecurity, req.user.id, action, req.body?.pin);
+    res.set('Cache-Control', 'no-store');
+    res.json({ session, policy: req.sessionSecurity.policy });
+  } catch (error) {
+    if (error.status) return res.status(error.status).json({ error: { code: error.code, message: error.message }, session: error.session, policy: req.sessionSecurity?.policy });
+    next(error);
   }
 };
 
-/**
- * Get session lock config for activity tracker.
- * GET /auth/session-lock-config
- * Returns platform max, agency max, user settings, effective timeout.
- */
+export const verifySessionPin = async (req, res, next) => {
+  req.body = { action: 'resume', pin: req.body?.pin };
+  return sessionActivity(req, res, next);
+};
+
 export const getSessionLockConfig = async (req, res, next) => {
   try {
-    const userId = req.user.id;
-    const UserPreferences = (await import('../models/UserPreferences.model.js')).default;
-    const prefs = await UserPreferences.findByUserId(userId);
-    const agencies = await User.getAgencies(userId);
-    const agencyId = agencies?.[0]?.id || null;
-
-    let platformMax = 30;
-    try {
-      const [rows] = await pool.execute(
-        'SELECT max_inactivity_timeout_minutes FROM platform_branding ORDER BY id DESC LIMIT 1'
-      );
-      if (rows?.[0]?.max_inactivity_timeout_minutes != null) {
-        platformMax = Math.min(240, Math.max(1, parseInt(rows[0].max_inactivity_timeout_minutes, 10) || 30));
-      }
-    } catch {
-      /* use default */
-    }
-
-    let agencyMax = platformMax;
-    let idleBeforeTimedownSeconds = 180;
-    let timedownSeconds = 600;
-    if (agencyId) {
-      try {
-        const [aRows] = await pool.execute(
-          'SELECT session_settings_json FROM agencies WHERE id = ? LIMIT 1',
-          [agencyId]
-        );
-        const settings = aRows?.[0]?.session_settings_json;
-        const parsed = typeof settings === 'string' ? (() => { try { return JSON.parse(settings); } catch { return {}; } })() : (settings || {});
-        const am = parsed.maxInactivityTimeoutMinutes ?? parsed.max_inactivity_timeout_minutes;
-        if (am != null) {
-          const n = parseInt(am, 10);
-          if (!isNaN(n) && n >= 1) agencyMax = Math.min(platformMax, n);
-        }
-        // Only explicit Timedown keys — do NOT map legacy inactivityTimeoutMinutes
-        // (often 8–30) onto the branded 3-minute idle flow.
-        if (parsed.idleBeforeTimedownSeconds != null && Number.isFinite(Number(parsed.idleBeforeTimedownSeconds))) {
-          idleBeforeTimedownSeconds = Math.min(3600, Math.max(30, Math.floor(Number(parsed.idleBeforeTimedownSeconds))));
-        }
-        const tdRaw = parsed.timedownSeconds ?? (parsed.timedownMinutes != null ? Number(parsed.timedownMinutes) * 60 : null);
-        if (tdRaw != null && Number.isFinite(Number(tdRaw))) {
-          timedownSeconds = Math.min(3600, Math.max(30, Math.floor(Number(tdRaw))));
-        }
-      } catch {
-        /* use platform max / defaults */
-      }
-    }
-
-    const roleNorm = String(req.user?.role || '').toLowerCase();
-    // Privileged practice roles: floor idle → Timedown at 5 minutes (matches frontend).
-    if (
-      roleNorm === 'admin' ||
-      roleNorm === 'super_admin' ||
-      roleNorm === 'support' ||
-      roleNorm === 'clinical_practice_assistant'
-    ) {
-      idleBeforeTimedownSeconds = Math.max(idleBeforeTimedownSeconds, 300);
-    }
-
-    const sessionLockEnabled = prefs?.session_lock_enabled === true || prefs?.session_lock_enabled === 1;
-    const userTimeout = prefs?.inactivity_timeout_minutes != null
-      ? Math.min(agencyMax, Math.max(1, parseInt(prefs.inactivity_timeout_minutes, 10) || agencyMax))
-      : agencyMax;
-    const hasPin = !!(prefs?.session_lock_pin_hash && String(prefs.session_lock_pin_hash).trim());
-
-    res.json({
-      platformMaxMinutes: platformMax,
-      agencyMaxMinutes: agencyMax,
-      sessionLockEnabled,
-      inactivityTimeoutMinutes: userTimeout,
-      hasPin,
-      effectiveTimeoutMinutes: userTimeout,
-      useLockScreen: sessionLockEnabled && hasPin,
-      idleBeforeTimedownSeconds,
-      timedownSeconds
-    });
-  } catch (e) {
-    next(e);
-  }
+    res.set('Cache-Control', 'no-store');
+    res.json({ ...(req.sessionSecurity?.policy || await loadSessionPolicy(req.user)), session: req.sessionSecurity?.state || null });
+  } catch (error) { next(error); }
 };
 
 /**
@@ -1782,7 +1694,7 @@ export const platformSessionHeartbeat = async (req, res, next) => {
     } catch {
       /* ignore */
     }
-    const sid = String(jwtSessionId || req.body?.sessionId || '').trim();
+    const sid = String(jwtSessionId || '').trim();
     if (!sid) {
       return res.status(400).json({ error: { message: 'sessionId required' } });
     }
@@ -1800,7 +1712,7 @@ export const platformSessionHeartbeat = async (req, res, next) => {
       });
     }
 
-    const phase = String(req.body?.phase || '').toLowerCase() === 'timedown' ? 'timedown' : 'active';
+    const phase = req.sessionSecurity?.state.phase === 'timedown' || String(req.body?.phase || '').toLowerCase() === 'timedown' ? 'timedown' : 'active';
     const updated = await UserPlatformSession.heartbeat({
       sessionId: sid,
       meaningful: !!req.body?.meaningful,

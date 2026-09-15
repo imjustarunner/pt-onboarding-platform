@@ -15,6 +15,7 @@ import {
   subscribeStatusPrompt
 } from '../utils/statusPromptBridge';
 import {
+  resumeSession,
   resetActivityTimer,
   reportTimedownDismissed,
   pauseIdleForSessionExtend,
@@ -36,10 +37,12 @@ const unsubPromptBridge = subscribeStatusPrompt((mode) => {
 watch(
   () => ({
     warning: sessionLockStore.warningActive,
+    locked: sessionLockStore.isLocked,
     extended: presenceSession.isExtended,
     mode: presenceSession.promptMode || getStatusPromptMode()
   }),
   ({ warning, extended, mode }) => {
+    if (sessionLockStore.isLocked) { closeStatusPrompt(); return; }
     if (!warning || extended) return;
     if (!presenceSession.shouldUseStatusPrompt(authStore.user?.role)) return;
     if (mode === 'timedown') return;
@@ -51,6 +54,7 @@ watch(
 
 registerStatusPromptHandlers({
   async onStillHere() {
+    if (!await resumeSession()) return;
     try {
       await presenceSession.clearAway();
     } catch {
@@ -71,6 +75,7 @@ registerStatusPromptHandlers({
     timerMode = 'reset'
   }) {
     if (!reason) return {};
+    if (sessionLockStore.warningActive && !await resumeSession()) return {};
 
     if (reason === 'out_day' || reason === 'available_offline') {
       await presenceSession.applyAway({

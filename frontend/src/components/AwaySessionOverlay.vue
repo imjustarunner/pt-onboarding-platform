@@ -5,7 +5,7 @@
         <div class="away-eyebrow">Away — signed in</div>
         <h2 class="away-title">{{ label }}</h2>
         <p class="away-sub">
-          Session stays open while you are away. When the timer ends we will ask for your status again.
+          Your Away status does not pause automatic screen locking or logout.
         </p>
         <div class="away-countdown" aria-label="Time remaining">
           <span class="away-countdown-label">Returns in</span>
@@ -26,9 +26,11 @@
 import { computed, onUnmounted, ref, watch } from 'vue';
 import { usePresenceSessionStore } from '../store/presenceSession';
 import { clearSessionExtendPause, resetActivityTimer } from '../utils/activityTracker';
+import { useSessionLockStore } from '../store/sessionLock';
 import { AWAY_REASONS } from '../utils/presenceStatus';
 
 const presenceSession = usePresenceSessionStore();
+const sessionLockStore = useSessionLockStore();
 const nowMs = ref(Date.now());
 const busy = ref(false);
 let tick = null;
@@ -40,7 +42,7 @@ const untilMs = computed(() => {
   return Number.isFinite(t) ? t : 0;
 });
 
-const active = computed(() => untilMs.value > nowMs.value);
+const active = computed(() => !sessionLockStore.warningActive && !sessionLockStore.isLocked && untilMs.value > nowMs.value);
 
 const remainingSec = computed(() => Math.max(0, Math.ceil((untilMs.value - nowMs.value) / 1000)));
 

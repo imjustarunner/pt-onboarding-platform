@@ -1,955 +1,289 @@
-/**
- * Activity tracker: inactivity → branded Timedown → Session Ended + platform session ledger.
- *
- * Flow:
- *  1. DOM events reset the idle clock. Meaningful events (click/key/scroll/touch) vs passive (mousemove).
- *  2. After configurable idle (default 3 min), Timedown overlay appears (configurable, default 10 min).
- *  3. "I'm still here" dismisses; incidental mouse moves do NOT while Timedown is up.
- *  4. Countdown expiry → logout → Session Ended (tenant login CTA).
- *
- * Reliability:
- *  - Wall-clock idle watchdog (every 10s) so background-tab setTimeout throttling cannot skip Timedown.
- *  - Switching desktops / hiding the tab does NOT pause or cancel idle.
- *
- * Heartbeat strategy (long-term, scales with users):
- *  - Do NOT poll the API on a tight fixed timer for every user forever.
- *  - Ledger: send on real changes (activity flush, phase change, tab visible again),
- *    plus a slow keep-alive (~90s) while the tab is visible so time still accrues.
- *  - Presence: slower when idle, a bit faster when recently active; never while hidden.
- *  - Hidden tabs and Cloud Run 429 cooldowns skip network heartbeats entirely.
- *  - Local scheduler ticks often; network calls stay rare. WebSockets are not needed yet.
- */
+/** Shared inactivity deadlines. Only real activity or server-verified resume can renew them. */
 import { unref } from 'vue';
 import { useAuthStore } from '../store/auth';
 import { useSessionLockStore } from '../store/sessionLock';
 import { usePresenceSessionStore } from '../store/presenceSession';
-import api, { isApiRateLimited } from '../services/api';
 import { useAgencyStore } from '../store/agency';
-import {
-  IDLE_BEFORE_TIMEDOWN_MS,
-  IDLE_BEFORE_TIMEDOWN_ADMIN_MS,
-  TIMEDOWN_SECONDS,
-  TIMEDOWN_ADMIN_SECONDS,
-  resolveSessionTimeoutTenantKey,
-  rememberSessionEndedContext,
-  markSessionEndedRedirecting
-} from './sessionTimeoutBranding';
-import { isPrivilegedPresenceRole } from './presenceStatus';
+import api, { isApiRateLimited } from '../services/api';
+import { closeStatusPrompt } from './statusPromptBridge';
+import { isDemoWindowSession } from './demoWindowSession';
+import { sessionStorageKey, localSessionState, phaseAt, isNewerSession } from './sessionDeadline';
+import { resolveSessionTimeoutTenantKey, rememberSessionEndedContext, markSessionEndedRedirecting } from './sessionTimeoutBranding';
 
-/** Presence cadence when the user was active recently (agency setting can raise this). */
-const DEFAULT_HEARTBEAT_INTERVAL_SECONDS = 60;
-const MIN_HEARTBEAT_INTERVAL_SECONDS = 30;
-const MAX_HEARTBEAT_INTERVAL_SECONDS = 300;
-/** Presence cadence when idle (no DOM activity for IDLE_FOR_PRESENCE_MS). */
-const PRESENCE_IDLE_INTERVAL_MS = 90 * 1000;
-const IDLE_FOR_PRESENCE_MS = 2 * 60 * 1000;
-
-/**
- * Ledger keep-alive while tab is visible. Must stay under the server delta cap (180s)
- * so honest time is not truncated between ticks.
- */
-const LEDGER_KEEPALIVE_MS = 90 * 1000;
-/** Batch rapid clicks into one ledger POST. */
-const LEDGER_ACTIVITY_FLUSH_MS = 2 * 1000;
-/** Local-only tick — cheap; decides whether a network call is due. */
-const HEARTBEAT_SCHEDULER_MS = 15 * 1000;
-
-const IDLE_WATCHDOG_MS = 10 * 1000;
-
-const LAST_ACTIVITY_KEY = 'presence:lastActivityAt';
-
-let warningTimer = null;
-let heartbeatTimer = null;
-let idleWatchdog = null;
-let ledgerFlushTimer = null;
-let lastActivityTime = Date.now();
-let lastLedgerSentAt = 0;
-let lastPresenceSentAt = 0;
-let lastSentPhase = null;
 let isTracking = false;
+let initialized = false;
 let timeoutInFlight = false;
-/** When set (ISO), Timedown idle clock is paused until this time (privileged away status). */
-let sessionExtendUntilMs = null;
-let extendWatchTimer = null;
-/** Refcount: while > 0, idle → Timedown and active Timedown countdown are suspended (live video session). */
+let state = null;
+let storageKey = null;
+let scheduler = null;
+let activityFlush = null;
+let pendingActivity = false;
+let lastHeartbeat = 0;
+let lastActivitySentAt = 0;
+let trackedSessionId = null;
+let lastActivityTime = Date.now();
+let refreshPromise = null;
+let refreshGeneration = null;
+let generation = 0;
 let inactivitySuspendCount = 0;
-
-/** Runtime timeouts from agency settings (fall back to branding defaults). */
-let idleBeforeTimedownMs = IDLE_BEFORE_TIMEDOWN_MS;
-let timedownSeconds = TIMEDOWN_SECONDS;
-
-/**
- * Optional override while an hourly worker is clocked into indirect time.
- * { idleBeforeTimedownMs, timedownSeconds } — timedown may be up to 2 hours.
- */
+let sessionExtendUntilMs = null;
 let runtimeTimeoutOverride = null;
+const EVENTS = ['mousedown', 'keydown', 'scroll', 'touchstart', 'click'];
+const REQUEST_OPTIONS = { skipGlobalLoading: true, skipAuthRedirect: true, timeout: 10000 };
+export const CLOCKED_IN_IDLE_BEFORE_TIMEDOWN_MS = 180000;
+export const CLOCKED_IN_TIMEDOWN_SECONDS = 7200;
 
-/** Clocked-in Timedown: 3 min idle → 2 hour countdown (not the default 10 min). */
-export const CLOCKED_IN_IDLE_BEFORE_TIMEDOWN_MS = 3 * 60 * 1000;
-export const CLOCKED_IN_TIMEDOWN_SECONDS = 2 * 60 * 60;
+const sharedStorage = () => isDemoWindowSession() ? sessionStorage : localStorage;
 
-/** Pending flags flushed on next platform-session heartbeat. */
-let pendingMeaningful = false;
-let pendingPassive = false;
-
-const MEANINGFUL_EVENTS = ['mousedown', 'keypress', 'keydown', 'scroll', 'touchstart', 'click'];
-const PASSIVE_EVENTS = ['mousemove'];
-
-function getWarningDelayMs() {
-  if (runtimeTimeoutOverride?.idleBeforeTimedownMs != null) {
-    return Number(runtimeTimeoutOverride.idleBeforeTimedownMs);
-  }
-  return idleBeforeTimedownMs;
+function publish() {
+  try { if (storageKey && state) sharedStorage().setItem(storageKey, JSON.stringify(state)); } catch { /* server remains authoritative */ }
 }
-
-function getTimedownSeconds() {
-  if (runtimeTimeoutOverride?.timedownSeconds != null) {
-    return Number(runtimeTimeoutOverride.timedownSeconds);
-  }
-  return timedownSeconds;
-}
-
-/**
- * Force idle/timedown while clocked into indirect time (or clear with null).
- * Does not persist across full config refetch unless re-applied after refetch.
- */
-export function setRuntimeTimeoutOverride(override) {
-  if (!override || typeof override !== 'object') {
-    runtimeTimeoutOverride = null;
-  } else {
-    const idleMs = Number(override.idleBeforeTimedownMs);
-    const tdSec = Number(override.timedownSeconds);
-    runtimeTimeoutOverride = {
-      idleBeforeTimedownMs: Number.isFinite(idleMs) && idleMs >= 30_000
-        ? Math.min(3600_000, Math.floor(idleMs))
-        : CLOCKED_IN_IDLE_BEFORE_TIMEDOWN_MS,
-      timedownSeconds: Number.isFinite(tdSec) && tdSec >= 30
-        ? Math.min(7200, Math.floor(tdSec))
-        : CLOCKED_IN_TIMEDOWN_SECONDS
-    };
-  }
-  // Reschedule idle → Timedown with the new values (no-op if Timedown already open).
+function readShared() {
   try {
-    resetTimer();
-  } catch {
-    /* tracking may not be started yet */
-  }
+    const shared = JSON.parse(sharedStorage().getItem(storageKey) || 'null');
+    if (shared && Number.isFinite(shared.expiresAt) && isNewerSession(shared, state)) state = shared;
+  } catch { /* server remains authoritative */ }
 }
-
-export function getRuntimeTimeoutOverride() {
-  return runtimeTimeoutOverride ? { ...runtimeTimeoutOverride } : null;
+function closePrompt() {
+  closeStatusPrompt();
+  usePresenceSessionStore().closePrompt();
 }
-
-export function applyClockedInTimeoutOverride() {
-  setRuntimeTimeoutOverride({
-    idleBeforeTimedownMs: CLOCKED_IN_IDLE_BEFORE_TIMEDOWN_MS,
-    timedownSeconds: CLOCKED_IN_TIMEDOWN_SECONDS
-  });
+function applyServer(data, { broadcast = true } = {}) {
+  const next = localSessionState(data?.session);
+  if (!next) return;
+  // Older requests may finish after a successful unlock in another tab.
+  if (initialized && !isNewerSession(next, state)) return;
+  initialized = true;
+  if (data?.policy) useSessionLockStore().setLockConfig(data.policy);
+  state = next;
+  lastActivityTime = state.lastActivityAt;
+  if (broadcast) publish();
+  reconcile();
 }
-
-export async function clearClockedInTimeoutOverride() {
-  runtimeTimeoutOverride = null;
-  try {
-    await refetchSessionLockConfig();
-  } catch {
-    applyTimeoutConfig({});
-    try {
-      resetTimer();
-    } catch {
-      /* ignore */
-    }
-  }
-}
-
-function currentSessionPhase() {
-  try {
-    return useSessionLockStore().warningActive ? 'timedown' : 'active';
-  } catch {
-    return 'active';
-  }
-}
-
-function isSessionExtendActive() {
-  if (!sessionExtendUntilMs) return false;
-  if (Date.now() >= sessionExtendUntilMs) {
-    // Expired but timer may have been lost (HMR / tab freeze) — clear so Timedown can run.
-    sessionExtendUntilMs = null;
-    if (extendWatchTimer) {
-      clearTimeout(extendWatchTimer);
-      extendWatchTimer = null;
-    }
-    return false;
-  }
-  return true;
-}
-
-function isInactivitySuspended() {
-  return inactivitySuspendCount > 0;
-}
-
-/**
- * Suspend idle → Timedown (and dismiss an active Timedown) while a live video session is in progress.
- * Refcounted so nested joins (e.g. modal + room) stay safe.
- */
-export function suspendInactivityTimeout() {
-  inactivitySuspendCount += 1;
-  if (inactivitySuspendCount !== 1) return;
-
-  if (warningTimer) {
-    clearTimeout(warningTimer);
-    warningTimer = null;
-  }
-
-  try {
-    const store = useSessionLockStore();
-    if (store.warningActive) store.dismissWarning();
-  } catch {
-    /* ignore */
-  }
-}
-
-/**
- * Resume normal inactivity timing after leaving a live video session.
- */
-export function resumeInactivityTimeout() {
-  if (inactivitySuspendCount <= 0) return;
-  inactivitySuspendCount -= 1;
-  if (inactivitySuspendCount > 0) return;
-
-  lastActivityTime = Date.now();
-  try {
-    localStorage.setItem(LAST_ACTIVITY_KEY, String(lastActivityTime));
-  } catch {
-    /* ignore */
-  }
-  if (isTracking) resetTimer();
-}
-
-function canSendHeartbeat() {
-  if (isApiRateLimited()) return false;
-  // Away/session-extend: keep presence heartbeats even if the tab is hidden
-  // so privileged users stay "Away" instead of flipping to Offline.
-  if (typeof document !== 'undefined' && document.visibilityState === 'hidden' && !isSessionExtendActive()) {
-    return false;
-  }
-  return true;
-}
-
-function shouldSendLedger({ force = false } = {}) {
-  if (force) return true;
-  if (pendingMeaningful || pendingPassive) return true;
-  const phase = currentSessionPhase();
-  if (phase !== lastSentPhase) return true;
-  if (!lastLedgerSentAt || Date.now() - lastLedgerSentAt >= LEDGER_KEEPALIVE_MS) return true;
-  return false;
-}
-
-function scheduleLedgerFlush() {
-  if (ledgerFlushTimer) return;
-  ledgerFlushTimer = setTimeout(() => {
-    ledgerFlushTimer = null;
-    sendPlatformSessionHeartbeat();
-  }, LEDGER_ACTIVITY_FLUSH_MS);
-}
-
-async function sendPlatformSessionHeartbeat({ forceMeaningful = false, force = false } = {}) {
-  const authStore = useAuthStore();
-  if (!authStore.isAuthenticated) return;
-  if (!canSendHeartbeat()) return;
-  if (!shouldSendLedger({ force: force || forceMeaningful })) return;
-
-  const sessionId = localStorage.getItem('sessionId');
-  if (!sessionId) return;
-
-  const meaningful = forceMeaningful || pendingMeaningful;
-  const passive = !meaningful && pendingPassive;
-  pendingMeaningful = false;
-  pendingPassive = false;
-
-  const phase = currentSessionPhase();
-  const agencyStore = useAgencyStore();
-  try {
-    await api.post(
-      '/auth/platform-session/heartbeat',
-      {
-        sessionId,
-        meaningful,
-        passive,
-        phase,
-        agencyId: agencyStore.currentAgency?.id || null
-      },
-      { skipGlobalLoading: true, skipAuthRedirect: true }
-    );
-    lastLedgerSentAt = Date.now();
-    lastSentPhase = phase;
-  } catch {
-    /* best-effort — leave pending flags cleared; next keep-alive still accrues wall time */
-  }
-}
-
-async function handleTimeout() {
-  if (timeoutInFlight) return;
-  timeoutInFlight = true;
-
-  // Pause ambient audio before logout to avoid orphaned streaming costs
-  try {
-    window.dispatchEvent(new CustomEvent('pt:pause-focus-audio', { detail: { reason: 'timeout' } }));
-  } catch { /* ignore */ }
-
-  const authStore = useAuthStore();
-  const agencyStore = useAgencyStore();
-
-  stopActivityTracking({ dismissWarning: false });
-
-  if (!authStore.isAuthenticated) {
-    timeoutInFlight = false;
+function reconcile() {
+  if (!isTracking || !initialized || !state || timeoutInFlight) return;
+  const store = useSessionLockStore();
+  const phase = phaseAt(state);
+  if (phase === 'expired') { void handleTimeout(); return; }
+  if (phase === 'active') {
+    const wasLocked = store.warningActive || store.isLocked;
+    store.unlock(); store.dismissWarning();
+    if (wasLocked) { closePrompt(); void sendHeartbeats(true); }
     return;
   }
-
-  markSessionEndedRedirecting();
-
-  // If still clocked into indirect time, close the session before logout.
-  try {
-    const { useIndirectTimeSessionStore } = await import('../store/indirectTimeSession');
-    const indirectStore = useIndirectTimeSessionStore();
-    if (indirectStore.isClockedIn) {
-      await indirectStore.forceClockOutOnLogout();
-    }
-  } catch {
-    /* ignore */
-  }
-
-  try {
-    const sessionId = localStorage.getItem('sessionId');
-    if (sessionId || authStore.token) {
-      try {
-        await api.post('/auth/logout', { sessionId, reason: 'timeout' }, { skipAuthRedirect: true });
-      } catch (err) {
-        if (err?.response?.status !== 401) console.error('[activityTracker] logout call failed:', err);
-      }
-      try {
-        await api.post(
-          '/auth/activity-log',
-          {
-            actionType: 'timeout',
-            sessionId,
-            metadata: {
-              reason: 'inactivity_timeout',
-              idleSeconds: Math.round(idleBeforeTimedownMs / 1000),
-              warningSeconds: getTimedownSeconds()
-            }
-          },
-          { skipAuthRedirect: true }
-        );
-      } catch {
-        /* ignore */
-      }
-    }
-  } catch (err) {
-    console.error('[activityTracker] error during timeout handling:', err);
-  } finally {
-    try {
-      const { getLoginUrlForRedirect, getCurrentPortalSlugFromHostCache, getCurrentPortalSlugFromPath } =
-        await import('../utils/loginRedirect');
-
-      const user = unref(authStore.user);
-      const loginUrl = getLoginUrlForRedirect(user, null, { timeout: true });
-      const agency = agencyStore.currentAgency || {};
-      const tenantKey = resolveSessionTimeoutTenantKey({
-        slug: agency.slug || agency.portal_url || agency.portalUrl,
-        portalUrl: agency.portal_url || agency.portalUrl,
-        agencyName: agency.name,
-        hostSlug: getCurrentPortalSlugFromHostCache() || getCurrentPortalSlugFromPath() || ''
-      });
-      rememberSessionEndedContext({ loginUrl, tenantKey });
-
-      const endedPath = `/session-ended?tenant=${encodeURIComponent(tenantKey)}&login=${encodeURIComponent(loginUrl)}`;
-      await authStore.logout('timeout', { redirectTo: endedPath });
-    } catch (err) {
-      console.error('[activityTracker] failed to reach Session Ended:', err);
-      try {
-        window.location.href = '/session-ended';
-      } catch {
-        /* ignore */
-      }
-    } finally {
-      timeoutInFlight = false;
-    }
-  }
-}
-
-/** Open (or re-open) the privileged status chooser above the Timedown page. */
-function openPrivilegedTimedownPrompt() {
-  try {
-    const auth = useAuthStore();
-    const presenceSession = usePresenceSessionStore();
-    if (!presenceSession.shouldUseStatusPrompt(auth.user?.role)) return;
-    if (isSessionExtendActive()) return;
-    presenceSession.openTimedownPrompt();
-  } catch {
-    /* store may not be ready */
-  }
-}
-
-/** Single entry point for opening Timedown (from setTimeout or wall-clock watchdog). */
-function fireTimedown() {
-  const store = useSessionLockStore();
-  const auth = useAuthStore();
-  if (!isTracking || !auth.isAuthenticated) return;
-  if (store.warningActive || store.isLocked) return;
-  if (isSessionExtendActive()) return;
-  if (isInactivitySuspended()) return;
-
-  if (warningTimer) {
-    clearTimeout(warningTimer);
-    warningTimer = null;
-  }
-
-  pendingPassive = false;
-  // Phase change → force ledger tick so timedown time accrues correctly.
-  sendPlatformSessionHeartbeat({ force: true });
-
-  // Paint Timedown first, then stack the status modal on top (privileged roles).
-  store.showWarning(getTimedownSeconds(), () => {
-    handleTimeout();
-  });
-
-  // Immediate + next-frame reopen so the chooser wins stacking after Timedown mounts.
-  openPrivilegedTimedownPrompt();
-  if (typeof requestAnimationFrame === 'function') {
-    requestAnimationFrame(() => {
-      openPrivilegedTimedownPrompt();
-      setTimeout(openPrivilegedTimedownPrompt, 50);
+  const newlyLocked = !store.warningActive;
+  if (store.useLockScreen) store.lock();
+  else store.unlock();
+  store.showWarning(Math.max(0, (state.expiresAt - Date.now()) / 1000), expireWarning, state.expiresAt);
+  if (store.isLocked) closePrompt();
+  if (newlyLocked) {
+    // Set the phase BEFORE the ledger/presence POST so admin idle starts now.
+    void sendHeartbeats(true);
+    queueMicrotask(() => {
+      const selector = store.isLocked ? '.session-lock-overlay input' : '.iw-overlay button';
+      document.querySelector(selector)?.focus();
     });
-  } else {
-    setTimeout(openPrivilegedTimedownPrompt, 50);
-  }
-
-  // Presence: Timedown counts as Idle/Away even before they pick a reason.
-  sendPresenceHeartbeat({ force: true });
-}
-
-function resetTimer() {
-  if (warningTimer) {
-    clearTimeout(warningTimer);
-    warningTimer = null;
-  }
-
-  const sessionLockStore = useSessionLockStore();
-  if (sessionLockStore.warningActive) return;
-  if (sessionLockStore.isLocked) return;
-  if (!isTracking) return;
-  if (isSessionExtendActive()) return;
-  if (isInactivitySuspended()) return;
-
-  // Schedule from lastActivityTime so background throttling + resume stay accurate.
-  const elapsed = Math.max(0, Date.now() - lastActivityTime);
-  const delay = Math.max(0, getWarningDelayMs() - elapsed);
-
-  if (delay === 0) {
-    fireTimedown();
-    return;
-  }
-
-  warningTimer = setTimeout(() => {
-    warningTimer = null;
-    // Re-check wall clock — setTimeout can fire late when the tab was backgrounded.
-    if (Date.now() - lastActivityTime >= getWarningDelayMs()) {
-      fireTimedown();
-    } else {
-      resetTimer();
-    }
-  }, delay);
-}
-
-/** Wall-clock backup: browsers throttle setTimeout in background tabs. */
-function checkIdleWatchdog() {
-  if (!isTracking || timeoutInFlight) return;
-  // Recover a stuck Away pause if the expire timer was lost.
-  if (sessionExtendUntilMs && Date.now() < sessionExtendUntilMs && !extendWatchTimer) {
-    const delay = Math.max(1000, sessionExtendUntilMs - Date.now());
-    extendWatchTimer = setTimeout(() => {
-      extendWatchTimer = null;
-      sessionExtendUntilMs = null;
-      lastActivityTime = Date.now() - getWarningDelayMs();
-      fireTimedown();
-    }, delay);
-  }
-  if (isSessionExtendActive()) return;
-  if (isInactivitySuspended()) return;
-  const store = useSessionLockStore();
-  if (store.warningActive || store.isLocked) return;
-  if (Date.now() - lastActivityTime >= getWarningDelayMs()) {
-    fireTimedown();
   }
 }
-
-function markActivity({ meaningful }) {
-  const sessionLockStore = useSessionLockStore();
-  if (sessionLockStore.isLocked) return;
-  if (sessionLockStore.warningActive) return;
-  if (meaningful) pendingMeaningful = true;
-  else pendingPassive = true;
-  lastActivityTime = Date.now();
+function expireWarning() {
+  readShared();
+  if (state && phaseAt(state) !== 'expired') { reconcile(); return; }
+  void handleTimeout();
+}
+async function changeSession(action, pin) {
+  const currentGeneration = generation;
   try {
-    localStorage.setItem(LAST_ACTIVITY_KEY, String(lastActivityTime));
-  } catch {
-    /* ignore */
+    const response = await api.post('/auth/session-activity', { action, ...(pin == null ? {} : { pin }) }, REQUEST_OPTIONS);
+    if (currentGeneration === generation) applyServer(response.data);
+    return response.data;
+  } catch (error) {
+    if (currentGeneration === generation && error.response?.data?.session) applyServer(error.response.data);
+    if (error.response?.data?.error?.code === 'SESSION_EXPIRED' && !error.response.data.session) void handleTimeout();
+    throw error;
   }
-  resetTimer();
-  // Only flush on meaningful interaction — mousemove waits for keep-alive / next flush
-  // so idle mouse jitter cannot spam the API.
-  if (meaningful) scheduleLedgerFlush();
 }
-
-function onMeaningfulActivity() {
-  markActivity({ meaningful: true });
-}
-
-function onPassiveActivity() {
-  markActivity({ meaningful: false });
-}
-
-function onStorageActivity(event) {
-  if (event?.key !== LAST_ACTIVITY_KEY) return;
-  const nextTime = Number(event.newValue);
-  if (!Number.isFinite(nextTime) || nextTime <= lastActivityTime) return;
-  lastActivityTime = nextTime;
-  if (isTracking) resetTimer();
-}
-
-function onVisibilityChange() {
-  if (!isTracking) return;
-  if (document.visibilityState !== 'visible') return;
-
-  const store = useSessionLockStore();
-
-  // If Timedown already hit 0 while this tab was hidden, grant a visible grace
-  // window instead of logging out before the user can see any modal.
-  if (store.warningActive) {
-    const grantedGrace = store.onTabBecameVisible();
-    // Always keep the privileged status modal above Timedown when the tab returns.
-    openPrivilegedTimedownPrompt();
-    if (grantedGrace) openPrivilegedTimedownPrompt();
-    sendPresenceHeartbeat({ force: true });
-    sendPlatformSessionHeartbeat({ force: true });
-    return;
-  }
-
-  // Tab visible again — do NOT treat focus as activity. Re-evaluate idle wall clock.
-  if (Date.now() - lastActivityTime >= getWarningDelayMs()) {
-    fireTimedown();
-  } else {
-    resetTimer();
-  }
-
-  // Catch up once; capped server-side so long hidden gaps are not fully credited.
-  sendPresenceHeartbeat({ force: true });
-  sendPlatformSessionHeartbeat({ force: true });
-}
-
-function presenceIntervalMs() {
-  const activeMs = getHeartbeatIntervalMs();
-  const idleMs = Math.max(activeMs, PRESENCE_IDLE_INTERVAL_MS);
-  if (Date.now() - lastActivityTime >= IDLE_FOR_PRESENCE_MS) return idleMs;
-  return activeMs;
-}
-
-async function sendPresenceHeartbeat({ force = false } = {}) {
-  const authStore = useAuthStore();
-  const agencyStore = useAgencyStore();
-  if (!authStore.isAuthenticated) return;
-  if (!canSendHeartbeat()) return;
-  if (!force && lastPresenceSentAt && Date.now() - lastPresenceSentAt < presenceIntervalMs()) return;
-
-  const roleNorm = String(authStore.user?.role || '').toLowerCase();
-  // school_staff send presence heartbeats so school-scoped DMs show who is online
-  if (!roleNorm || roleNorm === 'client_guardian' || roleNorm === 'kiosk') return;
-
-  const agencyId = agencyStore.currentAgency?.id || null;
-  const phase = isSessionExtendActive()
-    ? 'away'
-    : (currentSessionPhase() === 'timedown' ? 'timedown' : 'active');
+export async function resumeSession(pin) {
+  readShared();
+  if (!state || phaseAt(state) === 'expired') { void handleTimeout(); return false; }
   try {
-    await api.post(
-      '/presence/heartbeat',
-      {
-        agencyId,
-        lastActivityAt: new Date(lastActivityTime).toISOString(),
-        sessionPhase: phase
-      },
-      { skipGlobalLoading: true, skipAuthRedirect: true }
-    );
-    lastPresenceSentAt = Date.now();
-  } catch {
-    /* ignore */
-  }
-}
-
-/** Local scheduler: decide if presence/ledger network calls are due. */
-function runHeartbeatScheduler() {
-  if (!isTracking) return;
-  sendPresenceHeartbeat();
-  sendPlatformSessionHeartbeat();
-}
-
-/**
- * Only apply explicit Timedown settings.
- * Do NOT fall back to legacy inactivityTimeoutMinutes (that was 8–30 min session-lock config
- * and was incorrectly overriding the 3-minute Timedown default).
- */
-function isAdminRole() {
-  try {
-    return isPrivilegedPresenceRole(useAuthStore().user?.role);
-  } catch {
+    await changeSession('resume', pin);
+    if (timeoutInFlight || !isTracking || phaseAt(state) !== 'active') return false;
+    try { await usePresenceSessionStore().clearAway(); } catch { /* access resumed; presence will refresh */ }
+    await sendHeartbeats(true);
+    return true;
+  } catch (error) {
+    if (pin !== undefined) throw error;
     return false;
   }
 }
-
-function defaultIdleBeforeTimedownMs() {
-  return isAdminRole() ? IDLE_BEFORE_TIMEDOWN_ADMIN_MS : IDLE_BEFORE_TIMEDOWN_MS;
+function markActivity() {
+  if (!isTracking || !initialized || timeoutInFlight || document.visibilityState !== 'visible') return;
+  readShared();
+  // Check elapsed deadlines before accepting the first click after sleep.
+  if (!state || phaseAt(state) !== 'active') { reconcile(); return; }
+  lastActivityTime = Date.now();
+  pendingActivity = true;
+  if (!activityFlush) {
+    const delay = Math.min(Math.max(0, 15000 - (Date.now() - lastActivitySentAt)), Math.max(0, state.lockAt - Date.now() - 1500));
+    activityFlush = setTimeout(flushActivity, delay);
+  }
 }
-
-function applyTimeoutConfig(config) {
-  // Privileged roles: fixed 10 min idle → 10 min Timedown (agency settings do not stretch this).
-  if (isAdminRole()) {
-    idleBeforeTimedownMs = IDLE_BEFORE_TIMEDOWN_ADMIN_MS;
-    timedownSeconds = TIMEDOWN_ADMIN_SECONDS;
+async function flushActivity() {
+  activityFlush = null;
+  if (!pendingActivity || !isTracking || timeoutInFlight) return;
+  pendingActivity = false;
+  lastActivitySentAt = Date.now();
+  try { await changeSession('activity'); } catch { /* retain the last confirmed deadline */ }
+}
+async function sendHeartbeats(force = false) {
+  if (!isTracking || timeoutInFlight || isApiRateLimited() || !state) return;
+  const phase = phaseAt(state);
+  if (phase === 'expired') return;
+  if (!force && (document.visibilityState !== 'visible' || Date.now() - lastHeartbeat < 60000)) return;
+  lastHeartbeat = Date.now();
+  const sessionId = localStorage.getItem('sessionId');
+  if (!useAuthStore().user?.id) return;
+  const agencyId = useAgencyStore().currentAgency?.id || null;
+  await Promise.allSettled([
+    api.post('/presence/heartbeat', { agencyId, lastActivityAt: new Date(lastActivityTime).toISOString(), sessionPhase: phase }, REQUEST_OPTIONS),
+    ...(sessionId ? [api.post('/auth/platform-session/heartbeat', { sessionId, agencyId, phase, meaningful: phase === 'active' && Date.now() - lastActivityTime < 60000 }, REQUEST_OPTIONS)] : [])
+  ]);
+}
+async function refresh() {
+  if (!isTracking) return;
+  if (refreshPromise && refreshGeneration === generation) return refreshPromise;
+  const currentGeneration = generation;
+  refreshGeneration = currentGeneration;
+  const request = api.get('/auth/session-lock-config', REQUEST_OPTIONS).then(response => {
+    if (currentGeneration !== generation || !isTracking) return;
+    applyServer({ policy: response.data, session: response.data.session });
+  }).catch(error => {
+    if (currentGeneration === generation && error.response?.data?.session) applyServer(error.response.data);
+    if (currentGeneration === generation && error.response?.data?.error?.code === 'SESSION_EXPIRED' && !error.response.data.session) void handleTimeout();
+    throw error;
+  }).finally(() => { if (refreshPromise === request) refreshPromise = null; });
+  refreshPromise = request;
+  return request;
+}
+function onStorage(event) {
+  if (!isTracking || isDemoWindowSession()) return;
+  if ((event.key === 'user' && !event.newValue) || (event.key === 'sessionId' && event.newValue !== trackedSessionId)) {
+    // Cookies now belong to a different login; never log that new session out.
+    useSessionLockStore().lock(); stopActivityTracking({ dismissWarning: false });
+    window.location.reload();
     return;
   }
-  const idleSec = Number(config?.idleBeforeTimedownSeconds);
-  const tdSec = Number(config?.timedownSeconds);
-  if (Number.isFinite(idleSec) && idleSec >= 30) {
-    idleBeforeTimedownMs = Math.min(3600, Math.floor(idleSec)) * 1000;
-  } else {
-    idleBeforeTimedownMs = defaultIdleBeforeTimedownMs();
+  if (event.key === 'user' && event.newValue) {
+    try {
+      if (JSON.parse(event.newValue)?.id !== useAuthStore().user?.id) {
+        useSessionLockStore().lock(); stopActivityTracking({ dismissWarning: false });
+        window.location.reload(); return;
+      }
+    } catch { /* malformed shared user state never renews the deadline */ }
   }
-  if (Number.isFinite(tdSec) && tdSec >= 30) {
-    timedownSeconds = Math.min(3600, Math.floor(tdSec));
-  } else {
-    timedownSeconds = TIMEDOWN_SECONDS;
+  if (event.key === storageKey && !event.newValue) {
+    void handleTimeout(); return;
   }
+  if (event.key !== storageKey) return;
+  readShared(); reconcile();
+  // Confirm unlocks with the server; no code/token is placed in shared storage.
+  if (state?.phase === 'active') void refresh().catch(() => {});
 }
-
+function onVisibility() {
+  if (!isTracking || document.visibilityState !== 'visible') return;
+  readShared(); reconcile();
+  if (!timeoutInFlight) void refresh().catch(() => {});
+}
+function onSecurityResponse(event) {
+  if (!isTracking) return;
+  applyServer(event.detail || {});
+  if (event.detail?.error?.code === 'SESSION_EXPIRED' && !event.detail.session) void handleTimeout();
+}
+function tick() {
+  readShared(); reconcile();
+  void sendHeartbeats();
+  // A visible live meeting is ongoing use, but hidden tabs cannot indefinitely
+  // suspend security deadlines. Background polling is never counted as activity.
+  if (inactivitySuspendCount > 0 && document.visibilityState === 'visible') markActivity();
+}
+function onFocusIn(event) {
+  const store = useSessionLockStore();
+  if (!store.isLocked && !store.warningActive) return;
+  const allowed = store.isLocked ? '.session-lock-overlay' : '.iw-overlay, [data-pt-status-prompt]';
+  if (!event.target?.closest?.(allowed)) document.querySelector(`${store.isLocked ? '.session-lock-overlay' : '.iw-overlay'} input, ${store.isLocked ? '.session-lock-overlay' : '.iw-overlay'} button`)?.focus();
+}
 export async function startActivityTracking({ force = false } = {}) {
   if (isTracking && !force) return;
-  if (isTracking) stopActivityTracking();
-
-  isTracking = true;
-  timeoutInFlight = false;
-  lastLedgerSentAt = 0;
-  lastPresenceSentAt = 0;
-  lastSentPhase = null;
-  // Always start idle clock from now — stale localStorage must not skew the first schedule.
-  lastActivityTime = Date.now();
-  try {
-    localStorage.setItem(LAST_ACTIVITY_KEY, String(lastActivityTime));
-  } catch {
-    /* ignore */
-  }
-
-  // Never trust a leftover local Away pause alone — that was freezing Timedown for up to 2h
-  // after a prior status choice even when the user thought they were Active.
-  clearSessionExtendPause();
-  try {
-    usePresenceSessionStore().clearLocalExtend();
-  } catch {
-    /* ignore */
-  }
-
-  try {
-    // Skip when clearly logged out — avoids 401 spam on /login after nav-loop recovery.
-    let hasAuthHint = false;
-    try {
-      hasAuthHint = !!(localStorage.getItem('authToken') || localStorage.getItem('user'));
-    } catch { /* ignore */ }
-    if (hasAuthHint) {
-      const res = await api.get('/auth/session-lock-config', { skipGlobalLoading: true, skipAuthRedirect: true });
-      useSessionLockStore().setLockConfig(res.data || null);
-      applyTimeoutConfig(res.data || {});
-    } else {
-      useSessionLockStore().setLockConfig(null);
-      applyTimeoutConfig({});
+  stopActivityTracking();
+  generation += 1; isTracking = true; initialized = false; timeoutInFlight = false;
+  trackedSessionId = localStorage.getItem('sessionId');
+  storageKey = sessionStorageKey(useAuthStore().user?.id, trackedSessionId);
+  lastHeartbeat = 0; lastActivitySentAt = 0;
+  state = null; readShared();
+  // A cached deadline cannot authorize access or revoke a fresh cookie login.
+  // Keep the screen covered until the server confirms this session.
+  useSessionLockStore().lock();
+  EVENTS.forEach(event => document.addEventListener(event, markActivity, true));
+  document.addEventListener('visibilitychange', onVisibility);
+  document.addEventListener('focusin', onFocusIn, true);
+  window.addEventListener('pageshow', onVisibility);
+  window.addEventListener('focus', onVisibility);
+  window.addEventListener('storage', onStorage);
+  window.addEventListener('pt:session-security', onSecurityResponse);
+  scheduler = setInterval(tick, 1000);
+  try { await refresh(); } catch {
+    // Without a verified deadline keep content covered; retry on visibility/focus.
+    if (!initialized && isTracking) {
+      useSessionLockStore().lock();
+      useSessionLockStore().showWarning(60, handleTimeout);
     }
-  } catch {
-    useSessionLockStore().setLockConfig(null);
-    applyTimeoutConfig({});
   }
-
-  MEANINGFUL_EVENTS.forEach((event) => document.addEventListener(event, onMeaningfulActivity, true));
-  PASSIVE_EVENTS.forEach((event) => document.addEventListener(event, onPassiveActivity, true));
-  document.addEventListener('visibilitychange', onVisibilityChange);
-  window.addEventListener('storage', onStorageActivity);
-
-  // Re-apply Away pause only when the server still has an active session extend.
-  try {
-    const presenceSession = usePresenceSessionStore();
-    const data = await presenceSession.refreshFromServer();
-    if (data?.session_extend_active && data?.presence_session_extend_until) {
-      pauseIdleForSessionExtend(data.presence_session_extend_until);
-    } else {
-      clearSessionExtendPause();
-    }
-  } catch {
-    clearSessionExtendPause();
-  }
-
-  resetTimer();
-  sendPresenceHeartbeat({ force: true });
-  sendPlatformSessionHeartbeat({ forceMeaningful: true, force: true });
-  heartbeatTimer = setInterval(runHeartbeatScheduler, HEARTBEAT_SCHEDULER_MS);
-  idleWatchdog = setInterval(checkIdleWatchdog, IDLE_WATCHDOG_MS);
-  attachIdleTimeoutDebugGlobals();
+  if (isTracking) void sendHeartbeats(true);
 }
-
-export function stopActivityTracking({ dismissWarning: shouldDismiss = true } = {}) {
-  if (!isTracking && !warningTimer && !heartbeatTimer && !idleWatchdog && !ledgerFlushTimer) {
-    if (shouldDismiss) useSessionLockStore().dismissWarning();
-    return;
-  }
-  isTracking = false;
-  clearSessionExtendPause();
-  inactivitySuspendCount = 0;
-
-  MEANINGFUL_EVENTS.forEach((event) => document.removeEventListener(event, onMeaningfulActivity, true));
-  PASSIVE_EVENTS.forEach((event) => document.removeEventListener(event, onPassiveActivity, true));
-  document.removeEventListener('visibilitychange', onVisibilityChange);
-  window.removeEventListener('storage', onStorageActivity);
-
-  if (warningTimer) {
-    clearTimeout(warningTimer);
-    warningTimer = null;
-  }
-  if (heartbeatTimer) {
-    clearInterval(heartbeatTimer);
-    heartbeatTimer = null;
-  }
-  if (idleWatchdog) {
-    clearInterval(idleWatchdog);
-    idleWatchdog = null;
-  }
-  if (ledgerFlushTimer) {
-    clearTimeout(ledgerFlushTimer);
-    ledgerFlushTimer = null;
-  }
-
-  if (shouldDismiss) useSessionLockStore().dismissWarning();
+export function stopActivityTracking({ dismissWarning = true } = {}) {
+  generation += 1; isTracking = false;
+  clearInterval(scheduler); clearTimeout(activityFlush);
+  scheduler = null; activityFlush = null; pendingActivity = false;
+  EVENTS.forEach(event => document.removeEventListener(event, markActivity, true));
+  document.removeEventListener('visibilitychange', onVisibility);
+  document.removeEventListener('focusin', onFocusIn, true);
+  window.removeEventListener('pageshow', onVisibility);
+  window.removeEventListener('focus', onVisibility);
+  window.removeEventListener('storage', onStorage);
+  window.removeEventListener('pt:session-security', onSecurityResponse);
+  if (dismissWarning) useSessionLockStore().dismissWarning();
 }
-
-export function getLastActivityTime() {
-  return lastActivityTime;
+export async function handleTimeout() {
+  if (timeoutInFlight) return;
+  timeoutInFlight = true;
+  if (state) { state = { ...state, phase: 'expired', serverNow: Math.max(state.serverNow, Date.now()) }; publish(); }
+  const store = useSessionLockStore();
+  store.lock(); closePrompt();
+  stopActivityTracking({ dismissWarning: false });
+  try { window.dispatchEvent(new CustomEvent('pt:pause-focus-audio', { detail: { reason: 'timeout' } })); } catch { /* ignore */ }
+  const auth = useAuthStore();
+  if (!auth.isAuthenticated) return;
+  markSessionEndedRedirecting();
+  const { getLoginUrlForRedirect, getCurrentPortalSlugFromHostCache, getCurrentPortalSlugFromPath } = await import('./loginRedirect');
+  const loginUrl = getLoginUrlForRedirect(unref(auth.user), null, { timeout: true });
+  const agency = useAgencyStore().currentAgency || {};
+  const tenantKey = resolveSessionTimeoutTenantKey({ slug: agency.slug || agency.portal_url, agencyName: agency.name, hostSlug: getCurrentPortalSlugFromHostCache() || getCurrentPortalSlugFromPath() || '' });
+  rememberSessionEndedContext({ loginUrl, tenantKey });
+  await auth.logout('timeout', { skipStatusPrompt: true, redirectTo: `/session-ended?tenant=${encodeURIComponent(tenantKey)}&login=${encodeURIComponent(loginUrl)}` });
 }
-
-export function resetActivityTimer() {
-  lastActivityTime = Date.now();
-  try {
-    localStorage.setItem(LAST_ACTIVITY_KEY, String(lastActivityTime));
-  } catch {
-    /* ignore */
-  }
-  resetTimer();
-}
-
-/** Called when user dismisses Timedown — counts as meaningful engagement. */
-export function reportTimedownDismissed() {
-  pendingMeaningful = true;
-  sendPlatformSessionHeartbeat({ forceMeaningful: true, force: true });
-}
-
-/**
- * Pause Timedown while a privileged away status is active (max 2h).
- * When the window ends, re-open the status / Timedown prompt.
- * Idempotent for the same until-time so presence polls do not keep resetting the idle clock.
- */
-export function pauseIdleForSessionExtend(isoUntil) {
-  const ms = isoUntil ? new Date(isoUntil).getTime() : NaN;
-  const maxUntil = Date.now() + 2 * 60 * 60 * 1000 + 5000;
-  if (!Number.isFinite(ms) || ms <= Date.now() || ms > maxUntil) {
-    clearSessionExtendPause({ reschedule: true });
-    return;
-  }
-  // Same window already armed — do not touch lastActivityTime (chat polls every ~20s).
-  if (sessionExtendUntilMs === ms && extendWatchTimer) {
-    return;
-  }
-  sessionExtendUntilMs = ms;
-  if (warningTimer) {
-    clearTimeout(warningTimer);
-    warningTimer = null;
-  }
-  if (extendWatchTimer) {
-    clearTimeout(extendWatchTimer);
-    extendWatchTimer = null;
-  }
-  const delay = Math.max(1000, ms - Date.now());
-  extendWatchTimer = setTimeout(() => {
-    extendWatchTimer = null;
-    sessionExtendUntilMs = null;
-    try {
-      usePresenceSessionStore().clearLocalExtend();
-    } catch {
-      /* ignore */
-    }
-    // Extension ended — ask again (or Timedown)
-    lastActivityTime = Date.now() - getWarningDelayMs();
-    fireTimedown();
-  }, delay);
-  // Keep away presence fresh
-  sendPresenceHeartbeat({ force: true });
-}
-
-export function clearSessionExtendPause({ reschedule = false } = {}) {
-  sessionExtendUntilMs = null;
-  if (extendWatchTimer) {
-    clearTimeout(extendWatchTimer);
-    extendWatchTimer = null;
-  }
-  if (reschedule && isTracking) resetTimer();
-}
-
-/**
- * Console/dev helper: clear Away pause and open Timedown immediately.
- * Also available as window.__forceTimedown() after tracking starts.
- */
-export function forceTimedownNow() {
-  try {
-    usePresenceSessionStore().clearLocalExtend();
-  } catch {
-    /* ignore */
-  }
-  clearSessionExtendPause();
-  try {
-    useSessionLockStore().dismissWarning();
-  } catch {
-    /* ignore */
-  }
-  lastActivityTime = Date.now() - getWarningDelayMs() - 1000;
-  try {
-    localStorage.setItem(LAST_ACTIVITY_KEY, String(lastActivityTime));
-  } catch {
-    /* ignore */
-  }
-  fireTimedown();
-  return getIdleTimeoutDebug();
-}
-
-function attachIdleTimeoutDebugGlobals() {
-  if (typeof window === 'undefined') return;
-  window.__getIdleTimeoutDebug = getIdleTimeoutDebug;
-  window.__forceTimedown = forceTimedownNow;
-  window.__clearSessionExtendPause = () => {
-    try {
-      usePresenceSessionStore().clearLocalExtend();
-    } catch {
-      /* ignore */
-    }
-    clearSessionExtendPause({ reschedule: true });
-    return getIdleTimeoutDebug();
-  };
-}
-
-export function getSessionExtendUntilMs() {
-  return sessionExtendUntilMs;
-}
-
-export async function refetchSessionLockConfig() {
-  const preservedOverride = runtimeTimeoutOverride ? { ...runtimeTimeoutOverride } : null;
-  try {
-    let hasAuthHint = false;
-    try {
-      hasAuthHint = !!(localStorage.getItem('authToken') || localStorage.getItem('user'));
-    } catch { /* ignore */ }
-    if (!hasAuthHint) {
-      useSessionLockStore().setLockConfig(null);
-      applyTimeoutConfig({});
-    } else {
-      const res = await api.get('/auth/session-lock-config', { skipGlobalLoading: true, skipAuthRedirect: true });
-      useSessionLockStore().setLockConfig(res.data || null);
-      applyTimeoutConfig(res.data || {});
-    }
-  } catch {
-    useSessionLockStore().setLockConfig(null);
-    applyTimeoutConfig({});
-  }
-  // Agency config refetch must not wipe the clocked-in 2h Timedown override.
-  if (preservedOverride) {
-    runtimeTimeoutOverride = preservedOverride;
-  }
-  resetTimer();
-}
-
-/** Debug helper — current idle/timedown config in ms/seconds. */
-export function getIdleTimeoutDebug() {
-  return {
-    isTracking,
-    idleBeforeTimedownMs,
-    timedownSeconds,
-    effectiveIdleBeforeTimedownMs: getWarningDelayMs(),
-    effectiveTimedownSeconds: getTimedownSeconds(),
-    runtimeTimeoutOverride,
-    lastActivityTime,
-    lastLedgerSentAt,
-    lastPresenceSentAt,
-    idleElapsedMs: Date.now() - lastActivityTime,
-    sessionExtendUntilMs,
-    sessionExtendActive: isSessionExtendActive(),
-    inactivitySuspended: isInactivitySuspended(),
-    inactivitySuspendCount,
-    sessionExtendRemainingSec: sessionExtendUntilMs
-      ? Math.max(0, Math.round((sessionExtendUntilMs - Date.now()) / 1000))
-      : 0,
-    warningActive: (() => {
-      try {
-        return useSessionLockStore().warningActive;
-      } catch {
-        return false;
-      }
-    })(),
-    warningSecondsLeft: (() => {
-      try {
-        return useSessionLockStore().warningSecondsLeft;
-      } catch {
-        return null;
-      }
-    })()
-  };
-}
-
-function getSessionSettings() {
-  try {
-    const agencyStore = useAgencyStore();
-    const raw =
-      agencyStore.currentAgency?.session_settings_json ??
-      agencyStore.currentAgency?.sessionSettings ??
-      null;
-    if (!raw) return {};
-    if (typeof raw === 'object') return raw || {};
-    if (typeof raw === 'string') {
-      try {
-        return JSON.parse(raw) || {};
-      } catch {
-        return {};
-      }
-    }
-    return {};
-  } catch {
-    return {};
-  }
-}
-
-function clampNumber(raw, min, max, fallback) {
-  const num = Number(raw);
-  if (!Number.isFinite(num)) return fallback;
-  return Math.min(max, Math.max(min, num));
-}
-
-function getHeartbeatIntervalMs() {
-  const settings = getSessionSettings();
-  const seconds = clampNumber(
-    settings.heartbeatIntervalSeconds,
-    MIN_HEARTBEAT_INTERVAL_SECONDS,
-    MAX_HEARTBEAT_INTERVAL_SECONDS,
-    DEFAULT_HEARTBEAT_INTERVAL_SECONDS
-  );
-  return seconds * 1000;
-}
+export const refetchSessionLockConfig = refresh;
+export const getLastActivityTime = () => lastActivityTime;
+export const resetActivityTimer = markActivity;
+export const reportTimedownDismissed = () => sendHeartbeats(true);
+// Away status and payroll tracking do not extend access to client information.
+export function pauseIdleForSessionExtend(iso) { sessionExtendUntilMs = iso ? new Date(iso).getTime() : null; }
+export function clearSessionExtendPause() { sessionExtendUntilMs = null; }
+export const getSessionExtendUntilMs = () => sessionExtendUntilMs;
+export function suspendInactivityTimeout() { inactivitySuspendCount += 1; }
+export function resumeInactivityTimeout() { inactivitySuspendCount = Math.max(0, inactivitySuspendCount - 1); markActivity(); }
+export function setRuntimeTimeoutOverride(override) { runtimeTimeoutOverride = override; }
+export const getRuntimeTimeoutOverride = () => runtimeTimeoutOverride;
+export const applyClockedInTimeoutOverride = () => setRuntimeTimeoutOverride({ idleBeforeTimedownMs: CLOCKED_IN_IDLE_BEFORE_TIMEDOWN_MS, timedownSeconds: CLOCKED_IN_TIMEDOWN_SECONDS });
+export async function clearClockedInTimeoutOverride() { runtimeTimeoutOverride = null; await refresh(); }
+export async function forceTimedownNow() { await changeSession('lock'); return getIdleTimeoutDebug(); }
+export const getIdleTimeoutDebug = () => ({ isTracking, state, lastActivityTime, warningActive: useSessionLockStore().warningActive, warningSecondsLeft: useSessionLockStore().warningSecondsLeft });

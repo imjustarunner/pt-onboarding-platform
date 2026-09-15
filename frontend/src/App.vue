@@ -1,7 +1,7 @@
 <template>
   <BrandingProvider>
     <div class="preview-root" :data-preview-viewport="effectivePreviewViewport">
-      <div id="app" :class="{ 'is-native': isNative, 'is-platform-hq': isPlatformHqShell }">
+      <div id="app" :inert="sessionLockStore.isLocked || sessionLockStore.warningActive" :aria-hidden="sessionLockStore.isLocked || sessionLockStore.warningActive ? 'true' : undefined" :class="{ 'is-native': isNative, 'is-platform-hq': isPlatformHqShell }">
       <div
         v-if="pageLoading"
         class="agency-loading-overlay"
@@ -2007,7 +2007,7 @@
            StatusPromptModal on top (Away / Meal / stay signed in up to 2h). -->
       <InactivityWarningModal
         v-if="isAuthenticated || sessionLockStore.warningActive"
-        :suppress-actions="statusPromptOpenForActions"
+        :suppress-actions="statusPromptOpenForActions || sessionLockStore.isLocked"
       />
       <NoteAidClockInPromptModal v-if="isAuthenticated" />
       <StatusPromptModal />
@@ -6113,8 +6113,7 @@ const onSessionUnlock = () => {
 };
 
 const onSessionLockLogout = async () => {
-  sessionLockStore.unlock();
-  stopActivityTracking();
+  stopActivityTracking({ dismissWarning: false });
   mobileMenuOpen.value = false;
   const { getLoginUrlForRedirect, getCurrentPortalSlugFromHostCache, getCurrentPortalSlugFromPath } =
     await import('./utils/loginRedirect');

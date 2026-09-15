@@ -24,7 +24,8 @@ export const DIRECTORY_ROLE_OPTIONS = [
 ];
 
 export function isPrivilegedPresenceRole(role) {
-  return PRIVILEGED_PRESENCE_ROLES.includes(String(role || '').toLowerCase());
+  const normalized = String(role || '').trim().toLowerCase();
+  return PRIVILEGED_PRESENCE_ROLES.includes(['superadmin', 'super-admin', 'super admin'].includes(normalized) ? 'super_admin' : normalized);
 }
 
 export function canToggleDirectoryAudience(role) {

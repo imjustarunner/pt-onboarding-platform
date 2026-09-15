@@ -1,3 +1,4 @@
+import { validateSessionSettings } from '../utils/sessionSecurityPolicy.js';
 import Agency from '../models/Agency.model.js';
 import User from '../models/User.model.js';
 import { validationResult } from 'express-validator';
@@ -458,7 +459,7 @@ export const createAgency = async (req, res, next) => {
       colorPalette: formattedColorPalette, 
       terminologySettings,
       intakeRetentionPolicy: parseJsonField(intakeRetentionPolicy),
-      sessionSettings: parseJsonField(sessionSettings),
+      sessionSettings: validateSessionSettings(parseJsonField(sessionSettings)),
       isActive, 
       iconId,
       chatIconId,
@@ -834,7 +835,7 @@ export const updateAgency = async (req, res, next) => {
       ? parseJsonField(intakeRetentionPolicy)
       : undefined;
     const formattedSessionSettings = sessionSettings !== undefined
-      ? parseJsonField(sessionSettings)
+      ? validateSessionSettings(parseJsonField(sessionSettings))
       : undefined;
 
     const formattedReviewPromptConfig = reviewPromptConfig !== undefined

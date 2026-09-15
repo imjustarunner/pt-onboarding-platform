@@ -454,7 +454,7 @@
             <div class="form-section-divider" style="margin-top: 18px; margin-bottom: 12px; padding-top: 18px; border-top: 1px solid var(--border);">
               <h4 style="margin: 0; font-size: 16px;">Session Timeout (Timedown)</h4>
               <p class="section-description" style="margin-top: 6px;">
-                Controls the branded inactivity flow: idle wait → Timedown countdown video → Session Ended. Admin/support/superadmin always use a fixed 10 min idle + 10 min Timedown (20 min total).
+                Controls automatic screen locking and the countdown to logout. Admin, support and superadmin are capped at 10 minutes idle plus 10 minutes countdown; shorter agency limits apply.
                 These values are the source of truth for when the timeout overlay appears and how long it runs.
               </p>
             </div>
@@ -470,13 +470,21 @@
                 <small>How long the countdown runs before Session Ended / logout. Default 600 (10 min).</small>
               </div>
               <div class="form-group">
+                <label>Require Quick View passcode to unlock</label>
+                <label v-for="role in sessionPinRoleOptions" :key="role.value" class="checkbox-label">
+                  <input v-model="agencyForm.sessionSettings.requireQuickViewPinRoles" type="checkbox" :value="role.value" />
+                  {{ role.label }}
+                </label>
+                <small>Selected roles must enter their existing 6-digit Quick View passcode after inactivity. The strictest policy across accessible agencies applies, including all active agencies for superadmins. Users without a code must sign in again and set one up in My Preferences. After the countdown expires, everyone must sign in again.</small>
+              </div>
+              <div class="form-group">
                 <label>Heartbeat interval (seconds)</label>
                 <input v-model.number="agencyForm.sessionSettings.heartbeatIntervalSeconds" type="number" min="30" max="300" />
               </div>
               <div class="form-group">
                 <label>Session lock max (minutes)</label>
                 <input v-model.number="agencyForm.sessionSettings.maxInactivityTimeoutMinutes" type="number" min="1" max="240" placeholder="Use platform max" />
-                <small>Legacy PIN lock preference cap only. Leave blank to use platform max.</small>
+                <small>Maximum time before the screen locks. Leave blank to use the platform maximum.</small>
               </div>
             </div>
             </template>
@@ -6846,7 +6854,8 @@ const defaultAgencyForm = () => ({
     idleBeforeTimedownSeconds: 180,
     timedownSeconds: 600,
     heartbeatIntervalSeconds: 60,
-    maxInactivityTimeoutMinutes: null
+    maxInactivityTimeoutMinutes: null,
+    requireQuickViewPinRoles: []
   },
   featureFlags: {
     // Blueprint key for repeatable tenant setup
@@ -6953,6 +6962,14 @@ const defaultAgencyForm = () => ({
     platformLabel: ''
   }
 });
+
+const sessionPinRoleOptions = [
+  ['super_admin', 'Superadmin'], ['admin', 'Admin'], ['support', 'Support'],
+  ['clinical_practice_assistant', 'Clinical practice assistant'], ['staff', 'Staff'],
+  ['provider', 'Provider'], ['provider_plus', 'Provider+'], ['intern', 'Intern'],
+  ['intern_plus', 'Intern+'], ['school_staff', 'School staff'], ['supervisor', 'Supervisor'],
+  ['client_guardian', 'Client guardian'], ['club_manager', 'Club manager']
+].map(([value, label]) => ({ value, label }));
 
 const agencyForm = ref(defaultAgencyForm());
 
@@ -8355,6 +8372,7 @@ const editAgency = async (agency) => {
       days: retentionDays
     },
     sessionSettings: {
+      requireQuickViewPinRoles: Array.isArray(sessionSettingsRaw.requireQuickViewPinRoles) ? [...sessionSettingsRaw.requireQuickViewPinRoles] : [],
       inactivityTimeoutMinutes: sessionInactivityMinutes,
       idleBeforeTimedownSeconds: sessionIdleSeconds,
       timedownSeconds: sessionTimedownSeconds,
@@ -9181,6 +9199,7 @@ const saveAgency = async () => {
               600
             );
             return {
+              requireQuickViewPinRoles: [...(sessionSettingsRaw.requireQuickViewPinRoles || [])],
               idleBeforeTimedownSeconds,
               timedownSeconds,
               // Keep legacy minutes field in sync for older readers
