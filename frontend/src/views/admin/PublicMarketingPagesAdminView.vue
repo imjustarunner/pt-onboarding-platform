@@ -34,13 +34,15 @@
       </li>
     </ul>
 
-    <div v-if="editorOpen" class="pmp-editor card">
-      <h2>{{ editingId ? `Edit page #${editingId}` : 'New page' }}</h2>
+    <div v-if="editorOpen" ref="editorPanel" class="pmp-editor card">
+      <h2>{{ editingId ? `Edit ${form.title || form.slug}` : 'New page' }}</h2>
+      <p class="muted">Preview changes below, then Save to update the website. Unsaved text and layout changes stay in this editor.</p>
+      <a v-if="editingId" :href="`/p/${encodeURIComponent(form.slug)}`" target="_blank" rel="noopener">Open website in a new tab →</a>
 
       <KimiWebsiteSettings v-if="form.slug === 'kimi'" v-model="form.brandingJsonText" :key="editingId" />
       <NluWebsiteSettings v-if="form.slug === 'nlu'" v-model="form.brandingJsonText" :key="editingId" />
       <ItscoWebsiteSettings v-if="form.slug === 'itsco'" v-model="form.brandingJsonText" :key="editingId" />
-      <MarketingDesignWorkspace v-if="showMarketingLandingEditor || showPtcoEditor || showRiseEditor || showCollectiveEditor || form.slug === 'nlu'" :key="editingId || 'new'" :page="designPreviewPage" :reference-url="designReferenceUrl" @asset="applyDesignAsset" @reference="designReferenceUrl = $event" @busy="designBusy = $event" />
+      <MarketingDesignWorkspace v-if="showMarketingLandingEditor || showPtcoEditor || showRiseEditor || showCollectiveEditor || ['nlu', 'itsco', 'kimi'].includes(form.slug)" :asset-targets="form.slug === 'itsco' ? ['hero', 'logo'] : ['hero', 'cta', 'logo']" :key="editingId || 'new'" :page="designPreviewPage" :reference-url="designReferenceUrl" @asset="applyDesignAsset" @reference="designReferenceUrl = $event" @busy="designBusy = $event" />
       <fieldset v-if="showCollectiveEditor" class="card" style="padding:20px;margin-bottom:20px">
         <h3>{{ form.slug === 'range' ? 'Mental Range Collective' : 'MH4Kidz' }} website connections</h3>
         <p>Leave unavailable destinations blank to show Coming soon. These public pages do not create a tenant. Network membership is managed in each tenant’s settings by a superadmin.</p>
@@ -644,7 +646,7 @@
 
 <script setup>
 import KimiWebsiteSettings from '../../components/public/KimiWebsiteSettings.vue';
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import api from '../../services/api';
 import { useRoute } from 'vue-router';
 import NluWebsiteSettings from '../../components/public/NluWebsiteSettings.vue';
@@ -707,6 +709,7 @@ const showMarketingLandingEditor = computed(
     String(form.value.slug || '').trim().toLowerCase() === 'tisi'
 );
 
+const editorPanel = ref(null);
 const designBusy = ref(false);
 const designReferenceUrl = ref('');
 const originalLanding = ref({});
@@ -717,7 +720,12 @@ const designPreviewPage = computed(() => ({
 }));
 const designIssues = computed(() => marketingPageIssues(resolveTisiLandingConfig({ pageMeta: designPreviewPage.value, branding: designPreviewPage.value.branding }), { slug: form.value.slug, contentPages: contentPages.value }));
 function applyDesignAsset({ target, url }) {
-  if (target === 'hero') form.value.heroImageUrl = url;
+  if (form.value.slug === 'kimi' && ['hero', 'cta'].includes(target)) {
+    const branding = JSON.parse(form.value.brandingJsonText || '{}');
+    branding.kimiWebsite = { ...branding.kimiWebsite, [target === 'hero' ? 'portraitUrl' : 'mountainUrl']: url };
+    form.value.brandingJsonText = JSON.stringify(branding, null, 2);
+  }
+  else if (target === 'hero') form.value.heroImageUrl = url;
   else if (target === 'logo') form.value.logoUrl = url;
   else if (target === 'cta' && showCollectiveEditor.value) collectiveForm.value.ctaImageUrl = url;
   else if (target === 'cta' && showRiseEditor.value) riseForm.value.ctaImageUrl = url;
@@ -1432,7 +1440,7 @@ async function removePage(p) {
 onMounted(async () => {
   await Promise.all([loadAgencies(), loadPages()]);
   const requested = pages.value.find(p => p.slug === route.query.page);
-  if (requested) edit(requested);
+  if (requested) { edit(requested); await nextTick(); editorPanel.value?.scrollIntoView?.({ block: 'start' }); }
 });
 </script>
 

@@ -18,7 +18,7 @@
         <label v-for="field in ['x', 'y', 'width', 'height']" :key="field">{{ field }} (%)
           <input v-model.number="crop[field]" type="number" min="0" max="100" step="0.1" @change="normalizeCrop" />
         </label>
-        <label>Use crop as<select v-model="target"><option value="hero">Hero</option><option value="cta">Consultation banner</option><option value="logo">Logo</option></select></label>
+        <label>Use crop as<select v-model="target"><option v-for="value in assetTargets" :key="value" :value="value">{{ { hero: 'Hero', cta: 'Consultation banner', logo: 'Logo' }[value] }}</option></select></label>
         <p>{{ cropPixels.width }} × {{ cropPixels.height }} pixels</p>
         <p v-if="cropPixels.width < (target === 'logo' ? 160 : 1200)" class="design-warning">This crop may look soft at desktop size. A larger original will give a sharper result.</p>
         <button type="button" :disabled="busy || !cropPixels.width || !cropPixels.height" @click="applyCrop">{{ busy ? 'Uploading…' : 'Apply crop to draft' }}</button>
@@ -43,7 +43,7 @@
 <script setup>
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import api from '../../services/api';
-const props = defineProps({ page: { type: Object, required: true }, referenceUrl: { type: String, default: '' } });
+const props = defineProps({ page: { type: Object, required: true }, referenceUrl: { type: String, default: '' }, assetTargets: { type: Array, default: () => ['hero', 'cta', 'logo'] } });
 const emit = defineEmits(['asset', 'reference', 'busy']);
 const previewOpen = ref(false);
 const expanded = ref(false);

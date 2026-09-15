@@ -2,7 +2,7 @@
  <div class="kimi-site">
   <a href="#kimi-main" class="kimi-skip">Skip to content</a>
   <header class="kimi-header" @keydown.esc="menuOpen=false">
-   <router-link :to="path('')" class="kimi-brand"><img src="/assets/kimi/logo.svg" alt="Kimi Cain Life Coaching" width="225" height="94"/></router-link>
+   <router-link :to="path('')" class="kimi-brand"><img :src="safe(page?.branding?.logoUrl) || '/assets/kimi/logo.svg'" alt="Kimi Cain Life Coaching" width="225" height="94"/></router-link>
    <button class="kimi-menu" type="button" :aria-expanded="menuOpen" aria-controls="kimi-nav" @click="menuOpen=!menuOpen">{{menuOpen?'Close':'Menu'}}</button>
    <nav id="kimi-nav" :class="{'is-open':menuOpen}" aria-label="Main navigation"><router-link v-for="[label,s] in nav" :key="s" :to="path(s)" :aria-current="section===(s||'home')?'page':undefined">{{label}}</router-link></nav>
    <router-link class="kimi-button kimi-header-cta" :to="path('consultation')">Book a Free Consultation</router-link>
@@ -49,7 +49,7 @@
     <section v-if="!['privacy','terms','contact','consultation'].includes(section)" class="kimi-closing" :style="mountainStyle"><div class="kimi-wrap"><p class="kimi-eyebrow">Let’s take the next step together</p><h2>{{settings.closing?.title}}</h2><p>{{settings.closing?.body}}</p><router-link class="kimi-button kimi-light" :to="section==='counseling'?nluJoin:path('consultation')">{{section==='counseling'?'Connect with NLU':'Book Your Free Consultation'}} →</router-link></div></section>
    </template>
   </main>
-  <footer class="kimi-footer kimi-wrap"><div><router-link :to="path('')"><img src="/assets/kimi/logo.svg" alt="Kimi Cain Life Coaching" width="200" height="83"/></router-link><nav aria-label="Footer"><router-link :to="path('privacy')">Privacy</router-link><router-link :to="path('terms')">Coaching agreements</router-link><router-link to="/partners">Partners</router-link><router-link to="/kimi/login">Client & practice login</router-link></nav></div><p>{{settings.scope}}</p><small>© {{new Date().getFullYear()}} {{settings.practiceName||'Kimi Cain Life Coaching'}}</small></footer>
+  <footer class="kimi-footer kimi-wrap"><div><router-link :to="path('')"><img :src="safe(page?.branding?.logoUrl) || '/assets/kimi/logo.svg'" alt="Kimi Cain Life Coaching" width="200" height="83"/></router-link><nav aria-label="Footer"><router-link :to="path('privacy')">Privacy</router-link><router-link :to="path('terms')">Coaching agreements</router-link><router-link to="/partners">Partners</router-link><router-link to="/kimi/login">Client & practice login</router-link></nav></div><p>{{settings.scope}}</p><small>© {{new Date().getFullYear()}} {{settings.practiceName||'Kimi Cain Life Coaching'}}</small></footer>
  </div>
 </template>
 <script setup>

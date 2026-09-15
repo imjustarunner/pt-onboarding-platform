@@ -16,7 +16,7 @@ async function openEditor() {
 beforeEach(() => {
   vi.clearAllMocks();
   record = { id: 1, slug: 'tisi', title: 'Inner Strength Institute', pageType: 'marketing_landing', heroTitle: 'Build Inner Strength', isActive: false, brandingJson: { landing: { customFutureOption: 'keep me' } } };
-  api.get.mockImplementation(async url => ({ data: url === '/platform/public-marketing-pages' ? { pages: [record] } : [] }));
+  api.get.mockImplementation(async url => ({ data: url === '/platform/public-marketing-pages' ? { pages: [record] } : url === '/public/marketing-pages/itsco/website-data' ? { districts: [], metrics: { studentsSupported: null } } : [] }));
   api.put.mockResolvedValue({ data: {} });
 });
 describe('marketing editor save workflow', () => {
@@ -46,6 +46,25 @@ describe('marketing editor save workflow', () => {
     expect(api.put.mock.calls[0][1].brandingJson.landingTemplate).toBe('ptco');
     expect(api.put.mock.calls[0][1].heroImageUrl).toBe('/uploads/ptco-hero.webp');
     expect(api.put.mock.calls[0][1].brandingJson.landing).toBeUndefined();
+    wrapper.unmount();
+  });
+  it.each(['itsco', 'kimi'])('opens the full %s editor and saves cropped assets with existing settings intact', async slug => {
+    record = { id: 20, slug, title: slug, pageType: 'marketing_hub', isActive: false, brandingJson: { [`${slug}Website`]: { futureOption: 'preserved' } } };
+    const wrapper = await openEditor();
+    const component = wrapper.findComponent(workspace);
+    expect(component.exists()).toBe(true);
+    component.vm.$emit('asset', { target: 'hero', url: '/uploads/updated-hero.webp' });
+    component.vm.$emit('asset', { target: 'logo', url: '/uploads/updated-logo.webp' });
+    await flushPromises();
+    expect(api.put).not.toHaveBeenCalled();
+    const draft = component.props('page');
+    expect(slug === 'kimi' ? draft.branding.kimiWebsite.portraitUrl : draft.heroImageUrl).toBe('/uploads/updated-hero.webp');
+    await wrapper.find('.pmp-save-row .btn-primary').trigger('click'); await flushPromises();
+    expect(api.put).toHaveBeenCalledOnce();
+    const payload = api.put.mock.calls[0][1];
+    expect(payload.brandingJson[`${slug}Website`].futureOption).toBe('preserved');
+    expect(payload.brandingJson.logoUrl).toBe('/uploads/updated-logo.webp');
+    expect(api.put.mock.calls[0][0]).toBe('/platform/public-marketing-pages/20');
     wrapper.unmount();
   });
   it('does not save during a crop upload', async () => {

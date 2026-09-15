@@ -102,7 +102,7 @@ export async function getItscoWebsiteData(req) {
   const studentsSupported = impact?.total ?? null;
   return { agency: { id: agency.id, name: agency.official_name || agency.name, slug: 'itsco',
     logoUrl: resolveOrgLogoUrl(agency, { baseUrl }), schedulingEnabled: Boolean(agency.public_availability_enabled) },
-    content: { heroTitle: page.heroTitle, heroSubtitle: page.heroSubtitle, heroImageUrl: page.heroImageUrl },
+    content: { logoUrl: page.brandingJson?.logoUrl || null, heroTitle: page.heroTitle, heroSubtitle: page.heroSubtitle, heroImageUrl: page.heroImageUrl },
     settings, districts, providers, team,
     insurances: [...new Map(providers.flatMap(p => p.insurances).map(i => [i.name.toLowerCase(), i])).values()],
     metrics: { schools: schools.length, districts: districts.filter(d => d.slug !== 'other').length,

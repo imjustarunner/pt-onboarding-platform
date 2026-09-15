@@ -547,18 +547,11 @@
                               </a>
                             </template>
                             <template v-if="directoryPublicLinksData.marketingHubs.length">
-                              <div class="nav-dropdown-group-label">Marketing hubs</div>
-                              <a
-                                v-for="hub in directoryPublicLinksData.marketingHubs"
-                                :key="'hub-' + hub.slug"
-                                class="nav-dropdown-external-link"
-                                :href="marketingHubPublicUrl(hub.slug)"
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                @click.stop
-                              >
-                                {{ hub.title }}
-                              </a>
+                              <div class="nav-dropdown-group-label">Websites</div>
+                              <template v-for="hub in directoryPublicLinksData.marketingHubs" :key="'hub-' + hub.slug">
+                                <a class="nav-dropdown-external-link" :href="marketingHubPublicUrl(hub.slug)" target="_blank" rel="noopener noreferrer" @click.stop>{{ hub.title }}</a>
+                                <a v-if="user?.role === 'super_admin'" class="nav-dropdown-external-link" :href="marketingEditorPath(hub.slug)" target="_blank" rel="noopener noreferrer" @click.stop>Edit {{ hub.title }}</a>
+                              </template>
                             </template>
                             <template v-if="directoryPublicLinksData.publicEventPages.length">
                               <div class="nav-dropdown-group-label">Event pages</div>
@@ -1664,18 +1657,11 @@
                         {{ row.title }}
                         <span class="nav-dropdown-external-hint">{{ intakeFormDirectoryLabel(row.formType) }}</span>
                       </a>
-                      <div v-if="directoryPublicLinksData.marketingHubs.length" class="nav-dropdown-group-label mobile-nav-sublabel">Marketing hubs</div>
-                      <a
-                        v-for="hub in directoryPublicLinksData.marketingHubs"
-                        :key="'m-hub-' + hub.slug"
-                        class="mobile-nav-link mobile-nav-sublink nav-dropdown-external-link"
-                        :href="marketingHubPublicUrl(hub.slug)"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        @click="closeMobileMenu"
-                      >
-                        {{ hub.title }}
-                      </a>
+                      <div v-if="directoryPublicLinksData.marketingHubs.length" class="nav-dropdown-group-label mobile-nav-sublabel">Websites</div>
+                      <template v-for="hub in directoryPublicLinksData.marketingHubs" :key="'m-hub-' + hub.slug">
+                                <a class="mobile-nav-link mobile-nav-sublink nav-dropdown-external-link" :href="marketingHubPublicUrl(hub.slug)" target="_blank" rel="noopener noreferrer" @click="closeMobileMenu">{{ hub.title }}</a>
+                                <a v-if="user?.role === 'super_admin'" class="mobile-nav-link mobile-nav-sublink nav-dropdown-external-link" :href="marketingEditorPath(hub.slug)" target="_blank" rel="noopener noreferrer" @click="closeMobileMenu">Edit {{ hub.title }}</a>
+                              </template>
                       <div v-if="directoryPublicLinksData.publicEventPages.length" class="nav-dropdown-group-label mobile-nav-sublabel">Event pages</div>
                       <a
                         v-for="row in directoryPublicLinksData.publicEventPages"
@@ -1993,6 +1979,7 @@
         <router-view :key="route.path" />
       </main>
       <PublicTranslateWidget v-if="showPublicTranslateWidget" />
+      <PublicWebsiteEditorBar v-if="route.meta?.publicMarketingHub" />
       <PublicWebsiteAnalytics v-if="route.meta?.publicMarketingHub" />
       <PublicWebsiteChat v-if="route.meta?.publicMarketingHub && !isAuthenticated" />
       <WebsiteChatDesk v-if="isAuthenticated && ['admin','support','super_admin'].includes(String(user?.role||'').toLowerCase()) && !route.meta?.publicMarketingHub && !hideGlobalNavForSchoolStaff" />
@@ -2408,6 +2395,8 @@ import TimeCapsuleRevealSplashModal from './components/hiring/TimeCapsuleRevealS
 import PublicTranslateWidget from './components/public/PublicTranslateWidget.vue';
 import PublicWebsiteChat from './components/public/PublicWebsiteChat.vue';
 import WebsiteChatDesk from './components/tickets/WebsiteChatDesk.vue';
+import PublicWebsiteEditorBar from './components/public/PublicWebsiteEditorBar.vue';
+import { marketingEditorPath } from './utils/publicWebsiteEditing';
 import PublicWebsiteAnalytics from './components/public/PublicWebsiteAnalytics.vue';
 import {
   shouldShowPublicTranslate,
