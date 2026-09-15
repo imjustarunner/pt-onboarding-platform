@@ -2,7 +2,7 @@ import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { ITSCO_PUBLIC_SECTIONS } from '../src/utils/publicDomainRouting.js';
 import { itscoPublicResponse, itscoSitemap, ITSCO_REDIRECTS, ITSCO_ORIGIN } from '../src/utils/itscoPublicSeo.js';
-import { injectShareMetaIntoHtml } from '../src/utils/sharePreview.js';
+import { buildShareMeta, injectShareMetaIntoHtml } from '../src/utils/sharePreview.js';
 const dist = fileURLToPath(new URL('../dist/', import.meta.url));
 const out = `${dist}/_public-sites/itsco`;
 mkdirSync(out, {recursive:true});
@@ -11,7 +11,7 @@ const locations = [];
 for (const section of [...ITSCO_PUBLIC_SECTIONS, 'careers']) {
  const path = `/${section}`;
  const page = itscoPublicResponse('www.itsco.health', path);
- const meta = {name:'ITSCO',title:page.title,description:page.description,url:page.canonical,image:`${ITSCO_ORIGIN}/assets/itsco/students-hero.png`};
+ const meta = {name:'ITSCO',title:page.title,description:page.description,url:page.canonical,image:buildShareMeta({host:'www.itsco.health',path}).image};
  const html = injectShareMetaIntoHtml(shell,meta).replace('</head>',`<link rel="canonical" href="${page.canonical}"></head>`);
  const file = `${section || 'home'}.html`;
  writeFileSync(`${out}/${file}`, html);
@@ -81,11 +81,16 @@ console.log('Prepared ITSCO public-domain HTML metadata, sitemap, and Nginx host
 // Exact website hosts share the built app, with the public history adapter
 // selecting the existing marketing page before the login guard runs.
 const { PUBLIC_SITE_DOMAINS } = await import('../src/utils/publicDomainRouting.js');
-const publicServers = Object.entries(PUBLIC_SITE_DOMAINS).map(([domain, slug]) => `
+const publicServers = Object.entries(PUBLIC_SITE_DOMAINS).map(([domain, slug]) => {
+ mkdirSync(`${dist}/_public-sites/${slug}`, {recursive:true});
+ const meta = buildShareMeta({host:domain,path:'/'});
+ writeFileSync(`${dist}/_public-sites/${slug}/home.html`, injectShareMetaIntoHtml(shell, meta));
+ return `
 server {
  listen 8080;
  server_name ${domain} www.${domain};
  root /usr/share/nginx/html;
+ location = / { add_header Cache-Control "no-cache"; try_files /_public-sites/${slug}/home.html =404; }
  location = /login { return 302 https://app.${domain}/login$is_args$args; }
  location = /app { return 302 https://app.${domain}/login$is_args$args; }
  location ~ ^/[^/]+/login$ { return 302 https://app.${domain}/login$is_args$args; }
@@ -94,7 +99,7 @@ server {
  location ^~ /_public-sites/ { return 404; }
  location ~ \\.nginx\\.conf$ { return 404; }
  location ~* \\.(js|css|png|jpg|jpeg|gif|ico|svg|webp|woff|woff2|ttf|eot)$ { try_files $uri =404; }
- location / { add_header Cache-Control "no-cache"; try_files $uri /index.html; }
+ location / { add_header Cache-Control "no-cache"; try_files $uri /_public-sites/${slug}/home.html =404; }
 }
-`).join('\n');
+`;}).join('\n');
 writeFileSync(`${dist}/itsco-public.nginx.conf`, readFileSync(`${dist}/itsco-public.nginx.conf`, 'utf8') + publicServers);

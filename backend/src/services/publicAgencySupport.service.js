@@ -385,6 +385,15 @@ async function notifyPublicSupportTicket({ agency, topic, subject, question, tic
   }
 }
 
+export function validatePublicSupportContact({email = '', phone = ''} = {}) {
+  const mail = String(email).trim(), number = String(phone).trim();
+  let message;
+  if (!mail && !number) message = 'Please enter an email address or phone number so we can respond.';
+  else if (mail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(mail)) message = 'Please enter a valid email address.';
+  else if (number && (!/^[+0-9(). \-]+$/.test(number) || digitsOnly(number).length < 7 || digitsOnly(number).length > 15)) message = 'Please enter a valid callback phone number.';
+  if (message) throw Object.assign(new Error(message), {status:400});
+}
+
 export async function createPublicAgencySupportTicket(agencySlug, payload = {}, req = null) {
   const agency = await resolveAgency(agencySlug);
   if (!agency) {
@@ -412,16 +421,7 @@ export async function createPublicAgencySupportTicket(agencySlug, payload = {}, 
     err.status = 400;
     throw err;
   }
-  if (!email || !email.includes('@')) {
-    const err = new Error('Please enter a valid email address.');
-    err.status = 400;
-    throw err;
-  }
-  if (phone && digitsOnly(phone).length < 7) {
-    const err = new Error('Please leave a callback number.');
-    err.status = 400;
-    throw err;
-  }
+  validatePublicSupportContact({email,phone});
   if (!message || message.length < 10) {
     const err = new Error('Please enter a message (at least 10 characters).');
     err.status = 400;
@@ -483,7 +483,7 @@ export async function createPublicAgencySupportTicket(agencySlug, payload = {}, 
         agency.id,
         subject,
         qEnc.plain,
-        email,
+        email || null,
         topic,
         qEnc.ciphertext,
         qEnc.iv,

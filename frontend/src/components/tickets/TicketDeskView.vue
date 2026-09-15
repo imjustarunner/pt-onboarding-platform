@@ -694,7 +694,8 @@
                   </span>
                   <span v-if="selected.sent_at" class="muted"> · sent {{ formatDateTime(selected.sent_at) }}</span>
                 </div>
-                <p v-if="websiteTicket(selected) && composerMode !== 'internal'" class="muted">Replies are emailed to {{ selected.source_email_from }}.</p>
+                <p v-if="websiteTicket(selected) && selected.source_email_from && composerMode !== 'internal'" class="muted">Replies are emailed to {{ selected.source_email_from }}.</p>
+                <p v-if="websiteTicket(selected) && !selected.source_email_from" class="muted">Phone-only inquiry: use the callback number in the original message. Replies entered here are saved on the ticket.</p>
                 <div v-if="visibleDraftSources.length && !generatingDraft" class="draft-sources">
                   <div class="draft-sources-label">Draft based on:</div>
                   <ul class="draft-sources-list">

@@ -18,7 +18,7 @@
       aria-label="Español" title="Idioma: Español"
       @click="$emit('update:modelValue', 'es')"
     >
-      <span class="df-lang-flag" aria-hidden="true">🇪🇸</span>
+      <span class="df-lang-flag" aria-hidden="true">🇲🇽</span>
     </button>
     <span v-if="switching" class="df-lang-status" aria-live="polite">…</span>
   </div>

@@ -68,3 +68,17 @@ it('uses Kimi’s supplied SMS artwork in crawler metadata', () => {
  expect(meta.image).toBe('https://plottwisthq.com/assets/kimi/kimisms.png');
  expect(meta.name).toBe('Kimi Cain Life Coaching');
 });
+
+const publicDomains = { 'itsco.health':'itsco', 'nextleveluplcc.com':'nlu', 'plottwistco.com':'ptco', 'theinnerstrengthinstitute.com':'tisi', 'risereviveco.com':'rise', 'mh4kidz.org':'mh4kidz', 'mentalrange.org':'range', 'kimicain.com':'kimi' };
+for (const [domain, slug] of Object.entries(publicDomains)) {
+ it(`uses the /p/${slug} SMS image on ${domain} and www`, () => {
+  const original = buildShareMeta({host:'plottwisthq.com',path:`/p/${slug}`});
+  for (const host of [domain, `www.${domain}`]) {
+   const meta = buildShareMeta({host,path:'/'});
+   expect(meta.imagePath).toBe(original.imagePath);
+   expect(meta.image).toBe(`https://${host}${original.imagePath}`);
+   expect(meta.name).toBe(original.name);
+   expect(meta.url).toBe(`https://${host}/`);
+  }
+ });
+}

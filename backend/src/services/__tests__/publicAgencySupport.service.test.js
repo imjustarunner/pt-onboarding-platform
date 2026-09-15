@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   scanPublicSupportContent,
+  validatePublicSupportContact,
   ticketTopicFromPublicCategory,
   canEditPublicAgencySupport
 } from '../publicAgencySupport.service.js';
@@ -26,4 +27,9 @@ test('SSN-like content is blocked; health details are flagged but not blocked', 
   const phi = scanPublicSupportContent('My child was diagnosed with ADHD and takes medication.');
   assert.equal(phi.block, false);
   assert.ok(phi.flags.includes('possible_phi'));
+});
+
+test('website inquiries require a valid email, phone, or both', () => {
+ for (const contact of [{email:'visitor@example.com'}, {phone:'(719) 555-0100'}, {email:'visitor@example.com',phone:'+1 719 555 0100'}]) assert.doesNotThrow(()=>validatePublicSupportContact(contact));
+ for (const contact of [{}, {email:'invalid'}, {phone:'123'}, {email:'visitor@example.com',phone:'not a phone'}, {email:'wrong',phone:'7195550100'}]) assert.throws(()=>validatePublicSupportContact(contact), e=>e.status===400);
 });

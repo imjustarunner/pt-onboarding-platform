@@ -22,7 +22,7 @@
         :aria-pressed="locale === 'es' ? 'true' : 'false'"
         title="Idioma: Español" aria-label="Idioma: Español" @click="choose('es')"
       >
-        🇪🇸
+        🇲🇽
       </button>
     </div>
   </div>

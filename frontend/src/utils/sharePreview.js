@@ -1,3 +1,5 @@
+import { publicSiteSlug, isItscoPublicHost } from './publicDomainRouting.js';
+
 /**
  * Link-preview metadata for crawlers (iMessage, Slack, Facebook, etc.).
  * Those clients read the HTML response — they do not run Vue — so title/OG/image
@@ -159,9 +161,11 @@ function guessTenantName(host) {
 }
 
 export function buildShareMeta({ host, path, proto = 'https' } = {}) {
-  const website = PUBLIC_WEBSITES[String(path || '').split('?')[0].split('/')[2]];
-  const isWebsite = /^\/p\//.test(path || '') && website;
   const hostname = normHost(host);
+  const hostSlug = isItscoPublicHost(hostname) ? 'itsco' : publicSiteSlug(hostname);
+  const pathSlugWebsite = /^\/p\//.test(path || '') ? String(path).split('?')[0].split('/')[2] : null;
+  const website = PUBLIC_WEBSITES[hostSlug || pathSlugWebsite];
+  const isWebsite = !!website;
   const pathSlug = resolvePathTenantSlug(path);
   const pathTenant = PATH_TENANTS[pathSlug] || null;
   const hostTenant = TENANTS[hostname] || null;

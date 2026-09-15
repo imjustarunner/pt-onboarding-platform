@@ -22,13 +22,14 @@
       </label>
       <label>
         Email
-        <input v-model.trim="form.email" type="email" required maxlength="255" />
+        <input v-model.trim="form.email" type="email" :required="!form.phone" maxlength="255" />
       </label>
       <label>
         Phone number
-        <input v-model.trim="form.phone" type="tel" required maxlength="40" placeholder="Best number to call or text" />
+        <input v-model.trim="form.phone" type="tel" :required="!form.email" maxlength="40" placeholder="Best number to call or text" />
       </label>
     </div>
+    <p>Enter an email address, a phone number, or both so we can respond.</p>
     <label class="pas-check">
       <input v-model="form.preferText" type="checkbox" />
       <span>Please text me back instead of calling</span>
@@ -110,8 +111,9 @@ const looksLikePhi = computed(() => scanPublicSupportContent(form.message).flags
 const canSubmit = computed(() =>
   form.phiAcknowledged
   && form.name.trim().length >= 2
-  && form.email.includes('@')
-  && String(form.phone || '').replace(/\D/g, '').length >= 7
+  && (!!form.email || !!form.phone)
+  && (!form.email || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email))
+  && (!form.phone || /^[+0-9(). \-]+$/.test(form.phone) && String(form.phone).replace(/\D/g, '').length >= 7 && String(form.phone).replace(/\D/g, '').length <= 15)
   && form.message.trim().length >= 10
   && !!form.category
 );
@@ -179,7 +181,7 @@ async function submit() {
   error.value = '';
   success.value = '';
   if (!canSubmit.value) {
-    error.value = 'Almost there — please fill in all the fields, including a phone number we can reach you at.';
+    error.value = 'Almost there — please fill in all the fields, including an email address or phone number we can reach you at.';
     return;
   }
   sending.value = true;
