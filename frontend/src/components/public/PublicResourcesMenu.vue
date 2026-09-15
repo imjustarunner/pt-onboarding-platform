@@ -25,7 +25,7 @@ import { publicWebsiteUrl as safe } from '../../composables/useStandalonePublicW
 defineProps({resourcesPath:{type:String,default:''}});
 const root=ref(),trigger=ref(),partnerTrigger=ref(),open=ref(false),partnersOpen=ref(false),partners=ref([]),loading=ref(true),error=ref(false);
 let mounted=true;
-async function load(){loading.value=true;error.value=false;try{const{data}=await api.get('/public/marketing-pages/partners',{skipAuthRedirect:true,skipGlobalLoading:true});if(mounted)partners.value=(data.partners||[]).filter(p=>p.name&&safe(p.url));}catch{if(mounted)error.value=true;}finally{if(mounted)loading.value=false;}}
+async function load(){loading.value=true;error.value=false;try{const{data}=await api.get('/public/marketing-pages/partners',{skipAuthRedirect:true,skipGlobalLoading:true});if(mounted)partners.value=(data.partners||[]).filter(p=>!p.comingSoon&&p.name&&safe(p.url));}catch{if(mounted)error.value=true;}finally{if(mounted)loading.value=false;}}
 function hoverMenu(){if(window.innerWidth>1100&&window.matchMedia('(hover: hover)').matches)open.value=true;}
 function hoverPartners(){if(window.innerWidth>1100&&window.matchMedia('(hover: hover)').matches)partnersOpen.value=true;}
 function close(focus=false){open.value=false;partnersOpen.value=false;if(focus)trigger.value?.focus();}
