@@ -87,6 +87,7 @@
               <input v-model="form.featureFlags.bookClubEnabled" type="checkbox" />
               Book Club enabled
             </label>
+            <label><input v-model="form.featureFlags.familyCommandCenterEnabled" type="checkbox" /> Family Command Center</label>
           </div>
         </div>
         <div class="form-actions">
@@ -136,6 +137,7 @@ const form = ref({
   featureFlags: {
     noteAidEnabled: false,
     publicAvailabilityEnabled: false,
+    familyCommandCenterEnabled: false,
     bookClubEnabled: false
   }
 });
@@ -164,6 +166,7 @@ const loadAgency = async () => {
       featureFlags: {
         noteAidEnabled: flags.noteAidEnabled === true || flags.noteAidEnabled === 1,
         publicAvailabilityEnabled: flags.publicAvailabilityEnabled === true || flags.publicAvailabilityEnabled === 1,
+        familyCommandCenterEnabled: flags.familyCommandCenterEnabled === true || flags.familyCommandCenterEnabled === 1,
         bookClubEnabled: flags.bookClubEnabled === true || flags.bookClubEnabled === 1
       }
     };
@@ -192,6 +195,7 @@ const save = async () => {
     const mergedFlags = { ...lastLoadedFlags };
     mergedFlags.noteAidEnabled = form.value.featureFlags.noteAidEnabled;
     mergedFlags.publicAvailabilityEnabled = form.value.featureFlags.publicAvailabilityEnabled;
+    mergedFlags.familyCommandCenterEnabled = form.value.featureFlags.familyCommandCenterEnabled;
     mergedFlags.bookClubEnabled = form.value.featureFlags.bookClubEnabled;
 
     await api.put(`/agencies/${agency.id}`, {

@@ -1289,6 +1289,11 @@
             </div>
             <small class="hint">Enables the “AI Generate Filters” box in Provider Directory. Requires GEMINI_API_KEY in backend.</small>
 
+            <div class="form-group">
+              <label>Family Command Center</label>
+              <ToggleSwitch v-model="agencyForm.featureFlags.familyCommandCenterEnabled" compact />
+              <small class="hint">Offer private household dashboards, personal events, chores, rewards and shared lists to employees.</small>
+            </div>
             <TreatmentPlanRenewalSettings v-if="editingAgency?.id && ['agency', 'clinical'].includes(agencyForm.organizationType || editingAgency.organization_type || 'agency')" :agency-id="editingAgency.id" @saved="agencyForm.featureFlags.treatmentPlanRenewal = $event" />
             <div v-if="isFeatureAvailable('noteAidEnabled')" class="toggle-row" style="margin-top: 10px;">
               <span>Enable Note Aid (Gemini tools)</span>
@@ -6872,6 +6877,7 @@ const defaultAgencyForm = () => ({
     presenceEnabled: false,
     kudosEnabled: false,
     bookClubEnabled: false,
+    familyCommandCenterEnabled: false,
     // Default OFF until explicitly enabled (requires GEMINI_API_KEY in backend).
     aiProviderSearchEnabled: false,
 
@@ -8389,6 +8395,7 @@ const editAgency = async (agency) => {
       presenceEnabled: featureFlags.presenceEnabled === true,
       kudosEnabled: featureFlags.kudosEnabled === true,
       bookClubEnabled: featureFlags.bookClubEnabled === true,
+      familyCommandCenterEnabled: featureFlags.familyCommandCenterEnabled === true || featureFlags.familyCommandCenterEnabled === 1,
       aiProviderSearchEnabled: featureFlags.aiProviderSearchEnabled === true,
       noteAidEnabled: featureFlags.noteAidEnabled === true,
       trainingAiBuilderEnabled: featureFlags.trainingAiBuilderEnabled === true,

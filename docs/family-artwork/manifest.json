@@ -1,0 +1,154 @@
+{
+  "mode": "Built-in image_gen",
+  "style": "Warm painterly storybook, sage green, lavender-blue sky, golden light; subjects on the right to leave room for dashboard text.",
+  "delivery": "1536 × 1024 JPEG, quality 84; originals retained.",
+  "assets": [
+    {
+      "id": "family",
+      "path": "frontend/public/assets/family-events/family.jpg",
+      "source": "/Users/mendez/.codex/generated_images/01a0a703-f432-7a91-876b-241923c51f5b/exec-91738f52-85ec-4c61-a5df-fadb026167a1.png",
+      "prompt": "Use case: illustration-story. Create ONE new wide 3:2 event background illustration. The provided image is a STYLE REFERENCE only: match its soft painterly storybook rendering, subtly textured warm light, sage greens, pale lavender-blue atmospheric sky, gentle gold highlights and polished depth. NEW SUBJECT: A cozy family picnic in a green backyard, checked blanket, wicker basket, board game and fruit on the right, a welcoming house and trees in the distance. Composition: quiet bright negative space throughout the left half and upper center for dashboard text; recognizable objects on the right third; foreground detail, soft distant landscape. No people, no text, numbers, logos, watermark or UI. All images belong to one cohesive family calendar artwork collection.",
+      "reference": "/Users/mendez/.codex/generated_images/01a0a703-f432-7a91-876b-241923c51f5b/exec-ce6b695d-23fd-4762-8631-62f4bddcf9bd.png"
+    },
+    {
+      "id": "school",
+      "path": "frontend/public/assets/family-events/school.jpg",
+      "source": "/Users/mendez/.codex/generated_images/01a0a703-f432-7a91-876b-241923c51f5b/exec-ea4a3c7a-1556-4967-9410-416415d8c0e7.png",
+      "prompt": "Use case: illustration-story. Create ONE new wide 3:2 event background illustration. The provided image is a STYLE REFERENCE only: match its soft painterly storybook rendering, subtly textured warm light, sage greens, pale lavender-blue atmospheric sky, gentle gold highlights and polished depth. NEW SUBJECT: A cheerful school courtyard with a backpack, books and colored pencils resting on a bench on the right, school building and leafy trees in the distance. Composition: quiet bright negative space throughout the left half and upper center for dashboard text; recognizable objects on the right third; foreground detail, soft distant landscape. No people, no text, numbers, logos, watermark or UI. All images belong to one cohesive family calendar artwork collection.",
+      "reference": "/Users/mendez/.codex/generated_images/01a0a703-f432-7a91-876b-241923c51f5b/exec-ce6b695d-23fd-4762-8631-62f4bddcf9bd.png"
+    },
+    {
+      "id": "sports",
+      "path": "frontend/public/assets/family-events/sports.jpg",
+      "source": "/Users/mendez/.codex/generated_images/01a0a703-f432-7a91-876b-241923c51f5b/exec-6d0408fa-528a-489b-8ded-7a72ff8954cc.png",
+      "prompt": "Use case: illustration-story. Create ONE new wide 3:2 event background illustration. The provided image is a STYLE REFERENCE only: match its soft painterly storybook rendering, subtly textured warm light, sage greens, pale lavender-blue atmospheric sky, gentle gold highlights and polished depth. NEW SUBJECT: A neighborhood soccer field, a soccer ball and cleats in the right foreground, a small goal and trees in the distance. Composition: quiet bright negative space throughout the left half and upper center for dashboard text; recognizable objects on the right third; foreground detail, soft distant landscape. No people, no text, numbers, logos, watermark or UI. All images belong to one cohesive family calendar artwork collection.",
+      "reference": "/Users/mendez/.codex/generated_images/01a0a703-f432-7a91-876b-241923c51f5b/exec-ce6b695d-23fd-4762-8631-62f4bddcf9bd.png"
+    },
+    {
+      "id": "baseball",
+      "path": "frontend/public/assets/family-events/baseball.jpg",
+      "source": "/Users/mendez/.codex/generated_images/01a0a703-f432-7a91-876b-241923c51f5b/exec-ce6b695d-23fd-4762-8631-62f4bddcf9bd.png",
+      "prompt": "Use case: illustration-story. Asset type: wide background artwork for the Up Next event card in a family dashboard on a wall-mounted iPad. Create one polished, soft painterly illustration of a sunny neighborhood baseball field, with a baseball, worn tan glove and wooden bat resting in the grass in the lower right, a small diamond and distant trees. Warm inviting storybook editorial illustration, subtle paper texture, sage green grass, pale blue lavender sky, buttery late-afternoon sunshine. Wide landscape 3:2 composition. Keep the left half and upper center quiet and bright for readable overlaid event text; concentrate recognizable sports details on the right. No people, text, lettering, numbers, logos, watermark or UI. Cohesive tasteful family-dashboard artwork, dimensional and detailed rather than flat icons.",
+      "reference": null
+    },
+    {
+      "id": "basketball",
+      "path": "frontend/public/assets/family-events/basketball.jpg",
+      "source": "/Users/mendez/.codex/generated_images/01a0a703-f432-7a91-876b-241923c51f5b/exec-ac3f1c02-34af-429f-9dad-5bc0a0a457a3.png",
+      "prompt": "Use case: illustration-story. Create ONE new wide 3:2 event background illustration. The provided image is a STYLE REFERENCE only: match its soft painterly storybook rendering, subtly textured warm light, sage greens, pale lavender-blue atmospheric sky, gentle gold highlights and polished depth. NEW SUBJECT: A sunny neighborhood outdoor basketball court, an orange basketball and water bottle in the right foreground, a hoop and trees in the distance. Composition: quiet bright negative space throughout the left half and upper center for dashboard text; recognizable objects on the right third; foreground detail, soft distant landscape. No people, no text, numbers, logos, watermark or UI. All images belong to one cohesive family calendar artwork collection.",
+      "reference": "/Users/mendez/.codex/generated_images/01a0a703-f432-7a91-876b-241923c51f5b/exec-ce6b695d-23fd-4762-8631-62f4bddcf9bd.png"
+    },
+    {
+      "id": "swimming",
+      "path": "frontend/public/assets/family-events/swimming.jpg",
+      "source": "/Users/mendez/.codex/generated_images/01a0a703-f432-7a91-876b-241923c51f5b/exec-801a73d9-1e37-4311-8982-51db5844fc3d.png",
+      "prompt": "Use case: illustration-story. Create ONE new wide 3:2 event background illustration. The provided image is a STYLE REFERENCE only: match its soft painterly storybook rendering, subtly textured warm light, sage greens, pale lavender-blue atmospheric sky, gentle gold highlights and polished depth. NEW SUBJECT: A peaceful outdoor swimming pool, folded towel, swim goggles and float ring in the right foreground, gentle reflections and leafy trees. Composition: quiet bright negative space throughout the left half and upper center for dashboard text; recognizable objects on the right third; foreground detail, soft distant landscape. No people, no text, numbers, logos, watermark or UI. All images belong to one cohesive family calendar artwork collection.",
+      "reference": "/Users/mendez/.codex/generated_images/01a0a703-f432-7a91-876b-241923c51f5b/exec-ce6b695d-23fd-4762-8631-62f4bddcf9bd.png"
+    },
+    {
+      "id": "lesson",
+      "path": "frontend/public/assets/family-events/lesson.jpg",
+      "source": "/Users/mendez/.codex/generated_images/01a0a703-f432-7a91-876b-241923c51f5b/exec-da6a21c0-0ad1-4285-94d7-1aee90eb5ce5.png",
+      "prompt": "Use case: illustration-story. Create ONE wide 3:2 event background. Reference image is STYLE ONLY: match soft painterly storybook rendering, subtly textured warm light, sage greens, pale lavender-blue atmosphere, gentle gold highlights, polished depth. NEW SUBJECT: A violin, sheet music without readable notation, ballet slippers and artist brushes beside a sunny studio window. Quiet bright negative space on left half and upper center for dashboard text; recognizable subject on right third; foreground detail and soft distance. No people, text, numbers, logos, watermark or UI. Cohesive family calendar artwork collection.",
+      "reference": "/Users/mendez/.codex/generated_images/01a0a703-f432-7a91-876b-241923c51f5b/exec-ce6b695d-23fd-4762-8631-62f4bddcf9bd.png"
+    },
+    {
+      "id": "club",
+      "path": "frontend/public/assets/family-events/club.jpg",
+      "source": "/Users/mendez/.codex/generated_images/01a0a703-f432-7a91-876b-241923c51f5b/exec-cb49fd56-7484-49f0-8fda-370c6850ec39.png",
+      "prompt": "Use case: illustration-story. Create ONE wide 3:2 event background. Reference image is STYLE ONLY: match soft painterly storybook rendering, subtly textured warm light, sage greens, pale lavender-blue atmosphere, gentle gold highlights, polished depth. NEW SUBJECT: A creative after-school clubhouse garden table with a small telescope, craft supplies and a chessboard. Quiet bright negative space on left half and upper center for dashboard text; recognizable subject on right third; foreground detail and soft distance. No people, text, numbers, logos, watermark or UI. Cohesive family calendar artwork collection.",
+      "reference": "/Users/mendez/.codex/generated_images/01a0a703-f432-7a91-876b-241923c51f5b/exec-ce6b695d-23fd-4762-8631-62f4bddcf9bd.png"
+    },
+    {
+      "id": "appointment",
+      "path": "frontend/public/assets/family-events/appointment.jpg",
+      "source": "/Users/mendez/.codex/generated_images/01a0a703-f432-7a91-876b-241923c51f5b/exec-2e7042d1-273c-4da4-a2ff-5165c5f06002.png",
+      "prompt": "Use case: illustration-story. Create ONE wide 3:2 event background. Reference image is STYLE ONLY: match soft painterly storybook rendering, subtly textured warm light, sage greens, pale lavender-blue atmosphere, gentle gold highlights, polished depth. NEW SUBJECT: A calm welcoming clinic exterior garden, small medical bag and simple unmarked appointment notebook on a bench. Quiet bright negative space on left half and upper center for dashboard text; recognizable subject on right third; foreground detail and soft distance. No people, text, numbers, logos, watermark or UI. Cohesive family calendar artwork collection.",
+      "reference": "/Users/mendez/.codex/generated_images/01a0a703-f432-7a91-876b-241923c51f5b/exec-ce6b695d-23fd-4762-8631-62f4bddcf9bd.png"
+    },
+    {
+      "id": "birthday",
+      "path": "frontend/public/assets/family-events/birthday.jpg",
+      "source": "/Users/mendez/.codex/generated_images/01a0a703-f432-7a91-876b-241923c51f5b/exec-c147ab26-cb87-47b4-a7d9-547a0fcbe5dc.png",
+      "prompt": "Use case: illustration-story. Create ONE wide 3:2 event background. Reference image is STYLE ONLY: match soft painterly storybook rendering, subtly textured warm light, sage greens, pale lavender-blue atmosphere, gentle gold highlights, polished depth. NEW SUBJECT: A beautiful birthday cake, softly colored balloons and wrapped gifts on a garden party table. Quiet bright negative space on left half and upper center for dashboard text; recognizable subject on right third; foreground detail and soft distance. No people, text, numbers, logos, watermark or UI. Cohesive family calendar artwork collection.",
+      "reference": "/Users/mendez/.codex/generated_images/01a0a703-f432-7a91-876b-241923c51f5b/exec-ce6b695d-23fd-4762-8631-62f4bddcf9bd.png"
+    },
+    {
+      "id": "vacation",
+      "path": "frontend/public/assets/family-events/vacation.jpg",
+      "source": "/Users/mendez/.codex/generated_images/01a0a703-f432-7a91-876b-241923c51f5b/exec-6a0e0c2e-af44-490c-b636-15d9439f3417.png",
+      "prompt": "Use case: illustration-story. Create ONE wide 3:2 event background. Reference image is STYLE ONLY: match soft painterly storybook rendering, subtly textured warm light, sage greens, pale lavender-blue atmosphere, gentle gold highlights, polished depth. NEW SUBJECT: A cozy mountain lakeside holiday cabin, suitcase and sunhat on a porch. Quiet bright negative space on left half and upper center for dashboard text; recognizable subject on right third; foreground detail and soft distance. No people, text, numbers, logos, watermark or UI. Cohesive family calendar artwork collection.",
+      "reference": "/Users/mendez/.codex/generated_images/01a0a703-f432-7a91-876b-241923c51f5b/exec-ce6b695d-23fd-4762-8631-62f4bddcf9bd.png"
+    },
+    {
+      "id": "holiday",
+      "path": "frontend/public/assets/family-events/holiday.jpg",
+      "source": "/Users/mendez/.codex/generated_images/01a0a703-f432-7a91-876b-241923c51f5b/exec-4ed03f0e-258f-4018-bcbe-0599277481a1.png",
+      "prompt": "Use case: illustration-story. Create ONE wide 3:2 event background. Reference image is STYLE ONLY: match soft painterly storybook rendering, subtly textured warm light, sage greens, pale lavender-blue atmosphere, gentle gold highlights, polished depth. NEW SUBJECT: An elegant winter holiday porch, evergreen wreath, tiny warm string lights, wrapped gifts and snow-dusted fir trees. Quiet bright negative space on left half and upper center for dashboard text; recognizable subject on right third; foreground detail and soft distance. No people, text, numbers, logos, watermark or UI. Cohesive family calendar artwork collection.",
+      "reference": "/Users/mendez/.codex/generated_images/01a0a703-f432-7a91-876b-241923c51f5b/exec-ce6b695d-23fd-4762-8631-62f4bddcf9bd.png"
+    },
+    {
+      "id": "gathering",
+      "path": "frontend/public/assets/family-events/gathering.jpg",
+      "source": "/Users/mendez/.codex/generated_images/01a0a703-f432-7a91-876b-241923c51f5b/exec-6933c7f2-cc41-49d1-b313-fb3d67ee2298.png",
+      "prompt": "Use case: illustration-story. Create ONE wide 3:2 event background. Reference image is STYLE ONLY: match soft painterly storybook rendering, subtly textured warm light, sage greens, pale lavender-blue atmosphere, gentle gold highlights, polished depth. NEW SUBJECT: A welcoming backyard family reunion table, comfortable empty chairs, pitcher of lemonade and platters of fruit. Quiet bright negative space on left half and upper center for dashboard text; recognizable subject on right third; foreground detail and soft distance. No people, text, numbers, logos, watermark or UI. Cohesive family calendar artwork collection.",
+      "reference": "/Users/mendez/.codex/generated_images/01a0a703-f432-7a91-876b-241923c51f5b/exec-ce6b695d-23fd-4762-8631-62f4bddcf9bd.png"
+    },
+    {
+      "id": "camping",
+      "path": "frontend/public/assets/family-events/camping.jpg",
+      "source": "/Users/mendez/.codex/generated_images/01a0a703-f432-7a91-876b-241923c51f5b/exec-ca8e2a94-2f98-4d4e-817a-9463698e01d8.png",
+      "prompt": "Use case: illustration-story. Create ONE wide 3:2 event background. Reference image is STYLE ONLY: match soft painterly storybook rendering, subtly textured warm light, sage greens, pale lavender-blue atmosphere, gentle gold highlights, polished depth. NEW SUBJECT: A peaceful mountain campsite, sage green tent, lantern and safely unlit stone fire ring beside a pine forest lake. Quiet bright negative space on left half and upper center for dashboard text; recognizable subject on right third; foreground detail and soft distance. No people, text, numbers, logos, watermark or UI. Cohesive family calendar artwork collection.",
+      "reference": "/Users/mendez/.codex/generated_images/01a0a703-f432-7a91-876b-241923c51f5b/exec-ce6b695d-23fd-4762-8631-62f4bddcf9bd.png"
+    },
+    {
+      "id": "movie",
+      "path": "frontend/public/assets/family-events/movie.jpg",
+      "source": "/Users/mendez/.codex/generated_images/01a0a703-f432-7a91-876b-241923c51f5b/exec-941b4e1a-99a5-48cd-81e2-662d217f7b12.png",
+      "prompt": "Use case: illustration-story. Create ONE wide 3:2 event background. Reference image is STYLE ONLY: match soft painterly storybook rendering, subtly textured warm light, sage greens, pale lavender-blue atmosphere, gentle gold highlights, polished depth. NEW SUBJECT: An inviting outdoor movie night garden, blank projection screen, bowl of popcorn and cozy blanket on lounge chairs. Quiet bright negative space on left half and upper center for dashboard text; recognizable subject on right third; foreground detail and soft distance. No people, text, numbers, logos, watermark or UI. Cohesive family calendar artwork collection.",
+      "reference": "/Users/mendez/.codex/generated_images/01a0a703-f432-7a91-876b-241923c51f5b/exec-ce6b695d-23fd-4762-8631-62f4bddcf9bd.png"
+    },
+    {
+      "id": "travel",
+      "path": "frontend/public/assets/family-events/travel.jpg",
+      "source": "/Users/mendez/.codex/generated_images/01a0a703-f432-7a91-876b-241923c51f5b/exec-a4ac2399-a48a-44f9-ac35-c15ae92f4188.png",
+      "prompt": "Use case: illustration-story. Create ONE wide 3:2 event background. Reference image is STYLE ONLY: match soft painterly storybook rendering, subtly textured warm light, sage greens, pale lavender-blue atmosphere, gentle gold highlights, polished depth. NEW SUBJECT: A scenic country road toward mountains, vintage-style luggage, folded blank map and camera resting beside a wooden viewpoint railing. Quiet bright negative space on left half and upper center for dashboard text; recognizable subject on right third; foreground detail and soft distance. No people, text, numbers, logos, watermark or UI. Cohesive family calendar artwork collection.",
+      "reference": "/Users/mendez/.codex/generated_images/01a0a703-f432-7a91-876b-241923c51f5b/exec-ce6b695d-23fd-4762-8631-62f4bddcf9bd.png"
+    },
+    {
+      "id": "graduation",
+      "path": "frontend/public/assets/family-events/graduation.jpg",
+      "source": "/Users/mendez/.codex/generated_images/01a0a703-f432-7a91-876b-241923c51f5b/exec-063d799f-4feb-4082-9e2b-e56602da8863.png",
+      "prompt": "Use case: illustration-story. Create ONE wide 3:2 event background. Reference image is STYLE ONLY: match soft painterly storybook rendering, subtly textured warm light, sage greens, pale lavender-blue atmosphere, gentle gold highlights, polished depth. NEW SUBJECT: A graduation cap with gold tassel, rolled diploma tied with ribbon and spring flowers on a sunny school garden bench. Quiet bright negative space on left half and upper center for dashboard text; recognizable subject on right third; foreground detail and soft distance. No people, text, numbers, logos, watermark or UI. Cohesive family calendar artwork collection.",
+      "reference": "/Users/mendez/.codex/generated_images/01a0a703-f432-7a91-876b-241923c51f5b/exec-ce6b695d-23fd-4762-8631-62f4bddcf9bd.png"
+    },
+    {
+      "id": "date",
+      "path": "frontend/public/assets/family-events/date.jpg",
+      "source": "/Users/mendez/.codex/generated_images/01a0a703-f432-7a91-876b-241923c51f5b/exec-90737bf1-01da-4fd1-a356-59e5468c0464.png",
+      "prompt": "Use case: illustration-story. Create ONE wide 3:2 event background. Reference image is STYLE ONLY: match soft painterly storybook rendering, subtly textured warm light, sage greens, pale lavender-blue atmosphere, gentle gold highlights, polished depth. NEW SUBJECT: A romantic garden cafe table for two, candle in a glass lantern, flowers and two cups, warmly lit pergola. Quiet bright negative space on left half and upper center for dashboard text; recognizable subject on right third; foreground detail and soft distance. No people, text, numbers, logos, watermark or UI. Cohesive family calendar artwork collection.",
+      "reference": "/Users/mendez/.codex/generated_images/01a0a703-f432-7a91-876b-241923c51f5b/exec-ce6b695d-23fd-4762-8631-62f4bddcf9bd.png"
+    },
+    {
+      "id": "concert",
+      "path": "frontend/public/assets/family-events/concert.jpg",
+      "source": "/Users/mendez/.codex/generated_images/01a0a703-f432-7a91-876b-241923c51f5b/exec-603b4d34-837a-420f-a177-e7dc1a85f6d8.png",
+      "prompt": "Use case: illustration-story. Create ONE wide 3:2 event background. Reference image is STYLE ONLY: match soft painterly storybook rendering, subtly textured warm light, sage greens, pale lavender-blue atmosphere, gentle gold highlights, polished depth. NEW SUBJECT: A small outdoor music stage with acoustic guitar on a stand, gentle string lights, empty lawn and distant trees. Quiet bright negative space on left half and upper center for dashboard text; recognizable subject on right third; foreground detail and soft distance. No people, text, numbers, logos, watermark or UI. Cohesive family calendar artwork collection.",
+      "reference": "/Users/mendez/.codex/generated_images/01a0a703-f432-7a91-876b-241923c51f5b/exec-ce6b695d-23fd-4762-8631-62f4bddcf9bd.png"
+    },
+    {
+      "id": "beach",
+      "path": "frontend/public/assets/family-events/beach.jpg",
+      "source": "/Users/mendez/.codex/generated_images/01a0a703-f432-7a91-876b-241923c51f5b/exec-5e4ee5ad-dd5c-4e51-bacc-06d9b9c42ca2.png",
+      "prompt": "Use case: illustration-story. Create ONE wide 3:2 event background. Reference image is STYLE ONLY: match soft painterly storybook rendering, subtly textured warm light, sage greens, pale lavender-blue atmosphere, gentle gold highlights, polished depth. NEW SUBJECT: A peaceful sandy beach, striped beach umbrella, woven beach bag, seashells and sandcastle beside sparkling sea. Quiet bright negative space on left half and upper center for dashboard text; recognizable subject on right third; foreground detail and soft distance. No people, text, numbers, logos, watermark or UI. Cohesive family calendar artwork collection.",
+      "reference": "/Users/mendez/.codex/generated_images/01a0a703-f432-7a91-876b-241923c51f5b/exec-ce6b695d-23fd-4762-8631-62f4bddcf9bd.png"
+    },
+    {
+      "id": "seasonal",
+      "path": "frontend/public/assets/family-events/seasonal.jpg",
+      "source": "/Users/mendez/.codex/generated_images/01a0a703-f432-7a91-876b-241923c51f5b/exec-de4534ea-bd94-4a95-b4dc-10edb1499fd8.png",
+      "prompt": "Use case: illustration-story. Create ONE wide 3:2 event background. Reference image is STYLE ONLY: match soft painterly storybook rendering, subtly textured warm light, sage greens, pale lavender-blue atmosphere, gentle gold highlights, polished depth. NEW SUBJECT: A cozy autumn garden, pumpkins, woven basket of apples, fallen gold and copper leaves and soft rolling hills. Quiet bright negative space on left half and upper center for dashboard text; recognizable subject on right third; foreground detail and soft distance. No people, text, numbers, logos, watermark or UI. Cohesive family calendar artwork collection.",
+      "reference": "/Users/mendez/.codex/generated_images/01a0a703-f432-7a91-876b-241923c51f5b/exec-ce6b695d-23fd-4762-8631-62f4bddcf9bd.png"
+    }
+  ]
+}

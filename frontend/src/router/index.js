@@ -13,6 +13,7 @@ import { getLoginUrl, getCurrentPortalSlugFromHostCache } from '../utils/loginRe
 import { buildOrgLoginPath } from '../utils/orgLoginPath';
 import { guessPortalSlugFromHostname } from '../utils/orgScopedPath';
 import { isQuickViewHost } from '../utils/subdomain';
+import { isFamilyHost } from '../utils/familyCommandCenter';
 import { isSupervisor } from '../utils/helpers';
 import { hasProviderMobileAccess } from '../utils/providerMobileAccess';
 import { isLikelyMobileViewport, isStandalonePwa } from '../utils/pwa';
@@ -405,6 +406,12 @@ const routes = [
     name: 'QuickViewDeliveryShort',
     component: () => import('../views/QuickViewAccessView.vue'),
     meta: { requiresGuest: false, publicQuickView: true, quickViewDelivery: true, hideNav: true }
+  },
+  {
+    path: '/family',
+    name: 'FamilyCommandCenter',
+    component: () => import('../views/FamilyCommandCenterView.vue'),
+    meta: { requiresGuest: false, publicQuickView: true, hideNav: true, familyCommandCenter: true }
   },
   {
     path: '/quick-view',
@@ -4737,6 +4744,13 @@ router.beforeEach(async (to, from, next) => {
   const brandingStore = useBrandingStore();
   const agencyStore = useAgencyStore();
   const organizationStore = useOrganizationStore();
+
+  if (isFamilyHost() && !to.meta?.familyCommandCenter) {
+    next({ name: 'FamilyCommandCenter', query: to.query, hash: to.hash, replace: true });
+    return;
+  }
+  // Family devices use their own server session, independent of workplace timeout.
+  if (to.meta?.familyCommandCenter) { next(); return; }
 
   // Dedicated Quick View hosts only serve QV routes (PIN gate / token bind).
   if (isQuickViewHost() && !to.meta?.publicQuickView) {

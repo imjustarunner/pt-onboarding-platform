@@ -1,0 +1,448 @@
+{
+  "mode": "built-in image_gen",
+  "parkListSource": "https://www.nps.gov/aboutus/national-park-system.htm",
+  "note": "Generated illustrations, not documentary photographs.",
+  "images": [
+    {
+      "id": "national-park-acadia",
+      "source": "/Users/mendez/.codex/generated_images/01a0a703-f432-7a91-876b-241923c51f5b/exec-6ccfd50f-ec71-4b0c-8582-c55c499ac0a8.png",
+      "prompt": "Use case: illustration-story. Create ONE standalone landscape illustration for Acadia National Park, United States. Scene: Maine rocky pink granite Atlantic coastline with evergreen pines and ocean surf. A geographically recognizable rendition of this specific park. Soft painterly storybook illustration in warm gentle light, sage greens when appropriate, lavender-blue shadows, delicate brush texture, graceful coherent natural forms. Wide 3:2 composition for a family calendar, important landmark toward right, quieter left portion for calendar text. Entire image is a landscape, no labels, no typography, no frame, no watermark, no UI. Do not add camping equipment or people. Match only the artistic style of the reference; do NOT copy its lake, mountains or vegetation where they are not correct for this park.",
+      "label": "Acadia",
+      "output": "frontend/public/assets/family-events/national-park-acadia.jpg"
+    },
+    {
+      "id": "national-park-arches",
+      "source": "/Users/mendez/.codex/generated_images/01a0a703-f432-7a91-876b-241923c51f5b/exec-af441afe-1db2-4af2-bd0e-0033c91a6955.png",
+      "prompt": "Use case: illustration-story. Create ONE standalone landscape illustration for Arches National Park, United States. Scene: Utah Delicate Arch freestanding orange sandstone arch above desert slickrock. A geographically recognizable rendition of this specific park. Soft painterly storybook illustration in warm gentle light, sage greens when appropriate, lavender-blue shadows, delicate brush texture, graceful coherent natural forms. Wide 3:2 composition for a family calendar, important landmark toward right, quieter left portion for calendar text. Entire image is a landscape, no labels, no typography, no frame, no watermark, no UI. Do not add camping equipment or people. Match only the artistic style of the reference; do NOT copy its lake, mountains or vegetation where they are not correct for this park.",
+      "label": "Arches",
+      "output": "frontend/public/assets/family-events/national-park-arches.jpg"
+    },
+    {
+      "id": "national-park-badlands",
+      "source": "/Users/mendez/.codex/generated_images/01a0a703-f432-7a91-876b-241923c51f5b/exec-3dddeab5-0af8-4802-adc2-49aa10c8b48f.png",
+      "prompt": "Use case: illustration-story. Create ONE standalone landscape illustration for Badlands National Park, United States. Scene: South Dakota layered eroded badland pinnacles and striped sedimentary ridges meeting prairie grass. A geographically recognizable rendition of this specific park. Soft painterly storybook illustration in warm gentle light, sage greens when appropriate, lavender-blue shadows, delicate brush texture, graceful coherent natural forms. Wide 3:2 composition for a family calendar, important landmark toward right, quieter left portion for calendar text. Entire image is a landscape, no labels, no typography, no frame, no watermark, no UI. Do not add camping equipment or people. Match only the artistic style of the reference; do NOT copy its lake, mountains or vegetation where they are not correct for this park.",
+      "label": "Badlands",
+      "output": "frontend/public/assets/family-events/national-park-badlands.jpg"
+    },
+    {
+      "id": "national-park-big-bend",
+      "source": "/Users/mendez/.codex/generated_images/01a0a703-f432-7a91-876b-241923c51f5b/exec-8000b1a5-2cd2-44ab-9cff-dc96ea2034ad.png",
+      "prompt": "Use case: illustration-story. Create ONE standalone landscape illustration for Big Bend National Park, United States. Scene: Santa Elena Canyon, towering limestone walls and the Rio Grande river in the Chihuahuan Desert. A geographically recognizable rendition of this specific park. Soft painterly storybook illustration in warm gentle light, sage greens when appropriate, lavender-blue shadows, delicate brush texture, graceful coherent natural forms. Wide 3:2 composition for a family calendar, important landmark toward right, quieter left portion for calendar text. Entire image is a landscape, no labels, no typography, no frame, no watermark, no UI. Do not add camping equipment or people. Match only the artistic style of the reference; do NOT copy its lake, mountains or vegetation where they are not correct for this park.",
+      "label": "Big Bend",
+      "output": "frontend/public/assets/family-events/national-park-big-bend.jpg"
+    },
+    {
+      "id": "national-park-biscayne",
+      "source": "/Users/mendez/.codex/generated_images/01a0a703-f432-7a91-876b-241923c51f5b/exec-7f7032af-914c-456d-9acd-fda16fc94fa0.png",
+      "prompt": "Use case: illustration-story. Create ONE standalone landscape illustration for Biscayne National Park, United States. Scene: Clear turquoise Florida bay water with low mangrove islands, no mountains, small boat in distance. A geographically recognizable rendition of this specific park. Soft painterly storybook illustration in warm gentle light, sage greens when appropriate, lavender-blue shadows, delicate brush texture, graceful coherent natural forms. Wide 3:2 composition for a family calendar, important landmark toward right, quieter left portion for calendar text. Entire image is a landscape, no labels, no typography, no frame, no watermark, no UI. Do not add camping equipment or people. Match only the artistic style of the reference; do NOT copy its lake, mountains or vegetation where they are not correct for this park.",
+      "label": "Biscayne",
+      "output": "frontend/public/assets/family-events/national-park-biscayne.jpg"
+    },
+    {
+      "id": "national-park-black-canyon",
+      "source": "/Users/mendez/.codex/generated_images/01a0a703-f432-7a91-876b-241923c51f5b/exec-c7692a0d-188e-4589-9a2a-fe81bcdf545e.png",
+      "prompt": "Use case: illustration-story. Create ONE standalone landscape illustration for Black Canyon of the Gunnison National Park, United States. Scene: Vertiginous dark sheer canyon cliffs above the Gunnison River, Painted Wall rock veins. A geographically recognizable rendition of this specific park. Soft painterly storybook illustration in warm gentle light, sage greens when appropriate, lavender-blue shadows, delicate brush texture, graceful coherent natural forms. Wide 3:2 composition for a family calendar, important landmark toward right, quieter left portion for calendar text. Entire image is a landscape, no labels, no typography, no frame, no watermark, no UI. Do not add camping equipment or people. Match only the artistic style of the reference; do NOT copy its lake, mountains or vegetation where they are not correct for this park.",
+      "label": "Black Canyon of the Gunnison",
+      "output": "frontend/public/assets/family-events/national-park-black-canyon.jpg"
+    },
+    {
+      "id": "national-park-bryce-canyon",
+      "source": "/Users/mendez/.codex/generated_images/01a0a703-f432-7a91-876b-241923c51f5b/exec-14852788-d4a4-49a9-9c6b-ff334d0e08c4.png",
+      "prompt": "Use case: illustration-story. Create ONE standalone landscape illustration for Bryce Canyon National Park, United States. Scene: Orange and rose sandstone hoodoo spires in a vast natural amphitheater with sparse pines. A geographically recognizable rendition of this specific park. Soft painterly storybook illustration in warm gentle light, sage greens when appropriate, lavender-blue shadows, delicate brush texture, graceful coherent natural forms. Wide 3:2 composition for a family calendar, important landmark toward right, quieter left portion for calendar text. Entire image is a landscape, no labels, no typography, no frame, no watermark, no UI. Do not add camping equipment or people. Match only the artistic style of the reference; do NOT copy its lake, mountains or vegetation where they are not correct for this park.",
+      "label": "Bryce Canyon",
+      "output": "frontend/public/assets/family-events/national-park-bryce-canyon.jpg"
+    },
+    {
+      "id": "national-park-canyonlands",
+      "source": "/Users/mendez/.codex/generated_images/01a0a703-f432-7a91-876b-241923c51f5b/exec-12397997-fb01-413b-8e72-5d4c759b3c62.png",
+      "prompt": "Use case: illustration-story. Create ONE standalone landscape illustration for Canyonlands National Park, United States. Scene: Mesa Arch low broad sandstone arch overlooking layered desert canyons and mesas at sunrise. A geographically recognizable rendition of this specific park. Soft painterly storybook illustration in warm gentle light, sage greens when appropriate, lavender-blue shadows, delicate brush texture, graceful coherent natural forms. Wide 3:2 composition for a family calendar, important landmark toward right, quieter left portion for calendar text. Entire image is a landscape, no labels, no typography, no frame, no watermark, no UI. Do not add camping equipment or people. Match only the artistic style of the reference; do NOT copy its lake, mountains or vegetation where they are not correct for this park.",
+      "label": "Canyonlands",
+      "output": "frontend/public/assets/family-events/national-park-canyonlands.jpg"
+    },
+    {
+      "id": "national-park-capitol-reef",
+      "source": "/Users/mendez/.codex/generated_images/01a0a703-f432-7a91-876b-241923c51f5b/exec-13c1b7b0-b291-42e7-a4c2-d2270440e1f3.png",
+      "prompt": "Use case: illustration-story. Create ONE standalone landscape illustration for Capitol Reef National Park, United States. Scene: White Navajo sandstone domes above red cliffs of the Waterpocket Fold with green Fruita orchard foreground. A geographically recognizable rendition of this specific park. Soft painterly storybook illustration in warm gentle light, sage greens when appropriate, lavender-blue shadows, delicate brush texture, graceful coherent natural forms. Wide 3:2 composition for a family calendar, important landmark toward right, quieter left portion for calendar text. Entire image is a landscape, no labels, no typography, no frame, no watermark, no UI. Do not add camping equipment or people. Match only the artistic style of the reference; do NOT copy its lake, mountains or vegetation where they are not correct for this park.",
+      "label": "Capitol Reef",
+      "output": "frontend/public/assets/family-events/national-park-capitol-reef.jpg"
+    },
+    {
+      "id": "national-park-carlsbad-caverns",
+      "source": "/Users/mendez/.codex/generated_images/01a0a703-f432-7a91-876b-241923c51f5b/exec-fb1723a8-2a99-472a-8fa3-1fb3501509e5.png",
+      "prompt": "Use case: illustration-story. Create ONE standalone landscape illustration for Carlsbad Caverns National Park, United States. Scene: Inside the Big Room limestone cavern, monumental stalactites and stalagmites with subtle warm cave lighting. A geographically recognizable rendition of this specific park. Soft painterly storybook illustration in warm gentle light, sage greens when appropriate, lavender-blue shadows, delicate brush texture, graceful coherent natural forms. Wide 3:2 composition for a family calendar, important landmark toward right, quieter left portion for calendar text. Entire image is a landscape, no labels, no typography, no frame, no watermark, no UI. Do not add camping equipment or people. Match only the artistic style of the reference; do NOT copy its lake, mountains or vegetation where they are not correct for this park.",
+      "label": "Carlsbad Caverns",
+      "output": "frontend/public/assets/family-events/national-park-carlsbad-caverns.jpg"
+    },
+    {
+      "id": "national-park-channel-islands",
+      "source": "/Users/mendez/.codex/generated_images/01a0a703-f432-7a91-876b-241923c51f5b/exec-3d71c2bd-47c0-4c70-ac99-70664a0203c0.png",
+      "prompt": "Use case: illustration-story. Create ONE standalone landscape illustration for Channel Islands National Park, United States. Scene: Wild California island sea cliffs, ocean sea arch and blue Pacific water, coastal grassland. A geographically recognizable rendition of this specific park. Soft painterly storybook illustration in warm gentle light, sage greens when appropriate, lavender-blue shadows, delicate brush texture, graceful coherent natural forms. Wide 3:2 composition for a family calendar, important landmark toward right, quieter left portion for calendar text. Entire image is a landscape, no labels, no typography, no frame, no watermark, no UI. Do not add camping equipment or people. Match only the artistic style of the reference; do NOT copy its lake, mountains or vegetation where they are not correct for this park.",
+      "label": "Channel Islands",
+      "output": "frontend/public/assets/family-events/national-park-channel-islands.jpg"
+    },
+    {
+      "id": "national-park-congaree",
+      "source": "/Users/mendez/.codex/generated_images/01a0a703-f432-7a91-876b-241923c51f5b/exec-136b2a81-6449-4cb3-89cd-9a9cbed7cee7.png",
+      "prompt": "Use case: illustration-story. Create ONE standalone landscape illustration for Congaree National Park, United States. Scene: South Carolina lush old growth floodplain forest, bald cypress roots and boardwalk above still water. A geographically recognizable rendition of this specific park. Soft painterly storybook illustration in warm gentle light, sage greens when appropriate, lavender-blue shadows, delicate brush texture, graceful coherent natural forms. Wide 3:2 composition for a family calendar, important landmark toward right, quieter left portion for calendar text. Entire image is a landscape, no labels, no typography, no frame, no watermark, no UI. Do not add camping equipment or people. Match only the artistic style of the reference; do NOT copy its lake, mountains or vegetation where they are not correct for this park.",
+      "label": "Congaree",
+      "output": "frontend/public/assets/family-events/national-park-congaree.jpg"
+    },
+    {
+      "id": "national-park-crater-lake",
+      "source": "/Users/mendez/.codex/generated_images/01a0a703-f432-7a91-876b-241923c51f5b/exec-dc9d0016-eb88-475f-b73d-d897c4b8191e.png",
+      "prompt": "Use case: illustration-story. Create ONE standalone landscape illustration for Crater Lake National Park, United States. Scene: Deep sapphire blue volcanic caldera lake, Wizard Island cinder cone and steep rim cliffs. A geographically recognizable rendition of this specific park. Soft painterly storybook illustration in warm gentle light, sage greens when appropriate, lavender-blue shadows, delicate brush texture, graceful coherent natural forms. Wide 3:2 composition for a family calendar, important landmark toward right, quieter left portion for calendar text. Entire image is a landscape, no labels, no typography, no frame, no watermark, no UI. Do not add camping equipment or people. Match only the artistic style of the reference; do NOT copy its lake, mountains or vegetation where they are not correct for this park.",
+      "label": "Crater Lake",
+      "output": "frontend/public/assets/family-events/national-park-crater-lake.jpg"
+    },
+    {
+      "id": "national-park-cuyahoga-valley",
+      "source": "/Users/mendez/.codex/generated_images/01a0a703-f432-7a91-876b-241923c51f5b/exec-c8d410b8-d55a-413c-9951-365021c4c174.png",
+      "prompt": "Use case: illustration-story. Create ONE standalone landscape illustration for Cuyahoga Valley National Park, United States. Scene: Brandywine Falls cascading over layered rock surrounded by lush Ohio hardwood forest. A geographically recognizable rendition of this specific park. Soft painterly storybook illustration in warm gentle light, sage greens when appropriate, lavender-blue shadows, delicate brush texture, graceful coherent natural forms. Wide 3:2 composition for a family calendar, important landmark toward right, quieter left portion for calendar text. Entire image is a landscape, no labels, no typography, no frame, no watermark, no UI. Do not add camping equipment or people. Match only the artistic style of the reference; do NOT copy its lake, mountains or vegetation where they are not correct for this park.",
+      "label": "Cuyahoga Valley",
+      "output": "frontend/public/assets/family-events/national-park-cuyahoga-valley.jpg"
+    },
+    {
+      "id": "national-park-death-valley",
+      "source": "/Users/mendez/.codex/generated_images/01a0a703-f432-7a91-876b-241923c51f5b/exec-da91532a-43d0-4c5e-b650-199a34b2347b.png",
+      "prompt": "Use case: illustration-story. Create ONE standalone landscape illustration for Death Valley National Park, United States. Scene: Badwater Basin polygonal white salt flats below stark dry brown mountains, desert vastness. A geographically recognizable rendition of this specific park. Soft painterly storybook illustration in warm gentle light, sage greens when appropriate, lavender-blue shadows, delicate brush texture, graceful coherent natural forms. Wide 3:2 composition for a family calendar, important landmark toward right, quieter left portion for calendar text. Entire image is a landscape, no labels, no typography, no frame, no watermark, no UI. Do not add camping equipment or people. Match only the artistic style of the reference; do NOT copy its lake, mountains or vegetation where they are not correct for this park.",
+      "label": "Death Valley",
+      "output": "frontend/public/assets/family-events/national-park-death-valley.jpg"
+    },
+    {
+      "id": "national-park-denali",
+      "source": "/Users/mendez/.codex/generated_images/01a0a703-f432-7a91-876b-241923c51f5b/exec-89e4e409-c01a-4d6b-809b-ed25dacaff3d.png",
+      "prompt": "Use case: illustration-story. Create ONE standalone landscape illustration for Denali National Park, United States. Scene: Towering snowy Denali massif beyond golden Alaska tundra and braided river. A geographically recognizable rendition of this specific park. Soft painterly storybook illustration in warm gentle light, sage greens when appropriate, lavender-blue shadows, delicate brush texture, graceful coherent natural forms. Wide 3:2 composition for a family calendar, important landmark toward right, quieter left portion for calendar text. Entire image is a landscape, no labels, no typography, no frame, no watermark, no UI. Do not add camping equipment or people. Match only the artistic style of the reference; do NOT copy its lake, mountains or vegetation where they are not correct for this park.",
+      "label": "Denali",
+      "output": "frontend/public/assets/family-events/national-park-denali.jpg"
+    },
+    {
+      "id": "national-park-dry-tortugas",
+      "source": "/Users/mendez/.codex/generated_images/01a0a703-f432-7a91-876b-241923c51f5b/exec-0e28a498-5b2f-40ae-90c6-b28c67ffaf8c.png",
+      "prompt": "Use case: illustration-story. Create ONE standalone landscape illustration for Dry Tortugas National Park, United States. Scene: Fort Jefferson brick hexagonal coastal fort surrounded by turquoise tropical sea and sandy islets, no mountains. A geographically recognizable rendition of this specific park. Soft painterly storybook illustration in warm gentle light, sage greens when appropriate, lavender-blue shadows, delicate brush texture, graceful coherent natural forms. Wide 3:2 composition for a family calendar, important landmark toward right, quieter left portion for calendar text. Entire image is a landscape, no labels, no typography, no frame, no watermark, no UI. Do not add camping equipment or people. Match only the artistic style of the reference; do NOT copy its lake, mountains or vegetation where they are not correct for this park.",
+      "label": "Dry Tortugas",
+      "output": "frontend/public/assets/family-events/national-park-dry-tortugas.jpg"
+    },
+    {
+      "id": "national-park-everglades",
+      "source": "/Users/mendez/.codex/generated_images/01a0a703-f432-7a91-876b-241923c51f5b/exec-e5366962-c8a1-4d45-b44f-8b09cce468e9.png",
+      "prompt": "Use case: illustration-story. Create ONE standalone landscape illustration for Everglades National Park, United States. Scene: Vast flat Florida sawgrass wetland with water channels and distant cypress, white wading bird. A geographically recognizable rendition of this specific park. Soft painterly storybook illustration in warm gentle light, sage greens when appropriate, lavender-blue shadows, delicate brush texture, graceful coherent natural forms. Wide 3:2 composition for a family calendar, important landmark toward right, quieter left portion for calendar text. Entire image is a landscape, no labels, no typography, no frame, no watermark, no UI. Do not add camping equipment or people. Match only the artistic style of the reference; do NOT copy its lake, mountains or vegetation where they are not correct for this park.",
+      "label": "Everglades",
+      "output": "frontend/public/assets/family-events/national-park-everglades.jpg"
+    },
+    {
+      "id": "national-park-gates-of-the-arctic",
+      "source": "/Users/mendez/.codex/generated_images/01a0a703-f432-7a91-876b-241923c51f5b/exec-547e8e6e-953f-4024-9248-99ea0ed4268b.png",
+      "prompt": "Use case: illustration-story. Create ONE standalone landscape illustration for Gates of the Arctic National Park, United States. Scene: Remote Brooks Range jagged mountains surrounding a wild clear river across Arctic tundra. A geographically recognizable rendition of this specific park. Soft painterly storybook illustration in warm gentle light, sage greens when appropriate, lavender-blue shadows, delicate brush texture, graceful coherent natural forms. Wide 3:2 composition for a family calendar, important landmark toward right, quieter left portion for calendar text. Entire image is a landscape, no labels, no typography, no frame, no watermark, no UI. Do not add camping equipment or people. Match only the artistic style of the reference; do NOT copy its lake, mountains or vegetation where they are not correct for this park.",
+      "label": "Gates of the Arctic",
+      "output": "frontend/public/assets/family-events/national-park-gates-of-the-arctic.jpg"
+    },
+    {
+      "id": "national-park-gateway-arch",
+      "source": "/Users/mendez/.codex/generated_images/01a0a703-f432-7a91-876b-241923c51f5b/exec-196f922c-e735-41ca-bbd9-690f5bd20ef4.png",
+      "prompt": "Use case: illustration-story. Create ONE standalone landscape illustration for Gateway Arch National Park, United States. Scene: The monumental stainless steel Gateway Arch beside the Mississippi River in Saint Louis, green landscaped foreground and modest skyline. A geographically recognizable rendition of this specific park. Soft painterly storybook illustration in warm gentle light, sage greens when appropriate, lavender-blue shadows, delicate brush texture, graceful coherent natural forms. Wide 3:2 composition for a family calendar, important landmark toward right, quieter left portion for calendar text. Entire image is a landscape, no labels, no typography, no frame, no watermark, no UI. Do not add camping equipment or people. Match only the artistic style of the reference; do NOT copy its lake, mountains or vegetation where they are not correct for this park.",
+      "label": "Gateway Arch",
+      "output": "frontend/public/assets/family-events/national-park-gateway-arch.jpg"
+    },
+    {
+      "id": "national-park-glacier-bay",
+      "source": "/Users/mendez/.codex/generated_images/01a0a703-f432-7a91-876b-241923c51f5b/exec-f5391098-4cdd-486f-8836-8713ec769b5c.png",
+      "prompt": "Use case: illustration-story. Create ONE standalone landscape illustration for Glacier Bay National Park, United States. Scene: Alaska tidewater glacier wall calving into a still fjord, snowy coastal mountains, floating ice. A geographically recognizable rendition of this specific park. Soft painterly storybook illustration in warm gentle light, sage greens when appropriate, lavender-blue shadows, delicate brush texture, graceful coherent natural forms. Wide 3:2 composition for a family calendar, important landmark toward right, quieter left portion for calendar text. Entire image is a landscape, no labels, no typography, no frame, no watermark, no UI. Do not add camping equipment or people. Match only the artistic style of the reference; do NOT copy its lake, mountains or vegetation where they are not correct for this park.",
+      "label": "Glacier Bay",
+      "output": "frontend/public/assets/family-events/national-park-glacier-bay.jpg"
+    },
+    {
+      "id": "national-park-glacier",
+      "source": "/Users/mendez/.codex/generated_images/01a0a703-f432-7a91-876b-241923c51f5b/exec-6bd7f41d-077d-43e0-b65a-3d1eceb79807.png",
+      "prompt": "Use case: illustration-story. Create ONE standalone landscape illustration for Glacier National Park, United States. Scene: Montana alpine lake reflecting rugged glaciated peaks and evergreen forest, colorful smooth shore stones. A geographically recognizable rendition of this specific park. Soft painterly storybook illustration in warm gentle light, sage greens when appropriate, lavender-blue shadows, delicate brush texture, graceful coherent natural forms. Wide 3:2 composition for a family calendar, important landmark toward right, quieter left portion for calendar text. Entire image is a landscape, no labels, no typography, no frame, no watermark, no UI. Do not add camping equipment or people. Match only the artistic style of the reference; do NOT copy its lake, mountains or vegetation where they are not correct for this park.",
+      "label": "Glacier",
+      "output": "frontend/public/assets/family-events/national-park-glacier.jpg"
+    },
+    {
+      "id": "national-park-grand-canyon",
+      "source": "/Users/mendez/.codex/generated_images/01a0a703-f432-7a91-876b-241923c51f5b/exec-d81998f1-853d-4bc5-86c6-3b98678d39d0.png",
+      "prompt": "Use case: illustration-story. Create ONE standalone landscape illustration for Grand Canyon National Park, United States. Scene: Immense layered red and ochre Grand Canyon seen from South Rim, distant Colorado River and broad sky. A geographically recognizable rendition of this specific park. Soft painterly storybook illustration in warm gentle light, sage greens when appropriate, lavender-blue shadows, delicate brush texture, graceful coherent natural forms. Wide 3:2 composition for a family calendar, important landmark toward right, quieter left portion for calendar text. Entire image is a landscape, no labels, no typography, no frame, no watermark, no UI. Do not add camping equipment or people. Match only the artistic style of the reference; do NOT copy its lake, mountains or vegetation where they are not correct for this park.",
+      "label": "Grand Canyon",
+      "output": "frontend/public/assets/family-events/national-park-grand-canyon.jpg"
+    },
+    {
+      "id": "national-park-grand-teton",
+      "source": "/Users/mendez/.codex/generated_images/01a0a703-f432-7a91-876b-241923c51f5b/exec-a76f3bfc-f9c1-4b7f-bb7c-69ef90180c5c.png",
+      "prompt": "Use case: illustration-story. Create ONE standalone landscape illustration for Grand Teton National Park, United States. Scene: Sharp snowy Teton Range reflected in a calm Wyoming lake with sagebrush and pine foreground. A geographically recognizable rendition of this specific park. Soft painterly storybook illustration in warm gentle light, sage greens when appropriate, lavender-blue shadows, delicate brush texture, graceful coherent natural forms. Wide 3:2 composition for a family calendar, important landmark toward right, quieter left portion for calendar text. Entire image is a landscape, no labels, no typography, no frame, no watermark, no UI. Do not add camping equipment or people. Match only the artistic style of the reference; do NOT copy its lake, mountains or vegetation where they are not correct for this park.",
+      "label": "Grand Teton",
+      "output": "frontend/public/assets/family-events/national-park-grand-teton.jpg"
+    },
+    {
+      "id": "national-park-great-basin",
+      "source": "/Users/mendez/.codex/generated_images/01a0a703-f432-7a91-876b-241923c51f5b/exec-9fc48327-a805-454e-a154-5b468a237b48.png",
+      "prompt": "Use case: illustration-story. Create ONE standalone landscape illustration for Great Basin National Park, United States. Scene: Ancient twisted bristlecone pine on a rocky slope beneath Nevada Wheeler Peak. A geographically recognizable rendition of this specific park. Soft painterly storybook illustration in warm gentle light, sage greens when appropriate, lavender-blue shadows, delicate brush texture, graceful coherent natural forms. Wide 3:2 composition for a family calendar, important landmark toward right, quieter left portion for calendar text. Entire image is a landscape, no labels, no typography, no frame, no watermark, no UI. Do not add camping equipment or people. Match only the artistic style of the reference; do NOT copy its lake, mountains or vegetation where they are not correct for this park.",
+      "label": "Great Basin",
+      "output": "frontend/public/assets/family-events/national-park-great-basin.jpg"
+    },
+    {
+      "id": "national-park-great-sand-dunes",
+      "source": "/Users/mendez/.codex/generated_images/01a0a703-f432-7a91-876b-241923c51f5b/exec-ec4c3be0-2904-43e5-9743-a614e935c1ba.png",
+      "prompt": "Use case: illustration-story. Create ONE standalone landscape illustration for Great Sand Dunes National Park, United States. Scene: Towering sweeping tan sand dunes with snowy Sangre de Cristo mountains behind. A geographically recognizable rendition of this specific park. Soft painterly storybook illustration in warm gentle light, sage greens when appropriate, lavender-blue shadows, delicate brush texture, graceful coherent natural forms. Wide 3:2 composition for a family calendar, important landmark toward right, quieter left portion for calendar text. Entire image is a landscape, no labels, no typography, no frame, no watermark, no UI. Do not add camping equipment or people. Match only the artistic style of the reference; do NOT copy its lake, mountains or vegetation where they are not correct for this park.",
+      "label": "Great Sand Dunes",
+      "output": "frontend/public/assets/family-events/national-park-great-sand-dunes.jpg"
+    },
+    {
+      "id": "national-park-great-smoky-mountains",
+      "source": "/Users/mendez/.codex/generated_images/01a0a703-f432-7a91-876b-241923c51f5b/exec-5e115cde-defe-4fd0-89c9-a8e65372fac5.png",
+      "prompt": "Use case: illustration-story. Create ONE standalone landscape illustration for Great Smoky Mountains National Park, United States. Scene: Layered blue smoky Appalachian ridges and lush deciduous forest in soft morning mist. A geographically recognizable rendition of this specific park. Soft painterly storybook illustration in warm gentle light, sage greens when appropriate, lavender-blue shadows, delicate brush texture, graceful coherent natural forms. Wide 3:2 composition for a family calendar, important landmark toward right, quieter left portion for calendar text. Entire image is a landscape, no labels, no typography, no frame, no watermark, no UI. Do not add camping equipment or people. Match only the artistic style of the reference; do NOT copy its lake, mountains or vegetation where they are not correct for this park.",
+      "label": "Great Smoky Mountains",
+      "output": "frontend/public/assets/family-events/national-park-great-smoky-mountains.jpg"
+    },
+    {
+      "id": "national-park-guadalupe-mountains",
+      "source": "/Users/mendez/.codex/generated_images/01a0a703-f432-7a91-876b-241923c51f5b/exec-17843d08-a9cf-4371-a162-5595202f87e4.png",
+      "prompt": "Use case: illustration-story. Create ONE standalone landscape illustration for Guadalupe Mountains National Park, United States. Scene: Massive pale limestone El Capitan cliff above Chihuahuan Desert grassland and yucca. A geographically recognizable rendition of this specific park. Soft painterly storybook illustration in warm gentle light, sage greens when appropriate, lavender-blue shadows, delicate brush texture, graceful coherent natural forms. Wide 3:2 composition for a family calendar, important landmark toward right, quieter left portion for calendar text. Entire image is a landscape, no labels, no typography, no frame, no watermark, no UI. Do not add camping equipment or people. Match only the artistic style of the reference; do NOT copy its lake, mountains or vegetation where they are not correct for this park.",
+      "label": "Guadalupe Mountains",
+      "output": "frontend/public/assets/family-events/national-park-guadalupe-mountains.jpg"
+    },
+    {
+      "id": "national-park-haleakala",
+      "source": "/Users/mendez/.codex/generated_images/01a0a703-f432-7a91-876b-241923c51f5b/exec-bdf9da53-6799-4e5b-8f10-62289621d95e.png",
+      "prompt": "Use case: illustration-story. Create ONE standalone landscape illustration for Haleakal\u0101 National Park, United States. Scene: Maui summit volcanic crater with reddish cinder cones, stark dark lava and a sea of clouds beyond. A geographically recognizable rendition of this specific park. Soft painterly storybook illustration in warm gentle light, sage greens when appropriate, lavender-blue shadows, delicate brush texture, graceful coherent natural forms. Wide 3:2 composition for a family calendar, important landmark toward right, quieter left portion for calendar text. Entire image is a landscape, no labels, no typography, no frame, no watermark, no UI. Do not add camping equipment or people. Match only the artistic style of the reference; do NOT copy its lake, mountains or vegetation where they are not correct for this park.",
+      "label": "Haleakal\u0101",
+      "output": "frontend/public/assets/family-events/national-park-haleakala.jpg"
+    },
+    {
+      "id": "national-park-hawaii-volcanoes",
+      "source": "/Users/mendez/.codex/generated_images/01a0a703-f432-7a91-876b-241923c51f5b/exec-881e2912-b93b-48b7-9eda-9b591f36f4a3.png",
+      "prompt": "Use case: illustration-story. Create ONE standalone landscape illustration for Hawai\u02bbi Volcanoes National Park, United States. Scene: Kilauea volcanic crater with dark lava terrain, faint warm lava glow and steam, native fern foreground. A geographically recognizable rendition of this specific park. Soft painterly storybook illustration in warm gentle light, sage greens when appropriate, lavender-blue shadows, delicate brush texture, graceful coherent natural forms. Wide 3:2 composition for a family calendar, important landmark toward right, quieter left portion for calendar text. Entire image is a landscape, no labels, no typography, no frame, no watermark, no UI. Do not add camping equipment or people. Match only the artistic style of the reference; do NOT copy its lake, mountains or vegetation where they are not correct for this park.",
+      "label": "Hawai\u02bbi Volcanoes",
+      "output": "frontend/public/assets/family-events/national-park-hawaii-volcanoes.jpg"
+    },
+    {
+      "id": "national-park-hot-springs",
+      "source": "/Users/mendez/.codex/generated_images/01a0a703-f432-7a91-876b-241923c51f5b/exec-4e37e940-e7b5-4438-96ec-f5a1ebb223df.png",
+      "prompt": "Use case: illustration-story. Create ONE standalone landscape illustration for Hot Springs National Park, United States. Scene: Historic elegant Bathhouse Row buildings in Arkansas with promenade and green wooded hillside. A geographically recognizable rendition of this specific park. Soft painterly storybook illustration in warm gentle light, sage greens when appropriate, lavender-blue shadows, delicate brush texture, graceful coherent natural forms. Wide 3:2 composition for a family calendar, important landmark toward right, quieter left portion for calendar text. Entire image is a landscape, no labels, no typography, no frame, no watermark, no UI. Do not add camping equipment or people. Match only the artistic style of the reference; do NOT copy its lake, mountains or vegetation where they are not correct for this park.",
+      "label": "Hot Springs",
+      "output": "frontend/public/assets/family-events/national-park-hot-springs.jpg"
+    },
+    {
+      "id": "national-park-indiana-dunes",
+      "source": "/Users/mendez/.codex/generated_images/01a0a703-f432-7a91-876b-241923c51f5b/exec-d8603e6e-2d83-451a-ba55-50f712cc22c8.png",
+      "prompt": "Use case: illustration-story. Create ONE standalone landscape illustration for Indiana Dunes National Park, United States. Scene: Sandy Lake Michigan dunes with beach grasses beside an immense blue freshwater lake. A geographically recognizable rendition of this specific park. Soft painterly storybook illustration in warm gentle light, sage greens when appropriate, lavender-blue shadows, delicate brush texture, graceful coherent natural forms. Wide 3:2 composition for a family calendar, important landmark toward right, quieter left portion for calendar text. Entire image is a landscape, no labels, no typography, no frame, no watermark, no UI. Do not add camping equipment or people. Match only the artistic style of the reference; do NOT copy its lake, mountains or vegetation where they are not correct for this park.",
+      "label": "Indiana Dunes",
+      "output": "frontend/public/assets/family-events/national-park-indiana-dunes.jpg"
+    },
+    {
+      "id": "national-park-isle-royale",
+      "source": "/Users/mendez/.codex/generated_images/01a0a703-f432-7a91-876b-241923c51f5b/exec-e7a985cd-cb8b-44e8-a68c-4339b98a783e.png",
+      "prompt": "Use case: illustration-story. Create ONE standalone landscape illustration for Isle Royale National Park, United States. Scene: Remote Lake Superior rocky shore and little forested islands, spruce and fir boreal wilderness. A geographically recognizable rendition of this specific park. Soft painterly storybook illustration in warm gentle light, sage greens when appropriate, lavender-blue shadows, delicate brush texture, graceful coherent natural forms. Wide 3:2 composition for a family calendar, important landmark toward right, quieter left portion for calendar text. Entire image is a landscape, no labels, no typography, no frame, no watermark, no UI. Do not add camping equipment or people. Match only the artistic style of the reference; do NOT copy its lake, mountains or vegetation where they are not correct for this park.",
+      "label": "Isle Royale",
+      "output": "frontend/public/assets/family-events/national-park-isle-royale.jpg"
+    },
+    {
+      "id": "national-park-joshua-tree",
+      "source": "/Users/mendez/.codex/generated_images/01a0a703-f432-7a91-876b-241923c51f5b/exec-39553c38-9363-4a53-a180-378956a33e2e.png",
+      "prompt": "Use case: illustration-story. Create ONE standalone landscape illustration for Joshua Tree National Park, United States. Scene: Distinct branching Joshua trees among rounded giant granite boulders in a high desert landscape. A geographically recognizable rendition of this specific park. Soft painterly storybook illustration in warm gentle light, sage greens when appropriate, lavender-blue shadows, delicate brush texture, graceful coherent natural forms. Wide 3:2 composition for a family calendar, important landmark toward right, quieter left portion for calendar text. Entire image is a landscape, no labels, no typography, no frame, no watermark, no UI. Do not add camping equipment or people. Match only the artistic style of the reference; do NOT copy its lake, mountains or vegetation where they are not correct for this park.",
+      "label": "Joshua Tree",
+      "output": "frontend/public/assets/family-events/national-park-joshua-tree.jpg"
+    },
+    {
+      "id": "national-park-katmai",
+      "source": "/Users/mendez/.codex/generated_images/01a0a703-f432-7a91-876b-241923c51f5b/exec-14138475-f509-437f-ab20-32445fbfe3e9.png",
+      "prompt": "Use case: illustration-story. Create ONE standalone landscape illustration for Katmai National Park, United States. Scene: Brown bears fishing at Brooks Falls, broad low waterfall and Alaska evergreen forest. A geographically recognizable rendition of this specific park. Soft painterly storybook illustration in warm gentle light, sage greens when appropriate, lavender-blue shadows, delicate brush texture, graceful coherent natural forms. Wide 3:2 composition for a family calendar, important landmark toward right, quieter left portion for calendar text. Entire image is a landscape, no labels, no typography, no frame, no watermark, no UI. Do not add camping equipment or people. Match only the artistic style of the reference; do NOT copy its lake, mountains or vegetation where they are not correct for this park.",
+      "label": "Katmai",
+      "output": "frontend/public/assets/family-events/national-park-katmai.jpg"
+    },
+    {
+      "id": "national-park-kenai-fjords",
+      "source": "/Users/mendez/.codex/generated_images/01a0a703-f432-7a91-876b-241923c51f5b/exec-4fe0301f-c783-42d8-9579-a435af983dbe.png",
+      "prompt": "Use case: illustration-story. Create ONE standalone landscape illustration for Kenai Fjords National Park, United States. Scene: Alaska blue tidewater glacier descending between steep mountain walls into a fjord, floating ice and sea birds. A geographically recognizable rendition of this specific park. Soft painterly storybook illustration in warm gentle light, sage greens when appropriate, lavender-blue shadows, delicate brush texture, graceful coherent natural forms. Wide 3:2 composition for a family calendar, important landmark toward right, quieter left portion for calendar text. Entire image is a landscape, no labels, no typography, no frame, no watermark, no UI. Do not add camping equipment or people. Match only the artistic style of the reference; do NOT copy its lake, mountains or vegetation where they are not correct for this park.",
+      "label": "Kenai Fjords",
+      "output": "frontend/public/assets/family-events/national-park-kenai-fjords.jpg"
+    },
+    {
+      "id": "national-park-kings-canyon",
+      "source": "/Users/mendez/.codex/generated_images/01a0a703-f432-7a91-876b-241923c51f5b/exec-eedf638a-4309-47f0-8df8-7ebc0ed1ac00.png",
+      "prompt": "Use case: illustration-story. Create ONE standalone landscape illustration for Kings Canyon National Park, United States. Scene: Deep California granite canyon with rushing Kings River, pines and soaring rock walls. A geographically recognizable rendition of this specific park. Soft painterly storybook illustration in warm gentle light, sage greens when appropriate, lavender-blue shadows, delicate brush texture, graceful coherent natural forms. Wide 3:2 composition for a family calendar, important landmark toward right, quieter left portion for calendar text. Entire image is a landscape, no labels, no typography, no frame, no watermark, no UI. Do not add camping equipment or people. Match only the artistic style of the reference; do NOT copy its lake, mountains or vegetation where they are not correct for this park.",
+      "label": "Kings Canyon",
+      "output": "frontend/public/assets/family-events/national-park-kings-canyon.jpg"
+    },
+    {
+      "id": "national-park-kobuk-valley",
+      "source": "/Users/mendez/.codex/generated_images/01a0a703-f432-7a91-876b-241923c51f5b/exec-7b5b8e16-9ea7-4cec-9867-0c1c55d93874.png",
+      "prompt": "Use case: illustration-story. Create ONE standalone landscape illustration for Kobuk Valley National Park, United States. Scene: Great Kobuk Sand Dunes, rolling golden sand surrounded by Arctic boreal woodland and distant mountains. A geographically recognizable rendition of this specific park. Soft painterly storybook illustration in warm gentle light, sage greens when appropriate, lavender-blue shadows, delicate brush texture, graceful coherent natural forms. Wide 3:2 composition for a family calendar, important landmark toward right, quieter left portion for calendar text. Entire image is a landscape, no labels, no typography, no frame, no watermark, no UI. Do not add camping equipment or people. Match only the artistic style of the reference; do NOT copy its lake, mountains or vegetation where they are not correct for this park.",
+      "label": "Kobuk Valley",
+      "output": "frontend/public/assets/family-events/national-park-kobuk-valley.jpg"
+    },
+    {
+      "id": "national-park-lake-clark",
+      "source": "/Users/mendez/.codex/generated_images/01a0a703-f432-7a91-876b-241923c51f5b/exec-5a30e28a-ee6d-4248-9442-e6bb4629dad2.png",
+      "prompt": "Use case: illustration-story. Create ONE standalone landscape illustration for Lake Clark National Park, United States. Scene: Turquoise Alaska lake framed by green hills and distant snowy rugged mountains, wild shore. A geographically recognizable rendition of this specific park. Soft painterly storybook illustration in warm gentle light, sage greens when appropriate, lavender-blue shadows, delicate brush texture, graceful coherent natural forms. Wide 3:2 composition for a family calendar, important landmark toward right, quieter left portion for calendar text. Entire image is a landscape, no labels, no typography, no frame, no watermark, no UI. Do not add camping equipment or people. Match only the artistic style of the reference; do NOT copy its lake, mountains or vegetation where they are not correct for this park.",
+      "label": "Lake Clark",
+      "output": "frontend/public/assets/family-events/national-park-lake-clark.jpg"
+    },
+    {
+      "id": "national-park-lassen-volcanic",
+      "source": "/Users/mendez/.codex/generated_images/01a0a703-f432-7a91-876b-241923c51f5b/exec-e9bbf333-0b93-4e55-9fa3-dada5451b19b.png",
+      "prompt": "Use case: illustration-story. Create ONE standalone landscape illustration for Lassen Volcanic National Park, United States. Scene: Lassen Peak behind a geothermal landscape of steaming fumaroles and pale mineral ground, tiny turquoise pool. A geographically recognizable rendition of this specific park. Soft painterly storybook illustration in warm gentle light, sage greens when appropriate, lavender-blue shadows, delicate brush texture, graceful coherent natural forms. Wide 3:2 composition for a family calendar, important landmark toward right, quieter left portion for calendar text. Entire image is a landscape, no labels, no typography, no frame, no watermark, no UI. Do not add camping equipment or people. Match only the artistic style of the reference; do NOT copy its lake, mountains or vegetation where they are not correct for this park.",
+      "label": "Lassen Volcanic",
+      "output": "frontend/public/assets/family-events/national-park-lassen-volcanic.jpg"
+    },
+    {
+      "id": "national-park-mammoth-cave",
+      "source": "/Users/mendez/.codex/generated_images/01a0a703-f432-7a91-876b-241923c51f5b/exec-97789081-7a04-41af-9bb3-29b55ecc4fa8.png",
+      "prompt": "Use case: illustration-story. Create ONE standalone landscape illustration for Mammoth Cave National Park, United States. Scene: Vast Kentucky limestone cave passage with broad arched ceiling and layered walls, subtle warm path lighting. A geographically recognizable rendition of this specific park. Soft painterly storybook illustration in warm gentle light, sage greens when appropriate, lavender-blue shadows, delicate brush texture, graceful coherent natural forms. Wide 3:2 composition for a family calendar, important landmark toward right, quieter left portion for calendar text. Entire image is a landscape, no labels, no typography, no frame, no watermark, no UI. Do not add camping equipment or people. Match only the artistic style of the reference; do NOT copy its lake, mountains or vegetation where they are not correct for this park.",
+      "label": "Mammoth Cave",
+      "output": "frontend/public/assets/family-events/national-park-mammoth-cave.jpg"
+    },
+    {
+      "id": "national-park-mesa-verde",
+      "source": "/Users/mendez/.codex/generated_images/01a0a703-f432-7a91-876b-241923c51f5b/exec-2658599c-7792-4c9f-8dc4-3711a7be100f.png",
+      "prompt": "Use case: illustration-story. Create ONE standalone landscape illustration for Mesa Verde National Park, United States. Scene: Cliff Palace ancestral Pueblo stone dwellings tucked beneath a vast sandstone overhang, juniper foreground. A geographically recognizable rendition of this specific park. Soft painterly storybook illustration in warm gentle light, sage greens when appropriate, lavender-blue shadows, delicate brush texture, graceful coherent natural forms. Wide 3:2 composition for a family calendar, important landmark toward right, quieter left portion for calendar text. Entire image is a landscape, no labels, no typography, no frame, no watermark, no UI. Do not add camping equipment or people. Match only the artistic style of the reference; do NOT copy its lake, mountains or vegetation where they are not correct for this park.",
+      "label": "Mesa Verde",
+      "output": "frontend/public/assets/family-events/national-park-mesa-verde.jpg"
+    },
+    {
+      "id": "national-park-mount-rainier",
+      "source": "/Users/mendez/.codex/generated_images/01a0a703-f432-7a91-876b-241923c51f5b/exec-6b129acf-e1b5-4535-973a-865d10274028.png",
+      "prompt": "Use case: illustration-story. Create ONE standalone landscape illustration for Mount Rainier National Park, United States. Scene: Massive snow glaciated Mount Rainier volcano above an alpine wildflower meadow and evergreen trees. A geographically recognizable rendition of this specific park. Soft painterly storybook illustration in warm gentle light, sage greens when appropriate, lavender-blue shadows, delicate brush texture, graceful coherent natural forms. Wide 3:2 composition for a family calendar, important landmark toward right, quieter left portion for calendar text. Entire image is a landscape, no labels, no typography, no frame, no watermark, no UI. Do not add camping equipment or people. Match only the artistic style of the reference; do NOT copy its lake, mountains or vegetation where they are not correct for this park.",
+      "label": "Mount Rainier",
+      "output": "frontend/public/assets/family-events/national-park-mount-rainier.jpg"
+    },
+    {
+      "id": "national-park-american-samoa",
+      "source": "/Users/mendez/.codex/generated_images/01a0a703-f432-7a91-876b-241923c51f5b/exec-af01d8d3-2402-46f0-a718-a77d365db931.png",
+      "prompt": "Use case: illustration-story. Create ONE standalone landscape illustration for National Park of American Samoa National Park, United States. Scene: Steep emerald tropical island ridge covered in rainforest above turquoise Pacific reef water and a quiet beach. A geographically recognizable rendition of this specific park. Soft painterly storybook illustration in warm gentle light, sage greens when appropriate, lavender-blue shadows, delicate brush texture, graceful coherent natural forms. Wide 3:2 composition for a family calendar, important landmark toward right, quieter left portion for calendar text. Entire image is a landscape, no labels, no typography, no frame, no watermark, no UI. Do not add camping equipment or people. Match only the artistic style of the reference; do NOT copy its lake, mountains or vegetation where they are not correct for this park.",
+      "label": "National Park of American Samoa",
+      "output": "frontend/public/assets/family-events/national-park-american-samoa.jpg"
+    },
+    {
+      "id": "national-park-new-river-gorge",
+      "source": "/Users/mendez/.codex/generated_images/01a0a703-f432-7a91-876b-241923c51f5b/exec-ee2f9367-da07-4631-8171-8b29afff22e2.png",
+      "prompt": "Use case: illustration-story. Create ONE standalone landscape illustration for New River Gorge National Park, United States. Scene: Iconic steel arch New River Gorge Bridge spanning a deep lush Appalachian river gorge. A geographically recognizable rendition of this specific park. Soft painterly storybook illustration in warm gentle light, sage greens when appropriate, lavender-blue shadows, delicate brush texture, graceful coherent natural forms. Wide 3:2 composition for a family calendar, important landmark toward right, quieter left portion for calendar text. Entire image is a landscape, no labels, no typography, no frame, no watermark, no UI. Do not add camping equipment or people. Match only the artistic style of the reference; do NOT copy its lake, mountains or vegetation where they are not correct for this park.",
+      "label": "New River Gorge",
+      "output": "frontend/public/assets/family-events/national-park-new-river-gorge.jpg"
+    },
+    {
+      "id": "national-park-north-cascades",
+      "source": "/Users/mendez/.codex/generated_images/01a0a703-f432-7a91-876b-241923c51f5b/exec-a04cdb02-8892-4301-9c6d-d347a323f284.png",
+      "prompt": "Use case: illustration-story. Create ONE standalone landscape illustration for North Cascades National Park, United States. Scene: Jagged snowy North Cascades mountain peaks above brilliant turquoise Diablo Lake and evergreen slopes. A geographically recognizable rendition of this specific park. Soft painterly storybook illustration in warm gentle light, sage greens when appropriate, lavender-blue shadows, delicate brush texture, graceful coherent natural forms. Wide 3:2 composition for a family calendar, important landmark toward right, quieter left portion for calendar text. Entire image is a landscape, no labels, no typography, no frame, no watermark, no UI. Do not add camping equipment or people. Match only the artistic style of the reference; do NOT copy its lake, mountains or vegetation where they are not correct for this park.",
+      "label": "North Cascades",
+      "output": "frontend/public/assets/family-events/national-park-north-cascades.jpg"
+    },
+    {
+      "id": "national-park-olympic",
+      "source": "/Users/mendez/.codex/generated_images/01a0a703-f432-7a91-876b-241923c51f5b/exec-281d3e89-3875-4164-b0a5-04d0d7f12f86.png",
+      "prompt": "Use case: illustration-story. Create ONE standalone landscape illustration for Olympic National Park, United States. Scene: Hoh rainforest moss draped bigleaf maple trees, lush ferns and winding forest path in diffused light. A geographically recognizable rendition of this specific park. Soft painterly storybook illustration in warm gentle light, sage greens when appropriate, lavender-blue shadows, delicate brush texture, graceful coherent natural forms. Wide 3:2 composition for a family calendar, important landmark toward right, quieter left portion for calendar text. Entire image is a landscape, no labels, no typography, no frame, no watermark, no UI. Do not add camping equipment or people. Match only the artistic style of the reference; do NOT copy its lake, mountains or vegetation where they are not correct for this park.",
+      "label": "Olympic",
+      "output": "frontend/public/assets/family-events/national-park-olympic.jpg"
+    },
+    {
+      "id": "national-park-petrified-forest",
+      "source": "/Users/mendez/.codex/generated_images/01a0a703-f432-7a91-876b-241923c51f5b/exec-512a537d-eef9-433c-83a3-9cee3ed95784.png",
+      "prompt": "Use case: illustration-story. Create ONE standalone landscape illustration for Petrified Forest National Park, United States. Scene: Colorful petrified fossil logs on dry ground above striped Painted Desert badlands. A geographically recognizable rendition of this specific park. Soft painterly storybook illustration in warm gentle light, sage greens when appropriate, lavender-blue shadows, delicate brush texture, graceful coherent natural forms. Wide 3:2 composition for a family calendar, important landmark toward right, quieter left portion for calendar text. Entire image is a landscape, no labels, no typography, no frame, no watermark, no UI. Do not add camping equipment or people. Match only the artistic style of the reference; do NOT copy its lake, mountains or vegetation where they are not correct for this park.",
+      "label": "Petrified Forest",
+      "output": "frontend/public/assets/family-events/national-park-petrified-forest.jpg"
+    },
+    {
+      "id": "national-park-pinnacles",
+      "source": "/Users/mendez/.codex/generated_images/01a0a703-f432-7a91-876b-241923c51f5b/exec-faa8c2de-0e9c-422f-9b9a-a2c535824637.png",
+      "prompt": "Use case: illustration-story. Create ONE standalone landscape illustration for Pinnacles National Park, United States. Scene: Rugged reddish volcanic rock spires rising above California oak woodland and golden grassland. A geographically recognizable rendition of this specific park. Soft painterly storybook illustration in warm gentle light, sage greens when appropriate, lavender-blue shadows, delicate brush texture, graceful coherent natural forms. Wide 3:2 composition for a family calendar, important landmark toward right, quieter left portion for calendar text. Entire image is a landscape, no labels, no typography, no frame, no watermark, no UI. Do not add camping equipment or people. Match only the artistic style of the reference; do NOT copy its lake, mountains or vegetation where they are not correct for this park.",
+      "label": "Pinnacles",
+      "output": "frontend/public/assets/family-events/national-park-pinnacles.jpg"
+    },
+    {
+      "id": "national-park-redwood",
+      "source": "/Users/mendez/.codex/generated_images/01a0a703-f432-7a91-876b-241923c51f5b/exec-3f25ea45-3aeb-47cd-bf3d-31a13566758e.png",
+      "prompt": "Use case: illustration-story. Create ONE standalone landscape illustration for Redwood National Park, United States. Scene: Immense coast redwood tree trunks rising into a misty green canopy, ferns and gentle forest trail. A geographically recognizable rendition of this specific park. Soft painterly storybook illustration in warm gentle light, sage greens when appropriate, lavender-blue shadows, delicate brush texture, graceful coherent natural forms. Wide 3:2 composition for a family calendar, important landmark toward right, quieter left portion for calendar text. Entire image is a landscape, no labels, no typography, no frame, no watermark, no UI. Do not add camping equipment or people. Match only the artistic style of the reference; do NOT copy its lake, mountains or vegetation where they are not correct for this park.",
+      "label": "Redwood",
+      "output": "frontend/public/assets/family-events/national-park-redwood.jpg"
+    },
+    {
+      "id": "national-park-rocky-mountain",
+      "source": "/Users/mendez/.codex/generated_images/01a0a703-f432-7a91-876b-241923c51f5b/exec-1b613fbc-ddde-4d26-bbbd-a38e5377e34e.png",
+      "prompt": "Use case: illustration-story. Create ONE standalone landscape illustration for Rocky Mountain National Park, United States. Scene: Colorado alpine lake with Longs Peak and rugged snowy mountain backdrop, pine trees and wildflowers. A geographically recognizable rendition of this specific park. Soft painterly storybook illustration in warm gentle light, sage greens when appropriate, lavender-blue shadows, delicate brush texture, graceful coherent natural forms. Wide 3:2 composition for a family calendar, important landmark toward right, quieter left portion for calendar text. Entire image is a landscape, no labels, no typography, no frame, no watermark, no UI. Do not add camping equipment or people. Match only the artistic style of the reference; do NOT copy its lake, mountains or vegetation where they are not correct for this park.",
+      "label": "Rocky Mountain",
+      "output": "frontend/public/assets/family-events/national-park-rocky-mountain.jpg"
+    },
+    {
+      "id": "national-park-saguaro",
+      "source": "/Users/mendez/.codex/generated_images/01a0a703-f432-7a91-876b-241923c51f5b/exec-a36ad141-631a-4dd7-bd31-79a300308a48.png",
+      "prompt": "Use case: illustration-story. Create ONE standalone landscape illustration for Saguaro National Park, United States. Scene: Tall branching saguaro cacti across Sonoran Desert foothills with warm golden light and distant mountains. A geographically recognizable rendition of this specific park. Soft painterly storybook illustration in warm gentle light, sage greens when appropriate, lavender-blue shadows, delicate brush texture, graceful coherent natural forms. Wide 3:2 composition for a family calendar, important landmark toward right, quieter left portion for calendar text. Entire image is a landscape, no labels, no typography, no frame, no watermark, no UI. Do not add camping equipment or people. Match only the artistic style of the reference; do NOT copy its lake, mountains or vegetation where they are not correct for this park.",
+      "label": "Saguaro",
+      "output": "frontend/public/assets/family-events/national-park-saguaro.jpg"
+    },
+    {
+      "id": "national-park-sequoia",
+      "source": "/Users/mendez/.codex/generated_images/01a0a703-f432-7a91-876b-241923c51f5b/exec-9c827ff2-7cd3-4b33-8308-936388bfa6c4.png",
+      "prompt": "Use case: illustration-story. Create ONE standalone landscape illustration for Sequoia National Park, United States. Scene: Massive reddish giant sequoia trunks, one enormous old growth tree in foreground, Sierra forest and sunlight. A geographically recognizable rendition of this specific park. Soft painterly storybook illustration in warm gentle light, sage greens when appropriate, lavender-blue shadows, delicate brush texture, graceful coherent natural forms. Wide 3:2 composition for a family calendar, important landmark toward right, quieter left portion for calendar text. Entire image is a landscape, no labels, no typography, no frame, no watermark, no UI. Do not add camping equipment or people. Match only the artistic style of the reference; do NOT copy its lake, mountains or vegetation where they are not correct for this park.",
+      "label": "Sequoia",
+      "output": "frontend/public/assets/family-events/national-park-sequoia.jpg"
+    },
+    {
+      "id": "national-park-shenandoah",
+      "source": "/Users/mendez/.codex/generated_images/01a0a703-f432-7a91-876b-241923c51f5b/exec-3f0d6042-6ef7-44e7-8096-ff36b90c6ff8.png",
+      "prompt": "Use case: illustration-story. Create ONE standalone landscape illustration for Shenandoah National Park, United States. Scene: Blue Ridge overlook with rolling forested Virginia mountains and soft blue mist in valleys. A geographically recognizable rendition of this specific park. Soft painterly storybook illustration in warm gentle light, sage greens when appropriate, lavender-blue shadows, delicate brush texture, graceful coherent natural forms. Wide 3:2 composition for a family calendar, important landmark toward right, quieter left portion for calendar text. Entire image is a landscape, no labels, no typography, no frame, no watermark, no UI. Do not add camping equipment or people. Match only the artistic style of the reference; do NOT copy its lake, mountains or vegetation where they are not correct for this park.",
+      "label": "Shenandoah",
+      "output": "frontend/public/assets/family-events/national-park-shenandoah.jpg"
+    },
+    {
+      "id": "national-park-theodore-roosevelt",
+      "source": "/Users/mendez/.codex/generated_images/01a0a703-f432-7a91-876b-241923c51f5b/exec-3d230c53-1d95-4374-8c40-d69b6e42c6ca.png",
+      "prompt": "Use case: illustration-story. Create ONE standalone landscape illustration for Theodore Roosevelt National Park, United States. Scene: North Dakota striped badlands and grass prairie with a few grazing bison in the distance. A geographically recognizable rendition of this specific park. Soft painterly storybook illustration in warm gentle light, sage greens when appropriate, lavender-blue shadows, delicate brush texture, graceful coherent natural forms. Wide 3:2 composition for a family calendar, important landmark toward right, quieter left portion for calendar text. Entire image is a landscape, no labels, no typography, no frame, no watermark, no UI. Do not add camping equipment or people. Match only the artistic style of the reference; do NOT copy its lake, mountains or vegetation where they are not correct for this park.",
+      "label": "Theodore Roosevelt",
+      "output": "frontend/public/assets/family-events/national-park-theodore-roosevelt.jpg"
+    },
+    {
+      "id": "national-park-virgin-islands",
+      "source": "/Users/mendez/.codex/generated_images/01a0a703-f432-7a91-876b-241923c51f5b/exec-6ceef2ff-c813-4484-bb72-5e5f64fd5686.png",
+      "prompt": "Use case: illustration-story. Create ONE standalone landscape illustration for Virgin Islands National Park, United States. Scene: Trunk Bay white sand beach, lush green hills, turquoise Caribbean water and small offshore cay. A geographically recognizable rendition of this specific park. Soft painterly storybook illustration in warm gentle light, sage greens when appropriate, lavender-blue shadows, delicate brush texture, graceful coherent natural forms. Wide 3:2 composition for a family calendar, important landmark toward right, quieter left portion for calendar text. Entire image is a landscape, no labels, no typography, no frame, no watermark, no UI. Do not add camping equipment or people. Match only the artistic style of the reference; do NOT copy its lake, mountains or vegetation where they are not correct for this park.",
+      "label": "Virgin Islands",
+      "output": "frontend/public/assets/family-events/national-park-virgin-islands.jpg"
+    },
+    {
+      "id": "national-park-voyageurs",
+      "source": "/Users/mendez/.codex/generated_images/01a0a703-f432-7a91-876b-241923c51f5b/exec-4021f408-001e-4e44-a781-42755bb4acb6.png",
+      "prompt": "Use case: illustration-story. Create ONE standalone landscape illustration for Voyageurs National Park, United States. Scene: Minnesota interconnected calm lakes dotted with rocky pine covered islands, warm sunset reflection. A geographically recognizable rendition of this specific park. Soft painterly storybook illustration in warm gentle light, sage greens when appropriate, lavender-blue shadows, delicate brush texture, graceful coherent natural forms. Wide 3:2 composition for a family calendar, important landmark toward right, quieter left portion for calendar text. Entire image is a landscape, no labels, no typography, no frame, no watermark, no UI. Do not add camping equipment or people. Match only the artistic style of the reference; do NOT copy its lake, mountains or vegetation where they are not correct for this park.",
+      "label": "Voyageurs",
+      "output": "frontend/public/assets/family-events/national-park-voyageurs.jpg"
+    },
+    {
+      "id": "national-park-white-sands",
+      "source": "/Users/mendez/.codex/generated_images/01a0a703-f432-7a91-876b-241923c51f5b/exec-453079f8-58e2-48c5-a78d-b873dff43c23.png",
+      "prompt": "Use case: illustration-story. Create ONE standalone landscape illustration for White Sands National Park, United States. Scene: Rippling pure white gypsum dunes with a single yucca and pale blue distant mountains. A geographically recognizable rendition of this specific park. Soft painterly storybook illustration in warm gentle light, sage greens when appropriate, lavender-blue shadows, delicate brush texture, graceful coherent natural forms. Wide 3:2 composition for a family calendar, important landmark toward right, quieter left portion for calendar text. Entire image is a landscape, no labels, no typography, no frame, no watermark, no UI. Do not add camping equipment or people. Match only the artistic style of the reference; do NOT copy its lake, mountains or vegetation where they are not correct for this park.",
+      "label": "White Sands",
+      "output": "frontend/public/assets/family-events/national-park-white-sands.jpg"
+    },
+    {
+      "id": "national-park-wind-cave",
+      "source": "/Users/mendez/.codex/generated_images/01a0a703-f432-7a91-876b-241923c51f5b/exec-8eb3cfc3-1fab-4c21-83d3-3565bef6a9c2.png",
+      "prompt": "Use case: illustration-story. Create ONE standalone landscape illustration for Wind Cave National Park, United States. Scene: Interior limestone cave with distinctive delicate honeycomb calcite BOXWORK formations projecting from the ceiling, warm subtle cave lighting. A geographically recognizable rendition of this specific park. Soft painterly storybook illustration in warm gentle light, sage greens when appropriate, lavender-blue shadows, delicate brush texture, graceful coherent natural forms. Wide 3:2 composition for a family calendar, important landmark toward right, quieter left portion for calendar text. Entire image is a landscape, no labels, no typography, no frame, no watermark, no UI. Do not add camping equipment or people. Match only the artistic style of the reference; do NOT copy its lake, mountains or vegetation where they are not correct for this park.",
+      "label": "Wind Cave",
+      "output": "frontend/public/assets/family-events/national-park-wind-cave.jpg"
+    },
+    {
+      "id": "national-park-wrangell-st-elias",
+      "source": "/Users/mendez/.codex/generated_images/01a0a703-f432-7a91-876b-241923c51f5b/exec-d1513ef0-b8a0-4645-9050-fce45f6ac80e.png",
+      "prompt": "Use case: illustration-story. Create ONE standalone landscape illustration for Wrangell\u2013St. Elias National Park, United States. Scene: Immense Alaska glaciated mountain range and broad valley glacier with braided meltwater channels. A geographically recognizable rendition of this specific park. Soft painterly storybook illustration in warm gentle light, sage greens when appropriate, lavender-blue shadows, delicate brush texture, graceful coherent natural forms. Wide 3:2 composition for a family calendar, important landmark toward right, quieter left portion for calendar text. Entire image is a landscape, no labels, no typography, no frame, no watermark, no UI. Do not add camping equipment or people. Match only the artistic style of the reference; do NOT copy its lake, mountains or vegetation where they are not correct for this park.",
+      "label": "Wrangell\u2013St. Elias",
+      "output": "frontend/public/assets/family-events/national-park-wrangell-st-elias.jpg"
+    },
+    {
+      "id": "national-park-yellowstone",
+      "source": "/Users/mendez/.codex/generated_images/01a0a703-f432-7a91-876b-241923c51f5b/exec-04a05786-d6a4-404e-920c-3ddfd3f3662d.png",
+      "prompt": "Use case: illustration-story. Create ONE standalone landscape illustration for Yellowstone National Park, United States. Scene: Grand Prismatic Spring seen from an elevated viewpoint, vivid blue center, yellow orange microbial rings, steam and pine forest. A geographically recognizable rendition of this specific park. Soft painterly storybook illustration in warm gentle light, sage greens when appropriate, lavender-blue shadows, delicate brush texture, graceful coherent natural forms. Wide 3:2 composition for a family calendar, important landmark toward right, quieter left portion for calendar text. Entire image is a landscape, no labels, no typography, no frame, no watermark, no UI. Do not add camping equipment or people. Match only the artistic style of the reference; do NOT copy its lake, mountains or vegetation where they are not correct for this park.",
+      "label": "Yellowstone",
+      "output": "frontend/public/assets/family-events/national-park-yellowstone.jpg"
+    },
+    {
+      "id": "national-park-yosemite",
+      "source": "/Users/mendez/.codex/generated_images/01a0a703-f432-7a91-876b-241923c51f5b/exec-d889d6b7-32b0-43c8-9a7c-27c41570b0ea.png",
+      "prompt": "Use case: illustration-story. Create ONE standalone landscape illustration for Yosemite National Park, United States. Scene: Yosemite Valley with towering El Capitan granite wall, distant Half Dome, waterfall and green meadow beside Merced River. A geographically recognizable rendition of this specific park. Soft painterly storybook illustration in warm gentle light, sage greens when appropriate, lavender-blue shadows, delicate brush texture, graceful coherent natural forms. Wide 3:2 composition for a family calendar, important landmark toward right, quieter left portion for calendar text. Entire image is a landscape, no labels, no typography, no frame, no watermark, no UI. Do not add camping equipment or people. Match only the artistic style of the reference; do NOT copy its lake, mountains or vegetation where they are not correct for this park.",
+      "label": "Yosemite",
+      "output": "frontend/public/assets/family-events/national-park-yosemite.jpg"
+    },
+    {
+      "id": "national-park-zion",
+      "source": "/Users/mendez/.codex/generated_images/01a0a703-f432-7a91-876b-241923c51f5b/exec-c90576ca-d602-43c7-ab87-f44750ea9d8b.png",
+      "prompt": "Use case: illustration-story. Create ONE standalone landscape illustration for Zion National Park, United States. Scene: Utah Zion Canyon towering red and cream sandstone cliffs over the Virgin River and green cottonwoods. A geographically recognizable rendition of this specific park. Soft painterly storybook illustration in warm gentle light, sage greens when appropriate, lavender-blue shadows, delicate brush texture, graceful coherent natural forms. Wide 3:2 composition for a family calendar, important landmark toward right, quieter left portion for calendar text. Entire image is a landscape, no labels, no typography, no frame, no watermark, no UI. Do not add camping equipment or people. Match only the artistic style of the reference; do NOT copy its lake, mountains or vegetation where they are not correct for this park.",
+      "label": "Zion",
+      "output": "frontend/public/assets/family-events/national-park-zion.jpg"
+    }
+  ]
+}

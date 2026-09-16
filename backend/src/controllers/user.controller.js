@@ -6710,6 +6710,9 @@ export const updateUserScheduleEvent = async (req, res, next) => {
     if (String(target.status || '').trim().toUpperCase() === 'CANCELLED') {
       return res.status(400).json({ error: { message: 'Cannot edit a cancelled schedule event' } });
     }
+    if (target.reason_code === 'FAMILY') {
+      return res.status(409).json({ error: { message: 'Edit this personal event in Family Command Center so everyone’s calendar stays in sync.' } });
+    }
 
     const kind = String(target.kind || '').trim().toUpperCase();
     if (!['PERSONAL_EVENT', 'SCHEDULE_HOLD', 'INDIRECT_SERVICES', 'TEAM_MEETING', 'HUDDLE', 'OUTREACH_TRIP'].includes(kind)) {
@@ -7262,6 +7265,9 @@ export const deleteUserScheduleEvent = async (req, res, next) => {
     if (!target) return res.status(404).json({ error: { message: 'Schedule event not found' } });
     if (String(target.status || '').trim().toUpperCase() === 'CANCELLED') {
       return res.json({ ok: true, cancelledCount: 0, alreadyCancelled: true });
+    }
+    if (target.reason_code === 'FAMILY') {
+      return res.status(409).json({ error: { message: 'Remove this personal event in Family Command Center so everyone’s calendar stays in sync.' } });
     }
 
     const hostProviderId = Number(target.provider_id || userId) || userId;

@@ -1,6 +1,7 @@
 <template>
   <BrandingProvider>
-    <div class="preview-root" :data-preview-viewport="effectivePreviewViewport">
+    <router-view v-if="route.meta?.familyCommandCenter" />
+    <div v-else class="preview-root" :data-preview-viewport="effectivePreviewViewport">
       <div id="app" :inert="sessionLockStore.isLocked || sessionLockStore.warningActive" :aria-hidden="sessionLockStore.isLocked || sessionLockStore.warningActive ? 'true' : undefined" :class="{ 'is-native': isNative, 'is-platform-hq': isPlatformHqShell }">
       <div
         v-if="pageLoading"
@@ -1062,6 +1063,7 @@
                 />
               </span>
               <div class="nav-right-group">
+                <FamilyLaunchButton v-if="isTruthyFlag(currentAgencyFeatureFlags?.familyCommandCenterEnabled)" :agency-id="agencyStore.currentAgency?.id" />
                 <button
                   v-if="showFocusMusicNav"
                   type="button"
@@ -2375,6 +2377,7 @@ import CommandPalette from './components/CommandPalette.vue';
 import { useAskAssistant } from './composables/useAskAssistant';
 import { useIndirectTimeSessionStore } from './store/indirectTimeSession';
 import SessionLockScreen from './components/SessionLockScreen.vue';
+import FamilyLaunchButton from './components/family/FamilyLaunchButton.vue';
 import InactivityWarningModal from './components/InactivityWarningModal.vue';
 import NoteAidClockInPromptModal from './components/NoteAidClockInPromptModal.vue';
 import StatusPromptModal from './components/StatusPromptModal.vue';
@@ -6167,7 +6170,13 @@ const fetchBuildingsPendingCounts = async () => {
   }
 };
 
+watch(() => route.meta?.familyCommandCenter, family => {
+  if (family) stopActivityTracking();
+  else if (isAuthenticated.value) startActivityTracking();
+});
+
 function syncAuthenticatedSideEffects(authenticated) {
+  if (route.meta?.familyCommandCenter) { stopActivityTracking(); return; }
   if (authenticated) {
     maybeShowLoginSplash();
     startActivityTracking({ force: true });
@@ -6253,7 +6262,7 @@ watch(
 );
 
 watch(sessionSettingsKey, () => {
-  if (isAuthenticated.value) {
+  if (isAuthenticated.value && !route.meta?.familyCommandCenter) {
     startActivityTracking({ force: true });
   }
 });
@@ -6970,7 +6979,7 @@ onMounted(async () => {
 
   // Do not hold the global loader on agency catalog / prefs / refreshUser.
   // These were sequentially awaited and blocked first paint for ~6–9s on ITSCO (esp. super_admin GET /agencies).
-  if (isAuthenticated.value) {
+  if (isAuthenticated.value && !route.meta?.familyCommandCenter) {
     startActivityTracking();
 
     void (async () => {

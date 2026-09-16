@@ -1,0 +1,243 @@
+{
+  "mode": "built-in image_gen",
+  "images": [
+    {
+      "id": "camping-green-tent",
+      "label": "Tent camping",
+      "prompt": "Use case: illustration-story. One wide 3:2 family calendar illustration. Style reference only: match soft painterly storybook texture, warm golden light, sage greens and lavender-blue atmosphere of provided image. SUBJECT: A distinctly GREEN dome tent pitched beside a mountain lake among pine trees, small lantern and folding chairs. Green fabric must be clearly green. Composition: subject on right, open calm left half for dashboard text, coherent scale and perspective. No text or watermark. Do not copy reference tent unless requested.",
+      "source": "/Users/mendez/.codex/generated_images/01a0a703-f432-7a91-876b-241923c51f5b/exec-e87ff0ef-6b71-465f-86aa-7e516624cfde.png",
+      "output": "frontend/public/assets/family-events/camping-green-tent.jpg"
+    },
+    {
+      "id": "camping-tundra-rooftop",
+      "label": "Tundra rooftop tent",
+      "prompt": "Use case: illustration-story. One wide 3:2 family calendar illustration. Style reference only: match soft painterly storybook texture, warm golden light, sage greens and lavender-blue atmosphere of provided image. SUBJECT: A 2014 BLACK Toyota Tundra crew cab pickup truck in three-quarter side view at a forest campsite. A BLUE/TEAL fabric rooftop tent is OPEN over the PICKUP BED, mounted on a raised BLACK BED RACK, with a ladder to the ground. Separate roof rack OVER THE CAB carries BLACK rectangular storage containers. The tent is not over the cab. Recognizable 2014 Tundra body shape, black paint, rugged camping setup. Composition: subject on right, open calm left half for dashboard text, coherent scale and perspective. No text or watermark. Do not copy reference tent unless requested.",
+      "source": "/Users/mendez/.codex/generated_images/01a0a703-f432-7a91-876b-241923c51f5b/exec-b3e65a18-d93d-4e1b-afc6-a8349faf3d56.png",
+      "output": "frontend/public/assets/family-events/camping-tundra-rooftop.jpg"
+    },
+    {
+      "id": "camping-backyard",
+      "label": "Backyard green tent",
+      "prompt": "Use case: illustration-story. One wide 3:2 family calendar illustration. Style reference only: match soft painterly storybook texture, warm golden light, sage greens and lavender-blue atmosphere of provided image. SUBJECT: A distinctly GREEN dome tent in a cozy grassy backyard, house and fence behind, small lantern and pillows, backyard camping. Composition: subject on right, open calm left half for dashboard text, coherent scale and perspective. No text or watermark. Do not copy reference tent unless requested.",
+      "source": "/Users/mendez/.codex/generated_images/01a0a703-f432-7a91-876b-241923c51f5b/exec-c0a99f7d-82ba-4694-81a5-2c133e1a3bee.png",
+      "output": "frontend/public/assets/family-events/camping-backyard.jpg"
+    },
+    {
+      "id": "dog-walk-malinois",
+      "label": "Dog walk",
+      "prompt": "Use case: illustration-story. One wide 3:2 family calendar illustration. Style reference only: match soft painterly storybook texture, warm golden light, sage greens and lavender-blue atmosphere of provided image. SUBJECT: A tan/golden Belgian Malinois dog with characteristic erect ears, black facial mask, athletic slender body and short tan coat walking on a leash along a leafy park path. Friendly everyday dog walk, dog is the main subject, leash leads toward off-frame owner. Composition: subject on right, open calm left half for dashboard text, coherent scale and perspective. No text or watermark. Do not copy reference tent unless requested.",
+      "source": "/Users/mendez/.codex/generated_images/01a0a703-f432-7a91-876b-241923c51f5b/exec-4da7a566-e57a-4eb8-9cad-72205a3d8036.png",
+      "output": "frontend/public/assets/family-events/dog-walk-malinois.jpg"
+    },
+    {
+      "id": "shooting-range",
+      "label": "Shooting range",
+      "prompt": "Use case: illustration-story. One wide 3:2 family calendar illustration. Style reference only: match soft painterly storybook texture, warm golden light, sage greens and lavender-blue atmosphere of provided image. SUBJECT: An empty organized outdoor recreational target shooting range with paper bullseye targets against an earth berm, wooden shooting bench on the right holding a closed rifle case, hearing protection and safety glasses. No people, no violence, no instructions. Composition: subject on right, open calm left half for dashboard text, coherent scale and perspective. No text or watermark. Do not copy reference tent unless requested.",
+      "source": "/Users/mendez/.codex/generated_images/01a0a703-f432-7a91-876b-241923c51f5b/exec-08879d2b-cbbb-491c-a896-be40286cdd40.png",
+      "output": "frontend/public/assets/family-events/shooting-range.jpg"
+    },
+    {
+      "id": "archery-range",
+      "label": "Archery",
+      "prompt": "Use case: illustration-story. One wide 3:2 family calendar illustration. Style reference only: match soft painterly storybook texture, warm golden light, sage greens and lavender-blue atmosphere of provided image. SUBJECT: A peaceful outdoor archery range, circular colored archery target in distance, recurve bow and quiver resting on a wooden rack in the right foreground. No people. Composition: subject on right, open calm left half for dashboard text, coherent scale and perspective. No text or watermark. Do not copy reference tent unless requested.",
+      "source": "/Users/mendez/.codex/generated_images/01a0a703-f432-7a91-876b-241923c51f5b/exec-560ff8d4-908c-482d-8693-5c2200f6397f.png",
+      "output": "frontend/public/assets/family-events/archery-range.jpg"
+    },
+    {
+      "id": "paddle-boarding",
+      "label": "Paddle boarding",
+      "prompt": "Use case: illustration-story. One wide 3:2 family calendar illustration. Style reference only: match soft painterly storybook texture, warm golden light, sage greens and lavender-blue atmosphere of provided image. SUBJECT: A paddle board and long paddle resting at the edge of a sparkling mountain lake, pine trees and soft hills, inviting family paddle boarding scene. Composition: subject on right, open calm left half for dashboard text, coherent scale and perspective. No text or watermark. Do not copy reference tent unless requested.",
+      "source": "/Users/mendez/.codex/generated_images/01a0a703-f432-7a91-876b-241923c51f5b/exec-689d9a1d-59df-4260-bc72-d84fa38c2fb7.png",
+      "output": "frontend/public/assets/family-events/paddle-boarding.jpg"
+    },
+    {
+      "id": "skiing-slopes",
+      "label": "Skiing",
+      "prompt": "Use case: illustration-story. One wide 3:2 family calendar illustration. Style reference only: match soft painterly storybook texture, warm golden light, sage greens and lavender-blue atmosphere of provided image. SUBJECT: A beautiful snowy ski slope with alpine pines and mountain peaks, a pair of skis and poles upright in the right foreground, ski lift in the distance. No holiday decorations. Composition: subject on right, open calm left half for dashboard text, coherent scale and perspective. No text or watermark. Do not copy reference tent unless requested.",
+      "source": "/Users/mendez/.codex/generated_images/01a0a703-f432-7a91-876b-241923c51f5b/exec-c81e216f-bf93-4e5c-ae7b-95d701a34e4d.png",
+      "output": "frontend/public/assets/family-events/skiing-slopes.jpg"
+    },
+    {
+      "id": "park-day",
+      "label": "Park",
+      "prompt": "Use case: illustration-story. One wide 3:2 family calendar illustration. Style reference only: match soft painterly storybook texture, warm golden light, sage greens and lavender-blue atmosphere. SUBJECT: A welcoming neighborhood park with a winding walking path, green lawn, shady trees, wooden bench and simple playground in the distance. Composition: subject on right, open calm left half for dashboard text, coherent scale and perspective. No writing, watermark or UI. No people unless requested.",
+      "source": "/Users/mendez/.codex/generated_images/01a0a703-f432-7a91-876b-241923c51f5b/exec-2b6b4e50-7fec-4d5c-b4b7-22bdb23bd505.png",
+      "output": "frontend/public/assets/family-events/park-day.jpg"
+    },
+    {
+      "id": "road-trip-tundra",
+      "label": "Road trip",
+      "prompt": "Use case: illustration-story. One wide 3:2 family calendar illustration. Style reference only: match soft painterly storybook texture, warm golden light, sage greens and lavender-blue atmosphere. SUBJECT: A 2014 black Toyota Tundra crew cab pickup on a scenic mountain road turnout, black roof storage containers, blue/teal rooftop tent folded on a bed rack over the pickup bed. Wide open winding road and mountains. Composition: subject on right, open calm left half for dashboard text, coherent scale and perspective. No writing, watermark or UI. No people unless requested.",
+      "source": "/Users/mendez/.codex/generated_images/01a0a703-f432-7a91-876b-241923c51f5b/exec-2e752637-ac10-44e7-8835-44d44c79e6eb.png",
+      "output": "frontend/public/assets/family-events/road-trip-tundra.jpg"
+    },
+    {
+      "id": "travel-black-sienna",
+      "label": "Traveling in the Sienna",
+      "prompt": "Use case: illustration-story. One wide 3:2 family calendar illustration. Style reference only: match soft painterly storybook texture, warm golden light, sage greens and lavender-blue atmosphere. SUBJECT: A BLACK Toyota Sienna family minivan parked at a scenic road-trip overlook, three-quarter side view clearly showing sliding-door minivan proportions, luggage nearby, mountains and winding road. Composition: subject on right, open calm left half for dashboard text, coherent scale and perspective. No writing, watermark or UI. No people unless requested.",
+      "source": "/Users/mendez/.codex/generated_images/01a0a703-f432-7a91-876b-241923c51f5b/exec-dd7e1721-074c-4333-9eaa-321cb71c16db.png",
+      "output": "frontend/public/assets/family-events/travel-black-sienna.jpg"
+    },
+    {
+      "id": "house-work",
+      "label": "House work",
+      "prompt": "Use case: illustration-story. One wide 3:2 family calendar illustration. Style reference only: match soft painterly storybook texture, warm golden light, sage greens and lavender-blue atmosphere. SUBJECT: A sunlit family home porch and open doorway, organized bucket with cleaning supplies, broom, folded towels and dustpan in right foreground, home care day. Composition: subject on right, open calm left half for dashboard text, coherent scale and perspective. No writing, watermark or UI. No people unless requested.",
+      "source": "/Users/mendez/.codex/generated_images/01a0a703-f432-7a91-876b-241923c51f5b/exec-860f3da2-79d1-4950-ae36-510b0de1bb0d.png",
+      "output": "frontend/public/assets/family-events/house-work.jpg"
+    },
+    {
+      "id": "family-chores",
+      "label": "Chores",
+      "prompt": "Use case: illustration-story. One wide 3:2 family calendar illustration. Style reference only: match soft painterly storybook texture, warm golden light, sage greens and lavender-blue atmosphere. SUBJECT: A tidy home utility corner opening to a garden, laundry basket, small broom, watering can and neatly stacked household supplies. A blank checklist without text on a clipboard. Composition: subject on right, open calm left half for dashboard text, coherent scale and perspective. No writing, watermark or UI. No people unless requested.",
+      "source": "/Users/mendez/.codex/generated_images/01a0a703-f432-7a91-876b-241923c51f5b/exec-7d9d6ab0-0e36-43c6-9166-bfab32aa06e7.png",
+      "output": "frontend/public/assets/family-events/family-chores.jpg"
+    },
+    {
+      "id": "gardening",
+      "label": "Gardening",
+      "prompt": "Use case: illustration-story. One wide 3:2 family calendar illustration. Style reference only: match soft painterly storybook texture, warm golden light, sage greens and lavender-blue atmosphere. SUBJECT: A lush backyard raised vegetable garden, watering can, hand trowel and gardening gloves on the right, tomatoes and colorful flowers, warm light. Composition: subject on right, open calm left half for dashboard text, coherent scale and perspective. No writing, watermark or UI. No people unless requested.",
+      "source": "/Users/mendez/.codex/generated_images/01a0a703-f432-7a91-876b-241923c51f5b/exec-f4f58c34-eb98-4e45-b0ab-005404f19689.png",
+      "output": "frontend/public/assets/family-events/gardening.jpg"
+    },
+    {
+      "id": "pellet-rifle",
+      "label": "Pellet rifle",
+      "prompt": "Use case: illustration-story. One wide 3:2 family calendar illustration. Style reference only: match soft painterly storybook texture, warm golden light, sage greens and lavender-blue atmosphere. SUBJECT: An organized outdoor recreational pellet air-rifle target practice setup: a pellet rifle resting on a bench oriented toward a distant enclosed target backstop, small pellet tin, protective glasses and paper bullseye target. No people, no injury, no instructional markings. Composition: subject on right, open calm left half for dashboard text, coherent scale and perspective. No writing, watermark or UI. No people unless requested.",
+      "source": "/Users/mendez/.codex/generated_images/01a0a703-f432-7a91-876b-241923c51f5b/exec-2917a1e2-1bf7-4e3c-a368-81a2ace71a8f.png",
+      "output": "frontend/public/assets/family-events/pellet-rifle.jpg"
+    },
+    {
+      "id": "horseback-riding",
+      "label": "Horseback riding",
+      "prompt": "Use case: illustration-story. One wide 3:2 family calendar illustration. Style reference only: match soft painterly storybook texture, warm golden light, sage greens and lavender-blue atmosphere. SUBJECT: A calm saddled chestnut horse with a neat mane standing beside a wooden rail fence, leafy pasture and riding trail, horse on right, friendly family equestrian outing. Composition: subject on right, open calm left half for dashboard text, coherent scale and perspective. No writing, watermark or UI. No people unless requested.",
+      "source": "/Users/mendez/.codex/generated_images/01a0a703-f432-7a91-876b-241923c51f5b/exec-662bbdd8-c6e3-4e03-b74b-668c09e3f88c.png",
+      "output": "frontend/public/assets/family-events/horseback-riding.jpg"
+    },
+    {
+      "id": "camping-coleman-trailer",
+      "label": "Coleman trailer camping",
+      "prompt": "Use case: illustration-story. Wide 3:2 family calendar artwork, soft painterly storybook texture, golden light, sage greens and lavender-blue atmosphere matching reference STYLE ONLY. New scene: A 2014 BLACK Toyota Tundra crew cab pickup visibly towing a white approximately 25-foot Coleman travel trailer along a forest campsite road. Clear hitch connects truck REAR to trailer FRONT, all wheels on ground. Truck has black containers on CAB roof rack and folded blue/teal rooftop tent on BED rack. Trailer has small Coleman wordmark, windows and tandem wheels. Both vehicles visible in full. Do not copy lake or mountains from reference unless requested; accurate environment for subject. Main subjects right, calmer left for interface text. No UI or watermark, no text except requested brand.",
+      "source": "/Users/mendez/.codex/generated_images/01a0a703-f432-7a91-876b-241923c51f5b/exec-3b7ce7cf-9d1f-4bf1-a75d-c6c8c09107a9.png",
+      "output": "frontend/public/assets/family-events/camping-coleman-trailer.jpg"
+    },
+    {
+      "id": "chicken-coop",
+      "label": "Chicken coop",
+      "prompt": "Use case: illustration-story. Wide 3:2 family calendar artwork, soft painterly storybook texture, golden light, sage greens and lavender-blue atmosphere matching reference STYLE ONLY. New scene: A charming wooden chicken coop with a distinctly GREEN metal roof, hens pecking grass, nesting boxes and small run in a backyard. Do not copy lake or mountains from reference unless requested; accurate environment for subject. Main subjects right, calmer left for interface text. No UI or watermark, no text except requested brand.",
+      "source": "/Users/mendez/.codex/generated_images/01a0a703-f432-7a91-876b-241923c51f5b/exec-34b0d019-89a3-4d1f-8a4d-36cf33d91776.png",
+      "output": "frontend/public/assets/family-events/chicken-coop.jpg"
+    },
+    {
+      "id": "barn-clean",
+      "label": "Barn clean",
+      "prompt": "Use case: illustration-story. Wide 3:2 family calendar artwork, soft painterly storybook texture, golden light, sage greens and lavender-blue atmosphere matching reference STYLE ONLY. New scene: Inside a rustic barn, orderly stalls, fresh straw, wheelbarrow, pitchfork and broom leaning beside open barn doors with sunlight. Do not copy lake or mountains from reference unless requested; accurate environment for subject. Main subjects right, calmer left for interface text. No UI or watermark, no text except requested brand.",
+      "source": "/Users/mendez/.codex/generated_images/01a0a703-f432-7a91-876b-241923c51f5b/exec-cc95e6d3-60c1-43b1-960f-edce40c5ff3e.png",
+      "output": "frontend/public/assets/family-events/barn-clean.jpg"
+    },
+    {
+      "id": "mow-grass",
+      "label": "Mow grass",
+      "prompt": "Use case: illustration-story. Wide 3:2 family calendar artwork, soft painterly storybook texture, golden light, sage greens and lavender-blue atmosphere matching reference STYLE ONLY. New scene: A red and black CRAFTSMAN ride-on lawn mower with steering wheel and black seat on a freshly striped green lawn, no rider. Craftsman brand small on hood. Do not copy lake or mountains from reference unless requested; accurate environment for subject. Main subjects right, calmer left for interface text. No UI or watermark, no text except requested brand.",
+      "source": "/Users/mendez/.codex/generated_images/01a0a703-f432-7a91-876b-241923c51f5b/exec-d1b2ecc0-29f3-4e7c-b27d-414d026a62b6.png",
+      "output": "frontend/public/assets/family-events/mow-grass.jpg"
+    },
+    {
+      "id": "oil-painting",
+      "label": "Oil painting",
+      "prompt": "Use case: illustration-story. Wide 3:2 family calendar artwork, soft painterly storybook texture, golden light, sage greens and lavender-blue atmosphere matching reference STYLE ONLY. New scene: A canvas on a wooden easel with a partly finished landscape OIL PAINTING, visible thick oil brush strokes, palette with oil colors, brushes and paint tubes in a cozy art studio. Do not copy lake or mountains from reference unless requested; accurate environment for subject. Main subjects right, calmer left for interface text. No UI or watermark, no text except requested brand.",
+      "source": "/Users/mendez/.codex/generated_images/01a0a703-f432-7a91-876b-241923c51f5b/exec-5b85feb5-21f8-44c7-8cb0-2d7b452d2ea1.png",
+      "output": "frontend/public/assets/family-events/oil-painting.jpg"
+    },
+    {
+      "id": "hiking-kids",
+      "label": "Hiking with the kids",
+      "prompt": "Use case: illustration-story. Wide 3:2 family calendar artwork, soft painterly storybook texture, golden light, sage greens and lavender-blue atmosphere matching reference STYLE ONLY. New scene: Two generic parents seen from behind on a mountain hiking trail, each carrying a small child safely seated in a GRAY framed hiking child-carrier BACKPACK, straps and supportive seats. Entire family on right side, broad mountain landscape left. Do not copy lake or mountains from reference unless requested; accurate environment for subject. Main subjects right, calmer left for interface text. No UI or watermark, no text except requested brand.",
+      "source": "/Users/mendez/.codex/generated_images/01a0a703-f432-7a91-876b-241923c51f5b/exec-1676ca2b-7613-42ac-932b-5e9ffaef75ca.png",
+      "output": "frontend/public/assets/family-events/hiking-kids.jpg"
+    },
+    {
+      "id": "workout-lifting",
+      "label": "Lifting weights",
+      "prompt": "Use case: illustration-story. Wide 3:2 family calendar artwork, soft painterly storybook texture, golden light, sage greens and lavender-blue atmosphere matching reference STYLE ONLY. New scene: A welcoming home gym with dumbbells, loaded barbell safely resting on rack above weight bench, rubber flooring and sunny window. Do not copy lake or mountains from reference unless requested; accurate environment for subject. Main subjects right, calmer left for interface text. No UI or watermark, no text except requested brand.",
+      "source": "/Users/mendez/.codex/generated_images/01a0a703-f432-7a91-876b-241923c51f5b/exec-4d34322d-4af8-447c-af7d-2019f90eae5b.png",
+      "output": "frontend/public/assets/family-events/workout-lifting.jpg"
+    },
+    {
+      "id": "snowshoeing",
+      "label": "Snowshoeing",
+      "prompt": "Use case: illustration-story. Wide 3:2 family calendar artwork, soft painterly storybook texture, golden light, sage greens and lavender-blue atmosphere matching reference STYLE ONLY. New scene: A pair of modern snowshoes and trekking poles resting in powder beside a snowy alpine trail, soft snowy pines and mountain backdrop. Do not copy lake or mountains from reference unless requested; accurate environment for subject. Main subjects right, calmer left for interface text. No UI or watermark, no text except requested brand.",
+      "source": "/Users/mendez/.codex/generated_images/01a0a703-f432-7a91-876b-241923c51f5b/exec-6a4f5097-8364-494e-a8c5-5b4f64436cf0.png",
+      "output": "frontend/public/assets/family-events/snowshoeing.jpg"
+    },
+    {
+      "id": "topgolf",
+      "label": "Topgolf",
+      "prompt": "Use case: illustration-story. Wide 3:2 family calendar artwork, soft painterly storybook texture, warm light, sage greens lavender-blue and golden palette matching reference STYLE ONLY. New scene: A Topgolf-style modern golf driving range viewed from a covered hitting bay, clubs and golf balls on the right, broad outfield with large colored circular targets and tall perimeter net poles. Do not copy outdoor lake or mountains from reference; render the correct environment. Main subjects right, calmer left for interface text. No UI or watermark, no text except requested SCHEELS sign.\nFinal edit: Use case: precise-object-edit. Remove ALL SCHEELS writing, signs, logos and brand references from this illustration. Replace signs with plain undecorated matching surfaces. Keep the entire scene, people if any, composition, colors, painterly style and every activity object unchanged. No new writing or logos.",
+      "source": "/Users/mendez/.codex/generated_images/01a0a703-f432-7a91-876b-241923c51f5b/exec-2775ab9b-a7ac-4922-930f-161c2a9e01ff.png",
+      "editSource": "/Users/mendez/.codex/generated_images/01a0a703-f432-7a91-876b-241923c51f5b/exec-048aeaff-d42c-4033-9462-01146cfab137.png",
+      "output": "frontend/public/assets/family-events/topgolf.jpg"
+    },
+    {
+      "id": "mini-golf",
+      "label": "Mini golf",
+      "prompt": "Use case: illustration-story. Wide 3:2 family calendar artwork, soft painterly storybook texture, warm light, sage greens lavender-blue and golden palette matching reference STYLE ONLY. New scene: A whimsical outdoor miniature golf course with small windmill, putting green, colorful golf balls and putter, family outing atmosphere. Do not copy outdoor lake or mountains from reference; render the correct environment. Main subjects right, calmer left for interface text. No UI or watermark, no text except requested SCHEELS sign.\nFinal edit: Use case: precise-object-edit. Remove ALL SCHEELS writing, signs, logos and brand references from this illustration. Replace signs with plain undecorated matching surfaces. Keep the entire scene, people if any, composition, colors, painterly style and every activity object unchanged. No new writing or logos.",
+      "source": "/Users/mendez/.codex/generated_images/01a0a703-f432-7a91-876b-241923c51f5b/exec-3c59e897-8b84-4220-b582-b0b2ceb0cae7.png",
+      "editSource": "/Users/mendez/.codex/generated_images/01a0a703-f432-7a91-876b-241923c51f5b/exec-619977c1-be58-4c6f-a522-c6915d44b462.png",
+      "output": "frontend/public/assets/family-events/mini-golf.jpg"
+    },
+    {
+      "id": "scheels-shopping",
+      "label": "Shopping at SCHEELS",
+      "prompt": "Use case: illustration-story. Wide 3:2 family calendar artwork, soft painterly storybook texture, warm light, sage greens lavender-blue and golden palette matching reference STYLE ONLY. New scene: A welcoming large SCHEELS sporting goods storefront, exact sign SCHEELS over entrance, shopping bags and outdoor gear in right foreground, sunny plaza. Do not copy outdoor lake or mountains from reference; render the correct environment. Main subjects right, calmer left for interface text. No UI or watermark, no text except requested SCHEELS sign.",
+      "source": "/Users/mendez/.codex/generated_images/01a0a703-f432-7a91-876b-241923c51f5b/exec-c954d2bb-4093-4f81-b926-ec13450048ad.png",
+      "output": "frontend/public/assets/family-events/scheels-shopping.jpg"
+    },
+    {
+      "id": "restaurant-breakfast",
+      "label": "Breakfast out",
+      "prompt": "Use case: illustration-story. Wide 3:2 family calendar artwork, soft painterly storybook texture, warm light, sage greens lavender-blue and golden palette matching reference STYLE ONLY. New scene: A cozy restaurant breakfast booth by a window, pancakes eggs toast orange juice and coffee on the table, morning sunlight. Do not copy outdoor lake or mountains from reference; render the correct environment. Main subjects right, calmer left for interface text. No UI or watermark, no text except requested SCHEELS sign.\nFinal edit: Use case: precise-object-edit. Remove ALL SCHEELS writing, signs, logos and brand references from this illustration. Replace signs with plain undecorated matching surfaces. Keep the entire scene, people if any, composition, colors, painterly style and every activity object unchanged. No new writing or logos.",
+      "source": "/Users/mendez/.codex/generated_images/01a0a703-f432-7a91-876b-241923c51f5b/exec-49304b3f-2c4c-4e2e-8f08-d6b523978505.png",
+      "editSource": "/Users/mendez/.codex/generated_images/01a0a703-f432-7a91-876b-241923c51f5b/exec-0544e447-c1b5-4e32-8066-a17fce478e07.png",
+      "output": "frontend/public/assets/family-events/restaurant-breakfast.jpg"
+    },
+    {
+      "id": "coffee-shop",
+      "label": "Coffee shop",
+      "prompt": "Use case: illustration-story. Wide 3:2 family calendar artwork, soft painterly storybook texture, warm light, sage greens lavender-blue and golden palette matching reference STYLE ONLY. New scene: A cozy coffee shop interior with barista counter in background, ceramic latte cup with foam art and croissant on a wooden table in foreground. Do not copy outdoor lake or mountains from reference; render the correct environment. Main subjects right, calmer left for interface text. No UI or watermark, no text except requested SCHEELS sign.\nFinal edit: Use case: precise-object-edit. Remove ALL SCHEELS writing, signs, logos and brand references from this illustration. Replace signs with plain undecorated matching surfaces. Keep the entire scene, people if any, composition, colors, painterly style and every activity object unchanged. No new writing or logos.",
+      "source": "/Users/mendez/.codex/generated_images/01a0a703-f432-7a91-876b-241923c51f5b/exec-32fb3d4b-552c-48d5-bedf-58e70dff9bb5.png",
+      "editSource": "/Users/mendez/.codex/generated_images/01a0a703-f432-7a91-876b-241923c51f5b/exec-12ac5edb-b329-468f-8f17-1c9804e677e2.png",
+      "output": "frontend/public/assets/family-events/coffee-shop.jpg"
+    },
+    {
+      "id": "watching-movies",
+      "label": "Watching movies",
+      "prompt": "Use case: illustration-story. Wide 3:2 family calendar artwork, soft painterly storybook texture, warm light, sage greens lavender-blue and golden palette matching reference STYLE ONLY. New scene: A cozy indoor family movie night living room with sofa, blankets, bowl of popcorn, projector and a screen showing an abstract landscape with no text, warm evening light. Do not copy outdoor lake or mountains from reference; render the correct environment. Main subjects right, calmer left for interface text. No UI or watermark, no text except requested SCHEELS sign.",
+      "source": "/Users/mendez/.codex/generated_images/01a0a703-f432-7a91-876b-241923c51f5b/exec-7d8a67b1-4ca2-4c83-9aaa-1fed92e10cd0.png",
+      "output": "frontend/public/assets/family-events/watching-movies.jpg"
+    },
+    {
+      "id": "park-workout",
+      "label": "Park workout",
+      "prompt": "Use case: illustration-story. Wide 3:2 family calendar artwork, soft painterly storybook texture, warm light, sage greens lavender-blue and golden palette matching reference STYLE ONLY. New scene: An outdoor park workout area with thick black battle ropes anchored to a low post, kettlebells and exercise mat on grass, trees and walking trail behind. Clear recognizable ropes and kettlebells main subjects. Do not copy outdoor lake or mountains from reference; render the correct environment. Main subjects right, calmer left for interface text. No UI or watermark, no text except requested SCHEELS sign.\nFinal edit: Use case: precise-object-edit. Remove ALL SCHEELS writing, signs, logos and brand references from this illustration. Replace signs with plain undecorated matching surfaces. Keep the entire scene, people if any, composition, colors, painterly style and every activity object unchanged. No new writing or logos.",
+      "source": "/Users/mendez/.codex/generated_images/01a0a703-f432-7a91-876b-241923c51f5b/exec-0e227c33-7c19-47fb-8c74-2a537ae34034.png",
+      "editSource": "/Users/mendez/.codex/generated_images/01a0a703-f432-7a91-876b-241923c51f5b/exec-548a246c-10a6-4359-9c31-5a57326030b3.png",
+      "output": "frontend/public/assets/family-events/park-workout.jpg"
+    },
+    {
+      "id": "arcade",
+      "label": "Arcade",
+      "prompt": "Use case: illustration-story. Wide 3:2 family calendar artwork, soft painterly storybook texture, warm light, sage greens lavender-blue and golden palette matching reference STYLE ONLY. New scene: A cheerful indoor arcade with colorful retro upright game cabinets, joystick controls and pinball machines, warm lavender teal and gold lighting, no readable screen text. Do not copy outdoor lake or mountains from reference; render the correct environment. Main subjects right, calmer left for interface text. No UI or watermark, no text except requested SCHEELS sign.\nFinal edit: Use case: precise-object-edit. Remove ALL SCHEELS writing, signs, logos and brand references from this illustration. Replace signs with plain undecorated matching surfaces. Keep the entire scene, people if any, composition, colors, painterly style and every activity object unchanged. No new writing or logos.",
+      "source": "/Users/mendez/.codex/generated_images/01a0a703-f432-7a91-876b-241923c51f5b/exec-b4a60f16-901e-4f6e-84f4-2992091230d3.png",
+      "editSource": "/Users/mendez/.codex/generated_images/01a0a703-f432-7a91-876b-241923c51f5b/exec-5014a43e-e5f8-4a3d-b61c-63cbf0deb264.png",
+      "output": "frontend/public/assets/family-events/arcade.jpg"
+    },
+    {
+      "id": "bowling",
+      "label": "Bowling",
+      "prompt": "Use case: illustration-story. Wide 3:2 family calendar artwork, soft painterly storybook texture, warm light, sage greens lavender-blue and golden palette matching reference STYLE ONLY. New scene: A warm inviting bowling alley, shiny wooden lanes leading to ten white pins, colorful bowling balls on ball return in right foreground, soft teal and lavender accent lights. Do not copy outdoor lake or mountains from reference; render the correct environment. Main subjects right, calmer left for interface text. No UI or watermark, no text except requested SCHEELS sign.\nFinal edit: Use case: precise-object-edit. Remove ALL SCHEELS writing, signs, logos and brand references from this illustration. Replace signs with plain undecorated matching surfaces. Keep the entire scene, people if any, composition, colors, painterly style and every activity object unchanged. No new writing or logos.",
+      "source": "/Users/mendez/.codex/generated_images/01a0a703-f432-7a91-876b-241923c51f5b/exec-5c5fde9b-975f-4324-8c2a-b12fd950c09a.png",
+      "editSource": "/Users/mendez/.codex/generated_images/01a0a703-f432-7a91-876b-241923c51f5b/exec-9bd0d477-db62-4dcf-b9af-627c4916ecf1.png",
+      "output": "frontend/public/assets/family-events/bowling.jpg"
+    }
+  ]
+}

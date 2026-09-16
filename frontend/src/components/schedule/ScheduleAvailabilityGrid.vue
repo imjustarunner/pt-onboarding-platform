@@ -10,6 +10,14 @@
   >
     <AppointmentWaiverReviewQueue :agency-ids="effectiveAgencyIds" @reviewed="onAppointmentWaiverReviewed" />
     <div class="sched-toolbar" data-tour="my-schedule-toolbar">
+      <label v-if="familyScheduleEnabled && Number(userId) === Number(authStore.user?.id)" style="display:flex;align-items:center;gap:8px;margin-bottom:8px;font-size:12px">
+        Personal events
+        <select v-model="familyPersonalMode" aria-label="Personal event visibility">
+          <option value="busy">Show as Personal event</option>
+          <option value="hidden">Hide personal events</option>
+          <option value="details">Show all details</option>
+        </select>
+      </label>
       <!-- Compact command bar (dashboard + /my-schedule) -->
       <div v-if="compactPageChrome" class="sched-command" data-testid="schedule-command-bar">
         <div class="sched-command__bar">
@@ -5853,6 +5861,7 @@ import {
 } from '../../utils/scheduleEventInstants.js';
 import { useAuthStore } from '../../store/auth';
 import { useAgencyStore } from '../../store/agency';
+import { familyScheduleProjection } from '../../utils/familyScheduleVisibility';
 import { useBrandingStore } from '../../store/branding';
 import { toUploadsUrl } from '../../utils/uploadsUrl';
 import { useUserPreferencesStore } from '../../store/userPreferences';
@@ -6236,7 +6245,30 @@ const hasAnyAfterBandEvents = computed(() =>
 
 const loading = ref(false);
 const error = ref('');
-const summary = ref(null);
+const rawSummary = ref(null);
+const familyPersonalMode = ref('busy');
+const familyScheduleDetails = ref({});
+const familyScheduleEnabled = computed(() => {
+  let flags = agencyStore.currentAgency?.feature_flags || {};
+  if (typeof flags === 'string') { try { flags = JSON.parse(flags); } catch { flags = {}; } }
+  return flags.familyCommandCenterEnabled === true || flags.familyCommandCenterEnabled === 1
+    || (rawSummary.value?.scheduleEvents || []).some(e => e.reasonCode === 'FAMILY');
+});
+const summary = computed({
+  get: () => {
+    const data = rawSummary.value;
+    if (!data || !familyScheduleEnabled.value || Number(props.userId) !== Number(authStore.user?.id)) return data;
+    return { ...data, scheduleEvents: familyScheduleProjection(data.scheduleEvents, familyPersonalMode.value, familyScheduleDetails.value) };
+  },
+  set: value => { rawSummary.value = value; }
+});
+watch(familyPersonalMode, async mode => {
+  if (mode !== 'details' || Number(props.userId) !== Number(authStore.user?.id)) { familyScheduleDetails.value = {}; return; }
+  try {
+    const { data } = await api.get('/family/schedule-details', { skipGlobalLoading: true });
+    if (familyPersonalMode.value === 'details') familyScheduleDetails.value = Object.fromEntries((data || []).map(e => [e.schedule_event_id, e]));
+  } catch { familyScheduleDetails.value = {}; }
+});
 
 // ---- Overlay visibility (persisted locally for providers) ----
 // Defaults for provider UX:

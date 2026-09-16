@@ -1,0 +1,54 @@
+{
+  "mode": "Built-in image_gen",
+  "assets": [
+    {
+      "id": "athletics",
+      "path": "frontend/public/assets/family-events/athletics.jpg",
+      "source": "/Users/mendez/.codex/generated_images/01a0a703-f432-7a91-876b-241923c51f5b/exec-8c4f1c63-c53d-45db-8faa-d4bffb44cf89.png",
+      "prompt": "Create one 3:2 landscape illustration for a family dashboard. STYLE REFERENCE ONLY: match the provided soft painterly storybook art, lavender-blue atmosphere, warm golden light and sage greens. Scene: An inviting community recreation center lawn with an unmarked sports duffel, water bottle, towel, running shoes and several neatly arranged sports balls and rackets on the right. General athletics theme. Clear negative space on left half for text, detailed objects on right, soft atmospheric distance. No people, legible writing, numbers, logos, watermarks or UI.",
+      "reference": "frontend/public/assets/family-events/family.jpg"
+    },
+    {
+      "id": "household",
+      "path": "frontend/public/assets/family-events/household.jpg",
+      "source": "/Users/mendez/.codex/generated_images/01a0a703-f432-7a91-876b-241923c51f5b/exec-66f70a15-5e42-4b01-a0bd-3703abc3f448.png",
+      "prompt": "Create one 3:2 landscape illustration for a family dashboard. STYLE REFERENCE ONLY: match the provided soft painterly storybook art, lavender-blue atmosphere, warm golden light and sage greens. Scene: A welcoming home porch with neatly arranged cleaning bucket, folded towels, garden gloves and a small potted plant on the right. Household care theme. Clear negative space on left half for text, detailed objects on right, soft atmospheric distance. No people, legible writing, numbers, logos, watermarks or UI.",
+      "reference": "frontend/public/assets/family-events/family.jpg"
+    },
+    {
+      "id": "wellness",
+      "path": "frontend/public/assets/family-events/wellness.jpg",
+      "source": "/Users/mendez/.codex/generated_images/01a0a703-f432-7a91-876b-241923c51f5b/exec-2884f158-7f20-4c90-a692-beb1829f4c7a.png",
+      "prompt": "Create one 3:2 landscape illustration for a family dashboard. STYLE REFERENCE ONLY: match the provided soft painterly storybook art, lavender-blue atmosphere, warm golden light and sage greens. Scene: A serene garden wellness nook with folded towels, a cup of tea, a small plant and a comfortable chair on the right. Rest, health and self-care theme. Clear negative space on left half for text, detailed objects on right, soft atmospheric distance. No people, legible writing, numbers, logos, watermarks or UI.",
+      "reference": "frontend/public/assets/family-events/family.jpg"
+    },
+    {
+      "id": "work",
+      "path": "frontend/public/assets/family-events/work.jpg",
+      "source": "/Users/mendez/.codex/generated_images/01a0a703-f432-7a91-876b-241923c51f5b/exec-dae05ade-89e5-4c16-b2f1-e43054e77ea4.png",
+      "prompt": "Create one 3:2 landscape illustration for a family dashboard. STYLE REFERENCE ONLY: match the provided soft painterly storybook art, lavender-blue atmosphere, warm golden light and sage greens. Scene: A sunlit home office desk by a large garden window, closed unbranded laptop, notebook, pen and coffee on the right. Work and meetings theme. Clear negative space on left half for text, detailed objects on right, soft atmospheric distance. No people, legible writing, numbers, logos, watermarks or UI.",
+      "reference": "frontend/public/assets/family-events/family.jpg"
+    },
+    {
+      "id": "community",
+      "path": "frontend/public/assets/family-events/community.jpg",
+      "source": "/Users/mendez/.codex/generated_images/01a0a703-f432-7a91-876b-241923c51f5b/exec-9430c087-0c31-4529-ac75-7e052514d8e5.png",
+      "prompt": "Create one 3:2 landscape illustration for a family dashboard. STYLE REFERENCE ONLY: match the provided soft painterly storybook art, lavender-blue atmosphere, warm golden light and sage greens. Scene: A welcoming community garden pavilion with empty benches, flowering plants and a basket of donated food on the right. Inclusive community gathering theme, no religious symbols. Clear negative space on left half for text, detailed objects on right, soft atmospheric distance. No people, legible writing, numbers, logos, watermarks or UI.",
+      "reference": "frontend/public/assets/family-events/family.jpg"
+    },
+    {
+      "id": "admin",
+      "path": "frontend/public/assets/family-events/admin.jpg",
+      "source": "/Users/mendez/.codex/generated_images/01a0a703-f432-7a91-876b-241923c51f5b/exec-e1d2ecf4-be08-4dba-afee-eb0a0c08c7a6.png",
+      "prompt": "Create one 3:2 landscape illustration for a family dashboard. STYLE REFERENCE ONLY: match the provided soft painterly storybook art, lavender-blue atmosphere, warm golden light and sage greens. Scene: A tidy desk by a sunny garden window with blank calendar planner, plain envelopes, keys and a pen on the right. Everyday appointments and life administration theme. Clear negative space on left half for text, detailed objects on right, soft atmospheric distance. No people, legible writing, numbers, logos, watermarks or UI.",
+      "reference": "frontend/public/assets/family-events/family.jpg"
+    },
+    {
+      "id": "transport",
+      "path": "frontend/public/assets/family-events/transport.jpg",
+      "source": "/Users/mendez/.codex/generated_images/01a0a703-f432-7a91-876b-241923c51f5b/exec-0c5c7e4e-e4fd-4ade-bdaa-6d35a06a360d.png",
+      "prompt": "Create one 3:2 landscape illustration for a family dashboard. STYLE REFERENCE ONLY: match the provided soft painterly storybook art, lavender-blue atmosphere, warm golden light and sage greens. Scene: A peaceful neighborhood driveway with a small unbranded sage-green family car on the right, road curving into distant leafy hills. Pickup, drop-off and transportation theme. Clear negative space on left half for text, detailed objects on right, soft atmospheric distance. No people, legible writing, numbers, logos, watermarks or UI.",
+      "reference": "frontend/public/assets/family-events/family.jpg"
+    }
+  ]
+}

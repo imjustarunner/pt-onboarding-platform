@@ -148,6 +148,7 @@ import providerSettingsRoutes from './routes/providerSettings.routes.js';
 import providerSearchRoutes from './routes/providerSearch.routes.js';
 import communicationsRoutes from './routes/communications.routes.js';
 import quickViewRoutes from './routes/quickView.routes.js';
+import familyRoutes from './routes/family.routes.js';
 import providerImportRoutes from './routes/providerImport.routes.js';
 import mboxImportRoutes from './routes/mboxImport.routes.js';
 import noteAidRoutes from './routes/noteAid.routes.js';
@@ -873,6 +874,7 @@ app.use('/api/team-meetings', teamMeetingsRoutes);
 // Quick View must mount before catch-all `/api` routers that call router.use(authenticate),
 // so passcode sessions are not rejected as missing JWT ("No token provided").
 app.use('/api/quick-view', quickViewRoutes);
+app.use('/api/family', familyRoutes);
 
 app.use('/api', userCommunicationRoutes);
 app.use('/api', userAdminDocsRoutes);
