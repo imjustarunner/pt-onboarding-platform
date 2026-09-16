@@ -4,7 +4,7 @@
 
 An optional benefit on existing tenants (`feature_flags.familyCommandCenterEnabled`), with private households inside each tenant. No new tenant is needed. The dedicated host `qv.app.mentalrange.org` opens `/family`; other QV hosts retain their existing routes. `/family` also works locally.
 
-The hostname is an entry point, not the household's tenant. PIN sign-in searches enabled tenants, preferring an existing household over the employee's primary membership. Organization selection is optional. Ambiguous codes require the account email; more than 500 candidate memberships also require email. Signed-in employees can use the **Family** navigation button to open the dedicated host through a single-use, two-minute handoff. The handoff travels in a fragment, is removed immediately, and never grants workplace access.
+The hostname is an entry point, not the household's tenant. PIN sign-in searches enabled tenants, preferring an existing household and using agency ID as a stable fallback. Organization selection is optional. Ambiguous codes require the account email; more than 500 candidate memberships also require email. Signed-in employees can use the **Family** navigation button to open the dedicated host through a single-use, two-minute handoff. The handoff travels in a fragment, is removed immediately, and never grants workplace access.
 
 Existing users are reused. An adult or child can be a pending `users` profile with no workplace role, password or agency membership. These are household identities, not new login accounts. Optionally, adults can connect their own eligible account through an expiring household invitation. Invitation recipients must currently belong to the same sponsoring tenant; cross-tenant and outside-employer family invitations are not implemented.
 
@@ -55,6 +55,7 @@ Existing users are reused. An adult or child can be a pending `users` profile wi
 
 ```sh
 node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.family.config.js
+NODE_ENV=test node backend/scripts/check-family-login-schema.mjs
 cd frontend
 npm test -- src/utils/__tests__/familyCommandCenter.test.js src/utils/__tests__/publicDomainRouting.test.js
 NODE_OPTIONS=--max-old-space-size=12288 npm run build

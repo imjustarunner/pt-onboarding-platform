@@ -26,7 +26,9 @@ export async function startFamilySession(userId, agencyId) {
 export async function unlockFamily({ agencyId, passcode, email }) {
   const aid = Number(agencyId) || null;
   if (!/^\d{6}$/.test(String(passcode || '')) || (aid !== null && (!Number.isSafeInteger(aid) || aid < 1))) throw familyError('Enter your six-digit code.');
-  const [rows] = await pool.execute(`SELECT DISTINCT c.*, u.email, u.status, ua.agency_id AS benefit_agency_id, ua.is_primary,
+  // An existing household takes precedence; agency ID is a stable fallback.
+  // user_agencies has no primary-membership column in the deployed schema.
+  const [rows] = await pool.execute(`SELECT DISTINCT c.*, u.email, u.status, ua.agency_id AS benefit_agency_id,
     EXISTS(SELECT 1 FROM family_members fm JOIN family_households fh ON fh.id=fm.household_id WHERE fm.user_id=c.user_id AND fh.agency_id=ua.agency_id) AS has_household
     FROM user_quick_view_credentials c
     JOIN users u ON u.id=c.user_id JOIN user_agencies ua ON ua.user_id=c.user_id
@@ -36,7 +38,7 @@ export async function unlockFamily({ agencyId, passcode, email }) {
     ${aid ? 'AND ua.agency_id=?' : ''}
     AND c.passcode_hash IS NOT NULL
     AND UPPER(COALESCE(u.status,'')) NOT IN ('INACTIVE','ARCHIVED','TERMINATED','DELETED')
-    ${email ? 'AND LOWER(u.email)=?' : ''} ORDER BY has_household DESC,ua.is_primary DESC,ua.agency_id LIMIT 501`, [...(aid ? [aid] : []), ...(email ? [String(email).trim().toLowerCase()] : [])]);
+    ${email ? 'AND LOWER(u.email)=?' : ''} ORDER BY has_household DESC,ua.agency_id LIMIT 501`, [...(aid ? [aid] : []), ...(email ? [String(email).trim().toLowerCase()] : [])]);
   if (rows.length > 500) throw familyError('Enter your account email as well as your code.');
   const matches = [];
   const seen = new Set();

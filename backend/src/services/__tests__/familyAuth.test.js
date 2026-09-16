@@ -43,4 +43,23 @@ describe('isolated family authentication',()=>{
     expect(mocks.execute.mock.calls[0][1]).toEqual([99,4,8]);
     mocks.execute.mockResolvedValue([[{id:99,role:'member'}]]);await expect(requireHousehold({userId:8,agencyId:4},99,undefined,true)).rejects.toMatchObject({status:403});
   });
+  it('uses the existing household when one person belongs to multiple enabled tenants',async()=>{
+    mocks.execute.mockImplementation(async sql=>{
+      if(sql.includes('SELECT DISTINCT c.*'))return [[
+        {user_id:8,benefit_agency_id:9,has_household:1,passcode_hash:'a'},
+        {user_id:8,benefit_agency_id:4,has_household:0,passcode_hash:'a'}
+      ]];
+      if(sql.includes('SELECT a.feature_flags'))return [[{feature_flags:{familyCommandCenterEnabled:true}}]];
+      if(sql.includes('SELECT token_version'))return [[{token_version:2,passcode_version:3}]];
+      return [{}];
+    });
+    mocks.compare.mockResolvedValue(true);
+    await unlockFamily({passcode:'123456'});
+    expect(mocks.compare).toHaveBeenCalledTimes(1);
+    const query=mocks.execute.mock.calls[0][0];
+    expect(query).toContain('ORDER BY has_household DESC,ua.agency_id');
+    expect(query).not.toContain('is_primary');
+    const insert=mocks.execute.mock.calls.find(([sql])=>sql.includes('INSERT INTO family_device_sessions'));
+    expect(insert[1].slice(1)).toEqual([8,9,2,3]);
+  });
 });
