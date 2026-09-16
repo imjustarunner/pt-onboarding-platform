@@ -35,5 +35,19 @@ function date(e){return new Date(e.startAt).toLocaleString('en-US',{month:'short
 onMounted(()=>run(async()=>{connection.value=(await props.http.get(`${path()}/tools`)).data.calendar;}));
 </script>
 <style scoped>
-.calendar-connection{background:#fff;border:1px solid #eeecf3;border-radius:16px;padding:24px;margin:22px 0;max-width:850px;color:#655d76}.calendar-connection h2{font-size:18px;margin:0 0 12px;color:#8274a2}.calendar-connection p{font-size:13px;line-height:1.7;margin:12px 0}.calendar-connection .calendar-note{font-size:12px;color:#8b7e98}.calendar-connection label{display:flex;flex-direction:column;gap:8px;font-size:12px;margin:12px 0}.calendar-connection select{font:inherit;padding:10px;border:1px solid #ddd7e8;border-radius:9px;background:white;color:inherit;max-width:100%}.calendar-connection button{font:inherit;font-size:12px;padding:10px;border:1px solid #ddd7e8;background:#f4f0f9;border-radius:9px;color:#817099;cursor:pointer}.calendar-connection button:disabled{opacity:.55;cursor:default}.calendar-actions{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.google-events{max-height:430px;overflow:auto;margin-top:15px}.google-events article{display:flex;gap:15px;align-items:center;justify-content:space-between;padding:15px 0;border-bottom:1px solid #f0ebf4}.google-events strong{font-size:13px}.google-events small{display:block;margin-top:5px;color:#93859d}.google-events button{flex-shrink:0}
+.calendar-connection{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:24px;margin:22px 0;max-width:850px;color:var(--ink)}
+.calendar-connection h2{font-size:18px;margin:0 0 12px;color:var(--purple)}
+.calendar-connection p{font-size:13px;line-height:1.7;margin:12px 0}
+.calendar-connection .calendar-note{font-size:13px;color:var(--muted)}
+.calendar-connection label{display:flex;flex-direction:column;gap:8px;font-size:13px;margin:12px 0}
+.calendar-connection select{font:inherit;padding:10px;border:1px solid var(--control);border-radius:9px;background:var(--surface);color:inherit;max-width:100%}
+.calendar-connection button{font:inherit;font-size:13px;padding:10px;border:1px solid var(--control);background:var(--soft);border-radius:9px;color:var(--purple);cursor:pointer}
+.calendar-connection button:disabled{opacity:.55;cursor:default}
+.calendar-actions{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.google-events{max-height:430px;overflow:auto;margin-top:15px}
+.google-events article{display:flex;gap:15px;align-items:center;justify-content:space-between;padding:15px 0;border-bottom:1px solid var(--line)}
+.google-events strong{font-size:13px}
+.google-events small{display:block;margin-top:5px;color:var(--muted)}
+.google-events button{flex-shrink:0}
+
 </style>

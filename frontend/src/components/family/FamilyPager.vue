@@ -16,5 +16,13 @@ function move(delta) { go((current.value + delta + props.pages.length) % props.p
 function onScroll() { if (track.value?.clientWidth) current.value = Math.round(track.value.scrollLeft / track.value.clientWidth); }
 </script>
 <style scoped>
-.family-pages{display:flex;overflow-x:auto;scroll-snap-type:x mandatory;scrollbar-width:none}.family-pages::-webkit-scrollbar{display:none}.family-page{flex:0 0 100%;min-width:0;scroll-snap-align:start;padding:2px;box-sizing:border-box}.family-pager-controls{display:flex;align-items:center;gap:8px;font-size:11px;color:#85889d}.family-pager-controls button{border:0;background:#f0f0f9;border-radius:50%;width:26px;height:26px;color:#6567c6;font-size:21px}.family-dots{display:flex;justify-content:center;gap:6px;padding-top:14px}.family-dots button{width:6px;height:6px;border:0;border-radius:8px;padding:0;background:#dcddeb}.family-dots button.active{width:19px;background:#7976d7}
+.family-pages{display:flex;overflow-x:auto;scroll-snap-type:x mandatory;scrollbar-width:none}
+.family-pages::-webkit-scrollbar{display:none}
+.family-page{flex:0 0 100%;min-width:0;scroll-snap-align:start;padding:2px;box-sizing:border-box}
+.family-pager-controls{display:flex;align-items:center;gap:8px;flex-shrink:0;font-size:13px;color:var(--muted)}
+.family-pager-controls button{border:0;background:var(--soft);border-radius:50%;width:34px;height:34px;color:var(--purple);font-size:21px}
+.family-dots{display:flex;justify-content:center;gap:6px;padding-top:14px}
+.family-dots button{width:6px;height:6px;border:0;border-radius:8px;padding:0;background:#979ca5}
+.family-dots button.active{width:19px;background:var(--purple)}
+
 </style>
