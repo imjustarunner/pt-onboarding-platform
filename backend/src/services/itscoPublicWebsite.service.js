@@ -1,5 +1,6 @@
 import {uniquePublicFacets,restrictPublicInsurances,publicAcceptance} from '../utils/publicProviderPresentation.js';
 import pool from '../config/database.js';
+import {isDirectoryProvider} from '../utils/providerDirectoryEligibility.js';
 import { readItscoImpact, writeItscoImpactBaseline } from './itscoPublicImpact.service.js';
 import { getMarketingPageRowBySlug } from './publicMarketingHub.service.js';
 import { resolveOrgLogoUrl, requestBaseUrl } from './publicFormBranding.service.js';
@@ -56,7 +57,7 @@ export async function getItscoWebsiteData(req) {
         AND h.school_organization_id = psa.school_organization_id AND h.provider_user_id = psa.provider_user_id)`, [...ids, agency.id]);
   }
   const [people] = await pool.execute(`SELECT u.id, u.first_name, u.last_name, COALESCE(NULLIF(u.title, ''), ua.agency_position) AS title, u.credential, u.department,
-      u.profile_photo_path, u.provider_school_info_blurb, u.languages_spoken, u.provider_accepting_new_clients, COALESCE(NULLIF(ua.agency_role, ''), u.role) AS role, u.in_office_available,
+      u.sees_clients, u.has_provider_access, u.profile_photo_path, u.provider_school_info_blurb, u.languages_spoken, u.provider_accepting_new_clients, COALESCE(NULLIF(ua.agency_role, ''), u.role) AS role, u.in_office_available,
       EXISTS (SELECT 1 FROM office_standing_assignments osa JOIN office_location_agencies ola ON ola.office_location_id=osa.office_location_id
         WHERE osa.provider_id=u.id AND osa.is_active=1 AND ola.agency_id=ua.agency_id) AS has_office_assignment,
       EXISTS (SELECT 1 FROM provider_public_service_enrollments e JOIN agency_public_service_types st
@@ -71,7 +72,7 @@ export async function getItscoWebsiteData(req) {
     await Promise.all(people.slice(start, start + 5).map(async row => {
       const assignedIds = new Set(assignments.filter(a => Number(a.providerId) === Number(row.id)).map(a => Number(a.schoolId)));
       const assignedSchools = schools.filter(s => assignedIds.has(s.id));
-      const isProvider = assignedSchools.length > 0 || Boolean(row.enrolled);
+      const isProvider = isDirectoryProvider(row, {assigned: assignedSchools.length > 0, enrolled: Boolean(row.enrolled)});
       const isTeam = ['admin', 'super_admin', 'support', 'staff', 'cpa', 'clinical_practice_assistant', 'provider_plus'].includes(row.role);
       if (!isProvider && !isTeam) return;
       const profile = await ProviderPublicProfile.getForProvider({ providerUserId: row.id });

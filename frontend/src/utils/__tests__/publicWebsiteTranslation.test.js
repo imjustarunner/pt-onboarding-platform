@@ -1,7 +1,7 @@
 import {describe,it,expect,vi,afterEach} from 'vitest';
 import {createWebsiteTranslator} from '../publicWebsiteTranslation';
 let translator;
-afterEach(()=>{translator?.stop();document.body.innerHTML='';vi.useRealTimers();});
+afterEach(()=>{translator?.stop();document.body.innerHTML='';localStorage.clear();vi.useRealTimers();});
 const pause=async()=>{await vi.advanceTimersByTimeAsync(100);};
 describe('public website translation',()=>{
  it('translates join, provider, and careers labels and placeholders without changing selected filter values',async()=>{
@@ -25,4 +25,26 @@ describe('public website translation',()=>{
  it('discloses unavailable translation and retries on request',async()=>{
   vi.useFakeTimers();document.body.innerHTML='<main class="rise-site"><p>Custom copy</p></main>';const state=vi.fn();const translate=vi.fn().mockRejectedValueOnce(new Error('offline')).mockResolvedValue({translations:{'Custom copy':'Texto personalizado'},configured:true});translator=createWebsiteTranslator({document,translate,onState:state});translator.setSpanish(true);await pause();expect(state).toHaveBeenCalledWith('unavailable');translator.retry();await pause();expect(document.querySelector('p').textContent).toBe('Texto personalizado');
  });
+});
+
+it('saves Spanish copy across page visits and invalidates changed English copy',async()=>{
+ vi.useFakeTimers();document.body.innerHTML='<main class="itsco-site"><p>Saved public copy</p></main>';
+ const translate=vi.fn(async strings=>({configured:true,translations:Object.fromEntries(strings.map(s=>[s,'Versión guardada']))}));
+ translator=createWebsiteTranslator({document,translate});translator.setSpanish(true);await pause();
+ expect(translate).toHaveBeenCalledTimes(1);translator.stop();
+ translator=createWebsiteTranslator({document,translate});translator.setSpanish(true);
+ expect(document.querySelector('p').textContent).toBe('Versión guardada');await pause();expect(translate).toHaveBeenCalledTimes(1);
+ document.querySelector('p').textContent='Edited public copy';await pause();expect(translate).toHaveBeenCalledTimes(2);
+});
+it('reveals a Spanish page together and excludes private editor content',async()=>{
+ vi.useFakeTimers();document.body.innerHTML='<main class="itsco-site"><h1>Home</h1>'+Array.from({length:20},(_,i)=>`<p>Copy ${i}</p>`).join('')+'<div class="public-profile-editor">Private editor value</div></main>';
+ let resolve;const translate=vi.fn(()=>new Promise(r=>resolve=r));translator=createWebsiteTranslator({document,translate});translator.setSpanish(true);await pause();
+ expect(document.querySelector('main').style.visibility).toBe('hidden');expect(translate).toHaveBeenCalledTimes(1);expect(translate.mock.calls[0][0]).toHaveLength(20);
+ resolve({configured:true,translations:Object.fromEntries(Array.from({length:20},(_,i)=>[`Copy ${i}`,`Texto ${i}`]))});await pause();
+ expect(document.querySelector('main').style.visibility).toBe('');expect(document.querySelectorAll('p')[19].textContent).toBe('Texto 19');expect(document.querySelector('.public-profile-editor').textContent).toBe('Private editor value');
+});
+it('restores the visible English page immediately when switched during a pending request',async()=>{
+ vi.useFakeTimers();document.body.innerHTML='<main class="itsco-site"><p>Waiting for Spanish</p></main>';
+ let resolve;translator=createWebsiteTranslator({document,translate:()=>new Promise(r=>resolve=r)});translator.setSpanish(true);await pause();translator.setSpanish(false);
+ expect(document.querySelector('main').style.visibility).toBe('');resolve({translations:{'Waiting for Spanish':'Esperando'}});await pause();expect(document.querySelector('p').textContent).toBe('Waiting for Spanish');
 });

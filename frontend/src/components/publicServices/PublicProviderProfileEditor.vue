@@ -12,7 +12,6 @@
    <label>Public biography<textarea v-model="draft.publicBlurb" rows="7" maxlength="4000" /></label>
    <div class="editor-grid">
     <label v-for="field in fields" :key="field.key">{{ field.label }}<textarea v-model="draft[field.key]" rows="2" placeholder="Separate entries with commas" /></label>
-    <label>New client availability<select v-model="draft.accepting"><option value="default">Use global profile setting</option><option value="yes">Accepting new clients</option><option value="no">Contact team / waitlist</option></select></label>
     <label v-for="[key,label] in availabilityFields" :key="key">{{label}}<select v-model="draft[key]"><option value="auto">Use global acceptance</option><option value="accepting">Accepting new clients</option><option value="waitlist">Waitlist</option><option value="unavailable">Not accepting</option></select></label>
    </div>
    <p>Use the availability settings below to control new-client intake and appointment formats. Office and school acceptance settings apply to their assigned locations.</p>
@@ -47,7 +46,7 @@ function open(){Object.assign(draft,{firstName:props.provider.firstName||'',last
 const list=value=>String(value||'').split(',').map(s=>s.trim()).filter(Boolean);
 async function save(){busy.value=true;error.value='';notice.value='';try{
  if(photo.value && (photo.value.size>8*1024*1024 || !['image/png','image/jpeg','image/webp'].includes(photo.value.type)))throw new Error('Choose a PNG, JPG or WebP photo no larger than 8 MB.');
- const {data}=await api.put(`/users/${props.provider.id}/provider-public-profile`,{agencyId:props.agencyId,identity:{firstName:draft.firstName,lastName:draft.lastName,title:draft.title},publicBlurb:draft.publicBlurb,insurances:list(draft.insurances),details:{...Object.fromEntries(['languages','locations','sessionFormats'].map(k=>[k,list(draft[k])])),...Object.fromEntries(availabilityFields.map(([k])=>[k,draft[k]]))},acceptingNewClientsOverride:draft.accepting==='default'?null:draft.accepting==='yes'});
+ const {data}=await api.put(`/users/${props.provider.id}/provider-public-profile`,{agencyId:props.agencyId,identity:{firstName:draft.firstName,lastName:draft.lastName,title:draft.title},publicBlurb:draft.publicBlurb,insurances:list(draft.insurances),details:{...Object.fromEntries(['languages','locations','sessionFormats'].map(k=>[k,list(draft[k])])),...Object.fromEntries(availabilityFields.map(([k])=>[k,draft[k]]))},acceptingNewClientsOverride:null});
  savedProfile=data.profile;notice.value='Profile details saved.';
  if(photo.value){const body=new FormData();body.append('photo',photo.value);await api.post(`/users/${props.provider.id}/profile-photo`,body);}
  editing.value=false;emit('saved');

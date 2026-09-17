@@ -16,3 +16,10 @@ test('missing slots create one assigned task and notification per format, then r
  assert.equal(creations,1);assert.equal(notifications,1);assert.equal(viewerUpdates.length,0,'repeated checks preserve a user snooze');
  available=true;await h.checkProviderAvailability(9,2);assert.deepEqual(statuses,['completed']);assert.equal(viewerUpdates[0].dismissed,true);assert.equal(rows.get('IN_PERSON').is_missing,0);
 });
+
+test('closing participation or global availability hides stale reminders while the scheduled task cleanup runs',async()=>{
+ for(const user of [{sees_clients:0,provider_accepting_new_clients:1},{sees_clients:1,provider_accepting_new_clients:0}]) {
+  const h=createProviderAvailabilityReminders({pool:{execute:async()=>[[{is_missing:1,format:'IN_PERSON'}]]},User:{findById:async()=>user},Profile:{getForProvider:async()=>({})}});
+  assert.deepEqual((await h.readProviderAvailabilitySettings(9,2)).reminders,[]);
+ }
+});

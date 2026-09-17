@@ -142,7 +142,7 @@ async function listAgencyClientFacingProviders({ agencyId }) {
     `SELECT DISTINCT u.id, u.first_name, u.last_name, u.role, u.profile_photo_path, u.service_focus, u.provider_accepting_new_clients
      FROM users u
      JOIN user_agencies ua ON ua.user_id = u.id
-     WHERE ua.agency_id = ?
+     WHERE ua.agency_id = ? AND u.sees_clients=1 AND COALESCE(ua.is_active,1)=1
        AND (u.is_active IS NULL OR u.is_active = TRUE)
        AND (u.is_archived IS NULL OR u.is_archived = FALSE)
        AND (u.status IS NULL OR UPPER(u.status) NOT IN ('ARCHIVED','PROSPECTIVE','INACTIVE_EMPLOYEE','TERMINATED_PENDING'))

@@ -12,7 +12,7 @@ test('reminders follow separate intentions and only count future complete openin
  assert.deepEqual(missingAvailabilityFormats({...p,inPerson:false},{virtualSlots:[opening]},now),[]);
 });
 test('explicit choices override legacy format strings, absent profiles remain safe',()=>{
- assert.deepEqual(providerAvailabilityPreferences({provider_accepting_new_clients:0,in_office_available:1},null),{acceptingNewClients:false,inPerson:true,virtual:false});
+ assert.deepEqual(providerAvailabilityPreferences({provider_accepting_new_clients:0,in_office_available:1},null),{seesClients:true,acceptingNewClients:false,inPerson:true,virtual:false});
  assert.equal(providerAvailabilityPreferences({in_office_available:1},{details:{inPersonEnabled:false,virtualEnabled:true}}).inPerson,false);
  assert.equal(publicFormatEnabled({details:{virtualEnabled:false}},'VIRTUAL'),false);
  assert.equal(publicFormatEnabled({details:{virtualEnabled:false}},'VIRTUAL','CURRENT_CLIENT'),true);
@@ -22,4 +22,10 @@ test('explicit choices override legacy format strings, absent profiles remain sa
 test('only booked reservations without clinical or learning sessions are flagged',()=>{
  assert.equal(officeBookingNeedsSession({state:'assigned_booked'}),true);
  for(const slot of [{state:'open'},{state:'assigned_available'},{state:'company_hold'},{state:'assigned_booked',clinicalSessionId:12},{state:'assigned_booked',learningSessionId:25},{state:'assigned_booked',learningLinked:true}])assert.equal(officeBookingNeedsSession(slot),false);
+});
+
+test('a supervisor who does not see clients has no opening reminders; global closed overrides stale profile overrides',()=>{
+ const p=providerAvailabilityPreferences({sees_clients:0,provider_accepting_new_clients:1},{details:{inPersonEnabled:true,virtualEnabled:true}});
+ assert.deepEqual(missingAvailabilityFormats(p,{},now),[]);
+ assert.equal(providerAvailabilityPreferences({provider_accepting_new_clients:0},{acceptingNewClientsOverride:true}).acceptingNewClients,false);
 });

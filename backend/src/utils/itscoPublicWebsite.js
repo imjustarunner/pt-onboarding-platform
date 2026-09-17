@@ -37,7 +37,7 @@ export function publicPerson(row, profile, photoUrl) {
   return { id: Number(row.id), firstName: row.first_name || '', lastName: row.last_name || '', displayName: `${row.first_name || ''} ${row.last_name || ''}`.trim(),
     title: row.title || '', credential: row.credential || '', department: row.department || '',
     photoUrl: photoUrl(row.profile_photo_path), bio: profile?.publicBlurb || row.provider_school_info_blurb || '',
-    acceptingNewClients: Boolean(profile?.acceptingNewClientsOverride ?? row.provider_accepting_new_clients),
+    acceptingNewClients: Boolean(row.provider_accepting_new_clients ?? profile?.acceptingNewClientsOverride),
     details: Object.fromEntries(['languages', 'locations', 'sessionFormats'].map(key => [key,
       key === 'languages' ? publicLanguages(profile,row.languages_spoken) : Array.isArray(profile?.details?.[key]) ? profile.details[key].filter(v => typeof v === 'string').slice(0, 30) : []])) };
 }

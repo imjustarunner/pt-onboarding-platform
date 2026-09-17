@@ -15,12 +15,14 @@ async function authorize(req,res){
 export async function getSettings(req,res,next){try{const ids=await authorize(req,res);if(!ids)return;res.json(await readProviderAvailabilitySettings(ids.providerId,ids.agencyId));}catch(e){next(e);}}
 export async function saveSettings(req,res,next){try{
  const ids=await authorize(req,res);if(!ids)return;
- const {acceptingNewClients,inPerson,virtual}=req.body;
+ const {acceptingNewClients,inPerson,virtual,seesClients}=req.body;
+ if(seesClients!==undefined && (typeof seesClients!=='boolean' || !['admin','super_admin'].includes(req.user.role))) return res.status(typeof seesClients==='boolean'?403:400).json({error:{message:'Only admins can change Sees clients using a true/false value'}});
  if([acceptingNewClients,inPerson,virtual].some(v=>typeof v!=='boolean'))return res.status(400).json({error:{message:'Availability choices must be true or false'}});
  const connection=await pool.getConnection();
  try {
   await connection.beginTransaction();
   await connection.execute('SELECT id FROM users WHERE id=? FOR UPDATE',[ids.providerId]);
+  if(seesClients!==undefined) await connection.execute('UPDATE users SET sees_clients=? WHERE id=?',[seesClients,ids.providerId]);
   const prior=await Profile.getForProvider({providerUserId:ids.providerId,database:connection});
   await connection.execute('UPDATE users SET provider_accepting_new_clients=?,in_office_available=? WHERE id=?',[acceptingNewClients,inPerson,ids.providerId]);
   await Profile.upsertForProvider({...prior,providerUserId:ids.providerId,database:connection,acceptingNewClientsOverride:null,details:{...prior?.details,inPersonEnabled:inPerson,virtualEnabled:virtual,officeAvailability:acceptingNewClients&&inPerson?'accepting':'unavailable',virtualAvailability:acceptingNewClients&&virtual?'accepting':'unavailable'}});
@@ -42,9 +44,9 @@ export async function snoozeReminder(req,res,next){try{
 }catch(e){next(e);}}
 export async function getMyReminders(req,res,next){try{
  const [rows]=await pool.execute(`SELECT r.agency_id AS agencyId,r.provider_id AS providerId,r.format,r.task_id AS taskId,a.name AS agencyName
- FROM provider_availability_reminders r JOIN agencies a ON a.id=r.agency_id
+ FROM provider_availability_reminders r JOIN agencies a ON a.id=r.agency_id JOIN users u ON u.id=r.provider_id
  JOIN user_agencies ua ON ua.user_id=r.provider_id AND ua.agency_id=r.agency_id
  LEFT JOIN notification_user_reads nur ON nur.notification_id=r.notification_id AND nur.user_id=r.provider_id
- WHERE r.provider_id=? AND r.is_missing=1 AND COALESCE(ua.is_active,1)=1 AND (nur.snoozed_until IS NULL OR nur.snoozed_until<=NOW())`,[req.user.id]);
+ WHERE r.provider_id=? AND r.is_missing=1 AND u.sees_clients=1 AND COALESCE(u.provider_accepting_new_clients,1)=1 AND COALESCE(ua.is_active,1)=1 AND (nur.snoozed_until IS NULL OR nur.snoozed_until<=NOW())`,[req.user.id]);
  res.json({reminders:rows});
 }catch(e){next(e);}}

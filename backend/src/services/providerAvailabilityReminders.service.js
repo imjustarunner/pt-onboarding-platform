@@ -13,7 +13,8 @@ async function readProviderAvailabilitySettings(providerId, agencyId) {
  const [reminders] = await pool.execute(`SELECT r.*,nur.snoozed_until FROM provider_availability_reminders r
  LEFT JOIN notification_user_reads nur ON nur.notification_id=r.notification_id AND nur.user_id=r.provider_id
  WHERE r.provider_id=? AND r.agency_id=?`,[providerId,agencyId]);
- return {preferences:providerAvailabilityPreferences(user,profile),reminders:reminders.filter(r=>r.is_missing).map(r=>({
+ const preferences=providerAvailabilityPreferences(user,profile);
+ return {preferences,reminders:reminders.filter(r=>r.is_missing && preferences.seesClients && preferences.acceptingNewClients).map(r=>({
   id:r.id,format:r.format,taskId:r.task_id,notificationId:r.notification_id,checkedAt:r.checked_at,
   snoozedUntil:r.snoozed_until,snoozed:Boolean(r.snoozed_until && new Date(r.snoozed_until).getTime()>Date.now())
  })),checkedAt:reminders[0]?.checked_at || null};
@@ -29,7 +30,7 @@ async function checkProviderAvailability(providerId, agencyId) {
   const profile=await Profile.getForProvider({providerUserId:providerId});
   const preferences=providerAvailabilityPreferences(user,profile);
   const slots={inPersonSlots:[],virtualSlots:[]};
-  if(preferences.acceptingNewClients && (preferences.inPerson || preferences.virtual)) {
+  if(preferences.seesClients && preferences.acceptingNewClients && (preferences.inPerson || preferences.virtual)) {
    const [heldRows]=await pool.execute("SELECT requested_start_at FROM public_appointment_requests WHERE agency_id=? AND provider_id=? AND UPPER(COALESCE(status,'PENDING')) NOT IN ('DECLINED','CANCELLED') AND requested_start_at>=NOW()",[agencyId,providerId]);
    const held=new Set(heldRows.map(row=>new Date(row.requested_start_at).toISOString()));
    const unheld=list=>(list||[]).filter(slot=>Number.isFinite(Date.parse(slot.startAt))&&!held.has(new Date(slot.startAt).toISOString()));
@@ -78,7 +79,7 @@ async function runProviderAvailabilityReminderTick(){
    JOIN users u ON u.id=ua.user_id JOIN agencies a ON a.id=ua.agency_id
    WHERE COALESCE(u.is_active,1)=1 AND COALESCE(u.is_archived,0)=0 AND COALESCE(ua.is_active,1)=1 AND COALESCE(u.is_demo,0)=0 AND UPPER(COALESCE(u.status,'')) IN ('ACTIVE','ACTIVE_EMPLOYEE') AND a.is_active=1
    AND COALESCE(a.is_archived,0)=0 AND a.organization_type IN ('agency','life_coach','consultant')
-   AND ((u.role IN ('provider','provider_plus','intern','facilitator','supervisor') OR u.has_provider_access=1) OR EXISTS(SELECT 1 FROM provider_public_service_enrollments e WHERE e.user_id=u.id AND e.agency_id=ua.agency_id AND e.is_active=1) OR EXISTS(SELECT 1 FROM provider_tutoring_profiles t WHERE t.user_id=u.id AND t.agency_id=ua.agency_id))
+   AND ((u.role IN ('provider','provider_plus','intern','facilitator','supervisor','admin','super_admin') OR u.has_provider_access=1) OR EXISTS(SELECT 1 FROM provider_public_service_enrollments e WHERE e.user_id=u.id AND e.agency_id=ua.agency_id AND e.is_active=1) OR EXISTS(SELECT 1 FROM provider_tutoring_profiles t WHERE t.user_id=u.id AND t.agency_id=ua.agency_id))
    AND NOT EXISTS(SELECT 1 FROM provider_availability_reminders r WHERE r.provider_id=ua.user_id AND r.agency_id=ua.agency_id AND r.checked_at>DATE_SUB(NOW(),INTERVAL 6 HOUR)) LIMIT 20`);
   for(const row of rows)try{await checkProviderAvailability(row.user_id,row.agency_id);}catch(e){console.warn('[availability-reminders] check failed',row.user_id,e.code||e.message);}
  }finally{running=false;}

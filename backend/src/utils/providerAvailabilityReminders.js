@@ -1,14 +1,16 @@
 export function providerAvailabilityPreferences(user, profile = {}) {
  const details = profile?.details || {};
+ const seesClients = ![false,0,'0'].includes(user?.sees_clients ?? true);
  return {
-  acceptingNewClients: Boolean(profile?.acceptingNewClientsOverride ?? user?.provider_accepting_new_clients ?? true),
+  seesClients,
+  acceptingNewClients: Boolean(user?.provider_accepting_new_clients ?? profile?.acceptingNewClientsOverride ?? true),
   inPerson: typeof details.inPersonEnabled === 'boolean' ? details.inPersonEnabled : Boolean(user?.in_office_available || details.officeAvailability === 'accepting'),
   virtual: typeof details.virtualEnabled === 'boolean' ? details.virtualEnabled : (details.sessionFormats || []).some(v => /virtual|telehealth|online/i.test(v))
  };
 }
 export function missingAvailabilityFormats(preferences, slots, now = Date.now()) {
  const future = list => (list || []).some(s => Date.parse(s.startAt) > now && Date.parse(s.endAt) > Date.parse(s.startAt));
- if (!preferences.acceptingNewClients) return [];
+ if (preferences.seesClients === false || !preferences.acceptingNewClients) return [];
  return [['IN_PERSON',preferences.inPerson,slots.inPersonSlots],['VIRTUAL',preferences.virtual,slots.virtualSlots]]
   .filter(([,enabled,list]) => enabled && !future(list)).map(([format]) => format);
 }

@@ -2573,6 +2573,7 @@ export const updateUser = async (req, res, next) => {
       hasProviderAccess,
       hasStaffAccess,
       providerAcceptingNewClients,
+      seesClients,
       inOfficeAvailable,
       providerSchoolInfoBlurb,
       psychologyTodayUrl,
@@ -3008,6 +3009,12 @@ export const updateUser = async (req, res, next) => {
       }
     }
 
+    // Only administrators can change who provides services; this grants no app permissions.
+    if (seesClients !== undefined) {
+      if (!['admin', 'super_admin'].includes(req.user.role)) return res.status(403).json({error:{message:'Only admins can change Sees clients'}});
+      if (typeof seesClients !== 'boolean') return res.status(400).json({error:{message:'Sees clients must be true or false'}});
+      updateData.seesClients = seesClients;
+    }
     // Provider Open/Closed (accepting new clients) - allow self and admins/support.
     if (providerAcceptingNewClients !== undefined) {
       const targetUser = await User.findById(id);
@@ -3018,6 +3025,9 @@ export const updateUser = async (req, res, next) => {
         'provider_plus',
         'intern',
         'intern_plus',
+        'facilitator',
+        'admin',
+        'super_admin',
         'supervisor',
         'clinical_practice_assistant'
       ].includes(targetRole) || Boolean(targetUser.has_provider_access);
@@ -3219,6 +3229,11 @@ export const updateUser = async (req, res, next) => {
     }
     console.log('Calling User.update with updateData:', updateData);
     const user = await User.update(id, updateData);
+    if (updateData.seesClients !== undefined || updateData.providerAcceptingNewClients !== undefined) {
+      // Invalidate the scheduled check now; keep the header save fast. Closing either control
+      // also removes stale banners immediately. The next tick resolves linked tasks/notifications.
+      await pool.execute('UPDATE provider_availability_reminders SET checked_at=NULL WHERE provider_id=?',[Number(id)]);
+    }
     console.log('User.update returned user:', user ? {
       id: user.id,
       role: user.role,

@@ -56,4 +56,5 @@ function initials(name){return name.split(' ').map(s=>s[0]).slice(0,2).join('');
 @media(max-width:1250px) { .its-provider-grid { grid-template-columns: repeat(2,minmax(0,1fr)); } }
 @media(max-width:750px) { .its-provider-grid { grid-template-columns: 1fr; } .its-provider-photo { height: auto; } }
 
+@media(max-width:580px){.its-profile-top{flex-direction:row;gap:14px}.its-profile-top > img,.its-profile-top > .its-avatar{width:100px;height:150px;flex-shrink:0}.its-profile-top > div:last-child{min-width:0;overflow-wrap:anywhere}}
 </style>

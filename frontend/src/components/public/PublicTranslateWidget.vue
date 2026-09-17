@@ -4,7 +4,7 @@
     role="region"
     aria-label="Page language"
   >
-    <span v-if="translationState" class="public-translate-status notranslate" translate="no" role="status">{{ translationState === 'loading' ? 'Traduciendo…' : 'Parte del contenido sigue en inglés.' }} <button v-if="translationState === 'unavailable'" type="button" @click="translator?.retry()">Reintentar</button></span>
+    <span v-if="translationState" class="public-translate-status notranslate" translate="no" role="status">{{ translationState === 'loading' ? 'Cargando versión en español…' : 'Parte del contenido sigue en inglés.' }} <button v-if="translationState === 'unavailable'" type="button" @click="translator?.retry()">Reintentar</button></span>
     <div class="public-translate-buttons notranslate" translate="no">
       <button
         type="button"
@@ -39,7 +39,7 @@ const { t, locale, setLocale } = useLocale();
 const route=useRoute(),translationState=ref('');
 let translator;
 function applyLanguage(){translator?.setSpanish(locale.value === 'es');}
-onMounted(()=>{translator=createWebsiteTranslator({document,translate:async(strings)=>(await api.post('/public/translations/translate-strings',{strings,lang:'es'},{skipAuthRedirect:true,skipGlobalLoading:true})).data,onState:state=>translationState.value=state});applyLanguage();});
+onMounted(()=>{translator=createWebsiteTranslator({document,translate:async(strings)=>(await api.post('/public/translations/translate-strings',{strings,lang:'es'},{skipAuthRedirect:true,skipGlobalLoading:true,timeout:15000})).data,onState:state=>translationState.value=state});applyLanguage();});
 watch(()=>[locale.value,route.path],applyLanguage);
 onUnmounted(()=>translator?.stop());
 

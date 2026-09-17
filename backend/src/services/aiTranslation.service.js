@@ -197,7 +197,15 @@ export async function translateText(text, targetLang = 'es') {
  * @param {{ sourceType: string, sourceId: number|string, field: string, originalText: string, targetLang?: string }} args
  * @returns {Promise<string>} translated text (or original on fallback)
  */
+const pendingTranslations = new Map();
 export async function getOrCreateTranslation(args) {
+  const key = JSON.stringify([args.sourceType,args.sourceId,args.field,args.targetLang,args.originalText,Boolean(args.rejectFallback)]);
+  if (pendingTranslations.has(key)) return pendingTranslations.get(key);
+  const work = readOrCreateTranslation(args);
+  pendingTranslations.set(key,work);
+  try { return await work; } finally { pendingTranslations.delete(key); }
+}
+async function readOrCreateTranslation(args) {
   const sourceType = String(args.sourceType || '').trim();
   const sourceIdRaw = args.sourceId;
   const sourceId = Number(sourceIdRaw);

@@ -1,0 +1,11 @@
+# Provider participation and saved Spanish pages
+
+Adds `users.sees_clients` (default Yes), independently of new-client availability and app permissions. Admins manage it in the profile header or Public Provider Profile availability settings; staff can change their own global availability and formats. Admin/superadmin profiles now expose those controls. Migration 1462 applies the requested Pauline Boyd exception and keeps Randy Menegatti listed but closed.
+
+ITSCO and counseling directories include active provider/admin/supervisor profiles without requiring school assignments or booking enrollment. Explicit inactive enrollments remain excluded from generic service directories. Online scheduling still requires its separate enrollment; newly listed profiles receive no synthetic slots. Brittany Suvari is included at ITSCO and NLU. Generic Super Admin stays excluded. Global closed cannot be overridden by stale manual acceptance or a published opening. Opted-out providers do not receive missing-opening reminders.
+
+Spanish public copy uses the existing server translation cache plus a browser cache keyed by English source text. A page's translated copy is applied together; repeated visits use saved copy without another translation request. Edited copy gets a new key. Translation requests time out after 15 seconds and reveal the available page with a retry notice; forms and editor controls are excluded. Concurrent identical server translation requests share one in-flight generation.
+
+The previous release already includes the full CMS session recovery, inline provider editor, portrait grids, TISI contrast/contact repairs, NLU resources, collective links/referrals, mobile layout, and office reservation flags. This release adds the same portrait treatment to the shared provider card.
+
+Validation: focused role/availability/reminder tests, public translation persistence/atomic rendering/English switching tests, website editing/domain route/component tests, read-only public directory checks against the deployed database, production frontend build, and browser smoke checks. Migration 1462 is required before deploying this code. No DNS, load-balancer, QV, or login-cookie changes.

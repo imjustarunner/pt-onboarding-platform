@@ -475,21 +475,36 @@ async function getEnrolledProviderIds(agencyId, serviceType) {
   return new Set((await listEnrolledProviders(agencyId, serviceType)).map(row => Number(row.id)));
 }
 
-async function listEnrolledProviders(agencyId, serviceType) {
+async function listEnrolledProviders(agencyId, serviceType, {includeDirectory=false}={}) {
   if (!(await getAgencyServiceTypes(agencyId)).some((s) => s.service_type === serviceType)) return [];
   const [rows] = await pool.execute(
     `SELECT u.id, u.first_name, u.last_name, u.role, u.profile_photo_path,
-            u.service_focus, u.provider_accepting_new_clients, u.in_office_available, u.title
+            u.service_focus, u.provider_accepting_new_clients, u.in_office_available, u.title, u.sees_clients, 1 AS online_enrolled
      FROM users u
      JOIN provider_public_service_enrollments e
        ON e.user_id = u.id AND e.agency_id = ? AND e.service_type = ? AND e.is_active = 1
      JOIN user_agencies membership ON membership.user_id = u.id AND membership.agency_id = e.agency_id
-     WHERE (u.is_active IS NULL OR u.is_active = TRUE)
+     WHERE u.sees_clients = 1 AND COALESCE(membership.is_active,1)=1 AND COALESCE(u.is_demo,0)=0
+       AND LOWER(TRIM(CONCAT(COALESCE(u.first_name,''),' ',COALESCE(u.last_name,'')))) NOT IN ('super admin','superadmin')
+       AND (u.is_active IS NULL OR u.is_active = TRUE)
        AND (u.is_archived IS NULL OR u.is_archived = FALSE)
        AND (u.status IS NULL OR UPPER(u.status) NOT IN ('ARCHIVED', 'PROSPECTIVE'))
      ORDER BY u.last_name ASC, u.first_name ASC`,
     [Number(agencyId), String(serviceType)]
   );
+  if (includeDirectory && serviceType === 'counseling') {
+    const [directory] = await pool.execute(`SELECT u.id,u.first_name,u.last_name,u.role,u.profile_photo_path,
+      u.service_focus,u.provider_accepting_new_clients,u.in_office_available,u.title,u.sees_clients,0 AS online_enrolled
+      FROM users u JOIN user_agencies ua ON ua.user_id=u.id
+      WHERE ua.agency_id=? AND COALESCE(ua.is_active,1)=1 AND u.sees_clients=1
+      AND COALESCE(u.is_active,1)=1 AND COALESCE(u.is_archived,0)=0 AND COALESCE(u.is_demo,0)=0
+      AND UPPER(COALESCE(u.status,'')) IN ('ACTIVE','ACTIVE_EMPLOYEE')
+      AND LOWER(TRIM(CONCAT(COALESCE(u.first_name,''),' ',COALESCE(u.last_name,'')))) NOT IN ('super admin','superadmin')
+      AND (COALESCE(NULLIF(ua.agency_role,''),u.role) IN ('provider','provider_plus','intern','intern_plus','facilitator','supervisor','admin','super_admin') OR u.has_provider_access=1)
+      AND NOT EXISTS (SELECT 1 FROM provider_public_service_enrollments e WHERE e.user_id=u.id AND e.agency_id=ua.agency_id AND e.service_type=?)
+      ORDER BY u.last_name,u.first_name`,[Number(agencyId),String(serviceType)]);
+    return [...rows,...directory].sort((a,b)=>`${a.last_name} ${a.first_name}`.localeCompare(`${b.last_name} ${b.first_name}`));
+  }
   if ((rows || []).length > 0) return rows;
 
   const st = String(serviceType || '').toLowerCase();
@@ -497,11 +512,11 @@ async function listEnrolledProviders(agencyId, serviceType) {
 
   const [fallback] = await pool.execute(
     `SELECT u.id, u.first_name, u.last_name, u.role, u.profile_photo_path,
-            u.service_focus, u.provider_accepting_new_clients, u.in_office_available, u.title
+            u.service_focus, u.provider_accepting_new_clients, u.in_office_available, u.title, u.sees_clients, 1 AS online_enrolled
      FROM users u
      JOIN user_agencies ua ON ua.user_id = u.id
      JOIN agencies a ON a.id = ua.agency_id
-     WHERE ua.agency_id = ?
+     WHERE ua.agency_id = ? AND u.sees_clients=1 AND COALESCE(ua.is_active,1)=1 AND COALESCE(u.is_demo,0)=0
        AND LOWER(COALESCE(a.organization_type, '')) IN ('life_coach', 'consultant')
        AND (u.is_active IS NULL OR u.is_active = TRUE)
        AND (u.is_archived IS NULL OR u.is_archived = FALSE)
@@ -761,10 +776,10 @@ export const listCounselors = async (req, res, next) => {
     const agencySettings = await ProviderPublicProfile.getAgencySettings({ agencyId: agency.id });
     const serviceTypeRow = (await getAgencyServiceTypes(agency.id)).find((st) => st.service_type === serviceType);
 
-    const providerRows = await listEnrolledProviders(agency.id, serviceType);
+    const providerRows = await listEnrolledProviders(agency.id, serviceType, {includeDirectory:true});
 
     const providers = await runWithConcurrency(providerRows, 6, async (row) => {
-      const directoryOnly = req.query.view === 'directory';
+      const directoryOnly = req.query.view === 'directory' || row.online_enrolled === 0;
       const heldSlots = directoryOnly ? [] : await getHeldSlotStartsForProvider(agency.id, Number(row.id));
       const summary = directoryOnly ? { thisWeek: { virtualSlots: [], inPersonSlots: [] }, nextAvailableAt: null, bookedThroughYmd: null } : await computeProviderWindowSummary({
         lookaheadWeeks: req.query.view === 'availability' ? 0 : 16,
@@ -776,7 +791,7 @@ export const listCounselors = async (req, res, next) => {
         heldSlots
       });
       const profileData = await ProviderPublicProfile.getForProvider({ providerUserId: Number(row.id) }) || {};
-      profileData.acceptingNewClientsOverride ??= Boolean(row.provider_accepting_new_clients ?? true);
+      profileData.acceptingNewClientsOverride = Boolean(row.provider_accepting_new_clients ?? profileData.acceptingNewClientsOverride ?? true);
       const profile = await resolveProviderProfileSummary({ agencyId: agency.id, providerUserId: Number(row.id) });
       if(!publicFormatEnabled(profileData,programType,bookingMode))summary.nextAvailableAt=null;
       const slotSet = normalizeSlots({
@@ -813,7 +828,8 @@ export const listCounselors = async (req, res, next) => {
       if (effectiveAgeFilter && !providerServesAgeBucket(ageGroups, effectiveAgeFilter)) return null;
 
       return {
-        acceptingNewClients: publicFormatEnabled(profileData,programType,bookingMode) && publicAcceptance({globalAccepting:profileData?.acceptingNewClientsOverride ?? row.provider_accepting_new_clients,manual:programType==='IN_PERSON'?profileData?.details?.officeAvailability:'auto',assigned:programType!=='IN_PERSON'||Boolean(row.in_office_available)||Boolean(summary.nextAvailableAt),hasOpenings:Boolean(summary.nextAvailableAt)}).status === 'accepting',
+        acceptingNewClients: Boolean(profileData.acceptingNewClientsOverride),
+        onlineScheduling: row.online_enrolled !== 0,
         providerId: Number(row.id),
         id: Number(row.id),
         firstName: row.first_name || '',
@@ -945,7 +961,7 @@ export const listTutors = async (req, res, next) => {
       tutoringProfile.hourlyRateCents = hourlyRate(catalog, tutoringProfile.learning, 'tutoring', req.query.learningFormat === 'small-group' ? 'small-group' : programType==='IN_PERSON'?'in-person':'virtual');
       tutoringProfile.packages = catalog.packages.filter(p=>p.published && tutoringProfile.learning.programs.includes(p.program) && p.program===(learningProgram||'tutoring')).map(p=>pricePackage(catalog,p,{tutoring:{profile:tutoringProfile.learning,providerId:Number(row.id)}}));
 
-      const directoryOnly = req.query.view === 'directory';
+      const directoryOnly = req.query.view === 'directory' || row.online_enrolled === 0;
       const heldSlots = directoryOnly ? [] : await getHeldSlotStartsForProvider(agency.id, Number(row.id));
       const summary = directoryOnly ? { thisWeek: { virtualSlots: [], inPersonSlots: [] }, nextAvailableAt: null, bookedThroughYmd: null } : await computeProviderWindowSummary({
         lookaheadWeeks: req.query.view === 'availability' ? 0 : 16,
@@ -957,7 +973,7 @@ export const listTutors = async (req, res, next) => {
         heldSlots
       });
       const profileData = await ProviderPublicProfile.getForProvider({ providerUserId: Number(row.id) }) || {};
-      profileData.acceptingNewClientsOverride ??= Boolean(row.provider_accepting_new_clients ?? true);
+      profileData.acceptingNewClientsOverride = Boolean(row.provider_accepting_new_clients ?? profileData.acceptingNewClientsOverride ?? true);
       if(!publicFormatEnabled(profileData,programType,bookingMode))summary.nextAvailableAt=null;
       const slotSet = normalizeSlots({
         result: summary.thisWeek,
@@ -971,7 +987,8 @@ export const listTutors = async (req, res, next) => {
       if (filterSubject && !tutoringProfile.subjectAreas.map((s) => s.toLowerCase()).some((s) => s.includes(filterSubject))) return null;
 
       return {
-        acceptingNewClients: publicFormatEnabled(profileData,programType,bookingMode) && tutoringProfile.acceptingNewStudents && publicAcceptance({globalAccepting:profileData?.acceptingNewClientsOverride ?? row.provider_accepting_new_clients,manual:programType==='IN_PERSON'?profileData?.details?.officeAvailability:'auto',assigned:programType!=='IN_PERSON'||Boolean(row.in_office_available)||Boolean(summary.nextAvailableAt),hasOpenings:Boolean(summary.nextAvailableAt)}).status === 'accepting',
+        acceptingNewClients: Boolean(profileData.acceptingNewClientsOverride) && tutoringProfile.acceptingNewStudents,
+        onlineScheduling: row.online_enrolled !== 0,
         providerId: Number(row.id),
         id: Number(row.id),
         firstName: row.first_name || '',
@@ -1073,6 +1090,7 @@ export const listEvaluators = async (req, res, next) => {
       const tutoringProfile = await getTutoringProfile(Number(row.id), agency.id).catch(() => null);
 
       return {
+        onlineScheduling: row.online_enrolled !== 0,
         providerId: Number(row.id),
         id: Number(row.id),
         firstName: row.first_name || '',
@@ -1128,10 +1146,10 @@ export const getProviderDetail = async (req, res, next) => {
     if (!providerId) return res.status(400).json({ error: { message: 'Invalid providerId' } });
 
     const serviceType = normalizeServiceType(req.query.serviceType);
-    const enrolledIds = await getEnrolledProviderIds(agency.id, serviceType);
-    if (!enrolledIds.has(providerId)) {
-      return res.status(404).json({ error: { message: 'Provider not found' } });
-    }
+    const directory = await listEnrolledProviders(agency.id, serviceType, {includeDirectory:true});
+    const listing = directory.find(p => Number(p.id)===providerId);
+    if (!listing) return res.status(404).json({error:{message:'Provider not found'}});
+    const onlineScheduling = listing.online_enrolled !== 0;
 
     const [userRows] = await pool.execute(
       `SELECT id, first_name, last_name, role, profile_photo_path, service_focus, title,
@@ -1151,10 +1169,10 @@ export const getProviderDetail = async (req, res, next) => {
     const weekStartRaw = String(req.query.weekStart || new Date().toISOString().slice(0, 10)).slice(0, 10);
     const weekStart = startOfWeekMondayYmd(isValidYmd(weekStartRaw) ? weekStartRaw : new Date().toISOString().slice(0, 10));
 
-    const heldSlots = await getHeldSlotStartsForProvider(agency.id, providerId);
-    const summary = await computeProviderWindowSummary({ agencyId: agency.id, providerId, weekStart, bookingMode, programType, heldSlots });
+    const heldSlots = onlineScheduling ? await getHeldSlotStartsForProvider(agency.id, providerId) : [];
+    const summary = onlineScheduling ? await computeProviderWindowSummary({ agencyId: agency.id, providerId, weekStart, bookingMode, programType, heldSlots }) : {thisWeek:{virtualSlots:[],inPersonSlots:[]},nextAvailableAt:null};
     const profileData = await ProviderPublicProfile.getForProvider({ providerUserId: providerId }) || {};
-    profileData.acceptingNewClientsOverride ??= Boolean(user.provider_accepting_new_clients ?? true);
+    profileData.acceptingNewClientsOverride = Boolean(user.provider_accepting_new_clients ?? profileData.acceptingNewClientsOverride ?? true);
     if(!publicFormatEnabled(profileData,programType,bookingMode))summary.nextAvailableAt=null;
     const profile = await resolveProviderProfileSummary({ agencyId: agency.id, providerUserId: providerId, serviceType });
     const slotSet = normalizeSlots({
@@ -1180,7 +1198,8 @@ export const getProviderDetail = async (req, res, next) => {
       serviceType,
       agency: { id: agency.id, slug: agency.slug, name: agency.name },
       provider: {
-        acceptingNewClients: publicFormatEnabled(profileData,programType,bookingMode) && tutoringProfile?.acceptingNewStudents !== false && publicAcceptance({globalAccepting:profileData?.acceptingNewClientsOverride ?? user.provider_accepting_new_clients,manual:programType==='IN_PERSON'?profileData?.details?.officeAvailability:'auto',assigned:programType!=='IN_PERSON'||Boolean(user.in_office_available)||Boolean(summary.nextAvailableAt),hasOpenings:Boolean(summary.nextAvailableAt)}).status === 'accepting',
+        acceptingNewClients: Boolean(profileData.acceptingNewClientsOverride) && tutoringProfile?.acceptingNewStudents !== false,
+        onlineScheduling,
         providerId,
         id: providerId,
         firstName: user.first_name || '',

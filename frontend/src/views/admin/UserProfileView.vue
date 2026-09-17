@@ -29,6 +29,9 @@
             <button v-if="showLeaveOfAbsenceButton" type="button" class="btn btn-secondary btn-sm" @click="showLeaveOfAbsenceModal = true">
               {{ leaveOfAbsence?.departureDate ? 'Edit leave of absence' : 'Record leave of absence' }}
             </button>
+            <label v-if="showGlobalAvailabilityInHeader" class="header-availability">
+              <input type="checkbox" :checked="user.sees_clients !== false && user.sees_clients !== 0" :disabled="!canManageClientParticipation || updatingClientParticipation" @change="saveClientParticipation($event.target.checked)" /> Sees clients
+            </label>
             <div v-if="showGlobalAvailabilityInHeader" class="header-availability" :title="providerAcceptingNewClients ? 'OPEN (global)' : 'CLOSED (global)'" data-tour="user-profile-global-availability">
               <span class="header-availability-label">Global</span>
               <div class="toggle-switch toggle-switch-sm">
@@ -166,7 +169,10 @@
           <button v-if="!isSscMemberProfileMode && !isViewingGuardian && showLeaveOfAbsenceButton" type="button" class="btn btn-secondary btn-sm" @click="showLeaveOfAbsenceModal = true">
             {{ leaveOfAbsence?.departureDate ? 'Edit leave of absence' : 'Record leave of absence' }}
           </button>
-          <div v-if="showGlobalAvailabilityInHeader" class="header-availability" :title="providerAcceptingNewClients ? 'OPEN (global)' : 'CLOSED (global)'" data-tour="user-profile-global-availability">
+          <label v-if="showGlobalAvailabilityInHeader" class="header-availability">
+              <input type="checkbox" :checked="user.sees_clients !== false && user.sees_clients !== 0" :disabled="!canManageClientParticipation || updatingClientParticipation" @change="saveClientParticipation($event.target.checked)" /> Sees clients
+            </label>
+            <div v-if="showGlobalAvailabilityInHeader" class="header-availability" :title="providerAcceptingNewClients ? 'OPEN (global)' : 'CLOSED (global)'" data-tour="user-profile-global-availability">
             <span class="header-availability-label">Global</span>
             <div class="toggle-switch toggle-switch-sm">
               <input type="checkbox" v-model="providerAcceptingNewClients" :disabled="!canToggleGlobalAvailability || updatingGlobalAvailability" @change="saveGlobalAvailability" />
@@ -549,7 +555,7 @@
                 @save="saveProviderPublicProfileAndClose"
                 @cancel="cancelProviderPublicProfileEdit"
               >
-                <ProviderAvailabilitySettings v-if="selectedProviderProfileAgencyId" :provider-id="Number(userId)" :agency-id="selectedProviderProfileAgencyId" />
+                <ProviderAvailabilitySettings :key="String(user?.sees_clients)+String(user?.provider_accepting_new_clients)" v-if="selectedProviderProfileAgencyId" :provider-id="Number(userId)" :agency-id="selectedProviderProfileAgencyId" @updated="onAvailabilityPreferencesSaved" />
                 <div v-if="providerPublicProfileLoading" class="loading">Loading provider public profile…</div>
                 <div v-else-if="providerPublicProfileError" class="error">{{ providerPublicProfileError }}</div>
                 <div v-else class="form-grid acct-public-profile" style="margin-top: 0;">
@@ -4089,6 +4095,7 @@ const isProviderLikeUser = computed(() => {
     role === 'intern' ||
     role === 'facilitator' ||
     role === 'provider_plus' ||
+    role === 'admin' || role === 'super_admin' ||
     !!accountForm.value?.hasProviderAccess
   );
 });
@@ -4273,6 +4280,21 @@ const selectedSchoolIsSchool = computed(() => {
   return t === 'school';
 });
 
+function onAvailabilityPreferencesSaved(data) {
+ if(data.kind!=='save') return;
+ user.value.sees_clients=data.preferences.seesClients;
+ user.value.provider_accepting_new_clients=data.preferences.acceptingNewClients;
+ providerAcceptingNewClients.value=data.preferences.acceptingNewClients;
+}
+const canManageClientParticipation = computed(() => ['admin','super_admin'].includes(authStore.user?.role));
+const updatingClientParticipation = ref(false);
+async function saveClientParticipation(value) {
+ if (!canManageClientParticipation.value) return;
+ updatingClientParticipation.value = true;
+ try { await api.put(`/users/${userId.value}`, {seesClients: value}); await fetchUser(); }
+ catch (e) { alert(e.response?.data?.error?.message || 'Could not save Sees clients.'); await fetchUser(); }
+ finally { updatingClientParticipation.value = false; }
+}
 const providerAcceptingNewClients = ref(true);
 const updatingGlobalAvailability = ref(false);
 const showGlobalAvailabilityHint = ref(false);
@@ -4286,7 +4308,7 @@ const providerSchoolBlurbError = ref('');
 const showGlobalAvailabilityInHeader = computed(() => {
   if (isSscMemberProfileMode.value) return false;
   const r = String(user.value?.role || accountForm.value?.role || '').trim().toLowerCase();
-  const isProviderLike = r === 'provider' || r === 'intern' || r === 'facilitator' || r === 'supervisor';
+  const isProviderLike = ['provider','provider_plus','intern','intern_plus','facilitator','supervisor','admin','super_admin'].includes(r) || accountForm.value?.hasProviderAccess;
   return !!user.value && isProviderLike;
 });
 
