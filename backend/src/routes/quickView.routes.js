@@ -1,4 +1,5 @@
-import { getQuickConversation, postQuickReply, postQuickCompose, getQuickAttachment, postQuickReaction, postQuickUndo } from '../controllers/quickViewMessaging.controller.js';
+import emailDraftRoutes from './emailDraft.routes.js';
+import { getQuickConversation, patchQuickConversation, postQuickReply, postQuickCompose, getQuickAttachment, postQuickReaction, postQuickUndo } from '../controllers/quickViewMessaging.controller.js';
 import express from 'express';
 import multer from 'multer';
 import { getQuickMeetingLink } from '../controllers/quickViewMeeting.controller.js';
@@ -86,6 +87,7 @@ router.post('/session/logout', postLogout);
 
 // Scoped Quick View data
 router.get('/home', requireQuickViewSession, getQuickHome);
+router.use('/drafts', requireQuickViewSession, emailDraftRoutes);
 router.get('/tasks', requireQuickViewSession, getQuickTasks);
 router.post('/tasks', requireQuickViewSession, postQuickTask);
 router.get('/tasks/:id', requireQuickViewSession, getQuickTaskDetail);
@@ -99,6 +101,7 @@ router.get('/task-projects/:id', requireQuickViewSession, getQuickProjectDetail)
 router.get('/calendar/day', requireQuickViewSession, getQuickDayCalendar);
 router.get('/meetings/:type/:ref/link', requireQuickViewSession, getQuickMeetingLink);
 router.get('/office', requireQuickViewSession, getQuickOfficeAvailability);
+router.patch('/conversations/:id', requireQuickViewSession, patchQuickConversation);
 router.get('/conversations/:id', requireQuickViewSession, getQuickConversation);
 router.post('/conversations/:id/reply', requireQuickViewSession, postQuickReply);
 router.get('/conversations/:id/attachments/:attachmentId', requireQuickViewSession, getQuickAttachment);

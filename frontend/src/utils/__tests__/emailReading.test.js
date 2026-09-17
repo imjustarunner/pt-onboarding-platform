@@ -1,0 +1,5 @@
+import {expect,it} from 'vitest';
+import {emailPreviewText,quoteEmailHistory} from '../emailReading';
+it('removes signature and quoted history from previews without modifying source',()=>{const body='The actual message\n\n--\nName, title\nCONFIDENTIAL';expect(emailPreviewText(body)).toBe('The actual message');expect(body).toContain('CONFIDENTIAL');expect(emailPreviewText('A short answer\nOn Monday Pat wrote:\nEarlier message')).toBe('A short answer');});
+it('cleans signatures in already-collapsed inbox previews',()=>{expect(emailPreviewText('checking personal -- CONFIDENTIALITY NOTICE')).toBe('checking personal');});
+it('never quotes internal notes or failed/cancelled sends into outgoing email',()=>{const quote=quoteEmailHistory([{id:1,from:{email:'a@example.org'},body_text:'Actual email'},{id:2,is_internal_note:true,body_text:'Private note'},{id:3,send_status:'cancelled',body_text:'Cancelled'}]);expect(quote).toContain('Actual email');expect(quote).not.toContain('Private note');expect(quote).not.toContain('Cancelled');});

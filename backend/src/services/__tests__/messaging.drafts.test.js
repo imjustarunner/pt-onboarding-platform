@@ -1,0 +1,17 @@
+import {beforeEach,expect,it,vi} from 'vitest';
+vi.mock('../../config/database.js',()=>({default:{execute:vi.fn()}}));
+vi.mock('../../models/User.model.js',()=>({default:{getAgencies:vi.fn(async()=>[{id:2}])}}));
+vi.mock('../communicationAccess.service.js',()=>({requireConversationAccess:vi.fn(async()=>({id:10,agency_id:2,channel:'email'}))}));
+vi.mock('../unifiedInbox.service.js',()=>({composeNewEmail:vi.fn(),replyToConversation:vi.fn()}));
+import pool from '../../config/database.js';
+import {createEmailDraft,getEmailDraft,saveEmailDraft,sendEmailDraft,validateEmailDraft} from '../emailDraft.service.js';
+import {replyToConversation} from '../unifiedInbox.service.js';
+const actor={id:5,role:'provider'};
+const draft={id:'draft',user_id:5,agency_id:2,conversation_id:10,mode:'reply',version:2,state:'editing',draft_json:JSON.stringify({to:'alice@example.org',text:'Hello',quotedText:'Prior email',attachments:[]})};
+beforeEach(()=>{vi.clearAllMocks();pool.execute.mockResolvedValue([[draft]]);});
+it('restricts Quick View drafts to the session organization',async()=>{await expect(getEmailDraft({...actor,scopedAgencyId:3},'draft')).rejects.toMatchObject({status:404});});
+it('looks up drafts by their author, never just by conversation or ID',async()=>{pool.execute.mockResolvedValue([[]]);await expect(getEmailDraft(actor,'someone-elses-draft')).rejects.toMatchObject({status:404});expect(pool.execute.mock.calls[0][1]).toEqual(['someone-elses-draft',5]);});
+it('rejects stale saves from another window',async()=>{pool.execute.mockResolvedValueOnce([[draft]]).mockResolvedValueOnce([{affectedRows:0}]);await expect(saveEmailDraft(actor,'draft',{version:1,draft:{text:'Older'}})).rejects.toMatchObject({status:409});});
+it('claims one send and returns the same receipt for retries',async()=>{pool.execute.mockResolvedValueOnce([[draft]]).mockResolvedValueOnce([{affectedRows:1}]).mockResolvedValueOnce([{affectedRows:1}]);replyToConversation.mockResolvedValue({messageId:40});expect(await sendEmailDraft(actor,'draft',2)).toMatchObject({messageId:40,conversationId:10});pool.execute.mockResolvedValueOnce([[{...draft,state:'sent',send_result_json:JSON.stringify({messageId:40,conversationId:10})}]]);expect(await sendEmailDraft(actor,'draft',2)).toMatchObject({messageId:40});expect(replyToConversation).toHaveBeenCalledTimes(1);});
+it('cannot queue a second send while a first submission is in progress',async()=>{pool.execute.mockResolvedValueOnce([[{...draft,state:'sending'}]]).mockResolvedValueOnce([{affectedRows:0}]);await expect(sendEmailDraft(actor,'draft',2)).rejects.toMatchObject({status:409});expect(replyToConversation).not.toHaveBeenCalled();});
+it('validates headers and attachment totals before saving',()=>{expect(()=>validateEmailDraft({to:'a@example.org\nBcc:b@example.org'})).toThrow('headers');expect(()=>validateEmailDraft({attachments:[{contentBase64:''}]})).toThrow('25 MB');});

@@ -487,7 +487,8 @@ export async function ingestPersonalMailboxInbound({
   referencesHeader = null,
   receivedAt = null,
   to = [],
-  cc = [], gmail = null, gmailMessageId = null, gmailPayload = null
+  cc = [], gmail = null, gmailMessageId = null, gmailPayload = null,
+  allowAutomation = true, replyToEmail = null
 } = {}) {
   const aid = Number(agencyId || identity?.agency_id || 0);
   const key = String(identity?.identity_key || '').trim().toLowerCase();
@@ -510,17 +511,25 @@ export async function ingestPersonalMailboxInbound({
   }
   if (!inbox) return { ingested: false, reason: 'no_inbox' };
 
+  // A copy of our own outbound Message-ID is an echo in this mailbox, but the
+  // same message remains a real inbound delivery for every other recipient.
+  if (messageIdHeader) {
+    const [echoes] = await pool.execute(`SELECT m.id FROM communication_messages m
+      JOIN communication_conversations c ON c.id=m.conversation_id
+      WHERE c.inbox_id=? AND m.internet_message_id=? AND m.direction='outbound' LIMIT 1`, [inbox.id,messageIdHeader]);
+    if (echoes.length) return { ingested:true, duplicate:true, echo:true };
+  }
+
   const attachments = await prepareInboundAttachments({ gmail, gmailMessageId, payload: gmailPayload, inboxId: inbox.id });
   const { queuePersonalReminderReply } = await import('./personalThreadReminder.service.js');
-  const reminderReply = await queuePersonalReminderReply({ inbox, fromEmail, bodyText, gmailPayload, inReplyTo, referencesHeader, attachments, deliveryId: messageIdHeader || (gmailMessageId ? `gmail:${gmailMessageId}` : null) });
+  const reminderReply = allowAutomation && await queuePersonalReminderReply({ inbox, fromEmail, bodyText, gmailPayload, inReplyTo, referencesHeader, attachments, deliveryId: messageIdHeader || (gmailMessageId ? `gmail:${gmailMessageId}` : null) });
   if (reminderReply) return reminderReply;
   const result = await persistInboundEmail({
     inboxId: inbox.id, agencyId: aid, ownerUserId: Number(inbox.owner_user_id || ownerUserId) || null,
     deliveryId: messageIdHeader || (gmailMessageId ? `gmail:${gmailMessageId}` : null),
-    threadId, fromEmail, subject, bodyText, to: to.map((email) => ({ email })), cc: cc.map((email) => ({ email })),
+    threadId, fromEmail, replyToEmail, subject, bodyText, to: to.map((email) => ({ email })), cc: cc.map((email) => ({ email })),
     inReplyTo, referencesHeader, receivedAt: receivedAt || new Date(), attachments
   });
-  if (result.duplicate) return result;
   const conv = { id: result.conversationId };
   const messageDbId = result.messageId;
   try {
@@ -531,7 +540,8 @@ export async function ingestPersonalMailboxInbound({
       messageId: messageDbId,
       fromEmail,
       subject,
-      bodyText: bodyText || ''
+      bodyText: bodyText || '',
+      allowAutomation: allowAutomation && !result.duplicate
     });
   } catch (e) {
     console.warn('[personalMailbox] inbound post-process failed:', e?.message || e);

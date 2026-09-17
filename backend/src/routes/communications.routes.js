@@ -1,3 +1,5 @@
+import { reactToHubMessage } from '../services/hubMessageReactions.service.js';
+import emailDraftRoutes from './emailDraft.routes.js';
 import { conversationAccessMiddleware } from '../services/communicationAccess.service.js';
 import { downloadCommunicationAttachment } from '../services/communicationAttachments.service.js';
 import express from 'express';
@@ -61,6 +63,7 @@ import {
 
 const router = express.Router();
 router.use(authenticate);
+router.use('/drafts', emailDraftRoutes);
 
 router.get('/feed', getCommunicationsFeed);
 router.get('/center-summary', getCommunicationsCenterSummary);
@@ -83,6 +86,9 @@ router.delete('/contacts/:id', deleteMyCommunicationContact);
 router.get('/conversations', getUnifiedConversations);
 router.post('/conversations', postUnifiedCompose);
 router.use('/conversations/:id', conversationAccessMiddleware);
+router.post('/conversations/:id/messages/:messageId/reaction', async (req,res,next) => {
+  try { res.json(await reactToHubMessage({agencyId:req.communicationConversation.agency_id,userId:req.user.id,conversationId:req.params.id,messageId:req.params.messageId,active:req.body.active !== false,notifyEmail:false})); } catch(e){next(e);}
+});
 router.get('/conversations/:id/attachments/:attachmentId', downloadCommunicationAttachment);
 router.get('/conversations/:id/messages', async (req, res, next) => {
   try {

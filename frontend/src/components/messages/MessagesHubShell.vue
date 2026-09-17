@@ -24,6 +24,8 @@
         </div>
       </div>
       <div class="msg-hub-head-actions">
+        <button type="button" class="btn btn-secondary" :disabled="refreshing" @click="refreshMail">{{ refreshing ? 'Refreshing…' : '↻ Refresh' }}</button>
+        <button type="button" class="btn btn-primary" @click="composeEmail('new')">+ New email</button>
         <button
           v-if="isDrawerLayout"
           type="button"
@@ -38,6 +40,9 @@
       </div>
     </header>
 
+    <div class="email-channel-filters" role="group" aria-label="Filter conversations by channel">
+      <button v-for="channel in inboxChannels" :key="channel.id" type="button" :aria-pressed="inboxChannel === channel.id" @click="selectInboxChannel(channel.id)">{{ channel.label }}</button>
+    </div>
     <div v-if="error" class="msg-hub-error">{{ error }}</div>
 
     <div class="msg-hub-body">
@@ -209,8 +214,11 @@
               class="msg-hub-row"
               :class="{
                 active: selectedConversation?.id === c.id,
+                'email-list-row': c.channel === 'email',
                 unread: c.is_unread
               }"
+              tabindex="0" role="button" @keydown.enter="pickConversation(c)"
+              @mouseenter="previewEmail(c, $event)" @mouseleave="scheduleHidePreview" @focus="previewEmail(c, $event)" @blur="scheduleHidePreview"
               @click="pickConversation(c)"
             >
               <div class="msg-hub-avatar-wrap">
@@ -249,16 +257,17 @@
                     class="msg-hub-unknown-tag"
                     title="Unknown sender"
                   >Unknown</span>
-                  {{ c.last_message_preview || c.subject || '' }}
+                  {{ emailPreviewText(c.last_message_preview || '') }}
                 </p>
               </div>
-              <div v-if="!c.hubKind || c.hubKind === 'email' || c.hubKind === 'sms'" class="msg-hub-row-actions" @click.stop>
+              <button v-if="c.draftId" type="button" class="msg-hub-btn secondary sm" @click.stop="discardListedDraft(c)">Discard</button>
+              <div v-else-if="!c.hubKind || c.hubKind === 'email' || c.hubKind === 'sms'" class="msg-hub-row-actions" @click.stop>
                 <div class="msg-hub-snooze-wrap">
                   <button
                     type="button"
                     class="msg-hub-snooze-btn"
                     :class="{ on: isConversationSnoozed(c) }"
-                    title="Snooze"
+                    title="Snooze email" aria-label="Snooze email" data-tooltip="Snooze email"
                     @click="toggleSnoozeMenu(c.id)"
                   >
                     ⏰
@@ -769,7 +778,7 @@
               </div>
             </div>
 
-            <div class="msg-hub-composer" :class="{ 'is-email': sendMethod === 'email' }">
+            <div v-if="sendMethod !== 'email'" class="msg-hub-composer" :class="{ 'is-email': sendMethod === 'email' }">
               <p v-if="deliveryNotice" class="msg-hub-delivery-note">{{ deliveryNotice }}</p>
               <div v-if="undoBanner" class="msg-hub-undo">
                 <span>
@@ -1155,22 +1164,12 @@
                 Mark known &amp; add to contacts
               </button>
             </div>
-            <div class="msg-hub-timeline">
-              <div
-                v-for="msg in (conversationPreview.messages || [])"
-                :key="msg.id"
-                class="msg-hub-bubble"
-                :class="String(msg.direction || '').toLowerCase() === 'outbound' ? 'outbound' : 'inbound'"
-              >
-                <span class="msg-hub-bubble-ch">{{ msg.channel || 'email' }}</span>
-                <p>{{ msg.body_text || msg.subject || '' }}</p>
-                <div class="msg-hub-bubble-meta">
-                  <time>{{ formatTime(msg.sent_at || msg.created_at) }}</time>
-                </div>
-              </div>
-              <div v-if="!(conversationPreview.messages || []).length" class="msg-hub-empty soft">
-                No messages in this conversation.
-              </div>
+            <EmailThreadReader v-if="conversationPreview.conversation?.channel === 'email'" :conversation="conversationPreview.conversation" :messages="conversationPreview.messages || []"
+              :has-older="!!conversationPreview.nextBeforeId" :loading-older="loadingEmailHistory"
+              @compose="composeEmail" @unread="markSelectedUnread" @older="loadEarlierEmail"
+              @attachment="downloadReaderAttachment" @like="likeReaderMessage" />
+            <div v-else class="msg-hub-timeline"><article v-for="msg in conversationPreview.messages || []" :key="msg.id" class="msg-hub-bubble"><p>{{ msg.body_text || msg.subject }}</p><time>{{ formatTime(msg.sent_at || msg.created_at) }}</time></article>
+              <form v-if="conversationPreview.conversation?.channel === 'sms'" @submit.prevent="replyReaderSms"><textarea v-model="readerSmsText" aria-label="Text message reply" required /><button type="submit" :disabled="sending">Send text</button></form>
             </div>
           </template>
 
@@ -1388,7 +1387,7 @@
             <p>Select a person to see contact details, files, and activity.</p>
           </section>
           <section class="msg-hub-panel msg-hub-banner">
-            <p>One conversation per person. Channels are how you send — not separate inboxes.</p>
+            <p>Choose a channel above to focus your inbox. Each email subject opens its own conversation.</p>
           </section>
         </aside>
       </div>
@@ -1511,6 +1510,9 @@
       </div>
     </div>
   </div>
+  <Teleport to="body"><aside v-if="hoverEmail" class="email-hover-preview" role="tooltip" :style="{top:hoverEmail.top+'px',left:hoverEmail.left+'px'}" @mouseenter="clearTimeout(hidePreviewTimer)" @mouseleave="scheduleHidePreview">
+    <strong>{{ hoverEmail.subject || '(No subject)' }}</strong><pre>{{ hoverEmail.body || 'Loading message…' }}</pre>
+  </aside></Teleport>
 </template>
 
 <script setup>
@@ -1519,6 +1521,9 @@ import { groupEmailThreads, groupSecureTopics, emailComposeTarget, emailReplyRec
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import api from '../../services/api';
+import EmailThreadReader from './EmailThreadReader.vue';
+import { emailPreviewText } from '../../utils/emailReading';
+import { openEmailComposer } from '../../utils/emailComposerWindow';
 import { useAgencyStore } from '../../store/agency';
 import { useAuthStore } from '../../store/auth';
 import { toUploadsUrl } from '../../utils/uploadsUrl';
@@ -1526,6 +1531,47 @@ import { isTenantOrganizationType } from '../../utils/organizationTypes';
 import StartConversationModal from './StartConversationModal.vue';
 import ResolveUnknownSenderModal from './ResolveUnknownSenderModal.vue';
 import HubEmailBodyEditor from './HubEmailBodyEditor.vue';
+
+const inboxChannel = ref('all');
+const inboxChannels = [{id:'all',label:'All'},{id:'email',label:'Email'},{id:'internal',label:'Internal'},{id:'secure',label:'Secure'},{id:'sms',label:'SMS'},{id:'group',label:'Groups'}];
+const readerSmsText=ref('');
+async function replyReaderSms(){const cid=conversationPreview.value?.conversation?.id;if(!cid||sending.value)return;sending.value=true;try{await api.post(`/communications/conversations/${cid}/reply`,{text:readerSmsText.value,mode:'reply'},{skipGlobalLoading:true});readerSmsText.value='';await refreshMail();}catch(e){error.value=e.response?.data?.error?.message||'Could not send text';}finally{sending.value=false;}}
+const refreshing = ref(false), loadingEmailHistory = ref(false), hoverEmail = ref(null);
+let inboxRequest=0,emailReadRequest=0,mailPollTimer=null,hoverTimer=null,hidePreviewTimer=null;
+function selectInboxChannel(channel){inboxChannel.value=channel;selectNav('inbox',isConversationMode.value ? navId.value : 'inbox');}
+function composeEmail(mode='new') {
+  const conversationId=selectedConversation.value?.conversationId || selectedConversation.value?.id || emailSubjectThreads.value.find(t=>t.key===activeEmailThreadKey.value)?.conversationId;
+  if(mode !== 'new' && !conversationId){error.value='Open an email conversation first.';return;}
+  openEmailComposer(router,{mode,agencyId:agencyId.value,conversationId:mode==='new'?undefined:conversationId,to:mode==='new'?selected.value?.email:undefined});
+}
+async function refreshMail(){
+  if(refreshing.value || !agencyId.value)return;refreshing.value=true;
+  try{
+    if(isConversationMode.value)await loadConversations({quiet:true});else await loadInboxCounts();
+    const id=conversationPreview.value?.conversation?.id,request=emailReadRequest;
+    if(id){const {data}=await api.get(`/communications/conversations/${id}`,{params:{markRead:'0'},skipGlobalLoading:true});if(request===emailReadRequest&&conversationPreview.value?.conversation?.id===id){const merged=new Map(conversationPreview.value.messages.map(m=>[m.id,m]));for(const m of data.messages)merged.set(m.id,m);conversationPreview.value={...data,messages:[...merged.values()].sort((a,b)=>a.id-b.id),nextBeforeId:conversationPreview.value.nextBeforeId};}}
+  }catch{/* Retain the readable thread on transient background failures. */}finally{refreshing.value=false;}
+}
+async function discardListedDraft(c){try{await api.delete(`/communications/drafts/${c.draftId}`,{skipGlobalLoading:true});await loadConversations({quiet:true});}catch(e){error.value=e.response?.data?.error?.message || 'Could not discard draft';}}
+function onComposerMessage(event){if(event.origin===window.location.origin&&event.data?.type==='email-drafts-changed')refreshMail();}
+function scheduleHidePreview(){clearTimeout(hoverTimer);hidePreviewTimer=setTimeout(()=>hoverEmail.value=null,200);}
+function previewEmail(c,event){
+  clearTimeout(hidePreviewTimer);clearTimeout(hoverTimer);if(c.channel!=='email'||c.draftId)return;
+  const rect=event.currentTarget.getBoundingClientRect();
+  hoverTimer=setTimeout(async()=>{const item={id:c.id,subject:c.subject,body:emailPreviewText(c.last_message_preview),top:Math.min(rect.top,Math.max(8,window.innerHeight-350)),left:Math.max(8,Math.min(rect.right+8,window.innerWidth-440))};hoverEmail.value=item;
+    try{const {data}=await api.get(`/communications/conversations/${c.conversationId||c.id}`,{params:{markRead:'0'},skipGlobalLoading:true});if(hoverEmail.value?.id===c.id){const last=(data.messages||[]).filter(m=>!m.is_internal_note).at(-1);hoverEmail.value={...item,subject:last?.subject||data.conversation?.subject||c.subject,body:emailPreviewText(last?.body_text||last?.body_html)||'(Empty message)'};}}catch{if(hoverEmail.value?.id===c.id)hoverEmail.value.body=item.body||'Open email to read the message.';}
+  },350);
+}
+async function loadEarlierEmail(){
+  const id=conversationPreview.value?.conversation?.id,beforeId=conversationPreview.value?.nextBeforeId;if(!id||!beforeId)return;loadingEmailHistory.value=true;
+  try{const {data}=await api.get(`/communications/conversations/${id}/messages`,{params:{beforeId},skipGlobalLoading:true});if(conversationPreview.value?.conversation?.id===id){conversationPreview.value.messages=[...data.messages,...conversationPreview.value.messages];conversationPreview.value.nextBeforeId=data.nextBeforeId;}}catch(e){error.value='Could not load earlier emails';}finally{loadingEmailHistory.value=false;}
+}
+async function downloadReaderAttachment(file){
+  try{const {data}=await api.get(`/communications/conversations/${conversationPreview.value.conversation.id}/attachments/${file.id}`,{responseType:'blob',skipGlobalLoading:true});const url=URL.createObjectURL(data);const a=document.createElement('a');a.href=url;a.download=file.filename;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}catch{error.value='Could not download attachment';}
+}
+async function likeReaderMessage(message){
+  try{const {data}=await api.post(`/communications/conversations/${conversationPreview.value.conversation.id}/messages/${message.id}/reaction`,{active:!message.reactions?.some(r=>r.reactedByMe)},{skipGlobalLoading:true});message.reactions=data.reactions||[];}catch{error.value='Could not update like';}
+}
 
 const props = defineProps({
   layout: { type: String, default: 'page' } // 'page' | 'drawer'
@@ -1728,7 +1774,7 @@ const listSearchPlaceholder = computed(() => {
 
 const isConversationMode = computed(() => {
   if (navSection.value !== 'inbox') return false;
-  return ['inbox', 'unread', 'unknown', 'mentions', 'starred', 'snoozed', 'drafts'].includes(navId.value);
+  return ['inbox', 'unread', 'unknown', 'mentions', 'starred', 'snoozed', 'drafts', 'sent'].includes(navId.value);
 });
 
 const isQueuedMode = computed(() => navSection.value === 'inbox' && navId.value === 'queued');
@@ -1881,6 +1927,7 @@ const filteredPeople = computed(() => {
 const filteredConversations = computed(() => {
   let list = [...(conversations.value || [])];
   const q = listSearch.value.trim().toLowerCase();
+  if (inboxChannel.value !== 'all') list = list.filter(c => c.channel === inboxChannel.value);
   if (!q) return list;
   return list.filter((c) => {
     const hay = `${conversationThreadTitle(c)} ${c.primary_participant_name || ''} ${c.primary_participant_email || ''} ${c.subject || ''} ${c.last_message_preview || ''} ${c.hubChannelLabel || ''}`.toLowerCase();
@@ -2289,7 +2336,7 @@ function buildStoredDraft() {
 }
 
 function scheduleDraftAutosave() {
-  if (suppressDraftAutosave) return;
+  if (suppressDraftAutosave || sendMethod.value === 'email') return;
   const convId = emailComposeMode.value === 'new' ? null :
     emailSubjectThreads.value.find((t) => t.key === activeEmailThreadKey.value)?.conversationId ||
     selectedConversation.value?.conversationId || selectedConversation.value?.id;
@@ -2297,7 +2344,7 @@ function scheduleDraftAutosave() {
   const body = String(composeBody.value || '').trim();
   const subject = String(composeSubject.value || '').trim();
   clearTimeout(draftSaveTimer);
-  const payload = body || subject ? buildStoredDraft() : '';
+  const payload = body ? buildStoredDraft() : '';
   draftSaveTimer = setTimeout(() => {
     api
       .patch(
@@ -2488,6 +2535,7 @@ function startNewEmailCompose() {
 }
 
 function startNewSubjectCompose() {
+  if (sendMethod.value === 'email') return composeEmail('new');
   rememberEmailDraft();
   activeEmailThreadKey.value = null;
   selectedConversation.value = null;
@@ -2506,6 +2554,7 @@ function openPersonSubjectThread(thread) {
 }
 
 function openEmailSubjectThread(thread) {
+  if (sendMethod.value === 'email' && thread?.conversationId) return pickConversation({ id: thread.conversationId, channel: 'email', subject: thread.subject });
   if (!thread?.key) return;
   if (thread.key !== activeEmailThreadKey.value) {
     rememberEmailDraft();
@@ -2537,36 +2586,8 @@ function openEmailSubjectThread(thread) {
   }
 }
 
-function setEmailReplyMode(mode) {
-  const thread = emailSubjectThreads.value.find((t) => t.key === activeEmailThreadKey.value);
-  if (!thread) return;
-  emailComposeMode.value = mode;
-  const recipients = emailReplyRecipients(thread.messages, { mode, inboxEmail: thread.messages.at(-1)?.meta?.inboxEmail, fallbackEmail: selected.value?.email });
-  composeCc.value = recipients.cc.join(', ');
-  composeBcc.value = '';
-}
-
-function startForwardFromActiveThread() {
-  const thread = emailSubjectThreads.value.find((t) => t.key === activeEmailThreadKey.value);
-  if (!thread?.messages?.length) return;
-  emailComposeMode.value = 'forward';
-  forwardToEmails.value = '';
-  const sub = String(thread.subject || activeEmailThreadSubject.value || '').trim();
-  const bare = sub.replace(/^(re|fw|fwd)\s*:\s*/gi, '').trim() || 'Message';
-  composeSubject.value = /^fwd:/i.test(sub) ? sub : `Fwd: ${bare}`;
-  const quoted = [...thread.messages]
-    .slice(-6)
-    .map((m) => {
-      const when = formatTime(m.createdAt);
-      const who = m.direction === 'outbound' ? 'You' : selected.value?.displayName || 'Them';
-      const text = String(m.bodyPreview || '').trim();
-      return `On ${when}, ${who} wrote:\n${text}`;
-    })
-    .join('\n\n');
-  composeBody.value = `\n\n---------- Forwarded message ----------\n${quoted}`;
-  showCcField.value = false;
-  focusComposer();
-}
+function setEmailReplyMode(mode) { composeEmail(mode); }
+function startForwardFromActiveThread() { composeEmail('forward'); }
 
 const undoCountdownLabel = computed(() => {
   if (!undoBanner.value?.expiresAt) return '';
@@ -3576,7 +3597,7 @@ function selectNav(section, id) {
     }
   }
 
-  if (section === 'people' || (section === 'inbox' && id === 'sent')) {
+  if (section === 'people') {
     listFilter.value = id === 'sent' ? 'sent' : id;
     loadList();
     return;
@@ -3606,17 +3627,24 @@ async function openTeamChat(tab = null) {
   await router.push({ path, query: q }).catch(() => {});
 }
 
-async function loadConversations() {
-  loadingList.value = true;
+async function loadConversations({ quiet = false } = {}) {
+  const request = ++inboxRequest;
+  if (!quiet) loadingList.value = true;
   error.value = '';
   people.value = [];
-  conversations.value = [];
   try {
     if (!agencyId.value) {
       conversations.value = [];
       return;
     }
     const id = navId.value;
+    if (id === 'drafts') {
+      const { data } = await api.get('/communications/drafts', { params: { agencyId: agencyId.value }, skipGlobalLoading: true });
+      if (request !== inboxRequest) return;
+      conversations.value = (data.drafts || []).map(d => ({ id:d.id,draftId:d.id,channel:'email',subject:d.subject,
+        primary_participant_name:d.recipient || 'Draft',last_message_preview:d.preview,last_message_at:d.updated_at }));
+      return;
+    }
 
     // Unified Inbox / Unread: email + secure + internal + SMS + groups
     if (id === 'unread' || id === 'inbox') {
@@ -3624,10 +3652,12 @@ async function loadConversations() {
         params: {
           agencyId: agencyId.value,
           sort: unreadSort.value,
+          channel: inboxChannel.value,
           limit: 80
         },
         skipGlobalLoading: true
       });
+      if (request !== inboxRequest) return;
       const items = Array.isArray(data?.items) ? data.items : [];
       conversations.value = items.map((item) => ({
         id: item.conversationId || item.id,
@@ -3655,7 +3685,7 @@ async function loadConversations() {
       return;
     }
 
-    const params = { agencyId: agencyId.value, limit: 40, hubScope: 1 };
+    const params = { agencyId: agencyId.value, limit: 80, hubScope: 1, channel: inboxChannel.value };
     if (id === 'mentions') {
       params.channel = 'mention';
       params.filter = 'all';
@@ -3670,10 +3700,11 @@ async function loadConversations() {
       params,
       skipGlobalLoading: true
     });
+    if (request !== inboxRequest) return;
     conversations.value = Array.isArray(data?.conversations) ? data.conversations : [];
     await loadInboxCounts();
   } catch (e) {
-    conversations.value = [];
+    if (request !== inboxRequest) return;
     const status = e?.response?.status;
     if (status === 403) {
       error.value = 'Inbox views need Communications access. Use People filters, or open Communications Center.';
@@ -3681,7 +3712,7 @@ async function loadConversations() {
       error.value = e?.response?.data?.error?.message || 'Could not load conversations';
     }
   } finally {
-    loadingList.value = false;
+    if (request === inboxRequest) loadingList.value = false;
   }
 }
 
@@ -3848,6 +3879,9 @@ async function toggleStarByConversationId(conversationId, currentlyStarred, msg 
 }
 
 async function pickConversation(conv) {
+  hoverEmail.value = null;
+  if (conv.draftId) return openEmailComposer(router, { draftId: conv.draftId });
+  const request = ++emailReadRequest;
   selectedConversation.value = conv;
   conversationPreview.value = null;
   mobileShowThread.value = true;
@@ -3884,30 +3918,6 @@ async function pickConversation(conv) {
   const emailConvId = conv?.conversationId || (Number(conv?.id) > 0 ? Number(conv.id) : null);
   const unknown =
     !!(conv?.is_unknown_sender || conv?.sender_trust === 'unknown') || navId.value === 'unknown';
-  // Unknown senders stay in conversation preview so staff can mark known / add contact
-  if (!unknown) {
-    const email = String(conv?.primary_participant_email || '').trim();
-    const name = String(conv?.primary_participant_name || '').trim();
-    if (email || name) {
-      try {
-        const q = email || name;
-        const results = await fetchPeople({ q, limit: 8 });
-        const match =
-          (results || []).find((p) => {
-            if (email && String(p.email || '').toLowerCase() === email.toLowerCase()) return true;
-            if (name && String(p.displayName || '').toLowerCase() === name.toLowerCase()) return true;
-            return false;
-          }) || results?.[0];
-        if (match) {
-          await pickPerson(match, { fromConversation: { ...conv, id: emailConvId || conv.id } });
-          dropOpenedFromUnread({ ...conv, conversationId: emailConvId, personKey: match.personKey });
-          return;
-        }
-      } catch {
-        /* fall through to preview */
-      }
-    }
-  }
   // Preview conversation messages when person cannot be resolved
   selected.value = null;
   timeline.value = [];
@@ -3917,9 +3927,10 @@ async function pickConversation(conv) {
   }
   try {
     const { data } = await api.get(`/communications/conversations/${emailConvId}`, {
-      params: { agencyId: agencyId.value, markRead: unknown ? '0' : undefined },
+      params: { agencyId: agencyId.value },
       skipGlobalLoading: true
     });
+    if (request !== emailReadRequest) return;
     conversationPreview.value = data;
     const detailConv = data?.conversation;
     if (detailConv) {
@@ -3932,7 +3943,7 @@ async function pickConversation(conv) {
         primary_participant_name:
           conv.primary_participant_name || detailConv.primary_participant_name
       };
-      await hydrateComposeFromConversation(selectedConversation.value);
+
     }
     dropOpenedFromUnread({ ...conv, conversationId: emailConvId });
     await refreshUnreadAfterOpen();
@@ -3967,6 +3978,7 @@ async function loadPersonContext(personKey) {
 
 function closePerson() {
   rememberEmailDraft();
+  ++emailReadRequest;
   selected.value = null;
   selectedConversation.value = null;
   conversationPreview.value = null;
@@ -4844,6 +4856,9 @@ watch(() => route.query.conversationId, () => openLinkedConversation());
 
 onMounted(() => {
   selectNav('inbox', 'unread');
+  mailPollTimer = setInterval(() => { if (!document.hidden) refreshMail(); }, 15000);
+  window.addEventListener('focus', refreshMail);
+  window.addEventListener('message', onComposerMessage);
   openLinkedConversation();
   document.addEventListener('click', onDocClickClosePickers);
   loadInboxCounts();
@@ -4856,6 +4871,10 @@ onMounted(() => {
   }, 4000);
 });
 onUnmounted(() => {
+  clearInterval(mailPollTimer);
+  clearTimeout(hoverTimer); clearTimeout(hidePreviewTimer);
+  window.removeEventListener('focus', refreshMail);
+  window.removeEventListener('message', onComposerMessage);
   clearUndoBanner();
   clearTimeout(staffSuggestTimer);
   clearTimeout(peopleTimer);
@@ -6318,6 +6337,8 @@ defineExpose({
   }
 }
 @media (max-width: 800px) {
+  .msg-hub-thread-head { flex-wrap: wrap; }
+  .msg-hub-thread-head .msg-hub-thread-head-main { flex-basis: 100%; overflow-wrap: anywhere; }
   .msg-hub:not(.msg-hub--drawer) .msg-hub-rail-toggle { display: inline-flex; }
   .msg-hub:not(.msg-hub--drawer) .msg-hub-rail {
     display: none;
@@ -6408,11 +6429,9 @@ defineExpose({
   flex-direction: column;
   gap: 12px;
 }
-.msg-hub:not(.msg-hub--drawer) .msg-hub-rail {
-  display: flex;
-}
-.msg-hub:not(.msg-hub--drawer) .msg-hub-rail-backdrop {
-  display: none;
+@media (min-width: 801px) {
+  .msg-hub:not(.msg-hub--drawer) .msg-hub-rail { display: flex; }
+  .msg-hub:not(.msg-hub--drawer) .msg-hub-rail-backdrop { display: none; }
 }
 .msg-hub-rail-section { display: flex; flex-direction: column; gap: 2px; }
 .msg-hub-rail-label {
@@ -6834,4 +6853,12 @@ defineExpose({
 :global([data-theme='dark']) .chats-view {
   color: #e2e8f0;
 }
+</style>
+
+<style>
+.email-channel-filters{display:flex;flex-wrap:wrap;gap:8px;padding:8px 16px}.email-channel-filters button{font:inherit;border:1px solid #8ba69c;background:transparent;color:inherit;border-radius:7px;padding:6px 15px;cursor:pointer}.email-channel-filters button[aria-pressed=true]{background:#17654c;color:white}.email-hover-preview{position:fixed;z-index:3000;width:min(420px,90vw);max-height:340px;overflow:auto;background:var(--bg-card,#fff);color:var(--text-primary,#24352e);border:1px solid #8ba69c;border-radius:9px;padding:16px;box-shadow:0 8px 24px #0003}.email-hover-preview pre{font:inherit;white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.5}.msg-hub-snooze-btn{position:relative}.msg-hub-snooze-btn:hover::after,.msg-hub-snooze-btn:focus-visible::after{content:attr(data-tooltip);position:absolute;bottom:100%;right:0;white-space:nowrap;background:#203c30;color:white;padding:6px;border-radius:4px;z-index:10}
+</style>
+
+<style scoped>
+.email-list-row .msg-hub-row-top{flex-wrap:wrap}.email-list-row .msg-hub-row-top strong{flex:1 0 100%;max-width:100%}.email-list-row .msg-hub-time{font-size:10px}
 </style>

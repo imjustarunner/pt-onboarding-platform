@@ -55,7 +55,8 @@ export async function processInboundCommunicationEvent({
   fromEmail,
   subject = '',
   bodyText = '',
-  ownerUserId = null
+  ownerUserId = null,
+  allowAutomation = true
 }) {
   const aid = Number(agencyId || 0);
   const cid = Number(conversationId || 0);
@@ -84,7 +85,7 @@ export async function processInboundCommunicationEvent({
 
   const results = { classification, ooo: null, support: null, intent: null };
 
-  if (classification.trust === 'blocked') {
+  if (!allowAutomation || classification.trust === 'blocked') {
     return { ok: true, ...results, blocked: true };
   }
 

@@ -336,6 +336,9 @@ class CommunicationConversation {
       // Unknown senders live only in the Unknown Senders folder
       where.push('COALESCE(c.is_unknown_sender, 0) = 0');
       params.push(userId, userId, userId, now);
+    } else if (filter === 'sent' && userId) {
+      where.push(`EXISTS (SELECT 1 FROM communication_messages sent_message WHERE sent_message.conversation_id=c.id AND sent_message.direction='outbound' AND sent_message.author_user_id=? AND COALESCE(sent_message.send_status,'sent')='sent')`);
+      params.push(userId);
     } else if (filter === 'starred') {
       where.push('c.starred = 1');
     } else if (filter === 'snoozed') {

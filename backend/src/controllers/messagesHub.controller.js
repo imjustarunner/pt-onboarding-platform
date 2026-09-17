@@ -973,6 +973,7 @@ export const getMessagesHubUnread = async (req, res, next) => {
       agencyId,
       userId: req.user.id,
       limit,
+      channel: String(req.query.channel || 'all'),
       sort
     });
     res.json(data);
@@ -997,6 +998,7 @@ export const getMessagesHubInbox = async (req, res, next) => {
       agencyId,
       userId: req.user.id,
       limit,
+      channel: String(req.query.channel || 'all'),
       sort
     });
     res.json(data);

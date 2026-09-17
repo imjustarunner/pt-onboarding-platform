@@ -53,7 +53,9 @@ export function emailReplyRecipients(messages = [], { mode = 'reply', inboxEmail
     seen.add(email);
     return [email];
   });
-  const to = unique(parent?.direction === 'inbound' ? [parent.from] : parent?.to);
+  const replyTo = parent?.from?.replyTo;
+  const replySender = replyTo && String(replyTo).toLowerCase() !== String(inboxEmail).toLowerCase() ? {email:replyTo} : parent?.from;
+  const to = unique(parent?.direction === 'inbound' ? [replySender] : parent?.to);
   if (!to.length) to.push(...unique([fallbackEmail]));
   return { to, cc: mode === 'reply_all' ? unique([...(parent?.to || []), ...(parent?.cc || [])]) : [] };
 }

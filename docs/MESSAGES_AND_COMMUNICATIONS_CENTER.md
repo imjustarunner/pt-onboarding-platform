@@ -144,3 +144,7 @@ Later: optional further chat/secure channel unification.
 - [VONAGE_10DLC_PROVIDER_NUMBER_PLAN.md](./VONAGE_10DLC_PROVIDER_NUMBER_PLAN.md) — 10DLC campaigns, per-provider numbers, screenshot evidence pack
 - [PLATFORM_EMAIL_SETUP.md](./PLATFORM_EMAIL_SETUP.md)
 - [UNIFIED_COMMUNICATIONS_CENTER_PLAN.md](./UNIFIED_COMMUNICATIONS_CENTER_PLAN.md)
+
+## September 17 follow-up
+
+The Hub and Quick View now prioritize reading email, with detached, privately autosaved reply/forward drafts. See [the September repair report](MESSAGING_SEPTEMBER_2026_REPAIRS.md) for group delivery, refresh, sender corrections, applied repairs, validation, and remaining mailbox exceptions.

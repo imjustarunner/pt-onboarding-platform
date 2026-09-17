@@ -183,11 +183,11 @@ export async function getConversationDetail(conversationId, { userId, markRead =
   let messages = await CommunicationConversation.listMessages(conversationId);
   const hydrated = await hydrateChannelMessages(conv);
   if (hydrated) messages = hydrated;
-  const context = await buildConversationContext(conv);
+  const context = await buildConversationContext(conv).catch((e) => { console.warn('[email-reader] context unavailable:', e?.code || 'context_failed'); return null; });
   if (markRead && userId) {
     await CommunicationConversation.markRead(conversationId, userId);
   }
-  return { conversation: conv, messages, context };
+  return { conversation: conv, messages, context, nextBeforeId: messages.length === 200 ? Math.min(...messages.map(m => Number(m.id))) : null };
 }
 
 export async function updateConversation(conversationId, patch, { userId } = {}) {
@@ -311,7 +311,9 @@ export async function replyToConversation(conversationId, payload, { userId } = 
 
   if (!to.length && mode !== 'forward') {
     const lastSent = [...messages].reverse().find((m) => m.direction === 'outbound' && !m.is_internal_note && (m.send_status || 'sent') === 'sent');
-    to = normalizeAddressList(lastInbound?.from ? [lastInbound.from] : lastSent?.to);
+    const replyAddress = lastInbound?.from?.replyTo;
+    const inboundSender = replyAddress && String(replyAddress).toLowerCase() !== String(inbox.from_email).toLowerCase() ? {email:replyAddress} : lastInbound?.from;
+    to = normalizeAddressList(inboundSender ? [inboundSender] : lastSent?.to);
     if (!to.length && primary?.email) to = [{ email: primary.email, name: primary.display_name }];
   }
   if (mode === 'reply_all' && lastInbound && payload.cc == null) {
@@ -346,7 +348,7 @@ export async function replyToConversation(conversationId, payload, { userId } = 
 
   if (mode === 'forward') {
     const original = [...messages].reverse().find((m) => !m.is_internal_note && (m.send_status || 'sent') === 'sent');
-    const quoted = original ? `\n\n---------- Forwarded message ----------\nFrom: ${original.from?.email || ''}\nSubject: ${original.subject || conv.subject || ''}\n\n${original.body_text || ''}` : '';
+    const quoted = original && !payload.quotedText ? `\n\n---------- Forwarded message ----------\nFrom: ${original.from?.email || ''}\nSubject: ${original.subject || conv.subject || ''}\n\n${original.body_text || ''}` : '';
     const subject = payload.subject || conv.subject || '(no subject)';
     const originalAttachments = original ? await loadOutboundAttachments(original.id) : [];
     const forwarded = await composeNewEmail({

@@ -308,6 +308,9 @@ const flattenPathForHostPortal = (targetPath, brandingStore) => {
 };
 
 const routes = [
+  { path: '/:organizationSlug/email-compose', name: 'OrganizationEmailComposer', component: () => import('../views/EmailComposerView.vue'), meta: { requiresAuth: true, hideNav: true, organizationSlug: true } },
+  { path: '/email-compose', name: 'EmailComposer', component: () => import('../views/EmailComposerView.vue'), meta: { requiresAuth: true, hideNav: true } },
+  { path: '/quick-view/email-compose', name: 'QuickViewEmailComposer', component: () => import('../views/EmailComposerView.vue'), meta: { publicQuickView: true, hideNav: true } },
   {path:'/community-standards',name:'CommunityStandards',component:()=>import('../views/public/CommunityStandardsView.vue'),meta:{requiresGuest:false}},
   ...['itsco','nlu','kimi','ptco','rise','range','mh4kidz','tisi'].flatMap(slug=>[
     {path:`/p/${slug}/community-standards`,name:`CommunityStandards-${slug}`,component:()=>import('../views/public/CommunityStandardsView.vue'),meta:{requiresGuest:false}},

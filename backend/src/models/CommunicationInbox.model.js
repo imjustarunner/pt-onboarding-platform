@@ -77,6 +77,7 @@ class CommunicationInbox {
          1
        FROM email_sender_identities esi
        WHERE esi.is_active = 1 AND esi.agency_id = ?
+         AND COALESCE(esi.identity_key, '') NOT REGEXP '^personal_[0-9]+$'
        ON DUPLICATE KEY UPDATE
          sender_identity_id = VALUES(sender_identity_id),
          display_name = VALUES(display_name),

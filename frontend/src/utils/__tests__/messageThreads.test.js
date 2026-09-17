@@ -35,6 +35,12 @@ describe('reply recipients', () => {
   it('starts forwards with empty recipients', () => {
     expect(emailReplyRecipients(inbound, { mode: 'forward' })).toEqual({ to: [], cc: [] });
   });
+  it('honors Reply-To without routing a reply back into the receiving mailbox', () => {
+    const messages = [{ ...inbound[0], from: { email: 'alice@example.org', replyTo: 'team@example.org' } }];
+    expect(emailReplyRecipients(messages, { inboxEmail: 'messages@itsco.health' }).to).toEqual(['team@example.org']);
+    messages[0].from.replyTo = 'messages@itsco.health';
+    expect(emailReplyRecipients(messages, { inboxEmail: 'messages@itsco.health' }).to).toEqual(['alice@example.org']);
+  });
   it('continues an outbound group email to its original visible recipients', () => {
     expect(emailReplyRecipients([{ direction: 'outbound', to: [{ email: 'a@example.org' }, { email: 'b@example.org' }], cc: [{ email: 'c@example.org' }] }], { mode: 'reply_all' }))
       .toEqual({ to: ['a@example.org', 'b@example.org'], cc: ['c@example.org'] });

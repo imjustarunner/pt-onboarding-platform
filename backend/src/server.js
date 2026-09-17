@@ -344,6 +344,8 @@ app.use('/api/stripe', stripeWebhookRoutes);
 // other rich responses can still push the JSON body well past 100kb.)
 // 10mb gives plenty of slack for the legitimate intake payload while still
 // being far smaller than what a malicious actor could meaningfully exploit.
+// Base64 encoding adds a third to email attachments (25 MB maximum).
+app.use(['/api/communications/drafts', '/api/quick-view/drafts'], express.json({ limit: '36mb' }));
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
@@ -2194,7 +2196,14 @@ if (!isBootstrap) {
   scheduleSupervisionSignupAutoCancel();
   setInterval(scheduleSupervisionSignupAutoCancel, 5 * 60 * 1000);
 
-  // Inbound school email AI agent (poll Gmail unread every 5 minutes)
+  const syncStaffMailGroup = async () => {
+    try { const { tickStaffMailGroup } = await import('./services/staffMailGroup.service.js'); await tickStaffMailGroup(); }
+    catch (e) { console.error('[staff-mail-group] reconciliation failed:', e?.message || e); }
+  };
+  setTimeout(syncStaffMailGroup, 45_000);
+  setInterval(syncStaffMailGroup, 60_000);
+
+  // Inbound email (poll unprocessed deliveries every 30 seconds)
   // Processes school group mail → support tickets / reinit intake when configured.
   let inboundEmailAgentRunning = false;
   const scheduleInboundEmailAgent = async () => {
@@ -2207,8 +2216,9 @@ if (!isBootstrap) {
       const { runInboundEmailAgentOnce } = await import('./services/unifiedEmail/inboundEmailAgent.service.js');
       const maxMessages = process.env.EMAIL_AGENT_MAX_MESSAGES
         ? Number(process.env.EMAIL_AGENT_MAX_MESSAGES)
-        : 10;
-      const result = await runInboundEmailAgentOnce({ maxMessages });
+        : 50;
+      const { withMessagingJobLock } = await import('./services/messagingJobLock.service.js');
+      const result = await withMessagingJobLock('inbound', () => runInboundEmailAgentOnce({ maxMessages }));
       const scanned = Number(result?.scanned || 0);
       if (scanned > 0) {
         console.info('[EmailAgent] tick:', result);
@@ -2234,7 +2244,7 @@ if (!isBootstrap) {
   // Delay first run slightly so startup migrations/health settle first.
   setTimeout(() => {
     scheduleInboundEmailAgent();
-    setInterval(scheduleInboundEmailAgent, 5 * 60 * 1000);
+    setInterval(scheduleInboundEmailAgent, 30 * 1000);
   }, 30 * 1000);
 
   // Agency birthday/anniversary automation (runs hourly; deduped per agency/day/type)

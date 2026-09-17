@@ -1,3 +1,4 @@
+import { resolvePersonalMailRecipients } from '../groupMailboxRouting.service.js';
 import pool from '../../config/database.js';
 import { getGmailClient, getImpersonatedUser } from './gmailClient.js';
 import { ensureLabelId } from './gmailLabels.js';
@@ -81,7 +82,8 @@ function isAutoReply(hdrs) {
 }
 
 async function listOurFromEmailsLower() {
-  const identities = await EmailSenderIdentity.list({ agencyId: null, includePlatformDefaults: true, onlyActive: true });
+  // agencyId:null in Identity.list means platform defaults only, not all tenants.
+  const [identities] = await pool.execute('SELECT from_email FROM email_sender_identities WHERE is_active=1');
   const froms = (identities || []).map((i) => String(i?.from_email || '').toLowerCase()).filter(Boolean);
   froms.push(String(getImpersonatedUser() || '').toLowerCase());
   // School group addresses (e.g. sabin@itsco.health) are our mailboxes — mail "From"
@@ -114,7 +116,7 @@ async function listOurFromEmailsLower() {
  * When From is a school group / our identity, prefer Reply-To / Sender /
  * X-Original-Sender so counselor mail isn't stored as sabin@itsco.health.
  */
-function resolveInboundSenderEmail({ hdrs, fromEmail, ourFromEmails = [] }) {
+export function resolveInboundSenderEmail({ hdrs, fromEmail, ourFromEmails = [] }) {
   const from = String(fromEmail || '').trim().toLowerCase();
   const ours = new Set((ourFromEmails || []).map((e) => String(e || '').toLowerCase()).filter(Boolean));
   const candidates = [];
@@ -125,14 +127,20 @@ function resolveInboundSenderEmail({ hdrs, fromEmail, ourFromEmails = [] }) {
       if (lower) candidates.push(lower);
     }
   };
-  pushHeader('reply-to');
   pushHeader('x-original-sender');
+  pushHeader('x-google-original-from');
+  pushHeader('reply-to');
   pushHeader('sender');
   pushHeader('x-google-original-from');
 
   if (from && ours.has(from)) {
+    const original = extractEmails(hdrs?.get?.('x-original-sender'))[0] || extractEmails(hdrs?.get?.('x-google-original-from'))[0];
+    if (original) return original;
+    // A real staff From address may intentionally have a different Reply-To
+    // (calendar invitations, for example). Only unwrap a rewritten Group From.
+    const rewritten = /\bvia\b/i.test(hdrs?.get?.('from') || '') || !!hdrs?.get?.('list-id');
     const external = candidates.find((e) => e && !ours.has(e));
-    if (external) return external;
+    if (rewritten && external) return external;
   }
   // Even when From is external, prefer Reply-To if From looks like a noreply group alias
   if (from && /noreply|no-reply|donotreply/i.test(from)) {
@@ -156,7 +164,7 @@ function subjectForReply(originalSubject) {
   return /^re:/i.test(s) ? s : `Re: ${s}`;
 }
 
-function pickBodyText(payload) {
+export function pickBodyText(payload) {
   if (!payload) return '';
 
   // If single-part body
@@ -167,6 +175,7 @@ function pickBodyText(payload) {
   const htmlParts = [];
   while (stack.length) {
     const node = stack.pop();
+    if (node?.filename) continue; // Attached text files are attachments, not the email body.
     const mimeType = String(node?.mimeType || '').toLowerCase();
     const data = node?.body?.data ? decodeBase64Url(node.body.data) : '';
     if (data) {
@@ -891,7 +900,7 @@ export async function runInboundEmailAgentOnce({ maxMessages = 10 } = {}) {
 
   const list = await gmail.users.messages.list({
     userId: 'me',
-    q: 'is:unread',
+    q: '-label:AI_PROCESSED -in:spam -in:trash newer_than:30d',
     maxResults: Math.max(1, Math.min(50, Number(maxMessages) || 10))
   });
 
@@ -934,29 +943,41 @@ export async function runInboundEmailAgentOnce({ maxMessages = 10 } = {}) {
     );
     const subject = hdrs.get('subject') || '';
 
-    // Loop protection: ignore our own sent mail (identities + school group addresses)
-    if (fromEmail && ourFromEmails.includes(fromEmail.toLowerCase())) {
-      results.ignored += 1;
-      await gmail.users.messages.modify({
-        userId: 'me',
-        id,
-        requestBody: { removeLabelIds: ['UNREAD'], addLabelIds: [processedLabelId, ignoredLabelId] }
-      });
-      continue;
-    }
-
-    // Loop protection: ignore auto-replies / auto-generated messages
-    if (isAutoReply(hdrs)) {
-      results.ignored += 1;
-      await gmail.users.messages.modify({
-        userId: 'me',
-        id,
-        requestBody: { removeLabelIds: ['UNREAD'], addLabelIds: [processedLabelId, ignoredLabelId] }
-      });
-      continue;
-    }
-
     const routed = await routeSenderIdentityFromHeaders(hdrs);
+    const automated = isAutoReply(hdrs);
+    // Human inboxes receive receipts, notifications and staff mail too. Suppress
+    // automated *responses*, not delivery. Each recipient has an inbox-scoped receipt.
+    let personalRecipients;
+    try {
+      personalRecipients = await resolvePersonalMailRecipients([
+        ...routed.to, ...routed.cc, ...routed.deliveredTo,
+        ...extractEmails(hdrs.get('x-original-to')), ...extractEmails(hdrs.get('envelope-to'))
+      ]);
+      for (const recipient of personalRecipients) {
+        const result = await ingestPersonalMailboxInbound({
+          gmail, gmailMessageId: id, gmailPayload: payload, agencyId: recipient.agency_id,
+          identity: recipient, fromEmail, subject, bodyText: pickBodyText(payload),
+          messageIdHeader: hdrs.get('message-id') || null, threadId: full.data?.threadId || null,
+          inReplyTo: hdrs.get('in-reply-to') || null, referencesHeader: hdrs.get('references') || null,
+          receivedAt: new Date(full.data?.internalDate ? Number(full.data.internalDate) : Date.now()),
+          to: routed.to, cc: routed.cc, allowAutomation: !automated, replyToEmail: extractEmails(hdrs.get('reply-to'))[0] || null
+        });
+        if (!result?.ingested) throw new Error('Personal recipient could not be persisted');
+        results.draftedToTickets += 1;
+      }
+    } catch (e) {
+      console.warn('[EmailAgent] recipient delivery will retry:', e?.message || e);
+      results.needsHuman += 1;
+      continue; // Never acknowledge partial fan-out; successful copies deduplicate on retry.
+    }
+    if (automated || (personalRecipients.length && (!routed.senderIdentityId ||
+        personalRecipients.some((r) => Number(r.id) === Number(routed.senderIdentityId))))) {
+      await gmail.users.messages.modify({ userId: 'me', id,
+        requestBody: { removeLabelIds: ['UNREAD'], addLabelIds: [processedLabelId] } });
+      if (!personalRecipients.length) results.ignored += 1;
+      continue;
+    }
+
     const senderIdentityId = routed.senderIdentityId;
     if (!senderIdentityId) {
       results.unroutable += 1;
@@ -974,6 +995,17 @@ export async function runInboundEmailAgentOnce({ maxMessages = 10 } = {}) {
     const agencyName = agency?.name || 'your organization';
 
     const bodyText = pickBodyText(payload);
+
+    // Loop protection: ignore our own sent mail (identities + school group addresses)
+    if (fromEmail && ourFromEmails.includes(fromEmail.toLowerCase())) {
+      results.ignored += 1;
+      await gmail.users.messages.modify({
+        userId: 'me',
+        id,
+        requestBody: { removeLabelIds: ['UNREAD'], addLabelIds: [processedLabelId, ignoredLabelId] }
+      });
+      continue;
+    }
 
     // Presence Time mailbox (time@plottwistco.com) — status / planned-out for Team Board staff
     if (isPresenceTimeIdentity(identity)) {

@@ -654,7 +654,7 @@ export const getQuickHome = async (req, res, next) => {
                 WHERE m.conversation_id = c.id AND m.is_auto_reply = 1
               ) AS has_auto_reply,
               r.last_read_at,
-              (r.last_read_at IS NULL OR r.last_read_at < COALESCE(c.last_message_at, c.updated_at)) AS is_unread
+              (COALESCE(r.forced_unread,0)=1 OR EXISTS (SELECT 1 FROM communication_messages unread_message WHERE unread_message.conversation_id=c.id AND unread_message.direction='inbound' AND COALESCE(unread_message.is_internal_note,0)=0 AND COALESCE(unread_message.send_status,'sent') NOT IN ('cancelled','preparing') AND (r.last_read_at IS NULL OR r.last_read_at < COALESCE(unread_message.sent_at,unread_message.created_at)))) AS is_unread
        FROM communication_conversations c
        LEFT JOIN communication_conversation_reads r
          ON r.conversation_id = c.id AND r.user_id = ?
@@ -663,7 +663,8 @@ export const getQuickHome = async (req, res, next) => {
          ${beforeAt ? 'AND (COALESCE(c.last_message_at,c.created_at) < ? OR (COALESCE(c.last_message_at,c.created_at)=? AND c.id<?))' : ''}
          AND EXISTS (SELECT 1 FROM user_agencies member WHERE member.user_id = ? AND member.agency_id = c.agency_id AND COALESCE(member.is_active,1)=1)
          AND COALESCE(c.is_spam,0) = 0
-         AND COALESCE(c.is_unknown_sender,0) = 0
+         AND COALESCE(c.is_unknown_sender,0) = ${req.query.filter === 'unknown' ? 1 : 0}
+         ${req.query.filter === 'unread' ? `AND (COALESCE(r.forced_unread,0)=1 OR EXISTS (SELECT 1 FROM communication_messages unread_message WHERE unread_message.conversation_id=c.id AND unread_message.direction='inbound' AND COALESCE(unread_message.is_internal_note,0)=0 AND COALESCE(unread_message.send_status,'sent') NOT IN ('cancelled','preparing') AND (r.last_read_at IS NULL OR r.last_read_at < COALESCE(unread_message.sent_at,unread_message.created_at)))) AND (c.snoozed_until IS NULL OR c.snoozed_until<=NOW())` : ''}
          AND (c.visible_after IS NULL OR c.visible_after <= NOW())
          AND (
            (c.owner_user_id = ? AND NOT EXISTS (SELECT 1 FROM communication_inboxes private_box WHERE private_box.id=c.inbox_id AND private_box.kind='personal' AND private_box.owner_user_id<>c.owner_user_id))

@@ -3,6 +3,8 @@ import { flushPromises, shallowMount } from '@vue/test-utils';
 import { nextTick } from 'vue';
 import Hub from '../MessagesHubShell.vue';
 import api from '../../../services/api';
+import { openEmailComposer } from '../../../utils/emailComposerWindow';
+vi.mock('../../../utils/emailComposerWindow',()=>({openEmailComposer:vi.fn()}));
 vi.mock('../../../services/api', () => ({ default: { post: vi.fn(), get: vi.fn(), patch: vi.fn() } }));
 vi.mock('../../../store/agency', () => ({ useAgencyStore: () => ({ currentAgency: { id: 2 }, userAgencies: [{ id: 2 }] }) }));
 vi.mock('../../../store/auth', () => ({ useAuthStore: () => ({ user: { id: 5, role: 'provider' } }) }));
@@ -26,33 +28,28 @@ beforeEach(async () => {
 });
 afterEach(() => wrapper?.unmount());
 describe('Messages hub thread interactions', () => {
-  it('sends New email without the previously selected conversation ID', async () => {
-    state.selectedConversation = { id: 10 };
-    state.activeEmailThreadKey = 'email:10';
+  it('opens New email in a detached composer without a previous conversation ID', () => {
+    state.selectedConversation = { id:10 }; state.activeEmailThreadKey='email:10';
     state.startNewSubjectCompose();
-    state.composeSubject = 'Same subject';
-    state.composeBody = '<p>A fresh email</p>';
-    await state.executeSend();
-    const send = api.post.mock.calls.find(([url]) => url === '/messages/hub/send');
-    expect(send?.[1]).toMatchObject({ mode: 'new', subject: 'Same subject' });
-    expect(send[1].conversationId).toBeUndefined();
+    expect(openEmailComposer).toHaveBeenCalledWith(expect.anything(),expect.objectContaining({mode:'new',conversationId:undefined}));
+    expect(api.post).not.toHaveBeenCalledWith('/messages/hub/send',expect.anything(),expect.anything());
   });
-  it('replies to the visible thread when the inbox selection still references another conversation', async () => {
-    state.selectedConversation = { id: 10 };
-    state.openEmailSubjectThread(state.emailSubjectThreads.find((t) => t.conversationId === 20));
-    state.composeBody = '<p>Reply to twenty</p>';
-    await state.executeSend();
-    const send = api.post.mock.calls.find(([url]) => url === '/messages/hub/send');
-    expect(send?.[1]).toMatchObject({ mode: 'reply', conversationId: 20, to: 'alice@example.org' });
+  it('opens the exact clicked email directly without resolving an unrelated person', async () => {
+    api.get.mockResolvedValue({data:{conversation:{id:20,channel:'email',subject:'Twenty'},messages:[{id:200,body_text:'Readable'}]}});
+    await state.openEmailSubjectThread(state.emailSubjectThreads.find(t=>t.conversationId===20));
+    expect(state.conversationPreview.conversation.id).toBe(20);
+    expect(state.selected).toBeNull();
+    expect(api.get.mock.calls.some(([url])=>url==='/communications/conversations/20')).toBe(true);
+    expect(api.get.mock.calls.some(([url])=>url==='/messages/hub/people')).toBe(false);
+    expect(api.patch).not.toHaveBeenCalled();
   });
-  it('keeps unsent reply drafts separate when switching threads', () => {
-    state.openEmailSubjectThread(state.emailSubjectThreads.find((t) => t.conversationId === 10));
-    state.composeBody = 'Draft for ten';
-    state.openEmailSubjectThread(state.emailSubjectThreads.find((t) => t.conversationId === 20));
-    expect(state.composeBody).toBe('');
-    state.composeBody = 'Draft for twenty';
-    state.openEmailSubjectThread(state.emailSubjectThreads.find((t) => t.conversationId === 10));
-    expect(state.composeBody).toBe('Draft for ten');
+  it('opens Reply all with the selected conversation and keeps the reading pane free of a draft', async () => {
+    state.selected=null;state.selectedConversation={id:20,channel:'email'};
+    state.conversationPreview={conversation:{id:20,subject:'Twenty'},messages:[{id:200,body_text:'Readable'}]};
+    await nextTick(); state.composeEmail('reply_all');
+    expect(openEmailComposer).toHaveBeenCalledWith(expect.anything(),expect.objectContaining({mode:'reply_all',conversationId:20}));
+    expect(wrapper.find('.msg-hub-composer').exists()).toBe(false);
+    expect(api.patch).not.toHaveBeenCalled();
   });
   it('ignores a timeline response belonging to the previously selected person', async () => {
     const pending = new Map();
@@ -70,9 +67,10 @@ describe('Messages hub thread interactions', () => {
   });
 });
 
-it('defaults new email to the staff Group and displays the stored mailbox for replies', async () => {
-  api.get.mockResolvedValue({ data: { aliases: [{ id: 7, kind: 'messages', email: 'messages@itsco.health' }, { id: 9, kind: 'personal', email: 'staff@itsco.health' }] } });
-  await state.loadEmailAliases(2); expect(state.composeFromAliasId).toBe(9);
-  state.openEmailSubjectThread(state.emailSubjectThreads.find((t) => t.conversationId === 10));
-  expect(state.replyMailboxEmail).toBe('messages@itsco.health');
+it('loads only the current user’s explicit drafts', async () => {
+  state.navId='drafts';
+  api.get.mockResolvedValue({data:{drafts:[{id:'one',subject:'My draft',preview:'My words',recipient:'alice@example.org'}]}});
+  await state.loadConversations();
+  expect(api.get).toHaveBeenCalledWith('/communications/drafts',expect.objectContaining({params:{agencyId:2}}));
+  expect(state.conversations[0]).toMatchObject({draftId:'one',last_message_preview:'My words'});
 });

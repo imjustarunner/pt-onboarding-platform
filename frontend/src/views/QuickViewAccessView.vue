@@ -93,12 +93,15 @@
         <template v-if="msgSuite === 'email' || msgSuite === 'sms'">
           <div class="qv-toolbar">
             <div class="qv-sorters">
-              <button type="button" :class="{ on: sort === 'all' }" @click="sort = 'all'">All</button>
-              <button type="button" :class="{ on: sort === 'unread' }" @click="sort = 'unread'">Unread</button>
+              <button type="button" :class="{ on: sort === 'all' }" @click="changeEmailFolder('all')">All</button>
+              <button type="button" :class="{ on: sort === 'unread' }" @click="changeEmailFolder('unread')">Unread</button>
               <button type="button" :class="{ on: sort === 'needs' }" @click="sort = 'needs'">Needs reply</button>
 
             </div>
-            <button v-if="msgSuite === 'email'" type="button" class="qv-btn primary sm" @click="showCompose = true">New email</button>
+            <button type="button" class="qv-btn ghost sm" @click="loadHome(msgSuite)">↻ Refresh</button>
+            <button v-if="msgSuite === 'email'" type="button" class="qv-btn ghost sm" :aria-pressed="sort === 'unknown'" @click="changeEmailFolder('unknown')">Unknown senders</button>
+            <button v-if="msgSuite === 'email'" type="button" class="qv-btn ghost sm" :aria-pressed="sort === 'drafts'" @click="changeEmailFolder('drafts')">Drafts</button>
+            <button v-if="msgSuite === 'email'" type="button" class="qv-btn primary sm" @click="openDetachedEmail('new')">New email</button>
           </div>
           <p v-if="msgSuite === 'email' && mailboxEmail" class="qv-pad muted">{{ mailboxEmail }}</p>
           <p v-if="msgSuite === 'sms'" class="qv-pad muted">Texts use your assigned care number. Existing phone conversations appear here; availability depends on your organization’s texting setup.</p>
@@ -108,13 +111,14 @@
             :key="c.id"
             type="button"
             class="qv-row"
-            :class="{ unread: c.is_unread }"
-            @click="openConversation(c)"
+            :class="{ unread: c.is_unread }" :title="`${c.subject || ''}\n\n${emailPreviewText(c.last_message_preview || '')}`"
+            @mouseenter="previewQuickEmail(c, $event)" @mouseleave="hideQuickPreview" @focus="previewQuickEmail(c, $event)" @blur="hideQuickPreview"
+            @click="quickPreview = null; openConversation(c)"
           >
             <span class="ch">{{ channelIcon(c.channel) }}</span>
             <div class="meta">
               <strong>{{ c.subject || '(no subject)' }}</strong>
-              <small>{{ c.last_message_preview || '' }}</small><small>{{ formatTime(c.last_message_at) }}</small>
+              <small>{{ emailPreviewText(c.last_message_preview || '') }}</small><small>{{ formatTime(c.last_message_at) }}</small>
             </div>
             <span v-if="c.has_auto_reply" class="badge">Auto</span>
           </button>
@@ -170,9 +174,11 @@
 
       <div v-else-if="tab === 'thread'" class="qv-pane thread">
         <button type="button" class="qv-btn ghost" @click="rememberReply(); tab = 'home'">← Conversations</button>
-        <h2>{{ activeConv?.subject || 'Conversation' }}</h2>
+        <h2 v-if="activeConv?.channel !== 'email'">{{ activeConv?.subject || 'Conversation' }}</h2>
         <p v-if="threadLoading" role="status">Loading conversation…</p>
-        <button v-if="nextBeforeId" type="button" class="qv-btn ghost" :disabled="olderLoading" @click="loadOlderEmail">{{ olderLoading ? 'Loading…' : 'Load older messages' }}</button>
+        <EmailThreadReader v-if="activeConv?.channel === 'email' && !threadLoading" :conversation="activeConv" :messages="threadMessages" :has-older="!!nextBeforeId" :loading-older="olderLoading"
+          @compose="openDetachedEmail" @unread="keepEmailUnread" @older="loadOlderEmail" @attachment="downloadEmailFile" @like="likeEmail" />
+        <template v-else>        <button v-if="nextBeforeId" type="button" class="qv-btn ghost" :disabled="olderLoading" @click="loadOlderEmail">{{ olderLoading ? 'Loading…' : 'Load older messages' }}</button>
         <div v-for="m in threadMessages" :key="m.id" class="qv-bubble" :class="m.direction">
           <div class="when"><strong>{{ m.from?.name || m.from?.email || (m.direction === 'outbound' ? 'You' : 'Sender') }}</strong> · {{ formatTime(m.sent_at || m.scheduled_send_at || m.created_at) }}
             <span v-if="m.is_auto_reply" class="badge">Auto-reply</span>
@@ -200,6 +206,7 @@
           </template>
           <button type="submit" class="qv-btn primary" :disabled="replyBusy || (!replyText.trim() && !replyAttachments.length)">{{ replyBusy ? 'Sending…' : (replyMode === 'forward' ? 'Forward' : 'Send reply') }}</button>
         </form>
+        </template>
       </div>
 
       <div v-else-if="tab === 'chat'" class="qv-pane thread">
@@ -739,14 +746,20 @@
       </div>
     </div>
   </div>
+  <Teleport to="body"><aside v-if="quickPreview" class="qv-email-preview" role="tooltip" :style="{top:quickPreview.top+'px',left:quickPreview.left+'px'}" @mouseenter="clearTimeout(quickPreviewHideTimer)" @mouseleave="hideQuickPreview">
+    <strong>{{ quickPreview.subject || '(No subject)' }}</strong><pre>{{ quickPreview.body || 'Loading message…' }}</pre>
+  </aside></Teleport>
 </template>
 
 <script setup>
 import { quickViewDeepLink } from '../utils/quickViewDeepLink';
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
-import { useRoute } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 import axios from 'axios';
 import { emailReplyRecipients } from '../utils/messageThreads';
+import EmailThreadReader from '../components/messages/EmailThreadReader.vue';
+import { openEmailComposer } from '../utils/emailComposerWindow';
+import { emailPreviewText } from '../utils/emailReading';
 import { encodeEmailFiles } from '../utils/communicationAttachments';
 import QuickViewMusicDock from '../components/quickView/QuickViewMusicDock.vue';
 import { buildDisplaySections, extractSections, formatFullNoteCopy } from '../utils/noteAidUiHelpers.js';
@@ -757,7 +770,26 @@ const HOME_TIP_KEY = 'plottwist.quickViewHomeTipDismissed';
 const LOGIN_URL_KEY = 'plottwist.quickViewLoginUrl';
 
 const route = useRoute();
+const router = useRouter();
+function openDetachedEmail(mode='new') { openEmailComposer(router,{quickView:true,session:session.value,mode,conversationId:mode==='new'?undefined:activeConv.value?.id}); }
+function changeEmailFolder(folder){sort.value=folder;loadHome(msgSuite.value);}
+async function keepEmailUnread(){
+  try{await axios.patch(`${apiBase}/conversations/${activeConv.value.id}`,{markUnread:true},{headers:authHeaders(),withCredentials:true});sort.value='unread';await loadHome('email');}catch(e){error.value=e.response?.data?.error?.message || 'Could not mark unread';}
+}
+
 const apiBase = '/api/quick-view';
+const quickPreview = ref(null);
+let quickPreviewTimer=null,quickPreviewHideTimer=null;
+function hideQuickPreview(){clearTimeout(quickPreviewTimer);quickPreviewHideTimer=setTimeout(()=>quickPreview.value=null,200);}
+function previewQuickEmail(c,event){
+  clearTimeout(quickPreviewTimer);clearTimeout(quickPreviewHideTimer);if(c.channel!=='email'||c.draftId)return;
+  const rect=event.currentTarget.getBoundingClientRect();const activeSession=session.value;
+  quickPreviewTimer=setTimeout(async()=>{
+    const preview={id:c.id,subject:c.subject,body:emailPreviewText(c.last_message_preview),top:Math.max(8,Math.min(rect.bottom+8,innerHeight-330)),left:Math.max(8,Math.min(rect.left,innerWidth-430))};quickPreview.value=preview;
+    try{const {data}=await axios.get(`${apiBase}/conversations/${c.id}`,{params:{markRead:'0'},headers:authHeaders(),withCredentials:true});if(session.value===activeSession&&quickPreview.value?.id===c.id){const m=(data.messages||[]).filter(m=>!m.is_internal_note).at(-1);quickPreview.value={...preview,subject:m?.subject||data.conversation?.subject||c.subject,body:emailPreviewText(m?.body_text||m?.body_html)||'(Empty message)'};}}catch{/* Retain available preview on a temporary failure. */}
+  },350);
+}
+
 
 const loading = ref(true);
 const error = ref('');
@@ -989,6 +1021,7 @@ const brandStyle = computed(() => {
 
 const filteredConversations = computed(() => {
   let list = conversations.value || [];
+  if (sort.value === 'unknown') list = list.filter(c=>c.is_unknown_sender);
   if (sort.value === 'unread') list = list.filter((c) => c.is_unread);
   if (sort.value === 'needs') list = list.filter((c) => ['new', 'needs_reply'].includes(c.status));
   if (sort.value === 'secure') list = list.filter((c) => String(c.channel || '').toLowerCase() === 'secure');
@@ -1233,12 +1266,12 @@ async function refreshMessages() {
       if (request !== conversationRequest || tab.value !== 'thread' || activeConv.value?.id !== id) return;
       const merged = new Map(threadMessages.value.map((m) => [m.id, m])); (data.messages || []).forEach((m) => merged.set(m.id, m));
       threadMessages.value = [...merged.values()].sort((a, b) => new Date(a.sent_at || a.created_at) - new Date(b.sent_at || b.created_at) || Number(a.id) - Number(b.id));
-    } else if (tab.value === 'home' && ['email', 'sms'].includes(msgSuite.value)) {
+    } else if (tab.value === 'home' && ['email', 'sms'].includes(msgSuite.value) && sort.value !== 'drafts') {
       const request = homeRequest; const channel = msgSuite.value;
-      const { data } = await axios.get(`${apiBase}/home`, { params: { channel }, headers: authHeaders(), withCredentials: true });
+    const { data } = await axios.get(`${apiBase}/home`, { params: { channel, filter:sort.value }, headers: authHeaders(), withCredentials: true });
       if (request === homeRequest && tab.value === 'home' && channel === msgSuite.value) {
         const merged = new Map(conversations.value.map((c) => [c.id, c])); (data.conversations || []).forEach((c) => merged.set(c.id, c));
-        conversations.value = [...merged.values()].sort((a, b) => new Date(b.last_message_at) - new Date(a.last_message_at));
+        conversations.value = sort.value === 'unread' ? (data.conversations || []) : [...merged.values()].sort((a, b) => new Date(b.last_message_at) - new Date(a.last_message_at));
       }
     }
   } catch { /* Keep the current view through temporary network failures; heartbeat enforces expiry. */ }
@@ -1249,7 +1282,12 @@ async function loadHome(channel = 'email') {
   error.value = ''; msgLoading.value = true;
   msgSuite.value = channel; tab.value = 'home';
   try {
-    const { data } = await axios.get(`${apiBase}/home`, { params: { channel }, headers: authHeaders(), withCredentials: true });
+      if(sort.value === 'drafts' && channel === 'email') {
+      const {data}=await axios.get(`${apiBase}/drafts`,{headers:authHeaders(),withCredentials:true});
+      if(request!==homeRequest)return;
+      conversations.value=(data.drafts||[]).map(d=>({id:d.id,draftId:d.id,channel:'email',subject:d.subject||'Draft',last_message_preview:d.preview,last_message_at:d.updated_at}));homeCursor.value=null;return;
+    }
+    const { data } = await axios.get(`${apiBase}/home`, { params: { channel, filter:sort.value }, headers: authHeaders(), withCredentials: true });
     if (request !== homeRequest || msgSuite.value !== channel) return;
     conversations.value = data.conversations || [];
     homeCursor.value = data.nextCursor || null;
@@ -1264,7 +1302,7 @@ async function loadOlderConversations() {
   const channel = msgSuite.value; const request = homeRequest;
   homeOlderLoading.value = true;
   try {
-    const { data } = await axios.get(`${apiBase}/home`, { params: { channel, ...homeCursor.value }, headers: authHeaders(), withCredentials: true });
+    const { data } = await axios.get(`${apiBase}/home`, { params: { channel, filter:sort.value, ...homeCursor.value }, headers: authHeaders(), withCredentials: true });
     if (request !== homeRequest) return;
     const merged = new Map(conversations.value.map((c) => [c.id, c])); (data.conversations || []).forEach((c) => merged.set(c.id, c));
     conversations.value = [...merged.values()]; homeCursor.value = data.nextCursor || null;
@@ -1469,6 +1507,7 @@ async function sendChatMessage() {
 }
 
 async function openConversation(c, { refresh = false, preserveCurrent = true } = {}) {
+  if(c.draftId)return openEmailComposer(router,{quickView:true,session:session.value,draftId:c.draftId});
   if (preserveCurrent) rememberReply();
   const request = ++conversationRequest;
   activeConv.value = c; threadMessages.value = []; threadLoading.value = true; tab.value = 'thread';
@@ -2127,12 +2166,7 @@ function formatRole(role) {
     .replace(/\b\w/g, (c) => c.toUpperCase()) || 'Team';
 }
 
-function composeTo(c) {
-  composeToEmail.value = c.email || '';
-  composeSubject.value = '';
-  composeText.value = '';
-  showCompose.value = true;
-}
+function composeTo(c) { openEmailComposer(router,{quickView:true,session:session.value,mode:'new',to:c.email || ''}); }
 
 async function sendCompose() {
   if (composeBusy.value || !composeToEmail.value.trim() || (!composeText.value.trim() && !composeAttachments.value.length)) return;
@@ -2246,8 +2280,9 @@ function extendForMeeting(item) {
 }
 
 function clearSession() {
+  quickPreview.value=null;clearTimeout(quickPreviewTimer);clearTimeout(quickPreviewHideTimer);
   session.value = null; sessionUserId.value = null; sessionAgencyId.value = null;
-  stopHeartbeat(); clearTimeout(undoTimer);
+  stopHeartbeat(); clearTimeout(undoTimer); clearTimeout(quickPreviewTimer); clearTimeout(quickPreviewHideTimer);
   ++conversationRequest; ++homeRequest; ++chatRequest; ++calendarRequest;
   emailDrafts.clear(); chatDrafts.clear();
   activeConv.value = null; threadMessages.value = []; conversations.value = [];
@@ -2326,6 +2361,7 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
+.qv :deep(.email-reader){--email-message-background:var(--qv-surface,#153c29);--email-message-color:var(--qv-text,#f4faf6)}
 .qv-agenda-item { display:flex; justify-content:space-between; align-items:center; gap:12px; padding:16px; border-bottom:1px solid var(--qv-border); cursor:pointer; }
 .qv-agenda-item p { margin:6px 0; font-size:13px; color:var(--qv-muted); }
 .qv-reply label { display:block; font-size:13px; }
@@ -2786,4 +2822,8 @@ onUnmounted(() => {
 .qv-sheet h3 { margin: 0 0 4px; }
 .qv-sheet-actions .qv-btn { flex: 1; }
 .qv-btn.ghost.on { color: #fff; background: var(--qv-secondary, #334155); }
+</style>
+
+<style>
+.qv-email-preview{position:fixed;z-index:3000;background:#fff;color:#24372d;border:1px solid #86aa99;border-radius:9px;padding:16px;width:min(410px,90vw);box-sizing:border-box;max-height:320px;overflow:auto;box-shadow:0 8px 24px #0004}.qv-email-preview pre{white-space:pre-wrap;overflow-wrap:anywhere;font:inherit;line-height:1.5}
 </style>

@@ -4087,6 +4087,7 @@ export async function listHubConversationFeed({
   userId,
   limit = 60,
   sort = 'newest',
+  channel: channelFilter = 'all',
   mode = 'inbox'
 } = {}) {
   const aid = Number(agencyId || 0) || null;
@@ -4114,6 +4115,7 @@ export async function listHubConversationFeed({
     const emailRows = await CommunicationConversation.list({
       agencyId: aid,
       filter: unreadOnly ? 'unread' : 'all',
+      channel: ['email','sms'].includes(channelFilter) ? channelFilter : null,
       userId: uid,
       scopeToUserId: uid,
       limit: lim,
@@ -4424,7 +4426,7 @@ export async function listHubConversationFeed({
     return sortNewest ? tb - ta : ta - tb;
   });
 
-  const sliced = collapsed.slice(0, lim);
+  const sliced = collapsed.filter(item => channelFilter === 'all' || item.channel === channelFilter).slice(0, lim);
   const emailCount = sliced.filter((i) => i.kind === 'email' || i.channel === 'email').length;
   const smsCount = sliced.filter((i) => i.channel === 'sms').length;
   const chatCount = sliced.filter((i) =>

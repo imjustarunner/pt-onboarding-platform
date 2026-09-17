@@ -1,3 +1,4 @@
+import { listMessageReactions } from '../services/hubMessageReactions.service.js';
 import {
   listInboxes,
   listConversations,
@@ -231,6 +232,9 @@ export async function getUnifiedConversation(req, res, next) {
     });
     if (!detail) return res.status(404).json({ error: { message: 'Conversation not found' } });
 
+    const reactions = await listMessageReactions(detail.messages.map(m => Number(m.id)),req.user.id);
+    detail.messages = detail.messages.map(m => ({...m,reactions:reactions.get(Number(m.id)) || []}));
+    res.set('Cache-Control','private, no-store');
     res.json(detail);
   } catch (e) {
     next(e);

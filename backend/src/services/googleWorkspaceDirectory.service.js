@@ -386,7 +386,7 @@ class GoogleWorkspaceDirectoryService {
       const result = await admin.members.patch({
         groupKey,
         memberKey: email,
-        requestBody: { deliverySettings: settings }
+        requestBody: { delivery_settings: settings }
       });
       return result?.data || { email, deliverySettings: settings };
     } catch (e) {

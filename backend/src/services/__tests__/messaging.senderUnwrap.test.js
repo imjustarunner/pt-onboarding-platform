@@ -1,0 +1,8 @@
+import {expect,it,vi} from 'vitest';
+vi.mock('../../config/database.js',()=>({default:{execute:vi.fn()},onTableWrite:()=>{}}));
+import {resolveInboundSenderEmail} from '../unifiedEmail/inboundEmailAgent.service.js';
+it('unwraps Grasshopper delivered via a personal Google Group',()=>{expect(resolveInboundSenderEmail({fromEmail:'eden@itsco.health',ourFromEmails:['eden@itsco.health'],hdrs:new Map([['x-original-sender','help@grasshopper.com'],['reply-to','help@grasshopper.com']])})).toBe('help@grasshopper.com');});
+it('retains another staff member as the original sender of nested Group mail',()=>{expect(resolveInboundSenderEmail({fromEmail:'staff@itsco.health',ourFromEmails:['staff@itsco.health','admin@itsco.health'],hdrs:new Map([['x-original-sender','admin@itsco.health'],['reply-to','someone@example.org']])})).toBe('admin@itsco.health');});
+it('does not replace a normal sender with an unrelated Reply-To',()=>{expect(resolveInboundSenderEmail({fromEmail:'sender@example.org',ourFromEmails:['eden@itsco.health'],hdrs:new Map([['reply-to','different@example.org']])})).toBe('sender@example.org');});
+it('does not misattribute staff mail to an external Reply-To when original sender equals From',()=>{expect(resolveInboundSenderEmail({fromEmail:'michael@itsco.health',ourFromEmails:['michael@itsco.health'],hdrs:new Map([['x-original-sender','michael@itsco.health'],['reply-to','josie@example.org']])})).toBe('michael@itsco.health');});
+it('preserves a staff sender on a calendar invitation without Group rewrite headers',()=>{expect(resolveInboundSenderEmail({fromEmail:'aunya@itsco.health',ourFromEmails:['aunya@itsco.health'],hdrs:new Map([['reply-to','calendar-notification@google.com']])})).toBe('aunya@itsco.health');});
