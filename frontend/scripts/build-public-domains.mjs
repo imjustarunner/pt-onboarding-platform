@@ -15,7 +15,7 @@ for (const section of [...ITSCO_PUBLIC_SECTIONS, 'careers']) {
  const html = injectShareMetaIntoHtml(shell,meta).replace('</head>',`<link rel="canonical" href="${page.canonical}"></head>`);
  const file = `${section || 'home'}.html`;
  writeFileSync(`${out}/${file}`, html);
- locations.push(`location = ${path} { add_header Cache-Control "no-cache"; ${section === 'providers' ? 'add_header X-Robots-Tag $itsco_filter_robots always;' : ''} try_files /_public-sites/itsco/${file} =404; }`);
+ locations.push(`location = ${path} { add_header Cache-Control "no-cache"; ${page.noindex ? 'add_header X-Robots-Tag noindex always;' : ''} ${section === 'providers' ? 'add_header X-Robots-Tag $itsco_filter_robots always;' : ''} try_files /_public-sites/itsco/${file} =404; }`);
 }
 writeFileSync(`${out}/sitemap.xml`, itscoSitemap());
 writeFileSync(`${out}/robots.txt`, `User-agent: *\nAllow: /\nSitemap: ${ITSCO_ORIGIN}/sitemap.xml\n`);

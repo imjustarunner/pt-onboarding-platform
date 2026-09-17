@@ -139,6 +139,7 @@ const legalLinksToRender = computed(() => {
   } else {
     baseLinks = defaultLegalLinks.value;
   }
+  baseLinks = [...baseLinks, {label:'Community Standards & communication privacy',href:'/community-standards'}];
   if (!customExtraLinks.value.length) return baseLinks;
   const merged = [...baseLinks];
   const seen = new Set(baseLinks.map((x) => `${x.label}__${x.href}`.toLowerCase()));

@@ -15,3 +15,10 @@ it.each([{email:'visitor@example.com',phone:''},{email:'',phone:'7195550100'},{e
  expect(wrapper.find('form').element.checkValidity()).toBe(true);
  await wrapper.find('form').trigger('submit');await flushPromises();expect(api.post).toHaveBeenCalledWith('/public/agency-support/itsco/tickets',expect.objectContaining(contact),expect.anything());expect(wrapper.text()).toContain('Your reference is #999');
 });
+it('prefills a staff topic and submits a verified Live Chat referral',async()=>{
+ api.get.mockImplementation(async url=>({data:url.includes('/chat-referral/')?{category:'billing',categoryLabel:'Billing',fromLiveChat:true}:{categories:[{id:'other',label:'Other'}]}}));
+ wrapper=mount(Form,{props:{agencySlug:'itsco',chatReferral:'a'.repeat(64)}});await flushPromises();
+ expect(wrapper.find('select').element.value).toBe('billing');expect(wrapper.text()).toContain('Referred from Live Chat');
+ await wrapper.find('input[autocomplete="name"]').setValue('Visitor');await wrapper.find('input[type="email"]').setValue('visitor@example.com');await wrapper.find('textarea').setValue('Please help with billing.');await wrapper.find('input[type="checkbox"]').setValue(true);await wrapper.find('form').trigger('submit');await flushPromises();
+ expect(api.post).toHaveBeenCalledWith('/public/agency-support/itsco/tickets',expect.objectContaining({chatReferral:'a'.repeat(64),category:'billing'}),expect.anything());
+});

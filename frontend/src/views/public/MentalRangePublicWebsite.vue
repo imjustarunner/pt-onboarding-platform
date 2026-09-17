@@ -28,7 +28,7 @@
    </template>
   <PublicWebsiteContactForm v-if="section==='contact'" id="message" agency-slug="range" />
 </main>
-  <footer class="range-footer" :style="bannerStyle"><div class="range-wrap"><div class="range-footer-top"><Brand :logo="safe(settings.footerLogoUrl)"/><nav aria-label="Footer"><router-link v-for="[label,slug] in nav" :key="slug" :to="path(slug)">{{label}}</router-link></nav><router-link class="range-outline range-outline-white" :to="path('contact')">Contact us →</router-link></div><div class="range-footer-bottom"><small>© {{new Date().getFullYear()}} Mental Range Collective.</small><small>Stronger communities. Brighter tomorrows.</small></div></div></footer>
+  <footer class="range-footer" :style="bannerStyle"><div class="range-wrap"><div class="range-footer-top"><Brand :logo="safe(settings.footerLogoUrl)"/><nav aria-label="Footer"><router-link v-for="[label,slug] in nav" :key="slug" :to="path(slug)">{{label}}</router-link></nav><router-link class="range-outline range-outline-white" :to="path('contact')">Contact us →</router-link></div><div class="range-footer-bottom"><small>© {{new Date().getFullYear()}} Mental Range Collective.</small><small>Stronger communities. Brighter tomorrows.</small></div></div><p><a href="/community-standards">Community Standards &amp; communication privacy</a></p></footer>
  </div>
 </template>
 <script setup>

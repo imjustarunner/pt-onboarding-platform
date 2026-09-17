@@ -41,9 +41,9 @@
 
     <div v-if="looksLikePhi" class="pas-smart">
       <p>
-        It looks like your message may include health details — that's okay.
+        It looks like your message may include health details. Please remove those details.
         For extra privacy, you can log in and send us a secure message in your portal.
-        You're also welcome to send it here.
+        Use your secure portal for health information.
       </p>
       <div class="pas-smart-actions">
         <router-link v-if="joinPath" class="pas-mini" :to="joinPath">Looking for a counselor?</router-link>
@@ -51,7 +51,7 @@
       </div>
     </div>
 
-    <p class="pas-phi">{{ phiWarning }}</p>
+    <p class="pas-phi">Do not share protected health information, Social Security numbers, or payment card details here. <a href="/community-standards" target="_blank" rel="noopener">Community Standards &amp; communication privacy</a> apply to all communications.</p>
     <p v-if="loginPath" class="pas-phi">
       Want something more private?
       <router-link :to="loginPath">Log in to your portal</router-link>
@@ -61,7 +61,7 @@
       <input v-model="form.phiAcknowledged" type="checkbox" />
       <span>
         I've read the note above. I understand this page is less secure than messaging us in your portal, and I won't
-        include my Social Security number or payment card information.
+        include protected health information, my Social Security number, or payment card information.
       </span>
     </label>
     <p v-if="error" class="pas-error">{{ error }}</p>

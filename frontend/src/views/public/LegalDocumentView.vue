@@ -8,7 +8,7 @@
           <div class="legal-doc-brand-host">{{ hostLabel }}</div>
         </div>
       </div>
-      <h2>{{ title }}</h2>
+      <h2>{{ title }}</h2><p><a href="/community-standards" target="_blank" rel="noopener">Community Standards &amp; communication privacy</a> apply to all support communications.</p>
       <p class="legal-doc-subtitle">Viewing this document inside PlotTwistHQ.</p>
       <a
         v-if="sourceUrl"

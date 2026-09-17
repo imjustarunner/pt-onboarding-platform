@@ -1,6 +1,6 @@
 <template>
   <div class="ph-chat-wrap">
-    <aside v-show="!collapsed" class="ph-chat">
+    <aside v-show="!collapsed" class="ph-chat"><p><a href="/community-standards" target="_blank" rel="noopener">Community Standards &amp; communication privacy</a> apply. Do not share protected health information here.</p>
       <div class="ph-chat-header">
         <div class="ph-chat-header-main">
           <div class="ph-chat-title">{{ supportTeam?.label || 'People Operations' }}</div>

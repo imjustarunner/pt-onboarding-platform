@@ -11,8 +11,9 @@ const titles = {
   services: 'Counseling Services | ITSCO', providers: 'Find a Counselor | ITSCO',
   schools: 'School-Based Counseling | ITSCO', about: 'About ITSCO',
   growth: 'Our Growth | ITSCO', impact: 'Our Impact | ITSCO', team: 'Our Team | ITSCO',
-  insurance: 'Insurance and Counseling | ITSCO', resources: 'Family Resources | ITSCO',
-  'referral-network':'Referral Network | ITSCO', contact: 'Contact ITSCO', careers: 'Careers at ITSCO'
+  insurance: 'Insurance and Counseling | ITSCO', resources: 'Family Resources | ITSCO', 'referral-network': 'Referral Network | ITSCO',
+  'community-standards':'Community Standards | ITSCO',
+  contact: 'Contact ITSCO', careers: 'Careers at ITSCO'
 };
 export function itscoPublicResponse(host, originalUrl) {
   if (!isItscoPublicHost(host)) return null;
@@ -28,7 +29,7 @@ export function itscoPublicResponse(host, originalUrl) {
   const section = clean.slice(1);
   const indexable = Object.hasOwn(titles, section);
   // Existing enrollment and policy URLs remain functional, but are outside the public sitemap.
-  const functional = /^\/(join|intake|careers|itsco|sign|public|secure-message|preferences-form)(\/|$)/.test(clean);
+  const functional = /^\/(live-chat-support|join|intake|careers|itsco|sign|public|secure-message|preferences-form)(\/|$)/.test(clean);
   return {
     status: indexable || functional ? 200 : 404,
     internalPath: internalItscoPath(clean),
@@ -42,7 +43,7 @@ export function itscoPublicResponse(host, originalUrl) {
 }
 export function itscoSitemap() {
   return '<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">' +
-    [...ITSCO_PUBLIC_SECTIONS, 'careers'].map(s => `<url><loc>${ITSCO_ORIGIN}/${s}</loc></url>`).join('') + '</urlset>';
+    [...ITSCO_PUBLIC_SECTIONS, 'careers'].filter(s=>s!=='live-chat-support').map(s => `<url><loc>${ITSCO_ORIGIN}/${s}</loc></url>`).join('') + '</urlset>';
 }
 
 /** Keep metadata accurate after SPA navigation as well as a direct page load. */

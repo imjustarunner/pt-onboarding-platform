@@ -16,7 +16,7 @@
       <div class="panel-header">
         <div class="org-header">
           <div class="title">Messages</div>
-          <div class="subtitle">{{ panelSubtitle }}</div>
+          <div class="subtitle">{{ panelSubtitle }}</div><a href="/community-standards" target="_blank" rel="noopener">Community Standards &amp; communication privacy</a>
         </div>
         <label
           v-if="showComposeAgencyPicker"

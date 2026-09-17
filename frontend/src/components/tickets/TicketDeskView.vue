@@ -810,7 +810,7 @@
                     Official answer
                   </button>
                 </div>
-                <textarea
+                <p class="communication-standards"><a href="/community-standards" target="_blank" rel="noopener">Community Standards &amp; communication privacy</a> apply to all communications. Use approved secure channels for protected health information.</p><textarea
                   v-model="draft"
                   class="composer-textarea"
                   :rows="composerTextRows"

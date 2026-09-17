@@ -1,6 +1,6 @@
 /** Public-domain address adapter. App and Quick View hosts are deliberately excluded. */
 export const ITSCO_PUBLIC_HOSTS = ['itsco.health', 'www.itsco.health'];
-export const ITSCO_PUBLIC_SECTIONS = ['', 'services', 'providers', 'schools', 'about', 'growth', 'impact', 'team', 'insurance', 'resources', 'contact', 'referral-network'];
+export const ITSCO_PUBLIC_SECTIONS = ['', 'community-standards', 'live-chat-support', 'services', 'providers', 'schools', 'about', 'growth', 'impact', 'team', 'insurance', 'resources', 'referral-network', 'contact'];
 export function isItscoPublicHost(host = '') {
   return ITSCO_PUBLIC_HOSTS.includes(String(host).toLowerCase().split(':')[0]);
 }

@@ -1,3 +1,4 @@
+import {resolveChatReferral} from './websiteChatReferral.service.js';
 import {getPublicWebsiteIdentity} from './publicWebsiteIdentity.service.js';
 import { routePublicWebsiteTicket } from './publicWebsiteTicketRouting.service.js';
 import pool from '../config/database.js';
@@ -36,8 +37,8 @@ export const PUBLIC_SUPPORT_CATEGORIES = [
 ];
 
 const DEFAULT_INTRO = [
-  'We\'re glad you reached out. Share what you need below — it\'s okay to include health details',
-  'if that helps us assist you. For the most private option, message us through your portal account.'
+  'We are glad you reached out. Share your question below without protected health information.',
+  'For health details, use your secure portal. Community Standards apply to all communications.'
 ].join(' ');
 
 const LEGACY_INTRO_MARKERS = [
@@ -47,12 +48,7 @@ const LEGACY_INTRO_MARKERS = [
   'this organization'
 ];
 
-const PHI_WARNING = [
-  'If sharing health details would help us respond, you can include them here.',
-  'This page isn\'t as secure as messaging us inside your portal.',
-  'Please don\'t include Social Security or payment card numbers.',
-  'Need extra privacy? Log in to your portal to send us a secure message.'
-].join(' ');
+const PHI_WARNING = 'Do not share protected health information, Social Security numbers, or payment card details here. Use your secure portal for health information. Community Standards apply to all communications.';
 
 function defaultIntroForAgency(_agencyName) {
   return DEFAULT_INTRO;
@@ -452,6 +448,7 @@ export async function createPublicAgencySupportTicket(agencySlug, payload = {}, 
     throw err;
   }
 
+  const chatReferral = await resolveChatReferral(String(agencySlug),payload.chatReferral);
   const categoryLabel = PUBLIC_SUPPORT_CATEGORIES.find((c) => c.id === category)?.label || category;
   const subject = `${categoryLabel} — ${name}`.slice(0, 255);
   const question = [
@@ -464,7 +461,7 @@ export async function createPublicAgencySupportTicket(agencySlug, payload = {}, 
     `Prefers text: ${preferText ? 'yes' : 'no'}`,
     `Category: ${categoryLabel}`,
     scan.flags.length ? `Content flags: ${scan.flags.join(', ')}` : null,
-    'Source: public agency support page'
+    chatReferral ? `Source: Live Chat ${chatReferral.sessionId}${chatReferral.authorUserId ? ` — referred by support user ${chatReferral.authorUserId}` : ' — visitor submitted from chat'}` : 'Source: public agency support page'
   ].filter(Boolean).join('\n');
 
   const qEnc = prepareEncryptedTicketText(question);
@@ -516,6 +513,7 @@ export async function createPublicAgencySupportTicket(agencySlug, payload = {}, 
 
   const site = await getPublicWebsiteIdentity(String(agencySlug));
   if (site) await pool.execute('UPDATE support_tickets SET source_website_slug=? WHERE id=? AND agency_id=?',[site.slug,insertId,agency.id]);
+  if(chatReferral)await pool.execute('UPDATE public_website_chat_referrals SET ticket_id=? WHERE token_hash=?',[insertId,chatReferral.tokenHash]);
   await routePublicWebsiteTicket({agency,ticketId:insertId,subject,category});
 
   try {

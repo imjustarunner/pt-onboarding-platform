@@ -77,3 +77,11 @@ describe('organization website custom domains', () => {
   history.destroy();
  });
 });
+
+it('serves the standards page and keeps tokenized support referrals out of the sitemap',()=>{
+ expect(internalItscoPath('/community-standards')).toBe('/p/itsco/community-standards');
+ expect(internalItscoPath('/live-chat-support?ref=abc')).toBe('/p/itsco/live-chat-support?ref=abc');
+ expect(itscoPublicResponse('www.itsco.health','/community-standards').status).toBe(200);
+ expect(itscoPublicResponse('www.itsco.health','/live-chat-support?ref=abc')).toMatchObject({status:200,noindex:true});
+ expect(itscoSitemap()).not.toContain('live-chat-support');
+});

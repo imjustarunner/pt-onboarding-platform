@@ -381,7 +381,7 @@
       </main>
 
       <PublicWebsiteContactForm v-if="hubSlug === 'tisi' && !previewPage" id="contact" agency-slug="tisi" />
-      <footer id="tisi-footer" class="tisi-footer">
+      <footer id="tisi-footer" class="tisi-footer"><p><a href="/community-standards">Community Standards &amp; communication privacy</a></p>
         <div class="tisi-footer-inner">
           <div class="tisi-footer-brand">
             <img v-if="v.logoUrl" class="tisi-footer-mark" :src="v.logoUrl" alt="" />

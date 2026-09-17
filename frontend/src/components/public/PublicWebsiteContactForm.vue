@@ -1,6 +1,8 @@
 <template>
  <section class="website-contact" aria-label="Contact our team">
-  <h2>{{title}}</h2><p>Send our support team a message. We’ll follow up by email or phone. Please leave out private medical details.</p>
+  <h2>{{title}}</h2><p>Send our support team a message. We’ll follow up by email or phone. Do not share protected health information here.</p>
+  <p class="contact-small"><a href="/community-standards" target="_blank" rel="noopener">Community Standards &amp; communication privacy</a> apply to all communications.</p>
+  <p v-if="fromChat" class="contact-small">Referred from Live Chat. Our support team will see that this inquiry came from your chat.</p>
   <p v-if="preview" role="status">Contact form preview. Messages are sent from the published website.</p>
   <form v-else-if="!sent" @submit.prevent="send">
    <div class="contact-fields"><label>Your name<input v-model.trim="form.name" autocomplete="name" required minlength="2" maxlength="120"/></label><label>Email address<input v-model.trim="form.email" type="email" autocomplete="email" :required="!form.phone" maxlength="255"/></label><label>Phone number<input v-model.trim="form.phone" type="tel" autocomplete="tel" :required="!form.email" maxlength="40" minlength="7"/></label></div>
@@ -8,7 +10,7 @@
    <label>What can we help with?<select v-model="form.category" required><option disabled value="">Select a topic</option><option v-for="c in categories" :key="c.id" :value="c.id">{{c.label}}</option></select></label>
    <label>Your message<textarea v-model.trim="form.message" rows="5" required minlength="10" maxlength="4000"/></label>
    <input v-model="form.website" class="contact-honeypot" tabindex="-1" aria-hidden="true" autocomplete="off"/>
-   <label class="contact-check"><input v-model="form.phiAcknowledged" type="checkbox" required/>I understand this is a website inquiry. I won’t include Social Security numbers or payment card details.</label>
+   <label class="contact-check"><input v-model="form.phiAcknowledged" type="checkbox" required/>I understand this is a website inquiry. I won’t include protected health information, Social Security numbers, or payment card details.</label>
    <p v-if="error" role="alert">{{error}}</p><button type="submit" :disabled="busy||!ready">{{busy?'Sending…':'Send to our support team →'}}</button>
   </form>
   <div v-else role="status"><h3>Your message has been sent.</h3><p>Your reference is #{{ticketId}}. Our team will follow up using the contact information you provided.</p><button @click="sent=false">Send another message</button></div>
@@ -20,13 +22,15 @@ import {reactive,ref,onMounted} from 'vue';
 import api from '../../services/api';
 import {websiteCaptchaToken} from '../../utils/websiteCaptcha';
 const preview = new URLSearchParams(window.location.search).get('marketingPreview') === '1' || window.self !== window.top;
-const props=defineProps({agencySlug:{type:String,required:true},title:{type:String,default:'How can we help?'},initialMessage:{type:String,default:''}});
+const props=defineProps({agencySlug:{type:String,required:true},title:{type:String,default:'How can we help?'},initialMessage:{type:String,default:''},chatReferral:{type:String,default:''}});
+const referralToken=props.chatReferral||new URLSearchParams(window.location.search).get('ref')||'';
+const fromChat=ref(false);
 const form=reactive({name:'',email:'',phone:'',category:'',message:props.initialMessage.slice(0,4000),website:'',phiAcknowledged:false});
 const busy=ref(false),error=ref(''),sent=ref(false),ticketId=ref(null),ready=ref(false),categories=ref([]);let config={};
-onMounted(async()=>{if(preview)return;try{const {data}=await api.get(`/public/agency-support/${props.agencySlug}`,{skipAuthRedirect:true,skipGlobalLoading:true});config=data;categories.value=data.categories||[];ready.value=true;}catch{error.value='The contact form is temporarily unavailable. Please try again shortly.';}});
+onMounted(async()=>{if(preview)return;try{const {data}=await api.get(`/public/agency-support/${props.agencySlug}`,{skipAuthRedirect:true,skipGlobalLoading:true});config=data;categories.value=data.categories||[];if(referralToken){try{const {data:referral}=await api.get(`/public/agency-support/${props.agencySlug}/chat-referral/${encodeURIComponent(referralToken)}`,{skipAuthRedirect:true,skipGlobalLoading:true});fromChat.value=!!referral.fromLiveChat;if(referral.category&&referral.categoryLabel){if(!categories.value.some(c=>c.id===referral.category))categories.value.push({id:referral.category,label:referral.categoryLabel});form.category=referral.category;}}catch{/* Expired referrals do not prevent an inquiry. */}}ready.value=true;}catch{error.value='The contact form is temporarily unavailable. Please try again shortly.';}});
 async function send(){if(preview||busy.value||!ready.value)return;busy.value=true;error.value='';try{
  const captchaToken=await websiteCaptchaToken(config.recaptchaSiteKey,'public_agency_support',config.recaptchaRequired);
- const {data}=await api.post(`/public/agency-support/${props.agencySlug}/tickets`,{...form,captchaToken},{skipAuthRedirect:true});
+ const {data}=await api.post(`/public/agency-support/${props.agencySlug}/tickets`,{...form,captchaToken,chatReferral:fromChat.value?referralToken:undefined},{skipAuthRedirect:true});
  if(!data.ok||!data.ticketId)throw new Error('Your message could not be confirmed. Please try again.');
  ticketId.value=data.ticketId;sent.value=true;form.message='';
 }catch(e){error.value=e.response?.data?.error?.message||e.message||'Please try again.';}finally{busy.value=false;}}

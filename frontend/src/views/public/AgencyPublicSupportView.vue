@@ -360,7 +360,7 @@ const intro = computed(() => {
     || lower.includes('this public page is not as protected')
     || lower.includes('send a message to this');
   if (!stale) return raw;
-  return 'We\'re glad you reached out. Share what you need below — it\'s okay to include health details if that helps us assist you. For the most private option, message us through your portal account.';
+  return 'Share your question without protected health information. Use your secure portal for health details. Community Standards apply to all communications.';
 });
 const hoursNote = computed(() => config.value?.hoursNote || '');
 const supportContact = computed(() => config.value?.supportContact || {});

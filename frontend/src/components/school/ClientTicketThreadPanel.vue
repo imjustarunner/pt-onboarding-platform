@@ -1,5 +1,5 @@
 <template>
-  <div class="ticket-panel">
+  <div class="ticket-panel"><p class="communication-standards"><a href="/community-standards" target="_blank" rel="noopener">Community Standards &amp; communication privacy</a> apply to all communications. Use approved secure channels for protected health information.</p>
     <div v-if="loadingTickets || loadingThread" class="muted">Loading…</div>
     <div v-else-if="error" class="error">{{ error }}</div>
 

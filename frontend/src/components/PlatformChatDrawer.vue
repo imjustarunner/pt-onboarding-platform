@@ -42,7 +42,7 @@
 
     <div v-if="isDragging" class="dock-hint" aria-live="polite">Snap to any edge</div>
 
-    <div class="panel" :class="{ 'panel--wide': hasActiveChatLocal }">
+    <div class="panel" :class="{ 'panel--wide': hasActiveChatLocal }"><p class="communication-standards"><a href="/community-standards" target="_blank" rel="noopener">Community Standards &amp; communication privacy</a> apply to all communications. Use approved secure channels for protected health information.</p>
       <div class="drawer-dash-bar">
         <button type="button" class="drawer-dash-btn" @click="goToMessagesDashboard">
           Open full Messages
@@ -339,6 +339,8 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
+.communication-standards{font-size:12px;padding:8px 12px;margin:0;}
+
 .chat-drawer {
   position: fixed;
   z-index: 1200;
