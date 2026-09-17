@@ -9,79 +9,50 @@ import fs from 'fs/promises';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import pool from '../config/database.js';
+import { hireFormDefinitions } from '../services/hireFormDefinitions.service.js';
 import DocumentTemplate from '../models/DocumentTemplate.model.js';
 import OnboardingPackage from '../models/OnboardingPackage.model.js';
+import StorageService from '../services/storage.service.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ASSET_DIR = path.join(__dirname, '../assets/hireOnboarding/itsco');
-const UPLOAD_DIR = path.join(__dirname, '../../uploads/templates');
 
-const HTML_ACKS = [
-  {
-    name: 'Employee Handbook Acknowledgement',
-    lifecycleItemKey: 'handbook_acknowledged',
-    html: `<h1>Employee Handbook Acknowledgement</h1>
-<p>I acknowledge that I have received access to the workplace handbook and understand it is my responsibility to read and follow its policies.</p>
-<p>I understand that policies may be updated and that I can review the current handbook in my hire portal Resources section.</p>`
-  },
-  {
-    name: 'FAMLI Program Notice',
-    lifecycleItemKey: null,
-    html: `<h1>Colorado FAMLI Program Notice</h1>
-<p>Please review the Colorado Family and Medical Leave Insurance (FAMLI) program notice provided by your employer.</p>
-<p>By acknowledging, you confirm you have been given an opportunity to review this notice.</p>`
-  },
-  {
-    name: 'Colorado Pregnancy Workers Fairness Notice',
-    lifecycleItemKey: null,
-    html: `<h1>Colorado Pregnancy Workers Fairness Act Notice</h1>
-<p>Please review the pregnancy workers fairness notice. By acknowledging, you confirm you received this information.</p>`
-  },
-  {
-    name: 'Colorado Paid Family Leave Notice',
-    lifecycleItemKey: null,
-    html: `<h1>Colorado Paid Family and Medical Leave Notice</h1>
-<p>Please review the paid family leave notice stuffer. By acknowledging, you confirm you received this information.</p>`
-  },
-  {
-    name: 'Health Plan Summary Notice',
-    lifecycleItemKey: null,
-    html: `<h1>Health Plan Information</h1>
-<p>Please review the health plan summary information provided by your employer. Contact People Operations with questions about benefits enrollment.</p>`
-  },
-  {
-    name: 'Discrimination / Rights Notice (DR-0004)',
-    lifecycleItemKey: null,
-    html: `<h1>Employee Rights Notice</h1>
-<p>Please review the posted employee rights / discrimination notice. By acknowledging, you confirm you have been provided this notice.</p>`
-  }
-];
+// The real source PDFs are required. A generic paragraph is not a substitute
+// for delivering a statutory notice, benefits summary or withholding form.
+const HTML_ACKS = [];
 
 const PDF_DOCS = [
+  { file: 'COpregnancy.pdf', name: 'Colorado Pregnancy Accommodation Notice', action: 'review', stage: 'onboarding' },
+  { file: 'FAMLI_Program_Notice.pdf', name: 'Colorado FAMLI Program Notice', action: 'review', stage: 'onboarding' },
+  { file: 'health_plan.pdf', name: 'Health Insurance Plan Information', action: 'review', stage: 'onboarding' },
   {
-    file: 'w4_2025_2.pdf',
-    name: 'Form W-4 (2025)',
+    file: 'w4_2026.pdf',
+    fieldKind: 'w4',
+    name: 'Form W-4 (2026)',
     action: 'signature',
     lifecycleItemKey: 'w4',
     stage: 'onboarding'
   },
   {
-    file: 'i9_0527.pdf',
-    name: 'Form I-9',
+    file: 'i9_2025.pdf',
+    fieldKind: 'i9',
+    name: 'Form I-9 · Employee Section 1 (01/20/25)',
     action: 'signature',
     lifecycleItemKey: 'i9',
     stage: 'onboarding'
   },
   {
     file: 'directdepositform.pdf',
-    name: 'Direct Deposit Form',
+    fieldKind: 'direct_deposit',
+    name: 'Direct Deposit Form · Onboarding 2026',
     action: 'signature',
     lifecycleItemKey: 'direct_deposit_form',
     stage: 'onboarding'
   },
   {
     file: 'Health_Insurance_Opt_In_Out__1_.pdf',
-    name: 'Health Insurance Opt-In / Opt-Out',
+    fieldKind: 'health_election',
+    name: 'Health Insurance Opt-In / Opt-Out · Onboarding 2026',
     action: 'signature',
     lifecycleItemKey: null,
     stage: 'onboarding'
@@ -114,12 +85,10 @@ async function findExistingTemplate(agencyId, name) {
 async function ensurePdfTemplate(agencyId, spec) {
   const existing = await findExistingTemplate(agencyId, spec.name);
   if (existing) return existing;
-  await fs.mkdir(UPLOAD_DIR, { recursive: true });
   const src = path.join(ASSET_DIR, spec.file);
-  const destName = `itsco_${spec.file}`;
-  const dest = path.join(UPLOAD_DIR, destName);
-  await fs.copyFile(src, dest);
-  const filePath = `templates/${destName}`;
+  const bytes = await fs.readFile(src);
+  const saved = await StorageService.saveTemplate(bytes, `itsco_${agencyId}_${spec.file}`);
+  const filePath = saved.relativePath;
   const created = await DocumentTemplate.create({
     name: spec.name,
     description: `${spec.name} — ITSCO hire/onboarding packet. Map fillable fields in Documents Library.`,
@@ -131,7 +100,7 @@ async function ensurePdfTemplate(agencyId, spec) {
     documentStage: spec.stage || 'onboarding',
     lifecycleItemKey: spec.lifecycleItemKey,
     isRequired: true,
-    fieldDefinitions: [],
+    fieldDefinitions: spec.fieldKind ? await hireFormDefinitions(bytes, spec.fieldKind) : [],
     createdByUserId: null
   });
   return created.id;
@@ -212,19 +181,19 @@ async function main() {
   }
 
   const onboardingPkgId = await ensurePackage(agencyId, {
-    name: 'ITSCO Standard Onboarding',
+    name: 'ITSCO Onboarding · 2026',
     packageType: 'onboarding',
     description: 'Step-by-step onboarding documents (acks + W-4/I-9/direct deposit/benefits). Editable in People Ops → Onboarding Packages.',
     templateIds
   });
   const prehirePkgId = await ensurePackage(agencyId, {
-    name: 'ITSCO Pre-Hire Essentials',
+    name: 'ITSCO Pre-Hire Essentials · 2026',
     packageType: 'pre_hire',
     description: 'Pre-hire acknowledgements and notices. Add/remove steps in Onboarding Packages.',
-    templateIds: templateIds.slice(0, 6) // HTML acks first
+    templateIds: [] // Pre-hire steps are built in; employment forms belong to onboarding.
   });
 
-  // Point agency prehire_settings defaults at these packages when unset
+  // Preserve assigned questionnaires/training while replacing legacy form documents.
   const [settingsRows] = await pool.execute(
     `SELECT prehire_settings FROM agencies WHERE id = ? LIMIT 1`,
     [agencyId]
@@ -236,8 +205,32 @@ async function main() {
   } catch {
     settings = {};
   }
-  if (!settings.default_onboarding_package_id) settings.default_onboarding_package_id = onboardingPkgId;
-  if (!settings.default_prehire_package_id) settings.default_prehire_package_id = prehirePkgId;
+  const previousPackageId = Number(settings.default_onboarding_package_id);
+  if (previousPackageId && previousPackageId !== Number(onboardingPkgId)) {
+    const previous = await OnboardingPackage.findById(previousPackageId);
+    if (previous && Number(previous.agency_id) === Number(agencyId)) {
+      for (const item of await OnboardingPackage.getModules(previousPackageId)) await OnboardingPackage.addModule(onboardingPkgId, item.module_id, item.order_index);
+      for (const item of await OnboardingPackage.getTrainingFocuses(previousPackageId)) await OnboardingPackage.addTrainingFocus(onboardingPkgId, item.track_id, item.order_index);
+      for (const item of await OnboardingPackage.getChecklistItems(previousPackageId)) await OnboardingPackage.addChecklistItem(onboardingPkgId, item.checklist_item_id, item.order_index);
+      for (const item of await OnboardingPackage.getIntakeLinks(previousPackageId)) await OnboardingPackage.addIntakeLink(onboardingPkgId, item.intake_link_id, item.order_index);
+    }
+  }
+  settings.default_onboarding_package_id = onboardingPkgId;
+  settings.default_prehire_package_id = prehirePkgId;
+  const existingResources = settings.portal_workflow?.resources || [];
+  const resources = [
+    { id: 'd11', title: 'D11 Pre-Hire document', kind: 'upload', phase: 'pre_hire', required: true, url: '' },
+    { id: 'co-withholding-notice', title: 'Colorado withholding certificate (DR 0004) · 2026', kind: 'acknowledgement', phase: 'onboarding', required: true,
+      url: 'https://tax.colorado.gov/sites/tax/files/documents/DR_0004_2026.pdf', instructions: 'Review the Colorado withholding certificate. This certificate is optional. If you complete it, upload it in the Colorado withholding submission step.' },
+    { id: 'co-withholding', title: 'Submit Colorado withholding elections', kind: 'upload', phase: 'onboarding', required: false,
+      url: 'https://tax.colorado.gov/sites/tax/files/documents/DR_0004_2026.pdf', instructions: 'Upload your completed DR 0004 if you choose to submit separate Colorado withholding elections.' },
+    { id: 'marketplace', title: 'Health insurance marketplace coverage notice', kind: 'acknowledgement', phase: 'onboarding', required: true, url: '' },
+    { id: 'family-practice', title: 'Family practice information sheet', kind: 'acknowledgement', phase: 'onboarding', required: true, url: '' },
+    { id: 'supervisor-meeting', title: 'Meet with your supervisor', kind: 'meeting', phase: 'onboarding', required: true, url: '' }
+  ];
+  const byId = new Map(resources.map(r => [r.id, r]));
+  for (const resource of existingResources) byId.set(resource.id, resource);
+  settings.portal_workflow = { ...settings.portal_workflow, resources: [...byId.values()] };
   await pool.execute(
     `UPDATE agencies SET prehire_settings = ? WHERE id = ?`,
     [JSON.stringify(settings), agencyId]

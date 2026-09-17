@@ -564,6 +564,10 @@ export async function renderContractHtml({
     return `${heading}${body}`;
   });
 
+  if (String(mergedTokens.IS_SUPERVISOR || '') === '1' && String(mergedTokens.SUPERVISOR_DUTIES || '').trim()) {
+    bodyParts.push(`<section class="supervisor-duties"><h2>Supervisory responsibilities</h2>${String(mergedTokens.SUPERVISOR_DUTIES).split(/\n+/).map((p) => `<p>${escapeHtml(p)}</p>`).join('')}</section>`);
+  }
+
   const font = template?.font_family || 'Georgia, serif';
   const css = template?.css_extras || '';
   const companyName = escapeHtml(mergedTokens.COMPANY_NAME || '');

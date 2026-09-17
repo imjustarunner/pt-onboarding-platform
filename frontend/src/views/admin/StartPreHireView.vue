@@ -20,10 +20,21 @@
       </section>
 
       <section class="sph-card">
+        <h2>Choose the hire packet</h2>
+        <p class="muted">Start with the agency and job defaults. Select a reusable template, then review this person's steps before sending.</p>
+        <label>Packet template<select v-model="packetTemplateId" @change="applyPacketTemplate"><option value="">Agency and job defaults</option><option v-for="p in settings.hire_packet_templates || []" :key="p.id" :value="p.id">{{ p.name }}</option></select></label>
+        <div class="sph-grid"><label>Pre-hire package<select v-model="prehirePackageId"><option :value="null">No package</option><option v-for="p in packetPackages.filter(p => p.package_type === 'pre_hire')" :key="p.id" :value="p.id">{{ p.name }}</option></select></label><label>Onboarding package<select v-model="onboardingPackageId"><option :value="null">Choose before onboarding starts</option><option v-for="p in packetPackages.filter(p => p.package_type === 'onboarding')" :key="p.id" :value="p.id">{{ p.name }}</option></select></label></div>
+        <label>Assigned supervisor<select v-model="portalWorkflow.supervisorUserId"><option :value="null">Not assigned yet</option><option v-for="u in staffUsers.filter(u => u.id !== Number(userId))" :key="u.id" :value="u.id">{{ u.first_name }} {{ u.last_name }}</option></select></label>
+        <label class="sph-check"><input v-model="portalWorkflow.supervisorRole" type="checkbox" />This hire will perform supervisory duties</label>
+        <p v-if="portalWorkflow.supervisorRole" class="muted">Adds the supervisor role, the approved supervisory duties clause to the employment agreement, and the separate supervisor acknowledgement signature step.</p>
+        <details><summary>Review and customize this person's portal steps</summary><HireWorkflowEditor v-model="portalWorkflow" :templates="packetDocumentTemplates" heading="Included portal steps" /></details>
+      </section>
+
+      <section class="sph-card">
         <h2>Employment contract</h2>
         <p class="muted">Generated in this flow from the selected contract config (or agency default). Pay category is inferred from credential.</p>
         <div v-if="!contractConfigs.length && !libraryContractTemplateId" class="sph-warn">
-          No contract config is set up for this tenant yet. Create one in Contract Generator (or pick a library contract template in Hiring &amp; Pre-Hire settings). Initiate will still send the portal link, but the hire will not get a contract step until that is configured.
+          No contract config is set up for this tenant yet. Create one in Contract Generator (or pick a library contract template in Hiring &amp; Pre-Hire settings). Configure the employment agreement before sending this packet.
         </div>
         <label v-if="contractConfigs.length" class="sph-config">
           Contract config
@@ -145,6 +156,7 @@
 </template>
 
 <script setup>
+import HireWorkflowEditor from '../../components/admin/HireWorkflowEditor.vue';
 import { computed, onMounted, reactive, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import api from '../../services/api';
@@ -176,6 +188,22 @@ const contractBuilderTemplateId = ref(null);
 const libraryContractTemplateId = ref(null);
 const contractConfigs = ref([]);
 const contractTaskId = ref(null);
+const portalWorkflow = ref({});
+const packetTemplateId = ref('');
+const prehirePackageId = ref(null);
+const onboardingPackageId = ref(null);
+const packetPackages = ref([]);
+const packetDocumentTemplates = ref([]);
+const meaningfulWorkflow = (value) => Object.fromEntries(Object.entries(value || {}).filter(([, v]) => v !== '' && v != null));
+let baseWorkflow = {};
+function applyPacketTemplate() {
+  const preset = (settings.value.hire_packet_templates || []).find(p => p.id === packetTemplateId.value);
+  const resources = new Map((baseWorkflow.resources || []).map(r => [r.id, r]));
+  for (const r of preset?.workflow?.resources || []) resources.set(r.id, r);
+  portalWorkflow.value = JSON.parse(JSON.stringify({ ...baseWorkflow, ...meaningfulWorkflow(preset?.workflow), resources: [...resources.values()] }));
+  prehirePackageId.value = preset?.prehirePackageId || settings.value.default_prehire_package_id || null;
+  onboardingPackageId.value = preset?.onboardingPackageId || settings.value.default_onboarding_package_id || null;
+}
 const includeSupervisor = ref(false);
 
 const contract = reactive({
@@ -269,12 +297,14 @@ const load = async () => {
   loading.value = true;
   error.value = '';
   try {
-    const [cand, setRes, rolesRes, usersRes, wizardRes] = await Promise.all([
+    const [cand, setRes, rolesRes, usersRes, wizardRes, packagesRes, documentsRes] = await Promise.all([
       api.get(`/hiring/candidates/${userId.value}`, { params: { agencyId: agencyId.value } }),
       api.get('/hiring/settings', { params: { agencyId: agencyId.value } }).catch(() => ({ data: {} })),
       api.get('/hiring/signer-roles', { params: { agencyId: agencyId.value } }).catch(() => ({ data: [] })),
       api.get('/users').catch(() => ({ data: [] })),
-      api.get(`/contracts/candidates/${userId.value}/wizard-context`, { params: { agencyId: agencyId.value } }).catch(() => ({ data: {} }))
+      api.get(`/contracts/candidates/${userId.value}/wizard-context`, { params: { agencyId: agencyId.value } }).catch(() => ({ data: {} })),
+      api.get('/onboarding-packages', { params: { agencyId: agencyId.value } }),
+      api.get('/document-templates', { params: { agencyId: agencyId.value, limit: 1000 } })
     ]);
     detail.value = cand.data;
     settings.value = setRes.data?.settings || setRes.data || {};
@@ -293,6 +323,12 @@ const load = async () => {
     if (wizardTokens.value.MIN_HOURS) contract.minHours = wizardTokens.value.MIN_HOURS;
     const jd = cand.data?.jobDescription || {};
     const jobConfig = jd.prehireConfig || { documents: [] };
+    packetPackages.value = Array.isArray(packagesRes.data) ? packagesRes.data : [];
+    packetDocumentTemplates.value = Array.isArray(documentsRes.data) ? documentsRes.data : documentsRes.data?.templates || documentsRes.data?.data || [];
+    const resourceDefaults = new Map((settings.value.portal_workflow?.resources || []).map(r => [r.id, r]));
+    for (const r of jobConfig.workflow?.resources || []) resourceDefaults.set(r.id, r);
+    baseWorkflow = { ...settings.value.portal_workflow, ...meaningfulWorkflow(jobConfig.workflow), resources: [...resourceDefaults.values()] };
+    applyPacketTemplate();
     const defaults = Array.isArray(settings.value.default_prehire_docs) ? settings.value.default_prehire_docs : [];
     const seen = new Set();
     const merged = [];
@@ -373,6 +409,10 @@ const initiate = async () => {
     const { data } = await api.post(
       `/hiring/candidates/${userId.value}/send-prehire`,
       {
+        packetTemplateId: packetTemplateId.value,
+        packageId: prehirePackageId.value,
+        onboardingPackageId: onboardingPackageId.value,
+        portalWorkflow: portalWorkflow.value,
         documentTemplateIds: templateIds,
         selectedJobDocs: jobDocs.value.filter((d) => d.selected),
         signerAssignments: signers,

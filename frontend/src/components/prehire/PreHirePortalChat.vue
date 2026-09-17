@@ -6,7 +6,7 @@
           <div class="ph-chat-title">{{ supportTeam?.label || 'People Operations' }}</div>
           <div class="ph-chat-status">
             <span class="ph-chat-dot"></span>
-            We're online
+            People Operations support
           </div>
         </div>
         <button type="button" class="ph-chat-toggle" @click="collapse" title="Minimize chat" aria-label="Minimize chat">
@@ -28,7 +28,7 @@
         </div>
         <div class="ph-chat-team-copy">
           <strong>{{ supportTeam?.label || 'People Operations' }} Team</strong>
-          <span>Typically replies in a few minutes</span>
+          <span>Your hiring and onboarding support team</span>
         </div>
       </div>
 

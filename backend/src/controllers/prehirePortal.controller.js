@@ -1,3 +1,4 @@
+import { buildPortalWorkflow, portalPacket, portalStepSubmissions, requiredSubmissionKeys, assertPortalStepCompletion } from '../services/hirePortalWorkflow.service.js';
 /**
  * Pre-hire candidate portal controller.
  *
@@ -177,7 +178,7 @@ export const getPortal = async (req, res, next) => {
       }
     })();
     const hireAccountMode = String(featureFlags.hireAccountMode || '').trim().toLowerCase() || null;
-    // Pre-hire "account setup" = work username chosen (group email). Password comes at end of onboarding.
+    // Choose the work username in pre-hire; set the password during onboarding account setup.
     const usernameChosen = Boolean(user.work_email && String(user.work_email).includes('@'));
     const passwordFinalized = Boolean(
       user.sso_password_override === 1
@@ -189,7 +190,7 @@ export const getPortal = async (req, res, next) => {
     const allTasks = await journeyTasks(userId, user.status);
     const currentPhase = user.status === 'ONBOARDING' ? 'onboarding' : 'pre_hire';
     const tasks = allTasks.filter((t) => t.phase === currentPhase);
-    const journey = await getJourney(userId);
+    const journey = await getJourney(userId) || {};
 
     const totalTasks = tasks.length;
     const completedTasks = tasks.filter(t => t.status === 'completed').length;
@@ -240,29 +241,8 @@ export const getPortal = async (req, res, next) => {
         return { signed: false };
       }
     })();
-    const portalSteps = currentPhase === 'onboarding' ? [] : [
-      ...(hireAccountMode === 'group_password'
-        ? [{ key: 'username', done: usernameChosen }]
-        : []),
-      { key: 'background_check', done: !!backgroundCheck?.signed },
-      { key: 'job_description_ack', done: !!extras.jdAcknowledged }
-    ];
-    for (const d of currentPhase === 'pre_hire' ? extras.prehireDocs || [] : []) {
-      const kind = String(d.kind || '').toLowerCase();
-      if (['company_document', 'upload', 'acknowledgement'].includes(kind)) {
-        portalSteps.push({ key: `doc:${d.id}`, done: !!d.signed });
-      }
-    }
-    for (const t of tasks) {
-      portalSteps.push({ key: `task:${t.id}`, done: t.status === 'completed', required: t.isRequired });
-    }
-    if (currentPhase === 'pre_hire' && !tasks.some((t) => t.metadata.contractGeneration || t.metadata.employmentContract)) {
-      portalSteps.push({ key: 'employment_contract', done: false });
-    }
-    const stepTotal = portalSteps.length;
-    const stepDone = portalSteps.filter((s) => s.done).length;
-    const combinedPercent = stepTotal ? Math.round((stepDone / stepTotal) * 100) : 0;
-    const combinedAllDone = stepTotal > 0 && portalSteps.filter((s) => s.required !== false).every((s) => s.done);
+    const workflow = await buildPortalWorkflow({ user, agencyId: agencyRaw.id, tasks,
+      prehireTasks: allTasks.filter((t) => t.phase === 'pre_hire'), extras, backgroundCheck, hireAccountMode, journey });
     if (journey?.onboardingCompletedAt && status === 'ONBOARDING') portalPhase = 'onboarding_review';
 
     res.json({
@@ -279,7 +259,7 @@ export const getPortal = async (req, res, next) => {
         accountSetupComplete,
         usernameChosen,
         passwordFinalized,
-        canFinalizeLogin: portalPhase === 'finalize_login'
+        canFinalizeLogin: status === 'ONBOARDING' && !journey.onboardingCompletedAt && !passwordFinalized
       },
       agency,
       supportTeam,
@@ -308,14 +288,8 @@ export const getPortal = async (req, res, next) => {
           }
         : null,
       missingContract: currentPhase === 'pre_hire' && !tasks.some((t) => t.metadata.contractGeneration || t.metadata.employmentContract),
-      progress: {
-        total: stepTotal,
-        completed: stepDone,
-        requiredTotal: requiredTasks.length || stepTotal,
-        requiredCompleted: requiredTasks.length ? completedRequired : stepDone,
-        allDone: combinedAllDone,
-        percent: combinedPercent
-      },
+      workflow,
+      progress: workflow.progress[currentPhase],
       backgroundCheck,
       backgroundCheckLegal: buildBackgroundCheckLegalCopy(agencyRaw || {}, {
         legalName: `${user.first_name || ''} ${user.last_name || ''}`.trim()
@@ -699,18 +673,27 @@ export const portalComplete = async (req, res, next) => {
   try {
     const state = await portalStateForUser(req.portalUser.id);
     if (state.candidate.status === 'ONBOARDING') {
+      if (!state.journey?.onboardingCompletedAt && !state.progress.allDone) return res.status(400).json({ error: { code: 'TASKS_INCOMPLETE', message: 'Complete all required onboarding steps before submitting.' } });
       if (state.hireAccountMode === 'group_password' && !state.candidate.passwordFinalized) {
         return res.status(400).json({ error: { message: 'Set your password before submitting onboarding.' } });
       }
-      const journey = await completeOnboarding(req.portalUser.id);
+      const journey = await completeOnboarding(req.portalUser.id, requiredSubmissionKeys(state.workflow.steps.onboarding));
       return res.json({ ok: true, journey, advancedTo: 'ONBOARDING', message: 'Onboarding submitted. People Operations will review and activate your account. Recorded time was submitted to payroll.' });
     }
     if (state.candidate.status === 'PREHIRE_REVIEW') return res.json({ ok: true, advancedTo: 'PREHIRE_REVIEW' });
     if (!state.progress.allDone) return res.status(400).json({ error: {
       code: 'TASKS_INCOMPLETE', message: 'Complete the required documents, background authorization, and job description before submitting.'
     } });
-    await closePrehire(req.portalUser.id, { tasks: state.tasks, backgroundCheck: state.backgroundCheck,
-      jdAcknowledged: state.jdAcknowledged, checklist: state.checklist, prehireDocs: state.prehireDocs });
+    const db = await pool.getConnection();
+    try {
+      await db.beginTransaction();
+      const [[current]] = await db.execute('SELECT status, work_email FROM users WHERE id = ? FOR UPDATE', [req.portalUser.id]);
+      if (!['PENDING_SETUP', 'PREHIRE_OPEN', 'PREHIRE_REVIEW'].includes(current?.status)) throw Object.assign(new Error('Pre-hire is no longer open.'), { status: 409 });
+      await assertPortalStepCompletion(req.portalUser.id, 'pre_hire', requiredSubmissionKeys(state.workflow.steps.pre_hire, !!current.work_email), db);
+      await closePrehire(req.portalUser.id, { tasks: state.tasks, backgroundCheck: state.backgroundCheck,
+        jdAcknowledged: state.jdAcknowledged, checklist: state.checklistItems, prehireDocs: state.prehireDocs, workflow: { steps: state.workflow.steps.pre_hire.map(({ task, doc, ...step }) => step) } }, db);
+      await db.commit();
+    } catch (error) { await db.rollback(); throw error; } finally { db.release(); }
     await advanceCandidateStatus(req.portalUser.id);
     res.json({ ok: true, advancedTo: 'PREHIRE_REVIEW', message: 'Pre-hire submitted for review.' });
   } catch (e) { next(e); }
@@ -1264,24 +1247,7 @@ export const setPortalAccountPassword = async (req, res, next) => {
     const status = String(user.status || '').toUpperCase();
     if (status !== 'ONBOARDING') {
       return res.status(400).json({
-        error: { message: 'Password can only be set after onboarding is active and required steps are complete.' }
-      });
-    }
-
-    const [taskRows] = await pool.execute(
-      `SELECT status, is_required
-       FROM tasks
-       WHERE assigned_to_user_id = ?
-         AND (document_action_type IS NULL OR document_action_type != 'countersignature')
-         AND status NOT IN ('overridden', 'archived')`,
-      [user.id]
-    );
-    const required = (taskRows || []).filter((t) => t.is_required === 1 || t.is_required === true);
-    const requiredComplete = required.length === 0
-      || required.every((t) => String(t.status || '') === 'completed');
-    if (!requiredComplete) {
-      return res.status(400).json({
-        error: { message: 'Finish all required onboarding tasks before setting your password.' }
+        error: { message: 'Password can only be set after People Operations starts onboarding.' }
       });
     }
 
@@ -1389,6 +1355,7 @@ export const getPortalSubmissions = async (req, res, next) => {
         completedAt: t.completed_at || t.created_at
       })),
       journey: await getJourney(userId),
+      inlineSubmissions: await portalStepSubmissions(userId),
       applications: applications.map((a) => ({
         id: a.id,
         formType: a.form_type,
@@ -1451,23 +1418,9 @@ export const recordPortalHandbookOpen = async (req, res, next) => {
   }
 };
 
-export const completePortalChecklistItem = async (req, res, next) => {
-  try {
-    const userId = req.portalUser.id;
-    const itemKey = String(req.params.itemKey || req.body?.itemKey || '').trim().slice(0, 120);
-    if (!itemKey) return res.status(400).json({ error: { message: 'itemKey is required' } });
-    await pool.execute(
-      `UPDATE hiring_prehire_checklist_items
-       SET completed_on = COALESCE(completed_on, CURDATE())
-       WHERE user_id = ? AND item_key = ?`,
-      [userId, itemKey]
-    );
-    res.json({ ok: true, itemKey, completedOn: new Date().toISOString().slice(0, 10) });
-  } catch (e) {
-    if (e?.code === 'ER_NO_SUCH_TABLE') return res.json({ ok: true });
-    next(e);
-  }
-};
+export const completePortalChecklistItem = async (req, res) => res.status(409).json({ error: {
+  message: 'Complete this item through its assigned form, document or checklist task.'
+} });
 
 export const acknowledgePortalJobDescription = async (req, res, next) => {
   try {
@@ -1497,10 +1450,13 @@ export const acknowledgePortalJobDescription = async (req, res, next) => {
       if (jdId) {
         const [jdRows] = await pool.execute(
           `SELECT id, title, description_text, description_sections_json, schedule_text
-           FROM hiring_job_descriptions WHERE id = ? LIMIT 1`,
-          [jdId]
+           FROM hiring_job_descriptions WHERE id = ? AND agency_id = ? LIMIT 1`,
+          [jdId, agency.id]
         );
-        const jd = jdRows?.[0];
+        const packet = await portalPacket(userId, agency.id);
+        const jd = packet.jobDescription ? { id: packet.jobDescription.id, title: packet.jobDescription.title,
+          description_text: packet.jobDescription.descriptionText, description_sections_json: packet.jobDescription.descriptionSections,
+          schedule_text: packet.jobDescription.scheduleText } : jdRows?.[0];
         if (jd) {
           snapshotTitle = String(jd.title || 'Job description').trim() || 'Job description';
           const sections = sanitizeJobDescriptionSections(jd.description_sections_json);
@@ -1575,7 +1531,8 @@ async function findPortalPrehireDocForUser(userId, docId) {
     const settings = typeof raw === 'string' ? JSON.parse(raw) : (raw || {});
     agencyDefaults = Array.isArray(settings.default_prehire_docs) ? settings.default_prehire_docs : [];
   } catch { /* ignore */ }
-  const docs = mergePrehireDocuments(jobConfig, { documents: agencyDefaults }).documents;
+  const packet = await portalPacket(userId, agency.id);
+  const docs = Array.isArray(packet.documents) ? packet.documents : mergePrehireDocuments(jobConfig, { documents: agencyDefaults }).documents;
   const doc = docs.find((d) => String(d.id) === String(docId)) || null;
   return { agency, doc };
 }
@@ -1656,6 +1613,14 @@ export const uploadPortalPrehireDocument = async (req, res, next) => {
     if (!req.file) return res.status(400).json({ error: { message: 'file upload is required' } });
     const title = String(req.body?.title || 'Pre-hire upload').trim().slice(0, 255) || 'Pre-hire upload';
     const docId = String(req.body?.docId || '').trim().slice(0, 80);
+    const { doc } = await findPortalPrehireDocForUser(userId, docId);
+    let assignedUpload = doc?.kind === 'upload';
+    if (!assignedUpload && /^admin_doc_\d+$/.test(docId)) {
+      const [[source]] = await pool.execute("SELECT id FROM user_admin_docs WHERE id = ? AND user_id = ? AND doc_type = 'prehire_upload' AND (created_by_user_id IS NULL OR created_by_user_id != ?)", [Number(docId.replace('admin_doc_', '')), userId, userId]);
+      assignedUpload = !!source;
+    }
+    if (!assignedUpload) return res.status(403).json({ error: { message: 'This upload is not part of your assigned packet.' } });
+    if (req.file.size > 10 * 1024 * 1024) return res.status(400).json({ error: { message: 'Choose a file up to 10 MB.' } });
     const StorageService = (await import('../services/storage.service.js')).default;
     const UserAdminDoc = (await import('../models/UserAdminDoc.model.js')).default;
 
@@ -1680,10 +1645,9 @@ export const uploadPortalPrehireDocument = async (req, res, next) => {
     if (docId) {
       try {
         await pool.execute(
-          `UPDATE hiring_prehire_checklist_items
-           SET completed_on = COALESCE(completed_on, CURDATE())
-           WHERE user_id = ? AND item_key = ?`,
-          [userId, `doc:${docId}`]
+          `INSERT INTO hiring_prehire_checklist_items (user_id, agency_id, item_key, title, completed_on) VALUES (?, ?, ?, ?, CURDATE())
+           ON DUPLICATE KEY UPDATE completed_on = COALESCE(completed_on, CURDATE())`,
+          [userId, (await loadPortalAgency(userId)).id, `doc:${docId}`, title]
         );
       } catch { /* ignore */ }
     }
@@ -1782,7 +1746,9 @@ async function loadPortalPrehireExtras({ userId, agencyId, hiringProfile }) {
       const settings = typeof raw === 'string' ? JSON.parse(raw) : (raw || {});
       agencyDefaults = Array.isArray(settings.default_prehire_docs) ? settings.default_prehire_docs : [];
     }
-    extras.prehireDocs = mergePrehireDocuments(jobConfig, { documents: agencyDefaults }).documents;
+    const packet = await portalPacket(userId, agencyId);
+    if (packet.jobDescription) extras.jobDescription = packet.jobDescription;
+    extras.prehireDocs = Array.isArray(packet.documents) ? packet.documents : mergePrehireDocuments(jobConfig, { documents: agencyDefaults }).documents;
   } catch { /* ignore */ }
   try {
     const [rows] = await pool.execute(

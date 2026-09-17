@@ -30,6 +30,7 @@
       </div>
     </div>
 
+    <details><summary>Additional portal steps for this job</summary><HireWorkflowEditor :model-value="model.workflow || {}" @update:model-value="model = { ...model, workflow: $event }" heading="Job-specific videos, links and meetings" /></details>
     <div v-if="!model.documents.length" class="jpde-empty muted">No pre-hire documents on this job yet.</div>
 
     <div v-for="(doc, idx) in model.documents" :key="doc.id || idx" class="jpde-card">
@@ -116,6 +117,7 @@
 </template>
 
 <script setup>
+import HireWorkflowEditor from '../admin/HireWorkflowEditor.vue';
 import { computed, reactive } from 'vue';
 import api from '../../services/api';
 

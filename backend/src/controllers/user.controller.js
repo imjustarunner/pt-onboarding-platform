@@ -10790,14 +10790,16 @@ export const promoteToOnboarding = async (req, res, next) => {
     const settings = typeof agencyRow.prehire_settings === 'string' ? JSON.parse(agencyRow.prehire_settings) : (agencyRow.prehire_settings || {});
     const [[profile]] = await pool.execute('SELECT applied_role FROM hiring_profiles WHERE candidate_user_id = ? ORDER BY id DESC LIMIT 1', [id]);
     const mapping = (settings.role_package_mappings || []).find((m) => String(m.role || '').toLowerCase() === String(profile?.applied_role || '').toLowerCase());
-    const packageId = Number(req.body?.packageId || mapping?.packageId || settings.default_onboarding_package_id);
+    const { portalPacket } = await import('../services/hirePortalWorkflow.service.js');
+    const retainedPacket = await portalPacket(id, agencyRow.id);
+    const packageId = Number(req.body?.packageId || retainedPacket.onboardingPackageId || mapping?.packageId || settings.default_onboarding_package_id);
     if (!packageId) return res.status(400).json({ error: { message: 'Select an onboarding package before promoting this employee.' } });
     const OnboardingPackage = (await import('../models/OnboardingPackage.model.js')).default;
     const pkg = await OnboardingPackage.findById(packageId);
     if (pkg?.package_type !== 'onboarding') return res.status(400).json({ error: { message: 'Select a package of type onboarding.' } });
     const { portalStateForUser } = await import('./prehirePortal.controller.js');
     const state = await portalStateForUser(id);
-    if (!state.progress.allDone) return res.status(409).json({ error: { message: 'Required pre-hire items are incomplete. Reopen pre-hire and finish them before promotion.' } });
+    if (!state.journey?.prehireCompletedAt && !state.progress.allDone) return res.status(409).json({ error: { message: 'Required pre-hire items are incomplete. Reopen pre-hire and finish them before promotion.' } });
     const { closePrehire, startOnboarding } = await import('../services/hireJourney.service.js');
     const { assignPackageToUser } = await import('../services/packageAssignment.service.js');
     await db.beginTransaction();
@@ -10805,7 +10807,7 @@ export const promoteToOnboarding = async (req, res, next) => {
     if (locked.status !== 'PREHIRE_REVIEW') throw Object.assign(new Error('This employee has already moved to another process. Refresh and try again.'), { status: 409 });
     await closePrehire(id, { tasks: state.tasks, backgroundCheck: state.backgroundCheck,
       jdAcknowledged: state.jdAcknowledged, prehireDocs: state.prehireDocs }, db);
-    const assigned = await assignPackageToUser({ packageId, userId: id, agencyId: agencyRow.id, assignedByUserId: req.user.id, connection: db });
+    const assigned = await assignPackageToUser({ packageId, userId: id, agencyId: agencyRow.id, assignedByUserId: req.user.id, connection: db, additionalDocuments: (retainedPacket.workflow?.resources || []).filter((r) => r.phase === 'onboarding' && r.kind === 'document').map((r) => r.templateId) });
     await startOnboarding(id, db);
     const crypto = await import('node:crypto');
     const portalToken = (locked.passwordless_token_purpose !== 'reset' && locked.passwordless_token) || crypto.randomBytes(32).toString('hex');

@@ -5,8 +5,9 @@ import TrainingTrack from '../models/TrainingTrack.model.js';
 import Module from '../models/Module.model.js';
 import DocumentTemplate from '../models/DocumentTemplate.model.js';
 import CustomChecklistItem from '../models/CustomChecklistItem.model.js';
+import { assertHireFormReady } from '../utils/hireDocumentFields.js';
 
-export async function assignPackageToUser({ packageId, userId, agencyId, assignedByUserId = null, dueDate = null, connection = null }) {
+export async function assignPackageToUser({ packageId, userId, agencyId, assignedByUserId = null, dueDate = null, connection = null, additionalDocuments = [] }) {
   const pkg = await OnboardingPackage.findById(packageId);
   if (!pkg || !pkg.is_active || (pkg.agency_id && Number(pkg.agency_id) !== Number(agencyId))) {
     throw Object.assign(new Error('Select an active package belonging to this organization.'), { status: 400 });
@@ -16,6 +17,7 @@ export async function assignPackageToUser({ packageId, userId, agencyId, assigne
     OnboardingPackage.getDocuments(packageId), OnboardingPackage.getChecklistItems(packageId),
     OnboardingPackage.getIntakeLinks(packageId)
   ]);
+  for (const id of additionalDocuments.map(Number).filter(Boolean)) if (!documents.some((d) => Number(d.document_template_id) === id)) documents.push({ document_template_id: id });
   const phase = ['pre_hire', 'onboarding'].includes(pkg.package_type) ? pkg.package_type : 'ongoing';
   const planned = new Map();
   const checklists = new Map();
@@ -38,9 +40,10 @@ export async function assignPackageToUser({ packageId, userId, agencyId, assigne
   for (const doc of documents) {
     const template = await DocumentTemplate.findById(doc.document_template_id);
     if (!template || template.is_active === 0 || (template.agency_id && Number(template.agency_id) !== Number(agencyId))) throw new Error(`Document ${doc.document_template_id} is missing from the package.`);
+    if (phase === 'onboarding' || phase === 'pre_hire') assertHireFormReady(template);
     planned.set(`document:${template.id}`, { type: 'document', ref: template.id, title: template.name,
       description: template.description || '', action: doc.action_type || template.document_action_type || 'signature',
-      meta: { lifecycleItemKey: template.lifecycle_item_key || null } });
+      template, meta: { lifecycleItemKey: template.lifecycle_item_key || null } });
   }
   for (const link of intakeLinks) {
     if (!link.public_key || link.is_active === 0) throw new Error(`Intake form ${link.title || link.intake_link_id} is unavailable.`);
@@ -71,12 +74,19 @@ export async function assignPackageToUser({ packageId, userId, agencyId, assigne
     if (Number.isNaN(date.getTime())) throw Object.assign(new Error('Invalid due date.'), { status: 400 });
     for (const [key, item] of planned) {
       if (keys.has(key)) continue;
-      await db.execute(
+      const [inserted] = await db.execute(
         `INSERT INTO tasks (task_type, document_action_type, title, description, assigned_to_user_id,
           assigned_to_agency_id, assigned_by_user_id, reference_id, metadata, status, is_required, due_date)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', 1, ?)`,
         [item.type, item.action || null, item.title, item.description, userId, agencyId, assignedByUserId,
           item.ref, JSON.stringify({ ...item.meta, fromPackage: Number(packageId), portalPhase: phase }), date]);
+      if (item.template && inserted.insertId) {
+        await db.execute(`INSERT INTO user_specific_documents (user_id, task_id, name, description, template_type, html_content, file_path,
+          document_action_type, field_definitions, created_by_user_id, signature_x, signature_y, signature_width, signature_height, signature_page) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [userId, inserted.insertId, item.title, item.description, item.template.template_type, item.template.html_content || null,
+          item.template.file_path || null, item.action, JSON.stringify(typeof item.template.field_definitions === 'string' ? JSON.parse(item.template.field_definitions) : item.template.field_definitions || []), assignedByUserId,
+          item.template.signature_x ?? null, item.template.signature_y ?? null, item.template.signature_width ?? null, item.template.signature_height ?? null, item.template.signature_page ?? null]);
+      }
     }
     for (const focus of trainingFocuses) {
       await db.execute(

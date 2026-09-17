@@ -14,6 +14,11 @@ describe('portal process permissions', () => {
     const { res, next } = await request('/background-check', 'PREHIRE_REVIEW');
     expect(res.status).toHaveBeenCalledWith(409); expect(next).not.toHaveBeenCalled();
   });
+  it('locks prehire as soon as its package closes, before status promotion finishes', async () => {
+    m.getJourney.mockResolvedValue({ prehireCompletedAt: '2026-09-17' });
+    const { res, next } = await request('/background-check', 'PREHIRE_OPEN');
+    expect(res.status).toHaveBeenCalledWith(409); expect(next).not.toHaveBeenCalled();
+  });
   it('rejects another phase or another user task', async () => {
     const { res } = await request('/tasks/42/sign', 'ONBOARDING', [{ id: 42, phase: 'pre_hire', status: 'pending' }]);
     expect(res.status).toHaveBeenCalledWith(403);

@@ -8,7 +8,8 @@ export async function enforcePortalWritePhase(req, res, next) {
   try {
     const user = req.portalUser;
     const journey = await getJourney(user.id);
-    const closed = user.status === 'PREHIRE_REVIEW' || !!journey?.onboardingCompletedAt;
+    const closed = user.status === 'PREHIRE_REVIEW' || !!journey?.onboardingCompletedAt
+      || (user.status !== 'ONBOARDING' && !!journey?.prehireCompletedAt);
     if (closed) return res.status(409).json({ error: { message: 'This process is closed. You can still view your submissions. Contact People Operations for corrections.' } });
     const phase = user.status === 'ONBOARDING' ? 'onboarding' : 'pre_hire';
     const match = path.match(/^\/(tasks|modules)\/(\d+)/);

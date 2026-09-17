@@ -1,16 +1,18 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { mount, flushPromises } from '@vue/test-utils';
-const http = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn() }));
+import { ref, nextTick } from 'vue';
+const http = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn(), defaults: { baseURL: '/api' } }));
 vi.mock('../../services/api', () => ({ default: http }));
 vi.mock('axios', () => ({ default: { create: () => http } }));
 vi.mock('vue-router', () => ({ useRoute: () => ({ params: { token: 'test-token' } }), useRouter: () => ({ push: vi.fn() }) }));
 import CandidatePreHirePortal from '../CandidatePreHirePortalView.vue';
-import { isOnboardingActive } from '../../composables/useOnboardingActivity.js';
+import { isOnboardingActive, useOnboardingActivity } from '../../composables/useOnboardingActivity.js';
 let wrapper;
 const state = () => ({ candidate: { firstName: 'Elena', lastName: 'Cruz', status: 'ONBOARDING', workEmail: 'elena@example.org' },
   agency: { name: 'ITSCO' }, portalPhase: 'onboarding', progress: { total: 1, completed: 0, percent: 0, allDone: false },
   tasks: [{ id: 2, title: 'Profile questionnaire', taskType: 'training', referenceId: 4, status: 'pending', isRequired: true }],
+  workflow: { config: {}, steps: { pre_hire: [{ key: 'task-1', kind: 'task', title: 'Signed employment contract', complete: true, task: { id: 1, title: 'Signed employment contract', taskType: 'document', status: 'completed' } }], onboarding: [{ key: 'task-2', kind: 'task', title: 'Profile questionnaire', task: { id: 2, taskType: 'training', referenceId: 4 } }, { key: 'review', kind: 'review', title: 'Final review' }] }, progress: { pre_hire: { total: 1, completed: 1, percent: 100, allDone: true }, onboarding: { total: 1, completed: 0, percent: 0, allDone: false } } },
   prehireTasks: [{ id: 1, title: 'Signed employment contract', taskType: 'document', status: 'completed' }],
   journey: { prehireCompletedAt: '2026-09-10', time: { seconds: 60 } }, backgroundCheck: { signed: true }, jdAcknowledged: true
 });
@@ -20,36 +22,63 @@ const open = async (data) => {
   http.get.mockImplementation(async (url) => ({ data: url.endsWith('/submissions')
     ? { completedDocuments: [{ id: 1, title: 'Signed employment contract' }] }
     : url.endsWith('/tasks/1') ? { document: { htmlContent: '<p>Retained agreement</p>' }, status: 'completed' } : data }));
-  wrapper = mount(CandidatePreHirePortal, { global: { stubs: { PreHirePortalChat: true, AdaptiveSignatureCapture: true, JobDescriptionSections: true } } });
+  wrapper = mount(CandidatePreHirePortal, { global: { stubs: { PreHirePortalChat: true, AdaptiveSignatureCapture: true, JobDescriptionSections: true, HireDocumentPreview: true } } });
   await flushPromises(); return wrapper;
 };
 describe('candidate process interface', () => {
-  it('starts onboarding with its own progress and retained prehire switch', async () => {
-    await open(state());
-    expect(wrapper.find('.journey-switch .selected').text()).toContain('2. Onboarding');
-    expect(wrapper.text()).toContain('Completed · view package');
-    await wrapper.find('.journey-switch button').trigger('click');
-    expect(wrapper.text()).toContain('Your pre-hire package is closed');
+  it('sends the pause after an in-flight activity request when leaving onboarding', async () => {
+    const enabled = ref(true);
+    let finish;
+    const transport = { post: vi.fn().mockImplementationOnce(() => new Promise(resolve => { finish = resolve; })).mockResolvedValue({ data: { tracking: false } }) };
+    wrapper = mount({ setup() { useOnboardingActivity({ enabled, token: ref('test-token'), http: transport }); return {}; }, template: '<div />' });
+    enabled.value = false;
+    await nextTick();
+    finish({ data: { tracking: true } });
+    await flushPromises();
+    expect(transport.post).toHaveBeenCalledTimes(2);
+    expect(transport.post.mock.calls[1][1]).toMatchObject({ active: false, sequence: 2 });
   });
-  it('keeps the final submit action available after required tasks finish', async () => {
-    const data = state(); data.tasks[0].status = 'completed'; data.progress = { total: 1, completed: 1, percent: 100, allDone: true };
+  it('opens only prehire navigation before staff starts onboarding', async () => {
+    const data = state(); data.candidate.status = 'PREHIRE_OPEN'; data.journey = {};
     await open(data);
-    const tasksLink = wrapper.findAll('a').find((a) => a.text().includes('My Tasks'));
-    await tasksLink.trigger('click');
-    expect(wrapper.find('.btn-complete').exists()).toBe(true);
-    expect(wrapper.find('.btn-complete').attributes('disabled')).toBeUndefined();
+    const nav = wrapper.find('.hire-nav nav');
+    expect(nav.text()).toContain('Pre-Hire');
+    expect(nav.text()).not.toContain('Onboarding');
+    expect(nav.text()).not.toContain('Active');
   });
-  it('opens a completed document from the prior phase', async () => {
+  it('starts onboarding with a link back to completed prehire', async () => {
     await open(state());
-    await wrapper.findAll('a').find((a) => a.text().includes('My Submissions')).trigger('click');
+    const nav = wrapper.find('.hire-nav nav');
+    expect(nav.text()).toContain('Onboarding');
+    await nav.findAll('button').find(b => b.text().includes('Pre-Hire')).trigger('click');
+    expect(wrapper.text()).toContain('Pre-hire complete');
+    expect(wrapper.text()).toContain('Retained package');
+    expect(wrapper.find('.archive-link').text()).toContain('Return to onboarding');
+  });
+  it('requires the final certification before offering submission', async () => {
+    const data = state(); data.workflow.progress.onboarding = { total: 1, completed: 1, percent: 100, allDone: true };
+    await open(data);
+    await wrapper.find('.hire-nav nav').findAll('button').find(b => b.text() === 'Onboarding').trigger('click');
+    await wrapper.findAll('.steps button').find(b => b.text().includes('Final review')).trigger('click');
+    const submit = () => wrapper.findAll('button').find(b => b.text().includes('Submit onboarding for review'));
+    expect(submit().attributes('disabled')).toBeDefined();
+    await wrapper.find('input[type=checkbox]').setValue(true);
+    expect(submit().attributes('disabled')).toBeUndefined();
+    await submit().trigger('click');
+    expect(wrapper.find('.confirm-modal').exists()).toBe(true);
+  });
+  it('opens a retained PDF from My Documents', async () => {
+    await open(state());
+    await wrapper.find('.hire-nav nav').findAll('button').find(b => b.text() === 'My Documents').trigger('click');
     await flushPromises();
     await wrapper.find('.portal-doc-title-btn').trigger('click'); await flushPromises();
     expect(wrapper.find('.task-panel').exists()).toBe(true);
-    expect(wrapper.text()).toContain('Retained agreement');
+    expect(wrapper.find('hire-document-preview-stub').attributes('url')).toBe('/prehire-portal/test-token/tasks/1/preview');
   });
   it('presents submitted onboarding as waiting for staff activation', async () => {
     const data = state(); data.journey.onboardingCompletedAt = '2026-09-11'; data.portalPhase = 'onboarding_review';
-    await open(data); expect(wrapper.text()).toContain('People Operations will review your package and mark you active');
+    await open(data); expect(wrapper.text()).toContain('Staff will activate your account after review');
+    expect(wrapper.findAll('button').some(b => b.text().includes('Submit onboarding'))).toBe(false);
   });
 });
 describe('activity attention signals', () => {

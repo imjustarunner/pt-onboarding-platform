@@ -12,6 +12,7 @@ export const EMPLOYEE_VISIBLE_ADMIN_DOC_TYPES = [
   'job_description_ack',
   'job_description_acknowledgement',
   'background_check_authorization',
+  'hire_portal_acknowledgement',
   'company_document_signed'
 ];
 

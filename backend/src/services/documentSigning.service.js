@@ -1,3 +1,4 @@
+import { validateHireDocumentFields } from '../utils/hireDocumentFields.js';
 import { PDFDocument, rgb } from 'pdf-lib';
 import fs from 'fs/promises';
 import path from 'path';
@@ -234,13 +235,15 @@ class DocumentSigningService {
         }
         
         pdfDoc = await PDFDocument.load(templateBuffer);
+        // Final copies must not retain blank editable widgets over the saved answers.
+        pdfDoc.getForm().flatten();
         console.log(`DocumentSigningService.generateFinalizedPDF: PDF template loaded successfully`);
       } else if (templateType === 'html' && htmlContent) {
         console.log(`DocumentSigningService.generateFinalizedPDF: Converting HTML to PDF...`);
         const documentType = String(options?.documentType || options?.document_type || '').toLowerCase();
         let htmlForPdf = htmlContent;
         let convertOpts = { branding: options?.branding || null };
-        if (documentType === 'audio_recording_consent') {
+        if (documentType === 'audio_recording_consent' || options.hirePortalBranding) {
           const branded = await this.applyPacketBrandChromeToHtml(htmlContent, options);
           htmlForPdf = branded.html;
           convertOpts = { ...convertOpts, ...branded.pdfOptions };
@@ -252,7 +255,7 @@ class DocumentSigningService {
           htmlForPdf = branded.html;
           convertOpts = { ...convertOpts, ...branded.pdfOptions };
         }
-        const htmlPdf = await this.convertHTMLToPDF(htmlForPdf, convertOpts);
+        const htmlPdf = await this.convertHTMLToPDF(htmlForPdf, { ...convertOpts, disableFallback: options.hirePortalBranding === true });
         console.log(`DocumentSigningService.generateFinalizedPDF: HTML converted to PDF, loading into PDFDocument...`);
         pdfDoc = await PDFDocument.load(htmlPdf);
         console.log(`DocumentSigningService.generateFinalizedPDF: HTML PDF loaded successfully`);
@@ -991,6 +994,7 @@ class DocumentSigningService {
       if ((value === null || value === undefined || String(value).trim() === '') && def.type === 'date' && def.autoToday) {
         value = new Date().toISOString().slice(0, 10);
       }
+      if (def.type === 'date' && def.autoToday && def.dateFormat === 'MM/DD/YYYY') value = new Date().toLocaleDateString('en-US', { timeZone: 'America/Denver' });
       if (def.type === 'checkbox') {
         const truthy = value === true || value === 'true' || value === '1' || value === 1 || value === 'yes' || value === 'on' || value === 'checked';
         if (!truthy) continue;
@@ -1548,6 +1552,7 @@ class DocumentSigningService {
       fieldDefinitions = [];
     }
 
+    if (context === 'prehire_portal') validateHireDocumentFields(fieldDefinitions, fieldValues);
     const signatureCoords = this.resolveSignatureCoords(source, fieldDefinitions);
     const documentName = source.name || task.title || 'Document';
     const referenceNumber = `DOC-${signedDoc.id}-${Date.now().toString(36).toUpperCase()}`;
@@ -1579,6 +1584,8 @@ class DocumentSigningService {
       mergedAuditTrail,
       signatureCoords,
       {
+        agencyId: task.assigned_to_agency_id,
+        hirePortalBranding: context === 'prehire_portal',
         referenceNumber,
         documentName,
         signatureOnAuditPage: false,

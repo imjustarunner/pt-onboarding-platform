@@ -18,6 +18,17 @@
         </details>
       </details>
       <details>
+        <summary>Pre-employment information &amp; portal steps</summary>
+        <details v-for="(submission, key) in record.inlineSubmissions || {}" :key="key">
+          <summary>{{ submission.value?.title || key.replace('pre_hire:', 'Pre-hire · ').replace('onboarding:', 'Onboarding · ').replace(/-/g, ' ') }}</summary>
+          <p>{{ submission.completedAt ? `Completed ${new Date(submission.completedAt).toLocaleDateString()}` : 'Saved draft' }}</p>
+          <button v-if="submission.value?.path || submission.value?.receiptPath" @click="openFile(`/onboarding-packages/my-record/workflow/${key.split(':')[0]}/${key.split(':')[1]}/file`)">View retained file</button>
+          <dl v-if="key === 'pre_hire:profile'"><template v-for="(value, field) in submission.value" :key="field"><dt>{{ field.replace(/_/g, ' ') }}</dt><dd>{{ value || 'Not provided' }}</dd></template></dl>
+          <p v-if="submission.value?.email">{{ submission.value.email }}</p>
+          <p v-if="submission.value?.scheduledAt">Meeting: {{ new Date(submission.value.scheduledAt).toLocaleString() }}</p>
+        </details>
+      </details>
+      <details>
         <summary>Documents & uploaded materials</summary>
         <ul>
           <li v-for="doc in record.uploadedMaterials || []" :key="doc.id"><button v-if="doc.fileUrl" @click="openFile(doc.fileUrl)">{{ doc.title }}</button><span v-else>{{ doc.title }}</span></li>

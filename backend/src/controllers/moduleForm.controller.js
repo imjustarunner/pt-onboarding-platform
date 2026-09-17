@@ -1,3 +1,4 @@
+import { PREEMPLOYMENT_KEYS } from '../utils/hirePortalWorkflow.js';
 import pool from '../config/database.js';
 import ModuleContent from '../models/ModuleContent.model.js';
 import UserInfoFieldDefinition from '../models/UserInfoFieldDefinition.model.js';
@@ -111,7 +112,7 @@ export const getModuleFormDefinition = async (req, res, next) => {
       new Set(pages.flatMap((p) => p.fieldDefinitionIds))
     );
 
-    const fieldDefs = await loadFieldDefinitionsByIds(fieldDefinitionIds);
+    const fieldDefs = (await loadFieldDefinitionsByIds(fieldDefinitionIds)).filter((f) => !req.portalUser || !PREEMPLOYMENT_KEYS.has(f.field_key));
     const fieldDefMap = new Map(fieldDefs.map((f) => [f.id, f]));
 
     // Preserve the module page ordering for fields
@@ -168,6 +169,9 @@ export const uploadModuleFormFile = [
       const def = await loadFieldDefinitionById(fieldDefinitionId);
       if (!def?.field_key) {
         return res.status(404).json({ error: { message: 'Field definition not found' } });
+      }
+      if (req.portalUser && PREEMPLOYMENT_KEYS.has(def.field_key)) {
+        return res.status(409).json({ error: { message: 'This file belongs to your pre-hire package. Contact People Operations to correct a closed submission.' } });
       }
 
       // Basic file type allowlist (resume/headshot/etc)
@@ -313,10 +317,10 @@ export const submitModuleForm = async (req, res, next) => {
     const requiredFieldIds = Array.from(
       new Set(
         pages.flatMap((p) => {
-          if (p.requireAll) return p.fieldDefinitionIds;
+          if (p.requireAll) return p.fieldDefinitionIds.filter((id) => !req.portalUser || !PREEMPLOYMENT_KEYS.has(referencedDefMap.get(id)?.field_key));
           return p.fieldDefinitionIds.filter((id) => {
             const def = referencedDefMap.get(id);
-            return def && (def.is_required === 1 || def.is_required === true);
+            return def && (!req.portalUser || !PREEMPLOYMENT_KEYS.has(def.field_key)) && (def.is_required === 1 || def.is_required === true);
           });
         })
       )
@@ -355,4 +359,3 @@ export const submitModuleForm = async (req, res, next) => {
     next(error);
   }
 };
-

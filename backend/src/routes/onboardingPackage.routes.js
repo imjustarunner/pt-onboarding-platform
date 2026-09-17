@@ -40,6 +40,10 @@ router.get('/my-record', authenticate, ownHireRecord, hireHandler('getPortalSubm
 router.get('/my-record/tasks/:taskId', authenticate, ownHireRecord, hireHandler('getPortalTask'));
 router.get('/my-record/tasks/:taskId/signed-file', authenticate, ownHireRecord, hireHandler('viewPortalSignedFile'));
 router.get('/my-record/files/:docId', authenticate, ownHireRecord, hireHandler('viewPortalSubmissionFile'));
+router.get('/my-record/workflow/:phase/:stepKey/file', authenticate, ownHireRecord, async (req, res, next) => {
+  const { viewWorkflowFile } = await import('../controllers/hirePortalWorkflow.controller.js');
+  return viewWorkflowFile(req, res, next);
+});
 
 
 const validatePackage = [
@@ -110,4 +114,3 @@ router.post('/:id/assign', authenticate, requireBackofficeAdmin, [
 ], assignPackage);
 
 export default router;
-

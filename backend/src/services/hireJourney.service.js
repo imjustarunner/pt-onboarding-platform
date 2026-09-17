@@ -1,7 +1,7 @@
 import pool from '../config/database.js';
 
 export const parseMetadata = (value) => {
-  try { return typeof value === 'string' ? JSON.parse(value) : (value || {}); }
+  try { const parsed = typeof value === 'string' ? JSON.parse(value) : value; return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {}; }
   catch { return {}; }
 };
 
@@ -148,7 +148,7 @@ export async function recordOnboardingActivity(userId, { sessionId, sequence, ac
   finally { db.release(); }
 }
 
-export async function completeOnboarding(userId) {
+export async function completeOnboarding(userId, requiredStepKeys = []) {
   const db = await pool.getConnection();
   try {
     await db.beginTransaction();
@@ -157,8 +157,10 @@ export async function completeOnboarding(userId) {
     await ensureJourney(userId, db);
     const [[journey]] = await db.execute('SELECT * FROM hire_journeys WHERE user_id = ? FOR UPDATE', [userId]);
     if (journey.onboarding_completed_at) { await db.commit(); return getJourney(userId); }
+    const { assertPortalStepCompletion } = await import('./hirePortalWorkflow.service.js');
+    await assertPortalStepCompletion(userId, 'onboarding', requiredStepKeys, db);
     const tasks = (await journeyTasks(userId, user.status, db)).filter((t) => t.phase === 'onboarding');
-    if (!tasks.length || !taskProgress(tasks).allDone) {
+    if ((!tasks.length && !requiredStepKeys.length) || !taskProgress(tasks).allDone) {
       throw Object.assign(new Error('Complete all required onboarding items before submitting.'), { status: 400 });
     }
     const [days] = await db.execute('SELECT * FROM hire_onboarding_time WHERE user_id = ? FOR UPDATE', [userId]);

@@ -38,6 +38,17 @@ describe('package assignment', () => {
     await assignPackageToUser(request);
     expect(m.execute.mock.calls.some(([sql]) => sql.includes('INSERT INTO tasks'))).toBe(false);
   });
+  it('freezes assigned document source and field definitions for later signing', async () => {
+    m.execute.mockImplementation(async (sql) => {
+      if (sql.includes('INSERT INTO tasks')) return [{ insertId: 99 }];
+      if (sql.startsWith('SELECT id FROM users') || sql.startsWith('SELECT user_id')) return [[{ id: 2 }]];
+      return [[]];
+    });
+    await assignPackageToUser(request);
+    const snapshot = m.execute.mock.calls.find(([sql]) => sql.includes('INSERT INTO user_specific_documents'));
+    expect(snapshot[1].slice(0, 3)).toEqual([2, 99, 'Tax form']);
+    expect(snapshot[0]).toContain('field_definitions'); expect(snapshot[0]).toContain('signature_page');
+  });
   it('rejects a package from another agency', async () => {
     m.pkg.mockResolvedValue({ agency_id: 9, is_active: 1 });
     await expect(assignPackageToUser(request)).rejects.toThrow('this organization'); expect(m.getConnection).not.toHaveBeenCalled();

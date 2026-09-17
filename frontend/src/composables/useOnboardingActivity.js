@@ -5,7 +5,7 @@ export function isOnboardingActive({ visible, focused, lastInputAt, now, playing
 }
 
 // Time comes from the server. The browser reports only attention and a replay sequence.
-export function useOnboardingActivity({ enabled, token, http }) {
+export function useOnboardingActivity({ enabled, token, http, playingVideo = null }) {
   const tracking = ref(false);
   const error = ref('');
   const sessionId = crypto.randomUUID();
@@ -15,11 +15,15 @@ export function useOnboardingActivity({ enabled, token, http }) {
   let inFlight = null;
   const touch = () => { lastInputAt = Date.now(); };
   const heartbeat = async (forceInactive = false) => {
-    if (!enabled.value || !token.value) { tracking.value = false; return; }
-    if (inFlight) return inFlight;
+    if ((!enabled.value && !forceInactive) || !token.value) { tracking.value = false; return; }
+    if (inFlight) {
+      // A phase change must still pause after an already-sent active heartbeat.
+      if (forceInactive) { await inFlight; return heartbeat(true); }
+      return inFlight;
+    }
     const active = !forceInactive && isOnboardingActive({ visible: document.visibilityState === 'visible',
       focused: document.hasFocus(), lastInputAt, now: Date.now(),
-      playingVideo: [...document.querySelectorAll('video')].some((v) => !v.paused && !v.ended) });
+      playingVideo: !!playingVideo?.value || [...document.querySelectorAll('video')].some((v) => !v.paused && !v.ended) });
     inFlight = http.post(`/prehire-portal/${token.value}/activity`, { sessionId, sequence: ++sequence, active })
       .then(({ data }) => { tracking.value = data.tracking && active; error.value = ''; })
       .catch(() => { tracking.value = false; error.value = 'Time tracking could not connect. Please reconnect before continuing, or report missing time to People Operations.'; })
@@ -36,7 +40,7 @@ export function useOnboardingActivity({ enabled, token, http }) {
     timer = setInterval(heartbeat, 15000);
     void heartbeat();
   });
-  watch(enabled, () => { void heartbeat(); });
+  watch(enabled, (value, previous) => { if (value) void heartbeat(); else if (previous) void heartbeat(true); });
   onBeforeUnmount(() => {
     clearInterval(timer);
     events.forEach((name) => window.removeEventListener(name, touch));

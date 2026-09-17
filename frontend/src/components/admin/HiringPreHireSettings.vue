@@ -111,6 +111,23 @@
         />
       </div>
 
+      <div class="hps-section">
+        <HireWorkflowEditor v-model="form.portal_workflow" :templates="templates" branding supervisor-settings heading="Tenant portal design and step defaults" />
+        <p class="hps-help">Use a Google Drive viewer link for the handbook above. Manage viewer download permissions in Drive. The portal does not add a handbook download action.</p>
+      </div>
+      <div class="hps-section">
+        <div class="hps-section-title">Reusable hire packet templates</div>
+        <p class="hps-help">Choose these on Start Pre-Hire. Each combines package assignments and additional portal steps.</p>
+        <div v-for="(packet, index) in form.hire_packet_templates" :key="packet.id" class="hps-section">
+          <label class="hps-label">Template name<input v-model="packet.name" class="input" /></label>
+          <label class="hps-label">Pre-hire package<select v-model="packet.prehirePackageId" class="input"><option :value="null">Agency default</option><option v-for="p in preHirePackages" :key="p.id" :value="p.id">{{ p.name }}</option></select></label>
+          <label class="hps-label">Onboarding package<select v-model="packet.onboardingPackageId" class="input"><option :value="null">Agency default</option><option v-for="p in onboardingPackages" :key="p.id" :value="p.id">{{ p.name }}</option></select></label>
+          <HireWorkflowEditor v-model="packet.workflow" :templates="templates" heading="Additional steps for this template" />
+          <button type="button" class="btn btn-secondary" @click="form.hire_packet_templates.splice(index, 1)">Remove template</button>
+        </div>
+        <button type="button" class="btn btn-secondary" @click="addPacketTemplate">Add packet template</button>
+      </div>
+
       <!-- Candidate Access Token -->
       <div class="hps-section">
         <div class="hps-section-header">
@@ -264,6 +281,7 @@
 </template>
 
 <script setup>
+import HireWorkflowEditor from './HireWorkflowEditor.vue';
 import { ref, computed, watch, onMounted } from 'vue';
 import api from '../../services/api';
 import { useAgencyStore } from '../../store/agency';
@@ -295,8 +313,11 @@ const form = ref({
   role_package_mappings: [],
   handbook_ack_url: '',
   handbook_full_url: '',
-  default_prehire_docs: []
+  default_prehire_docs: [],
+  portal_workflow: {},
+  hire_packet_templates: []
 });
+const addPacketTemplate = () => form.value.hire_packet_templates.push({ id: crypto.randomUUID(), name: 'New hire packet', workflow: {}, prehirePackageId: null, onboardingPackageId: null });
 const defaultDocsModel = computed({
   get: () => ({ documents: Array.isArray(form.value.default_prehire_docs) ? form.value.default_prehire_docs : [] }),
   set: (v) => { form.value.default_prehire_docs = v?.documents || []; }
@@ -368,6 +389,8 @@ const loadAll = async () => {
       role_package_mappings: Array.isArray(s.role_package_mappings) ? s.role_package_mappings : [],
       handbook_ack_url: s.handbook_ack_url ?? '',
       handbook_full_url: s.handbook_full_url ?? '',
+      portal_workflow: s.portal_workflow || {},
+      hire_packet_templates: s.hire_packet_templates || [],
       default_prehire_docs: Array.isArray(s.default_prehire_docs) ? s.default_prehire_docs : []
     };
 

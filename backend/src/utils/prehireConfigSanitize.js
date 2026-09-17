@@ -1,3 +1,4 @@
+import { sanitizeWorkflow } from './hirePortalWorkflow.js';
 const KINDS = new Set(['print_only', 'reference', 'acknowledgement', 'upload', 'company_document']);
 
 function asObject(raw) {
@@ -45,7 +46,7 @@ export function sanitizePrehireConfig(raw) {
     .map((n) => Number(n))
     .filter((n) => Number.isFinite(n) && n > 0);
 
-  return { documents, signerRoleIds };
+  return { documents, signerRoleIds, ...(parsed.workflow ? { workflow: sanitizeWorkflow(parsed.workflow) } : {}) };
 }
 
 export function mergePrehireDocuments(jobConfig, agencyDefaults) {

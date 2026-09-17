@@ -1,274 +1,18 @@
 <template>
   <div class="portal-root" :style="cssVars">
-
-    <!-- Loading splash -->
-    <div v-if="loading" class="portal-splash">
-      <div class="splash-spinner"></div>
-      <div class="splash-text">Loading your portal…</div>
+    <div v-if="loading" class="portal-splash"><div class="splash-spinner"></div><p>Loading your portal…</p></div>
+    <div v-else-if="errorCode" class="portal-splash">
+      <img v-if="agency?.logoUrl" :src="agency.logoUrl" :alt="agency.name" style="max-width:180px" />
+      <h2>{{ errorCode === 'STATUS_ADVANCED' ? 'Your hire process is complete' : 'We couldn’t open your portal' }}</h2>
+      <p>{{ errorCode === 'STATUS_ADVANCED' ? 'Sign in to your employee account to access your retained hire packages in your library.' : 'Try opening your link again, or contact People Operations for help.' }}</p>
+      <button v-if="errorCode !== 'STATUS_ADVANCED'" class="btn-primary" @click="loadPortal">Try again</button>
     </div>
-
-    <!-- Error states -->
-    <div v-else-if="errorCode === 'INVALID_TOKEN'" class="portal-splash portal-splash-error">
-      <div class="error-icon">🔗</div>
-      <h2>This link is invalid or has expired.</h2>
-      <p>Please contact your hiring team to receive a new link.</p>
-    </div>
-
-    <div v-else-if="errorCode === 'STATUS_ADVANCED'" class="portal-splash portal-splash-done">
-      <div v-if="agency?.logoUrl" class="splash-logo"><img :src="agency.logoUrl" :alt="agency.name" /></div>
-      <div class="done-icon">✓</div>
-      <h2>You're an active team member</h2>
-      <p>Your hire portal is complete. Sign in with your work email (username) and the password you created.</p>
-      <p class="contact-line">
-        If you still need help, contact People Operations — they can re-send access if needed.
-      </p>
-      <p v-if="agency?.phoneNumber" class="contact-line">Questions? Call us at <strong>{{ agency.phoneNumber }}</strong></p>
-    </div>
-
-    <!-- Main portal -->
     <template v-else-if="portalData">
-
-      <div class="portal-shell">
-        <!-- Left nav -->
-        <aside class="portal-nav" :style="sidebarStyle">
-          <div class="portal-nav-brand">
-            <img v-if="agency?.logoUrl" :src="agency.logoUrl" :alt="agency.name" class="portal-nav-logo" />
-            <div v-else class="portal-nav-logo-fallback">{{ orgInitials }}</div>
-            <div class="portal-nav-org">{{ agency?.name || 'Your Organization' }}</div>
-          </div>
-
-          <nav class="portal-nav-links">
-            <a
-              class="portal-nav-link"
-              :class="{ 'portal-nav-link--active': activeSection === 'dashboard' }"
-              href="#"
-              @click.prevent="activeSection = 'dashboard'"
-            >
-              <span class="portal-nav-icon">▦</span>
-              Dashboard
-            </a>
-            <a
-              class="portal-nav-link"
-              :class="{ 'portal-nav-link--active': activeSection === 'tasks' }"
-              href="#"
-              @click.prevent="activeSection = 'tasks'"
-            >
-              <span class="portal-nav-icon">☑</span>
-              My Tasks
-            </a>
-            <a
-              class="portal-nav-link"
-              :class="{ 'portal-nav-link--active': activeSection === 'submissions' }"
-              href="#"
-              @click.prevent="openSubmissions"
-            >
-              <span class="portal-nav-icon">📄</span>
-              My Submissions
-            </a>
-            <a
-              class="portal-nav-link"
-              :class="{ 'portal-nav-link--active': activeSection === 'handbook' }"
-              href="#"
-              @click.prevent="openHandbook"
-            >
-              <span class="portal-nav-icon">📖</span>
-              Workplace handbook
-            </a>
-          </nav>
-
-          <div class="portal-nav-footer">
-            <span class="portal-nav-shield">🛡</span>
-            Your data is secure. This portal is protected by encryption.
-          </div>
-        </aside>
-
-        <!-- Center column -->
-        <div class="portal-center">
-          <header class="portal-topbar">
-            <div class="portal-topbar-spacer"></div>
-            <div class="portal-user-chip">
-              <div class="portal-user-avatar">{{ candidateInitials }}</div>
-              <span>{{ candidate.firstName }} {{ candidate.lastName }}</span>
-            </div>
-          </header>
-
-          <main class="portal-content">
-            <div class="portal-welcome">
-              <h1>Welcome, {{ candidate.firstName }}!</h1>
-              <p>
-                <template v-if="viewingPrehire && candidate.status === 'ONBOARDING'">Your pre-hire package is complete. View your retained submissions or switch to onboarding.</template>
-                <template v-else-if="portalPhase === 'account_setup'">
-                  Choose your work username to continue joining {{ agency?.name || 'the team' }}.
-                </template>
-                <template v-else-if="portalPhase === 'finalize_login'">
-                  Your required steps are complete. Set your password, then submit onboarding for review.
-                </template>
-                <template v-else-if="portalPhase === 'review'">
-                  Your pre-hire packet is with People Operations for review. You can still view submissions and resources.
-                </template>
-                <template v-else-if="portalPhase === 'onboarding'">
-                  You're in onboarding — complete the steps below to finish joining {{ agency?.name || 'the team' }}.
-                </template>
-                <template v-else>
-                  We're excited to have you join {{ agency?.name || 'the team' }}.
-                </template>
-              </p>
-              <div class="portal-phase-pill">
-                {{ phaseLabel }} · {{ progressPct }}% complete
-              </div>
-            </div>
-
-            <nav class="journey-switch" aria-label="Hire process">
-              <button type="button" :class="{ selected: viewingPrehire }" @click="selectedProcess = 'pre_hire'; activeSection = 'dashboard'">
-                <strong>1. Pre-hire</strong>
-                <span>{{ candidate.status === 'ONBOARDING' ? 'Completed · view package' : candidate.status === 'PREHIRE_REVIEW' ? 'Submitted · under review' : 'Documents & signatures' }}</span>
-              </button>
-              <button type="button" :disabled="candidate.status !== 'ONBOARDING'" :class="{ selected: !viewingPrehire }" @click="selectedProcess = 'onboarding'; activeSection = 'dashboard'">
-                <strong>2. Onboarding</strong>
-                <span>{{ portalData?.journey?.onboardingCompletedAt ? 'Completed · awaiting activation' : candidate.status === 'ONBOARDING' ? 'Profile, forms & training' : 'People Operations will start this' }}</span>
-              </button>
-              <div><strong>3. Active</strong><span>After People Operations review</span></div>
-            </nav>
-            <section v-if="processClosed" class="journey-review" role="status">
-              <strong>{{ viewingPrehire ? 'Your pre-hire package is closed' : 'Your onboarding package is submitted' }}</strong>
-              <p>{{ viewingPrehire ? 'Your submissions remain available here. People Operations controls when onboarding starts.' : 'People Operations will review your package and mark you active. Your recorded time has been submitted for payroll review.' }}</p>
-              <button type="button" class="portal-link-copy" @click="openSubmissions">View my submissions</button>
-            </section>
-            <section v-if="candidate.status === 'ONBOARDING' && !viewingPrehire" class="journey-time" role="status">
-              <strong>{{ processClosed ? 'Onboarding time submitted' : activity.tracking.value ? 'Recording active onboarding time' : 'Time tracking paused' }}</strong>
-              <span>{{ Math.floor((portalData?.journey?.time?.seconds || 0) / 60) }} minutes saved</span>
-              <p v-if="activity.error.value" class="cred-warn">{{ activity.error.value }}</p>
-              <p v-else>Time is recorded while you work in this portal and its training pages. It pauses when you leave or are idle. Tell People Operations about any work completed outside the portal or missing time.</p>
-            </section>
-
-            <!-- Group password: pick work username only (pre-hire) -->
-            <section
-              v-if="activeSection === 'dashboard' && portalPhase === 'account_setup'"
-              class="portal-account-setup"
-              aria-label="Choose work username"
-            >
-              <div class="portal-tasks-head">
-                <div>
-                  <h2>Choose your work username</h2>
-                  <p>
-                    Pick an available address at @{{ accountDomain || 'your organization' }}.
-                    This becomes your app username and Google Group mailbox.
-                    You will set your password after onboarding is complete — recovery always uses your personal email.
-                  </p>
-                </div>
-              </div>
-              <div class="cred-card">
-                <label>
-                  <span>Suggested addresses</span>
-                  <select v-model="accountForm.workEmail" class="portal-select">
-                    <option disabled value="">Select an email</option>
-                    <option v-for="s in accountSuggestions" :key="s.email" :value="s.email">{{ s.email }}</option>
-                  </select>
-                </label>
-                <label>
-                  <span>Or type a local part</span>
-                  <div class="portal-email-row">
-                    <input v-model="accountForm.localPart" type="text" placeholder="firstnameL" @blur="checkTypedEmail" />
-                    <span class="portal-email-domain">@{{ accountDomain }}</span>
-                  </div>
-                </label>
-                <p v-if="emailCheckMessage" :class="emailAvailable ? 'cred-ok' : 'cred-warn'">{{ emailCheckMessage }}</p>
-                <button
-                  type="button"
-                  class="btn-primary"
-                  :disabled="provisioningAccount || !canProvisionAccount"
-                  @click="provisionAccount"
-                >
-                  {{ provisioningAccount ? 'Creating…' : 'Save my username' }}
-                </button>
-                <p v-if="accountError" class="cred-warn">{{ accountError }}</p>
-              </div>
-            </section>
-
-            <!-- End of onboarding: set password + activate login -->
-            <section
-              v-if="activeSection === 'dashboard' && !viewingPrehire && portalPhase === 'finalize_login'"
-              class="portal-account-setup"
-              aria-label="Set password and activate account"
-            >
-              <div class="portal-tasks-head">
-                <div>
-                  <h2>Set your password</h2>
-                  <p>
-                    Your username is <strong>{{ candidate.workEmail }}</strong>.
-                    Create your password so your login is ready when People Operations activates your employee account.
-                    Password recovery goes to {{ candidate.personalEmail || 'your personal email' }}.
-                  </p>
-                </div>
-              </div>
-              <div class="cred-card">
-                <label>
-                  <span>Password (min 8 characters)</span>
-                  <input v-model="accountForm.password" type="password" autocomplete="new-password" />
-                </label>
-                <label>
-                  <span>Confirm password</span>
-                  <input v-model="accountForm.confirmPassword" type="password" autocomplete="new-password" />
-                </label>
-                <button
-                  type="button"
-                  class="btn-primary"
-                  :disabled="finalizingPassword || !canFinalizePassword"
-                  @click="finalizePassword"
-                >
-                  {{ finalizingPassword ? 'Saving…' : 'Save my password' }}
-                </button>
-                <p v-if="accountError" class="cred-warn">{{ accountError }}</p>
-                <p v-if="finalizeSuccess" class="cred-ok">{{ finalizeSuccess }}</p>
-              </div>
-            </section>
-
-            <section v-if="activeSection === 'dashboard' && candidate.workEmail" class="portal-link-card" aria-label="Your work email">
-              <div class="portal-link-card-head">
-                <strong>Your work email</strong>
-              </div>
-              <code class="portal-link-url">{{ candidate.workEmail }}</code>
-              <p class="portal-link-help">
-                This is your work username. You will set a password at the end of onboarding to sign into the app.
-                Password recovery will use your personal email.
-              </p>
-            </section>
-
-            <section
-              v-if="activeSection === 'dashboard'"
-              class="portal-link-card"
-              aria-label="Your personal portal link"
-            >
-              <div class="portal-link-card-head">
-                <strong>Your personal portal link</strong>
-                <button type="button" class="portal-link-copy" @click="copyPortalLink">
-                  {{ portalLinkCopied ? 'Copied!' : 'Copy link' }}
-                </button>
-              </div>
-              <p class="portal-link-help">
-                Bookmark this link. Use it anytime through pre-hire and onboarding — no separate login needed.
-              </p>
-              <code class="portal-link-url">{{ portalLinkDisplay }}</code>
-              <p v-if="tokenExpiresLabel" class="portal-link-expiry">Link valid until {{ tokenExpiresLabel }}</p>
-            </section>
-
-            <section
-              v-if="activeSection === 'dashboard' && portalPhase !== 'account_setup' && portalPhase !== 'finalize_login'"
-              class="portal-link-card"
-            >
-              <div class="portal-link-card-head"><strong>Your steps</strong></div>
-              <p class="portal-link-help">
-                {{ viewingPrehire ? 'Background check, job description, documents, and signatures are on My Tasks.' : 'Your profile questionnaires, required forms, and training are on My Tasks.' }}
-                Completed pre-hire and onboarding materials are retained in My Submissions and your employee library.
-              </p>
-              <button type="button" class="btn-primary" @click="activeSection = 'tasks'">
-                Go to My Tasks ({{ progressPct }}% complete)
-              </button>
-            </section>
-
-            <fieldset v-if="viewingPrehire" :disabled="processClosed" class="journey-prehire">
-            <section
-              v-if="activeSection === 'tasks'"
+      <p v-if="submissionError && !showSubmitConfirm" class="panel-error" role="alert">{{ submissionError }}</p>
+      <HirePortalWorkspace :data="portalData" :token="String(token)" :http="portalApi"
+        @phase="selectedProcess = $event" @section="onWorkspaceSection" @reload="reloadPortal"
+        @document="selectTask" @complete-task="markIntakeFormDone" @submit="confirmSubmit" @media="embeddedVideoPlaying = $event">
+        <template #background="{ closed }"><fieldset :disabled="closed" class="journey-prehire">            <section
               class="portal-link-card portal-bg-card"
               aria-label="Authorization for background check"
             >
@@ -300,10 +44,10 @@
                   <label class="bg-span">Previous addresses (optional) <textarea v-model="bgForm.previousAddresses" rows="2" /></label>
                   <label class="bg-span">Other names / aliases (optional) <input v-model="bgForm.aliases" type="text" /></label>
                   <label>Social Security number
-                    <input v-model="bgForm.ssn" type="text" inputmode="numeric" autocomplete="off" required placeholder="###-##-####" />
+                    <input v-model="bgForm.ssn" type="password" inputmode="numeric" autocomplete="off" required placeholder="###-##-####" />
                   </label>
                   <label>Driver’s license number
-                    <input v-model="bgForm.driversLicense" type="text" autocomplete="off" required />
+                    <input v-model="bgForm.driversLicense" type="password" autocomplete="off" required />
                   </label>
                 </div>
                 <div class="bg-legal-panel bg-legal-panel--ack">
@@ -327,8 +71,8 @@
               </form>
             </section>
 
-            <section
-              v-if="activeSection === 'tasks'"
+</fieldset></template>
+        <template #job-description="{ closed }">            <section
               class="portal-link-card portal-jd-card"
               aria-label="Job description acknowledgement"
             >
@@ -336,14 +80,14 @@
               <p v-if="jdAcknowledged" class="cred-ok">
                 You acknowledged this job description. A signed copy is saved on your hire record.
               </p>
-              <template v-else>
+              <template>
                 <p class="portal-jd-accountability">
-                  Review the role expectations below. By signing, you confirm you have read and understand
+                  These are the expectations of the job you applied for and are being hired to perform. Additional information is in your employment agreement. By signing, you confirm you have read and understand
                   this job description for {{ jobDescription?.title || 'this role' }} and accept that
                   {{ agency?.name || 'the employer' }} may hold you accountable to these expectations.
                 </p>
                 <JobDescriptionSections
-                  v-if="jobDescription?.descriptionSections"
+                  v-if="hasJdSections"
                   :sections="jobDescription.descriptionSections"
                   :title="jobDescription.title"
                   :schedule="jobDescription.scheduleText"
@@ -357,6 +101,7 @@
                 <p v-else class="muted">
                   {{ jobDescription?.title || 'Job description will appear here once your hiring team attaches the posting.' }}
                 </p>
+                <template v-if="!jdAcknowledged && !closed">
                 <AdaptiveSignatureCapture
                   v-model="jdSignature"
                   title="Acknowledge job description"
@@ -366,17 +111,18 @@
                 <button type="button" class="btn-primary" :disabled="jdSaving" @click="acknowledgeJobDescription">
                   {{ jdSaving ? 'Saving…' : 'I acknowledge this job description' }}
                 </button>
+                </template>
               </template>
             </section>
 
-            <section
-              v-if="activeSection === 'tasks' && prehireDocs.length"
+</template>
+        <template #document="{ step, closed }"><fieldset :disabled="closed" class="journey-prehire">            <section
               class="portal-link-card"
               aria-label="Pre-hire documents"
             >
               <div class="portal-link-card-head"><strong>Pre-hire documents</strong></div>
               <ul class="portal-simple-list">
-                <li v-for="doc in prehireDocs" :key="doc.id" class="portal-doc-row">
+                <li v-for="doc in [step.doc]" :key="doc.id" class="portal-doc-row">
                   <a
                     v-if="doc.kind === 'print_only'"
                     class="portal-doc-title-link"
@@ -413,7 +159,7 @@
                     rel="noopener"
                     @click="trackHandbookOpen(`ref:${doc.id}`)"
                   >Open link</a>
-                  <template v-else-if="doc.kind === 'company_document'">
+                  <template v-else-if="['company_document', 'acknowledgement'].includes(doc.kind)">
                     <p v-if="doc.signed || companyDocSigned[doc.id]" class="cred-ok">Signed — thank you. Saved on your hire record.</p>
                     <template v-else>
                       <div v-if="doc.filePath" class="portal-doc-embed">
@@ -455,7 +201,7 @@
                       target="_blank"
                       rel="noopener"
                     >Download blank form</a>
-                    <p v-if="uploadDone[doc.id]" class="cred-ok">Uploaded — thank you.</p>
+                    <p v-if="doc.signed || uploadDone[doc.id]" class="cred-ok">Uploaded — thank you.</p>
                     <label v-else class="portal-upload-field">
                       <span>{{ uploadBusy[doc.id] ? 'Uploading…' : 'Upload your file' }}</span>
                       <input
@@ -474,10 +220,88 @@
               </ul>
             </section>
 
-            </fieldset>
+</fieldset></template>
+        <template #work-email><div v-if="candidate.workEmail" class="portal-link-card"><h3>Your work username</h3><p>{{ candidate.workEmail }}</p><p>Your username is saved. Contact People Operations if it needs to change.</p></div><template v-else>            <section
+              class="portal-account-setup"
+              aria-label="Choose work username"
+            >
+              <div class="portal-tasks-head">
+                <div>
+                  <h2>Choose your work username</h2>
+                  <p>
+                    Pick an available address at @{{ accountDomain || 'your organization' }}.
+                    This becomes your app username and Google Group mailbox.
+                    You will set your password when onboarding begins — recovery always uses your personal email.
+                  </p>
+                </div>
+              </div>
+              <div class="cred-card">
+                <label>
+                  <span>Suggested addresses</span>
+                  <select v-model="accountForm.workEmail" class="portal-select">
+                    <option disabled value="">Select an email</option>
+                    <option v-for="s in accountSuggestions" :key="s.email" :value="s.email">{{ s.email }}</option>
+                  </select>
+                </label>
+                <label>
+                  <span>Or type a local part</span>
+                  <div class="portal-email-row">
+                    <input v-model="accountForm.localPart" type="text" placeholder="firstnameL" @blur="checkTypedEmail" />
+                    <span class="portal-email-domain">@{{ accountDomain }}</span>
+                  </div>
+                </label>
+                <p v-if="emailCheckMessage" :class="emailAvailable ? 'cred-ok' : 'cred-warn'">{{ emailCheckMessage }}</p>
+                <button
+                  type="button"
+                  class="btn-primary"
+                  :disabled="provisioningAccount || !canProvisionAccount"
+                  @click="provisionAccount"
+                >
+                  {{ provisioningAccount ? 'Creating…' : 'Save my username' }}
+                </button>
+                <p v-if="accountError" class="cred-warn">{{ accountError }}</p>
+              </div>
+            </section>
 
-            <!-- Submissions -->
-            <section v-if="activeSection === 'submissions'" class="portal-submissions" aria-label="My submissions">
+</template></template>
+        <template #account><div class="portal-link-card"><h3>Your account</h3><p><strong>Username:</strong> {{ candidate.workEmail || 'People Operations will confirm your login.' }}</p><p><strong>Supervisor:</strong> {{ portalData.workflow?.supervisor?.name || 'To be confirmed' }}</p><p v-if="candidate.passwordFinalized" class="cred-ok">Your password is set. People Operations will activate your account after onboarding review.</p><p v-else-if="hireAccountMode !== 'group_password'">Your organization manages login access. People Operations will provide your sign-in instructions.</p></div><template v-if="hireAccountMode === 'group_password' && !candidate.passwordFinalized && !processClosed">            <section
+              class="portal-account-setup"
+              aria-label="Set password and activate account"
+            >
+              <div class="portal-tasks-head">
+                <div>
+                  <h2>Set your password</h2>
+                  <p>
+                    Your username is <strong>{{ candidate.workEmail }}</strong>.
+                    Create your password so your login is ready when People Operations activates your employee account.
+                    Password recovery goes to {{ candidate.personalEmail || 'your personal email' }}.
+                  </p>
+                </div>
+              </div>
+              <div class="cred-card">
+                <label>
+                  <span>Password (min 8 characters)</span>
+                  <input v-model="accountForm.password" type="password" autocomplete="new-password" />
+                </label>
+                <label>
+                  <span>Confirm password</span>
+                  <input v-model="accountForm.confirmPassword" type="password" autocomplete="new-password" />
+                </label>
+                <button
+                  type="button"
+                  class="btn-primary"
+                  :disabled="finalizingPassword || !canFinalizePassword"
+                  @click="finalizePassword"
+                >
+                  {{ finalizingPassword ? 'Saving…' : 'Save my password' }}
+                </button>
+                <p v-if="accountError" class="cred-warn">{{ accountError }}</p>
+                <p v-if="finalizeSuccess" class="cred-ok">{{ finalizeSuccess }}</p>
+              </div>
+            </section>
+
+</template></template>
+        <template #documents>            <section class="portal-submissions" aria-label="My submissions">
               <div class="portal-tasks-head">
                 <div>
                   <h2>My submissions</h2>
@@ -486,7 +310,7 @@
               </div>
               <div v-if="submissionsLoading" class="empty-tasks">Loading…</div>
               <template v-else>
-                <div v-for="phase in ['prehire', 'onboarding']" :key="phase" class="cred-card">
+                <div v-for="phase in (candidate.status === 'ONBOARDING' ? ['prehire', 'onboarding'] : ['prehire'])" :key="phase" class="cred-card">
                   <h3>{{ phase === 'prehire' ? 'Pre-hire package' : 'Onboarding package' }}</h3>
                   <p>{{ submissions?.journey?.[phase === 'prehire' ? 'prehireCompletedAt' : 'onboardingCompletedAt'] ? 'Completed and retained' : 'In progress or awaiting People Operations' }}</p>
                   <ul class="portal-simple-list">
@@ -495,6 +319,17 @@
                       <span v-else>{{ item.title }}</span> · {{ item.status }}
                     </li>
                   </ul>
+                </div>
+                <div v-if="Object.keys(submissions?.inlineSubmissions || {}).length" class="cred-card">
+                  <h3>Saved information and portal steps</h3>
+                  <details v-for="(submission, key) in submissions.inlineSubmissions" :key="key" class="portal-saved-step">
+                    <summary>{{ submission.value?.title || key.replace('pre_hire:', 'Pre-hire · ').replace('onboarding:', 'Onboarding · ').replace(/-/g, ' ') }}</summary>
+                    <p>{{ submission.completedAt ? `Completed ${new Date(submission.completedAt).toLocaleDateString()}` : 'Saved draft' }}</p>
+                    <a v-if="submission.value?.path || submission.value?.receiptPath" :href="`${portalApi.defaults.baseURL}/prehire-portal/${token}/workflow/${key.split(':')[0]}/${key.split(':')[1]}/file`" target="_blank" rel="noopener">View retained file</a>
+                    <dl v-if="key === 'pre_hire:profile'"><template v-for="field in portalData.workflow.profileFields" :key="field.key"><dt>{{ field.label }}</dt><dd>{{ submission.value[field.key] || 'Not provided' }}</dd></template></dl>
+                    <p v-if="submission.value?.email">{{ submission.value.email }}</p>
+                    <p v-if="submission.value?.scheduledAt">Meeting: {{ new Date(submission.value.scheduledAt).toLocaleString() }}</p>
+                  </details>
                 </div>
                 <div v-if="submissions?.hiringProfile" class="cred-card">
                   <h3>Application</h3>
@@ -530,256 +365,16 @@
                     </li>
                   </ul>
                 </div>
-                <div v-if="!submissions?.hiringProfile && !submissions?.uploadedMaterials?.length && !submissions?.completedDocuments?.length" class="empty-tasks">
+                <div v-if="!submissions?.hiringProfile && !submissions?.uploadedMaterials?.length && !submissions?.completedDocuments?.length && !Object.keys(submissions?.inlineSubmissions || {}).length" class="empty-tasks">
                   Nothing here yet — complete tasks and your application details will appear.
                 </div>
               </template>
             </section>
 
-            <!-- Resources / handbook -->
-            <section v-if="activeSection === 'handbook'" class="portal-resources" aria-label="Workplace handbook">
-              <div class="portal-tasks-head">
-                <div>
-                  <h2>Workplace handbook</h2>
-                  <p>Read your agency’s workplace handbook here.</p>
-                </div>
-              </div>
-              <div v-if="handbookLoading" class="empty-tasks">Loading handbook…</div>
-              <div v-else>
-                <div class="cred-card handbook-card" v-if="handbookLinks.acknowledgementUrl || handbookLinks.fullUrl">
-                  <h3>Workplace handbook</h3>
-                  <p v-if="handbookLinks.acknowledgementUrl">
-                    <a
-                      :href="handbookLinks.acknowledgementUrl"
-                      target="_blank"
-                      rel="noopener"
-                      @click="trackHandbookOpen('ack')"
-                    >Employee Handbook acknowledgement</a>
-                  </p>
-                  <p v-if="handbookLinks.fullUrl">
-                    <a
-                      :href="handbookLinks.fullUrl"
-                      target="_blank"
-                      rel="noopener"
-                      @click="trackHandbookOpen('full')"
-                    >Full Workplace Handbook</a>
-                  </p>
-                </div>
-                <div v-if="!handbook?.available && !handbookLinks.acknowledgementUrl && !handbookLinks.fullUrl" class="empty-tasks">
-                  Workplace handbook is not published yet. Check back soon.
-                </div>
-                <div v-else-if="handbook?.available" class="cred-card handbook-card">
-                  <h3>{{ handbook.handbook?.title || 'Workplace Handbook' }}</h3>
-                  <article
-                    v-for="sec in (handbook.handbook?.sections || [])"
-                    :key="sec.id"
-                    class="handbook-section"
-                  >
-                    <h4>{{ sec.title }}</h4>
-                    <div class="handbook-body" v-html="sec.bodyHtml"></div>
-                  </article>
-                </div>
-              </div>
-            </section>
-
-            <!-- Onboarding credential packet (accounts & access) -->
-            <section
-              v-if="activeSection === 'tasks' && !viewingPrehire && !processClosed && showCredentialPacket && portalPhase !== 'account_setup'"
-              class="portal-credential-packet"
-              aria-label="Accounts and access"
-            >
-              <div class="portal-tasks-head">
-                <div>
-                  <h2>Accounts &amp; Access</h2>
-                  <p>Acknowledge your company email. Phone and TherapyNotes logins appear after onboarding is initiated.</p>
-                </div>
-              </div>
-
-              <div
-                v-for="sys in (credentialPacket?.systems || [])"
-                :key="sys.key"
-                class="cred-card"
-              >
-                <h3>{{ sys.label }}</h3>
-                <p v-if="sys.username" class="cred-meta"><strong>Username:</strong> {{ sys.username }}</p>
-                <p v-if="sys.extension" class="cred-meta"><strong>Extension:</strong> {{ sys.extension }}</p>
-                <p v-if="sys.pin" class="cred-meta"><strong>PIN:</strong> {{ sys.pin }}</p>
-                <p v-if="!sys.username && sys.key !== 'email'" class="cred-meta cred-muted">
-                  People Operations has not published this login yet.
-                </p>
-                <div class="cred-actions">
-                  <button
-                    v-if="sys.tempPasswordAvailable"
-                    type="button"
-                    class="btn-secondary-sm"
-                    @click="revealTempPassword(sys.key)"
-                  >
-                    Reveal temporary password (once)
-                  </button>
-                  <span v-else-if="sys.tempPasswordConsumed" class="cred-muted">Temp password already revealed</span>
-                  <button
-                    v-if="!sys.acknowledged"
-                    type="button"
-                    class="btn-primary"
-                    :disabled="ackingSystem === sys.key"
-                    @click="ackSystem(sys.key)"
-                  >
-                    I've logged in
-                  </button>
-                  <span v-else class="cred-ok">Acknowledged</span>
-                </div>
-                <p v-if="revealedPasswords[sys.key]" class="cred-secret">
-                  Temporary password: <code>{{ revealedPasswords[sys.key] }}</code>
-                  <span class="cred-muted"> — copy it now; it won't be shown again.</span>
-                </p>
-              </div>
-            </section>
-
-            <section
-              v-if="activeSection === 'tasks'"
-              class="portal-tasks-section"
-            >
-              <div class="portal-tasks-head">
-                <div>
-                  <h2>Your {{ phaseLabel }} Tasks</h2>
-                  <p>{{ completedCount }} of {{ totalCount }} completed</p>
-                </div>
-                <div class="portal-tasks-progress-wrap">
-                  <div class="portal-tasks-progress-bar">
-                    <div class="portal-tasks-progress-fill" :style="{ width: progressPct + '%' }"></div>
-                  </div>
-                  <span class="portal-tasks-progress-pct">{{ progressPct }}%</span>
-                </div>
-              </div>
-
-              <div v-if="allDone" class="all-done-banner">
-                <div class="all-done-icon">🎉</div>
-                <div>
-                  <strong>All items complete!</strong>
-                  <div class="all-done-sub">
-                    Your required items are complete. Submit your package when you are ready for People Operations to review it.
-                  </div>
-                </div>
-              </div>
-
-              <div v-if="!allDone && tasks.length === 0" class="empty-tasks">
-                No items have been assigned yet. Your hiring team will send them shortly.
-              </div>
-
-              <p v-if="portalData?.missingContract && !processClosed" class="cred-warn">People Operations needs to assign your employment agreement before you can submit pre-hire.</p>
-              <div class="task-list">
-                <article
-                  v-for="(task, idx) in tasks"
-                  :key="task.id"
-                  class="task-card-v2"
-                  :class="{ 'task-card-v2--done': task.status === 'completed' }"
-                >
-                  <div class="task-card-v2-icon" :style="{ background: taskAccentBg(idx), color: taskAccentColor(idx) }">
-                    <span v-if="task.status === 'completed'">✓</span>
-                    <span v-else-if="task.taskType === 'intake_form'">📝</span>
-                    <span v-else-if="task.taskType === 'training'">📋</span>
-                    <span v-else-if="task.actionType === 'review'">📋</span>
-                    <span v-else>✍️</span>
-                  </div>
-                  <div class="task-card-v2-body">
-                    <div class="task-card-v2-title">{{ idx + 1 }}. {{ task.title }}</div>
-                    <div class="task-card-v2-desc">{{ taskDescription(task) }}</div>
-                    <div class="task-card-v2-meta">
-                      <span class="task-status-badge" :class="task.status === 'completed' ? 'task-status-badge--done' : 'task-status-badge--pending'">
-                        {{ task.status === 'completed' ? 'COMPLETED' : 'PENDING' }}
-                      </span>
-                      <span v-if="task.isRequired" class="task-required-badge">Required</span>
-                    </div>
-                  </div>
-                  <!-- Intake form tasks: open form + mark done -->
-                  <template v-if="task.taskType === 'custom' && task.status !== 'completed'">
-                    <button type="button" class="task-card-v2-action" :disabled="processClosed" @click="markIntakeFormDone(task)">Mark complete</button>
-                  </template>
-                  <template v-else-if="task.taskType === 'intake_form' && task.status !== 'completed'">
-                    <div class="intake-form-actions">
-                      <button
-                        type="button"
-                        class="task-card-v2-action"
-                        :style="{ borderColor: taskAccentColor(idx), color: taskAccentColor(idx) }"
-                        :disabled="processClosed" @click="openIntakeForm(task)"
-                      >
-                        Fill Out Form <span aria-hidden="true">↗</span>
-                      </button>
-                      <button
-                        v-if="intakeFormOpened === task.id"
-                        type="button"
-                        class="task-card-v2-action task-card-v2-action--confirm"
-                        :disabled="intakeFormSubmitting"
-                        @click="markIntakeFormDone(task)"
-                      >
-                        {{ intakeFormSubmitting ? 'Saving…' : "I've submitted this form ✓" }}
-                      </button>
-                    </div>
-                  </template>
-                  <!-- Training/module tasks: open the module page -->
-                  <template v-else-if="task.taskType === 'training' && task.status !== 'completed'">
-                    <div class="intake-form-actions">
-                      <button
-                        type="button"
-                        class="task-card-v2-action"
-                        :style="{ borderColor: taskAccentColor(idx), color: taskAccentColor(idx) }"
-                        @click="openModuleTask(task)"
-                      >
-                        Open training / questionnaire <span aria-hidden="true">↗</span>
-                      </button>
-
-                    </div>
-                  </template>
-                  <template v-else>
-                    <button
-                      type="button"
-                      class="task-card-v2-action"
-                      :style="{ borderColor: taskAccentColor(idx), color: taskAccentColor(idx) }"
-                      :disabled="processClosed && task.status !== 'completed'" @click="task.taskType === 'training' ? openModuleTask(task) : selectTask(task)"
-                    >
-                      {{ task.status === 'completed' ? 'View' : taskActionLabel(task) }}
-                      <span aria-hidden="true">›</span>
-                    </button>
-                  </template>
-                </article>
-              </div>
-
-              <div v-if="!processClosed" class="cta-wrap">
-                <button class="btn-complete" :disabled="submitting || !allDone" @click="confirmSubmit">
-                  {{ submitting ? 'Submitting…' : 'I\'ve completed everything — submit for review' }}
-                </button>
-                <div class="cta-help">
-                  Complete all required items before submitting. Contact People Operations if you need help.
-                </div>
-              </div>
-            </section>
-
-            <section class="portal-help-card">
-              <div class="portal-help-icon">💬</div>
-              <div class="portal-help-copy">
-                <strong>Need help or have questions?</strong>
-                <p>Our People Operations team is here to help you through every step.</p>
-              </div>
-              <button type="button" class="portal-help-btn" @click="focusChat">Chat with People Ops</button>
-            </section>
-          </main>
-
-          <footer class="portal-page-footer">
-            <span>© {{ currentYear }} {{ agency?.name || 'Your Organization' }}. All rights reserved.</span>
-            <span class="portal-page-footer-links">Privacy Policy · Terms of Use</span>
-          </footer>
-        </div>
-
-        <!-- Right chat -->
-        <PreHirePortalChat
-          ref="chatRef"
-          :token="token"
-          :portal-api="portalApi"
-          :support-team="supportTeam"
-          :agency-name="agency?.name || ''"
-        />
-      </div>
-
+</template>
+        <template #messages><PreHirePortalChat ref="chatRef" :token="token" :portal-api="portalApi" :support-team="supportTeam" :agency-name="agency?.name || ''" /></template>
+        <template #time><strong>{{ processClosed ? 'Time submitted for review' : activity.tracking.value ? 'Recording active time' : 'Time tracking paused' }}</strong><p>{{ Math.floor((portalData?.journey?.time?.seconds || 0) / 60) }} minutes saved</p><p v-if="activity.error.value" role="alert">{{ activity.error.value }}</p><p v-else>Active portal work is recorded for payroll review. Tell People Operations about time spent outside this portal or any missing time.</p></template>
+      </HirePortalWorkspace>
       <!-- Task signing panel (modal-style overlay) -->
       <transition name="panel-slide">
         <div v-if="activeTask" class="task-panel-overlay" @click.self="closePanel">
@@ -795,6 +390,7 @@
             </div>
 
             <div class="task-panel-body">
+              <p v-if="panelError" class="panel-error" role="alert">{{ panelError }}</p>
               <div v-if="activeTask.status === 'completed'" class="task-done-msg">
                 <div class="task-done-check">✓</div>
                 <div>This item is complete.
@@ -815,21 +411,8 @@
               </div>
 
               <div v-if="panelStep !== 'consent' || activeTask.status === 'completed'" class="review-block">
-                <div v-if="activeTaskDetail?.document?.htmlContent" class="doc-paper">
-                  <div class="doc-preview" v-html="sanitizedHtml"></div>
-                  <div v-if="cosigners.length" class="cosign-block">
-                    <h4>Internal signatures</h4>
-                    <p class="cosign-help">These signatures are attached to the full copy of this agreement.</p>
-                    <div v-for="(cs, i) in cosigners" :key="cs.taskId || i" class="cosign-row">
-                      <div>
-                        <strong>{{ cs.name || 'Signer' }}</strong>
-                        <span class="cred-muted"> · {{ cs.roleLabel }}</span>
-                      </div>
-                      <img v-if="cs.signatureData" :src="cs.signatureData" alt="Signature" class="cosign-img" />
-                      <div v-else class="cosign-line">{{ cs.signed ? 'Signed' : 'Signature pending' }}</div>
-                    </div>
-                  </div>
-                </div>
+                <HireDocumentPreview v-if="activeTaskDetail?.document" :key="activeTask.id" :http="portalApi"
+                  :url="`/prehire-portal/${token}/tasks/${activeTask.id}/preview`" :title="activeTask.title" @ready="previewReady = $event" />
                 <div v-if="fillableFields.length && activeTask.status !== 'completed'" class="doc-form-fields">
                   <div v-if="!activeTaskDetail?.document?.htmlContent" class="doc-form-intro">
                     <div class="doc-form-title">{{ activeTask.title }}</div>
@@ -903,7 +486,7 @@
                     />
                   </div>
                 </div>
-                <div v-else-if="!activeTaskDetail?.document?.htmlContent" class="doc-placeholder">
+                <div v-else-if="!activeTaskDetail?.document" class="doc-placeholder">
                   <div class="doc-placeholder-icon">📄</div>
                   <div>{{ activeTask.title }}</div>
                   <div class="doc-placeholder-sub">{{ activeTask.description }}</div>
@@ -911,12 +494,12 @@
 
                 <div v-if="activeTask.status !== 'completed'" class="review-actions">
                   <div v-if="activeTask.actionType === 'review'">
-                    <button class="btn-primary" :disabled="panelLoading" @click="submitAcknowledge">
+                    <button class="btn-primary" :disabled="panelLoading || !previewReady" @click="submitAcknowledge">
                       {{ panelLoading ? 'Saving…' : 'I have read and acknowledge this document' }}
                     </button>
                   </div>
                   <div v-else-if="panelStep !== 'sign'">
-                    <button class="btn-primary" @click="goToSignStep">
+                    <button class="btn-primary" :disabled="!previewReady" @click="goToSignStep">
                       Continue to signature →
                     </button>
                     <div v-if="fieldValidationError" class="panel-error">{{ fieldValidationError }}</div>
@@ -969,11 +552,12 @@
       </div>
 
     </template>
-
   </div>
 </template>
 
 <script setup>
+import HirePortalWorkspace from '../components/prehire/HirePortalWorkspace.vue';
+import HireDocumentPreview from '../components/prehire/HireDocumentPreview.vue';
 import { useOnboardingActivity } from '../composables/useOnboardingActivity.js';
 import { ref, computed, onMounted, nextTick, watch, reactive } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
@@ -1034,11 +618,19 @@ const copyPortalLink = async () => {
 };
 const supportTeam = computed(() => portalData.value?.supportTeam || { label: 'People Operations', members: [] });
 const selectedProcess = ref('');
+const previewReady = ref(false);
+const embeddedTraining = ref(false);
+const embeddedVideoPlaying = ref(false);
+function onWorkspaceSection(section, step) {
+  activeSection.value = ({ home: 'dashboard', steps: 'tasks', documents: 'submissions', messages: 'messages', help: 'help' })[section] || section;
+  embeddedTraining.value = section === 'steps' && step?.task?.taskType === 'training';
+  if (section === 'documents') openSubmissions();
+}
 const viewingPrehire = computed(() => selectedProcess.value === 'pre_hire' || candidate.value.status !== 'ONBOARDING');
 const processClosed = computed(() => viewingPrehire.value ? ['PREHIRE_REVIEW', 'ONBOARDING'].includes(candidate.value.status) : !!portalData.value?.journey?.onboardingCompletedAt);
 const tasks = computed(() => viewingPrehire.value && candidate.value.status === 'ONBOARDING' ? portalData.value?.prehireTasks || [] : portalData.value?.tasks || []);
-const activityEnabled = computed(() => candidate.value.status === 'ONBOARDING' && !viewingPrehire.value && !processClosed.value && ['dashboard', 'tasks', 'handbook'].includes(activeSection.value));
-const activity = useOnboardingActivity({ enabled: activityEnabled, token, http: portalApi });
+const activityEnabled = computed(() => candidate.value.status === 'ONBOARDING' && !viewingPrehire.value && !processClosed.value && !embeddedTraining.value && ['dashboard', 'tasks', 'handbook', 'submissions', 'messages', 'help'].includes(activeSection.value));
+const activity = useOnboardingActivity({ enabled: activityEnabled, token, http: portalApi, playingVideo: embeddedVideoPlaying });
 const progress = computed(() => portalData.value?.progress || { total: 0, completed: 0, allDone: false });
 const portalPhase = computed(() => portalData.value?.portalPhase || 'pre_hire');
 const hireAccountMode = computed(() => portalData.value?.hireAccountMode || null);
@@ -1231,6 +823,7 @@ const handbookSideLink = computed(() =>
   handbookLinks.value.fullUrl || handbookLinks.value.acknowledgementUrl || null
 );
 const jobDescription = computed(() => portalData.value?.jobDescription || null);
+const hasJdSections = computed(() => Object.values(jobDescription.value?.descriptionSections || {}).some(v => Array.isArray(v) ? v.length > 0 : typeof v === 'string' && v.trim()));
 const jdPlainParagraphs = computed(() => splitPlainParagraphs(jobDescription.value?.descriptionText));
 const prehireDocs = computed(() => portalData.value?.prehireDocs || []);
 const checklistItems = computed(() => portalData.value?.checklistItems || []);
@@ -1562,8 +1155,8 @@ const markIntakeFormDone = async (task) => {
     await portalApi.post(`/prehire-portal/${token.value}/tasks/${task.id}/complete-form`);
     await reloadPortal();
     intakeFormOpened.value = null;
-  } catch {
-    /* non-fatal */
+  } catch (e) {
+    submissionError.value = e.response?.data?.error?.message || 'The item is not complete yet. Save your form and try again.';
   } finally {
     intakeFormSubmitting.value = false;
   }
@@ -1617,7 +1210,7 @@ const phaseLabel = computed(() => {
   if (viewingPrehire.value && candidate.value.status === 'ONBOARDING') return 'Pre-hire completed';
   if (portalPhase.value === 'account_setup') return 'Choose username';
   if (portalPhase.value === 'onboarding_review') return 'Onboarding submitted';
-  if (portalPhase.value === 'finalize_login') return 'Set password';
+  if (candidate.value.canFinalizeLogin) return 'Set password';
   if (portalPhase.value === 'review') return 'Under review';
   if (portalPhase.value === 'onboarding' || isOnboardingPortal.value) return 'Onboarding';
   return 'Pre-Hire';
@@ -1698,6 +1291,7 @@ const formatFieldLabel = (field) => field?.label || field?.type || 'Field';
 const canProceedToSign = computed(() => {
   if (!fillableFields.value.length) return true;
   return fillableFields.value.every((field) => {
+    if (field.requiredOneOf?.length && !field.requiredOneOf.some(id => String(fieldValues.value[id] || '').trim())) return false;
     if (!field.required) return true;
     const val = fieldValues.value[field.id];
     if (field.type === 'checkbox') return !!val;
@@ -1737,6 +1331,7 @@ const pillLabel = (t) => {
 };
 
 const selectTask = async (task) => {
+  previewReady.value = false;
   activeTaskId.value = task.id;
   panelStep.value = task.status === 'completed' ? 'review' : 'consent';
   panelError.value = '';
@@ -1751,7 +1346,7 @@ const selectTask = async (task) => {
     if (task.status === 'completed' || activeTaskDetail.value?.auditTrail?.portalConsent?.given) {
       panelStep.value = 'review';
     }
-  } catch { /* show panel anyway */ }
+  } catch (e) { panelError.value = e.response?.data?.error?.message || 'Unable to load this document. Close it and try again.'; }
 };
 
 const closePanel = () => {
@@ -1939,7 +1534,7 @@ const reloadPortal = async () => {
   try {
     const res = await portalApi.get(`/prehire-portal/${token.value}`);
     portalData.value = res.data;
-  } catch { /* ignore reload errors */ }
+  } catch { submissionError.value = 'Your update may have saved, but progress could not refresh. Reload your portal before continuing.'; }
 };
 
 onMounted(async () => {

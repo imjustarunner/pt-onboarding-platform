@@ -1,5 +1,5 @@
 <template>
-  <div class="training-player">
+  <div class="training-player" :class="{ 'portal-embedded': isPrehireMode && route.query.embedded === '1' }">
     <div v-if="loading" class="state">Loading training…</div>
     <div v-else-if="error" class="state error">{{ error }}</div>
 
@@ -725,6 +725,7 @@ async function completeModule() {
       await activity.flush();
       await moduleHttp().post(modulePath('/complete'));
       portalTrackingEnabled.value = false;
+      if (route.query.embedded === '1') window.parent.postMessage({ type: 'hire-module-complete' }, window.location.origin);
     } else {
       await api.post('/progress/complete', {
         moduleId: module.value.id,
@@ -837,6 +838,10 @@ function persistNotes() {
 }
 
 function exitCourse() {
+  if (isPrehireMode.value && route.query.embedded === '1') {
+    window.parent.postMessage({ type: 'hire-module-exit' }, window.location.origin);
+    return;
+  }
   if (isPrehireMode.value && portalReturnPath.value) {
     router.push(portalReturnPath.value);
     return;
@@ -897,6 +902,13 @@ onMounted(load);
 </script>
 
 <style scoped>
+.portal-embedded{min-height:0!important;padding:0!important;background:white!important}
+.portal-embedded .prehire-banner,.portal-embedded .player-top,.portal-embedded .lesson-aside{display:none!important}
+.portal-embedded .player-layout{padding:0!important;min-height:0!important}
+.portal-embedded .player-body{display:block!important}
+.portal-embedded .lesson-main{padding:24px!important;max-width:none!important}
+.portal-embedded .splash{min-height:380px!important}
+
 .training-player {
   min-height: calc(100vh - 64px);
   background: linear-gradient(180deg, var(--bg-alt) 0%, var(--bg) 240px);

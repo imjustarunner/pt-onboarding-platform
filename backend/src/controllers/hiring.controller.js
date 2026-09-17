@@ -1,3 +1,5 @@
+import { sanitizeWorkflow } from '../utils/hirePortalWorkflow.js';
+import { prepareHirePacket, retainHirePacket } from '../services/hirePacketPreparation.service.js';
 import pool from '../config/database.js';
 import User from '../models/User.model.js';
 import Notification from '../models/Notification.model.js';
@@ -3996,7 +3998,9 @@ export const updateHiringSettings = async (req, res, next) => {
       'role_package_mappings',
       'handbook_ack_url',
       'handbook_full_url',
-      'default_prehire_docs'
+      'default_prehire_docs',
+      'portal_workflow',
+      'hire_packet_templates'
     ];
     const patch = {};
     for (const key of allowed) {
@@ -4004,6 +4008,14 @@ export const updateHiringSettings = async (req, res, next) => {
         // Validate role_package_mappings is an array
         if (key === 'role_package_mappings') {
           patch[key] = Array.isArray(req.body[key]) ? req.body[key] : [];
+        } else if (key === 'portal_workflow') {
+          patch[key] = sanitizeWorkflow(req.body[key]);
+        } else if (key === 'hire_packet_templates') {
+          patch[key] = (Array.isArray(req.body[key]) ? req.body[key] : []).slice(0, 30).map((p) => ({
+            id: String(p.id || '').replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 70), name: String(p.name || '').slice(0, 150),
+            workflow: sanitizeWorkflow(p.workflow), prehirePackageId: Number(p.prehirePackageId) || null,
+            onboardingPackageId: Number(p.onboardingPackageId) || null
+          })).filter((p) => p.id && p.name);
         } else if (key === 'default_prehire_docs') {
           patch[key] = sanitizePrehireConfig({ documents: req.body[key] }).documents;
         } else {
@@ -4238,6 +4250,16 @@ export const sendPreHire = async (req, res, next) => {
     const user = await User.findById(candidateUserId);
     if (!user) return res.status(404).json({ error: { message: 'Candidate not found' } });
 
+    if (!['PROSPECTIVE','PENDING_SETUP','PREHIRE_OPEN'].includes(user.status)) return res.status(409).json({ error: { message: 'This pre-hire packet is closed. Reopen it before changing or resending it.' } });
+    const preparedPacket = await prepareHirePacket({ userId: candidateUserId, agencyId, body: req.body });
+    req.body.packageId = preparedPacket.prehirePackageId;
+    if (preparedPacket.workflow.supervisorUserId) {
+      req.body.includeSupervisor = true;
+      req.body.contractTokens = { ...req.body.contractTokens, SUPERVISOR_NAME: preparedPacket.workflow.supervisorName };
+    }
+    if (preparedPacket.workflow.supervisorRole) req.body.contractTokens = { ...req.body.contractTokens,
+      IS_SUPERVISOR: '1', SUPERVISOR_DUTIES: preparedPacket.workflow.supervisorClause };
+
     // 1. Promote to PENDING_SETUP (or keep if already there)
     let tokenResult = null;
     if (user.status === 'PROSPECTIVE' || user.status === 'PENDING_SETUP') {
@@ -4311,7 +4333,17 @@ export const sendPreHire = async (req, res, next) => {
       }
     }
 
-    const extraTemplateIds = (req.body?.selectedJobDocs || [])
+    if (resolvedPackageId) {
+      for (const doc of await OnboardingPackage.getDocuments(resolvedPackageId)) {
+        if (!templateIds.includes(doc.document_template_id)) templateIds.push(doc.document_template_id);
+      }
+    }
+    if (preparedPacket.workflow.supervisorRole && !templateIds.includes(preparedPacket.workflow.supervisorTemplateId)) templateIds.push(preparedPacket.workflow.supervisorTemplateId);
+    for (const resource of preparedPacket.workflow.resources.filter((r) => r.phase === 'pre_hire' && r.kind === 'document')) {
+      if (!templateIds.includes(resource.templateId)) templateIds.push(resource.templateId);
+    }
+
+    const extraTemplateIds = (preparedPacket.documents || [])
       .map((d) => Number(d?.templateId || d?.documentTemplateId || 0))
       .filter((n) => Number.isFinite(n) && n > 0);
     for (const id of extraTemplateIds) {
@@ -4383,10 +4415,12 @@ export const sendPreHire = async (req, res, next) => {
       }
     };
 
+    const documentAssignmentErrors = [];
+    const libraryContractId = Number(req.body?.libraryContractTemplateId || prehireSettings?.default_contract_template_id || 0);
     for (const templateId of templateIds) {
       try {
         const tmpl = await DocumentTemplate.findById(templateId);
-        if (!tmpl) continue;
+        if (!tmpl || (tmpl.agency_id && Number(tmpl.agency_id) !== Number(agencyId)) || tmpl.is_active === 0) throw new Error(`Document ${templateId} is unavailable in this organization.`);
         if (likelyBuilderContractId && isEmploymentAgreementTitle(tmpl.name)) continue;
         const task = await TaskAssignmentService.assignDocumentTask({
           title: tmpl.name,
@@ -4396,10 +4430,12 @@ export const sendPreHire = async (req, res, next) => {
           assignedToUserId: candidateUserId,
           assignedToAgencyId: agencyId,
           documentActionType: tmpl.document_action_type || 'signature',
-          isRequired: tmpl.is_required ? 1 : 0,
+          isRequired: tmpl.is_required || templateId === libraryContractId || (preparedPacket.workflow.supervisorRole && templateId === preparedPacket.workflow.supervisorTemplateId) || preparedPacket.workflow.resources.some(r => r.templateId === templateId && r.required) ? 1 : 0,
           lifecycleItemKey: tmpl.lifecycle_item_key || null,
           metadata: {
             prehire: true,
+            portalPhase: 'pre_hire',
+            employmentContract: templateId === libraryContractId,
             lifecycleItemKey: tmpl.lifecycle_item_key || undefined
           }
         });
@@ -4410,8 +4446,11 @@ export const sendPreHire = async (req, res, next) => {
         }
       } catch (docErr) {
         console.error('sendPreHire: failed to assign document task', templateId, docErr);
+        documentAssignmentErrors.push(docErr.message || `Could not assign document ${templateId}.`);
       }
     }
+
+    if (documentAssignmentErrors.length) return res.status(400).json({ error: { message: documentAssignmentErrors.join(' '), code: 'PACKET_DOCUMENTS_INCOMPLETE' } });
 
     if (resolvedPackageId) {
       try {
@@ -4481,7 +4520,7 @@ export const sendPreHire = async (req, res, next) => {
         req.body?.libraryContractTemplateId || prehireSettings?.default_contract_template_id || 0
       ) || null;
 
-      const resolvedConfigId = bodyConfigId || settingsConfigId || jobDefaultConfigId || null;
+      const resolvedConfigId = bodyConfigId || jobDefaultConfigId || settingsConfigId || null;
 
       if (resolvedConfigId) {
         const { generateAndAssignCandidateContract } = await import('../services/contractGenerator.service.js');
@@ -4553,6 +4592,8 @@ export const sendPreHire = async (req, res, next) => {
 
     if (contractWarning) return res.status(400).json({ error: { message: contractWarning, code: 'CONTRACT_REQUIRED' } });
 
+    await retainHirePacket({ userId: candidateUserId, agencyId, packet: preparedPacket, actorId: req.user.id });
+
     const checklistTitles = [];
     try {
       const tokens = req.body?.contractTokens && typeof req.body.contractTokens === 'object'
@@ -4582,7 +4623,7 @@ export const sendPreHire = async (req, res, next) => {
           instructions: 'Review the job description and sign to confirm.',
           scheduledOn: null
         },
-        ...merged.documents.map((d) => ({
+        ...preparedPacket.documents.map((d) => ({
           itemKey: `doc:${d.id}`,
           title: d.title,
           instructions: d.instructions || null,
