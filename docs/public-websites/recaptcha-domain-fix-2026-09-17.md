@@ -29,6 +29,11 @@ The immediate browser recheck still showed the old domain error. Google's
 allows up to 30 minutes for domain changes to take effect; base-domain entries
 also cover their subdomains. No application was submitted during verification.
 
+A later fresh-browser check on the same day confirmed the public provider
+application on `https://www.itsco.health` displayed “I'm not a robot” with no
+domain error or failed CAPTCHA/intake requests. The saved configuration had
+propagated successfully. This verifies widget loading, not form submission.
+
 For future public website launches, check both the score key and the checkbox
 key selected by `RECAPTCHA_SITE_KEY_INTAKE`, and load an actual public intake
 page on the destination hostname. Testing only an `app.` hostname does not
