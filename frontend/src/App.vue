@@ -551,7 +551,7 @@
                               <div class="nav-dropdown-group-label">Websites</div>
                               <template v-for="hub in directoryPublicLinksData.marketingHubs" :key="'hub-' + hub.slug">
                                 <a class="nav-dropdown-external-link" :href="marketingHubPublicUrl(hub.slug)" target="_blank" rel="noopener noreferrer" @click.stop>{{ hub.title }}</a>
-                                <a v-if="user?.role === 'super_admin'" class="nav-dropdown-external-link" :href="marketingEditorPath(hub.slug)" target="_blank" rel="noopener noreferrer" @click.stop>Edit {{ hub.title }}</a>
+                                <router-link v-if="user?.role === 'super_admin'" class="nav-dropdown-external-link" :to="marketingEditorPath(hub.slug)" @click.stop>Edit {{ hub.title }}</router-link>
                               </template>
                             </template>
                             <template v-if="directoryPublicLinksData.publicEventPages.length">
@@ -1662,7 +1662,7 @@
                       <div v-if="directoryPublicLinksData.marketingHubs.length" class="nav-dropdown-group-label mobile-nav-sublabel">Websites</div>
                       <template v-for="hub in directoryPublicLinksData.marketingHubs" :key="'m-hub-' + hub.slug">
                                 <a class="mobile-nav-link mobile-nav-sublink nav-dropdown-external-link" :href="marketingHubPublicUrl(hub.slug)" target="_blank" rel="noopener noreferrer" @click="closeMobileMenu">{{ hub.title }}</a>
-                                <a v-if="user?.role === 'super_admin'" class="mobile-nav-link mobile-nav-sublink nav-dropdown-external-link" :href="marketingEditorPath(hub.slug)" target="_blank" rel="noopener noreferrer" @click="closeMobileMenu">Edit {{ hub.title }}</a>
+                                <router-link v-if="user?.role === 'super_admin'" class="mobile-nav-link mobile-nav-sublink nav-dropdown-external-link" :to="marketingEditorPath(hub.slug)" @click="closeMobileMenu">Edit {{ hub.title }}</router-link>
                               </template>
                       <div v-if="directoryPublicLinksData.publicEventPages.length" class="nav-dropdown-group-label mobile-nav-sublabel">Event pages</div>
                       <a

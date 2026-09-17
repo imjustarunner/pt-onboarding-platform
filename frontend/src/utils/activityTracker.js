@@ -24,6 +24,7 @@ let trackedSessionId = null;
 let lastActivityTime = Date.now();
 let refreshPromise = null;
 let refreshGeneration = null;
+let verificationRetry = null;
 let generation = 0;
 let inactivitySuspendCount = 0;
 let sessionExtendUntilMs = null;
@@ -54,6 +55,8 @@ function applyServer(data, { broadcast = true } = {}) {
   // Older requests may finish after a successful unlock in another tab.
   if (initialized && !isNewerSession(next, state)) return;
   initialized = true;
+  clearTimeout(verificationRetry);
+  verificationRetry = null;
   if (data?.policy) useSessionLockStore().setLockConfig(data.policy);
   state = next;
   lastActivityTime = state.lastActivityAt;
@@ -136,7 +139,7 @@ async function flushActivity() {
   try { await changeSession('activity'); } catch { /* retain the last confirmed deadline */ }
 }
 async function sendHeartbeats(force = false) {
-  if (!isTracking || timeoutInFlight || isApiRateLimited() || !state) return;
+  if (!isTracking || !initialized || timeoutInFlight || isApiRateLimited() || !state) return;
   const phase = phaseAt(state);
   if (phase === 'expired') return;
   if (!force && (document.visibilityState !== 'visible' || Date.now() - lastHeartbeat < 60000)) return;
@@ -156,6 +159,7 @@ async function refresh() {
   refreshGeneration = currentGeneration;
   const request = api.get('/auth/session-lock-config', REQUEST_OPTIONS).then(response => {
     if (currentGeneration !== generation || !isTracking) return;
+    if (!localSessionState(response.data?.session)) throw new Error('Session verification is unavailable.');
     applyServer({ policy: response.data, session: response.data.session });
   }).catch(error => {
     if (currentGeneration === generation && error.response?.data?.session) applyServer(error.response.data);
@@ -164,6 +168,18 @@ async function refresh() {
   }).finally(() => { if (refreshPromise === request) refreshPromise = null; });
   refreshPromise = request;
   return request;
+}
+function retryInitialVerification() {
+  if (!isTracking || initialized || timeoutInFlight || verificationRetry) return;
+  const currentGeneration = generation;
+  verificationRetry = setTimeout(async () => {
+    verificationRetry = null;
+    if (currentGeneration !== generation || !isTracking || initialized || timeoutInFlight) return;
+    if (document.visibilityState === 'visible' && !isApiRateLimited()) {
+      try { await refresh(); } catch { /* The original recovery deadline still applies. */ }
+    }
+    if (currentGeneration === generation) retryInitialVerification();
+  }, 5000);
 }
 function onStorage(event) {
   if (!isTracking || isDemoWindowSession()) return;
@@ -216,12 +232,14 @@ export async function startActivityTracking({ force = false } = {}) {
   if (isTracking && !force) return;
   stopActivityTracking();
   generation += 1; isTracking = true; initialized = false; timeoutInFlight = false;
+  const currentGeneration = generation;
   trackedSessionId = localStorage.getItem('sessionId');
   storageKey = sessionStorageKey(useAuthStore().user?.id, trackedSessionId);
   lastHeartbeat = 0; lastActivitySentAt = 0;
   state = null; readShared();
   // A cached deadline cannot authorize access or revoke a fresh cookie login.
   // Keep the screen covered until the server confirms this session.
+  useSessionLockStore().setLockConfig(null);
   useSessionLockStore().lock();
   EVENTS.forEach(event => document.addEventListener(event, markActivity, true));
   document.addEventListener('visibilitychange', onVisibility);
@@ -232,17 +250,20 @@ export async function startActivityTracking({ force = false } = {}) {
   window.addEventListener('pt:session-security', onSecurityResponse);
   scheduler = setInterval(tick, 1000);
   try { await refresh(); } catch {
-    // Without a verified deadline keep content covered; retry on visibility/focus.
-    if (!initialized && isTracking) {
+    // Retry transient failures without requiring a tab switch, and never extend
+    // this deadline or count verification requests as user activity.
+    if (currentGeneration === generation && !initialized && isTracking && !timeoutInFlight) {
       useSessionLockStore().lock();
       useSessionLockStore().showWarning(60, handleTimeout);
+      retryInitialVerification();
     }
   }
-  if (isTracking) void sendHeartbeats(true);
+  if (currentGeneration === generation && isTracking) void sendHeartbeats(true);
 }
 export function stopActivityTracking({ dismissWarning = true } = {}) {
   generation += 1; isTracking = false;
-  clearInterval(scheduler); clearTimeout(activityFlush);
+  clearInterval(scheduler); clearTimeout(activityFlush); clearTimeout(verificationRetry);
+  verificationRetry = null;
   scheduler = null; activityFlush = null; pendingActivity = false;
   EVENTS.forEach(event => document.removeEventListener(event, markActivity, true));
   document.removeEventListener('visibilitychange', onVisibility);

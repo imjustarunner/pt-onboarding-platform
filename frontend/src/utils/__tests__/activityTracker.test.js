@@ -33,6 +33,74 @@ beforeEach(() => {
 });
 afterEach(() => { stopActivityTracking(); vi.useRealTimers(); });
 describe('shared activity tracking', () => {
+  it('recovers from a failed initial session check without focus changes or renewing activity', async () => {
+    localStorage.setItem(sessionStorageKey(7, 'login-one'), JSON.stringify(serverSession));
+    mocks.get.mockRejectedValueOnce(new Error('Network error'));
+    await startActivityTracking();
+    expect(useSessionLockStore().isLocked).toBe(true);
+    expect(useSessionLockStore().warningSecondsLeft).toBe(60);
+    expect(mocks.post).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(mocks.get).toHaveBeenCalledTimes(2);
+    expect(useSessionLockStore().isLocked).toBe(false);
+    expect(useSessionLockStore().warningActive).toBe(false);
+    expect(mocks.post.mock.calls.some(([url]) => url === '/auth/session-activity')).toBe(false);
+    expect(mocks.logout).not.toHaveBeenCalled();
+  });
+  it('keeps the original recovery deadline when repeated session checks fail', async () => {
+    mocks.get.mockRejectedValue(new Error('Service unavailable'));
+    await startActivityTracking();
+    await vi.advanceTimersByTimeAsync(30000);
+    expect(mocks.get.mock.calls.length).toBeGreaterThan(1);
+    expect(useSessionLockStore().isLocked).toBe(true);
+    expect(useSessionLockStore().warningSecondsLeft).toBe(30);
+    await vi.advanceTimersByTimeAsync(30000);
+    await vi.waitFor(() => expect(mocks.logout).toHaveBeenCalledTimes(1));
+    const requestCount = mocks.get.mock.calls.length;
+    await vi.advanceTimersByTimeAsync(10000);
+    expect(mocks.get).toHaveBeenCalledTimes(requestCount);
+  });
+  it('retries a response missing session state without uncovering the app', async () => {
+    mocks.get.mockResolvedValueOnce({ data: { ...policy, session: null } });
+    await startActivityTracking();
+    expect(useSessionLockStore().isLocked).toBe(true);
+    expect(useSessionLockStore().warningActive).toBe(true);
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(useSessionLockStore().isLocked).toBe(false);
+  });
+  it('still requires the PIN when a retry confirms a locked session', async () => {
+    policy = { ...policy, useLockScreen: true, pinRequired: true, pinLength: 6 };
+    serverSession = { ...serverSession, phase: 'timedown', lockAt: Date.now() - 1000, expiresAt: Date.now() + 20000 };
+    mocks.get.mockRejectedValueOnce(new Error('Network error'));
+    await startActivityTracking();
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(useSessionLockStore().isLocked).toBe(true);
+    expect(useSessionLockStore().lockConfig.pinRequired).toBe(true);
+    expect(useSessionLockStore().warningSecondsLeft).toBe(15);
+    expect(mocks.post.mock.calls.some(([url]) => url === '/auth/session-activity')).toBe(false);
+  });
+  it('ignores a failed request from an earlier tracker start', async () => {
+    let rejectOld;
+    let resolveCurrent;
+    mocks.get.mockImplementationOnce(() => new Promise((resolve, reject) => { rejectOld = reject; }));
+    const oldStart = startActivityTracking();
+    mocks.get.mockImplementationOnce(() => new Promise(resolve => { resolveCurrent = resolve; }));
+    const currentStart = startActivityTracking({ force: true });
+    rejectOld(new Error('Old request failed'));
+    await oldStart;
+    expect(useSessionLockStore().warningActive).toBe(false);
+    resolveCurrent({ data: { ...policy, session: serverData().session } });
+    await currentStart;
+    expect(useSessionLockStore().isLocked).toBe(false);
+  });
+  it('cancels pending verification retries when tracking stops', async () => {
+    mocks.get.mockRejectedValueOnce(new Error('Network error'));
+    await startActivityTracking();
+    stopActivityTracking();
+    await vi.advanceTimersByTimeAsync(70000);
+    expect(mocks.get).toHaveBeenCalledTimes(1);
+    expect(mocks.logout).not.toHaveBeenCalled();
+  });
   it('moves admin and superadmin ledger/presence to timedown as soon as the warning opens', async () => {
     await startActivityTracking(); mocks.post.mockClear();
     await vi.advanceTimersByTimeAsync(30000);

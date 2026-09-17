@@ -18,6 +18,8 @@ The strictest timeouts and passcode requirement across active agency memberships
 - Away status and payroll clock-in do not pause the security deadline. Visible live meetings count as ongoing use; hidden meeting tabs cannot suspend the deadline indefinitely. Timeout cleanup preserves automatic payroll clock-out, using the actual expiration time when observed after sleep.
 - Policy reads are cached for at most 30 seconds per API instance. Unlock/config requests read fresh policy. Updated policies apply to subsequent requests; the frontend refreshes policy on focus and agency configuration changes.
 - Browser cookies/tokens remain necessary for unlock. The six-digit code does not replace full sign-in after logout.
+- A new tab stays covered until its initial session check succeeds. Transient failures retry every five seconds while visible, respecting API rate-limit backoff and the original 60-second recovery countdown. Missing session data is a failed verification, and an earlier tab-initialization request cannot start a countdown for a newer initialization. Retries do not renew activity or bypass a required PIN.
+- Website editing links use in-app navigation in the current tab, preserving the verified session when opening the marketing editor. Opening an editor URL directly still performs the initial session check.
 
 ## Deploy
 

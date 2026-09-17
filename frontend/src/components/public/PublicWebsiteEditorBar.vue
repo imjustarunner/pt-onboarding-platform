@@ -1,7 +1,7 @@
 <template>
   <aside v-if="slug && !framed" class="website-editor-bar" aria-label="Website editing">
     <span>Website: {{ slug }}</span>
-    <a :href="marketingEditorPath(slug)" target="_blank" rel="noopener">Edit website</a>
+    <router-link :to="marketingEditorPath(slug)">Edit website</router-link>
     <router-link to="/dashboard">Back to app</router-link>
   </aside>
   <footer v-else-if="!framed && managementUrl" class="website-management-link" translate="no">
