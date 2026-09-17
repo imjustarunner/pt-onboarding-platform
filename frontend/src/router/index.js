@@ -308,6 +308,7 @@ const flattenPathForHostPortal = (targetPath, brandingStore) => {
 };
 
 const routes = [
+  ...['itsco','nlu','ptco','tisi','rise','mh4kidz','range','kimi'].map(slug=>({path:`/p/${slug}/referral-network`,name:`ReferralNetwork-${slug}`,component:()=>import('../views/public/PublicReferralNetworkView.vue'),props:{slug},meta:{requiresGuest:false,publicMarketingHub:true}})),
   {path:'/billing/complete/:token?',name:'PaymentTask',component:()=>import('../views/PaymentTaskView.vue'),meta:{requiresAuth:true}},
   {path:'/:organizationSlug/admin/family-billing',name:'FamilyBillingDesk',component:()=>import('../views/admin/FamilyBillingDesk.vue'),meta:{requiresAuth:true,requiresRole:['admin','agency_admin','super_admin','support','staff','backoffice_admin']}},
   // Public school finder (no auth). Must be before "/:organizationSlug".

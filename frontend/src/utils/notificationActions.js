@@ -5,6 +5,7 @@ export function notificationDestination(notification, { organizationSlug = null,
   const entityId = Number(n.related_entity_id || 0);
   const adminLike = ['super_admin', 'admin', 'support', 'staff', 'clinical_practice_assistant', 'provider_plus'].includes(String(role || '').toLowerCase());
 
+  if (entityType === 'provider_availability' && n.user_id) return `${base}/admin/users/${Number(n.user_id)}?section=public-profile&agencyId=${Number(n.agency_id)}`;
   if (n.type === 'school_portal_onboarding_completed') {
     return `${base}/admin/school-onboarding${n.agency_id ? `?agencyId=${n.agency_id}` : ''}`;
   }
@@ -61,6 +62,7 @@ export function notificationDestination(notification, { organizationSlug = null,
 
 export function notificationPrimaryLabel(notification) {
   if (!notification) return null;
+  if(notification.related_entity_type==='provider_availability')return 'Review availability';
   if (notification.type === 'new_packet_uploaded') return 'Open packet';
   if (notification.type === 'company_event_registration_submitted') return 'Event portal';
   if (notification.type === 'school_event_marketing_photo') return 'View photos';

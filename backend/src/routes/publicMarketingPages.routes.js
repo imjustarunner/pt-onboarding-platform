@@ -1,6 +1,7 @@
 import { publicCoachingCatalog } from '../services/publicCoachingCatalog.service.js';
 import express from 'express';
 import pool from '../config/database.js';
+import { listPublicReferralNetwork } from '../services/publicReferralNetwork.service.js';
 import { listPublicWebsiteIdentities } from '../services/publicWebsiteIdentity.service.js';
 import { publicBusinessOnboardingRouter } from './businessOnboarding.routes.js';
 import { publicGeocodeLimiter, publicMarketingPageMetricsLimiter } from '../middleware/rateLimiter.middleware.js';
@@ -25,6 +26,7 @@ router.get('/:slug/coaching-catalog', async (req,res,next)=>{try{
 }catch(e){next(e);}});
 
 // Only published company websites are exposed; event hubs and private tenants are excluded.
+router.get('/referral-network', publicMarketingPageMetricsLimiter, async (req,res,next)=>{try{res.set('Cache-Control','public, max-age=60').json({companies:await listPublicReferralNetwork()});}catch(e){next(e);}});
 router.get('/partners', publicMarketingPageMetricsLimiter, async (req, res, next) => {
   try {
     res.set('Cache-Control', 'public, max-age=60').json({partners:await listPublicWebsiteIdentities()});

@@ -7,19 +7,19 @@ function toInt(v) {
 }
 
 class ProviderPublicProfile {
-  static async getForProvider({ providerUserId }) {
+  static async getForProvider({ providerUserId, database = pool }) {
     const userId = toInt(providerUserId);
     if (!userId) return null;
     const columns = 'user_id, public_blurb, insurances_json, public_details_json, self_pay_rate_cents, self_pay_rate_note, accepting_new_clients_override';
     let rows;
     try {
-      [rows] = await pool.execute(`SELECT ${columns} FROM provider_public_profiles WHERE user_id = ? LIMIT 1`, [userId]);
+      [rows] = await database.execute(`SELECT ${columns} FROM provider_public_profiles WHERE user_id = ? LIMIT 1`, [userId]);
     } catch (error) {
       if (error.code !== 'ER_BAD_FIELD_ERROR' || !String(error.message).includes('public_details_json')) throw error;
       // Rolling deployment: existing profiles continue loading until migration 1430 runs.
-      [rows] = await pool.execute(`SELECT ${columns.replace('public_details_json, ', '')} FROM provider_public_profiles WHERE user_id = ? LIMIT 1`, [userId]);
+      [rows] = await database.execute(`SELECT ${columns.replace('public_details_json, ', '')} FROM provider_public_profiles WHERE user_id = ? LIMIT 1`, [userId]);
     }
-    const [people] = await pool.execute('SELECT provider_school_info_blurb, languages_spoken, credential, title FROM users WHERE id = ? LIMIT 1', [userId]);
+    const [people] = await database.execute('SELECT provider_school_info_blurb, languages_spoken, credential, title FROM users WHERE id = ? LIMIT 1', [userId]);
     if (!rows?.[0] && !people?.[0]) return null;
     const person = people?.[0] || {};
     const row = rows?.[0] || {};
@@ -53,19 +53,24 @@ class ProviderPublicProfile {
     insurances = [],
     selfPayRateCents = null,
     selfPayRateNote = null,
-    acceptingNewClientsOverride = null
+    acceptingNewClientsOverride = null,
+    database = pool
   }) {
     const userId = toInt(providerUserId);
     if (!userId) throw new Error('Invalid providerUserId');
-    const previous = details === undefined ? await this.getForProvider({ providerUserId: userId }) : null;
+    const previous = await this.getForProvider({ providerUserId: userId, database });
+    details = { ...previous?.details, ...details };
     const publicDetails = {};
     for (const key of ['languages', 'locations', 'sessionFormats']) {
       const values = (details ?? previous?.details)?.[key];
       publicDetails[key] = Array.isArray(values) ? [...new Set(values.map(v => String(v).trim().slice(0, 160)).filter(Boolean))].slice(0, 30) : [];
     }
-    for (const key of ['officeAvailability', 'schoolAvailability']) {
+    for (const key of ['officeAvailability', 'schoolAvailability', 'virtualAvailability']) {
       const value = (details ?? previous?.details)?.[key];
       publicDetails[key] = ['accepting', 'waitlist', 'unavailable'].includes(value) ? value : 'auto';
+    }
+    for (const key of ['inPersonEnabled','virtualEnabled']) {
+      if (typeof details[key] === 'boolean') publicDetails[key] = details[key];
     }
     const cleanInsurances = Array.isArray(insurances)
       ? insurances
@@ -80,7 +85,7 @@ class ProviderPublicProfile {
       ? null
       : !!acceptingNewClientsOverride;
 
-    await pool.execute(
+    await database.execute(
       `INSERT INTO provider_public_profiles
         (user_id, public_blurb, insurances_json, self_pay_rate_cents, self_pay_rate_note, accepting_new_clients_override, public_details_json)
        VALUES (?, ?, ?, ?, ?, ?, ?)
@@ -102,7 +107,7 @@ class ProviderPublicProfile {
         JSON.stringify(publicDetails)
       ]
     );
-    return this.getForProvider({ providerUserId: userId });
+    return this.getForProvider({ providerUserId: userId, database });
   }
 
   static async getAgencySettings({ agencyId }) {

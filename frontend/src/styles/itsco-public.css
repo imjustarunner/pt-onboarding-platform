@@ -16,3 +16,19 @@
 .its-insurance-ticker .its-insurance-band>div{flex-shrink:0}.its-insurance-ticker:hover .its-insurance-band,.its-insurance-ticker:focus-within .its-insurance-band,.its-insurance-ticker.paused .its-insurance-band{animation-play-state:paused}
 @keyframes its-insurance-scroll{from{transform:translateX(0)}to{transform:translateX(min(0px,calc(80vw - 100%)))}}
 @media(prefers-reduced-motion:reduce){.its-insurance-ticker .its-insurance-band{animation:none;width:auto;flex-wrap:wrap}}
+
+
+/* Keep mobile text on an opaque surface; reserve the photo below the copy. */
+@media(max-width:650px) {
+ .its-hero.its-hero-home { background-image: none; padding-bottom: 0; }
+ .its-hero-home > .its-wrap { background: #eff8f4; padding-bottom: 24px; }
+ .its-hero-home::after { content: ''; display: block; position: static; height: 300px; background: var(--its-hero) center 35% / cover; }
+ .its-hero-formats { position: static; background: #eff8f4; padding: 16px 0 0; gap: 14px; }
+ .its-hero-home .its-handwritten { display: none; }
+ .its-team-grid { grid-template-columns: 1fr; }
+ .its-team-card { display: grid; grid-template-columns: minmax(100px,32%) minmax(0,1fr); }
+ .its-team-card > img, .its-team-card > .its-avatar { height: 100%; min-height: 230px; object-fit: cover; }
+ .its-team-card > div { min-width: 0; overflow-wrap: anywhere; }
+}
+
+@media(max-width:650px){.its-hero-home::before{display:none}.its-hero-home{padding-top:30px}.its-hero-home::after{z-index:0;opacity:1;inset:auto}.its-support-launcher{bottom:calc(76px + env(safe-area-inset-bottom,0px));font-size:12px;max-width:calc(100vw - 24px)}}

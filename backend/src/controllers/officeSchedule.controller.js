@@ -1,3 +1,4 @@
+import {officeBookingNeedsSession} from '../utils/officeBookingSessionLink.js';
 import { bookOfficeForAppointmentRequest } from '../services/officeAppointmentBinding.service.js';
 import pool from '../config/database.js';
 import OfficeLocation from '../models/OfficeLocation.model.js';
@@ -1942,7 +1943,7 @@ export const getWeeklyGrid = async (req, res, next) => {
       'clinical_practice_assistant'
     ].includes(actorRole);
     const privacySlots = (slots || []).map((s) => {
-      const out = { ...s };
+      const out = { ...s, bookingNeedsSession: officeBookingNeedsSession(s) };
       const isOwn = actorId > 0 && (
         Number(out.assignedProviderId || 0) === actorId
         || Number(out.bookedProviderId || 0) === actorId

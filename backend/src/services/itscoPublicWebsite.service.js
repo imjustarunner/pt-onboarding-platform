@@ -10,7 +10,8 @@ import { listClinicalFacetsForUser } from './providerClinicalFacets.service.js';
 import { listProviderAcceptedInsurancesForDisplay } from './providerAcceptedInsurance.service.js';
 import { assembleSchoolDistricts, publicPerson, parseWebsiteSettings } from '../utils/itscoPublicWebsite.js';
 
-const ACTIVE_PERSON = `COALESCE(u.is_archived, 0) = 0 AND COALESCE(u.is_demo, 0) = 0
+const ACTIVE_PERSON = `LOWER(TRIM(CONCAT(COALESCE(u.first_name,''), ' ', COALESCE(u.last_name,'')))) NOT IN ('super admin','superadmin')
+ AND COALESCE(u.is_archived, 0) = 0 AND COALESCE(u.is_demo, 0) = 0
  AND COALESCE(u.is_active, 1) = 1 AND UPPER(COALESCE(u.status, '')) IN ('ACTIVE', 'ACTIVE_EMPLOYEE')`;
 const AFFILIATED = `SELECT organization_id AS school_id FROM organization_affiliations WHERE agency_id = ? AND is_active = 1
  UNION SELECT school_organization_id AS school_id FROM agency_schools WHERE agency_id = ? AND is_active = 1`;
@@ -84,7 +85,7 @@ export async function getItscoWebsiteData(req) {
       let insurances = accepted.map(i => ({ name: i.name, logoUrl: i.logo_url || null }));
       for (const name of profile?.insurances || []) if (!insurances.some(i => i.name.toLowerCase() === name.toLowerCase())) insurances.push({ name });
       insurances = restrictPublicInsurances(insurances,row);
-      const office = Number(row.in_office_available) === 1 || Boolean(row.has_office_assignment) || (profile?.details?.sessionFormats || []).some(format => /in[ -]?person|in[ -]?office|office/i.test(format));
+      const office = profile?.details?.inPersonEnabled === false ? false : Number(row.in_office_available) === 1 || Boolean(row.has_office_assignment) || (profile?.details?.sessionFormats || []).some(format => /in[ -]?person|in[ -]?office|office/i.test(format));
       const schoolOpenings=assignments.some(a=>Number(a.providerId)===Number(row.id)&&Number(a.slots_available)>0);
       providers.push({ ...person, specialties: uniquePublicFacets(facets.specialties), ageGroups: uniquePublicFacets(facets.ageGroups),
         officeAcceptance:publicAcceptance({globalAccepting:person.acceptingNewClients,manual:profile?.details?.officeAvailability,assigned:office}),

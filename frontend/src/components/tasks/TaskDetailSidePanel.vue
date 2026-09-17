@@ -225,6 +225,7 @@
         <section class="block">
           <header class="block__head">
             <strong>Links</strong>
+            <router-link v-if="item?.metadata?.kind==='provider_availability' && Number(item.metadata.providerId)>0" :to="{path:`/admin/users/${Number(item.metadata.providerId)}`,query:{agencyId:Number(item.metadata.agencyId),section:'public-profile'}}">Review availability →</router-link>
           </header>
           <div class="link-add">
             <input v-model="newLinkUrl" class="form-control" placeholder="https://…" />

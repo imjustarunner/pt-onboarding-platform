@@ -12,7 +12,7 @@ const titles = {
   schools: 'School-Based Counseling | ITSCO', about: 'About ITSCO',
   growth: 'Our Growth | ITSCO', impact: 'Our Impact | ITSCO', team: 'Our Team | ITSCO',
   insurance: 'Insurance and Counseling | ITSCO', resources: 'Family Resources | ITSCO',
-  contact: 'Contact ITSCO', careers: 'Careers at ITSCO'
+  'referral-network':'Referral Network | ITSCO', contact: 'Contact ITSCO', careers: 'Careers at ITSCO'
 };
 export function itscoPublicResponse(host, originalUrl) {
   if (!isItscoPublicHost(host)) return null;

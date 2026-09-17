@@ -2171,6 +2171,12 @@ if (!isBootstrap) {
       }
     }
   };
+  const checkProviderOpenings = async () => {
+    try { const {runProviderAvailabilityReminderTick}=await import('./services/providerAvailabilityReminders.service.js'); await runProviderAvailabilityReminderTick(); }
+    catch(e) { console.warn('[availability-reminders]', e.code || e.message); }
+  };
+  checkProviderOpenings();
+  setInterval(checkProviderOpenings, 15 * 60 * 1000);
   scheduleSessionDocTasks();
   setInterval(scheduleSessionDocTasks, 60 * 1000);
 

@@ -61,7 +61,7 @@ function choose(next) {
   position: fixed;
   z-index: 10050;
   right: 12px;
-  bottom: 12px;
+  bottom: calc(12px + env(safe-area-inset-bottom, 0px));
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -118,7 +118,7 @@ function choose(next) {
 @media (max-width: 480px) {
   .public-translate-widget {
     right: 8px;
-    bottom: 8px;
+    bottom: calc(8px + env(safe-area-inset-bottom, 0px));
     padding: 6px 8px;
     font-size: 12px;
   }

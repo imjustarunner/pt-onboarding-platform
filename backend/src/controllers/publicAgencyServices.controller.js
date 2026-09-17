@@ -1,3 +1,4 @@
+import {publicFormatEnabled} from '../utils/providerAvailabilityReminders.js';
 import { getPublicCounselingHourlyRate } from '../services/publicCounselingRate.service.js';
 import {normalizeLearningProfile, validateLearningCatalog, hourlyRate, pricePackage, matchesGrade, publicLearningCatalog, LEARNING_PROGRAMS} from '../services/learningCatalog.js';
 import {publicAcceptance,uniquePublicFacets} from '../utils/publicProviderPresentation.js';
@@ -583,7 +584,7 @@ async function resolveProviderProfileSummary({ agencyId, providerUserId, service
   };
 }
 
-async function computeProviderWindowSummary({ agencyId, providerId, weekStart, bookingMode, programType, heldSlots = null }) {
+async function computeProviderWindowSummary({ agencyId, providerId, weekStart, bookingMode, programType, heldSlots = null, lookaheadWeeks = 16 }) {
   const intakeOnly = String(bookingMode || 'NEW_CLIENT') === 'NEW_CLIENT';
   const program = normalizeProgramType(programType);
   const pickProgramSlots = (result) => (program === 'VIRTUAL' ? (result?.virtualSlots || []) : (result?.inPersonSlots || [])).filter(s => Date.parse(s.startAt) > Date.now());
@@ -613,7 +614,7 @@ async function computeProviderWindowSummary({ agencyId, providerId, weekStart, b
 
   let nextAvailable = null;
   let bookedThroughYmd = null;
-  for (let i = 1; i <= 16; i += 1) {
+  for (let i = 1; i <= lookaheadWeeks; i += 1) {
     const candidateWeek = addDaysYmd(weekStart, i * 7);
     // eslint-disable-next-line no-await-in-loop
     const candidate = await computeForWeek(candidateWeek);
@@ -629,16 +630,16 @@ async function computeProviderWindowSummary({ agencyId, providerId, weekStart, b
   return { thisWeek, nextAvailableAt: nextAvailable, bookedThroughYmd };
 }
 
-function normalizeSlots({ result, bookingMode, providerAcceptingNewClients, profileAcceptingNewClientsOverride }) {
+function normalizeSlots({ result, bookingMode, profile }) {
   // These slots already passed schedule, assignment, conflict, and intake-hold checks.
-  // A published opening overrides stale global/manual waitlist flags.
-  const inPerson = (result?.inPersonSlots || []).filter((s) => new Date(s.startAt).getTime() > Date.now()).map((s) => ({
+  // Explicitly closed client intake or formats cannot advertise new-client openings.
+  const inPerson = (publicFormatEnabled(profile,'IN_PERSON',bookingMode)?result?.inPersonSlots || []:[]).filter((s) => new Date(s.startAt).getTime() > Date.now()).map((s) => ({
     ...s,
     modality: 'IN_PERSON',
     programType: 'IN_PERSON',
     recurrence: { isRecurring: true, frequency: String(s.frequency || 'WEEKLY').toUpperCase() }
   }));
-  const virtual = (result?.virtualSlots || []).filter((s) => new Date(s.startAt).getTime() > Date.now()).map((s) => ({
+  const virtual = (publicFormatEnabled(profile,'VIRTUAL',bookingMode)?result?.virtualSlots || []:[]).filter((s) => new Date(s.startAt).getTime() > Date.now()).map((s) => ({
     ...s,
     modality: 'VIRTUAL',
     programType: 'VIRTUAL',
@@ -763,8 +764,10 @@ export const listCounselors = async (req, res, next) => {
     const providerRows = await listEnrolledProviders(agency.id, serviceType);
 
     const providers = await runWithConcurrency(providerRows, 6, async (row) => {
-      const heldSlots = await getHeldSlotStartsForProvider(agency.id, Number(row.id));
-      const summary = await computeProviderWindowSummary({
+      const directoryOnly = req.query.view === 'directory';
+      const heldSlots = directoryOnly ? [] : await getHeldSlotStartsForProvider(agency.id, Number(row.id));
+      const summary = directoryOnly ? { thisWeek: { virtualSlots: [], inPersonSlots: [] }, nextAvailableAt: null, bookedThroughYmd: null } : await computeProviderWindowSummary({
+        lookaheadWeeks: req.query.view === 'availability' ? 0 : 16,
         agencyId: agency.id,
         providerId: Number(row.id),
         weekStart,
@@ -772,13 +775,14 @@ export const listCounselors = async (req, res, next) => {
         programType,
         heldSlots
       });
-      const profileData = await ProviderPublicProfile.getForProvider({ providerUserId: Number(row.id) });
+      const profileData = await ProviderPublicProfile.getForProvider({ providerUserId: Number(row.id) }) || {};
+      profileData.acceptingNewClientsOverride ??= Boolean(row.provider_accepting_new_clients ?? true);
       const profile = await resolveProviderProfileSummary({ agencyId: agency.id, providerUserId: Number(row.id) });
+      if(!publicFormatEnabled(profileData,programType,bookingMode))summary.nextAvailableAt=null;
       const slotSet = normalizeSlots({
         result: summary.thisWeek,
         bookingMode,
-        providerAcceptingNewClients: row.provider_accepting_new_clients,
-        profileAcceptingNewClientsOverride: profileData?.acceptingNewClientsOverride ?? null
+        profile: profileData
       });
       const filteredThisWeek = programType === 'VIRTUAL' ? slotSet.virtual : slotSet.inPerson;
 
@@ -809,7 +813,7 @@ export const listCounselors = async (req, res, next) => {
       if (effectiveAgeFilter && !providerServesAgeBucket(ageGroups, effectiveAgeFilter)) return null;
 
       return {
-        acceptingNewClients: publicAcceptance({globalAccepting:profileData?.acceptingNewClientsOverride ?? row.provider_accepting_new_clients,manual:programType==='IN_PERSON'?profileData?.details?.officeAvailability:'auto',assigned:programType!=='IN_PERSON'||Boolean(row.in_office_available)||Boolean(summary.nextAvailableAt),hasOpenings:Boolean(summary.nextAvailableAt)}).status === 'accepting',
+        acceptingNewClients: publicFormatEnabled(profileData,programType,bookingMode) && publicAcceptance({globalAccepting:profileData?.acceptingNewClientsOverride ?? row.provider_accepting_new_clients,manual:programType==='IN_PERSON'?profileData?.details?.officeAvailability:'auto',assigned:programType!=='IN_PERSON'||Boolean(row.in_office_available)||Boolean(summary.nextAvailableAt),hasOpenings:Boolean(summary.nextAvailableAt)}).status === 'accepting',
         providerId: Number(row.id),
         id: Number(row.id),
         firstName: row.first_name || '',
@@ -833,6 +837,7 @@ export const listCounselors = async (req, res, next) => {
           selfPayRateNote: profile.selfPayRateNote || null
         },
         availability: {
+          checked: !directoryOnly,
           bookingMode,
           programType,
           weekStart,
@@ -890,6 +895,7 @@ export const listCounselors = async (req, res, next) => {
         if (a.availability?.nextAvailableAt && b.availability?.nextAvailableAt) {
           return String(a.availability.nextAvailableAt).localeCompare(String(b.availability.nextAvailableAt));
         }
+        if (Boolean(a.availability?.nextAvailableAt) !== Boolean(b.availability?.nextAvailableAt)) return a.availability?.nextAvailableAt ? -1 : 1;
         return String(a.displayName || '').localeCompare(String(b.displayName || ''));
       })
     });
@@ -939,8 +945,10 @@ export const listTutors = async (req, res, next) => {
       tutoringProfile.hourlyRateCents = hourlyRate(catalog, tutoringProfile.learning, 'tutoring', req.query.learningFormat === 'small-group' ? 'small-group' : programType==='IN_PERSON'?'in-person':'virtual');
       tutoringProfile.packages = catalog.packages.filter(p=>p.published && tutoringProfile.learning.programs.includes(p.program) && p.program===(learningProgram||'tutoring')).map(p=>pricePackage(catalog,p,{tutoring:{profile:tutoringProfile.learning,providerId:Number(row.id)}}));
 
-      const heldSlots = await getHeldSlotStartsForProvider(agency.id, Number(row.id));
-      const summary = await computeProviderWindowSummary({
+      const directoryOnly = req.query.view === 'directory';
+      const heldSlots = directoryOnly ? [] : await getHeldSlotStartsForProvider(agency.id, Number(row.id));
+      const summary = directoryOnly ? { thisWeek: { virtualSlots: [], inPersonSlots: [] }, nextAvailableAt: null, bookedThroughYmd: null } : await computeProviderWindowSummary({
+        lookaheadWeeks: req.query.view === 'availability' ? 0 : 16,
         agencyId: agency.id,
         providerId: Number(row.id),
         weekStart,
@@ -948,12 +956,13 @@ export const listTutors = async (req, res, next) => {
         programType,
         heldSlots
       });
-      const profileData = await ProviderPublicProfile.getForProvider({ providerUserId: Number(row.id) });
+      const profileData = await ProviderPublicProfile.getForProvider({ providerUserId: Number(row.id) }) || {};
+      profileData.acceptingNewClientsOverride ??= Boolean(row.provider_accepting_new_clients ?? true);
+      if(!publicFormatEnabled(profileData,programType,bookingMode))summary.nextAvailableAt=null;
       const slotSet = normalizeSlots({
         result: summary.thisWeek,
         bookingMode,
-        providerAcceptingNewClients: row.provider_accepting_new_clients,
-        profileAcceptingNewClientsOverride: profileData?.acceptingNewClientsOverride ?? null
+        profile: profileData
       });
       const filteredThisWeek = tutoringProfile.acceptingNewStudents && req.query.learningFormat !== 'small-group' ? (programType === 'VIRTUAL' ? slotSet.virtual : slotSet.inPerson) : [];
 
@@ -962,7 +971,7 @@ export const listTutors = async (req, res, next) => {
       if (filterSubject && !tutoringProfile.subjectAreas.map((s) => s.toLowerCase()).some((s) => s.includes(filterSubject))) return null;
 
       return {
-        acceptingNewClients: tutoringProfile.acceptingNewStudents && publicAcceptance({globalAccepting:profileData?.acceptingNewClientsOverride ?? row.provider_accepting_new_clients,manual:programType==='IN_PERSON'?profileData?.details?.officeAvailability:'auto',assigned:programType!=='IN_PERSON'||Boolean(row.in_office_available)||Boolean(summary.nextAvailableAt),hasOpenings:Boolean(summary.nextAvailableAt)}).status === 'accepting',
+        acceptingNewClients: publicFormatEnabled(profileData,programType,bookingMode) && tutoringProfile.acceptingNewStudents && publicAcceptance({globalAccepting:profileData?.acceptingNewClientsOverride ?? row.provider_accepting_new_clients,manual:programType==='IN_PERSON'?profileData?.details?.officeAvailability:'auto',assigned:programType!=='IN_PERSON'||Boolean(row.in_office_available)||Boolean(summary.nextAvailableAt),hasOpenings:Boolean(summary.nextAvailableAt)}).status === 'accepting',
         providerId: Number(row.id),
         id: Number(row.id),
         firstName: row.first_name || '',
@@ -972,6 +981,7 @@ export const listTutors = async (req, res, next) => {
         profilePhotoUrl: publicUploadsUrlFromStoredPath(row.profile_photo_path || null),
         tutoringProfile,
         availability: {
+          checked: !directoryOnly,
           bookingMode,
           programType,
           weekStart,
@@ -1011,6 +1021,7 @@ export const listTutors = async (req, res, next) => {
         if (a.availability?.nextAvailableAt && b.availability?.nextAvailableAt) {
           return String(a.availability.nextAvailableAt).localeCompare(String(b.availability.nextAvailableAt));
         }
+        if (Boolean(a.availability?.nextAvailableAt) !== Boolean(b.availability?.nextAvailableAt)) return a.availability?.nextAvailableAt ? -1 : 1;
         return String(a.displayName || '').localeCompare(String(b.displayName || ''));
       })
     });
@@ -1142,13 +1153,14 @@ export const getProviderDetail = async (req, res, next) => {
 
     const heldSlots = await getHeldSlotStartsForProvider(agency.id, providerId);
     const summary = await computeProviderWindowSummary({ agencyId: agency.id, providerId, weekStart, bookingMode, programType, heldSlots });
-    const profileData = await ProviderPublicProfile.getForProvider({ providerUserId: providerId });
+    const profileData = await ProviderPublicProfile.getForProvider({ providerUserId: providerId }) || {};
+    profileData.acceptingNewClientsOverride ??= Boolean(user.provider_accepting_new_clients ?? true);
+    if(!publicFormatEnabled(profileData,programType,bookingMode))summary.nextAvailableAt=null;
     const profile = await resolveProviderProfileSummary({ agencyId: agency.id, providerUserId: providerId, serviceType });
     const slotSet = normalizeSlots({
       result: summary.thisWeek,
       bookingMode,
-      providerAcceptingNewClients: user.provider_accepting_new_clients,
-      profileAcceptingNewClientsOverride: profileData?.acceptingNewClientsOverride ?? null
+      profile: profileData
     });
     let filteredThisWeek = programType === 'VIRTUAL' ? slotSet.virtual : slotSet.inPerson;
 
@@ -1168,7 +1180,7 @@ export const getProviderDetail = async (req, res, next) => {
       serviceType,
       agency: { id: agency.id, slug: agency.slug, name: agency.name },
       provider: {
-        acceptingNewClients: tutoringProfile?.acceptingNewStudents !== false && publicAcceptance({globalAccepting:profileData?.acceptingNewClientsOverride ?? user.provider_accepting_new_clients,manual:programType==='IN_PERSON'?profileData?.details?.officeAvailability:'auto',assigned:programType!=='IN_PERSON'||Boolean(user.in_office_available)||Boolean(summary.nextAvailableAt),hasOpenings:Boolean(summary.nextAvailableAt)}).status === 'accepting',
+        acceptingNewClients: publicFormatEnabled(profileData,programType,bookingMode) && tutoringProfile?.acceptingNewStudents !== false && publicAcceptance({globalAccepting:profileData?.acceptingNewClientsOverride ?? user.provider_accepting_new_clients,manual:programType==='IN_PERSON'?profileData?.details?.officeAvailability:'auto',assigned:programType!=='IN_PERSON'||Boolean(user.in_office_available)||Boolean(summary.nextAvailableAt),hasOpenings:Boolean(summary.nextAvailableAt)}).status === 'accepting',
         providerId,
         id: providerId,
         firstName: user.first_name || '',
@@ -1364,9 +1376,12 @@ export const getProviderSlots = async (req, res, next) => {
       intakeOnly: String(bookingMode || 'NEW_CLIENT') === 'NEW_CLIENT'
     }).catch(() => null);
 
-    const inPersonSlots = filterHeldSlots(dedupeSlots(result?.inPersonSlots || []), heldSlots)
+    const calendarProfile = await ProviderPublicProfile.getForProvider({providerUserId:providerId}) || {};
+    const [[calendarUser]]=await pool.execute('SELECT provider_accepting_new_clients FROM users WHERE id=?',[providerId]);
+    calendarProfile.acceptingNewClientsOverride ??= Boolean(calendarUser?.provider_accepting_new_clients);
+    const inPersonSlots = filterHeldSlots(dedupeSlots(publicFormatEnabled(calendarProfile,'IN_PERSON',bookingMode)?result?.inPersonSlots || []:[]), heldSlots)
       .map((s) => ({ ...s, modality: 'IN_PERSON', programType: 'IN_PERSON' }));
-    const virtualSlots = filterHeldSlots(dedupeSlots(result?.virtualSlots || []), heldSlots)
+    const virtualSlots = filterHeldSlots(dedupeSlots(publicFormatEnabled(calendarProfile,'VIRTUAL',bookingMode)?result?.virtualSlots || []:[]), heldSlots)
       .map((s) => ({ ...s, modality: 'VIRTUAL', programType: 'VIRTUAL' }));
 
     const slots = programType === 'VIRTUAL'
@@ -1434,6 +1449,10 @@ export const createBookingRequest = async (req, res, next) => {
       });
     }
 
+    const availabilityProfile=await ProviderPublicProfile.getForProvider({providerUserId:providerId}) || {};
+    const [[availabilityUser]]=await pool.execute('SELECT provider_accepting_new_clients FROM users WHERE id=?',[providerId]);
+    availabilityProfile.acceptingNewClientsOverride ??= Boolean(availabilityUser?.provider_accepting_new_clients);
+    if(!publicFormatEnabled(availabilityProfile,modality,bookingMode))return res.status(409).json({error:{message:'This appointment format is not currently accepting new clients.'}});
     // Validate slot is still available
     const weekStartYmd = start.toISOString().slice(0, 10);
     const availability = await ProviderAvailabilityService.computeWeekAvailability({

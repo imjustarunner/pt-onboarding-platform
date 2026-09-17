@@ -12,8 +12,9 @@ async function rangePartners(req, res, next) {
   try {
     if (!await published(res)) return;
     const [rows] = await pool.execute(`SELECT a.id,a.name,a.slug,a.logo_url,a.logo_path,a.city,a.state,
-      m.description,m.audience,m.focus,m.website_url,m.contact_url,m.services
+      m.description,m.audience,m.focus,COALESCE(NULLIF(s.website_url,''),m.website_url) AS website_url,m.contact_url,m.services
       FROM mental_range_memberships m JOIN agencies a ON a.id=m.agency_id
+      LEFT JOIN public_website_support_sites s ON s.slug=IF(a.slug='plottwistco','ptco',a.slug) AND s.coming_soon=0
       WHERE m.included=1 AND a.is_active=1 AND COALESCE(a.is_archived,0)=0 AND ${RANGE_TENANT_SQL} ORDER BY a.name`);
     res.json({ partners: rows.map(r => partnerDto(r, publicUploadsUrlFromStoredPath(r.logo_path))) });
   } catch (e) { next(e); }

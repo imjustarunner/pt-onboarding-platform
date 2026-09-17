@@ -1978,6 +1978,7 @@
         </div>
 
         <!-- Use path (not fullPath) so query-only updates don't destroy/recreate the page (avoids flash + repeated dashboard_view logs). -->
+        <ProviderAvailabilityNotice v-if="isAuthenticated && !route.meta?.publicMarketingHub && !hideGlobalNavForSchoolStaff" />
         <router-view :key="route.path" />
       </main>
       <PublicTranslateWidget v-if="showPublicTranslateWidget" />
@@ -2398,6 +2399,7 @@ import TimeCapsuleRevealSplashModal from './components/hiring/TimeCapsuleRevealS
 import PublicTranslateWidget from './components/public/PublicTranslateWidget.vue';
 import PublicWebsiteChat from './components/public/PublicWebsiteChat.vue';
 import WebsiteChatDesk from './components/tickets/WebsiteChatDesk.vue';
+import ProviderAvailabilityNotice from './components/availability/ProviderAvailabilityNotice.vue';
 import PublicWebsiteEditorBar from './components/public/PublicWebsiteEditorBar.vue';
 import { marketingEditorPath } from './utils/publicWebsiteEditing';
 import PublicWebsiteAnalytics from './components/public/PublicWebsiteAnalytics.vue';

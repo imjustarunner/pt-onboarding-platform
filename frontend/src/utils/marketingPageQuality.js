@@ -20,7 +20,7 @@ export function landingDestination(href, { slug = 'tisi', contentPages = [] } = 
   if (safe === base || safe === `${base}/`) return base;
   if (!safe.startsWith(`${base}/`)) return safe;
   const segment = safe.slice(base.length + 1).split(/[?#]/)[0];
-  if (slug === 'tisi' && isTisiAudiencePage(segment)) return safe;
+  if (slug === 'tisi' && (isTisiAudiencePage(segment) || segment === 'contact')) return safe;
   const page = contentPages.find((p) => p.slug === segment);
   if (page?.body?.trim() && !isPlaceholderCopy(page.body)) return safe;
   return ({ services: '#services', 'who-we-help': '#who-we-support', contact: '#contact' })[segment] || '';

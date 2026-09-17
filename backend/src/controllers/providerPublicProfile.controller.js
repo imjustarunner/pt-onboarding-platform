@@ -73,7 +73,7 @@ export const upsertUserProviderPublicProfile = async (req, res, next) => {
     const agencyId = parseIntSafe(req.body?.agencyId || req.query?.agencyId);
     if (!userId) return res.status(400).json({ error: { message: 'Invalid user id' } });
     if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
-    if (!canManageProfile(req.user?.role)) {
+    if (Number(req.user.id) !== userId && !canManageProfile(req.user?.role)) {
       return res.status(403).json({ error: { message: 'Admin/staff access required' } });
     }
     if (!(await requireAgencyMembership(req, res, agencyId))) return;

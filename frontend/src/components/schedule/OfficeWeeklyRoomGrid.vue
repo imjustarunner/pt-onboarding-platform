@@ -45,6 +45,7 @@
               <div class="cell-main">
                 <div class="cell-name">{{ slotName(dateYmd, h, r.id) }}</div>
                 <div class="cell-badges">
+                  <span v-if="getSlot(dateYmd,h,r.id)?.bookingNeedsSession" class="cell-pill manual-pill" title="Manual room reservation: no linked clinical or learning session. This reservation is allowed.">No session</span>
                   <span v-if="slotBadge(dateYmd, h, r.id)" class="cell-badge">{{ slotBadge(dateYmd, h, r.id) }}</span>
                   <span v-if="slotHasInPersonIntake(dateYmd, h, r.id)" class="cell-pill ip-pill" title="In-person intake enabled">IP</span>
                   <span v-if="slotHasVirtualIntake(dateYmd, h, r.id)" class="cell-pill vi-pill" title="Virtual intake enabled">VI</span>
@@ -276,6 +277,7 @@ const slotTitle = (dateYmd, hour, roomId) => {
   else if (state === 'conflict') parts.push('Conflict');
   else if (state === 'open') parts.push('Open');
   else if (name) parts.push(name);
+  if(s.bookingNeedsSession)parts.push('Manual room reservation — no linked session; reservation remains allowed');
   if (s.frequencyLabel) parts.push(String(s.frequencyLabel));
   const sessionBits = [
     s.appointmentType && String(s.appointmentType).toUpperCase() !== 'NONE'
@@ -402,5 +404,6 @@ const dayGridStyle = computed(() => ({
   border-color: #fecaca;
 }
 .cell.requested { border-left: 3px solid rgba(245, 158, 11, 0.8); }
+.manual-pill{background:#fff0c3;color:#684500;border:1px solid #c49b36;white-space:normal}
 </style>
 

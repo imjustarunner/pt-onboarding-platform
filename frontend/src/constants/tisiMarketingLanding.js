@@ -293,7 +293,7 @@ export function resolveTisiLandingConfig({ pageMeta, branding } = {}) {
     && !primaryNav.some(link => link.href.replace(/\/$/, '') === item.href));
   const audienceIndex = primaryNav.findIndex(item => item.href === '/p/tisi/who-we-help');
   const contactIndex = primaryNav.findIndex(item => item.href === '/p/tisi/contact');
-  primaryNav.splice(audienceIndex >= 0 ? audienceIndex + 1 : contactIndex >= 0 ? contactIndex : primaryNav.length, 0, ...missingAudiences);
+  if(primaryNavRaw.length)primaryNav.splice(audienceIndex >= 0 ? audienceIndex + 1 : contactIndex >= 0 ? contactIndex : primaryNav.length, 0, ...missingAudiences);
 
   const legalRaw =
     Array.isArray(b.legalFooterLinks) ? b.legalFooterLinks : d.legalFooterLinks;

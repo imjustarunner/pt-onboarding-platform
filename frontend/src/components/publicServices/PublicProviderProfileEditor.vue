@@ -15,11 +15,12 @@
     <label>New client availability<select v-model="draft.accepting"><option value="default">Use global profile setting</option><option value="yes">Accepting new clients</option><option value="no">Contact team / waitlist</option></select></label>
     <label v-for="[key,label] in availabilityFields" :key="key">{{label}}<select v-model="draft[key]"><option value="auto">Use global acceptance</option><option value="accepting">Accepting new clients</option><option value="waitlist">Waitlist</option><option value="unavailable">Not accepting</option></select></label>
    </div>
-   <p>Published schedule openings automatically show availability, even when a manual or global setting is on waitlist. Office and school settings apply to their assigned locations.</p>
+   <p>Use the availability settings below to control new-client intake and appointment formats. Office and school acceptance settings apply to their assigned locations.</p>
    <p>Specialties, populations, and clinical approaches come from the provider’s clinical profile. <router-link v-if="auth.user?.role !== 'staff'" :to="{name:'UserProfile',params:{userId:provider.id}}">Open full staff profile</router-link></p>
    <p v-if="error" role="alert">{{ error }}</p><p v-if="notice" role="status">{{ notice }}</p>
    <div class="editor-actions"><button type="submit" :disabled="busy">{{ busy ? 'Saving…' : 'Save profile' }}</button><button type="button" :disabled="busy" @click="editing=false">Cancel</button></div>
   </form>
+  <ProviderAvailabilitySettings v-if="editing" :provider-id="Number(provider.id)" :agency-id="agencyId" @updated="availabilityUpdated" />
   <p v-if="!editing && notice" role="status">{{ notice }}</p>
  </section>
 </template>
@@ -27,19 +28,21 @@
 import {computed,reactive,ref,watch} from 'vue';
 import {useAuthStore} from '../../store/auth';
 import api from '../../services/api';
+import ProviderAvailabilitySettings from '../availability/ProviderAvailabilitySettings.vue';
 const props=defineProps({provider:{type:Object,required:true},agencyId:{type:Number,required:true}});
 const emit=defineEmits(['saved']);
 const auth=useAuthStore(),verified=ref(false),editing=ref(false),busy=ref(false),error=ref(''),notice=ref(''),photo=ref(null),draft=reactive({});
-const manager=computed(()=>['admin','super_admin','support','staff'].includes(auth.user?.role));
+const manager=computed(()=>window.parent===window && (Number(auth.user?.id)===Number(props.provider.id) || ['admin','super_admin','support','staff'].includes(auth.user?.role)));
 const allowed=computed(()=>manager.value && verified.value);
 const availabilityFields=[['officeAvailability','Office acceptance'],['schoolAvailability','Assigned school acceptance']];
-const fields=[{key:'insurances',label:'Insurance accepted'},{key:'languages',label:'Languages'},{key:'locations',label:'Public locations'},{key:'sessionFormats',label:'Session formats'}];
+const fields=[{key:'insurances',label:'Insurance accepted'},{key:'languages',label:'Languages'},{key:'locations',label:'Public locations'},{key:'sessionFormats',label:'In-person / virtual'}];
 let savedProfile={},generation=0;
 watch(()=>[props.provider.id,props.agencyId,manager.value],async()=>{
  const id=++generation;verified.value=false;editing.value=false;
  if(!manager.value || !props.agencyId)return;
  try{const {data}=await api.get(`/users/${props.provider.id}/provider-public-profile`,{params:{agencyId:props.agencyId},skipAuthRedirect:true});if(id===generation){savedProfile=data.profile||{};verified.value=true;}}catch{/* Authorization is decided by the protected API. */}
 },{immediate:true});
+function availabilityUpdated(data){if(data.kind!=='save')return;draft.accepting='default';draft.officeAvailability=data.preferences.acceptingNewClients&&data.preferences.inPerson?'accepting':'unavailable';}
 function open(){Object.assign(draft,{firstName:props.provider.firstName||'',lastName:props.provider.lastName||'',title:props.provider.title||'',publicBlurb:savedProfile.publicBlurb||'',insurances:(savedProfile.insurances||[]).join(', '),accepting:savedProfile.acceptingNewClientsOverride===null?'default':savedProfile.acceptingNewClientsOverride?'yes':'no'});for(const k of ['languages','locations','sessionFormats'])draft[k]=(savedProfile.details?.[k]||[]).join(', ');for(const [k] of availabilityFields)draft[k]=savedProfile.details?.[k]||'auto';photo.value=null;error.value='';notice.value='';editing.value=true;}
 const list=value=>String(value||'').split(',').map(s=>s.trim()).filter(Boolean);
 async function save(){busy.value=true;error.value='';notice.value='';try{

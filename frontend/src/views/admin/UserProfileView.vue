@@ -549,11 +549,12 @@
                 @save="saveProviderPublicProfileAndClose"
                 @cancel="cancelProviderPublicProfileEdit"
               >
+                <ProviderAvailabilitySettings v-if="selectedProviderProfileAgencyId" :provider-id="Number(userId)" :agency-id="selectedProviderProfileAgencyId" />
                 <div v-if="providerPublicProfileLoading" class="loading">Loading provider public profile…</div>
                 <div v-else-if="providerPublicProfileError" class="error">{{ providerPublicProfileError }}</div>
                 <div v-else class="form-grid acct-public-profile" style="margin-top: 0;">
                   <div class="form-group form-group-full">
-                    <label class="acct-blurb-label">Public provider blurb (view-only for providers)</label>
+                    <label class="acct-blurb-label">Public provider biography</label>
                     <p class="acct-blurb-hint">Shown on public Find a Provider card details.</p>
                     <div class="acct-blurb-wrap">
                       <textarea
@@ -564,7 +565,7 @@
                         :disabled="!canEditUser || providerPublicProfileSaving || !editingProviderPublicProfile"
                       />
                       <span class="acct-blurb-count">{{ (providerPublicBlurb || '').length }} / 4,000 characters</span>
-                      <div v-for="(label, key) in {languages:'Languages spoken',locations:'Public service locations (city or practice name)',sessionFormats:'Session formats (In person / Telehealth)'}" :key="key" style="margin-top:16px">
+                      <div v-for="(label, key) in {languages:'Languages spoken',locations:'Public service locations (city or practice name)',sessionFormats:'In-person / virtual (In person / Telehealth)'}" :key="key" style="margin-top:16px">
                         <label :for="`public-detail-${key}`">{{ label }}</label><input :id="`public-detail-${key}`" v-model="providerPublicDetails[key]" :disabled="!editingProviderPublicProfile" placeholder="Separate entries with commas" style="width:100%;padding:10px" />
                       </div>
 
@@ -2942,6 +2943,7 @@ import SupervisorAssignmentManager from '../../components/admin/SupervisorAssign
 import MovePendingToActiveModal from '../../components/admin/MovePendingToActiveModal.vue';
 import LeaveOfAbsenceModal from '../../components/admin/LeaveOfAbsenceModal.vue';
 import UserPreferencesHub from '../../components/UserPreferencesHub.vue';
+import ProviderAvailabilitySettings from '../../components/availability/ProviderAvailabilitySettings.vue';
 import ScheduleAvailabilityGrid from '../../components/schedule/ScheduleAvailabilityGrid.vue';
 import {
   AGENCY_POSITION_ROLE_OPTIONS,
@@ -5125,6 +5127,8 @@ const agencyFinderIntroBlurb = ref('');
 
 const selectedProviderProfileAgency = computed(() => {
   const agencies = Array.isArray(userAgencies.value) ? userAgencies.value : [];
+  const requested = agencies.find(a=>Number(a.id)===Number(route.query.agencyId));
+  if(requested)return requested;
   const agencyOrg = agencies.find((a) => String(a?.organization_type || 'agency').toLowerCase() === 'agency');
   if (agencyOrg?.id) return agencyOrg;
   if (agencies?.[0]?.id) return agencies[0];
@@ -6290,7 +6294,7 @@ const saveProviderPublicProfile = async () => {
       insurances,
       ...(canManageSelfPayRates.value ? { selfPayRateCents, selfPayRateNote: providerSelfPayRateNote.value } : {})
     });
-    await api.put(`/users/agency-provider-portal/${agencyId}`, {
+    if(['admin','super_admin','support','staff'].includes(authStore.user?.role)) await api.put(`/users/agency-provider-portal/${agencyId}`, {
       finderIntroBlurb: agencyFinderIntroBlurb.value,
       ...(canManageSelfPayRates.value ? { defaultSelfPayRateCents: agencyDefaultSelfPayRateCents } : {})
     });

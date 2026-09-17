@@ -12,7 +12,7 @@ export async function getPublicWebsiteIdentity(slug,{includeComingSoon=false}={}
  return {...row,logoUrl:row.logo_url||branding.logoUrl||(Number(row.support_agency_id)!==1||slug==='ptco'?agencyLogo:null),industries:parse(row.industries_json,[])};
 }
 export async function listPublicWebsiteIdentities() {
- const [rows]=await pool.execute('SELECT slug FROM public_website_support_sites WHERE relationship_type IS NOT NULL ORDER BY coming_soon, name');
+ const [rows]=await pool.execute('SELECT slug FROM public_website_support_sites WHERE relationship_type IS NOT NULL OR slug = \'ptco\' ORDER BY coming_soon, name');
  const sites=await Promise.all(rows.map(r=>getPublicWebsiteIdentity(r.slug,{includeComingSoon:true})));
  return sites.filter(Boolean).map(s=>({slug:s.slug,name:s.name,url:s.website_url,logoUrl:s.logoUrl,relationship:s.relationship_type,industries:s.industries,comingSoon:!!s.coming_soon}));
 }

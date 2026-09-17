@@ -11,6 +11,10 @@
 
     <div v-if="error" class="pmh-fatal">{{ error }}</div>
     <div v-else-if="loading" class="pmh-loading">Loading…</div>
+    <article v-else-if="isTisiHub && subPageSlug === 'contact'" class="pmh-sub-inner">
+      <h1>Contact Inner Strength Institute</h1><p>Send a message to our team. We’ll help you find your next step.</p>
+      <PublicWebsiteContactForm agency-slug="tisi" />
+    </article>
     <article v-else-if="subPage" class="pmh-sub-inner">
       <nav class="pmh-sub-breadcrumb">
         <router-link class="pmh-sub-crumb" :to="{ path: `/p/${hubSlug}` }">← {{ hubTitle }}</router-link>
@@ -35,6 +39,7 @@
 </template>
 
 <script setup>
+import PublicWebsiteContactForm from '../../components/public/PublicWebsiteContactForm.vue';
 import PublicResourcesMenu from "../../components/public/PublicResourcesMenu.vue";
 import PublicWebsiteProviderLinks from "../../components/public/PublicWebsiteProviderLinks.vue";
 import TisiAudiencePage from './TisiAudiencePage.vue';

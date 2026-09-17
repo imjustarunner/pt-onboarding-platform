@@ -1,9 +1,10 @@
 <template>
  <div ref="root" class="public-resources" @mouseleave="leave" @keydown.esc.stop.prevent="close(true)" @focusout="focusOut">
-  <button ref="trigger" type="button" :aria-expanded="open" @mouseenter="hoverMenu" @click="open=!open">Resources <span aria-hidden="true">⌄</span></button>
+  <button ref="trigger" type="button" :aria-expanded="open" @click="open=!open">Resources <span aria-hidden="true">⌄</span></button>
   <div v-if="open" class="public-resources-panel">
    <a v-if="safe(resourcesPath)" :href="resourceHref(resourcesPath)">Helpful resources →</a>
-   <div class="public-partners" @mouseenter="hoverPartners">
+   <a v-if="currentSlug" :href="resourceHref(`/p/${currentSlug}/referral-network`)" target="_blank" rel="noopener noreferrer">Referral Network ↗</a>
+   <div class="public-partners">
     <button ref="partnerTrigger" type="button" :aria-expanded="partnersOpen" @click="partnersOpen=!partnersOpen" @keydown.right.prevent="partnersOpen=true">Partners <span aria-hidden="true">›</span></button>
     <div v-if="partnersOpen" class="public-partners-panel" @keydown.left.stop.prevent="partnersOpen=false;partnerTrigger?.focus()">
      <small>Explore our partners</small>
@@ -17,15 +18,19 @@
  </div>
 </template>
 <script setup>
-import { ref, onMounted, onUnmounted } from 'vue';
-import { isItscoPublicHost, cleanItscoPath } from '../../utils/publicDomainRouting.js';
-const resourceHref = value => { const href = safe(value); return isItscoPublicHost(window.location.hostname) ? cleanItscoPath(href) : href; };
+import { computed, ref, onMounted, onUnmounted } from 'vue';
+import { publicSitePaths, publicSiteSlug, isItscoPublicHost } from '../../utils/publicDomainRouting.js';
+import { useRoute } from 'vue-router';
+const route=useRoute();
+const currentSlug=computed(()=>String(route?.path||'').match(/^\/p\/([^/]+)/)?.[1] || (isItscoPublicHost(window.location.hostname)?'itsco':publicSiteSlug(window.location.hostname)));
+const resourceHref = value => { const href=safe(value); return publicSitePaths(window.location.hostname)?.clean(href)||href; };
 import api from '../../services/api';
 import { publicWebsiteUrl as safe } from '../../composables/useStandalonePublicWebsite';
 defineProps({resourcesPath:{type:String,default:''}});
-const root=ref(),trigger=ref(),partnerTrigger=ref(),open=ref(false),partnersOpen=ref(false),partners=ref([]),loading=ref(true),error=ref(false);
+const root=ref(),trigger=ref(),partnerTrigger=ref(),open=ref(false),partnersOpen=ref(false),allPartners=ref([]),loading=ref(true),error=ref(false);
+const partners=computed(()=>allPartners.value.filter(p=>p.slug!==currentSlug.value));
 let mounted=true;
-async function load(){loading.value=true;error.value=false;try{const{data}=await api.get('/public/marketing-pages/partners',{skipAuthRedirect:true,skipGlobalLoading:true});if(mounted)partners.value=(data.partners||[]).filter(p=>!p.comingSoon&&p.name&&safe(p.url));}catch{if(mounted)error.value=true;}finally{if(mounted)loading.value=false;}}
+async function load(){loading.value=true;error.value=false;try{const{data}=await api.get('/public/marketing-pages/partners',{skipAuthRedirect:true,skipGlobalLoading:true});if(mounted)allPartners.value=(data.partners||[]).filter(p=>!p.comingSoon&&p.name&&safe(p.url));}catch{if(mounted)error.value=true;}finally{if(mounted)loading.value=false;}}
 function hoverMenu(){if(window.innerWidth>1100&&window.matchMedia('(hover: hover)').matches)open.value=true;}
 function hoverPartners(){if(window.innerWidth>1100&&window.matchMedia('(hover: hover)').matches)partnersOpen.value=true;}
 function close(focus=false){open.value=false;partnersOpen.value=false;if(focus)trigger.value?.focus();}
