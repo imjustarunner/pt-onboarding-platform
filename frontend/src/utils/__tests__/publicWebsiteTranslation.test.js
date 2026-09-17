@@ -38,9 +38,11 @@ it('saves Spanish copy across page visits and invalidates changed English copy',
 });
 it('reveals a Spanish page together and excludes private editor content',async()=>{
  vi.useFakeTimers();document.body.innerHTML='<main class="itsco-site"><h1>Home</h1>'+Array.from({length:20},(_,i)=>`<p>Copy ${i}</p>`).join('')+'<div class="public-profile-editor">Private editor value</div></main>';
- let resolve;const translate=vi.fn(()=>new Promise(r=>resolve=r));translator=createWebsiteTranslator({document,translate});translator.setSpanish(true);await pause();
- expect(document.querySelector('main').style.visibility).toBe('hidden');expect(translate).toHaveBeenCalledTimes(1);expect(translate.mock.calls[0][0]).toHaveLength(20);
- resolve({configured:true,translations:Object.fromEntries(Array.from({length:20},(_,i)=>[`Copy ${i}`,`Texto ${i}`]))});await pause();
+ const resolve=[];const translate=vi.fn(()=>new Promise(r=>resolve.push(r)));translator=createWebsiteTranslator({document,translate});translator.setSpanish(true);await pause();
+ expect(document.querySelector('main').style.visibility).toBe('hidden');expect(translate).toHaveBeenCalledTimes(3);expect(translate.mock.calls.flat(2)).toHaveLength(20);
+ const response={configured:true,translations:Object.fromEntries(Array.from({length:20},(_,i)=>[`Copy ${i}`,`Texto ${i}`]))};
+ resolve[0](response);await pause();expect(document.querySelector('main').style.visibility).toBe('hidden');
+ resolve[1](response);resolve[2](response);await pause();
  expect(document.querySelector('main').style.visibility).toBe('');expect(document.querySelectorAll('p')[19].textContent).toBe('Texto 19');expect(document.querySelector('.public-profile-editor').textContent).toBe('Private editor value');
 });
 it('restores the visible English page immediately when switched during a pending request',async()=>{

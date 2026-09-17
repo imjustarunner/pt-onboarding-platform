@@ -100,15 +100,17 @@ async function callProviderTranslate(text, targetLang) {
       // Translations are deterministic-ish; keep temperature low. Token budget
       // scales generously with input length so long descriptions don't get
       // truncated mid-sentence.
-      const maxOutputTokens = Math.min(4096, Math.max(512, Math.ceil(src.length * 2.5)));
-      const { text: out, modelName, provider } = await callGeminiText({
+      const maxOutputTokens = Math.min(8192, Math.max(2048, Math.ceil(src.length * 2.5)));
+      const { text: out, modelName, provider, finishReason } = await callGeminiText({
         prompt,
         temperature: 0.2,
-        maxOutputTokens
+        maxOutputTokens,
+        thinkingBudget: 0
       });
+      if (finishReason && finishReason !== 'STOP') throw new Error(`Incomplete translation: ${finishReason}`);
       const cleaned = stripWrappingQuotes(out);
       if (cleaned) {
-        return { translated: cleaned, engine: `gemini:${provider}:${modelName}` };
+        return { translated: cleaned, engine: `v2:gemini:${provider}:${modelName}`.slice(0, 40) };
       }
     } catch (err) {
       console.warn('[aiTranslation] Gemini failed, falling back', {
@@ -223,12 +225,12 @@ async function readOrCreateTranslation(args) {
 
   try {
     const [rows] = await pool.execute(
-      `SELECT translated_text, source_hash FROM translations
+      `SELECT translated_text, source_hash, translation_engine FROM translations
        WHERE source_type = ? AND source_id = ? AND source_field = ? AND language_code = ?
        LIMIT 1`,
       [sourceType, sourceId, field, targetLang]
     );
-    if (rows?.length && rows[0].source_hash === hash) {
+    if (rows?.length && rows[0].source_hash === hash && !(isInlineString && String(rows[0].translation_engine || '').startsWith('gemini:'))) {
       return rows[0].translated_text || original;
     }
   } catch (err) {

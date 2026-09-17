@@ -1,7 +1,7 @@
 // Translation adapter for public marketing copy, including content supplied by the page editor.
 // Keeps each English text node intact as the source; never changes HTML, input values, URLs or editor controls.
 export const WEBSITE_SPANISH = {
- 'Home':'Inicio','About':'Acerca de nosotros','About Us':'Acerca de nosotros','Services':'Servicios','Our Services':'Nuestros servicios','Our Programs':'Nuestros programas','Programs':'Programas','Get Involved':'Participa','Impact':'Impacto','Our Impact':'Nuestro impacto','Resources':'Recursos','Contact':'Contacto','Contact Us':'Contáctanos','Our Network':'Nuestra red','Our providers':'Nuestros profesionales','Our tutors':'Nuestros tutores','Our coaches':'Nuestros coaches','Find a provider':'Encuentra un profesional','Find Providers':'Buscar profesionales','Find Support':'Encuentra apoyo','Get started':'Comenzar','Get Started':'Comenzar','Learn More':'Más información','Learn more':'Más información','Donate':'Donar','Donate Today':'Dona hoy','Donate Now':'Donar ahora','Support Our Mission':'Apoya nuestra misión','Support our mission':'Apoya nuestra misión','Privacy':'Privacidad','Privacy Policy':'Política de privacidad','Terms':'Términos','Terms of Service':'Términos de servicio','Coming soon':'Próximamente','Menu':'Menú','Close':'Cerrar','Menu ☰':'Menú ☰','Close ×':'Cerrar ×','Search':'Buscar','Search the website':'Buscar en el sitio','Skip to content':'Saltar al contenido','Partner With Us':'Colabora con nosotros','Partner with us':'Colabora con nosotros','Our partners':'Nuestros colaboradores','View all':'Ver todo','All services':'Todos los servicios','All partners':'Todos los colaboradores','Who We Help':'A quiénes ayudamos','Who We Support':'A quiénes apoyamos','Men':'Hombres','Boys':'Niños','Athletes':'Deportistas','Build Inner':'Desarrolla tu','Strength':'fortaleza interior','How It Works':'Cómo funciona','Contact our team':'Contacta a nuestro equipo','Begin intake →':'Iniciar inscripción →','Get started →':'Comenzar →','Real connections.':'Conexiones reales.','Brighter paths.':'Caminos más prometedores.','REAL CONNECTIONS.':'CONEXIONES REALES.','BRIGHTER PATHS.':'CAMINOS MÁS PROMETEDORES.','Our programs':'Nuestros programas','About MH4Kidz':'Acerca de MH4Kidz','The Unplugged Series':'The Unplugged Series','Real People.':'Personas reales.','Brighter Tomorrows.':'Mañanas más prometedores.','Expanding':'Ampliando','Mental Health':'la salud mental','Together.':'juntos.','A Shared Mission.':'Una misión compartida.','A Greater Reach.':'Un mayor alcance.','Different Strengths.':'Fortalezas distintas.','One Shared Mission.':'Una misión compartida.','Stronger Together':'Más fuertes juntos','Find the Right Support.':'Encuentra el apoyo adecuado.','Build. Manage. Scale.':'Construye. Gestiona. Crece.','Your Next Chapter.':'Tu próximo capítulo.','Let’s Get Your':'Pongamos tu','Business Moving.':'negocio en marcha.','Let’s Talk':'Hablemos','Let\'s Talk':'Hablemos','Choose Your Path':'Elige tu camino','Our story':'Nuestra historia','Our mission':'Nuestra misión','Counseling':'Terapia','Life Coaching':'Coaching de vida','Tutoring':'Tutoría','Mental health':'Salud mental','Mental Health Agencies':'Agencias de salud mental','Consultants':'Consultores','Coaches':'Coaches','Life Coaches':'Coaches de vida','Tutors':'Tutores','Other Service Businesses':'Otras empresas de servicios','Website search':'Búsqueda del sitio','Try again':'Intentar de nuevo','MH4Kidz':'MH4Kidz','Rise Revive':'Rise Revive','Plot Twist Co.':'Plot Twist Co.','Plot Twist Co':'Plot Twist Co','Plot Twist HQ':'Plot Twist HQ','Mental Range Collective':'Mental Range Collective','Inner Strength Institute':'Inner Strength Institute'
+ 'Get Started →':'Comenzar →','Loading…':'Cargando…','Home':'Inicio','About':'Acerca de nosotros','About Us':'Acerca de nosotros','Services':'Servicios','Our Services':'Nuestros servicios','Our Programs':'Nuestros programas','Programs':'Programas','Get Involved':'Participa','Impact':'Impacto','Our Impact':'Nuestro impacto','Resources':'Recursos','Contact':'Contacto','Contact Us':'Contáctanos','Our Network':'Nuestra red','Our providers':'Nuestros profesionales','Our tutors':'Nuestros tutores','Our coaches':'Nuestros coaches','Find a provider':'Encuentra un profesional','Find Providers':'Buscar profesionales','Find Support':'Encuentra apoyo','Get started':'Comenzar','Get Started':'Comenzar','Learn More':'Más información','Learn more':'Más información','Donate':'Donar','Donate Today':'Dona hoy','Donate Now':'Donar ahora','Support Our Mission':'Apoya nuestra misión','Support our mission':'Apoya nuestra misión','Privacy':'Privacidad','Privacy Policy':'Política de privacidad','Terms':'Términos','Terms of Service':'Términos de servicio','Coming soon':'Próximamente','Menu':'Menú','Close':'Cerrar','Menu ☰':'Menú ☰','Close ×':'Cerrar ×','Search':'Buscar','Search the website':'Buscar en el sitio','Skip to content':'Saltar al contenido','Partner With Us':'Colabora con nosotros','Partner with us':'Colabora con nosotros','Our partners':'Nuestros colaboradores','View all':'Ver todo','All services':'Todos los servicios','All partners':'Todos los colaboradores','Who We Help':'A quiénes ayudamos','Who We Support':'A quiénes apoyamos','Men':'Hombres','Boys':'Niños','Athletes':'Deportistas','Build Inner':'Desarrolla tu','Strength':'fortaleza interior','How It Works':'Cómo funciona','Contact our team':'Contacta a nuestro equipo','Begin intake →':'Iniciar inscripción →','Get started →':'Comenzar →','Real connections.':'Conexiones reales.','Brighter paths.':'Caminos más prometedores.','REAL CONNECTIONS.':'CONEXIONES REALES.','BRIGHTER PATHS.':'CAMINOS MÁS PROMETEDORES.','Our programs':'Nuestros programas','About MH4Kidz':'Acerca de MH4Kidz','The Unplugged Series':'The Unplugged Series','Real People.':'Personas reales.','Brighter Tomorrows.':'Mañanas más prometedores.','Expanding':'Ampliando','Mental Health':'la salud mental','Together.':'juntos.','A Shared Mission.':'Una misión compartida.','A Greater Reach.':'Un mayor alcance.','Different Strengths.':'Fortalezas distintas.','One Shared Mission.':'Una misión compartida.','Stronger Together':'Más fuertes juntos','Find the Right Support.':'Encuentra el apoyo adecuado.','Build. Manage. Scale.':'Construye. Gestiona. Crece.','Your Next Chapter.':'Tu próximo capítulo.','Let’s Get Your':'Pongamos tu','Business Moving.':'negocio en marcha.','Let’s Talk':'Hablemos','Let\'s Talk':'Hablemos','Choose Your Path':'Elige tu camino','Our story':'Nuestra historia','Our mission':'Nuestra misión','Counseling':'Terapia','Life Coaching':'Coaching de vida','Tutoring':'Tutoría','Mental health':'Salud mental','Mental Health Agencies':'Agencias de salud mental','Consultants':'Consultores','Coaches':'Coaches','Life Coaches':'Coaches de vida','Tutors':'Tutores','Other Service Businesses':'Otras empresas de servicios','Website search':'Búsqueda del sitio','Try again':'Intentar de nuevo','MH4Kidz':'MH4Kidz','Rise Revive':'Rise Revive','Plot Twist Co.':'Plot Twist Co.','Plot Twist Co':'Plot Twist Co','Plot Twist HQ':'Plot Twist HQ','Mental Range Collective':'Mental Range Collective','Inner Strength Institute':'Inner Strength Institute'
 };
 Object.assign(WEBSITE_SPANISH, {
  'Our Providers':'Nuestros profesionales','For Schools':'Para escuelas','For Families':'Para familias','School Services':'Servicios escolares','Careers':'Empleo','Client Portal':'Portal del cliente','Our Team':'Nuestro equipo',
@@ -18,7 +18,7 @@ const ROOTS = '.audience-site,.nlu-site,.itsco-site,.tisi-site,.rise-site,.mh-si
 const SKIP = 'script,style,svg,textarea,input,[contenteditable="true"],[translate="no"],.notranslate,.page-editor,.tisi-editor-bar,[class*="-ed-"],.public-translate-widget,.cr-editor-bar,.cr-photo-picker,.tf-editor-bar,.ajl--design,.public-profile-editor,.availability-settings,.website-editor-bar,.website-management-link';
 // Content-addressed cache: edited English copy naturally gets a new key. Public copy only;
 // form values, editable fields and authenticated management controls are never collected.
-const CACHE_KEY = 'public-website-spanish:v2';
+const CACHE_KEY = 'public-website-spanish:v3';
 export function createWebsiteTranslator({ document, translate, onState = () => {}, storage }) {
  let saved = {};
  try { storage ??= document.defaultView?.localStorage; saved = JSON.parse(storage?.getItem(CACHE_KEY) || '{}'); } catch { saved = {}; }
@@ -93,17 +93,24 @@ export function createWebsiteTranslator({ document, translate, onState = () => {
   if(!strings.length) { render(); onState(failed?'unavailable':''); return; }
   pending=true; onState('loading'); render();
   try {
-   // A single page request normally covers all copy. No eight-string redraws.
-   for(let i=0;i<strings.length;i+=500) {
-    const batch=strings.slice(i,i+500); batch.forEach(s=>attempted.add(s));
-    const response=await translate(batch);
-    for(const s of batch) {
-     const value=response?.translations?.[s];
-     if(typeof value==='string' && value.trim() && (value!==s || response.configured===true)) cache.set(s,value);
-     else failed=true;
+   // Small requests avoid a whole-page AI generation timing out. Up to three batches
+   // prepare in parallel; keep every result saved, but render only after all finish.
+   let offset=0;
+   async function worker() {
+    while(offset<strings.length && !stopped && spanish) {
+     const batch=strings.slice(offset,offset+8); offset+=8; batch.forEach(s=>attempted.add(s));
+     try {
+      const response=await translate(batch);
+      for(const s of batch) {
+       const value=response?.translations?.[s];
+       if(typeof value==='string' && value.trim() && (value!==s || response.configured===true)) cache.set(s,value);
+       else failed=true;
+      }
+      persist();
+     } catch { failed=true; }
     }
-    if(stopped || !spanish) break;
    }
+   await Promise.all(Array.from({length:Math.min(3,Math.ceil(strings.length/8))},worker));
    persist();
   } catch { failed=true; }
   finally {
