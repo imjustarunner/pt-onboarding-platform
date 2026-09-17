@@ -14,14 +14,16 @@ const provider=(id,name,extra={})=>({id,displayName:name,firstName:name,lastName
 const providers=[provider(1,'First',{schools:[school],schoolOpenings:true,acceptingNewClients:false}),provider(2,'Second',{office:true,onlineScheduling:true})];
 beforeEach(()=>{route.query={};vi.clearAllMocks();});
 describe('ITSCO directory and real support',()=>{
- it('keeps school acceptance separate from office openings and overrides a stale office waitlist',async()=>{
-  const rows=[providers[0],provider(2,'Second',{office:true,onlineScheduling:true,acceptingNewClients:false,officeAcceptance:{status:'waitlist'}})];
+ it('respects global closed even when school and office schedules report openings',async()=>{
+  const rows=[providers[0],provider(2,'Second',{office:true,onlineScheduling:true,acceptingNewClients:false,officeAcceptance:{status:'accepting'}})];
   const w=mount(Directory,{props:{providers:rows,schools:[school],agencyId:1,availability:{2:{nextAvailableAt:'2027-01-01T16:00:00Z',hasPublishedOpenings:true,inPerson:{hasPublishedOpenings:true,nextAvailableAt:'2027-01-01T16:00:00Z'}}}},global});
-  expect(w.findAll('.its-provider-card')[0].text()).toContain('Accepting · school');
-  expect(w.findAll('.its-provider-card')[0].text()).not.toContain('Accepting · office');
-  expect(w.findAll('.its-provider-card')[1].text()).toContain('Accepting · office');
-  await w.findAll('.its-provider-modes button')[1].trigger('click');await w.findAll('select')[4].setValue('yes');await w.findAll('select')[5].setValue('yes');
-  expect(w.findAll('.its-provider-card')).toHaveLength(1);expect(w.find('.its-provider-card').text()).toContain('Second');expect(w.find('.its-provider-card').text()).toContain('View times');w.unmount();
+  expect(w.findAll('.its-provider-card')).toHaveLength(2);
+  expect(w.text()).not.toContain('Accepting ·');expect(w.text()).not.toContain('View times');
+  await w.findAll('select')[4].setValue('yes');expect(w.findAll('.its-provider-card')).toHaveLength(0);w.unmount();
+ });
+ it('shows a globally open provider without requiring a school assignment or an online opening',()=>{
+  const w=mount(Directory,{props:{providers:[provider(528,'Brittany')],agencyId:1},global});
+  expect(w.find('.its-provider-card').text()).toContain('Accepting new clients');w.unmount();
  });
  it('deduplicates age tags and exposes only the selected school enrollment link',()=>{
   const w=mount(Directory,{props:{providers:[provider(3,'Third',{specialties:['Teen'],ageGroups:['Teen (14–18)','Teen']})],agencyId:1},global});expect(w.findAll('.its-tags span').map(s=>s.text())).toEqual(['Teen (14–18)']);w.unmount();
