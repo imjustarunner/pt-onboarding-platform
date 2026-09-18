@@ -1,3 +1,4 @@
+import { protectOutboundEmail } from './activityProtection.service.js';
 import { google } from 'googleapis';
 import { getWorkspaceClientsForEmployee, logGoogleUnauthorizedHint } from './googleWorkspaceAuth.service.js';
 import { PLOTTWIST_HEADQUARTERS_NAME } from '../constants/platformBranding.js';
@@ -55,7 +56,8 @@ class GoogleWorkspaceEmailService {
     attachments = null,
     agencyId = null,
     userId = null,
-    clientId = null
+    clientId = null,
+    securityCode = false
   }) {
     const redirected = await rewriteHogwartsOutboundRecipient({
       to,
@@ -66,6 +68,9 @@ class GoogleWorkspaceEmailService {
       userId,
       clientId
     });
+    if (securityCode && (redirected.to !== to || redirected.cc || redirected.bcc)) {
+      throw new Error('Security codes cannot be redirected or copied to another recipient');
+    }
     to = redirected.to;
     subject = redirected.subject;
     cc = redirected.cc;
@@ -110,6 +115,7 @@ class GoogleWorkspaceEmailService {
 
     const raw = base64UrlEncode(mime);
 
+    await protectOutboundEmail({ to, cc, bcc });
     const result = await gmail.users.messages.send({
       userId: 'me',
       requestBody: { raw }
@@ -120,4 +126,3 @@ class GoogleWorkspaceEmailService {
 }
 
 export default GoogleWorkspaceEmailService;
-

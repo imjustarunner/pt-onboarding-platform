@@ -10,6 +10,19 @@ let wrapper;
 beforeEach(() => { setActivePinia(createPinia()); mocks.resume.mockReset(); useSessionLockStore().setLockConfig({ pinRequired: true, pinLength: 6, useLockScreen: true }); });
 afterEach(() => { wrapper?.unmount(); });
 describe('Quick View unlock screen', () => {
+  it('does not label initial verification as a lock or show a fake zero countdown', () => {
+    useSessionLockStore().setLockConfig(null);
+    wrapper = mount(SessionLockScreen, { props: { isLocked: true }, global: { stubs: { teleport: true, BrandingLogo: true } } });
+    expect(wrapper.text()).toContain('Checking sign-in');
+    expect(wrapper.text()).not.toContain('Session Locked');
+    expect(wrapper.text()).not.toContain('Automatic logout');
+  });
+  it('shows the countdown only when a real warning deadline exists', () => {
+    const store=useSessionLockStore();store.warningActive=true;store.warningSecondsLeft=90;
+    wrapper = mount(SessionLockScreen, { props: { isLocked: true }, global: { stubs: { teleport: true, BrandingLogo: true } } });
+    expect(wrapper.text()).toContain('Session Locked');
+    expect(wrapper.text()).toContain('Automatic logout in 1:30');
+  });
   it('accepts six digits including a leading zero, and unlocks only after verification', async () => {
     wrapper = mount(SessionLockScreen, { props: { isLocked: true }, global: { stubs: { teleport: true, BrandingLogo: true } } });
     expect(wrapper.text()).toContain('6-digit Quick View passcode');

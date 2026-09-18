@@ -32,6 +32,14 @@ export async function loadSessionPolicy(user) {
 }
 
 export async function getSessionSecurity(decoded, token) {
+  if (decoded.id || (decoded.type === 'approved_employee' && decoded.email)) {
+    const [cutoffs] = decoded.id
+      ? await pool.execute('SELECT reject_issued_before FROM user_auth_revocations WHERE user_id = ?', [decoded.id])
+      : await pool.execute('SELECT r.reject_issued_before FROM user_auth_revocations r JOIN users u ON u.id = r.user_id WHERE u.email = ?', [decoded.email]);
+    if (cutoffs[0] && (!Number.isFinite(Number(decoded.iat)) || Number(decoded.iat) < Number(cutoffs[0].reject_issued_before))) {
+      throw sessionSecurityError('SESSION_EXPIRED', 'An administrator ended your sessions. Sign in again.', 401);
+    }
+  }
   if ((!decoded.id && decoded.type !== 'approved_employee') || ['kiosk', 'school_events_kiosk', 'event_day_kiosk', 'program_event_kiosk', 'skill_builders_kiosk'].includes(decoded.type)) return null;
   const key = crypto.createHash('sha256').update(`${decoded.id || decoded.email}:${decoded.sessionId || token}`).digest('hex');
   const policy = await loadSessionPolicy(decoded);
@@ -49,8 +57,8 @@ export async function getSessionSecurity(decoded, token) {
   }
   const state = sessionSecurityState(row, policy);
   if (state.phase === 'expired' && !row.revoked_at) {
-    const [result] = await pool.execute(`UPDATE auth_session_security SET revoked_at = NOW(3)
-      WHERE session_key = ? AND last_activity_at = ? AND locked_at <=> ? AND revoked_at IS NULL`, [key, row.last_activity_at, row.locked_at || null]);
+    const [result] = await pool.execute(`UPDATE auth_session_security SET revoked_at = ?, end_reason = 'Session timed out'
+      WHERE session_key = ? AND last_activity_at = ? AND locked_at <=> ? AND revoked_at IS NULL`, [new Date(state.expiresAt), key, row.last_activity_at, row.locked_at || null]);
     // An unlock may have committed after our SELECT. Never revoke that newer
     // activity based on the older snapshot's elapsed deadline.
     if (!result.affectedRows) return getSessionSecurity(decoded, token);
@@ -107,7 +115,7 @@ export async function changeSessionSecurity(security, userId, action, pin = '') 
     if (!row) throw sessionSecurityError('SESSION_EXPIRED', 'Sign in again', 401);
     state = sessionSecurityState(row, security.policy);
     if (action === 'logout' || state.phase === 'expired') {
-      await connection.execute('UPDATE auth_session_security SET revoked_at = COALESCE(revoked_at, NOW(3)) WHERE session_key = ?', [security.key]);
+      await connection.execute('UPDATE auth_session_security SET revoked_at = COALESCE(revoked_at, NOW(3)), end_reason = COALESCE(end_reason, ?) WHERE session_key = ?', [action === 'logout' ? 'Signed out' : 'Session timed out', security.key]);
       state.phase = 'expired';
       if (action !== 'logout') failure = sessionSecurityError('SESSION_EXPIRED', 'Your session ended. Sign in again.', 401, state);
     } else if (action === 'lock') {

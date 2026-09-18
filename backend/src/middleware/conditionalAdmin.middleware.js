@@ -2,6 +2,7 @@ import jwt from 'jsonwebtoken';
 import User from '../models/User.model.js';
 import config from '../config/config.js';
 import { getSessionSecurity, sessionRouteAllowed } from '../services/sessionSecurity.service.js';
+import { enforceAccountSecurity } from './accountSecurity.middleware.js';
 
 export const requireAdminOrFirstUser = async (req, res, next) => {
   try {
@@ -23,6 +24,7 @@ export const requireAdminOrFirstUser = async (req, res, next) => {
     }
     
     const decoded = jwt.verify(token, config.jwt.secret);
+    await req.auditIdentify?.(decoded);
     const security = await getSessionSecurity(decoded, token);
     if (!sessionRouteAllowed(security, req.method, String(req.originalUrl || req.path || '').split('?')[0])) {
       return res.status(security.state.phase === 'expired' ? 401 : 423).json({ error: { code: security.state.phase === 'expired' ? 'SESSION_EXPIRED' : 'SESSION_LOCKED', message: 'Unlock your session or sign in again.' }, session: security.state, policy: security.policy });
@@ -33,12 +35,14 @@ export const requireAdminOrFirstUser = async (req, res, next) => {
     }
     
     req.user = decoded;
-    next();
+    req.authClaims = decoded;
+    req.sessionSecurity = security;
+    return enforceAccountSecurity(req, res, next);
   } catch (error) {
+    if (error.code === 'EVIDENCE_UNAVAILABLE') return next(error);
     if (error.name === 'TokenExpiredError') {
       return res.status(401).json({ error: { message: 'Token expired' } });
     }
     return res.status(401).json({ error: { message: 'Invalid token' } });
   }
 };
-

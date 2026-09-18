@@ -51,6 +51,10 @@ export async function authenticatePrehireToken(req, res, next) {
       role: user.role
     };
 
+    // A bearer portal link is a distinct identity source, never the staff cookie
+    // that happens to coexist in this browser. Store only a one-way reference.
+    await req.auditIdentify?.({ id: user.id, email: user.email, role: user.role, sessionId: `prehire:${token}` });
+
     next();
   } catch (err) {
     console.error('[prehirePortalAuth] Error validating token:', err);

@@ -8,6 +8,7 @@ on:
       - 'backend/**'
       - 'frontend/**'
       - 'database/migrations/**'
+      - 'scripts/preserve-deploy-secrets*'
       - '.dockerignore'
       - '.github/workflows/deploy-backend.yml'
   workflow_dispatch:
@@ -80,6 +81,22 @@ jobs:
 
       - name: Configure Docker for Artifact Registry
         run: gcloud auth configure-docker us-west3-docker.pkg.dev --quiet
+
+      - name: Verify security rollout prerequisite
+        run: |
+          set -euo pipefail
+          node --test scripts/preserve-deploy-secrets.test.mjs
+          # Inspect the reference only; never retrieve or print the encryption key.
+          # Provision this key separately and retain it across deployments.
+          KEY_REF=$(gcloud run services describe "$SERVICE_NAME" --region "$REGION" --format=json \
+            | jq -ce '[.spec.template.spec.containers[0].env[]? | select(.name == "MFA_ENCRYPTION_KEY_BASE64") | .valueFrom.secretKeyRef] | if length == 1 then .[0] else null end')
+          if ! jq -e '(.name | type == "string" and length > 0) and (.key | type == "string" and test("^[1-9][0-9]*$"))' <<< "$KEY_REF" >/dev/null; then
+            echo 'A dedicated MFA encryption key with a pinned Secret Manager version must be provisioned before deployment.'
+            exit 1
+          fi
+          # Each run probes and promotes its own revision, never whichever happens to be latest.
+          echo "CANDIDATE_TAG=verify-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" >> "$GITHUB_ENV"
+          echo "CANDIDATE_SUFFIX=g${GITHUB_RUN_ID}a${GITHUB_RUN_ATTEMPT}" >> "$GITHUB_ENV"
 
       - name: Lint — no backend imports of frontend source outside allowed paths
         run: |
@@ -294,6 +311,7 @@ jobs:
           STRIPE_CONNECT_RETURN_URL: ${{ secrets.STRIPE_CONNECT_RETURN_URL }}
           STRIPE_CONNECT_REFRESH_URL: ${{ secrets.STRIPE_CONNECT_REFRESH_URL }}
         run: |
+          set -eo pipefail
           # Build env var list safely. Use update-env-vars so we don't accidentally wipe
           # existing Cloud Run configuration that isn't specified here.
           # Use a custom delimiter to avoid comma-escaping in values.
@@ -476,16 +494,20 @@ jobs:
           if [ -n "${STRIPE_CONNECT_RETURN_URL}" ]; then ENV_VARS="${ENV_VARS}|STRIPE_CONNECT_RETURN_URL=${STRIPE_CONNECT_RETURN_URL}"; fi
           if [ -n "${STRIPE_CONNECT_REFRESH_URL}" ]; then ENV_VARS="${ENV_VARS}|STRIPE_CONNECT_REFRESH_URL=${STRIPE_CONNECT_REFRESH_URL}"; fi
 
-          # Remove ALL vars that may have been set as Secret Manager refs, so we can use plain env vars from GitHub.
-          # Must be separate from deploy: cannot remove-secrets and update-env-vars same key in one command.
-          REMOVE_SECRETS="DB_USER,DB_PASSWORD,CLINICAL_DB_USER,CLINICAL_DB_PASSWORD,JWT_SECRET,JWT_EXPIRES_IN,CLIENT_CHAT_ENCRYPTION_KEY_ID,CLIENT_CHAT_ENCRYPTION_KEY_BASE64,INTAKE_RESPONSES_ENCRYPTION_KEY_ID,INTAKE_RESPONSES_ENCRYPTION_KEY_BASE64,GUARDIAN_INTAKE_ENCRYPTION_KEY_ID,GUARDIAN_INTAKE_ENCRYPTION_KEY_BASE64,GOOGLE_WORKSPACE_SERVICE_ACCOUNT_JSON_BASE64,GOOGLE_MAPS_API_KEY,RECAPTCHA_SITE_KEY,RECAPTCHA_SECRET_KEY,RECAPTCHA_ENTERPRISE_API_KEY,RECAPTCHA_ENTERPRISE_PROJECT_ID,GOOGLE_OAUTH_CLIENT_ID,GOOGLE_OAUTH_CLIENT_SECRET,GOOGLE_OAUTH_REDIRECT_URI,GOOGLE_OAUTH_STATE_SECRET,GEMINI_API_KEY,TWILIO_ACCOUNT_SID,TWILIO_AUTH_TOKEN,TWILIO_API_KEY_SID,TWILIO_API_KEY_SECRET,VONAGE_API_KEY,VONAGE_API_SECRET,VONAGE_SIGNATURE_SECRET,VONAGE_APPLICATION_ID,VONAGE_PRIVATE_KEY,META_APP_ID,META_APP_SECRET,LEARNING_BILLING_RENEWAL_SECRET,BILLING_JOB_SECRET,BILLING_ENCRYPTION_KEY_BASE64,BILLING_ENCRYPTION_KEY_ID,VAPID_PUBLIC_KEY,REFERRAL_KMS_KEY,DOCUMENTS_KMS_KEY,ADMIN_ACTIONS_TOKEN,VIRUSTOTAL_API_KEY,QUICKBOOKS_CLIENT_ID,QUICKBOOKS_CLIENT_SECRET,QUICKBOOKS_OAUTH_STATE_SECRET"
-          gcloud run services update $SERVICE_NAME --region $REGION --remove-secrets="${REMOVE_SECRETS}" 2>/dev/null || true
+          # Keep existing Secret Manager references, including the dedicated MFA key.
+          # Do not create an intermediate revision with database/auth credentials removed.
+          SECRET_NAMES=$(gcloud run services describe "$SERVICE_NAME" --region "$REGION" --format=json \
+            | jq -ce '[.spec.template.spec.containers[0].env[]? | select(.valueFrom.secretKeyRef) | .name]')
+          ENV_VARS=$(printf '%s' "$SECRET_NAMES" | DEPLOY_ENV_VARS="$ENV_VARS" node scripts/preserve-deploy-secrets.mjs)
 
           for attempt in 1 2 3; do
             gcloud run deploy $SERVICE_NAME \
               --image $IMAGE_NAME:$GITHUB_SHA \
               --platform managed \
               --region $REGION \
+              --no-traffic \
+              --tag="$CANDIDATE_TAG" \
+              --revision-suffix="$CANDIDATE_SUFFIX" \
               --allow-unauthenticated \
               --service-account ${CLOUD_RUN_SA_EMAIL} \
               --vpc-connector=quickbooks \
@@ -494,44 +516,36 @@ jobs:
               --update-env-vars="${ENV_VARS}" \
               --memory=2Gi \
               --cpu=1 \
+              --no-cpu-throttling \
               --cpu-boost \
               --timeout=300 \
               --max-instances=40 \
               --min-instances=2 \
               --concurrency=40 \
-              --startup-probe=tcpSocket.port=8080,initialDelaySeconds=15,failureThreshold=24,periodSeconds=5,timeoutSeconds=5 \
+              --startup-probe=httpGet.path=/readyz,httpGet.port=8080,initialDelaySeconds=0,failureThreshold=24,periodSeconds=10,timeoutSeconds=5 \
             && break
             echo "Deploy attempt $attempt failed"
             if [ "$attempt" -eq 3 ]; then exit 1; fi
             sleep 20
           done
 
-          # IMPORTANT: if traffic was pinned to an older revision, explicitly promote the latest revision.
-          gcloud run services update-traffic $SERVICE_NAME \
-            --region $REGION \
-            --to-latest
-
-      - name: Post-deploy health gate — fail if app boots degraded
+      - name: Candidate health gate — preserve live traffic if startup fails
         run: |
-          # Belt-and-suspenders: even if a boot failure slips past the build smoke
-          # test, verify the LIVE app actually finished loading. NOTE: the /health
-          # endpoint returns status:"ok" even during bootstrap.js's degraded mode
-          # (so Cloud Run keeps the instance alive), so we must key off the `phase`
-          # field, NOT `status`:
-          #   phase "app"      → fully loaded (served by server.js)          → PASS
-          #   phase "degraded" → server.js failed to import (loadError)       → FAIL
-          #   phase "bootstrap"/"starting" → still loading                    → wait
-          SERVICE_URL=$(gcloud run services describe $SERVICE_NAME --region $REGION --format='value(status.url)')
-          echo "Checking boot phase at ${SERVICE_URL}/health"
+          set -euo pipefail
+          CANDIDATE_REVISION="${SERVICE_NAME}-${CANDIDATE_SUFFIX}"
+          SERVICE_URL=$(gcloud run services describe "$SERVICE_NAME" --region "$REGION" --format=json \
+            | jq -er --arg tag "$CANDIDATE_TAG" --arg revision "$CANDIDATE_REVISION" \
+              '.status.traffic[] | select(.tag == $tag and .revisionName == $revision) | .url | select(type == "string" and startswith("https://"))')
+          # Restricted ingress requires a runner with a permitted network path.
+          # Never weaken ingress or fall back to testing the old live revision.
+          echo "Checking candidate revision ${CANDIDATE_REVISION}"
           OK=0
           for attempt in $(seq 1 20); do
-            BODY=$(curl -sS --max-time 10 "${SERVICE_URL}/health" || echo '{}')
-            echo "attempt ${attempt}: ${BODY}"
+            BODY=$(curl --fail -sS --max-time 10 "${SERVICE_URL}/readyz" || echo '{}')
             PHASE=$(echo "$BODY" | jq -r '.phase // empty' 2>/dev/null || echo "")
             if [ "$PHASE" = "app" ] || [ "$PHASE" = "ready" ]; then OK=1; break; fi
             if [ "$PHASE" = "degraded" ]; then
-              echo "❌ Service booted DEGRADED — server.js failed to import. Failing deploy."
-              echo "$BODY"
+              echo "Candidate startup failed; existing traffic is unchanged."
               exit 1
             fi
             sleep 15
@@ -540,7 +554,15 @@ jobs:
             echo "❌ App never reached loaded phase after ~5 minutes. Failing deploy."
             exit 1
           fi
-          echo "✅ Live app fully loaded (phase=app)."
+          gcloud run services update-traffic "$SERVICE_NAME" --region "$REGION" \
+            --to-revisions="${CANDIDATE_REVISION}=100"
+          echo "Candidate readiness passed; promoted ${CANDIDATE_REVISION}."
+
+      - name: Remove temporary candidate URL
+        if: always() && env.CANDIDATE_TAG != ''
+        run: |
+          gcloud run services update-traffic "$SERVICE_NAME" --region "$REGION" \
+            --remove-tags="$CANDIDATE_TAG"
 
       - name: Verify env vars on Cloud Run
         run: |

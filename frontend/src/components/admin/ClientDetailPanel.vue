@@ -6608,7 +6608,8 @@ const formatCategoryScores = (raw) => {
   return parts.length ? parts.join(', ') : '-';
 };
 
-const printSurveyTrends = () => {
+const printSurveyTrends = async () => {
+  try { await api.post('/account-security/activity-protection/print', {}, { headers: { 'X-Account-Security': '1' } }); } catch (e) { clientSurveysError.value = e.response?.data?.error?.message || 'Print access needs review.'; return; }
   if (typeof window !== 'undefined') window.print();
 };
 

@@ -1,3 +1,4 @@
+import { networkEvidence } from '../utils/securityEvidence.js';
 import UserActivityLog from '../models/UserActivityLog.model.js';
 import User from '../models/User.model.js';
 import { normalizeAdminPageKey, extractAdminPageFromPath } from '../utils/normalizeAdminPageKey.js';
@@ -25,14 +26,11 @@ class ActivityLogService {
     // req.user is set by the authenticate middleware
     if (req.user && req.user.id) {
       context.userId = req.user.id;
-      context.sessionId = req.user.sessionId || null;
+      context.sessionId = req.user.sessionId || req.evidenceIdentity?.sessionId || null;
     }
 
     // Extract IP address
-    context.ipAddress = req.ip || 
-                       req.headers['x-forwarded-for']?.split(',')[0]?.trim() || 
-                       req.connection?.remoteAddress || 
-                       'unknown';
+    context.ipAddress = (req.evidenceContext || networkEvidence(req)).clientIp;
 
     // Extract user agent
     context.userAgent = req.headers['user-agent'] || 'unknown';

@@ -972,12 +972,13 @@ export const viewPhiDocument = async (req, res, next) => {
 
     // Return a signed URL for the underlying object (do not expose via /uploads without auth)
     const url = await StorageService.getSignedUrl(doc.storage_path, 15);
+    await req.auditLinkIssued?.({ documentId: doc.id, clientId: doc.client_id });
     try {
       const ip = req.headers['x-forwarded-for']?.toString().split(',')[0].trim() || req.ip || null;
       await PhiDocumentAuditLog.create({
         documentId: doc.id,
         clientId: doc.client_id,
-        action: 'downloaded',
+        action: 'download_link_issued',
         actorUserId: req.user.id,
         actorLabel: req.user?.email || req.user?.name || null,
         ipAddress: ip
@@ -1204,4 +1205,3 @@ export const removePhiDocument = async (req, res, next) => {
     next(e);
   }
 };
-

@@ -1,14 +1,6 @@
 import UserActivityLog from '../models/UserActivityLog.model.js';
 
-function normalizeIp(raw) {
-  const s = String(raw || '').trim();
-  if (!s) return null;
-  return s.split(',')[0].trim() || null;
-}
-
-function requestIp(req) {
-  return normalizeIp(req?.headers?.['x-forwarded-for']) || normalizeIp(req?.ip) || null;
-}
+import { networkEvidence } from '../utils/securityEvidence.js';
 
 export async function logAuditEvent(req, { actionType, agencyId = null, metadata = null, userId = null } = {}) {
   if (!actionType) return;
@@ -18,7 +10,7 @@ export async function logAuditEvent(req, { actionType, agencyId = null, metadata
       actionType: String(actionType).trim(),
       userId: uid,
       agencyId: agencyId ? Number(agencyId) : null,
-      ipAddress: requestIp(req),
+      ipAddress: (req?.evidenceContext || networkEvidence(req || {})).clientIp,
       userAgent: req?.headers?.['user-agent'] ? String(req.headers['user-agent']).slice(0, 255) : null,
       sessionId: req?.user?.sessionId || null,
       metadata: metadata || null

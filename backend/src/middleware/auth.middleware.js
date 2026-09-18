@@ -8,6 +8,8 @@ import { isSupervisorActor, supervisorHasSuperviseeInSchool } from '../utils/sup
 import { canUserManageClub, getUserClubMembership, inferLegacyClubRole } from '../utils/sscClubAccess.js';
 import { hasTenantAccess } from '../utils/meDashboardTenantScope.js';
 import { getSessionSecurity, sessionRouteAllowed, invalidateSessionPolicyCache } from '../services/sessionSecurity.service.js';
+import { enforceAccountSecurity } from './accountSecurity.middleware.js';
+import { recordAccountSession } from '../services/personalSessionHistory.service.js';
 
 const PROVIDER_LIKE_ROLES_MIDDLEWARE = new Set([
   'provider', 'provider_plus', 'intern', 'intern_plus', 'clinical_practice_assistant'
@@ -222,10 +224,13 @@ export const authenticate = async (req, res, next) => {
     }
 
     const decoded = jwt.verify(token, config.jwt.secret);
+    req.authClaims = decoded;
+    await req.auditIdentify?.(decoded);
     res.set('Cache-Control', 'no-store');
     if (['/api/auth/session-lock-config', '/api/auth/verify-session-pin'].includes(requestPath) || (requestPath === '/api/auth/session-activity' && req.body?.action === 'resume')) invalidateSessionPolicyCache();
     // Validate deadlines even when no browser timer/heartbeat has run.
     if (req.sessionSecurity === undefined) req.sessionSecurity = await getSessionSecurity(decoded, token);
+    await recordAccountSession(decoded, req);
     if (!sessionRouteAllowed(req.sessionSecurity, req.method, requestPath)) {
       const expired = req.sessionSecurity.state.phase === 'expired';
       return res.status(expired ? 401 : 423).json({
@@ -244,7 +249,7 @@ export const authenticate = async (req, res, next) => {
         agencyId: decoded.agencyId,
         agencyIds: decoded.agencyIds || (decoded.agencyId ? [decoded.agencyId] : [])
       };
-      return next();
+      return enforceAccountSecurity(req, res, next);
     }
     
     // Backward compatibility: older passwordless tokens may include type='passwordless'.
@@ -264,7 +269,8 @@ export const authenticate = async (req, res, next) => {
         demoRealRole: decoded.demoRealRole || null
       };
       await resolveEffectiveRole(req);
-      return next();
+      await req.auditIdentify?.(req.user);
+      return enforceAccountSecurity(req, res, next);
     }
 
     // Regular user tokens - support both email and username for login
@@ -282,7 +288,8 @@ export const authenticate = async (req, res, next) => {
       switchedFromUserId: decoded.switchedFromUserId || null
     };
     await resolveEffectiveRole(req);
-    next();
+    await req.auditIdentify?.(req.user);
+    return enforceAccountSecurity(req, res, next);
   } catch (error) {
     if (error.code?.startsWith('SESSION_')) return res.status(error.status || 503).json({ error: { code: error.code, message: error.message } });
     if (!['TokenExpiredError', 'JsonWebTokenError', 'NotBeforeError'].includes(error.name)) return next(error);
@@ -369,6 +376,7 @@ export const authenticateOptional = async (req, res, next) => {
       try {
         const decoded = jwt.verify(token, config.jwt.secret);
         if (applyOptionalUserFromDecoded(req, decoded)) {
+          await req.auditIdentify?.(decoded);
           req.sessionSecurity = await getSessionSecurity(decoded, token);
           if (req.sessionSecurity && req.sessionSecurity.state.phase !== 'active') {
             delete req.user;
@@ -377,15 +385,19 @@ export const authenticateOptional = async (req, res, next) => {
               session: req.sessionSecurity.state, policy: req.sessionSecurity.policy
             });
           }
-          return next();
+          req.authClaims = decoded;
+          await recordAccountSession(decoded, req);
+          return enforceAccountSecurity(req, res, next);
         }
-      } catch {
+      } catch (error) {
+        if (!['TokenExpiredError', 'JsonWebTokenError', 'NotBeforeError'].includes(error.name)) return next(error);
         delete req.user;
         // try next candidate
       }
     }
     return next();
-  } catch {
+  } catch (error) {
+    if (error.code === 'EVIDENCE_UNAVAILABLE') return next(error);
     // If token is invalid/expired, treat as unauthenticated.
     return next();
   }

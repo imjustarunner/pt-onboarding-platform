@@ -1,3 +1,4 @@
+import { sharedLoginLimiter } from '../middleware/loginProtection.middleware.js';
 import express from 'express';
 import { body } from 'express-validator';
 import { MAX_PASSWORD_LENGTH, MIN_PASSWORD_LENGTH } from '../utils/passwordValidation.js';
@@ -161,11 +162,11 @@ const validateRegister = [
   body('bypassDuplicateCheck').optional().isBoolean().withMessage('bypassDuplicateCheck must be a boolean')
 ];
 
-router.post('/identify', identifyLimiter, validateIdentifyLogin, identifyLogin);
-router.post('/login', authLimiter, validateLogin, login);
+router.post('/identify', sharedLoginLimiter({ identify: true }), identifyLimiter, validateIdentifyLogin, identifyLogin);
+router.post('/login', sharedLoginLimiter(), authLimiter, validateLogin, login);
 router.get('/google/start', googleOAuthStart);
 router.get('/google/callback', googleOAuthCallback);
-router.post('/approved-employee-login', authLimiter, [
+router.post('/approved-employee-login', sharedLoginLimiter(), authLimiter, [
   body('email').isEmail().normalizeEmail(),
   body('password').notEmpty().withMessage('Password is required')
 ], approvedEmployeeLogin);

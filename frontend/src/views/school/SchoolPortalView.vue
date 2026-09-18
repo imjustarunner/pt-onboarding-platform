@@ -4070,10 +4070,21 @@ const startFullNameTimer = (untilTs) => {
   fullNameTickTimer = setInterval(tickFullNameTimer, 1000);
 };
 
-const onShowFullNamesClick = () => {
+const onShowFullNamesClick = async () => {
   showCodesHelp.value = false;
   if (isShowingFullNames.value) {
     revertFullNames();
+    return;
+  }
+  try {
+    const { data } = await api.get('/account-security');
+    if (!data.verified && (data.required || data.enabled)) {
+      window.dispatchEvent(new Event('account-security-required'));
+      router.push('/account-security');
+      return;
+    }
+  } catch {
+    router.push('/account-security');
     return;
   }
   fullNameAcknowledged.value = false;

@@ -7,9 +7,9 @@
           size="large"
           class="session-lock-logo"
         />
-        <h1 id="session-lock-title" class="session-lock-title">Session Locked</h1>
-        <p class="session-lock-message">{{ !sessionLockStore.lockConfig ? 'Checking your session. Please wait or sign in again.' : sessionLockStore.lockConfig.pinRequired ? 'Enter your 6-digit Quick View passcode to continue' : 'Enter your 4-digit session PIN to continue' }}</p>
-        <p class="session-lock-message" role="status">Automatic logout in {{ countdown }}.</p>
+        <h1 id="session-lock-title" class="session-lock-title">{{ sessionLockStore.lockConfig ? 'Session Locked' : 'Checking sign-in' }}</h1>
+        <p class="session-lock-message">{{ !sessionLockStore.lockConfig ? 'Please wait while we verify your connection.' : sessionLockStore.lockConfig.pinRequired ? 'Enter your 6-digit Quick View passcode to continue' : 'Enter your 4-digit session PIN to continue' }}</p>
+        <p v-if="sessionLockStore.warningActive && sessionLockStore.warningSecondsLeft > 0" class="session-lock-message" role="status">Automatic logout in {{ countdown }}.</p>
         <form v-if="sessionLockStore.lockConfig?.useLockScreen" @submit.prevent="submitPin" class="session-lock-form">
           <input
             ref="pinInputRef"

@@ -1,3 +1,4 @@
+import { protectStorageResource } from './activityProtection.service.js';
 /**
  * Storage Service - Google Cloud Storage (GCS) file storage layer
  * 
@@ -1000,6 +1001,7 @@ class StorageService {
   }
 
   static async readObjectBuffer(key) {
+    await protectStorageResource(key);
     const bucket = await this.getGCSBucket();
     const file = bucket.file(String(key));
     const [buffer] = await file.download();
@@ -1225,6 +1227,7 @@ class StorageService {
    * @param {string} storagePath - e.g. intake_signed/<submission>/<template>/<file>.pdf
    */
   static async readIntakeSignedDocument(storagePath) {
+    await protectStorageResource(storagePath);
     const raw = String(storagePath || '').replace(/^\//, '');
     if (!raw) {
       throw new Error('Intake signed document path is required');
@@ -1514,6 +1517,7 @@ class StorageService {
    * Intended for internal server-side use (e.g. uploading an existing receipt to Drive).
    */
   static async readObject(key) {
+    await protectStorageResource(key);
     const k = String(key || '').trim();
     if (!k) throw new Error('Missing storage key');
     const bucket = await this.getGCSBucket();
@@ -1843,6 +1847,7 @@ class StorageService {
   }
 
   static async getSignedUrl(key, expirationMinutes = 60) {
+    await protectStorageResource(key);
     const bucket = await this.getGCSBucket();
     const file = bucket.file(key);
     
@@ -1853,13 +1858,30 @@ class StorageService {
     }
     
     try {
+      const expiresAt = Date.now() + (expirationMinutes * 60 * 1000);
+      const { evidenceRequestContext } = await import('../utils/evidenceRequestContext.js');
+      const evidenceRequest = evidenceRequestContext.getStore();
+      const requestId = evidenceRequest?.evidenceContext?.requestId;
+      const grantId = requestId ? crypto.randomUUID() : null;
       const [url] = await file.getSignedUrl({
         action: 'read',
-        expires: Date.now() + (expirationMinutes * 60 * 1000)
+        expires: expiresAt,
+        // V4 signs these parameters: a caller cannot strip or substitute the
+        // correlation IDs. They identify issuance, not the human retrieving it.
+        ...(grantId ? { version: 'v4', queryParams: {
+          'x-goog-custom-audit-request': requestId,
+          'x-goog-custom-audit-grant': grantId
+        } } : {})
+      });
+      await evidenceRequest?.auditStorageGrant?.({
+        grantId,
+        storageRef: crypto.createHash('sha256').update(`${bucket.name}/${key}`).digest('hex'),
+        expiresAt: new Date(expiresAt).toISOString()
       });
       
       return url;
     } catch (error) {
+      if (error.code === 'EVIDENCE_UNAVAILABLE') throw error;
       console.error(`[StorageService] Error generating signed URL for ${key}:`, error);
       throw new Error(`Failed to generate signed URL: ${error.message}`);
     }

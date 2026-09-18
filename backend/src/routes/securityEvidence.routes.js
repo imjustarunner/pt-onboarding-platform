@@ -1,0 +1,14 @@
+import express from 'express';
+import { authenticate } from '../middleware/auth.middleware.js';
+import { requireEvidenceInvestigator, listEvidence, requestEvidence, exportEvidence, revokeUserSessions, evidenceSignals } from '../controllers/securityEvidence.controller.js';
+import { listPrivacyReviewers, assignPrivacyReviewer } from '../controllers/activityProtection.controller.js';
+const router = express.Router();
+router.use(authenticate, requireEvidenceInvestigator);
+router.get('/', listEvidence);
+router.get('/privacy-reviewers', listPrivacyReviewers);
+router.post('/privacy-reviewers', (req,res,next)=>req.get('X-Account-Security')==='1'?next():res.sendStatus(403), assignPrivacyReviewer);
+router.get('/signals', evidenceSignals);
+router.get('/export.csv', exportEvidence);
+router.get('/requests/:requestId', requestEvidence);
+router.post('/users/:userId/revoke', revokeUserSessions);
+export default router;

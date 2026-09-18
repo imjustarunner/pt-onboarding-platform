@@ -3,10 +3,16 @@
     <div class="page-header">
       <div>
         <h1>Audit Center</h1>
-        <p class="subtitle">Agency-scoped activity reporting and immutable audit records. Session times are read-only.</p>
+        <p class="subtitle">Activity reporting and request evidence. Coverage and detail vary by source.</p>
       </div>
     </div>
 
+    <div v-if="authStore.user?.role === 'super_admin'" class="view-toggle">
+      <button class="btn" :class="securityMode ? 'btn-primary' : 'btn-secondary'" @click="securityMode = true">Security investigation</button>
+      <button class="btn" :class="!securityMode ? 'btn-primary' : 'btn-secondary'" @click="securityMode = false">Activity reporting</button>
+    </div>
+    <SecurityEvidencePanel v-if="securityMode && authStore.user?.role === 'super_admin'" />
+    <template v-else>
     <div class="filters">
       <div class="field">
         <label>Agency</label>
@@ -364,6 +370,7 @@
         <button class="btn btn-secondary" :disabled="loading || !pagination.hasNextPage" @click="nextPage">Next</button>
       </div>
     </div>
+    </template>
   </div>
 </template>
 
@@ -373,6 +380,7 @@ import { useRoute } from 'vue-router';
 import { useAuthStore } from '../../store/auth';
 import { useAgencyStore } from '../../store/agency';
 import api from '../../services/api';
+import SecurityEvidencePanel from '../../components/admin/SecurityEvidencePanel.vue';
 import {
   getActionLabel,
   getActionCategory,
@@ -381,6 +389,7 @@ import {
 } from '../../utils/auditActionRegistry.js';
 
 const authStore = useAuthStore();
+const securityMode = ref(authStore.user?.role === 'super_admin');
 const agencyStore = useAgencyStore();
 const route = useRoute();
 

@@ -21,6 +21,7 @@ let pendingActivity = false;
 let lastHeartbeat = 0;
 let lastActivitySentAt = 0;
 let trackedSessionId = null;
+let trackedUserId = null;
 let lastActivityTime = Date.now();
 let refreshPromise = null;
 let refreshGeneration = null;
@@ -229,12 +230,20 @@ function onFocusIn(event) {
   if (!event.target?.closest?.(allowed)) document.querySelector(`${store.isLocked ? '.session-lock-overlay' : '.iw-overlay'} input, ${store.isLocked ? '.session-lock-overlay' : '.iw-overlay'} button`)?.focus();
 }
 export async function startActivityTracking({ force = false } = {}) {
-  if (isTracking && !force) return;
+  const sessionId = localStorage.getItem('sessionId');
+  const userId = useAuthStore().user?.id;
+  if (isTracking && trackedSessionId === sessionId && trackedUserId === userId) {
+    // Settings/agency hydration is not a new login. Keep confirmed deadlines and
+    // any real lock while refreshing policy; concurrent refreshes are deduplicated.
+    if (force) { try { await refresh(); } catch { /* Existing deadlines/recovery timer still apply. */ } }
+    return;
+  }
   stopActivityTracking();
   generation += 1; isTracking = true; initialized = false; timeoutInFlight = false;
   const currentGeneration = generation;
-  trackedSessionId = localStorage.getItem('sessionId');
-  storageKey = sessionStorageKey(useAuthStore().user?.id, trackedSessionId);
+  trackedSessionId = sessionId;
+  trackedUserId = userId;
+  storageKey = sessionStorageKey(trackedUserId, trackedSessionId);
   lastHeartbeat = 0; lastActivitySentAt = 0;
   state = null; readShared();
   // A cached deadline cannot authorize access or revoke a fresh cookie login.

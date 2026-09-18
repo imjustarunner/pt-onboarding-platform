@@ -1,3 +1,4 @@
+import { accountPasswordLocked, recordPasswordResult } from '../middleware/loginProtection.middleware.js';
 import bcrypt from 'bcrypt';
 import { changeSessionSecurity, loadSessionPolicy, finalizeExpiredSession } from '../services/sessionSecurity.service.js';
 import { isHirePortalOnly } from '../utils/hirePortalToken.js';
@@ -478,6 +479,7 @@ export const approvedEmployeeLogin = async (req, res, next) => {
     // Set secure HttpOnly cookie for authentication
     // Use shared cookie options to ensure consistency with logout
     const cookieOptions = config.authCookie.set();
+    await req.auditIdentify?.(jwt.verify(sessionToken, config.jwt.secret), 'session_issued');
     res.cookie('authToken', sessionToken, cookieOptions);
 
     // Log login activity for each agency using centralized service
@@ -688,31 +690,8 @@ export const login = async (req, res, next) => {
       });
     }
 
-    // Account lockout check (10 consecutive failures → 24-hour lockout)
-    try {
-      const pool = (await import('../config/database.js')).default;
-      const [lockRows] = await pool.execute(
-        'SELECT failed_login_attempts, locked_until FROM users WHERE id = ? LIMIT 1',
-        [user.id]
-      );
-      if (lockRows && lockRows.length > 0) {
-        const { locked_until, failed_login_attempts } = lockRows[0];
-        if (locked_until && new Date(locked_until) > new Date()) {
-          const unlockAt = new Date(locked_until);
-          return res.status(423).json({
-            error: {
-              message: `Account is locked due to too many failed login attempts. Please try again after ${unlockAt.toUTCString()}.`,
-              lockedUntil: unlockAt.toISOString(),
-              code: 'ACCOUNT_LOCKED'
-            }
-          });
-        }
-        // Attach to user object for use after password check
-        user._failedLoginAttempts = Number(failed_login_attempts) || 0;
-      }
-    } catch {
-      // best-effort — do not block login if columns not yet migrated
-    }
+    // The shared database owns the counter; missing storage fails closed.
+    if (await accountPasswordLocked(user.id)) return res.status(423).json({error:{code:'ACCOUNT_LOCKED',message:'Sign-in is temporarily unavailable. Contact your administrator or try again later.'}});
 
     // Verify password (supports temporary passwords)
     const hasPasswordHash = !!user.password_hash;
@@ -797,32 +776,7 @@ export const login = async (req, res, next) => {
     }
 
     if (!isValidPassword) {
-      // Increment failed attempt counter; lock account on 10th consecutive failure
-      try {
-        const pool = (await import('../config/database.js')).default;
-        const newCount = (Number(user._failedLoginAttempts) || 0) + 1;
-        if (newCount >= 10) {
-          const lockUntil = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours
-          await pool.execute(
-            'UPDATE users SET failed_login_attempts = ?, locked_until = ? WHERE id = ?',
-            [newCount, lockUntil, user.id]
-          );
-          return res.status(423).json({
-            error: {
-              message: `Account locked after 10 failed login attempts. Please try again after ${lockUntil.toUTCString()}.`,
-              lockedUntil: lockUntil.toISOString(),
-              code: 'ACCOUNT_LOCKED'
-            }
-          });
-        } else {
-          await pool.execute(
-            'UPDATE users SET failed_login_attempts = ? WHERE id = ?',
-            [newCount, user.id]
-          );
-        }
-      } catch {
-        // best-effort — do not swallow the 401
-      }
+      await recordPasswordResult(user.id, false);
       const roleNormFail = String(user?.role || '').trim().toLowerCase();
       if (
         roleNormFail === 'school_staff' &&
@@ -841,17 +795,8 @@ export const login = async (req, res, next) => {
       return res.status(401).json({ error: { message: 'Invalid email or password' } });
     }
 
-    // Reset failed attempt counter on successful login
-    try {
-      const pool = (await import('../config/database.js')).default;
-      await pool.execute(
-        'UPDATE users SET failed_login_attempts = 0, locked_until = NULL WHERE id = ?',
-        [user.id]
-      );
-    } catch {
-      // best-effort
-    }
-    
+    if (!await recordPasswordResult(user.id, true)) return res.status(423).json({error:{code:'ACCOUNT_LOCKED',message:'Sign-in is temporarily unavailable. Contact your administrator or try again later.'}});
+
     // If user is inactive but password is correct, still allow login (they may be reinstated)
     // The frontend will handle redirecting them appropriately
 
@@ -886,6 +831,7 @@ export const login = async (req, res, next) => {
     // Set secure HttpOnly cookie for authentication
     // Use shared cookie options to ensure consistency with logout
     const cookieOptions = config.authCookie.set();
+    await req.auditIdentify?.(jwt.verify(token, config.jwt.secret), 'session_issued');
     res.cookie('authToken', token, cookieOptions);
 
     // Check if this is the first login
@@ -1978,10 +1924,11 @@ export const googleOAuthCallback = async (req, res, next) => {
     // Issue session cookie + log activity
     const sessionId = crypto.randomUUID();
     const token = jwt.sign(
-      { id: user.id, email: user.email, role: user.role, sessionId },
+      { id: user.id, email: user.email, role: user.role, sessionId, authMethod: 'google' },
       config.jwt.secret,
       { expiresIn: config.jwt.expiresIn }
     );
+    await req.auditIdentify?.(jwt.verify(token, config.jwt.secret), 'session_issued');
     res.cookie('authToken', token, config.authCookie.set());
 
     ActivityLogService.logActivity({
@@ -2207,6 +2154,7 @@ export const passwordlessTokenLogin = async (req, res, next) => {
       // Set secure HttpOnly cookie for authentication
       // Use shared cookie options to ensure consistency with logout
       const cookieOptions = config.authCookie.set();
+      await req.auditIdentify?.(jwt.verify(jwtToken, config.jwt.secret), 'session_issued');
       res.cookie('authToken', jwtToken, cookieOptions);
 
       // Get user agencies
@@ -2443,6 +2391,7 @@ export const passwordlessTokenLoginFromBody = async (req, res, next) => {
       // Set secure HttpOnly cookie for authentication
       // Use shared cookie options to ensure consistency with logout
       const cookieOptions = config.authCookie.set();
+      await req.auditIdentify?.(jwt.verify(jwtToken, config.jwt.secret), 'session_issued');
       res.cookie('authToken', jwtToken, cookieOptions);
 
       // Get user agencies
@@ -3409,6 +3358,7 @@ export const resetPasswordWithToken = async (req, res, next) => {
 
     // Set secure HttpOnly cookie for authentication
     const cookieOptions = config.authCookie.set();
+    await req.auditIdentify?.(jwt.verify(jwtToken, config.jwt.secret), 'session_issued');
     res.cookie('authToken', jwtToken, cookieOptions);
 
     const userAgencies = await User.getAgencies(updatedUser.id);
@@ -3538,6 +3488,7 @@ export const initialSetup = async (req, res, next) => {
 
     // Set secure HttpOnly cookie for authentication
     const cookieOptions = config.authCookie.set();
+    await req.auditIdentify?.(jwt.verify(jwtToken, config.jwt.secret), 'session_issued');
     res.cookie('authToken', jwtToken, cookieOptions);
 
     // Get user agencies
@@ -3696,6 +3647,7 @@ export const demoSwitchView = async (req, res, next) => {
       config.jwt.secret,
       { expiresIn: config.jwt.expiresIn }
     );
+    await req.auditIdentify?.(jwt.verify(token, config.jwt.secret), 'session_issued');
     res.cookie('authToken', token, config.authCookie.set());
 
     const payrollAgencyIds = actor?.id ? await User.listPayrollAgencyIds(actor.id) : [];
@@ -4169,6 +4121,8 @@ export const switchTestAccount = async (req, res, next) => {
       { expiresIn: config.jwt.expiresIn }
     );
 
+    await req.auditIdentify?.(jwt.verify(token, config.jwt.secret), 'session_issued');
+
     res.cookie('authToken', token, config.authCookie.set());
 
     const userPayload = await buildTestAccountSwitchUserPayload(targetUser);
@@ -4266,6 +4220,8 @@ export const returnTestAccount = async (req, res, next) => {
       config.jwt.secret,
       { expiresIn: config.jwt.expiresIn }
     );
+
+    await req.auditIdentify?.(jwt.verify(token, config.jwt.secret), 'session_issued');
 
     res.cookie('authToken', token, config.authCookie.set());
 
@@ -5238,6 +5194,7 @@ export const consumeBrandSwitchHandoff = async (req, res, next) => {
       config.jwt.secret,
       { expiresIn: config.jwt.expiresIn }
     );
+    await req.auditIdentify?.(jwt.verify(token, config.jwt.secret), 'session_issued');
     res.cookie('authToken', token, config.authCookie.set());
 
     let agencies = [];

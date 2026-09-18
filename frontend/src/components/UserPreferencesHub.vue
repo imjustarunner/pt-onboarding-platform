@@ -1,6 +1,7 @@
 <template>
   <div class="preferences-content">
     <nav class="prefs-toc" aria-label="Settings sections">
+      <router-link v-if="Number(props.userId) === Number(authStore.user?.id)" to="/account-security">Two-step verification & sign-ins</router-link>
       <a href="#prefs-notifications" @click.prevent="scrollToSection('prefs-notifications')">Notifications</a>
       <a href="#prefs-availability" @click.prevent="scrollToSection('prefs-availability')">Schedule</a>
       <a href="#prefs-communication" @click.prevent="scrollToSection('prefs-communication')">Support assist</a>

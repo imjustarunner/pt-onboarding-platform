@@ -1,5 +1,6 @@
 <template>
   <BrandingProvider>
+    <AccountSecurityNotice v-if="isAuthenticated" />
     <router-view v-if="route.meta?.familyCommandCenter" />
     <div v-else class="preview-root" :data-preview-viewport="effectivePreviewViewport">
       <div id="app" :inert="sessionLockStore.isLocked || sessionLockStore.warningActive" :aria-hidden="sessionLockStore.isLocked || sessionLockStore.warningActive ? 'true' : undefined" :class="{ 'is-native': isNative, 'is-platform-hq': isPlatformHqShell }">
@@ -2307,6 +2308,7 @@ import { ref, computed, watch, onMounted, onUnmounted, unref, nextTick, provide 
 import { Capacitor } from '@capacitor/core';
 const isNative = Capacitor.isNativePlatform();
 import { useAuthStore } from './store/auth';
+import AccountSecurityNotice from './components/AccountSecurityNotice.vue';
 import { useBrandingStore } from './store/branding';
 import { useAgencyStore } from './store/agency';
 import { useOrganizationStore } from './store/organization';

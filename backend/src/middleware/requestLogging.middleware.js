@@ -40,6 +40,7 @@ import config from '../config/config.js';
  * // because the middleware ensures sensitive fields are never in req.sanitizedBody.
  */
 export const requestLoggingMiddleware = (req, res, next) => {
+  if (/^\/api\/account-security(?:\/|$)/.test(req.path)) { req.sanitizedBody = '[PRIVATE ACCOUNT SECURITY REQUEST]'; next(); return; }
   if (/\/(family-billing|guardian-billing)(\/|$)/.test(req.path)) { req.sanitizedBody = '[PRIVATE BILLING REQUEST]'; next(); return; }
   // Only sanitize if body exists and is an object
   if (req.body && typeof req.body === 'object') {

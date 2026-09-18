@@ -8,6 +8,11 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import config from './config/config.js';
 import requestLoggingMiddleware from './middleware/requestLogging.middleware.js';
+import securityEvidenceMiddleware from './middleware/securityEvidence.middleware.js';
+import { requireSecurityReadiness } from './services/securityEvidence.service.js';
+import securityEvidenceRoutes from './routes/securityEvidence.routes.js';
+import privacyReviewRoutes from './routes/privacyReview.routes.js';
+import accountSecurityRoutes from './routes/accountSecurity.routes.js';
 import { accessDebugMiddleware } from './middleware/accessDebug.middleware.js';
 import authRoutes from './routes/auth.routes.js';
 import { verifyClubManagerEmail } from './controllers/auth.controller.js';
@@ -276,6 +281,10 @@ import stripeWebhookRoutes from './routes/stripeWebhook.routes.js';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+// Direct npm start/dev must satisfy the same security gate as Cloud Run.
+// Keep this before app creation, listening, and the scheduled maintenance jobs.
+await requireSecurityReadiness();
+
 const app = express();
 
 // Trust proxy for accurate IP addresses (important for production behind load balancers/proxies)
@@ -321,10 +330,11 @@ app.use(cors({
     'X-User-Authorization',
     'X-Requested-With',
     'X-Agency-Id',
-    'X-Quick-View-Session'
+    'X-Quick-View-Session',
+    'X-Account-Security'
   ],
   // Explicitly set exposed headers (cookies are automatically exposed)
-  exposedHeaders: ['Set-Cookie'],
+  exposedHeaders: ['Set-Cookie', 'X-Request-ID', 'X-Evidence-SHA256'],
   // Ensure preflight requests work correctly on mobile
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS']
 }));
@@ -353,6 +363,7 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 // Must be after body parsing middleware (express.json, express.urlencoded)
 // This ensures req.body is available for sanitization
 app.use(requestLoggingMiddleware);
+app.use(securityEvidenceMiddleware);
 
 // Slow-request timing. Enable with TIMING_DEBUG=1; optionally set TIMING_DEBUG_MS
 // to change the threshold (default 300ms). Logs method, path, status, duration and
@@ -426,8 +437,9 @@ const uploadsHandler = async (req, res, next) => {
 
     // HIPAA hardening: block sensitive PHI/intake object prefixes from generic /uploads routing.
     // These files must be accessed via dedicated authenticated controllers with audit logging.
-    const sensitivePrefixes = ['phi-documents/', 'intake_signed/'];
-    if (sensitivePrefixes.some((prefix) => filePath.startsWith(prefix))) {
+    const sensitivePrefixes = ['phi-documents/', 'intake_signed/', 'intake_uploads/'];
+    const unprefixedFilePath = filePath.replace(/^(?:uploads\/)+/, '');
+    if (sensitivePrefixes.some((prefix) => unprefixedFilePath.startsWith(prefix))) {
       return res.status(403).json({ error: { message: 'Access denied for sensitive document path' } });
     }
     
@@ -722,6 +734,9 @@ app.get('/api/app-version', (_req, res) => {
 
 // Health check routes (must be before authentication middleware)
 app.use('/api/health-check', healthCheckRoutes);
+app.use('/api/security-evidence', securityEvidenceRoutes);
+app.use('/api/account-security', accountSecurityRoutes);
+app.use('/api/privacy-review', privacyReviewRoutes);
 
 // Public APIs (no auth). Mount early so they never get blocked by future auth gates.
 app.use('/api/public/agency-services', publicAgencyServicesRoutes);
@@ -1074,9 +1089,15 @@ app.use((err, req, res, next) => {
     });
   }
 
+  if (['ACTIVITY_REVIEW_REQUIRED','MFA_REQUIRED','MFA_FRESH_REQUIRED'].includes(err.code)) {
+    res.removeHeader('Content-Disposition');
+    res.removeHeader('Content-Type');
+    res.setHeader('Cache-Control', 'no-store');
+  }
   res.status(err.status || 500).json({
     error: {
       message: err.message || 'Internal server error',
+      ...(['ACTIVITY_REVIEW_REQUIRED','MFA_REQUIRED','MFA_FRESH_REQUIRED','SELF_APPROVAL_FORBIDDEN','INVALID_REVIEW_REQUEST','INVALID_REVIEW','LOGIN_PROTECTION_UNAVAILABLE','EMAIL_RECIPIENT_REQUIRED'].includes(err.code) ? { code: err.code } : {}),
       ...(config.nodeEnv === 'development' && { 
         stack: err.stack,
         code: err.code,

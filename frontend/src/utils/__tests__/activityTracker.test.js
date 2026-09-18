@@ -84,6 +84,7 @@ describe('shared activity tracking', () => {
     let resolveCurrent;
     mocks.get.mockImplementationOnce(() => new Promise((resolve, reject) => { rejectOld = reject; }));
     const oldStart = startActivityTracking();
+    localStorage.setItem('sessionId', 'new-login');
     mocks.get.mockImplementationOnce(() => new Promise(resolve => { resolveCurrent = resolve; }));
     const currentStart = startActivityTracking({ force: true });
     rejectOld(new Error('Old request failed'));
@@ -92,6 +93,29 @@ describe('shared activity tracking', () => {
     resolveCurrent({ data: { ...policy, session: serverData().session } });
     await currentStart;
     expect(useSessionLockStore().isLocked).toBe(false);
+  });
+  it('keeps a confirmed active session visible while settings refresh and on transient failure', async () => {
+    await startActivityTracking();
+    const store=useSessionLockStore();const lock=vi.spyOn(store,'lock');
+    let rejectRefresh;
+    mocks.get.mockImplementationOnce(()=>new Promise((_,reject)=>{rejectRefresh=reject;}));
+    const refresh=startActivityTracking({force:true});
+    expect(store.isLocked).toBe(false);expect(store.lockConfig).not.toBeNull();
+    rejectRefresh(new Error('Temporary network failure'));await refresh;
+    expect(lock).not.toHaveBeenCalled();expect(store.warningActive).toBe(false);
+    await vi.advanceTimersByTimeAsync(30000);
+    expect(store.warningActive).toBe(true); // The original idle deadline was preserved.
+  });
+  it('deduplicates settings refreshes and keeps a real PIN lock in place', async () => {
+    policy={...policy,useLockScreen:true,pinRequired:true};
+    serverSession={...serverSession,phase:'timedown',lockAt:Date.now()-1000};
+    await startActivityTracking();
+    let resolveRefresh;mocks.get.mockImplementationOnce(()=>new Promise(resolve=>{resolveRefresh=resolve;}));
+    const one=startActivityTracking({force:true}),two=startActivityTracking({force:true});
+    expect(mocks.get).toHaveBeenCalledTimes(2);expect(useSessionLockStore().isLocked).toBe(true);
+    expect(useSessionLockStore().lockConfig.pinRequired).toBe(true);
+    resolveRefresh({data:{...policy,session:serverData().session}});await Promise.all([one,two]);
+    expect(useSessionLockStore().isLocked).toBe(true);
   });
   it('cancels pending verification retries when tracking stops', async () => {
     mocks.get.mockRejectedValueOnce(new Error('Network error'));

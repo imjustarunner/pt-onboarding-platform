@@ -1,0 +1,11 @@
+import express from 'express';
+import { authenticate } from '../middleware/auth.middleware.js';
+import { requirePrivacyReviewer,reviewQueue,reviewTicket,reviewAlert,protectionSummary } from '../controllers/activityProtection.controller.js';
+const router=express.Router();
+router.use(authenticate,requirePrivacyReviewer);
+router.get('/',reviewQueue);
+router.get('/summary',protectionSummary);
+router.use((req,res,next)=>req.get('X-Account-Security')==='1'?next():res.sendStatus(403));
+router.post('/tickets/:id/review',reviewTicket);
+router.post('/alerts/:id/review',reviewAlert);
+export default router;

@@ -244,6 +244,15 @@ api.interceptors.response.use(
     return response;
   },
   async (error) => {
+    if (error.response?.data instanceof Blob && error.response.data.type.includes('json')) {
+      try { error.response.data = JSON.parse(await error.response.data.text()); } catch { /* Keep the original response if it is not JSON. */ }
+    }
+    if (error.response?.data?.error?.code === 'ACTIVITY_REVIEW_REQUIRED') {
+      window.dispatchEvent(new CustomEvent('activity-protection-required'));
+    }
+    if (error.response?.data?.error?.code === 'MFA_REQUIRED') {
+      window.dispatchEvent(new Event('account-security-required'));
+    }
     const securityCode = error.response?.data?.error?.code;
     if (securityCode === 'SESSION_LOCKED' || securityCode === 'SESSION_EXPIRED') {
       window.dispatchEvent(new CustomEvent('pt:session-security', { detail: error.response.data }));
@@ -257,6 +266,7 @@ api.interceptors.response.use(
       // ignore
     }
 
+    if (error.response?.data?.error?.code === 'MFA_REQUIRED') return Promise.reject(error);
     // Cloud Run / edge 429 — trip global cooldown so tabs stop the death spiral.
     if (error?.response?.status === 429 && !error?.__rateLimited) {
       noteRateLimitResponse();
@@ -397,4 +407,3 @@ api.interceptors.response.use(
 );
 
 export default api;
-

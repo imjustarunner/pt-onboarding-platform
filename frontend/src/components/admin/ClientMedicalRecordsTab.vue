@@ -231,6 +231,7 @@
 
 <script setup>
 import { computed, ref, watch } from 'vue';
+import api from '../../services/api';
 import { useClientEncounters } from '../../composables/useClientEncounters.js';
 import { useClientEncounterNote } from '../../composables/useClientEncounterNote.js';
 import {
@@ -271,7 +272,8 @@ const searchQuery = ref('');
 const detailTab = ref('summary');
 const selectedId = ref(null);
 
-function printRecord() {
+async function printRecord() {
+  try { await api.post('/account-security/activity-protection/print', {}, { headers: { 'X-Account-Security': '1' } }); } catch (e) { error.value = e.response?.data?.error?.message || 'Print access needs review.'; return; }
   const clientLabel = String(
     props.client?.full_name || props.client?.initials || `Client #${props.clientId || ''}`
   ).trim();

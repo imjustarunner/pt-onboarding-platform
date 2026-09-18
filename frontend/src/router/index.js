@@ -317,6 +317,8 @@ const routes = [
     {path:`/p/${slug}/live-chat-support`,name:`LiveChatSupport-${slug}`,component:()=>import('../views/public/LiveChatSupportView.vue'),props:{agencySlug:slug},meta:{requiresGuest:false}}
   ]),
   ...['itsco','nlu','ptco','tisi','rise','mh4kidz','range','kimi'].map(slug=>({path:`/p/${slug}/referral-network`,name:`ReferralNetwork-${slug}`,component:()=>import('../views/public/PublicReferralNetworkView.vue'),props:{slug},meta:{requiresGuest:false,publicMarketingHub:true}})),
+  { path: '/privacy-review', name: 'PrivacyReview', component: () => import('../components/ActivityProtectionPanel.vue'), props: { review: true }, meta: { requiresAuth: true, accountSecurity: true } },
+  { path: '/account-security', name: 'AccountSecurity', component: () => import('../components/AccountSecurityPanel.vue'), meta: { requiresAuth: true, accountSecurity: true } },
   {path:'/billing/complete/:token?',name:'PaymentTask',component:()=>import('../views/PaymentTaskView.vue'),meta:{requiresAuth:true}},
   {path:'/:organizationSlug/admin/family-billing',name:'FamilyBillingDesk',component:()=>import('../views/admin/FamilyBillingDesk.vue'),meta:{requiresAuth:true,requiresRole:['admin','agency_admin','super_admin','support','staff','backoffice_admin']}},
   // Public school finder (no auth). Must be before "/:organizationSlug".
@@ -5001,6 +5003,9 @@ router.beforeEach(async (to, from, next) => {
   const isPending = userStatus === 'pending';
   const isReadyForReview = userStatus === 'ready_for_review';
   const mustChangePassword = authStore.user?.requiresPasswordChange === true;
+  // Everyone may inspect their own sessions and set up a second factor, even
+  // when a tenant waiver, onboarding step or password rotation is pending.
+  if (to.meta.accountSecurity && authStore.isAuthenticated) { next(); return; }
 
   // Allow magic-link flows even if a stale "user" is stored locally.
   // These flows are token-based and should not be blocked by requiresGuest redirects.

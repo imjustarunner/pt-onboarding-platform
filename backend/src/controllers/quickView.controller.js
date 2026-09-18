@@ -613,7 +613,12 @@ export async function requireQuickViewSession(req, res, next) {
       } catch { /* ignore */ }
     }
     req.quickView = session;
-    next();
+    await req.auditIdentify?.({ id: session.userId, role: 'quick_view', sessionId: `quickview:${raw}` });
+    // A Quick View PIN is not the authenticator second factor. Sensitive access
+    // uses a full account sign-in rather than upgrading this reusable shortcut.
+    const { enforceAccountSecurity } = await import('../middleware/accountSecurity.middleware.js');
+    req.user = { id: session.userId, role: 'quick_view' };
+    return enforceAccountSecurity(req, res, next);
   } catch (e) {
     next(e);
   }

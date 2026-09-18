@@ -313,6 +313,7 @@ export const viewUserAdminDoc = async (req, res, next) => {
       const { resolveOwnedAdminDocStoragePath } = await import('../utils/candidateApplicationFile.js');
       const storagePath = await resolveOwnedAdminDocStoragePath(doc, userId);
       const url = await StorageService.getSignedUrl(storagePath, DEFAULT_SIGNED_URL_MINUTES);
+      await req.auditLinkIssued?.({ documentId: doc.id });
       return res.json({
         type: 'file',
         url,
@@ -667,4 +668,3 @@ export const revokeAdminDocAccessGrant = async (req, res, next) => {
     next(error);
   }
 };
-

@@ -608,6 +608,20 @@
           </div>
         </div>
         
+        <div class="login-security-footer">
+          <button
+            type="button"
+            class="help-link help-link-button"
+            :aria-expanded="showLoginSecurity"
+            aria-controls="login-security-guidance"
+            @click="showLoginSecurity = !showLoginSecurity"
+          >Security</button>
+          <aside v-if="showLoginSecurity" id="login-security-guidance" class="login-security-guidance" aria-label="Sign-in safety">
+            <strong>Keep your sign-in secure</strong>
+            <p>Use your saved work bookmark to sign in. If an unexpected document asks you to log in, close it and open your bookmark instead. Keep your password and authenticator codes private.</p>
+          </aside>
+        </div>
+
         <!-- Forgot Password Modal -->
         <div v-if="showForgotPasswordMessage" class="modal-overlay" @click.self="closeRecoveryModals">
           <div class="modal">
@@ -860,6 +874,7 @@ const tryBiometricLogin = async () => {
 const APP_PREVIEW_MODES = new Set(['off', 'phone', 'ipad']);
 const appPreviewMode = ref('off');
 const showAppMoreLinks = ref(false);
+const showLoginSecurity = ref(false);
 
 const browserIsStandalone = () => {
   if (typeof window === 'undefined') return false;
@@ -4516,4 +4531,10 @@ const handleLogoError = (event) => {
     height: clamp(56px, 16vw, 88px);
   }
 }
+</style>
+
+<style scoped>
+.login-security-footer { margin-top: .75rem; text-align: center; }
+.login-security-guidance { margin: .6rem 0 0; padding: .85rem; border: 1px solid #cbd5e1; border-radius: 8px; background: #fff; color: #334155; font-size: .85rem; line-height: 1.5; text-align: left; }
+.login-security-guidance p { margin: .35rem 0 0; }
 </style>

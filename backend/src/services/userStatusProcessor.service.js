@@ -4,15 +4,13 @@ import User from '../models/User.model.js';
  * Service to process terminated and completed users automatically
  * Should be called periodically (e.g., via cron job or scheduled task)
  * 
- * - Marks terminated users as inactive after 7 days
- * - Archives terminated users after 14 days
- * - Marks completed users as inactive after 7 days
- * - Adds completed users to approved employee list after 7 days
+ * - Archives TERMINATED_PENDING users after 7 days
+ * - Completed-user processing is retained as a compatibility no-op
  */
 export async function processTerminatedUsers() {
   try {
     const result = await User.processTerminatedUsers();
-    console.log(`Processed terminated users: ${result.markedInactive} marked inactive, ${result.archived} archived`);
+    console.log(`Processed terminated users: ${result.archived} archived`);
     return result;
   } catch (error) {
     console.error('Error processing terminated users:', error);
@@ -44,4 +42,3 @@ export async function processAllUserStatuses() {
     throw error;
   }
 }
-

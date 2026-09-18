@@ -18,6 +18,20 @@ beforeEach(() => {
   mocks.compare.mockResolvedValue(true);
 });
 describe('server session transitions', () => {
+  it('rejects an old JWT even if it has no previously initialized security row', async () => {
+    mocks.execute.mockResolvedValue([[{ reject_issued_before: 200 }]]);
+    await expect(getSessionSecurity({ id: 507, iat: 100, exp: 9999999999 }, 'old-token')).rejects.toMatchObject({ code: 'SESSION_EXPIRED' });
+    expect(mocks.execute).toHaveBeenCalledTimes(1);
+  });
+  it('applies the revocation cutoff to kiosk identities with user IDs', async () => {
+    mocks.execute.mockResolvedValue([[{ reject_issued_before: 200 }]]);
+    await expect(getSessionSecurity({ id: 507, type: 'kiosk', iat: 100 }, 'old-token')).rejects.toMatchObject({ code: 'SESSION_EXPIRED' });
+  });
+  it('looks up approved-employee revocations through their signed email', async () => {
+    mocks.execute.mockResolvedValue([[{ reject_issued_before: 200 }]]);
+    await expect(getSessionSecurity({ email: 'test@example.invalid', type: 'approved_employee', iat: 100 }, 'old-token')).rejects.toMatchObject({ code: 'SESSION_EXPIRED' });
+    expect(mocks.execute.mock.calls[0][0]).toContain('JOIN users');
+  });
   it('rejects client data reads/writes while locked and permits only exact recovery routes', () => {
     for (const phase of ['timedown', 'expired']) {
       const s = { state: { phase } };
@@ -43,7 +57,7 @@ describe('server session transitions', () => {
     expect(reads).toBe(2);
     const revoke = mocks.execute.mock.calls.find(([sql]) => sql.startsWith('UPDATE auth_session_security'));
     expect(revoke[0]).toContain('last_activity_at = ?');
-    expect(revoke[1][1]).toEqual(expired.last_activity_at);
+    expect(revoke[1][2]).toEqual(expired.last_activity_at);
   });
   it('background activity cannot unlock a timed-out session', async () => {
     await expect(changeSessionSecurity(security(), 1, 'activity')).rejects.toMatchObject({ code: 'SESSION_LOCKED' });

@@ -1,3 +1,4 @@
+import { protectOutboundEmail } from '../activityProtection.service.js';
 import { randomUUID } from 'node:crypto';
 import { getGmailClient, getImpersonatedUser } from './gmailClient.js';
 import { base64UrlEncode, buildMimeMessage } from './mime.js';
@@ -801,6 +802,7 @@ export async function sendNotificationEmail({
 
   let result;
   try {
+    await protectOutboundEmail({ to: redirected.to, actorUserId: generatedByUserId });
     result = await gmail.users.messages.send({
       userId: 'me',
       requestBody: { raw }
@@ -1224,6 +1226,7 @@ export async function sendEmailFromIdentity({
   const requestBody = threadId ? { raw, threadId } : { raw };
   let result;
   try {
+    await protectOutboundEmail({ to: redirected.to, cc: redirected.cc, bcc: redirected.bcc, actorUserId: generatedByUserId });
     result = await gmail.users.messages.send({ userId: 'me', requestBody });
   } catch (sendErr) {
     const agencyIdForFail = identity?.agency_id || null;
