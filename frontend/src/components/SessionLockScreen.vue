@@ -1,6 +1,16 @@
 <template>
   <Teleport to="body">
     <div v-if="isLocked" class="session-lock-overlay" role="dialog" aria-modal="true" aria-labelledby="session-lock-title">
+      <video
+        v-if="showTenantVideo && !videoFailed"
+        :key="tenantKey"
+        class="session-lock-background"
+        autoplay muted loop playsinline
+        :poster="posterUrl"
+        aria-hidden="true"
+        @error="videoFailed = true"
+      ><source :src="videoUrl" type="video/mp4" @error="videoFailed = true" /></video>
+      <img v-else class="session-lock-background" :src="showTenantVideo ? posterUrl : mobileBackgroundUrl" alt="" />
       <div class="session-lock-card" :style="cardStyle">
         <BrandingLogo
           :logo-url="agencyLogoUrl"
@@ -41,12 +51,14 @@
 </template>
 
 <script setup>
-import { ref, computed, watch } from 'vue';
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
 import { useBrandingStore } from '../store/branding';
+import { useAgencyStore } from '../store/agency';
 import BrandingLogo from './BrandingLogo.vue';
 import { useSessionLockStore } from '../store/sessionLock';
 import { resumeSession } from '../utils/activityTracker';
-import { formatCountdownClock } from '../utils/sessionTimeoutBranding';
+import { formatCountdownClock, resolveSessionTimeoutTenantKey, getTimedownVideoUrl, getTimedownPosterUrl, getMobileTimedownBgUrl } from '../utils/sessionTimeoutBranding';
+import { getCurrentPortalSlugFromHostCache, getCurrentPortalSlugFromPath } from '../utils/loginRedirect';
 
 const props = defineProps({
   isLocked: { type: Boolean, default: false }
@@ -55,7 +67,25 @@ const props = defineProps({
 const emit = defineEmits(['unlock', 'logout']);
 
 const brandingStore = useBrandingStore();
+const agencyStore = useAgencyStore();
 const sessionLockStore = useSessionLockStore();
+const mobileQuery = window.matchMedia?.('(max-width: 640px)');
+const isMobile = ref(mobileQuery?.matches ?? false);
+const videoFailed = ref(false);
+const tenantKey = computed(() => {
+  const agency = agencyStore.currentAgency || {};
+  return resolveSessionTimeoutTenantKey({ slug: agency.slug || agency.portal_url || getCurrentPortalSlugFromPath(), agencyName: agency.name, hostSlug: getCurrentPortalSlugFromHostCache() });
+});
+// Initial verification is not an inactivity timeout; use the neutral branded
+// background until a real lock policy is known instead of the timeout artwork.
+const showTenantVideo = computed(() => !isMobile.value && !!sessionLockStore.lockConfig);
+const posterUrl = computed(() => getTimedownPosterUrl(tenantKey.value));
+const videoUrl = computed(() => getTimedownVideoUrl(tenantKey.value));
+const mobileBackgroundUrl = getMobileTimedownBgUrl();
+function onMobileChange(event) { isMobile.value = event.matches; }
+onMounted(() => mobileQuery?.addEventListener('change', onMobileChange));
+onUnmounted(() => mobileQuery?.removeEventListener('change', onMobileChange));
+watch(tenantKey, () => { videoFailed.value = false; });
 const pinLength = computed(() => sessionLockStore.lockConfig?.pinLength || 4);
 const countdown = computed(() => formatCountdownClock(sessionLockStore.warningSecondsLeft));
 
@@ -122,13 +152,28 @@ watch(() => props.isLocked, (locked) => {
 }
 
 .session-lock-card {
-  background: white;
+  position: relative;
+  z-index: 1;
+  background: rgba(255, 255, 255, .96);
   border-radius: 16px;
   padding: 40px;
   max-width: 400px;
   width: 100%;
   text-align: center;
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4);
+}
+
+.session-lock-background {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center;
+}
+
+@media (min-width: 641px) {
+  .session-lock-overlay { justify-content: flex-end; padding: clamp(24px, 5vw, 80px); }
 }
 
 .session-lock-logo {
