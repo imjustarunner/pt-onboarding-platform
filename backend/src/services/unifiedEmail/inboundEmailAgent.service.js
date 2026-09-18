@@ -996,6 +996,29 @@ export async function runInboundEmailAgentOnce({ maxMessages = 10 } = {}) {
 
     const bodyText = pickBodyText(payload);
 
+    // Private family commands precede the outbound-identity filter: a parent may also
+    // have a personal sending identity. Use the actual From, never a rewritten Reply-To.
+    if (isAppEmailIdentity(identity)) {
+      const { handleFamilyEmailInbound } = await import('../familyEmail.service.js');
+      const { extractFamilyEmailText } = await import('../familyEmailPolicy.js');
+      try {
+        const familyResult = await handleFamilyEmailInbound({ fromEmail: rawFromEmail, subject, bodyText: await extractFamilyEmailText(payload), agencyId,
+          senderIdentityId, headers: payload?.headers || [], gmailMessageId: id,
+          messageIdHeader: hdrs.get('message-id') || null });
+        if (familyResult.handled) {
+          if (familyResult.retry) continue;
+          if (familyResult.replied) results.replied += 1; else results.ignored += 1;
+          await gmail.users.messages.modify({ userId: 'me', id,
+            requestBody: { removeLabelIds: ['UNREAD'], addLabelIds: [processedLabelId] } });
+          continue;
+        }
+      } catch (error) {
+        // Leave unread for retry; never send private family text to workplace support queues.
+        console.warn('[EmailAgent] family command will retry:', error?.code || error?.status || 'processing_failed');
+        continue;
+      }
+    }
+
     // Loop protection: ignore our own sent mail (identities + school group addresses)
     if (fromEmail && ourFromEmails.includes(fromEmail.toLowerCase())) {
       results.ignored += 1;

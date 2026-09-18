@@ -2,6 +2,7 @@
 import puppeteer from 'puppeteer';
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
+import {buildFamilySummary} from '../src/services/familyEmailPolicy.js';
 import {FAMILY_CUISINES} from '../src/services/familyCuisines.js';
 const base = process.env.FAMILY_SMOKE_URL || 'http://localhost:5173';
 const now = Date.now();
@@ -57,6 +58,11 @@ try{
         const body=JSON.parse(req.postData());assert.equal(body.passcode,'123456');assert.equal(body.agencyId,undefined);authenticated=true;unlocks++;data={ok:true};
       }
       else if(url.pathname==='/api/family/households/1')data=fixture;
+      else if(url.pathname==='/api/family/households/1/pocket')data={...buildFamilySummary(fixture),emailAddress:'app@example.com',accountEmail:'alex@example.com'};
+      else if(url.pathname==='/api/family/households/1/pocket/items'){
+        const body=JSON.parse(req.postData());assert.equal(body.kind,'grocery');assert.deepEqual(body.items,['Coffee','Bananas']);
+        for(const title of body.items)fixture.entries.push(entry(500+fixture.entries.length,body.kind,title,null));data={added:body.items.length,skipped:0};
+      }
       else if(url.pathname==='/api/family/households/1/tools')data=homeTools;
       else if(url.pathname==='/api/family/households/1/preferences'){homeTools.preferences=JSON.parse(req.postData());data=homeTools.preferences;}
       else if(url.pathname==='/api/family/households/1/decide')data={choice:JSON.parse(req.postData()).options[1]};
@@ -99,6 +105,21 @@ try{
   const overflow=await page.evaluate(()=>document.documentElement.scrollWidth>window.innerWidth);
   assert.equal(overflow,false,'Mobile layout must not overflow horizontally');
   const clickText=async(selector,text)=>page.evaluate((selector,text)=>{const b=[...document.querySelectorAll(selector)].find(b=>b.textContent.trim().includes(text));if(!b)throw new Error('Missing button: '+text);b.click();},selector,text);
+  await clickText('.fcc-sidebar nav button','On the go');
+  await page.waitForSelector('.pocket-email a');
+  assert.equal(await page.$eval('.pocket-email a',a=>a.getAttribute('href')), 'mailto:app@example.com?subject=%5BFamily%20%231%5D%20Family%20summary&body=');
+  await page.click('.pocket-add-wrap summary');
+  await page.type('.pocket-add textarea','Coffee\nBananas');
+  await page.click('.pocket-add .fcc-primary');
+  await page.waitForFunction(()=>[...document.querySelectorAll('.pocket-list strong')].some(e=>e.textContent==='Coffee'));
+  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false,'On the go fits a phone');
+  await page.screenshot({path:'/tmp/family-pocket-mobile.png',fullPage:true});
+  await page.goto(base+'/family?view=on-the-go&household=1',{waitUntil:'networkidle2'});
+  await page.waitForSelector('.pocket-list');
+  await page.setViewport({width:1440,height:1100,deviceScaleFactor:1});
+  await page.screenshot({path:'/tmp/family-pocket-desktop.png',fullPage:true});
+  await page.setViewport({width:390,height:844,deviceScaleFactor:1});
+  await clickText('.fcc-sidebar nav button','Home');
   await clickText('.fcc-top-actions button','Add event');
   await page.waitForSelector('.event-type-picker input');
   await page.type('.event-type-picker input','softball');
@@ -205,5 +226,5 @@ try{
   await page.waitForSelector('.fcc-upnext');
   assert.equal(unlocks,1,'Reload must restore the device session without another code');
   assert.deepEqual(failures,[],'No browser runtime errors');
-  console.log('Family desktop/mobile smoke passed: dashboard, isolated shell, saved list entry, responsive layout, PIN-only login, session restore, recipe ingredients, random choices, photo upload/slideshow, shared calendar import with artwork choice, searchable expanded event types and national parks, Camping artwork save/reload/edit, member/calendar status events, recipe cuisine selection, matching takeout choices.');
+  console.log('Family desktop/mobile smoke passed: On the go deep links, quick add, email buttons, dashboard, isolated shell, saved list entry, responsive layout, PIN-only login, session restore, recipe ingredients, random choices, photo upload/slideshow, shared calendar import with artwork choice, searchable expanded event types and national parks, Camping artwork save/reload/edit, member/calendar status events, recipe cuisine selection, matching takeout choices.');
 }finally{await browser.close();}

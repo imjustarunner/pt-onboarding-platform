@@ -1,0 +1,20 @@
+import {beforeEach,it,expect,vi} from 'vitest';
+const m=vi.hoisted(()=>({list:vi.fn(),get:vi.fn(),modify:vi.fn(),family:vi.fn(),workplace:vi.fn(),route:vi.fn(),execute:vi.fn()}));
+vi.mock('../../config/database.js',()=>({default:{execute:m.execute},onTableWrite:()=>{}}));
+vi.mock('../unifiedEmail/gmailClient.js',()=>({getGmailClient:async()=>({users:{messages:{list:m.list,get:m.get,modify:m.modify}}}),getImpersonatedUser:()=> 'ai@example.com'}));
+vi.mock('../unifiedEmail/gmailLabels.js',()=>({ensureLabelId:async s=>s}));
+vi.mock('../../models/EmailSenderIdentity.model.js',()=>({default:{list:async()=>[{from_email:'dad@example.com'},{from_email:'app@example.com'}],findByInboundAddress:m.route,findById:async()=>({id:88,agency_id:1,identity_key:'app'}),findByFromEmail:async()=>null}}));
+vi.mock('../../models/Agency.model.js',()=>({default:{findById:async()=>({id:1,name:'Test'})}}));
+vi.mock('../appEmail/index.js',()=>({isAppEmailIdentity:i=>i?.identity_key==='app',handleAppEmailInbound:m.workplace}));
+vi.mock('../familyEmail.service.js',()=>({handleFamilyEmailInbound:m.family}));
+import {runInboundEmailAgentOnce} from '../unifiedEmail/inboundEmailAgent.service.js';
+let headers;
+beforeEach(()=>{
+ vi.clearAllMocks();m.execute.mockResolvedValue([[]]);m.list.mockResolvedValue({data:{messages:[{id:'gmail-1'}]}});m.route.mockResolvedValue({id:88});m.modify.mockResolvedValue({});m.family.mockResolvedValue({handled:true,replied:true});
+ headers=[{name:'From',value:'dad@example.com'},{name:'To',value:'app@example.com'},{name:'Subject',value:'Grocery list'},{name:'Message-ID',value:'<incoming@example.com>'}];
+ m.get.mockImplementation(async()=>({data:{payload:{headers,body:{data:Buffer.from('Family summary').toString('base64url')}}}}));
+});
+it('routes a parent with a personal sending identity before the own-mail loop filter',async()=>{expect((await runInboundEmailAgentOnce()).replied).toBe(1);expect(m.family).toHaveBeenCalledWith(expect.objectContaining({fromEmail:'dad@example.com',gmailMessageId:'gmail-1',senderIdentityId:88}));expect(m.workplace).not.toHaveBeenCalled();});
+it('passes the actual From instead of an unwrapped Reply-To',async()=>{headers.push({name:'Reply-To',value:'someoneelse@example.com'});await runInboundEmailAgentOnce();expect(m.family.mock.calls[0][0].fromEmail).toBe('dad@example.com');});
+it('leaves a failed or busy family request unread for safe retry',async()=>{m.family.mockResolvedValue({handled:true,retry:true});await runInboundEmailAgentOnce();expect(m.modify).not.toHaveBeenCalled();expect(m.workplace).not.toHaveBeenCalled();});
+it('still suppresses automated replies before routing',async()=>{headers.push({name:'X-Auto-Response-Suppress',value:'All'});expect((await runInboundEmailAgentOnce()).ignored).toBe(1);expect(m.family).not.toHaveBeenCalled();});

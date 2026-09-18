@@ -32,7 +32,7 @@ Existing users are reused. An adult or child can be a pending `users` profile wi
 ## Remaining integrations and limits
 
 - Google imports are explicit saved copies, not bidirectional synchronization: later Google edits/cancellations do not automatically update imported copies, and family edits do not write back to Google. Personal Gmail OAuth is not implemented; Workspace delegation must be configured for the connecting account. `ai@plottwistco.com` is not impersonated or granted access by this feature.
-- Google Home cameras/lights and inbound SMS/email list capture are **not connected**. Google sign-in alone does not connect home devices.
+- Google Home cameras/lights and inbound SMS list capture are **not connected**. Google sign-in alone does not connect home devices. Family email commands are available through configured app mailboxes (see below).
 - Reminders appear while the dashboard is open. Background/push/email reminders, separate travel/custom rules, recurring family events, photo chore verification, attachments and pooled household reward redemption need additional implementation.
 - Reward balances currently belong to individual members; the household total is a summary.
 - Dashboard retrieval is bounded to 1,500 entries and the latest 1,000 activity records. Historical totals are computed from the full ledger. Older events/statuses are retained in storage but a historical timeline/pagination UI is still needed.
@@ -76,3 +76,37 @@ NODE_ENV=test node backend/scripts/setup-family-household.mjs --agency SLUG --na
 ```
 
 PlotTwistCo was enabled and the two requested existing adult accounts were linked to the Mendez Family household. Both have parent access with family display names Dad and Mom. Family names do not change workplace names. The shared device can add children and pets from Settings without separate accounts or codes.
+
+
+## Family lists by email and On the go
+
+Open **On the go** in the family navigation, or **Lists & email** on Home. The compact page shows groceries, shopping, unfinished family chores and the next seven days of family events/statuses. It refreshes every 30 seconds while visible, supports batch additions, copy and native sharing, and can be bookmarked at `/family?view=on-the-go&household=ID`. It requires the usual family sign-in and household membership. To-dos added here are private, nonrecurring family chores assigned to the signed-in parent, with zero points and no approval requirement. This summary does not include unrelated workplace tasks or work events.
+
+Email the configured tenant **app@** mailbox from the primary account email linked to the household. PlotTwistCo uses **app@plottwistco.com**. Michael and Melissa can each request the same household's lists from their own linked accounts. No PIN is sent in email.
+
+| Subject or reply | Result |
+| --- | --- |
+| `Grocery list` | Unchecked grocery items |
+| `To-do list` | Unfinished family chores, including assignments and due dates |
+| `Upcoming` | Next seven days of family calendar entries |
+| `Family summary` | All of the above plus the shopping list |
+| `Add groceries: milk, eggs` | Add items to shared groceries |
+| `Add shopping: dog food` | Add to shopping |
+| `Add to-do: book the dentist` | Create a private one-time family chore assigned to the sender |
+| `Family help` | Command examples |
+
+Items can also go on separate body lines when the subject is `Add groceries` or `Add to-do`. Commas, semicolons and line breaks separate items; quoted email and common signatures are removed. Batches allow 1–30 titles of up to 200 characters. Already-open titles on that list are skipped. Replies contain a timestamp, plain-text and HTML versions, and a signed-in link to the live lists. Email is a snapshot; lists update in the app. For multiple households, prefix the subject with `[Family #ID]`; generated email links do this automatically. The assistant asks which household instead of guessing. Subsequent reply commands override the previous subject.
+
+### Mail delivery and privacy
+
+- Uses the existing Gmail inbound poll (normally every five minutes), `identity_key=app`, active inbound route and `emailAppAssistantEnabled`, plus the employee's Family Command Center benefit and household membership.
+- Family processing runs before workplace intents and pending workplace clarification sessions. Private family replies do not enter workplace communication/ticket logs or AI prompts.
+- Requires the direct From address and Gmail's first `Authentication-Results` header to report an aligned DMARC pass. Unknown accounts, disabled access, unverified/rewritten senders, and nonmember requests cannot read or change family data. Send directly from the linked account; forwarded messages or group-rewritten From addresses are not accepted. See [Google's authentication guidance](https://support.google.com/mail/answer/180707?hl=en).
+- Sends only to the resolved account email, never Reply-To/CC, and only from the active tenant app identity with an accepted Gmail Send-as alias. There is no fallback to `ai@` or another tenant. Auto-reply suppression headers prevent loops.
+- These are direct user-requested transactional replies, not scheduled campaigns. They use a private Gmail send path so household content is not persisted in workplace email logs. The app mailbox's identity and feature controls still apply.
+- Migration `1457_family_email_requests.sql` tracks request hashes, account/household IDs, timestamps and counts, without email bodies. A database advisory lock serializes a sender across replicas. Batch additions and the applied marker commit together. Failed sends remain unread for a retry; committed additions are not replayed. A crash after Gmail accepts a reply but before its sent marker commits may repeat the confirmation, but not its additions.
+- Maximum 20 new commands per account per hour. Summaries read up to 1,500 relevant entries and emails show up to 50 per section with a link for the rest. Approved or pending chore completions are excluded only for their current occurrence; older recurring completions do not hide today's chore.
+
+### Validation for this addition
+
+Focused family tests cover parsing, signatures/replies, sender authentication, authorization, household ambiguity, duplicate/retry handling, transaction failure, recurrence and HTML escaping. Browser smoke covers quick add, email link subjects, bookmarked entry points and desktop/phone layout. A live-schema check ran groceries, private chore creation, summaries and duplicate processing inside a rolled-back transaction with a stubbed sender; no test email was sent. The PlotTwistCo app group includes the automation mailbox and its Gmail Send-as alias was verified as accepted. A real request/reply round trip still needs the user's first test email.

@@ -1,4 +1,5 @@
 import express from 'express';
+import { getFamilyPocket, addFamilyPocketItems } from '../services/familyEmail.service.js';
 import crypto from 'crypto';
 import rateLimit from 'express-rate-limit';
 import pool from '../config/database.js';
@@ -65,6 +66,8 @@ router.post('/logout', wrap(async (req, res) => {
   res.clearCookie('fcc_session', { ...familyCookieOptions, maxAge: undefined }).json({ ok: true });
 }));
 router.use(requireFamilySession);
+router.get('/households/:id/pocket', wrap(async(req,res)=>res.json(await getFamilyPocket(req.family,req.params.id))));
+router.post('/households/:id/pocket/items', wrap(async(req,res)=>res.status(201).json(await addFamilyPocketItems(req.family,req.params.id,req.body))));
 router.get('/households/:id/google/calendars', wrap(async(req,res)=>res.json(await listFamilyCalendars(req.family,req.params.id))));
 router.post('/households/:id/google/connect', wrap(async(req,res)=>res.json(await connectFamilyCalendar(req.family,req.params.id,req.body))));
 router.get('/households/:id/google/events', wrap(async(req,res)=>res.json(await previewFamilyCalendar(req.family,req.params.id))));

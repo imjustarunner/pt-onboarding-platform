@@ -1,3 +1,4 @@
+import { familyEnabled } from '../../familyPolicy.js';
 /**
  * Help / capability list for Email App Assistant.
  */
@@ -32,6 +33,7 @@ export const helpIntents = [
           lines.push(`    e.g. ${ex}`);
         }
       }
+      if (familyEnabled(ctx.agency?.feature_flags)) lines.push('', 'Family Command Center:', '• Grocery list / To-do list / Upcoming / Family summary', '• Add groceries: milk, eggs', '• Add to-do: book the dentist', 'Family commands use your linked household and reply only to your account.');
       lines.push('');
       lines.push('Presence / planned-out status also works via time@plottwistco.com.');
       return { text: lines.join('\n'), clearSession: true };

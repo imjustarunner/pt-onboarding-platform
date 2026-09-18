@@ -27,6 +27,8 @@
       <main class="fcc-main">
         <header class="fcc-topbar"><div><span class="eyebrow">{{ dateLabel }}</span><h1>{{ tab === 'Home' ? greeting : tab }}<span v-if="tab==='Home'" class="fcc-sun"> ☀</span></h1><p>{{ tab === 'Home' ? 'Here’s what’s happening in your little world.' : dashboard.household.name }}</p></div><div class="fcc-top-actions"><span class="fcc-clock">{{ timeLabel }}</span><div class="fcc-avatar-stack"><span v-for="m in dashboard.members.slice(0,5)" :key="m.user_id" :style="{ background: m.color }"><img v-if="m.photo_url" :src="m.photo_url" alt="" />{{ m.photo_url ? '' : m.display_name[0] }}</span></div><button class="fcc-primary" @click="openEditor('event')">＋ Add event</button></div></header>
 
+        <div v-if="tab==='Home'" class="fcc-pocket-shortcut"><button @click="tab='On the go'">↗ Lists &amp; email · On the go</button><span>Your groceries, to-dos and upcoming plans in one easy view.</span></div>
+        <FamilyPocket v-if="tab==='On the go'" :key="householdId" :http="http" :household-id="householdId" :is-parent="isParent" @updated="loadDashboard" @error="report" />
         <div v-if="tab==='Home'" class="fcc-hero-row">
           <section class="fcc-upnext" :style="heroStyle">
 
@@ -65,7 +67,7 @@
         <section v-if="isParent && pending.length" class="family-card fcc-approvals"><header><h2>♡ A parent’s thumbs-up</h2></header><div v-for="a in pending" :key="a.id"><span>{{ memberName(a.user_id) }} · {{ entryTitle(a.entry_id) }} · {{ a.points }} points</span><button :disabled="busy" @click="approve(a,'approve')">Approve</button><button :disabled="busy" @click="approve(a,'reject')">Decline</button></div></section>
 
         <section v-if="tab==='Settings'" class="family-card fcc-settings"><h2>Our family</h2><label v-if="session.households.length>1">Household<select v-model="householdId" @change="loadDashboard"><option v-for="h in session.households" :key="h.id" :value="h.id">{{ h.name }}</option></select></label><p>Time zone: {{ dashboard.household.timezone }}</p><label class="fcc-inline"><input type="checkbox" :checked="member(session.userId)?.share_work" @change="shareWork($event.target.checked)" /> Include my work schedule in this household</label><p class="fcc-small">Work appears as “Work.” The calendar’s details option adds the event category and time. Client names and clinical notes stay private.</p><form v-if="isParent" @submit.prevent="addMember" class="fcc-settings-form"><h3>Add someone to your family</h3><p>Adults, children and pets can have a name, photo and color without a login. Everyone can use this shared display.</p><label>Family role<select v-model="newMember.role"><option value="member">Child / family member</option><option value="parent">Parent / adult</option><option value="pet">Pet</option></select></label><label>Name<input v-model="newMember.name" required maxlength="80" /></label><label>Color<input v-model="newMember.color" type="color" /></label><label>Photo<input type="file" accept="image/jpeg,image/png,image/webp" @change="pickPhoto($event, 'member')" /></label><button class="fcc-primary" :disabled="busy">Add family member</button></form><div v-if="isParent" class="fcc-settings-form"><h3>Optional: connect another adult’s account</h3><p>They’ll sign in with their own account and join your household.</p><button @click="makeInvite" :disabled="busy">Create a parent invitation</button><label v-if="createdInvite">Share this invitation code (valid for 48 hours)<textarea readonly :value="createdInvite" /></label></div><form class="fcc-settings-form" @submit.prevent="joinHome"><label>Join another household<input v-model="inviteCode" required /></label><button :disabled="busy">Join</button></form><button @click="logout">Sign out of this device</button></section>
-        <section v-if="tab==='Smart home'" class="family-card fcc-integration"><div class="fcc-mark">⌂</div><h2>A more connected home, in time.</h2><p>Google Home lights and cameras are not connected yet. Your Google sign-in does not grant access to your home devices.</p><p>Connect a shared Google calendar from Calendar or Settings to import events. Adding list items by text or email is not connected yet; your lists are available here on every signed-in device.</p></section>
+        <section v-if="tab==='Smart home'" class="family-card fcc-integration"><div class="fcc-mark">⌂</div><h2>A more connected home, in time.</h2><p>Google Home lights and cameras are not connected yet. Your Google sign-in does not grant access to your home devices.</p><p>Connect a shared Google calendar from Calendar or Settings to import events. Use On the go for email commands and your live lists. Text-message capture is not connected yet.</p></section>
         <footer class="fcc-bottom"><span>⌂ A place for your people.</span><span>{{ refreshing ? 'Updating…' : 'Saved across your family’s devices' }}</span></footer>
       </main>
     </template>
@@ -93,10 +95,11 @@
 </template>
 
 <script setup>
-import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue';
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import axios from 'axios';
 import { resizeFamilyPhoto } from '../utils/familyPhotos';
 import { isoToZonedDatetimeLocal, zonedDatetimeLocalToIso } from '../utils/timezones';
+import FamilyPocket from '../components/family/FamilyPocket.vue';
 import FamilyPager from '../components/family/FamilyPager.vue';
 import FamilyEventTypePicker from '../components/family/FamilyEventTypePicker.vue';
 import FamilyArtworkPicker from '../components/family/FamilyArtworkPicker.vue';
@@ -106,12 +109,13 @@ import { familyStatuses, eventType, eventArtwork, entryType, memberStatus, famil
 const http = axios.create({ baseURL:'/api/family', withCredentials:true });
 const session=ref(null), dashboard=ref(null), tenant=ref(null), loading=ref(true), busy=ref(false), refreshing=ref(false), error=ref(''), notice=ref('');
 const params=new URLSearchParams(window.location.search), organization=ref(params.get('organization') || ''), agencyId=ref(Number(params.get('agencyId')) || null), pin=ref(''), email=ref(''), needsEmail=ref(false);
-const householdId=ref(null), householdName=ref(''), timezone=ref(Intl.DateTimeFormat().resolvedOptions().timeZone), inviteCode=ref(''), createdInvite=ref('');
-const tab=ref('Home'), now=ref(new Date()), weather=ref(null), workMode=ref('busy'), calendarDate=ref('');
+const householdId=ref(Number(new URLSearchParams(window.location.search).get('household')) || null), householdName=ref(''), timezone=ref(Intl.DateTimeFormat().resolvedOptions().timeZone), inviteCode=ref(''), createdInvite=ref('');
+const tab=ref(new URLSearchParams(window.location.search).get('view')==='on-the-go'?'On the go':'Home'), now=ref(new Date()), weather=ref(null), workMode=ref('busy'), calendarDate=ref('');
 const editor=ref(false), detail=ref(null), redeem=ref(null), redeemUser=ref(null), draft=ref({}), modal=ref(null), newMember=ref({name:'',role:'member',color:'#9d8ace',photoUrl:null});
 let refreshTimer, clockTimer, noticeTimer, previousFocus;
-const nav=[{label:'Home',icon:'⌂'},{label:'Calendar',icon:'▦'},{label:'Chores',icon:'✓'},{label:'Rewards',icon:'☆'},{label:'Lists',icon:'☷'},{label:'Meals',icon:'♧'},{label:'Family',icon:'♡'},{label:'Smart home',icon:'⌘'},{label:'Settings',icon:'⚙'}];
+const nav=[{label:'Home',icon:'⌂'},{label:'On the go',icon:'↗'},{label:'Calendar',icon:'▦'},{label:'Chores',icon:'✓'},{label:'Rewards',icon:'☆'},{label:'Lists',icon:'☷'},{label:'Meals',icon:'♧'},{label:'Family',icon:'♡'},{label:'Smart home',icon:'⌘'},{label:'Settings',icon:'⚙'}];
 const isParent=computed(()=>dashboard.value?.household.role==='parent');
+watch([tab,householdId],()=>{const url=new URL(window.location.href);if(tab.value==='On the go')url.searchParams.set('view','on-the-go');else url.searchParams.delete('view');if(householdId.value)url.searchParams.set('household',householdId.value);history.replaceState(null,'',url.pathname+url.search+url.hash);});
 const dateLabel=computed(()=>now.value.toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric', timeZone: dashboard.value?.household.timezone}));
 const timeLabel=computed(()=>now.value.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',timeZone:dashboard.value?.household.timezone}));
 const greeting=computed(()=>{const h=Number(new Intl.DateTimeFormat('en-US',{hour:'numeric',hourCycle:'h23',timeZone:dashboard.value?.household.timezone}).format(now.value));return h<12?'Good morning, family.':h<17?'Good afternoon, family.':'Good evening, family.';});
@@ -175,6 +179,7 @@ onUnmounted(()=>{clearInterval(refreshTimer);clearInterval(clockTimer);clearTime
 </script>
 
 <style scoped>
+.fcc-pocket-shortcut{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:22px}.fcc-pocket-shortcut span{color:var(--muted);font-size:14px}
 .fcc-art-preview{width:100%;height:150px;object-fit:cover;border-radius:12px;margin:8px 0}
 .fcc-upnext .fcc-countdown{background:#192630ed;border-radius:12px;padding:12px;align-self:flex-start;color:#fff}
 .fcc-upnext .fcc-countdown strong{color:#fff}

@@ -132,9 +132,9 @@ export async function joinHousehold(session, body) {
   });
 }
 
-export async function saveFamilyEntry(session, id, body, entryId = null, afterSave = null) {
+export async function saveFamilyEntry(session, id, body, entryId = null, afterSave = null, connection = null) {
   const entry = validateEntry(body);
-  return familyTransaction(async db => {
+  const save = async db => {
     const household = await lockHousehold(db, session, id);
     if (['chore','reward','announcement'].includes(entry.kind) && household.role !== 'parent') throw familyError('A parent manages chores, rewards and announcements.', 403);
     const [members] = await db.execute('SELECT user_id,role FROM family_members WHERE household_id=?', [id]);
@@ -177,7 +177,8 @@ export async function saveFamilyEntry(session, id, body, entryId = null, afterSa
     }
     if (afterSave) await afterSave(db,entryId);
     return { id: entryId };
-  });
+  };
+  return connection ? save(connection) : familyTransaction(save);
 }
 
 export async function actOnEntry(session, id, entryId, body) {
