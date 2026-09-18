@@ -1,10 +1,9 @@
 import pool from '../config/database.js';
 import { sendNotificationEmail } from './unifiedEmail/unifiedEmailSender.service.js';
 import { getAgencyEmailSettings } from './emailSettings.service.js';
-import {
-  resolveAvailabilitySchedule,
-  addBusinessHours
-} from './availabilityWindow.service.js';
+import { messageReminderDueAt, isMessageReminderWindow } from '../utils/messageReminderTiming.js';
+import { resolveAvailabilitySchedule } from './availabilityWindow.service.js';
+import { messageReminderRecipient } from './messageReminderRecipient.service.js';
 const DEFAULT_DIGEST_HOURS = 24;
 const DEFAULT_SEND_DELAY_SECONDS = 20;
 const MAX_SEND_DELAY_SECONDS = 600;
@@ -188,13 +187,14 @@ export async function updateCommunicationPrefs(userId, patch = {}) {
 export { runPersonalThreadReminders as runInboxDigestTick } from './personalThreadReminder.service.js';
 
 /**
- * 24h Availability Hours unread digest for SSO / group-password users who have
+ * Business-day unread digest for SSO / explicitly verified app-only providers with
  * unread secure/hub chat messages. Branded messages@ From; never exposes other
  * parties' personal/SSO addresses in headers.
  */
 export async function runHubSecureUnreadDigestTick({ now = new Date() } = {}) {
   const [users] = await pool.execute(
-    `SELECT u.id AS user_id, u.email, u.personal_email, u.first_name, u.sso_password_override,
+    `SELECT u.id AS user_id, u.email, u.work_email, u.personal_email, u.first_name, u.role, u.has_provider_access,
+            u.sso_password_override, u.login_is_group_email, u.is_demo, p.personal_email_notify,
             COALESCE(p.digest_hours, ?) AS digest_hours,
             p.digest_business_hours,
             p.last_inbox_digest_at,
@@ -207,11 +207,8 @@ export async function runHubSecureUnreadDigestTick({ now = new Date() } = {}) {
      LEFT JOIN user_communication_prefs p ON p.user_id = u.id
      WHERE UPPER(u.status) IN ('ACTIVE','ACTIVE_EMPLOYEE')
        AND COALESCE(u.is_active,1)=1
-       AND COALESCE(p.personal_email_notify,1)=1
-       AND (
-         u.sso_password_override = 1
-         OR COALESCE(p.personal_email_notify, 0) = 1
-       )
+       AND COALESCE(u.is_demo,0)=0
+       AND u.role NOT IN ('client','client_guardian','guardian','kiosk')
        AND (
          (u.personal_email IS NOT NULL AND TRIM(u.personal_email) <> '')
          OR (u.email IS NOT NULL AND TRIM(u.email) <> '')
@@ -225,7 +222,14 @@ export async function runHubSecureUnreadDigestTick({ now = new Date() } = {}) {
     const agencyId = row.agency_id || null;
     if (!agencyId) continue;
 
-    const to = String(row.personal_email || row.email || '').trim().toLowerCase();
+    const Agency = (await import('../models/Agency.model.js')).default;
+    const agency = await Agency.findById(agencyId);
+    const schedule = await resolveAvailabilitySchedule(row.user_id, { agencyId });
+    if (!isMessageReminderWindow(now, schedule, agency?.timezone)) continue;
+    const settings = await getAgencyEmailSettings(agencyId);
+    let to;
+    try { to = await messageReminderRecipient(row, { channel: 'secure', allowPersonal: row.personal_email_notify !== 0 && settings?.personalEmailDigestEnabled !== false }); }
+    catch (e) { console.warn('[hubSecureDigest] recipient verification unavailable', row.user_id, e?.code || 'directory_error'); continue; }
     if (!to) continue;
 
     const businessHours = normalizeDigestHours(
@@ -236,8 +240,6 @@ export async function runHubSecureUnreadDigestTick({ now = new Date() } = {}) {
       const last = new Date(row.last_inbox_digest_at);
       if (now - last < businessHours * 60 * 60 * 1000 * 0.5) continue;
     }
-
-    const schedule = await resolveAvailabilitySchedule(row.user_id, { agencyId });
 
     // Unread chat messages in threads the user belongs to
     const [unread] = await pool.execute(
@@ -261,13 +263,11 @@ export async function runHubSecureUnreadDigestTick({ now = new Date() } = {}) {
     const eligible = [];
     for (const u of unread || []) {
       const started = new Date(u.oldest_unread_at || now);
-      const eligibleAt = addBusinessHours(schedule, started, businessHours);
+      const eligibleAt = messageReminderDueAt(started, { schedule, timeZone: agency?.timezone, delayHours: businessHours });
       if (eligibleAt <= now) eligible.push(u);
     }
     if (!eligible.length) continue;
 
-    const Agency = (await import('../models/Agency.model.js')).default;
-    const agency = await Agency.findById(agencyId);
     const tenantName = agency?.name || 'Your care team';
     const slug = agency?.slug || '';
     const baseUrl = String(process.env.APP_PUBLIC_URL || process.env.FRONTEND_URL || 'https://plottwisthq.com').replace(
@@ -281,7 +281,7 @@ export async function runHubSecureUnreadDigestTick({ now = new Date() } = {}) {
     const html = buildBrandedMessageEmailHtml({
       agencyName: tenantName,
       senderDisplayName: tenantName,
-      bodyText: `You have ${count} unread message${count === 1 ? '' : 's'} waiting in Messages (unopened for about ${businessHours} Availability Hours). Open the app to read and reply. Message content is not included in this email.`,
+      bodyText: `You have ${count} unread message${count === 1 ? '' : 's'} waiting in Messages. Open the app to read and reply. Message content is not included in this email.`,
       history: [],
       appUrl: messagesUrl,
       footerNote:
@@ -289,11 +289,24 @@ export async function runHubSecureUnreadDigestTick({ now = new Date() } = {}) {
     });
 
     try {
+      // Claim an attempt before sending. Held/failed deliveries must not generate
+      // another alert every minute, and overlapping workers must not both send.
+      await pool.execute(
+        `INSERT IGNORE INTO user_communication_prefs (user_id, personal_email_notify, digest_hours) VALUES (?, 1, ?)`,
+        [row.user_id, businessHours]
+      );
+      const [claim] = await pool.execute(
+        `UPDATE user_communication_prefs SET last_inbox_digest_at=?
+         WHERE user_id=? AND (last_inbox_digest_at IS NULL OR last_inbox_digest_at <= ?)`,
+        [now, row.user_id, new Date(now.getTime() - businessHours * 60 * 60 * 1000 * 0.5)]
+      );
+      if (!claim.affectedRows) continue;
+      let result;
       const { ensureTenantMessageMailboxes } = await import('./tenantMessageMailboxes.service.js');
       const mailboxes = await ensureTenantMessageMailboxes(agencyId).catch(() => null);
       if (mailboxes?.messages?.id) {
         const { sendEmailFromIdentity } = await import('./unifiedEmail/unifiedEmailSender.service.js');
-        await sendEmailFromIdentity({
+        result = await sendEmailFromIdentity({
           senderIdentityId: mailboxes.messages.id,
           to,
           subject: `${tenantName}: ${count} unread message${count === 1 ? '' : 's'}`,
@@ -305,7 +318,7 @@ export async function runHubSecureUnreadDigestTick({ now = new Date() } = {}) {
           userId: row.user_id
         });
       } else {
-        await sendNotificationEmail({
+        result = await sendNotificationEmail({
           to,
           subject: `${tenantName}: ${count} unread message${count === 1 ? '' : 's'}`,
           html,
@@ -316,13 +329,7 @@ export async function runHubSecureUnreadDigestTick({ now = new Date() } = {}) {
           source: 'auto'
         });
       }
-      await pool.execute(
-        `INSERT INTO user_communication_prefs (user_id, personal_email_notify, digest_hours, last_inbox_digest_at)
-         VALUES (?, 1, ?, ?)
-         ON DUPLICATE KEY UPDATE last_inbox_digest_at = VALUES(last_inbox_digest_at)`,
-        [row.user_id, businessHours, now]
-      );
-      sent += 1;
+      if (result?.id && !result.blocked && !result.skipped && !result.pendingApproval && !result.queued) sent += 1;
     } catch (e) {
       console.warn('[hubSecureDigest] send failed for user', row.user_id, e?.message || e);
     }

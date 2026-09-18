@@ -1,7 +1,7 @@
 /**
  * Availability Hours / business-time helper.
- * Default: Mon–Fri 06:00–19:00 (inclusive end of hour = until 19:00:00) in the user's timezone.
- * Quiet hours: 19:01–05:59 (outside availability).
+ * Default: Mon–Fri 07:00–19:00 (inclusive end of hour = until 19:00:00) in the user's timezone.
+ * Quiet hours: 19:01–06:59 (outside availability).
  * Employee overrides via user_work_schedules; disabled availability = always available.
  */
 import UserWorkSchedule from '../models/UserWorkSchedule.model.js';
@@ -14,7 +14,7 @@ import {
 
 export const DEFAULT_AVAILABILITY = Object.freeze({
   days: [1, 2, 3, 4, 5], // Mon–Fri
-  startMinutes: 6 * 60, // 06:00
+  startMinutes: 7 * 60, // 07:00
   endMinutes: 19 * 60 // 19:00 (exclusive upper bound for "inside" checks uses < end)
 });
 
@@ -243,7 +243,7 @@ export function nextAvailableAt(schedule, now = new Date()) {
       if (now >= start && now < end) return now;
     }
   }
-  // Fallback: Monday 06:00 in one week
+  // Fallback: Monday 07:00 in one week
   return new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
 }
 

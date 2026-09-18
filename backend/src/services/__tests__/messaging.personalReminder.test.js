@@ -3,7 +3,8 @@ vi.mock('../../config/database.js', () => ({ default: { execute: vi.fn(), getCon
 vi.mock('../../models/Agency.model.js', () => ({ default: { findById: vi.fn(async () => ({ id: 2, slug: 'itsco', name: 'ITSCO' })) } }));
 vi.mock('../emailSendMailbox.service.js', () => ({ resolveEmailSendMailbox: vi.fn(async () => ({ identity: { id: 4 }, displayName: 'Staff' })) }));
 vi.mock('../unifiedEmail/unifiedEmailSender.service.js', () => ({ sendEmailFromIdentity: vi.fn(async () => ({ id: 'gmail-id' })) }));
-vi.mock('../availabilityWindow.service.js', () => ({ resolveAvailabilitySchedule: vi.fn(), addBusinessHours: vi.fn() }));
+vi.mock('../availabilityWindow.service.js', () => ({ resolveAvailabilitySchedule: vi.fn(async () => ({ timezone: 'America/Denver' })) }));
+vi.mock('../googleWorkspaceDirectory.service.js', () => ({ default: { isConfigured: () => true, getUser: vi.fn(async () => null), getGroup: vi.fn(async () => ({ id: 'group' })) } }));
 vi.mock('../emailSettings.service.js', () => ({ getAgencyEmailSettings: vi.fn(async () => ({})) }));
 vi.mock('../unifiedInbox.service.js', () => ({ isAddressBlocked: vi.fn(async () => false) }));
 import pool from '../../config/database.js';
@@ -14,6 +15,7 @@ import { personalReminderReplyText, personalReminderBody } from '../../utils/per
 import { validateOutboundEmailQuality } from '../outboundEmailQuality.service.js';
 const inbox = { id: 3, agency_id: 2, owner_user_id: 5, from_email: 'staff@itsco.health' };
 const reminder = { id: 1, user_id: 5, user_status: 'active', personal_email: 'private@example.org', conversation_id: 10, from_json: { email: 'client@example.org' }, parent_id: '<external@example.org>', parent_references: '<root@example.org>', subject: 'Meeting' };
+const provider = { role: 'provider', email: 'provider@itsco.health', personal_email: 'private@example.org', sso_password_override: 1, login_is_group_email: 1 };
 const reply = { inbox, fromEmail: 'private@example.org', deliveryId: '<reply@example.org>', bodyText: 'Confirmed.\n\nOn Monday Staff wrote:\n> Notification', inReplyTo: '<reminder@itsco.health>' };
 beforeEach(() => vi.clearAllMocks());
 it('removes quoted private headers and replaces a private address in the new reply', () => {
@@ -47,20 +49,22 @@ it('deduplicates a re-delivered personal reply before creating an outbound messa
   expect(await queuePersonalReminderReply(reply)).toMatchObject({ duplicate: true, messageId: 80 });
   expect(db.execute.mock.calls.some(([sql]) => sql.startsWith('INSERT'))).toBe(false);
 });
-it('sends a claimed per-thread reminder after 24 elapsed hours with an exact normal-login destination', async () => {
-  const row = { conversation_id: 10, message_id: 20, agency_id: 2, inbox_id: 3, user_id: 5, sender_identity_id: 4, from_email: inbox.from_email, personal_email: reminder.personal_email, subject: 'Meeting', received_at: '2026-09-01T00:00:00Z', availability_hours_enabled: 0 };
+it('sends a claimed per-thread reminder after one business day with an exact normal-login destination', async () => {
+  const row = { ...provider, conversation_id: 10, message_id: 20, agency_id: 2, inbox_id: 3, user_id: 5, sender_identity_id: 4, from_email: inbox.from_email, personal_email: reminder.personal_email, subject: 'Meeting', received_at: '2026-09-01T16:00:00Z', availability_hours_enabled: 0 };
   pool.execute.mockImplementation(async (sql) => sql.startsWith('SELECT c.id') ? [[row]] : [{ affectedRows: 1 }]);
-  expect(await runPersonalThreadReminders({ now: new Date('2026-09-02T00:00:00Z') })).toMatchObject({ sent: 1 });
+  expect(await runPersonalThreadReminders({ now: new Date('2026-09-02T16:00:00Z') })).toMatchObject({ sent: 1 });
   expect(sendEmailFromIdentity).toHaveBeenCalledWith(expect.objectContaining({ to: reminder.personal_email, replyToOverride: inbox.from_email, text: expect.stringContaining('messages?conversationId=10'), internetMessageIdOverride: expect.stringMatching(/^<.+@itsco.health>$/) }));
+  expect(sendEmailFromIdentity.mock.calls[0][0].subject).toBe('You have messages waiting');
+  expect(sendEmailFromIdentity.mock.calls[0][0].html).not.toContain('Meeting');
   // Exercise the actual branded footer through the real outbound validator:
   // mocking the renderer hid an attachment false positive in every reminder.
   expect(validateOutboundEmailQuality(sendEmailFromIdentity.mock.calls[0][0])).toEqual({ ok: true, flags: [] });
 });
 it('does not send early or send again when another worker owns the reminder claim', async () => {
-  const row = { conversation_id: 10, message_id: 20, agency_id: 2, inbox_id: 3, user_id: 5, from_email: inbox.from_email, received_at: '2026-09-01T00:00:00Z', availability_hours_enabled: 0 };
+  const row = { ...provider, conversation_id: 10, message_id: 20, agency_id: 2, inbox_id: 3, user_id: 5, from_email: inbox.from_email, received_at: '2026-09-01T16:00:00Z', availability_hours_enabled: 0 };
   pool.execute.mockImplementation(async (sql) => sql.startsWith('SELECT c.id') ? [[row]] : [{ affectedRows: 0 }]);
-  await runPersonalThreadReminders({ now: new Date('2026-09-01T23:59:59Z') });
-  await runPersonalThreadReminders({ now: new Date('2026-09-02T00:00:00Z') });
+  await runPersonalThreadReminders({ now: new Date('2026-09-02T15:59:59Z') });
+  await runPersonalThreadReminders({ now: new Date('2026-09-02T16:00:00Z') });
   expect(sendEmailFromIdentity).not.toHaveBeenCalled();
 });
 
@@ -72,7 +76,13 @@ it('extracts only the new HTML reply and excludes quoted notification and text a
 
 it('preserves a saved personal delay instead of overriding it with the tenant default', async () => {
   getAgencyEmailSettings.mockResolvedValue({ personalEmailDigestBusinessHours: 24 });
-  pool.execute.mockResolvedValue([[{ conversation_id: 10, message_id: 20, agency_id: 2, inbox_id: 3, user_id: 5, from_email: inbox.from_email, received_at: '2026-09-01T00:00:00Z', availability_hours_enabled: 0, digest_hours: 48 }]]);
-  await runPersonalThreadReminders({ now: new Date('2026-09-02T00:00:00Z') });
+  pool.execute.mockResolvedValue([[{ ...provider, conversation_id: 10, message_id: 20, agency_id: 2, inbox_id: 3, user_id: 5, from_email: inbox.from_email, received_at: '2026-09-01T16:00:00Z', availability_hours_enabled: 0, digest_hours: 48 }]]);
+  await runPersonalThreadReminders({ now: new Date('2026-09-02T16:00:00Z') });
+  expect(sendEmailFromIdentity).not.toHaveBeenCalled();
+});
+
+it('never sends a personal email reminder for an SSO account even if an old candidate row is returned', async () => {
+  pool.execute.mockResolvedValue([[{ ...provider, sso_password_override: 0, login_is_group_email: 0, from_email: inbox.from_email, agency_id: 2, user_id: 5, received_at: '2026-09-01T16:00:00Z' }]]);
+  await runPersonalThreadReminders({ now: new Date('2026-09-02T16:00:00Z') });
   expect(sendEmailFromIdentity).not.toHaveBeenCalled();
 });

@@ -6326,11 +6326,11 @@ function onCalendarSettingsToggle(ev) {
 const availabilityHoursState = ref({
   enabled: true,
   blocks: [
-    { dayOfWeek: 1, startMinutes: 6 * 60, endMinutes: 19 * 60 },
-    { dayOfWeek: 2, startMinutes: 6 * 60, endMinutes: 19 * 60 },
-    { dayOfWeek: 3, startMinutes: 6 * 60, endMinutes: 19 * 60 },
-    { dayOfWeek: 4, startMinutes: 6 * 60, endMinutes: 19 * 60 },
-    { dayOfWeek: 5, startMinutes: 6 * 60, endMinutes: 19 * 60 }
+    { dayOfWeek: 1, startMinutes: 7 * 60, endMinutes: 19 * 60 },
+    { dayOfWeek: 2, startMinutes: 7 * 60, endMinutes: 19 * 60 },
+    { dayOfWeek: 3, startMinutes: 7 * 60, endMinutes: 19 * 60 },
+    { dayOfWeek: 4, startMinutes: 7 * 60, endMinutes: 19 * 60 },
+    { dayOfWeek: 5, startMinutes: 7 * 60, endMinutes: 19 * 60 }
   ]
 });
 
@@ -6347,7 +6347,7 @@ const DAY_NAME_TO_DOW = Object.freeze({
 const DEFAULT_AVAILABILITY_BLOCKS = Object.freeze(
   [1, 2, 3, 4, 5].map((dayOfWeek) => ({
     dayOfWeek,
-    startMinutes: 6 * 60,
+    startMinutes: 7 * 60,
     endMinutes: 19 * 60
   }))
 );

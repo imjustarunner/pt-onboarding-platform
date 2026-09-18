@@ -92,23 +92,23 @@ function onDigestHours(e) {
     </p>
 
     <div class="uc-prefs">
-      <p class="uc-section">Personal email alerts</p>
+      <p class="uc-section">App-only provider alerts</p>
       <label class="uc-pref-row">
         <input type="checkbox" :checked="!!prefs.personalEmailNotify" @change="onNotifyToggle" />
-        <span>Notify my personal email</span>
+        <span>Allow personal reminders if I receive email only in the app</span>
       </label>
       <label class="uc-pref-row digest">
-        <span>Digest after</span>
+        <span>Remind after</span>
         <select
           :value="prefs.digestBusinessHours || prefs.digestHours || 24"
           :disabled="!prefs.personalEmailNotify"
           @change="onDigestHours"
         >
-          <option :value="24">24 Availability Hours</option>
-          <option :value="48">48 Availability Hours</option>
+          <option :value="24">1 business day</option>
+          <option :value="48">2 business days</option>
         </select>
       </label>
-      <p class="uc-pref-hint">Counts only time inside your Availability Hours. CTA opens Quick View (no message bodies emailed).</p>
+      <p class="uc-pref-hint">SSO users never receive these personal-email reminders. Eligible app-only providers receive a sign-in link during their availability hours; original subjects and message bodies are not included. Mail received at or after 5 p.m. starts its response window at the next opening.</p>
     </div>
 
     <div class="uc-smart">

@@ -148,7 +148,7 @@
                 Allow notifications outside Availability Hours
               </label>
               <div class="field-help">
-                When off, email/SMS follow your Availability Hours on My Schedule (default Mon–Fri 6 AM–7 PM, or your overrides). Quiet hours still take precedence when enabled. Edit Availability Hours on
+                When off, email/SMS follow your Availability Hours on My Schedule (default Mon–Fri 7 AM–7 PM, or your overrides). Quiet hours still take precedence when enabled. Edit Availability Hours on
                 <router-link :to="myScheduleLink">My Schedule</router-link>.
               </div>
             </div>

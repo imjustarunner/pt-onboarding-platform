@@ -42,3 +42,9 @@ it('never allows copies of a reminder to additional addresses', async () => {
   User.findById.mockResolvedValue(user);
   await expect(assertMessageReminderRecipient({ templateType: 'hub_secure_unread_digest', userId: 5, to: user.email, bcc: ['private@example.org'] })).rejects.toMatchObject({ status: 400 });
 });
+
+it('routes a migrated Workspace user to SSO even when personal reminders are opted out', async () => {
+  Directory.getUser.mockResolvedValue({ id: 'workspace-user' });
+  const migrated = { ...user, sso_password_override: 1, login_is_group_email: 1 };
+  expect(await messageReminderRecipient(migrated, { channel: 'secure', allowPersonal: false })).toBe(user.email);
+});

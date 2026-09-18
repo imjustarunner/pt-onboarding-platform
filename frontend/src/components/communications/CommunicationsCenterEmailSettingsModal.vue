@@ -131,12 +131,13 @@
             <p class="hint">Controls personal-email escalation, Availability Hours holds, Unknown Sender box, client OOO, and Quick View.</p>
             <label class="cc-toggle-row">
               <input v-model="form.personalEmailDigestEnabled" type="checkbox" />
-              <span>Personal-email digest after unread Availability Hours</span>
+              <span>Personal reminders for non-SSO, app-only providers</span>
             </label>
             <div class="cc-settings-row">
-              <span>Digest after (Availability Hours)</span>
-              <input v-model.number="form.personalEmailDigestBusinessHours" type="number" min="1" max="168" class="cc-select" style="max-width:100px" />
+              <span>Remind after</span>
+              <select v-model.number="form.personalEmailDigestBusinessHours" class="cc-select"><option :value="24">1 business day</option><option :value="48">2 business days</option></select>
             </div>
+            <p class="hint">Reminders use each provider’s Availability Hours (default weekdays 7 AM–7 PM). Mail arriving at or after 5 PM starts its response window at the next opening. SSO users receive secure-message reminders at their work address.</p>
             <label class="cc-toggle-row">
               <input v-model="form.holdStaffSchoolOutsideAvailability" type="checkbox" />
               <span>Hold school/staff mail until employee is available (still stored immediately)</span>

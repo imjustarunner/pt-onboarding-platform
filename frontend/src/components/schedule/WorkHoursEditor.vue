@@ -55,7 +55,7 @@
 
         <div class="work-hours__shortcuts">
           <button type="button" class="btn btn-secondary btn-sm" :disabled="saving" @click="seedWeekdaysDefault">
-            Mon–Fri 6 AM–7 PM
+            Mon–Fri 7 AM–7 PM
           </button>
           <button type="button" class="btn btn-secondary btn-sm" :disabled="saving || !rows.length" @click="applyFirstToWeekdays">
             Apply first range to Mon–Fri
@@ -202,12 +202,12 @@ const summaryLabel = computed(() => {
 const toInputTime = (raw) => {
   const s = String(raw || '').trim();
   const m = s.match(/^(\d{1,2}):(\d{2})/);
-  if (!m) return '06:00';
+  if (!m) return '07:00';
   return `${String(m[1]).padStart(2, '0')}:${m[2]}`;
 };
 
 const addRow = () => {
-  rows.value.push({ dayOfWeek: 1, startTime: '06:00', endTime: '19:00' });
+  rows.value.push({ dayOfWeek: 1, startTime: '07:00', endTime: '19:00' });
 };
 const removeRow = (idx) => {
   rows.value.splice(idx, 1);
@@ -216,7 +216,7 @@ const removeRow = (idx) => {
 const seedWeekdaysDefault = () => {
   rows.value = [1, 2, 3, 4, 5].map((dayOfWeek) => ({
     dayOfWeek,
-    startTime: '06:00',
+    startTime: '07:00',
     endTime: '19:00'
   }));
 };
@@ -245,7 +245,7 @@ const applyFirstToEveryDay = () => {
 const addSplitDayExample = () => {
   const day = Number(rows.value[0]?.dayOfWeek ?? 1);
   rows.value.push(
-    { dayOfWeek: day, startTime: '06:00', endTime: '10:00' },
+    { dayOfWeek: day, startTime: '07:00', endTime: '10:00' },
     { dayOfWeek: day, startTime: '15:00', endTime: '20:00' }
   );
 };

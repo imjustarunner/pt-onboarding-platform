@@ -7,7 +7,9 @@ import { buildBrandedMessageEmailHtml } from './hubBrandedEmail.service.js';
 import { buildPublicAppUrl } from '../utils/publicPortalUrl.js';
 import { replyMessageIds } from '../utils/emailThreading.js';
 import { personalReminderReplyText, personalReminderBody } from '../utils/personalReminderReply.js';
-import { resolveAvailabilitySchedule, addBusinessHours } from './availabilityWindow.service.js';
+import { messageReminderDueAt, isMessageReminderWindow } from '../utils/messageReminderTiming.js';
+import { resolveAvailabilitySchedule } from './availabilityWindow.service.js';
+import { messageReminderRecipient } from './messageReminderRecipient.service.js';
 import { getAgencyEmailSettings } from './emailSettings.service.js';
 
 /** One branded reminder per unread inbound message, scoped to its work mailbox owner. */
@@ -15,7 +17,8 @@ export async function runPersonalThreadReminders({ now = new Date() } = {}) {
   const [rows] = await pool.execute(`SELECT c.id AS conversation_id, c.subject, c.agency_id,
       m.id AS message_id, COALESCE(m.sent_at, m.created_at) AS received_at,
       i.id AS inbox_id, i.owner_user_id AS user_id, i.sender_identity_id, i.from_email,
-      u.personal_email, u.first_name, p.digest_hours, p.digest_business_hours, p.availability_hours_enabled
+      u.email, u.work_email, u.personal_email, u.first_name, u.role, u.has_provider_access,
+      u.sso_password_override, u.login_is_group_email, u.is_demo, p.digest_hours, p.digest_business_hours
     FROM communication_conversations c
     JOIN communication_inboxes i ON i.id=c.inbox_id AND i.kind='personal' AND i.is_active=1
     JOIN users u ON u.id=i.owner_user_id AND UPPER(u.status) IN ('ACTIVE','ACTIVE_EMPLOYEE') AND COALESCE(u.is_active,1)=1
@@ -23,6 +26,8 @@ export async function runPersonalThreadReminders({ now = new Date() } = {}) {
     LEFT JOIN user_communication_prefs p ON p.user_id=u.id
     LEFT JOIN communication_conversation_reads r ON r.conversation_id=c.id AND r.user_id=u.id
     WHERE COALESCE(p.personal_email_notify,1)=1 AND NULLIF(TRIM(u.personal_email),'') IS NOT NULL
+      AND u.sso_password_override=1 AND u.login_is_group_email=1 AND COALESCE(u.is_demo,0)=0
+      AND (u.role IN ('provider','provider_plus','clinical_practice_assistant','intern') OR u.has_provider_access=1)
       AND LOWER(u.personal_email) COLLATE utf8mb4_unicode_ci <> LOWER(i.from_email) COLLATE utf8mb4_unicode_ci
       AND EXISTS (SELECT 1 FROM user_agencies ua WHERE ua.user_id=u.id AND ua.agency_id=c.agency_id AND (ua.is_active=1 OR ua.is_active IS NULL))
       AND c.archived_at IS NULL AND COALESCE(c.is_spam,0)=0 AND COALESCE(c.is_unknown_sender,0)=0
@@ -38,21 +43,23 @@ export async function runPersonalThreadReminders({ now = new Date() } = {}) {
     try {
       const settings = await getAgencyEmailSettings(row.agency_id);
       if (settings?.personalEmailDigestEnabled === false) continue;
+      const agency = await Agency.findById(row.agency_id);
+      const schedule = await resolveAvailabilitySchedule(row.user_id, { agencyId: row.agency_id });
+      if (!isMessageReminderWindow(now, schedule, agency?.timezone)) continue;
       const hours = Math.min(168, Math.max(1, Number(row.digest_business_hours ?? row.digest_hours ?? settings?.personalEmailDigestBusinessHours ?? 24)));
       const received = new Date(row.received_at);
-      const due = row.availability_hours_enabled === 0
-        ? new Date(received.getTime() + hours * 3600000)
-        : addBusinessHours(await resolveAvailabilitySchedule(row.user_id, { agencyId: row.agency_id }), received, hours);
-      if (due > now) continue;
+      const due = messageReminderDueAt(received, { schedule, timeZone: agency?.timezone, delayHours: hours });
+      if (!(due <= now)) continue;
+      const recipient = await messageReminderRecipient(row);
+      if (!recipient) continue;
       const mailbox = await resolveEmailSendMailbox({ agencyId: row.agency_id, userId: row.user_id, inbox: { id: row.inbox_id, agency_id: row.agency_id, kind: 'personal', owner_user_id: row.user_id, sender_identity_id: row.sender_identity_id, from_email: row.from_email } });
-      const agency = await Agency.findById(row.agency_id);
       const appUrl = buildPublicAppUrl(agency, `messages?conversationId=${row.conversation_id}`);
-      const bodyText = `You have an unread email in “${row.subject || '(no subject)'}”. Reply directly to this email to answer its sender using your work address, ${row.from_email}, or sign in to read the conversation and use Reply all.`;
-      const html = buildBrandedMessageEmailHtml({ agencyName: agency?.name, senderDisplayName: mailbox.displayName, title: row.subject || 'Unread email', bodyText, appUrl, history: [], footerNote: 'Your personal address is kept out of the work conversation. Only the new content in your reply is sent. Use the app to include everyone with Reply all.' });
+      const bodyText = `You have messages waiting in your work inbox. Sign in to read and reply. You can also reply directly to this reminder to answer this conversation’s sender using your work address, ${row.from_email}.`;
+      const html = buildBrandedMessageEmailHtml({ agencyName: agency?.name, senderDisplayName: mailbox.displayName, title: 'You have messages waiting', bodyText, appUrl, history: [], footerNote: 'Your personal address is kept out of the work conversation. Only the new content in your reply is sent. Use the app to include everyone with Reply all.' });
       const [claim] = await pool.execute(`INSERT IGNORE INTO communication_thread_reminders (conversation_id,message_id,user_id,inbox_id,internet_message_id) VALUES (?,?,?,?,?)`, [row.conversation_id, row.message_id, row.user_id, row.inbox_id, messageId]);
       if (!claim.affectedRows) continue;
       claimed = true;
-      const result = await sendEmailFromIdentity({ senderIdentityId: mailbox.identity.id, to: row.personal_email, subject: `Unread: ${row.subject || '(no subject)'}`, text: `${bodyText}\n\nOpen in Messages: ${appUrl}`, html, replyToOverride: row.from_email, internetMessageIdOverride: messageId, source: 'auto', userId: row.user_id, templateType: 'personal_thread_reminder' });
+      const result = await sendEmailFromIdentity({ senderIdentityId: mailbox.identity.id, to: recipient, subject: 'You have messages waiting', text: `${bodyText}\n\nOpen in Messages: ${appUrl}`, html, replyToOverride: row.from_email, internetMessageIdOverride: messageId, source: 'auto', userId: row.user_id, templateType: 'personal_thread_reminder' });
       const delivered = result?.id && !result.blocked && !result.skipped && !result.pendingApproval && !result.queued;
       await pool.execute('UPDATE communication_thread_reminders SET delivery_status=?, sent_at=? WHERE internet_message_id=?', [delivered ? 'sent' : 'held', delivered ? now : null, messageId]);
       if (delivered) sent += 1;

@@ -2033,12 +2033,15 @@ if (!isBootstrap) {
   scheduleDailyDigest();
   setInterval(scheduleDailyDigest, 15 * 60 * 1000);
 
-  // Unified Inbox personal-email digests (24/48h delay for stale needs_reply / follow_up)
+  // Messaging reminders: business-day delay, work addresses for SSO users.
   const scheduleInboxDigest = async () => {
     try {
       const { runInboxDigestTick, runHubSecureUnreadDigestTick } = await import('./services/inboxDigest.service.js');
-      await runInboxDigestTick();
-      await runHubSecureUnreadDigestTick();
+      const { withMessagingJobLock } = await import('./services/messagingJobLock.service.js');
+      await withMessagingJobLock('message-reminders', async () => {
+        await runInboxDigestTick();
+        await runHubSecureUnreadDigestTick();
+      });
     } catch (error) {
       const msg = String(error?.message || '');
       const missing =
@@ -2053,7 +2056,7 @@ if (!isBootstrap) {
     }
   };
   scheduleInboxDigest();
-  setInterval(scheduleInboxDigest, 30 * 60 * 1000);
+  setInterval(scheduleInboxDigest, 60 * 1000);
 
   // Client assignment: branded email 24h after in-app notify if still unread
   const scheduleClientAssignmentFollowups = async () => {

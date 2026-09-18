@@ -21,9 +21,9 @@ function scheduleFromDefaults(enabled = true) {
 }
 
 describe('availabilityWindow.service', () => {
-  it('exports Mon–Fri 6AM–7PM defaults', () => {
+  it('exports Mon–Fri 7AM–7PM defaults', () => {
     expect(DEFAULT_AVAILABILITY.days).toEqual([1, 2, 3, 4, 5]);
-    expect(DEFAULT_AVAILABILITY.startMinutes).toBe(360);
+    expect(DEFAULT_AVAILABILITY.startMinutes).toBe(420);
     expect(DEFAULT_AVAILABILITY.endMinutes).toBe(1140);
   });
 
