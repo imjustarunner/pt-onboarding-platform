@@ -38,8 +38,10 @@ export function makeRecoveryCodes() {
 export const recoveryHash = code => hashSecurityToken(String(code || '').replace(/[\s-]/g, '').toLowerCase());
 export const rememberedDays = () => [0, 7, 30].includes(Number(process.env.MFA_REMEMBER_DAYS ?? 30)) ? Number(process.env.MFA_REMEMBER_DAYS ?? 30) : 0;
 export const MFA_STAFF_ROLES = new Set(['super_admin', 'admin', 'agency_admin', 'support', 'staff', 'clinician', 'provider', 'provider_plus', 'intern', 'intern_plus', 'supervisor', 'clinical_practice_assistant', 'school_staff', 'schedule_manager', 'facilitator', 'backoffice_admin', 'club_manager']);
-export function requiresStaffMfa(role) {
-  return MFA_STAFF_ROLES.has(role);
+// Enrollment is voluntary during rollout. Keep this server-owned: browser
+// parameters and enrollment state must not turn optional setup into an access gate.
+export function requiresStaffMfa(_role) {
+  return false;
 }
 
 // A limited roster is an explicit allowlist. Never recursively redact arbitrary

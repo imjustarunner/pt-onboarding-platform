@@ -8,8 +8,10 @@
     <template v-if="state">
       <section class="security-card">
         <h2>{{ state.method === 'email' ? 'Email verification' : 'Two-step verification' }}</h2>
+        <p v-if="state.ssoAuthenticated">You’re signed in with Google. No additional app verification is required.</p>
+        <p v-if="!state.required">We’re rolling out two-step verification for people who sign in without Google SSO to help protect our clients’ information. Setup is optional for now, and we encourage you to get started. We plan to make it mandatory for non-SSO sign-ins over the next few months. Google SSO users do not need additional app verification.</p>
         <p v-if="state.verified">Your current sign-in is verified.</p>
-        <p v-else>To protect client privacy, {{ state.enabled ? 'verify your sign-in' : 'set up two-step verification' }} to view full names and open client documents. You can keep using client codes and initials.</p>
+        <p v-else-if="state.required">To protect client privacy, {{ state.enabled ? 'verify your sign-in' : 'set up two-step verification' }} to view full names and open client documents. You can keep using client codes and initials.</p>
         <div v-if="state.method === 'email' && !state.verified">
           <p>We’ll send a six-digit code to your school email, {{ state.maskedEmail || 'the address on your account' }}. No authenticator app is needed.</p>
           <button :disabled="busy" @click="sendEmailCode">{{ emailSent ? 'Send a new code' : 'Email me a code' }}</button>
@@ -21,7 +23,7 @@
           <p class="hint">Verification lasts for this sign-in. If the address is incorrect or you cannot receive the code, contact IT.</p>
         </div>
         <div v-if="state.method !== 'email' || state.canReviewPrivacy">
-        <p v-if="state.method === 'email'">Privacy reviewers also need an authenticator code to approve access requests.</p>
+        <p v-if="state.method === 'email' && state.required">Privacy reviewers also need an authenticator code to approve access requests.</p>
         <p>Use Google Authenticator, Microsoft Authenticator, or another authenticator app. No text message or phone number is needed.</p>
         <form v-if="!authenticatorEnabled && !setup" @submit.prevent="beginSetup">
           <label>Confirm your account password<input v-model="password" type="password" autocomplete="current-password" /></label>
@@ -50,7 +52,7 @@
         <p v-if="authenticatorEnabled && state.verified && !recoveryCodes.length">Keep your authenticator and recovery codes available. If you lose both, contact IT to verify your identity and recover access.</p>
         <details v-if="authenticatorEnabled && !recoveryCodes.length" class="replace-authenticator">
           <summary>Replace a lost or changed authenticator</summary>
-          <p>This ends all your sign-ins and forgets remembered devices. After signing in again, set up the new authenticator to restore access to protected information.</p>
+          <p>This ends all your sign-ins and forgets remembered devices. After signing in again, you can set up your new authenticator.</p>
           <form @submit.prevent="resetAuthenticator">
             <label>Confirm your account password<input v-model="replacementPassword" type="password" autocomplete="current-password" /></label>
             <p class="hint">A Google sign-in within the last five minutes also satisfies password confirmation.</p>
@@ -61,7 +63,7 @@
           </form>
         </details>
         </div>
-        <button v-if="state.verified && !recoveryCodes.length" @click="returnToWorkspace">Return to your workspace</button>
+        <button v-if="(!state.required || state.verified) && !recoveryCodes.length" @click="returnToWorkspace">Return to your workspace</button>
       </section>
       <section class="security-card">
         <h2>Remembered devices</h2>
@@ -140,6 +142,9 @@ input { padding: .65rem; border: 1px solid var(--border, #aaa); border-radius: 6
 .hint, small { font-size: .88rem; color: var(--text-secondary, #475569); } small { display: block; overflow-wrap: anywhere; }
 .actions { display: flex; flex-wrap: wrap; gap: .6rem; margin: .7rem 0; }
 button { cursor: pointer; padding: .6rem .8rem; border-radius: 6px; border: 1px solid var(--border, #aaa); font: inherit; background: var(--bg-secondary, #f1f5f9); color: inherit; }
+.account-security button.btn-primary { background: #175c43; color: #fff; border-color: #175c43; }
+.account-security button.btn-primary:hover:not(:disabled) { background: #104832; color: #fff; }
+button:focus-visible { outline: 3px solid #2563eb; outline-offset: 3px; }
 button:disabled { opacity: .6; cursor: default; }.error { color: #a52a1d; }.session { border-top: 1px solid var(--border, #ddd); padding: 1rem 0; }
 code { overflow-wrap: anywhere; } li { margin: .7rem 0; } img { max-width: 100%; }
 .recovery { border: 2px solid var(--primary, #426b9b); border-radius: 8px; padding: 1rem; margin-top: 1rem; }

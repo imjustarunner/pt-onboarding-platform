@@ -23,7 +23,7 @@ export async function enforceAccountSecurity(req, res, next) {
     const kind = accountSecurityRouteKind(req);
     if (kind === 'account') return next();
     const state = await accountSecurityState(req);
-    if ((!state.required && !state.enabled) || state.verified) return enforceActivityProtection(req, res, next);
+    if (!state.required || state.verified) return enforceActivityProtection(req, res, next);
     if (kind === 'limited_roster') {
       const json = res.json;
       res.json = function(body) { return json.call(this, limitedRoster(body)); };

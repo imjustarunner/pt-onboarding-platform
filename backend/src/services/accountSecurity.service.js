@@ -37,6 +37,7 @@ export async function accountSecurityState(req) {
       verified = true;
     }
   }
+  const ssoAuthenticated = req.authClaims?.authMethod === 'google';
   const method = row.role === 'school_staff' ? 'email' : 'authenticator';
   let maskedEmail;
   if (method === 'email') {
@@ -45,7 +46,7 @@ export async function accountSecurityState(req) {
     verified ||= !!emailSession && emailSession.recipient_hash === schoolEmailHash(row.email) && !!afterReset(emailSession.verified_at);
     maskedEmail = maskedSchoolEmail(row.email);
   }
-  return (req.accountSecurityState = { method, maskedEmail, enabled: method === 'email' || !!row.enabled_at, authenticatorEnabled: !!row.enabled_at, verified, required: requiresStaffMfa(String(row.role).toLowerCase()), rememberDays: method === 'email' ? 0 : rememberedDays() });
+  return (req.accountSecurityState = { method, maskedEmail, enabled: method === 'email' || !!row.enabled_at, authenticatorEnabled: !!row.enabled_at, verified, ssoAuthenticated, required: !ssoAuthenticated && requiresStaffMfa(String(row.role).toLowerCase()), rememberDays: method === 'email' ? 0 : rememberedDays() });
 }
 
 async function primaryProof(req, password) {

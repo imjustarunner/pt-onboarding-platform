@@ -20,7 +20,7 @@
    </article>
   </template>
   <template v-else>
-   <form @submit.prevent="verifyReviewer">
+   <form v-if="verificationRequired" @submit.prevent="verifyReviewer">
     <label>Confirm a fresh authenticator code before reviewing<input v-model.trim="code" autocomplete="one-time-code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" required /></label>
     <button :disabled="busy">Verify for review</button>
    </form>
@@ -52,12 +52,13 @@ import { onMounted, reactive, ref } from 'vue';
 import api from '../services/api';
 const props=defineProps({review:{type:Boolean,default:false}});
 const data=ref({}),error=ref(''),message=ref(''),busy=ref(false),reason=ref(''),units=ref(1),code=ref(''),drafts=reactive({});
+const verificationRequired=ref(false);
 const headers={'X-Account-Security':'1'};
 const draft=id=>drafts[id] ||= {note:'',units:1,releaseEmail:false};
 const label=s=>String(s||'').replaceAll('_',' ');
 const time=s=>new Date(/Z$|[+-]\d\d:\d\d$/.test(String(s))?s:String(s).replace(' ','T')+'Z').toLocaleString(undefined,{timeZoneName:'short'});
 async function work(fn){busy.value=true;error.value='';try{await fn();}catch(e){error.value=e.response?.data?.error?.message||'The security request could not be completed.';}finally{busy.value=false;}}
-async function load(cursor){await work(async()=>{const response=await api.get(props.review?'/privacy-review':'/account-security/activity-protection',{params:typeof cursor==='string'?{cursor}:{}});data.value=response.data;});}
+async function load(cursor){await work(async()=>{if(props.review) verificationRequired.value=(await api.get('/account-security')).data.required === true;const response=await api.get(props.review?'/privacy-review':'/account-security/activity-protection',{params:typeof cursor==='string'?{cursor}:{}});data.value=response.data;});}
 async function requestAccess(){await work(async()=>{const response=await api.post('/account-security/activity-protection/requests',{reason:reason.value,units:units.value},{headers});message.value=response.data.message||`Request ${response.data.id.slice(0,8)} submitted. Access remains paused until approved.`;reason.value='';});if(!error.value)await load();}
 async function verifyReviewer(){await work(async()=>{await api.post('/account-security/authenticator/verify',{code:code.value,rememberDevice:false,personalDevice:false},{headers});code.value='';message.value='Verified for five minutes. Review each request before approving.';});}
 async function decide(ticket,decision){await work(async()=>{await api.post(`/privacy-review/tickets/${ticket.id}/review`,{decision,...draft(ticket.id)},{headers});message.value=`Request ${decision}.`;});if(!error.value)await load();}

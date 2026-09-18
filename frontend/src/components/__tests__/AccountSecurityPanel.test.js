@@ -12,6 +12,21 @@ beforeEach(() => {
 });
 async function open() { const wrapper=mount(Panel);await flushPromises();return wrapper; }
 describe('personal security screen', () => {
+  it('explains the optional rollout and lets enrolled users return without verification',async()=>{
+    state={...state,required:false,enabled:true};
+    const wrapper=await open();
+    expect(wrapper.text()).toContain('Setup is optional for now');
+    expect(wrapper.text()).toContain('over the next few months');
+    expect(wrapper.text()).toContain('Google SSO users do not need additional app verification');
+    expect(wrapper.text()).not.toContain('You can keep using client codes and initials');
+    expect(wrapper.text()).toContain('Return to your workspace');wrapper.unmount();
+  });
+  it('tells Google SSO users no additional app verification is required',async()=>{
+    state={...state,required:false,ssoAuthenticated:true};
+    const wrapper=await open();
+    expect(wrapper.text()).toContain('You’re signed in with Google. No additional app verification is required.');
+    expect(wrapper.find('button.btn-primary').exists()).toBe(true);wrapper.unmount();
+  });
   it('offers school staff email verification without authenticator enrollment or device remembering',async()=>{
     state={...state,method:'email',enabled:true,authenticatorEnabled:false,rememberDays:0,maskedEmail:'s•••@school.example'};
     api.post.mockImplementation(async url=>{if(url.endsWith('/verify'))state.verified=true;return {data:{sent:true,verified:state.verified}};});

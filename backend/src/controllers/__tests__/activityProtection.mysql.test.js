@@ -3,9 +3,9 @@ import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 import mysql from 'mysql2/promise';
 import {splitSqlStatements,stripSqlLineComments} from '../../../../database/migrationSqlUtils.js';
-const state=vi.hoisted(()=>({db:null}));
+const state=vi.hoisted(()=>({db:null,verification:{verified:true,required:true}}));
 vi.mock('../../config/database.js',()=>({default:{execute:(...a)=>state.db.execute(...a),getConnection:()=>state.db.getConnection()}}));
-vi.mock('../../services/accountSecurity.service.js',()=>({accountSecurityState:async()=>({verified:true}),requireAccountSession:req=>{if(!req.user?.sessionId)throw new Error('Sign in');}}));
+vi.mock('../../services/accountSecurity.service.js',()=>({accountSecurityState:async()=>state.verification,requireAccountSession:req=>{if(!req.user?.sessionId)throw new Error('Sign in');}}));
 import {authorizeProtectedActivity,protectOutboundEmail,protectFileResource,protectStorageResource} from '../../services/activityProtection.service.js';
 import {reserveLoginAttempts,recordPasswordResult} from '../../middleware/loginProtection.middleware.js';
 import {requestFileAccess,reviewTicket,reviewAlert,ownProtection,reviewQueue,requirePrivacyReviewer,assignPrivacyReviewer} from '../activityProtection.controller.js';
@@ -25,7 +25,7 @@ describe.skipIf(!socket)('shared activity protection integration',()=>{
   await state.db.query('CREATE TABLE account_mfa_sessions (session_key VARCHAR(64) PRIMARY KEY,verified_at DATETIME(3),device_id VARCHAR(36))');
   for(const name of ['1456_security_evidence.sql','1459_activity_protection.sql'])for(const sql of splitSqlStatements(stripSqlLineComments(await fs.readFile(new URL(`../../../../database/migrations/${name}`,import.meta.url),'utf8'))))await state.db.query(sql);
  });
- beforeEach(async()=>{vi.spyOn(console,'info').mockImplementation(()=>{});vi.stubEnv('AUDIT_PROXY_MODE','direct');
+ beforeEach(async()=>{state.verification={verified:true,required:true};vi.spyOn(console,'info').mockImplementation(()=>{});vi.stubEnv('AUDIT_PROXY_MODE','direct');
   for(const table of ['activity_protection_tickets','activity_protection_alerts','activity_protection_usage','activity_protection_state','auth_attempt_windows','account_mfa_sessions','privacy_reviewers'])await state.db.query(`DELETE FROM ${table}`);
   await state.db.query('UPDATE users SET failed_login_attempts=0,locked_until=NULL');
   await state.db.query("INSERT INTO account_mfa_sessions VALUES ('key-1',UTC_TIMESTAMP(3),NULL),('key-2',UTC_TIMESTAMP(3),NULL)");
@@ -36,6 +36,16 @@ describe.skipIf(!socket)('shared activity protection integration',()=>{
   await expect(file(req(1,'new-session'),'file-three')).rejects.toMatchObject({code:'ACTIVITY_REVIEW_REQUIRED'});
   const [[alert]]=await state.db.query('SELECT * FROM activity_protection_alerts ORDER BY occurred_at LIMIT 1');expect(alert.user_id).toBe(1);expect(alert.reason).toBe('volume_limit');expect(alert.client_ip).toBe('192.0.2.1');
   const [[e]]=await state.db.query("SELECT COUNT(*) n FROM security_evidence WHERE action='activity_blocked' AND request_id=?",[alert.request_id]);expect(Number(e.n)).toBe(1);
+ });
+ it('allows optional unverified users to request and designated reviewers to approve, but never self-approve',async()=>{
+  state.verification={verified:false,required:false};await state.db.query('DELETE FROM account_mfa_sessions');
+  const owner=req();owner.body={reason:'Prepare the requested care coordination records.',units:2};
+  const ticket=await call(requestFileAccess,owner);
+  owner.params={id:ticket.id};owner.body={decision:'approved',note:'Verified the work purpose.',units:2};
+  await expect(call(reviewTicket,owner)).rejects.toHaveProperty('code','SELF_APPROVAL_FORBIDDEN');
+  const reviewer=req(2);reviewer.params={id:ticket.id};reviewer.body=owner.body;
+  await call(requirePrivacyReviewer,reviewer);await call(reviewTicket,reviewer);
+  const [[row]]=await state.db.query('SELECT status FROM activity_protection_tickets WHERE id=?',[ticket.id]);expect(row.status).toBe('approved');
  });
  it('serializes concurrent file requests across connections so only five win',async()=>{
   const results=await Promise.allSettled(Array.from({length:8},(_,i)=>file(req(),`file-${i}`)));

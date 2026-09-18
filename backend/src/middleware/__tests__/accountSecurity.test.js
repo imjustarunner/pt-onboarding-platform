@@ -23,6 +23,16 @@ describe('server-side MFA access boundary', () => {
     await enforceAccountSecurity(req,res,next); res.json([{id:8,initials:'AB',full_name:'Private Name',search_terms:'Private Name'}]);
     expect(next).toHaveBeenCalled(); expect(JSON.stringify(json.mock.calls)).not.toContain('Private Name');
   });
+  it('allows optional users, including enrolled users and Google SSO, without an app code or roster redaction', async () => {
+    for (const enabled of [false,true]) {
+      accountSecurityState.mockResolvedValue({required:false,enabled,verified:false});
+      for(const path of ['/api/clients/7','/api/school-portal/8/clients?showFullNames=true']) {
+        const {req,res,next}=fixture(path);req.authClaims={authMethod:'google'};
+        const json=res.json;await enforceAccountSecurity(req,res,next);
+        expect(next).toHaveBeenCalledWith();expect(res.status).not.toHaveBeenCalled();expect(res.json).toBe(json);
+      }
+    }
+  });
   it('fails closed when verification storage cannot be read', async () => {
     const error=new Error('database unavailable'); accountSecurityState.mockRejectedValue(error);
     const {req,res,next}=fixture('/api/clients/8'); await enforceAccountSecurity(req,res,next);

@@ -14,7 +14,7 @@ export const ownProtection = async(req,res,next)=>{try{
 }catch(e){next(e);}};
 export const requestFileAccess=async(req,res,next)=>{let db;try{
  requireAccountSession(req);
- const state=await accountSecurityState(req);if(!state.verified)throw protectionError('Verify your sign-in before requesting additional file access.','MFA_REQUIRED');
+ const state=await accountSecurityState(req);if(state.required && !state.verified)throw protectionError('Verify your sign-in before requesting additional file access.','MFA_REQUIRED');
  const reason=String(req.body?.reason||'').trim(), units=Number(req.body?.units);
  if(reason.length<20||reason.length>2000||!Number.isInteger(units)||units<1||units>PROTECTION_POLICY.approvalMaxUnits)throw protectionError('Explain the work purpose in 20–2000 characters and request 1–20 file operations. Do not include client names.','INVALID_REVIEW_REQUEST');
  db=await pool.getConnection();await db.beginTransaction();await lockProtectionState(db,req.user.id,'client_file');
@@ -37,6 +37,7 @@ export const reviewQueue=async(req,res,next)=>{try{
 }catch(e){next(e);}};
 async function freshReviewer(req){
  const state=await accountSecurityState(req);
+ if(!state.required)return; // Optional rollout also applies to reviewers; role and self-approval checks remain.
  // Remembered-device proof alone is not enough to approve exceptions.
  const [[proof]]=await pool.execute('SELECT verified_at,device_id FROM account_mfa_sessions WHERE session_key=?',[req.sessionSecurity?.key||'']);
  if(!state.verified||!proof||proof.device_id||Date.now()-new Date(proof.verified_at).getTime()>5*60000)throw protectionError('Enter a fresh authenticator code without remembering the device, then return to review.','MFA_FRESH_REQUIRED');
@@ -66,7 +67,7 @@ export const reviewAlert=async(req,res,next)=>{let db;try{
  const event=protectionEvent(req,'security_alert_reviewed','succeeded',{alertId:alert.id,targetUserId:alert.user_id,emailHoldReleased:req.body?.releaseEmail===true&&alert.kind==='email'});const eventId=await appendSecurityEvidence(event,db,{mirror:false});await db.commit();mirrorSecurityEvidence(event,eventId);res.json({reviewed:true});
 }catch(e){if(db)await db.rollback();next(e);}finally{db?.release();}};
 export const printIntent=async(req,res,next)=>{try{
- requireAccountSession(req);const state=await accountSecurityState(req);if(!state.verified)throw protectionError('Verify your sign-in first.','MFA_REQUIRED');
+ requireAccountSession(req);const state=await accountSecurityState(req);if(state.required && !state.verified)throw protectionError('Verify your sign-in first.','MFA_REQUIRED');
  await protectFileResource('application-print',{req,forceReview:true});res.json({allowed:true,notice:'Permission to open the print dialog; this does not confirm a physical print.'});
 }catch(e){next(e);}};
 
@@ -83,7 +84,8 @@ export async function isPrivacyReviewer(userId){
 export async function requirePrivacyReviewer(req,res,next){try{
  requireAccountSession(req);
  if(!await isPrivacyReviewer(req.user.id))return res.status(403).json({error:{code:'PRIVACY_REVIEWER_REQUIRED',message:'A designated privacy reviewer must handle this request. Administrator status alone does not grant review permission.'}});
- if(!(await accountSecurityState(req)).verified)throw protectionError('Verify your sign-in to open the privacy review queue.','MFA_REQUIRED');
+ const state=await accountSecurityState(req);
+ if(state.required && !state.verified)throw protectionError('Verify your sign-in to open the privacy review queue.','MFA_REQUIRED');
  next();
 }catch(e){next(e);}}
 export const listPrivacyReviewers=async(req,res,next)=>{try{

@@ -28,11 +28,11 @@ describe('authenticator security', () => {
   it('returns only the reviewed limited-roster fields, including when new sensitive fields are introduced', () => {
     expect(limitedRoster([{ id: 1, initials: 'AB', identifier_code: 'C123', full_name: 'Private Name', guardian: { name: 'Private Guardian' }, search_terms: 'Private Name', notes: 'Contains Private Name', document_url: 'https://example.invalid/private.pdf', school_portal_can_open: true }])).toEqual([{ id: 1, initials: 'AB', identifier_code: 'C123', full_name: null, school_portal_can_open: false, requires_two_factor: true }]);
   });
-  it('requires staff including administrators, without imposing the staff policy on guardians', () => {
+  it('keeps app verification optional for every role during rollout', () => {
     vi.stubEnv('MFA_CLIENT_ACCESS_SCOPE', 'all_staff');
-    for (const role of ['super_admin','admin','provider','school_staff','club_manager']) expect(requiresStaffMfa(role)).toBe(true);
+    for (const role of ['super_admin','admin','provider','school_staff','club_manager']) expect(requiresStaffMfa(role)).toBe(false);
     expect(requiresStaffMfa('client_guardian')).toBe(false);
     vi.stubEnv('MFA_CLIENT_ACCESS_SCOPE', 'school_staff');
-    expect(requiresStaffMfa('admin')).toBe(true);
+    expect(requiresStaffMfa('admin')).toBe(false);
   });
 });

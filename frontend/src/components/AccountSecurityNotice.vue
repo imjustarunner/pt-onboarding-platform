@@ -12,18 +12,18 @@
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import { useAuthStore } from '../store/auth';
 import api from '../services/api';
-const auth = useAuthStore(), state = ref(null), requested = ref(false), protectionRequired = ref(false), summary = ref({}), summaryUnavailable = ref(false);
-const needsVerification = computed(() => requested.value || (state.value && (state.value.required || state.value.enabled) && !state.value.verified));
+const auth = useAuthStore(), state = ref(null), protectionRequired = ref(false), summary = ref({}), summaryUnavailable = ref(false);
+const needsVerification = computed(() => state.value?.required === true && !state.value.verified);
 async function refresh() {
   const id = auth.user?.id; state.value = null;
   if (!id) return;
-  try { const { data } = await api.get('/account-security', { skipGlobalLoading: true }); if (auth.user?.id === id) { state.value = data; requested.value = false; } } catch { /* The security page provides the recoverable error. */ }
+  try { const { data } = await api.get('/account-security', { skipGlobalLoading: true }); if (auth.user?.id === id) { state.value = data; } } catch { /* The security page provides the recoverable error. */ }
 }
-function required() { requested.value = true; }
+function required() { refresh(); }
 function protectionBlocked() { protectionRequired.value = true; }
 async function refreshSummary() {
  const id=auth.user?.id;
- if(!id || !state.value?.canReviewPrivacy || !state.value?.verified || document.visibilityState==='hidden'){summary.value={};summaryUnavailable.value=false;return;}
+ if(!id || !state.value?.canReviewPrivacy || (state.value?.required && !state.value?.verified) || document.visibilityState==='hidden'){summary.value={};summaryUnavailable.value=false;return;}
  try {const response=await api.get('/privacy-review/summary',{skipGlobalLoading:true});if(auth.user?.id===id){summary.value=response.data;summaryUnavailable.value=false;}} catch { summary.value={};summaryUnavailable.value=true; }
 }
 const summaryTimer=setInterval(refreshSummary,60000);

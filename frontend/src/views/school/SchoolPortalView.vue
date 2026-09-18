@@ -4078,7 +4078,7 @@ const onShowFullNamesClick = async () => {
   }
   try {
     const { data } = await api.get('/account-security');
-    if (!data.verified && (data.required || data.enabled)) {
+    if (!data.verified && data.required) {
       window.dispatchEvent(new Event('account-security-required'));
       router.push('/account-security');
       return;
