@@ -124,7 +124,7 @@ export function sanitizeJoinPositions(positions = {}, fallback = {}) {
 
 export function defaultJoinLayout() {
   return {
-    footerStyle: 'hidden',
+    footerStyle: 'dark',
     showSidebar: true,
     fonts: {
       welcome: 'great-vibes',
@@ -184,14 +184,14 @@ export function fontFamilyById(id) {
 }
 
 /** Public static files in frontend/public/assets/intake-themes (no auth). */
-export const JOIN_BOOT_THEME_URL = '/assets/intake-themes/greenintakethemecounseling.jpg';
-export const PUBLIC_SUPPORT_THEME_URL = '/assets/intake-themes/greenintakethemecounselingV2.jpg';
+export const JOIN_BOOT_THEME_URL = '/assets/WelcomeImages/scenic/regular1.webp';
+export const PUBLIC_SUPPORT_THEME_URL = '/assets/WelcomeImages/scenic/regular1.webp';
 export const PUBLIC_INTAKE_THEME_URLS = Object.freeze({
   counseling: JOIN_BOOT_THEME_URL,
   counselingSupport: PUBLIC_SUPPORT_THEME_URL,
-  counselingBlue: '/assets/intake-themes/blueintakethemecounseling.jpg',
-  tutoring: '/assets/intake-themes/bluetutoringtheme.jpg',
-  sidebarGreen: '/assets/intake-themes/backgroundsidegreen.jpg'
+  counselingBlue: '/assets/WelcomeImages/scenic/regular2.webp',
+  tutoring: '/assets/WelcomeImages/scenic/regular3.webp',
+  sidebarGreen: '/assets/WelcomeImages/scenic/regular4.webp'
 });
 
 export const PUBLIC_SUPPORT_LAYOUT_KEYS = [
@@ -210,16 +210,16 @@ export const PUBLIC_SUPPORT_LAYOUT_KEYS = [
 export function defaultPublicSupportLayout() {
   return {
     positions: {
-      logo: { x: 70, y: -190 },
-      kicker: { x: 26, y: -182 },
-      title: { x: 23, y: -196 },
-      lead: { x: 26, y: -200 },
-      login: { x: 21, y: -168 },
-      join: { x: 22, y: -153 },
-      careers: { x: 22, y: -136 },
+      logo: { x: 0, y: 0 },
+      kicker: { x: 0, y: 0 },
+      title: { x: 0, y: 0 },
+      lead: { x: 0, y: 0 },
+      login: { x: 0, y: 0 },
+      join: { x: 0, y: 0 },
+      careers: { x: 0, y: 0 },
       booking: { x: 0, y: 0 },
-      billing: { x: 21, y: -115 },
-      card: { x: 186, y: -24 }
+      billing: { x: 0, y: 0 },
+      card: { x: 0, y: 0 }
     },
     sizes: {
       logoWidth: 180,
@@ -246,13 +246,15 @@ function mergeSupportPoint(saved, fallback) {
   };
 }
 
+const RETIRED_SUPPORT_POSITIONS = { logo: [70,-190], kicker: [26,-182], title: [23,-196], lead: [26,-200], login: [21,-168], join: [22,-153], careers: [22,-136], billing: [21,-115], card: [186,-24] };
 export function mergePublicSupportLayout(saved) {
   const base = defaultPublicSupportLayout();
   if (!saved || typeof saved !== 'object') return base;
   const positions = { ...base.positions };
   for (const key of PUBLIC_SUPPORT_LAYOUT_KEYS) {
     const next = mergeSupportPoint(saved.positions?.[key] || saved[key], base.positions[key]);
-    positions[key] = looksBrokenPosition(next) ? { ...base.positions[key] } : next;
+    const retired = RETIRED_SUPPORT_POSITIONS[key];
+    positions[key] = looksBrokenPosition(next) || (retired && next.x === retired[0] && next.y === retired[1]) ? { ...base.positions[key] } : next;
   }
   const sizes = { ...base.sizes };
   const incoming = saved.sizes && typeof saved.sizes === 'object' ? saved.sizes : {};

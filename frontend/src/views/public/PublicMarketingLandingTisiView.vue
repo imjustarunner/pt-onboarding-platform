@@ -78,6 +78,7 @@
               <button type="button" class="tisi-mini-add" @click="v.primaryNav.push({ label: 'Link', href: '/p/tisi' })">+ Nav</button>
             </template>
             <template v-else>
+              <router-link v-if="hubSlug === 'tisi'" class="tisi-nav-link" to="/join/tisi" @click="mobileNavOpen = false">Join us</router-link>
               <component
                 :is="navTag(item.href)"
                 v-for="item in v.primaryNav.filter(item => !/^resources$/i.test(item.label))"

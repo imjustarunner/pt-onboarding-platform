@@ -16,7 +16,7 @@
     <router-link :to="path('about')" :aria-current="section==='about'?'page':undefined">About</router-link>
     <PublicResourcesMenu :resources-path="path('resources')"/>
    </nav>
-   <router-link class="nlu-button nlu-header-cta" :to="contextEnrollment">Get started →</router-link>
+   <router-link class="nlu-button nlu-header-cta" to="/join/nlu">Join us →</router-link>
   </header>
   <main id="nlu-main">
    <div v-if="loading" class="nlu-wrap nlu-status" role="status">Loading Next Level Up…</div>

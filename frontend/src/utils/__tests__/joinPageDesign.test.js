@@ -59,3 +59,9 @@ describe('custom Join elements', () => {
     expect(joinDesignIssues(copy, false)).toEqual([]);
   });
 });
+
+it('restores the HTML trust bar for legacy backgrounds but keeps new editor choices', () => {
+ expect(normalizeJoinDesign({ footerStyle: 'hidden' }).views.desktop.footerStyle).toBe('dark');
+ expect(normalizeJoinDesign({ design: { version: 1, views: { desktop: { footerStyle: 'hidden' } } } }).views.desktop.footerStyle).toBe('dark');
+ expect(normalizeJoinDesign({ design: { version: 2, views: { desktop: { footerStyle: 'hidden' } } } }).views.desktop.footerStyle).toBe('hidden');
+});

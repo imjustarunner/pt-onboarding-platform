@@ -7,7 +7,7 @@
       <nav id="rise-navigation" :class="{ 'is-open': menuOpen }" aria-label="Primary">
         <router-link v-for="[label, slug] in riseNav.filter(item => item[1] !== 'resources')" :key="slug" :to="path(slug)" :aria-current="section === slug ? 'page' : undefined" @click="menuOpen = false">{{ label }}</router-link>
       <PublicWebsiteProviderLinks :directories="page?.providerDirectories || []" hub-slug="rise" /><PublicResourcesMenu resources-path="/p/rise/resources" /></nav>
-      <router-link class="rise-button rise-header-cta" to="/p/rise/join">Get started <RiseIcon name="arrow" /></router-link>
+      <router-link class="rise-button rise-header-cta" to="/p/rise/join">Join us <RiseIcon name="arrow" /></router-link>
     </header>
 
     <main id="rise-main" tabindex="-1">

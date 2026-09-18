@@ -58,7 +58,7 @@ import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, onMounted, r
 import { JOIN_FONT_HREF, fontFamilyById, writeJoinLandingCache } from '../../utils/joinLandingTemplate';
 import { joinDesignElements, joinCards, resolveJoinPresentation, safeJoinImage } from '../../utils/joinPageDesign';
 import JoinCustomElement from './JoinCustomElement.vue';
-import { pickTenantWelcomeUrl } from '../../utils/tenantBrandAssets';
+import { publicEntryBackground } from '../../utils/tenantBrandAssets';
 const JoinPageDesigner = defineAsyncComponent(() => import('./JoinPageDesigner.vue'));
 const props = defineProps({
   config: { type: Object, default: null }, agencySlug: { type: String, default: '' }, serviceType: { type: String, default: '' },
@@ -76,14 +76,19 @@ const elementFor = key => elements.value.find(e => e.id === key);
 const cards = computed(() => joinCards(copy.value, props.quick, props.full));
 const agencyName = computed(() => props.config?.agency?.name || 'Welcome');
 const logoUrl = computed(() => safeJoinImage(props.config?.branding?.logoUrl || props.config?.branding?.agencyLogoUrl || props.config?.branding?.organizationLogoUrl || props.config?.agency?.logo_url || props.config?.agency?.logoUrl || (props.agencySlug === 'itsco' ? '/assets/provider-action/itsco-logo.png' : '')));
-const backgroundStyle = computed(() => ({ backgroundImage: `url(${JSON.stringify(view.value.backgroundUrl || presentation.value.design.backgroundUrl || pickTenantWelcomeUrl(props.agencySlug || props.config?.agency?.slug) || props.config?.themeImageUrl || '/assets/intake-themes/greenintakethemecounseling.jpg')})`, backgroundPosition: `${view.value.backgroundX}% ${view.value.backgroundY}%` }));
+const brandColor = computed(() => props.config?.branding?.colorPalette?.primary || props.config?.branding?.color_palette?.primary || props.config?.branding?.colors?.primary || view.value.primaryColor);
+const backgroundStyle = computed(() => ({ backgroundImage: `url(${JSON.stringify(publicEntryBackground(view.value.backgroundUrl || presentation.value.design.backgroundUrl, props.agencySlug || props.config?.agency?.slug))})`, backgroundPosition: `${view.value.backgroundX}% ${view.value.backgroundY}%` }));
 const themeVars = computed(() => ({
-  '--ajl-body-font': fontFamilyById(view.value.fonts.body), '--ajl-welcome-font': fontFamilyById(view.value.fonts.welcome), '--ajl-script-font': fontFamilyById(view.value.fonts.script), '--ajl-card-font': fontFamilyById(view.value.fonts.cardTitle),
+  '--ajl-brand': brandColor.value, '--ajl-body-font': fontFamilyById(view.value.fonts.body), '--ajl-welcome-font': fontFamilyById(view.value.fonts.welcome), '--ajl-script-font': fontFamilyById(view.value.fonts.script), '--ajl-card-font': fontFamilyById(view.value.fonts.cardTitle),
   '--ajl-welcome-size': `${view.value.sizes.welcome}rem`, '--ajl-glad-size': `${view.value.sizes.glad}rem`, '--ajl-lead-size': `${view.value.sizes.lead}rem`, '--ajl-card-size': `${view.value.sizes.cardTitle}rem`,
   '--ajl-background-wash': view.value.backgroundWash / 100, '--ajl-heading-color': view.value.headingColor, '--ajl-primary-color': view.value.primaryColor, '--ajl-secondary-color': view.value.secondaryColor, '--ajl-surface-color': view.value.surfaceColor,
   '--ajl-padding': `${view.value.padding}px`, '--ajl-gap': `${view.value.gap}px`
 }));
-const footerTrust = computed(() => String(props.config?.locale || props.config?.language || document.documentElement.lang || 'en').startsWith('es') ? ['Su información está segura', 'Protegido por HIPAA', 'Solo toma unos minutos', 'Personas reales. Apoyo real.'] : ['Your Information Is Secure', 'HIPAA Protected', 'Only Takes a Few Minutes', 'Real People. Real Support.']);
+const footerTrust = computed(() => {
+  const es = String(props.config?.locale || props.config?.language || document.documentElement.lang || 'en').startsWith('es');
+  const clinical = (props.serviceType || props.config?.activeService?.serviceType || 'counseling') === 'counseling';
+  return es ? ['Su información está segura', ...(clinical ? ['Protegido por HIPAA'] : []), 'Solo toma unos minutos', 'Personas reales. Apoyo real.'] : ['Your Information Is Secure', ...(clinical ? ['HIPAA Protected'] : []), 'Only Takes a Few Minutes', 'Real People. Real Support.'];
+});
 function blockStyle(key) {
   const sizes = view.value.sizes; const position = view.value.positions[key] || { x: 0, y: 0 };
   const align = view.value.align[key] || 'left';
@@ -130,14 +135,14 @@ function onSaved(data) {
 .ajl-bg::after { content: ''; position: absolute; inset: 0; background: #fff; opacity: var(--ajl-background-wash); }
 .ajl-sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
 .ajl-rail, .ajl-main, .ajl-footer { position: relative; z-index: 1; min-width: 0; }
-.ajl-rail { background:linear-gradient(180deg,rgba(237,247,245,.92),rgba(237,247,245,.72)); backdrop-filter:blur(12px); -webkit-backdrop-filter:blur(12px); container-type: inline-size; grid-column: 1; grid-row: 1; padding: var(--ajl-padding); display: flex; flex-direction: column; gap: 14px; }
+.ajl-rail { background:color-mix(in srgb,var(--ajl-brand) 14%,#fff);border-inline-start:8px solid var(--ajl-brand); backdrop-filter:blur(12px); -webkit-backdrop-filter:blur(12px); container-type: inline-size; grid-column: 1; grid-row: 1; padding: var(--ajl-padding); display: flex; flex-direction: column; gap: 14px; }
 .ajl-main { isolation:isolate; container-type: inline-size; grid-column: 2; grid-row: 1; padding: var(--ajl-padding); display: flex; flex-direction: column; gap: var(--ajl-gap); }
 .ajl-main::before { content:''; position:absolute; inset:0; z-index:-1; pointer-events:none; background:rgba(249,251,248,.88); backdrop-filter:blur(8px); -webkit-backdrop-filter:blur(8px); mask-image:linear-gradient(#000 0,#000 220px,transparent 480px); -webkit-mask-image:linear-gradient(#000 0,#000 220px,transparent 480px); }
 .ajl-block { position: relative; max-width: 100%; min-width: 0; }
 .ajl-block--help { margin-top: auto; }
 .ajl-logo { display: block; width: 100%; height: auto; object-fit: contain; }
 .ajl-logo-fallback { display: grid; place-items: center; width: 60px; height: 60px; background: #d9e9e5; border-radius: 50%; font-size: 30px; }
-.ajl-tagline { margin: 0; font: inherit; font-weight: 700; letter-spacing: .1em; color: #1f6b4a; }
+.ajl-tagline { margin: 0; font: inherit; font-weight: 700; letter-spacing: .1em; color: #173044; }
 .ajl-script { margin: 0; font-family: var(--ajl-script-font); font-size: inherit; line-height: 1.15; }
 .ajl-values { list-style: none; padding: 0; margin: 0; display: grid; gap: 10px; font-size: inherit; }
 .ajl-values li { display: flex; gap: 10px; align-items: start; }
@@ -165,10 +170,10 @@ function onSaved(data) {
 .ajl-card--full .ajl-cta { background: var(--ajl-secondary-color); }
 .ajl-cta:disabled { background: #526574; cursor: default; }
 .ajl-card-foot { margin: 12px 0 0; font-size: .85rem; color: #49605f; line-height: 1.4; }
-.ajl-footer { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 16px 32px; justify-content: center; padding: 20px; background: #ffffffd9; font-size: .85rem; }
-.ajl--footer-dark .ajl-footer { background: #16324a; color: white; }
-.ajl--footer-white .ajl-footer { background: white; }
-.ajl--footer-clear .ajl-footer { background: transparent; }
+.ajl-footer { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 16px 32px; justify-content: center; padding: 20px; background: color-mix(in srgb,var(--ajl-brand) 35%,#102738); color: white; font-size: .85rem; }
+.ajl--footer-dark .ajl-footer { background: color-mix(in srgb,var(--ajl-brand) 35%,#102738); color: white; }
+.ajl--footer-white .ajl-footer { background: white; color: #173044; }
+.ajl--footer-clear .ajl-footer { background: transparent; color: #173044; }
 .ajl--footer-frost .ajl-footer { backdrop-filter: blur(10px); }
 .ajl p, .ajl h1, .ajl h2, .ajl li, .ajl button { overflow-wrap: anywhere; }
 .ajl :is(button, a, [tabindex]):focus-visible { outline: 3px solid #2867d7; outline-offset: 4px; }

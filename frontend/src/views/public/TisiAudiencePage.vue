@@ -5,6 +5,7 @@
       <router-link class="brand" to="/p/tisi"><img :src="config.logoUrl" alt="" /><span>{{ config.siteName }}<small>{{ config.tagline }}</small></span></router-link>
       <button class="menu" type="button" :aria-expanded="menuOpen" aria-controls="audience-nav" @click="menuOpen = !menuOpen">Menu <span aria-hidden="true">☰</span></button>
       <nav id="audience-nav" :class="{ open: menuOpen }" aria-label="Primary" @keydown.esc="menuOpen = false">
+        <router-link to="/join/tisi" @click="menuOpen = false">Join us</router-link>
         <router-link v-for="item in navigation.filter(item => item.slug !== 'resources')" :key="item.slug" :to="`/p/tisi${item.slug ? '/' + item.slug : ''}`" :aria-current="item.slug === slug ? 'page' : undefined" @click="menuOpen = false">{{ item.label }}</router-link>
       <PublicResourcesMenu resources-path="/p/tisi/resources" /></nav>
       <a class="button header-cta" :href="cta">{{ config.ctaButtonLabel }} <span aria-hidden="true">→</span></a>

@@ -40,7 +40,7 @@ import {computed,ref,nextTick,watch} from 'vue';
 import Icon from '../../components/rise/RiseIcon.vue';
 import {useStandalonePublicWebsite,publicWebsiteUrl as safe} from '../../composables/useStandalonePublicWebsite';
 const {page,loading,error,menuOpen,section,settings,path,load,previewNotice,guardPreview,closeMenu}=useStandalonePublicWebsite('mh4kidz','MH4Kidz | Stronger kids. Brighter tomorrows.');
-const nav=[['Home',''],['About','about'],['Our programs','programs'],['Get involved','involved'],['Impact','impact'],['Resources','resources'],['Contact','contact']];
+const nav=[['Join us','join'],['Home',''],['About','about'],['Our programs','programs'],['Get involved','involved'],['Impact','impact'],['Resources','resources'],['Contact','contact']];
 const asset=name=>`/assets/mh4kidz/${name}.webp`;
 const heroes={
  '':['Home','Real connections.\nBrighter paths.','','Experiential and group-oriented programs that help kids build skills, confidence, resilience, and meaningful connections.','home'],

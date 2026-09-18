@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
   currentBrandSeason,
+  publicEntryBackground,
+  PUBLIC_ENTRY_SCENES,
   pathToSharePageKey,
   pickRotatedUrl,
   pickTenantBackgroundUrl,
@@ -9,10 +11,13 @@ import {
 } from '../tenantBrandAssets.js';
 
 describe('tenantBrandAssets', () => {
-  it('keeps comma filenames resolvable by the static asset server',()=>{
-    const url=pickTenantWelcomeUrl('itsco',new Date('2026-09-13T18:00:00Z'));
-    expect(url).toContain('Welcome,');expect(url).not.toContain('%2C');expect(url).not.toContain(' ');
-    expect(tenantSmsImage('itsco','home')).toBe('/assets/SMSAssets/itscosmsnew.png');
+  it('replaces retired backgrounds while preserving custom uploaded photos', () => {
+    const date = new Date('2026-09-13T18:00:00Z');
+    expect(publicEntryBackground('/assets/intake-themes/greenintakethemecounseling.jpg', 'nlu', date)).toContain('/scenic/fall');
+    expect(publicEntryBackground('/assets/WelcomeImages/ITSCO/old.png', 'itsco', date)).toContain('/scenic/fall');
+    expect(publicEntryBackground('/uploads/custom.jpg', 'nlu', date)).toBe('/uploads/custom.jpg');
+    expect(pickTenantWelcomeUrl('new-tenant', date)).toContain('/scenic/fall');
+    expect(Object.values(PUBLIC_ENTRY_SCENES).flat()).toHaveLength(13);
   });
   it('maps SMS pages per tenant', () => {
     expect(tenantSmsImage('itsco', 'support')).toContain('/SMSAssets/ITSCO/ITSCOSupport.png');
@@ -47,9 +52,9 @@ describe('tenantBrandAssets', () => {
     const date = new Date('2026-08-16T18:00:00Z');
     expect(pickTenantWelcomeUrl('nlu', date)).toBe(pickTenantWelcomeUrl('innerstrength', date));
     expect(pickTenantBackgroundUrl('nlu', date)).toBe(pickTenantBackgroundUrl('theinnerstrengthinstitute', date));
-    expect(pickTenantWelcomeUrl('itsco', date)).toMatch(/WelcomeImages\/ITSCO/);
-    expect(pickTenantWelcomeUrl('nlu', new Date('2026-10-15T18:00:00Z'))).toMatch(/WelcomeFall|PMfall/);
-    expect(pickTenantWelcomeUrl('nlu', new Date('2027-01-10T18:00:00Z'))).toMatch(/WelcomeWinter/);
+    expect(pickTenantWelcomeUrl('itsco', date)).toMatch(/WelcomeImages\/scenic\/regular/);
+    expect(pickTenantWelcomeUrl('nlu', new Date('2026-10-15T18:00:00Z'))).toMatch(/scenic\/fall/);
+    expect(pickTenantWelcomeUrl('nlu', new Date('2027-01-10T18:00:00Z'))).toMatch(/scenic\/winter/);
   });
 
   it('maps public paths to SMS page keys', () => {

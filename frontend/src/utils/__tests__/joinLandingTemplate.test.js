@@ -124,7 +124,14 @@ describe('mergePublicSupportLayout', () => {
     });
     expect(out.positions.login).toEqual({ x: 12, y: 40 });
     expect(out.positions.billing).toEqual({ x: -8, y: 18 });
-    expect(out.positions.join).toEqual({ x: 22, y: -153 });
+    expect(out.positions.join).toEqual({ x: 0, y: 0 });
     expect(out.sizes.cardWidth).toBe(1100);
   });
+});
+
+it('reflows the retired support-photo offsets without erasing custom positions', () => {
+ const out = mergePublicSupportLayout({ positions: { logo: { x: 70, y: -190 }, card: { x: 186, y: -24 }, title: { x: 12, y: 10 } } });
+ expect(out.positions.logo).toEqual({ x: 0, y: 0 });
+ expect(out.positions.card).toEqual({ x: 0, y: 0 });
+ expect(out.positions.title).toEqual({ x: 12, y: 10 });
 });

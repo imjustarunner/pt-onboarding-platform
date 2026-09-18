@@ -112,7 +112,8 @@ export function usePublicSupportLayoutEditor() {
     const pos = active.value.positions?.[key] || { x: 0, y: 0 };
     const sizes = active.value.sizes || {};
     const style = {
-      transform: `translate(${Number(pos.x) || 0}px, ${Number(pos.y) || 0}px)`
+      transform: `translate(clamp(0px, ${Number(pos.x) || 0}px, max(0px, 100cqw - 100%)), ${Number(pos.y) || 0}px)`,
+      maxWidth: '100%'
     };
     if (key === 'logo') {
       style.width = `${Number(sizes.logoWidth) || 72}px`;

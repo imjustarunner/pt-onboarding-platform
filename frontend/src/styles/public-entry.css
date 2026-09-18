@@ -1,0 +1,35 @@
+/* Tenant chrome is independent of the photograph, including on small screens. */
+.df-page.df-page--scenic-side { flex-direction: column; background-position: center; }
+.df-page--scenic-side > .df-shell { flex: 1; min-height: calc(100dvh - 68px); }
+.df-page--scenic-side .df-shell .df-sidebar {
+  background: color-mix(in srgb, var(--df-primary) 14%, #fff);
+  color: #173044; border-inline-start: 8px solid var(--df-primary);
+  border-inline-end: 1px solid color-mix(in srgb, var(--df-primary) 25%, #fff);
+}
+.df-page--scenic-side .df-sidebar-contact { background: #fff; color: #173044; }
+.df-page--scenic-side .df-sidebar-contact-btn { background: color-mix(in srgb, var(--df-primary) 55%, #172d3d); color: #fff; }
+.df-page--scenic-side .df-sidebar .ai-security-badge { background: #fff; color: #173044; border: 1px solid #cbd5e1; }
+.df-page--scenic-side .df-shell .df-sidebar-logo { max-width: 100%; background: #fff; padding: 12px; border-radius: 12px; }
+.df-entry-trust { position: relative; z-index: 1; display: flex; justify-content: center; flex-wrap: wrap; gap: 16px 32px; padding: 20px 24px; background: color-mix(in srgb, var(--df-primary) 35%, #102738); color: #fff; font-size: 14px; line-height: 1.5; }
+.df-entry-trust span { display: flex; gap: 10px; align-items: center; }
+.df-entry-trust svg { width: 20px; height: 20px; flex: 0 0 20px; fill: none; stroke: currentColor; stroke-width: 1.6; }
+@media (max-width: 860px) {
+  .df-page--scenic-side .df-shell .df-sidebar { width: 100%; min-width: 0; height: auto; max-height: none; border-inline-start-width: 6px; }
+  .df-page--scenic-side .df-shell .df-sidebar-logo--cover { max-width: 190px; margin: 4px auto; }
+  .df-entry-trust { justify-content: flex-start; gap: 12px 24px; padding: 18px 20px; }
+}
+
+/* Office registration previously relied on clear space painted into the photo. */
+.df-page.public-intake.public-intake--office-start.df-page--scenic-side .df-shell .df-sidebar {
+  background: color-mix(in srgb, var(--df-primary) 14%, #fff) !important;
+  border-inline-end: 1px solid color-mix(in srgb, var(--df-primary) 25%, #fff) !important;
+  container-type: inline-size;
+}
+.public-intake.public-intake--office-start .df-main-body { container-type: inline-size; }
+.public-intake.public-intake--office-start .intake-start-card { background: #fff; color: #173044; }
+.public-intake.public-intake--office-start .intake-start-logo { background: #fff; padding: 8px; border-radius: 12px; }
+@media (max-width: 860px) {
+  .df-page.public-intake.public-intake--office-start.df-page--scenic-side .df-shell .df-sidebar {
+    width: 100%; min-width: 0; max-width: none;
+  }
+}

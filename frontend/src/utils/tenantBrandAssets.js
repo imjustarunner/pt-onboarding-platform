@@ -5,7 +5,6 @@
 
 const SMS_ROOT = '/assets/SMSAssets';
 const WELCOME_ROOT = '/assets/WelcomeImages';
-const NLU_WELCOME_DIR = 'NLU and InnerStrength';
 
 export const TENANT_BRAND_ALIASES = {
   range: 'mentalrange',
@@ -155,105 +154,21 @@ export const TENANT_SMS_IMAGES = {
   riserevive: { ...RISE_SMS, home: sms('', 'riserevivewebsite.png') }
 };
 
-const itscoW = (file) => welcome('ITSCO', file);
-const nluW = (file) => welcome(NLU_WELCOME_DIR, file);
+// Clean scenic photographs. Branding and trust information are rendered in HTML.
+export const PUBLIC_ENTRY_SCENES = Object.freeze({
+  default: Array.from({ length: 5 }, (_, i) => welcome('scenic', `regular${i + 1}.webp`)),
+  fall: Array.from({ length: 4 }, (_, i) => welcome('scenic', `fall${i + 1}.webp`)),
+  winter: Array.from({ length: 4 }, (_, i) => welcome('scenic', `winter${i + 1}.webp`))
+});
+export const TENANT_WELCOME_POOLS = Object.fromEntries([...new Set(Object.values(TENANT_BRAND_ALIASES))].map(key => [key, PUBLIC_ENTRY_SCENES]));
+export const TENANT_BACKGROUND_POOLS = TENANT_WELCOME_POOLS;
 
-export const TENANT_WELCOME_POOLS = {
-  itsco: {
-    default: [
-      'Welcome, 01_35_26 PM.png',
-      'Welcome, 01_35_29 PM.png',
-      'Welcome, 01_35_30 PM.png',
-      'Welcome, 01_35_31 PM.png',
-      'Welcome, 01_35_43 PM.png'
-    ].map(itscoW),
-    fall: [
-      'Welcome, 01_35_35 PMFall1.png',
-      'Welcome, 01_35_36 PMFall2.png',
-      'Welcome, 01_35_37 PMFall3.png',
-      'Welcome, 01_35_39 PMFall4.png'
-    ].map(itscoW),
-    winter: [
-      'Welcome, 01_35_33 PMWinter1.png',
-      'Welcome, 01_35_34 PMWinter2.png',
-      'Welcome, 01_35_32 PMWinter3.png'
-    ].map(itscoW)
-  },
-  nlu: {
-    default: [
-      'NavyWelcome1.png'
-    ].map(nluW),
-    fall: [
-      'WelcomeFall1.png',
-      'WelcomeFall2.png',
-      'WelcomeFall3.png',
-      'WelcomeFall4.png',
-      'Welcome, 01_35_51 PMfall.png'
-    ].map(nluW),
-    winter: [
-      'WelcomeWinter1.png',
-      'WelcomeWinter2.png',
-      'WelcomeWinter3.png'
-    ].map(nluW)
-  }
-};
-
-TENANT_WELCOME_POOLS.innerstrength = TENANT_WELCOME_POOLS.nlu;
-
-export const TENANT_BACKGROUND_POOLS = {
-  itsco: {
-    default: [
-      'ITSCOBackground1.png',
-      'ITSCObackground2.png',
-      'ITscobackground3.png',
-      'ITSCObackground4.png',
-      'itscobackground5.png'
-    ].map(itscoW),
-    fall: [
-      'itscobackgroundfall1.png',
-      'ITSCObackroundfall2.png',
-      'itscobackgroundfall3.png',
-      'itscobackgroundfall4.png'
-    ].map(itscoW),
-    winter: [
-      'Itscobackgroundwinter1.png',
-      'itscobackgroundwinter2.png',
-      'itscobackgroundwinter3.png'
-    ].map(itscoW)
-  },
-  nlu: {
-    default: [
-      'NavyBackground.png',
-      'NavyBackground2.png',
-      'NavyBackground3.png',
-      'NavyBackground4.png',
-      'NavyBackground5.png',
-      'NavyBackground_24_21 PM (7).png',
-      'NavyBackground_24_22 PM (8).png',
-      'NavyBackground_24_22 PM (9).png',
-      'NavyBackground_24_22 PM (10).png'
-    ].map(nluW),
-    fall: [
-      'NavyBackgroundFall.png',
-      'NavyBackgroundFall2.png',
-      'NavyBackgroundFall3.png',
-      'NavyBackgroundFall4.png',
-      'NavyBackground_24_20 PM (4)Fall1.png',
-      'NavyBackground_24_21 PM (5)Fall2.png',
-      'NavyBackground_24_21 PM (6)Fall3.png',
-      'Backgroundfall.png'
-    ].map(nluW),
-    winter: [
-      'NavyBackgroundWinter.png',
-      'NavyBackgroundWinter2.png',
-      'NavyBackground1)Winter3.png',
-      'NavyBackground_24_20 PM (3)Winter1.png',
-      'NavyBackground_24_20 PM (2)Winter2.png'
-    ].map(nluW)
-  }
-};
-
-TENANT_BACKGROUND_POOLS.innerstrength = TENANT_BACKGROUND_POOLS.nlu;
+// Replace retired artwork that included its own sidebar/footer; preserve custom uploads.
+export function publicEntryBackground(candidate = '', tenant = '', date = new Date()) {
+  const url = String(candidate || '').trim();
+  const legacy = /\/assets\/(?:intake-themes\/|WelcomeImages\/(?:ITSCO|NLU(?:%20| )and))/i.test(url);
+  return url && !legacy ? url : pickTenantWelcomeUrl(tenant, date);
+}
 
 /** Light/teal logo variants for dark UI chrome (join header, video lobby, etc.). */
 export const TENANT_DARK_LOGOS = {
@@ -314,14 +229,14 @@ function poolForSeason(pools, season) {
 
 export function pickTenantWelcomeUrl(slugOrHost, date = new Date()) {
   const key = normalizeTenantBrandKey(slugOrHost);
-  const pools = TENANT_WELCOME_POOLS[key];
+  const pools = TENANT_WELCOME_POOLS[key] || PUBLIC_ENTRY_SCENES;
   if (!pools) return '';
   return pickRotatedUrl(poolForSeason(pools, currentBrandSeason(date)), date);
 }
 
 export function pickTenantBackgroundUrl(slugOrHost, date = new Date()) {
   const key = normalizeTenantBrandKey(slugOrHost);
-  const pools = TENANT_BACKGROUND_POOLS[key];
+  const pools = TENANT_BACKGROUND_POOLS[key] || PUBLIC_ENTRY_SCENES;
   if (!pools) return '';
   return pickRotatedUrl(poolForSeason(pools, currentBrandSeason(date)), date);
 }

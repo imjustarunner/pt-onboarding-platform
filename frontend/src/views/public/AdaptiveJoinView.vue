@@ -24,6 +24,7 @@
     v-else-if="!loading || submitted || phase !== 'pathway'"
     class="ai-shell-host--join-flow"
     :branding="config?.branding"
+    :trust-items="resolvedServiceType && resolvedServiceType !== 'counseling' ? [{ icon: 'shield', label: 'Secure online registration' }, { icon: 'check', label: 'Real people. Personal support.' }] : undefined"
     :program-title="config?.agency?.name || 'Join'"
     :form-title="pageTitle"
     form-subtitle="Adaptive Intake"

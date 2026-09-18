@@ -158,7 +158,8 @@ export function useOfficeIntakeStartEditor({
     const pos = key === 'card' ? { x: layout.x, y: layout.y } : (layout[key] || { x: 0, y: 0 });
     const sizes = layout.sizes || {};
     const style = {
-      transform: `translate(${Number(pos.x) || 0}px, ${Number(pos.y) || 0}px)`,
+      transform: `translate(clamp(0px, ${Number(pos.x) || 0}px, max(0px, 100cqw - 100%)), ${Number(pos.y) || 0}px)`,
+      maxWidth: '100%',
       ...alignBlockStyle(officeStartAlign(key))
     };
     if (key === 'card') {

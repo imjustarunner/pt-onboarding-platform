@@ -11,6 +11,7 @@
     cover-mode
     :show-header="false"
     :show-intake-sidebar-security="false"
+    :trust-items="supportTrustItems"
   >
     <template #sidebar>
       <div class="pas-banner" :class="{ 'pas-banner--editing': layout.editing.value }">
@@ -82,6 +83,31 @@
         </div>
 
         <button
+          v-if="shortcuts.joinPath"
+          type="button"
+          class="pas-nav-btn pas-block"
+          :class="{ 'pas-block--selected': layout.isSelected('join') }"
+          :style="layout.blockStyle('join')"
+          @mousedown="layout.onBlockMouseDown('join', $event)"
+          @click="goShortcut(shortcuts.joinPath, $event)"
+        >
+          <div v-if="layout.editing.value" class="pas-block-tools">
+            <button type="button" class="ajl-drag" @mousedown.stop="layout.startDrag('join', $event)">Move</button>
+          </div>
+          <div
+            v-if="layout.editing.value && layout.selected.value === 'join'"
+            class="ajl-resize ajl-resize--e"
+            @mousedown.stop="layout.startResize('join', $event)"
+          />
+          <span class="pas-nav-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+          </span>
+          <span class="pas-nav-copy">
+            <strong>Join us</strong>
+            <small>Explore services and get started</small>
+          </span>
+        </button>
+        <button
           v-if="shortcuts.loginPath"
           type="button"
           class="pas-nav-btn pas-block"
@@ -104,31 +130,6 @@
           <span class="pas-nav-copy">
             <strong>Login with your account details</strong>
             <small>Use your existing portal login</small>
-          </span>
-        </button>
-        <button
-          v-if="shortcuts.joinPath"
-          type="button"
-          class="pas-nav-btn pas-block"
-          :class="{ 'pas-block--selected': layout.isSelected('join') }"
-          :style="layout.blockStyle('join')"
-          @mousedown="layout.onBlockMouseDown('join', $event)"
-          @click="goShortcut(shortcuts.joinPath, $event)"
-        >
-          <div v-if="layout.editing.value" class="pas-block-tools">
-            <button type="button" class="ajl-drag" @mousedown.stop="layout.startDrag('join', $event)">Move</button>
-          </div>
-          <div
-            v-if="layout.editing.value && layout.selected.value === 'join'"
-            class="ajl-resize ajl-resize--e"
-            @mousedown.stop="layout.startResize('join', $event)"
-          />
-          <span class="pas-nav-icon" aria-hidden="true">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
-          </span>
-          <span class="pas-nav-copy">
-            <strong>Looking for a counselor?</strong>
-            <small>Start the public interest form</small>
           </span>
         </button>
         <button
@@ -316,8 +317,8 @@ import { useRoute, useRouter } from 'vue-router';
 import api from '../../services/api';
 import { useAuthStore } from '../../store/auth';
 import { useBrandingStore } from '../../store/branding';
+import { pickTenantWelcomeUrl } from '../../utils/tenantBrandAssets';
 import { DigitalFormShell } from '../../components/digital-form';
-import { PUBLIC_SUPPORT_THEME_URL } from '../../utils/joinLandingTemplate.js';
 import { usePublicSupportLayoutEditor } from '../../composables/usePublicSupportLayoutEditor.js';
 import PublicAgencySupportForm from '../../components/public/PublicAgencySupportForm.vue';
 import PublicLinkImageEditor from '../../components/public/PublicLinkImageEditor.vue';
@@ -372,14 +373,15 @@ const shortcuts = computed(() => {
   const host = resolveHostImpliedPortalSlug(brandingStore);
   const bookingOn = Boolean(config.value?.shortcuts?.bookingPath);
   return {
-    joinPath: `/join/${encodeURIComponent(slug)}/counseling`,
+    joinPath: `/join/${encodeURIComponent(slug)}`,
     loginPath: buildOrgScopedPath(slug, '/login', null, host),
     careersPath: `/careers/${encodeURIComponent(slug)}`,
     bookingPath: bookingOn ? buildOrgScopedPath(slug, '/book-session', null, host) : null
   };
 });
+const supportTrustItems = [{ icon: 'shield', label: 'Please keep health details in your secure portal' }, { icon: 'check', label: 'Real people. Helpful support.' }];
 const accent = computed(() => config.value?.agency?.colors?.primary || '#111827');
-const themeUrl = PUBLIC_SUPPORT_THEME_URL;
+const themeUrl = computed(() => pickTenantWelcomeUrl(agencySlug.value));
 const pageStyle = computed(() => ({
   '--pas-accent': accent.value,
   '--pas-ink': config.value?.agency?.colors?.secondary || '#334155'
@@ -515,9 +517,10 @@ onMounted(async () => {
   text-align: left;
 }
 .pas-banner {
+  container-type: inline-size;
   display: flex;
   flex-direction: column;
-  justify-content: center;
+  justify-content: flex-start;
   min-height: 100%;
   gap: 0.7rem;
   color: #123c6d;
@@ -537,7 +540,7 @@ onMounted(async () => {
   font-weight: 800;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: #1f6b4a;
+  color: #173044;
 }
 .pas-banner-title {
   margin: 0;
@@ -550,6 +553,7 @@ onMounted(async () => {
   color: #1e3a4c;
 }
 .pas-page {
+  container-type: inline-size;
   width: 100%;
   display: grid;
   gap: 0.85rem;
@@ -657,7 +661,7 @@ onMounted(async () => {
   place-items: center;
   border-radius: 10px;
   background: rgba(31, 107, 74, 0.12);
-  color: #1f6b4a;
+  color: #173044;
 }
 .pas-nav-btn--on .pas-nav-icon {
   background: rgba(255,255,255,0.16);
@@ -740,6 +744,7 @@ onMounted(async () => {
     padding: 1rem 1.1rem 1.35rem;
   }
   .pas-shell:not(.pas-shell--editing) .pas-banner {
+  container-type: inline-size;
     min-height: 0;
     gap: 0.55rem;
   }

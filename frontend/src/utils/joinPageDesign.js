@@ -40,7 +40,7 @@ export function joinDesignElements(design) {
 export function createJoinDesign(layout) {
   const legacy = mergeJoinLayout(layout);
   return {
-    version: 1, elements: [], backgroundUrl: '', referenceImageUrl: '',
+    version: 2, elements: [], backgroundUrl: '', referenceImageUrl: '',
     views: Object.fromEntries(JOIN_DEVICES.map(({ id }) => [id, {
       sizes: { ...legacy.sizes, ...(id === 'desktop' ? {} : { welcome: id === 'mobile' ? 2.6 : 3.2, script: 1.55, logoWidth: 140, cardsWidth: 860, helpWidth: 0 }) },
       align: { ...Object.fromEntries(JOIN_ELEMENTS.map(e => [e.id, 'left'])), ...legacy.align },
@@ -49,7 +49,7 @@ export function createJoinDesign(layout) {
       order: { main: ['welcome', 'glad', 'lead', 'cards'], rail: ['logo', 'tagline', 'script', 'values', 'help'], cards: ['quick', 'full'] },
       fonts: { ...legacy.fonts }, copy: {}, backgroundUrl: '', backgroundX: 50, backgroundY: 50,
       backgroundWash: 25, headingColor: '#123c6d', primaryColor: '#276345', secondaryColor: '#205493', surfaceColor: '#ffffff',
-      padding: id === 'desktop' ? 32 : 20, gap: 20, railPlacement: 'after', footerStyle: legacy.footerStyle
+      padding: id === 'desktop' ? 32 : 20, gap: 20, railPlacement: 'after', footerStyle: legacy.footerStyle === 'hidden' ? 'dark' : legacy.footerStyle
     }]))
   };
 }
@@ -81,6 +81,7 @@ export function normalizeJoinDesign(layout) {
     view.padding = limit(src.padding ?? def.padding, def.padding, 12, 80); view.gap = limit(src.gap ?? 20, 20, 8, 64);
     view.railPlacement = src.railPlacement === 'before' ? 'before' : 'after';
     view.footerStyle = ['hidden', 'frost', 'white', 'clear', 'dark'].includes(src.footerStyle) ? src.footerStyle : def.footerStyle;
+    if (saved.version !== 2 && view.footerStyle === 'hidden') view.footerStyle = 'dark';
     result.views[id] = view;
   }
   return result;

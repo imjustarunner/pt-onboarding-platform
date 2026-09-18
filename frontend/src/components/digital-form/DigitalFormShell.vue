@@ -145,7 +145,7 @@
                 {{ contactSupportLabel }}
               </button>
             </div>
-            <div class="df-trust-list">
+            <div v-if="!scenicSidebarUrl" class="df-trust-list">
               <div v-for="item in resolvedTrustItems" :key="item.icon" class="df-trust-item">
                 <span class="df-trust-icon" aria-hidden="true">
                   <svg v-if="item.icon === 'lock'" viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 018 0v3"/></svg>
@@ -242,6 +242,9 @@
         </footer>
       </div>
     </div>
+    <footer v-if="scenicSidebarUrl && !embedded && resolvedTrustItems.length" class="df-entry-trust" aria-label="Information and support">
+      <span v-for="item in resolvedTrustItems" :key="item.label"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m8 12 3 3 5-6"/></svg>{{ item.label }}</span>
+    </footer>
   </div>
 </template>
 
@@ -253,6 +256,8 @@ import DigitalFormProgress from './DigitalFormProgress.vue';
 import AdaptiveIntakeSidebarSteps from '../adaptive-intake/AdaptiveIntakeSidebarSteps.vue';
 import { useDigitalFormTheme } from './useDigitalFormTheme';
 import '../../styles/adaptive-intake.css';
+import '../../styles/public-entry.css';
+import { publicEntryBackground } from '../../utils/tenantBrandAssets';
 
 const props = defineProps({
   branding: { type: Object, default: null },
@@ -305,7 +310,7 @@ const props = defineProps({
   showContactSupportAction: { type: Boolean, default: false },
   contactSupportLabel: { type: String, default: 'Send a message' },
   contactCompact: { type: Boolean, default: false },
-  /** Full-page art with a designed left border; sidebar info stays, green fill goes away. */
+  /** Clean scenic photo behind the page; tenant-colored rails are separate HTML. */
   scenicSidebarUrl: { type: String, default: '' }
 });
 
@@ -339,7 +344,7 @@ const { shellVars, logoUrl, programTitle: themeProgramTitle } = useDigitalFormTh
   computed(() => props.branding)
 );
 
-const scenicSidebarUrl = computed(() => String(props.scenicSidebarUrl || '').trim());
+const scenicSidebarUrl = computed(() => props.scenicSidebarUrl ? publicEntryBackground(props.scenicSidebarUrl) : '');
 
 const mergedShellVars = computed(() => {
   const vars = { ...(shellVars.value || {}) };

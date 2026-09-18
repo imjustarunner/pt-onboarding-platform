@@ -20,7 +20,7 @@ export function useDigitalFormTheme(brandingSource) {
     return raw && typeof raw === 'object' ? raw : {};
   });
 
-  const palette = computed(() => branding.value.colorPalette || branding.value.color_palette || {});
+  const palette = computed(() => branding.value.colorPalette || branding.value.color_palette || branding.value.colors || {});
 
   const shellVars = computed(() => {
     const p = palette.value || {};
