@@ -193,11 +193,50 @@ async function finalizeOutboundContent({
     console.warn('[unifiedEmail] misdirected report link:', e?.message || e);
   }
 
-  if (!identity?.signature_image_url && !identity?.signature_image_path && identity?.agency_id) {
-    const { ensureDepartmentSignature } = await import('../departmentSignature.service.js');
-    try { identity = await ensureDepartmentSignature(identity); } catch { console.warn('[unifiedEmail] Department signature PNG unavailable; using a text signature.'); }
+  let signed;
+  const { usesDepartmentHtmlSignature, appendDepartmentHtmlSignature } = await import('../staffHtmlEmailSignature.service.js');
+  const preferDepartmentHtml = usesDepartmentHtmlSignature(identity);
+
+  if (preferDepartmentHtml) {
+    try {
+      const out = await appendDepartmentHtmlSignature({
+        identity,
+        agencyId: aid,
+        text,
+        html,
+        misdirectedReportUrl
+      });
+      if (out.appended) {
+        signed = { text: out.text, html: out.html };
+      } else {
+        // No HTML generated — fall back to plain label, never the old PNG photo signature.
+        const label = [identity?.display_name, identity?.from_email].filter(Boolean).join(' · ');
+        signed = {
+          text: `${String(text || '').trim()}\n\n${label}`.trim(),
+          html: html
+            ? `${html}<p style="font-family:Arial;color:#334155">${escapeHtml(label)}</p>`
+            : html
+        };
+      }
+    } catch (e) {
+      console.warn('[unifiedEmail] department HTML signature:', e?.message || e);
+      signed = applySenderSignatureBlock({
+        identity: { ...identity, signature_image_url: null, signature_image_path: null },
+        text,
+        html
+      });
+    }
+  } else {
+    if (!identity?.signature_image_url && !identity?.signature_image_path && identity?.agency_id) {
+      const { ensureDepartmentSignature } = await import('../departmentSignature.service.js');
+      try {
+        identity = await ensureDepartmentSignature(identity);
+      } catch {
+        console.warn('[unifiedEmail] Department signature PNG unavailable; using a text signature.');
+      }
+    }
+    signed = applySenderSignatureBlock({ identity, text, html });
   }
-  let signed = applySenderSignatureBlock({ identity, text, html });
   const src = String(source || '').toLowerCase();
   const tt = String(templateType || '').toLowerCase();
   // Wizard digests are manually sent on behalf of the department, not the operator.

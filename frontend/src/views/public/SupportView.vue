@@ -68,13 +68,16 @@ import { useBrandingStore } from '../../store/branding';
 import { resolveHostImpliedPortalSlug } from '../../utils/orgScopedPath.js';
 import { isSstcTenantSlug } from '../../config/tenantAppProfiles.js';
 import { isSummitPlatformRouteSlug } from '../../utils/summitPlatformSlugs.js';
+import { publicSupportSlugFromHost } from '../../utils/publicDomainRouting.js';
 import AgencyPublicSupportView from './AgencyPublicSupportView.vue';
 
 const brandingStore = useBrandingStore();
 
 const useAgencySupportPage = computed(() => {
   const host = resolveHostImpliedPortalSlug(brandingStore);
-  return Boolean(host && !isSummitPlatformRouteSlug(host) && !isSstcTenantSlug(host));
+  if (host && !isSummitPlatformRouteSlug(host) && !isSstcTenantSlug(host)) return true;
+  const hostname = typeof window !== 'undefined' ? window.location.hostname : '';
+  return Boolean(publicSupportSlugFromHost(hostname));
 });
 
 const defaults = {

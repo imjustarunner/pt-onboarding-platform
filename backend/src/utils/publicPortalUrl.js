@@ -104,6 +104,50 @@ export function buildPublicAppUrl(agency, path = '', { platformBaseUrl } = {}) {
   return `${base}/${suffix}`;
 }
 
+/**
+ * Public marketing website origin (not the app portal).
+ * Prefer website_url (e.g. https://itsco.health); otherwise strip leading `app.`
+ * from the portal/custom host. Used for email footer Support links.
+ */
+export function buildPublicMarketingBaseUrl(agency, { platformBaseUrl } = {}) {
+  const website = String(agency?.website_url || agency?.websiteUrl || '').trim();
+  if (website) {
+    try {
+      const u = new URL(/^https?:\/\//i.test(website) ? website : `https://${website}`);
+      if (u.hostname) return `${u.protocol}//${u.host}`.replace(/\/$/, '');
+    } catch {
+      /* fall through */
+    }
+  }
+
+  const slug = orgSlug(agency);
+  const parent = parentSlug(agency);
+  const ownCustom = hostnameFromCustomDomain(agency?.custom_domain || agency?.customDomain);
+  const parentCustom = hostnameFromCustomDomain(agency?.parent_custom_domain || agency?.parentCustomDomain);
+  const child = Boolean(slug && parent && parent !== slug && isChildOrg(agency));
+
+  let host = '';
+  if (child) {
+    host = parentCustom || dedicatedAppHostForSlug(parent) || ownCustom || dedicatedAppHostForSlug(slug);
+  } else {
+    host = ownCustom || dedicatedAppHostForSlug(slug);
+  }
+  if (host) {
+    const marketing = host.replace(/^app\./i, '');
+    return `https://${marketing}`;
+  }
+
+  return buildPublicPortalBaseUrl(agency, { platformBaseUrl });
+}
+
+export function buildPublicMarketingUrl(agency, path = '', { platformBaseUrl } = {}) {
+  const base = buildPublicMarketingBaseUrl(agency, { platformBaseUrl });
+  const suffix = String(path || '').replace(/^\//, '');
+  if (!suffix) return base || '';
+  if (!base) return `/${suffix}`;
+  return `${base}/${suffix}`;
+}
+
 export function buildPublicPortalLoginUrl(agency, opts = {}) {
   return buildPublicAppUrl(agency, 'login', opts);
 }

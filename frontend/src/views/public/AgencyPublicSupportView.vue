@@ -322,6 +322,7 @@ import { usePublicSupportLayoutEditor } from '../../composables/usePublicSupport
 import PublicAgencySupportForm from '../../components/public/PublicAgencySupportForm.vue';
 import PublicLinkImageEditor from '../../components/public/PublicLinkImageEditor.vue';
 import { resolveHostImpliedPortalSlug, buildOrgScopedPath } from '../../utils/orgScopedPath.js';
+import { publicSupportSlugFromHost } from '../../utils/publicDomainRouting.js';
 
 const route = useRoute();
 const router = useRouter();
@@ -333,6 +334,7 @@ const agencySlug = computed(() =>
     route.params.organizationSlug
     || route.params.agencySlug
     || resolveHostImpliedPortalSlug(brandingStore)
+    || (typeof window !== 'undefined' ? publicSupportSlugFromHost(window.location.hostname) : '')
     || ''
   ).trim()
 );
@@ -376,11 +378,11 @@ const shortcuts = computed(() => {
     bookingPath: bookingOn ? buildOrgScopedPath(slug, '/book-session', null, host) : null
   };
 });
-const accent = computed(() => config.value?.agency?.colors?.primary || '#1b3d2f');
+const accent = computed(() => config.value?.agency?.colors?.primary || '#111827');
 const themeUrl = PUBLIC_SUPPORT_THEME_URL;
 const pageStyle = computed(() => ({
   '--pas-accent': accent.value,
-  '--pas-ink': config.value?.agency?.colors?.secondary || '#143528'
+  '--pas-ink': config.value?.agency?.colors?.secondary || '#334155'
 }));
 
 const editRoleLabel = computed(() => String(authStore.user?.role || '').replace('_', ' '));
@@ -462,16 +464,32 @@ watch(() => route.query.topic, () => {
   if (next) selectedTopic.value = next;
 });
 
-onMounted(async () => {
-  selectedTopic.value = topicFromQuery();
+async function loadConfig() {
+  const slug = agencySlug.value;
+  if (!slug) {
+    loadError.value = 'This support page is not available.';
+    config.value = null;
+    return;
+  }
+  loadError.value = '';
   try {
-    const { data } = await api.get(`/public/agency-support/${encodeURIComponent(agencySlug.value)}`, {
+    const { data } = await api.get(`/public/agency-support/${encodeURIComponent(slug)}`, {
       skipGlobalLoading: true
     });
     applyConfig(data);
   } catch (e) {
+    config.value = null;
     loadError.value = e?.response?.data?.error?.message || 'This support page is not available.';
   }
+}
+
+watch(agencySlug, () => {
+  loadConfig();
+});
+
+onMounted(async () => {
+  selectedTopic.value = topicFromQuery();
+  await loadConfig();
 });
 </script>
 

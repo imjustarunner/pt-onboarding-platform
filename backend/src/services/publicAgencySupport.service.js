@@ -6,6 +6,7 @@ import config from '../config/config.js';
 import Agency from '../models/Agency.model.js';
 import User from '../models/User.model.js';
 import Notification from '../models/Notification.model.js';
+import EmailSenderIdentity from '../models/EmailSenderIdentity.model.js';
 import { verifyRecaptchaV3 } from './captcha.service.js';
 import { prepareEncryptedTicketText } from '../utils/supportTicketCrypto.js';
 import { SUPPORT_TICKET_SOURCE_KEYS, normalizeSupportTicketSourceKey } from '../constants/supportTicketSources.js';
@@ -94,8 +95,8 @@ function parseColorPalette(raw) {
   const primary = String(palette.primary || palette.primaryColor || palette.accent || '').trim();
   const secondary = String(palette.secondary || palette.secondaryColor || '').trim();
   return {
-    primary: primary || '#1b3d2f',
-    secondary: secondary || '#143528'
+    primary: primary || '#111827',
+    secondary: secondary || '#334155'
   };
 }
 
@@ -196,14 +197,32 @@ function tenantSlugForPublicPaths(agency, requestSlug = '') {
   return String(agency.portal_url || agency.slug || '').trim();
 }
 
-function buildPublicConfig(agency, requestSlug = '') {
+function looksLikeFormsEmail(email) {
+  return /^forms@/i.test(String(email || '').trim());
+}
+
+/** Public support contact is support@, never forms@. */
+export function resolvePublicSupportContactEmail(agency = {}, identityEmail = '') {
+  const candidates = [
+    agency.support_team_email,
+    identityEmail,
+    agency.onboarding_team_email
+  ];
+  for (const raw of candidates) {
+    const email = String(raw || '').trim();
+    if (email && !looksLikeFormsEmail(email)) return email;
+  }
+  return '';
+}
+
+function buildPublicConfig(agency, requestSlug = '', supportEmail = '') {
   const slug = tenantSlugForPublicPaths(agency, requestSlug);
   const recaptchaConfigured = !!(config.recaptcha?.secretKey || config.recaptcha?.enterpriseApiKey || config.recaptcha?.siteKey);
   const page = parsePublicSupportTheme(agency.theme_settings);
   const colors = parseColorPalette(agency.color_palette);
   const phone = String(agency.phone_number || '').trim();
   const extension = String(agency.phone_extension || '').trim();
-  const email = String(agency.onboarding_team_email || '').trim();
+  const email = resolvePublicSupportContactEmail(agency, supportEmail);
   const bookingEnabled = !!(
     agency.public_availability_enabled === 1
     || agency.public_availability_enabled === true
@@ -261,7 +280,14 @@ export async function getPublicAgencySupportConfig(agencySlug) {
     err.status = 404;
     throw err;
   }
-  const result = buildPublicConfig(agency, agencySlug);
+  let identityEmail = '';
+  try {
+    const identity = await EmailSenderIdentity.findByAgencyAndIdentityKey(agency.id, 'support');
+    identityEmail = String(identity?.from_email || '').trim();
+  } catch {
+    identityEmail = '';
+  }
+  const result = buildPublicConfig(agency, agencySlug, identityEmail);
   const site = await getPublicWebsiteIdentity(String(agencySlug));
   if (site) result.agency = {...result.agency,name:site.name,logoUrl:site.logoUrl};
   if (['ptco','range','mh4kidz','kimi','rise'].includes(agencySlug)) result.categories = [
@@ -308,14 +334,21 @@ export async function updatePublicAgencySupportSettings(agencySlug, payload = {}
     phoneExtension: payload.phoneExtension !== undefined
       ? String(payload.phoneExtension || '').trim().slice(0, 20)
       : agency.phone_extension,
-    onboardingTeamEmail: payload.email !== undefined
+    supportTeamEmail: payload.email !== undefined
       ? String(payload.email || '').trim().slice(0, 255)
-      : agency.onboarding_team_email,
+      : agency.support_team_email,
     themeSettings: nextTheme
   });
 
   const updated = await Agency.findById(agency.id);
-  return buildPublicConfig(updated || agency, agencySlug);
+  let identityEmail = '';
+  try {
+    const identity = await EmailSenderIdentity.findByAgencyAndIdentityKey(agency.id, 'support');
+    identityEmail = String(identity?.from_email || '').trim();
+  } catch {
+    identityEmail = '';
+  }
+  return buildPublicConfig(updated || agency, agencySlug, identityEmail);
 }
 
 async function verifyRequiredCaptcha({ token, req }) {

@@ -27,6 +27,11 @@ export function publicSiteSlug(host = '') {
  const normalized = String(host).toLowerCase().split(':')[0].replace(/^www\./, '');
  return PUBLIC_SITE_DOMAINS[normalized] || null;
 }
+/** Marketing or ITSCO public host → agency support page slug (never SSTC). */
+export function publicSupportSlugFromHost(host = '') {
+ if (isItscoPublicHost(host)) return 'itsco';
+ return publicSiteSlug(host);
+}
 export function publicSitePaths(host) {
  if (isItscoPublicHost(host)) return {clean: cleanItscoPath, internal: internalItscoPath};
  const slug = publicSiteSlug(host);
@@ -35,15 +40,23 @@ export function publicSitePaths(host) {
  return {
   clean(value) {
    const path = String(value);
+   const supportPrefix = `/support/${slug}`;
+   if (path === supportPrefix || path.startsWith(`${supportPrefix}/`) || path.startsWith(`${supportPrefix}?`) || path.startsWith(`${supportPrefix}#`)) {
+    return `/support${path.slice(supportPrefix.length)}`;
+   }
    return path === prefix || path.startsWith(prefix + '/') || path.startsWith(prefix + '?') || path.startsWith(prefix + '#')
     ? (path.slice(prefix.length).replace(/^([?#]|$)/, '/$1')) : path;
   },
   internal(value) {
    const path = String(value);
    const pathname = path.split(/[?#]/)[0];
+   const rest = path.slice(pathname.length);
    // Only root and single-segment marketing pages are adapted. Enrollment,
    // provider directories, API and cross-site /p links retain their routes.
    if (pathname === '/' || pathname === '') return prefix + path.replace(/^\//, '');
+   // Keep /support on the SPA support route, with the tenant slug in params
+   // so nextleveluplcc.com/support is NLU — never SSTC/Strava.
+   if (pathname === '/support' || pathname === '/support/') return `/support/${slug}${rest}`;
    if (/^\/[^/]+\/?$/.test(pathname) && !/^\/(login|app|logout|dashboard|support|join|intake|careers|api|uploads)(\/|$)/.test(pathname)) return prefix + path;
    return path;
   }

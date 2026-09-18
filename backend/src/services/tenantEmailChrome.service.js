@@ -5,15 +5,21 @@
  */
 import pool from '../config/database.js';
 import { publicAppBaseUrl } from './contactReminderToken.service.js';
-import { buildPublicAppUrl } from '../utils/publicPortalUrl.js';
+import { buildPublicMarketingUrl } from '../utils/publicPortalUrl.js';
 import { publicUploadsUrlFromStoredPath } from '../utils/uploads.js';
 
   const ITSCO_HEADER = '/email-branding/itsco/email-header.png';
 const ITSCO_FOOTER = '/email-branding/itsco/email-footer.png';
-const NLU_HEADER = '/email-branding/nlu/email-header.jpg';
-const NLU_FOOTER = '/email-branding/nlu/email-footer.jpg';
-const INNER_HEADER = '/email-branding/innerstrength/email-header.jpg';
-const INNER_FOOTER = '/email-branding/innerstrength/email-footer.jpg';
+const NLU_HEADER = '/email-branding/nlu/email-header.png';
+const NLU_FOOTER = '/email-branding/nlu/email-footer.png';
+const INNER_HEADER = '/email-branding/innerstrength/email-header.png';
+const INNER_FOOTER = '/email-branding/innerstrength/email-footer.png';
+const MH4KIDZ_HEADER = '/email-branding/mh4kidz/email-header.png';
+const MH4KIDZ_FOOTER = '/email-branding/mh4kidz/email-footer.png';
+const MENTAL_RANGE_HEADER = '/email-branding/mentalrange/email-header.png';
+const MENTAL_RANGE_FOOTER = '/email-branding/mentalrange/email-footer.png';
+const PLOT_TWIST_HEADER = '/email-branding/plottwistco/email-header.png';
+const PLOT_TWIST_FOOTER = '/email-branding/plottwistco/email-footer.png';
 
 const LLM_HEADER_PROMPT = `Create a wide HTML-email header banner (≈1200×280 px, PNG) for a behavioral-health / family-care organization.
 
@@ -43,7 +49,7 @@ function escapeHtml(s) {
     .replace(/"/g, '&quot;');
 }
 
-const EMAIL_CHROME_ASSET_VERSION = '3';
+const EMAIL_CHROME_ASSET_VERSION = '6';
 
 function rewriteLocalhostToPublic(url) {
   const s = String(url || '').trim();
@@ -97,10 +103,28 @@ function looksLikeInnerStrength(agency = {}) {
   return hay.includes('inner strength') || hay.includes('innerstrength') || /\btisi\b/.test(hay);
 }
 
+function looksLikeMh4kidz(agency = {}) {
+  const hay = `${agency.name || ''} ${agency.slug || ''} ${agency.official_name || ''} ${agency.portal_url || ''}`.toLowerCase();
+  return hay.includes('mh4kidz') || hay.includes('mh4 kids') || hay.includes('mental health for kids');
+}
+
+function looksLikeMentalRange(agency = {}) {
+  const hay = `${agency.name || ''} ${agency.slug || ''} ${agency.official_name || ''} ${agency.portal_url || ''}`.toLowerCase();
+  return hay.includes('mental range') || hay.includes('mentalrange');
+}
+
+function looksLikePlotTwist(agency = {}) {
+  const hay = `${agency.name || ''} ${agency.slug || ''} ${agency.official_name || ''} ${agency.portal_url || ''}`.toLowerCase();
+  return hay.includes('plottwist') || hay.includes('plot twist');
+}
+
 function bundledChromeFallback(agency = {}) {
   if (looksLikeItsco(agency)) return { header: ITSCO_HEADER, footer: ITSCO_FOOTER };
   if (looksLikeNlu(agency)) return { header: NLU_HEADER, footer: NLU_FOOTER };
   if (looksLikeInnerStrength(agency)) return { header: INNER_HEADER, footer: INNER_FOOTER };
+  if (looksLikeMh4kidz(agency)) return { header: MH4KIDZ_HEADER, footer: MH4KIDZ_FOOTER };
+  if (looksLikeMentalRange(agency)) return { header: MENTAL_RANGE_HEADER, footer: MENTAL_RANGE_FOOTER };
+  if (looksLikePlotTwist(agency)) return { header: PLOT_TWIST_HEADER, footer: PLOT_TWIST_FOOTER };
   return null;
 }
 
@@ -127,7 +151,8 @@ export async function resolveTenantEmailChrome(agencyId) {
   try {
     const [rows] = await pool.execute(
       `SELECT aes.html_email_header_url, aes.html_email_footer_url,
-              a.name, a.slug, a.official_name, a.portal_url, a.custom_domain, a.organization_type
+              a.name, a.slug, a.official_name, a.portal_url, a.custom_domain,
+              a.organization_type, a.website_url
        FROM agencies a
        LEFT JOIN agency_email_settings aes ON aes.agency_id = a.id
        WHERE a.id = ?
@@ -151,7 +176,10 @@ export async function resolveTenantEmailChrome(agencyId) {
 
   const headerUrl = absolutizeAssetUrl(headerPath);
   const footerUrl = absolutizeAssetUrl(footerPath);
-  const supportUrl = agency ? buildPublicAppUrl(agency, 'support') : `${publicAppBaseUrl()}/support`;
+  // Marketing site (itsco.health/support), not the app portal (app.itsco.health/support).
+  const supportUrl = agency
+    ? buildPublicMarketingUrl(agency, 'support')
+    : `${publicAppBaseUrl()}/support`;
   return {
     headerUrl,
     footerUrl,
@@ -179,7 +207,9 @@ export function applyTenantEmailChromeHtml(html, chrome = {}, opts = {}) {
 
   const headerUrl = String(chrome.headerUrl || '').trim();
   const footerUrl = String(chrome.footerUrl || '').trim();
-  if (!headerUrl && !footerUrl) return html;
+  const supportHref = String(opts.supportUrl || chrome.supportUrl || '').trim();
+  // Always keep Contact Support, even when header/footer art is missing.
+  if (!headerUrl && !footerUrl && !supportHref) return html;
 
   // If a full document was passed (legacy), use only the body contents.
   const bodyMatch = raw.match(/<body[^>]*>([\s\S]*)<\/body>/i);
@@ -200,21 +230,25 @@ export function applyTenantEmailChromeHtml(html, chrome = {}, opts = {}) {
   const phone = escapeHtml(opts.agencyPhone || '');
   const website = escapeHtml(opts.agencyWebsite || '');
 
+  // replyMailto kept in opts for chrome callers; footer no longer shows Reply-to
+  // (recipients can reply to the message itself).
+  void replyMailto;
+
   const footerLinks = `
-    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;">
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;margin:0 auto;">
       <tr>
-        <td align="center" style="padding:0;font-size:11px;line-height:1.45;font-family:Arial,Helvetica,sans-serif;">
-          <a href="${supportUrl}" style="color:#ffffff;text-decoration:underline;margin:0 6px;">Need help? Contact Support</a>
-          ${
-            replyMailto
-              ? `<span style="color:rgba(255,255,255,0.45);">·</span>
-          <a href="mailto:${replyMailto}" style="color:#ffffff;text-decoration:underline;margin:0 6px;">Reply to ${replyMailto}</a>`
-              : ''
-          }
+        <td align="center" style="padding:0;margin:0;font-size:13px;line-height:1.4;font-family:Arial,Helvetica,sans-serif;text-align:center;">
+          <div style="margin:0 auto;padding:0;text-align:center;width:100%;">
+            <a href="${supportUrl}" style="color:#0B1F3A;text-decoration:underline;font-weight:700;font-size:13px;line-height:1.4;">Need Help?</a>
+          </div>
+          <div style="margin:4px auto 0;padding:0;text-align:center;width:100%;">
+            <a href="${supportUrl}" style="color:#17486b;text-decoration:underline;font-weight:600;font-size:13px;line-height:1.4;">Contact Support</a>
+          </div>
           ${
             unsubscribeUrl
-              ? `<span style="color:rgba(255,255,255,0.45);">·</span>
-          <a href="${unsubscribeUrl}" style="color:#ffffff;text-decoration:underline;margin:0 6px;">Unsubscribe</a>`
+              ? `<div style="margin:8px auto 0;padding:0;text-align:center;width:100%;">
+            <a href="${unsubscribeUrl}" style="color:#64748b;text-decoration:underline;font-size:11px;">Unsubscribe</a>
+          </div>`
               : ''
           }
         </td>
@@ -222,33 +256,32 @@ export function applyTenantEmailChromeHtml(html, chrome = {}, opts = {}) {
     </table>`;
 
   const headerBlock = headerUrl
-    ? `<img src="${escapeHtml(headerUrl)}" alt="${agencyName}" width="600" style="display:block;width:100%;max-width:600px;height:auto;border:0;margin:0;padding:0;line-height:0;" />`
+    ? `<img src="${escapeHtml(headerUrl)}" alt="${agencyName}" width="600" style="display:block;width:100%;max-width:600px;height:auto;border:0;margin:0 auto;padding:0;line-height:0;" />`
     : '';
 
-  // Background-image footer so Support/Reply sit in the art’s center safe zone.
-  // Avoid <img> + negative margin (Gmail ignores it and paints a second dark bar).
+  // Photoshop-style overlay: zero-height layer first (Gmail honors
+  // max-height:0 + opacity:0.999 as a stacking context), then the same
+  // full-width <img> as v4 so art keeps its natural aspect ratio.
   const footerEsc = escapeHtml(footerUrl);
-  // Footer art is ~1200×220. At 600px wide that scales to ~110px; use a slightly
-  // taller cell and background-size auto so Gmail does not squash the wave.
   const footerBlock = footerUrl
-    ? `<td background="${footerEsc}" bgcolor="#0b3d2e" width="600" height="130" valign="middle" align="center"
-        style="width:600px;height:130px;padding:0;margin:0;background-color:#0b3d2e;background-image:url('${footerEsc}');background-repeat:no-repeat;background-position:center center;background-size:100% auto;vertical-align:middle;text-align:center;"
-        data-tenant-email-footer="1">
-        <!--[if gte mso 9]>
-        <v:rect xmlns:v="urn:schemas-microsoft-com:vml" fill="true" stroke="false" style="width:600px;height:130px;">
-          <v:fill type="frame" src="${footerEsc}" color="#0b3d2e" />
-          <v:textbox inset="0,0,0,0">
-        <![endif]-->
-        <div style="padding:42px 72px 28px;line-height:normal;">${footerLinks}</div>
-        <!--[if gte mso 9]>
-          </v:textbox>
-        </v:rect>
-        <![endif]-->
+    ? `<td style="padding:0;margin:0;background:#ffffff;" align="center" data-tenant-email-footer="1">
+        <div style="max-height:0;position:relative;opacity:0.999;overflow:visible;">
+          <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="border-collapse:collapse;width:100%;max-width:600px;margin:0 auto;">
+            <tr>
+              <td width="28%" style="width:28%;font-size:0;line-height:0;">&nbsp;</td>
+              <td width="44%" align="center" valign="top" style="width:44%;padding:78px 4px 0;text-align:center;vertical-align:top;">
+                ${footerLinks}
+              </td>
+              <td width="28%" style="width:28%;font-size:0;line-height:0;">&nbsp;</td>
+            </tr>
+          </table>
+        </div>
+        <img src="${footerEsc}" alt="" width="600" style="display:block;width:100%;max-width:600px;height:auto;border:0;margin:0 auto;padding:0;line-height:0;" />
       </td>`
-    : `<td style="padding:14px 12px;background:#0b3d2e;text-align:center;">${footerLinks}
+    : `<td style="padding:18px 24px;background:#ffffff;text-align:center;">${footerLinks}
         ${
           website || agencyName || phone
-            ? `<div style="padding:6px 12px 0;color:rgba(255,255,255,0.85);font-size:11px;font-family:Arial,Helvetica,sans-serif;">${website || agencyName}${phone ? ` · ${phone}` : ''}</div>`
+            ? `<div style="padding:6px 12px 0;color:#334155;font-size:11px;font-family:Arial,Helvetica,sans-serif;">${website || agencyName}${phone ? ` · ${phone}` : ''}</div>`
             : ''
         }
       </td>`;
@@ -259,10 +292,10 @@ export function applyTenantEmailChromeHtml(html, chrome = {}, opts = {}) {
   <!-- tenant-email-chrome -->
   <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="border-collapse:collapse;background:#eef2f6;margin:0;padding:0;">
     <tr>
-      <td align="center" style="padding:20px 16px;">
+      <td align="center" style="padding:8px 12px 20px;">
         <table role="presentation" width="600" cellspacing="0" cellpadding="0" border="0" style="border-collapse:collapse;width:100%;max-width:600px;background:#ffffff;margin:0 auto;padding:0;">
           ${headerBlock ? `<tr><td style="padding:0;margin:0;line-height:0;font-size:0;">${headerBlock}</td></tr>` : ''}
-          <tr><td style="padding:22px 28px 10px;margin:0;background:#ffffff;vertical-align:top;">${raw}</td></tr>
+          <tr><td style="padding:6px 24px 10px;margin:0;background:#ffffff;vertical-align:top;">${raw}</td></tr>
           <tr>${footerBlock}</tr>
         </table>
       </td>
@@ -271,10 +304,46 @@ export function applyTenantEmailChromeHtml(html, chrome = {}, opts = {}) {
 </body></html>`;
 }
 
+async function resolveEmailChromeAgencyId(agencyId) {
+  const aid = Number(agencyId);
+  if (!aid) return null;
+  try {
+    const [rows] = await pool.execute(
+      `SELECT id, parent_id, organization_type FROM agencies WHERE id = ? LIMIT 1`,
+      [aid]
+    );
+    const row = rows?.[0];
+    if (!row) return aid;
+    const type = String(row.organization_type || '').toLowerCase();
+    if (!['school', 'program', 'learning', 'affiliation'].includes(type)) return aid;
+
+    const parentId = Number(row.parent_id || 0);
+    if (parentId) return parentId;
+
+    const { default: OrganizationAffiliation } = await import('../models/OrganizationAffiliation.model.js');
+    const linked = await OrganizationAffiliation.getActiveAgencyIdForOrganization(aid);
+    if (linked) return Number(linked);
+
+    const { default: AgencySchool } = await import('../models/AgencySchool.model.js');
+    const schoolLinked = await AgencySchool.getActiveAgencyIdForSchool(aid);
+    if (schoolLinked) return Number(schoolLinked);
+  } catch {
+    /* keep the original agency */
+  }
+  return aid;
+}
+
 export async function wrapOutboundHtmlWithTenantChrome({ html, agencyId, opts = {} } = {}) {
-  if (!html || !agencyId) return html;
-  const chrome = await resolveTenantEmailChrome(agencyId);
-  if (!chrome.complete && !chrome.headerUrl && !chrome.footerUrl) return html;
+  if (!html) return html;
+  const chromeAgencyId = agencyId ? await resolveEmailChromeAgencyId(agencyId) : null;
+  const chrome = chromeAgencyId
+    ? await resolveTenantEmailChrome(chromeAgencyId)
+    : {
+        headerUrl: '',
+        footerUrl: '',
+        supportUrl: opts.supportUrl || `${publicAppBaseUrl()}/support`,
+        agencyName: opts.agencyName || ''
+      };
   return applyTenantEmailChromeHtml(html, chrome, {
     agencyName: chrome.agencyName,
     supportUrl: chrome.supportUrl,
@@ -315,4 +384,4 @@ export async function updateAgencyHtmlEmailChrome(agencyId, { headerUrl = undefi
   return resolveTenantEmailChrome(aid);
 }
 
-export { ITSCO_HEADER, ITSCO_FOOTER, NLU_HEADER, NLU_FOOTER, INNER_HEADER, INNER_FOOTER, LLM_HEADER_PROMPT, LLM_FOOTER_PROMPT };
+export { ITSCO_HEADER, ITSCO_FOOTER, NLU_HEADER, NLU_FOOTER, INNER_HEADER, INNER_FOOTER, MH4KIDZ_HEADER, MH4KIDZ_FOOTER, MENTAL_RANGE_HEADER, MENTAL_RANGE_FOOTER, PLOT_TWIST_HEADER, PLOT_TWIST_FOOTER, LLM_HEADER_PROMPT, LLM_FOOTER_PROMPT };

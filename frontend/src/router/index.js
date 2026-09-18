@@ -1,5 +1,5 @@
 import { createRouter, createWebHistory } from 'vue-router';
-import { publicDomainHistory } from '../utils/publicDomainRouting.js';
+import { publicDomainHistory, publicSupportSlugFromHost } from '../utils/publicDomainRouting.js';
 import { updateItscoDocumentMeta } from '../utils/itscoPublicSeo.js';
 import { Capacitor } from '@capacitor/core';
 import { useAuthStore } from '../store/auth';
@@ -311,12 +311,12 @@ const routes = [
   { path: '/:organizationSlug/email-compose', name: 'OrganizationEmailComposer', component: () => import('../views/EmailComposerView.vue'), meta: { requiresAuth: true, hideNav: true, organizationSlug: true } },
   { path: '/email-compose', name: 'EmailComposer', component: () => import('../views/EmailComposerView.vue'), meta: { requiresAuth: true, hideNav: true } },
   { path: '/quick-view/email-compose', name: 'QuickViewEmailComposer', component: () => import('../views/EmailComposerView.vue'), meta: { publicQuickView: true, hideNav: true } },
+  ...['itsco','nlu','ptco','tisi','rise','mh4kidz','range','kimi'].map(slug=>({path:`/p/${slug}/referral-network`,name:`ReferralNetwork-${slug}`,component:()=>import('../views/public/PublicReferralNetworkView.vue'),props:{slug},meta:{requiresGuest:false,publicMarketingHub:true}})),
   {path:'/community-standards',name:'CommunityStandards',component:()=>import('../views/public/CommunityStandardsView.vue'),meta:{requiresGuest:false}},
   ...['itsco','nlu','kimi','ptco','rise','range','mh4kidz','tisi'].flatMap(slug=>[
     {path:`/p/${slug}/community-standards`,name:`CommunityStandards-${slug}`,component:()=>import('../views/public/CommunityStandardsView.vue'),meta:{requiresGuest:false}},
     {path:`/p/${slug}/live-chat-support`,name:`LiveChatSupport-${slug}`,component:()=>import('../views/public/LiveChatSupportView.vue'),props:{agencySlug:slug},meta:{requiresGuest:false}}
   ]),
-  ...['itsco','nlu','ptco','tisi','rise','mh4kidz','range','kimi'].map(slug=>({path:`/p/${slug}/referral-network`,name:`ReferralNetwork-${slug}`,component:()=>import('../views/public/PublicReferralNetworkView.vue'),props:{slug},meta:{requiresGuest:false,publicMarketingHub:true}})),
   { path: '/privacy-review', name: 'PrivacyReview', component: () => import('../components/ActivityProtectionPanel.vue'), props: { review: true }, meta: { requiresAuth: true, accountSecurity: true } },
   { path: '/account-security', name: 'AccountSecurity', component: () => import('../components/AccountSecurityPanel.vue'), meta: { requiresAuth: true, accountSecurity: true } },
   {path:'/billing/complete/:token?',name:'PaymentTask',component:()=>import('../views/PaymentTaskView.vue'),meta:{requiresAuth:true}},
@@ -1038,10 +1038,12 @@ const routes = [
     path: '/support',
     name: 'PublicSupport',
     // Dedicated tenant hosts (app.itsco.health) flatten /itsco/support → /support.
-    // That flat path is the SSTC/platform page only on Summit hosts — not counseling tenants.
+    // Marketing sites (theinnerstrengthinstitute.com/support) use the agency page.
+    // SSTC/Summit hosts keep the Strava/platform SupportView.
     component: () => {
       const host = resolveHostPortalSlug();
-      if (host && !isSummitPlatformRouteSlug(host) && !isSstcTenantSlug(host)) {
+      const siteSlug = typeof window !== 'undefined' ? publicSupportSlugFromHost(window.location.hostname) : '';
+      if (siteSlug || (host && !isSummitPlatformRouteSlug(host) && !isSstcTenantSlug(host))) {
         return import('../views/public/AgencyPublicSupportView.vue');
       }
       return import('../views/public/SupportView.vue');

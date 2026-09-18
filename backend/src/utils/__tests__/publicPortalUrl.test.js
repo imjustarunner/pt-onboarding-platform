@@ -2,6 +2,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   buildPublicAppUrl,
+  buildPublicMarketingUrl,
   buildPublicPortalBaseUrl,
   buildPublicPortalLoginUrl,
   buildQuickViewHomeUrl,
@@ -13,6 +14,33 @@ import {
 const PLATFORM = 'https://plottwisthq.com';
 
 describe('publicPortalUrl', () => {
+  it('maps ITSCO marketing support to itsco.health (not app.itsco.health)', () => {
+    const itsco = {
+      name: 'ITSCO',
+      slug: 'itsco',
+      portal_url: 'itsco',
+      organization_type: 'agency',
+      custom_domain: 'app.itsco.health',
+      website_url: 'https://itsco.health'
+    };
+    assert.equal(
+      buildPublicMarketingUrl(itsco, 'support', { platformBaseUrl: PLATFORM }),
+      'https://itsco.health/support'
+    );
+  });
+
+  it('strips app. from dedicated hosts when website_url is missing', () => {
+    const itsco = {
+      slug: 'itsco',
+      portal_url: 'itsco',
+      organization_type: 'agency'
+    };
+    assert.equal(
+      buildPublicMarketingUrl(itsco, 'support', { platformBaseUrl: PLATFORM }),
+      'https://itsco.health/support'
+    );
+  });
+
   it('maps ITSCO to the dedicated app host with a flat login path', () => {
     const itsco = { name: 'ITSCO', slug: 'itsco', portal_url: 'itsco', organization_type: 'agency' };
     assert.equal(dedicatedAppHostForSlug('itsco'), 'app.itsco.health');

@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { describe, it, expect } from 'vitest';
 import { createRouter, createWebHistory } from 'vue-router';
-import { isItscoPublicHost, publicDomainHistory, cleanItscoPath, internalItscoPath } from '../publicDomainRouting.js';
+import { isItscoPublicHost, publicDomainHistory, publicSupportSlugFromHost, cleanItscoPath, internalItscoPath } from '../publicDomainRouting.js';
 import { itscoPublicResponse, itscoSitemap, updateItscoDocumentMeta } from '../itscoPublicSeo.js';
 
 describe('ITSCO public domain routing', () => {
@@ -85,3 +85,29 @@ it('serves the standards page and keeps tokenized support referrals out of the s
  expect(itscoPublicResponse('www.itsco.health','/live-chat-support?ref=abc')).toMatchObject({status:200,noindex:true});
  expect(itscoSitemap()).not.toContain('live-chat-support');
 });
+
+describe('public support host slugs', () => {
+ it.each([
+  ['theinnerstrengthinstitute.com','tisi'],
+  ['www.mh4kidz.org','mh4kidz'],
+  ['nextleveluplcc.com','nlu'],
+  ['plottwistco.com','ptco'],
+  ['www.plottwistco.com','ptco'],
+  ['itsco.health','itsco'],
+  ['www.itsco.health','itsco']
+ ])('maps %s /support to %s', (host, slug) => {
+  expect(publicSupportSlugFromHost(host)).toBe(slug);
+ });
+ it('does not treat SSTC hosts as tenant support sites', () => {
+  expect(publicSupportSlugFromHost('summitstatsteamchallenge.com')).toBeNull();
+  expect(publicSupportSlugFromHost('app.summitstatsteamchallenge.com')).toBeNull();
+ });
+ it('keeps marketing /support as /support in the browser and /support/{slug} internally', () => {
+  window.history.replaceState(null,'','/support');
+  const history=publicDomainHistory(createWebHistory(),'nextleveluplcc.com');
+  expect(history.location).toBe('/support/nlu');
+  expect(history.createHref('/support/nlu')).toBe('/support');
+  history.destroy();
+ });
+});
+
