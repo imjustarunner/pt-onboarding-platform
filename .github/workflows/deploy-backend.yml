@@ -9,6 +9,7 @@ on:
       - 'frontend/**'
       - 'database/migrations/**'
       - 'scripts/preserve-deploy-secrets*'
+      - 'scripts/provision-mfa-secret*'
       - '.dockerignore'
       - '.github/workflows/deploy-backend.yml'
   workflow_dispatch:
@@ -86,8 +87,10 @@ jobs:
         run: |
           set -euo pipefail
           node --test scripts/preserve-deploy-secrets.test.mjs
+          node --test scripts/provision-mfa-secret.test.mjs
+          node scripts/provision-mfa-secret.mjs
           # Inspect the reference only; never retrieve or print the encryption key.
-          # Provision this key separately and retain it across deployments.
+          # The provisioner preserves existing key material and pins the reference.
           KEY_REF=$(gcloud run services describe "$SERVICE_NAME" --region "$REGION" --format=json \
             | jq -ce '[.spec.template.spec.containers[0].env[]? | select(.name == "MFA_ENCRYPTION_KEY_BASE64") | .valueFrom.secretKeyRef] | if length == 1 then .[0] else null end')
           if ! jq -e '(.name | type == "string" and length > 0) and (.key | type == "string" and test("^[1-9][0-9]*$"))' <<< "$KEY_REF" >/dev/null; then

@@ -1,4 +1,5 @@
 import { protectOutboundEmail } from '../activityProtection.service.js';
+import { assertMessageReminderRecipient } from '../messageReminderRecipient.service.js';
 import { randomUUID } from 'node:crypto';
 import { getGmailClient, getImpersonatedUser } from './gmailClient.js';
 import { base64UrlEncode, buildMimeMessage } from './mime.js';
@@ -520,6 +521,7 @@ export async function sendNotificationEmail({
   source = 'auto',
   senderIdentityId = null
 }) {
+  await assertMessageReminderRecipient({ templateType, userId, to });
   const gate = await canSendEmail({ source, agencyId });
   if (!gate.allowed) {
     // Gate blocked — write a visible audit row so admins can see that a send
@@ -905,6 +907,7 @@ export async function sendEmailFromIdentity({
   signatureIdentityId = null,
   internetMessageIdOverride = null
 }) {
+  await assertMessageReminderRecipient({ templateType, userId, to, cc, bcc });
   const identity = await EmailSenderIdentity.findById(senderIdentityId);
   if (!identity) throw new Error('Sender identity not found');
   const gate = await canSendEmail({ source, agencyId: identity?.agency_id || null });
