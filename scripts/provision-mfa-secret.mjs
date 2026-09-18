@@ -33,11 +33,13 @@ export function provisionMfaSecret({ call, service, region, makeKey = () => rand
   const latest = call(['secrets', 'versions', 'describe', 'latest', `--secret=${secret}`]);
   const version = latest.name?.split('/').pop();
   if (latest.state !== 'ENABLED' || !/^[1-9][0-9]*$/.test(version)) throw new Error('MFA secret needs an enabled numeric version.');
-  // Read only when binding a previously unbound/literal key. This value stays in
-  // memory; it never appears in arguments, environment dumps, files, or logs.
-  const value = call(['secrets', 'versions', 'access', version, `--secret=${secret}`], { raw: true }).trim();
-  if (!validKey(value)) throw new Error('Stored MFA key must be a base64-encoded 32-byte key.');
-  if (literal && literal.trim() !== value) throw new Error('Runtime and stored MFA keys differ; refusing an automatic key rotation.');
+  // Deployment needs metadata, not access to existing secret contents. Newly
+  // created values were validated above. Only a literal-to-existing-secret
+  // migration needs a comparison to prove it is not rotating the live key.
+  if (literal && exists) {
+    const value = call(['secrets', 'versions', 'access', version, `--secret=${secret}`], { raw: true }).trim();
+    if (literal.trim() !== value) throw new Error('Runtime and stored MFA keys differ; refusing an automatic key rotation.');
+  }
   const policy = call(['secrets', 'get-iam-policy', secret]);
   const member = `serviceAccount:${runtimeAccount}`;
   if (!(policy.bindings || []).some(b => b.role === 'roles/secretmanager.secretAccessor' && !b.condition && b.members?.includes(member))) {

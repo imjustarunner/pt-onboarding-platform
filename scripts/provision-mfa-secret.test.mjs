@@ -28,7 +28,7 @@ test('creates a missing key through stdin and binds a numeric version without mo
   assert.ok(update.args.includes(`--update-secrets=${MFA_ENV}=${MFA_ENV}:3`));
 });
 test('reuses an existing secret without generating a new version', () => {
-  const f = fixture(); f.run(); assert.ok(f.calls.every(c => !c.args.includes('create') && !c.args.includes('add')));
+  const f = fixture(); f.run(); assert.ok(f.calls.every(c => !c.args.includes('create') && !c.args.includes('add') && !c.args.includes('access')));
 });
 test('migrates the exact existing literal key rather than rotating it', () => {
   const f = fixture({ entry: { name: MFA_ENV, value: key }, exists: false }); f.run();
