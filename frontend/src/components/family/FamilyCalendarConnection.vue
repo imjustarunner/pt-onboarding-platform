@@ -1,7 +1,7 @@
 <template>
   <section class="calendar-connection">
-    <h2>▦ Your shared Google calendar</h2>
-    <p>Choose a shared calendar from your existing Workspace account. Add upcoming events to your family calendar and choose who each one is for.</p>
+    <h2>▦ Bring in a Google calendar</h2>
+    <p>Choose a shared calendar from your Workspace account. Its events appear live in the day/week calendar. To assign a person or theme, add a saved copy to the family calendar.</p>
     <p class="calendar-note">Imports are saved copies. Later changes in Google and changes here are separate.</p>
     <template v-if="!connection">
       <button :disabled="busy" @click="listCalendars">Find my shared calendars</button>
@@ -26,13 +26,13 @@ const busy=ref(false),connection=ref(null),calendars=ref([]),events=ref([]),sele
 const path=()=>`/households/${props.householdId}`;
 async function run(fn){if(busy.value)return;busy.value=true;message.value='';try{await fn();}catch(e){emit('error',e);}finally{busy.value=false;}}
 async function listCalendars(){await run(async()=>{calendars.value=(await props.http.get(`${path()}/google/calendars`)).data;searched.value=true;});}
-async function connect(){await run(async()=>{const{data}=await props.http.post(`${path()}/google/connect`,{calendarId:selected.value});connection.value={calendar_name:data.name};await loadEvents();});}
+async function connect(){await run(async()=>{const{data}=await props.http.post(`${path()}/google/connect`,{calendarId:selected.value});connection.value={calendar_name:data.name};await loadEvents();emit('updated');});}
 async function loadEvents(){events.value=(await props.http.get(`${path()}/google/events`)).data.events;loaded.value=true;}
 async function refresh(){await run(loadEvents);}
-async function disconnect(){await run(async()=>{await props.http.delete(`${path()}/google`);connection.value=null;events.value=[];message.value='Disconnected. Events already added remain on your family calendar.';});}
+async function disconnect(){await run(async()=>{await props.http.delete(`${path()}/google`);connection.value=null;events.value=[];message.value='Disconnected. Events already added remain on your family calendar.';emit('updated');});}
 async function importEvent(e){await run(async()=>{await props.http.post(`${path()}/google/import`,{eventId:e.id,memberUserId:memberId.value,eventType:type.value,artworkVariant:artworkVariant.value});e.imported=true;message.value='Added to the family calendar and personal schedules.';emit('updated');});}
 function date(e){return new Date(e.startAt).toLocaleString('en-US',{month:'short',day:'numeric',...(e.allDay?{}:{hour:'numeric',minute:'2-digit'}),timeZone:props.timezone})+(e.allDay?' · All day':'');}
-onMounted(()=>run(async()=>{connection.value=(await props.http.get(`${path()}/tools`)).data.calendar;}));
+onMounted(()=>run(async()=>{connection.value=(await props.http.get(`${path()}/tools`)).data.calendar;if(connection.value)await loadEvents();}));
 </script>
 <style scoped>
 .calendar-connection{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:24px;margin:22px 0;max-width:850px;color:var(--ink)}

@@ -154,6 +154,7 @@ import providerSearchRoutes from './routes/providerSearch.routes.js';
 import communicationsRoutes from './routes/communications.routes.js';
 import quickViewRoutes from './routes/quickView.routes.js';
 import familyRoutes from './routes/family.routes.js';
+import calendarSharingRoutes from './routes/calendarSharing.routes.js';
 import providerImportRoutes from './routes/providerImport.routes.js';
 import mboxImportRoutes from './routes/mboxImport.routes.js';
 import noteAidRoutes from './routes/noteAid.routes.js';
@@ -891,7 +892,10 @@ app.use('/api/team-meetings', teamMeetingsRoutes);
 // Quick View must mount before catch-all `/api` routers that call router.use(authenticate),
 // so passcode sessions are not rejected as missing JWT ("No token provided").
 app.use('/api/quick-view', quickViewRoutes);
+// Family cookies are restricted to /api/family; keep sharing controls inside that path.
+app.use('/api/family/calendar-sharing', calendarSharingRoutes);
 app.use('/api/family', familyRoutes);
+app.use('/api/calendar-sharing', calendarSharingRoutes);
 
 app.use('/api', userCommunicationRoutes);
 app.use('/api', userAdminDocsRoutes);
@@ -1569,6 +1573,17 @@ if (!isBootstrap) {
       }
     }
   };
+
+  let calendarSharingRunning = false;
+  const syncSharedCalendars = async () => {
+    if (calendarSharingRunning) return;
+    calendarSharingRunning = true;
+    try { const { syncDueCalendarPublications } = await import('./services/calendarPublication.service.js'); await syncDueCalendarPublications(); }
+    catch (error) { console.warn('[Calendar sharing] Scheduler unavailable:', error.code || 'unknown'); }
+    finally { calendarSharingRunning = false; }
+  };
+  setTimeout(syncSharedCalendars, 30000);
+  setInterval(syncSharedCalendars, 5 * 60 * 1000);
 
   // Run immediately on startup (best-effort)
   scheduleClinicalNoteDraftCleanup();

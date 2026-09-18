@@ -1,3 +1,4 @@
+import { tenantMeetingBase } from '../utils/tenantMeetingUrl.js';
 import DiscoverySession from '../models/DiscoverySession.model.js';
 import ProviderScheduleEvent from '../models/ProviderScheduleEvent.model.js';
 import Client from '../models/Client.model.js';
@@ -26,11 +27,10 @@ function toSqlDatetimeSafe(value, timeZone = DEFAULT_SCHEDULE_TZ) {
   return wallMysqlToUtcMysql(wall, timeZone) || wall;
 }
 
-function buildDiscoveryUrl(agencySlug, accessToken) {
-  const slug = String(agencySlug || '').trim();
+async function buildDiscoveryUrl(agencyId, accessToken) {
   const token = String(accessToken || '').trim();
-  if (!slug || !token) return null;
-  return `${FRONTEND_URL}/${encodeURIComponent(slug)}/discovery/${encodeURIComponent(token)}`;
+  if (!agencyId || !token) return null;
+  return `${await tenantMeetingBase(agencyId)}/discovery/${encodeURIComponent(token)}`;
 }
 
 async function resolveAgencySlug(agencyId) {
@@ -166,7 +166,7 @@ export async function createAndSendDiscoveryInvite({
   });
 
   const slug = await resolveAgencySlug(agencyId);
-  const joinUrl = buildDiscoveryUrl(slug, session.access_token);
+  const joinUrl = await buildDiscoveryUrl(session.agency_id, session.access_token);
 
   if (sendEmail && joinUrl) {
     const optionLines = (session.proposed_options || [])
@@ -230,7 +230,7 @@ export async function getPublicDiscoveryPayload(token) {
       bookedEndAt: session.booked_end_at,
       clientName: session.client_name,
       modalityLabel: 'Virtual',
-      joinUrl: buildDiscoveryUrl(slug, session.access_token),
+      joinUrl: await buildDiscoveryUrl(session.agency_id, session.access_token),
       timezone: scheduleTimezone
     },
     provider: provider
@@ -277,7 +277,7 @@ export async function selectDiscoveryOption({ token, optionIndex }) {
   const endUtc = toSqlDatetimeSafe(endAt, scheduleTz);
 
   const slug = await resolveAgencySlug(session.agency_id);
-  const joinUrl = buildDiscoveryUrl(slug, session.access_token);
+  const joinUrl = await buildDiscoveryUrl(session.agency_id, session.access_token);
 
   const event = await ProviderScheduleEvent.create({
     agencyId: session.agency_id,

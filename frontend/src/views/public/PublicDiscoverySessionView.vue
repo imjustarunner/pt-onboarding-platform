@@ -186,6 +186,10 @@ async function load() {
       skipAuthRedirect: true
     });
     session.value = res.data?.session || {};
+    if (session.value.joinUrl) {
+      const target = new URL(session.value.joinUrl);
+      if (target.protocol === 'https:' && target.origin !== window.location.origin) { window.location.replace(target.href); return; }
+    }
     provider.value = res.data?.provider || null;
     agency.value = res.data?.agency || {};
     if (typeof agency.value.colorPalette === 'string') {

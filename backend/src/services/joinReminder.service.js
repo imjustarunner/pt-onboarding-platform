@@ -1,3 +1,4 @@
+import { tenantMeetingBase } from '../utils/tenantMeetingUrl.js';
 /**
  * Join reminder service: sends email/SMS with join link 5 minutes before
  * supervision sessions and team meetings when configured.
@@ -268,7 +269,7 @@ export async function runJoinReminderTick({ now = new Date() } = {}) {
       const label = `Supervision with ${String(r.supervisor_name || '').trim() || 'supervisor'}`;
       const joinKey = String(r.join_token || sessionId || '').trim();
       const joinUrl = useAppJoin && joinKey
-        ? `${FRONTEND_URL}/join/supervision/${encodeURIComponent(joinKey)}`
+        ? `${await tenantMeetingBase(agencyId)}/join/supervision/${encodeURIComponent(joinKey)}`
         : (r.google_meet_link ? String(r.google_meet_link).trim() : null);
       if (!joinUrl) continue;
 
@@ -352,7 +353,7 @@ export async function runJoinReminderTick({ now = new Date() } = {}) {
       const hasPlatformLink = r.platform_video_link == null || Number(r.platform_video_link) === 1;
       const joinKey = String(r.participant_join_token || r.join_token || sessionId || '').trim();
       const joinUrl = useAppJoin && hasPlatformLink && joinKey
-        ? `${FRONTEND_URL}/join/team-meeting/${encodeURIComponent(joinKey)}`
+        ? `${await tenantMeetingBase(agencyId)}/join/team-meeting/${encodeURIComponent(joinKey)}`
         : (r.google_meet_link ? String(r.google_meet_link).trim() : null);
       if (!joinUrl) continue;
 
@@ -395,9 +396,7 @@ export async function runJoinReminderTick({ now = new Date() } = {}) {
       const label = `Discovery call with ${String(r.client_name || 'client').trim()}`;
       let joinUrl = null;
       if (useAppJoin && r.access_token) {
-        const [agencyRows] = await pool.execute(`SELECT slug FROM agencies WHERE id = ? LIMIT 1`, [agencyId]);
-        const slug = agencyRows?.[0]?.slug;
-        if (slug) joinUrl = `${FRONTEND_URL}/${encodeURIComponent(slug)}/discovery/${encodeURIComponent(r.access_token)}`;
+        joinUrl = `${await tenantMeetingBase(agencyId)}/discovery/${encodeURIComponent(r.access_token)}`;
       }
       if (!joinUrl) continue;
 

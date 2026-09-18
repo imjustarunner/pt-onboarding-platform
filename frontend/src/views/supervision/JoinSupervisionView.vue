@@ -452,6 +452,14 @@ async function resolveAndRedirect() {
     const resp = await api.get(`/supervision/join-info/${encodeURIComponent(sid)}`, { skipAuthRedirect: true });
     const data = resp?.data || {};
     const slug = String(data.orgSlug || '').trim();
+    if (data.canonicalJoinUrl) {
+      const target = new URL(data.canonicalJoinUrl);
+      if (target.protocol === 'https:' && target.origin !== window.location.origin) {
+        window.location.replace(target.href);
+        return 'redirected';
+      }
+    }
+
     if (!slug) {
       error.value = 'Session organization not found';
       joinAttemptedForPath.value = '';
@@ -611,7 +619,7 @@ async function runJoinFlowForCurrentRoute() {
   if (joinAttemptedForPath.value === pathKey) return;
   joinAttemptedForPath.value = pathKey;
 
-  if (!organizationSlug.value) {
+  {
     const resolved = await resolveAndRedirect();
     if (resolved !== 'continue') return;
   }

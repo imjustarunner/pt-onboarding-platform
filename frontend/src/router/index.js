@@ -1211,6 +1211,12 @@ const routes = [
   },
 
   {
+    path: '/discovery/:token',
+    name: 'PublicDiscoverySessionDedicated',
+    component: () => import('../views/public/PublicDiscoverySessionView.vue'),
+    meta: { requiresGuest: false, publicDiscovery: true }
+  },
+  {
     path: '/:organizationSlug/discovery/:token',
     name: 'PublicDiscoverySession',
     component: () => import('../views/public/PublicDiscoverySessionView.vue'),

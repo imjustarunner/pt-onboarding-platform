@@ -63,6 +63,9 @@ try{
         const body=JSON.parse(req.postData());assert.equal(body.kind,'grocery');assert.deepEqual(body.items,['Coffee','Bananas']);
         for(const title of body.items)fixture.entries.push(entry(500+fixture.entries.length,body.kind,title,null));data={added:body.items.length,skipped:0};
       }
+      else if(url.pathname==='/api/family/calendar-sharing/family/1')data={enabled:false,readers:[]};
+      else if(url.pathname==='/api/family/calendar-sharing/family/1/subscription')data={url:'https://app.example.com/api/calendar-sharing/feed/test.ics'};
+      else if(url.pathname==='/api/family/households/1/calendar-view')data={events:fixture.entries.filter(e=>e.kind==='event').map(e=>({key:`family:${e.id}`,title:e.title,start:e.start_at,end:e.end_at,memberName:'Emma',color:'#6552a8'})),warnings:[]};
       else if(url.pathname==='/api/family/households/1/tools')data=homeTools;
       else if(url.pathname==='/api/family/households/1/preferences'){homeTools.preferences=JSON.parse(req.postData());data=homeTools.preferences;}
       else if(url.pathname==='/api/family/households/1/decide')data={choice:JSON.parse(req.postData()).options[1]};
@@ -197,6 +200,17 @@ try{
   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>window.innerWidth),false,'Cuisine controls fit on mobile');
   await clickText('.fcc-sidebar nav button','Settings');
   assert(await page.$('.fcc-settings-form option[value="pet"]'),'Settings offers a pet profile without a login');
+  await page.evaluate(()=>[...document.querySelectorAll('.fcc-sidebar nav button')].find(b=>b.textContent.includes('Calendar')).click());
+  await page.waitForSelector('.family-calendar .calendar-event');
+  assert.equal(await page.$$eval('.day-column',nodes=>nodes.length),7);
+  await page.screenshot({path:'/tmp/family-calendar-week.png',fullPage:true});
+  await page.evaluate(()=>[...document.querySelectorAll('.family-calendar button')].find(b=>b.textContent==='Day').click());
+  assert.equal(await page.$$eval('.day-column',nodes=>nodes.length),1);
+  await page.evaluate(()=>[...document.querySelectorAll('.calendar-sharing button')].find(b=>b.textContent==='Create subscription link').click());
+  await page.waitForSelector('.subscription input');
+  assert.match(await page.$eval('.subscription input',el=>el.value),/calendar-sharing\/feed/);
+
+  await clickText('.fcc-sidebar nav button','Settings');
   await page.waitForSelector('.photo-upload input');
   const upload=await page.$('.photo-upload input');
   await upload.uploadFile(new URL('../../frontend/public/assets/family-events/family.jpg',import.meta.url).pathname);

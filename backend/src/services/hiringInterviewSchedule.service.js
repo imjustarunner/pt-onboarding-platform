@@ -1,3 +1,4 @@
+import { tenantMeetingBase } from '../utils/tenantMeetingUrl.js';
 import { resolveInterviewSender, interviewDeliveryStatus } from './hiringInterviewSender.service.js';
 import { canAccessHiringInterview } from './hiringInterviewAccess.service.js';
 import pool from '../config/database.js';
@@ -304,8 +305,8 @@ export async function scheduleHiringInterview({
 
   const guestToken = saved.participant_join_token || saved.join_token || null;
   const hostToken = saved.host_join_token || guestToken;
-  const publicJoinUrl = joinUrlForTeamMeeting(config.frontendUrl || process.env.FRONTEND_URL, guestToken);
-  const hostJoinUrl = joinUrlForTeamMeeting(config.frontendUrl || process.env.FRONTEND_URL, hostToken);
+  const publicJoinUrl = joinUrlForTeamMeeting(await tenantMeetingBase(agency), guestToken);
+  const hostJoinUrl = joinUrlForTeamMeeting(await tenantMeetingBase(agency), hostToken);
 
   if (publicJoinUrl && googleEventId) {
     try {

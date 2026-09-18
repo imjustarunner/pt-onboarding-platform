@@ -1,3 +1,4 @@
+import { tenantMeetingBase } from '../utils/tenantMeetingUrl.js';
 import User from '../models/User.model.js';
 import UserAccount from '../models/UserAccount.model.js';
 import AdminAuditLog from '../models/AdminAuditLog.model.js';
@@ -4776,10 +4777,10 @@ export const getUserScheduleSummary = async (req, res, next) => {
           googleMeetLink: r.google_meet_link || null,
           joinToken: joinToken || null,
           hostJoinToken: hostJoinToken || null,
-          joinUrl: joinableSession ? joinUrlForSupervision(supervisionJoinUrlBase, joinKey) : null,
-          participantJoinUrl: joinableSession ? joinUrlForSupervision(supervisionJoinUrlBase, joinKey) : null,
+          joinUrl: joinableSession ? joinUrlForSupervision(await tenantMeetingBase(r.agency_id), joinKey) : null,
+          participantJoinUrl: joinableSession ? joinUrlForSupervision(await tenantMeetingBase(r.agency_id), joinKey) : null,
           hostJoinUrl: joinableSession && hostJoinToken
-            ? joinUrlForSupervision(supervisionJoinUrlBase, hostJoinToken)
+            ? joinUrlForSupervision(await tenantMeetingBase(r.agency_id), hostJoinToken)
             : null,
           liveEndedAt,
           liveEnded,
@@ -4852,7 +4853,7 @@ export const getUserScheduleSummary = async (req, res, next) => {
         // ignore
       }
 
-      const mapScheduleRows = (sourceRows) => (sourceRows || []).map((r) => {
+      const mapScheduleRows = async (sourceRows) => Promise.all((sourceRows || []).map(async (r) => {
         const isPrivate = Number(r.is_private || 0) === 1;
         const titleRaw = String(r.title || '').trim();
         const title = isPrivate && !canSeePrivateTitle
@@ -4871,11 +4872,11 @@ export const getUserScheduleSummary = async (req, res, next) => {
           && !meetingCompleted;
         const appJoinUrl = (joinableMeeting && meetingJoinKey
           && (r.platform_video_link == null || Number(r.platform_video_link) === 1))
-          ? `/join/team-meeting/${encodeURIComponent(meetingJoinKey)}`
+          ? joinUrlForTeamMeeting(await tenantMeetingBase(r.agency_id), meetingJoinKey)
           : null;
         const hostJoinUrl = (joinableMeeting && meetingHostKey
           && (r.platform_video_link == null || Number(r.platform_video_link) === 1))
-          ? `/join/team-meeting/${encodeURIComponent(meetingHostKey)}`
+          ? joinUrlForTeamMeeting(await tenantMeetingBase(r.agency_id), meetingHostKey)
           : null;
         const waitingRoomEnabled = r.waiting_room_enabled == null
           ? true
@@ -4954,7 +4955,7 @@ export const getUserScheduleSummary = async (req, res, next) => {
           canReschedule: canEditThisEvent && !cancelled,
           outreachTripId: Number(r.outreach_trip_id || 0) || null
         };
-      });
+      }));
 
       const attachMeetingParticipants = async (events) => {
         let next = events || [];
@@ -5048,10 +5049,10 @@ export const getUserScheduleSummary = async (req, res, next) => {
 
       rematerializeScheduleEventsAfterGoogleSync = async () => {
         const freshRows = await ProviderScheduleEvent.listForUserInWindow(scheduleListArgs);
-        return attachMeetingParticipants(mapScheduleRows(freshRows));
+        return attachMeetingParticipants(await mapScheduleRows(freshRows));
       };
 
-      scheduleEvents = await attachMeetingParticipants(mapScheduleRows(rows));
+      scheduleEvents = await attachMeetingParticipants(await mapScheduleRows(rows));
     } catch (e) {
       if (e?.code !== 'ER_NO_SUCH_TABLE') throw e;
       scheduleEvents = [];
@@ -6494,13 +6495,12 @@ export const createUserScheduleEvent = async (req, res, next) => {
         }
       }
       if (saved?.id && (kind === 'TEAM_MEETING' || kind === 'HUDDLE') && createPlatformVideoLink) {
-        const frontendUrl = (process.env.FRONTEND_URL || '').replace(/\/$/, '');
+        const frontendUrl = await tenantMeetingBase(agencyId);
         const joinKey = String(saved.participant_join_token || saved.join_token || saved.id || '').trim();
         const hostKey = String(saved.host_join_token || '').trim();
-        // Prefer relative paths in the UI response so Join stays on the current origin
-        // (absolute FRONTEND_URL was opening a host that dropped the session cookie).
-        appJoinUrl = joinKey ? `/join/team-meeting/${encodeURIComponent(joinKey)}` : null;
-        hostJoinUrl = hostKey ? `/join/team-meeting/${encodeURIComponent(hostKey)}` : null;
+        // Keep invitations, calendar copies and the UI on the event's agency portal.
+        appJoinUrl = joinKey ? joinUrlForTeamMeeting(frontendUrl, joinKey) : null;
+        hostJoinUrl = hostKey ? joinUrlForTeamMeeting(frontendUrl, hostKey) : null;
         const absoluteJoinForCalendar = (frontendUrl && joinKey)
           ? joinUrlForTeamMeeting(frontendUrl, joinKey)
           : null;

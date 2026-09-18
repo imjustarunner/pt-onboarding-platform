@@ -99,3 +99,25 @@ export async function disconnectFamilyCalendar(session,id) {
     await db.execute('DELETE FROM family_calendar_connections WHERE household_id=?',[id]);
   });
 }
+
+// Read a selected incoming calendar live; imported copies are not duplicated in the view.
+export async function visibleGoogleFamilyEvents(session,id,from,to) {
+  await requireHousehold(session,id);
+  const [rows]=await pool.execute('SELECT connected_by_user_id FROM family_calendar_connections WHERE household_id=?',[id]);
+  if(!rows[0])return [];
+  const connector={userId:rows[0].connected_by_user_id,agencyId:session.agencyId};
+  const {calendar,connection,household}=await connectedCalendar(connector,id);
+  const [links]=await pool.execute('SELECT google_event_id FROM family_google_event_links WHERE household_id=? AND calendar_id=?',[id,connection.calendar_id]);
+  const imported=new Set(links.map(l=>l.google_event_id));const events=[];let pageToken;
+  do{
+    const {data}=await calendar.events.list({calendarId:connection.calendar_id,timeMin:from.toISOString(),timeMax:to.toISOString(),singleEvents:true,orderBy:'startTime',maxResults:250,pageToken});
+    for(const raw of data.items || [])if(raw.status!=='cancelled' && raw.start && !imported.has(raw.id)){
+      const e=googleFamilyEvent(raw,household.timezone);
+      events.push({key:`google:${connection.calendar_id}:${e.id}`,title:e.title,start:e.startAt,end:e.endAt,source:'Google',location:e.address,
+        ...(e.allDay?{startDate:raw.start.date,endDate:raw.end.date}:{})});
+    }
+    pageToken=data.nextPageToken;
+    if(events.length>2000)throw familyError('Too many Google events in this range. Choose a shorter range.');
+  }while(pageToken);
+  return events;
+}

@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 const m = vi.hoisted(() => ({ execute: vi.fn(), candidate: vi.fn(), agencies: vi.fn(), sender: vi.fn(), access: vi.fn(), template: vi.fn(), questions: vi.fn(), profile: vi.fn(), calendar: vi.fn(), append: vi.fn(), event: vi.fn(), attendees: vi.fn(), interview: vi.fn(), update: vi.fn(), artifact: vi.fn(), invite: vi.fn() }));
 vi.mock('../../config/database.js', () => ({ default: { execute: m.execute } }));
+vi.mock('../../models/Agency.model.js', () => ({ default: { findById: vi.fn(async()=>({id:4,slug:'tenant',custom_domain:'app.tenant.example'})) } }));
 vi.mock('../../config/config.js', () => ({ default: { frontendUrl: 'https://tenant.example' } }));
 vi.mock('../../models/User.model.js', () => ({ default: { findById: m.candidate, getAgencies: m.agencies } }));
 vi.mock('../../models/ProviderScheduleEvent.model.js', () => ({ default: { create: m.event } }));
@@ -26,7 +27,7 @@ describe('interview scheduling delivery', () => {
     const result = await scheduleHiringInterview(args);
     expect(m.calendar.mock.calls[0][0]).toMatchObject({ subjectEmail: 'po@tenant.org', sendUpdates: 'none' });
     expect(m.append.mock.calls[0][0]).toMatchObject({ subjectEmail: 'po@tenant.org', sendUpdates: 'all' });
-    expect(m.append.mock.calls[0][0].appendText).toContain('guest-only-token');
+    expect(m.append.mock.calls[0][0].appendText).toContain('https://app.tenant.example/join/team-meeting/guest-only-token');
     expect(JSON.stringify(m.calendar.mock.calls) + JSON.stringify(m.append.mock.calls)).not.toContain('secret-host-token');
     expect(m.interview.mock.calls[0][0].inviteSentAt).toBeNull();
     expect(result.delivery.sent).toBe(true);

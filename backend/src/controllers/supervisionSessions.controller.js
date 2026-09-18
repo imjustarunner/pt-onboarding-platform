@@ -1,3 +1,4 @@
+import { tenantMeetingBase } from '../utils/tenantMeetingUrl.js';
 import { body, validationResult } from 'express-validator';
 import User from '../models/User.model.js';
 import SupervisionSession from '../models/SupervisionSession.model.js';
@@ -503,18 +504,18 @@ function maxJoinCapacityForSessionType(sessionType) {
   return 2; // individual: supervisor + supervisee
 }
 
-function supervisionAppJoinUrl(sessionRow) {
-  const frontendUrl = (process.env.FRONTEND_URL || '').replace(/\/$/, '');
-  if (!frontendUrl || !sessionRow) return null;
+async function supervisionAppJoinUrl(sessionRow) {
+  if (!sessionRow) return null;
+  const frontendUrl = await tenantMeetingBase(sessionRow.agency_id || sessionRow.agencyId);
   const key = String(
     sessionRow.participant_join_token || sessionRow.join_token || sessionRow.id || ''
   ).trim();
   return joinUrlForSupervision(frontendUrl, key);
 }
 
-function supervisionHostJoinUrl(sessionRow) {
-  const frontendUrl = (process.env.FRONTEND_URL || '').replace(/\/$/, '');
-  if (!frontendUrl || !sessionRow) return null;
+async function supervisionHostJoinUrl(sessionRow) {
+  if (!sessionRow) return null;
+  const frontendUrl = await tenantMeetingBase(sessionRow.agency_id || sessionRow.agencyId);
   const key = String(sessionRow.host_join_token || '').trim();
   if (!key) return null;
   return joinUrlForSupervision(frontendUrl, key);
@@ -2186,12 +2187,13 @@ export const getSupervisionJoinInfo = async (req, res, next) => {
     const sessionType = String(session.session_type || 'individual').toLowerCase();
     const activeCount = await countActiveJoinPresence(session.id);
     const maxCapacity = maxJoinCapacityForSessionType(sessionType);
-    const appJoinUrl = supervisionAppJoinUrl(session);
+    const appJoinUrl = await supervisionAppJoinUrl(session);
     const closedByName = session.live_ended_at
       ? await resolveSupervisionClosedByName(session)
       : '';
     res.json({
       orgSlug,
+      canonicalJoinUrl: joinUrlForSupervision(await tenantMeetingBase(session.agency_id), redirectKey),
       sessionId: Number(session.id),
       joinToken: redirectKey || null,
       hostJoinToken: hostKey || null,
@@ -2200,7 +2202,7 @@ export const getSupervisionJoinInfo = async (req, res, next) => {
       hostJoinPath: hostKey ? `/join/supervision/${encodeURIComponent(hostKey)}` : null,
       joinUrl: appJoinUrl,
       participantJoinUrl: appJoinUrl,
-      hostJoinUrl: supervisionHostJoinUrl(session),
+      hostJoinUrl: await supervisionHostJoinUrl(session),
       liveEndedAt: session.live_ended_at || null,
       meetingClosedAt: session.live_ended_at || null,
       meetingClosedByName: closedByName || null,
@@ -2850,8 +2852,8 @@ export const getSupervisionVideoToken = async (req, res, next) => {
       roomMode: useLobby ? 'lobby' : 'main',
       lobbyEnabledForSession: waitingRoomOn,
       waitingRoomEnabled: waitingRoomOn,
-      joinUrl: supervisionAppJoinUrl(row),
-      hostJoinUrl: supervisionHostJoinUrl(row),
+      joinUrl: await supervisionAppJoinUrl(row),
+      hostJoinUrl: await supervisionHostJoinUrl(row),
       videoConfigured: true,
       activeParticipants: alreadyPresent ? activeCount : activeCount + 1,
       maxParticipants: maxCapacity,
@@ -4411,7 +4413,7 @@ export const createSupervisionSession = async (req, res, next) => {
     const desc = notes ? String(notes) : null;
     const useVideo = isVideoConfigured();
     const frontendUrl = (process.env.FRONTEND_URL || '').replace(/\/$/, '');
-    const appJoinUrl = useVideo ? supervisionAppJoinUrl(created) : null;
+    const appJoinUrl = useVideo ? await supervisionAppJoinUrl(created) : null;
     const sync = await GoogleCalendarService.upsertSupervisionSession({
       supervisionSessionId: created.id,
       hostEmail,
@@ -4453,9 +4455,9 @@ export const createSupervisionSession = async (req, res, next) => {
       ok: true,
       session: {
         ...out,
-        joinUrl: supervisionAppJoinUrl(out),
-        hostJoinUrl: supervisionHostJoinUrl(out),
-        participantJoinUrl: supervisionAppJoinUrl(out),
+        joinUrl: await supervisionAppJoinUrl(out),
+        hostJoinUrl: await supervisionHostJoinUrl(out),
+        participantJoinUrl: await supervisionAppJoinUrl(out),
         waitingRoomEnabled: isWaitingRoomEnabled(out)
       }
     });
@@ -4681,7 +4683,7 @@ export const patchSupervisionSession = async (req, res, next) => {
       const fresh = await SupervisionSession.findById(occId);
       if (!fresh) continue;
       const desc = fresh?.notes ? String(fresh.notes) : null;
-      const appJoinUrl = useVideo ? supervisionAppJoinUrl(fresh) : null;
+      const appJoinUrl = useVideo ? await supervisionAppJoinUrl(fresh) : null;
       // eslint-disable-next-line no-await-in-loop
       const sync = await GoogleCalendarService.upsertSupervisionSession({
         supervisionSessionId: occId,
@@ -4886,7 +4888,7 @@ export const getMySupervisionPrompts = async (req, res, next) => {
     const frontendUrl = (process.env.FRONTEND_URL || '').replace(/\/$/, '');
     const useAppJoin = isVideoConfigured() && frontendUrl;
 
-    const prompts = (rows || []).map((row) => {
+    const prompts = (await Promise.all((rows || []).map(async (row) => {
       const start = new Date(row.startAt || 0);
       const end = new Date(row.endAt || 0);
       const startsInMinutes = Number.isFinite(start.getTime())
@@ -4897,13 +4899,13 @@ export const getMySupervisionPrompts = async (req, res, next) => {
         : false;
       return {
         ...row,
-        joinUrl: useAppJoin && row.id ? supervisionAppJoinUrl(row) : null,
+        joinUrl: useAppJoin && row.id ? await supervisionAppJoinUrl(row) : null,
         startsInMinutes,
         isLive: Number.isFinite(start.getTime()) && Number.isFinite(end.getTime()) ? now >= start && now <= end : false,
         inPromptWindow,
         promptStyle: row.isRequired ? 'required_splash' : 'optional_card'
       };
-    }).filter((row) => row.inPromptWindow);
+    }))).filter((row) => row.inPromptWindow);
 
     res.json({ ok: true, prompts, now: now.toISOString() });
   } catch (e) {
@@ -5029,13 +5031,13 @@ export const getMySupervisionSessions = async (req, res, next) => {
       return out;
     });
 
-    const withJoinUrl = sanitized.map((s) => ({
+    const withJoinUrl = await Promise.all(sanitized.map(async (s) => ({
       ...s,
-      joinUrl: supervisionAppJoinUrl(s),
-      participantJoinUrl: supervisionAppJoinUrl(s),
-      hostJoinUrl: supervisionHostJoinUrl(s),
+      joinUrl: await supervisionAppJoinUrl(s),
+      participantJoinUrl: await supervisionAppJoinUrl(s),
+      hostJoinUrl: await supervisionHostJoinUrl(s),
       waitingRoomEnabled: isWaitingRoomEnabled(s)
-    }));
+    })));
 
     res.json({ ok: true, sessions: withJoinUrl });
   } catch (e) {
@@ -5095,13 +5097,13 @@ export const getSuperviseeSessions = async (req, res, next) => {
       return out;
     });
 
-    const withJoinUrl = sanitized.map((s) => ({
+    const withJoinUrl = await Promise.all(sanitized.map(async (s) => ({
       ...s,
-      joinUrl: supervisionAppJoinUrl(s),
-      participantJoinUrl: supervisionAppJoinUrl(s),
-      hostJoinUrl: supervisionHostJoinUrl(s),
+      joinUrl: await supervisionAppJoinUrl(s),
+      participantJoinUrl: await supervisionAppJoinUrl(s),
+      hostJoinUrl: await supervisionHostJoinUrl(s),
       waitingRoomEnabled: isWaitingRoomEnabled(s)
-    }));
+    })));
 
     res.json({ ok: true, sessions: withJoinUrl });
   } catch (e) {

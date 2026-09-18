@@ -1,3 +1,5 @@
+import { createGooglePublication } from '../services/calendarPublication.service.js';
+import { familyCalendarView } from '../services/familyCalendarView.service.js';
 import express from 'express';
 import { getFamilyPocket, addFamilyPocketItems } from '../services/familyEmail.service.js';
 import crypto from 'crypto';
@@ -66,6 +68,7 @@ router.post('/logout', wrap(async (req, res) => {
   res.clearCookie('fcc_session', { ...familyCookieOptions, maxAge: undefined }).json({ ok: true });
 }));
 router.use(requireFamilySession);
+router.get('/households/:id/calendar-view', wrap(async(req,res)=>res.json(await familyCalendarView(req.family,req.params.id,req.query))));
 router.get('/households/:id/pocket', wrap(async(req,res)=>res.json(await getFamilyPocket(req.family,req.params.id))));
 router.post('/households/:id/pocket/items', wrap(async(req,res)=>res.status(201).json(await addFamilyPocketItems(req.family,req.params.id,req.body))));
 router.get('/households/:id/google/calendars', wrap(async(req,res)=>res.json(await listFamilyCalendars(req.family,req.params.id))));
@@ -89,7 +92,12 @@ router.get('/me', wrap(async (req, res) => {
   res.json({ ...req.family, households });
 }));
 router.get('/weather', (req, res, next) => { req.user = { id: req.family.userId }; return getMyWeather(req, res, next); });
-router.post('/households', wrap(async (req, res) => res.status(201).json(await createHousehold(req.family, req.body))));
+router.post('/households', wrap(async (req, res) => {
+  const household=await createHousehold(req.family,req.body);
+  try { await createGooglePublication(req.family,household.id); }
+  catch { household.calendarWarning='Your household is ready. Open Calendar to finish Google sharing when Workspace access is available.'; }
+  res.status(201).json(household);
+}));
 router.post('/join', wrap(async (req, res) => res.json(await joinHousehold(req.family, req.body))));
 router.get('/households/:id', wrap(async (req, res) => res.json(await householdDashboard(req.family, req.params.id))));
 router.post('/households/:id/members', wrap(async (req, res) => res.status(201).json(await addChild(req.family, req.params.id, req.body))));

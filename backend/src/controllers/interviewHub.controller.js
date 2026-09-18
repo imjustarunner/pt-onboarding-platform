@@ -1,3 +1,4 @@
+import { tenantMeetingBase } from '../utils/tenantMeetingUrl.js';
 import { deliverExistingInterview } from '../services/hiringInterviewDelivery.service.js';
 import { sendHiringInterviewInviteEmail } from '../services/hiringInterviewInviteEmail.service.js';
 import { requireHiringInterviewAccess } from '../services/hiringInterviewAccess.service.js';
@@ -223,7 +224,7 @@ export const listInterviews = async (req, res, next) => {
     await ensureAgencyAccess(req, agencyId);
     const status = req.query?.status ? String(req.query.status).trim().toLowerCase() : null;
     const rows = await HiringInterview.listByAgencyId(agencyId, { status });
-    return res.json({ success: true, data: (rows || []).map(enrichInterviewRow) });
+    return res.json({ success: true, data: await Promise.all((rows || []).map(enrichInterviewRow)) });
   } catch (err) {
     return next(err);
   }
@@ -335,7 +336,7 @@ export const patchInterview = async (req, res, next) => {
 
     const { rescheduleHiringInterview } = await import('../services/hiringInterviewReschedule.service.js');
     const result = await rescheduleHiringInterview(existing, req.body || {});
-    return res.json({ success: true, data: { ...enrichInterviewRow(result.interview), delivery: result.delivery, calendarWarning: result.calendarWarning } });
+    return res.json({ success: true, data: { ...await enrichInterviewRow(result.interview), delivery: result.delivery, calendarWarning: result.calendarWarning } });
   } catch (err) {
     return next(err);
   }
@@ -536,28 +537,18 @@ export const getInterviewByScheduleEvent = async (req, res, next) => {
   }
 };
 
-function hostJoinUrlForInterview(row) {
+async function hostJoinUrlForInterview(row) {
   if (!row) return null;
   const hostToken = String(row.host_join_token || row.hostJoinToken || '').trim();
   if (!hostToken) return null;
-  const publicUrl = String(row.public_join_url || row.publicJoinUrl || '').trim();
-  if (publicUrl) {
-    try {
-      const origin = new URL(publicUrl).origin;
-      return `${origin}/join/team-meeting/${encodeURIComponent(hostToken)}`;
-    } catch {
-      /* fall through */
-    }
-  }
-  const frontendUrl = (process.env.FRONTEND_URL || '').replace(/\/$/, '');
-  return joinUrlForTeamMeeting(frontendUrl, hostToken);
+  return joinUrlForTeamMeeting(await tenantMeetingBase(row.agency_id || row.agencyId), hostToken);
 }
 
-function enrichInterviewRow(row) {
+async function enrichInterviewRow(row) {
   if (!row) return row;
   return {
     ...row,
-    host_join_url: hostJoinUrlForInterview(row)
+    host_join_url: await hostJoinUrlForInterview(row)
   };
 }
 
@@ -575,7 +566,7 @@ export const listCandidateInterviews = async (req, res, next) => {
       return res.status(400).json({ success: false, message: 'agencyId required' });
     }
     const rows = await HiringInterview.listByCandidateUserId(userId, { agencyId });
-    return res.json({ success: true, data: (rows || []).map(enrichInterviewRow) });
+    return res.json({ success: true, data: await Promise.all((rows || []).map(enrichInterviewRow)) });
   } catch (err) {
     return next(err);
   }

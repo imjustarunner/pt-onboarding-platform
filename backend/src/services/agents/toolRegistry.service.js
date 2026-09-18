@@ -1,3 +1,4 @@
+import { tenantMeetingBase } from '../../utils/tenantMeetingUrl.js';
 import pool from '../../config/database.js';
 import ReferralDirectoryEntry from '../../models/ReferralDirectoryEntry.model.js';
 import User from '../../models/User.model.js';
@@ -3935,7 +3936,7 @@ export async function executeToolCall({ req, toolCall }) {
 
     await ProviderScheduleEventAttendee.upsertForEvent(created.id, [withUserId]);
 
-    const frontendUrl = (process.env.FRONTEND_URL || '').replace(/\/$/, '');
+    const frontendUrl = await tenantMeetingBase(agencyId);
     const joinPath = `/join/team-meeting/${created.id}`;
     const joinUrl = frontendUrl ? `${frontendUrl}${joinPath}` : joinPath;
 
@@ -4018,7 +4019,7 @@ export async function executeToolCall({ req, toolCall }) {
 
     const kind = String(row.kind || '').toUpperCase();
     const isMeeting = kind === 'TEAM_MEETING' || kind === 'HUDDLE';
-    const path = isMeeting ? `/join/team-meeting/${eventId}` : '/schedule';
+    const path = isMeeting ? `${await tenantMeetingBase(row.agency_id)}/join/team-meeting/${encodeURIComponent(row.participant_join_token || row.join_token || eventId)}` : '/schedule';
 
     return {
       ok: true,
@@ -4523,10 +4524,11 @@ export async function executeToolCall({ req, toolCall }) {
       return isActiveInstant(r.start_at, r.end_at, false);
     };
 
+    const providerPortal = await tenantMeetingBase(agencyId);
     const providerEvents = (activeOnly ? rows.filter(isActiveProviderRow) : rows).map((r) => {
       const kind = String(r.kind || '').toUpperCase();
       const isMeeting = kind === 'TEAM_MEETING' || kind === 'HUDDLE';
-      const joinPath = isMeeting ? `/join/team-meeting/${Number(r.id)}` : '/schedule';
+      const joinPath = isMeeting ? `${providerPortal}/join/team-meeting/${encodeURIComponent(r.participant_join_token || r.join_token || r.id)}` : '/schedule';
       const startIso = mysqlUtcToIso(r.start_at);
       const endIso = mysqlUtcToIso(r.end_at);
       return {
@@ -4655,11 +4657,11 @@ export async function executeToolCall({ req, toolCall }) {
 
     const filtered = activeOnly ? rows.filter(isActive) : rows;
 
-    const frontendUrl = (process.env.FRONTEND_URL || '').replace(/\/$/, '');
+    const frontendUrl = await tenantMeetingBase(agencyId);
     const events = filtered.map((r) => {
       const kind = String(r.kind || '').toUpperCase();
       const isMeeting = kind === 'TEAM_MEETING' || kind === 'HUDDLE';
-      const joinPath = isMeeting ? `/join/team-meeting/${Number(r.id)}` : '/schedule';
+      const joinPath = isMeeting ? `/join/team-meeting/${encodeURIComponent(r.participant_join_token || r.join_token || r.id)}` : '/schedule';
       const startIso = mysqlUtcToIso(r.start_at);
       const endIso = mysqlUtcToIso(r.end_at);
       return {

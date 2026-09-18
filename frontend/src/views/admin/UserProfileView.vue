@@ -1047,7 +1047,7 @@
                 <div v-if="showExternalCalendarsModal" class="modal-overlay" @click.self="closeExternalCalendarsModal">
                   <div class="modal-content" style="max-width: 980px;">
                     <div style="display:flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap;">
-                      <h3 style="margin: 0;">External calendars (ICS)</h3>
+                      <h3 style="margin: 0;">Calendar connections &amp; sharing</h3>
                       <div style="display:flex; gap: 8px; align-items:center;">
                         <button type="button" class="btn btn-secondary btn-sm" @click="loadExternalCalendars" :disabled="externalCalendarsSaving">
                           Refresh
@@ -1057,6 +1057,7 @@
                         </button>
                       </div>
                     </div>
+                    <CalendarSharing v-if="Number(userId)===Number(authStore.user?.id) && (agencyStore.currentAgency?.id || userAgencies[0]?.id)" :agency-id="agencyStore.currentAgency?.id || userAgencies[0]?.id" />
                     <p class="hint" style="margin: 8px 0 14px;">
                       Add one or more named calendars (e.g., “Therapy Notes”). Each calendar can have multiple ICS feed URLs.
                     </p>
@@ -2910,6 +2911,7 @@
 </template>
 
 <script setup>
+import CalendarSharing from '../../components/CalendarSharing.vue';
 import { ref, onMounted, onUnmounted, computed, watch, nextTick, provide, reactive } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import api from '../../services/api';
@@ -7535,6 +7537,7 @@ const isActiveStatusBadge = (status, isActive = true) => {
 };
 
 provide(USER_ACCOUNT_CONTEXT_KEY, {
+  isOwnCalendar: computed(() => Number(userId.value)===Number(authStore.user?.id)),
   isSchoolStaffProfile: isViewingSchoolStaff,
   user,
   userId,

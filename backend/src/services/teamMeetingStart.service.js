@@ -1,3 +1,4 @@
+import { tenantMeetingBase } from '../utils/tenantMeetingUrl.js';
 import User from '../models/User.model.js';
 import ProviderScheduleEvent from '../models/ProviderScheduleEvent.model.js';
 import ProviderScheduleEventAttendee from '../models/ProviderScheduleEventAttendee.model.js';
@@ -114,7 +115,7 @@ export async function startAdhocTeamMeeting({
 
   await ProviderScheduleEventAttendee.upsertForEvent(created.id, [otherId]);
 
-  const frontendUrl = (process.env.FRONTEND_URL || '').replace(/\/$/, '');
+  const frontendUrl = await tenantMeetingBase(aid);
   const joinKey = String(created.participant_join_token || created.join_token || created.id || '').trim();
   const joinPath = `/join/team-meeting/${encodeURIComponent(joinKey)}`;
   const joinUrl = frontendUrl ? `${frontendUrl}${joinPath}` : joinPath;

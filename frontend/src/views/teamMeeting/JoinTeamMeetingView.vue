@@ -1347,6 +1347,14 @@ async function resolveAndRedirect() {
     );
     const data = resp?.data || {};
     const slug = String(data.orgSlug || '').trim();
+    if (data.canonicalJoinUrl) {
+      const target = new URL(data.canonicalJoinUrl);
+      if (target.protocol === 'https:' && target.origin !== window.location.origin) {
+        window.location.replace(target.href);
+        return 'redirected';
+      }
+    }
+
     if (data.meetingSubtype || data.meeting_subtype) {
       const subtype = String(data.meetingSubtype || data.meeting_subtype || 'general').toLowerCase();
       meetingSubtype.value = (subtype === 'admin' || subtype === 'town_hall' || subtype === 'interview' || subtype === 'evaluation')
@@ -1368,6 +1376,8 @@ async function resolveAndRedirect() {
     if (hostSlug && hostSlug === slug.toLowerCase()) {
       return 'continue';
     }
+
+    if (organizationSlug.value === slug) return 'continue';
 
     // Generic multi-tenant hosts still need the org-scoped join URL.
     joinAttemptedForPath.value = '';
@@ -1982,7 +1992,7 @@ async function runJoinFlowForCurrentRoute() {
   joinAttemptedForPath.value = pathKey;
   error.value = '';
 
-  if (!organizationSlug.value) {
+  {
     const resolved = await resolveAndRedirect();
     if (resolved !== 'continue') return;
   }

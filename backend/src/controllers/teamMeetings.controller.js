@@ -1,3 +1,4 @@
+import { tenantMeetingBase } from '../utils/tenantMeetingUrl.js';
 import { canAccessHiringInterview } from '../services/hiringInterviewAccess.service.js';
 /**
  * Team meeting (TEAM_MEETING / HUDDLE provider_schedule_events) video token,
@@ -652,7 +653,7 @@ export const getTeamMeetingJoinInfo = async (req, res, next) => {
     const orgSlug = String(row.slug || row.portal_url || '').trim();
     if (!orgSlug) return res.status(404).json({ error: { message: 'Event organization has no portal' } });
 
-    const frontendUrl = (process.env.FRONTEND_URL || '').replace(/\/$/, '');
+    const frontendUrl = await tenantMeetingBase(event.agency_id);
     const participantKey = String(event.participant_join_token || event.join_token || event.id);
     const maySeeHostLink = !isInterviewMeeting(event) || await canAccessInterviewMeeting(req, event);
     const hostKey = maySeeHostLink ? String(event.host_join_token || '').trim() : '';
@@ -663,6 +664,7 @@ export const getTeamMeetingJoinInfo = async (req, res, next) => {
       : (participantKey || String(event.id));
     res.json({
       orgSlug,
+      canonicalJoinUrl: joinUrlForTeamMeeting(frontendUrl, redirectKey),
       eventId: Number(event.id),
       joinToken: redirectKey || null,
       hostJoinToken: hostKey || null,
@@ -893,10 +895,10 @@ export const getTeamMeetingVideoToken = async (req, res, next) => {
       eventId,
       joinToken: row.participant_join_token || row.join_token || null,
       hostJoinUrl: isHost && row.host_join_token
-        ? joinUrlForTeamMeeting((process.env.FRONTEND_URL || '').replace(/\/$/, ''), row.host_join_token)
+        ? joinUrlForTeamMeeting(await tenantMeetingBase(row.agency_id), row.host_join_token)
         : null,
       joinUrl: joinUrlForTeamMeeting(
-        (process.env.FRONTEND_URL || '').replace(/\/$/, ''),
+        await tenantMeetingBase(row.agency_id),
         row.participant_join_token || row.join_token || eventId
       ),
       roomMode: useLobby ? 'lobby' : 'main',
@@ -1143,7 +1145,7 @@ export const addTeamMeetingAttendee = async (req, res, next) => {
       const actorName = displayNameFromUser(actor) || 'A teammate';
       const title = String(row.title || '').trim() || 'Team meeting';
       const joinUrl = joinUrlForTeamMeeting(
-        (process.env.FRONTEND_URL || '').replace(/\/$/, ''),
+        await tenantMeetingBase(row.agency_id),
         row.participant_join_token || row.join_token || row.id
       );
       await createNotificationAndDispatch({

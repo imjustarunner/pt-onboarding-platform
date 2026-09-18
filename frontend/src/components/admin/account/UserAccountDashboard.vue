@@ -240,9 +240,9 @@
                 </div>
               </template>
             </div>
-            <div v-if="!isEditing('account-info') && canEditUser && !isSchoolStaffProfile" class="acct-field acct-field--full" style="margin-top: 4px;">
+            <div v-if="!isEditing('account-info') && (canEditUser || unwrap(ctx.isOwnCalendar)) && !isSchoolStaffProfile" class="acct-field acct-field--full" style="margin-top: 4px;">
               <button type="button" class="acct-link-btn" @click="ctx.openExternalCalendarsModal?.()">
-                Manage external calendars (ICS)
+                Calendar connections & sharing
               </button>
             </div>
           </AccountDashboardCard>
