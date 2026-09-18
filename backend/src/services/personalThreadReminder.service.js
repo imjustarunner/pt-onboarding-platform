@@ -48,7 +48,7 @@ export async function runPersonalThreadReminders({ now = new Date() } = {}) {
       const agency = await Agency.findById(row.agency_id);
       const appUrl = buildPublicAppUrl(agency, `messages?conversationId=${row.conversation_id}`);
       const bodyText = `You have an unread email in “${row.subject || '(no subject)'}”. Reply directly to this email to answer its sender using your work address, ${row.from_email}, or sign in to read the conversation and use Reply all.`;
-      const html = buildBrandedMessageEmailHtml({ agencyName: agency?.name, senderDisplayName: mailbox.displayName, title: row.subject || 'Unread email', bodyText, appUrl, history: [], footerNote: 'Your personal address is kept out of the work conversation. Only your new reply text and attachments are sent. Use the app to include everyone with Reply all.' });
+      const html = buildBrandedMessageEmailHtml({ agencyName: agency?.name, senderDisplayName: mailbox.displayName, title: row.subject || 'Unread email', bodyText, appUrl, history: [], footerNote: 'Your personal address is kept out of the work conversation. Only the new content in your reply is sent. Use the app to include everyone with Reply all.' });
       const [claim] = await pool.execute(`INSERT IGNORE INTO communication_thread_reminders (conversation_id,message_id,user_id,inbox_id,internet_message_id) VALUES (?,?,?,?,?)`, [row.conversation_id, row.message_id, row.user_id, row.inbox_id, messageId]);
       if (!claim.affectedRows) continue;
       claimed = true;

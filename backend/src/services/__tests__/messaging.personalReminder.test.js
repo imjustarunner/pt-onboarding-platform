@@ -3,7 +3,6 @@ vi.mock('../../config/database.js', () => ({ default: { execute: vi.fn(), getCon
 vi.mock('../../models/Agency.model.js', () => ({ default: { findById: vi.fn(async () => ({ id: 2, slug: 'itsco', name: 'ITSCO' })) } }));
 vi.mock('../emailSendMailbox.service.js', () => ({ resolveEmailSendMailbox: vi.fn(async () => ({ identity: { id: 4 }, displayName: 'Staff' })) }));
 vi.mock('../unifiedEmail/unifiedEmailSender.service.js', () => ({ sendEmailFromIdentity: vi.fn(async () => ({ id: 'gmail-id' })) }));
-vi.mock('../hubBrandedEmail.service.js', () => ({ buildBrandedMessageEmailHtml: vi.fn(() => '<p>Branded</p>') }));
 vi.mock('../availabilityWindow.service.js', () => ({ resolveAvailabilitySchedule: vi.fn(), addBusinessHours: vi.fn() }));
 vi.mock('../emailSettings.service.js', () => ({ getAgencyEmailSettings: vi.fn(async () => ({})) }));
 vi.mock('../unifiedInbox.service.js', () => ({ isAddressBlocked: vi.fn(async () => false) }));
@@ -12,6 +11,7 @@ import { sendEmailFromIdentity } from '../unifiedEmail/unifiedEmailSender.servic
 import { getAgencyEmailSettings } from '../emailSettings.service.js';
 import { runPersonalThreadReminders, queuePersonalReminderReply } from '../personalThreadReminder.service.js';
 import { personalReminderReplyText, personalReminderBody } from '../../utils/personalReminderReply.js';
+import { validateOutboundEmailQuality } from '../outboundEmailQuality.service.js';
 const inbox = { id: 3, agency_id: 2, owner_user_id: 5, from_email: 'staff@itsco.health' };
 const reminder = { id: 1, user_id: 5, user_status: 'active', personal_email: 'private@example.org', conversation_id: 10, from_json: { email: 'client@example.org' }, parent_id: '<external@example.org>', parent_references: '<root@example.org>', subject: 'Meeting' };
 const reply = { inbox, fromEmail: 'private@example.org', deliveryId: '<reply@example.org>', bodyText: 'Confirmed.\n\nOn Monday Staff wrote:\n> Notification', inReplyTo: '<reminder@itsco.health>' };
@@ -52,6 +52,9 @@ it('sends a claimed per-thread reminder after 24 elapsed hours with an exact nor
   pool.execute.mockImplementation(async (sql) => sql.startsWith('SELECT c.id') ? [[row]] : [{ affectedRows: 1 }]);
   expect(await runPersonalThreadReminders({ now: new Date('2026-09-02T00:00:00Z') })).toMatchObject({ sent: 1 });
   expect(sendEmailFromIdentity).toHaveBeenCalledWith(expect.objectContaining({ to: reminder.personal_email, replyToOverride: inbox.from_email, text: expect.stringContaining('messages?conversationId=10'), internetMessageIdOverride: expect.stringMatching(/^<.+@itsco.health>$/) }));
+  // Exercise the actual branded footer through the real outbound validator:
+  // mocking the renderer hid an attachment false positive in every reminder.
+  expect(validateOutboundEmailQuality(sendEmailFromIdentity.mock.calls[0][0])).toEqual({ ok: true, flags: [] });
 });
 it('does not send early or send again when another worker owns the reminder claim', async () => {
   const row = { conversation_id: 10, message_id: 20, agency_id: 2, inbox_id: 3, user_id: 5, from_email: inbox.from_email, received_at: '2026-09-01T00:00:00Z', availability_hours_enabled: 0 };
