@@ -159,5 +159,5 @@ export async function syncDueCalendarPublications(){
   for(const p of rows)try{await locked(p.id,async()=>{
     try{await authorizePublication({userId:p.user_id,agencyId:p.agency_id},p.household_id);}catch(e){if(e.status===403 || e.status===404){await deleteMirror(p);await pool.execute('UPDATE calendar_publications SET token_hash=NULL WHERE id=?',[p.id]);return;}throw e;}
     await syncUnlocked(p);
-  });}catch(e){if(e.status===409)continue;await pool.execute('UPDATE calendar_publications SET last_error=?,last_synced_at=NOW() WHERE id=?',['Calendar sync failed. Check sharing permissions and try Sync now.',p.id]);console.warn('[Calendar sharing] Sync failed',p.id,e.code || e.status || 'unknown');}
+  });}catch(e){if(e.status===409)continue;await pool.execute('UPDATE calendar_publications SET last_error=? WHERE id=?',['Calendar sync failed. Check sharing permissions and try Sync now.',p.id]);console.warn('[Calendar sharing] Sync failed',p.id,e.code || e.status || 'unknown');}
 }

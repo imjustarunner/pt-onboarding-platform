@@ -17,7 +17,7 @@ export async function familyCalendarView(session,id,query={}) {
       const identity={work:true,memberId:member.user_id,memberName:member.display_name,color:member.color,photo:member.photo_url};
       const work=await workCalendarEvents(member.user_id,session.agencyId,start,end);
       events.push(...work.map(e=>({key:`${member.user_id}:${e.key}`,start:e.start,end:e.end,startDate:e.startDate,endDate:e.endDate,...identity,
-        title:query.work==='details'?`${member.display_name} · ${e.title.split(' · ')[0]}`:'Work'})));
+        title:query.work==='details'?`${member.display_name} · ${e.title.split(' · ')[0]}`:'Work',location:query.work==='details'?(e.location || ''):''})));
       // Existing account feeds are busy overlays, never family copies or client details.
       const calendars=await UserExternalCalendar.listForUser({userId:member.user_id,activeOnly:true});
       const feeds=calendars.flatMap(c=>c.feeds.filter(f=>f.isActive).map(f=>({url:f.icsUrl})));

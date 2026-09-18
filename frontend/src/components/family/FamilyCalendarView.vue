@@ -8,7 +8,7 @@
     <p class="work-hint">Each adult can include their work calendar from Settings → Include my work schedule.</p>
     <p v-if="loading" role="status">Loading calendar…</p><p v-if="error" role="alert">{{ error }}</p><p v-for="warning in warnings" :key="warning" role="status">{{ warning }}</p>
     <div class="calendar-scroll" ref="scroll">
-      <div class="calendar-grid" :style="{gridTemplateColumns:`52px repeat(${days.length},minmax(150px,1fr))`}">
+      <div class="calendar-grid" :style="{gridTemplateColumns:`52px repeat(${days.length},minmax(90px,1fr))`,width:'100%',minWidth:mode==='week'?'680px':'0'}">
         <div class="day-heading time-heading">Time</div><div v-for="d in days" :key="d" class="day-heading" :class="{current:d===localDay(new Date())}">{{ heading(d) }}</div>
         <div class="all-day-label">All day</div><div v-for="d in days" :key="`all-${d}`" class="all-day"><button v-for="e in allDay(d)" :key="e.key" class="calendar-event all-day-event" :style="{'--event-color':e.color || '#6552a8'}" @click="selected=e">{{ e.title }}</button></div>
         <div class="hours"><span v-for="hour in 24" :key="hour" :style="{top:`${(hour-1)*60}px`}">{{ hourLabel(hour-1) }}</span></div>
@@ -26,7 +26,7 @@
 <script setup>
 import {computed,onMounted,ref,watch} from 'vue';
 const props=defineProps({http:{required:true},householdId:{required:true},timezone:{default:'America/Denver'},revision:{default:0}});
-const mode=ref('week'),work=ref('busy'),date=ref(''),events=ref([]),warnings=ref([]),loading=ref(false),error=ref(''),selected=ref(null),scroll=ref(null);
+const mode=ref(window.innerWidth<700?'day':'week'),work=ref('busy'),date=ref(''),events=ref([]),warnings=ref([]),loading=ref(false),error=ref(''),selected=ref(null),scroll=ref(null);
 let request=0;
 function localDay(value){return new Intl.DateTimeFormat('en-CA',{timeZone:props.timezone,year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date(value));}
 function shift(day,n){const d=new Date(`${day}T12:00:00Z`);d.setUTCDate(d.getUTCDate()+n);return d.toISOString().slice(0,10);}

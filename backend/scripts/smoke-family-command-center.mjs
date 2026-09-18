@@ -201,6 +201,8 @@ try{
   await clickText('.fcc-sidebar nav button','Settings');
   assert(await page.$('.fcc-settings-form option[value="pet"]'),'Settings offers a pet profile without a login');
   await page.evaluate(()=>[...document.querySelectorAll('.fcc-sidebar nav button')].find(b=>b.textContent.includes('Calendar')).click());
+  await page.waitForSelector('.family-calendar');
+  await page.evaluate(()=>[...document.querySelectorAll('.family-calendar button')].find(b=>b.textContent==='Week').click());
   await page.waitForSelector('.family-calendar .calendar-event');
   assert.equal(await page.$$eval('.day-column',nodes=>nodes.length),7);
   await page.screenshot({path:'/tmp/family-calendar-week.png',fullPage:true});
