@@ -196,7 +196,7 @@
           <span v-if="raisedHandCount" class="join-hand-chip" title="Hands raised">✋ {{ raisedHandCount }}</span>
           <span v-if="meetingCompletedAt" class="join-completed-chip">Session completed</span>
           <button
-            v-if="token && vonageSessionId && !isInLobby"
+            v-if="authStore.isAuthenticated && token && vonageSessionId && !isInLobby"
             type="button"
             class="btn btn-secondary btn-sm join-mini-btn"
             title="Collapse to mini view — stay in meeting while you use the app"
@@ -242,7 +242,7 @@
           />
           <div
             class="join-video__stage"
-            :class="{ 'join-video__stage--pip': isInLobby && !videoFullscreen }"
+            :class="{ 'join-video__stage--pip': isInLobby && !videoFullscreen, 'join-video__stage--collapsed': tileFocus === 'collapsed' && !videoFullscreen }"
           >
             <SupervisionVideoRoom
               ref="videoRoomRef"
@@ -257,7 +257,8 @@
               :screen-share-mode="screenShareMode"
               :can-share-screen="canShareScreenByDefault"
               :can-grant-screen-share="canGrantScreenShare"
-              :start-muted="!isHost"
+              :start-muted="returnMediaPreferences?.startMuted ?? !isHost"
+              :start-video-off="returnMediaPreferences?.startVideoOff ?? false"
               :mute-others-mode="muteOthersMode"
               :lobby-mode="isInLobby && !videoFullscreen"
               :show-layout-controls="!isInLobby"
@@ -623,7 +624,8 @@ const route = useRoute();
 const authStore = useAuthStore();
 const agencyStore = useAgencyStore();
 
-const { setMiniMode } = useActiveMeeting();
+const { setMiniMode, takeReturnMedia } = useActiveMeeting();
+const returnMediaPreferences = takeReturnMedia(route.fullPath);
 const miniHandoffBusy = ref(false);
 
 async function activateMiniMode() {
@@ -637,6 +639,15 @@ async function activateMiniMode() {
     eventId: resolvedEventId.value,
     meetingPath: route.fullPath,
     meetingTitle: displayMeetingTitle.value || 'Meeting',
+    joinIdentity: joinIdentity.value,
+    localName: localDisplayName.value,
+    startMuted: !videoRoomRef.value?.publishAudio,
+    startVideoOff: !videoRoomRef.value?.publishVideo,
+    isHostOrCohost: isHost.value || isCoHostBySignal.value,
+    screenShareMode: screenShareMode.value,
+    canShareScreen: canShareScreenByDefault.value,
+    canGrantScreenShare: canGrantScreenShare.value,
+    transcriptionActive: transcriptEnabled.value && !transcriptPaused.value && !transcriptRoomStopped.value,
   };
   const slug = organizationSlug.value || hostPortalSlug.value || authStore.user?.organization?.slug;
   const dashboardPath = slug ? `/${slug}/dashboard` : '/dashboard';
@@ -1063,12 +1074,11 @@ const screenShareMode = computed(() => (
 ));
 const canShareScreenByDefault = computed(() => {
   if (screenShareMode.value !== 'restricted') return true;
-  return !!isHost.value;
+  return !!isHost.value || isCoHostBySignal.value;
 });
 const canGrantScreenShare = computed(() => {
   if (screenShareMode.value !== 'restricted') return false;
-  if (isHost.value) return true;
-  return ['super_admin', 'admin', 'support'].includes(actorRole.value);
+  return !!isHost.value || isCoHostBySignal.value;
 });
 
 const showAttendanceTab = computed(() => {
@@ -2532,7 +2542,7 @@ onUnmounted(() => {
 .join-video :deep(.vsr__stage--solo .vsr__tile),
 .join-video :deep(.vsr__stage--duo .vsr__tile),
 .join-video :deep(.vsr__stage--grid .vsr__tile) {
-  min-height: 140px !important;
+  min-height: 0 !important;
   height: 100% !important;
 }
 .join-video :deep(.vsr__controls) {
@@ -2549,7 +2559,17 @@ onUnmounted(() => {
   inset: 0 !important;
   width: 100% !important;
   height: 100% !important;
-  object-fit: contain !important;
+}
+.join-video__stage--collapsed,
+.join-video__stage--collapsed :deep(.supervision-video-room),
+.join-video__stage--collapsed :deep(.vsr) {
+  flex: 0 0 auto;
+  min-height: 0;
+  height: auto;
+}
+.join-video__stage--collapsed :deep(.vsr__stage--focus-collapsed) {
+  flex: 0 0 104px;
+  height: 104px !important;
 }
 .join-workspace {
   min-width: 0;

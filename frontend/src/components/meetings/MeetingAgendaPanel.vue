@@ -98,6 +98,7 @@
                 <template v-else>
                   <div class="mw-hover-wrap">
                     <span class="agenda-item-title" :title="item.title">{{ item.title }}</span>
+                    <span class="agenda-item-author">Added by {{ item.created_by_name || 'Unknown author' }}</span>
                   </div>
                   <a
                     v-if="item.task_id"
@@ -626,13 +627,13 @@ onUnmounted(() => { stopPoll(); });
   padding: 8px 6px;
 }
 .agenda-item--live-sidebar .agenda-item-row {
+  display: grid;
+  grid-template-columns: 1.1rem minmax(0, 1fr);
   width: 100%;
-  flex-wrap: wrap;
   align-items: flex-start;
   gap: 6px 8px;
 }
 .agenda-item--live-sidebar .agenda-item-content {
-  flex: 1 1 100%;
   min-width: 0;
   order: 1;
 }
@@ -641,6 +642,7 @@ onUnmounted(() => { stopPoll(); });
 }
 .agenda-item--live-sidebar .agenda-status-select,
 .agenda-item--live-sidebar .agenda-status-badge {
+  grid-column: 2;
   order: 2;
   margin-left: auto;
 }
@@ -725,6 +727,14 @@ onUnmounted(() => { stopPoll(); });
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.agenda-item-author {
+  display: block;
+  margin-top: 3px;
+  font-size: 0.72rem;
+  color: #64748b;
+}
+.meeting-agenda-panel--dark .agenda-item-author { color: #cbd5e1; }
+.agenda-item--live-sidebar:hover .agenda-item-title { white-space: normal; }
 .meeting-agenda-panel--dark .agenda-title,
 .meeting-agenda-panel--dark .agenda-item-title,
 .meeting-agenda-panel--dark .agenda-section-head h3,

@@ -43,7 +43,9 @@
     <template v-if="!errorMessage">
       <div class="vsr__viewport" :class="{ 'vsr__viewport--split': useSplitCamOffLayout }">
         <div
+          ref="stageEl"
           class="vsr__stage"
+          :style="stageGridStyle"
           :class="{
             'vsr__stage--strip': layout === 'strip',
             'vsr__stage--solo': isSoloStage && !hasScreenShare,
@@ -66,7 +68,8 @@
           </div>
 
           <div
-            v-for="r in stageRemotes"
+            v-for="r in remotes"
+            v-show="!useSplitCamOffLayout || r.hasVideo"
             :key="r.streamId"
             class="vsr__tile vsr__tile--remote"
             :class="{
@@ -75,7 +78,7 @@
               'vsr__tile--hand': handRaisedForConnection(r.connectionId),
               'vsr__tile--pip': hasScreenShare || tileFocus === 'local' || (tileFocus === 'speaker' && r.streamId !== featuredSpeakerStreamId),
               'vsr__tile--featured': (
-                (tileFocus === 'remote' && stageRemotes.length === 1)
+                (tileFocus === 'remote' && r.streamId === focusedRemoteStreamId)
                 || (tileFocus === 'speaker' && r.streamId === featuredSpeakerStreamId)
               ),
               'vsr__tile--mini': tileFocus === 'collapsed',
@@ -83,7 +86,7 @@
               'vsr__tile--paged-hidden': tileFocus === 'equal' && tileHiddenByPage('remote', r.streamId)
             }"
             :style="tileFocus === 'equal' ? { order: tileOrderFor('remote', r.streamId) } : null"
-            @click="onTileActivate('remote')"
+            @click="onTileActivate('remote', r.streamId)"
           >
             <div
               class="vsr__media"
@@ -121,7 +124,7 @@
               title="Screen sharing is limited to the host and presenter in this session — let this participant share their screen too"
               @click.stop="grantScreenShare(r, true)"
             >
-              Allow screen
+              Allow sharing
             </button>
             <button
               v-else-if="canGrantScreenShare && r.connectionId && shareGrantedFor(r.connectionId)"
@@ -130,7 +133,7 @@
               title="Take back this participant's screen-share permission"
               @click.stop="grantScreenShare(r, false)"
             >
-              Revoke screen
+              Revoke sharing
             </button>
           </div>
 
@@ -201,7 +204,7 @@
           </div>
         </div>
 
-        <div v-if="isGridStage" class="vsr__grid-toolbar">
+        <div v-if="isGridStage && !compact" class="vsr__grid-toolbar">
           <div class="vsr__tile-size-group" role="group" aria-label="Video tile size">
             <button type="button" class="vsr__tile-size-btn" :class="{ on: tileSizePreset === 's' }" title="Smaller tiles" @click="setTileSize('s')">S</button>
             <button type="button" class="vsr__tile-size-btn" :class="{ on: tileSizePreset === 'm' }" title="Medium tiles" @click="setTileSize('m')">M</button>
@@ -233,12 +236,6 @@
                 'vsr__cam-off-chip--local': entry.kind === 'local'
               }"
             >
-              <div
-                v-if="entry.kind === 'remote'"
-                class="vsr__cam-off-media"
-                :ref="(el) => setRemoteMediaEl(entry.streamId, el)"
-                aria-hidden="true"
-              />
               <div class="vsr__cam-off-avatar" aria-hidden="true">
                 <img v-if="entry.profilePhotoUrl" :src="entry.profilePhotoUrl" alt="" class="vsr__cam-off-avatar-img" />
                 <span v-else class="vsr__cam-off-avatar-initials">{{ initialsFromLabel(entry.displayName) }}</span>
@@ -272,7 +269,7 @@
                 title="Screen sharing is limited to the host and presenter in this session — let this participant share their screen too"
                 @click.stop="grantScreenShare(entry.remote || entry, true)"
               >
-                Allow screen
+                Allow sharing
               </button>
               <button
                 v-else-if="entry.kind === 'remote' && canGrantScreenShare && entry.connectionId && shareGrantedFor(entry.connectionId)"
@@ -281,7 +278,7 @@
                 title="Take back this participant's screen-share permission"
                 @click.stop="grantScreenShare(entry.remote || entry, false)"
               >
-                Revoke screen
+                Revoke sharing
               </button>
             </div>
           </div>
@@ -331,7 +328,7 @@
           @click.stop.prevent="toggleMic"
         >
           <span class="vsr__ctrl-mic-row">
-            <span>{{ lobbyMode ? lobbyMicButtonLabel : (publishAudio ? 'Mic' : (micLockedByHost ? 'Locked' : 'Unmute')) }}</span>
+            <span>{{ lobbyMode ? lobbyMicButtonLabel : (publishAudio ? 'Mute' : (micLockedByHost ? 'Locked' : 'Unmute')) }}</span>
             <span
               v-if="publishAudio"
               class="vsr__mic-meter"
@@ -374,7 +371,7 @@
           {{ hideSelfView ? 'Show me' : 'Hide me' }}
         </button>
         <button
-          v-if="effectiveCanShareScreen || sharingScreen"
+          v-if="!lobbyMode"
           type="button"
           class="vsr__ctrl"
           :aria-pressed="sharingScreen"
@@ -472,6 +469,7 @@
 <script setup>
 import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick } from 'vue';
 import { updateRemoteVideoState } from './remoteVideoState.js';
+import { mediaElement, tileGrid, createSpeakerTracker } from './meetingPresentation.js';
 import { nativeAudioConstraints, enhancePublishedAudioTrack } from './nativeAudioCapture.js';
 import { attachPublisherAudioDevice, silenceLocalPublisherMedia } from './localPublisherMedia.js';
 import {
@@ -524,6 +522,8 @@ const props = defineProps({
   canGrantScreenShare: { type: Boolean, default: false },
   /** Start with microphone off and show an automute notice */
   startMuted: { type: Boolean, default: false },
+  startVideoOff: { type: Boolean, default: false },
+  showAutomuteNotice: { type: Boolean, default: true },
   /** Play a short tone when someone else joins */
   playJoinTone: { type: Boolean, default: true },
   /** Play a short tone when someone else leaves */
@@ -565,8 +565,8 @@ const errorMeta = ref(null);
 // replacing the publisher on admission is unreliable on iOS (and needlessly
 // runs audio processing twice on desktop). The main-room publisher acquires it.
 const publishAudio = ref(!props.startMuted && !props.lobbyMode);
-const publishVideo = ref(true);
-const automuteNoticeVisible = ref(!!props.startMuted && !props.lobbyMode);
+const publishVideo = ref(!props.startVideoOff);
+const automuteNoticeVisible = ref(props.showAutomuteNotice && !!props.startMuted && !props.lobbyMode);
 /** A lobby mic test grants permission and verifies capture without publishing audio. */
 const lobbyMicTested = ref(false);
 /** Set when a host/co-host force-mutes this participant. Cleared when participant self-unmutes. */
@@ -612,7 +612,8 @@ function cleanPersonName(raw) {
 /** @type {import('vue').Ref<Array<{ id: string, emoji: string, displayName: string, left: string, top: string, duration: string }>>} */
 const floatingReactions = ref([]);
 const reactionEmojis = ['👍', '❤️', '🎉', '👏', '💡'];
-const SPEAK_LEVEL = 0.2;
+const speakerTracker = createSpeakerTracker();
+let speakerTimer = null;
 /** @type {import('vue').Ref<Record<string, boolean>>} */
 const speakingByKey = ref({});
 const localMicLevel = ref(0);
@@ -649,6 +650,27 @@ function toggleLayoutMenu() {
   });
 }
 const lastSpeakerStreamId = ref('');
+const selectedRemoteStreamId = ref('');
+const focusedRemoteStreamId = computed(() => stageRemotes.value.some((r) => r.streamId === selectedRemoteStreamId.value)
+  ? selectedRemoteStreamId.value : stageRemotes.value[0]?.streamId || '');
+const stageEl = ref(null);
+const stageSize = ref({ width: 960, height: 540 });
+let stageResizeObserver = null;
+const stageGridStyle = computed(() => {
+  if (!isGridStage.value || hasScreenShare.value) return null;
+  const count = Math.min(stageVideoCount.value, visibleStagePages.value * STAGE_TILE_PAGE_SIZE);
+  const grid = tileGrid(count, stageSize.value.width, stageSize.value.height, props.compact ? 'mini' : tileSizePreset.value);
+  return { gridTemplateColumns: `repeat(${grid.columns}, minmax(0, 1fr))`, gridTemplateRows: `repeat(${grid.rows}, minmax(0, 1fr))` };
+});
+watch(stageEl, (el) => {
+  stageResizeObserver?.disconnect();
+  if (!el || typeof ResizeObserver === 'undefined') return;
+  stageResizeObserver = new ResizeObserver(([entry]) => {
+    const { width, height } = entry.contentRect;
+    if (width > 0 && height > 0) stageSize.value = { width, height };
+  });
+  stageResizeObserver.observe(el);
+});
 /** Many-participant grids: default to a manageable first page (host/presenter
  * always included first), and let the person watching reveal more or shrink
  * tiles themselves — instead of an algorithm silently deciding what they see. */
@@ -723,8 +745,7 @@ const useSplitCamOffLayout = computed(() =>
 );
 const featuredSpeakerStreamId = computed(() => {
   if (props.tileFocus !== 'speaker') return '';
-  const speakingRemote = stageRemotes.value.find((r) => !!speakingByKey.value[String(r.streamId || '')]);
-  if (speakingRemote?.streamId) return speakingRemote.streamId;
+  if (lastSpeakerStreamId.value === 'local' && showLocalOnStage.value) return '';
   if (lastSpeakerStreamId.value && stageRemotes.value.some((r) => r.streamId === lastSpeakerStreamId.value)) {
     return lastSpeakerStreamId.value;
   }
@@ -1125,7 +1146,7 @@ async function refreshRemoteVideo(streamId, hasVideo) {
     reparentSubscriberMedia(id, el);
     forceMediaFill(el);
     try {
-      const mediaEl = typeof sub?.element === 'function' ? sub.element() : null;
+      const mediaEl = mediaElement(sub);
       const video = mediaEl?.querySelector?.('video') || el.querySelector?.('video');
       if (video) {
         video.style.display = '';
@@ -1347,6 +1368,7 @@ function isLayoutOptionActive(opt) {
 }
 
 function setVideoFullscreen(on) {
+  if (on && props.tileFocus === 'collapsed') emit('update:tileFocus', 'equal');
   emit('update:videoFullscreen', !!on);
   layoutMenuOpen.value = false;
 }
@@ -1372,14 +1394,6 @@ function cycleLayoutFocus() {
   const next = order[(idx + 1) % order.length];
   emit('update:tileFocus', next);
 }
-
-watch(speakingByKey, (map) => {
-  const speaking = Object.entries(map || {}).find(([, on]) => !!on);
-  if (!speaking?.[0] || speaking[0] === 'local') return;
-  if (stageRemotes.value.some((r) => String(r.streamId) === String(speaking[0]))) {
-    lastSpeakerStreamId.value = speaking[0];
-  }
-}, { deep: true });
 
 watch(() => props.videoFullscreen, (on) => {
   if (on) layoutMenuOpen.value = false;
@@ -1429,11 +1443,18 @@ function setSpeaking(key, speaking) {
   if (!id) return;
   const prev = !!speakingByKey.value[id];
   const nextSpeaking = !!speaking;
+  if (!nextSpeaking) speakerTracker.remove(id);
   if (prev === nextSpeaking) return;
   const next = { ...speakingByKey.value };
   if (nextSpeaking) next[id] = true;
   else delete next[id];
   speakingByKey.value = next;
+}
+
+function updateSpeakingSnapshot() {
+  const { speaking, active } = speakerTracker.snapshot(Date.now());
+  if (JSON.stringify(speaking) !== JSON.stringify(speakingByKey.value)) speakingByKey.value = speaking;
+  if (active) lastSpeakerStreamId.value = active;
 }
 
 function attachSubscriberAudioLevel(sub, streamId) {
@@ -1450,7 +1471,7 @@ function attachSubscriberAudioLevel(sub, streamId) {
         setSpeaking(id, false);
         return;
       }
-      setSpeaking(id, Number(event?.audioLevel ?? 0) > SPEAK_LEVEL);
+      speakerTracker.update(id, Number(event?.audioLevel ?? 0), now);
     });
   } catch { /* ignore */ }
 }
@@ -1476,7 +1497,7 @@ function attachPublisherAudioLevel() {
         localMicLevel.value = 0;
         return;
       }
-      setSpeaking('local', level > SPEAK_LEVEL);
+      speakerTracker.update('local', level, now);
       localMicLevel.value = Math.max(level, localMicLevel.value * 0.82);
     });
   } catch { /* ignore */ }
@@ -1495,7 +1516,7 @@ function reparentSubscriberMedia(streamId, targetEl) {
   const sub = subscribers.get(id);
   if (!sub || !targetEl) return;
   try {
-    const mediaEl = typeof sub.element === 'function' ? sub.element() : null;
+    const mediaEl = mediaElement(sub);
     reparentMediaElement(mediaEl, targetEl);
   } catch { /* ignore */ }
 }
@@ -1508,7 +1529,7 @@ async function syncLocalVideoPresentation() {
   }
   if (!publisher || !target) return;
   try {
-    const mediaEl = typeof publisher.element === 'function' ? publisher.element() : null;
+    const mediaEl = mediaElement(publisher);
     reparentMediaElement(mediaEl, target);
     silenceLocalPublisherMedia(mediaEl);
     silenceLocalPublisherMedia(target);
@@ -1532,11 +1553,10 @@ function setRemoteMediaEl(streamId, el) {
   const id = String(streamId || '');
   if (!id) return;
   if (el) {
+    if (remoteMediaEls.get(id) === el) return;
     remoteMediaEls.set(id, el);
     reparentSubscriberMedia(id, el);
     forceMediaFill(el);
-    const remote = remotes.value.find((r) => r.streamId === id);
-    if (remote?.hasVideo) void refreshRemoteVideo(id, true);
     return;
   }
   // Vue may null the old tile after the new cam-off/stage tile already registered.
@@ -1545,8 +1565,9 @@ function setRemoteMediaEl(streamId, el) {
   remoteMediaEls.delete(id);
 }
 
-function onTileActivate(which) {
+function onTileActivate(which, streamId = '') {
   if (!props.allowTileFocus) return;
+  if (which === 'remote') selectedRemoteStreamId.value = streamId;
   if (props.tileFocus === which) {
     emit('update:tileFocus', 'equal');
     return;
@@ -1587,6 +1608,7 @@ const localInitials = computed(() => initialsFromLabel(props.localName));
 
 let session = null;
 let screenPublisher = null;
+let screenPublisherHost = null;
 let publisher = null;
 let publisherAudioStream = null;
 let publisherAudioTrack = null;
@@ -1594,6 +1616,7 @@ let publisherAudioTrack = null;
 const intentionallyDisconnectedSessions = new WeakSet();
 let OTApi = null;
 const subscribers = new Map();
+const pendingSubscriptions = new Map();
 let screenSubscriber = null;
 let pendingUnmuteAfterPublish = false;
 let micToggleInFlight = false;
@@ -1653,6 +1676,18 @@ function clearRemote() {
 }
 
 async function subscribeToStream(stream) {
+  const streamId = String(stream?.streamId || '');
+  const owner = session;
+  if (!owner || !streamId || isOwnStream(stream) || pendingSubscriptions.has(streamId)) return;
+  pendingSubscriptions.set(streamId, owner);
+  try {
+    await subscribeStreamOnce(stream, owner);
+  } finally {
+    if (pendingSubscriptions.get(streamId) === owner) pendingSubscriptions.delete(streamId);
+  }
+}
+
+async function subscribeStreamOnce(stream, owner) {
   if (!session || !stream) return;
   if (isOwnStream(stream)) return;
 
@@ -1667,6 +1702,7 @@ async function subscribeToStream(stream) {
       screenSubscriber = null;
     }
     await nextTick();
+    if (session !== owner) return;
     const targetEl = screenEl.value;
     if (!targetEl) return;
     targetEl.innerHTML = '';
@@ -1765,6 +1801,7 @@ async function subscribeToStream(stream) {
     return;
   }
 
+  if (session !== owner || subscribers.has(streamId) || !remotes.value.some((remote) => remote.streamId === streamId)) return;
   targetEl.innerHTML = '';
   const sub = session.subscribe(
     stream,
@@ -1773,10 +1810,7 @@ async function subscribeToStream(stream) {
       insertMode: 'append',
       width: '100%',
       height: '100%',
-      // 'cover' crops to fill the tile box — on a mismatched aspect ratio (e.g. a
-      // square tile with a 16:9 camera) that can crop someone down to just their
-      // forehead. 'contain' always shows their whole video, letterboxed if needed.
-      fitMode: 'contain',
+      fitMode: 'cover',
       subscribeToAudio: true,
       subscribeToVideo: true,
       style: { buttonDisplayMode: 'off', nameDisplayMode: 'off' }
@@ -1986,6 +2020,7 @@ async function connect() {
     }
     OTApi = OT;
     disconnect(false);
+    connecting.value = true;
     // Vonage Video JWT tokens: first arg must be Application ID (not account API key).
     session = OT.initSession(projectId, props.sessionId);
 
@@ -2199,9 +2234,8 @@ async function connect() {
         insertMode: 'append',
         width: '100%',
         height: '100%',
-        // See subscribeToStream() above — 'contain' keeps your whole camera frame
-        // visible instead of cropping to fill the tile.
-        fitMode: 'contain',
+        // Camera previews use the same fill mode as remote camera tiles.
+        fitMode: 'cover',
         publishAudio: mainRoom && !!withAudio,
         publishVideo: publishVideo.value,
         name: props.localName,
@@ -2245,7 +2279,7 @@ async function connect() {
           silenceLocalPublisherMedia(publisherMountEl);
         });
         try {
-          silenceLocalPublisherMedia(typeof pub?.element === 'function' ? pub.element() : null);
+          silenceLocalPublisherMedia(mediaElement(pub));
           silenceLocalPublisherMedia(publisherMountEl);
         } catch { /* ignore */ }
         publisherAudioStream = null;
@@ -2366,6 +2400,8 @@ async function connect() {
 }
 
 function stopScreenShare() {
+  screenPublisherHost?.remove();
+  screenPublisherHost = null;
   if (!screenPublisher) {
     sharingScreen.value = false;
     clearScreenShareTile();
@@ -2377,7 +2413,7 @@ function stopScreenShare() {
     /* ignore */
   }
   try {
-    const el = screenPublisher.element?.parentElement;
+    const el = mediaElement(screenPublisher)?.parentElement;
     screenPublisher.destroy();
     if (el && el.parentNode && el !== screenEl.value) el.parentNode.removeChild(el);
   } catch {
@@ -2391,7 +2427,7 @@ function stopScreenShare() {
 
 async function toggleScreenShare() {
   if (!session || !sessionReady.value) {
-    errorMessage.value = 'Connect to the session before sharing your screen.';
+    showConnectionNotice('Connect to the session before sharing your screen.');
     return;
   }
   if (sharingScreen.value) {
@@ -2399,7 +2435,7 @@ async function toggleScreenShare() {
     return;
   }
   if (!effectiveCanShareScreen.value) {
-    errorMessage.value = 'Only the host or presenter can share screen unless they allow you.';
+    showConnectionNotice('Ask the host or co-host to allow you to share your screen.');
     return;
   }
   try {
@@ -2408,6 +2444,7 @@ async function toggleScreenShare() {
     // Publish into a hidden off-screen container so the local publisher DOM
     // never conflicts with the remote screen subscriber rendering in screenEl.
     const offscreen = document.createElement('div');
+    screenPublisherHost = offscreen;
     offscreen.style.cssText = 'position:absolute;width:1px;height:1px;overflow:hidden;opacity:0;pointer-events:none;';
     document.body.appendChild(offscreen);
     await new Promise((resolve, reject) => {
@@ -2436,15 +2473,20 @@ async function toggleScreenShare() {
     sharingScreen.value = true;
     hasScreenShare.value = true;
     screenShareLabel.value = `${props.localName || 'You'} (screen)`;
+    await nextTick();
+    reparentMediaElement(mediaElement(screenPublisher), screenEl.value);
+    silenceLocalPublisherMedia(screenEl.value);
+    screenPublisherHost?.remove();
+    screenPublisherHost = null;
   } catch (err) {
     console.error('[VideoSessionRoom] screen share failed', err);
     stopScreenShare();
     clearScreenShareTile();
     const name = String(err?.name || '');
     const msg = String(err?.message || '');
-    errorMessage.value = name.includes('MEDIA_ACCESS') || /permission|denied|blocked|NotAllowed/i.test(msg)
+    showConnectionNotice(name.includes('MEDIA_ACCESS') || /permission|denied|blocked|NotAllowed/i.test(msg)
       ? 'Screen share was blocked. Allow screen sharing in your browser, then try again.'
-      : (msg || 'Could not share your screen.');
+      : (msg || 'Could not share your screen.'));
   }
 }
 
@@ -2489,7 +2531,9 @@ function disconnect(emitEvent = true) {
     if (localMediaStageEl.value) localMediaStageEl.value.innerHTML = '';
     if (localPublisherHostEl.value) localPublisherHostEl.value.innerHTML = '';
     clearRemote();
+    pendingSubscriptions.clear();
     speakingByKey.value = {};
+    speakerTracker.clear();
     voiceIsolationStatus.value = '';
     needsAudioSourceAttach.value = false;
     forceMutedByHost.value = false;
@@ -2747,6 +2791,7 @@ function handleVisibilityResume() {
 }
 
 onMounted(() => {
+  speakerTimer = setInterval(updateSpeakingSnapshot, 200);
   if (typeof document !== 'undefined') {
     document.addEventListener('visibilitychange', handleVisibilityResume);
   }
@@ -2757,6 +2802,8 @@ onMounted(() => {
 });
 
 onBeforeUnmount(() => {
+  clearInterval(speakerTimer);
+  stageResizeObserver?.disconnect();
   if (typeof document !== 'undefined') {
     document.removeEventListener('visibilitychange', handleVisibilityResume);
   }
@@ -2885,8 +2932,8 @@ defineExpose({
 }
 .vsr__ctrl-mic-row {
   display: flex;
-  flex-direction: column;
-  align-items: stretch;
+  flex-direction: row;
+  align-items: center;
   gap: 6px;
   width: 100%;
 }
@@ -3055,6 +3102,7 @@ defineExpose({
   background: rgba(185, 28, 28, 0.85);
 }
 .vsr__stage {
+  box-sizing: border-box;
   position: relative;
   display: grid;
   grid-template-columns: 1fr;
@@ -3113,8 +3161,10 @@ defineExpose({
 }
 .vsr__avatar-img,
 .vsr__avatar-initials {
-  width: min(62%, 220px);
-  height: min(62%, 220px);
+  width: auto;
+  height: 62%;
+  max-width: 62%;
+  max-height: 220px;
   aspect-ratio: 1;
   border-radius: 50%;
   object-fit: cover;
@@ -3428,7 +3478,7 @@ defineExpose({
 .vsr__stage--grid {
   --vsr-tile-min: 240px;
   grid-template-columns: repeat(auto-fit, minmax(var(--vsr-tile-min), 1fr));
-  grid-auto-rows: minmax(140px, 1fr);
+  grid-auto-rows: minmax(0, 1fr);
   flex: 1 1 0;
   min-height: 0 !important;
   height: auto;
@@ -3444,6 +3494,8 @@ defineExpose({
   display: none !important;
 }
 .vsr__tile--speaking {
+  outline: 3px solid #34d399;
+  outline-offset: -3px;
   box-shadow: 0 0 0 3px #34d399, 0 4px 16px rgba(0, 0, 0, 0.35);
 }
 .vsr__grid-toolbar {
@@ -3512,7 +3564,7 @@ defineExpose({
   top: auto !important;
   width: 100% !important;
   max-width: none !important;
-  min-height: 120px !important;
+  min-height: 0 !important;
   height: 100% !important;
   box-shadow: none !important;
   z-index: 1;
@@ -3520,7 +3572,7 @@ defineExpose({
 .vsr__stage--duo .vsr__tile--remote,
 .vsr__stage--grid .vsr__tile--remote {
   position: relative !important;
-  min-height: 120px !important;
+  min-height: 0 !important;
   height: 100% !important;
   width: 100% !important;
 }
@@ -3529,41 +3581,47 @@ defineExpose({
 }
 .vsr__stage--focus-local,
 .vsr__stage--focus-remote,
-.vsr__stage--focus-speaker {
-  grid-template-columns: 1fr;
-  min-height: min(48vh, 420px);
+.vsr__stage--focus-speaker,
+.vsr__stage--screen {
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  grid-template-rows: minmax(0, 1fr) 100px;
+  grid-auto-rows: 100px;
+  min-height: 0;
+  overflow: auto;
+}
+.vsr__stage--focus-local > .vsr__tile,
+.vsr__stage--focus-remote > .vsr__tile,
+.vsr__stage--focus-speaker > .vsr__tile {
+  grid-row: auto;
 }
 .vsr__stage--focus-local .vsr__tile--local.vsr__tile--featured,
 .vsr__stage--focus-remote .vsr__tile--remote.vsr__tile--featured,
 .vsr__stage--focus-speaker .vsr__tile--remote.vsr__tile--featured,
-.vsr__stage--focus-speaker .vsr__tile--local.vsr__tile--featured {
+.vsr__stage--focus-speaker .vsr__tile--local.vsr__tile--featured,
+.vsr__stage--screen .vsr__tile--screen {
   position: relative !important;
   inset: auto !important;
   width: 100% !important;
   max-width: none !important;
-  min-height: min(42vh, 380px);
+  min-height: 0;
   height: 100%;
   box-shadow: none !important;
-  grid-area: 1 / 1;
+  grid-area: 1 / 1 / 2 / -1;
 }
 .vsr__stage--focus-local .vsr__tile--remote.vsr__tile--pip,
 .vsr__stage--focus-remote .vsr__tile--local.vsr__tile--pip,
 .vsr__stage--focus-speaker .vsr__tile--local.vsr__tile--pip,
-.vsr__stage--focus-speaker .vsr__tile--remote.vsr__tile--pip {
-  position: absolute !important;
-  right: 0.75rem;
-  bottom: 0.75rem;
-  left: auto !important;
-  top: auto !important;
-  width: 26%;
-  max-width: 180px;
-  min-height: 96px;
-  z-index: 4;
+.vsr__stage--focus-speaker .vsr__tile--remote.vsr__tile--pip,
+.vsr__stage--screen .vsr__tile--pip {
+  position: relative !important;
+  inset: auto !important;
+  width: 100%;
+  max-width: none;
+  min-height: 0;
+  height: 100%;
+  z-index: 1;
   cursor: pointer;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
-}
-.vsr__stage--focus-speaker .vsr__tile--remote.vsr__tile--pip:nth-last-of-type(2) {
-  right: calc(0.75rem + min(26%, 180px) + 0.45rem);
 }
 .vsr--fullscreen {
   position: fixed;
@@ -3589,7 +3647,7 @@ defineExpose({
 .vsr--fullscreen .vsr__stage--solo .vsr__tile,
 .vsr--fullscreen .vsr__stage--duo .vsr__tile,
 .vsr--fullscreen .vsr__stage--grid .vsr__tile {
-  min-height: min(70dvh, 720px);
+  min-height: 0;
 }
 .vsr__layout-wrap {
   position: relative;
@@ -3686,15 +3744,31 @@ defineExpose({
   opacity: 0.9;
 }
 .vsr__stage--focus-collapsed {
-  grid-template-columns: 1fr 1fr;
-  min-height: 88px;
-  max-height: 110px;
+  display: flex;
+  flex: 0 0 auto;
+  height: 104px;
+  min-height: 104px;
+  max-height: 104px;
+  overflow-x: auto;
+  overflow-y: hidden;
 }
 .vsr__stage--focus-collapsed .vsr__tile,
 .vsr__tile--mini {
-  min-height: 72px !important;
+  position: relative !important;
+  inset: auto !important;
+  flex: 0 0 156px;
+  width: 156px;
+  max-width: none;
+  min-height: 0 !important;
   height: 88px;
   cursor: pointer;
+}
+.vsr--focus-collapsed:not(.vsr--fullscreen) {
+  height: auto;
+  min-height: 0;
+}
+.vsr--focus-collapsed .vsr__viewport {
+  flex: 0 0 auto;
 }
 .vsr__focus-btn {
   position: absolute;
@@ -3727,16 +3801,15 @@ defineExpose({
   max-width: none !important;
   max-height: none !important;
 }
-/* 'contain' always shows a participant's whole camera frame (letterboxed if the
-   tile's box doesn't match their camera's aspect ratio) instead of cropping —
-   'cover' was silently chopping people down to a sliver (e.g. just a forehead)
-   whenever a tile's shape didn't match their webcam. This is the actual rule in
-   control (it overrides the SDK's own fitMode option below via !important). */
+/* Camera tiles fill the available height; shared documents stay uncropped. */
 .vsr__tile :deep(video) {
   width: 100% !important;
   height: 100% !important;
-  object-fit: contain !important;
+  object-fit: cover !important;
   background: #0b0e14;
+}
+.vsr__tile--screen :deep(video) {
+  object-fit: contain !important;
 }
 .vsr__stage--strip .vsr__tile--local {
   position: relative;

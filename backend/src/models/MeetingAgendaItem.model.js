@@ -5,9 +5,11 @@ const STATUSES = ['pending', 'discussed', 'completed'];
 class MeetingAgendaItem {
   static async findByAgendaId(agendaId) {
     const [rows] = await pool.execute(
-      `SELECT * FROM meeting_agenda_items
-       WHERE meeting_agenda_id = ?
-       ORDER BY sort_order ASC, id ASC`,
+      `SELECT i.*, TRIM(CONCAT_WS(' ', u.first_name, u.last_name)) AS created_by_name
+       FROM meeting_agenda_items i
+       LEFT JOIN users u ON u.id = i.created_by_user_id
+       WHERE i.meeting_agenda_id = ?
+       ORDER BY i.sort_order ASC, i.id ASC`,
       [parseInt(agendaId, 10)]
     );
     return rows || [];
@@ -35,7 +37,10 @@ class MeetingAgendaItem {
 
   static async findById(id) {
     const [rows] = await pool.execute(
-      'SELECT * FROM meeting_agenda_items WHERE id = ?',
+      `SELECT i.*, TRIM(CONCAT_WS(' ', u.first_name, u.last_name)) AS created_by_name
+       FROM meeting_agenda_items i
+       LEFT JOIN users u ON u.id = i.created_by_user_id
+       WHERE i.id = ?`,
       [parseInt(id, 10)]
     );
     return rows?.[0] || null;

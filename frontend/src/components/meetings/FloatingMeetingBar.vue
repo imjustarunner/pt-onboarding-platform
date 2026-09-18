@@ -27,311 +27,134 @@
       </div>
     </div>
 
-    <!-- Video tile strip -->
     <div class="fmb__tiles">
-      <div
-        v-for="r in remotes"
-        :key="r.streamId"
-        class="fmb__tile"
-        :ref="(el) => setTileEl(r.streamId, el)"
-      >
-        <span class="fmb__tile-name">{{ shortName(r.name) }}</span>
-        <span v-if="!r.hasAudio" class="fmb__tile-muted">🔇</span>
-      </div>
-      <div v-if="!remotes.length" class="fmb__tile fmb__tile--empty">
-        <span>Waiting…</span>
-      </div>
+      <VideoSessionRoom
+        v-if="meeting.active"
+        ref="videoRoom"
+        :application-id="meeting.applicationId"
+        :session-id="meeting.vonageSessionId"
+        :token="meeting.token"
+        :local-name="meeting.localName"
+        :start-muted="meeting.startMuted"
+        :start-video-off="meeting.startVideoOff"
+        :show-automute-notice="false"
+        :is-host-or-cohost="meeting.isHostOrCohost"
+        :screen-share-mode="meeting.screenShareMode"
+        :can-share-screen="meeting.canShareScreen"
+        :can-grant-screen-share="meeting.canGrantScreenShare"
+        compact
+        hide-controls
+        :play-join-tone="false"
+        @connected="startPresence"
+        @disconnected="stopPresence"
+        @meeting-ended="leaveMeeting"
+        @transcript-control="onTranscriptControl"
+      />
     </div>
-
-    <!-- Footer controls -->
+    <p v-if="transcriptionActive" class="fmb__notice" role="status">Transcription is on.</p>
     <div class="fmb__footer">
-      <button
-        type="button"
-        class="fmb__ctrl-btn"
-        :class="{ 'fmb__ctrl-btn--muted': audioMuted }"
-        :title="audioMuted ? 'Unmute' : 'Mute'"
-        @click="toggleAudio"
-      >
-        {{ audioMuted ? '🔇' : '🎙' }}
+      <button type="button" class="fmb__ctrl-btn"
+        :class="{ 'fmb__ctrl-btn--muted': !videoRoom?.publishAudio }"
+        :title="videoRoom?.publishAudio ? 'Mute microphone' : 'Unmute microphone'"
+        @click="videoRoom?.toggleMic()">
+        {{ videoRoom?.publishAudio ? 'Mute' : 'Unmute' }}
       </button>
-      <button
-        type="button"
-        class="fmb__ctrl-btn fmb__ctrl-btn--expand-full"
-        title="Return to meeting"
-        @click="expandMeeting"
-      >
+      <button type="button" class="fmb__ctrl-btn fmb__ctrl-btn--expand-full" @click="expandMeeting">
         Return to meeting
       </button>
     </div>
-
-    <div v-if="connectError" class="fmb__error">{{ connectError }}</div>
-    <div ref="publisherHostEl" class="fmb__publisher-host" aria-hidden="true" />
   </div>
 </template>
 
 <script setup>
-import { ref, reactive, watch, onUnmounted, nextTick } from 'vue';
+import { ref, reactive, watch, onUnmounted } from 'vue';
 import { useRouter } from 'vue-router';
 import { useActiveMeeting } from '../../composables/useActiveMeeting';
+import VideoSessionRoom from '../video/VideoSessionRoom.vue';
+import api from '../../services/api';
+import { suspendInactivityTimeout, resumeInactivityTimeout } from '../../utils/activityTracker';
 
 const router = useRouter();
-const { state: meeting, clearMiniMode } = useActiveMeeting();
+const { state: meeting, clearMiniMode, saveReturnMedia } = useActiveMeeting();
+const videoRoom = ref(null);
+const transcriptionActive = ref(false);
+let presenceTimer = null;
+let activityHeld = false;
 
-// ─── Vonage session ───────────────────────────────────────────────────────────
-let session = null;
-const remotes = ref([]);
-const tileEls = new Map();
-const connectError = ref('');
-const audioMuted = ref(false);
-const publisherHostEl = ref(null);
-let localPublisher = null;
-let connectInFlight = false;
-
-// Track remote tile DOM elements (used to inject subscriber video)
-function setTileEl(streamId, el) {
-  const id = String(streamId || '');
-  if (!id) return;
-  if (el) {
-    tileEls.set(id, el);
-    reparentSubscriberMedia(id, el);
-    return;
-  }
-  tileEls.delete(id);
-}
-
-function reparentSubscriberMedia(streamId, targetEl) {
-  if (!session || !targetEl) return;
-  // Re-attach subscriber DOM after Vue re-renders the tile element.
-  const sub = subscribers.get(streamId);
-  if (!sub) return;
+async function sendPresence(action = 'heartbeat') {
+  if (!meeting.eventId || !meeting.joinIdentity) return;
   try {
-    const mediaEl = typeof sub.element === 'function' ? sub.element() : null;
-    if (mediaEl && mediaEl.parentNode !== targetEl) {
-      targetEl.innerHTML = '';
-      targetEl.appendChild(mediaEl);
-    }
-  } catch { /* ignore */ }
+    await api.post(`/team-meetings/${encodeURIComponent(meeting.eventId)}/join-presence`, {
+      identity: meeting.joinIdentity,
+      joinIdentity: meeting.joinIdentity,
+      displayName: meeting.localName,
+      action
+    }, { skipAuthRedirect: true, skipGlobalLoading: true });
+  } catch { /* transient failures are retried by the heartbeat */ }
 }
-
-const subscribers = new Map();
-
-async function connect() {
-  if (!meeting.vonageSessionId || !meeting.token || session || connectInFlight) return;
-  connectInFlight = true;
-  connectError.value = '';
-  try {
-    const { default: OT } = await import('@vonage/client-sdk-video');
-    session = OT.initSession(
-      meeting.applicationId || meeting.roomName || meeting.vonageSessionId,
-      meeting.vonageSessionId
-    );
-
-    session.on('streamCreated', async (event) => {
-      const stream = event.stream;
-      const streamId = String(stream.streamId || '');
-      if (!streamId) return;
-      const ownId = session?.connection?.connectionId;
-      const streamConn = stream?.connection?.connectionId;
-      if (ownId && streamConn && ownId === streamConn) return;
-
-      // Add to reactive list
-      const name = (() => {
-        try {
-          const data = stream.connection?.data;
-          if (data) {
-            const parsed = typeof data === 'string' ? JSON.parse(data) : data;
-            const n = String(parsed.displayName || parsed.identity || '').trim();
-            return n || 'Participant';
-          }
-        } catch { /* ignore */ }
-        return String(stream.name || '').trim() || 'Participant';
-      })();
-
-      remotes.value = [...remotes.value, {
-        streamId,
-        name,
-        hasAudio: stream.hasAudio !== false,
-        hasVideo: stream.hasVideo !== false,
-      }];
-
-      await nextTick();
-      const targetEl = tileEls.get(streamId);
-      if (!targetEl) return;
-      targetEl.innerHTML = '';
-      const sub = session.subscribe(
-        stream,
-        targetEl,
-        {
-          insertMode: 'append',
-          width: '100%',
-          height: '100%',
-          fitMode: 'contain',
-          subscribeToAudio: true,
-          subscribeToVideo: false,
-          style: { buttonDisplayMode: 'off', nameDisplayMode: 'off' }
-        },
-        (err) => {
-          if (err) console.warn('[FloatingMeetingBar] subscribe error', err);
-        }
-      );
-      subscribers.set(streamId, sub);
-      sub.on?.('audioEnabled', () => updateRemoteAudio(streamId, true));
-      sub.on?.('audioDisabled', () => updateRemoteAudio(streamId, false));
-    });
-
-    session.on('streamDestroyed', (event) => {
-      const streamId = String(event.stream?.streamId || '');
-      remotes.value = remotes.value.filter((r) => r.streamId !== streamId);
-      tileEls.delete(streamId);
-      subscribers.delete(streamId);
-    });
-
-    session.on('sessionDisconnected', () => {
-      remotes.value = [];
-      subscribers.clear();
-    });
-
-    await new Promise((res, rej) => session.connect(meeting.token, (err) => (err ? rej(err) : res())));
-
-    // Keep this participant published while they browse other pages. Mini mode
-    // used to subscribe-only, which made everyone else lose their audio.
-    try {
-      await nextTick();
-      const mountEl = publisherHostEl.value;
-      if (mountEl && typeof OT.initPublisher === 'function') {
-        mountEl.innerHTML = '';
-        const pub = await new Promise((resolve, reject) => {
-          const nextPublisher = OT.initPublisher(
-            mountEl,
-            {
-              insertMode: 'append',
-              width: 1,
-              height: 1,
-              publishAudio: !audioMuted.value,
-              publishVideo: false,
-              name: meeting.meetingTitle || 'Participant',
-              echoCancellation: true,
-              noiseSuppression: true,
-              autoGainControl: false,
-              style: { buttonDisplayMode: 'off', nameDisplayMode: 'off' }
-            },
-            (err) => (err ? reject(err) : resolve(nextPublisher))
-          );
-        });
-        await new Promise((resolve, reject) => {
-          session.publish(pub, (err) => (err ? reject(err) : resolve()));
-        });
-        localPublisher = pub;
-        try {
-          mountEl.querySelectorAll('video, audio').forEach((el) => {
-            el.muted = true;
-            el.volume = 0;
-          });
-        } catch { /* ignore */ }
-      }
-    } catch (publishErr) {
-      console.warn('[FloatingMeetingBar] could not keep microphone published', publishErr?.message || publishErr);
-    }
-  } catch (e) {
-    connectError.value = 'Could not connect to meeting audio/video.';
-    console.warn('[FloatingMeetingBar] connect error', e?.message || e);
-  } finally {
-    connectInFlight = false;
-  }
+function startPresence() {
+  stopPresence();
+  // Use the same visible-meeting activity rules as the full room.
+  suspendInactivityTimeout();
+  activityHeld = true;
+  void sendPresence();
+  presenceTimer = setInterval(() => { void sendPresence(); }, 15000);
 }
-
-function updateRemoteAudio(streamId, hasAudio) {
-  const idx = remotes.value.findIndex((r) => r.streamId === streamId);
-  if (idx !== -1) {
-    const copy = [...remotes.value];
-    copy[idx] = { ...copy[idx], hasAudio };
-    remotes.value = copy;
-  }
+function stopPresence() {
+  clearInterval(presenceTimer);
+  presenceTimer = null;
+  if (activityHeld) { resumeInactivityTimeout(); activityHeld = false; }
 }
-
-function disconnect() {
-  if (localPublisher) {
-    try { session?.unpublish(localPublisher); } catch { /* ignore */ }
-    try { localPublisher.destroy(); } catch { /* ignore */ }
-    localPublisher = null;
-  }
-  subscribers.clear();
-  tileEls.clear();
-  remotes.value = [];
-  if (session) {
-    try { session.disconnect(); } catch { /* ignore */ }
-    session = null;
-  }
+function onTranscriptControl(payload) {
+  if (payload?.action === 'start' || payload?.action === 'resume') transcriptionActive.value = true;
+  if (payload?.action === 'stop' || payload?.action === 'pause') transcriptionActive.value = false;
 }
-
-function toggleAudio() {
-  audioMuted.value = !audioMuted.value;
-  if (localPublisher) {
-    try { localPublisher.publishAudio(!audioMuted.value); } catch { /* ignore */ }
-  }
-}
-
-// ─── Navigation ──────────────────────────────────────────────────────────────
-function expandMeeting() {
+async function expandMeeting() {
   const path = meeting.meetingPath;
-  disconnect();
+  saveReturnMedia(path, {
+    startMuted: !videoRoom.value?.publishAudio,
+    startVideoOff: !videoRoom.value?.publishVideo
+  });
+  videoRoom.value?.disconnect(false);
+  stopPresence();
   clearMiniMode();
-  if (path) router.push(path);
+  if (path) await router.push(path);
 }
-
 function leaveMeeting() {
-  disconnect();
+  void sendPresence('leave');
+  videoRoom.value?.disconnect(false);
+  stopPresence();
   clearMiniMode();
 }
+watch(() => meeting.active, (on) => {
+  if (!on) stopPresence();
+  else transcriptionActive.value = !!meeting.transcriptionActive;
+}, { immediate: true });
+onUnmounted(() => {
+  if (meeting.active) leaveMeeting();
+  else stopPresence();
+});
 
-// ─── Watch active state ───────────────────────────────────────────────────────
-watch(
-  () => meeting.active,
-  (on) => {
-    if (on) void connect();
-    else disconnect();
-  },
-  { immediate: true }
-);
-
-onUnmounted(disconnect);
-
-// ─── Short name helper ────────────────────────────────────────────────────────
-function shortName(name) {
-  const clean = String(name || '')
-    .replace(/^(You|Host|Participant|Guest|Supervisor|Supervisee)\s*[·|]\s*/i, '')
-    .trim();
-  const parts = clean.split(/\s+/);
-  if (parts.length <= 1) return clean.slice(0, 12);
-  return `${parts[0]} ${parts[1][0]}.`;
-}
-
-// ─── Drag to reposition ───────────────────────────────────────────────────────
 const dragOffset = reactive({ x: 0, y: 0 });
-const dragging = ref(false);
 const dragStyle = ref('');
-
+let stopDragging = null;
 function startDrag(e) {
-  if (e.button !== 0) return;
-  dragging.value = true;
-  const rect = e.currentTarget.closest?.('.fmb')?.getBoundingClientRect?.() || { left: 0, top: 0 };
+  if (e.button !== 0 || e.target.closest('button')) return;
+  stopDragging?.();
+  const rect = e.currentTarget.closest('.fmb').getBoundingClientRect();
   dragOffset.x = e.clientX - rect.left;
   dragOffset.y = e.clientY - rect.top;
-
-  function onMove(ev) {
-    if (!dragging.value) return;
-    const x = ev.clientX - dragOffset.x;
-    const y = ev.clientY - dragOffset.y;
-    dragStyle.value = `left:${x}px;top:${y}px;right:auto;bottom:auto;`;
-  }
-  function onUp() {
-    dragging.value = false;
+  const onMove = (ev) => {
+    dragStyle.value = `left:${ev.clientX - dragOffset.x}px;top:${ev.clientY - dragOffset.y}px;right:auto;bottom:auto;`;
+  };
+  stopDragging = () => {
     window.removeEventListener('mousemove', onMove);
-    window.removeEventListener('mouseup', onUp);
-  }
+    window.removeEventListener('mouseup', stopDragging);
+  };
   window.addEventListener('mousemove', onMove);
-  window.addEventListener('mouseup', onUp);
+  window.addEventListener('mouseup', stopDragging);
 }
+onUnmounted(() => stopDragging?.());
 </script>
 
 <style scoped>
@@ -411,66 +234,12 @@ function startDrag(e) {
 
 /* Tiles */
 .fmb__tiles {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-  padding: 8px;
-  min-height: 72px;
-  max-height: 190px;
-  overflow-y: auto;
+  height: 210px;
+  padding: 4px;
+  overflow: hidden;
   background: rgba(0, 0, 0, 0.25);
 }
-.fmb__tile {
-  position: relative;
-  width: 80px;
-  height: 62px;
-  border-radius: 8px;
-  overflow: hidden;
-  background: #0b0e14;
-  flex-shrink: 0;
-}
-.fmb__tile:deep(video),
-.fmb__tile:deep(.OT_root),
-.fmb__tile:deep(.OT_subscriber),
-.fmb__tile:deep(.OT_widget-container) {
-  position: absolute !important;
-  inset: 0 !important;
-  width: 100% !important;
-  height: 100% !important;
-  object-fit: contain !important;
-}
-.fmb__tile-name {
-  position: absolute;
-  bottom: 3px;
-  left: 4px;
-  right: 4px;
-  z-index: 2;
-  font-size: 0.6rem;
-  font-weight: 700;
-  color: #fff;
-  text-shadow: 0 1px 3px rgba(0,0,0,0.8);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  pointer-events: none;
-}
-.fmb__tile-muted {
-  position: absolute;
-  top: 3px;
-  right: 4px;
-  z-index: 2;
-  font-size: 0.65rem;
-  pointer-events: none;
-}
-.fmb__tile--empty {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: #64748b;
-  font-size: 0.72rem;
-  font-style: italic;
-  width: 100%;
-}
+.fmb__notice { padding: 4px 10px; color: #cbd5e1; font-size: 0.75rem; }
 
 /* Footer */
 .fmb__footer {
@@ -506,20 +275,4 @@ function startDrag(e) {
 }
 .fmb__ctrl-btn--expand-full:hover { background: rgba(34, 197, 94, 0.16); }
 
-/* Error */
-.fmb__error {
-  padding: 6px 10px;
-  font-size: 0.72rem;
-  color: #fca5a5;
-  background: rgba(239, 68, 68, 0.12);
-  border-top: 1px solid rgba(239, 68, 68, 0.2);
-}
-.fmb__publisher-host {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-  opacity: 0;
-  pointer-events: none;
-}
 </style>

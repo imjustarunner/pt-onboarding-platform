@@ -29,6 +29,7 @@
       :can-share-screen="canShareScreen"
       :can-grant-screen-share="canGrantScreenShare"
       :start-muted="startMuted"
+      :start-video-off="startVideoOff"
       :play-join-tone="playJoinTone"
       :lobby-mode="lobbyMode"
       @update:tile-focus="$emit('update:tileFocus', $event)"
@@ -96,6 +97,7 @@ const props = defineProps({
   canGrantScreenShare: { type: Boolean, default: false },
   /** Join with microphone off (group supervision default for attendees). */
   startMuted: { type: Boolean, default: false },
+  startVideoOff: { type: Boolean, default: false },
   playJoinTone: { type: Boolean, default: true },
   localDisplayName: { type: String, default: '' },
   localRoleLabel: { type: String, default: '' },

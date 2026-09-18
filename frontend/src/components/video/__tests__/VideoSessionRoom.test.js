@@ -51,11 +51,68 @@ describe('VideoSessionRoom connection lifecycle', () => {
 
     await flushPromises();
 
+    await vi.dynamicImportSettled();
+    expect(videoSdk.session).not.toBeNull();
     expect(wrapper.find('.vsr__connecting').exists()).toBe(true);
     expect(wrapper.find('.vsr__viewport').exists()).toBe(true);
     expect(wrapper.find('.vsr__publisher-host').exists()).toBe(true);
     expect(wrapper.find('.vsr__tile--local .vsr__media').exists()).toBe(true);
 
+    wrapper.unmount();
+  });
+
+  it('retains every subscriber DOM node across layouts and camera-off/full-screen transitions', async () => {
+    const wrapper = mount(VideoSessionRoom, {
+      attachTo: document.body,
+      props: {
+        applicationId: '11111111-1111-4111-8111-111111111111',
+        sessionId: 'layout-session', token: 'eyJ.test.token',
+        equalTilesWhenRemote: true, playJoinTone: false
+      }
+    });
+    await flushPromises();
+    await vi.dynamicImportSettled();
+    const elements = [];
+    videoSdk.session.subscribe = vi.fn((stream, target) => {
+      const element = document.createElement('div');
+      element.dataset.stream = stream.streamId;
+      element.appendChild(document.createElement('video'));
+      target.appendChild(element);
+      elements.push(element);
+      return { element, on: vi.fn() };
+    });
+    for (let i = 0; i < 5; i += 1) {
+      const event = { stream: {
+        streamId: `peer-${i}`, connection: { connectionId: `connection-${i}` },
+        name: `Person ${i}`, hasVideo: i !== 2, hasAudio: true
+      } };
+      videoSdk.session._handlers.streamCreated(event);
+      videoSdk.session._handlers.streamCreated(event);
+      await flushPromises();
+    }
+    const targets = elements.map((element) => element.parentElement);
+    for (const tileFocus of ['speaker', 'collapsed', 'equal', 'remote', 'local', 'equal']) {
+      await wrapper.setProps({ tileFocus, videoFullscreen: tileFocus === 'equal' });
+      await flushPromises();
+      expect(elements).toHaveLength(5);
+      for (let i = 0; i < elements.length; i += 1) {
+        expect(elements[i].isConnected).toBe(true);
+        expect(elements[i].parentElement).toBe(targets[i]);
+      }
+    }
+    expect(videoSdk.session.subscribe).toHaveBeenCalledTimes(5);
+    wrapper.unmount();
+  });
+
+  it('restores the equal layout when expanding collapsed videos to full screen', async () => {
+    const wrapper = mount(VideoSessionRoom, { props: {
+      autoConnect: false, tileFocus: 'collapsed', allowTileFocus: true
+    } });
+    await wrapper.get('[title="Video layout"]').trigger('click');
+    const fullScreen = wrapper.findAll('.vsr__layout-item').find((item) => item.text().includes('Full screen'));
+    await fullScreen.trigger('click');
+    expect(wrapper.emitted('update:tileFocus')).toEqual([['equal']]);
+    expect(wrapper.emitted('update:videoFullscreen')).toEqual([[true]]);
     wrapper.unmount();
   });
 

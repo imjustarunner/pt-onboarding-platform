@@ -15,7 +15,17 @@ const state = reactive({
   eventId: null,
   meetingPath: '',
   meetingTitle: 'Meeting',
+  joinIdentity: '',
+  localName: 'You',
+  startMuted: true,
+  startVideoOff: true,
+  isHostOrCohost: false,
+  screenShareMode: 'restricted',
+  canShareScreen: false,
+  canGrantScreenShare: false,
+  transcriptionActive: false,
 });
+let returnMedia = null;
 
 export function useActiveMeeting() {
   function setMiniMode(params = {}) {
@@ -27,6 +37,15 @@ export function useActiveMeeting() {
     state.eventId = params.eventId || null;
     state.meetingPath = String(params.meetingPath || '/dashboard');
     state.meetingTitle = String(params.meetingTitle || 'Meeting');
+    state.joinIdentity = String(params.joinIdentity || '');
+    state.localName = String(params.localName || 'You');
+    state.startMuted = params.startMuted !== false;
+    state.startVideoOff = params.startVideoOff !== false;
+    state.isHostOrCohost = !!params.isHostOrCohost;
+    state.screenShareMode = params.screenShareMode || 'restricted';
+    state.canShareScreen = !!params.canShareScreen;
+    state.canGrantScreenShare = !!params.canGrantScreenShare;
+    state.transcriptionActive = !!params.transcriptionActive;
   }
 
   function clearMiniMode() {
@@ -38,7 +57,14 @@ export function useActiveMeeting() {
     state.eventId = null;
     state.meetingPath = '';
     state.meetingTitle = 'Meeting';
+    state.joinIdentity = '';
   }
 
-  return { state: readonly(state), setMiniMode, clearMiniMode };
+  function saveReturnMedia(path, preferences) { returnMedia = { path, preferences }; }
+  function takeReturnMedia(path) {
+    const preferences = returnMedia?.path === path ? returnMedia.preferences : null;
+    returnMedia = null;
+    return preferences;
+  }
+  return { state: readonly(state), setMiniMode, clearMiniMode, saveReturnMedia, takeReturnMedia };
 }
