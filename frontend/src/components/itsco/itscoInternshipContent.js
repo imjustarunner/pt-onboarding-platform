@@ -52,10 +52,30 @@ export function trainingPeople(data){
  return [...people.values()];
 }
 
+// Public clinical-supervisor publication choices confirmed by ITSCO. These do not change app permissions.
+// Destiny remains a student-training mentor; Melissa remains on the support team.
+const excludedClinicalSupervisorIds = new Set([477, 538]);
+export function internshipSupervisors(data) {
+ const people=trainingPeople(data);
+ const candidates=Array.isArray(data?.supervisors)
+  ? data.supervisors.map(person=>({...people.find(p=>p.id===person.id),...person}))
+  : people.filter(person=>/\bsupervisor\b/i.test(person.title));
+ return candidates.filter(person=>!excludedClinicalSupervisorIds.has(Number(person.id)));
+}
+
+// Editorial biographies based on the founders’ published roles and ITSCO’s supplied history.
+// A biography saved through Edit public profile takes precedence.
+const founderBiographies = {
+ 'Rachel Finch': 'Rachel Finch is a co-founder of ITSCO and its Director of Strategy and Clinical Operations. She is also part of ITSCO’s supervision team. Her role connects the practice’s clinical work with its larger mission: making thoughtful, accessible mental health care available to children, adolescents, adults, and families.\n\nTogether with Michael Mendez, Rachel helped build ITSCO around two guiding priorities—the needs of clients and the well-being of clinicians. Their shared vision brought care directly into schools, helping families overcome barriers such as transportation and access to outside-school services. That same commitment shapes ITSCO’s approach to student training: supervised learning, professional growth, and an environment where clinicians can thrive.',
+ 'Michael Mendez': 'Michael Mendez is a co-founder of ITSCO and its Director of Operations and Administration. He also serves on ITSCO’s supervision team. His role brings together the operational side of the practice and its commitment to supporting the people who deliver care.\n\nMichael and Rachel Finch founded ITSCO in response to the barriers families faced when seeking mental health services for youth. By bringing counseling into schools, they created a more accessible path to support while keeping clinician well-being at the center of the practice. For students exploring ITSCO, that founding vision provides the context for the training program: meaningful work in school and approved office settings, close supervision, and room to develop as a professional.'
+};
+
 /** Fill empty recruitment biographies using only fields already published in the directory. */
 export function publicProfileIntroduction(person) {
  const biography=String(person?.bio||'').trim();
  if(biography)return biography;
+ const founderBio=founderBiographies[String(person?.displayName||'').trim()];
+ if(founderBio)return founderBio;
  const name=String(person?.displayName||'This team member').trim();
  const credential=String(person?.credential||'').trim();
  const sentences=[`${name}${credential?` (${credential})`:''} ${person?.title?`serves as ${person.title} at ITSCO.`:'is part of the ITSCO team.'}`];

@@ -1,7 +1,7 @@
 import {describe,it,expect,vi,afterEach} from 'vitest';
 import {mount,flushPromises} from '@vue/test-utils';
 import Internships from '../ItscoInternships.vue';
-import {selectInternshipJobs,trainingPeople,publicProfileIntroduction} from '../itscoInternshipContent';
+import {selectInternshipJobs,trainingPeople,publicProfileIntroduction,internshipSupervisors} from '../itscoInternshipContent';
 import api from '../../../services/api';
 vi.mock('../../../services/api',()=>({default:{get:vi.fn()}}));
 const data={agency:{id:2},providers:[{id:1,displayName:'Michael Mendez',title:'Director',photoUrl:'/michael.jpg'},{id:3,displayName:'Supervisor Example',title:'Counselor & Supervisor'}],team:[{id:2,displayName:'Rachel Finch',title:'Clinical Director',photoUrl:'/rachel.jpg'}]};
@@ -29,6 +29,21 @@ describe('ITSCO internship recruitment',()=>{
   expect(publicProfileIntroduction({displayName:'Brittany Suvari',credential:'MS, LPC',title:'Counselor & Supervisor',modalities:['Art Therapy','Cognitive Behavioral Therapy (CBT)']})).toContain('Art Therapy and Cognitive Behavioral Therapy (CBT)');
   const merged=trainingPeople({providers:[{...randy,id:5}],supervisors:[{id:5,displayName:'Randy Menegatti',bio:''}]});
   expect(merged[0].modalities).toEqual(['Solution Focused']);
+ });
+ it('excludes Destiny and the credentialing specialist from clinical supervisors, retaining their other profiles',()=>{
+  const roster={team:[{id:477,displayName:'Destiny Roberts',title:'Student Training Mentor'},{id:538,displayName:'Melissa Mendez',title:'Credentialing Specialist'}],supervisors:[{id:477},{id:538},{id:501,displayName:'Michael Mendez'},{id:507,displayName:'Rachel Finch'},{id:506,displayName:'Pauline Boyd'}]};
+  expect(internshipSupervisors(roster).map(p=>p.id)).toEqual([501,507,506]);
+  expect(trainingPeople(roster).find(p=>p.id===477).title).toBe('Student Training Mentor');
+  expect(trainingPeople(roster).find(p=>p.id===538).title).toBe('Credentialing Specialist');
+ });
+ it('uses expanded founder biographies while preserving saved profile copy',()=>{
+  for(const displayName of ['Michael Mendez','Rachel Finch']){
+   const text=publicProfileIntroduction({displayName});
+   expect(text.split(/\s+/).length).toBeGreaterThan(90);
+   expect(text).toContain('schools');
+   expect(text).toContain('supervision');
+   expect(publicProfileIntroduction({displayName,bio:'Custom founder biography'})).toBe('Custom founder biography');
+  }
  });
  it('keeps a clear recovery path if the careers API fails',async()=>{api.get.mockRejectedValue(new Error('offline'));const w=await render();expect(w.text()).toContain('We couldn’t load');expect(w.find('a[href="/careers/itsco"]').exists()).toBe(true);expect(w.find('a[href*="/intake/"]').exists()).toBe(false);});
  it('does not invent an application when no internship is published',async()=>{api.get.mockResolvedValue({data:{jobs:[]}});const w=await render();expect(w.text()).toContain('isn’t a published internship application');});
