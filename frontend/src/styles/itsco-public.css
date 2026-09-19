@@ -32,3 +32,8 @@
 }
 
 @media(max-width:650px){.its-hero-home::before{display:none}.its-hero-home{padding-top:30px}.its-hero-home::after{z-index:0;opacity:1;inset:auto}.its-support-launcher{bottom:calc(76px + env(safe-area-inset-bottom,0px));font-size:12px;max-width:calc(100vw - 24px)}}
+
+/* Join-us destinations remain keyboard and touch accessible. */
+.its-join-menu{position:relative}.its-join-menu summary{list-style:none;padding:11px 0;color:#1f4044;cursor:pointer}.its-join-menu summary::-webkit-details-marker{display:none}.its-join-menu>div{position:absolute;top:100%;left:0;min-width:220px;background:white;border:1px solid #dce7e2;box-shadow:0 12px 30px #103c3d18;padding:12px 18px;border-radius:12px;display:grid;gap:4px}.its-header .its-join-menu a{white-space:normal;min-height:44px}.itsco-fair-mode>.its-footer{display:none}
+@media(max-width:1000px){.its-join-menu{grid-column:1/-1}.its-join-menu>div{position:static;box-shadow:none;min-width:0}.its-join-menu summary{font-weight:700}}
+@media print{.itsco-fair-mode>.its-header,.itsco-fair-mode>.its-footer,.itsco-fair-mode .intern-nav,.itsco-fair-mode .intern-display-tools{display:none!important}.itsco-fair-mode .intern-fair{break-inside:avoid}}

@@ -111,3 +111,13 @@ describe('public support host slugs', () => {
  });
 });
 
+
+it('serves internship recruitment pages on ITSCO’s public domain',()=>{
+ for(const section of ['internships','founders','supervisors','internship-fair']){
+  const response=itscoPublicResponse('www.itsco.health',`/${section}`);
+  expect(response.status).toBe(200);
+  expect(response.internalPath).toBe(`/p/itsco/${section}`);
+  expect(response.noindex).toBe(false);
+  expect(itscoSitemap()).toContain(`https://www.itsco.health/${section}`);
+ }
+});

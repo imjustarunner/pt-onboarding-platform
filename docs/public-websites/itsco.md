@@ -58,3 +58,14 @@ Client portal: `/itsco/login`; careers/join the team: `/careers/itsco`; counseli
   ```
   Checks migration idempotency, root tenant association, baseline snapshots/resets, same-second additions, duplicate school assignments, exclusions, and transaction rollback.
 - Browser checks use synthetic records and intercepted support calls: all page layouts at 320, 390, 768, 1024, 1440 and 2048 pixels; school → provider → profile navigation; Spanish/English restoration; support submission. No real tickets or appointments are created by verification.
+
+## Student Training Program and internship fair
+
+- `https://www.itsco.health/internships` — mobile program overview and direct **Internship application** link from the current published careers listing.
+- `/founders` — Michael Mendez and Rachel Finch, using their real public profiles and supplied history, mission, vision, goals, and values.
+- `/supervisors` — public profiles with supervision or mentoring titles, plus the weekly-supervision and biweekly-mentorship model. Individual placement assignments are confirmed by ITSCO.
+- `/internship-fair` — iPad-friendly display, printable layout, full-screen option where supported, and downloadable QR code targeting `/internships`.
+
+All four work under `/p/itsco/...` on the app host too. **Join us → Internships** opens the program; the existing care enrollment and careers links remain available.
+
+Public program copy lives in `frontend/src/components/itsco/itscoInternshipContent.js`. Founder and mentor biographies/photos come from the published directory and retain the existing authorized public-profile editor. Application links are resolved from the public careers API; unpublished or unavailable listings show an explicit contact/careers fallback. The source material has inconsistent employment classifications, so the public page defers classification, compensation, benefits, and insurance terms to each written training/affiliation agreement.

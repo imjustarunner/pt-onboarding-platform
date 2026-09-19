@@ -13,6 +13,7 @@ const titles = {
   growth: 'Our Growth | ITSCO', impact: 'Our Impact | ITSCO', team: 'Our Team | ITSCO',
   insurance: 'Insurance and Counseling | ITSCO', resources: 'Family Resources | ITSCO', 'referral-network': 'Referral Network | ITSCO',
   'community-standards':'Community Standards | ITSCO',
+  internships: 'Practicum & Internships | ITSCO Student Training Program', founders: 'Our Founders | ITSCO', supervisors: 'Supervisors & Mentors | ITSCO', 'internship-fair': 'Meet ITSCO | Internship Fair',
   contact: 'Contact ITSCO', careers: 'Careers at ITSCO'
 };
 export function itscoPublicResponse(host, originalUrl) {
