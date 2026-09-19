@@ -1,3 +1,4 @@
+import { publicBrowserBranding, legacyTisiPublicDestination } from './utils/publicBrowserBranding.js';
 import { createApp, watchEffect } from 'vue';
 import { createPinia } from 'pinia';
 import App from './App.vue';
@@ -208,7 +209,8 @@ async function bootstrap() {
   // - For slug routes (/:organizationSlug/...) we can also infer the slug from the route.
   const setTitle = () => {
     try {
-      const publicTitle = router.currentRoute.value?.meta?.publicMarketingTitle;
+      const website = publicBrowserBranding(window.location.hostname, router.currentRoute.value?.path);
+      const publicTitle = router.currentRoute.value?.meta?.publicMarketingTitle || website?.title;
       if (typeof publicTitle === 'string' && publicTitle.trim()) {
         document.title = publicTitle;
         return;
@@ -272,6 +274,7 @@ async function bootstrap() {
     setTitle();
     // Prefer tenant printing-asset marks for browser tabs (e.g. NLU watermark).
     const tenantFav =
+      publicBrowserBranding(window.location.hostname, router.currentRoute.value?.path)?.favicon ||
       tenantFaviconUrl(typeof window !== 'undefined' ? window.location.hostname : '') ||
       tenantFaviconUrl(brandingStore.portalHostPortalUrl) ||
       tenantFaviconUrl(brandingStore.activeRouteSlug) ||
@@ -311,5 +314,7 @@ async function bootstrap() {
   app.mount('#app');
 }
 
-bootstrap();
+const legacyPublicDestination = legacyTisiPublicDestination(window.location.href);
+if (legacyPublicDestination) window.location.replace(legacyPublicDestination);
+else bootstrap();
 

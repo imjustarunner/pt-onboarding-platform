@@ -1,3 +1,4 @@
+import { injectPublicFavicon } from '../src/utils/publicBrowserBranding.js';
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { ITSCO_PUBLIC_SECTIONS } from '../src/utils/publicDomainRouting.js';
@@ -12,7 +13,7 @@ for (const section of [...ITSCO_PUBLIC_SECTIONS, 'careers']) {
  const path = `/${section}`;
  const page = itscoPublicResponse('www.itsco.health', path);
  const meta = {name:'ITSCO',title:page.title,description:page.description,url:page.canonical,image:buildShareMeta({host:'www.itsco.health',path}).image};
- const html = injectShareMetaIntoHtml(shell,meta).replace('</head>',`<link rel="canonical" href="${page.canonical}"></head>`);
+ const html = injectPublicFavicon(injectShareMetaIntoHtml(shell,meta), 'itsco.health').replace('</head>',`<link rel="canonical" href="${page.canonical}"></head>`);
  const file = `${section || 'home'}.html`;
  writeFileSync(`${out}/${file}`, html);
  locations.push(`location = ${path} { add_header Cache-Control "no-cache"; ${page.noindex ? 'add_header X-Robots-Tag noindex always;' : ''} ${section === 'providers' ? 'add_header X-Robots-Tag $itsco_filter_robots always;' : ''} try_files /_public-sites/itsco/${file} =404; }`);
@@ -84,7 +85,7 @@ const { PUBLIC_SITE_DOMAINS } = await import('../src/utils/publicDomainRouting.j
 const publicServers = Object.entries(PUBLIC_SITE_DOMAINS).map(([domain, slug]) => {
  mkdirSync(`${dist}/_public-sites/${slug}`, {recursive:true});
  const meta = buildShareMeta({host:domain,path:'/'});
- writeFileSync(`${dist}/_public-sites/${slug}/home.html`, injectShareMetaIntoHtml(shell, meta));
+ writeFileSync(`${dist}/_public-sites/${slug}/home.html`, injectPublicFavicon(injectShareMetaIntoHtml(shell, meta), domain));
  return `
 server {
  listen 8080;

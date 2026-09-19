@@ -371,7 +371,7 @@ const routes = [
     path: '/p/ptco/:section?',
     name: 'PtcoPublicWebsite',
     component: () => import('../views/public/PtcoPublicWebsite.vue'),
-    meta: { requiresGuest: false, publicMarketingHub: true }
+    meta: { requiresGuest: false, publicMarketingHub: true, publicMarketingTitle: 'Plot Twist Co. | Your Next Chapter' }
   },
   // Public marketing hub — optional markdown subpages (must be before single-segment /p/:hubSlug).
   {

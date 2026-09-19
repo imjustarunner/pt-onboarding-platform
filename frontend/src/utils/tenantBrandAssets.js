@@ -37,7 +37,9 @@ export const HOST_TO_TENANT = {
   'app.theinnerstrengthinstitute.com': 'innerstrength',
   'app.mh4kidz.com': 'mh4kidz',
   'app.plottwistco.com': 'plottwistco',
-  'app.risereviveco.com': 'riserevive'
+  'app.risereviveco.com': 'riserevive',
+  'app.mentalrange.org': 'mentalrange',
+  'app.mh4kidz.org': 'mh4kidz'
 };
 
 function assetUrl(root, folder, file) {
@@ -177,9 +179,13 @@ export const TENANT_DARK_LOGOS = {
 
 /** Browser tab / apple-touch favicons (compact marks from printing assets). */
 export const TENANT_FAVICONS = {
-  nlu: '/assets/branding/NLUWatermark.png',
-  // Wordless Inner Strength mark for browser tab / apple-touch.
-  innerstrength: '/assets/branding/TheInnerStrengthNowords.png'
+  itsco: '/assets/itsco/logo.png?v=20260918',
+  nlu: '/assets/branding/NLUWatermark.png?v=20260918',
+  plottwistco: '/assets/ptco/logo-flat.png?v=20260918',
+  innerstrength: '/assets/branding/innerstrength-favicon-v2.png',
+  mh4kidz: '/assets/favicons/mh4kidz-circle-v1.png',
+  mentalrange: '/assets/favicons/mental-range-v1.svg',
+  riserevive: '/assets/rise/logo.webp?v=20260918'
 };
 
 export function tenantDarkLogoUrl(slugOrHost = '') {
@@ -196,6 +202,9 @@ export function normalizeTenantBrandKey(slugOrHost = '') {
   const raw = String(slugOrHost || '').trim().toLowerCase();
   if (!raw) return '';
   if (HOST_TO_TENANT[raw]) return HOST_TO_TENANT[raw];
+  const publicHosts = { 'itsco.health': 'itsco', 'nextleveluplcc.com': 'nlu', 'plottwistco.com': 'plottwistco', 'theinnerstrengthinstitute.com': 'innerstrength', 'mh4kidz.org': 'mh4kidz', 'mentalrange.org': 'mentalrange', 'risereviveco.com': 'riserevive' };
+  const publicKey = publicHosts[raw.replace(/^www\./, '')];
+  if (publicKey) return publicKey;
   const slug = raw.replace(/[^a-z0-9-]/g, '');
   return TENANT_BRAND_ALIASES[slug] || '';
 }
