@@ -7,7 +7,18 @@ export const DEDICATED_APP_HOSTS = Object.freeze({
   nextlevelup: 'app.nextleveluplcc.com',
   nextleveluplcc: 'app.nextleveluplcc.com',
   nlu: 'app.nextleveluplcc.com',
-  tisi: 'app.theinnerstrengthinstitute.com'
+  tisi: 'app.theinnerstrengthinstitute.com',
+  innerstrength: 'app.theinnerstrengthinstitute.com',
+  theinnerstrengthinstitute: 'app.theinnerstrengthinstitute.com',
+  ptco: 'app.plottwistco.com',
+  plottwistco: 'app.plottwistco.com',
+  plottwist: 'app.plottwistco.com',
+  mh4kidz: 'app.mh4kidz.org',
+  rise: 'app.risereviveco.com',
+  riserevive: 'app.risereviveco.com',
+  risereviveco: 'app.risereviveco.com',
+  range: 'app.mentalrange.org',
+  mentalrange: 'app.mentalrange.org'
 });
 
 function norm(value) {
@@ -43,6 +54,18 @@ export function dedicatedSlugForHost(hostname) {
     if (host === dedicated) return slug;
   }
   return '';
+}
+
+/**
+ * Marketing-site "Portal Login" → dedicated app host /login when known,
+ * otherwise /{slug}/login on the current SPA.
+ */
+export function portalLoginUrlForPublicSite(slug) {
+  const s = norm(slug);
+  const host = dedicatedAppHostForSlug(s);
+  if (host) return `https://${host}/login`;
+  if (!s) return '/login';
+  return `/${encodeURIComponent(s)}/login`;
 }
 
 /**

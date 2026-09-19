@@ -1,7 +1,7 @@
 <template>
  <div class="range-site">
   <a class="range-skip" href="#range-main">Skip to content</a>
-  <header class="range-header" @keydown.esc="closeMenu"><Brand :logo="safe(page?.branding?.logoUrl)"/><button class="range-menu" :aria-expanded="menuOpen" aria-controls="range-nav" @click="menuOpen=!menuOpen">{{menuOpen?'Close ×':'Menu ☰'}}</button><nav id="range-nav" :class="{'is-open':menuOpen}" aria-label="Primary"><router-link v-for="[label,slug] in nav.filter(item => item[1] !== 'resources')" :key="slug" :to="path(slug)" :aria-current="section===slug?'page':undefined">{{label}}</router-link><PublicResourcesMenu resources-path="/p/range/resources" /></nav><router-link class="range-button range-header-cta" :to="path('involved')">Partner with us →</router-link></header>
+  <header class="range-header" @keydown.esc="closeMenu"><Brand :logo="safe(page?.branding?.logoUrl)"/><button class="range-menu" :aria-expanded="menuOpen" aria-controls="range-nav" @click="menuOpen=!menuOpen">{{menuOpen?'Close ×':'Menu ☰'}}</button><nav id="range-nav" :class="{'is-open':menuOpen}" aria-label="Primary"><router-link v-for="[label,slug] in nav.filter(item => item[1] !== 'resources')" :key="slug" :to="path(slug)" :aria-current="section===slug?'page':undefined">{{label}}</router-link><PublicResourcesMenu resources-path="/p/range/resources" /></nav><a class="range-outline range-header-portal" :href="portalLoginUrl">Portal Login</a><router-link class="range-button range-header-cta" :to="path('involved')">Partner with us →</router-link></header>
   <main id="range-main" tabindex="-1">
    <div v-if="loading" class="range-state" role="status">Loading Mental Range Collective…</div>
    <div v-else-if="error" class="range-state"><h1>Let’s try that again.</h1><p role="alert">{{error}}</p><button class="range-button" @click="load">Retry</button></div>
@@ -40,7 +40,9 @@ import Brand from '../../components/range/RangeBrand.vue';
 import Icon from '../../components/rise/RiseIcon.vue';
 import Finder from '../../components/range/RangeProviderFinder.vue';
 import {useStandalonePublicWebsite,publicWebsiteUrl as safe} from '../../composables/useStandalonePublicWebsite';
+import {portalLoginUrlForPublicSite} from '../../utils/publicPortalUrl.js';
 const {page,loading,error,menuOpen,section,settings,path,load,preview,previewNotice,guardPreview,closeMenu}=useStandalonePublicWebsite('range','Mental Range Collective | Stronger Together');
+const portalLoginUrl=portalLoginUrlForPublicSite('range');
 const nav=[['Home',''],['About','about'],['Our network','network'],['Find support','providers'],['Our impact','impact'],['Resources','resources']];
 const asset=name=>`/assets/range/${name}.webp`;
 const heroes={

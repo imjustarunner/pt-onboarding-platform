@@ -5,6 +5,7 @@
    <router-link :to="path('')" class="kimi-brand"><img :src="safe(page?.branding?.logoUrl) || '/assets/kimi/logo.svg'" alt="Kimi Cain Life Coaching" width="225" height="94"/></router-link>
    <button class="kimi-menu" type="button" :aria-expanded="menuOpen" aria-controls="kimi-nav" @click="menuOpen=!menuOpen">{{menuOpen?'Close':'Menu'}}</button>
    <nav id="kimi-nav" :class="{'is-open':menuOpen}" aria-label="Main navigation"><router-link v-for="[label,s] in nav" :key="s" :to="path(s)" :aria-current="section===(s||'home')?'page':undefined">{{label}}</router-link></nav>
+   <a class="kimi-button kimi-outline kimi-header-portal" :href="portalLoginUrl">Portal Login</a>
    <router-link class="kimi-button kimi-header-cta" :to="path('consultation')">Book a Free Consultation</router-link>
   </header>
   <main id="kimi-main" tabindex="-1">
@@ -49,7 +50,7 @@
     <section v-if="!['privacy','terms','contact','consultation'].includes(section)" class="kimi-closing" :style="mountainStyle"><div class="kimi-wrap"><p class="kimi-eyebrow">Let’s take the next step together</p><h2>{{settings.closing?.title}}</h2><p>{{settings.closing?.body}}</p><router-link class="kimi-button kimi-light" :to="section==='counseling'?nluJoin:path('consultation')">{{section==='counseling'?'Connect with NLU':'Book Your Free Consultation'}} →</router-link></div></section>
    </template>
   </main>
-  <footer class="kimi-footer kimi-wrap"><div><router-link :to="path('')"><img :src="safe(page?.branding?.logoUrl) || '/assets/kimi/logo.svg'" alt="Kimi Cain Life Coaching" width="200" height="83"/></router-link><nav aria-label="Footer"><router-link :to="path('privacy')">Privacy</router-link><router-link :to="path('terms')">Coaching agreements</router-link><router-link to="/partners">Partners</router-link><router-link to="/kimi/login">Client & practice login</router-link></nav></div><p>{{settings.scope}}</p><small>© {{new Date().getFullYear()}} {{settings.practiceName||'Kimi Cain Life Coaching'}}</small><p><a href="/community-standards">Community Standards &amp; communication privacy</a></p></footer>
+  <footer class="kimi-footer kimi-wrap"><div><router-link :to="path('')"><img :src="safe(page?.branding?.logoUrl) || '/assets/kimi/logo.svg'" alt="Kimi Cain Life Coaching" width="200" height="83"/></router-link><nav aria-label="Footer"><router-link :to="path('privacy')">Privacy</router-link><router-link :to="path('terms')">Coaching agreements</router-link><router-link to="/partners">Partners</router-link><a :href="portalLoginUrl">Portal Login</a></nav></div><p>{{settings.scope}}</p><small>© {{new Date().getFullYear()}} {{settings.practiceName||'Kimi Cain Life Coaching'}}</small><p><a href="/community-standards">Community Standards &amp; communication privacy</a></p></footer>
  </div>
 </template>
 <script setup>
@@ -58,8 +59,10 @@ import {computed,ref,onMounted,watch} from 'vue';
 import Icon from '../../components/rise/RiseIcon.vue';
 import KimiConsultationForm from '../../components/public/KimiConsultationForm.vue';
 import {useStandalonePublicWebsite,publicWebsiteUrl} from '../../composables/useStandalonePublicWebsite';
+import {portalLoginUrlForPublicSite} from '../../utils/publicPortalUrl.js';
 import api from '../../services/api';
 const {route,page,loading,error,menuOpen,section:rawSection,settings,path,load,preview,previewNotice,guardPreview}=useStandalonePublicWebsite('kimi','Kimi Cain | Life Coaching');
+const portalLoginUrl=portalLoginUrlForPublicSite('kimi');
 const section=computed(()=>({'':'home','coaching-packages':'packages','book':'consultation','join':'enroll','services-support':'services'}[rawSection.value]||rawSection.value));
 const hero=computed(()=>settings.value.pages?.[section.value]);
 const nav=[['Home',''],['About','about'],['Services','services'],['Coaching Packages','packages'],['Counseling','counseling'],['Resources','resources'],['Contact','contact']];

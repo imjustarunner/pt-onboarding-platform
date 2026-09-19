@@ -94,6 +94,11 @@
             </template>
           <PublicResourcesMenu :resources-path="v.primaryNav.find(item => /^resources$/i.test(item.label))?.href || ''" /><PublicWebsiteProviderLinks :directories="pageRecord?.providerDirectories || []" :hub-slug="hubSlug" /></nav>
 
+          <a
+            class="tisi-btn tisi-btn--outline tisi-header-portal"
+            :href="portalLoginUrl"
+            @click="mobileNavOpen = false"
+          >Portal Login</a>
           <template v-if="editing">
             <div class="tisi-header-cta-edit">
               <input v-model="v.ctaButtonLabel" class="tisi-inline" type="text" aria-label="CTA label" />
@@ -482,6 +487,7 @@ import { useAuthStore } from '../../store/auth';
 import { useBrandingStore } from '../../store/branding';
 import api from '../../services/api';
 import { landingDestination, isPlaceholderCopy, safeMarketingHref, marketingPageIssues } from '../../utils/marketingPageQuality';
+import { portalLoginUrlForPublicSite } from '../../utils/publicPortalUrl.js';
 import {
   TISI_LANDING_ICON_OPTIONS,
   adminFormToTisiLandingBranding,
@@ -492,6 +498,7 @@ import {
 const props = defineProps({ previewPage: { type: Object, default: null } });
 const route = useRoute();
 const hubSlug = computed(() => props.previewPage?.slug || route.params.hubSlug || 'tisi');
+const portalLoginUrl = computed(() => portalLoginUrlForPublicSite(hubSlug.value));
 const authStore = useAuthStore();
 const brandingStore = useBrandingStore();
 
@@ -966,13 +973,20 @@ watch(() => route.params.hubSlug, () => { if (!props.previewPage) { cancelEdit()
 }
 .tisi-btn--primary { background: var(--tisi-green); color: #fff; border: 1px solid var(--tisi-green); }
 .tisi-btn--primary:hover { background: var(--tisi-green-hover); }
+.tisi-btn--outline {
+  background: transparent;
+  color: var(--tisi-navy, #062638);
+  border: 1.5px solid var(--tisi-navy, #062638);
+}
+.tisi-btn--outline:hover { background: #eef6fa; }
 .tisi-btn--ghost {
   background: transparent;
   color: #fff;
   border: 1.5px solid rgba(255, 255, 255, 0.85);
 }
 .tisi-btn--lg { padding: 14px 24px; font-size: 15px; }
-.tisi-header-cta { white-space: nowrap; }
+.tisi-header-cta,
+.tisi-header-portal { white-space: nowrap; }
 
 .tisi-hero {
   position: relative;

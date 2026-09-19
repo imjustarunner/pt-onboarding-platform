@@ -7,6 +7,7 @@
       <nav id="rise-navigation" :class="{ 'is-open': menuOpen }" aria-label="Primary">
         <router-link v-for="[label, slug] in riseNav.filter(item => item[1] !== 'resources')" :key="slug" :to="path(slug)" :aria-current="section === slug ? 'page' : undefined" @click="menuOpen = false">{{ label }}</router-link>
       <PublicWebsiteProviderLinks :directories="page?.providerDirectories || []" hub-slug="rise" /><PublicResourcesMenu resources-path="/p/rise/resources" /></nav>
+      <a class="rise-button rise-button-outline rise-header-portal" :href="portalLoginUrl">Portal Login</a>
       <router-link class="rise-button rise-header-cta" to="/p/rise/join">Join us <RiseIcon name="arrow" /></router-link>
     </header>
 
@@ -116,7 +117,9 @@ import api from '../../services/api';
 import RiseBrand from '../../components/rise/RiseBrand.vue';
 import RiseIcon from '../../components/rise/RiseIcon.vue';
 import { riseAssets, riseNav, riseHeroes, riseServices, riseValues, risePrinciples, riseSteps, riseResources, riseImage, resolveRiseConnections } from '../../constants/riseWebsite';
+import { portalLoginUrlForPublicSite } from '../../utils/publicPortalUrl.js';
 
+const portalLoginUrl = portalLoginUrlForPublicSite('rise');
 const route = useRoute();
 const page = ref(null), loading = ref(true), error = ref(''), notFound = ref(false);
 const menuOpen = ref(false), helpOpen = ref(false), menuButton = ref(null), helpButton = ref(null);

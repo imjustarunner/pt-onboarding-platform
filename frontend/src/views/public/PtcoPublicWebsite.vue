@@ -4,6 +4,7 @@
     <header class="ptco-header" @keydown.esc="menuOpen=false"><router-link class="ptco-brand" to="/p/ptco"><img :src="logo" alt=""><span>Plot Twist Co.<small>Businesses for a brighter tomorrow</small></span></router-link>
       <button class="ptco-menu" type="button" :aria-expanded="menuOpen" aria-controls="ptco-nav" @click="menuOpen=!menuOpen">Menu <span aria-hidden="true">☰</span></button>
       <nav id="ptco-nav" :class="{'is-open':menuOpen}" aria-label="Primary" @keydown.esc="menuOpen=false"><router-link v-for="[label,slug] in ptcoNav.filter(item => item[1] !== 'resources')" :key="slug" :to="`/p/ptco${slug?'/'+slug:''}`" :aria-current="section===slug?'page':undefined" @click="menuOpen=false">{{ label }}</router-link><PublicWebsiteProviderLinks :directories="page?.providerDirectories || []" hub-slug="ptco" /><PublicResourcesMenu resources-path="/p/ptco/resources" /></nav>
+      <a class="ptco-button ptco-button-outline ptco-header-portal" :href="portalLoginUrl">Portal Login</a>
       <router-link class="ptco-button ptco-header-cta" to="/p/ptco/start">Let’s talk <PtcoIcon name="arrow"/></router-link>
     </header>
     <main id="ptco-main" tabindex="-1">
@@ -50,7 +51,7 @@
         <section class="ptco-final"><div class="ptco-wrap"><div><p class="ptco-eyebrow">Your next chapter starts here.</p><h2>Let’s build a brighter tomorrow — together.</h2><p>Get support, useful tools, and a partner who understands your purpose.</p></div><router-link class="ptco-button ptco-button-light" to="/p/ptco/start">Let’s talk →</router-link><span class="ptco-motto">People.<br>Purpose.<br>Possibility.</span></div></section>
       </template>
     </main>
-    <footer class="ptco-footer"><div class="ptco-wrap ptco-footer-grid"><router-link class="ptco-brand" to="/p/ptco"><img src="/assets/ptco/logo.webp" alt=""><span>Plot Twist Co.<small>Businesses for a brighter tomorrow</small></span></router-link><nav aria-label="Footer"><h3>Quick links</h3><router-link v-for="[label,slug] in ptcoNav" :key="slug" :to="`/p/ptco${slug?'/'+slug:''}`">{{ label }}</router-link></nav><div><h3>Your next step</h3><router-link to="/p/ptco/contact">Contact our team</router-link><router-link to="/p/ptco/hq">Explore Plot Twist HQ</router-link><router-link to="/login">Client & team login</router-link></div><div><h3>Start a conversation</h3><p>Tell us where you are today<br>and where you want to go.</p><router-link class="ptco-button" to="/p/ptco/start">Begin intake →</router-link></div></div><div class="ptco-wrap ptco-footer-bottom"><small>© {{ new Date().getFullYear() }} Plot Twist Co. All rights reserved.</small><small>Different support. A brighter tomorrow.</small></div><p><a href="/community-standards">Community Standards &amp; communication privacy</a></p></footer>
+    <footer class="ptco-footer"><div class="ptco-wrap ptco-footer-grid"><router-link class="ptco-brand" to="/p/ptco"><img src="/assets/ptco/logo.webp" alt=""><span>Plot Twist Co.<small>Businesses for a brighter tomorrow</small></span></router-link><nav aria-label="Footer"><h3>Quick links</h3><router-link v-for="[label,slug] in ptcoNav" :key="slug" :to="`/p/ptco${slug?'/'+slug:''}`">{{ label }}</router-link></nav><div><h3>Your next step</h3><router-link to="/p/ptco/contact">Contact our team</router-link><router-link to="/p/ptco/hq">Explore Plot Twist HQ</router-link><a :href="portalLoginUrl">Portal Login</a></div><div><h3>Start a conversation</h3><p>Tell us where you are today<br>and where you want to go.</p><router-link class="ptco-button" to="/p/ptco/start">Begin intake →</router-link></div></div><div class="ptco-wrap ptco-footer-bottom"><small>© {{ new Date().getFullYear() }} Plot Twist Co. All rights reserved.</small><small>Different support. A brighter tomorrow.</small></div><p><a href="/community-standards">Community Standards &amp; communication privacy</a></p></footer>
   </div>
 </template>
 <script setup>
@@ -66,6 +67,8 @@ import PtcoIcon from '../../components/ptco/PtcoIcon.vue';
 import PtcoBusinessIntake from '../../components/ptco/PtcoBusinessIntake.vue';
 import {ptcoNav,ptcoServices,ptcoIndustries,ptcoPaths,ptcoHqFeatures,ptcoResources} from '../../constants/ptcoWebsite';
 import {safeMarketingHref} from '../../utils/marketingPageQuality';
+import {portalLoginUrlForPublicSite} from '../../utils/publicPortalUrl.js';
+const portalLoginUrl=portalLoginUrlForPublicSite('ptco');
 const route=useRoute(),menuOpen=ref(false),page=ref(null),loading=ref(true),error=ref('');
 const section=computed(()=>String(route.params.section||''));
 const knownSection=computed(()=>['','about','services','hq','industries','resources','start','contact'].includes(section.value));
