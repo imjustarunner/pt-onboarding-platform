@@ -1,3 +1,4 @@
+import {readProviderServices,saveProviderServices} from '../services/providerServiceOfferings.service.js';
 import pool from '../config/database.js';
 import User from '../models/User.model.js';
 import Profile from '../models/ProviderPublicProfile.model.js';
@@ -50,3 +51,6 @@ export async function getMyReminders(req,res,next){try{
  WHERE r.provider_id=? AND r.is_missing=1 AND u.sees_clients=1 AND COALESCE(u.provider_accepting_new_clients,1)=1 AND COALESCE(ua.is_active,1)=1 AND (nur.snoozed_until IS NULL OR nur.snoozed_until<=NOW())`,[req.user.id]);
  res.json({reminders:rows});
 }catch(e){next(e);}}
+
+export async function getServices(req,res,next){try{const ids=await authorize(req,res);if(!ids)return;res.json(await readProviderServices(ids.providerId,ids.agencyId));}catch(e){next(e);}}
+export async function putServices(req,res,next){try{const ids=await authorize(req,res);if(!ids)return;res.json(await saveProviderServices(ids.providerId,ids.agencyId,req.body.services));}catch(e){if(e.status===400)return res.status(400).json({error:{message:e.message}});next(e);}}

@@ -327,7 +327,7 @@
       <!-- Enrolled providers quick count -->
       <div class="card enrollment-summary">
         <h3>Provider enrollment summary</h3>
-        <p class="subtitle">Providers enrolled in each public finder. Manage individual enrollments from each provider's Profile Info tab → Public Listings section.</p>
+        <p class="subtitle">These counts track online-booking enrollments. Manage which services a provider offers in their Public Provider Profile → Services offered section; a directory listing does not require online booking.</p>
         <div class="enrollment-grid">
           <div v-for="svc in visibleEnrollmentCounts" :key="svc.serviceType" class="enrollment-item">
             <strong>{{ svc.count }}</strong>

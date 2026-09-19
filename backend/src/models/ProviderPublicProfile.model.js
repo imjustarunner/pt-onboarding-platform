@@ -90,7 +90,9 @@ class ProviderPublicProfile {
         (user_id, public_blurb, insurances_json, self_pay_rate_cents, self_pay_rate_note, accepting_new_clients_override, public_details_json)
        VALUES (?, ?, ?, ?, ?, ?, ?)
        ON DUPLICATE KEY UPDATE
-         public_details_json = VALUES(public_details_json),
+         -- Service selections are changed only by the tenant-authorized services endpoint.
+         public_details_json = JSON_SET(VALUES(public_details_json), '$.serviceOfferingsByAgency',
+           COALESCE(JSON_EXTRACT(public_details_json, '$.serviceOfferingsByAgency'), JSON_OBJECT())),
          public_blurb = VALUES(public_blurb),
          insurances_json = VALUES(insurances_json),
          self_pay_rate_cents = VALUES(self_pay_rate_cents),

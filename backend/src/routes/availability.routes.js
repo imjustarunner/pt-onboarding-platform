@@ -1,4 +1,4 @@
-import {getSettings,saveSettings,checkSettings,snoozeReminder,getMyReminders} from '../controllers/providerAvailabilitySettings.controller.js';
+import {getServices,putServices,getSettings,saveSettings,checkSettings,snoozeReminder,getMyReminders} from '../controllers/providerAvailabilitySettings.controller.js';
 import express from 'express';
 import { authenticate } from '../middleware/auth.middleware.js';
 import { requireSkillBuildersSchoolProgramForAgencyContext } from '../middleware/skillBuildersSchoolProgram.middleware.js';
@@ -54,6 +54,8 @@ const router = express.Router();
 
 router.use(authenticate);
 router.get('/me/opening-reminders', getMyReminders);
+router.get('/providers/:providerId/services', getServices);
+router.put('/providers/:providerId/services', putServices);
 router.get('/providers/:providerId/public-settings', getSettings);
 router.put('/providers/:providerId/public-settings', saveSettings);
 router.post('/providers/:providerId/public-settings/check', checkSettings);

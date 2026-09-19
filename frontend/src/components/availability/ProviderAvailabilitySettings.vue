@@ -1,4 +1,5 @@
 <template>
+ <ProviderServiceOfferings :provider-id="providerId" :agency-id="agencyId" @updated="$emit('updated', {kind: 'services', ...$event})" />
  <section class="availability-settings" aria-label="New client availability">
   <h3>New client availability</h3><p>Choose whether you are taking new clients and the formats you offer. These choices apply across your public profiles.</p>
   <p v-if="loading" role="status">Loading availability settings…</p>
@@ -11,6 +12,7 @@
 </template>
 <script setup>
 import {computed,ref,watch} from 'vue';
+import ProviderServiceOfferings from './ProviderServiceOfferings.vue';
 import api from '../../services/api';
 import {useAuthStore} from '../../store/auth';
 const auth=useAuthStore();

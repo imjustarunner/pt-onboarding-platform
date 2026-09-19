@@ -1,3 +1,4 @@
+import { offersProviderService } from '../utils/providerServiceOfferings.js';
 import {publicFormatEnabled} from '../utils/providerAvailabilityReminders.js';
 import { getPublicCounselingHourlyRate } from '../services/publicCounselingRate.service.js';
 import {normalizeLearningProfile, validateLearningCatalog, hourlyRate, pricePackage, matchesGrade, publicLearningCatalog, LEARNING_PROGRAMS} from '../services/learningCatalog.js';
@@ -479,8 +480,9 @@ async function listEnrolledProviders(agencyId, serviceType, {includeDirectory=fa
   if (!(await getAgencyServiceTypes(agencyId)).some((s) => s.service_type === serviceType)) return [];
   const [rows] = await pool.execute(
     `SELECT u.id, u.first_name, u.last_name, u.role, u.profile_photo_path,
-            u.service_focus, u.provider_accepting_new_clients, u.in_office_available, u.title, u.sees_clients, 1 AS online_enrolled
+            u.service_focus, u.provider_accepting_new_clients, u.in_office_available, u.title, u.sees_clients, p.public_details_json AS service_details, 1 AS online_enrolled
      FROM users u
+     LEFT JOIN provider_public_profiles p ON p.user_id=u.id
      JOIN provider_public_service_enrollments e
        ON e.user_id = u.id AND e.agency_id = ? AND e.service_type = ? AND e.is_active = 1
      JOIN user_agencies membership ON membership.user_id = u.id AND membership.agency_id = e.agency_id
@@ -492,40 +494,45 @@ async function listEnrolledProviders(agencyId, serviceType, {includeDirectory=fa
      ORDER BY u.last_name ASC, u.first_name ASC`,
     [Number(agencyId), String(serviceType)]
   );
-  if (includeDirectory && serviceType === 'counseling') {
+  const enrolled = rows.filter(row => offersProviderService(row.service_details, agencyId, serviceType, {enrolled:true,hasEnrollment:true}));
+  let listed = [];
+  if (includeDirectory) {
     const [directory] = await pool.execute(`SELECT u.id,u.first_name,u.last_name,u.role,u.profile_photo_path,
-      u.service_focus,u.provider_accepting_new_clients,u.in_office_available,u.title,u.sees_clients,0 AS online_enrolled
+      u.service_focus,u.provider_accepting_new_clients,u.in_office_available,u.title,u.sees_clients,u.has_provider_access,ua.agency_role,0 AS online_enrolled,
+      p.public_details_json AS service_details,
+      EXISTS(SELECT 1 FROM provider_public_service_enrollments e WHERE e.user_id=u.id AND e.agency_id=ua.agency_id AND e.service_type=?) AS has_enrollment
       FROM users u JOIN user_agencies ua ON ua.user_id=u.id
+      LEFT JOIN provider_public_profiles p ON p.user_id=u.id
       WHERE ua.agency_id=? AND COALESCE(ua.is_active,1)=1 AND u.sees_clients=1
       AND COALESCE(u.is_active,1)=1 AND COALESCE(u.is_archived,0)=0 AND COALESCE(u.is_demo,0)=0
       AND UPPER(COALESCE(u.status,'')) IN ('ACTIVE','ACTIVE_EMPLOYEE')
       AND LOWER(TRIM(CONCAT(COALESCE(u.first_name,''),' ',COALESCE(u.last_name,'')))) NOT IN ('super admin','superadmin')
-      AND (COALESCE(NULLIF(ua.agency_role,''),u.role) IN ('provider','provider_plus','intern','intern_plus','facilitator','supervisor','admin','super_admin') OR u.has_provider_access=1)
-      AND NOT EXISTS (SELECT 1 FROM provider_public_service_enrollments e WHERE e.user_id=u.id AND e.agency_id=ua.agency_id AND e.service_type=?)
-      ORDER BY u.last_name,u.first_name`,[Number(agencyId),String(serviceType)]);
-    return [...rows,...directory].sort((a,b)=>`${a.last_name} ${a.first_name}`.localeCompare(`${b.last_name} ${b.first_name}`));
+      ORDER BY u.last_name,u.first_name`,[String(serviceType),Number(agencyId)]);
+    listed = directory.filter(row => !rows.some(e => Number(e.id)===Number(row.id)) && offersProviderService(row.service_details,agencyId,serviceType,{hasEnrollment:Boolean(row.has_enrollment),counselingEligible:['provider','provider_plus','intern','intern_plus','facilitator','supervisor','admin','super_admin'].includes(row.agency_role||row.role)||Boolean(row.has_provider_access)}));
   }
-  if ((rows || []).length > 0) return rows;
-
+  const combined = extra => [...new Map([...listed,...extra,...enrolled].map(row => [Number(row.id),row])).values()]
+    .sort((a,b)=>`${a.last_name} ${a.first_name}`.localeCompare(`${b.last_name} ${b.first_name}`));
   const st = String(serviceType || '').toLowerCase();
-  if (st !== 'coaching' && st !== 'consulting') return rows || [];
+  if (rows.length || !['coaching','consulting'].includes(st)) return combined([]);
 
   const [fallback] = await pool.execute(
     `SELECT u.id, u.first_name, u.last_name, u.role, u.profile_photo_path,
-            u.service_focus, u.provider_accepting_new_clients, u.in_office_available, u.title, u.sees_clients, 1 AS online_enrolled
+            u.service_focus, u.provider_accepting_new_clients, u.in_office_available, u.title, u.sees_clients, p.public_details_json AS service_details, 1 AS online_enrolled
      FROM users u
+     LEFT JOIN provider_public_profiles p ON p.user_id=u.id
      JOIN user_agencies ua ON ua.user_id = u.id
      JOIN agencies a ON a.id = ua.agency_id
      WHERE ua.agency_id = ? AND u.sees_clients=1 AND COALESCE(ua.is_active,1)=1 AND COALESCE(u.is_demo,0)=0
+       AND NOT EXISTS(SELECT 1 FROM provider_public_service_enrollments e WHERE e.user_id=u.id AND e.agency_id=ua.agency_id AND e.service_type=? AND e.is_active=0)
        AND LOWER(COALESCE(a.organization_type, '')) IN ('life_coach', 'consultant')
        AND (u.is_active IS NULL OR u.is_active = TRUE)
        AND (u.is_archived IS NULL OR u.is_archived = FALSE)
        AND UPPER(COALESCE(u.status, '')) = 'ACTIVE_EMPLOYEE'
        AND LOWER(COALESCE(u.role, '')) IN ('admin', 'provider', 'provider_plus', 'super_admin', 'staff')
      ORDER BY u.last_name ASC, u.first_name ASC`,
-    [Number(agencyId)]
+    [Number(agencyId),String(serviceType)]
   );
-  return fallback || [];
+  return combined((fallback || []).filter(row => offersProviderService(row.service_details, agencyId, serviceType, {enrolled:true})));
 }
 
 async function getTutoringProfile(userId, agencyId) {
@@ -951,15 +958,17 @@ export const listTutors = async (req, res, next) => {
     const filterGradeLevel = String(req.query.gradeLevel || '').trim().toLowerCase();
 
     const serviceTypeRow = (await getAgencyServiceTypes(agency.id)).find((st) => st.service_type === 'tutoring');
-    const providerRows = await listEnrolledProviders(agency.id, 'tutoring');
+    const providerRows = await listEnrolledProviders(agency.id, 'tutoring', {includeDirectory:true});
 
     const providers = await runWithConcurrency(providerRows, 6, async (row) => {
-      const tutoringProfile = await getTutoringProfile(Number(row.id), agency.id);
-      if (!tutoringProfile) return null;
+      const savedTutoringProfile = await getTutoringProfile(Number(row.id), agency.id);
+      // A directory listing does not require pricing or a bookable tutoring setup.
+      const tutoringProfile = savedTutoringProfile || {subjectAreas:[],gradeLevels:[],bio:'',acceptingNewStudents:Boolean(row.provider_accepting_new_clients),learning:{programs:['tutoring']},hourlyRateCents:null,packages:[]};
+      if (!savedTutoringProfile) row.online_enrolled = 0;
       if (learningProgram && !tutoringProfile.learning.programs.includes(learningProgram)) return null;
       if (!matchesGrade(tutoringProfile.gradeLevels, filterGradeLevel)) return null;
-      tutoringProfile.hourlyRateCents = hourlyRate(catalog, tutoringProfile.learning, 'tutoring', req.query.learningFormat === 'small-group' ? 'small-group' : programType==='IN_PERSON'?'in-person':'virtual');
-      tutoringProfile.packages = catalog.packages.filter(p=>p.published && tutoringProfile.learning.programs.includes(p.program) && p.program===(learningProgram||'tutoring')).map(p=>pricePackage(catalog,p,{tutoring:{profile:tutoringProfile.learning,providerId:Number(row.id)}}));
+      if (savedTutoringProfile) tutoringProfile.hourlyRateCents = hourlyRate(catalog, tutoringProfile.learning, 'tutoring', req.query.learningFormat === 'small-group' ? 'small-group' : programType==='IN_PERSON'?'in-person':'virtual');
+      if (savedTutoringProfile) tutoringProfile.packages = catalog.packages.filter(p=>p.published && tutoringProfile.learning.programs.includes(p.program) && p.program===(learningProgram||'tutoring')).map(p=>pricePackage(catalog,p,{tutoring:{profile:tutoringProfile.learning,providerId:Number(row.id)}}));
 
       const directoryOnly = req.query.view === 'directory' || row.online_enrolled === 0;
       const heldSlots = directoryOnly ? [] : await getHeldSlotStartsForProvider(agency.id, Number(row.id));
@@ -973,6 +982,7 @@ export const listTutors = async (req, res, next) => {
         heldSlots
       });
       const profileData = await ProviderPublicProfile.getForProvider({ providerUserId: Number(row.id) }) || {};
+      if (!savedTutoringProfile) tutoringProfile.bio = profileData.publicBlurb || '';
       profileData.acceptingNewClientsOverride = Boolean(row.provider_accepting_new_clients ?? profileData.acceptingNewClientsOverride ?? true);
       if(!publicFormatEnabled(profileData,programType,bookingMode))summary.nextAvailableAt=null;
       const slotSet = normalizeSlots({
@@ -1063,18 +1073,18 @@ export const listEvaluators = async (req, res, next) => {
     const weekStart = startOfWeekMondayYmd(isValidYmd(weekStartRaw) ? weekStartRaw : new Date().toISOString().slice(0, 10));
     const searchQ = String(req.query.search || '').trim().toLowerCase();
 
-    const providerRows = await listEnrolledProviders(agency.id, 'evaluation');
+    const providerRows = await listEnrolledProviders(agency.id, 'evaluation', {includeDirectory:true});
 
     const evaluators = await runWithConcurrency(providerRows, 6, async (row) => {
-      const heldSlots = await getHeldSlotStartsForProvider(agency.id, Number(row.id));
-      const summary = await computeProviderWindowSummary({
+      const heldSlots = row.online_enrolled !== 0 ? await getHeldSlotStartsForProvider(agency.id, Number(row.id)) : [];
+      const summary = row.online_enrolled !== 0 ? await computeProviderWindowSummary({
         agencyId: agency.id,
         providerId: Number(row.id),
         weekStart,
         bookingMode,
         programType,
         heldSlots
-      });
+      }) : {thisWeek:{virtualSlots:[],inPersonSlots:[]},nextAvailableAt:null};
       const slotSet = normalizeSlots({
         result: summary.thisWeek,
         bookingMode,
@@ -1149,7 +1159,8 @@ export const getProviderDetail = async (req, res, next) => {
     const directory = await listEnrolledProviders(agency.id, serviceType, {includeDirectory:true});
     const listing = directory.find(p => Number(p.id)===providerId);
     if (!listing) return res.status(404).json({error:{message:'Provider not found'}});
-    const onlineScheduling = listing.online_enrolled !== 0;
+    const savedTutoringProfile = serviceType === 'tutoring' ? await getTutoringProfile(providerId, agency.id) : null;
+    const onlineScheduling = listing.online_enrolled !== 0 && (serviceType !== 'tutoring' || Boolean(savedTutoringProfile));
 
     const [userRows] = await pool.execute(
       `SELECT id, first_name, last_name, role, profile_photo_path, service_focus, title,
@@ -1175,6 +1186,9 @@ export const getProviderDetail = async (req, res, next) => {
     profileData.acceptingNewClientsOverride = Boolean(user.provider_accepting_new_clients ?? profileData.acceptingNewClientsOverride ?? true);
     if(!publicFormatEnabled(profileData,programType,bookingMode))summary.nextAvailableAt=null;
     const profile = await resolveProviderProfileSummary({ agencyId: agency.id, providerUserId: providerId, serviceType });
+    if (serviceType === 'tutoring' && !savedTutoringProfile) {
+      profile.selfPayRateCents = null; profile.selfPayRateLabel = null; profile.selfPayRateNote = null;
+    }
     const slotSet = normalizeSlots({
       result: summary.thisWeek,
       bookingMode,
@@ -1187,7 +1201,7 @@ export const getProviderDetail = async (req, res, next) => {
     if (serviceType === 'counseling') {
       specialtyData = await getCounselingSpecialties(providerId, agency.id);
     } else if (serviceType === 'tutoring') {
-      tutoringProfile = await getTutoringProfile(providerId, agency.id);
+      tutoringProfile = savedTutoringProfile;
       if(tutoringProfile){const catalog=await readLearningCatalog(agency.id);tutoringProfile.hourlyRates=Object.fromEntries(['virtual','in-person','small-group'].map(format=>[format,hourlyRate(catalog,tutoringProfile.learning,'tutoring',format)]));tutoringProfile.packages=catalog.packages.filter(p=>p.published&&tutoringProfile.learning.programs.includes(p.program)).map(p=>pricePackage(catalog,p,{tutoring:{profile:tutoringProfile.learning,providerId}}));}
     }
 

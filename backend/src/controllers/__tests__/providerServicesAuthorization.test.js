@@ -1,0 +1,21 @@
+import {describe,it,expect,vi,beforeEach} from 'vitest';
+import {getServices,putServices} from '../providerAvailabilitySettings.controller.js';
+import User from '../../models/User.model.js';
+import {readProviderServices,saveProviderServices} from '../../services/providerServiceOfferings.service.js';
+vi.mock('../../models/User.model.js',()=>({default:{getAgencies:vi.fn()}}));
+vi.mock('../../models/ProviderPublicProfile.model.js',()=>({default:{}}));
+vi.mock('../../models/Notification.model.js',()=>({default:{}}));
+vi.mock('../../config/database.js',()=>({default:{}}));
+vi.mock('../../services/providerAvailabilityReminders.service.js',()=>({readProviderAvailabilitySettings:vi.fn(),checkProviderAvailability:vi.fn()}));
+vi.mock('../../services/providerServiceOfferings.service.js',()=>({readProviderServices:vi.fn(),saveProviderServices:vi.fn()}));
+const request=(id=9,role='provider',agencyId=2)=>({user:{id,role},params:{providerId:'9'},query:{agencyId},body:{agencyId,services:['tutoring','counseling']}});
+let res,next;
+beforeEach(()=>{vi.resetAllMocks();res={status:vi.fn().mockReturnThis(),json:vi.fn()};next=vi.fn();User.getAgencies.mockResolvedValue([{id:2}]);});
+describe('provider service authorization',()=>{
+ it('lets a provider change their own agency services',async()=>{await putServices(request(),res,next);expect(saveProviderServices).toHaveBeenCalledWith(9,2,['tutoring','counseling']);});
+ it('blocks a provider editing someone else',async()=>{await putServices(request(8),res,next);expect(res.status).toHaveBeenCalledWith(403);expect(saveProviderServices).not.toHaveBeenCalled();});
+ it('blocks an admin outside the target agency',async()=>{await putServices(request(8,'admin',3),res,next);expect(res.status).toHaveBeenCalledWith(403);expect(saveProviderServices).not.toHaveBeenCalled();});
+ it('requires target membership even for a superadmin',async()=>{await putServices(request(8,'super_admin',3),res,next);expect(res.status).toHaveBeenCalledWith(404);expect(saveProviderServices).not.toHaveBeenCalled();});
+ it('lets an agency manager read and edit an agency provider',async()=>{await getServices(request(8,'admin'),res,next);expect(readProviderServices).toHaveBeenCalledWith(9,2);await putServices(request(8,'admin'),res,next);expect(saveProviderServices).toHaveBeenCalledOnce();});
+ it('rejects invalid identifiers before reading any data',async()=>{await getServices(request(9,'provider','not-an-agency'),res,next);expect(res.status).toHaveBeenCalledWith(400);expect(User.getAgencies).not.toHaveBeenCalled();});
+});
