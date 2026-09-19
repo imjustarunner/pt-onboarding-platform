@@ -26,6 +26,15 @@ export async function postPublicAgencySupportTicket(req, res) {
   }
 }
 
+export async function postItscoInternshipInquiry(req, res) {
+  try {
+    const result = await createPublicAgencySupportTicket('itsco', { ...req.body, category: 'careers' }, req, { internshipInquiry: true });
+    return res.status(201).json(result);
+  } catch (e) {
+    return res.status(e.status || 400).json({ error: { message: e.message || 'Unable to send your inquiry', code: e.code || null } });
+  }
+}
+
 export async function patchPublicAgencySupportSettings(req, res) {
   try {
     const data = await updatePublicAgencySupportSettings(

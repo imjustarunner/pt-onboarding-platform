@@ -740,6 +740,7 @@
 </template>
 
 <script setup>
+import { careerLocations } from '../../utils/careerLocations';
 import {publicWebsitePath} from '../../utils/publicWebsitePath';
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
@@ -1155,13 +1156,13 @@ const availableRoleTypes = computed(() =>
   Array.from(new Set((jobs.value || []).map((j) => String(j?.roleType || '').trim()).filter(Boolean))).sort()
 );
 const availableLocations = computed(() =>
-  Array.from(new Set((jobs.value || []).map((j) => String(j?.city || '').trim()).filter(Boolean))).sort()
+  Array.from(new Set((jobs.value || []).flatMap(careerLocations))).sort()
 );
 
 const filteredJobs = computed(() => {
   let list = (jobs.value || []).slice();
   if (selectedRoleType.value) list = list.filter((j) => String(j.roleType || '').trim() === selectedRoleType.value);
-  if (selectedLocation.value) list = list.filter((j) => String(j.city || '').trim() === selectedLocation.value);
+  if (selectedLocation.value) list = list.filter((j) => careerLocations(j).includes(selectedLocation.value));
   if (sortBy.value === 'city_asc') {
     list.sort((a, b) => `${a.city || ''} ${a.state || ''}`.localeCompare(`${b.city || ''} ${b.state || ''}`));
   } else if (sortBy.value === 'posted_asc') {

@@ -203,7 +203,7 @@ export const ITSCO_HIRING_JOB_SECTIONS = {
   },
   intern_mhp_cos: {
     aboutTheRole:
-      "ITSCO, LLC (In The School Counselors) is a community-focused mental health practice dedicated to supporting children, adolescents, and families through accessible, evidence-informed care. We are seeking Master's-level interns who are currently enrolled in an accredited graduate program and pursuing future licensure (LPCC, MFTC, SWC).\n\nThis internship offers hands-on clinical experience primarily in school-based settings, with opportunities to provide services in office-based environments as appropriate. Interns participate in a structured Student Training Program designed to support skill development, professional growth, and ethical clinical practice under supervision.",
+      "ITSCO, LLC (In The School Counselors) is a community-focused mental health practice dedicated to supporting children, adolescents, and families through accessible, evidence-informed care. We are seeking Master's-level practicum students and interns who are currently enrolled in an accredited graduate program and pursuing future licensure (LPCC, MFTC, SWC).\n\nThis paid practicum/internship offers hands-on clinical experience in Colorado Springs and Denver, primarily in school-based settings, with opportunities to provide services in office-based environments as appropriate. Interns participate in a structured Student Training Program designed to support skill development, professional growth, and ethical clinical practice under supervision.\n\nPositions Available\nColorado Springs: 3–5 positions. Denver: 2–3 positions. Rolling admission — available for Fall, Spring, or Summer placements.",
     responsibilities: [
       'Specific services, scope, and expectations are outlined in the internship agreement.',
       'Clinical Training & Service Delivery: Provide mental health services within assigned school settings and approved office locations under appropriate supervision.',
@@ -218,7 +218,7 @@ export const ITSCO_HIRING_JOB_SECTIONS = {
       'Ability to commit to daytime hours, with flexibility to accommodate academic schedules.'
     ],
     benefits: [
-      '$24 per clinical hour.',
+      'Paid practicum and internship: $24–$30 per hour of direct service.',
       'Flexible scheduling to support academic requirements.',
       'Structured supervision and mentorship aligned with licensure pathways.',
       'Professional development and hands-on clinical training.',

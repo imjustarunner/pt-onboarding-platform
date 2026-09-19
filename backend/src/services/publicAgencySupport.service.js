@@ -2,6 +2,7 @@ import {resolveChatReferral} from './websiteChatReferral.service.js';
 import {getPublicWebsiteIdentity} from './publicWebsiteIdentity.service.js';
 import { routePublicWebsiteTicket } from './publicWebsiteTicketRouting.service.js';
 import pool from '../config/database.js';
+import { resolveInternshipContact, deliverInternshipInquiry, INTERNSHIP_INQUIRY_SUBJECT } from './itscoInternshipInquiry.service.js';
 import config from '../config/config.js';
 import Agency from '../models/Agency.model.js';
 import User from '../models/User.model.js';
@@ -423,7 +424,7 @@ export function validatePublicSupportContact({email = '', phone = ''} = {}) {
   if (message) throw Object.assign(new Error(message), {status:400});
 }
 
-export async function createPublicAgencySupportTicket(agencySlug, payload = {}, req = null) {
+export async function createPublicAgencySupportTicket(agencySlug, payload = {}, req = null, { internshipInquiry = false } = {}) {
   const agency = await resolveAgency(agencySlug);
   if (!agency) {
     const err = new Error('Organization not found');
@@ -450,6 +451,7 @@ export async function createPublicAgencySupportTicket(agencySlug, payload = {}, 
     err.status = 400;
     throw err;
   }
+  if (internshipInquiry && !email) throw Object.assign(new Error('Please enter your email address so Rachel can reply.'), { status: 400 });
   validatePublicSupportContact({email,phone});
   if (!message || message.length < 10) {
     const err = new Error('Please enter a message (at least 10 characters).');
@@ -481,9 +483,10 @@ export async function createPublicAgencySupportTicket(agencySlug, payload = {}, 
     throw err;
   }
 
+  const internshipContact = internshipInquiry ? await resolveInternshipContact(agency) : null;
   const chatReferral = await resolveChatReferral(String(agencySlug),payload.chatReferral);
   const categoryLabel = PUBLIC_SUPPORT_CATEGORIES.find((c) => c.id === category)?.label || category;
-  const subject = `${categoryLabel} — ${name}`.slice(0, 255);
+  const subject = internshipInquiry ? INTERNSHIP_INQUIRY_SUBJECT : `${categoryLabel} — ${name}`.slice(0, 255);
   const question = [
     message,
     '',
@@ -523,6 +526,7 @@ export async function createPublicAgencySupportTicket(agencySlug, payload = {}, 
     );
     insertId = result.insertId;
   } catch (e) {
+    if (internshipInquiry) throw e; // Inquiry replies require the current email-aware ticket schema.
     const msg = String(e?.message || '');
     if (msg.includes('Unknown column') || msg.includes('source_email_from') || msg.includes('question_ciphertext') || msg.includes('source_channel') || msg.includes('topic')) {
       const [result] = await pool.execute(
@@ -555,9 +559,15 @@ export async function createPublicAgencySupportTicket(agencySlug, payload = {}, 
     /* never block create */
   }
 
+  let emailDelivered;
+  if (internshipContact) {
+    await pool.execute('UPDATE support_tickets SET claimed_by_user_id=? WHERE id=? AND agency_id=?', [internshipContact.userId, insertId, agency.id]);
+    emailDelivered = await deliverInternshipInquiry({ contact: internshipContact, ticketId: insertId, question });
+  }
   const slug = tenantSlugForPublicPaths(agency, agencySlug);
   return {
     ok: true,
+    ...(internshipContact ? { emailDelivered } : {}),
     ticketId: insertId || null,
     suggestedQuickForm: scan.flags.includes('possible_phi'),
     joinPath: `/join/${encodeURIComponent(slug)}/counseling`
