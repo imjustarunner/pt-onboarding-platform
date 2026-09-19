@@ -2026,6 +2026,29 @@ if (!isBootstrap) {
   scheduleReadyToScheduleDigests();
   setInterval(scheduleReadyToScheduleDigests, 5 * 60 * 1000);
 
+  // Incomplete school-onboarding digests (ITSCO → Rachel Finch, Mon/Wed/Fri ~10:00 America/Denver)
+  const scheduleIncompleteOnboardingDigests = async () => {
+    try {
+      const { runIncompleteOnboardingDigestTick } = await import(
+        './services/schoolOnboardingIncompleteDigest.service.js'
+      );
+      await runIncompleteOnboardingDigestTick();
+    } catch (error) {
+      const msg = String(error?.message || '');
+      const missing =
+        error?.code === 'ER_NO_SUCH_TABLE' || msg.includes('school_onboarding_incomplete_digest');
+      if (missing) {
+        console.warn(
+          'Incomplete onboarding digest table not found. Run migration 1468_school_onboarding_incomplete_digest.sql'
+        );
+      } else {
+        console.error('Error in incomplete school onboarding digest scheduler:', error);
+      }
+    }
+  };
+  scheduleIncompleteOnboardingDigests();
+  setInterval(scheduleIncompleteOnboardingDigests, 5 * 60 * 1000);
+
   // Daily digest emails (runs every 15 minutes; respects per-user time + opt-in)
   const scheduleDailyDigest = async () => {
     try {

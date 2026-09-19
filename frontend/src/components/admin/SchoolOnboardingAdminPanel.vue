@@ -1110,6 +1110,12 @@ async function loadInvites() {
     if (selectedInvite.value?.id) {
       selectedInvite.value =
         invites.value.find((inv) => Number(inv.id) === Number(selectedInvite.value.id)) || null;
+    } else {
+      const fromQuery = Number(route.query?.inviteId || route.query?.invite_id || 0);
+      if (fromQuery > 0) {
+        const match = invites.value.find((inv) => Number(inv.id) === fromQuery) || null;
+        if (match) openInviteDetails(match);
+      }
     }
   } catch (e) {
     formError.value = e?.response?.data?.error?.message || 'Failed to load invites';
