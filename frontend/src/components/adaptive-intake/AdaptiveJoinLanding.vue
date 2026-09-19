@@ -35,9 +35,11 @@
           <div v-else-if="key === 'cards'" class="ajl-cards">
             <template v-for="cardKey in view.order.cards" :key="cardKey">
               <article v-if="!view.hidden[cardKey]" class="ajl-card" :class="[`ajl-card--${cardKey}`, { 'ajl-card--disabled': cardKey === 'full' && !full.enabled, 'ajl-block--selected': designMode && selectedElement === cardKey }]" :style="{ textAlign: view.align[cardKey] || 'left' }" v-bind="elementAttrs(cardKey)">
-                <div class="ajl-card-top"><span class="ajl-card-icon" aria-hidden="true">{{ cardKey === 'quick' ? '⚡' : '▤' }}</span><span class="ajl-card-time">{{ cards[cardKey].duration }}</span></div>
+                <div class="ajl-card-band"><strong>{{ choiceLabels[cardKey] }}</strong><span class="ajl-card-time"><PublicEntryIcon name="clock" />{{ cards[cardKey].duration || (cardKey === 'quick' ? '1–5 min' : '10–20 min') }}</span></div>
+                <div class="ajl-card-top"><span class="ajl-card-icon"><PublicEntryIcon :name="cardKey === 'quick' ? 'bolt' : 'document'" /></span></div>
                 <h2>{{ cards[cardKey].title }}</h2><p class="ajl-card-tag">{{ cards[cardKey].tagline }}</p><p class="ajl-card-desc">{{ cards[cardKey].description }}</p>
                 <ul v-if="cards[cardKey].bullets?.length"><li v-for="(bullet, i) in cards[cardKey].bullets" :key="i">{{ bullet }}</li></ul>
+                <div class="ajl-card-fit"><strong>{{ isSpanish ? 'Ideal para ti si…' : 'Best for you if…' }}</strong><p>{{ choiceHelp[cardKey] }}</p></div>
                 <button type="button" class="ajl-cta" :disabled="!designMode && cardKey === 'full' && !full.enabled" @click="continueAction('continue', cardKey)">{{ cardKey === 'full' && !full.enabled ? (full.disabledReason || 'Not available yet') : cards[cardKey].cta }}</button>
                 <p class="ajl-card-foot">{{ cards[cardKey].footer }}</p>
               </article>
@@ -47,12 +49,15 @@
       </template>
     </main>
     <footer v-if="view.footerStyle !== 'hidden' && !view.hidden.footer" class="ajl-footer" :style="{ textAlign: view.align.footer, justifyContent: view.align.footer === 'right' ? 'flex-end' : view.align.footer === 'center' ? 'center' : 'flex-start' }" :class="{ 'ajl-block--selected': designMode && selectedElement === 'footer' }" v-bind="elementAttrs('footer')">
-      <span v-for="(item, index) in footerTrust" :key="index">{{ item }}</span><strong>{{ copy.slogan }}</strong>
+      <span v-for="item in footerTrust" :key="item.icon"><PublicEntryIcon :name="item.icon" />{{ item.label }}</span><strong>{{ copy.slogan }}</strong>
     </footer>
+    <PublicEntryLegalFooter :language="isSpanish ? 'es' : 'en'" />
   </div>
   <JoinPageDesigner v-if="designerOpen && canEdit" :config="config" :agency-slug="agencySlug" :service-type="serviceType" :quick="quick" :full="full" :contact-phone="contactPhone" :contact-tel="contactTel" :contact-email="contactEmail" @close="closeDesigner" @saved="onSaved" />
 </template>
 <script setup>
+import PublicEntryIcon from '../digital-form/PublicEntryIcon.vue';
+import PublicEntryLegalFooter from '../digital-form/PublicEntryLegalFooter.vue';
 import {publicWebsitePath} from '../../utils/publicWebsitePath';
 import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, onMounted, ref } from 'vue';
 import { JOIN_FONT_HREF, fontFamilyById, writeJoinLandingCache } from '../../utils/joinLandingTemplate';
@@ -84,10 +89,24 @@ const themeVars = computed(() => ({
   '--ajl-background-wash': view.value.backgroundWash / 100, '--ajl-heading-color': view.value.headingColor, '--ajl-primary-color': view.value.primaryColor, '--ajl-secondary-color': view.value.secondaryColor, '--ajl-surface-color': view.value.surfaceColor,
   '--ajl-padding': `${view.value.padding}px`, '--ajl-gap': `${view.value.gap}px`
 }));
+const isSpanish = computed(() => String(props.config?.locale || props.config?.language || document.documentElement.lang || 'en').startsWith('es'));
+const choiceLabels = computed(() => isSpanish.value ? {quick:'Opción breve',full:'Inscripción completa'} : {quick:'Brief option',full:'Full enrollment'});
+const choiceHelp = computed(() => isSpanish.value ? {
+  quick:'Quieres compartir tus datos básicos y que nuestro equipo se comunique contigo. Puedes completar la inscripción después.',
+  full:'Estás listo para proporcionar información detallada y completar los documentos de inscripción.'
+} : {
+  quick:'You want to share the basics and have our team follow up. You can complete enrollment later.',
+  full:'You are ready to provide detailed information and complete your enrollment paperwork.'
+});
 const footerTrust = computed(() => {
-  const es = String(props.config?.locale || props.config?.language || document.documentElement.lang || 'en').startsWith('es');
+  const es = isSpanish.value;
   const clinical = (props.serviceType || props.config?.activeService?.serviceType || 'counseling') === 'counseling';
-  return es ? ['Su información está segura', ...(clinical ? ['Protegido por HIPAA'] : []), 'Solo toma unos minutos', 'Personas reales. Apoyo real.'] : ['Your Information Is Secure', ...(clinical ? ['HIPAA Protected'] : []), 'Only Takes a Few Minutes', 'Real People. Real Support.'];
+  return [
+    {icon:'shield',label:es?'Su información está segura':'Your Information Is Secure'},
+    ...(clinical ? [{icon:'lock',label:es?'Protegido por HIPAA':'HIPAA Protected'}] : []),
+    {icon:'clock',label:es?'Solo toma unos minutos':'Only Takes a Few Minutes'},
+    {icon:'people',label:es?'Personas reales. Apoyo real.':'Real People. Real Support.'}
+  ];
 });
 function blockStyle(key) {
   const sizes = view.value.sizes; const position = view.value.positions[key] || { x: 0, y: 0 };
@@ -129,7 +148,7 @@ function onSaved(data) {
 <style scoped>
 .ajl-back{font-size:14px;color:#12473f;font-weight:700;text-decoration:underline;align-self:flex-start;margin-bottom:12px}
 
-.ajl { width:100%; max-width:none; min-width:0; align-self:stretch; box-sizing:border-box; min-height: 100vh; display: grid; grid-template-columns: clamp(230px, 24vw, 320px) minmax(0, 1fr); grid-template-rows: 1fr auto; position: relative; color: #16324a; font-family: var(--ajl-body-font), sans-serif; overflow-x: clip; }
+.ajl { width:100%; max-width:none; min-width:0; align-self:stretch; box-sizing:border-box; min-height: 100vh; display: grid; grid-template-columns: clamp(230px, 24vw, 320px) minmax(0, 1fr); grid-template-rows: 1fr auto auto; position: relative; color: #16324a; font-family: var(--ajl-body-font), sans-serif; overflow-x: clip; }
 .ajl *, .ajl *::before, .ajl *::after { box-sizing: border-box; }
 .ajl-bg { position: absolute; inset: 0; background-size: cover; background-repeat: no-repeat; background-color: #e9f2ef; z-index: 0; }
 .ajl-bg::after { content: ''; position: absolute; inset: 0; background: #fff; opacity: var(--ajl-background-wash); }
@@ -157,10 +176,17 @@ function onSaved(data) {
 .ajl-glad { font-size: var(--ajl-glad-size); margin: 0; font-weight: 700; color: #16324a; }
 .ajl-lead { font-size: var(--ajl-lead-size); line-height: 1.6; margin: 0; max-width: 740px; color: #243b36; }
 .ajl-cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px; }
-.ajl-card { min-width: 0; display: flex; flex-direction: column; border: 1px solid #16324a22; border-radius: 18px; padding: 26px; background: var(--ajl-surface-color); box-shadow: 0 12px 32px #10231f12; }
+.ajl-card { min-width: 0; display: flex; flex-direction: column; border: 1px solid #16324a22; border-radius: 18px; padding: 26px; --card-padding:26px; background: var(--ajl-surface-color); box-shadow: 0 12px 32px #10231f12; }
 .ajl-card-top { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 16px; }
 .ajl-card-icon { font-size: 25px; color: #28644b; background: #e5f2e9; width: 46px; height: 46px; display: grid; place-items: center; border-radius: 12px; }
-.ajl-card-time { color: #49605f; font-size: .9rem; }
+.ajl-card-band { margin:calc(-1 * var(--card-padding)) calc(-1 * var(--card-padding)) 22px; padding:16px var(--card-padding); border-radius:17px 17px 0 0; display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:10px; background:#176446; color:#fff; text-transform:uppercase; letter-spacing:.06em; font-size:.9rem; }
+.ajl-card--full .ajl-card-band { background:#184e8d; }
+.ajl-card-time { display:inline-flex; align-items:center; gap:8px; color:inherit; font-size:.85rem; white-space:nowrap; }
+.ajl-card-fit { padding:16px; border-radius:12px; margin:0 0 18px; background:#eaf5ee; color:#17483d; line-height:1.5; }
+.ajl-card-fit p { margin:5px 0 0; font-size:.9rem; }
+.ajl-card--full .ajl-card-fit { background:#edf4fd; color:#184e8d; }
+.ajl-card--full .ajl-card-icon { background:#edf4fd; color:#184e8d; }
+.ajl-footer > span { display:inline-flex; align-items:center; gap:10px; }
 .ajl-card h2 { font-family: var(--ajl-card-font); font-size: var(--ajl-card-size); line-height: 1.25; margin: 0 0 10px; color: #17483d; }
 .ajl-card--full h2 { color: #1d4d8c; }
 .ajl-card-tag { margin: 0 0 12px; font-weight: 700; }
@@ -188,6 +214,6 @@ function onSaved(data) {
   .ajl--rail-first .ajl-rail { grid-row: 1; }
   .ajl--rail-first .ajl-main { grid-row: 2; }
   .ajl-block--help { margin-top: 10px; }
-  .ajl-card { padding: 22px; }
+  .ajl-card { padding: 22px; --card-padding:22px; }
 }
 </style>

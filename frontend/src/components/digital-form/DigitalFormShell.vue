@@ -243,13 +243,16 @@
       </div>
     </div>
     <footer v-if="scenicSidebarUrl && !embedded && resolvedTrustItems.length" class="df-entry-trust" aria-label="Information and support">
-      <span v-for="item in resolvedTrustItems" :key="item.label"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m8 12 3 3 5-6"/></svg>{{ item.label }}</span>
+      <span v-for="item in resolvedTrustItems" :key="item.label"><PublicEntryIcon :name="item.icon" />{{ item.label }}</span>
     </footer>
+    <PublicEntryLegalFooter v-if="scenicSidebarUrl && !embedded" :language="language" />
   </div>
 </template>
 
 <script setup>
 import { computed } from 'vue';
+import PublicEntryIcon from './PublicEntryIcon.vue';
+import PublicEntryLegalFooter from './PublicEntryLegalFooter.vue';
 import '../../styles/digital-form.css';
 import DigitalFormLanguageToggle from './DigitalFormLanguageToggle.vue';
 import DigitalFormProgress from './DigitalFormProgress.vue';

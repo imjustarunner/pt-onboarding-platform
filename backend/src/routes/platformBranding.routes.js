@@ -1,4 +1,6 @@
 import express from 'express';
+import multer from 'multer';
+import { publishLegalDocument } from '../controllers/platformLegalDocuments.controller.js';
 import {
   getPlatformBranding,
   updatePlatformBranding,
@@ -16,6 +18,14 @@ router.get('/', getPlatformBranding);
 // Update requires authentication and super admin role
 router.use(authenticate);
 router.use(requireSuperAdmin);
+
+const legalUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 15 * 1024 * 1024, files: 1, fields: 1 } }).single('file');
+router.post('/legal-documents/:docType', (req, res, next) => {
+  legalUpload(req, res, error => {
+    if (error) return res.status(400).json({ error: { message: error.code === 'LIMIT_FILE_SIZE' ? 'PDFs must be 15 MB or smaller.' : 'Choose one PDF or one document link.' } });
+    next();
+  });
+}, publishLegalDocument);
 
 // Restore from exported backup (JSON body, snake_case as returned by GET /platform-branding)
 router.post('/restore', restorePlatformBranding);
@@ -44,4 +54,3 @@ router.put(
 );
 
 export default router;
-
