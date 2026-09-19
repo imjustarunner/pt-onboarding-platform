@@ -41,3 +41,8 @@ export function publicPerson(row, profile, photoUrl) {
     details: Object.fromEntries(['languages', 'locations', 'sessionFormats'].map(key => [key,
       key === 'languages' ? publicLanguages(profile,row.languages_spoken) : Array.isArray(profile?.details?.[key]) ? profile.details[key].filter(v => typeof v === 'string').slice(0, 30) : []])) };
 }
+
+/** Same supervisor eligibility as the app; client availability and job titles are unrelated. */
+export function isItscoSupervisor(person) {
+  return person?.has_supervisor_privileges === true || Number(person?.has_supervisor_privileges) === 1 || person?.role === 'supervisor';
+}

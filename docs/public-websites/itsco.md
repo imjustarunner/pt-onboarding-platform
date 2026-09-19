@@ -63,9 +63,11 @@ Client portal: `/itsco/login`; careers/join the team: `/careers/itsco`; counseli
 
 - `https://www.itsco.health/internships` — mobile program overview and direct **Internship application** link from the current published careers listing.
 - `/founders` — Michael Mendez and Rachel Finch, using their real public profiles and supplied history, mission, vision, goals, and values.
-- `/supervisors` — public profiles with supervision or mentoring titles, plus the weekly-supervision and biweekly-mentorship model. Individual placement assignments are confirmed by ITSCO.
+- `/supervisors` — supervisors identified by their actual supervisor role/privileges (including those who do not see clients), public mentor profiles, plus the weekly-supervision and biweekly-mentorship model. Individual placement assignments are confirmed by ITSCO.
 - `/internship-fair` — iPad-friendly display, printable layout, full-screen option where supported, and downloadable QR code targeting `/internships`.
 
 All four work under `/p/itsco/...` on the app host too. **Join us → Internships** opens the program; the existing care enrollment and careers links remain available.
 
 Public program copy lives in `frontend/src/components/itsco/itscoInternshipContent.js`. Founder and mentor biographies/photos come from the published directory and retain the existing authorized public-profile editor. Application links are resolved from the public careers API; unpublished or unavailable listings show an explicit contact/careers fallback. The source material has inconsistent employment classifications, so the public page defers classification, compensation, benefits, and insurance terms to each written training/affiliation agreement.
+
+Supervisor eligibility follows the app’s supervisor privileges or supervisor role, independently of client availability and job title. When a recruitment biography is blank, an introduction is composed from published title, credentials, specialties, approaches, and age groups. A saved public biography always takes precedence; private personnel information is never used. Rachel Finch appears first on the founders page.

@@ -47,5 +47,23 @@ export function selectInternshipJobs(jobs){
  return (Array.isArray(jobs)?jobs:[]).filter(job=>job.applicationPublicKey && /\bintern(?:ship)?\b|\bpracticum\b/i.test(`${job.title||''} ${job.roleType||''}`));
 }
 export function trainingPeople(data){
- return [...new Map([...(data?.providers||[]),...(data?.team||[])].map(p=>[p.id,p])).values()];
+ const people=new Map();
+ for(const person of [...(data?.providers||[]),...(data?.team||[]),...(data?.supervisors||[])])people.set(person.id,{...people.get(person.id),...person});
+ return [...people.values()];
+}
+
+/** Fill empty recruitment biographies using only fields already published in the directory. */
+export function publicProfileIntroduction(person) {
+ const biography=String(person?.bio||'').trim();
+ if(biography)return biography;
+ const name=String(person?.displayName||'This team member').trim();
+ const credential=String(person?.credential||'').trim();
+ const sentences=[`${name}${credential?` (${credential})`:''} ${person?.title?`serves as ${person.title} at ITSCO.`:'is part of the ITSCO team.'}`];
+ const labels=values=>[...new Set((Array.isArray(values)?values:[]).filter(v=>typeof v==='string').map(v=>v.trim()).filter(v=>v&&v.length<=120))].slice(0,3);
+ const join=items=>items.length<3?items.join(' and '):`${items.slice(0,-1).join(', ')}, and ${items.at(-1)}`;
+ const specialties=labels(person?.specialties),approaches=labels(person?.modalities),ages=labels(person?.ageGroups);
+ if(specialties.length)sentences.push(`Areas of focus include ${join(specialties)}.`);
+ if(approaches.length)sentences.push(`Clinical approaches include ${join(approaches)}.`);
+ if(ages.length)sentences.push(`Age groups served include ${join(ages)}.`);
+ return sentences.join(' ');
 }
