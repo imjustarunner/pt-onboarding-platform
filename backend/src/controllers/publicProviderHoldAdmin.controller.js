@@ -26,6 +26,15 @@ export async function listPendingHolds(req,res,next) {
     res.json({holds});
   }catch(e){next(e);}
 }
+export async function listProviderWaitlist(req,res,next) {
+ try {
+  const [requests]=await pool.execute(`SELECT t.id,t.created_at,t.status,t.waitlist_provider_id AS providerId,
+   t.waitlist_service_type AS serviceType,t.waitlist_format AS format,CONCAT(u.first_name,' ',u.last_name) AS providerName
+   FROM support_tickets t JOIN users u ON u.id=t.waitlist_provider_id
+   WHERE t.agency_id=? AND t.status NOT IN ('closed','resolved') ORDER BY t.created_at,t.id`,[req.holdAgencyId]);
+  res.json({requests});
+ }catch(error){next(error);}
+}
 export async function resolvePendingHold(req,res,next) {
   try {
     const reason=req.body?.reason;

@@ -12,12 +12,12 @@ test('reminders follow separate intentions and only count future complete openin
  assert.deepEqual(missingAvailabilityFormats({...p,inPerson:false},{virtualSlots:[opening]},now),[]);
 });
 test('explicit choices override legacy format strings, absent profiles remain safe',()=>{
- assert.deepEqual(providerAvailabilityPreferences({provider_accepting_new_clients:0,in_office_available:1},null),{seesClients:true,acceptingNewClients:false,inPerson:true,virtual:false});
+ assert.deepEqual(providerAvailabilityPreferences({provider_accepting_new_clients:0,in_office_available:1},null),{seesClients:true,waitlistEnabled:false,acceptingNewClients:false,inPerson:true,virtual:false});
  assert.equal(providerAvailabilityPreferences({in_office_available:1},{details:{inPersonEnabled:false,virtualEnabled:true}}).inPerson,false);
- assert.equal(publicFormatEnabled({details:{virtualEnabled:false}},'VIRTUAL'),false);
+ assert.equal(publicFormatEnabled({details:{virtualEnabled:false}},'VIRTUAL'),true);
  assert.equal(publicFormatEnabled({details:{virtualEnabled:false}},'VIRTUAL','CURRENT_CLIENT'),true);
  assert.equal(publicFormatEnabled(null,'IN_PERSON'),true);
- assert.equal(publicFormatEnabled({acceptingNewClientsOverride:false},'IN_PERSON'),false);
+ assert.equal(publicFormatEnabled({acceptingNewClientsOverride:false},'IN_PERSON'),true);
 });
 test('only booked reservations without clinical or learning sessions are flagged',()=>{
  assert.equal(officeBookingNeedsSession({state:'assigned_booked'}),true);

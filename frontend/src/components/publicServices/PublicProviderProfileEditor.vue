@@ -6,7 +6,7 @@
    <div class="editor-grid">
     <label>First name<input v-model="draft.firstName" required maxlength="100" /></label>
     <label>Last name<input v-model="draft.lastName" required maxlength="100" /></label>
-    <label>Professional title<input v-model="draft.title" maxlength="160" /></label>
+    <label>Professional title<input v-model="draft.title" maxlength="160" /></label><label>Public gender (optional)<input v-model="draft.gender" maxlength="80" placeholder="Provider’s self-described gender"/><small>Published in the directory and its gender filter.</small></label>
     <label>Photo<input type="file" accept="image/png,image/jpeg,image/webp" @change="photo=$event.target.files?.[0] || null" /><small>PNG, JPG or WebP, up to 8 MB. Saved as the provider’s profile photo.</small></label>
    </div>
    <label>Public biography<textarea v-model="draft.publicBlurb" rows="7" maxlength="4000" /></label>
@@ -33,20 +33,20 @@ const emit=defineEmits(['saved']);
 const auth=useAuthStore(),verified=ref(false),editing=ref(false),busy=ref(false),error=ref(''),notice=ref(''),photo=ref(null),draft=reactive({});
 const manager=computed(()=>window.parent===window && (Number(auth.user?.id)===Number(props.provider.id) || ['admin','super_admin','support','staff'].includes(auth.user?.role)));
 const allowed=computed(()=>manager.value && verified.value);
-const availabilityFields=[['officeAvailability','Office acceptance'],['schoolAvailability','Assigned school acceptance']];
-const fields=[{key:'insurances',label:'Insurance accepted'},{key:'languages',label:'Languages'},{key:'locations',label:'Public locations'},{key:'sessionFormats',label:'In-person / virtual'}];
+const availabilityFields=[['officeAvailability','Office acceptance'],['virtualAvailability','Virtual acceptance'],['schoolAvailability','Assigned school acceptance']];
+const fields=[{key:'insurances',label:'Insurance accepted'},{key:'languages',label:'Languages'},{key:'locations',label:'Public locations'},{key:'sessionFormats',label:'In-person / virtual'},{key:'typicalAvailability',label:'Typical availability (for example, Saturday mornings)'}];
 let savedProfile={},generation=0;
 watch(()=>[props.provider.id,props.agencyId,manager.value],async()=>{
  const id=++generation;verified.value=false;editing.value=false;
  if(!manager.value || !props.agencyId)return;
  try{const {data}=await api.get(`/users/${props.provider.id}/provider-public-profile`,{params:{agencyId:props.agencyId},skipAuthRedirect:true});if(id===generation){savedProfile=data.profile||{};verified.value=true;}}catch{/* Authorization is decided by the protected API. */}
 },{immediate:true});
-function availabilityUpdated(data){if(data.kind!=='save')return;draft.accepting='default';draft.officeAvailability=data.preferences.acceptingNewClients&&data.preferences.inPerson?'accepting':'unavailable';}
-function open(){Object.assign(draft,{firstName:props.provider.firstName||'',lastName:props.provider.lastName||'',title:props.provider.title||'',publicBlurb:savedProfile.publicBlurb||'',insurances:(savedProfile.insurances||[]).join(', '),accepting:savedProfile.acceptingNewClientsOverride===null?'default':savedProfile.acceptingNewClientsOverride?'yes':'no'});for(const k of ['languages','locations','sessionFormats'])draft[k]=(savedProfile.details?.[k]||[]).join(', ');for(const [k] of availabilityFields)draft[k]=savedProfile.details?.[k]||'auto';photo.value=null;error.value='';notice.value='';editing.value=true;}
+function availabilityUpdated(data){if(data.kind!=='save')return;draft.accepting='default';for(const [key,format] of [['officeAvailability','inPerson'],['virtualAvailability','virtual']])draft[key]=data.preferences.acceptingNewClients&&data.preferences[format]?'accepting':data.preferences.waitlistEnabled&&data.preferences[format]?'waitlist':'unavailable';}
+function open(){Object.assign(draft,{firstName:props.provider.firstName||'',lastName:props.provider.lastName||'',title:props.provider.title||'',publicBlurb:savedProfile.publicBlurb||'',insurances:(savedProfile.insurances||[]).join(', '),accepting:savedProfile.acceptingNewClientsOverride===null?'default':savedProfile.acceptingNewClientsOverride?'yes':'no'});for(const k of ['languages','locations','sessionFormats','typicalAvailability'])draft[k]=(savedProfile.details?.[k]||[]).join(', ');for(const [k] of availabilityFields)draft[k]=savedProfile.details?.[k]||'auto';draft.gender=savedProfile.details?.gender||'';photo.value=null;error.value='';notice.value='';editing.value=true;}
 const list=value=>String(value||'').split(',').map(s=>s.trim()).filter(Boolean);
 async function save(){busy.value=true;error.value='';notice.value='';try{
  if(photo.value && (photo.value.size>8*1024*1024 || !['image/png','image/jpeg','image/webp'].includes(photo.value.type)))throw new Error('Choose a PNG, JPG or WebP photo no larger than 8 MB.');
- const {data}=await api.put(`/users/${props.provider.id}/provider-public-profile`,{agencyId:props.agencyId,identity:{firstName:draft.firstName,lastName:draft.lastName,title:draft.title},publicBlurb:draft.publicBlurb,insurances:list(draft.insurances),details:{...Object.fromEntries(['languages','locations','sessionFormats'].map(k=>[k,list(draft[k])])),...Object.fromEntries(availabilityFields.map(([k])=>[k,draft[k]]))},acceptingNewClientsOverride:null});
+ const {data}=await api.put(`/users/${props.provider.id}/provider-public-profile`,{agencyId:props.agencyId,identity:{firstName:draft.firstName,lastName:draft.lastName,title:draft.title},publicBlurb:draft.publicBlurb,insurances:list(draft.insurances),details:{gender:draft.gender,...Object.fromEntries(['languages','locations','sessionFormats','typicalAvailability'].map(k=>[k,list(draft[k])])),...Object.fromEntries(availabilityFields.map(([k])=>[k,draft[k]]))},acceptingNewClientsOverride:null});
  savedProfile=data.profile;notice.value='Profile details saved.';
  if(photo.value){const body=new FormData();body.append('photo',photo.value);await api.post(`/users/${props.provider.id}/profile-photo`,body);}
  editing.value=false;emit('saved');

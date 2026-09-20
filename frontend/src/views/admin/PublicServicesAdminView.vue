@@ -19,6 +19,7 @@
 
     <template v-else>
       <PendingProviderHolds v-if="agencySlug" :agency-slug="agencySlug" />
+      <ProviderWaitlistRequests v-if="agencySlug" :agency-slug="agencySlug" />
       <!-- Status bar -->
       <div class="card status-bar">
         <div class="status-item">
@@ -356,6 +357,7 @@
 <script setup>
 import LearningCatalogEditor from '../../components/learning/LearningCatalogEditor.vue';
 import PendingProviderHolds from '../../components/publicServices/PendingProviderHolds.vue';
+import ProviderWaitlistRequests from '../../components/publicServices/ProviderWaitlistRequests.vue';
 import { ref, computed, onMounted } from 'vue';
 import { useRoute } from 'vue-router';
 import api from '../../services/api';

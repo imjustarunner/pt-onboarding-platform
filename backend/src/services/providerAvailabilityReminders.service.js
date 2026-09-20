@@ -14,6 +14,16 @@ async function readProviderAvailabilitySettings(providerId, agencyId) {
  LEFT JOIN notification_user_reads nur ON nur.notification_id=r.notification_id AND nur.user_id=r.provider_id
  WHERE r.provider_id=? AND r.agency_id=?`,[providerId,agencyId]);
  const preferences=providerAvailabilityPreferences(user,profile);
+ const [[published]] = await pool.execute(`SELECT
+  EXISTS(SELECT 1 FROM provider_in_person_slot_availability WHERE provider_id=? AND is_active=1 AND end_at>UTC_TIMESTAMP()) AS inPerson,
+  (EXISTS(SELECT 1 FROM provider_virtual_slot_availability WHERE provider_id=? AND is_active=1 AND available_for_intake=1 AND end_at>UTC_TIMESTAMP())
+   OR EXISTS(SELECT 1 FROM provider_virtual_working_hours WHERE provider_id=? AND available_for_intake=1)) AS virtual,
+  EXISTS(SELECT 1 FROM provider_school_assignments WHERE provider_user_id=? AND is_active=1 AND slots_available>0) AS school`,[providerId,providerId,providerId,providerId]);
+ if(preferences.seesClients && published) {
+  preferences.inPerson ||= Boolean(published.inPerson);
+  preferences.virtual ||= Boolean(published.virtual);
+  preferences.acceptingNewClients ||= Boolean(published.inPerson||published.virtual||published.school);
+ }
  return {preferences,reminders:reminders.filter(r=>r.is_missing && preferences.seesClients && preferences.acceptingNewClients).map(r=>({
   id:r.id,format:r.format,taskId:r.task_id,notificationId:r.notification_id,checkedAt:r.checked_at,
   snoozedUntil:r.snoozed_until,snoozed:Boolean(r.snoozed_until && new Date(r.snoozed_until).getTime()>Date.now())

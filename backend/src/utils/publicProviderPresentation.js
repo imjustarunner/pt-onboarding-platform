@@ -25,9 +25,10 @@ export function restrictPublicInsurances(rows,person) {
  return rows.filter(i=>/medicaid|health first colorado|colorado access|coaccess|colorado community health alliance|\bccha\b|northeast health partners/i.test(i.name||i.label||i));
 }
 export function publicAcceptance({globalAccepting=false,manual='auto',hasOpenings=false,assigned=true}={}) {
- if([false,0,'0'].includes(globalAccepting))return {status:assigned?'waitlist':'unavailable',source:'global',hasOpenings:false};
- if(hasOpenings&&assigned)return {status:'accepting',source:'schedule',hasOpenings:true};
+ if(hasOpenings)return {status:'accepting',source:'schedule',hasOpenings:true};
  if(!assigned)return {status:'unavailable',source:'assignment',hasOpenings:false};
+ if(manual==='waitlist')return {status:'waitlist',source:'manual',hasOpenings:false};
+ if([false,0,'0'].includes(globalAccepting))return {status:'unavailable',source:'global',hasOpenings:false};
  if(['accepting','waitlist','unavailable'].includes(manual))return {status:manual,source:'manual',hasOpenings:false};
- return {status:globalAccepting?'accepting':'waitlist',source:'global',hasOpenings:false};
+ return {status:globalAccepting?'accepting':'unavailable',source:'global',hasOpenings:false};
 }

@@ -1,5 +1,7 @@
 import User from '../models/User.model.js';
 import ProviderPublicProfile from '../models/ProviderPublicProfile.model.js';
+import pool from '../config/database.js';
+import {withdrawProviderIntakeOpenings} from '../services/providerIntakePublication.service.js';
 
 function parseIntSafe(v) {
   const n = parseInt(v, 10);
@@ -90,7 +92,17 @@ export const upsertUserProviderPublicProfile = async (req, res, next) => {
       identity=Object.fromEntries(['firstName','lastName','title'].map(k=>[k,String(req.body.identity[k] || '').trim()]));
       if(!identity.firstName || !identity.lastName || identity.firstName.length>100 || identity.lastName.length>100 || identity.title.length>160) return res.status(400).json({error:{message:'Provide valid names and a title of no more than 160 characters'}});
     }
-    const saved = await ProviderPublicProfile.upsertForProvider({
+    const connection=await pool.getConnection();
+    let saved;
+    try {
+    await connection.beginTransaction();
+    await connection.execute('SELECT id FROM users WHERE id=? FOR UPDATE',[userId]);
+    const closed=req.body?.acceptingNewClientsOverride===false && prior?.acceptingNewClientsOverride!==false;
+    const newlyClosed=key=>req.body?.details?.[key]==='unavailable'&&prior?.details?.[key]!=='unavailable';
+    const formats={inPerson:closed||newlyClosed('officeAvailability'),virtual:closed||newlyClosed('virtualAvailability'),school:closed||newlyClosed('schoolAvailability')};
+    if(Object.values(formats).some(Boolean))await withdrawProviderIntakeOpenings(connection,userId,formats);
+    saved = await ProviderPublicProfile.upsertForProvider({
+      database:connection,
       providerUserId: userId,
       details: req.body?.details,
       publicBlurb: req.body?.publicBlurb ?? null,
@@ -99,6 +111,8 @@ export const upsertUserProviderPublicProfile = async (req, res, next) => {
       selfPayRateNote: Object.hasOwn(req.body || {}, 'selfPayRateNote') ? req.body.selfPayRateNote : prior?.selfPayRateNote ?? null,
       acceptingNewClientsOverride: Object.hasOwn(req.body || {}, 'acceptingNewClientsOverride') ? req.body.acceptingNewClientsOverride : prior?.acceptingNewClientsOverride ?? null
     });
+    await connection.commit();
+    } catch(error){await connection.rollback();throw error;}finally{connection.release();}
     if(identity) await User.update(userId,identity);
     res.json({ ok: true, userId, agencyId, profile: saved });
   } catch (e) {

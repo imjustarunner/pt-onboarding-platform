@@ -424,7 +424,7 @@ export function validatePublicSupportContact({email = '', phone = ''} = {}) {
   if (message) throw Object.assign(new Error(message), {status:400});
 }
 
-export async function createPublicAgencySupportTicket(agencySlug, payload = {}, req = null, { internshipInquiry = false } = {}) {
+export async function createPublicAgencySupportTicket(agencySlug, payload = {}, req = null, { internshipInquiry = false, providerWaitlist = null } = {}) {
   const agency = await resolveAgency(agencySlug);
   if (!agency) {
     const err = new Error('Organization not found');
@@ -486,7 +486,7 @@ export async function createPublicAgencySupportTicket(agencySlug, payload = {}, 
   const internshipContact = internshipInquiry ? await resolveInternshipContact(agency) : null;
   const chatReferral = await resolveChatReferral(String(agencySlug),payload.chatReferral);
   const categoryLabel = PUBLIC_SUPPORT_CATEGORIES.find((c) => c.id === category)?.label || category;
-  const subject = internshipInquiry ? INTERNSHIP_INQUIRY_SUBJECT : `${categoryLabel} — ${name}`.slice(0, 255);
+  const subject = internshipInquiry ? INTERNSHIP_INQUIRY_SUBJECT : providerWaitlist ? `Provider waitlist: ${providerWaitlist.providerName} — ${providerWaitlist.serviceType}`.slice(0,255) : `${categoryLabel} — ${name}`.slice(0, 255);
   const question = [
     message,
     '',
@@ -508,8 +508,8 @@ export async function createPublicAgencySupportTicket(agencySlug, payload = {}, 
       `INSERT INTO support_tickets
         (school_organization_id, client_id, created_by_user_id, created_by_source_key, agency_id,
          subject, question, status, source_channel, source_email_from, topic,
-         question_ciphertext, question_iv, question_auth_tag, question_encryption_key_id)
-       VALUES (?, NULL, NULL, ?, ?, ?, ?, 'open', 'public_web', ?, ?, ?, ?, ?, ?)`,
+         question_ciphertext, question_iv, question_auth_tag, question_encryption_key_id${providerWaitlist?', waitlist_provider_id, waitlist_service_type, waitlist_format':''})
+       VALUES (?, NULL, NULL, ?, ?, ?, ?, 'open', 'public_web', ?, ?, ?, ?, ?, ?${providerWaitlist?', ?, ?, ?':''})`,
       [
         agency.id,
         sourceKey,
@@ -521,12 +521,13 @@ export async function createPublicAgencySupportTicket(agencySlug, payload = {}, 
         qEnc.ciphertext,
         qEnc.iv,
         qEnc.authTag,
-        qEnc.keyId
+        qEnc.keyId,
+        ...(providerWaitlist?[providerWaitlist.providerId,providerWaitlist.serviceType,providerWaitlist.format]:[])
       ]
     );
     insertId = result.insertId;
   } catch (e) {
-    if (internshipInquiry) throw e; // Inquiry replies require the current email-aware ticket schema.
+    if (internshipInquiry || providerWaitlist) throw e; // These workflows require their current schema.
     const msg = String(e?.message || '');
     if (msg.includes('Unknown column') || msg.includes('source_email_from') || msg.includes('question_ciphertext') || msg.includes('source_channel') || msg.includes('topic')) {
       const [result] = await pool.execute(

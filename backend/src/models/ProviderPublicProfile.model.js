@@ -19,7 +19,10 @@ class ProviderPublicProfile {
       // Rolling deployment: existing profiles continue loading until migration 1430 runs.
       [rows] = await database.execute(`SELECT ${columns.replace('public_details_json, ', '')} FROM provider_public_profiles WHERE user_id = ? LIMIT 1`, [userId]);
     }
-    const [people] = await database.execute('SELECT provider_school_info_blurb, languages_spoken, credential, title FROM users WHERE id = ? LIMIT 1', [userId]);
+    const [people] = await database.execute(`SELECT provider_school_info_blurb, languages_spoken, credential, title,
+      (SELECT v.value FROM user_info_values v JOIN user_info_field_definitions d ON d.id=v.field_definition_id
+       WHERE v.user_id=users.id AND d.field_key='provider_marketing_gender' ORDER BY v.updated_at DESC,v.id DESC LIMIT 1) AS public_gender
+      FROM users WHERE id = ? LIMIT 1`, [userId]);
     if (!rows?.[0] && !people?.[0]) return null;
     const person = people?.[0] || {};
     const row = rows?.[0] || {};
@@ -33,8 +36,10 @@ class ProviderPublicProfile {
     }
     let details = row.public_details_json || {};
     if (typeof details === 'string') { try { details = JSON.parse(details); } catch { details = {}; } }
+    let publicGender = person.public_gender || '';
+    try { const parsed=JSON.parse(publicGender); if(typeof parsed==='string')publicGender=parsed; } catch {}
     return {
-      details: {...details, languages: publicLanguages({details}, person.languages_spoken)},
+      details: {...details, gender:Object.hasOwn(details,'gender')?String(details.gender||''):String(publicGender).trim().slice(0,80), languages: publicLanguages({details}, person.languages_spoken)},
       userId,
       publicBlurb: row.public_blurb || person.provider_school_info_blurb || '',
       insurances: restrictPublicInsurances(Array.isArray(insurances) ? insurances : [], person),
@@ -61,7 +66,7 @@ class ProviderPublicProfile {
     const previous = await this.getForProvider({ providerUserId: userId, database });
     details = { ...previous?.details, ...details };
     const publicDetails = {};
-    for (const key of ['languages', 'locations', 'sessionFormats']) {
+    for (const key of ['languages', 'locations', 'sessionFormats', 'typicalAvailability']) {
       const values = (details ?? previous?.details)?.[key];
       publicDetails[key] = Array.isArray(values) ? [...new Set(values.map(v => String(v).trim().slice(0, 160)).filter(Boolean))].slice(0, 30) : [];
     }
@@ -69,7 +74,8 @@ class ProviderPublicProfile {
       const value = (details ?? previous?.details)?.[key];
       publicDetails[key] = ['accepting', 'waitlist', 'unavailable'].includes(value) ? value : 'auto';
     }
-    for (const key of ['inPersonEnabled','virtualEnabled']) {
+    publicDetails.gender = String(details.gender || '').trim().slice(0, 80);
+    for (const key of ['inPersonEnabled','virtualEnabled','waitlistEnabled']) {
       if (typeof details[key] === 'boolean') publicDetails[key] = details[key];
     }
     const cleanInsurances = Array.isArray(insurances)

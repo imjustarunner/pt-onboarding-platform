@@ -1,4 +1,5 @@
 import pool from '../config/database.js';
+import {normalizeClinicalFacets} from '../utils/providerFacetNormalization.js';
 import {
   ALL_CLINICAL_FACET_FIELD_KEYS,
   CLINICAL_FACET_GROUPS,
@@ -80,7 +81,7 @@ export async function listClinicalFacetsForUsers(userIds, { agencyId = null } = 
       ...facets.ageGroups.slice(0, 2)
     ];
     facets.summaryTags = [...new Set(tags)].slice(0, 6);
-    out.set(uid, facets);
+    out.set(uid, normalizeClinicalFacets(facets));
   }
 
   return out;

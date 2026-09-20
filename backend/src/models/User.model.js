@@ -1855,11 +1855,22 @@ class User {
 
     values.push(id);
     
-    // Execute update - application-layer protection already enforced above
-    await pool.execute(
-      `UPDATE users SET ${updates.join(', ')} WHERE id = ?`,
-      values
-    );
+    // Closing global intake withdraws actual publications atomically, so newly
+    // published openings can subsequently make the provider available again.
+    if (providerAcceptingNewClients === false || seesClients === false) {
+      const connection = await pool.getConnection();
+      try {
+        await connection.beginTransaction();
+        await connection.execute('SELECT id FROM users WHERE id=? FOR UPDATE', [id]);
+        const {withdrawProviderIntakeOpenings} = await import('../services/providerIntakePublication.service.js');
+        await withdrawProviderIntakeOpenings(connection, id);
+        await connection.execute(`UPDATE users SET ${updates.join(', ')} WHERE id = ?`, values);
+        await connection.commit();
+      } catch (error) { await connection.rollback(); throw error; }
+      finally { connection.release(); }
+    } else {
+      await pool.execute(`UPDATE users SET ${updates.join(', ')} WHERE id = ?`, values);
+    }
     
     // Verify the role after update (double-check protection)
     // This is a safety net in case of direct database access or other bypasses

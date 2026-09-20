@@ -1,5 +1,6 @@
 import { authenticate } from '../middleware/auth.middleware.js';
-import { requireHoldManager, listPendingHolds, resolvePendingHold, checkPublicHold } from '../controllers/publicProviderHoldAdmin.controller.js';
+import { requireHoldManager, listPendingHolds, resolvePendingHold, checkPublicHold, listProviderWaitlist } from '../controllers/publicProviderHoldAdmin.controller.js';
+import { publicAgencySupportTicketLimiter } from '../middleware/rateLimiter.middleware.js';
 import rateLimit from 'express-rate-limit';
 import express from 'express';
 import {
@@ -14,6 +15,8 @@ import {
   listTutors,
   listEvaluators,
   getProviderDetail,
+  getProviderScheduleSummary,
+  joinProviderWaitlist,
   getProviderSlots,
   createBookingRequest,
   listEnrollments,
@@ -40,6 +43,9 @@ router.get('/:agencySlug/consultants', listConsultants);
 router.get('/:agencySlug/tutors', listTutors);
 router.get('/:agencySlug/evaluators', listEvaluators);
 router.get('/:agencySlug/providers/:providerId', getProviderDetail);
+router.get('/:agencySlug/providers/:providerId/schedule-summary', getProviderScheduleSummary);
+router.post('/:agencySlug/providers/:providerId/waitlist', publicAgencySupportTicketLimiter, joinProviderWaitlist);
+router.get('/:agencySlug/provider-waitlist', authenticate, requireHoldManager, listProviderWaitlist);
 router.get('/:agencySlug/providers/:providerId/slots', getProviderSlots);
 const selectionLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 20, standardHeaders: true, legacyHeaders: false });
 router.post('/:agencySlug/providers/:providerId/holds', selectionLimiter, createProviderSlotHold);

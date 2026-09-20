@@ -9,7 +9,7 @@
    <section class="profile-intro">
     <img v-if="provider.profilePhotoUrl && !photoFailed" :src="provider.profilePhotoUrl" :alt="provider.displayName" @error="photoFailed=true"/>
     <div v-else class="profile-initials" aria-label="Photo not provided">{{ initials }}</div>
-    <div><p class="profile-eyebrow">{{ agencyName }}</p><h1>{{ provider.displayName }}</h1><p class="profile-title">{{ provider.title || serviceLabel }}</p><p v-if="provider.serviceFocus">{{ provider.serviceFocus }}</p><span class="profile-status">{{ provider.acceptingNewClients ? 'Accepting new clients' : 'Contact the team about availability' }}</span></div>
+    <div><p class="profile-eyebrow">{{ agencyName }}</p><h1>{{ provider.displayName }}</h1><div class="profile-tags"><span v-if="provider.credential">{{provider.credential}}</span><span v-for="place in profile.details?.locations||[]" :key="place">{{place}}</span><span v-for="place in schedule?.locations||[]" :key="place.id">{{place.name}}</span><span v-if="schedule?.inPerson?.status==='accepting'">In person</span><span v-if="schedule?.virtual?.status==='accepting'">Virtual</span></div><p class="profile-title">{{ provider.title || serviceLabel }}</p><p v-if="provider.serviceFocus">{{ provider.serviceFocus }}</p><span class="profile-status">{{ statusLabel(overallProviderStatus({...provider,details:profile.details},schedule||{})) }}</span></div>
    </section>
    <div class="profile-layout">
     <div class="profile-content">
@@ -18,7 +18,7 @@
      <section v-if="provider.tutoringProfile" class="profile-panel"><h2>Learning rates & packages</h2><p v-for="(rate,format) in provider.tutoringProfile.hourlyRates||{}" :key="format">{{format}}: {{rate==null?'Contact us for pricing':new Intl.NumberFormat('en-US',{style:'currency',currency:'USD'}).format(rate/100)+' / hour'}}</p><article v-for="pkg in provider.tutoringProfile.packages||[]" :key="pkg.id"><h3>{{pkg.name}}</h3><ul><li v-for="(c,i) in pkg.components" :key="i">{{c.sessions}} × {{c.minutes}} minutes · {{c.service}} · {{c.format}} · {{c.pricingMode==='provider-discount'?c.discountPercent+'% off this service provider’s hourly rate':c.educationLevel}}</li></ul><p>{{pkg.totalCents==null?'Contact us for pricing':new Intl.NumberFormat('en-US',{style:'currency',currency:'USD'}).format(pkg.totalCents/100)}} · Confirm the participating providers with our team.</p><router-link :to="{path:joinPath.path,query:{...joinPath.query,program:pkg.program,packageId:pkg.id}}">Request this package →</router-link></article></section><section v-if="profile.selfPayRateLabel" class="profile-panel"><h2>Self-pay</h2><strong>{{ profile.selfPayRateLabel }}</strong><p v-if="profile.selfPayRateNote">{{ profile.selfPayRateNote }}</p><p>Confirm coverage and any applicable costs with the team before starting services.</p></section>
     </div>
     <aside class="profile-panel profile-availability">
-     <PublicProviderSlotPicker :agency-slug="slug" :provider-id="provider.id" :service-type="service" @hold="hold=$event"/>
+     <PublicProviderAvailabilityPanel :agency-slug="slug" :provider="{...provider,details:profile.details}" :service-type="service" @hold="hold=$event" @loaded="schedule=$event"/>
      <router-link class="profile-continue" :to="joinPath">{{ hold ? 'Continue enrollment with this preference' : 'Continue to enrollment' }} →</router-link>
      <p class="profile-note">A selected weekly time stays on hold until placement is resolved. The team must confirm appointments.</p>
     </aside>
@@ -33,7 +33,8 @@ import { useRoute } from 'vue-router';
 import api from '../../services/api';
 import BrandingLogo from '../../components/BrandingLogo.vue';
 import PublicProviderProfileEditor from '../../components/publicServices/PublicProviderProfileEditor.vue';
-import PublicProviderSlotPicker from '../../components/publicServices/PublicProviderSlotPicker.vue';
+import PublicProviderAvailabilityPanel from '../../components/publicServices/PublicProviderAvailabilityPanel.vue';
+import {overallProviderStatus,statusLabel} from '../../utils/providerDirectoryStatus';
 import { useBrandingStore } from '../../store/branding';
 const route=useRoute(), branding=useBrandingStore();
 const slug=computed(()=>String(route.params.organizationSlug||''));
@@ -41,19 +42,19 @@ const service=computed(()=>['counseling','tutoring','coaching','consulting'].inc
 const serviceLabel=computed(()=>({counseling:'Counseling',tutoring:'Tutoring',coaching:'Life coaching',consulting:'Consulting'})[service.value]);
 const finderPath=computed(()=>({path:`/${encodeURIComponent(slug.value)}/find-${({counseling:'counselor',tutoring:'tutor',coaching:'coach',consulting:'consultant'})[service.value]}`,query:{program:route.query.program}}));
 const joinPath=computed(()=>({path:`/join/${encodeURIComponent(slug.value)}/${slug.value==='nlu'&&service.value==='tutoring'?'learning':service.value}`,query:{providerId:provider.value?.id,serviceType:service.value,program:route.query.program}}));
-const provider=ref(null),profile=ref({}),agencyName=ref(''),agencyId=ref(0),loading=ref(false),error=ref(''),photoFailed=ref(false),hold=ref(null);
+const provider=ref(null),profile=ref({}),agencyName=ref(''),agencyId=ref(0),loading=ref(false),error=ref(''),photoFailed=ref(false),hold=ref(null),schedule=ref(null);
 const initials=computed(()=>String(provider.value?.displayName||'').split(' ').map(s=>s[0]).slice(0,2).join(''));
 const groups=computed(()=>[
  {title:service.value==='tutoring'?'Subjects':'Specialties',values:provider.value?.tutoringProfile?.subjectAreas||provider.value?.specialties||[]},
- {title:'Populations & ages',values:uniquePublicFacets([...(provider.value?.ageGroups||[]),...(provider.value?.focus||[])])},
+ {title:'Client ages',values:uniquePublicFacets(provider.value?.ageGroups||[])},
+ {title:'Populations served',values:provider.value?.focus||[]},
  {title:service.value==='tutoring'?'Grades':'Approaches',values:provider.value?.tutoringProfile?.gradeLevels||[...(provider.value?.modalities||[]),...(provider.value?.interventions||[])]},
  {title:'Insurance accepted',values:profile.value?.insurancesAccepted||[]},
  {title:'Languages',values:profile.value?.details?.languages||[]},
- {title:'Locations',values:profile.value?.details?.locations||[]},
- {title:'In-person / virtual',values:profile.value?.details?.sessionFormats||[]}
+ {title:'Provider gender',values:profile.value?.details?.gender?[profile.value.details.gender]:[]}
 ]);
 let generation=0;
-async function load(){const id=++generation;loading.value=true;error.value='';photoFailed.value=false;provider.value=null;
+async function load(){const id=++generation;loading.value=true;error.value='';photoFailed.value=false;provider.value=null;schedule.value=null;hold.value=null;
  try{const {data}=await api.get(`/public/agency-services/${encodeURIComponent(slug.value)}/providers/${Number(route.params.providerId)}`,{params:{serviceType:service.value,bookingMode:'NEW_CLIENT'},skipAuthRedirect:true});if(id!==generation)return;provider.value=data.provider;profile.value=data.profile;agencyId.value=Number(data.agency?.id)||0;agencyName.value=data.agency?.name||slug.value;document.title=`${data.provider.displayName} | ${agencyName.value}`;}
  catch(e){if(id===generation)error.value=e.response?.data?.error?.message||'This profile could not be loaded.';}finally{if(id===generation)loading.value=false;}}
 watch(()=>[slug.value,route.params.providerId,service.value],load,{immediate:true});

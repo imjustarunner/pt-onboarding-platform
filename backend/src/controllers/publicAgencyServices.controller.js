@@ -412,7 +412,7 @@ function dedupeSlots(slots) {
 // Agency/provider resolution
 // ---------------------------------------------------------------------------
 
-async function requireAgencyBySlug(res, agencySlug) {
+async function requireAgencyBySlug(res, agencySlug, {directoryOnly=false}={}) {
   const slug = String(agencySlug || '').trim();
   let rows;
   try {
@@ -447,7 +447,7 @@ async function requireAgencyBySlug(res, agencySlug) {
     res.status(404).json({ error: { message: 'Agency not found' } });
     return null;
   }
-  if (!a.public_availability_enabled) {
+  if (!directoryOnly && !a.public_availability_enabled) {
     res.status(403).json({ error: { message: 'Public booking is not enabled for this agency' } });
     return null;
   }
@@ -654,7 +654,7 @@ async function computeProviderWindowSummary({ agencyId, providerId, weekStart, b
 
 function normalizeSlots({ result, bookingMode, profile }) {
   // These slots already passed schedule, assignment, conflict, and intake-hold checks.
-  // Explicitly closed client intake or formats cannot advertise new-client openings.
+  // Closing intake withdraws the publications themselves; later openings take precedence.
   const inPerson = (publicFormatEnabled(profile,'IN_PERSON',bookingMode)?result?.inPersonSlots || []:[]).filter((s) => new Date(s.startAt).getTime() > Date.now()).map((s) => ({
     ...s,
     modality: 'IN_PERSON',
@@ -765,7 +765,7 @@ export const listChooseProviders = async (req, res, next) => {
 
 export const listCounselors = async (req, res, next) => {
   try {
-    const agency = await requireAgencyBySlug(res, req.params.agencySlug);
+    const agency = await requireAgencyBySlug(res, req.params.agencySlug, {directoryOnly:true});
     if (!agency) return;
 
     const serviceType = normalizeServiceType(req.query.serviceType || req._forcedServiceType || 'counseling');
@@ -786,10 +786,10 @@ export const listCounselors = async (req, res, next) => {
     const providerRows = await listEnrolledProviders(agency.id, serviceType, {includeDirectory:true});
 
     const providers = await runWithConcurrency(providerRows, 6, async (row) => {
-      const directoryOnly = req.query.view === 'directory' || row.online_enrolled === 0;
+      const directoryOnly = req.query.view === 'directory';
       const heldSlots = directoryOnly ? [] : await getHeldSlotStartsForProvider(agency.id, Number(row.id));
       const summary = directoryOnly ? { thisWeek: { virtualSlots: [], inPersonSlots: [] }, nextAvailableAt: null, bookedThroughYmd: null } : await computeProviderWindowSummary({
-        lookaheadWeeks: req.query.view === 'availability' ? 0 : 16,
+        lookaheadWeeks: req.query.view === 'availability' ? 3 : 16,
         agencyId: agency.id,
         providerId: Number(row.id),
         weekStart,
@@ -835,8 +835,8 @@ export const listCounselors = async (req, res, next) => {
       if (effectiveAgeFilter && !providerServesAgeBucket(ageGroups, effectiveAgeFilter)) return null;
 
       return {
-        acceptingNewClients: Boolean(profileData.acceptingNewClientsOverride),
-        onlineScheduling: row.online_enrolled !== 0,
+        acceptingNewClients: Boolean(summary.nextAvailableAt) || Boolean(profileData.acceptingNewClientsOverride),
+        onlineScheduling: Boolean(agency.public_availability_enabled) && row.online_enrolled !== 0,
         providerId: Number(row.id),
         id: Number(row.id),
         firstName: row.first_name || '',
@@ -990,14 +990,14 @@ export const listTutors = async (req, res, next) => {
         bookingMode,
         profile: profileData
       });
-      const filteredThisWeek = tutoringProfile.acceptingNewStudents && req.query.learningFormat !== 'small-group' ? (programType === 'VIRTUAL' ? slotSet.virtual : slotSet.inPerson) : [];
+      const filteredThisWeek = req.query.learningFormat !== 'small-group' ? (programType === 'VIRTUAL' ? slotSet.virtual : slotSet.inPerson) : [];
 
       const displayName = `${row.first_name || ''} ${row.last_name || ''}`.trim();
       if (searchQ && !displayName.toLowerCase().includes(searchQ)) return null;
       if (filterSubject && !tutoringProfile.subjectAreas.map((s) => s.toLowerCase()).some((s) => s.includes(filterSubject))) return null;
 
       return {
-        acceptingNewClients: Boolean(profileData.acceptingNewClientsOverride) && tutoringProfile.acceptingNewStudents,
+        acceptingNewClients: Boolean(summary.nextAvailableAt) || (Boolean(profileData.acceptingNewClientsOverride) && tutoringProfile.acceptingNewStudents),
         onlineScheduling: row.online_enrolled !== 0,
         providerId: Number(row.id),
         id: Number(row.id),
@@ -1013,7 +1013,7 @@ export const listTutors = async (req, res, next) => {
           programType,
           weekStart,
           thisWeekCount: filteredThisWeek.length,
-          nextAvailableAt: tutoringProfile.acceptingNewStudents && req.query.learningFormat !== 'small-group' ? summary.nextAvailableAt || null : null,
+          nextAvailableAt: req.query.learningFormat !== 'small-group' ? summary.nextAvailableAt || null : null,
           bookedThroughDate: summary.bookedThroughYmd || null,
           slots: filteredThisWeek.map((s) => ({ ...s, bookingMode, programType }))
         }
@@ -1147,9 +1147,40 @@ export const listEvaluators = async (req, res, next) => {
 // GET /:agencySlug/providers/:providerId — profile + availability detail
 // ---------------------------------------------------------------------------
 
+export const joinProviderWaitlist = async (req,res,next) => {
+ try {
+  const agency=await requireAgencyBySlug(res,req.params.agencySlug,{directoryOnly:true});if(!agency)return;
+  const providerId=parseIntSafe(req.params.providerId),serviceType=normalizeServiceType(req.body?.serviceType);
+  const provider=(await listEnrolledProviders(agency.id,serviceType,{includeDirectory:true})).find(p=>Number(p.id)===providerId);
+  if(!provider)return res.status(404).json({error:{message:'Provider not found'}});
+  const profile=await ProviderPublicProfile.getForProvider({providerUserId:providerId});
+  const format=String(req.body?.format||'').toUpperCase();
+  const key={IN_PERSON:'officeAvailability',VIRTUAL:'virtualAvailability',SCHOOL:'schoolAvailability'}[format];
+  if(!key)return res.status(400).json({error:{message:'Choose in-person, virtual, or school-based support.'}});
+  if(profile?.details?.waitlistEnabled!==true && profile?.details?.[key]!=='waitlist')return res.status(409).json({error:{message:'This provider is not accepting waitlist requests for that format. Please inquire with our team.'}});
+  const {createPublicAgencySupportTicket}=await import('../services/publicAgencySupport.service.js');
+  const result=await createPublicAgencySupportTicket(agency.slug,{...req.body,category:'provider',message:`Please add me to the ${format.toLowerCase().replace('_','-')} ${serviceType} waitlist for ${provider.first_name} ${provider.last_name}.\n${String(req.body?.message||'').slice(0,2000)}`},req,{providerWaitlist:{providerId,serviceType,format,providerName:`${provider.first_name} ${provider.last_name}`}});
+  if(result.suppressed)return res.status(201).json({ok:true});
+  res.status(201).json({ok:true,ticketId:result.ticketId});
+ }catch(error){if(error.status)return res.status(error.status).json({error:{message:error.message}});next(error);}
+};
+
+export const getProviderScheduleSummary = async (req,res,next) => {
+ try {
+  const agency=await requireAgencyBySlug(res,req.params.agencySlug,{directoryOnly:true});if(!agency)return;
+  const providerId=parseIntSafe(req.params.providerId),serviceType=normalizeServiceType(req.query.serviceType);
+  const directory=await listEnrolledProviders(agency.id,serviceType,{includeDirectory:true});
+  const provider=directory.find(p=>Number(p.id)===providerId);
+  if(!provider)return res.status(404).json({error:{message:'Provider not found'}});
+  const {readPublicProviderSchedule}=await import('../services/publicProviderSchedule.service.js');
+  const schedule=await readPublicProviderSchedule(providerId,agency.id);
+  res.json({...schedule,onlineScheduling:Boolean(agency.public_availability_enabled)&&provider.online_enrolled!==0});
+ }catch(error){next(error);}
+};
+
 export const getProviderDetail = async (req, res, next) => {
   try {
-    const agency = await requireAgencyBySlug(res, req.params.agencySlug);
+    const agency = await requireAgencyBySlug(res, req.params.agencySlug,{directoryOnly:true});
     if (!agency) return;
 
     const providerId = parseIntSafe(req.params.providerId);
@@ -1160,10 +1191,10 @@ export const getProviderDetail = async (req, res, next) => {
     const listing = directory.find(p => Number(p.id)===providerId);
     if (!listing) return res.status(404).json({error:{message:'Provider not found'}});
     const savedTutoringProfile = serviceType === 'tutoring' ? await getTutoringProfile(providerId, agency.id) : null;
-    const onlineScheduling = listing.online_enrolled !== 0 && (serviceType !== 'tutoring' || Boolean(savedTutoringProfile));
+    const onlineScheduling = Boolean(agency.public_availability_enabled) && listing.online_enrolled !== 0 && (serviceType !== 'tutoring' || Boolean(savedTutoringProfile));
 
     const [userRows] = await pool.execute(
-      `SELECT id, first_name, last_name, role, profile_photo_path, service_focus, title,
+      `SELECT id, first_name, last_name, role, profile_photo_path, service_focus, title, credential,
               provider_accepting_new_clients, in_office_available
        FROM users
        WHERE id = ?
@@ -1205,14 +1236,13 @@ export const getProviderDetail = async (req, res, next) => {
       if(tutoringProfile){const catalog=await readLearningCatalog(agency.id);tutoringProfile.hourlyRates=Object.fromEntries(['virtual','in-person','small-group'].map(format=>[format,hourlyRate(catalog,tutoringProfile.learning,'tutoring',format)]));tutoringProfile.packages=catalog.packages.filter(p=>p.published&&tutoringProfile.learning.programs.includes(p.program)).map(p=>pricePackage(catalog,p,{tutoring:{profile:tutoringProfile.learning,providerId}}));}
     }
 
-    if (tutoringProfile?.acceptingNewStudents === false) filteredThisWeek = [];
 
     res.json({
       ok: true,
       serviceType,
       agency: { id: agency.id, slug: agency.slug, name: agency.name },
       provider: {
-        acceptingNewClients: Boolean(profileData.acceptingNewClientsOverride) && tutoringProfile?.acceptingNewStudents !== false,
+        acceptingNewClients: Boolean(summary.nextAvailableAt) || (Boolean(profileData.acceptingNewClientsOverride) && tutoringProfile?.acceptingNewStudents !== false),
         onlineScheduling,
         providerId,
         id: providerId,
@@ -1220,6 +1250,7 @@ export const getProviderDetail = async (req, res, next) => {
         lastName: user.last_name || '',
         displayName: `${user.first_name || ''} ${user.last_name || ''}`.trim(),
         title: user.title || null,
+        credential: user.credential || '',
         profilePhotoUrl: publicUploadsUrlFromStoredPath(user.profile_photo_path || null),
         serviceFocus: user.service_focus || null,
         ...(specialtyData || {}),
@@ -1239,7 +1270,7 @@ export const getProviderDetail = async (req, res, next) => {
         programType,
         weekStart,
         thisWeekCount: filteredThisWeek.length,
-        nextAvailableAt: tutoringProfile?.acceptingNewStudents === false ? null : summary.nextAvailableAt || null,
+        nextAvailableAt: summary.nextAvailableAt || null,
         slots: filteredThisWeek.map((s) => ({ ...s, bookingMode, programType }))
       }
     });
