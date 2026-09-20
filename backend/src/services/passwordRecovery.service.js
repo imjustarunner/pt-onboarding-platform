@@ -2,11 +2,10 @@
  * Password recovery (Forgot Password) — first principles
  *
  * Rules:
- * 1. Any non-archived user may request a reset/set-password link.
+ * 1. Any non-SSO user may request a reset/set-password link.
  * 2. Password state does not matter: never set, temporary (active or expired),
  *    or lasting password (active or expired).
- * 3. Archived users do not receive email; the attempt is logged as failed so
- *    ops can see “archived person tried to recover.”
+ * 3. Recovery changes credentials, not archived/inactive access restrictions.
  * 4. Always write a user_communications row (sent or failed) — never silent.
  * 5. Captcha is not part of this flow (public login / local often have none).
  * 6. Lookup accepts work/login email OR personal/recovery email (and aliases).
@@ -15,14 +14,16 @@
  */
 
 import pool from '../config/database.js';
+import { getPasswordRecoverySsoState } from './passwordRecoveryPolicy.service.js';
 import User from '../models/User.model.js';
 import Agency from '../models/Agency.model.js';
 import EmailTemplateService from './emailTemplate.service.js';
 import CommunicationLoggingService from './communicationLogging.service.js';
 import ActivityLogService from './activityLog.service.js';
 import { sendEmailFromIdentity } from './unifiedEmail/unifiedEmailSender.service.js';
-import { resolveSenderIdentityForSend } from './emailSenderIdentityResolver.service.js';
-import EmailService from './email.service.js';
+import EmailSenderIdentity from '../models/EmailSenderIdentity.model.js';
+import OrganizationAffiliation from '../models/OrganizationAffiliation.model.js';
+import AgencySchool from '../models/AgencySchool.model.js';
 import { userNeedsFirstPasswordSet } from '../utils/schoolStaffPasswordRecovery.js';
 import {
   looksLikeTestInboxRedirectAddress,
@@ -32,10 +33,6 @@ import {
 const RESET_HOURS = 48;
 const JUNK_NOTICE =
   'Important: this message often lands in Junk or Spam. Please check Junk, move it to Inbox if you find it there, and mark the sender as safe so you do not miss future messages from us.';
-
-const ITSCO_AGENCY_ID = Number(
-  process.env.SCHOOL_INTAKE_REVIEW_AGENCY_ID || process.env.ITSCO_AGENCY_ID || 2
-);
 
 function normalizeOrgSlug(value) {
   return String(value || '').trim().toLowerCase() || null;
@@ -104,12 +101,6 @@ export function pickRecipientEmail(user, requestedEmail = null) {
   return requested || null;
 }
 
-function isArchivedUser(user) {
-  if (!user) return false;
-  if (user.is_archived === true || user.is_archived === 1) return true;
-  return String(user.status || '').trim().toUpperCase() === 'ARCHIVED';
-}
-
 async function resolveAgencyFromOrgSlug(orgSlug) {
   const slug = normalizeOrgSlug(orgSlug);
   if (!slug) return null;
@@ -117,56 +108,26 @@ async function resolveAgencyFromOrgSlug(orgSlug) {
 }
 
 async function resolveContextAgency({ userId, orgSlug }) {
+  const agencies = await User.getAgencies(userId, { includeInactive: true });
   const fromSlug = await resolveAgencyFromOrgSlug(orgSlug);
-  if (fromSlug?.id) return fromSlug;
-  try {
-    const agencies = await User.getAgencies(userId);
-    return agencies?.[0] || null;
-  } catch {
-    return null;
+  const selected = agencies.find((a) => Number(a.id) === Number(fromSlug?.id)) || agencies[0];
+  if (!selected) throw new Error('No tenant is configured for this account');
+  if (['school', 'program', 'learning'].includes(String(selected.organization_type || '').toLowerCase())) {
+    const parentId = await OrganizationAffiliation.getActiveAgencyIdForOrganization(Number(selected.id)) ||
+      await AgencySchool.getActiveAgencyIdForSchool(Number(selected.id));
+    if (!parentId) throw new Error('No parent tenant is configured for this organization');
+    return await Agency.findById(parentId);
   }
+  return selected;
 }
 
-/**
- * Prefer Technology@ / login_recovery on ITSCO (or parent), then user agency.
- */
-async function resolveRecoverySender(agencyId, userId = null) {
-  const candidates = [];
-  const add = (id) => {
-    const n = Number(id || 0);
-    if (Number.isFinite(n) && n > 0 && !candidates.includes(n)) candidates.push(n);
-  };
-
-  add(ITSCO_AGENCY_ID);
-  add(agencyId);
-  if (agencyId) {
-    try {
-      const OrganizationAffiliation = (await import('../models/OrganizationAffiliation.model.js')).default;
-      add(await OrganizationAffiliation.getActiveAgencyIdForOrganization(Number(agencyId)));
-    } catch {
-      /* best effort */
-    }
-  }
-  if (userId) {
-    try {
-      const agencies = await User.getAgencies(userId);
-      for (const a of agencies || []) add(a?.id);
-    } catch {
-      /* best effort */
-    }
-  }
-
-  for (const aid of candidates) {
-    const resolved = await resolveSenderIdentityForSend({
-      agencyId: aid,
-      templateType: 'password_reset',
-      preferredKeys: ['technology', 'login_recovery', 'notifications']
-    });
-    if (resolved?.identity?.id) {
-      return { ...resolved, resolvedAgencyId: aid };
-    }
-  }
-  return { identity: null, usedFallback: true, resolution: 'none', resolvedAgencyId: agencyId || ITSCO_AGENCY_ID };
+async function resolveRecoverySender(agencyId) {
+  const identities = await EmailSenderIdentity.list({ agencyId, includePlatformDefaults: false, onlyActive: true });
+  const identity = identities.find((i) => Number(i.agency_id) === Number(agencyId) &&
+    /^app@[^@]+$/i.test(String(i.from_email || '').trim()));
+  if (!identity) throw new Error('Configure an app@ sender identity for this tenant');
+  const domain = identity.from_email.trim().split('@')[1].toLowerCase();
+  return { identity, replyTo: `technology@${domain}` };
 }
 
 async function markCommFailed(commId, message) {
@@ -177,39 +138,6 @@ async function markCommFailed(commId, message) {
       [String(message || 'not sent').slice(0, 500), commId]
     )
     .catch(() => {});
-}
-
-async function logDeniedArchived({ user, agencyId, to, requestedEmail, orgSlug, req }) {
-  ActivityLogService.logActivity(
-    {
-      actionType: 'password_reset_link_sent',
-      userId: user.id,
-      metadata: {
-        denied: true,
-        reason: 'archived',
-        email: requestedEmail,
-        role: user.role || null,
-        orgSlug: orgSlug || null
-      }
-    },
-    req
-  );
-
-  const comm = await CommunicationLoggingService.logGeneratedCommunication({
-    userId: user.id,
-    agencyId: agencyId || ITSCO_AGENCY_ID,
-    templateType: 'password_reset',
-    templateId: null,
-    subject: 'Password reset denied — archived account',
-    body: `Forgot-password requested for archived account ${requestedEmail}. No email sent.`,
-    generatedByUserId: null,
-    channel: 'email',
-    recipientAddress: to || requestedEmail,
-    metadata: { denied: true, reason: 'archived' }
-  }).catch(() => null);
-
-  await markCommFailed(comm?.id, 'Archived account — password reset email not sent');
-  return { outcome: 'archived', communicationId: comm?.id || null };
 }
 
 function loginReminderLines(loginEmail) {
@@ -227,7 +155,7 @@ function loginReminderLines(loginEmail) {
   };
 }
 
-async function buildMessage({ user, agency, orgSlug, token, loginEmail }) {
+async function buildMessage({ user, agency, orgSlug, token, loginEmail, expiresInHours = RESET_HOURS }) {
   const resetLink = EmailTemplateService.buildResetTokenLink(
     agency || { portal_url: orgSlug, slug: orgSlug },
     token
@@ -240,7 +168,7 @@ async function buildMessage({ user, agency, orgSlug, token, loginEmail }) {
       ? 'Use this link to set a password for your account so you can sign in.'
       : 'We received a request to reset your password.',
     '',
-    `${firstSet ? 'Set your password' : 'Reset your password'} using this link (expires in ${RESET_HOURS} hours):`,
+    `${firstSet ? 'Set your password' : 'Reset your password'} using this link (expires in ${expiresInHours} hours):`,
     resetLink,
     reminder.text,
     '',
@@ -252,7 +180,7 @@ async function buildMessage({ user, agency, orgSlug, token, loginEmail }) {
     `<p>${firstSet
       ? 'Use this link to set a password for your account so you can sign in.'
       : 'We received a request to reset your password.'}</p>`,
-    `<p><a href="${resetLink}">${firstSet ? 'Set your password' : 'Reset your password'}</a> (expires in ${RESET_HOURS} hours)</p>`,
+    `<p><a href="${resetLink}">${firstSet ? 'Set your password' : 'Reset your password'}</a> (expires in ${expiresInHours} hours)</p>`,
     reminder.html,
     `<p><strong>${JUNK_NOTICE}</strong></p>`,
     '<p>If you did not request this, you can ignore this email.</p>'
@@ -278,11 +206,12 @@ async function buildMessage({ user, agency, orgSlug, token, loginEmail }) {
       if (loginEmail && !String(body).toLowerCase().includes(String(loginEmail).toLowerCase())) {
         body = `${body}\n\nYour login email / username is: ${loginEmail}`;
       }
+      if (!String(body).includes(resetLink)) body = `${body}\n\n${firstSet ? 'Set' : 'Reset'} your password: ${resetLink}`;
       if (!String(body).includes('Junk')) body = `${body}\n\n${JUNK_NOTICE}`;
       html = `<pre style="font-family:inherit;white-space:pre-wrap;">${String(body)
         .replace(/&/g, '&amp;')
         .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')}</pre>`;
+        .replace(/>/g, '&gt;')}</pre><p><a href="${resetLink}">${firstSet ? 'Set' : 'Reset'} your password</a></p>`;
     }
   } catch {
     /* keep defaults */
@@ -301,45 +230,23 @@ async function sendResetEmail({
   userId,
   existingCommunicationId
 }) {
-  const resolved = await resolveRecoverySender(agencyId, userId);
-  if (resolved?.identity?.id) {
-    return sendEmailFromIdentity({
-      senderIdentityId: resolved.identity.id,
-      to,
-      subject,
-      text,
-      html,
-      source: 'manual',
-      agencyId: logAgencyId || resolved.resolvedAgencyId || agencyId,
-      userId,
-      existingCommunicationId,
-      templateType: 'password_reset',
-      usedFallbackSender: false
-    });
-  }
-
-  return EmailService.sendEmail({
-    to,
-    subject,
-    text,
-    html,
-    fromName: process.env.GOOGLE_WORKSPACE_FROM_NAME || null,
-    fromAddress:
-      process.env.GOOGLE_WORKSPACE_FROM_ADDRESS || process.env.GOOGLE_WORKSPACE_DEFAULT_FROM || null,
-    replyTo: process.env.GOOGLE_WORKSPACE_REPLY_TO || null,
+  const { identity, replyTo } = await resolveRecoverySender(agencyId);
+  return sendEmailFromIdentity({
+    senderIdentityId: identity.id,
+    to, subject, text, html,
+    replyToOverride: replyTo,
     source: 'manual',
-    agencyId: logAgencyId || agencyId || ITSCO_AGENCY_ID,
     userId,
     existingCommunicationId,
     templateType: 'password_reset',
-    usedFallbackSender: !(await shouldRedirectHogwartsOutboundEmail(to))
+    usedFallbackSender: false
   });
 }
 
 /**
  * @returns {{
  *   ok: true,
- *   outcome: 'sent'|'failed'|'archived'|'unknown_user'|'no_recipient',
+ *   outcome: 'sent'|'failed'|'sso_required'|'unknown_user'|'no_recipient',
  *   communicationId?: number|null,
  *   resetLink?: string|null,
  *   sendResult?: object|null,
@@ -351,49 +258,44 @@ export async function requestPasswordRecoveryEmail({
   email,
   organizationSlug = null,
   req = null,
-  includeDebug = false
+  includeDebug = false,
+  targetUser = null,
+  existingTokenResult = null,
+  generatedByUserId = null
 } = {}) {
   const requestedEmail = String(email || '').trim().toLowerCase();
   const orgSlug = normalizeOrgSlug(organizationSlug);
 
-  if (!requestedEmail) {
+  if (!requestedEmail && !targetUser?.id) {
     return { ok: true, outcome: 'unknown_user' };
   }
 
-  const found = await User.findByEmail(requestedEmail).catch(() => null);
+  const found = targetUser || await User.findByEmail(requestedEmail);
   if (!found?.id) {
     return { ok: true, outcome: 'unknown_user' };
   }
 
-  const user = (await User.findById(found.id).catch(() => null)) || found;
+  const user = targetUser || (await User.findById(found.id)) || found;
+  if ((await getPasswordRecoverySsoState(user)).ssoRequired) {
+    return { ok: true, outcome: 'sso_required' };
+  }
   const agency = await resolveContextAgency({ userId: user.id, orgSlug });
   const loginEmail = resolveLoginEmail(user);
   const to = pickRecipientEmail(user, requestedEmail);
-  // Attribute Automations row to ITSCO when possible so tenant ops always see it.
-  const logAgencyId = ITSCO_AGENCY_ID || agency?.id || null;
-
-  if (isArchivedUser(user)) {
-    const denied = await logDeniedArchived({
-      user,
-      agencyId: logAgencyId,
-      to,
-      requestedEmail,
-      orgSlug,
-      req
-    });
-    return { ok: true, ...denied };
-  }
+  // Sender, branding, and communication history belong to the account tenant.
+  const logAgencyId = agency.id;
 
   if (!to) {
     return { ok: true, outcome: 'no_recipient' };
   }
 
-  const tokenResult = await User.generatePasswordlessToken(user.id, RESET_HOURS, 'reset');
+  const tokenResult = existingTokenResult || await User.generatePasswordlessToken(user.id, RESET_HOURS, 'reset');
   const { subject, body, html, resetLink, firstSet } = await buildMessage({
     user,
     agency,
     orgSlug,
     token: tokenResult.token,
+    expiresInHours: tokenResult.expiresInHours || RESET_HOURS,
     loginEmail
   });
 
@@ -410,7 +312,7 @@ export async function requestPasswordRecoveryEmail({
       templateId: null,
       subject,
       body,
-      generatedByUserId: null,
+      generatedByUserId,
       channel: 'email',
       recipientAddress: to,
       metadata: {
@@ -451,7 +353,7 @@ export async function requestPasswordRecoveryEmail({
     };
   }
 
-  if (sendResult?.skipped || sendResult?.blocked || sendResult?.queued) {
+  if (!sendResult?.id || sendResult?.skipped || sendResult?.blocked || sendResult?.queued) {
     const errMsg =
       (Array.isArray(sendResult.qualityFlags)
         ? sendResult.qualityFlags.map((f) => f.message || f.code).join('; ')
@@ -472,7 +374,6 @@ export async function requestPasswordRecoveryEmail({
 
   if (comm?.id && sendResult?.id) {
     await CommunicationLoggingService.markAsSent(comm.id, sendResult.id, {
-      fromEmail: process.env.GOOGLE_WORKSPACE_FROM_ADDRESS || null,
       ...(isDemoRedirect
         ? {
             testInboxRedirect: true,
@@ -489,6 +390,7 @@ export async function requestPasswordRecoveryEmail({
       actionType: 'password_reset_link_sent',
       userId: user.id,
       metadata: {
+        performedByUserId: generatedByUserId,
         email: to,
         loginEmail: loginEmail || null,
         requestedEmail,

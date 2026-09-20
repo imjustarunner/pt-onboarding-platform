@@ -729,15 +729,15 @@
               </div>
 
               <template v-else>
-                <!-- Reset Password Link (expires) - only for non-pending users; pending users use Direct Login Link in Account Info -->
-                <div v-if="!isPendingForReset" class="acct-ws-panel reset-password-section">
+                <!-- Set/reset password is available at every account setup stage for non-SSO users. -->
+                <div class="acct-ws-panel reset-password-section">
                   <div class="acct-ws-panel-head">
                     <span class="acct-ws-panel-ico" aria-hidden="true">
                       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="8" cy="15" r="4"/><path d="M10.5 12.5L21 2m-4 0l4 4M15 6l2 2" stroke-linecap="round" stroke-linejoin="round"/></svg>
                     </span>
-                    <h4>Password Reset Link</h4>
+                    <h4>Set / Reset Password</h4>
                   </div>
-                  <p>Generate a reset link (expires). The user will set a new password and continue.</p>
+                  <p>Email a link to set or reset this user’s password. When a personal recovery email is on file, the link is sent there.</p>
                   <!-- Current reset link state (when we have a reset token from getAccountInfo) -->
                   <div v-if="accountInfo.passwordlessTokenPurpose === 'reset' && accountInfo.passwordlessLoginLink" class="passwordless-link-section" style="margin-top: 12px; padding: 16px; background: var(--bg-alt); border-radius: 8px; border: 1px solid var(--border);">
                     <div v-if="accountInfo.passwordlessTokenExpiresAt" style="margin-bottom: 12px; padding: 10px; background: var(--bg); border-radius: 6px; border: 1px solid var(--border);">
@@ -785,7 +785,7 @@
                       class="btn btn-primary btn-sm"
                       :disabled="generatingResetLink"
                     >
-                      {{ generatingResetLink ? 'Generating...' : 'Send Reset Password Link' }}
+                      {{ generatingResetLink ? 'Sending...' : 'Send Set / Reset Password Email' }}
                     </button>
                     <button
                       v-if="accountInfo.passwordlessTokenPurpose === 'reset' && accountInfo.passwordlessLoginLink && !accountInfo.passwordlessTokenIsExpired"
@@ -7349,6 +7349,7 @@ const generateResetPasswordLink = async (forceNew = false) => {
   try {
     generatingResetLink.value = true;
     const response = await api.post(`/users/${userId.value}/send-reset-password-link`, {
+      sendEmail: true,
       forceNew: !!forceNew
     });
     resetPasswordLink.value = response.data.tokenLink || '';
@@ -7356,6 +7357,7 @@ const generateResetPasswordLink = async (forceNew = false) => {
     resetLinkExpiresInHours.value = response.data.expiresInHours ?? null;
     resetLinkReused.value = !!response.data.reused;
     showResetPasswordLinkModal.value = true;
+    alert('Set / reset password email sent.');
     await fetchAccountInfo();
   } catch (err) {
     error.value = err.response?.data?.error?.message || 'Failed to generate reset password link';
@@ -7444,10 +7446,7 @@ const targetHasLoggedIn = computed(() => accountInfo.value?.hasLoggedIn === true
 // - If Google SSO is required for this user => turn this area off
 const canUsePasswordResetActions = computed(() => !ssoRequiredForTarget.value);
 const canUseTempPassword = computed(() => isTargetActive.value && !targetHasLoggedIn.value && !ssoRequiredForTarget.value);
-const isPendingForReset = computed(() => {
-  const s = String(user.value?.status || '').toLowerCase();
-  return s === 'pending' || s === 'pending_setup';
-});
+
 
 const formatDate = (dateString) => {
   if (!dateString) return '';

@@ -1,3 +1,4 @@
+import { getPasswordRecoverySsoState, passwordResetRequiresSignIn } from '../services/passwordRecoveryPolicy.service.js';
 import { accountPasswordLocked, recordPasswordResult } from '../middleware/loginProtection.middleware.js';
 import bcrypt from 'bcrypt';
 import { changeSessionSecurity, loadSessionPolicy, finalizeExpiredSession } from '../services/sessionSecurity.service.js';
@@ -2559,7 +2560,13 @@ export const validateResetToken = async (req, res, next) => {
       return res.status(401).json({ error: { message: 'Invalid or expired reset link' } });
     }
 
-    if (user.passwordless_token_purpose !== 'reset') {
+    const recoveryUser = await User.findById(user.id);
+    if (!recoveryUser) return res.status(401).json({ error: { message: 'Invalid or expired reset link' } });
+    if ((await getPasswordRecoverySsoState(recoveryUser)).ssoRequired) {
+      return res.status(409).json({ error: { message: 'Password reset is disabled for SSO accounts. Use Google sign-in.' } });
+    }
+
+    if (!isPasswordResetTokenPurpose(user.passwordless_token_purpose)) {
       return res.status(400).json({ error: { message: 'This link is not a password reset link' } });
     }
 
@@ -3251,6 +3258,12 @@ export const resetPasswordWithToken = async (req, res, next) => {
       return res.status(401).json({ error: { message: 'Invalid or expired reset link' } });
     }
 
+    const recoveryUser = await User.findById(user.id);
+    if (!recoveryUser) return res.status(401).json({ error: { message: 'Invalid or expired reset link' } });
+    if ((await getPasswordRecoverySsoState(recoveryUser)).ssoRequired) {
+      return res.status(409).json({ error: { message: 'Password reset is disabled for SSO accounts. Use Google sign-in.' } });
+    }
+
     // Accept purpose 'reset'. Also allow null/undefined when the purpose column is missing
     // (older DBs) so Forgot Password still works. Reject explicit 'setup' tokens here.
     if (!isPasswordResetTokenPurpose(user.passwordless_token_purpose)) {
@@ -3323,6 +3336,11 @@ export const resetPasswordWithToken = async (req, res, next) => {
 
     // Set new password (overwrites old password hash and clears temporary password)
     await User.changePassword(user.id, password);
+
+    if (passwordResetRequiresSignIn(recoveryUser)) {
+      await User.markTokenAsUsed(user.id);
+      return res.json({ requiresSignIn: true, message: 'Your password has been reset. Existing account access restrictions still apply.' });
+    }
 
     // School staff / guardians: leave PENDING_SETUP (or accidental PREHIRE) and become active
     let updatedUser = await activateExternalPortalUserAfterPasswordSet(user);

@@ -18,10 +18,16 @@
           <router-link :to="loginTo" class="btn btn-primary">Go to Login</router-link>
         </div>
 
+        <div v-else-if="successMessage">
+          <h2>Password saved</h2>
+          <p>{{ successMessage }}</p>
+          <router-link :to="loginTo" class="btn btn-primary">Go to Login</router-link>
+        </div>
+
         <div v-else class="reset-form">
           <h2 v-if="firstName">Hi {{ firstName }},</h2>
           <h2 v-else>Set your password</h2>
-          <p class="subtitle">Choose a new password. You will be signed in automatically after you save it.</p>
+          <p class="subtitle">Choose a new password for your account.</p>
 
           <form @submit.prevent="handleReset" autocomplete="on">
             <div v-if="needsJobTitle" class="form-group">
@@ -111,6 +117,8 @@ import PasswordStrengthMeter from '../components/PasswordStrengthMeter.vue';
 import { checkPasswordBasics } from '../utils/passwordPolicy.js';
 import PasswordRecoveryBrand from '../components/PasswordRecoveryBrand.vue';
 import { completePasswordTokenLogin } from '../utils/completePasswordTokenLogin.js';
+
+const successMessage = ref('');
 
 const router = useRouter();
 const route = useRoute();
@@ -208,6 +216,10 @@ const handleReset = async () => {
       payload.jobTitle = String(jobTitle.value || '').trim();
     }
     const resp = await api.post(`/auth/reset-password/${encodeURIComponent(token.value)}`, payload);
+    if (resp.data.requiresSignIn) {
+      successMessage.value = resp.data.message;
+      return;
+    }
     await completePasswordTokenLogin(resp.data, router);
   } catch (err) {
     formError.value = err.response?.data?.error?.message || err.message || 'Failed to reset password.';

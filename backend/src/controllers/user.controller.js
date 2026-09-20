@@ -1,3 +1,4 @@
+import { getPasswordRecoverySsoState } from '../services/passwordRecoveryPolicy.service.js';
 import { tenantMeetingBase } from '../utils/tenantMeetingUrl.js';
 import User from '../models/User.model.js';
 import UserAccount from '../models/UserAccount.model.js';
@@ -162,39 +163,7 @@ const parseFeatureFlags = (rawFlags) => {
 
 const isSsoPasswordOverrideEnabled = (user) => normalizeBoolFlag(user?.sso_password_override);
 
-const getSsoStateForUser = async (user) => {
-  const ssoPasswordOverride = isSsoPasswordOverrideEnabled(user);
-  let ssoEnabled = false;
-  let ssoPolicyRequired = false;
-
-  try {
-    const orgs = await User.getAgencies(user?.id);
-    for (const org of (orgs || [])) {
-      const flags = parseFeatureFlags(org?.feature_flags ?? null);
-      if (flags?.googleSsoEnabled === true) ssoEnabled = true;
-
-      const requiredRoles = Array.isArray(flags?.googleSsoRequiredRoles)
-        ? flags.googleSsoRequiredRoles.map((r) => String(r || '').toLowerCase()).filter(Boolean)
-        : [];
-      const userRole = String(user?.role || '').toLowerCase();
-      const orgRequires = flags?.googleSsoEnabled === true && requiredRoles.includes(userRole) && !SSO_EXCLUDED_ROLES.has(userRole);
-      if (orgRequires) {
-        ssoPolicyRequired = true;
-        // No need to continue; effective requirement is true (unless override).
-        break;
-      }
-    }
-  } catch {
-    // best-effort
-  }
-
-  return {
-    ssoEnabled,
-    ssoPolicyRequired,
-    ssoPasswordOverride,
-    ssoRequired: ssoPolicyRequired && !ssoPasswordOverride
-  };
-};
+const getSsoStateForUser = getPasswordRecoverySsoState;
 
 async function requireSharedAgencyAccessOrSuperAdmin({ actorUserId, targetUserId, actorRole }) {
   const r = String(actorRole || '').toLowerCase();
@@ -9786,40 +9755,12 @@ export const sendResetPasswordLink = async (req, res, next) => {
       return res.status(403).json({ error: { message: 'Access denied' } });
     }
 
-    // Do not overwrite setup/invite links: pending users use the setup link flow, not reset
-    // — except demo/fake emails that redirect to testing@itsco.health (training providers).
-    const statusLower = String(user.status || '').toLowerCase();
-    const primaryEmail = [user.email, user.username, user.work_email, user.personal_email]
-      .filter(Boolean)
-      .map((e) => String(e).trim().toLowerCase())
-      .find((e) => e.includes('@'));
-    const { looksLikeTestInboxRedirectAddress, shouldRedirectHogwartsOutboundEmail } = await import(
-      '../utils/hogwartsTestEmail.js'
-    );
-    const isTestInboxUser =
-      looksLikeTestInboxRedirectAddress(primaryEmail) ||
-      (await shouldRedirectHogwartsOutboundEmail(primaryEmail).catch(() => false));
-    if ((statusLower === 'pending' || statusLower === 'pending_setup') && !isTestInboxUser) {
-      return res.status(400).json({
-        error: {
-          message: 'Use the Direct Login Link (setup link) for pending users. Password reset links are for users who already have an account.'
-        }
-      });
-    }
+    if (!await requireSharedAgencyAccessOrSuperAdmin({
+      actorUserId: req.user.id, targetUserId: userId, actorRole: req.user.role
+    })) return res.status(403).json({ error: { message: 'Access denied' } });
 
-    // If Workspace login is required for this user, reset links are blocked unless admin override is enabled.
-    // Demo/fake providers that redirect to the testing inbox keep password reset for QA.
-    try {
-      const ssoState = await getSsoStateForUser(user);
-      if (ssoState.ssoRequired && !isTestInboxUser) {
-        return res.status(409).json({
-          error: {
-            message: 'Password reset is disabled by Workspace policy for this user. Enable admin password override first if an exception is required.'
-          }
-        });
-      }
-    } catch {
-      // Best-effort: do not block on org lookup failure.
+    if ((await getSsoStateForUser(user)).ssoRequired) {
+      return res.status(409).json({ error: { message: 'Password reset is disabled for SSO accounts. Use Google sign-in.' } });
     }
 
     const userAgencies = await User.getAgencies(userId);
@@ -9873,127 +9814,19 @@ export const sendResetPasswordLink = async (req, res, next) => {
 
     let emailSent = false;
     if (sendEmail) {
-      const Agency = (await import('../models/Agency.model.js')).default;
-      const EmailTemplateService = (await import('../services/emailTemplate.service.js')).default;
-      const CommunicationLoggingService = (await import('../services/communicationLogging.service.js')).default;
-      const { sendEmailFromIdentity } = await import('../services/unifiedEmail/unifiedEmailSender.service.js');
-      const { resolveSenderIdentityForSend } = await import('../services/emailSenderIdentityResolver.service.js');
-      const EmailService = (await import('../services/email.service.js')).default;
-
-      const agencyId = userAgencies?.[0]?.id || null;
-      const agency = agencyId ? await Agency.findById(agencyId) : null;
-      const to = [user.email, user.username, user.work_email, user.personal_email]
-        .filter(Boolean)
-        .map((e) => String(e).trim().toLowerCase())
-        .find((e) => e.includes('@'));
-      if (to) {
-        let subject = 'Reset your password';
-        const junkNotice = 'Important: this message often lands in Junk or Spam. Please check Junk, move it to Inbox if you find it there, and mark the sender as safe so you do not miss future messages from us.';
-        let body = `Reset your password using this link (expires in ${tokenResult.expiresInHours} hours):\n${resetLink}\n\n${junkNotice}\n\nIf you did not request this, you can ignore this email.`;
-        try {
-          const template =
-            (await EmailTemplateService.getTemplateForAgency(agencyId, 'admin_initiated_password_reset')) ||
-            (await EmailTemplateService.getTemplateForAgency(agencyId, 'password_reset'));
-          if (template?.body) {
-            const params = await EmailTemplateService.collectParameters(user, agency, {
-              passwordlessToken: tokenResult.token,
-              senderName: req.user.first_name || req.user.email || 'Admin',
-              keepPortalLoginLink: true
-            });
-            const rendered = EmailTemplateService.renderTemplate(template, params);
-            subject = rendered.subject || subject;
-            body = rendered.body || body;
-            if (!String(body).includes('Junk')) {
-              body = `${body}\n\n${junkNotice}`;
-            }
-          }
-        } catch {
-          // keep default subject/body
-        }
-        let comm = null;
-        try {
-          comm = await CommunicationLoggingService.logGeneratedCommunication({
-            userId: user.id,
-            agencyId,
-            templateType: 'admin_initiated_password_reset',
-            templateId: null,
-            subject,
-            body,
-            generatedByUserId: req.user.id,
-            channel: 'email',
-            recipientAddress: to
-          });
-        } catch {
-          comm = null;
-        }
-        try {
-          const resolved = await resolveSenderIdentityForSend({
-            agencyId,
-            templateType: 'admin_initiated_password_reset',
-            preferredKeys: ['technology', 'login_recovery', 'notifications']
-          });
-          const sendResult = resolved?.identity?.id
-            ? await sendEmailFromIdentity({
-                senderIdentityId: resolved.identity.id,
-                to,
-                subject,
-                text: body,
-                html: null,
-                source: 'auto',
-                userId: user.id,
-                existingCommunicationId: comm?.id || null,
-                templateType: 'admin_initiated_password_reset',
-                usedFallbackSender: false
-              })
-            : await EmailService.sendEmail({
-                to,
-                subject,
-                text: body,
-                html: null,
-                fromName: process.env.GOOGLE_WORKSPACE_FROM_NAME || null,
-                fromAddress: process.env.GOOGLE_WORKSPACE_FROM_ADDRESS || process.env.GOOGLE_WORKSPACE_DEFAULT_FROM || null,
-                replyTo: process.env.GOOGLE_WORKSPACE_REPLY_TO || null,
-                source: 'auto',
-                agencyId: agencyId || null,
-                userId: user.id,
-                existingCommunicationId: comm?.id || null,
-                templateType: 'admin_initiated_password_reset',
-                usedFallbackSender: !isTestInboxUser
-              });
-          if (comm?.id && (sendResult?.skipped || sendResult?.blocked || sendResult?.queued)) {
-            const { default: pool } = await import('../config/database.js');
-            const status = sendResult.skipped ? 'skipped' : sendResult.blocked ? 'failed' : 'pending';
-            const errMsg = String(
-              sendResult.reason ||
-                (Array.isArray(sendResult.qualityFlags)
-                  ? sendResult.qualityFlags.map((f) => f.message || f.code).join('; ')
-                  : '') ||
-                (sendResult.queued ? 'pending approval' : 'not sent')
-            ).slice(0, 500);
-            await pool
-              .execute(
-                `UPDATE user_communications SET delivery_status = ?, error_message = COALESCE(?, error_message) WHERE id = ?`,
-                [status, errMsg || null, comm.id]
-              )
-              .catch(() => {});
-          } else if (comm?.id && sendResult?.id) {
-            await CommunicationLoggingService.markAsSent(comm.id, sendResult.id, {
-              fromEmail: process.env.GOOGLE_WORKSPACE_FROM_ADDRESS || null
-            }).catch(() => {});
-          }
-          emailSent = !!(sendResult?.id || sendResult?.queued);
-        } catch (err) {
-          console.error('[sendResetPasswordLink] Failed to send email:', err);
-          if (comm?.id) {
-            const { default: pool } = await import('../config/database.js');
-            await pool
-              .execute(
-                `UPDATE user_communications SET delivery_status = 'failed', error_message = ? WHERE id = ?`,
-                [String(err?.message || 'send failed').slice(0, 500), comm.id]
-              )
-              .catch(() => {});
-          }
-        }
+      const { requestPasswordRecoveryEmail } = await import('../services/passwordRecovery.service.js');
+      const result = await requestPasswordRecoveryEmail({
+        email: user.email || user.username,
+        targetUser: user,
+        existingTokenResult: tokenResult,
+        generatedByUserId: req.user.id,
+        req
+      });
+      emailSent = result.outcome === 'sent';
+      if (!emailSent) {
+        return res.status(result.outcome === 'sso_required' ? 409 : 502).json({
+          error: { message: 'The password email was not sent. Please try again or check email delivery settings.' }
+        });
       }
     }
 

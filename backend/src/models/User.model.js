@@ -2908,7 +2908,7 @@ class User {
     }
     
     // Check if pending access is locked (only if column exists)
-    if (user.status === 'pending' && user.pending_access_locked) {
+    if (user.status === 'pending' && user.pending_access_locked && user.passwordless_token_purpose !== 'reset') {
       console.log('[validatePasswordlessToken] Pending access is locked');
       return null; // Access locked
     }
