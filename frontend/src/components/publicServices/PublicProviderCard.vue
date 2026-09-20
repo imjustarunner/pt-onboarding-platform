@@ -19,6 +19,7 @@
         </div>
         <p v-if="provider.ageGroups?.length" class="card-detail">{{ provider.ageGroups.join(' · ') }}</p>
         <p v-if="provider.profile?.insurancesAccepted?.length" class="card-detail">{{ provider.profile.insurancesAccepted.join(' · ') }}</p>
+<div class="card-office-buttons"><button v-for="office in provider.officeLocations||[]" :key="office.id" type="button" class="btn-outline" @click="$emit('office-selected',String(office.id))">⌖ {{office.name}}</button></div>
         <div class="card-location-row">
           <span v-if="hasInPerson" class="loc-dot loc-dot--inperson" title="In-Person" />
           <span v-if="hasVirtual" class="loc-dot loc-dot--virtual" title="Virtual" />
@@ -84,7 +85,7 @@ const props = defineProps({
   isFastest: { type: Boolean, default: false }
 });
 
-const emit = defineEmits(['book', 'view-profile']);
+const emit = defineEmits(['book', 'view-profile', 'office-selected']);
 
 const slots = computed(() => props.provider.availability?.slots || []);
 const hasSlots = computed(() => slots.value.length > 0);
@@ -157,6 +158,8 @@ function bookFirst() {
 </script>
 
 <style scoped>
+.card-office-buttons{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}.card-office-buttons button{font-size:12px;padding:8px}
+
 .provider-card {
   /* Inherits agency CSS vars from :root */
   --pc-p: var(--agency-primary-color, #1e3a5f);

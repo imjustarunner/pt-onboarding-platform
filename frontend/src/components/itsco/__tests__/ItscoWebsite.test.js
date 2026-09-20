@@ -5,7 +5,7 @@ import Schools from '../ItscoSchoolPartners.vue';
 import Support from '../ItscoSupportForm.vue';
 import api from '../../../services/api';
 const route=vi.hoisted(()=>({query:{}}));
-vi.mock('vue-router',()=>({useRoute:()=>route}));
+vi.mock('vue-router',()=>({useRoute:()=>route,useRouter:()=>({replace:vi.fn()})}));
 vi.mock('../../../services/api',()=>({default:{get:vi.fn(),post:vi.fn()}}));
 vi.mock('../../../store/auth',()=>({useAuthStore:()=>({user:null})}));
 const global={stubs:{RouterLink:{props:['to'],template:'<a :data-to="JSON.stringify(to)"><slot/></a>'}}};
@@ -14,6 +14,17 @@ const provider=(id,name,extra={})=>({id,displayName:name,firstName:name,lastName
 const providers=[provider(1,'First',{schools:[school],schoolOpenings:true,acceptingNewClients:false}),provider(2,'Second',{office:true,onlineScheduling:true})];
 beforeEach(()=>{route.query={};vi.clearAllMocks();api.get.mockResolvedValue({data:{categories:[{id:'provider',label:'Finding a provider'}],recaptchaRequired:false}});});
 describe('ITSCO directory and real support',()=>{
+ it('requires an assigned office for in-person search and keeps closed providers visible there',async()=>{
+  const offices=[{id:11,name:'Colorado Springs',address:'Springs address'},{id:12,name:'Denver',address:'Denver address'}];
+  const rows=[provider(1,'Springs Provider',{office:true,officeLocations:[offices[0]]}),provider(2,'Denver Provider',{office:true,acceptingNewClients:false,officeLocations:[offices[1]]}),provider(3,'Both Offices',{office:true,officeLocations:offices}),provider(4,'Unassigned',{office:true,details:{locations:['Denver']}})];
+  const w=mount(Directory,{props:{providers:rows,agencyId:1},global});
+  await w.findAll('.its-provider-modes button').find(b=>b.text()==='In-office providers').trigger('click');
+  expect(w.text()).toContain('Choose a location');expect(w.findAll('.its-provider-card')).toHaveLength(0);
+  await w.findAll('.office-buttons button').find(b=>b.text().includes('Denver')).trigger('click');
+  expect(w.findAll('.its-provider-card').map(c=>c.find('h3').text())).toEqual(['Both Offices, LPC','Denver Provider, LPC']);
+  expect(w.findAll('.its-card-actions a')[0].attributes('data-to')).toContain('"officeId":"12"');
+  await w.findAll('.its-provider-modes button').find(b=>b.text()==='All providers').trigger('click');expect(w.findAll('.its-provider-card')).toHaveLength(4);w.unmount();
+ });
  it('published school and office openings override stale global closure',async()=>{
   const rows=[providers[0],provider(2,'Second',{office:true,onlineScheduling:true,acceptingNewClients:false,officeAcceptance:{status:'accepting'}})];
   const w=mount(Directory,{props:{providers:rows,schools:[school],agencyId:1,availability:{2:{nextAvailableAt:'2027-01-01T16:00:00Z',hasPublishedOpenings:true,inPerson:{hasPublishedOpenings:true,nextAvailableAt:'2027-01-01T16:00:00Z'}}}},global});

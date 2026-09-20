@@ -6,6 +6,8 @@
       <label>Session format<select v-model="format" @change="load"><option value="IN_PERSON">In person</option><option value="VIRTUAL">Telehealth</option></select></label>
       <label>Week of<input v-model="week" type="date" :min="today" @change="load" /></label>
     </div>
+    <PublicOfficeLocations v-if="format==='IN_PERSON' && officeLocations.length" v-model="selectedOffice" :offices="officeLocations" title="Appointment location"/>
+    <p v-if="needsOffice" role="status">Choose an office location to see appointment times.</p>
     <p class="opening-timezone">Times shown in {{ timezone }}.</p>
     <p v-if="loading" role="status">Checking current openings…</p>
     <p v-if="error" role="alert">{{ error }} <button type="button" @click="load">Try again</button></p>
@@ -17,18 +19,21 @@
     </div>
     <div v-if="!loading" class="opening-days">
       <div v-for="[day, times] in days" :key="day" class="opening-day"><h3>{{ day }}</h3>
-        <button v-for="slot in times" :key="`${slot.startAt}-${slot.endAt}`" type="button" :disabled="busy || active" @click="select(slot)">{{ time(slot.startAt) }}</button>
+        <button v-for="slot in times" :key="`${slot.startAt}-${slot.endAt}`" type="button" :disabled="busy || active" @click="select(slot)">{{ time(slot.startAt) }}<small v-if="slot.buildingName"> · {{slot.buildingName}}</small></button>
       </div>
     </div>
-    <p v-if="!loading && !error && !days.length && !active">No published openings for this week and format. Try another week or continue with a provider preference.</p>
+    <p v-if="!loading && !error && !days.length && !active && !needsOffice">No published openings for this week and format. Try another week or continue with a provider preference.</p>
   </section>
 </template>
 <script setup>
 import { computed, onUnmounted, ref, watch } from 'vue';
 import api from '../../services/api';
-const props = defineProps({ agencySlug: { type: String, required: true }, providerId: { type: Number, required: true }, serviceType: { type: String, default: 'counseling' } });
+import PublicOfficeLocations from './PublicOfficeLocations.vue';
+const props = defineProps({ agencySlug: { type: String, required: true }, providerId: { type: Number, required: true }, serviceType: { type: String, default: 'counseling' }, officeId:{type:[String,Number],default:''},officeLocations:{type:Array,default:()=>[]} });
 const emit = defineEmits(['hold']);
 const today = new Date().toLocaleDateString('en-CA');
+const selectedOffice=ref(String(props.officeId||''));
+const needsOffice=computed(()=>format.value==='IN_PERSON'&&props.officeLocations.length>0&&!props.officeLocations.some(o=>String(o.id)===selectedOffice.value));
 const week = ref(today), format = ref('IN_PERSON'), loading = ref(false), busy = ref(false), error = ref(''), slots = ref([]), hold = ref(null), clock = ref(Date.now());
 const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
 const active = computed(() => !!hold.value && !hold.value.resolved && (!hold.value.expiresAt || +new Date(hold.value.expiresAt) > clock.value));
@@ -36,7 +41,8 @@ const key = computed(() => `provider-hold:${props.agencySlug}`);
 const base = computed(() => `/public/agency-services/${encodeURIComponent(props.agencySlug)}`);
 const days = computed(() => {
   const groups = new Map();
-  for (const slot of slots.value.filter(s => +new Date(s.startAt) > clock.value)) {
+  if(needsOffice.value)return [];
+  for (const slot of slots.value.filter(s => +new Date(s.startAt) > clock.value && (format.value!=='IN_PERSON'||!selectedOffice.value||String(s.buildingId)===selectedOffice.value))) {
     const day = new Date(slot.startAt).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
     if (!groups.has(day)) groups.set(day, []);
     groups.get(day).push(slot);
@@ -46,11 +52,13 @@ const days = computed(() => {
 const time = value => new Date(value).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
 const weeklyTime = value => new Intl.DateTimeFormat(undefined, { weekday: 'long', hour: 'numeric', minute: '2-digit', timeZone: value.timeZone || timezone }).format(new Date(value.startAt));
 const dateTime = value => new Date(value).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+watch(()=>props.officeId,id=>{selectedOffice.value=String(id||'');});
+watch(selectedOffice,()=>{load();});
 let generation = 0;
 async function load() {
   const id = ++generation; loading.value = true; error.value = ''; slots.value = [];
   try {
-    const { data } = await api.get(`${base.value}/providers/${props.providerId}/slots`, { params: { serviceType: props.serviceType, programType: format.value, weekStart: week.value, bookingMode: 'NEW_CLIENT' }, skipAuthRedirect: true });
+    const { data } = await api.get(`${base.value}/providers/${props.providerId}/slots`, { params: { serviceType: props.serviceType, programType: format.value, weekStart: week.value, bookingMode: 'NEW_CLIENT',officeId:format.value==='IN_PERSON'?selectedOffice.value||undefined:undefined }, skipAuthRedirect: true });
     if (id === generation) slots.value = data.slots || [];
   } catch (e) { if (id === generation) error.value = e.response?.data?.error?.message || 'Could not check openings.'; }
   finally { if (id === generation) loading.value = false; }

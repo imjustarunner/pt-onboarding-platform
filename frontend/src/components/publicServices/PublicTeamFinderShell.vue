@@ -77,7 +77,7 @@
         <fieldset class="tf-avail"><legend>Start your search</legend><button class="tf-avail-btn" :class="{active:searchMode==='needs'}" @click="searchMode='needs'">Find the right fit</button><button class="tf-avail-btn" :class="{active:searchMode==='availability'}" @click="searchMode='availability';sortBy='soonest'">Find the earliest time</button></fieldset>
         <label class="tf-field"><span>Insurance</span><select v-model="insurance"><option value="">All published insurance</option><option v-for="value in insuranceOptions" :key="value">{{value}}</option></select></label>
 
-        <label v-if="locations.length" class="tf-field"><span>Location</span><select v-model="location"><option value="">All locations</option><option v-for="value in locations" :key="value">{{value}}</option></select></label>
+        <PublicOfficeLocations v-if="filters.programType==='IN_PERSON'" :offices="locations" :model-value="location" required @update:model-value="chooseOffice"/>
         <label v-if="languages.length" class="tf-field"><span>Language</span><select v-model="language"><option value="">All languages</option><option v-for="value in languages" :key="value">{{value}}</option></select></label>
         <label v-if="serviceType==='tutoring'" class="tf-field"><span>Learning program</span><select v-model="filters.learningProgram" @change="load"><option value="tutoring">Tutoring</option><option value="academic-acceleration">Academic Acceleration</option><option value="bridge">Cognitive & Emotional Enrichment / Bridge</option></select></label><h2 class="tf-rail-title">Refine results</h2>
 
@@ -162,7 +162,7 @@
         <p v-if="selectionNotice" role="status">{{ selectionNotice }}</p>
         <div class="tf-results-head">
           <div>
-            <h1 class="tf-count">{{ displayedProviders.length }} {{ providerNoun }} found</h1>
+            <h1 class="tf-count">{{needsOffice?'Choose your location':`${displayedProviders.length} ${providerNoun} found`}}</h1>
             <p class="tf-tz">Times shown in your local timezone ({{ timezoneLabel }}).</p>
           </div>
           <label class="tf-sort">
@@ -181,6 +181,7 @@
           <span>Loading {{ providerNoun }}…</span>
         </div>
         <div v-else-if="error" class="tf-state tf-state--error">{{ error }}</div>
+        <div v-else-if="needsOffice" class="tf-state">Choose an office location to see matching providers.</div>
         <div v-else-if="!displayedProviders.length" class="tf-state">
           No {{ providerNoun }} match your current filters.
         </div>
@@ -193,7 +194,7 @@
 
 
             @book="goBook"
-            @view-profile="goProfile"
+            @view-profile="goProfile" @office-selected="chooseOffice"
           />
         </div>
       </main>
@@ -205,6 +206,7 @@
 import { computed, onMounted, onUnmounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import api from '../../services/api';
+import PublicOfficeLocations from './PublicOfficeLocations.vue';
 import PublicProviderCard from './PublicProviderCard.vue';
 import BrandingLogo from '../BrandingLogo.vue';
 import { useBrandingStore } from '../../store/branding.js';
@@ -257,8 +259,10 @@ const activeTab = ref('first');
 const sortBy = ref('soonest');
 const searchMode = ref('needs');
 const insurance = ref('');
-const location = ref(''), language = ref(''), timeOfDay = ref('');
-const locations = computed(() => [...new Set(providers.value.flatMap(p=>p.profile?.details?.locations||[]))].sort());
+const location = ref(String(route.query.officeId||'')), language = ref(''), timeOfDay = ref('');
+const locations = computed(() => [...new Map(providers.value.flatMap(p=>p.officeLocations||[]).map(o=>[o.id,o])).values()].sort((a,b)=>a.name.localeCompare(b.name)));
+const needsOffice=computed(()=>filters.value.programType==='IN_PERSON'&&!locations.value.some(o=>String(o.id)===location.value));
+function chooseOffice(id){location.value=String(id);filters.value.programType='IN_PERSON';load();}
 const languages = computed(() => [...new Set(providers.value.flatMap(p=>p.profile?.details?.languages||[]))].sort());
 const enabledServices = ref([]);
 const insuranceOptions = computed(() => [...new Set(providers.value.flatMap(p => p.profile?.insurancesAccepted || []))].sort());
@@ -275,7 +279,7 @@ const filters = ref({
   subject: '',
   gradeLevel: String(route.query.grade||''),
   learningProgram: ['bridge','academic-acceleration'].includes(route.query.program)?route.query.program:'tutoring',
-  programType: 'VIRTUAL',
+  programType: route.query.officeId||route.query.programType==='IN_PERSON'?'IN_PERSON':'VIRTUAL',
   weekStart: new Date().toISOString().slice(0, 10)
 });
 
@@ -312,8 +316,9 @@ const hasActiveFilters = computed(() =>
 );
 
 const displayedProviders = computed(() => {
+  if(needsOffice.value)return [];
   const list = providers.value.filter(p => {
-    if (location.value && !(p.profile?.details?.locations||[]).includes(location.value)) return false;
+    if (filters.value.programType==='IN_PERSON' && location.value && !(p.officeLocations||[]).some(o=>String(o.id)===location.value)) return false;
     if (language.value && !(p.profile?.details?.languages||[]).includes(language.value)) return false;
     if (insurance.value && !(p.profile?.insurancesAccepted || []).includes(insurance.value)) return false;
     if (searchMode.value === 'availability' && timeOfDay.value && !(p.availability?.slots||[]).some(s => {const hour = new Date(s.startAt).getHours();return timeOfDay.value==='morning'?hour<12:timeOfDay.value==='afternoon'?hour>=12&&hour<17:hour>=17;})) return false;
@@ -385,7 +390,7 @@ async function goBook(provider, slot) {
   finally { selecting.value = false; }
 }
 function goProfile(provider) {
-  router.push({ path: `/${encodeURIComponent(slug.value)}/provider/${providerIdOf(provider)}`, query: { serviceType: props.serviceType, program: props.serviceType==='tutoring'?filters.value.learningProgram:undefined } });
+  router.push({ path: `/${encodeURIComponent(slug.value)}/provider/${providerIdOf(provider)}`, query: { serviceType: props.serviceType,officeId:filters.value.programType==='IN_PERSON'?location.value||undefined:undefined, program: props.serviceType==='tutoring'?filters.value.learningProgram:undefined } });
 }
 
 function goBack() {
@@ -504,6 +509,7 @@ async function load() {
   error.value = '';
   try {
     const params = {
+      officeId:filters.value.programType==='IN_PERSON'?location.value||undefined:undefined,
       programType: filters.value.programType,
       weekStart: filters.value.weekStart,
       bookingMode: 'NEW_CLIENT'

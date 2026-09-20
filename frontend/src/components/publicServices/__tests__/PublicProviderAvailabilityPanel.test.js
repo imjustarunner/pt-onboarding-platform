@@ -10,6 +10,12 @@ const summary={timeZone:'America/Denver',onlineScheduling:false,waitlistEnabled:
 const render=()=>mount(Panel,{props:{provider,agencySlug:'test'},global:{stubs:{RouterLink:{props:['to'],template:'<a :href="to"><slot/></a>'},PublicProviderSlotPicker:true}}});
 beforeEach(()=>{vi.resetAllMocks();api.get.mockImplementation(async url=>({data:url.endsWith('schedule-summary')?summary:{recaptchaRequired:false}}));});
 describe('public availability and waitlist',()=>{
+ it('preserves the chosen office when showing openings and ignores typed locations',async()=>{
+  api.get.mockResolvedValue({data:{...summary,locations:[{id:11,name:'Springs'},{id:12,name:'Denver'}],slots:[{format:'IN_PERSON',buildingId:11,buildingName:'Springs',startAt:'2030-01-01T16:00:00Z'},{format:'IN_PERSON',buildingId:12,buildingName:'Denver',startAt:'2030-01-02T16:00:00Z'}]}});
+  const w=mount(Panel,{props:{provider:{...provider,details:{locations:['Unassigned address']}},agencySlug:'test',officeId:'12'},global:{stubs:{RouterLink:true,PublicProviderSlotPicker:true}}});await flushPromises();
+  expect(w.find('.next-openings').text()).toContain('Denver');expect(w.find('.next-openings').text()).not.toContain('Springs');expect(w.text()).not.toContain('Unassigned address');
+  expect(api.get).toHaveBeenCalledWith(expect.stringContaining('schedule-summary'),expect.objectContaining({params:expect.objectContaining({officeId:'12'})}));w.unmount();
+ });
  it('displays typical hours and Maps links even when booking is disabled',async()=>{const w=render();await flushPromises();expect(w.text()).toContain('Saturday mornings');expect(w.text()).toContain('No appointment openings at this time');expect(w.find('a[target="_blank"]').attributes('href')).toContain('query=Example%20Office%2C%20Denver%2C%20CO');expect(w.findComponent({name:'PublicProviderSlotPicker'}).exists()).toBe(false);w.unmount();});
  it('joins a waitlist through a persisted request and requires a contact method',async()=>{
   const w=render();await flushPromises();await w.findAll('button').find(b=>b.text()==='Join waitlist').trigger('click');

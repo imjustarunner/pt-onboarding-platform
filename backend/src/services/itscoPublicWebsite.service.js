@@ -1,3 +1,4 @@
+import {listPublicProviderOffices} from './publicProviderOffices.service.js';
 import {uniquePublicFacets,restrictPublicInsurances,publicAcceptance} from '../utils/publicProviderPresentation.js';
 import pool from '../config/database.js';
 import {isDirectoryProvider} from '../utils/providerDirectoryEligibility.js';
@@ -66,6 +67,7 @@ export async function getItscoWebsiteData(req) {
     FROM users u JOIN user_agencies ua ON ua.user_id = u.id
     WHERE ua.agency_id = ? AND COALESCE(ua.is_active, 1) = 1 AND ${ACTIVE_PERSON}
     ORDER BY u.last_name, u.first_name`, [agency.id]);
+  const officeLocations = await listPublicProviderOffices(agency.id, people.map(p => p.id));
   const providers = []; const team = []; const supervisors = [];
   // Bound parallel work: public pages must not exhaust the shared DB pool.
   for (let start = 0; start < people.length; start += 5) {
@@ -90,7 +92,7 @@ export async function getItscoWebsiteData(req) {
       insurances = restrictPublicInsurances(insurances,row);
       const office = profile?.details?.inPersonEnabled === false ? false : Number(row.in_office_available) === 1 || Boolean(row.has_office_assignment) || (profile?.details?.sessionFormats || []).some(format => /in[ -]?person|in[ -]?office|office/i.test(format));
       const schoolOpenings=assignments.some(a=>Number(a.providerId)===Number(row.id)&&Number(a.slots_available)>0);
-      providers.push({ ...person, specialties: uniquePublicFacets(facets.specialties), ageGroups: uniquePublicFacets(facets.ageGroups),
+      providers.push({ ...person, officeLocations:officeLocations.get(Number(row.id))||[], specialties: uniquePublicFacets(facets.specialties), ageGroups: uniquePublicFacets(facets.ageGroups),
         officeAcceptance:publicAcceptance({globalAccepting:person.acceptingNewClients,manual:profile?.details?.officeAvailability,assigned:office}),
         schoolAcceptance:publicAcceptance({globalAccepting:person.acceptingNewClients,manual:profile?.details?.schoolAvailability,assigned:assignedSchools.length>0,hasOpenings:schoolOpenings}),
         modalities: facets.modalities || [], populations: facets.populations || [], insurances,

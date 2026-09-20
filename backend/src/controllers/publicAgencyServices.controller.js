@@ -1,3 +1,4 @@
+import {listPublicProviderOffices} from '../services/publicProviderOffices.service.js';
 import { offersProviderService } from '../utils/providerServiceOfferings.js';
 import {publicFormatEnabled} from '../utils/providerAvailabilityReminders.js';
 import { getPublicCounselingHourlyRate } from '../services/publicCounselingRate.service.js';
@@ -606,7 +607,7 @@ async function resolveProviderProfileSummary({ agencyId, providerUserId, service
   };
 }
 
-async function computeProviderWindowSummary({ agencyId, providerId, weekStart, bookingMode, programType, heldSlots = null, lookaheadWeeks = 16 }) {
+async function computeProviderWindowSummary({ agencyId, providerId, weekStart, bookingMode, programType, heldSlots = null, lookaheadWeeks = 16, officeId = null }) {
   const intakeOnly = String(bookingMode || 'NEW_CLIENT') === 'NEW_CLIENT';
   const program = normalizeProgramType(programType);
   const pickProgramSlots = (result) => (program === 'VIRTUAL' ? (result?.virtualSlots || []) : (result?.inPersonSlots || [])).filter(s => Date.parse(s.startAt) > Date.now());
@@ -623,7 +624,7 @@ async function computeProviderWindowSummary({ agencyId, providerId, weekStart, b
     });
     if (!result) return { inPersonSlots: [], virtualSlots: [] };
     return {
-      inPersonSlots: filterHeldSlots(dedupeSlots(result.inPersonSlots || []), heldSlots),
+      inPersonSlots: filterHeldSlots(dedupeSlots((result.inPersonSlots || []).filter(slot=>!officeId||Number(slot.buildingId)===Number(officeId))), heldSlots),
       virtualSlots: filterHeldSlots(dedupeSlots(result.virtualSlots || []), heldSlots)
     };
   };
@@ -784,6 +785,7 @@ export const listCounselors = async (req, res, next) => {
     const serviceTypeRow = (await getAgencyServiceTypes(agency.id)).find((st) => st.service_type === serviceType);
 
     const providerRows = await listEnrolledProviders(agency.id, serviceType, {includeDirectory:true});
+    const officeLocations = await listPublicProviderOffices(agency.id,providerRows.map(p=>p.id));
 
     const providers = await runWithConcurrency(providerRows, 6, async (row) => {
       const directoryOnly = req.query.view === 'directory';
@@ -795,7 +797,7 @@ export const listCounselors = async (req, res, next) => {
         weekStart,
         bookingMode,
         programType,
-        heldSlots
+        heldSlots, officeId:Number(req.query.officeId)||null
       });
       const profileData = await ProviderPublicProfile.getForProvider({ providerUserId: Number(row.id) }) || {};
       profileData.acceptingNewClientsOverride = Boolean(row.provider_accepting_new_clients ?? profileData.acceptingNewClientsOverride ?? true);
@@ -837,6 +839,7 @@ export const listCounselors = async (req, res, next) => {
       return {
         acceptingNewClients: Boolean(summary.nextAvailableAt) || Boolean(profileData.acceptingNewClientsOverride),
         onlineScheduling: Boolean(agency.public_availability_enabled) && row.online_enrolled !== 0,
+        officeLocations:officeLocations.get(Number(row.id))||[],
         providerId: Number(row.id),
         id: Number(row.id),
         firstName: row.first_name || '',
@@ -959,6 +962,7 @@ export const listTutors = async (req, res, next) => {
 
     const serviceTypeRow = (await getAgencyServiceTypes(agency.id)).find((st) => st.service_type === 'tutoring');
     const providerRows = await listEnrolledProviders(agency.id, 'tutoring', {includeDirectory:true});
+    const officeLocations = await listPublicProviderOffices(agency.id,providerRows.map(p=>p.id));
 
     const providers = await runWithConcurrency(providerRows, 6, async (row) => {
       const savedTutoringProfile = await getTutoringProfile(Number(row.id), agency.id);
@@ -979,7 +983,7 @@ export const listTutors = async (req, res, next) => {
         weekStart,
         bookingMode,
         programType,
-        heldSlots
+        heldSlots, officeId:Number(req.query.officeId)||null
       });
       const profileData = await ProviderPublicProfile.getForProvider({ providerUserId: Number(row.id) }) || {};
       if (!savedTutoringProfile) tutoringProfile.bio = profileData.publicBlurb || '';
@@ -999,6 +1003,7 @@ export const listTutors = async (req, res, next) => {
       return {
         acceptingNewClients: Boolean(summary.nextAvailableAt) || (Boolean(profileData.acceptingNewClientsOverride) && tutoringProfile.acceptingNewStudents),
         onlineScheduling: row.online_enrolled !== 0,
+        officeLocations:officeLocations.get(Number(row.id))||[],
         providerId: Number(row.id),
         id: Number(row.id),
         firstName: row.first_name || '',
@@ -1074,6 +1079,7 @@ export const listEvaluators = async (req, res, next) => {
     const searchQ = String(req.query.search || '').trim().toLowerCase();
 
     const providerRows = await listEnrolledProviders(agency.id, 'evaluation', {includeDirectory:true});
+    const officeLocations = await listPublicProviderOffices(agency.id,providerRows.map(p=>p.id));
 
     const evaluators = await runWithConcurrency(providerRows, 6, async (row) => {
       const heldSlots = row.online_enrolled !== 0 ? await getHeldSlotStartsForProvider(agency.id, Number(row.id)) : [];
@@ -1083,7 +1089,7 @@ export const listEvaluators = async (req, res, next) => {
         weekStart,
         bookingMode,
         programType,
-        heldSlots
+        heldSlots, officeId:Number(req.query.officeId)||null
       }) : {thisWeek:{virtualSlots:[],inPersonSlots:[]},nextAvailableAt:null};
       const slotSet = normalizeSlots({
         result: summary.thisWeek,
@@ -1101,6 +1107,7 @@ export const listEvaluators = async (req, res, next) => {
 
       return {
         onlineScheduling: row.online_enrolled !== 0,
+        officeLocations:officeLocations.get(Number(row.id))||[],
         providerId: Number(row.id),
         id: Number(row.id),
         firstName: row.first_name || '',
@@ -1173,7 +1180,7 @@ export const getProviderScheduleSummary = async (req,res,next) => {
   const provider=directory.find(p=>Number(p.id)===providerId);
   if(!provider)return res.status(404).json({error:{message:'Provider not found'}});
   const {readPublicProviderSchedule}=await import('../services/publicProviderSchedule.service.js');
-  const schedule=await readPublicProviderSchedule(providerId,agency.id);
+  const schedule=await readPublicProviderSchedule(providerId,agency.id,{officeId:Number(req.query.officeId)||null});
   res.json({...schedule,onlineScheduling:Boolean(agency.public_availability_enabled)&&provider.online_enrolled!==0});
  }catch(error){next(error);}
 };
@@ -1190,6 +1197,7 @@ export const getProviderDetail = async (req, res, next) => {
     const directory = await listEnrolledProviders(agency.id, serviceType, {includeDirectory:true});
     const listing = directory.find(p => Number(p.id)===providerId);
     if (!listing) return res.status(404).json({error:{message:'Provider not found'}});
+    const officeLocations = (await listPublicProviderOffices(agency.id,[providerId])).get(providerId)||[];
     const savedTutoringProfile = serviceType === 'tutoring' ? await getTutoringProfile(providerId, agency.id) : null;
     const onlineScheduling = Boolean(agency.public_availability_enabled) && listing.online_enrolled !== 0 && (serviceType !== 'tutoring' || Boolean(savedTutoringProfile));
 
@@ -1212,7 +1220,7 @@ export const getProviderDetail = async (req, res, next) => {
     const weekStart = startOfWeekMondayYmd(isValidYmd(weekStartRaw) ? weekStartRaw : new Date().toISOString().slice(0, 10));
 
     const heldSlots = onlineScheduling ? await getHeldSlotStartsForProvider(agency.id, providerId) : [];
-    const summary = onlineScheduling ? await computeProviderWindowSummary({ agencyId: agency.id, providerId, weekStart, bookingMode, programType, heldSlots }) : {thisWeek:{virtualSlots:[],inPersonSlots:[]},nextAvailableAt:null};
+    const summary = onlineScheduling ? await computeProviderWindowSummary({ agencyId: agency.id, providerId, weekStart, bookingMode, programType, heldSlots, officeId:Number(req.query.officeId)||null }) : {thisWeek:{virtualSlots:[],inPersonSlots:[]},nextAvailableAt:null};
     const profileData = await ProviderPublicProfile.getForProvider({ providerUserId: providerId }) || {};
     profileData.acceptingNewClientsOverride = Boolean(user.provider_accepting_new_clients ?? profileData.acceptingNewClientsOverride ?? true);
     if(!publicFormatEnabled(profileData,programType,bookingMode))summary.nextAvailableAt=null;
@@ -1244,6 +1252,7 @@ export const getProviderDetail = async (req, res, next) => {
       provider: {
         acceptingNewClients: Boolean(summary.nextAvailableAt) || (Boolean(profileData.acceptingNewClientsOverride) && tutoringProfile?.acceptingNewStudents !== false),
         onlineScheduling,
+        officeLocations,
         providerId,
         id: providerId,
         firstName: user.first_name || '',

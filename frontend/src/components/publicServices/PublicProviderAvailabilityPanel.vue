@@ -6,12 +6,15 @@
    <p v-if="error" role="alert">{{error}} <button @click="load">Try again</button></p>
    <template v-if="schedule">
     <div class="format-badges"><span v-for="f in formats" :key="f.key">{{f.label}} · {{statusLabel(schedule[f.key]?.status)}}</span></div>
+    <PublicOfficeLocations v-if="assignedOffices.length" v-model="selectedOffice" :offices="assignedOffices" title="Office locations"/>
+    <button v-if="selectedOffice" type="button" @click="selectedOffice=''">Show all locations and virtual times</button>
+    <p v-if="selectedOffice" class="timezone">Showing in-person openings at {{assignedOffices.find(o=>String(o.id)===String(selectedOffice))?.name||'the selected office'}}.</p>
     <h4>Next available appointments</h4>
-    <p v-if="!schedule.slots?.length">No appointment openings at this time. {{schedule.waitlistEnabled?'You can join the waitlist below.':'Inquire with our team for help finding support.'}}</p>
+    <p v-if="!visibleSlots.length">No appointment openings at this time. {{schedule.waitlistEnabled?'You can join the waitlist below.':'Inquire with our team for help finding support.'}}</p>
     <p v-else class="timezone">Times shown in {{schedule.timeZone}}. Our team confirms placement.</p>
-    <div class="next-openings"><div v-for="slot in schedule.slots.slice(0,6)" :key="slot.startAt+slot.format"><strong>{{day(slot.startAt)}}</strong><span>{{time(slot.startAt)}}</span><small>{{slot.format==='VIRTUAL'?'Virtual':slot.buildingName||'In person'}}</small></div></div>
-    <button v-if="schedule.onlineScheduling && schedule.slots?.length" class="primary" @click="calendar=!calendar">{{calendar?'Hide full calendar':'View full calendar & request a time'}}</button>
-    <PublicProviderSlotPicker v-if="calendar && schedule.onlineScheduling" :agency-slug="agencySlug" :provider-id="Number(provider.id)" :service-type="serviceType" @hold="$emit('hold',$event)"/>
+    <div class="next-openings"><div v-for="slot in visibleSlots.slice(0,6)" :key="slot.startAt+slot.format"><strong>{{day(slot.startAt)}}</strong><span>{{time(slot.startAt)}}</span><small>{{slot.format==='VIRTUAL'?'Virtual':slot.buildingName||'In person'}}</small></div></div>
+    <button v-if="schedule.onlineScheduling && visibleSlots.length" class="primary" @click="calendar=!calendar">{{calendar?'Hide full calendar':'View full calendar & request a time'}}</button>
+    <PublicProviderSlotPicker v-if="calendar && schedule.onlineScheduling" :agency-slug="agencySlug" :provider-id="Number(provider.id)" :service-type="serviceType" :office-id="selectedOffice" :office-locations="assignedOffices" @hold="$emit('hold',$event)"/>
     <h4>Typical availability</h4><ul v-if="schedule.typicalAvailability?.length"><li v-for="item in schedule.typicalAvailability" :key="item">{{item}}</li></ul><p v-else>Typical hours have not been published yet. Inquire with our team.</p>
     <button v-if="schedule.waitlistEnabled" class="primary" @click="waitlistOpen=!waitlistOpen">Join waitlist</button>
     <form v-if="waitlistOpen" @submit.prevent="joinWaitlist">
@@ -38,9 +41,11 @@ import {computed,ref,watch} from 'vue';
 import api from '../../services/api';
 import {websiteCaptchaToken} from '../../utils/websiteCaptcha';
 import {overallProviderStatus,statusLabel} from '../../utils/providerDirectoryStatus';
+import PublicOfficeLocations from './PublicOfficeLocations.vue';
 import PublicProviderSlotPicker from './PublicProviderSlotPicker.vue';
-const props=defineProps({provider:{type:Object,required:true},agencySlug:{type:String,required:true},serviceType:{type:String,default:'counseling'}});
+const props=defineProps({provider:{type:Object,required:true},agencySlug:{type:String,required:true},serviceType:{type:String,default:'counseling'},officeId:{type:[String,Number],default:''}});
 const emit=defineEmits(['hold','loaded']);
+const selectedOffice=ref('');
 const schedule=ref(null),loading=ref(false),error=ref(''),calendar=ref(false),waitlistOpen=ref(false),sending=ref(false),waitlistError=ref(''),receipt=ref(null);
 const contact=ref({name:'',email:'',phone:'',message:'',format:'IN_PERSON',phiAcknowledged:false,website:''});
 const base=computed(()=>`/public/agency-services/${encodeURIComponent(props.agencySlug)}/providers/${Number(props.provider.id)}`);
@@ -48,19 +53,22 @@ const contactPath=computed(()=>`/${encodeURIComponent(props.agencySlug)}/support
 const status=computed(()=>overallProviderStatus(props.provider,schedule.value||{}));
 const formats=[{key:'inPerson',value:'IN_PERSON',label:'In person'},{key:'virtual',value:'VIRTUAL',label:'Virtual'},{key:'school',value:'SCHOOL',label:'School-based'}];
 const waitlistFormats=computed(()=>formats.filter(f=>(schedule.value?.waitlistFormats||[]).includes(f.value)));
+const assignedOffices=computed(()=>schedule.value?.locations||props.provider.officeLocations||[]);
+const visibleSlots=computed(()=>(schedule.value?.slots||[]).filter(s=>!selectedOffice.value||(s.format==='IN_PERSON'&&String(s.buildingId)===String(selectedOffice.value))));
+watch(()=>props.officeId,id=>{selectedOffice.value=String(id||'');},{immediate:true});
 const locations=computed(()=>[
- ...(schedule.value?.locations||[]),
- ...(schedule.value?.schools||[]).map(s=>({name:s.name,address:[s.city,s.state].filter(Boolean).join(', ')})),
- ...((props.provider.details||props.provider.profile?.details)?.locations||[]).map(name=>({name,address:''}))
+ ...assignedOffices.value,
+ ...(schedule.value?.schools||[]).map(s=>({name:s.name,address:[s.city,s.state].filter(Boolean).join(', ')}))
 ]);
 const mapUrl=l=>`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent([l.name,l.address].filter(Boolean).join(', '))}`;
 const day=value=>new Intl.DateTimeFormat(undefined,{weekday:'short',month:'short',day:'numeric',timeZone:schedule.value?.timeZone}).format(new Date(value));
 const time=value=>new Intl.DateTimeFormat(undefined,{hour:'numeric',minute:'2-digit',timeZone:schedule.value?.timeZone}).format(new Date(value));
 let generation=0;
 async function load(){const id=++generation;loading.value=true;error.value='';schedule.value=null;
- try{const {data}=await api.get(`${base.value}/schedule-summary`,{params:{serviceType:props.serviceType},skipAuthRedirect:true});if(id!==generation)return;schedule.value=data;contact.value.format=waitlistFormats.value[0]?.value||'IN_PERSON';emit('loaded',data);}
+ try{const {data}=await api.get(`${base.value}/schedule-summary`,{params:{serviceType:props.serviceType,officeId:selectedOffice.value||undefined},skipAuthRedirect:true});if(id!==generation)return;schedule.value=data;contact.value.format=waitlistFormats.value[0]?.value||'IN_PERSON';emit('loaded',data);}
  catch(e){if(id===generation)error.value=e.response?.data?.error?.message||'We could not check openings. Please inquire with our team.';}
  finally{if(id===generation)loading.value=false;}}
+watch(selectedOffice,()=>load());
 async function joinWaitlist(){sending.value=true;waitlistError.value='';
  try{if(!contact.value.email.trim()&&!contact.value.phone.trim())throw new Error('Enter an email address or phone number so we can contact you.');
   const {data:config}=await api.get(`/public/agency-support/${encodeURIComponent(props.agencySlug)}`,{skipAuthRedirect:true});
@@ -69,7 +77,7 @@ async function joinWaitlist(){sending.value=true;waitlistError.value='';
   if(!data.ok||!data.ticketId)throw new Error('Your request could not be confirmed. Please try again.');
   receipt.value=data.ticketId;waitlistOpen.value=false;
  }catch(e){waitlistError.value=e.response?.data?.error?.message||e.message||'Could not submit your waitlist request.';}finally{sending.value=false;}}
-watch(()=>[props.provider.id,props.agencySlug,props.serviceType],()=>{calendar.value=false;waitlistOpen.value=false;receipt.value=null;load();},{immediate:true});
+watch(()=>[props.provider.id,props.agencySlug,props.serviceType],()=>{calendar.value=false;waitlistOpen.value=false;receipt.value=null;selectedOffice.value=String(props.officeId||'');load();},{immediate:true});
 </script>
 <style scoped>
 .provider-availability-panel{border:1px solid #cdded7;border-radius:18px;overflow:hidden;background:#fff;color:#153e38}.provider-availability-panel header{padding:22px;background:var(--its-green,var(--agency-primary-color,#155c47));color:#fff}.provider-availability-panel header h3{color:inherit;margin:0 0 10px;font-size:25px}.provider-availability-panel header p{color:inherit;margin-bottom:0}.provider-availability-panel header span{display:inline-block;border-radius:24px;background:#ffffff24;padding:8px 12px}.availability-content{padding:22px}.availability-content h4{font-size:19px;margin:25px 0 14px}.format-badges{display:flex;gap:7px;flex-wrap:wrap}.format-badges span{padding:6px 9px;border-radius:20px;background:#eef5f1;font-size:12px}.next-openings{display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:10px}.next-openings>div{display:grid;gap:8px;text-align:center;padding:12px 8px;border:1px solid #d3e4da;border-radius:9px}.next-openings span{padding:7px;background:#eaf5ef;border-radius:6px}.timezone{font-size:12px}.primary{width:100%;padding:13px;margin:16px 0 6px;background:var(--its-green,var(--agency-primary-color,#155c47));border:0;border-radius:9px;color:#fff;font:inherit;cursor:pointer}.contact-link{display:block;padding:12px 0;color:#165943}.provider-locations article{padding:14px;border:1px solid #d3e4da;border-radius:10px;margin:10px 0}.provider-locations a{color:#165943}.provider-locations p{font-size:14px;margin:6px 0}.provider-availability-panel form label{display:grid;gap:6px;margin:12px 0}.provider-availability-panel input,.provider-availability-panel select,.provider-availability-panel textarea{width:100%;min-width:0;box-sizing:border-box;background:white;color:inherit;padding:10px;border:1px solid #b6cbc2;border-radius:6px;font:inherit}.provider-availability-panel .ack{display:flex;align-items:start;font-size:13px}.ack input{width:18px;flex-shrink:0}.honeypot{display:none}.provider-availability-panel li{margin-bottom:8px}.provider-availability-panel button:disabled{opacity:.6}

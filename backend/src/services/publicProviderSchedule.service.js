@@ -3,7 +3,7 @@ import Availability from './providerAvailability.service.js';
 import Profile from '../models/ProviderPublicProfile.model.js';
 import {publicAcceptance} from '../utils/publicProviderPresentation.js';
 
-export async function readPublicProviderSchedule(providerId, agencyId, {weeks=4}={}) {
+export async function readPublicProviderSchedule(providerId, agencyId, {weeks=4,officeId=null}={}) {
  const [profile, [people], [offices], [schoolRows], [virtualHours], [officeHours]] = await Promise.all([
   Profile.getForProvider({providerUserId:providerId}),
   pool.execute('SELECT provider_accepting_new_clients,in_office_available FROM users WHERE id=?',[providerId]),
@@ -31,7 +31,7 @@ export async function readPublicProviderSchedule(providerId, agencyId, {weeks=4}
   for(const [key,format] of [['inPersonSlots','IN_PERSON'],['virtualSlots','VIRTUAL']])
    for(const slot of result[key]||[])if(Date.parse(slot.startAt)>now)all.push({startAt:slot.startAt,endAt:slot.endAt,format,frequency:slot.frequency||'WEEKLY',buildingId:slot.buildingId,buildingName:slot.buildingName});
  }
- const slots=[...new Map(all.map(s=>[`${s.format}:${s.startAt}:${s.endAt}`,s])).values()].sort((a,b)=>a.startAt.localeCompare(b.startAt));
+ const slots=[...new Map(all.map(s=>[`${s.format}:${s.startAt}:${s.endAt}:${s.buildingId||''}`,s])).values()].sort((a,b)=>a.startAt.localeCompare(b.startAt));
  const schoolOpenings=schoolRows.some(s=>Number(s.slots_available)>0);
  const formats={};
  for(const [key,format,manual,enabled] of [['inPerson','IN_PERSON','officeAvailability',Boolean(user.in_office_available)||offices.length>0||details.inPersonEnabled],['virtual','VIRTUAL','virtualAvailability',details.virtualEnabled||(details.sessionFormats||[]).some(v=>/virtual|telehealth|online/i.test(v))],['school','SCHOOL','schoolAvailability',schoolRows.length>0]]) {
@@ -42,7 +42,7 @@ export async function readPublicProviderSchedule(providerId, agencyId, {weeks=4}
  const clock=value=>{const [h,m]=String(value).split(':').map(Number);return `${h%12||12}:${String(m||0).padStart(2,'0')} ${h>=12?'PM':'AM'}`;};
  const typical=[...schoolRows.map(r=>`School-based · ${r.day_of_week}${r.start_time&&r.end_time?`, ${clock(r.start_time)}–${clock(r.end_time)}`:''} · ${r.name}`),...virtualHours.map(r=>`Virtual · ${r.day_of_week}, ${clock(r.start_time)}–${clock(r.end_time)}`),
   ...officeHours.map(r=>`In person · ${['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'][Number(r.weekday)]}, ${clock(`${r.hour}:00`)} · ${r.name}`)];
- return {timeZone,checkedAt:new Date().toISOString(),...formats,slots:slots.slice(0,60),nextAvailableAt:slots[0]?.startAt||null,
+ return {timeZone,checkedAt:new Date().toISOString(),...formats,slots:slots.filter(s=>!officeId||(s.format==='IN_PERSON'&&Number(s.buildingId)===Number(officeId))).slice(0,60),nextAvailableAt:slots[0]?.startAt||null,
   hasPublishedOpenings:slots.length>0||schoolOpenings,
   waitlistEnabled:details.waitlistEnabled===true||['officeAvailability','virtualAvailability','schoolAvailability'].some(k=>details[k]==='waitlist'),
   waitlistFormats:[['IN_PERSON','officeAvailability'],['VIRTUAL','virtualAvailability'],['SCHOOL','schoolAvailability']].filter(([,key])=>details.waitlistEnabled===true||details[key]==='waitlist').map(([format])=>format),

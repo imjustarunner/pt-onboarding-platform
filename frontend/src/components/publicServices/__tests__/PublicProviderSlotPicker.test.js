@@ -10,6 +10,14 @@ const mountPicker=async()=>{wrapper=mount(Picker,{props:{agencySlug:'test',provi
 beforeEach(()=>{vi.useFakeTimers();vi.setSystemTime(new Date('2030-01-06T12:00:00Z'));sessionStorage.clear();api.get.mockReset().mockResolvedValue({data:{slots:[slot]}});api.post.mockReset().mockResolvedValue({data:{hold,active:true}});});
 afterEach(()=>{wrapper?.unmount();vi.useRealTimers();});
 describe('public opening selection',()=>{
+ it('requires an office choice and only offers times at that office',async()=>{
+  api.get.mockResolvedValue({data:{slots:[{...slot,buildingId:11,buildingName:'Springs'},{...slot,startAt:'2030-01-08T17:00:00Z',buildingId:12,buildingName:'Denver'}]}});
+  wrapper=mount(Picker,{props:{agencySlug:'test',providerId:9,officeLocations:[{id:11,name:'Springs'},{id:12,name:'Denver'}]}});await flushPromises();
+  expect(wrapper.find('.opening-day').exists()).toBe(false);expect(wrapper.text()).toContain('Choose an office location');
+  await wrapper.findAll('.office-buttons button').find(b=>b.text().includes('Denver')).trigger('click');await flushPromises();
+  expect(wrapper.findAll('.opening-day button')).toHaveLength(1);expect(wrapper.find('.opening-day').text()).toContain('Denver');
+  expect(api.get).toHaveBeenLastCalledWith(expect.any(String),expect.objectContaining({params:expect.objectContaining({officeId:'12'})}));
+ });
  it('creates only a hold, stores its token outside the URL, and discloses the pending weekly hold',async()=>{await mountPicker();await wrapper.find('.opening-day button').trigger('click');await flushPromises();expect(api.post).toHaveBeenCalledWith('/public/agency-services/test/providers/9/holds',expect.objectContaining({startAt:slot.startAt,serviceType:'counseling',modality:'IN_PERSON'}),expect.anything());expect(api.post.mock.calls.some(([url])=>url.endsWith('/requests'))).toBe(false);expect(wrapper.text()).toContain('This is not a booking');expect(JSON.parse(sessionStorage.getItem('provider-hold:test')).token).toBe(hold.token);expect(wrapper.find('.opening-day button').attributes('disabled')).toBeDefined();});
  it('keeps weekly holds past fifteen minutes and refreshes their server status',async()=>{sessionStorage.setItem('provider-hold:test',JSON.stringify(hold));await mountPicker();expect(wrapper.text()).toContain('Weekly time held');await vi.advanceTimersByTimeAsync(16*60000);await flushPromises();expect(wrapper.text()).toContain('Weekly time held');expect(wrapper.text()).toContain('America/Denver');expect(wrapper.emitted('hold').at(-1)[0].token).toBe(hold.token);});
  it('clears a hold resolved by staff when checking server status',async()=>{sessionStorage.setItem('provider-hold:test',JSON.stringify(hold));api.post.mockResolvedValue({data:{active:false}});await mountPicker();expect(wrapper.find('.opening-held').exists()).toBe(false);expect(sessionStorage.getItem('provider-hold:test')).toBeNull();expect(wrapper.emitted('hold').at(-1)).toEqual([null]);});
