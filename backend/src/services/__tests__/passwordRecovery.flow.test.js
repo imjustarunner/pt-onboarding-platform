@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-const m = vi.hoisted(() => ({ find: vi.fn(), byId: vi.fn(), agencies: vi.fn(), token: vi.fn(), send: vi.fn(), identities: vi.fn(), log: vi.fn(), template: vi.fn(), parent: vi.fn(), agency: vi.fn(), execute: vi.fn() }));
+const m = vi.hoisted(() => ({ find: vi.fn(), byId: vi.fn(), agencies: vi.fn(), token: vi.fn(), send: vi.fn(), identities: vi.fn(), log: vi.fn(), template: vi.fn(), parent: vi.fn(), agency: vi.fn(), execute: vi.fn(), audit: vi.fn() }));
 vi.mock('../../config/database.js', () => ({ default: { execute: m.execute } }));
 vi.mock('../../models/User.model.js', () => ({ default: { findByEmail: m.find, findById: m.byId, getAgencies: m.agencies, generatePasswordlessToken: m.token } }));
 vi.mock('../../models/AgencySchool.model.js', () => ({ default: { getActiveAgencyIdForSchool: vi.fn() } }));
@@ -8,7 +8,7 @@ vi.mock('../../models/EmailSenderIdentity.model.js', () => ({ default: { list: m
 vi.mock('../../models/OrganizationAffiliation.model.js', () => ({ default: { getActiveAgencyIdForOrganization: m.parent } }));
 vi.mock('../emailTemplate.service.js', () => ({ default: { buildResetTokenLink: (agency, token) => `https://${agency.slug}.example/reset-password/${token}`, getTemplateForAgency: m.template, collectParameters: async () => ({}), renderTemplate: (t) => t } }));
 vi.mock('../communicationLogging.service.js', () => ({ default: { logGeneratedCommunication: m.log, markAsSent: vi.fn().mockResolvedValue() } }));
-vi.mock('../activityLog.service.js', () => ({ default: { logActivity: vi.fn() } }));
+vi.mock('../activityLog.service.js', () => ({ default: { logActivity: m.audit } }));
 vi.mock('../unifiedEmail/unifiedEmailSender.service.js', () => ({ sendEmailFromIdentity: m.send }));
 vi.mock('../../utils/hogwartsTestEmail.js', () => ({ looksLikeTestInboxRedirectAddress: () => false, shouldRedirectHogwartsOutboundEmail: async () => false }));
 import { requestPasswordRecoveryEmail } from '../passwordRecovery.service.js';
@@ -71,6 +71,22 @@ describe('password recovery delivery', () => {
     expect(m.find).not.toHaveBeenCalled(); expect(m.token).not.toHaveBeenCalled();
     expect(m.send.mock.calls[0][0].html).toContain('/reset-password/admin-token');
     expect(m.log).toHaveBeenCalledWith(expect.objectContaining({ generatedByUserId: 3 }));
+  });
+  it('records who requested the email, tenant, recipient, sender, and successful delivery', async () => {
+    const req = { user: { id: 3, first_name: 'Pat', last_name: 'Admin', email: 'pat@tenant.example' }, originalUrl: '/api/school-portal/20/school-staff/42/issue-reset-link' };
+    await requestPasswordRecoveryEmail({ targetUser: user, generatedByUserId: 3, req });
+    expect(m.audit).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+      actionType: 'password_reset_link_sent', userId: 42, agencyId: 9,
+      metadata: expect.objectContaining({ performedByUserId: 3, performedByName: 'Pat Admin', performedByEmail: 'pat@tenant.example', requestSource: 'school_portal', email: user.email, deliveryStatus: 'sent', fromEmail: 'app@tenant.example', replyTo: 'technology@tenant.example', communicationId: 7 })
+    }), req);
+    expect(JSON.stringify(m.audit.mock.calls)).not.toContain('reset-token');
+  });
+  it('audits a send failure without recording a successful send or exposing the token', async () => {
+    m.send.mockRejectedValue(new Error('Send failed reset-token'));
+    await requestPasswordRecoveryEmail({ email: user.email });
+    expect(m.audit).toHaveBeenCalledTimes(1);
+    expect(m.audit.mock.calls[0][0]).toMatchObject({ actionType: 'password_reset_email_failed', agencyId: 9, metadata: { deliveryStatus: 'failed', requestSource: 'public_forgot_password', performedByUserId: null } });
+    expect(JSON.stringify(m.audit.mock.calls)).not.toContain('reset-token');
   });
   it('keeps unknown addresses private and sends nothing', async () => {
     m.find.mockResolvedValue(null);

@@ -233,7 +233,7 @@ async function sendResetEmail({
   existingCommunicationId
 }) {
   const { identity, replyTo } = await resolveRecoverySender(agencyId);
-  return sendEmailFromIdentity({
+  const result = await sendEmailFromIdentity({
     senderIdentityId: identity.id,
     to, subject, text, html,
     replyToOverride: replyTo,
@@ -243,6 +243,7 @@ async function sendResetEmail({
     templateType: 'password_reset',
     usedFallbackSender: false
   });
+  return { ...result, fromEmail: identity.from_email, replyTo };
 }
 
 /**
@@ -331,6 +332,35 @@ export async function requestPasswordRecoveryEmail({
     console.error('[passwordRecovery] failed to log communication', e?.message || e);
   }
 
+  const logRecoveryDelivery = (deliveryStatus, { sendResult = null, error = null } = {}) => {
+    const actor = generatedByUserId && Number(req?.user?.id) === Number(generatedByUserId) ? req.user : null;
+    ActivityLogService.logActivity({
+      actionType: deliveryStatus === 'sent' ? 'password_reset_link_sent' : 'password_reset_email_failed',
+      userId: user.id,
+      agencyId: logAgencyId,
+      metadata: {
+        performedByUserId: generatedByUserId,
+        performedByName: actor ? [actor.first_name, actor.last_name].filter(Boolean).join(' ') || null : null,
+        performedByEmail: actor?.email || actor?.username || null,
+        requestSource: generatedByUserId
+          ? (String(req?.originalUrl || '').includes('/school-portal/') ? 'school_portal' : 'admin_profile')
+          : 'public_forgot_password',
+        email: to,
+        loginEmail: loginEmail || null,
+        requestedEmail,
+        role: user.role || null,
+        firstSet,
+        orgSlug: orgSlug || null,
+        communicationId: comm?.id || null,
+        deliveryStatus,
+        fromEmail: sendResult?.fromEmail || null,
+        replyTo: sendResult?.replyTo || null,
+        error: error ? String(error).replaceAll(tokenResult.token, '[redacted]').slice(0, 500) : null,
+        ...(isDemoRedirect ? { demoRedirectedToTesting: true } : {})
+      }
+    }, req);
+  };
+
   let sendResult = null;
   try {
     sendResult = await sendResetEmail({
@@ -345,6 +375,7 @@ export async function requestPasswordRecoveryEmail({
     });
   } catch (e) {
     await markCommFailed(comm?.id, e?.message || 'send failed');
+    logRecoveryDelivery('failed', { error: e?.message || 'Send failed' });
     return {
       ok: true,
       outcome: 'failed',
@@ -363,6 +394,7 @@ export async function requestPasswordRecoveryEmail({
       sendResult.reason ||
       (sendResult.queued ? 'pending approval' : 'not sent');
     await markCommFailed(comm?.id, errMsg);
+    logRecoveryDelivery('failed', { sendResult, error: errMsg });
     return {
       ok: true,
       outcome: 'failed',
@@ -387,24 +419,7 @@ export async function requestPasswordRecoveryEmail({
     }).catch(() => {});
   }
 
-  ActivityLogService.logActivity(
-    {
-      actionType: 'password_reset_link_sent',
-      userId: user.id,
-      metadata: {
-        performedByUserId: generatedByUserId,
-        email: to,
-        loginEmail: loginEmail || null,
-        requestedEmail,
-        role: user.role || null,
-        firstSet,
-        orgSlug: orgSlug || null,
-        communicationId: comm?.id || null,
-        ...(isDemoRedirect ? { demoRedirectedToTesting: true } : {})
-      }
-    },
-    req
-  );
+  logRecoveryDelivery('sent', { sendResult });
 
   return {
     ok: true,

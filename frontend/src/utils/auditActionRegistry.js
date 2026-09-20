@@ -14,7 +14,9 @@ export const AUDIT_ACTION_REGISTRY = {
   timeout: { label: 'Session timed out', category: 'Authentication' },
   session_end: { label: 'Platform session ended', category: 'Authentication' },
   password_change: { label: 'Password changed', category: 'Authentication' },
-  password_reset_link_sent: { label: 'Password reset link sent', category: 'Authentication' },
+  password_reset_link_sent: { label: 'Recovery email sent', category: 'Password recovery' },
+  password_reset_email_failed: { label: 'Recovery email failed', category: 'Password recovery' },
+  password_reset_link_generated: { label: 'Recovery link generated (not emailed)', category: 'Password recovery' },
 
   // Staff & User Management
   grant_payroll_access: { label: 'Payroll access granted', category: 'Staff' },
@@ -205,6 +207,7 @@ export const AUDIT_ACTION_REGISTRY = {
 /** Ordered category list for display and grouping */
 export const AUDIT_CATEGORIES = [
   'Authentication',
+  'Password recovery',
   'Staff',
   'Training',
   'Documents',

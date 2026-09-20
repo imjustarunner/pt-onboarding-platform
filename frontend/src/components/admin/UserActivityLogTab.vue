@@ -45,6 +45,9 @@
               <option value="login">Login</option>
               <option value="logout">Logout</option>
               <option value="password_change">Password Change</option>
+              <option value="password_reset_link_sent">Recovery email sent</option>
+              <option value="password_reset_email_failed">Recovery email failed</option>
+              <option value="password_reset_link_generated">Recovery link generated (not emailed)</option>
               <option value="module_start">Module Start</option>
               <option value="module_end">Module End</option>
               <option value="module_complete">Module Complete</option>
@@ -97,7 +100,7 @@
                   Module: {{ activity.module_title }}
                 </div>
                 <div v-if="activity.metadata" style="font-size: 12px; color: var(--text-secondary);">
-                  {{ formatMetadata(activity.metadata) }}
+                  {{ formatMetadata(activity.metadata, activity.action_type) }}
                 </div>
               </td>
               <td style="padding: 12px;">
@@ -144,6 +147,8 @@
 
 <script setup>
 import { ref, onMounted } from 'vue';
+import { isPasswordRecoveryAudit, formatPasswordRecoveryAudit } from '../../utils/passwordRecoveryAudit.js';
+import { getActionLabel } from '../../utils/auditActionRegistry.js';
 import api from '../../services/api';
 
 const props = defineProps({
@@ -316,7 +321,7 @@ const formatActionType = (actionType) => {
     'page_view': 'Page View',
     'api_call': 'API Call'
   };
-  return types[actionType] || actionType;
+  return types[actionType] || getActionLabel(actionType);
 };
 
 const getActionBadgeClass = (actionType) => {
@@ -335,7 +340,8 @@ const getActionBadgeClass = (actionType) => {
   return classes[actionType] || 'badge-secondary';
 };
 
-const formatMetadata = (metadata) => {
+const formatMetadata = (metadata, actionType) => {
+  if (isPasswordRecoveryAudit(actionType)) return formatPasswordRecoveryAudit(metadata);
   if (!metadata) return '';
   if (typeof metadata === 'string') {
     try {

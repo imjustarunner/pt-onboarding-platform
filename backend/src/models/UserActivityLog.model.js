@@ -224,8 +224,15 @@ class UserActivityLog {
       endDate,
       search
     } = filters;
-    const where = ['ual.agency_id = ?'];
-    const params = [agencyId];
+    // Older recovery events omitted agency_id. Attribute those only through their
+    // actual communication record, never through the user's current memberships.
+    const where = [`(ual.agency_id = ? OR (
+      ual.agency_id IS NULL AND ual.action_type = 'password_reset_link_sent'
+      AND EXISTS (SELECT 1 FROM user_communications recovery_comm
+        WHERE recovery_comm.id = JSON_UNQUOTE(JSON_EXTRACT(ual.metadata, '$.communicationId'))
+          AND recovery_comm.agency_id = ?)
+    ))`];
+    const params = [agencyId, agencyId];
 
     if (userId) {
       where.push('ual.user_id = ?');

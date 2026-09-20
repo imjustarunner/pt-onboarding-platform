@@ -3,6 +3,7 @@
     <div class="page-header">
       <div>
         <h1>Audit Center</h1>
+        <button class="btn btn-secondary" @click="showPasswordRecoveryHistory">Password recovery history</button>
         <p class="subtitle">Activity reporting and request evidence. Coverage and detail vary by source.</p>
       </div>
     </div>
@@ -297,6 +298,7 @@
               class="audit-action-item"
             >
               <span class="action-label">{{ getActionLabel(row.action_type) }}</span>
+              <span v-if="isPasswordRecoveryAudit(row.action_type)" class="action-meta">{{ formatDetails(row) }}</span>
               <span class="action-meta">
                 {{ formatDate(row.created_at) }}
                 <template v-if="formatUser(row)">
@@ -376,6 +378,7 @@
 
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue';
+import { isPasswordRecoveryAudit, formatPasswordRecoveryAudit } from '../../utils/passwordRecoveryAudit.js';
 import { useRoute } from 'vue-router';
 import { useAuthStore } from '../../store/auth';
 import { useAgencyStore } from '../../store/agency';
@@ -626,6 +629,17 @@ const handleAgencyChange = async () => {
   await resetAndReload();
 };
 
+const showPasswordRecoveryHistory = async () => {
+  securityMode.value = false;
+  viewMode.value = 'table';
+  filters.source = 'user_activity';
+  filters.category = 'Password recovery';
+  filters.actionType = '';
+  filters.search = '';
+  filters.userId = '';
+  await resetAndReload();
+};
+
 const resetAndReload = async () => {
   pagination.offset = 0;
   await reload();
@@ -764,6 +778,7 @@ const formatUserEmail = (row) => {
 };
 
 const formatDetails = (row) => {
+  if (isPasswordRecoveryAudit(row.action_type)) return formatPasswordRecoveryAudit(row.metadata);
   const base = row.module_title ? `Module: ${row.module_title}` : (row.track_name ? `Track: ${row.track_name}` : '');
   const meta = row.metadata ? JSON.stringify(row.metadata) : '';
   return [base, meta].filter(Boolean).join(' | ') || '-';

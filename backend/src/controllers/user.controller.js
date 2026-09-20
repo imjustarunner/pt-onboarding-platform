@@ -9797,12 +9797,15 @@ export const sendResetPasswordLink = async (req, res, next) => {
 
     const resetLink = buildResetLink(tokenResult.token);
 
-    // Log that an admin sent (or re-sent) the reset link
-    ActivityLogService.logActivity(
+    // Link generation alone is not an email delivery. The recovery service logs actual sends.
+    if (!sendEmail) ActivityLogService.logActivity(
       {
-        actionType: 'password_reset_link_sent',
+        actionType: 'password_reset_link_generated',
         userId,
+        agencyId: userAgencies?.[0]?.id || null,
         metadata: {
+          deliveryStatus: 'not_sent',
+          requestSource: 'admin_profile',
           performedByUserId: req.user.id,
           performedByEmail: req.user.email || req.user.username,
           expiresAt: tokenResult.expiresAt,

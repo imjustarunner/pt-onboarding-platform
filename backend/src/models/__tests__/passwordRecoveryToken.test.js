@@ -15,3 +15,21 @@ describe('requesting a recovery token leaves current credentials alone', () => {
     expect(params[2]).toBe('reset'); expect(params[3]).toBe(42);
   });
 });
+
+import UserActivityLog from '../UserActivityLog.model.js';
+describe('recovery history tenant boundaries', () => {
+  it('scopes historical events through their communication tenant and uses the same filter for counts', async () => {
+    db.execute.mockResolvedValue([[]]);
+    const filters = { agencyId: 9, actionTypes: ['password_reset_link_sent', 'password_reset_email_failed'], userId: 42 };
+    await UserActivityLog.getAgencyActivityLog(filters);
+    await UserActivityLog.countAgencyActivityLog(filters);
+    const [listSql, listParams] = db.execute.mock.calls[0];
+    const [countSql, countParams] = db.execute.mock.calls[1];
+    expect(listSql).toContain('ual.agency_id IS NULL');
+    expect(listSql).toContain('recovery_comm.agency_id = ?');
+    expect(listSql).toContain("'$.communicationId'");
+    expect(countSql).toContain('recovery_comm.agency_id = ?');
+    expect(listParams).toEqual([9, 9, 42, 'password_reset_link_sent', 'password_reset_email_failed']);
+    expect(countParams).toEqual(listParams);
+  });
+});
